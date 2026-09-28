@@ -23,7 +23,7 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
       <div>
         <button
           onClick={() => setExpanded(!expanded)}
-          className="flex w-full items-center gap-1 py-1 text-sm text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+          className="flex w-full min-w-0 items-center gap-1 py-1 text-sm text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
           style={{ paddingLeft }}
         >
           {expanded ? (
@@ -32,7 +32,7 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
             <ChevronRight className="h-3.5 w-3.5 shrink-0" />
           )}
           <Folder className="h-3.5 w-3.5 shrink-0 text-info" />
-          <span className="truncate">{node.name}</span>
+          <span className="min-w-0 truncate">{node.name}</span>
         </button>
         {expanded && node.children?.map((child) => (
           <TreeNode key={child.path} node={child} depth={depth + 1} />
@@ -44,7 +44,7 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
   return (
     <button
       onClick={() => setSelectedFile(node.path)}
-      className={`flex w-full items-center gap-1 py-1 text-sm ${
+      className={`flex w-full min-w-0 items-center gap-1 py-1 text-sm ${
         isSelected
           ? "qm-selected"
           : "text-muted-foreground qm-hover"
@@ -52,7 +52,7 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
       style={{ paddingLeft: paddingLeft + 14 }}
     >
       <File className="h-3.5 w-3.5 shrink-0" />
-      <span className="truncate">{node.name}</span>
+      <span className="min-w-0 truncate">{node.name}</span>
     </button>
   )
 }

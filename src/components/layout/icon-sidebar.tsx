@@ -77,11 +77,11 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
 
   const getThemeIcon = () => {
     switch (theme) {
-      case "light": return <Sun className="h-5 w-5" />
-      case "dark": return <Moon className="h-5 w-5" />
-      case "deep-blue": return <Monitor className="h-5 w-5" />
-      case "system": return <ArrowLeftRight className="h-5 w-5" />
-      default: return <Sun className="h-5 w-5" />
+      case "light": return <Sun className="h-5 w-5 shrink-0" />
+      case "dark": return <Moon className="h-5 w-5 shrink-0" />
+      case "deep-blue": return <Monitor className="h-5 w-5 shrink-0" />
+      case "system": return <ArrowLeftRight className="h-5 w-5 shrink-0" />
+      default: return <Sun className="h-5 w-5 shrink-0" />
     }
   }
 
@@ -151,7 +151,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
                     : "text-muted-foreground qm-hover"
                 }`}
               >
-                <Icon className="h-5 w-5" />
+                <Icon className="h-5 w-5 shrink-0" />
                 {view === "reviewCenter" && pendingCount > 0 && (
                   <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
                     {pendingCount > 99 ? "99+" : pendingCount}
@@ -174,7 +174,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
                   : "text-muted-foreground qm-hover"
               }`}
             >
-              <Search className="h-5 w-5" />
+              <Search className="h-5 w-5 shrink-0" />
             </TooltipTrigger>
             <TooltipContent side="right">
               {t(SEARCH_NAV_ITEM.labelKey)}
@@ -194,7 +194,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
                   : "text-muted-foreground qm-hover"
               }`}
             >
-              <Trash2 className="h-5 w-5" />
+              <Trash2 className="h-5 w-5 shrink-0" />
             </TooltipTrigger>
             <TooltipContent side="right">{t("nav.trash")}</TooltipContent>
           </Tooltip>
@@ -208,7 +208,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
               data-cover-workbench-entry="true"
               className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
             >
-              <Image className="h-5 w-5" />
+              <Image className="h-5 w-5 shrink-0" />
             </TooltipTrigger>
             <TooltipContent side="right">{t("novel.nav.coverWorkbench")}</TooltipContent>
           </Tooltip>
@@ -219,7 +219,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
               data-translation-workbench-entry="true"
               className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
             >
-              <Languages className="h-5 w-5" />
+              <Languages className="h-5 w-5 shrink-0" />
             </TooltipTrigger>
             <TooltipContent side="right">{t("novel.nav.translationWorkbench")}</TooltipContent>
           </Tooltip>
@@ -230,7 +230,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
               data-fanfic-merge-entry="true"
               className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
             >
-              <GitMerge className="h-5 w-5" />
+              <GitMerge className="h-5 w-5 shrink-0" />
             </TooltipTrigger>
             <TooltipContent side="right">{t("novel.nav.fanficMerge")}</TooltipContent>
           </Tooltip>
@@ -259,7 +259,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
                   : "text-muted-foreground qm-hover"
               }`}
             >
-              <Settings className="h-5 w-5" />
+              <Settings className="h-5 w-5 shrink-0" />
             </TooltipTrigger>
             <TooltipContent side="right">
               {t("novel.nav.settings")}
@@ -273,7 +273,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
               }}
               className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
             >
-              <ArrowLeftRight className="h-5 w-5" />
+              <ArrowLeftRight className="h-5 w-5 shrink-0" />
             </TooltipTrigger>
             <TooltipContent side="right">{t("nav.switchProject")}</TooltipContent>
           </Tooltip>

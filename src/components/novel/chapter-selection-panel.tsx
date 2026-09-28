@@ -288,7 +288,7 @@ export function ChapterSelectionPanel({
             </p>
           </div>
           <Button variant="ghost" size="icon" onClick={onCancel}>
-            <X className="h-5 w-5" />
+            <X className="h-5 w-5 shrink-0" />
           </Button>
         </div>
 
@@ -296,7 +296,7 @@ export function ChapterSelectionPanel({
         {isExtracting && (
           <div className="shrink-0 mx-6 mt-4 rounded-md border border-primary/40 bg-primary/5 px-4 py-4 space-y-3">
             <div className="flex items-center gap-2 text-sm">
-              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
               <span className="font-medium text-foreground">
                 {extractionProgress?.stageLabel || "准备中..."}
               </span>
@@ -327,7 +327,7 @@ export function ChapterSelectionPanel({
                     }
                   }}
                 >
-                  <Minimize2 className="h-4 w-4 mr-1" />
+                  <Minimize2 className="h-4 w-4 shrink-0 mr-1" />
                   后台运行
                 </Button>
               )}
@@ -339,7 +339,7 @@ export function ChapterSelectionPanel({
         {extractionProgress?.isCompleted && (
           <div className="shrink-0 mx-6 mt-4 rounded-md border border-success/40 bg-success/5 px-4 py-4 space-y-2">
             <div className="flex items-center gap-2 text-sm">
-              <CheckCircle2 className="h-4 w-4 text-success" />
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
               <span className="font-medium text-foreground">{t("novel.extractDone")}</span>
             </div>
             {extractionProgress.error && (
@@ -363,11 +363,11 @@ export function ChapterSelectionPanel({
         {/* 分析中提示条（角色识别阶段） */}
         {isAnalyzing && !extractionPhase && (
           <div className="shrink-0 mx-6 mt-3 rounded-md border border-primary/40 bg-primary/5 px-4 py-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm">
-              <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              <span className="font-medium text-foreground">{t("novel.analyzing")}</span>
-              <span className="text-muted-foreground">·</span>
-              <span className="text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm min-w-0">
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+              <span className="font-medium text-foreground shrink-0">{t("novel.analyzing")}</span>
+              <span className="text-muted-foreground shrink-0">·</span>
+              <span className="text-muted-foreground truncate">
                 {recognitionStatus === "heuristic" && "读取章节中"}
                 {recognitionStatus === "llm_scoring" && "LLM 评分中"}
                 {recognitionStatus === "llm_recognizing" && "AI 识别角色中（可能需要较长时间，请耐心等待）"}
@@ -380,6 +380,7 @@ export function ChapterSelectionPanel({
               <Button
                 variant="outline"
                 size="sm"
+                className="shrink-0"
                 onClick={(e) => {
                   e.stopPropagation()
                   setIsBackgrounded(true)
@@ -388,7 +389,7 @@ export function ChapterSelectionPanel({
                   }
                 }}
               >
-                <Minimize2 className="h-4 w-4 mr-1" />
+                <Minimize2 className="h-4 w-4 shrink-0 mr-1" />
                 后台运行
               </Button>
             )}
@@ -408,12 +409,12 @@ export function ChapterSelectionPanel({
                 >
                   {selectAll ? (
                     <>
-                      <Square className="h-4 w-4 mr-2" />
+                      <Square className="h-4 w-4 shrink-0 mr-2" />
                       取消全选
                     </>
                   ) : (
                     <>
-                      <CheckSquare className="h-4 w-4 mr-2" />
+                      <CheckSquare className="h-4 w-4 shrink-0 mr-2" />
                       全选
                     </>
                   )}
@@ -453,7 +454,7 @@ export function ChapterSelectionPanel({
                     size="default"
                     onClick={() => setShowWorkstation(true)}
                   >
-                    <Workflow className="h-4 w-4 mr-2" />
+                    <Workflow className="h-4 w-4 shrink-0 mr-2" />
                     进入角色工作台
                   </Button>
                 )}
@@ -464,7 +465,7 @@ export function ChapterSelectionPanel({
                     size="default"
                     onClick={() => onLoadExtractedCharacters(Array.from(selectedChapters))}
                   >
-                    <Users className="h-4 w-4 mr-2" />
+                    <Users className="h-4 w-4 shrink-0 mr-2" />
                     已提取角色
                   </Button>
                 )}
@@ -486,9 +487,9 @@ export function ChapterSelectionPanel({
                   size="default"
                 >
                   {isAnalyzing ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    <Loader2 className="h-4 w-4 shrink-0 mr-2 animate-spin" />
                   ) : (
-                    <Play className="h-4 w-4 mr-2" />
+                    <Play className="h-4 w-4 shrink-0 mr-2" />
                   )}
                   {isAnalyzing ? "分析中..." : `开始分析（${selectedCount} 章）`}
                 </Button>
@@ -537,7 +538,7 @@ export function ChapterSelectionPanel({
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => {}}
-                        className="h-4 w-4"
+                        className="h-4 w-4 shrink-0"
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -664,7 +665,7 @@ function CharacterWorkstationOverlay({
               </p>
             </div>
             <Button variant="ghost" size="icon" onClick={onClose} aria-label={t("novel.closeCharacterWorkstation")}>
-              <X className="h-5 w-5" />
+              <X className="h-5 w-5 shrink-0" />
             </Button>
           </div>
           <div className="min-h-0 flex-1 overflow-hidden p-4">

@@ -486,7 +486,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
       <aside className="flex w-72 shrink-0 flex-col border-r bg-muted/30">
         <div className="border-b p-4">
           <div className="flex items-center gap-2 text-lg font-semibold">
-            <Sparkles className="h-5 w-5 text-primary" />
+            <Sparkles className="h-5 w-5 shrink-0 text-primary" />
             角色灵魂
           </div>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
@@ -522,7 +522,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
               onClick={handleStartCreatingCustomAura}
               disabled={isGeneratingCustomAura}
             >
-              <Plus className="mr-2 h-4 w-4" />
+              <Plus className="mr-2 h-4 w-4 shrink-0" />
               新建角色灵魂
             </Button>
           </div>
@@ -570,7 +570,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
         <div className="mx-auto max-w-3xl space-y-6">
           <div className="rounded-lg border bg-card p-4">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="mt-0.5 h-4 w-4 text-warning" />
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
               <div className="text-sm leading-6 text-muted-foreground">
                 创建自定义灵魂时，仅使用公开或已授权资料，避免输入隐私、敏感信息或未授权聊天记录。角色灵魂不是复活真人，也不能用于冒充、欺骗或替代真实人物。
               </div>
@@ -597,7 +597,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
                 )}
               </select>
               <Button onClick={handleBind} disabled={!selected || !characterName.trim() || isGeneratingCustomAura || characterOptions.length === 0}>
-                <Link2 className="mr-2 h-4 w-4" />
+                <Link2 className="mr-2 h-4 w-4 shrink-0" />
                 绑定
               </Button>
             </div>
@@ -622,13 +622,13 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
                       key={`${binding.auraId}:${binding.characterName}`}
                       type="button"
                       onClick={() => void handleUnbind(binding.characterName)}
-                      className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background px-3 py-1 text-xs qm-hover"
+                      className="inline-flex max-w-full items-center gap-1 rounded-full border border-border/70 bg-background px-3 py-1 text-xs qm-hover"
                     >
-                      <span>
+                      <span className="min-w-0 truncate">
                         {binding.characterName}
                         {binding.aliases && binding.aliases.length > 0 ? `（别名：${binding.aliases.join("、")}）` : ""}
                       </span>
-                      <Trash2 className="h-3 w-3 text-destructive" />
+                      <Trash2 className="h-3 w-3 shrink-0 text-destructive" />
                     </button>
                   ))}
                 </div>
@@ -765,12 +765,12 @@ function AuraDetails({
 
   return (
     <div className="rounded-lg border bg-card p-5">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">{aura.name}</h2>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-semibold min-w-0 break-words">{aura.name}</h2>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {onEdit && (
             <Button variant="outline" size="sm" onClick={onEdit} disabled={actionsDisabled}>
-              <PencilLine className="mr-2 h-4 w-4" />
+              <PencilLine className="mr-2 h-4 w-4 shrink-0" />
               编辑灵魂
             </Button>
           )}
@@ -782,7 +782,7 @@ function AuraDetails({
               disabled={actionsDisabled}
               className="text-destructive hover:text-destructive"
             >
-              <Trash2 className="mr-2 h-4 w-4" />
+              <Trash2 className="mr-2 h-4 w-4 shrink-0" />
               删除灵魂
             </Button>
           )}
@@ -982,7 +982,7 @@ function CustomAuraForm({
           onClick={mode === "edit" ? onUpdate : onCreate}
           disabled={!form.name.trim() || (mode === "edit" && !editing) || isGenerating}
         >
-          {mode === "edit" ? <Save className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
+          {mode === "edit" ? <Save className="mr-2 h-4 w-4 shrink-0" /> : <Plus className="mr-2 h-4 w-4 shrink-0" />}
           {mode === "edit"
             ? "保存修改"
             : isGenerating
@@ -991,7 +991,7 @@ function CustomAuraForm({
         </Button>
         {mode === "edit" && editing && (
           <Button variant="outline" onClick={onDelete} disabled={isGenerating}>
-            <Trash2 className="mr-2 h-4 w-4" />
+            <Trash2 className="mr-2 h-4 w-4 shrink-0" />
             删除
           </Button>
         )}

@@ -238,7 +238,7 @@ export function ChatInput({ onSend, onStop, onForceStop, isStreaming, placeholde
               title={t("chat.stopGraceful")}
               aria-label={t("chat.stopGracefulShort")}
             >
-              <Square className="h-4 w-4" />
+              <Square className="h-4 w-4 shrink-0" />
             </Button>
             {onForceStop ? (
               <Button
@@ -249,7 +249,7 @@ export function ChatInput({ onSend, onStop, onForceStop, isStreaming, placeholde
                 title={t("chat.killForce")}
                 aria-label={t("chat.killForceShort")}
               >
-                <Octagon className="h-4 w-4" />
+                <Octagon className="h-4 w-4 shrink-0" />
               </Button>
             ) : null}
           </div>
@@ -262,7 +262,7 @@ export function ChatInput({ onSend, onStop, onForceStop, isStreaming, placeholde
             title={t("chat.sendMessage")}
             aria-label={t("chat.sendMessage")}
           >
-            <Send className="h-4 w-4" />
+            <Send className="h-4 w-4 shrink-0" />
           </Button>
         ))}
       </div>

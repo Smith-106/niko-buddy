@@ -199,12 +199,12 @@ function SortableCategoryItem({
             type="button"
             {...attributes}
             {...listeners}
-            className="cursor-grab text-muted-foreground hover:text-foreground active:cursor-grabbing"
+            className="shrink-0 cursor-grab text-muted-foreground hover:text-foreground active:cursor-grabbing"
             onClick={(e) => e.stopPropagation()}
             title={t("common.dragSort")}
             aria-label={t("common.dragSort")}
           >
-            <GripVertical className="h-4 w-4" />
+            <GripVertical className="h-4 w-4 shrink-0" />
           </button>
           <button type="button"
             onClick={onSelect}
@@ -212,9 +212,9 @@ function SortableCategoryItem({
           >
             <span className="block truncate">{category.name}</span>
           </button>
-          <span className="text-xs text-muted-foreground">{count}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">{count}</span>
           {(isHovered || isSelected) && (
-            <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
               <button
                 type="button"
                 onClick={onStartEdit}
@@ -222,7 +222,7 @@ function SortableCategoryItem({
                 title={t("common.rename")}
                 aria-label={t("common.rename")}
               >
-                <Pencil className="h-3.5 w-3.5" />
+                <Pencil className="h-3.5 w-3.5 shrink-0" />
               </button>
               <button
                 type="button"
@@ -231,7 +231,7 @@ function SortableCategoryItem({
                 title={t("common.delete")}
                 aria-label={t("common.delete")}
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                <Trash2 className="h-3.5 w-3.5 shrink-0" />
               </button>
             </div>
           )}
@@ -443,32 +443,32 @@ export function WritingSkillLibrarySidebarPanel() {
       <div className="shrink-0 border-b px-2 py-1">
         <button type="button"
           onClick={() => setSelectedCategoryId("all")}
-          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent ${
+          className={`flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent ${
             selectedCategoryId === "all" ? "bg-accent/60" : ""
           }`}
         >
-          <span className="flex-1 truncate">全部</span>
-          <span className="text-xs text-muted-foreground">{config?.skills.length ?? 0}</span>
+          <span className="flex-1 min-w-0 truncate">全部</span>
+          <span className="shrink-0 text-xs text-muted-foreground">{config?.skills.length ?? 0}</span>
         </button>
         {recentSkills.length > 0 ? (
           <button type="button"
             onClick={() => setSelectedCategoryId("recent")}
-            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent ${
+            className={`flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent ${
               selectedCategoryId === "recent" ? "bg-accent/60" : ""
             }`}
           >
-            <span className="flex-1 truncate">{t("skillLibrary.recentlyUsed")}</span>
-            <span className="text-xs text-muted-foreground">{recentSkills.length}</span>
+            <span className="flex-1 min-w-0 truncate">{t("skillLibrary.recentlyUsed")}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{recentSkills.length}</span>
           </button>
         ) : null}
         <button type="button"
           onClick={() => setSelectedCategoryId("uncategorized")}
-          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent ${
+          className={`flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent ${
             selectedCategoryId === "uncategorized" ? "bg-accent/60" : ""
           }`}
         >
-          <span className="flex-1 truncate">{t("skillLibrary.uncategorized")}</span>
-          <span className="text-xs text-muted-foreground">
+          <span className="flex-1 min-w-0 truncate">{t("skillLibrary.uncategorized")}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">
             {config?.skills.filter((s) => !s.categoryId).length ?? 0}
           </span>
         </button>
@@ -581,16 +581,16 @@ export function WritingSkillLibrarySidebarPanel() {
             >
               <button type="button"
                 onClick={() => void handleSelectSkill(skill.id)}
-                className="cursor-pointer"
+                className="w-full min-w-0 cursor-pointer text-left"
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{skill.name}</span>
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{t("skillLibrary.writing")}</span>
+                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{t("skillLibrary.writing")}</span>
                   {isLinked ? (
-                    <span className="rounded bg-info/15 px-1.5 py-0.5 text-[10px] text-info">引用</span>
+                    <span className="shrink-0 rounded bg-info/15 px-1.5 py-0.5 text-[10px] text-info">引用</span>
                   ) : null}
                 </div>
-                <div className="mt-1 truncate text-xs text-muted-foreground">{skill.description || "未填写说明"}</div>
+                <div className="mt-1 min-w-0 truncate text-xs text-muted-foreground">{skill.description || "未填写说明"}</div>
               </button>
               <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                 <input
@@ -1105,9 +1105,9 @@ export function WritingSkillLibraryView() {
                   className="min-h-[420px] resize-y rounded-md border bg-muted px-3 py-2 font-mono text-xs leading-5 outline-none"
                 />
                 {selectedSkill.linkedPath ? (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>{t("skillLibrary.refPath")}</span>
-                    <code className="truncate rounded bg-muted px-1.5 py-0.5">{selectedSkill.linkedPath}</code>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+                    <span className="shrink-0">{t("skillLibrary.refPath")}</span>
+                    <code className="truncate min-w-0 rounded bg-muted px-1.5 py-0.5">{selectedSkill.linkedPath}</code>
                   </div>
                 ) : null}
               </div>

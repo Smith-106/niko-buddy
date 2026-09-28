@@ -202,7 +202,7 @@ export function DataManagerView() {
       {/* 头部：总占用 + 刷新 + 整项目重置 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Database className="h-5 w-5 text-muted-foreground" />
+          <Database className="h-5 w-5 shrink-0 text-muted-foreground" />
           <div>
             <h2 className="text-base font-semibold">{t("dataManager.title")}</h2>
             <p className="text-xs text-muted-foreground">
@@ -212,7 +212,7 @@ export function DataManagerView() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {loading ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : <RefreshCw className="h-4 w-4 shrink-0" />}
             <span className="ml-1">{t("dataManager.refresh")}</span>
           </Button>
           <Button
@@ -221,7 +221,7 @@ export function DataManagerView() {
             onClick={() => void doResetAll()}
             disabled={busyId !== null}
           >
-            {busyId === "__all__" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eraser className="h-4 w-4" />}
+            {busyId === "__all__" ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : <Eraser className="h-4 w-4 shrink-0" />}
             <span className="ml-1">{t("dataManager.resetAll")}</span>
           </Button>
         </div>
@@ -275,7 +275,7 @@ export function DataManagerView() {
                 onClick={() => void doClearDomain(domain)}
                 disabled={busyId !== null || !s || s.presentPaths === 0}
               >
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                {busy ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : <Trash2 className="h-4 w-4 shrink-0" />}
                 <span className="ml-1">{t("dataManager.clear")}</span>
               </Button>
             </div>
@@ -286,7 +286,7 @@ export function DataManagerView() {
       {/* 回收站 */}
       <div className="mt-2">
         <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
-          <ArchiveRestore className="h-4 w-4" />
+          <ArchiveRestore className="h-4 w-4 shrink-0" />
           {t("dataManager.trash.title")}
         </h3>
         {trash.length === 0 ? (
@@ -304,9 +304,9 @@ export function DataManagerView() {
                     disabled={busyId !== null}
                   >
                     {busyId === `purge:${entry.stamp}` ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
                     ) : (
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-4 w-4 shrink-0" />
                     )}
                     <span className="ml-1">{t("dataManager.trash.purge")}</span>
                   </Button>
@@ -321,7 +321,7 @@ export function DataManagerView() {
                       onClick={() => void doRestore(entry.stamp, id)}
                       disabled={busyId !== null}
                     >
-                      <ArchiveRestore className="mr-1 h-3 w-3" />
+                      <ArchiveRestore className="mr-1 h-3 w-3 shrink-0" />
                       {t(`dataManager.domain.${camelDomainKey(id)}`, id)}
                     </Button>
                   ))}

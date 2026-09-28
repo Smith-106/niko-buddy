@@ -149,7 +149,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
       {/* 筛选栏 */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b p-2 text-xs">
         <div className="flex items-center gap-1 text-muted-foreground">
-          <Filter className="h-3.5 w-3.5" />
+          <Filter className="h-3.5 w-3.5 shrink-0" />
           <span>{t("storySimulation.filter")}</span>
         </div>
 
@@ -167,7 +167,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
             className={`flex items-center gap-1 rounded px-2 py-1 ${filterType === "event" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
             onClick={() => setFilterType("event")}
           >
-            <Zap className="h-3 w-3" />
+            <Zap className="h-3 w-3 shrink-0" />
             {t("storySimulation.eventType")}
           </button>
           <button
@@ -175,7 +175,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
             className={`flex items-center gap-1 rounded px-2 py-1 ${filterType === "rumor" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
             onClick={() => setFilterType("rumor")}
           >
-            <MessageSquare className="h-3 w-3" />
+            <MessageSquare className="h-3 w-3 shrink-0" />
             {t("storySimulation.rumor")}
           </button>
         </div>
@@ -232,7 +232,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
             {groupedByNode.map(([nodeIndex, nodeClues]) => (
               <div key={nodeIndex}>
                 <div className="mb-2 flex items-center gap-2">
-                  <Clock className="h-3.5 w-3.5 text-primary" />
+                  <Clock className="h-3.5 w-3.5 shrink-0 text-primary" />
                   <span className="text-xs font-medium text-primary">
                     {t("storySimulation.nodeTitle", { index: nodeIndex + 1 })}
                   </span>
@@ -255,7 +255,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
 
                         <div className="mb-1.5 flex flex-wrap items-center gap-2">
                           <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${info.color}`}>
-                            <Icon className="h-2.5 w-2.5" />
+                            <Icon className="h-2.5 w-2.5 shrink-0" />
                             {info.label}
                           </span>
                           <span className="text-[11px] text-muted-foreground">
@@ -263,7 +263,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                           </span>
                           {clue.isSecret && (
                             <span className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning dark:text-warning">
-                              <EyeOff className="h-2.5 w-2.5" />
+                              <EyeOff className="h-2.5 w-2.5 shrink-0" />
                               {t("storySimulation.secret")}
                             </span>
                           )}
@@ -276,7 +276,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                           </div>
                         )}
 
-                        <div className="mb-2 leading-relaxed text-foreground/90">
+                        <div className="mb-2 leading-relaxed text-foreground/90 break-words">
                           {clue.content}
                         </div>
 

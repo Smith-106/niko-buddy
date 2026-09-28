@@ -297,9 +297,9 @@ function PresetRow({
           title={isExpanded ? t("settings.sections.llm.collapse") : t("settings.sections.llm.expand")}
         >
           {isExpanded ? (
-            <ChevronDown className="h-4 w-4" />
+            <ChevronDown className="h-4 w-4 shrink-0" />
           ) : (
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="h-4 w-4 shrink-0" />
           )}
         </button>
 
@@ -308,8 +308,8 @@ function PresetRow({
           onClick={onToggleExpand}
           className="min-w-0 flex-1 text-left"
         >
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium">{preset.label}</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="truncate text-sm font-medium min-w-0">{preset.label}</span>
             {hasConfig && !isEnabled && (
               <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                 {t("settings.sections.llm.configuredBadge")}
@@ -327,7 +327,7 @@ function PresetRow({
             )}
           </div>
           {preset.hint && (
-            <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            <div className="mt-0.5 truncate text-xs text-muted-foreground min-w-0">
               {preset.hint}
             </div>
           )}

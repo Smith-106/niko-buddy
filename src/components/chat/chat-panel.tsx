@@ -180,7 +180,7 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
           className="shrink-0 gap-2 rounded-full"
           onClick={() => createConversation()}
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-3.5 w-3.5 shrink-0" />
           {t(novelMode ? "novel.chat.newChat" : "chat.newChat")}
         </Button>
 
@@ -264,7 +264,7 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
                       {armed ? (
                         <span className="text-[10px] font-medium">{t("chat.confirmShort")}</span>
                       ) : (
-                        <Trash2 className="h-3 w-3" />
+                        <Trash2 className="h-3 w-3 shrink-0" />
                       )}
                     </button>
                   )
@@ -2474,7 +2474,7 @@ export function ChatPanel() {
           <div className="flex flex-1 items-center justify-center bg-muted/20 p-6">
             <div className="w-full max-w-md text-center">
               <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <Sparkles className="h-6 w-6" />
+                <Sparkles className="h-6 w-6 shrink-0" />
               </div>
               <h3 className="text-base font-medium text-foreground">
                 {t(novelMode ? "novel.chat.startNewConversation" : "chat.startNewConversation")}
@@ -2588,7 +2588,7 @@ export function ChatPanel() {
                 aria-label={t("chat.scrollToLatest")}
                 className="animate-in fade-in-0 zoom-in-95 absolute bottom-3 right-4 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
-                <ArrowDown className="h-4 w-4" />
+                <ArrowDown className="h-4 w-4 shrink-0" />
               </button>
             )}
             </div>
@@ -2620,7 +2620,7 @@ export function ChatPanel() {
                   onClick={handleWriteToWiki}
                   className="w-full gap-2"
                 >
-                  <BookOpen className="h-4 w-4" />
+                  <BookOpen className="h-4 w-4 shrink-0" />
                   {t(novelMode ? "novel.chat.writeToWiki" : "chat.writeToWiki")}
                 </Button>
                 {writeWikiError ? (
@@ -2699,7 +2699,7 @@ export function ChatPanel() {
                           title={deepChapterEnabled ? "关闭深度模式" : "开启深度模式"}
                           aria-label={deepChapterEnabled ? "关闭深度模式" : "开启深度模式"}
                         >
-                          <Brain className="h-4 w-4" />
+                          <Brain className="h-4 w-4 shrink-0" />
                         </Button>
                         {/* Wave 3 (v2.5.0): 计划模式入口（生成前一次性动作，与直接生成并列） */}
                         <Button
@@ -2712,7 +2712,7 @@ export function ChatPanel() {
                           title={planningOpen ? "关闭计划面板" : "打开计划面板"}
                           aria-label={planningOpen ? "关闭计划面板" : "打开计划面板"}
                         >
-                          <ClipboardList className="h-4 w-4" />
+                          <ClipboardList className="h-4 w-4 shrink-0" />
                         </Button>
                         <Tooltip>
                           <TooltipTrigger
@@ -2736,7 +2736,7 @@ export function ChatPanel() {
                               />
                             )}
                           >
-                            <FileEdit className="h-4 w-4" />
+                            <FileEdit className="h-4 w-4 shrink-0" />
                           </TooltipTrigger>
                           <TooltipContent side="top" className="max-w-xs leading-5">
                             {t("chat.editChapterTooltip")}

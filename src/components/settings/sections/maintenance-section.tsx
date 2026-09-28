@@ -262,7 +262,7 @@ export function MaintenanceSection() {
 
       <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-4">
         <div className="flex items-center gap-2">
-          <Wrench className="h-4 w-4 text-muted-foreground" />
+          <Wrench className="h-4 w-4 shrink-0 text-muted-foreground" />
           <h3 className="text-sm font-semibold">
             {t("settings.sections.maintenance.dedup.title", {
               defaultValue: "检测重复实体 / 概念",
@@ -303,7 +303,7 @@ export function MaintenanceSection() {
         >
           {scanning ? (
             <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
               {t("settings.sections.maintenance.dedup.scanning", {
                 defaultValue: "扫描中...",
               })}
@@ -412,7 +412,7 @@ function QueueOrphanList({
   return (
     <div className="space-y-2 rounded-lg border border-border/60 bg-muted/10 p-4">
       <div className="flex items-center gap-2">
-        <Clock className="h-4 w-4 text-muted-foreground" />
+        <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
         <h3 className="text-sm font-semibold">
           {t("settings.sections.maintenance.dedup.queueTitle", {
             defaultValue: "进行中的合并任务",
@@ -446,14 +446,14 @@ function QueueOrphanList({
                 variant="ghost"
                 onClick={() => onRetry(task.id)}
               >
-                <RotateCcw className="h-3.5 w-3.5" />
+                <RotateCcw className="h-3.5 w-3.5 shrink-0" />
                 {t("settings.sections.maintenance.dedup.retry", {
                   defaultValue: "重试",
                 })}
               </Button>
             )}
             <Button size="sm" variant="ghost" onClick={() => onCancel(task.id)}>
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-3.5 w-3.5 shrink-0" />
               {t("settings.sections.maintenance.dedup.delete", {
                 defaultValue: "删除",
               })}
@@ -480,7 +480,7 @@ function TaskStatusChip({ task, pendingPosition }: ChipProps) {
   if (task.status === "processing") {
     return (
       <span className="inline-flex items-center gap-1 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-warning dark:text-warning">
-        <Loader2 className="h-3 w-3 animate-spin" />
+        <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
         {t("settings.sections.maintenance.dedup.merging", {
           defaultValue: "合并中...",
         })}
@@ -509,7 +509,7 @@ function TaskStatusChip({ task, pendingPosition }: ChipProps) {
   if (task.status === "failed") {
     return (
       <span className="inline-flex items-center gap-1 rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-destructive dark:text-destructive">
-        <AlertTriangle className="h-3 w-3" />
+        <AlertTriangle className="h-3 w-3 shrink-0" />
         {t("settings.sections.maintenance.dedup.failed", {
           defaultValue: "失败（{{retries}}/3）",
           retries: task.retryCount,
@@ -575,7 +575,7 @@ function DuplicateGroupCard({
         </span>
         {merged && (
           <span className="ml-auto inline-flex items-center gap-1 text-xs text-success dark:text-success">
-            <CheckCircle2 className="h-3.5 w-3.5" />
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
             {t("settings.sections.maintenance.dedup.merged", { defaultValue: "已合并" })}
           </span>
         )}
@@ -638,7 +638,7 @@ function DuplicateGroupCard({
             )}
             {inFlight && (
               <Button size="sm" variant="ghost" onClick={onCancel}>
-                <Trash2 className="h-3.5 w-3.5" />
+                <Trash2 className="h-3.5 w-3.5 shrink-0" />
                 {t("settings.sections.maintenance.dedup.cancel", {
                   defaultValue: "取消",
                 })}
@@ -647,13 +647,13 @@ function DuplicateGroupCard({
             {failed && (
               <>
                 <Button size="sm" onClick={onRetry}>
-                  <RotateCcw className="h-3.5 w-3.5" />
+                  <RotateCcw className="h-3.5 w-3.5 shrink-0" />
                   {t("settings.sections.maintenance.dedup.retry", {
                     defaultValue: "重试",
                   })}
                 </Button>
                 <Button size="sm" variant="ghost" onClick={onCancel}>
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <Trash2 className="h-3.5 w-3.5 shrink-0" />
                   {t("settings.sections.maintenance.dedup.delete", {
                     defaultValue: "删除",
                   })}
@@ -721,7 +721,7 @@ function DivergenceTraceViewer() {
       {open && (
         <div className="border-t border-border/40 px-3 py-3">
           {loading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
           ) : trace ? (
             <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
               {trace}

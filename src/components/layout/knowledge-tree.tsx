@@ -1130,7 +1130,7 @@ ${frontmatterBody}
                 setCreateMenu(null)
               }}
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className="h-3.5 w-3.5 shrink-0" />
               {filterType === "chapter" ? t("sidebar.newChapter") : t("sidebar.newOutline")}
             </button>
             <button
@@ -1141,7 +1141,7 @@ ${frontmatterBody}
                 setCreateMenu(null)
               }}
             >
-              <Folder className="h-3.5 w-3.5" />
+              <Folder className="h-3.5 w-3.5 shrink-0" />
               {filterType === "chapter" ? t("sidebar.newVolume") : t("sidebar.newFolder")}
             </button>
             {createMenu.targetFolderPath ? (
@@ -1157,7 +1157,7 @@ ${frontmatterBody}
                   }
                 }}
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                <Trash2 className="h-3.5 w-3.5 shrink-0" />
                 {filterType === "chapter" ? t("knowledgeTree.deleteVolume") : t("knowledgeTree.deleteFolder")}
               </button>
             ) : null}
@@ -1180,7 +1180,7 @@ ${frontmatterBody}
                 setPageMenu(null)
               }}
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className="h-3.5 w-3.5 shrink-0" />
               {filterType === "chapter" ? t("sidebar.newChapter") : t("sidebar.newOutline")}
             </button>
             <button
@@ -1195,7 +1195,7 @@ ${frontmatterBody}
                 setPageMenu(null)
               }}
             >
-              <Folder className="h-3.5 w-3.5" />
+              <Folder className="h-3.5 w-3.5 shrink-0" />
               {filterType === "chapter" ? t("sidebar.newVolume") : t("sidebar.newFolder")}
             </button>
             <button
@@ -1206,7 +1206,7 @@ ${frontmatterBody}
                 if (target) startRenamePage(target)
               }}
             >
-              <Pencil className="h-3.5 w-3.5" />
+              <Pencil className="h-3.5 w-3.5 shrink-0" />
               {t("knowledgeTree.rename")}
             </button>
             {filterType === "chapter" && volumeFolders.length > 0 && (
@@ -1216,9 +1216,9 @@ ${frontmatterBody}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
                   onClick={() => setMoveMenuTarget(moveMenuTarget === pageMenu.path ? null : pageMenu.path)}
                 >
-                  <FolderInput className="h-3.5 w-3.5" />
+                  <FolderInput className="h-3.5 w-3.5 shrink-0" />
                   {t("knowledgeTree.moveToVolume")}
-                  <ChevronRight className="ml-auto h-3 w-3" />
+                  <ChevronRight className="ml-auto h-3 w-3 shrink-0" />
                 </button>
                 {moveMenuTarget === pageMenu.path && (
                   <div className="max-h-48 overflow-y-auto border-t bg-background py-1 text-xs">
@@ -1255,7 +1255,7 @@ ${frontmatterBody}
                 openFileLocation(pageMenu.path).catch((err) => console.error("打开文件位置失败:", err))
               }}
             >
-              <FolderOpen className="h-4 w-4" />
+              <FolderOpen className="h-4 w-4 shrink-0" />
               打开文件所在位置
             </button>
           </div>
@@ -1415,7 +1415,7 @@ function DeleteButton({
         disabled
         title={t("knowledgeTree.deletingTitle", { name })}
       >
-        <Trash2 className="h-3 w-3 animate-pulse text-destructive" />
+        <Trash2 className="h-3 w-3 shrink-0 animate-pulse text-destructive" />
       </Button>
     )
   }
@@ -1432,7 +1432,7 @@ function DeleteButton({
         }}
         title={t("knowledgeTree.confirmDeleteTitle", { name })}
       >
-        <Trash2 className="mr-0.5 h-3 w-3" />
+        <Trash2 className="mr-0.5 h-3 w-3 shrink-0" />
         {t("knowledgeTree.confirmDelete")}
       </Button>
     )
@@ -1449,7 +1449,7 @@ function DeleteButton({
       }}
       title={t("knowledgeTree.deleteTitle", { name })}
     >
-      <Trash2 className="h-3 w-3" />
+      <Trash2 className="h-3 w-3 shrink-0" />
     </Button>
   )
 }

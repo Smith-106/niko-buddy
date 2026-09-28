@@ -1108,7 +1108,7 @@ function ZoomControls() {
           camera.animatedZoom({ duration: 200 })
         }}
       >
-        <ZoomIn className="h-3.5 w-3.5" />
+        <ZoomIn className="h-3.5 w-3.5 shrink-0" />
       </Button>
       <Button
         variant="outline"
@@ -1119,7 +1119,7 @@ function ZoomControls() {
           camera.animatedUnzoom({ duration: 200 })
         }}
       >
-        <ZoomOut className="h-3.5 w-3.5" />
+        <ZoomOut className="h-3.5 w-3.5 shrink-0" />
       </Button>
       <Button
         variant="outline"
@@ -1130,7 +1130,7 @@ function ZoomControls() {
           camera.animatedReset({ duration: 300 })
         }}
       >
-        <Maximize className="h-3.5 w-3.5" />
+        <Maximize className="h-3.5 w-3.5 shrink-0" />
       </Button>
     </div>
   )
@@ -1352,7 +1352,7 @@ export function GraphView() {
         setNodeMenu(null)
         if (created) bumpDataVersion()
       } catch (err) {
-        // R4 共识（glm+qwen）: 原先仅 console.error ⇒ 用户零反馈。
+        console.error("Failed to open node profile page:", err)
         setError(formatOperationError(t, err))
       }
     },
@@ -1688,7 +1688,7 @@ export function GraphView() {
             <div className="absolute top-3 left-3 w-72 rounded-lg border bg-background/95 p-3 text-xs shadow-lg backdrop-blur-sm">
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-1.5 font-semibold text-foreground">
-                  <Filter className="h-3.5 w-3.5" />
+                  <Filter className="h-3.5 w-3.5 shrink-0" />
                   {t("graph.graphFilters")}
                 </div>
                 <Button
@@ -1773,6 +1773,7 @@ export function GraphView() {
                         <label key={type} className="flex min-w-0 items-center gap-1.5">
                           <input
                             type="checkbox"
+                            className="shrink-0"
                             checked={!filters.hiddenTypes.has(type)}
                             onChange={(e) => {
                               setFilters((prev) => {
@@ -1783,8 +1784,8 @@ export function GraphView() {
                               })
                             }}
                           />
-                          <span className="truncate">{label}</span>
-                          <span className="text-muted-foreground/60">{typeCounts[type]}</span>
+                          <span className="truncate min-w-0">{label}</span>
+                          <span className="text-muted-foreground/60 shrink-0 ml-auto">{typeCounts[type]}</span>
                         </label>
                       ))}
                   </div>
@@ -1797,11 +1798,11 @@ export function GraphView() {
                       {[...filters.hiddenNodeIds].map((nodeId) => {
                         const node = nodes.find((n) => n.id === nodeId)
                         return (
-                          <div key={nodeId} className="flex items-center justify-between gap-2 rounded bg-muted/50 px-2 py-1">
-                            <span className="truncate">{node?.label ?? nodeId}</span>
+                          <div key={nodeId} className="flex items-center justify-between gap-2 rounded bg-muted/50 px-2 py-1 min-w-0">
+                            <span className="truncate min-w-0">{node?.label ?? nodeId}</span>
                             <button
                               type="button"
-                              className="text-muted-foreground hover:text-foreground"
+                              className="text-muted-foreground hover:text-foreground shrink-0"
                               onClick={() => setFilters((prev) => {
                                 const next = new Set(prev.hiddenNodeIds)
                                 next.delete(nodeId)
@@ -1830,8 +1831,8 @@ export function GraphView() {
               style={{ left: nodeMenu.x, top: nodeMenu.y }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="border-b px-3 py-2">
-                <div className="truncate font-medium text-foreground">{contextNode.label}</div>
+              <div className="border-b px-3 py-2 min-w-0">
+                <div className="truncate font-medium text-foreground min-w-0">{contextNode.label}</div>
                 <div className="text-muted-foreground">{t("graph.contextNodeLinks", { count: contextNode.linkCount })}</div>
                 {novelMode && NOVEL_NODE_TYPE_LABELS[contextNode.type as keyof typeof NOVEL_NODE_TYPE_LABELS] && (() => {
                   /* v8 ignore next -- novelMode 下 type 恒在 NOVEL_NODE_TYPE_LABELS → 恒有颜色 */
@@ -1862,7 +1863,7 @@ export function GraphView() {
                       const otherId = isSource ? edge.target : edge.source
                       const otherNode = nodes.find((n) => n.id === otherId)
                       return (
-                        <div key={i} className="text-muted-foreground/80 truncate">
+                        <div key={i} className="text-muted-foreground/80 truncate min-w-0">
                           {isSource ? "→" : "←"} {otherNode?.label ?? otherId}
                         </div>
                       )
@@ -1878,7 +1879,7 @@ export function GraphView() {
                 className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
                 onClick={() => void handleOpenNodeProfilePage(contextNode)}
               >
-                <FileText className="h-3.5 w-3.5" />
+                <FileText className="h-3.5 w-3.5 shrink-0" />
                 {t("graph.editRealProfilePage")}
               </button>
               <button
@@ -1892,7 +1893,7 @@ export function GraphView() {
                   setNodeMenu(null)
                 }}
               >
-                <EyeOff className="h-3.5 w-3.5" />
+                <EyeOff className="h-3.5 w-3.5 shrink-0" />
                 {t("graph.hideThisNode")}
               </button>
             </div>
@@ -2059,7 +2060,7 @@ export function GraphView() {
                           boxShadow: `0 0 4px ${hexToRgba(COMMUNITY_COLORS[c.id % COMMUNITY_COLORS.length], 0.4)}`,
                         }}
                       />
-                      <span className="text-muted-foreground truncate" title={c.topNodes.join(", ")}>
+                      <span className="text-muted-foreground truncate min-w-0" title={c.topNodes.join(", ")}>
                         {c.topNodes[0] ?? `${t("graph.cluster", { id: c.id })}`}
                       </span>
                       <span className="text-muted-foreground/60 ml-auto shrink-0">{c.nodeCount}</span>
@@ -2082,7 +2083,7 @@ export function GraphView() {
             <div className="px-4 py-3 border-b">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Lightbulb className="h-4 w-4 text-warning" />
+                  <Lightbulb className="h-4 w-4 shrink-0 text-warning" />
                   <span className="text-sm font-medium">{t("graph.insights")}</span>
                 </div>
                 <button
@@ -2092,7 +2093,7 @@ export function GraphView() {
                     setHighlightedNodes(new Set())
                   }}
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-4 w-4 shrink-0" />
                 </button>
               </div>
             </div>
@@ -2102,7 +2103,7 @@ export function GraphView() {
               {surprisingConns.filter((c) => !dismissedInsights.has(c.key)).length > 0 && (
                 <div>
                   <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-foreground">
-                    <Link2 className="h-3.5 w-3.5 text-info" />
+                    <Link2 className="h-3.5 w-3.5 shrink-0 text-info" />
                     {t("graph.surprisingConnections")}
                   </div>
                   <div className="flex flex-col gap-2">
@@ -2126,7 +2127,7 @@ export function GraphView() {
                                 if (isActive) setHighlightedNodes(new Set())
                               }}
                             >
-                              <X className="h-3.5 w-3.5" />
+                              <X className="h-3.5 w-3.5 shrink-0" />
                             </button>
                             <button type="button"
                               className="cursor-pointer pr-6 text-left"
@@ -2150,7 +2151,7 @@ export function GraphView() {
               {knowledgeGaps.length > 0 && (
                 <div>
                   <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-foreground">
-                    <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" />
                     {t("graph.knowledgeGaps")}
                   </div>
                   <div className="flex flex-col gap-2">

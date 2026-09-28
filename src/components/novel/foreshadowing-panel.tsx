@@ -74,7 +74,7 @@ export function ForeshadowingPanel() {
       <div className="border-b px-4 py-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Lightbulb className={`h-4 w-4 ${unresolved.length > 0 ? "text-warning fill-warning/30" : "text-muted-foreground/40"}`} />
+            <Lightbulb className={`h-4 w-4 shrink-0 ${unresolved.length > 0 ? "text-warning fill-warning/30" : "text-muted-foreground/40"}`} />
             <h2 className="text-sm font-semibold">{t("novel.foreshadowing.title")}</h2>
           </div>
           <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
@@ -106,7 +106,7 @@ export function ForeshadowingPanel() {
           </div>
         ) : !store || store.items.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-8 text-center text-sm text-muted-foreground">
-            <Lightbulb className="h-8 w-8 text-warning/40" />
+            <Lightbulb className="h-8 w-8 shrink-0 text-warning/40" />
             <p>{t("novel.foreshadowing.noData")}</p>
             <p className="text-xs italic">{t("novel.foreshadowing.noDataHint")}</p>
           </div>
@@ -128,16 +128,16 @@ export function ForeshadowingPanel() {
                   {unresolved.map((f) => (
                     <div key={f.id} className="rounded-lg border p-2 text-sm transition-colors hover:border-primary/40">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 truncate">
+                        <div className="flex min-w-0 items-center gap-2 truncate">
                           <Lightbulb className={`h-3.5 w-3.5 shrink-0 ${STATUS_BULB_CLASS[f.status] ?? ""}`} aria-hidden="true" />
-                          <span className="font-medium truncate">{f.name}</span>
+                          <span className="font-medium truncate min-w-0">{f.name}</span>
                         </div>
                         <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${STATUS_BADGE[f.status] ?? ""}`}>
                           {t(STATUS_LABEL_KEY[f.status] ?? "novel.foreshadowing.unresolved")}
                         </span>
                       </div>
                       {f.description && (
-                        <p className="mt-1 text-xs text-muted-foreground">{f.description}</p>
+                        <p className="mt-1 text-xs text-muted-foreground break-words">{f.description}</p>
                       )}
                       <button type="button"
                         onClick={() => void handleOpenChapter(f.plantedChapter)}
@@ -160,9 +160,9 @@ export function ForeshadowingPanel() {
                   {resolved.map((f) => (
                     <div key={f.id} className="rounded-lg border bg-success/5 p-2 text-sm">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 truncate">
+                        <div className="flex min-w-0 items-center gap-2 truncate">
                           <Lightbulb className="h-3.5 w-3.5 shrink-0 text-success fill-success/40" aria-hidden="true" />
-                          <span className="font-medium line-through">{f.name}</span>
+                          <span className="font-medium line-through truncate min-w-0">{f.name}</span>
                         </div>
                         <span className="shrink-0 rounded px-1.5 py-0.5 text-xs bg-success/15 text-success">
                           {t(/* v8 ignore next -- resolved is filtered to the only status with a guaranteed label. */ STATUS_LABEL_KEY[f.status] ?? "novel.foreshadowing.unresolved")}

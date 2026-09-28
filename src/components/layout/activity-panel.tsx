@@ -395,7 +395,7 @@ function QueueRow({ task, onRetry, onCancel }: { task: IngestTask; onRetry: (id:
               className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
               title={t("activity.retry")}
             >
-              <RotateCcw className="h-3 w-3" />
+              <RotateCcw className="h-3 w-3 shrink-0" />
             </button>
           )}
           {(task.status === "pending" || task.status === "processing") && (
@@ -404,7 +404,7 @@ function QueueRow({ task, onRetry, onCancel }: { task: IngestTask; onRetry: (id:
               className="p-0.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive"
               title={t("activity.cancel")}
             >
-              <X className="h-3 w-3" />
+              <X className="h-3 w-3 shrink-0" />
             </button>
           )}
         </div>
@@ -460,14 +460,14 @@ function FileSyncRow({ task, onRetry, onIgnore }: { task: FileChangeTask; onRetr
               className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
               title={t("activity.retry")}
             >
-              <RotateCcw className="h-3 w-3" />
+              <RotateCcw className="h-3 w-3 shrink-0" />
             </button>
             <button
               onClick={() => onIgnore(task.id)}
               className="rounded p-0.5 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
               title={t("activity.ignore")}
             >
-              <X className="h-3 w-3" />
+              <X className="h-3 w-3 shrink-0" />
             </button>
           </div>
         )}
@@ -500,7 +500,7 @@ function ActivityRow({ item, onCancel }: { item: ActivityItem; onCancel?: () => 
         </div>
         <div className="min-w-0 flex-1">
           <div className="font-medium">{item.title}</div>
-          <div className="text-muted-foreground mt-0.5">{item.detail}</div>
+          <div className="text-muted-foreground mt-0.5 break-words">{item.detail}</div>
         </div>
         {item.status === "running" && onCancel && (
           <button
@@ -508,7 +508,7 @@ function ActivityRow({ item, onCancel }: { item: ActivityItem; onCancel?: () => 
             className="shrink-0 p-0.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive"
             title={t("activity.cancel")}
           >
-            <X className="h-3 w-3" />
+            <X className="h-3 w-3 shrink-0" />
           </button>
         )}
       </div>
@@ -524,11 +524,11 @@ function ActivityRow({ item, onCancel }: { item: ActivityItem; onCancel?: () => 
                 key={filePath}
                 type="button"
                 onClick={() => handleFileClick(filePath)}
-                className="flex items-center gap-1.5 rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+                className="flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
               >
                 <Icon className="h-3 w-3 shrink-0" />
                 <span className="text-[10px] font-medium text-muted-foreground/70 w-14 shrink-0">{type}</span>
-                <span className="truncate">{fileName}</span>
+                <span className="min-w-0 truncate">{fileName}</span>
               </button>
             )
           })}

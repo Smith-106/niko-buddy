@@ -490,7 +490,7 @@ export function BackupExportView() {
       {/* 可选本地口令 */}
       <div className="rounded-lg border p-4 space-y-2">
         <div className="flex items-center gap-2">
-          <KeyRound className="h-4 w-4 text-primary" />
+          <KeyRound className="h-4 w-4 shrink-0 text-primary" />
           <Label htmlFor="backup-passphrase" className="font-medium">
             {tOr("novel.backupExport.passphraseLabel", "本地口令（可选）")}
           </Label>
@@ -514,11 +514,11 @@ export function BackupExportView() {
       {/* 操作进度（backup-progress 通道）+ 取消按钮 */}
       {isBusy !== null && progress && progress.total > 0 && (
         <div className="rounded-lg border p-4 space-y-2" data-testid="backup-progress-area">
-          <div className="flex items-center justify-between gap-2 text-sm">
-            <span className="truncate text-muted-foreground">
+          <div className="flex items-center justify-between gap-2 text-sm min-w-0">
+            <span className="truncate text-muted-foreground min-w-0">
               {progress.stage || progress.message || tOr("novel.backupExport.progressWorking", "处理中...")}
             </span>
-            <span className="flex-shrink-0 font-mono text-xs">
+            <span className="shrink-0 font-mono text-xs">
               {progress.current}/{progress.total} (
               {Math.min(100, Math.round(((progress.current || 0) / progress.total) * 100))}%)
             </span>
@@ -546,18 +546,18 @@ export function BackupExportView() {
       {/* 导出卡片 */}
       <div className="rounded-lg border p-4 space-y-3">
         <div className="flex items-center gap-2">
-          <Download className="h-5 w-5 text-primary" />
+          <Download className="h-5 w-5 shrink-0 text-primary" />
           <h3 className="font-medium">{tOr("novel.backupExport.exportTitle", "导出项目备份包")}</h3>
         </div>
         <Button onClick={() => void handleExport()} disabled={!projectPath || isBusy !== null}>
           {isBusy === "export" ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
               {tOr("novel.backupExport.exporting", "导出中...")}
             </>
           ) : (
             <>
-              <Download className="mr-2 h-4 w-4" />
+              <Download className="mr-2 h-4 w-4 shrink-0" />
               {tOr("novel.backupExport.exportButton", "导出备份包")}
             </>
           )}
@@ -566,7 +566,7 @@ export function BackupExportView() {
           <div className="text-sm space-y-1">
             {exportResult.success ? (
               <div className="flex items-start gap-2 text-success">
-                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
                 <div className="space-y-1">
                   <p>
                     {tOr("novel.backupExport.exportSuccess", "导出成功")}：
@@ -587,7 +587,7 @@ export function BackupExportView() {
               </div>
             ) : (
               <div className="flex items-start gap-2 text-destructive">
-                <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                 <p>{exportResult.error}</p>
               </div>
             )}
@@ -599,7 +599,7 @@ export function BackupExportView() {
       {/* 校验卡片（①-1：canon_verify_export 预检备份包完整性） */}
       <div className="rounded-lg border p-4 space-y-3">
         <div className="flex items-center gap-2">
-          <BadgeCheck className="h-5 w-5 text-primary" />
+          <BadgeCheck className="h-5 w-5 shrink-0 text-primary" />
           <h3 className="font-medium">{tOr("novel.backupExport.verifyTitle", "验证备份包")}</h3>
         </div>
         <p className="text-sm text-muted-foreground">
@@ -615,12 +615,12 @@ export function BackupExportView() {
         >
           {isBusy === "verify" ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
               {tOr("novel.backupExport.verifying", "验证中...")}
             </>
           ) : (
             <>
-              <FileSearch className="mr-2 h-4 w-4" />
+              <FileSearch className="mr-2 h-4 w-4 shrink-0" />
               {tOr("novel.backupExport.verifyButton", "选择备份包并验证")}
             </>
           )}
@@ -666,7 +666,7 @@ export function BackupExportView() {
       {/* 恢复卡片 */}
       <div className="rounded-lg border p-4 space-y-3">
         <div className="flex items-center gap-2">
-          <ArchiveRestore className="h-5 w-5 text-primary" />
+          <ArchiveRestore className="h-5 w-5 shrink-0 text-primary" />
           <h3 className="font-medium">{tOr("novel.backupExport.restoreTitle", "从备份包恢复")}</h3>
         </div>
         <p className="text-sm text-muted-foreground">
@@ -682,12 +682,12 @@ export function BackupExportView() {
         >
           {isBusy === "restore" ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
               {tOr("novel.backupExport.restoring", "恢复中...")}
             </>
           ) : (
             <>
-              <ArchiveRestore className="mr-2 h-4 w-4" />
+              <ArchiveRestore className="mr-2 h-4 w-4 shrink-0" />
               {tOr("novel.backupExport.restoreButton", "选择备份包并恢复")}
             </>
           )}
@@ -696,7 +696,7 @@ export function BackupExportView() {
           <div className="text-sm space-y-1">
             {restoreResult.success ? (
               <div className="flex items-start gap-2 text-success">
-                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
                 <div className="space-y-1">
                   <p>
                     {tOr("novel.backupExport.restoreSuccess", "恢复成功")}：
@@ -717,7 +717,7 @@ export function BackupExportView() {
               </div>
             ) : (
               <div className="flex items-start gap-2 text-destructive">
-                <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                 <p>{restoreResult.error}</p>
               </div>
             )}
@@ -729,7 +729,7 @@ export function BackupExportView() {
       {/* 自动备份卡片（supersede / 迁移前保护） */}
       <div className="rounded-lg border p-4 space-y-3">
         <div className="flex items-center gap-2">
-          <ShieldCheck className="h-5 w-5 text-primary" />
+          <ShieldCheck className="h-5 w-5 shrink-0 text-primary" />
           <h3 className="font-medium">{tOr("novel.backupExport.autoTitle", "自动备份（supersede / 迁移前）")}</h3>
         </div>
         <p className="text-sm text-muted-foreground">
@@ -741,12 +741,12 @@ export function BackupExportView() {
         <Button onClick={() => void handleAutoBackup()} disabled={!projectPath || isBusy !== null} variant="outline">
           {isBusy === "auto" ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
               {tOr("novel.backupExport.autoRunning", "备份中...")}
             </>
           ) : (
             <>
-              <ShieldCheck className="mr-2 h-4 w-4" />
+              <ShieldCheck className="mr-2 h-4 w-4 shrink-0" />
               {tOr("novel.backupExport.autoButton", "立即自动备份")}
             </>
           )}
@@ -755,7 +755,7 @@ export function BackupExportView() {
           <div className="text-sm space-y-1">
             {autoResult.success ? (
               <div className="flex items-start gap-2 text-success">
-                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
                 <div className="space-y-1">
                   <p>{tOr("novel.backupExport.autoSuccess", "自动备份完成")}</p>
                   <p className="text-xs text-muted-foreground break-all">{autoResult.backupPath}</p>
@@ -763,7 +763,7 @@ export function BackupExportView() {
               </div>
             ) : (
               <div className="flex items-start gap-2 text-destructive">
-                <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                 <p>{autoResult.error}</p>
               </div>
             )}
@@ -775,7 +775,7 @@ export function BackupExportView() {
       {/* 历史备份列表（backups/auto/ 下 zip；操作完成后自动刷新） */}
       <div className="rounded-lg border p-4 space-y-3">
         <div className="flex items-center gap-2">
-          <History className="h-5 w-5 text-primary" />
+          <History className="h-5 w-5 shrink-0 text-primary" />
           <h3 className="font-medium">{tOr("novel.backupExport.historyTitle", "历史备份")}</h3>
         </div>
         <p className="text-sm text-muted-foreground">
@@ -795,9 +795,9 @@ export function BackupExportView() {
           <>
             <ul className="space-y-1">
             {visibleBackupHistory.map((entry) => (
-              <li key={entry.path} className="flex items-center gap-2 text-xs text-muted-foreground">
-                <FileSearch className="h-3 w-3 flex-shrink-0" />
-                <span className="truncate select-all">{entry.name}</span>
+              <li key={entry.path} className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+                <FileSearch className="h-3 w-3 shrink-0" />
+                <span className="truncate select-all min-w-0">{entry.name}</span>
               </li>
             ))}
           </ul>

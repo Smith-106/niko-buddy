@@ -144,7 +144,7 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
     return (
       <div className="mt-2 rounded-md border border-success bg-success p-3 dark:border-success/60 dark:bg-success/30">
         <div className="flex items-center gap-2 text-sm font-medium text-success dark:text-success">
-          <Check className="h-4 w-4" />
+          <Check className="h-4 w-4 shrink-0" />
           已处理 {appliedCount} 条修改
         </div>
         <div className="mt-2 space-y-1">
@@ -155,14 +155,14 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
               <div key={i} className="rounded border bg-background">
                 <button
                   onClick={() => toggleExpand(i)}
-                  className="flex w-full items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent/50"
+                  className="flex w-full items-center gap-2 min-w-0 px-2 py-1.5 text-xs hover:bg-accent/50 text-left"
                 >
-                  {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                  <span className={state.status === "applied" ? "text-success dark:text-success" : "text-muted-foreground line-through"}>
+                  {expanded ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+                  <span className={`min-w-0 truncate ${state.status === "applied" ? "text-success dark:text-success" : "text-muted-foreground line-through"}`}>
                     {state.status === "applied" ? "✓" : "✗"} {edit.filePath}
                   </span>
                   {state.result && !state.result.success && (
-                    <span className="text-destructive text-xs">({state.result.error})</span>
+                    <span className="shrink-0 text-destructive text-xs">({state.result.error})</span>
                   )}
                 </button>
                 {expanded && (
@@ -180,26 +180,26 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
 
   return (
     <div className="mt-2 rounded-md border border-warning bg-warning p-3 dark:border-warning/60 dark:bg-warning/30">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm font-medium text-warning dark:text-warning">
-          <FileText className="h-4 w-4" />
-          AI 建议修改 {edits.length} 处
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0 text-sm font-medium text-warning dark:text-warning">
+          <FileText className="h-4 w-4 shrink-0" />
+          <span className="truncate">AI 建议修改 {edits.length} 处</span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           {pendingCount > 1 && (
             <button
               onClick={() => void handleApplyAll()}
-              className="inline-flex items-center gap-1 rounded-md bg-success px-2.5 py-1 text-xs font-medium text-white hover:bg-success"
+              className="inline-flex items-center gap-1 rounded-md bg-success px-2.5 py-1 text-xs font-medium text-white hover:bg-success shrink-0"
             >
-              <Check className="h-3 w-3" />
+              <Check className="h-3 w-3 shrink-0" />
               全部应用 ({pendingCount})
             </button>
           )}
           <button
             onClick={onDismiss}
-            className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent shrink-0"
           >
-            <X className="h-3 w-3" />
+            <X className="h-3 w-3 shrink-0" />
             全部忽略
           </button>
         </div>
@@ -218,9 +218,9 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
           if (state.status === "applied") {
             return (
               <div key={i} className="rounded border border-success bg-success/50 px-2 py-1.5 dark:border-success/40 dark:bg-success/20">
-                <button onClick={() => toggleExpand(i)} className="flex w-full items-center gap-1 text-xs text-success dark:text-success">
-                  {expandedItems.has(i) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                  ✓ {edit.filePath}
+                <button onClick={() => toggleExpand(i)} className="flex w-full items-center gap-1 min-w-0 text-xs text-success dark:text-success text-left">
+                  {expandedItems.has(i) ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+                  <span className="min-w-0 truncate">✓ {edit.filePath}</span>
                 </button>
                 {expandedItems.has(i) && (
                   <div className="mt-1 border-t pt-1">
@@ -233,7 +233,7 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
           if (state.status === "editing") {
             return (
               <div key={i} className="rounded border bg-background p-2">
-                <div className="mb-1 text-xs font-medium text-muted-foreground">{edit.filePath} — 编辑替换内容</div>
+                <div className="mb-1 text-xs font-medium text-muted-foreground truncate">{edit.filePath} — 编辑替换内容</div>
                 <div className="mb-2 rounded bg-destructive px-2 py-1 text-xs dark:bg-destructive/30">
                   <div className="mb-1 text-[10px] font-medium text-destructive">{t("chat.originalText")}</div>
                   <pre className="whitespace-pre-wrap text-destructive dark:text-destructive">{edit.search}</pre>
@@ -271,29 +271,29 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
           const expanded = expandedItems.has(i)
           return (
             <div key={i} className="rounded border bg-background p-2">
-              <div className="flex items-center justify-between">
-                <button onClick={() => toggleExpand(i)} className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
-                  {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                  {edit.filePath}
+              <div className="flex items-center justify-between gap-2">
+                <button onClick={() => toggleExpand(i)} className="flex items-center gap-1 min-w-0 text-xs font-medium text-muted-foreground hover:text-foreground text-left">
+                  {expanded ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+                  <span className="min-w-0 truncate">{edit.filePath}</span>
                 </button>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 shrink-0">
                   <button
                     onClick={() => void handleApplyOne(i)}
-                    className="rounded bg-success px-2 py-0.5 text-xs text-white hover:bg-success"
+                    className="rounded bg-success px-2 py-0.5 text-xs text-white hover:bg-success shrink-0"
                   >
                     应用
                   </button>
                   <button
                     onClick={() => handleEditOne(i)}
-                    className="rounded border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent"
+                    className="rounded border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent shrink-0"
                   >
-                    <Pencil className="h-3 w-3" />
+                    <Pencil className="h-3 w-3 shrink-0" />
                   </button>
                   <button
                     onClick={() => handleDismissOne(i)}
-                    className="rounded border px-2 py-0.5 text-xs text-muted-foreground hover:text-destructive hover:bg-accent"
+                    className="rounded border px-2 py-0.5 text-xs text-muted-foreground hover:text-destructive hover:bg-accent shrink-0"
                   >
-                    <X className="h-3 w-3" />
+                    <X className="h-3 w-3 shrink-0" />
                   </button>
                 </div>
               </div>
@@ -308,7 +308,7 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
       </div>
 
       <div className="mt-2 flex items-center gap-1 text-xs text-warning dark:text-warning">
-        <AlertCircle className="h-3 w-3" />
+        <AlertCircle className="h-3 w-3 shrink-0" />
         点击「应用」后文件将被直接更新
       </div>
     </div>

@@ -288,7 +288,7 @@ export function DataManagementSection() {
       {/* Export card */}
       <div className="rounded-lg border p-4 space-y-3">
         <div className="flex items-center gap-2">
-          <Download className="h-5 w-5 text-primary" />
+          <Download className="h-5 w-5 shrink-0 text-primary" />
           <h3 className="font-medium">
             {t("settings.sections.dataManagement.exportTitle", { defaultValue: "导出备份" })}
           </h3>
@@ -301,12 +301,12 @@ export function DataManagementSection() {
         <Button onClick={handleExport} disabled={isBusy}>
           {isExporting ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
               {t("settings.sections.dataManagement.exporting", { defaultValue: "导出中..." })}
             </>
           ) : (
             <>
-              <Download className="mr-2 h-4 w-4" />
+              <Download className="mr-2 h-4 w-4 shrink-0" />
               {t("settings.sections.dataManagement.exportButton", { defaultValue: "导出备份" })}
             </>
           )}
@@ -320,7 +320,7 @@ export function DataManagementSection() {
           <div className="text-sm space-y-1">
             {exportResult.success ? (
               <div className="flex items-start gap-2 text-success">
-                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
                 <div>
                   <p>{t("settings.sections.dataManagement.exportSuccess", { defaultValue: "导出成功" })}</p>
                   <p className="text-muted-foreground">
@@ -334,7 +334,7 @@ export function DataManagementSection() {
               </div>
             ) : (
               <div className="flex items-start gap-2 text-destructive">
-                <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                 <p>{exportResult.error}</p>
               </div>
             )}
@@ -352,7 +352,7 @@ export function DataManagementSection() {
       {/* Novel DOCX export card */}
       <div className="rounded-lg border p-4 space-y-3">
         <div className="flex items-center gap-2">
-          <FileText className="h-5 w-5 text-primary" />
+          <FileText className="h-5 w-5 shrink-0 text-primary" />
           <h3 className="font-medium">
             {t("settings.sections.dataManagement.docxExportTitle", { defaultValue: "导出小说 Word 文档" })}
           </h3>
@@ -365,12 +365,12 @@ export function DataManagementSection() {
         <Button onClick={() => void handleExportDocx()} disabled={isBusy || isExportingDocx || !currentProject?.path || finalChapterCount === 0}>
           {isExportingDocx ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
               {t("settings.sections.dataManagement.docxExporting", { defaultValue: "导出中..." })}
             </>
           ) : (
             <>
-              <FileText className="mr-2 h-4 w-4" />
+              <FileText className="mr-2 h-4 w-4 shrink-0" />
               {t("settings.sections.dataManagement.docxExportButton", { defaultValue: "导出 Word 文档" })}
             </>
           )}
@@ -422,14 +422,14 @@ export function DataManagementSection() {
                     className="mt-1"
                     onClick={() => void revealInFileManager(docxResult.exportedPath)}
                   >
-                    <FolderOpen className="h-3.5 w-3.5 mr-1" />
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0 mr-1" />
                     {t("settings.sections.dataManagement.openFolder", { defaultValue: "打开所在文件夹" })}
                   </Button>
                 </div>
               </div>
             ) : (
               <div className="flex items-start gap-2 text-destructive">
-                <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                 <p>{docxResult.message}</p>
               </div>
             )}
@@ -440,7 +440,7 @@ export function DataManagementSection() {
       {/* Novel EPUB export card（54 号设计 ⑥） */}
       <div className="rounded-lg border p-4 space-y-3">
         <div className="flex items-center gap-2">
-          <BookOpen className="h-5 w-5 text-primary" />
+          <BookOpen className="h-5 w-5 shrink-0 text-primary" />
           <h3 className="font-medium">
             {t("settings.sections.dataManagement.epubExportTitle", { defaultValue: "导出小说 EPUB 电子书" })}
           </h3>
@@ -453,12 +453,12 @@ export function DataManagementSection() {
         <Button onClick={() => void handleExportEpub()} disabled={isBusy || isExportingEpub || !currentProject?.path || finalChapterCount === 0}>
           {isExportingEpub ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
               {t("settings.sections.dataManagement.epubExporting", { defaultValue: "导出中..." })}
             </>
           ) : (
             <>
-              <BookOpen className="mr-2 h-4 w-4" />
+              <BookOpen className="mr-2 h-4 w-4 shrink-0" />
               {t("settings.sections.dataManagement.epubExportButton", { defaultValue: "导出 EPUB 电子书" })}
             </>
           )}
@@ -494,7 +494,7 @@ export function DataManagementSection() {
           <div className="text-sm space-y-1">
             {epubResult.success ? (
               <div className="flex items-start gap-2 text-success">
-                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
                 <div>
                   <p>{t("settings.sections.dataManagement.epubExportSuccess", { defaultValue: "导出成功" })}</p>
                   <p className="text-muted-foreground">
@@ -510,14 +510,14 @@ export function DataManagementSection() {
                     className="mt-1"
                     onClick={() => void revealInFileManager(epubResult.exportedPath)}
                   >
-                    <FolderOpen className="h-3.5 w-3.5 mr-1" />
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0 mr-1" />
                     {t("settings.sections.dataManagement.openFolder", { defaultValue: "打开所在文件夹" })}
                   </Button>
                 </div>
               </div>
             ) : (
               <div className="flex items-start gap-2 text-destructive">
-                <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                 <p>{epubResult.message}</p>
               </div>
             )}
@@ -528,7 +528,7 @@ export function DataManagementSection() {
       {/* Vector store card — 向量库统计与 legacy 清理（audit ①-5） */}
       <div className="rounded-lg border p-4 space-y-3">
         <div className="flex items-center gap-2">
-          <Database className="h-5 w-5 text-primary" />
+          <Database className="h-5 w-5 shrink-0 text-primary" />
           <h3 className="font-medium">
             {t("settings.sections.dataManagement.vectorTitle", { defaultValue: "向量库" })}
           </h3>
@@ -544,7 +544,7 @@ export function DataManagementSection() {
           </p>
         ) : vectorLoading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
             {t("settings.sections.dataManagement.vectorLoading", { defaultValue: "加载中…" })}
           </div>
         ) : (
@@ -571,12 +571,12 @@ export function DataManagementSection() {
           >
             {cleaningLegacy ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
                 {t("settings.sections.dataManagement.vectorCleaning", { defaultValue: "清理中..." })}
               </>
             ) : (
               <>
-                <Trash2 className="mr-2 h-4 w-4" />
+                <Trash2 className="mr-2 h-4 w-4 shrink-0" />
                 {t("settings.sections.dataManagement.vectorCleanButton", { defaultValue: "清理 legacy 表" })}
               </>
             )}
@@ -587,7 +587,7 @@ export function DataManagementSection() {
             onClick={() => void loadVectorStats()}
             disabled={vectorLoading || !currentProject?.path}
           >
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5 shrink-0" />
             {t("settings.sections.dataManagement.vectorRefresh", { defaultValue: "刷新" })}
           </Button>
         </div>
@@ -601,7 +601,7 @@ export function DataManagementSection() {
       {/* Import card */}
       <div className="rounded-lg border p-4 space-y-3">
         <div className="flex items-center gap-2">
-          <Upload className="h-5 w-5 text-primary" />
+          <Upload className="h-5 w-5 shrink-0 text-primary" />
           <h3 className="font-medium">
             {t("settings.sections.dataManagement.importTitle", { defaultValue: "导入备份" })}
           </h3>
@@ -640,12 +640,12 @@ export function DataManagementSection() {
         <Button onClick={handleImport} disabled={isBusy} variant="outline">
           {isImporting ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
               {t("settings.sections.dataManagement.importing", { defaultValue: "导入中..." })}
             </>
           ) : (
             <>
-              <Upload className="mr-2 h-4 w-4" />
+              <Upload className="mr-2 h-4 w-4 shrink-0" />
               {t("settings.sections.dataManagement.importButton", { defaultValue: "导入备份" })}
             </>
           )}
@@ -655,7 +655,7 @@ export function DataManagementSection() {
           <div className="text-sm space-y-1">
             {importResult.success ? (
               <div className="flex items-start gap-2 text-success">
-                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
                 <div>
                   <p>{t("settings.sections.dataManagement.importSuccess", { defaultValue: "导入成功，项目数据已自动刷新，部分全局配置可能需要重启生效" })}</p>
                   {importResult.projects?.length > 0 && (

@@ -25,23 +25,35 @@ function useECharts(
   const instanceRef = useRef<echarts.ECharts | null>(null)
 
   useEffect(() => {
-    if (!containerRef.current) return
-    if (!instanceRef.current) {
-      instanceRef.current = echarts.init(containerRef.current, undefined, { renderer: "canvas" })
+    const el = containerRef.current
+    if (!el) return
+    const chart = echarts.init(el, undefined, { renderer: "canvas" })
+    instanceRef.current = chart
+
+    let resizeObserver: ResizeObserver | null = null
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => {
+        chart.resize()
+      })
+      resizeObserver.observe(el)
     }
-    if (option) {
+
+    const handleWindowResize = () => chart.resize()
+    window.addEventListener("resize", handleWindowResize)
+
+    return () => {
+      resizeObserver?.disconnect()
+      window.removeEventListener("resize", handleWindowResize)
+      chart.dispose()
+      instanceRef.current = null
+    }
+  }, [containerRef])
+
+  useEffect(() => {
+    if (instanceRef.current && option) {
       instanceRef.current.setOption(option, { notMerge: true })
     }
-    const handleResize = () => instanceRef.current?.resize()
-    window.addEventListener("resize", handleResize)
-    return () => {
-      window.removeEventListener("resize", handleResize)
-      if (instanceRef.current) {
-        instanceRef.current.dispose()
-        instanceRef.current = null
-      }
-    }
-  }, [containerRef, option])
+  }, [option])
 }
 
 // ============================================================================

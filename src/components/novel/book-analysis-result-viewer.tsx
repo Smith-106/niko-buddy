@@ -558,8 +558,8 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                 </div>
               )}
             </div>
-            <Button variant="ghost" size="icon" onClick={onClose}>
-              <X className="h-5 w-5" />
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="关闭">
+              <X className="h-5 w-5 shrink-0" />
             </Button>
           </div>
         </div>
@@ -567,7 +567,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
         {/* feature/fix-viewer-ui：删 skills tab，只保留角色列表 */}
         <div className="flex border-b">
           <div className="flex items-center gap-2 px-6 py-3 border-b-2 border-primary text-foreground font-medium">
-            <User className="h-4 w-4" />
+            <User className="h-4 w-4 shrink-0" />
             角色列表 ({characters.length})
           </div>
         </div>
@@ -699,7 +699,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                                   })
                                 }}
                                 onClick={(e) => e.stopPropagation()}
-                                className="mt-1 h-4 w-4 cursor-pointer accent-primary"
+                                className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-primary"
                               />
                               <button
                                 type="button"
@@ -708,9 +708,9 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                               >
                                 <div className="flex items-start justify-between gap-2">
                                   <div className="flex-1 min-w-0">
-                                    <div className="font-medium truncate">{character.name}</div>
+                                    <div className="font-medium min-w-0 truncate">{character.name}</div>
                                     {character.aliases.length > 0 && (
-                                      <div className="text-xs text-muted-foreground mt-1 truncate">
+                                      <div className="text-xs text-muted-foreground mt-1 min-w-0 truncate">
                                         别名：{character.aliases.join("、")}
                                       </div>
                                     )}
@@ -771,9 +771,9 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                                   return next
                                 })
                               }}
-                              className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                              className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-primary"
                             />
-                            <span className="truncate">{name}</span>
+                            <span className="min-w-0 truncate">{name}</span>
                           </label>
                         )
                       })}
@@ -955,7 +955,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
               onClick={handleAddSkillsToSoul}
               disabled={addingToSoul || selectedCharacterIds.size === 0}
             >
-              <Plus className="h-4 w-4 mr-2" />
+              <Plus className="h-4 w-4 mr-2 shrink-0" />
               {addingToSoul ? "添加中..." : `添加所选角色到自定义灵魂 (${selectedCharacterIds.size})`}
             </Button>
           )}

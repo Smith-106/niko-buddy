@@ -268,7 +268,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
           {!compact && report.characterAnalyses.length > 0 && onInterviewAgent && (
             <section>
               <h3 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <MessageCircle className="h-3.5 w-3.5" />
+                <MessageCircle className="h-3.5 w-3.5 shrink-0" />
                 {t("storySimulation.interviewCharacters")}
               </h3>
               <div className="flex flex-wrap gap-2">
@@ -279,7 +279,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                     size="sm"
                     onClick={() => onInterviewAgent(char.characterId, char.name)}
                   >
-                    <MessageCircle className="mr-1 h-3.5 w-3.5" />
+                    <MessageCircle className="mr-1 h-3.5 w-3.5 shrink-0" />
                     {t("storySimulation.chatWith", { name: char.name })}
                   </Button>
                 ))}
@@ -394,7 +394,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                         className="mt-3"
                         onClick={() => onGenerateDraft(branch)}
                       >
-                        <Sparkles className="h-3.5 w-3.5" />
+                        <Sparkles className="h-3.5 w-3.5 shrink-0" />
                         {t("storySimulation.generateDraft")}
                       </Button>
                     )}
@@ -409,7 +409,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
             <section>
               <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
                 <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-primary">
-                  <Sparkles className="h-3.5 w-3.5" />
+                  <Sparkles className="h-3.5 w-3.5 shrink-0" />
                   {t("storySimulation.overallRecommendation")}
                   {recommendationDiff && (
                     <span className="ml-auto text-xs font-normal text-warning">{t("storySimulation.hasDiff")}</span>
@@ -500,16 +500,16 @@ export function SimulationReportView({
     <div className="flex h-full flex-col">
       {/* 顶部工具栏 */}
       <div className="flex items-center justify-between border-b px-4 py-3">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="h-4 w-4 text-primary" />
-          <h2 className="text-sm font-semibold">{t("storySimulation.reportTitle")}</h2>
+        <div className="flex items-center gap-2 min-w-0">
+          <TrendingUp className="h-4 w-4 shrink-0 text-primary" />
+          <h2 className="text-sm font-semibold truncate">{t("storySimulation.reportTitle")}</h2>
           {currentResult && (
-            <span className="rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+            <span className="shrink-0 rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
               {formatDate(currentResult.createdAt)}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {/* 历史结果选择 */}
           {savedResults.length > 0 && (
             <select
@@ -541,7 +541,7 @@ export function SimulationReportView({
                 }
               }}
             >
-              <GitCompare className="mr-1 h-3.5 w-3.5" />
+              <GitCompare className="mr-1 h-3.5 w-3.5 shrink-0" />
               {t("storySimulation.compareResults")}
             </Button>
           )}
@@ -559,7 +559,7 @@ export function SimulationReportView({
                 ))}
               </select>
               <Button variant="ghost" size="sm" onClick={handleExitCompare}>
-                <X className="h-3.5 w-3.5" />
+                <X className="h-3.5 w-3.5 shrink-0" />
               </Button>
             </>
           )}
@@ -569,7 +569,7 @@ export function SimulationReportView({
               size="sm"
               onClick={onViewInterviewHistory}
             >
-              <MessageCircle className="mr-1 h-3.5 w-3.5" />
+              <MessageCircle className="mr-1 h-3.5 w-3.5 shrink-0" />
               {t("storySimulation.interviewHistory")}
             </Button>
           )}
@@ -579,18 +579,18 @@ export function SimulationReportView({
             onClick={handleExport}
             disabled={exporting}
           >
-            <Download className="mr-1 h-3.5 w-3.5" />
+            <Download className="mr-1 h-3.5 w-3.5 shrink-0" />
             {exporting ? t("storySimulation.exporting") : t("storySimulation.exportReport")}
           </Button>
           {!currentResult && hasDraft && onViewDraft && (
             <Button variant="default" size="sm" onClick={onViewDraft}>
-              <Sparkles className="mr-1 h-3.5 w-3.5" />
+              <Sparkles className="mr-1 h-3.5 w-3.5 shrink-0" />
               {t("storySimulation.viewDraft")}
             </Button>
           )}
           {!currentResult && (
             <Button variant="outline" size="sm" onClick={onResimulate}>
-              <RefreshCw className="mr-1 h-3.5 w-3.5" />
+              <RefreshCw className="mr-1 h-3.5 w-3.5 shrink-0" />
               {t("storySimulation.resimulate")}
             </Button>
           )}
@@ -746,21 +746,21 @@ function TimelineGroupedEvents({
               {/* 节点标题栏 - 可点击折叠 */}
               <button
                 type="button"
-                className={`flex w-full items-center gap-2 text-left hover:bg-accent/50 ${compact ? "px-2 py-1.5" : "px-3 py-2"}`}
+                className={`flex w-full items-center gap-2 text-left hover:bg-accent/50 min-w-0 ${compact ? "px-2 py-1.5" : "px-3 py-2"}`}
                 onClick={() => toggleNode(nodeIndex)}
               >
                 {isCollapsed ? (
-                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 ) : (
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 )}
-                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
+                <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
                   {phaseLabel(phase)}
                 </span>
-                <span className={`font-medium ${compact ? "text-xs" : "text-sm"}`}>
+                <span className={`font-medium min-w-0 truncate ${compact ? "text-xs" : "text-sm"}`}>
                   {t("storySimulation.nodeWithTitle", { index: nodeIndex + 1, title: nodeTitle })}
                 </span>
-                <span className="ml-auto text-[11px] text-muted-foreground">
+                <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
                   {t("storySimulation.countItems", { count: nodeEvents.length })}
                 </span>
               </button>

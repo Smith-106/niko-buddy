@@ -96,10 +96,10 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
         </h3>
         <div className="flex items-center gap-1">
           <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={onRefresh} aria-label={t("novel.planning.refresh", { defaultValue: "刷新" })}>
-            <RefreshCw className="h-3.5 w-3.5" />
+            <RefreshCw className="h-3.5 w-3.5 shrink-0" />
           </Button>
           <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={onClose} aria-label={t("novel.planning.close", { defaultValue: "关闭" })}>
-            <X className="h-3.5 w-3.5" />
+            <X className="h-3.5 w-3.5 shrink-0" />
           </Button>
         </div>
       </div>
@@ -124,11 +124,11 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
             ) : plan.foreshadowing.report && plan.foreshadowing.report.items.length > 0 ? (
               <ul className="space-y-1">
                 {plan.foreshadowing.report.items.slice(0, 5).map((item) => (
-                  <li key={item.name} className="flex items-center gap-2">
-                    <span className={`rounded px-1.5 py-0.5 text-xs ${DEBT_LEVEL_STYLES[item.debtLevel] ?? DEBT_LEVEL_STYLES.normal}`}>
+                  <li key={item.name} className="flex items-center gap-2 min-w-0">
+                    <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${DEBT_LEVEL_STYLES[item.debtLevel] ?? DEBT_LEVEL_STYLES.normal}`}>
                       {item.debtLevel}
                     </span>
-                    <span className="truncate">{item.name}</span>
+                    <span className="min-w-0 truncate">{item.name}</span>
                     <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                       {t("novel.planning.chaptersSince", { defaultValue: "已 {{n}} 章未推进", n: item.chaptersSincePlanted })}
                     </span>
@@ -150,20 +150,20 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
             ) : plan.characters.items.length > 0 ? (
               <ul className="space-y-1">
                 {plan.characters.items.slice(0, 6).map((c) => (
-                  <li key={c.name} className="flex items-center gap-2">
-                    <span className="truncate">{c.name}</span>
+                  <li key={c.name} className="flex items-center gap-2 min-w-0">
+                    <span className="min-w-0 truncate">{c.name}</span>
                     {c.inCurrentOutline && (
-                      <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs text-accent">
+                      <span className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 text-xs text-accent">
                         {t("novel.planning.inOutline", { defaultValue: "本章出场" })}
                       </span>
                     )}
                     {c.isAlive === false && (
-                      <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive">
+                      <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive">
                         {t("novel.planning.dead", { defaultValue: "已退场" })}
                       </span>
                     )}
                     {c.chaptersSinceSeen !== undefined && c.chaptersSinceSeen >= 10 && !c.inCurrentOutline && (
-                      <span className="rounded bg-warning/10 px-1.5 py-0.5 text-xs text-warning">
+                      <span className="shrink-0 rounded bg-warning/10 px-1.5 py-0.5 text-xs text-warning">
                         {t("novel.planning.dormant", { defaultValue: "已 {{n}} 章未出场", n: c.chaptersSinceSeen })}
                       </span>
                     )}
@@ -185,11 +185,11 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
             ) : plan.threads.items.length > 0 ? (
               <ul className="space-y-1">
                 {plan.threads.items.slice(0, 5).map((thread) => (
-                  <li key={thread.title} className="flex items-center gap-2">
-                    <span className={`rounded px-1.5 py-0.5 text-xs ${ARC_STATE_STYLES[thread.arcState] ?? ARC_STATE_STYLES.Setup}`}>
+                  <li key={thread.title} className="flex items-center gap-2 min-w-0">
+                    <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${ARC_STATE_STYLES[thread.arcState] ?? ARC_STATE_STYLES.Setup}`}>
                       {thread.arcState}
                     </span>
-                    <span className="truncate">{thread.title}</span>
+                    <span className="min-w-0 truncate">{thread.title}</span>
                     {thread.transitionViolation && (
                       <span className="ml-auto shrink-0 text-xs text-destructive">{thread.transitionViolation}</span>
                     )}
@@ -237,7 +237,7 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
               })}
             </p>
             <Button type="button" size="sm" onClick={() => onStartWriting(plan)}>
-              <Play className="mr-1 h-3.5 w-3.5" />
+              <Play className="mr-1 h-3.5 w-3.5 shrink-0" />
               {t("novel.planning.startWriting", { defaultValue: "以此计划开写" })}
             </Button>
           </div>

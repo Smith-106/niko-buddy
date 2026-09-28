@@ -502,7 +502,7 @@ export function PreviewPanel() {
   const chapterStatusMeta = chapterHeader ? (
     chapterHeader.status === "final" ? (
       <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-success/35 bg-success/10 px-2 py-0.5 text-xs font-medium leading-5 text-success dark:text-success">
-        <Check className="h-3 w-3" />
+        <Check className="h-3 w-3 shrink-0" />
         <span>{chapterHeader.statusLabel}</span>
       </span>
     ) : chapterHeader.status === "draft" ? (
@@ -1145,12 +1145,12 @@ export function PreviewPanel() {
         <div className="border-b px-3 py-2 bg-warning dark:bg-warning/30">
           <div className="flex items-center gap-2">
             <div className="flex min-w-0 flex-1">
-              <div className="flex flex-col">
-                <div className="text-sm font-medium truncate">{selectedTrashItem.name}</div>
-                <div className="text-xs text-muted-foreground truncate">
+              <div className="flex flex-col min-w-0 flex-1">
+                <div className="text-sm font-medium truncate min-w-0">{selectedTrashItem.name}</div>
+                <div className="text-xs text-muted-foreground truncate min-w-0">
                   {t("trash.deletedItem", { defaultValue: "已删除项目" })} · {selectedTrashItem.kind === "chapter" ? t("trash.kindChapter", { defaultValue: "章节" }) : selectedTrashItem.kind === "outline" ? t("trash.kindOutline", { defaultValue: "大纲" }) : selectedTrashItem.kind === "history" ? t("trash.kindHistory", { defaultValue: "历史记录" }) : t("trash.kindPage", { defaultValue: "页面" })}
                 </div>
-                <div className="text-xs text-muted-foreground truncate">
+                <div className="text-xs text-muted-foreground truncate min-w-0">
                   {t("trash.originalPath", { defaultValue: "原路径" })}: {selectedTrashItem.originalPath}
                 </div>
               </div>
@@ -1160,7 +1160,7 @@ export function PreviewPanel() {
               className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted"
               title={t("preview.close", { defaultValue: "关闭预览" })}
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-3.5 w-3.5 shrink-0" />
             </button>
           </div>
         </div>
@@ -1267,7 +1267,7 @@ export function PreviewPanel() {
                 title={t("preview.moreActions")}
                 aria-label={t("preview.moreActions")}
               >
-                <MoreHorizontal className="h-3.5 w-3.5" />
+                <MoreHorizontal className="h-3.5 w-3.5 shrink-0" />
               </button>
               {chapterToolbarMoreOpen ? (
                 <div className="absolute right-0 top-8 z-30 w-40 rounded-md border bg-popover p-1 text-xs text-popover-foreground shadow-lg">
@@ -1540,12 +1540,12 @@ export function PreviewPanel() {
             onClick={() => setSelectedFile(null)}
             className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-3.5 w-3.5 shrink-0" />
           </button>
           </div>
         </div>
         {visibleSaveStatus ? (
-          <div className="mt-1 flex items-center justify-end gap-2 text-right">
+          <div className="mt-1 flex items-center justify-end gap-2 text-right min-w-0">
             {selectionActionPending ? (
               <button
                 type="button"
@@ -1555,7 +1555,7 @@ export function PreviewPanel() {
                 取消
               </button>
             ) : null}
-            <span className="block truncate text-[11px] text-muted-foreground/80">
+            <span className="block truncate text-[11px] text-muted-foreground/80 min-w-0">
               {visibleSaveStatus}
             </span>
           </div>

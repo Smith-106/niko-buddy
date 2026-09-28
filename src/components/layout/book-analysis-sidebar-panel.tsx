@@ -274,7 +274,7 @@ export function BookAnalysisSidebarPanel() {
                   </span>
                   {(bookAuraCount[book.id] ?? 0) > 0 && (
                     <span className="mt-1 flex items-center gap-1 text-xs text-primary">
-                      <CheckCircle2 className="h-3 w-3" />
+                      <CheckCircle2 className="h-3 w-3 shrink-0" />
                       已添加 {bookAuraCount[book.id]} 个灵魂
                     </span>
                   )}
@@ -283,11 +283,11 @@ export function BookAnalysisSidebarPanel() {
               <button
                 type="button"
                 onClick={() => handleDeleteBook(book)}
-                className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                 title={t("bookAnalysis.deleteWork")}
                 aria-label={t("bookAnalysis.deleteWork")}
               >
-                <Trash2 className="h-4 w-4" />
+                <Trash2 className="h-4 w-4 shrink-0" />
               </button>
             </div>
           ))
@@ -302,16 +302,16 @@ export function BookAnalysisSidebarPanel() {
             const taskName = task.metadata?.title || getFileName(task.config.sourcePath) || t("appLayout.bookAnalysis.error")
             return (
               <div key={task.id} className="space-y-1">
-                <div className="flex items-center gap-1.5 text-xs">
+                <div className="flex items-center gap-1.5 text-xs min-w-0">
                   <AlertTriangle className="h-3 w-3 shrink-0 text-destructive" />
-                  <span className="font-medium text-foreground truncate">{taskName}</span>
+                  <span className="font-medium text-foreground truncate min-w-0">{taskName}</span>
                   <button
                     type="button"
                     onClick={() => handleRetryTask(task.id)}
                     className="ml-auto flex shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20 transition-colors"
                     title={t("appLayout.bookAnalysis.retry")}
                   >
-                    <RotateCcw className="h-2.5 w-2.5" />
+                    <RotateCcw className="h-2.5 w-2.5 shrink-0" />
                     {t("appLayout.bookAnalysis.retry")}
                   </button>
                 </div>
@@ -326,13 +326,13 @@ export function BookAnalysisSidebarPanel() {
             const stageLabel = task.progress.stageLabel || "识别完成"
             return (
               <div key={task.id} className="space-y-1">
-                <div className="flex items-center gap-1.5 text-xs">
-                  <CheckCircle2 className="h-3 w-3 text-success" />
-                  <span className="font-medium text-foreground truncate">{stageLabel}</span>
+                <div className="flex items-center gap-1.5 text-xs min-w-0">
+                  <CheckCircle2 className="h-3 w-3 shrink-0 text-success" />
+                  <span className="font-medium text-foreground truncate min-w-0">{stageLabel}</span>
                   <button
                     type="button"
                     onClick={() => handleReopenRecognition(task.id)}
-                    className="ml-auto flex items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20 transition-colors"
+                    className="ml-auto flex shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20 transition-colors"
                     title={t("appLayout.bookAnalysis.openCharacterPicker")}
                   >
                     现在处理
@@ -347,17 +347,17 @@ export function BookAnalysisSidebarPanel() {
             const percentage = task.progress.percentage ?? 0
             return (
               <div key={task.id} className="space-y-1">
-                <div className="flex items-center gap-1.5 text-xs">
-                  <Loader2 className="h-3 w-3 animate-spin text-primary" />
-                  <span className="font-medium text-foreground truncate">{stageLabel}</span>
+                <div className="flex items-center gap-1.5 text-xs min-w-0">
+                  <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+                  <span className="font-medium text-foreground truncate min-w-0">{stageLabel}</span>
                   <span className="ml-auto text-muted-foreground shrink-0">{percentage}%</span>
                   <button
                     type="button"
                     onClick={() => cancelTask(task.id)}
-                    className="flex items-center gap-1 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive hover:bg-destructive/20 transition-colors"
+                    className="flex shrink-0 items-center gap-1 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive hover:bg-destructive/20 transition-colors"
                     title={t("appLayout.bookAnalysis.stopNow")}
                   >
-                    <Square className="h-2.5 w-2.5" />
+                    <Square className="h-2.5 w-2.5 shrink-0" />
                     停止
                   </button>
                 </div>

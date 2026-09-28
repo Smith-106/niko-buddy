@@ -163,7 +163,7 @@ function OutlineAssistantMessage({ msg, index, isStreaming, streamingContent, ac
       {msg.sources && msg.sources.length > 0 && !isStreaming ? (
         <details className="mt-2 border-t pt-2">
           <summary className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-            <FileText className="h-3 w-3" />
+            <FileText className="h-3 w-3 shrink-0" />
             引用资料（{msg.sources.length}）
           </summary>
           <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
@@ -173,15 +173,15 @@ function OutlineAssistantMessage({ msg, index, isStreaming, streamingContent, ac
       ) : null}
       {/* Action buttons */}
       {actionContent && !isStreaming ? (
-        <div className="mt-2 flex gap-2 border-t pt-2">
+        <div className="mt-2 flex flex-wrap gap-2 border-t pt-2">
           <button onClick={() => void onSaveAsOutline(actionContent)} className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent">
-            <Save className="h-3 w-3" /> 保存为大纲
+            <Save className="h-3 w-3 shrink-0" /> 保存为大纲
           </button>
           <button onClick={() => onCopy(actionContent, msg.id)} className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent">
-            <Copy className="h-3 w-3" /> {copied === msg.id ? "已复制" : "复制"}
+            <Copy className="h-3 w-3 shrink-0" /> {copied === msg.id ? "已复制" : "复制"}
           </button>
           <button onClick={() => void onRegenerate(index)} disabled={isStreaming} className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent disabled:opacity-50">
-            <RefreshCw className="h-3 w-3" /> 重新生成
+            <RefreshCw className="h-3 w-3 shrink-0" /> 重新生成
           </button>
         </div>
       ) : null}
@@ -547,13 +547,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   return (
     <div className="flex h-full flex-col border-border bg-background">
       {/* Header with conversation tabs */}
-      <div className="flex items-center gap-1 border-b px-2 py-1.5 overflow-x-auto">
+      <div className="flex items-center gap-1 border-b px-2 py-1.5 overflow-x-auto min-w-0">
         <button
           onClick={() => { createConversation() }}
           className="shrink-0 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent"
           title={t("novel.outlineNewChat")}
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-3.5 w-3.5 shrink-0" />
         </button>
         {conversations.map((conv) => (
           <button
@@ -565,15 +565,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           >
             <span className="max-w-[100px] truncate">{conv.title}</span>
             <Trash2
-              className="h-3 w-3 opacity-0 group-hover:opacity-100 hover:text-destructive"
+              className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-100 hover:text-destructive"
               onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id) }}
             />
           </button>
         ))}
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1 shrink-0">
           {saveStatus && <span className="text-xs text-muted-foreground">{saveStatus}</span>}
           <button onClick={onClose} aria-label="关闭" className="rounded p-1 text-muted-foreground hover:bg-accent">
-            <X className="h-3.5 w-3.5" />
+            <X className="h-3.5 w-3.5 shrink-0" />
           </button>
         </div>
       </div>
@@ -587,7 +587,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         ) : null}
         {activeMessages.map((msg, i) => (
           <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+            <div className={`max-w-[85%] min-w-0 break-words rounded-lg px-3 py-2 text-sm ${
               msg.role === "user"
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted text-foreground"
@@ -606,7 +606,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   onRegenerate={handleRegenerate}
                 />
               ) : (
-                <span>{msg.content}</span>
+                <span className="break-words">{msg.content}</span>
               )}
             </div>
           </div>
