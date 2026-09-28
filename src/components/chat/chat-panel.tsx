@@ -2715,7 +2715,11 @@ export function ChatPanel() {
                           aria-pressed={deepChapterEnabled}
                           className={getDeepChapterToggleButtonClass(deepChapterEnabled)}
                           onClick={() => setDeepChapterEnabled(!deepChapterEnabled)}
-                          title={deepChapterEnabled ? "关闭深度模式" : "开启深度模式"}
+                          title={
+                            deepChapterEnabled
+                              ? "深章模式已激活（自动三级门控自愈与事实双写，点击关闭）"
+                              : "开启深章模式（开启三级门控自愈、大纲细纲约束与沙箱草稿管理）"
+                          }
                           aria-label={deepChapterEnabled ? "关闭深度模式" : "开启深度模式"}
                         >
                           <Brain className="h-4 w-4 shrink-0" />
@@ -2779,7 +2783,9 @@ export function ChatPanel() {
             placeholder={
               mode === "ingest"
                 ? t(novelMode ? "novel.chat.ingestPlaceholder" : "chat.ingestPlaceholder")
-                : t(novelMode ? "novel.chat.typeAMessage" : "chat.typeAMessage")
+                : novelMode && deepChapterEnabled
+                  ? "输入章节写作指令（深章模式已激活，全自动门控自愈与沙箱管理）..."
+                  : t(novelMode ? "novel.chat.typeAMessage" : "chat.typeAMessage")
             }
           />
         </div>

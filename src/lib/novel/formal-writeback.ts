@@ -1,5 +1,7 @@
-import { deleteFile, fileExists, writeFileAtomic } from "@/commands/fs"
+import { deleteFile, fileExists, readFile, writeFileAtomic } from "@/commands/fs"
 import { toErrorMessage, logger } from "@/lib/utils"
+import { parseFrontmatter } from "@/lib/frontmatter"
+import { isFinalChapter } from "./chapter-meta"
 import { acceptDeepChapterDraft } from "./novel-session-status"
 import { updateEmotionLedgerFromChapter } from "./emotion-ledger"
 import { promote, sha256Prefix } from "./promotion-bridge"
@@ -12,13 +14,29 @@ export interface CommitAcceptedDeepChapterDraftInput {
   chapterPath: string
   finalChapterContent: string
   sessionId?: string
+  overwriteExisting?: boolean
 }
 
 export async function commitAcceptedDeepChapterDraft(
   input: CommitAcceptedDeepChapterDraftInput,
 ): Promise<void> {
   if (await fileExists(input.chapterPath)) {
-    throw new Error(`Formal chapter already exists: ${input.chapterPath}`)
+    if (!input.overwriteExisting) {
+      try {
+        const existingContent = await readFile(input.chapterPath)
+        const { frontmatter, body } = parseFrontmatter(existingContent)
+        // 仅当已有文件明确为已定稿章节 (isFinalChapter 为 true 且正文字数 >= 100) 时拒绝覆盖
+        const isFormalFinal = isFinalChapter(frontmatter ?? {}) && body.trim().length >= 100
+        if (isFormalFinal) {
+          throw new Error(`Formal chapter already exists: ${input.chapterPath}`)
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith("Formal chapter already exists")) {
+          throw err
+        }
+        // 读取失败或非定稿章节（如 planned 骨架、未完成草稿）允许覆盖晋升
+      }
+    }
   }
 
   await writeFileAtomic(input.chapterPath, input.finalChapterContent)

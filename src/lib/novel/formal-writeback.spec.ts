@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const fsMocks = vi.hoisted(() => ({
   deleteFile: vi.fn(async () => {}),
   fileExists: vi.fn(async () => false),
+  readFile: vi.fn(async () => ""),
   writeFileAtomic: vi.fn(async () => {}),
 }))
 
@@ -19,10 +20,10 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
   return {
     ...actual,
-      deleteFile: fsMocks.deleteFile,
-      fileExists: fsMocks.fileExists,
-      writeFileAtomic: fsMocks.writeFileAtomic,
-    
+    deleteFile: fsMocks.deleteFile,
+    fileExists: fsMocks.fileExists,
+    readFile: fsMocks.readFile,
+    writeFileAtomic: fsMocks.writeFileAtomic,
   }
 })
 
@@ -38,9 +39,8 @@ vi.mock("@/lib/utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/utils")>()
   return {
     ...actual,
-      toErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-      logger: { warn: ledgerMocks.loggerWarn, error: vi.fn() },
-    
+    toErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    logger: { warn: ledgerMocks.loggerWarn, error: vi.fn() },
   }
 })
 
@@ -50,6 +50,7 @@ describe("formal-writeback", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     fsMocks.fileExists.mockResolvedValue(false)
+    fsMocks.readFile.mockResolvedValue("")
     fsMocks.writeFileAtomic.mockResolvedValue(undefined)
     fsMocks.deleteFile.mockResolvedValue(undefined)
     statusMocks.acceptDeepChapterDraft.mockResolvedValue(undefined)
@@ -85,6 +86,9 @@ describe("formal-writeback", () => {
 
   it("refuses to overwrite an existing formal chapter path", async () => {
     fsMocks.fileExists.mockResolvedValueOnce(true)
+    fsMocks.readFile.mockResolvedValueOnce(
+      "---\ntype: chapter\nchapter_status: final\n---\n\n" + "已完稿正文内容。".repeat(20),
+    )
 
     await expect(commitAcceptedDeepChapterDraft({
       projectPath: "E:/Novel",
@@ -98,6 +102,52 @@ describe("formal-writeback", () => {
     expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
     expect(statusMocks.acceptDeepChapterDraft).not.toHaveBeenCalled()
     expect(fsMocks.deleteFile).not.toHaveBeenCalled()
+  })
+
+  it("allows overwriting a planned skeleton chapter without error", async () => {
+    fsMocks.fileExists.mockResolvedValueOnce(true)
+    fsMocks.readFile.mockResolvedValueOnce(
+      "---\ntype: chapter\nchapter_status: planned\ntitle: '第3章'\n---\n\n# 第3章\n\n（待根据大纲细化剧情起草）",
+    )
+
+    await commitAcceptedDeepChapterDraft({
+      projectPath: "E:/Novel",
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      chapterPath: "E:/Novel/wiki/chapters/chapter-003.md",
+      finalChapterContent: "# Chapter 3\n\n正式生成的万字章节正文",
+      sessionId: "novel-20260629-010203",
+    })
+
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledWith(
+      "E:/Novel/wiki/chapters/chapter-003.md",
+      "# Chapter 3\n\n正式生成的万字章节正文",
+    )
+    expect(statusMocks.acceptDeepChapterDraft).toHaveBeenCalled()
+  })
+
+  it("allows overwriting an existing final chapter when overwriteExisting is true", async () => {
+    fsMocks.fileExists.mockResolvedValueOnce(true)
+    fsMocks.readFile.mockResolvedValueOnce(
+      "---\ntype: chapter\nchapter_status: final\n---\n\n" + "已存在正文".repeat(30),
+    )
+
+    await commitAcceptedDeepChapterDraft({
+      projectPath: "E:/Novel",
+      conversationId: "conv-1",
+      userRequest: "regenerate chapter 3",
+      chapterNumber: 3,
+      chapterPath: "E:/Novel/wiki/chapters/chapter-003.md",
+      finalChapterContent: "# Chapter 3\n\n重写后的新正式正文",
+      overwriteExisting: true,
+    })
+
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledWith(
+      "E:/Novel/wiki/chapters/chapter-003.md",
+      "# Chapter 3\n\n重写后的新正式正文",
+    )
+    expect(statusMocks.acceptDeepChapterDraft).toHaveBeenCalled()
   })
 
   it("rolls back the formal chapter file when draft acceptance fails", async () => {

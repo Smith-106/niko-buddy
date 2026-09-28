@@ -16,6 +16,8 @@ import { getChapterVolumes } from "./volume"
 import { readSoulDoc } from "./soul-doc"
 import { buildWritingStyleContext } from "./writing-style-store"
 import type { DataSource, ContextLoadContext } from "./context-data-source"
+import { loadBinding } from "./story-simulation/framework-binding"
+import { loadFrameworks } from "./story-simulation/framework-store"
 
 // 导入现有的辅助函数
 import {
@@ -576,6 +578,67 @@ export const characterAurasDataSource: DataSource<string> = {
 }
 
 /**
+ * 故事模拟框架绑定数据源
+ * 读取当前激活的起承转合故事框架绑定，将当前章节所属节点的冲突、目标与走向注入上下文
+ */
+export const storySimulationBindingDataSource: DataSource<string> = {
+  name: "storySimulationBinding",
+  priority: 19,
+  async load(context: ContextLoadContext): Promise<string> {
+    try {
+      const binding = await loadBinding(context.projectPath)
+      if (!binding || !binding.chapterAllocation || binding.chapterAllocation.length === 0) {
+        return ""
+      }
+      const chNum = context.chapterNumber
+      if (typeof chNum !== "number" || chNum <= 0) {
+        return ""
+      }
+      const matched = binding.chapterAllocation.find(
+        (a) => chNum >= a.startChapter && chNum <= a.endChapter,
+      )
+      if (!matched) return ""
+
+      let nodeDetail = ""
+      try {
+        const frameworks = await loadFrameworks(context.projectPath)
+        const fw = frameworks.find((f) => f.id === binding.frameworkId)
+        if (fw) {
+          const node = fw.nodes.find((n) => n.index === matched.nodeIndex)
+          if (node) {
+            nodeDetail = [
+              `- 故事阶段：【${node.phase}】`,
+              `- 节点任务：${node.title}`,
+              `- 核心冲突：${node.coreConflict}`,
+              node.involvedCharacters && node.involvedCharacters.length > 0
+                ? `- 涉及角色：${node.involvedCharacters.join("、")}`
+                : "",
+              node.goal ? `- 阶段目标：${node.goal}` : "",
+              node.causeFromPrev ? `- 承接前因：${node.causeFromPrev}` : "",
+              node.expectedOutcome ? `- 预期结果：${node.expectedOutcome}` : "",
+            ].filter(Boolean).join("\n")
+          }
+        }
+      } catch {
+        // 容错降级
+      }
+
+      const lines = [
+        "## 故事模拟框架指引 (Story Framework Guidance)",
+        `- 激活框架：${binding.frameworkTitle}`,
+        `- 章节分配：第${matched.startChapter}-${matched.endChapter}章 → 【${matched.nodeTitle}】`,
+      ]
+      if (nodeDetail) {
+        lines.push(nodeDetail)
+      }
+      return lines.join("\n")
+    } catch {
+      return ""
+    }
+  },
+}
+
+/**
  * 获取所有数据源
  */
 export function getAllDataSources(): DataSource<unknown>[] {
@@ -598,5 +661,7 @@ export function getAllDataSources(): DataSource<unknown>[] {
     revisionFeedbackDataSource,
     cognitionTextDataSource,
     soulDocDataSource,
+    characterAurasDataSource,
+    storySimulationBindingDataSource,
   ]
 }

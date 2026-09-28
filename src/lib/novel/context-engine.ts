@@ -69,6 +69,7 @@ import {
 } from "./related-chapters"
 import { loadForeshadowingTracker } from "./foreshadowing-tracker"
 import type { ForeshadowingStore } from "./foreshadowing-tracker"
+import { findChapterFileByNumber } from "./chapter-utils"
 // P1-IMP-13 (A1a): reference-binding 素材用途绑定进 ContextPack（additive
 // pack.referenceBindings，零绑定字节级不变）。
 import { loadReferenceBindings, bindingsToContextText } from "./reference-binding"
@@ -1131,7 +1132,7 @@ async function buildContextPackFromRawData(
   // 构建章节目标
   const chapterGoal = buildChapterGoal(
     rawStr(rawData.outline),
-    rawStr(rawData.chapterOutline),
+    joinNonEmpty([rawStr(rawData.storySimulationBinding), rawStr(rawData.chapterOutline)], "\n\n"),
     context.chapterNumber
   )
 
@@ -1139,6 +1140,7 @@ async function buildContextPackFromRawData(
   const mergedOutline = joinNonEmpty([
     rawStr(rawData.outline),
     rawStr(rawData.volumeContext),
+    rawStr(rawData.storySimulationBinding),
     rawStr(rawData.chapterOutline)
   ], "\n\n")
 
@@ -1784,7 +1786,38 @@ async function readChapterOutlineDirect(pp: string, chapterNumber: number): Prom
   } catch {
     // fall through to project-root FILLED outlines (M1)
   }
-  return readProjectRootFilledOutline(pp, chapterNumber)
+  const rootFilled = await readProjectRootFilledOutline(pp, chapterNumber)
+  if (rootFilled.trim()) return rootFilled
+
+  // 探测骨架章节（大纲解构分发生成物：chapter_status: "planned" 或正文大纲梗概）
+  try {
+    const chapterFilePath = await findChapterFileByNumber(pp, chapterNumber)
+    if (chapterFilePath) {
+      const content = await readFile(chapterFilePath)
+      const { frontmatter, body } = parseFrontmatter(content)
+      const status = frontmatter?.chapter_status
+      // 只要不是已经定稿完成的正式章节（例如 planned 或草稿中含有概要/大纲提示）
+      if (status === "planned" || status === "draft" || status === "outline") {
+        const summary = typeof frontmatter?.summary === "string" ? frontmatter.summary.trim() : ""
+        const cleanBody = body.trim()
+        if (summary || cleanBody) {
+          const outlineText = summary
+            ? `# 第${chapterNumber}章大纲纲要\n\n${summary}\n\n${cleanBody}`
+            : cleanBody
+          return tieredSlice(
+            outlineText,
+            "protected",
+            resolveChapterOutlineProtectedCap(),
+            `chapter-outline:${chapterNumber}:skeleton`,
+          )
+        }
+      }
+    }
+  } catch {
+    // 降级忽略
+  }
+
+  return ""
 }
 
 /**

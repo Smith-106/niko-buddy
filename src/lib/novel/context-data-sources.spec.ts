@@ -20,6 +20,7 @@ import {
   cognitionTextDataSource,
   soulDocDataSource,
   characterAurasDataSource,
+  storySimulationBindingDataSource,
   getAllDataSources,
 } from "./context-data-sources"
 import { DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG } from "./revision-feedback"
@@ -797,9 +798,9 @@ describe("soulDocDataSource / characterAurasDataSource / getAllDataSources", () 
     await expect(characterAurasDataSource.load(context)).resolves.toBe("")
   })
 
-  it("getAllDataSources 返回全部 18 个数据源", async () => {
+  it("getAllDataSources 返回全部 20 个数据源", async () => {
     const sources = getAllDataSources()
-    expect(sources).toHaveLength(18)
+    expect(sources).toHaveLength(20)
     expect(sources.map((s) => s.name)).toEqual([
       "outline",
       "chapterOutline",
@@ -819,6 +820,43 @@ describe("soulDocDataSource / characterAurasDataSource / getAllDataSources", () 
       "revisionFeedback",
       "cognitionText",
       "soulDoc",
+      "characterAuras",
+      "storySimulationBinding",
     ])
+  })
+})
+
+describe("storySimulationBindingDataSource", () => {
+  it("无 chapterNumber 或小于等于 0 时返回空串", async () => {
+    await expect(storySimulationBindingDataSource.load({ ...context, chapterNumber: undefined })).resolves.toBe("")
+    await expect(storySimulationBindingDataSource.load({ ...context, chapterNumber: 0 })).resolves.toBe("")
+  })
+
+  it("无激活框架绑定或文件读取失败时返回空串", async () => {
+    mocks.readFile.mockRejectedValueOnce(new Error("not found"))
+    await expect(storySimulationBindingDataSource.load({ ...context, chapterNumber: 3 })).resolves.toBe("")
+  })
+
+  it("命中章节分配时返回故事框架指引与阶段任务", async () => {
+    const mockBinding = JSON.stringify({
+      frameworkId: "fw-1",
+      frameworkTitle: "逆天反击战",
+      targetChapterCount: 10,
+      chapterAllocation: [
+        { nodeIndex: 1, nodeTitle: "深渊苏醒", startChapter: 1, endChapter: 3 },
+        { nodeIndex: 2, nodeTitle: "探寻真相", startChapter: 4, endChapter: 7 },
+      ],
+      boundAt: "2026-09-29T00:00:00Z",
+    })
+    mocks.readFile.mockImplementation(async (filePath: string) => {
+      if (typeof filePath === "string" && filePath.includes("active-binding.json")) return mockBinding
+      return ""
+    })
+
+    const result = await storySimulationBindingDataSource.load({ ...context, chapterNumber: 2 })
+    expect(result).toContain("## 故事模拟框架指引")
+    expect(result).toContain("逆天反击战")
+    expect(result).toContain("第1-3章")
+    expect(result).toContain("深渊苏醒")
   })
 })

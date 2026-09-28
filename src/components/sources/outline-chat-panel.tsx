@@ -1,6 +1,6 @@
 import React, { useRef, useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { X, Save, Copy, RefreshCw, FileText, Plus, Trash2 } from "lucide-react"
+import { X, Save, Copy, RefreshCw, FileText, Plus, Trash2, Layers } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineChatStore, type OutlineChatMessage } from "@/stores/outline-chat-store"
 import { normalizePath } from "@/lib/path-utils"
@@ -14,6 +14,7 @@ import ReactMarkdown from "react-markdown"
 import { FileEditPreview } from "@/components/chat/file-edit-preview"
 import { ChatDockControls } from "@/components/chat/chat-dock-controls"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { UnpackOutlineDialog } from "@/components/novel/unpack-outline-dialog"
 import { prepareOutlineSaveDraft } from "@/lib/outline-save"
 import { resolveUserVisibleReasoning } from "@/lib/user-visible-reasoning"
 import { createDeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
@@ -105,7 +106,7 @@ const OutlineThinkingBlock = React.memo(function OutlineThinkingBlock({ content,
   )
 })
 
-function OutlineAssistantMessage({ msg, index, isStreaming, streamingContent, activeMessagesLength, copied, projectPath, onSaveAsOutline, onCopy, onRegenerate }: {
+function OutlineAssistantMessage({ msg, index, isStreaming, streamingContent, activeMessagesLength, copied, projectPath, onSaveAsOutline, onUnpackOutline, onCopy, onRegenerate }: {
   msg: import("@/stores/outline-chat-store").OutlineChatMessage
   index: number
   isStreaming: boolean
@@ -114,6 +115,7 @@ function OutlineAssistantMessage({ msg, index, isStreaming, streamingContent, ac
   copied: string | null
   projectPath: string | null
   onSaveAsOutline: (content: string) => Promise<void>
+  onUnpackOutline: (content: string) => void
   onCopy: (content: string, id: string) => void
   onRegenerate: (index: number) => Promise<void>
 }) {
@@ -177,6 +179,9 @@ function OutlineAssistantMessage({ msg, index, isStreaming, streamingContent, ac
           <button onClick={() => void onSaveAsOutline(actionContent)} className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent">
             <Save className="h-3 w-3 shrink-0" /> 保存为大纲
           </button>
+          <button onClick={() => onUnpackOutline(actionContent)} className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs text-primary hover:bg-accent" title="将本大纲自动解构为 chapters 章节骨架文件">
+            <Layers className="h-3 w-3 shrink-0" /> 解构铺排章节
+          </button>
           <button onClick={() => onCopy(actionContent, msg.id)} className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent">
             <Copy className="h-3 w-3 shrink-0" /> {copied === msg.id ? "已复制" : "复制"}
           </button>
@@ -224,6 +229,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
   const [saveStatus, setSaveStatus] = useState("")
   const [copied, setCopied] = useState<string | null>(null)
+  const [unpackOutlineContent, setUnpackOutlineContent] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const userScrolledUpRef = useRef(false)
   const lastScrollTopRef = useRef(0)
@@ -614,6 +620,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   copied={copied}
                   projectPath={project?.path ?? null}
                   onSaveAsOutline={handleSaveAsOutline}
+                  onUnpackOutline={setUnpackOutlineContent}
                   onCopy={handleCopy}
                   onRegenerate={handleRegenerate}
                 />
@@ -666,6 +673,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             </div>
           </TooltipProvider>
         }
+      />
+      <UnpackOutlineDialog
+        open={Boolean(unpackOutlineContent)}
+        onOpenChange={(open) => {
+          if (!open) setUnpackOutlineContent(null)
+        }}
+        outlineContent={unpackOutlineContent ?? ""}
       />
     </div>
   )
