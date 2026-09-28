@@ -78,6 +78,15 @@ export function SkillBundleImportDialog({
     }
   }, [open, bundlePath])
 
+  useEffect(() => {
+    if (!open) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onClose()
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [open, busy, onClose])
+
   if (!open) return null
 
   const gate = verify ? summarizeImportGate(verify) : null
@@ -101,15 +110,6 @@ export function SkillBundleImportDialog({
       setBusy(false)
     }
   }
-
-  useEffect(() => {
-    if (!open) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) onClose()
-    }
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [open, busy, onClose])
 
   return (
     <div
