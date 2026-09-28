@@ -155,6 +155,7 @@ function SortableCategoryItem({
   onMouseEnter,
   onMouseLeave,
 }: SortableCategoryItemProps) {
+  const { t } = useTranslation()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: category.id })
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -200,7 +201,8 @@ function SortableCategoryItem({
             {...listeners}
             className="cursor-grab text-muted-foreground hover:text-foreground active:cursor-grabbing"
             onClick={(e) => e.stopPropagation()}
-            title="拖拽排序"
+            title={t("common.dragSort")}
+            aria-label={t("common.dragSort")}
           >
             <GripVertical className="h-4 w-4" />
           </button>
@@ -217,7 +219,8 @@ function SortableCategoryItem({
                 type="button"
                 onClick={onStartEdit}
                 className="rounded p-0.5 text-muted-foreground hover:text-foreground"
-                title="重命名"
+                title={t("common.rename")}
+                aria-label={t("common.rename")}
               >
                 <Pencil className="h-3.5 w-3.5" />
               </button>
@@ -225,7 +228,8 @@ function SortableCategoryItem({
                 type="button"
                 onClick={onDelete}
                 className="rounded p-0.5 text-muted-foreground hover:text-destructive"
-                title="删除"
+                title={t("common.delete")}
+                aria-label={t("common.delete")}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -1062,6 +1066,7 @@ export function WritingSkillLibraryView() {
                       type="button"
                       onClick={() => handleRemoveTag(tag)}
                       className="text-muted-foreground hover:text-foreground"
+                      aria-label={`${t("common.delete")} ${tag}`}
                     >
                       ×
                     </button>

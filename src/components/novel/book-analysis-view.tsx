@@ -473,25 +473,35 @@ export function BookAnalysisView() {
 
       <div className="space-y-4">
         {tasks.map((task) => (
-          <button type="button"
+          <div
             key={task.id}
-            className="border rounded-lg p-4 space-y-3 cursor-pointer transition-colors hover:bg-muted/40 focus:bg-muted/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
-            onClick={() => setViewingResultPath(task.projectPath)}
+            className="border rounded-lg p-4 space-y-3 transition-colors hover:bg-muted/40"
           >
-            <div className="flex items-start justify-between">
+            <div
+              role="button"
+              tabIndex={0}
+              className="flex items-start justify-between cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/30 rounded"
+              onClick={() => setViewingResultPath(task.projectPath)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  setViewingResultPath(task.projectPath)
+                }
+              }}
+            >
               <div>
                 <div className="font-medium">
-                  {task.metadata?.title || "未命名作品"}
+                  {task.metadata?.title || t("bookAnalysis.untitledWork", { defaultValue: "未命名作品" })}
                 </div>
                 <div className="text-sm text-muted-foreground">
-                  角色提取与Skill生成
+                  {t("bookAnalysis.roleExtractAndSkill", { defaultValue: "角色提取与Skill生成" })}
                 </div>
               </div>
               <div className="text-sm text-muted-foreground">
-                {task.status === "running" && "进行中"}
-                {task.status === "paused" && "已暂停"}
-                {task.status === "completed" && "已完成"}
-                {task.status === "error" && "出错"}
+                {task.status === "running" && t("bookAnalysis.statusRunning", { defaultValue: "进行中" })}
+                {task.status === "paused" && t("bookAnalysis.statusPaused", { defaultValue: "已暂停" })}
+                {task.status === "completed" && t("bookAnalysis.statusCompleted", { defaultValue: "已完成" })}
+                {task.status === "error" && t("bookAnalysis.statusError", { defaultValue: "出错" })}
               </div>
             </div>
 
@@ -571,12 +581,9 @@ export function BookAnalysisView() {
                 <button
                   type="button"
                   className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors text-sm font-medium"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setViewingResultPath(task.projectPath)
-                  }}
+                  onClick={() => setViewingResultPath(task.projectPath)}
                 >
-                  查看分析结果
+                  {t("bookAnalysis.viewResult", { defaultValue: "查看分析结果" })}
                 </button>
                 {/* feature/network-error-resume：失败角色时显示"继续生成"按钮 */}
                 {(() => {
@@ -584,16 +591,17 @@ export function BookAnalysisView() {
                   if (!failedNames || failedNames.length === 0) return null
                   return (
                     <button
+                      type="button"
                       onClick={() => handleResumeFailedExtraction(task.id)}
                       className="px-4 py-2 bg-warning text-white rounded-md hover:bg-warning/80 transition-colors text-sm font-medium"
                     >
-                      继续生成（{failedNames.length}）
+                      {t("bookAnalysis.continueGen", { defaultValue: "继续生成" })}（{failedNames.length}）
                     </button>
                   )
                 })()}
               </div>
             )}
-          </button>
+          </div>
         ))}
       </div>
 

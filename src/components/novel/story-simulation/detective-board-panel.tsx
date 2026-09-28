@@ -250,8 +250,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                         className="relative rounded-md border bg-background/70 p-2.5 text-xs"
                       >
                         <div
-                          className="absolute -left-[7px] top-3 h-3 w-3 rounded-full border-2 border-background"
-                          style={{ background: clue.isSecret ? "#f59e0b" : "var(--primary)" }}
+                          className={`absolute -left-[7px] top-3 h-3 w-3 rounded-full border-2 border-background ${clue.isSecret ? "bg-warning" : "bg-primary"}`}
                         />
 
                         <div className="mb-1.5 flex flex-wrap items-center gap-2">

@@ -95,6 +95,17 @@ export function SnapshotTimeline({ projectPath, onRestored }: SnapshotTimelinePr
     };
   }, [projectPath, leftId]);
 
+  useEffect(() => {
+    if (!pendingConfirm) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) {
+        setPendingConfirm(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pendingConfirm, busy]);
+
   const totals = useMemo(() => (diff ? diffTotals(diff) : null), [diff]);
   const changed = useMemo(() => (diff ? changedWorldStates(diff) : []), [diff]);
 
@@ -213,7 +224,13 @@ export function SnapshotTimeline({ projectPath, onRestored }: SnapshotTimelinePr
       ) : null}
 
       {pendingConfirm ? (
-        <div role="dialog" data-testid="snapshot-restore-confirm" className="rounded border p-3">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("timemachine.restore.confirm", { id: pendingConfirm.id })}
+          data-testid="snapshot-restore-confirm"
+          className="rounded border p-3"
+        >
           <p>{t("timemachine.restore.confirm", { id: pendingConfirm.id })}</p>
           {diff && touchesTruthSurface(diff) ? (
             <p className="text-xs text-warning" data-testid="snapshot-truth-surface-warning">

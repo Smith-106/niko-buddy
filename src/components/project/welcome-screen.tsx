@@ -126,25 +126,29 @@ export function WelcomeScreen({
             </div>
             <div className="rounded-lg border">
               {recentProjects.map((proj) => (
-                <button
+                <div
                   key={proj.path}
-                  onClick={() => onSelectProject(proj)}
                   className="group flex w-full items-center justify-between border-b px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-accent"
                 >
-                  <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => onSelectProject(proj)}
+                    className="min-w-0 flex-1 text-left"
+                  >
                     <div className="truncate text-sm font-medium">{proj.name}</div>
                     <div className="truncate text-xs text-muted-foreground">
                       {proj.path}
                     </div>
-                  </div>
-                  <button type="button"
+                  </button>
+                  <button
+                    type="button"
                     onClick={(e) => handleRemoveRecent(e, proj.path)}
                     aria-label={`移除最近项目 ${proj.name}`}
                     className="ml-2 shrink-0 rounded p-1 opacity-0 transition-opacity hover:bg-destructive/10 group-hover:opacity-100"
                   >
                     <X className="h-3.5 w-3.5 text-muted-foreground" />
                   </button>
-                </button>
+                </div>
               ))}
             </div>
           </div>
@@ -152,7 +156,14 @@ export function WelcomeScreen({
 
         {/* J01-T05：恢复前应用内确认——说明操作性质+将进入文件选择；不直接用 alert */}
         {confirmRestore && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setConfirmRestore(false)
+            }}
+          >
             <div className="w-full max-w-sm rounded-lg border bg-background p-5 shadow-lg">
               <h2 className="text-base font-semibold">
                 {t("welcome.restoreConfirmTitle", { defaultValue: "恢复先前数据？" })}

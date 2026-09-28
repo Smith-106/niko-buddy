@@ -102,12 +102,24 @@ export function SkillBundleImportDialog({
     }
   }
 
+  useEffect(() => {
+    if (!open) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onClose()
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [open, busy, onClose])
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="skillbundle-import-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={(e) => {
+        if (!busy && e.target === e.currentTarget) onClose()
+      }}
     >
       <div className="w-[640px] max-h-[80vh] overflow-y-auto rounded-lg bg-background p-6 shadow-xl">
         <h2 id="skillbundle-import-title" className="mb-3 text-lg font-semibold">
@@ -122,13 +134,13 @@ export function SkillBundleImportDialog({
 
         {busy && <p className="text-sm opacity-70">…</p>}
         {error && (
-          <p data-testid="skillbundle-import-error" role="alert" className="mb-3 text-sm text-destructive">
-            {error.message}
+          <div data-testid="skillbundle-import-error" role="alert" className="mb-3 text-sm text-destructive">
+            <div>{error.message}</div>
             <details className="mt-1 opacity-70">
               <summary className="cursor-pointer">{t("skillbundle.import.diagnostics")}</summary>
               <span className="font-mono text-xs break-all">{error.detail}</span>
             </details>
-          </p>
+          </div>
         )}
 
         {manifest && (

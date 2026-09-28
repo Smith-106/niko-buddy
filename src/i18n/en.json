@@ -35,6 +35,8 @@
       "info": "Page {{page}} / {{pageCount}} · {{total}} items"
     },
     "previous": "Previous",
+    "rename": "Rename",
+    "dragSort": "Drag to reorder",
     "loading": "Loading",
     "error": "Error",
     "success": "Success",
@@ -892,6 +894,9 @@
     "exemplarWhyPlaceholder": "Why is this passage a good style anchor?",
     "exemplarsMarked": "Marked exemplars",
     "deleteExemplar": "Delete this exemplar",
+    "editChapter": "Edit Chapter",
+    "editChapterTooltip": "When enabled, AI chat will read and modify the current chapter or identified range, auto-backing up original content before writing back.",
+    "confirmDelete": "Confirm Delete",
     "abScore": "A/B score:",
     "exemplarSlopScore": "exemplar+slop score",
     "slopOnlyScore": "slop-only score",

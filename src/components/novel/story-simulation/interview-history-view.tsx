@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { X, MessageCircle, Trash2, Clock, User, ChevronRight, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -175,10 +175,31 @@ export function InterviewHistoryView() {
     return lastMsg.content.slice(0, 50) + (lastMsg.content.length > 50 ? "..." : "")
   }
 
+  useEffect(() => {
+    if (!showInterviewHistory) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose()
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [showInterviewHistory])
+
   if (!showInterviewHistory) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={
+        viewingInterview
+          ? t("storySimulation.chatViewTitle", { name: viewingInterview.agentName })
+          : t("storySimulation.interviewHistory")
+      }
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) handleClose()
+      }}
+    >
       <div className="flex h-[80vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-background shadow-2xl">
         {/* 头部 */}
         <div className="flex items-center justify-between border-b px-4 py-3">

@@ -903,21 +903,29 @@ function DocumentGraphView({
                             {riskStateLabel && (() => {
                             const labelColor = getGraphNodeRiskStateLabelColor(riskStateLabel)
                             return (
-                              <button
-                                type="button"
-                                className={`rounded border px-1.5 py-0.5 text-[11px] transition-colors ${labelColor.bg} ${labelColor.border} ${labelColor.text}`}
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                className={`rounded border px-1.5 py-0.5 text-[11px] transition-colors cursor-pointer ${labelColor.bg} ${labelColor.border} ${labelColor.text}`}
                                 onClick={(event) => {
                                   event.stopPropagation()
                                   cycleRiskStateLabel(node)
                                 }}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" || event.key === " ") {
+                                    event.stopPropagation()
+                                    event.preventDefault()
+                                    cycleRiskStateLabel(node)
+                                  }
+                                }}
                               >
                                 {riskStateLabel}
-                              </button>
+                              </span>
                             )
                           })()}
                           </div>
                         </div>
-                        <span className="shrink-0 rounded-md border px-2 py-1 text-xs text-muted-foreground">{isExpanded ? "收起" : "展开"}</span>
+                        <span className="shrink-0 rounded-md border px-2 py-1 text-xs text-muted-foreground">{isExpanded ? t("chat.collapse", { defaultValue: "收起" }) : t("chat.expand", { defaultValue: "展开" })}</span>
                       </button>
 
                       {isExpanded && (

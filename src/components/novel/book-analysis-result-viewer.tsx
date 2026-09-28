@@ -468,7 +468,12 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
 
   if (error) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+        onPointerDown={(e) => {
+          if (e.target === e.currentTarget) onClose()
+        }}
+      >
         <div
           role="alertdialog"
           aria-modal="true"

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { X, Loader2, Trash2, History } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -81,10 +81,27 @@ export function HistoryResultsModal({
     }
   }
 
+  useEffect(() => {
+    if (!open) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [open, onClose])
+
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("storySimulation.historyTitle")}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
       <div className="mx-4 flex max-h-[70vh] w-full max-w-md flex-col rounded-lg bg-background shadow-xl">
         {/* 头部 */}
         <div className="flex items-center justify-between border-b px-4 py-3">
@@ -126,13 +143,15 @@ export function HistoryResultsModal({
               {results
                 .slice(page * STORY_PAGE_SIZE, (page + 1) * STORY_PAGE_SIZE)
                 .map((result) => (
-                <button
+                <div
                   key={result.id}
-                  type="button"
                   className="group flex w-full items-center gap-2 rounded px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent"
-                  onClick={() => onSelectResult(result.id)}
                 >
-                  <div className="flex-1 min-w-0">
+                  <button
+                    type="button"
+                    className="flex-1 min-w-0 text-left"
+                    onClick={() => onSelectResult(result.id)}
+                  >
                     <div className="flex items-center gap-1.5">
                       <span className="truncate font-medium text-foreground">
                         {new Date(result.createdAt).toLocaleString("zh-CN", {
@@ -161,15 +180,12 @@ export function HistoryResultsModal({
                     <span className="block truncate text-xs text-muted-foreground">
                       {result.summary.slice(0, 40)}
                     </span>
-                  </div>
+                  </button>
                   {(result.status === "partial" || result.status === "cancelled") && onContinueResult && (
                     <button
                       type="button"
                       className="shrink-0 rounded px-2 py-1 text-xs text-primary opacity-0 transition-opacity hover:bg-primary/10 group-hover:opacity-100"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onContinueResult(result.id)
-                      }}
+                      onClick={() => onContinueResult(result.id)}
                     >
                       {t("storySimulation.continueSimulation")}
                     </button>
@@ -180,10 +196,11 @@ export function HistoryResultsModal({
                     onClick={(e) => void handleDelete(e, result.id)}
                     disabled={deletingId === result.id}
                     title={t("storySimulation.deleteResult")}
+                    aria-label={t("storySimulation.deleteResult")}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
-                </button>
+                </div>
               ))}
             </div>
           )}

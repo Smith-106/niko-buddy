@@ -77,6 +77,17 @@ export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDia
     void settle(false);
   }, [pending, remaining, clock, settle]);
 
+  useEffect(() => {
+    if (!pending) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) {
+        void settle(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pending, busy, settle]);
+
   if (!pending) return null;
 
   const expired = isExpired(pending, clock());
@@ -140,6 +151,7 @@ export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDia
             disabled={busy}
             data-testid="confirm-gate-reject"
             onClick={() => void settle(false)}
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
           >
             {t("gate.confirm.reject")}
           </button>
@@ -148,6 +160,7 @@ export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDia
             disabled={busy || expired}
             data-testid="confirm-gate-accept"
             onClick={() => void settle(true)}
+            className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {t("gate.confirm.accept")}
           </button>
@@ -175,7 +188,12 @@ export function GateHaltBanner({
     >
       <span>{t("gate.halt.banner")}</span>
       {onResume ? (
-        <button type="button" onClick={onResume} data-testid="gate-halt-resume">
+        <button
+          type="button"
+          onClick={onResume}
+          data-testid="gate-halt-resume"
+          className="rounded border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-xs text-destructive hover:bg-destructive/20"
+        >
           {t("gate.halt.resume")}
         </button>
       ) : null}

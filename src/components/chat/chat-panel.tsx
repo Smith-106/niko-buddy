@@ -2731,15 +2731,15 @@ export function ChatPanel() {
                                 // language across the 3 themes.
                                 className={getDeepChapterToggleButtonClass(chatEditModeEnabled)}
                                 onClick={() => setChatEditModeEnabled(!chatEditModeEnabled)}
-                                title="编辑章节"
-                                aria-label="编辑章节"
+                                title={t("chat.editChapter", "编辑章节")}
+                                aria-label={t("chat.editChapter", "编辑章节")}
                               />
                             )}
                           >
                             <FileEdit className="h-4 w-4" />
                           </TooltipTrigger>
                           <TooltipContent side="top" className="max-w-xs leading-5">
-                            开启后，AI会话会读取当前章节或识别到的章节范围进行修改，并在写回前自动备份原内容。
+                            {t("chat.editChapterTooltip")}
                           </TooltipContent>
                         </Tooltip>
                       </>
@@ -2836,13 +2836,13 @@ export function ChatPanel() {
                             size="sm"
                             className="h-6 px-2 text-[10px]"
                             onClick={() => void deleteExemplar(ex.exemplarId)}
-                          >确认删除</Button>
+                          >{t("chat.confirmDelete")}</Button>
                           <Button
                             variant="outline"
                             size="sm"
                             className="h-6 px-2 text-[10px]"
                             onClick={() => setExemplarDeleteConfirmId(null)}
-                          >取消</Button>
+                          >{t("common.cancel")}</Button>
                         </div>
                       ) : (
                         <Button
@@ -2852,7 +2852,7 @@ export function ChatPanel() {
                           onClick={() => setExemplarDeleteConfirmId(ex.exemplarId)}
                           title={t("chat.deleteExemplar")}
                           aria-label={t("chat.deleteExemplar")}
-                        >删除</Button>
+                        >{t("common.delete")}</Button>
                       )}
                     </div>
                   ))}
