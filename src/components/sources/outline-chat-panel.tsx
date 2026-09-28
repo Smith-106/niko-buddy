@@ -565,9 +565,21 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           >
             <span className="max-w-[100px] truncate">{conv.title}</span>
             <Trash2
-              className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-100 hover:text-destructive"
+              role="button"
+              tabIndex={0}
+              aria-label="删除会话"
+              className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-100 hover:text-destructive focus:opacity-100"
               onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id) }}
-            />
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.stopPropagation()
+                  e.preventDefault()
+                  deleteConversation(conv.id)
+                }
+              }}
+            >
+              <title>删除会话</title>
+            </Trash2>
           </button>
         ))}
         <div className="ml-auto flex items-center gap-1 shrink-0">

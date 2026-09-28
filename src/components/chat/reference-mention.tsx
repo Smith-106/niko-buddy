@@ -8,6 +8,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { parseReferences, loadAllReferenceCandidates } from "@/lib/reference"
 import type { ReferenceCandidate, ResolvedReference } from "@/lib/reference"
 import { normalizePath } from "@/lib/path-utils"
+import { isImeComposing } from "@/lib/keyboard-utils"
 
 /** 彩色标签配色：角色蓝 / 章节绿 / 设定紫 */
 const KIND_STYLES: Record<string, string> = {
@@ -109,6 +110,7 @@ export const ReferenceMention = forwardRef<ReferenceMentionHandle, {
 
   const handleKeyDown = (e: React.KeyboardEvent): boolean => {
     if (!open || candidates.length === 0) return false
+    if (isImeComposing(e)) return false
     if (e.key === "ArrowDown") {
       e.preventDefault()
       setActiveIndex((i) => (i + 1) % candidates.length)
@@ -158,6 +160,7 @@ export const ReferenceMention = forwardRef<ReferenceMentionHandle, {
                   type="button"
                   className="cursor-pointer opacity-60 hover:opacity-100"
                   onClick={() => onRemoveToken(ref.token.full)}
+                  title={t("chat.reference.remove", { defaultValue: "移除引用" })}
                   aria-label={t("chat.reference.remove", { defaultValue: "移除引用" })}
                 >
                   <X className="h-3 w-3" />

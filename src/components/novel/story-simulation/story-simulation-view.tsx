@@ -27,6 +27,7 @@ import { HistoryResultsModal } from "./history-results-modal";
 import { BranchCompareView } from "./branch-compare-view";
 import { Button } from "@/components/ui/button";
 import { formatOperationError } from "@/lib/format-operation-error"
+import { isImeComposing } from "@/lib/keyboard-utils";
 
 const PROGRESS_PHASES = [
   "extracting",
@@ -2273,9 +2274,13 @@ function AgentChatPanel({
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
             onKeyDown={(e) => {
+              if (isImeComposing(e)) return;
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 onSend();
+              }
+              if (e.key === "Escape") {
+                onInputChange("");
               }
             }}
             placeholder={t("storySimulation.chatPlaceholder")}
@@ -2288,6 +2293,8 @@ function AgentChatPanel({
             className="h-8 w-8"
             onClick={onSend}
             disabled={sending || !input.trim()}
+            title={t("chat.send", { defaultValue: "发送" })}
+            aria-label={t("chat.send", { defaultValue: "发送" })}
           >
             <Send className="h-4 w-4" />
           </Button>

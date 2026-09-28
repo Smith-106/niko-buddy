@@ -240,6 +240,7 @@ function SourceCard({
       type="button"
       onClick={resolved ? onClick : undefined}
       title={resolved ? `打开 ${name}` : `未在 raw/sources/ 中找到资料：${name}`}
+      aria-label={resolved ? `打开 ${name}` : `未在 raw/sources/ 中找到资料：${name}`}
       className={`group flex min-w-0 max-w-[200px] items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors ${
         resolved
           ? "border-border/60 bg-background hover:border-primary/40 hover:bg-primary/5 cursor-pointer"
@@ -247,7 +248,7 @@ function SourceCard({
       }`}
     >
       <Icon className={`h-4 w-4 shrink-0 ${resolved ? "text-foreground/70" : "text-muted-foreground/60"}`} />
-      <span className="truncate">{name}</span>
+      <span className="min-w-0 truncate">{name}</span>
       {!resolved && <AlertTriangle className="h-3 w-3 shrink-0 text-warning/70" />}
     </button>
   )
@@ -267,13 +268,14 @@ function RelatedChip({
       type="button"
       onClick={resolved ? onClick : undefined}
       title={resolved ? `打开 ${slug}` : `未找到关联页面：${slug}`}
-      className={`group inline-flex max-w-[260px] items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+      aria-label={resolved ? `打开 ${slug}` : `未找到关联页面：${slug}`}
+      className={`group inline-flex min-w-0 max-w-[260px] items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
         resolved
           ? "border-border/60 bg-background hover:border-primary/50 hover:bg-primary/10 cursor-pointer"
           : "border-dashed border-border/50 bg-muted/20 text-muted-foreground/70 cursor-default"
       }`}
     >
-      <span className="truncate">{slug}</span>
+      <span className="min-w-0 truncate">{slug}</span>
       {resolved ? (
         <ArrowUpRight className="h-3 w-3 shrink-0 opacity-60 group-hover:opacity-100" />
       ) : (

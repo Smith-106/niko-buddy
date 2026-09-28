@@ -1,4 +1,4 @@
-﻿import { useState, useCallback, useMemo, useEffect, memo, useRef } from "react"
+import { useState, useCallback, useMemo, useEffect, memo, useRef } from "react"
 import { Root as DialogRoot, Content as DialogContent, Title as DialogTitle, Overlay as DialogOverlay } from "@radix-ui/react-dialog"
 import { Search, FileText, ImageIcon, X, ArrowUpRight } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -386,16 +386,36 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
               onKeyDown={(e) => {
                 if (isImeComposing(e)) return
                 if (e.key === "Enter") doSearch(query)
+                if (e.key === "Escape") {
+                  if (query) {
+                    setQuery("")
+                  } else {
+                    onClose?.()
+                  }
+                }
               }}
               placeholder={t(novelMode ? "novel.search.placeholder" : "search.placeholder")}
               autoFocus
-              className="w-full rounded-md border bg-background py-2 pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full rounded-md border bg-background py-2 pl-9 pr-8 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                title={t("common.clear", { defaultValue: "清空" })}
+                aria-label={t("common.clear", { defaultValue: "清空" })}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
           {onClose ? (
             <button
               type="button"
               onClick={onClose}
+              aria-label="关闭"
+              title="关闭"
               className="shrink-0 rounded-md border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               关闭

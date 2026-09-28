@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FileText, AlertCircle } from "lucide-react"
+import { isImeComposing } from "@/lib/keyboard-utils"
 
 interface BookAnalysisInputDialogProps {
   open: boolean
@@ -73,7 +74,16 @@ export function BookAnalysisInputDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent
+        className="sm:max-w-[500px]"
+        onKeyDown={(e) => {
+          if (isImeComposing(e)) return
+          if (e.key === "Enter") {
+            e.preventDefault()
+            handleSubmit()
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{t("bookAnalysis.title")}</DialogTitle>
         </DialogHeader>
@@ -124,7 +134,7 @@ export function BookAnalysisInputDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={handleCancel}>
-            取消
+            {t("common.cancel", { defaultValue: "取消" })}
           </Button>
           <Button onClick={handleSubmit}>{t("bookAnalysis.start")}</Button>
         </DialogFooter>

@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react"
+import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { ArrowLeft, Check, Copy, Download, FileText, BookOpen, Pencil, Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -206,7 +206,13 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon-sm" onClick={onBack}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onBack}
+            title={t("common.back", { defaultValue: "返回" })}
+            aria-label={t("common.back", { defaultValue: "返回" })}
+          >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <h2 className="text-sm font-semibold">{t("storySimulation.draftTitle")}</h2>
@@ -258,6 +264,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                   className="ml-auto h-7 w-7 p-0 opacity-50 hover:opacity-100"
                   onClick={() => openEditDialog(idx)}
                   title={t("storySimulation.editChapter")}
+                  aria-label={t("storySimulation.editChapter")}
                 >
                   <Pencil className="h-3.5 w-3.5" />
                 </Button>

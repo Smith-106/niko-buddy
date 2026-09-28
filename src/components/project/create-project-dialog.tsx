@@ -213,6 +213,7 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
                   size="icon"
                   onClick={handleBrowse}
                   type="button"
+                  title={t("project.browseParentDir", "浏览目录")}
                   aria-label={t("project.browseParentDir", "浏览目录")}
                 >
                   <FolderOpen className="h-4 w-4" />

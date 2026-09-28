@@ -25,6 +25,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useStorySimulationStore } from "@/stores/story-simulation-store";
 import type { StoryNode } from "@/lib/novel"
 import { cn } from "@/lib/utils";
+import { isImeComposing } from "@/lib/keyboard-utils";
 
 interface FrameworkConfirmPanelProps {
   onConfirm: () => void;
@@ -170,6 +171,7 @@ export function FrameworkConfirmPanel({
                 placeholder={t("storySimulation.shortTitlePlaceholder")}
                 className="h-8 w-32 text-sm"
                 onKeyDown={(e) => {
+                  if (isImeComposing(e)) return;
                   if (e.key === "Enter") saveTitle();
                   if (e.key === "Escape") cancelEditTitle();
                 }}
@@ -179,6 +181,8 @@ export function FrameworkConfirmPanel({
                 variant="ghost"
                 className="h-8 w-8 p-0"
                 onClick={saveTitle}
+                title={t("common.save", { defaultValue: "保存" })}
+                aria-label={t("common.save", { defaultValue: "保存" })}
               >
                 <Check className="h-4 w-4 text-success" />
               </Button>
@@ -187,6 +191,8 @@ export function FrameworkConfirmPanel({
                 variant="ghost"
                 className="h-8 w-8 p-0"
                 onClick={cancelEditTitle}
+                title={t("common.cancel", { defaultValue: "取消" })}
+                aria-label={t("common.cancel", { defaultValue: "取消" })}
               >
                 <X className="h-4 w-4 text-muted-foreground" />
               </Button>
@@ -207,6 +213,7 @@ export function FrameworkConfirmPanel({
                 className="h-7 w-7 p-0 opacity-50 hover:opacity-100"
                 onClick={startEditTitle}
                 title={t("storySimulation.editTitle")}
+                aria-label={t("storySimulation.editTitle")}
               >
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
@@ -424,6 +431,7 @@ function FrameworkNodeCard({
               className="h-7 flex-1 text-sm font-medium"
               autoFocus
               onKeyDown={(e) => {
+                if (isImeComposing(e)) return;
                 if (e.key === "Enter") save();
                 if (e.key === "Escape") cancel();
               }}
@@ -439,6 +447,7 @@ function FrameworkNodeCard({
             className="h-7 w-7 p-0 opacity-50 hover:opacity-100"
             onClick={startEdit}
             title={t("storySimulation.editNode")}
+            aria-label={t("storySimulation.editNode")}
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>
@@ -449,6 +458,8 @@ function FrameworkNodeCard({
               variant="ghost"
               className="h-7 w-7 p-0"
               onClick={save}
+              title={t("common.save", { defaultValue: "保存" })}
+              aria-label={t("common.save", { defaultValue: "保存" })}
             >
               <Check className="h-4 w-4 text-success" />
             </Button>
@@ -457,6 +468,8 @@ function FrameworkNodeCard({
               variant="ghost"
               className="h-7 w-7 p-0"
               onClick={cancel}
+              title={t("common.cancel", { defaultValue: "取消" })}
+              aria-label={t("common.cancel", { defaultValue: "取消" })}
             >
               <X className="h-4 w-4 text-muted-foreground" />
             </Button>

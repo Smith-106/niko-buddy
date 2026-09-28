@@ -114,9 +114,18 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
         width,
       })
     }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false)
+      }
+    }
     updatePosition()
     window.addEventListener("resize", updatePosition)
-    return () => window.removeEventListener("resize", updatePosition)
+    window.addEventListener("keydown", handleKeyDown)
+    return () => {
+      window.removeEventListener("resize", updatePosition)
+      window.removeEventListener("keydown", handleKeyDown)
+    }
   }, [open])
 
   return (
@@ -127,6 +136,8 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
         variant="outline"
         onClick={() => !disabled && setOpen(!open)}
         disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
         className="h-8 min-w-[160px] justify-between gap-2 px-3 text-xs"
       >
         <span className="max-w-[200px] truncate">

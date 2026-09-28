@@ -29,6 +29,17 @@ export function WelcomeScreen({
     getRecentProjects().then(setRecentProjects).catch(() => {})
   }, [])
 
+  useEffect(() => {
+    if (!confirmRestore) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setConfirmRestore(false)
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [confirmRestore])
+
   async function handleRemoveRecent(e: React.MouseEvent, path: string) {
     e.stopPropagation()
     await removeFromRecentProjects(path)
@@ -144,7 +155,8 @@ export function WelcomeScreen({
                     type="button"
                     onClick={(e) => handleRemoveRecent(e, proj.path)}
                     aria-label={`移除最近项目 ${proj.name}`}
-                    className="ml-2 shrink-0 rounded p-1 opacity-0 transition-opacity hover:bg-destructive/10 group-hover:opacity-100"
+                    title={`移除最近项目 ${proj.name}`}
+                    className="ml-2 shrink-0 rounded p-1 opacity-0 transition-opacity hover:bg-destructive/10 group-hover:opacity-100 focus:opacity-100"
                   >
                     <X className="h-3.5 w-3.5 text-muted-foreground" />
                   </button>
