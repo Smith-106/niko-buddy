@@ -47,7 +47,7 @@ import { computeContextBudget, type ContextBudget } from "@/lib/context-budget"
 import { buildContextUsage, type ContextUsage } from "@/lib/context-usage"
 import { loadUserMemoryForProject } from "@/lib/user-memory/session"
 import { loadWorldBlueprint, worldBlueprintToPromptFragment } from "./world-blueprint"
-import { loadNarrativeState, type NarrativeStateStore } from "./narrative-state"
+import { loadNarrativeState } from "./narrative-state"
 // EPIC-001 / TASK-004 / ADR-29: Style Exemplars loader（正向锚点注入，
 // de-ai-adapter 单次 pass 不变 — exemplar 经 contextPack 消费）。
 import { loadStyleExemplars, pickTopKExemplars, type StyleExemplar } from "./style-exemplars-loader"
@@ -269,23 +269,7 @@ function tieredSlice(
   return retained
 }
 
-// MIG-003: 叙事信息差可见性摘要渲染——统计已知/未知声明 + 各角色视角
-// 可见声明数。空 store（无声明/无可见性）→ ""，调用方转 undefined 不渲染。
-export function narrativeVisibilitySummary(store: NarrativeStateStore | null): string {
-  if (!store || !Array.isArray(store.declarations) || store.declarations.length === 0) return ""
-  const lines: string[] = []
-  const knownByChar = new Map<string, number>()
-  for (const v of store.visibilities ?? []) {
-    if (v.state === "known") {
-      knownByChar.set(v.characterId, (knownByChar.get(v.characterId) ?? 0) + 1)
-    }
-  }
-  lines.push(`叙事声明共 ${store.declarations.length} 条`) 
-  for (const [char, n] of knownByChar) {
-    lines.push(`- ${char} 视角可见 ${n} 条`)
-  }
-  return lines.length > 1 ? lines.join("\n") : ""
-}
+
 
 export interface ContextPack {
   task: string
@@ -496,6 +480,23 @@ export interface ContextEntity {
 // import 面（7 个 spec 不动）。
 import { truncateActiveEntitiesByBudget } from "./context-entity-budget"
 export { truncateActiveEntitiesByBudget, type ContextEntity as ContextEntityBudget } from "./context-entity-budget"
+
+// F4-4（Round-4 评估）：pack 格式化纯函数簇已拆至 ./context-pack-format-helpers
+//（巨石拆分第 4 步）。本地 import 供内部调用点使用，并 re-export 保持既有
+// import 面（trim/droporder/budget 等 spec 不动）。
+import {
+  applySectionCharBudget,
+  charsPerTokenOfPack,
+  extractSceneCharacters,
+  narrativeVisibilitySummary,
+} from "./context-pack-format-helpers"
+export {
+  applySectionCharBudget,
+  charsPerTokenOfPack,
+  extractSceneCharacters,
+  narrativeVisibilitySummary,
+} from "./context-pack-format-helpers"
+
 
 /**
  * ISS-20260709-023 (DC-7) 渐进式 DI: 可选 store 字段注入。传入时直接使用,
@@ -1744,21 +1745,7 @@ export async function readChapterOutlineContent(pp: string, chapterNumber?: numb
  * 互补构成 entity 匹配双源（grep 验证 'chapter outline mentions' + 'scene characters'
  * 两 term）。
  */
-function extractSceneCharacters(rawData: Record<string, unknown>): string {
-  const parts: string[] = []
-  const snapshots = (typeof rawData.snapshots === "object" && rawData.snapshots !== null
-    ? rawData.snapshots
-    : {}) as { characterStates?: unknown }
-  const snapshotCharStates = snapshots.characterStates
-  if (typeof snapshotCharStates === "string" && snapshotCharStates.trim()) {
-    parts.push(snapshotCharStates)
-  }
-  const fallbackCharStates = typeof rawData.fallbackCharacterStates === "string" ? rawData.fallbackCharacterStates : undefined
-  if (typeof fallbackCharStates === "string" && fallbackCharStates.trim()) {
-    parts.push(fallbackCharStates)
-  }
-  return parts.join("\n\n")
-}
+
 
 /**
  * EPIC-003 / ADR-32 / TASK-006: 条件性 entity-tags 路由。
@@ -2518,30 +2505,7 @@ const FIELD_CONFIGS: FieldConfig[] = [
   },
 ]
 
-function applySectionCharBudget(
-  content: string | string[] | undefined | null,
-  budget: number | undefined,
-): string | string[] {
-  if (content == null) return ""
-  if (!budget || budget <= 0) return content
-  if (Array.isArray(content)) {
-    const out: string[] = []
-    let used = 0
-    for (const item of content) {
-      if (used >= budget) break
-      const room = budget - used
-      if (item.length <= room) {
-        out.push(item)
-        used += item.length
-      } else {
-        out.push(item.slice(0, room) + "…")
-        break
-      }
-    }
-    return out
-  }
-  return content.length <= budget ? content : content.slice(0, budget) + "…"
-}
+
 
 export function contextPackToPrompt(
   pack: ContextPack,
@@ -2705,15 +2669,7 @@ export interface TrimResult {
  * 纯 ASCII 4 字符/token，纯中文 1.5 字符/token，按实际 CJK 占比混合换算。
  * 返回 pack 内容对应的平均 chars/token，供 token 量级预算换算为字符。
  */
-function charsPerTokenOfPack(pack: ContextPack): number {
-  const text = JSON.stringify(pack)
-  if (text.length === 0) return 4
-  const cjkCount = (text.match(/[\u3400-\u9FFF]/g) ?? []).length
-  const cjkRatio = cjkCount / text.length
-  const ratio = 1 / (cjkRatio / 1.5 + (1 - cjkRatio) / 4)
-  // RV-014：退化输入兜底 — 非有限/非正比率回退纯 ASCII 口径（4），杜绝 NaN 归一化。
-  return Number.isFinite(ratio) && ratio > 0 ? ratio : 4
-}
+
 
 export function trimContextPack(
   pack: ContextPack,
