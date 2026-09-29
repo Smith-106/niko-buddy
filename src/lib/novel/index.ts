@@ -1092,3 +1092,23 @@ export type {
   OreQuotaVerdict,
   OreUsage,
 } from "./ore-pricing"
+// ── ISO 12207 / 25010 / 25059 生命周期处置与质量审计导出 ────────────
+export {
+  diagnoseProjectIntegrity,
+  purgeStaleDrafts,
+  generateStandardArchiveManifest,
+} from "./disposal-maintenance"
+export type {
+  DisposalAuditRecord,
+  PurgeDraftsOptions,
+  ProjectIntegrityReport,
+  StandardArchiveManifest,
+} from "./disposal-maintenance"
+export {
+  buildIsoQualityAuditReport,
+  formatQualityAuditMarkdown,
+} from "./quality-audit-exporter"
+export type {
+  QualityAuditInput,
+  IsoQualityAuditReport,
+} from "./quality-audit-exporter"

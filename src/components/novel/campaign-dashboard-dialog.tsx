@@ -333,6 +333,8 @@ export function CampaignDashboardDialog({
 
                       <button
                         type="button"
+                        aria-label={isExpanded ? `收起第 ${result.chapterNumber} 章详情` : `展开第 ${result.chapterNumber} 章详情`}
+                        aria-expanded={isExpanded}
                         onClick={() => setExpandedChapter(isExpanded ? null : result.chapterNumber)}
                         className="p-1 text-muted-foreground hover:text-foreground"
                       >
