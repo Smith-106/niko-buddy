@@ -13,6 +13,7 @@ import {
   generateConvergencePack,
   sliceContextForPov,
   type MultiPovMesh,
+  type PovThread,
   type UpcomingSceneDescriptor,
   type PovIntersection,
 } from "@/lib/novel/story-simulation/multi-pov-mesh"
@@ -50,13 +51,16 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
     })
 
     // 从 timeline 事件中提取可能的计划/演进场景用于交汇检测
-    const plannedScenes: UpcomingSceneDescriptor[] = events.map((e) => ({
-      chapterNumber: e.nodeIndex + 1,
-      povId: `pov-${e.actorId}`,
-      location: e.targetName ? `目标[${e.targetName}]现场` : "同幕场景",
-      targetItemOrGoal: e.targetName,
-      eventSummary: e.content,
-    }))
+    const plannedScenes: UpcomingSceneDescriptor[] = events.map((e) => {
+      const isLocationTarget = e.targetName?.startsWith("地点:")
+      return {
+        chapterNumber: e.nodeIndex + 1,
+        povId: `pov-${e.actorId}`,
+        location: isLocationTarget ? e.targetName?.slice(3) : undefined,
+        targetItemOrGoal: isLocationTarget ? undefined : e.targetName,
+        eventSummary: e.content,
+      }
+    })
 
     detectPovIntersections(initialMesh, plannedScenes)
     return initialMesh
@@ -68,9 +72,9 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
     return mesh.threads.find((t) => t.id === selectedPovId) || null
   }, [mesh, selectedPovId])
 
-  const sliceResult = useMemo(() => {
-    if (!activeThread) return null
-    return sliceContextForPov(mesh, activeThread.id, 999, [])
+  const sliceDirective = useMemo(() => {
+    if (!activeThread) return ""
+    return sliceContextForPov(mesh, activeThread.id, 999, []).directive
   }, [mesh, activeThread])
 
   const handleCopy = (text: string, id: string) => {
@@ -80,22 +84,22 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
     setTimeout(() => setCopiedId(null), 2000)
   }
 
-  const handleSlmTest = async () => {
-    if (!activeThread || !testDraft.trim()) return
+  const handleSlmTest = async (thread: PovThread) => {
+    if (!testDraft.trim()) return
     setSlmChecking(true)
     setSlmResult(null)
 
     try {
       const res = await verifyPovEpistemicIntegrityWithSlm({
         draftText: testDraft,
-        characterName: activeThread.characterName,
-        doesNotKnowFacts: activeThread.epistemicScope.doesNotKnow,
+        characterName: thread.characterName,
+        doesNotKnowFacts: thread.epistemicScope.doesNotKnow,
       })
 
       if (res.passed) {
         setSlmResult({
           passed: true,
-          message: `【${res.checkedBy.toUpperCase()} 审查通过】：未发现全知穿帮，符合 ${activeThread.characterName} 的认知视窗。`,
+          message: `【${res.checkedBy.toUpperCase()} 审查通过】：未发现全知穿帮，符合 ${thread.characterName} 的认知视窗。`,
         })
       } else {
         setSlmResult({
@@ -156,7 +160,7 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
                         isSelected ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"
                       }`}
                     >
-                      {t.role || "主角"}
+                      {t.role}
                     </span>
                   </div>
                   <div className={`mt-1 line-clamp-1 text-xs ${isSelected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
@@ -192,7 +196,7 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
                     size="sm"
                     variant="outline"
                     className="h-7 text-xs gap-1"
-                    onClick={() => sliceResult && handleCopy(sliceResult.directive, "directive")}
+                    onClick={() => handleCopy(sliceDirective, "directive")}
                   >
                     {copiedId === "directive" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                     复制 Prompt 承接包
@@ -226,7 +230,7 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
               <div className="space-y-1.5">
                 <div className="text-xs font-medium text-muted-foreground">生成的视点注入指令包：</div>
                 <pre className="max-h-60 overflow-y-auto rounded-md bg-muted p-3 text-[11px] leading-relaxed whitespace-pre-wrap font-mono">
-                  {sliceResult?.directive || "（无指令包）"}
+                  {sliceDirective}
                 </pre>
               </div>
 
@@ -240,8 +244,8 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
                   <Button
                     size="sm"
                     className="h-6 text-xs px-2"
-                    onClick={handleSlmTest}
-                    disabled={slmChecking || !testDraft.trim()}
+                    onClick={() => handleSlmTest(activeThread)}
+                    disabled={slmChecking}
                   >
                     {slmChecking ? "检测中..." : "极速自检"}
                   </Button>
