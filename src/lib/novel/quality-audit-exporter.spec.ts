@@ -34,6 +34,58 @@ describe("quality-audit-exporter (ISO 25010 & ISO 25059 Quality Models)", () => 
     expect(report.verdict.passedAllHardGates).toBe(false)
     expect(report.verdict.readyForPublishing).toBe(false)
     expect(report.verdict.summary).toContain("存在 3 项一致性告警")
+
+    // Format markdown for non-ready project
+    const md = formatQualityAuditMarkdown(report)
+    expect(md).toContain("需整改")
+  })
+
+  it("handles fallback default title and various grade boundaries", () => {
+    // Test default title and Grade AA
+    const reportAA = buildIsoQualityAuditReport({
+      projectPath: "c:/novels/untitled",
+      chapterCount: 10,
+      gatePassRate: 85,
+      consistencyIncidentCount: 0,
+      antiAiClichéRate: 3.0,
+    })
+    expect(reportAA.projectInfo.title).toBe("Niko Buddy Novel Project")
+    expect(reportAA.verdict.grade).toBe("AA")
+
+    // Test Grade A (incidents = 1)
+    const reportA = buildIsoQualityAuditReport({
+      projectPath: "c:/novels/untitled",
+      chapterCount: 10,
+      gatePassRate: 95,
+      consistencyIncidentCount: 1,
+    })
+    expect(reportA.verdict.grade).toBe("A")
+
+    // Test Grade B (incidents = 4)
+    const reportB = buildIsoQualityAuditReport({
+      projectPath: "c:/novels/untitled",
+      chapterCount: 10,
+      gatePassRate: 60,
+      consistencyIncidentCount: 4,
+    })
+    expect(reportB.verdict.grade).toBe("B")
+
+    // Test Grade C (incidents = 15)
+    const reportC = buildIsoQualityAuditReport({
+      projectPath: "c:/novels/untitled",
+      chapterCount: 10,
+      gatePassRate: 40,
+      consistencyIncidentCount: 15,
+    })
+    expect(reportC.verdict.grade).toBe("C")
+
+    // Test minimal inputs with default gatePassRate and antiAiClichéRate
+    const reportMinimal = buildIsoQualityAuditReport({
+      projectPath: "c:/novels/minimal",
+      chapterCount: 1,
+    })
+    expect(reportMinimal.iso25059AiMetrics.functionalCorrectness).toBe(100)
+    expect(reportMinimal.iso25059AiMetrics.societalEthicalRiskMitigation).toBe(95)
   })
 
   it("formats audit report as readable markdown with ISO 15289 compliant structure", () => {
@@ -51,5 +103,6 @@ describe("quality-audit-exporter (ISO 25010 & ISO 25059 Quality Models)", () => 
     expect(md).toContain("ISO/IEC 25010:2023")
     expect(md).toContain("ISO/IEC 25059:2023")
     expect(md).toContain("Draft-first 沙箱隔离，零脏数据落盘")
+    expect(md).toContain("具备正式交付/出版标准")
   })
 })

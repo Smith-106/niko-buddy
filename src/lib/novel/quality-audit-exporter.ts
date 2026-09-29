@@ -86,15 +86,15 @@ export function buildIsoQualityAuditReport(input: QualityAuditInput): IsoQuality
   const antiAi = input.antiAiClichéRate ?? 2.5
 
   // 计算 ISO 25010 基础打分 (0 ~ 100)
-  const functionalSuitability = Math.min(100, Math.max(90, 100 - consistencyIncidents * 2))
+  const functionalSuitability = Math.min(100, Math.max(0, (gatePass * 0.5 + 50) - consistencyIncidents * 5))
   const performanceEfficiency = 98.0
   const compatibility = 97.0
   const interactionCapability = 98.5
-  const reliability = consistencyIncidents === 0 ? 99.0 : Math.max(85, 99 - consistencyIncidents * 3)
+  const reliability = consistencyIncidents === 0 ? 99.0 : Math.max(0, 99 - consistencyIncidents * 8)
   const security = 99.0
   const maintainability = 98.0
   const flexibility = 97.5
-  const safety = consistencyIncidents === 0 ? 99.0 : Math.max(88, 99 - consistencyIncidents * 2)
+  const safety = consistencyIncidents === 0 ? 99.0 : Math.max(0, 99 - consistencyIncidents * 6)
 
   const overallAverage = Number(
     (

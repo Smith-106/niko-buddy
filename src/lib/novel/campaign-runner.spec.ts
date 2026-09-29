@@ -44,8 +44,12 @@ vi.mock("./canon-dual-write", () => ({
 describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.runDeepChapterGeneration.mockReset()
+    mocks.createDirectory.mockReset()
     mocks.createDirectory.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockReset()
     mocks.writeFileAtomic.mockResolvedValue(undefined)
+    mocks.ingestChapter.mockReset()
     mocks.ingestChapter.mockResolvedValue({ snapshot: { chapter: 1 } })
   })
 
@@ -292,6 +296,281 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
         stage: "cruise-paused",
       }),
     )
+  })
+
+  it("触发 onThinking 回调并支持 buildChapterRequest 与 partial 状态", async () => {
+    mocks.runDeepChapterGeneration.mockImplementationOnce(async (_input, callbacks) => {
+      callbacks?.onThinking?.("正在思考剧情走向并构建人物心理变化...")
+      return {
+        finalContent: "部分内容",
+        taskBrief: "brief",
+        draftContent: "draft",
+        reviewResults: [],
+        revised: false,
+        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        manualReviewRequired: false,
+        retryCount: 0,
+        partial: true,
+        partialReason: "hit token limit",
+      }
+    })
+
+    const onProgress = vi.fn()
+    const buildChapterRequest = vi.fn(async (num: number) => `特别定制的第 ${num} 章任务需求`)
+
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 1,
+      llmConfig: mockLlmConfig,
+      buildChapterRequest,
+      onProgress,
+    })
+
+    expect(buildChapterRequest).toHaveBeenCalledWith(1)
+    expect(report.results[0].status).toBe("partial")
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: "thinking",
+        message: expect.stringContaining("正在思考剧情走向"),
+      }),
+    )
+  })
+
+  it("单章遭遇异常时记录 failed 状态并在非巡航模式下继续后续推进", async () => {
+    mocks.runDeepChapterGeneration
+      .mockRejectedValueOnce(new Error("网络异常中断"))
+      .mockRejectedValueOnce("字符串异常")
+      .mockResolvedValueOnce({
+        finalContent: "第三章成功",
+        taskBrief: "brief",
+        draftContent: "draft",
+        reviewResults: [],
+        revised: false,
+        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        manualReviewRequired: false,
+        retryCount: 0,
+        partial: false,
+        partialReason: null,
+      })
+
+    const onChapterComplete = vi.fn()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 3,
+      llmConfig: mockLlmConfig,
+      onChapterComplete,
+    })
+
+    expect(report.results).toHaveLength(3)
+    expect(report.results[0].status).toBe("failed")
+    expect(report.results[0].error).toBe("网络异常中断")
+    expect(report.results[1].status).toBe("failed")
+    expect(report.results[1].error).toBe("字符串异常")
+    expect(report.results[2].status).toBe("ready")
+    expect(report.summary.allPassed).toBe(false)
+    expect(report.summary.failedCount).toBe(2)
+  })
+
+  it("巡航模式下遇到不可恢复异常立即中断战役", async () => {
+    mocks.runDeepChapterGeneration.mockRejectedValueOnce(new Error("巡航严重错误"))
+
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 2,
+      llmConfig: mockLlmConfig,
+      cruiseMode: true,
+    })
+
+    expect(report.results).toHaveLength(1)
+    expect(report.results[0].status).toBe("failed")
+  })
+
+  it("巡航模式下自动晋升异常被捕获且不崩溃整个流程", async () => {
+    mocks.runDeepChapterGeneration.mockResolvedValueOnce({
+      finalContent: "成功内容",
+      taskBrief: "brief",
+      draftContent: "draft",
+      reviewResults: [],
+      revised: false,
+      decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+      manualReviewRequired: false,
+      retryCount: 0,
+      partial: false,
+      partialReason: null,
+    })
+    mocks.writeFileAtomic.mockRejectedValueOnce(new Error("写入文件权限受限"))
+
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 1,
+      llmConfig: mockLlmConfig,
+      cruiseMode: true,
+    })
+
+    expect(report.results[0].autoAccepted).toBe(false)
+  })
+
+  it("batchAcceptCampaignDrafts 默认标题回退与过滤空白内容", async () => {
+    const res = await batchAcceptCampaignDrafts("/mock/project", [
+      {
+        chapterNumber: 7,
+        content: "第七章内容",
+        taskBrief: "b",
+        draftContent: "d",
+        reviewResults: [],
+        revised: false,
+        wordCount: 50,
+        status: "ready",
+      },
+      {
+        chapterNumber: 8,
+        content: "   ",
+        taskBrief: "b",
+        draftContent: "d",
+        reviewResults: [],
+        revised: false,
+        wordCount: 0,
+        status: "ready",
+      },
+    ])
+    expect(res.acceptedCount).toBe(1)
+    const written = mocks.writeFileAtomic.mock.calls[0][1] as string
+    expect(written).toContain("# 第7章")
+  })
+
+  it("batchAcceptCampaignDrafts 单章事实摄取失败时记录日志且不中断后续章节", async () => {
+    mocks.ingestChapter.mockRejectedValueOnce(new Error("事实摄取超时"))
+
+    const res = await batchAcceptCampaignDrafts(
+      "/mock/project",
+      [
+        {
+          chapterNumber: 10,
+          title: "第十章",
+          content: "第十章内容",
+          taskBrief: "b",
+          draftContent: "d",
+          reviewResults: [],
+          revised: false,
+          wordCount: 100,
+          status: "ready",
+        },
+      ],
+      {
+        autoIngest: true,
+        llmConfig: mockLlmConfig,
+      },
+    )
+
+    expect(res.acceptedCount).toBe(1)
+    expect(res.ingestedCount).toBe(0)
+  })
+
+  it("在已取消信号下发生异常时退出循环", async () => {
+    const controller = new AbortController()
+    mocks.runDeepChapterGeneration.mockImplementationOnce(async () => {
+      controller.abort()
+      throw new Error("异常中断")
+    })
+
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 2,
+      llmConfig: mockLlmConfig,
+      signal: controller.signal,
+    })
+
+    expect(report.results).toHaveLength(1)
+    expect(report.results[0].status).toBe("failed")
+  })
+
+  it("batchAcceptCampaignDrafts 在 llmConfig.model 为空时回退 default 模型，或 autoIngest 为 false 时跳过摄取", async () => {
+    const res = await batchAcceptCampaignDrafts(
+      "/mock/project",
+      [
+        {
+          chapterNumber: 11,
+          title: "第十一章",
+          content: "第十一章内容",
+          taskBrief: "b",
+          draftContent: "d",
+          reviewResults: [],
+          revised: false,
+          wordCount: 100,
+          status: "ready",
+        },
+      ],
+      {
+        autoIngest: true,
+        llmConfig: { ...mockLlmConfig, model: undefined as any },
+      },
+    )
+
+    expect(res.acceptedCount).toBe(1)
+    expect(mocks.ingestChapter).toHaveBeenCalledWith(
+      "/mock/project",
+      "/mock/project/wiki/chapters/chapter-011.md",
+      "default",
+      undefined,
+      expect.anything(),
+    )
+
+    // autoIngest 为 false 时直接跳过
+    const resNoIngest = await batchAcceptCampaignDrafts(
+      "/mock/project",
+      [
+        {
+          chapterNumber: 12,
+          title: "第十二章",
+          content: "第十二章内容",
+          taskBrief: "b",
+          draftContent: "d",
+          reviewResults: [],
+          revised: false,
+          wordCount: 100,
+          status: "ready",
+        },
+      ],
+      {
+        autoIngest: false,
+      },
+    )
+    expect(resNoIngest.acceptedCount).toBe(1)
+    expect(resNoIngest.ingestedCount).toBe(0)
+  })
+
+  it("batchAcceptCampaignDrafts 动态模块导入失败时捕获异常并记录日志", async () => {
+    const spy = vi.spyOn(Promise, "all").mockRejectedValueOnce(new Error("模块加载器崩溃"))
+
+    const res = await batchAcceptCampaignDrafts(
+      "/mock/project",
+      [
+        {
+          chapterNumber: 13,
+          title: "第十三章",
+          content: "第十三章内容",
+          taskBrief: "b",
+          draftContent: "d",
+          reviewResults: [],
+          revised: false,
+          wordCount: 100,
+          status: "ready",
+        },
+      ],
+      {
+        autoIngest: true,
+        llmConfig: mockLlmConfig,
+      },
+    )
+
+    expect(res.acceptedCount).toBe(1)
+    expect(res.ingestedCount).toBe(0)
+    spy.mockRestore()
   })
 })
 

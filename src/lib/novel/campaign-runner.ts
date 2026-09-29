@@ -221,9 +221,7 @@ export async function runAutonomousDraftCampaign(
               llmConfig,
             },
           )
-          if (acceptRes.acceptedCount > 0) {
-            isAutoAccepted = true
-          }
+          isAutoAccepted = acceptRes.acceptedCount > 0
         } catch (acceptErr) {
           console.warn(`[campaign-runner] 第 ${currentChapterNum} 章全自动巡航晋升失败:`, acceptErr)
         }

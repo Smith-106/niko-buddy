@@ -27,25 +27,7 @@
 import { readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 
-// Lazy-load node:crypto: a static `import { createHash } from "node:crypto"`
-// would be externalized by vite and crash the browser module graph on
-// access. chunkFingerprint() is only invoked from the Node/Tauri ingestion
-// pipeline — browser entry reaches this module for index plumbing but
-// never calls the hash path. The eval'd require hides the dependency from
-// bundler static analysis so it never enters the browser bundle.
-type CreateHash = (alg: string) => { update(d: string, enc?: string): { digest(enc: string): string } }
-let _createHash: CreateHash | null = null
-function getCreateHash(): CreateHash {
-  if (_createHash) return _createHash
-  if (typeof process === "undefined" || !process.versions?.node) {
-    throw new Error("chunkFingerprint requires a Node environment (ingestion pipeline)")
-  }
-  // eslint-disable-next-line no-eval
-  const req = (0, eval)("require") as (mod: string) => { createHash: CreateHash }
-  const crypto = req("node:crypto")
-  _createHash = crypto.createHash
-  return _createHash
-}
+import { createHash } from "node:crypto"
 
 const FINGERPRINT_FILE = ".niko-buddy/vector-fingerprints.json"
 
@@ -84,7 +66,7 @@ export function normalizeChunkContent(content: string): string {
  * 自动失效旧指纹 (旧索引条目自然过期, 无需迁移)。
  */
 export function chunkFingerprint(content: string): string {
-  const digest = getCreateHash()("sha256").update(normalizeChunkContent(content), "utf8").digest("hex")
+  const digest = createHash("sha256").update(normalizeChunkContent(content), "utf8").digest("hex")
   return `v1:${digest}`
 }
 
