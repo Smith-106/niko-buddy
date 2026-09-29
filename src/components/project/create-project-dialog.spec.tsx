@@ -237,6 +237,32 @@ describe("CreateProjectDialog", () => {
     expect(mocks.createProject).toHaveBeenCalledWith("未命名项目 2", expect.any(String))
   })
 
+  it("F3 (Round-1)：演示模板种子文件被写入（零 API 试写）", async () => {
+    mocks.getTemplate.mockReturnValueOnce({
+      id: "novel-demo",
+      schema: "# demo-schema",
+      purpose: "# demo-purpose",
+      extraDirs: ["wiki/chapters"],
+      seedFiles: [
+        { path: "wiki/outline.md", content: "# 演示样例大纲" },
+        { path: "wiki/chapters/chapter-001.md", content: "# 演示样例第一章" },
+      ],
+    } as never)
+    renderDialog(true)
+    fireEvent.change(nameInput(), { target: { value: "DemoBook" } })
+    fireEvent.submit(formOf())
+    await flushAsync()
+    expect(mocks.writeFile).toHaveBeenCalledWith(
+      expect.stringContaining("outline.md"),
+      "# 演示样例大纲",
+    )
+    expect(mocks.writeFile).toHaveBeenCalledWith(
+      expect.stringContaining("chapter-001.md"),
+      "# 演示样例第一章",
+    )
+    expect(mocks.onCreated).toHaveBeenCalled()
+  })
+
   it("创建成功：完整链路（默认父目录预填）", async () => {
     renderDialog(true)
     await flushAsync()

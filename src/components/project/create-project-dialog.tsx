@@ -147,6 +147,10 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
       for (const dir of template.extraDirs) {
         await createDirectory(`${pp}/${dir}`)
       }
+      // F3（Round-1 评估）：演示模板种子文件（大纲/人物卡/样例章）——零 API 试写。
+      for (const seed of template.seedFiles ?? []) {
+        await writeFile(`${pp}/${seed.path}`, seed.content)
+      }
 
       const lang: OutputLanguage = "Chinese"
       setOutputLanguage(lang)

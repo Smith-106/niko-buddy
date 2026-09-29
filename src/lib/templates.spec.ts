@@ -2,14 +2,31 @@ import { describe, expect, it } from "vitest"
 import { getTemplate, templates, type WikiTemplate } from "./templates"
 
 describe("templates", () => {
-  it("exports all five registered templates with stable ids", () => {
+  it("exports all six registered templates with stable ids", () => {
     expect(templates.map((t) => t.id)).toEqual([
+      "novel-demo",
       "research",
       "reading",
       "personal",
       "business",
       "general",
     ])
+  })
+
+  it("F3 (Round-1): novel-demo ships seed files for zero-API trial", () => {
+    const demo = getTemplate("novel-demo")
+    expect(demo.seedFiles?.length).toBe(3)
+    const paths = demo.seedFiles!.map((s) => s.path)
+    expect(paths).toEqual([
+      "wiki/outline.md",
+      "wiki/characters/lin-wan.md",
+      "wiki/chapters/chapter-001.md",
+    ])
+    for (const seed of demo.seedFiles!) {
+      expect(seed.content).toContain("演示样例")
+    }
+    // 普通模板无种子文件
+    expect(getTemplate("general").seedFiles ?? []).toEqual([])
   })
 
   it("bundles schema, purpose, icon and extra dirs per template", () => {

@@ -771,6 +771,10 @@
     "general": {
       "name": "General Novel",
       "description": "A minimal starting structure for freeform writing from a blank slate."
+    },
+    "novel-demo": {
+      "name": "Novel Demo",
+      "description": "Zero-config trial: built-in outline + character card + sample chapter 1, no API needed."
     }
   },
   "sources": {

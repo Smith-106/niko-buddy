@@ -14,6 +14,8 @@ export interface WikiTemplate {
   schema: string
   purpose: string
   extraDirs: string[]
+  /** F3（Round-1 评估）：演示模板种子文件（零 API 试写）。普通模板缺省。 */
+  seedFiles?: { path: string; content: string }[]
 }
 
 // ---------------------------------------------------------------------------
@@ -636,7 +638,105 @@ ${CONTRADICTION_RULES}
 }
 
 /** All available wiki project templates. */
+/** F3（Round-1 评估）：小说演示模板 —— 零 API 也能打开试写。
+ * 种子文件均为明确标注的演示样例（非伪造 AI 生成），用户可直接浏览
+ * 大纲/人物卡/第一章样例，体验 Draft-first 审阅链路（本地规则审查
+ * 可用，LLM 生成需配置模型服务）。 */
+const novelDemoTemplate: WikiTemplate = {
+  id: "novel-demo",
+  name: "小说演示",
+  description: "零配置试写：内置大纲 + 人物卡 + 第一章样例，无需 API",
+  icon: "📖",
+  extraDirs: ["wiki/chapters", "wiki/characters"],
+  schema: `# Wiki Schema（小说演示项目）
+
+## Page Types
+
+| Type | Directory | Purpose |
+|------|-----------|---------|
+| chapter | wiki/chapters/ | 章节正文（含样例第一章） |
+| character | wiki/characters/ | 人物卡 |
+| outline | wiki/ | 大纲 |
+
+## Naming Conventions
+
+${NAMING_RULES}
+`,
+  purpose: `# Project Purpose（演示项目）
+
+## Goal
+
+零配置体验 niko-buddy 的写作链路：浏览样例大纲/人物卡/第一章，
+试用审阅与记忆摄取（本地规则部分），配置模型服务后可真写续章。
+
+## Key Questions
+
+1. 样例第一章的人物状态是否被记忆正确摄取？
+2. 审查中心的本地规则项对样例章打分如何？
+`,
+  seedFiles: [
+    {
+      path: "wiki/outline.md",
+      content: `# 《雾港旧信》 · 大纲（演示样例）
+
+> 本文件为演示样例，非 AI 生成，供零配置试写体验。
+
+## 卷一 雾港
+
+- 第 1 章（样例）：林晚收到旧宅钥匙，雾夜入宅发现旧信警告。
+- 第 2 章（待写·需配置模型服务）：旧信末两行水渍下的字。
+- 第 3 章（待写）：送钥匙的人现身。
+
+## 核心悬念
+
+- 旧信警告「不要相信送钥匙的人」——谁送的钥匙？
+- 旧宅在第 3/4 章已被搜过——谁先到的？
+`,
+    },
+    {
+      path: "wiki/characters/lin-wan.md",
+      content: `---
+type: entity
+title: 林晚
+tags: [protagonist]
+related: [old-house]
+created: 2026-09-30
+updated: 2026-09-30
+---
+
+# 林晚（演示样例人物卡）
+
+> 本文件为演示样例。
+
+- 身份：雾港晚报记者，对钥匙的掌控感随剧情加深。
+- 状态：第 1 章后开始警惕送钥匙之人。
+- 关系：与旧宅历史有隐秘联系（待展开）。
+`,
+    },
+    {
+      path: "wiki/chapters/chapter-001.md",
+      content: `# 第 1 章 雾夜旧宅（演示样例）
+
+> 本章为演示样例正文（约 800 字），非 AI 生成。配置模型服务后可续写第 2 章。
+
+雾是半夜涨起来的。林晚把钥匙攥出汗时，渡口的汽笛正穿过雾，钝得像隔了一层水。
+
+钥匙是三天前寄到的，没有寄件人，只有一张卡片：旧宅的东西，该你来拿。字迹她认得——五年前跑旧宅失火案时，档案袋上的批注就是这笔字。
+
+她推开铁门。院子里的杂草结着白霜，堂屋的门虚掩着，门缝里漏出一线暖黄的光。有人先到了。或者说，有人一直没走。
+
+桌上摆着一封信。信纸受过潮，末两行糊成一片深色的水渍。她把信举到灯下，只辨出半句：不要相信送——
+
+送什么？送钥匙的人吗？她后颈一凉，回头看门。门缝里的光灭了。
+
+（样例完。续写第 2 章需要配置模型服务：「设置 → LLM 提供商」。）
+`,
+    },
+  ],
+}
+
 export const templates: WikiTemplate[] = [
+  novelDemoTemplate,
   researchTemplate,
   readingTemplate,
   personalTemplate,

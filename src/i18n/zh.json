@@ -390,6 +390,10 @@
     "general": {
       "name": "通用小说",
       "description": "最小化初始结构，适合从空白开始自由创作"
+    },
+    "novel-demo": {
+      "name": "小说演示",
+      "description": "零配置试写：内置大纲 + 人物卡 + 第一章样例，无需 API"
     }
   },
   "sources": {
