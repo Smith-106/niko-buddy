@@ -23,6 +23,8 @@ export { applyAntiAiTelemetryConsentOnProjectOpen, loadAntiAiTelemetryConsent, s
 export type { BookRules } from "./book-rules"
 export { runAutonomousDraftCampaign, batchAcceptCampaignDrafts } from "./campaign-runner"
 export type { CampaignChapterResult, CampaignRunOptions, CampaignReport, BatchAcceptResult } from "./campaign-runner"
+export { runAutonomousNovelIncubator, runEndToEndAutonomousNovelProduction } from "./autonomous-incubator"
+export type { NovelIncubatorOptions, NovelIncubatorResult, IncubatedCharacter } from "./autonomous-incubator"
 export { parseOutlineToChapters, unpackOutlineToChapterFiles } from "./outline-chapter-unpack"
 export type { UnpackedOutlineChapter, UnpackOutlineOptions, UnpackOutlineResult } from "./outline-chapter-unpack"
 export { advanceBudgetBatch, createBudgetRun } from "./budget-resume"

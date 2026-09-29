@@ -47,6 +47,8 @@ export interface CampaignChapterResult {
   wordCount: number
   status: "ready" | "failed" | "blocked" | "partial"
   error?: string
+  /** 全自动巡航模式下是否已自动提交晋升正式章节 */
+  autoAccepted?: boolean
 }
 
 export interface CampaignRunOptions {
@@ -57,6 +59,14 @@ export interface CampaignRunOptions {
   chapterCount: number
   llmConfig: LlmConfig
   novelConfig?: NovelConfig
+  /**
+   * 全自动巡航推进模式 (Autonomous Cruise Mode)
+   * 当为 true 时，单章经过三级门控自愈全绿通过（status === "ready" 且无阻断缺陷）后，
+   * 系统将自动原地正式提交该章并执行事实库摄取与双写，
+   * 随后无缝读取最新事实库继续推进下一章；
+   * 若某章发生阻断（blocked 或 failed），巡航自动安全挂起待人工介入。
+   */
+  cruiseMode?: boolean
   /** 自定义每章任务指令生成器，若未提供则根据默认模式自动生成任务请求 */
   buildChapterRequest?: (chapterNumber: number) => string | Promise<string>
   /** 每章开始时的回调 */
@@ -103,6 +113,7 @@ export async function runAutonomousDraftCampaign(
     chapterCount,
     llmConfig,
     novelConfig = DEFAULT_NOVEL_CONFIG,
+    cruiseMode = false,
     buildChapterRequest,
     onChapterStart,
     onChapterComplete,
@@ -175,6 +186,49 @@ export async function runAutonomousDraftCampaign(
       const words = countWords(finalTxt)
       totalWords += words
 
+      const status: "ready" | "failed" | "blocked" | "partial" = genResult.manualReviewRequired
+        ? "blocked"
+        : genResult.partial
+          ? "partial"
+          : "ready"
+
+      let isAutoAccepted = false
+      // 全自动巡航推进：门控全绿时自动原地提交晋升正式章节，并自动摄取事实库
+      if (cruiseMode && status === "ready" && finalTxt.length > 0) {
+        onProgress?.({
+          stage: "auto-accepting",
+          current: idx + 1,
+          total,
+          message: `[第 ${currentChapterNum} 章] 门控全绿，全自动巡航正在提交晋升并摄取事实库...`,
+        })
+        try {
+          const acceptRes = await batchAcceptCampaignDrafts(
+            pp,
+            [
+              {
+                chapterNumber: currentChapterNum,
+                content: finalTxt,
+                taskBrief: genResult.taskBrief,
+                draftContent: genResult.draftContent,
+                reviewResults: genResult.reviewResults,
+                revised: genResult.revised,
+                wordCount: words,
+                status: "ready",
+              },
+            ],
+            {
+              autoIngest: true,
+              llmConfig,
+            },
+          )
+          if (acceptRes.acceptedCount > 0) {
+            isAutoAccepted = true
+          }
+        } catch (acceptErr) {
+          console.warn(`[campaign-runner] 第 ${currentChapterNum} 章全自动巡航晋升失败:`, acceptErr)
+        }
+      }
+
       const chapterResult: CampaignChapterResult = {
         chapterNumber: currentChapterNum,
         content: finalTxt,
@@ -184,11 +238,23 @@ export async function runAutonomousDraftCampaign(
         reviewResults: genResult.reviewResults,
         revised: genResult.revised,
         wordCount: words,
-        status: genResult.manualReviewRequired ? "blocked" : genResult.partial ? "partial" : "ready",
+        status,
+        autoAccepted: isAutoAccepted,
       }
 
       results.push(chapterResult)
       onChapterComplete?.(currentChapterNum, chapterResult)
+
+      // 巡航安全守护：若在全自动巡航模式下遇到未通过（blocked / partial），立即安全挂起后续推进
+      if (cruiseMode && status !== "ready") {
+        onProgress?.({
+          stage: "cruise-paused",
+          current: idx + 1,
+          total,
+          message: `[第 ${currentChapterNum} 章] 门控未通过(${status})，全自动巡航已安全挂起并等待人工审阅。`,
+        })
+        break
+      }
 
       // 更新前情记忆给下一章沙箱消费
       previousDraftSummary = finalTxt.slice(-2000)
@@ -207,8 +273,8 @@ export async function runAutonomousDraftCampaign(
       }
       results.push(failedResult)
       onChapterComplete?.(currentChapterNum, failedResult)
-      // 若出现不可恢复的异常（例如用户手动中断），跳出
-      if (signal?.aborted) break
+      // 若出现不可恢复的异常（例如用户手动中断或巡航遇到系统错误），跳出
+      if (signal?.aborted || cruiseMode) break
     }
   }
 

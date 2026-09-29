@@ -56,6 +56,7 @@ export function CampaignDashboardDialog({
   const [startChapter, setStartChapter] = useState(1)
   const [chapterCount, setChapterCount] = useState(3)
   const [autoIngest, setAutoIngest] = useState(true)
+  const [cruiseMode, setCruiseMode] = useState(false)
 
   const [isRunning, setIsRunning] = useState(false)
   const [progressMessage, setProgressMessage] = useState("")
@@ -101,6 +102,7 @@ export function CampaignDashboardDialog({
         chapterCount,
         llmConfig,
         novelConfig,
+        cruiseMode,
         onChapterStart: (chapterNumber, current, total) => {
           setActiveChapterIndex(current)
           setProgressMessage(`正在生成第 ${chapterNumber} 章 (${current}/${total})...`)
@@ -124,8 +126,20 @@ export function CampaignDashboardDialog({
       })
 
       setCampaignReport(report)
+      const autoCount = report.results.filter((r) => r.autoAccepted).length
+      if (autoCount > 0) {
+        try {
+          const tree = await listDirectory(normalizePath(project.path))
+          setFileTree(tree)
+        } catch (e) {
+          console.warn("巡航落盘后刷新文件树异常:", e)
+        }
+      }
+
       toast.success(
-        `批量战役完成！共完成 ${report.completedChapters} 章，准备就绪 ${report.summary.readyCount} 章`,
+        cruiseMode && autoCount > 0
+          ? `全自动巡航完成！自动落盘并摄取 ${autoCount} 章`
+          : `批量战役完成！共生成 ${report.completedChapters} 章，准备就绪 ${report.summary.readyCount} 章`,
       )
     } catch (err) {
       if (controller.signal.aborted) {
@@ -205,7 +219,7 @@ export function CampaignDashboardDialog({
         </DialogHeader>
 
         {/* 顶部参数配置区 */}
-        <div className="grid grid-cols-3 gap-3 p-3 rounded-lg border bg-muted/20 text-xs">
+        <div className="grid grid-cols-2 gap-3 p-3 rounded-lg border bg-muted/20 text-xs">
           <div className="flex flex-col gap-1">
             <Label className="text-xs text-muted-foreground">起始章节</Label>
             <Input
@@ -229,8 +243,18 @@ export function CampaignDashboardDialog({
               className="h-8 text-xs"
             />
           </div>
-          <div className="flex flex-col justify-end gap-1">
-            <label className="flex items-center gap-1.5 cursor-pointer text-xs h-8">
+          <div className="col-span-2 flex items-center justify-between pt-1 border-t border-border/40">
+            <label className="flex items-center gap-1.5 cursor-pointer text-xs">
+              <input
+                type="checkbox"
+                checked={cruiseMode}
+                disabled={isRunning}
+                onChange={(e) => setCruiseMode(e.target.checked)}
+                className="rounded border-border text-primary focus:ring-primary"
+              />
+              <span className="font-semibold text-primary">开启全自动巡航推进（门控全绿自动晋升正式章节并双写事实库）</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
               <input
                 type="checkbox"
                 checked={autoIngest}
@@ -238,7 +262,7 @@ export function CampaignDashboardDialog({
                 onChange={(e) => setAutoIngest(e.target.checked)}
                 className="rounded border-border text-primary focus:ring-primary"
               />
-              <span>验收时自动摄取事实库</span>
+              <span>批量验收摄取事实库</span>
             </label>
           </div>
         </div>
@@ -287,11 +311,15 @@ export function CampaignDashboardDialog({
                         {result.wordCount.toLocaleString()} 字
                       </span>
 
-                      {result.status === "ready" && (
+                      {result.autoAccepted ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[11px] font-medium border border-primary/20">
+                          <CheckCheck className="h-3 w-3" /> 巡航落盘
+                        </span>
+                      ) : result.status === "ready" ? (
                         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 text-[11px] font-medium border border-emerald-500/20">
                           <Check className="h-3 w-3" /> 就绪
                         </span>
-                      )}
+                      ) : null}
                       {result.status === "blocked" && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 text-[11px] font-medium border border-amber-500/20">
                           <AlertTriangle className="h-3 w-3" /> 阻断转人工

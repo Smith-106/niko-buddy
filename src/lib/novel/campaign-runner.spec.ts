@@ -199,4 +199,99 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     expect(mocks.ingestChapter).toHaveBeenCalledTimes(2)
     expect(acceptResult.ingestedCount).toBe(2)
   })
+
+  it("全自动巡航模式 (cruiseMode: true)：门控全绿时自动提交晋升与事实库双写", async () => {
+    mocks.runDeepChapterGeneration.mockResolvedValue({
+      finalContent: "巡航生成的正文内容",
+      taskBrief: "brief",
+      draftContent: "draft",
+      reviewResults: [],
+      revised: false,
+      decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+      manualReviewRequired: false,
+      retryCount: 0,
+      partial: false,
+      partialReason: null,
+    })
+
+    const onProgress = vi.fn()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 2,
+      llmConfig: mockLlmConfig,
+      cruiseMode: true,
+      onProgress,
+    })
+
+    expect(report.completedChapters).toBe(2)
+    expect(report.results[0].autoAccepted).toBe(true)
+    expect(report.results[1].autoAccepted).toBe(true)
+    // 验证触发了两次原子写落盘和两次事实摄取
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2)
+    expect(mocks.ingestChapter).toHaveBeenCalledTimes(2)
+  })
+
+  it("全自动巡航模式安全挂起：某章出现 blocked 时停止后续连写并保留现场", async () => {
+    mocks.runDeepChapterGeneration
+      .mockResolvedValueOnce({
+        finalContent: "第一章全绿",
+        taskBrief: "brief1",
+        draftContent: "draft1",
+        reviewResults: [],
+        revised: false,
+        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        manualReviewRequired: false,
+        retryCount: 0,
+        partial: false,
+        partialReason: null,
+      })
+      .mockResolvedValueOnce({
+        finalContent: "第二章出现严重冲突",
+        taskBrief: "brief2",
+        draftContent: "draft2",
+        reviewResults: [],
+        revised: false,
+        decisionGates: { consistency: "failed", antiAi: "passed", quality: "failed" },
+        manualReviewRequired: true,
+        retryCount: 3,
+        partial: false,
+        partialReason: null,
+      })
+      .mockResolvedValueOnce({
+        finalContent: "第三章（不应被执行）",
+        taskBrief: "brief3",
+        draftContent: "draft3",
+        reviewResults: [],
+        revised: false,
+        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        manualReviewRequired: false,
+        retryCount: 0,
+        partial: false,
+        partialReason: null,
+      })
+
+    const onProgress = vi.fn()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 3,
+      llmConfig: mockLlmConfig,
+      cruiseMode: true,
+      onProgress,
+    })
+
+    // 第一章成功自动晋升，第二章 blocked 后中断，第三章未被调度
+    expect(report.results).toHaveLength(2)
+    expect(report.results[0].autoAccepted).toBe(true)
+    expect(report.results[1].status).toBe("blocked")
+    expect(report.results[1].autoAccepted).toBe(false)
+    expect(mocks.runDeepChapterGeneration).toHaveBeenCalledTimes(2)
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: "cruise-paused",
+      }),
+    )
+  })
 })
+
