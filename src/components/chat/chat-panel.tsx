@@ -79,48 +79,22 @@ async function loadEnabledDismantlingDirective(projectPath: string): Promise<str
   void projectPath
   return ""
 }
-function appendHiddenNovelSessionDebug(content: string, debug: Record<string, unknown>): string {
-  try {
-    return `${content}\n<!-- niko-buddy-novel-session-debug:${encodeURIComponent(JSON.stringify(debug))} -->`
-  } catch {
-    return content
-  }
-}
-
-function appendManagedDeepChapterDraftMarker(content: string, marker: {
-  conversationId: string
-  sessionId?: string
-  draftStatus: "ready" | "accepted" | "rejected" | "pending" | "superseded"
-}): string {
-  try {
-    return `${content}\n<!-- niko-buddy-deep-chapter-draft:${encodeURIComponent(JSON.stringify(marker))} -->`
-  } catch {
-    return content
-  }
-}
-
-function replaceManagedDeepChapterDraftMarker(content: string, marker: {
-  conversationId: string
-  sessionId?: string
-  draftStatus: "ready" | "accepted" | "rejected" | "pending" | "superseded"
-}): string {
-  const withoutExisting = content.replace(/<!--\s*niko-buddy-deep-chapter-draft:[\s\S]*?\s*-->/gi, "").trimEnd()
-  return appendManagedDeepChapterDraftMarker(withoutExisting, marker)
-}
-
-// Wave 5 (v2.5.0): 上下文用量标记（与 draft 标记同款编码模式）。缺省 undefined
-// → 原样返回（空包降级/非 build 路径不渲染 ring）。
-function appendContextUsageMarker(
-  content: string,
-  usage: import("@/lib/context-usage").ContextUsage | undefined,
-): string {
-  if (!usage) return content
-  try {
-    return `${content}\n<!-- niko-buddy-context-usage:${encodeURIComponent(JSON.stringify(usage))} -->`
-  } catch {
-    return content
-  }
-}
+// F4-3（Round-3 评估）：隐藏标记编解码纯函数已拆至 ./chat-message-markers
+//（chat-panel 拆分第 1 步）。本地 import 供内部调用点使用，并 re-export
+// 保持既有 import 面不变。
+import {
+  appendContextUsageMarker,
+  appendHiddenNovelSessionDebug,
+  appendManagedDeepChapterDraftMarker,
+  replaceManagedDeepChapterDraftMarker,
+} from "./chat-message-markers"
+export {
+  appendContextUsageMarker,
+  appendHiddenNovelSessionDebug,
+  appendManagedDeepChapterDraftMarker,
+  replaceManagedDeepChapterDraftMarker,
+  type DeepChapterDraftMarker,
+} from "./chat-message-markers"
 // ChatPanel can be mounted from multiple layout entry points. Share stream runtime
 // state across instances so stop/finalize always targets the active generation session.
 const sharedAbortControllersRef = { current: {} as Record<string, AbortController> }
