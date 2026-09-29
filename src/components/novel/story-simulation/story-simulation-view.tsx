@@ -22,6 +22,7 @@ import { HistoryResultsModal } from "./history-results-modal";
 import { BranchCompareView } from "./branch-compare-view";
 import { MultiPovMeshPanel } from "./multi-pov-mesh-panel";
 import { AgentChatPanel } from "./agent-chat-panel";
+import { ProgressPanel } from "./progress-panel";
 import { Button } from "@/components/ui/button";
 import { formatOperationError } from "@/lib/format-operation-error";
 
@@ -1505,44 +1506,7 @@ export function StorySimulationView() {
 }
 
 /** 进度展示面板：文字 + 进度条 + 取消按钮。 */
-function ProgressPanel({
-  progress,
-  label,
-  onCancel,
-  cancelling,
-}: {
-  progress: number;
-  label: string;
-  onCancel?: () => void;
-  cancelling?: boolean;
-}) {
-  const { t } = useTranslation()
-  const clamped = Math.min(100, Math.max(0, progress));
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
-      <div className="text-base font-medium">{label}</div>
-      <div className="h-2 w-64 max-w-full overflow-hidden rounded-full bg-muted">
-        <div
-          className="h-full rounded-full bg-primary transition-all"
-          style={{ width: `${clamped}%` }}
-        />
-      </div>
-      <div className="text-xs text-muted-foreground">{clamped}%</div>
-      {onCancel && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={onCancel}
-          disabled={cancelling}
-          className="mt-2"
-        >
-          {cancelling ? t("storySimulation.cancelling") : "取消"}
-        </Button>
-      )}
-    </div>
-  );
-}
+
 
 /** 仿真中面板：进度条 + 实时时间线事件流（按节点分组折叠，带筛选）。 */
 function SimulatingTimelinePanel({
