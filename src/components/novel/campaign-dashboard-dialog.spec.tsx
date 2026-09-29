@@ -154,7 +154,7 @@ describe("CampaignDashboardDialog", () => {
 
     expect(screen.getByText(/长程战役调度工作台/)).toBeDefined()
     expect(screen.getByText("启动战役")).toBeDefined()
-    expect(screen.getByText("验收时自动摄取事实库")).toBeDefined()
+    expect(screen.getByText("批量验收摄取事实库")).toBeDefined()
 
     await waitFor(() => {
       expect(mocks.getNextChapterNumber).toHaveBeenCalledWith("/mock/project")

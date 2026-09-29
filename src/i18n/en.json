@@ -28,6 +28,7 @@
     "confirm": "Confirm",
     "back": "Back",
     "next": "Next",
+    "clear": "Clear",
     "dismiss": "Dismiss",
     "pagination": {
       "prev": "Previous",
@@ -713,6 +714,7 @@
     "quickStart1": "New project — create a workspace (novel writing mode is on by default: wiki + .novel memory)",
     "quickStart2": "Configure LLM — Settings → LLM provider, enter API endpoint + key (proxy supported)",
     "quickStart3": "Start writing — chapter generation is Draft-first: AI draft writes to canon only after accept",
+    "quickStart1Action": "Create a project, start quick-start step 1",
     "restoreBackup": "Restore previous data",
     "restoreConfirmTitle": "Restore previous data?",
     "restoreConfirmBody": "This restores project data from a backup file. You will pick a backup file next; existing projects with the same name may be overwritten — make sure current work is backed up.",

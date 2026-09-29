@@ -104,6 +104,28 @@ export function buildPlanningPrefillBlock(plan: ChapterPlanView): string {
 }
 
 /**
+ * 空 plan 判定（fail-open 本意：无数据项目不注入预填块）。
+ * 全 degraded 或 ok-但全空（无 report/无 items/无文本）→ 视为无实质内容。
+ */
+export function isEmptyChapterPlanView(plan: ChapterPlanView | null | undefined): boolean {
+  if (!plan) return true
+  const dimEmpty = (dim: PlanDimensionSlice<unknown> | undefined): boolean =>
+    !dim || dim.status === "degraded" || dim.items.length === 0
+  const fsReport = plan.foreshadowing.report
+  const hasForeshadowing = plan.foreshadowing.status !== "degraded"
+    && fsReport !== null
+    && ((fsReport.items?.length ?? 0) > 0 || plan.foreshadowing.overdueFindings.length > 0)
+  if (hasForeshadowing) return false
+  if (plan.characters.status !== "degraded" && plan.characters.items.length > 0) return false
+  if (plan.threads.status !== "degraded" && (plan.threads.items.length > 0 || plan.threads.openCount > 0)) return false
+  if (!dimEmpty(plan.cognition as PlanDimensionSlice<unknown> | undefined)) return false
+  if (!dimEmpty(plan.recentStateDeltas as PlanDimensionSlice<unknown> | undefined)) return false
+  if (!dimEmpty(plan.encounter as PlanDimensionSlice<unknown> | undefined)) return false
+  if (!dimEmpty(plan.particles as PlanDimensionSlice<unknown> | undefined)) return false
+  return true
+}
+
+/**
  * 追加预填块到 task-brief（fail-open：plan 为 null/undefined → 原样返回）。
  * append-only：base 原样保留，块追加在末尾。
  */
@@ -111,7 +133,7 @@ export function appendPlanningBlockToTaskBrief(
   taskBrief: string,
   plan: ChapterPlanView | null | undefined,
 ): string {
-  if (!plan) return taskBrief
+  if (!plan || isEmptyChapterPlanView(plan)) return taskBrief
   const block = buildPlanningPrefillBlock(plan)
   if (!taskBrief) return block
   return `${taskBrief}\n\n${block}`

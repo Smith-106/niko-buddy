@@ -8,7 +8,7 @@
  *   4. 负向控制：以「改动前的 revise allowlist（craft/lexicon）」重放同一探针 → 目标面命中为 0，
  *      证明该断言不是空转（若恢复旧矩阵，测试即失败）。
  *
- * 输入：kb-routing-view.generated.json（真实生成产物，builtFrom=sha256:df39ecbc9a177c41）。
+ * 输入：kb-routing-view.generated.json（真实生成产物，builtFrom=sha256:5466c2b048642703；R1-a 后参考池重建，原 B5-a 指纹 df39ecbc9a177c41）。
  * 零 IO / 零时钟：只读真实产物 + 纯函数调用。
  */
 import { describe, expect, it } from "vitest"

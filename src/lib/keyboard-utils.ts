@@ -21,5 +21,5 @@
  * @returns True if the event is part of IME composition
  */
 export function isImeComposing(e: React.KeyboardEvent): boolean {
-  return e.nativeEvent.isComposing || e.keyCode === 229
+  return e.nativeEvent?.isComposing === true || e.keyCode === 229
 }

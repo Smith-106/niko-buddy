@@ -5,7 +5,7 @@
  * 输入：P0#3 发现「修仙 world_ref 空置」（golden 34/34 无失败项，故以该发现为输入，
  * 而非伪造失败项）。判定方法：对固定修仙探针集，分别在
  *   基线视图（__fixtures__/kb-routing-view.baseline-dfd24e776c100d12.json，sha 后缀冻结）
- *   现役视图（kb-routing-view.generated.json，builtFrom=sha256:df39ecbc9a177c41；B5-a 扩容后指纹）
+ *   现役视图（kb-routing-view.generated.json，builtFrom=sha256:5466c2b048642703；R1-a 后参考池重建，原 B5-a 指纹 df39ecbc9a177c41）
  * 上跑通道 B 纯逻辑（routeByQueryIntent + tokensForKbMatch，与 golden-retrieval.spec 同 import 面），
  * 记录路由面 / token 面 / collection 命中面（含命中条目名）→ 三态归因：
  *   - routed_missing：目标 collection 不在路由 allowlist（路由缺配）
@@ -145,7 +145,7 @@ describe("R1-c 通道 B 归因实指（三态）", () => {
       // 既有 cthulhu 条目可共存命中（题材并行），但每条探针必须至少命中一张修仙世界卡
       expect(a.names["world_ref"]!.some((n) => n.startsWith("xianxia-world-"))).toBe(true)
     }
-    expect(kbRoutingView.builtFrom).toBe("sha256:989f0ce9d1cd638d")
+    expect(kbRoutingView.builtFrom).toBe("sha256:5466c2b048642703")
   })
 
   it("零回归：craft/lexicon 命中数不下降（补料不挤占既有 collection）", () => {

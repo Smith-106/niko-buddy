@@ -103,11 +103,19 @@ export function WelcomeScreen({
             <ol className="space-y-2 text-xs text-muted-foreground">
               <li className="flex gap-2">
                 <span className="font-medium text-foreground">1.</span>
-                {t("welcome.quickStart1", {
-                  defaultValue: novelMode
-                    ? "新建项目 —— 创建工作区（小说模式默认开启：wiki + .novel 记忆）"
-                    : "新建项目 —— 选择目录，创建 wiki 知识库工作区",
-                })}
+                {/* F2（Round-1 评估）：第 1 步可点击，直达新建项目（含内联 LLM 配置 + 跳过提示） */}
+                <button
+                  type="button"
+                  onClick={onCreateProject}
+                  className="text-left underline decoration-dotted underline-offset-2 hover:text-foreground"
+                  aria-label={t("welcome.quickStart1Action", { defaultValue: "新建项目，开始快速上手第一步" })}
+                >
+                  {t("welcome.quickStart1", {
+                    defaultValue: novelMode
+                      ? "新建项目 —— 创建工作区（小说模式默认开启：wiki + .novel 记忆）"
+                      : "新建项目 —— 选择目录，创建 wiki 知识库工作区",
+                  })}
+                </button>
               </li>
               <li className="flex gap-2">
                 <span className="font-medium text-foreground">2.</span>

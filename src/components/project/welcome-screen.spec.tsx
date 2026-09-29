@@ -130,6 +130,14 @@ describe("WelcomeScreen", () => {
     expect(onOpenProject).toHaveBeenCalled()
   })
 
+  it("F2 (Round-1): quick-start step 1 is clickable and fires onCreateProject", () => {
+    const onCreateProject = vi.fn()
+    renderWelcome({ onCreateProject })
+    // t mock returns the key; aria-label carries welcome.quickStart1Action
+    fireEvent.click(screen.getByLabelText("welcome.quickStart1Action"))
+    expect(onCreateProject).toHaveBeenCalledTimes(1)
+  })
+
   it("loads recent projects on mount and renders them", async () => {
     mocks.getRecentProjects.mockResolvedValue(PROJECTS)
     renderWelcome()

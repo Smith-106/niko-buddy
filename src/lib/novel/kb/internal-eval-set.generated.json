@@ -4,7 +4,7 @@
   "adjudicationScope": "internal-non-same-source-consistency",
   "notThirdParty": true,
   "notRealGateAnchor": true,
-  "builtFrom": "sha256:df39ecbc9a177c41",
+  "builtFrom": "sha256:5466c2b048642703",
   "provenance": {
     "view": "kb-routing-view.generated.json",
     "fixture": "internal-eval-queries.json",
