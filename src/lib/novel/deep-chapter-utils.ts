@@ -87,3 +87,85 @@ export function severityLabel(severity: "error" | "warning" | "info" | string): 
   if (severity === "warning") return "提醒"
   return "信息"
 }
+
+// F4-6（Round-4 评估）：thinking 格式化簇自 deep-chapter-generation.ts 迁入
+//（巨石拆分第 6 步）。仅 type-only 依赖主链类型（编译期擦除，无运行时循环）；
+// formatStageThinking 引自 chapter-utils（leaf，无循环）。
+import { formatStageThinking } from "./chapter-utils"
+import type { ContextPack } from "./context-engine"
+import type { DeepChapterGenerationInput } from "./deep-chapter-generation"
+import type { GoldenThreeChapterRequest } from "./golden-three-chapters"
+import type { NovelReviewResult } from "./review-adapter"
+
+export function formatContextThinking(input: DeepChapterGenerationInput, pack: ContextPack): string {
+  const recentSummaries = Array.isArray(pack.recentSummaries) ? pack.recentSummaries : []
+  const goldenThreeHints = resolveGoldenThreeThinkingHints(input.goldenThreeChapter)
+  return formatStageThinking(
+    "阶段1：上下文分析",
+    [
+      ...goldenThreeHints,
+      input.chapterNumber ? `目标章节：第${input.chapterNumber}章` : "目标章节：从用户请求中识别",
+      `章节目标：${fallback(pack.chapterGoal, "未读取到明确章节目标")}`,
+      `上一章结尾：${fallback(pack.previousChapterEnding, "未读取到上一章结尾")}`,
+      `近期剧情：${recentSummaries.length} 条`,
+      `人物状态：${summaryText(pack.characterStates)}`,
+      `伏笔状态：${summaryText(pack.foreshadowingStates)}`,
+      `时间线：${summaryText(pack.timeline)}`,
+      `禁止违背：${fallback(pack.mustAvoid, "暂无明确禁止项")}`,
+      `必须完成：${fallback(pack.mustDo, "暂无明确必做项")}`,
+    ].join("\n"),
+  )
+}
+
+export function formatReviewThinking(reviewResults: NovelReviewResult[]): string {
+  if (reviewResults.length === 0) {
+    return formatStageThinking("阶段4：AI审稿", "未发现阻断问题。")
+  }
+  const characterIssues = reviewResults.filter((item) => item.type === "character_consistency")
+  const otherIssues = reviewResults.filter((item) => item.type !== "character_consistency")
+  const errorCount = reviewResults.filter((item) => item.severity === "error").length
+  const sections: string[] = [
+    `发现 ${reviewResults.length} 个问题，其中阻断问题 ${errorCount} 个。`,
+  ]
+
+  // 角色命中记忆库报告（单独展示 character_consistency 类型的问题）
+  if (characterIssues.length > 0) {
+    sections.push("")
+    sections.push("【角色命中记忆库报告】")
+    sections.push(formatReviewIssueList(characterIssues))
+  }
+
+  // 其他问题
+  if (otherIssues.length > 0) {
+    sections.push("")
+    sections.push("【其他审查问题】")
+    sections.push(formatReviewIssueList(otherIssues))
+  }
+
+  return formatStageThinking("阶段4：AI审稿", sections.join("\n"))
+}
+
+export function formatReviewIssueList(reviewResults: NovelReviewResult[]): string {
+  return reviewResults
+    .map((item, index) => [
+      `${index + 1}. [${severityLabel(item.severity)}] ${item.message}`,
+      item.evidence ? `   - 证据：${item.evidence}` : "",
+      item.relatedMemory ? `   - 相关记忆：${item.relatedMemory}` : "",
+      item.suggestion ? `   - 建议：${item.suggestion}` : "",
+    ].filter(Boolean).join("\n"))
+    .join("\n")
+}
+
+export function resolveGoldenThreeThinkingHints(goldenThreeChapter?: GoldenThreeChapterRequest): string[] {
+  if (!goldenThreeChapter?.enabled || !goldenThreeChapter.targetChapter) return []
+  if (goldenThreeChapter.outputMode === "first_chapter_with_directions") {
+    return [
+      "黄金三章：已启用",
+      "执行策略：当前按黄金三章规则生成第1章正文，并在正文后给出第2章、第3章写作方向。",
+    ]
+  }
+  return [
+    "黄金三章：已启用",
+    `执行策略：当前按黄金三章规则生成第${goldenThreeChapter.targetChapter}章正文。`,
+  ]
+}
