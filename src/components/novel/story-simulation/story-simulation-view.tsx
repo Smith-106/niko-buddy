@@ -25,6 +25,7 @@ import { ClueTimelinePanel } from "./detective-board-panel";
 import { BranchManagerPanel } from "./branch-manager-panel";
 import { HistoryResultsModal } from "./history-results-modal";
 import { BranchCompareView } from "./branch-compare-view";
+import { MultiPovMeshPanel } from "./multi-pov-mesh-panel";
 import { Button } from "@/components/ui/button";
 import { formatOperationError } from "@/lib/format-operation-error"
 import { isImeComposing } from "@/lib/keyboard-utils";
@@ -1594,7 +1595,7 @@ function SimulatingTimelinePanel({
   const clamped = Math.min(100, Math.max(0, progress));
   const logRef = useRef<HTMLDivElement | null>(null);
   const [activeStreamView, setActiveStreamView] = useState<
-    "timeline" | "overview" | "rumors" | "clues" | "branches"
+    "timeline" | "overview" | "rumors" | "clues" | "branches" | "multi-pov-mesh"
   >("timeline");
 
   const currentRumors = useStorySimulationStore((s) => s.currentRumors);
@@ -1777,6 +1778,17 @@ function SimulatingTimelinePanel({
             onClick={() => setActiveStreamView("branches")}
           >
             分支管理
+          </button>
+          <button
+            type="button"
+            className={`rounded px-3 py-1.5 ${
+              activeStreamView === "multi-pov-mesh"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setActiveStreamView("multi-pov-mesh")}
+          >
+            多主角织网
           </button>
         </div>
       </div>
@@ -1977,7 +1989,7 @@ function SimulatingTimelinePanel({
             events={timelineEvents}
           />
         </div>
-      ) : (
+      ) : activeStreamView === "branches" ? (
         <div className="min-h-0 flex-1 overflow-hidden">
           <BranchManagerPanel
             branches={branches}
@@ -1991,6 +2003,13 @@ function SimulatingTimelinePanel({
             onToggleCompareBranch={onToggleCompareBranch}
             onSetCompareMode={onSetCompareMode}
             onClearCompareSelection={onClearCompareSelection}
+          />
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <MultiPovMeshPanel
+            agents={currentAgents}
+            events={timelineEvents}
           />
         </div>
       )}

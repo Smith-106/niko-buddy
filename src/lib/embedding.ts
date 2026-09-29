@@ -428,6 +428,21 @@ export async function countVectorChunks(projectPath: string): Promise<number> {
   })
 }
 
+export interface IdleCompactionReport {
+  chunks_compacted: number
+  old_fragments_cleared: number
+}
+
+/**
+ * 触发 Rust 后端低优先级闲时自适应压实机制 (Idle-Time Adaptive Compaction)
+ */
+export async function triggerIdleCompaction(projectPath: string): Promise<IdleCompactionReport | null> {
+  const pp = normalizePath(projectPath)
+  return await invoke<IdleCompactionReport | null>("vector_trigger_idle_compaction", {
+    projectPath: pp,
+  })
+}
+
 export async function legacyVectorRowCount(projectPath: string): Promise<number> {
   try {
     const pp = normalizePath(projectPath)
