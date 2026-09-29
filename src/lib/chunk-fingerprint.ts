@@ -41,7 +41,8 @@ function getCreateHash(): CreateHash {
     throw new Error("chunkFingerprint requires a Node environment (ingestion pipeline)")
   }
   // eslint-disable-next-line no-eval
-  const crypto = eval("require")("node:crypto") as { createHash: CreateHash }
+  const req = (0, eval)("require") as (mod: string) => { createHash: CreateHash }
+  const crypto = req("node:crypto")
   _createHash = crypto.createHash
   return _createHash
 }

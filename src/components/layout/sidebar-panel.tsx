@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Sparkles,
   Users,
+  Wand2,
 } from "lucide-react"
 import { KnowledgeTree, RawSourcesSection, type KnowledgeCreateRequest } from "./knowledge-tree"
 import { TrashPanel } from "./trash-panel"
@@ -25,6 +26,7 @@ import { DirectorSidebarPanel } from "./director-sidebar-panel"
 import { UnifiedSkillLibrarySidebarPanel } from "@/components/skill-library/unified-skill-library-view"
 import { ReviewCenterSidebarPanel } from "./review-center-sidebar-panel"
 import { BookAnalysisSidebarPanel } from "./book-analysis-sidebar-panel"
+import { AutonomousIncubatorDialog } from "@/components/novel/autonomous-incubator-dialog"
 
 import { useWikiStore } from "@/stores/wiki-store"
 import { createOutlineIngestTask, runOutlineIngestTask, flattenMdFiles, getNextChapterNumber, invalidateChapterCache, OUTLINE_IMPORT_EXTENSIONS, collectOutlineImportCandidatesFromFolder, importOutlineCandidates, importOutlineFiles, CHAPTER_IMPORT_EXTENSIONS, collectChapterImportCandidatesFromFolder, importChapterFiles, runImportedChapterMemoryExtraction } from "@/lib/novel"
@@ -235,6 +237,7 @@ export function SidebarPanel() {
   const activeImportTaskIdRef = useRef<string | null>(null)
   const outlineImportCancelledRef = useRef(false)
   const memoryDecisionResolveRef = useRef<((decision: ImportMemoryDecision) => void) | null>(null)
+  const [incubatorOpen, setIncubatorOpen] = useState(false)
 
   const loadMemoryCenter = useCallback(async (projectPath: string) => {
     const { loadMemoryCenterData } = await import("@/lib/novel/memory-center")
@@ -939,7 +942,20 @@ export function SidebarPanel() {
         </div>
         <div className="flex items-center gap-1">
           {isChapter ? (
-            <div ref={chapterImportMenuRef} className="relative">
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs gap-1 text-purple-600 dark:text-purple-400 border-purple-500/30 hover:bg-purple-500/10"
+                onClick={() => setIncubatorOpen(true)}
+                title="全自动小说冷启动孵化器"
+                aria-label="全自动小说冷启动孵化器"
+              >
+                <Wand2 className="h-3.5 w-3.5" />
+                <span>孵化</span>
+              </Button>
+              <div ref={chapterImportMenuRef} className="relative">
               <Button
                 type="button"
                 size="sm"
@@ -970,6 +986,7 @@ export function SidebarPanel() {
                 </div>
               ) : null}
             </div>
+            </>
           ) : (
             <div ref={outlineImportMenuRef} className="relative">
               <Button
@@ -1112,6 +1129,10 @@ export function SidebarPanel() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AutonomousIncubatorDialog
+        open={incubatorOpen}
+        onOpenChange={setIncubatorOpen}
+      />
     </div>
   )
 }

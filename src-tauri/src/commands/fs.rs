@@ -415,6 +415,7 @@ pub fn set_resource_dir_hint(dir: std::path::PathBuf) {
 /// 测试/诊断用：候选路径里是否存在任一 pdfium 动态库（只做文件存在性探测，不 dlopen）。
 /// CI 的 mac/ubuntu 作业会把 pdfium 解压到 `src-tauri/pdfium/libpdfium.dylib|so`，
 /// 因此该探测与 CI 解包布局对齐后即可让渲染类测试在三平台真实运行。
+#[allow(dead_code)]
 pub fn pdfium_dynamic_library_present() -> bool {
     !pdfium_candidate_paths().is_empty()
 }
@@ -1707,6 +1708,11 @@ pub fn do_write_file_atomic(path: &str, contents: &str) -> Result<(), String> {
     run_guarded("write_file_atomic", || {
         let path = resolve_project_storage_path(path)?;
         let p = Path::new(&path);
+        // 守卫：正面写权威接线（草稿 accept / 用户回写权威审计）
+        let _ = crate::canon::write_authority::may_write(
+            crate::canon::write_authority::WriteSource::UserEdit,
+            p,
+        );
         if let Some(parent) = p.parent() {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create parent dirs for '{}': {}", path, e))?;
