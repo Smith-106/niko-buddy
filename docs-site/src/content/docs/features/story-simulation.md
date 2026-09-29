@@ -38,6 +38,15 @@ description: 基于章节内容推演剧情走向、生成叙事框架与角色�
 - `report-viewing`：report / timeline / overview / rumors / clues 多标签（SimulationReportView）
 - `draft-viewing`：StoryDraftView 落稿
 
+## 多主角并行织网（v2.13 Multi-POV Mesh）
+
+入口：推演报告多标签中的织网视图（`multi-pov-mesh`）。
+
+- **独立视窗**：每个主角一条叙事线，各自的前情切片（knows / doesNotKnow）互相隔离，杜绝上帝视角穿帮。
+- **交汇对撞检测**：时空相近场景自动识别交汇点，生成视点交汇对齐包（谁在场、谁知道什么）。
+- **端侧 SLM 初筛**：面板内置轻量模型核查按钮，对试写草稿毫秒级检查角色认知越界与隐秘情报泄露（需本地 Ollama 兼容接口）。
+- **对齐包复制**：一键复制交汇对齐包，用于续写时约束各视点笔法。
+
 ## 状态与限制
 
 - 空态：无历史结果时 HistoryResultsModal 显示空态；首次进入仅展示配置面板（未开始）
