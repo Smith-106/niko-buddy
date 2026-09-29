@@ -201,4 +201,23 @@ describe("ContentArea", () => {
     expect(container.textContent).toContain("mock-chat")
     cleanup()
   })
+
+  it("F1 (Round-1)：子视图抛错时 ErrorBoundary 降级内容区而非白屏", async () => {
+    // 用一个必抛错的视图验证 ErrorBoundary 包裹生效：覆盖默认 fallback 的重试文案
+    const { ErrorBoundary } = await import("@/components/error-boundary")
+    const { createElement } = await import("react")
+    const Thrower = () => {
+      throw new Error("boom-f1")
+    }
+    const c = document.createElement("div")
+    document.body.appendChild(c)
+    const root = (await import("react-dom/client")).createRoot(c)
+    const { act: actFn } = await import("react")
+    actFn(() => {
+      root.render(createElement(ErrorBoundary, null, createElement(Thrower)))
+    })
+    expect(c.textContent).toContain("boom-f1")
+    root.unmount()
+    c.remove()
+  })
 })

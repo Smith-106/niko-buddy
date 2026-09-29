@@ -491,6 +491,12 @@ export interface ContextEntity {
   tags?: string[]
 }
 
+// F4 (Round-1 评估)：activeEntities tier 预算截断纯函数已拆至 ./context-entity-budget
+//（巨石拆分第 1 步）。本地 import 供内部调用点使用，并 re-export 保持既有
+// import 面（7 个 spec 不动）。
+import { truncateActiveEntitiesByBudget } from "./context-entity-budget"
+export { truncateActiveEntitiesByBudget, type ContextEntity as ContextEntityBudget } from "./context-entity-budget"
+
 /**
  * ISS-20260709-023 (DC-7) 渐进式 DI: 可选 store 字段注入。传入时直接使用,
  * 缺省回退 useWikiStore.getState() 保持向后兼容。
@@ -547,53 +553,6 @@ export async function buildContextPack(
  * reason 'tier_compressible'）——绝不静默。调用方 push 到 pack.gaps。
  * budget 为 undefined（无 build 预算场景，如单测直调）时原样返回不截断不记 gap。
  */
-export function truncateActiveEntitiesByBudget(
-  entities: ContextEntity[],
-  budget: ContextBudget["activeEntitiesBudget"] | undefined,
-  chapterNumber: number,
-): { entities: ContextEntity[]; gap: ContextGap | null } {
-  if (!budget) {
-    return { entities, gap: null }
-  }
-  const rankOf = (e: ContextEntity): number => {
-    const tagStr = (e.tags ?? []).join(" ")
-    if (tagStr.includes("relevance:high")) return 0
-    if (chapterNumber && tagStr.includes(`location:chapter-${chapterNumber}`)) return 0
-    if (tagStr.includes("relevance:low")) return 2
-    return 1
-  }
-  let rank1Used = 0
-  let rank2Used = 0
-  const kept: ContextEntity[] = []
-  let truncated = false
-  for (const e of entities) {
-    const r = rankOf(e)
-    if (r === 0) {
-      kept.push(e)
-    } else if (r === 1) {
-      if (rank1Used < budget.rank1CompressibleCap) {
-        kept.push(e)
-        rank1Used++
-      } else {
-        truncated = true
-      }
-    } else {
-      if (rank2Used < budget.rank2CompressibleCap) {
-        kept.push(e)
-        rank2Used++
-      } else {
-        truncated = true
-      }
-    }
-  }
-  const originalLength = entities.length
-  const retainedLength = kept.length
-  // IC-02: active_entities_truncated —— 压缩 tier 被预算截断时显式记 gap。
-  const gap: ContextGap | null = truncated
-    ? { type: "truncated", ref: "activeEntities", reason: "tier_compressible", originalLength, retainedLength }
-    : null
-  return { entities: kept, gap }
-}
 /**
  * P1-IMP-13 (A1a 前移子集): 检索/注入降级路径统一分级记录 —
  * 裸 logger.warn 升级为 classifyKbError + recoveryPlanFor 分级日志
