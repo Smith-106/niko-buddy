@@ -9,6 +9,26 @@ import { logger } from "@/lib/utils"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import { canonicalizeSnapshotCharacters, writeSnapshotToWiki, writePatchFieldsToWiki, sanitizeEntitySlug } from "./graph-adapter"
+// F4-3（Round-3 评估）：快照路径与渲染纯函数已拆至 ./snapshot-paths
+//（chapter-ingest 拆分第 1 步）。本地 import 供内部调用点使用，并 re-export
+// 保持既有 import 面不变。
+import {
+  snapshotHistoryDir,
+  snapshotHistoryFileName,
+  snapshotJsonPath,
+  snapshotMarkdownPath,
+  snapshotSourceFileNameCandidates,
+  snapshotToMarkdown,
+} from "./snapshot-paths"
+export {
+  snapshotFilePrefix,
+  snapshotHistoryDir,
+  snapshotHistoryFileName,
+  snapshotJsonPath,
+  snapshotMarkdownPath,
+  snapshotSourceFileNameCandidates,
+  snapshotToMarkdown,
+} from "./snapshot-paths"
 import { resolveNovelModel } from "./model-resolver"
 import { emptyCognitionState, mergeCognitionFromSnapshot, loadCognitionState, saveCognitionState } from "./character-cognition"
 import { createEmptyCharacterStateStore, loadCharacterStates, saveCharacterStates } from "./character-state"
@@ -1127,69 +1147,7 @@ ${sliceChapterForReview(chapterBody)}
   }
 }
 
-function snapshotToMarkdown(snapshot: ChapterSnapshot): string {
-  const md = [
-    `# 第${snapshot.chapterNumber}章 快照`,
-    "",
-    `## 摘要`,
-    snapshot.summary,
-    "",
-    `## 出场人物`,
-    ...(snapshot.characters.length > 0 ? snapshot.characters.map(c => `- ${c}`) : ["（无）"]),
-    "",
-    `## 出场地点`,
-    ...(snapshot.locations.length > 0 ? snapshot.locations.map(l => `- ${l}`) : ["（无）"]),
-    "",
-    `## 出场组织`,
-    ...(snapshot.organizations.length > 0 ? snapshot.organizations.map(o => `- ${o}`) : ["（无）"]),
-    "",
-    `## 出场物品`,
-    ...(snapshot.items.length > 0 ? snapshot.items.map(i => `- ${i}`) : ["（无）"]),
-    "",
-    `## 关键事件`,
-    ...(snapshot.events.length > 0 ? snapshot.events.map(e => `- ${e}`) : ["（无）"]),
-    "",
-    `## 人物状态变化`,
-    ...(snapshot.characterStateChanges.length > 0 ? snapshot.characterStateChanges.map(c => `- ${c}`) : ["（无）"]),
-    "",
-    `## 人物关系变化`,
-    ...(snapshot.relationshipChanges.length > 0 ? snapshot.relationshipChanges.map(r => `- ${r}`) : ["（无）"]),
-    "",
-    `## 角色认知变化`,
-    ...(snapshot.knowledgeChanges.length > 0 ? snapshot.knowledgeChanges.map(k => `- ${k}`) : ["（无）"]),
-    "",
-    `## 伏笔变化`,
-    ...(snapshot.foreshadowingChanges.length > 0 ? snapshot.foreshadowingChanges.map(f => `- ${f}`) : ["（无）"]),
-    "",
-    `## 新增正史设定`,
-    ...(snapshot.newCanonFacts.length > 0 ? snapshot.newCanonFacts.map(c => `- ${c}`) : ["（无）"]),
-    "",
-    `## 时间线事件`,
-    ...(snapshot.timelineEvents.length > 0 ? snapshot.timelineEvents.map(t => `- ${t}`) : ["（无）"]),
-    "",
-    `## 冲突变化`,
-    ...(snapshot.conflicts.length > 0 ? snapshot.conflicts.map(c => `- ${c}`) : ["（无）"]),
-    "",
-    `## 结尾钩子`,
-    snapshot.endingHook || "（无）",
-    "",
-    `## 图谱节点`,
-    ...(snapshot.graphNodes.length > 0 ? snapshot.graphNodes.map(g => `- ${g}`) : ["（无）"]),
-    "",
-    `## 图谱关系边`,
-    ...(snapshot.graphEdges.length > 0 ? snapshot.graphEdges.map(g => `- ${g}`) : ["（无）"]),
-  ]
 
-  if (snapshot.validationWarnings && snapshot.validationWarnings.length > 0) {
-    md.push(
-      "",
-      `## 校验警告`,
-      ...snapshot.validationWarnings.map(w => `- [${w.type}] ${w.message}`),
-    )
-  }
-
-  return md.join("\n")
-}
 
 export interface SnapshotHistoryEntry {
   fileName: string
@@ -1197,26 +1155,15 @@ export interface SnapshotHistoryEntry {
   createdAt: string
 }
 
-function snapshotFilePrefix(chapterNumber: number): string {
-  if (chapterNumber < 0) return `outline-${String(Math.abs(chapterNumber)).padStart(3, "0")}`
-  return String(chapterNumber).padStart(3, "0")
-}
 
-function snapshotJsonPath(projectPath: string, chapterNumber: number): string {
-  return `${projectPath}/.novel/snapshots/${snapshotFilePrefix(chapterNumber)}.snapshot.json`
-}
 
-export function snapshotMarkdownPath(projectPath: string, chapterNumber: number): string {
-  return `${projectPath}/.novel/snapshots/${snapshotFilePrefix(chapterNumber)}.snapshot.md`
-}
 
-function snapshotHistoryDir(projectPath: string, chapterNumber: number): string {
-  return `${projectPath}/.novel/snapshots/history/${snapshotFilePrefix(chapterNumber)}`
-}
 
-function snapshotHistoryFileName(): string {
-  return `${new Date().toISOString().replace(/:/g, "-")}.snapshot.json`
-}
+
+
+
+
+
 
 async function backupSnapshotBeforeOverwrite(projectPath: string, chapterNumber: number): Promise<void> {
   const currentJsonPath = snapshotJsonPath(projectPath, chapterNumber)
@@ -1698,13 +1645,7 @@ export async function syncSnapshotToMemory(
   return { writtenEntityPaths, memoryPagePaths, memorySyncedAt, driftSuspected }
 }
 
-function snapshotSourceFileNameCandidates(chapterNumber: number): string[] {
-  const canonical = chapterNumber < 0
-    ? `outline-${String(Math.abs(chapterNumber)).padStart(3, "0")}.snapshot.json`
-    : `${String(chapterNumber).padStart(3, "0")}.snapshot.json`
-  const legacy = `${String(chapterNumber).padStart(3, "0")}.snapshot.json`
-  return Array.from(new Set([canonical, legacy]))
-}
+
 
 
 function shouldDeleteSupersededProjectionContent(content: string, snapshot: ChapterSnapshot): boolean {
