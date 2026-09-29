@@ -313,6 +313,24 @@ export { extractStoryContent } from "./story-simulation/story-extractor"
 export { generateStoryFramework } from "./story-simulation/story-framework-generator"
 export { MODE_VISUAL_INFO, WORD_BUDGET_PRESETS } from "./story-simulation/types"
 export type { AgentChatMessage, AgentRelation, DirectorEvaluation, DirectorScore, ExtractionResult, FrameworkBinding, NovelAgent, RumorEvent, SimulationBranch, SimulationDebugTrace, SimulationHistoryEntry, SimulationMode, SimulationReport, SimulationResultStatus, SimulationResumePoint, SimulationState, StagedEventPool, StoryBranch, StoryDraft, StoryFramework, StoryNode, TimelineEvent } from "./story-simulation/types"
+export {
+  createMultiPovMesh,
+  detectPovIntersections,
+  generateConvergencePack,
+  sliceContextForPov,
+} from "./story-simulation/multi-pov-mesh"
+export type {
+  MultiPovMesh,
+  PovThread,
+  UpcomingSceneDescriptor,
+  PovIntersection,
+} from "./story-simulation/multi-pov-mesh"
+export {
+  verifyPovEpistemicIntegrityWithSlm,
+} from "./ollama-slm-adapter"
+export type {
+  SlmVerificationResult,
+} from "./ollama-slm-adapter"
 
 // F-002 技能包离线协议客户端（TASK-005/006）：app 层只能经 barrel 进入 novel 领域，
 // 故两个 UI 客户端在此公开。

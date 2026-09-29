@@ -2,8 +2,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render, fireEvent, waitFor, within, act } from "@/test-helpers/component-test-utils"
 import { MultiPovMeshPanel } from "./multi-pov-mesh-panel"
+import * as novelModule from "@/lib/novel"
 import type { NovelAgent, TimelineEvent } from "@/lib/novel"
-import * as ollamaAdapter from "@/lib/novel/ollama-slm-adapter"
 
 describe("MultiPovMeshPanel", () => {
   beforeEach(() => {
@@ -129,7 +129,7 @@ describe("MultiPovMeshPanel", () => {
   })
 
   it("runs SLM epistemic leak check and displays pass result", async () => {
-    vi.spyOn(ollamaAdapter, "verifyPovEpistemicIntegrityWithSlm").mockResolvedValue({
+    vi.spyOn(novelModule, "verifyPovEpistemicIntegrityWithSlm").mockResolvedValue({
       passed: true,
       leakedFacts: [],
       checkedBy: "slm",
@@ -154,7 +154,7 @@ describe("MultiPovMeshPanel", () => {
   })
 
   it("runs SLM epistemic leak check and displays violation message", async () => {
-    vi.spyOn(ollamaAdapter, "verifyPovEpistemicIntegrityWithSlm").mockResolvedValue({
+    vi.spyOn(novelModule, "verifyPovEpistemicIntegrityWithSlm").mockResolvedValue({
       passed: false,
       leakedFacts: ["全知视角泄露违规：沈清秋是真凶"],
       reasoning: "泄露了真凶秘密",
@@ -180,7 +180,7 @@ describe("MultiPovMeshPanel", () => {
   })
 
   it("catches Error object in SLM test and displays error message", async () => {
-    vi.spyOn(ollamaAdapter, "verifyPovEpistemicIntegrityWithSlm").mockRejectedValue(
+    vi.spyOn(novelModule, "verifyPovEpistemicIntegrityWithSlm").mockRejectedValue(
       new Error("连接本地 Ollama 失败"),
     )
 
@@ -203,7 +203,7 @@ describe("MultiPovMeshPanel", () => {
   })
 
   it("catches non-Error string in SLM test and displays fallback string error", async () => {
-    vi.spyOn(ollamaAdapter, "verifyPovEpistemicIntegrityWithSlm").mockRejectedValue(
+    vi.spyOn(novelModule, "verifyPovEpistemicIntegrityWithSlm").mockRejectedValue(
       "原生服务异常",
     )
 
@@ -226,7 +226,7 @@ describe("MultiPovMeshPanel", () => {
   })
 
   it("does not trigger SLM test when test draft is empty or only whitespace", () => {
-    const spy = vi.spyOn(ollamaAdapter, "verifyPovEpistemicIntegrityWithSlm")
+    const spy = vi.spyOn(novelModule, "verifyPovEpistemicIntegrityWithSlm")
 
     const { container, unmount } = render(
       <MultiPovMeshPanel agents={dummyAgents} events={dummyEvents} />,

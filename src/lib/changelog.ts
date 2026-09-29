@@ -15,6 +15,28 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.13.0",
+    date: "2026-09-29",
+    highlights: {
+      en: [
+        "Multi-POV Mesh Parallel Framework: added multi-protagonist parallel story weaving with independent epistemic context slicing, spatiotemporal collision detection, and convergence alignment packet generation.",
+        "Local SLM Epistemic Guard: integrated lightweight on-device Ollama small language model verification against narrative omniscience leaks and privacy boundary violations.",
+        "Rust End-Device Idle Vector Compaction: implemented low-priority background LanceDB vector index compaction, garbage collection, and defragmentation on the Rust native backend.",
+        "Autonomous Campaign Incubator: introduced autonomous project incubation dialog, automated outline deconstruction and distribution, and cruise campaign continuous scheduling.",
+        "Full Lifecycle Standards & 100% Coverage: implemented ISO/IEC 12207 disposal process, ISO 25010/25059 AI software quality metrics exporter, and reached 100% test coverage across core narrative simulation and mesh UI panels.",
+        "Verified: tsc --build 0 errors; eslint 0 errors; boundaries 4/4 passed; vitest coverage 100% stmts/branch/funcs/lines.",
+      ],
+      zh: [
+        "多主角并行织网视图架构 (Multi-POV Mesh)：支持不同角色支线的独立前情切片与视窗隔离、时空相近场景交汇对撞检测与视点交汇对齐包生成。",
+        "端侧轻量 SLM 穿帮极速初筛：接入本地 Ollama/轻量模型，在草稿初成期快速核查角色认知视窗边界，杜绝全知视角与隐秘剧情外泄。",
+        "Rust 端侧闲时自适应压实机制：在 Rust 原生后端建立低优先级闲时自适应 LanceDB 向量索引压实、碎片整理与垃圾回收。",
+        "自主孵化器与长程战役调度：新增项目自主孵化工作台、大纲自动解构分发器与连写下一章操作，健全三权分立与用户写入锁机制。",
+        "全生命周期标准体系与 100% 满分覆盖率：落地 ISO/IEC 12207 软件处置过程与 ISO 25010/25059 质量度量导出器，达成核心主链与织网组件测试 100% 覆盖率（语句/分支/函数/行全满分）。",
+        "验证：tsc --build 0 错误；eslint 0 错误；boundaries probe 4/4 全部通过；全量测试全绿。",
+      ],
+    },
+  },
+  {
     version: "2.12.2",
     date: "2026-09-28",
     highlights: {

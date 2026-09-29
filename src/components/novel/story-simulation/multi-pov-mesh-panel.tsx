@@ -6,18 +6,19 @@ import { useState, useMemo } from "react"
 import { Users, GitMerge, ShieldAlert, Sparkles, Copy, Check, EyeOff, BookOpen, Layers } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/lib/toast"
-import type { NovelAgent, TimelineEvent } from "@/lib/novel"
 import {
   createMultiPovMesh,
   detectPovIntersections,
   generateConvergencePack,
   sliceContextForPov,
+  verifyPovEpistemicIntegrityWithSlm,
   type MultiPovMesh,
   type PovThread,
   type UpcomingSceneDescriptor,
   type PovIntersection,
-} from "@/lib/novel/story-simulation/multi-pov-mesh"
-import { verifyPovEpistemicIntegrityWithSlm } from "@/lib/novel/ollama-slm-adapter"
+  type NovelAgent,
+  type TimelineEvent,
+} from "@/lib/novel"
 
 interface MultiPovMeshPanelProps {
   agents: Map<string, NovelAgent>
