@@ -329,7 +329,7 @@ export {
   verifyPovEpistemicIntegrityWithSlm,
 } from "./ollama-slm-adapter"
 export type {
-  SlmVerificationResult,
+  EpistemicCheckResult,
 } from "./ollama-slm-adapter"
 
 // F-002 技能包离线协议客户端（TASK-005/006）：app 层只能经 barrel 进入 novel 领域，
