@@ -156,6 +156,22 @@ async fn prune_chunk_table_versions(table: &Table) -> Result<(u64, u64), String>
 static CHUNK_WRITE_MUTATIONS: LazyLock<Mutex<HashMap<String, u64>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Timestamp of the last chunk mutation per project (ms since UNIX_EPOCH).
+static CHUNK_LAST_MUTATION_TS: LazyLock<Mutex<HashMap<String, u64>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Minimum dirty count required before an idle-time compaction is triggered.
+pub const IDLE_COMPACTION_DIRTY_THRESHOLD: u64 = 10;
+/// Minimum quiet/idle duration (ms) after the last mutation before compaction can run.
+pub const IDLE_COMPACTION_WINDOW_MS: u64 = 3_000;
+
+fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 /// Best-effort compaction trigger invoked after a successful chunk-row
 /// mutation (upsert / delete). `delta` is the number of rows that changed.
 ///
@@ -169,8 +185,12 @@ static CHUNK_WRITE_MUTATIONS: LazyLock<Mutex<HashMap<String, u64>>> =
 ///   - Missing table: compact_chunks returns an empty report (Ok) → no-op.
 ///   - Errors are swallowed (logged on debug builds) and never propagated.
 async fn maybe_trigger_after_write(project_path: &str, delta: u64) {
+    let now = now_epoch_ms();
     let (total, reached) = {
         let mut counters = CHUNK_WRITE_MUTATIONS.lock().unwrap();
+        let mut ts_map = CHUNK_LAST_MUTATION_TS.lock().unwrap();
+        ts_map.insert(project_path.to_string(), now);
+
         let entry = counters.entry(project_path.to_string()).or_insert(0);
         *entry = entry.saturating_add(delta);
         let reached = *entry >= CHUNK_COMPACTION_THRESHOLD;
@@ -193,6 +213,37 @@ async fn maybe_trigger_after_write(project_path: &str, delta: u64) {
         eprintln!("[vectorstore] chunk compaction failed (non-fatal): {e}");
         #[cfg(not(debug_assertions))]
         let _ = e;
+    }
+}
+
+/// Low-priority adaptive idle compaction.
+/// Checks whether dirty mutations have accumulated above IDLE_COMPACTION_DIRTY_THRESHOLD
+/// AND at least IDLE_COMPACTION_WINDOW_MS has elapsed since the last mutation.
+/// If both conditions hold, dispatches compaction and resets the dirty counter.
+pub async fn adaptive_idle_compaction(
+    project_path: &str,
+) -> Result<Option<ChunkCompactionReport>, String> {
+    let now = now_epoch_ms();
+    let should_run = {
+        let mut counters = CHUNK_WRITE_MUTATIONS.lock().unwrap();
+        let ts_map = CHUNK_LAST_MUTATION_TS.lock().unwrap();
+        let dirty = counters.get(project_path).copied().unwrap_or(0);
+        let last_ts = ts_map.get(project_path).copied().unwrap_or(0);
+
+        if dirty >= IDLE_COMPACTION_DIRTY_THRESHOLD
+            && now.saturating_sub(last_ts) >= IDLE_COMPACTION_WINDOW_MS
+        {
+            counters.insert(project_path.to_string(), 0);
+            true
+        } else {
+            false
+        }
+    };
+
+    if should_run {
+        compact_chunks(project_path).await.map(Some)
+    } else {
+        Ok(None)
     }
 }
 
@@ -1201,6 +1252,23 @@ pub async fn vector_drop_legacy(project_path: String) -> Result<(), String> {
     run_guarded_async("vector_drop_legacy", do_vector_drop_legacy(project_path)).await
 }
 
+pub async fn do_vector_trigger_idle_compaction(
+    project_path: String,
+) -> Result<Option<ChunkCompactionReport>, String> {
+    adaptive_idle_compaction(&project_path).await
+}
+
+#[tauri::command]
+pub async fn vector_trigger_idle_compaction(
+    project_path: String,
+) -> Result<Option<ChunkCompactionReport>, String> {
+    run_guarded_async(
+        "vector_trigger_idle_compaction",
+        do_vector_trigger_idle_compaction(project_path),
+    )
+    .await
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Tests
 //
@@ -1646,6 +1714,60 @@ mod tests_v2 {
             assert_eq!(r.page_id, "page-a");
             assert!(r.chunk_id.starts_with("page-a#"));
         }
+    }
+
+    #[tokio::test]
+    async fn idle_compaction_below_dirty_threshold_is_noop() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        // Dirty count below threshold -> Ok(None)
+        CHUNK_WRITE_MUTATIONS
+            .lock()
+            .unwrap()
+            .insert(pp.clone(), IDLE_COMPACTION_DIRTY_THRESHOLD - 1);
+        CHUNK_LAST_MUTATION_TS
+            .lock()
+            .unwrap()
+            .insert(pp.clone(), 0); // Window elapsed long ago
+
+        let res = adaptive_idle_compaction(&pp).await.unwrap();
+        assert!(res.is_none());
+    }
+
+    #[tokio::test]
+    async fn idle_compaction_triggers_when_dirty_and_idle_window_elapsed() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        vector_upsert_chunks(pp.clone(), "page-b".into(), make_chunks("page-b", 4, 16))
+            .await
+            .unwrap();
+
+        // Set dirty count at/above threshold, and last mutation timestamp in the past
+        CHUNK_WRITE_MUTATIONS
+            .lock()
+            .unwrap()
+            .insert(pp.clone(), IDLE_COMPACTION_DIRTY_THRESHOLD);
+        CHUNK_LAST_MUTATION_TS
+            .lock()
+            .unwrap()
+            .insert(
+                pp.clone(),
+                now_epoch_ms().saturating_sub(IDLE_COMPACTION_WINDOW_MS + 100),
+            );
+
+        let res = adaptive_idle_compaction(&pp).await.unwrap();
+        assert!(res.is_some());
+
+        // Dirty count reset to 0 after compaction
+        let remaining = CHUNK_WRITE_MUTATIONS
+            .lock()
+            .unwrap()
+            .get(&pp)
+            .copied()
+            .unwrap_or(0);
+        assert_eq!(remaining, 0);
     }
 
     // ── P1-IMP-10: startup reconcile executor (scan + run) ──

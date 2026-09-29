@@ -247,6 +247,7 @@ pub fn run() {
             commands::vectorstore::vector_legacy_row_count,
             commands::vectorstore::vector_drop_legacy,
             commands::vectorstore::vector_run_startup_reconcile,
+            commands::vectorstore::vector_trigger_idle_compaction,
             commands::claude_cli::claude_cli_detect,
             commands::antigravity_cli::antigravity_cli_detect,
             commands::antigravity_cli::antigravity_cli_spawn,
