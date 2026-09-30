@@ -62,6 +62,11 @@ import {
   type AntiAiMode as KernelAntiAiMode,
 } from "./control-kernel"
 import { computeCheckpointDigestOf } from "./checkpoint-digest"
+import {
+  computeInstructionDigest,
+  resolveStageOutput,
+  type StageJournalRuntime,
+} from "./stage-output-journal"
 import { resolveRoleModel as resolveRoleModelName } from "@/lib/llm/model-resolver"
 import {
   appendRewriteRateASample,
@@ -178,6 +183,14 @@ export interface DeepChapterGenerationInput {
    * 走 merger.schedule(critical)，阶段边界 drain，完成时 flush。
    */
   snapshotWriter?: (payload: string) => Promise<void>
+  /**
+   * F8 (Round-8 journal 接线): 编排面 LLM 工件缓存（stage-output-journal 薄编排）。
+   * 缺省 undefined → 关闭（零行为变化：直接走 LLM，与改前字节级一致）。
+   * 传入时阶段2任务书经 resolveStageOutput 做 digest-keyed 去重：崩溃后同 digest
+   * 重入即命中（hit=true），跳过 producer（即跳过 LLM 重调用）；TTL 过期视为未命中。
+   * 结构镜像 anti-ai-telemetry-sink 的注入注释风格：全部副作用经 deps 注入。
+   */
+  stageJournal?: StageJournalRuntime,
 }
 
 /** True when caller opted into residual campaign fields (any residual hook present). */
@@ -1546,30 +1559,74 @@ async function generateTaskBrief(
 ): Promise<string> {
   const writingTaskExtra = resolveTaskExtraPrompt(input.novelConfig, "writing")
   let taskBrief = hasCheckpointTaskBrief(resumeCheckpoint) ? resumeCheckpoint.taskBrief.trim() : ""
+  // F8 journal 接线（默认关闭 → 与改前字节级一致）：stageJournal 缺席时走直调；
+  // 传入时经 digest-keyed 缓存：同 digest 崩溃重入即命中跳过 LLM。digest 输入仅取
+  // 决定任务书语义的稳定字段（prompt 文本 + 章号 + 长度规格 + 写作附加），不含 request
+  // 覆盖/缓存前缀等传输层字段；checkpoint 短路优先（已有 taskBrief 不查缓存）。
+  const stageJournal = input.stageJournal
+  const briefMessages = (extra: string) => [{
+    role: "user" as const,
+    content: buildDeepChapterBriefPrompt(
+      outlinePrompt,
+      contextPrompt,
+      input.userRequest,
+      input.chapterNumber,
+      input.goldenThreeChapter,
+      lengthSpec,
+      extra,
+    ),
+  }]
   if (!taskBrief) {
-    taskBrief = await collectModelText(
-      writingConfig,
-      [{
-        role: "user",
-        content: buildDeepChapterBriefPrompt(
-          outlinePrompt,
-          contextPrompt,
-          input.userRequest,
-          input.chapterNumber,
-          input.goldenThreeChapter,
-          lengthSpec,
-          writingTaskExtra,
+    if (!stageJournal) {
+      taskBrief = await collectModelText(
+        writingConfig,
+        briefMessages(writingTaskExtra),
+        deps,
+        signal,
+        (partial) => callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", partial)),
+        undefined,
+        cachePrefix,
+        undefined,
+        undefined,
+        watchdog,
+      )
+    } else {
+      const journalDeps = stageJournal.deps
+      const journalNow = stageJournal.now?.() ?? Date.now()
+      const digest = await computeInstructionDigest({
+        stage: "task_brief",
+        outlinePrompt,
+        contextPrompt,
+        userRequest: input.userRequest,
+        chapterNumber: input.chapterNumber,
+        lengthSpec,
+        writingTaskExtra,
+      })
+      const lookup = await resolveStageOutput(
+        journalDeps,
+        stageJournal.projectId,
+        digest,
+        "task_brief",
+        () => collectModelText(
+          writingConfig,
+          briefMessages(writingTaskExtra),
+          deps,
+          signal,
+          (partial) => callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", partial)),
+          undefined,
+          cachePrefix,
+          undefined,
+          undefined,
+          watchdog,
         ),
-      }],
-      deps,
-      signal,
-      (partial) => callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", partial)),
-      undefined,
-      cachePrefix,
-      undefined,
-      undefined,
-      watchdog,
-    )
+        journalNow,
+        stageJournal.ttlMs,
+      )
+      taskBrief = String(lookup.record?.payload ?? "")
+      if (lookup.hit) {
+        callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书（缓存命中）", taskBrief))
+      }
+    }
     assertNotAborted(signal, USER_ABORT_MESSAGE)
     callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", taskBrief))
     await callbacks.onCheckpoint?.(createResumeCheckpoint(input, "after_task_brief", { taskBrief }))

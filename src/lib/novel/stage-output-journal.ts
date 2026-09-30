@@ -117,6 +117,22 @@ export interface StageJournalDeps {
  * 编排面缓存查询结果：`hit === true` → 直接使用 `record.payload`，跳 LLM；
  * `hit === false` → 未命中/已过期，调用方应重新生产后再 `saveJournalEntry` 落盘。
  */
+/**
+ * F8 (Round-8 journal 接线): 运行时注入体 —— 调用方（deep-chapter 阶段2）传入即启用。
+ * 缺省（字段缺席）→ 关闭，零行为变化。projectId 隔离多项目缓存行；deps 注入全部副作用；
+ * now 注入时钟（默认 Date.now），ttlMs 缺省走 effectiveJournalTtlMs()（= premium-config 接线值）。
+ */
+export interface StageJournalRuntime {
+  /** 项目隔离键（journal 文件名作用域）。 */
+  projectId: string
+  /** 副作用注入（默认 defaultStageJournalDeps()）。 */
+  deps: StageJournalDeps
+  /** 时钟注入（默认 Date.now）。 */
+  now?: () => number
+  /** 生效 TTL（默认 effectiveJournalTtlMs()）。 */
+  ttlMs?: number
+}
+
 export interface StageCacheLookup {
   hit: boolean
   /** 命中的记录（hit=true 时有值，且未过期）。 */

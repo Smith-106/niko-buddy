@@ -4279,3 +4279,84 @@ describe("§GAP-88-01 applyChapterContractCheck（DEBT-89b 关闭：过渡章自
     expect(applyChapterContractCheck("本章必须完成：推进线索", body, seed)).toBe(seed)
   })
 })
+
+describe("F8 journal 接线：阶段2任务书 digest-keyed 缓存（默认关闭/启用命中跳 LLM）", () => {
+  it("默认关闭：stageJournal 缺席 → 直调 LLM（零行为变化）", async () => {
+    const deps = createDeps()
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      {},
+      deps,
+    )
+    expect(vi.mocked(deps.streamChat)).toHaveBeenCalled()
+    expect(typeof result.taskBrief).toBe("string")
+    expect(result.taskBrief.length).toBeGreaterThan(0)
+  })
+
+  it("启用未命中：producer 跑 LLM 并落盘；同 digest 重入即命中跳过 LLM", async () => {
+    const store = new Map<string, string>()
+    const journal = {
+      projectId: "proj-f8",
+      deps: {
+        read: async () => [...store.values()].join(""),
+        writeFile: async (path: string, contents: string) => { store.set(path, contents) },
+        createDirectory: async () => {},
+      },
+      now: () => 1_000_000_000_000,
+    }
+    const deps1 = createDeps()
+    const r1 = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig, stageJournal: journal },
+      {},
+      deps1,
+    )
+    expect(typeof r1.taskBrief).toBe("string")
+    const callsAfterMiss = vi.mocked(deps1.streamChat).mock.calls.length
+    expect(callsAfterMiss).toBeGreaterThan(0)
+    expect(store.size).toBe(1)
+
+    // 同 digest 重入：任务书阶段跳过 LLM（streamChat 调用数不再为任务书增长）。
+    // 以 streamChat 总调用数度量：命中轮次 ≤ 未命中轮次（任务书那一次被省掉）。
+    const deps2 = createDeps()
+    const thinking: string[] = []
+    const r2 = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig, stageJournal: journal },
+      { onThinking: (c) => thinking.push(c) },
+      deps2,
+    )
+    expect(r2.taskBrief).toBe(r1.taskBrief)
+    expect(vi.mocked(deps2.streamChat).mock.calls.length).toBeLessThan(callsAfterMiss)
+    expect(thinking.some((t) => t.includes("缓存命中"))).toBe(true)
+  })
+
+  it("启用但 TTL 过期：视为未命中，重新走 LLM", async () => {
+    let now = 1_000_000_000_000
+    const store = new Map<string, string>()
+    const journal = {
+      projectId: "proj-f8-ttl",
+      deps: {
+        read: async () => [...store.values()].join(""),
+        writeFile: async (path: string, contents: string) => { store.set(path, contents) },
+        createDirectory: async () => {},
+      },
+      now: () => now,
+      ttlMs: 1000,
+    }
+    const deps1 = createDeps()
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig, stageJournal: journal },
+      {},
+      deps1,
+    )
+    const callsMiss = vi.mocked(deps1.streamChat).mock.calls.length
+    now += 2000 // TTL(1000ms)过期
+    const deps2 = createDeps()
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig, stageJournal: journal },
+      {},
+      deps2,
+    )
+    // 过期 → 任务书重新走 LLM，总调用数与未命中轮一致（不省）
+    expect(vi.mocked(deps2.streamChat).mock.calls.length).toBe(callsMiss)
+  })
+})
