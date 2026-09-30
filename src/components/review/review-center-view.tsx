@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
-import { useCallback, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { Clapperboard, X, Wrench } from "lucide-react"
 import { ReviewView } from "./review-view"
 import { DashboardView } from "@/components/dashboard/dashboard-view"
@@ -11,6 +11,10 @@ import { TimelineView } from "@/components/novel/timeline-view"
 import { ArcWorkbench } from "@/components/novel/craft/arc-workbench"
 import { ThrillDashboard } from "@/components/novel/craft/thrill-dashboard"
 import { TechniquePanel } from "@/components/novel/craft/technique-panel"
+import { WishDrive } from "@/components/novel/wish-drive"
+import type { WishDriveProfile } from "@/components/novel/wish-drive"
+import { queryCanonBatch } from "@/components/canon-editor/canon-editor-client"
+import { isArcStage } from "@/lib/novel"
 import { readFile } from "@/commands/fs"
 import { startSixDimensionReviewRun, SIX_REVIEW_DIMENSION_ORDER } from "@/lib/novel"
 import type { SixReviewDimensionKey } from "@/lib/novel"
@@ -29,13 +33,45 @@ const STORYBOARD_TABS: Array<{ key: StoryboardTab; labelKey: string }> = [
 ]
 
 // T29a: craft 子面板 tab（F-06 弧光工作台 / F-07 爽点仪表盘 / F-08 技法面板）
-type CraftTab = "arc-workbench" | "thrill-dashboard" | "technique-panel"
+// F8 (Round-8 断链修复): + wish-drive 卡文引导 tab（F-27/T29b 装配可见；props-DI + null 空态安全，
+//   数据源走 canon_query_batch motivation/arc 边投影→WishDriveProfile；零 IO/零 invoke 由 canon-editor-client 承载，
+//   本组件只做只读投影映射；关闭/空数据时零行为变化）。
+type CraftTab = "arc-workbench" | "thrill-dashboard" | "technique-panel" | "wish-drive"
 
 const CRAFT_TABS: Array<{ key: CraftTab; labelKey: string }> = [
   { key: "arc-workbench", labelKey: "弧光工作台" },
   { key: "thrill-dashboard", labelKey: "爽点仪表盘" },
   { key: "technique-panel", labelKey: "技法面板" },
+  { key: "wish-drive", labelKey: "卡文引导" },
 ]
+
+export interface WishDriveEdgeProjection {
+  edge_kind: string
+  predicate: string
+  target_id: string
+}
+
+/**
+ * F8 wish-drive 数据源投影：canon motivation/arc 边 → WishDriveProfile（只读映射，fail-open）。
+ * 边缺字段/空集 → 返回 null（WishDrive 空态，不拦其余 tab）。wish 取 motivation 边 predicate 首句；
+ * motive 取 motivation 边 target_id 非空去重；wmaAction 暂无专列边→空（A-22.6 自洽第3条仅在承诺后段要求行动证据，
+ * 空数组语义=无证据而非缺省值）；arcStage 取 arc 边 predicate 经 isArcStage 兜底（脏值→null→arc_stage_invalid 门拦下）。
+ */
+export function projectWishDriveProfile(edges: WishDriveEdgeProjection[]): WishDriveProfile | null {
+  const motivations = edges.filter((e) => e.edge_kind === "motivation")
+  const arcs = edges.filter((e) => e.edge_kind === "arc")
+  if (motivations.length === 0 && arcs.length === 0) return null
+  const wish = motivations.map((e) => e.predicate.split("。")[0]?.trim()).filter((s): s is string => Boolean(s))
+  const motive = [...new Set(motivations.map((e) => e.target_id.trim()).filter(Boolean))]
+  const rawStage = arcs[0]?.predicate.trim() ?? ""
+  return {
+    entityId: "canon:protagonist",
+    wish: wish.length > 0 ? wish : undefined,
+    motive: motive.length > 0 ? motive : undefined,
+    wmaAction: [],
+    arcStage: (isArcStage(rawStage) ? rawStage : null) as WishDriveProfile["arcStage"],
+  }
+}
 
 export function ReviewCenterView() {
   const { t } = useTranslation()
@@ -45,6 +81,36 @@ export function ReviewCenterView() {
   const [storyboardTab, setStoryboardTab] = useState<StoryboardTab>("corkboard")
   const [craftOpen, setCraftOpen] = useState(false)
   const [craftTab, setCraftTab] = useState<CraftTab>("arc-workbench")
+  // F8 wish-drive 数据源：切到卡文引导 tab 时懒取 motivation/arc 边（只读 batch 单 invoke；
+  // 失败→空数组→WishDrive 空态，不拦面板与其余 tab；projectId 口径与 CanonEditor 一致用 project.id）。
+  const wishProjectId = useWikiStore((s) => s.project?.id ?? "")
+  const [wishEdges, setWishEdges] = useState<WishDriveEdgeProjection[] | null>(null)
+  useEffect(() => {
+    if (!craftOpen || craftTab !== "wish-drive" || wishEdges !== null || !wishProjectId) return
+    let cancelled = false
+    void queryCanonBatch(wishProjectId, [{ edge_kinds: ["motivation", "arc"] }]).then(
+      (res) => {
+        if (cancelled) return
+        setWishEdges(
+          (res.results[0] ?? []).map((e) => ({
+            edge_kind: String(e.edge_kind),
+            predicate: String(e.predicate ?? ""),
+            target_id: String(e.target_id ?? ""),
+          })),
+        )
+      },
+      () => {
+        if (!cancelled) setWishEdges([])
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [craftOpen, craftTab, wishEdges, wishProjectId])
+  const wishProfile = useMemo(
+    () => (wishEdges === null ? null : projectWishDriveProfile(wishEdges)),
+    [wishEdges],
+  )
 
   let content: ReactNode
   if (selectedReviewDimension === "ai-review") {
@@ -169,6 +235,7 @@ export function ReviewCenterView() {
             {craftTab === "arc-workbench" && <ArcWorkbench />}
             {craftTab === "thrill-dashboard" && <ThrillDashboard />}
             {craftTab === "technique-panel" && <TechniquePanel />}
+            {craftTab === "wish-drive" && <WishDrive profile={wishProfile} />}
           </div>
         </aside>
       )}

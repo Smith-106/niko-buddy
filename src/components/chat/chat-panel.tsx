@@ -16,7 +16,7 @@ import { PlanningPanel } from "./planning-panel"
 import { ChatModelSelector } from "./chat-model-selector"
 import { useChatStore, chatMessagesToLLM, type DisplayMessage } from "@/stores/chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { resolveChapterLengthSpec, routeTask, buildTaskDirective, appendExemplarABSample, exemplarABStats, loadCognitionState, detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat, buildQmQuaiSystemPrompt, injectDeAiDirective, cleanGeneratedChapterContentWithTitle, resolveNovelModel, resolveReviewModel, buildGoldenThreeChapterDirective, detectGoldenThreeChapterRequest, isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEditResult, backupChapterFile, appendChapterWorkspaceSnapshot, updateChapterStatus, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber, normalizeChapterEditFile, commitAcceptedDeepChapterDraft, blockDeepChapterSession, completeDeepChapterSession, createNovelSessionId, loadNovelSessionStatus, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, startDeepChapterSession, subscribeStatusJson } from "@/lib/novel"
+import { resolveChapterLengthSpec, routeTask, buildTaskDirective, appendExemplarABSample, exemplarABStats, loadCognitionState, detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat, buildQmQuaiSystemPrompt, injectDeAiDirective, cleanGeneratedChapterContentWithTitle, resolveNovelModel, resolveReviewModel, buildGoldenThreeChapterDirective, detectGoldenThreeChapterRequest, isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEditResult, backupChapterFile, appendChapterWorkspaceSnapshot, updateChapterStatus, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber, normalizeChapterEditFile, commitAcceptedDeepChapterDraft, blockDeepChapterSession, completeDeepChapterSession, createNovelSessionId, loadNovelSessionStatus, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, startDeepChapterSession, subscribeStatusJson, defaultStageJournalDeps } from "@/lib/novel"
 import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
 import { executeIngestWrites } from "@/lib/ingest"
 import { readFile, writeFile, createDirectory, deleteFile } from "@/commands/fs"
@@ -1112,6 +1112,12 @@ export function ChatPanel() {
               // 55 号设计 W1-1 (54⑧ 收尾): 题材透传 (undefined → 生成链零行为变更)。
               genre: novelConfig.genre,
               resumeCheckpoint: interruptedResumeCheckpoint,
+              // F8 (Round-8 断链修复): 编排面任务书缓存默认启用（digest-keyed：崩溃后同 digest 重入命中跳过 LLM 重调；
+              // TTL 缺省走 journal 默认 T+1h；deps 为真实落盘实现，单测因 deep-gen 被 mock 不触 FS）。
+              stageJournal: {
+                projectId: pp,
+                deps: defaultStageJournalDeps(),
+              },
               // Wave 3 (v2.5.0): 计划模式 one-shot 附加（send 后清除；缺省 → 零行为变化）
               ...(planningPlan ? { planningPlan } : {}),
               ...(residualCampaignFields
@@ -2084,6 +2090,11 @@ export function ChatPanel() {
             // 55 号设计 W1-1 (54⑧ 收尾): 题材透传 (undefined → 生成链零行为变更)。
             genre: novelConfig.genre,
             resumeCheckpoint,
+            // F8 (Round-8 断链修复): 同首次生成——续跑路径同样默认启用任务书缓存（同 digest 重入命中跳 LLM）。
+            stageJournal: {
+              projectId: pp,
+              deps: defaultStageJournalDeps(),
+            },
             ...(residualCampaignFields
               ? {
                   residualOverallMedian: residualCampaignFields.residualOverallMedian,

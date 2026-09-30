@@ -107,6 +107,15 @@ export const PROJECTIONS_REGISTRY: ProjectionEntry[] = [
     consumer: "canon",
     orphan: false,
   },
+  // ── 编排面 LLM 工件缓存（F8 journal 接线：digest-keyed 去重，崩溃重入命中跳 LLM）
+  {
+    file: "journal/",
+    writer: "stage-output-journal（经 deep-chapter-generation 阶段2 resolveStageOutput）",
+    readers: ["deep-chapter-generation"],
+    consumer: "orchestrator",
+    orphan: false,
+    note: "任务书工件缓存目录（非单文件）：同 digest 重入命中跳过 LLM 重调；TTL 过期视为未命中（默认 T+1h，可经 premium-config.journalTtlMs→initJournalTtlMsFromConfig 调整）",
+  },
   // ── 迁移模块投影（本次接线后进 context pack）─────────────────
   {
     file: "world-blueprint.json",

@@ -122,6 +122,27 @@ vi.mock("@/components/novel/timeline-view", () => ({
   TimelineView: () => <div data-storyboard-placeholder="timeline" />,
 }))
 
+// F8: craft 子面板三视图占位 mock（入口/tab 逻辑测试不测内部渲染；wish-drive 走独立 spec 测真实装配/校验）
+vi.mock("@/components/novel/craft/arc-workbench", () => ({
+  ArcWorkbench: () => <div data-craft-placeholder="arc-workbench" />,
+}))
+vi.mock("@/components/novel/craft/thrill-dashboard", () => ({
+  ThrillDashboard: () => <div data-craft-placeholder="thrill-dashboard" />,
+}))
+vi.mock("@/components/novel/craft/technique-panel", () => ({
+  TechniquePanel: () => <div data-craft-placeholder="technique-panel" />,
+}))
+vi.mock("@/components/novel/wish-drive", () => ({
+  WishDrive: () => <div data-craft-placeholder="wish-drive" />,
+}))
+vi.mock("@/components/canon-editor/canon-editor-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/canon-editor/canon-editor-client")>()
+  return {
+    ...actual,
+    queryCanonBatch: vi.fn(async () => ({ results: [[]], max_revision: 0 })),
+  }
+})
+
 function resetState(): void {
   mocks.state.selectedReviewDimension = "thrill"
   mocks.state.novelMode = true
@@ -356,6 +377,88 @@ describe("ReviewCenterView — storyboard 子面板（F-010）", () => {
     expect(document.querySelector("[data-storyboard-panel]")).toBeNull()
     expect(document.querySelector("[data-storyboard-toggle]")).toBeTruthy()
   })
+
+
+describe("ReviewCenterView — craft 子面板（F-06/F-07/F-08 + F8 wish-drive）", () => {
+  it("默认隐藏：仅渲染 opt-in 悬浮按钮，不渲染子面板", () => {
+    render(<ReviewCenterView />)
+    expect(document.querySelector("[data-craft-toggle]")).toBeTruthy()
+    expect(document.querySelector("[data-craft-panel]")).toBeNull()
+  })
+
+  it("点击悬浮按钮 → 打开子面板并默认显示 arc-workbench tab，按钮隐藏", async () => {
+    render(<ReviewCenterView />)
+    fireEvent.click(screen.getByRole("button", { name: "技法" }))
+    expect(document.querySelector("[data-craft-panel]")).toBeTruthy()
+    expect(document.querySelector("[data-craft-toggle]")).toBeNull()
+    await waitFor(() =>
+      expect(document.querySelector('[data-craft-placeholder="arc-workbench"]')).toBeTruthy(),
+    )
+  })
+
+  it("tab 切换：thrill-dashboard / technique-panel / wish-drive 占位渲染", async () => {
+    render(<ReviewCenterView />)
+    fireEvent.click(screen.getByRole("button", { name: "技法" }))
+    fireEvent.click(document.querySelector('[data-craft-tab="thrill-dashboard"]') as HTMLElement)
+    await waitFor(() =>
+      expect(document.querySelector('[data-craft-placeholder="thrill-dashboard"]')).toBeTruthy(),
+    )
+    fireEvent.click(document.querySelector('[data-craft-tab="technique-panel"]') as HTMLElement)
+    await waitFor(() =>
+      expect(document.querySelector('[data-craft-placeholder="technique-panel"]')).toBeTruthy(),
+    )
+    // F8: wish-drive 卡文引导 tab 可达（数据源懒取失败→空态由 WishDrive 真实组件 spec 覆盖，此处只断言入口可达）
+    fireEvent.click(document.querySelector('[data-craft-tab="wish-drive"]') as HTMLElement)
+    await waitFor(() =>
+      expect(document.querySelector('[data-craft-placeholder="wish-drive"]')).toBeTruthy(),
+    )
+  })
+
+  it("关闭子面板 → 面板消失、悬浮按钮恢复", async () => {
+    render(<ReviewCenterView />)
+    fireEvent.click(screen.getByRole("button", { name: "技法" }))
+    expect(document.querySelector("[data-craft-panel]")).toBeTruthy()
+    fireEvent.click(document.querySelector("[data-craft-close]") as HTMLElement)
+    expect(document.querySelector("[data-craft-panel]")).toBeNull()
+    expect(document.querySelector("[data-craft-toggle]")).toBeTruthy()
+  })
+})
+
+describe("projectWishDriveProfile（F8 wish-drive 数据源投影）", () => {
+  it("空边集 → null（WishDrive 空态，不拦其余 tab）", async () => {
+    const { projectWishDriveProfile } = await import("./review-center-view")
+    expect(projectWishDriveProfile([])).toBeNull()
+    expect(projectWishDriveProfile([{ edge_kind: "world_fact", predicate: "x", target_id: "y" }])).toBeNull()
+  })
+
+  it("motivation/arc 边 → 投影 wish/motive/arcStage（fail-open 只读映射）", async () => {
+    const { projectWishDriveProfile } = await import("./review-center-view")
+    const p = projectWishDriveProfile([
+      { edge_kind: "motivation", predicate: "找到失踪的妹妹。为此不惜一切。", target_id: "林晚" },
+      { edge_kind: "motivation", predicate: "偿还童年亏欠", target_id: "林晚" },
+      { edge_kind: "arc", predicate: "commitment", target_id: "林晚" },
+    ])
+    expect(p).not.toBeNull()
+    expect(p!.entityId).toBe("canon:protagonist")
+    // wish 取 motivation 边 predicate 首句（。切分）
+    expect(p!.wish).toEqual(["找到失踪的妹妹", "偿还童年亏欠"])
+    // motive 取 target_id 去重
+    expect(p!.motive).toEqual(["林晚"])
+    // arc 边 predicate 经 isArcStage 兜底（commitment 为 U-04 合法值）
+    expect(p!.arcStage).toBe("commitment")
+    expect(p!.wmaAction).toEqual([])
+  })
+
+  it("arc 脏值 → arcStage null（arc_stage_invalid 门拦下，不带病进入引导流）", async () => {
+    const { projectWishDriveProfile } = await import("./review-center-view")
+    const p = projectWishDriveProfile([
+      { edge_kind: "motivation", predicate: "活下去", target_id: "无名" },
+      { edge_kind: "arc", predicate: "not_a_stage", target_id: "无名" },
+    ])
+    expect(p).not.toBeNull()
+    expect(p!.arcStage).toBeNull()
+  })
+})
 
   it("六维维度视图下同样可打开子面板（入口与路由正交）", async () => {
     mocks.state.selectedReviewDimension = "thrill"
