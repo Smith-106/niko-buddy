@@ -7,6 +7,14 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.14.0] - 2026-09-30
+
+### Added
+
+- **巨石拆分专轮（F4-1→F4-7）**：自 context-engine / deep-chapter-generation / chapter-ingest / chat-panel / story-simulation-view 剥离 7 个纯函数子模块（累计 -396 行，逐字搬运 + brace-match diff 校验，re-export 保 import 面）。
+- **六轮多维评估收敛**：R1（7.2）→ R6（9.75），软件开发 10 / 编辑·UX 10 / 质量 QA 10；F1 内容区 ErrorBoundary、F2 欢迎屏首步直达、F3 小说演示模板零 API 试写、F5 文档常见坑。
+- **验证**：tsc --build 0 错误；eslint 0 错误；boundaries probe 4/4 全部通过；全量测试 1098 文件 / 14406 用例全绿。
+
 ## [2.13.0] - 2026-09-29
 
 ### Added

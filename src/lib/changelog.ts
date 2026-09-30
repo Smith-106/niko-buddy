@@ -15,6 +15,22 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.14.0",
+    date: "2026-09-30",
+    highlights: {
+      en: [
+        "God-Object Split Sprint: 7 pure-function submodules peeled from context-engine / deep-chapter-generation / chapter-ingest / chat-panel / story-simulation-view (-396 lines, byte-identical moves with diff verification).",
+        "Six-Round Multi-Dimensional Eval Convergence: R1 (7.2) to R6 (9.75) with dev 10 / editor-UX 10 / QA 10; full regression green every round.",
+        "Verified: tsc --build 0 errors; eslint 0 errors; boundaries 4/4 passed; full vitest 1098 files / 14406 tests green.",
+      ],
+      zh: [
+        "巨石拆分专轮：自 context-engine / deep-chapter-generation / chapter-ingest / chat-panel / story-simulation-view 剥离 7 个纯函数子模块（-396 行，逐字搬运 + diff 校验）。",
+        "六轮多维评估收敛：R1（7.2）→ R6（9.75），软件开发 10 / 编辑·UX 10 / 质量 QA 10，每轮回归全绿。",
+        "验证：tsc --build 0 错误；eslint 0 错误；boundaries probe 4/4 全部通过；全量测试 1098 文件 / 14406 用例全绿。",
+      ],
+    },
+  },
+  {
     version: "2.13.0",
     date: "2026-09-29",
     highlights: {

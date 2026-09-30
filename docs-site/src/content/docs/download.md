@@ -7,7 +7,14 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.13.0**（2026-09-29 发布：多主角并行织网视图、端侧轻量 SLM 防穿帮与 100% 满分覆盖率批次）
+**v2.14.0**（2026-09-30 发布：巨石拆分专轮与六维评估收敛批次）
+
+### v2.14.0 更新亮点（2026-09-30）
+
+- ✅ **巨石拆分专轮（F4-1→F4-7）** — 自 context-engine / deep-chapter-generation / chapter-ingest / chat-panel / story-simulation-view 剥离 7 个纯函数子模块（累计 -396 行，逐字搬运 + diff 校验，re-export 保 import 面）
+- ✅ **六轮多维评估收敛** — R1（7.2）→ R6（9.75），软件开发 10 / 编辑·UX 10 / 质量 QA 10，每轮全量回归全绿
+- ✅ **写作体验修复** — 内容区 ErrorBoundary、欢迎屏首步直达新建项目、小说演示模板零 API 试写、文档常见坑表
+- 发布语义：prerelease（同周 stable ≤1 约束；验证通过后提升 stable）
 
 ### v2.13.0 更新亮点（2026-09-29）
 
