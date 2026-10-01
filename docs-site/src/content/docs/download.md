@@ -14,7 +14,7 @@ description: 下载 Niko Buddy 最新版本安装包
 - ✅ **九轮评估整改链（R8→R14）** — wish-drive 文案全 i18n、per-project journal TTL（`sanitizeJournalTtlMs` 唯一真源）、en 全文件零 CJK、违规码仅机读；评分 R10（8.0）→ R14（六维全 10）
 - ✅ **依赖审计门归零** — `npm audit fix` 清除 1 high（brace-expansion）+ dompurify + hono 漏洞
 - ✅ **验证** — tsc 0 错误；eslint 0 错误；boundaries 4/4；全量 14439 通过 + 2 预存 real-llm 失败（上游 HTTP 426，与 stash 基线同签名）
-- 发布语义：prerelease（同周 stable ≤1 约束；验证通过后提升 stable）
+- 发布语义：stable Latest（验证通过已提升；GitHub Releases 唯一 stable 最新版）
 
 ### v2.14.0 更新亮点（2026-09-30）
 
