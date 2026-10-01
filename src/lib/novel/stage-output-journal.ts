@@ -51,7 +51,7 @@ export const JOURNAL_SCHEMA_VERSION = 1
  * 是编排面唯一应接线 journal 的入口（他人 WIP 禁区，此处不予触碰）。后续接入点：
  *   per-project 经 `NovelConfig.journalTtlMs` → chat 双调用点 → `buildStageJournalRuntime` 第三参；
  *   进程全局经 `PremiumConfig.journalTtlMs` → `initJournalTtlMsFromConfig` → `setJournalTtlMs`。
- *   （F13：旧注记 `setJournalTtlMs(config.ttlMs)` 已失同步——直调 setter 旁路 sanitize，現以双链为准。）
+ *   （F13：旧注记 `setJournalTtlMs(config.ttlMs)` 已失同步——直调 setter 旁路 sanitize，现以双链为准。）
  * 现阶段以模块内 setter 作为安全接线面，任何配置对象解析都在该文件内完成，
  * 不把解析耦合进 `deep-chapter-generation.ts`。
  */
