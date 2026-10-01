@@ -7,6 +7,14 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.14.1] - 2026-10-01
+
+### Fixed
+
+- **九轮评估整改链（R8→R14）**：wish-drive 文案全 i18n（含 blocked 去码去术语）、per-project journal TTL（`NovelConfig.journalTtlMs`，`sanitizeJournalTtlMs` 唯一真源）、en 全文件零 CJK（含全宽标点半宽化）、违规码仅机读（`data-violation-code` + title）；barrel 5 别名契约化；评分 R10（8.0）→ R14（六维全 10：dev / writing / arch / editor / user / QA）。
+- **依赖审计门归零**：`npm audit fix` 清除 1 high（brace-expansion 二次展开 DoS）+ dompurify + hono 漏洞；`npm audit --audit-level=high` 归零通过。
+- **验证**：tsc --build 0 错误；eslint 0 错误；boundaries probe 4/4 全部通过；全量测试 14439 通过 + 2 预存 real-llm 失败（上游 HTTP 426，与 stash 基线逐行同签名）。
+
 ## [2.14.0] - 2026-09-30
 
 ### Added

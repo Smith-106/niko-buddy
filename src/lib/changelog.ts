@@ -15,6 +15,22 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.14.1",
+    date: "2026-10-01",
+    highlights: {
+      en: [
+        "Nine-Round Eval Remediation Chain (R8-R14): wish-drive full i18n, per-project journal TTL with single-source sanitize, en zero-CJK, machine-readable violation codes; scores R10 (8.0) to R14 (10.0 all six dimensions).",
+        "Dependency audit gate back to zero: npm audit fix cleared 1 high (brace-expansion) + dompurify + hono advisories.",
+        "Verified: tsc --build 0 errors; eslint 0 errors; boundaries 4/4 passed; full vitest 14439 passed + 2 pre-existing real-llm failures (upstream HTTP 426, stash-baseline-identical).",
+      ],
+      zh: [
+        "九轮评估整改链（R8→R14）：wish 全 i18n、per-project journal TTL 单源 sanitize、en 零 CJK、违规码仅机读；评分 R10（8.0）→ R14（六维全 10）。",
+        "依赖审计门归零：npm audit fix 清除 1 high（brace-expansion）+ dompurify + hono 漏洞。",
+        "验证：tsc --build 0 错误；eslint 0 错误；boundaries probe 4/4 全部通过；全量测试 14439 通过 + 2 预存 real-llm 失败（上游 HTTP 426，与 stash 基线同签名）。",
+      ],
+    },
+  },
+  {
     version: "2.14.0",
     date: "2026-09-30",
     highlights: {
