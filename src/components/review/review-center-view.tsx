@@ -271,7 +271,8 @@ function ReviewStartButton() {
         console.error("[ReviewCenterView] 读取审查章节失败:", error)
         setReviewError(
           // F11-3：去掉中文 fallback 兜底（key 中英在位：zh.json/en.json readFailed）。
-          `${t("reviewCenter.readFailed")}：${
+          // F13：全宽冒号 → 半宽（en 面零 CJK 标点口径；zh 面渲染等价）。
+          `${t("reviewCenter.readFailed")}: ${
             error instanceof Error ? error.message : String(error)
           }`,
         )

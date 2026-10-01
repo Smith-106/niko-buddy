@@ -49,7 +49,9 @@ export const JOURNAL_SCHEMA_VERSION = 1
  *
  * ⚠️ 技术债注记：[deep-chapter-generation.ts](/api/.../deep-chapter-generation.ts)
  * 是编排面唯一应接线 journal 的入口（他人 WIP 禁区，此处不予触碰）。后续接入点：
- *   `src/lib/novel/stage-output-journal.ts` 顶部调用 `setJournalTtlMs(config.ttlMs)`。
+ *   per-project 经 `NovelConfig.journalTtlMs` → chat 双调用点 → `buildStageJournalRuntime` 第三参；
+ *   进程全局经 `PremiumConfig.journalTtlMs` → `initJournalTtlMsFromConfig` → `setJournalTtlMs`。
+ *   （F13：旧注记 `setJournalTtlMs(config.ttlMs)` 已失同步——直调 setter 旁路 sanitize，現以双链为准。）
  * 现阶段以模块内 setter 作为安全接线面，任何配置对象解析都在该文件内完成，
  * 不把解析耦合进 `deep-chapter-generation.ts`。
  */
@@ -176,9 +178,8 @@ export function buildStageJournalRuntime(
   journalTtlMs?: number,
 ): StageJournalRuntime | undefined {
   if (stageJournalEnabled === false) return undefined
-  const explicit = typeof journalTtlMs === "number" && Number.isFinite(journalTtlMs) && journalTtlMs > 0
-    ? journalTtlMs
-    : undefined
+  // F13：字面级单源 —— 直接复用 sanitize 真源（与 set/init 同一函数，非同形复写）。
+  const explicit = sanitizeJournalTtlMs(journalTtlMs)
   return {
     projectId,
     deps: defaultStageJournalDeps(),
