@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.14.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.14.1-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows%20(primary)%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -54,6 +54,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 
 | 波次 | 版本 | 能力 | 核心交付 |
 |---|---|---|---|
+| — | v2.14.1 | 九轮评估整改链 + 审计门归零 | wish 全 i18n + per-project journal TTL 单源 + en 零 CJK + 违规码仅机读 + R10→R14 六维全 10 + npm audit high 归零 + 全量 14439 全绿 |
 | — | v2.14.0 | 巨石拆分专轮 + 六维评估收敛 | context-engine/deep-chapter-generation/story-simulation-view 纯函数剥离 7 子模块（-396 行）+ R1→R6 多维评估 9.75 收敛 + 全量 14406 用例全绿 |
 | — | v2.13.0 | 多主角并行织网视图与端侧SLM防穿帮 | 多视点并行织网 (Multi-POV Mesh) + 独立前情切片与视窗隔离 + 本地 Ollama SLM 穿帮极速初筛 + Rust 原生闲时自适应向量压实 + 自主孵化器长程调度 + ISO 12207/25010/25059 全生命周期质量度量导出 + 100% 满分覆盖率 |
 | — | v2.12.2 | UI健壮性与无障碍优化 | 消除button嵌套/React水合告警 + 弹窗Escape/遮罩关闭防死锁 + aria/title补全 + 语义token统一 + 双语字典扩充 |

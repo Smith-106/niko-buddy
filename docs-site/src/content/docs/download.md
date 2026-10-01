@@ -7,7 +7,14 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.14.0**（2026-09-30 发布：巨石拆分专轮与六维评估收敛批次）
+**v2.14.1**（2026-10-01 发布：九轮评估整改链与审计门归零批次）
+
+### v2.14.1 更新亮点（2026-10-01）
+
+- ✅ **九轮评估整改链（R8→R14）** — wish-drive 文案全 i18n、per-project journal TTL（`sanitizeJournalTtlMs` 唯一真源）、en 全文件零 CJK、违规码仅机读；评分 R10（8.0）→ R14（六维全 10）
+- ✅ **依赖审计门归零** — `npm audit fix` 清除 1 high（brace-expansion）+ dompurify + hono 漏洞
+- ✅ **验证** — tsc 0 错误；eslint 0 错误；boundaries 4/4；全量 14439 通过 + 2 预存 real-llm 失败（上游 HTTP 426，与 stash 基线同签名）
+- 发布语义：prerelease（同周 stable ≤1 约束；验证通过后提升 stable）
 
 ### v2.14.0 更新亮点（2026-09-30）
 
