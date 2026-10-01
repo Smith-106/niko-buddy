@@ -283,6 +283,11 @@ export interface NovelConfig {
   residualCampaignEnabled: boolean
   /** Allow residual campaign on freeze chapters Ch4/Ch6 (default false). */
   residualCampaignIncludeFreezeChapters: boolean
+  /** Deep generation stage-2 task-brief digest-keyed cache via stage-output-journal (default on).
+   * Off = legacy behavior (direct LLM call, zero cache reads/writes). On = crash re-entry with
+   * same digest skips the LLM re-call; cache-hit is surfaced in the thinking stream.
+   * Sparse/legacy configs treat undefined as on (chat-panel gates with `!== false`). */
+  stageJournalEnabled: boolean
   /** Reasoning effort tier for review calls (default high). */
   reviewReasoningEffort: "low" | "medium" | "high"
   writingModel: string
@@ -400,6 +405,7 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   literaryPolishAfterGate: false,
   residualCampaignEnabled: false,
   residualCampaignIncludeFreezeChapters: false,
+  stageJournalEnabled: true,
   reviewReasoningEffort: "high",
   writingModel: "",
   reviewModel: "",

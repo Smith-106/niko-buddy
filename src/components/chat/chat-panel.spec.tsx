@@ -2609,6 +2609,10 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     const genInput = mocks.runDeepChapterGeneration.mock.calls[0][0]
     expect(genInput.residualOverallMedian).toBe(9.0)
     expect(genInput.residualRewriteMode).toBe("structure_thril_pacing")
+    // R9（Round-9 用户可感知开关）：stageJournalEnabled 缺省（mock sparse fixture 未设=undefined）→ 视为开，
+    // 任务书缓存默认随行（digest-keyed 去重；关=genInput.stageJournal 缺席）。
+    expect(genInput.stageJournal).toBeDefined()
+    expect(genInput.stageJournal?.projectId).toBe("/p/mybook")
     expect(mocks.completeDeepChapterSession).toHaveBeenCalled()
     expect(mocks.blockDeepChapterSession).not.toHaveBeenCalled()
     expect(mocks.pauseDeepChapterSession).not.toHaveBeenCalled()

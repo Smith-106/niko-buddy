@@ -434,6 +434,8 @@ describe("NovelSection", () => {
       ["novel.settings.deepChapterReview", () => currentDraft.novelConfig.deepChapterReview],
       ["novel.settings.literaryPolishAfterGate", () => !!currentDraft.novelConfig.literaryPolishAfterGate],
       ["novel.settings.residualCampaignEnabled", () => !!currentDraft.novelConfig.residualCampaignEnabled],
+      // R9（Round-9 用户可感知开关）：stageJournalEnabled 默认开，用 !== false 读值（与 novel-section.tsx 一致）。
+      ["novel.settings.stageJournalEnabled", () => currentDraft.novelConfig.stageJournalEnabled !== false],
       ["novel.settings.temporalFactsEnabled", () => currentDraft.novelConfig.temporalFactsEnabled],
       ["novel.settings.entityBoostEnabled", () => currentDraft.novelConfig.entityBoostEnabled !== false],
       ["novel.settings.stateDeltaLightCheckEnabled", () => currentDraft.novelConfig.stateDeltaLightCheckEnabled !== false],

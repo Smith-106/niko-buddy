@@ -388,7 +388,7 @@ describe("ReviewCenterView — craft 子面板（F-06/F-07/F-08 + F8 wish-drive�
 
   it("点击悬浮按钮 → 打开子面板并默认显示 arc-workbench tab，按钮隐藏", async () => {
     render(<ReviewCenterView />)
-    fireEvent.click(screen.getByRole("button", { name: "技法" }))
+    fireEvent.click(screen.getByRole("button", { name: "技法·卡文引导" }))
     expect(document.querySelector("[data-craft-panel]")).toBeTruthy()
     expect(document.querySelector("[data-craft-toggle]")).toBeNull()
     await waitFor(() =>
@@ -398,7 +398,7 @@ describe("ReviewCenterView — craft 子面板（F-06/F-07/F-08 + F8 wish-drive�
 
   it("tab 切换：thrill-dashboard / technique-panel / wish-drive 占位渲染", async () => {
     render(<ReviewCenterView />)
-    fireEvent.click(screen.getByRole("button", { name: "技法" }))
+    fireEvent.click(screen.getByRole("button", { name: "技法·卡文引导" }))
     fireEvent.click(document.querySelector('[data-craft-tab="thrill-dashboard"]') as HTMLElement)
     await waitFor(() =>
       expect(document.querySelector('[data-craft-placeholder="thrill-dashboard"]')).toBeTruthy(),
@@ -416,7 +416,7 @@ describe("ReviewCenterView — craft 子面板（F-06/F-07/F-08 + F8 wish-drive�
 
   it("关闭子面板 → 面板消失、悬浮按钮恢复", async () => {
     render(<ReviewCenterView />)
-    fireEvent.click(screen.getByRole("button", { name: "技法" }))
+    fireEvent.click(screen.getByRole("button", { name: "技法·卡文引导" }))
     expect(document.querySelector("[data-craft-panel]")).toBeTruthy()
     fireEvent.click(document.querySelector("[data-craft-close]") as HTMLElement)
     expect(document.querySelector("[data-craft-panel]")).toBeNull()

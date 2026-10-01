@@ -447,6 +447,21 @@ export function NovelSection({ draft, setDraft }: Props) {
             />
           </div>
 
+          {/* R9（Round-9 用户可感知开关）：stage-output-journal 任务书缓存用户开关
+              （user-r9“journal 零感知零开关”整改——此前 chat-panel 硬编码默认启用，设置面无入口）。
+              关=每次直调 LLM；开=同 digest 重入命中跳过 LLM 并在 thinking 流提示。默认开。 */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("novel.settings.stageJournalEnabled")}</Label>
+              {settingTooltip("stageJournalEnabledHint")}
+            </div>
+            <NovelToggle
+              label={t('novel.settings.stageJournalEnabled')}
+              checked={draft.novelConfig.stageJournalEnabled !== false}
+              onChange={() => updateNovelConfig({ stageJournalEnabled: draft.novelConfig.stageJournalEnabled === false })}
+            />
+          </div>
+
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-1.5">
               <Label>{t("novel.settings.reviewReasoningEffort")}</Label>

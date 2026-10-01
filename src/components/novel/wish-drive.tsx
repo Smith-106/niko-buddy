@@ -263,6 +263,9 @@ export function WishDrive({ profile, characterName, className }: WishDriveProps)
         >
           <p>{t("novel.wishNoCraft")}</p>
           <p className="text-xs italic">{t("novel.wishIngestFirst")}</p>
+          {/* R9（Round-9 用户可达性修复）：空态给可操作短指引（user-r9 6/10 扣分项整改——此前仅长文案无操作路径）。
+              长文案保留实体名供审计；短句给下一步动作。零 IO/零跳转，仅文案层。 */}
+          <p className="text-xs font-medium text-foreground">{t("novel.wishIngestFirstShort")}</p>
         </div>
       )}
 

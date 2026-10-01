@@ -678,6 +678,7 @@ function normalizeNovelConfig(
     residualCampaignIncludeFreezeChapters:
       config.residualCampaignIncludeFreezeChapters
       ?? DEFAULT_NOVEL_CONFIG.residualCampaignIncludeFreezeChapters,
+    stageJournalEnabled: config.stageJournalEnabled ?? DEFAULT_NOVEL_CONFIG.stageJournalEnabled,
     reviewReasoningEffort: config.reviewReasoningEffort ?? DEFAULT_NOVEL_CONFIG.reviewReasoningEffort,
     writingModel: config.writingModel ?? DEFAULT_NOVEL_CONFIG.writingModel,
     reviewModel: config.reviewModel ?? DEFAULT_NOVEL_CONFIG.reviewModel,

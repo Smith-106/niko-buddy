@@ -196,7 +196,7 @@ export function ReviewCenterView() {
           className="absolute bottom-4 right-20 z-20 flex items-center gap-1.5 rounded-full border bg-background px-3 py-2 text-xs font-medium shadow-md transition-colors hover:bg-accent hover:text-accent-foreground"
         >
           <Wrench className="h-4 w-4" aria-hidden="true" />
-          技法
+          技法·卡文引导
         </button>
       )}
       {craftOpen && (
