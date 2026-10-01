@@ -298,7 +298,7 @@ export type { WishDriveItem, WishDriveAssembly, WriterBlockReport, CanonEntityPr
 export { route as routeControlState, firstFailedGate } from "./control-kernel"
 export type { RoutePhase, RouteStage, GateVerdict, RouteGates, ArcBoundary, PlanningTier, WarnAnnotation, RouteAction, ArcTransitionStep, RouteRole, Instruction as RouteInstruction, ControlState as RouteControlState, RouteShellMode as KernelRouteShellMode, AntiAiMode as KernelAntiAiMode } from "./control-kernel"
 // F8 (Round-8 断链修复): stage-output-journal 编排面缓存公开（chat-panel 默认启用落盘 deps；isExpired 别名避 confirm-gate/isExpired 碰撞）
-export { JOURNAL_DIR_NAME, JOURNAL_TTL_MS, JOURNAL_SCHEMA_VERSION, setJournalTtlMs, effectiveJournalTtlMs, journalDirPath, journalFilePath, parentDir, defaultStageJournalDeps, computeInstructionDigest, buildStageRecord, parseJournalLines, findLatestRecord, serializeRecord, saveJournalEntry, loadJournalEntry, resolveStageOutput, isExpired as isStageRecordExpired } from "./stage-output-journal"
+export { JOURNAL_DIR_NAME, JOURNAL_TTL_MS, JOURNAL_SCHEMA_VERSION, setJournalTtlMs, effectiveJournalTtlMs, journalDirPath, journalFilePath, parentDir, defaultStageJournalDeps, buildStageJournalRuntime, computeInstructionDigest, buildStageRecord, parseJournalLines, findLatestRecord, serializeRecord, saveJournalEntry, loadJournalEntry, resolveStageOutput, isExpired as isStageRecordExpired } from "./stage-output-journal"
 export type { StageOutputRecord, StageJournalDeps, StageJournalRuntime, StageCacheLookup } from "./stage-output-journal"
 // F8 (Round-8 断链修复): premium-config 精品/TTL 公开（initJournalTtlMsFromConfig 为 journal TTL 唯一接线口）
 export { DEFAULT_PREMIUM_CONFIG, isPremiumEnabled, getEffectiveTriggers, initJournalTtlMsFromConfig } from "./premium-config"

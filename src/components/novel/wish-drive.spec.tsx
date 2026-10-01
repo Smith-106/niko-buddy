@@ -11,9 +11,10 @@
 //   3. UI 可观测：空态 / blocked 态（violation 列表 + 入口关闭）/
 //      ready 态（wish 清单装配可见 + 弧光阶段徽标 + 四步引导问题）。
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
-import { render, screen } from "@/test-helpers/component-test-utils"
+import { fireEvent, render, screen } from "@/test-helpers/component-test-utils"
+import { useWikiStore } from "@/stores/wiki-store"
 import type { ArcStage } from "@/lib/novel"
 import {
   ACTION_EVIDENCE_STAGES,
@@ -140,6 +141,25 @@ describe("WishDrive (F-27 entry)", () => {
     expect(screen.getByTestId("wish-drive-empty")).toBeInTheDocument()
     expect(screen.queryByTestId("wish-drive-blocked")).not.toBeInTheDocument()
     expect(screen.queryByTestId("wish-drive-ready")).not.toBeInTheDocument()
+  })
+
+  it("F10-3：空态短指引为可点击按钮 + 有填写示例（去哪+怎么写）", () => {
+    const onOpenCanonEditor = vi.fn()
+    render(<WishDrive profile={null} onOpenCanonEditor={onOpenCanonEditor} />)
+    const goto = screen.getByTestId("wish-drive-goto-canon")
+    expect(goto.tagName).toBe("BUTTON")
+    // 示例行：给“怎么写”参照（愿望/动机/弧光三字段示例）
+    expect(screen.getByTestId("wish-drive-empty")).toHaveTextContent("夺回被夺走的家传剑谱")
+    fireEvent.click(goto)
+    expect(onOpenCanonEditor).toHaveBeenCalledTimes(1)
+  })
+
+  it("F10-3：空态按钮默认跳转到设定校正视图（canonEditor）", () => {
+    const prev = useWikiStore.getState().activeView
+    render(<WishDrive profile={null} />)
+    fireEvent.click(screen.getByTestId("wish-drive-goto-canon"))
+    expect(useWikiStore.getState().activeView).toBe("canonEditor")
+    useWikiStore.getState().setActiveView(prev)
   })
 
   it("closes the entry with the violation list when A-22.6 fails (blocked)", () => {

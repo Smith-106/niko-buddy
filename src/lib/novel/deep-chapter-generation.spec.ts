@@ -4329,6 +4329,47 @@ describe("F8 journal 接线：阶段2任务书 digest-keyed 缓存（默认关�
     expect(thinking.some((t) => t.includes("缓存命中"))).toBe(true)
   })
 
+  it("F10-1：goldenThreeChapter 变更 → digest 变更 → 缓存未命中（不读脏任务书）", async () => {
+    const store = new Map<string, string>()
+    const journal = {
+      projectId: "proj-f10-golden",
+      deps: {
+        read: async () => [...store.values()].join(""),
+        writeFile: async (path: string, contents: string) => { store.set(path, contents) },
+        createDirectory: async () => {},
+      },
+      now: () => 1_000_000_000_000,
+    }
+    const base = { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig }
+    const deps1 = createDeps()
+    await runDeepChapterGeneration({ ...base, stageJournal: journal }, {}, deps1)
+    const callsMiss = vi.mocked(deps1.streamChat).mock.calls.length
+    expect(callsMiss).toBeGreaterThan(0)
+    expect(store.size).toBe(1)
+
+    // 仅 goldenThreeChapter 变化（其余输入完全相同）：digest 必须不同 → 未命中，
+    // 重新走 LLM 落第二行，不复用 golden-off 旧任务书。
+    const deps2 = createDeps()
+    const thinking: string[] = []
+    await runDeepChapterGeneration(
+      {
+        ...base,
+        stageJournal: journal,
+        goldenThreeChapter: {
+          enabled: true,
+          targetChapter: 3,
+          outputMode: "chapter_only",
+          requestedFirstThree: false,
+        },
+      },
+      { onThinking: (c) => thinking.push(c) },
+      deps2,
+    )
+    expect(vi.mocked(deps2.streamChat).mock.calls.length).toBe(callsMiss)
+    expect(store.size).toBe(2)
+    expect(thinking.some((t) => t.includes("缓存命中"))).toBe(false)
+  })
+
   it("启用但 TTL 过期：视为未命中，重新走 LLM", async () => {
     let now = 1_000_000_000_000
     const store = new Map<string, string>()

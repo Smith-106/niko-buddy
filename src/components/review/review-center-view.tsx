@@ -39,10 +39,10 @@ const STORYBOARD_TABS: Array<{ key: StoryboardTab; labelKey: string }> = [
 type CraftTab = "arc-workbench" | "thrill-dashboard" | "technique-panel" | "wish-drive"
 
 const CRAFT_TABS: Array<{ key: CraftTab; labelKey: string }> = [
-  { key: "arc-workbench", labelKey: "弧光工作台" },
-  { key: "thrill-dashboard", labelKey: "爽点仪表盘" },
-  { key: "technique-panel", labelKey: "技法面板" },
-  { key: "wish-drive", labelKey: "卡文引导" },
+  { key: "arc-workbench", labelKey: "reviewCenter.craftTabs.arcWorkbench" },
+  { key: "thrill-dashboard", labelKey: "reviewCenter.craftTabs.thrillDashboard" },
+  { key: "technique-panel", labelKey: "reviewCenter.craftTabs.techniquePanel" },
+  { key: "wish-drive", labelKey: "reviewCenter.craftTabs.wishDrive" },
 ]
 
 export interface WishDriveEdgeProjection {
@@ -196,7 +196,7 @@ export function ReviewCenterView() {
           className="absolute bottom-4 right-20 z-20 flex items-center gap-1.5 rounded-full border bg-background px-3 py-2 text-xs font-medium shadow-md transition-colors hover:bg-accent hover:text-accent-foreground"
         >
           <Wrench className="h-4 w-4" aria-hidden="true" />
-          技法·卡文引导
+          {t("reviewCenter.craftToggle")}
         </button>
       )}
       {craftOpen && (
@@ -217,7 +217,7 @@ export function ReviewCenterView() {
                     craftTab === key ? "qm-selected" : "text-muted-foreground qm-hover"
                   }`}
                 >
-                  {labelKey}
+                  {t(labelKey)}
                 </button>
               ))}
             </div>

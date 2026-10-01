@@ -414,6 +414,18 @@ describe("ReviewCenterView — craft 子面板（F-06/F-07/F-08 + F8 wish-drive�
     )
   })
 
+  it("F10-3：craft tab 标签走 i18n（reviewCenter.craftTabs.*），悬浮按钮走 craftToggle", async () => {
+    render(<ReviewCenterView />)
+    expect(screen.getByRole("button", { name: "技法·卡文引导" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "技法·卡文引导" }))
+    const tabText = (key: string) =>
+      (document.querySelector(`[data-craft-tab="${key}"]`) as HTMLElement | null)?.textContent
+    expect(tabText("arc-workbench")).toBe("弧光工作台")
+    expect(tabText("thrill-dashboard")).toBe("爽点仪表盘")
+    expect(tabText("technique-panel")).toBe("技法面板")
+    expect(tabText("wish-drive")).toBe("卡文引导")
+  })
+
   it("关闭子面板 → 面板消失、悬浮按钮恢复", async () => {
     render(<ReviewCenterView />)
     fireEvent.click(screen.getByRole("button", { name: "技法·卡文引导" }))

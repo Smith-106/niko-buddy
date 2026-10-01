@@ -213,6 +213,13 @@
     },
     "characterHitReport": "角色命中报告",
     "craftWorkbench": "技法工作台",
+    "craftToggle": "技法·卡文引导",
+    "craftTabs": {
+      "arcWorkbench": "弧光工作台",
+      "thrillDashboard": "爽点仪表盘",
+      "techniquePanel": "技法面板",
+      "wishDrive": "卡文引导"
+    },
     "closeCraft": "关闭技法面板"
   },
   "nav": {
@@ -1799,7 +1806,7 @@
       "residualCampaignEnabled": "残章战役模式（structure-first）",
       "residualCampaignEnabledHint": "开启后，对 residual 章（默认 1/2/3/5；冻结 4/6）自动注入 residualOverallMedian 与 structure_thril_pacing 结构计划；可在未开 Track B 文学抛光时仍走 residual 抛光。默认关闭，不影响普通草稿路径。overall≥9 仍非 Track A 硬门。",
       "stageJournalEnabled": "任务书缓存（stage-journal）",
-      "stageJournalEnabledHint": "开启后，深度生成的阶段2写作任务书走 digest-keyed 缓存：崩溃后同 digest 重入命中即跳过 LLM 重调，并在 thinking 流提示“缓存命中”。关闭=每次直调 LLM（F8 前行为）。默认开启。",
+      "stageJournalEnabledHint": "开启后，深度生成的阶段2写作任务书会被缓存复用：同一次生成任务崩溃重入时直接复用已算好的任务书，不再重新调模型，并在思考流提示“缓存命中”。关闭=每次都重新调模型生成（旧行为）。默认开启。",
       "outlineThrillLiveStatusTitle": "开写前 thril 软门（实时）",
       "outlineThrillLiveStatusHint": "对当前分章大纲启发式评估；默认开启且可见。非产品硬门；FIX-1 失败不可用确认绕过。",
       "outlineThrillStatusPass": "通过",
@@ -2709,6 +2716,7 @@
     "wishNoCraft": "尚未摄取主角技法字段。",
     "wishIngestFirst": "先在「设定校正」录入主角的愿望/动机/弧光阶段（entities.wish/motive/arc_stage），再回到这里进入卡文引导。",
     "wishIngestFirstShort": "去「设定校正」补齐主角愿望/动机/弧光阶段",
+    "wishIngestExample": "例如：愿望填“夺回被夺走的家传剑谱”，动机填“为家族雪冤”，弧光阶段选“行动期”。",
     "wishAssemblyBlocked": "A-22.6 装配校验未通过 —— 卡文引导入口关闭",
     "wishAssembledCraft": "装配的技法字段",
     "wishAssembledList": "装配的愿望清单（wish）",
@@ -3603,7 +3611,7 @@
       "creativeHubDesc": "绑定小说·诊断阻塞·下一步建议",
       "skillLibrary": "技能库",
       "skillLibraryDesc": "可复用写作技能资产",
-      "canonEditor": "设定校对",
+      "canonEditor": "设定校正",
       "canonEditorDesc": "正典事实与一致性维护",
       "knowledge": "知识资料库",
       "knowledgeDesc": "可复用创作资料·索引状态",

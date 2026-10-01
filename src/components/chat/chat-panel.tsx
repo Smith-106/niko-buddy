@@ -16,7 +16,7 @@ import { PlanningPanel } from "./planning-panel"
 import { ChatModelSelector } from "./chat-model-selector"
 import { useChatStore, chatMessagesToLLM, type DisplayMessage } from "@/stores/chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { resolveChapterLengthSpec, routeTask, buildTaskDirective, appendExemplarABSample, exemplarABStats, loadCognitionState, detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat, buildQmQuaiSystemPrompt, injectDeAiDirective, cleanGeneratedChapterContentWithTitle, resolveNovelModel, resolveReviewModel, buildGoldenThreeChapterDirective, detectGoldenThreeChapterRequest, isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEditResult, backupChapterFile, appendChapterWorkspaceSnapshot, updateChapterStatus, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber, normalizeChapterEditFile, commitAcceptedDeepChapterDraft, blockDeepChapterSession, completeDeepChapterSession, createNovelSessionId, loadNovelSessionStatus, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, startDeepChapterSession, subscribeStatusJson, defaultStageJournalDeps } from "@/lib/novel"
+import { resolveChapterLengthSpec, routeTask, buildTaskDirective, appendExemplarABSample, exemplarABStats, loadCognitionState, detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat, buildQmQuaiSystemPrompt, injectDeAiDirective, cleanGeneratedChapterContentWithTitle, resolveNovelModel, resolveReviewModel, buildGoldenThreeChapterDirective, detectGoldenThreeChapterRequest, isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEditResult, backupChapterFile, appendChapterWorkspaceSnapshot, updateChapterStatus, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber, normalizeChapterEditFile, commitAcceptedDeepChapterDraft, blockDeepChapterSession, completeDeepChapterSession, createNovelSessionId, loadNovelSessionStatus, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, startDeepChapterSession, subscribeStatusJson, buildStageJournalRuntime } from "@/lib/novel"
 import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
 import { executeIngestWrites } from "@/lib/ingest"
 import { readFile, writeFile, createDirectory, deleteFile } from "@/commands/fs"
@@ -1100,6 +1100,8 @@ export function ChatPanel() {
             chapterNumber: effectiveTaskRoute?.chapterNumber,
             config: novelConfig,
           })
+          // F10-2：stageJournal 装配收敛到共享 helper（双调用点同语义，开关+TTL 只此一处）。
+          const stageJournalRuntime = buildStageJournalRuntime(pp, novelConfig.stageJournalEnabled)
           const generationResult = await runGenerationFirst(
             {
               projectPath: pp,
@@ -1112,18 +1114,10 @@ export function ChatPanel() {
               // 55 号设计 W1-1 (54⑧ 收尾): 题材透传 (undefined → 生成链零行为变更)。
               genre: novelConfig.genre,
               resumeCheckpoint: interruptedResumeCheckpoint,
-              // R9（Round-9 用户可感知开关）：stageJournalEnabled 用户开关（user-r9“journal 零感知零开关”整改——
-              // 此前编排面硬编码默认启用，设置面无入口、无关闭路径）。开（默认，稀疏/老配置 undefined 视为开）=
-              // digest-keyed 去重（崩溃后同 digest 重入命中跳过 LLM 重调）；关=直调 LLM（F8 前行为）。
-              // TTL 缺省走 journal 默认 T+1h；deps 为真实落盘实现，单测因 deep-gen 被 mock 不触 FS。
-              ...(novelConfig.stageJournalEnabled !== false
-                ? {
-                    stageJournal: {
-                      projectId: pp,
-                      deps: defaultStageJournalDeps(),
-                    },
-                  }
-                : {}),
+              // R9（Round-9 用户可感知开关）+ F10-2（装配收敛到 buildStageJournalRuntime，
+              // 开关语义/TTL 显式装配只此一处；开=默认启用任务书缓存，关=直调 LLM）。
+              // TTL 缺省走 journal 默认 T+1h；单测因 deep-gen 被 mock 不触 FS。
+              ...(stageJournalRuntime ? { stageJournal: stageJournalRuntime } : {}),
               // Wave 3 (v2.5.0): 计划模式 one-shot 附加（send 后清除；缺省 → 零行为变化）
               ...(planningPlan ? { planningPlan } : {}),
               ...(residualCampaignFields
@@ -2084,6 +2078,8 @@ export function ChatPanel() {
           chapterNumber: resumeRoute?.chapterNumber,
           config: novelConfig,
         })
+        // F10-2：续跑路径与首次生成同 helper 装配（开关+TTL 只此一处）。
+        const stageJournalRuntimeResume = buildStageJournalRuntime(pp, novelConfig.stageJournalEnabled)
         const generationResult = await runGenerationResume(
           {
             projectPath: pp,
@@ -2096,15 +2092,8 @@ export function ChatPanel() {
             // 55 号设计 W1-1 (54⑧ 收尾): 题材透传 (undefined → 生成链零行为变更)。
             genre: novelConfig.genre,
             resumeCheckpoint,
-            // R9（Round-9 用户可感知开关）：续跑路径与首次生成同门控（开=默认启用任务书缓存，关=直调 LLM）。
-            ...(novelConfig.stageJournalEnabled !== false
-              ? {
-                  stageJournal: {
-                    projectId: pp,
-                    deps: defaultStageJournalDeps(),
-                  },
-                }
-              : {}),
+            // R9（Round-9 用户可感知开关）+ F10-2：续跑路径与首次生成同 helper 装配。
+            ...(stageJournalRuntimeResume ? { stageJournal: stageJournalRuntimeResume } : {}),
             ...(residualCampaignFields
               ? {
                   residualOverallMedian: residualCampaignFields.residualOverallMedian,

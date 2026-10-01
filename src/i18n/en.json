@@ -324,6 +324,13 @@
     },
     "characterHitReport": "Character hit report",
     "craftWorkbench": "Craft workbench",
+    "craftToggle": "Craft · Unblock guide",
+    "craftTabs": {
+      "arcWorkbench": "Arc workbench",
+      "thrillDashboard": "Thrill dashboard",
+      "techniquePanel": "Technique panel",
+      "wishDrive": "Unblock guide"
+    },
     "closeCraft": "Close craft panel"
   },
   "nav": {
@@ -2183,7 +2190,7 @@
       "residualCampaignEnabled": "Residual campaign mode (structure-first)",
       "residualCampaignEnabledHint": "When on, residual chapters (default 1/2/3/5; freeze 4/6) receive residualOverallMedian + structure_thril_pacing plan injection. Residual polish can run without Track B literary polish. Off by default; normal draft path unchanged. overall≥9 is not a Track A hard gate.",
       "stageJournalEnabled": "Task-brief cache (stage-journal)",
-      "stageJournalEnabledHint": "When on, deep-gen stage-2 task brief uses a digest-keyed cache: re-entry with the same digest skips the LLM re-call and surfaces a cache-hit note in the thinking stream. Off = direct LLM call every time (pre-F8 behavior). On by default.",
+      "stageJournalEnabledHint": "When on, the stage-2 task brief of a deep-gen run is cached and reused: if the same run is retried after a crash, the already-computed brief is reused instead of calling the model again, with a cache-hit note in the thinking stream. Off = regenerate via the model every time (legacy behavior). On by default.",
       "outlineThrillLiveStatusTitle": "Pre-write thril soft-gate (live)",
       "outlineThrillLiveStatusHint": "Heuristic eval of current chapter outline; on and visible by default. Not a product hard gate; FIX-1 fail cannot be thril-acked away.",
       "outlineThrillStatusPass": "pass",
@@ -3090,6 +3097,7 @@
     "wishNoCraft": "Protagonist craft fields not ingested yet.",
     "wishIngestFirst": "In the Canon Editor, fill in the protagonist's wish/motive/arc stage (entities.wish/motive/arc_stage), then return here for the unblock guide.",
     "wishIngestFirstShort": "Go to Canon Editor to fill wish/motive/arc stage",
+    "wishIngestExample": "Example: wish = \"reclaim the stolen family sword manual\", motive = \"avenge the family\", arc stage = \"active\".",
     "wishAssemblyBlocked": "A-22.6 assembly check failed — unblock guide entry closed",
     "wishAssembledCraft": "Assembled craft fields",
     "wishAssembledList": "Assembled wish list (wish)",

@@ -1560,9 +1560,9 @@ async function generateTaskBrief(
   const writingTaskExtra = resolveTaskExtraPrompt(input.novelConfig, "writing")
   let taskBrief = hasCheckpointTaskBrief(resumeCheckpoint) ? resumeCheckpoint.taskBrief.trim() : ""
   // F8 journal 接线（默认关闭 → 与改前字节级一致）：stageJournal 缺席时走直调；
-  // 传入时经 digest-keyed 缓存：同 digest 崩溃重入即命中跳过 LLM。digest 输入仅取
-  // 决定任务书语义的稳定字段（prompt 文本 + 章号 + 长度规格 + 写作附加），不含 request
-  // 覆盖/缓存前缀等传输层字段；checkpoint 短路优先（已有 taskBrief 不查缓存）。
+  // 传入时经 digest-keyed 缓存：同 digest 崩溃重入即命中跳过 LLM。digest 输入与 briefMessages
+  // 实际语义输入对齐（含 goldenThreeChapter；prompt 文本 + 章号 + 长度规格 + 写作附加），
+  // 不含 request 覆盖/缓存前缀等传输层字段；checkpoint 短路优先（已有 taskBrief 不查缓存）。
   const stageJournal = input.stageJournal
   const briefMessages = (extra: string) => [{
     role: "user" as const,
@@ -1593,12 +1593,17 @@ async function generateTaskBrief(
     } else {
       const journalDeps = stageJournal.deps
       const journalNow = stageJournal.now?.() ?? Date.now()
+      // F10-1（Round-10 写作维度整改）：digest 必须与 briefMessages 实际语义输入对齐——
+      // briefMessages 经 buildDeepChapterBriefPrompt 消费 input.goldenThreeChapter（金三章指令段），
+      // 故 digest 补 goldenThreeChapter（undefined 缺席=稳定 null 语义；stableStringify 键序无关）。
+      // 既有缓存行 digest 变更=自然失效重建（TTL 窗内旧行读不到=视同未命中，无脏读）。
       const digest = await computeInstructionDigest({
         stage: "task_brief",
         outlinePrompt,
         contextPrompt,
         userRequest: input.userRequest,
         chapterNumber: input.chapterNumber,
+        goldenThreeChapter: input.goldenThreeChapter ?? null,
         lengthSpec,
         writingTaskExtra,
       })

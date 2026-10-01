@@ -25,6 +25,7 @@
 
 import { useMemo } from "react"
 import { useTranslation } from "react-i18next"
+import { useWikiStore } from "@/stores/wiki-store"
 import { isArcStage } from "@/lib/novel"
 import type { ArcStage } from "@/lib/novel"
 
@@ -230,9 +231,19 @@ export interface WishDriveProps {
   /** 角色名（可选，覆盖 displayName 用于标题）。 */
   characterName?: string
   className?: string
+  /**
+   * F10-3：空态“去设定校正补齐”按钮的跳转回调（props-DI，默认切到 canonEditor 视图）。
+   * 纯视图导航（store 视图切换），不读写 canon 数据、不调 LLM，组件零 IO 契约不变。
+   */
+  onOpenCanonEditor?: () => void
 }
 
-export function WishDrive({ profile, characterName, className }: WishDriveProps) {
+/** 默认跳转：切到设定校正视图（canonEditor）。 */
+function defaultOpenCanonEditor(): void {
+  useWikiStore.getState().setActiveView("canonEditor")
+}
+
+export function WishDrive({ profile, characterName, className, onOpenCanonEditor }: WishDriveProps) {
   const { t } = useTranslation()
   const check = useMemo(() => validateWishAssembly(profile), [profile])
   const guide = useMemo(
@@ -264,8 +275,19 @@ export function WishDrive({ profile, characterName, className }: WishDriveProps)
           <p>{t("novel.wishNoCraft")}</p>
           <p className="text-xs italic">{t("novel.wishIngestFirst")}</p>
           {/* R9（Round-9 用户可达性修复）：空态给可操作短指引（user-r9 6/10 扣分项整改——此前仅长文案无操作路径）。
-              长文案保留实体名供审计；短句给下一步动作。零 IO/零跳转，仅文案层。 */}
-          <p className="text-xs font-medium text-foreground">{t("novel.wishIngestFirstShort")}</p>
+              长文案保留实体名供审计；短句给下一步动作。零 IO/零跳转，仅文案层。
+              F10-3（Round-10 用户/编辑维度整改）：短指引升级为可点击按钮，直达设定校正视图
+              （user-r10 “零跳转指引” −0.5 整改；默认 defaultOpenCanonEditor，调用方可经 onOpenCanonEditor 覆写）。
+              示例行给“怎么写”参照（writing-r10b “只讲去哪、不讲怎么写” −1 整改）。 */}
+          <button
+            type="button"
+            data-testid="wish-drive-goto-canon"
+            onClick={onOpenCanonEditor ?? defaultOpenCanonEditor}
+            className="rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20"
+          >
+            {t("novel.wishIngestFirstShort")}
+          </button>
+          <p className="text-xs text-muted-foreground">{t("novel.wishIngestExample")}</p>
         </div>
       )}
 

@@ -57,6 +57,39 @@ describe("TASK-P4-29b (T29b) wish-drive — wish 清单装配", () => {
     expect(a.completeness).toBe(0.25)
     expect(a.missing).toEqual(["motive", "ghost", "arc_stage"])
   })
+
+  it("F10-4：多 wish/motive 全量保留（allWishes/allMotives），首条契约不变", () => {
+    const multi: CanonEntityProjection = {
+      digest: "prot-multi", name: "主角",
+      wish: ["找到失踪的妹妹", "  ", "重建家族"],
+      motive: ["偿还童年亏欠", "守护活着的人"],
+      mckee_ghost: "妹妹因自己疏忽失踪",
+      arc_stage: "active",
+    }
+    const a = assembleWishList("prot-multi", [multi])
+    // 全量保留：空白项被滤掉，保序
+    expect(a.allWishes).toEqual(["找到失踪的妹妹", "重建家族"])
+    expect(a.allMotives).toEqual(["偿还童年亏欠", "守护活着的人"])
+    // 既有契约不变：首条 + 完整度 + 缺失清单
+    expect(a.items).toHaveLength(1)
+    expect(a.items[0].wish).toBe("找到失踪的妹妹")
+    expect(a.items[0].motive).toBe("偿还童年亏欠")
+    expect(a.completeness).toBe(1)
+    expect(a.missing).toHaveLength(0)
+    // 引导提示逐条列出首条之外（不再静默截断）
+    const prompt = buildWishDrivePrompt(a, detectWriterBlock(a))
+    expect(prompt).toContain("- wish[1]: 重建家族")
+    expect(prompt).toContain("- motive[1]: 守护活着的人")
+  })
+
+  it("F10-4：单条实体提示零变化（无 wish[1]/motive[1] 行）", () => {
+    const a = assembleWishList("prot-001", [fullEntity])
+    expect(a.allWishes).toEqual(["找到失踪的妹妹"])
+    expect(a.allMotives).toEqual(["偿还童年亏欠"])
+    const prompt = buildWishDrivePrompt(a, detectWriterBlock(a))
+    expect(prompt).not.toContain("wish[1]")
+    expect(prompt).not.toContain("motive[1]")
+  })
 })
 
 describe("TASK-P4-29b (T29b) wish-drive — 卡文检测", () => {

@@ -39,6 +39,14 @@ export interface WishDriveAssembly {
   completeness: number
   /** 缺失字段清单（引导提示用）。 */
   missing: string[]
+  /**
+   * F10-4（Round-10 写作维度整改）：全量愿望/动机清单（去空白项，保序）。
+   *此前只取 `[0]` 首条，多 wish/motive 实体会被静默截断；现全量保留供引导提示与审计使用。
+   * `items[0].wish/motive` 仍取首条（既有契约不变：completeness/missing/items 语义零变化）。
+   */
+  allWishes: string[]
+  /** 全量动机清单（去空白项，保序；与 allWishes 同契约）。 */
+  allMotives: string[]
 }
 
 /** 卡文检测结果。 */
@@ -74,10 +82,13 @@ export function assembleWishList(
 ): WishDriveAssembly {
   const protagonist = entities.find((e) => e.digest === protagonistId) ?? entities[0]
   if (!protagonist) {
-    return { protagonistId, items: [], completeness: 0, missing: ["wish", "motive", "ghost", "arc_stage"] }
+    return { protagonistId, items: [], completeness: 0, missing: ["wish", "motive", "ghost", "arc_stage"], allWishes: [], allMotives: [] }
   }
-  const wish = protagonist.wish?.[0] ?? ""
-  const motive = protagonist.motive?.[0] ?? ""
+  // F10-4：全量保留（去空白、保序）；首条仍供 items[0]/completeness 既有契约使用。
+  const allWishes = (protagonist.wish ?? []).filter((w): w is string => typeof w === "string" && w.trim().length > 0)
+  const allMotives = (protagonist.motive ?? []).filter((m): m is string => typeof m === "string" && m.trim().length > 0)
+  const wish = allWishes[0] ?? ""
+  const motive = allMotives[0] ?? ""
   const ghost = protagonist.mckee_ghost ?? null
   const arcStage = protagonist.arc_stage ?? null
 
@@ -99,6 +110,8 @@ export function assembleWishList(
     items,
     completeness: fields.length > 0 ? filled / fields.length : 0,
     missing,
+    allWishes,
+    allMotives,
   }
 }
 
@@ -148,6 +161,13 @@ export function buildWishDrivePrompt(assembly: WishDriveAssembly, report: Writer
     lines.push(`- motive: ${item.motive || "（未装配）"}`)
     lines.push(`- ghost: ${item.ghost ?? "（未装配）"}`)
     lines.push(`- arc_stage: ${item.arcStage ?? "（未装配）"}`)
+    // F10-4：多愿望/多动机实体不再静默截断——首条之外的全量清单逐条列出（单条时零变化）。
+    assembly.allWishes.forEach((extra, i) => {
+      if (i > 0) lines.push(`- wish[${i}]: ${extra}`)
+    })
+    assembly.allMotives.forEach((extra, i) => {
+      if (i > 0) lines.push(`- motive[${i}]: ${extra}`)
+    })
   }
   if (report.blocked) {
     lines.push("卡文原因:")

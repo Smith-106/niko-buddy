@@ -2628,6 +2628,19 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     setDeepMode(false)
   })
 
+  it("F10-2：stageJournalEnabled=false → helper 回 undefined → genInput.stageJournal 缺席（直调 LLM）", async () => {
+    setupDeepBase()
+    mocks.wikiState.novelConfig.stageJournalEnabled = false
+    setConversation("conv-1")
+    renderPanel()
+    setDeepMode(true)
+    await sendText("深度写第3章")
+    const genInput = mocks.runDeepChapterGeneration.mock.calls[0][0]
+    expect(genInput.stageJournal).toBeUndefined()
+    delete mocks.wikiState.novelConfig.stageJournalEnabled
+    setDeepMode(false)
+  })
+
   it("深度生成无 contextUsage（空包降级）→ 不追加用量标记、不透传字段", async () => {
     setupDeepBase()
     mocks.runDeepChapterGeneration.mockImplementation(async () => deepGenResult({ contextUsage: undefined }))

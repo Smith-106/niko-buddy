@@ -140,6 +140,34 @@ export interface StageCacheLookup {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// 编排面装配 helper（F10-2，Round-10 架构维度整改：消灭 chat 双调用点手抄）
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * F10-2（Round-10 架构维度整改）：chat 首次生成 / 续跑双调用点的 stageJournal
+ * 装配收敛到单一 helper —— 开关语义 + deps + TTL 显式装配只此一处。
+ *
+ * 开（默认，`stageJournalEnabled !== false`，稀疏/老配置 undefined 视为开）→
+ * digest-keyed 去重运行时体（`ttlMs` 显式取 `effectiveJournalTtlMs()` 快照，默认 T+1h）；
+ * 关 → `undefined`（调用方以 `...(runtime ? { stageJournal: runtime } : {})` 展开，直调 LLM = F8 前行为）。
+ *
+ * TTL 接线说明：`effectiveJournalTtlMs()` 读进程级覆写（premium 执行入口经
+ * `initJournalTtlMsFromConfig` 写入；未写入时回退默认 T+1h）。显式快照进运行时体后，
+ * 生成链全程用同一 TTL 判定过期，不再依赖调用链中途的全局覆写时序。
+ */
+export function buildStageJournalRuntime(
+  projectId: string,
+  stageJournalEnabled: boolean | undefined,
+): StageJournalRuntime | undefined {
+  if (stageJournalEnabled === false) return undefined
+  return {
+    projectId,
+    deps: defaultStageJournalDeps(),
+    ttlMs: effectiveJournalTtlMs(),
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // 默认依赖（真实 fs 原子写）
 // ──────────────────────────────────────────────────────────────────────────
 

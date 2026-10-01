@@ -286,7 +286,11 @@ export interface NovelConfig {
   /** Deep generation stage-2 task-brief digest-keyed cache via stage-output-journal (default on).
    * Off = legacy behavior (direct LLM call, zero cache reads/writes). On = crash re-entry with
    * same digest skips the LLM re-call; cache-hit is surfaced in the thinking stream.
-   * Sparse/legacy configs treat undefined as on (chat-panel gates with `!== false`). */
+   *
+   * F10-5 (G5 类型/注释收敛)：store 态内本字段恒为 concrete boolean（DEFAULT_NOVEL_CONFIG=true +
+   * project-store normalize `??` 回填，稀疏/legacy 输入在边界即被补齐）。仅外部稀疏 fixture/单测
+   * 可能缺席，故调用侧统一经 `buildStageJournalRuntime(projectId, stageJournalEnabled?: boolean | undefined)`
+   * 装配（`=== false` 关，其余含 undefined 视为开），不再各处手写 `!== false` 门控。 */
   stageJournalEnabled: boolean
   /** Reasoning effort tier for review calls (default high). */
   reviewReasoningEffort: "low" | "medium" | "high"

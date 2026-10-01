@@ -25,6 +25,7 @@ import {
   loadJournalEntry,
   resolveStageOutput,
   defaultStageJournalDeps,
+  buildStageJournalRuntime,
   setJournalTtlMs,
   effectiveJournalTtlMs,
   type StageJournalDeps,
@@ -378,6 +379,34 @@ describe("defaultStageJournalDeps", () => {
   it("createDirectory 透传", async () => {
     await defaultStageJournalDeps().createDirectory("d")
     expect(createDirectoryMock).toHaveBeenCalledWith("d")
+  })
+})
+
+describe("buildStageJournalRuntime（F10-2 双调用点收敛 helper）", () => {
+  beforeEach(() => {
+    setJournalTtlMs(null) // 复位全局覆写，避免污染其它用例
+  })
+
+  it("开（默认/undefined）→ 运行时体：projectId 透传 + 真实 deps + TTL 显式快照", () => {
+    for (const enabled of [undefined, true] as const) {
+      const runtime = buildStageJournalRuntime("C:/proj", enabled)
+      expect(runtime).toBeDefined()
+      expect(runtime!.projectId).toBe("C:/proj")
+      expect(typeof runtime!.deps.read).toBe("function")
+      expect(typeof runtime!.deps.writeFile).toBe("function")
+      expect(runtime!.ttlMs).toBe(JOURNAL_TTL_MS)
+    }
+  })
+
+  it("关（false）→ undefined（调用方展开为空，直调 LLM）", () => {
+    expect(buildStageJournalRuntime("C:/proj", false)).toBeUndefined()
+  })
+
+  it("TTL 显式快照：全局覆写在装配时点生效（生成链全程同 TTL 判定）", () => {
+    setJournalTtlMs(123_456)
+    const runtime = buildStageJournalRuntime("C:/proj", undefined)
+    expect(runtime!.ttlMs).toBe(123_456)
+    setJournalTtlMs(null)
   })
 })
 
