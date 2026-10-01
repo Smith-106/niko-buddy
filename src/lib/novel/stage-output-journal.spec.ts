@@ -408,6 +408,23 @@ describe("buildStageJournalRuntime（F10-2 双调用点收敛 helper）", () => 
     expect(runtime!.ttlMs).toBe(123_456)
     setJournalTtlMs(null)
   })
+
+  it("F11-2：per-project 显式 TTL wins（不受装配后全局覆写影响）", () => {
+    setJournalTtlMs(111_111) // 全局先写一个残留值
+    const runtime = buildStageJournalRuntime("C:/proj", undefined, 222_222)
+    expect(runtime!.ttlMs).toBe(222_222) // 显式 wins
+    setJournalTtlMs(333_333) // 装配后全局再写 → 已快照运行时体不受影响
+    expect(runtime!.ttlMs).toBe(222_222)
+    setJournalTtlMs(null)
+  })
+
+  it("F11-2：显式 TTL 非法值（0/负数/NaN）→ 回退全局链", () => {
+    setJournalTtlMs(123_456)
+    for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY] as const) {
+      expect(buildStageJournalRuntime("C:/proj", undefined, bad)!.ttlMs).toBe(123_456)
+    }
+    setJournalTtlMs(null)
+  })
 })
 
 describe("TTL wiring（safe config surface）", () => {

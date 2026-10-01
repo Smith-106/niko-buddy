@@ -612,6 +612,15 @@ describe("novel config", () => {
     expect(c.reviewReasoningEffort).toBe("high")
   })
 
+  it("F11-2：journalTtlMs 稀疏透传（显式正数保留；缺席/非法→undefined=走全局链）", async () => {
+    await saveNovelConfig({ journalTtlMs: 600_000 } as never)
+    expect((await loadNovelConfig())?.journalTtlMs).toBe(600_000)
+    await saveNovelConfig({} as never)
+    expect((await loadNovelConfig())?.journalTtlMs).toBeUndefined()
+    await saveNovelConfig({ journalTtlMs: -5 } as never)
+    expect((await loadNovelConfig())?.journalTtlMs).toBeUndefined()
+  })
+
   it("tolerates failed file reads and writes", async () => {
     mocks.fileExists.mockResolvedValue(true)
     mocks.readFile.mockRejectedValue(new Error("boom"))

@@ -154,16 +154,25 @@ export interface StageCacheLookup {
  * TTL 接线说明：`effectiveJournalTtlMs()` 读进程级覆写（premium 执行入口经
  * `initJournalTtlMsFromConfig` 写入；未写入时回退默认 T+1h）。显式快照进运行时体后，
  * 生成链全程用同一 TTL 判定过期，不再依赖调用链中途的全局覆写时序。
+ *
+ * F11-2（Round-11 架构残留整改）：新增第三参 `journalTtlMs`（per-project 源，
+ * 来自 `NovelConfig.journalTtlMs` 稀疏透传）—— 显式有限正数 wins（装配时点即定，
+ * 不再受装配后全局覆写影响）；缺席/非法 → 回退 `effectiveJournalTtlMs()` 全局链
+ * （premium 兼容：未配 per-project 的项目行为与 F10-2 完全一致）。
  */
 export function buildStageJournalRuntime(
   projectId: string,
   stageJournalEnabled: boolean | undefined,
+  journalTtlMs?: number,
 ): StageJournalRuntime | undefined {
   if (stageJournalEnabled === false) return undefined
+  const explicit = typeof journalTtlMs === "number" && Number.isFinite(journalTtlMs) && journalTtlMs > 0
+    ? journalTtlMs
+    : undefined
   return {
     projectId,
     deps: defaultStageJournalDeps(),
-    ttlMs: effectiveJournalTtlMs(),
+    ttlMs: explicit ?? effectiveJournalTtlMs(),
   }
 }
 

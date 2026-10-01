@@ -290,6 +290,10 @@ export type { ArcProgressionInput, ArcProgressionResult } from "./craft/arc-trac
 // R9（Round-9 用户可达性修复）：检索簇字面直出（devteam-r9 9/10 扣分项整改——此前仅经 context-engine
 // 转发，字面核验 exit:1）。唯一定义点仍在 ./context-retrieval；engine 侧 wrapper（gap 注入转发）保留，
 // 与此前 re-export 行并存，行为零变化（wrapper 默认 contextGapsActive=false 直调原函数）。
+// F11-5（Round-11 开发维度 hygiene 契约化）：5 别名是版本化公开面（gap-bypassed 检索原语），
+// 消费者契约 = 诊断/外部工具链 + 同一对象行为 spec（context-barrel-alias.spec.ts）。
+// 生产写作链刻意走 engine wrapper（gap 注入为默认语义），故不设生产调用点——
+// 增设调用点将绕过 gap 注入，属于行为变更而非 hygiene 修复。此处以契约注释 + spec 锁面关闭残留。
 export { computeIrrelevantRatio as computeIrrelevantRatioFromRetrieval, searchRelevantContent as searchRelevantContentFromRetrieval, searchRelevantContentUnified as searchRelevantContentUnifiedFromRetrieval, runVectorSearchForContext as runVectorSearchForContextFromRetrieval, searchGraphRelevantContent as searchGraphRelevantContentFromRetrieval } from "./context-retrieval"
 // F8 (Round-8 断链修复): wish-drive 纯函数装配层公开面（ADR-19 零 LLM/零 IO；review-center 卡文引导 tab 经 barrel 消费，app 侧不再深导入）
 export { assembleWishList, detectWriterBlock, buildWishDrivePrompt } from "./wish-drive"

@@ -1101,7 +1101,7 @@ export function ChatPanel() {
             config: novelConfig,
           })
           // F10-2：stageJournal 装配收敛到共享 helper（双调用点同语义，开关+TTL 只此一处）。
-          const stageJournalRuntime = buildStageJournalRuntime(pp, novelConfig.stageJournalEnabled)
+          const stageJournalRuntime = buildStageJournalRuntime(pp, novelConfig.stageJournalEnabled, novelConfig.journalTtlMs)
           const generationResult = await runGenerationFirst(
             {
               projectPath: pp,
@@ -2079,7 +2079,7 @@ export function ChatPanel() {
           config: novelConfig,
         })
         // F10-2：续跑路径与首次生成同 helper 装配（开关+TTL 只此一处）。
-        const stageJournalRuntimeResume = buildStageJournalRuntime(pp, novelConfig.stageJournalEnabled)
+        const stageJournalRuntimeResume = buildStageJournalRuntime(pp, novelConfig.stageJournalEnabled, novelConfig.journalTtlMs)
         const generationResult = await runGenerationResume(
           {
             projectPath: pp,

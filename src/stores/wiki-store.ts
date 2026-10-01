@@ -292,6 +292,14 @@ export interface NovelConfig {
    * 可能缺席，故调用侧统一经 `buildStageJournalRuntime(projectId, stageJournalEnabled?: boolean | undefined)`
    * 装配（`=== false` 关，其余含 undefined 视为开），不再各处手写 `!== false` 门控。 */
   stageJournalEnabled: boolean
+  /** Per-project journal TTL override (ms). Sparse optional: undefined = process-global
+   * `effectiveJournalTtlMs()` chain (premium-config → default T+1h). Callers pass through
+   * `buildStageJournalRuntime(projectId, stageJournalEnabled, journalTtlMs)` where an
+   * explicit positive value wins; absent/invalid falls back to the global chain.
+   *
+   * F11-2 (Round-11 arch residue): per-project TTL source — kills the last-write-wins
+   * cross-project pollution at assembly time without touching the premium global chain. */
+  journalTtlMs?: number
   /** Reasoning effort tier for review calls (default high). */
   reviewReasoningEffort: "low" | "medium" | "high"
   writingModel: string

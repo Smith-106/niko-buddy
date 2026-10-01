@@ -657,6 +657,14 @@ export async function loadMaxHistoryMessages(_projectId?: string, _projectPath?:
   return val ?? null
 }
 
+/**
+ * F11-2：per-project journal TTL sanitize —— 仅有限正数视为显式覆盖；
+ * 其余（undefined/NaN/<=0/Infinity）一律视为缺席 → 回退进程全局链。
+ */
+export function sanitizeJournalTtlMs(raw: unknown): number | undefined {
+  return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : undefined
+}
+
 function normalizeNovelConfig(
   config?: Partial<NovelConfig> | null,
 ): NovelConfig | null {
@@ -679,6 +687,9 @@ function normalizeNovelConfig(
       config.residualCampaignIncludeFreezeChapters
       ?? DEFAULT_NOVEL_CONFIG.residualCampaignIncludeFreezeChapters,
     stageJournalEnabled: config.stageJournalEnabled ?? DEFAULT_NOVEL_CONFIG.stageJournalEnabled,
+    // F11-2：per-project TTL 源稀疏透传（undefined=走全局链；正数=本项目显式覆盖）。
+    // sanitize：仅接受有限正数，其余一律视为缺席（回退全局），避免脏值污染装配。
+    journalTtlMs: sanitizeJournalTtlMs(config.journalTtlMs),
     reviewReasoningEffort: config.reviewReasoningEffort ?? DEFAULT_NOVEL_CONFIG.reviewReasoningEffort,
     writingModel: config.writingModel ?? DEFAULT_NOVEL_CONFIG.writingModel,
     reviewModel: config.reviewModel ?? DEFAULT_NOVEL_CONFIG.reviewModel,

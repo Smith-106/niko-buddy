@@ -116,7 +116,8 @@ export function ReviewCenterView() {
   if (selectedReviewDimension === "ai-review") {
     content = <ReviewView />
   } else if (selectedReviewDimension === "character-report") {
-    content = <ReviewView title={t("reviewCenter.characterHitReport")} emptyMessage="暂无角色命中报告，请先运行AI审稿。" characterOnly />
+    // F11-3：同文件硬编码收敛（editor/user-r11）：emptyMessage 走 i18n 键。
+    content = <ReviewView title={t("reviewCenter.characterHitReport")} emptyMessage={t("reviewCenter.characterEmptyHint")} characterOnly />
   } else if (!selectedReviewDimension || !novelMode) {
     content = <DashboardView headerActions={<ReviewStartButton />} />
   } else if (!isSixReviewDimensionKey(selectedReviewDimension)) {
@@ -269,7 +270,8 @@ function ReviewStartButton() {
         // 只 console.error 时点「开始审查」毫无反应；失败必须让用户看到。
         console.error("[ReviewCenterView] 读取审查章节失败:", error)
         setReviewError(
-          `${t("reviewCenter.readFailed", "读取章节失败，未开始审查")}：${
+          // F11-3：去掉中文 fallback 兜底（key 中英在位：zh.json/en.json readFailed）。
+          `${t("reviewCenter.readFailed")}：${
             error instanceof Error ? error.message : String(error)
           }`,
         )
@@ -296,7 +298,8 @@ function ReviewStartButton() {
         size="sm"
         onClick={handleStartReview}
         disabled={!canReview}
-        title={selectedReviewFilePath ? undefined : "请先在左侧选择审查章节"}
+        // F11-3：同文件硬编码收敛（editor/user-r11）：title 走 i18n 键。
+        title={selectedReviewFilePath ? undefined : t("reviewCenter.selectChapterFirst")}
       >
         {isReviewing ? t("reviewCenter.reviewingAction") : t("reviewCenter.startReview")}
       </Button>

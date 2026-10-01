@@ -85,33 +85,33 @@ export const ACTION_EVIDENCE_STAGES: readonly ArcStage[] = [
   "climax",
 ]
 
-const STAGE_LABELS: Record<ArcStage, string> = {
-  ghost_exposed: "鬼魂暴露",
-  refusal: "拒绝召唤",
-  commitment: "承诺行动",
-  active: "主动推进",
-  crisis: "危机升级",
-  climax: "高潮对决",
-  resolution: "解决收束",
-}
+/**
+ * F11-4（Round-11 用户维度整改）：用户可见文案不再硬编码中文。
+ * 纯函数收 `t`（i18n 翻译函数）做唯一文案源：阶段名/指引/四问/违规 message
+ * 全部走 `novel.wish*` 键（zh/en 成对，key-coverage 门禁）；`code` 保留机读码
+ * （data-testid + title 审计可见），可见行只渲染用户语言 message。
+ */
+export type WishDriveT = (key: string, options?: Record<string, unknown>) => string
+
+const stageLabel = (t: WishDriveT, stage: ArcStage): string =>
+  t(`novel.wishStageLabels.${stage}`)
+
+const stageHint = (t: WishDriveT, stage: ArcStage): string =>
+  t(`novel.wishStageHints.${stage}`)
 
 /**
  * A-22.6 装配校验：wish 清单非空 且 与当前 arc_stage 自洽（机械规则见文件头）。
  * profile 缺失视同 wish_empty（清单非空门必然不过），fail-closed。
+ * message 为用户语言白话（无内部编号/表列 token）；code 仍机读可断言。
  */
 export function validateWishAssembly(
   profile: WishDriveProfile | null | undefined,
+  t: WishDriveT,
 ): WishAssemblyCheck {
   if (!profile) {
     return {
       ok: false,
-      violations: [
-        {
-          code: "wish_empty",
-          message:
-            "主角技法画像缺失（尚未摄取 T26 entities.wish/motive/arc_stage），卡文引导入口关闭",
-        },
-      ],
+      violations: [{ code: "wish_empty", message: t("novel.wishViolation.profile_missing") }],
     }
   }
 
@@ -120,11 +120,7 @@ export function validateWishAssembly(
   // 1) wish 非空（至少一条非空白项）
   const wishes = nonBlank(profile.wish)
   if (wishes.length === 0) {
-    violations.push({
-      code: "wish_empty",
-      message:
-        "wish 清单为空（A-22.6 要求装配清单非空）：先补齐主角愿望，再进入卡文引导",
-    })
+    violations.push({ code: "wish_empty", message: t("novel.wishViolation.wish_empty") })
   }
 
   // 2) arc_stage 合法（U-04 提案 7 值注册表）
@@ -132,9 +128,10 @@ export function validateWishAssembly(
   if (!stageOk) {
     violations.push({
       code: "arc_stage_invalid",
-      message: `arc_stage ${
-        profile.arcStage == null ? "未摄取" : `「${String(profile.arcStage)}」非法`
-      }，无法验证与 wish 清单自洽（U-04 提案 7 值注册表）`,
+      message:
+        profile.arcStage == null
+          ? t("novel.wishViolation.arc_stage_missing")
+          : t("novel.wishViolation.arc_stage_invalid", { stage: String(profile.arcStage) }),
     })
   }
 
@@ -144,7 +141,9 @@ export function validateWishAssembly(
     if (actions.length === 0) {
       violations.push({
         code: "stage_action_gap",
-        message: `弧光处于「${STAGE_LABELS[profile.arcStage as ArcStage]}」阶段但 wma_action 无行动证据：愿望—行动断层是卡文根因，先登记一条最小可见行动`,
+        message: t("novel.wishViolation.stage_action_gap", {
+          stageLabel: stageLabel(t, profile.arcStage as ArcStage),
+        }),
       })
     }
   }
@@ -171,51 +170,42 @@ export interface WishDriveGuide {
   steps: readonly WishDriveStep[]
 }
 
-const STAGE_HINTS: Record<ArcStage, string> = {
-  ghost_exposed: "让过去的创伤在本章以一个具体场景浮出水面，解释愿望为何开始生根",
-  refusal: "写主角拒绝行动的理由：让他有充分理由说「不」，再让事件剥夺这个理由",
-  commitment: "让主角主动做出不可撤回的承诺；承诺本身要付出可见代价",
-  active: "围绕愿望设计递进行动链，每次行动都改变力量对比",
-  crisis: "让对抗力量压制愿望：主角承压但不得退回原点",
-  climax: "愿望与对抗正面对撞；胜负由主角的选择决定，禁止巧合收场",
-  resolution: "展示愿望达成或转变后的新常态，兑现读者对主角愿望—命运的期待",
-}
-
 /**
  * 构建卡文引导问题序列（前置：validateWishAssembly(profile).ok）。
  * stage 异常时降级为通用文案（防御式；正常入口已被装配门拦截）。
+ * F11-4：阶段名/指引/四问全部走 i18n（`t` 唯一文案源），硬编码中文表删除。
  */
-export function buildWishDriveGuide(profile: WishDriveProfile): WishDriveGuide {
+export function buildWishDriveGuide(profile: WishDriveProfile, t: WishDriveT): WishDriveGuide {
   const stage: ArcStage | null =
     profile.arcStage != null && isArcStage(profile.arcStage) ? profile.arcStage : null
 
   const hasMotive = nonBlank(profile.motive).length > 0
 
+  const hintFor = (s: ArcStage | null): string =>
+    s ? stageHint(t, s) : t("novel.wishFallbackStageHint")
   return {
-    stageLabel: stage ? STAGE_LABELS[stage] : "未定阶段",
-    stageHint: stage ? STAGE_HINTS[stage] : "先校正 arc_stage 再深化阶段指引",
+    stageLabel: stage ? stageLabel(t, stage) : t("novel.wishUndecidedStage"),
+    stageHint: hintFor(stage),
     steps: [
       {
         id: "wish",
-        question: "主角此刻最想要什么？",
-        hint: "从装配的愿望清单中选定本章驱动力；多条愿望冲突时选最迫切的一条",
+        question: t("novel.wishStepWishQ"),
+        hint: t("novel.wishStepWishHint"),
       },
       {
         id: "motive",
-        question: "他为什么想要？",
-        hint: hasMotive
-          ? "动机与愿望强制区分（A-22.1）：wish=想要什么，motive=为什么要"
-          : "动机清单为空：先回答「为什么」，否则行动没有情感根基",
+        question: t("novel.wishStepMotiveQ"),
+        hint: hasMotive ? t("novel.wishStepMotiveHintWith") : t("novel.wishStepMotiveHintWithout"),
       },
       {
         id: "action",
-        question: "为了得到它，本章他能采取的最小可见行动是什么？",
-        hint: stage ? STAGE_HINTS[stage] : STAGE_HINTS.active,
+        question: t("novel.wishStepActionQ"),
+        hint: hintFor(stage ?? "active"),
       },
       {
         id: "confrontation",
-        question: "谁或什么在阻止他？",
-        hint: "主要人物间的愿望应相互冲突以建构对抗性情节；写下与本愿望正面相撞的力量",
+        question: t("novel.wishStepConfrontQ"),
+        hint: t("novel.wishStepConfrontHint"),
       },
     ],
   }
@@ -245,25 +235,26 @@ function defaultOpenCanonEditor(): void {
 
 export function WishDrive({ profile, characterName, className, onOpenCanonEditor }: WishDriveProps) {
   const { t } = useTranslation()
-  const check = useMemo(() => validateWishAssembly(profile), [profile])
+  // F11-4：纯函数收组件 t（唯一文案源）；useMemo 依赖 t，语言切换重算。
+  const check = useMemo(() => validateWishAssembly(profile, t), [profile, t])
   const guide = useMemo(
-    () => (check.ok && profile ? buildWishDriveGuide(profile) : null),
-    [check, profile],
+    () => (check.ok && profile ? buildWishDriveGuide(profile, t) : null),
+    [check, profile, t],
   )
 
-  const title = characterName ?? profile?.displayName ?? "主角"
+  const title = characterName ?? profile?.displayName ?? t("novel.wishFallbackTitle")
 
   return (
     <div
       className={className ?? "flex h-full flex-col gap-4 p-4"}
       role="region"
-      aria-label={`卡文引导（F-27 愿望驱动）· ${title}`}
+      aria-label={`${t("novel.wishDriveTitle")} · ${title}`}
       data-testid="wish-drive-root"
     >
       <header>
         <h3 className="text-sm font-semibold text-foreground">{t("novel.wishDriveTitle")}</h3>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          {title} · 数据源 T26 canon-craft-fields（wish/motive/wma_action/arc_stage）· A-22.6 装配门
+          {title} · {t("novel.wishSourceNote")}
         </p>
       </header>
 
@@ -299,9 +290,15 @@ export function WishDrive({ profile, characterName, className, onOpenCanonEditor
         >
           <p className="font-medium text-foreground">{t("novel.wishAssemblyBlocked")}</p>
           <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-muted-foreground">
+            {/* F11-4：可见行只渲染用户语言 message；机读码降为 data-* + title（审计可见）。 */}
             {check.violations.map((v) => (
-              <li key={v.code} data-testid={`wish-drive-violation-${v.code}`}>
-                [{v.code}] {v.message}
+              <li
+                key={v.code}
+                data-testid={`wish-drive-violation-${v.code}`}
+                data-violation-code={v.code}
+                title={v.code}
+              >
+                {v.message}
               </li>
             ))}
           </ul>
@@ -318,7 +315,7 @@ export function WishDrive({ profile, characterName, className, onOpenCanonEditor
                 className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground"
                 data-testid="wish-drive-stage-badge"
               >
-                弧光阶段：{guide.stageLabel}
+                {t("novel.wishStageBadge", { label: guide.stageLabel })}
               </span>
             </div>
             <ul className="mt-1.5 list-inside list-disc space-y-0.5 text-sm" data-testid="wish-assembled-list">
@@ -333,10 +330,10 @@ export function WishDrive({ profile, characterName, className, onOpenCanonEditor
               </div>
               <div>
                 <dt className="inline text-muted-foreground">{t("novel.wishActionEvidence")}</dt>
-                <dd className="inline">{nonBlank(profile.wmaAction).length || 0} 条</dd>
+                <dd className="inline">{t("novel.wishActionCount", { count: nonBlank(profile.wmaAction).length || 0 })}</dd>
               </div>
             </dl>
-            <p className="mt-2 text-xs italic text-muted-foreground">阶段指引：{guide.stageHint}</p>
+            <p className="mt-2 text-xs italic text-muted-foreground">{t("novel.wishStageGuidePrefix")}{guide.stageHint}</p>
           </section>
 
           {/* 引导问题序列 */}

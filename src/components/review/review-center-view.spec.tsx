@@ -17,14 +17,19 @@ import {
 import { ReviewCenterView } from "./review-center-view"
 import type { ReactNode } from "react"
 import zhLocale from "@/i18n/zh.json"
+import enLocale from "@/i18n/en.json"
 
-function lookupZhLocale(key: string): string | undefined {
-  let o: unknown = zhLocale
+function lookupLocale(locale: unknown, key: string): string | undefined {
+  let o: unknown = locale
   for (const p of key.split(".")) {
     if (o == null || typeof o !== "object") return undefined
     o = (o as Record<string, unknown>)[p]
   }
   return typeof o === "string" ? o : undefined
+}
+
+function lookupZhLocale(key: string): string | undefined {
+  return lookupLocale(zhLocale, key)
 }
 
 interface ReviewRunLike {
@@ -424,6 +429,27 @@ describe("ReviewCenterView — craft 子面板（F-06/F-07/F-08 + F8 wish-drive�
     expect(tabText("thrill-dashboard")).toBe("爽点仪表盘")
     expect(tabText("technique-panel")).toBe("技法面板")
     expect(tabText("wish-drive")).toBe("卡文引导")
+  })
+
+  it("F11-3：同文件硬编码收敛（characterEmptyHint/selectChapterFirst 走 i18n，中英成对）", async () => {
+    // 组件侧：character-report 分支 emptyMessage 取自 key（mock t 回 zh 值），非字面硬编码。
+    mocks.state.selectedReviewDimension = "character-report"
+    render(<ReviewCenterView />)
+    expect(document.querySelector("[data-review-view]")?.getAttribute("data-empty")).toBe(
+      lookupZhLocale("reviewCenter.characterEmptyHint"),
+    )
+    mocks.state.selectedReviewDimension = "thrill"
+    // 双语成对：在位、非空、中英不等、无交叉污染（en 无 CJK、zh 无 stage-journal 代号残留）。
+    for (const key of ["reviewCenter.characterEmptyHint", "reviewCenter.selectChapterFirst"]) {
+      const zh = lookupLocale(zhLocale, key)
+      const en = lookupLocale(enLocale, key)
+      expect(zh).toBeTruthy()
+      expect(en).toBeTruthy()
+      expect(en).not.toBe(zh)
+      expect(en).not.toMatch(/[\u4e00-\u9fff]/)
+    }
+    expect(lookupLocale(zhLocale, "novel.settings.stageJournalEnabled")).toBe("任务书缓存")
+    expect(lookupLocale(enLocale, "novel.settings.stageJournalEnabled")).toBe("Task-brief cache")
   })
 
   it("关闭子面板 → 面板消失、悬浮按钮恢复", async () => {
