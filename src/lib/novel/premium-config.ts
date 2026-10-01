@@ -19,7 +19,7 @@
  */
 
 import type { FallbackChainConfig } from "@/lib/llm/model-resolver"
-import { setJournalTtlMs } from "./stage-output-journal"
+import { sanitizeJournalTtlMs, setJournalTtlMs } from "./stage-output-journal"
 
 // ── 类型定义 ─────────────────────────────────────────────────────────────────────
 
@@ -95,7 +95,7 @@ export interface PremiumConfig {
   requiredZeroDiffChapters: number
   /**
    * 编排面 LLM 工件缓存 TTL（ms）。可选；未配置/缺省 → journal 用默认 T+1h（零差异）。
-   * 配置加载方应在加载完成后调用 `initJournalTtlFromConfig` 接线到
+   * 配置加载方应在加载完成后调用 `initJournalTtlMsFromConfig` 接线到
    * `stage-output-journal` 的 setter（本字段不进 DEFAULT，保证默认零差异）。
    */
   journalTtlMs?: number
@@ -343,7 +343,7 @@ export function tryEnablePremium(
  * 将 `PremiumConfig.journalTtlMs` 转发到 `stage-output-journal` 的 TTL setter。
  *
  * 配置加载完成处（编排面配置解析入口）调用一次：
- *   `initJournalTtlFromConfig(config)`
+ *   `initJournalTtlMsFromConfig(config)`
  * 未配置（`undefined`）时转 `null` → journal 回退默认 T+1h（零差异）。
  *
  * ⚠️ 注记：编排面唯一接线段 `deep-chapter-generation.ts` 为他人 WIP 禁区，
@@ -353,5 +353,6 @@ export function tryEnablePremium(
  * @param config 项目精品配置（可直接传 `DEFAULT_PREMIUM_CONFIG`，等价零差异）。
  */
 export function initJournalTtlMsFromConfig(config: PremiumConfig): void {
-  setJournalTtlMs(config.journalTtlMs ?? null)
+  // F12：全局写入口同样经 sanitize（config 脏值 0/NaN/负数 → null → 默认 T+1h），与 per-project 链同谓词。
+  setJournalTtlMs(config.journalTtlMs === undefined ? null : sanitizeJournalTtlMs(config.journalTtlMs) ?? null)
 }

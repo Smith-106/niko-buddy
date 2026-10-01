@@ -2028,15 +2028,15 @@
       "historyEmpty": "No backup history yet; this list refreshes automatically after a restore or auto backup."
     },
     "labels": {
-      "knowledgeBase": "章节库",
-      "file": "大纲",
-      "review": "AI 审稿",
-      "graph": "小说图谱",
-      "search": "剧情搜索",
+      "knowledgeBase": "Knowledge Base",
+      "file": "File",
+      "review": "Review",
+      "graph": "Graph",
+      "search": "Search",
       "lint": "Memory Center",
-      "entity": "人物 / 地点 / 组织 / 物品 / 事件 / 伏笔",
-      "wikiPage": "小说档案页",
-      "ingest": "章节摄取"
+      "entity": "Character / Place / Organization / Item / Event / Foreshadowing",
+      "wikiPage": "Novel Wiki Page",
+      "ingest": "Chapter Ingest"
     },
     "sidebar": {
       "knowledge": "Chapters",
@@ -2752,7 +2752,7 @@
       "recentChapterContents": "## Recent Chapter Text Excerpts",
       "previousChapterEnding": "## Previous Chapter Ending",
       "characterStates": "## Current Character States",
-      "characterAuras": "## 角色灵魂",
+      "characterAuras": "## Character Soul",
       "soulDoc": "## Project Soul",
       "cognitionStates": "## Character Cognition States",
       "foreshadowingStates": "## Current Foreshadowing States",

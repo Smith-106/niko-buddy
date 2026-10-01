@@ -27,6 +27,7 @@ import {
   defaultStageJournalDeps,
   buildStageJournalRuntime,
   setJournalTtlMs,
+  sanitizeJournalTtlMs,
   effectiveJournalTtlMs,
   type StageJournalDeps,
   type StageOutputRecord,
@@ -451,5 +452,32 @@ describe("TTL wiring（safe config surface）", () => {
     setJournalTtlMs(1)
     setJournalTtlMs(null)
     expect(effectiveJournalTtlMs()).toBe(JOURNAL_TTL_MS)
+  })
+
+  it("F12：setJournalTtlMs 非法值（0/负数/NaN/Infinity）→ 视为缺席回退默认（与 per-project 链同谓词）", () => {
+    for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY] as const) {
+      setJournalTtlMs(123_456) // 先写合法值，证明非法写不污染
+      setJournalTtlMs(bad)
+      expect(effectiveJournalTtlMs()).toBe(JOURNAL_TTL_MS)
+    }
+    setJournalTtlMs(null)
+  })
+
+  it("F12：sanitizeJournalTtlMs 真源谓词（有限正数透传，其余 undefined）", () => {
+    expect(sanitizeJournalTtlMs(5_000)).toBe(5_000)
+    for (const bad of [undefined, null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, "x", {}] as const) {
+      expect(sanitizeJournalTtlMs(bad)).toBeUndefined()
+    }
+  })
+
+  it("F12：buildStageRecord/resolveStageOutput 缺席 TTL 体内解析（与旧默认参逐值一致）", async () => {
+    setJournalTtlMs(77_777)
+    const r = buildStageRecord("d", "gen", {}, NOW) // 缺席 → 体内 effectiveJournalTtlMs()
+    expect(r.ttlMs).toBe(77_777)
+    expect(r.expiresAt).toBe(NOW + 77_777)
+    const deps = mockDeps({ read: async () => "", writeFile: vi.fn(async () => {}) })
+    const res = await resolveStageOutput(deps, "C:/proj", "abc", "gen", async () => ({}), NOW)
+    expect(res.record!.ttlMs).toBe(77_777)
+    setJournalTtlMs(null)
   })
 })

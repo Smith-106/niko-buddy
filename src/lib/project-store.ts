@@ -11,6 +11,8 @@ import { normalizePath } from "@/lib/path-utils"
 import { assertInvariantsNotDisabled, pickInvariantOverrides } from "@/lib/novel/kb-governance"
 import { readFile, writeFile, fileExists } from "@/commands/fs"
 import { encryptApiKeysInObject, decryptApiKeysInObject, countApiKeyStatus } from "@/lib/crypto"
+// F12：TTL sanitize 真源收敛到 stage-output-journal（与全局 setter 同一谓词，消灭双链不对称）。
+import { sanitizeJournalTtlMs } from "@/lib/novel/stage-output-journal"
 
 const RECENT_PROJECTS_KEY = "recentProjects"
 const LAST_PROJECT_KEY = "lastProject"
@@ -657,13 +659,9 @@ export async function loadMaxHistoryMessages(_projectId?: string, _projectPath?:
   return val ?? null
 }
 
-/**
- * F11-2：per-project journal TTL sanitize —— 仅有限正数视为显式覆盖；
- * 其余（undefined/NaN/<=0/Infinity）一律视为缺席 → 回退进程全局链。
- */
-export function sanitizeJournalTtlMs(raw: unknown): number | undefined {
-  return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : undefined
-}
+// F12：sanitizeJournalTtlMs 真源已迁至 stage-output-journal（全局/per-project 同谓词）。
+// 本地 re-export 保留既有导入面零破坏（project-store.spec 既有引用不改）。
+export { sanitizeJournalTtlMs } from "@/lib/novel/stage-output-journal"
 
 function normalizeNovelConfig(
   config?: Partial<NovelConfig> | null,

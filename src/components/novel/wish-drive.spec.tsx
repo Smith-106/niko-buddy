@@ -315,11 +315,45 @@ describe("wish-drive i18n parity (F11-4)", () => {
     const all = [...probe.violations]
     for (const c of cases) all.push(...validateWishAssembly(makeProfile(c), zhT).violations)
     expect(all.length).toBeGreaterThan(0)
+    // F12：全量穷举 —— 5 违规码 × 全部内部 token（A-22.6/U-04/T26/entities./wma_action/A-22.1）。
+    const TOKENS = ["A-22.6", "A-22.1", "U-04", "T26", "entities.", "wma_action", "wma_", "arc_stage"]
+    // 机读码仅 3 个（profile_missing/arc_stage_missing 消息分别挂靠 wish_empty/arc_stage_invalid 码）；
+    // 断言收集到的 message 全集覆盖全部 5 个 message 键（无遗漏段才算穷举）。
+    const codes = new Set(all.map((v) => v.code))
+    expect([...codes].sort()).toEqual(["arc_stage_invalid", "stage_action_gap", "wish_empty"])
+    const messages = new Set(all.map((v) => v.message))
+    // stage_action_gap 的 stageLabel 插值随用例 arcStage 而定（本组用例为 active → “主动推进”）。
+    const expected: Record<string, string> = {
+      profile_missing: zhT("novel.wishViolation.profile_missing"),
+      wish_empty: zhT("novel.wishViolation.wish_empty"),
+      arc_stage_missing: zhT("novel.wishViolation.arc_stage_missing"),
+      arc_stage_invalid: zhT("novel.wishViolation.arc_stage_invalid", { stage: "bogus" }),
+      stage_action_gap: zhT("novel.wishViolation.stage_action_gap", { stageLabel: zhT("novel.wishStageLabels.active") }),
+    }
+    for (const [key, msg] of Object.entries(expected)) {
+      expect(messages.has(msg), `message key ${key} covered`).toBe(true)
+    }
     for (const v of all) {
-      expect(v.message).not.toContain("A-22.6")
-      expect(v.message).not.toContain("U-04")
-      expect(v.message).not.toContain("T26")
-      expect(v.message).not.toContain("entities.")
+      for (const tok of TOKENS) expect(v.message).not.toContain(tok)
+    }
+  })
+
+  it("F12：en 全局用户面无中文残留（labels×9 + characterAuras + wish/nav 域复查）", () => {
+    const keys = [
+      "novel.labels.knowledgeBase",
+      "novel.labels.file",
+      "novel.labels.review",
+      "novel.labels.graph",
+      "novel.labels.search",
+      "novel.labels.lint",
+      "novel.labels.entity",
+      "novel.labels.wikiPage",
+      "novel.labels.ingest",
+      "novel.contextPack.characterAuras",
+    ]
+    for (const key of keys) {
+      expect(enT(key)).not.toMatch(CJK)
+      expect(enT(key)).not.toBe(key)
     }
   })
 })

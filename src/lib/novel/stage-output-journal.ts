@@ -55,9 +55,19 @@ export const JOURNAL_SCHEMA_VERSION = 1
  */
 let journalTtlMsOverride: number | null = null
 
-/** 安全接线面：设置编排面 cache TTL（ms）。传任意正数即全量生效；传 null 恢复默认。 */
+/**
+ * F12（Round-12 架构残留整改）：TTL sanitize 唯一真源 —— 仅有限正数视为显式覆盖；
+ * 其余（undefined/NaN/<=0/Infinity/非数字）一律视为缺席 → 回退默认链。
+ * 全局链（setJournalTtlMs）与 per-project 链（project-store normalize）共用同一谓词，
+ * 消灭 R12 架构复评指出的“双链校验不对称”。
+ */
+export function sanitizeJournalTtlMs(raw: unknown): number | undefined {
+  return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : undefined
+}
+
+/** 安全接线面：设置编排面 cache TTL（ms）。有限正数即全量生效；null/非法值恢复默认。 */
 export function setJournalTtlMs(ms: number | null): void {
-  journalTtlMsOverride = ms
+  journalTtlMsOverride = ms === null ? null : sanitizeJournalTtlMs(ms) ?? null
 }
 
 /** 生效 TTL：优先取配置覆写，未配置则回退默认 `JOURNAL_TTL_MS`（T+1h，零差异）。 */
@@ -221,20 +231,25 @@ export async function computeInstructionDigest(instruction: unknown): Promise<st
 // 记录构造 / 过期判定
 // ──────────────────────────────────────────────────────────────────────────
 
-/** 构造一条缓存记录：`expiresAt = createdAt + ttlMs`。 */
+/**
+ * 构造一条缓存记录：`expiresAt = createdAt + ttlMs`。
+ * F12：默认参改显式可选（缺席 → 函数体内 `?? effectiveJournalTtlMs()` 解析），
+ * 调用时语义与旧默认参逐值一致，但签名不再保留“全局直读旁路”。
+ */
 export function buildStageRecord(
   digest: string,
   stage: string,
   payload: unknown,
   now: number,
-  ttlMs: number = effectiveJournalTtlMs(),
+  ttlMs?: number,
 ): StageOutputRecord {
+  const effectiveTtlMs = ttlMs ?? effectiveJournalTtlMs()
   return {
     digest,
     stage,
     createdAt: now,
-    expiresAt: now + ttlMs,
-    ttlMs,
+    expiresAt: now + effectiveTtlMs,
+    ttlMs: effectiveTtlMs,
     schemaVersion: JOURNAL_SCHEMA_VERSION,
     payload,
   }
@@ -363,7 +378,8 @@ export async function resolveStageOutput(
   stage: string,
   producer: () => Promise<unknown>,
   now: number,
-  ttlMs: number = effectiveJournalTtlMs(),
+  // F12：同 buildStageRecord —— 缺席在函数体内解析，不再经默认参直读全局。
+  ttlMs?: number,
 ): Promise<StageCacheLookup> {
   const hit = await loadJournalEntry(deps, projectId, digest, stage, now)
   if (hit) return { hit: true, record: hit }

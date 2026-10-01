@@ -500,4 +500,13 @@ describe("A9 journalTtlMs 配置面", () => {
     initJournalTtlMsFromConfig({ ...DEFAULT_PREMIUM_CONFIG, journalTtlMs: undefined })
     expect(effectiveJournalTtlMs()).toBe(JOURNAL_TTL_MS)
   })
+
+  it("F12：init 脏值（0/负数/NaN/Infinity）→ 回退默认（与 per-project 链同谓词）", () => {
+    for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY] as const) {
+      initJournalTtlMsFromConfig({ ...DEFAULT_PREMIUM_CONFIG, journalTtlMs: 123_456 })
+      initJournalTtlMsFromConfig({ ...DEFAULT_PREMIUM_CONFIG, journalTtlMs: bad })
+      expect(effectiveJournalTtlMs()).toBe(JOURNAL_TTL_MS)
+    }
+    initJournalTtlMsFromConfig({ ...DEFAULT_PREMIUM_CONFIG })
+  })
 })
