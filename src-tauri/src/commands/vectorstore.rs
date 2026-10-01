@@ -1726,10 +1726,7 @@ mod tests_v2 {
             .lock()
             .unwrap()
             .insert(pp.clone(), IDLE_COMPACTION_DIRTY_THRESHOLD - 1);
-        CHUNK_LAST_MUTATION_TS
-            .lock()
-            .unwrap()
-            .insert(pp.clone(), 0); // Window elapsed long ago
+        CHUNK_LAST_MUTATION_TS.lock().unwrap().insert(pp.clone(), 0); // Window elapsed long ago
 
         let res = adaptive_idle_compaction(&pp).await.unwrap();
         assert!(res.is_none());
@@ -1749,13 +1746,10 @@ mod tests_v2 {
             .lock()
             .unwrap()
             .insert(pp.clone(), IDLE_COMPACTION_DIRTY_THRESHOLD);
-        CHUNK_LAST_MUTATION_TS
-            .lock()
-            .unwrap()
-            .insert(
-                pp.clone(),
-                now_epoch_ms().saturating_sub(IDLE_COMPACTION_WINDOW_MS + 100),
-            );
+        CHUNK_LAST_MUTATION_TS.lock().unwrap().insert(
+            pp.clone(),
+            now_epoch_ms().saturating_sub(IDLE_COMPACTION_WINDOW_MS + 100),
+        );
 
         let res = adaptive_idle_compaction(&pp).await.unwrap();
         assert!(res.is_some());
