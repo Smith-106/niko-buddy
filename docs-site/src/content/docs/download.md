@@ -7,7 +7,13 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.14.1**（2026-10-01 发布：九轮评估整改链与审计门归零批次）
+**v2.14.2**（2026-10-02 发布：技能库卡片 UI 溢出修复批次）
+
+### v2.14.2 更新亮点（2026-10-02）
+
+- ✅ **技能库卡片溢出修复** — `UnifiedSkillLibrarySidebarPanel` 与 `SkillLibrarySidebarPanel` 卡片按钮补 `w-full min-w-0`，长技能名/说明 truncate 恢复约束，不再撑破卡片
+- ✅ **验证** — vitest 44/44 通过；tsc --noEmit 0 错误
+- 发布语义：stable Latest（GitHub Releases 唯一 stable 最新版）
 
 ### v2.14.1 更新亮点（2026-10-01）
 

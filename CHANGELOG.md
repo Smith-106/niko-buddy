@@ -7,6 +7,13 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.14.2] - 2026-10-02
+
+### Fixed
+
+- **技能库卡片溢出修复**：`UnifiedSkillLibrarySidebarPanel` 与 `SkillLibrarySidebarPanel` 的技能条目卡片主按钮缺少 `w-full min-w-0`，导致内层 flex 行无法被 `truncate` 约束、长技能名/说明撑破卡片边界。修复为 `w-full min-w-0 cursor-pointer`（统一检索面板与去AI味面板同型）。
+- **验证**：vitest 44/44 通过；tsc --noEmit 0 错误。
+
 ## [2.14.1] - 2026-10-01
 
 ### Fixed

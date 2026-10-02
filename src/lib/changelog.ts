@@ -15,6 +15,22 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.14.2",
+    date: "2026-10-02",
+    highlights: {
+      en: [
+        "Skill library card overflow fix: UnifiedSkillLibrarySidebarPanel + SkillLibrarySidebarPanel card buttons were missing w-full min-w-0, so inner flex rows expanded past card edges and truncate on name spans could not constrain them; long skill names overflowed the card border.",
+        "Fixed: card buttons now carry w-full min-w-0 cursor-pointer, restoring truncate constraint on both name and description spans.",
+        "Verified: vitest 44/44 passed; tsc --noEmit 0 errors.",
+      ],
+      zh: [
+        "技能库卡片溢出修复：UnifiedSkillLibrarySidebarPanel + SkillLibrarySidebarPanel 卡片主按钮缺少 w-full min-w-0，导致内层 flex 行溢出卡片边界，名称 truncate 无法收敛，长技能名撑破卡片。",
+        "修复：卡片按钮补 w-full min-w-0 cursor-pointer，名称与说明 truncate 约束恢复正常。",
+        "验证：vitest 44/44 通过；tsc --noEmit 0 错误。",
+      ],
+    },
+  },
+  {
     version: "2.14.1",
     date: "2026-10-01",
     highlights: {
