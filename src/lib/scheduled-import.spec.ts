@@ -312,7 +312,7 @@ describe("scanAndImport", () => {
     mocks.listDirectory.mockResolvedValue([fileNode("C:/projects/p/watched/a.md", "a.md")])
     mocks.preprocessFile.mockRejectedValue(new Error("preprocess boom"))
     mocks.enqueueSourceIngest.mockResolvedValue(["job"])
-    await expect(scanAndImport(project, "watched")).resolves.toBeUndefined()
+    await expect(scanAndImport(project, "watched")).resolves.toMatchObject({ skipped: false })
     expect(mocks.enqueueSourceIngest).toHaveBeenCalledTimes(1)
   })
 
@@ -356,7 +356,7 @@ describe("scanAndImport", () => {
   it("logs and swallows a failed scan", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.listDirectory.mockRejectedValue(new Error("scan exploded"))
-    await expect(scanAndImport(project, "watched")).resolves.toBeUndefined()
+    await expect(scanAndImport(project, "watched")).resolves.toMatchObject({ skipped: false })
     expect(error).toHaveBeenCalledWith("Scheduled import scan failed:", expect.any(Error))
     error.mockRestore()
   })

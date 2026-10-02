@@ -89,4 +89,30 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText("recovered")).toBeInTheDocument()
     expect(screen.queryByText("出错了")).not.toBeInTheDocument()
   })
+
+  it("shows copy-details and reload buttons alongside retry", () => {
+    renderWithErrorSpy(
+      <ErrorBoundary>
+        <Bomb />
+      </ErrorBoundary>,
+    )
+    expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "复制错误详情" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "刷新页面" })).toBeInTheDocument()
+  })
+
+  it("copy-details copies the error message and stack", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { clipboard: { writeText } })
+    renderWithErrorSpy(
+      <ErrorBoundary>
+        <Bomb />
+      </ErrorBoundary>,
+    )
+    fireEvent.click(screen.getByRole("button", { name: "复制错误详情" }))
+    await screen.findByRole("button", { name: "已复制" })
+    expect(writeText).toHaveBeenCalledTimes(1)
+    const copied = String(writeText.mock.calls[0]?.[0] ?? "")
+    expect(copied).toContain("kapow")
+  })
 })

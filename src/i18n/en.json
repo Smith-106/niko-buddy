@@ -1405,6 +1405,7 @@
         "apiKeyPlaceholderCustom": "Leave blank if no key is required (local model)",
         "apiKeyPlaceholder": "Enter API Key",
         "fetchModels": "Fetch Models",
+        "saveFailed": "Failed to save model config: {{message}}",
         "defaultLlmModel": "Default Model",
         "defaultLlmModelHint": "The default model used by background tasks such as memory extraction and character extraction. If empty, the current AI chat model will be used.",
         "loadingModels": "Fetching...",
@@ -1852,6 +1853,9 @@
         "intervalHelp": "How often to check the folder",
         "scanNow": "Scan now",
         "scanning": "Scanning…",
+        "scanDone": "Scan complete: {{scanned}} files, {{imported}} imported",
+        "scanFailed": "Scan complete: {{scanned}} files, {{imported}} imported, {{failed}} failed",
+        "scanError": "Scan failed, please try again later",
         "lastScan": "Last scan: {{time}}",
         "never": "Never"
       },
@@ -3235,7 +3239,10 @@
   },
   "errorBoundary": {
     "title": "Something went wrong",
-    "retry": "Retry"
+    "retry": "Retry",
+    "copyDetails": "Copy error details",
+    "detailsCopied": "Copied",
+    "reloadPage": "Reload page"
   },
   "bookAnalysis": {
     "versionHistory": {

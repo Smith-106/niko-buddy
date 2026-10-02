@@ -10,6 +10,7 @@ import { Folder, Play, RefreshCw } from "lucide-react"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import { useWikiStore } from "@/stores/wiki-store"
 import { scanAndImport } from "@/lib/scheduled-import"
+import { toast } from "@/lib/toast"
 import { pickDirectory } from "@/lib/platform"
 
 interface Props {
@@ -37,9 +38,16 @@ export function ScheduledImportSection({ draft, setDraft }: Props) {
 
     setIsScanning(true)
     try {
-      await scanAndImport(project, draft.scheduledImportPath)
+      const summary = await scanAndImport(project, draft.scheduledImportPath)
+      if (summary.skipped) return
+      if (summary.failed > 0) {
+        toast.error(t("settings.sections.scheduledImport.scanFailed", { scanned: summary.scanned, imported: summary.imported, failed: summary.failed, defaultValue: `扫描完成：${summary.scanned} 个文件，导入 ${summary.imported} 个，失败 ${summary.failed} 个` }))
+      } else {
+        toast.success(t("settings.sections.scheduledImport.scanDone", { scanned: summary.scanned, imported: summary.imported, defaultValue: `扫描完成：${summary.scanned} 个文件，导入 ${summary.imported} 个` }))
+      }
     } catch (err) {
       console.error("[Scheduled Import] Manual scan failed:", err)
+      toast.error(t("settings.sections.scheduledImport.scanError", { defaultValue: "扫描失败，请稍后重试" }))
     } finally {
       setIsScanning(false)
     }

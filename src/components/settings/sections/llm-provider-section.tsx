@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react"
 import { ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Loader2, XCircle } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { toast } from "@/lib/toast"
 import { invoke } from "@tauri-apps/api/core"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -65,7 +66,9 @@ export function LlmProviderSection() {
     const merged: ProviderOverride = { ...(providerConfigs[id] ?? {}), ...patch }
     const next = { ...providerConfigs, [id]: merged }
     setProviderConfigs(next)
-    persist(next, activePresetId).catch(() => {})
+    persist(next, activePresetId).catch((err) => {
+      toast.error(t("settings.sections.llm.saveFailed", { message: err instanceof Error ? err.message : String(err) }))
+    })
     // If this preset is active, refresh the resolved LlmConfig live.
     if (id === activePresetId) {
       const preset = LLM_PRESETS.find((p) => p.id === id)
@@ -82,7 +85,9 @@ export function LlmProviderSection() {
     const next = id === activePresetId ? null : id
     setActivePresetId(next)
     /* v8 ignore next -- PresetRow intentionally drops this unused callback. */
-    persist(providerConfigs, next).catch(() => {})
+    persist(providerConfigs, next).catch((err) => {
+      toast.error(t("settings.sections.llm.saveFailed", { message: err instanceof Error ? err.message : String(err) }))
+    })
   }
   /* v8 ignore stop */
 
@@ -92,7 +97,9 @@ export function LlmProviderSection() {
     const merged: ProviderOverride = { ...(current ?? {}), enabled: !currentEnabled }
     const next = { ...providerConfigs, [id]: merged }
     setProviderConfigs(next)
-    persist(next, activePresetId).catch(() => {})
+    persist(next, activePresetId).catch((err) => {
+      toast.error(t("settings.sections.llm.saveFailed", { message: err instanceof Error ? err.message : String(err) }))
+    })
   }
 
   return (

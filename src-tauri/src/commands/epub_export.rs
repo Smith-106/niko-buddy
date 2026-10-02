@@ -7,11 +7,46 @@
 //!   - content.opf 声明 metadata/manifest/spine（spine 顺序 = 章节顺序）；
 //!   - 章节正文为 XHTML5，标题转义，段落按空行切分。
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::io::Write;
 use tauri::{AppHandle, Emitter};
 
-use super::docx_export::NovelChapter;
+use super::docx_export::{split_body_paragraphs, NovelChapter};
+
+/// EPUB 书籍元数据（前端可选传入；缺省走内置默认）。
+/// identifier 缺省时每次导出生成新的 UUID v4，保证同一作者多次导出不撞号
+///（上游评审：编辑 E4，dc:identifier 全量同号问题）。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpubMeta {
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub language: Option<String>,
+    pub identifier: Option<String>,
+}
+
+impl EpubMeta {
+    fn title(&self) -> String {
+        let t = self.title.as_deref().unwrap_or("").trim();
+        if t.is_empty() { "Niko Buddy 导出".to_string() } else { t.to_string() }
+    }
+    fn author(&self) -> Option<String> {
+        let a = self.author.as_deref().unwrap_or("").trim();
+        if a.is_empty() { None } else { Some(a.to_string()) }
+    }
+    fn language(&self) -> String {
+        let l = self.language.as_deref().unwrap_or("").trim();
+        if l.is_empty() { "zh-CN".to_string() } else { l.to_string() }
+    }
+    fn identifier(&self) -> String {
+        let id = self.identifier.as_deref().unwrap_or("").trim();
+        if id.is_empty() {
+            format!("urn:uuid:{}", uuid::Uuid::new_v4())
+        } else {
+            id.to_string()
+        }
+    }
+}
 
 /// EPUB 导出结果（与 DocxExportResult 同构，前端共用成功/路径/章节数）。
 /// serde camelCase：Tauri 返回值按 Rust 字段名序列化，TS 侧期望 exportedPath/chapterCount/message，
@@ -25,10 +60,19 @@ pub struct EpubExportResult {
     pub message: String,
 }
 
-/// 构建并写出 EPUB3 包。
+/// 构建并写出 EPUB3 包（默认元数据；保持旧调用兼容）。
 pub fn build_and_write_epub(
     chapters: &[NovelChapter],
     export_path: &str,
+) -> Result<EpubExportResult, String> {
+    build_and_write_epub_with_meta(chapters, export_path, &EpubMeta { title: None, author: None, language: None, identifier: None })
+}
+
+/// 构建并写出 EPUB3 包（前端可注入 title/author/language/identifier）。
+pub fn build_and_write_epub_with_meta(
+    chapters: &[NovelChapter],
+    export_path: &str,
+    meta: &EpubMeta,
 ) -> Result<EpubExportResult, String> {
     if chapters.is_empty() {
         return Err("EPUB 导出失败：章节列表为空".to_string());
@@ -82,13 +126,20 @@ pub fn build_and_write_epub(
         .map(|(i, _)| format!(r#"<itemref idref="ch{i}"/>"#))
         .collect::<Vec<_>>()
         .join("\n    ");
+    let book_title = escape_xml(&meta.title());
+    let book_lang = escape_xml(&meta.language());
+    let book_id = escape_xml(&meta.identifier());
+    let author_el = match meta.author() {
+        Some(a) => format!("\n    <dc:creator>{}</dc:creator>", escape_xml(&a)),
+        None => String::new(),
+    };
     let opf = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:identifier id="bookid">urn:uuid:niko-buddy-export</dc:identifier>
-    <dc:title>Niko Buddy 导出</dc:title>
-    <dc:language>zh-CN</dc:language>
+    <dc:identifier id="bookid">{book_id}</dc:identifier>
+    <dc:title>{book_title}</dc:title>{author_el}
+    <dc:language>{book_lang}</dc:language>
   </metadata>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
@@ -125,14 +176,12 @@ pub fn build_and_write_epub(
     zip.write_all(nav.as_bytes())
         .map_err(|e| format!("EPUB 导出失败：nav.xhtml 写入错误: {e}"))?;
 
-    // 4) 章节 XHTML（标题转义 + 空行切段）
+    // 4) 章节 XHTML（标题转义 + 空行切段；单段超长按中文句读兜底切分）
     for (i, chapter) in chapters.iter().enumerate() {
         let title = escape_xml(&chapter.title);
-        let paragraphs: Vec<String> = chapter
-            .body
-            .split("\n\n")
-            .filter(|p| !p.trim().is_empty())
-            .map(|p| format!("<p>{}</p>", escape_xml(p.trim())))
+        let paragraphs: Vec<String> = split_body_paragraphs(&chapter.body)
+            .iter()
+            .map(|p| format!("<p>{}</p>", escape_xml(p)))
             .collect();
         let xhtml = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -172,11 +221,13 @@ fn escape_xml(input: &str) -> String {
 }
 
 /// 导出命令（与 export_novel_docx 同构，emit `epub-export-progress` 供进度条）。
+/// meta 可选：前端传入书籍标题/作者/语言/标识；缺省走默认（identifier 每次新 UUID）。
 #[tauri::command]
 pub async fn export_novel_epub(
     app: AppHandle,
     chapters: Vec<NovelChapter>,
     export_path: String,
+    meta: Option<EpubMeta>,
 ) -> Result<EpubExportResult, String> {
     let count = chapters.len();
     for (index, _) in chapters.iter().enumerate() {
@@ -185,7 +236,8 @@ pub async fn export_novel_epub(
             serde_json::json!({ "current": index + 1, "total": count }),
         );
     }
-    build_and_write_epub(&chapters, &export_path)
+    let m = meta.unwrap_or(EpubMeta { title: None, author: None, language: None, identifier: None });
+    build_and_write_epub_with_meta(&chapters, &export_path, &m)
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -279,5 +331,51 @@ mod tests {
     fn epub_export_rejects_empty_chapters() {
         let err = build_and_write_epub(&[], "unused.epub").unwrap_err();
         assert!(err.contains("章节列表为空"));
+    }
+
+    #[test]
+    fn epub_export_default_identifier_is_unique_per_run() {
+        // 缺省 identifier 每次生成新 UUID v4：同一作者多次导出不撞号（编辑 E4）。
+        let dir = std::env::temp_dir().join(format!("niko-epub-uuid-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p1 = dir.join("a.epub");
+        let p2 = dir.join("b.epub");
+        build_and_write_epub(&chapters_fixture(), p1.to_str().unwrap()).unwrap();
+        build_and_write_epub(&chapters_fixture(), p2.to_str().unwrap()).unwrap();
+        let read_opf = |p: &std::path::Path| -> String {
+            let file = std::fs::File::open(p).unwrap();
+            let mut zip = zip::ZipArchive::new(file).unwrap();
+            let mut opf = String::new();
+            zip.by_name("OEBPS/content.opf").unwrap().read_to_string(&mut opf).unwrap();
+            opf
+        };
+        let opf1 = read_opf(&p1);
+        let opf2 = read_opf(&p2);
+        assert!(!opf1.contains("niko-buddy-export"), "默认 identifier 不再是固定字符串");
+        assert_ne!(opf1, opf2, "两次默认导出 identifier 必须不同");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn epub_export_with_meta_injects_title_author_language() {
+        let dir = std::env::temp_dir().join(format!("niko-epub-meta-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("meta.epub");
+        let meta = EpubMeta {
+            title: Some("测试书名".to_string()),
+            author: Some("测试作者".to_string()),
+            language: Some("zh-TW".to_string()),
+            identifier: Some("urn:uuid:fixed-test-id".to_string()),
+        };
+        build_and_write_epub_with_meta(&chapters_fixture(), path.to_str().unwrap(), &meta).unwrap();
+        let file = std::fs::File::open(&path).unwrap();
+        let mut zip = zip::ZipArchive::new(file).unwrap();
+        let mut opf = String::new();
+        zip.by_name("OEBPS/content.opf").unwrap().read_to_string(&mut opf).unwrap();
+        assert!(opf.contains("<dc:title>测试书名</dc:title>"));
+        assert!(opf.contains("<dc:creator>测试作者</dc:creator>"));
+        assert!(opf.contains("<dc:language>zh-TW</dc:language>"));
+        assert!(opf.contains("urn:uuid:fixed-test-id"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

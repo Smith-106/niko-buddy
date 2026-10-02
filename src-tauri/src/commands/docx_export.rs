@@ -47,6 +47,45 @@ pub struct DocxExportResult {
 ///
 /// Returns `DocxExportResult` mirroring the shape of the existing Markdown
 /// exporter so the frontend can treat them uniformly.
+/// 正文分段（docx/epub 共用）：先按空行切；若整章只切出 1 段且超长
+/// （中文稿常见“一段到底”），再按中文句读 + 单换行兜底切分，避免
+/// Word/阅读器里出现单个超大段落（上游评审：编辑 E4 docx 塌段问题）。
+pub(crate) fn split_body_paragraphs(body: &str) -> Vec<String> {
+    const LONG_SINGLE_PARA_CHARS: usize = 500;
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    let mut paras: Vec<String> = trimmed
+        .split("\n\n")
+        .map(|p| p.trim().replace('\n', " "))
+        .filter(|p| !p.is_empty())
+        .collect();
+    if paras.len() == 1 && paras[0].chars().count() > LONG_SINGLE_PARA_CHARS {
+        let single = std::mem::take(&mut paras);
+        let text = &single[0];
+        let mut buf = String::new();
+        for ch in text.chars() {
+            buf.push(ch);
+            if matches!(ch, '。' | '？' | '！' | '…' | '\n') && buf.chars().count() >= 50 {
+                let cut = buf.trim().to_string();
+                if !cut.is_empty() {
+                    paras.push(cut);
+                }
+                buf = String::new();
+            }
+        }
+        let tail = buf.trim().to_string();
+        if !tail.is_empty() {
+            paras.push(tail);
+        }
+        if paras.is_empty() {
+            paras = single;
+        }
+    }
+    paras
+}
+
 fn build_and_write_docx(
     chapters: &[NovelChapter],
     export_path: &str,
@@ -68,15 +107,7 @@ fn build_and_write_docx(
         // Split body on blank-line boundaries into paragraphs; a paragraph
         // with no blank-line separator (e.g. a single scene) becomes one
         // paragraph. Leading/trailing whitespace is trimmed per paragraph.
-        let trimmed = chapter.body.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        for para in trimmed.split("\n\n") {
-            let collapsed = para.trim().replace('\n', " ");
-            if collapsed.is_empty() {
-                continue;
-            }
+        for collapsed in split_body_paragraphs(&chapter.body) {
             let body = Paragraph::new().add_run(Run::new().add_text(&collapsed));
             docx = docx.add_paragraph(body);
         }
@@ -172,6 +203,23 @@ mod tests {
         let err =
             build_and_write_docx(&chapters_fixture(), "").expect_err("empty path should error");
         assert!(err.contains("export_path"));
+    }
+
+    #[test]
+    fn split_body_paragraphs_falls_back_on_long_single_paragraph() {
+        // 正常空行分段不受影响
+        let normal = split_body_paragraphs("第一段。\n\n第二段。");
+        assert_eq!(normal, vec!["第一段。".to_string(), "第二段。".to_string()]);
+        // “一段到底”超长稿按中文句读兜底切分（编辑 E4 塌段问题）
+        let long_single: String = (0..30).map(|_| "这是很长的一个句子，用于模拟一段到底的中文稿件。").collect();
+        assert!(long_single.chars().count() > 500);
+        let cut = split_body_paragraphs(&long_single);
+        assert!(cut.len() > 1, "超长单段应被兜底切分为多段，实际 {}", cut.len());
+        // 短单段保持原样
+        let short = split_body_paragraphs("短短一段话。");
+        assert_eq!(short, vec!["短短一段话。".to_string()]);
+        // 空稿返回空
+        assert!(split_body_paragraphs("  \n\n  ").is_empty());
     }
 
     #[tokio::test]

@@ -43,12 +43,12 @@ interface AutonomousIncubatorDialogProps {
 }
 
 const STAGES = [
-  { key: "soul-doc", label: "灵魂文档 (SoulDoc)", icon: BookOpen },
-  { key: "world-blueprint", label: "世界观五层蓝图 (WorldBlueprint)", icon: Compass },
-  { key: "characters", label: "核心角色档案 (Characters)", icon: Users },
-  { key: "outline", label: "大纲多智能体推演 (Outline)", icon: Sparkles },
-  { key: "unpack-chapters", label: "章节骨架自动铺排 (Unpack Skeletons)", icon: Layers },
-  { key: "framework-binding", label: "起承转合框架绑定 (StoryFramework)", icon: Compass },
+  { key: "soul-doc", label: "故事灵魂设定（核心创意+基调）", icon: BookOpen },
+  { key: "world-blueprint", label: "世界观设定（五层蓝图）", icon: Compass },
+  { key: "characters", label: "核心角色档案", icon: Users },
+  { key: "outline", label: "大纲多智能体推演", icon: Sparkles },
+  { key: "unpack-chapters", label: "章节骨架自动铺排", icon: Layers },
+  { key: "framework-binding", label: "起承转合框架绑定", icon: Compass },
 ]
 
 export function AutonomousIncubatorDialog({

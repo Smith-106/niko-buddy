@@ -33,7 +33,7 @@ const mocks = vi.hoisted(() => {
   return {
     state,
     t: vi.fn((key: string, _options?: Record<string, unknown>) => key),
-    scanAndImport: vi.fn(async () => {}),
+    scanAndImport: vi.fn(async () => ({ scanned: 0, imported: 0, failed: 0, skipped: false })),
     pickDirectory: vi.fn<() => Promise<string | null>>(async () => null),
   }
 })
@@ -85,7 +85,7 @@ function ControlledSection({ initial }: { initial?: SettingsDraft }) {
 beforeEach(() => {
   mocks.t.mockClear()
   mocks.scanAndImport.mockClear()
-  mocks.scanAndImport.mockResolvedValue(undefined)
+  mocks.scanAndImport.mockResolvedValue({ scanned: 0, imported: 0, failed: 0, skipped: false })
   mocks.pickDirectory.mockClear()
   mocks.pickDirectory.mockResolvedValue(null)
   mocks.state.project = null
@@ -194,8 +194,8 @@ describe("ScheduledImportSection", () => {
     let resolveScan: (() => void) | undefined
     mocks.scanAndImport.mockImplementation(
       () =>
-        new Promise<void>((resolve) => {
-          resolveScan = resolve
+        new Promise<{ scanned: number; imported: number; failed: number; skipped: boolean }>((resolve) => {
+          resolveScan = () => resolve({ scanned: 0, imported: 0, failed: 0, skipped: false })
         }),
     )
     render(
@@ -254,8 +254,8 @@ describe("ScheduledImportSection", () => {
     let resolveScan: (() => void) | undefined
     mocks.scanAndImport.mockImplementation(
       () =>
-        new Promise<void>((resolve) => {
-          resolveScan = resolve
+        new Promise<{ scanned: number; imported: number; failed: number; skipped: boolean }>((resolve) => {
+          resolveScan = () => resolve({ scanned: 0, imported: 0, failed: 0, skipped: false })
         }),
     )
     render(

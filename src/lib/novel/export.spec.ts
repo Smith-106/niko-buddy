@@ -646,6 +646,7 @@ describe("exportNovelEpub（54 号设计 ⑥）", () => {
     expect(invokeMock).toHaveBeenCalledWith("export_novel_epub", {
       chapters: [{ title: "第一章 开端", body: "雨停了。" }],
       exportPath: `${PROJECT}/complete-novel.epub`,
+      meta: null,
     })
   })
 

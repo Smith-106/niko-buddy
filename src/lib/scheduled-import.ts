@@ -43,6 +43,14 @@ interface ImportDbStore {
 
 type ScanOptions = { runId?: number }
 
+/** scanAndImport 单次扫描结果统计（供 UI 反馈扫描条数）。 */
+export interface ScheduledScanSummary {
+  scanned: number
+  imported: number
+  failed: number
+  skipped: boolean
+}
+
 const EMPTY_DB: ImportDb = { files: {}, lastScan: null }
 
 let scanTimer: ReturnType<typeof setInterval> | null = null
@@ -201,14 +209,15 @@ export async function scanAndImport(
   project: WikiProject,
   importPath: string,
   options: ScanOptions = {},
-): Promise<void> {
-  if (!importPath || scanning) return
+): Promise<ScheduledScanSummary> {
+  if (!importPath || scanning) return { scanned: 0, imported: 0, failed: 0, skipped: true }
   scanning = true
+  const summary: ScheduledScanSummary = { scanned: 0, imported: 0, failed: 0, skipped: false }
   const pp = normalizePath(project.path)
   const importRoot = resolveImportPath(pp, importPath)
 
   try {
-    if (!isCurrentRun(project.id, options.runId)) return
+    if (!isCurrentRun(project.id, options.runId)) return summary
 
     const tree = await listDirectory(importRoot)
     const db = await loadDb(pp, importRoot)
@@ -220,7 +229,7 @@ export async function scanAndImport(
       try {
         const srcPath = normalizePath(file.path)
         if (shouldSkipScheduledImportFile(pp, srcPath) || isSensitiveConfig(srcPath) || !isIngestableSourcePath(srcPath)) continue
-        if (!isCurrentRun(project.id, options.runId)) return
+        if (!isCurrentRun(project.id, options.runId)) return summary
 
         const size = await getFileSize(srcPath)
         if (size > MAX_BYTES) { console.warn(`[scheduled-import] skipping ${srcPath}: ${(size / 1024 / 1024).toFixed(1)} MB exceeds 100 MB limit`); continue }
@@ -232,10 +241,11 @@ export async function scanAndImport(
         const destPath = scheduledImportDestinationForFile(pp, importRoot, file)
         if (normalizePath(destPath) !== srcPath) await copyFile(srcPath, destPath)
         changed.push({ key, md5, destPath })
-      } catch (err) { console.warn(`[scheduled-import] skipped ${file.path}:`, err) }
+      } catch (err) { console.warn(`[scheduled-import] skipped ${file.path}:`, err); summary.failed += 1 }
     }
+    summary.scanned = collectFiles(tree).length
 
-    if (!isCurrentRun(project.id, options.runId)) return
+    if (!isCurrentRun(project.id, options.runId)) return summary
 
     if (changed.length > 0) {
       const destPaths = changed.map((c) => c.destPath)
@@ -244,6 +254,7 @@ export async function scanAndImport(
         const ids = await enqueueSourceIngest(project, destPaths, llmConfig)
         if (ids.length > 0) {
           for (const c of changed) nextDb.files[c.key] = c.md5
+          summary.imported = changed.length
           const projectTree = await listDirectory(pp)
           useWikiStore.getState().setFileTree(projectTree)
           useWikiStore.getState().bumpDataVersion()
@@ -263,9 +274,11 @@ export async function scanAndImport(
     }
   } catch (err) {
     console.error("Scheduled import scan failed:", err)
+    summary.failed += 1
   } finally {
     scanning = false
   }
+  return summary
 }
 
 export function startScheduledImport(project: WikiProject, config: ScheduledImportConfig): void {

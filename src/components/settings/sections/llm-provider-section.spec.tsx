@@ -114,6 +114,7 @@ const mocks = vi.hoisted(() => {
     setLlmConfig: vi.fn(),
     getCursorProxyStatus: vi.fn(),
     stopCursorProxy: vi.fn(),
+    toastError: vi.fn(),
   }
 })
 
@@ -168,6 +169,10 @@ vi.mock("@/lib/azure-openai", () => ({
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: mocks.invoke,
+}))
+
+vi.mock("@/lib/toast", () => ({
+  toast: { success: vi.fn(), error: mocks.toastError, info: vi.fn() },
 }))
 
 vi.mock("@/lib/connection-tests", () => ({
@@ -343,6 +348,7 @@ beforeEach(() => {
   mocks.store.save.mockClear()
   mocks.store.data = {}
   mocks.recordModelOptions.mockClear()
+  mocks.toastError.mockClear()
   mocks.getCursorProxyStatus.mockClear()
   mocks.stopCursorProxy.mockClear()
   mocks.getCursorProxyStatus.mockResolvedValue({
@@ -490,23 +496,24 @@ describe("LlmProviderSection — section shell & row header", () => {
     expect(within(azure).queryByText("已保存")).not.toBeInTheDocument()
   })
 
-  it("persist rejection is swallowed by .catch in updateOverride and toggleEnabled", async () => {
+  it("persist rejection surfaces toast.error", async () => {
     render(<LlmProviderSection />)
     const card = cardByLabel("OpenAI")
     expandCard(card)
-    // updateOverride path: saveProviderConfigs rejects → .catch(() => {})
+    // updateOverride path: saveProviderConfigs rejects → catch 调 toast.error
     mocks.store.set.mockRejectedValueOnce(new Error("save-boom"))
     const keyInput = within(card).getByPlaceholderText("输入 API Key")
     fireEvent.change(keyInput, { target: { value: "sk-x" } })
     await waitFor(() => {
       expect(mocks.state.providerConfigs["openai-main"].apiKey).toBe("sk-x")
     })
-    // toggleEnabled path: persist rejects → .catch(() => {})
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled())
+    // toggleEnabled path: persist rejects → catch 调 toast.error
+    mocks.toastError.mockClear()
     mocks.store.set.mockRejectedValueOnce(new Error("save-boom-2"))
     fireEvent.click(within(card).getByTitle("启用此模型"))
     expect(mocks.state.providerConfigs["openai-main"]?.enabled).toBe(true)
-    // 等待 persist 异步链（动态 import + saveProviderConfigs reject → catch）完成
-    await new Promise((r) => setTimeout(r, 400))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled())
   })
 
   it("enabled preset without savedModels evaluates the enabledBadge guard with empty list", () => {

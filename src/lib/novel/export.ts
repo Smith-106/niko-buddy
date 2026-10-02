@@ -241,11 +241,22 @@ export interface DocxExportResult {
 }
 
 /**
+ * EPUB 书籍元数据（可选；缺省 title="Niko Buddy 导出"/language=zh-CN/identifier=新UUID）。
+ */
+export interface EbookExportMeta {
+  title?: string
+  author?: string
+  language?: string
+  identifier?: string
+}
+
+/**
  * EPUB 导出选项（54 号设计 ⑥）：与 DOCX 同形，复用章节加载逻辑。
  */
 export interface EbookExportOptions {
   projectPath: string
   exportPath: string
+  meta?: EbookExportMeta
 }
 
 /**
@@ -367,6 +378,7 @@ export async function exportNovelEpub(options: EbookExportOptions): Promise<Eboo
     const result = await invoke<EbookExportResult>("export_novel_epub", {
       chapters: chapters.map((c) => ({ title: c.title, body: c.body })),
       exportPath,
+      meta: options.meta ?? null,
     })
     return {
       success: result.success,
