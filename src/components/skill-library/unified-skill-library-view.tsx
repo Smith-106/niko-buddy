@@ -472,7 +472,7 @@ export function UnifiedSkillLibrarySidebarPanel() {
             >
               <button type="button"
                 onClick={() => handleSelectEntry(entry)}
-                className="cursor-pointer pr-7"
+                className="w-full min-w-0 cursor-pointer pr-7"
               >
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{entry.name}</span>

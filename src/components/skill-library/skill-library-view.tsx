@@ -166,7 +166,7 @@ export function SkillLibrarySidebarPanel() {
             >
               <button type="button"
                 onClick={() => setSelectedSkillId(skill.id)}
-                className="cursor-pointer"
+                className="w-full min-w-0 cursor-pointer"
               >
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{skill.name}</span>
