@@ -61,7 +61,10 @@ jobs:
         # 依赖漏洞回归守卫（quality-auto-test 20260914）：audit fix 修复 2H/4M/1L 后
         # 基线归零；本门防 high/critical 复发，moderate 及以下不阻塞（追踪见
         # .workflow/sessions quality-auto-test run report）。
-        run: npm audit --audit-level=high
+        # 2026-10-03 起走 scripts/audit-gate.mjs：JSON 全量审查 + 显式例外清单
+        # （GHSA-vfj7-8cjw-p6xm 无上游 patch，dev-only，不进产物）；裸 audit 门对
+        # 无修复版 advisory 永久红灯，改用显式例外 + 自动复查（braces 发新版即失效）。
+        run: node scripts/audit-gate.mjs
 
       - name: Typecheck (tsc, force)
         # ADR-47 回归防线：--force 禁增量缓存假绿（e2522af6 教训）
