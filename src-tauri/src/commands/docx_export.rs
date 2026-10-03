@@ -211,10 +211,16 @@ mod tests {
         let normal = split_body_paragraphs("第一段。\n\n第二段。");
         assert_eq!(normal, vec!["第一段。".to_string(), "第二段。".to_string()]);
         // “一段到底”超长稿按中文句读兜底切分（编辑 E4 塌段问题）
-        let long_single: String = (0..30).map(|_| "这是很长的一个句子，用于模拟一段到底的中文稿件。").collect();
+        let long_single: String = (0..30)
+            .map(|_| "这是很长的一个句子，用于模拟一段到底的中文稿件。")
+            .collect();
         assert!(long_single.chars().count() > 500);
         let cut = split_body_paragraphs(&long_single);
-        assert!(cut.len() > 1, "超长单段应被兜底切分为多段，实际 {}", cut.len());
+        assert!(
+            cut.len() > 1,
+            "超长单段应被兜底切分为多段，实际 {}",
+            cut.len()
+        );
         // 短单段保持原样
         let short = split_body_paragraphs("短短一段话。");
         assert_eq!(short, vec!["短短一段话。".to_string()]);

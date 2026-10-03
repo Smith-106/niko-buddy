@@ -28,15 +28,27 @@ pub struct EpubMeta {
 impl EpubMeta {
     fn title(&self) -> String {
         let t = self.title.as_deref().unwrap_or("").trim();
-        if t.is_empty() { "Niko Buddy 导出".to_string() } else { t.to_string() }
+        if t.is_empty() {
+            "Niko Buddy 导出".to_string()
+        } else {
+            t.to_string()
+        }
     }
     fn author(&self) -> Option<String> {
         let a = self.author.as_deref().unwrap_or("").trim();
-        if a.is_empty() { None } else { Some(a.to_string()) }
+        if a.is_empty() {
+            None
+        } else {
+            Some(a.to_string())
+        }
     }
     fn language(&self) -> String {
         let l = self.language.as_deref().unwrap_or("").trim();
-        if l.is_empty() { "zh-CN".to_string() } else { l.to_string() }
+        if l.is_empty() {
+            "zh-CN".to_string()
+        } else {
+            l.to_string()
+        }
     }
     fn identifier(&self) -> String {
         let id = self.identifier.as_deref().unwrap_or("").trim();
@@ -65,7 +77,16 @@ pub fn build_and_write_epub(
     chapters: &[NovelChapter],
     export_path: &str,
 ) -> Result<EpubExportResult, String> {
-    build_and_write_epub_with_meta(chapters, export_path, &EpubMeta { title: None, author: None, language: None, identifier: None })
+    build_and_write_epub_with_meta(
+        chapters,
+        export_path,
+        &EpubMeta {
+            title: None,
+            author: None,
+            language: None,
+            identifier: None,
+        },
+    )
 }
 
 /// 构建并写出 EPUB3 包（前端可注入 title/author/language/identifier）。
@@ -236,7 +257,12 @@ pub async fn export_novel_epub(
             serde_json::json!({ "current": index + 1, "total": count }),
         );
     }
-    let m = meta.unwrap_or(EpubMeta { title: None, author: None, language: None, identifier: None });
+    let m = meta.unwrap_or(EpubMeta {
+        title: None,
+        author: None,
+        language: None,
+        identifier: None,
+    });
     build_and_write_epub_with_meta(&chapters, &export_path, &m)
 }
 
@@ -346,12 +372,18 @@ mod tests {
             let file = std::fs::File::open(p).unwrap();
             let mut zip = zip::ZipArchive::new(file).unwrap();
             let mut opf = String::new();
-            zip.by_name("OEBPS/content.opf").unwrap().read_to_string(&mut opf).unwrap();
+            zip.by_name("OEBPS/content.opf")
+                .unwrap()
+                .read_to_string(&mut opf)
+                .unwrap();
             opf
         };
         let opf1 = read_opf(&p1);
         let opf2 = read_opf(&p2);
-        assert!(!opf1.contains("niko-buddy-export"), "默认 identifier 不再是固定字符串");
+        assert!(
+            !opf1.contains("niko-buddy-export"),
+            "默认 identifier 不再是固定字符串"
+        );
         assert_ne!(opf1, opf2, "两次默认导出 identifier 必须不同");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -371,7 +403,10 @@ mod tests {
         let file = std::fs::File::open(&path).unwrap();
         let mut zip = zip::ZipArchive::new(file).unwrap();
         let mut opf = String::new();
-        zip.by_name("OEBPS/content.opf").unwrap().read_to_string(&mut opf).unwrap();
+        zip.by_name("OEBPS/content.opf")
+            .unwrap()
+            .read_to_string(&mut opf)
+            .unwrap();
         assert!(opf.contains("<dc:title>测试书名</dc:title>"));
         assert!(opf.contains("<dc:creator>测试作者</dc:creator>"));
         assert!(opf.contains("<dc:language>zh-TW</dc:language>"));
