@@ -7,6 +7,19 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.14.3] - 2026-10-03
+
+### Added
+
+- **EPUB 元数据注入**：`EpubMeta`（title/author/language/identifier）可选注入，转义后写入 opf；缺省 identifier 由固定串改为每次导出新 UUID v4。
+- **docx/epub 共用中文兜底切分**：`split_body_paragraphs`（空行切分 + 超长单段按中文句读兜底），避免一段到底塌段。
+
+### Fixed
+
+- **UX 反馈补齐**：scheduled-import 返回 `ScheduledScanSummary` 供扫描条数 toast；LLM 配置保存失败改 `toast.error` 不再静默；error-boundary 新增复制错误详情/刷新页面；孵化器 STAGES 去英文标识纯中文文案；i18n zh/en 对称补键。
+- **验证**：tsc --build 0 错误；相关 vitest 179/179 通过；Rust 定向 5/5 通过；独立评审 PASS_WITH_COMMENTS 零阻挡。
+- 发布语义：prerelease（v2.14.2 stable 2026-10-02 在同周，同周 stable ≤1，候选版先走内测渠道）。
+
 ## [2.14.2] - 2026-10-02
 
 ### Fixed

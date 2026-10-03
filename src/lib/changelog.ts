@@ -15,6 +15,24 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.14.3",
+    date: "2026-10-03",
+    highlights: {
+      en: [
+        "EPUB metadata injection: optional title/author/language/identifier written escaped into OPF; default identifier changed from a fixed string to a fresh UUID v4 per export.",
+        "Shared Chinese-aware paragraph splitting for docx/epub exports: empty-line split plus fallback segmentation on Chinese punctuation for overlong single paragraphs, avoiding collapsed giant paragraphs.",
+        "UX feedback: scheduled-import returns ScheduledScanSummary for scan-count toasts; LLM provider save failures now surface toast.error instead of failing silently; error boundary gains copy-details/refresh actions; incubator STAGES labels fully Chinese; i18n zh/en keys symmetric.",
+        "Verified: tsc --build 0 errors; related vitest 179/179 passed; Rust targeted 5/5 passed; independent review PASS_WITH_COMMENTS with zero blockers.",
+      ],
+      zh: [
+        "EPUB 元数据注入：title/author/language/identifier 可选注入，转义后写入 opf；缺省 identifier 由固定串改为每次导出新 UUID v4。",
+        "docx/epub 共用中文兜底切分：空行切分 + 超长单段按中文句读兜底，避免一段到底塌段。",
+        "UX 反馈：scheduled-import 返回 ScheduledScanSummary 供扫描条数 toast；LLM 配置保存失败改 toast.error 不再静默；error-boundary 新增复制错误详情/刷新页面；孵化器 STAGES 纯中文；i18n zh/en 对称补键。",
+        "验证：tsc --build 0 错误；相关 vitest 179/179 通过；Rust 定向 5/5 通过；独立评审 PASS_WITH_COMMENTS 零阻挡。",
+      ],
+    },
+  },
+  {
     version: "2.14.2",
     date: "2026-10-02",
     highlights: {
