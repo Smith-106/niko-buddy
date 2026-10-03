@@ -48,8 +48,12 @@ pub struct DocxExportResult {
 /// Returns `DocxExportResult` mirroring the shape of the existing Markdown
 /// exporter so the frontend can treat them uniformly.
 /// 正文分段（docx/epub 共用）：先按空行切；若整章只切出 1 段且超长
-/// （中文稿常见“一段到底”），再按中文句读 + 单换行兜底切分，避免
+/// （中文稿常见“一段到底”），再按中文句读兜底切分，避免
 /// Word/阅读器里出现单个超大段落（上游评审：编辑 E4 docx 塌段问题）。
+///
+/// 切点规则（F15）：切点集仅 `。？！` —— `…` 不再是切点（中文省略号恒成对
+/// `……`，落刀会拆散）；`\n` 已在上游归一化为空格，不列为切点；
+/// 切点后紧随的闭引号 `"`/`”`/`』` 归入本段（`。”` 不断裂）。
 pub(crate) fn split_body_paragraphs(body: &str) -> Vec<String> {
     const LONG_SINGLE_PARA_CHARS: usize = 500;
     let trimmed = body.trim();
@@ -65,15 +69,27 @@ pub(crate) fn split_body_paragraphs(body: &str) -> Vec<String> {
         let single = std::mem::take(&mut paras);
         let text = &single[0];
         let mut buf = String::new();
-        for ch in text.chars() {
+        // F15：索引遍历以支持闭引号前瞻（`…`/`\n` 移出切点集，见上）。
+        const CLOSERS: [char; 3] = ['"', '”', '』'];
+        let chars: Vec<char> = text.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            let ch = chars[i];
             buf.push(ch);
-            if matches!(ch, '。' | '？' | '！' | '…' | '\n') && buf.chars().count() >= 50 {
+            if matches!(ch, '。' | '？' | '！') && buf.chars().count() >= 50 {
+                let mut j = i + 1;
+                while j < chars.len() && CLOSERS.contains(&chars[j]) {
+                    buf.push(chars[j]);
+                    j += 1;
+                }
+                i = j - 1;
                 let cut = buf.trim().to_string();
                 if !cut.is_empty() {
                     paras.push(cut);
                 }
                 buf = String::new();
             }
+            i += 1;
         }
         let tail = buf.trim().to_string();
         if !tail.is_empty() {
@@ -226,6 +242,36 @@ mod tests {
         assert_eq!(short, vec!["短短一段话。".to_string()]);
         // 空稿返回空
         assert!(split_body_paragraphs("  \n\n  ").is_empty());
+    }
+
+    #[test]
+    fn split_body_paragraphs_f15_ellipsis_and_closers() {
+        // F15：成对省略号 `……` 不可拆（`…` 已移出切点集）
+        let ellipsis: String = (0..30)
+            .map(|_| "他沉默了很久……风继续吹着，夜色越来越深了。")
+            .collect();
+        assert!(ellipsis.chars().count() > 500);
+        let cut = split_body_paragraphs(&ellipsis);
+        assert!(cut.len() > 1, "超长省略号稿应切分，实际 {}", cut.len());
+        for p in &cut {
+            assert!(
+                !p.starts_with('…'),
+                "段落不应以孤立省略号开头：{p}"
+            );
+        }
+        // F15：切点后闭引号归入本段（`。”` 不断裂）
+        let quoted: String = (0..30)
+            .map(|_| "他说道：“今晚月色真美。”她点点头表示赞同这个看法。")
+            .collect();
+        assert!(quoted.chars().count() > 500);
+        let cut_q = split_body_paragraphs(&quoted);
+        assert!(cut_q.len() > 1, "超长对白稿应切分，实际 {}", cut_q.len());
+        for p in &cut_q {
+            assert!(
+                !p.starts_with('"') && !p.starts_with('”'),
+                "段落不应以孤立闭引号开头：{p}"
+            );
+        }
     }
 
     #[tokio::test]

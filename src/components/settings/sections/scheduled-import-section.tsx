@@ -40,10 +40,12 @@ export function ScheduledImportSection({ draft, setDraft }: Props) {
     try {
       const summary = await scanAndImport(project, draft.scheduledImportPath)
       if (summary.skipped) return
+      // F15：scanned=目录文件总数（含跳过），文案并列跳过数，避免“30 个文件导入 0 个”误读
+      const skippedCount = summary.skippedCount ?? 0
       if (summary.failed > 0) {
-        toast.error(t("settings.sections.scheduledImport.scanFailed", { scanned: summary.scanned, imported: summary.imported, failed: summary.failed, defaultValue: `扫描完成：${summary.scanned} 个文件，导入 ${summary.imported} 个，失败 ${summary.failed} 个` }))
+        toast.error(t("settings.sections.scheduledImport.scanFailed", { scanned: summary.scanned, imported: summary.imported, failed: summary.failed, skipped: skippedCount, defaultValue: `扫描完成：${summary.scanned} 个文件，导入 ${summary.imported} 个，失败 ${summary.failed} 个，跳过 ${skippedCount} 个` }))
       } else {
-        toast.success(t("settings.sections.scheduledImport.scanDone", { scanned: summary.scanned, imported: summary.imported, defaultValue: `扫描完成：${summary.scanned} 个文件，导入 ${summary.imported} 个` }))
+        toast.success(t("settings.sections.scheduledImport.scanDone", { scanned: summary.scanned, imported: summary.imported, skipped: skippedCount, defaultValue: `扫描完成：${summary.scanned} 个文件，导入 ${summary.imported} 个，跳过 ${skippedCount} 个` }))
       }
     } catch (err) {
       console.error("[Scheduled Import] Manual scan failed:", err)

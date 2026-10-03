@@ -1853,8 +1853,8 @@
         "intervalHelp": "How often to check the folder",
         "scanNow": "Scan now",
         "scanning": "Scanning…",
-        "scanDone": "Scan complete: {{scanned}} files, {{imported}} imported",
-        "scanFailed": "Scan complete: {{scanned}} files, {{imported}} imported, {{failed}} failed",
+        "scanDone": "Scan complete: {{scanned}} files, {{imported}} imported, {{skipped}} skipped",
+        "scanFailed": "Scan complete: {{scanned}} files, {{imported}} imported, {{failed}} failed, {{skipped}} skipped",
         "scanError": "Scan failed, please try again later",
         "lastScan": "Last scan: {{time}}",
         "never": "Never"

@@ -43,12 +43,15 @@ interface ImportDbStore {
 
 type ScanOptions = { runId?: number }
 
-/** scanAndImport 单次扫描结果统计（供 UI 反馈扫描条数）。 */
+/** scanAndImport 单次扫描结果统计（供 UI 反馈扫描条数）。
+ *  F15：新增可选 `skippedCount`——被跳过的文件数（非可导入类型/超限/未变更），
+ *  与 `scanned`（目录文件总数）并列，供 UI 文案区分“扫描/导入/跳过”。 */
 export interface ScheduledScanSummary {
   scanned: number
   imported: number
   failed: number
   skipped: boolean
+  skippedCount?: number
 }
 
 const EMPTY_DB: ImportDb = { files: {}, lastScan: null }
@@ -212,7 +215,7 @@ export async function scanAndImport(
 ): Promise<ScheduledScanSummary> {
   if (!importPath || scanning) return { scanned: 0, imported: 0, failed: 0, skipped: true }
   scanning = true
-  const summary: ScheduledScanSummary = { scanned: 0, imported: 0, failed: 0, skipped: false }
+  const summary: ScheduledScanSummary = { scanned: 0, imported: 0, failed: 0, skipped: false, skippedCount: 0 }
   const pp = normalizePath(project.path)
   const importRoot = resolveImportPath(pp, importPath)
 
@@ -228,15 +231,15 @@ export async function scanAndImport(
     for (const file of collectFiles(tree)) {
       try {
         const srcPath = normalizePath(file.path)
-        if (shouldSkipScheduledImportFile(pp, srcPath) || isSensitiveConfig(srcPath) || !isIngestableSourcePath(srcPath)) continue
+        if (shouldSkipScheduledImportFile(pp, srcPath) || isSensitiveConfig(srcPath) || !isIngestableSourcePath(srcPath)) { summary.skippedCount = (summary.skippedCount ?? 0) + 1; continue }
         if (!isCurrentRun(project.id, options.runId)) return summary
 
         const size = await getFileSize(srcPath)
-        if (size > MAX_BYTES) { console.warn(`[scheduled-import] skipping ${srcPath}: ${(size / 1024 / 1024).toFixed(1)} MB exceeds 100 MB limit`); continue }
+        if (size > MAX_BYTES) { console.warn(`[scheduled-import] skipping ${srcPath}: ${(size / 1024 / 1024).toFixed(1)} MB exceeds 100 MB limit`); summary.skippedCount = (summary.skippedCount ?? 0) + 1; continue }
 
         const key = srcPath
         const md5 = await getFileMd5(srcPath)
-        if (db.files[key] === md5) { nextDb.files[key] = md5; continue }
+        if (db.files[key] === md5) { nextDb.files[key] = md5; summary.skippedCount = (summary.skippedCount ?? 0) + 1; continue }
 
         const destPath = scheduledImportDestinationForFile(pp, importRoot, file)
         if (normalizePath(destPath) !== srcPath) await copyFile(srcPath, destPath)

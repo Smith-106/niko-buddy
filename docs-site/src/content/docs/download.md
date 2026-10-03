@@ -21,14 +21,14 @@ description: 下载 Niko Buddy 最新版本安装包
 
 - ✅ **技能库卡片溢出修复** — `UnifiedSkillLibrarySidebarPanel` 与 `SkillLibrarySidebarPanel` 卡片按钮补 `w-full min-w-0`，长技能名/说明 truncate 恢复约束，不再撑破卡片
 - ✅ **验证** — vitest 44/44 通过；tsc --noEmit 0 错误
-- 发布语义：stable Latest（GitHub Releases 唯一 stable 最新版）
+- 发布语义：stable Latest（GitHub Releases 唯一 stable 最新版；实测 v2.14.2 为 Latest，v2.14.1 为普通 stable 历史版）
 
 ### v2.14.1 更新亮点（2026-10-01）
 
 - ✅ **九轮评估整改链（R8→R14）** — wish-drive 文案全 i18n、per-project journal TTL（`sanitizeJournalTtlMs` 唯一真源）、en 全文件零 CJK、违规码仅机读；评分 R10（8.0）→ R14（六维全 10）
 - ✅ **依赖审计门归零** — `npm audit fix` 清除 1 high（brace-expansion）+ dompurify + hono 漏洞
 - ✅ **验证** — tsc 0 错误；eslint 0 错误；boundaries 4/4；全量 14439 通过 + 2 预存 real-llm 失败（上游 HTTP 426，与 stash 基线同签名）
-- 发布语义：stable Latest（验证通过已提升；GitHub Releases 唯一 stable 最新版）
+- 发布语义：stable（已发布；GitHub Releases 当前 Latest 为 v2.14.2，本节历史版本语义以 release 页实测为准）
 
 ### v2.14.0 更新亮点（2026-09-30）
 

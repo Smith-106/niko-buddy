@@ -30,7 +30,7 @@ const mocks = vi.hoisted(() => {
     dropLegacyVectorTable: vi.fn(),
     listen: vi.fn(),
     unlisten: vi.fn(),
-    project: { path: "E:/Novel" },
+    project: { path: "E:/Novel", name: "Test Novel" },
   }
 })
 
@@ -82,7 +82,7 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
   return {
     ...actual,
-      useWikiStore: (selector: (s: { project: { path: string } | null }) => unknown) =>
+      useWikiStore: (selector: (s: { project: { path: string; name: string } | null }) => unknown) =>
         selector({ project: mocks.project }),
     
   }
@@ -599,6 +599,8 @@ describe("DataManagementSection", () => {
     expect(mocks.exportNovelEpub).toHaveBeenCalledWith({
       projectPath: "E:/Novel",
       exportPath: "E:/Novel/complete-novel.epub",
+      // F15（user -1.2 回归钉）：EPUB 必须注入项目名作 title，阅读器不再显示缺省书名
+      meta: { title: "Test Novel" },
     })
   })
 

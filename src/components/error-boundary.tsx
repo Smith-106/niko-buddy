@@ -30,8 +30,13 @@ export class ErrorBoundary extends Component<Props, State> {
     const err = this.state.error
     const detail = err ? `${err.name}: ${err.message}\n${err.stack ?? ""}` : "unknown error"
     const done = () => this.setState({ copied: true })
+    // F15：clipboard API 不可用时不得假报“已复制”——明确失败态
+    if (!navigator.clipboard?.writeText) {
+      this.setState({ copied: false })
+      return
+    }
     try {
-      const maybePromise = navigator.clipboard?.writeText(detail) as unknown
+      const maybePromise = navigator.clipboard.writeText(detail) as unknown
       if (maybePromise && typeof (maybePromise as Promise<void>).then === "function") {
         void (maybePromise as Promise<void>).then(done, () => this.setState({ copied: false }))
       } else {

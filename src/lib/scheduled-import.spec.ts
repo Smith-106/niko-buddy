@@ -353,6 +353,19 @@ describe("scanAndImport", () => {
     expect(mocks.listDirectory).not.toHaveBeenCalled()
   })
 
+  it("F15: summary carries skippedCount for skipped and unchanged files", async () => {
+    mocks.listDirectory.mockResolvedValue([
+      fileNode("C:/projects/p/watched/skipme.zip", "skipme.zip"),
+      fileNode("C:/projects/p/watched/a.md", "a.md"),
+    ])
+    mocks.isIngestableSourcePath.mockImplementation((p: string) => p.endsWith(".md"))
+    const summary = await scanAndImport(project, "watched")
+    // skipme.zip 不可导入 → skippedCount 至少计 1；a.md 被导入
+    expect(summary.skipped).toBe(false)
+    expect(summary.skippedCount ?? 0).toBeGreaterThanOrEqual(1)
+    expect(summary.scanned).toBe(2)
+  })
+
   it("logs and swallows a failed scan", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.listDirectory.mockRejectedValue(new Error("scan exploded"))

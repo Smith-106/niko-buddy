@@ -53,14 +53,18 @@ function rootUrls(name, seen = new Set()) {
   return [...new Set(urls)]
 }
 const offenders = []
+const EXC_URLS = new Set(EXCEPTIONS.map((e) => e.url))
 for (const [name, v] of Object.entries(vulns)) {
   if (v.severity !== 'high' && v.severity !== 'critical') continue
   const urls = rootUrls(name)
-  const exc = EXCEPTIONS.find((e) => urls.includes(e.url))
-  if (exc) {
+  // F15（arch -0.3）：advisory 级精确豁免——该条目全部根因 advisory 都在例外清单
+  // 才放行；任一非例外 advisory（同链新增漏洞）即红灯。空 urls 永不豁免。
+  const uncovered = urls.filter((u) => !EXC_URLS.has(u))
+  if (urls.length > 0 && uncovered.length === 0) {
+    const exc = EXCEPTIONS.find((e) => urls.includes(e.url))
     console.log(`EXCEPT ${v.severity} ${name} <- ${urls.join(',')}\n  reason: ${exc.reason}`)
   } else {
-    offenders.push(`${v.severity} ${name} <- ${urls.join(',') || 'no-advisory-url'}`)
+    offenders.push(`${v.severity} ${name} <- ${uncovered.join(',') || urls.join(',') || 'no-advisory-url'}`)
   }
 }
 // 例外复查：条件触发即失败

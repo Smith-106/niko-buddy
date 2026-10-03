@@ -236,6 +236,9 @@ export function DataManagementSection() {
       const result = await exportNovelEpub({
         projectPath: currentProject.path,
         exportPath: `${currentProject.path}/complete-novel.epub`,
+        // F15（user -1.2）：EPUB 不再用缺省书名——注入项目名作 title，
+        // author 无项目级真源故缺省（Rust 侧 None → opf 无 dc:creator）。
+        meta: { title: currentProject.name },
       })
       setEpubResult(result)
     } catch (err) {

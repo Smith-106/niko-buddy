@@ -115,4 +115,17 @@ describe("ErrorBoundary", () => {
     const copied = String(writeText.mock.calls[0]?.[0] ?? "")
     expect(copied).toContain("kapow")
   })
+
+  it("F15: clipboard unavailable does not falsely report copied", async () => {
+    Object.assign(navigator, { clipboard: undefined })
+    renderWithErrorSpy(
+      <ErrorBoundary>
+        <Bomb />
+      </ErrorBoundary>,
+    )
+    fireEvent.click(screen.getByRole("button", { name: "复制错误详情" }))
+    // F15（user 边界手感）：clipboard API 不可用时不得假报“已复制”，按钮保持原态
+    expect(screen.getByRole("button", { name: "复制错误详情" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "已复制" })).not.toBeInTheDocument()
+  })
 })
