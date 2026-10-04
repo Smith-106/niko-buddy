@@ -1813,7 +1813,11 @@ export function ChatPanel() {
       )
       void Promise.all(killPromises).then(() => {
         if (killFailed > 0) {
-          finalizeStream(`强制终止已发出，但 ${killFailed} 个流未能确认终止（进程可能仍在运行）。`, [], convId)
+          // DEBUG#6 修复：告警写入前确认目标会话仍存在，避免给已删除会话产生孤儿消息
+          const convStillExists = useChatStore.getState().conversations.some((c) => c.id === convId)
+          if (convStillExists) {
+            finalizeStream(`强制终止已发出，但 ${killFailed} 个流未能确认终止（进程可能仍在运行）。`, [], convId)
+          }
         }
       })
       sharedActiveRustStreamIdsRef.current.clear()
