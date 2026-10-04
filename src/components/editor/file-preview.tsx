@@ -59,13 +59,17 @@ function ImagePreview({ filePath, fileName }: { filePath: string; fileName: stri
   const [src, setSrc] = useState<string>("")
 
   useEffect(() => {
+    // DEBUG#11 修复：filePath 快速切换时晚到的 import 回调可能写入过期 src（竞态）。
+    // 加 cancelled 标志，保证只对当前 filePath 生效。
+    let cancelled = false
     if (isTauri()) {
       import("@tauri-apps/api/core").then(({ convertFileSrc }) => {
-        setSrc(convertFileSrc(filePath))
-      })
+        if (!cancelled) setSrc(convertFileSrc(filePath))
+      }).catch(() => {})
     } else {
       setSrc(filePath)
     }
+    return () => { cancelled = true }
   }, [filePath])
 
   if (!src) return null
@@ -87,13 +91,17 @@ function VideoPreview({ filePath, fileName }: { filePath: string; fileName: stri
   const [src, setSrc] = useState<string>("")
 
   useEffect(() => {
+    // DEBUG#11 修复：filePath 快速切换时晚到的 import 回调可能写入过期 src（竞态）。
+    // 加 cancelled 标志，保证只对当前 filePath 生效。
+    let cancelled = false
     if (isTauri()) {
       import("@tauri-apps/api/core").then(({ convertFileSrc }) => {
-        setSrc(convertFileSrc(filePath))
-      })
+        if (!cancelled) setSrc(convertFileSrc(filePath))
+      }).catch(() => {})
     } else {
       setSrc(filePath)
     }
+    return () => { cancelled = true }
   }, [filePath])
 
   if (!src) return null
@@ -117,13 +125,17 @@ function AudioPreview({ filePath, fileName }: { filePath: string; fileName: stri
   const [src, setSrc] = useState<string>("")
 
   useEffect(() => {
+    // DEBUG#11 修复：filePath 快速切换时晚到的 import 回调可能写入过期 src（竞态）。
+    // 加 cancelled 标志，保证只对当前 filePath 生效。
+    let cancelled = false
     if (isTauri()) {
       import("@tauri-apps/api/core").then(({ convertFileSrc }) => {
-        setSrc(convertFileSrc(filePath))
-      })
+        if (!cancelled) setSrc(convertFileSrc(filePath))
+      }).catch(() => {})
     } else {
       setSrc(filePath)
     }
+    return () => { cancelled = true }
   }, [filePath])
 
   if (!src) return null
