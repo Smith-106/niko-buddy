@@ -15,7 +15,7 @@
 - **供应链卫生**：vendored shadcn CSS 登记入 THIRD-PARTY-NOTICES（补齐 20 项存量缺失，`license-audit --check` PASS）；`audit-gate.mjs` 例外收紧为 advisory 级精确豁免并新增契约自测 `audit-gate.spec.mjs`。
 - **清理**：删除根目录无引用 `QM-LOGO.png`/`QM-LOGO-original.png`（约 2MB）+ 过期 shadcn `components.json`；修复 `index.html` favicon 404 引用为真实 `src/assets/niko-buddy-logo.png`；`download.md` v2.14.1 发布语义按 Releases 实测修正（Latest=v2.14.2）。
 - **验证**：tsc --build 0 错误；eslint 0 错误；boundaries 4/4；定向 vitest 全绿；Rust docx_export 6/6；license-audit PASS；audit-gate PASS。
-- 发布语义：prerelease（v2.14.2 stable 2026-10-02 在同周，同周 stable ≤1，候选版先走内测渠道）。
+- 发布语义：2026-10-04 用户批准由 prerelease 提升 **stable**（同日真机冒烟通过；latest.json 版本/签名与通道验证通过；近 30 天 stable 第 4 个，≤4 达上限，决策已登记 release body）。
 
 ## [2.14.3] - 2026-10-03
 

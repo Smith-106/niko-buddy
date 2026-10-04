@@ -15,7 +15,7 @@ description: 下载 Niko Buddy 最新版本安装包
 - ✅ **供应链卫生** — vendored shadcn CSS 登记入许可表（补齐 20 项，audit PASS）；audit-gate 例外收紧为 advisory 级精确豁免 + 契约自测
 - ✅ **仓库清理** — 删除无引用根 logo（约 2MB）+ 过期 shadcn 配置；修复 favicon 404；下载页发布语义按实测修正
 - ✅ **验证** — tsc --build 0 错误；eslint 0 错误；boundaries 4/4；定向 vitest 全绿；Rust 6/6；license-audit PASS；audit-gate PASS
-- 发布语义：prerelease（v2.14.2 stable 2026-10-02 在同周，同周 stable ≤1，候选版先走内测渠道）
+- 发布语义：**stable**（2026-10-04 用户批准由 prerelease 提升；latest.json 版本/签名与通道验证通过）
 
 ### v2.14.3 更新亮点（2026-10-03）
 

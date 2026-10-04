@@ -54,7 +54,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 
 | 波次 | 版本 | 能力 | 核心交付 |
 |---|---|---|---|
-| — | v2.14.4 | Round15 评估驱动整改 + 供应链卫生 + 仓库清理 | F15 切分闭引号前瞻/EPUB 书名接线/跳过计数/复制失败态 + 许可表补齐归零/门精确豁免 + 删 2MB 冗余 logo（prerelease） |
+| — | v2.14.4 | Round15 评估驱动整改 + 供应链卫生 + 仓库清理 | F15 切分闭引号前瞻/EPUB 书名接线/跳过计数/复制失败态 + 许可表补齐归零/门精确豁免 + 删 2MB 冗余 logo（stable，2026-10-04 批准提升） |
 | — | v2.14.3 | EPUB 元数据注入 + 中文兜底切分 + UX 反馈补齐 | EpubMeta 可选注入 + 缺省每次新 UUID v4 + docx/epub 共用中文句读兜底切分 + ScheduledScanSummary/toast 反馈/error-boundary 复制刷新/i18n 对称（prerelease） |
 | — | v2.14.2 | 技能库卡片溢出修复 | UnifiedSkillLibrary + SkillLibrary 卡片按钮补 w-full min-w-0，名称/说明 truncate 恢复约束 + 全量测试通过 + tsc 0 错 |
 | — | v2.14.0 | 巨石拆分专轮 + 六维评估收敛 | context-engine/deep-chapter-generation/story-simulation-view 纯函数剥离 7 子模块（-396 行）+ R1→R6 多维评估 9.75 收敛 + 全量 14406 用例全绿 |
