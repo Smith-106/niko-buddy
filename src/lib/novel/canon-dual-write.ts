@@ -763,12 +763,22 @@ export async function shadowWriteCanon(
       const ep = op.canonPayload.episode
       const chapterId =
         typeof ep.entity_id === "string" ? ep.entity_id : `ch${ep.chapter_number}`
+      // DEBUG#8 修复（defensive D1）：chapter_number 非法时不再静默归为 0（会污染凭证层持久化）。
+      // 校验为有限正整数再晋升；非法则 warn 跳过，保留重放收敛语义（非致命）。
+      const parsedChapter = Number(ep.chapter_number)
+      if (!Number.isFinite(parsedChapter) || !Number.isInteger(parsedChapter) || parsedChapter < 1) {
+        logger.warn(
+          "promotion-bridge",
+          `canon-dual-write promote skipped: invalid chapter_number=${JSON.stringify(ep.chapter_number)} (chapterId=${chapterId})`,
+        )
+        continue
+      }
       try {
         await promote({
           channel: "canon-dual-write",
           projectPath,
           chapterId,
-          chapterNumber: Number(ep.chapter_number) || 0,
+          chapterNumber: parsedChapter,
           revision: 1,
           entity: chapterId,
           gateContext: { isFinalChapter: true, dualWriteConsistent: true },
