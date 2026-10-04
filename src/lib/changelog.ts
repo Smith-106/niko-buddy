@@ -15,6 +15,24 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.14.4",
+    date: "2026-10-04",
+    highlights: {
+      en: [
+        "Round15 evaluation-driven fixes: Chinese splitter drops ellipsis/single-newline cut points with closing-quote lookahead; EPUB export injects project name as title; scan toasts report skipped counts.",
+        "Supply-chain hygiene: vendored shadcn CSS registered in license notices (20 missing entries backfilled, audit PASS); audit-gate exemptions narrowed to advisory-level precision with a contract self-test.",
+        "Cleanup: removed 2MB of unreferenced root logos + stale shadcn config; fixed favicon 404 reference; download page release semantics corrected against live Releases data.",
+        "Verified: tsc --build 0 errors; eslint 0 errors; boundaries 4/4; targeted vitest suites green; Rust docx_export 6/6; license-audit PASS; audit-gate PASS.",
+      ],
+      zh: [
+        "Round15 评估驱动整改：中文切分移除省略号/单换行切点、闭引号前瞻归入本段；EPUB 导出注入项目名作书名；扫描 toast 并列跳过数。",
+        "供应链卫生：vendored shadcn CSS 登记入许可表（补齐 20 项存量缺失，audit PASS）；audit-gate 例外收紧为 advisory 级精确豁免并加契约自测。",
+        "清理：删除 2MB 无引用根 logo + 过期 shadcn 配置；修复 favicon 404 引用；下载页发布语义按 Releases 实测修正。",
+        "验证：tsc --build 0 错误；eslint 0 错误；boundaries 4/4；定向 vitest 全绿；Rust docx_export 6/6；license-audit PASS；audit-gate PASS。",
+      ],
+    },
+  },
+  {
     version: "2.14.3",
     date: "2026-10-03",
     highlights: {

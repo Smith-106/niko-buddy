@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="niko-buddy-logo.png" width="120" alt="Niko Buddy Logo" />
+  <img src="src/assets/niko-buddy-logo.png" width="120" alt="Niko Buddy Logo" />
 </p>
 
 <h1 align="center">niko-buddy · Niko Buddy</h1>
@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.14.3-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.14.4-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows%20(primary)%20%7C%20macOS%20(planned)%20%7C%20Linux%20(planned)-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -54,6 +54,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 
 | 波次 | 版本 | 能力 | 核心交付 |
 |---|---|---|---|
+| — | v2.14.4 | Round15 评估驱动整改 + 供应链卫生 + 仓库清理 | F15 切分闭引号前瞻/EPUB 书名接线/跳过计数/复制失败态 + 许可表补齐归零/门精确豁免 + 删 2MB 冗余 logo（prerelease） |
 | — | v2.14.3 | EPUB 元数据注入 + 中文兜底切分 + UX 反馈补齐 | EpubMeta 可选注入 + 缺省每次新 UUID v4 + docx/epub 共用中文句读兜底切分 + ScheduledScanSummary/toast 反馈/error-boundary 复制刷新/i18n 对称（prerelease） |
 | — | v2.14.2 | 技能库卡片溢出修复 | UnifiedSkillLibrary + SkillLibrary 卡片按钮补 w-full min-w-0，名称/说明 truncate 恢复约束 + 全量测试通过 + tsc 0 错 |
 | — | v2.14.0 | 巨石拆分专轮 + 六维评估收敛 | context-engine/deep-chapter-generation/story-simulation-view 纯函数剥离 7 子模块（-396 行）+ R1→R6 多维评估 9.75 收敛 + 全量 14406 用例全绿 |

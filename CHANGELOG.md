@@ -7,6 +7,16 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.14.4] - 2026-10-04
+
+### Fixed
+
+- **Round15 评估驱动整改（F15）**：中文切分移除省略号/单换行切点（切点集仅。？！），切点后闭引号 `/”/』`前瞻归入本段；EPUB 导出注入项目名作书名（author 无项目级真源，缺省无 dc:creator）；`ScheduledScanSummary` 新增 `skippedCount`，扫描 toast/i18n 并列跳过数；error-boundary 在 clipboard 不可用时明确失败态，不假报"已复制"。
+- **供应链卫生**：vendored shadcn CSS 登记入 THIRD-PARTY-NOTICES（补齐 20 项存量缺失，`license-audit --check` PASS）；`audit-gate.mjs` 例外收紧为 advisory 级精确豁免并新增契约自测 `audit-gate.spec.mjs`。
+- **清理**：删除根目录无引用 `QM-LOGO.png`/`QM-LOGO-original.png`（约 2MB）+ 过期 shadcn `components.json`；修复 `index.html` favicon 404 引用为真实 `src/assets/niko-buddy-logo.png`；`download.md` v2.14.1 发布语义按 Releases 实测修正（Latest=v2.14.2）。
+- **验证**：tsc --build 0 错误；eslint 0 错误；boundaries 4/4；定向 vitest 全绿；Rust docx_export 6/6；license-audit PASS；audit-gate PASS。
+- 发布语义：prerelease（v2.14.2 stable 2026-10-02 在同周，同周 stable ≤1，候选版先走内测渠道）。
+
 ## [2.14.3] - 2026-10-03
 
 ### Added
