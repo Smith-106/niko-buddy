@@ -1797,12 +1797,25 @@ export function ChatPanel() {
     // 先 abort HTTP fetch（同 handleStop）
     abortControllersRef.current[convId]?.abort()
     // 直接 invoke claude_cli_kill 绕过 grace 窗口（streamId 由 __TAURI_INTERNALS__ 拦截跟踪）
+    // DEBUG#3 修复：kill 失败不再静默吞掉——记录并上屏告警，否则流看似已停但底层 CLI 仍在跑。
+    let killFailed = 0
     if (isTauri()) {
-      for (const streamId of sharedActiveRustStreamIdsRef.current) {
-        void import("@tauri-apps/api/core").then(({ invoke }) =>
-          invoke("claude_cli_kill", { streamId }).catch(() => {}),
-        ).catch(() => {})
-      }
+      const killPromises = Array.from(sharedActiveRustStreamIdsRef.current).map((streamId) =>
+        import("@tauri-apps/api/core").then(({ invoke }) =>
+          invoke("claude_cli_kill", { streamId }).catch((err) => {
+            killFailed += 1
+            console.error("[chat] claude_cli_kill failed for", streamId, err)
+          }),
+        ).catch((err) => {
+          killFailed += 1
+          console.error("[chat] tauri api import failed for kill", err)
+        }),
+      )
+      void Promise.all(killPromises).then(() => {
+        if (killFailed > 0) {
+          finalizeStream(`强制终止已发出，但 ${killFailed} 个流未能确认终止（进程可能仍在运行）。`, [], convId)
+        }
+      })
       sharedActiveRustStreamIdsRef.current.clear()
     }
     if (novelManagedStopRef.current[convId] === true) {
