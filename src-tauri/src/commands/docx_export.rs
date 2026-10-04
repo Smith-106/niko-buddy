@@ -254,10 +254,7 @@ mod tests {
         let cut = split_body_paragraphs(&ellipsis);
         assert!(cut.len() > 1, "超长省略号稿应切分，实际 {}", cut.len());
         for p in &cut {
-            assert!(
-                !p.starts_with('…'),
-                "段落不应以孤立省略号开头：{p}"
-            );
+            assert!(!p.starts_with('…'), "段落不应以孤立省略号开头：{p}");
         }
         // F15：切点后闭引号归入本段（`。”` 不断裂）
         let quoted: String = (0..30)
