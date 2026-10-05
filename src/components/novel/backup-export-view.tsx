@@ -526,6 +526,7 @@ export function BackupExportView() {
           <div
             className="h-2 w-full overflow-hidden rounded-full bg-muted"
             role="progressbar"
+            aria-label={tOr("novel.backupExport.progressWorking", "处理中...")}
             aria-valuemin={0}
             aria-valuemax={progress.total}
             aria-valuenow={progress.current}
