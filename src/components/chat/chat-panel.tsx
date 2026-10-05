@@ -783,6 +783,14 @@ export function ChatPanel() {
 
   const handleSend = useCallback(
     async (text: string) => {
+      if (novelMode && !hasUsableLlm(llmConfig)) {
+        addMessage("user", text)
+        addMessage(
+          "assistant",
+          "还不能开始写作：没有可用的模型服务。请先打开设置，填写模型名和 API 地址或密钥；本地模型则填写服务地址。配好后再发送这条内容。",
+        )
+        return
+      }
       // Auto-create a conversation if none is active
       let convId = useChatStore.getState().activeConversationId
       if (!convId) {

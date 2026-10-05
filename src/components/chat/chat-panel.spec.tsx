@@ -1916,6 +1916,23 @@ describe("ChatPanel — 消息列表与流式状态", () => {
 })
 
 describe("ChatPanel — handleSend 主链路", () => {
+  it("小说模式没有可用模型时不启动生成，并说明先去设置", async () => {
+    mocks.wikiState.novelMode = true
+    mocks.hasUsableLlm.mockReturnValue(false)
+    renderPanel()
+
+    await sendText("写第一章")
+
+    expect(mocks.chatState.addMessage).toHaveBeenNthCalledWith(1, "user", "写第一章")
+    expect(mocks.chatState.addMessage).toHaveBeenNthCalledWith(
+      2,
+      "assistant",
+      expect.stringContaining("还不能开始写作"),
+    )
+    expect(mocks.chatState.startStreaming).not.toHaveBeenCalled()
+    expect(mocks.streamChat).not.toHaveBeenCalled()
+  })
+
   it("无项目发送：仅历史消息 + onDone finalize（含 reasoning token 与 closeReasoning）", async () => {
     setConversation("conv-1")
     setMessages([msg({ id: "u1", role: "user", content: "问题A" })])
