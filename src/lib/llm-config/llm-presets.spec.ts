@@ -47,6 +47,8 @@ describe("matchPreset", () => {
     // custom 预设本身没有 baseUrl → `if (!preset.baseUrl) continue`
     const result = matchPreset({ ...base, customEndpoint: "https://api.deepseek.com/v1" })
     expect(result?.id).toBe("deepseek")
+    expect(result?.defaultModel).toBe("deepseek-flash")
+    expect(result?.suggestedModels).toContain("deepseek-v4-flash")
   })
 
   it("matches a custom provider preset by normalized baseUrl (trailing slash tolerant)", () => {
