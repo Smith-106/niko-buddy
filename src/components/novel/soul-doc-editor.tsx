@@ -14,7 +14,19 @@ export function SoulDocEditor() {
 
   useEffect(() => {
     if (!project) return
-    readSoulDoc(project.path).then(setContent).catch(() => setContent(""))
+    // DEBUG#6：切换项目时，上一项目的 readSoulDoc 晚到会覆盖当前正文（可能随后被保存）。
+    let cancelled = false
+    const path = project.path
+    readSoulDoc(path)
+      .then((text) => {
+        if (!cancelled) setContent(text)
+      })
+      .catch(() => {
+        if (!cancelled) setContent("")
+      })
+    return () => {
+      cancelled = true
+    }
   }, [project?.path])
 
   async function handleSave() {
