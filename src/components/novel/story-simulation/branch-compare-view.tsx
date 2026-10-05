@@ -363,11 +363,26 @@ function KeyDifferencesTab({ branches }: { branches: SimulationBranch[] }) {
       setLoading(false)
       return
     }
+    // DEBUG#6：calcBranchDiff 无 catch（rejection 会让 loading 永远 true 卡 spinner）
+    // 且迟到 resolve 会用旧 branches 的结果覆盖新 diff。加 cancelled 护栏与失败上屏。
+    let cancelled = false
+    const b0 = branches[0]
+    const b1 = branches[1]
     setLoading(true)
-    calcBranchDiff(branches[0], branches[1]).then((result) => {
-      setDiffResult(result)
-      setLoading(false)
-    })
+    calcBranchDiff(b0, b1)
+      .then((result) => {
+        if (cancelled) return
+        setDiffResult(result)
+        setLoading(false)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        console.error("[BranchCompare] diff failed:", err instanceof Error ? err.message : String(err))
+        setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [branches, calcBranchDiff])
 
   if (loading || !diffResult) {
