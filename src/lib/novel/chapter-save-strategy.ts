@@ -41,10 +41,17 @@ export function decideChapterSaveStrategy(input: {
 }
 
 export function detectGeneratedTargetChapterNumber(content: string): number | null {
-  const zhMatch = content.match(/#?\s*第\s*(\d+)\s*章/u)
+  const heading = content
+    .replace(/^\uFEFF/, "")
+    .replace(/^(?:---\r?\n[\s\S]*?\r?\n---\s*)/, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean) ?? ""
+
+  const zhMatch = heading.match(/^#?\s*第\s*(\d+)\s*章(?:\s|$)/u)
   if (zhMatch?.[1]) return Number.parseInt(zhMatch[1], 10)
 
-  const enMatch = content.match(/#?\s*chapter\s+(\d+)\b/i)
+  const enMatch = heading.match(/^#?\s*chapter\s+(\d+)\b/i)
   if (enMatch?.[1]) return Number.parseInt(enMatch[1], 10)
 
   return null

@@ -74,5 +74,7 @@ describe("detectGeneratedTargetChapterNumber", () => {
     expect(detectGeneratedTargetChapterNumber("# 第7章 夜雨旧屋\n\n正文内容")).toBe(7)
     expect(detectGeneratedTargetChapterNumber("# Chapter 7 Cold Key\n\nBody content")).toBe(7)
     expect(detectGeneratedTargetChapterNumber("普通正文，没有章节号")).toBeNull()
+    expect(detectGeneratedTargetChapterNumber("正文提到第3章的旧事，不应被当成目标章节。\n\n后来他又翻到第12章。")).toBeNull()
+    expect(detectGeneratedTargetChapterNumber("---\ntype: chapter\nchapter_number: 4\n---\n\n# 第8章 新的一夜\n\n正文回顾第1章。")).toBe(8)
   })
 })
