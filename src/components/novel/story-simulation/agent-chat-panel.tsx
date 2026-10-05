@@ -47,6 +47,7 @@ export function AgentChatPanel({
             className="h-7 w-7"
             onClick={onSave}
             title={t("storySimulation.saveInterviewTip")}
+            aria-label={t("storySimulation.saveInterviewTip")}
             disabled={saving || messages.length === 0}
           >
             {saving ? (
@@ -62,6 +63,7 @@ export function AgentChatPanel({
             className="h-7 w-7"
             onClick={onExport}
             title={t("storySimulation.exportChatMd")}
+            aria-label={t("storySimulation.exportChatMd")}
             disabled={exporting || messages.length === 0}
           >
             <Download className="h-4 w-4" />
@@ -73,6 +75,7 @@ export function AgentChatPanel({
             className="h-7 w-7"
             onClick={onClose}
             title={t("storySimulation.closeChat")}
+            aria-label={t("storySimulation.closeChat")}
           >
             <X className="h-4 w-4" />
           </Button>

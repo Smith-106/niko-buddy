@@ -114,6 +114,7 @@ export function ScheduledImportSection({ draft, setDraft }: Props) {
             onClick={handleSelectDirectory}
             disabled={!draft.scheduledImportEnabled}
             title={t("settings.sections.scheduledImport.browse", { defaultValue: "浏览目录" })}
+            aria-label={t("settings.sections.scheduledImport.browse", { defaultValue: "浏览目录" })}
           >
             <Folder className="h-4 w-4" />
           </Button>

@@ -260,6 +260,7 @@ export function FrameworkConfirmPanel({
               className="h-6 w-6 p-0 opacity-50 hover:opacity-100"
               onClick={startEditPremise}
               title={t("storySimulation.editPremise")}
+              aria-label={t("storySimulation.editPremise")}
             >
               <Pencil className="h-3 w-3" />
             </Button>

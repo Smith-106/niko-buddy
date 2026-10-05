@@ -287,7 +287,7 @@ export function ChapterSelectionPanel({
                   : `已识别 ${chapters.length} 章，请选择需要分析的章节`}
             </p>
           </div>
-          <Button variant="ghost" size="icon" onClick={onCancel}>
+          <Button variant="ghost" size="icon" onClick={onCancel} aria-label={t("common.close")} title={t("common.close")}>
             <X className="h-5 w-5 shrink-0" />
           </Button>
         </div>
