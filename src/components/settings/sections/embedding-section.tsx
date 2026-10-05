@@ -221,6 +221,7 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
           type="button"
           role="switch"
           aria-checked={offlineMode}
+          aria-label={t("settings.sections.embedding.offlineMode")}
           onClick={() => setOfflineMode(!offlineMode)}
           className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
             offlineMode ? "bg-primary" : "bg-input"
