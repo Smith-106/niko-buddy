@@ -42,11 +42,15 @@ export function HistoryResultsModal({
 
   useEffect(() => {
     if (!open || !projectPath || !frameworkId) return
+    // DEBUG#3：frameworkId / projectPath 快速切换时，晚到的 load 会把上一请求的
+    // 结果和 loading=false 写到当前视图。忽略已失效的请求。
+    let cancelled = false
     setLoading(true)
     setError(null)
 
     loadSimulationResults(projectPath, frameworkId)
       .then((data) => {
+        if (cancelled) return
         setResults(
           data.map((r) => ({
             id: r.id,
@@ -59,10 +63,16 @@ export function HistoryResultsModal({
         setPage(0)
       })
       .catch((err) => {
+        if (cancelled) return
         setError(formatOperationError(t, err))
         setResults([])
       })
-      .finally(() => setLoading(false))
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [open, projectPath, frameworkId])
 
   const handleDelete = async (e: React.MouseEvent, resultId: string) => {
