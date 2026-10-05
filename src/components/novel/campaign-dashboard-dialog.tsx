@@ -71,15 +71,22 @@ export function CampaignDashboardDialog({
   const abortRef = useRef<AbortController | null>(null)
 
   // 当弹窗打开时，自动探测下一章节号
+  // DEBUG#3：getNextChapterNumber 是跨项目 IPC；project/open 变化时迟到的结果可能把上一项目的章节号写进当前弹窗。
   useEffect(() => {
-    if (open && project) {
-      void getNextChapterNumber(project.path)
-        .then((nextNum) => {
-          if (nextNum > 0) {
-            setStartChapter(nextNum)
-          }
-        })
-        .catch(() => {})
+    if (!open || !project) return
+    let cancelled = false
+    const path = project.path
+    void getNextChapterNumber(path)
+      .then((nextNum) => {
+        if (cancelled || nextNum <= 0) return
+        setStartChapter(nextNum)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        console.error("[Campaign] detect next chapter failed:", err instanceof Error ? err.message : String(err))
+      })
+    return () => {
+      cancelled = true
     }
   }, [open, project])
 
