@@ -201,12 +201,13 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     hint: "api.deepseek.com",
     provider: "custom",
     baseUrl: "https://api.deepseek.com/v1",
-    defaultModel: "deepseek-flash",
+    defaultModel: "deepseek-v4-flash",
     apiMode: "chat_completions",
     suggestedModels: [
+      "deepseek-v4-flash",
+      "deepseek-v4.1-flash",
       "deepseek-flash",
       "deepseek-v4-pro",
-      "deepseek-v4-flash",
       "deepseek-chat",
       "deepseek-reasoner",
     ],
@@ -460,6 +461,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     baseUrl: "https://ollama.com/v1",
     apiMode: "chat_completions",
     suggestedModels: [
+      "deepseek-v4.1-flash",
       "gpt-oss:120b",
       "gpt-oss:20b",
       "qwen3-coder:480b",
