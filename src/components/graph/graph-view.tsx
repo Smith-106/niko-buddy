@@ -1182,9 +1182,22 @@ export function GraphView() {
 
   useEffect(() => {
     if (!project) return
-    loadForeshadowingTracker(project.path)
-      .then(setForeshadowingStore)
-      .catch(() => setForeshadowingStore(null))
+    // DEBUG#8 / defensive D1：失败不再静默变成 null（与「确实没有伏笔」不可区分），
+    // 切换项目时迟到的结果也不再写入当前图。
+    let cancelled = false
+    const path = project.path
+    loadForeshadowingTracker(path)
+      .then((store) => {
+        if (!cancelled) setForeshadowingStore(store)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        console.error("[Graph] foreshadowing tracker load failed:", err instanceof Error ? err.message : String(err))
+        setForeshadowingStore(null)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [project])
 
   useEffect(() => {
