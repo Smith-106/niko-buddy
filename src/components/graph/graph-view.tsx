@@ -900,33 +900,23 @@ function DocumentGraphView({
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             <span>{getGraphNodeTypeLabel(node.type)} · {t("graph.contextNodeLinks", { count: node.linkCount })}</span>
                             {riskLabel && <span className="rounded border border-warning bg-warning/10 px-1.5 py-0.5 text-[11px] text-warning dark:border-warning dark:text-warning">{riskLabel}</span>}
-                            {riskStateLabel && (() => {
-                            const labelColor = getGraphNodeRiskStateLabelColor(riskStateLabel)
-                            return (
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                className={`rounded border px-1.5 py-0.5 text-[11px] transition-colors cursor-pointer ${labelColor.bg} ${labelColor.border} ${labelColor.text}`}
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  cycleRiskStateLabel(node)
-                                }}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter" || event.key === " ") {
-                                    event.stopPropagation()
-                                    event.preventDefault()
-                                    cycleRiskStateLabel(node)
-                                  }
-                                }}
-                              >
-                                {riskStateLabel}
-                              </span>
-                            )
-                          })()}
                           </div>
                         </div>
                         <span className="shrink-0 rounded-md border px-2 py-1 text-xs text-muted-foreground">{isExpanded ? t("chat.collapse", { defaultValue: "收起" }) : t("chat.expand", { defaultValue: "展开" })}</span>
                       </button>
+                      {riskStateLabel && (() => {
+                        const labelColor = getGraphNodeRiskStateLabelColor(riskStateLabel)
+                        return (
+                          <button
+                            type="button"
+                            className={`mt-2 rounded border px-1.5 py-0.5 text-[11px] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${labelColor.bg} ${labelColor.border} ${labelColor.text}`}
+                            aria-label={t("graph.riskStateFilterLabel") + ": " + riskStateLabel}
+                            onClick={() => cycleRiskStateLabel(node)}
+                          >
+                            {riskStateLabel}
+                          </button>
+                        )
+                      })()}
 
                       {isExpanded && (
                         <>
