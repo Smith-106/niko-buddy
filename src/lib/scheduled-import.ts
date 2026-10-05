@@ -252,7 +252,18 @@ export async function scanAndImport(
 
     if (changed.length > 0) {
       const destPaths = changed.map((c) => c.destPath)
-      await Promise.all(destPaths.map((p) => preprocessFile(p).catch(() => {})))
+      // DEBUG#8 / defensive D1：preprocessFile 失败被空 catch 吞掉，失败文件仍被计入 imported。
+      // 预处理是 best-effort（文件仍会被 ingest），但失败必须可观测，不能静默。
+      await Promise.all(
+        destPaths.map((p) =>
+          preprocessFile(p).catch((err) => {
+            console.warn(
+              `[scheduled-import] preprocess failed for ${p}:`,
+              err instanceof Error ? err.message : String(err),
+            )
+          }),
+        ),
+      )
       if (isCurrentRun(project.id, options.runId)) {
         const ids = await enqueueSourceIngest(project, destPaths, llmConfig)
         if (ids.length > 0) {
