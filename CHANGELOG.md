@@ -7,6 +7,18 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.14.5] - 2026-10-07
+
+### Fixed
+
+- **maestro-odyssey 三轮自动化审计整改（20 提交）**：链1/链2/链3 对 novel/编辑器/图谱/设置/导入/备份等表面做 debug/improve/ui 审计，累计修复：
+  - **异步竞态**：file-preview Image/Video/Audio、历史结果弹窗、灵魂文档、伏笔、光环、分支对比、campaign 弹窗等迟到 IPC/动态导入结果一律加 cancelled 标志或禁用守卫，防过期 setState 覆盖；forceStop 孤儿消息守卫；canon-dual-write/canon-backfill `chapter_number` 非法值改为校验正整数+warn 不再静默归0污染凭证层。
+  - **可访问性**：8 个图标按钮补 aria-label；删除/图谱/备份导出/wiki 门控/离线模式 switch/progressbar 补可访问名；preview-panel「更多功能」disclosure 补 `aria-expanded`/`aria-haspopup`/`aria-controls` + `role=menu`。
+  - **国际化**：preview-panel「去AI味/批量/解构铺排/取消」及 TextTransformPreviewDialog 等 ~13 处硬编码中文全部改为 `t()`，`zh.json`/`en.json` 各新增 15 keys。
+  - **静默失败上屏**：scheduled-import / 手动导入 / 分支对比 / 伏笔 / 光环等失败路径由 `.catch(()=>{})` 改为 console.error/warn，与统一口径一致。
+- **验证**：`npm run typecheck`（tsc --build）0 错误；lint boundaries 4/4；preview-panel 定向 vitest 145/145；累计改动 +122/−37 跨 10+ 文件。
+- **发布语义**：notes-only（源码 tip 语义，未重建安装包资产）。
+
 ## [2.14.4] - 2026-10-04
 
 ### Fixed
