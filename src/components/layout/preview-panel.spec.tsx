@@ -1670,7 +1670,7 @@ describe("PreviewPanel 工具栏（compact / expanded）", () => {
     // compact 模式下「已提取记忆」按钮文案位于更多功能下拉内（preview-panel.tsx），
     // 先打开下拉再断言（fileExists 判定 outlineIngested 后文案才切换）。
     fireEvent.click(screen.getByLabelText("更多功能"))
-    await waitFor(() => expect(screen.getByText("已提取记忆")).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText("✓ 已提取记忆")).toBeInTheDocument())
     fireEvent.click(screen.getByText("查看记忆"))
     await waitFor(() => expect(screen.getByTestId("snapshot-viewer")).toBeInTheDocument())
     cleanup()

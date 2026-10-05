@@ -1268,11 +1268,14 @@ export function PreviewPanel() {
                 className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
                 title={t("preview.moreActions")}
                 aria-label={t("preview.moreActions")}
+                aria-haspopup="menu"
+                aria-expanded={chapterToolbarMoreOpen}
+                aria-controls="preview-chapter-toolbar-menu"
               >
                 <MoreHorizontal className="h-3.5 w-3.5 shrink-0" />
               </button>
               {chapterToolbarMoreOpen ? (
-                <div className="absolute right-0 top-8 z-30 w-40 rounded-md border bg-popover p-1 text-xs text-popover-foreground shadow-lg">
+                <div id="preview-chapter-toolbar-menu" role="menu" className="absolute right-0 top-8 z-30 w-40 rounded-md border bg-popover p-1 text-xs text-popover-foreground shadow-lg">
                   {chapterHeader ? (
                     <button
                       type="button"
@@ -1295,7 +1298,7 @@ export function PreviewPanel() {
                       disabled={deAiProcessing}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {deAiProcessing ? "处理中" : "去AI味"}
+                      {deAiProcessing ? t("preview.deAiProcessing") : t("preview.deAi")}
                     </button>
                   ) : null}
                   {project ? (
@@ -1308,7 +1311,7 @@ export function PreviewPanel() {
                       disabled={batchRunning || deAiProcessing}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {batchRunning ? "批量处理中..." : "批量去AI味"}
+                      {batchRunning ? t("preview.deAiBatchRunning") : t("preview.deAiBatch")}
                     </button>
                   ) : null}
                   {canIngestOutline ? (
@@ -1321,7 +1324,7 @@ export function PreviewPanel() {
                       disabled={isOutlineIngesting}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {isOutlineIngesting ? t("novel.outlineGenerator.ingesting") : outlineIngested ? "已提取记忆" : t("novel.outlineGenerator.ingest")}
+                      {isOutlineIngesting ? t("novel.outlineGenerator.ingesting") : outlineIngested ? t("preview.deAiIngested") : t("novel.outlineGenerator.ingest")}
                     </button>
                   ) : null}
                   {canIngestOutline ? (
@@ -1333,7 +1336,7 @@ export function PreviewPanel() {
                       }}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
                     >
-                      解构铺排章节
+                      {t("preview.unpackOutline")}
                     </button>
                   ) : null}
                   {canIngestOutline && outlineIngested && outlineSnapshotNumber !== null ? (
@@ -1446,7 +1449,7 @@ export function PreviewPanel() {
                 disabled={deAiProcessing}
                 className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {deAiProcessing ? "处理中" : "去AI味"}
+                {deAiProcessing ? t("preview.deAiProcessing") : t("preview.deAi")}
               </button>
             </div>
           ) : null}
@@ -1458,7 +1461,7 @@ export function PreviewPanel() {
                 disabled={batchRunning || deAiProcessing}
                 className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {batchRunning ? "批量处理中..." : "批量去AI味"}
+                {batchRunning ? t("preview.deAiBatchRunning") : t("preview.deAiBatch")}
               </button>
             </div>
           ) : null}
@@ -1472,9 +1475,9 @@ export function PreviewPanel() {
                   ? "border-success/50 text-success hover:bg-success dark:text-success dark:hover:bg-success/30"
                   : "border-border text-foreground hover:bg-accent"
               }`}
-              title={outlineIngested ? "重新提取初始记忆（将覆盖上次提取的内容）" : t("novel.outlineGenerator.ingest")}
+              title={outlineIngested ? t("preview.reingestTitleTip") : t("novel.outlineGenerator.ingest")}
             >
-              {isOutlineIngesting ? t("novel.outlineGenerator.ingesting") : outlineIngested ? "✓ 已提取记忆" : t("novel.outlineGenerator.ingest")}
+              {isOutlineIngesting ? t("novel.outlineGenerator.ingesting") : outlineIngested ? t("preview.deAiIngested") : t("novel.outlineGenerator.ingest")}
             </button>
           ) : null}
           {!chapterToolbarCompact && canIngestOutline ? (
@@ -1482,9 +1485,9 @@ export function PreviewPanel() {
               type="button"
               onClick={() => setShowUnpackOutlineDialog(true)}
               className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
-              title="将大纲文本解析并批量生成章节空白骨架"
+              title={t("preview.unpackOutlineTip")}
             >
-              解构铺排章节
+              {t("preview.unpackOutline")}
             </button>
           ) : null}
           {!chapterToolbarCompact && canIngestOutline && outlineIngested && outlineSnapshotNumber !== null ? (
@@ -1576,7 +1579,7 @@ export function PreviewPanel() {
                 onClick={handleSelectionActionCancel}
                 className="shrink-0 rounded border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
               >
-                取消
+                {t("preview.cancel")}
               </button>
             ) : null}
             <span className="block truncate text-[11px] text-muted-foreground/80 min-w-0">
@@ -1664,13 +1667,13 @@ export function PreviewPanel() {
       />
       <TextTransformPreviewDialog
         open={selectionTransformOpen}
-        title={selectionTransformAction === "polish" ? "AI润色预览" : "去AI味预览"}
-        description="确认后会替换当前选中的正文片段。"
-        sourceLabel="原文片段"
-        candidateLabel={selectionTransformAction === "polish" ? "润色结果" : "去AI味结果"}
+        title={selectionTransformAction === "polish" ? t("preview.aiPolishPreview") : t("preview.deAiPreview")}
+        description={t("preview.transformDesc")}
+        sourceLabel={t("preview.sourceFragment")}
+        candidateLabel={selectionTransformAction === "polish" ? t("preview.polishResult") : t("preview.deAiResult")}
         sourceContent={selectionTransformSourceContent}
         candidateContent={selectionTransformCandidateContent}
-        applyLabel="替换选中文本"
+        applyLabel={t("preview.replaceSelection")}
         onApply={handleApplySelectionTransform}
         onClose={handleCloseSelectionTransform}
       />
