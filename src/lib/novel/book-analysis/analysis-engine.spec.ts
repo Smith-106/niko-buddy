@@ -79,6 +79,25 @@ describe("splitNovelIntoChapters", () => {
     expect(stages).toContain("splitting_chapters")
   })
 
+  it("识别带空格的行首章节，并忽略正文中的第X章", async () => {
+    fsMocks.readFile.mockResolvedValue(`书名\n\n第 1 章  磨偏的鞋底\n正文提到第三章，不应切章。\n\n第 2 章  互撕\n这里是第二章正文，不应再切一章。`)
+    fsMocks.createDirectory.mockResolvedValue(undefined)
+    fsMocks.writeFile.mockResolvedValue(undefined)
+
+    const result = await splitNovelIntoChapters(
+      "E:/Novel/raw.txt",
+      "E:/Novel",
+      { provider: "openai" } as never,
+    )
+
+    expect(result.metadata.totalChapters).toBe(2)
+    expect(result.chapters.map((chapter) => chapter.title)).toEqual([
+      "第 1 章  磨偏的鞋底",
+      "第 2 章  互撕",
+    ])
+    expect(result.metadata.totalWords).toBeGreaterThan(result.chapters[0].wordCount)
+  })
+
   it("readFile 失败 → throw 读取文件失败", async () => {
     fsMocks.readFile.mockRejectedValue(new Error("not found"))
     await expect(

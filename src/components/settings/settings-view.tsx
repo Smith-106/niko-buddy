@@ -385,7 +385,11 @@ export function SettingsView() {
       if (isTauri()) {
         const { invoke } = await import("@tauri-apps/api/core")
         const summary = await invoke<string>("set_proxy_env", { config: newProxy })
-        toast.success(summary)
+        if (typeof summary === "string" && summary.startsWith("disabled (")) {
+          toast.error(summary === "disabled (empty url)"
+            ? "代理已开启但地址为空，本次未生效。请填写代理地址，或关闭代理。"
+            : `代理未生效：${summary}`)
+        }
       }
     } catch (err) {
       console.warn("[settings] live network update failed; restart will still apply:", err)

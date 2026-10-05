@@ -121,8 +121,9 @@ export async function splitNovelIntoChapters(
     percentage: 10,
   })
 
-  // 章节拆分（支持多种格式）
-  const chapterRegex = /第[一二三四五六七八九十百千0-9]+章[^\n]*/gi
+  // 行首章节标题。允许「第 1 章」这种数字与「章」之间的空白，
+  // 但不把正文里随便出现的「第三章」当成新章节。
+  const chapterRegex = /^[ \t\u3000]*第\s*[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341\u767e\u5343\u96f6\u3007\u4e240-9\uff10-\uff19]+\s*章(?:\s+\S.*)?\s*$/gim
   const matches = Array.from(content.matchAll(chapterRegex))
 
   if (matches.length === 0) {
