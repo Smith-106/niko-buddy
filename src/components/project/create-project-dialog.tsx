@@ -50,7 +50,8 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
   const [error, setError] = useState("")
   const [creating, setCreating] = useState(false)
   // ②-3：模板选择（TemplatePicker 接入）；默认空白 general 模板，提交时 getTemplate(selectedTemplateId)
-  const [selectedTemplateId, setSelectedTemplateId] = useState("general")
+  const novelMode = useWikiStore((s) => s.novelMode)
+  const [selectedTemplateId, setSelectedTemplateId] = useState(novelMode ? "novel-demo" : "general")
   const setOutputLanguage = useWikiStore((s) => s.setOutputLanguage)
   // J01-T01 (F-007)：模型服务健康检查——建项时可见 LLM 状态，可展开配置或明示跳过。
   const llmConfig = useWikiStore((s) => s.llmConfig)

@@ -24,8 +24,10 @@ import type { WikiProject } from "@/types/wiki"
 
 const mocks = vi.hoisted(() => {
   const wikiState: {
+    novelMode: boolean
     setOutputLanguage: ReturnType<typeof vi.fn>
   } = {
+    novelMode: false,
     setOutputLanguage: vi.fn(),
   }
   const template = {
@@ -235,6 +237,15 @@ describe("CreateProjectDialog", () => {
     fireEvent.submit(formOf())
     await flushAsync()
     expect(mocks.createProject).toHaveBeenCalledWith("未命名项目 2", expect.any(String))
+  })
+
+  it("小说模式默认使用小说演示模板，而不是空白模板", async () => {
+    mocks.wikiState.novelMode = true
+    renderDialog(true)
+    fireEvent.change(nameInput(), { target: { value: "NewNovel" } })
+    fireEvent.submit(formOf())
+    await flushAsync()
+    expect(mocks.getTemplate).toHaveBeenCalledWith("novel-demo")
   })
 
   it("F3 (Round-1)：演示模板种子文件被写入（零 API 试写）", async () => {
