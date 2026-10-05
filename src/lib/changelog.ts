@@ -15,6 +15,24 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.14.5",
+    date: "2026-10-07",
+    highlights: {
+      en: [
+        "Odyssey audit cleanup (20 commits): async race cancelled-guards (file-preview/history/soul-doc/foreshadowing/aura/branch-compare/campaign), canon chapter_number validation, silent failures surfaced.",
+        "Accessibility: aria-labels on 8 icon buttons + delete/graph/backup/wiki/offline-switch/progressbar; preview-panel more-actions disclosure gets aria-expanded/haspopup/controls + role=menu.",
+        "i18n: ~13 hardcoded zh labels (deAI/batch/unpack/cancel/TextTransformPreview) -> t(); +15 keys in zh+en.",
+        "Verified: tsc --build 0 errors; eslint boundaries 4/4; preview-panel 145/145.",
+      ],
+      zh: [
+        "Odyssey 三轮审计整改（20 提交）：async 竞态 cancelled 守卫（file-preview/历史/灵魂文档/伏笔/光环/分支对比/campaign）、canon chapter_number 校验、静默失败上屏。",
+        "可访问性：8 图标按钮 + 删除/图谱/备份/wiki/离线 switch/progressbar 补 aria-label；preview-panel 更多功能 disclosure 补 aria-expanded/haspopup/controls + role=menu。",
+        "国际化：~13 处硬编码中文（去AI味/批量/解构/取消/TextTransformPreview）改 t()，zh+en 各增 15 keys。",
+        "验证：tsc --build 0 错误；eslint boundaries 4/4；preview-panel 145/145。",
+      ],
+    },
+  },
+  {
     version: "2.14.4",
     date: "2026-10-04",
     highlights: {
