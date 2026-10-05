@@ -1086,50 +1086,7 @@ describe("LlmProviderSection — model list fetch & selection", () => {
   })
 })
 
-describe("LlmProviderSection — provider connection tests", () => {
-  it("connection test: running label then ok result", async () => {
-    render(<LlmProviderSection />)
-    const card = cardByLabel("OpenAI")
-    expandCard(card)
-    fireEvent.click(within(card).getByText("测试连接"))
-    expect(within(card).getByText("正在测试连接...")).toBeInTheDocument()
-    expect(within(card).getByText("测试连接").closest("button")).toBeDisabled()
-    await waitFor(() => {
-      expect(within(card).getByText("conn-ok")).toBeInTheDocument()
-    })
-    expect(mocks.testLlmConnection).toHaveBeenCalled()
-  })
-
-  it("function test: ok and failed result rendering", async () => {
-    render(<LlmProviderSection />)
-    const card = cardByLabel("OpenAI")
-    expandCard(card)
-    fireEvent.click(within(card).getByText("测试功能"))
-    expect(within(card).getByText("正在测试功能...")).toBeInTheDocument()
-    await waitFor(() => {
-      expect(within(card).getByText("func-fail")).toBeInTheDocument()
-    })
-    expect(mocks.testLlmFunction).toHaveBeenCalled()
-    // ok path
-    mocks.testLlmFunction.mockResolvedValueOnce({ ok: true, message: "func-ok" })
-    fireEvent.click(within(card).getByText("测试功能"))
-    await waitFor(() => {
-      expect(within(card).getByText("func-ok")).toBeInTheDocument()
-    })
-  })
-
-  it("test buttons disabled while a provider test is running", () => {
-    mocks.testLlmConnection.mockReturnValue(new Promise(() => {}))
-    render(<LlmProviderSection />)
-    const card = cardByLabel("OpenAI")
-    expandCard(card)
-    fireEvent.click(within(card).getByText("测试连接"))
-    expect(within(card).getByText("测试连接").closest("button")).toBeDisabled()
-    expect(within(card).getByText("测试功能").closest("button")).toBeDisabled()
-  })
-})
-
-  describe("cursor proxy status badge (audit ①-2 / ③-13)", () => {
+describe("cursor proxy status badge (audit ①-2 / ③-13)", () => {
     function cursorCard() {
       const card = cardByLabel("CursorCli")
       expandCard(card)

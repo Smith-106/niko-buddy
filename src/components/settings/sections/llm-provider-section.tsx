@@ -12,7 +12,6 @@ import { resolveConfig } from "@/lib/llm-config/preset-resolver"
 import { normalizeEndpoint } from "@/lib/endpoint-normalizer"
 import { isTauri } from "@/lib/platform"
 import { AZURE_OPENAI_API_VERSION } from "@/lib/azure-openai"
-import { testLlmConnection, testLlmFunction, type ProviderTestResult } from "@/lib/connection-tests"
 import { fetchLlmModelList } from "@/lib/settings-model-list"
 import { getCursorProxyStatus, stopCursorProxy } from "@/lib/cursor-cli-proxy"
 import { useBatchModelTest } from "../hooks/use-batch-model-test"
@@ -154,11 +153,6 @@ interface PresetRowProps {
   onChange: (patch: ProviderOverride) => void
 }
 
-type ProviderTestState =
-  | { kind: "idle" }
-  | { kind: "running"; label: string }
-  | { kind: "done"; result: ProviderTestResult }
-
 type ModelActionState =
   | { loading: boolean; success: boolean; message: string }
   | null
@@ -188,7 +182,6 @@ function PresetRow({
   const localCliIsolation = ov.localCliIsolation === true
   const codexCliTimeoutMinutes = Math.max(1, Math.min(240, ov.codexCliTimeoutMinutes ?? 10))
   const isLocalCliProvider = preset.provider === "claude-code" || preset.provider === "codex-cli" || preset.provider === "antigravity-cli"
-  const [testState, setTestState] = useState<ProviderTestState>({ kind: "idle" })
   const [modelOptions, setModelOptions] = useState<string[]>([])
   const [modelListState, setModelListState] = useState<ModelActionState>(null)
   const [isModelSelectionExpanded, setIsModelSelectionExpanded] = useState(false)
@@ -214,19 +207,6 @@ function PresetRow({
     setModelOptions([])
     setModelListState(null)
   }, [apiKey, apiMode, baseUrl, preset.id, preset.provider])
-
-  async function runProviderTest(kind: "connection" | "function") {
-    setTestState({
-      kind: "running",
-      label: kind === "connection"
-        ? t("settings.sections.llm.testingConnection")
-        : t("settings.sections.llm.testingFunction"),
-    })
-    const result = kind === "connection"
-      ? await testLlmConnection(resolvedConfig)
-      : await testLlmFunction(resolvedConfig)
-    setTestState({ kind: "done", result })
-  }
 
   async function loadModelOptions() {
     setModelListState({
@@ -707,49 +687,6 @@ function PresetRow({
             value={reasoning}
             onChange={(reasoning) => onChange({ reasoning })}
           />
-
-          <div className="space-y-2 rounded-md border p-3">
-            <div>
-              <div className="text-sm font-medium">
-                {t("settings.sections.llm.providerTests")}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t("settings.sections.llm.providerTestsHint")}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => void runProviderTest("connection")}
-                disabled={testState.kind === "running"}
-                className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {t("settings.sections.llm.testConnection")}
-              </button>
-              <button
-                type="button"
-                onClick={() => void runProviderTest("function")}
-                disabled={testState.kind === "running"}
-                className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {t("settings.sections.llm.testFunction")}
-              </button>
-            </div>
-            {testState.kind === "running" && (
-              <p className="text-xs text-muted-foreground">{testState.label}</p>
-            )}
-            {testState.kind === "done" && (
-              <div
-                className={`rounded-md border px-3 py-2 text-xs ${
-                  testState.result.ok
-                    ? "border-success/40 bg-success/5 text-success dark:text-success"
-                    : "border-destructive/40 bg-destructive/5 text-destructive"
-                }`}
-              >
-                {testState.result.message}
-              </div>
-            )}
-          </div>
         </div>
       )}
     </div>
