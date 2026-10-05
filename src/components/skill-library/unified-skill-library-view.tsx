@@ -7,7 +7,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
 import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { createBlankProjectDeAiSkill, getAllDeAiSkills, loadDeAiSkillConfig, normalizeDeAiSkillConfig, saveDeAiSkillConfig, createBlankWritingSkill, importSkillFromJson, importWritingSkill, loadUserSkillConfig, normalizeUserSkillConfig, saveUserSkillConfig } from "@/lib/novel"
-import type { DeAiSkill, SkillKind, UserSkill } from "@/lib/novel"
+import { SKILL_KIND_LABELS, type DeAiSkill, type SkillKind, type UserSkill } from "@/lib/novel"
 import { SkillLibraryView } from "./skill-library-view"
 import { WritingSkillLibraryView } from "./writing-skill-library-view"
 import { FavoriteListView } from "./favorite-list-view"
@@ -18,7 +18,7 @@ const skillLibraryTabs = [
   { view: "skillFavorites" as const, label: "收藏" },
 ]
 
-type UnifiedSkillCategory = "all" | "writing" | "de-ai" | SkillKind
+type UnifiedSkillCategory = "all" | SkillKind
 
 interface UnifiedSkillEntry {
   id: string
@@ -34,11 +34,7 @@ interface UnifiedSkillEntry {
 
 const unifiedSkillCategories: { id: UnifiedSkillCategory; label: string }[] = [
   { id: "all", label: "全部" },
-  { id: "writing", label: "写作" },
-  { id: "de-ai", label: "去AI味" },
-  { id: "review", label: "审稿" },
-  { id: "output", label: "输出" },
-  { id: "knowledge", label: "知识" },
+  ...(Object.entries(SKILL_KIND_LABELS) as [SkillKind, string][]).map(([id, label]) => ({ id, label })),
 ]
 
 function deAiSkillToEntry(skill: DeAiSkill): UnifiedSkillEntry {
@@ -378,16 +374,7 @@ export function UnifiedSkillLibrarySidebarPanel() {
   const filteredEntries = useMemo(() => {
     const keyword = query.trim().toLowerCase()
     return entries.filter((entry) => {
-      if (category === "writing" && entry.type !== "writing") return false
-      if (category === "de-ai" && entry.type !== "de-ai") return false
-      if (
-        category !== "all" &&
-        category !== "writing" &&
-        category !== "de-ai" &&
-        !entry.kinds.includes(category)
-      ) {
-        return false
-      }
+      if (category !== "all" && !entry.kinds.includes(category)) return false
       if (!keyword) return true
       return [entry.name, entry.description, entry.content]
         .some((value) => value.toLowerCase().includes(keyword))
@@ -477,7 +464,7 @@ export function UnifiedSkillLibrarySidebarPanel() {
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{entry.name}</span>
                   <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    {entry.type === "writing" ? "写作" : "去AI味"}
+                    {entry.kinds.map((kind) => SKILL_KIND_LABELS[kind]).join(" / ") || "未分类"}
                   </span>
                 </div>
                 <div className="mt-1 truncate text-xs text-muted-foreground">

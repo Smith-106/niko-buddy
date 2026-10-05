@@ -143,9 +143,10 @@ describe("UnifiedSkillLibraryView", () => {
 
     expect(container.querySelector('[data-testid="unified-skill-library-sidebar"]')).not.toBeNull()
     expect(container.querySelector("h1")?.textContent).toBe("技能库")
-    for (const label of ["全部", "写作", "去AI味", "审稿", "输出", "知识"]) {
+    for (const label of ["全部", "风格", "结构", "计划", "审稿", "改写", "输出", "知识"]) {
       expect(getButton(container, label)).not.toBeUndefined()
     }
+    expect(getButton(container, "写作")).toBeUndefined()
 
     cleanup(root, container)
   })
