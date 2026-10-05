@@ -117,7 +117,14 @@ export async function importSourceFiles(
     try {
       await copyFile(sp, dest)
       imported.push(dest)
-      preprocessFile(dest).catch(() => {})
+      // DEBUG#11 / defensive D2：预处理是 fire-and-forget 后台预热（不阻塞导入），
+      // 但空 catch 会把失败完全吞掉。改为上屏，非阻塞语义不变。
+      preprocessFile(dest).catch((err) => {
+        console.error(
+          `Failed to preprocess imported file ${orig}:`,
+          err instanceof Error ? err.message : String(err),
+        )
+      })
     } catch (err) { console.error(`Failed to import ${orig}:`, err) }
   }
 
