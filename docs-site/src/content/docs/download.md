@@ -7,7 +7,14 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.14.4**（2026-10-04 发布：Round15 评估驱动整改 + 供应链卫生 + 仓库清理批次）
+**v2.14.5**（2026-10-07 发布：maestro-odyssey 三轮自动化审计整改 — notes-only）
+
+### v2.14.5 更新亮点（2026-10-07）
+
+- **maestro-odyssey 三轮审计整改（20 提交）**：novel / 编辑器 / 图谱 / 设置 / 导入 / 备份 / 预览表面的 debug+improve+ui 审计。
+- 异步竞态 cancelled 守卫、canon chapter_number 校验、a11y aria-label/disclosure、i18n 硬编码中文清零（zh/en 各 15 keys）、静默失败上屏。
+- 验证：tsc --build 0 错误 / eslint 0 错误 / boundaries 4/4 / preview-panel 145/145。
+- 发布语义：**notes-only**（安装包资产沿用 v2.14.4，源码 tip 语义）。
 
 ### v2.14.4 更新亮点（2026-10-04）
 
