@@ -22,7 +22,7 @@
  *   forbidden— 禁止自动：删项目/覆盖正文/清空历史/改正式版/删凭据/不可逆迁移
  */
 
-import { fileExists, readFile } from "@/commands/fs"
+import { fileExists } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { loadNovelSessionStatus } from "@/lib/novel/novel-session-status"
 import { loadFtsIndex, rebuildWikiFtsIndex } from "@/lib/novel/fts-index"

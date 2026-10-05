@@ -55,7 +55,6 @@ vi.mock("@/lib/export/pdf-client", async (importOriginal) => {
 })
 
 import { parseFrontmatter } from "../frontmatter"
-import { isFinalChapter, updateChapterStatus } from "./chapter-meta"
 import { startDeepChapterSession } from "./novel-session-status"
 import {
   exportConfirmedChapterPdf,

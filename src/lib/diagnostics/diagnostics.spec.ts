@@ -46,7 +46,6 @@ vi.mock("@/lib/export/pdf-export-gate", async (importOriginal) => {
 
 import {
   collectHealthReport,
-  type HealthItem,
 } from "./health-check"
 import {
   sanitizeForBundle,

@@ -81,8 +81,6 @@ describe("resolveExportProvenance — J14 反向溯源", () => {
   })
 
   it("重命名重连: 记录路径失效但 chapter_number 在 QM/chapters 找回 → available", async () => {
-    const exists = async (abs: string) =>
-      abs === `${PP}/QM/chapters/chapter-001.md` ? false : true // 记录路径失效
     const reconnect = async (abs: string) => {
       // QM/chapters/chapter-001.md 不存在,但 chapter-001 在别处? 模拟重命名:
       // chapter-001.md 已被重命名,但 chapter_number=1 匹配候选仍命中 chapter-001.md
