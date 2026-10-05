@@ -1414,7 +1414,7 @@ function DeleteButton({
         className={`h-6 w-6 shrink-0 cursor-default ${className}`}
         disabled
         title={t("knowledgeTree.deletingTitle", { name })}
-        aria-label={t("knowledgeTree.deletingTitle", { name })}
+        aria-label={t("common.delete")}
       >
         <Trash2 className="h-3 w-3 shrink-0 animate-pulse text-destructive" />
       </Button>
