@@ -14,7 +14,7 @@ import type { WikiProject } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore, type OutputLanguage } from "@/stores/wiki-store"
 import { saveOutputLanguage } from "@/lib/project-store"
-import { pickDirectory } from "@/lib/platform"
+import { isTauri, pickDirectory } from "@/lib/platform"
 import { formatOperationError } from "@/lib/format-operation-error"
 import { buildDefaultNovelDir } from "@/lib/default-paths"
 import { assessLlmHealth } from "@/lib/llm-health"
@@ -124,6 +124,14 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
     const rawName = name.trim()
     setCreating(true)
     setError("")
+    if (!isTauri()) {
+      setError(t(
+        "project.desktopRequired",
+        "创建小说需要桌面版 Niko Buddy，浏览器页面不能写入本地小说目录",
+      ))
+      setCreating(false)
+      return
+    }
     try {
       const parentDir = normalizePath(path.trim() || await resolveDefaultParentDir())
       if (!parentDir.trim()) {

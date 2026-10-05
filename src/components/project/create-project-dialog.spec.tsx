@@ -47,6 +47,7 @@ const mocks = vi.hoisted(() => {
     getExecutableDir: vi.fn(async () => "C:\\Program Files\\Niko Buddy"),
     getTemplate: vi.fn(() => template),
     saveOutputLanguage: vi.fn(async () => {}),
+    isTauri: vi.fn(() => true),
     pickDirectory: vi.fn<(dir?: string) => Promise<string | null>>(async () => null),
     buildDefaultNovelDir: vi.fn<(p: string) => string>((p: string) => (p.startsWith("C:") ? "C:\\QM-BOOK" : "D:\\QM-BOOK")),
     onCreated: vi.fn(),
@@ -96,6 +97,7 @@ vi.mock("@/lib/platform", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/platform")>()
   return {
     ...actual,
+      isTauri: mocks.isTauri,
       pickDirectory: mocks.pickDirectory,
     
   }
@@ -143,6 +145,7 @@ afterEach(() => {
 beforeEach(() => {
   setupDomGlobals()
   vi.clearAllMocks()
+  mocks.isTauri.mockReturnValue(true)
   mocks.getExecutableDir.mockResolvedValue("C:\\Program Files\\Niko Buddy")
   mocks.buildDefaultNovelDir.mockImplementation((p: string) =>
     p.startsWith("C:") ? "C:\\QM-BOOK" : "D:\\QM-BOOK",
@@ -328,6 +331,15 @@ describe("CreateProjectDialog", () => {
     await flushAsync()
     // 旧版本此处误用「项目名称必填」提示；现使用父目录专用文案。
     expect(screen.getByText("project.errorParentDirRequired")).toBeInTheDocument()
+    expect(mocks.createProject).not.toHaveBeenCalled()
+  })
+
+  it("浏览器里创建时说明需要桌面版，不调用文件接口", async () => {
+    mocks.isTauri.mockReturnValue(false)
+    renderDialog(true)
+    fireEvent.change(nameInput(), { target: { value: "MyBook" } })
+    fireEvent.submit(formOf())
+    expect(await screen.findByText("project.desktopRequired")).toBeInTheDocument()
     expect(mocks.createProject).not.toHaveBeenCalled()
   })
 
