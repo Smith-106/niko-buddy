@@ -559,12 +559,25 @@ export async function backfillCanonHistory(
         const ep = op.canonPayload.episode
         const chapterId =
           typeof ep.entity_id === "string" ? ep.entity_id : `ch${ep.chapter_number}`
+        // DEBUG#8 / defensive D1：corrupt persisted chapter_number must not silently
+        // substitute the fallback chapter into a canon credential write. Validate first.
+        const parsedChapter = Number(ep.chapter_number)
+        const chapterNumber =
+          Number.isFinite(parsedChapter) && Number.isInteger(parsedChapter) && parsedChapter >= 1
+            ? parsedChapter
+            : chapter
+        if (chapterNumber !== parsedChapter) {
+          logger.warn(
+            "promotion-bridge",
+            `canon-backfill invalid chapter_number ${JSON.stringify(ep.chapter_number)} -> fallback chapter ${chapter}`,
+          )
+        }
         try {
           await promote({
             channel: "canon-backfill",
             projectPath: pp,
             chapterId,
-            chapterNumber: Number(ep.chapter_number) || chapter,
+            chapterNumber,
             revision,
             entity: chapterId,
             gateContext: { rangeValid: true, snapshotReadable: true },
