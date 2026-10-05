@@ -75,6 +75,7 @@ export function ChapterGatingProgress({ totalChapters, acknowledgedChapters }: C
       <div
         className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
         role="progressbar"
+        aria-label={t("wiki.gatingProgress.title")}
         aria-valuenow={percent}
         aria-valuemin={0}
         aria-valuemax={100}
