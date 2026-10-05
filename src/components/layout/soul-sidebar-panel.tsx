@@ -31,12 +31,22 @@ export function SoulSidebarPanel() {
 
   useEffect(() => {
     if (!project) return
-    Promise.all([listCharacterAuras(project.path), getCharacterAuraBindings(project.path)])
+    // DEBUG#11 / defensive D2：空 catch 把加载失败变成“列表没变”；切换项目时迟到的成功结果也会覆盖当前项目。
+    let cancelled = false
+    const path = project.path
+    Promise.all([listCharacterAuras(path), getCharacterAuraBindings(path)])
       .then(([loadedAuras, loadedBindings]) => {
+        if (cancelled) return
         setAuras(loadedAuras)
         setBindings(loadedBindings)
       })
-      .catch(() => {})
+      .catch((err) => {
+        if (cancelled) return
+        console.error("[Soul] aura load failed:", err instanceof Error ? err.message : String(err))
+      })
+    return () => {
+      cancelled = true
+    }
   }, [project?.path, dataVersion])
 
   const builtInAuras = useMemo(() => auras.filter((a) => a.builtIn), [auras])
