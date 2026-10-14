@@ -7,7 +7,14 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.14.5**（2026-10-07 发布：maestro-odyssey 三轮自动化审计整改 — notes-only）
+**v2.14.6**（2026-10-14 发布：J14/J15 + R24 平台期接线 + fixes 批次 — Pre-release，Windows-only）
+
+### v2.14.6 更新亮点（2026-10-14）
+
+- **J14 历史检索反向溯源 + J15 诊断中心纵切面**：导出→PDF→确认版→Run→源资产→重启一致。
+- **R24 实盘平台期接线**：`recommendPostPlateauAction` + 轮唱/复读家族/静默段机械检测（additive，仅 onThinking 建议，break 路径不变）。
+- **fixes 批次**：小说模式新建项目样例章、LLM 默认模型、保存下一章引用、技能库分类、空格行首导入、版本历史补齐。
+- 发布语义：**Pre-release**（10 资产；Latest 归还 v2.14.5）；发版矩阵 Windows-only（用户指令）。
 
 ### v2.14.5 更新亮点（2026-10-07）
 
