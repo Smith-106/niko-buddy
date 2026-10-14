@@ -33,6 +33,11 @@
     "bench:startup": "vitest run src/test-helpers/startup.bench.ts",
     "test:coverage": "vitest run --exclude=\"**/*.real-llm.test.ts\" --exclude=\"**/*.real-llm.spec.ts\" --exclude=\"**/*.bench.ts\" --exclude=\"**/.worktrees/**\" --exclude=\"**/.codex-temp/**\" --exclude=\"**/superpowers-main/**\" --exclude=\"**/SKILL/**\" --exclude=\"**/superpowers/**\" --coverage"
   },
+  "overrides": {
+    "handlebars": "^4.7.10",
+    "@milkdown/ctx": "^7.22.3",
+    "@milkdown/core": "^7.22.3"
+  },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
     "@dnd-kit/core": "^6.3.1",
