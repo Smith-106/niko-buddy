@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest"
-import { detectPlateau, SlopHistoryTracker, DEFAULT_PLATEAU_CONFIG } from "./plateau-stop"
+import { detectPlateau, SlopHistoryTracker, DEFAULT_PLATEAU_CONFIG, recommendPostPlateauAction } from "./plateau-stop"
 
 describe("detectPlateau（G6 纯函数）", () => {
   it("连续 2 轮 delta<epsilon → plateau=true", () => {
@@ -54,5 +54,17 @@ describe("SlopHistoryTracker（G6 滑窗记账）", () => {
     const t = new SlopHistoryTracker()
     t.push(0.5)
     expect(t.evaluate(DEFAULT_PLATEAU_CONFIG).plateau).toBe(false)
+  })
+})
+
+describe("recommendPostPlateauAction（RCP-20261014-1311）", () => {
+  it("未平台期 → keep-polishing", () => {
+    expect(recommendPostPlateauAction([8.0, 8.8], [])).toBe("keep-polishing")
+  })
+  it("平台期无结构信号 → keep-current（旧行为）", () => {
+    expect(recommendPostPlateauAction([8.8, 8.8, 8.8], [])).toBe("keep-current")
+  })
+  it("平台期有结构信号 → diagnose-structure（R24 路径）", () => {
+    expect(recommendPostPlateauAction([8.8, 8.8, 8.8], ["chorus", "echo-family"])).toBe("diagnose-structure")
   })
 })

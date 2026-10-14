@@ -10,7 +10,8 @@ import {
   detectRegression,
   type CandidateVersion,
 } from "./candidate-selector"
-import { SlopHistoryTracker, DEFAULT_PLATEAU_CONFIG } from "./plateau-stop"
+import { SlopHistoryTracker, DEFAULT_PLATEAU_CONFIG, recommendPostPlateauAction } from "./plateau-stop"
+import { detectChorusSing, countEchoFamily, detectSilentStretch } from "./mechanical-slop-detector"
 import { checkVoiceprintConvergence } from "./voiceprint-alignment"
 import { extractAuthorFingerprint } from "./adversarial/author-fingerprint"
 import {
@@ -1896,6 +1897,34 @@ async function generateDraft(
   return draftContent
 }
 
+// RCP-20261014-1311：平台期结构信号采集（纯同步，零 IO/LLM）。
+// 角色名由调用方预加载传入（早退点在循环内，禁止 await 读盘）；
+// 复读家族词源=引号短句高频项（≥3 次），与 countEchoFamily(minCount=3) 对齐。
+function collectPlateauStructuralFlags(content: string, characterNames: readonly string[]): string[] {
+  const flags: string[] = []
+  try {
+    const chorus = detectChorusSing(content)
+    if (chorus.length > 0) {
+      flags.push(`轮唱×${chorus.length}（第${chorus.map((c) => `${c.para}段${c.shouts}连`).join("、")}）`)
+    }
+    const quotes = content.match(/\u201c[^\u201d]{2,12}\u201d/g) ?? []
+    const freq = new Map<string, number>()
+    for (const q of quotes) freq.set(q, (freq.get(q) ?? 0) + 1)
+    const echoFams = [...freq.entries()].filter(([, n]) => n >= 3).map(([q]) => q)
+    const echo = countEchoFamily(content, echoFams)
+    if (echo.length > 0) {
+      flags.push(`复读家族×${echo.length}（${echo.map((e) => `${e.family}×${e.count}`).join("、")}）`)
+    }
+    const silent = detectSilentStretch(content, characterNames)
+    if (silent.length > 0) {
+      flags.push(`静默段×${silent.length}（第${silent.map((s) => `${s.fromPara}-${s.toPara}段`).join("、")}）`)
+    }
+  } catch {
+    return []
+  }
+  return flags
+}
+
 // 阶段4-5：AI 审稿 + 返修循环（含 MAX_GATE_RETRY 转人工）。
 // 返回阶段产出 + manualHandoff 标志。manualHandoff=true 表示命中
 // MAX_GATE_RETRY 转人工路径——编排器据此构造完整 result（含 partial 字段，
@@ -2055,6 +2084,18 @@ async function runReviewAndRepair(
       revised,
       manualHandoff: true,
     }
+  }
+
+  // RCP-20261014-1311：平台期结构信号用角色名预加载（循环前一次 IO，
+  // 早退点同步调用不 await；失败回退 []=静默段检测跳过=keep-current 旧行为）。
+  let plateauCharacterNames: string[] = []
+  try {
+    const charStore = await loadCharacterStates(input.projectPath)
+    plateauCharacterNames = (charStore.characters ?? [])
+      .map((c) => c.characterName)
+      .filter((n) => n.length > 0)
+  } catch {
+    plateauCharacterNames = []
   }
 
   while (novelConfig.deepChapterReview && blockingIssues.length > 0) {
@@ -2350,15 +2391,32 @@ async function runReviewAndRepair(
     // G6: plateau 早退在复审后判定——blockingIssues 为最新复审结果，
     // 仅当无阻断残留时才提前接受（有阻断继续返修，retryCount 达硬上限时
     // 由循环顶部 retryCountCircuitBreaker 以 manualHandoff 转人工，P0 保护）。
+    // RCP-20261014-1311 接线：早退前跑结构层三件套 + recommendPostPlateauAction，
+    // 有结构信号 → onThinking 输出 diagnose-structure 建议后照常 break
+    // （首轮只建议不断言改稿，行为零变更；复读家族词源=引号短句高频项，
+    // 角色名源=character-states，任一供给失败回退空数组=keep-current 旧行为）。
     if (plateauEligible && blockingIssues.length === 0) {
-      callbacks.onThinking?.(formatStageThinking(
-        "阶段5：返修平台期提前停止",
-        [
-          `连续 ${plateau.window} 轮返修 slop 分变化 < ${DEFAULT_PLATEAU_CONFIG.epsilon}，已进入平台期，提前接受当前稿。`,
-          "",
-          formatReviewIssueList(blockingIssues),
-        ].join("\n"),
-      ))
+      const structuralFlags = collectPlateauStructuralFlags(currentContent, plateauCharacterNames)
+      const postAction = recommendPostPlateauAction(slopHistory.getHistory(), structuralFlags)
+      if (postAction === "diagnose-structure") {
+        callbacks.onThinking?.(formatStageThinking(
+          "阶段5：返修平台期——建议转结构手术",
+          [
+            `连续 ${plateau.window} 轮返修 slop 分变化 < ${DEFAULT_PLATEAU_CONFIG.epsilon}，已进入平台期。`,
+            `机械层检出结构信号：${structuralFlags.join("；")}。`,
+            "建议停微改、转诊断驱动的结构手术（轮唱并段/复读台词动作化/静默段补在场锚，单轮≤3 处、可回滚），本轮仍接受当前稿。",
+          ].join("\n"),
+        ))
+      } else {
+        callbacks.onThinking?.(formatStageThinking(
+          "阶段5：返修平台期提前停止",
+          [
+            `连续 ${plateau.window} 轮返修 slop 分变化 < ${DEFAULT_PLATEAU_CONFIG.epsilon}，已进入平台期，提前接受当前稿。`,
+            "",
+            formatReviewIssueList(blockingIssues),
+          ].join("\n"),
+        ))
+      }
       break
     }
     callbacks.onThinking?.(formatStageThinking(

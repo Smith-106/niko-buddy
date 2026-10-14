@@ -58,7 +58,35 @@ export class SlopHistoryTracker {
     return detectPlateau(this.history, config)
   }
 
+  /** 只读 history 副本（供 recommendPostPlateauAction 供给，R24 接线）。 */
+  getHistory(): readonly number[] {
+    return [...this.history]
+  }
+
   get size(): number {
     return this.history.length
   }
+}
+
+/**
+ * RCP-20261014-1311：平台期后行动建议（纯函数）。
+ *
+ * 背景：ch086 R21→R23 三轮微改中位连续卡 8.8；detectPlateau=true 时"提前接受当前稿"
+ * 会固化平台期分数。R24 证明：平台期 + 诊断明确的结构缺口（轮唱/复读家族/静默段）
+ * → 应转诊断驱动的结构手术而非继续微改（中位 8.8→9.1，+0.3）。
+ *
+ * 规则：plateau=false → keep-polishing（继续微改）；plateau=true →
+ * 有结构缺口信号（structuralFlags 非空）→ diagnose-structure（停微改、转结构手术，
+ * 单轮 ≤3 处、可回滚）；无信号 → keep-current（接受当前稿，旧行为）。
+ */
+export type PostPlateauAction = "keep-polishing" | "keep-current" | "diagnose-structure"
+
+export function recommendPostPlateauAction(
+  history: readonly number[],
+  structuralFlags: readonly string[],
+  config?: PlateauConfig,
+): PostPlateauAction {
+  const { plateau } = detectPlateau(history, config)
+  if (!plateau) return "keep-polishing"
+  return structuralFlags.length > 0 ? "diagnose-structure" : "keep-current"
 }

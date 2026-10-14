@@ -107,3 +107,69 @@ export function assessSafety(files: FileDiffModel[], findText: string): SafetyVe
 export function changedFilesOnly(files: FileDiffModel[]): FileDiffModel[] {
   return files.filter((file) => file.replacements > 0);
 }
+
+/**
+ * RCP-20261014-count/CRlf 落地：断言式单点替换原语（纯函数）。
+ *
+ * 背景：弯引号/全角标点文本用 edit 硬怼 exact-match 极脆弱；R24 改走
+ * "count==1 断言再 replace"，任一对不断言全停。CRLF 大文件另需行尾零漂移。
+ */
+
+/** 断言式替换结论码。 */
+export type AssertReplaceCode = "ok" | "not_found" | "ambiguous";
+
+/** 单对 old/new 断言式替换结果。 */
+export interface AssertReplaceResult {
+  code: AssertReplaceCode;
+  text: string;
+  /** old 在原文中的命中次数（ok 时恒为 1）。 */
+  matches: number;
+}
+
+/** old 恰命中 1 次才替换；0 次→not_found、多于 1 次→ambiguous，原文原样返回。 */
+export function assertSingleMatchReplace(text: string, oldText: string, newText: string): AssertReplaceResult {
+  if (oldText.length === 0) return { code: "not_found", text, matches: 0 };
+  let matches = 0;
+  let idx = text.indexOf(oldText);
+  while (idx >= 0) {
+    matches += 1;
+    if (matches > 1) break;
+    idx = text.indexOf(oldText, idx + oldText.length);
+  }
+  if (matches === 0) return { code: "not_found", text, matches: 0 };
+  if (matches > 1) return { code: "ambiguous", text, matches };
+  return { code: "ok", text: text.replace(oldText, newText), matches: 1 };
+}
+
+/** 批量断言式替换：任一对非 ok 即整体失败、返回已定位的首个失败对序号。 */
+export interface AssertBatchResult {
+  ok: boolean;
+  text: string;
+  failedIndex: number;
+  code: AssertReplaceCode | "ok";
+}
+
+export function assertBatchReplace(
+  text: string,
+  pairs: ReadonlyArray<{ oldText: string; newText: string }>,
+): AssertBatchResult {
+  let cur = text;
+  for (let i = 0; i < pairs.length; i += 1) {
+    const pair = pairs[i];
+    if (!pair) continue;
+    const r = assertSingleMatchReplace(cur, pair.oldText, pair.newText);
+    if (r.code !== "ok") return { ok: false, text, failedIndex: i, code: r.code };
+    cur = r.text;
+  }
+  return { ok: true, text: cur, failedIndex: -1, code: "ok" };
+}
+
+/**
+ * CRLF 安全区段拼接：新区段统一 \n→\r\n、尾部保证空行，旧首尾 bytes 原样保留。
+ * 对应 v13：旧区段 12676B→新区段 13078B（+402），全书 1590137B→1590539B 精确可审计。
+ */
+export function joinCrlfSections(head: string, newSection: string, tail: string): string {
+  let sec = newSection.replace(/\r\n/g, "\n").replace(/\n/g, "\r\n");
+  if (!sec.endsWith("\r\n\r\n")) sec += "\r\n";
+  return head + sec + tail;
+}

@@ -13,6 +13,9 @@ import {
   cavityPatternPenalty,
   rollupStyleStats,
   bookStyleStatsToText,
+  detectChorusSing,
+  countEchoFamily,
+  detectSilentStretch,
   STYLE_STATS_MIN_CHAPTERS,
   type CharacterActionHit,
 } from "./mechanical-slop-detector"
@@ -545,5 +548,35 @@ describe("§GAP-90-04 rollupStyleStats 全书级文体统计 (ainovel style_stat
     expect(text).toContain("全书文体统计")
     expect(text).toContain("5 章")
     expect(text).toContain("章末短结尾占比")
+  })
+})
+
+describe("R24结构层三件套（RCP-20261014-1311）", () => {
+  it("detectChorusSing：连续3段喊话命中", () => {
+    const t = "叙述段。\n\n“冲！”\n\n“顶住！”\n\n“跟上！”\n\n收尾叙述。"
+    const hits = detectChorusSing(t)
+    expect(hits.length).toBe(1)
+    expect(hits[0]?.shouts).toBe(3)
+  })
+  it("detectChorusSing：2段喊话不命中、空文本返回[]", () => {
+    expect(detectChorusSing("“冲！”\n\n“顶住！”")).toEqual([])
+    expect(detectChorusSing("")).toEqual([])
+  })
+  it("countEchoFamily：家族≥3次上报", () => {
+    const t = "一个都不许掉。一个都不许散。一个都不许退。各自为战。"
+    expect(countEchoFamily(t, ["一个都不"])).toEqual([{ family: "一个都不", count: 3 }])
+    expect(countEchoFamily(t, ["子时见"])).toEqual([])
+  })
+  it("detectSilentStretch：名字连续缺席8段命中", () => {
+    const paras = ["沈鸢在。", ...Array.from({ length: 9 }, (_, i) => `风声第${i}段。`), "沈鸢回来了。"]
+    const hits = detectSilentStretch(paras.join("\n\n"), ["沈鸢"])
+    expect(hits.length).toBe(1)
+    expect(hits[0]?.fromPara).toBe(2)
+    expect(hits[0]?.toPara).toBe(10)
+    expect(hits[0]?.ratio ?? 0).toBeGreaterThan(0.5)
+  })
+  it("detectSilentStretch：空文本/空名单返回[]", () => {
+    expect(detectSilentStretch("", ["沈鸢"])).toEqual([])
+    expect(detectSilentStretch("沈鸢在。", [])).toEqual([])
   })
 })

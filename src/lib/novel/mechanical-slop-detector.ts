@@ -917,3 +917,115 @@ export function bookStyleStatsToText(stats: BookStyleStats | null): string {
   lines.push(`- 章末短结尾占比 ${(stats.shortEndingRatio * 100).toFixed(0)}%`)
   return lines.join("\n")
 }
+
+// ============================================================================
+// §R24 结构层机械信号三件套（RCP-20261014-1311 落地）
+//
+// 单章轮唱/复读家族/角色静默是 R21→R23 三轮微改都抓不住的结构层缺口——
+// LLM 评审能感知（pull/character 扣分）但机械层此前无对应信号。
+// 本三件套全部纯函数零 LLM，warn 态建议，不阻断、不参与 slopPenalty（正交职责）。
+// ============================================================================
+
+/** 轮唱命中：窗口内相邻喊话段。 */
+export interface ChorusHit {
+  /** 1-based 起始段号。 */
+  para: number
+  /** 窗口内喊话段数。 */
+  shouts: number
+}
+
+/** 喊话行判定：以中文引号包裹的短句（≤24 字，R24 轮唱均为短促喊话）。 */
+const SHOUT_MAX_CHARS = 24
+
+function isShoutPara(para: string): boolean {
+  const t = para.trim()
+  if (!t.startsWith("\u201c")) return false
+  const end = t.indexOf("\u201d")
+  if (end < 0) return false
+  return end - 1 <= SHOUT_MAX_CHARS
+}
+
+/**
+ * 轮唱检测：连续段落中喊话段 ≥ minShouts（默认 3）即命中。
+ * 对应 R24 E1/E3：103-107 三连轮唱、139-143 四人轮唱×3。
+ * 空文本/不足窗口返回 []。
+ */
+export function detectChorusSing(rawText: string, minShouts = 3): ChorusHit[] {
+  const paras = rawText.split(/\n+/).map((p) => p.trim()).filter((p) => p.length > 0)
+  const hits: ChorusHit[] = []
+  let run = 0
+  let runStart = 0
+  for (let i = 0; i <= paras.length; i += 1) {
+    const shout = i < paras.length && isShoutPara(paras[i] ?? "")
+    if (shout) {
+      if (run === 0) runStart = i + 1
+      run += 1
+    } else {
+      if (run >= minShouts) hits.push({ para: runStart, shouts: run })
+      run = 0
+    }
+  }
+  return hits
+}
+
+/** 复读家族计数：同族短语出现次数。 */
+export interface EchoFamilyCount {
+  family: string
+  count: number
+}
+
+/**
+ * 复读家族计数：同一语义家族（如"一个都不…"）出现 ≥ minCount（默认 3）即上报。
+ * 对应 R24："一个都不" 4→1、"子时见" 2→1、"跟我一起" 1→0。
+ * families 为调用方传入的家族正则源（本模块不内置语料，防词库膨胀）。
+ */
+export function countEchoFamily(rawText: string, families: readonly string[], minCount = 3): EchoFamilyCount[] {
+  const { text } = normalizeSourceText(rawText)
+  const out: EchoFamilyCount[] = []
+  for (const fam of families) {
+    const m = text.match(new RegExp(fam, "g"))
+    if (m && m.length >= minCount) out.push({ family: fam, count: m.length })
+  }
+  return out
+}
+
+/** 角色静默段：起止段号 + 占比。 */
+export interface SilentStretch {
+  fromPara: number
+  toPara: number
+  /** 静默段数占全文段数比（0-1）。 */
+  ratio: number
+}
+
+const SILENT_STRETCH_MIN_PARAS = 8
+
+/**
+ * 角色静默段检测：names 中任一名字连续缺席 ≥ minParas（默认 8）段即命中。
+ * 对应 R24 E2：中段三友静默 13 段（约 16.7%）——三处手术之一即补在场锚。
+ * 出场判定为纯字面包含（机械信号，具体指代由 LLM 语义层裁定）。
+ */
+export function detectSilentStretch(rawText: string, names: readonly string[], minParas = SILENT_STRETCH_MIN_PARAS): SilentStretch[] {
+  const paras = rawText.split(/\n+/).map((p) => p.trim()).filter((p) => p.length > 0)
+  if (paras.length === 0 || names.length === 0) return []
+  const hits: SilentStretch[] = []
+  let runStart = -1
+  const flush = (end: number) => {
+    if (runStart < 0) return
+    const len = end - runStart
+    if (len >= minParas) {
+      hits.push({ fromPara: runStart + 1, toPara: end, ratio: Math.round((len / paras.length) * 100) / 100 })
+    }
+    runStart = -1
+  }
+  for (let i = 0; i < paras.length; i += 1) {
+    const p = paras[i] ?? ""
+    const present = names.some((n) => p.includes(n))
+    if (!present) {
+      if (runStart < 0) runStart = i
+    } else {
+      flush(i)
+    }
+  }
+  flush(paras.length)
+  return hits
+}
