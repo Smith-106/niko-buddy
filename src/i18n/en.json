@@ -180,7 +180,8 @@
     },
     "templateLabel": "Project Template",
     "errorParentDirRequired": "Choose a parent directory first",
-    "browseParentDir": "Browse directory"
+    "browseParentDir": "Browse directory",
+    "desktopRequired": "Creating a novel requires the Niko Buddy desktop app; browser pages cannot write to the local novel directory"
   },
   "dashboard": {
     "title": "Project Dashboard",

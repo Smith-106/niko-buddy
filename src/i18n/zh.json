@@ -377,7 +377,8 @@
     },
     "templateLabel": "项目模板",
     "errorParentDirRequired": "请先选择项目父目录",
-    "browseParentDir": "浏览目录"
+    "browseParentDir": "浏览目录",
+    "desktopRequired": "创建小说需要桌面版 Niko Buddy，浏览器页面不能写入本地小说目录"
   },
   "templates": {
     "research": {
