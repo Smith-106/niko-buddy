@@ -9,6 +9,7 @@ import { isTauri } from "@/lib/platform"
 interface AppStateStore {
   get<T>(key: string): Promise<T | null>
   set(key: string, value: unknown): Promise<void>
+  delete(key: string): Promise<void>
   save(): Promise<void>
 }
 
@@ -38,6 +39,12 @@ function browserStore(): AppStateStore {
       const next = { ...readBrowserState(), [key]: value }
       localStorage.setItem(BROWSER_STORE_KEY, JSON.stringify(next))
     },
+    async delete(key: string): Promise<void> {
+      if (typeof localStorage === "undefined") return
+      const next = { ...readBrowserState() }
+      delete next[key]
+      localStorage.setItem(BROWSER_STORE_KEY, JSON.stringify(next))
+    },
     async save(): Promise<void> {},
   }
 }
@@ -49,5 +56,14 @@ function browserStore(): AppStateStore {
 export async function getStore(): Promise<AppStateStore> {
   if (!isTauri()) return browserStore()
   const { load } = await import("@tauri-apps/plugin-store")
-  return load("app-state.json", { autoSave: true, defaults: {} })
+  const inner = await load("app-state.json", { autoSave: true, defaults: {} })
+  // Adapt the plugin Store to our narrower contract: normalize `undefined`
+  // gets to `null`, and expose `delete` on the interface (callers already
+  // use it; the Tauri Store provides it).
+  return {
+    get: async <T>(key: string): Promise<T | null> => (await inner.get<T>(key)) ?? null,
+    set: async (key: string, value: unknown): Promise<void> => { await inner.set(key, value) },
+    delete: async (key: string): Promise<void> => { await inner.delete(key) },
+    save: async (): Promise<void> => { await inner.save() },
+  }
 }
