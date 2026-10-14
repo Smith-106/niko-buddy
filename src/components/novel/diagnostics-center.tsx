@@ -37,7 +37,7 @@ import {
   type DiagnosticBundlePreview,
 } from "@/lib/diagnostics/diagnostic-bundle"
 import { loadExportHistoryView, type ExportHistoryViewEntry } from "@/lib/export/export-history-view"
-import { loadNovelSessionStatus } from "@/lib/novel/novel-session-status"
+import { loadNovelSessionStatus } from "@/lib/novel"
 
 // ── 展示文案（直书中文，零 i18n 键） ─────────────────────────────────────────
 
