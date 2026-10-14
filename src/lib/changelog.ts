@@ -15,6 +15,20 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.14.7",
+    date: "2026-10-14",
+    highlights: {
+      en: [
+        "Docs alignment: README + docs-site download page updated to v2.14.6 (badges/version table/highlights, Windows-only platform).",
+        "Verified: no functional changes; docs-only patch release.",
+      ],
+      zh: [
+        "文档对齐：README + 文档站下载页更新到 v2.14.6（badge/版本表/更新亮点，Windows-only 平台）。",
+        "验证：无功能变更；纯文档 patch 发版。",
+      ],
+    },
+  },
+  {
     version: "2.14.6",
     date: "2026-10-14",
     highlights: {
