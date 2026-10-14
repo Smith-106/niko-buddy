@@ -15,6 +15,24 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.14.6",
+    date: "2026-10-14",
+    highlights: {
+      en: [
+        "J14 history reverse-trace + J15 diagnostics center (export->PDF->confirmed->Run->source->restart consistency).",
+        "R24 live-novel plateau wiring: recommendPostPlateauAction + chorus/echo-family/silent-stretch detectors, diagnosed-structure suggestion at plateau early-exit (behavior-neutral).",
+        "Fixes: novel-mode project bootstrap, LLM defaults, chapter-save refs, skill-library categories, spaced chapter import, changelog backfill.",
+        "Verified: tsc --build 0 errors; targeted vitest suites green; live R23-vs-R24 signal check.",
+      ],
+      zh: [
+        "J14 历史反向溯源 + J15 诊断中心纵切面（导出→PDF→确认版→Run→源资产→重启一致）。",
+        "R24 实盘平台期接线：recommendPostPlateauAction + 轮唱/复读家族/静默段检测，早退点输出结构手术建议（行为零变更）。",
+        "修复：小说模式建项目、LLM 默认模型、章节保存引用、技能库分类、带空格章节导入、版本历史补齐。",
+        "验证：tsc --build 0 错误；定向 vitest 全绿；R23-vs-R24 实盘信号对照。",
+      ],
+    },
+  },
+  {
     version: "2.14.5",
     date: "2026-10-07",
     highlights: {
