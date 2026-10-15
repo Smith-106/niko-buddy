@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.14.6-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.15.1-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -54,6 +54,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 
 | 波次 | 版本 | 能力 | 核心交付 |
 |---|---|---|---|
+| — | v2.15.1 | UI柔化收纳 + 管线 R1-R3 + AI自检可见化 + #208 E2E 修复 | UI柔化收纳/管线R1-R3/AI自检可见化 + #208 E2E修复（stable，2026-10-15） |
 | — | v2.14.6 | J14/J15 + R24 平台期接线 + fixes 批次 + Windows-only | 历史检索反向溯源/诊断中心纵切面 + recommendPostPlateauAction 轮唱复读静默检测（additive，仅建议）+ 新建项目样例章/LLM 默认模型/导入空格行首等修复（Pre-release，2026-10-14） |
 | — | v2.14.5 | maestro-odyssey 三轮自动化审计整改 | async 竞态 cancelled 守卫 + a11y aria-label/disclosure + i18n 硬编码中文清零 + 静默失败上屏 + canon chapter_number 校验（notes-only，2026-10-07） |
 | — | v2.14.4 | Round15 评估驱动整改 + 供应链卫生 + 仓库清理 | F15 切分闭引号前瞻/EPUB 书名接线/跳过计数/复制失败态 + 许可表补齐归零/门精确豁免 + 删 2MB 冗余 logo（stable，2026-10-04 批准提升） |
