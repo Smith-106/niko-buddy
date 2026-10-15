@@ -21,7 +21,7 @@ const read = (rel: string) => readFileSync(resolve(REPO, rel), "utf8")
 
 async function boot(page: Page): Promise<void> {
   await page.addInitScript(MOCK_INIT)
-  # 208: 关使用引导弹窗（fixed left-48 z-50，会在 CI 视口下遮挡底部 settings 行）
+  // #208: 关使用引导弹窗（fixed left-48 z-50，会在 CI 视口下遮挡底部 settings 行）
   await page.addInitScript("localStorage.setItem('niko-buddy-usage-guide-prompt-dismissed','1')")
   await page.goto("/")
   await page.waitForLoadState("domcontentloaded")
