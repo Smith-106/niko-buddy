@@ -15,6 +15,18 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.15.1",
+    date: "2026-10-15",
+    highlights: {
+      en: [
+        "E2E fix: usage-guide prompt offset clears w-44 sidebar + tooltip spec covers inline-label semantics; CI 6/6 green.",
+      ],
+      zh: [
+        "E2E修复：使用引导弹窗避让w-44侧栏，tooltip用例覆盖行内文案语义；CI 6/6全绿。",
+      ],
+    },
+  },
+  {
     version: "2.15.0",
     date: "2026-10-15",
     highlights: {

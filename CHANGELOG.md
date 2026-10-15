@@ -7,6 +7,13 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.15.1] - 2026-10-15
+
+### Fixed
+
+- **E2E修复（#208）**：使用引导弹窗 left-14→left-48 避让 w-44 侧栏 + data-testid；tooltip 用例兼容行内文案 +title 语义；5 个 e2e boot 预置 localStorage 关闭弹窗。
+- **验证**：CI 6/6 全绿（含 win + ubuntu E2E）。
+
 ## [2.15.0] - 2026-10-15
 
 ### Added
