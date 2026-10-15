@@ -5,7 +5,6 @@ import { useState } from "react"
 import {
   FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Monitor, Trash2, Sparkles, LayoutDashboard, BookOpen, Image, ArchiveRestore, ScrollText, Clapperboard, Languages, GitMerge, Database, Stethoscope,
 } from "lucide-react"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { CoverPromptWorkbench } from "@/components/novel/cover-prompt-workbench"
 import { TranslationWorkbenchView } from "@/components/novel/translation-workbench-view"
@@ -122,162 +121,155 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
   }
 
   return (
-    <TooltipProvider delay={300}>
-      <div className="flex h-full w-12 flex-col items-center border-r bg-muted/50 py-2">
+    <>
+      <div className="flex h-full w-44 shrink-0 flex-col border-r bg-muted/50 py-2">
         <button
           type="button"
           onClick={onToggleSidebar}
-          className="mb-2 flex items-center justify-center rounded-md p-0.5 transition-colors hover:bg-accent/50"
+          className="soft-button mx-2 mb-2 flex items-center gap-2 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-accent/50"
           title={t("iconSidebar.toggleSidebar")}
         >
           <img
             src={logoImg}
             alt={t("iconSidebar.logoAlt")}
-            className="h-6 w-6 rounded-[22%]"
+            className="h-6 w-6 shrink-0 rounded-[28%]"
           />
+          <span className="truncate text-[0.8125rem] font-semibold">Niko Buddy</span>
         </button>
         {/* Top: main nav items —— 本栏唯一可滚动组。14 个导航项在 720px 视口下就已
             超出 w-12 窄栏高度，而 flex 项的 min-height:auto 会阻止收缩，溢出将逃出
             本栏并撑高 document（整页可滚 = 底部按钮被推到视口外）。这里显式 min-h-0 +
             overflow-y-auto 把溢出收进本栏，底部操作组保持 shrink-0 永不被挤走。 */}
-        <div className="nav-rail-scroll flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto">
+        <div className="nav-rail-scroll flex min-h-0 w-full flex-1 flex-col gap-1 overflow-y-auto px-2">
           {NAV_ITEMS.map(({ view, icon: Icon, labelKey }) => (
-            <Tooltip key={view}>
-              <TooltipTrigger
-                onClick={() => handleNavClick(view)}
-                data-view={view}
-                className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
-                  activeView === view
-                    ? "qm-selected"
-                    : "text-muted-foreground qm-hover"
-                }`}
-              >
-                <Icon className="h-5 w-5 shrink-0" />
-                {view === "reviewCenter" && pendingCount > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
-                    {pendingCount > 99 ? "99+" : pendingCount}
-                  </span>
-                )}
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {t(labelKey)}
-                {view === "reviewCenter" && pendingCount > 0 && ` (${pendingCount})`}
-              </TooltipContent>
-            </Tooltip>
+            <button
+              key={view}
+              type="button"
+              onClick={() => handleNavClick(view)}
+              data-view={view}
+              title={t(labelKey)}
+              className={`soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left transition-colors ${
+                activeView === view
+                  ? "qm-selected"
+                  : "text-muted-foreground qm-hover"
+              }`}
+            >
+              <Icon className="h-[1.125rem] w-[1.125rem] shrink-0" />
+              <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t(labelKey)}</span>
+              {view === "reviewCenter" && pendingCount > 0 && (
+                <span data-testid="nav-badge" className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-bold text-primary-foreground">
+                  {pendingCount > 99 ? "99+" : pendingCount}
+                </span>
+              )}
+            </button>
           ))}
-          <Tooltip>
-            <TooltipTrigger
-              onClick={handleSearchClick}
-              data-view="search"
-              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
-                activeView === "search"
-                  ? "qm-selected"
-                  : "text-muted-foreground qm-hover"
-              }`}
-            >
-              <Search className="h-5 w-5 shrink-0" />
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t(SEARCH_NAV_ITEM.labelKey)}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              onClick={() => {
-                setSearchPanelOpen(false)
-                setActiveView("trash")
-                onOpenSidebar?.()
-              }}
-              data-view="trash"
-              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
-                activeView === "trash"
-                  ? "qm-selected"
-                  : "text-muted-foreground qm-hover"
-              }`}
-            >
-              <Trash2 className="h-5 w-5 shrink-0" />
-            </TooltipTrigger>
-            <TooltipContent side="right">{t("nav.trash")}</TooltipContent>
-          </Tooltip>
+          <button
+            type="button"
+            onClick={handleSearchClick}
+            data-view="search"
+            title={t(SEARCH_NAV_ITEM.labelKey)}
+            className={`soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left transition-colors ${
+              activeView === "search"
+                ? "qm-selected"
+                : "text-muted-foreground qm-hover"
+            }`}
+          >
+            <Search className="h-[1.125rem] w-[1.125rem] shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t(SEARCH_NAV_ITEM.labelKey)}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchPanelOpen(false)
+              setActiveView("trash")
+              onOpenSidebar?.()
+            }}
+            data-view="trash"
+            title={t("nav.trash")}
+            className={`soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left transition-colors ${
+              activeView === "trash"
+                ? "qm-selected"
+                : "text-muted-foreground qm-hover"
+            }`}
+          >
+            <Trash2 className="h-[1.125rem] w-[1.125rem] shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t("nav.trash")}</span>
+          </button>
         </div>
         {/* Bottom: cover workbench + daemon status + theme toggle + settings + switch project */}
-        <div className="flex shrink-0 flex-col items-center gap-1 pb-1">
+        <div className="flex shrink-0 flex-col gap-1 px-2 pb-1">
           {/* F-012: 封面 Prompt 工作台（独立 dialog） */}
-          <Tooltip>
-            <TooltipTrigger
-              onClick={() => setCoverWorkbenchOpen(true)}
-              data-cover-workbench-entry="true"
-              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
-            >
-              <Image className="h-5 w-5 shrink-0" />
-            </TooltipTrigger>
-            <TooltipContent side="right">{t("novel.nav.coverWorkbench")}</TooltipContent>
-          </Tooltip>
+          <button
+            type="button"
+            onClick={() => setCoverWorkbenchOpen(true)}
+            data-cover-workbench-entry="true"
+            title={t("novel.nav.coverWorkbench")}
+            className="soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+          >
+            <Image className="h-[1.125rem] w-[1.125rem] shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t("novel.nav.coverWorkbench")}</span>
+          </button>
           {/* 65 号 G2: 翻译工作台入口（独立 dialog，零 activeView） */}
-          <Tooltip>
-            <TooltipTrigger
-              onClick={() => setTranslationViewOpen(true)}
-              data-translation-workbench-entry="true"
-              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
-            >
-              <Languages className="h-5 w-5 shrink-0" />
-            </TooltipTrigger>
-            <TooltipContent side="right">{t("novel.nav.translationWorkbench")}</TooltipContent>
-          </Tooltip>
+          <button
+            type="button"
+            onClick={() => setTranslationViewOpen(true)}
+            data-translation-workbench-entry="true"
+            title={t("novel.nav.translationWorkbench")}
+            className="soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+          >
+            <Languages className="h-[1.125rem] w-[1.125rem] shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t("novel.nav.translationWorkbench")}</span>
+          </button>
           {/* 65 号 G2: 同人正典合并入口（Draft-first pending） */}
-          <Tooltip>
-            <TooltipTrigger
-              onClick={() => setFanficMergeOpen(true)}
-              data-fanfic-merge-entry="true"
-              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
-            >
-              <GitMerge className="h-5 w-5 shrink-0" />
-            </TooltipTrigger>
-            <TooltipContent side="right">{t("novel.nav.fanficMerge")}</TooltipContent>
-          </Tooltip>
+          <button
+            type="button"
+            onClick={() => setFanficMergeOpen(true)}
+            data-fanfic-merge-entry="true"
+            title={t("novel.nav.fanficMerge")}
+            className="soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+          >
+            <GitMerge className="h-[1.125rem] w-[1.125rem] shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t("novel.nav.fanficMerge")}</span>
+          </button>
           {/* Theme toggle */}
-          <Tooltip>
-            <TooltipTrigger
-              onClick={handleCycleTheme}
-              className="relative flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
-            >
-              {getThemeIcon()}
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {getThemeTooltip()}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              onClick={() => {
-                setSearchPanelOpen(false)
-                setActiveView("settings")
-              }}
-              data-view="settings"
-              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
-                activeView === "settings"
-                  ? "qm-selected"
-                  : "text-muted-foreground qm-hover"
-              }`}
-            >
-              <Settings className="h-5 w-5 shrink-0" />
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t("novel.nav.settings")}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              onClick={() => {
-                setSearchPanelOpen(false)
-                onSwitchProject()
-              }}
-              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
-            >
-              <ArrowLeftRight className="h-5 w-5 shrink-0" />
-            </TooltipTrigger>
-            <TooltipContent side="right">{t("nav.switchProject")}</TooltipContent>
-          </Tooltip>
+          <button
+            type="button"
+            onClick={handleCycleTheme}
+            title={getThemeTooltip()}
+            className="soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+          >
+            {getThemeIcon()}
+            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{getThemeTooltip()}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchPanelOpen(false)
+              setActiveView("settings")
+            }}
+            data-view="settings"
+            title={t("novel.nav.settings")}
+            className={`soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left transition-colors ${
+              activeView === "settings"
+                ? "qm-selected"
+                : "text-muted-foreground qm-hover"
+            }`}
+          >
+            <Settings className="h-[1.125rem] w-[1.125rem] shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t("novel.nav.settings")}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchPanelOpen(false)
+              onSwitchProject()
+            }}
+            title={t("nav.switchProject")}
+            className="soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+          >
+            <ArrowLeftRight className="h-[1.125rem] w-[1.125rem] shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t("nav.switchProject")}</span>
+          </button>
         </div>
       </div>
       {/* F-012: 封面 Prompt 工作台 dialog（纯客户端，不调 streamChat） */}
@@ -302,6 +294,6 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
       </Dialog>
       {/* 65 号 G2: 同人正典合并 dialog（Draft-first pending 工件） */}
       <FanficMergeDialog open={fanficMergeOpen} onOpenChange={setFanficMergeOpen} />
-    </TooltipProvider>
+    </>
   )
 }

@@ -105,7 +105,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   }
 })
 
-import { exportProject, exportNovelDocx, exportNovelEpub, exportInteractiveStory } from "./export"
+import { exportProject, exportNovelDocx, exportNovelEpub, exportInteractiveStory, finalizeManuscript } from "./export"
 import { createDirectory, fileExists, listDirectory } from "@/commands/fs"
 
 afterEach(() => {
@@ -688,5 +688,69 @@ describe("exportInteractiveStory (64 号实施接线：P0-1 互动影游落盘)"
     const result = await exportInteractiveStory({ projectPath: "/proj", exportPath: "/out", graph: bad })
     expect(result.success).toBe(false)
     expect(fsState.writes.length).toBe(before)
+  })
+})
+
+describe("finalizeManuscript（P0 出箱定稿闭环）", () => {
+  it("三件+校验单全成功 → artifacts 4件且 MANIFEST 可解析", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.files.set(`${PROJECT}/wiki/chapters/001.md`, chapterFile(1, "第一章", "正文一。"))
+    fsState.directories.set(`${PROJECT}/wiki/chapters`, [
+      { name: "001.md", path: `${PROJECT}/wiki/chapters/001.md`, is_dir: false },
+    ])
+    const invokeMock = vi.mocked(invoke)
+    invokeMock.mockResolvedValue({ success: true, exportedPath: "x", chapterCount: 1, message: "ok" })
+    const result = await finalizeManuscript({ projectPath: PROJECT, exportDir: OUT })
+    expect(result.success).toBe(true)
+    expect(result.chapterCount).toBe(1)
+    expect(result.artifacts).toEqual([
+      "project/complete-novel.md",
+      "complete-novel.docx",
+      "complete-novel.epub",
+      "MANIFEST.json",
+    ])
+    const manifestWrite = fsState.writes.find((w) => w.path.endsWith("MANIFEST.json"))
+    expect(manifestWrite).toBeDefined()
+    const parsed = JSON.parse(manifestWrite!.content)
+    expect(parsed.chapterCount).toBe(1)
+    expect(parsed.artifacts).toHaveLength(3)
+  })
+
+  it("DOCX 失败 → 中止且不写校验单", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.files.set(`${PROJECT}/wiki/chapters/001.md`, chapterFile(1, "第一章", "正文一。"))
+    fsState.directories.set(`${PROJECT}/wiki/chapters`, [
+      { name: "001.md", path: `${PROJECT}/wiki/chapters/001.md`, is_dir: false },
+    ])
+    const invokeMock = vi.mocked(invoke)
+    invokeMock.mockRejectedValueOnce(new Error("chapter-ok"))
+    invokeMock.mockRejectedValueOnce(new Error("docx-boom"))
+    const before = fsState.writes.length
+    const result = await finalizeManuscript({ projectPath: PROJECT, exportDir: OUT })
+    expect(result.success).toBe(false)
+    expect(result.message).toContain("DOCX")
+    const paths = fsState.writes.slice(before).map((w) => w.path)
+    expect(paths.some((p) => p.endsWith("MANIFEST.json"))).toBe(false)
+  })
+
+  it("EPUB 失败 → 中止且不写校验单", async () => {
+    vi.mocked(invoke).mockReset()
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.files.set(`${PROJECT}/wiki/chapters/001.md`, chapterFile(1, "第一章", "正文一。"))
+    fsState.directories.set(`${PROJECT}/wiki/chapters`, [
+      { name: "001.md", path: `${PROJECT}/wiki/chapters/001.md`, is_dir: false },
+    ])
+    const invokeMock = vi.mocked(invoke)
+    invokeMock.mockResolvedValueOnce({ success: true, exportedPath: "x", chapterCount: 1, message: "ok-docx" })
+    invokeMock.mockRejectedValueOnce(new Error("epub-boom"))
+    const before = fsState.writes.length
+    const result = await finalizeManuscript({ projectPath: PROJECT, exportDir: OUT })
+    expect(result.success).toBe(false)
+    expect(result.message).toContain("EPUB")
+    const paths = fsState.writes.slice(before).map((w) => w.path)
+    expect(paths.some((p) => p.endsWith("MANIFEST.json"))).toBe(false)
   })
 })

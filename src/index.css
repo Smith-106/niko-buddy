@@ -423,3 +423,40 @@ button:disabled {
     animation: none;
   }
 }
+
+/* UI柔和化token（2026-10-15：圆角放大+柔和阴影+边框对比降低，不改色值体系） */
+:root {
+  --radius: 0.75rem;
+  --soft-shadow-sm: 0 1px 2px oklch(0.3 0 0 / 6%), 0 1px 6px oklch(0.3 0 0 / 5%);
+  --soft-shadow-md: 0 2px 6px oklch(0.3 0 0 / 7%), 0 4px 16px oklch(0.3 0 0 / 6%);
+  --soft-shadow-lg: 0 4px 12px oklch(0.3 0 0 / 8%), 0 8px 28px oklch(0.3 0 0 / 7%);
+}
+@layer components {
+  .soft-card {
+    border-radius: var(--radius-xl);
+    border: 1px solid color-mix(in oklch, var(--border) 65%, transparent);
+    box-shadow: var(--soft-shadow-sm);
+  }
+  .soft-popover {
+    border-radius: var(--radius-xl);
+    border: 1px solid color-mix(in oklch, var(--border) 65%, transparent);
+    box-shadow: var(--soft-shadow-md);
+  }
+  .soft-button {
+    border-radius: var(--radius-md);
+    transition: background-color 160ms ease, box-shadow 160ms ease, transform 120ms ease;
+  }
+  .soft-button:hover {
+    box-shadow: var(--soft-shadow-sm);
+  }
+  .soft-button:active {
+    transform: translateY(0.5px);
+  }
+  .soft-input {
+    border-radius: var(--radius-md);
+    border: 1px solid color-mix(in oklch, var(--input) 70%, transparent);
+  }
+  .soft-input:focus-within {
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 22%, transparent);
+  }
+}

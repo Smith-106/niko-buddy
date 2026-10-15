@@ -21,7 +21,7 @@ export {
   type DoctorFinding,
   type DoctorSeverity,
 } from "./doctor"
-export { createChapterPipeline, type ChapterPipeline, type ChapterPipelineDeps } from "./chapter-pipeline"
+export { createChapterPipeline, createBatchChapterPipeline, queryResumeCandidates, listResumeCandidates, type ChapterPipeline, type ChapterPipelineDeps, type BatchChapterResult, type BatchPipelineSummary, type ResumeCandidate } from "./chapter-pipeline"
 // §GAP-91 三权分立单章编排（repair-loop additive 导出：零生产反向依赖的安全容器）
 export {
   advanceChapterTriad,

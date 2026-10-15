@@ -13,7 +13,15 @@ import zh from "@/i18n/zh.json"
  * 避免以后新增入口时再漏翻译。
  */
 
-const SIDEBAR = resolve(process.cwd(), "src/components/layout/icon-sidebar.tsx")
+const SIDEBAR = (() => {
+  const fromHubRoot = resolve(process.cwd(), "QMAI/src/components/layout/icon-sidebar.tsx")
+  try {
+    readFileSync(fromHubRoot, "utf8")
+    return fromHubRoot
+  } catch {
+    return resolve(process.cwd(), "src/components/layout/icon-sidebar.tsx")
+  }
+})()
 
 /** 取出图标栏里所有 labelKey 与 t("...") 字面量键。 */
 function sidebarKeys(): string[] {

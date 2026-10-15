@@ -22,7 +22,9 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 })
 
 import {
+  buildImportFingerprint,
   buildImportedChapterMarkdown,
+  extractImportFingerprint,
   collectChapterImportCandidatesFromFolder,
   extractImportedChapterNumber,
   importChapterFiles,
@@ -331,5 +333,39 @@ describe("runImportedChapterMemoryExtraction failure paths", () => {
     expect(result).toMatchObject({ completed: 0, failed: 2 })
     expect(result.errors[0]).toContain("boom")
     expect(result.errors[1]).toContain("string failure")
+  })
+})
+
+describe("导入即副本幂等（R2）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fsMocks.createDirectory.mockResolvedValue(undefined)
+  })
+  it("同内容重入命中指纹→复用路径不复写", async () => {
+    const body = "正文内容"
+    fsMocks.fileExists.mockResolvedValue(false)
+    fsMocks.readFile.mockImplementation(async (p: string) => (String(p).startsWith("E:/book") ? body : ""))
+    const first = await importChapterFiles("E:/Novel", ["E:/book/第1章.txt"], { finalForMemoryExtraction: false })
+    expect(first).toHaveLength(1)
+    const writes1 = fsMocks.writeFile.mock.calls.length
+    expect(writes1).toBe(1)
+    const writtenContent = String(fsMocks.writeFile.mock.calls[0][1])
+    const fp = extractImportFingerprint(writtenContent)
+    expect(fp).toBe(buildImportFingerprint("E:/book/第1章.txt", body))
+    // 第二次：首选路径存在且指纹一致 → 跳过写盘
+    vi.clearAllMocks()
+    fsMocks.fileExists.mockResolvedValue(true)
+    fsMocks.readFile.mockImplementation(async (p: string) => (String(p).startsWith("E:/book") ? body : writtenContent))
+    const second = await importChapterFiles("E:/Novel", ["E:/book/第1章.txt"], { finalForMemoryExtraction: false })
+    expect(second).toHaveLength(1)
+    expect(second[0].path).toBe(first[0].path)
+    expect(fsMocks.writeFile).not.toHaveBeenCalled()
+  })
+  it("内容变化→指纹不一致→正常落盘", async () => {
+    fsMocks.fileExists.mockResolvedValue(true)
+    const oldDoc = ["---", "import_source_fingerprint: fnv1a-old", "---"].join(String.fromCharCode(10))
+    fsMocks.readFile.mockImplementation(async (p: string) => (String(p).startsWith("E:/book") ? "新正文" : oldDoc))
+    await importChapterFiles("E:/Novel", ["E:/book/第1章.txt"], { finalForMemoryExtraction: false })
+    expect(fsMocks.writeFile).toHaveBeenCalledTimes(1)
   })
 })

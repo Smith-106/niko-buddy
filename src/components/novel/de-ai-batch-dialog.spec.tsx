@@ -103,6 +103,23 @@ describe("DeAiBatchDialog", () => {
     expect(onRejectChapter).toHaveBeenCalledWith(1)
   })
 
+  it("ready 行展示规则自检摘要（行内 + title 提示）", () => {
+    render(
+      <DeAiBatchDialog
+        {...baseProps({
+          summary,
+          chapters: [
+            { chapterNumber: 1, status: "ready", selfCheckSummary: "selfcheck overall=0.85 PASS" },
+            { chapterNumber: 2, status: "ready" },
+          ],
+        })}
+      />,
+    )
+    expect(screen.getByText(/自检selfcheck overall=0.85 PASS/)).toBeTruthy()
+    // 无摘要行不渲染自检片段：仅 1 处
+    expect(screen.getAllByText(/自检selfcheck/).length).toBe(1)
+  })
+
   it("完成且无 ready 章：不显示回填提示", () => {
     render(
       <DeAiBatchDialog

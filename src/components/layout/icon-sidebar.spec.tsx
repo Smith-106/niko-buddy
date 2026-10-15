@@ -82,16 +82,7 @@ vi.mock("@/lib/theme-utils", () => ({
   applyTheme: mocks.applyTheme,
 }))
 
-vi.mock("@/components/ui/tooltip", () => ({
-  TooltipProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  Tooltip: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="tooltip">{children}</div>
-  ),
-  TooltipTrigger: (props: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props} />
-  ),
-  TooltipContent: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
-}))
+
 
 function renderSidebar(opts?: {
   withToggle?: boolean
@@ -106,16 +97,14 @@ function renderSidebar(opts?: {
   )
 }
 
-/** 通过 tooltip 文案找到对应触发按钮（Tooltip div 内含按钮 + 文案）。 */
+/** 行内文案即按钮文本：行按钮含图标+文字+徽标，取其最近 button 祖先。 */
 function buttonForTooltip(text: string): HTMLButtonElement {
-  const el = screen.getByText(text)
-  let node: HTMLElement | null = el.parentElement
-  while (node && node.getAttribute("data-testid") !== "tooltip") {
-    node = node.parentElement
+  const els = screen.getAllByText(text)
+  for (const el of els) {
+    const btn = el.closest("button")
+    if (btn) return btn as HTMLButtonElement
   }
-  const btn = node?.querySelector("button") as HTMLButtonElement | null
-  if (!btn) throw new Error(`button not found for tooltip: ${text}`)
-  return btn
+  throw new Error(`button not found for tooltip: ${text}`)
 }
 
 async function clickTooltip(text: string): Promise<void> {
@@ -324,35 +313,38 @@ describe("IconSidebar", () => {
     expect(String(wikiBtn.className)).toContain("qm-hover")
   })
 
-  it("reviewCenter 徽标：pending=1 显示计数与 tooltip 后缀", async () => {
+  it("reviewCenter 徽标：pending=1 显示计数徽标", async () => {
     mocks.reviewState.items = [{ resolved: false }]
     renderSidebar()
-    const btn = buttonForTooltip("novel.nav.reviewCenter (1)")
-    const badge = btn.querySelector("span")
+    const btn = buttonForTooltip("novel.nav.reviewCenter")
+    const badge = btn.querySelector('[data-testid="nav-badge"]')
     expect(badge?.textContent).toBe("1")
-    await clickTooltip("novel.nav.reviewCenter (1)")
-    expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("reviewCenter")
+    fireEvent.click(btn)
+    await waitFor(() => {
+      expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("reviewCenter")
+    })
   })
 
   it("reviewCenter 徽标：pending>99 显示 99+", () => {
     mocks.reviewState.items = Array.from({ length: 150 }, () => ({ resolved: false }))
     renderSidebar()
-    const btn = buttonForTooltip("novel.nav.reviewCenter (150)")
-    expect(btn.querySelector("span")?.textContent).toBe("99+")
+    const btn = buttonForTooltip("novel.nav.reviewCenter")
+    expect(btn.querySelector('[data-testid="nav-badge"]')?.textContent).toBe("99+")
   })
 
-  it("pending=0 时不显示徽标（reviewCenter 无计数后缀）", () => {
+  it("pending=1 时显示徽标", () => {
     mocks.reviewState.items = [{ resolved: true }, { resolved: false }]
     // pending = 1 → 仍有徽标
     renderSidebar()
-    const btn = buttonForTooltip("novel.nav.reviewCenter (1)")
-    expect(btn.querySelector("span")?.textContent).toBe("1")
+    const btn = buttonForTooltip("novel.nav.reviewCenter")
+    expect(btn.querySelector('[data-testid="nav-badge"]')?.textContent).toBe("1")
   })
 
   it("全部 resolved → 无徽标", () => {
     mocks.reviewState.items = [{ resolved: true }, { resolved: true }]
     renderSidebar()
-    expect(screen.queryByText("novel.nav.reviewCenter (")).not.toBeInTheDocument()
+    const btn = buttonForTooltip("novel.nav.reviewCenter")
+    expect(btn.querySelector('[data-testid="nav-badge"]')).toBeNull()
   })
 
   it("activeView=settings/trash 时对应按钮高亮", () => {

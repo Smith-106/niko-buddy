@@ -203,11 +203,13 @@ export function buildImportedChapterMarkdown({
   chapterNumber,
   body,
   finalForMemoryExtraction,
+  fingerprint,
 }: {
   title: string
   chapterNumber: number
   body: string
   finalForMemoryExtraction: boolean
+  fingerprint?: string
 }): string {
   const cleanedBody = stripLeadingHeading(stripFrontmatter(body))
   return [
@@ -216,6 +218,7 @@ export function buildImportedChapterMarkdown({
     `title: "${yamlEscape(title)}"`,
     `chapter_number: ${chapterNumber}`,
     `chapter_status: ${finalForMemoryExtraction ? "final" : "draft"}`,
+    ...(fingerprint ? [`import_source_fingerprint: ${fingerprint}`] : []),
     "---",
     "",
     `# ${title}`,
@@ -251,6 +254,29 @@ function collectImportableChapterFiles(nodes: readonly FileNode[]): ChapterImpor
 export async function collectChapterImportCandidatesFromFolder(selectedFolder: string): Promise<ChapterImportCandidate[]> {
   const tree = await listDirectory(normalizePath(selectedFolder))
   return sortChapterImportCandidates(collectImportableChapterFiles(tree))
+}
+
+async function findImportByFingerprint(chaptersDir: string, stem: string, fingerprint: string): Promise<string | null> {
+  for (let index = 0; index <= 99; index += 1) {
+    const candidate = index === 0 ? `${chaptersDir}/${stem}.md` : `${chaptersDir}/${stem}-${index}.md`
+    let exists = false
+    try {
+      exists = await fileExists(candidate)
+    } catch {
+      continue
+    }
+    if (!exists) {
+      if (index === 0) continue
+      return null
+    }
+    try {
+      const existing = await readFile(candidate)
+      if (extractImportFingerprint(existing) === fingerprint) return candidate
+    } catch {
+      continue
+    }
+  }
+  return null
 }
 
 async function getUniqueChapterImportPath(chaptersDir: string, chapterNumber: number, title: string): Promise<string> {
@@ -289,6 +315,33 @@ export async function importChapterFolder(
   return importChapterCandidates(projectPath, candidates, options)
 }
 
+/**
+ * 导入即副本幂等（R2：同一源文件内容指纹已落盘则跳过复写）。
+ * 以“源路径 + 内容长度 + 首尾切片”做轻量指纹，写入目标 frontmatter 的
+ * `import_source_fingerprint`；重入时命中指纹→跳过写盘并复用既有路径。
+ * 纯 mechanical 层：零 LLM，仅读/写文件。
+ */
+export function buildImportFingerprint(sourcePath: string, content: string): string {
+  const head = content.slice(0, 512)
+  const tail = content.slice(-512)
+  let h = 2166136261
+  const s = `${sourcePath}
+${content.length}
+${head}
+${tail}`
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return `fnv1a-${(h >>> 0).toString(16).padStart(8, "0")}-${content.length}`
+}
+
+/** 从已落盘章节正文提取导入指纹（无则 null）。 */
+export function extractImportFingerprint(markdown: string): string | null {
+  const m = markdown.match(/^import_source_fingerprint:\s*(.+?)\s*$/m)
+  return m ? m[1].trim() : null
+}
+
 async function importChapterCandidates(
   projectPath: string,
   candidates: readonly ChapterImportCandidate[],
@@ -308,12 +361,23 @@ async function importChapterCandidates(
     const title = titleFromCandidate(candidate, chapterNumber)
     try {
       const content = await readFile(candidate.path)
+      const fingerprint = buildImportFingerprint(candidate.path, content)
+      // 幂等：同指纹已落盘（任意 -N 后缀变体）→ 复用既有路径，不复写
+      const stem = makeSafeFileSlug(stripChapterPrefix(title), "")
+        ? `chapter-${String(chapterNumber).padStart(3, "0")}-${makeSafeFileSlug(stripChapterPrefix(title), "")}`
+        : `chapter-${String(chapterNumber).padStart(3, "0")}`
+      const hitPath = await findImportByFingerprint(chaptersDir, stem, fingerprint)
+      if (hitPath) {
+        imported.push({ sourcePath: candidate.path, path: hitPath, title, chapterNumber })
+        continue
+      }
       const targetPath = await getUniqueChapterImportPath(chaptersDir, chapterNumber, title)
       await writeFile(targetPath, buildImportedChapterMarkdown({
         title,
         chapterNumber,
         body: content,
         finalForMemoryExtraction: options.finalForMemoryExtraction,
+        fingerprint,
       }))
       imported.push({ sourcePath: candidate.path, path: targetPath, title, chapterNumber })
     } catch (error) {

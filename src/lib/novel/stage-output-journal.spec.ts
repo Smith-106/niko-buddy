@@ -29,6 +29,7 @@ import {
   setJournalTtlMs,
   sanitizeJournalTtlMs,
   effectiveJournalTtlMs,
+  listResumeCandidates,
   type StageJournalDeps,
   type StageOutputRecord,
 } from "./stage-output-journal"
@@ -479,5 +480,35 @@ describe("TTL wiring（safe config surface）", () => {
     const res = await resolveStageOutput(deps, "C:/proj", "abc", "gen", async () => ({}), NOW)
     expect(res.record!.ttlMs).toBe(77_777)
     setJournalTtlMs(null)
+  })
+})
+describe("listResumeCandidates（R2 恢复候选可见化）", () => {
+  const F = (digest: string) => `C:/proj/.novel/journal/${digest}.jsonl`
+  it("多digest多stage取最新未过期，按createdAt倒序", async () => {
+    const r1 = rec({ digest: "d1", stage: "gen", createdAt: NOW - 10 })
+    const r1old = rec({ digest: "d1", stage: "gen", createdAt: NOW - 100 })
+    const r2 = rec({ digest: "d2", stage: "revise", createdAt: NOW - 5 })
+    const deps = {
+      listDigests: async () => ["d1", "d2"],
+      read: async (f: string) => {
+        if (f === F("d1")) return [r1old, r1].map((r) => JSON.stringify(r)).join("\n")
+        if (f === F("d2")) return JSON.stringify(r2)
+        return ""
+      },
+    }
+    const out = await listResumeCandidates(deps, "C:/proj", NOW)
+    expect(out.map((c) => c.digest + ":" + c.stage)).toEqual(["d2:revise", "d1:gen"])
+  })
+  it("过期/坏行/缺文件跳过；listDigests抛错回空", async () => {
+    const expired = rec({ digest: "dx", createdAt: NOW - 10, expiresAt: NOW - 1 })
+    const deps = {
+      listDigests: async () => ["dx", "missing"],
+      read: async (f: string) => {
+        if (f.includes("missing")) throw new Error("ENOENT")
+        return "not-json\n" + JSON.stringify(expired)
+      },
+    }
+    expect(await listResumeCandidates(deps, "C:/proj", NOW)).toEqual([])
+    expect(await listResumeCandidates({ listDigests: async () => { throw new Error("x") }, read: async () => "" }, "P", NOW)).toEqual([])
   })
 })

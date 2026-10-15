@@ -389,3 +389,55 @@ export async function resolveStageOutput(
   await saveJournalEntry(deps, projectId, record)
   return { hit: false, record }
 }
+/**
+ * 恢复候选可见化（R2/P0：对标 ANW 恢复候选思想位，MIT 原生实现）。
+ *
+ * journal 按 digest 分文件（`.novel/journal/[digest].jsonl`），本函数扫描
+ * 注入的「目录清单」回调，按 digest 逐文件读、取各 stage 最新未过期记录，
+ * 返回可恢复候选列表（供 UI “未完成任务恢复”入口展示 + 断点续跑）。
+ * 纯 mechanical 层：零 LLM，仅读 + 判定。
+ */
+export interface ResumeCandidate {
+  digest: string
+  stage: string
+  createdAt: number
+  expiresAt: number
+}
+
+export interface ResumeScanDeps {
+  listDigests: () => Promise<string[]>
+  read: (file: string) => Promise<string>
+}
+
+export async function listResumeCandidates(
+  deps: ResumeScanDeps,
+  projectId: string,
+  now: number,
+): Promise<ResumeCandidate[]> {
+  const out: ResumeCandidate[] = []
+  let digests: string[] = []
+  try {
+    digests = await deps.listDigests()
+  } catch {
+    return out
+  }
+  for (const digest of digests) {
+    let raw = ""
+    try {
+      raw = await deps.read(journalFilePath(projectId, digest))
+    } catch {
+      continue
+    }
+    const seen = new Map<string, StageOutputRecord>()
+    for (const r of parseJournalLines(raw)) {
+      if (r.digest !== digest) continue
+      const prev = seen.get(r.stage)
+      if (!prev || r.createdAt > prev.createdAt) seen.set(r.stage, r)
+    }
+    for (const r of seen.values()) {
+      if (!isExpired(r, now)) out.push({ digest: r.digest, stage: r.stage, createdAt: r.createdAt, expiresAt: r.expiresAt })
+    }
+  }
+  out.sort((a, b) => b.createdAt - a.createdAt)
+  return out
+}

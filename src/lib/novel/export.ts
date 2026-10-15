@@ -391,3 +391,59 @@ export async function exportNovelEpub(options: EbookExportOptions): Promise<Eboo
     return { success: false, exportedPath: exportPath, chapterCount: 0, message }
   }
 }
+/**
+ * 定稿包出箱闭环（P0：对标 ANW finalization-repository 思想位，MIT 原生实现）。
+ *
+ * 编排：exportProject（md+快照+meta）→ exportNovelDocx → exportNovelEpub →
+ * 写 MANIFEST.json 校验单（各件文件名+章节数+时间戳+成功标记）。
+ * 任一步失败即停并返回已完成件清单（失败隔离，不写脏校验单）。
+ * 守 Draft-first：只读正式层，不写回任何内容。
+ */
+export interface FinalizeManuscriptOptions {
+  projectPath: string
+  exportDir: string
+  meta?: EbookExportMeta
+}
+
+export interface FinalizeManuscriptResult {
+  success: boolean
+  exportedDir: string
+  chapterCount: number
+  artifacts: string[]
+  message: string
+}
+
+export async function finalizeManuscript(options: FinalizeManuscriptOptions): Promise<FinalizeManuscriptResult> {
+  const dir = normalizePath(options.exportDir)
+  const artifacts: string[] = []
+  try {
+    await createDirectory(dir)
+    const base = await exportProject({ projectPath: options.projectPath, exportPath: `${dir}/project` })
+    if (!base.success) {
+      return { success: false, exportedDir: dir, chapterCount: 0, artifacts, message: `出箱中止于项目导出：${base.message}` }
+    }
+    artifacts.push("project/complete-novel.md")
+    const docx = await exportNovelDocx({ projectPath: options.projectPath, exportPath: `${dir}/complete-novel.docx` })
+    if (!docx.success) {
+      return { success: false, exportedDir: dir, chapterCount: base.chapterCount, artifacts, message: `出箱中止于 DOCX：${docx.message}` }
+    }
+    artifacts.push("complete-novel.docx")
+    const epub = await exportNovelEpub({ projectPath: options.projectPath, exportPath: `${dir}/complete-novel.epub`, meta: options.meta })
+    if (!epub.success) {
+      return { success: false, exportedDir: dir, chapterCount: base.chapterCount, artifacts, message: `出箱中止于 EPUB：${epub.message}` }
+    }
+    artifacts.push("complete-novel.epub")
+    const manifest = {
+      version: 1,
+      finalizedAt: new Date().toISOString(),
+      chapterCount: base.chapterCount,
+      artifacts,
+    }
+    await writeFile(`${dir}/MANIFEST.json`, JSON.stringify(manifest, null, 2))
+    artifacts.push("MANIFEST.json")
+    return { success: true, exportedDir: dir, chapterCount: base.chapterCount, artifacts, message: `定稿包出箱完成：${base.chapterCount} 章，${artifacts.length} 件` }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { success: false, exportedDir: dir, chapterCount: 0, artifacts, message }
+  }
+}

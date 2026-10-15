@@ -14,6 +14,7 @@ import { openGeneratedOutline, runOutlineIngestTask } from "@/lib/novel"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { clampSidebarWidth } from "@/lib/workspace-layout"
+import { TitleBar } from "./title-bar"
 import { useTranslation } from "react-i18next"
 import { HelpCircle, X } from "lucide-react"
 
@@ -169,6 +170,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
+      <TitleBar />
       {latestOutlineTask && (
         <div className="fixed bottom-3 right-3 z-50 w-80 rounded-lg border bg-background p-3 shadow-lg">
           <div className="text-sm font-medium">

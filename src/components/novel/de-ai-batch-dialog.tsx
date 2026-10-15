@@ -13,6 +13,8 @@ export interface DeAiBatchChapterRow {
   chapterNumber: number
   status: string
   lastError?: string
+  /** P1-3 规则自检摘要（Track B soft 诊断，非门；persona LLM 评审见章节工具栏“多视角评审”）。 */
+  selfCheckSummary?: string
 }
 
 export interface DeAiBatchDialogProps {
@@ -97,9 +99,12 @@ export function DeAiBatchDialog({
                       key={chapter.chapterNumber}
                       className="flex items-center justify-between border-b border-border px-3 py-1.5 text-xs last:border-b-0"
                     >
-                      <span>
+                      <span title={chapter.selfCheckSummary ?? undefined}>
                         第 {chapter.chapterNumber} 章 · {chapter.status}
                         {chapter.lastError ? <span className="text-destructive">（{chapter.lastError}）</span> : null}
+                        {chapter.selfCheckSummary ? (
+                          <span className="text-muted-foreground"> · 自检{chapter.selfCheckSummary}</span>
+                        ) : null}
                       </span>
                       {chapter.status === "ready" ? (
                         <span className="flex gap-1">

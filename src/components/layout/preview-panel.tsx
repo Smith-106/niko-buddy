@@ -222,7 +222,7 @@ export function PreviewPanel() {
   const [batchSummary, setBatchSummary] = useState<DeAiBatchSummary | null>(null)
   const [batchDialogOpen, setBatchDialogOpen] = useState(false)
   const [showUnpackOutlineDialog, setShowUnpackOutlineDialog] = useState(false)
-  const [batchChapters, setBatchChapters] = useState<Array<{ chapterNumber: number; status: string; lastError?: string }>>([])
+  const [batchChapters, setBatchChapters] = useState<Array<{ chapterNumber: number; status: string; lastError?: string; selfCheckSummary?: string }>>([])
   const batchAbortRef = useRef<AbortController | null>(null)
   const [deAiSourceContent, setDeAiSourceContent] = useState("")
   const [deAiCandidateContent, setDeAiCandidateContent] = useState("")
@@ -881,6 +881,7 @@ export function PreviewPanel() {
         chapterNumber: Number(key),
         status: chapter.status,
         lastError: chapter.lastError,
+        selfCheckSummary: chapter.selfCheckSummary,
       })),
     )
   }, [project])
@@ -1577,12 +1578,12 @@ export function PreviewPanel() {
               <button
                 type="button"
                 onClick={handleSelectionActionCancel}
-                className="shrink-0 rounded border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="shrink-0 rounded border border-border px-2 py-0.5 text-[0.6875rem] text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 {t("preview.cancel")}
               </button>
             ) : null}
-            <span className="block truncate text-[11px] text-muted-foreground/80 min-w-0">
+            <span className="block truncate text-[0.6875rem] text-muted-foreground/80 min-w-0">
               {visibleSaveStatus}
             </span>
           </div>
