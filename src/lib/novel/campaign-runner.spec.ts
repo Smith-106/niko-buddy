@@ -4,6 +4,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import {
   runAutonomousDraftCampaign,
   batchAcceptCampaignDrafts,
+  filterAcceptableChapters,
   type CampaignChapterResult,
 } from "./campaign-runner"
 
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   runDeepChapterGeneration: vi.fn(),
   createDirectory: vi.fn(),
   writeFileAtomic: vi.fn(),
+  commitAcceptedDeepChapterDraft: vi.fn(),
   ingestChapter: vi.fn(),
   defaultCanonDualWriteDeps: vi.fn(() => ({})),
 }))
@@ -31,6 +33,10 @@ vi.mock("./deep-chapter-generation", () => ({
 vi.mock("@/commands/fs", () => ({
   createDirectory: mocks.createDirectory,
   writeFileAtomic: mocks.writeFileAtomic,
+}))
+
+vi.mock("./formal-writeback", () => ({
+  commitAcceptedDeepChapterDraft: mocks.commitAcceptedDeepChapterDraft,
 }))
 
 vi.mock("./chapter-ingest", () => ({
@@ -49,6 +55,8 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     mocks.createDirectory.mockResolvedValue(undefined)
     mocks.writeFileAtomic.mockReset()
     mocks.writeFileAtomic.mockResolvedValue(undefined)
+    mocks.commitAcceptedDeepChapterDraft.mockReset()
+    mocks.commitAcceptedDeepChapterDraft.mockResolvedValue(undefined)
     mocks.ingestChapter.mockReset()
     mocks.ingestChapter.mockResolvedValue({ snapshot: { chapter: 1 } })
   })
@@ -192,10 +200,29 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
 
     expect(acceptResult.acceptedCount).toBe(2)
     expect(acceptResult.chapterPaths).toHaveLength(2)
-    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2)
+    // H1 收拢后：经正式晋升通道落盘，不再直写
+    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledTimes(2)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+
+    // 验证正式通道入参：conversationId / overwriteExisting / taskBrief 透传
+    const firstCommitInput = mocks.commitAcceptedDeepChapterDraft.mock.calls[0][0] as {
+      projectPath: string
+      conversationId: string
+      userRequest: string
+      chapterNumber: number
+      chapterPath: string
+      finalChapterContent: string
+      overwriteExisting: boolean
+    }
+    expect(firstCommitInput.projectPath).toBe("/mock/project")
+    expect(firstCommitInput.conversationId).toBe("autonomous-campaign")
+    expect(firstCommitInput.userRequest).toBe("brief-1")
+    expect(firstCommitInput.chapterNumber).toBe(1)
+    expect(firstCommitInput.chapterPath).toBe("/mock/project/wiki/chapters/chapter-001.md")
+    expect(firstCommitInput.overwriteExisting).toBe(true)
 
     // 验证写入的内容被标记为 final 态
-    const firstWriteContent = mocks.writeFileAtomic.mock.calls[0][1] as string
+    const firstWriteContent: string = firstCommitInput.finalChapterContent
     expect(firstWriteContent).toContain("chapter_status: final")
     expect(firstWriteContent).toContain("# 第一章 风起")
 
@@ -231,8 +258,9 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     expect(report.completedChapters).toBe(2)
     expect(report.results[0].autoAccepted).toBe(true)
     expect(report.results[1].autoAccepted).toBe(true)
-    // 验证触发了两次原子写落盘和两次事实摄取
-    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2)
+    // 验证触发了两次正式晋升通道落盘和两次事实摄取（收拢后不再直写）
+    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledTimes(2)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     expect(mocks.ingestChapter).toHaveBeenCalledTimes(2)
   })
 
@@ -401,6 +429,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       partial: false,
       partialReason: null,
     })
+    mocks.commitAcceptedDeepChapterDraft.mockRejectedValueOnce(new Error("status.json 不可用"))
     mocks.writeFileAtomic.mockRejectedValueOnce(new Error("写入文件权限受限"))
 
     const report = await runAutonomousDraftCampaign({
@@ -438,7 +467,10 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       },
     ])
     expect(res.acceptedCount).toBe(1)
-    const written = mocks.writeFileAtomic.mock.calls[0][1] as string
+    const committedInput = mocks.commitAcceptedDeepChapterDraft.mock.calls[0][0] as {
+      finalChapterContent: string
+    }
+    const written: string = committedInput.finalChapterContent
     expect(written).toContain("# 第7章")
   })
 
@@ -507,7 +539,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       ],
       {
         autoIngest: true,
-        llmConfig: { ...mockLlmConfig, model: undefined as any },
+        llmConfig: { ...mockLlmConfig, model: undefined as unknown as string },
       },
     )
 
@@ -571,6 +603,26 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     expect(res.acceptedCount).toBe(1)
     expect(res.ingestedCount).toBe(0)
     spy.mockRestore()
+  })
+
+  it("filterAcceptableChapters 仅保留ready且正文非空", () => {
+    const mk = (chapterNumber: number, status: CampaignChapterResult["status"], content: string): CampaignChapterResult => ({
+      chapterNumber,
+      content,
+      taskBrief: "b",
+      draftContent: "d",
+      reviewResults: [],
+      revised: false,
+      wordCount: content.length,
+      status,
+    })
+    const out = filterAcceptableChapters([
+      mk(1, "ready", "正文"),
+      mk(2, "blocked", "正文"),
+      mk(3, "ready", "   "),
+      mk(4, "partial", "正文"),
+    ])
+    expect(out.map((c) => c.chapterNumber)).toEqual([1])
   })
 })
 

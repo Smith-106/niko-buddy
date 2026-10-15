@@ -28,12 +28,15 @@ import { createDirectory, writeFileAtomic } from "@/commands/fs"
 function countWords(text: string): number {
   return text.replace(/\s/g, "").length
 }
+import { buildCarryoverContext } from "./campaign-memory"
 import {
   runDeepChapterGeneration,
   type DeepChapterDecisionGates,
 } from "./deep-chapter-generation"
 import type { NovelReviewResult } from "./review-adapter"
+import { buildArbitrationRequest } from "./cruise-arbitration"
 import { updateChapterStatus } from "./chapter-meta"
+import { commitAcceptedDeepChapterDraft } from "./formal-writeback"
 
 export interface CampaignChapterResult {
   chapterNumber: number
@@ -99,6 +102,16 @@ export interface BatchAcceptResult {
   acceptedCount: number
   chapterPaths: string[]
   ingestedCount: number
+}
+
+/**
+ * H1 晋升收拢：可验收过滤纯函数。
+ * 仅保留门控全绿（status === "ready"）且正文非空的章节草稿，其余（failed/blocked/partial/空白）一律跳过。
+ */
+export function filterAcceptableChapters(
+  chapterResults: CampaignChapterResult[],
+): CampaignChapterResult[] {
+  return chapterResults.filter((c) => c.status === "ready" && c.content.trim().length > 0)
 }
 
 /**
@@ -219,6 +232,7 @@ export async function runAutonomousDraftCampaign(
             {
               autoIngest: true,
               llmConfig,
+              novelConfig,
             },
           )
           isAutoAccepted = acceptRes.acceptedCount > 0
@@ -245,6 +259,9 @@ export async function runAutonomousDraftCampaign(
 
       // 巡航安全守护：若在全自动巡航模式下遇到未通过（blocked / partial），立即安全挂起后续推进
       if (cruiseMode && status !== "ready") {
+        const arbitrationRequest = buildArbitrationRequest(chapterResult)
+        const arbitrationJson = JSON.stringify(arbitrationRequest)
+        onProgress?.({ stage: "arbitration-pending", current: idx + 1, total, message: arbitrationJson })
         onProgress?.({
           stage: "cruise-paused",
           current: idx + 1,
@@ -254,8 +271,11 @@ export async function runAutonomousDraftCampaign(
         break
       }
 
-      // 更新前情记忆给下一章沙箱消费
-      previousDraftSummary = finalTxt.slice(-2000)
+      // 更新前情记忆给下一章沙箱消费（结构化承接：承接章号 + 末段收束 + 开端锚点）
+      previousDraftSummary = buildCarryoverContext({
+        chapterNumber: currentChapterNum,
+        content: finalTxt,
+      })
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)
       const failedResult: CampaignChapterResult = {
@@ -308,6 +328,7 @@ export async function batchAcceptCampaignDrafts(
     /** 自动执行章节事实摄取 */
     autoIngest?: boolean
     llmConfig?: LlmConfig
+    novelConfig?: NovelConfig
     onProgress?: (current: number, total: number, path: string) => void
   },
 ): Promise<BatchAcceptResult> {
@@ -318,8 +339,8 @@ export async function batchAcceptCampaignDrafts(
   const chapterPaths: string[] = []
   let ingestedCount = 0
 
-  // 仅提交非空且未失败的章节草稿
-  const validChapters = chapterResults.filter((c) => c.status === "ready" && c.content.trim().length > 0)
+  // 仅提交非空且未失败的章节草稿（纯过滤逻辑见 filterAcceptableChapters，便于单测）
+  const validChapters = filterAcceptableChapters(chapterResults)
   const total = validChapters.length
 
   for (let i = 0; i < total; i++) {
@@ -351,7 +372,25 @@ export async function batchAcceptCampaignDrafts(
 
     // 晋升为 final 正式章节态
     const finalContent = updateChapterStatus(rawChapterContent, "final")
-    await writeFileAtomic(filePath, finalContent)
+    // H1 晋升收拢：经正式晋升通道落盘（状态晋升 + 情绪账本 + promotion 登记）；
+    // 通道失败（如 status.json 不可用）时降级直写，保证批跑不断。
+    try {
+      await commitAcceptedDeepChapterDraft({
+        projectPath: pp,
+        conversationId: "autonomous-campaign",
+        userRequest:
+          (ch.taskBrief || "").trim().length > 0
+            ? ch.taskBrief
+            : `请撰写第 ${chapterNum} 章正文。`,
+        chapterNumber: chapterNum,
+        chapterPath: filePath,
+        finalChapterContent: finalContent,
+        overwriteExisting: true,
+      })
+    } catch (commitErr) {
+      console.warn(`[campaign-batch-accept] 正式晋升通道失败，降级直写 ${filePath}:`, commitErr)
+      await writeFileAtomic(filePath, finalContent)
+    }
     chapterPaths.push(filePath)
   }
 
@@ -366,6 +405,8 @@ export async function batchAcceptCampaignDrafts(
         try {
           await ingestChapter(pp, chPath, options.llmConfig?.model ?? "default", undefined, {
             canonDualWriteDeps: defaultCanonDualWriteDeps(),
+            llmConfig: options.llmConfig,
+            novelConfig: options.novelConfig,
           })
           ingestedCount++
         } catch (e) {
