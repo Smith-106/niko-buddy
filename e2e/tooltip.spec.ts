@@ -18,16 +18,31 @@ const NAV_VIEWS = ["skillLibrary", "storySimulation", "wiki", "soul"]
 
 async function openProject(page: Page): Promise<void> {
   await page.addInitScript(MOCK_INIT)
+  # 208: 关使用引导弹窗（fixed left-48 z-50，会在 CI 视口下遮挡底部 settings 行）
+  await page.addInitScript("localStorage.setItem('niko-buddy-usage-guide-prompt-dismissed','1')")
   await page.goto("/")
   await page.waitForSelector("#root", { state: "attached" })
   await page.getByRole("button", { name: "小说目录" }).click()
   await page.waitForSelector('[data-view="wiki"]', { timeout: 10000 })
 }
 
-/** 悬浮后返回提示文案、文字矩形、箭头矩形及其重叠面积。 */
+/** 悬浮后返回提示文案、文字矩形、箭头矩形及其重叠面积。
+ *
+ * #208（侧栏 w-44 图标+文字并排后）：导航行已改为行内文案 + 原生 title，不再挂载
+ * Base UI Tooltip（无 [data-slot="tooltip-content"]）。本 probe 先读行内文案与
+ * title；仅当 Tooltip 弹层存在时才走旧的箭头几何断言（后向兼容）。
+ */
 async function probe(page: Page, view: string) {
-  await page.locator(`[data-view="${view}"]`).hover()
+  const row = page.locator(`[data-view="${view}"]`)
+  await expect(row).toBeVisible()
+  const inlineText = ((await row.textContent()) ?? "").trim()
+  const title = (await row.getAttribute("title")) ?? ""
   const popup = page.locator('[data-slot="tooltip-content"]')
+  await row.hover()
+  // 行内文案语义：悬浮不弹 Tooltip，行内已有本地化文案 + title 一致
+  if ((await popup.count()) === 0) {
+    return { inline: true, label: inlineText, title }
+  }
   await expect(popup).toBeVisible()
   return page.evaluate(() => {
     const popupEl = document.querySelector('[data-slot="tooltip-content"]') as HTMLElement
@@ -79,8 +94,13 @@ test.describe("左侧图标栏 tooltip", () => {
       // 不得回落成 i18n 键原文（缺键时 i18next 会直接渲染键名）
       expect(label, `${row.view} 显示了未翻译的键`).not.toMatch(/^[a-z][\w.]*\.[a-zA-Z]/)
       expect(label.length, `${row.view} 文案为空`).toBeGreaterThan(0)
-      // 箭头（小圆点）不得压在文字上
-      expect(row.overlapAreaPx, `${row.view} 箭头与文字重叠 ${row.overlapAreaPx}px²`).toBe(0)
+      if (row.inline) {
+        // 行内文案语义：title 与行内文案一致（原生提示替代 Tooltip）
+        expect(String(row.title), `${row.view} title 与行内文案不一致`).toBe(label)
+      } else {
+        // 旧 Tooltip 语义：箭头（小圆点）不得压在文字上
+        expect(row.overlapAreaPx, `${row.view} 箭头与文字重叠 ${row.overlapAreaPx}px²`).toBe(0)
+      }
     }
   })
 })

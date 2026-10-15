@@ -313,7 +313,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
         </div>
       )}
       {!isSettings && !usageGuidePromptDismissed && (
-        <div className="fixed bottom-4 left-14 z-50 w-56 rounded-lg border border-primary/40 bg-background/95 p-3 shadow-xl backdrop-blur">
+        <div data-testid="usage-guide-prompt" className="fixed bottom-4 left-48 z-50 w-56 rounded-lg border border-primary/40 bg-background/95 p-3 shadow-xl backdrop-blur">
           <button
             type="button"
             onClick={dismissUsageGuidePrompt}

@@ -24,6 +24,8 @@ const SIDEBAR_VIEWS = [
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(MOCK_INIT)
+  # 208: 关使用引导弹窗（fixed left-48 z-50，会在 CI 视口下遮挡底部 settings 行）
+  await page.addInitScript("localStorage.setItem('niko-buddy-usage-guide-prompt-dismissed','1')")
   await page.goto("/")
   await page.waitForSelector("#root", { state: "attached" })
   // 启动页 → 打开项目（mock open_project）→ 主界面（sidebar 出现）
