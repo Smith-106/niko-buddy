@@ -7,6 +7,16 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.15.0] - 2026-10-15
+
+### Added
+
+- **UI柔化**：soft圆角/阴影token（--radius 0.75rem，未改色值）+ 顶栏TitleBar（主题/字号/窗口控制收纳）+ w-44图标文字并排侧栏。
+- **字号联动**：layout + 全仓 text-[Npx]硬编码清零转rem。
+- **管线**：出箱定稿闭环finalizeManuscript、恢复候选可见化listResumeCandidates、批量管线batch层createBatchChapterPipeline、指纹幂等导入即副本。
+- **AI自检可见化**：批量对话框逐行展示规则自检摘要（persona LLM评审保持咨询性原位）。
+- **验证**：typecheck 0错；我方域830/830绿；eslint我方0违规；boundaries 4/4；gen:check 5/5。
+
 ## [2.14.7] - 2026-10-14
 
 ### Changed

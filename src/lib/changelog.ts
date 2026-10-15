@@ -15,6 +15,24 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.15.0",
+    date: "2026-10-15",
+    highlights: {
+      en: [
+        "UI softening: soft radius/shadow tokens (no color changes) + TitleBar (theme/font/window controls) + w-44 icon+label sidebar.",
+        "Font-size linkage: hardcoded text-[Npx] cleared to rem across layout + full repo.",
+        "Pipeline: finalizeManuscript export loop, resume candidates, batch chapter pipeline, fingerprint-idempotent chapter import.",
+        "AI self-check surfacing: rule-based self-check summary shown per-row in batch dialog (persona LLM critique stays advisory). ",
+      ],
+      zh: [
+        "UI柔化：soft圆角/阴影token（未改色值）+ 顶栏TitleBar（主题/字号/窗口控制收纳）+ w-44图标文字并排侧栏。",
+        "字号联动：layout+全仓 text-[Npx]硬编码清零转rem。",
+        "管线：出箱定稿闭环finalizeManuscript、恢复候选可见化、批量管线batch层、指纹幂等导入即副本。",
+        "AI自检可见化：批量对话框逐行展示规则自检摘要（persona LLM评审保持咨询性原位）。",
+      ],
+    },
+  },
+  {
     version: "2.14.7",
     date: "2026-10-14",
     highlights: {
