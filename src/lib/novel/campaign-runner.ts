@@ -34,6 +34,7 @@ import {
   buildBaseRequest,
   buildCharacterConstraint,
   buildStageHint,
+  enrichWithEventPool,
 } from "./chapter-request-builder"
 import { listBindableNovelCharacters } from "./bindable-characters"
 import {
@@ -79,6 +80,11 @@ export interface CampaignRunOptions {
   cruiseMode?: boolean
   /** 自定义每章任务指令生成器，若未提供则根据默认模式自动生成任务请求 */
   buildChapterRequest?: (chapterNumber: number) => string | Promise<string>
+  /**
+   * 事件池动态注入开关（E2 成本闸）：默认关闭零成本；开启后默认分支每章多 1 次
+   * LLM 调用生成事件候选，失败自动直通不断巡航。
+   */
+  enableEventPool?: boolean
   /** 每章开始时的回调 */
   onChapterStart?: (chapterNumber: number, current: number, total: number) => void
   /** 每章完成时的回调 */
@@ -135,6 +141,7 @@ export async function runAutonomousDraftCampaign(
     novelConfig = DEFAULT_NOVEL_CONFIG,
     cruiseMode = false,
     buildChapterRequest,
+    enableEventPool = false,
     onChapterStart,
     onChapterComplete,
     onProgress,
@@ -181,6 +188,17 @@ export async function runAutonomousDraftCampaign(
         stage: buildStageHint(currentChapterNum, endChapter),
         carryover: previousDraftSummary,
       })
+      // E2 事件池动态注入：成本闸默认关闭；开启后失败自动直通不断巡航。
+      if (enableEventPool) {
+        userRequest = await enrichWithEventPool({
+          request: userRequest,
+          projectPath: pp,
+          llmConfig,
+          characters: characterNames,
+          chapterNumber: currentChapterNum,
+          totalChapters: endChapter,
+        })
+      }
     }
 
     // 若有前序沙箱草稿，注入连续性承接指令

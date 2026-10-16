@@ -6,6 +6,7 @@ import {
   buildCharacterConstraint,
   buildStageHint,
   enrichWithEventPool,
+  formatEventCandidate,
 } from "./chapter-request-builder"
 
 describe("chapter-request-builder (S2 章节请求构建器)", () => {
@@ -72,8 +73,22 @@ describe("chapter-request-builder (S2 章节请求构建器)", () => {
     )
   })
 
-  it("enrichWithEventPool 预留位直接透传原串", async () => {
+  it("enrichWithEventPool 设定缺失时原串直通", async () => {
     const request = "请撰写第 1 章正文。"
-    await expect(enrichWithEventPool(request)).resolves.toBe(request)
+    await expect(
+      enrichWithEventPool({
+        request,
+        projectPath: "/nonexistent-project-xyz",
+        llmConfig: { provider: "openai", apiKey: "", model: "x", ollamaUrl: "", customEndpoint: "", maxContextSize: 1000 },
+        characters: [],
+        chapterNumber: 1,
+        totalChapters: 10,
+      }),
+    ).resolves.toBe(request)
+  })
+
+  it("formatEventCandidate 空串返回空串，非空包裹候选格式", () => {
+    expect(formatEventCandidate("   ")).toBe("")
+    expect(formatEventCandidate("密室惊现血字")).toBe("【本章事件候选】密室惊现血字（可选用，不必强塞）。")
   })
 })

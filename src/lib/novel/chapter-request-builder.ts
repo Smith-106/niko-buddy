@@ -11,8 +11,13 @@
 
 import {
   getNodeStage,
+  pickStagedEvent,
+  generateDynamicEventPool,
   type EventStage,
 } from "./story-simulation/event-pool-generator"
+import { readSoulDoc } from "./soul-doc"
+import { loadWorldBlueprint } from "./world-blueprint"
+import type { LlmConfig } from "@/stores/wiki-store"
 
 /** 四阶段中文映射：起/承/转/合 + 各段文案 */
 const STAGE_HINT_MAP: Record<EventStage, { short: string; desc: string }> = {
@@ -69,10 +74,49 @@ export function assembleChapterRequest(parts: ChapterRequestParts): string {
 }
 
 /**
- * 事件池增强预留位：当前直接返回原串。
- * TODO: 待接入 story-simulation/event-pool-generator 的 generateDynamicEventPool，
- * 按世界观 + 角色动态生成事件池后注入 request，不改变现有同步装配链。
+ * 事件池动态注入（E2）：按世界观 + 角色生成事件池，按本章节拍取 1 条候选注入。
+ * 失败安全：任何异常（读不到设定/LLM 抛错/超时）一律原串直通，保证巡航不断。
+ * 成本闸：调用方显式开启（enableEventPool）才调 LLM；默认关闭零成本。
  */
-export async function enrichWithEventPool(request: string): Promise<string> {
-  return request
+export interface EventPoolEnrichInput {
+  request: string
+  projectPath: string
+  llmConfig: LlmConfig
+  characters: string[]
+  /** 本章 1-based 章号 */
+  chapterNumber: number
+  /** 全书/战役总章数 */
+  totalChapters: number
+}
+
+export function formatEventCandidate(text: string): string {
+  const t = text.trim()
+  if (t.length === 0) return ""
+  return `【本章事件候选】${t}（可选用，不必强塞）。`
+}
+
+export async function enrichWithEventPool(input: EventPoolEnrichInput): Promise<string> {
+  const { request, projectPath, llmConfig, characters, chapterNumber, totalChapters } = input
+  try {
+    const [soulDoc, blueprint] = await Promise.all([
+      readSoulDoc(projectPath).catch(() => ""),
+      loadWorldBlueprint(projectPath).catch(() => null),
+    ])
+    const worldRules = [soulDoc.slice(0, 800), blueprint ? JSON.stringify(blueprint).slice(0, 800) : ""]
+      .filter((s) => s.trim().length > 0)
+      .join("\n")
+    if (worldRules.trim().length === 0) return request
+    const pool = await generateDynamicEventPool({ llmConfig, worldRules, characters })
+    const total = Number.isFinite(totalChapters) ? Math.max(1, Math.floor(totalChapters)) : 1
+    const idx = Number.isFinite(chapterNumber)
+      ? Math.min(Math.max(0, Math.floor(chapterNumber) - 1), Math.max(0, total - 1))
+      : 0
+    const picked = pickStagedEvent(pool, new Set<string>(), idx, total)
+    if (!picked) return request
+    const candidate = formatEventCandidate(picked.text)
+    if (candidate.length === 0) return request
+    return `${request}\n\n${candidate}`
+  } catch {
+    return request
+  }
 }
