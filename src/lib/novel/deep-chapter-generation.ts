@@ -63,7 +63,6 @@ import {
   type AntiAiMode as KernelAntiAiMode,
 } from "./control-kernel"
 import { computeCheckpointDigestOf } from "./checkpoint-digest"
-import { mapResumeStageToCanonical } from "./stage-vocabulary"
 import {
   computeInstructionDigest,
   resolveStageOutput,
@@ -499,13 +498,22 @@ export interface DeepChapterRouteRuntime {
   shellMode: "legacy"
 }
 
-/** 恢复检查点 resume stage → route() RouteStage（A6：委托 stage-vocabulary canonic 映射，
- * 与 control-sentinels ROUTE_STAGES 同构；未知值由映射降级为 context，不静默终态）。 */
+/** 恢复检查点 resume stage → route() RouteStage（与 control-sentinels ROUTE_STAGES 同构；
+ * 未知值降级为 context，不静默终态）。B2 说明：曾委托 stage-vocabulary canonic 映射，
+ * 该模块系他人 P5 untracked（CI 缺失）已回退为内联 switch，行为等价。 */
 function mapResumeStageToRouteStage(
   checkpoint: DeepChapterGenerationResumeCheckpoint | undefined,
 ): RouteStage {
   if (!checkpoint) return "context"
-  return mapResumeStageToCanonical(checkpoint.stage)
+  switch (checkpoint.stage) {
+    case "after_context": return "context"
+    case "after_scene_breakdown": return "scene_breakdown"
+    case "after_task_brief": return "task_brief"
+    case "after_draft": return "draft"
+    case "after_review": return "review"
+    case "after_revision": return "revision"
+    default: return "context"
+  }
 }
 
 /** DeepChapterDecisionGate.status（pending/passed/failed）→ route() GateVerdict（pending/pass/fail）。 */

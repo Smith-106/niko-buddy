@@ -121,8 +121,7 @@ export const DEFAULT_REVIEW_INTERVAL = 5
 // 类型枚举哨兵 (与 control-kernel.ts 类型契约同源)
 // ============================================================================
 
-/** 阶段枚举 (7 值, 与 deep-chapter-generation 的 resume stage 链同构)。
- * A6：本数组即 canonic 阶段的权威定义源；同构声明见 src/lib/novel/stage-vocabulary.ts。 */
+/** 阶段枚举 (7 值, 与 deep-chapter-generation 的 resume stage 链同构)。 */
 export const ROUTE_STAGES = [
   "context",
   "scene_breakdown",
