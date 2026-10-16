@@ -284,13 +284,15 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## Windows 安装包
 
-下载 [`QMaiWrite_2.5.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.5.0/QMaiWrite_2.5.0_windows_X64.exe)（约 33 MB，v2.5.1 为 notes-only 源码版本，安装包沿用 v2.5.0 资产），双击运行 NSIS 安装程序即可。
+下载 [`niko-buddy_2.16.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.16.0/niko-buddy_2.16.0_windows_X64.exe)（约 34 MB），双击运行 NSIS 安装程序即可。
 
 ## 便携版
 
-下载 [`QMaiWrite-portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.5.0/QMaiWrite-portable.exe)（约 148 MB），解压后直接运行，无需安装，适合 U 盘随身携带或免安装场景。
+下载 [`niko-buddy_2.16.0_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.16.0/niko-buddy_2.16.0_windows_X64_portable.exe)（约 149 MB，单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
 
 ## 系统要求
+
+> 全部版本与完整资产列表见 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases/latest)（资产命名规范见 `RELEASING.md`）；应用内 Tauri Updater 会在启动时自动检测新版本。
 
 - **操作系统**：Windows 10 及以上（主要支持平台）、macOS（planned）、Linux（planned）
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
