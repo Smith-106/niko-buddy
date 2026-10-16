@@ -15,6 +15,20 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.16.0",
+    date: "2026-10-16",
+    highlights: {
+      en: [
+        "Automation loop: headless runner + cruise arbitration wiring + arc-settlement contracts; batch accept via formal-writeback with safe fallback.",
+        "Structured chapter carryover replaces blind 2000-char truncation.",
+      ],
+      zh: [
+        "自动化闭环：无头驱动器+巡航仲裁接线+弧末结算契约层；批量验收经正式晋升通道（失败降级直写）。",
+        "结构化跨章承接替代2000字盲截断。",
+      ],
+    },
+  },
+  {
     version: "2.15.1",
     date: "2026-10-15",
     highlights: {
