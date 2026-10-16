@@ -52,14 +52,14 @@ describe("B1/B2 默认行为锁定", () => {
   })
 
   it("route 灰度：缺省/显式false恒 legacy（默认行为不变）", () => {
-    const input = { projectPath: "pp", userRequest: "r", chapterNumber: 1 } as { projectPath: string; userRequest: string; chapterNumber: number; routeShellMode?: "route" }
-    expect(resolveRouteShellMode(input, undefined as never)).toBe("legacy")
-    expect(resolveRouteShellMode(input, {} as never)).toBe("legacy")
-    expect(resolveRouteShellMode(input, { enableRouteShell: false } as never)).toBe("legacy")
+    const base = { projectPath: "pp", userRequest: "r", chapterNumber: 1, llmConfig: {}, novelConfig: {} } as never
+    expect(resolveRouteShellMode(base, undefined as never)).toBe("legacy")
+    expect(resolveRouteShellMode(base, {} as never)).toBe("legacy")
+    expect(resolveRouteShellMode(base, { enableRouteShell: false } as never)).toBe("legacy")
     // 显式 opt-in 才放行
-    expect(resolveRouteShellMode(input, { enableRouteShell: true } as never)).toBe("legacy")
+    expect(resolveRouteShellMode(base, { enableRouteShell: true } as never)).toBe("legacy")
     expect(
-      resolveRouteShellMode({ ...input, routeShellMode: "route" } as never, { enableRouteShell: true } as never),
+      resolveRouteShellMode({ ...(base as object), routeShellMode: "route" } as never, { enableRouteShell: true } as never),
     ).toBe("route")
   })
 
