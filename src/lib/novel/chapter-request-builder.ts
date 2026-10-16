@@ -30,6 +30,10 @@ const STAGE_HINT_MAP: Record<EventStage, { short: string; desc: string }> = {
 export interface ChapterRequestParts {
   base: string
   character?: string
+  /** F2 视点约束段（空串时装配自动跳过） */
+  pov?: string
+  /** F2 人物访谈锚点段（空串时装配自动跳过） */
+  interview?: string
   stage?: string
   carryover?: string
 }
@@ -47,6 +51,39 @@ export function buildCharacterConstraint(names: string[]): string {
 }
 
 /**
+ * F2 视点约束（纯函数，零成本）：
+ * povName 为空（null/空串/空白）→ 空串；否则输出
+ * `【视点约束】本章视点人物：X。`，others 非空时追加
+ * `；不得描写以下人物的内心活动：A、B。`（others 清洗去重并排除视点本人）。
+ */
+export function buildPovConstraint(povName: string | null, others: string[]): string {
+  const pov = typeof povName === "string" ? povName.trim() : ""
+  if (pov.length === 0) return ""
+  const seen = new Set<string>()
+  const cleaned: string[] = []
+  for (const name of others) {
+    const n = name.trim()
+    if (n.length === 0 || n === pov || seen.has(n)) continue
+    seen.add(n)
+    cleaned.push(n)
+  }
+  if (cleaned.length === 0) return `【视点约束】本章视点人物：${pov}。`
+  return `【视点约束】本章视点人物：${pov}；不得描写以下人物的内心活动：${cleaned.join("、")}。`
+}
+
+/**
+ * F2 人物访谈锚点（纯函数，零成本）：
+ * 空（空数组/全空白）→ 空串；否则取最近 3 条（数组末尾 3 条），以 `· ` 为前缀、
+ * `\n` 连接并冠以 `【人物访谈锚点】` 头行；超长单条截断至 200 字。
+ */
+export function buildInterviewAnchor(snippets: string[]): string {
+  const cleaned = snippets.map((s) => s.trim()).filter((s) => s.length > 0)
+  if (cleaned.length === 0) return ""
+  const recent = cleaned.slice(-3).map((s) => (s.length > 200 ? s.slice(0, 200) : s))
+  return `【人物访谈锚点】\n${recent.map((s) => `· ${s}`).join("\n")}`
+}
+
+/**
  * 节拍提示：chapterNumber 为 1-based，内部转 0-based 后复用
  * getNodeStage(nodeIndex 0-based, totalNodes)。
  */
@@ -60,11 +97,13 @@ export function buildStageHint(chapterNumber: number, totalChapters: number): st
   return `【节拍提示】本章处于「${hint.short}」段：${hint.desc}`
 }
 
-/** 按 base → character → stage → carryover 顺序，非空段以 \n\n 连接 */
+/** 按 base → character → pov → interview → stage → carryover 顺序，非空段以 \n\n 连接 */
 export function assembleChapterRequest(parts: ChapterRequestParts): string {
   const segments: (string | undefined)[] = [
     parts.base,
     parts.character,
+    parts.pov,
+    parts.interview,
     parts.stage,
     parts.carryover,
   ]

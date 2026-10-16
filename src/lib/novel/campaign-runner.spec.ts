@@ -7,6 +7,7 @@ import {
   filterAcceptableChapters,
   type CampaignChapterResult,
 } from "./campaign-runner"
+import type { ArbitrationDirective, ArbitrationRequest } from "./cruise-arbitration"
 
 const mockLlmConfig: LlmConfig = {
   provider: "openai",
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   createDirectory: vi.fn(),
   writeFileAtomic: vi.fn(),
   commitAcceptedDeepChapterDraft: vi.fn(),
+  registerManagedCampaignDraft: vi.fn(),
   ingestChapter: vi.fn(),
   defaultCanonDualWriteDeps: vi.fn(() => ({})),
 }))
@@ -37,6 +39,10 @@ vi.mock("@/commands/fs", () => ({
 
 vi.mock("./formal-writeback", () => ({
   commitAcceptedDeepChapterDraft: mocks.commitAcceptedDeepChapterDraft,
+}))
+
+vi.mock("./novel-session-status", () => ({
+  registerManagedCampaignDraft: mocks.registerManagedCampaignDraft,
 }))
 
 vi.mock("./chapter-ingest", () => ({
@@ -57,6 +63,8 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     mocks.writeFileAtomic.mockResolvedValue(undefined)
     mocks.commitAcceptedDeepChapterDraft.mockReset()
     mocks.commitAcceptedDeepChapterDraft.mockResolvedValue(undefined)
+    mocks.registerManagedCampaignDraft.mockReset()
+    mocks.registerManagedCampaignDraft.mockResolvedValue("/mock/project/.novel/drafts/autonomous-campaign.json")
     mocks.ingestChapter.mockReset()
     mocks.ingestChapter.mockResolvedValue({ snapshot: { chapter: 1 } })
   })
@@ -200,9 +208,28 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
 
     expect(acceptResult.acceptedCount).toBe(2)
     expect(acceptResult.chapterPaths).toHaveLength(2)
+    expect(acceptResult.failedCount).toBe(0)
+    expect(acceptResult.failures).toEqual([])
     // H1 收拢后：经正式晋升通道落盘，不再直写
     expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledTimes(2)
     expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+
+    // DF-1: 每章先注册 ready 受管草稿，再走 accept（顺序 register → commit）
+    expect(mocks.registerManagedCampaignDraft).toHaveBeenCalledTimes(2)
+    expect(mocks.registerManagedCampaignDraft.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.commitAcceptedDeepChapterDraft.mock.invocationCallOrder[0])
+    const firstRegisterInput = mocks.registerManagedCampaignDraft.mock.calls[0][0] as {
+      projectPath: string
+      conversationId: string
+      chapterNumber: number
+      finalContent: string
+      userRequest: string
+    }
+    expect(firstRegisterInput.projectPath).toBe("/mock/project")
+    expect(firstRegisterInput.conversationId).toBe("autonomous-campaign")
+    expect(firstRegisterInput.chapterNumber).toBe(1)
+    expect(firstRegisterInput.finalContent).toBe("这是第一章正式内容")
+    expect(firstRegisterInput.userRequest).toBe("brief-1")
 
     // 验证正式通道入参：conversationId / overwriteExisting / taskBrief 透传
     const firstCommitInput = mocks.commitAcceptedDeepChapterDraft.mock.calls[0][0] as {
@@ -229,6 +256,52 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     // 验证自动执行了 2 次 ingestChapter
     expect(mocks.ingestChapter).toHaveBeenCalledTimes(2)
     expect(acceptResult.ingestedCount).toBe(2)
+  })
+
+  it("DF-1: 晋升失败拒绝降级直写 —— acceptedCount 只计成功、failedCount/failures 如实上报", async () => {
+    mocks.commitAcceptedDeepChapterDraft
+      .mockRejectedValueOnce(new Error("status.json 不可用"))
+      .mockResolvedValueOnce(undefined)
+
+    const res = await batchAcceptCampaignDrafts("/mock/project", [
+      {
+        chapterNumber: 1,
+        title: "第一章",
+        content: "第一章失败内容",
+        taskBrief: "b1",
+        draftContent: "d1",
+        reviewResults: [],
+        revised: false,
+        wordCount: 100,
+        status: "ready",
+      },
+      {
+        chapterNumber: 2,
+        title: "第二章",
+        content: "第二章成功内容",
+        taskBrief: "b2",
+        draftContent: "d2",
+        reviewResults: [],
+        revised: false,
+        wordCount: 100,
+        status: "ready",
+      },
+    ])
+
+    expect(res.acceptedCount).toBe(1)
+    expect(res.failedCount).toBe(1)
+    expect(res.failures).toEqual([
+      {
+        chapterNumber: 1,
+        chapterPath: "/mock/project/wiki/chapters/chapter-001.md",
+        error: "status.json 不可用",
+      },
+    ])
+    expect(res.chapterPaths).toEqual(["/mock/project/wiki/chapters/chapter-002.md"])
+    // 失败路径不再降级直写正文（旧行为会 writeFileAtomic 补写并计入成功）
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    // 失败章也已注册过受管草稿（accept 前置步骤），但结果不计成功
+    expect(mocks.registerManagedCampaignDraft).toHaveBeenCalledTimes(2)
   })
 
   it("全自动巡航模式 (cruiseMode: true)：门控全绿时自动提交晋升与事实库双写", async () => {
@@ -441,6 +514,8 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     })
 
     expect(report.results[0].autoAccepted).toBe(false)
+    // DF-1: 晋升失败不得降级直写正式正文（旧后门已移除），也不得以 acceptedCount 报成功
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("batchAcceptCampaignDrafts 默认标题回退与过滤空白内容", async () => {
@@ -623,6 +698,289 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       mk(4, "partial", "正文"),
     ])
     expect(out.map((c) => c.chapterNumber)).toEqual([1])
+  })
+
+  it("F3: arbitrationProvider 缺省时保持现有 paused 行为", async () => {
+    mocks.runDeepChapterGeneration
+      .mockResolvedValueOnce({
+        finalContent: "第一章全绿",
+        taskBrief: "brief1",
+        draftContent: "draft1",
+        reviewResults: [],
+        revised: false,
+        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        manualReviewRequired: false,
+        retryCount: 0,
+        partial: false,
+        partialReason: null,
+      })
+      .mockResolvedValueOnce({
+        finalContent: "第二章出现严重冲突",
+        taskBrief: "brief2",
+        draftContent: "draft2",
+        reviewResults: [],
+        revised: false,
+        decisionGates: { consistency: "failed", antiAi: "passed", quality: "failed" },
+        manualReviewRequired: true,
+        retryCount: 3,
+        partial: false,
+        partialReason: null,
+      })
+
+    const onProgress = vi.fn()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 3,
+      llmConfig: mockLlmConfig,
+      cruiseMode: true,
+      onProgress,
+    })
+
+    // 未传 arbitrationProvider：第二章 blocked 后安全挂起，第三章未被调度
+    expect(report.results).toHaveLength(2)
+    expect(report.results[1].status).toBe("blocked")
+    expect(report.results[1].skipped).toBeFalsy()
+    expect(mocks.runDeepChapterGeneration).toHaveBeenCalledTimes(2)
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "arbitration-pending" }),
+    )
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "cruise-paused" }),
+    )
+  })
+
+  it("F3: retry 指令用 revisedBrief 重跑成功后继续下一章", async () => {
+    mocks.runDeepChapterGeneration
+      .mockResolvedValueOnce({
+        finalContent: "第一章首跑被门控阻断",
+        taskBrief: "brief1",
+        draftContent: "draft1",
+        reviewResults: [],
+        revised: false,
+        decisionGates: { consistency: "failed", antiAi: "passed", quality: "passed" },
+        manualReviewRequired: true,
+        retryCount: 3,
+        partial: false,
+        partialReason: null,
+      })
+      .mockResolvedValueOnce({
+        finalContent: "第一章重跑后全绿",
+        taskBrief: "revised-brief-1",
+        draftContent: "draft1-retry",
+        reviewResults: [],
+        revised: true,
+        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        manualReviewRequired: false,
+        retryCount: 0,
+        partial: false,
+        partialReason: null,
+      })
+      .mockResolvedValueOnce({
+        finalContent: "第二章全绿",
+        taskBrief: "brief2",
+        draftContent: "draft2",
+        reviewResults: [],
+        revised: false,
+        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        manualReviewRequired: false,
+        retryCount: 0,
+        partial: false,
+        partialReason: null,
+      })
+
+    const provider = vi.fn(
+      async (_req: ArbitrationRequest): Promise<ArbitrationDirective | null> => ({
+        action: "retry-rebrief",
+        revisedBrief: "revised-brief-1",
+        reason: "放宽门限后重跑",
+      }),
+    )
+    const onProgress = vi.fn()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 2,
+      llmConfig: mockLlmConfig,
+      cruiseMode: true,
+      buildChapterRequest: async (num: number) => `brief-${num}`,
+      arbitrationProvider: provider,
+      onProgress,
+    })
+
+    expect(provider).toHaveBeenCalledTimes(1)
+    const arbReq = provider.mock.calls[0][0] as ArbitrationRequest
+    expect(arbReq.chapterNumber).toBe(1)
+    expect(arbReq.status).toBe("blocked")
+    // 重跑确实用 revisedBrief 作为本章请求
+    const retryInput = mocks.runDeepChapterGeneration.mock.calls[1][0] as { userRequest: string }
+    expect(retryInput.userRequest).toBe("revised-brief-1")
+    expect(mocks.runDeepChapterGeneration).toHaveBeenCalledTimes(3)
+    expect(report.results).toHaveLength(2)
+    expect(report.results[0].status).toBe("ready")
+    expect(report.results[1].status).toBe("ready")
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "arbitration-retry" }),
+    )
+    expect(onProgress).not.toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "cruise-paused" }),
+    )
+  })
+
+  it("F3: retry 重跑仍失败则 paused（单章只重跑一次）", async () => {
+    mocks.runDeepChapterGeneration
+      .mockResolvedValueOnce({
+        finalContent: "第一章首跑被阻断",
+        taskBrief: "brief1",
+        draftContent: "draft1",
+        reviewResults: [],
+        revised: false,
+        decisionGates: { consistency: "failed", antiAi: "passed", quality: "passed" },
+        manualReviewRequired: true,
+        retryCount: 3,
+        partial: false,
+        partialReason: null,
+      })
+      .mockResolvedValueOnce({
+        finalContent: "第一章重跑仍被阻断",
+        taskBrief: "revised-brief-1",
+        draftContent: "draft1-retry",
+        reviewResults: [],
+        revised: true,
+        decisionGates: { consistency: "failed", antiAi: "passed", quality: "failed" },
+        manualReviewRequired: true,
+        retryCount: 0,
+        partial: false,
+        partialReason: null,
+      })
+
+    const provider = vi.fn(
+      async (_req: ArbitrationRequest): Promise<ArbitrationDirective | null> => ({
+        action: "retry-rebrief",
+        revisedBrief: "revised-brief-1",
+        reason: "再次尝试",
+      }),
+    )
+    const onProgress = vi.fn()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 2,
+      llmConfig: mockLlmConfig,
+      cruiseMode: true,
+      arbitrationProvider: provider,
+      onProgress,
+    })
+
+    // 首跑 + 重跑各一次，重跑仍失败则挂起，不再二次仲裁
+    expect(provider).toHaveBeenCalledTimes(1)
+    expect(mocks.runDeepChapterGeneration).toHaveBeenCalledTimes(2)
+    expect(report.results).toHaveLength(1)
+    expect(report.results[0].status).toBe("blocked")
+    expect(report.results[0].skipped).toBeFalsy()
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "arbitration-retry" }),
+    )
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "cruise-paused" }),
+    )
+  })
+
+  it("F3: skip 指令标记跳过并继续下一章", async () => {
+    mocks.runDeepChapterGeneration
+      .mockResolvedValueOnce({
+        finalContent: "第一章出现严重冲突",
+        taskBrief: "brief1",
+        draftContent: "draft1",
+        reviewResults: [],
+        revised: false,
+        decisionGates: { consistency: "failed", antiAi: "passed", quality: "failed" },
+        manualReviewRequired: true,
+        retryCount: 3,
+        partial: false,
+        partialReason: null,
+      })
+      .mockResolvedValueOnce({
+        finalContent: "第二章全绿",
+        taskBrief: "brief2",
+        draftContent: "draft2",
+        reviewResults: [],
+        revised: false,
+        decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+        manualReviewRequired: false,
+        retryCount: 0,
+        partial: false,
+        partialReason: null,
+      })
+
+    const provider = vi.fn(
+      async (_req: ArbitrationRequest): Promise<ArbitrationDirective | null> => ({
+        action: "skip-chapter",
+        reason: "本章冲突跳过",
+      }),
+    )
+    const onProgress = vi.fn()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 2,
+      llmConfig: mockLlmConfig,
+      cruiseMode: true,
+      arbitrationProvider: provider,
+      onProgress,
+    })
+
+    expect(provider).toHaveBeenCalledTimes(1)
+    // 跳过章不重跑，下一章照常推进
+    expect(mocks.runDeepChapterGeneration).toHaveBeenCalledTimes(2)
+    expect(report.results).toHaveLength(2)
+    expect(report.results[0].status).toBe("blocked")
+    expect(report.results[0].skipped).toBe(true)
+    expect(report.results[1].status).toBe("ready")
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "arbitration-skip" }),
+    )
+    expect(onProgress).not.toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "cruise-paused" }),
+    )
+  })
+
+  it("F3: provider 返回 null 指令时保持 paused", async () => {
+    mocks.runDeepChapterGeneration.mockResolvedValueOnce({
+      finalContent: "第一章出现严重冲突",
+      taskBrief: "brief1",
+      draftContent: "draft1",
+      reviewResults: [],
+      revised: false,
+      decisionGates: { consistency: "failed", antiAi: "passed", quality: "failed" },
+      manualReviewRequired: true,
+      retryCount: 3,
+      partial: false,
+      partialReason: null,
+    })
+
+    const provider = vi.fn(
+      async (_req: ArbitrationRequest): Promise<ArbitrationDirective | null> => null,
+    )
+    const onProgress = vi.fn()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 2,
+      llmConfig: mockLlmConfig,
+      cruiseMode: true,
+      arbitrationProvider: provider,
+      onProgress,
+    })
+
+    expect(provider).toHaveBeenCalledTimes(1)
+    expect(mocks.runDeepChapterGeneration).toHaveBeenCalledTimes(1)
+    expect(report.results).toHaveLength(1)
+    expect(report.results[0].status).toBe("blocked")
+    expect(report.results[0].skipped).toBeFalsy()
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "cruise-paused" }),
+    )
   })
 })
 

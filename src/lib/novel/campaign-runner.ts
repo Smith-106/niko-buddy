@@ -18,12 +18,16 @@
  * 4. 批量验收晋升：
  *    - 提供 batchAcceptCampaignDrafts 事务化批量提交接口，经作者统一审阅后一键
  *      落盘正式正文，并顺序触发章节摄取与事实双写。
+ *    - DF-1: 战役路径不经过聊天会话生命周期，验收前必须先注册（复用）受管草稿
+ *      （ready），accept 的 Draft-first 校验才成立；晋升失败必须如实失败
+ *      （不降级直写正式正文、不计入 acceptedCount），acceptedCount 只统计
+ *      真源落接受态的章节。
  */
 
 import type { LlmConfig } from "@/stores/wiki-store"
 import { DEFAULT_NOVEL_CONFIG, type NovelConfig } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
-import { createDirectory, writeFileAtomic } from "@/commands/fs"
+import { createDirectory } from "@/commands/fs"
 
 function countWords(text: string): number {
   return text.replace(/\s/g, "").length
@@ -33,18 +37,27 @@ import {
   assembleChapterRequest,
   buildBaseRequest,
   buildCharacterConstraint,
+  buildInterviewAnchor,
+  buildPovConstraint,
   buildStageHint,
   enrichWithEventPool,
 } from "./chapter-request-builder"
 import { listBindableNovelCharacters } from "./bindable-characters"
+import { loadBinding } from "./story-simulation/framework-binding"
 import {
   runDeepChapterGeneration,
   type DeepChapterDecisionGates,
 } from "./deep-chapter-generation"
 import type { NovelReviewResult } from "./review-adapter"
-import { buildArbitrationRequest } from "./cruise-arbitration"
+import {
+  buildArbitrationRequest,
+  type ArbitrationDirective,
+  type ArbitrationRequest,
+} from "./cruise-arbitration"
+import { decidePausedChapter, type PausedChapterDecision } from "./cruise-wiring"
 import { updateChapterStatus } from "./chapter-meta"
 import { commitAcceptedDeepChapterDraft } from "./formal-writeback"
+import { registerManagedCampaignDraft } from "./novel-session-status"
 
 export interface CampaignChapterResult {
   chapterNumber: number
@@ -58,6 +71,11 @@ export interface CampaignChapterResult {
   wordCount: number
   status: "ready" | "failed" | "blocked" | "partial"
   error?: string
+  /**
+   * F3 仲裁跳章标记：经 arbitrationProvider 返回 skip-chapter 指令后置 true，
+   * 原 blocked/partial 现场保留备查，战役继续推进下一章。缺省 undefined。
+   */
+  skipped?: boolean
   /** 全自动巡航模式下是否已自动提交晋升正式章节 */
   autoAccepted?: boolean
 }
@@ -78,6 +96,12 @@ export interface CampaignRunOptions {
    * 若某章发生阻断（blocked 或 failed），巡航自动安全挂起待人工介入。
    */
   cruiseMode?: boolean
+  /**
+   * F3 仲裁执行闭环：cruise-paused 分支的仲裁指令提供者。
+   * 缺省 undefined → 保持现有 paused 行为（安全挂起待人工介入）；
+   * 返回 null 亦视为无指令，走现有 paused 行为。
+   */
+  arbitrationProvider?: (req: ArbitrationRequest) => Promise<ArbitrationDirective | null>
   /** 自定义每章任务指令生成器，若未提供则根据默认模式自动生成任务请求 */
   buildChapterRequest?: (chapterNumber: number) => string | Promise<string>
   /**
@@ -111,8 +135,19 @@ export interface CampaignReport {
   }
 }
 
+export interface BatchAcceptFailure {
+  chapterNumber: number
+  chapterPath: string
+  error: string
+}
+
 export interface BatchAcceptResult {
+  /** 实际经正式晋升通道成功（真源落接受态）的章节数；失败章节不计入。 */
   acceptedCount: number
+  /** 晋升失败（未落正式目录、未计成功）的章节数。 */
+  failedCount: number
+  /** 失败明细（DF-1：失败必须如实上报，供 UI/诊断消费）。 */
+  failures: BatchAcceptFailure[]
   chapterPaths: string[]
   ingestedCount: number
 }
@@ -128,6 +163,26 @@ export function filterAcceptableChapters(
 }
 
 /**
+ * F2 零成本视点提取（尽力而为纯读）：从框架绑定对象上探测视点人物声明。
+ * FrameworkBinding 标准形态无视点字段，未声明时返回 null（绝不臆造 POV）。
+ */
+function extractBindingPovName(binding: unknown): string | null {
+  if (typeof binding !== "object" || binding === null) return null
+  const rec = binding as unknown as Record<string, unknown>
+  const candidates: unknown[] = [
+    rec["povCharacter"],
+    rec["pov"],
+    rec["povName"],
+    rec["viewpointCharacter"],
+    rec["viewpoint"],
+  ]
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().length > 0) return c.trim()
+  }
+  return null
+}
+
+/**
  * 启动预演式批量战役调度
  */
 export async function runAutonomousDraftCampaign(
@@ -140,6 +195,7 @@ export async function runAutonomousDraftCampaign(
     llmConfig,
     novelConfig = DEFAULT_NOVEL_CONFIG,
     cruiseMode = false,
+    arbitrationProvider,
     buildChapterRequest,
     enableEventPool = false,
     onChapterStart,
@@ -182,9 +238,22 @@ export async function runAutonomousDraftCampaign(
       } catch {
         characterNames = []
       }
+      // F2 零成本约束注入：视点约束（binding 尽力而为读取，取不到传 null；零 LLM 成本）
+      let povName: string | null = null
+      try {
+        povName = extractBindingPovName(await loadBinding(pp))
+      } catch {
+        povName = null
+      }
+      // F2 零成本约束注入：访谈锚点（interview-store 经 grep 确认无 loadRecentSnippets
+      // 导出，仅有 save/load/delete + loadInterviews，故 snippets 传 [] 零成本跳过）
+      const interviewSnippets: string[] = []
+      const povOthers = povName ? characterNames.filter((n) => n !== povName) : characterNames
       userRequest = assembleChapterRequest({
         base: buildBaseRequest(currentChapterNum),
         character: buildCharacterConstraint(characterNames),
+        pov: buildPovConstraint(povName, povOthers),
+        interview: buildInterviewAnchor(interviewSnippets),
         stage: buildStageHint(currentChapterNum, endChapter),
         carryover: previousDraftSummary,
       })
@@ -207,11 +276,15 @@ export async function runAutonomousDraftCampaign(
       dismantlingDirective = `【前序连贯性前情承接】上一章正文概要/选段：\n${previousDraftSummary.slice(0, 1500)}`
     }
 
-    try {
+    // F3：本章是否已用仲裁 revisedBrief 重跑过（单章最多重跑一次，第二次仍失败则 paused）
+    let retriedOnce = false
+
+    // F3：单章生成尝试（含门控映射与巡航自动晋升），首跑与仲裁 retry 重跑共用。
+    const attemptChapter = async (requestText: string): Promise<CampaignChapterResult> => {
       const genResult = await runDeepChapterGeneration(
         {
           projectPath: pp,
-          userRequest,
+          userRequest: requestText,
           chapterNumber: currentChapterNum,
           llmConfig,
           novelConfig,
@@ -235,7 +308,7 @@ export async function runAutonomousDraftCampaign(
       const words = countWords(finalTxt)
       totalWords += words
 
-      const status: "ready" | "failed" | "blocked" | "partial" = genResult.manualReviewRequired
+      const attemptStatus: CampaignChapterResult["status"] = genResult.manualReviewRequired
         ? "blocked"
         : genResult.partial
           ? "partial"
@@ -243,7 +316,7 @@ export async function runAutonomousDraftCampaign(
 
       let isAutoAccepted = false
       // 全自动巡航推进：门控全绿时自动原地提交晋升正式章节，并自动摄取事实库
-      if (cruiseMode && status === "ready" && finalTxt.length > 0) {
+      if (cruiseMode && attemptStatus === "ready" && finalTxt.length > 0) {
         onProgress?.({
           stage: "auto-accepting",
           current: idx + 1,
@@ -277,7 +350,7 @@ export async function runAutonomousDraftCampaign(
         }
       }
 
-      const chapterResult: CampaignChapterResult = {
+      return {
         chapterNumber: currentChapterNum,
         content: finalTxt,
         taskBrief: genResult.taskBrief,
@@ -286,23 +359,101 @@ export async function runAutonomousDraftCampaign(
         reviewResults: genResult.reviewResults,
         revised: genResult.revised,
         wordCount: words,
-        status,
+        status: attemptStatus,
         autoAccepted: isAutoAccepted,
       }
+    }
+
+    try {
+      const chapterResult = await attemptChapter(userRequest)
 
       results.push(chapterResult)
       onChapterComplete?.(currentChapterNum, chapterResult)
 
-      // 巡航安全守护：若在全自动巡航模式下遇到未通过（blocked / partial），立即安全挂起后续推进
-      if (cruiseMode && status !== "ready") {
+      // 巡航安全守护：若在全自动巡航模式下遇到未通过（blocked / partial），走 F3 仲裁闭环；
+      // 无 provider 或无有效指令时保持现有 paused 行为（安全挂起待人工介入）。
+      if (cruiseMode && chapterResult.status !== "ready") {
         const arbitrationRequest = buildArbitrationRequest(chapterResult)
         const arbitrationJson = JSON.stringify(arbitrationRequest)
         onProgress?.({ stage: "arbitration-pending", current: idx + 1, total, message: arbitrationJson })
+
+        if (arbitrationProvider) {
+          let directive: ArbitrationDirective | null = null
+          try {
+            directive = await arbitrationProvider(arbitrationRequest)
+          } catch (providerErr) {
+            console.warn(
+              `[campaign-runner] 第 ${currentChapterNum} 章仲裁指令获取失败，保持安全挂起:`,
+              providerErr,
+            )
+          }
+          let decision: PausedChapterDecision | null = null
+          try {
+            decision = decidePausedChapter(arbitrationRequest, directive)
+          } catch (decisionErr) {
+            console.warn(
+              `[campaign-runner] 第 ${currentChapterNum} 章仲裁指令非法，保持安全挂起:`,
+              decisionErr,
+            )
+          }
+
+          // retry：本章用 revisedBrief 重跑一次；成功则继续下一章，仍失败则 paused
+          if (
+            decision?.disposition === "retry" &&
+            decision.taskBrief !== undefined &&
+            !retriedOnce
+          ) {
+            retriedOnce = true
+            onProgress?.({
+              stage: "arbitration-retry",
+              current: idx + 1,
+              total,
+              message: `[第 ${currentChapterNum} 章] 仲裁指令 retry，正在用修订任务书重跑本章...`,
+            })
+            const retryResult = await attemptChapter(decision.taskBrief)
+            // 以重跑结局覆盖首跑记录（单章在报告中只保留最终处置）
+            results[results.length - 1] = retryResult
+            onChapterComplete?.(currentChapterNum, retryResult)
+            if (retryResult.status === "ready") {
+              previousDraftSummary = buildCarryoverContext({
+                chapterNumber: currentChapterNum,
+                content: retryResult.content,
+              })
+              continue
+            }
+            onProgress?.({
+              stage: "cruise-paused",
+              current: idx + 1,
+              total,
+              message: `[第 ${currentChapterNum} 章] 重跑后仍未通过(${retryResult.status})，全自动巡航已安全挂起并等待人工审阅。`,
+            })
+            break
+          }
+
+          // skip：标记跳过并继续下一章（跳过章不污染后章前情承接）
+          if (decision?.disposition === "skip") {
+            const skippedResult: CampaignChapterResult = {
+              ...chapterResult,
+              skipped: true,
+              autoAccepted: false,
+            }
+            results[results.length - 1] = skippedResult
+            onChapterComplete?.(currentChapterNum, skippedResult)
+            onProgress?.({
+              stage: "arbitration-skip",
+              current: idx + 1,
+              total,
+              message: `[第 ${currentChapterNum} 章] 仲裁指令 skip，本章已标记跳过，全自动巡航继续推进下一章。`,
+            })
+            continue
+          }
+        }
+
         onProgress?.({
           stage: "cruise-paused",
           current: idx + 1,
           total,
-          message: `[第 ${currentChapterNum} 章] 门控未通过(${status})，全自动巡航已安全挂起并等待人工审阅。`,
+          message: `[第 ${currentChapterNum} 章] 门控未通过(${chapterResult.status})，全自动巡航已安全挂起并等待人工审阅。`,
         })
         break
       }
@@ -310,7 +461,7 @@ export async function runAutonomousDraftCampaign(
       // 更新前情记忆给下一章沙箱消费（结构化承接：承接章号 + 末段收束 + 开端锚点）
       previousDraftSummary = buildCarryoverContext({
         chapterNumber: currentChapterNum,
-        content: finalTxt,
+        content: chapterResult.content,
       })
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)
@@ -373,6 +524,7 @@ export async function batchAcceptCampaignDrafts(
   await createDirectory(chapterDir)
 
   const chapterPaths: string[] = []
+  const failures: BatchAcceptFailure[] = []
   let ingestedCount = 0
 
   // 仅提交非空且未失败的章节草稿（纯过滤逻辑见 filterAcceptableChapters，便于单测）
@@ -408,26 +560,41 @@ export async function batchAcceptCampaignDrafts(
 
     // 晋升为 final 正式章节态
     const finalContent = updateChapterStatus(rawChapterContent, "final")
-    // H1 晋升收拢：经正式晋升通道落盘（状态晋升 + 情绪账本 + promotion 登记）；
-    // 通道失败（如 status.json 不可用）时降级直写，保证批跑不断。
+    const userRequest =
+      (ch.taskBrief || "").trim().length > 0
+        ? ch.taskBrief
+        : `请撰写第 ${chapterNum} 章正文。`
     try {
+      // DF-1: 战役路径不经过聊天会话生命周期 —— 先按既有受管草稿设计注册
+      // （或刷新）ready 态 managed draft，accept 的 Draft-first 校验才成立；
+      // 无此注册时 requireManagedDeepChapterDraft 必抛，通道 100% 失败。
+      await registerManagedCampaignDraft({
+        projectPath: pp,
+        conversationId: "autonomous-campaign",
+        userRequest,
+        chapterNumber: chapterNum,
+        finalContent: ch.content,
+        reviewResults: ch.reviewResults,
+        decisionGates: ch.decisionGates,
+      })
+      // H1 晋升收拢：经正式晋升通道落盘（状态晋升 + 情绪账本 + promotion 登记）。
       await commitAcceptedDeepChapterDraft({
         projectPath: pp,
         conversationId: "autonomous-campaign",
-        userRequest:
-          (ch.taskBrief || "").trim().length > 0
-            ? ch.taskBrief
-            : `请撰写第 ${chapterNum} 章正文。`,
+        userRequest,
         chapterNumber: chapterNum,
         chapterPath: filePath,
         finalChapterContent: finalContent,
         overwriteExisting: true,
       })
+      chapterPaths.push(filePath)
     } catch (commitErr) {
-      console.warn(`[campaign-batch-accept] 正式晋升通道失败，降级直写 ${filePath}:`, commitErr)
-      await writeFileAtomic(filePath, finalContent)
+      // DF-1: 晋升失败必须如实失败 —— 禁止降级直写正式正文、禁止计入 acceptedCount。
+      // （formal-writeback 已按 DF-2 还原文/回滚新建文件，此处不得补写。）
+      const message = commitErr instanceof Error ? commitErr.message : String(commitErr)
+      failures.push({ chapterNumber: chapterNum, chapterPath: filePath, error: message })
+      console.warn(`[campaign-batch-accept] 正式晋升通道失败，本章不落正式目录（拒绝降级直写）: ${filePath}`, commitErr)
     }
-    chapterPaths.push(filePath)
   }
 
   // 顺序执行事实摄取与双写
@@ -455,7 +622,9 @@ export async function batchAcceptCampaignDrafts(
   }
 
   return {
-    acceptedCount: validChapters.length,
+    acceptedCount: chapterPaths.length,
+    failedCount: failures.length,
+    failures,
     chapterPaths,
     ingestedCount,
   }
