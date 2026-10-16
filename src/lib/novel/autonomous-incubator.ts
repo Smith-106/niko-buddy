@@ -250,12 +250,12 @@ async function generateCoreCharacters(
   idea: string,
 ): Promise<IncubatedCharacter[]> {
   const pp = normalizePath(projectPath)
-  const charDir = `${pp}/wiki/characters`
+  const charDir = `${pp}/wiki/entities/characters`
   await createDirectory(charDir)
 
-  const protagonistName = "林玄"
-  const antagonistName = "顾渊"
-  const allyName = "白芷"
+  const protagonistName = idea.match(/[一-龥]{2,4}(?=的身体)/)?.[0] || "主角"
+  const antagonistName = "租赁公司"
+  const allyName = "合同线索提供者"
 
   const characters: IncubatedCharacter[] = [
     {
@@ -465,6 +465,8 @@ export async function runAutonomousNovelIncubator(
   const characters = await generateCoreCharacters(pp, title, genre, idea)
 
   // 4/6 宏观总纲推演
+  // M2 接线位 TODO：outline-multi-agent-orchestrator（主线/话题/人物/世界观/伏笔五子智能体并发）
+  // 可在此替代 generateMacroOutline；重型一次性任务，暂不自动触发，待人工确认后接线。
   onProgress?.({
     stage: "outline",
     current: 4,
