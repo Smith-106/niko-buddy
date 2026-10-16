@@ -30,6 +30,13 @@ function countWords(text: string): number {
 }
 import { buildCarryoverContext } from "./campaign-memory"
 import {
+  assembleChapterRequest,
+  buildBaseRequest,
+  buildCharacterConstraint,
+  buildStageHint,
+} from "./chapter-request-builder"
+import { listBindableNovelCharacters } from "./bindable-characters"
+import {
   runDeepChapterGeneration,
   type DeepChapterDecisionGates,
 } from "./deep-chapter-generation"
@@ -157,12 +164,23 @@ export async function runAutonomousDraftCampaign(
       message: `正在调度生成第 ${currentChapterNum} 章 (${idx + 1}/${total})...`,
     })
 
-    // 构建该章节的用户提示词
+    // 构建该章节的用户提示词（显式 buildChapterRequest 优先；缺省走 S2 默认装配）
     let userRequest: string
     if (buildChapterRequest) {
       userRequest = await buildChapterRequest(currentChapterNum)
     } else {
-      userRequest = `请撰写第 ${currentChapterNum} 章正文。`
+      let characterNames: string[] = []
+      try {
+        characterNames = await listBindableNovelCharacters(pp)
+      } catch {
+        characterNames = []
+      }
+      userRequest = assembleChapterRequest({
+        base: buildBaseRequest(currentChapterNum),
+        character: buildCharacterConstraint(characterNames),
+        stage: buildStageHint(currentChapterNum, endChapter),
+        carryover: previousDraftSummary,
+      })
     }
 
     // 若有前序沙箱草稿，注入连续性承接指令
