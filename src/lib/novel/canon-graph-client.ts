@@ -285,7 +285,7 @@ export async function queryCanonEdges(
   const res = await invokeCanon<CanonQueryResponseRaw>("canon_query", {
     projectId,
     filter,
-  }, { edges: [] })
+  }, { edges: [], max_revision: 0 })
   return projectEdges(res.edges)
 }
 
@@ -300,7 +300,7 @@ export async function queryCanonEdgesBatch(
   const res = await invokeCanon<CanonQueryBatchResponseRaw>("canon_query_batch", {
     projectId,
     filters,
-  }, { results: [] })
+  }, { results: [], max_revision: 0 })
   return res.results.map(projectEdges)
 }
 
