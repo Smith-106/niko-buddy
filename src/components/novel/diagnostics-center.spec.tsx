@@ -35,10 +35,14 @@ vi.mock("@/commands/fs", () => ({
   listDirectory: vi.fn(),
 }))
 
-vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: (selector: (s: { project: null; llmConfig: null }) => unknown) =>
-    selector({ project: null, llmConfig: null }),
-}))
+vi.mock("@/stores/wiki-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
+  return {
+    ...actual,
+    useWikiStore: (selector: (s: { project: null; llmConfig: null }) => unknown) =>
+      selector({ project: null, llmConfig: null }),
+  }
+})
 
 function makeReport(): HealthReport {
   return {

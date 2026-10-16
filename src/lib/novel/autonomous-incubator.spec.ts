@@ -153,10 +153,10 @@ describe("Autonomous Novel Incubator (全自动小说冷启动孵化器)", () =>
       }),
     )
 
-    // 4. 阶段 3：核心角色塑造
+    // 4. 阶段 3：核心角色塑造（实现落 wiki/entities/characters；子串匹配兼容）
     expect(result.characters).toHaveLength(3)
     expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
-      expect.stringContaining("wiki/characters"),
+      expect.stringContaining("characters"),
       expect.any(String),
     )
 
