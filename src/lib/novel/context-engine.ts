@@ -78,6 +78,16 @@ import { queryCanonEdges } from "./canon-graph-client"
 import { loadNovelSessionStatus, type CanonMigrationMode } from "./novel-session-status"
 // T27b/F-19 (W12 注入范围含技法块): 离线编译产物渲染为技法提示块文本。
 import { compileFromCommittedSnapshot } from "./craft/technique-compiler"
+// B1 偏好重排（零风险 additive）：读 PreferenceStore + scorePreference 按分重排块顺序，仅改变行顺序不增删块；
+// 读失败/空偏好总分为 0 降级原序（默认行为不变）。novel 域内直引用合法。
+import {
+  chooseTechniqueIndex,
+  preferenceStore,
+  scorePreference,
+  type PreferenceMap,
+  type ScoredTechnique,
+} from "./technique-preference"
+import type { TechniquePromptBlock } from "./craft/technique-compiler"
 
 const SECTION_PRIORITY: Record<string, number> = {
   "当前任务": 1,
@@ -631,7 +641,7 @@ async function buildContextPackUnlocked(
     const [rawData, canonSource, techniqueText] = await Promise.all([
       timedSource("wiki", () => registry.loadAll(context)),
       timedSource("canon", () => loadCanonSourceFacts(pp, context.chapterNumber ?? 0)),
-      timedSource("technique", () => loadTechniqueBlocks()),
+      timedSource("technique", () => loadTechniqueBlocks(pp)),
     ])
     const temporalFactsPreloaded = canonSource.current
     // telemetry 计时点：每次 build 输出一次三源耗时（毫秒，非整数保留亚毫秒分辨率）。
@@ -1292,18 +1302,74 @@ async function loadCanonSourceFacts(
  * 三源 Promise.all 计时口径；编译失败降级空文本不阻断装配（与 relatedChapters
  * 同款优雅降级）。
  */
-async function loadTechniqueBlocks(): Promise<string> {
+async function loadTechniqueBlocks(projectPath?: string): Promise<string> {
   try {
     const registry = compileFromCommittedSnapshot()
     const blocks = registry.packs
       .flatMap((pack) => pack.promptBlocks)
       .filter((block) => block.injectionPoint === "chapter_task_brief")
     if (blocks.length === 0) return ""
-    return blocks.map((b) => `【${b.title}】${b.body}`).join("\n")
+    // B1 偏好重排（零风险 additive）：读 PreferenceStore + chooseTechniqueIndex 仅重排 blocks 顺序，
+    // 不增删块；读失败/空偏好/全部分数 <= 0 降级原序（默认行为不变）。
+    const ordered = await reorderTechniqueBlocksByPreference(blocks, projectPath)
+    return ordered.map((b) => `【${b.title}】${b.body}`).join("\n")
   } catch (error) {
     // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
     logDegradation("technique compile failed, skipping injection", error, { sourceFailed: true })
     return ""
+  }
+}
+
+/**
+ * B1 偏好重排纯核（可测）：仅重排顺序，不增删块。
+ *
+ * id 映射：block.blockId（缺失条目 scorePreference 按 undefined → 0）。
+ * 全零/全负分 → 原序（与 chooseTechniqueIndex 回退 cursor 语义一致，默认行为不变）。
+ * 存在正分 → 迭代 chooseTechniqueIndex 选头（剩余队列按当前顺序组装 prefs，cursor 取 0），
+ * 等价于按 score 稳定降序（并列保原序）。不抛：输入非法时回退原序。
+ */
+export function orderTechniqueBlocksByPreference(
+  blocks: readonly TechniquePromptBlock[],
+  prefs: PreferenceMap,
+): readonly TechniquePromptBlock[] {
+  try {
+    if (blocks.length === 0) return blocks
+    const scoredFor = (block: TechniquePromptBlock): ScoredTechnique => ({
+      id: block.blockId,
+      score: scorePreference(prefs[block.blockId]),
+    })
+    if (blocks.every((b) => scoredFor(b).score <= 0)) return blocks
+    const remaining: TechniquePromptBlock[] = [...blocks]
+    const ordered: TechniquePromptBlock[] = []
+    while (remaining.length > 0) {
+      const prefsAligned: ScoredTechnique[] = remaining.map((b) => scoredFor(b))
+      const pick = chooseTechniqueIndex(remaining.length, 0, prefsAligned)
+      const idx = Number.isInteger(pick) && pick >= 0 && pick < remaining.length ? pick : 0
+      const next: TechniquePromptBlock | undefined = remaining[idx]
+      if (next === undefined) return blocks
+      remaining.splice(idx, 1)
+      ordered.push(next)
+    }
+    return ordered
+  } catch {
+    return blocks
+  }
+}
+
+/**
+ * B1 偏好重排 IO 壳：读 PreferenceStore 后委托纯核；无 projectPath/读失败降级原序。
+ * 不抛：任何异常回退原序，不阻断装配（与 relatedChapters 同款优雅降级）。
+ */
+async function reorderTechniqueBlocksByPreference(
+  blocks: readonly TechniquePromptBlock[],
+  projectPath?: string,
+): Promise<readonly TechniquePromptBlock[]> {
+  try {
+    if (!projectPath || projectPath.trim().length === 0) return blocks
+    const prefs: PreferenceMap = await preferenceStore.load(projectPath)
+    return orderTechniqueBlocksByPreference(blocks, prefs)
+  } catch {
+    return blocks
   }
 }
 

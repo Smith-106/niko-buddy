@@ -409,6 +409,9 @@ export function shouldUseDeepChapterGeneration(_route: TaskRouteResult | null, e
 /**
  * T10 × T09：route 薄壳模式开关读取（项目级隔离，缺省 legacy）。
  * legacy = 既有字节级等价顺序流水线（默认）；route = 走 control-kernel.route() 决策。
+ *
+ * B2 灰度开关（P1-7）：显式 opt-in `novelConfig.enableRouteShell === true`
+ * 才能走 route 分支；缺省/显式 false 恒走 legacy。默认行为不变。
  */
 export function resolveRouteShellMode(
   input: DeepChapterGenerationInput,
@@ -419,9 +422,16 @@ export function resolveRouteShellMode(
     ? (novelConfig as { routeShellMode?: RouteShellMode }).routeShellMode
     : undefined
   const raw = fromInput ?? fromConfig ?? "legacy"
+  // B2 灰度闸：route 需显式 opt-in（enableRouteShell === true），否则回落 legacy。
+  // input.routeShellMode 显式传 "route" 视为同等 opt-in（测试/调用方直控）。
+  const optedIn =
+    (novelConfig as { enableRouteShell?: boolean } | null | undefined)?.enableRouteShell === true ||
+    fromInput === "route"
+  const gated = optedIn ? raw : "legacy"
   // #42 值语义归一（A-11 解锁条件 a 前半）："authoritative" 是 route 的别名档位，
   // 归一为规范值 "route"，消除「写 authoritative 静默回退 legacy」的失效路径。
-  return raw === "authoritative" ? "route" : raw
+  // 注意归一作用于灰度闸之后的值：opt-in 才能谈归一，未 opt-in 恒 legacy。
+  return gated === "authoritative" ? "route" : gated
 }
 
 /**

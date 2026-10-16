@@ -24,6 +24,8 @@ export const CARRYOVER_TAIL_CHARS = 800
 export const CARRYOVER_HEAD_CHARS = 400
 /** 任务简报保留字符数 */
 export const CARRYOVER_BRIEF_CHARS = 200
+/** 远期段摘要保留字符数（B2 滚动最小版：最新段摘要拼入预算） */
+export const CARRYOVER_SEGMENT_CHARS = 300
 
 export interface CarryoverSource {
   /** 前序章节号（1-based） */

@@ -467,6 +467,10 @@ export async function runAutonomousNovelIncubator(
   // 4/6 宏观总纲推演
   // M2 接线位 TODO：outline-multi-agent-orchestrator（主线/话题/人物/世界观/伏笔五子智能体并发）
   // 可在此替代 generateMacroOutline；重型一次性任务，暂不自动触发，待人工确认后接线。
+  // B2 特性开关（P1-11）：`novelConfig.enableMultiAgentOutline === true` 时才走多智能体
+  // 编排（`runOutlineMultiAgentWorkflow`）；缺省/显式 false 恒走单智能体 generateMacroOutline。
+  // 默认行为不变。本轮只留开关读取位，执行分支待 orchestrator 就绪后接线。
+  // TODO(B2-outline)：enableMultiAgentOutline 执行分支接线。
   onProgress?.({
     stage: "outline",
     current: 4,

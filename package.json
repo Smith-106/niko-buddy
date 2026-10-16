@@ -6,11 +6,14 @@
   "engines": {
     "node": ">=22.18"
   },
+  "_typecheckIncrementalNote": "typecheck=全量(tsc --build --force)，CI/验收唯一口径；typecheck:incremental=旧增量(tsc --build)，复用.tsbuildinfo存在假绿风险（增量未捕获改动时可能0错通过），仅本地快速检查用；typecheck:force=全量别名，与typecheck等价（向后兼容保留）。",
   "scripts": {
     "dev": "vite",
-    "typecheck": "tsc --build --pretty",
+    "typecheck": "tsc --build --force --pretty",
+    "typecheck:incremental": "tsc --build --pretty",
     "typecheck:force": "tsc --build --force --pretty",
-    "lint": "eslint . && node scripts/check-boundaries.mjs",
+    "lint": "eslint . && node scripts/check-boundaries.mjs && npm run wiring:check",
+    "wiring:check": "node scripts/check-wiring.mjs",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "test": "npm run test:mocks && npm run test:llm && npm run test:cargo",

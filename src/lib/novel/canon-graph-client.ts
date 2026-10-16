@@ -21,6 +21,22 @@
 
 import { invoke } from "@tauri-apps/api/core"
 
+/**
+ * B2 宿主解耦（P0-6）：Tauri invoke 安全壳。
+ *
+ * 非 Tauri 宿主（Node 无头 / 纯单测 / 离线回放）下 invoke 直接抛，
+ * 调用侧此前无降级。上层（context-engine 三源并发）已对空结果优雅降级，
+ * 故此处失败只 warn + 抛由调用方形状决定的空值，不阻断装配。
+ */
+async function invokeCanon<T>(command: string, args: Record<string, unknown>, fallback: T): Promise<T> {
+  try {
+    return await invoke<T>(command, args)
+  } catch (err) {
+    console.warn(`[canon-graph-client] ${command} 不可用（非 Tauri 宿主？），降级空结果:`, err)
+    return fallback
+  }
+}
+
 /** 边类别（与 Rust `EdgeKind` snake_case 序列化一致）。 */
 export type CanonEdgeKind =
   | "world_fact"
@@ -242,14 +258,14 @@ export async function getFactsKnownByPaged(
   includeInvalidated?: boolean,
   page?: { offset: number; limit: number },
 ): Promise<{ facts: CanonFact[]; total: number; maxRevision: number }> {
-  const res = await invoke<CanonFactsKnownByResponseRaw>("canon_facts_known_by", {
+  const res = await invokeCanon<CanonFactsKnownByResponseRaw>("canon_facts_known_by", {
     projectId,
     pov: characterId,
     atChapter: atChapter ?? null,
     includeInvalidated: includeInvalidated ?? null,
     offset: page?.offset ?? null,
     limit: page?.limit ?? null,
-  })
+  }, { edges: [], total: 0, max_revision: 0 })
   return {
     facts: projectEdges(res.edges),
     total: res.total,
@@ -266,10 +282,10 @@ export async function queryCanonEdges(
   projectId: string,
   filter: CanonEdgeFilter,
 ): Promise<CanonFact[]> {
-  const res = await invoke<CanonQueryResponseRaw>("canon_query", {
+  const res = await invokeCanon<CanonQueryResponseRaw>("canon_query", {
     projectId,
     filter,
-  })
+  }, { edges: [] })
   return projectEdges(res.edges)
 }
 
@@ -281,10 +297,10 @@ export async function queryCanonEdgesBatch(
   projectId: string,
   filters: CanonEdgeFilter[],
 ): Promise<CanonFact[][]> {
-  const res = await invoke<CanonQueryBatchResponseRaw>("canon_query_batch", {
+  const res = await invokeCanon<CanonQueryBatchResponseRaw>("canon_query_batch", {
     projectId,
     filters,
-  })
+  }, { results: [] })
   return res.results.map(projectEdges)
 }
 
@@ -305,12 +321,12 @@ export async function queryEpisodesByChapter(
   chapterNumber: number,
   page?: { offset: number; limit: number },
 ): Promise<{ episodes: Array<{ id: string; chapter_number: number; entity_id: string; summary: string; digest: string }>; total: number; max_revision: number }> {
-  return invoke("canon_query_episodes", {
+  return invokeCanon("canon_query_episodes", {
     projectId,
     chapterNumber,
     offset: page?.offset ?? null,
     limit: page?.limit ?? null,
-  })
+  }, { episodes: [], total: 0, max_revision: 0 })
 }
 
 /**

@@ -33,6 +33,8 @@ function countWords(text: string): number {
   return text.replace(/\s/g, "").length
 }
 import { buildCarryoverContext } from "./campaign-memory"
+// B2 弧结算可观测（P1-6）：纯函数 import，失败不阻断（模块无 IO）。
+import { shouldTriggerArcSettlement } from "./arc-settlement"
 import {
   assembleChapterRequest,
   buildBaseRequest,
@@ -445,6 +447,18 @@ export async function runAutonomousDraftCampaign(
             })
             continue
           }
+        } else {
+          // B1 可观测性（零风险 additive）：arbitrationProvider 缺省 → warn + arbitration-no-provider 事件。
+          // 默认行为不变：仍落到下方 cruise-paused 安全挂起（人工介入），不自动重试/跳章，不碰晋升通道。
+          console.warn(
+            `[campaign-runner] 第 ${currentChapterNum} 章门控未通过(${chapterResult.status})，未配置 arbitrationProvider，保持安全挂起待人工审阅。`,
+          )
+          onProgress?.({
+            stage: "arbitration-no-provider",
+            current: idx + 1,
+            total,
+            message: `[第 ${currentChapterNum} 章] 未配置仲裁指令提供者，保持安全挂起待人工审阅。`,
+          })
         }
 
         onProgress?.({
@@ -461,6 +475,17 @@ export async function runAutonomousDraftCampaign(
         chapterNumber: currentChapterNum,
         content: chapterResult.content,
       })
+      // B2 弧结算可观测（P1-6：只发事件，不自动结算）。
+      // arcEndChapter 暂无生产来源（传入 null）故默认不触发，仅保留事件形状供后续接线。
+      // TODO(B2-arc)：arcEndChapter 来源 + 结算执行。
+      if (shouldTriggerArcSettlement(currentChapterNum, null)) {
+        onProgress?.({
+          stage: "arc-settlement",
+          current: idx + 1,
+          total,
+          message: `[第 ${currentChapterNum} 章] 弧边界到达，待结算（当前仅可观测，不自动执行）。`,
+        })
+      }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)
       const failedResult: CampaignChapterResult = {

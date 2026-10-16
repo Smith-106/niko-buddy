@@ -121,7 +121,8 @@ export const DEFAULT_REVIEW_INTERVAL = 5
 // 类型枚举哨兵 (与 control-kernel.ts 类型契约同源)
 // ============================================================================
 
-/** 阶段枚举 (7 值, 与 deep-chapter-generation 的 resume stage 链同构)。 */
+/** 阶段枚举 (7 值, 与 deep-chapter-generation 的 resume stage 链同构)。
+ * A6：本数组即 canonic 阶段的权威定义源；同构声明见 src/lib/novel/stage-vocabulary.ts。 */
 export const ROUTE_STAGES = [
   "context",
   "scene_breakdown",
@@ -141,3 +142,23 @@ export const ROUTE_ROLES = [
   "architect",
   "editor",
 ] as const
+
+// ============================================================================
+// GATE_WEIGHTS 加权门设计占位 (B3 长周期收口 · 默认全 0 不生效)
+// ============================================================================
+
+/**
+ * B3 设计占位，不接任何判定路径：门控加权系数表，默认全 0 = 不生效。
+ *
+ * - 现行门控语义仍为 `GATE_PRIORITY = consistency > anti_ai > quality` 分层否决制，
+ *   本常量无任何消费方，不得参与 route()/review-adapter/decision_gates 判定。
+ * - 激活条件（另起评审，不在 B3 内执行）：独立 decision-log + ADR（如需）+
+ *   `docs/novel/weighted-gate-design.md` 登记候选权重对照（含 Moss Gate v2
+ *   0.2/0.3/0.5 对照组）+ `docs/novel/recalibration-roadmap.md` §3.2 三联数据。
+ * - 硬红线：任何权重不得覆盖 P0（Consistency 失败时参考分无效）。
+ */
+export const GATE_WEIGHTS = {
+  consistency: 0,
+  anti_ai: 0,
+  quality: 0,
+} as const
