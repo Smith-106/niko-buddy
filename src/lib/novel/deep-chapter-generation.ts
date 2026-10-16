@@ -63,6 +63,7 @@ import {
   type AntiAiMode as KernelAntiAiMode,
 } from "./control-kernel"
 import { computeCheckpointDigestOf } from "./checkpoint-digest"
+import { mapResumeStageToCanonical } from "./stage-vocabulary"
 import {
   computeInstructionDigest,
   resolveStageOutput,
@@ -410,8 +411,9 @@ export function shouldUseDeepChapterGeneration(_route: TaskRouteResult | null, e
  * T10 × T09：route 薄壳模式开关读取（项目级隔离，缺省 legacy）。
  * legacy = 既有字节级等价顺序流水线（默认）；route = 走 control-kernel.route() 决策。
  *
- * B2 灰度开关（P1-7）：显式 opt-in `novelConfig.enableRouteShell === true`
- * 才能走 route 分支；缺省/显式 false 恒走 legacy。默认行为不变。
+ * B2 说明（P1-7）：灰度由「缺省 legacy」本身承担 —— route 仅当调用方或项目配置
+ * 显式写 routeShellMode="route"/"authoritative" 才激活（T10/#42 既定语义，
+ * route-shell.spec 锁定）。B2 曾加 enableRouteShell 二重闸，与既定语义冲突已回退。
  */
 export function resolveRouteShellMode(
   input: DeepChapterGenerationInput,
@@ -422,16 +424,9 @@ export function resolveRouteShellMode(
     ? (novelConfig as { routeShellMode?: RouteShellMode }).routeShellMode
     : undefined
   const raw = fromInput ?? fromConfig ?? "legacy"
-  // B2 灰度闸：route 需显式 opt-in（enableRouteShell === true），否则回落 legacy。
-  // input.routeShellMode 显式传 "route" 视为同等 opt-in（测试/调用方直控）。
-  const optedIn =
-    (novelConfig as { enableRouteShell?: boolean } | null | undefined)?.enableRouteShell === true ||
-    fromInput === "route"
-  const gated = optedIn ? raw : "legacy"
   // #42 值语义归一（A-11 解锁条件 a 前半）："authoritative" 是 route 的别名档位，
   // 归一为规范值 "route"，消除「写 authoritative 静默回退 legacy」的失效路径。
-  // 注意归一作用于灰度闸之后的值：opt-in 才能谈归一，未 opt-in 恒 legacy。
-  return gated === "authoritative" ? "route" : gated
+  return raw === "authoritative" ? "route" : raw
 }
 
 /**
@@ -504,20 +499,13 @@ export interface DeepChapterRouteRuntime {
   shellMode: "legacy"
 }
 
-/** 恢复检查点 resume stage → route() RouteStage（与 control-sentinels ROUTE_STAGES 同构）。 */
+/** 恢复检查点 resume stage → route() RouteStage（A6：委托 stage-vocabulary canonic 映射，
+ * 与 control-sentinels ROUTE_STAGES 同构；未知值由映射降级为 context，不静默终态）。 */
 function mapResumeStageToRouteStage(
   checkpoint: DeepChapterGenerationResumeCheckpoint | undefined,
 ): RouteStage {
   if (!checkpoint) return "context"
-  switch (checkpoint.stage) {
-    case "after_context": return "context"
-    case "after_scene_breakdown": return "scene_breakdown"
-    case "after_task_brief": return "task_brief"
-    case "after_draft": return "draft"
-    case "after_review": return "review"
-    case "after_revision": return "revision"
-    default: return "context"
-  }
+  return mapResumeStageToCanonical(checkpoint.stage)
 }
 
 /** DeepChapterDecisionGate.status（pending/passed/failed）→ route() GateVerdict（pending/pass/fail）。 */

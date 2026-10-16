@@ -51,15 +51,13 @@ describe("B1/B2 默认行为锁定", () => {
     expect(ordered).toHaveLength(3)
   })
 
-  it("route 灰度：缺省/显式false恒 legacy（默认行为不变）", () => {
+  it("route 灰度：缺省恒 legacy；显式 route/authoritative 才激活（T10/#42 既定语义）", () => {
     const base = { projectPath: "pp", userRequest: "r", chapterNumber: 1, llmConfig: {}, novelConfig: {} } as never
     expect(resolveRouteShellMode(base, undefined as never)).toBe("legacy")
     expect(resolveRouteShellMode(base, {} as never)).toBe("legacy")
-    expect(resolveRouteShellMode(base, { enableRouteShell: false } as never)).toBe("legacy")
-    // 显式 opt-in 才放行
-    expect(resolveRouteShellMode(base, { enableRouteShell: true } as never)).toBe("legacy")
+    // 显式写 route 即激活（route-shell.spec 锁定，不另设二重闸）
     expect(
-      resolveRouteShellMode({ ...(base as object), routeShellMode: "route" } as never, { enableRouteShell: true } as never),
+      resolveRouteShellMode({ ...(base as object), routeShellMode: "route" } as never, {} as never),
     ).toBe("route")
   })
 
