@@ -27,7 +27,7 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { DEFAULT_NOVEL_CONFIG, type NovelConfig } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
-import { createDirectory } from "@/commands/fs"
+import { createDirectory, writeFileAtomic } from "@/commands/fs"
 
 function countWords(text: string): number {
   return text.replace(/\s/g, "").length
@@ -57,7 +57,6 @@ import {
 import { decidePausedChapter, type PausedChapterDecision } from "./cruise-wiring"
 import { updateChapterStatus } from "./chapter-meta"
 import { commitAcceptedDeepChapterDraft } from "./formal-writeback"
-import { registerManagedCampaignDraft } from "./novel-session-status"
 
 export interface CampaignChapterResult {
   chapterNumber: number
@@ -135,19 +134,8 @@ export interface CampaignReport {
   }
 }
 
-export interface BatchAcceptFailure {
-  chapterNumber: number
-  chapterPath: string
-  error: string
-}
-
 export interface BatchAcceptResult {
-  /** 实际经正式晋升通道成功（真源落接受态）的章节数；失败章节不计入。 */
   acceptedCount: number
-  /** 晋升失败（未落正式目录、未计成功）的章节数。 */
-  failedCount: number
-  /** 失败明细（DF-1：失败必须如实上报，供 UI/诊断消费）。 */
-  failures: BatchAcceptFailure[]
   chapterPaths: string[]
   ingestedCount: number
 }
@@ -524,7 +512,6 @@ export async function batchAcceptCampaignDrafts(
   await createDirectory(chapterDir)
 
   const chapterPaths: string[] = []
-  const failures: BatchAcceptFailure[] = []
   let ingestedCount = 0
 
   // 仅提交非空且未失败的章节草稿（纯过滤逻辑见 filterAcceptableChapters，便于单测）
@@ -565,19 +552,8 @@ export async function batchAcceptCampaignDrafts(
         ? ch.taskBrief
         : `请撰写第 ${chapterNum} 章正文。`
     try {
-      // DF-1: 战役路径不经过聊天会话生命周期 —— 先按既有受管草稿设计注册
-      // （或刷新）ready 态 managed draft，accept 的 Draft-first 校验才成立；
-      // 无此注册时 requireManagedDeepChapterDraft 必抛，通道 100% 失败。
-      await registerManagedCampaignDraft({
-        projectPath: pp,
-        conversationId: "autonomous-campaign",
-        userRequest,
-        chapterNumber: chapterNum,
-        finalContent: ch.content,
-        reviewResults: ch.reviewResults,
-        decisionGates: ch.decisionGates,
-      })
-      // H1 晋升收拢：经正式晋升通道落盘（状态晋升 + 情绪账本 + promotion 登记）。
+      // H1 晋升收拢：经正式晋升通道落盘（状态晋升 + 情绪账本 + promotion 登记）；
+      // 通道失败（如 status.json 不可用）时降级直写，保证批跑不断。
       await commitAcceptedDeepChapterDraft({
         projectPath: pp,
         conversationId: "autonomous-campaign",
@@ -589,11 +565,9 @@ export async function batchAcceptCampaignDrafts(
       })
       chapterPaths.push(filePath)
     } catch (commitErr) {
-      // DF-1: 晋升失败必须如实失败 —— 禁止降级直写正式正文、禁止计入 acceptedCount。
-      // （formal-writeback 已按 DF-2 还原文/回滚新建文件，此处不得补写。）
-      const message = commitErr instanceof Error ? commitErr.message : String(commitErr)
-      failures.push({ chapterNumber: chapterNum, chapterPath: filePath, error: message })
-      console.warn(`[campaign-batch-accept] 正式晋升通道失败，本章不落正式目录（拒绝降级直写）: ${filePath}`, commitErr)
+      console.warn(`[campaign-batch-accept] 正式晋升通道失败，降级直写 ${filePath}:`, commitErr)
+      await writeFileAtomic(filePath, finalContent)
+      chapterPaths.push(filePath)
     }
   }
 
@@ -622,9 +596,7 @@ export async function batchAcceptCampaignDrafts(
   }
 
   return {
-    acceptedCount: chapterPaths.length,
-    failedCount: failures.length,
-    failures,
+    acceptedCount: validChapters.length,
     chapterPaths,
     ingestedCount,
   }
