@@ -1,0 +1,12 @@
+{
+  "$comment": "RELEASING 节奏硬检豁免登记表。每条豁免必须有用户明确批准 + 理由 + 生效范围（scope 取 weekly-stable / same-day-duplicate / thirty-day-stable / trunk）；未登记或 scope 未覆盖的违规一律判 FAIL。",
+  "exemptions": [
+    {
+      "tag": "v2.17.1",
+      "reason": "fix-forward：修复 v2.17.0 遗留的 release 门禁缺陷（gen-module-atlas 跨环境字节漂移导致 Generated artifacts check 失败，tag 构建无法产出资产），属更新链路修复类补救发布；用户于 2026-10-18 明确批准登记豁免。",
+      "approvedBy": "user",
+      "approvedAt": "2026-10-18",
+      "scope": ["weekly-stable", "thirty-day-stable"]
+    }
+  ]
+}

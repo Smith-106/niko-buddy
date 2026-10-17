@@ -19,6 +19,7 @@
 ## 发布节奏
 
 - **stable：每周 ≤1 个**。候选版一律走 `prerelease` 标记（内测渠道），验证通过后再提升为 stable。
+- **节奏硬检已机械检查化**：`npm run release:cadence`（`scripts/check-release-cadence.mjs`）审 Latest（或 `--tag` 指定版本），判 ISO 周 stable ≤1 / 同日重复 = 0 / 近 30 天 ≤4 / Latest 资产与主干；门禁只判被审版本，历史违规以 INFO 输出。渠道定义与豁免流程见 `docs/decision-log/20261018-release-channel-cadence.md`，豁免必须登记在 `release-cadence-exemptions.json` 且 `scope` 逐条列出规则键。
 - **fix-forward 豁免（2026-09-07 第二轮 9 票共识，decision-record-20260907b 决策 3）**：资产补齐/断链修复类补救性发布（如 v2.7.9 补 v2.7.8 的 0 资产缺口）可豁免「每周 ≤1」与「近 30 天 ≤4」硬检，条件：① 发布目的为修复更新链路（notes-only 资产补齐/错版本资产处置）；② 用户明确批准（含渠道=stable 决策记录）；③ 发布后承诺窗口内（至 10/2）不再发 stable；④ 豁免登记写入 release body。豁免不改变「同日重复 tag = 0」与「主干校验」硬检。
 - 同日重复 tag：无 CI 自动门禁，靠人工纪律执行（重复 tag 一律拒绝；候选版如需走 `prerelease`，由发布者手动加 `--prerelease` 标记）。
 - 发布前检查：
@@ -58,5 +59,5 @@ latest.json
 2. latest.json 指向最新版本且签名匹配
 3. 本机 updater 检测到新版本（真机验证）
 4. 历史 release 无 QMaiWrite_* 残留（`gh release list` 抽查）
-5. **节奏审计（硬检，65 号共识 G5）**：`gh release list` + CHANGELOG 日期链核对——同周 stable ≤1、同日重复 tag = 0、近 30 天 stable ≤4；违反则本次发布作废重排期
+5. **节奏审计（硬检，65 号共识 G5）**：`npm run release:cadence`（机械检查：同周 stable ≤1、同日重复 tag = 0、近 30 天 stable ≤4、Latest 资产齐全、tag 已回流主干）；脚本 exit ≠ 0 则本次发布作废重排期，历史违规只看 INFO 不重复计罚
 6. **主干校验（硬检，65 号共识 G5）**：`git merge-base --is-ancestor <tag> smith/master` 必须为真（tag 不得悬在 side 分支）；不通过则先完成 master 回流再确认
