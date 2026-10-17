@@ -5,7 +5,9 @@ import { fileExists } from "@/commands/fs"
 import {
   buildTraceEntries,
   buildTraceSnapshot,
+  createMainControlQualityDeps,
   loadTraceSnapshot,
+  resolveDeepChapterRunner,
   resolveWikiPath,
   runMainControlAgent,
   saveTraceSnapshot,
@@ -14,6 +16,7 @@ import {
   type TraceEntry,
 } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
+import { DEFAULT_AI_WORKFLOW_MODE } from "@/lib/agent/workflow-mode"
 import { cn } from "@/lib/utils"
 
 export interface MainControlViewProps {
@@ -39,6 +42,10 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const { t } = useTranslation()
   const projectPath = useWikiStore((s) => s.project?.path ?? "")
   const llmConfig = useWikiStore((s) => s.llmConfig)
+  const novelConfig = useWikiStore((s) => s.novelConfig)
+  const novelMode = useWikiStore((s) => s.novelMode)
+  // 工作流模式目前没有全局设置项，深章工具注册用默认档（与 resolveAiWorkflowMode 一致）。
+  const aiWorkflowMode = DEFAULT_AI_WORKFLOW_MODE
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const [goal, setGoal] = useState("")
   const [steps, setSteps] = useState<MainControlStep[]>([])
@@ -79,11 +86,21 @@ export function MainControlView(_props: MainControlViewProps = {}) {
     abortRef.current = controller
     try {
       const wikiPath = await resolveWikiPath(projectPath, fileExists)
+      // 真实依赖装配：六维评分/定向重写走当前 review 模型；深章流水线只在小说模式开启时接线。
+      const quality = createMainControlQualityDeps({
+        projectPath,
+        llmConfig,
+        signal: controller.signal,
+      })
+      const runDeepChapterGeneration = novelMode ? await resolveDeepChapterRunner(novelConfig) : undefined
       const out = await runMainControlAgent({
         projectPath,
         wikiPath,
         goal: trimmed,
         llmConfig,
+        quality,
+        runDeepChapterGeneration,
+        aiWorkflowMode,
         signal: controller.signal,
         onStep: (step) => setSteps((prev) => upsertStep(prev, step)),
       })

@@ -1209,6 +1209,14 @@ export type {
   RunMainControlOptions,
 } from "./main-control"
 
+// 主控 Agent 的真实 LLM 依赖装配（quality deps + 深章流水线）
+export {
+  createMainControlQualityDeps,
+  resolveDeepChapterRunner,
+  stripCodeFence,
+} from "./main-control-quality"
+export type { MainControlQualityOptions } from "./main-control-quality"
+
 // 质量自主迭代闭环（六维评分 → 定向重写 → 再评分 → 证据链）
 export {
   DEFAULT_QUALITY_BUDGET,

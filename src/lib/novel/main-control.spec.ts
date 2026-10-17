@@ -174,6 +174,62 @@ describe("runMainControlAgent", () => {
   })
 })
 
+describe("深章流水线工具注入", () => {
+  it("未注入 runDeepChapterGeneration 时不注册 run_chapter_workflow", async () => {
+    const registry = new ToolRegistry()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "写第 1 章",
+      llmConfig: LLM,
+      aiWorkflowMode: "standard",
+      deps: { runner: fakeRunner([]), registry },
+    })
+    expect(registry.list().map((t) => t.name)).not.toContain("run_chapter_workflow")
+  })
+
+  it("注入深章流水线后注册 run_chapter_workflow，且不因此放宽正式写入边界", async () => {
+    const registry = new ToolRegistry()
+    const runDeepChapterGeneration = vi.fn(async () => ({ ok: true })) as never
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "写第 1 章",
+      llmConfig: LLM,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+      deps: { runner: fakeRunner([]), registry },
+    })
+    const names = registry.list().map((t) => t.name)
+    expect(names).toContain("run_chapter_workflow")
+    expect(names).not.toContain("write_memory")
+    expect(names).not.toContain("write_outline_node")
+    expect(names).toContain("write_chapter")
+  })
+
+  it("注入 quality 与深章流水线时两套工具并存（白名单取并集）", async () => {
+    const registry = new ToolRegistry()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "写第 1 章并评分",
+      llmConfig: LLM,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration: vi.fn(async () => ({ ok: true })) as never,
+      quality: { scoreChapter: async () => ({ thrill: 8 }), reviseChapter: async (c) => c },
+      deps: { runner: fakeRunner([]), registry },
+    })
+    const names = registry.list().map((t) => t.name)
+    for (const name of ["run_chapter_workflow", "score_chapter", "revise_chapter", "write_chapter"]) {
+      expect(names).toContain(name)
+    }
+    for (const name of names) {
+      const allowed = [...MAIN_CONTROL_TOOLS, "score_chapter", "revise_chapter", "run_chapter_workflow"]
+      expect(allowed).toContain(name)
+    }
+  })
+})
+
 describe("质量闭环工具注入", () => {
   it("默认不注册 score_chapter / revise_chapter", async () => {
     const registry = new ToolRegistry()

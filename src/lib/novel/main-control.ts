@@ -2,10 +2,11 @@
  * 主控 Agent（阶段 1）：一句话目标 → 规划 → 只读工具收集上下文 → 起草到草稿区。
  *
  * 硬边界：
- * - 只注册只读工具 + `write_chapter`（draftMode=true），正式正文与正式记忆一律不直写，
- *   落盘仍须走既有 accept 流程（Draft-first）。
- * - `run_chapter_workflow` 需要注入 `runDeepChapterGeneration`（深章流水线），阶段 1 不注入，
- *   该工具因此不会注册——质量迭代闭环在后续阶段接线。
+ * - 只注册只读工具 + `write_chapter`（draftMode=true）+ 两类「不落盘」的生成工具：
+ *   `score_chapter`/`revise_chapter`（quality 注入）与 `run_chapter_workflow`（深章流水线注入）。
+ *   正式正文与正式记忆一律不直写，落盘仍须走既有 accept 流程（Draft-first）——
+ *   `run_chapter_workflow` 自身只把正文交回调用方，保存仍需写入工具 + 用户确认。
+ * - 未注入依赖的工具不注册（quality / 深章流水线各自独立开关）。
  * - 不读时钟做逻辑判定，时间只用于轨迹展示；遥测走注入式 sink（未安装时 no-op）。
  */
 import { buildAgentConfig } from "@/lib/agent/config"
@@ -13,12 +14,16 @@ import { ToolRegistry } from "@/lib/agent/registry"
 import { AgentRunner } from "@/lib/agent/runner"
 import type { AgentMessage, AgentRunCallbacks, AgentRunRecord } from "@/lib/agent/types"
 import type { QualityToolDeps } from "@/lib/agent/tools/score-chapter"
+import type { RunDeepChapterGeneration } from "@/lib/agent/tools/run-chapter-workflow"
+import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { recordModuleHit } from "./module-heat"
 
-/** 阶段 1 允许的工具：只读 + 草稿写入。 */
 /** 质量闭环工具（仅在调用方注入 scoreChapter/reviseChapter 时才注册）。 */
 export const MAIN_CONTROL_QUALITY_TOOLS = ["score_chapter", "revise_chapter"] as const
+
+/** 深章流水线工具（仅在调用方注入 runDeepChapterGeneration 时才注册）。 */
+export const MAIN_CONTROL_DEEP_TOOLS = ["run_chapter_workflow"] as const
 
 export const MAIN_CONTROL_TOOLS = [
   "read_chapter",
@@ -89,6 +94,12 @@ export interface RunMainControlOptions {
   modelId?: string
   /** 注入后额外注册 score_chapter / revise_chapter，让 Agent 自己迭代到目标分。 */
   quality?: QualityToolDeps
+  /** 注入后额外注册 run_chapter_workflow（深章流水线；正文仍不落盘）。 */
+  runDeepChapterGeneration?: RunDeepChapterGeneration
+  /** 深章流水线所需工作流模式；与 runDeepChapterGeneration 同时提供才会注册工具。 */
+  aiWorkflowMode?: AiWorkflowMode
+  /** 章节正文专用模型（缺省回退 llmConfig）。 */
+  chapterWritingLlmConfig?: LlmConfig
   maxRounds?: number
   signal?: AbortSignal
   onStep?: (step: MainControlStep) => void
@@ -176,8 +187,10 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
 
   const registry = options.deps?.registry ?? new ToolRegistry()
   const runner = options.deps?.runner ?? new AgentRunner()
+  const deepTools = options.runDeepChapterGeneration ? [...MAIN_CONTROL_DEEP_TOOLS] : []
+  const qualityTools = options.quality ? [...MAIN_CONTROL_QUALITY_TOOLS] : []
   // 走既有 agent 配置装配：清空并注册内置工具（尊重 function-calling 开关与 provider 差异），
-  // 主控阶段 1 只用 enabledToolNames 白名单里的只读工具 + 草稿写入。
+  // 主控阶段只用 enabledToolNames 白名单里的只读工具 + 草稿写入（+ 不落盘的生成/评分工具）。
   const config = buildAgentConfig(
     options.modelId ?? options.llmConfig.model,
     MAIN_CONTROL_SYSTEM_PROMPT,
@@ -187,9 +200,14 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
       projectPath: options.projectPath,
       draftMode: true,
       qualityIteration: options.quality,
-      enabledToolNames: options.quality
-        ? [...MAIN_CONTROL_TOOLS, ...MAIN_CONTROL_QUALITY_TOOLS]
-        : [...MAIN_CONTROL_TOOLS],
+      runDeepChapterGeneration: options.runDeepChapterGeneration,
+      aiWorkflowMode: options.aiWorkflowMode,
+      chapterWritingLlmConfig: options.chapterWritingLlmConfig ?? options.llmConfig,
+      enabledToolNames: [
+        ...MAIN_CONTROL_TOOLS,
+        ...qualityTools,
+        ...deepTools,
+      ],
       llmConfig: options.llmConfig,
       getSkillConfig: () => null,
       getChatConversations: () => [],
