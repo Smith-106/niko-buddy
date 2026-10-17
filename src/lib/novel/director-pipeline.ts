@@ -30,6 +30,8 @@ export interface DirectorPipelineState {
   statuses: Record<DirectorPhase, PhaseStatus>
   /** failed 时的重试计数（按阶段）。 */
   retryCount: Partial<Record<DirectorPhase, number>>
+  /** 最近一次失败原因（成功推进后清空；供面板展示与恢复游标）。 */
+  lastError?: string
   lastUpdated: string
 }
 

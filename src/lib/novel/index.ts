@@ -96,6 +96,41 @@ export { minimalReworkSet, minimalReworkSetFromDimensionIssues } from "./dimensi
 export type { MinimalReworkIssue } from "./dimension-review-adapter"
 export { retryDirector, tryAdvanceDirector, tryAdvanceDirectorFromProject, collectProjectSnapshot } from "./director-orchestrator"
 export type { DirectorSnapshot } from "./director-orchestrator"
+export {
+  advanceDirectorAutomatically,
+  advanceDirectorToStall,
+  failDirectorPhase,
+  isPipelineCompleted,
+  loadStageArtifacts,
+  persistDirectorState,
+  persistStageArtifacts,
+  recoveryCursor,
+  saveStageArtifacts,
+} from "./director-auto-advance"
+export type {
+  DirectorAutoAdvanceDeps,
+  DirectorAutoAdvanceOutcome,
+  DirectorDraftReceipt,
+  DirectorRecoveryCursor,
+  DirectorStageArtifacts,
+} from "./director-auto-advance"
+export {
+  buildStagePrompt,
+  DIRECTOR_STAGE_KEYS,
+  DirectorStageGenerationError,
+  generateDirectorStage,
+  generateDirectorStages,
+  parseStageJson,
+  validateStageOutput,
+} from "./director-stage-generation"
+export type {
+  DirectorStageGenerationDeps,
+  DirectorStageInstruction,
+  DirectorStageKey,
+  DirectorStageOutputMap,
+  StageGenerationResult,
+  StageValidationFinding,
+} from "./director-stage-generation"
 export { DIRECTOR_PHASES, advanceDirectorPhase, createDirectorPipeline } from "./director-pipeline"
 export type { DirectorPhase, DirectorPipelineState, PhaseGateInput } from "./director-pipeline"
 export { hasPersistedDirectorState, loadDirectorPersisted, saveDirectorIdeaInput, saveDirectorPersisted } from "./director-pipeline-store"
