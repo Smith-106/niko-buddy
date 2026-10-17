@@ -20,12 +20,19 @@
 import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { join, relative } from "node:path"
-import { normalizeChapterDocument, readFrontmatterTitle } from "../src/lib/novel/chapter-typography.ts"
+import {
+  isBareChapterLabel,
+  normalizeChapterDocument,
+  parseChapterOrdinal,
+  readFrontmatterTitle,
+  resolveChapterTitle,
+} from "../src/lib/novel/chapter-typography.ts"
 
 interface Options {
   root: string
   write: boolean
   dirs: string[]
+  outlineDirs: string[]
   normalizeBody: boolean
 }
 
@@ -49,10 +56,16 @@ function parseArgs(argv: string[]): Options {
     typeof dirsRaw === "string" && dirsRaw.trim().length > 0
       ? dirsRaw.split(",").map((d) => d.trim()).filter(Boolean)
       : ["wiki/chapters", "QM/chapters"]
+  const outlineRaw = args.get("outline-dirs")
+  const outlineDirs =
+    typeof outlineRaw === "string" && outlineRaw.trim().length > 0
+      ? outlineRaw.split(",").map((d) => d.trim()).filter(Boolean)
+      : ["wiki/outlines", "QM/outlines"]
   return {
     root,
     write: args.get("write") === true,
     dirs,
+    outlineDirs,
     normalizeBody: args.get("no-body") !== true,
   }
 }
@@ -80,6 +93,28 @@ async function listMarkdown(dir: string): Promise<string[]> {
   return files
 }
 
+/**
+ * 大纲章节名索引：`### 第2章 租赁身体的第一条小字` → { 2: "第2章 租赁身体的第一条小字" }。
+ * 用于正文没有章节名的章节（历史 campaign 产物）从大纲补全标题。
+ */
+async function loadOutlineTitles(dirs: string[]): Promise<Map<number, string>> {
+  const titles = new Map<number, string>()
+  for (const dir of dirs) {
+    for (const file of await listMarkdown(dir)) {
+      const content = await readFile(file, "utf8")
+      for (const line of content.split(/\r?\n/)) {
+        const match = line.match(/^#{2,4}\s+(第.{0,80}?[章节卷回]\s+\S.*)$/)
+        const candidate = match?.[1]?.trim()
+        if (!candidate || isBareChapterLabel(candidate)) continue
+        const ordinal = parseChapterOrdinal(candidate)
+        if (ordinal === null || titles.has(ordinal)) continue
+        titles.set(ordinal, candidate)
+      }
+    }
+  }
+  return titles
+}
+
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2))
   const targets: string[] = []
@@ -94,13 +129,25 @@ async function main(): Promise<void> {
     files.push(...(await listMarkdown(dir)))
   }
 
+  const outlineTitles = await loadOutlineTitles(
+    options.outlineDirs.map((dir) => join(options.root, dir)),
+  )
+
   const changed: FileReport[] = []
   const titlesRecovered: FileReport[] = []
   const pending: Array<{ path: string; content: string }> = []
 
   for (const file of files) {
     const content = await readFile(file, "utf8")
-    const result = normalizeChapterDocument(content, { normalizeBody: options.normalizeBody })
+    // 正文/前置元数据都没有章节名时，用大纲里的章节标题补全（不臆造，只取已有权威标题）
+    const ownTitle = resolveChapterTitle(content, "")
+    const ordinal = parseChapterOrdinal(ownTitle) ?? parseChapterOrdinal(readFrontmatterTitle(content) ?? "")
+    const preferredTitle =
+      isBareChapterLabel(ownTitle) && ordinal !== null ? outlineTitles.get(ordinal) : undefined
+    const result = normalizeChapterDocument(content, {
+      normalizeBody: options.normalizeBody,
+      ...(preferredTitle ? { preferredTitle } : {}),
+    })
     if (!result.changed) continue
     const from = readFrontmatterTitle(content)
     const report: FileReport = {
@@ -122,6 +169,7 @@ async function main(): Promise<void> {
   console.log(`root: ${options.root}`)
   console.log(`mode: ${options.write ? "WRITE" : "dry-run"}`)
   console.log(`dirs: ${options.dirs.join(", ")}`)
+  console.log(`outline titles: ${outlineTitles.size} (from ${options.outlineDirs.join(", ")})`)
   console.log(`scanned: ${files.length} files`)
   console.log(`will change: ${changed.length} files (title recovered: ${titlesRecovered.length})`)
 
