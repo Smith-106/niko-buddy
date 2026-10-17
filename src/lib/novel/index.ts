@@ -46,6 +46,8 @@ export { isChapterPage, isFinalChapter, normalizeChapterStatus, parseChapterMeta
 export type { ChapterStatus, OutlineType } from "./chapter-meta"
 export { chapterMarkdownHasBody, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber } from "./chapter-save-strategy"
 export type { ChapterSaveStrategy } from "./chapter-save-strategy"
+export { extractH1Headings, isBareChapterLabel, isRichChapterTitle, normalizeChapterDocument, parseChapterOrdinal, readFrontmatterTitle, resolveChapterTitle } from "./chapter-typography"
+export type { NormalizeChapterOptions, NormalizeChapterResult } from "./chapter-typography"
 export { detectLastGeneratedChapterNumber, extractChapterNumber, findChapterFileByNumber, flattenMdFiles, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat } from "./chapter-utils"
 export type { ResolveTargetChapterNumberForChatInput } from "./chapter-utils"
 export { appendChapterWorkspaceSnapshot } from "./chapter-workspace"

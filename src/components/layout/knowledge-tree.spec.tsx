@@ -183,6 +183,20 @@ const CONTENTS: Record<string, string> = {
   [`${CHAPTERS}/第10章-终章.md`]: "---\nchapter_number: 0\n---\n# 第10章-终章\n终章正文",
   [`${CHAPTERS}/序章-引子.md`]: "# 序章-引子\n引子正文",
   [`${CHAPTERS}/随笔.md`]: "# 随笔\n内容",
+  [`${CHAPTERS}/第7章-裸标题.md`]: [
+    "---",
+    "type: chapter",
+    "chapter_number: '7'",
+    "chapter_status: draft",
+    "title: 第7章",
+    "source: autonomous-campaign",
+    "---",
+    "# 第7章",
+    "",
+    "# 第7章 律师说没漏洞",
+    "",
+    "正文内容",
+  ].join("\n"),
   [`${OUTLINES}/全书大纲.md`]: "---\ntitle: 全书大纲\ntags: [结构, 卷]\norigin: manual\n---\n# 全书大纲\n内容",
   [`${OUTLINES}/分卷大纲-2.md`]: "---\ntitle: 分卷大纲二\n---\n内容",
   [`${OUTLINES}/分卷大纲-2-3.md`]: "# 分卷大纲 2 3\n内容",
@@ -363,6 +377,27 @@ describe("KnowledgeTree", () => {
       `${CHAPTERS}/随笔.md`,
       `${CHAPTERS}/序章-引子.md`,
     ])
+    view.unmount()
+  })
+
+  it("裸 frontmatter 标题（第N章）+ 正文富 H1 → 目录显示章节名（TOC 升级不降级）", async () => {
+    const wiki = [
+      dirNode("chapters", CHAPTERS, [fileNode("第7章-裸标题.md", `${CHAPTERS}/第7章-裸标题.md`)]),
+      dirNode("outlines", OUTLINES, []),
+      fileNode("index.md", `${PROJ}/wiki/index.md`),
+      fileNode("log.md", `${PROJ}/wiki/log.md`),
+    ]
+    mocks.listDirectory.mockImplementation(async (p: string) => {
+      if (p === `${PROJ}/wiki`) return wiki
+      if (p === PROJ) return [dirNode("wiki", `${PROJ}/wiki`, wiki)]
+      return []
+    })
+    mocks.wikiState.fileTree = [dirNode("wiki", `${PROJ}/wiki`, wiki)]
+    const view = renderTree()
+    await screen.findByText("第7章 律师说没漏洞")
+    expect(
+      within(pageRow(view.container, `${CHAPTERS}/第7章-裸标题.md`)).getByText("第7章 律师说没漏洞"),
+    ).toBeInTheDocument()
     view.unmount()
   })
 

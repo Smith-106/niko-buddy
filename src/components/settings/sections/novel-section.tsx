@@ -805,8 +805,8 @@ export function NovelSection({ draft, setDraft }: Props) {
               <Label className="text-sm">{t("novel.settings.consensusReviewModels")}</Label>
               {consensusDimensionKeys.map((key) => (
                 <div key={key} className="flex items-center gap-2">
-                  <span className="w-16 shrink-0 text-xs text-muted-foreground">
-                    {t(`novel.reviewCenter.dimension.${key}`)}
+                  <span className="w-16 shrink-0 truncate text-xs text-muted-foreground" title={t(`reviewCenter.dimension.${key}`)}>
+                    {t(`reviewCenter.dimension.${key}`)}
                   </span>
                   <input
                     type="text"

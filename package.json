@@ -27,6 +27,7 @@
     "build:github-release": "node scripts/build-release-env.mjs --github-release",
     "gen:check": "node scripts/check-generated.mjs",
     "gen:write": "node scripts/gen-t2s-map.mjs && node scripts/gen-tauri-commands-doc.mjs",
+    "normalize:chapters": "rolldown scripts/normalize-chapter-typography.mts -o .tmp/normalize-chapter-typography.mjs -f esm -p node && node .tmp/normalize-chapter-typography.mjs",
     "bench": "vitest run bench --reporter=verbose",
     "bench:llm": "cross-env REAL_LLM=1 vitest run src/lib/novel/llm-latency.bench.ts",
     "eval:baseline": "node scripts/eval-baseline.mjs",

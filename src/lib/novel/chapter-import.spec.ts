@@ -135,6 +135,31 @@ describe("chapter import", () => {
     expect(written[2].content).toContain('title: "第3章 十又五载"')
   })
 
+  it("imports bare 第N章 filename but recovers chapter name from body heading", async () => {
+    fsMocks.fileExists.mockResolvedValue(false)
+    fsMocks.readFile.mockImplementation(async () => [
+      "---",
+      "title: 第7章",
+      "---",
+      "",
+      "# 第7章",
+      "",
+      "# 第7章 律师说没漏洞",
+      "",
+      "正文",
+    ].join("\n"))
+
+    const imported = await importChapterFiles("E:/Novel", ["E:/book/第7章.md"], {
+      finalForMemoryExtraction: false,
+    })
+
+    // 文件名无章节名 → 用正文里首个非裸标题补全（原先会落成裸「第7章」）
+    expect(imported[0].title).toBe("第7章 律师说没漏洞")
+    const calls = fsMocks.writeFile.mock.calls as unknown[][]
+    const written = calls[calls.length - 1]?.[1]
+    expect(String(written)).toContain("# 第7章 律师说没漏洞")
+  })
+
   it("extracts imported chapter memories one by one and stops after cancellation", async () => {
     const abortController = new AbortController()
     const ingestChapter = vi.fn(async () => {

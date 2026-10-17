@@ -60,6 +60,7 @@ import {
 } from "./cruise-arbitration"
 import { decidePausedChapter, type PausedChapterDecision } from "./cruise-wiring"
 import { updateChapterStatus } from "./chapter-meta"
+import { normalizeChapterDocument, resolveChapterTitle } from "./chapter-typography"
 import { commitAcceptedDeepChapterDraft } from "./formal-writeback"
 
 /**
@@ -572,7 +573,7 @@ export async function batchAcceptCampaignDrafts(
     options?.onProgress?.(i + 1, total, filePath)
 
     const dateStr = new Date().toISOString().split("T")[0]
-    const title = ch.title || `第${chapterNum}章`
+    const title = resolveChapterTitle(ch.content ?? "", (ch.title ?? "").trim() || `第${chapterNum}章`)
 
     const rawChapterContent = [
       "---",
@@ -591,7 +592,9 @@ export async function batchAcceptCampaignDrafts(
     ].join("\n")
 
     // 晋升为 final 正式章节态
-    const finalContent = updateChapterStatus(rawChapterContent, "final")
+    const finalContent = normalizeChapterDocument(updateChapterStatus(rawChapterContent, "final"), {
+      preferredTitle: title,
+    }).content
     const userRequest =
       (ch.taskBrief || "").trim().length > 0
         ? ch.taskBrief

@@ -4,6 +4,7 @@ import { logger } from "@/lib/utils"
 import { makeSafeFileSlug, yamlEscape } from "@/lib/wiki-filename"
 import { defaultCanonDualWriteDeps } from "./canon-dual-write"
 import type { IngestChapterOptions } from "./chapter-ingest"
+import { isBareChapterLabel, resolveChapterTitle } from "./chapter-typography"
 import type { FileNode } from "@/types/wiki"
 
 export const CHAPTER_IMPORT_EXTENSIONS = ["txt", "md", "mdx", "doc", "docx"] as const
@@ -192,10 +193,14 @@ function cleanImportedChapterTitleSuffix(title: string): string {
     .trim()
 }
 
-function titleFromCandidate(candidate: ChapterImportCandidate, chapterNumber: number): string {
+function titleFromCandidate(candidate: ChapterImportCandidate, chapterNumber: number, body?: string): string {
   const stem = getFileStem(candidate.name).trim()
   const suffix = matchChapterImportFilename(candidate.name)?.titleSuffix || stripChapterPrefix(stem)
-  return suffix ? `第${chapterNumber}章 ${suffix}` : `第${chapterNumber}章`
+  if (suffix) return `第${chapterNumber}章 ${suffix}`
+  // 文件名只有「第N章」时，从正文标题里找回章节名（resolveChapterTitle 只升级不降级）
+  const fromBody = body ? resolveChapterTitle(body, "") : ""
+  if (fromBody && !isBareChapterLabel(fromBody)) return fromBody
+  return `第${chapterNumber}章`
 }
 
 export function buildImportedChapterMarkdown({
@@ -358,9 +363,10 @@ async function importChapterCandidates(
     const candidate = sorted[index]
     const detectedNumber = chapterSortNumber(candidate)
     const chapterNumber = detectedNumber ?? index + 1
-    const title = titleFromCandidate(candidate, chapterNumber)
     try {
       const content = await readFile(candidate.path)
+      // 正文标题可补全文件名缺失的章节名
+      const title = titleFromCandidate(candidate, chapterNumber, content)
       const fingerprint = buildImportFingerprint(candidate.path, content)
       // 幂等：同指纹已落盘（任意 -N 后缀变体）→ 复用既有路径，不复写
       const stem = makeSafeFileSlug(stripChapterPrefix(title), "")

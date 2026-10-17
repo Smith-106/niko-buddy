@@ -12,7 +12,7 @@ import type { FileNode } from "@/types/wiki"
 import { buildChapterWordCountLabel, getChapterStatusLabel } from "@/lib/chapter-display"
 import { normalizePath } from "@/lib/path-utils"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
-import { normalizeChapterStatus } from "@/lib/novel"
+import { normalizeChapterStatus, resolveChapterTitle } from "@/lib/novel"
 import type { ChapterStatus } from "@/lib/novel"
 import { moveFileToTrash } from "@/lib/trash"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
@@ -202,6 +202,9 @@ function parsePageInfo(path: string, fileName: string, content: string): WikiPag
     const headingMatch = content.match(/^#\s+(.+)$/m)
     if (headingMatch?.[1]) title = headingMatch[1].trim()
   }
+
+  // 裸标签升级：frontmatter 只有「第N章」时，用正文富 H1 的章节名（resolveChapterTitle 只升级不降级）
+  if (type === "chapter") title = resolveChapterTitle(content, title)
 
   const wordCount = type === "chapter" ? countChapterBodyWords(content) : undefined
   const chapterNumber = type === "chapter"

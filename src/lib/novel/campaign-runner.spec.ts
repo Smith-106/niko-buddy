@@ -9,6 +9,7 @@ import {
   type CampaignChapterResult,
 } from "./campaign-runner"
 import type { ArbitrationDirective, ArbitrationRequest } from "./cruise-arbitration"
+import { readFrontmatterTitle } from "./chapter-typography"
 
 const mockLlmConfig: LlmConfig = {
   provider: "openai",
@@ -517,6 +518,32 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     }
     const written: string = committedInput.finalChapterContent
     expect(written).toContain("# 第7章")
+  })
+
+  it("batchAcceptCampaignDrafts 裸标题 + 正文富 H1 → 落盘为单一 canonical 富标题（不产生双 H1）", async () => {
+    const res = await batchAcceptCampaignDrafts("/mock/project", [
+      {
+        chapterNumber: 1,
+        title: "第1章",
+        content: "# 第1章 身体赎回倒计时\n\n白曦在门口站了两秒。",
+        taskBrief: "b",
+        draftContent: "d",
+        reviewResults: [],
+        revised: false,
+        wordCount: 50,
+        status: "ready",
+      },
+    ])
+    expect(res.acceptedCount).toBe(1)
+    const committedInput = mocks.commitAcceptedDeepChapterDraft.mock.calls[0][0] as {
+      finalChapterContent: string
+    }
+    const written: string = committedInput.finalChapterContent
+    // frontmatter 标题已升级为富标题（引号形式由 yaml 序列化决定，只校验解析值）
+    expect(readFrontmatterTitle(written)).toBe("第1章 身体赎回倒计时")
+    // 单一 canonical H1：不再同时出现「# 第1章」与「# 第1章 身体赎回倒计时」两条标题行
+    const h1Lines = written.split("\n").filter((line) => /^#\s+/.test(line))
+    expect(h1Lines).toEqual(["# 第1章 身体赎回倒计时"])
   })
 
   it("batchAcceptCampaignDrafts 单章事实摄取失败时记录日志且不中断后续章节", async () => {
