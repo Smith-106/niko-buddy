@@ -749,3 +749,74 @@ describe("endpoint origin heuristics", () => {
     expect(noMatch.Origin).toBe("")
   })
 })
+
+describe("流式工具调用增量（parseToolDelta）", () => {
+  const baseConfig = {
+    provider: "custom" as const,
+    apiMode: "chat_completions" as const,
+    apiKey: "k",
+    model: "m",
+    customEndpoint: "https://api.example.com/v1",
+    baseUrl: "",
+    maxContextSize: 204800,
+    ollamaUrl: "",
+    azureApiVersion: "2024-10-21",
+    azureModelFamily: "auto",
+    localCliIsolation: false,
+  }
+
+  it("chat.completions 逐帧透传 index/id/name/arguments", () => {
+    const provider = getProviderConfig(baseConfig as never)
+    const first = provider.parseToolDelta!(
+      `data: ${JSON.stringify({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, id: "call_1", type: "function", function: { name: "score_chapter", arguments: "" } },
+              ],
+            },
+          },
+        ],
+      })}`,
+    )
+    expect(first).toEqual([{ index: 0, id: "call_1", name: "score_chapter", arguments: "" }])
+
+    const second = provider.parseToolDelta!(
+      `data: ${JSON.stringify({
+        choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"content":"正文"}' } }] } }],
+      })}`,
+    )
+    expect(second).toEqual([{ index: 0, arguments: '{"content":"正文"}' }])
+  })
+
+  it("无工具帧 / [DONE] / 坏 JSON 一律返回 null", () => {
+    const provider = getProviderConfig(baseConfig as never)
+    expect(provider.parseToolDelta!(`data: {"choices":[{"delta":{"content":"正文"}}]}`)).toBeNull()
+    expect(provider.parseToolDelta!("data: [DONE]")).toBeNull()
+    expect(provider.parseToolDelta!("data: {not json")).toBeNull()
+    expect(provider.parseToolDelta!("event: ping")).toBeNull()
+  })
+
+  it("同一帧多工具调用按数组顺序读出，缺 index 时用位置兜底", () => {
+    const provider = getProviderConfig(baseConfig as never)
+    const deltas = provider.parseToolDelta!(
+      `data: ${JSON.stringify({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { id: "a", function: { name: "f1", arguments: "{}" } },
+                { index: 1, id: "b", function: { name: "f2", arguments: "{}" } },
+              ],
+            },
+          },
+        ],
+      })}`,
+    )
+    expect(deltas).toEqual([
+      { index: 0, id: "a", name: "f1", arguments: "{}" },
+      { index: 1, id: "b", name: "f2", arguments: "{}" },
+    ])
+  })
+})

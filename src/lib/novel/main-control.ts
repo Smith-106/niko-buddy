@@ -92,6 +92,8 @@ export interface RunMainControlOptions {
   llmConfig: LlmConfig
   /** 会话模型标识；缺省取 llmConfig.model。 */
   modelId?: string
+  /** 可选：本次运行只用其中列出的工具（交集于允许集合；未注入依赖的工具自动剔除）。 */
+  enabledToolNames?: readonly string[]
   /** 注入后额外注册 score_chapter / revise_chapter，让 Agent 自己迭代到目标分。 */
   quality?: QualityToolDeps
   /** 注入后额外注册 run_chapter_workflow（深章流水线；正文仍不落盘）。 */
@@ -189,6 +191,11 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
   const runner = options.deps?.runner ?? new AgentRunner()
   const deepTools = options.runDeepChapterGeneration ? [...MAIN_CONTROL_DEEP_TOOLS] : []
   const qualityTools = options.quality ? [...MAIN_CONTROL_QUALITY_TOOLS] : []
+  const allowed = new Set<string>([...MAIN_CONTROL_TOOLS, ...qualityTools, ...deepTools])
+  // 可选收窄（不扩大）：调用方点名要用的工具子集，未注册的依赖工具自动剔除，
+  // 因此 Draft-first 边界不会被这个参数放宽。目标写入体较小时能显著降低上下文压力。
+  const requested = options.enabledToolNames?.filter((name) => allowed.has(name))
+  const enabledToolNames = requested && requested.length > 0 ? requested : [...allowed]
   // 走既有 agent 配置装配：清空并注册内置工具（尊重 function-calling 开关与 provider 差异），
   // 主控阶段只用 enabledToolNames 白名单里的只读工具 + 草稿写入（+ 不落盘的生成/评分工具）。
   const config = buildAgentConfig(
@@ -203,11 +210,7 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
       runDeepChapterGeneration: options.runDeepChapterGeneration,
       aiWorkflowMode: options.aiWorkflowMode,
       chapterWritingLlmConfig: options.chapterWritingLlmConfig ?? options.llmConfig,
-      enabledToolNames: [
-        ...MAIN_CONTROL_TOOLS,
-        ...qualityTools,
-        ...deepTools,
-      ],
+      enabledToolNames,
       llmConfig: options.llmConfig,
       getSkillConfig: () => null,
       getChatConversations: () => [],

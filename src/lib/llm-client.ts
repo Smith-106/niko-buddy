@@ -905,6 +905,12 @@ async function streamChatHeld(
       if (usage.input > 0) metricsInputTokens = usage.input
       if (usage.output > 0) metricsOutputTokens = usage.output
     }
+    // 原生工具调用增量：不转发则 agent 的流式工具循环收不到任何工具意图。
+    const recordToolDeltas = (line: string) => {
+      const deltas = providerConfig.parseToolDelta?.(line)
+      if (!deltas || deltas.length === 0) return
+      for (const delta of deltas) callbacks.onToolCallDelta?.(delta)
+    }
 
     try {
       while (true) {
@@ -919,6 +925,7 @@ async function streamChatHeld(
             const token = providerConfig.parseStream(trimmed)
             if (token !== null) recordToken(token)
             recordUsage(trimmed)
+            recordToolDeltas(trimmed)
           }
           break
         }
@@ -934,6 +941,7 @@ async function streamChatHeld(
           const token = providerConfig.parseStream(trimmed)
           if (token !== null) recordToken(token)
           recordUsage(trimmed)
+          recordToolDeltas(trimmed)
         }
       }
 

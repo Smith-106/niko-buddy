@@ -101,21 +101,32 @@ async function scoreWithContextPack(
   options: MainControlQualityOptions & { contextPack: ContextPack },
   content: string,
 ): Promise<Record<string, number>> {
-  const results = await Promise.allSettled(
-    Object.values(SIX_REVIEW_DIMENSIONS).map((dimension) =>
-      reviewChapterDimension({
-        llmConfig: options.llmConfig,
-        contextPack: options.contextPack,
-        chapterContent: content,
-        dimension,
-        signal: options.signal,
-      }),
-    ),
-  )
   const dimensions = Object.values(SIX_REVIEW_DIMENSIONS)
+  // 限流 2 并发：每维是一次两阶段真实评审，六维齐发会打满网关连接
+  // （实测触发「超过 20 秒无响应」的假超时）。
+  const outcomes: PromiseSettledResult<{ score: number }>[] = new Array(dimensions.length)
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < dimensions.length) {
+      const index = cursor++
+      try {
+        const result = await reviewChapterDimension({
+          llmConfig: options.llmConfig,
+          contextPack: options.contextPack,
+          chapterContent: content,
+          dimension: dimensions[index],
+          signal: options.signal,
+        })
+        outcomes[index] = { status: "fulfilled", value: result }
+      } catch (reason) {
+        outcomes[index] = { status: "rejected", reason }
+      }
+    }
+  }
+  await Promise.all([worker(), worker()])
   const dims: Record<string, number> = {}
   const failures: string[] = []
-  results.forEach((outcome, index) => {
+  outcomes.forEach((outcome, index) => {
     const key = dimensions[index].key
     if (outcome.status === "fulfilled" && Number.isFinite(outcome.value.score)) {
       dims[key] = outcome.value.score

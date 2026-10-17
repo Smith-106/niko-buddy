@@ -230,6 +230,54 @@ describe("深章流水线工具注入", () => {
   })
 })
 
+describe("工具白名单收窄", () => {
+  it("显式点名工具后只注册这些（含依赖工具）", async () => {
+    const registry = new ToolRegistry()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "只打分",
+      llmConfig: LLM,
+      quality: { scoreChapter: async () => ({ thrill: 8 }), reviseChapter: async (c) => c },
+      enabledToolNames: ["score_chapter", "write_chapter"],
+      deps: { runner: fakeRunner([]), registry },
+    })
+    const names = registry.list().map((tool) => tool.name).sort()
+    expect(names).toEqual(["score_chapter", "write_chapter"])
+  })
+
+  it("点名未注入依赖的工具被剔除，且不能借白名单越权", async () => {
+    const registry = new ToolRegistry()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "越权尝试",
+      llmConfig: LLM,
+      enabledToolNames: ["revise_chapter", "run_chapter_workflow", "write_memory", "read_chapter"],
+      deps: { runner: fakeRunner([]), registry },
+    })
+    const names = registry.list().map((tool) => tool.name)
+    expect(names).toEqual(["read_chapter"])
+    expect(names).not.toContain("write_memory")
+    expect(names).not.toContain("revise_chapter")
+  })
+
+  it("空提名回落为默认全量白名单", async () => {
+    const registry = new ToolRegistry()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "默认",
+      llmConfig: LLM,
+      enabledToolNames: [],
+      deps: { runner: fakeRunner([]), registry },
+    })
+    const names = registry.list().map((tool) => tool.name)
+    expect(names).toContain("list_chapters")
+    expect(names).toContain("write_chapter")
+  })
+})
+
 describe("质量闭环工具注入", () => {
   it("默认不注册 score_chapter / revise_chapter", async () => {
     const registry = new ToolRegistry()

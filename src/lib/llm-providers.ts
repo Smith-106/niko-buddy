@@ -35,12 +35,25 @@ export interface RequestOverrides {
   toolChoice?: unknown
 }
 
+/** 流式响应里的原生工具调用增量（与 agent 的 ToolCallDelta 同构）。 */
+export interface StreamToolCallDelta {
+  index: number
+  id?: string
+  name?: string
+  arguments?: string
+}
+
 interface ProviderConfig {
   url: string
   headers: Record<string, string>
   buildBody: (messages: ChatMessage[], overrides?: RequestOverrides) => unknown
   parseStream: (line: string) => string | null
   extractUsage?: (line: string) => { input: number; output: number } | null
+  /**
+   * 解析流式行里的工具调用增量。缺省 = 该 provider 不回原生 tool_calls。
+   * 不实现则 agent 的按流式工具循环永远收不到工具意图（正文为空即一轮空转）。
+   */
+  parseToolDelta?: (line: string) => StreamToolCallDelta[] | null
 }
 
 const JSON_CONTENT_TYPE = "application/json"
@@ -91,6 +104,40 @@ function parseOpenAiLine(line: string): string | null {
       choices: Array<{ delta: { content?: string } }>
     }
     return parsed.choices?.[0]?.delta?.content ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * OpenAI 兼容 chat.completions 的流式 tool_calls 增量。
+ * 网关通常把首帧 index/id/name 与后续 arguments 片段分开推，这里原样透传。
+ */
+function parseOpenAiToolDelta(line: string): StreamToolCallDelta[] | null {
+  if (!line.startsWith("data: ")) return null
+  const data = line.slice(6).trim()
+  if (data === "[DONE]") return null
+  try {
+    const parsed = JSON.parse(data) as {
+      choices?: Array<{
+        delta?: {
+          tool_calls?: Array<{
+            index?: number
+            id?: string
+            type?: string
+            function?: { name?: string; arguments?: string }
+          }>
+        }
+      }>
+    }
+    const raw = parsed.choices?.[0]?.delta?.tool_calls
+    if (!raw || raw.length === 0) return null
+    return raw.map((call, fallbackIndex) => ({
+      index: typeof call.index === "number" ? call.index : fallbackIndex,
+      ...(call.id ? { id: call.id } : {}),
+      ...(call.function?.name ? { name: call.function.name } : {}),
+      ...(typeof call.function?.arguments === "string" ? { arguments: call.function.arguments } : {}),
+    }))
   } catch {
     return null
   }
@@ -624,6 +671,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         }),
         parseStream: parseOpenAiLine,
         extractUsage: extractOpenAiUsage,
+        parseToolDelta: parseOpenAiToolDelta,
       }
 
     case "anthropic": {
@@ -672,6 +720,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           buildOpenAiCompatibleBody(config, messages, overrides),
         parseStream: parseOpenAiLine,
         extractUsage: extractOpenAiUsage,
+        parseToolDelta: parseOpenAiToolDelta,
       }
     }
 
@@ -694,6 +743,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         }),
         parseStream: parseOpenAiLine,
         extractUsage: extractOpenAiUsage,
+        parseToolDelta: parseOpenAiToolDelta,
       }
     }
 
@@ -738,6 +788,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         }),
         parseStream: parseOpenAiLine,
         extractUsage: extractOpenAiUsage,
+        parseToolDelta: parseOpenAiToolDelta,
       }
     }
 
@@ -798,6 +849,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         },
         parseStream: parseOpenAiLine,
         extractUsage: extractOpenAiUsage,
+        parseToolDelta: parseOpenAiToolDelta,
       }
     }
 

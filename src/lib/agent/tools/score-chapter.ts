@@ -19,6 +19,8 @@ export function createScoreChapterTool(deps: QualityToolDeps): Tool {
       "给一段章节正文打六维分（thrill/consistency/pacing/character/continuity/pull，0-10）。参数 content 为正文全文。返回各维分数与中位分。",
     category: "read",
     permission: "auto",
+    // 六维 = 每维一次两阶段真实评审，30s 默认超时远不够（实测会全部超时）。
+    executeTimeoutMs: 600_000,
     parameters: {
       content: { type: "string", description: "待评分的正文全文", required: true },
     },
@@ -54,6 +56,8 @@ export function createReviseChapterTool(deps: QualityToolDeps): Tool {
       "按未达标维度定向重写正文，返回重写后的文本（不会写盘）。参数 content 为原文，brief 为重写指令（可用 score_chapter 的缺口信息自行撰写）。",
     category: "action",
     permission: "auto",
+    // 正文重写是长时 LLM 调用，默认 30s 会误报超时。
+    executeTimeoutMs: 300_000,
     parameters: {
       content: { type: "string", description: "待重写的正文全文", required: true },
       brief: { type: "string", description: "定向重写指令：要改哪些维度、保留什么", required: true },

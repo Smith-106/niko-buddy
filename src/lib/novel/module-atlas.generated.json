@@ -91,7 +91,7 @@
   "specOnly": 272,
   "barrelOnly": 1,
   "edges": 3610,
-  "loc": 245251
+  "loc": 245329
  },
  "modules": [
   {
@@ -5265,7 +5265,7 @@
   {
    "p": "src/lib/agent/tools/score-chapter.ts",
    "s": 12,
-   "l": 74,
+   "l": 78,
    "r": true,
    "o": false,
    "x": false,
@@ -6498,7 +6498,7 @@
   {
    "p": "src/lib/llm-client.ts",
    "s": 18,
-   "l": 1005,
+   "l": 1013,
    "r": true,
    "o": false,
    "x": false,
@@ -6565,7 +6565,7 @@
   {
    "p": "src/lib/llm-providers.ts",
    "s": 18,
-   "l": 822,
+   "l": 874,
    "r": true,
    "o": false,
    "x": false,
@@ -10961,7 +10961,7 @@
   {
    "p": "src/lib/novel/main-control-quality.ts",
    "s": 7,
-   "l": 164,
+   "l": 175,
    "r": true,
    "o": true,
    "x": true,
@@ -10995,7 +10995,7 @@
   {
    "p": "src/lib/novel/main-control.ts",
    "s": 18,
-   "l": 265,
+   "l": 268,
    "r": true,
    "o": false,
    "x": false,
