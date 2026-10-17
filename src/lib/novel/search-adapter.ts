@@ -11,9 +11,18 @@ import type { RetrievalSpanSink } from "./retrieval-span"
 import { applyShardRecall, type ShardRecallSpec } from "./shard-routing"
 import {
   RETRIEVAL_BUDGET_PATHS,
-  RETRIEVAL_SOURCE_TIMEOUT_MS,
   getRetrievalBudgetLedger,
 } from "./retrieval-budget"
+import {
+  SOURCE_RRF_K_DEFAULT,
+  SOURCE_WEIGHTS,
+  SEARCH_SOURCE_TIMEOUT_MS,
+  deduplicateResults,
+  normalizeResultPath,
+  rankSourceResults,
+  toPublicResult,
+  withTimeout,
+} from "./retrieval-source-pipeline"
 // P1-IMP-14: 向量检索孪生（本文件 runVectorSearch / context-engine runVectorSearchForContext）
 // 公共核心抽到独立模块 —— 不挂本文件导出面，避免 context-engine.spec /
 // context-pack-freeze.spec 的 vi.mock("./search-adapter") 整体替换后拿到 undefined。
@@ -62,24 +71,6 @@ type RankedNovelSearchResult = NovelSearchResult & {
   sourceRank: number
 }
 
-const SOURCE_RRF_K_DEFAULT = 60
-/** R0-d：单源封顶收编到 retrieval-budget（数值不变，2500ms）。 */
-const SEARCH_SOURCE_TIMEOUT_MS = RETRIEVAL_SOURCE_TIMEOUT_MS
-const SOURCE_WEIGHTS: Record<NovelSearchResult["type"], number> = {
-  keyword: 1,
-  vector: 1,
-  graph: 0.95,
-  canon: 0.9,
-  recent_chapter: 0.75,
-}
-
-const SOURCE_TIE_PRIORITY: Record<NovelSearchResult["type"], number> = {
-  keyword: 0,
-  vector: 1,
-  graph: 2,
-  canon: 3,
-  recent_chapter: 4,
-}
 
 export function isAuthoritativeGenerationPath(path: string): boolean {
   return /\/wiki\/(entities|concepts|memory|chapters)\//.test(path)
@@ -317,32 +308,7 @@ async function runSearchBranch<T>(label: string, promise: Promise<T>): Promise<T
   }
 }
 
-function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  label: string,
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`${label} search timed out after ${timeoutMs}ms`))
-    }, timeoutMs)
 
-    promise.then(
-      (value) => {
-        clearTimeout(timer)
-        resolve(value)
-      },
-      (error) => {
-        clearTimeout(timer)
-        reject(error)
-      },
-    )
-  })
-}
-
-function rankSourceResults(items: NovelSearchResult[]): RankedNovelSearchResult[] {
-  return items.map((item, sourceRank) => ({ ...item, sourceRank }))
-}
 
 /**
  * P1-IMP-14: 薄包装（签名零变化）—— 通道 B 向量分支，无相关性门控 + 逐条守卫。
@@ -535,97 +501,6 @@ export function filterAuthoritative(items: NovelSearchResult[]): NovelSearchResu
     if (isHistoricalProjectionSnippet(item.path, item.snippet)) return false
     return isAuthoritativeGenerationPath(item.path)
   })
-}
-
-function deduplicateResults(
-  results: RankedNovelSearchResult[],
-  rrfK: number = SOURCE_RRF_K_DEFAULT,
-): NovelSearchResult[] {
-  const fused = new Map<string, {
-    result: NovelSearchResult
-    fusionScore: number
-    bestContribution: number
-    bestRelevance: number
-    bestRank: number
-    bestTypePriority: number
-  }>()
-
-  for (const r of results) {
-    const sourceRank = Math.max(0, r.sourceRank)
-    /* v8 ignore next */
-    const weight = SOURCE_WEIGHTS[r.type] ?? 0.8
-    const contribution = weight / (rrfK + sourceRank + 1)
-    const key = normalizeResultPath(r.path)
-    const cleanResult = toPublicResult(r)
-    const existing = fused.get(key)
-
-    if (!existing) {
-      fused.set(key, {
-        result: cleanResult,
-        fusionScore: contribution,
-        bestContribution: contribution,
-        bestRelevance: r.relevance,
-        bestRank: sourceRank,
-        bestTypePriority: SOURCE_TIE_PRIORITY[r.type] ?? 9, /* v8 ignore start */ /* v8 ignore stop */
-      })
-      continue
-    }
-
-    existing.fusionScore += contribution
-    if (shouldReplaceRepresentative(existing, r, contribution)) {
-      existing.result = cleanResult
-      existing.bestContribution = contribution
-      existing.bestRelevance = r.relevance
-      existing.bestRank = sourceRank
-      existing.bestTypePriority = SOURCE_TIE_PRIORITY[r.type] ?? 9 /* v8 ignore start */ /* v8 ignore stop */
-    }
-  }
-
-  return Array.from(fused.values())
-    .sort((a, b) => {
-      if (b.fusionScore !== a.fusionScore) return b.fusionScore - a.fusionScore
-      if (b.bestRelevance !== a.bestRelevance) return b.bestRelevance - a.bestRelevance
-      if (a.bestRank !== b.bestRank) return a.bestRank - b.bestRank
-      /* v8 ignore next */
-      if (a.bestTypePriority !== b.bestTypePriority) return a.bestTypePriority - b.bestTypePriority
-      /* v8 ignore next */
-      return a.result.title.localeCompare(b.result.title)
-    })
-    .map((item) => ({
-      ...item.result,
-      relevance: Math.round(item.fusionScore * 1_000_000) / 1_000_000,
-    }))
-}
-
-function normalizeResultPath(path: string): string {
-  return path.replace(/\\/g, "/").toLowerCase()
-}
-
-function toPublicResult(result: NovelSearchResult): NovelSearchResult {
-  return {
-    type: result.type,
-    path: result.path,
-    title: result.title,
-    snippet: result.snippet,
-    relevance: result.relevance,
-  }
-}
-
-function shouldReplaceRepresentative(
-  existing: {
-    bestContribution: number
-    bestRelevance: number
-    bestRank: number
-    bestTypePriority: number
-  },
-  candidate: RankedNovelSearchResult,
-  contribution: number,
-): boolean {
-  if (contribution !== existing.bestContribution) return contribution > existing.bestContribution
-  if (candidate.relevance !== existing.bestRelevance) return candidate.relevance > existing.bestRelevance
-  if (candidate.sourceRank !== existing.bestRank) return candidate.sourceRank < existing.bestRank
-  /* v8 ignore next */
-  return (SOURCE_TIE_PRIORITY[candidate.type] ?? 9) < existing.bestTypePriority
 }
 
 export interface SearchPlotOptions {

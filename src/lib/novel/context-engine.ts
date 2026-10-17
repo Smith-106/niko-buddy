@@ -1,12 +1,11 @@
-import { listDirectory, readFile, getFileModifiedTime } from "@/commands/fs"
+import { readFile, } from "@/commands/fs"
 import { listEntityFiles } from "./entity-subdir-resolver"
-import i18n from "@/i18n"
-import { searchWiki } from "@/lib/search"
+import { } from "@/lib/search"
 import { normalizePath } from "@/lib/path-utils"
 import { logger } from "@/lib/utils"
 import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig, type RevisionFeedbackWindowConfig } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
-import { listSnapshots, loadSnapshot, sampleTruthFoldDrift, type ChapterSnapshot } from "./chapter-ingest"
+import { sampleTruthFoldDrift, type ChapterSnapshot } from "./chapter-ingest"
 import { buildRevisionDirectives, type NovelRevisionFeedback } from "./revision-feedback"
 // ISS-20260712-ARCH-1 (Wave 1): 派生 store 文本读取群拆到 context-derived-stores.ts
 // (load* + *ToContextText import 随移)。context-engine 调用点 (buildLoadContext)
@@ -20,23 +19,20 @@ import {
 } from "./context-derived-stores"
 import {
   rerankActiveEntitiesByTemporalFacts,
-  factsFromCommittedSnapshots,
-  factsFromFactsFile,
   renderTemporalCanonBlock,
-  fromCanonGraph,
   type TemporalFact,
 } from "./temporal-memory"
 import { auditTemporalFactsStatus, temporalEmptySoftGapRef } from "./temporal-facts-audit"
-import { loadProjectionStatusLedger } from "./projection-status-ledger"
+import { } from "./projection-status-ledger"
 import { buildCharacterAuraContext } from "./character-aura"
 import { buildReferenceContext, type ReferenceContextResult } from "@/lib/reference/search"
 import { buildTrustGradeMap } from "./trust-grader"
 import { retrieveDualTrack, kbRoutingView, type HardInjectItem, type KbGap, type DualTrackResult } from "./search-adapter"
 // P1-IMP-14: 向量检索共享核心（与 search-adapter.runVectorSearch 同形孪生归一）。
 import type { FileNode } from "@/types/wiki"
-import { DataSourceRegistry, type ContextLoadContext, type ContextGapReason } from "./context-data-source"
+import { DataSourceRegistry, ContextLoadContext, } from "./context-data-source"
 import { getAllDataSources } from "./context-data-sources"
-import { computeContextBudget, type ContextBudget } from "@/lib/context-budget"
+import { computeContextBudget, } from "@/lib/context-budget"
 // Wave 5 (v2.5.0): 上下文用量快照装配 — 预算线 + 记忆实测（user-memory 模块是
 // cached leaf，无环依赖；失败降级 null → memoryChars 0，不阻断 build）。
 import { buildContextUsage, type ContextUsage } from "@/lib/context-usage"
@@ -51,7 +47,7 @@ import { appendRoutingROISample, resolveChapterPovCharacter, type RoutingROISamp
 // P2-IMP-13 (P2-M4): KbMetrics 三项真实采集 — buildContextPackUnlocked 尾部装配
 // （truth_fold_drift ← IMP-06 采样 / hard_injection_budget_usage ← pack.hardInjectUsage /
 // gap_report_rate ← pack.gaps 计数；两评测 gate 项显式 N/A 保留，不伪造）。
-import { collectKbMetrics, classifyKbError, recoveryPlanFor, type KbMetrics } from "./kb-observability"
+import { collectKbMetrics, type KbMetrics } from "./kb-observability"
 // S2a (roadmap): 四维反查组合导入 — related-chapters 是独立纯函数模块,
 // context-engine 负责组合进 ContextPack (不平行实现, 与 searchRelevantContentUnified 互补)。
 import {
@@ -64,217 +60,22 @@ import {
 } from "./related-chapters"
 import { loadForeshadowingTracker } from "./foreshadowing-tracker"
 import type { ForeshadowingStore } from "./foreshadowing-tracker"
-import { findChapterFileByNumber } from "./chapter-utils"
+import { } from "./chapter-utils"
 // P1-IMP-13 (A1a): reference-binding 素材用途绑定进 ContextPack（additive
 // pack.referenceBindings，零绑定字节级不变）。
 import { loadReferenceBindings, bindingsToContextText } from "./reference-binding"
 // T25 (A-04.4/F-13): canon 三源并行 — 源2 走 T14 投影读出口（canon_migration ≥ dual
 // 时启用；默认仍走折叠路径），源3 走 T27b 技法离线编译（runtime 唯一合法入口）。
-import { queryCanonEdges } from "./canon-graph-client"
+import { } from "./canon-graph-client"
 // T25: canon 迁移门读取（status.json canon_migration 字段，T09 契约）。
 // loadNovelSessionStatus 自吞错误（缺失/损坏 → null），不向外抛。
 // 无运行时循环依赖：novel-session-status 对 deep-chapter-generation/review-adapter
 // 均为 type-only import（编译期擦除）。
-import { loadNovelSessionStatus, type CanonMigrationMode } from "./novel-session-status"
 // T27b/F-19 (W12 注入范围含技法块): 离线编译产物渲染为技法提示块文本。
-import { compileFromCommittedSnapshot } from "./craft/technique-compiler"
+import { } from "./craft/technique-compiler"
 // B1 偏好重排（零风险 additive）：读 PreferenceStore + scorePreference 按分重排块顺序，仅改变行顺序不增删块；
 // 读失败/空偏好总分为 0 降级原序（默认行为不变）。novel 域内直引用合法。
-import {
-  chooseTechniqueIndex,
-  preferenceStore,
-  scorePreference,
-  type PreferenceMap,
-  type ScoredTechnique,
-} from "./technique-preference"
-import type { TechniquePromptBlock } from "./craft/technique-compiler"
-
-const SECTION_PRIORITY: Record<string, number> = {
-  "当前任务": 1,
-  "当前章节目标": 2,
-  "项目灵魂": 3,
-  "大纲要求": 4,
-  "禁止违背": 5,
-  // E-02 (GLM 建议 5.5): 硬注入事实介于「禁止违背」与「最近剧情摘要」之间 —
-  // 恒真 canon/过程库投影，先于软性检索摘要呈现。
-  "硬注入事实": 5.5,
-  "最近剧情摘要": 6,
-  "上一章结尾": 7,
-  "当前人物状态": 8,
-  "角色灵魂": 9,
-  "当前伏笔状态": 10,
-  "时间线": 11,
-  "角色认知状态": 12,
-  "相关地点/组织/物品": 13,
-  "相关记忆检索": 14,
-  "引用检索": 14.5,
-  "修改反馈": 15,
-  "下一章推进建议": 16,
-  "写作风格": 17,
-  "语音风格指南": 17.5,
-  "曾成立的事实（已失效，仅供人物误信/发现变化/回忆对照，禁止作为当前叙述事实）": 18,
-  // P2-IMP-10 (M2): stateDelta 键控子表紧随「最近剧情摘要」呈现（6 → 6.1）。
-  "最近章节状态变更": 6.1,
-  // P1-IMP-13 (A1a): 素材引用绑定紧随「引用检索」呈现（14.5 → 14.6）。
-  "素材引用绑定": 14.6,
-}
-
-/**
- * Tier caps (TASK-003 protected/compressible layering).
- *
- * Protected sources carry load-bearing constraints for the current chapter
- * and get a generous cap — they SHOULD survive whole into the prompt.
- * Canon rules in particular are never compressed, only truncated as a last
- * resort with a `budget_exceeded` gap.
- *
- * Compressible sources are budget-elastic; they're truncated under pressure
- * with a `tier_compressible` gap and are candidates for community-summary
- * compression (TASK-003 subtask 3) before injection.
- */
-const CHAPTER_OUTLINE_PROTECTED_CAP = 6000
-
-/**
- * ANL-013 S4 (TASK-003): protected/compressible context tiering.
- *
- * Context sources are classified into two tiers:
- *   - `protected`: canon facts / character cognition (knows + doesNotKnow) /
- *     current chapter outline / active foreshadowing. These MUST NOT be
- *     silently compressed — they carry load-bearing constraints. Truncation
- *     (only when a single source file vastly exceeds the cap) is recorded
- *     as a gap with reason `budget_exceeded`.
- *   - `compressible`: historical chapter summaries / community summaries /
- *     older snapshots / derived fallback state. These are budget-elastic —
- *     truncated under budget pressure and the compression is recorded as a
- *     gap with reason `tier_compressible`.
- *
- * `gaps[]` is the IC-02 contract: every compression / truncation MUST be
- * surfaced explicitly, never silently degraded. Callers (and tests) can
- * inspect `pack.gaps` to verify no source was silently dropped.
- */
-export type SourceTier = "protected" | "compressible"
-
-export interface ContextGap {
-  type: "compressed" | "truncated" | "load_failed"
-  ref: string
-  reason: ContextGapReason
-  originalLength: number
-  retainedLength: number
-}
-
-/**
- * Module-level gap recorder.
- *
- * The per-source data sources in `context-data-sources.ts` record gaps when
- * they compress/truncate their payload (tieredSlice reports into this
- * buffer). `buildContextPack` resets the buffer before loading data sources
- * and collects the recorded gaps after. The lifecycle is exactly one
- * `buildContextPack` call — the buffer is per-build, not global-persistent.
- *
- * DC-8 (odyssey-improve): `recordDatasourceLoadFailure` is exported so data
- * sources can record a `load_failed` gap when their load throws (previously
- * the `catch {}` swallowed the error silently, violating the IC-02 contract
- * that every context truncation/omission be visible in pack.gaps). The
- * helper is guarded by `contextGapsActive` so it is a no-op outside a build.
- */
-const contextGaps: ContextGap[] = []
-let contextGapsActive = false
-
-/**
- * ISS-20260709-029 (F-003) 短期缓解: build-scoped mutex 串行化 buildContextPack
- * 调用。消除跨调用 interleave race——两并发 buildContextPack 在 await
- * registry.loadAll 让出事件循环后交错，致 gaps 串包 + budget 错配。模块级
- * Promise 链把所有 buildContextPack 调用排队串行执行，牺牲并发换正确性。
- * 保留现有 try/finally（单次内泄漏已修 PAT-M2/DC-6），mutex 防的是跨调用层级。
- * 触发需特定并发时序（生成+审查同进程交错），单用户桌面串行为主，mutex 是
- * 保险。fix_direction 标注的完整 build-scoped BuildContext 对象重构（6+
- * 函数签名改动）归 Stage 3/4 稳定化推进。
- */
-let buildMutex: Promise<unknown> = Promise.resolve()
-
-function resetContextGaps(): void {
-  contextGaps.length = 0
-  contextGapsActive = true
-}
-
-function collectContextGaps(): ContextGap[] {
-  contextGapsActive = false
-  return [...contextGaps]
-}
-
-/**
- * DC-8 (odyssey-improve): record a `load_failed` gap for a data source whose
- * `load()` threw. Exposed to buildContextPack via the `recordGap` callback on
- * ContextLoadContext (injected into the context object), so data sources in
- * context-data-sources.ts can record failures without importing context-engine
- * (avoids the circular dependency). No-op outside an active build.
- */
-function recordDatasourceLoadFailure(ref: string, reason: ContextGapReason = "datasource_error"): void {
-  if (!contextGapsActive) return
-  contextGaps.push({
-    type: "load_failed",
-    ref,
-    reason,
-    originalLength: 0,
-    retainedLength: 0,
-  })
-}
-
-/**
- * PERF-011 (TASK-007): module-level build-scoped budget.
- *
- * The `chapterOutlineDataSource` runs during `registry.loadAll` — BEFORE
- * `buildContextPackFromRawData`. So the tieredSlice caps in
- * `readChapterOutlineContent` / `pickChapterOutlineByNumber` can't read the
- * budget off `context` directly (the budget is computed in `buildContextPack`,
- * not threaded through the DataSource load contract). We mirror the existing
- * `contextGaps` module-level pattern: `buildContextPack` populates this before
- * loading data sources and clears it after; the tieredSlice call sites read it
- * to drive adaptive caps. Lifecycle is exactly one `buildContextPack` call,
- * matching `contextGaps` — never global-persistent.
- *
- * `null` (outside a build, or when `computeContextBudget` wasn't called)
- * falls back to the legacy `CHAPTER_OUTLINE_PROTECTED_CAP` constant so every
- * existing caller that doesn't go through `buildContextPack` (tests, direct
- * `readChapterOutlineContent` invocations) keeps the original static behavior.
- */
-let currentBuildBudget: ContextBudget | null = null
-
-/**
- * Tier-aware slice. Replaces the bare `content.slice(0, N)` calls that
- * previously truncated sources indiscriminately.
- *
- * - `protected` tier: cap is generous (the source SHOULD survive whole).
- *   If the source still exceeds the cap, record a `truncated` gap with
- *   reason `budget_exceeded` and return the prefix. We never route
- *   protected sources through community-summary compression.
- * - `compressible` tier: cap is tighter; when the source exceeds it,
- *   record a `truncated` gap with reason `tier_compressible`. The
- *   community-summary integration (TASK-003 subtask 3) consumes
- *   compressible-tier sources for summarization before injection.
- */
-function tieredSlice(
-  content: string,
-  tier: SourceTier,
-  cap: number,
-  ref: string,
-): string {
-  if (!content) return ""
-  const originalLength = content.length
-  if (originalLength <= cap) return content
-  const retained = content.slice(0, cap)
-  if (contextGapsActive) {
-    contextGaps.push({
-      type: "truncated",
-      ref,
-      reason: tier === "protected" ? "budget_exceeded" : "tier_compressible", /* v8 ignore start */ /* v8 ignore stop */
-      originalLength,
-      retainedLength: retained.length,
-    })
-  }
-  return retained
-}
-
-
+import type { } from "./craft/technique-compiler"
 
 export interface ContextPack {
   task: string
@@ -490,13 +291,11 @@ export { truncateActiveEntitiesByBudget, type ContextEntity as ContextEntityBudg
 //（巨石拆分第 4 步）。本地 import 供内部调用点使用，并 re-export 保持既有
 // import 面（trim/droporder/budget 等 spec 不动）。
 import {
-  applySectionCharBudget,
   charsPerTokenOfPack,
   extractSceneCharacters,
   narrativeVisibilitySummary,
 } from "./context-pack-format-helpers"
 export {
-  applySectionCharBudget,
   charsPerTokenOfPack,
   extractSceneCharacters,
   narrativeVisibilitySummary,
@@ -544,7 +343,7 @@ export async function buildContextPack(
   })
   // 续接链: 前次 settle 后本次才执行。catch 掉 releasePromise 的 reject 以
   // 避免链本身 reject 传播卡死后续排队 build(错误已透传给原调用方)。
-  buildMutex = buildMutex.then(() => releasePromise).catch(() => {})
+  setBuildMutex(buildMutex.then(() => releasePromise).catch(() => {}))
   return releasePromise
 }
 
@@ -559,28 +358,6 @@ export async function buildContextPack(
  * reason 'tier_compressible'）——绝不静默。调用方 push 到 pack.gaps。
  * budget 为 undefined（无 build 预算场景，如单测直调）时原样返回不截断不记 gap。
  */
-/**
- * P1-IMP-13 (A1a 前移子集): 检索/注入降级路径统一分级记录 —
- * 裸 logger.warn 升级为 classifyKbError + recoveryPlanFor 分级日志
- * （GOV-OBS-04：DISASTER / DEGRADED / RECOVERABLE / CONTROLLED）。
- * 降级不改变既有恢复语义（各 catch 块原本的降级动作一字不动），
- * 仅在日志侧补充分级字段（class / eventType / recovery / terminal）供观测消费。
- */
-function logDegradation(
-  message: string,
-  error: unknown,
-  ctx: Parameters<typeof classifyKbError>[1] = {},
-): void {
-  const cls = classifyKbError(error, ctx)
-  const plan = recoveryPlanFor(cls)
-  logger.warn("ContextEngine", message, {
-    error: error instanceof Error ? error.message : String(error),
-    class: cls,
-    eventType: plan.eventType,
-    recovery: plan.action,
-    terminal: plan.terminal,
-  })
-}
 
 async function buildContextPackUnlocked(
   projectPath: string,
@@ -608,7 +385,7 @@ async function buildContextPackUnlocked(
   // computeContextBudget's chapterAdaptiveScale instead of the static
   // CHAPTER_OUTLINE_PROTECTED_CAP. Cleared after the build so direct
   // callers (tests / non-build invocations) fall back to the legacy cap.
-  currentBuildBudget = computeContextBudget(context.maxContextSize, context.chapterNumber)
+  setCurrentBuildBudget(computeContextBudget(context.maxContextSize, context.chapterNumber))
 
   // PAT-M2 (odyssey sibling): currentBuildBudget is a module-level flag. If
   // loadAll / buildContextPackFromRawData throw, the flag would leak into the
@@ -936,8 +713,8 @@ async function buildContextPackUnlocked(
     // (between an aborted build and the next reset) is not vulnerable to
     // stray gap recording, and contextGaps array doesn't accumulate across a
     // failed build. Idempotent on the normal path (collect already set false).
-    currentBuildBudget = null
-    contextGapsActive = false
+    setCurrentBuildBudget(null)
+    setContextGapsActive(false)
     contextGaps.length = 0
   }
 }
@@ -1239,333 +1016,7 @@ async function buildContextPackFromRawData(
  *     若解析到本章 POV 角色则叠加 `known_by` 过滤，否则世界层投影（include_invalidated
  *     仍为 true）。former 仅供独立分块（Part 3），绝不并入当前有效时序事实。
  */
-/** loadCanonSourceFacts 双输出：当前有效时序事实 + 已失效（曾成立）时序事实。 */
-interface CanonSourceFacts {
-  /** 当前章有效时序事实（= 原 loadCanonSourceFacts 返回值，注入 pack.temporalFacts）。 */
-  current: TemporalFact[] | null
-  /** 已失效但曾成立的时序事实（former:true 标记），供独立分块注入 pack.formerFacts。 */
-  former: TemporalFact[]
-}
 
-async function loadCanonSourceFacts(
-  pp: string,
-  targetChapter: number,
-): Promise<CanonSourceFacts> {
-  if (targetChapter <= 0) return { current: null, former: [] }
-  const migrationMode: CanonMigrationMode | undefined =
-    (await loadNovelSessionStatus(pp))?.canon_migration
-  if (migrationMode === "dual" || migrationMode === "shadow") {
-    // canon 路径：T14 投影读出口结构化查询（POV 句柄 known_by/digest 已在投影层剥离）。
-    try {
-      // 第一查询：当前章有效边（旧行为 is_valid_at 严格半开区间 → 保护一致性）。
-      const edges = await queryCanonEdges(pp, {
-        valid_at_chapter: targetChapter,
-        archived: false,
-      })
-      const current = fromCanonGraph(edges)
-      // 第二查询：include_invalidated=true 召回已失效窗口边（"曾以为"）。
-      const povId = await resolveChapterPovCharacter(pp, targetChapter)
-      const formerEdges = await queryCanonEdges(pp, {
-        valid_at_chapter: targetChapter,
-        archived: false,
-        include_invalidated: true,
-        ...(povId ? { known_by: povId } : {}),
-      })
-      const former = fromCanonGraph(
-        formerEdges,
-        undefined,
-        { chapter: targetChapter, includeInvalidated: true },
-      ).filter((f) => f.former === true)
-      return { current, former }
-    } catch (error) {
-      // P1-IMP-13: 分级记录（DEGRADED — canon 检索失败降级回退，不终止写作）
-      logDegradation("canon-graph load failed, falling back to raw canonRules", error, { retrievalFailed: true })
-      return { current: null, former: [] }
-    }
-  }
-  // 默认折叠路径（TASK-004 原行为）：无 canon 图，former 恒为空。
-  try {
-    return { current: await loadTemporalFactsCached(pp), former: [] }
-  } catch (error) {
-    // P1-IMP-13: 分级记录（DEGRADED — 时序记忆检索失败降级回退，不终止写作）
-    logDegradation("temporal-memory load failed, falling back to raw canonRules", error, { retrievalFailed: true })
-    return { current: null, former: [] }
-  }
-}
-
-/**
- * T25 (F-19/W12 注入范围含技法块) 源3 技法：T27b 离线编译产物 → 技法提示块文本。
- *
- * runtime 唯一合法入口 compileFromCommittedSnapshot（蓝图 §8 P3「runtime 永不直连
- * nmem」；纯同步、零 IO、零时钟）。渲染 injectionPoint="chapter_task_brief" 的块
- * （章节任务书技法注入面），每行 `【标题】正文`。纯同步计算包一层 async 以统一
- * 三源 Promise.all 计时口径；编译失败降级空文本不阻断装配（与 relatedChapters
- * 同款优雅降级）。
- */
-async function loadTechniqueBlocks(projectPath?: string): Promise<string> {
-  try {
-    const registry = compileFromCommittedSnapshot()
-    const blocks = registry.packs
-      .flatMap((pack) => pack.promptBlocks)
-      .filter((block) => block.injectionPoint === "chapter_task_brief")
-    if (blocks.length === 0) return ""
-    // B1 偏好重排（零风险 additive）：读 PreferenceStore + chooseTechniqueIndex 仅重排 blocks 顺序，
-    // 不增删块；读失败/空偏好/全部分数 <= 0 降级原序（默认行为不变）。
-    const ordered = await reorderTechniqueBlocksByPreference(blocks, projectPath)
-    return ordered.map((b) => `【${b.title}】${b.body}`).join("\n")
-  } catch (error) {
-    // P1-IMP-13: 分级记录（RECOVERABLE — 采源失败重试/隔离）
-    logDegradation("technique compile failed, skipping injection", error, { sourceFailed: true })
-    return ""
-  }
-}
-
-/**
- * B1 偏好重排纯核（可测）：仅重排顺序，不增删块。
- *
- * id 映射：block.blockId（缺失条目 scorePreference 按 undefined → 0）。
- * 全零/全负分 → 原序（与 chooseTechniqueIndex 回退 cursor 语义一致，默认行为不变）。
- * 存在正分 → 迭代 chooseTechniqueIndex 选头（剩余队列按当前顺序组装 prefs，cursor 取 0），
- * 等价于按 score 稳定降序（并列保原序）。不抛：输入非法时回退原序。
- */
-export function orderTechniqueBlocksByPreference(
-  blocks: readonly TechniquePromptBlock[],
-  prefs: PreferenceMap,
-): readonly TechniquePromptBlock[] {
-  try {
-    if (blocks.length === 0) return blocks
-    const scoredFor = (block: TechniquePromptBlock): ScoredTechnique => ({
-      id: block.blockId,
-      score: scorePreference(prefs[block.blockId]),
-    })
-    if (blocks.every((b) => scoredFor(b).score <= 0)) return blocks
-    const remaining: TechniquePromptBlock[] = [...blocks]
-    const ordered: TechniquePromptBlock[] = []
-    while (remaining.length > 0) {
-      const prefsAligned: ScoredTechnique[] = remaining.map((b) => scoredFor(b))
-      const pick = chooseTechniqueIndex(remaining.length, 0, prefsAligned)
-      const idx = Number.isInteger(pick) && pick >= 0 && pick < remaining.length ? pick : 0
-      const next: TechniquePromptBlock | undefined = remaining[idx]
-      if (next === undefined) return blocks
-      remaining.splice(idx, 1)
-      ordered.push(next)
-    }
-    return ordered
-  } catch {
-    return blocks
-  }
-}
-
-/**
- * B1 偏好重排 IO 壳：读 PreferenceStore 后委托纯核；无 projectPath/读失败降级原序。
- * 不抛：任何异常回退原序，不阻断装配（与 relatedChapters 同款优雅降级）。
- */
-async function reorderTechniqueBlocksByPreference(
-  blocks: readonly TechniquePromptBlock[],
-  projectPath?: string,
-): Promise<readonly TechniquePromptBlock[]> {
-  try {
-    if (!projectPath || projectPath.trim().length === 0) return blocks
-    const prefs: PreferenceMap = await preferenceStore.load(projectPath)
-    return orderTechniqueBlocksByPreference(blocks, prefs)
-  } catch {
-    return blocks
-  }
-}
-
-/**
- * TASK-004: load every committed snapshot for the temporal-memory fold.
- * Uses listSnapshots + loadSnapshot (already imported). Returns an empty
- * array on failure so the temporal block is skipped (backward compatible).
- */
-async function loadAllSnapshots(projectPath: string): Promise<ChapterSnapshot[]> {
-  const pp = normalizePath(projectPath)
-  const numbers = await listSnapshots(pp)
-  const loaded = await Promise.all(numbers.map((n) => loadSnapshot(pp, n)))
-  return loaded.filter((s): s is ChapterSnapshot => Boolean(s))
-}
-
-/**
- * PERF-001 (ISS-010): in-memory memo for the temporal-facts fold.
- *
- * Keyed by projectPath, the value records the `latestRevision` string the
- * cache was built against (`${maxSnapshotNumber}:${maxSnapshotMtime}`) plus
- * the folded `TemporalFact[]`. A cache hit skips reloading every snapshot
- * file; a miss reloads + re-folds. The cache is additive — on any miss the
- * original loadAllSnapshots + factsFromCommittedSnapshots path runs, so
- * behavior is identical to the uncached path (backward compatible).
- *
- * Boundary: this is a derived-view memo (ANL-013 C4), NOT a persistence
- * layer — nothing is written to disk, the ledger remains the single source
- * of truth for projection commit state. Single-user desktop rarely exceeds
- * ~10 projects, so unbounded growth is acceptable for this patch.
- */
-const temporalFactsCache = new Map<string, { latestRevision: string; facts: TemporalFact[] }>()
-
-// PERF/ARCH (odyssey-review): bound the cache to avoid unbounded growth when
-// the user opens many projects. Map preserves insertion order, so on a set
-// beyond the cap we evict the oldest entry (LRU-ish; access does not promote,
-// but projects are rarely revisited after switching away). 16 comfortably
-// exceeds the "~10 projects" assumption while still capping worst case.
-const TEMPORAL_FACTS_CACHE_MAX = 16
-
-/** Set a cache entry, evicting the oldest (first-inserted) entry when over cap. */
-function setTemporalFactsCache(pp: string, entry: { latestRevision: string; facts: TemporalFact[] }): void {
-  // delete first so re-setting an existing key moves it to the end of insertion order (most-recent).
-  temporalFactsCache.delete(pp)
-  temporalFactsCache.set(pp, entry)
-  while (temporalFactsCache.size > TEMPORAL_FACTS_CACHE_MAX) {
-    const oldest = temporalFactsCache.keys().next().value
-    /* v8 ignore next */
-    if (oldest === undefined) break
-    temporalFactsCache.delete(oldest)
-  }
-}
-
-/**
- * List snapshot files directly (mirrors chapter-ingest.listSnapshots naming)
- * while also collecting each file's mtime(ms) in the same readdir pass. The
- * mtime is fetched per-file via getFileModifiedTime because the listDirectory
- * FileNode shape ({name,path,is_dir}) does not carry mtime. Returns the parsed
- * chapter numbers paired with their mtimes; empty on failure (backward
- * compatible).
- */
-async function listSnapshotEntriesWithMtime(
-  projectPath: string,
-): Promise<{ number: number; snapshotMtime: number }[]> {
-  const pp = normalizePath(projectPath)
-  const snapshotDir = `${pp}/.novel/snapshots`
-  try {
-    const tree = await listDirectory(snapshotDir)
-    const entries = tree
-      .filter((f) => f.name.endsWith(".snapshot.json"))
-      .map((f) => {
-        const stem = f.name.split(".")[0]
-        const outlineMatch = stem.match(/^outline-(\d+)$/)
-        const num = outlineMatch ? -parseInt(outlineMatch[1], 10) : parseInt(stem, 10)
-        return { file: f, num }
-      })
-      .filter((e) => !isNaN(e.num))
-    const withMtimes = await Promise.all(
-      entries.map(async (e) => ({
-        number: e.num,
-        snapshotMtime: await getFileModifiedTime(e.file.path).catch(() => 0),
-      })),
-    )
-    return withMtimes
-  } catch {
-    return []
-  }
-}
-
-/**
- * PERF-001 (ISS-010): load + fold the temporal facts for `projectPath`,
- * memoized per project-revision. Cache key combines the highest snapshot
- * number, the latest mtime among snapshot files, the snapshot COUNT, and the
- * SUM of all snapshot mtimes — so any single-file rewrite (including a
- * NON-max snapshot, e.g. rewriting chapter 5 in a 100-chapter project)
- * invalidates the cache (DC-6, REG-001 同形 fix). On cache miss the full
- * snapshot chain is loaded and folded via factsFromCommittedSnapshots; the
- * result is cached and returned. On failure returns [] (backward compatible).
- *
- * Exported for test instrumentation (cache-hit / mtime-invalidation tests).
- */
-export async function loadTemporalFactsCached(projectPath: string): Promise<TemporalFact[]> {
-  const pp = normalizePath(projectPath)
-  const entries = await listSnapshotEntriesWithMtime(pp)
-  if (entries.length === 0) {
-    // No snapshots → nothing to fold. Still cache the empty result so
-    // repeated builds don't re-readdir, but use a stable revision token.
-    // COR (odyssey-review): match the 4-segment shape of latestRevision
-    // (`max:max:count:sum`) so a future field addition caught by the PAT-G2
-    // twin-scan doesn't miss the empty path. Empty = all zeros.
-    const emptyRevision = "0:0:0:0"
-    const cached = temporalFactsCache.get(pp)
-    if (cached && cached.latestRevision === emptyRevision) return cached.facts
-    // 54 ③ 读侧：无 snapshots 但 facts.json 存在（如快照被清理）→ 仍投影事实表
-    const factsPath = `${pp}/.novel/facts.json`
-    const factsRaw =
-      typeof readFile === "function" ? await Promise.resolve(readFile(factsPath)).catch(() => null) : null
-    let facts: TemporalFact[] = []
-    if (factsRaw != null && factsRaw.trim().length > 0) {
-      try {
-        const { loadFactsFile } = await import("./facts-store")
-        facts = factsFromFactsFile(loadFactsFile(factsRaw))
-      } catch {
-        facts = []
-      }
-    }
-    setTemporalFactsCache(pp, { latestRevision: emptyRevision, facts })
-    return facts
-  }
-  const maxSnapshotNumber = entries.reduce((m, e) => Math.max(m, e.number), -Infinity)
-  const maxSnapshotMtime = entries.reduce((m, e) => Math.max(m, e.snapshotMtime), 0)
-  // DC-6 (odyssey-improve, REG-001 同形): the previous max-only key
-  // (`maxSnapshotNumber:maxSnapshotMtime`) failed to invalidate when a NON-max
-  // snapshot was rewritten — rewriting chapter 5 in a 100-chapter project left
-  // both max fields unchanged, so the cache returned stale temporal facts that
-  // missed chapter 5's new content. Augment the key with snapshot COUNT and the
-  // SUM of all snapshot mtimes: any single-file rewrite bumps its mtime → sum
-  // changes → key changes → cache invalidates, regardless of which chapter was
-  // rewritten. The explicit clearTemporalFactsCache calls on saveEditedSnapshot
-  // / restoreSnapshotHistory / syncSnapshotToMemory remain as belt-and-suspenders;
-  // this hardens the key itself so any FUTURE rewrite path that forgets to call
-  // clear no longer silently serves stale facts. O(n) over entries (mtimes
-  // already fetched above), no crypto needed.
-  const snapshotCount = entries.length
-  const sumSnapshotMtime = entries.reduce((s, e) => s + e.snapshotMtime, 0)
-  const latestRevision = `${maxSnapshotNumber}:${maxSnapshotMtime}:${snapshotCount}:${sumSnapshotMtime}`
-  const cached = temporalFactsCache.get(pp)
-  if (cached && cached.latestRevision === latestRevision) {
-    return cached.facts
-  }
-  // 54 号设计 ③ 读侧接线：facts.json（ADR-26 真源）存在 → 优先投影；
-  // ENOENT（legacy 项目 / 尚未 ingest）→ 回退 snapshot 折叠（零行为变更）。
-  const factsPath = `${pp}/.novel/facts.json`
-  let facts: TemporalFact[]
-  // perf/mock 环境可能未注入 readFile → 防御式降级到 snapshot 折叠
-  const factsRaw =
-      typeof readFile === "function" ? await Promise.resolve(readFile(factsPath)).catch(() => null) : null
-  if (factsRaw != null && factsRaw.trim().length > 0) {
-    try {
-      const { loadFactsFile } = await import("./facts-store")
-      facts = factsFromFactsFile(loadFactsFile(factsRaw))
-    } catch {
-      // 解析失败/损坏 → 回退 snapshot 折叠（additive 安全，不因坏表阻断）
-      facts = factsFromCommittedSnapshots(await loadAllSnapshots(pp), await loadProjectionStatusLedger(pp))
-    }
-  } else {
-    const snapshots = await loadAllSnapshots(pp)
-    const ledger = await loadProjectionStatusLedger(pp)
-    facts = factsFromCommittedSnapshots(snapshots, ledger)
-  }
-  setTemporalFactsCache(pp, { latestRevision, facts })
-  return facts
-}
-
-/**
- * Clear the temporal-facts cache. Pass projectPath to clear a single project's
- * entry; omit it to clear the whole cache. Production callers (e.g.
- * deleteChapterSnapshots) MUST clear after deleting a non-max snapshot — the
- * cache key `${maxSnapshotNumber}:${maxSnapshotMtime}` is unchanged by such a
- * delete, so a stale hit would inject deleted-chapter canon facts into the
- * next context build.
- */
-export function clearTemporalFactsCache(projectPath?: string): void {
-  if (projectPath === undefined) {
-    temporalFactsCache.clear()
-    return
-  }
-  temporalFactsCache.delete(normalizePath(projectPath))
-}
-
-/**
- * Test-only: clear the temporal-facts cache. Lets tests assert cold-cache
- * behavior without leaking state across cases. Not for production use.
- */
-export function __resetTemporalFactsCacheForTests(): void {
-  clearTemporalFactsCache()
-}
 
 // F4-2（Round-2 评估）：任务简报组装纯函数簇已拆至 ./context-task-brief-builders
 //（巨石拆分第 2 步）。本地 import 供内部调用点使用，并 re-export 保持既有
@@ -1592,211 +1043,6 @@ export {
   type NextChapterAdviceInput,
 } from "./context-task-brief-builders"
 
-function emptyPack(task: string): ContextPack {
-  return {
-    task,
-    chapterGoal: "",
-    outline: "",
-    recentChapterContents: [],
-    recentSummaries: [],
-    previousChapterEnding: "",
-    characterStates: "",
-    soulDoc: "",
-    characterAuras: "",
-    cognitionStates: "",
-    foreshadowingStates: "",
-    timeline: "",
-    relatedSettings: "",
-    canonRules: "",
-    writingStyle: "",
-    voiceStyleGuide: undefined,
-    searchResults: "",
-    graphSearchResults: "",
-    mustDo: "",
-    mustAvoid: "",
-    nextChapterAdvice: "",
-    revisionDirectives: "",
-    gaps: [],
-    // EPIC-001/003: emptyPack 不注入（非小说模式 / legacy fallback）。
-    styleExemplars: [],
-    activeEntities: [],
-  }
-}
-
-export async function readOutlineContent(pp: string): Promise<string> {
-  try {
-    const results = await searchWiki(pp, "outline type:outline")
-    if (results.length > 0) {
-      const contents = await Promise.all(
-        results.map(async (result) => {
-          try {
-            return await readFile(result.path)
-          } catch {
-            logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1702 })
-            return ""
-          }
-        }),
-      )
-      return joinNonEmpty(contents, "\n\n---\n\n")
-    }
-  } catch {
-    logger.warn("context-engine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1711 })
-  }
-  logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1709 })
-  return ""
-}
-
-// ── outline 纯辅助子模块（arch-risk W4 god-object 拆分）───────────────────
-// flattenOutlineMarkdownFiles/readFrontmatterChapterNumber/numberToChineseChapter/
-// chapterLabels/includesChapterMarker 已抽离到 context-engine-outline-helpers.ts；
-// import 供本模块使用。
-import {
-  flattenOutlineMarkdownFiles,
-  includesChapterMarker,
-  readFrontmatterChapterNumber,
-} from "./context-engine-outline-helpers"
-
-/**
- * PERF-011 (TASK-007): resolve the protected-tier cap for chapter-outline
- * truncation. When invoked inside a `buildContextPack` call, the
- * module-level `currentBuildBudget` carries `computeContextBudget`'s
- * adaptive `maxPageSize` (driven by chapterAdaptiveScale + maxContextSize)
- * — chapter 500 gets a tighter cap than chapter 5, reflecting the larger
- * wiki at that point. Outside a build (direct `readChapterOutlineContent`
- * calls in tests / non-build paths), `currentBuildBudget` is null and we
- * fall back to the legacy static `CHAPTER_OUTLINE_PROTECTED_CAP` so
- * backward compatibility holds for every existing caller.
- */
-function resolveChapterOutlineProtectedCap(): number {
-  const budget = currentBuildBudget
-  if (budget) return budget.maxPageSize
-  return CHAPTER_OUTLINE_PROTECTED_CAP
-}
-
-export function pickChapterOutlineByNumber(
-  candidates: Array<{ path: string; content: string }>,
-  chapterNumber: number,
-): string {
-  const frontmatterMatch = candidates.find((candidate) => readFrontmatterChapterNumber(candidate.content) === chapterNumber)
-  if (frontmatterMatch) return tieredSlice(frontmatterMatch.content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:frontmatter`)
-
-  const headingMatch = candidates.find((candidate) =>
-    includesChapterMarker(candidate.content, chapterNumber) || includesChapterMarker(candidate.path, chapterNumber),
-  )
-  if (headingMatch) return tieredSlice(headingMatch.content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:heading`)
-
-  return ""
-}
-
-async function readChapterOutlineDirect(pp: string, chapterNumber: number): Promise<string> {
-  try {
-    const tree = await listDirectory(`${pp}/wiki/outlines`)
-    const files = flattenOutlineMarkdownFiles(tree)
-    const candidates = await Promise.all(
-      files.slice(0, 80).map(async (file) => ({
-        path: file.path,
-        content: await readFile(file.path).catch(() => ""),
-      })),
-    )
-    const fromWiki = pickChapterOutlineByNumber(
-      candidates.filter((candidate) => candidate.content.trim()),
-      chapterNumber,
-    )
-    if (fromWiki.trim()) return fromWiki
-  } catch {
-    // fall through to project-root FILLED outlines (M1)
-  }
-  const rootFilled = await readProjectRootFilledOutline(pp, chapterNumber)
-  if (rootFilled.trim()) return rootFilled
-
-  // 探测骨架章节（大纲解构分发生成物：chapter_status: "planned" 或正文大纲梗概）
-  try {
-    const chapterFilePath = await findChapterFileByNumber(pp, chapterNumber)
-    if (chapterFilePath) {
-      const content = await readFile(chapterFilePath)
-      const { frontmatter, body } = parseFrontmatter(content)
-      const status = frontmatter?.chapter_status
-      // 只要不是已经定稿完成的正式章节（例如 planned 或草稿中含有概要/大纲提示）
-      if (status === "planned" || status === "draft" || status === "outline") {
-        const summary = typeof frontmatter?.summary === "string" ? frontmatter.summary.trim() : ""
-        const cleanBody = body.trim()
-        if (summary || cleanBody) {
-          const outlineText = summary
-            ? `# 第${chapterNumber}章大纲纲要\n\n${summary}\n\n${cleanBody}`
-            : cleanBody
-          return tieredSlice(
-            outlineText,
-            "protected",
-            resolveChapterOutlineProtectedCap(),
-            `chapter-outline:${chapterNumber}:skeleton`,
-          )
-        }
-      }
-    }
-  } catch {
-    // 降级忽略
-  }
-
-  return ""
-}
-
-/**
- * M1: projects that keep outlines as `Chapter-N-Outline-FILLED.md` at project root
- * (e.g. 8人 without wiki/) still feed buildContextPack. Prefer wiki/outlines when present.
- */
-async function readProjectRootFilledOutline(pp: string, chapterNumber: number): Promise<string> {
-  const names = [
-    `Chapter-${chapterNumber}-Outline-FILLED.md`,
-    `Chapter-${chapterNumber}-Outline.md`,
-    `chapter-${chapterNumber}-outline-filled.md`,
-    `chapter-${chapterNumber}-outline.md`,
-  ]
-  for (const name of names) {
-    try {
-      const content = await readFile(`${pp}/${name}`)
-      if (content.trim()) {
-        return tieredSlice(
-          content,
-          "protected",
-          resolveChapterOutlineProtectedCap(),
-          `chapter-outline:${chapterNumber}:project-root-filled`,
-        )
-      }
-    } catch {
-      // try next name
-    }
-  }
-  return ""
-}
-
-export async function readChapterOutlineContent(pp: string, chapterNumber?: number): Promise<string> {
-  if (!chapterNumber) return ""
-  const direct = await readChapterOutlineDirect(pp, chapterNumber)
-  if (direct.trim()) return direct
-  const queries = [
-    `第${chapterNumber}章细纲 outline`,
-    `chapter ${chapterNumber} outline`,
-    `chapter_number:${chapterNumber} outline_type:chapter-outline`,
-  ]
-  // PERF (odyssey-review): probe all queries concurrently, then pick the
-  // first (by original query priority order) that returned any result.
-  // Previously each query awaited searchWiki serially (up to 3×2 round-trips).
-  const allResults = await Promise.all(
-    queries.map((query) => searchWiki(pp, query).catch(() => [])),
-  )
-  for (const results of allResults) {
-    if (results.length > 0) {
-      try {
-        const content = await readFile(results[0].path)
-        return tieredSlice(content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:search`)
-      } catch {
-        logger.warn("context-engine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1829 })
-      }
-    logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1876 })
-    }
-  }
-  return ""
-}
 
 /**
  * EPIC-003 / ADR-32 / TASK-006: 从 rawData 提取场景角色文本（双源之一）。
@@ -1935,6 +1181,53 @@ import {
   runVectorSearchForContext as runVectorSearchForContextImpl,
   __setGapRecorderForTests,
 } from "./context-retrieval"
+// ── 分层裁剪/来源装载/时序 memo/大纲读取子模块（P1 巨文件拆分）──────────────
+// SECTION_PRIORITY 与 gap 契约抽离到 context-engine-gaps.ts；
+// canon 事实/技法块/快照装载抽离到 context-engine-technique-sources.ts；
+// 时序事实 memo 抽离到 context-engine-temporal.ts；大纲读取族抽离到
+// context-engine-outline.ts。对外导出面不变（下方 import + 逐项 re-export）。
+import {
+  buildMutex,
+  contextGaps,
+  getContextGapsActive,
+  setBuildMutex,
+  setContextGapsActive,
+  setCurrentBuildBudget,
+  collectContextGaps,
+  currentBuildBudget,
+  logDegradation,
+  recordDatasourceLoadFailure,
+  resetContextGaps,
+  type ContextGap,
+} from "./context-engine-gaps"
+export type { ContextGap, SourceTier } from "./context-engine-gaps"
+export { collectContextGaps, resetContextGaps } from "./context-engine-gaps"
+import {
+  loadCanonSourceFacts,
+  loadTechniqueBlocks,
+} from "./context-engine-technique-sources"
+export { orderTechniqueBlocksByPreference } from "./context-engine-technique-sources"
+import {
+  __resetTemporalFactsCacheForTests,
+} from "./context-engine-temporal"
+import { loadAllSnapshots } from "./context-engine-temporal"
+export type { LayeredRecallMode, ContextPackToPromptOptions } from "./context-engine-prompt"
+export { contextPackToPrompt } from "./context-engine-prompt"
+export {
+  loadTemporalFactsCached,
+  clearTemporalFactsCache,
+  __resetTemporalFactsCacheForTests,
+} from "./context-engine-temporal"
+import {
+  emptyPack,
+} from "./context-engine-outline"
+export {
+  readOutlineContent,
+  pickChapterOutlineByNumber,
+  readChapterOutlineContent,
+} from "./context-engine-outline"
+
+
 export {
   computeIrrelevantRatio,
   searchGraphRelevantContent,
@@ -1946,7 +1239,7 @@ export async function searchRelevantContent(
   limit: number,
   options: BuildContextOptions = {},
 ): Promise<string> {
-  if (!contextGapsActive) return searchRelevantContentImpl(pp, task, chapterNumber, limit, options)
+  if (!getContextGapsActive()) return searchRelevantContentImpl(pp, task, chapterNumber, limit, options)
   __setGapRecorderForTests(contextGaps, true)
   try {
     return await searchRelevantContentImpl(pp, task, chapterNumber, limit, options)
@@ -1961,7 +1254,7 @@ export async function searchRelevantContentUnified(
   limit: number,
   options: BuildContextOptions = {},
 ): Promise<string> {
-  if (!contextGapsActive) return searchRelevantContentUnifiedImpl(pp, task, chapterNumber, limit, options)
+  if (!getContextGapsActive()) return searchRelevantContentUnifiedImpl(pp, task, chapterNumber, limit, options)
   __setGapRecorderForTests(contextGaps, true)
   try {
     return await searchRelevantContentUnifiedImpl(pp, task, chapterNumber, limit, options)
@@ -1975,276 +1268,13 @@ export async function runVectorSearchForContext(
   limit: number,
   options: BuildContextOptions = {},
 ): Promise<{ title: string; snippet: string; path: string }[]> {
-  if (!contextGapsActive) return runVectorSearchForContextImpl(pp, query, limit, options)
+  if (!getContextGapsActive()) return runVectorSearchForContextImpl(pp, query, limit, options)
   __setGapRecorderForTests(contextGaps, true)
   try {
     return await runVectorSearchForContextImpl(pp, query, limit, options)
   } finally {
     __setGapRecorderForTests(null, false)
   }
-}
-/** Layered recall mode (Tencent L0–L3 inspired; default = scenario+persona). */
-export type LayeredRecallMode = "default" | "full" | "scenario_persona"
-
-export interface ContextPackToPromptOptions {
-  excludeOutline?: boolean
-  temporalFactsEnabled?: boolean
-  /**
-   * E-02 (C-10): 硬注入段渲染开关（默认 false）。false 时完全跳过该段，
-   * 保 prompt 字节级不变（可逆上线）。
-   */
-  hardInjectEnabled?: boolean
-  /**
-   * default / scenario_persona: L2+L3 first; L1-heavy blocks only when temporalFactsEnabled or full.
-   * full: include all present sections (still subject to tokenBudget).
-   */
-  layeredRecall?: LayeredRecallMode
-  /** Soft per-section character budget (after join of array items). */
-  sectionCharBudget?: number
-}
-
-interface FieldConfig {
-  titleKey: string
-  fieldKey: keyof ContextPack
-  /**
-   * F-06: 条件渲染谓词 — 仅当返回 true 才把该段渲染进 prompt.
-   * flag=false 时完全跳过该段, 保 prompt 字节级不变 (R1).
-   */
-  renderIf?: (
-    pack: ContextPack,
-    flags: { temporalFactsEnabled: boolean; layeredRecall: LayeredRecallMode; hardInjectEnabled: boolean },
-  ) => boolean
-  /**
-   * 对象数组序列化 — 把 ContextEntity[] 格式化为 string[], 避免 [object Object].
-   */
-  serialize?: (
-    content: unknown,
-    pack: ContextPack,
-    flags: { temporalFactsEnabled: boolean; layeredRecall: LayeredRecallMode; hardInjectEnabled: boolean },
-  ) => string | string[]
-  /** Soft layer tag for docs / budget policy (not a hard gate). */
-  layer?: "L0" | "L1" | "L2" | "L3" | "aux"
-}
-
-/**
- * C（方案 X 全做 M+）P0 护栏：former 事实独立分块渲染条数上限。
- * 压缩误导空间（失效事实不应喧宾夺主），与有效 temporal 块解耦。
- */
-const FORMER_FACTS_CAP = 8
-
-const FIELD_CONFIGS: FieldConfig[] = [
-  { titleKey: "novel.contextPack.currentChapterGoal", fieldKey: "chapterGoal", layer: "L2" },
-  { titleKey: "novel.contextPack.mustDo.title", fieldKey: "mustDo", layer: "L2" },
-  { titleKey: "novel.contextPack.mustAvoid.title", fieldKey: "mustAvoid", layer: "L2" },
-  { titleKey: "novel.contextPack.nextChapterAdvice.title", fieldKey: "nextChapterAdvice", layer: "L2" },
-  { titleKey: "novel.contextPack.soulDoc", fieldKey: "soulDoc", layer: "L3" },
-  { titleKey: "novel.contextPack.recentRevisionDirectives", fieldKey: "revisionDirectives", layer: "L2" },
-  { titleKey: "novel.contextPack.requiredOutline", fieldKey: "outline", layer: "L2" },
-  {
-    titleKey: "novel.contextPack.recentChapterContents",
-    fieldKey: "recentChapterContents",
-    layer: "L0",
-    // L0-ish raw chapter bodies: only in full recall to avoid context blow-up
-    renderIf: (_pack, flags) => flags.layeredRecall === "full",
-  },
-  { titleKey: "novel.contextPack.recentPlotSummaries", fieldKey: "recentSummaries", layer: "L2" },
-  {
-    // P2-IMP-10 (M2): stateDelta 键控子表段 — additive 独立分块，renderIf 非空才渲染
-    // （空 store / 无快照时不渲染，recentSummaries 现路径字节级不动）。
-    titleKey: "novel.contextPack.recentStateDeltas",
-    fieldKey: "recentStateDeltas",
-    layer: "L2",
-    renderIf: (pack) => Boolean(pack.recentStateDeltas),
-  },
-  { titleKey: "novel.contextPack.previousChapterEnding", fieldKey: "previousChapterEnding", layer: "L2" },
-  { titleKey: "novel.contextPack.characterStates", fieldKey: "characterStates", layer: "L3" },
-  { titleKey: "novel.contextPack.characterAuras", fieldKey: "characterAuras", layer: "L3" },
-  { titleKey: "novel.contextPack.cognitionStates", fieldKey: "cognitionStates", layer: "L3" },
-  { titleKey: "novel.contextPack.foreshadowingStates", fieldKey: "foreshadowingStates", layer: "L2" },
-  { titleKey: "novel.contextPack.timeline", fieldKey: "timeline", layer: "L2" },
-  { titleKey: "novel.contextPack.relatedSettings", fieldKey: "relatedSettings", layer: "L3" },
-  {
-    titleKey: "novel.contextPack.canonRules",
-    fieldKey: "canonRules",
-    layer: "L1",
-    // L1-heavy: default path keeps when present; full always; scenario_persona skips unless temporal on
-    renderIf: (pack, flags) => {
-      if (flags.layeredRecall === "full") return true
-      if (flags.layeredRecall === "scenario_persona" && !flags.temporalFactsEnabled) return false
-      return Boolean(pack.canonRules && (Array.isArray(pack.canonRules) ? pack.canonRules.length : pack.canonRules))
-    },
-  },
-  { titleKey: "novel.contextPack.writingStyle", fieldKey: "writingStyle", layer: "L3" },
-  { titleKey: "novel.contextPack.voiceStyleGuide", fieldKey: "voiceStyleGuide", layer: "L3" },
-  { titleKey: "novel.contextPack.searchResults", fieldKey: "searchResults", layer: "aux" },
-  { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults", layer: "aux" },
-  { titleKey: "novel.contextPack.communitySummaries", fieldKey: "communitySummaries", layer: "L2" },
-  {
-    // MIG-002: 世界骨架段 — additive 独立分块；renderIf 非空才渲染
-    // （空/无 blueprint → undefined → 不渲染，字节级不变）。
-    titleKey: "novel.contextPack.worldBlueprint",
-    fieldKey: "worldBlueprint",
-    layer: "L2",
-    renderIf: (pack) => Boolean(pack.worldBlueprint),
-  },
-  {
-    // MIG-003: 叙事信息差可见性段 — additive 独立分块；renderIf 非空才渲染
-    // （空 store/无可见声明 → undefined → 不渲染，字节级不变）。
-    titleKey: "novel.contextPack.narrativeVisibility",
-    fieldKey: "narrativeVisibility",
-    layer: "L2",
-    renderIf: (pack) => Boolean(pack.narrativeVisibility),
-  },
-  { titleKey: "novel.contextPack.relatedChapters", fieldKey: "relatedChapters", layer: "L2" },
-  // Wave 2 (v2.5.0): @引用段渲染条目（additive，与 relatedChapters 同款）
-  { titleKey: "novel.contextPack.references", fieldKey: "references", layer: "aux" },
-  {
-    // P1-IMP-13 (A1a): 素材引用绑定段 — additive 独立字段；renderIf 非空才渲染
-    // （零绑定 / 加载失败 → undefined → 不渲染，字节级不变）。
-    titleKey: "novel.contextPack.referenceBindings",
-    fieldKey: "referenceBindings",
-    layer: "aux",
-    renderIf: (pack) => Boolean(pack.referenceBindings),
-  },
-  {
-    // E-02 (C-9/D6): 硬注入段 — 独立 additive 分块（绝不并入 canonRules / searchResults）。
-    // renderIf 双门控：hardInjectEnabled flag（可逆上线）+ 条目非空（空数据不渲染，字节级不变）。
-    titleKey: "novel.contextPack.hardInject",
-    fieldKey: "hardInject",
-    layer: "L1",
-    renderIf: (pack, flags) => flags.hardInjectEnabled === true && (pack.hardInject?.length ?? 0) > 0,
-    serialize: (content) => {
-      const items = content as HardInjectItem[]
-      return items.map((item) => `- ${item.text}`)
-    },
-  },
-  {
-    titleKey: "novel.contextPack.activeEntities",
-    fieldKey: "activeEntities",
-    layer: "L1",
-    renderIf: (pack, flags) =>
-      (flags.temporalFactsEnabled === true || flags.layeredRecall === "full") &&
-      (pack.activeEntities?.length ?? 0) > 0,
-    serialize: (content) => {
-      const entities = content as ContextEntity[]
-      return entities.map((e) => "- " + e.name + (e.tags && e.tags.length ? " (tags: " + e.tags.join(", ") + ")" : ""))
-    },
-  },
-  {
-    // C：已失效（曾成立）事实独立分块 —— 禁并入 canonRules / 有效 temporal 块（P0 护栏）。
-    titleKey: "novel.contextPack.formerFacts",
-    fieldKey: "formerFacts",
-    layer: "L2",
-    // 仅当存在 former 事实才渲染；former 为空 → 不渲染（字节级不变，由数据空保证，无独立 flag 门控）。
-    renderIf: (pack) => (pack.formerFacts?.length ?? 0) > 0,
-    serialize: (content, pack) => {
-      const former = content as TemporalFact[]
-      // P0 护栏：条数上限 cap，压缩误导空间。
-      const capped = former.slice(0, FORMER_FACTS_CAP)
-      // 最佳努力配对：同 (subject,predicate) 的当前有效事实作为替代事实（曾以为X→现Y）。
-      const currentByKey = new Map<string, TemporalFact>()
-      for (const f of pack.temporalFacts ?? []) {
-        currentByKey.set(`${f.subject}::${f.predicate}`, f)
-      }
-      return capped.map((f) => {
-        const window = `[第${f.validFrom}章起→第${f.validUntil}章失效]`
-        const formerPhrase = f.object ? `${f.subject}${f.predicate ? f.predicate + " " : ""}${f.object}` : f.subject
-        const replacement = currentByKey.get(`${f.subject}::${f.predicate}`)
-        const replPhrase = replacement?.object
-          ? `${replacement.subject}${replacement.predicate ? replacement.predicate + " " : ""}${replacement.object}`
-          : ""
-        if (replacement && replPhrase) {
-          return `- ${window} 曾以为「${formerPhrase}」→ 现「${replPhrase}」`
-        }
-        return `- ${window} 曾以为「${formerPhrase}」（当前已失效，禁止作为当前叙述事实）`
-      })
-    },
-  },
-]
-
-
-
-export function contextPackToPrompt(
-  pack: ContextPack,
-  tokenBudget?: number,
-  options?: ContextPackToPromptOptions,
-): string {
-  const sections: string[] = []
-
-  sections.push(i18n.t("novel.contextPack.title"))
-  sections.push("")
-  sections.push(i18n.t("novel.contextPack.currentTask"))
-  sections.push(pack.task)
-  sections.push("")
-
-  const layeredRecall: LayeredRecallMode = options?.layeredRecall ?? "default"
-  const fieldSections: { title: string; content: string | string[] }[] = []
-  for (const config of FIELD_CONFIGS) {
-    // 如果设置了 excludeOutline，跳过大纲字段
-    if (options?.excludeOutline && config.fieldKey === "outline") {
-      continue
-    }
-
-    // F-06: 条件渲染守卫 — renderIf 返回 false (如 temporalFactsEnabled=false) 时完全跳过该段, 保 prompt 字节级不变
-    const flags = {
-      temporalFactsEnabled: options?.temporalFactsEnabled === true,
-      layeredRecall,
-      hardInjectEnabled: options?.hardInjectEnabled === true,
-    }
-    if (config.renderIf && !config.renderIf(pack, flags)) continue
-
-    const raw = pack[config.fieldKey] as string | string[]
-    let content = config.serialize ? config.serialize(raw, pack, flags) : raw
-    content = applySectionCharBudget(content, options?.sectionCharBudget)
-    const hasContent = Array.isArray(content) ? content.length > 0 : Boolean(content)
-    if (!hasContent) continue
-    fieldSections.push({ title: i18n.t(config.titleKey), content })
-  }
-
-  fieldSections.sort((a, b) => {
-    const keyA = a.title.replace(/^##\s*/, "")
-    const keyB = b.title.replace(/^##\s*/, "")
-    const priorityA = SECTION_PRIORITY[keyA] ?? 999
-    const priorityB = SECTION_PRIORITY[keyB] ?? 999
-    return priorityA - priorityB
-  })
-
-  for (const { title, content } of fieldSections) {
-    sections.push(title)
-    if (Array.isArray(content)) {
-      content.forEach(item => sections.push(item))
-    } else {
-      sections.push(content)
-    }
-    sections.push("")
-  }
-
-  const fullPrompt = sections.join("\n")
-
-  if (tokenBudget && tokenBudget > 0 && fullPrompt.length > tokenBudget) {
-    // COR (odyssey-review): CJK chars tokenize ~1 token/1.5char, not 1/4.
-    // Niko Buddy novel prompts are predominantly Chinese, so a naive length/4
-    // underestimates real token count → budget gate misjudges and returns
-    // an over-budget prompt untrimmed. Weight CJK at ~1.5 char/token.
-    const cjkCount = (fullPrompt.match(/[㐀-鿿]/g) ?? []).length
-    const nonCjk = fullPrompt.length - cjkCount
-    const estimatedTokens = Math.ceil(nonCjk / 4 + cjkCount / 1.5)
-    if (estimatedTokens <= tokenBudget) return fullPrompt
-    const targetChars = (() => {
-      // R4 共识（deepseek+glm）: 裁剪目标原先固定按 4 字符/token 换算，与上面刚用过的
-      // CJK 加权估算（≈1.5 字符/token）自相矛盾——中文正文裁完仍然远超预算。
-      // 改为用与估算器同源的混合比换算：纯 ASCII 仍为 4 字符/token（行为不变），
-      // 纯中文为 1.5 字符/token。
-      const cjkRatio = cjkCount / fullPrompt.length
-      const charsPerToken = 1 / (cjkRatio / 1.5 + (1 - cjkRatio) / 4)
-      return Math.max(1, Math.floor(tokenBudget * charsPerToken))
-    })()
-    const headChars = Math.floor(targetChars * 0.4)
-    const tailChars = targetChars - headChars
-    return fullPrompt.slice(0, headChars) + "\n\n[...上下文已按Token预算裁剪...]\n\n" + fullPrompt.slice(-tailChars)
-  }
-
-  return fullPrompt
 }
 
 // ============================================================================

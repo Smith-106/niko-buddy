@@ -7,7 +7,8 @@
  * readChapterOutlineContent are module-private, so we assert the wiring two
  * ways (mirroring context-engine.wiring.spec.ts for the subplot/resource
  * renderers):
- *   (a) Source-level: context-engine.ts imports computeContextBudget,
+ *   (a) Source-level (P1 巨文件拆分后位置更新：`currentBuildBudget` 在
+ *       context-engine-gaps.ts；大纲读取族在 context-engine-outline.ts):
  *       computes the budget in buildContextPack and stores it in a
  *       module-level currentBuildBudget, and pickChapterOutlineByNumber /
  *       readChapterOutlineContent drive the protected-tier cap via
@@ -36,16 +37,23 @@ function readSource(rel: string): string {
 }
 
 describe("TASK-007 PERF-011 computeContextBudget wiring on the read path", () => {
-  it("imports computeContextBudget + ContextBudget type from @/lib/context-budget", () => {
-    const src = readSource("context-engine.ts")
-    expect(src).toMatch(
-      /import\s*\{\s*computeContextBudget,\s*type\s+ContextBudget\s*\}\s*from\s*["']@\/lib\/context-budget["']/,
+  it("imports computeContextBudget (engine) + ContextBudget type (gaps) from @/lib/context-budget", () => {
+    // P1 巨文件拆分后：预算计算仍由 context-engine 负责调度，
+    // 预算持有变量 currentBuildBudget 迁到 context-engine-gaps，
+    // 因此 `type ContextBudget` 的 import 也随宿主移到 gaps 模块。
+    const engine = readSource("context-engine.ts")
+    expect(engine).toMatch(
+      /import\s*\{\s*computeContextBudget,?\s*\}\s*from\s*["']@\/lib\/context-budget["']/,
+    )
+    const gaps = readSource("context-engine-gaps.ts")
+    expect(gaps).toMatch(
+      /import\s+type\s*\{\s*ContextBudget\s*\}\s*from\s*["']@\/lib\/context-budget["']/,
     )
   })
 
   it("declares a module-level currentBuildBudget variable (mirrors contextGaps pattern)", () => {
-    const src = readSource("context-engine.ts")
-    expect(src).toMatch(/let\s+currentBuildBudget:\s*ContextBudget\s*\|\s*null\s*=\s*null/)
+    const src = readSource("context-engine-gaps.ts")
+    expect(src).toMatch(/export\s+let\s+currentBuildBudget:\s*ContextBudget\s*\|\s*null\s*=\s*null/)
   })
 
   it("buildContextPack computes the budget BEFORE registry.loadAll and clears it after", () => {
@@ -53,10 +61,10 @@ describe("TASK-007 PERF-011 computeContextBudget wiring on the read path", () =>
     // The budget is computed from context.maxContextSize + context.chapterNumber
     // and assigned to currentBuildBudget before loadAll runs.
     expect(src).toMatch(
-      /currentBuildBudget\s*=\s*computeContextBudget\(\s*context\.maxContextSize,\s*context\.chapterNumber\s*\)/,
+      /setCurrentBuildBudget\(\s*computeContextBudget\(\s*context\.maxContextSize,\s*context\.chapterNumber\s*\)\s*\)/,
     )
     // Cleared after the build (so direct callers fall back to the legacy cap).
-    expect(src).toMatch(/currentBuildBudget\s*=\s*null/)
+    expect(src).toMatch(/setCurrentBuildBudget\(null\)/)
   })
 
   it("buildLoadContext populates context.maxContextSize from useWikiStore.llmConfig", () => {
@@ -69,7 +77,7 @@ describe("TASK-007 PERF-011 computeContextBudget wiring on the read path", () =>
   })
 
   it("defines resolveChapterOutlineProtectedCap reading currentBuildBudget.maxPageSize", () => {
-    const src = readSource("context-engine.ts")
+    const src = readSource("context-engine-outline.ts")
     expect(src).toMatch(/function\s+resolveChapterOutlineProtectedCap\b/)
     // The resolver must reference budget.maxPageSize (the adaptive cap) and
     // fall back to CHAPTER_OUTLINE_PROTECTED_CAP when outside a build.
@@ -79,7 +87,7 @@ describe("TASK-007 PERF-011 computeContextBudget wiring on the read path", () =>
   })
 
   it("pickChapterOutlineByNumber drives tieredSlice caps via resolveChapterOutlineProtectedCap (not the hardcoded constant)", () => {
-    const src = readSource("context-engine.ts")
+    const src = readSource("context-engine-outline.ts")
     // The two tieredSlice calls in pickChapterOutlineByNumber must call
     // resolveChapterOutlineProtectedCap() — NOT the bare constant. This is
     // the core wiring assertion: the cap VALUE now comes from the budget.
@@ -92,7 +100,7 @@ describe("TASK-007 PERF-011 computeContextBudget wiring on the read path", () =>
   })
 
   it("readChapterOutlineContent search path drives tieredSlice via resolveChapterOutlineProtectedCap", () => {
-    const src = readSource("context-engine.ts")
+    const src = readSource("context-engine-outline.ts")
     // The search-path tieredSlice call must also use the budget-driven cap.
     const readBlock = src.match(/export async function readChapterOutlineContent[\s\S]*?\n\}/)
     expect(readBlock).not.toBeNull()
@@ -101,8 +109,9 @@ describe("TASK-007 PERF-011 computeContextBudget wiring on the read path", () =>
   })
 
   it("does not re-introduce @ts-expect-error (TASK-006 cleared it)", () => {
-    const src = readSource("context-engine.ts")
-    expect(src).not.toMatch(/@ts-expect-error/)
+    for (const rel of ["context-engine.ts", "context-engine-outline.ts", "context-engine-gaps.ts"]) {
+      expect(readSource(rel)).not.toMatch(/@ts-expect-error/)
+    }
   })
 
   it("behavior: pickChapterOutlineByNumber truncates a long candidate (cap is finite — budget wired)", () => {

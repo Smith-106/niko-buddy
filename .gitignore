@@ -28,6 +28,8 @@ src/test-helpers/*
 !src/test-helpers/load-test-env.ts
 !src/test-helpers/component-test-utils.tsx
 !src/test-helpers/setup-i18n-mock.ts
+!src/test-helpers/mock-import-actual.ts
+!src/test-helpers/mock-import-actual.spec.ts
 !src/lib/web-fs.spec.ts
 !src/lib/graph-relevance.spec.ts
 
@@ -47,6 +49,8 @@ src/test-helpers/*
 !/docs/p0/gov-seed/
 !/docs/p0/rerank-trigger-evidence-*.md
 !/docs/decision-log/
+# ADR 统一索引（架构决策真源，P1 巨文件拆分同期治理产物）
+!/docs/arch-decisions.md
 !/docs/p2/
 !/docs/p5/
 !/docs/generated/
