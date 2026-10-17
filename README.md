@@ -82,7 +82,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 | 14 | v2.9.3 | 实体物理分层 + 治理审计沉淀 | wiki/entities 走 entity-subdir-resolver 按 entity_subtype 落 5 子目录（335 实体迁入，扁平字面量路径废弃→spec wiki-entities-resolver-contract）+ graph-relevance frontmatter 收敛 canonical（REV-005）+ detective-board `hsl(var(--primary))` 非法 CSS 修复（UI-001）+ 7 个 odyssey session 全库审计 50 findings 沉淀 spec/knowhow/issue 池（prerelease） |
 | 13 | v2.9.1 | 安全修复 + UI 可达性批次 | 互动影游导出页运行时 XSS（CWE-79，FIX-HIGH）修复（f59b1361）+ npm audit fix 7 漏洞（2H/4M/1L）+ CI 依赖审计回归门（0544de22）+ 全局焦点环/禁用态基线 + 键盘可达卡片区 + role 语义修复（94e3eb5d）+ ARIA 嵌套 6 处包裹层重构（role=button 卡内交互控件平级化）+ mermaid 灯箱焦点回移（ee945de6）+ preview 存在性检查响亮报错（0691a58a）+ dashboard 域 H/M/L 处置（37153b3c）（prerelease） |
 
-> 五波全链收官审计 PASS（A1-A8），详见 [`../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md`](../docs/qmai-codex-delivery/13-v27-series-final-audit-20260828.md)。stretch gate 指标为自述目标，证据 deferred（见 16-final-acceptance-framework）。
+> 五波全链收官审计 PASS（A1-A8），详见 [`../docs/niko-buddy-codex-delivery/13-v27-series-final-audit-20260828.md`](../docs/niko-buddy-codex-delivery/13-v27-series-final-audit-20260828.md)。stretch gate 指标为自述目标，证据 deferred（见 16-final-acceptance-framework）。
 
 ## 核心功能
 

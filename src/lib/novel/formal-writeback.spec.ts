@@ -169,6 +169,61 @@ describe("formal-writeback", () => {
     expect(fsMocks.deleteFile).toHaveBeenCalledWith("E:/Novel/wiki/chapters/chapter-003.md")
   })
 
+  it("DF-2: restores the original content when accept fails after overwriting an existing file", async () => {
+    const originalContent =
+      "---\ntype: chapter\nchapter_status: planned\ntitle: '第3章'\n---\n\n# 第3章\n\n（待根据大纲细化剧情起草）"
+    fsMocks.fileExists.mockResolvedValueOnce(true)
+    fsMocks.readFile.mockResolvedValueOnce(originalContent)
+    statusMocks.acceptDeepChapterDraft.mockRejectedValueOnce(new Error("accept failed"))
+
+    await expect(commitAcceptedDeepChapterDraft({
+      projectPath: "E:/Novel",
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      chapterPath: "E:/Novel/wiki/chapters/chapter-003.md",
+      finalChapterContent: "# Chapter 3\n\nnew formal content",
+      overwriteExisting: true,
+    })).rejects.toThrow("accept failed")
+
+    // 首次为新正文写入，回滚时原子还原原文（而非删除）
+    expect(fsMocks.writeFileAtomic).toHaveBeenNthCalledWith(
+      1,
+      "E:/Novel/wiki/chapters/chapter-003.md",
+      "# Chapter 3\n\nnew formal content",
+    )
+    expect(fsMocks.writeFileAtomic).toHaveBeenNthCalledWith(
+      2,
+      "E:/Novel/wiki/chapters/chapter-003.md",
+      originalContent,
+    )
+    expect(fsMocks.deleteFile).not.toHaveBeenCalled()
+  })
+
+  it("DF-2: keeps the written file (never deletes) when the original was unreadable before overwrite", async () => {
+    fsMocks.fileExists.mockResolvedValueOnce(true)
+    fsMocks.readFile.mockRejectedValueOnce(new Error("EACCES: chapter-003.md"))
+    statusMocks.acceptDeepChapterDraft.mockRejectedValueOnce(new Error("accept failed"))
+
+    await expect(commitAcceptedDeepChapterDraft({
+      projectPath: "E:/Novel",
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      chapterPath: "E:/Novel/wiki/chapters/chapter-003.md",
+      finalChapterContent: "# Chapter 3\n\nnew formal content",
+      overwriteExisting: true,
+    })).rejects.toThrow("accept failed")
+
+    // 无法还原时绝不删除（删除只会销毁现场）；仅首次写入，无还原写
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    expect(fsMocks.deleteFile).not.toHaveBeenCalled()
+    expect(ledgerMocks.loggerWarn).toHaveBeenCalledWith(
+      "formal-writeback",
+      expect.stringContaining("original content was unreadable"),
+    )
+  })
+
   it("surfaces rollback failure separately from the original accept error", async () => {
     statusMocks.acceptDeepChapterDraft.mockRejectedValueOnce(new Error("accept failed"))
     fsMocks.deleteFile.mockRejectedValueOnce(new Error("rollback failed"))

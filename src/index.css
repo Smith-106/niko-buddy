@@ -171,7 +171,7 @@
     --info: oklch(0.62 0.19 250);
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+    --ring: oklch(0.556 0 0);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
@@ -185,7 +185,7 @@
     --sidebar-accent: oklch(0.97 0 0);
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --sidebar-ring: oklch(0.556 0 0);
 }
 
 .dark {
@@ -265,7 +265,7 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring;
     }
   body {
     @apply bg-background text-foreground;
@@ -376,15 +376,24 @@
   transition: visibility 0s linear 200ms;
 }
 
-/* 全局键盘焦点环（WCAG 2.4.7，odyssey-ui-rest 20260914）：覆盖未携带组件级
-   focus-visible 类的裸 button/a/表单控件/role=button 卡片；shadcn 组件自身的
-   .focus-visible:ring-* 类特异性更高不受影响，视觉同 token 一致 */
+/* 全局键盘焦点环（WCAG 2.4.7 + 1.4.11，odyssey-ui-rest 20260914 / ui-audit-20261016 F-A1）：
+   覆盖未携带组件级 focus-visible 类的裸 button/a/表单控件/role=button 卡片；shadcn 组件自身的
+   .focus-visible:ring-* 类特异性更高不受影响，视觉同 token 一致。
+   2026-10-16 修正：白名单补 input/textarea/select 与 role=menuitem/option/checkbox/radio
+   （旧版这些元素落到 UA 默认 outline，颜色为 outline-ring/50 → 1.54:1，低于 3:1）。 */
 button:focus-visible,
 a:focus-visible,
 summary:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
 [role="button"]:focus-visible,
 [role="switch"]:focus-visible,
 [role="tab"]:focus-visible,
+[role="menuitem"]:focus-visible,
+[role="option"]:focus-visible,
+[role="checkbox"]:focus-visible,
+[role="radio"]:focus-visible,
 [tabindex="0"]:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);

@@ -123,7 +123,7 @@ export function UnpackOutlineDialog({
                     <span>
                       第 {ch.chapterNumber} 章 · {ch.title}
                     </span>
-                    <span className="text-muted-foreground font-mono text-[11px]">
+                    <span className="text-muted-foreground font-mono text-[0.6875rem]">
                       chapter-{String(ch.chapterNumber).padStart(3, "0")}.md
                     </span>
                   </div>

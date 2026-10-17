@@ -37,15 +37,17 @@ npm run build:github-release
 
 | 命令 | 产物 | 用途 |
 |------|------|------|
-| `npm run build:portable` | `release-portable/QMaiWrite-portable.exe` | 便携版，免安装 |
+| `npm run build:portable` | `release-portable/niko-buddy.exe` | 便携版（单文件），免安装 |
 | `npm run build:github-release` | `release-github/` 下全套资产 | GitHub Release 上传 |
 
 GitHub Release 产物包含：
 
-- `QMaiWrite_2.5.0_windows_X64.exe` — NSIS 安装包（v2.5.1 notes-only 沿用）
-- `QMaiWrite_2.5.0_windows_X64.exe.sig` — 更新签名
-- `QMaiWrite-portable.exe` — 便携版
+- `niko-buddy_<version>_windows_X64.exe` — NSIS 安装包
+- `niko-buddy_<version>_windows_X64.exe.sig` — 更新签名
+- `niko-buddy_<version>_windows_X64_portable.exe` — 便携版（单文件）
 - `latest.json` — Tauri Updater 更新清单
+
+（资产命名以 `RELEASING.md` 的「资产命名（唯一规范）」为准，禁止 `QMaiWrite_*` / `Niko.Buddy_*` 前缀。）
 
 ## 签名密钥
 

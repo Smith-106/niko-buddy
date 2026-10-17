@@ -1122,3 +1122,49 @@ function publishReviewStageThinking(
 function formatReviewStageThinking(stageTitle: string, content: string): string {
   return `## ${stageTitle}\n${content.trim()}`
 }
+
+// S-goal-storymoss-absorb/S1 (2026-10-17, StoryMoss editor_agreement 对位):
+// 判官一致率 — 审查意见引用幸存判定纯函数。Additive 新增, 零行为变更, 不被现有调用方引用。
+// 口径 (与 Moss char-bigram 包含率>=0.8 对齐, 简化为归一化包含判定):
+// 引用经 normalizeForAgreement (去空白+小写) 后长度>=6 字才可判; 引用被改后文本
+// (同样归一化) 包含即幸存 (survived), 否则视为被删/被改写 (=采纳)。只报不改, 不参与门限。
+export const REVIEW_AGREEMENT_MIN_QUOTE_LEN = 6
+
+export function normalizeForAgreement(text: string): string {
+  return text.replace(/\s+/g, "").toLowerCase()
+}
+
+export interface ReviewAgreementInput {
+  /** 审查意见引用的原文片段 (对应 NovelReviewResult.evidence) */
+  quote: string
+}
+
+export interface ReviewAgreementResult {
+  total: number
+  survived: number
+  rate: number
+  /** 每条引用是否幸存 (与输入同序; 过短引用记 false 且不计入 total) */
+  details: boolean[]
+}
+
+export function computeReviewAgreement(
+  findings: readonly ReviewAgreementInput[],
+  revisedText: string,
+): ReviewAgreementResult {
+  const normalizedRevised = normalizeForAgreement(revisedText)
+  const details: boolean[] = []
+  let total = 0
+  let survived = 0
+  for (const f of findings) {
+    const q = normalizeForAgreement(f.quote)
+    if (q.length < REVIEW_AGREEMENT_MIN_QUOTE_LEN) {
+      details.push(false)
+      continue
+    }
+    total += 1
+    const ok = normalizedRevised.includes(q)
+    details.push(ok)
+    if (ok) survived += 1
+  }
+  return { total, survived, rate: total === 0 ? 0 : survived / total, details }
+}

@@ -235,7 +235,7 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
               <div key={i} className="rounded border bg-background p-2">
                 <div className="mb-1 text-xs font-medium text-muted-foreground truncate">{edit.filePath} — 编辑替换内容</div>
                 <div className="mb-2 rounded bg-destructive px-2 py-1 text-xs dark:bg-destructive/30">
-                  <div className="mb-1 text-[10px] font-medium text-destructive">{t("chat.originalText")}</div>
+                  <div className="mb-1 text-[0.625rem] font-medium text-destructive">{t("chat.originalText")}</div>
                   <pre className="whitespace-pre-wrap text-destructive dark:text-destructive">{edit.search}</pre>
                 </div>
                 <textarea

@@ -474,17 +474,38 @@ afterEach(() => {
 })
 
 describe("PreviewPanel 空态与加载态", () => {
-  it("无选中文件时显示空态并清空内容", async () => {
+  it("无选中文件时显示可操作空态（指引 + 快捷入口）并清空内容", async () => {
+    mocks.state.fileTree = [
+      { name: "章节", path: "/proj/wiki/chapters", is_dir: true, children: [
+        { name: "chapter-001.md", path: "/proj/wiki/chapters/chapter-001.md", is_dir: false },
+        { name: "chapter-002.md", path: "/proj/wiki/chapters/chapter-002.md", is_dir: false },
+      ] },
+    ]
     const { cleanup } = await renderPanel()
-    expect(screen.getByText("选择文件以预览")).toBeInTheDocument()
+    // ui-audit-20261016 P0：旧空态只有一句「选择文件以预览」（无动作），
+    // 现在必须给出下一步指引 + 最近章节快捷入口。
+    expect(screen.getByTestId("preview-empty-state")).toBeInTheDocument()
+    expect(screen.getByText("还没有打开章节")).toBeInTheDocument()
+    expect(screen.getByText(/在左侧「章节」面板点一章/)).toBeInTheDocument()
+    const chips = screen.getByTestId("preview-empty-recent").querySelectorAll("button")
+    expect(chips.length).toBe(2)
+    fireEvent.click(chips[0])
+    expect(mocks.state.setSelectedFile).toHaveBeenCalledWith("/proj/wiki/chapters/chapter-002.md")
     expect(mocks.state.setFileContent).toHaveBeenCalledWith("")
+    cleanup()
+  })
+
+  it("无章节时显示新建指引（不再是一句无动作提示）", async () => {
+    mocks.state.fileTree = []
+    const { cleanup } = await renderPanel()
+    expect(screen.getByText(/还没有章节：用左侧「章节」面板/)).toBeInTheDocument()
     cleanup()
   })
 
   it("无项目时同样显示空态", async () => {
     mocks.state.project = null
     const { cleanup } = await renderPanel()
-    expect(screen.getByText("选择文件以预览")).toBeInTheDocument()
+    expect(screen.getByTestId("preview-empty-state")).toBeInTheDocument()
     cleanup()
   })
 
@@ -666,6 +687,26 @@ describe("PreviewPanel 章节数据态与章节标题交互", () => {
     mocks.readFile.mockResolvedValue(md)
     const { cleanup } = await renderPanel()
     expect(screen.getByRole("textbox")).toHaveValue("第二章-测试")
+    cleanup()
+  })
+})
+
+describe("PreviewPanel 工具栏收敛回归锁定 (C项防退化)", () => {
+  it("章节工具栏默认 compact：More 按钮存在，非 compact 全铺按钮不存在", async () => {
+    // compact+More 骨架是 C 折叠的既有实现：默认 compact=true（:237），
+    // compact 下动作进 More 溢出菜单（:1278），非 compact 全铺（:1433+）仅宽屏响应式触发。
+    // 本用例锁定该行为，防后续改动退化为全铺默认。
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const { cleanup } = await renderPanel()
+    // More 按钮存在（compact 模式标志）
+    expect(screen.getByLabelText("更多功能")).toBeInTheDocument()
+    // More 菜单默认关闭（溢出项不在 DOM）
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
+    // 打开 More 后溢出动作出现（去 AI 味/排版等进菜单而非常显）
+    fireEvent.click(screen.getByLabelText("更多功能"))
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument())
     cleanup()
   })
 })
@@ -886,7 +927,8 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
     await waitFor(() => expect(mocks.reviewChapter).toHaveBeenCalledWith("/proj", CHAPTER_MD, undefined))
     expect(mocks.reviewState.addNovelReviewEntry).toHaveBeenCalled()
     expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
-      expect.objectContaining({ saving: false, phase: "blocked_by_review", params: { count: 1, warnings: 1 } }),
+      // findings-2 W-08：文案键声明了 {{details}}，调用点必须传具体问题清单（前 3 条）
+      expect.objectContaining({ saving: false, phase: "blocked_by_review", params: { count: 1, warnings: 1, details: "错误" } }),
     )
     cleanup()
   })
@@ -1692,6 +1734,26 @@ describe("PreviewPanel 工具栏（compact / expanded）", () => {
     expect(screen.getByTestId("persona-panel")).toBeInTheDocument()
     fireEvent.click(screen.getByTestId("persona-close"))
     expect(screen.queryByTestId("persona-panel")).not.toBeInTheDocument()
+    cleanup()
+  })
+
+  // ui-audit-20261016 P1-02（W-02）：两个全屏遮罩面板旧版只能靠面板内关闭钮退出。
+  it("P1-02：全屏遮罩面板可用 Esc 退出（人设点评 → 认知面板依次关闭）", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByLabelText("更多功能"))
+    fireEvent.click(screen.getByText("多视角评审"))
+    expect(screen.getByTestId("persona-panel")).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: "Escape" })
+    expect(screen.queryByTestId("persona-panel")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText("更多功能"))
+    fireEvent.click(screen.getByText("角色认知状态"))
+    expect(screen.getByTestId("cognition-panel")).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: "Escape" })
+    expect(screen.queryByTestId("cognition-panel")).not.toBeInTheDocument()
     cleanup()
   })
 

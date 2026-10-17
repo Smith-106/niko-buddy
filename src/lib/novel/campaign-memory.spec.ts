@@ -9,6 +9,7 @@ import {
   CARRYOVER_BRIEF_CHARS,
   CARRYOVER_CONTEXT_MAX_CHARS,
   CARRYOVER_HEAD_CHARS,
+  CARRYOVER_SEGMENT_CHARS,
   CARRYOVER_TAIL_CHARS,
   buildCarryoverContext,
   type CarryoverSource,
@@ -88,6 +89,38 @@ describe("buildCarryoverContext", () => {
       buildCarryoverContext({ chapterNumber: 5, content: "正文。", taskBrief: "   " }),
     ).not.toContain("【任务简报】")
     expect(buildCarryoverContext({ chapterNumber: 5, content: "正文。" })).not.toContain("【任务简报】")
+  })
+
+  it("C6 接线：segmentSummary 非空时输出远期段摘要行并截断至 300 字；为空/空白/缺省时不输出", () => {
+    const seg = "S".repeat(900)
+    const withSeg = buildCarryoverContext({ chapterNumber: 5, content: "正文。", segmentSummary: seg })
+    expect(withSeg).toContain("【远期段摘要")
+    expect(withSeg).toContain("S".repeat(CARRYOVER_SEGMENT_CHARS))
+    expect(withSeg).not.toContain("S".repeat(CARRYOVER_SEGMENT_CHARS + 1))
+    expect(CARRYOVER_SEGMENT_CHARS).toBe(300)
+    // 位置：简报之后、收束之前（与契约注释一致）
+    const withBoth = buildCarryoverContext({
+      chapterNumber: 5,
+      content: "正文。",
+      taskBrief: "简报",
+      segmentSummary: "远期",
+    })
+    const iBrief = withBoth.indexOf("【任务简报】")
+    const iSeg = withBoth.indexOf("【远期段摘要")
+    const iTail = withBoth.indexOf("【前章收束")
+    expect(iBrief).toBeGreaterThanOrEqual(0)
+    expect(iSeg).toBeGreaterThan(iBrief)
+    expect(iTail).toBeGreaterThan(iSeg)
+
+    expect(
+      buildCarryoverContext({ chapterNumber: 5, content: "正文。", segmentSummary: "" }),
+    ).not.toContain("【远期段摘要")
+    expect(
+      buildCarryoverContext({ chapterNumber: 5, content: "正文。", segmentSummary: "   " }),
+    ).not.toContain("【远期段摘要")
+    expect(buildCarryoverContext({ chapterNumber: 5, content: "正文。" })).not.toContain("【远期段摘要")
+    // 空正文时不单独输出段摘要（调用侧跳过注入语义不变）
+    expect(buildCarryoverContext({ chapterNumber: 5, content: "  ", segmentSummary: seg })).toBe("")
   })
 
   it("任何非空白输入下总长恒不超过 1500（含超长简报边界）", () => {

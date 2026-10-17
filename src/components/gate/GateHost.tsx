@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import {
   fetchLoopState,
@@ -18,6 +19,9 @@ export interface GateHostProps {
   enabled?: boolean;
 }
 
+/** 连续查询失败达到该次数 → 挂「门服务不可用」角标（恢复即消）。 */
+export const GATE_HOST_FAILURE_THRESHOLD = 3;
+
 /**
  * 写入确认门的宿主（B-F-001 接线）。
  *
@@ -26,16 +30,22 @@ export interface GateHostProps {
  * `confirm_gate_resolve` 落回 Rust 侧——这里不新增任何判定逻辑。
  */
 export function GateHost({ pollMs = 1000, enabled = isTauri() }: GateHostProps) {
+  const { t } = useTranslation();
   const [pending, setPending] = useState<PendingGate | null>(null);
   const [loop, setLoop] = useState<LoopState | null>(null);
+  // C3：连续失败计数 → 达阈值给用户可见的「门服务不可用」角标，恢复后自动消失。
+  const [consecutiveFailures, setConsecutiveFailures] = useState(0);
 
   const refresh = useCallback(async () => {
     try {
       const [gates, state] = await Promise.all([listPendingGates(), fetchLoopState()]);
       setPending(gates[0] ?? null);
       setLoop(state);
+      setConsecutiveFailures(0);
     } catch {
-      // 门不可用（命令未注册 / 浏览器预览 / 无项目）时静默：查询失败不得阻断写作。
+      // 门不可用（命令未注册 / 浏览器预览 / 无项目）时不阻断写作；
+      // 但连续失败必须可见——计入计数，达阈值后挂角标。
+      setConsecutiveFailures((n) => n + 1);
     }
   }, []);
 
@@ -69,6 +79,15 @@ export function GateHost({ pollMs = 1000, enabled = isTauri() }: GateHostProps) 
           halted={loop?.halted === true}
           onResume={haltRequestId ? handleResume : undefined}
         />
+        {consecutiveFailures >= GATE_HOST_FAILURE_THRESHOLD ? (
+          <div
+            role="status"
+            data-testid="gate-service-unavailable"
+            className="bg-warning/15 px-4 py-2 text-xs text-foreground"
+          >
+            {t("gate.unavailable.badge")}
+          </div>
+        ) : null}
       </div>
       <ConfirmGateDialog pending={pending} onResolved={handleResolved} />
     </>

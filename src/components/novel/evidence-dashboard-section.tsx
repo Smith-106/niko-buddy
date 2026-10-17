@@ -88,7 +88,7 @@ export function EvidenceDashboardSection({ projectId, ledger, deps }: EvidenceDa
       {loadedDeps ? (
         failed ? (
           <>
-            <p className="mb-1 text-[10px] text-muted-foreground" data-testid="evidence-dashboard-failed">
+            <p className="mb-1 text-[0.625rem] text-muted-foreground" data-testid="evidence-dashboard-failed">
               证据装载失败（断网/账本不可读）：以下为未评估诚实面
             </p>
             <EvidenceGateCards snapshot={snapshot} />

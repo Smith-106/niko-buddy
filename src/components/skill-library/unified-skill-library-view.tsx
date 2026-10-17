@@ -463,7 +463,7 @@ export function UnifiedSkillLibrarySidebarPanel() {
               >
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{entry.name}</span>
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                     {entry.kinds.map((kind) => SKILL_KIND_LABELS[kind]).join(" / ") || "未分类"}
                   </span>
                 </div>

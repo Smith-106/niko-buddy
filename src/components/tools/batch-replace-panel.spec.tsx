@@ -39,6 +39,7 @@ vi.mock("@/lib/novel", async (importOriginal) => {
 })
 
 import { BatchReplacePanel } from "./BatchReplacePanel"
+import { useWikiStore } from "@/stores/wiki-store"
 
 const DIFFS = [
   {
@@ -73,6 +74,8 @@ async function preview() {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  // B8: 还原写前门默认模式，本文件内不遗留 block 态
+  useWikiStore.getState().setNovelConfig({ preWriteGateMode: "warn" })
 })
 
 describe("BatchReplacePanel / canon 写前门接线", () => {
@@ -131,5 +134,34 @@ describe("BatchReplacePanel / canon 写前门接线", () => {
     expect(screen.getByTestId("batchreplace-canon-gate-advisory")).toBeTruthy()
     // 诊断串只作 title，不进可见文本
     expect(screen.queryByText(/时态递进/)).toBeNull()
+  })
+
+  it("写前门模式真实来自 NovelConfig.preWriteGateMode：block 时拦截可见且禁用提交", async () => {
+    useWikiStore.getState().setNovelConfig({ preWriteGateMode: "block" })
+    mocks.queryCanonEdges.mockResolvedValue([EXISTING_FACT])
+    mocks.previewBatchReplace.mockResolvedValue(DIFFS)
+    mocks.preflightCanonEdgeGate.mockReturnValue({
+      state: "BLOCK",
+      conflicts: [
+        {
+          newEdgeId: "batch:book/c1.md:林舟->林舟舟",
+          existingEdgeId: "canon-1",
+          code: "block_endpoint_conflict",
+          reason: "BLOCK：同端点同 predicate 异值且有效区间重叠（L1 硬冲突，需 supersede 而非平写）",
+        },
+      ],
+      notes: ["写前 gate 命中 1 处（mode=block）"],
+    })
+
+    renderPanel()
+    await preview()
+
+    const state = await screen.findByTestId("batchreplace-canon-gate-state")
+    await waitFor(() => expect(state).toHaveAttribute("data-mode", "block"))
+    // 门收到显式 block 模式（修复前面板恒走默认 warn）
+    await waitFor(() => expect(mocks.preflightCanonEdgeGate).toHaveBeenCalled())
+    expect(mocks.preflightCanonEdgeGate.mock.calls[0][3]).toMatchObject({ mode: "block" })
+    expect(screen.getByText("batchreplace.canonGate.advisoryBlock")).toBeTruthy()
+    expect(screen.getByTestId("batchreplace-apply")).toBeDisabled()
   })
 })

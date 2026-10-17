@@ -18,8 +18,11 @@ import { useChatStore, chatMessagesToLLM, type DisplayMessage } from "@/stores/c
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveChapterLengthSpec, routeTask, buildTaskDirective, appendExemplarABSample, exemplarABStats, loadCognitionState, detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat, buildQmQuaiSystemPrompt, injectDeAiDirective, cleanGeneratedChapterContentWithTitle, resolveNovelModel, resolveReviewModel, buildGoldenThreeChapterDirective, detectGoldenThreeChapterRequest, isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEditResult, backupChapterFile, appendChapterWorkspaceSnapshot, updateChapterStatus, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber, normalizeChapterEditFile, commitAcceptedDeepChapterDraft, blockDeepChapterSession, completeDeepChapterSession, createNovelSessionId, loadNovelSessionStatus, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, startDeepChapterSession, subscribeStatusJson, buildStageJournalRuntime } from "@/lib/novel"
 import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
+import { activeRustStreamIds } from "@/lib/claude-cli-transport"
 import { executeIngestWrites } from "@/lib/ingest"
-import { readFile, writeFile, createDirectory, deleteFile } from "@/commands/fs"
+import { readFile, writeFile, createDirectory, deleteFile, fileExists } from "@/commands/fs"
+// C4 覆盖守卫：目标章节 Markdown 是否有正文的纯函数（chapter-save-strategy 模块）。
+import { chapterMarkdownHasBody } from "@/lib/novel/chapter-save-strategy"
 import {
   markStyleExemplarViaRust,
   loadStyleExemplarsViaRust,
@@ -102,9 +105,9 @@ const sharedStreamSessionGuardRef = { current: createStreamSessionGuard() }
 const sharedActiveStreamSessionsRef = { current: {} as Record<string, number> }
 const sharedNovelManagedStopRef = { current: {} as Record<string, boolean> }
 const sharedDeepChapterEnabledRef = { current: false }
-// ①-7 审计修复：跟踪活跃 Rust CLI stream IDs，供「强制终止」直接 invoke claude_cli_kill。
-// 通过拦截 __TAURI_INTERNALS__.invoke 的 plugin:event|listen 调用来捕获 claude-cli:* 事件名中的 streamId。
-const sharedActiveRustStreamIdsRef = { current: new Set<string>() }
+// ①-7 审计修复（已由 C2 去猴补替代）：活跃 Rust CLI stream id 改由 transport 第一方
+// 注册表 activeRustStreamIds() 维护（stream-start/end 广播 + 注册表快照）；UI 不再拦截
+// __TAURI_INTERNALS__，也不维护第二张影子表——强制停止直接消费 transport 注册表。
 
 function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) => void }) {
   const { t } = useTranslation()
@@ -180,7 +183,7 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
                 // Switched to a div[role=tab] so the delete can be a real
                 // focusable <button>. Enter/Space activates the tab (W3C ARIA
                 // Pattern for tabs). focus-visible ring restored.
-                className={`group flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                className={`group flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring ${
                   isActive
                     ? "border-primary/40 bg-background text-foreground shadow-sm"
                     : "border-border bg-background/70 text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -201,8 +204,8 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
                 <span className="max-w-[140px] truncate font-medium">
                   {getConversationTabTitle(conv.title, 10)}
                 </span>
-                <span className="hidden text-[10px] tabular-nums text-muted-foreground @md:inline">{msgCount}</span>
-                <span className="hidden text-[10px] tabular-nums text-muted-foreground @md:inline">{formatDate(conv.updatedAt)}</span>
+                <span className="hidden text-[0.625rem] tabular-nums text-muted-foreground @md:inline">{msgCount}</span>
+                <span className="hidden text-[0.625rem] tabular-nums text-muted-foreground @md:inline">{formatDate(conv.updatedAt)}</span>
                 {/*
                  * MI-002/MI-009 (odyssey-ui): delete button.
                  * - Real <button> with aria-label (was <span onClick> — AT + keyboard blind).
@@ -214,13 +217,16 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
                 {(() => {
                   const armed = confirmDeleteId === conv.id
                   const visible = hoveredId === conv.id || isActive || armed
-                  if (!visible) return null
+                  // ui-audit-20261016 P0-B5（F-A3，WCAG 2.1.1）：旧实现在不可见时直接
+                  // `return null`，键盘用户 Tab 永远到不了删除钮。改为常渲染 + opacity
+                  // 隐藏（隐藏时 pointer-events-none，避免看不见的点击区）；获得焦点
+                  // 或所属行内出现焦点时重新显现。
                   return (
                     <button
                       type="button"
                       aria-label={armed ? "确认删除该会话" : "删除该会话"}
                       title={armed ? "再次点击确认删除" : "删除该会话"}
-                      className={`shrink-0 rounded p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                      className={`shrink-0 rounded p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${visible ? "opacity-100" : "pointer-events-none opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"} ${
                         armed
                           ? "bg-destructive/10 px-1.5 text-destructive"
                           : "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
@@ -236,7 +242,7 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
                       onBlur={() => setConfirmDeleteId((cur) => (cur === conv.id ? null : cur))}
                     >
                       {armed ? (
-                        <span className="text-[10px] font-medium">{t("chat.confirmShort")}</span>
+                        <span className="text-[0.625rem] font-medium">{t("chat.confirmShort")}</span>
                       ) : (
                         <Trash2 className="h-3 w-3 shrink-0" />
                       )}
@@ -331,6 +337,9 @@ export function ChatPanel() {
     isSaving: boolean
   } | null>(null)
   const [pendingSoulDialog, setPendingSoulDialog] = useState({ open: false, summary: "" })
+  // C4 覆盖守卫（CORR-012 落地，方案 a）：保存目标章节已有正文时，覆盖前必须显式确认。
+  const chapterOverwriteResolverRef = useRef<((confirmed: boolean) => void) | null>(null)
+  const [pendingChapterOverwrite, setPendingChapterOverwrite] = useState({ open: false, chapterNumber: 0 })
   // EPIC-001 / TASK-005 / ADR-29: exemplar 标记 UI 状态。
   // C-001 Draft-first 例外 — 用户主动标记非 AI 产出，直写正式层。
   const [exemplarDialog, setExemplarDialog] = useState<{
@@ -394,6 +403,22 @@ export function ChatPanel() {
     setPendingSoulDialog({ open: true, summary })
     return new Promise<boolean>((resolve) => {
       soulDialogResolverRef.current = resolve
+    })
+  }, [])
+
+  const closeChapterOverwriteDialog = useCallback((confirmed: boolean) => {
+    const resolver = chapterOverwriteResolverRef.current
+    chapterOverwriteResolverRef.current = null
+    setPendingChapterOverwrite({ open: false, chapterNumber: 0 })
+    resolver?.(confirmed)
+  }, [])
+
+  const requestChapterOverwriteConfirm = useCallback((chapterNumber: number) => {
+    // 并发保存请求防御：旧确认按取消处理，避免 resolver 槽被覆盖后旧流程挂起。
+    chapterOverwriteResolverRef.current?.(false)
+    setPendingChapterOverwrite({ open: true, chapterNumber })
+    return new Promise<boolean>((resolve) => {
+      chapterOverwriteResolverRef.current = resolve
     })
   }, [])
 
@@ -519,7 +544,6 @@ export function ChatPanel() {
       const explicitTargetPath = generatedTargetChapterNumber ? await findChapterFileByNumber(pp, generatedTargetChapterNumber) : null
       const strategy = decideChapterSaveStrategy({
         selectedChapterNumber: selectedChapterNumber ?? null,
-        selectedChapterHasBody: false,
         generatedTargetChapterNumber,
         generatedTargetExists: Boolean(explicitTargetPath),
       })
@@ -547,6 +571,34 @@ export function ChatPanel() {
       const chapterDir = `${pp}/wiki/chapters`
       await createDirectory(chapterDir)
       const chapterPath = `${chapterDir}/chapter-${String(targetChapterNumber).padStart(3, "0")}.md`
+      // C4 覆盖守卫（CORR-012 落地，方案 a）：目标章节文件已存在且已有正文时，
+      // 必须先经用户显式确认才允许覆盖；确认前不调用 accept 通道、不落盘。
+      // 降级纪律：存在性查询失败不阻断写作（写入层仍会拒绝覆盖已定稿章节）；
+      // 「存在但读不出正文」保守视为有正文，仍需人工确认。
+      let existingTargetHasBody = false
+      try {
+        if (await fileExists(chapterPath)) {
+          try {
+            existingTargetHasBody = chapterMarkdownHasBody(await readFile(chapterPath))
+          } catch {
+            existingTargetHasBody = true
+          }
+        }
+      } catch {
+        existingTargetHasBody = false
+      }
+      if (existingTargetHasBody) {
+        const overwriteConfirmed = await requestChapterOverwriteConfirm(targetChapterNumber)
+        if (!overwriteConfirmed) {
+          setChapterSaveState({
+            conversationId: latestDraftContext.conversationId,
+            messageId: latestDraftContext.assistantMessage.id,
+            status: t("chat.overwriteCancelled"),
+            isSaving: false,
+          })
+          return { success: false, chapterNumber: targetChapterNumber, chapterPath }
+        }
+      }
       const finalChapterContent = updateChapterStatus(
         buildDraftContent(targetChapterNumber, chapterTitle, cleanedContent),
         "final",
@@ -623,7 +675,7 @@ export function ChatPanel() {
         return { ...prev, isSaving: false }
       })
     }
-  }, [getLatestAssistantDraftContext, novelConfig, project, refreshProjectState, selectedFile, t])
+  }, [getLatestAssistantDraftContext, novelConfig, project, refreshProjectState, requestChapterOverwriteConfirm, selectedFile, t])
 
   const handleSaveAsChapter = useCallback(async (content: string) => {
     await executeSaveDraftAsChapter(content)
@@ -1804,21 +1856,21 @@ export function ChatPanel() {
     if (!convId) return
     // 先 abort HTTP fetch（同 handleStop）
     abortControllersRef.current[convId]?.abort()
-    // 直接 invoke claude_cli_kill 绕过 grace 窗口（streamId 由 __TAURI_INTERNALS__ 拦截跟踪）
+    // C2 去猴补：直接调 transport 第一方API（注册表快照），不再手写 invoke；
+    // streamId 由 transport onStatus("claude-cli:stream-start:<id>"/"claude-cli:stream-end:<id>")
+    // 广播维护，__TAURI_INTERNALS__ 拦截已删除。
     // DEBUG#3 修复：kill 失败不再静默吞掉——记录并上屏告警，否则流看似已停但底层 CLI 仍在跑。
     let killFailed = 0
     if (isTauri()) {
-      const killPromises = Array.from(sharedActiveRustStreamIdsRef.current).map((streamId) =>
-        import("@tauri-apps/api/core").then(({ invoke }) =>
-          invoke("claude_cli_kill", { streamId }).catch((err) => {
-            killFailed += 1
-            console.error("[chat] claude_cli_kill failed for", streamId, err)
-          }),
-        ).catch((err) => {
+      const killPromises = activeRustStreamIds().map(async (streamId: string) => {
+        try {
+          const { gracefulAbortStream } = await import("@/lib/claude-cli-transport")
+          await gracefulAbortStream(streamId, 0)
+        } catch (err) {
           killFailed += 1
-          console.error("[chat] tauri api import failed for kill", err)
-        }),
-      )
+          console.error("[chat] claude_cli_kill failed for", streamId, err)
+        }
+      })
       void Promise.all(killPromises).then(() => {
         if (killFailed > 0) {
           // DEBUG#6 修复：告警写入前确认目标会话仍存在，避免给已删除会话产生孤儿消息
@@ -1828,7 +1880,6 @@ export function ChatPanel() {
           }
         }
       })
-      sharedActiveRustStreamIdsRef.current.clear()
     }
     if (novelManagedStopRef.current[convId] === true) {
       return
@@ -1843,55 +1894,6 @@ export function ChatPanel() {
       })
     }
   }, [finalizeStream])
-
-  // ①-7 审计修复：拦截 __TAURI_INTERNALS__.invoke 的 plugin:event|listen 调用，
-  // 从 claude-cli:* 事件名中提取 streamId 供 handleForceStop 直接 kill。
-  // 注意：Tauri 2 的 __TAURI_INTERNALS__.invoke 可能为只读属性——按属性描述符降级：
-  // writable → 直接赋值；configurable → defineProperty 重定义；两者皆否 → 放弃拦截（best-effort）。
-  useEffect(() => {
-    if (!isTauri()) return
-    const internals = (window as Window & { __TAURI_INTERNALS__?: { invoke?: Function } }).__TAURI_INTERNALS__
-    if (!internals?.invoke) return
-    const originalInvoke = internals.invoke
-    const wrapper = function(this: unknown, cmd: string, args: unknown, ...rest: unknown[]) {
-      try {
-        if (cmd === "plugin:event|listen" && typeof args === "object" && args !== null) {
-          const eventName = (args as { event?: unknown }).event
-          if (typeof eventName === "string" && eventName.startsWith("claude-cli:") && !eventName.endsWith(":done")) {
-            const streamId = eventName.slice("claude-cli:".length)
-            if (streamId) sharedActiveRustStreamIdsRef.current.add(streamId)
-          }
-        }
-      } catch {
-        // best-effort — 拦截失败不影响正常 IPC
-      }
-      return originalInvoke.call(this, cmd, args, ...rest)
-    }
-    const desc = Object.getOwnPropertyDescriptor(internals, "invoke")
-    let installed = false
-    if (desc?.writable) {
-      internals.invoke = wrapper
-      installed = true
-    } else if (desc?.configurable) {
-      try {
-        Object.defineProperty(internals, "invoke", { value: wrapper, writable: true, configurable: true })
-        installed = true
-      } catch {
-        // 只读且重定义失败——降级：放弃拦截
-      }
-    }
-    if (!installed) return
-    return () => {
-      const current = Object.getOwnPropertyDescriptor(internals, "invoke")
-      if (current?.writable || current?.configurable) {
-        try {
-          internals.invoke = originalInvoke
-        } catch {
-          // 恢复失败不影响主流程
-        }
-      }
-    }
-  }, [])
 
   const handleRegenerate = useCallback(async () => {
     // 直接从 store 获取最新状态，避免闭包旧值
@@ -2526,7 +2528,7 @@ export function ChatPanel() {
                     key={suggestion}
                     type="button"
                     onClick={() => handleSend(suggestion)}
-                    className="rounded-full border border-border bg-background px-3 py-1.5 text-xs text-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    className="rounded-full border border-border bg-background px-3 py-1.5 text-xs text-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {suggestion}
                   </button>
@@ -2614,7 +2616,7 @@ export function ChatPanel() {
                 type="button"
                 onClick={scrollToBottom}
                 aria-label={t("chat.scrollToLatest")}
-                className="animate-in fade-in-0 zoom-in-95 absolute bottom-3 right-4 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                className="animate-in fade-in-0 zoom-in-95 absolute bottom-3 right-4 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <ArrowDown className="h-4 w-4 shrink-0" />
               </button>
@@ -2712,7 +2714,7 @@ export function ChatPanel() {
                           >
                             {/* ③-6 审计修复：计数徽标 */}
                             {exemplarCount > 0 ? (
-                              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold leading-none text-primary-foreground" aria-label={`已标记 ${exemplarCount} 条范例`}>{exemplarCount}</span>
+                              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-1 text-[0.5625rem] font-bold leading-none text-primary-foreground" aria-label={`已标记 ${exemplarCount} 条范例`}>{exemplarCount}</span>
                             ) : null}
                             <TooltipContent>{t("chat.markExemplarUserAnchor")}</TooltipContent>
                           </TooltipTrigger>
@@ -2815,6 +2817,25 @@ export function ChatPanel() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        {/* C4 覆盖守卫：目标章节已有正文 → 覆盖前必须显式确认（确认前不落盘） */}
+        <Dialog open={pendingChapterOverwrite.open} onOpenChange={/* v8 ignore next */ (open) => { if (!open) closeChapterOverwriteDialog(false) }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t("chat.overwriteConfirmTitle")}</DialogTitle>
+              <DialogDescription>
+                {t("chat.overwriteConfirmBody", { chapter: pendingChapterOverwrite.chapterNumber })}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" data-testid="chapter-overwrite-cancel" onClick={() => closeChapterOverwriteDialog(false)}>
+                {t("common.cancel")}
+              </Button>
+              <Button variant="destructive" data-testid="chapter-overwrite-accept" onClick={() => closeChapterOverwriteDialog(true)}>
+                {t("chat.overwriteConfirmAction")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         {/* EPIC-001 / TASK-005 / ADR-29: exemplar 标记 UI（C-001 Draft-first 例外，用户标记锚点非自动生成） */}
         <Dialog open={exemplarDialog.open} onOpenChange={/* v8 ignore next */ (open) => { if (!open) setExemplarDialog({ open: false, text: "", chapterId: "" }) }}>
           <DialogContent>
@@ -2868,13 +2889,13 @@ export function ChatPanel() {
                           <Button
                             variant="destructive"
                             size="sm"
-                            className="h-6 px-2 text-[10px]"
+                            className="h-6 px-2 text-[0.625rem]"
                             onClick={() => void deleteExemplar(ex.exemplarId)}
                           >{t("chat.confirmDelete")}</Button>
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-6 px-2 text-[10px]"
+                            className="h-6 px-2 text-[0.625rem]"
                             onClick={() => setExemplarDeleteConfirmId(null)}
                           >{t("common.cancel")}</Button>
                         </div>
@@ -2882,7 +2903,7 @@ export function ChatPanel() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 shrink-0 px-2 text-[10px]"
+                          className="h-6 shrink-0 px-2 text-[0.625rem]"
                           onClick={() => setExemplarDeleteConfirmId(ex.exemplarId)}
                           title={t("chat.deleteExemplar")}
                           aria-label={t("chat.deleteExemplar")}

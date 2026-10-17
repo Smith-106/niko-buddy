@@ -9,7 +9,7 @@ import { resolveConfig } from "@/lib/llm-config/preset-resolver"
 import { fetchLlmModelList } from "@/lib/settings-model-list"
 import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { useTranslation } from "react-i18next"
-import { ReasoningControls } from "./llm-provider-section"
+import { HttpTimeoutControls, ReasoningControls } from "./llm-provider-section"
 
 interface CustomProviderCard {
   id: string
@@ -20,6 +20,10 @@ interface CustomProviderCard {
   model: string
   maxContextSize?: number
   reasoning?: ReasoningConfig
+  /** HTTP 三档超时 (毫秒, 可选)。undefined = 沿用各档硬编码默认。 */
+  httpConnectTimeoutMs?: number
+  httpHeaderTimeoutMs?: number
+  httpStreamIdleMs?: number
   enabled: boolean
   savedModels: SavedModel[]
 }
@@ -51,6 +55,9 @@ export function CustomProviderCards() {
         model: config.model || "",
         maxContextSize: config.maxContextSize,
         reasoning: config.reasoning,
+        httpConnectTimeoutMs: config.httpConnectTimeoutMs,
+        httpHeaderTimeoutMs: config.httpHeaderTimeoutMs,
+        httpStreamIdleMs: config.httpStreamIdleMs,
         enabled: config.enabled ?? true,
         savedModels: config.savedModels || [],
       }
@@ -101,6 +108,11 @@ export function CustomProviderCards() {
       apiKey: updates.apiKey ?? prev.apiKey,
       model: updates.model ?? prev.model,
       maxContextSize: updates.maxContextSize ?? prev.maxContextSize,
+      // HTTP 三档超时可清空回默认: 显式传入 undefined 时落盘 undefined (|| 沿用默认),
+      // 不能用 ?? (会把“清空”误判成“未指定”而回退旧值)。
+      httpConnectTimeoutMs: "httpConnectTimeoutMs" in updates ? updates.httpConnectTimeoutMs : prev.httpConnectTimeoutMs,
+      httpHeaderTimeoutMs: "httpHeaderTimeoutMs" in updates ? updates.httpHeaderTimeoutMs : prev.httpHeaderTimeoutMs,
+      httpStreamIdleMs: "httpStreamIdleMs" in updates ? updates.httpStreamIdleMs : prev.httpStreamIdleMs,
       reasoning: updates.reasoning ?? prev.reasoning,
       enabled: updates.enabled ?? prev.enabled ?? true,
       savedModels: updates.savedModels ?? prev.savedModels,
@@ -239,6 +251,9 @@ function CustomProviderCardItem({
       baseUrl: card.baseUrl,
       apiMode: card.apiMode,
       maxContextSize: card.maxContextSize,
+      httpConnectTimeoutMs: card.httpConnectTimeoutMs,
+      httpHeaderTimeoutMs: card.httpHeaderTimeoutMs,
+      httpStreamIdleMs: card.httpStreamIdleMs,
     }
     return resolveConfig(preset, override, llmConfig)
   }, [card, llmConfig])
@@ -710,6 +725,16 @@ function CustomProviderCardItem({
           <ReasoningControls
             value={card.reasoning ?? { mode: "auto" }}
             onChange={(reasoning) => onUpdate({ reasoning })}
+          />
+
+          {/* HTTP transport timeouts (UI 可调秒数, 存毫秒)。留空 = 默认。 */}
+          <HttpTimeoutControls
+            value={{
+              httpConnectTimeoutMs: card.httpConnectTimeoutMs,
+              httpHeaderTimeoutMs: card.httpHeaderTimeoutMs,
+              httpStreamIdleMs: card.httpStreamIdleMs,
+            }}
+            onChange={(patch) => onUpdate(patch)}
           />
 
           {/* Delete */}

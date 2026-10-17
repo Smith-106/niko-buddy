@@ -18,7 +18,7 @@ import {
   type CurationBatch,
 } from "./curation-gate"
 import kbRoutingView from "./kb/kb-routing-view.generated.json"
-import kbContentView from "./__fixtures__/reference-kb-view.content-5466c2b048642703.json"
+import kbContentView from "./__fixtures__/reference-kb-view.content-878b6f16f9b20798.json"
 
 const LONG_SUMMARY = "这是一段足够长的策展摘要，用于验证摘要长度阈值：".repeat(2) + "完。"
 
@@ -205,7 +205,7 @@ describe("R1-d 真实产物面（生成器管线门禁）", () => {
   }
   const score = scoreCurationBatch({
     schemaVersion: 1,
-    source: `reference-kb-view.content-5466c2b048642703.json@${content.builtFrom ?? "unknown"}`,
+    source: `reference-kb-view.content-878b6f16f9b20798.json@${content.builtFrom ?? "unknown"}`,
     expectThemes: [
       { theme: "克苏鲁", collections: ["world_ref"] },
       { theme: "修仙", collections: ["world_ref", "lexicon"] },
@@ -222,7 +222,7 @@ describe("R1-d 真实产物面（生成器管线门禁）", () => {
     expect(score.totalDebt).toBe(0)
     expect(score.withinCap).toBe(true)
     expect(score.findings).toEqual([])
-    expect(content.builtFrom).toBe("sha256:5466c2b048642703")
+    expect(content.builtFrom).toBe("sha256:878b6f16f9b20798")
     expect(content.entryCount).toBe(98) // R1-a 后参考池重建：四写作面 6+12+53+27=98
     expect(score.entryCount).toBeGreaterThan(70)
   })

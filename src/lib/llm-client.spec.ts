@@ -652,7 +652,7 @@ describe("streamChat HTTP path", () => {
     expect(callbacks.onDone).not.toHaveBeenCalled()
   })
 
-  it("aborts the retry wait when the caller signal fires", async () => {
+  it("LL-2: aborts the retry wait when the caller signal fires → cancelled error, no onDone", async () => {
     const controller = new AbortController()
     const mockFetch = (() => Promise.reject(netError("Failed to fetch"))) as typeof fetch
     setupHttpFetch(mockFetch)
@@ -662,8 +662,11 @@ describe("streamChat HTTP path", () => {
     await Promise.resolve()
     controller.abort()
     await p
-    expect(callbacks.onDone).toHaveBeenCalledTimes(1)
-    expect(callbacks.onError).not.toHaveBeenCalled()
+    // LL-2: 取消不再走 onDone 成功路径，而是可识别的取消错误
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError.mock.calls[0][0].name).toBe("AbortError")
+    expect(isRequestCancelledError(callbacks.onError.mock.calls[0][0])).toBe(true)
   })
 
   it("classifies HTTP and parse errors into metric error kinds", async () => {
@@ -699,12 +702,14 @@ describe("streamChat HTTP path", () => {
     expect(callbacks.onError).toHaveBeenCalledWith(expect.objectContaining({ message: "string-boom" }))
   })
 
-  it("a direct AbortError rejection (no signal) ends with onDone", async () => {
+  it("LL-2: a direct AbortError rejection (no signal) surfaces a cancelled error, not onDone", async () => {
     setupHttpFetch((async () => { throw new DOMException("aborted", "AbortError") }) as typeof fetch)
     const callbacks = makeCallbacks()
     await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
-    expect(callbacks.onDone).toHaveBeenCalledTimes(1)
-    expect(callbacks.onError).not.toHaveBeenCalled()
+    // QD-1 纠正：abort mock 不得再钉死「onDone 成功」契约
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(isRequestCancelledError(callbacks.onError.mock.calls[0][0])).toBe(true)
   })
 
   it("a pre-header hang fast-fails via the header deadline + retry ladder well before the 30-min budget", async () => {
@@ -724,7 +729,7 @@ describe("streamChat HTTP path", () => {
     expect(callbacks.onError.mock.calls[0][0].message).toContain("已自动快速重试约 20 秒")
   })
 
-  it("retry waits abort with onDone when the caller aborts mid-wait", async () => {
+  it("LL-2: retry-wait abort surfaces a cancelled error when the caller aborts mid-wait", async () => {
     vi.useFakeTimers()
     const controller = new AbortController()
     setupHttpFetch((async () => { throw netError("Failed to fetch") }) as typeof fetch)
@@ -733,8 +738,9 @@ describe("streamChat HTTP path", () => {
     await vi.advanceTimersByTimeAsync(0)
     controller.abort()
     await p
-    expect(callbacks.onDone).toHaveBeenCalledTimes(1)
-    expect(callbacks.onError).not.toHaveBeenCalled()
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(isRequestCancelledError(callbacks.onError.mock.calls[0][0])).toBe(true)
   })
 
   it("non-network fetch errors surface immediately without retry", async () => {
@@ -775,7 +781,7 @@ describe("streamChat HTTP path", () => {
     expect(callbacks.onDone).not.toHaveBeenCalled()
   })
 
-  it("external abort before a response resolves calls onDone", async () => {
+  it("LL-2: external abort before a response resolves surfaces a cancelled error", async () => {
     const controller = new AbortController()
     setupHttpFetch(abortAwareFetch(() => new Promise<Response>(() => {})))
     const callbacks = makeCallbacks()
@@ -783,8 +789,10 @@ describe("streamChat HTTP path", () => {
     await Promise.resolve()
     controller.abort()
     await p
-    expect(callbacks.onDone).toHaveBeenCalledTimes(1)
-    expect(callbacks.onError).not.toHaveBeenCalled()
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError.mock.calls[0][0].name).toBe("AbortError")
+    expect(isRequestCancelledError(callbacks.onError.mock.calls[0][0])).toBe(true)
   })
 
   it("still streams when AbortSignal.timeout is unavailable (no timeout controller)", async () => {
@@ -1112,7 +1120,7 @@ describe("streamChat HTTP error handling", () => {
     expect(callbacks.onDone).not.toHaveBeenCalled()
   })
 
-  it("abort during stream reading calls onDone", async () => {
+  it("LL-2: abort during stream reading surfaces a cancelled error, not onDone", async () => {
     const encoder = new TextEncoder()
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -1123,8 +1131,23 @@ describe("streamChat HTTP error handling", () => {
     setupHttpFetch(abortAwareFetch(async () => new Response(stream, { status: 200 })))
     const callbacks = makeCallbacks()
     await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
-    expect(callbacks.onDone).toHaveBeenCalledTimes(1)
-    expect(callbacks.onError).not.toHaveBeenCalled()
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(isRequestCancelledError(callbacks.onError.mock.calls[0][0])).toBe(true)
+  })
+
+  it("LL-2: abort landing during token dispatch still surfaces a cancelled error (no onDone)", async () => {
+    const controller = new AbortController()
+    const response = streamResponse(sseLines(openAiToken("tail"), "data: [DONE]"))
+    setupHttpFetch(abortAwareFetch(async () => response))
+    const callbacks = makeCallbacks()
+    // 取消恰好在最后一个 chunk 已送达、流即将正常结束时落地：
+    // 修复前 onDone 会把「已取消 + 半截正文」谎报为成功。
+    callbacks.onToken.mockImplementation(() => controller.abort())
+    await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks, controller.signal)
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(isRequestCancelledError(callbacks.onError.mock.calls[0][0])).toBe(true)
   })
 
   it("network failure mid-stream reports the connection-lost error", async () => {
@@ -1345,6 +1368,42 @@ describe("streamChat HTTP staged timeouts", () => {
     const callbacks = makeCallbacks()
     await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
     expect(seenInits[0] && (seenInits[0] as RequestInit & { connectTimeout?: number }).connectTimeout).toBe(10_000)
+  })
+
+  it("applies configured HTTP timeouts to the transport init (缺省 = 各档默认)", async () => {
+    const seenInits: Array<RequestInit | undefined> = []
+    const mockFetch = ((_url: unknown, init?: RequestInit) => {
+      seenInits.push(init)
+      return Promise.resolve(streamResponse(sseLines(openAiToken("ok"), "data: [DONE]")))
+    }) as typeof fetch
+    setupHttpFetch(mockFetch)
+    await streamChat(
+      llmConfig({ httpConnectTimeoutMs: 45_000, httpHeaderTimeoutMs: 120_000, httpStreamIdleMs: 180_000 }),
+      [{ role: "user", content: "hi" }],
+      makeCallbacks(),
+    )
+    expect(seenInits[0] && (seenInits[0] as RequestInit & { connectTimeout?: number }).connectTimeout).toBe(45_000)
+  })
+
+  it("reports the configured header seconds in the header-timeout message", async () => {
+    vi.useFakeTimers()
+    // 非网络错误 + header 截止触发 → headerTimedOut 分支 (动态秒数文案)。
+    // 若用 netError 会走通用重试文案, 断言不到动态秒数。
+    const mockFetch = ((_url: unknown, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new Error("hung gateway")))
+    })) as typeof fetch
+    setupHttpFetch(mockFetch)
+    const callbacks = makeCallbacks()
+    const p = streamChat(
+      llmConfig({ httpHeaderTimeoutMs: 60_000 }),
+      [{ role: "user", content: "hi" }],
+      callbacks,
+    )
+    // 4 attempts × 60s header deadline + 2/5/10s backoff waits ≈ 257s
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+    await p
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("超过 60 秒仍无响应")
   })
 })
 

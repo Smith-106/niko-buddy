@@ -41,12 +41,14 @@
 import { invoke } from "@tauri-apps/api/core"
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { useWikiStore } from "@/stores/wiki-store"
 import { computeCheckpointDigestOf } from "./checkpoint-digest"
 import { twoPhaseReconcile } from "./canon-reconcile"
 import {
   checkCanonPreWrite,
   DEFAULT_PRE_WRITE_GATE_MODE,
   type PreWriteGateInput,
+  type PreWriteGateMode,
 } from "./canon-pre-write-gate"
 import { appendFoldConflictLog, promote } from "./promotion-bridge"
 import { logger } from "@/lib/utils"
@@ -283,6 +285,25 @@ export function parentDir(p: string): string {
 // ──────────────────────────────────────────────────────────────────────────
 
 /**
+ * 53 号报告 P1-2 / B8: 写前 gate 模式真实读取点。
+ *
+ * 背景: 此前唯一调用点写死 DEFAULT_PRE_WRITE_GATE_MODE (warn), 配置旗标
+ * preWriteGateMode 无任何读取点, BLOCK 拦截分支生产不可达。现在读取现有配置体系
+ * NovelConfig.preWriteGateMode (设置页 / `.niko-buddy/novel-config.json` → project-store
+ * 归一化 → useWikiStore); 未设置 / 非法值 / store 读取异常一律回退
+ * DEFAULT_PRE_WRITE_GATE_MODE (warn, 观察期零行为变更), 仅显式 "block" 提升为硬拦。
+ */
+export function resolvePreWriteGateMode(): PreWriteGateMode {
+  try {
+    const mode = useWikiStore.getState().novelConfig.preWriteGateMode
+    return mode === "block" ? "block" : DEFAULT_PRE_WRITE_GATE_MODE
+  } catch {
+    // store 不可用 (非 UI 环境/早期启动) → fail-safe 回退 warn, 不阻断写可用性
+    return DEFAULT_PRE_WRITE_GATE_MODE
+  }
+}
+
+/**
  * 53 号报告 P1-2: 写前 gate 现存边快照拉取 (复用既有 canon_query IPC)。
  * 拉取失败 → 降级空数组 (gate 不阻断写可用性, 守 Draft-first)。
  */
@@ -355,9 +376,10 @@ export async function canonStoreWriter(
       return { ok: true, revision: res.max_revision }
     }
     if (payload.kind === "supersede") {
-      // 53 号报告 P1-2: 写前一致性门控 (lore-weave L1 硬锁模式, 默认 warn-only
-      // 零行为变更; block 模式拦截硬冲突)。gate 不 invoke, 不进 pending 队列。
-      // warn-only 语义: BLOCK 降级只记录 gate 标记继续写 (不静默丢写, 审计可追溯)
+      // 53 号报告 P1-2 / B8: 写前一致性门控 (lore-weave L1 硬锁模式)。模式经
+      // resolvePreWriteGateMode 读 NovelConfig.preWriteGateMode (默认 warn 观察期
+      // 零行为变更; 显式 block 时 BLOCK 硬拦)。gate 不 invoke, 不进 pending 队列。
+      // warn 语义: BLOCK 降级只记录 gate 标记继续写 (不静默丢写, 审计可追溯)
       let gateHit: "pre_write_warn" | undefined = undefined
       const request = payload.request as {
         new_edges?: Array<{
@@ -388,7 +410,7 @@ export async function canonStoreWriter(
             })),
             existingEdges,
           },
-          { mode: DEFAULT_PRE_WRITE_GATE_MODE },
+          { mode: resolvePreWriteGateMode() },
         )
         if (gateResult.state === "BLOCK") {
           return {

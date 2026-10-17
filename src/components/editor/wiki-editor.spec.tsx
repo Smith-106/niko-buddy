@@ -292,6 +292,42 @@ describe("WikiEditor", () => {
     expect(textarea.selectionStart).toBe(textarea.value.length)
   })
 
+  it("immersive：IME 组合中 Enter 不插入换行、不触发保存（keyCode 229 / isComposing）", async () => {
+    const onSave = vi.fn()
+    const { container } = render(
+      <WikiEditor content={"# 第1章\n\n第一段"} onSave={onSave} immersiveWriting />,
+    )
+    const textarea = queryTextarea(container)
+    textarea.focus()
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+    const before = textarea.value
+
+    // legacy keyCode 229 信号：Chromium 在候选上屏的那次 Enter 上报 229
+    const legacyNotPrevented = fireEvent.keyDown(textarea, { key: "Enter", keyCode: 229 })
+    // 标准 isComposing 信号（jsdom 无法从 init 构造，手动 defineProperty）
+    const composingEvent = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })
+    Object.defineProperty(composingEvent, "isComposing", { value: true })
+    const standardNotPrevented = fireEvent(textarea, composingEvent)
+    await act(async () => {
+      await nextFrame()
+    })
+
+    // 组合态事件不被消费、不插入「换行+全角缩进」、不触发保存
+    expect(legacyNotPrevented).toBe(true)
+    expect(standardNotPrevented).toBe(true)
+    expect(textarea.value).toBe(before)
+    expect(textarea.value).not.toContain("\n　　")
+    expect(onSave).not.toHaveBeenCalled()
+
+    // 组合结束后普通 Enter 语义不变
+    fireEvent.keyDown(textarea, { key: "Enter" })
+    await act(async () => {
+      await nextFrame()
+    })
+    expect(textarea.value).toContain("第一段\n　　")
+    expect(onSave).toHaveBeenCalled()
+  })
+
   it("immersive：非 Enter 键不处理", () => {
     const onSave = vi.fn()
     const { container } = render(

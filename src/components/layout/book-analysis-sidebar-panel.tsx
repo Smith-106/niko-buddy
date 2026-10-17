@@ -309,7 +309,7 @@ export function BookAnalysisSidebarPanel() {
                   <button
                     type="button"
                     onClick={() => handleRetryTask(task.id)}
-                    className="ml-auto flex shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20 transition-colors"
+                    className="ml-auto flex shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary hover:bg-primary/20 transition-colors"
                     title={t("appLayout.bookAnalysis.retry")}
                   >
                     <RotateCcw className="h-2.5 w-2.5 shrink-0" />
@@ -333,7 +333,7 @@ export function BookAnalysisSidebarPanel() {
                   <button
                     type="button"
                     onClick={() => handleReopenRecognition(task.id)}
-                    className="ml-auto flex shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20 transition-colors"
+                    className="ml-auto flex shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary hover:bg-primary/20 transition-colors"
                     title={t("appLayout.bookAnalysis.openCharacterPicker")}
                   >
                     现在处理
@@ -355,7 +355,7 @@ export function BookAnalysisSidebarPanel() {
                   <button
                     type="button"
                     onClick={() => cancelTask(task.id)}
-                    className="flex shrink-0 items-center gap-1 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive hover:bg-destructive/20 transition-colors"
+                    className="flex shrink-0 items-center gap-1 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-destructive hover:bg-destructive/20 transition-colors"
                     title={t("appLayout.bookAnalysis.stopNow")}
                   >
                     <Square className="h-2.5 w-2.5 shrink-0" />

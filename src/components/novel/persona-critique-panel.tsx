@@ -98,7 +98,7 @@ export function PersonaCritiquePanel({ projectPath, onClose, draftId: draftIdPro
             <Sparkles className="h-3.5 w-3.5 text-warning" aria-hidden="true" />
             {t("novel.persona.title")}
           </h3>
-          <p className="truncate text-[11px] text-muted-foreground">{t("novel.persona.advisoryHint")}</p>
+          <p className="truncate text-[0.6875rem] text-muted-foreground">{t("novel.persona.advisoryHint")}</p>
         </div>
         <button
           type="button"
@@ -187,7 +187,7 @@ export function PersonaCritiquePanel({ projectPath, onClose, draftId: draftIdPro
                 <div className="flex items-center justify-between gap-2">
                   <p className="font-medium">{r.label}</p>
                   <span
-                    className={`text-[11px] ${
+                    className={`text-[0.6875rem] ${
                       r.status === "ok"
                         ? "text-success"
                         : r.status === "error"
@@ -212,7 +212,7 @@ export function PersonaCritiquePanel({ projectPath, onClose, draftId: draftIdPro
                 ) : null}
                 {r.error ? <p className="mt-1 text-xs text-destructive">{r.error}</p> : null}
                 {r.writtenPath ? (
-                  <p className="mt-1 truncate text-[10px] text-muted-foreground/80" title={r.writtenPath}>
+                  <p className="mt-1 truncate text-[0.625rem] text-muted-foreground/80" title={r.writtenPath}>
                     {t("novel.persona.written", { path: r.writtenPath })}
                   </p>
                 ) : null}

@@ -490,20 +490,40 @@ function enrichChunkForEmbedding(
  *
  * Called by ingest.ts after writing a page to disk.
  */
-export async function embedPage(
+/** 每页嵌入的原始产出：`embedPage`（写入）与重索引对账（B4）共用同一条管线。 */
+interface EmbedPageRows {
+  rows: ChunkUpsertInput[]
+  /** 嵌入失败（fetchEmbedding 返回 null）的 chunk 数。 */
+  failedChunks: number
+  /** 因跨页指纹已存在而跳过的 chunk 数。 */
+  dedupedChunks: number
+  /** 切分出的 chunk 总数（0 = 空页，不产生任何写入/告警）。 */
+  chunksTotal: number
+}
+
+/**
+ * chunk → per-chunk embed → 页级行集（不做 upsert）。
+ * 与 `embedPage`/`embedAllPages` 共用，保证「实际写入的行集」与「对账清单」同源，
+ * 对账不会凭另一套推断去删写。
+ */
+async function collectPageChunkRows(
   projectPath: string,
   pageId: string,
   title: string,
   content: string,
   cfg: EmbeddingConfig,
-): Promise<void> {
-  if (!cfg.enabled || !cfg.model) return
+): Promise<EmbedPageRows> {
+  if (!cfg.enabled || !cfg.model) {
+    return { rows: [], failedChunks: 0, dedupedChunks: 0, chunksTotal: 0 }
+  }
 
   const chunks = chunkMarkdown(content, {
     targetChars: cfg.maxChunkChars ?? 1000,
     overlapChars: cfg.overlapChunkChars ?? 200,
   })
-  if (chunks.length === 0) return
+  if (chunks.length === 0) {
+    return { rows: [], failedChunks: 0, dedupedChunks: 0, chunksTotal: 0 }
+  }
 
   // Cross-page chunk dedup (A12): before upserting, skip any chunk whose
   // content fingerprint already exists in the project's fingerprint index
@@ -537,13 +557,76 @@ export async function embedPage(
     }
   }
   await fingerprintIndex.save(projectPath)
+  return { rows, failedChunks, dedupedChunks, chunksTotal: chunks.length }
+}
 
-  if (rows.length === 0) {
-      console.warn(`[Embedding] Indexed nothing for "${pageId}" — ${chunks.length - dedupedChunks} chunks failed, ${dedupedChunks} deduped. See getLastEmbeddingError().`)
+/**
+ * Embed a wiki page: chunk → per-chunk embed → replace the page's
+ * vectors in LanceDB in one batch. Every transient failure leaves the
+ * existing v2 rows intact (empty upsert is a no-op Rust-side).
+ *
+ * Called by ingest.ts after writing a page to disk.
+ */
+export async function embedPage(
+  projectPath: string,
+  pageId: string,
+  title: string,
+  content: string,
+  cfg: EmbeddingConfig,
+): Promise<void> {
+  if (!cfg.enabled || !cfg.model) return
+
+  const page = await collectPageChunkRows(projectPath, pageId, title, content, cfg)
+  if (page.chunksTotal === 0) return
+
+  if (page.rows.length === 0) {
+    console.warn(
+      `[Embedding] Indexed nothing for "${pageId}" — ${page.failedChunks} chunks failed, ${page.dedupedChunks} deduped. See getLastEmbeddingError().`,
+    )
     return
   }
 
-  await vectorUpsertChunks(projectPath, pageId, rows)
+  await vectorUpsertChunks(projectPath, pageId, page.rows)
+}
+
+// ── 重索引对账（B4）：embedAllPages 尾部对账 ──────────────────────────────
+
+/** Rust `ReconcileReport` 的线上形态（snake_case：该结构无 serde rename_all）。 */
+export interface VectorReconcileReport {
+  upserted_pages: string[]
+  deleted_pages: string[]
+  unchanged_pages: string[]
+  failed_pages: string[]
+  drifted: number
+  pending_consumed: number
+  skipped: boolean
+}
+
+/** `ExpectedChunkInput` 的线上形态（Rust `Deserialize` 字段名即协议名）。 */
+interface ExpectedChunkInputWire {
+  page_id: string
+  chunk_index: number
+  chunk_text: string
+  heading_path: string
+  embedding: number[]
+}
+
+/**
+ * 重索引尾部对账结果：
+ *  - `ran`：Rust 侧已执行，`report` 为对账报告（含 skipped 无清单分支）；
+ *  - `skipped`：本次有页读取/嵌入失败，清单不完整 → 不对账，避免把失败页误判为陈旧页删除；
+ *  - `failed`：对账命令本身失败（可见，不静默）。
+ */
+export type EmbeddingReconcileOutcome =
+  | { status: "ran"; report: VectorReconcileReport }
+  | { status: "skipped"; failedPageIds: string[] }
+  | { status: "failed"; error: string }
+
+let lastReconcileOutcome: EmbeddingReconcileOutcome | null = null
+
+/** 最近一次 `embedAllPages` 的对账结果（无则 null）；供设置页展示，失败不静默。 */
+export function getLastReconcileOutcome(): EmbeddingReconcileOutcome | null {
+  return lastReconcileOutcome
 }
 
 /**
@@ -551,12 +634,18 @@ export async function embedPage(
  * all when `force === true`). Driven from Settings → Embedding or on
  * first enable. Skips structural pages (index / log / overview /
  * purpose / schema) — they're aggregate views, not retrieval targets.
+ *
+ * 尾部对账（B4）：本批实际写入的行集同时作为 Rust `vector_run_startup_reconcile`
+ * 的 expected 清单，在同一调用尾部执行；删页/改名后的陈旧 chunk 因此有清理路径。
+ * 安全阀：任一项读取/嵌入失败时**跳过对账**（清单不完整，不能让失败页被当作
+ * 陈旧页删除），结果经 `getLastReconcileOutcome()` 暴露给 UI，失败不静默。
  */
 export async function embedAllPages(
   projectPath: string,
   cfg: EmbeddingConfig,
   onProgress?: (done: number, total: number) => void,
 ): Promise<number> {
+  lastReconcileOutcome = null
   if (!cfg.enabled || !cfg.model) return 0
 
   const pp = normalizePath(projectPath)
@@ -583,6 +672,8 @@ export async function embedAllPages(
   }
   walk(tree)
 
+  const expected: ExpectedChunkInputWire[] = []
+  const failedPageIds: string[] = []
   let done = 0
   for (const file of mdFiles) {
     try {
@@ -590,12 +681,48 @@ export async function embedAllPages(
       // 收敛 canonical frontmatter 解析（arch-risk W3）——私有 regex → parseFrontmatter
       const { frontmatter } = parseFrontmatter(content)
       const title = (frontmatter?.title as string | undefined)?.trim() || file.id
-      await embedPage(pp, file.id, title, content, cfg)
+      const page = await collectPageChunkRows(pp, file.id, title, content, cfg)
+      if (page.failedChunks > 0) failedPageIds.push(file.id)
+      if (page.chunksTotal > 0 && page.rows.length === 0) {
+        console.warn(
+          `[Embedding] Indexed nothing for "${file.id}" — ${page.failedChunks} chunks failed, ${page.dedupedChunks} deduped. See getLastEmbeddingError().`,
+        )
+      } else if (page.rows.length > 0) {
+        for (const row of page.rows) {
+          expected.push({
+            page_id: file.id,
+            chunk_index: row.chunkIndex,
+            chunk_text: row.chunkText,
+            heading_path: row.headingPath,
+            embedding: row.embedding.map((v) => Math.fround(v)),
+          })
+        }
+        await vectorUpsertChunks(pp, file.id, page.rows)
+      }
     } catch {
       // skip — individual file failure doesn't halt the batch
+      failedPageIds.push(file.id)
     }
     done++
     if (onProgress) onProgress(done, mdFiles.length)
+  }
+
+  if (failedPageIds.length > 0) {
+    // 清单不完整（失败页可能只是暂时不可用）→ 本批不对账，避免误删其向量。
+    lastReconcileOutcome = { status: "skipped", failedPageIds: failedPageIds.slice().sort() }
+  } else {
+    try {
+      const report = await invoke<VectorReconcileReport>("vector_run_startup_reconcile", {
+        projectPath: pp,
+        expected,
+      })
+      lastReconcileOutcome = { status: "ran", report }
+    } catch (error) {
+      lastReconcileOutcome = {
+        status: "failed",
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
   }
 
   return done

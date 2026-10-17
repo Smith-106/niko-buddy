@@ -611,7 +611,7 @@ export function ReviewView({
             void runNovelReviewAiRewrite(item)
           }}
           disabled={isRewriting}
-          className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isRewriting ? t("dashboard.actions.rewriting") : t("dashboard.actions.aiRewrite")}
         </button>
@@ -621,7 +621,7 @@ export function ReviewView({
             event.stopPropagation()
             setFindingCompareTarget(item)
           }}
-          className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent"
+          className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent"
         >
           对比改写
         </button>
@@ -632,7 +632,7 @@ export function ReviewView({
               event.stopPropagation()
               void handleViewRewrite(item)
             }}
-            className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent"
+            className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent"
           >
             {t("dashboard.actions.viewRewrite")}
           </button>
@@ -644,7 +644,7 @@ export function ReviewView({
               event.stopPropagation()
               void handleRestoreRewrite(item)
             }}
-            className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent"
+            className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent"
           >
             {t("dashboard.actions.restore")}
           </button>
@@ -655,7 +655,7 @@ export function ReviewView({
             event.stopPropagation()
             void handleIgnoreNovelReviewItem(item)
           }}
-          className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent"
+          className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent"
         >
           {t("dashboard.actions.ignore")}
         </button>
@@ -672,7 +672,7 @@ export function ReviewView({
                 setDismissNote("")
               }
             }}
-            className="rounded border border-primary/40 px-2 py-1 text-[11px] text-primary hover:bg-primary/10"
+            className="rounded border border-primary/40 px-2 py-1 text-[0.6875rem] text-primary hover:bg-primary/10"
           >
             {t("review.results.dismiss.dismissButton")}
           </button>
@@ -1124,19 +1124,19 @@ export function ReviewView({
                   : t("reviewCenter.trackADimBadge")}
               </span>
               {(dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull") && (
-                <span className="text-[10px] text-muted-foreground">{t("reviewCenter.notProductGate")}</span>
+                <span className="text-[0.625rem] text-muted-foreground">{t("reviewCenter.notProductGate")}</span>
               )}
             </div>
             {reviewRun?.measurementFingerprint && (
               <p
-                className="mt-1 font-mono text-[10px] leading-4 text-muted-foreground break-all"
+                className="mt-1 font-mono text-[0.625rem] leading-4 text-muted-foreground break-all"
                 title={t("reviewCenter.measurementFingerprintHint")}
                 data-testid="measurement-fingerprint-summary"
               >
                 {formatMeasurementFingerprintSummary(reviewRun.measurementFingerprint)}
               </p>
             )}
-            <p className="mt-1 text-[10px] text-muted-foreground">{t("reviewCenter.perDimOnly")}</p>
+            <p className="mt-1 text-[0.625rem] text-muted-foreground">{t("reviewCenter.perDimOnly")}</p>
             {selectedDimensionResult.summary && (
               <p className="mt-2 text-xs leading-5 text-muted-foreground">{selectedDimensionResult.summary}</p>
             )}
@@ -1213,7 +1213,7 @@ export function ReviewView({
                         />
                         <span className="font-medium">{typeLabel}</span>
                         {item.continuityMeta && i18n.exists(`review.results.subtype.${item.continuityMeta.subtype}`) ? (
-                          <span className="rounded border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                          <span className="rounded border border-border/60 px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                             {i18n.t(`review.results.subtype.${item.continuityMeta.subtype}`)}
                           </span>
                         ) : null}
@@ -1262,7 +1262,7 @@ export function ReviewView({
                         <button
                           type="button"
                           onClick={() => void handleDeleteHistory(entry)}
-                          className="shrink-0 text-[10px] text-muted-foreground hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="shrink-0 text-[0.625rem] text-muted-foreground hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           aria-label={t("novel.history.delete")}
                         >
                           {t("novel.history.delete")}
@@ -1547,7 +1547,7 @@ function BreakerStatusBadge({ status }: { status: { status: "tripped" | "armed" 
   return (
     <span
       title={status.reason}
-      className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-medium leading-none ${colorMap[status.status]}`}
+      className={`inline-flex items-center rounded border px-2 py-0.5 text-[0.625rem] font-medium leading-none ${colorMap[status.status]}`}
     >
       <span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${
         status.status === "tripped" ? "bg-destructive" : status.status === "armed" ? "bg-warning" : "bg-success"

@@ -94,7 +94,7 @@ export function ArcWorkbench({ input, result, characterName }: ArcWorkbenchProps
           <div className="mt-0.5 text-base font-bold text-foreground">
             {STAGE_LABELS[progression.currentStage]}
           </div>
-          <div className="mt-1 text-[11px] leading-tight text-muted-foreground">
+          <div className="mt-1 text-[0.6875rem] leading-tight text-muted-foreground">
             {STAGE_DESCRIPTIONS[progression.currentStage]}
           </div>
         </div>
@@ -109,7 +109,7 @@ export function ArcWorkbench({ input, result, characterName }: ArcWorkbenchProps
               {confidencePct}%
             </span>
           </div>
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[0.625rem] text-muted-foreground">
             {t("craft.arcWorkbench.confidence", "置信度")}
           </span>
         </div>
@@ -179,12 +179,12 @@ export function ArcWorkbench({ input, result, characterName }: ArcWorkbenchProps
                       {STAGE_LABELS[stage]}
                     </span>
                     {isCurrent && (
-                      <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                      <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary">
                         {t("craft.arcWorkbench.current", "当前")}
                       </span>
                     )}
                   </div>
-                  <p className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
+                  <p className="mt-0.5 text-[0.6875rem] leading-tight text-muted-foreground">
                     {STAGE_DESCRIPTIONS[stage]}
                   </p>
                 </div>
@@ -199,7 +199,7 @@ export function ArcWorkbench({ input, result, characterName }: ArcWorkbenchProps
         <div className="flex items-start gap-2">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
           <div className="min-w-0">
-            <div className="text-[10px] font-medium text-muted-foreground">
+            <div className="text-[0.625rem] font-medium text-muted-foreground">
               {t("craft.arcWorkbench.reason", "检测依据")}
             </div>
             <p className="mt-0.5 text-xs leading-relaxed text-foreground">

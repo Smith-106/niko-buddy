@@ -382,7 +382,7 @@ export function SourceSidebar({
           <div className="mb-2 text-sm font-semibold text-foreground">{t("sidebar.files")}</div>
           <div className="flex flex-wrap items-center gap-1" data-source-interactive="true">
             <div className="flex items-center gap-1 rounded-md border border-border/60 px-2 py-1" data-source-interactive="true">
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-[0.6875rem] text-muted-foreground">
                 {t("novel.sources.autoExtract", { defaultValue: "自动提取" })}
               </span>
               <button
@@ -686,7 +686,7 @@ function SourceTree({
                   {isCollapsed ? <ChevronRight className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
                   <Folder className="h-4 w-4 shrink-0 text-warning" />
                   <span className="truncate font-medium">{node.name}</span>
-                  <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60">{countFiles(node.children)}</span>
+                  <span className="ml-auto shrink-0 text-[0.625rem] text-muted-foreground/60">{countFiles(node.children)}</span>
                 </button>
                 <DeleteButton
                   isPending={isPendingDelete}
@@ -766,7 +766,7 @@ function SourceTree({
         )
       })}
       {hasMore ? (
-        <div ref={loadMoreRef} className="px-3 py-2 text-center text-[11px] text-muted-foreground">
+        <div ref={loadMoreRef} className="px-3 py-2 text-center text-[0.6875rem] text-muted-foreground">
           {t("sources.loadingMore")}
         </div>
       ) : null}
@@ -789,7 +789,7 @@ function DeleteButton({
       <Button
         variant="destructive"
         size="sm"
-        className="h-7 shrink-0 px-2 text-[11px] font-semibold animate-pulse"
+        className="h-7 shrink-0 px-2 text-[0.6875rem] font-semibold animate-pulse"
         title={hint}
         onClick={onClick}
       >

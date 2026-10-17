@@ -65,7 +65,7 @@ export function ReviewJobStatusStrip({
   return (
     <div
       className={cn(
-        "rounded-md border border-border/60 bg-muted/30 px-2 py-1.5 text-[11px] text-muted-foreground",
+        "rounded-md border border-border/60 bg-muted/30 px-2 py-1.5 text-[0.6875rem] text-muted-foreground",
         className,
       )}
       data-testid="review-job-status-strip"
@@ -76,7 +76,7 @@ export function ReviewJobStatusStrip({
         <span className="ml-1.5">ch={model.chapterNumber}</span>
       )}
       <span className="ml-1.5 opacity-80">· write unblocked</span>
-      <div className="mt-0.5 truncate font-mono text-[10px] opacity-70">
+      <div className="mt-0.5 truncate font-mono text-[0.625rem] opacity-70">
         {formatReviewJobStatusLine(
           // reconstruct minimal for line — model already has statusLine
           {

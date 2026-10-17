@@ -312,7 +312,7 @@ export function WishDrive({ profile, characterName, className, onOpenCanonEditor
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-muted-foreground">{t("novel.wishAssembledList")}</span>
               <span
-                className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground"
+                className="rounded-full border px-2 py-0.5 text-[0.6875rem] text-muted-foreground"
                 data-testid="wish-drive-stage-badge"
               >
                 {t("novel.wishStageBadge", { label: guide.stageLabel })}

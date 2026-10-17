@@ -24,7 +24,7 @@ export const CARRYOVER_TAIL_CHARS = 800
 export const CARRYOVER_HEAD_CHARS = 400
 /** 任务简报保留字符数 */
 export const CARRYOVER_BRIEF_CHARS = 200
-/** 远期段摘要保留字符数（B2 滚动最小版：最新段摘要拼入预算） */
+/** 远期段摘要保留字符数（B2 滚动最小版：最新段摘要拼入预算；C6 接线） */
 export const CARRYOVER_SEGMENT_CHARS = 300
 
 export interface CarryoverSource {
@@ -34,14 +34,16 @@ export interface CarryoverSource {
   content: string
   /** 前序章节任务简报（可选；非空时截断至 CARRYOVER_BRIEF_CHARS） */
   taskBrief?: string
+  /** 远期段摘要（可选；C6 接线：最新段摘要文本，非空时截断至 CARRYOVER_SEGMENT_CHARS 拼入） */
+  segmentSummary?: string
 }
 
 /**
  * 组装结构化前情承接上下文。
  *
  * 语义契约：
- * - `content` 为空串或全空白 → 返回 ""（调用侧据此跳过注入）；
- * - 否则返回三段式结构（承接章号 / 前章收束 / 前章开端锚点），
+ * - `content` 为空串或全空白 → 返回 ""（调用侧据此跳过注入；segmentSummary 不单独输出）；
+ * - 否则返回四段式结构（承接章号 / 任务简报? / 远期段摘要? / 前章收束 / 前章开端锚点），
  *   任务简报非空时紧随章号行输出；
  * - 返回值长度恒 <= CARRYOVER_CONTEXT_MAX_CHARS；
  * - 纯函数：不读取外部状态、不产生副作用。
@@ -58,6 +60,13 @@ export function buildCarryoverContext(prev: CarryoverSource): string {
   const brief = (prev.taskBrief ?? "").trim()
   if (brief.length > 0) {
     lines.push(`【任务简报】${brief.slice(0, CARRYOVER_BRIEF_CHARS)}`)
+  }
+
+  // C6 接线：远期段摘要（最新段摘要文本；空/空白时跳过，不单独输出）。
+  const segment = (prev.segmentSummary ?? "").trim()
+  if (segment.length > 0) {
+    lines.push(`【远期段摘要(至多${CARRYOVER_SEGMENT_CHARS}字)】`)
+    lines.push(segment.slice(0, CARRYOVER_SEGMENT_CHARS))
   }
 
   lines.push(`【前章收束(末${CARRYOVER_TAIL_CHARS}字)】`)

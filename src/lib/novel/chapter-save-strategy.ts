@@ -1,3 +1,12 @@
+import { parseFrontmatter } from "@/lib/frontmatter"
+
+// C4 门控覆盖守卫（方案 a 落地说明 · B2 审计溯源 run-65559216952f）：
+// - decideChapterSaveStrategy 只决定「目标章节编号」；是否覆盖已有正文的判定
+//   由 chapterMarkdownHasBody（正文存在性）+ 调用方显式确认对话框承担
+//   （见 chat-panel.tsx C4 覆盖守卫注释 + chapter-overwrite 对话框）。
+// - 调用方禁止硬编码跳过存在性检查（`generatedTargetExists` 必须由真实路径
+//   存在性传入）；「存在但读不出正文」保守视为有正文，需人工确认。
+
 export type ChapterSaveStrategy =
   | {
     action: "direct_next_chapter"
@@ -9,16 +18,6 @@ export type ChapterSaveStrategy =
 
 export function decideChapterSaveStrategy(input: {
   selectedChapterNumber: number | null
-  /**
-   * CORR-012 (odyssey): this field is currently unused by the decision logic
-   * below (the sole caller chat-panel.tsx hardcodes false). It was intended
-   * to guard against overwriting an existing chapter that already has body
-   * content, but that guard was never implemented. Kept in the signature for
-   * backward compatibility; implementing the guard is a behavior change that
-   * needs a product decision (block overwrite vs prompt vs skip) — tracked as
-   * a documented constraint, not fixed here.
-   */
-  selectedChapterHasBody: boolean
   generatedTargetChapterNumber: number | null
   generatedTargetExists: boolean
 }): ChapterSaveStrategy {
@@ -55,4 +54,17 @@ export function detectGeneratedTargetChapterNumber(content: string): number | nu
   if (enMatch?.[1]) return Number.parseInt(enMatch[1], 10)
 
   return null
+}
+
+/**
+ * 已有章节内容是否包含正文（frontmatter 之外存在非空白内容）。
+ *
+ * C4 覆盖守卫（方案 a）用：保存目标章节文件已存在且本函数返回 true 时，
+ * 调用方必须先取得用户显式确认，才允许走既有 accept 通道覆盖写入。
+ * 标题或任何非空白内容都算「已有内容」—— 宁可多确认一次，不可静默覆盖。
+ * 纯函数：不做 IO、不做裁决（门控判定不在这里）。
+ */
+export function chapterMarkdownHasBody(markdown: string): boolean {
+  if (!markdown.trim()) return false
+  return parseFrontmatter(markdown).body.trim().length > 0
 }

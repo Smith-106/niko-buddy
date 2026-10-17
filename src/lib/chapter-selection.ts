@@ -37,6 +37,27 @@ export function replaceWholeChapterBody(currentMarkdown: string, replacementMark
   return rawBlock + rebuildChapterBody(heading, replacementBody)
 }
 
+export type WholeChapterReplaceResult =
+  | { ok: true; merged: string }
+  | { ok: false; reason: "changed" }
+
+/**
+ * DI-2: 回填守卫 — 整章回填前把「当前磁盘内容」与「生成时快照」比对，
+ * 只有完全一致才允许替换正文；不一致（用户在批次期间编辑过正文/frontmatter/标题）
+ * → 返回 changed，由调用方 skip + 冲突提示，绝不用旧快照覆盖当前章节。
+ * 复用 replaceChapterBodySelection 的 bodySnapshot !== currentBody → changed 守卫语义。
+ */
+export function replaceWholeChapterBodyIfUnchanged(
+  currentMarkdown: string,
+  originalMarkdown: string,
+  replacementMarkdown: string,
+): WholeChapterReplaceResult {
+  if (currentMarkdown !== originalMarkdown) {
+    return { ok: false, reason: "changed" }
+  }
+  return { ok: true, merged: replaceWholeChapterBody(currentMarkdown, replacementMarkdown) }
+}
+
 export function buildPolishSelectionMessages(content: string): ChatMessage[] {
   if (!content.trim()) throw new Error("润色内容为空，无法处理")
   return [

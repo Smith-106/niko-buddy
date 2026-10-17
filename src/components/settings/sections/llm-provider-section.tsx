@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { useWikiStore, type ProviderOverride, type ReasoningConfig, type ReasoningMode, type SavedModel } from "@/stores/wiki-store"
 import { LLM_PRESETS, type LlmPreset } from "@/lib/llm-config/llm-presets"
 import { ContextSizeSelector } from "../context-size-selector"
-import { resolveConfig } from "@/lib/llm-config/preset-resolver"
+import { clampHttpTimeoutMs, resolveConfig } from "@/lib/llm-config/preset-resolver"
 import { normalizeEndpoint } from "@/lib/endpoint-normalizer"
 import { isTauri } from "@/lib/platform"
 import { AZURE_OPENAI_API_VERSION } from "@/lib/azure-openai"
@@ -298,19 +298,19 @@ function PresetRow({
           <div className="flex items-center gap-2 min-w-0">
             <span className="truncate text-sm font-medium min-w-0">{preset.label}</span>
             {hasConfig && !isEnabled && (
-              <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                 {t("settings.sections.llm.configuredBadge")}
               </span>
             )}
             {isEnabled && (ov.savedModels ?? []).length > 0 && (
-              <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+              <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary">
                 { /* v8 ignore start */ }
                 {t("settings.sections.llm.enabledBadge", { count: (ov.savedModels ?? []).length })}
                 { /* v8 ignore stop */ }
               </span>
             )}
             {savedHere && (
-              <span className="shrink-0 text-[10px] text-success">{t("settings.sections.llm.savedBadge")}</span>
+              <span className="shrink-0 text-[0.625rem] text-success">{t("settings.sections.llm.savedBadge")}</span>
             )}
           </div>
           {preset.hint && (
@@ -683,12 +683,87 @@ function PresetRow({
             </p>
           </div>
 
+          {/* HTTP transport only — subprocess CLI providers never reach the HTTP timeouts. */}
+          {!isLocalCliProvider && (
+            <HttpTimeoutControls
+              value={{
+                httpConnectTimeoutMs: ov.httpConnectTimeoutMs,
+                httpHeaderTimeoutMs: ov.httpHeaderTimeoutMs,
+                httpStreamIdleMs: ov.httpStreamIdleMs,
+              }}
+              onChange={(patch) => onChange(patch)}
+            />
+          )}
+
           <ReasoningControls
             value={reasoning}
             onChange={(reasoning) => onChange({ reasoning })}
           />
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * HTTP 三档超时输入 (单位: 秒, 存毫秒)。留空 = undefined = 沿用各档硬编码默认。
+ * PresetRow 与 CustomProviderCard 共用, 与 ReasoningControls 同级的纯展示组件。
+ */
+export function HttpTimeoutControls({
+  value,
+  onChange,
+}: {
+  value: {
+    httpConnectTimeoutMs?: number
+    httpHeaderTimeoutMs?: number
+    httpStreamIdleMs?: number
+  }
+  onChange: (patch: {
+    httpConnectTimeoutMs?: number
+    httpHeaderTimeoutMs?: number
+    httpStreamIdleMs?: number
+  }) => void
+}) {
+  const { t } = useTranslation()
+  const editTimeout = (
+    key: "httpConnectTimeoutMs" | "httpHeaderTimeoutMs" | "httpStreamIdleMs",
+    raw: string,
+  ) => {
+    const ms = raw.trim() === "" ? undefined : clampHttpTimeoutMs(Number(raw.trim()) * 1000, key)
+    if (key === "httpConnectTimeoutMs") onChange({ httpConnectTimeoutMs: ms })
+    else if (key === "httpHeaderTimeoutMs") onChange({ httpHeaderTimeoutMs: ms })
+    else onChange({ httpStreamIdleMs: ms })
+  }
+  const row = (
+    key: "httpConnectTimeoutMs" | "httpHeaderTimeoutMs" | "httpStreamIdleMs",
+    label: string,
+    min: number,
+    max: number,
+    ms: number | undefined,
+  ) => (
+    <div key={key} className="flex items-center gap-2">
+      <span className="w-16 text-xs text-muted-foreground">{label}</span>
+      <Input
+        type="number"
+        min={min}
+        max={max}
+        className="w-28"
+        placeholder="默认"
+        value={ms == null ? "" : Math.round(ms / 1000)}
+        onChange={(e) => editTimeout(key, e.target.value)}
+      />
+      <span className="text-xs text-muted-foreground">{t("settings.sections.llm.httpTimeoutUnit")}</span>
+    </div>
+  )
+  return (
+    <div className="space-y-2 rounded-md border p-3">
+      <Label>{t("settings.sections.llm.httpTimeouts")}</Label>
+      {row("httpConnectTimeoutMs", t("settings.sections.llm.httpConnectTimeout"), 5, 300, value.httpConnectTimeoutMs)}
+      {row("httpHeaderTimeoutMs", t("settings.sections.llm.httpHeaderTimeout"), 5, 300, value.httpHeaderTimeoutMs)}
+      {row("httpStreamIdleMs", t("settings.sections.llm.httpStreamIdleMs"), 30, 600, value.httpStreamIdleMs)}
+      <p className="text-xs text-muted-foreground">
+        {t("settings.sections.llm.httpTimeoutsHint")}
+      </p>
     </div>
   )
 }
@@ -998,11 +1073,11 @@ function ClaudeCliStatusPill() {
                   versionSuffix: result?.version ? ` ${result.version}` : "",
                 })}
               </div>
-              <div className="text-muted-foreground text-[11px]">
+              <div className="text-muted-foreground text-[0.6875rem]">
                 {t("settings.sections.llm.cliStatus.claudeTransportHint")}
               </div>
               {result?.path && (
-                <div className="truncate font-mono text-[10px] text-muted-foreground">
+                <div className="truncate font-mono text-[0.625rem] text-muted-foreground">
                   {result.path}
                 </div>
               )}
@@ -1013,7 +1088,7 @@ function ClaudeCliStatusPill() {
                   Wiki bug. */}
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.authErrorPrefix")}{" "}
-                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
                   claude
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.claudeAuthErrorSuffix")}
@@ -1025,7 +1100,7 @@ function ClaudeCliStatusPill() {
               <div>{result?.error ?? t("settings.sections.llm.cliStatus.claudeUnavailable")}</div>
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
-                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
                   npm i -g @anthropic-ai/claude-code
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.installSuffix")}
@@ -1106,13 +1181,13 @@ function CodexCliStatusPill() {
                 })}
               </div>
               {result?.path && (
-                <div className="truncate font-mono text-[10px] text-muted-foreground">
+                <div className="truncate font-mono text-[0.625rem] text-muted-foreground">
                   {result.path}
                 </div>
               )}
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.authErrorPrefix")}{" "}
-                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
                   codex
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.codexAuthErrorSuffix")}
@@ -1124,7 +1199,7 @@ function CodexCliStatusPill() {
               <div>{result?.error ?? t("settings.sections.llm.cliStatus.codexUnavailable")}</div>
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
-                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
                   npm install -g @openai/codex
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.installSuffix")}
@@ -1208,10 +1283,10 @@ function AntigravityCliStatusPill() {
                 })}
               </div>
               {result?.path && (
-                <div className="truncate font-mono text-[10px] text-muted-foreground">{result.path}</div>
+                <div className="truncate font-mono text-[0.625rem] text-muted-foreground">{result.path}</div>
               )}
               {result?.fallback_path && result.path !== result.fallback_path && (
-                <div className="truncate font-mono text-[10px] text-muted-foreground">
+                <div className="truncate font-mono text-[0.625rem] text-muted-foreground">
                   {t("settings.sections.llm.cliStatus.antigravityFallback")}: {result.fallback_path}
                 </div>
               )}
@@ -1222,7 +1297,7 @@ function AntigravityCliStatusPill() {
               <div>{result?.error ?? t("settings.sections.llm.cliStatus.antigravityUnavailable")}</div>
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
-                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
                   antigravity / gemini
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.installSuffix")}

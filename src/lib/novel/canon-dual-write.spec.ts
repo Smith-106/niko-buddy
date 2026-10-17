@@ -5,9 +5,10 @@
  * 不依赖 Tauri 运行时：mock `@tauri-apps/api/core` 与 `@/commands/fs`。
  */
 
-import { describe, expect, it, vi, beforeEach } from "vitest"
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
 import { invoke } from "@tauri-apps/api/core"
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
+import { useWikiStore } from "@/stores/wiki-store"
 import {
   BACKOFF_BASE_MS,
   BACKOFF_FACTOR,
@@ -30,6 +31,7 @@ import {
   replayPendingQueue,
   retireAfterT5,
   loadDivergenceTrace,
+  resolvePreWriteGateMode,
   type CanonCanonPayload,
   type CanonDualWriteDeps,
   type CanonDualWriteOp,
@@ -781,5 +783,67 @@ describe("loadDivergenceTrace（55 W2-2 读路径 invoke 契约）", () => {
     vi.mocked(invoke).mockRejectedValue(new Error("invoke failed"))
     const out = await loadDivergenceTrace("E:/Novel")
     expect(out).toBe("")
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────────────
+// B8: preWriteGateMode 真实配置读取（修复「唯一调用点写死 warn, BLOCK 不可达」）
+// ──────────────────────────────────────────────────────────────────────────
+
+describe("53 P1-2 / B8: preWriteGateMode 真实配置读取（BLOCK 分支可达可测）", () => {
+  const contradictEdges = {
+    edges: [{ id: "e1", source_id: "A", target_id: "C", predicate: "capital_of", valid_at: 1 }],
+  }
+  const conflictingPayload: CanonCanonPayload = {
+    kind: "supersede",
+    request: {
+      old_edge_ids: [],
+      cap_chapter: 5,
+      new_edges: [{ id: "n1", source_id: "A", target_id: "B", predicate: "capital_of", valid_at: 2 }],
+    },
+  }
+
+  beforeEach(() => {
+    useWikiStore.getState().setNovelConfig({ preWriteGateMode: "warn" })
+  })
+  afterEach(() => {
+    // 还原默认：本文件后续/复跑断言不允许被本 describe 的 block 态污染
+    useWikiStore.getState().setNovelConfig({ preWriteGateMode: "warn" })
+  })
+
+  it("resolvePreWriteGateMode 读真实 store: 默认与非法值一律回退 warn (不误开拦截)", () => {
+    expect(resolvePreWriteGateMode()).toBe("warn")
+    useWikiStore.getState().setNovelConfig({ preWriteGateMode: undefined })
+    expect(resolvePreWriteGateMode()).toBe("warn")
+  })
+
+  it("配置为 block → resolvePreWriteGateMode 返回 block", () => {
+    useWikiStore.getState().setNovelConfig({ preWriteGateMode: "block" })
+    expect(resolvePreWriteGateMode()).toBe("block")
+  })
+
+  it("配置为 block 时 canonStoreWriter 返回 BLOCK 硬拦 (不再 invoke 写入, 分支可达)", async () => {
+    useWikiStore.getState().setNovelConfig({ preWriteGateMode: "block" })
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_query") return contradictEdges
+      if (cmd === "canon_supersede_edges") return { result: {}, max_revision: 9 }
+      return {}
+    })
+    const res = await canonStoreWriter("P", conflictingPayload)
+    expect(res.ok).toBe(false)
+    expect(res.gate).toBe("pre_write_block")
+    expect(res.error).toContain("L1 硬冲突")
+    // 硬拦 = 冲突写不落地（canon_query 允许, 写入 invoke 必须缺席）
+    expect(invokeMock).not.toHaveBeenCalledWith("canon_supersede_edges", expect.anything())
+  })
+
+  it("模式可逆: 同一冲突在 warn 下继续写 (对照证明差异只来自配置开关)", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_query") return contradictEdges
+      if (cmd === "canon_supersede_edges") return { result: {}, max_revision: 9 }
+      return {}
+    })
+    const res = await canonStoreWriter("P", conflictingPayload)
+    expect(res).toEqual({ ok: true, revision: 9, gate: "pre_write_warn" })
   })
 })

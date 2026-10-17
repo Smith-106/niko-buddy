@@ -204,7 +204,7 @@ export function ChatInput({ onSend, onStop, onForceStop, isStreaming, placeholde
         // with no hover/active affordance — looked decorative, not grabbable.
         // Group hover/active + focus-visible raise the contrast so the affordance
         // reads at the exact moment the user is about to grab or keyboard-focus it.
-        className="group flex h-2 cursor-ns-resize items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="group flex h-2 cursor-ns-resize items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onPointerDown={handleResizePointerDown}
         onKeyDown={handleResizeKeyDown}
       >
@@ -225,7 +225,7 @@ export function ChatInput({ onSend, onStop, onForceStop, isStreaming, placeholde
           placeholder={placeholder ?? "输入消息，Enter 发送，Shift+Enter 换行"}
           disabled={isStreaming}
           rows={1}
-          className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           style={{ height: inputHeight, maxHeight: inputHeight, overflowY: "auto" }}
         />
         {inlineSendButton && (isStreaming ? (

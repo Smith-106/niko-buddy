@@ -51,10 +51,13 @@ import {
   pauseDeepChapterSession,
   persistCheckpointBase,
   persistDeepChapterCheckpoint,
+  registerManagedCampaignDraft,
   rejectDeepChapterDraft,
   resolveInterruptedSessionResumeCheckpoint,
   resolveStatusResumeCheckpoint,
+  saveNovelSessionStatus,
   startDeepChapterSession,
+  updateNovelSessionStatus,
   computeChaseDebtState,
   accrueChaseDebtInterest,
   updateChaseDebtStatus,
@@ -434,6 +437,46 @@ describe("novel-session-status", () => {
     expect(typeof draft.accepted_at).toBe("string")
   })
 
+  it("B2 接线门：accept 触发 commit-discipline 单章闭环断言（合规放行）", async () => {
+    // 前置条件（单章闭环合规）：chapterIds 长度=1、正文记忆成对（formalChapterPath 成对）。
+    // 验收：合规 accept 放行（不断言拒绝错误），且断言路径存在于代码（见 acceptDeepChapterDraftWithinLock 的 checkCommitDiscipline）。
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "generate chapter 3",
+      chapterNumber: 3,
+      stage: "after_revision",
+      taskBrief: "task brief",
+      draftContent: "draft body",
+      reviewResults,
+      currentContent: "revised body",
+    }
+    await completeDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint,
+      finalContent: "final chapter body",
+      reviewResults,
+    })
+    const status = await acceptDeepChapterDraft({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-003.md`,
+    })
+    expect(status.draft.draft_status).toBe("accepted")
+  })
+
   it("reuses the existing session id when accepting a ready draft without an explicit session id", async () => {
     const session = await startDeepChapterSession({
       projectPath,
@@ -662,6 +705,113 @@ describe("novel-session-status", () => {
       userRequest: "generate chapter 9",
       chapterNumber: 9,
     })).rejects.toThrow("No managed deep chapter draft found for this conversation.")
+  })
+
+  it("ST-1: 两路并发 RMW 经 updateNovelSessionStatus 字段无丢失（裸 load→save 交错仍会丢更新作对照）", async () => {
+    await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+
+    // 对照（缺陷语义）：两路各自锁外 load 后再先后 save → 后写者整份覆盖，先写者字段丢失。
+    const t1 = await loadNovelSessionStatus(projectPath)
+    const t2 = await loadNovelSessionStatus(projectPath)
+    await saveNovelSessionStatus(projectPath, buildNextStatus(t2!, {
+      updated_at: new Date().toISOString(),
+      status: t2!.status,
+      anti_ai_mode: "warn",
+    }))
+    await saveNovelSessionStatus(projectPath, buildNextStatus(t1!, {
+      updated_at: new Date().toISOString(),
+      status: t1!.status,
+      step_digest: "digest-t1",
+    }))
+    expect(readJson(statusPath).anti_ai_mode).toBeUndefined()
+
+    // 修复路径：同一把 session-status 锁内 load→modify→write，两路并发互不覆盖。
+    await Promise.all([
+      updateNovelSessionStatus(projectPath, (current) => {
+        if (!current) return null
+        return buildNextStatus(current, {
+          updated_at: new Date().toISOString(),
+          status: current.status,
+          step_digest: "digest-a",
+        })
+      }),
+      updateNovelSessionStatus(projectPath, (current) => {
+        if (!current) return null
+        return buildNextStatus(current, {
+          updated_at: new Date().toISOString(),
+          status: current.status,
+          anti_ai_mode: "warn",
+        })
+      }),
+    ])
+    const saved = readJson(statusPath)
+    expect(saved.step_digest).toBe("digest-a")
+    expect(saved.anti_ai_mode).toBe("warn")
+  })
+
+  it("ST-1: updateNovelSessionStatus 对缺失/损坏真源传 null 且跳过写盘；返回 null", async () => {
+    const missing = await updateNovelSessionStatus(projectPath, (current) => current)
+    expect(missing).toBeNull()
+    expect(fsState.fileMap.has(statusPath)).toBe(false)
+
+    fsState.fileMap.set(statusPath, "{not-json")
+    const corrupt = await updateNovelSessionStatus(projectPath, (current) => current)
+    expect(corrupt).toBeNull()
+    expect(fsState.fileMap.get(statusPath)).toBe("{not-json")
+  })
+
+  it("DF-1: registerManagedCampaignDraft 以 ready 受管草稿复用既有 session id", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "chat-conv",
+      userRequest: "generate chapter 1",
+      chapterNumber: 1,
+    })
+
+    const path = await registerManagedCampaignDraft({
+      projectPath,
+      conversationId: "autonomous-campaign",
+      userRequest: "请撰写第 7 章正文。",
+      chapterNumber: 7,
+      finalContent: "第七章正文内容",
+      reviewResults,
+    })
+
+    expect(path).toBe(novelDraftArtifactPath(projectPath, "autonomous-campaign"))
+    const draft = await loadNovelDraftArtifact(projectPath, "autonomous-campaign")
+    expect(draft?.draft_status).toBe("ready")
+    expect(draft?.session_id).toBe(session.session_id)
+    expect(draft?.chapter_number).toBe(7)
+    expect(draft?.content).toBe("第七章正文内容")
+
+    // accept 通道成立：注册后即可走受管草稿 accept（真源落接受态）
+    const accepted = await acceptDeepChapterDraft({
+      projectPath,
+      conversationId: "autonomous-campaign",
+      userRequest: "请撰写第 7 章正文。",
+      chapterNumber: 7,
+      formalChapterPath: `${normalizedProjectPath}/wiki/chapters/chapter-007.md`,
+    })
+    expect(accepted.session_id).toBe(session.session_id)
+    expect(accepted.draft.draft_status).toBe("accepted")
+    expect((await loadNovelDraftArtifact(projectPath, "autonomous-campaign"))?.draft_status).toBe("accepted")
+  })
+
+  it("DF-1: registerManagedCampaignDraft 在无 status.json 时新建 session id", async () => {
+    await registerManagedCampaignDraft({
+      projectPath,
+      conversationId: "autonomous-campaign",
+      userRequest: "请撰写第 1 章正文。",
+      chapterNumber: 1,
+      finalContent: "第一章正文",
+    })
+    const draft = await loadNovelDraftArtifact(projectPath, "autonomous-campaign")
+    expect(draft?.session_id).toMatch(/^novel-\d{8}-\d{6}$/)
   })
 
   it("pauses failed sessions and preserves the latest checkpoint plus error", async () => {

@@ -11,16 +11,6 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   }
 })
 
-const searchWikiMock = vi.hoisted(() => vi.fn())
-vi.mock("@/lib/search", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/search")>()
-  return {
-    ...actual,
-      searchWiki: (...args: unknown[]) => searchWikiMock(...args),
-    
-  }
-})
-
 const streamChatMock = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/llm-client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/llm-client")>()
@@ -62,15 +52,11 @@ const chapterBody = (n: number): string =>
 describe("analyzePreviousChapters", () => {
   beforeEach(() => {
     fsMocks.readFile.mockReset()
-    searchWikiMock.mockReset()
     streamChatMock.mockReset()
     loggerErrorMock.mockReset()
-    searchWikiMock.mockImplementation(async (_projectPath: string, query: string) => {
-      const n = Number(query.match(/chapter_number:(\d+)/)?.[1])
-      return [{ path: `/p/wiki/ch${n}.md` }]
-    })
     fsMocks.readFile.mockImplementation(async (path: string) => {
-      const n = Number(String(path).match(/ch(\d+)\.md$/)?.[1])
+      const n = Number(String(path).match(/chapter-(\d+)\.md$/)?.[1])
+      if (!n) throw new Error("ENOENT")
       return chapterBody(n)
     })
   })
@@ -79,7 +65,7 @@ describe("analyzePreviousChapters", () => {
     const { analyzePreviousChapters } = await import("./previous-chapters-analysis")
     expect(await analyzePreviousChapters("/p", 1, llmConfig)).toBe("")
     expect(await analyzePreviousChapters("/p", 0, llmConfig)).toBe("")
-    expect(searchWikiMock).not.toHaveBeenCalled()
+    expect(fsMocks.readFile).not.toHaveBeenCalled()
   })
 
   it("reads previous chapters, strips the yaml frontmatter, and streams the analysis", async () => {
@@ -104,9 +90,12 @@ describe("analyzePreviousChapters", () => {
       callbacks.onDone?.()
     })
     await analyzePreviousChapters("/p", 4, llmConfig, 10)
-    // 窗口 [1..3]，共 3 章被检索
-    const queries = searchWikiMock.mock.calls.map(([, q]) => q)
-    expect(queries).toEqual(["chapter_number:1", "chapter_number:2", "chapter_number:3"])
+    const paths = fsMocks.readFile.mock.calls.map(([p]) => p)
+    expect(paths).toEqual([
+      "/p/wiki/chapters/chapter-001.md",
+      "/p/wiki/chapters/chapter-002.md",
+      "/p/wiki/chapters/chapter-003.md",
+    ])
   })
 
   it("uses the full content when the body separator is missing", async () => {
@@ -123,16 +112,11 @@ describe("analyzePreviousChapters", () => {
 
   it("skips chapters with no search results or read failures", async () => {
     const { analyzePreviousChapters } = await import("./previous-chapters-analysis")
-    searchWikiMock.mockResolvedValue([])
+    fsMocks.readFile.mockRejectedValue(new Error("ENOENT"))
     expect(await analyzePreviousChapters("/p", 3, llmConfig)).toBe("")
 
-    // 部分失败：ch2 读取抛错，ch1 成功 → 仍产出分析
-    searchWikiMock.mockImplementation(async (_pp: string, query: string) => {
-      const n = Number(query.match(/chapter_number:(\d+)/)?.[1])
-      return [{ path: `/p/wiki/ch${n}.md` }]
-    })
     fsMocks.readFile.mockImplementation(async (path: string) => {
-      if (String(path).includes("ch1.md")) return chapterBody(1)
+      if (String(path).endsWith("chapter-001.md")) return chapterBody(1)
       throw new Error("ENOENT")
     })
     streamChatMock.mockImplementation(async (_cfg, messages, callbacks: { onToken?: (t: string) => void; onDone?: () => void }) => {

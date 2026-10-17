@@ -25,21 +25,25 @@ npm run preview    # 本地预览构建产物
 
 ```
 docs-site/
-├── astro.config.mjs        # Astro + Starlight 配置（site/base/sidebar/locales）
+├── astro.config.mjs        # Astro + Starlight 配置（site/base/sidebar/locale）
 ├── package.json
 ├── src/
-│   ├── content/            # Markdown 内容
-│   │   ├── index.md        # 首页（产品门面）
-│   │   ├── download.md     # 下载安装
-│   │   ├── quickstart.md   # 快速开始
-│   │   ├── features/       # 功能页（6 篇）
-│   │   └── dev/            # 开发者文档（3 篇）
+│   ├── content.config.ts   # docs 集合定义（glob base: src/content/docs）
+│   ├── content/
+│   │   └── docs/           # Markdown 内容
+│   │       ├── index.md        # 首页（产品门面）
+│   │       ├── download.md     # 下载安装
+│   │       ├── quickstart.md   # 快速开始
+│   │       ├── features/       # 功能页（22 篇）
+│   │       └── dev/            # 开发者文档（3 篇）
 │   ├── layouts/
 │   │   └── Home.astro      # 首页自定义 layout
 │   └── styles/
 │       └── custom.css      # 自定义样式
 └── tsconfig.json
 ```
+
+功能页共 22 篇、开发者文档共 3 篇，与 `astro.config.mjs` 的 `sidebar` 登记逐条一一对应；维护时以 `sidebar` 与 `src/content/docs/` 实际文件为准。
 
 ## 部署
 
@@ -49,10 +53,11 @@ docs-site/
 
 ## 添加内容
 
-新增页面在 `src/content/` 下创建对应 `.md` 文件，并在 `astro.config.mjs` 的 `sidebar` 配置中登记条目。
+新增页面在 `src/content/docs/` 下创建对应 `.md` 文件（功能页放 `features/`，开发者文档放 `dev/`），并在 `astro.config.mjs` 的 `sidebar` 配置中登记条目。
 
 ## 内容真源
 
-- 产品功能描述来自 Niko Buddy README 与实际代码（v2.4.2）
-- 技术架构来自 `docs/qmai-codex-delivery/` 交付文档包，已转译为面向用户/开发者的公开语言
+- 版本号以仓库根 `package.json` 的 `version` 字段为准（当前 `2.16.0`，与 `src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 三处一致）
+- 产品功能描述来自仓库根 `README.md` 与实际代码
+- 技术架构来自交付文档包 `../docs/niko-buddy-codex-delivery/`（工作区层级，位于本仓库之外），已转译为面向用户/开发者的公开语言
 - 阈值数据（absent/dormant）经 `scripts/calibrate-from-epub.mjs` 真实中文长篇样本校准

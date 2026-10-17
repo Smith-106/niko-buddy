@@ -133,7 +133,7 @@ export function PlotgridView() {
           </div>
           <div className="flex items-center gap-3">
             {!loading && rows.length > 0 && (
-              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <div className="flex items-center gap-2 text-[0.6875rem] text-muted-foreground">
                 {legendItems.map(({ mark, labelKey }) => (
                   <span key={mark} className="flex items-center gap-1">
                     <span className={`inline-block h-2 w-2 rounded-full ${MARK_CLASS[mark]}`} aria-hidden="true" />
@@ -142,7 +142,7 @@ export function PlotgridView() {
                 ))}
               </div>
             )}
-            <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            <div className="flex items-center gap-1 text-[0.6875rem] text-muted-foreground">
               <span>{t("novel.range.from", { defaultValue: "起" })}</span>
               <input
                 type="number"
@@ -202,7 +202,7 @@ export function PlotgridView() {
                   <td className="sticky left-0 z-10 bg-background px-2 py-2">
                     <div className="flex items-center gap-1.5">
                       <span className="max-w-[96px] truncate font-medium" title={row.name}>{row.name}</span>
-                      <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] ${STATUS_BADGE[row.status] ?? ""}`}>
+                      <span className={`shrink-0 rounded px-1 py-0.5 text-[0.625rem] ${STATUS_BADGE[row.status] ?? ""}`}>
                         {row.status === "resolved"
                           ? t("novel.foreshadowing.resolved")
                           : row.status === "advanced"

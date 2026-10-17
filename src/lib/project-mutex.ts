@@ -1,82 +1,23 @@
 /**
- * Per-project async mutex.
+ * project-mutex.ts — 兼容层（锁族合并后仅 re-export，不再持有锁状态）。
  *
- * Why this exists: `autoIngest` reads `wiki/index.md` at analysis
- * time, asks the LLM to emit an updated `index.md`, then overwrites
- * the file at write time. If two ingests run concurrently for the
- * SAME project (queue-driven ingest happening while a Save-to-Wiki
- * or deep-research auto-ingest fires), each LLM sees the same
- * pre-state of `index.md`, each emits its own "updated" version,
- * and whichever finishes second silently overwrites the first.
- * Net effect: pages from the first ingest disappear from the index
- * with no error surfaced anywhere.
+ * 历史问题（审计）：本模块曾自带一份裸 path 键、【无等待超时】的
+ * promise-chain 互斥，与 `@/lib/novel/novel-locks` 的同名实现各自维护
+ * 独立 Map：
+ *   - 跨族互斥失效：同一 project 用两族 API 取锁时互不可见；
+ *   - 键拼写差异（normalizePath：`\` vs `/`、尾斜杠）可绕过互斥。
  *
- * The queue itself is already serial — but Save-to-Wiki and
- * deep-research bypass the queue (`autoIngest(...).catch(...)`).
- * Wrapping `autoIngest`'s body in `withProjectLock(projectPath, …)`
- * forces all entry points to take turns.
+ * 合并（保守档，不删文件）：唯一实现位于 `@/lib/novel/novel-locks`
+ * （FIFO + 10s 等待熔断 + canonicalLockKey 键统一，两族共享同一锁表），
+ * 本模块保留全部原导出名做 re-export，既有调用面（ingest / persist /
+ * 测试 helper）无需改动。
  *
- * The lock is a simple promise chain. No timeouts, no fairness, no
- * re-entrancy detection — those would all be overkill. If `fn`
- * hangs, the lock is held until it resolves; we'd rather have
- * back-pressure than corruption.
+ * 语义变化仅一处且更严：等待现在有 10s 看门狗（超时熔断抛错），不再
+ * 可能无限期等锁；互斥范围只增不减（键归一使更多等价拼写命中同一把锁）。
  */
-
-const locks = new Map<string, Promise<unknown>>()
-
-/**
- * Run `fn` while holding the per-`projectPath` lock. Returns the
- * value `fn` resolves to. If `fn` throws, the lock is released and
- * the rejection is propagated.
- */
-export async function withProjectLock<T>(
-  projectPath: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const prev = locks.get(projectPath) ?? Promise.resolve()
-  // We have to install our own promise into the map BEFORE awaiting
-  // `prev`, otherwise a third caller can race in and find the map
-  // still pointing at `prev`, and chain off the wrong slot.
-  let release!: () => void
-  const next = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  locks.set(
-    projectPath,
-    prev.then(() => next),
-  )
-  try {
-    // Wait for the previous holder. Swallow rejections from `prev`
-    // (a previous caller's failure shouldn't prevent us from running).
-    /* v8 ignore next */
-    await prev.catch(() => {})
-    return await fn()
-  } finally {
-    release()
-    // Best-effort cleanup: if our promise is still the tail, drop the
-    // map entry. Otherwise a later caller has chained on; leave it.
-    if (locks.get(projectPath) === next || locks.size > 1024) {
-      // Tail check is approximate (the map stores prev.then(() => next),
-      // not next directly). The size guard prevents pathological
-      // unbounded growth if many distinct projectPaths cycle through.
-      const tail = locks.get(projectPath)
-      if (tail) {
-        // Defer the delete one tick so a caller that just chained on
-        // doesn't see us yank the entry mid-chain.
-        Promise.resolve().then(() => {
-          /* v8 ignore next */
-          if (locks.get(projectPath) === tail) {
-            locks.delete(projectPath)
-          }
-        })
-      }
-    }
-  }
-}
-
-/** Test-only — drop all live locks. Used by `beforeEach` so test
- *  isolation is preserved across files that share the module-level
- *  `locks` map. */
-export function __resetProjectLocksForTesting(): void {
-  locks.clear()
-}
+export {
+  LOCK_WAIT_TIMEOUT_MS,
+  canonicalLockKey,
+  withProjectLock,
+  __resetLocksForTest as __resetProjectLocksForTesting,
+} from "@/lib/novel/novel-locks"

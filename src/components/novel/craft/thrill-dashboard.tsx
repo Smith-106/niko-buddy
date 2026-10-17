@@ -28,20 +28,20 @@ const ThrillECharts = lazy(() =>
       return (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div className="rounded-lg border bg-card p-2">
-            <div className="mb-1 px-1 text-[11px] font-medium text-muted-foreground">
+            <div className="mb-1 px-1 text-[0.6875rem] font-medium text-muted-foreground">
               张力曲线 (Raw / Smoothed)
             </div>
             <m.TensionCurveChart tensionCurve={props.tensionCurve} />
           </div>
           <div className="rounded-lg border bg-card p-2">
-            <div className="mb-1 px-1 text-[11px] font-medium text-muted-foreground">
+            <div className="mb-1 px-1 text-[0.6875rem] font-medium text-muted-foreground">
               Beat 强度 (绿=已闭环, 黄=开放)
             </div>
             <m.BeatIntensityChart hits={props.hits} />
           </div>
           {props.sixDimScores && (
             <div className="rounded-lg border bg-card p-2 md:col-span-2">
-              <div className="mb-1 px-1 text-[11px] font-medium text-muted-foreground">
+              <div className="mb-1 px-1 text-[0.6875rem] font-medium text-muted-foreground">
                 六维雷达
               </div>
               <div className="mx-auto max-w-sm">
@@ -82,21 +82,21 @@ function TensionRelaxRatio({ hits }: TensionRelaxRatioProps) {
     <div className="grid grid-cols-2 gap-2 rounded-lg border bg-card p-3 sm:grid-cols-4">
       <div className="text-center">
         <div className="text-lg font-bold text-foreground">{stats.total}</div>
-        <div className="text-[10px] text-muted-foreground">{t("craft.thrillDashboard.totalPayoffs")}</div>
+        <div className="text-[0.625rem] text-muted-foreground">{t("craft.thrillDashboard.totalPayoffs")}</div>
       </div>
       <div className="text-center">
         <div className="text-lg font-bold text-warning">{stats.open}</div>
-        <div className="text-[10px] text-muted-foreground">{t("craft.thrillDashboard.open")}</div>
+        <div className="text-[0.625rem] text-muted-foreground">{t("craft.thrillDashboard.open")}</div>
       </div>
       <div className="text-center">
         <div className="text-lg font-bold text-success">{stats.closed}</div>
-        <div className="text-[10px] text-muted-foreground">{t("craft.thrillDashboard.closed")}</div>
+        <div className="text-[0.625rem] text-muted-foreground">{t("craft.thrillDashboard.closed")}</div>
       </div>
       <div className="text-center">
         <div className={`text-lg font-bold ${stats.ratio > 3 ? "text-destructive" : stats.ratio > 1.5 ? "text-warning" : "text-success"}`}>
           {stats.ratio === Infinity ? "∞" : stats.ratio.toFixed(2)}
         </div>
-        <div className="text-[10px] text-muted-foreground">{t("craft.thrillDashboard.tensionRatio")}</div>
+        <div className="text-[0.625rem] text-muted-foreground">{t("craft.thrillDashboard.tensionRatio")}</div>
       </div>
     </div>
   )
@@ -126,33 +126,33 @@ function HitsTable({ hits }: HitsTableProps) {
       <table className="w-full border-collapse text-xs" role="grid">
         <thead>
           <tr className="border-b bg-muted/30">
-            <th className="px-2.5 py-2 text-left text-[11px] font-medium text-muted-foreground">{t("craft.thrillDashboard.beatType")}</th>
-            <th className="px-2.5 py-2 text-left text-[11px] font-medium text-muted-foreground">{t("craft.thrillDashboard.rawIntensity")}</th>
-            <th className="px-2.5 py-2 text-left text-[11px] font-medium text-muted-foreground">{t("craft.thrillDashboard.weightedIntensity")}</th>
-            <th className="px-2.5 py-2 text-left text-[11px] font-medium text-muted-foreground">{t("craft.thrillDashboard.position")}</th>
-            <th className="px-2.5 py-2 text-left text-[11px] font-medium text-muted-foreground">{t("craft.thrillDashboard.closeLoop")}</th>
-            <th className="px-2.5 py-2 text-left text-[11px] font-medium text-muted-foreground">{t("craft.thrillDashboard.arcId")}</th>
+            <th className="px-2.5 py-2 text-left text-[0.6875rem] font-medium text-muted-foreground">{t("craft.thrillDashboard.beatType")}</th>
+            <th className="px-2.5 py-2 text-left text-[0.6875rem] font-medium text-muted-foreground">{t("craft.thrillDashboard.rawIntensity")}</th>
+            <th className="px-2.5 py-2 text-left text-[0.6875rem] font-medium text-muted-foreground">{t("craft.thrillDashboard.weightedIntensity")}</th>
+            <th className="px-2.5 py-2 text-left text-[0.6875rem] font-medium text-muted-foreground">{t("craft.thrillDashboard.position")}</th>
+            <th className="px-2.5 py-2 text-left text-[0.6875rem] font-medium text-muted-foreground">{t("craft.thrillDashboard.closeLoop")}</th>
+            <th className="px-2.5 py-2 text-left text-[0.6875rem] font-medium text-muted-foreground">{t("craft.thrillDashboard.arcId")}</th>
           </tr>
         </thead>
         <tbody>
           {[...hits].map((h, idx) => (
             <tr key={idx} className="border-b border-border/50 last:border-0 hover:bg-muted/10">
               <td className="px-2.5 py-1.5">
-                <span className="text-[11px] font-medium text-foreground">{h.beatType}</span>
+                <span className="text-[0.6875rem] font-medium text-foreground">{h.beatType}</span>
               </td>
               <td className="px-2.5 py-1.5">
-                <span className="text-[11px] text-muted-foreground">{h.rawIntensity.toFixed(3)}</span>
+                <span className="text-[0.6875rem] text-muted-foreground">{h.rawIntensity.toFixed(3)}</span>
               </td>
               <td className="px-2.5 py-1.5">
-                <span className={`text-[11px] font-medium ${h.weightedIntensity > 1 ? "text-warning" : "text-foreground"}`}>
+                <span className={`text-[0.6875rem] font-medium ${h.weightedIntensity > 1 ? "text-warning" : "text-foreground"}`}>
                   {h.weightedIntensity.toFixed(3)}
                 </span>
               </td>
               <td className="px-2.5 py-1.5">
-                <span className="text-[11px] text-muted-foreground">{(h.positionRatio * 100).toFixed(1)}%</span>
+                <span className="text-[0.6875rem] text-muted-foreground">{(h.positionRatio * 100).toFixed(1)}%</span>
               </td>
               <td className="px-2.5 py-1.5">
-                <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                <span className={`inline-block rounded px-1.5 py-0.5 text-[0.625rem] font-medium ${
                   h.closureState === "closed"
                     ? "bg-success/10 text-success"
                     : "bg-warning/10 text-warning"
@@ -161,7 +161,7 @@ function HitsTable({ hits }: HitsTableProps) {
                 </span>
               </td>
               <td className="px-2.5 py-1.5">
-                <span className="text-[11px] text-muted-foreground">{h.arcId || "—"}</span>
+                <span className="text-[0.6875rem] text-muted-foreground">{h.arcId || "—"}</span>
               </td>
             </tr>
           ))}
@@ -265,7 +265,7 @@ export function ThrillDashboard({ result, sixDimScores, chapterTitle }: ThrillDa
 
       {/* 量化表格 */}
       <div>
-        <div className="mb-2 text-[11px] font-medium text-muted-foreground">
+        <div className="mb-2 text-[0.6875rem] font-medium text-muted-foreground">
           爽点量化明细 ({result.hits.length} 条)
         </div>
         <HitsTable hits={result.hits} />

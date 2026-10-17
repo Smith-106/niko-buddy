@@ -113,7 +113,12 @@ export function buildEdgesFromPlan(
     }));
 }
 
-/** 提交前跑既有写前门。 */
+/**
+ * 提交前跑既有写前门。
+ *
+ * `config.mode` 由调用方从现有设置体系读取（B8：UI 侧读 `NovelConfig.preWriteGateMode`，
+ * 缺省回退 `DEFAULT_PRE_WRITE_GATE_MODE` = warn 观察模式；仅显式 `block` 时 BLOCK 禁用提交）。
+ */
 export function preflightCanonEdgeGate(
   files: FileDiffModel[],
   rule: ReplaceRule,

@@ -10,7 +10,24 @@ import { countReasoningCharsInLine, extractReasoningTextFromLine } from "./reaso
 import { isReasoningDisabled, isReasoningOnlyResponseError, withReasoningDisabled } from "./reasoning-retry"
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
 import { trimChatMessagesToBudget } from "./chat-request-budget"
-import { resolveProviderOverride } from "@/lib/llm-config/preset-resolver"
+import { clampHttpTimeoutMs, resolveProviderOverride } from "@/lib/llm-config/preset-resolver"
+
+/**
+ * 从运行时 LlmConfig 解析三档 HTTP 超时 (毫秒)。
+ * undefined / 非法值 → 回退各档硬编码默认, 保证缺省行为与改前完全一致。
+ * 二次钳制是防御性的: 配置可能来自磁盘旧数据或 env 默认路径, 未必经过 resolveConfig。
+ */
+export function resolveHttpTimeouts(config: Pick<LlmConfig, "httpConnectTimeoutMs" | "httpHeaderTimeoutMs" | "httpStreamIdleMs">): {
+  connectTimeoutMs: number
+  headerTimeoutMs: number
+  streamIdleMs: number
+} {
+  return {
+    connectTimeoutMs: clampHttpTimeoutMs(config.httpConnectTimeoutMs, "httpConnectTimeoutMs") ?? DEFAULT_HTTP_CONNECT_TIMEOUT_MS,
+    headerTimeoutMs: clampHttpTimeoutMs(config.httpHeaderTimeoutMs, "httpHeaderTimeoutMs") ?? DEFAULT_HTTP_HEADER_TIMEOUT_MS,
+    streamIdleMs: clampHttpTimeoutMs(config.httpStreamIdleMs, "httpStreamIdleMs") ?? DEFAULT_HTTP_STREAM_IDLE_MS,
+  }
+}
 
 export type { ChatMessage, RequestOverrides } from "./llm-providers"
 export { isFetchNetworkError } from "./tauri-fetch"
@@ -81,6 +98,15 @@ function makeNamedError(name: string, message: string): Error {
   const error = new Error(message)
   error.name = name
   return error
+}
+
+/**
+ * LL-2: 用户取消/中止 → 与正常完成区分。中止不再走 onDone 成功路径，
+ * 而是以 AbortError 走 onError（消息命中 isRequestCancelledError，指标归 "abort"），
+ * 使批处理侧能把中断章回 pending、拒绝截断/空候选落入 ready 草稿。
+ */
+export function makeRequestCancelledError(): Error {
+  return makeNamedError("AbortError", "Request cancelled by user")
 }
 
 function classifyLlmError(err: unknown): string {
@@ -617,13 +643,15 @@ async function streamChatHeld(
 
   // Stream-idle watchdog shared by every attempt of this request: armed once
   // headers arrive, reset on each chunk, aborts the body read on a stall.
+  // 三档超时取自运行时配置 (UI 可调), 缺省 = 各档硬编码默认 (零行为变更)。
+  const httpTimeouts = resolveHttpTimeouts(mutableRuntimeConfig)
   let streamIdleFired = false
   const streamIdleController = new AbortController()
   const armStreamIdleTimer = (): ReturnType<typeof setTimeout> =>
     setTimeout(() => {
       streamIdleFired = true
       streamIdleController.abort()
-    }, DEFAULT_HTTP_STREAM_IDLE_MS)
+    }, httpTimeouts.streamIdleMs)
   let streamIdleTimer: ReturnType<typeof setTimeout> | undefined
 
   const timeoutMs = DEFAULT_LLM_REQUEST_TIMEOUT_MS
@@ -675,7 +703,7 @@ async function streamChatHeld(
         const headerTimer = setTimeout(() => {
           headerTimeoutFired = true
           headerDeadlineController.abort()
-        }, DEFAULT_HTTP_HEADER_TIMEOUT_MS)
+        }, httpTimeouts.headerTimeoutMs)
         const attemptSignal = combineAbortSignals(
           signal,
           combinedSignal,
@@ -685,7 +713,7 @@ async function streamChatHeld(
         const attemptInit = {
           ...requestInit,
           signal: attemptSignal,
-          connectTimeout: DEFAULT_HTTP_CONNECT_TIMEOUT_MS,
+          connectTimeout: httpTimeouts.connectTimeoutMs,
         } as RequestInit
         try {
           return await httpFetch(providerConfig.url, attemptInit)
@@ -714,7 +742,7 @@ async function streamChatHeld(
             throw headerTimedOut
               ? makeNamedError(
                   HEADER_TIMEOUT_ERROR_NAME,
-                  `连接模型接口超过 ${Math.round(DEFAULT_HTTP_HEADER_TIMEOUT_MS / 1000)} 秒仍无响应，快速重试约 20 秒仍未成功。` +
+                  `连接模型接口超过 ${Math.round(httpTimeouts.headerTimeoutMs / 1000)} 秒仍无响应，快速重试约 20 秒仍未成功。` +
                   `这种情况常见于代理服务挂起或网络黑洞（TCP 已连通但数据无响应）。` +
                   `请检查代理服务是否正常运行、代理地址是否正确，或尝试切换直连后重试。接口地址：${providerConfig.url}`,
                 )
@@ -739,7 +767,8 @@ async function streamChatHeld(
       response = await sendRequest(requestInit)
     } catch (err) {
       if (signal?.aborted || (combinedSignal?.aborted && !timeoutFired)) {
-        onDone()
+        // LL-2: 调用方取消 ≠ 正常完成——上报可识别的取消错误而非 onDone。
+        onError(makeRequestCancelledError())
         return
       }
       if (err instanceof Error && err.name === "AbortError") {
@@ -747,7 +776,8 @@ async function streamChatHeld(
           onError(new Error(`Request timed out after ${Math.round(timeoutMs / 60000)} min. Try a faster model or a smaller context.`))
           return
         }
-        onDone()
+        // LL-2: 直接 AbortError（无超时标志）同属中止路径，不得谎报成功。
+        onError(makeRequestCancelledError())
         return
       }
       if (isFetchNetworkError(err)) {
@@ -849,7 +879,7 @@ async function streamChatHeld(
     const reader = response.body.getReader()
     let lineBuffer = ""
 
-    // Arm the stream-idle watchdog: any gap > DEFAULT_HTTP_STREAM_IDLE_MS
+    // Arm the stream-idle watchdog: any gap > streamIdleMs
     // between chunks aborts the read (stall detection). Reset per chunk.
     streamIdleTimer = armStreamIdleTimer()
     const resetStreamIdleTimer = () => {
@@ -922,13 +952,19 @@ async function streamChatHeld(
         return
       }
 
+      // LL-2: 流收尾与取消竞争——signal 已中止（且非超时）时仍属取消，不报成功。
+      if (signal?.aborted || (combinedSignal?.aborted && !timeoutFired)) {
+        onError(makeRequestCancelledError())
+        return
+      }
+
       onDone()
     } catch (err) {
       if (streamIdleFired) {
         onError(
           makeNamedError(
             STREAM_IDLE_ERROR_NAME,
-            `模型输出停滞超过 ${Math.round(DEFAULT_HTTP_STREAM_IDLE_MS / 1000)} 秒，已中止本次请求。` +
+            `模型输出停滞超过 ${Math.round(httpTimeouts.streamIdleMs / 1000)} 秒，已中止本次请求。` +
             `请重试；若反复出现，请检查代理稳定性或更换更快的模型/接口。`,
           ),
         )
@@ -942,7 +978,8 @@ async function streamChatHeld(
         return
       }
       if (err instanceof Error && (err.name === "AbortError" || (signal?.aborted))) {
-        onDone()
+        // LL-2: 流读取期间的取消 → 可识别的取消错误，由批处理侧决定失败/回退。
+        onError(makeRequestCancelledError())
         return
       }
       if (isFetchNetworkError(err)) {

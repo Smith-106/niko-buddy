@@ -260,14 +260,14 @@ export function CorkboardView() {
             onClick={() => void handleCreateScene()}
             disabled={busyChapter === -1}
             title={t("novel.corkboard.createScene", { defaultValue: "新建场景卡片" })}
-            className="flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+            className="flex items-center gap-1 rounded border px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
           >
             <Plus className="h-3 w-3" />
             {t("novel.corkboard.createScene", { defaultValue: "新建场景卡片" })}
           </button>
         </div>
         {notice && (
-          <div className="mt-1.5 truncate text-[11px] text-muted-foreground">{notice}</div>
+          <div className="mt-1.5 truncate text-[0.6875rem] text-muted-foreground">{notice}</div>
         )}
       </div>
       <div className="flex-1 overflow-y-auto scroll-fade-y p-3">
@@ -300,7 +300,7 @@ export function CorkboardView() {
                 data-corkboard-card={card.chapterNumber}
                 className="group relative flex flex-col gap-2 rounded-lg border bg-card p-3 transition-colors hover:border-primary/40"
               >
-                <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                   {pendingDelete === card.chapterNumber ? (
                     <>
                       <button
@@ -355,7 +355,7 @@ export function CorkboardView() {
                 {card.emotions.length > 0 && (
                   <div className="mt-auto flex flex-wrap gap-1 pt-1" data-corkboard-emotions={card.chapterNumber}>
                     {card.emotions.map((emotion) => (
-                      <span key={emotion} className="rounded bg-accent px-1.5 py-0.5 text-[11px] text-accent-foreground">
+                      <span key={emotion} className="rounded bg-accent px-1.5 py-0.5 text-[0.6875rem] text-accent-foreground">
                         {emotion}
                       </span>
                     ))}

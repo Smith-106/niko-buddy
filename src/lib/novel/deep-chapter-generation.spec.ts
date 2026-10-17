@@ -95,6 +95,7 @@ import {
   evaluateResidualPolicyForInput,
   buildDecisionGates,
   collectRepairIssues,
+  stageShortLabelForDisplay,
   type DeepChapterGenerationDeps,
   type DeepChapterGenerationResumeCheckpoint,
   type DeepChapterGenerationInput,
@@ -4399,5 +4400,19 @@ describe("F8 journal 接线：阶段2任务书 digest-keyed 缓存（默认关�
     )
     // 过期 → 任务书重新走 LLM，总调用数与未命中轮一致（不省）
     expect(vi.mocked(deps2.streamChat).mock.calls.length).toBe(callsMiss)
+  })
+})
+
+describe("A6 stageShortLabelForDisplay（UI 阶段短标签统一出口）", () => {
+  it("resume stage / 端点映射中文短标签", () => {
+    expect(stageShortLabelForDisplay("after_draft")).toBe("草稿")
+    expect(stageShortLabelForDisplay("after_review")).toBe("审稿")
+    expect(stageShortLabelForDisplay("started")).toBe("上下文")
+    expect(stageShortLabelForDisplay("completed")).toBe("完成")
+  })
+  it("未知值不隐藏、null/undefined 降级上下文", () => {
+    expect(stageShortLabelForDisplay("bogus-stage")).toContain("未知阶段")
+    expect(stageShortLabelForDisplay(null)).toBe("上下文")
+    expect(stageShortLabelForDisplay(undefined)).toBe("上下文")
   })
 })

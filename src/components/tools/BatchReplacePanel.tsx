@@ -22,6 +22,7 @@ import {
   type SafetyIssue,
   type SafetyIssueCode,
 } from "@/lib/novel";
+import { useWikiStore } from "@/stores/wiki-store";
 
 export interface BatchReplacePanelProps {
   /** 当前项目根路径。 */
@@ -75,8 +76,10 @@ interface CanonEdgeSnapshot {
  * 事实**跑写前门（旧实现恒传空数组，门永远不会命中，UI 却在宣称已检查）。
  *
  * 诚实的边界（实机核实）：
- *  - 写前门默认 `warn` 观察模式，BLOCK 级冲突会**降级为提示**；只有切到 `block`
- *    模式才会真的禁用提交（`disabled` 分支保留以适配该模式）；
+ *  - 写前门模式读 `NovelConfig.preWriteGateMode`（设置体系 / `.niko-buddy/novel-config.json`，
+ *    与写路径 canon-dual-write 同一真源）：默认 `warn` 观察模式，BLOCK 级冲突会**降级为提示**；
+ *    只有显式切到 `block` 才会真的禁用提交（`disabled` 分支保留即该模式的落地）；
+ *    面板始终显示当前生效模式（观察/拦截），不让用户误以为一直在被保护；
  *  - 既有事实读不出来时门未评估，UI 显示“未评估（不等于通过）”，绝不显示为通过。
  *
  * 本面板自己不做任何文件写入。
@@ -103,6 +106,13 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
   const [canonGateState, setCanonGateState] = useState<"idle" | "checking" | "ready" | "failed">(
     "idle",
   );
+  /**
+   * 写前门生效模式（B8 真实读取点之 UI 侧）。与写路径 `resolvePreWriteGateMode`
+   * 同源：`NovelConfig.preWriteGateMode`；缺省/非法值一律回退 `warn` 观察模式。
+   */
+  const preWriteGateMode = useWikiStore((s) =>
+    s.novelConfig.preWriteGateMode === "block" ? "block" : "warn",
+  );
 
   const rule: ReplaceRule = useMemo(
     () => ({ find, replace, caseSensitive: false }),
@@ -114,9 +124,9 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
   const canonGate = useMemo(
     () =>
       files.length > 0 && existingEdges !== null
-        ? preflightCanonEdgeGate(files, rule, existingEdges)
+        ? preflightCanonEdgeGate(files, rule, existingEdges, { mode: preWriteGateMode })
         : null,
-    [files, rule, existingEdges],
+    [files, rule, existingEdges, preWriteGateMode],
   );
 
   const loadExistingEdges = useCallback(async () => {
@@ -257,13 +267,14 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
         <p
           data-testid="batchreplace-canon-gate-state"
           data-state={canonGateState === "failed" ? "unevaluated" : (canonGate?.state ?? "checking")}
+          data-mode={preWriteGateMode}
           className="text-xs opacity-70"
         >
           {canonGateState === "failed"
             ? t("batchreplace.canonGate.unavailable")
             : canonGateState === "checking"
               ? t("batchreplace.canonGate.checking")
-              : `${t("batchreplace.canonGate.label")}：${canonGate?.state ?? "PASS"}`}
+              : `${t("batchreplace.canonGate.label")}（${preWriteGateMode}）：${canonGate?.state ?? "PASS"}`}
         </p>
       ) : null}
 
@@ -278,8 +289,14 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
       ) : null}
 
       {canonGate && canonGate.state !== "PASS" ? (
-        <p data-testid="batchreplace-canon-gate-advisory" className="text-xs opacity-70">
-          {t("batchreplace.canonGate.advisory")}
+        <p
+          data-testid="batchreplace-canon-gate-advisory"
+          data-mode={preWriteGateMode}
+          className="text-xs opacity-70"
+        >
+          {preWriteGateMode === "block"
+            ? t("batchreplace.canonGate.advisoryBlock")
+            : t("batchreplace.canonGate.advisory")}
         </p>
       ) : null}
 

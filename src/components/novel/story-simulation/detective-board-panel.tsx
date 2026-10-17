@@ -216,7 +216,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
           </label>
         )}
 
-        <div className="ml-auto text-[11px] text-muted-foreground">
+        <div className="ml-auto text-[0.6875rem] text-muted-foreground">
           {t("storySimulation.totalClues", { count: filteredClues.length })}
         </div>
       </div>
@@ -236,7 +236,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                   <span className="text-xs font-medium text-primary">
                     {t("storySimulation.nodeTitle", { index: nodeIndex + 1 })}
                   </span>
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-[0.6875rem] text-muted-foreground">
                     {t("storySimulation.countClues", { count: nodeClues.length })}
                   </span>
                 </div>
@@ -254,15 +254,15 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                         />
 
                         <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                          <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${info.color}`}>
+                          <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.625rem] font-medium ${info.color}`}>
                             <Icon className="h-2.5 w-2.5 shrink-0" />
                             {info.label}
                           </span>
-                          <span className="text-[11px] text-muted-foreground">
+                          <span className="text-[0.6875rem] text-muted-foreground">
                             {t("storySimulation.roundLabel", { round: clue.round + 1 })}
                           </span>
                           {clue.isSecret && (
-                            <span className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning dark:text-warning">
+                            <span className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-warning dark:text-warning">
                               <EyeOff className="h-2.5 w-2.5 shrink-0" />
                               {t("storySimulation.secret")}
                             </span>
@@ -270,7 +270,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                         </div>
 
                         {clue.actorName && (
-                          <div className="mb-1 text-[11px] font-medium text-foreground">
+                          <div className="mb-1 text-[0.6875rem] font-medium text-foreground">
                             {clue.actorName}
                             {clue.targetName && <> → {clue.targetName}</>}
                           </div>
@@ -284,14 +284,14 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                           <Eye className="mt-0.5 h-3 w-3 shrink-0 text-success" />
                           <div className="flex flex-wrap gap-1">
                             {clue.knowAgents.length === 0 ? (
-                              <span className="text-[10px] text-muted-foreground">{t("storySimulation.knownByNone")}</span>
+                              <span className="text-[0.625rem] text-muted-foreground">{t("storySimulation.knownByNone")}</span>
                             ) : clue.knowAgents.length === agentList.length ? (
-                              <span className="text-[10px] text-success dark:text-success">{t("storySimulation.knownByAll")}</span>
+                              <span className="text-[0.625rem] text-success dark:text-success">{t("storySimulation.knownByAll")}</span>
                             ) : (
                               clue.knowAgents.map((id) => (
                                 <span
                                   key={id}
-                                  className="rounded bg-success/10 px-1.5 py-0.5 text-[10px] text-success dark:text-success"
+                                  className="rounded bg-success/10 px-1.5 py-0.5 text-[0.625rem] text-success dark:text-success"
                                 >
                                   {getAgentName(id)}
                                 </span>
@@ -307,13 +307,13 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                               {clue.unknowAgents.slice(0, 5).map((id) => (
                                 <span
                                   key={id}
-                                  className="rounded bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                                  className="rounded bg-muted/50 px-1.5 py-0.5 text-[0.625rem] text-muted-foreground"
                                 >
                                   {getAgentName(id)}
                                 </span>
                               ))}
                               {clue.unknowAgents.length > 5 && (
-                                <span className="text-[10px] text-muted-foreground">
+                                <span className="text-[0.625rem] text-muted-foreground">
                                   {t("storySimulation.morePeople", { count: clue.unknowAgents.length - 5 })}
                                 </span>
                               )}

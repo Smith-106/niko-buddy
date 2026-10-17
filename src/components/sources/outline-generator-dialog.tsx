@@ -567,7 +567,7 @@ export function OutlineGeneratorDialog({
                     <span>{t("novel.outlineGenerator.refineWriteModeAppendCurrent")}</span>
                   </label>
                   {!canAppendToCurrentOutline ? (
-                    <div className="mt-1 text-[11px] text-muted-foreground">
+                    <div className="mt-1 text-[0.6875rem] text-muted-foreground">
                       {t("novel.outlineGenerator.refineWriteModeAppendHint")}
                     </div>
                   ) : null}
@@ -590,7 +590,7 @@ export function OutlineGeneratorDialog({
                 </div>
 
                 {selectedSectionConfig ? (
-                  <div className="rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 text-[11px] text-primary">
+                  <div className="rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 text-[0.6875rem] text-primary">
                     {t("novel.outlineGenerator.sectionGeneratingHint", { title: selectedSectionConfig.title })}
                   </div>
                 ) : null}
@@ -598,25 +598,25 @@ export function OutlineGeneratorDialog({
                 {outlineFiles.length > 0 && (
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <Label className="text-[11px]">{t("novel.outlineGenerator.selectedOutline")}</Label>
+                      <Label className="text-[0.6875rem]">{t("novel.outlineGenerator.selectedOutline")}</Label>
                       <div className="flex gap-1">
                         <button
                           type="button"
-                          className="text-[10px] text-primary hover:underline"
+                          className="text-[0.625rem] text-primary hover:underline"
                           onClick={() => setSelectedOutlineFiles(new Set(outlineFiles.map((f) => f.path)))}
                         >
                           全选
                         </button>
                         <button
                           type="button"
-                          className="text-[10px] text-muted-foreground hover:underline"
+                          className="text-[0.625rem] text-muted-foreground hover:underline"
                           onClick={() => setSelectedOutlineFiles(new Set())}
                         >
                           清空
                         </button>
                       </div>
                     </div>
-                    <div className="max-h-24 overflow-y-auto rounded-md border p-1.5 text-[11px] space-y-0.5">
+                    <div className="max-h-24 overflow-y-auto rounded-md border p-1.5 text-[0.6875rem] space-y-0.5">
                       {outlineFiles.map((file) => (
                         <label key={file.path} className="flex items-center gap-1.5 cursor-pointer py-0.5 hover:bg-muted/50 rounded px-1">
                           <input
@@ -638,7 +638,7 @@ export function OutlineGeneratorDialog({
                       ))}
                     </div>
                     {selectedOutlineFiles.size > 0 && (
-                      <div className="text-[10px] text-muted-foreground">
+                      <div className="text-[0.625rem] text-muted-foreground">
                         已选中 {selectedOutlineFiles.size} / {outlineFiles.length}
                       </div>
                     )}
@@ -648,25 +648,25 @@ export function OutlineGeneratorDialog({
                 {chapterFiles.length > 0 && (
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <Label className="text-[11px]">{t("novel.outlineGenerator.selectedChapters")}</Label>
+                      <Label className="text-[0.6875rem]">{t("novel.outlineGenerator.selectedChapters")}</Label>
                       <div className="flex gap-1">
                         <button
                           type="button"
-                          className="text-[10px] text-primary hover:underline"
+                          className="text-[0.625rem] text-primary hover:underline"
                           onClick={() => setSelectedChapterFiles(new Set(chapterFiles.map((f) => f.path)))}
                         >
                           全选
                         </button>
                         <button
                           type="button"
-                          className="text-[10px] text-muted-foreground hover:underline"
+                          className="text-[0.625rem] text-muted-foreground hover:underline"
                           onClick={() => setSelectedChapterFiles(new Set())}
                         >
                           清空
                         </button>
                       </div>
                     </div>
-                    <div className="max-h-24 overflow-y-auto rounded-md border p-1.5 text-[11px] space-y-0.5">
+                    <div className="max-h-24 overflow-y-auto rounded-md border p-1.5 text-[0.6875rem] space-y-0.5">
                       {chapterFiles.map((file) => (
                         <label key={file.path} className="flex items-center gap-1.5 cursor-pointer py-0.5 hover:bg-muted/50 rounded px-1">
                           <input
@@ -688,7 +688,7 @@ export function OutlineGeneratorDialog({
                       ))}
                     </div>
                     {selectedChapterFiles.size > 0 && (
-                      <div className="text-[10px] text-muted-foreground">
+                      <div className="text-[0.625rem] text-muted-foreground">
                         已选中 {selectedChapterFiles.size} / {chapterFiles.length}
                       </div>
                     )}

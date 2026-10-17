@@ -51,9 +51,12 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  closeLabel,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Popup> & {
   showCloseButton?: boolean
+  /** 关闭按钮可访问名称（F-B1/F-D3：中文界面下屏幕阅读器不再只听到英文 Close）。 */
+  closeLabel?: string
 }) {
   return (
     <DialogPortal data-slot="dialog-portal">
@@ -68,12 +71,16 @@ function DialogContent({
       >
         {children}
         {showCloseButton && (
+          // ui-audit-20261016 F-B1：旧版命中区仅 16x16px（[&_svg]:size-4 + 无 padding），
+          // 低于 WCAG 2.5.8 的 24x24 最小目标。改为 flex 居中的 24x24 命中区，
+          // 并补 aria-label（屏幕阅读器此前只听到英文 “Close”）。
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            aria-label={closeLabel ?? "Close"}
+            className="absolute top-4 right-4 flex h-6 w-6 items-center justify-center rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
             <XIcon />
-            <span className="sr-only">Close</span>
+            <span className="sr-only">{closeLabel ?? "Close"}</span>
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Popup>

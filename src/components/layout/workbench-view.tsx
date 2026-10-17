@@ -139,7 +139,7 @@ export function WorkbenchView() {
                   <div className="flex w-full items-center justify-between">
                     <Icon className="h-5 w-5 text-muted-foreground group-hover:text-primary" />
                     {card.planned && (
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                         {t("wb.planned")}
                       </span>
                     )}

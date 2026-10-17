@@ -168,8 +168,12 @@ export function ReviewCenterSidebarPanel() {
     const counts = { blocking: 0, high: 0, medium: 0, low: 0 }
     for (const key of SIX_REVIEW_DIMENSION_ORDER) {
       for (const issue of reviewRun?.dimensionResults?.[key]?.issues ?? []) {
-        if (issue.severity === "error") counts.high++
-        else if (issue.severity === "warning") counts.medium++
+        if (issue.severity === "error") {
+          counts.high++
+          // 阻塞 = P0 门控（Consistency）的 error 级问题。此前该字段声明后从不累加，
+          // 侧栏「阻塞:N」恒为 0（findings-2 W-08），作者会把“没问题”当成“门控通过”。
+          if (key === "consistency") counts.blocking++
+        } else if (issue.severity === "warning") counts.medium++
         else counts.low++
       }
     }
@@ -242,14 +246,14 @@ export function ReviewCenterSidebarPanel() {
           <div className="px-1 mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
             {t("novel.settings.outlineThrillLiveStatusTitle")}
           </div>
-          <p className="px-1 mb-2 text-[10px] leading-4 text-muted-foreground">
+          <p className="px-1 mb-2 text-[0.625rem] leading-4 text-muted-foreground">
             {t("novel.settings.outlineThrillLiveStatusHint")}
           </p>
           {!outlineThrillSoftGateEnabled ? (
-            <p className="px-1 text-[11px] text-muted-foreground">{t("novel.settings.outlineThrillSoftGateEnabled")}: off</p>
+            <p className="px-1 text-[0.6875rem] text-muted-foreground">{t("novel.settings.outlineThrillSoftGateEnabled")}: off</p>
           ) : (
             <>
-              <div className="mb-1 flex flex-wrap gap-1 px-1 text-[10px]">
+              <div className="mb-1 flex flex-wrap gap-1 px-1 text-[0.625rem]">
                 <span className="rounded border border-violet-600/30 px-1.5 py-0.5 text-violet-700 dark:text-violet-300">
                   Track B · soft
                 </span>
@@ -264,7 +268,7 @@ export function ReviewCenterSidebarPanel() {
                   </span>
                 )}
               </div>
-              <ul className="space-y-1 px-1 text-[11px] leading-4 text-muted-foreground">
+              <ul className="space-y-1 px-1 text-[0.6875rem] leading-4 text-muted-foreground">
                 {(thrilLiveStatus.results.length > 0
                   ? thrilLiveStatus.results
                   : THRILL_CHECKPOINT_ORDER.map((id) => ({
@@ -289,7 +293,7 @@ export function ReviewCenterSidebarPanel() {
                     <span className="min-w-0 flex-1">
                       <span className="text-foreground/90">{row.label}</span>
                       {"evidence" in row && (row as { evidence?: string }).evidence ? (
-                        <span className="mt-0.5 block text-[10px] text-muted-foreground/80">
+                        <span className="mt-0.5 block text-[0.625rem] text-muted-foreground/80">
                           {(row as { evidence?: string }).evidence}
                         </span>
                       ) : null}
@@ -316,7 +320,7 @@ export function ReviewCenterSidebarPanel() {
                   })
                 : t("novel.settings.outlineThrillAckButton")}
             </button>
-            <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+            <p className="mt-1 text-[0.625rem] leading-4 text-muted-foreground">
               {t("novel.settings.outlineThrillAckHint")}
             </p>
           </div>
@@ -326,15 +330,15 @@ export function ReviewCenterSidebarPanel() {
           <div className="px-1 mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
             {t("reviewCenter.measurementFingerprintTitle")}
           </div>
-          <p className="px-1 mb-2 text-[10px] leading-4 text-muted-foreground">
+          <p className="px-1 mb-2 text-[0.625rem] leading-4 text-muted-foreground">
             {t("reviewCenter.measurementFingerprintHint")}
           </p>
           {reviewRun?.measurementFingerprint ? (
             <div className="mx-1 rounded-md border border-border/60 bg-muted/30 px-2 py-2">
-              <p className="font-mono text-[10px] leading-4 text-muted-foreground break-all">
+              <p className="font-mono text-[0.625rem] leading-4 text-muted-foreground break-all">
                 {formatMeasurementFingerprintSummary(reviewRun.measurementFingerprint)}
               </p>
-              <div className="mt-1.5 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
+              <div className="mt-1.5 flex flex-wrap gap-1 text-[0.625rem] text-muted-foreground">
                 <span className="rounded border px-1 py-0.5">
                   outline {reviewRun.measurementFingerprint.shape?.outlineChars ?? 0}
                 </span>
@@ -352,7 +356,7 @@ export function ReviewCenterSidebarPanel() {
               </div>
             </div>
           ) : (
-            <p className="px-1 text-[11px] text-muted-foreground">
+            <p className="px-1 text-[0.6875rem] text-muted-foreground">
               {t("reviewCenter.measurementFingerprintEmpty")}
             </p>
           )}
@@ -362,11 +366,11 @@ export function ReviewCenterSidebarPanel() {
           <div className="px-1 mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
             {t("reviewCenter.sixDimensions")}
           </div>
-          <p className="px-1 mb-2 text-[10px] leading-4 text-muted-foreground">
+          <p className="px-1 mb-2 text-[0.625rem] leading-4 text-muted-foreground">
             {t("reviewCenter.splitAcceptanceHint")}
           </p>
           <div className="mb-2">
-            <div className="px-1 mb-1 flex items-center gap-1.5 text-[10px] font-medium text-success dark:text-success">
+            <div className="px-1 mb-1 flex items-center gap-1.5 text-[0.625rem] font-medium text-success dark:text-success">
               <span className="rounded border border-success/40 px-1 py-0.5">{t("reviewCenter.trackABadge")}</span>
               <span className="text-muted-foreground font-normal">{t("reviewCenter.trackAHint")}</span>
             </div>
@@ -396,7 +400,7 @@ export function ReviewCenterSidebarPanel() {
             </div>
           </div>
           <div className="mb-1">
-            <div className="px-1 mb-1 flex items-center gap-1.5 text-[10px] font-medium text-violet-700 dark:text-violet-400">
+            <div className="px-1 mb-1 flex items-center gap-1.5 text-[0.625rem] font-medium text-violet-700 dark:text-violet-400">
               <span className="rounded border border-violet-600/40 px-1 py-0.5">{t("reviewCenter.trackBBadge")}</span>
               <span className="text-muted-foreground font-normal">{t("reviewCenter.trackBHint")}</span>
             </div>

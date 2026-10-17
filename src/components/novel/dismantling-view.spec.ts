@@ -7,7 +7,9 @@ const root = resolve(__dirname, "../../..")
 describe("dismantling library visibility", () => {
   it("hides the dismantling library navigation entry in version 2.2.7+", () => {
     const storeSource = readFileSync(resolve(root, "src/stores/wiki-store.ts"), "utf8")
-    const sidebarSource = readFileSync(resolve(root, "src/components/layout/icon-sidebar.tsx"), "utf8")
+    // ui-audit-20261016：导航清单从 icon-sidebar.tsx 抽到 ./nav-items.ts
+    // （侧栏与命令面板共用一张表），断言改读该共享源。
+    const sidebarSource = readFileSync(resolve(root, "src/components/layout/nav-items.ts"), "utf8")
     const contentSource = readFileSync(resolve(root, "src/components/layout/content-area.tsx"), "utf8")
 
     expect(storeSource).toContain('"bookAnalysis"')

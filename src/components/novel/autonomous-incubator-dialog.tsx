@@ -256,7 +256,7 @@ export function AutonomousIncubatorDialog({
                     return (
                       <div
                         key={st.key}
-                        className={`flex items-center gap-2 p-1.5 rounded text-[11px] border ${
+                        className={`flex items-center gap-2 p-1.5 rounded text-[0.6875rem] border ${
                           isDone
                             ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
                             : isCurrent
@@ -284,7 +284,7 @@ export function AutonomousIncubatorDialog({
               <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
               <div>
                 <p className="font-semibold text-sm">《{result.incubation.title}》全自动孵化大获成功！</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
+                <p className="text-[0.6875rem] text-muted-foreground mt-0.5">
                   全书基底已完全构建，章节骨架与故事模拟推演已实时注入系统。
                 </p>
               </div>

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { useTranslation } from "react-i18next"
-import { Sun, Moon, Monitor, ArrowLeftRight, Minus, Square, X, Type } from "lucide-react"
+import { Sun, Moon, Monitor, ArrowLeftRight, Minus, Square, X, Type, Search } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { saveTheme } from "@/lib/project-store"
 import { applyTheme, type ThemeMode } from "@/lib/theme-utils"
@@ -15,7 +15,7 @@ const THEME_ORDER: ThemeMode[] = ["system", "light", "dark", "deep-blue"]
  * 应用顶栏：logo+项目名（左）· 主题/字号快捷入口（中）· 窗口控制（右，仅 Tauri）。
  * 收纳 icon-sidebar 底部操作组的高频项，缓解窄栏拥挤；原底部按钮保留（不删入口）。
  */
-export function TitleBar() {
+export function TitleBar({ onOpenCommandPalette }: { onOpenCommandPalette?: () => void } = {}) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const theme = useWikiStore((s) => s.theme)
@@ -72,6 +72,21 @@ export function TitleBar() {
           </span>
         )}
       </div>
+      <div className="flex-1" />
+      {/* 中：命令面板入口（findings-1 F-12）——鼠标用户可见、不只靠快捷键。
+          标题栏中央原本是一个空 `<div className="flex-1" />` 空槽。
+          点击等价于 Ctrl/⌘+K；由 AppLayout 注入打开命令。 */}
+      <button
+        type="button"
+        onClick={() => onOpenCommandPalette?.()}
+        data-testid="command-palette-trigger"
+        title={t("commandPalette.hint", { defaultValue: "Ctrl/⌘+K 打开命令面板" })}
+        className="soft-button flex h-7 shrink-0 items-center gap-2 rounded-xl border border-border/70 px-2.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+      >
+        <Search className="h-3.5 w-3.5 shrink-0" />
+        <span className="hidden text-xs sm:inline">{t("commandPalette.placeholder", { defaultValue: "搜索章节与功能" })}</span>
+        <kbd className="hidden shrink-0 rounded border border-border px-1 text-[0.625rem] sm:inline">Ctrl K</kbd>
+      </button>
       <div className="flex-1" />
       {/* 中：主题 / 字号快捷入口 */}
       <div className="flex shrink-0 items-center gap-1">

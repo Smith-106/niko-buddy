@@ -51,6 +51,7 @@ src/test-helpers/*
 !/docs/decision-log/
 # ADR 统一索引（架构决策真源，P1 巨文件拆分同期治理产物）
 !/docs/arch-decisions.md
+!/docs/README.md
 !/docs/p2/
 !/docs/p5/
 !/docs/generated/
@@ -133,3 +134,15 @@ smoke-*.jsonl
 
 # quality-auto-test 运行工作区（auto-test state/report/log，本机产物不入库；报告副本发布到 hub .workflow run outputs）
 .tests/
+
+# === 一次性本机诊断脚本（P1 清理：probe/CDP/fs-shim 属本机取证工具，不入库）===
+/scripts/probe-*.mts
+/scripts/node-fs-hook.mjs
+/scripts/node-fs-register.mjs
+/scripts/node-fs-shim.mjs
+/scripts/cdp-screenshot.py
+# E2E / 覆盖率本机产物
+/playwright-report/
+/coverage/
+/blob-report/
+

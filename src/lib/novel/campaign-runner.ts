@@ -33,6 +33,8 @@ function countWords(text: string): number {
   return text.replace(/\s/g, "").length
 }
 import { buildCarryoverContext } from "./campaign-memory"
+// C6 接线（B2 段摘要滚动最小版）：最新段摘要文本来源；load 失败降级 "" 不阻断巡航。
+import { getLatestSegmentSummaryText, loadSegmentSummaries } from "./segment-summary"
 // B2 弧结算可观测（P1-6）：纯函数 import，失败不阻断（模块无 IO）。
 import { shouldTriggerArcSettlement } from "./arc-settlement"
 import {
@@ -470,10 +472,18 @@ export async function runAutonomousDraftCampaign(
         break
       }
 
-      // 更新前情记忆给下一章沙箱消费（结构化承接：承接章号 + 末段收束 + 开端锚点）
+      // 更新前情记忆给下一章沙箱消费（结构化承接：承接章号 + 任务简报? + 远期段摘要? + 末段收束 + 开端锚点；
+      // C6 接线：最新段摘要 best-effort 读入，失败/为空时直通不断链）。
+      let latestSegmentSummary = ""
+      try {
+        latestSegmentSummary = getLatestSegmentSummaryText(await loadSegmentSummaries(pp))
+      } catch {
+        latestSegmentSummary = ""
+      }
       previousDraftSummary = buildCarryoverContext({
         chapterNumber: currentChapterNum,
         content: chapterResult.content,
+        segmentSummary: latestSegmentSummary,
       })
       // B2 弧结算可观测（P1-6：只发事件，不自动结算）。
       // arcEndChapter 暂无生产来源（传入 null）故默认不触发，仅保留事件形状供后续接线。

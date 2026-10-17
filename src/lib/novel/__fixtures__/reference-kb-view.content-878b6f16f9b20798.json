@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "builtFrom": "sha256:5466c2b048642703",
+  "builtFrom": "sha256:878b6f16f9b20798",
   "source": "reference/REFERENCE-KB-VIEW.json（hub 生成产物；内容面快照，禁手改）",
   "collections": [
     "craft",

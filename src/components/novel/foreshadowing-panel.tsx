@@ -77,7 +77,7 @@ export function ForeshadowingPanel() {
             <Lightbulb className={`h-4 w-4 shrink-0 ${unresolved.length > 0 ? "text-warning fill-warning/30" : "text-muted-foreground/40"}`} />
             <h2 className="text-sm font-semibold">{t("novel.foreshadowing.title")}</h2>
           </div>
-          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-1 text-[0.6875rem] text-muted-foreground">
             <span>{t("novel.range.from", { defaultValue: "起" })}</span>
             <input
               type="number"

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -42,6 +42,24 @@ export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDia
   const clock = nowMs ?? (() => Date.now());
   const [busy, setBusy] = useState(false);
   const [remaining, setRemaining] = useState(0);
+  // C3：裁决 IPC 失败必须给可修复反馈（错误态 + 重试），不允许静默无响应。
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lastAttempt, setLastAttempt] = useState<boolean | null>(null);
+  // 自动超时裁决去重：按 request_id 记录，同一请求只自动发起一次；
+  // 失败后交给用户重试，不因果主轮询导致 pending 对象身份变化被反复重发（重试风暴）。
+  const autoSettledRequestIdRef = useRef<string | null>(null);
+  // 宿主每次轮询都会传入新的 pending 对象；错误态/去重标记只在
+  // request_id 变化（真正的新请求）时重置，不能被轮询身份变化清掉。
+  const activeRequestIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const requestId = pending?.request_id ?? null;
+    if (requestId === activeRequestIdRef.current) return;
+    activeRequestIdRef.current = requestId;
+    autoSettledRequestIdRef.current = null;
+    setErrorMessage(null);
+    setLastAttempt(null);
+  }, [pending]);
 
   useEffect(() => {
     if (!pending) return;
@@ -56,11 +74,16 @@ export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDia
     async (accept: boolean) => {
       if (!pending || busy) return;
       setBusy(true);
+      setLastAttempt(accept);
+      setErrorMessage(null);
       try {
         const outcome = accept
           ? await confirmGate(pending.request_id)
           : await rejectGate(pending.request_id, "rejected in dialog");
         onResolved?.(outcome);
+      } catch (error) {
+        // 裁决失败 → 错误态；用户可通过重试按钮重发最后一次尝试。
+        setErrorMessage(error instanceof Error ? error.message : String(error));
       } finally {
         setBusy(false);
       }
@@ -69,11 +92,14 @@ export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDia
   );
 
   // 120s 无响应 = 拒绝；与 Rust 侧的超时裁决保持一致。
+  // 每个 request_id 只自动裁决一次；失败进入错误态后由用户决定是否重试。
   useEffect(() => {
     if (!pending) return;
+    if (autoSettledRequestIdRef.current === pending.request_id) return;
     if (remaining > 0) return;
     const deadline = pending.deadline_ms;
     if (clock() < deadline) return;
+    autoSettledRequestIdRef.current = pending.request_id;
     void settle(false);
   }, [pending, remaining, clock, settle]);
 
@@ -144,6 +170,25 @@ export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDia
         <p className="mt-2 text-xs opacity-70" data-testid="confirm-gate-timeout">
           {expired ? t("gate.confirm.timeout") : t("gate.confirm.windowNotice", { seconds })}
         </p>
+
+        {errorMessage ? (
+          <div
+            role="alert"
+            data-testid="confirm-gate-error"
+            className="mt-3 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-xs text-destructive"
+          >
+            <span className="break-all">{t("gate.confirm.error", { message: errorMessage })}</span>
+            <button
+              type="button"
+              disabled={busy}
+              data-testid="confirm-gate-retry"
+              onClick={() => void settle(lastAttempt ?? false)}
+              className="shrink-0 rounded border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-xs hover:bg-destructive/20 disabled:opacity-50"
+            >
+              {t("gate.confirm.retry")}
+            </button>
+          </div>
+        ) : null}
 
         <div className="mt-4 flex justify-end gap-2">
           <button

@@ -4,6 +4,7 @@ import {
   rebuildChapterBody,
   replaceChapterBodySelection,
   replaceWholeChapterBody,
+  replaceWholeChapterBodyIfUnchanged,
   splitChapterHeading,
   type ChapterBodySelection,
 } from "./chapter-selection"
@@ -56,6 +57,32 @@ describe("replaceWholeChapterBody", () => {
     const current = "# 现在的标题\n\n旧正文"
     const replacement = "# 新标题\n\n新正文"
     expect(replaceWholeChapterBody(current, replacement)).toBe("# 现在的标题\n\n新正文")
+  })
+})
+
+describe("replaceWholeChapterBodyIfUnchanged (DI-2 回填冲突守卫)", () => {
+  const original = "---\ntitle: 第一章\n---\n# 第一章\n\n旧正文\n"
+  const candidate = "# 第一章\n\n新正文\n"
+
+  it("merges when the current file still matches the generated snapshot", () => {
+    const result = replaceWholeChapterBodyIfUnchanged(original, original, candidate)
+    expect(result).toEqual({ ok: true, merged: "---\ntitle: 第一章\n---\n# 第一章\n\n新正文\n" })
+  })
+
+  it("rejects when the user edited the body after generation (no stale overwrite)", () => {
+    const current = original + "用户新增段落。\n"
+    expect(replaceWholeChapterBodyIfUnchanged(current, original, candidate)).toEqual({
+      ok: false,
+      reason: "changed",
+    })
+  })
+
+  it("rejects when only frontmatter/title changed (no frontmatter regression)", () => {
+    const current = "---\ntitle: 用户改过的标题\nchapter_status: edited\n---\n# 第一章\n\n旧正文\n"
+    expect(replaceWholeChapterBodyIfUnchanged(current, original, candidate)).toEqual({
+      ok: false,
+      reason: "changed",
+    })
   })
 })
 

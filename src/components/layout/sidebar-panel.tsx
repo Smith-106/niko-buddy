@@ -925,9 +925,12 @@ export function SidebarPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-sm font-semibold">
+      {/* 面板头（ui-audit-20261016 P1）：旧版是「标题+总字数 | 孵化+导入+新建」的单行
+          布局，左栏默认宽 220px 时容不下（标题「章节」竖排换行、总字数逐字折行）。
+          改为两行：第一行标题+字数（标题 truncate、字数 nowrap），第二行动作右对齐可换行。 */}
+      <div className="flex shrink-0 flex-col border-b px-3 py-2">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <div className="flex min-w-0 items-center gap-1.5 text-sm font-semibold whitespace-nowrap">
             <PanelHeaderWithHelp
               title={isChapter ? t("sidebar.knowledge") : t("sidebar.files")}
               helpKey={isChapter ? "chapter" : "outline"}
@@ -935,12 +938,12 @@ export function SidebarPanel() {
             />
           </div>
           {isChapter && sidebarTotalWordCount !== null ? (
-            <div className="mt-0.5 text-xs text-muted-foreground">
+            <div className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
               {buildChapterTotalWordCountLabel(sidebarTotalWordCount)}
             </div>
           ) : null}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="mt-1.5 flex flex-wrap items-center justify-end gap-1">
           {isChapter ? (
             <>
               <Button

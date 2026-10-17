@@ -11,6 +11,24 @@ import {
   type RenderedLine,
 } from "@/lib/novel";
 
+/**
+ * B7 登记（2026-10-16）：BriefingPanel（本组件）是**已登记的未挂载能力**，当前不在应用壳层渲染
+ * （全仓无生产 import/挂载，仅冒烟 spec 与 e2e 注释引用）。不挂载的原因与恢复条件：
+ *
+ * 1. 输入契约未对齐生产 store——真实 emotion-ledger 条目形状是
+ *    {characterName, netValue, valence, arousal, dominance, lastUpdatedChapter, history}，
+ *    而聚合器按 chapter/emotion/intensity 候选字段读取；生产 .novel/status.json
+ *    也没有 currentChapter 根字段。现在直接挂载会把失真简报当成「逐条溯源」呈现。
+ * 2. 无 Draft-first 写回承接点——MemoryPatchDraft 只有纯构造，仓库没有 pending/ready
+ *    补丁草稿队列；写回若绕过草稿即违反 Draft-first 边界（AI 输出先草稿、accept 后回填）。
+ *
+ * 恢复条件（详见 docs/decision-log/2026-10-16-b7-unmounted-capabilities-ledger.md §1）：
+ * 1. briefing/ 增加 buildBriefingSourceBundleFromProject 类装配器，把真实 store 映射为
+ *    BriefingSourceBundle 并补契约 spec；
+ * 2. 建立补丁草稿承接（pending → ready → 人工 accept）；
+ * 3. 先以只读形式挂载（候选：写作工作台工具抽屉 / review 侧栏）；onWritePatch 在第 2 步
+ *    就绪前保持不传，写回能力不得先于草稿承接启用。
+ */
 export interface BriefingPanelProps {
   digest: BriefingDigest;
   /** canon 侧权威取值；命中且不同即以 canon 为准并渲染 divergence 块。 */
@@ -69,7 +87,7 @@ export function BriefingPanel({ digest, canonClaims = [], onWritePatch }: Briefi
                 <button
                   type="button"
                   data-testid={`briefing-source-${line.id}`}
-                  className="rounded border px-1 text-[10px] opacity-70"
+                  className="rounded border px-1 text-[0.625rem] opacity-70"
                   onClick={() =>
                     setSourceOpen((prev) => (prev === line.id ? null : line.id))
                   }
@@ -77,7 +95,7 @@ export function BriefingPanel({ digest, canonClaims = [], onWritePatch }: Briefi
                   {t("briefing.source.badge")}
                 </button>
                 {sourceOpen === line.id ? (
-                  <code className="text-[10px] opacity-80" data-testid="briefing-source-detail">
+                  <code className="text-[0.625rem] opacity-80" data-testid="briefing-source-detail">
                     {sourceLine(line)}
                   </code>
                 ) : null}

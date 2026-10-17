@@ -157,7 +157,7 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
                   <div className="flex items-center justify-between">
                     <span className="font-medium text-sm">{t.characterName}</span>
                     <span
-                      className={`rounded px-1.5 py-0.5 text-[10px] ${
+                      className={`rounded px-1.5 py-0.5 text-[0.625rem] ${
                         isSelected ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"
                       }`}
                     >
@@ -167,7 +167,7 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
                   <div className={`mt-1 line-clamp-1 text-xs ${isSelected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
                     {t.arcTheme}
                   </div>
-                  <div className="mt-2 flex items-center gap-2 text-[10px]">
+                  <div className="mt-2 flex items-center gap-2 text-[0.625rem]">
                     <span className="flex items-center gap-0.5">
                       <BookOpen className="h-3 w-3" />
                       知晓 {t.epistemicScope.knows.length}
@@ -230,7 +230,7 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
               {/* Prompt 指令包预览 */}
               <div className="space-y-1.5">
                 <div className="text-xs font-medium text-muted-foreground">生成的视点注入指令包：</div>
-                <pre className="max-h-60 overflow-y-auto rounded-md bg-muted p-3 text-[11px] leading-relaxed whitespace-pre-wrap font-mono">
+                <pre className="max-h-60 overflow-y-auto rounded-md bg-muted p-3 text-[0.6875rem] leading-relaxed whitespace-pre-wrap font-mono">
                   {sliceDirective}
                 </pre>
               </div>
@@ -297,20 +297,20 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
               return (
                 <div key={inter.id} className="rounded-lg border bg-background p-3 shadow-xs space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="rounded bg-primary/10 text-primary px-1.5 py-0.5 text-[11px] font-semibold">
+                    <span className="rounded bg-primary/10 text-primary px-1.5 py-0.5 text-[0.6875rem] font-semibold">
                       第 {inter.chapterNumber} 章交汇
                     </span>
-                    <span className="text-[10px] text-muted-foreground uppercase">{inter.intersectionType}</span>
+                    <span className="text-[0.625rem] text-muted-foreground uppercase">{inter.intersectionType}</span>
                   </div>
                   <div className="text-xs text-foreground font-medium">{inter.description}</div>
-                  <div className="text-[11px] text-muted-foreground">
+                  <div className="text-[0.6875rem] text-muted-foreground">
                     发生地点：{inter.location || "剧情场景"} | 目标：{inter.targetItemOrGoal || "剧情推进"}
                   </div>
                   <div className="flex justify-end pt-1">
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-6 text-[11px] gap-1"
+                      className="h-6 text-[0.6875rem] gap-1"
                       onClick={() => handleCopy(packText, inter.id)}
                     >
                       {copiedId === inter.id ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}

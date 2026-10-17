@@ -13,7 +13,9 @@ import {
   embedAllPages,
   getEmbeddingCount,
   getLastEmbeddingError,
+  getLastReconcileOutcome,
   legacyVectorRowCount,
+  type EmbeddingReconcileOutcome,
 } from "@/lib/embedding"
 import { fetchEmbeddingModelList } from "@/lib/settings-model-list"
 import { testSettingsEmbeddingModel } from "@/lib/settings-model-test"
@@ -53,6 +55,8 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
   const [legacyCount, setLegacyCount] = useState<number>(0)
   const [lastError, setLastError] = useState<string | null>(null)
   const [reindex, setReindex] = useState<ReindexState>({ kind: "idle" })
+  /** 重索引尾部的对账结果（B4）；失败/跳过都要可见，不得静默。 */
+  const [reconcileOutcome, setReconcileOutcome] = useState<EmbeddingReconcileOutcome | null>(null)
   const [legacyDropped, setLegacyDropped] = useState(false)
   const [testState, setTestState] = useState<{
     loading: boolean
@@ -94,10 +98,12 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
     /* v8 ignore next */
     if (!project) return
     setReindex({ kind: "running", done: 0, total: 0 })
+    setReconcileOutcome(null)
     const count = await embedAllPages(project.path, embeddingConfig, (done, total) => {
       setReindex({ kind: "running", done, total })
     })
     setReindex({ kind: "done", count })
+    setReconcileOutcome(getLastReconcileOutcome())
     await refreshStats()
   }, [project, embeddingConfig, refreshStats])
 
@@ -112,6 +118,7 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
   const showLegacyMigration =
     legacyCount > 0 && (chunkCount === null || chunkCount === 0)
   const hasConfig = Boolean(draft.embeddingEndpoint || draft.embeddingModel)
+  const reconcileReport = reconcileOutcome?.status === "ran" ? reconcileOutcome.report : null
 
   const handleOpenPanel = useCallback(() => {
     setExpanded((prev) => !prev)
@@ -262,12 +269,12 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
             <div className="flex items-center gap-2">
               <span className="truncate text-sm font-medium">{t("settings.sections.embedding.enableLabel")}</span>
               {hasConfig && !draft.embeddingEnabled && (
-                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                   {t("settings.sections.llm.configuredBadge")}
                 </span>
               )}
               {draft.embeddingEnabled && (
-                <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary">
                   {t("settings.sections.llm.activeBadge")}
                 </span>
               )}
@@ -483,6 +490,46 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
                 </p>
               )}
 
+              {reconcileReport !== null &&
+                (reconcileReport.skipped ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t("settings.sections.embedding.reconcileSkippedEmpty")}
+                  </p>
+                ) : reconcileReport.failed_pages.length > 0 ? (
+                  <p className="text-xs text-destructive">
+                    {t("settings.sections.embedding.reconcileFailedPages", {
+                      deleted: reconcileReport.deleted_pages.length,
+                      failed: reconcileReport.failed_pages.length,
+                      drifted: reconcileReport.drifted,
+                    })}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {t("settings.sections.embedding.reconcileDone", {
+                      deleted: reconcileReport.deleted_pages.length,
+                      upserted: reconcileReport.upserted_pages.length,
+                      unchanged: reconcileReport.unchanged_pages.length,
+                      drifted: reconcileReport.drifted,
+                    })}
+                  </p>
+                ))}
+
+              {reconcileOutcome?.status === "skipped" && (
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.sections.embedding.reconcileSkipped", {
+                    count: reconcileOutcome.failedPageIds.length,
+                  })}
+                </p>
+              )}
+
+              {reconcileOutcome?.status === "failed" && (
+                <p className="text-xs text-destructive">
+                  {t("settings.sections.embedding.reconcileFailed", {
+                    message: reconcileOutcome.error,
+                  })}
+                </p>
+              )}
+
               {legacyDropped && (
                 <p className="text-xs text-muted-foreground">
                   {t("settings.sections.embedding.dropLegacyDone")}
@@ -494,7 +541,7 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
                   <div className="text-xs font-medium">
                     {t("settings.sections.embedding.lastErrorHeading")}
                   </div>
-                  <pre className="max-h-32 overflow-auto rounded bg-muted/50 p-2 text-[11px] leading-snug text-muted-foreground">
+                  <pre className="max-h-32 overflow-auto rounded bg-muted/50 p-2 text-[0.6875rem] leading-snug text-muted-foreground">
                     {lastError}
                   </pre>
                 </div>

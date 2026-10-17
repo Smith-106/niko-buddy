@@ -16,6 +16,12 @@ import type { ChapterSnapshot } from "./chapter-ingest"
 import type { NameAliasMap } from "./book-analysis/types"
 import { resolveCanonicalName, resolveMatchingMap } from "./character-cognition"
 
+function textField(value: unknown): string {
+  if (typeof value === "string") return value.trim()
+  if (Array.isArray(value)) return value.filter((item) => typeof item === "string").join("、").trim()
+  return ""
+}
+
 export function applyEmotionalArcsToStore(
   arcStore: EmotionalArcStore,
   snapshot: ChapterSnapshot,
@@ -24,7 +30,7 @@ export function applyEmotionalArcsToStore(
 ): EmotionalArcStore {
   const details = snapshot.characterDetails ?? {}
   for (const [rawName, detail] of Object.entries(details)) {
-    const arcChange = (detail?.arcChange ?? "").trim()
+    const arcChange = textField(detail?.arcChange)
     if (!arcChange) continue
     const canonical = resolveCanonicalName(rawName, resolveMatchingMap(rawName, aliasMaps))
     // fold_rebuildable idempotency (CORR-103): a beat is keyed by
@@ -67,7 +73,7 @@ export function applyResourceLedgerToStore(
 ): ResourceLedgerStore {
   const details = snapshot.itemDetails ?? {}
   for (const [itemName, detail] of Object.entries(details)) {
-    const rawHolder = (detail?.holder ?? "").trim()
+    const rawHolder = textField(detail?.holder)
     if (!itemName) continue
     const entry = ledger.entries.find((e) => e.item === itemName)
     const canonicalHolder = rawHolder
@@ -89,7 +95,7 @@ export function applyResourceLedgerToStore(
         item: itemName,
         currentHolder: canonicalHolder,
         acquiredChapter: snapshot.chapterNumber,
-        transferredFrom: (detail?.previousHolders ?? "").trim() || undefined,
+        transferredFrom: textField(detail?.previousHolders) || undefined,
         transferHistory: canonicalHolder
           ? [{ fromChapter: snapshot.chapterNumber, fromHolder: "", toHolder: canonicalHolder }]
           : [],

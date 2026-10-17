@@ -319,21 +319,21 @@ export function CampaignDashboardDialog({
                       </span>
 
                       {result.autoAccepted ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[11px] font-medium border border-primary/20">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[0.6875rem] font-medium border border-primary/20">
                           <CheckCheck className="h-3 w-3" /> 巡航落盘
                         </span>
                       ) : result.status === "ready" ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 text-[11px] font-medium border border-emerald-500/20">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 text-[0.6875rem] font-medium border border-emerald-500/20">
                           <Check className="h-3 w-3" /> 就绪
                         </span>
                       ) : null}
                       {result.status === "blocked" && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 text-[11px] font-medium border border-amber-500/20">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 text-[0.6875rem] font-medium border border-amber-500/20">
                           <AlertTriangle className="h-3 w-3" /> 阻断转人工
                         </span>
                       )}
                       {result.status === "failed" && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 px-2 py-0.5 text-[11px] font-medium border border-rose-500/20">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 px-2 py-0.5 text-[0.6875rem] font-medium border border-rose-500/20">
                           <XCircle className="h-3 w-3" /> 失败
                         </span>
                       )}

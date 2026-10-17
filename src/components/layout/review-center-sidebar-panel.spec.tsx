@@ -346,7 +346,9 @@ describe("ReviewCenterSidebarPanel", () => {
     // 运行中维度标签
     expect(screen.getByText("一致性")).toBeInTheDocument()
     expect(mocks.t).toHaveBeenCalledWith("reviewCenter.stats", {
-      blocking: 0,
+      // findings-2 W-08：blocking 此前声明后从不累加（恒为 0）；
+      // 现按 P0 门控口径统计 consistency 维度的 error 级问题 → 本 fixture 为 1。
+      blocking: 1,
       high: 2,
       medium: 1,
       low: 1,

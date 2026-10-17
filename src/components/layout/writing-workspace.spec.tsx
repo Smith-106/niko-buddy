@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => {
     chatExpanded: boolean
     chatDockPosition: "bottom" | "right"
     project: { path: string } | null
+    novelConfig: { preWriteGateMode: "warn" }
     selectedFile: string | null
     fileContent: string
   } = {
@@ -27,6 +28,7 @@ const mocks = vi.hoisted(() => {
     chatDockPosition: "bottom",
     // 写作工具抽屉（PDF 导出 / 批量替换）读取这三项，mock 形状需与真实 store 一致
     project: null,
+    novelConfig: { preWriteGateMode: "warn" },
     selectedFile: null,
     fileContent: "",
   }

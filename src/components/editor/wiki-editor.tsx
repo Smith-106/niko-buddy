@@ -12,6 +12,7 @@ import "katex/dist/katex.min.css"
 import { Pencil, Eye } from "lucide-react"
 import { formatChapterWriting } from "@/lib/chapter-formatting"
 import { parseFrontmatter } from "@/lib/frontmatter"
+import { isImeComposing } from "@/lib/keyboard-utils"
 import { FrontmatterPanel } from "@/components/editor/frontmatter-panel"
 import { WikiReader } from "@/components/editor/wiki-reader"
 import { ChapterGatingProgress } from "./wiki-gating-progress"
@@ -288,6 +289,10 @@ function WritingTextarea({
           }, 0)
         }}
         onKeyDown={(e) => {
+          // Don't treat the Enter that commits an IME candidate as a newline —
+          // the user is still mid-composition (Chinese / Japanese / Korean)
+          // and would get a spurious "\n　　" inserted into the body.
+          if (isImeComposing(e)) return
           if (e.key !== "Enter") return
           e.preventDefault()
           const target = e.currentTarget

@@ -14,6 +14,7 @@
 // 用法：node scripts/check-boundaries.mjs（由 npm run lint 串联，CI node-gates 覆盖）
 
 import path from 'node:path'
+import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { ESLint } from 'eslint'
 
@@ -43,12 +44,38 @@ const CASES = [
     expectation: 'flag',
     code: "import type { AnalysisDepth } from '@/lib/novel/book-analysis/types'\n\nexport const probe: AnalysisDepth = 'fast'\n",
   },
+  {
+    // C6 步骤①：契约层零运行时依赖 —— store-config-slices 不得出现 wiki-store 运行时
+    // import（防类型→运行时耦合倒灌）。静态文本熔断（与 boundaries/dependencies 正交：
+    // 同 element 内互访默认放行，lint 规则拦不住，故此处用 grep 断言）。
+    // 允许 `import type`（类型单向回指）；值 import 即 FAIL。
+    name: 'C6 契约层不得依赖 wiki-store 运行时',
+    expectation: 'absent',
+    check: () => {
+      const file = path.join(root, 'src', 'stores', 'store-config-slices.ts')
+      const text = fs.readFileSync(file, 'utf-8')
+      const lines = text.split('\n')
+      const bad = lines.filter(
+        (l) =>
+          /from\s*['"]@\/stores\/wiki-store['"]/.test(l) &&
+          !/^\s*import\s+type\b/.test(l),
+      )
+      return bad.length === 0 ? null : `发现 wiki-store 运行时 import ${bad.length} 行：${bad[0].trim()}`
+    },
+  },
 ]
 
 const eslint = new ESLint({ cwd: root })
 const failures = []
 
 for (const testCase of CASES) {
+  if (testCase.check) {
+    const err = testCase.check()
+    const passed = err === null
+    console.log(`${passed ? 'PASS' : 'FAIL'}  ${testCase.name} — ${passed ? '无运行时 import' : err}`)
+    if (!passed) failures.push(testCase.name)
+    continue
+  }
   const results = await eslint.lintText(testCase.code, { filePath: PROBE_FILE })
   const messages = results.flatMap((r) => r.messages).filter((m) => m.ruleId === RULE)
   const passed = testCase.expectation === 'allow' ? messages.length === 0 : messages.length > 0

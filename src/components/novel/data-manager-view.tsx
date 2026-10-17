@@ -254,7 +254,7 @@ export function DataManagerView() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium">{t(domain.labelKey)}</span>
-                  <span className={`rounded px-1.5 py-0.5 text-[10px] ${RISK_BADGE[domain.risk]}`}>
+                  <span className={`rounded px-1.5 py-0.5 text-[0.625rem] ${RISK_BADGE[domain.risk]}`}>
                     {t(`dataManager.risk.${domain.risk}`)}
                   </span>
                 </div>

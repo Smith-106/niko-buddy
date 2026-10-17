@@ -172,17 +172,17 @@ export function HistoryResultsModal({
                         })}
                       </span>
                       {result.hasDraft && (
-                        <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                        <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] text-primary">
                           {t("storySimulation.badgeDraft")}
                         </span>
                       )}
                       {result.status === "degraded" && (
-                        <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] text-destructive dark:text-destructive">
+                        <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-[0.625rem] text-destructive dark:text-destructive">
                           {t("storySimulation.badgeDegraded")}
                         </span>
                       )}
                       {(result.status === "partial" || result.status === "cancelled") && (
-                        <span className="shrink-0 rounded bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning dark:text-warning">
+                        <span className="shrink-0 rounded bg-warning/10 px-1.5 py-0.5 text-[0.625rem] text-warning dark:text-warning">
                           {t("storySimulation.badgePartial")}
                         </span>
                       )}
@@ -194,7 +194,7 @@ export function HistoryResultsModal({
                   {(result.status === "partial" || result.status === "cancelled") && onContinueResult && (
                     <button
                       type="button"
-                      className="shrink-0 rounded px-2 py-1 text-xs text-primary opacity-0 transition-opacity hover:bg-primary/10 group-hover:opacity-100"
+                      className="shrink-0 rounded px-2 py-1 text-xs text-primary opacity-0 transition-opacity hover:bg-primary/10 group-hover:opacity-100 focus-visible:opacity-100"
                       onClick={() => onContinueResult(result.id)}
                     >
                       {t("storySimulation.continueSimulation")}
@@ -202,7 +202,7 @@ export function HistoryResultsModal({
                   )}
                   <button
                     type="button"
-                    className="shrink-0 rounded p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                    className="shrink-0 rounded p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
                     onClick={(e) => void handleDelete(e, result.id)}
                     disabled={deletingId === result.id}
                     title={t("storySimulation.deleteResult")}

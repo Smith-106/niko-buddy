@@ -20,6 +20,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 import {
   characterStatesToContextText,
   createEmptyCharacterStateStore,
+  excludeDeadFromCast,
   loadCharacterStates,
   saveCharacterStates,
   type CharacterState,
@@ -143,5 +144,28 @@ describe("characterStatesToContextText", () => {
     const text = characterStatesToContextText(store)
     expect(text).toContain("- 林动：位于青山镇，状态：健康，装备：长剑，能力：武学")
     expect(text).toContain("- 绫清竹：位于青山镇，状态：重伤，装备：无，能力：无")
+  })
+})
+
+describe("excludeDeadFromCast", () => {
+  it("excludes isAlive=false characters from cast", () => {
+    const store: CharacterStateStore = {
+      characters: [makeState({ characterName: "明成", isAlive: false, deathChapter: 2 }), makeState()],
+      lastUpdated: "t",
+    }
+    expect(excludeDeadFromCast(["明成", "林动"], store)).toEqual({ alive: ["林动"], excluded: ["明成"] })
+  })
+
+  it("excludes by deathChapter even when isAlive is undefined", () => {
+    const store: CharacterStateStore = {
+      characters: [makeState({ characterName: "明成", deathChapter: 5 })],
+      lastUpdated: "t",
+    }
+    expect(excludeDeadFromCast(["明成"], store)).toEqual({ alive: [], excluded: ["明成"] })
+  })
+
+  it("passes through a fully-alive cast untouched", () => {
+    const store: CharacterStateStore = { characters: [makeState()], lastUpdated: "t" }
+    expect(excludeDeadFromCast(["林动"], store)).toEqual({ alive: ["林动"], excluded: [] })
   })
 })

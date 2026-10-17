@@ -70,6 +70,10 @@ import {
   type ProjectionRegistryEntry,
   type ProjectionStatusLedger,
 } from "./projection-status-ledger"
+// B2（守门四件套接线 · projection-self-heal 派生）：跳过集合与门槛的唯一事实源。
+// mayEnterFoldReplay(projection, isRebuildable)：isSelfHealSkipClass 命中 →
+// false（禁入自愈重算）；其余交由 isAutoRebuildableProjection 既有门槛。
+import { mayEnterFoldReplay } from "./projection-self-heal"
 import { computeCheckpointDigestOf } from "./checkpoint-digest"
 import { decideDriftAlarmAfterRepair } from "./kb-observability"
 import type { CanonDualWriteDeps, CanonDualWriteOp } from "./canon-dual-write"
@@ -2070,7 +2074,9 @@ export async function selfHealFailedProjections(
     for (const [projection, entry] of Object.entries(entries)) {
       if (entry.status !== "failed") continue
       if (PROJECTION_CATEGORIES[projection] !== "fold_rebuildable") continue
-      if (!isAutoRebuildableProjection(projection)) continue
+      // B2（派生接线）：优先走 projection-self-heal 唯一事实源的门槛；
+      // 若其返回 false 则不再做第二次判定（不放宽、不二次准入）。
+      if (!mayEnterFoldReplay(projection, isAutoRebuildableProjection(projection))) continue
       failed.push({ chapter: Number(chapterKey), projection })
     }
   }

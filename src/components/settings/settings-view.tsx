@@ -26,6 +26,10 @@ import { useChatStore } from "@/stores/chat-store"
 import { loadSourceWatchConfig, saveLanguage, loadNovelConfig, loadRerankConfig } from "@/lib/project-store"
 import type { SettingsDraft, DraftSetter } from "./settings-types"
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
+// B7 挂载覆盖门：sections/ 下每个非 spec 模块必须在这里（含传递 import）挂载，
+// 或列入 settings-sections-mount-coverage.spec.ts 的显式 legacy 清单（含原因/恢复条件）。
+// 新增孤立 section 会被该 spec 拦红；历史隐藏区（source watch / scheduled import 等）
+// 与其余未挂载 section 的登记见 docs/decision-log/2026-10-16-b7-unmounted-capabilities-ledger.md。
 import { LlmProviderSection } from "./sections/llm-provider-section"
 import { EmbeddingSection } from "./sections/embedding-section"
 import { RerankSection } from "./sections/rerank-section"
@@ -492,7 +496,7 @@ export function SettingsView() {
   return (
     <div className="flex h-full overflow-hidden">
       <aside className="flex w-56 shrink-0 flex-col border-r bg-muted/30">
-        <div className="flex items-center gap-1.5 px-4 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-wider">
+        <div className="flex items-center gap-1.5 px-4 pb-2 pt-4 text-[0.6875rem] font-semibold uppercase tracking-wider">
           <PanelHeaderWithHelp
             title={t("settings.title")}
             helpKey="settings"

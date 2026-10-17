@@ -53,12 +53,12 @@ const CHAPTER_DRAFT_HEADING_RE = /^\s*#?\s*(?:第\s*\d+\s*章[^\n]*|Chapter\s+\d
 // styling for native action buttons. The audit found chat-message.tsx uses raw
 // <button> elements with only hover/transition classes — no focus-visible ring,
 // so keyboard users cannot see focus (WCAG 2.4.7). shadcn <Button> carries
-// focus-visible:ring-3 ring-ring/50; these raw buttons opted out. This constant
+// focus-visible:ring-3 ring-ring; these raw buttons opted out. This constant
 // mirrors the project's input.tsx:12 focus-visible:ring convention and is reused
 // across draft/copy/regenerate/cited buttons to prevent per-instance drift.
 const ACTION_BUTTON_BASE =
   "rounded px-2 py-0.5 text-xs transition-colors duration-150 " +
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 focus-visible:ring-offset-background active:scale-[0.98]"
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background active:scale-[0.98]"
 
 // EC-02 (odyssey-ui): detect terminal error/stop status so the bubble can
 // render with a destructive variant instead of looking like a normal reply.
@@ -516,7 +516,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
         type="button"
         onClick={() => hasMore && setExpanded(!expanded)}
         aria-expanded={hasMore ? expanded : undefined}
-        className="flex w-full items-center gap-1.5 px-2 py-1 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="flex w-full items-center gap-1.5 px-2 py-1 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <FileText className="h-3 w-3 shrink-0" />
         <span className="font-medium">引用资料（{citedPages.length}）</span>
@@ -575,7 +575,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
               className="flex w-full items-center gap-1.5 rounded text-left"
               title={page.path}
             >
-              <span className="text-[10px] tabular-nums text-muted-foreground w-4 shrink-0 text-right">[{i + 1}]</span>
+              <span className="text-[0.625rem] tabular-nums text-muted-foreground w-4 shrink-0 text-right">[{i + 1}]</span>
               {/*
                * Image badge — clickable, separately from the page
                * row. Click → resolve the FIRST image's raw source
@@ -593,7 +593,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
                 <button
                   type="button"
                   onClick={() => handleJumpToImageSource(info.firstUrl!, page.path)}
-                  className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 transition-colors"
+                  className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[0.625rem] text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
                   title={`打开第一张图片所在原始文档（本页共 ${info.count} 张图片）`}
                 >
                   <ImageIcon className="h-3 w-3 shrink-0" />
@@ -603,7 +603,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
               <button
                 type="button"
                 onClick={openCitedPage}
-                className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-accent/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-accent/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Icon className={`h-3 w-3 shrink-0 ${config.color}`} />
                 <span className="truncate text-foreground">{page.title}</span>
@@ -615,7 +615,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
           <button
             type="button"
             onClick={() => setExpanded(true)}
-            className="w-full text-center text-[10px] text-muted-foreground hover:text-primary pt-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="w-full text-center text-[0.625rem] text-muted-foreground hover:text-primary pt-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             +{citedPages.length - MAX_COLLAPSED} 条更多引用...
           </button>
@@ -1076,7 +1076,7 @@ function WorkflowBlock({ content }: { content: string }) {
       <div className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground">
         <span className="text-sm">📋</span>
         <span className="font-medium">{t("chat.workflowStage")}</span>
-        <span className="text-[10px] tabular-nums">{paragraphs.length} 个阶段</span>
+        <span className="text-[0.625rem] tabular-nums">{paragraphs.length} 个阶段</span>
       </div>
       <div className="max-h-72 overflow-y-auto border-t border-border px-2.5 py-2 pr-1 text-xs text-foreground/90 whitespace-pre-wrap break-words leading-relaxed">
         {paragraphs.map((p, i) => (

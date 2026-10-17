@@ -680,6 +680,8 @@ function normalizeNovelConfig(
     deepPreviousChaptersAnalysis: config.deepPreviousChaptersAnalysis ?? DEFAULT_NOVEL_CONFIG.deepPreviousChaptersAnalysis,
     deepChapterReview: config.deepChapterReview ?? DEFAULT_NOVEL_CONFIG.deepChapterReview,
     literaryPolishAfterGate: config.literaryPolishAfterGate ?? DEFAULT_NOVEL_CONFIG.literaryPolishAfterGate,
+    // B8: canon 写前门模式透传 (非法值/缺席一律回退 warn；仅显式 "block" 提升为硬拦)。
+    preWriteGateMode: config.preWriteGateMode === "block" ? "block" : "warn",
     residualCampaignEnabled: config.residualCampaignEnabled ?? DEFAULT_NOVEL_CONFIG.residualCampaignEnabled,
     residualCampaignIncludeFreezeChapters:
       config.residualCampaignIncludeFreezeChapters

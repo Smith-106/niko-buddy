@@ -60,6 +60,12 @@ export async function fileExists(path: string): Promise<boolean> {
   return invoke<boolean>("file_exists", { path })
 }
 
+/** 目录判定（DI-1）：必须走 Rust `metadata.file_type().is_dir()`，
+ *  不得用 getFileSize 推断（Windows 上目录 len()=Ok(0) 可被误判为文件）。 */
+export async function pathIsDirectory(path: string): Promise<boolean> {
+  return invoke<boolean>("path_is_directory", { path })
+}
+
 export async function getFileModifiedTime(path: string): Promise<number> {
   return invoke<number>("get_file_modified_time", { path })
 }

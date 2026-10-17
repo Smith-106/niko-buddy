@@ -384,6 +384,8 @@ const mocks = vi.hoisted(() => {
     })),
     buildTaskDirective: vi.fn<(route: TaskRouteResult) => string>(() => ""),
     readFile: vi.fn<(path: string) => Promise<string>>(async () => ""),
+    // C4 覆盖守卫：默认目标文件不存在（不弹确认，直接保存）。
+    fileExists: vi.fn<(path: string) => Promise<boolean>>(async () => false),
     writeFile: vi.fn<(path: string, contents: string) => Promise<void>>(async () => {}),
     createDirectory: vi.fn<(path: string) => Promise<void>>(async () => {}),
     deleteFile: vi.fn<(path: string) => Promise<void>>(async () => {}),
@@ -495,7 +497,6 @@ const mocks = vi.hoisted(() => {
     decideChapterSaveStrategy: vi.fn<
       (input: {
         selectedChapterNumber: number | null
-        selectedChapterHasBody: boolean
         generatedTargetChapterNumber: number | null
         generatedTargetExists: boolean
       }) => ChapterSaveStrategy
@@ -963,6 +964,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: mocks.readFile,
+      fileExists: mocks.fileExists,
       writeFile: mocks.writeFile,
       createDirectory: mocks.createDirectory,
       deleteFile: mocks.deleteFile,
@@ -1364,6 +1366,7 @@ function resetMockDefaults(): void {
   mocks.streamGuard.isActive.mockReturnValue(true)
   mocks.streamGuard.start.mockReturnValue(1)
   mocks.readFile.mockImplementation(async () => "")
+  mocks.fileExists.mockImplementation(async () => false)
   mocks.searchWiki.mockImplementation(async () => [])
   mocks.isGreeting.mockReturnValue(false)
   mocks.detectGoldenThreeChapterRequest.mockReturnValue({ enabled: false, requestedFirstThree: false })
@@ -1593,7 +1596,11 @@ describe("ChatPanel — 会话标签栏 (ConversationTabs)", () => {
     renderPanel()
     const tabs = screen.getAllByRole("tab")
     expect(within(tabs[0]).queryByLabelText("删除该会话")).not.toBeNull() // 激活标签常显
-    expect(within(tabs[1]).queryByLabelText("删除该会话")).toBeNull() // 非激活未 hover 隐藏
+    // ui-audit-20261016 P0-B5（F-A3）：非激活标签的删除钮现在**常渲染**（否则键盘
+    // 用户永远 Tab 不到，WCAG 2.1.1 失败），未 hover/未聚焦时靠 opacity-0 隐藏。
+    const hiddenDel = within(tabs[1]).queryByLabelText("删除该会话")
+    expect(hiddenDel).not.toBeNull()
+    expect(hiddenDel).toHaveClass("opacity-0")
     fireEvent.mouseEnter(tabs[1])
     const del = within(tabs[1]).getByLabelText("删除该会话")
     fireEvent.click(del)
@@ -3588,6 +3595,102 @@ describe("ChatPanel — 保存 / 丢弃章节草稿", () => {
       expect.objectContaining({ userRequest: "清理后正文" }),
     )
   })
+
+  // ── C4 覆盖守卫（目标章节已有正文 → 显式确认后才覆盖）─────────────────────
+  it("C4 覆盖守卫：目标章节已有正文 → 先弹确认，确认前不写入", async () => {
+    mocks.wikiState.project = PROJECT
+    mocks.fileExists.mockImplementation(async () => true)
+    mocks.readFile.mockImplementation(
+      async () => "---\ntype: chapter\nchapter_number: 7\nchapter_status: draft\n---\n\n# 第7章 旧稿\n\n已有正文",
+    )
+    setConversation("conv-1")
+    setMessages([
+      msg({ id: "u1", role: "user", content: "写第7章" }),
+      msg({ id: "a1", role: "assistant", content: "# 第7章 标题\n新正文内容" }),
+    ])
+    renderPanel()
+    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    await flushAsync()
+    // 未经确认：不调用 accept 通道、不落盘
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
+    expect(screen.getByTestId("chapter-overwrite-accept")).toBeTruthy()
+    fireEvent.click(screen.getByTestId("chapter-overwrite-accept"))
+    await flushAsync()
+    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chapterNumber: 7,
+        chapterPath: "/p/mybook/wiki/chapters/chapter-007.md",
+      }),
+    )
+  })
+
+  it("C4 覆盖守卫：取消覆盖 → 不写入 + 状态提示未覆盖", async () => {
+    mocks.wikiState.project = PROJECT
+    mocks.fileExists.mockImplementation(async () => true)
+    mocks.readFile.mockImplementation(async () => "---\ntype: chapter\n---\n\n旧正文")
+    setConversation("conv-1")
+    setMessages([
+      msg({ id: "u1", role: "user", content: "写第7章" }),
+      msg({ id: "a1", role: "assistant", content: "新正文内容" }),
+    ])
+    renderPanel()
+    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    await flushAsync()
+    fireEvent.click(screen.getByTestId("chapter-overwrite-cancel"))
+    await flushAsync()
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
+    expect(screen.getByTestId("save-status").textContent).toContain("已取消保存：目标章节已有正文")
+    expect(screen.queryByTestId("chapter-overwrite-accept")).toBeNull()
+  })
+
+  it("C4 覆盖守卫：目标存在但无正文（planned 骨架）→ 不弹确认直接保存", async () => {
+    mocks.wikiState.project = PROJECT
+    mocks.fileExists.mockImplementation(async () => true)
+    mocks.readFile.mockImplementation(
+      async () => "---\ntype: chapter\nchapter_number: 7\nchapter_status: draft\n---\n",
+    )
+    setConversation("conv-1")
+    setMessages([
+      msg({ id: "u1", role: "user", content: "写第7章" }),
+      msg({ id: "a1", role: "assistant", content: "新正文内容" }),
+    ])
+    renderPanel()
+    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    await flushAsync()
+    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalled()
+    expect(screen.queryByTestId("chapter-overwrite-accept")).toBeNull()
+  })
+
+  it("C4 覆盖守卫：目标存在但正文读取失败 → 保守要求确认", async () => {
+    mocks.wikiState.project = PROJECT
+    mocks.fileExists.mockImplementation(async () => true)
+    mocks.readFile.mockRejectedValueOnce(new Error("read-boom"))
+    setConversation("conv-1")
+    setMessages([
+      msg({ id: "u1", role: "user", content: "写第7章" }),
+      msg({ id: "a1", role: "assistant", content: "新正文内容" }),
+    ])
+    renderPanel()
+    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    await flushAsync()
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
+    expect(screen.getByTestId("chapter-overwrite-accept")).toBeTruthy()
+  })
+
+  it("C4 覆盖守卫：存在性查询失败 → 降级放行（不弹确认、不阻断写作）", async () => {
+    mocks.wikiState.project = PROJECT
+    mocks.fileExists.mockRejectedValueOnce(new Error("ipc-down"))
+    setConversation("conv-1")
+    setMessages([
+      msg({ id: "u1", role: "user", content: "写第7章" }),
+      msg({ id: "a1", role: "assistant", content: "新正文内容" }),
+    ])
+    renderPanel()
+    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    await flushAsync()
+    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalled()
+    expect(screen.queryByTestId("chapter-overwrite-accept")).toBeNull()
+  })
 })
 
 describe("ChatPanel — exemplar 标记 UI", () => {
@@ -3781,11 +3884,12 @@ describe("ChatPanel — 补覆盖：标签交互与虚拟列表防御", () => {
     mocks.chatState.activeConversationId = "conv-1"
     renderPanel()
     const tab2 = screen.getAllByRole("tab")[1]
-    expect(within(tab2).queryByLabelText("删除该会话")).toBeNull()
+    // 常渲染 + opacity-0 隐藏（键盘可达性，见 P0-B5）
+    expect(within(tab2).getByLabelText("删除该会话")).toHaveClass("opacity-0")
     fireEvent.mouseEnter(tab2)
-    expect(within(tab2).getByLabelText("删除该会话")).toBeInTheDocument()
+    expect(within(tab2).getByLabelText("删除该会话")).not.toHaveClass("opacity-0")
     fireEvent.mouseLeave(tab2)
-    expect(within(tab2).queryByLabelText("删除该会话")).toBeNull()
+    expect(within(tab2).getByLabelText("删除该会话")).toHaveClass("opacity-0")
   })
 
   it("失焦时 confirmDeleteId 属于其他标签 → 保留原确认态", () => {

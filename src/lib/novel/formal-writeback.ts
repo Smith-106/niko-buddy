@@ -20,11 +20,22 @@ export interface CommitAcceptedDeepChapterDraftInput {
 export async function commitAcceptedDeepChapterDraft(
   input: CommitAcceptedDeepChapterDraftInput,
 ): Promise<void> {
+  // DF-2: 覆盖前缓存原文件是否存在及其原内容。accept/覆盖失败时回滚必须「还原文」
+  // 而非硬删（旧实现 rollback=deleteFile，令 planned 骨架/旧稿永久销毁，回滚路径
+  // 既不用回收站也不用备份设施）。
+  let hadOriginalFile = false
+  let originalContent: string | null = null
   if (await fileExists(input.chapterPath)) {
-    if (!input.overwriteExisting) {
+    hadOriginalFile = true
+    try {
+      originalContent = await readFile(input.chapterPath)
+    } catch {
+      // 原文件存在但读取失败 → 无法缓存；回滚时不得删除（删除只会销毁现场）。
+      originalContent = null
+    }
+    if (!input.overwriteExisting && originalContent !== null) {
       try {
-        const existingContent = await readFile(input.chapterPath)
-        const { frontmatter, body } = parseFrontmatter(existingContent)
+        const { frontmatter, body } = parseFrontmatter(originalContent)
         // 仅当已有文件明确为已定稿章节 (isFinalChapter 为 true 且正文字数 >= 100) 时拒绝覆盖
         const isFormalFinal = isFinalChapter(frontmatter ?? {}) && body.trim().length >= 100
         if (isFormalFinal) {
@@ -34,7 +45,8 @@ export async function commitAcceptedDeepChapterDraft(
         if (err instanceof Error && err.message.startsWith("Formal chapter already exists")) {
           throw err
         }
-        // 读取失败或非定稿章节（如 planned 骨架、未完成草稿）允许覆盖晋升
+        // 解析失败或非定稿章节（如 planned 骨架、未完成草稿）允许覆盖晋升；
+        // 读取失败时 originalContent === null 走同一放行路径（与旧「读失败→允许覆盖」一致）。
       }
     }
   }
@@ -93,7 +105,21 @@ export async function commitAcceptedDeepChapterDraft(
     }
   } catch (error) {
     try {
-      await deleteFile(input.chapterPath)
+      if (hadOriginalFile) {
+        if (originalContent !== null) {
+          // DF-2: 还原被覆盖前的原文（writeFileAtomic 原子还原），而非删除。
+          await writeFileAtomic(input.chapterPath, originalContent)
+        } else {
+          // 原文在覆盖前已不可读、无法还原：保留现有文件（绝不删除），并留诊断日志。
+          logger.warn(
+            "formal-writeback",
+            `rollback kept file after accept failure: original content was unreadable before overwrite (${input.chapterPath})`,
+          )
+        }
+      } else {
+        // 覆盖前文件不存在：本次写入的「新建文件」回滚删除（等同旧行为）。
+        await deleteFile(input.chapterPath)
+      }
     } catch (rollbackError) {
       throw new Error(
         `Failed to roll back formal chapter write after draft accept failure: ${toErrorMessage(rollbackError)}; original error: ${toErrorMessage(error)}`,

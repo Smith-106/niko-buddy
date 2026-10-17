@@ -25,6 +25,13 @@ import {
   type SyncStatus,
   type SyncTestResult,
 } from "@/lib/novel"
+import {
+  parseCredentialRef,
+  resolveCredentialTarget,
+  secretAvailable,
+  secretDelete,
+  secretPut,
+} from "@/lib/secret-client"
 
 export interface CloudBackupPanelProps {
   /** 项目根路径（Rust 命令首参）。 */
@@ -52,6 +59,13 @@ export function CloudBackupPanel({ projectPath, deviceId }: CloudBackupPanelProp
   const [notice, setNotice] = useState("")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
+  /**
+   * 一次性凭据输入：仅本次写入使用。成功后立即清空，失败也不回显——
+   * secret 值不进入任何持久状态（C-011）。
+   */
+  const [secretDraft, setSecretDraft] = useState("")
+  /** OS 凭据库可用性探针：null=探测中；false=禁用凭据控件并提示（禁止明文回退）。 */
+  const [credentialStoreAvailable, setCredentialStoreAvailable] = useState<boolean | null>(null)
   /**
    * 代数计数器：项目切换时旧响应不得覆盖新状态。
    * 旧实现在 `refresh` 里直接 setState，projectPath 切换后旧请求回包会把
@@ -85,6 +99,21 @@ export function CloudBackupPanel({ projectPath, deviceId }: CloudBackupPanelProp
     void refresh()
   }, [refresh])
 
+  /** 挂载时探测凭据库可用性：不可用则凭据控件禁用 + 明示提示，而非等写入失败。 */
+  useEffect(() => {
+    let cancelled = false
+    void secretAvailable()
+      .then((available) => {
+        if (!cancelled) setCredentialStoreAvailable(available)
+      })
+      .catch(() => {
+        if (!cancelled) setCredentialStoreAvailable(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const run = useCallback(async (action: () => Promise<string>) => {
     setBusy(true)
     setNotice("")
@@ -97,6 +126,36 @@ export function CloudBackupPanel({ projectPath, deviceId }: CloudBackupPanelProp
       setBusy(false)
     }
   }, [])
+
+  const credentialTarget = resolveCredentialTarget(config.credentialRef, projectPath)
+  const parsedCredentialRef = parseCredentialRef(config.credentialRef)
+  const secretControlsEnabled = credentialStoreAvailable === true
+
+  const saveCredential = useCallback(
+    () =>
+      run(async () => {
+        // 值只作为本次 invoke 实参；成功后立刻清空草稿，界面只保留引用。
+        const ref = await secretPut(credentialTarget.domain, credentialTarget.account, secretDraft)
+        setSecretDraft("")
+        setConfig((prev) => ({ ...prev, credentialRef: ref }))
+        setCredentialStoreAvailable(true)
+        return t("backup.cloud.credentialSaved", { ref })
+      }),
+    [run, credentialTarget.domain, credentialTarget.account, secretDraft, t],
+  )
+
+  const clearCredential = useCallback(
+    () =>
+      run(async () => {
+        const parsed = parsedCredentialRef
+        if (parsed === null) return t("backup.cloud.credentialClearNoRef")
+        const removed = await secretDelete(parsed.domain, parsed.account)
+        setSecretDraft("")
+        setConfig((prev) => ({ ...prev, credentialRef: "" }))
+        return removed ? t("backup.cloud.credentialCleared") : t("backup.cloud.credentialAbsent")
+      }),
+    [run, parsedCredentialRef, t],
+  )
 
   const configReasons = validateSyncConfig(config)
   const configValid = configReasons.length === 0
@@ -154,6 +213,43 @@ export function CloudBackupPanel({ projectPath, deviceId }: CloudBackupPanelProp
           ))}
         </ul>
       )}
+
+      {/* 凭据链（B3）：一次性输入 → secret_put → 回填 credentialRef；不可用时禁用。 */}
+      <div className="flex flex-col gap-2 rounded-md border p-3" data-testid="cloud-backup-credentials">
+        <div className="text-sm font-medium">{t("backup.cloud.credentialStore")}</div>
+        {credentialStoreAvailable === false && (
+          <p className="text-xs text-destructive">{t("backup.cloud.credentialStoreDisabled")}</p>
+        )}
+        <label className="flex flex-col gap-1 text-sm">
+          {t("backup.cloud.credentialValue")}
+          <Input
+            type="password"
+            value={secretDraft}
+            disabled={!secretControlsEnabled || busy}
+            onChange={(event) => setSecretDraft(event.target.value)}
+            placeholder="user:password"
+          />
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            disabled={!secretControlsEnabled || busy || secretDraft.trim().length === 0}
+            onClick={() => void saveCredential()}
+          >
+            {t("backup.cloud.credentialSave")}
+          </Button>
+          {parsedCredentialRef !== null && (
+            <Button
+              variant="outline"
+              disabled={!secretControlsEnabled || busy}
+              onClick={() => void clearCredential()}
+            >
+              {t("backup.cloud.credentialClear")}
+            </Button>
+          )}
+        </div>
+        <span className="text-xs text-muted-foreground">{t("backup.cloud.credentialValueHint")}</span>
+      </div>
 
       <div className="flex flex-wrap gap-2">
         <Button

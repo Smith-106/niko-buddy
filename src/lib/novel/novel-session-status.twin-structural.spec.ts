@@ -47,8 +47,16 @@ describe("EPIC-000 / ADR-31 / TASK-003: lifecycle-twin 结构不变量", () => {
     // buildNextStatus 一一对应 (每个 lifecycle 先构造 next 再 persist)。
     // 若 count < 7, 说明有 lifecycle 函数退回内联 saveNovelSessionStatus,
     // 绕过 evidence_refs 合并与真源身份校验。
-    const matches = source.match(/persistCheckpointBase\(/g) ?? []
-    expect(matches.length, "persistCheckpointBase 应有 1 定义 + 6 调用 = 7 处").toBeGreaterThanOrEqual(7)
+    // ST-1 后 6 个 lifecycle 调用改走锁内变体 persistCheckpointBaseWithinLock
+    // （同一实现 preparePersistPayload，仅去锁以避免非重入锁二次获取），
+    // 锁外入口 persistCheckpointBase 仍保留给 scene-breakdown 等调用方；
+    // 两者共同构成唯一 persist 路径，故计数同时接受两种拼写。
+    const matches = source.match(/persistCheckpointBase(?:WithinLock)?\(/g) ?? []
+    expect(matches.length, "persistCheckpointBase[WithinLock] 应有 1 定义 + 1 锁内变体定义 + 6 lifecycle 调用 >= 7 处").toBeGreaterThanOrEqual(7)
+    // 反向守卫：没有任何 lifecycle 内联 saveNovelSessionStatus。锁外 save 调用点
+    // 只允许 persistCheckpointBase 一处（status.json 写路径唯一入口）。
+    const inlineSaves = source.match(/await saveNovelSessionStatus\(/g) ?? []
+    expect(inlineSaves.length, "saveNovelSessionStatus 仅允许 persistCheckpointBase 锁外入口调用").toBe(1)
   })
 
   it("7 个 lifecycle 函数名全部 present", () => {

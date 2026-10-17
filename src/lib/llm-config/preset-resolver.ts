@@ -7,6 +7,30 @@ import { AZURE_OPENAI_API_VERSION } from "@/lib/azure-openai"
 import type { LlmPreset } from "./llm-presets"
 
 /**
+ * HTTP 三档超时的合法区间 (毫秒)。UI 输入与 resolveConfig / streamChat 共用
+ * 同一套边界, 避免三处各自写死导致漂移。
+ */
+export const HTTP_TIMEOUT_LIMITS = {
+  httpConnectTimeoutMs: { min: 5_000, max: 300_000 },
+  httpHeaderTimeoutMs: { min: 5_000, max: 300_000 },
+  httpStreamIdleMs: { min: 30_000, max: 600_000 },
+} as const
+
+/**
+ * 钳制用户传入的超时值到合法区间。非数字 / 非正数 → undefined
+ * (调用方回退到各档硬编码默认, 零行为变更)。
+ */
+export function clampHttpTimeoutMs(
+  value: unknown,
+  field: keyof typeof HTTP_TIMEOUT_LIMITS,
+): number | undefined {
+  const { min, max } = HTTP_TIMEOUT_LIMITS[field]
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.max(min, Math.min(max, Math.floor(value)))
+    : undefined
+}
+
+/**
  * Resolve a full LlmConfig by merging a preset template with the user's
  * saved override fields. Missing overrides fall back to preset defaults
  * or the existing config.
@@ -34,6 +58,10 @@ export function resolveConfig(
       : typeof preset.suggestedMaxOutputTokens === "number" && preset.suggestedMaxOutputTokens > 0
         ? Math.floor(preset.suggestedMaxOutputTokens)
         : undefined
+  // HTTP 三档超时 (UI 可调毫秒数) 透传——非法值 → undefined (沿用各档硬编码默认, 零行为变更)
+  const httpConnectTimeoutMs = clampHttpTimeoutMs(ov.httpConnectTimeoutMs, "httpConnectTimeoutMs")
+  const httpHeaderTimeoutMs = clampHttpTimeoutMs(ov.httpHeaderTimeoutMs, "httpHeaderTimeoutMs")
+  const httpStreamIdleMs = clampHttpTimeoutMs(ov.httpStreamIdleMs, "httpStreamIdleMs")
 
   if (preset.provider === "custom") {
     return {
@@ -47,6 +75,9 @@ export function resolveConfig(
       reasoning,
       localCliIsolation: false,
       maxOutputTokens,
+      httpConnectTimeoutMs,
+      httpHeaderTimeoutMs,
+      httpStreamIdleMs,
     }
   }
 
@@ -61,6 +92,9 @@ export function resolveConfig(
       reasoning,
       localCliIsolation: false,
       maxOutputTokens,
+      httpConnectTimeoutMs,
+      httpHeaderTimeoutMs,
+      httpStreamIdleMs,
     }
   }
 
@@ -77,6 +111,9 @@ export function resolveConfig(
       reasoning,
       localCliIsolation: false,
       maxOutputTokens,
+      httpConnectTimeoutMs,
+      httpHeaderTimeoutMs,
+      httpStreamIdleMs,
     }
   }
 
@@ -100,6 +137,9 @@ export function resolveConfig(
       codexCliTimeoutMinutes: preset.provider === "codex-cli" ? codexCliTimeoutMinutes : undefined,
       explicitProviderSelection: true,
       maxOutputTokens,
+      httpConnectTimeoutMs,
+      httpHeaderTimeoutMs,
+      httpStreamIdleMs,
     }
   }
 
@@ -115,6 +155,9 @@ export function resolveConfig(
     reasoning,
     localCliIsolation: false,
     maxOutputTokens,
+    httpConnectTimeoutMs,
+    httpHeaderTimeoutMs,
+    httpStreamIdleMs,
   }
 }
 

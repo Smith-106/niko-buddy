@@ -305,6 +305,43 @@ describe("de-ai-batch scheduler — runDeAiBatch", () => {
     expect(savedState.perChapter[1].status).toBe("pending")
   })
 
+  it("LL-2 取消静默收尾（onDone 无 onError）→ 中断章回回 pending，不落 ready 草稿", async () => {
+    const controller = new AbortController()
+    llmMocks.streamChat.mockImplementation(async (_c: any, _m: any, callbacks: any) => {
+      callbacks.onToken("半截候选正文")
+      controller.abort()
+      // 修复前 HTTP transport 在取消时的真实收尾方式：onDone（无 onError）。
+      callbacks.onDone()
+    })
+    const summary = await runDeAiBatch("/p", { llmConfig, signal: controller.signal })
+    expect(summary.phase).toBe("paused")
+    expect(summary.processed).toBe(0)
+    const calls = statusMocks.buildNextStatus.mock.calls
+    const savedState = calls[calls.length - 1][1].de_ai_batch as DeAiBatchState
+    expect(savedState.perChapter[1].status).toBe("pending")
+    expect(savedState.perChapter[2].status).toBe("pending")
+    // 无任何 ready 草稿工件落盘（ready 才保存 draft）
+    const draftWrites = fsMocks.writeFileAtomic.mock.calls.filter((c) => String(c[0]).includes("de-ai-batch-drafts"))
+    expect(draftWrites).toHaveLength(0)
+  })
+
+  it("LL-2 空内容候选 → 记 failed，不落 ready 草稿", async () => {
+    llmMocks.streamChat.mockImplementation(async (_c: any, _m: any, callbacks: any) => {
+      callbacks.onToken("   \n  ")
+      callbacks.onDone()
+    })
+    const summary = await runDeAiBatch("/p", { llmConfig })
+    expect(summary.processed).toBe(0)
+    expect(summary.failed).toHaveLength(2)
+    expect(summary.failed[0].error).toContain("空内容")
+    const draftWrites = fsMocks.writeFileAtomic.mock.calls.filter((c) => String(c[0]).includes("de-ai-batch-drafts"))
+    expect(draftWrites).toHaveLength(0)
+    const calls = statusMocks.buildNextStatus.mock.calls
+    const savedState = calls[calls.length - 1][1].de_ai_batch as DeAiBatchState
+    expect(savedState.perChapter[1].status).toBe("failed")
+    expect(savedState.perChapter[2].status).toBe("failed")
+  })
+
   it("中止后不再拉取新章（并发 < 章数时后续章不处理）", async () => {
     fsMocks.listDirectory.mockResolvedValue([
       { name: "第1章.md", path: "/p/wiki/chapters/第1章.md", is_dir: false },
@@ -335,7 +372,8 @@ describe("de-ai-batch scheduler — runDeAiBatch", () => {
     expect(summary.phase).toBe("paused")
     const savedState = statusMocks.buildNextStatus.mock.calls[0][1].de_ai_batch as DeAiBatchState
     expect(savedState.perChapter[1].status).toBe("pending")
-    expect(savedState.perChapter[2].status).toBe("ready")
+    // LL-2：批次已取消 → in-flight 章不落 ready（半截候选可能混入），回 pending 复跑
+    expect(savedState.perChapter[2].status).toBe("pending")
     // 第 3/4 章：worker 启动时已中止 → 直接返回，未进入 perChapter
     expect(savedState.perChapter[3]).toBeUndefined()
     expect(savedState.perChapter[4]).toBeUndefined()
@@ -446,6 +484,7 @@ describe("de-ai-batch scheduler — accept/reject/discard", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     fsMocks.writeFile.mockResolvedValue(undefined)
+    fsMocks.writeFileAtomic.mockResolvedValue(undefined)
     fsMocks.fileExists.mockResolvedValue(true)
     fsMocks.deleteFile.mockResolvedValue(undefined)
     mockStatusOk()
@@ -470,9 +509,8 @@ describe("de-ai-batch scheduler — accept/reject/discard", () => {
     }
   }
 
-  it("acceptAll：仅 ready 回填（保留 frontmatter），状态 → accepted", async () => {
-    statusMocks.loadNovelSessionStatus.mockResolvedValue({ status: "completed", de_ai_batch: readyState() })
-    fsMocks.readFile.mockResolvedValue(JSON.stringify({
+  function draftJson(): string {
+    return JSON.stringify({
       schemaVersion: DE_AI_BATCH_SCHEMA,
       batchId: "de-ai-1",
       chapterNumber: 1,
@@ -483,14 +521,32 @@ describe("de-ai-batch scheduler — accept/reject/discard", () => {
       avoidWordsHits: [],
       createdAt: "2026-08-19T00:00:00.000Z",
       updatedAt: "2026-08-19T00:00:00.000Z",
-    }))
+    })
+  }
+
+  /** DI-2：区分草稿工件读取与章节文件 re-read（冲突守卫需要后者返回当前正文）。 */
+  function mockDraftAndChapterReads(chapterContent = CHAPTER_1): void {
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path.includes("de-ai-batch-drafts")) return draftJson()
+      if (path.includes("第1章")) return chapterContent
+      throw new Error(`unexpected read: ${path}`)
+    })
+  }
+
+  it("acceptAll：仅 ready 回填（保留 frontmatter），状态 → accepted；DI-2 原子写盘", async () => {
+    statusMocks.loadNovelSessionStatus.mockResolvedValue({ status: "completed", de_ai_batch: readyState() })
+    mockDraftAndChapterReads()
     const result = await acceptAllDeAiBatchDrafts("/p")
-    expect(result).toEqual({ accepted: 1, skipped: 1 })
+    expect(result).toEqual({ accepted: 1, skipped: 1, conflicts: [] })
+    // DI-2：写盘改用 writeFileAtomic（非原子 writeFile 不再被调用）
+    expect(fsMocks.writeFile).not.toHaveBeenCalled()
+    expect(fsMocks.writeFileAtomic.mock.calls[0][0]).toBe("/p/wiki/chapters/第1章.md")
     // 写回保留 frontmatter + 标题，仅替换正文
-    const written = fsMocks.writeFile.mock.calls[0][1] as string
+    const written = fsMocks.writeFileAtomic.mock.calls[0][1] as string
     expect(written).toContain("chapter_number: 1")
+    expect(written).toContain("title: 第一章")
     expect(written).toContain("改写后的正文。")
-    expect(written).not.toContain("第一章正文内容。")
+    expect(written).not.toContain("他不禁深吸一口气")
     const savedState = statusMocks.buildNextStatus.mock.calls[0][1].de_ai_batch as DeAiBatchState
     expect(savedState.perChapter[1].status).toBe("accepted")
     expect(savedState.perChapter[2].status).toBe("failed")
@@ -498,54 +554,63 @@ describe("de-ai-batch scheduler — accept/reject/discard", () => {
 
   it("acceptDeAiBatchDraft 单章：成功返回 true", async () => {
     statusMocks.loadNovelSessionStatus.mockResolvedValue({ status: "completed", de_ai_batch: readyState() })
-    fsMocks.readFile.mockResolvedValue(JSON.stringify({
-      schemaVersion: DE_AI_BATCH_SCHEMA,
-      batchId: "de-ai-1",
-      chapterNumber: 1,
-      sourcePath: "/p/wiki/chapters/第1章.md",
-      originalContent: CHAPTER_1,
-      candidateContent: "改写后的正文。",
-      dualPassScore: 42,
-      avoidWordsHits: [],
-      createdAt: "2026-08-19T00:00:00.000Z",
-      updatedAt: "2026-08-19T00:00:00.000Z",
-    }))
+    mockDraftAndChapterReads()
     expect(await acceptDeAiBatchDraft("/p", 1)).toBe(true)
-    expect(fsMocks.writeFile).toHaveBeenCalledTimes(1)
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    expect(fsMocks.writeFile).not.toHaveBeenCalled()
   })
 
   it("acceptDeAiBatchDraft 非 ready：返回 false 不写回", async () => {
     statusMocks.loadNovelSessionStatus.mockResolvedValue({ status: "completed", de_ai_batch: readyState() })
     expect(await acceptDeAiBatchDraft("/p", 2)).toBe(false)
-    expect(fsMocks.writeFile).not.toHaveBeenCalled()
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("acceptAll：ready 但草稿工件缺失 → skipped", async () => {
     statusMocks.loadNovelSessionStatus.mockResolvedValue({ status: "completed", de_ai_batch: readyState() })
     fsMocks.readFile.mockRejectedValue(new Error("no draft"))
     const result = await acceptAllDeAiBatchDrafts("/p")
-    expect(result).toEqual({ accepted: 0, skipped: 2 })
-    expect(fsMocks.writeFile).not.toHaveBeenCalled()
+    expect(result).toEqual({ accepted: 0, skipped: 2, conflicts: [] })
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("acceptAll：ready + 工件在但章节文件缺失 → skipped", async () => {
     statusMocks.loadNovelSessionStatus.mockResolvedValue({ status: "completed", de_ai_batch: readyState() })
-    fsMocks.readFile.mockResolvedValue(JSON.stringify({
-      schemaVersion: DE_AI_BATCH_SCHEMA,
-      batchId: "de-ai-1",
-      chapterNumber: 1,
-      sourcePath: "/p/wiki/chapters/第1章.md",
-      originalContent: CHAPTER_1,
-      candidateContent: "改写后的正文。",
-      dualPassScore: 42,
-      avoidWordsHits: [],
-      createdAt: "2026-08-19T00:00:00.000Z",
-      updatedAt: "2026-08-19T00:00:00.000Z",
-    }))
+    fsMocks.readFile.mockResolvedValue(draftJson())
     chapterUtilsMocks.findChapterFileByNumber.mockResolvedValue(null)
     const result = await acceptAllDeAiBatchDrafts("/p")
-    expect(result).toEqual({ accepted: 0, skipped: 2 })
-    expect(fsMocks.writeFile).not.toHaveBeenCalled()
+    expect(result).toEqual({ accepted: 0, skipped: 2, conflicts: [] })
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+  })
+
+  it("DI-2：章节已被用户修改 → skip + conflicts 提示，文件不变且不写盘", async () => {
+    statusMocks.loadNovelSessionStatus.mockResolvedValue({ status: "completed", de_ai_batch: readyState() })
+    mockDraftAndChapterReads(CHAPTER_1 + "\n\n用户新写的一段。")
+    const result = await acceptAllDeAiBatchDrafts("/p")
+    expect(result.accepted).toBe(0)
+    // 第 1 章冲突 skip + 第 2 章非 ready skip
+    expect(result.skipped).toBe(2)
+    expect(result.conflicts).toEqual([{ chapterNumber: 1, reason: "changed" }])
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+    // 冲突章节保持 ready（等用户处理后重试），不被误标 accepted
+    const calls = statusMocks.buildNextStatus.mock.calls
+    const savedState = calls[calls.length - 1][1].de_ai_batch as DeAiBatchState
+    expect(savedState.perChapter[1].status).toBe("ready")
+  })
+
+  it("DI-2：仅 frontmatter/标题被改动也判定冲突（frontmatter/标题不再回退）", async () => {
+    statusMocks.loadNovelSessionStatus.mockResolvedValue({ status: "completed", de_ai_batch: readyState() })
+    mockDraftAndChapterReads(CHAPTER_1.replace("title: 第一章", "title: 用户改过的标题"))
+    const result = await acceptAllDeAiBatchDrafts("/p", { chapterNumbers: [1] })
+    expect(result).toEqual({ accepted: 0, skipped: 1, conflicts: [{ chapterNumber: 1, reason: "changed" }] })
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+  })
+
+  it("DI-2：逐章回填同样受冲突守卫保护（acceptDeAiBatchDraft → false 不写盘）", async () => {
+    statusMocks.loadNovelSessionStatus.mockResolvedValue({ status: "completed", de_ai_batch: readyState() })
+    mockDraftAndChapterReads(CHAPTER_1 + "\n用户修改过的正文")
+    expect(await acceptDeAiBatchDraft("/p", 1)).toBe(false)
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("rejectDeAiBatchDraft：ready → rejected（不删工件）", async () => {
@@ -572,7 +637,7 @@ describe("de-ai-batch scheduler — accept/reject/discard", () => {
 
   it("无批次状态：accept/reject/discard 均返回空结果", async () => {
     statusMocks.loadNovelSessionStatus.mockResolvedValue(null)
-    expect(await acceptAllDeAiBatchDrafts("/p")).toEqual({ accepted: 0, skipped: 0 })
+    expect(await acceptAllDeAiBatchDrafts("/p")).toEqual({ accepted: 0, skipped: 0, conflicts: [] })
     expect(await acceptDeAiBatchDraft("/p", 1)).toBe(false)
     expect(await rejectDeAiBatchDraft("/p", 1)).toBe(false)
     expect(await discardDeAiBatch("/p")).toBe(false)

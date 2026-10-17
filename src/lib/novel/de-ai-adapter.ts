@@ -1,8 +1,37 @@
 import type { ChatMessage } from "@/lib/llm-providers"
+import { readFileSync } from "node:fs"
 import { readFile } from "@/commands/fs"
 import { join, resourceDir } from "@tauri-apps/api/path"
-import deAiSkillMarkdown from "../../../skills/de-ai-writing/SKILL.md?raw"
 import { HUMANIZER_CAVITY_GUARD } from "./de-ai-rules"
+
+function loadBundledDeAiSkill(): string {
+  // NOTE: `import.meta.glob` must be called unconditionally (no typeof guard).
+  // Vite inlines eager globs at build time, but the guard itself evaluates to
+  // false in the built bundle and falls through to the Node-only fs path,
+  // crashing module evaluation (white screen). In Node script runtimes (tsx)
+  // the glob call throws -> caught -> fs fallback below.
+  try {
+    const modules = import.meta.glob("../../../skills/de-ai-writing/SKILL.md", {
+      eager: true,
+      query: "?raw",
+      import: "default",
+    }) as Record<string, string>
+    const bundled = Object.values(modules)[0]
+    if (bundled) return bundled
+  } catch {
+    // No glob transform (Node runtime): try fs below.
+  }
+  try {
+    return readFileSync(new URL("../../../skills/de-ai-writing/SKILL.md", import.meta.url), "utf8")
+  } catch {
+    // webview: node:fs is a throwing shim — fail open with empty skill text
+    // rather than crashing module evaluation (white screen).
+    console.warn("[de-ai-adapter] bundled SKILL.md unavailable, using empty skill text")
+    return ""
+  }
+}
+
+const deAiSkillMarkdown = loadBundledDeAiSkill()
 import type { ContextPack } from "./context-engine"
 
 const QM_QUAI_SYSTEM_PROMPT = deAiSkillMarkdown.trim()

@@ -2327,6 +2327,33 @@ pub async fn file_exists(path: String) -> Result<bool, String> {
         .map_err(|e| format!("file_exists blocking task join error: {e}"))?
 }
 
+/// Core logic for `path_is_directory`, callable from both Tauri commands and Axum handlers.
+///
+/// 数据完整性关键（DI-1）：目录判定必须走 `metadata.file_type().is_dir()`。
+/// **禁止**用 `get_file_size` / `metadata.len()` 推断 —— Windows 上目录的
+/// `metadata(dir).len()` 返回 `Ok(0)`，会被 TS 侧误判为普通文件，导致
+/// `copy_file` 对目录必然失败（错误被吞）后源目录仍被递归删除。
+/// 缺失路径视为「不是目录」（`Ok(false)`），其余 I/O 错误如实上抛。
+pub fn do_path_is_directory(path: &str) -> Result<bool, String> {
+    run_guarded("path_is_directory", || {
+        let path = resolve_project_storage_path(path)?;
+        match fs::metadata(&path) {
+            // 跟随符号链接（与 `Path::is_dir()` / 其余命令语义一致）。
+            Ok(metadata) => Ok(metadata.file_type().is_dir()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(format!("Failed to stat '{}': {}", path, e)),
+        }
+    })
+}
+
+#[tauri::command]
+pub async fn path_is_directory(path: String) -> Result<bool, String> {
+    let p = path.clone();
+    tauri::async_runtime::spawn_blocking(move || do_path_is_directory(&p))
+        .await
+        .map_err(|e| format!("path_is_directory blocking task join error: {e}"))?
+}
+
 /// Core logic for `get_file_modified_time`, callable from both Tauri commands and Axum handlers.
 /// Get the last modified timestamp of a file in milliseconds since Unix epoch.
 pub fn do_get_file_modified_time(path: &str) -> Result<u64, String> {
@@ -3032,6 +3059,55 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&src);
         let _ = std::fs::remove_dir_all(&dest);
+    }
+
+    // ── path_is_directory: DI-1 目录判定门（禁止 len() 推断） ──────────
+    //
+    // 背景：data-manager「移入回收站」旧实现用 `get_file_size` 失败推断目录；
+    // 但 Windows 上 `metadata(dir).len()` 返回 Ok(0)，目录被误判为文件 →
+    // `copy_file` 对目录必败（错误被吞）→ 源目录被 remove_dir_all 递归删除
+    // （不可恢复，DI-1）。目录判定的唯一可信来源是 file_type().is_dir()。
+
+    #[test]
+    fn path_is_directory_distinguishes_dir_from_file() {
+        let root = make_temp_dir("path-kind");
+        let dir = root.join("domain-dir");
+        fs::create_dir_all(dir.join("nested")).unwrap();
+        let empty_dir = root.join("empty-dir");
+        fs::create_dir_all(&empty_dir).unwrap();
+        let file = root.join("domain-file.json");
+        fs::write(&file, b"{}").unwrap();
+        let missing = root.join("missing");
+
+        assert!(
+            do_path_is_directory(&dir.to_string_lossy()).unwrap(),
+            "existing directory must be reported as directory"
+        );
+        assert!(
+            do_path_is_directory(&empty_dir.to_string_lossy()).unwrap(),
+            "empty directory must be reported as directory"
+        );
+        assert!(
+            !do_path_is_directory(&file.to_string_lossy()).unwrap(),
+            "regular file must not be reported as directory"
+        );
+        assert!(
+            !do_path_is_directory(&missing.to_string_lossy()).unwrap(),
+            "missing path must be reported as not-a-directory"
+        );
+
+        // 文档化关键事实：Windows 上目录的 metadata.len() 为 Ok(0)（正是旧
+        // TS 启发式 size < 0 把目录误判为文件的来源）。目录判定必须独立于
+        // len()，本测试断言 file_type 路径不受 len 影响。
+        #[cfg(windows)]
+        assert_eq!(
+            fs::metadata(&empty_dir).unwrap().len(),
+            0,
+            "Windows 上空目录 metadata.len()==0 —— len()==0 绝不可作为文件判定依据"
+        );
+        assert!(fs::metadata(&empty_dir).unwrap().file_type().is_dir());
+
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

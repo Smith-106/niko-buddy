@@ -3,15 +3,16 @@
  *
  * 流程：章节枚举 → 状态装载（恢复 or 新建）→ worker-pool 逐章
  * （机械双遍 → LLM 改写 → 草稿工件）→ 进度回调 → 摘要。
- * accept-all / 逐章 accept / reject 回填走 replaceWholeChapterBody
+ * accept-all / 逐章 accept 回填前以当前磁盘内容对生成时快照做变更守卫
+ * （不一致 → skip + 冲突提示），再经 writeFileAtomic 原子写回
  * （保留 frontmatter + 标题，仅替换正文）。
  */
 
-import { listDirectory, readFile, writeFile } from "@/commands/fs"
-import { streamChat } from "@/lib/llm-client"
+import { listDirectory, readFile, writeFileAtomic } from "@/commands/fs"
+import { makeRequestCancelledError, streamChat } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { normalizePath } from "@/lib/path-utils"
-import { replaceWholeChapterBody } from "@/lib/chapter-selection"
+import { replaceWholeChapterBodyIfUnchanged } from "@/lib/chapter-selection"
 import {
   buildUserAwareDeAiPrompt,
   getAvoidWords,
@@ -131,6 +132,10 @@ async function streamChatToText(
     signal,
   )
   if (failure) throw failure
+  // LL-2: transport 在用户中止时可能仍以 onDone 收尾（HTTP/CLI 两路均见）。
+  // await 后以调用方 signal（真源标志位）为准，把取消抛成可识别错误，
+  // 使 worker 既有 isAbortError → pending 分支对 HTTP 路径生效。
+  if (signal?.aborted) throw makeRequestCancelledError()
   return result
 }
 
@@ -312,6 +317,11 @@ export async function runDeAiBatch(
         { shouldRetry: (error) => !isAbortError(error) && isTransientLlmError(error) },
       )
 
+      // LL-2: 空/纯空白候选（截断或思考未产出正文）拒绝落入 ready 草稿。
+      if (!candidate.trim()) {
+        throw new Error("模型返回空内容，已拒绝落 ready 草稿")
+      }
+
       // P1-2 还原占位符 + P1-3 自检（Track B soft 诊断，非门）
       const restored = lock.restore(candidate)
       const restoreCheck = lock.verify(restored)
@@ -419,19 +429,31 @@ function buildSummary(state: DeAiBatchState, startedAt: string, startedMs: numbe
   }
 }
 
+/** DI-2: 回填结果——conflicts = 因章节已被用户修改而拒绝回填的章节（skip + 冲突提示）。 */
+export interface DeAiBatchAcceptResult {
+  accepted: number
+  skipped: number
+  conflicts: Array<{ chapterNumber: number; reason: "changed" }>
+}
+
 /**
  * 一键回填：仅 ready 状态的草稿写回章节文件（保留 frontmatter/标题）。
- * 返回 { accepted, skipped }（skipped = 非 ready / 工件缺失 / 文件缺失）。
+ * 返回 { accepted, skipped, conflicts }（skipped = 非 ready / 工件缺失 / 文件缺失 / 冲突）。
+ *
+ * DI-2: 回填前 re-read 当前文件并与生成时快照 artifact.originalContent 比对，
+ * 不一致（用户在批次期间编辑过）→ skip + conflicts 提示，不写盘；
+ * 写盘一律走 writeFileAtomic（原子落盘，不再用非原子 writeFile）。
  */
 export async function acceptAllDeAiBatchDrafts(
   projectPath: string,
   options: { chapterNumbers?: number[] } = {},
-): Promise<{ accepted: number; skipped: number }> {
+): Promise<DeAiBatchAcceptResult> {
   const state = await loadDeAiBatchState(projectPath)
-  if (!state) return { accepted: 0, skipped: 0 }
+  if (!state) return { accepted: 0, skipped: 0, conflicts: [] }
   const targets = options.chapterNumbers ?? Object.keys(state.perChapter).map(Number)
   let accepted = 0
   let skipped = 0
+  const conflicts: DeAiBatchAcceptResult["conflicts"] = []
   for (const chapterNumber of targets) {
     const chapter = state.perChapter[chapterNumber]
     if (!chapter || chapter.status !== "ready") {
@@ -448,15 +470,33 @@ export async function acceptAllDeAiBatchDrafts(
       skipped += 1
       continue
     }
-    const merged = replaceWholeChapterBody(artifact.originalContent, artifact.candidateContent)
-    await writeFile(filePath, merged)
+    // DI-2 冲突守卫：以当前磁盘内容为真源与生成时快照比对（全文件等价判定，
+    // 覆盖正文与 frontmatter/标题）；读取失败同样保守 skip。
+    let currentContent: string
+    try {
+      currentContent = await readFile(filePath)
+    } catch {
+      skipped += 1
+      continue
+    }
+    const merged = replaceWholeChapterBodyIfUnchanged(
+      currentContent,
+      artifact.originalContent,
+      artifact.candidateContent,
+    )
+    if (!merged.ok) {
+      conflicts.push({ chapterNumber, reason: merged.reason })
+      skipped += 1
+      continue
+    }
+    await writeFileAtomic(filePath, merged.merged)
     chapter.status = "accepted"
     chapter.updatedAt = nowIso()
     accepted += 1
   }
   state.updatedAt = nowIso()
   await saveDeAiBatchState(projectPath, state)
-  return { accepted, skipped }
+  return { accepted, skipped, conflicts }
 }
 
 /** 逐章 accept（单章兜底）。 */

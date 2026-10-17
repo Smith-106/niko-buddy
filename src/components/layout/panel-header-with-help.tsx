@@ -26,7 +26,7 @@ export function PanelHeaderWithHelp({
     <div className="flex items-center gap-1.5">
       {helpUrl ? (
         <button type="button"
-          className={`cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded-sm ${className}`}
+          className={`cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm ${className}`}
           title={helpTitle ?? `${title}使用说明`}
           onClick={(e) => {
             e.stopPropagation()

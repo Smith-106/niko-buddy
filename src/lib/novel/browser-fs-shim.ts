@@ -9,6 +9,12 @@ export const readFile = (): Promise<never> =>
   Promise.reject(new Error("node:fs/promises unavailable in browser (shim)"))
 export const existsSync = (): boolean => false
 export const readdirSync = (): never[] => []
+export const statSync = (): never => {
+  throw new Error("node:fs unavailable in browser (shim)")
+}
+export const mkdtempSync = (): never => {
+  throw new Error("node:fs unavailable in browser (shim)")
+}
 export const writeFileSync = (): never => {
   throw new Error("node:fs unavailable in browser (shim)")
 }

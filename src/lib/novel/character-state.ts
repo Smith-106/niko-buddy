@@ -118,3 +118,26 @@ export function characterStatesToContextText(store: CharacterStateStore): string
     )
     .join("\n")
 }
+
+// S-goal-storymoss-absorb/S2 (2026-10-17, StoryMoss beat_card cast 排除对位):
+// 生死 cast 排除纯函数。Additive 新增, 零行为变更, 不被现有调用方引用。
+// 口径: isAlive===false 或 deathChapter!=null 即已死, 从出场名单排除;
+// 返回 {alive, excluded} 供续写 cast 注入消费。只报不改, 不参与门限。
+export interface DeadCastSplitResult {
+  alive: string[]
+  excluded: string[]
+}
+
+export function excludeDeadFromCast(cast: readonly string[], store: CharacterStateStore): DeadCastSplitResult {
+  const dead = new Set<string>()
+  for (const c of store.characters) {
+    if (c.isAlive === false || c.deathChapter != null) dead.add(c.characterName)
+  }
+  const alive: string[] = []
+  const excluded: string[] = []
+  for (const name of cast) {
+    if (dead.has(name)) excluded.push(name)
+    else alive.push(name)
+  }
+  return { alive, excluded }
+}

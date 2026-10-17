@@ -100,6 +100,15 @@ describe("collectHealthReport — 统一健康聚合(读真源)", () => {
     expect(report.overall).toBe("degraded") // 最差项=degraded(索引)
   })
 
+  it("B2 接线门：golden 指纹门控顺序一致 → version healthy 且无 GATE_PRIORITY_DRIFT", async () => {
+    await seedHealthyProject()
+    const report = await collectHealthReport({ projectPath: PROJECT, llmCfg: null })
+    const version = report.items.find((i) => i.id === "version")!
+    // 门控顺序 Consistency(P0) > Anti-AI(P1) > Quality(P2) 不漂移 → 不降级
+    expect(version.errorCode).not.toBe("GATE_PRIORITY_DRIFT")
+    expect(version.technicalDetail).toContain("goldenFingerprint=present")
+  })
+
   it("interrupted Run → attention_required + RUN_INTERRUPTED 错误码", async () => {
     await seedHealthyProject()
     await fsState.writeFileAtomic(`${PROJECT}/.novel/status.json`, JSON.stringify({

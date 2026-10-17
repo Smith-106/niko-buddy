@@ -14,21 +14,37 @@ import zh from "@/i18n/zh.json"
  */
 
 const SIDEBAR = (() => {
-  const fromHubRoot = resolve(process.cwd(), "QMAI/src/components/layout/icon-sidebar.tsx")
-  try {
-    readFileSync(fromHubRoot, "utf8")
-    return fromHubRoot
-  } catch {
-    return resolve(process.cwd(), "src/components/layout/icon-sidebar.tsx")
+  const candidates = [
+    "QMAI/src/components/layout/nav-items.ts",
+    "QMAI/src/components/layout/icon-sidebar.tsx",
+  ]
+  for (const rel of candidates) {
+    const candidate = resolve(process.cwd(), rel)
+    try {
+      readFileSync(candidate, "utf8")
+      return candidate
+    } catch {
+      /* 继续尝试下一候选路径（hub 根 / QMAI 内） */
+    }
   }
+  return resolve(process.cwd(), "src/components/layout/nav-items.ts")
 })()
+
+/** 导航清单所在文件（ui-audit-20261016：清单从 icon-sidebar.tsx 抽到 nav-items.ts，
+ * 侧栏与命令面板共用），两处都要扫，否则抽表后回归覆盖会静默变小。 */
+function navSourceFiles(): string[] {
+  const dir = resolve(SIDEBAR, "..")
+  return [SIDEBAR, resolve(dir, "icon-sidebar.tsx"), resolve(dir, "command-palette.tsx")]
+}
 
 /** 取出图标栏里所有 labelKey 与 t("...") 字面量键。 */
 function sidebarKeys(): string[] {
-  const src = readFileSync(SIDEBAR, "utf8")
   const keys = new Set<string>()
-  for (const m of src.matchAll(/labelKey:\s*"([^"]+)"/g)) keys.add(m[1])
-  for (const m of src.matchAll(/\bt\("([^"]+)"\)/g)) keys.add(m[1])
+  for (const file of navSourceFiles()) {
+    const src = readFileSync(file, "utf8")
+    for (const m of src.matchAll(/labelKey:\s*"([^"]+)"/g)) keys.add(m[1])
+    for (const m of src.matchAll(/\bt\("([^"]+)"\)/g)) keys.add(m[1])
+  }
   return [...keys].sort()
 }
 

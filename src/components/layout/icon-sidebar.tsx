@@ -1,9 +1,9 @@
 // Copyright © Niko Buddy
 // SPDX-License-Identifier: MIT
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
-  FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Monitor, Trash2, Sparkles, LayoutDashboard, BookOpen, Image, ArchiveRestore, ScrollText, Clapperboard, Languages, GitMerge, Database, Stethoscope,
+  ArrowLeftRight, ChevronRight, GitMerge, Image, Languages, Monitor, Moon, Search, Settings, Sun, Trash2,
 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { CoverPromptWorkbench } from "@/components/novel/cover-prompt-workbench"
@@ -13,35 +13,17 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { useTranslation } from "react-i18next"
 import logoImg from "@/assets/niko-buddy-logo.png"
-import type { WikiState } from "@/stores/wiki-store"
 import { saveTheme } from "@/lib/project-store"
 import { applyTheme } from "@/lib/theme-utils"
-
-type NavView = WikiState["activeView"]
-
-const SEARCH_NAV_ITEM: { view: NavView; icon: typeof FileText; labelKey: string } = {
-  view: "search",
-  icon: Search,
-  labelKey: "novel.nav.search",
-}
-
-const NAV_ITEMS: { view: NavView; icon: typeof FileText; labelKey: string }[] = [
-  { view: "workbench", icon: LayoutDashboard, labelKey: "novel.nav.workbench" },
-  { view: "wiki", icon: FileText, labelKey: "novel.nav.wiki" },
-  { view: "director", icon: Clapperboard, labelKey: "novel.nav.director" },
-  { view: "sources", icon: FolderOpen, labelKey: "novel.nav.sources" },
-  { view: "graph", icon: Network, labelKey: "novel.nav.graph" },
-  { view: "lint", icon: Brain, labelKey: "novel.nav.lint" },
-  { view: "soul", icon: Sparkles, labelKey: "novel.nav.soul" },
-  { view: "skillLibrary", icon: Sparkles, labelKey: "novel.nav.skillLibrary" },
-  { view: "storySimulation", icon: Sparkles, labelKey: "novel.nav.storySimulation" },
-  { view: "bookAnalysis", icon: BookOpen, labelKey: "novel.nav.dismantling" },
-  { view: "canonEditor", icon: ScrollText, labelKey: "novel.nav.canonEditor" },
-  { view: "backupExport", icon: ArchiveRestore, labelKey: "novel.nav.backupExport" },
-  { view: "diagnosticsCenter", icon: Stethoscope, labelKey: "novel.nav.diagnosticsCenter" },
-  { view: "reviewCenter", icon: LayoutDashboard, labelKey: "novel.nav.reviewCenter" },
-  { view: "dataManager", icon: Database, labelKey: "novel.nav.dataManager" },
-]
+import {
+  NAV_COLLAPSED_GROUPS_KEY,
+  NAV_GROUP_ORDER,
+  NAV_ITEMS,
+  SEARCH_NAV_ITEM,
+  readCollapsedGroups,
+  type NavModeGroup,
+  type NavView,
+} from "./nav-items"
 
 interface IconSidebarProps {
   onToggleSidebar?: () => void
@@ -58,11 +40,35 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const theme = useWikiStore((s) => s.theme)
   const setTheme = useWikiStore((s) => s.setTheme)
-  const pendingCount = useReviewStore((s) => s.items.filter((i) => !i.resolved).length)
+  // F-09（findings-1）/ W-08（findings-2）：旧版只统计六维审查的 items，
+  // 「保存前审稿」写入的 novelReviewEntries 不进任何计数 → 导航上连一个红点都没有。
+  // 这里合并两个未解决来源（消费点仍待补，见交付报告残留项）。
+  const pendingReviewItems = useReviewStore((s) => s.items.filter((i) => !i.resolved).length)
+  const pendingNovelEntries = useReviewStore((s) => s.novelReviewEntries.filter((e) => !e.resolved).length)
+  const pendingCount = pendingReviewItems + pendingNovelEntries
   // F-012: 封面 Prompt 工作台入口（独立 dialog，不新增 activeView，不进主链热路径）
   const [coverWorkbenchOpen, setCoverWorkbenchOpen] = useState(false)
   const [translationViewOpen, setTranslationViewOpen] = useState(false)
   const [fanficMergeOpen, setFanficMergeOpen] = useState(false)
+  // 导航组折叠（默认全展开；存 localStorage，不改变任何视图行为）
+  const [collapsedGroups, setCollapsedGroups] = useState<NavModeGroup[]>(() => readCollapsedGroups())
+  const toggleGroup = (group: NavModeGroup) => {
+    setCollapsedGroups((prev) => {
+      const next = prev.includes(group) ? prev.filter((g) => g !== group) : [...prev, group]
+      try {
+        localStorage.setItem(NAV_COLLAPSED_GROUPS_KEY, JSON.stringify(next))
+      } catch {
+        /* 存储不可用时静默降级：折叠仅本次会话生效 */
+      }
+      return next
+    })
+  }
+
+  // 当前视图所在组被折叠时自动展开：键盘/外部跳转不会落到「看不见的高亮项」
+  useEffect(() => {
+    const activeGroup = NAV_ITEMS.find((item) => item.view === activeView)?.group
+    if (activeGroup) setCollapsedGroups((prev) => (prev.includes(activeGroup) ? prev.filter((g) => g !== activeGroup) : prev))
+  }, [activeView])
 
   const handleCycleTheme = () => {
     const themes: ("light" | "dark" | "deep-blue" | "system")[] = ["system", "light", "dark", "deep-blue"]
@@ -140,35 +146,60 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             超出 w-12 窄栏高度，而 flex 项的 min-height:auto 会阻止收缩，溢出将逃出
             本栏并撑高 document（整页可滚 = 底部按钮被推到视口外）。这里显式 min-h-0 +
             overflow-y-auto 把溢出收进本栏，底部操作组保持 shrink-0 永不被挤走。 */}
-        <div className="nav-rail-scroll flex min-h-0 w-full flex-1 flex-col gap-1 overflow-y-auto px-2">
-          {NAV_ITEMS.map(({ view, icon: Icon, labelKey }) => (
-            <button
-              key={view}
-              type="button"
-              onClick={() => handleNavClick(view)}
-              data-view={view}
-              title={t(labelKey)}
-              className={`soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left transition-colors ${
-                activeView === view
-                  ? "qm-selected"
-                  : "text-muted-foreground qm-hover"
-              }`}
-            >
-              <Icon className="h-[1.125rem] w-[1.125rem] shrink-0" />
-              <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t(labelKey)}</span>
-              {view === "reviewCenter" && pendingCount > 0 && (
-                <span data-testid="nav-badge" className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-bold text-primary-foreground">
-                  {pendingCount > 99 ? "99+" : pendingCount}
-                </span>
-              )}
-            </button>
-          ))}
+        <nav
+          aria-label={t("novel.nav.railLabel", { defaultValue: "主导航" })}
+          className="nav-rail-scroll flex min-h-0 w-full flex-1 flex-col gap-1 overflow-y-auto px-2"
+        >
+          {NAV_GROUP_ORDER.map(({ group, labelKey: groupLabelKey }) => {
+            const items = NAV_ITEMS.filter((item) => item.group === group)
+            const collapsed = collapsedGroups.includes(group)
+            return (
+              <div key={group} data-nav-group={group}>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group)}
+                  aria-expanded={!collapsed}
+                  className="flex h-6 w-full items-center gap-1 rounded px-2 text-[0.6875rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <ChevronRight className={`h-3 w-3 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`} />
+                  <span className="min-w-0 flex-1 truncate text-left">{t(groupLabelKey)}</span>
+                  <span className="shrink-0 tabular-nums text-[0.625rem] text-muted-foreground/60">{items.length}</span>
+                </button>
+                {collapsed
+                  ? null
+                  : items.map(({ view, icon: Icon, labelKey }) => (
+                    <button
+                      key={view}
+                      type="button"
+                      onClick={() => handleNavClick(view)}
+                      data-view={view}
+                      title={t(labelKey)}
+                      aria-current={activeView === view ? "page" : undefined}
+                      className={`soft-button flex h-8 w-full items-center gap-2.5 rounded-xl px-2.5 text-left transition-colors ${
+                        activeView === view
+                          ? "qm-selected"
+                          : "text-muted-foreground qm-hover"
+                      }`}
+                    >
+                      <Icon className="h-[1.125rem] w-[1.125rem] shrink-0" />
+                      <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t(labelKey)}</span>
+                      {view === "reviewCenter" && pendingCount > 0 && (
+                        <span data-testid="nav-badge" className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-bold text-primary-foreground">
+                          {pendingCount > 99 ? "99+" : pendingCount}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+              </div>
+            )
+          })}
           <button
             type="button"
             onClick={handleSearchClick}
             data-view="search"
             title={t(SEARCH_NAV_ITEM.labelKey)}
-            className={`soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left transition-colors ${
+            aria-current={activeView === "search" ? "page" : undefined}
+            className={`soft-button flex h-8 w-full items-center gap-2.5 rounded-xl px-2.5 text-left transition-colors ${
               activeView === "search"
                 ? "qm-selected"
                 : "text-muted-foreground qm-hover"
@@ -177,66 +208,69 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             <Search className="h-[1.125rem] w-[1.125rem] shrink-0" />
             <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t(SEARCH_NAV_ITEM.labelKey)}</span>
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setSearchPanelOpen(false)
-              setActiveView("trash")
-              onOpenSidebar?.()
-            }}
-            data-view="trash"
-            title={t("nav.trash")}
-            className={`soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left transition-colors ${
-              activeView === "trash"
-                ? "qm-selected"
-                : "text-muted-foreground qm-hover"
-            }`}
-          >
-            <Trash2 className="h-[1.125rem] w-[1.125rem] shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t("nav.trash")}</span>
-          </button>
-        </div>
-        {/* Bottom: cover workbench + daemon status + theme toggle + settings + switch project */}
-        <div className="flex shrink-0 flex-col gap-1 px-2 pb-1">
-          {/* F-012: 封面 Prompt 工作台（独立 dialog） */}
-          <button
-            type="button"
-            onClick={() => setCoverWorkbenchOpen(true)}
-            data-cover-workbench-entry="true"
-            title={t("novel.nav.coverWorkbench")}
-            className="soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
-          >
-            <Image className="h-[1.125rem] w-[1.125rem] shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t("novel.nav.coverWorkbench")}</span>
-          </button>
-          {/* 65 号 G2: 翻译工作台入口（独立 dialog，零 activeView） */}
-          <button
-            type="button"
-            onClick={() => setTranslationViewOpen(true)}
-            data-translation-workbench-entry="true"
-            title={t("novel.nav.translationWorkbench")}
-            className="soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
-          >
-            <Languages className="h-[1.125rem] w-[1.125rem] shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t("novel.nav.translationWorkbench")}</span>
-          </button>
-          {/* 65 号 G2: 同人正典合并入口（Draft-first pending） */}
-          <button
-            type="button"
-            onClick={() => setFanficMergeOpen(true)}
-            data-fanfic-merge-entry="true"
-            title={t("novel.nav.fanficMerge")}
-            className="soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
-          >
-            <GitMerge className="h-[1.125rem] w-[1.125rem] shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t("novel.nav.fanficMerge")}</span>
-          </button>
+        </nav>
+        {/* Bottom: 低频工具（压缩为图标行）+ 主题 + 设置 + 切换小说 */}
+        <div className="flex shrink-0 flex-col gap-0.5 border-t px-2 pb-1 pt-1">
+          <div className="flex items-center gap-0.5" data-testid="nav-utility-row">
+            {/* F-012: 封面 Prompt 工作台（独立 dialog） */}
+            <button
+              type="button"
+              onClick={() => setCoverWorkbenchOpen(true)}
+              data-cover-workbench-entry="true"
+              title={t("novel.nav.coverWorkbench")}
+              aria-label={t("novel.nav.coverWorkbench")}
+              className="soft-button flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+            >
+              <Image className="h-[1.125rem] w-[1.125rem] shrink-0" />
+            </button>
+            {/* 65 号 G2: 翻译工作台入口（独立 dialog，零 activeView） */}
+            <button
+              type="button"
+              onClick={() => setTranslationViewOpen(true)}
+              data-translation-workbench-entry="true"
+              title={t("novel.nav.translationWorkbench")}
+              aria-label={t("novel.nav.translationWorkbench")}
+              className="soft-button flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+            >
+              <Languages className="h-[1.125rem] w-[1.125rem] shrink-0" />
+            </button>
+            {/* 65 号 G2: 同人正典合并入口（Draft-first pending） */}
+            <button
+              type="button"
+              onClick={() => setFanficMergeOpen(true)}
+              data-fanfic-merge-entry="true"
+              title={t("novel.nav.fanficMerge")}
+              aria-label={t("novel.nav.fanficMerge")}
+              className="soft-button flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+            >
+              <GitMerge className="h-[1.125rem] w-[1.125rem] shrink-0" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSearchPanelOpen(false)
+                setActiveView("trash")
+                onOpenSidebar?.()
+              }}
+              data-view="trash"
+              title={t("nav.trash")}
+              aria-label={t("nav.trash")}
+              aria-current={activeView === "trash" ? "page" : undefined}
+              className={`soft-button flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${
+                activeView === "trash"
+                  ? "qm-selected"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+              }`}
+            >
+              <Trash2 className="h-[1.125rem] w-[1.125rem] shrink-0" />
+            </button>
+          </div>
           {/* Theme toggle */}
           <button
             type="button"
             onClick={handleCycleTheme}
             title={getThemeTooltip()}
-            className="soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+            className="soft-button flex h-8 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
           >
             {getThemeIcon()}
             <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{getThemeTooltip()}</span>
@@ -249,7 +283,8 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             }}
             data-view="settings"
             title={t("novel.nav.settings")}
-            className={`soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left transition-colors ${
+            aria-current={activeView === "settings" ? "page" : undefined}
+            className={`soft-button flex h-8 w-full items-center gap-2.5 rounded-xl px-2.5 text-left transition-colors ${
               activeView === "settings"
                 ? "qm-selected"
                 : "text-muted-foreground qm-hover"
@@ -265,7 +300,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
               onSwitchProject()
             }}
             title={t("nav.switchProject")}
-            className="soft-button flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+            className="soft-button flex h-8 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
           >
             <ArrowLeftRight className="h-[1.125rem] w-[1.125rem] shrink-0" />
             <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t("nav.switchProject")}</span>

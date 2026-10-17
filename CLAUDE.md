@@ -1,6 +1,6 @@
 # QMAI — 长篇写作主基底
 
-> 本文件是 QMAI 会话级执行纪律。详细规范见交付文档包 `@../docs/qmai-codex-delivery/`。
+> 本文件是 QMAI 会话级执行纪律。详细规范见交付文档包 `@../docs/niko-buddy-codex-delivery/`。
 
 ## 身份与边界
 
@@ -43,7 +43,7 @@
 | 大纲多智能体编排 | `src/lib/novel/outline-multi-agent-orchestrator.ts` + `outline-dynamic-agent-planner.ts` + `outline-result-protocol.ts` + `outline-agent-context.ts` + `outline-workflow-state.ts`（纯逻辑，自 v3 提取模式）+ `outline-multi-agent-adapter.ts`（v2 接线：streamChat + deep-outline 降级） |
 | UI 闭环 | `src/components/chat/chat-panel.tsx` + `chat-message.tsx` + `chat-resume.ts` |
 
-完整映射见 `@../docs/qmai-codex-delivery/10-file-mapping.md`。
+完整映射见 `@../docs/niko-buddy-codex-delivery/10-file-mapping.md`。
 
 ## Wave-0 新增锚点（T00-T05 已落地，2026-08-20 同步）
 
@@ -202,10 +202,10 @@
 
 ## 当前执行视图
 
-按 Stage 推进（旧 Phase 仅作历史来源）：`1 Authority Realignment → 2 Release Readiness → 3 Core Stabilization → 4 High-ROI Enhancements → 5 Optional Sidecar`。Stage 2 已 strict PASS（b51ab03，v2.2.24）；Stage 3/4/5 + 加固层 v2.3.2 + Post-v2.3.2 演进（连续性引擎 + ARCH-1 拆分 + ISS-001/002/011）已落地，v2.4.1 已发布 GitHub 2026-07-21，v2.4.2 patch 已发布 2026-07-25（updater endpoint 修复 + 文档站上线 + LICENSE + 09 文档同步，tsc 0 + vitest 985/985）。详见 `@../.workflow/project.md` 与 `@../docs/qmai-codex-delivery/09-implementation-plan.md`。
+按 Stage 推进（旧 Phase 仅作历史来源）：`1 Authority Realignment → 2 Release Readiness → 3 Core Stabilization → 4 High-ROI Enhancements → 5 Optional Sidecar`。Stage 2 已 strict PASS（b51ab03，v2.2.24）；Stage 3/4/5 + 加固层 v2.3.2 + Post-v2.3.2 演进（连续性引擎 + ARCH-1 拆分 + ISS-001/002/011）已落地，v2.4.1 已发布 GitHub 2026-07-21，v2.4.2 patch 已发布 2026-07-25（updater endpoint 修复 + 文档站上线 + LICENSE + 09 文档同步，tsc 0 + vitest 985/985）。详见 `@../.workflow/project.md` 与 `@../docs/niko-buddy-codex-delivery/09-implementation-plan.md`。
 
 ## 验收与证据
 
-- 交付验收标准见 `@../docs/qmai-codex-delivery/11-test-plan.md`，绑定写作质量目标而非仅编译通过。
+- 交付验收标准见 `@../docs/niko-buddy-codex-delivery/11-test-plan.md`，绑定写作质量目标而非仅编译通过。
 - 发布证据链见 `12-acceptance-evidence-*.md`（最新 `2026-07-12-stage4-merged`，v2.3.0 era；v2.4.0/v2.4.1 release 证据见 `@../.workflow/state.json` stage_view.note + `.workflow/milestones/` 归档，未单独建 evidence 文件）。
 - 缺陷台账见 `15-release-defect-ledger.md`。

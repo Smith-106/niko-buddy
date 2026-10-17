@@ -105,6 +105,48 @@ describe("resolveConfig — custom provider", () => {
     expect(config.maxContextSize).toBe(204800)
     expect(config.customEndpoint).toBe("")
   })
+
+  it("HTTP 三档超时: 缺省 undefined (零行为变更); 合法值透传; 越界钳制; 非法值回退 undefined", () => {
+    // 缺省 → 三字段均为 undefined (streamChat 回退各档硬编码默认)
+    const bare = resolveConfig(preset("custom"), { model: "m" }, fallback)
+    expect(bare.httpConnectTimeoutMs).toBeUndefined()
+    expect(bare.httpHeaderTimeoutMs).toBeUndefined()
+    expect(bare.httpStreamIdleMs).toBeUndefined()
+    // 合法值透传 (floor 取整)
+    const custom = resolveConfig(preset("custom"), {
+      model: "m",
+      httpConnectTimeoutMs: 15_500.9,
+      httpHeaderTimeoutMs: 60_000,
+      httpStreamIdleMs: 120_000,
+    }, fallback)
+    expect(custom.httpConnectTimeoutMs).toBe(15_500)
+    expect(custom.httpHeaderTimeoutMs).toBe(60_000)
+    expect(custom.httpStreamIdleMs).toBe(120_000)
+    // 越界 → 钳制到区间 (connect/header 5s–300s, idle 30s–600s)
+    const clamped = resolveConfig(preset("deepseek"), {
+      httpConnectTimeoutMs: 1_000,
+      httpHeaderTimeoutMs: 9_999_999,
+      httpStreamIdleMs: 1_000,
+    }, fallback)
+    expect(clamped.httpConnectTimeoutMs).toBe(5_000)
+    expect(clamped.httpHeaderTimeoutMs).toBe(300_000)
+    expect(clamped.httpStreamIdleMs).toBe(30_000)
+    // 非法值 (0/负数/NaN) → undefined
+    const invalid = resolveConfig(preset("custom"), {
+      model: "m",
+      httpConnectTimeoutMs: 0,
+      httpHeaderTimeoutMs: -5_000,
+      httpStreamIdleMs: Number.NaN,
+    }, fallback)
+    expect(invalid.httpConnectTimeoutMs).toBeUndefined()
+    expect(invalid.httpHeaderTimeoutMs).toBeUndefined()
+    expect(invalid.httpStreamIdleMs).toBeUndefined()
+    // ollama / azure / cli / openai-family 分支同样透传
+    expect(resolveConfig(preset("ollama-local"), { httpHeaderTimeoutMs: 45_000 }, fallback).httpHeaderTimeoutMs).toBe(45_000)
+    expect(resolveConfig(preset("azure"), { httpHeaderTimeoutMs: 45_000 }, fallback).httpHeaderTimeoutMs).toBe(45_000)
+    expect(resolveConfig(preset("codex-cli"), { localCliIsolation: true, httpHeaderTimeoutMs: 45_000 }, fallback).httpHeaderTimeoutMs).toBe(45_000)
+    expect(resolveConfig(preset("openai"), { httpHeaderTimeoutMs: 45_000 }, fallback).httpHeaderTimeoutMs).toBe(45_000)
+  })
 })
 
 describe("resolveConfig — ollama provider", () => {

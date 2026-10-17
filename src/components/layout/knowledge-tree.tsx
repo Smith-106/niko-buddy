@@ -222,6 +222,29 @@ function parsePageInfo(path: string, fileName: string, content: string): WikiPag
   }
 }
 
+/**
+ * 章节状态点配色（Draft-first 可见性）。
+ *
+ * 背景（findings-2 W-10 / findings-1 F-10，2026-10-16）：parsePageInfo 早已解析出
+ * `status/statusLabel`，但列表行只渲染字数 —— 作者在「选章」这一步无法分辨哪章是草稿、
+ * 哪章已定稿，而这正是 Draft-first 工作流每日第一个要判断的信息。
+ * 这里把已有只读数据渲染为一个带 tooltip + aria-label 的状态点（不新增真源、不改主链）。
+ */
+function chapterStatusDotClass(status: ChapterStatus | undefined): string {
+  switch (status) {
+    case "final":
+      return "bg-success"
+    case "revised":
+      return "bg-warning"
+    case "draft":
+      return "bg-muted-foreground/60"
+    case "archived":
+      return "bg-muted-foreground/30"
+    default:
+      return "bg-muted-foreground/40"
+  }
+}
+
 function findNodeByPath(nodes: FileNode[], targetPath: string): FileNode | null {
   for (const node of nodes) {
     if (normalizePath(node.path) === targetPath) return node
@@ -968,7 +991,7 @@ ${frontmatterBody}
                 )}
                 <Folder className="h-4 w-4 shrink-0 text-warning" />
                 <span className="truncate font-medium">{node.name}</span>
-                <span className="ml-auto text-[10px] text-muted-foreground/60">{countMarkdownDescendants(node)}</span>
+                <span className="ml-auto text-[0.625rem] text-muted-foreground/60">{countMarkdownDescendants(node)}</span>
               </button>
             </div>
             {!isCollapsed && node.children && renderNodes(node.children, depth + 1)}
@@ -1041,8 +1064,16 @@ ${frontmatterBody}
             ) : (
               <>
                 <span className="min-w-0 flex-1 truncate">{page.title}</span>
+                {page.type === "chapter" && page.statusLabel && (
+                  <span
+                    data-chapter-status={page.status}
+                    title={page.statusLabel}
+                    aria-label={page.statusLabel}
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${chapterStatusDotClass(page.status)}`}
+                  />
+                )}
                 {page.type === "chapter" && page.wordCountLabel && (
-                  <span className={`shrink-0 text-right text-[11px] ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
+                  <span className={`shrink-0 text-right text-[0.6875rem] ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
                     {page.wordCountLabel}
                   </span>
                 )}
@@ -1052,7 +1083,7 @@ ${frontmatterBody}
           <DeleteButton
             armed={isArmed}
             deleting={isDeleting}
-            className={`mr-1 transition-opacity ${isArmed || isDeleting ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+            className={`mr-1 transition-opacity ${isArmed || isDeleting ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus:opacity-100"}`}
             onClick={() => void handleDeleteClick(normalizedPath)}
             name={page.title}
           />
@@ -1240,7 +1271,7 @@ ${frontmatterBody}
                         >
                           <Folder className="h-3 w-3 shrink-0 text-warning" />
                           <span className="truncate">{vol.name}</span>
-                          {isCurrentVolume && <span className="ml-auto text-[10px] text-muted-foreground">当前</span>}
+                          {isCurrentVolume && <span className="ml-auto text-[0.625rem] text-muted-foreground">当前</span>}
                         </button>
                       )
                     })}
@@ -1426,7 +1457,7 @@ function DeleteButton({
       <Button
         variant="destructive"
         size="sm"
-        className={`h-6 shrink-0 px-1.5 text-[10px] font-semibold animate-pulse ${className}`}
+        className={`h-6 shrink-0 px-1.5 text-[0.625rem] font-semibold animate-pulse ${className}`}
         onClick={(event) => {
           event.stopPropagation()
           onClick()

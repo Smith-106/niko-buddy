@@ -87,7 +87,7 @@ describe("getHttpFetch (node runtime)", () => {
     expect(p3).not.toBe(p1)
   })
 
-  it("rejects non-HTTPS protocols", async () => {
+  it("rejects non-HTTPS protocols (file://, ftp://) and public http://", async () => {
     const fetchStub = vi.fn()
     vi.stubGlobal("fetch", fetchStub)
 
@@ -130,34 +130,67 @@ describe("getHttpFetch (node runtime)", () => {
     expect(fetchStub).not.toHaveBeenCalled()
   })
 
-  it("allows http loopback only when the test bypass is explicitly enabled", async () => {
+  it("allows http:// for loopback and private-network endpoints by default (LL-1)", async () => {
     const fetchStub = vi.fn(async () => new Response("mock"))
     vi.stubGlobal("fetch", fetchStub)
 
     const httpFetch = await getHttpFetch()
-
-    // Disabled by default — blocked.
-    expect(() => httpFetch("http://127.0.0.1:11434/v1/embeddings")).toThrow(/non-HTTPS/)
-
-    // Enabled — local mock servers pass through.
-    setAllowHttpLoopbackForTests(true)
-    await httpFetch("http://127.0.0.1:11434/v1/embeddings", { method: "GET" })
-    await httpFetch("http://localhost:11434/v1/embeddings")
-    expect(fetchStub).toHaveBeenCalledTimes(2)
-
-    // Re-enabled off blocks again.
-    setAllowHttpLoopbackForTests(false)
-    expect(() => httpFetch("http://127.0.0.1:11434/")).toThrow(/non-HTTPS/)
+    const allowed = [
+      "http://localhost:11434/v1/chat/completions",
+      "http://localhost/v1",
+      "http://127.0.0.1:11434/v1/embeddings",
+      "http://127.0.0.2:8765/v1",
+      "http://[::1]:11434/v1/models",
+      "http://10.1.2.3:8080/v1",
+      "http://172.16.0.1:1234/v1",
+      "http://172.31.255.9:11434/v1",
+      "http://192.168.1.50:11434/v1",
+      "http://ollama.local:11434/v1",
+    ]
+    for (const url of allowed) {
+      await expect(httpFetch(url)).resolves.toBeInstanceOf(Response)
+    }
+    expect(fetchStub).toHaveBeenCalledTimes(allowed.length)
   })
 
-  it("keeps non-loopback http blocked even with the test bypass enabled", async () => {
+  it("keeps public http:// blocked, with or without the legacy test toggle (LL-1)", async () => {
     const fetchStub = vi.fn()
     vi.stubGlobal("fetch", fetchStub)
-    setAllowHttpLoopbackForTests(true)
 
     const httpFetch = await getHttpFetch()
+    const blocked = [
+      "http://example.com/data",
+      "http://api.openai.com/v1/chat/completions",
+      "http://8.8.8.8/x",
+      "http://11.0.0.1/x",
+      "http://126.0.0.1/x",
+      "http://172.15.0.1/x",
+      "http://172.32.0.1/x",
+      "http://192.169.1.1/x",
+      "http://169.254.169.254/latest/meta-data",
+      "http://localhost.evil.com/x",
+      "http://127.0.0.1.evil.com/x",
+      "http://db.internal/x",
+    ]
+    for (const url of blocked) {
+      expect(() => httpFetch(url)).toThrow(/non-HTTPS/)
+    }
+
+    // The legacy bypass toggle must not open public http.
+    setAllowHttpLoopbackForTests(true)
     expect(() => httpFetch("http://example.com/data")).toThrow(/non-HTTPS/)
     expect(fetchStub).not.toHaveBeenCalled()
+  })
+
+  it("leaves https: behavior unchanged (public pass, private/reserved still rejected)", async () => {
+    const fetchStub = vi.fn(async () => new Response("ok"))
+    vi.stubGlobal("fetch", fetchStub)
+
+    const httpFetch = await getHttpFetch()
+    await expect(httpFetch("https://api.openai.com/v1/chat/completions")).resolves.toBeInstanceOf(Response)
+    expect(() => httpFetch("https://192.168.1.50:11434/v1")).toThrow(/private|reserved|SSRF/)
+    expect(() => httpFetch("https://localhost:11434/v1")).toThrow(/private|reserved|SSRF/)
+    expect(fetchStub).toHaveBeenCalledTimes(1)
   })
 })
 

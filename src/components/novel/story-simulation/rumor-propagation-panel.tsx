@@ -130,7 +130,7 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
               >
                 <div className="mb-1.5 flex items-center justify-between gap-2">
                   <span
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                    className={`rounded px-1.5 py-0.5 text-[0.625rem] font-medium ${
                       rumor.distortion < 0.3
                         ? "bg-success/15 text-success dark:bg-success/20 dark:text-success"
                         : rumor.distortion < 0.6
@@ -140,14 +140,14 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
                   >
                     {t("storySimulation.distortion", { value: (rumor.distortion * 100).toFixed(0) })}
                   </span>
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-[0.625rem] text-muted-foreground">
                     {t("storySimulation.roundLabel", { round: rumor.round + 1 })}
                   </span>
                 </div>
                 <div className="mb-1.5 line-clamp-2 text-xs">
                   {rumor.content}
                 </div>
-                <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                <div className="flex items-center gap-3 text-[0.625rem] text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <Users className="h-3 w-3" />
                     {rumor.believedBy.length}
@@ -200,7 +200,7 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
 
             <div className="grid grid-cols-3 gap-2">
               <div className="rounded-md border bg-muted/20 p-2 text-center">
-                <div className="text-[10px] text-muted-foreground">{t("storySimulation.distortionRate")}</div>
+                <div className="text-[0.625rem] text-muted-foreground">{t("storySimulation.distortionRate")}</div>
                 <div
                   className={`text-lg font-semibold ${
                     selectedRumor.distortion < 0.3
@@ -214,13 +214,13 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
                 </div>
               </div>
               <div className="rounded-md border bg-muted/20 p-2 text-center">
-                <div className="text-[10px] text-muted-foreground">{t("storySimulation.visibleCount")}</div>
+                <div className="text-[0.625rem] text-muted-foreground">{t("storySimulation.visibleCount")}</div>
                 <div className="text-lg font-semibold">
                   {selectedRumor.observableBy.length}
                 </div>
               </div>
               <div className="rounded-md border bg-muted/20 p-2 text-center">
-                <div className="text-[10px] text-muted-foreground">{t("storySimulation.verifiedCount")}</div>
+                <div className="text-[0.625rem] text-muted-foreground">{t("storySimulation.verifiedCount")}</div>
                 <div className="text-lg font-semibold">
                   {selectedRumor.verifiedBy.length}
                 </div>
@@ -282,16 +282,16 @@ function RumorTreeNodeView({
             <div className="mb-1.5 flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5">
                 {isRoot ? (
-                  <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                  <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary">
                     {t("storySimulation.originalRumor")}
                   </span>
                 ) : (
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-[0.625rem] text-muted-foreground">
                     {t("storySimulation.generation", { gen: rumor.generation })}
                   </span>
                 )}
                 <span
-                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                  className={`rounded px-1.5 py-0.5 text-[0.625rem] font-medium ${
                     rumor.distortion < 0.3
                       ? "bg-success/15 text-success dark:bg-success/20 dark:text-success"
                       : rumor.distortion < 0.6
@@ -302,12 +302,12 @@ function RumorTreeNodeView({
                   {t("storySimulation.distortion", { value: (rumor.distortion * 100).toFixed(0) })}
                 </span>
               </div>
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-[0.625rem] text-muted-foreground">
                 {t("storySimulation.roundLabel", { round: rumor.round + 1 })}
               </span>
             </div>
             <div className="mb-1.5 line-clamp-2 text-xs">{rumor.content}</div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.625rem] text-muted-foreground">
               {spreaderName && (
                 <span className="flex items-center gap-1">
                   <Users className="h-3 w-3" />
@@ -324,7 +324,7 @@ function RumorTreeNodeView({
               </span>
             </div>
             {isRoot && sourceEvent && (
-              <div className="mt-2 rounded-md border bg-muted/20 p-2 text-[10px] text-muted-foreground">
+              <div className="mt-2 rounded-md border bg-muted/20 p-2 text-[0.625rem] text-muted-foreground">
                 <div className="mb-0.5 font-medium text-foreground">
                   {t("storySimulation.sourceEvent", {
                     name: sourceEvent.actorName,

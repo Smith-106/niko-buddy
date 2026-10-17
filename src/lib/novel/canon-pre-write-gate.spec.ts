@@ -62,6 +62,17 @@ describe("53 P1-2 canon-pre-write-gate 四态", () => {
     expect(DEFAULT_PRE_WRITE_GATE_MODE).toBe("warn")
   })
 
+  it("非法 mode 值不提升拦截语义 (仅精确 \"block\" 硬拦; 其余一律降级 WARN)", () => {
+    const r = checkCanonPreWrite(
+      {
+        newEdges: [edge("n1", { sourceId: "A", predicate: "capital_of", targetId: "B", validAt: 2 })],
+        existingEdges: [edge("e1", { sourceId: "A", predicate: "capital_of", targetId: "C", validAt: 1 })],
+      },
+      { mode: "BLOCK" as never },
+    )
+    expect(r.state).toBe("WARN")
+  })
+
   it("同端点同 predicate 异值但区间不重叠 → WARN (时态递进合法)", () => {
     const r = checkCanonPreWrite(
       {

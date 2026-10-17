@@ -38,6 +38,9 @@ import {
   type ChapterBodySelection,
   type ChapterSelectionAction,
 } from "@/lib/chapter-selection"
+import { ChapterEmptyState } from "./chapter-empty-state"
+import { InspectorPanel } from "@/components/inspector/inspector-panel"
+import type { FileNode } from "@/types/wiki"
 
 const SnapshotViewer = lazy(async () => {
   const mod = await import("@/components/novel/snapshot-viewer")
@@ -177,6 +180,29 @@ function getChapterTitleFromPath(path: string): string {
 }
 
 const CHAPTER_TITLE_MIN_WIDTH_PX = 48
+
+/** 文件树 → 章节快捷入口（展示层只读投影：按章号倒序，最多 6 条）。 */
+function chapterOrderFromFileName(name: string): number {
+  const match = name.match(/(\d{1,4})/)
+  return match ? Number(match[1]) : 0
+}
+
+function collectRecentChapterFiles(nodes: FileNode[]): { path: string; label: string; order: number }[] {
+  const out: { path: string; label: string; order: number }[] = []
+  const walk = (list: FileNode[]) => {
+    for (const node of list) {
+      if (node.is_dir) {
+        if (node.children) walk(node.children)
+        continue
+      }
+      if (!/\.md$/i.test(node.name)) continue
+      if (!isChapterPath(node.path)) continue
+      out.push({ path: node.path, label: getChapterTitleFromPath(node.path), order: chapterOrderFromFileName(node.name) })
+    }
+  }
+  walk(nodes)
+  return out.sort((a, b) => b.order - a.order).slice(0, 6)
+}
 const CHAPTER_TITLE_RESTING_EXTRA_WIDTH_PX = 2
 const CHAPTER_TITLE_EDITING_EXTRA_WIDTH_PX = 16
 
@@ -193,6 +219,7 @@ export function PreviewPanel() {
   const setFileContent = useWikiStore((s) => s.setFileContent)
   const setFileTree = useWikiStore((s) => s.setFileTree)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
+  const fileTree = useWikiStore((s) => s.fileTree)
   const pendingEditorHighlight = useWikiStore((s) => s.pendingEditorHighlight)
   const setPendingEditorHighlight = useWikiStore((s) => s.setPendingEditorHighlight)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
@@ -299,6 +326,24 @@ export function PreviewPanel() {
       console.error("切换章节前同步文件失败:", err)
     }
   }, [syncChapterToCanonicalPath, finalChapterSave])
+
+  // ui-audit-20261016 P1-02（W-02）：角色认知 / 多视角点评是 absolute inset-0 的
+  // 全屏遮罩，旧版除了面板自己的关闭钮没有任何退路（无 Esc、无遮罩点击）。
+  // 这里统一接管 Esc：先关上层（人格点评），再关认知面板。
+  useEffect(() => {
+    if (!showCognition && !showPersona) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      event.stopPropagation()
+      if (showPersona) {
+        setShowPersona(false)
+        return
+      }
+      setShowCognition(false)
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [showCognition, showPersona])
 
   useEffect(() => {
     let cancelled = false
@@ -494,6 +539,8 @@ export function PreviewPanel() {
     if (!selectedFile || !isChapterPath(selectedFile) || getFileCategory(selectedFile) !== "markdown") return null
     return buildChapterEditorHeader(fileContent)
   }, [fileContent, selectedFile])
+  // 空态快捷入口：文件树投影，不触发新 IO
+  const recentChapterFiles = useMemo(() => collectRecentChapterFiles(fileTree ?? []), [fileTree])
   const chapterDisplayTitle = chapterHeader
     ? chapterHeader.heading || (selectedFile ? getChapterTitleFromPath(selectedFile) : "") /* v8 ignore start */ /* v8 ignore stop */
     : ""
@@ -501,18 +548,33 @@ export function PreviewPanel() {
     const text = chapterTitleEditing ? chapterTitleDraft : chapterDisplayTitle
     return text || chapterDisplayTitle || chapterTitleDraft || "\u00A0"
   })()
+  const chapterStatusTitle = chapterHeader
+    ? chapterHeader.status === "final"
+      ? t("preview.canonStatusTitle")
+      : chapterHeader.status === "revised"
+        ? t("preview.revisedStatusTitle")
+        : chapterHeader.status === "archived"
+          ? t("preview.archivedStatusTitle")
+          : t("preview.draftStatusTitle")
+    : undefined
   const chapterStatusMeta = chapterHeader ? (
     chapterHeader.status === "final" ? (
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-success/35 bg-success/10 px-2 py-0.5 text-xs font-medium leading-5 text-success dark:text-success">
+      <span
+        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-success/35 bg-success/10 px-2 py-0.5 text-xs font-medium leading-5 text-success dark:text-success"
+        title={chapterStatusTitle}
+      >
         <Check className="h-3 w-3 shrink-0" />
         <span>{chapterHeader.statusLabel}</span>
       </span>
     ) : chapterHeader.status === "draft" ? (
-      <span className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-muted/60 px-2 py-0.5 text-xs font-medium leading-5 text-muted-foreground">
+      <span
+        className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-muted/60 px-2 py-0.5 text-xs font-medium leading-5 text-muted-foreground"
+        title={chapterStatusTitle}
+      >
         {chapterHeader.statusLabel}
       </span>
     ) : (
-      <span className="shrink-0 text-sm leading-5 text-muted-foreground">
+      <span className="shrink-0 text-sm leading-5 text-muted-foreground" title={chapterStatusTitle}>
         {chapterHeader.statusLabel}
       </span>
     )
@@ -650,7 +712,11 @@ export function PreviewPanel() {
         const warnings = results.filter(r => r.severity === "warning")
 
         if (errors.length > 0) {
-          updatePhase(false, "blocked_by_review", { count: errors.length, warnings: warnings.length })
+          // 文案键 novel.chapter.reviewBlockedWithErrors 声明了 {{details}}，但此前唯一调用点
+          // 只传 {count, warnings} → 具体问题清单永不出现，作者只看到一行 11px 灰字
+          // （findings-2 W-08）。这里补上前 3 条可操作信息。
+          const details = errors.slice(0, 3).map((r) => r.message).join("；")
+          updatePhase(false, "blocked_by_review", { count: errors.length, warnings: warnings.length, details })
           setIsSavingFinal(false)
           return
         }
@@ -1180,9 +1246,10 @@ export function PreviewPanel() {
 
   if (!selectedFile) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        {t("preview.empty")}
-      </div>
+      <ChapterEmptyState
+        recentChapters={recentChapterFiles}
+        onSelectChapter={(path) => setSelectedFile(path)}
+      />
     )
   }
 
@@ -1209,8 +1276,11 @@ export function PreviewPanel() {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b px-3 py-1.5">
-        <div ref={chapterToolbarRef} className="flex min-w-0 items-center gap-2">
-          <div className="relative flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+        <div ref={chapterToolbarRef} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          {/* ui-audit-20261016：标题组旧下限 9rem 太窄——实测标题输入框 inline 宽度
+              148px 被 flex shrink 压到 98px（章节名显示为 “chapt…”），而右侧 12 个次级按钮
+              占满整行。下限提到 16rem 并让输入框不自缩，空间不够时工具条换行（容器已 flex-wrap）。 */}
+          <div className="relative flex min-w-[16rem] max-w-full flex-1 items-center gap-1 overflow-hidden">
             {chapterHeader ? (
               <>
                 <span
@@ -1247,7 +1317,7 @@ export function PreviewPanel() {
                       e.currentTarget.blur()
                     }
                   }}
-                  className="min-w-[4rem] shrink truncate border-0 bg-transparent p-0 text-2xl font-bold leading-10 text-foreground outline-none"
+                  className="min-w-[4rem] shrink-0 truncate border-0 bg-transparent p-0 text-2xl font-bold leading-10 text-foreground outline-none"
                   style={{
                     width: `${chapterTitleWidthPx}px`,
                     maxWidth: chapterToolbarCompact ? "12rem" : "min(28rem, 100%)",
@@ -1588,6 +1658,9 @@ export function PreviewPanel() {
             </span>
           </div>
         ) : null}
+        {isSelectedChapter && project ? (
+          <InspectorPanel projectPath={project.path} chapterId={selectedFile} refreshKey={fileContent} />
+        ) : null}
       </div>
       <div className={getPreviewContentContainerClass(isSelectedChapter)}>
         {category === "markdown" ? (
@@ -1631,7 +1704,7 @@ export function PreviewPanel() {
         </Suspense>
       ) : null}
       {showCognition && project ? (
-        <div className="absolute inset-0 z-20 bg-background">
+        <div className="absolute inset-0 z-20 bg-background" role="dialog" aria-modal="true" aria-label={t("preview.cognitionTitle")}>
           <CognitionPanel
             projectPath={project.path}
             onClose={() => setShowCognition(false)}
@@ -1639,7 +1712,7 @@ export function PreviewPanel() {
         </div>
       ) : null}
       {showPersona && project ? (
-        <div className="absolute inset-0 z-20 bg-background">
+        <div className="absolute inset-0 z-20 bg-background" role="dialog" aria-modal="true" aria-label={t("novel.persona.title")}>
           <PersonaCritiquePanel
             projectPath={project.path}
             onClose={() => setShowPersona(false)}

@@ -94,7 +94,7 @@ function SnapshotCard({
           <div className="text-sm font-semibold">
             {title}
           </div>
-          <div className="mt-1 text-[11px] text-muted-foreground">
+          <div className="mt-1 text-[0.6875rem] text-muted-foreground">
             {card.memorySynced
               ? t("novel.memoryCenter.snapshots.synced")
               : t("novel.memoryCenter.snapshots.unsynced")}

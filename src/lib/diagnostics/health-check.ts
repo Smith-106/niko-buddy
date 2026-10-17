@@ -25,6 +25,9 @@
 import { fileExists } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { loadNovelSessionStatus } from "@/lib/novel/novel-session-status"
+// B2（守门四件套接线 · golden-baseline）：黄金基线门控顺序/结构约束 + truth-file
+// 可读投影幂等门，均在此处接入 diagnostics（检查项 id 见 version/run 健康项）。
+import { structuralFingerprint } from "@/lib/quality/golden-baseline"
 import { loadFtsIndex, rebuildWikiFtsIndex } from "@/lib/novel/fts-index"
 import { loadExportHistoryView } from "@/lib/export/export-history-view"
 import { assessLlmHealth, type LlmHealthStatus } from "@/lib/llm-health"
@@ -413,7 +416,12 @@ async function projectFsHealthItem(projectPath: string): Promise<HealthItem> {
   }
 }
 
-/** 版本/协议健康：应用版本 + status.json schema_version。 */
+/** 版本/协议健康：应用版本 + status.json schema_version。
+ * B2（守门四件套接线 · golden-baseline）：附加门控顺序/结构约束指纹项——
+ * 实际门控顺序必须与 GATE_PRIORITY（Consistency > Anti-AI > Quality）一致，
+ * 并不与 golden-baseline.spec 的 manifest 口径冲突。本函数为 health 面的
+ * 轻量声明式锚点（只比对顺序指纹，不跑 drift 全量探针）。
+ */
 async function versionHealthItem(projectPath: string): Promise<HealthItem> {
   const pp = normalizePath(projectPath)
   const ev = "package.json __APP_VERSION__ + .novel/status.json schema_version"
@@ -433,9 +441,23 @@ async function versionHealthItem(projectPath: string): Promise<HealthItem> {
       schemaDetail = "status.json unreadable"
     }
     const status: HealthStatus = schemaOk ? "healthy" : "attention_required"
+    // B2（守门四件套接线 · golden-baseline/structuralFingerprint）：
+    // 门控顺序必须是 Consistency(P0) > Anti-AI(P1) > Quality(P2)。
+    // structuralFingerprint() 为纯函数指纹（JSON），此处只读验证存在性与一致性，
+    // 不引入 IO；若指纹口径漂移（函数签名改变），typecheck 会先失败。
+    const fingerprint = structuralFingerprint()
+    const gatesOrderOk =
+      fingerprint.includes("Consistency(P0)") &&
+      fingerprint.indexOf("Consistency(P0)") < fingerprint.indexOf("Anti-AI(P1)") &&
+      fingerprint.indexOf("Anti-AI(P1)") < fingerprint.indexOf("Quality(P2)")
+    const finalStatus: HealthStatus = !schemaOk
+      ? "attention_required"
+      : !gatesOrderOk
+        ? "degraded"
+        : "healthy"
     return {
       id: "version",
-      status,
+      status: finalStatus,
       objectName: "应用版本与数据协议",
       evidenceSource: ev,
       checkedAt: nowIso(),
@@ -445,8 +467,8 @@ async function versionHealthItem(projectPath: string): Promise<HealthItem> {
           : "数据协议版本与应用不匹配，可能影响读写",
       suggestedAction: status === "healthy" ? "无需操作" : "查看版本兼容说明",
       autoRecoverable: false,
-      technicalDetail: `appVersion=${appVersion}; ${schemaDetail}`,
-      errorCode: schemaOk ? undefined : "SCHEMA_VERSION_MISMATCH",
+      technicalDetail: `appVersion=${appVersion}; ${schemaDetail}; goldenFingerprint=${fingerprint.length > 0 ? "present" : "missing"}` + (gatesOrderOk ? "" : "; GATE_PRIORITY order drift"),
+      errorCode: schemaOk ? (gatesOrderOk ? undefined : "GATE_PRIORITY_DRIFT") : "SCHEMA_VERSION_MISMATCH",
       recoveries: [],
     }
   } catch (e) {

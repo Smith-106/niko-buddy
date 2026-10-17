@@ -78,7 +78,7 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
               >
                 <div className="flex w-full items-center justify-between">
                   <span className="text-sm font-medium">{info.name}</span>
-                  <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", info.color)}>
+                  <span className={cn("rounded-full px-2 py-0.5 text-[0.625rem] font-medium", info.color)}>
                     {info.freedomLabel}
                   </span>
                 </div>
@@ -180,7 +180,7 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
         <select
           value={sourceChapters}
           onChange={(e) => setSourceChapters(Number(e.target.value))}
-          className="h-8 w-40 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="h-8 w-40 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring"
         >
           {CHAPTER_OPTIONS.map((n) => (
             <option key={n} value={n}>

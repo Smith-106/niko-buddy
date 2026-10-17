@@ -9,8 +9,10 @@
  *  - 与 Rust 侧 classify_conflict (53 P0-2) 共享判定逻辑: 同端点同 predicate
  *    异值 + 有效区间重叠 = 硬冲突 (BLOCK/contradicted), digest 重复 = 幂等跳过。
  *
- * additive 保证: gate 默认 warn-only 模式 (BLOCK 降级为 WARN 记录), 观察期后
- * 经配置旗标 preWriteGateMode 切换 "block"; 未启用/拉取失败时零行为变更。
+ * additive 保证: gate 默认 warn-only 模式 (BLOCK 降级为 WARN 记录)。模式已有真实配置
+ * 读取点: NovelConfig.preWriteGateMode (设置体系 / `.niko-buddy/novel-config.json`, 读取于
+ * canon-dual-write.resolvePreWriteGateMode); 显式 "block" 时 BLOCK 硬拦写入, 其余
+ * (未设置 / 非法值 / 读取失败) 一律回退 warn — 零行为变更。
  */
 
 /** 写前门控四态。 */
@@ -65,10 +67,13 @@ export interface PreWriteGateResult {
   notes: string[]
 }
 
+/** 写前门模式: warn = 观察期只记录 (默认, BLOCK 降级 WARN); block = BLOCK 硬拦写入。 */
+export type PreWriteGateMode = "warn" | "block"
+
 /** gate 配置: 模式 + 有效区间重叠判定开关。 */
 export interface PreWriteGateConfig {
   /** warn-only (默认): BLOCK 降级 WARN 记录不拦截; block: BLOCK 硬拦。 */
-  mode?: "warn" | "block"
+  mode?: PreWriteGateMode
 }
 
 /** 默认写前 gate 模式: warn-only (additive 观察期, 零行为变更)。 */

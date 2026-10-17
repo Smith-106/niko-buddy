@@ -43,7 +43,7 @@ export function GraphSidebarPanel() {
           <PanelHeaderWithHelp title={t("novel.graph.title")} helpKey="graph" />
         </div>
         <span
-          className="hidden shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground lg:flex"
+          className="hidden shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground lg:flex"
           title={t("novel.graph.titleWikiNote")}
         >
           Wiki 知识图
@@ -140,7 +140,7 @@ export function GraphSidebarPanel() {
               <select
                 value={edgeStyle}
                 onChange={(e) => setEdgeStyle(e.target.value as GraphEdgeStyle)}
-                className="flex-1 h-6 rounded border border-input bg-background px-1 text-[11px] outline-none"
+                className="flex-1 h-6 rounded border border-input bg-background px-1 text-[0.6875rem] outline-none"
               >
                 <option value="curve">{t("graph.curveAvoid")}</option>
                 <option value="arrow">{t("graph.arrow")}</option>

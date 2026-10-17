@@ -143,7 +143,7 @@ export function FrameworkList({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={t("storySimulation.searchFrameworkPlaceholder")}
-                  className="h-7 w-full rounded-md border border-input bg-background pl-7 pr-2 text-xs outline-none focus:border-ring focus:ring-1 focus:ring-ring/50"
+                  className="h-7 w-full rounded-md border border-input bg-background pl-7 pr-2 text-xs outline-none focus:border-ring focus:ring-1 focus:ring-ring"
                 />
               </div>
             </div>
@@ -177,7 +177,7 @@ export function FrameworkList({
                       >
                         {displayTitle(framework)}
                       </span>
-                      <span className="mt-0.5 text-[11px] text-muted-foreground">
+                      <span className="mt-0.5 text-[0.6875rem] text-muted-foreground">
                         {t("storySimulation.nodesWords", {
                           nodes: framework.nodes.length,
                           words: framework.targetWords,

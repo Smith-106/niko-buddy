@@ -140,7 +140,7 @@ export function BranchManagerPanel({
       )}
 
       <div className="space-y-2 p-3">
-        <div className="text-[11px] text-muted-foreground">
+        <div className="text-[0.6875rem] text-muted-foreground">
           {t("storySimulation.branchSaveHint")}
         </div>
         <div className="flex gap-2">
@@ -215,7 +215,7 @@ export function BranchManagerPanel({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         {index === 0 && (
-                          <span className="shrink-0 rounded bg-gradient-to-r from-warning to-warning/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                          <span className="shrink-0 rounded bg-gradient-to-r from-warning to-warning/60 px-1.5 py-0.5 text-[0.625rem] font-medium text-white">
                             {t("storySimulation.recommended")}
                           </span>
                         )}
@@ -235,7 +235,7 @@ export function BranchManagerPanel({
                           </span>
                         )}
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.6875rem] text-muted-foreground">
                         <span className="font-semibold text-primary">
                           {t("storySimulation.scorePoints", { score: branch.overallScore.toFixed(1) })}
                         </span>
@@ -246,7 +246,7 @@ export function BranchManagerPanel({
                         </span>
                         <span>{formatDate(branch.createdAt)}</span>
                       </div>
-                      <div className="mt-1.5 grid grid-cols-4 gap-1 text-[10px] text-muted-foreground">
+                      <div className="mt-1.5 grid grid-cols-4 gap-1 text-[0.625rem] text-muted-foreground">
                         <div className="text-center">
                           <div className="font-medium text-foreground">
                             {branch.scoreDetails.avgDirectorScore.toFixed(1)}
@@ -314,7 +314,7 @@ export function BranchManagerPanel({
                     </div>
                   </div>
                   {isActive && (
-                    <div className="mt-1.5 border-t pt-1.5 text-[11px] text-primary">
+                    <div className="mt-1.5 border-t pt-1.5 text-[0.6875rem] text-primary">
                       ● {t("storySimulation.currentBranchBadge")}
                     </div>
                   )}
@@ -340,12 +340,12 @@ export function BranchManagerPanel({
             {t("storySimulation.compareSelectedBranches")}
           </Button>
           {compareBranchIds.length > 0 && compareBranchIds.length < 2 && (
-            <div className="mt-1.5 text-center text-[11px] text-muted-foreground">
+            <div className="mt-1.5 text-center text-[0.6875rem] text-muted-foreground">
               {t("storySimulation.selectMoreBranches", { count: 2 - compareBranchIds.length })}
             </div>
           )}
           {compareBranchIds.length > 3 && (
-            <div className="mt-1.5 text-center text-[11px] text-warning">
+            <div className="mt-1.5 text-center text-[0.6875rem] text-warning">
               {t("storySimulation.maxBranchesForCompare")}
             </div>
           )}

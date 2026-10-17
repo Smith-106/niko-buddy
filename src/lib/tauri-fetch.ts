@@ -23,11 +23,13 @@ const hasTauriBridge = (): boolean =>
 // ---------------------------------------------------------------------------
 // SEC-02 (ISS-20260724-006): URL validation guard for outbound HTTP requests.
 // Prevents SSRF / local-network probing by rejecting:
-//   - non-HTTPS protocols (http://, file://, ftp://, etc.)
-//   - private / link-local / loopback addresses (RFC 1918, 169.254.x, 127.x)
-//   - localhost / *.local hostnames
-// The Tauri http:default capability allowlist is overly broad (http://** +
-// https://**); this runtime guard is the defense-in-depth boundary.
+//   - non-HTTP(S) protocols (file://, ftp://, etc.)
+//   - public plain-HTTP (http://) traffic; http:// is allowed only for
+//     explicit local endpoints (LL-1): loopback, RFC 1918 private networks
+//     and mDNS *.local hosts used by Ollama / LM Studio / cursor-cli proxy
+//   - private / link-local / reserved addresses over https://
+// The Tauri capability URL scope (src-tauri/capabilities/default.json) is
+// kept in sync as a second lock; this runtime guard is the primary boundary.
 // ---------------------------------------------------------------------------
 
 const PRIVATE_HOST_PATTERNS = [
@@ -43,21 +45,36 @@ const PRIVATE_HOST_PATTERNS = [
   /\.internal$/i,
 ]
 
-/** Test-only: allow http://127.0.0.1|localhost for local mock servers (never enable in product). */
-let allowHttpLoopbackForTests = false
+/**
+ * Loopback + RFC 1918 + mDNS hosts that may be used as explicit local
+ * plain-http endpoints (LL-1). Public http:// must stay blocked.
+ * Kept in sync with the http:default URL scope in
+ * src-tauri/capabilities/default.json.
+ */
+const LOCAL_HTTP_HOST_PATTERNS = [
+  /^localhost$/i,
+  /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+  /^\[::1\]$/,
+  /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+  /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
+  /^192\.168\.\d{1,3}\.\d{1,3}$/,
+  /\.local$/i,
+]
 
-/** Enable/disable SEC-02 loopback HTTP bypass (vitest integration helpers only). */
-export function setAllowHttpLoopbackForTests(enabled: boolean): void {
-  allowHttpLoopbackForTests = enabled === true
+function isLocalHttpHostname(hostname: string): boolean {
+  return LOCAL_HTTP_HOST_PATTERNS.some((pattern) => pattern.test(hostname))
 }
 
-function isLoopbackHostname(hostname: string): boolean {
-  return (
-    /^localhost$/i.test(hostname)
-    || /^127\./.test(hostname)
-    || hostname === "::1"
-    || hostname === "[::1]"
-  )
+/**
+ * Legacy test escape hatch (vitest integration helpers).
+ *
+ * @deprecated Since LL-1 local http endpoints (loopback / RFC 1918 / *.local)
+ * pass unconditionally, so this toggle no longer changes guard behavior. It is
+ * retained as a no-op so existing suites (e.g. j06-j09-real-transport.spec.ts)
+ * keep importing it without edits.
+ */
+export function setAllowHttpLoopbackForTests(_enabled: boolean): void {
+  void _enabled
 }
 
 /**
@@ -74,19 +91,17 @@ function assertSafeUrl(raw: string | URL | Request): void {
 
   const hostname = url.hostname
 
-  // Test-only loopback HTTP (local mock LLM servers). Production always HTTPS-only.
-  if (
-    allowHttpLoopbackForTests
-    && url.protocol === "http:"
-    && isLoopbackHostname(hostname)
-  ) {
+  // LL-1: explicit local endpoints may use plain http:// (Ollama, LM Studio,
+  // cursor-cli proxy, LAN gateways). Public http:// remains blocked below.
+  if (url.protocol === "http:" && isLocalHttpHostname(hostname)) {
     return
   }
 
-  // Only HTTPS is allowed for outbound requests (reject http://, file://, etc.)
+  // Everything else must be HTTPS (rejects public http://, file://, ftp://, …)
   if (url.protocol !== "https:") {
     throw new Error(
-      `[SEC-02] Blocked non-HTTPS request to ${url.protocol}//${url.host}. Only https: is allowed.`,
+      `[SEC-02] Blocked non-HTTPS request to ${url.protocol}//${url.host}. `
+      + "Only https: is allowed (http: is permitted only for loopback/private-network endpoints).",
     )
   }
 
@@ -119,7 +134,8 @@ function withUrlGuard(innerFetch: typeof globalThis.fetch): typeof globalThis.fe
  * the plugin module.
  *
  * All outbound requests are guarded by SEC-02 URL validation
- * (HTTPS-only + private address rejection) to prevent SSRF.
+ * (public traffic HTTPS-only + private address rejection; explicit local
+ * loopback/RFC 1918 http endpoints allowed per LL-1) to prevent SSRF.
  *
  * @example
  *   const httpFetch = await getHttpFetch()

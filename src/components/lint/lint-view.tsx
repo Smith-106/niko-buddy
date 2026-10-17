@@ -408,7 +408,7 @@ export function LintView() {
                       <button
                         type="button"
                         onClick={() => void handleDeleteHistory(entry)}
-                        className="shrink-0 text-[10px] text-muted-foreground hover:text-destructive"
+                        className="shrink-0 text-[0.625rem] text-muted-foreground hover:text-destructive"
                       >
                         {t("novel.history.delete")}
                       </button>
@@ -496,7 +496,7 @@ function LintCard({
         />
         <div className="flex-1 min-w-0">
           <div className="font-medium truncate">{result.page}</div>
-          <div className="text-[11px] text-muted-foreground">{config.label}</div>
+          <div className="text-[0.6875rem] text-muted-foreground">{config.label}</div>
         </div>
       </div>
 

@@ -1,6 +1,5 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { readFile } from "@/commands/fs"
-import { searchWiki } from "@/lib/search"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS } from "@/lib/llm-client"
 import { logger } from "@/lib/utils"
 
@@ -26,22 +25,20 @@ export async function analyzePreviousChapters(
   if (currentChapterNumber <= 1) return ""
 
   // 读取前N章的完整内容
-  // PERF (odyssey-review): chapters are independent — parallelize searchWiki +
-  // readFile per chapter instead of serial await-in-loop (N+1 IPC round-trips
-  // → 1 batch). Per-chapter try/catch preserved (one read failure must not abort
-  // the others). Order preserved via index mapping.
+  // 各章独立，并行读取正式章节文件。逐章失败不打断其余章节，结果按下标保序。
   const startChapter = Math.max(1, currentChapterNumber - analysisCount)
+  const projectRoot = projectPath.replace(/\\/g, "/").replace(/\/+$/, "")
   const chapters = await Promise.all(
     Array.from({ length: currentChapterNumber - startChapter }, async (_, offset) => {
       const i = startChapter + offset
       try {
-        const results = await searchWiki(projectPath, `chapter_number:${i}`)
-        if (results.length > 0) {
-          const content = await readFile(results[0].path)
-          const bodyStart = content.indexOf("---", 4)
-          const body = bodyStart >= 0 ? content.slice(bodyStart + 3).trim() : content
-          return { number: i, content: body }
-        }
+        // 直接读正式章节文件。用 searchWiki("chapter_number:N") 会把查询
+        // 切成通用词“chapter”，排序后总是命中第 1 章，前情分析会把旧章当成第 1 章。
+        const filePath = `${projectRoot}/wiki/chapters/chapter-${String(i).padStart(3, "0")}.md`
+        const content = await readFile(filePath)
+        const bodyStart = content.indexOf("---", 4)
+        const body = bodyStart >= 0 ? content.slice(bodyStart + 3).trim() : content
+        return { number: i, content: body }
       } catch {
         // 忽略读取失败的章节
       }

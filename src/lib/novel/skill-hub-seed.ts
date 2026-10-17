@@ -1,13 +1,51 @@
 import { normalizeUserSkill, type SkillKind, type SkillStage, type UserSkill } from "./skill-library"
 import { SKILL_ROUTE_CATEGORY_IDS } from "./skill-route"
 import { validateSkillRouteRegistry } from "./skill-route-registry"
+import { readdirSync, readFileSync, statSync } from "node:fs"
 import { parseFrontmatter } from "@/lib/frontmatter"
 
-const skillHubModules = import.meta.glob("../../../skills/SkillHub/**/SKILL.md", {
-  eager: true,
-  query: "?raw",
-  import: "default",
-}) as Record<string, string>
+function loadSkillHubModules(): Record<string, string> {
+  // NOTE: `import.meta.glob` must be called unconditionally (no typeof guard).
+  // Vite inlines eager globs at build time, but the guard itself evaluates to
+  // false in the built bundle and would fall through to the Node-only fs walk,
+  // crashing module evaluation (white screen). In Node script runtimes (tsx)
+  // the glob call throws -> caught -> fs walk below.
+  try {
+    const globbed = import.meta.glob("../../../skills/SkillHub/**/SKILL.md", {
+      eager: true,
+      query: "?raw",
+      import: "default",
+    }) as Record<string, string>
+    if (Object.keys(globbed).length > 0) return globbed
+  } catch {
+    // No glob transform (Node runtime): try fs walk below.
+  }
+  try {
+    const root = new URL("../../../skills/SkillHub/", import.meta.url)
+    const modules: Record<string, string> = {}
+    const visit = (dir: URL) => {
+      for (const name of readdirSync(dir)) {
+        const child = new URL(`${name}/`, dir)
+        if (statSync(child).isDirectory()) {
+          visit(child)
+          continue
+        }
+        if (name === "SKILL.md") {
+          modules[child.pathname] = readFileSync(child, "utf8")
+        }
+      }
+    }
+    visit(root)
+    return modules
+  } catch {
+    // webview: node:fs is a throwing shim — fail open with empty modules
+    // rather than crashing module evaluation (white screen).
+    console.warn("[skill-hub-seed] SkillHub modules unavailable, using empty set")
+    return {}
+  }
+}
+
+const skillHubModules = loadSkillHubModules()
 
 // 收敛 canonical frontmatter（arch-risk W3）——私有 regex → parseFrontmatter
 // （BOM/容错由 canonical locateFrontmatterBlock 统一处理，不再手写 \\uFEFF regex）。

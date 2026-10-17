@@ -93,6 +93,23 @@ async function spoolStalledStreamToDisk(
   }
 }
 
+/** C2 去猴补：transport 第一方暴露的活跃流 id 注册表。
+ * chat-panel 曾靠拦截 `__TAURI_INTERNALS__.invoke` 的 `plugin:event|listen`
+ * 调用从 `claude-cli:*` 事件名里提取 streamId 供强制停止使用；现改为 transport
+ * 主动通过 `onStatus("claude-cli:stream-start:<id>")`/`("claude-cli:stream-end:<id>")`
+ * 广播（见 streamClaudeCodeCli）+ 本注册表快照，UI 不再需要触碰 Tauri 内部对象。
+ */
+const activeTransportStreamIds = new Set<string>()
+
+export function activeRustStreamIds(): string[] {
+  return [...activeTransportStreamIds]
+}
+
+export async function forceKillAll(): Promise<void> {
+  const ids = activeRustStreamIds()
+  await Promise.allSettled(ids.map((id) => gracefulAbortStream(id, 0)))
+}
+
 export async function gracefulAbortStream(streamId: string, graceMs: number): Promise<void> {
   try {
     await invoke("claude_cli_terminate", { streamId })
@@ -359,7 +376,7 @@ export async function streamClaudeCodeCli(
   signal?: AbortSignal,
   overrides?: RequestOverrides,
 ): Promise<void> {
-  const { onToken, onDone, onError } = callbacks
+  const { onToken, onDone, onError, onStatus } = callbacks
 
   if (import.meta.env?.DEV && overrides) {
     for (const key of ["temperature", "top_p", "top_k", "max_tokens", "stop", "jsonSchema"] as const) {
@@ -401,6 +418,10 @@ export async function streamClaudeCodeCli(
 
       const streamId = crypto.randomUUID()
       activeStreamId = streamId
+      // C2 去猴补：transport 第一方暴露启动中的流 id（替代 chat-panel 对
+      // __TAURI_INTERNALS__.invoke 的拦截跟踪）。onStatus 回调为可选。
+      onStatus?.(`claude-cli:stream-start:${streamId}`)
+      activeTransportStreamIds.add(streamId)
       const parse = createClaudeCodeStreamParser()
       let emittedToken = false
 
@@ -633,6 +654,8 @@ export async function streamClaudeCodeCli(
       })
 
       activeStreamId = null
+      activeTransportStreamIds.delete(streamId)
+      onStatus?.(`claude-cli:stream-end:${streamId}`)
 
       if (attemptResult.kind === "done") {
         onDone()

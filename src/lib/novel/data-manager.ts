@@ -15,6 +15,7 @@ import {
   fileExists,
   getFileSize,
   listDirectory,
+  pathIsDirectory,
 } from "@/commands/fs"
 import type { FileNode } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
@@ -47,15 +48,19 @@ function buddyDir(projectPath: string): string {
 async function pathSize(path: string): Promise<number> {
   try {
     if (!(await fileExists(path))) return 0
-    // 先试当文件取大小；目录取不到大小则递归子项。
-    const size = await getFileSize(path).catch(() => -1)
-    if (size >= 0) return size
-    const children = await listDirectory(path).catch(() => [] as FileNode[])
-    let total = 0
-    for (const child of children) {
-      total += await pathSize(child.path)
+    // 目录：按真实文件类型判定后递归子项求和（DI-1）。
+    // 不能靠 getFileSize 是否失败区分 —— Windows 上目录的 metadata.len()
+    // 返回 Ok(0)，旧逻辑会把它当「0 字节文件」直接返回 0。
+    if (await isDir(path)) {
+      const children = await listDirectory(path).catch(() => [] as FileNode[])
+      let total = 0
+      for (const child of children) {
+        total += await pathSize(child.path)
+      }
+      return total
     }
-    return total
+    const size = await getFileSize(path).catch(() => 0)
+    return size > 0 ? size : 0
   } catch {
     return 0
   }
@@ -81,20 +86,27 @@ export async function statAllDomains(projectPath: string): Promise<DomainStat[]>
   return Promise.all(DATA_DOMAINS.map((d) => statDomain(projectPath, d)))
 }
 
-/** 判断路径是目录（能 listDirectory 且 getFileSize 失败）还是文件。 */
+/**
+ * 判断路径是否为目录。
+ *
+ * DI-1 根因：旧实现用 `getFileSize` 失败推断目录（`size < 0`），但 Rust
+ * `do_get_file_size` = `metadata.len()`，对目录在 Windows 上返回 `Ok(0)`，
+ * 目录被误判为普通文件 → 走 copyFile 对目录必败（错误被吞）→ 源目录被
+ * `deleteFile` 递归物理删除。目录判定的唯一可信来源是 Rust
+ * `path_is_directory`（`metadata.file_type().is_dir()`）。
+ */
 async function isDir(path: string): Promise<boolean> {
-  const size = await getFileSize(path).catch(() => -1)
-  return size < 0
+  return pathIsDirectory(path).catch(() => false)
 }
 
-/** 复制单个路径（目录→copyDirectory / 文件→copyFile）到目标。 */
+/** 复制单个路径（目录→copyDirectory / 文件→copyFile）到目标。失败一律上抛。 */
 async function copyPath(src: string, dest: string): Promise<void> {
   if (await isDir(src)) {
     await copyDirectory(src, dest)
   } else {
-    // 文件：确保父目录存在后复制
+    // 文件：确保父目录存在后复制（create_dir_all 幂等）
     const parent = dest.slice(0, dest.lastIndexOf("/"))
-    if (parent) await createDirectory(parent).catch(() => {})
+    if (parent) await createDirectory(parent)
     await copyFile(src, dest)
   }
 }
@@ -113,9 +125,12 @@ export async function moveDomainToTrash(
   for (const rel of domain.relPaths) {
     const src = `${base}/${rel}`
     if (!(await fileExists(src))) continue
-    await createDirectory(trashTarget).catch(() => {})
+    await createDirectory(trashTarget)
     const dest = `${trashTarget}/${rel.split("/").pop()}`
-    await copyPath(src, dest).catch(() => {})
+    // DI-1：先复制、复制成功才允许删源；任何 copy 失败都必须上抛中止。
+    // （旧实现 `.catch(() => {})` 吞错 + 无条件 deleteFile(src)，对目录
+    //  意味着 copy 必败后源目录被递归物理删除 ——「可恢复」名存实亡。）
+    await copyPath(src, dest)
     await deleteFile(src)
     moved = true
   }
@@ -158,15 +173,28 @@ export async function restoreDomainFromTrash(
     const src = `${trashTarget}/${name}`
     const dest = `${base}/${name}`
     if (await fileExists(dest)) await deleteFile(dest)
-    await copyPath(src, dest).catch(() => {})
+    // DI-1：复制成功才删回收站源；copy 失败上抛，回收站内容保留可重试。
+    await copyPath(src, dest)
     await deleteFile(src)
   }
 }
 
-/** 整项目重置：把所有数据域移入回收站（同一 stamp）。返回 stamp。 */
+/** 整项目重置：把所有数据域移入回收站（同一 stamp）。返回 stamp。
+ *  DI-1：单个域失败不再静默 —— 记录后继续其余域，最终如有失败则如实抛出
+ *  （禁止「失败了却看起来成功」；失败域的源数据因 copy-gate 保持完好）。 */
 export async function moveAllToTrash(projectPath: string, stamp: string): Promise<string> {
+  const failures: string[] = []
   for (const domain of DATA_DOMAINS) {
-    await moveDomainToTrash(projectPath, domain, stamp).catch(() => {})
+    try {
+      await moveDomainToTrash(projectPath, domain, stamp)
+    } catch (e) {
+      failures.push(`${domain.id}: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(
+      `moveAllToTrash: ${failures.length} domain(s) failed to move to trash: ${failures.join("; ")}`,
+    )
   }
   return stamp
 }

@@ -1,5 +1,11 @@
 import { describe, expect, it, beforeEach } from "vitest"
-import { LOCK_WAIT_TIMEOUT_MS, __resetLocksForTest, withProjectLock } from "./novel-locks"
+import {
+  LOCK_WAIT_TIMEOUT_MS,
+  __resetLocksForTest,
+  canonicalLockKey,
+  withProjectLock,
+} from "./novel-locks"
+import { withProjectLock as withProjectLockCompat } from "@/lib/project-mutex"
 
 describe("Phase4 novel-locks (per-key async mutex)", () => {
   beforeEach(() => {
@@ -81,3 +87,51 @@ describe("Phase4 默认超时常量", () => {
     expect(LOCK_WAIT_TIMEOUT_MS).toBe(10_000)
   })
 })
+describe("C1 锁族合并：跨族互斥 + 键归一（project-mutex 兼容层共享同一锁表）", () => {
+  beforeEach(() => {
+    __resetLocksForTest()
+  })
+
+  it("跨族互斥：兼容层取锁阻塞 novel-locks 同键（单锁表）", async () => {
+    const order: string[] = []
+    const gate = new Promise<void>((r) => setTimeout(r, 20))
+    const holder = withProjectLockCompat("C1-proj", async () => {
+      await gate
+      order.push("compat-holder")
+    })
+    const waiterDone = withProjectLock("C1-proj", async () => {
+      order.push("novel-waiter")
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    // holder 未释放前 waiter 不得进入（若两族各持独立 Map，此断言失败）。
+    expect(order).toEqual([])
+    await gate
+    await holder
+    await waiterDone
+    expect(order).toEqual(["compat-holder", "novel-waiter"])
+  })
+
+  it("键归一：反斜杠/尾斜杠/复合键空尾段拼写命中同一把锁", () => {
+    expect(canonicalLockKey("C:\\a\\b")).toBe(canonicalLockKey("C:/a/b"))
+    expect(canonicalLockKey("C:/a/b/")).toBe(canonicalLockKey("C:/a/b"))
+    expect(canonicalLockKey("C:/a/b/::chat-persist")).toBe(canonicalLockKey("C:/a/b::chat-persist"))
+    // 命名空间前缀保留，不混同。
+    expect(canonicalLockKey("ledger:C:/a")).not.toBe(canonicalLockKey("page:C:/a"))
+  })
+
+  it("键归一互斥：反斜杠+尾斜杠拼写与正斜杠拼写串行（同 project 不同调用面）", async () => {
+    const order: string[] = []
+    const slow = withProjectLock("C:\\w\\proj/", async () => {
+      order.push("a-start")
+      await new Promise((r) => setTimeout(r, 30))
+      order.push("a-end")
+    })
+    const fast = withProjectLockCompat("C:/w/proj", async () => {
+      order.push("b")
+    })
+    await Promise.all([slow, fast])
+    expect(order).toEqual(["a-start", "a-end", "b"])
+  })
+})
+

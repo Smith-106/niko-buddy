@@ -15,6 +15,7 @@ import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { clampSidebarWidth } from "@/lib/workspace-layout"
 import { TitleBar } from "./title-bar"
+import { CommandPalette } from "./command-palette"
 import { useTranslation } from "react-i18next"
 import { HelpCircle, X } from "lucide-react"
 
@@ -38,6 +39,8 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
   const retryBookAnalysisTask = useBookAnalysisStore((s) => s.retryTask)
   const [leftWidth, setLeftWidth] = useState(220)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  // 命令面板（Ctrl/⌘+K）：findings-1 F-12 / findings-4 ROI #1 — 键盘直达全部视图与章节
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [usageGuidePromptDismissed, setUsageGuidePromptDismissed] = useState(() => {
     /* v8 ignore next */
     if (typeof localStorage === "undefined") return false
@@ -135,6 +138,19 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
     localStorage.setItem("lk-sidebar-collapsed", sidebarCollapsed ? "1" : "0")
   }, [sidebarCollapsed])
 
+  // 命令面板热键：Ctrl/⌘+K（findings-1 F-12）。用捕获阶段监听，避免输入框里
+  // 未处理的按键被吞掉；Ctrl/⌘+Shift+K 同样命中，便于 macOS 上避开浏览器快捷键。
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault()
+        setCommandPaletteOpen((prev) => !prev)
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [])
+
   const dismissUsageGuidePrompt = useCallback(() => {
     setUsageGuidePromptDismissed(true)
     localStorage.setItem(USAGE_GUIDE_PROMPT_DISMISSED_KEY, "1")
@@ -170,7 +186,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      <TitleBar />
+      <TitleBar onOpenCommandPalette={() => setCommandPaletteOpen(true)} />
       {latestOutlineTask && (
         <div className="fixed bottom-3 right-3 z-50 w-80 rounded-lg border bg-background p-3 shadow-lg">
           <div className="text-sm font-medium">
@@ -349,8 +365,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
           onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
           onOpenSidebar={() => setSidebarCollapsed(false)}
           onSwitchProject={onSwitchProject}
-        />
-        <div ref={containerRef} className="flex min-w-0 flex-1 overflow-hidden">
+        />        <div ref={containerRef} className="flex min-w-0 flex-1 overflow-hidden">
         {!isSettings && !sidebarCollapsed && (
           <>
             <div
@@ -375,6 +390,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
         </div>
         </div>
       </div>
+      <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
     </div>
   )
 }

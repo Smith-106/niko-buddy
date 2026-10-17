@@ -117,6 +117,14 @@ interface LlmConfig {
   azureApiVersion?: string
   azureModelFamily?: AzureModelFamily
   maxContextSize: number // max context window in characters
+  /**
+   * HTTP transport timeouts (UI 可调, 单位毫秒, 均为可选 additive)。
+   * undefined = 沿用各档硬编码默认 (connect 10s / header 20s / stream-idle 90s), 零行为变更。
+   * 传入时经 streamChat 钳制后生效 (connect/header 5s–300s, idle 30s–600s)。
+   */
+  httpConnectTimeoutMs?: number
+  httpHeaderTimeoutMs?: number
+  httpStreamIdleMs?: number
   apiMode?: CustomApiMode
   reasoning?: ReasoningConfig
   localCliIsolation?: boolean
@@ -275,6 +283,14 @@ export interface NovelConfig {
   /** After Track A gates are green, optionally run Track B literary polish for thril/pull warnings (default off). Does not override Consistency/FIX-1. */
   literaryPolishAfterGate: boolean
   /**
+   * B8: canon 写前一致性门模式 (additive, 默认 "warn" 观察期 = 零行为变更)。
+   * "block" 时 BLOCK 级硬冲突在写入前硬拦, 写入返回 pre_write_block (读取点:
+   * canon-dual-write.resolvePreWriteGateMode)。本开关只加强不削弱: 任何取值都保留
+   * 门判定与 gate 记录, 无关闭档 (Consistency P0 不可被配置关闭)。
+   * 持久化 `.niko-buddy/novel-config.json` (project-store normalizeNovelConfig 透传)。
+   */
+  preWriteGateMode?: "warn" | "block"
+  /**
    * Residual campaign product opt-in (default off / fail-open).
    * When true and chapter is residual (not freeze Ch4/Ch6), deep-chapter receives
    * residualOverallMedian + structure_thril_pacing fields for structure-first inject/polish.
@@ -415,6 +431,8 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   deepPreviousChaptersAnalysis: false,
   deepChapterReview: true,
   literaryPolishAfterGate: false,
+  // B8: canon 写前门默认 warn 观察期 (显式 "block" 才硬拦; 读取点 canon-dual-write.resolvePreWriteGateMode)。
+  preWriteGateMode: "warn",
   residualCampaignEnabled: false,
   residualCampaignIncludeFreezeChapters: false,
   stageJournalEnabled: true,
@@ -549,6 +567,13 @@ export interface ProviderOverride {
   codexCliTimeoutMinutes?: number
   /** 54 W3: 生成最大 token 数 (UI 可调, resolveConfig 透传至 LlmConfig.maxOutputTokens)。 */
   maxOutputTokens?: number
+  /**
+   * HTTP 三档超时 (UI 可调毫秒数, resolveConfig 透传至 LlmConfig 同名字段)。
+   * undefined = 不覆盖, 沿用 LlmConfig 缺省 (即各档硬编码默认)。
+   */
+  httpConnectTimeoutMs?: number
+  httpHeaderTimeoutMs?: number
+  httpStreamIdleMs?: number
   /** Whether to show models under this provider in AI conversations (default true). */
   enabled?: boolean
   /** Saved models for this provider. */

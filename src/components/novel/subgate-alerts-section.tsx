@@ -95,14 +95,14 @@ export function SubgateAlertsSection({ projectId, ledger, deps }: SubgateAlertsS
                 data-testid={`subgate-item-${item.eventId}`}
                 className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-xs"
               >
-                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                   {CATEGORY_LABELS[item.category]}
                 </span>
                 <span className="font-medium">{item.name}</span>
                 {item.summary.length > 0 ? <span className="text-muted-foreground dark:text-muted-foreground">{item.summary}</span> : null}
-                <span className="text-[10px] text-muted-foreground">{item.ts}</span>
+                <span className="text-[0.625rem] text-muted-foreground">{item.ts}</span>
                 {item.evidenceRefs.length > 0 ? (
-                  <span className="ml-auto text-[10px] text-muted-foreground" title={item.evidenceRefs.join(", ")}>
+                  <span className="ml-auto text-[0.625rem] text-muted-foreground" title={item.evidenceRefs.join(", ")}>
                     证据 {item.evidenceRefs.length}
                   </span>
                 ) : null}

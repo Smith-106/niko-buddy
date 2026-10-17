@@ -27,8 +27,12 @@ import { invoke } from "@tauri-apps/api/core"
  * 非 Tauri 宿主（Node 无头 / 纯单测 / 离线回放）下 invoke 直接抛，
  * 调用侧此前无降级。上层（context-engine 三源并发）已对空结果优雅降级，
  * 故此处失败只 warn + 抛由调用方形状决定的空值，不阻断装配。
+ *
+ * B5 对账说明：本函数是字面量命令名的**唯一中转点**——4 条 canon 命令的字面量
+ * 均在本文件调用点逐条写出（对账扫描器以首实参字面量计入 wired），变量 `command`
+ * 只是透传，不引入新的动态命令源（见 DYNAMIC_INVOKE_SITES 登记）。
  */
-async function invokeCanon<T>(command: string, args: Record<string, unknown>, fallback: T): Promise<T> {
+async function invokeCanon<T>(command: "canon_facts_known_by" | "canon_query" | "canon_query_batch" | "canon_query_episodes", args: Record<string, unknown>, fallback: T): Promise<T> {
   try {
     return await invoke<T>(command, args)
   } catch (err) {
