@@ -110,17 +110,24 @@ function walkSourceFiles(dir, out) {
   return out
 }
 
-const FROM_RE = /\bfrom\s+["']([^"']+)["']/g
-const BARE_IMPORT_RE = /\bimport\s+["']([^"']+)["']/g
-const DYNAMIC_IMPORT_RE = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g
-const EXPORT_FROM_RE = /\bexport\s+\*\s+(?:as\s+\w+\s+)?from\s+["']([^"']+)["']/g
+// 说明符字符类排除引号与换行：注释正文（含 `from "…"` 字样）不得跨行被误当作
+// import，否则同一份源码在 CRLF / LF 检出下会产出不同字节（字节门禁随环境漂移）。
+const FROM_RE = /\bfrom\s+["']([^"'\n\r]+)["']/g
+const BARE_IMPORT_RE = /\bimport\s+["']([^"'\n\r]+)["']/g
+const DYNAMIC_IMPORT_RE = /\bimport\s*\(\s*["']([^"'\n\r]+)["']\s*\)/g
+const EXPORT_FROM_RE = /\bexport\s+\*\s+(?:as\s+\w+\s+)?from\s+["']([^"'\n\r]+)["']/g
 
 function collectSpecifiers(code) {
   const found = new Set()
   for (const re of [FROM_RE, BARE_IMPORT_RE, DYNAMIC_IMPORT_RE, EXPORT_FROM_RE]) {
     re.lastIndex = 0
     let m
-    while ((m = re.exec(code)) !== null) found.add(m[1])
+    while ((m = re.exec(code)) !== null) {
+      const spec = m[1]
+      // 合法模块说明符不含空白：含空白的必然是注释/字符串正文误配。
+      if (spec.length === 0 || /\s/.test(spec)) continue
+      found.add(spec)
+    }
   }
   return [...found]
 }
@@ -152,11 +159,19 @@ function isSpecFile(absPath) {
   return absPath.endsWith(".spec.ts") || absPath.endsWith(".spec.tsx") || absPath.endsWith(".spec.mts")
 }
 
+/**
+ * 读源码并归一换行。Windows 检出（CRLF）与 CI 检出（LF）必须产出相同字节，
+ * 否则 gen:check 字节门禁会随环境漂移。
+ */
+function readSource(file) {
+  return readFileSync(file, "utf8").split("\r\n").join("\n")
+}
+
 function buildAtlas() {
   const files = walkSourceFiles(SRC, []).sort()
   const ids = new Map(files.map((f, i) => [f, i]))
   const modules = files.map((file) => {
-    const code = readFileSync(file, "utf8")
+    const code = readSource(file)
     const rel = relative(ROOT, file).split(sep).join("/")
     return {
       file,
@@ -172,7 +187,7 @@ function buildAtlas() {
   })
 
   for (const mod of modules) {
-    const code = readFileSync(mod.file, "utf8")
+    const code = readSource(mod.file)
     for (const spec of collectSpecifiers(code)) {
       const target = resolveSpecifier(spec, mod.file, mod.externals)
       if (!target) continue
@@ -202,7 +217,7 @@ function buildAtlas() {
   for (const file of allFiles) {
     let code
     try {
-      code = readFileSync(file, "utf8")
+      code = readSource(file)
     } catch {
       continue
     }
