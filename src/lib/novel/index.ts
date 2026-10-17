@@ -1192,3 +1192,19 @@ export {
   saveHeatSnapshot,
 } from "./module-heat-persist"
 export type { ModuleHeatSnapshot } from "./module-heat-persist"
+
+// 主控 Agent（阶段 1：只读 + 草稿写入）
+export {
+  MAIN_CONTROL_SYSTEM_PROMPT,
+  MAIN_CONTROL_TOOLS,
+  parseDraftReceipts,
+  resolveWikiPath,
+  runMainControlAgent,
+} from "./main-control"
+export type {
+  MainControlDeps,
+  MainControlDraft,
+  MainControlResult,
+  MainControlStep,
+  RunMainControlOptions,
+} from "./main-control"

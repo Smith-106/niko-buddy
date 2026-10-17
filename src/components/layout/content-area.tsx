@@ -81,6 +81,11 @@ const ModuleHeatmapView = lazy(async () => {
   return { default: mod.ModuleHeatmapView }
 })
 
+const MainControlView = lazy(async () => {
+  const mod = await import("@/components/novel/main-control-view")
+  return { default: mod.MainControlView }
+})
+
 function LoadingView() {
   return (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -202,6 +207,13 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <ModuleHeatmapView projectId={projectId} />
+          </Suspense>
+        )
+        break
+      case "mainControl":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <MainControlView projectId={projectId} />
           </Suspense>
         )
         break
