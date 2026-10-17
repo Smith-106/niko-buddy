@@ -12,10 +12,14 @@ import { buildAgentConfig } from "@/lib/agent/config"
 import { ToolRegistry } from "@/lib/agent/registry"
 import { AgentRunner } from "@/lib/agent/runner"
 import type { AgentMessage, AgentRunCallbacks, AgentRunRecord } from "@/lib/agent/types"
+import type { QualityToolDeps } from "@/lib/agent/tools/score-chapter"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { recordModuleHit } from "./module-heat"
 
 /** 阶段 1 允许的工具：只读 + 草稿写入。 */
+/** 质量闭环工具（仅在调用方注入 scoreChapter/reviseChapter 时才注册）。 */
+export const MAIN_CONTROL_QUALITY_TOOLS = ["score_chapter", "revise_chapter"] as const
+
 export const MAIN_CONTROL_TOOLS = [
   "read_chapter",
   "list_chapters",
@@ -81,6 +85,8 @@ export interface RunMainControlOptions {
   llmConfig: LlmConfig
   /** 会话模型标识；缺省取 llmConfig.model。 */
   modelId?: string
+  /** 注入后额外注册 score_chapter / revise_chapter，让 Agent 自己迭代到目标分。 */
+  quality?: QualityToolDeps
   maxRounds?: number
   signal?: AbortSignal
   onStep?: (step: MainControlStep) => void
@@ -176,7 +182,10 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
       wikiPath: options.wikiPath,
       projectPath: options.projectPath,
       draftMode: true,
-      enabledToolNames: [...MAIN_CONTROL_TOOLS],
+      qualityIteration: options.quality,
+      enabledToolNames: options.quality
+        ? [...MAIN_CONTROL_TOOLS, ...MAIN_CONTROL_QUALITY_TOOLS]
+        : [...MAIN_CONTROL_TOOLS],
       llmConfig: options.llmConfig,
       getSkillConfig: () => null,
       getChatConversations: () => [],

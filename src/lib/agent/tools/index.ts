@@ -23,6 +23,7 @@ import { createRouteTaskTool } from "./route-task"
 import { createLoadContextTool } from "./load-context"
 import { createTrimContextTool } from "./trim-context"
 import { createRunChapterWorkflowTool, type RunDeepChapterGeneration } from "./run-chapter-workflow"
+import { createReviseChapterTool, createScoreChapterTool, type QualityToolDeps } from "./score-chapter"
 import type { DeAiSkillConfig, UserSkill, TaskRouteResult, ContextPack } from "@/lib/novel"
 import type { LlmConfig, SearchApiConfig } from "@/stores/wiki-store"
 import { resolveContextPackTokenBudget } from "@/lib/context-budget"
@@ -60,6 +61,8 @@ export interface ToolFactoryOptions {
   chapterWritingLlmConfig?: LlmConfig
   aiWorkflowMode?: AiWorkflowMode
   runDeepChapterGeneration?: RunDeepChapterGeneration
+  /** 质量闭环注入：提供后注册 score_chapter / revise_chapter（否则不注册）。 */
+  qualityIteration?: QualityToolDeps
   onToolEvent?: (event: AgentToolEvent) => void
   getPlanBlueprint?: () => string | undefined
   getSelectedSkillsPrompt?: () => string | undefined
@@ -124,6 +127,16 @@ export function registerAllBuiltInTools(registry: ToolRegistry, options: ToolFac
       getPlanBlueprint: options.getPlanBlueprint,
       getSelectedSkillsPrompt: options.getSelectedSkillsPrompt,
     }))
+
+  }
+
+  if (options.qualityIteration) {
+    if (shouldRegister("score_chapter")) {
+      registry.register(createScoreChapterTool(options.qualityIteration))
+    }
+    if (shouldRegister("revise_chapter")) {
+      registry.register(createReviseChapterTool(options.qualityIteration))
+    }
   }
   for (const tool of options.mcpTools ?? []) {
     if (shouldRegister(tool.name)) registry.register(tool)

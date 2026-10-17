@@ -173,3 +173,49 @@ describe("runMainControlAgent", () => {
     expect(seen).toEqual(["read_chapter:running", "read_chapter:done"])
   })
 })
+
+describe("质量闭环工具注入", () => {
+  it("默认不注册 score_chapter / revise_chapter", async () => {
+    const registry = new ToolRegistry()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "读第 1 章",
+      llmConfig: LLM,
+      deps: { runner: fakeRunner([]), registry },
+    })
+    const names = registry.list().map((tool) => tool.name)
+    expect(names).not.toContain("score_chapter")
+    expect(names).not.toContain("revise_chapter")
+  })
+
+  it("注入 quality 后注册两个工具并可被 Agent 调用", async () => {
+    const registry = new ToolRegistry()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "把第 3 章改到 9 分",
+      llmConfig: LLM,
+      quality: {
+        scoreChapter: async () => ({ thrill: 8, consistency: 9, pacing: 8.4, character: 9, continuity: 9, pull: 8 }),
+        reviseChapter: async (content, brief) => `${content}
+<!-- ${brief} -->`,
+      },
+      deps: { runner: fakeRunner([]), registry },
+    })
+    const names = registry.list().map((tool) => tool.name)
+    expect(names).toContain("score_chapter")
+    expect(names).toContain("revise_chapter")
+    // 仍然不含正式写入工具（Draft-first 边界不因注入而放宽）
+    expect(names).not.toContain("write_memory")
+    expect(names).not.toContain("write_outline_node")
+
+    const scoreTool = registry.get("score_chapter")
+    const scored = await scoreTool!.execute({ content: "正文内容" })
+    expect(JSON.parse(scored)).toMatchObject({ median: 8.7 })
+
+    const reviseTool = registry.get("revise_chapter")
+    await expect(reviseTool!.execute({ content: "正文", brief: "提升 pacing" })).resolves.toContain("提升 pacing")
+    await expect(reviseTool!.execute({ content: "正文", brief: "" })).resolves.toContain("错误")
+  })
+})

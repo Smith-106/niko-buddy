@@ -1208,3 +1208,24 @@ export type {
   MainControlStep,
   RunMainControlOptions,
 } from "./main-control"
+
+// 质量自主迭代闭环（六维评分 → 定向重写 → 再评分 → 证据链）
+export {
+  DEFAULT_QUALITY_BUDGET,
+  QUALITY_DIMS,
+  buildQualityRunEvents,
+  buildRevisionBrief,
+  median,
+  runQualityIteration,
+  scoreChapter as scoreChapterDims,
+} from "./quality-iteration"
+export type {
+  DimensionScores,
+  QualityBudget,
+  QualityDimKey,
+  QualityIterationResult,
+  QualityRound,
+  QualityRunEventOptions,
+  QualityScore,
+  QualityStopReason,
+} from "./quality-iteration"
