@@ -7,6 +7,33 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.17.0] - 2026-10-17
+
+### Added
+
+- **导航与命令面板**：新增命令面板（`command-palette`，键盘优先检索 + 专项用例）与导航真源 `nav-items`；侧栏/工作台/顶栏统一接线，新增章节空态（`chapter-empty-state`）。
+- **门控体验**：`ConfirmGateDialog` 错误态与 `GateHost` 可用性降级路径（各配专项 spec），门控不再以静默失败收场。
+- **安全入口收敛**：新增 `secret-client`（密钥读写唯一入口）+ 契约用例；新增 `ipc-surface-contract` 用例；`capabilities/default.json` 未挂载能力登记并收口（台账见 `docs/decision-log`）。
+- **小说主链**：正典写前门（`canon-pre-write-gate`）、章节保存策略（`chapter-save-strategy`）、正式回填（`formal-writeback`）、锁并发语义（`novel-locks`）、会话状态损坏保全（`corrupt-preserve`）、评审一致性（`review-agreement`）、去 AI 味批量调度（`de-ai-batch`）。
+- **工程质量工具**：`quality-gate-97` 系列（preflight / slop / a7-consistency / l9-baseline|pilot|rewrite / reconcile / pack-probe）、`audit-modules`、导入与重写脚本族。
+- **文档结构**：新增 `docs/README.md` 文档目录索引（分区 + 维护纪律）与 `docs/arch-decisions.md` ADR 统一索引。
+
+### Changed
+
+- **巨文件拆分（同实现搬迁，零逻辑变更）**：`deep-chapter-generation.ts` 2917→1249、`context-engine.ts` 2426→1456、`deterministic-continuity-engine.ts` 1672→1477、`search-adapter.ts` 1171→1046；`impl >1500` 行文件由 15 个降至 12 个。
+- **检索公共层**：新增 `retrieval-source-pipeline.ts`（源权重 / RRF 融合 / 去重代表选择 / 单源超时），`search-adapter` 接入，检索语义与阈值零变更。
+- **命名收敛**：新增 `naming-canonical-map.ts`（弧末步骤双轨 + 实体目录三轨唯一映射真源，配一致性守卫）。
+- **仓库卫生**：`.gitignore` 补一次性诊断脚本与 E2E/覆盖率产物规则；构建产物与缓存（`src-tauri/target` 39G、`dist`、`node_modules/.vite`、`docs-site/dist`）清理。
+
+### Fixed
+
+- `novel-session-status.twin-structural` 结构守卫误报（锁内变体 `persistCheckpointBaseWithinLock` 未被计数）。
+- 章节导入/保存与正式回填路径的多处边界修复（含 `chapter-ingest-store-apply`、`previous-chapters-analysis`）。
+
+### 验证
+
+- `npm run typecheck` 0 错误；`npm run test:mocks` 全绿：**1120 spec / 14647 tests passed**；lint / boundaries / 依赖审计门均绿。
+
 ## [2.16.0] - 2026-10-16
 
 ### Added

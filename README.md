@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.16.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.17.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -54,6 +54,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 
 | 波次 | 版本 | 能力 | 核心交付 |
 |---|---|---|---|
+| — | v2.17.0 | 工程治理 + 导航/命令面板 + 门控体验 + 安全入口 | 命令面板与导航真源/门控错误态与可用性降级/secret-client 密钥唯一入口/巨文件拆分（deep-chapter 2917→1249、context-engine 2426→1456）/检索公共层/docs 结构索引 （stable，2026-10-17） |
 | — | v2.16.0 | 自动化闭环H1/H4/H2-H3+G/H契约层 | 无头驱动器+巡航仲裁接线+弧末结算契约+晋升收拢+结构化记忆（stable，2026-10-16） |
 | — | v2.15.1 | UI柔化收纳 + 管线 R1-R3 + AI自检可见化 + #208 E2E 修复 | UI柔化收纳/管线R1-R3/AI自检可见化 + #208 E2E修复（stable，2026-10-15） |
 | — | v2.14.6 | J14/J15 + R24 平台期接线 + fixes 批次 + Windows-only | 历史检索反向溯源/诊断中心纵切面 + recommendPostPlateauAction 轮唱复读静默检测（additive，仅建议）+ 新建项目样例章/LLM 默认模型/导入空格行首等修复（Pre-release，2026-10-14） |

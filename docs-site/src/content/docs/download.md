@@ -7,7 +7,16 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.16.0**（2026-10-16 发布：自动化闭环H1/H4/H2-H3+G/H契约层 — stable）
+**v2.17.0**（2026-10-17 发布：工程治理 + 导航/命令面板 + 门控体验 + 安全入口 — stable）
+
+### v2.17.0 更新亮点（2026-10-17）
+
+- **导航与命令面板**：导航真源单一化 + 命令面板（键盘优先检索）+ 章节空态。
+- **门控体验**：确认弹窗错误态与门控宿主可用性降级，不再静默失败。
+- **安全入口**：`secret-client` 收敛为密钥读写唯一入口 + IPC 面契约测试 + 未挂载能力收口。
+- **小说链路**：正典写前门 / 章节保存策略 / 正式回填 / 锁并发 / 会话状态损坏保全 / 去AI味批量调度。
+- **工程治理**：巨文件拆分（`deep-chapter-generation` 2917→1249、`context-engine` 2426→1456）、检索公共层、ADR 与文档结构索引；构建产物与缓存清理。
+- 发布语义：**stable**（2026-10-17）。
 
 ### v2.16.0 更新亮点（2026-10-16）
 
@@ -284,11 +293,11 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## Windows 安装包
 
-下载 [`niko-buddy_2.16.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.16.0/niko-buddy_2.16.0_windows_X64.exe)（约 34 MB），双击运行 NSIS 安装程序即可。
+下载 [`niko-buddy_2.17.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.17.0/niko-buddy_2.17.0_windows_X64.exe)（约 34 MB），双击运行 NSIS 安装程序即可。
 
 ## 便携版
 
-下载 [`niko-buddy_2.16.0_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.16.0/niko-buddy_2.16.0_windows_X64_portable.exe)（约 149 MB，单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
+下载 [`niko-buddy_2.17.0_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.17.0/niko-buddy_2.17.0_windows_X64_portable.exe)（约 149 MB，单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
 
 ## 系统要求
 

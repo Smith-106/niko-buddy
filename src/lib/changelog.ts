@@ -15,6 +15,26 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.17.0",
+    date: "2026-10-17",
+    highlights: {
+      en: [
+        "Navigation & command palette: single nav source, palette with keyboard-first search, chapter empty state.",
+        "Gate UX: confirm dialog error states + host availability degradation, with dedicated specs.",
+        "Security: secret-client as the single key I/O entry; IPC surface contract test; unmounted capabilities ledgered and closed.",
+        "Novel chain: canon pre-write gate, chapter save strategy, formal writeback, lock concurrency, session-status corrupt-preserve, de-ai batch scheduler.",
+        "Engineering hygiene: giant-file split (deep-chapter-generation 2917→1249, context-engine 2426→1456), shared retrieval pipeline, ADR index, docs structure index; build artifacts and caches purged.",
+      ],
+      zh: [
+        "导航与命令面板：导航真源单一化 + 命令面板（键盘优先检索）+ 章节空态。",
+        "门控体验：确认弹窗错误态与门控宿主可用性降级，并配专项用例。",
+        "安全：secret-client 收敛为密钥读写唯一入口；IPC 面契约测试；未挂载能力登记并收口。",
+        "小说链路：正典写前门、章节保存策略、正式回填、锁并发、会话状态损坏保全、去AI味批量调度。",
+        "工程治理：巨文件拆分（deep-chapter-generation 2917→1249、context-engine 2426→1456）、检索公共层、ADR 索引、文档结构索引；构建产物与缓存清理。",
+      ],
+    },
+  },
+  {
     version: "2.16.0",
     date: "2026-10-16",
     highlights: {
