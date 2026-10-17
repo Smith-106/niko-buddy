@@ -1152,3 +1152,43 @@ export type {
   QualityAuditInput,
   IsoQualityAuditReport,
 } from "./quality-audit-exporter"
+
+// 运动热力图：静态模块地图 + 运行热力遥测（heatmap 视图与诊断共用）
+export {
+  MODULE_ATLAS,
+  buildAtlasIndex,
+  moduleEdges,
+  moduleLabel,
+  moduleStageLabel,
+} from "./module-atlas"
+export type { ModuleAtlas, ModuleAtlasEntry, ModuleAtlasStage } from "./module-atlas"
+export {
+  DEFAULT_HEAT_CAPACITY,
+  aggregateHeat,
+  appendHit,
+  heatTotals,
+  listUnwiredModules,
+  normalizeHeatLevel,
+  recordModuleHit,
+  setModuleHeatSink,
+  stageCoverage,
+  toHeatLog,
+  withModuleHeat,
+} from "./module-heat"
+export type {
+  HeatLogEntry,
+  HeatTotals,
+  ModuleHeat,
+  ModuleHeatSink,
+  ModuleHit,
+  StageCoverage,
+  UnwiredModule,
+  UnwiredReason,
+} from "./module-heat"
+export {
+  MODULE_HEAT_SNAPSHOT,
+  heatSnapshotPath,
+  loadHeatSnapshot,
+  saveHeatSnapshot,
+} from "./module-heat-persist"
+export type { ModuleHeatSnapshot } from "./module-heat-persist"

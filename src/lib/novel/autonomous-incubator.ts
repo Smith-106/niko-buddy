@@ -19,6 +19,7 @@
  */
 
 import { createDirectory, writeFileAtomic } from "@/commands/fs"
+import { recordModuleHit } from "./module-heat"
 import { normalizePath } from "@/lib/path-utils"
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import { DEFAULT_NOVEL_CONFIG } from "@/stores/wiki-store"
@@ -444,6 +445,7 @@ export async function runAutonomousNovelIncubator(
   })
   const soulDoc = await generateSoulDocContent(title, genre, idea, llmConfig, signal)
   await writeSoulDoc(pp, soulDoc)
+  recordModuleHit({ path: "src/lib/novel/soul-doc.ts", at: Date.now(), ok: true, detail: `孵化 1/6 灵魂文档 ${title}` })
 
   // 2/6 世界观蓝图
   onProgress?.({
@@ -454,6 +456,7 @@ export async function runAutonomousNovelIncubator(
   })
   const worldBlueprint = await generateWorldBlueprintData(title, genre, idea, llmConfig, signal)
   await saveWorldBlueprint(pp, worldBlueprint)
+  recordModuleHit({ path: "src/lib/novel/world-blueprint.ts", at: Date.now(), ok: true, detail: `孵化 2/6 世界观蓝图 ${title}` })
 
   // 3/6 核心人物卡
   onProgress?.({
@@ -463,6 +466,7 @@ export async function runAutonomousNovelIncubator(
     message: `[3/6] 正在塑造《${title}》主角、主要对抗者与核心盟友档案...`,
   })
   const characters = await generateCoreCharacters(pp, title, genre, idea)
+  recordModuleHit({ path: "src/lib/novel/autonomous-incubator.ts", at: Date.now(), ok: true, detail: `孵化 3/6 核心角色 ${title}` })
 
   // 4/6 宏观总纲推演
   // M2 接线位 TODO：outline-multi-agent-orchestrator（主线/话题/人物/世界观/伏笔五子智能体并发）
@@ -481,6 +485,7 @@ export async function runAutonomousNovelIncubator(
   const outlineDir = `${pp}/wiki/outlines`
   await createDirectory(outlineDir)
   await writeFileAtomic(`${outlineDir}/story-outline.md`, outlineContent)
+  recordModuleHit({ path: "src/lib/novel/autonomous-incubator.ts", at: Date.now(), ok: true, detail: `孵化 4/6 大纲推演 ${title}` })
 
   // 5/6 章节骨架零人工自动铺排
   onProgress?.({
@@ -494,6 +499,7 @@ export async function runAutonomousNovelIncubator(
     outlineContent,
     overwriteExisting: false,
   })
+  recordModuleHit({ path: "src/lib/novel/outline-chapter-unpack.ts", at: Date.now(), ok: true, detail: `孵化 5/6 章节骨架铺排 ${title}` })
 
   // 6/6 起承转合故事模拟框架提取与绑定
   onProgress?.({
@@ -503,6 +509,7 @@ export async function runAutonomousNovelIncubator(
     message: `[6/6] 正在提取起承转合 4 节点故事模拟框架并写入全局激活绑定...`,
   })
   const activeBinding = await deriveAndBindFramework(pp, title, idea, targetChapters)
+  recordModuleHit({ path: "src/lib/novel/story-simulation/framework-binding.ts", at: Date.now(), ok: true, detail: `孵化 6/6 框架绑定 ${title}` })
 
   onProgress?.({
     stage: "complete",

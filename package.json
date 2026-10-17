@@ -25,6 +25,7 @@
     "tauri": "tauri",
     "build:portable": "node scripts/build-release-env.mjs --portable",
     "build:github-release": "node scripts/build-release-env.mjs --github-release",
+    "gen:atlas": "node scripts/gen-module-atlas.mjs",
     "gen:check": "node scripts/check-generated.mjs",
     "gen:write": "node scripts/gen-t2s-map.mjs && node scripts/gen-tauri-commands-doc.mjs",
     "normalize:chapters": "rolldown scripts/normalize-chapter-typography.mts -o .tmp/normalize-chapter-typography.mjs -f esm -p node && node .tmp/normalize-chapter-typography.mjs",

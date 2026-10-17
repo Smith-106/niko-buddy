@@ -27,6 +27,7 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { DEFAULT_NOVEL_CONFIG, type NovelConfig } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
+import { recordModuleHit } from "./module-heat"
 import { createDirectory, writeFileAtomic } from "@/commands/fs"
 
 function countWords(text: string): number {
@@ -369,6 +370,12 @@ export async function runAutonomousDraftCampaign(
 
     try {
       const chapterResult = await attemptChapter(userRequest)
+      recordModuleHit({
+        path: "src/lib/novel/campaign-runner.ts",
+        at: Date.now(),
+        ok: chapterResult.status === "ready",
+        detail: `巡航第${currentChapterNum}章 ${chapterResult.status}`,
+      })
 
       results.push(chapterResult)
       onChapterComplete?.(currentChapterNum, chapterResult)
@@ -642,6 +649,13 @@ export async function batchAcceptCampaignDrafts(
       console.warn("[campaign-batch-accept] 加载摄取模块失败:", e)
     }
   }
+
+  recordModuleHit({
+    path: "src/lib/novel/campaign-runner.ts",
+    at: Date.now(),
+    ok: validChapters.length > 0,
+    detail: `批量晋升 ${validChapters.length} 章 / 摄取 ${ingestedCount}`,
+  })
 
   return {
     acceptedCount: validChapters.length,

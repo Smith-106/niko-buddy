@@ -2,7 +2,7 @@
 /**
  * check-generated.mjs — 生成物闭环门禁 (P0 B3)
  *
- * 校验 本仓内 5 个 generated 产物的一致性，纯 Node stdlib，零依赖：
+ * 校验 本仓内 6 个 generated 产物的一致性，纯 Node stdlib，零依赖：
  *
  *   1. t2s-map.generated.ts            幂等可再生 → 临时路径重生成 + 字节比对（禁止全局 git diff）
  *   2. anti-ai-thresholds.generated.ts 与 docs/p2/anti-ai-thresholds.json 仓内源断言
@@ -13,6 +13,8 @@
  *   4. anti-ai-seeds.generated.json    合法 JSON + 顶层字段集 + samples 最小条数 + 条目字段集
  *   5. tauri-commands-reference.md     生成器 --check 模式（临时路径重生成 + 字节比对，
  *                                      时间戳行规范化；仅校验仓内文件，hub 镜像仓外不可门禁）
+ *   6. module-atlas.generated.json     生成器 --out 临时路径重生成 + 字节比对
+ *                                      （模块地图必须与源码 import 图一致，禁止手工编辑）
  *
  * 实现纪律（R11 防御）：所有比较走「临时路径 + 字节比对」，禁止 git diff --exit-code。
  *
@@ -434,6 +436,50 @@ function checkCommandsDoc() {
 }
 
 // ---------------------------------------------------------------------------
+// 检查 6：module-atlas.generated.json — 生成器 --out 临时路径重生成 + 字节比对
+// ---------------------------------------------------------------------------
+
+function checkModuleAtlas() {
+  const name = "module-atlas.generated.json"
+  const genScript = join(ROOT, "scripts/gen-module-atlas.mjs")
+  const committedPath = join(ROOT, "src/lib/novel/module-atlas.generated.json")
+  if (!existsSync(genScript)) {
+    record(name, false, `generator missing: ${rel(genScript)}`)
+    return
+  }
+  if (!existsSync(committedPath)) {
+    record(name, false, `artifact missing: ${rel(committedPath)}`)
+    return
+  }
+  const tmpDir = mkdtempSync(join(tmpdir(), "niko-buddy-atlas-"))
+  try {
+    const tmpOut = join(tmpDir, "module-atlas.generated.json")
+    const r = spawnSync(process.execPath, [genScript, "--out", tmpOut], {
+      encoding: "utf8",
+      timeout: 180000,
+    })
+    if (r.status !== 0) {
+      record(name, false, `regeneration failed status=${r.status} stderr=${toAscii(r.stderr).slice(0, 400)}`)
+      return
+    }
+    if (!existsSync(tmpOut)) {
+      record(name, false, "regeneration produced no temp output")
+      return
+    }
+    const committed = readFileSync(committedPath)
+    const fresh = readFileSync(tmpOut)
+    const off = firstDiffOffset(committed, fresh)
+    if (off < 0) {
+      record(name, true, `byte-identical (${committed.length} bytes, idempotently reproducible)`)
+      return
+    }
+    record(name, false, `byte drift at offset ${off} -- run: node scripts/gen-module-atlas.mjs`)
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true })
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 主流程
 // ---------------------------------------------------------------------------
 
@@ -443,6 +489,7 @@ function main() {
   checkKbRoutingView()
   checkSeeds()
   checkCommandsDoc()
+  checkModuleAtlas()
 
   for (const r of RESULTS) {
     const tag = r.pass ? "PASS" : "FAIL"

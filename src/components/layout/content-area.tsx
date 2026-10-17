@@ -76,6 +76,11 @@ const DirectorView = lazy(async () => {
   return { default: mod.DirectorView }
 })
 
+const ModuleHeatmapView = lazy(async () => {
+  const mod = await import("@/components/novel/module-heatmap-view")
+  return { default: mod.ModuleHeatmapView }
+})
+
 function LoadingView() {
   return (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -190,6 +195,13 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <DirectorView projectId={projectPath} />
+          </Suspense>
+        )
+        break
+      case "moduleHeatmap":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <ModuleHeatmapView projectId={projectId} />
           </Suspense>
         )
         break

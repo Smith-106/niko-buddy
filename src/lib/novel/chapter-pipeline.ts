@@ -1,4 +1,5 @@
 import type { IngestResult } from "./chapter-ingest";
+import { recordModuleHit } from "./module-heat"
 import { resolveReviewModel } from "./review-model";
 import { listResumeCandidates, type ResumeCandidate } from "./stage-output-journal";
 
@@ -49,6 +50,12 @@ export function createBatchChapterPipeline(deps: ChapterPipelineDeps): (
       const results = await deps.runBatch(projectPath, chapterPaths, reviewModel);
       let succeeded = 0;
       for (const r of results) if (r.result.snapshot) succeeded += 1;
+      recordModuleHit({
+        path: "src/lib/novel/chapter-pipeline.ts",
+        at: Date.now(),
+        ok: succeeded === chapterPaths.length,
+        detail: `批量章节管线 ${succeeded}/${chapterPaths.length}`,
+      });
       return { total: chapterPaths.length, succeeded, failed: results.length - succeeded, results };
     }
     const results: BatchChapterResult[] = [];

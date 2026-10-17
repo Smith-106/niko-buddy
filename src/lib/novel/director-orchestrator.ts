@@ -14,6 +14,7 @@
 import { createDirectorPipeline, advanceDirectorPhase, retryDirectorPhase, type DirectorPipelineState, type PhaseGateInput, type DirectorPhase } from "./director-pipeline"
 import { validateWorldBlueprint, loadWorldBlueprint, type WorldBlueprint } from "./world-blueprint"
 import { readFile, listDirectory } from "@/commands/fs"
+import { recordModuleHit } from "./module-heat"
 import { listSnapshots } from "./chapter-ingest"
 import { listEntityFiles } from "./entity-subdir-resolver"
 
@@ -155,7 +156,14 @@ export async function tryAdvanceDirectorFromProject(
 ): Promise<DirectorAdvanceOutcome> {
   const snapshot = await collectProjectSnapshot(projectPath, idea)
   const bp = worldBlueprint !== undefined ? worldBlueprint : await loadWorldBlueprint(projectPath).catch(() => null)
-  return tryAdvanceDirector(state, snapshot, bp)
+  const outcome = tryAdvanceDirector(state, snapshot, bp)
+  recordModuleHit({
+    path: "src/lib/novel/director-orchestrator.ts",
+    at: Date.now(),
+    ok: outcome.advanced,
+    detail: `开书导演 ${state.currentPhase} → ${outcome.state.currentPhase}${outcome.gap ? ` (${outcome.gap})` : ""}`,
+  })
+  return outcome
 }
 
 /** 未过门时给用户的缺口提示（对齐 ANWA director 阶段质量策略的收缩态）。 */
