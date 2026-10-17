@@ -27,6 +27,7 @@ function resetMocks() {
   mocks.createDirectory.mockReset()
   mocks.setActiveView.mockReset()
   mocks.setSelectedFile.mockReset()
+  advanceMock.fn.mockReset()
   // 默认恢复可用 LLM
   mocks.llmConfig = { provider: "openai", apiKey: "sk-test", model: "gpt-4o" }
   mocks.project = { id: "p1", name: "测试之书", path: "C:/proj/book" }
@@ -36,6 +37,16 @@ vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: (k: string) => k }),
 }))
+
+const advanceMock = vi.hoisted(() => ({ fn: vi.fn() }))
+
+vi.mock("@/lib/novel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel")>()
+  return {
+    ...actual,
+    advanceDirectorAutomatically: (...args: unknown[]) => advanceMock.fn(...args),
+  }
+})
 
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
@@ -135,17 +146,54 @@ describe("DirectorView（60 号设计：开书导演主视图）", () => {
     mocks.readFile.mockResolvedValue(
       JSON.stringify(makeFile({ ideaInput: { title: "", genre: "", coreConflict: "" } })),
     )
+    advanceMock.fn.mockResolvedValue({
+      state: createDirectorPipeline(),
+      advanced: false,
+      completed: false,
+      generated: true,
+      stage: "idea",
+      blockedReason: "书名缺失",
+      gap: "请先填写书名",
+    })
     render(<DirectorView projectId="/proj" />)
     await waitFor(() => expect(screen.getByTestId("director-advance")).toBeInTheDocument())
     fireEvent.click(screen.getByTestId("director-advance"))
     await waitFor(() => expect(screen.getByTestId("director-gap")).toBeInTheDocument())
   })
 
-  it("填立意后推进 idea → 状态前移 world running", async () => {
+  it("填立意后推进 idea → 走自动生成链路，状态前移 world running 且展示产物摘要", async () => {
     mocks.fileExists.mockResolvedValue(true)
-    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    const file = makeFile()
+    mocks.readFile.mockImplementation(async (path: string) => {
+      if (path.includes("director-stage-artifacts")) {
+        return JSON.stringify({
+          version: "1.0",
+          stages: {
+            idea: { title: "雾都", genre: "悬疑", coreConflict: "C", logline: "l", hooks: ["h1", "h2"] },
+          },
+        })
+      }
+      return JSON.stringify(file)
+    })
+    advanceMock.fn.mockImplementation(async (_projectPath: string, state: DirectorPipelineState) => {
+      const { advanceDirectorPhase } = await import("@/lib/novel")
+      const result = advanceDirectorPhase(state, {
+        idea: { title: "雾都", genre: "悬疑", coreConflict: "C" },
+        worldComplete: false,
+        protagonistNamed: false,
+        antagonistNamed: false,
+        frameworkChosen: false,
+        volumesPlanned: false,
+        firstChapterReady: false,
+      })
+      return { state: result.state, advanced: true, completed: false, generated: true, stage: "idea", cached: false }
+    })
     mocks.writeFileAtomic.mockImplementation(async (_path: string, content: string) => {
-      mocks.readFile.mockResolvedValue(content)
+      mocks.readFile.mockImplementation(async (path: string) =>
+        path.includes("director-stage-artifacts")
+          ? JSON.stringify({ version: "1.0", stages: { idea: { title: "雾都", genre: "悬疑", coreConflict: "C", logline: "l", hooks: ["h1", "h2"] } } })
+          : content,
+      )
     })
     render(<DirectorView projectId="/proj" />)
     await waitFor(() => expect(screen.getByTestId("director-advance")).toBeInTheDocument())
@@ -153,6 +201,9 @@ describe("DirectorView（60 号设计：开书导演主视图）", () => {
     await waitFor(() =>
       expect(screen.getByTestId("director-phase-world")).toHaveAttribute("data-status", "running"),
     )
+    expect(advanceMock.fn).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "advanced")
+    await waitFor(() => expect(screen.getByTestId("director-artifact-idea")).toBeInTheDocument())
   })
 
   it("全 done → 完成横幅 + 前往审查中心按钮", async () => {

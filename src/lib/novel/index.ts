@@ -114,6 +114,8 @@ export type {
   DirectorRecoveryCursor,
   DirectorStageArtifacts,
 } from "./director-auto-advance"
+export { summarizeStageArtifacts } from "./director-stage-summary"
+export type { StageArtifactSummary } from "./director-stage-summary"
 export {
   buildStagePrompt,
   DIRECTOR_STAGE_KEYS,

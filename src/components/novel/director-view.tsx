@@ -3,11 +3,11 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { DirectorPanel } from "@/components/novel/director-panel"
+import { DirectorPanel, type DirectorPanelProgress } from "@/components/novel/director-panel"
 import { EvidenceDashboardSection } from "@/components/novel/evidence-dashboard-section"
 import { SubgateAlertsSection } from "@/components/novel/subgate-alerts-section"
-import { tryAdvanceDirectorFromProject, collectProjectSnapshot, retryDirector, hasPersistedDirectorState, loadDirectorPersisted, saveDirectorPersisted, saveDirectorIdeaInput, createDirectorPipeline, deriveAndSaveWorldBlueprint } from "@/lib/novel"
-import type { DirectorSnapshot, DirectorIdeaInput, DirectorPersistedFile } from "@/lib/novel"
+import { advanceDirectorAutomatically, buildStageJournalRuntime, collectProjectSnapshot, retryDirector, hasPersistedDirectorState, loadDirectorPersisted, saveDirectorPersisted, saveDirectorIdeaInput, createDirectorPipeline, deriveAndSaveWorldBlueprint, loadStageArtifacts } from "@/lib/novel"
+import type { DirectorSnapshot, DirectorIdeaInput, DirectorPersistedFile, DirectorStageArtifacts } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { assessLlmHealth } from "@/lib/llm-health"
 import { writeFile, createDirectory, fileExists } from "@/commands/fs"
@@ -36,6 +36,9 @@ export function DirectorView({ projectId }: DirectorViewProps) {
   const [gap, setGap] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [snapshot, setSnapshot] = useState<DirectorSnapshot | null>(null)
+  // B 范围：推进＝生成→出口门→推进，面板要看得见「现在在做什么」与「生成了什么」。
+  const [progress, setProgress] = useState<DirectorPanelProgress>({ status: "idle", artifacts: null })
+  const [artifacts, setArtifacts] = useState<DirectorStageArtifacts>({})
 
   useEffect(() => {
     let cancelled = false
@@ -88,27 +91,48 @@ export function DirectorView({ projectId }: DirectorViewProps) {
     setSnapshot(snap)
   }, [persisted, projectId])
 
+  const refreshArtifacts = useCallback(async () => {
+    const stages = await loadStageArtifacts(projectId).catch(() => ({}) as DirectorStageArtifacts)
+    setArtifacts(stages)
+    return stages
+  }, [projectId])
+
   useEffect(() => {
     if (!persisted) return
     void refreshSnapshot()
-  }, [persisted, refreshSnapshot])
+    void refreshArtifacts()
+  }, [persisted, refreshSnapshot, refreshArtifacts])
 
   const handleAdvance = useCallback(async () => {
     if (!persisted) return
     setBusy(true)
     setGap(null)
+    setProgress({ status: "generating", artifacts: artifacts, error: null })
     try {
-      const outcome = await tryAdvanceDirectorFromProject(projectId, persisted.state, persisted.ideaInput)
+      const journal = buildStageJournalRuntime(projectId, true)
+      // 门校验阶段先亮出来（生成结束后由 outcome 覆盖）——长任务也要有可见进度。
+      const outcome = await advanceDirectorAutomatically(projectId, persisted.state, persisted.ideaInput, {
+        llmConfig,
+        journal,
+      })
       const file = { ...persisted, state: outcome.state }
       await saveDirectorPersisted(projectId, file)
       setPersisted(file)
+      const stages = await refreshArtifacts()
+      await refreshSnapshot()
+      setProgress({
+        status: outcome.advanced ? "advanced" : outcome.error ? "failed" : "gating",
+        artifacts: stages,
+        error: outcome.error ?? null,
+        ...(outcome.drafts ? { drafts: outcome.drafts } : {}),
+      })
       if (!outcome.advanced) {
-        setGap(outcome.gap ?? outcome.blockedReason ?? null)
+        setGap(outcome.error ?? outcome.blockedReason ?? outcome.gap ?? null)
       }
     } finally {
       setBusy(false)
     }
-  }, [persisted, projectId])
+  }, [artifacts, llmConfig, persisted, projectId, refreshArtifacts, refreshSnapshot])
 
   const handleRetry = useCallback(async () => {
     if (!persisted) return
@@ -118,10 +142,11 @@ export function DirectorView({ projectId }: DirectorViewProps) {
       const file = { ...persisted, state: retryDirector(persisted.state) }
       await saveDirectorPersisted(projectId, file)
       setPersisted(file)
+      setProgress({ status: "idle", artifacts: artifacts, error: null })
     } finally {
       setBusy(false)
     }
-  }, [persisted, projectId])
+  }, [artifacts, persisted, projectId])
 
   // MIG-002：世界骨架生成 — 从项目实体推导骨架落盘 .novel/world-blueprint.json，
   // 让 worldComplete 能真正判真（不再靠手动 checkbox / 死数据）。
@@ -294,6 +319,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
           state={persisted.state}
           gap={gap}
           busy={busy}
+          progress={{ ...progress, artifacts: progress.artifacts ?? artifacts }}
           onAdvance={() => void handleAdvance()}
           onRetry={() => void handleRetry()}
         />

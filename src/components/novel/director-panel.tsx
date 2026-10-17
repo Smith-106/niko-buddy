@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { DIRECTOR_PHASES } from "@/lib/novel"
-import type { DirectorPhase, DirectorPipelineState } from "@/lib/novel"
+import { DIRECTOR_PHASES, summarizeStageArtifacts } from "@/lib/novel"
+import type { DirectorPhase, DirectorPipelineState, DirectorDraftReceipt, DirectorStageArtifacts } from "@/lib/novel"
 import { cn } from "@/lib/utils"
 import { CircleCheck, Circle, Loader2, RotateCcw, CircleX, Play, PartyPopper } from "lucide-react"
 
@@ -13,11 +13,34 @@ const PHASE_LABEL_KEYS: Record<DirectorPhase, string> = {
   chapters: "directorPanel.phaseChapters",
 }
 
+/** 当前阶段的生成/校验进度（B 范围：推进＝生成→出口门→推进）。 */
+export type DirectorPhaseProgressStatus = "idle" | "generating" | "gating" | "advanced" | "failed"
+
+export interface DirectorPanelProgress {
+  status: DirectorPhaseProgressStatus
+  /** 生成/校验失败的原始原因（成功推进后清空）。 */
+  error?: string | null
+  /** 本次生成的阶段产物（按阶段展示摘要）。 */
+  artifacts?: DirectorStageArtifacts | null
+  /** 首章草稿回执（chapters 阶段）。 */
+  drafts?: DirectorDraftReceipt[] | null
+}
+
+const PROGRESS_LABEL_KEYS: Record<DirectorPhaseProgressStatus, string> = {
+  idle: "directorPanel.statusIdle",
+  generating: "directorPanel.statusGenerating",
+  gating: "directorPanel.statusGating",
+  advanced: "directorPanel.statusAdvanced",
+  failed: "directorPanel.statusFailed",
+}
+
 interface DirectorPanelProps {
   state: DirectorPipelineState
   /** 未过门时的缺口提示（advance 返回的 gap）。 */
   gap?: string | null
   busy?: boolean
+  /** 当前阶段的生成/校验进度与产物摘要（缺省只显示状态与缺口提示）。 */
+  progress?: DirectorPanelProgress
   onAdvance: () => void
   onRetry: () => void
 }
@@ -27,10 +50,12 @@ interface DirectorPanelProps {
  * 对齐 ANWA director 的进度展示（projections/ 收缩态）：每阶段状态
  * （pending/running/done/failed）+ 推进/重试操作 + 缺口提示。
  */
-export function DirectorPanel({ state, gap, busy = false, onAdvance, onRetry }: DirectorPanelProps) {
+export function DirectorPanel({ state, gap, busy = false, progress, onAdvance, onRetry }: DirectorPanelProps) {
   const { t } = useTranslation()
   const currentFailed = state.statuses[state.currentPhase] === "failed"
   const allDone = DIRECTOR_PHASES.every((p) => state.statuses[p] === "done")
+  const progressStatus: DirectorPhaseProgressStatus = progress?.status ?? "idle"
+  const summaries = summarizeStageArtifacts(progress?.artifacts)
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border p-4" data-testid="director-panel">
@@ -75,6 +100,52 @@ export function DirectorPanel({ state, gap, busy = false, onAdvance, onRetry }: 
           )
         })}
       </ol>
+
+      {(
+        <div
+          className={cn(
+            "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs",
+            progressStatus === "failed" ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground",
+          )}
+          data-testid="director-phase-status"
+          data-status={progressStatus}
+        >
+          {progressStatus === "generating" || progressStatus === "gating" ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" data-testid="director-phase-status-icon" />
+          ) : null}
+          <span>{busy ? t("directorPanel.statusGenerating", { phase: t(PHASE_LABEL_KEYS[state.currentPhase]) }) : t(PROGRESS_LABEL_KEYS[progressStatus], { phase: t(PHASE_LABEL_KEYS[state.currentPhase]) })}</span>
+        </div>
+      )}
+
+      {progress?.error ? (
+        <p className="text-xs text-destructive" data-testid="director-last-error">
+          {t("directorPanel.lastError", { error: progress.error })}
+        </p>
+      ) : null}
+
+      <div className="flex flex-col gap-1" data-testid="director-artifacts">
+        <span className="text-xs font-medium text-muted-foreground">{t("directorPanel.artifactsTitle")}</span>
+        {summaries.length === 0 ? (
+          <span className="text-xs text-muted-foreground" data-testid="director-artifacts-empty">
+            {t("directorPanel.artifactsEmpty")}
+          </span>
+        ) : (
+          summaries.map((summary) => (
+            <span
+              key={summary.stage}
+              className="text-xs text-muted-foreground"
+              data-testid={`director-artifact-${summary.stage}`}
+            >
+              {t(summary.key, summary.params)}
+            </span>
+          ))
+        )}
+        {(progress?.drafts ?? []).map((draft) => (
+          <span key={draft.id} className="text-xs text-accent" data-testid="director-draft-receipt">
+            {t("directorPanel.draftReceipt", { id: draft.id, chars: draft.chars })}
+          </span>
+        ))}
+      </div>
 
       {gap ? (
         <p className="text-xs text-warning" data-testid="director-gap">

@@ -10,6 +10,13 @@ vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: (k: string, opts?: Record<string, unknown>) => {
     if (k === "directorPanel.retryCount") return `重试 ${opts?.count ?? 0} 次`
+    if (k === "directorPanel.artifactIdea") return `立意卡《${opts?.title}》· ${opts?.genre} · ${opts?.hooks} 个钩子`
+    if (k === "directorPanel.artifactCharacter") return `角色账本 ${opts?.count} 人（主角 ${opts?.protagonist}）`
+    if (k === "directorPanel.artifactOutline") return `大纲：${opts?.framework} · ${opts?.volumes} 卷 · 计划 ${opts?.chapters} 章`
+    if (k === "directorPanel.artifactChapters") return `首章《${opts?.title}》· ${opts?.beats} 个节拍`
+    if (k === "directorPanel.draftReceipt") return `首章草稿已生成：${opts?.id}（${opts?.chars} 字，待你接受）`
+    if (k === "directorPanel.lastError") return `失败原因：${opts?.error}`
+    if (k === "directorPanel.statusGenerating") return `正在生成「${opts?.phase}」阶段产物…`
     return k
   } }),
 }))
@@ -106,5 +113,120 @@ describe("DirectorPanel（60 号设计：开书导演 UI）", () => {
       />,
     )
     expect(screen.getByTestId("director-advance")).toBeDisabled()
+  })
+})
+
+describe("DirectorPanel · 阶段生成状态与产物摘要（B 范围）", () => {
+  beforeEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+
+  const ARTIFACTS = {
+    idea: { title: "雾都", genre: "悬疑", coreConflict: "C", logline: "l", hooks: ["h1", "h2"] },
+    character: {
+      characters: [
+        { name: "陈默", role: "protagonist" as const, desire: "d", flaw: "f" },
+        { name: "房东", role: "antagonist" as const, desire: "d", flaw: "f" },
+      ],
+    },
+    outline: {
+      framework: "三幕",
+      volumes: [
+        { title: "第一卷", arc: "起", chapterCount: 30 },
+        { title: "第二卷", arc: "转", chapterCount: 32 },
+      ],
+    },
+    chapters: { firstChapter: { title: "第一章 租约", beats: ["签合同", "让渡"], hook: "h" } },
+  }
+
+  it("idle：无产物时显示空态", () => {
+    render(
+      <DirectorPanel
+        state={createDirectorPipeline()}
+        progress={{ status: "idle", artifacts: null }}
+        onAdvance={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "idle")
+    expect(screen.getByTestId("director-artifacts-empty")).toBeInTheDocument()
+  })
+
+  it("generating：显示生成中（busy 时插值当前阶段名）+ 旋转图标", () => {
+    render(
+      <DirectorPanel
+        state={createDirectorPipeline()}
+        busy
+        progress={{ status: "generating", artifacts: null }}
+        onAdvance={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    )
+    const row = screen.getByTestId("director-phase-status")
+    expect(row).toHaveAttribute("data-status", "generating")
+    expect(row).toHaveTextContent("正在生成「directorPanel.phaseIdea」阶段产物…")
+    expect(screen.getByTestId("director-phase-status-icon")).toBeInTheDocument()
+  })
+
+  it("gating：产物已生成待校验，并展示四阶段产物摘要", () => {
+    render(
+      <DirectorPanel
+        state={createDirectorPipeline()}
+        progress={{ status: "gating", artifacts: ARTIFACTS }}
+        onAdvance={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "gating")
+    expect(screen.getByTestId("director-artifact-idea")).toHaveTextContent("立意卡《雾都》· 悬疑 · 2 个钩子")
+    expect(screen.getByTestId("director-artifact-character")).toHaveTextContent("角色账本 2 人（主角 陈默）")
+    expect(screen.getByTestId("director-artifact-outline")).toHaveTextContent("大纲：三幕 · 2 卷 · 计划 62 章")
+    expect(screen.getByTestId("director-artifact-chapters")).toHaveTextContent("首章《第一章 租约》· 2 个节拍")
+  })
+
+  it("advanced：显示已推进，并展示首章草稿回执", () => {
+    render(
+      <DirectorPanel
+        state={stateAtPhase()}
+        progress={{
+          status: "advanced",
+          artifacts: ARTIFACTS,
+          drafts: [{ id: "draft_1", chapterName: "第一章 租约", chars: 1800 }],
+        }}
+        onAdvance={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "advanced")
+    expect(screen.getByTestId("director-draft-receipt")).toHaveTextContent("首章草稿已生成：draft_1（1800 字，待你接受）")
+  })
+
+  it("failed：显示失败原因 + 重试按钮", () => {
+    const badInput: PhaseGateInput = { ...FULL_GATE, idea: { title: "", genre: "", coreConflict: "" } }
+    const failed = advanceDirectorPhase(createDirectorPipeline(), badInput).state
+    render(
+      <DirectorPanel
+        state={failed}
+        progress={{ status: "failed", error: "idea 阶段产物结构不合格：title 书名缺失", artifacts: null }}
+        onAdvance={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "failed")
+    expect(screen.getByTestId("director-last-error")).toHaveTextContent("失败原因：idea 阶段产物结构不合格：title 书名缺失")
+    expect(screen.getByTestId("director-retry")).toBeInTheDocument()
+  })
+
+  it("旧存档结构损坏的产物被跳过，不炸整页", () => {
+    render(
+      <DirectorPanel
+        state={createDirectorPipeline()}
+        progress={{ status: "gating", artifacts: { idea: { title: 1 } as never } }}
+        onAdvance={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId("director-artifacts-empty")).toBeInTheDocument()
   })
 })
