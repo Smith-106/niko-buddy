@@ -516,6 +516,60 @@ function mapResumeStageToRouteStage(
   }
 }
 
+/** UI 阶段短标签统一出口——checkpoint_stage raw 值 → 中文短标签（未知值标「未知阶段」不隐藏）。
+ * B2 回退说明：曾委托 stage-vocabulary.checkpointStageShortLabel，现就地内联，不依赖 untracked。
+ * 调用方（chat 面板/诊断面）展示恢复阶段时走此函数。 */
+const CANONICAL_STAGES_INLINE = [
+  "context",
+  "scene_breakdown",
+  "task_brief",
+  "draft",
+  "review",
+  "revision",
+  "done",
+] as const
+
+type CanonicalStageInline = (typeof CANONICAL_STAGES_INLINE)[number]
+
+const CANONICAL_SHORT_LABELS_INLINE: Record<CanonicalStageInline, string> = {
+  context: "上下文",
+  scene_breakdown: "场景拆解",
+  task_brief: "任务简报",
+  draft: "草稿",
+  review: "审稿",
+  revision: "修订",
+  done: "完成",
+}
+
+function mapCheckpointStageToCanonicalInline(stage: string): CanonicalStageInline {
+  if (stage === "started") return "context"
+  if (stage === "completed") return "done"
+  switch (stage) {
+    case "after_context": return "context"
+    case "after_scene_breakdown": return "scene_breakdown"
+    case "after_task_brief": return "task_brief"
+    case "after_draft": return "draft"
+    case "after_review": return "review"
+    case "after_revision": return "revision"
+    default: return "context"
+  }
+}
+
+function checkpointStageShortLabelInline(stage: string): string {
+  const canon = mapCheckpointStageToCanonicalInline(stage)
+  if (!(CANONICAL_STAGES_INLINE as readonly string[]).includes(stage) && canon === "context" && stage !== "started") {
+    return stage.trim().length > 0 ? `未知阶段(${stage.slice(0, 24)})` : "上下文"
+  }
+  return CANONICAL_SHORT_LABELS_INLINE[canon]
+}
+
+export function stageShortLabelForDisplay(
+  stage: DeepChapterGenerationResumeStage | "started" | "completed" | string | null | undefined,
+): string {
+  if (stage === null || stage === undefined) return "上下文"
+  return checkpointStageShortLabelInline(String(stage))
+}
+
 /** DeepChapterDecisionGate.status（pending/passed/failed）→ route() GateVerdict（pending/pass/fail）。 */
 function mapDecisionGateStatusToVerdict(
   status: "pending" | "passed" | "failed" | undefined,

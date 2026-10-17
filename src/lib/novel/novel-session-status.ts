@@ -6,6 +6,7 @@ import { pad, toErrorMessage } from "@/lib/utils"
 import { z } from "zod"
 import { withProjectLock } from "./novel-locks"
 import { DRAFT_AUTO_ARM_SCHEMA, type DraftAutoArmStatus } from "./auto-arm-status"
+import { checkCommitDiscipline } from "@/lib/quality/commit-discipline"
 import type {
   DeepChapterDecisionGates,
   DeepChapterGenerationResumeCheckpoint,
@@ -550,6 +551,10 @@ function activeStepIndexToCheckpointStage(
   }
 }
 
+/** 词表映射调用点（B2 回退：曾委托 stage-vocabulary，现就地内联，不依赖 untracked）。
+ * checkpoint_stage 的值域 = DeepChapterGenerationResumeStage ∪ "started" ∪ "completed"；
+ * 映射就地内联（端点 started→context、completed→done；未知值降级 context 且不静默为终态）。
+ */
 export function resolveStatusResumeCheckpoint(
   status: NovelSessionStatus | null,
   conversationId: string,
@@ -802,12 +807,11 @@ export function buildNextStatus(
  * next.session_id (the truth-source identity); it is not used to derive a
  * separate file path.
  */
-export async function persistCheckpointBase(
-  projectPath: string,
+function preparePersistPayload(
   sessionId: string,
   next: NovelSessionStatus,
   evidenceEntries?: string[],
-): Promise<void> {
+): void {
   if (evidenceEntries && evidenceEntries.length > 0) {
     next.evidence_refs = mergeEvidenceRefs(...next.evidence_refs, ...evidenceEntries)
   }
@@ -819,7 +823,32 @@ export async function persistCheckpointBase(
       `persistCheckpointBase 真源身份不匹配：next.session_id=${next.session_id} 但传入 sessionId=${sessionId}`,
     )
   }
+}
+
+export async function persistCheckpointBase(
+  projectPath: string,
+  sessionId: string,
+  next: NovelSessionStatus,
+  evidenceEntries?: string[],
+): Promise<void> {
+  preparePersistPayload(sessionId, next, evidenceEntries)
   await saveNovelSessionStatus(projectPath, next)
+}
+
+/**
+ * ST-1: persistCheckpointBase 的锁内变体。调用方必须已持有 session-status 锁
+ * （经 withSessionStatusLock / updateNovelSessionStatus 进入）；写盘走无锁
+ * writeNovelSessionStatusUnlocked，避免对同一把非重入锁二次获取导致等待超时。
+ * 真源身份护栏与 evidence 合并语义与 persistCheckpointBase 完全一致。
+ */
+async function persistCheckpointBaseWithinLock(
+  projectPath: string,
+  sessionId: string,
+  next: NovelSessionStatus,
+  evidenceEntries?: string[],
+): Promise<void> {
+  preparePersistPayload(sessionId, next, evidenceEntries)
+  await writeNovelSessionStatusUnlocked(projectPath, next)
 }
 
 /**
@@ -840,22 +869,24 @@ export async function appendStageMetric(
   entry: StageMetricEntry,
 ): Promise<void> {
   try {
-    const existing = await loadNovelSessionStatus(projectPath)
-    if (!existing) return
-    const metrics = Array.isArray(existing.stage_metrics) ? existing.stage_metrics : []
-    // 上限保护：单项目跨章节累积阶段指标封顶，避免无界增长（与
-    // routingROIBuckets/exemplarABuckets 一致，1024 条）。
-    const STAGE_METRICS_MAX = 1024
-    const next = [...metrics, entry]
-    while (next.length > STAGE_METRICS_MAX) {
-      next.shift()
-    }
-    const updated = buildNextStatus(existing, {
-      updated_at: new Date().toISOString(),
-      status: existing.status,
-      stage_metrics: next,
+    // ST-1: load→modify→write 收进同一把 session-status 锁（共识写作 N 路并行
+    // 调用本函数是常态，锁外 RMW 会令 N 路阶段指标仅存最后一路）。
+    await updateNovelSessionStatus(projectPath, (existing) => {
+      if (!existing) return null
+      const metrics = Array.isArray(existing.stage_metrics) ? existing.stage_metrics : []
+      // 上限保护：单项目跨章节累积阶段指标封顶，避免无界增长（与
+      // routingROIBuckets/exemplarABuckets 一致，1024 条）。
+      const STAGE_METRICS_MAX = 1024
+      const next = [...metrics, entry]
+      while (next.length > STAGE_METRICS_MAX) {
+        next.shift()
+      }
+      return buildNextStatus(existing, {
+        updated_at: new Date().toISOString(),
+        status: existing.status,
+        stage_metrics: next,
+      })
     })
-    await persistCheckpointBase(projectPath, existing.session_id, updated)
   } catch {
     // non-fatal — 阶段指标采集失败不阻断主链
   }
@@ -1015,6 +1046,46 @@ export async function requireManagedDeepChapterDraft(
 }
 
 /**
+ * DF-1: 战役批量验收通道的受管草稿注册点。
+ *
+ * 战役（含全自动巡航）不经过聊天会话生命周期（start/complete 等），原先直接以
+ * conversationId="autonomous-campaign" 调 accept，而全库无该会话的受管草稿写入点，
+ * requireManagedDeepChapterDraft 必抛 → formal-writeback 删文件后降级直写正式正文、
+ * acceptedCount 仍报成功。本函数复用既有受管草稿写入设施 writeDraftArtifact，以
+ * "ready" 状态注册（或刷新）战役会话草稿，使 accept 的 Draft-first 校验成立；
+ * requireManagedDeepChapterDraft 校验本身不放宽。
+ *
+ * session 身份：复用现有 status.json 的 session_id（存在时），使 accept 经
+ * buildNextStatus 在同一 session 上叠加，不因新建 base 重置真源既有 additive 字段；
+ * 无 status.json 时才新建 session id（与 createBaseStatus 缺省路径一致）。
+ */
+export async function registerManagedCampaignDraft(input: {
+  projectPath: string
+  conversationId: string
+  userRequest: string
+  chapterNumber: number
+  finalContent: string
+  reviewResults?: NovelReviewResult[]
+  decisionGates?: DeepChapterDecisionGates
+}): Promise<string> {
+  const existing = await loadNovelSessionStatus(input.projectPath)
+  const sessionId = existing?.session_id ?? createNovelSessionId(new Date())
+  return writeDraftArtifact(
+    {
+      projectPath: input.projectPath,
+      conversationId: input.conversationId,
+      userRequest: input.userRequest,
+      chapterNumber: input.chapterNumber,
+    },
+    sessionId,
+    "ready",
+    undefined,
+    input.reviewResults ?? [],
+    { finalContent: input.finalContent, decisionGates: input.decisionGates },
+  )
+}
+
+/**
  * T09: zod passthrough 加载边界护栏的 schema。
  *
  * 与现有 CORR-008 / PAT-G2 手动校验等价的核心字段 + 4 个 additive 项目级开关;
@@ -1101,9 +1172,61 @@ export function validateAndBackfillNovelSessionStatus(raw: unknown): NovelSessio
   } as NovelSessionStatus
 }
 
-export async function loadNovelSessionStatus(projectPath: string): Promise<NovelSessionStatus | null> {
+/**
+ * CORR-A (corrupt-preserve): load 损坏分支的诊断结果。
+ *
+ * `corrupt` 仅在 status.json「可读且非空、但 JSON 解析 / 手动校验 / zod 护栏
+ * 失败」时存在 —— 即真正损坏、会被下游重建静默覆盖的文件。文件缺失、读取
+ * 失败（ENOENT 等）或空文件（无字节可保全）不产生 corrupt 标记。
+ * `preservedTo` 为 null 表示原始字节保全失败（fail-loud），调用方据此
+ * 拒绝覆盖唯一副本；非 null 为 `.corrupt-*` 兄弟文件落点。
+ */
+interface NovelSessionStatusLoadResult {
+  status: NovelSessionStatus | null
+  corrupt?: { preservedTo: string | null }
+}
+
+/**
+ * CORR-A: 把损坏 status.json 的原始字节原样保全到同目录 `.corrupt-<时间戳>`
+ * 兄弟文件（命名与 projection-status-ledger 的 preserveCorruptLedger 一致：
+ * 同基名插入 `.corrupt-<ISO 时间戳（:/. → -）>` 后缀，扩展名保持 .json）。
+ * 原 status.json 一字不动，绝不先覆盖后保全。
+ *
+ * 保全 best-effort：失败绝不打断 load 的可用性降级（仍返回 null），但必须
+ * fail-loud 报出「未保全」，并返回 null 让 startDeepChapterSession 拒绝覆盖。
+ */
+async function preserveCorruptStatusFile(projectPath: string, raw: string): Promise<string | null> {
+  const statusPath = novelSessionStatusPath(projectPath)
   try {
-    const raw = await readFile(novelSessionStatusPath(projectPath))
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-")
+    const corruptPath = `${novelDirPath(projectPath)}/status.corrupt-${stamp}.json`
+    await writeFileAtomic(corruptPath, raw)
+    console.error(
+      `[novel-session-status] corrupted status.json detected at ${statusPath}; ` +
+        `original contents preserved to ${corruptPath}`,
+    )
+    return corruptPath
+  } catch (error) {
+    // 保全失败 → fail-loud；startDeepChapterSession 检测到「未保全」标记后
+    // 拒绝覆盖已有文件（禁止在未保全的情况下覆盖唯一副本）。
+    console.error(
+      `[novel-session-status] FAILED to preserve corrupt status.json at ${statusPath}; ` +
+        `overwrite of the only copy must be refused: ${toErrorMessage(error)}`,
+    )
+    return null
+  }
+}
+
+/**
+ * CORR-A: 带损坏诊断的 load 内部实现（公共 loadNovelSessionStatus 委托本函数
+ * 并只取 status）。startDeepChapterSession 消费 `corrupt` 标记做覆盖前安全联锁。
+ */
+async function loadNovelSessionStatusDetailed(projectPath: string): Promise<NovelSessionStatusLoadResult> {
+  // 跨读/解析边界保留原始字节：损坏时先保全 `.corrupt-*` 兄弟文件，再
+  // fail-loud 降级返回 null（绝不静默）。
+  let raw: string | undefined
+  try {
+    raw = await readFile(novelSessionStatusPath(projectPath))
     const parsed = JSON.parse(raw) as Partial<NovelSessionStatus>
     if (
       parsed?.schema_version !== "1"
@@ -1129,15 +1252,66 @@ export async function loadNovelSessionStatus(projectPath: string): Promise<Novel
       || !SESSION_LIFECYCLE_STATUSES.includes(parsed.current_task?.status as NovelSessionLifecycleStatus)
       || (parsed.active_step_index !== null && typeof parsed.active_step_index !== "number")
     ) {
-      return null
+      return { status: null, corrupt: { preservedTo: await preserveCorruptStatusFile(projectPath, raw) } }
     }
     // T09: zod passthrough 加载边界护栏（校验+默认值回填+保留未知键）。
     // 上方 CORR-008 / PAT-G2 手动枚举/必填校验已通过; 此处再经 zod 护栏回填
     // 4 个 additive 项目级开关默认值（undefined）并保留未知键（.passthrough）。
-    return validateAndBackfillNovelSessionStatus(parsed)
+    const backfilled = validateAndBackfillNovelSessionStatus(parsed)
+    if (!backfilled) {
+      // zod 护栏独立拒绝（manual 校验之外）同样是损坏信号：先保全再降级。
+      return { status: null, corrupt: { preservedTo: await preserveCorruptStatusFile(projectPath, raw) } }
+    }
+    return { status: backfilled }
   } catch {
-    return null
+    // CORR-A: 读取失败（ENOENT 等）或空文件无原始字节可保全，保持既有 null
+    // 降级；解析失败（raw 已取得）先把原始内容写为 `.corrupt-<时间戳>` 兄弟
+    // 文件，再 fail-loud 返回 null。禁止在未保全的情况下被下游覆盖。
+    if (raw === undefined || raw.length === 0) return { status: null }
+    return { status: null, corrupt: { preservedTo: await preserveCorruptStatusFile(projectPath, raw) } }
   }
+}
+
+export async function loadNovelSessionStatus(projectPath: string): Promise<NovelSessionStatus | null> {
+  return (await loadNovelSessionStatusDetailed(projectPath)).status
+}
+
+/**
+ * ST-1: status.json per-project 锁键（与 ledger 的键前缀区分；既有键名保留，
+ * 不改变任何已在线程内的锁语义）。
+ */
+function sessionStatusLockKey(projectPath: string): string {
+  return `session-status:${normalizePath(projectPath)}`
+}
+
+/** ST-1: 复用 novel-locks 既有 FIFO 互斥（勿另造）的 session-status 锁包装。 */
+function withSessionStatusLock<T>(projectPath: string, fn: () => Promise<T>): Promise<T> {
+  return withProjectLock(sessionStatusLockKey(projectPath), fn)
+}
+
+/**
+ * status.json 实际写盘（无锁）。调用方要么已持有 session-status 锁
+ * （锁内生命周期函数 / updateNovelSessionStatus），要么经 saveNovelSessionStatus
+ * 这一锁外入口进入；两条路径共用唯一写实现，防止双写实现漂移。
+ */
+async function writeNovelSessionStatusUnlocked(
+  projectPath: string,
+  status: NovelSessionStatus,
+): Promise<void> {
+  await ensureNovelSessionDirs(projectPath)
+  const statusPath = novelSessionStatusPath(projectPath)
+  await writeVerifiedJson(
+    statusPath,
+    status,
+    "小说会话状态文件",
+    (parsed) => {
+      const candidate = parsed as Partial<NovelSessionStatus> | null
+      return candidate?.session_id === status.session_id
+        && candidate?.current_task?.conversation_id === status.current_task.conversation_id
+        && candidate?.status === status.status
+        && candidate?.draft?.draft_status === status.draft.draft_status
+    },
+  )
 }
 
 export async function saveNovelSessionStatus(
@@ -1146,29 +1320,61 @@ export async function saveNovelSessionStatus(
 ): Promise<void> {
   // Phase4 锁族：status.json 并锁（与 ledger 共用 per-project 键前缀区分，
   // 防止 community rebuild 与 ingest 并行写会话状态时 RMW 交错）。
-  await withProjectLock(`session-status:${normalizePath(projectPath)}`, async () => {
-    await ensureNovelSessionDirs(projectPath)
-    const statusPath = novelSessionStatusPath(projectPath)
-    await writeVerifiedJson(
-      statusPath,
-      status,
-      "小说会话状态文件",
-      (parsed) => {
-        const candidate = parsed as Partial<NovelSessionStatus> | null
-        return candidate?.session_id === status.session_id
-          && candidate?.current_task?.conversation_id === status.current_task.conversation_id
-          && candidate?.status === status.status
-          && candidate?.draft?.draft_status === status.draft.draft_status
-      },
-    )
+  await withSessionStatusLock(projectPath, () => writeNovelSessionStatusUnlocked(projectPath, status))
+}
+
+/**
+ * ST-1: status.json 读-改-写事务（load→mutate→write 收进同一把锁）。
+ *
+ * 旧实现下所有调用方均为「锁外 load → buildNextStatus → 锁内 save」：后写者用
+ * 旧快照整份覆盖先写者（共识写作 N 路并行 RMW 同一 status.json 是常态），
+ * 字段确定性丢失。本函数把整段 RMW 包进与 saveNovelSessionStatus 同一把
+ * session-status 锁，复用 novel-locks 既有实现；锁等待超时/熔断行为沿用
+ * LOCK_WAIT_TIMEOUT_MS（锁内执行不另设超时，与既有 save 语义一致）。
+ *
+ * mutator 约定：
+ *  - 传入当前真源（文件不存在/损坏时为 null）；返回 next 则落盘，返回 null 则跳过写。
+ *  - mutator 内禁止再调用任何 status.json 读写 API（同一把锁不可重入，会等待超时）。
+ */
+export type NovelSessionStatusMutator = (
+  current: NovelSessionStatus | null,
+) => NovelSessionStatus | null | Promise<NovelSessionStatus | null>
+
+export async function updateNovelSessionStatus(
+  projectPath: string,
+  mutator: NovelSessionStatusMutator,
+): Promise<NovelSessionStatus | null> {
+  return withSessionStatusLock(projectPath, async () => {
+    const current = await loadNovelSessionStatus(projectPath)
+    const next = await mutator(current)
+    if (!next) return null
+    await writeNovelSessionStatusUnlocked(projectPath, next)
+    return next
   })
 }
 
 export async function startDeepChapterSession(
   input: DeepChapterSessionInput,
 ): Promise<NovelSessionStatus> {
+  // ST-1: load→modify→write 收进同一把锁（读不再在锁外）。
+  return withSessionStatusLock(input.projectPath, () => startDeepChapterSessionWithinLock(input))
+}
+
+async function startDeepChapterSessionWithinLock(
+  input: DeepChapterSessionInput,
+): Promise<NovelSessionStatus> {
   const now = new Date().toISOString()
-  const existing = await loadNovelSessionStatus(input.projectPath)
+  // CORR-A: 损坏保全标记联锁 —— load 已把损坏 status.json 的原始字节保全到
+  // `.corrupt-*` 兄弟文件；若保全失败（preservedTo === null），重建覆盖会
+  // 丢失唯一副本 → 不得覆盖已有文件，fail-loud 拒绝写盘。既有测试语义不变：
+  // 文件缺失/读取失败/空文件不触发；保全成功时照常重建（损坏字节已留存）。
+  const loaded = await loadNovelSessionStatusDetailed(input.projectPath)
+  if (loaded.corrupt && loaded.corrupt.preservedTo === null) {
+    throw new Error(
+      `[novel-session-status] 拒绝覆盖未保全的损坏 status.json（${novelSessionStatusPath(input.projectPath)}）：preservation failed`,
+    )
+  }
+  const existing = loaded.status
   const sessionId = canReuseExistingSession(existing, input)
     ? existing.session_id
     : createNovelSessionId(new Date(now))
@@ -1193,11 +1399,18 @@ export async function startDeepChapterSession(
     next.decision_gates = cloneDecisionGates(input.resumeCheckpoint.decisionGates)
     next.evidence_refs = mergeEvidenceRefs(savedDraftPath)
   }
-  await saveNovelSessionStatus(input.projectPath, next)
+  await writeNovelSessionStatusUnlocked(input.projectPath, next)
   return next
 }
 
 export async function persistDeepChapterCheckpoint(
+  input: PersistDeepChapterCheckpointInput,
+): Promise<NovelSessionStatus> {
+  // ST-1: load→modify→write 收进同一把锁（读不再在锁外）。
+  return withSessionStatusLock(input.projectPath, () => persistDeepChapterCheckpointWithinLock(input))
+}
+
+async function persistDeepChapterCheckpointWithinLock(
   input: PersistDeepChapterCheckpointInput,
 ): Promise<NovelSessionStatus> {
   const existing = await loadNovelSessionStatus(input.projectPath)
@@ -1245,11 +1458,18 @@ export async function persistDeepChapterCheckpoint(
     // it; loadNovelSessionStatus spreads Partial safely.
     dimension_results: resolveDimensionResults(input.checkpoint, base),
   })
-  await persistCheckpointBase(input.projectPath, input.sessionId, next)
+  await persistCheckpointBaseWithinLock(input.projectPath, input.sessionId, next)
   return next
 }
 
 export async function completeDeepChapterSession(
+  input: CompleteDeepChapterSessionInput,
+): Promise<NovelSessionStatus> {
+  // ST-1: load→modify→write 收进同一把锁（读不再在锁外）。
+  return withSessionStatusLock(input.projectPath, () => completeDeepChapterSessionWithinLock(input))
+}
+
+async function completeDeepChapterSessionWithinLock(
   input: CompleteDeepChapterSessionInput,
 ): Promise<NovelSessionStatus> {
   const existing = await loadNovelSessionStatus(input.projectPath)
@@ -1307,11 +1527,18 @@ export async function completeDeepChapterSession(
       input.checkpoint?.chapterNumber ?? input.chapterNumber,
     ),
   })
-  await persistCheckpointBase(input.projectPath, input.sessionId, next)
+  await persistCheckpointBaseWithinLock(input.projectPath, input.sessionId, next)
   return next
 }
 
 export async function pauseDeepChapterSession(
+  input: PauseDeepChapterSessionInput,
+): Promise<NovelSessionStatus> {
+  // ST-1: load→modify→write 收进同一把锁（读不再在锁外）。
+  return withSessionStatusLock(input.projectPath, () => pauseDeepChapterSessionWithinLock(input))
+}
+
+async function pauseDeepChapterSessionWithinLock(
   input: PauseDeepChapterSessionInput,
 ): Promise<NovelSessionStatus> {
   const existing = await loadNovelSessionStatus(input.projectPath)
@@ -1363,7 +1590,7 @@ export async function pauseDeepChapterSession(
     // now twin-safe — cannot be omitted by a future lifecycle function).
     dimension_results: resolveDimensionResults(input.checkpoint, base),
   })
-  await persistCheckpointBase(input.projectPath, input.sessionId, next)
+  await persistCheckpointBaseWithinLock(input.projectPath, input.sessionId, next)
   return next
 }
 
@@ -1374,6 +1601,13 @@ export async function pauseDeepChapterSession(
  * 不改 draft/checkpoint/decision_gates——中断任务的可续作证据原样保留。
  */
 export async function markSessionInterrupted(projectPath: string): Promise<NovelSessionStatus | null> {
+  // ST-1: load→modify→write 收进同一把锁（读不再在锁外）。
+  return withSessionStatusLock(projectPath, () => markSessionInterruptedWithinLock(projectPath))
+}
+
+async function markSessionInterruptedWithinLock(
+  projectPath: string,
+): Promise<NovelSessionStatus | null> {
   const existing = await loadNovelSessionStatus(projectPath)
   if (!existing) return null
   if (existing.status !== "running" && existing.status !== "paused") return existing
@@ -1386,11 +1620,18 @@ export async function markSessionInterrupted(projectPath: string): Promise<Novel
       status: "interrupted",
     },
   })
-  await persistCheckpointBase(projectPath, existing.session_id, next)
+  await persistCheckpointBaseWithinLock(projectPath, existing.session_id, next)
   return next
 }
 
 export async function blockDeepChapterSession(
+  input: PauseDeepChapterSessionInput,
+): Promise<NovelSessionStatus> {
+  // ST-1: load→modify→write 收进同一把锁（读不再在锁外）。
+  return withSessionStatusLock(input.projectPath, () => blockDeepChapterSessionWithinLock(input))
+}
+
+async function blockDeepChapterSessionWithinLock(
   input: PauseDeepChapterSessionInput,
 ): Promise<NovelSessionStatus> {
   const existing = await loadNovelSessionStatus(input.projectPath)
@@ -1439,7 +1680,7 @@ export async function blockDeepChapterSession(
     // DC-2: 6-dim review map via centralized helper (was ARCH-006 twin fix).
     dimension_results: resolveDimensionResults(input.checkpoint, base),
   })
-  await persistCheckpointBase(input.projectPath, input.sessionId, next)
+  await persistCheckpointBaseWithinLock(input.projectPath, input.sessionId, next)
   return next
 }
 
@@ -1472,9 +1713,33 @@ function resolveDecisionBaseStatus(
 export async function acceptDeepChapterDraft(
   input: DraftDecisionInput,
 ): Promise<NovelSessionStatus> {
+  // ST-1: load→requireManaged→write 收进同一把锁（报告 :1475 accept 锁外读）。
+  return withSessionStatusLock(input.projectPath, () => acceptDeepChapterDraftWithinLock(input))
+}
+
+async function acceptDeepChapterDraftWithinLock(
+  input: DraftDecisionInput,
+): Promise<NovelSessionStatus> {
   const existing = await loadNovelSessionStatus(input.projectPath)
   const draft = await requireManagedDeepChapterDraft(input.projectPath, input.conversationId, "accept")
   const now = new Date().toISOString()
+  // B2（守门四件套接线）：commit-discipline 接 accept 前单章闭环断言（v2.6.7 D4）。
+  // 断言位置：回填发生前（writeDraftArtifact 之前），违规 → 拒绝 accept（fail-loud）。
+  // checkCommitDiscipline 为纯函数（ADR-19 零 IO），此处只读断言、无额外副作用。
+  const discipline = checkCommitDiscipline({
+    chapterIds:
+      draft?.chapter_number != null || input.chapterNumber != null
+        ? [String(draft?.chapter_number ?? input.chapterNumber)]
+        : [],
+    touchesStatusJson: true,
+    touchesCanonicalContent: input.formalChapterPath != null,
+    touchesCanonicalMemory: input.formalChapterPath != null,
+  })
+  if (!discipline.ok) {
+    throw new Error(
+      `[commit-discipline] accept 被拒绝（单章 Draft-first 闭环违规）：${discipline.reasons.join("；")}`,
+    )
+  }
   const decisionInput = {
     ...input,
     sessionId: input.sessionId ?? draft.session_id,
@@ -1530,11 +1795,18 @@ export async function acceptDeepChapterDraft(
     // Mirror the other 4 lifecycle functions via the centralized helper.
     dimension_results: resolveDimensionResults(checkpoint, base),
   })
-  await persistCheckpointBase(input.projectPath, base.session_id, next)
+  await persistCheckpointBaseWithinLock(input.projectPath, base.session_id, next)
   return next
 }
 
 export async function rejectDeepChapterDraft(
+  input: DraftDecisionInput,
+): Promise<NovelSessionStatus> {
+  // ST-1: load→requireManaged→write 收进同一把锁（读不再在锁外）。
+  return withSessionStatusLock(input.projectPath, () => rejectDeepChapterDraftWithinLock(input))
+}
+
+async function rejectDeepChapterDraftWithinLock(
   input: DraftDecisionInput,
 ): Promise<NovelSessionStatus> {
   const existing = await loadNovelSessionStatus(input.projectPath)
@@ -1592,7 +1864,7 @@ export async function rejectDeepChapterDraft(
     // dropping the 6-dim review map on fresh base. Mirror via centralized helper.
     dimension_results: resolveDimensionResults(checkpoint, base),
   })
-  await persistCheckpointBase(input.projectPath, base.session_id, next)
+  await persistCheckpointBaseWithinLock(input.projectPath, base.session_id, next)
   return next
 }
 

@@ -50,7 +50,7 @@ import {
 /** 阶段: 规划期 / 写作期 / 终态。 */
 export type RoutePhase = "planning" | "writing" | "complete"
 
-/** 深章流水线位置 (7 值, 与 deep-chapter-generation resume stage 链同构)。 */
+/** 深章流水线位置 (7 值, 与 deep-chapter-generation resume stage 链同构；B2 回退：曾委托 stage-vocabulary，现就地内联，不依赖 untracked。) */
 export type RouteStage = (typeof ROUTE_STAGES)[number]
 
 /** 门控裁定: pending=未评估 / pass=通过 / fail=失败。 */
