@@ -7,7 +7,16 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.17.0**（2026-10-17 发布：工程治理 + 导航/命令面板 + 门控体验 + 安全入口 — stable）
+**v2.17.1**（2026-10-18 发布：运动热力图 + 主控 Agent + 质量自主迭代 + 轨迹证据 — stable）
+
+### v2.17.1 更新亮点（2026-10-18）
+
+- **运动热力图**：模块接线地图（1021 模块 / 805 可达 / 216 未接线，orphan / specOnly / barrel-only 三分类）+ 运行遥测（注入式 sink、节流落盘）+ 泳道分层视图（四色图例、六格统计、节点下钻、未接线清单）。生成物字节可复现，纳入 `gen:check` 字节门禁。
+- **主控 Agent**：一句话目标 → 只读工具取证 → 起草到草稿区；白名单只含只读工具 + `write_chapter(draftMode)`，Draft-first 边界不变。
+- **质量自主迭代闭环**：六维评分（中位 ≥9.0 / 最多 3 轮 / 最小增益 0.1）驱动定向重写；弱维不放行、无提升即停并保留最佳稿；产出 gate-run / retry / accept 运行事件。
+- **运行轨迹与证据回放**：每次运行可逐步回放输入摘要、完整结果、耗时与失败原因，快照落 `.novel/telemetry/main-control-trace.json`，重开即回放。
+- **章节标题链**：缺失章节名从大纲补全，写入边界统一归一为单一 canonical H1。
+- 发布语义：**stable**（2026-10-18）。
 
 ### v2.17.0 更新亮点（2026-10-17）
 
@@ -293,11 +302,11 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## Windows 安装包
 
-下载 [`niko-buddy_2.17.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.17.0/niko-buddy_2.17.0_windows_X64.exe)（约 34 MB），双击运行 NSIS 安装程序即可。
+下载 [`niko-buddy_2.17.1_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.17.1/niko-buddy_2.17.1_windows_X64.exe)（约 34 MB），双击运行 NSIS 安装程序即可。
 
 ## 便携版
 
-下载 [`niko-buddy_2.17.0_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.17.0/niko-buddy_2.17.0_windows_X64_portable.exe)（约 149 MB，单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
+下载 [`niko-buddy_2.17.1_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.17.1/niko-buddy_2.17.1_windows_X64_portable.exe)（约 149 MB，单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
 
 ## 系统要求
 

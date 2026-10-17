@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.17.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.17.1-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -50,10 +50,35 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 <img width="1239" height="883" alt="image" src="https://github.com/user-attachments/assets/076740be-85ef-4503-842d-565c367aebdc" />
 <img width="1201" height="832" alt="image" src="https://github.com/user-attachments/assets/57936132-45b2-4fed-8c80-2c9282fedbf5" />
 
+## v2.17.1 新增能力
+
+### 运动热力图：看得见的写作主链
+
+写作系统最容易腐化的地方是**接线**——模块写好了却没人调用，管线走了一半就断。热力图把这件事变成可视的：
+
+- **静态层**：`scripts/gen-module-atlas.mjs` 扫描全仓 `src/**` 建 import 图，从入口做 BFS 判可达，区分 orphan（无人调用）/ specOnly（只有测试引用）/ barrel-only（只经 barrel 暴露），按 12 条主链泳道 + 8 条支撑泳道分类。生成物 `module-atlas.generated.json` 无时间戳、字节可复现，纳入 `gen:check` 字节门禁（当前 1021 模块 / 3598 边）。
+- **运行时层**：`module-heat.ts` 纯函数记录每次模块命中（环形缓冲、对数归一、注入式 sink），`campaign-runner` / `autonomous-incubator` / `director-orchestrator` / `chapter-pipeline` 四处埋点，节流落盘 `.novel/telemetry/module-heat.json`。
+- **呈现层**：四色图例（当前路径 / 外部依赖 / 返工回路 / 未接线）、六格统计条、主链泳道热度着色、返工回路标记（gate→draft、review→gate）、节点下钻（出入边 / 调用次数 / 最近日志）与未接线清单。
+
+### 主控 Agent：一句话目标 → 可审草稿
+
+「主控 Agent」视图把目标交给 Agent 自主完成：规划 → 只读工具取证（章节 / 记忆 / 大纲 / 上下文 / 任务路由）→ 起草到草稿区。
+
+Draft-first 是硬边界：白名单只有只读工具 + `write_chapter(draftMode=true)`，`write_memory` / `write_outline_node` **不注册**——AI 产出永远先进草稿，accept 后才回填正式正文与记忆。
+
+### 质量自主迭代闭环
+
+复用审查中心六维评分（爽感 / 一致性 / 节奏 / 人物 / 连贯 / 追读），按「中位 ≥9.0、最多 3 轮、最小增益 0.1」循环：评分 → 定向重写（只点名缺口最大的 4 个维度）→ 再评分。**中位达标但仍有弱维不放行**（防止被高分维度掩盖），**重写无实质提升立即停止并保留历史最佳稿**（绝不越改越差）。闭环结果转成 `gate-run` / `retry` / `accept|stage` 事件写入运行事件账本。
+
+### 运行轨迹与工具证据回放
+
+主控 Agent 的每次运行都能逐步回放：输入摘要、完整结果、耗时、失败原因、语义明细，点「展开原始证据」看原始工具输出（≤4000 字符）。快照落 `.novel/telemetry/main-control-trace.json`，重开面板自动载入上一次运行。
+
 ## v2.7 系列能力速览
 
 | 波次 | 版本 | 能力 | 核心交付 |
 |---|---|---|---|
+| — | **v2.17.1** | **运动热力图 + 主控 Agent + 质量自主迭代 + 轨迹证据** | 模块接线地图（1021 模块 / 泳道分类 / orphan 识别，gen:check 字节门禁）+ 运行遥测（注入式 sink / 节流落盘）+ 热力图视图（下钻 / 未接线清单）+ 主控 Agent（只读取证 + 草稿产出）+ 六维质量闭环（中位 ≥9.0 / 3 轮 / 无提升即停保留最佳稿）+ 运行轨迹与工具证据回放（stable，2026-10-18） |
 | — | v2.17.0 | 工程治理 + 导航/命令面板 + 门控体验 + 安全入口 | 命令面板与导航真源/门控错误态与可用性降级/secret-client 密钥唯一入口/巨文件拆分（deep-chapter 2917→1249、context-engine 2426→1456）/检索公共层/docs 结构索引 （stable，2026-10-17） |
 | — | v2.16.0 | 自动化闭环H1/H4/H2-H3+G/H契约层 | 无头驱动器+巡航仲裁接线+弧末结算契约+晋升收拢+结构化记忆（stable，2026-10-16） |
 | — | v2.15.1 | UI柔化收纳 + 管线 R1-R3 + AI自检可见化 + #208 E2E 修复 | UI柔化收纳/管线R1-R3/AI自检可见化 + #208 E2E修复（stable，2026-10-15） |

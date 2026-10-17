@@ -7,6 +7,32 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.17.1] - 2026-10-18
+
+### Added
+
+- **运动热力图（模块接线地图 + 运行遥测 + 分层视图）**：`scripts/gen-module-atlas.mjs` 扫全仓 `src/**` 建 import 图（入口 BFS 判可达，区分 orphan / specOnly / barrel-only），按 12 条主链泳道 + 8 条支撑泳道分类，输出确定性生成物 `module-atlas.generated.json`（无时间戳、字节可复现，纳入 `gen:check` 第 6 项门禁）。运行侧 `module-heat.ts` 纯函数（环形缓冲 / 对数归一 / 未接线分类 / 注入式 sink）+ 节流落盘 `.novel/telemetry/module-heat.json`，埋点接入 campaign-runner、autonomous-incubator、director-orchestrator、chapter-pipeline。呈现侧新增「运动热力图」视图：四色图例、六格统计条、主链泳道热度着色与当前路径高亮、返工回路标记、节点下钻（出入边 / 调用 / 日志）、未接线清单与会话日志。
+- **主控 Agent（阶段 1）**：新增「主控 Agent」视图与 `runMainControlAgent`——一句话目标 → 只读工具取证（章节 / 记忆 / 大纲 / 上下文 / 任务路由）→ 起草到草稿区；轨迹收敛为步骤列表并进热力图日志。白名单只含只读工具 + `write_chapter(draftMode)`，Draft-first 边界不变。
+- **质量自主迭代闭环**：`quality-iteration.ts` 复用 review-center 六维评分，按「中位 ≥9.0 / 最多 3 轮 / 最小增益 0.1」循环做定向重写，未提升即停并保留历史最佳稿；闭环结果转成 `gate-run` / `retry` / `accept|stage` 运行事件写入 run-event-ledger。
+- **运行轨迹与工具证据面板**：主控 Agent 每次运行可回放每一步工具调用（输入摘要、完整结果、耗时、失败原因、语义明细），快照落 `.novel/telemetry/main-control-trace.json`。
+
+### Changed
+
+- 工作台与侧栏新增「运动热力图」「主控 Agent」入口；`workflow-trace` 导出 `AgentWorkflowStep` / `AgentWorkflowDetail` 供轨迹面板复用。
+
+### Fixed
+
+- **章节标题链**：缺失章节名时从大纲 `### 第N章 章名` 补全（修复脚本新增 `--outline-dirs`，默认 dry-run + 自动备份 + 幂等）；写入边界（批量 accept、章节导入）自动归一富标题与单一 canonical H1。
+
+### 仓库卫生
+
+- 本地清理：删除 `.tmp/` 与 `tsbuildinfo` 缓存、一次性分析产物（`ch-dump/`、`ch*-hits.json`、`.tmp-swarm-*.json`）与 UUID 运行残留目录；可视化 / 分析文档归档到 `.workflow/archive-20261018/`。
+- 知识库与检索：maestro KG 全量重建、Wiki 健康检查、知识库审计归并。
+
+### 验证
+
+- `npm run typecheck` 0 错误；`npm run lint` 通过（boundaries 5/5 fixture）；`npm run gen:check` 6/6；定向 vitest 全绿（热力图、主控 Agent、质量闭环、轨迹、i18n 键覆盖）。
+
 ## [2.17.0] - 2026-10-17
 
 ### Added

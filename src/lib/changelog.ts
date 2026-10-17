@@ -15,6 +15,32 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.17.1",
+    date: "2026-10-18",
+    highlights: {
+      en: [
+        "Module heat map: deterministic import-graph atlas (1021 modules, lane classification, orphan/spec-only detection) with a byte-reproducible generated artifact gated by gen:check.",
+        "Runtime telemetry: injected-sink heat recording (ring buffer, log normalization, throttled persistence to .novel/telemetry/module-heat.json) wired into campaign, incubator, director and chapter pipelines.",
+        "Heat map view: four-colour legend, six-cell stats, 12 main lanes + 8 support lanes with heat shading, rework-loop markers, node drill-down and an unwired-module backlog.",
+        "Main control agent (stage 1): goal-in, read-only evidence gathering, draft-out — whitelist is read-only tools plus write_chapter(draftMode), so Draft-first holds.",
+        "Quality self-iteration loop: six-dimension scoring (median >= 9.0, max 3 rounds, minimum gain 0.1) drives targeted rewrites, stops when there is no real gain and keeps the best draft; emits gate-run/retry/accept run events.",
+        "Run trace and tool-evidence panel: every run is replayable step by step (input summary, full result, duration, failure reason), snapshotted to .novel/telemetry/main-control-trace.json.",
+        "Chapter titles: missing headings are backfilled from the outline, and every write path normalizes to a single canonical H1.",
+        "Hygiene: temp files, caches and one-off analysis artifacts purged; maestro KG rebuilt, wiki health checked and knowledge audited.",
+      ],
+      zh: [
+        "运动热力图：确定性 import 图地图（1021 模块、泳道分类、orphan/spec-only 识别），生成物字节可复现并纳入 gen:check 门禁。",
+        "运行遥测：注入式 sink 记录热度（环形缓冲、对数归一、节流落盘 .novel/telemetry/module-heat.json），接入 campaign / incubator / director / chapter 四条管线。",
+        "热力图视图：四色图例、六格统计、12 主链 + 8 支撑泳道热度着色、返工回路标记、节点下钻与未接线清单。",
+        "主控 Agent（阶段 1）：一句话目标 → 只读取证 → 起草到草稿区；白名单只含只读工具 + write_chapter(draftMode)，Draft-first 边界不变。",
+        "质量自主迭代闭环：六维评分（中位 ≥9.0、最多 3 轮、最小增益 0.1）驱动定向重写，无提升即停并保留最佳稿，产出 gate-run/retry/accept 运行事件。",
+        "运行轨迹与工具证据面板：每次运行可逐步回放（输入摘要、完整结果、耗时、失败原因），快照落 .novel/telemetry/main-control-trace.json。",
+        "章节标题：缺失标题从大纲补全，所有写入路径归一为单一 canonical H1。",
+        "仓库卫生：清理临时文件、缓存与一次性分析产物；maestro KG 重建、Wiki 健康检查与知识库审计。",
+      ],
+    },
+  },
+  {
     version: "2.17.0",
     date: "2026-10-17",
     highlights: {
