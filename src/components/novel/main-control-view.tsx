@@ -1,8 +1,18 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { CheckCircle2, CircleAlert, Flame, Loader2, Play, Square, Sparkles } from "lucide-react"
 import { fileExists } from "@/commands/fs"
-import { resolveWikiPath, runMainControlAgent, type MainControlResult, type MainControlStep } from "@/lib/novel"
+import {
+  buildTraceEntries,
+  buildTraceSnapshot,
+  loadTraceSnapshot,
+  resolveWikiPath,
+  runMainControlAgent,
+  saveTraceSnapshot,
+  type MainControlResult,
+  type MainControlStep,
+  type TraceEntry,
+} from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { cn } from "@/lib/utils"
 
@@ -35,7 +45,24 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const [result, setResult] = useState<MainControlResult | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [trace, setTrace] = useState<TraceEntry[]>([])
+  const [expanded, setExpanded] = useState<string[]>([])
+  const [replaySavedAt, setReplaySavedAt] = useState<number | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  // 回放：进面板时载入上一次运行的轨迹快照（缺失即空）。
+  useEffect(() => {
+    if (!projectPath) return
+    let cancelled = false
+    void loadTraceSnapshot(projectPath).then((snapshot) => {
+      if (cancelled || !snapshot) return
+      setTrace(snapshot.entries)
+      setReplaySavedAt(snapshot.savedAt)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [projectPath])
 
   const start = async () => {
     const trimmed = goal.trim()
@@ -62,6 +89,18 @@ export function MainControlView(_props: MainControlViewProps = {}) {
       })
       setSteps(out.steps)
       setResult(out)
+      setTrace(buildTraceEntries(out.steps))
+      setReplaySavedAt(null)
+      const snapshot = buildTraceSnapshot({
+        goal: trimmed,
+        ok: out.ok,
+        stopReason: out.error,
+        roundsUsed: out.roundsUsed,
+        finalText: out.finalText,
+        steps: out.steps,
+        now: Date.now(),
+      })
+      void saveTraceSnapshot(projectPath, snapshot)
       if (out.error) setError(out.error)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -176,6 +215,90 @@ export function MainControlView(_props: MainControlViewProps = {}) {
                 ) : null}
               </li>
             ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="rounded-lg border p-2" data-testid="main-control-trace">
+        <h3 className="mb-1 flex items-center gap-2 text-xs font-semibold">
+          {t("mainControl.traceTitle", { count: trace.length })}
+          {replaySavedAt ? (
+            <span className="text-[10px] font-normal text-muted-foreground" data-testid="main-control-trace-replay">
+              {t("mainControl.traceReplay")}
+            </span>
+          ) : null}
+        </h3>
+        {trace.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground">{t("mainControl.traceEmpty")}</p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {trace.map((entry) => {
+              const open = expanded.includes(entry.callId)
+              return (
+                <li
+                  key={entry.callId}
+                  className="rounded-md border border-border/60 p-1.5"
+                  data-testid={`main-control-trace-entry-${entry.name}`}
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpanded((prev) =>
+                        prev.includes(entry.callId)
+                          ? prev.filter((id) => id !== entry.callId)
+                          : [...prev, entry.callId],
+                      )
+                    }
+                    data-testid={`main-control-trace-toggle-${entry.name}`}
+                    className="flex w-full flex-wrap items-center gap-1.5 text-left text-[11px]"
+                  >
+                    {entry.status === "error" ? (
+                      <CircleAlert className="h-3 w-3 text-destructive" />
+                    ) : entry.status === "running" ? (
+                      <Loader2 className="h-3 w-3 animate-spin text-accent" />
+                    ) : (
+                      <CheckCircle2 className="h-3 w-3 text-success" />
+                    )}
+                    <span className="font-medium">{entry.title}</span>
+                    <code className="text-[10px] text-muted-foreground">{entry.name}</code>
+                    {entry.durationMs !== undefined ? (
+                      <span className="text-[10px] text-muted-foreground">
+                        {t("mainControl.traceDuration", { ms: entry.durationMs })}
+                      </span>
+                    ) : null}
+                    <span className="ml-auto text-[10px] text-accent">
+                      {open ? t("mainControl.traceHideRaw") : t("mainControl.traceShowRaw")}
+                    </span>
+                  </button>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">{entry.summary}</p>
+                  <p className="text-[10px] text-muted-foreground" data-testid={`main-control-trace-input-${entry.name}`}>
+                    {t("mainControl.traceInput", { input: entry.input })}
+                  </p>
+                  {entry.error ? (
+                    <p className="text-[10px] text-destructive">
+                      {t("mainControl.traceFailure", { reason: entry.error })}
+                    </p>
+                  ) : null}
+                  {entry.details.length > 0 ? (
+                    <ul className="mt-0.5 flex flex-col gap-0.5">
+                      {entry.details.map((detail, index) => (
+                        <li key={`${detail.label}-${index}`} className="text-[10px] text-muted-foreground">
+                          {detail.label}：{detail.value}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {open ? (
+                    <pre
+                      className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-1 text-[10px]"
+                      data-testid={`main-control-trace-raw-${entry.name}`}
+                    >
+                      {(entry.error ?? entry.result ?? t("mainControl.traceNoResult")).slice(0, 4000)}
+                    </pre>
+                  ) : null}
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>

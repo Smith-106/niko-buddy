@@ -29,13 +29,13 @@ export interface WorkflowToolCall {
   finishedAt?: number
 }
 
-interface AgentWorkflowDetail {
+export interface AgentWorkflowDetail {
   label: string
   value: string
   tone?: "default" | "muted" | "warning" | "error" | "success"
 }
 
-interface AgentWorkflowStep {
+export interface AgentWorkflowStep {
   id: string
   kind: AgentWorkflowStepKind
   title: string

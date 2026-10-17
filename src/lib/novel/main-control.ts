@@ -53,6 +53,8 @@ export interface MainControlStep {
   result?: string
   error?: string
   at: number
+  /** 结束时间（分析耗时用；缺省表示未结束）。 */
+  finishedAt?: number
 }
 
 export interface MainControlDraft {
@@ -154,6 +156,7 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
       if (!step) return
       step.status = "done"
       step.result = result
+      step.finishedAt = now()
       emit(step)
     },
     onToolError: (callId, error) => {
@@ -161,6 +164,7 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
       if (!step) return
       step.status = "error"
       step.error = error
+      step.finishedAt = now()
       emit(step)
     },
     onDone: () => {},
@@ -216,6 +220,7 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
         status: (call.status === "error" ? "error" : "done") as MainControlStep["status"],
         result: call.result,
         at: running.get(call.id)?.at ?? now(),
+        finishedAt: running.get(call.id)?.finishedAt ?? call.finishedAt,
       }))
     : steps
 

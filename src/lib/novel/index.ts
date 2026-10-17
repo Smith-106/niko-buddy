@@ -1229,3 +1229,15 @@ export type {
   QualityScore,
   QualityStopReason,
 } from "./quality-iteration"
+
+// 主控 Agent 运行轨迹与工具证据（回放）
+export {
+  MAIN_CONTROL_TRACE,
+  buildTraceEntries,
+  buildTraceSnapshot,
+  loadTraceSnapshot,
+  saveTraceSnapshot,
+  toWorkflowToolCalls,
+  traceSnapshotPath,
+} from "./main-control-trace"
+export type { MainControlTraceSnapshot, TraceEntry } from "./main-control-trace"

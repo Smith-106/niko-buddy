@@ -99,3 +99,52 @@ describe("MainControlView", () => {
     expect(setActiveView).toHaveBeenCalledWith("moduleHeatmap")
   })
 })
+
+describe("MainControlView 运行轨迹与证据", () => {
+  it("每步显示输入摘要，展开后可见原始证据", async () => {
+    runMainControlAgent.mockResolvedValue({
+      ok: true,
+      finalText: "完成",
+      roundsUsed: 2,
+      steps: [
+        {
+          callId: "c1",
+          name: "read_chapter",
+          params: { name: "第12章" },
+          status: "done",
+          result: "第12章正文全文……",
+          at: 1000,
+          finishedAt: 1420,
+        },
+      ],
+      drafts: [],
+    })
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "读第12章" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-trace-entry-read_chapter")).toBeTruthy())
+    expect(screen.getByTestId("main-control-trace-input-read_chapter").textContent).toContain("第12章")
+    expect(screen.getByTestId("main-control-trace").textContent).toContain("420")
+    expect(screen.queryByTestId("main-control-trace-raw-read_chapter")).toBeNull()
+    fireEvent.click(screen.getByTestId("main-control-trace-toggle-read_chapter"))
+    expect(screen.getByTestId("main-control-trace-raw-read_chapter").textContent).toContain("第12章正文全文")
+  })
+
+  it("失败步骤显示失败原因", async () => {
+    runMainControlAgent.mockResolvedValue({
+      ok: false,
+      finalText: "",
+      roundsUsed: 1,
+      steps: [
+        { callId: "c9", name: "write_chapter", params: {}, status: "error", error: "磁盘只读", at: 5 },
+      ],
+      drafts: [],
+      error: "磁盘只读",
+    })
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "写第2章" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-trace-entry-write_chapter")).toBeTruthy())
+    expect(screen.getByTestId("main-control-trace-entry-write_chapter").textContent).toContain("磁盘只读")
+  })
+})
