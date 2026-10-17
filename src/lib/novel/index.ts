@@ -44,7 +44,7 @@ export { deleteChapterSnapshots, emitTruthFoldDriftAlarm, ingestChapter, listSna
 export type { ChapterSnapshot, IngestChapterOptions, IngestResult, SnapshotHistoryEntry } from "./chapter-ingest"
 export { isChapterPage, isFinalChapter, normalizeChapterStatus, parseChapterMeta, updateChapterStatus } from "./chapter-meta"
 export type { ChapterStatus, OutlineType } from "./chapter-meta"
-export { decideChapterSaveStrategy, detectGeneratedTargetChapterNumber } from "./chapter-save-strategy"
+export { chapterMarkdownHasBody, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber } from "./chapter-save-strategy"
 export type { ChapterSaveStrategy } from "./chapter-save-strategy"
 export { detectLastGeneratedChapterNumber, extractChapterNumber, findChapterFileByNumber, flattenMdFiles, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat } from "./chapter-utils"
 export type { ResolveTargetChapterNumberForChatInput } from "./chapter-utils"

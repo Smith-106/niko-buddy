@@ -16,13 +16,12 @@ import { PlanningPanel } from "./planning-panel"
 import { ChatModelSelector } from "./chat-model-selector"
 import { useChatStore, chatMessagesToLLM, type DisplayMessage } from "@/stores/chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { resolveChapterLengthSpec, routeTask, buildTaskDirective, appendExemplarABSample, exemplarABStats, loadCognitionState, detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat, buildQmQuaiSystemPrompt, injectDeAiDirective, cleanGeneratedChapterContentWithTitle, resolveNovelModel, resolveReviewModel, buildGoldenThreeChapterDirective, detectGoldenThreeChapterRequest, isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEditResult, backupChapterFile, appendChapterWorkspaceSnapshot, updateChapterStatus, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber, normalizeChapterEditFile, commitAcceptedDeepChapterDraft, blockDeepChapterSession, completeDeepChapterSession, createNovelSessionId, loadNovelSessionStatus, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, startDeepChapterSession, subscribeStatusJson, buildStageJournalRuntime } from "@/lib/novel"
+import { chapterMarkdownHasBody, resolveChapterLengthSpec, routeTask, buildTaskDirective, appendExemplarABSample, exemplarABStats, loadCognitionState, detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat, buildQmQuaiSystemPrompt, injectDeAiDirective, cleanGeneratedChapterContentWithTitle, resolveNovelModel, resolveReviewModel, buildGoldenThreeChapterDirective, detectGoldenThreeChapterRequest, isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEditResult, backupChapterFile, appendChapterWorkspaceSnapshot, updateChapterStatus, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber, normalizeChapterEditFile, commitAcceptedDeepChapterDraft, blockDeepChapterSession, completeDeepChapterSession, createNovelSessionId, loadNovelSessionStatus, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, startDeepChapterSession, subscribeStatusJson, buildStageJournalRuntime } from "@/lib/novel"
 import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
 import { activeRustStreamIds } from "@/lib/claude-cli-transport"
 import { executeIngestWrites } from "@/lib/ingest"
 import { readFile, writeFile, createDirectory, deleteFile, fileExists } from "@/commands/fs"
 // C4 覆盖守卫：目标章节 Markdown 是否有正文的纯函数（chapter-save-strategy 模块）。
-import { chapterMarkdownHasBody } from "@/lib/novel/chapter-save-strategy"
 import {
   markStyleExemplarViaRust,
   loadStyleExemplarsViaRust,
