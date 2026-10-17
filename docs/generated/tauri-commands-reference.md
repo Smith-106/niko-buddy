@@ -1,9 +1,9 @@
 # Tauri 命令参考（自动生成）
 
-> 生成时间：2026-09-29（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
-> 注册数：**114**（`generate_handler!` 块）；未注册声明（死命令）：**1**
+> 生成时间：2026-10-17（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
+> 注册数：**115**（`generate_handler!` 块）；未注册声明（死命令）：**1**
 
-## 注册命令（114）
+## 注册命令（115）
 
 | 命令 | 模块 | 注册 |
 |------|------|------|
@@ -75,6 +75,7 @@
 | `get_file_size` | fs | ✓ |
 | `get_resource_dir` | fs | ✓ |
 | `list_directory` | fs | ✓ |
+| `path_is_directory` | fs | ✓ |
 | `preprocess_file` | fs | ✓ |
 | `read_file` | fs | ✓ |
 | `read_file_as_base64` | fs | ✓ |
