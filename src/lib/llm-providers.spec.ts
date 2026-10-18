@@ -961,3 +961,233 @@ describe("Responses API 工具通道（P1-1）", () => {
     expect(body).not.toHaveProperty("toolChoice")
   })
 })
+
+describe("Responses 工具增量：弱 item_id 网关的兜底", () => {
+  const responsesConfig = (): LlmConfig => customConfig({ apiMode: "responses" })
+
+  it("第二个 output_item.added 之后，index 跟上最新调用而不是都落在 0", () => {
+    const parse = getProviderConfig(responsesConfig()).parseToolDelta!
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.output_item.added",
+      item: { id: "item_1", type: "function_call", call_id: "call_1", name: "read_file" },
+    })}`)).toEqual([{ index: 0, id: "call_1", name: "read_file" }])
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.output_item.added",
+      item: { id: "item_2", type: "function_call", call_id: "call_2", name: "list_dir" },
+    })}`)).toEqual([{ index: 1, id: "call_2", name: "list_dir" }])
+    // 无 item_id 的参数分片归到最新调用（而不是 0 号）
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.function_call_arguments.delta",
+      delta: '{"path":"."}',
+    })}`)).toEqual([{ index: 1, arguments: '{"path":"."}' }])
+  })
+
+  it("call_id 与 item.id 同时存在时两者都能定位同一槽位", () => {
+    const parse = getProviderConfig(responsesConfig()).parseToolDelta!
+    parse(`data: ${JSON.stringify({
+      type: "response.output_item.added",
+      item: { id: "item_9", type: "function_call", call_id: "call_9", name: "x" },
+    })}`)
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.function_call_arguments.delta",
+      item_id: "call_9",
+      delta: "{}",
+    })}`)).toEqual([{ index: 0, arguments: "{}" }])
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.function_call_arguments.delta",
+      item_id: "item_9",
+      delta: '"a":1}',
+    })}`)).toEqual([{ index: 0, arguments: '"a":1}' }])
+  })
+})
+
+describe("审查修复：Responses 文本兜底与工具槽位三态", () => {
+  const responsesConfig = (overrides: Partial<LlmConfig> = {}): LlmConfig =>
+    customConfig({ apiMode: "responses", ...overrides })
+
+  const delta = (text: string) =>
+    `data: ${JSON.stringify({ type: "response.output_text.delta", delta: text })}`
+
+  it("已有 output_text.delta 时 response.completed 不再兜底（正文不重复拼接）", () => {
+    const parse = getProviderConfig(responsesConfig()).parseStream
+    const parts = [delta("前半段"), delta("后半段")]
+    const completed = `data: ${JSON.stringify({
+      type: "response.completed",
+      response: {
+        output_text: "前半段后半段",
+        output: [{ content: [{ type: "output_text", text: "前半段后半段" }] }],
+      },
+    })}`
+    const text = [...parts, completed].map((line) => parse(line)).filter((t) => t !== null).join("")
+    expect(text).toBe("前半段后半段")
+  })
+
+  it("只有 completed 时从 output[].content[] 抽正文（不依赖 SDK 派生的 output_text）", () => {
+    const parse = getProviderConfig(responsesConfig()).parseStream
+    const line = `data: ${JSON.stringify({
+      type: "response.completed",
+      response: { output: [{ content: [{ type: "output_text", text: "整段正文" }] }] },
+    })}`
+    expect(parse(line)).toBe("整段正文")
+    // 同一实例不会把 completed 交第二次
+    expect(parse(line)).toBeNull()
+  })
+
+  it("output_item.added 带完整 arguments 后，.done 不再重复交出", () => {
+    const parse = getProviderConfig(responsesConfig()).parseToolDelta!
+    const added = parse(`data: ${JSON.stringify({
+      type: "response.output_item.added",
+      output_index: 0,
+      item: { id: "item_1", type: "function_call", call_id: "call_1", name: "read_file", arguments: '{"path":"a"}' },
+    })}`)
+    expect(added).toEqual([{ index: 0, id: "call_1", name: "read_file", arguments: '{"path":"a"}' }])
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.function_call_arguments.done",
+      item_id: "item_1",
+      arguments: '{"path":"a"}',
+    })}`)).toBeNull()
+    // 全量之后迟到的分片同样丢弃，避免全量+分片拼成非法 JSON
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.function_call_arguments.delta",
+      item_id: "item_1",
+      delta: "x",
+    })}`)).toBeNull()
+  })
+
+  it(".done 先到（haveFull）后到分片被丢弃；只有 done 时交出一次全量", () => {
+    const parse = getProviderConfig(responsesConfig()).parseToolDelta!
+    parse(`data: ${JSON.stringify({
+      type: "response.output_item.added",
+      item: { id: "item_a", type: "function_call", call_id: "call_a", name: "f" },
+    })}`)
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.function_call_arguments.done",
+      item_id: "item_a",
+      arguments: '{"k":1}',
+    })}`)).toEqual([{ index: 0, arguments: '{"k":1}' }])
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.function_call_arguments.delta",
+      item_id: "item_a",
+      delta: '{"k"',
+    })}`)).toBeNull()
+  })
+
+  it("两个并行调用按 output_index 归并，arguments 不串台", () => {
+    const parse = getProviderConfig(responsesConfig()).parseToolDelta!
+    parse(`data: ${JSON.stringify({
+      type: "response.output_item.added",
+      output_index: 1,
+      item: { id: "item_b", type: "function_call", call_id: "call_b", name: "second" },
+    })}`)
+    parse(`data: ${JSON.stringify({
+      type: "response.output_item.added",
+      output_index: 0,
+      item: { id: "item_a", type: "function_call", call_id: "call_a", name: "first" },
+    })}`)
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.function_call_arguments.delta",
+      output_index: 0,
+      delta: '{"a"',
+    })}`)).toEqual([{ index: 0, arguments: '{"a"' }])
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.function_call_arguments.delta",
+      output_index: 1,
+      delta: '{"b"',
+    })}`)).toEqual([{ index: 1, arguments: '{"b"' }])
+  })
+})
+
+describe("审查修复：wire 契约细节", () => {
+  const responsesConfig = (overrides: Partial<LlmConfig> = {}): LlmConfig =>
+    customConfig({ apiMode: "responses", ...overrides })
+
+  it("tool_choice 的 chat 嵌套对象在 Responses 路径被拍平", () => {
+    const body = getProviderConfig(responsesConfig()).buildBody(
+      [{ role: "user", content: "读" }],
+      {
+        tools: [{ type: "function", function: { name: "read_file", parameters: { type: "object" } } }],
+        toolChoice: { type: "function", function: { name: "read_file" } },
+      },
+    ) as Record<string, unknown>
+    expect(body.tool_choice).toEqual({ type: "function", name: "read_file" })
+  })
+
+  it("chat 路径保持 tool_choice 的嵌套对象形状（不被 Responses 拍平污染）", () => {
+    const body = getProviderConfig(customConfig()).buildBody(
+      [{ role: "user", content: "读" }],
+      {
+        tools: [{ type: "function", function: { name: "read_file", parameters: { type: "object" } } }],
+        toolChoice: { type: "function", function: { name: "read_file" } },
+      },
+    ) as Record<string, unknown>
+    expect(body.tool_choice).toEqual({ type: "function", function: { name: "read_file" } })
+  })
+
+  it("chat 路径保留工具往返三件套（tool_calls / tool_call_id / name）", () => {
+    const body = getProviderConfig(customConfig()).buildBody([
+      { role: "user", content: "读 README" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "call_1", type: "function", function: { name: "read_file", arguments: "{}" } }],
+      },
+      { role: "tool", content: "内容", tool_call_id: "call_1", name: "read_file" },
+    ]) as Record<string, unknown>
+    const messages = body.messages as Array<Record<string, unknown>>
+    expect(messages[1].tool_calls).toEqual([
+      { id: "call_1", type: "function", function: { name: "read_file", arguments: "{}" } },
+    ])
+    expect(messages[2]).toMatchObject({ role: "tool", content: "内容", tool_call_id: "call_1", name: "read_file" })
+  })
+
+  it("Responses 路径不发出 role:\"tool\"，孤儿 function_call_output 被丢弃", () => {
+    const body = getProviderConfig(responsesConfig()).buildBody([
+      { role: "user", content: "hi" },
+      { role: "tool", content: "无主的工具结果" },
+      { role: "tool", content: "另一个孤儿结果", tool_call_id: "call_missing" },
+    ]) as Record<string, unknown>
+    expect(JSON.stringify(body.input)).not.toContain('"role":"tool"')
+    expect(body.input).toEqual([{ role: "user", content: "hi" }])
+  })
+
+  it("缺 id 的 tool_call 不伪造 call_id（不回退函数名）", () => {
+    const body = getProviderConfig(responsesConfig()).buildBody([
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ type: "function", function: { name: "read_file", arguments: "{}" } }],
+      },
+      { role: "tool", content: "结果", tool_call_id: "read_file" },
+    ]) as Record<string, unknown>
+    expect(body.input).toEqual([])
+  })
+
+  it("assistant 数组内容在 Responses input 里是 output_text（不是 input_text）", () => {
+    const body = getProviderConfig(responsesConfig()).buildBody([
+      { role: "user", content: [{ type: "text", text: "问题" }] },
+      { role: "assistant", content: [{ type: "text", text: "历史回答" }] },
+    ]) as Record<string, unknown>
+    expect(body.input).toEqual([
+      { role: "user", content: [{ type: "input_text", text: "问题" }] },
+      { role: "assistant", content: [{ type: "output_text", text: "历史回答" }] },
+    ])
+  })
+
+  it("Anthropic 通道整段丢弃 tool 回合并合并相邻同角色（不留半转换）", () => {
+    const body = getProviderConfig(
+      customConfig({ provider: "anthropic", apiMode: "anthropic_messages" }),
+    ).buildBody([
+      { role: "system", content: "系统" },
+      { role: "user", content: "第一问" },
+      // 只有 tool_calls 没有正文的 assistant：丢弃后前后两条 user 会相邻，必须合并
+      { role: "assistant", content: "", tool_calls: [{ id: "c1", type: "function", function: { name: "f", arguments: "{}" } }] },
+      { role: "tool", content: "工具结果", tool_call_id: "c1" },
+      { role: "user", content: "第二问" },
+    ]) as Record<string, unknown>
+    const messages = body.messages as Array<{ role: string; content: string }>
+    expect(messages.every((m) => m.role === "user" || m.role === "assistant")).toBe(true)
+    expect(messages.map((m) => m.role)).toEqual(["user"])
+    expect(messages[0].content).toBe("第一问\n第二问")
+    expect(JSON.stringify(body)).not.toContain("工具结果")
+  })
+})

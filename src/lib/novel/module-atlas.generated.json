@@ -91,7 +91,7 @@
   "specOnly": 271,
   "barrelOnly": 2,
   "edges": 3636,
-  "loc": 246938
+  "loc": 247076
  },
  "modules": [
   {
@@ -6595,7 +6595,7 @@
   {
    "p": "src/lib/llm-providers.ts",
    "s": 18,
-   "l": 1052,
+   "l": 1157,
    "r": true,
    "o": false,
    "x": false,
@@ -9459,7 +9459,7 @@
   {
    "p": "src/lib/novel/deep-chapter-generation.ts",
    "s": 6,
-   "l": 1310,
+   "l": 1343,
    "r": true,
    "o": false,
    "x": false,

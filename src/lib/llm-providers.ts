@@ -166,27 +166,53 @@ function extractOpenAiUsage(line: string): { input: number; output: number } | n
   }
 }
 
-function parseResponsesLine(line: string): string | null {
-  if (!line.startsWith("data: ")) return null
-  const data = line.slice(6).trim()
-  if (data === "[DONE]") return null
-  try {
-    const parsed = JSON.parse(data) as {
-      type?: string
-      delta?: string
-      response?: { output_text?: string }
+/**
+ * Responses 文本增量解析器。
+ *
+ * 必须是「一请求一实例」：`response.completed` 里的最终文本只能在没有收到任何
+ * `response.output_text.delta` 时兜底，否则整段正文会被拼第二遍（无状态版本
+ * 的注释写着「调用方会忽略重复文本」，但调用方只是逐段拼接，并没有去重）。
+ */
+function createResponsesTextParser(): (line: string) => string | null {
+  let sawDelta = false
+  return (line: string) => {
+    if (!line.startsWith("data: ")) return null
+    const data = line.slice(6).trim()
+    if (data === "[DONE]") return null
+    try {
+      const parsed = JSON.parse(data) as {
+        type?: string
+        delta?: string
+        response?: {
+          output_text?: string
+          output?: Array<{ content?: Array<{ type?: string; text?: string }> }>
+        }
+      }
+      if (parsed.type === "response.output_text.delta") {
+        if (typeof parsed.delta !== "string" || parsed.delta.length === 0) return null
+        sawDelta = true
+        return parsed.delta
+      }
+      if (parsed.type === "response.completed") {
+        if (sawDelta) return null
+        const fromOutput = (parsed.response?.output ?? [])
+          .flatMap((item) => item.content ?? [])
+          .filter((block) => block.type === "output_text" && typeof block.text === "string")
+          .map((block) => block.text as string)
+          .join("")
+        const text = fromOutput.length > 0
+          ? fromOutput
+          : typeof parsed.response?.output_text === "string"
+            ? parsed.response.output_text
+            : ""
+        if (text.length === 0) return null
+        sawDelta = true
+        return text
+      }
+      return null
+    } catch {
+      return null
     }
-    if (parsed.type === "response.output_text.delta") {
-      return parsed.delta ?? null
-    }
-    // 非流式子形态（部分网关把最终文本一次性推在 response.completed 里）；
-    // 已由 delta 累加过的调用方会忽略重复文本，此处仅补空档。
-    if (parsed.type === "response.completed" && typeof parsed.response?.output_text === "string") {
-      return parsed.response.output_text.length > 0 ? parsed.response.output_text : null
-    }
-    return null
-  } catch {
-    return null
   }
 }
 
@@ -203,15 +229,30 @@ function parseResponsesLine(line: string): string | null {
  */
 function createResponsesToolDeltaParser(): (line: string) => StreamToolCallDelta[] | null {
   const itemIndex = new Map<string, number>()
+  // 每个槽位三态：无 / 只有分片（sawDelta）/ 已有完整 arguments（haveFull）。
+  // 三者互斥地决定 delta 与 done 的取舍。
   const sawDelta = new Set<number>()
+  const haveFull = new Set<number>()
   let nextIndex = 0
-  const indexFor = (itemId: string | undefined): number => {
-    if (!itemId) return 0
+  // 最近一次 output_item.added 分配的槽位：部分网关的 arguments delta 只带
+  // 自己的序号/不重复 item_id，缺失时归到“最新一个尚未结束的调用”比统统
+  // 归到 index 0 更接近真实语义（否则第二个调用的参数会污染第一个）。
+  let lastIndex = 0
+  const indexFor = (itemId: string | undefined, explicit?: number): number => {
+    // output_index 是官方槽位序号，出现时以它为准（并行调用交错时唯一可靠的归并键）
+    if (typeof explicit === "number" && explicit >= 0) {
+      if (explicit >= nextIndex) nextIndex = explicit + 1
+      if (itemId) itemIndex.set(itemId, explicit)
+      lastIndex = explicit
+      return explicit
+    }
+    if (!itemId) return lastIndex
     const existing = itemIndex.get(itemId)
     if (existing !== undefined) return existing
     const assigned = nextIndex
     nextIndex += 1
     itemIndex.set(itemId, assigned)
+    lastIndex = assigned
     return assigned
   }
   return (line: string) => {
@@ -222,6 +263,7 @@ function createResponsesToolDeltaParser(): (line: string) => StreamToolCallDelta
       const parsed = JSON.parse(data) as {
         type?: string
         item_id?: string
+        output_index?: number
         delta?: string
         arguments?: string
         item?: {
@@ -233,29 +275,43 @@ function createResponsesToolDeltaParser(): (line: string) => StreamToolCallDelta
         }
       }
       if (parsed.type === "response.output_item.added" && parsed.item?.type === "function_call") {
-        const index = indexFor(parsed.item.id ?? parsed.item.call_id)
+        // item.id 是后续 delta 的关联键；缺失时退回 call_id（两者都没有则落入 lastIndex）
+        const keys = [parsed.item.id, parsed.item.call_id].filter(
+          (key): key is string => typeof key === "string" && key.length > 0,
+        )
+        const index = indexFor(keys[0], parsed.output_index)
+        // 两个键互为别名：官方 delta 的 item_id 是 item.id，但多数网关同时回传 call_id
+        for (const key of keys) itemIndex.set(key, index)
+        lastIndex = index
+        const fullArguments = typeof parsed.item.arguments === "string" && parsed.item.arguments.length > 0
+          ? parsed.item.arguments
+          : undefined
+        // 一次性给全参数的网关：added 就带完整 arguments，后续 done 不能再拼一遍
+        if (fullArguments !== undefined) haveFull.add(index)
         return [{
           index,
           ...(parsed.item.call_id ? { id: parsed.item.call_id } : parsed.item.id ? { id: parsed.item.id } : {}),
           ...(parsed.item.name ? { name: parsed.item.name } : {}),
-          ...(typeof parsed.item.arguments === "string" && parsed.item.arguments.length > 0
-            ? { arguments: parsed.item.arguments }
-            : {}),
+          ...(fullArguments !== undefined ? { arguments: fullArguments } : {}),
         }]
       }
       if (parsed.type === "response.function_call_arguments.delta") {
         if (typeof parsed.delta !== "string" || parsed.delta.length === 0) return null
-        const index = indexFor(parsed.item_id)
+        const index = indexFor(parsed.item_id, parsed.output_index)
+        // 已拿到完整 arguments 后到的分片一律丢弃，否则全量 + 分片会拼成非法 JSON
+        if (haveFull.has(index)) return null
         sawDelta.add(index)
         return [{ index, arguments: parsed.delta }]
       }
       if (parsed.type === "response.function_call_arguments.done") {
-        // done 事件给的是完整参数；若分片已到齐，再追加一次会让 arguments 重复，
-        // 只有「该条目从未收到分片」时才当作一次增量交出（兼容不推分片的网关）。
+        // done 给的是完整参数，不是增量：
+        //   - 已有完整参数（added 带过）→ 丢弃
+        //   - 已有分片 → 丢弃（再追加会重复拼接）
+        //   - 只有 done（网关不推分片）→ 当一次全量交出
         if (typeof parsed.arguments !== "string" || parsed.arguments.length === 0) return null
-        const index = indexFor(parsed.item_id)
-        if (sawDelta.has(index)) return null
-        sawDelta.add(index)
+        const index = indexFor(parsed.item_id, parsed.output_index)
+        if (haveFull.has(index) || sawDelta.has(index)) return null
+        haveFull.add(index)
         return [{ index, arguments: parsed.arguments }]
       }
       return null
@@ -394,6 +450,19 @@ function buildOpenAiBody(
   const translated = messages.map((m) => ({
     role: m.role,
     content: toOpenAiContent(m.content),
+    // 工具往返必需的三个 wire 字段。此前只发 role+content，于是 chat 路径下
+    // 多轮工具结果会变成没有 `tool_call_id` 的 `role:"tool"` —— 上游直接 400。
+    ...(m.name ? { name: m.name } : {}),
+    ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
+    ...(m.tool_calls && m.tool_calls.length > 0
+      ? {
+          tool_calls: m.tool_calls.map((call) => ({
+            ...(call.id ? { id: call.id } : {}),
+            type: call.type ?? "function",
+            function: { name: call.function.name, arguments: call.function.arguments },
+          })),
+        }
+      : {}),
   }))
   const body: Record<string, unknown> = {
     messages: translated,
@@ -409,17 +478,34 @@ function buildOpenAiBody(
   return body
 }
 
-function toResponsesContent(content: string | ContentBlock[]): unknown {
+function toResponsesContent(content: string | ContentBlock[], assistant = false): unknown {
+  // assistant 历史内容只接受 output_text（input_text 会被拒），其余角色用 input_text
+  const textType = assistant ? "output_text" : "input_text"
   if (typeof content === "string") return content
   return content.map((block) => {
     if (block.type === "text") {
-      return { type: "input_text", text: block.text }
+      return { type: textType, text: block.text }
     }
     return {
       type: "input_image",
       image_url: `data:${block.mediaType};base64,${block.dataBase64}`,
     }
   })
+}
+
+/**
+ * chat 形状的 tool_choice 对象 → Responses 扁平形状。
+ * chat:       `{ type:"function", function:{ name } }`
+ * responses:  `{ type:"function", name }`
+ * 字符串（auto / none / required）两边同形，原样透传。
+ */
+function toResponsesToolChoice(choice: unknown): unknown {
+  if (!choice || typeof choice !== "object") return choice
+  const nested = (choice as { function?: { name?: string } }).function
+  if (nested && typeof nested.name === "string" && nested.name.length > 0) {
+    return { type: "function", name: nested.name }
+  }
+  return choice
 }
 
 /**
@@ -453,9 +539,14 @@ function toResponsesTools(tools: unknown[]): unknown[] {
  */
 function toResponsesInput(messages: ChatMessage[]): unknown[] {
   const items: unknown[] = []
+  // 只有真正发出过 function_call 的 call_id 才能接收 function_call_output，
+  // 否则会留下孤儿 output（上游 400）。同理不允许用函数名冒充 call_id。
+  const emittedCallIds = new Set<string>()
   for (const message of messages) {
     if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
-      const text = typeof message.content === "string" ? message.content : ""
+      const text = typeof message.content === "string"
+        ? message.content
+        : message.content.map((block) => (block.type === "text" ? block.text : "")).join("")
       if (text.trim().length > 0) {
         items.push({
           type: "message",
@@ -464,29 +555,33 @@ function toResponsesInput(messages: ChatMessage[]): unknown[] {
         })
       }
       for (const call of message.tool_calls) {
+        if (!call.id) continue
+        emittedCallIds.add(call.id)
         items.push({
           type: "function_call",
-          call_id: call.id ?? call.function.name,
+          call_id: call.id,
           name: call.function.name,
           arguments: call.function.arguments,
         })
       }
       continue
     }
-    if (message.tool_call_id) {
+    if (message.role === "tool" || message.tool_call_id) {
+      const callId = message.tool_call_id
+      if (!callId || !emittedCallIds.has(callId)) continue
       const output = typeof message.content === "string"
         ? message.content
         : message.content.map((block) => (block.type === "text" ? block.text : "")).join("")
       items.push({
         type: "function_call_output",
-        call_id: message.tool_call_id,
+        call_id: callId,
         output,
       })
       continue
     }
     items.push({
       role: message.role,
-      content: toResponsesContent(message.content),
+      content: toResponsesContent(message.content, message.role === "assistant"),
     })
   }
   return items
@@ -510,7 +605,7 @@ function buildResponsesBody(
 
   if (overrides?.tools && overrides.tools.length > 0) {
     body.tools = toResponsesTools(overrides.tools)
-    if (overrides.toolChoice !== undefined) body.tool_choice = overrides.toolChoice
+    if (overrides.toolChoice !== undefined) body.tool_choice = toResponsesToolChoice(overrides.toolChoice)
   }
 
   const reasoning = effectiveReasoning(config, overrides)
@@ -681,14 +776,24 @@ function buildAnthropicBody(
   overrides?: RequestOverrides,
 ): Record<string, unknown> {
   const systemMessages = messages.filter((m) => m.role === "system")
-  const conversationMessages = messages
-    .filter((m) => m.role !== "system")
-    // Anthropic 没有 tool 角色：工具结果按其 wire 语义归入 user 回合（文本层退化，
-    // 不伪造 tool_result 块）。buildAnthropicBody 目前也不转发 tools。
-    .map((m) => ({
-      role: m.role === "tool" ? "user" : m.role,
-      content: toAnthropicContent(m.content),
-    }))
+  // Anthropic 通道不转发 tools（apiModeSupportsTools 已在注册层关掉工具），
+  // 所以 tool 消息与 assistant.tool_calls 在这里没有任何 wire 表达方式：
+  // 全部丢弃。只改名成 user 而不合并相邻回合会得到连续 user / 空 content
+  // 的 assistant，两者上游都会拒绝——半转换比不转更危险。
+  const conversationMessages: Array<{ role: "user" | "assistant"; content: unknown }> = []
+  for (const message of messages) {
+    if (message.role === "system" || message.role === "tool" || message.tool_call_id) continue
+    const content = toAnthropicContent(message.content)
+    if (content === "" || (Array.isArray(content) && content.length === 0)) continue
+    const role = message.role === "assistant" ? "assistant" : "user"
+    const previous = conversationMessages[conversationMessages.length - 1]
+    // 保持 user/assistant 交替：同角色相邻文本合并成一段
+    if (previous && previous.role === role && typeof previous.content === "string" && typeof content === "string") {
+      previous.content = `${previous.content}\n${content}`
+      continue
+    }
+    conversationMessages.push({ role, content })
+  }
   const system =
     systemMessages.map((m) => flattenAnthropicSystem(m.content)).join("\n") ||
     undefined
@@ -993,7 +1098,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           url,
           headers: getCustomCompatibleHeaders(apiKey, url),
           buildBody: (messages, overrides) => buildResponsesBody(config, messages, overrides),
-          parseStream: parseResponsesLine,
+          parseStream: createResponsesTextParser(),
           parseToolDelta: createResponsesToolDeltaParser(),
           extractUsage: extractResponsesUsage,
         }

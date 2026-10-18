@@ -303,6 +303,13 @@ function checkI18n() {
 
 // ── 视图 union ↔ 渲染/计划态 ───────────────────────────────────────────────
 
+/** 去掉注释：注释里写 `isPlannedView(activeView)` 不能把「未接线」伪装成已接线。 */
+function stripComments(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:"'`])\/\/[^\n]*/g, "$1")
+}
+
 function checkViews() {
   const store = readFileSync(join(SRC, "stores/wiki-store.ts"), "utf8")
   const unionSource = store.match(/activeView:\s*([^\n]+)/)
@@ -311,16 +318,42 @@ function checkViews() {
     return
   }
   const union = [...new Set(unionSource[1].match(/"([^"]+)"/g).map((s) => s.slice(1, -1)))]
-  const contentArea = readFileSync(join(SRC, "components/layout/content-area.tsx"), "utf8")
-  const cases = new Set([...contentArea.matchAll(/case\s+"([^"]+)"/g)].map((m) => m[1]))
-  const conditions = new Set([...contentArea.matchAll(/activeView\s*===\s*"([^"]+)"/g)].map((m) => m[1]))
+  const contentArea = stripComments(readFileSync(join(SRC, "components/layout/content-area.tsx"), "utf8"))
+  // 引号风格不构成豁免：单引号 case 躲过门禁就等于门禁在说谎
+  const cases = new Set(
+    [...contentArea.matchAll(/case\s+["']([^"']+)["']/g)].map((m) => m[1]),
+  )
+  const conditions = new Set(
+    [...contentArea.matchAll(/activeView\s*===?\s*["']([^"']+)["']/g)].map((m) => m[1]),
+  )
   // 计划态单一真源：planned-views 登记表 + content-area 的占位渲染分支。
   // 登记在表内还不够——占位页必须真的被接进渲染树，否则仍然落到 default。
   const plannedRegistry = readFileSync(join(SRC, "components/layout/planned-views.ts"), "utf8")
   const planned = new Set(
-    [...plannedRegistry.matchAll(/\{\s*view:\s*"([^"]+)"/g)].map((m) => m[1]),
+    [...plannedRegistry.matchAll(/\{\s*view:\s*["']([^"']+)["']/g)].map((m) => m[1]),
   )
-  const plannedRendered = /isPlannedView\(activeView\)/.test(contentArea) && /<PlannedView[\s/>]/.test(contentArea)
+  // 「已接线」要同时满足：① 存在以 isPlannedView(activeView) 为条件的守卫
+  // （const 绑定或 if 判定）；② <PlannedView 出现在该守卫控制的 JSX 分支里。
+  // 两个子串的全文匹配会把死代码/注释误判成接线。
+  const plannedGuards = new Set(
+    [...contentArea.matchAll(/(?:const|let)\s+(\w+)\s*=\s*[^;\n]*isPlannedView\(\s*activeView\s*\)/g)].map((m) => m[1]),
+  )
+  const hasPlannedIfGuard = /if\s*\(\s*isPlannedView\(\s*activeView\s*\)\s*\)/.test(contentArea)
+  const plannedRenderIndex = contentArea.search(/<PlannedView[\s/>]/)
+  const plannedGuarded =
+    plannedRenderIndex >= 0 &&
+    (plannedGuards.size > 0 || hasPlannedIfGuard)
+      ? [...plannedGuards].some((name) => {
+          const usage = new RegExp(`(?:\\{|\\?)\\s*${name}\\b|\\b${name}\\s*\\?|if\\s*\\(\\s*${name}\\s*\\)`, "g")
+          let match
+          while ((match = usage.exec(contentArea)) !== null) {
+            // 守卫的引用必须出现在占位渲染之前且在同一文件内（JSX 条件先判定后渲染）
+            if (match.index < plannedRenderIndex) return true
+          }
+          return false
+        }) || (hasPlannedIfGuard && plannedRenderIndex > contentArea.search(/if\s*\(\s*isPlannedView/))
+      : false
+  const plannedRendered = plannedGuarded
   const nav = readFileSync(join(SRC, "components/layout/nav-items.ts"), "utf8")
   const navViews = new Set([...nav.matchAll(/view:\s*"([^"]+)"/g)].map((m) => m[1]))
 

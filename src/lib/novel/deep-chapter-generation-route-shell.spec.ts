@@ -7,6 +7,7 @@ import {
   resolveRoleModel,
   resolveDeepChapterRoleConfigs,
   resolveRouteShellMode,
+  selectRouteStageConfig,
 } from "./deep-chapter-generation"
 
 // 最小可构造输入（回避 store 依赖，仅覆盖 T10 薄编排化纯函数路径）。
@@ -68,6 +69,25 @@ describe("T10 薄编排化：route() 接入 + T09 字段 + role→model 解析�
     } as any
     const resolved = resolveRoleModel("judge", { writingConfig, novelConfig, providerConfigs })
     expect(resolved.model).toBe("grok-4.7")
+    // 不只换模型名：provider / 端点也必顶到目标 provider（否则请求打到会话端点）
+    expect(resolved.customEndpoint ?? "").toContain("api.x.ai")
+    expect(resolved.apiKey).toBe("k")
+  })
+
+  it("selectRouteStageConfig：内容角色真正接管执行模型，审阅角色不双重应用", () => {
+    const writingConfig = { model: "session-model" } as any
+    const reviewRoleConfig = { model: "review-model" } as any
+    const writerRoleConfig = { model: "writer-model" } as any
+
+    // 内容阶段：角色模型就是本次生成的执行模型（T33 绑定的运行时落点）
+    for (const role of ["writer", "architect", "editor"] as const) {
+      expect(selectRouteStageConfig(role, writerRoleConfig, writingConfig)).toBe(writerRoleConfig)
+    }
+    // 审阅类角色由 review-adapter 自行解析 reviewModel，不在这里换执行模型
+    for (const role of ["reviewer", "arbiter", "judge"] as const) {
+      expect(selectRouteStageConfig(role, reviewRoleConfig, writingConfig)).toBe(writingConfig)
+    }
+    expect(selectRouteStageConfig(undefined, writerRoleConfig, writingConfig)).toBe(writingConfig)
   })
 
   it("resolveDeepChapterRoleConfigs 导出六个 route 角色绑定快照", () => {

@@ -399,6 +399,34 @@ export function resolveRoleModel(
 }
 
 /**
+ * route 角色里由「内容阶段」执行的那些：只有它们才有权替换本次生成的执行模型。
+ *
+ * reviewer/arbiter/judge 的模型由审查适配器（review-adapter）自行按
+ * novelConfig.reviewModel 解析；在这里再换一次执行模型会把 reviewModel 双重应用
+ * （审查阶段反而用 reviewModel 去写草稿）。
+ */
+const CONTENT_ROUTE_ROLES: ReadonlySet<RouteRole> = new Set<RouteRole>([
+  "writer",
+  "architect",
+  "editor",
+])
+
+/**
+ * route 裁定的角色 → 本次内容阶段真正使用的执行配置。
+ *
+ * 这是 T33 绑定的**运行时**落点：`resolveRoleModel` 只负责算出角色模型，
+ * 不交给阶段请求就是空操作。审查类角色返回写作配置本体（保持现状，由审阅层解析）。
+ */
+export function selectRouteStageConfig(
+  role: RouteRole | undefined,
+  roleConfig: LlmConfig,
+  writingConfig: LlmConfig,
+): LlmConfig {
+  if (!role || !CONTENT_ROUTE_ROLES.has(role)) return writingConfig
+  return roleConfig
+}
+
+/**
  * 全 route 角色的模型绑定快照（T33 注册表接入点）。
  *
  * 供 route 阶段机 / 诊断面直接取用，避免每处重复解析；无配置时六个角色
@@ -726,7 +754,9 @@ export async function runDeepChapterGeneration(
     partialReason = null
   }
   const resumeCheckpoint = input.resumeCheckpoint
-  const writingConfig = resolveWritingConfig(input.llmConfig)
+  const baseWritingConfig = resolveWritingConfig(input.llmConfig)
+  // route 壳可把内容阶段切到角色模型（T33 绑定的运行时落点）；legacy 下不会被赋值。
+  let writingConfig = baseWritingConfig
   const novelConfig = input.novelConfig
   const lengthSpec = resolveCurrentChapterLengthSpec(novelConfig)
 
@@ -768,11 +798,14 @@ export async function runDeepChapterGeneration(
       )
     }
     // T33 角色绑定：按 route() 裁定的角色取真实 per-role 模型（未配置角色模型时
-    // 回退写作模型，与旧行为位级等价）。该档下角色模型入诊断，模型名可追溯。
-    const routeRoleConfig = resolveRoleModel(routeInstruction.role, { writingConfig, novelConfig })
+    // 回退写作模型，与旧行为位级等价）。内容角色会真正接管本次内容阶段的执行
+    // 模型（selectRouteStageConfig）；审阅类角色仍由 review-adapter 解析，避免
+    // reviewModel 双重应用。
+    const routeRoleConfig = resolveRoleModel(routeInstruction.role, { writingConfig: baseWritingConfig, novelConfig })
+    writingConfig = selectRouteStageConfig(routeInstruction.role, routeRoleConfig, baseWritingConfig)
     callbacks.onThinking?.(formatStageThinking(
       "阶段路由(route)",
-      `route() 裁定: action=${routeInstruction.action} role=${routeInstruction.role ?? "-"} model=${routeRoleConfig.model} reason=${routeInstruction.reason}`,
+      `route() 裁定: action=${routeInstruction.action} role=${routeInstruction.role ?? "-"} model=${routeRoleConfig.model} stageModel=${writingConfig.model} reason=${routeInstruction.reason}`,
     ))
     /* v8 ignore stop */
   }
