@@ -9,8 +9,8 @@
  *   4. 读取失败（error）→ 显示原因，不渲染为 0 条的「正常」；
  *   5. projectPath 为空 → 5 行全部未生成（不崩）。
  */
-import { afterEach, describe, expect, it } from "vitest"
-import { cleanup, render, screen } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { AssetLibraryView } from "./asset-library-view"
 import { LIBRARY_IDS, type AssetLibrarySnapshot } from "@/lib/novel"
 
@@ -29,7 +29,7 @@ function snap(overrides: Partial<AssetLibrarySnapshot> & { libraryId: AssetLibra
 afterEach(() => cleanup())
 
 describe("AssetLibraryView", () => {
-  it("注入快照：5 库行齐全 + 汇总已生成/违规数", () => {
+  it("注入快照：全部库行齐全（含 Wave 3B 关系库）+ 汇总已生成/违规数", () => {
     render(
       <AssetLibraryView
         projectPath="/p"
@@ -54,7 +54,7 @@ describe("AssetLibraryView", () => {
     )
     expect(screen.getByTestId("asset-library-view")).toBeTruthy()
     for (const id of LIBRARY_IDS) expect(screen.getByTestId(`asset-library-row-${id}`)).toBeTruthy()
-    expect(screen.getByTestId("asset-library-summary").textContent).toContain("已生成 2/5")
+    expect(screen.getByTestId("asset-library-summary").textContent).toContain(`已生成 2/${LIBRARY_IDS.length}`)
     expect(screen.getByTestId("asset-library-summary").textContent).toContain("违规 1")
     expect(screen.getByTestId("asset-library-count-genre_base").textContent).toContain("3 条")
   })
@@ -97,5 +97,29 @@ describe("AssetLibraryView", () => {
   it("projectPath 为空 → 5 行全未生成（不崩、不造数）", () => {
     render(<AssetLibraryView projectPath="" />)
     for (const id of LIBRARY_IDS) expect(screen.getByTestId(`asset-library-empty-${id}`)).toBeTruthy()
+  })
+})
+
+describe("关系库迁移入口（Wave 3B 生产接线）", () => {
+  afterEach(() => cleanup())
+
+  it("点击迁移：显示迁移状态与边数（conflict 明确标注未覆盖）", async () => {
+    const migrate = vi.fn(async () => ({ status: "conflict" as const, entryCount: 3 }))
+    render(<AssetLibraryView projectPath="/p" snapshots={[snap({ libraryId: "genre_base" })]} migrateRelationships={migrate} />)
+    fireEvent.click(screen.getByTestId("asset-library-migrate-relationships"))
+    await waitFor(() => expect(screen.getByTestId("asset-library-migrate-status")).toBeTruthy())
+    expect(migrate).toHaveBeenCalledWith("/p")
+    expect(screen.getByTestId("asset-library-migrate-status").textContent).toContain("conflict")
+    expect(screen.getByTestId("asset-library-migrate-status").textContent).toContain("未覆盖")
+  })
+
+  it("迁移抛错：不显示假成功状态", async () => {
+    const migrate = vi.fn(async () => {
+      throw new Error("boom")
+    })
+    render(<AssetLibraryView projectPath="/p" snapshots={[snap({ libraryId: "genre_base" })]} migrateRelationships={migrate} />)
+    fireEvent.click(screen.getByTestId("asset-library-migrate-relationships"))
+    await waitFor(() => expect(migrate).toHaveBeenCalled())
+    expect(screen.queryByTestId("asset-library-migrate-status")).toBeNull()
   })
 })

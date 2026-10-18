@@ -2923,7 +2923,8 @@
       "naStrength": "N/A：没有关系强度/信任度数值，无法排序或告警",
       "naGraph": "N/A：关系图为文字边，尚未画成可交互节点图（写回与结构化契约延后）",
       "loading": "角色状态读取中…",
-      "lastChapterNa": "最近章号 N/A"
+      "lastChapterNa": "最近章号 N/A",
+      "structuredSource": "来自结构化关系库（relationship_edge，kind=unknown 表示原文未分类）"
     }
   },
   "storySimulation": {

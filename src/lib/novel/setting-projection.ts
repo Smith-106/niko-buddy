@@ -1,5 +1,11 @@
 import { normalizePath } from "@/lib/path-utils"
-import { loadCharacterStates, type CharacterState } from "@/lib/novel"
+import {
+  loadCharacterStates,
+  buildLibraryArtifact,
+  type CharacterState,
+  type LibraryArtifact,
+  type RelationshipEdgeEntry,
+} from "@/lib/novel"
 
 /**
  * 设定中心（Wave 3A）：**零新真源只读投影**。
@@ -88,4 +94,78 @@ export type SettingProjectionLoader = (projectPath: string) => Promise<SettingPr
 export const loadSettingProjection: SettingProjectionLoader = async (projectPath) => {
   const store = await loadCharacterStates(normalizePath(projectPath))
   return projectSettingState(store)
+}
+
+
+// ============================================================================
+// Wave 3B：自由文本关系 → 有 schema 的关系边（确定性推导，幂等，不猜语义）
+// ============================================================================
+
+/**
+ * 稳定 entryId：同 from/to 恒等（重复推导不产生重复条目）。
+ *
+ * 分隔符必须转义：名字里自带 `->` 时（`甲->乙` → `丙` 与 `甲` → `乙->丙`）
+ * 拼出的 id 会碰撞，`seen` 会静默丢边。这里按 percent-encode 转义 `%` `-` `>`。
+ */
+export function relationshipEntryId(from: string, to: string): string {
+  const esc = (value: string) => value.replace(/%/g, "%25").replace(/-/g, "%2D").replace(/>/g, "%3E")
+  return `rel:${esc(from)}->${esc(to)}`
+}
+
+/** entryId 上限（与 RELATIONSHIP_EDGE_ENTRY_SCHEMA 一致）。 */
+const RELATIONSHIP_ENTRY_ID_MAX = 128
+
+/**
+ * 从既有 `character-states.json` 推导关系库条目。
+ *
+ * 诚实边界：真源是自由文本 → `kind` 固定 `unknown`，原文落 `note`；
+ * **不**用关键词猜「师徒/敌对」，也不猜测强度。空文本关系丢弃（不造边）。
+ */
+export function deriveRelationshipEntries(
+  store: { characters: readonly CharacterState[] },
+  opts?: { projectId?: string },
+): RelationshipEdgeEntry[] {
+  const seen = new Set<string>()
+  const edges: RelationshipEdgeEntry[] = []
+  for (const character of store.characters) {
+    const from = (character.characterName ?? "").trim()
+    if (from.length === 0) continue
+    for (const [to, description] of Object.entries(character.relationships ?? {})) {
+      const note = typeof description === "string" ? description.trim() : ""
+      if (note.length === 0) continue
+      const target = to.trim()
+      if (target.length === 0) continue
+      const entryId = relationshipEntryId(from, target)
+      // 超长 id 会让 buildLibraryArtifact 抛 AssetLibraryError（整库迁移失败）；
+      // 这里跳过并在 note 侧保留原文不可见——由调用方通过 entryCount 差异感知。
+      if (entryId.length > RELATIONSHIP_ENTRY_ID_MAX) continue
+      if (seen.has(entryId)) continue
+      seen.add(entryId)
+      edges.push({
+        entryId,
+        ...(opts?.projectId ? { projectId: opts.projectId } : {}),
+        from,
+        to: target,
+        kind: "unknown",
+        note: note.slice(0, 512),
+      })
+    }
+  }
+  // 码点序（不是 localeCompare）：hash 必须跨环境稳定，否则同一真源在 zh/ja/en 下
+  // 排出不同顺序 → 已迁移的库会在另一台机器上从 noop 变成 conflict。
+  edges.sort((a, b) => (a.entryId < b.entryId ? -1 : a.entryId > b.entryId ? 1 : 0))
+  return edges
+}
+
+/** 推导 → 库产物（守恒 hash 由 entries 确定性重算；同一真源两次结果一致）。 */
+export function buildRelationshipLibraryArtifact(
+  store: { characters: readonly CharacterState[] },
+  opts?: { projectId?: string; generatedAt?: string },
+): LibraryArtifact {
+  return buildLibraryArtifact({
+    libraryId: "relationship_edge",
+    entries: deriveRelationshipEntries(store, { projectId: opts?.projectId }),
+    generatedAt: opts?.generatedAt ?? new Date().toISOString(),
+    generatorVersion: "relationship-derive/1.0",
+  })
 }

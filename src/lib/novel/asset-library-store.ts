@@ -18,6 +18,7 @@
 import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
 import {
   LIBRARY_IDS,
+  entrySchemaFor,
   probeLibraryHealth,
   verifyLibraryConservation,
   ASSET_LIBRARY_SCHEMA_VERSION,
@@ -147,7 +148,37 @@ export async function loadAssetLibrarySnapshot(
   }
 }
 
-/** 读取全部 5 库快照（顺序 = LIBRARY_IDS，固定在 UI 上不抖动）。 */
+/**
+ * 读取库产物的**原始条目**（只读回显用）。
+ *
+ * 与 `loadAssetLibrarySnapshot` 的分工：快照给计数/守恒/健康；本函数给条目本身，
+ * 供 UI 显示结构化内容。解析失败、libraryId 不符一律 null（诚实降级，不猜）。
+ */
+export async function loadAssetLibraryArtifact(
+  projectPath: string,
+  libraryId: LibraryId,
+  deps: AssetLibraryStoreDeps = {},
+): Promise<LibraryArtifact | null> {
+  const io = { ...createFsDeps(), ...deps }
+  const raw = await io.readText(assetLibraryFilePath(projectPath, libraryId))
+  if (raw === null || raw.length === 0) return null
+  try {
+    const parsed = JSON.parse(raw) as LibraryArtifact
+    if (parsed.libraryId !== libraryId) return null
+    if (!Array.isArray(parsed.entries)) return null
+    // 信任边界：磁盘内容必须守恒（篡改必失配）且每条通过 schema，否则不当作真源回显。
+    if (!verifyLibraryConservation(parsed).conserved) return null
+    const schema = entrySchemaFor(libraryId)
+    for (const entry of parsed.entries) {
+      if (!schema.safeParse(entry).success) return null
+    }
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+/** 读取全部库快照（顺序 = LIBRARY_IDS，固定在 UI 上不抖动）。 */
 export async function loadAllAssetLibrarySnapshots(
   projectPath: string,
   deps: AssetLibraryStoreDeps = {},

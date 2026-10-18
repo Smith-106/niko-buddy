@@ -243,8 +243,8 @@ export function ContentArea() {
         )
         break
       case "knowledgeLibrary":
-        // 资产库可视化（5 库 · 守恒/健康/只读）：数据源 .novel/asset-library/<库>.json，
-        // 零新真源、纯只读；未生成显式空态（不造条目）。
+        // 资产库可视化（全部库 · 守恒/健康）：数据源 .novel/asset-library/<库>.json，
+        // 零新真源；装载只读，唯一写操作是用户显式点击的关系库迁移；未生成显式空态（不造条目）。
         content = (
           <Suspense fallback={<LoadingView />}>
             <AssetLibraryView projectPath={projectPath} />

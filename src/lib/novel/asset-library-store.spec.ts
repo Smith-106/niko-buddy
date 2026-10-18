@@ -12,11 +12,19 @@ import { describe, expect, it } from "vitest"
 import {
   assetLibraryFilePath,
   loadAllAssetLibrarySnapshots,
+  loadAssetLibraryArtifact,
   loadAssetLibrarySnapshot,
   saveAssetLibraryArtifact,
   type AssetLibraryStoreDeps,
 } from "./asset-library-store"
-import { ASSET_LIBRARY_SCHEMA_VERSION, LIBRARY_IDS, buildLibraryArtifact, type LibraryEntry } from "./asset-library"
+import {
+  ASSET_LIBRARY_SCHEMA_VERSION,
+  LIBRARY_IDS,
+  buildLibraryArtifact,
+  computeLibraryHash,
+  stableStringify,
+  type LibraryEntry,
+} from "./asset-library"
 
 const genreEntries = [
   { entryId: "g1", name: "玄幻", toneTags: ["热血"], forbidPatterns: [], plotBeats: ["升级"] },
@@ -129,5 +137,63 @@ describe("saveAssetLibraryArtifact", () => {
     const a = { ...artifact(), contentHash: "deadbeef" }
     await expect(saveAssetLibraryArtifact("/p", a, deps)).rejects.toThrow("守恒失配")
     expect(files.size).toBe(0)
+  })
+})
+
+describe("loadAssetLibraryArtifact（读路径信任边界）", () => {
+  const relEdge = () =>
+    buildLibraryArtifact({
+      libraryId: "relationship_edge",
+      entries: [{ entryId: "rel:A->B", from: "A", to: "B", kind: "unknown" }],
+      generatedAt: "2026-10-18T00:00:00.000Z",
+      generatorVersion: "t/1",
+    }) as unknown as Record<string, unknown> & { contentHash: string }
+  const path = assetLibraryFilePath("/p", "relationship_edge")
+
+  it("守恒且合 schema → 返回条目", async () => {
+    const { deps } = memDeps({ [path]: JSON.stringify(relEdge()) })
+    const artifact = await loadAssetLibraryArtifact("/p", "relationship_edge", deps)
+    expect(artifact?.entries).toHaveLength(1)
+  })
+
+  it("手改 entries 未更新 hash（守恒失配）→ null，不把篡改内容当真源", async () => {
+    const tampered = JSON.parse(JSON.stringify(relEdge())) as { entries: Array<Record<string, unknown>> }
+    tampered.entries[0]!.kind = "mentor"
+    const { deps } = memDeps({ [path]: JSON.stringify(tampered) })
+    expect(await loadAssetLibraryArtifact("/p", "relationship_edge", deps)).toBeNull()
+  })
+
+  it("条目不合 schema（越界强度）→ null", async () => {
+    const bad = buildLibraryArtifact({
+      libraryId: "relationship_edge",
+      entries: [{ entryId: "rel:A->B", from: "A", to: "B", kind: "unknown" }],
+      generatedAt: "2026-10-18T00:00:00.000Z",
+      generatorVersion: "t/1",
+    })
+    const mutated = JSON.parse(JSON.stringify(bad)) as {
+      entries: Array<Record<string, unknown>>
+      contentHash: string
+    }
+    mutated.entries[0]!.strength = 999
+    // 重新计算 hash 让守恒成立，只有 schema 能拦住
+    mutated.contentHash = computeLibraryHash(`relationship_edge:${stableStringify(mutated.entries)}`)
+    const { deps } = memDeps({ [path]: JSON.stringify(mutated) })
+    expect(await loadAssetLibraryArtifact("/p", "relationship_edge", deps)).toBeNull()
+  })
+
+  it("文件缺失 / 解析失败 / libraryId 不符 → null", async () => {
+    expect(await loadAssetLibraryArtifact("/p", "relationship_edge", memDeps().deps)).toBeNull()
+    expect(
+      await loadAssetLibraryArtifact("/p", "relationship_edge", memDeps({ [path]: "{ bad" }).deps),
+    ).toBeNull()
+    const other = buildLibraryArtifact({
+      libraryId: "title_seed",
+      entries: [{ entryId: "t1", pattern: "题", constraints: [], examples: [] }],
+      generatedAt: "2026-10-18T00:00:00.000Z",
+      generatorVersion: "t/1",
+    })
+    expect(
+      await loadAssetLibraryArtifact("/p", "relationship_edge", memDeps({ [path]: JSON.stringify(other) }).deps),
+    ).toBeNull()
   })
 })

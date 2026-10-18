@@ -23,6 +23,15 @@ vi.mock("react-i18next", () => ({
   }),
 }))
 
+vi.mock("@/lib/novel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel")>()
+  return {
+    ...actual,
+    loadAssetLibrarySnapshot: async () => ({ libraryId: "relationship_edge", present: false, entryCount: 0, contentHash: null, schemaVersion: null, conserved: false, health: null }),
+    loadAssetLibraryArtifact: async () => null,
+  }
+})
+
 const { WorldLibraryView } = await import("./world-library-view")
 
 const emptySetting = { cast: [], edges: [], charactersWithoutRelations: 0 }
@@ -130,5 +139,61 @@ describe("世界蓝图：文件存在但解析失败 ≠ 还没生成", () => {
     await expect(mod.loadWorldBlueprintSnapshot("C:/p")).rejects.toThrow(/exists but could not be parsed/)
     existsSpy.mockRestore()
     loadSpy.mockRestore()
+  })
+})
+
+describe("结构化关系库回显（Wave 3B）", () => {
+  afterEach(cleanup)
+
+  it("已迁移：显示结构化边（kind/strength），N/A 类型与强度让位给真实数据", async () => {
+    render(
+      <WorldLibraryView
+        loader={async () => ({ blueprint, validation: { findings: [], verdict: "complete" } })}
+        settingLoader={async () => settingWithCast}
+        relationshipLoader={async () => ({
+          entries: [
+            { from: "林砚", to: "苏晚", kind: "mentor", strength: 60 },
+            { from: "赵九", to: "林砚", kind: "unknown", note: "敌对" },
+          ],
+        })}
+      />,
+    )
+    await waitFor(() => expect(screen.getByTestId("setting-center-structured")).toBeTruthy())
+    expect(screen.getByTestId("setting-center-structured-0").textContent).toBe("林砚 → 苏晚 · mentor · 60")
+    // kind=unknown 且无强度 → 不编数字
+    expect(screen.getByTestId("setting-center-structured-1").textContent).toBe("赵九 → 林砚 · unknown")
+    expect(screen.queryByTestId("setting-center-na-type")).toBeNull()
+    expect(screen.getByTestId("setting-center-structured-source")).toBeTruthy()
+    // 图仍然 N/A（没有交互图真源）
+    expect(screen.getByTestId("setting-center-na-graph")).toBeTruthy()
+  })
+
+  it("未迁移：关系库缺失时仍显示两条 N/A，不冒充有类型/强度", async () => {
+    render(
+      <WorldLibraryView
+        loader={async () => ({ blueprint, validation: { findings: [], verdict: "complete" } })}
+        settingLoader={async () => settingWithCast}
+        relationshipLoader={async () => null}
+      />,
+    )
+    await waitFor(() => expect(screen.getByTestId("setting-center-cast")).toBeTruthy())
+    expect(screen.queryByTestId("setting-center-structured")).toBeNull()
+    expect(screen.getByTestId("setting-center-na-type")).toBeTruthy()
+    expect(screen.getByTestId("setting-center-na-strength")).toBeTruthy()
+  })
+
+  it("关系库装载失败：降级为未迁移，不阻塞世界蓝图区块", async () => {
+    render(
+      <WorldLibraryView
+        loader={async () => ({ blueprint, validation: { findings: [], verdict: "complete" } })}
+        settingLoader={async () => settingWithCast}
+        relationshipLoader={async () => {
+          throw new Error("lib-broken")
+        }}
+      />,
+    )
+    await waitFor(() => expect(screen.getByTestId("world-library-layers")).toBeTruthy())
+    expect(screen.queryByTestId("setting-center-structured")).toBeNull()
+    expect(screen.getByTestId("setting-center-na-type")).toBeTruthy()
   })
 })

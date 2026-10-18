@@ -5,6 +5,8 @@ import { fileExists } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import {
   WORLD_LAYERS,
+  loadAssetLibraryArtifact,
+  loadAssetLibrarySnapshot,
   loadSettingProjection,
   loadWorldBlueprint,
   validateWorldBlueprint,
@@ -41,16 +43,42 @@ export const loadWorldBlueprintSnapshot: WorldBlueprintLoader = async (projectPa
   return { blueprint, validation: validateWorldBlueprint(blueprint) }
 }
 
+/** 结构化关系库视图模型（只读；缺库 -> null）。 */
+export interface RelationshipLibrarySnapshotView {
+  readonly entries: readonly { from: string; to: string; kind: string; strength?: number; note?: string }[]
+}
+
+export type RelationshipLibraryLoader = (projectPath: string) => Promise<RelationshipLibrarySnapshotView | null>
+
+/** 默认装载：读 asset-library 快照；未生成 -> null（不是空数组，避免"已迁移但没数据"混淆）。 */
+export const loadRelationshipLibrarySnapshot: RelationshipLibraryLoader = async (projectPath) => {
+  const snapshot = await loadAssetLibrarySnapshot(projectPath, "relationship_edge")
+  if (!snapshot.present) return null
+  const raw = await loadAssetLibraryArtifact(projectPath, "relationship_edge")
+  if (!raw) return null
+  const entries = raw.entries.map((entry) => {
+    const record = entry as { from: string; to: string; kind: string; strength?: number; note?: string }
+    return { from: record.from, to: record.to, kind: record.kind, strength: record.strength, note: record.note }
+  })
+  return { entries }
+}
+
 export interface WorldLibraryViewProps {
   /** 测试注入（缺省走真实蓝图读取）。路径取 store 里的 project.path。 */
   loader?: WorldBlueprintLoader
   /** 角色关系只读投影装载（缺省读既有 character-states 真源）。 */
   settingLoader?: SettingProjectionLoader
+  /**
+   * 结构化关系库装载器（Wave 3B 产物 `.novel/asset-library/relationship_edge.json`）。
+   * 未迁移时返回 null —— 此时继续显示三条 N/A，不得假装有类型/强度。
+   */
+  relationshipLoader?: RelationshipLibraryLoader
 }
 
 export function WorldLibraryView({
   loader = loadWorldBlueprintSnapshot,
   settingLoader = loadSettingProjection,
+  relationshipLoader = loadRelationshipLibrarySnapshot,
 }: WorldLibraryViewProps) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
@@ -61,6 +89,7 @@ export function WorldLibraryView({
   const [setting, setSetting] = useState<SettingProjection | null>(null)
   const [settingError, setSettingError] = useState<string | null>(null)
   const [settingLoading, setSettingLoading] = useState(true)
+  const [structured, setStructured] = useState<RelationshipLibrarySnapshotView | null>(null)
 
   const projectPath = project ? normalizePath(project.path) : null
 
@@ -121,6 +150,26 @@ export function WorldLibraryView({
       cancelled = true
     }
   }, [settingLoader, projectPath, dataVersion])
+
+  useEffect(() => {
+    if (!projectPath) {
+      setStructured(null)
+      return
+    }
+    let cancelled = false
+    setStructured(null)
+    void relationshipLoader(projectPath)
+      .then((next) => {
+        if (!cancelled) setStructured(next)
+      })
+      .catch(() => {
+        // 关系库坏了不阻塞设定中心：按"未迁移"处理（下面显式标注未迁移）
+        if (!cancelled) setStructured(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [relationshipLoader, projectPath, dataVersion])
 
   const layerCount = (layer: WorldLayer): number => snapshot?.blueprint.layers[layer]?.length ?? 0
   const filledLayers = WORLD_LAYERS.filter((layer) => layerCount(layer) > 0).length
@@ -302,9 +351,24 @@ export function WorldLibraryView({
                     ))}
                   </ul>
                 )}
+                {structured && structured.entries.length > 0 ? (
+                  <ul className="flex flex-col gap-0.5" data-testid="setting-center-structured">
+                    {structured.entries.map((edge, index) => (
+                      <li key={`${edge.from}-${edge.to}-${index}`} data-testid={`setting-center-structured-${index}`}>
+                        {`${edge.from} → ${edge.to} · ${edge.kind}${edge.strength === undefined ? "" : ` · ${edge.strength}`}`}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
                 <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
-                  <li data-testid="setting-center-na-type">{t("novel.settingCenter.naType")}</li>
-                  <li data-testid="setting-center-na-strength">{t("novel.settingCenter.naStrength")}</li>
+                  {structured && structured.entries.length > 0 ? (
+                    <li data-testid="setting-center-structured-source">{t("novel.settingCenter.structuredSource")}</li>
+                  ) : (
+                    <>
+                      <li data-testid="setting-center-na-type">{t("novel.settingCenter.naType")}</li>
+                      <li data-testid="setting-center-na-strength">{t("novel.settingCenter.naStrength")}</li>
+                    </>
+                  )}
                   <li data-testid="setting-center-na-graph">{t("novel.settingCenter.naGraph")}</li>
                 </ul>
               </>

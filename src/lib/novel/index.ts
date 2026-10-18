@@ -182,6 +182,7 @@ export {
   loadAssetLibrarySnapshot,
   saveAssetLibraryArtifact,
 } from "./asset-library-store"
+export { loadAssetLibraryArtifact } from "./asset-library-store"
 export type { AssetLibrarySnapshot, AssetLibraryStoreDeps } from "./asset-library-store"
 export { mapDecisionGateToRunStatus, recordChapterGateEvidence } from "./deep-chapter-gate-evidence"
 export type { ChapterGateEvidenceDeps, ChapterGateEvidenceInput, ChapterGateEvidenceResult } from "./deep-chapter-gate-evidence"
@@ -773,6 +774,8 @@ export {
   TITLE_SEED_ENTRY_SCHEMA,
   WORLD_SAMPLE_ENTRY_SCHEMA,
   CHARACTER_ARCHETYPE_ENTRY_SCHEMA,
+  RELATIONSHIP_EDGE_ENTRY_SCHEMA,
+  RELATIONSHIP_KINDS,
   AssetLibraryError,
   assertArtifactImmutable,
   buildLibraryArtifact,
@@ -790,6 +793,8 @@ export type {
   LibraryHealthReport,
   LibraryId,
   PacingPatternEntry,
+  RelationshipEdgeEntry,
+  RelationshipKind,
   TitleSeedEntry,
   WorldSampleEntry,
 } from "./asset-library"
@@ -1298,5 +1303,17 @@ export {
 } from "./main-control-trace"
 export type { MainControlTraceSnapshot, TraceEntry } from "./main-control-trace"
 
-export { projectSettingState, loadSettingProjection } from "./setting-projection"
+export {
+  projectSettingState,
+  loadSettingProjection,
+  relationshipEntryId,
+  deriveRelationshipEntries,
+  buildRelationshipLibraryArtifact,
+} from "./setting-projection"
+export { migrateRelationshipLibrary } from "./relationship-migration"
+export type {
+  RelationshipMigrationDeps,
+  RelationshipMigrationResult,
+  RelationshipMigrationStatus,
+} from "./relationship-migration"
 export type { CastRow, RelationshipEdge, SettingProjection, SettingProjectionLoader } from "./setting-projection"

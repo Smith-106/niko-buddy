@@ -3304,7 +3304,8 @@
       "naStrength": "N/A: no strength/trust value, so no ranking or warning is possible",
       "naGraph": "N/A: relations are text edges, not an interactive node graph (write contract deferred)",
       "loading": "Loading character state…",
-      "lastChapterNa": "last chapter N/A"
+      "lastChapterNa": "last chapter N/A",
+      "structuredSource": "From the structured relationship library (relationship_edge; kind=unknown means the source text was not classified)"
     }
   },
   "canon": {

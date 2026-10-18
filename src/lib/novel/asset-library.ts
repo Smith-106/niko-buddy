@@ -90,8 +90,42 @@ export const CHARACTER_ARCHETYPE_ENTRY_SCHEMA = z
 
 export type CharacterArchetypeEntry = z.infer<typeof CHARACTER_ARCHETYPE_ENTRY_SCHEMA>
 
-/** 五库 id。 */
-export const LIBRARY_IDS = ["genre_base", "pacing_pattern", "title_seed", "world_sample", "character_archetype"] as const
+/**
+ * 角色关系条目（Wave 3B）：把 `character-states.json` 的自由文本关系升级为**有 schema 的边**。
+ *
+ * 语义边界：
+ * - `kind` 只有枚举值；来源是自由文本时一律 `unknown` + 原文落 `note`（不猜语义）。
+ * - `strength` 可缺省（真源没有强度就不编数字）；给出时必须是 0..100 整数。
+ * - 方向由 `from → to` 表达；互惠关系需要两条边（不自动对称推断）。
+ */
+export const RELATIONSHIP_KINDS = ["mentor", "rival", "ally", "family", "romance", "unknown"] as const
+
+export type RelationshipKind = (typeof RELATIONSHIP_KINDS)[number]
+
+export const RELATIONSHIP_EDGE_ENTRY_SCHEMA = z
+  .object({
+    entryId: z.string().min(1).max(128),
+    projectId: z.string().min(1).max(128).optional(),
+    from: z.string().min(1).max(128),
+    to: z.string().min(1).max(128),
+    kind: z.enum(RELATIONSHIP_KINDS),
+    strength: z.number().int().min(0).max(100).optional(),
+    sourceChapter: z.number().int().min(0).optional(),
+    note: z.string().min(1).max(512).optional(),
+  })
+  .strict()
+
+export type RelationshipEdgeEntry = z.infer<typeof RELATIONSHIP_EDGE_ENTRY_SCHEMA>
+
+/** 库 id（六库：原五库 + Wave 3B 角色关系边）。 */
+export const LIBRARY_IDS = [
+  "genre_base",
+  "pacing_pattern",
+  "title_seed",
+  "world_sample",
+  "character_archetype",
+  "relationship_edge",
+] as const
 
 export type LibraryId = (typeof LIBRARY_IDS)[number]
 
@@ -102,6 +136,7 @@ export type LibraryEntry =
   | TitleSeedEntry
   | WorldSampleEntry
   | CharacterArchetypeEntry
+  | RelationshipEdgeEntry
 
 // ============================================================================
 // 库 artifact（生成器产物；只读）
@@ -135,6 +170,12 @@ const ENTRY_SCHEMAS_BY_ID: Record<LibraryId, z.ZodTypeAny> = {
   title_seed: TITLE_SEED_ENTRY_SCHEMA,
   world_sample: WORLD_SAMPLE_ENTRY_SCHEMA,
   character_archetype: CHARACTER_ARCHETYPE_ENTRY_SCHEMA,
+  relationship_edge: RELATIONSHIP_EDGE_ENTRY_SCHEMA,
+}
+
+/** 取某库的条目校验器（读路径做逐条 schema 校验时用）。 */
+export function entrySchemaFor(libraryId: LibraryId): z.ZodTypeAny {
+  return ENTRY_SCHEMAS_BY_ID[libraryId]
 }
 
 /** 确定性序列化（键排序稳定 JSON——守恒重建的规范化输入）。 */
