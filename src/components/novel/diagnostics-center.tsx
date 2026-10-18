@@ -18,6 +18,12 @@
  */
 
 import { useCallback, useEffect, useState } from "react"
+import { AgentStudioPanelMounted } from "./agent-studio-panel"
+import { ClosurePanel } from "./closure-panel"
+import { MethodologyPanel } from "./methodology-panel"
+import { PromptRegistryPanel } from "./prompt-registry-panel"
+import { SkillPromptCoveragePanel } from "./skill-prompt-coverage-panel"
+import { WorkflowTemplatePanel } from "./workflow-template-panel"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle, CheckCircle2, Download, Eye, FileSearch, RefreshCw, Wrench } from "lucide-react"
 import { ask, save } from "@tauri-apps/plugin-dialog"
@@ -388,6 +394,20 @@ export function DiagnosticsCenter(props: DiagnosticsCenterProps) {
         <AlertTriangle className="h-3 w-3" />
         诊断数据仅保存在本地，不会自动上传；删除项目、覆盖正文等危险操作不在此执行。
       </p>
+      {/* 只读审计区（默认折叠）：健康/恢复/导出仍是首屏主角，审计不抢首屏。 */}
+      <details data-testid="diagnostics-audit-section" className="rounded-md border border-border px-3 py-2">
+        <summary className="cursor-pointer text-xs font-medium text-foreground">
+          只读审计（提示词 / 方法论 / 模板 / skills 覆盖 / 叙事结构 / 设置盘点）
+        </summary>
+        <div className="mt-3 space-y-4">
+          <PromptRegistryPanel />
+          <MethodologyPanel />
+          <WorkflowTemplatePanel />
+          <SkillPromptCoveragePanel />
+          <ClosurePanel />
+          <AgentStudioPanelMounted />
+        </div>
+      </details>
     </section>
   )
 }

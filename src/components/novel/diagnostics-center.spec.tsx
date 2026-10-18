@@ -249,3 +249,68 @@ describe("DiagnosticsCenter — 诊断包预览（门禁 11）", () => {
     expect(screen.queryByTestId("bundle-export-btn")).toBeNull()
   })
 })
+
+
+describe("观测面板挂载（审查回归：删掉挂载必须变红）", () => {
+  afterEach(cleanup)
+
+  it("六个只读审计面板都挂载在诊断中心里（删任一个即红）", async () => {
+    render(
+      <DiagnosticsCenter
+        report={makeReport()}
+        historyView={[]}
+        bundlePreview={null}
+        loading={false}
+        recovering={null}
+        recoverNote={null}
+        bundleNote={null}
+        onRecheck={() => undefined}
+        onRecover={() => undefined}
+        onPreviewBundle={() => undefined}
+        onExportBundle={() => undefined}
+      />,
+    )
+    for (const testId of [
+      "prompt-registry-panel",
+      "methodology-panel",
+      "workflow-template-panel",
+      "skill-prompt-coverage-panel",
+      "closure-panel",
+      "agent-studio-panel",
+    ]) {
+      expect(screen.getByTestId(testId)).toBeTruthy()
+    }
+  })
+})
+
+describe("信息架构：健康结论在审计之前（审查回归 2）", () => {
+  afterEach(cleanup)
+
+  it("审计区默认折叠，且 DOM 顺序在总体健康结论之后", () => {
+    render(
+      <DiagnosticsCenter
+        report={makeReport()}
+        historyView={[]}
+        bundlePreview={null}
+        loading={false}
+        recovering={null}
+        recoverNote={null}
+        bundleNote={null}
+        onRecheck={() => undefined}
+        onRecover={() => undefined}
+        onPreviewBundle={() => undefined}
+        onExportBundle={() => undefined}
+      />,
+    )
+    const audit = screen.getByTestId("diagnostics-audit-section")
+    expect(audit.tagName).toBe("DETAILS")
+    expect((audit as HTMLDetailsElement).open).toBe(false)
+    const overall = screen.getByTestId("diagnostics-overall")
+    // Node.DOCUMENT_POSITION_FOLLOWING = 4 → overall 在 audit 之前
+    expect(overall.compareDocumentPosition(audit) & 4).toBe(4)
+    // audit 不得被 overall 包住（位与 4 在"被包含"时也会过，审查点）
+    expect(overall.contains(audit)).toBe(false)
+    // 静态声明口径必须真的渲染出来（删掉那行文案即红）
+    expect(screen.getByTestId("agent-studio-static-scope").textContent).toContain("未")
+  })
+})

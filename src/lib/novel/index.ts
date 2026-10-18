@@ -1311,9 +1311,52 @@ export {
   buildRelationshipLibraryArtifact,
 } from "./setting-projection"
 export { migrateRelationshipLibrary } from "./relationship-migration"
+export {
+  PROMPT_PREVIEW_MAX,
+  PROMPT_PREVIEW_SENTINEL,
+  groupPromptRegistry,
+  listPromptRegistry,
+  promptSceneOf,
+} from "./prompt-registry"
+export type { PromptRegistryEntry, PromptRegistryGroup } from "./prompt-registry"
 export type {
   RelationshipMigrationDeps,
   RelationshipMigrationResult,
   RelationshipMigrationStatus,
 } from "./relationship-migration"
 export type { CastRow, RelationshipEdge, SettingProjection, SettingProjectionLoader } from "./setting-projection"
+
+// ── EPIC 并行线（契约先定，实现由并行任务补齐）──
+export { projectMethodologyUsage } from "./methodology-projection"
+export type { MethodologyProjection, MethodologyStageRow } from "./methodology-projection"
+export { groupWorkflowTemplates, listWorkflowTemplateRegistry } from "./workflow-template-registry"
+export type { WorkflowTemplateEntry, WorkflowTemplateGroup } from "./workflow-template-registry"
+export { buildSkillPromptCoverage } from "./skill-prompt-coverage"
+export type { SkillPromptCoverage, SkillPromptCoverageRow } from "./skill-prompt-coverage"
+
+// ── EPIC 并行线批次二（Closure 叙事结构面 / 代理工作室设置审计）──
+export {
+  CLOSURE_SOURCE_NARRATIVE,
+  CLOSURE_SOURCE_TIMELINE,
+  loadClosureProjection,
+  projectClosureState,
+} from "./closure-projection"
+export type {
+  ClosureKind,
+  ClosureProjection,
+  ClosureProjectionLoader,
+  ClosureRow,
+  ClosureSources,
+} from "./closure-projection"
+export {
+  AGENT_STUDIO_SETTING_CATALOG,
+  compareCodePoints,
+  projectAgentStudioSettings,
+} from "./agent-studio-projection"
+export type {
+  AgentStudioCatalogEntry,
+  AgentStudioProjection,
+  AgentStudioProjectionTotals,
+  AgentStudioSettingRow,
+  AgentStudioSettingStatus,
+} from "./agent-studio-projection"
