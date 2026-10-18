@@ -17,7 +17,9 @@
 
 ### Changed
 
-- **冗余 A 级精简**：删除 `src/lib/novel/token-estimator.ts`（仅 spec 引用的别名，唯一估算口径已是 `context-compact.estimateCompactTokens`）与 `src/lib/novel/mod.ts`（旧 barrel，boundaries 真源为 `index.ts`），同步移除 `scripts/verify-niko-buddy-audit-fast.mjs` 中的失效条目。
+- **冗余 A 级精简**：删除 `src/lib/novel/token-estimator.ts`（仅 spec 引用的别名，唯一估算口径已是 `context-compact.estimateCompactTokens`），同步移除 `scripts/verify-niko-buddy-audit-fast.mjs` 中的失效条目。
+  - 说明：`src/lib/novel/mod.ts` **保留**——它不是死别名，而是 ADR-34 防火墙使用的主链 barrel（`persona-sidecar-runner.spec.ts` 断言它不导出 sidecar），发版 CI 门禁实测拦下了这次误删。
+- **解析器不再编数**：`parsePositionTableFromMarkdown` 对压力级/情绪强度的非法数值格不再默认成 `1`，而是整行跳过（宁缺勿造）。
 - **i18n**：新增 `reviewCenter.craftTabs.styleRadar`（zh/en 键集保持一致）。
 
 ## [2.17.1] - 2026-10-18

@@ -62,7 +62,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 
 ### 冗余 A 级精简
 
-删掉 `token-estimator.ts`（只被自己的 spec 引用的别名，唯一估算口径本就是 `context-compact.estimateCompactTokens`）与 `mod.ts`（旧 barrel，boundaries 真源是 `index.ts`）。
+删掉 `token-estimator.ts`（只被自己的 spec 引用的别名，唯一估算口径本就是 `context-compact.estimateCompactTokens`）。`mod.ts` 保留：它是 ADR-34 防火墙使用的主链 barrel，误删会被 `persona-sidecar-runner.spec.ts` 与发版 CI 门禁拦下。
 
 ## v2.17.1 历史能力
 
