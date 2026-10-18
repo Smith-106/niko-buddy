@@ -91,7 +91,7 @@
   "specOnly": 271,
   "barrelOnly": 2,
   "edges": 3636,
-  "loc": 247076
+  "loc": 247107
  },
  "modules": [
   {
@@ -6595,7 +6595,7 @@
   {
    "p": "src/lib/llm-providers.ts",
    "s": 18,
-   "l": 1157,
+   "l": 1188,
    "r": true,
    "o": false,
    "x": false,

@@ -303,11 +303,93 @@ function checkI18n() {
 
 // ── 视图 union ↔ 渲染/计划态 ───────────────────────────────────────────────
 
-/** 去掉注释：注释里写 `isPlannedView(activeView)` 不能把「未接线」伪装成已接线。 */
+/**
+ * 去掉注释。必须字符级走一遍并跟踪引号状态：`"foo // bar"` 里的 `//`
+ * 不是注释，按行正则剥会把同一行后面的真实 case 一并裁掉（门禁假失败）。
+ */
 function stripComments(source) {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:"'`])\/\/[^\n]*/g, "$1")
+  let out = ""
+  let i = 0
+  let quote = null
+  while (i < source.length) {
+    const ch = source[i]
+    const next = source[i + 1]
+    if (quote) {
+      out += ch
+      if (ch === "\\" && i + 1 < source.length) {
+        out += source[i + 1]
+        i += 2
+        continue
+      }
+      if (ch === quote) quote = null
+      i += 1
+      continue
+    }
+    if (ch === "\"" || ch === "'" || ch === "`") {
+      quote = ch
+      out += ch
+      i += 1
+      continue
+    }
+    if (ch === "/" && next === "*") {
+      const end = source.indexOf("*/", i + 2)
+      i = end === -1 ? source.length : end + 2
+      continue
+    }
+    if (ch === "/" && next === "/") {
+      const end = source.indexOf("\n", i)
+      i = end === -1 ? source.length : end
+      continue
+    }
+    out += ch
+    i += 1
+  }
+  return out
+}
+
+/** 取从 openIndex 的 `{` 起、括号配平的代码块（跳过字符串，避免花括号误判）。 */
+function balancedBlock(source, openIndex) {
+  if (source[openIndex] !== "{") return null
+  let depth = 0
+  let quote = null
+  for (let i = openIndex; i < source.length; i += 1) {
+    const ch = source[i]
+    if (quote) {
+      if (ch === "\\") i += 1
+      else if (ch === quote) quote = null
+      continue
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch
+      continue
+    }
+    if (ch === "{") depth += 1
+    else if (ch === "}") {
+      depth -= 1
+      if (depth === 0) return source.slice(openIndex, i + 1)
+    }
+  }
+  return null
+}
+
+/**
+ * 占位页是否真的**位于**守卫块内部。
+ *
+ * 只比较「守卫出现在 <PlannedView 之前」会被 `if (false && guard) {}` 加后面
+ * 无条件渲染的死代码骗过；这里按括号配平取守卫控制的块，要求渲染落在块里。
+ */
+function rendersInsideGuard(source, guardPattern, bracePosition) {
+  const re = new RegExp(guardPattern, "g")
+  let match
+  while ((match = re.exec(source)) !== null) {
+    const open = bracePosition === "after"
+      ? source.indexOf("{", match.index + match[0].length - 1)
+      : source.lastIndexOf("{", match.index)
+    if (open === -1) continue
+    const block = balancedBlock(source, open)
+    if (block && /<PlannedView[\s/>]/.test(block)) return true
+  }
+  return false
 }
 
 function checkViews() {
@@ -339,23 +421,18 @@ function checkViews() {
     [...contentArea.matchAll(/(?:const|let)\s+(\w+)\s*=\s*[^;\n]*isPlannedView\(\s*activeView\s*\)/g)].map((m) => m[1]),
   )
   const hasPlannedIfGuard = /if\s*\(\s*isPlannedView\(\s*activeView\s*\)\s*\)/.test(contentArea)
-  const plannedRenderIndex = contentArea.search(/<PlannedView[\s/>]/)
-  const plannedGuarded =
-    plannedRenderIndex >= 0 &&
-    (plannedGuards.size > 0 || hasPlannedIfGuard)
-      ? [...plannedGuards].some((name) => {
-          const usage = new RegExp(`(?:\\{|\\?)\\s*${name}\\b|\\b${name}\\s*\\?|if\\s*\\(\\s*${name}\\s*\\)`, "g")
-          let match
-          while ((match = usage.exec(contentArea)) !== null) {
-            // 守卫的引用必须出现在占位渲染之前且在同一文件内（JSX 条件先判定后渲染）
-            if (match.index < plannedRenderIndex) return true
-          }
-          return false
-        }) || (hasPlannedIfGuard && plannedRenderIndex > contentArea.search(/if\s*\(\s*isPlannedView/))
-      : false
-  const plannedRendered = plannedGuarded
+  // 既要「登记」也要「守卫块内真渲染」：三元 / && 的 JSX 表达式块，或 if 块。
+  const plannedRendered =
+    [...plannedGuards].some(
+      (name) =>
+        rendersInsideGuard(contentArea, `\\{\\s*${name}\\s*(?:\\?|&&)`, "before") ||
+        rendersInsideGuard(contentArea, `if\\s*\\(\\s*${name}\\s*\\)`, "after"),
+    ) ||
+    (hasPlannedIfGuard &&
+      rendersInsideGuard(contentArea, `if\\s*\\(\\s*isPlannedView\\(\\s*activeView\\s*\\)\\s*\\)`, "after"))
+  const plannedGuarded = plannedRendered
   const nav = readFileSync(join(SRC, "components/layout/nav-items.ts"), "utf8")
-  const navViews = new Set([...nav.matchAll(/view:\s*"([^"]+)"/g)].map((m) => m[1]))
+  const navViews = new Set([...nav.matchAll(/view:\s*["']([^"']+)["']/g)].map((m) => m[1]))
 
   const dead = union.filter(
     (v) =>

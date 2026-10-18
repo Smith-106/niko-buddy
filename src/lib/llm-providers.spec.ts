@@ -1191,3 +1191,93 @@ describe("审查修复：wire 契约细节", () => {
     expect(JSON.stringify(body)).not.toContain("工具结果")
   })
 })
+
+describe("第二轮审查修复：前缀 added / 匿名槽位 / 乱序终稿 / 块内容合并", () => {
+  const responsesConfig = (overrides: Partial<LlmConfig> = {}): LlmConfig =>
+    customConfig({ apiMode: "responses", ...overrides })
+
+  const added = (item: Record<string, unknown>, outputIndex?: number) =>
+    `data: ${JSON.stringify({
+      type: "response.output_item.added",
+      ...(outputIndex === undefined ? {} : { output_index: outputIndex }),
+      item: { type: "function_call", ...item },
+    })}`
+
+  const argsDelta = (delta: string, itemId?: string, outputIndex?: number) =>
+    `data: ${JSON.stringify({
+      type: "response.function_call_arguments.delta",
+      ...(itemId === undefined ? {} : { item_id: itemId }),
+      ...(outputIndex === undefined ? {} : { output_index: outputIndex }),
+      delta,
+    })}`
+
+  const argsDone = (args: string, itemId?: string, outputIndex?: number) =>
+    `data: ${JSON.stringify({
+      type: "response.function_call_arguments.done",
+      ...(itemId === undefined ? {} : { item_id: itemId }),
+      ...(outputIndex === undefined ? {} : { output_index: outputIndex }),
+      arguments: args,
+    })}`
+
+  it("added 只带参数前缀时，后续分片继续追加（不被当成终态截断）", () => {
+    const parse = getProviderConfig(responsesConfig()).parseToolDelta!
+    expect(parse(added({ id: "item_p", call_id: "call_p", name: "f", arguments: '{"a":' })))
+      .toEqual([{ index: 0, id: "call_p", name: "f", arguments: '{"a":' }])
+    expect(parse(argsDelta("1}", "item_p"))).toEqual([{ index: 0, arguments: "1}" }])
+    // 前缀已算「已见分片」，done 不再重复交
+    expect(parse(argsDone('{"a":1}', "item_p"))).toBeNull()
+  })
+
+  it("已有分片后 .done 必须丢弃（锁住 sawDelta 判定）", () => {
+    const parse = getProviderConfig(responsesConfig()).parseToolDelta!
+    parse(added({ id: "item_s", call_id: "call_s", name: "f", arguments: "" }))
+    expect(parse(argsDelta('{"a"', "item_s"))).toEqual([{ index: 0, arguments: '{"a"' }])
+    expect(parse(argsDone('{"a":1}', "item_s"))).toBeNull()
+  })
+
+  it("两个没有 id 的 added 各自占槽，不共用 lastIndex", () => {
+    const parse = getProviderConfig(responsesConfig()).parseToolDelta!
+    expect(parse(added({ name: "first" }))).toEqual([{ index: 0, name: "first" }])
+    expect(parse(added({ name: "second" }))).toEqual([{ index: 1, name: "second" }])
+    // 无 id 的分片归到最新槽
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.function_call_arguments.delta",
+      delta: "{}",
+    })}`)).toEqual([{ index: 1, arguments: "{}" }])
+  })
+
+  it("已建立的 item_id 别名不被后续 output_index 改挂（分片不裂成两槽）", () => {
+    const parse = getProviderConfig(responsesConfig()).parseToolDelta!
+    parse(added({ id: "item_x", call_id: "call_x", name: "f" }))
+    expect(parse(argsDelta("{", "item_x"))).toEqual([{ index: 0, arguments: "{" }])
+    expect(parse(argsDelta("}", "item_x", 1))).toEqual([{ index: 0, arguments: "}" }])
+  })
+
+  it("completed 先到并出稿后，迟到的 output_text.delta 被丢弃", () => {
+    const parse = getProviderConfig(responsesConfig()).parseStream
+    const completed = `data: ${JSON.stringify({
+      type: "response.completed",
+      response: { output: [{ content: [{ type: "output_text", text: "整段" }] }] },
+    })}`
+    expect(parse(completed)).toBe("整段")
+    expect(parse(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: "多出来" })}`)).toBeNull()
+  })
+
+  it("Anthropic：块内容（非字符串）的相邻同角色回合被合并而非留成连续 user", () => {
+    const body = getProviderConfig(
+      customConfig({ provider: "anthropic", apiMode: "anthropic_messages" }),
+    ).buildBody([
+      { role: "user", content: [{ type: "text", text: "带图问题", cacheControl: true }] },
+      { role: "tool", content: "工具结果", tool_call_id: "c1" },
+      { role: "user", content: [{ type: "text", text: "补充问题" }] },
+    ]) as Record<string, unknown>
+    const messages = body.messages as Array<{ role: string; content: unknown }>
+    expect(messages).toHaveLength(1)
+    expect(messages[0].role).toBe("user")
+    expect(Array.isArray(messages[0].content)).toBe(true)
+    expect((messages[0].content as Array<{ text?: string }>).map((b) => b.text)).toEqual([
+      "带图问题",
+      "补充问题",
+    ])
+  })
+})

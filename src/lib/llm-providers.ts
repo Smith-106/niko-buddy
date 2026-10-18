@@ -175,6 +175,9 @@ function extractOpenAiUsage(line: string): { input: number; output: number } | n
  */
 function createResponsesTextParser(): (line: string) => string | null {
   let sawDelta = false
+  // 终稿是否已经交出：乱序网关可能先推 completed 再推 delta，那个时候
+  // delta 不能再拼（否则调用方拿到「全文 + 增量」）。
+  let emittedFinal = false
   return (line: string) => {
     if (!line.startsWith("data: ")) return null
     const data = line.slice(6).trim()
@@ -189,12 +192,13 @@ function createResponsesTextParser(): (line: string) => string | null {
         }
       }
       if (parsed.type === "response.output_text.delta") {
+        if (emittedFinal) return null
         if (typeof parsed.delta !== "string" || parsed.delta.length === 0) return null
         sawDelta = true
         return parsed.delta
       }
       if (parsed.type === "response.completed") {
-        if (sawDelta) return null
+        if (sawDelta || emittedFinal) return null
         const fromOutput = (parsed.response?.output ?? [])
           .flatMap((item) => item.content ?? [])
           .filter((block) => block.type === "output_text" && typeof block.text === "string")
@@ -207,6 +211,7 @@ function createResponsesTextParser(): (line: string) => string | null {
             : ""
         if (text.length === 0) return null
         sawDelta = true
+        emittedFinal = true
         return text
       }
       return null
@@ -239,7 +244,10 @@ function createResponsesToolDeltaParser(): (line: string) => StreamToolCallDelta
   // 归到 index 0 更接近真实语义（否则第二个调用的参数会污染第一个）。
   let lastIndex = 0
   const indexFor = (itemId: string | undefined, explicit?: number): number => {
-    // output_index 是官方槽位序号，出现时以它为准（并行调用交错时唯一可靠的归并键）
+    // 已建立的别名不再改挂：一个调用只能属于一个槽位，否则其分片会裂成两截
+    const known = itemId ? itemIndex.get(itemId) : undefined
+    if (known !== undefined) return known
+    // output_index 是官方槽位序号，首次出现时以它为准（并行调用交错时唯一可靠的归并键）
     if (typeof explicit === "number" && explicit >= 0) {
       if (explicit >= nextIndex) nextIndex = explicit + 1
       if (itemId) itemIndex.set(itemId, explicit)
@@ -247,8 +255,6 @@ function createResponsesToolDeltaParser(): (line: string) => StreamToolCallDelta
       return explicit
     }
     if (!itemId) return lastIndex
-    const existing = itemIndex.get(itemId)
-    if (existing !== undefined) return existing
     const assigned = nextIndex
     nextIndex += 1
     itemIndex.set(itemId, assigned)
@@ -275,19 +281,24 @@ function createResponsesToolDeltaParser(): (line: string) => StreamToolCallDelta
         }
       }
       if (parsed.type === "response.output_item.added" && parsed.item?.type === "function_call") {
-        // item.id 是后续 delta 的关联键；缺失时退回 call_id（两者都没有则落入 lastIndex）
+        // item.id 是后续 delta 的关联键；缺失时退回 call_id
         const keys = [parsed.item.id, parsed.item.call_id].filter(
           (key): key is string => typeof key === "string" && key.length > 0,
         )
-        const index = indexFor(keys[0], parsed.output_index)
+        // 两个键都没有时也要占一个独立槽位，否则两个匿名调用会共用 lastIndex
+        const index = keys.length === 0 && !parsed.output_index
+          ? nextIndex++
+          : indexFor(keys[0], parsed.output_index)
+        lastIndex = index
         // 两个键互为别名：官方 delta 的 item_id 是 item.id，但多数网关同时回传 call_id
         for (const key of keys) itemIndex.set(key, index)
-        lastIndex = index
         const fullArguments = typeof parsed.item.arguments === "string" && parsed.item.arguments.length > 0
           ? parsed.item.arguments
           : undefined
-        // 一次性给全参数的网关：added 就带完整 arguments，后续 done 不能再拼一遍
-        if (fullArguments !== undefined) haveFull.add(index)
+        // added 上的 arguments 只是一个**片段**（官方语义下是 ""）：算作已见分片，
+        // 不能当成终态 haveFull —— 否则「先给前缀再推增量」的网关会被截断。
+        // 它也不会再被 .done 重复拼一遍（done 看到 sawDelta 就丢弃）。
+        if (fullArguments !== undefined) sawDelta.add(index)
         return [{
           index,
           ...(parsed.item.call_id ? { id: parsed.item.call_id } : parsed.item.id ? { id: parsed.item.id } : {}),
@@ -310,7 +321,12 @@ function createResponsesToolDeltaParser(): (line: string) => StreamToolCallDelta
         //   - 只有 done（网关不推分片）→ 当一次全量交出
         if (typeof parsed.arguments !== "string" || parsed.arguments.length === 0) return null
         const index = indexFor(parsed.item_id, parsed.output_index)
-        if (haveFull.has(index) || sawDelta.has(index)) return null
+        // done 一定意味着该调用的参数已结束：无论本次是否交出内容，都标记终态，
+        // 让其后迟到的分片被丢弃（全量 + 分片拼在一起就是非法 JSON）。
+        if (haveFull.has(index) || sawDelta.has(index)) {
+          haveFull.add(index)
+          return null
+        }
         haveFull.add(index)
         return [{ index, arguments: parsed.arguments }]
       }
@@ -741,8 +757,7 @@ function buildOpenAiCompatibleBody(
   return body
 }
 
-function toAnthropicContent(content: string | ContentBlock[]): unknown {
-  if (typeof content === "string") return content
+function toAnthropicContent(content: string | ContentBlock[]): unknown {  if (typeof content === "string") return content
   const hasCacheControl = content.some((b) => b.type === "text" && b.cacheControl)
   if (!hasCacheControl && content.every((b) => b.type === "text")) {
     return content.map((b) => (b.type === "text" ? b.text : "")).join("") /* v8 ignore start */ /* v8 ignore stop */
@@ -771,6 +786,21 @@ function flattenAnthropicSystem(content: string | ContentBlock[]): string {
     .join("")
 }
 
+/**
+ * 合并相邻同角色回合。Anthropic 要求严格交替，块数组不能被当作「已合并」。
+ * 两边都是字符串时保持字符串（最紧凑）；否则提升成 text block 再拼。
+ */
+function mergeAnthropicContent(previous: unknown, next: unknown): unknown {
+  if (typeof previous === "string" && typeof next === "string") {
+    return `${previous}\n${next}`
+  }
+  const toBlocks = (value: unknown): unknown[] => {
+    if (typeof value === "string") return [{ type: "text", text: value }]
+    return Array.isArray(value) ? value : []
+  }
+  return [...toBlocks(previous), ...toBlocks(next)]
+}
+
 function buildAnthropicBody(
   messages: ChatMessage[],
   overrides?: RequestOverrides,
@@ -787,9 +817,10 @@ function buildAnthropicBody(
     if (content === "" || (Array.isArray(content) && content.length === 0)) continue
     const role = message.role === "assistant" ? "assistant" : "user"
     const previous = conversationMessages[conversationMessages.length - 1]
-    // 保持 user/assistant 交替：同角色相邻文本合并成一段
-    if (previous && previous.role === role && typeof previous.content === "string" && typeof content === "string") {
-      previous.content = `${previous.content}\n${content}`
+    // 保持 user/assistant 交替：同角色相邻回合必须合并（字符串直接接，
+    // 块数组先提升成 text block 再拼——只处理 string 会留下连续 user 而 400）
+    if (previous && previous.role === role) {
+      previous.content = mergeAnthropicContent(previous.content, content)
       continue
     }
     conversationMessages.push({ role, content })
