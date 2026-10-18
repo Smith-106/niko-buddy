@@ -3843,6 +3843,10 @@
       "dataManagerDesc": "Data domains isolation/clear/trash/reset",
       "exportCenter": "Export Center",
       "exportCenterDesc": "Unified export of all formats & scenes"
+    },
+    "plannedView": {
+      "hint": "This module is not implemented yet; this is a placeholder page.",
+      "back": "Back to workbench"
     }
   },
   "skillLibrary": {

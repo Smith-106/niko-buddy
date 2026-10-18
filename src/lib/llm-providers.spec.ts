@@ -820,3 +820,144 @@ describe("流式工具调用增量（parseToolDelta）", () => {
     ])
   })
 })
+
+describe("Responses API 工具通道（P1-1）", () => {
+  const responsesConfig = (overrides: Partial<LlmConfig> = {}): LlmConfig =>
+    customConfig({ apiMode: "responses", ...overrides })
+
+  const openAiTool = (name: string) => ({
+    type: "function" as const,
+    function: {
+      name,
+      description: `${name} 描述`,
+      parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+    },
+  })
+
+  it("把 chat.completions 的嵌套 function 定义改写成 Responses 扁平形状", () => {
+    const body = getProviderConfig(responsesConfig()).buildBody(
+      [{ role: "user", content: "读一下" }],
+      { tools: [openAiTool("read_file")], toolChoice: "auto" },
+    ) as Record<string, unknown>
+
+    expect(body.tools).toEqual([
+      {
+        type: "function",
+        name: "read_file",
+        description: "read_file 描述",
+        parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+      },
+    ])
+    expect(body.tool_choice).toBe("auto")
+    expect(body).not.toHaveProperty("toolChoice")
+    // 不能把 chat 的嵌套 function 键漏进 wire body
+    expect(JSON.stringify(body.tools)).not.toContain('"function":')
+  })
+
+  it("没有工具时不写 tools / tool_choice 字段（默认行为不变）", () => {
+    const body = getProviderConfig(responsesConfig()).buildBody([
+      { role: "user", content: "你好" },
+    ]) as Record<string, unknown>
+    expect(body).not.toHaveProperty("tools")
+    expect(body).not.toHaveProperty("tool_choice")
+  })
+
+  it("assistant.tool_calls 映射为 function_call 条目，tool 结果映射为 function_call_output", () => {
+    const body = getProviderConfig(responsesConfig()).buildBody([
+      { role: "user", content: "读 README" },
+      {
+        role: "assistant",
+        content: "我来读取。",
+        tool_calls: [
+          { id: "call_abc", type: "function", function: { name: "read_file", arguments: '{"path":"README.md"}' } },
+        ],
+      },
+      { role: "tool", content: "文件内容", tool_call_id: "call_abc", name: "read_file" },
+    ]) as Record<string, unknown>
+
+    expect(body.input).toEqual([
+      { role: "user", content: "读 README" },
+      { type: "message", role: "assistant", content: [{ type: "output_text", text: "我来读取。" }] },
+      { type: "function_call", call_id: "call_abc", name: "read_file", arguments: '{"path":"README.md"}' },
+      { type: "function_call_output", call_id: "call_abc", output: "文件内容" },
+    ])
+  })
+
+  it("assistant 无正文时只产出 function_call 条目（不伪造空消息）", () => {
+    const body = getProviderConfig(responsesConfig()).buildBody([
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "call_1", type: "function", function: { name: "list_dir", arguments: "{}" } }],
+      },
+    ]) as Record<string, unknown>
+    expect(body.input).toEqual([
+      { type: "function_call", call_id: "call_1", name: "list_dir", arguments: "{}" },
+    ])
+  })
+
+  it("parseToolDelta 解析 output_item.added + arguments.delta，并按 item_id 归并槽位", () => {
+    const provider = getProviderConfig(responsesConfig())
+    expect(provider.parseToolDelta).toBeTypeOf("function")
+    const parse = provider.parseToolDelta!
+
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.output_item.added",
+      item: { id: "item_1", type: "function_call", call_id: "call_1", name: "score_chapter", arguments: "" },
+    })}`)).toEqual([{ index: 0, id: "call_1", name: "score_chapter" }])
+
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.function_call_arguments.delta",
+      item_id: "item_1",
+      delta: '{"chapter',
+    })}`)).toEqual([{ index: 0, arguments: '{"chapter' }])
+
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.function_call_arguments.delta",
+      item_id: "item_1",
+      delta: 'Id":"c1"}',
+    })}`)).toEqual([{ index: 0, arguments: 'Id":"c1"}' }])
+
+    // 第二个工具调用拿到独立槽位
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.output_item.added",
+      item: { id: "item_2", type: "function_call", call_id: "call_2", name: "revise_chapter" },
+    })}`)).toEqual([{ index: 1, id: "call_2", name: "revise_chapter" }])
+
+    // done 事件在已有分片时不得重复追加（否则 arguments JSON 被污染）
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.function_call_arguments.done",
+      item_id: "item_1",
+      arguments: '{"chapterId":"c1"}',
+    })}`)).toBeNull()
+
+    // 文本增量不属于工具增量
+    expect(parse(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: "正文" })}`)).toBeNull()
+    expect(parse("data: [DONE]")).toBeNull()
+    expect(parse(`data: {"type":"response.output_item.added","item":{"type":"message"}}`)).toBeNull()
+  })
+
+  it("只有 done 事件（网关不推分片）时把完整参数当作一次增量交出", () => {
+    const parse = getProviderConfig(responsesConfig()).parseToolDelta!
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.output_item.added",
+      item: { id: "item_x", type: "function_call", call_id: "call_x", name: "write_chapter" },
+    })}`)).toEqual([{ index: 0, id: "call_x", name: "write_chapter" }])
+    expect(parse(`data: ${JSON.stringify({
+      type: "response.function_call_arguments.done",
+      item_id: "item_x",
+      arguments: '{"title":"第一章"}',
+    })}`)).toEqual([{ index: 0, arguments: '{"title":"第一章"}' }])
+  })
+
+  it("chat_completions 路径把 toolChoice 映射成 wire 键 tool_choice", () => {
+    const body = getProviderConfig(customConfig()).buildBody(
+      [{ role: "user", content: "x" }],
+      { tools: [openAiTool("read_file")], toolChoice: "auto" },
+    ) as Record<string, unknown>
+    // chat 形状保持嵌套 function（与 Responses 不同，不可互换）
+    expect((body.tools as Array<{ function: { name: string } }>)[0].function.name).toBe("read_file")
+    expect(body.tool_choice).toBe("auto")
+    expect(body).not.toHaveProperty("toolChoice")
+  })
+})

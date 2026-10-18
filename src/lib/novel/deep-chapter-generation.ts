@@ -42,7 +42,8 @@ import { computeCheckpointDigestOf } from "./checkpoint-digest"
 import {
   type StageJournalRuntime,
 } from "./stage-output-journal"
-import { resolveRoleModel as resolveRoleModelName } from "@/lib/llm/model-resolver"
+import { resolveRoleModel as resolveRoleModelName, type ProjectModelConfig, type WritingRole } from "@/lib/llm/model-resolver"
+import { resolveModelConfig } from "./model-resolver"
 import {
 } from "./character-cognition"
 import { loadCharacterStates } from "./character-state"
@@ -328,30 +329,88 @@ function normalizeAntiAiMode(mode: AntiAiMode): KernelAntiAiMode {
 }
 
 /**
- * T10 / T33 预留：stage executor 的 role→model 解析点。
+ * route() 角色 → T33 注册表的写作角色。
  *
- * 默认全角色单模型 = 现状（writingConfig 即当前 AI 会话模型），位级等价 A-35 不破。
- * T33 注册表落地后，仅在此处加注册接入（按 role 查注册表返回对应 model 配置），
- * 0 重构：调用方签名不变（仍传 role + projectConfig）。
+ * reviewer 是 route 的外交名，对应注册表的 critic（审稿）；architect/editor
+ * 都是内容生产角色，落在 writer/reviser 这一侧。
+ */
+const ROUTE_ROLE_TO_WRITING_ROLE: Record<RouteRole, WritingRole> = {
+  writer: "writer",
+  reviewer: "critic",
+  arbiter: "arbiter",
+  judge: "judge",
+  architect: "writer",
+  editor: "reviser",
+}
+
+/** 项目配置里真实存在的角色模型字段（不伪造：未配置就不填）。 */
+type RoleProjectConfig = {
+  writingConfig: LlmConfig
+  novelConfig?: Pick<
+    ReturnType<typeof useWikiStore.getState>["novelConfig"],
+    "writingModel" | "reviewModel" | "summaryModel" | "extractModel"
+  > | null
+  /** 测试/后台任务可注入 provider 配置表；缺省读 store（与 review-adapter 同构）。 */
+  providerConfigs?: ReturnType<typeof useWikiStore.getState>["providerConfigs"]
+}
+
+/**
+ * 从项目配置拼出 T33 注册表的入参。
+ *
+ * writingModel 缺省回退当前会话模型——这正是历史的「全角色单模型」语义，
+ * 但 reviewModel 等角色字段**不再**用 writingModel 冒充：未配置就是未配置，
+ * 由 resolveRoleModelName 走回退，从而保证默认态与旧行为位级等价。
+ */
+function toProjectModelConfig(projectConfig: RoleProjectConfig): ProjectModelConfig {
+  const novelConfig = projectConfig.novelConfig
+  const configuredWriting = (novelConfig?.writingModel ?? "").trim()
+  const configuredReview = (novelConfig?.reviewModel ?? "").trim()
+  return {
+    writingModel: configuredWriting || projectConfig.writingConfig.model,
+    ...(configuredReview ? { reviewModel: configuredReview } : {}),
+    ...(novelConfig?.summaryModel?.trim() ? { summaryModel: novelConfig.summaryModel.trim() } : {}),
+    ...(novelConfig?.extractModel?.trim() ? { extractModel: novelConfig.extractModel.trim() } : {}),
+  }
+}
+
+/**
+ * T10 / T33：stage executor 的 role→model 解析点。
+ *
+ * 输入是**真实项目配置**（novelConfig 的 writing/review/summary/extract 模型字段），
+ * 经 `@/lib/llm/model-resolver` 的角色注册表解出角色应使用的模型名，再用
+ * `@/lib/novel/model-resolver` 的模型名解析把 "providerId/modelId" 换成完整 LlmConfig。
+ *
+ * 默认态（项目未配置任何角色模型）返回 `writingConfig` 本体：全角色单模型，
+ * 与旧行为位级等价（A-35 不破）。
  */
 export function resolveRoleModel(
   role: RouteRole | undefined,
-  projectConfig: { writingConfig: LlmConfig },
+  projectConfig: RoleProjectConfig,
 ): LlmConfig {
-  // T33 registry routing: delegate to model-resolver for role→model name resolution,
-  // then use ProviderRegistry for provider routing.
-  if (role) {
-    const modelName = resolveRoleModelName(role as Parameters<typeof resolveRoleModelName>[0], {
-      writingModel: projectConfig.writingConfig.model,
-      reviewModel: projectConfig.writingConfig.model,
-    })
-    if (modelName && modelName !== projectConfig.writingConfig.model) {
-      // 角色专属模型覆盖：构造新 LlmConfig 使用已解析模型名。
-      // ProviderRegistry 在后续 getProviderConfig 调用中验证 provider 已注册。
-      return { ...projectConfig.writingConfig, model: modelName }
-    }
-  }
-  return projectConfig.writingConfig
+  const writingConfig = projectConfig.writingConfig
+  if (!role) return writingConfig
+  const modelName = resolveRoleModelName(
+    ROUTE_ROLE_TO_WRITING_ROLE[role],
+    toProjectModelConfig(projectConfig),
+  )
+  if (!modelName || modelName === writingConfig.model) return writingConfig
+  const providerConfigs = projectConfig.providerConfigs ?? useWikiStore.getState().providerConfigs
+  return resolveModelConfig(modelName, writingConfig, providerConfigs)
+}
+
+/**
+ * 全 route 角色的模型绑定快照（T33 注册表接入点）。
+ *
+ * 供 route 阶段机 / 诊断面直接取用，避免每处重复解析；无配置时六个角色
+ * 全部等于写作配置（同一对象），与默认行为一致。
+ */
+export function resolveDeepChapterRoleConfigs(
+  projectConfig: RoleProjectConfig,
+): Record<RouteRole, LlmConfig> {
+  const entries = (Object.keys(ROUTE_ROLE_TO_WRITING_ROLE) as RouteRole[]).map(
+    (role) => [role, resolveRoleModel(role, projectConfig)] as const,
+  )
+  return Object.fromEntries(entries) as Record<RouteRole, LlmConfig>
 }
 
 /** T10 路由运行时（route() ControlState 的精简投影，纯函数无 IO）。 */
@@ -708,11 +767,12 @@ export async function runDeepChapterGeneration(
         "non_critical",
       )
     }
-    // T33 预留解析点：按 route() 角色解析执行模型（默认全角色单模型 = 现状，A-35 不破）。
-    resolveRoleModel(routeInstruction.role, { writingConfig })
+    // T33 角色绑定：按 route() 裁定的角色取真实 per-role 模型（未配置角色模型时
+    // 回退写作模型，与旧行为位级等价）。该档下角色模型入诊断，模型名可追溯。
+    const routeRoleConfig = resolveRoleModel(routeInstruction.role, { writingConfig, novelConfig })
     callbacks.onThinking?.(formatStageThinking(
       "阶段路由(route)",
-      `route() 裁定: action=${routeInstruction.action} role=${routeInstruction.role ?? "-"} reason=${routeInstruction.reason}`,
+      `route() 裁定: action=${routeInstruction.action} role=${routeInstruction.role ?? "-"} model=${routeRoleConfig.model} reason=${routeInstruction.reason}`,
     ))
     /* v8 ignore stop */
   }

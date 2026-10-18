@@ -28,11 +28,28 @@ interface BuildAgentConfigOptions extends ToolFactoryOptions {
   requestOverrides?: AgentConfig["requestOverrides"]
 }
 
+/**
+ * 自定义端点的 wire 协议是否具备工具通道。
+ *
+ * `chat_completions` 与 `responses` 均在 provider 层实现了 tools 转发与流式
+ * 工具调用解析；`anthropic_messages` 尚未实现（buildAnthropicBody 不转发 tools，
+ * 也不认识 assistant.tool_calls / tool_call_id）。若不断言这里的协议能力，Agent
+ * 会带着一份永远不会被执行的工具清单反复空转 —— 这正是「静默退化」的根因，
+ * 所以在此显式声明，让上层直接降级为非 Agent 路径。
+ */
+export function apiModeSupportsTools(
+  apiMode?: "chat_completions" | "responses" | "anthropic_messages",
+): boolean {
+  return apiMode !== "anthropic_messages"
+}
+
 export function modelSupportsTools(
   modelId: string,
   provider?: LlmConfig["provider"],
+  apiMode?: "chat_completions" | "responses" | "anthropic_messages",
 ): boolean {
   if (provider && TOOL_UNSUPPORTED_PROVIDERS.has(provider)) return false
+  if (!apiModeSupportsTools(apiMode)) return false
 
   const id = modelId.trim().toLowerCase()
   if (!id) return false
@@ -54,7 +71,10 @@ export function effectiveToolsEnabled(
   modelId: string,
   llmConfig: LlmConfig,
 ): boolean {
-  return modelSupportsTools(modelId, llmConfig.provider) && isFunctionCallingEnabled(llmConfig)
+  return (
+    modelSupportsTools(modelId, llmConfig.provider, llmConfig.apiMode) &&
+    isFunctionCallingEnabled(llmConfig)
+  )
 }
 
 export function buildAgentConfig(
@@ -65,7 +85,10 @@ export function buildAgentConfig(
 ): AgentConfig {
   registry.clear()
   const fcEnabled = isFunctionCallingEnabled(options.llmConfig)
-  registerAllBuiltInTools(registry, fcEnabled
+  // 协议不具备工具通道时（anthropic_messages）不注册工具：否则 Agent 会带着
+  // 一份永远不会被执行的工具清单空转，表现为「静默零工具调用」。
+  const toolsEnabled = fcEnabled && apiModeSupportsTools(options.llmConfig.apiMode)
+  registerAllBuiltInTools(registry, toolsEnabled
     ? options
     : {
         ...options,
@@ -73,7 +96,7 @@ export function buildAgentConfig(
         mcpTools: [],
       })
 
-  const prompt = providerUsesTextToolCalls(options.llmConfig.provider) && fcEnabled
+  const prompt = providerUsesTextToolCalls(options.llmConfig.provider) && toolsEnabled
     ? `${systemPrompt}\n\n当需要调用工具时，请只输出一个 JSON 对象，格式为 {"name":"工具名","arguments":{...}}，不要附加其他说明文字。收到工具结果后继续推理；若无需工具则直接回答。`
     : systemPrompt
 

@@ -33,18 +33,17 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
+import { isPlannedView } from "./planned-views"
 import type { WikiState } from "@/stores/wiki-store"
 
 type NavView = WikiState["activeView"]
 
 interface ModuleCard {
-  /** 跳转的 activeView；尚未实现的模块给目标视图名+disabled。 */
+  /** 跳转的 activeView；计划态模块走 planned-views 登记表（同一真源），卡片置灰。 */
   view: NavView
   icon: LucideIcon
   labelKey: string
   descKey: string
-  /** true=未实现，显示"即将上线"置灰。 */
-  planned?: boolean
   /** 分组：production 生产链 / assets 资产库 / config 配置 / data 数据。 */
   group: "production" | "assets" | "config" | "data"
 }
@@ -60,32 +59,32 @@ const MODULE_CARDS: ModuleCard[] = [
   { view: "moduleHeatmap", icon: Flame, labelKey: "wb.card.heatmap", descKey: "wb.card.heatmapDesc", group: "production" },
   { view: "mainControl", icon: Sparkles, labelKey: "wb.card.mainControl", descKey: "wb.card.mainControlDesc", group: "production" },
   { view: "storySimulation", icon: Sparkles, labelKey: "wb.card.simulation", descKey: "wb.card.simulationDesc", group: "production" },
-  { view: "followUpCenter", icon: ListChecks, labelKey: "wb.card.followUp", descKey: "wb.card.followUpDesc", group: "production", planned: true },
-  { view: "liveExecution", icon: Radar, labelKey: "wb.card.live", descKey: "wb.card.liveDesc", group: "production", planned: true },
-  { view: "bookshelf", icon: BookMarked, labelKey: "wb.card.bookshelf", descKey: "wb.card.bookshelfDesc", group: "production", planned: true },
-  { view: "creativeHub", icon: PenTool, labelKey: "wb.card.creativeHub", descKey: "wb.card.creativeHubDesc", group: "production", planned: true },
+  { view: "followUpCenter", icon: ListChecks, labelKey: "wb.card.followUp", descKey: "wb.card.followUpDesc", group: "production" },
+  { view: "liveExecution", icon: Radar, labelKey: "wb.card.live", descKey: "wb.card.liveDesc", group: "production" },
+  { view: "bookshelf", icon: BookMarked, labelKey: "wb.card.bookshelf", descKey: "wb.card.bookshelfDesc", group: "production" },
+  { view: "creativeHub", icon: PenTool, labelKey: "wb.card.creativeHub", descKey: "wb.card.creativeHubDesc", group: "production" },
   // 资产库
   { view: "skillLibrary", icon: Sparkles, labelKey: "wb.card.skillLibrary", descKey: "wb.card.skillLibraryDesc", group: "assets" },
   { view: "canonEditor", icon: ScrollText, labelKey: "wb.card.canonEditor", descKey: "wb.card.canonEditorDesc", group: "assets" },
-  { view: "knowledgeLibrary", icon: BookOpen, labelKey: "wb.card.knowledge", descKey: "wb.card.knowledgeDesc", group: "assets", planned: true },
-  { view: "worldLibrary", icon: FolderOpen, labelKey: "wb.card.worldLibrary", descKey: "wb.card.worldLibraryDesc", group: "assets", planned: true },
-  { view: "genreLibrary", icon: FolderOpen, labelKey: "wb.card.genreLibrary", descKey: "wb.card.genreLibraryDesc", group: "assets", planned: true },
-  { view: "storyModeLibrary", icon: FolderOpen, labelKey: "wb.card.storyMode", descKey: "wb.card.storyModeDesc", group: "assets", planned: true },
-  { view: "titleStudio", icon: PenTool, labelKey: "wb.card.titleStudio", descKey: "wb.card.titleStudioDesc", group: "assets", planned: true },
-  { view: "styleEngine", icon: Sparkles, labelKey: "wb.card.styleEngine", descKey: "wb.card.styleEngineDesc", group: "assets", planned: true },
-  { view: "antiAiRules", icon: Brain, labelKey: "wb.card.antiAi", descKey: "wb.card.antiAiDesc", group: "assets", planned: true },
+  { view: "knowledgeLibrary", icon: BookOpen, labelKey: "wb.card.knowledge", descKey: "wb.card.knowledgeDesc", group: "assets" },
+  { view: "worldLibrary", icon: FolderOpen, labelKey: "wb.card.worldLibrary", descKey: "wb.card.worldLibraryDesc", group: "assets" },
+  { view: "genreLibrary", icon: FolderOpen, labelKey: "wb.card.genreLibrary", descKey: "wb.card.genreLibraryDesc", group: "assets" },
+  { view: "storyModeLibrary", icon: FolderOpen, labelKey: "wb.card.storyMode", descKey: "wb.card.storyModeDesc", group: "assets" },
+  { view: "titleStudio", icon: PenTool, labelKey: "wb.card.titleStudio", descKey: "wb.card.titleStudioDesc", group: "assets" },
+  { view: "styleEngine", icon: Sparkles, labelKey: "wb.card.styleEngine", descKey: "wb.card.styleEngineDesc", group: "assets" },
+  { view: "antiAiRules", icon: Brain, labelKey: "wb.card.antiAi", descKey: "wb.card.antiAiDesc", group: "assets" },
   // 配置
   { view: "settings", icon: Settings, labelKey: "wb.card.settings", descKey: "wb.card.settingsDesc", group: "config" },
-  { view: "modelRoutes", icon: Network, labelKey: "wb.card.modelRoutes", descKey: "wb.card.modelRoutesDesc", group: "config", planned: true },
-  { view: "mcpManager", icon: Network, labelKey: "wb.card.mcp", descKey: "wb.card.mcpDesc", group: "config", planned: true },
-  { view: "workflowEditor", icon: Workflow, labelKey: "wb.card.workflowEditor", descKey: "wb.card.workflowEditorDesc", group: "config", planned: true },
-  { view: "marketRadar", icon: Radar, labelKey: "wb.card.marketRadar", descKey: "wb.card.marketRadarDesc", group: "config", planned: true },
-  { view: "help", icon: BookOpen, labelKey: "wb.card.help", descKey: "wb.card.helpDesc", group: "config", planned: true },
+  { view: "modelRoutes", icon: Network, labelKey: "wb.card.modelRoutes", descKey: "wb.card.modelRoutesDesc", group: "config" },
+  { view: "mcpManager", icon: Network, labelKey: "wb.card.mcp", descKey: "wb.card.mcpDesc", group: "config" },
+  { view: "workflowEditor", icon: Workflow, labelKey: "wb.card.workflowEditor", descKey: "wb.card.workflowEditorDesc", group: "config" },
+  { view: "marketRadar", icon: Radar, labelKey: "wb.card.marketRadar", descKey: "wb.card.marketRadarDesc", group: "config" },
+  { view: "help", icon: BookOpen, labelKey: "wb.card.help", descKey: "wb.card.helpDesc", group: "config" },
   // 数据
   { view: "diagnosticsCenter", icon: Stethoscope, labelKey: "wb.card.diagnostics", descKey: "wb.card.diagnosticsDesc", group: "data" },
   { view: "backupExport", icon: ArchiveRestore, labelKey: "wb.card.backup", descKey: "wb.card.backupDesc", group: "data" },
   { view: "dataManager", icon: Database, labelKey: "wb.card.dataManager", descKey: "wb.card.dataManagerDesc", group: "data" },
-  { view: "exportCenter", icon: ArchiveRestore, labelKey: "wb.card.exportCenter", descKey: "wb.card.exportCenterDesc", group: "data", planned: true },
+  { view: "exportCenter", icon: ArchiveRestore, labelKey: "wb.card.exportCenter", descKey: "wb.card.exportCenterDesc", group: "data" },
 ]
 
 export function WorkbenchView() {
@@ -126,22 +125,25 @@ export function WorkbenchView() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {cards.map((card) => {
               const Icon = card.icon
+              // 计划态唯一真源：planned-views 登记表（与 content-area 占位页共用），
+              // 卡片上的 planned 标记不再各自硬编码，两边不会漂移。
+              const planned = isPlannedView(card.view)
               return (
                 <button
                   key={card.labelKey}
                   type="button"
-                  disabled={card.planned}
+                  disabled={planned}
                   onClick={() => setActiveView(card.view)}
                   data-workbench-card={card.view}
                   className={`group flex flex-col items-start gap-2 rounded-lg border p-4 text-left transition-colors ${
-                    card.planned
+                    planned
                       ? "cursor-not-allowed opacity-50"
                       : "hover:border-primary/50 hover:bg-accent/50"
                   }`}
                 >
                   <div className="flex w-full items-center justify-between">
                     <Icon className="h-5 w-5 text-muted-foreground group-hover:text-primary" />
-                    {card.planned && (
+                    {planned && (
                       <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                         {t("wb.planned")}
                       </span>

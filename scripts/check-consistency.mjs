@@ -314,20 +314,55 @@ function checkViews() {
   const contentArea = readFileSync(join(SRC, "components/layout/content-area.tsx"), "utf8")
   const cases = new Set([...contentArea.matchAll(/case\s+"([^"]+)"/g)].map((m) => m[1]))
   const conditions = new Set([...contentArea.matchAll(/activeView\s*===\s*"([^"]+)"/g)].map((m) => m[1]))
-  const workbench = readFileSync(join(SRC, "components/layout/workbench-view.tsx"), "utf8")
+  // 计划态单一真源：planned-views 登记表 + content-area 的占位渲染分支。
+  // 登记在表内还不够——占位页必须真的被接进渲染树，否则仍然落到 default。
+  const plannedRegistry = readFileSync(join(SRC, "components/layout/planned-views.ts"), "utf8")
   const planned = new Set(
-    [...workbench.matchAll(/\{[^{}]*view:\s*"([^"]+)"[^{}]*planned:\s*true[^{}]*\}/g)].map((m) => m[1]),
+    [...plannedRegistry.matchAll(/\{\s*view:\s*"([^"]+)"/g)].map((m) => m[1]),
   )
+  const plannedRendered = /isPlannedView\(activeView\)/.test(contentArea) && /<PlannedView[\s/>]/.test(contentArea)
   const nav = readFileSync(join(SRC, "components/layout/nav-items.ts"), "utf8")
   const navViews = new Set([...nav.matchAll(/view:\s*"([^"]+)"/g)].map((m) => m[1]))
 
-  const dead = union.filter((v) => !cases.has(v) && !conditions.has(v) && !planned.has(v))
+  const dead = union.filter(
+    (v) =>
+      !cases.has(v) &&
+      !conditions.has(v) &&
+      !(planned.has(v) && plannedRendered),
+  )
   record(
     "views/union-is-renderable",
     dead.length === 0,
     dead.length === 0
-      ? [`${union.length} 个视图 = ${cases.size} 渲染 + ${conditions.size} 条件 + ${planned.size} 计划态`]
-      : dead.map((v) => `activeView 成员既无渲染分支也非计划态（点开落到 default）: ${v}`),
+      ? [
+          `${union.length} 个视图 = ${cases.size} 渲染 + ${conditions.size} 条件 + ${planned.size} 计划态占位` +
+            (planned.size > 0 ? (plannedRendered ? "（占位页已接线）" : "（占位页未接线）") : ""),
+        ]
+      : dead.map((v) =>
+          planned.has(v)
+            ? `activeView 计划态成员已登记但 content-area 未接占位渲染（会落到 default）: ${v}`
+            : `activeView 成员既无渲染分支也非计划态（点开落到 default）: ${v}`,
+        ),
+  )
+
+  // 计划态登记表自身的闭合：不得登记 union 外的视图，也不得与真实渲染分支重叠
+  // （重叠意味着登记表在说谎——该视图其实已实现）。
+  const strayPlanned = [...planned].filter((v) => !union.includes(v))
+  record(
+    "views/planned-in-union",
+    strayPlanned.length === 0,
+    strayPlanned.length === 0
+      ? [`${planned.size} 个计划态视图均在 activeView union 内`]
+      : strayPlanned.map((v) => `planned-views 登记了 union 外的视图: ${v}`),
+  )
+
+  const shadowedPlanned = [...planned].filter((v) => cases.has(v) || conditions.has(v))
+  record(
+    "views/planned-not-shadowed",
+    shadowedPlanned.length === 0,
+    shadowedPlanned.length === 0
+      ? ["计划态登记表未与真实渲染分支重叠"]
+      : shadowedPlanned.map((v) => `planned-views 登记了已实现的视图（登记表说谎）: ${v}`),
   )
 
   const strayCases = [...cases].filter((v) => !union.includes(v))

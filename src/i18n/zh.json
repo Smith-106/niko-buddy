@@ -3843,6 +3843,10 @@
       "dataManagerDesc": "数据域隔离/清空/回收站/重置",
       "exportCenter": "导出中心",
       "exportCenterDesc": "统一导出全部格式与场景"
+    },
+    "plannedView": {
+      "hint": "该模块尚未实现，当前仅为占位页面。",
+      "back": "返回工作台"
     }
   },
   "skillLibrary": {

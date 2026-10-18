@@ -13,7 +13,12 @@ export type ContentBlock =
   | { type: "image"; mediaType: string; dataBase64: string }
 
 export interface ChatMessage {
-  role: "system" | "user" | "assistant"
+  /**
+   * `tool` 是工具结果消息（agent 循环回填）：chat.completions 用 `{role:"tool",tool_call_id}`，
+   * Responses 用 `{type:"function_call_output",call_id}`。类型层曾漏这一档，
+   * 调用方只能强转绕过——现在如实声明，避免又一处「类型在擒谎」。
+   */
+  role: "system" | "user" | "assistant" | "tool"
   content: string | ContentBlock[]
   /** Optional agent/tool-calling extensions (port of v3 agent chain). */
   tool_calls?: Array<{ id?: string; type?: string; function: { name: string; arguments: string } }>
@@ -166,13 +171,97 @@ function parseResponsesLine(line: string): string | null {
   const data = line.slice(6).trim()
   if (data === "[DONE]") return null
   try {
-    const parsed = JSON.parse(data) as { type?: string; delta?: string }
+    const parsed = JSON.parse(data) as {
+      type?: string
+      delta?: string
+      response?: { output_text?: string }
+    }
     if (parsed.type === "response.output_text.delta") {
       return parsed.delta ?? null
+    }
+    // 非流式子形态（部分网关把最终文本一次性推在 response.completed 里）；
+    // 已由 delta 累加过的调用方会忽略重复文本，此处仅补空档。
+    if (parsed.type === "response.completed" && typeof parsed.response?.output_text === "string") {
+      return parsed.response.output_text.length > 0 ? parsed.response.output_text : null
     }
     return null
   } catch {
     return null
+  }
+}
+
+/**
+ * Responses API 的流式工具调用增量。
+ *
+ * 事件序列（OpenAI Responses 语义）：
+ *   response.output_item.added            → { item: { type:"function_call", id, call_id, name } }
+ *   response.function_call_arguments.delta → { item_id, delta }（arguments 分片）
+ *   response.function_call_arguments.done  → 完整 arguments（幂等兜底）
+ *
+ * 与 chat.completions 不同：这里的 index 是「输出条目序号」，而 delta 事件只带
+ * `item_id`，所以用 item_id → index 的本地映射表保住同一次工具调用归到同一槽位。
+ */
+function createResponsesToolDeltaParser(): (line: string) => StreamToolCallDelta[] | null {
+  const itemIndex = new Map<string, number>()
+  const sawDelta = new Set<number>()
+  let nextIndex = 0
+  const indexFor = (itemId: string | undefined): number => {
+    if (!itemId) return 0
+    const existing = itemIndex.get(itemId)
+    if (existing !== undefined) return existing
+    const assigned = nextIndex
+    nextIndex += 1
+    itemIndex.set(itemId, assigned)
+    return assigned
+  }
+  return (line: string) => {
+    if (!line.startsWith("data: ")) return null
+    const data = line.slice(6).trim()
+    if (data === "[DONE]") return null
+    try {
+      const parsed = JSON.parse(data) as {
+        type?: string
+        item_id?: string
+        delta?: string
+        arguments?: string
+        item?: {
+          id?: string
+          type?: string
+          call_id?: string
+          name?: string
+          arguments?: string
+        }
+      }
+      if (parsed.type === "response.output_item.added" && parsed.item?.type === "function_call") {
+        const index = indexFor(parsed.item.id ?? parsed.item.call_id)
+        return [{
+          index,
+          ...(parsed.item.call_id ? { id: parsed.item.call_id } : parsed.item.id ? { id: parsed.item.id } : {}),
+          ...(parsed.item.name ? { name: parsed.item.name } : {}),
+          ...(typeof parsed.item.arguments === "string" && parsed.item.arguments.length > 0
+            ? { arguments: parsed.item.arguments }
+            : {}),
+        }]
+      }
+      if (parsed.type === "response.function_call_arguments.delta") {
+        if (typeof parsed.delta !== "string" || parsed.delta.length === 0) return null
+        const index = indexFor(parsed.item_id)
+        sawDelta.add(index)
+        return [{ index, arguments: parsed.delta }]
+      }
+      if (parsed.type === "response.function_call_arguments.done") {
+        // done 事件给的是完整参数；若分片已到齐，再追加一次会让 arguments 重复，
+        // 只有「该条目从未收到分片」时才当作一次增量交出（兼容不推分片的网关）。
+        if (typeof parsed.arguments !== "string" || parsed.arguments.length === 0) return null
+        const index = indexFor(parsed.item_id)
+        if (sawDelta.has(index)) return null
+        sawDelta.add(index)
+        return [{ index, arguments: parsed.arguments }]
+      }
+      return null
+    } catch {
+      return null
+    }
   }
 }
 
@@ -306,7 +395,18 @@ function buildOpenAiBody(
     role: m.role,
     content: toOpenAiContent(m.content),
   }))
-  return { messages: translated, stream: true, ...stripWireAgnosticOverrides(overrides) }
+  const body: Record<string, unknown> = {
+    messages: translated,
+    stream: true,
+    ...stripWireAgnosticOverrides(overrides),
+  }
+  // 类型层用 camelCase `toolChoice`，wire 契约是 `tool_choice`；此处做唯一映射，
+  // 避免把 `toolChoice` 当未知字段交给上游（网关静默忽略 → 工具选择策略失效）。
+  if (overrides?.toolChoice !== undefined) {
+    body.tool_choice = overrides.toolChoice
+    delete body.toolChoice
+  }
+  return body
 }
 
 function toResponsesContent(content: string | ContentBlock[]): unknown {
@@ -322,6 +422,76 @@ function toResponsesContent(content: string | ContentBlock[]): unknown {
   })
 }
 
+/**
+ * agent 的 OpenAI function 定义 → Responses API 的扁平 function 工具形状。
+ *
+ * chat.completions: `{ type:"function", function:{ name, description, parameters } }`
+ * responses:       `{ type:"function", name, description, parameters }`
+ * 两者不可互换；直接透传 chat 形状会被 Responses 端点判为非法 schema。
+ */
+function toResponsesTools(tools: unknown[]): unknown[] {
+  return tools.map((tool) => {
+    if (!tool || typeof tool !== "object") return tool
+    const raw = tool as { type?: string; function?: { name?: string; description?: string; parameters?: unknown } }
+    if (raw.type !== "function" || !raw.function) return tool
+    const { name, description, parameters } = raw.function
+    return {
+      type: "function",
+      ...(name ? { name } : {}),
+      ...(description ? { description } : {}),
+      parameters: parameters ?? { type: "object", properties: {} },
+    }
+  })
+}
+
+/**
+ * 历史消息 → Responses API `input` 条目。
+ *
+ * 工具调用的两段式往返必须用 Responses 专有条目表达，否则整轮请求 400：
+ *   assistant + tool_calls → `{ type:"function_call", call_id, name, arguments }`
+ *   role:"tool"          → `{ type:"function_call_output", call_id, output }`
+ */
+function toResponsesInput(messages: ChatMessage[]): unknown[] {
+  const items: unknown[] = []
+  for (const message of messages) {
+    if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
+      const text = typeof message.content === "string" ? message.content : ""
+      if (text.trim().length > 0) {
+        items.push({
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text }],
+        })
+      }
+      for (const call of message.tool_calls) {
+        items.push({
+          type: "function_call",
+          call_id: call.id ?? call.function.name,
+          name: call.function.name,
+          arguments: call.function.arguments,
+        })
+      }
+      continue
+    }
+    if (message.tool_call_id) {
+      const output = typeof message.content === "string"
+        ? message.content
+        : message.content.map((block) => (block.type === "text" ? block.text : "")).join("")
+      items.push({
+        type: "function_call_output",
+        call_id: message.tool_call_id,
+        output,
+      })
+      continue
+    }
+    items.push({
+      role: message.role,
+      content: toResponsesContent(message.content),
+    })
+  }
+  return items
+}
+
 function buildResponsesBody(
   config: LlmConfig,
   messages: ChatMessage[],
@@ -329,10 +499,7 @@ function buildResponsesBody(
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: config.model,
-    input: messages.map((message) => ({
-      role: message.role,
-      content: toResponsesContent(message.content),
-    })),
+    input: toResponsesInput(messages),
     stream: true,
   }
 
@@ -340,6 +507,11 @@ function buildResponsesBody(
   if (overrides?.top_p !== undefined) body.top_p = overrides.top_p
   if (overrides?.max_tokens !== undefined) body.max_output_tokens = overrides.max_tokens
   if (overrides?.stop !== undefined) body.stop = overrides.stop
+
+  if (overrides?.tools && overrides.tools.length > 0) {
+    body.tools = toResponsesTools(overrides.tools)
+    if (overrides.toolChoice !== undefined) body.tool_choice = overrides.toolChoice
+  }
 
   const reasoning = effectiveReasoning(config, overrides)
   const effort = reasoningEffort(reasoning)
@@ -511,7 +683,12 @@ function buildAnthropicBody(
   const systemMessages = messages.filter((m) => m.role === "system")
   const conversationMessages = messages
     .filter((m) => m.role !== "system")
-    .map((m) => ({ role: m.role, content: toAnthropicContent(m.content) }))
+    // Anthropic 没有 tool 角色：工具结果按其 wire 语义归入 user 回合（文本层退化，
+    // 不伪造 tool_result 块）。buildAnthropicBody 目前也不转发 tools。
+    .map((m) => ({
+      role: m.role === "tool" ? "user" : m.role,
+      content: toAnthropicContent(m.content),
+    }))
   const system =
     systemMessages.map((m) => flattenAnthropicSystem(m.content)).join("\n") ||
     undefined
@@ -817,6 +994,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           headers: getCustomCompatibleHeaders(apiKey, url),
           buildBody: (messages, overrides) => buildResponsesBody(config, messages, overrides),
           parseStream: parseResponsesLine,
+          parseToolDelta: createResponsesToolDeltaParser(),
           extractUsage: extractResponsesUsage,
         }
       }

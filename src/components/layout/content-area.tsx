@@ -6,6 +6,8 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { WritingWorkspace } from "./writing-workspace"
 import { SearchView } from "@/components/search/search-view"
+import { PlannedView } from "./planned-view"
+import { isPlannedView } from "./planned-views"
 
 const ChatPanel = lazy(async () => {
   const mod = await import("@/components/chat/chat-panel")
@@ -100,11 +102,16 @@ export function ContentArea() {
   const projectId = useWikiStore((s) => s.project?.id ?? "")
   const projectPath = useWikiStore((s) => s.project?.path ?? "")
   const showWritingWorkspace = activeView === "wiki" || activeView === "trash"
+  // 计划态视图：已进 union（可被赋值/深链）但功能未实现，渲染如实占位的
+  // PlannedView，而不是落到 default 的聊天面板（语义错误的页面）。
+  const showPlannedView = !showWritingWorkspace && isPlannedView(activeView)
 
   let content: React.ReactNode = null
   
   if (showWritingWorkspace) {
     content = <WritingWorkspace />
+  } else if (showPlannedView) {
+    content = <PlannedView view={activeView} />
   } else {
     switch (activeView) {
       case "settings":
