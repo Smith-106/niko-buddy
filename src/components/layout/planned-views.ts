@@ -27,7 +27,6 @@ export const PLANNED_VIEWS: readonly PlannedViewSpec[] = [
   { view: "bookshelf", labelKey: "wb.card.bookshelf", descKey: "wb.card.bookshelfDesc" },
   { view: "creativeHub", labelKey: "wb.card.creativeHub", descKey: "wb.card.creativeHubDesc" },
   // 资产库
-  { view: "worldLibrary", labelKey: "wb.card.worldLibrary", descKey: "wb.card.worldLibraryDesc" },
   { view: "genreLibrary", labelKey: "wb.card.genreLibrary", descKey: "wb.card.genreLibraryDesc" },
   { view: "storyModeLibrary", labelKey: "wb.card.storyMode", descKey: "wb.card.storyModeDesc" },
   { view: "titleStudio", labelKey: "wb.card.titleStudio", descKey: "wb.card.titleStudioDesc" },

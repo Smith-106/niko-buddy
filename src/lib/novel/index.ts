@@ -137,7 +137,7 @@ export { DIRECTOR_PHASES, advanceDirectorPhase, createDirectorPipeline } from ".
 export type { DirectorPhase, DirectorPipelineState, PhaseGateInput } from "./director-pipeline"
 export { hasPersistedDirectorState, loadDirectorPersisted, saveDirectorIdeaInput, saveDirectorPersisted } from "./director-pipeline-store"
 export type { DirectorIdeaInput, DirectorPersistedFile } from "./director-pipeline-store"
-export { deriveWorldBlueprint, deriveAndSaveWorldBlueprint, loadWorldBlueprint, saveWorldBlueprint, validateWorldBlueprint, worldBlueprintToPromptFragment, createEmptyWorldBlueprint } from "./world-blueprint"
+export { WORLD_LAYERS, deriveWorldBlueprint, deriveAndSaveWorldBlueprint, loadWorldBlueprint, saveWorldBlueprint, validateWorldBlueprint, worldBlueprintToPromptFragment, createEmptyWorldBlueprint } from "./world-blueprint"
 export type { WorldBlueprint, WorldLayer, WorldValidation, WorldFinding } from "./world-blueprint"
 export { PROJECTIONS_REGISTRY, mainChainProjections, orphanProjections } from "./projections-registry"
 export type { ProjectionEntry, ProjectionConsumer } from "./projections-registry"
@@ -1297,3 +1297,6 @@ export {
   traceSnapshotPath,
 } from "./main-control-trace"
 export type { MainControlTraceSnapshot, TraceEntry } from "./main-control-trace"
+
+export { projectSettingState, loadSettingProjection } from "./setting-projection"
+export type { CastRow, RelationshipEdge, SettingProjection, SettingProjectionLoader } from "./setting-projection"

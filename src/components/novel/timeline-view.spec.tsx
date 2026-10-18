@@ -4,7 +4,7 @@
  * 覆盖：无项目、加载骨架、事件列表渲染、空事件、加载失败、dataVersion 重取、陈旧请求忽略。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup } from "@testing-library/react"
+import { cleanup, within } from "@testing-library/react"
 import { render, screen, waitFor } from "@/test-helpers/component-test-utils"
 import type { TimelineEntry } from "@/lib/novel"
 
@@ -77,8 +77,9 @@ describe("TimelineView", () => {
   it("renders timeline entries grouped by chapter", async () => {
     render(<TimelineView />)
     expect(await screen.findByText("novel.timeline.title")).toBeInTheDocument()
-    expect(screen.getByText("辰时 入城")).toBeInTheDocument()
-    expect(screen.getByText("夜宴交锋")).toBeInTheDocument()
+    const list = screen.getByTestId("timeline-list")
+    expect(within(list).getByText("辰时 入城")).toBeInTheDocument()
+    expect(within(list).getByText("夜宴交锋")).toBeInTheDocument()
     expect(screen.getAllByText(/novel.timeline.chapter/).length).toBe(2)
     expect(timeline.getTimelineEvents).toHaveBeenCalledWith("E:/Novel")
   })
@@ -98,7 +99,7 @@ describe("TimelineView", () => {
 
   it("refetches when dataVersion changes", async () => {
     const { rerender } = render(<TimelineView />)
-    await screen.findByText("辰时 入城")
+    await within(await screen.findByTestId("timeline-list")).findByText("辰时 入城")
     expect(timeline.getTimelineEvents).toHaveBeenCalledTimes(1)
     wiki.state.dataVersion = 1
     rerender(<TimelineView />)

@@ -43,6 +43,7 @@ const StorySimulationView = lazy(() => import("@/components/novel/story-simulati
 const UnifiedSkillLibraryView = lazy(() => import("@/components/skill-library/unified-skill-library-view").then((m) => ({ default: m.UnifiedSkillLibraryView })))
 const DataManagerView = lazy(() => import("@/components/novel/data-manager-view").then((m) => ({ default: m.DataManagerView })))
 const AssetLibraryView = lazy(() => import("@/components/novel/asset-library-view").then((m) => ({ default: m.AssetLibraryView })))
+const WorldLibraryView = lazy(() => import("@/components/novel/world-library-view").then((m) => ({ default: m.WorldLibraryView })))
 const WorkbenchView = lazy(() => import("./workbench-view").then((m) => ({ default: m.WorkbenchView })))
 const SoulView = lazy(async () => {
   const mod = await import("@/components/novel/soul-view")
@@ -229,6 +230,15 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <DataManagerView />
+          </Suspense>
+        )
+        break
+      case "worldLibrary":
+        // 世界构建只读视图（Wave 2）：数据源 .novel 世界蓝图 + 既有校验器，
+        // 零新真源、不提供修改入口（写回仍延后）。
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <WorldLibraryView />
           </Suspense>
         )
         break

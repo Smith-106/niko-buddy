@@ -4,6 +4,7 @@ import { Clock } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { getTimelineEvents, findChapterFileByNumber } from "@/lib/novel"
 import type { TimelineEntry } from "@/lib/novel"
+import { TimelineBoard } from "./timeline-board"
 
 export function TimelineView() {
   const { t } = useTranslation()
@@ -76,6 +77,16 @@ export function TimelineView() {
           </div>
         </div>
       </div>
+      {/* 可视化：章节序刻度 + 每章泳道 + 事件点（只读；无法分道处显式 N/A） */}
+      {!loading && events.length > 0 ? (
+        <div className="border-b px-3 py-3">
+          <TimelineBoard
+            entries={visibleEvents}
+            filteredOut={events.length > 0 && visibleEvents.length === 0}
+            onOpenChapter={(chapter) => void handleOpenChapter(chapter)}
+          />
+        </div>
+      ) : null}
       <div className="flex-1 overflow-y-auto scroll-fade-y">
         {loading ? (
           <div className="space-y-3 p-4" role="status" aria-label={t("novel.timeline.loading")}>
@@ -93,7 +104,7 @@ export function TimelineView() {
             <p className="text-xs italic">{t("novel.timeline.noEventsHint")}</p>
           </div>
         ) : (
-          <div className="relative">
+          <div className="relative" data-testid="timeline-list">
             <div className="absolute left-6 top-0 h-full w-px bg-border" />
             <div className="space-y-0">
               {visibleEvents.map((item) => (
