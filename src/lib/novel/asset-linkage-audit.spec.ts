@@ -103,31 +103,31 @@ describe("③快照有关系、状态没回填（生产回归锁）", () => {
       characters: [
         {
           ...STUB,
-          characterName: "甲",
-          relationships: { 乙: "友", 丙: "宿敌多年，势不两立" },
+          characterName: "张三",
+          relationships: { 李四: "友", 王五: "宿敌多年，势不两立" },
         },
-        { ...STUB, characterName: "丙", relationships: {} },
+        { ...STUB, characterName: "王五", relationships: {} },
       ],
       relationshipArtifact: null,
-      snapshotRelationLines: [{ chapterNumber: 6, text: "甲与乙决裂，丙旁观" }],
+      snapshotRelationLines: [{ chapterNumber: 6, text: "张三与李四决裂，王五旁观" }],
     })
     expect(result.conflicts.some((c) => c.code === "snapshot_relation_not_in_state")).toBe(true)
   })
 
   it("删标点后粘出的假短语不算覆盖（「共守，北门失守」≠「共守北门」）", () => {
     const result = auditAssetLinkage({
-      characters: [{ ...STUB, characterName: "甲", relationships: { 乙: "共守北门" } }],
+      characters: [{ ...STUB, characterName: "张三", relationships: { 李四: "共守北门" } }],
       relationshipArtifact: null,
-      snapshotRelationLines: [{ chapterNumber: 8, text: "甲与乙共守，北门失守" }],
+      snapshotRelationLines: [{ chapterNumber: 8, text: "张三与李四共守，北门失守" }],
     })
     expect(result.conflicts.some((c) => c.code === "snapshot_relation_not_in_state")).toBe(true)
   })
 
   it("关系描述过短（<4 字）→ 记 N/A 不计冲突（缺证据 ≠ 缺回填）", () => {
     const result = auditAssetLinkage({
-      characters: [{ ...STUB, characterName: "甲", relationships: { 乙: "友" } }],
+      characters: [{ ...STUB, characterName: "张三", relationships: { 李四: "友" } }],
       relationshipArtifact: null,
-      snapshotRelationLines: [{ chapterNumber: 4, text: "甲与乙结盟" }],
+      snapshotRelationLines: [{ chapterNumber: 4, text: "张三与李四结盟" }],
     })
     expect(result.conflicts.some((c) => c.code === "snapshot_relation_not_in_state")).toBe(false)
     expect(result.na.some((line) => line.includes("过短"))).toBe(true)
@@ -147,11 +147,62 @@ describe("③快照有关系、状态没回填（生产回归锁）", () => {
 
   it("只有同名无内容交集不算覆盖（避免同名不同事被当成已回填）", () => {
     const result = auditAssetLinkage({
-      characters: [{ ...STUB, characterName: "甲", relationships: { 乙: "同事，见过一面" } }],
+      characters: [{ ...STUB, characterName: "张三", relationships: { 李四: "同事，见过一面" } }],
       relationshipArtifact: null,
-      snapshotRelationLines: [{ chapterNumber: 9, text: "甲与乙断交" }],
+      snapshotRelationLines: [{ chapterNumber: 9, text: "张三与李四断交" }],
     })
     expect(result.conflicts.some((c) => c.code === "snapshot_relation_not_in_state")).toBe(true)
+  })
+
+  it("单字端点不判硬结论（王 ⊂ 王府）→ N/A 而非「没回填」", () => {
+    const result = auditAssetLinkage({
+      characters: [{ ...STUB, characterName: "王", relationships: { 李四: "旧识重逢多年" } }],
+      relationshipArtifact: null,
+      snapshotRelationLines: [{ chapterNumber: 3, text: "王府与李四决裂" }],
+    })
+    expect(result.conflicts.some((c) => c.code === "snapshot_relation_not_in_state")).toBe(false)
+    expect(result.na.some((line) => line.includes("单字名"))).toBe(true)
+  })
+
+  it("整段描述（含逗号）原样出现即算覆盖，不因按标点切半而误报", () => {
+    const result = auditAssetLinkage({
+      characters: [{ ...STUB, characterName: "张三", relationships: { 王五: "宿敌多年，势不两立" } }],
+      relationshipArtifact: null,
+      snapshotRelationLines: [{ chapterNumber: 5, text: "张三与王五宿敌多年，势不两立" }],
+    })
+    expect(result.conflicts.some((c) => c.code === "snapshot_relation_not_in_state")).toBe(false)
+  })
+
+  it("同一行两条长描述：一条覆盖、一条不覆盖 → 仍报缺口（不短路）", () => {
+    const result = auditAssetLinkage({
+      characters: [
+        {
+          ...STUB,
+          characterName: "张三",
+          relationships: { 李四: "决裂多年", 王五: "旁观不语" },
+        },
+        { ...STUB, characterName: "王五", relationships: {} },
+      ],
+      relationshipArtifact: null,
+      snapshotRelationLines: [{ chapterNumber: 7, text: "张三与李四决裂多年，王五旁观不语" }],
+    })
+    // 两条都覆盖 → 不算缺口
+    expect(result.conflicts.some((c) => c.code === "snapshot_relation_not_in_state")).toBe(false)
+
+    const partial = auditAssetLinkage({
+      characters: [
+        {
+          ...STUB,
+          characterName: "张三",
+          relationships: { 李四: "决裂多年", 王五: "旁人眼中的旧识" },
+        },
+        { ...STUB, characterName: "王五", relationships: {} },
+      ],
+      relationshipArtifact: null,
+      snapshotRelationLines: [{ chapterNumber: 7, text: "张三与李四决裂多年，王五旁观不语" }],
+    })
+    // 王五那条对不上 → 必须报缺口，不能被李四那条洗白
+    expect(partial.conflicts.some((c) => c.code === "snapshot_relation_not_in_state")).toBe(true)
   })
 })
 

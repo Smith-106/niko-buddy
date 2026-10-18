@@ -40,16 +40,27 @@ describe("AgentCapabilityMatrixPanel", () => {
     expect(screen.getByTestId("agent-capability-unused").textContent).toContain("无人问津")
   })
 
-  it("未装载技能库 → 不显示「无缺口」结论，N/A 写清原因", () => {
+  it("未装载技能库 → 不显示覆盖结论，行内与摘要都是 N/A（不画 0）", () => {
     render(<AgentCapabilityMatrixPanel input={{ ...INPUT, skillsLoaded: false }} />)
     expect(screen.queryByTestId("agent-capability-global-missing")).toBeNull()
     expect(screen.queryByTestId("agent-capability-unused")).toBeNull()
     expect(screen.getByTestId("agent-capability-na").textContent).toContain("技能库未装载")
+
+    const summary = screen.getByTestId("agent-capability-summary").textContent ?? ""
+    expect(summary).toContain("N/A")
+    expect(summary).not.toContain("被覆盖角色：0")
+    // 行内不得出现「无命中」这种覆盖结论
+    const row = screen.getByTestId("agent-capability-row-character-agent")
+    expect(row.textContent).toContain("未装载")
+    expect(row.textContent).not.toContain("无命中")
+    // 未装载不是缺口：不得涂缺口色 / 出缺口节点
+    expect(screen.queryByTestId("agent-capability-missing-character-agent")).toBeNull()
   })
 
   it("没有角色定义时明确说「不是不需要技能」", () => {
     render(<AgentCapabilityMatrixPanel input={{ skills: INPUT.skills, roles: [] }} />)
-    expect(screen.getByTestId("agent-capability-empty").textContent).toContain("不需要技能")
+    expect(screen.getByTestId("agent-capability-empty").textContent).toContain("不是「不需要技能」")
+    expect(screen.getByTestId("agent-capability-na").textContent).toContain("没有任何角色定义")
   })
 
   it("注入 projection 优先（不再重算）", () => {

@@ -75,6 +75,8 @@ export interface AgentCapabilityMatrixRow {
 /** 矩阵投影。 */
 export interface AgentCapabilityMatrixProjection {
   rows: AgentCapabilityMatrixRow[]
+  /** false = 技能库未装载：任何覆盖结论（缺口/冗余/命中数）都不成立。 */
+  skillsLoaded: boolean
   /** 所有角色合起来都没被覆盖的能力标记（码点序）。 */
   missingCapabilities: string[]
   /** 「无角色声明需要，但技能库里有」的技能名（码点序）——冗余候选，不是错误。 */
@@ -144,7 +146,7 @@ export function projectAgentCapabilityMatrix(
   if (skillsLoaded && noTokenSkills.length > 0) {
     // 没声明 kinds/stages 的技能无法参与能力匹配：如实说出来，而不是当成全覆盖或全不覆盖。
     na.push(
-      `${noTokenSkills.length} 个技能未声明类型/阶段标记，无法参与匹配：${noTokenSkills
+      `${noTokenSkills.length} 个技能未声明类型/阶段标记，无法参与匹配（下面的缺口可能是它们造成的，先补标记再看）：${noTokenSkills
         .map((skill) => skill.name)
         .sort(compareCodePoints)
         .join("、")}`,
@@ -220,6 +222,7 @@ export function projectAgentCapabilityMatrix(
     rows,
     missingCapabilities,
     unusedSkills,
+    skillsLoaded,
     na,
     counts: {
       skills: skills.length,
@@ -228,6 +231,25 @@ export function projectAgentCapabilityMatrix(
     },
   }
 }
+
+/**
+ * 写作出稿管线的固定角色需求（**真实需求来源**）。
+ *
+ * 为什么需要它：如果角色需求是从技能自己的 `kinds` 反推出来的，那么
+ * 「角色需要 X」与「有技能声明 X」就永远同时成立，矩阵退化成重言式，
+ * 结构上不可能报出缺口（对抗式审查 P1）。所以需求侧必须来自**管线本身**：
+ * 计划 → 大纲 → 正文 → 审稿 → 改写 → 知识沉淀，每段需要哪类技能是产品定义。
+ *
+ * `kinds` 取技能库既有的 7 类（`SkillKind`），不新造分类学。
+ */
+export const WRITING_PIPELINE_ROLES: readonly CapabilityRole[] = [
+  { id: "planning", label: "计划（章节计划/目标阶梯）", kinds: ["planning"] },
+  { id: "outline", label: "大纲（结构与节拍）", kinds: ["structure"] },
+  { id: "drafting", label: "正文（起草与文风）", kinds: ["output", "style"] },
+  { id: "review", label: "审稿（节奏与一致性）", kinds: ["review"] },
+  { id: "rewrite", label: "改写（按意见返修）", kinds: ["rewrite"] },
+  { id: "knowledge", label: "知识沉淀（可复用经验）", kinds: ["knowledge"] },
+]
 
 /**
  * 从「书需要的维度」推导角色需求标记的辅助口径（不猜语义，只做映射表）。

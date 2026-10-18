@@ -1402,7 +1402,7 @@ export type {
 } from "./style-radar-projection"
 
 // ── Agent 能力矩阵（角色 × 技能，只读诊断）──
-export { projectAgentCapabilityMatrix, roleRequirementsFromDimensions } from "./agent-capability-matrix"
+export { WRITING_PIPELINE_ROLES, projectAgentCapabilityMatrix, roleRequirementsFromDimensions } from "./agent-capability-matrix"
 export type {
   AgentCapabilityMatrixInput,
   AgentCapabilityMatrixProjection,

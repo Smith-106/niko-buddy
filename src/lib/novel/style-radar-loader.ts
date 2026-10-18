@@ -37,13 +37,15 @@ export function parseOutlinePositionBullets(outline: string): {
   const pick = (label: RegExp, min: number, max: number): number | null => {
     const match = outline.match(label)
     if (!match) return null
+    // 模板占位（`- 压力级：1-5`）不是数据：负向前瞻排除「数字 + 区间符 + 数字」。
+    // 旧实现会 capture 到 1，把未填写的章纲读成真有压力级 1。
     const value = Number.parseInt(match[1] ?? "", 10)
     if (!Number.isFinite(value) || value < min || value > max) return null
     return value
   }
   return {
-    pressureLevel: pick(/(?:压力级|压力)[:：]\s*(\d{1,2})/, 1, 5),
-    emotionIntensity: pick(/(?:情绪强度|情绪)[:：]\s*(\d{1,2})/, 1, 10),
+    pressureLevel: pick(/(?:压力级|压力)[:：]\s*(\d{1,2})(?!\s*[-–—~]\s*\d)/, 1, 5),
+    emotionIntensity: pick(/(?:情绪强度|情绪)[:：]\s*(\d{1,2})(?!\s*[-–—~]\s*\d)/, 1, 10),
   }
 }
 

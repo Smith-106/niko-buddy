@@ -37,9 +37,17 @@ export interface StyleRadarPanelProps {
   readonly loader?: () => Promise<StyleRadarInput | null>
 }
 
-function ringPoints(ratio: number, count: number): { x: number; y: number }[] {
-  return Array.from({ length: count }, (_, i) => {
-    const angle = (Math.PI * 2 * i) / count - Math.PI / 2
+/**
+ * 背景环顶点必须落在**真实轴角**上（原始轴位 / 轴总数），否则缺值轴一出现，
+ * 环会按剩下轴数等分重排，与辐线、数据点错位（对抗式审查 P2）。
+ */
+function ringPoints(
+  ratio: number,
+  axisIndexes: readonly number[],
+  totalAxes: number,
+): { x: number; y: number }[] {
+  return axisIndexes.map((index) => {
+    const angle = (Math.PI * 2 * index) / totalAxes - Math.PI / 2
     return { x: CENTER + Math.cos(angle) * RADIUS * ratio, y: CENTER + Math.sin(angle) * RADIUS * ratio }
   })
 }
@@ -71,6 +79,10 @@ export function StyleRadarPanel({ projection, input, loader }: StyleRadarPanelPr
   const drawable = plotted.length >= 3
   const polygon = drawable ? toPointsAttr(plotted) : ""
   const plottedAxes = resolved.axes.filter((axis) => axis.value !== null)
+  // 有值轴的**原始轴位**：环、辐线、顶点统一用这一组角度。
+  const plottedIndexes = resolved.axes
+    .map((axis, index) => (axis.value === null ? -1 : index))
+    .filter((index) => index >= 0)
 
   return (
     <section data-testid="style-radar-panel" className="space-y-3 rounded-md border border-border p-3">
@@ -104,7 +116,7 @@ export function StyleRadarPanel({ projection, input, loader }: StyleRadarPanelPr
             {[0.25, 0.5, 0.75, 1].map((ratio) => (
               <polygon
                 key={ratio}
-                points={toPointsAttr(ringPoints(ratio, axisCount))}
+                points={toPointsAttr(ringPoints(ratio, plottedIndexes, resolved.axes.length))}
                 className="fill-none stroke-border"
                 strokeWidth={1}
               />

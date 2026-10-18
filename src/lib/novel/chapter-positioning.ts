@@ -208,8 +208,13 @@ export function parsePositionTableFromMarkdown(
       // cells[0] = 章号, cells[1] = 定位, cells[2] = 压力级, cells[3] = 情绪强度
       // 数值格必须真的解析成功：旧实现默认 1/1，会把「压力级：高」这类非数字格
       // 画成「压力级 1」，等于编数据。解析失败的行直接跳过（宁缺勿造）。
-      const pressureLevel = cells.length >= 3 ? parseInt(cells[2], 10) : NaN
-      const emotionIntensity = cells.length >= 4 ? parseInt(cells[3], 10) : NaN
+      // 整格必须是数字：`parseInt("1-5")` 会得到 1，把表头模板区间读成真的压力级 1。
+      const strictInt = (cell: string | undefined): number => {
+        const match = (cell ?? "").match(/^\s*(\d{1,2})\s*$/)
+        return match ? Number.parseInt(match[1], 10) : Number.NaN
+      }
+      const pressureLevel = cells.length >= 3 ? strictInt(cells[2]) : Number.NaN
+      const emotionIntensity = cells.length >= 4 ? strictInt(cells[3]) : Number.NaN
       if (!(pressureLevel >= 1 && pressureLevel <= 5)) continue
       if (!(emotionIntensity >= 1 && emotionIntensity <= 10)) continue
       const note = cells.length >= 5 ? cells[4] : ""

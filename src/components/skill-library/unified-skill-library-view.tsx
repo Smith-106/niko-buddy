@@ -8,7 +8,7 @@ import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
 import { AgentCapabilityMatrixPanel } from "@/components/novel/agent-capability-matrix-panel"
 import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { createBlankProjectDeAiSkill, getAllDeAiSkills, loadDeAiSkillConfig, normalizeDeAiSkillConfig, saveDeAiSkillConfig, createBlankWritingSkill, importSkillFromJson, importWritingSkill, loadUserSkillConfig, normalizeUserSkillConfig, saveUserSkillConfig } from "@/lib/novel"
-import { SKILL_KIND_LABELS, type DeAiSkill, type SkillKind, type UserSkill } from "@/lib/novel"
+import { SKILL_KIND_LABELS, WRITING_PIPELINE_ROLES, type DeAiSkill, type SkillKind, type UserSkill } from "@/lib/novel"
 import { SkillLibraryView } from "./skill-library-view"
 import { WritingSkillLibraryView } from "./writing-skill-library-view"
 import { FavoriteListView } from "./favorite-list-view"
@@ -339,6 +339,9 @@ export function UnifiedSkillLibrarySidebarPanel() {
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState<UnifiedSkillCategory>("all")
   const [loadError, setLoadError] = useState("")
+  // 技能库是否真的装载成功：失败/未完成时能力矩阵必须整段 N/A，
+  // 否则「空 entries」会被读成「没有任何角色需要技能」。
+  const [skillsLoaded, setSkillsLoaded] = useState(false)
   const [skillPage, setSkillPage] = useState(0)
   const SKILL_PAGE_SIZE = PAGINATION_PAGE_SIZE
 
@@ -355,10 +358,12 @@ export function UnifiedSkillLibrarySidebarPanel() {
           ...writingConfig.skills.map(writingSkillToEntry),
           ...getAllDeAiSkills(deAiConfig).map(deAiSkillToEntry),
         ])
+        setSkillsLoaded(true)
       })
       .catch(() => {
         if (cancelled) return
         setEntries([])
+        setSkillsLoaded(false)
         setLoadError("技能库加载失败")
       })
     return () => {
@@ -394,23 +399,23 @@ export function UnifiedSkillLibrarySidebarPanel() {
     if (skillPage > skillPageCount - 1) setSkillPage(0)
   }, [skillPage, skillPageCount])
 
-  // Agent 能力矩阵：技能侧取**当前筛选结果**（跟着搜索/分类走，不越过筛选另列全库）；
-  // 角色侧用这些技能覆盖到的 kinds 推导，不臆造角色表：没有维度就没有角色，
-  // 面板会写 N/A 而不是给空矩阵下结论。
-  const capabilityInput = useMemo(() => {
-    const skills = filteredEntries.map((entry) => ({
-      name: entry.name,
-      description: entry.description,
-      kinds: entry.kinds,
-    }))
-    const kinds = [...new Set(filteredEntries.flatMap((entry) => entry.kinds))].sort()
-    const roles = kinds.map((kind) => ({
-      id: `kind-${kind}`,
-      label: SKILL_KIND_LABELS[kind] ?? kind,
-      kinds: [kind],
-    }))
-    return { skills, roles }
-  }, [filteredEntries])
+  // Agent 能力矩阵
+  //   技能侧：**当前筛选结果**（跟着搜索/分类走，不越过筛选另列全库）；
+  //   需求侧：写作出稿管线的固定角色（`WRITING_PIPELINE_ROLES`）。
+  // 需求不能由技能自己的 kinds 反推——那样「需要 X」与「有 X」永远同时成立，
+  // 矩阵会退化成重言式，结构上报不出任何缺口（对抗式审查 P1）。
+  const capabilityInput = useMemo(
+    () => ({
+      skills: filteredEntries.map((entry) => ({
+        name: entry.name,
+        description: entry.description,
+        kinds: entry.kinds,
+      })),
+      roles: [...WRITING_PIPELINE_ROLES],
+      skillsLoaded,
+    }),
+    [filteredEntries, skillsLoaded],
+  )
 
   function handleSelectEntry(entry: UnifiedSkillEntry) {
     if (entry.type === "writing") {

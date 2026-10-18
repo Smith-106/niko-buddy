@@ -21,6 +21,7 @@
  * @license MIT © Niko Buddy
  */
 
+import { isUnreliableName, nameAppears } from "./name-match"
 import { buildLibraryArtifact } from "./asset-library"
 import { deriveRelationshipEntries } from "./setting-projection"
 
@@ -104,59 +105,87 @@ const MIN_DECISIVE_NOTE_LENGTH = 4
 type CoverageVerdict = "covered" | "not-covered" | "undecidable"
 
 /**
- * 端点名字命中判定。中文没有词边界，单字名字（「王」vs「王府」）无法靠邻字可靠消歧，
- * 所以端点只做**必要条件**，真正的判别力放在关系文本的实质重叠上（见 `judgeCoverage`）。
+ * 端点名字命中：走共享的**最长匹配**判定（「王」被「王府」覆盖时不算命中）。
+ *
+ * 仍然只有必要条件级别：中文里 `李四` 会命中 `李四光`（未知更长名无法消歧），
+ * 所以真正的判别力放在关系文本的实质重叠上；单字端点直接判 N/A（见 `judgeCoverage`）。
  */
-function containsName(haystack: string, name: string): boolean {
-  return name.length > 0 && haystack.includes(name)
+function containsName(haystack: string, name: string, knownNames: readonly string[]): boolean {
+  return nameAppears(haystack, name, knownNames)
+}
+
+/** 整段描述原样出现所需的最短长度：更短的通用短语（「关系不错」）不算覆盖证据。 */
+const MIN_CONTAINMENT_NOTE_LENGTH = 6
+/** 片段命中所需的最短长度：低于此长度的片段（「旧识」）不足以证明已回填。 */
+const MIN_STRONG_SEGMENT = 4
+
+/** 单条关系描述是否被该行覆盖（保留标点：跨逗号的整段描述也算原样）。 */
+function noteCovered(haystack: string, noteNorm: string): boolean {
+  if (noteNorm === haystack) return true
+  // ① 整段描述（含标点）原样出现：`宿敌多年，势不两立` 在行内出现即算覆盖，
+  //    旧的「按标点切片段」把这种情况判成 not-covered（两半各占一半长度达不到阈值）。
+  if (noteNorm.length >= MIN_CONTAINMENT_NOTE_LENGTH && haystack.includes(noteNorm)) return true
+  // ② 或任一片段（≥ 描述一半长度且 ≥4 字）原样出现。
+  const minSegment = Math.max(MIN_STRONG_SEGMENT, Math.ceil(noteNorm.length / 2))
+  return noteNorm
+    .split(/[，,。.；;、！!？?：:]/)
+    .some((segment) => segment.length >= minSegment && haystack.includes(segment))
 }
 
 /**
  * 判定「快照这一行关系事实是否已被角色状态回填」。
  *
  * 三态而非布尔：
- *   - `covered`     关系描述被该行**实质覆盖**（整段相等，或有占描述一半以上的片段原样出现）；
- *   - `not-covered` 存在长度足够的候选描述但都对不上 → 确实没回填；
- *   - `undecidable` 整行只有过短描述（<4 字，如「友」「敌」），信息量不足 → 记 N/A。
+ *   - `covered`     该行命中的**每一条**决定性描述都被实质覆盖；
+ *   - `not-covered` 存在长度足够的候选描述但有一条对不上 → 确实没回填；
+ *   - `undecidable` 只有过短描述（<4 字）、或端点含单字名（无法可靠判人）、或空行 → N/A。
  *
- * 只要有一条长描述对不上，就必须报 `not-covered`：不能让同行的短描述把真实缺口盖成 N/A。
+ * 两条硬要求（对抗式审查发现）：
+ *   1. 不短路：同一行里 A 对已覆盖不能放行 B 对未覆盖——否则整行被另一端点提前「洗白」。
+ *   2. 单字端点不判：`王` ⊂ `王府` 这类子串命中会给出硬结论，宁可 N/A。
  */
 function judgeCoverage(
   line: string,
   characters: readonly LinkageCharacter[],
+  knownNames: readonly string[],
 ): CoverageVerdict {
   const raw = line.trim()
-  if (!raw) return "covered"
+  // 空白行不是关系事实：既不算已覆盖，也不算缺口。
+  if (!raw) return "undecidable"
   const haystack = normalizeSpace(raw)
-  let sawDecisiveNote = false
+  const decisiveNotes: string[] = []
   let sawShortPair = false
+  let sawUnreliableEndpoint = false
 
   for (const character of characters) {
     const from = (character.characterName ?? "").trim()
-    if (!from || !containsName(haystack, from)) continue
+    if (!from || !containsName(haystack, from, knownNames)) continue
     for (const [to, description] of Object.entries(character.relationships ?? {})) {
-      const note = typeof description === "string" ? description.trim() : ""
       const target = (to ?? "").trim()
-      if (!note || !target || !containsName(haystack, target)) continue
-
+      if (!target || !containsName(haystack, target, knownNames)) continue
+      if (isUnreliableName(from) || isUnreliableName(target)) {
+        sawUnreliableEndpoint = true
+        continue
+      }
+      const note = typeof description === "string" ? description.trim() : ""
+      if (!note) continue
       const noteNorm = normalizeSpace(note)
       if (noteNorm.length < MIN_DECISIVE_NOTE_LENGTH) {
         sawShortPair = true
         continue
       }
-      sawDecisiveNote = true
-
-      // ① 整段相等（只允许空白差异）；② 或任一片段（≥ 描述实质长度一半）原样出现。
-      if (noteNorm === haystack) return "covered"
-      const minSegment = Math.max(2, Math.ceil(noteNorm.length / 2))
-      const segments = noteNorm.split(/[，,。.；;、！!？?：:]/).filter((seg) => seg.length >= minSegment)
-      if (segments.some((seg) => haystack.includes(seg))) return "covered"
+      decisiveNotes.push(noteNorm)
     }
   }
 
-  // 有长描述对不上 = 真缺口；只有短描述 = 无法判定；连端点关系都没有 = 状态里确实没有。
-  if (sawDecisiveNote) return "not-covered"
-  return sawShortPair ? "undecidable" : "not-covered"
+  if (decisiveNotes.length === 0) {
+    if (sawUnreliableEndpoint) return "undecidable"
+    // 只有短描述（「友」「敌」）= 信息量不足；连端点关系都没有 = 状态里确实没有这条。
+    return sawShortPair ? "undecidable" : "not-covered"
+  }
+
+  // 全部决定性描述都必须覆盖；任一条对不上就是真缺口。
+  return decisiveNotes.every((noteNorm) => noteCovered(haystack, noteNorm)) ? "covered" : "not-covered"
 }
 
 /**
@@ -212,8 +241,17 @@ export function auditAssetLinkage(input: AssetLinkageAuditInput): AssetLinkageAu
   let uncovered = 0
   let undecidable = 0
   const snapshotLines = input.snapshotRelationLines ?? []
+  // 已知名集合：角色状态名 + 关系对端名。最长匹配只信任这里出现的名字。
+  const knownNames = [
+    ...new Set([
+      ...input.characters.map((character) => (character.characterName ?? "").trim()).filter(Boolean),
+      ...input.characters.flatMap((character) =>
+        Object.keys(character.relationships ?? {}).map((name) => name.trim()).filter(Boolean),
+      ),
+    ]),
+  ]
   for (const line of snapshotLines) {
-    const judged = judgeCoverage(line.text, input.characters)
+    const judged = judgeCoverage(line.text, input.characters, knownNames)
     if (judged === "covered") continue
     if (judged === "undecidable") {
       undecidable += 1
@@ -230,7 +268,7 @@ export function auditAssetLinkage(input: AssetLinkageAuditInput): AssetLinkageAu
   }
   if (undecidable > 0) {
     na.push(
-      `有 ${undecidable} 条快照关系描述过短（有效字符 < 2），无法判定是否已回填 —— 记 N/A，不计入冲突。`,
+      `有 ${undecidable} 条快照关系事实无法判定（描述过短，有效字符 < ${MIN_DECISIVE_NOTE_LENGTH}；或端点含单字名、空行），记 N/A，不计入冲突。`,
     )
   }
   if (input.snapshotRelationLines === undefined) {

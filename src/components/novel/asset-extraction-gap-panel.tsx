@@ -58,7 +58,13 @@ export function AssetExtractionGapPanel({ projection, input }: AssetExtractionGa
         正文识别到人物：<b className="text-foreground">{resolved.counts.mentionedCharacters}</b> 人 · wiki 人物实体：
         <b className="text-foreground">{resolved.counts.wikiCharacters}</b> · 角色状态：
         <b className="text-foreground">{resolved.counts.stateCharacters}</b> 人 · 缺口：
-        <b className="text-foreground">{gapCount}</b> 条
+        {resolved.checked ? (
+          <>
+            <b className="text-foreground">{gapCount}</b> 条
+          </>
+        ) : (
+          <>N/A（未装载 / 无正文，不显示 0）</>
+        )}
       </p>
 
       {gapCount === 0 ? (

@@ -105,3 +105,38 @@ describe("不适用三条 + 装载器", () => {
     })
   })
 })
+
+describe("缺值轴的几何一致（背景环不得按剩余轴数重排）", () => {
+  it("环顶点只落在有值轴的真实角度上，与该轴顶点同向", () => {
+    const base = projectStyleRadar({ text: SAMPLE })
+    // 人为挖空一条轴：面板必须在「有值轴的真实角度」上画环。
+    const projection = {
+      ...base,
+      axes: base.axes.map((axis, index) => (index === 1 ? { ...axis, value: null } : axis)),
+    }
+
+    render(<StyleRadarPanel projection={projection} />)
+    const rings = screen.getByTestId("style-radar-svg").querySelectorAll("polygon")
+    const readPoints = (raw: string | null) =>
+      (raw ?? "").split(" ").filter(Boolean).map((pair) => {
+        const [x, y] = pair.split(",").map(Number)
+        return { x: x as number, y: y as number }
+      })
+    const outerRing = readPoints(rings[rings.length - 1]!.getAttribute("points"))
+    const data = readPoints(screen.getByTestId("style-radar-polygon").getAttribute("points"))
+
+    // 环与数据点一一对应（都只画有值轴）
+    expect(outerRing).toHaveLength(data.length)
+    expect(data.length).toBe(projection.axes.length - 1)
+
+    // 同向：中心到环顶点的方向与中心到数据顶点方向平行且同侧
+    for (let i = 0; i < data.length; i += 1) {
+      const ring = outerRing[i]!
+      const point = data[i]!
+      const cross = ring.x * point.y - ring.y * point.x
+      const dot = ring.x * point.x + ring.y * point.y
+      expect(Math.abs(cross)).toBeLessThan(0.5)
+      expect(dot).toBeGreaterThan(0)
+    }
+  })
+})

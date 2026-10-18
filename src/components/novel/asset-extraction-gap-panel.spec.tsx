@@ -11,13 +11,13 @@ import { AssetExtractionGapPanel } from "./asset-extraction-gap-panel"
 
 const INPUT = {
   chapterNumber: 3,
-  chapterText: "甲推门进来，乙正在擦剑。\n丙站在门外。",
+  chapterText: "张三推门进来，李四正在擦剑。\n王五站在门外。",
   characters: [
-    { characterName: "甲", relationships: {} },
-    { characterName: "乙", relationships: {} },
+    { characterName: "张三", relationships: {} },
+    { characterName: "李四", relationships: {} },
   ],
   charactersLoaded: true,
-  wikiCharacterNames: ["甲", "乙", "丙"],
+  wikiCharacterNames: ["张三", "李四", "王五"],
   wikiLoaded: true,
 }
 
@@ -27,9 +27,11 @@ describe("AssetExtractionGapPanel", () => {
   it("列出人物缺口与关系缺口，并带上证据片段", () => {
     render(<AssetExtractionGapPanel input={INPUT} />)
     const character = screen.getByTestId("asset-extraction-gap-character_not_in_state-0")
-    expect(character.textContent).toContain("丙")
+    expect(character.textContent).toContain("王五")
     expect(character.textContent).toContain("第 3 章")
-    expect(screen.getByTestId("asset-extraction-gap-relationship_not_in_state-0")).toBeTruthy()
+    const relation = screen.getByTestId("asset-extraction-gap-relationship_not_in_state-0")
+    expect(relation.textContent).toContain("张三→李四")
+    expect(relation.textContent).toContain("第 3 章")
   })
 
   it("摘要显示真实计数（不是只显示结论）", () => {
@@ -43,13 +45,16 @@ describe("AssetExtractionGapPanel", () => {
     render(<AssetExtractionGapPanel input={INPUT} />)
     const proposals = screen.getByTestId("asset-extraction-gap-proposals").textContent ?? ""
     expect(proposals).toContain("accept")
-    expect(proposals).toContain("补角色资产：丙")
+    expect(proposals).toContain("补角色资产：王五")
   })
 
-  it("角色状态未装载 → 空态文案不许说成「资产已齐」，且 N/A 写清原因", () => {
+  it("角色状态未装载 → 空态文案不许说成「资产已齐」，摘要不写 0 条", () => {
     render(<AssetExtractionGapPanel input={{ ...INPUT, charactersLoaded: false }} />)
     expect(screen.getByTestId("asset-extraction-gap-empty").textContent).toContain("不代表")
     expect(screen.getByTestId("asset-extraction-gap-na").textContent).toContain("角色状态未装载")
+    const summary = screen.getByTestId("asset-extraction-gap-summary").textContent ?? ""
+    expect(summary).toContain("N/A")
+    expect(summary).not.toContain("缺口：0 条")
   })
 
   it("世界构建/场景恒为 N/A（不猜实体）", () => {

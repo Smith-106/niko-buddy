@@ -66,11 +66,19 @@ export function AgentCapabilityMatrixPanel({
       </header>
 
       <p className="text-[11px] text-muted-foreground" data-testid="agent-capability-summary">
-        角色：<b className="text-foreground">{counts.roles}</b> · 技能：
-        <b className="text-foreground">{counts.skills}</b> · 被覆盖角色：
-        <b className="text-foreground">{counts.coveredRoles}</b> · 无人覆盖能力：
-        <b className="text-foreground">{resolved.missingCapabilities.length}</b> · 无人需要技能：
-        <b className="text-foreground">{resolved.unusedSkills.length}</b>
+        {resolved.skillsLoaded ? (
+          <>
+            角色：<b className="text-foreground">{counts.roles}</b> · 技能：
+            <b className="text-foreground">{counts.skills}</b> · 被覆盖角色：
+            <b className="text-foreground">{counts.coveredRoles}</b> · 无人覆盖能力：
+            <b className="text-foreground">{resolved.missingCapabilities.length}</b> · 无人需要技能：
+            <b className="text-foreground">{resolved.unusedSkills.length}</b>
+          </>
+        ) : (
+          <>
+            技能库未装载：覆盖结论整段 N/A（不显示 0，避免把「没读到」读成「零覆盖」）。
+          </>
+        )}
       </p>
 
       {resolved.rows.length === 0 ? (
@@ -84,7 +92,7 @@ export function AgentCapabilityMatrixPanel({
               key={row.roleId}
               data-testid={`agent-capability-row-${row.roleId}`}
               className={
-                row.matchedSkills.length > 0
+                !resolved.skillsLoaded || row.matchedSkills.length > 0
                   ? "rounded border border-border p-1.5 text-[11px]"
                   : "rounded border border-amber-500/40 bg-amber-500/5 p-1.5 text-[11px] text-amber-800 dark:text-amber-300"
               }
@@ -94,7 +102,8 @@ export function AgentCapabilityMatrixPanel({
                 className="text-[10px] text-muted-foreground"
                 title={summarizeNames(row.matchedSkills).title}
               >
-                可用技能：{summarizeNames(row.matchedSkills).text}
+                可用技能：
+                {resolved.skillsLoaded ? summarizeNames(row.matchedSkills).text : "N/A（技能库未装载）"}
               </div>
               {row.missingCapabilities.length > 0 ? (
                 <div

@@ -18,12 +18,17 @@
  *   3. **世界构建 / 场景**目前没有结构化真源，因此显式 N/A，不拿关键词猜实体
  *      （猜出来的「新场景」会污染资产库，比缺一条更糟）。
  *
- * 判定用「必要条件 + 词边界」：
- *   人物名在句中出现是必要条件；单字名字（「王」vs「王府」）用邻字边界排除明显误命中。
- *   同句共现 → 候选关系；两侧任一侧已有该关系 → 不算缺口。
+ * 判定口径：
+ *   1. 人物名在句中**最长匹配**出现是必要条件（共享 `name-match.ts`）；
+ *      单字名（「王」vs「王府」）在中文里无法可靠判人，一律记 N/A，不产出缺口。
+ *   2. 同句共现只当**候选**：共现不等于有关系，所以按句内距离排序、限条数，
+ *      并在 N/A 里写明「不做语义判断」——宁可少报，不把路人同框灌成缺口。
+ *   3. 两侧任一侧已有该关系 → 不算缺口。
  *
  * @license MIT © Niko Buddy
  */
+
+import { compareCodePoints, isUnreliableName, nameAppears } from "./name-match"
 
 // ── 类型 ─────────────────────────────────────────────────────────────────────────
 
@@ -73,6 +78,8 @@ export interface ExtractionGapProjection {
   proposals: ExtractionProposal[]
   /** 无法判定的部分，逐条写清原因。 */
   na: string[]
+  /** 是否真的检查过（false = 未装载/无正文，面板必须显示 N/A 而不是「0 条缺口」）。 */
+  checked: boolean
   counts: {
     /** 正文里被识别的已知人名数。 */
     mentionedCharacters: number
@@ -86,41 +93,8 @@ export interface ExtractionGapProjection {
 // ── 工具 ─────────────────────────────────────────────────────────────────────────
 
 const EVIDENCE_LIMIT = 60
-
-function compareCodePoints(a: string, b: string): number {
-  const left = Array.from(a)
-  const right = Array.from(b)
-  const size = Math.min(left.length, right.length)
-  for (let i = 0; i < size; i += 1) {
-    const diff = (left[i] as string).codePointAt(0)! - (right[i] as string).codePointAt(0)!
-    if (diff !== 0) return diff
-  }
-  return left.length - right.length
-}
-
-/**
- * 名字出现判定。
- *
- * 单字名（「王」）在中文里无法靠邻字边界判——「王站在门外」里后面紧跟汉字却是真命中；
- * 「王府」里紧跟汉字却属于另一个名字。可靠口径是**最长匹配优先**：
- * 命中的位置若被某个更长的已知名字覆盖（`王府`），这次出现就不算「王」。
- */
-function nameAppears(text: string, name: string, longerNames: readonly string[]): boolean {
-  if (!name) return false
-  if (name.length > 1) return text.includes(name)
-  const covering = longerNames.filter((other) => other.length > name.length && other.includes(name))
-  let from = 0
-  for (;;) {
-    const index = text.indexOf(name, from)
-    if (index < 0) return false
-    const absorbed = covering.some((other) => {
-      const at = text.indexOf(other, Math.max(0, index - other.length + 1))
-      return at >= 0 && at <= index && index + name.length <= at + other.length
-    })
-    if (!absorbed) return true
-    from = index + 1
-  }
-}
+/** 关系候选上限：同框路人会按对数膨胀，必须有明确上限。 */
+const MAX_RELATION_GAPS = 20
 
 /** 按句切分（保留分句标点语义，只切不删）。 */
 function splitSentences(text: string): string[] {
@@ -180,6 +154,7 @@ export function detectAssetExtractionGaps(input: ExtractionGapInput): Extraction
       gaps,
       proposals: [],
       na,
+      checked: false,
       counts: {
         mentionedCharacters: 0,
         wikiCharacters: wikiNames.length,
@@ -192,12 +167,24 @@ export function detectAssetExtractionGaps(input: ExtractionGapInput): Extraction
 
   // ① wiki 有人物实体、正文出现、但角色状态里没有 → 缺角色资产。
   const missingCharacters: Array<{ name: string; evidence: string }> = []
+  const unreliableNames: string[] = []
   if (input.wikiLoaded) {
     for (const name of wikiNames) {
       if (stateNameSet.has(name)) continue
+      // 单字名无法可靠判人（「王」在「王府」里、在「王说」里都出现）：
+      // 报成缺口就是假阳性，跳过并记 N/A。
+      if (isUnreliableName(name)) {
+        unreliableNames.push(name)
+        continue
+      }
       const hit = sentences.find((sentence) => nameAppears(sentence, name, knownNames))
       if (!hit) continue
       missingCharacters.push({ name, evidence: hit })
+    }
+    if (unreliableNames.length > 0) {
+      na.push(
+        `单字名无法可靠判定是否指人，已跳过：${[...unreliableNames].sort(compareCodePoints).join("、")}（不报假缺口）`,
+      )
     }
     missingCharacters.sort((a, b) => compareCodePoints(a.name, b.name))
     for (const item of missingCharacters) {
@@ -210,12 +197,16 @@ export function detectAssetExtractionGaps(input: ExtractionGapInput): Extraction
     }
   }
 
-  // ② 两个已知角色同句出现，但双方都没有关系条目 → 缺关系资产。
-  const relatedPairs = new Map<string, string>()
+  // ② 两个已知角色同句出现，但双方都没有关系条目 → 缺关系资产（候选）。
+  //
+  // 共现只是**候选**：一句「甲、乙、丙都在场」会产出 C(n,2) 条，语义上却可能毫无关系。
+  // 因此：两侧都必须是可靠名（多字）、按句内距离从近到远排、限 `MAX_RELATION_GAPS` 条，
+  // 并在 N/A 里写明不做语义判断——宁可少报，不让路人同框淹没真缺口。
+  const relatedPairs = new Map<string, { sentence: string; distance: number }>()
   for (const sentence of sentences) {
     // 按**句内首次出现顺序**排，而不是码点序：缺口是给人读的，「甲→乙」比「乙→甲」更贴原文。
     const present = stateNames
-      .filter((name) => nameAppears(sentence, name, knownNames))
+      .filter((name) => !isUnreliableName(name) && nameAppears(sentence, name, knownNames))
       .sort((a, b) => sentence.indexOf(a) - sentence.indexOf(b) || compareCodePoints(a, b))
     for (let i = 0; i < present.length; i += 1) {
       for (let j = i + 1; j < present.length; j += 1) {
@@ -228,13 +219,26 @@ export function detectAssetExtractionGaps(input: ExtractionGapInput): Extraction
           Object.prototype.hasOwnProperty.call(leftRelations, right) ||
           Object.prototype.hasOwnProperty.call(rightRelations, left)
         if (hasEdge) continue
+        const distance = Math.abs(sentence.indexOf(right) - sentence.indexOf(left))
         const key = `${left}\u0000${right}`
-        if (!relatedPairs.has(key)) relatedPairs.set(key, sentence)
+        const seen = relatedPairs.get(key)
+        if (!seen || distance < seen.distance) relatedPairs.set(key, { sentence, distance })
       }
     }
   }
 
-  const pairEntries = [...relatedPairs.entries()].sort((a, b) => compareCodePoints(a[0], b[0]))
+  const allPairs = [...relatedPairs.entries()].sort(
+    (a, b) => a[1].distance - b[1].distance || compareCodePoints(a[0], b[0]),
+  )
+  const pairEntries = allPairs
+    .slice(0, MAX_RELATION_GAPS)
+    .map(([key, value]) => [key, value.sentence] as const)
+  if (allPairs.length > pairEntries.length) {
+    na.push(
+      `关系候选共 ${allPairs.length} 条，按句内距离只列前 ${MAX_RELATION_GAPS} 条（共现不等于有关系，本面不做语义判断）。`,
+    )
+  }
+  na.push("关系缺口是「同句共现且双方无该关系」的**候选**，含语义无关的同框：请按证据自行取舍。")
   for (const [key, sentence] of pairEntries) {
     const [left, right] = key.split("\u0000") as [string, string]
     gaps.push({
@@ -277,6 +281,7 @@ export function detectAssetExtractionGaps(input: ExtractionGapInput): Extraction
     gaps,
     proposals,
     na,
+    checked: true,
     counts: {
       mentionedCharacters: mentioned.size,
       wikiCharacters: wikiNames.length,
