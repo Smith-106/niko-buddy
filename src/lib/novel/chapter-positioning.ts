@@ -206,27 +206,19 @@ export function parsePositionTableFromMarkdown(
       // 查找压力级和情绪强度所在列
       // 表头格式: 章 | 定位 | 压力级(1-5) | 情绪强度(1-10) | 说明
       // cells[0] = 章号, cells[1] = 定位, cells[2] = 压力级, cells[3] = 情绪强度
-      let pressureLevel: 1 | 2 | 3 | 4 | 5 = 1
-      let emotionIntensity: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 = 1
-      let note = ""
-
-      if (cells.length >= 3) {
-        const pl = parseInt(cells[2], 10)
-        if (pl >= 1 && pl <= 5) pressureLevel = pl as 1 | 2 | 3 | 4 | 5
-      }
-      if (cells.length >= 4) {
-        const ei = parseInt(cells[3], 10)
-        if (ei >= 1 && ei <= 10) emotionIntensity = ei as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10
-      }
-      if (cells.length >= 5) {
-        note = cells[4]
-      }
+      // 数值格必须真的解析成功：旧实现默认 1/1，会把「压力级：高」这类非数字格
+      // 画成「压力级 1」，等于编数据。解析失败的行直接跳过（宁缺勿造）。
+      const pressureLevel = cells.length >= 3 ? parseInt(cells[2], 10) : NaN
+      const emotionIntensity = cells.length >= 4 ? parseInt(cells[3], 10) : NaN
+      if (!(pressureLevel >= 1 && pressureLevel <= 5)) continue
+      if (!(emotionIntensity >= 1 && emotionIntensity <= 10)) continue
+      const note = cells.length >= 5 ? cells[4] : ""
 
       positions.push({
         chapterNumber,
         type,
-        pressureLevel,
-        emotionIntensity,
+        pressureLevel: pressureLevel as 1 | 2 | 3 | 4 | 5,
+        emotionIntensity: emotionIntensity as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10,
         note,
       })
     }

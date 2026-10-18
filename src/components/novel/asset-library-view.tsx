@@ -19,11 +19,14 @@
 
 import { useEffect, useState } from "react"
 import { CheckCircle2, AlertTriangle, Database, Loader2, Lock } from "lucide-react"
+import { AssetLinkagePanel } from "./asset-linkage-panel"
 import {
   LIBRARY_IDS,
   loadAllAssetLibrarySnapshots,
+  loadCharacterStates,
   migrateRelationshipLibrary,
   type AssetLibrarySnapshot,
+  type CharacterState,
   type AssetLibraryStoreDeps,
   type LibraryId,
 } from "@/lib/novel"
@@ -84,6 +87,27 @@ export function AssetLibraryView({ projectPath, snapshots, deps, migrateRelation
     }
   }, [projectPath, snapshots, deps])
 
+  // 角色状态（联动比对左侧真源）：未装载前保持 null，让审计报 N/A 而不是判漂移。
+  const [characters, setCharacters] = useState<readonly CharacterState[] | null>(null)
+  useEffect(() => {
+    if (!projectPath) {
+      // 无项目 ≠ 已确认零角色：保持 null（面板走 N/A，不给绿态）。
+      setCharacters(null)
+      return
+    }
+    let cancelled = false
+    void loadCharacterStates(projectPath)
+      .then((store) => {
+        if (!cancelled) setCharacters(store?.characters ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setCharacters(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [projectPath])
+
   const [migrateState, setMigrateState] = useState<{
     status: "written" | "noop" | "conflict" | "empty"
     entryCount: number
@@ -107,6 +131,11 @@ export function AssetLibraryView({ projectPath, snapshots, deps, migrateRelation
   const rows = loaded ?? []
   const generated = rows.filter((row) => row.present)
   const violations = rows.reduce((sum, row) => sum + (row.health?.violations.length ?? 0), 0)
+  const relationshipRow = rows.find((row) => row.libraryId === "relationship_edge")
+  const relationshipArtifactDigest =
+    relationshipRow?.present && relationshipRow.contentHash
+      ? { contentHash: relationshipRow.contentHash, entryCount: relationshipRow.entryCount }
+      : null
 
   return (
     <section data-testid="asset-library-view" className="flex flex-col gap-3 p-4">
@@ -140,6 +169,17 @@ export function AssetLibraryView({ projectPath, snapshots, deps, migrateRelation
           </span>
         ) : null}
       </div>
+      {/* 联动一致性：只读比对「角色状态 ↔ 关系产物」，不自动修复。
+          快照事实面在本页不加载 → 由审计自己报 N/A，不假装「已检查」。 */}
+      <AssetLinkagePanel
+        input={{
+          characters: characters ?? [],
+          charactersLoaded: characters !== null,
+          relationshipArtifact: relationshipArtifactDigest,
+          // 本页不装载快照：不传该字段 = 「未检查」；传 [] 会被当成「已装载且零条关系变更」。
+          snapshotRelationLines: undefined,
+        }}
+      />
       {loading ? (
         <p data-testid="asset-library-loading" className="flex items-center gap-1 text-xs text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />

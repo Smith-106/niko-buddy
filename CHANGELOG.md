@@ -7,6 +7,19 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.18.0] - 2026-10-18
+
+### Added
+
+- **动态工作热力图（进行中）**：新面板挂在「主控 Agent」视图内，真源为 `.novel/status.json` 的 `stage_metrics`。按「阶段 × 时间桶」聚合 token / 耗时 / partial 计数，页面可见时 5s 轮询、隐藏时暂停，失败保留上次数据并显式报错（不把失败画成 0）。投影层 `work-heatmap-projection.ts` 为纯函数（`now` 由调用方注入），无时间戳条目单列 `undated`，超窗口条目计入 `foldedCount` 并说明；三条明确 N/A：无章节轴、非实时事件流、无质量分真源。token / 耗时缺值一律 `null`，不聚合为 0。
+- **风格 / 节奏雷达（只读）**：新面板挂在「评审中心 → 技法面板 → 风格节奏雷达」页签。半径只放 6 项**机械代理指标**（篇幅 / 对话节奏 / 段落节奏 / 句式变化 / 场景分段 / 开篇钩子，0–100，来自既有 `self-assessment` 机械打分器）。`BookStyleProfile` 的九个风格维度是自由文本、无有限数值范围，只以「目标风格（无数值）」文本列表呈现，绝不编成半径；卷纲定位的压力级 1–5 / 情绪强度 1–10 是另一套量纲，单独作为数字卡片展示，不叠进雷达。无正文 → 不画雷达（不画 0 分雷达）。
+- **资产联动一致性只读诊断**：新面板挂在「资产库」视图。`asset-linkage-audit.ts` 纯函数比对三面：① 角色状态复算 hash ↔ relationship 产物 `contentHash`（陈旧 → `relationship_edge_drift`）；② 快照 `relationshipChanges` 是否已回填到角色关系（未回填 → `snapshot_relation_not_in_state`，覆盖判定要求端点同名**且**关系文本片段有实质重叠，避免同名不同事误判）；③ 图谱边缺/多（可选面，未同时提供两侧键则整面 N/A）。资产产物是不可变快照，诊断只列清单不自动改写；关系语义一律 `unknown`，不猜种类；角色状态未装载时整段 N/A，绝不按空集判漂移。
+
+### Changed
+
+- **冗余 A 级精简**：删除 `src/lib/novel/token-estimator.ts`（仅 spec 引用的别名，唯一估算口径已是 `context-compact.estimateCompactTokens`）与 `src/lib/novel/mod.ts`（旧 barrel，boundaries 真源为 `index.ts`），同步移除 `scripts/verify-niko-buddy-audit-fast.mjs` 中的失效条目。
+- **i18n**：新增 `reviewCenter.craftTabs.styleRadar`（zh/en 键集保持一致）。
+
 ## [2.17.1] - 2026-10-18
 
 ### Added

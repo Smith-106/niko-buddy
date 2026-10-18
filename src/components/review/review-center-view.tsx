@@ -10,6 +10,8 @@ import { PlotgridView } from "@/components/novel/plotgrid-view"
 import { TimelineView } from "@/components/novel/timeline-view"
 import { ArcWorkbench } from "@/components/novel/craft/arc-workbench"
 import { ThrillDashboard } from "@/components/novel/craft/thrill-dashboard"
+import { StyleRadarPanel } from "@/components/novel/style-radar-panel"
+import { loadStyleRadarInput } from "@/lib/novel"
 import { TechniquePanel } from "@/components/novel/craft/technique-panel"
 import { WishDrive } from "@/components/novel/wish-drive"
 import type { WishDriveProfile } from "@/components/novel/wish-drive"
@@ -36,13 +38,14 @@ const STORYBOARD_TABS: Array<{ key: StoryboardTab; labelKey: string }> = [
 // F8 (Round-8 断链修复): + wish-drive 卡文引导 tab（F-27/T29b 装配可见；props-DI + null 空态安全，
 //   数据源走 canon_query_batch motivation/arc 边投影→WishDriveProfile；零 IO/零 invoke 由 canon-editor-client 承载，
 //   本组件只做只读投影映射；关闭/空数据时零行为变化）。
-type CraftTab = "arc-workbench" | "thrill-dashboard" | "technique-panel" | "wish-drive"
+type CraftTab = "arc-workbench" | "thrill-dashboard" | "technique-panel" | "wish-drive" | "style-radar"
 
 const CRAFT_TABS: Array<{ key: CraftTab; labelKey: string }> = [
   { key: "arc-workbench", labelKey: "reviewCenter.craftTabs.arcWorkbench" },
   { key: "thrill-dashboard", labelKey: "reviewCenter.craftTabs.thrillDashboard" },
   { key: "technique-panel", labelKey: "reviewCenter.craftTabs.techniquePanel" },
   { key: "wish-drive", labelKey: "reviewCenter.craftTabs.wishDrive" },
+  { key: "style-radar", labelKey: "reviewCenter.craftTabs.styleRadar" },
 ]
 
 export interface WishDriveEdgeProjection {
@@ -84,6 +87,7 @@ export function ReviewCenterView() {
   // F8 wish-drive 数据源：切到卡文引导 tab 时懒取 motivation/arc 边（只读 batch 单 invoke；
   // 失败→空数组→WishDrive 空态，不拦面板与其余 tab；projectId 口径与 CanonEditor 一致用 project.id）。
   const wishProjectId = useWikiStore((s) => s.project?.id ?? "")
+  const radarProjectPath = useWikiStore((s) => s.project?.path ?? "")
   const [wishEdges, setWishEdges] = useState<WishDriveEdgeProjection[] | null>(null)
   useEffect(() => {
     if (!craftOpen || craftTab !== "wish-drive" || wishEdges !== null || !wishProjectId) return
@@ -237,6 +241,11 @@ export function ReviewCenterView() {
             {craftTab === "thrill-dashboard" && <ThrillDashboard />}
             {craftTab === "technique-panel" && <TechniquePanel />}
             {craftTab === "wish-drive" && <WishDrive profile={wishProfile} />}
+            {craftTab === "style-radar" && (
+              <StyleRadarPanel
+                loader={() => (radarProjectPath ? loadStyleRadarInput(radarProjectPath) : Promise.resolve(null))}
+              />
+            )}
           </div>
         </aside>
       )}

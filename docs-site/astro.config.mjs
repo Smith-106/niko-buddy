@@ -31,6 +31,7 @@ export default defineConfig({
             { label: '拆书库', link: '/features/book-analysis/' },
             { label: '运动热力图', link: '/features/module-heatmap/' },
             { label: '主控 Agent', link: '/features/main-control/' },
+            { label: '动态热力 · 风格雷达 · 资产联动', link: '/features/observability-v2180/' },
             { label: '审查系统', link: '/features/review/' },
             { label: '连续性引擎', link: '/features/continuity-engine/' },
             { label: '图谱', link: '/features/graph/' },

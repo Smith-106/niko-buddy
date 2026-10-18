@@ -15,7 +15,6 @@ const FILES = [
   "src/lib/novel/foreshadowing-cleanup.spec.ts",
   "src/lib/novel/outline-wizard-core.spec.ts",
   "src/lib/novel/session-summary.spec.ts",
-  "src/lib/novel/token-estimator.spec.ts",
 ]
 
 execFileSync("npx", ["vitest", "run", ...FILES, "--reporter=json", `--outputFile=${OUT}`], {

@@ -15,6 +15,26 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.18.0",
+    date: "2026-10-18",
+    highlights: {
+      en: [
+        "Work heat map (live): stage x time-bucket aggregation of .novel/status.json stage_metrics — token and latency stay null when missing, undated entries get their own column, and three faces are explicitly N/A (chapter axis, event stream, quality score).",
+        "Style & rhythm radar: the six radii are mechanical proxies (0-100) from the existing self-assessment scorer; the nine free-text style dimensions are shown as text only, and outline pressure/emotion (1-5 / 1-10) stay off the chart because the scale differs.",
+        "Asset linkage audit (read-only): recomputed relationship hash vs artifact contentHash drift, snapshot relationship facts not yet folded into character state (endpoint match plus real text overlap, so same-names-different-story is not counted as folded), and optional wiki graph edge missing/unbacked reconciliation.",
+        "Honest empties: no chapter text means no radar, no loaded character state means N/A instead of drift, and a failing telemetry poll keeps the last good snapshot with an explicit error row.",
+        "Redundancy cleanup (A-level): removed the token-estimator alias and the legacy mod.ts barrel; the single estimation path is context-compact.estimateCompactTokens and the boundaries source stays index.ts.",
+      ],
+      zh: [
+        "动态工作热力图（进行中）：按「阶段 × 时间桶」聚合 .novel/status.json 的 stage_metrics；token / 耗时缺值保持 null，无时间戳条目单列，三条明确 N/A（章节轴、事件流、质量分）。",
+        "风格 / 节奏雷达：六条半径来自既有自评估机械打分器（0–100，代理指标）；九个自由文本风格维度只以文本呈现，卷纲压力级/情绪强度（1–5 / 1–10）因量纲不同不叠进图。",
+        "资产联动一致性（只读）：角色状态复算 hash 与产物 contentHash 的陈旧比对、快照关系事实是否已回填角色状态（要求端点同名且有实质文本重叠，避免同名不同事误判）、图谱边缺失/无据的可选对账。",
+        "诚实空态：没有正文就不画雷达；角色状态未装载报 N/A 而不是判漂移；遥测轮询失败保留上次数据并显式报错。",
+        "冗余 A 级精简：删除 token-estimator 别名与旧 barrel mod.ts；唯一估算口径为 context-compact.estimateCompactTokens，boundaries 真源仍是 index.ts。",
+      ],
+    },
+  },
+  {
     version: "2.17.1",
     date: "2026-10-18",
     highlights: {

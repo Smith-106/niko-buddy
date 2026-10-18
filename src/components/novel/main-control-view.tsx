@@ -20,6 +20,7 @@ import { DEFAULT_AI_WORKFLOW_MODE } from "@/lib/agent/workflow-mode"
 import { cn } from "@/lib/utils"
 import { ChapterDirectory } from "./chapter-directory"
 import { ForeshadowingPanel } from "./foreshadowing-panel"
+import { WorkHeatmapPanel } from "./work-heatmap-panel"
 
 export interface MainControlViewProps {
   /** 项目 id（与其它视图签名一致；路径取 store 里的 project.path）。 */
@@ -352,6 +353,12 @@ export function MainControlView(_props: MainControlViewProps = {}) {
 
       <div className="rounded-lg border p-2" data-testid="main-control-foreshadowing">
         <ForeshadowingPanel />
+      </div>
+
+      {/* 动态工作热力图：实时看「跑到哪个阶段 / 卡在哪 / 每阶段烧了多少」，
+          真源是 status.json 的 stage_metrics；不再多开一页。 */}
+      <div className="rounded-lg border p-2" data-testid="main-control-work-heatmap">
+        <WorkHeatmapPanel />
       </div>
 
       {result?.finalText ? (

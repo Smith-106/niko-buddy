@@ -20,7 +20,7 @@ import { createWatchdog, feedToken, pollWatchdog, type WatchdogState } from "./w
  *   - **熔断器**：压缩连续失败（仍超预算）达阈值自动跳过并显式告警，
  *     半开模式下轮重试（复用 watchdog.ts 语义：连续失败计数 + 半开探测位）。
  *   - **CJK Token 估算**：中文按 runes×1.5（与 contextPackToPrompt 同源
- *     口径；token-estimator.ts 反向沿用本函数，防双口径漂移）。
+ *     口径；旧 token-estimator.ts 别名已删（A1），本函数是唯一估算口径）。
  *
  * ## P0 硬护栏
  *   1. **protected 段永不压缩**：canonRules / hardInject / task / outline /

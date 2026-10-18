@@ -1360,3 +1360,55 @@ export type {
   AgentStudioSettingRow,
   AgentStudioSettingStatus,
 } from "./agent-studio-projection"
+
+// ── 动态工作热力图（阶段 × 时间，只读投影）──
+export {
+  WORK_HEATMAP_DEFAULT_BUCKET_MS,
+  WORK_HEATMAP_MAX_BUCKETS,
+  WORK_HEATMAP_NOT_APPLICABLE,
+  parseTimestamp,
+  projectWorkHeatmap,
+  toWorkHeatmapInput,
+} from "./work-heatmap-projection"
+export type {
+  WorkHeatmapBucket,
+  WorkHeatmapCell,
+  WorkHeatmapInput,
+  WorkHeatmapLoader,
+  WorkHeatmapOptions,
+  WorkHeatmapProgress,
+  WorkHeatmapProjection,
+  WorkHeatmapRow,
+} from "./work-heatmap-projection"
+
+// ── 风格 / 节奏雷达（只读投影 + 几何）──
+export {
+  STYLE_RADAR_NOT_APPLICABLE,
+  projectStyleRadar,
+  radarPoints,
+  toPointsAttr,
+} from "./style-radar-projection"
+export {
+  loadStyleRadarInput,
+  chapterDraftPath,
+  parseOutlinePositionBullets,
+} from "./style-radar-loader"
+export type {
+  StyleRadarAxis,
+  StyleRadarInput,
+  StyleRadarLoader,
+  StyleRadarProjection,
+  StyleRadarTarget,
+} from "./style-radar-projection"
+
+// ── 资产联动一致性（只读诊断）──
+export { auditAssetLinkage } from "./asset-linkage-audit"
+export type {
+  AssetLinkageAuditInput,
+  LinkageArtifactDigest,
+  AssetLinkageAuditResult,
+  LinkageCharacter,
+  LinkageConflict,
+  LinkageConflictCode,
+  LinkageSnapshotRelationLine,
+} from "./asset-linkage-audit"

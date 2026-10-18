@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.17.1-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.18.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -50,7 +50,21 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 <img width="1239" height="883" alt="image" src="https://github.com/user-attachments/assets/076740be-85ef-4503-842d-565c367aebdc" />
 <img width="1201" height="832" alt="image" src="https://github.com/user-attachments/assets/57936132-45b2-4fed-8c80-2c9282fedbf5" />
 
-## v2.17.1 新增能力
+## v2.18.0 新增能力
+
+### 三张「如实」的图：动态热力、风格节奏、资产联动
+
+这一批的共同原则是**不造假**：缺真源就写 N/A，不把缺失画成 0，不拿代理指标冒充质量结论。
+
+- **动态工作热力图（进行中）**：真实写作时最想知道的是「跑到哪一步、卡在哪、每阶段烧了多少」。真源是 `.novel/status.json` 的 `stage_metrics`，按「阶段 × 时间桶」聚合 token / 耗时 / partial 计数。投影层是纯函数（时间由调用方注入），无时间戳条目单列 `undated`，超窗口条目计入 `foldedCount`；token / 耗时缺值保持 `null` 而不是 0；页面可见时 5s 轮询、隐藏时暂停、失败保留上次数据并显式报错。三条明确 N/A：无章节轴（`chapterId` 多数无值）、不是实时事件流（status.json 只有聚合）、无质量分真源。
+- **风格 / 节奏雷达**：`BookStyleProfile` 的九个风格维度都是自由文本，没有有限数值范围——把它们编成半径就是造假，所以它们只以「目标风格（无数值）」文本列表出现在雷达旁边。半径只放六项**机械代理指标**（篇幅 / 对话节奏 / 段落节奏 / 句式变化 / 场景分段 / 开篇钩子，0–100，来自既有自评估打分器），面板标题与图例都写明「代理指标，不是文学评分」。卷纲定位的压力级 1–5 / 情绪强度 1–10 是另一套量纲，单独用数字卡片展示，不叠进图。没有正文就不画雷达。
+- **资产联动一致性（只读诊断）**：资产产物是带 `contentHash` 的不可变快照，自动改写会破坏守恒口径，所以这里只比对、只列清单：角色状态复算 hash 与产物 hash 是否陈旧、快照记录的关系变更是否已回填角色状态（要求端点同名**且**关系文本有实质重叠，避免「同名不同事」被误判成已回填）、以及可选的图谱边缺失/无据对账。关系语义一律 `unknown`，不猜种类；角色状态未装载时整段 N/A，绝不按空集判漂移。
+
+### 冗余 A 级精简
+
+删掉 `token-estimator.ts`（只被自己的 spec 引用的别名，唯一估算口径本就是 `context-compact.estimateCompactTokens`）与 `mod.ts`（旧 barrel，boundaries 真源是 `index.ts`）。
+
+## v2.17.1 历史能力
 
 ### 运动热力图：看得见的写作主链
 
@@ -78,7 +92,8 @@ Draft-first 是硬边界：白名单只有只读工具 + `write_chapter(draftMod
 
 | 波次 | 版本 | 能力 | 核心交付 |
 |---|---|---|---|
-| — | **v2.17.1** | **运动热力图 + 主控 Agent + 质量自主迭代 + 轨迹证据** | 模块接线地图（1021 模块 / 泳道分类 / orphan 识别，gen:check 字节门禁）+ 运行遥测（注入式 sink / 节流落盘）+ 热力图视图（下钻 / 未接线清单）+ 主控 Agent（只读取证 + 草稿产出）+ 六维质量闭环（中位 ≥9.0 / 3 轮 / 无提升即停保留最佳稿）+ 运行轨迹与工具证据回放（stable，2026-10-18） |
+| — | **v2.18.0** | **动态工作热力图 + 风格/节奏雷达 + 资产联动诊断** | 阶段×时间桶热力（缺值 null / undated 单列 / 三条 N/A / 5s 轮询失败保留旧数据）+ 六轴机械代理雷达（自由文本风格维度不进半径 / 目标节奏不叠量纲 / 无正文不画）+ 资产联动只读比对（产物 hash 陈旧 / 快照关系未回填 / 图谱边缺多，绝不自动改写产物）+ 冗余 A 级精简（删别名与旧桶）（stable，2026-10-18） |
+| — | v2.17.1 | **运动热力图 + 主控 Agent + 质量自主迭代 + 轨迹证据** | 模块接线地图（1021 模块 / 泳道分类 / orphan 识别，gen:check 字节门禁）+ 运行遥测（注入式 sink / 节流落盘）+ 热力图视图（下钻 / 未接线清单）+ 主控 Agent（只读取证 + 草稿产出）+ 六维质量闭环（中位 ≥9.0 / 3 轮 / 无提升即停保留最佳稿）+ 运行轨迹与工具证据回放（stable，2026-10-18） |
 | — | v2.17.0 | 工程治理 + 导航/命令面板 + 门控体验 + 安全入口 | 命令面板与导航真源/门控错误态与可用性降级/secret-client 密钥唯一入口/巨文件拆分（deep-chapter 2917→1249、context-engine 2426→1456）/检索公共层/docs 结构索引 （stable，2026-10-17） |
 | — | v2.16.0 | 自动化闭环H1/H4/H2-H3+G/H契约层 | 无头驱动器+巡航仲裁接线+弧末结算契约+晋升收拢+结构化记忆（stable，2026-10-16） |
 | — | v2.15.1 | UI柔化收纳 + 管线 R1-R3 + AI自检可见化 + #208 E2E 修复 | UI柔化收纳/管线R1-R3/AI自检可见化 + #208 E2E修复（stable，2026-10-15） |
