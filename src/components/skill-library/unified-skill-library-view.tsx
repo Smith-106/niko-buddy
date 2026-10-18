@@ -5,6 +5,7 @@ import { Star } from "lucide-react"
 import { readFile } from "@/commands/fs"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
+import { AgentCapabilityMatrixPanel } from "@/components/novel/agent-capability-matrix-panel"
 import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { createBlankProjectDeAiSkill, getAllDeAiSkills, loadDeAiSkillConfig, normalizeDeAiSkillConfig, saveDeAiSkillConfig, createBlankWritingSkill, importSkillFromJson, importWritingSkill, loadUserSkillConfig, normalizeUserSkillConfig, saveUserSkillConfig } from "@/lib/novel"
 import { SKILL_KIND_LABELS, type DeAiSkill, type SkillKind, type UserSkill } from "@/lib/novel"
@@ -393,6 +394,24 @@ export function UnifiedSkillLibrarySidebarPanel() {
     if (skillPage > skillPageCount - 1) setSkillPage(0)
   }, [skillPage, skillPageCount])
 
+  // Agent 能力矩阵：技能侧取**当前筛选结果**（跟着搜索/分类走，不越过筛选另列全库）；
+  // 角色侧用这些技能覆盖到的 kinds 推导，不臆造角色表：没有维度就没有角色，
+  // 面板会写 N/A 而不是给空矩阵下结论。
+  const capabilityInput = useMemo(() => {
+    const skills = filteredEntries.map((entry) => ({
+      name: entry.name,
+      description: entry.description,
+      kinds: entry.kinds,
+    }))
+    const kinds = [...new Set(filteredEntries.flatMap((entry) => entry.kinds))].sort()
+    const roles = kinds.map((kind) => ({
+      id: `kind-${kind}`,
+      label: SKILL_KIND_LABELS[kind] ?? kind,
+      kinds: [kind],
+    }))
+    return { skills, roles }
+  }, [filteredEntries])
+
   function handleSelectEntry(entry: UnifiedSkillEntry) {
     if (entry.type === "writing") {
       setSelectedWritingSkillId(entry.sourceId)
@@ -440,6 +459,15 @@ export function UnifiedSkillLibrarySidebarPanel() {
       {loadError ? (
         <div className="border-b px-3 py-2 text-xs text-muted-foreground">{loadError}</div>
       ) : null}
+      {/* 矩阵默认折叠：侧栏空间有限，展开才看细节（避免把技能列表挤没）。 */}
+      <details className="shrink-0 border-b px-3 py-2" data-testid="unified-skill-capability">
+        <summary className="cursor-pointer text-xs text-muted-foreground">
+          Agent 能力矩阵（角色 × 技能）
+        </summary>
+        <div className="mt-2">
+          <AgentCapabilityMatrixPanel input={capabilityInput} />
+        </div>
+      </details>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {filteredEntries.length === 0 ? (
           <div className="rounded-md border border-dashed p-3 text-xs leading-5 text-muted-foreground">

@@ -6,7 +6,19 @@
       "reason": "fix-forward：修复 v2.17.0 遗留的 release 门禁缺陷（gen-module-atlas 跨环境字节漂移导致 Generated artifacts check 失败，tag 构建无法产出资产），属更新链路修复类补救发布；用户于 2026-10-18 明确批准登记豁免。",
       "approvedBy": "user",
       "approvedAt": "2026-10-18",
-      "scope": ["weekly-stable", "thirty-day-stable"]
+      "scope": [
+        "weekly-stable",
+        "thirty-day-stable"
+      ]
+    },
+    {
+      "tag": "v2.18.0",
+      "reason": "用户明确批准登记豁免（2026-10-19 会话决策）：v2.18.0 为门禁全绿的功能发布（动态工作热力/风格节奏雷达/资产联动与提取缺口/Agent 能力矩阵/冗余精简），发版当日本地四道硬门 + 全量 1169 files / 15214 tests 全绿；近 30 天 stable 计数超出上限属既有高频发布节奏所致，非跳过门禁。",
+      "approvedBy": "user",
+      "approvedAt": "2026-10-19",
+      "scope": [
+        "thirty-day-stable"
+      ]
     }
   ]
 }

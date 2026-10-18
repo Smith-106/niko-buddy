@@ -23,6 +23,8 @@ export const ENTRIES: ChangelogEntry[] = [
         "Style & rhythm radar: the six radii are mechanical proxies (0-100) from the existing self-assessment scorer; the nine free-text style dimensions are shown as text only, and outline pressure/emotion (1-5 / 1-10) stay off the chart because the scale differs.",
         "Asset linkage audit (read-only): recomputed relationship hash vs artifact contentHash drift, snapshot relationship facts not yet folded into character state (endpoint match plus real text overlap, so same-names-different-story is not counted as folded), and optional wiki graph edge missing/unbacked reconciliation.",
         "Honest empties: no chapter text means no radar, no loaded character state means N/A instead of drift, and a failing telemetry poll keeps the last good snapshot with an explicit error row.",
+        "Agent capability matrix (read-only): role requirements intersected with the kinds/stages the skill library already declares, so \"which skills does this agent need\" becomes a table with explicit gaps, unused-skill candidates, and N/A when the library is not loaded.",
+        "Asset extraction gaps (read-only): wiki character entities that appear in the current chapter but are missing from character state, plus co-occurring pairs with no relationship entry — each with a text snippet and a draft proposal you paste into the draft area; world/scene stays N/A because there is no structured source.",
         "Redundancy cleanup (A-level): removed the token-estimator alias, so context-compact.estimateCompactTokens is the single estimation path. The mod.ts main-chain barrel stays as the ADR-34 firewall.",
       ],
       zh: [
@@ -30,6 +32,8 @@ export const ENTRIES: ChangelogEntry[] = [
         "风格 / 节奏雷达：六条半径来自既有自评估机械打分器（0–100，代理指标）；九个自由文本风格维度只以文本呈现，卷纲压力级/情绪强度（1–5 / 1–10）因量纲不同不叠进图。",
         "资产联动一致性（只读）：角色状态复算 hash 与产物 contentHash 的陈旧比对、快照关系事实是否已回填角色状态（要求端点同名且有实质文本重叠，避免同名不同事误判）、图谱边缺失/无据的可选对账。",
         "诚实空态：没有正文就不画雷达；角色状态未装载报 N/A 而不是判漂移；遥测轮询失败保留上次数据并显式报错。",
+        "Agent 能力矩阵（只读）：把角色需要的能力与技能库既有的 kinds/stages 取交集，让「这个 agent 该配哪些技能」变成有缺口、有冗余候选的表；技能库未装载时整段 N/A。",
+        "资产提取缺口（只读）：正文出现但角色状态里没有的 wiki 人物实体、同句出现却没有关系条目的两人，逐条给证据片段与可粘去草稿区的补充建议；世界构建/场景无结构化真源一律 N/A。",
         "冗余 A 级精简：删除 token-estimator 别名，估算口径唯一为 context-compact.estimateCompactTokens；mod.ts 主链 barrel 作为 ADR-34 防火墙保留。",
       ],
     },

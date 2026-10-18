@@ -19,11 +19,17 @@
 
 import { useEffect, useState } from "react"
 import { CheckCircle2, AlertTriangle, Database, Loader2, Lock } from "lucide-react"
+import { readFile } from "@/commands/fs"
+
+import { AssetExtractionGapPanel } from "./asset-extraction-gap-panel"
 import { AssetLinkagePanel } from "./asset-linkage-panel"
 import {
   LIBRARY_IDS,
   loadAllAssetLibrarySnapshots,
+  chapterDraftPath,
   loadCharacterStates,
+  loadNovelSessionStatus,
+  listBindableNovelCharacters,
   migrateRelationshipLibrary,
   type AssetLibrarySnapshot,
   type CharacterState,
@@ -108,6 +114,42 @@ export function AssetLibraryView({ projectPath, snapshots, deps, migrateRelation
     }
   }, [projectPath])
 
+  // 提取缺口（续写/拆书）：需要当前章正文 + wiki 人物实体名。
+  // 两者都单列「是否已装载」，读失败保持 false → 面板整段 N/A，不当作「没有缺口」。
+  const [extraction, setExtraction] = useState<{
+    chapterNumber: number | null
+    chapterText: string
+    wikiCharacterNames: readonly string[]
+    wikiLoaded: boolean
+  }>({ chapterNumber: null, chapterText: "", wikiCharacterNames: [], wikiLoaded: false })
+  useEffect(() => {
+    if (!projectPath) {
+      setExtraction({ chapterNumber: null, chapterText: "", wikiCharacterNames: [], wikiLoaded: false })
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const status = await loadNovelSessionStatus(projectPath).catch(() => null)
+      const raw = status?.current_task?.chapter_number
+      const chapterNumber = typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null
+      const chapterText =
+        chapterNumber === null
+          ? ""
+          : await readFile(chapterDraftPath(projectPath, chapterNumber)).catch(() => "")
+      const wikiCharacterNames = await listBindableNovelCharacters(projectPath).catch(() => null)
+      if (cancelled) return
+      setExtraction({
+        chapterNumber,
+        chapterText,
+        wikiCharacterNames: wikiCharacterNames ?? [],
+        wikiLoaded: wikiCharacterNames !== null,
+      })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [projectPath])
+
   const [migrateState, setMigrateState] = useState<{
     status: "written" | "noop" | "conflict" | "empty"
     entryCount: number
@@ -178,6 +220,17 @@ export function AssetLibraryView({ projectPath, snapshots, deps, migrateRelation
           relationshipArtifact: relationshipArtifactDigest,
           // 本页不装载快照：不传该字段 = 「未检查」；传 [] 会被当成「已装载且零条关系变更」。
           snapshotRelationLines: undefined,
+        }}
+      />
+      {/* 提取缺口：正文出现但资产没接的人物/关系 → 只列清单 + 草稿建议，不写盘。 */}
+      <AssetExtractionGapPanel
+        input={{
+          chapterNumber: extraction.chapterNumber,
+          chapterText: extraction.chapterText,
+          characters: characters ?? [],
+          charactersLoaded: characters !== null,
+          wikiCharacterNames: extraction.wikiCharacterNames,
+          wikiLoaded: extraction.wikiLoaded,
         }}
       />
       {loading ? (

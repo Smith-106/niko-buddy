@@ -1401,6 +1401,26 @@ export type {
   StyleRadarTarget,
 } from "./style-radar-projection"
 
+// ── Agent 能力矩阵（角色 × 技能，只读诊断）──
+export { projectAgentCapabilityMatrix, roleRequirementsFromDimensions } from "./agent-capability-matrix"
+export type {
+  AgentCapabilityMatrixInput,
+  AgentCapabilityMatrixProjection,
+  AgentCapabilityMatrixRow,
+  CapabilityRole,
+  CapabilitySkill,
+} from "./agent-capability-matrix"
+
+// ── 资产提取缺口（续写/拆书共用，只读诊断）──
+export { detectAssetExtractionGaps } from "./asset-extraction-gap"
+export type {
+  ExtractionCharacter,
+  ExtractionGap,
+  ExtractionGapInput,
+  ExtractionGapProjection,
+  ExtractionProposal,
+} from "./asset-extraction-gap"
+
 // ── 资产联动一致性（只读诊断）──
 export { auditAssetLinkage } from "./asset-linkage-audit"
 export type {
