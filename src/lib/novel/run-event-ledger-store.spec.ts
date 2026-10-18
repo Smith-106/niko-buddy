@@ -145,3 +145,45 @@ describe("createFsRunEventLedgerStoreDeps（默认 deps 结构守卫）", () => 
     expect(missing).toBeNull()
   })
 })
+describe("并发写入回归（grok-4.7 BLOCK 修）：锁内分配 seq/eventId", () => {
+  it("两方并发 appendRunEventsToStore（生产锁内路径）→ 账本 load 成功且 seq/eventId 唯一", async () => {
+    // 模拟生产 deps：appendTextLocked 内串行化（等价 withProjectLock），
+    // 并刻意让「锁外读取」看到陈旧长度，复现原缺陷的触发条件。
+    let file = ""
+    let lock: Promise<void> = Promise.resolve()
+    const withLock = async <T,>(fn: () => Promise<T>): Promise<T> => {
+      const run = lock.then(fn, fn)
+      lock = run.then(() => undefined, () => undefined)
+      return run
+    }
+    const deps: RunEventLedgerStoreDeps = {
+      readText: async () => file,
+      appendText: async (_path, text) => {
+        await withLock(async () => {
+          file += text
+        })
+      },
+      ensureDir: async () => {},
+      appendTextLocked: async (_path, buildChunk) => {
+        await withLock(async () => {
+          file += buildChunk(file)
+        })
+      },
+    }
+    const event = (gate: string) => ({
+      ts: "2026-10-18T00:00:00.000Z",
+      kind: "gate-run" as const,
+      actor: "system" as const,
+      payload: { gate, status: "pass" as const },
+    })
+    await Promise.all([
+      appendRunEventsToStore(deps, "/p", [event("consistency")]),
+      appendRunEventsToStore(deps, "/p", [event("anti_ai")]),
+    ])
+    const ledger = await loadRunEventLedgerStore(deps, "/p")
+    expect(ledger.events).toHaveLength(2)
+    expect(new Set(ledger.events.map((e) => e.seq)).size).toBe(2)
+    expect(new Set(ledger.events.map((e) => e.eventId)).size).toBe(2)
+    expect(ledger.events.map((e) => e.seq)).toEqual([0, 1])
+  })
+})

@@ -52,6 +52,12 @@ export interface RunEventLedgerStoreDeps {
   appendText: (path: string, text: string) => Promise<void>
   /** 可选目录创建（首写前调用，缺省不建）。 */
   ensureDir?: (dir: string) => Promise<void>
+  /**
+   * 可选**锁内**追加：在项目锁内执行 buildChunk(现有全文) 并把返回块写盘。
+   * 提供后 appendRunEventsToStore 的 seq/eventId 分配也在锁内完成——共识多模型
+   * 并行写章节时不会两方拿到同一账本长度而撞 seq。
+   */
+  appendTextLocked?: (path: string, buildChunk: (existing: string) => string) => Promise<void>
 }
 
 /** 默认生产 deps：Tauri fs 直 invoke；追加 = withProjectLock 内读+原子写。 */
@@ -77,6 +83,18 @@ export function createFsRunEventLedgerStoreDeps(): RunEventLedgerStoreDeps {
       })
     },
     ensureDir: (dir) => createDirectory(dir),
+    // 锁内读+分配 seq+写：并发写作时 seq/eventId 不会重号（单写者假设不再依赖调用方）。
+    appendTextLocked: async (path, buildChunk) => {
+      await withProjectLock(`run-events:${path}`, async () => {
+        let existing = ""
+        try {
+          existing = await readFile(path)
+        } catch {
+          existing = ""
+        }
+        await writeFileAtomic(path, existing + buildChunk(existing))
+      })
+    },
   }
 }
 
@@ -101,11 +119,8 @@ export class RunEventLedgerStoreError extends RunEventLedgerError {
  * 解析 + RUN_EVENT_SCHEMA 校验 + appendRunEvent 逐条重建（seq 单调/eventId
  * 唯一复用账本校验）；损坏行抛 StoreError 含行号——不静默丢事件。
  */
-export async function loadRunEventLedgerStore(
-  deps: RunEventLedgerStoreDeps,
-  projectPath: string,
-): Promise<RunEventLedger> {
-  const raw = await deps.readText(runEventsPath(projectPath))
+/** 全文 → 账本（缺失/空 → 空账本；损坏行 fail-loud 含行号）。load 与锁内追加共用同一解析。 */
+function parseLedgerText(raw: string | null): RunEventLedger {
   if (raw === null || raw.length === 0) return createRunEventLedger()
   let ledger = createRunEventLedger()
   const lines = raw.split("\n")
@@ -127,6 +142,14 @@ export async function loadRunEventLedgerStore(
     }
   }
   return ledger
+}
+
+export async function loadRunEventLedgerStore(
+  deps: RunEventLedgerStoreDeps,
+  projectPath: string,
+): Promise<RunEventLedger> {
+  const raw = await deps.readText(runEventsPath(projectPath))
+  return parseLedgerText(raw)
 }
 
 // ============================================================================
@@ -162,6 +185,28 @@ export async function appendRunEventsToStore(
   projectPath: string,
   events: readonly RunEventAppendInput[],
 ): Promise<RunEventLedger> {
+  // 并发安全路径：seq/eventId 在**文件锁内**基于最新账本分配。
+  // 共识多模型并行写章节时，若在锁外分配，两方会拿到同一长度 N 并写出重复
+  // seq/eventId，下一次 load 直接抛错（首页证据区整页退成「未评估」）。
+  if (deps.appendTextLocked) {
+    const path = runEventsPath(projectPath)
+    if (deps.ensureDir) await deps.ensureDir(path.slice(0, path.lastIndexOf("/")))
+    let committed = createRunEventLedger()
+    await deps.appendTextLocked(path, (existing) => {
+      const base = parseLedgerText(existing)
+      const prepared: RunEventInput[] = []
+      for (let i = 0; i < events.length; i += 1) {
+        const event = events[i] as RunEventAppendInput
+        const seq = base.events.length + prepared.length
+        const eventId = event.eventId ?? `${event.kind}:${seq}`
+        prepared.push({ ...event, seq, eventId } as RunEventInput)
+      }
+      const next = appendRunEvents(base, prepared)
+      committed = next
+      return next.events.slice(base.events.length).map(serializeEventLine).join("")
+    })
+    return committed
+  }
   const ledger = await loadRunEventLedgerStore(deps, projectPath)
   const prepared: RunEventInput[] = []
   for (let i = 0; i < events.length; i += 1) {

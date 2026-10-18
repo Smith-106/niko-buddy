@@ -42,6 +42,7 @@ const GraphView = lazy(async () => {
 const StorySimulationView = lazy(() => import("@/components/novel/story-simulation/story-simulation-view").then((m) => ({ default: m.StorySimulationView })))
 const UnifiedSkillLibraryView = lazy(() => import("@/components/skill-library/unified-skill-library-view").then((m) => ({ default: m.UnifiedSkillLibraryView })))
 const DataManagerView = lazy(() => import("@/components/novel/data-manager-view").then((m) => ({ default: m.DataManagerView })))
+const AssetLibraryView = lazy(() => import("@/components/novel/asset-library-view").then((m) => ({ default: m.AssetLibraryView })))
 const WorkbenchView = lazy(() => import("./workbench-view").then((m) => ({ default: m.WorkbenchView })))
 const SoulView = lazy(async () => {
   const mod = await import("@/components/novel/soul-view")
@@ -228,6 +229,15 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <DataManagerView />
+          </Suspense>
+        )
+        break
+      case "knowledgeLibrary":
+        // 资产库可视化（5 库 · 守恒/健康/只读）：数据源 .novel/asset-library/<库>.json，
+        // 零新真源、纯只读；未生成显式空态（不造条目）。
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <AssetLibraryView projectPath={projectPath} />
           </Suspense>
         )
         break

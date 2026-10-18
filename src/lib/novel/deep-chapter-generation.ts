@@ -15,6 +15,7 @@ import {
 import {  } from "./novel-skill-hooks"
 import type { TaskRouteResult } from "./task-router"
 import { formatStageThinking } from "./chapter-utils"
+import { recordChapterGateEvidence, type ChapterGateEvidenceDeps } from "./deep-chapter-gate-evidence"
 import { formatNormalize } from "./format-normalizer"
 import { resolveDeAiGenre } from "./genre-codes"
 import type { GoldenThreeChapterRequest } from "./golden-three-chapters"
@@ -249,6 +250,11 @@ export interface DeepChapterGenerationDeps {
     signal?: AbortSignal,
     requestOverrides?: RequestOverrides,
   ) => Promise<void>
+  /**
+   * 三门证据落账注入（write / continue / rewrite / polish / resume 共用同一
+   * 写入口）。缺省 → 生产 fs 账本；测试注入内存实现，非致命失败不影响正文。
+   */
+  gateEvidence?: ChapterGateEvidenceDeps
 }
 
 const defaultDeps: DeepChapterGenerationDeps = {
@@ -923,6 +929,21 @@ export async function runDeepChapterGeneration(
     ...stateDeltaReviewResults,
     ...stage45.reviewResults,
   ]
+  // 三门证据落账（write/continue/rewrite/polish/resume 共用同一路径）：
+  // 不落证据 → 首页证据看板恒「未评估」，且「续写是否与从头写同一套门」无从审计。
+  // recordChapterGateEvidence 自身非致命（IO 失败只回 error，不抛）。
+  await recordChapterGateEvidence(
+    {
+      projectPath: input.projectPath,
+      decisionGates: stage45.decisionGates,
+      retryCount: stage45.retryCount,
+      chapterNumber: input.chapterNumber,
+      modelId: writingConfig.model,
+      llmMediated: Boolean((novelConfig as { deepChapterReview?: boolean }).deepChapterReview),
+      intent: input.resumeCheckpoint ? "resume" : undefined,
+    },
+    deps.gateEvidence,
+  )
   if (stage45.manualHandoff) {
     callbacks.onFinalContent?.(stage45.currentContent)
     // DEBT-20260822-t34-wiring: run-end flush of pending status writes.

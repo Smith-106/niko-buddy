@@ -38,6 +38,8 @@ import {
 } from "@/lib/diagnostics/diagnostic-bundle"
 import { loadExportHistoryView, type ExportHistoryViewEntry } from "@/lib/export/export-history-view"
 import { loadNovelSessionStatus } from "@/lib/novel"
+import { KbHealthView } from "./kb-health-view"
+import { collectKbMetricsLive, type KbMetrics } from "@/lib/novel"
 
 // ── 展示文案（直书中文，零 i18n 键） ─────────────────────────────────────────
 
@@ -88,6 +90,8 @@ export interface DiagnosticsCenterProps {
   onRecover: (itemId: string, actionId: string) => void
   onPreviewBundle: () => void
   onExportBundle: () => void
+  /** KB/记忆健康 6 指标快照（缺源项 value=null 显式 N/A）；缺省不渲染该面板。 */
+  kbMetrics?: KbMetrics | null
 }
 
 function HealthItemRow({
@@ -331,6 +335,17 @@ export function DiagnosticsCenter(props: DiagnosticsCenterProps) {
       >
         总体{HEALTH_STATUS_ZH[report.overall]} · {report.items.length} 项 · {report.checkedAt}
       </p>
+      {/* KB/记忆健康 6 指标（GOV-OBS-01）：数据源 collectKbMetricsLive，缺源显式 N/A，
+          绝不伪造数值。metrics 缺省（未拿到项目路径/未装载）→ 不渲染，避免假面板。 */}
+      {props.kbMetrics ? (
+        <>
+          <h3 className="flex items-center gap-1 text-sm font-semibold text-foreground">
+            <FileSearch className="h-4 w-4" />
+            知识库与记忆健康（6 指标）
+          </h3>
+          <KbHealthView metrics={props.kbMetrics} />
+        </>
+      ) : null}
       {props.recoverNote ? (
         <p data-testid="recover-note" role="status" className="flex items-center gap-1 text-xs text-foreground">
           <CheckCircle2 className="h-3 w-3" />
@@ -394,6 +409,9 @@ export function DiagnosticsCenterView() {
   const [recovering, setRecovering] = useState<string | null>(null)
   const [recoverNote, setRecoverNote] = useState<string | null>(null)
   const [bundleNote, setBundleNote] = useState<string | null>(null)
+  // KB/记忆健康 6 指标：真实采集（promotion 重放率走 promotion-bridge 凭证层），
+  // 失败/缺源 → collectKbMetrics 显式 N/A（诚实降级，不造数）。
+  const [kbMetrics, setKbMetrics] = useState<KbMetrics | null>(null)
 
   const refresh = useCallback(async () => {
     if (!projectPath) return
@@ -402,6 +420,7 @@ export function DiagnosticsCenterView() {
       const llmCfg = useWikiStore.getState().llmConfig
       const r = await collectHealthReport({ projectPath, llmCfg })
       setReport(r)
+      setKbMetrics(await collectKbMetricsLive({ projectPath }).catch(() => null))
       setHistoryView(await loadExportHistoryView(projectPath))
       setBundlePreview(null)
       setBundleNote(null)
@@ -500,6 +519,7 @@ export function DiagnosticsCenterView() {
       recovering={recovering}
       recoverNote={recoverNote}
       bundleNote={bundleNote}
+      kbMetrics={kbMetrics}
       onRecheck={() => void refresh()}
       onRecover={(itemId, actionId) => void handleRecover(itemId, actionId)}
       onPreviewBundle={() => void handlePreviewBundle()}

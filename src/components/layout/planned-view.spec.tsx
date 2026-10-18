@@ -28,15 +28,17 @@ function lookup(dict: unknown, key: string): unknown {
 }
 
 describe("计划态视图登记表（P2-7）", () => {
-  it("登记表覆盖 17 个计划模块，视图名唯一", () => {
-    expect(PLANNED_VIEWS).toHaveLength(17)
+  it("登记表覆盖 16 个计划模块，视图名唯一（knowledgeLibrary 已落地为资产库视图）", () => {
+    expect(PLANNED_VIEWS).toHaveLength(16)
     const views = PLANNED_VIEWS.map((spec) => spec.view)
     expect(new Set(views).size).toBe(views.length)
     // 抽查几个此前提到的计划视图
-    for (const view of ["followUpCenter", "knowledgeLibrary", "modelRoutes", "exportCenter"]) {
+    for (const view of ["followUpCenter", "modelRoutes", "exportCenter"]) {
       expect(isPlannedView(view)).toBe(true)
       expect(getPlannedView(view)?.view).toBe(view)
     }
+    // knowledgeLibrary 已从计划态毕业（真实资产库视图），不得再登记为占位。
+    expect(isPlannedView("knowledgeLibrary")).toBe(false)
     expect(isPlannedView("dataManager")).toBe(false)
     expect(getPlannedView("dataManager")).toBeUndefined()
   })

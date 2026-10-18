@@ -173,7 +173,18 @@ export type { InspectorSnapshot } from "./inspector-query"
 export type { InteractiveStoryGraph } from "./interactive-film-graph"
 export { loadInteractiveGraph, loadPlaySession, savePlaySession } from "./interactive-io"
 export { assertInvariantsNotDisabled, pickInvariantOverrides } from "./kb-governance"
-export { collectKbMetrics } from "./kb-observability"
+export { collectKbMetrics, collectKbMetricsLive } from "./kb-observability"
+export {
+  ASSET_LIBRARY_DIRNAME,
+  AssetLibraryStoreError,
+  assetLibraryFilePath,
+  loadAllAssetLibrarySnapshots,
+  loadAssetLibrarySnapshot,
+  saveAssetLibraryArtifact,
+} from "./asset-library-store"
+export type { AssetLibrarySnapshot, AssetLibraryStoreDeps } from "./asset-library-store"
+export { mapDecisionGateToRunStatus, recordChapterGateEvidence } from "./deep-chapter-gate-evidence"
+export type { ChapterGateEvidenceDeps, ChapterGateEvidenceInput, ChapterGateEvidenceResult } from "./deep-chapter-gate-evidence"
 export type { KbMetrics, MetricSample } from "./kb-observability"
 export { goldenCoverageOf, goldenKbShadowCases, runKbShadowArmsIfConsented } from "./kb-shadow-wiring"
 export { detectLocalEntityMiss } from "./local-entity-names"
