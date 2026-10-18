@@ -79,6 +79,13 @@ jobs:
       - name: Lint (eslint, 68 号 P1-9 接入)
         run: npm run lint
 
+      - name: Frontend/backend consistency gate
+        # 前后端一致性机械门（scripts/check-consistency.mjs）：
+        #   invoke ↔ #[tauri::command] ↔ generate_handler! 三方闭合、IPC 实参名
+        #   ⊆ Rust 形参、事件 topic 有发射方、i18n 键集等价、视图 union 可渲染、
+        #   版本单一真源、插件 ↔ capabilities、atlas 统计自洽。
+        run: npm run consistency
+
       - name: Run unit tests (vitest)
         run: npm run test:mocks
 

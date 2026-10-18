@@ -13,6 +13,7 @@
     "typecheck:incremental": "tsc --build --pretty",
     "typecheck:force": "tsc --build --force --pretty",
     "lint": "eslint . && node scripts/check-boundaries.mjs",
+    "consistency": "node scripts/check-consistency.mjs",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "test": "npm run test:mocks && npm run test:llm && npm run test:cargo",

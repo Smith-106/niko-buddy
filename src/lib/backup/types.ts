@@ -64,9 +64,18 @@ export interface BackupManifest {
   projects: ProjectBackupInfo[]
 }
 
-/** 进度事件载荷 */
+/**
+ * 进度事件载荷（`backup-progress` 通道）。
+ *
+ * 该通道由两次发射方共用：`commands/backup.rs` 发 `export` / `import`，
+ * `canon/export.rs` 复用同一契约（同一 payload 形状）发 `canon_export` /
+ * `canon_restore`，仅以 `operation` 区分来源。所以 union 必须包含 canon 两值，
+ * 否则类型在后端真实取值处撒谎（见 `scripts/check-consistency.mjs`）。
+ */
+export type BackupProgressOperation = "export" | "import" | "canon_export" | "canon_restore"
+
 export interface BackupProgressPayload {
-  operation: "export" | "import"
+  operation: BackupProgressOperation
   stage: string
   current: number
   total: number

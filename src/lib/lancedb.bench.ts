@@ -136,7 +136,7 @@ describe("LanceDB Benchmark", () => {
   it("saves baseline", () => {
     const data: BaselineData = {
       timestamp: new Date().toISOString(),
-      version: "2.4.3",
+      version: __APP_VERSION__,
       iterations: ITERATIONS,
       operations: results,
     }

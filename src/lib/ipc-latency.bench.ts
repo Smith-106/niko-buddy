@@ -19,11 +19,20 @@ import type { BaselineData, BaselineOperation } from "@/test-helpers/bench-helpe
 
 const ITERATIONS = 50
 
-// Mock Tauri invoke with configurable response sizes
+// Mock Tauri invoke. `read_file` mirrors the real Rust signature
+// (`read_file(path) -> String`), so payload size is encoded in the mock path
+// rather than passed as a non-existent `size` argument.
+const MOCK_FILE_SIZES: Record<string, number> = {
+  "/mock/file.md": 1024,
+  "/mock/large.md": 100 * 1024,
+  "/mock/huge.md": 1024 * 1024,
+}
+
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
     if (cmd === "read_file") {
-      const size = (args?.size as number) ?? 1024
+      const path = (args?.path as string) ?? "/mock/file.md"
+      const size = MOCK_FILE_SIZES[path] ?? 1024
       // Generate a string of the requested size
       return "x".repeat(size)
     }
@@ -47,7 +56,7 @@ describe("IPC Latency Benchmark", () => {
   it("measures IPC empty round-trip (read 1KB file)", async () => {
     const { invoke } = await import("@tauri-apps/api/core")
     const stats = await measureLatency(async () => {
-      const content = await invoke("read_file", { path: "/mock/file.md", size: 1024 })
+      const content = await invoke("read_file", { path: "/mock/file.md" })
       void content
     }, ITERATIONS)
     printStats("IPC 1KB read", stats)
@@ -73,7 +82,7 @@ describe("IPC Latency Benchmark", () => {
   it("measures IPC large payload (100KB file read)", async () => {
     const { invoke } = await import("@tauri-apps/api/core")
     const stats = await measureLatency(async () => {
-      const content = await invoke("read_file", { path: "/mock/large.md", size: 100 * 1024 })
+      const content = await invoke("read_file", { path: "/mock/large.md" })
       void content
     }, ITERATIONS)
     printStats("IPC 100KB read", stats)
@@ -83,7 +92,7 @@ describe("IPC Latency Benchmark", () => {
   it("measures IPC very large payload (1MB file read)", async () => {
     const { invoke } = await import("@tauri-apps/api/core")
     const stats = await measureLatency(async () => {
-      const content = await invoke("read_file", { path: "/mock/huge.md", size: 1024 * 1024 })
+      const content = await invoke("read_file", { path: "/mock/huge.md" })
       void content
     }, ITERATIONS)
     printStats("IPC 1MB read", stats)
@@ -93,7 +102,7 @@ describe("IPC Latency Benchmark", () => {
   it("saves baseline", () => {
     const data: BaselineData = {
       timestamp: new Date().toISOString(),
-      version: "2.4.3",
+      version: __APP_VERSION__,
       iterations: ITERATIONS,
       operations: results,
     }

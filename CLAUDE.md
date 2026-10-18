@@ -53,7 +53,7 @@
 | **语料 κ 盲标骨架** | `src/lib/novel/corpus-kappa.ts` + `corpus-kappa.spec.ts`（Cohen κ 纯函数，T01b，黄金集合格线 κ≥0.7，机械层零 LLM） |
 | 离线回放 runner | `scripts/offline-replay.js`（hub 根 `scripts/`，T02 创建） |
 | LanceDB FTS spike | `src-tauri/src/spike_fts.rs`（T04，**不进 mod.rs**） |
-| 基线/语料/审计文档 | `docs/p0/t00-baseline.md`、`docs/p0/chinese-benchmark-corpus.md`、`docs/p0/license-audit.md`、`docs/p0/lancedb-fts-spike.md`、`docs/p0/stage3-gap-audit.md`、`docs/p0/corpus/`（hub 根 `docs/p0/`，T00-T05 交付） |
+| 基线/语料/审计文档 | `docs/p0/corpus/`（已落盘）+ `docs/p0/eval-matrix-2026-09-17.md` 等同批治理文档；`t00-baseline.md`／`chinese-benchmark-corpus.md`／`license-audit.md`／`lancedb-fts-spike.md`／`stage3-gap-audit.md` **尚未落盘（T00-T05 计划交付，不得当作现行引用）** |
 
 > **decision-log 工作流（蓝图 §9.7 / A-34）**：路径=`docs/decision-log/YYYYMMDD-<slug>.md`（QMAI 内）；模板与债条目模板见 `docs/decision-log/_TEMPLATE.md`；每任务完成定义强制含『decision-log 条目已落』。
 
@@ -65,7 +65,7 @@
 | 控制内核 route()（720k 纯函数） | `src/lib/novel/control-kernel.ts` + `control-sentinels.ts`（T08，13 分支互斥优先级链，零 IO/LLM，720k ≤5s 批断言） |
 | deep-chapter 薄编排化 | `src/lib/novel/deep-chapter-generation.ts`（T10，主循环接入 route() 薄编排 seam + T09 字段 + T33 解析点预留） + `deep-chapter-generation-route-shell.spec.ts` |
 | 会话状态 additive 4 字段 | `src/lib/novel/novel-session-status.ts`（T09，additive `step_digest?`/`route_shell_mode?`/`canon_migration?`/`anti_ai_mode?` + zod passthrough 护栏） |
-| Canon 三表存储（Rust） | `src-tauri/src/canon/types.rs` + `src/commands/canon_store.rs`（T11，三表 DDL + upsert/invalidate/supersede/query + schema_version 迁移链 + ingest_digest 去重 + proptest） |
+| Canon 三表存储（Rust） | `src-tauri/src/canon/types.rs` + `src-tauri/src/canon/store.rs`（T11，三表 DDL + upsert/invalidate/supersede/query + schema_version 迁移链 + ingest_digest 去重 + proptest） |
 | Canon 搜索（FTS+RRF+图遍历） | `src-tauri/src/canon/search.rs`（T12，FTS 召回 + rrf_fuse rank_const=1 + 窗口衰减 decay + 查询缓存 revision 失效 + petgraph BFS/连通分量/拓扑序，petgraph 0.8 dep） |
 | Canon IPC 命令 | `src-tauri/src/canon/commands.rs`（T13，5+2 #[tauri::command]：canon_query/query_batch/facts_known_by/ingest/supersede + max_revision + projectId 签名，核心逻辑与 command 分离可测） |
 | Canon 投影薄客户端 | `src/lib/novel/canon-graph-client.ts`（T14，封装 T13 IPC，getFactsKnownBy 等，禁句柄外泄断言 POV 防泄密） |
@@ -106,10 +106,10 @@
 | 反 AI 语料库 | `docs/p0/corpus/{human,ai,gold}/batch-*/` + `MANIFEST.md`（T01b 受控降级轨，synthetic-degraded 种子 30+30+6，解锁 P2-19；真实采集后台继续） |
 | Radix Dialog 模式 | `@radix-ui/react-dialog@1.1.19`；新模态一律 DialogRoot+DialogOverlay(asChild)+DialogContent(asChild)，禁止手写 overlay/overflow 管理（LE-5；scroll lock=body[data-scroll-locked]） |
 | 上下文三态策略 | `src/lib/context-budget.ts`（F-008，selectContextStrategy full≤50/sliding 50-200/summary>200，adaptiveScale 曲线上层选择器） |
-| Voice Preservation | `src/lib/novel/book-analysis.ts` voiceStyleGuide + settings spelling convention 三字段（F-011，dialoguePunctuationStyle/paragraphIndent/quoteConvention 已入 NovelConfig+normalizeNovelConfig） |
+| Voice Preservation | `src/lib/novel/book-analysis/types.ts` voiceStyleGuide + settings spelling convention 三字段（F-011，dialoguePunctuationStyle/paragraphIndent/quoteConvention 已入 NovelConfig+normalizeNovelConfig） |
 | 可视化子面板 | `src/components/novel/corkboard-view.tsx` + `plotgrid-view.tsx`（F-010，复用 getTimelineEvents 单一真源） |
 | 封面 Prompt 工作台 | `src/components/novel/cover-prompt-workbench.tsx` + `config/cover-platform-templates.json`（F-012，独立视图不走 Draft-first 不调 streamChat） |
-| Gate v2 对照文档 | `docs/gate-v2-benchmark.md`（F-004，QMAI Track A/L9 vs StoryForge 四级 grader 对照） |
+| Gate v2 对照文档 | `docs/novel/weighted-gate-design.md`（F-004，QMAI Track A/L9 vs StoryForge 四级 grader 对照；实现=`src/lib/novel/gate-v2-scoring.ts`） |
 | 投影审计 | `src/lib/novel/projection-status-ledger.ts` auditTrail append-only 历史段（F-005，投影 commit/rebuild 取证） |
 | 反 AI 候选池+四统计因子 | `src/lib/novel/anti-ai-candidate-pool.ts` + mechanical-slop-detector TIER3_EXTENDED 48 条 + de-ai-rules 42 条（T19，n-gram/句式熵/标点指纹/段落分布四因子 warn 态，source=synthetic-degraded 入元数据；pack 层归 T24） |
 | 爽点量化+弧光追踪 | `src/lib/novel/craft/thrill-quantifier.ts` + `craft/arc-tracker.ts`（T27，三因子参数表版本化 config + EMA raw/smoothed 双列 + 增量重算 fast-check 增量≡全量，纯算术零 LLM） |
@@ -122,7 +122,7 @@
 | anti_ai_mode 三档门控 | `src/lib/novel/control-kernel.ts`（T21 additive，WarnAnnotation/warnAnnotation/blockThresholdApplied/antiAiReason；warn 随 T19 先行，block 随 T20 阈值接线不卡 warn）+ `anti-ai-rewrite-convergence.spec.ts`（检测→改写→检测收敛 + Myers diff） |
 | 三源真并行 ContextPack | `src/lib/novel/context-engine.ts` buildContextPackUnlocked Promise.all(wiki/canon/技法)+pack.sourceTimingsMs 计时探针 + temporal-memory.ts / character-cognition.ts fromCanonGraph()（T25，默认仍 fold 向后兼容，VIEW 契约不动） |
 | UI 三面板 | `src/components/novel/craft/{arc-workbench,thrill-dashboard,technique-panel}.tsx`（T29a F-06/F-07/F-08，ECharts raw/smoothed 双列 lazy load，@tanstack/react-table，spec=craft-panels） |
-| canon 写路径编辑 | `src/components/novel/canon-editor.tsx`（F-01 known_by/revealed_at 校正 POV 防泄密白名单）+ `wish-drive.tsx`（F-27 卡文引导 A-22.6 自洽校验）（T29b） |
+| canon 写路径编辑 | `src/components/canon-editor/canon-editor.tsx`（F-01 known_by/revealed_at 校正 POV 防泄密白名单）+ `src/components/novel/wish-drive.tsx`（F-27 卡文引导 A-22.6 自洽校验）（T29b） |
 | ContextPack 冻结不变量 | `src/lib/novel/context-pack-freeze.spec.ts` + deep-chapter-task-brief.ts canonHash 参数（T25b：同章共享 pack digest 断言/canon 事实集哈希入 task_brief/前缀字节稳定三不变量） |
 | ★T31 P4 硬门 driver | `scripts/offline-replay.js`（可重跑，EXIT=0 纪律）+ offline-replay-t31-vertical-slice.spec.ts + `docs/p4/t31-vertical-slice-report.md`（T31 PASS：authoritative/回放评分 1.0≥0.9/崩溃注入×5/重放×2 一致/迁移前事实可查询；warn 态放行不计 FAIL） |
 | L9 回放+爽点有效性 | `scripts/thrill-retention-correlate.js` + `docs/p4/{l9-replay,thrill-validity}-report.md`（T31b，真实多模型不可达子项标 PENDING 不粉饰） |

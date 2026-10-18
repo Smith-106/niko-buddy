@@ -91,7 +91,7 @@
   "specOnly": 271,
   "barrelOnly": 2,
   "edges": 3630,
-  "loc": 246539
+  "loc": 246557
  },
  "modules": [
   {
@@ -5547,7 +5547,7 @@
   {
    "p": "src/lib/backup/types.ts",
    "s": 18,
-   "l": 78,
+   "l": 87,
    "r": true,
    "o": false,
    "x": false,
@@ -6419,7 +6419,7 @@
   {
    "p": "src/lib/ipc-latency.bench.ts",
    "s": 18,
-   "l": 107,
+   "l": 116,
    "r": false,
    "o": true,
    "x": false,
