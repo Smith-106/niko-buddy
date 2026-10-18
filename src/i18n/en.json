@@ -2776,7 +2776,8 @@
       "plantedAt": "Planted in Chapter {{chapter}}",
       "resolvedAt": "Resolved in Chapter {{chapter}}",
       "openPlanted": "Open chapter {{num}}",
-      "openResolved": "Open resolved chapter {{num}}"
+      "openResolved": "Open resolved chapter {{num}}",
+      "empty": "No project selected — foreshadowing records appear after you open or create a project"
     },
     "character": {
       "location": "Location",
@@ -3226,6 +3227,19 @@
       "rewriteSuggestion": "Rewrite suggestion",
       "gradeNote": "Grading notes:",
       "fallbackNote": "Keep the de-ai-skill.txt fallback channel (free-text tags)"
+    },
+    "chapterDirectory": {
+      "title": "Chapter directory",
+      "empty": "No chapter snapshots in this project yet — the directory fills in after chapters are generated",
+      "loadFailed": "Chapter directory failed to load",
+      "outline": "Outline",
+      "colChapter": "Chapter",
+      "colTitle": "Title",
+      "colWords": "Words",
+      "na": "N/A",
+      "total": "{{count}} entries",
+      "hint": "Title/word count come from chapter snapshots and body files; missing columns are marked N/A instead of fabricated",
+      "noProject": "No project selected — the chapter directory fills in after you open or create a project"
     }
   },
   "canon": {

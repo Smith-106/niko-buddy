@@ -18,6 +18,8 @@ import {
 import { useWikiStore } from "@/stores/wiki-store"
 import { DEFAULT_AI_WORKFLOW_MODE } from "@/lib/agent/workflow-mode"
 import { cn } from "@/lib/utils"
+import { ChapterDirectory } from "./chapter-directory"
+import { ForeshadowingPanel } from "./foreshadowing-panel"
 
 export interface MainControlViewProps {
   /** 项目 id（与其它视图签名一致；路径取 store 里的 project.path）。 */
@@ -344,8 +346,16 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         </p>
       </div>
 
+        <div className="rounded-lg border p-2" data-testid="main-control-chapter-directory">
+        <ChapterDirectory />
+      </div>
+
+      <div className="rounded-lg border p-2" data-testid="main-control-foreshadowing">
+        <ForeshadowingPanel />
+      </div>
+
       {result?.finalText ? (
-        <div className="rounded-lg border p-2" data-testid="main-control-final">
+      <div className="rounded-lg border p-2" data-testid="main-control-final">
           <h3 className="mb-1 text-xs font-semibold">{t("mainControl.finalTitle")}</h3>
           <p className="whitespace-pre-wrap text-[11px]">{result.finalText}</p>
           <p className="mt-1 text-[10px] text-muted-foreground">

@@ -2384,7 +2384,8 @@
       "plantedAt": "第{{chapter}}章埋设",
       "resolvedAt": "第{{chapter}}章回收",
       "openPlanted": "打开第{{num}}章",
-      "openResolved": "打开第{{num}}章"
+      "openResolved": "打开第{{num}}章",
+      "empty": "未选择项目——选择或新建项目后这里显示伏笔记录"
     },
     "character": {
       "location": "位置",
@@ -2845,6 +2846,19 @@
       "rewriteSuggestion": "改写建议",
       "gradeNote": "分级说明：",
       "fallbackNote": "保留 de-ai-skill.txt 兜底通道（自由文本标签）"
+    },
+    "chapterDirectory": {
+      "title": "章节目录",
+      "empty": "本项目暂无章节快照——生成章节后这里会列出目录",
+      "loadFailed": "章节目录读取失败",
+      "outline": "大纲",
+      "colChapter": "章号",
+      "colTitle": "标题",
+      "colWords": "字数",
+      "na": "N/A",
+      "total": "共 {{count}} 条",
+      "hint": "标题/字数取自章节快照与正文文件；缺失列显式标注 N/A，不造数据",
+      "noProject": "尚未选择项目——选择或新建项目后这里列出章节目录"
     }
   },
   "storySimulation": {

@@ -21,11 +21,24 @@ vi.mock("@/lib/novel", async (importOriginal) => {
   return { ...actual, runMainControlAgent, resolveWikiPath }
 })
 
+const wikiState = vi.hoisted(() => ({
+  project: { id: "p1", path: "/proj" } as { id: string; path: string } | null,
+  llmConfig: { provider: "openai", model: "gpt-test", apiKey: "k", baseUrl: "" },
+  dataVersion: 1,
+  setSelectedFile: vi.fn(),
+}))
+
 vi.mock("@/stores/wiki-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
   const state = {
-    project: { id: "p1", path: "/proj" },
-    llmConfig: { provider: "openai", model: "gpt-test", apiKey: "k", baseUrl: "" },
+    get project() {
+      return wikiState.project
+    },
+    llmConfig: wikiState.llmConfig,
+    get dataVersion() {
+      return wikiState.dataVersion
+    },
+    setSelectedFile: wikiState.setSelectedFile,
     setActiveView,
   }
   const useWikiStore = <T,>(selector: (s: typeof state) => T) => selector(state)
@@ -146,5 +159,33 @@ describe("MainControlView 运行轨迹与证据", () => {
     fireEvent.click(screen.getByTestId("main-control-run"))
     await waitFor(() => expect(screen.getByTestId("main-control-trace-entry-write_chapter")).toBeTruthy())
     expect(screen.getByTestId("main-control-trace-entry-write_chapter").textContent).toContain("磁盘只读")
+  })
+})
+
+describe("主控面板挂载：章节目录 + 伏笔看板（grok 计划审查要求：新断言，不复用旧 spec）", () => {
+  it("两个区块都挂载在 main-control-view 内，且无项目时不静默消失", async () => {
+    render(<MainControlView />)
+    expect(screen.getByTestId("main-control-view")).toBeTruthy()
+    expect(screen.getByTestId("main-control-chapter-directory")).toBeTruthy()
+    expect(screen.getByTestId("main-control-foreshadowing")).toBeTruthy()
+    // 有项目：走有项目分支
+    expect(screen.getByTestId("chapter-directory")).toBeTruthy()
+    expect(screen.getByTestId("foreshadowing-panel")).toBeTruthy()
+    expect(screen.queryByTestId("chapter-directory-no-project")).toBeNull()
+    expect(screen.queryByTestId("foreshadowing-panel-no-project")).toBeNull()
+  })
+})
+
+describe("无项目不得静默消失（可失败断言：把无项目分支改回 return null 必红）", () => {
+  it("project=null 时两个面板都渲染显式空态", async () => {
+    wikiState.project = null
+    render(<MainControlView />)
+    await waitFor(() => expect(screen.getByTestId("chapter-directory-no-project")).toBeTruthy())
+    expect(screen.getByTestId("foreshadowing-panel-no-project")).toBeTruthy()
+    // 章节目录根节点仍在，但不得出现「有项目」才有的汇总/表格
+    expect(screen.queryByTestId("chapter-directory-total")).toBeNull()
+    // 伏笔面板必须换到无项目分支：有项目分支的根节点不得存在（改回 return null → 本断言变红）
+    expect(screen.queryByTestId("foreshadowing-panel")).toBeNull()
+    wikiState.project = { id: "p1", path: "/proj" }
   })
 })

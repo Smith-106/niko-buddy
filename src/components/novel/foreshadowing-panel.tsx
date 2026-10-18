@@ -67,10 +67,17 @@ export function ForeshadowingPanel() {
   const unresolved = visibleItems.filter((f) => f.status !== "resolved")
   const resolved = visibleItems.filter((f) => f.status === "resolved")
 
-  if (!project) return null
+  // 无项目不再静默消失（grok 计划审查：该出现的区块消失 = 撒谎）；显式空态。
+  if (!project) {
+    return (
+      <div className="flex h-full items-start p-3" data-testid="foreshadowing-panel-no-project">
+        <p className="text-[11px] text-muted-foreground">{t("novel.foreshadowing.empty")}</p>
+      </div>
+    )
+  }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" data-testid="foreshadowing-panel">
       <div className="border-b px-4 py-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">

@@ -2575,7 +2575,13 @@ export async function loadSnapshot(
   }
 }
 
-export async function listSnapshots(projectPath: string): Promise<number[]> {
+/**
+ * 列出章节快照对应章号（大纲为负数）。
+ *
+ * `failLoud`（默认 false）仅放行「目录不存在」→ []，其它 IO 异常继续抛出：
+ * 章节目录等需要诚实错误态的调用方应传 true，否则权限/IO 失败会被显示成「暂无章节」。
+ */
+export async function listSnapshots(projectPath: string, opts?: { failLoud?: boolean }): Promise<number[]> {
   const pp = normalizePath(projectPath)
   const snapshotDir = `${pp}/.novel/snapshots`
   try {
@@ -2591,10 +2597,17 @@ export async function listSnapshots(projectPath: string): Promise<number[]> {
       })
       .filter(n => !isNaN(n))
       .sort((a, b) => a - b)
-  } catch {
+  } catch (err) {
+    if (opts?.failLoud && !isNotFoundError(err)) throw err
     logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 3024 })
     return []
   }
+}
+
+/** 目录不存在（首次打开尚未生成快照）与真正的 IO 失败的区分。 */
+function isNotFoundError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return /not found|no such file|does not exist|cannot find the (file|path)/i.test(message)
 }
 
 export async function deleteChapterSnapshots(projectPath: string, chapterNumber: number, onDataVersionBump?: () => void): Promise<void> {
