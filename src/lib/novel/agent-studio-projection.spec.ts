@@ -11,6 +11,8 @@
  *   7. 纯函数性（同输入深等）与 sourceFilePath 边界。
  */
 import { existsSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import {
   AGENT_STUDIO_NOT_APPLICABLE,
@@ -22,9 +24,19 @@ import {
   type AgentStudioSourceProbe,
 } from "./agent-studio-projection"
 
-/** 全量真源探针（本机真实文件系统，路径相对仓库根）。 */
+/**
+ * 仓库根：由本 spec 文件位置推导（`src/lib/novel/` → 上三级），**不用 `process.cwd()`**。
+ *
+ * 之前用裸相对路径 + cwd，在 `--root QMAI` 从工作区根调用时 cwd 不是 QMAI，
+ * 全部路径都判为不存在，两条「真实探针」用例会假失败（审查/验收回归）。
+ */
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..")
+
+/** 全量真源探针（本机真实文件系统，路径锚定仓库根而非 cwd）。 */
 function realProbe(): AgentStudioSourceProbe {
-  return { existingFiles: agentStudioSourcePaths().filter((path) => existsSync(path)) }
+  return {
+    existingFiles: agentStudioSourcePaths().filter((path) => existsSync(resolve(REPO_ROOT, path))),
+  }
 }
 
 /** 只声明指定文件存在的探针。 */
