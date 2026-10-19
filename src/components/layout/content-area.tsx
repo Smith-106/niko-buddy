@@ -90,6 +90,21 @@ const PipelineMotionView = lazy(async () => {
   return { default: mod.PipelineMotionView }
 })
 
+const LiveExecutionView = lazy(async () => {
+  const mod = await import("@/components/novel/live-execution-view")
+  return { default: mod.LiveExecutionView }
+})
+
+const FollowupCenterView = lazy(async () => {
+  const mod = await import("@/components/novel/followup-center-view")
+  return { default: mod.FollowupCenterView }
+})
+
+const CreativeHubView = lazy(async () => {
+  const mod = await import("@/components/novel/creative-hub-view")
+  return { default: mod.CreativeHubView }
+})
+
 const MainControlView = lazy(async () => {
   const mod = await import("@/components/novel/main-control-view")
   return { default: mod.MainControlView }
@@ -228,6 +243,27 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <PipelineMotionView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "liveExecution":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <LiveExecutionView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "followUpCenter":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <FollowupCenterView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "creativeHub":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <CreativeHubView projectPath={projectPath} />
           </Suspense>
         )
         break

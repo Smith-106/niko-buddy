@@ -144,7 +144,7 @@ export type { ProjectionEntry, ProjectionConsumer } from "./projections-registry
 export { buildDismantlingAnalysisPrompt, buildDismantlingWebResearchPrompt, extractStructureMemoryFromAnalysis, loadDismantlingLibrary, saveDismantlingLibrary, selectNextDismantlingBatch } from "./dismantling"
 export type { DismantlingAnalysis, DismantlingChapter, DismantlingLibrary, DismantlingProject } from "./dismantling"
 export { formatDoctorReport, runProjectDoctor } from "./doctor"
-export type { DoctorReport } from "./doctor"
+export type { DoctorFinding, DoctorReport, DoctorSeverity } from "./doctor"
 export { writeDraft } from "./draft-manager"
 export { calculateEmotionNetValue, evaluatePlayableEmotionPath, getCircuitBreakerStatus, getTopEmotionalDebt, loadEmotionLedger } from "./emotion-ledger"
 export type { EmotionLedgerEntry } from "./emotion-ledger"
@@ -221,6 +221,7 @@ export type { ChapterPlanView, ParticlePlanItem, PlanDimensionSlice, StateDeltaP
 export { createPlayState, renderPlayFrame, replayPlay, stepPlay } from "./play-runtime"
 export type { PlayState } from "./play-runtime"
 export { loadNovelProjectMeta, saveNovelProjectMeta } from "./project-meta"
+export type { NovelProjectMeta } from "./project-meta"
 export { PROMPTS } from "./prompt-templates"
 // §GAP-90-07 配角 recent_cast（related-chapters additive 导出）
 export { recentCast, renderCastIntros } from "./related-chapters"

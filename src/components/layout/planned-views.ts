@@ -21,11 +21,8 @@ export interface PlannedViewSpec {
 }
 
 export const PLANNED_VIEWS: readonly PlannedViewSpec[] = [
-  // 生产链
-  { view: "followUpCenter", labelKey: "wb.card.followUp", descKey: "wb.card.followUpDesc" },
-  { view: "liveExecution", labelKey: "wb.card.live", descKey: "wb.card.liveDesc" },
+  // 生产链（followUpCenter/liveExecution/creativeHub 已落地为真视图）
   { view: "bookshelf", labelKey: "wb.card.bookshelf", descKey: "wb.card.bookshelfDesc" },
-  { view: "creativeHub", labelKey: "wb.card.creativeHub", descKey: "wb.card.creativeHubDesc" },
   // 资产库
   { view: "genreLibrary", labelKey: "wb.card.genreLibrary", descKey: "wb.card.genreLibraryDesc" },
   { view: "storyModeLibrary", labelKey: "wb.card.storyMode", descKey: "wb.card.storyModeDesc" },

@@ -28,17 +28,20 @@ function lookup(dict: unknown, key: string): unknown {
 }
 
 describe("计划态视图登记表（P2-7）", () => {
-  it("登记表覆盖 15 个计划模块，视图名唯一（knowledgeLibrary 已落地为资产库视图）", () => {
-    expect(PLANNED_VIEWS).toHaveLength(15)
+  it("登记表覆盖 12 个计划模块，视图名唯一（knowledgeLibrary/followUpCenter/liveExecution/creativeHub 已落地为真视图）", () => {
+    expect(PLANNED_VIEWS).toHaveLength(12)
     const views = PLANNED_VIEWS.map((spec) => spec.view)
     expect(new Set(views).size).toBe(views.length)
-    // 抽查几个此前提到的计划视图
-    for (const view of ["followUpCenter", "modelRoutes", "exportCenter"]) {
+    // 抽查几个仍为计划态的视图
+    for (const view of ["bookshelf", "modelRoutes", "exportCenter"]) {
       expect(isPlannedView(view)).toBe(true)
       expect(getPlannedView(view)?.view).toBe(view)
     }
-    // knowledgeLibrary 已从计划态毕业（真实资产库视图），不得再登记为占位。
+    // knowledgeLibrary/followUpCenter/liveExecution/creativeHub 已从计划态毕业（真视图），不得再登记为占位。
     expect(isPlannedView("knowledgeLibrary")).toBe(false)
+    expect(isPlannedView("followUpCenter")).toBe(false)
+    expect(isPlannedView("liveExecution")).toBe(false)
+    expect(isPlannedView("creativeHub")).toBe(false)
   expect(isPlannedView("worldLibrary")).toBe(false)
     expect(isPlannedView("dataManager")).toBe(false)
     expect(getPlannedView("dataManager")).toBeUndefined()

@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: MIT
 
 import {
+  Activity,
   ArchiveRestore,
   BookOpen,
   Brain,
   Clapperboard,
   ClipboardCheck,
+  ClipboardList,
+  Compass,
   Database,
   FileText,
   FolderOpen,
@@ -49,6 +52,9 @@ export const NAV_ITEMS: NavItem[] = [
   { view: "skillLibrary", icon: Wrench, labelKey: "novel.nav.skillLibrary", group: "ma" },
   { view: "canonEditor", icon: ScrollText, labelKey: "novel.nav.canonEditor", group: "ma" },
   { view: "workbench", icon: LayoutDashboard, labelKey: "novel.nav.workbench", group: "si" },
+  { view: "followUpCenter", icon: ClipboardList, labelKey: "novel.nav.followUpCenter", group: "si" },
+  { view: "liveExecution", icon: Activity, labelKey: "novel.nav.liveExecution", group: "si" },
+  { view: "creativeHub", icon: Compass, labelKey: "novel.nav.creativeHub", group: "si" },
   { view: "director", icon: Clapperboard, labelKey: "novel.nav.director", group: "si" },
   { view: "sources", icon: FolderOpen, labelKey: "novel.nav.sources", group: "si" },
   { view: "graph", icon: Network, labelKey: "novel.nav.graph", group: "si" },
