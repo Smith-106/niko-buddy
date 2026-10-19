@@ -52,9 +52,10 @@ export function PipelineMotionView({
   const [ready, setReady] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   // 有無成功寫入過數據 / 連續失敗輪數（跨輪詢累積，切項目重置）。
-  // ready 的誠實規則：只在「新鮮成功寫入」或「失敗已成定局」（首輪新鮮失敗、
-  // 連敗且無數據）時離開 loading；過期響應結算永不碰 ready（否則會把
-  // 「尚無運行事件」提前畫出來，而勝出輪的數據還在途中）。
+  // ready 的誠實規則：只在「成功寫入」或「失敗已成定局」（首輪失敗、
+  // 連敗且無數據）時離開 loading。輪詢是串行的（上一輪結算才排下一輪），
+  // 從構造上杜絕重疊請求——沒有 stale 響應，就沒有「丟棄誰/提前報誰」的
+  // 一整類誠實性問題；世代號不需要。
   const hasDataRef = useRef(false)
   const failStreakRef = useRef(0)
 
@@ -74,18 +75,18 @@ export function PipelineMotionView({
     hasDataRef.current = false
     failStreakRef.current = 0
     let cancelled = false
-    let generation = 0
+    let timer: ReturnType<typeof setTimeout> | null = null
     const storeDeps = deps ?? createFsRunEventLedgerStoreDeps()
-    const loadOnce = async (first: boolean): Promise<void> => {
-      generation += 1
-      const current = generation
+    // 串行輪詢：結算後才排下一輪，請求永不重疊（慢讀只會推遲下一輪，
+    // 不會被超車作廢——每輪成功都寫入，不存在永久 loading）。
+    const tick = async (first: boolean): Promise<void> => {
+      if (cancelled) return
       try {
         const [ledger, snapshot] = await Promise.all([
           loadRunEventLedgerStore(storeDeps, projectPath),
           loadTraceSnapshot(projectPath),
         ])
-        // 在途的舊請求不許覆蓋新項目的數據（連 ready 也不碰）。
-        if (cancelled || current !== generation) return
+        if (cancelled) return
         hasDataRef.current = true
         failStreakRef.current = 0
         setEvents(ledger.events)
@@ -94,31 +95,25 @@ export function PipelineMotionView({
         setReady(true)
       } catch (error) {
         if (cancelled) return
-        const message = error instanceof Error ? error.message : String(error)
         failStreakRef.current += 1
         const streak = failStreakRef.current
-        // 錯誤文案只在「看的人能理解」時出現：在途輪詢的單次失敗保持靜默
-        // loading（否則 error＋loading 並存自相矛盾）；有舊數據或失敗已成
-        // 定局（首輪新鮮失敗/連敗）才顯式報錯。
-        const showError = first || hasDataRef.current || streak >= 2
-        if (showError) setLoadError(message)
-        if (current !== generation) {
-          // 過期請求的失敗：勝出輪在途，不離開 loading；
-          // 連敗且從無數據，失敗已成定局才報。
-          if (streak >= 2 && !hasDataRef.current) setReady(true)
-          return
+        // 錯誤文案只在「看的人能理解」時出現：在途單輪失敗保持靜默
+        // loading；有舊數據或失敗已成定局（首輪失敗/連敗）才顯式報錯。
+        // 無重疊請求，error 與 loading 不可能並存，也不會有過期錯誤覆蓋新數據。
+        if (first || hasDataRef.current || streak >= 2) {
+          setLoadError(error instanceof Error ? error.message : String(error))
+          setReady(true)
         }
-        // 失敗保留舊數據：只記錯誤文案，不清空已渲染的管線。
-        if (first || hasDataRef.current || streak >= 2) setReady(true)
       }
+      if (cancelled) return
+      timer = setTimeout(() => {
+        void tick(false)
+      }, pollMs)
     }
-    void loadOnce(true)
-    const timer = setInterval(() => {
-      void loadOnce(false)
-    }, pollMs)
+    void tick(true)
     return () => {
       cancelled = true
-      clearInterval(timer)
+      if (timer !== null) clearTimeout(timer)
     }
   }, [projectPath, ledgerEvents, traceEntries, deps, pollMs])
 

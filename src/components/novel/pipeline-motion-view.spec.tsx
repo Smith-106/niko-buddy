@@ -90,13 +90,12 @@ describe("PipelineMotionView 磁盤裝載", () => {
     expect(appendText).not.toHaveBeenCalled()
   })
 })
-describe("PipelineMotionView 首輪慢於輪詢", () => {
+describe("PipelineMotionView 串行輪詢", () => {
   const LEDGER_LINE =
     '{"seq":0,"eventId":"e:0","ts":"2026-10-19T00:00:00.000Z","kind":"generate","actor":"system","evidenceRefs":[]}'
 
-  it("首輪被輪詢超車：新數據照樣畫出來，不許永久 loading", async () => {
-    const resolvers: Array<(value: string) => void> = []
-    const readText = vi.fn(() => new Promise<string>((resolve) => { resolvers.push(resolve) }))
+  it("首輪未結算不開第二槍：從構造上沒有重疊請求", async () => {
+    const readText = vi.fn(() => new Promise<string>(() => {}))
     render(
       <PipelineMotionView
         projectPath="/fake"
@@ -104,35 +103,28 @@ describe("PipelineMotionView 首輪慢於輪詢", () => {
         pollMs={20}
       />,
     )
-    // 等首輪＋至少一輪輪詢都掛起，再一次性全部放行：
-    // 首輪已過期（應被丟棄），最新一輪寫入數據。
-    await new Promise((resolve) => setTimeout(resolve, 60))
-    expect(resolvers.length).toBeGreaterThanOrEqual(2)
-    for (const resolve of resolvers) resolve(LEDGER_LINE)
-    await screen.findByTestId("motion-diagram")
-    expect(screen.getByTestId("motion-node-draft").getAttribute("data-state")).toBe("current")
-  })
-
-  it("過期首輪先結算：不許提前畫出假空態", async () => {
-    const resolvers: Array<(value: string) => void> = []
-    const readText = vi.fn(() => new Promise<string>((resolve) => { resolvers.push(resolve) }))
-    render(
-      <PipelineMotionView
-        projectPath="/fake"
-        deps={{ readText, appendText: () => Promise.resolve() }}
-        pollMs={20}
-      />,
-    )
-    await new Promise((resolve) => setTimeout(resolve, 60))
-    expect(resolvers.length).toBeGreaterThanOrEqual(2)
-    // 首輪（已過期）先結算成功：必須保持 loading，不許畫「尚無運行事件」。
-    resolvers[0]?.('{"seq":0}')
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    // 首輪懸掛時，輪詢不得開火：stale 整類不存在。
+    expect(readText).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId("motion-view-loading")).toBeTruthy()
     expect(screen.queryByTestId("motion-empty")).toBeNull()
     expect(screen.queryByTestId("motion-diagram")).toBeNull()
-    // 勝出輪結算：圖出來。
-    for (const resolve of resolvers.slice(1)) resolve(LEDGER_LINE)
+  })
+
+  it("慢首輪結算即出圖：無假空態、無永久 loading", async () => {
+    const resolvers: Array<(value: string) => void> = []
+    const readText = vi.fn(() => new Promise<string>((resolve) => { resolvers.push(resolve) }))
+    render(
+      <PipelineMotionView
+        projectPath="/fake"
+        deps={{ readText, appendText: () => Promise.resolve() }}
+        pollMs={20}
+      />,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(screen.getByTestId("motion-view-loading")).toBeTruthy()
+    for (const resolve of resolvers) resolve(LEDGER_LINE)
     await screen.findByTestId("motion-diagram")
+    expect(screen.getByTestId("motion-node-draft").getAttribute("data-state")).toBe("current")
   })
 })
