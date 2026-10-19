@@ -91,7 +91,7 @@
   "specOnly": 280,
   "barrelOnly": 2,
   "edges": 3771,
-  "loc": 258866
+  "loc": 258881
  },
  "modules": [
   {
@@ -2041,7 +2041,7 @@
   {
    "p": "src/components/novel/bookshelf-view.tsx",
    "s": 16,
-   "l": 184,
+   "l": 186,
    "r": true,
    "o": false,
    "x": false,
@@ -2369,7 +2369,7 @@
   {
    "p": "src/components/novel/creative-hub-view.tsx",
    "s": 16,
-   "l": 207,
+   "l": 211,
    "r": true,
    "o": false,
    "x": false,
@@ -2626,7 +2626,7 @@
   {
    "p": "src/components/novel/followup-center-view.tsx",
    "s": 16,
-   "l": 315,
+   "l": 319,
    "r": true,
    "o": false,
    "x": false,
@@ -3137,7 +3137,7 @@
   {
    "p": "src/components/novel/story-mode-library-view.tsx",
    "s": 16,
-   "l": 229,
+   "l": 233,
    "r": true,
    "o": false,
    "x": false,
@@ -3620,7 +3620,7 @@
   {
    "p": "src/components/novel/title-studio-view.tsx",
    "s": 16,
-   "l": 254,
+   "l": 255,
    "r": true,
    "o": false,
    "x": false,
