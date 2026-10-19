@@ -15,6 +15,24 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.18.1",
+    date: "2026-10-19",
+    highlights: {
+      en: [
+        "Fixed: chapter-outline template placeholders (`- 压力级：1-5`) were parsed as real values, so the style radar showed a target rhythm nobody wrote. Ranges are now rejected in both the bullet parser and the position table.",
+        "Fixed: the coverage check could whitewash a line — one matched description cleared the whole line, a description split by a comma looked uncovered even when its text was present verbatim, and a single-character endpoint (`王` inside `王府`) produced a hard verdict. All three now resolve to covered / not-covered / N/A honestly.",
+        "Fixed: single-character character names no longer create phantom extraction gaps, relationship candidates are capped and distance-ordered (co-occurrence stays a candidate, never a conclusion), and the agent capability matrix takes its requirements from the writing pipeline instead of the skills themselves.",
+        "Fixed: an unloaded skill library no longer renders `0` coverage or `N/A (no match)` — the whole section reads N/A. Radar background rings also align to the real axis angles when an axis is missing.",
+      ],
+      zh: [
+        "修复：章纲模板占位（`- 压力级：1-5`）曾被当成真实数值，风格雷达会显示一个没人写过的目标节奏；子弹与定位表现在都拒绝区间前缀。",
+        "修复：资产联动覆盖判定会「洗白」整行——一条描述命中就放行整行、被逗号切开的描述原文在场却判未回填、单字端点（`王府` 里的 `王`）给出硬结论。三处现在都给出诚实的 covered / not-covered / N/A。",
+        "修复：单字人物名不再造出假缺口；关系候选加上限与句内距离排序（共现只是候选，不是结论）；Agent 能力矩阵的需求侧改为写作出稿管线，而不是技能自己。",
+        "修复：技能库未装载时不再显示 `0` 覆盖或「N/A（无命中）」，整段 N/A；缺值轴存在时雷达背景环也对齐真实轴角。",
+      ],
+    },
+  },
+  {
     version: "2.18.0",
     date: "2026-10-18",
     highlights: {

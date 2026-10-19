@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.18.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.18.1-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -49,6 +49,17 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 ---
 <img width="1239" height="883" alt="image" src="https://github.com/user-attachments/assets/076740be-85ef-4503-842d-565c367aebdc" />
 <img width="1201" height="832" alt="image" src="https://github.com/user-attachments/assets/57936132-45b2-4fed-8c80-2c9282fedbf5" />
+
+## v2.18.1 修复（对抗式审查落地）
+
+2.18.0 发版后由 grok-4.7(xhigh) 做终局对抗式审查，判 BLOCK（无 P0，6 条 P1），全部修复：
+
+- **模板占位不再被读成数据**：章纲模板 `- 压力级：1-5` 曾被抓成「压力级 1」，风格雷达会显示没人写过的目标节奏。现在子弹解析与定位表都拒绝区间前缀。
+- **覆盖判定不再自相矛盾**：原来一条描述命中就放行整行（同行另一条未回填被洗白）、被逗号切开的描述原文在场却判未回填、单字端点（`王` ⊂ `王府`）给出硬结论。现在全部决定性描述都要覆盖，整段描述原样出现即算覆盖，单字端点记 N/A。
+- **单字人名不再造假缺口**：单字名在中文里无法可靠判人（「王」在「王府」里、在「王说」里都出现），现在恒 N/A 并列出被跳过的名字。
+- **关系候选加上限**：同句共现按 C(n,2) 产出缺口会被「众人都在场」灌满；现在只判可靠名、按句内距离排序、上限 20 条，并恒定声明「共现只是候选，不是结论」。
+- **能力矩阵不再是重言式**：原先用技能自己的 kinds 反推角色需求，导致「需要 X」与「有 X」永远同时成立、结构上报不出缺口。需求侧改为写作出稿管线的固定角色（计划/大纲/正文/审稿/改写/知识）。
+- **未装载不画结论**：技能库未装载时不再显示「被覆盖角色：0」或「N/A（无命中）」，整段 N/A；雷达背景环在缺值轴时也对齐真实轴角。
 
 ## v2.18.0 新增能力
 
@@ -95,6 +106,7 @@ Draft-first 是硬边界：白名单只有只读工具 + `write_chapter(draftMod
 
 | 波次 | 版本 | 能力 | 核心交付 |
 |---|---|---|---|
+| — | **v2.18.1** | **对抗式审查修复（6 P1）** | 模板占位不再被读成压力级 / 覆盖判定不短路不误报 / 单字名恒 N/A / 关系候选上限 20 条 / 能力矩阵需求改管线 / 未装载整段 N/A（stable，2026-10-19） |
 | — | **v2.18.0** | **动态工作热力图 + 风格/节奏雷达 + 资产联动诊断** | 阶段×时间桶热力（缺值 null / undated 单列 / 三条 N/A / 5s 轮询失败保留旧数据）+ 六轴机械代理雷达（自由文本风格维度不进半径 / 目标节奏不叠量纲 / 无正文不画）+ 资产联动只读比对（产物 hash 陈旧 / 快照关系未回填 / 图谱边缺多，绝不自动改写产物）+ 冗余 A 级精简（删别名与旧桶）（stable，2026-10-18） |
 | — | v2.17.1 | **运动热力图 + 主控 Agent + 质量自主迭代 + 轨迹证据** | 模块接线地图（1021 模块 / 泳道分类 / orphan 识别，gen:check 字节门禁）+ 运行遥测（注入式 sink / 节流落盘）+ 热力图视图（下钻 / 未接线清单）+ 主控 Agent（只读取证 + 草稿产出）+ 六维质量闭环（中位 ≥9.0 / 3 轮 / 无提升即停保留最佳稿）+ 运行轨迹与工具证据回放（stable，2026-10-18） |
 | — | v2.17.0 | 工程治理 + 导航/命令面板 + 门控体验 + 安全入口 | 命令面板与导航真源/门控错误态与可用性降级/secret-client 密钥唯一入口/巨文件拆分（deep-chapter 2917→1249、context-engine 2426→1456）/检索公共层/docs 结构索引 （stable，2026-10-17） |

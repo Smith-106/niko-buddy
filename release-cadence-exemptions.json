@@ -19,6 +19,16 @@
       "scope": [
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.18.1",
+      "reason": "用户明确批准登记豁免（2026-10-19 会话决策，选择「发补丁版 v2.18.1」）：v2.18.0 发版后 grok-4.7(xhigh) 终局对抗式审查判 BLOCK（无 P0，6 条 P1 + 5 条 P2），本补丁为修复性发布（模板占位被读成数据、覆盖判定短路/误报、单字名造缺口、关系候选无上限、能力矩阵重言式、未装载仍画结论）。修复提交 b3ee292c 上全量 1174 files / 15265 tests 全绿，四道硬门全过，未跳过任何门禁。",
+      "approvedBy": "user",
+      "approvedAt": "2026-10-19",
+      "scope": [
+        "weekly-stable",
+        "thirty-day-stable"
+      ]
     }
   ]
 }
