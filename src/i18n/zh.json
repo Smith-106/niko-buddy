@@ -3786,7 +3786,7 @@
     }
   },
   "heatmap": {
-    "title": "运动热力图",
+    "title": "模块接线",
     "subtitle": "全仓模块实时接线与调用热度",
     "legendCurrent": "当前路径",
     "legendExternal": "外部依赖",
@@ -3872,8 +3872,10 @@
       "reviewCenterDesc": "章节评审与返修任务",
       "graph": "小说图谱",
       "graphDesc": "实体/关系图谱可视化",
-      "heatmap": "运动热力图",
+      "heatmap": "模块接线",
       "heatmapDesc": "全仓模块实时接线与调用热度",
+      "pipelineMotion": "管线动态",
+      "pipelineMotionDesc": "写作管线实时动态：需求 → 成片 → 回流",
       "mainControl": "主控 Agent",
       "mainControlDesc": "一句话目标驱动：只读取证 + 草稿产出",
       "simulation": "故事推演",

@@ -12,6 +12,7 @@
 import { useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import {
+  Activity,
   ArchiveRestore,
   BookOpen,
   BookMarked,
@@ -57,6 +58,7 @@ const MODULE_CARDS: ModuleCard[] = [
   { view: "reviewCenter", icon: LayoutDashboard, labelKey: "wb.card.reviewCenter", descKey: "wb.card.reviewCenterDesc", group: "production" },
   { view: "graph", icon: Network, labelKey: "wb.card.graph", descKey: "wb.card.graphDesc", group: "production" },
   { view: "moduleHeatmap", icon: Flame, labelKey: "wb.card.heatmap", descKey: "wb.card.heatmapDesc", group: "production" },
+  { view: "pipelineMotion", icon: Activity, labelKey: "wb.card.pipelineMotion", descKey: "wb.card.pipelineMotionDesc", group: "production" },
   { view: "mainControl", icon: Sparkles, labelKey: "wb.card.mainControl", descKey: "wb.card.mainControlDesc", group: "production" },
   { view: "storySimulation", icon: Sparkles, labelKey: "wb.card.simulation", descKey: "wb.card.simulationDesc", group: "production" },
   { view: "followUpCenter", icon: ListChecks, labelKey: "wb.card.followUp", descKey: "wb.card.followUpDesc", group: "production" },

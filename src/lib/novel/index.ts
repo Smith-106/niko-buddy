@@ -1304,6 +1304,23 @@ export {
 export type { MainControlTraceSnapshot, TraceEntry } from "./main-control-trace"
 
 export {
+  EXTERNAL_NODES,
+  PIPELINE_STAGES,
+  REWORK_EDGES,
+  projectPipelineMotion,
+} from "./pipeline-motion-projection"
+export type {
+  MotionLogEntry,
+  MotionNodeKind,
+  MotionNodeProjection,
+  MotionNodeState,
+  MotionStage,
+  PipelineMotionInput,
+  PipelineMotionProjection,
+  ReworkEdge,
+} from "./pipeline-motion-projection"
+
+export {
   projectSettingState,
   loadSettingProjection,
   relationshipEntryId,

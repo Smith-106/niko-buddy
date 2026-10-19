@@ -85,6 +85,11 @@ const ModuleHeatmapView = lazy(async () => {
   return { default: mod.ModuleHeatmapView }
 })
 
+const PipelineMotionView = lazy(async () => {
+  const mod = await import("@/components/novel/pipeline-motion-view")
+  return { default: mod.PipelineMotionView }
+})
+
 const MainControlView = lazy(async () => {
   const mod = await import("@/components/novel/main-control-view")
   return { default: mod.MainControlView }
@@ -216,6 +221,13 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <ModuleHeatmapView projectId={projectId} />
+          </Suspense>
+        )
+        break
+      case "pipelineMotion":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <PipelineMotionView projectId={projectId} />
           </Suspense>
         )
         break

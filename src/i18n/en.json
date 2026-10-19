@@ -3786,7 +3786,7 @@
     }
   },
   "heatmap": {
-    "title": "Motion Heatmap",
+    "title": "Module Wiring",
     "subtitle": "Live wiring and call heat across all modules",
     "legendCurrent": "Active path",
     "legendExternal": "External dep",
@@ -3872,8 +3872,10 @@
       "reviewCenterDesc": "Chapter review & rework tasks",
       "graph": "Novel Graph",
       "graphDesc": "Entity/relation graph visualization",
-      "heatmap": "Motion Heatmap",
+      "heatmap": "Module Wiring",
       "heatmapDesc": "Live wiring and call heat across all modules",
+      "pipelineMotion": "Pipeline Motion",
+      "pipelineMotionDesc": "Live writing-pipeline motion: brief to delivery to reflow",
       "mainControl": "Main Control Agent",
       "mainControlDesc": "Goal-driven: read-only evidence plus draft output",
       "simulation": "Story Simulation",
