@@ -34,14 +34,15 @@ export interface TitleStudioViewProps {
 }
 
 /**
- * artifact 条目收窄为标题种子（BGH-20261019 m9：改走真源 schema 规范化入口；
- * `passthrough()` 容忍历史脏字段，失败项丢弃不猜）。
+ * artifact 条目收窄为标题种子（BGH-20261019 m9/MINOR-2：改走真源 schema 规范化入口；
+ * `passthrough()` 容忍历史脏字段，失败项丢弃不猜；已知的可选字段 projectId/modelHint
+ * 透传保留，其余未知键剥离不渲染）。
  */
 function toTitleSeedEntry(entry: unknown): TitleSeedEntry | null {
   const parsed = TITLE_SEED_ENTRY_SCHEMA.passthrough().safeParse(entry)
   if (!parsed.success) return null
-  const { entryId, pattern, constraints, examples } = parsed.data
-  return { entryId, pattern, constraints, examples }
+  const { entryId, pattern, constraints, examples, projectId, modelHint } = parsed.data
+  return { entryId, pattern, constraints, examples, projectId, modelHint }
 }
 
 /** 淘汰/通过原因码 → 中文（machine-readable 原因码保留展示，可对账）。 */

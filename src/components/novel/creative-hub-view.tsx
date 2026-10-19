@@ -46,6 +46,10 @@ export interface CreativeNextItem {
   readonly reason: string
 }
 
+/**
+ * 门中文名（本视图刻意展示变体：一致性门/反 AI 味门/质量门，spec 锁定；
+ * 键空间与 audit-taxonomy GateKey 一致，未知键回退原文。MINOR-5 定案）。
+ */
 const GATE_LABEL: Record<string, string> = {
   consistency: "一致性门",
   anti_ai: "反 AI 味门",

@@ -53,6 +53,10 @@ const REVIEW_TYPE_LABELS: Record<ReviewItem["type"], string> = {
   suggestion: "建议",
 }
 
+/**
+ * 门中文名（本视图刻意展示变体：一致性/反 AI/质量＋调用处“门”后缀，spec 锁定；
+ * 键空间与 audit-taxonomy GateKey 一致，未知键回退原文。MINOR-5 定案）。
+ */
 function gateLabel(gate: string): string {
   if (gate === "consistency") return "一致性"
   if (gate === "anti_ai") return "反 AI"

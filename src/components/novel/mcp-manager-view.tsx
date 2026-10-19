@@ -141,7 +141,7 @@ export function McpManagerView({ projectPath, config: configOverride }: McpManag
         </p>
       ) : config === null ? (
         <p data-testid="mcp-empty" className="text-xs text-muted-foreground">
-          未指定项目路径
+          未指定项目路径，打开任意项目后查看全局配置
         </p>
       ) : config.servers.length === 0 ? (
         <p data-testid="mcp-empty" className="text-xs text-muted-foreground">

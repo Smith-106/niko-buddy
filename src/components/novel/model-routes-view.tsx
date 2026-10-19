@@ -164,7 +164,7 @@ export function ModelRoutesView({ projectPath }: ModelRoutesViewProps) {
         </p>
       ) : snapshot === null ? (
         <p data-testid="model-routes-empty" className="text-xs text-muted-foreground">
-          {projectPath === "" ? "未指定项目路径" : "全局未配置可用模型（审查/默认/会话模型均为空），请先在设置页配置模型"}
+          {projectPath === "" ? "未指定项目路径，打开任意项目后查看全局配置" : "全局未配置可用模型（审查/默认/会话模型均为空），请先在设置页配置模型"}
         </p>
       ) : (
         <>

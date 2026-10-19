@@ -13,14 +13,15 @@
  *   - 数据源：`loadAssetLibrarySnapshot`（计数/守恒/健康）+
  *     `loadAssetLibraryArtifact`（条目回显），均走 `@/lib/novel` barrel，
  *     不 deep import；
- *   - 门中文名本地映射（与 audit-taxonomy GATE_MAPPING.label 一致）：
- *     barrel 未导出 GateKey / GATE_MAPPING（缺口，见文件尾注），故不用 deep import。
+ *   - 门中文名本地映射（本视图展示变体，见 GATE_LABEL 注释；键空间与
+ *     audit-taxonomy GateKey 一致，未知键回退原文）：
  *
  * 中文标签直书（与 asset-library-view 同款约定，零新增 i18n 键）。
  *
- * barrel 缺口记录：`@/lib/novel` 未导出 `GateKey` / `GATE_MAPPING`
- * （`src/lib/novel/audit-taxonomy.ts`），本视图如需门配置（label/优先级）
- * 须走 deep import，故暂用本地 `GATE_LABEL` 映射；待 barrel 补齐后可替换。
+ * barrel 说明：`@/lib/novel` 未导出 `GateKey` / `GATE_MAPPING`
+ * （`src/lib/novel/audit-taxonomy.ts`），且本视图标签为刻意展示变体
+ * （设定一致性/反 AI 味/文学质量，spec 锁定），与 GATE_MAPPING.label 不逐字绑定；
+ * 故保留本地 `GATE_LABEL` 映射（MINOR-5 定案，非漂移）。
  *
  * @license MIT © Niko Buddy
  */
@@ -35,7 +36,10 @@ import {
   type AssetLibrarySnapshot,
 } from "@/lib/novel"
 
-/** 门中文名（与 audit-taxonomy GATE_MAPPING.label 一致；barrel 缺口故本地映射）。 */
+/**
+ * 门中文名（本视图刻意展示变体：设定一致性/反 AI 味/文学质量，spec 锁定；
+ * 键空间与 audit-taxonomy GateKey 一致，未知键回退原文。MINOR-5 定案）。
+ */
 const GATE_LABEL: Record<string, string> = {
   consistency: "设定一致性",
   anti_ai: "反 AI 味",

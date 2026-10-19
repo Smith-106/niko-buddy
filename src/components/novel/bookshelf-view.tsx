@@ -20,19 +20,18 @@
  */
 
 import { useEffect, useState } from "react"
-import { loadBookLibrary } from "@/lib/novel"
+import { loadBookLibrary, type BookLibraryEntry } from "@/lib/novel"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
 
-/** 书架条目（契约镜像 `BookLibraryEntry` 的展示子集；barrel 缺口，本地声明）。 */
-export interface BookshelfEntry {
-  readonly bookId: string
-  readonly title: string
-  readonly author?: string
-  readonly totalChapters: number
-  readonly totalWords: number
-  readonly status: "completed" | "error" | "partial"
-}
+/**
+ * 书架条目（MINOR-3：改为 `Pick<BookLibraryEntry>` 绑定真源字段，改名即爆；
+ * 展示子集——`BookLibraryEntry` 的其余字段（sourcePath/contentHash/统计时间戳等）本页不渲染）。
+ */
+export type BookshelfEntry = Pick<
+  BookLibraryEntry,
+  "bookId" | "title" | "author" | "totalChapters" | "totalWords" | "status"
+>
 
 export interface BookshelfViewProps {
   readonly projectPath: string
@@ -54,6 +53,9 @@ function toBookshelfEntry(raw: unknown): BookshelfEntry | null {
   if (typeof bookId !== "string" || bookId.length === 0) return null
   if (typeof title !== "string" || title.length === 0) return null
   if (typeof totalChapters !== "number" || typeof totalWords !== "number") return null
+  // MINOR-3：章节数/字数为非负整数（NaN/Infinity/负数/小数一律丢弃，不渲染脏卡）。
+  if (!Number.isInteger(totalChapters) || totalChapters < 0) return null
+  if (!Number.isInteger(totalWords) || totalWords < 0) return null
   if (status !== "completed" && status !== "partial" && status !== "error") return null
   if (author !== undefined && typeof author !== "string") return null
   const entry: BookshelfEntry = {
