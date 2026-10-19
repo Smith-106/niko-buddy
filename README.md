@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.18.1-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.19.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -49,6 +49,15 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 ---
 <img width="1239" height="883" alt="image" src="https://github.com/user-attachments/assets/076740be-85ef-4503-842d-565c367aebdc" />
 <img width="1201" height="832" alt="image" src="https://github.com/user-attachments/assets/57936132-45b2-4fed-8c80-2c9282fedbf5" />
+
+## v2.19.0 新增（15 灰卡转正，prerelease）
+
+15 张灰卡占位全部转正为真实只读视图，planned 注册表清零：
+
+- **WaveA 运行态**：实时执行 / 跟进中心 / 创意中心。
+- **WaveB 资产库**：书架 / 类型库 / 故事模式库 / 标题工作室 / 风格引擎 / 防 AI 规则（全部 projectPath 只读装载，风格引擎挂载零写盘）。
+- **WaveC 配置数据**：模型路由 / MCP 管理 / 工作流 / 市场雷达 / 帮助 / 导出中心（雷达诚实空态，不伪造条目）。
+- 对抗式审查 BLOCK/MAJOR 全修 + 复审 MINOR-1~5 清零；content-area 15 cases + nav 接线，atlas 1077 模块 / gen:check 6/6。
 
 ## v2.18.1 修复（对抗式审查落地）
 
@@ -106,6 +115,7 @@ Draft-first 是硬边界：白名单只有只读工具 + `write_chapter(draftMod
 
 | 波次 | 版本 | 能力 | 核心交付 |
 |---|---|---|---|
+| — | **v2.19.0** | **15 灰卡转正（运行态/资产库/配置数据）** | 运行态 3 视图 + 资产库 6 视图 + 配置数据 6 视图（只读装载/诚实空态）+ 对抗审查 BLOCK/MAJOR 全修 + MINOR-1~5 清零（prerelease，2026-10-19） |
 | — | **v2.18.1** | **对抗式审查修复（6 P1）** | 模板占位不再被读成压力级 / 覆盖判定不短路不误报 / 单字名恒 N/A / 关系候选上限 20 条 / 能力矩阵需求改管线 / 未装载整段 N/A（stable，2026-10-19） |
 | — | **v2.18.0** | **动态工作热力图 + 风格/节奏雷达 + 资产联动诊断** | 阶段×时间桶热力（缺值 null / undated 单列 / 三条 N/A / 5s 轮询失败保留旧数据）+ 六轴机械代理雷达（自由文本风格维度不进半径 / 目标节奏不叠量纲 / 无正文不画）+ 资产联动只读比对（产物 hash 陈旧 / 快照关系未回填 / 图谱边缺多，绝不自动改写产物）+ 冗余 A 级精简（删别名与旧桶）（stable，2026-10-18） |
 | — | v2.17.1 | **运动热力图 + 主控 Agent + 质量自主迭代 + 轨迹证据** | 模块接线地图（1021 模块 / 泳道分类 / orphan 识别，gen:check 字节门禁）+ 运行遥测（注入式 sink / 节流落盘）+ 热力图视图（下钻 / 未接线清单）+ 主控 Agent（只读取证 + 草稿产出）+ 六维质量闭环（中位 ≥9.0 / 3 轮 / 无提升即停保留最佳稿）+ 运行轨迹与工具证据回放（stable，2026-10-18） |

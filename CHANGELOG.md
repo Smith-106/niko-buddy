@@ -7,6 +7,24 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.19.0] - 2026-10-19
+
+### Added
+
+15 张灰卡占位全部转正为真实只读视图（planned 注册表清零）：
+
+- **WaveA 运行态 3 视图**：实时执行 / 跟进中心 / 创意中心。
+- **WaveB 资产库 6 视图**：书架（book-analysis 快照）/ 类型库（CHANNELS 真源）/ 故事模式库 / 标题工作室（种子 schema 校验）/ 风格引擎（挂载零写盘，只读装载）/ 防 AI 规则。
+- **WaveC 配置数据 6 视图**：模型路由（只读）/ MCP 管理（启停落盘）/ 工作流（只读）/ 市场雷达（诚实空态）/ 帮助（静态）/ 导出中心（书稿导出）。
+- content-area 15 cases + nav 30 项（后随搜索入口增至 31 项），`module-atlas.generated.json` 1077 模块 / 865 可达，`gen:check` 6/6。
+
+### Fixed
+
+- 对抗式审查（grok-4.7 xhigh）对灰卡转正的 BLOCK/MAJOR 修复：六入口 desc 诚实化（只读/预留位/筛选/摘要）、风格引擎挂载改只读装载（写盘仅用户显式切换，spec 加挂载零写盘断言）、genre/bookshelf 删内嵌快照改导入真源、title 种子收窄走 schema 校验。
+- 复审残留 MINOR-1~5 清零：工作流标签去“编辑器”暗示、标题种子透传 projectId/modelHint、书架条目 `Pick<BookLibraryEntry>` 绑定＋非负整数校验、mcp/modelRoutes 空态补指引、三视图门标签定案为刻意展示变体（spec 锁定）。
+
+- 发布语义：prerelease（v2.18.1 stable 2026-10-19 在同日，同周 stable ≤1，候选版先走内测渠道；安装包资产由 tag 触发 CI 自动构建，验证通过后提升 stable）。
+
 ## [2.18.1] - 2026-10-19
 
 ### Fixed

@@ -15,6 +15,20 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.19.0",
+    date: "2026-10-19",
+    highlights: {
+      en: [
+        "Added: 15 gray placeholder views turned into real read-only views (WaveA runtime: live execution / follow-up center / creative hub; WaveB asset library: bookshelf / genre library / story-mode library / title studio / style engine / anti-AI rules; WaveC config & data: model routes / MCP manager / workflow / market radar / help / export center). Planned-view registry is now empty.",
+        "Fixed: post-2.18.1 adversarial review (grok-4.7 xhigh) BLOCK/MAJOR items — honest read-only copy on six entry descriptions, zero-write mount for the style engine, CHANNELS / book-library / seed-schema checks bound to their real sources, plus five review MINORs (title passthrough, bookshelf entry guard, empty-state guidance, gate-label variants).",
+      ],
+      zh: [
+        "新增：15 张灰卡占位全部转正为真实只读视图（WaveA 运行态：实时执行/跟进中心/创意中心；WaveB 资产库：书架/类型库/故事模式库/标题工作室/风格引擎/防 AI 规则；WaveC 配置数据：模型路由/MCP 管理/工作流/市场雷达/帮助/导出中心），planned 注册表清零。",
+        "修复：2.18.1 后对抗式审查（grok-4.7 xhigh）BLOCK/MAJOR 项——六入口诚实只读文案、风格引擎挂载零写盘、CHANNELS/书库/种子校验绑定真源，外加复审五个 MINOR（标题透传、书架条目守卫、空态指引、门标签变体）。",
+      ],
+    },
+  },
+  {
     version: "2.18.1",
     date: "2026-10-19",
     highlights: {
