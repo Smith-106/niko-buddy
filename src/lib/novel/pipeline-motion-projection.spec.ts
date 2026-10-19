@@ -177,6 +177,7 @@ describe("projectPipelineMotion 生產門與轉移誠實性", () => {
     ])
     expect(stateOf(projection, "review-gate")).toBe("current")
     expect(projection.log[0].tone).toBe("info")
+    expect(projection.log[0].label).toContain("quality=skipped")
     expect(projection.counts.passed).toBe(0)
     expect(projection.counts.reworks).toBe(0)
     expect(projection.reworkCounts["review-gate->revise"]).toBe(0)

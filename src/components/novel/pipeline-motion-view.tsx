@@ -87,7 +87,9 @@ export function PipelineMotionView({
           setLoadError(error instanceof Error ? error.message : String(error))
         }
       } finally {
-        if (!cancelled && first && current === generation) setReady(true)
+        // 首輪結算即離開 loading：即使首輪響應因世代號過期被丟棄，
+        // 輪詢的新數據也已（或即將）寫入；ready 不許永久為 false。
+        if (!cancelled && first) setReady(true)
       }
     }
     void loadOnce(true)

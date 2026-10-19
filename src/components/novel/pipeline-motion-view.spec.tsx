@@ -90,3 +90,26 @@ describe("PipelineMotionView 磁盤裝載", () => {
     expect(appendText).not.toHaveBeenCalled()
   })
 })
+describe("PipelineMotionView 首輪慢於輪詢", () => {
+  const LEDGER_LINE =
+    '{"seq":0,"eventId":"e:0","ts":"2026-10-19T00:00:00.000Z","kind":"generate","actor":"system","evidenceRefs":[]}'
+
+  it("首輪被輪詢超車：新數據照樣畫出來，不許永久 loading", async () => {
+    const resolvers: Array<(value: string) => void> = []
+    const readText = vi.fn(() => new Promise<string>((resolve) => { resolvers.push(resolve) }))
+    render(
+      <PipelineMotionView
+        projectPath="/fake"
+        deps={{ readText, appendText: () => Promise.resolve() }}
+        pollMs={20}
+      />,
+    )
+    // 等首輪＋至少一輪輪詢都掛起，再一次性全部放行：
+    // 首輪已過期（應被丟棄），最新一輪寫入數據。
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(resolvers.length).toBeGreaterThanOrEqual(2)
+    for (const resolve of resolvers) resolve(LEDGER_LINE)
+    await screen.findByTestId("motion-diagram")
+    expect(screen.getByTestId("motion-node-draft").getAttribute("data-state")).toBe("current")
+  })
+})

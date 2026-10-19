@@ -192,7 +192,8 @@ function isGateFail(payload: Pick<RunEvent, "payload">["payload"]): boolean {
 function gateSummary(payload: Pick<RunEvent, "payload">["payload"]): string {
   const record = (payload ?? {}) as Record<string, unknown>
   const gate = typeof record.gate === "string" && record.gate.length > 0 ? record.gate : "gate"
-  const result = isGatePass(payload) ? "pass" : isGateFail(payload) ? "fail" : "unknown"
+  // skipped 是明確裁定（未評估），不得寫成 unknown。
+  const result = isGatePass(payload) ? "pass" : isGateFail(payload) ? "fail" : record.status === "skipped" ? "skipped" : "unknown"
   return `${gate}=${result}`
 }
 
