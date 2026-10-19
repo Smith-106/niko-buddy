@@ -2040,6 +2040,12 @@
       "followUpCenter": "Follow-up Center",
       "liveExecution": "Live Execution",
       "creativeHub": "Creative Hub",
+      "bookshelf": "Bookshelf",
+      "genreLibrary": "Genre Library",
+      "storyModeLibrary": "Story-Mode Library",
+      "titleStudio": "Title Studio",
+      "styleEngine": "Style Engine",
+      "antiAiRules": "Anti-AI Rules",
       "railLabel": "Main navigation",
       "close": "Close"
     },

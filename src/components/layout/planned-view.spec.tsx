@@ -28,20 +28,20 @@ function lookup(dict: unknown, key: string): unknown {
 }
 
 describe("计划态视图登记表（P2-7）", () => {
-  it("登记表覆盖 12 个计划模块，视图名唯一（knowledgeLibrary/followUpCenter/liveExecution/creativeHub 已落地为真视图）", () => {
-    expect(PLANNED_VIEWS).toHaveLength(12)
+  it("登记表覆盖 6 个计划模块，视图名唯一（WaveA 运行态3视图＋WaveB 资产库6视图已落地为真视图）", () => {
+    expect(PLANNED_VIEWS).toHaveLength(6)
     const views = PLANNED_VIEWS.map((spec) => spec.view)
     expect(new Set(views).size).toBe(views.length)
     // 抽查几个仍为计划态的视图
-    for (const view of ["bookshelf", "modelRoutes", "exportCenter"]) {
+    for (const view of ["modelRoutes", "exportCenter"]) {
       expect(isPlannedView(view)).toBe(true)
       expect(getPlannedView(view)?.view).toBe(view)
     }
-    // knowledgeLibrary/followUpCenter/liveExecution/creativeHub 已从计划态毕业（真视图），不得再登记为占位。
-    expect(isPlannedView("knowledgeLibrary")).toBe(false)
-    expect(isPlannedView("followUpCenter")).toBe(false)
-    expect(isPlannedView("liveExecution")).toBe(false)
-    expect(isPlannedView("creativeHub")).toBe(false)
+    // WaveA（followUpCenter/liveExecution/creativeHub）＋WaveB（bookshelf/genreLibrary/storyModeLibrary/titleStudio/styleEngine/antiAiRules）已从计划态毕业（真视图），不得再登记为占位。
+    for (const view of ["knowledgeLibrary", "followUpCenter", "liveExecution", "creativeHub", "bookshelf", "genreLibrary", "storyModeLibrary", "titleStudio", "styleEngine", "antiAiRules"]) {
+      expect(isPlannedView(view)).toBe(false)
+      expect(getPlannedView(view)).toBeUndefined()
+    }
   expect(isPlannedView("worldLibrary")).toBe(false)
     expect(isPlannedView("dataManager")).toBe(false)
     expect(getPlannedView("dataManager")).toBeUndefined()
@@ -73,11 +73,11 @@ describe("PlannedView 占位渲染", () => {
   })
 
   it("渲染登记项标题/描述/即将上线徽标，而不是聊天面板", () => {
-    render(<PlannedView view="bookshelf" />)
+    render(<PlannedView view="modelRoutes" />)
     const root = screen.getByTestId("planned-view")
-    expect(root.getAttribute("data-planned-view")).toBe("bookshelf")
-    expect(screen.getByTestId("planned-view-title").textContent).toBe("wb.card.bookshelf")
-    expect(screen.getByTestId("planned-view-desc").textContent).toBe("wb.card.bookshelfDesc")
+    expect(root.getAttribute("data-planned-view")).toBe("modelRoutes")
+    expect(screen.getByTestId("planned-view-title").textContent).toBe("wb.card.modelRoutes")
+    expect(screen.getByTestId("planned-view-desc").textContent).toBe("wb.card.modelRoutesDesc")
     expect(screen.getByText("wb.plannedView.hint")).toBeTruthy()
     expect(screen.getByText("wb.planned")).toBeTruthy()
   })

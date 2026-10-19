@@ -105,6 +105,36 @@ const CreativeHubView = lazy(async () => {
   return { default: mod.CreativeHubView }
 })
 
+const BookshelfView = lazy(async () => {
+  const mod = await import("@/components/novel/bookshelf-view")
+  return { default: mod.BookshelfView }
+})
+
+const GenreLibraryView = lazy(async () => {
+  const mod = await import("@/components/novel/genre-library-view")
+  return { default: mod.GenreLibraryView }
+})
+
+const StoryModeLibraryView = lazy(async () => {
+  const mod = await import("@/components/novel/story-mode-library-view")
+  return { default: mod.StoryModeLibraryView }
+})
+
+const TitleStudioView = lazy(async () => {
+  const mod = await import("@/components/novel/title-studio-view")
+  return { default: mod.TitleStudioView }
+})
+
+const StyleEngineView = lazy(async () => {
+  const mod = await import("@/components/novel/style-engine-view")
+  return { default: mod.StyleEngineView }
+})
+
+const AntiAiRulesView = lazy(async () => {
+  const mod = await import("@/components/novel/anti-ai-rules-view")
+  return { default: mod.AntiAiRulesView }
+})
+
 const MainControlView = lazy(async () => {
   const mod = await import("@/components/novel/main-control-view")
   return { default: mod.MainControlView }
@@ -264,6 +294,48 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <CreativeHubView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "bookshelf":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <BookshelfView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "genreLibrary":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <GenreLibraryView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "storyModeLibrary":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <StoryModeLibraryView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "titleStudio":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <TitleStudioView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "styleEngine":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <StyleEngineView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "antiAiRules":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <AntiAiRulesView projectPath={projectPath} />
           </Suspense>
         )
         break

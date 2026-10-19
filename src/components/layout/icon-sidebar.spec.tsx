@@ -380,8 +380,8 @@ describe("IconSidebar", () => {
     expect(html.indexOf("novel.nav.groupMa")).toBeLessThan(html.indexOf("novel.nav.groupSi"))
     expect(html.indexOf("novel.nav.groupSi")).toBeLessThan(html.indexOf("novel.nav.groupShen"))
     expect(html.indexOf("novel.nav.groupShen")).toBeLessThan(html.indexOf("novel.nav.groupMaint"))
-    // 全部 15 个 NAV_ITEMS 仍渲染（data-view 可定位），15 个 data-view 无缺失
-    const views = ["workbench", "wiki", "director", "sources", "graph", "lint", "soul", "skillLibrary", "storySimulation", "bookAnalysis", "canonEditor", "backupExport", "diagnosticsCenter", "reviewCenter", "dataManager"]
+    // 全部 24 个 NAV_ITEMS 仍渲染（data-view 可定位），24 个 data-view 无缺失
+    const views = ["workbench", "wiki", "director", "sources", "graph", "lint", "soul", "skillLibrary", "storySimulation", "bookAnalysis", "canonEditor", "backupExport", "diagnosticsCenter", "reviewCenter", "dataManager", "followUpCenter", "liveExecution", "creativeHub", "bookshelf", "genreLibrary", "storyModeLibrary", "titleStudio", "styleEngine", "antiAiRules"]
     for (const v of views) {
       expect(document.querySelector(`[data-view="${v}"]`), v).toBeTruthy()
     }
@@ -391,7 +391,7 @@ describe("IconSidebar", () => {
     expect(document.querySelector('[data-nav-group="ma"] [data-view="wiki"]')).toBeTruthy()
     // 组头显示条目数
     expect(document.querySelector('[data-nav-group="ma"] button[aria-expanded]')?.textContent).toContain("3")
-    expect(document.querySelector('[data-nav-group="si"] button[aria-expanded]')?.textContent).toContain("7")
+    expect(document.querySelector('[data-nav-group="si"] button[aria-expanded]')?.textContent).toContain("16")
   })
 
   it("组头可折叠：点击收起组内导航项，再点恢复（含 localStorage 持久化）", () => {

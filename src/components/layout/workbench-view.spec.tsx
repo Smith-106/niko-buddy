@@ -53,7 +53,7 @@ describe("WorkbenchView 工作台总览", () => {
 
   it("未实现模块卡 disabled 且显示即将上线", () => {
     render(<WorkbenchView />)
-    const planned = screen.getByText("wb.card.followUp").closest("button")!
+    const planned = screen.getByText("wb.card.modelRoutes").closest("button")!
     expect(planned.disabled).toBe(true)
     expect(screen.getAllByText("wb.planned").length).toBeGreaterThan(0)
   })

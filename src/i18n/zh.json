@@ -1659,6 +1659,12 @@
       "followUpCenter": "跟进中心",
       "liveExecution": "AI 实况",
       "creativeHub": "创作中枢",
+      "bookshelf": "书架",
+      "genreLibrary": "题材库",
+      "storyModeLibrary": "写法库",
+      "titleStudio": "标题工坊",
+      "styleEngine": "风格引擎",
+      "antiAiRules": "反AI味",
       "railLabel": "主导航",
       "close": "关闭"
     },
