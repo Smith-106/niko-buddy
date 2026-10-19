@@ -7,7 +7,7 @@
  *   3. 码点排序（含与 UTF-16 code-unit 序相反的星平面反例）；
  *   4. 三种状态判定：ok / duplicated / missing；
  *   5. 缺失真源写入 missingSources，且不吞掉该行的重复副本；
- *   6. 真实仓库探针：唯一缺失真源为 modelRoutes 视图组件（口径回归闸）；
+ *   6. 真实仓库探针：modelRoutes 视图已毕业，真源存在，行状态为 duplicated（三处接线声明并存）；
  *   7. 纯函数性（同输入深等）与 sourceFilePath 边界。
  */
 import { existsSync } from "node:fs"
@@ -219,16 +219,17 @@ describe("projectAgentStudioSettings", () => {
 })
 
 describe("真实仓库探针（口径回归闸）", () => {
-  it("唯一缺失真源是 modelRoutes 视图组件（该视图仍为计划态，无实现）", () => {
+  it("modelRoutes 视图已毕业：真源存在，行状态为 duplicated（三处接线声明并存）", () => {
     const projection = projectAgentStudioSettings(realProbe())
 
-    expect(projection.missingSources).toEqual(["src/components/novel/model-routes-view.tsx"])
+    expect(projection.missingSources).not.toContain("src/components/novel/model-routes-view.tsx")
     const row = projection.rows.find((r) => r.id === "modelRoutes.view")
-    expect(row?.status).toBe("missing")
-    // 缺失行仍暴露两处「同一声明」：计划视图登记表 + 工作台卡片。
+    expect(row?.status).toBe("duplicated")
+    // 真源存在 + 三处「同一声明」并存：content-area 分发 case + 侧栏导航 + 工作台卡片。
     expect(row?.duplicatedIn).toEqual([
-      "src/components/layout/planned-views.ts:36",
-      "src/components/layout/workbench-view.tsx:78",
+      "src/components/layout/content-area.tsx:372",
+      "src/components/layout/nav-items.ts:89",
+      "src/components/layout/workbench-view.tsx:80",
     ])
   })
 

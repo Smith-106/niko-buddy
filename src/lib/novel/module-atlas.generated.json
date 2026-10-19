@@ -91,7 +91,7 @@
   "specOnly": 280,
   "barrelOnly": 2,
   "edges": 3770,
-  "loc": 258908
+  "loc": 258907
  },
  "modules": [
   {
@@ -2591,7 +2591,7 @@
   {
    "p": "src/components/novel/export-center-view.tsx",
    "s": 16,
-   "l": 240,
+   "l": 239,
    "r": true,
    "o": false,
    "x": false,

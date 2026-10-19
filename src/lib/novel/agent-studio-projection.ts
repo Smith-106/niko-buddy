@@ -434,8 +434,9 @@ export const AGENT_STUDIO_SETTING_CATALOG: readonly AgentStudioCatalogEntry[] = 
     hasDefault: false,
     defaultValue: null,
     duplicatedIn: [
-      "src/components/layout/planned-views.ts:36",
-      "src/components/layout/workbench-view.tsx:78",
+      "src/components/layout/content-area.tsx:372",
+      "src/components/layout/nav-items.ts:89",
+      "src/components/layout/workbench-view.tsx:80",
     ],
   },
 ] as const
@@ -475,7 +476,7 @@ export const AGENT_STUDIO_NOT_APPLICABLE: readonly AgentStudioNotApplicableItem[
     id: "agentStudio.panelMount",
     label: "代理工作室面板挂载（UI 路由）",
     reason:
-      "本 EPIC 只交付只读投影与只读面板，不接入 activeView，也不新增持久化面；modelRoutes 视图仍是计划态占位（src/components/layout/planned-views.ts:36）。",
+      "本 EPIC 只交付只读投影与只读面板，不接入 activeView，也不新增持久化面；modelRoutes 视图已毕业为真视图（src/components/novel/model-routes-view.tsx，content-area/nav/工作台三处接线）。",
   },
 ] as const
 
