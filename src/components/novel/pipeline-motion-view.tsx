@@ -12,7 +12,7 @@
  * 輪詢間隔 10 秒，讀到新事件才重渲染（投影層是純函數，同輸入同輸出）。
  */
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import {
   createFsRunEventLedgerStoreDeps,
@@ -51,6 +51,12 @@ export function PipelineMotionView({
   const [entries, setEntries] = useState<readonly TraceEntry[] | null>(traceEntries ?? null)
   const [ready, setReady] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  // 有無成功寫入過數據 / 連續失敗輪數（跨輪詢累積，切項目重置）。
+  // ready 的誠實規則：只在「新鮮成功寫入」或「失敗已成定局」（首輪新鮮失敗、
+  // 連敗且無數據）時離開 loading；過期響應結算永不碰 ready（否則會把
+  // 「尚無運行事件」提前畫出來，而勝出輪的數據還在途中）。
+  const hasDataRef = useRef(false)
+  const failStreakRef = useRef(0)
 
   useEffect(() => {
     if (ledgerEvents !== undefined || traceEntries !== undefined) {
@@ -65,6 +71,8 @@ export function PipelineMotionView({
     setEntries(null)
     setLoadError(null)
     setReady(false)
+    hasDataRef.current = false
+    failStreakRef.current = 0
     let cancelled = false
     let generation = 0
     const storeDeps = deps ?? createFsRunEventLedgerStoreDeps()
@@ -76,20 +84,32 @@ export function PipelineMotionView({
           loadRunEventLedgerStore(storeDeps, projectPath),
           loadTraceSnapshot(projectPath),
         ])
-        // 在途的舊請求不許覆蓋新項目的數據。
+        // 在途的舊請求不許覆蓋新項目的數據（連 ready 也不碰）。
         if (cancelled || current !== generation) return
+        hasDataRef.current = true
+        failStreakRef.current = 0
         setEvents(ledger.events)
         setEntries(snapshot?.entries ?? [])
         setLoadError(null)
+        setReady(true)
       } catch (error) {
-        // 失敗保留舊數據：只記錯誤文案，不清空已渲染的管線。
-        if (!cancelled && current === generation) {
-          setLoadError(error instanceof Error ? error.message : String(error))
+        if (cancelled) return
+        const message = error instanceof Error ? error.message : String(error)
+        failStreakRef.current += 1
+        const streak = failStreakRef.current
+        // 錯誤文案只在「看的人能理解」時出現：在途輪詢的單次失敗保持靜默
+        // loading（否則 error＋loading 並存自相矛盾）；有舊數據或失敗已成
+        // 定局（首輪新鮮失敗/連敗）才顯式報錯。
+        const showError = first || hasDataRef.current || streak >= 2
+        if (showError) setLoadError(message)
+        if (current !== generation) {
+          // 過期請求的失敗：勝出輪在途，不離開 loading；
+          // 連敗且從無數據，失敗已成定局才報。
+          if (streak >= 2 && !hasDataRef.current) setReady(true)
+          return
         }
-      } finally {
-        // 首輪結算即離開 loading：即使首輪響應因世代號過期被丟棄，
-        // 輪詢的新數據也已（或即將）寫入；ready 不許永久為 false。
-        if (!cancelled && first) setReady(true)
+        // 失敗保留舊數據：只記錯誤文案，不清空已渲染的管線。
+        if (first || hasDataRef.current || streak >= 2) setReady(true)
       }
     }
     void loadOnce(true)

@@ -112,4 +112,27 @@ describe("PipelineMotionView 首輪慢於輪詢", () => {
     await screen.findByTestId("motion-diagram")
     expect(screen.getByTestId("motion-node-draft").getAttribute("data-state")).toBe("current")
   })
+
+  it("過期首輪先結算：不許提前畫出假空態", async () => {
+    const resolvers: Array<(value: string) => void> = []
+    const readText = vi.fn(() => new Promise<string>((resolve) => { resolvers.push(resolve) }))
+    render(
+      <PipelineMotionView
+        projectPath="/fake"
+        deps={{ readText, appendText: () => Promise.resolve() }}
+        pollMs={20}
+      />,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(resolvers.length).toBeGreaterThanOrEqual(2)
+    // 首輪（已過期）先結算成功：必須保持 loading，不許畫「尚無運行事件」。
+    resolvers[0]?.('{"seq":0}')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(screen.getByTestId("motion-view-loading")).toBeTruthy()
+    expect(screen.queryByTestId("motion-empty")).toBeNull()
+    expect(screen.queryByTestId("motion-diagram")).toBeNull()
+    // 勝出輪結算：圖出來。
+    for (const resolve of resolvers.slice(1)) resolve(LEDGER_LINE)
+    await screen.findByTestId("motion-diagram")
+  })
 })
