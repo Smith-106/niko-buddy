@@ -30,6 +30,17 @@
         "thirty-day-stable",
         "same-day-duplicate"
       ]
+    },
+    {
+      "tag": "v2.19.0",
+      "reason": "用户明确批准（2026-10-19 会话，在本地真机安装 2.19.0 并运行后两次确认繼續）：15 灰卡转正功能版（WaveA/B/C 只读真实视图）+ 对抗审查修复。typecheck/lint/consistency/mocks/gen:check 全绿，Release CI success，Windows 三资产齐。tag 曾因 atlas 生成物漏 regen 导致门禁 failure，按纪律删除零资产旧 tag/release 后重打（未重打任何已发布带资产 tag），重打后 CI success 才重建 release。",
+      "approvedBy": "user",
+      "approvedAt": "2026-10-19",
+      "scope": [
+        "weekly-stable",
+        "thirty-day-stable",
+        "same-day-duplicate"
+      ]
     }
   ]
 }
