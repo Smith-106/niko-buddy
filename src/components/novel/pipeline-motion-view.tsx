@@ -97,8 +97,9 @@ export function PipelineMotionView({
         if (cancelled) return
         failStreakRef.current += 1
         const streak = failStreakRef.current
-        // 錯誤文案只在「看的人能理解」時出現：在途單輪失敗保持靜默
-        // loading；有舊數據或失敗已成定局（首輪失敗/連敗）才顯式報錯。
+        // 錯誤文案只在失敗已成定局時出現：首輪失敗立刻報（空態＋錯
+        // 誤同現）；有舊數據時後續失敗只添錯誤條、不清空管線；首輪懸掛
+        // 時無任何失敗可報（串行鏈下後輪尚未開火），保持 loading。
         // 無重疊請求，error 與 loading 不可能並存，也不會有過期錯誤覆蓋新數據。
         if (first || hasDataRef.current || streak >= 2) {
           setLoadError(error instanceof Error ? error.message : String(error))
