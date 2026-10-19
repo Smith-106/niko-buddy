@@ -26,7 +26,8 @@ import {
 import { PipelineMotionPanel } from "./pipeline-motion-panel"
 
 export interface PipelineMotionViewProps {
-  readonly projectId: string
+  /** 項目磁盤路徑（content-area 傳 project.path，不是 UUID；UUID 讀不到賬本）。 */
+  readonly projectPath: string
   /** 顯式注入賬本（測試；優先於磁盤裝載）。 */
   readonly ledgerEvents?: readonly RunEvent[] | null
   /** 顯式注入軌跡條目（測試；優先於磁盤裝載）。 */
@@ -40,7 +41,7 @@ export interface PipelineMotionViewProps {
 const DEFAULT_POLL_MS = 10_000
 
 export function PipelineMotionView({
-  projectId,
+  projectPath,
   ledgerEvents,
   traceEntries,
   deps,
@@ -53,28 +54,40 @@ export function PipelineMotionView({
 
   useEffect(() => {
     if (ledgerEvents !== undefined || traceEntries !== undefined) {
+      // 測試注入路徑：prop 變更即同步，不走磁盤。
+      if (ledgerEvents !== undefined) setEvents(ledgerEvents)
+      if (traceEntries !== undefined) setEntries(traceEntries)
       setReady(true)
       return
     }
+    // 切項目即重置：舊項目的管線不許殘留，新一輪裝載前回到 loading。
+    setEvents(null)
+    setEntries(null)
+    setLoadError(null)
+    setReady(false)
     let cancelled = false
+    let generation = 0
     const storeDeps = deps ?? createFsRunEventLedgerStoreDeps()
     const loadOnce = async (first: boolean): Promise<void> => {
+      generation += 1
+      const current = generation
       try {
         const [ledger, snapshot] = await Promise.all([
-          loadRunEventLedgerStore(storeDeps, projectId),
-          loadTraceSnapshot(projectId),
+          loadRunEventLedgerStore(storeDeps, projectPath),
+          loadTraceSnapshot(projectPath),
         ])
-        if (cancelled) return
+        // 在途的舊請求不許覆蓋新項目的數據。
+        if (cancelled || current !== generation) return
         setEvents(ledger.events)
         setEntries(snapshot?.entries ?? [])
         setLoadError(null)
       } catch (error) {
         // 失敗保留舊數據：只記錯誤文案，不清空已渲染的管線。
-        if (!cancelled) {
+        if (!cancelled && current === generation) {
           setLoadError(error instanceof Error ? error.message : String(error))
         }
       } finally {
-        if (!cancelled && first) setReady(true)
+        if (!cancelled && first && current === generation) setReady(true)
       }
     }
     void loadOnce(true)
@@ -85,7 +98,7 @@ export function PipelineMotionView({
       cancelled = true
       clearInterval(timer)
     }
-  }, [projectId, ledgerEvents, traceEntries, deps, pollMs])
+  }, [projectPath, ledgerEvents, traceEntries, deps, pollMs])
 
   return (
     <div data-testid="pipeline-motion-view" className="space-y-2">

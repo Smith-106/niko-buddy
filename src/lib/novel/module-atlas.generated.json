@@ -91,7 +91,7 @@
   "specOnly": 280,
   "barrelOnly": 2,
   "edges": 3735,
-  "loc": 255250
+  "loc": 255327
  },
  "modules": [
   {
@@ -2797,7 +2797,7 @@
   {
    "p": "src/components/novel/pipeline-motion-panel.tsx",
    "s": 16,
-   "l": 299,
+   "l": 305,
    "r": true,
    "o": false,
    "x": false,
@@ -2812,7 +2812,7 @@
   {
    "p": "src/components/novel/pipeline-motion-view.tsx",
    "s": 16,
-   "l": 109,
+   "l": 122,
    "r": true,
    "o": false,
    "x": false,
@@ -12302,7 +12302,7 @@
   {
    "p": "src/lib/novel/pipeline-motion-projection.ts",
    "s": 9,
-   "l": 294,
+   "l": 352,
    "r": true,
    "o": true,
    "x": true,

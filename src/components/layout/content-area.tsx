@@ -227,7 +227,7 @@ export function ContentArea() {
       case "pipelineMotion":
         content = (
           <Suspense fallback={<LoadingView />}>
-            <PipelineMotionView projectId={projectId} />
+            <PipelineMotionView projectPath={projectPath} />
           </Suspense>
         )
         break

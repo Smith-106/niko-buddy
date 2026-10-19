@@ -67,10 +67,15 @@ function externalRow(id: string): number {
   return id === "model-router" ? stageIndex("evidence") : stageIndex("outline")
 }
 
-function ReworkPath({ from, to, active }: { from: string; to: string; active: boolean }): React.ReactElement {
+/** 狀態字形雙編碼：色盲用戶不靠顏色也能區分（▶ 進行中 / ● 已走過 / ○ 未到）。 */
+function stateGlyph(state: MotionNodeProjection["state"]): string {
+  return state === "current" ? "▶" : state === "visited" ? "●" : "○"
+}
+
+function ReworkPath({ from, to, active, lane }: { from: string; to: string; active: boolean; lane: number }): React.ReactElement {
   const y1 = rowY(stageIndex(from))
   const y2 = rowY(stageIndex(to))
-  const x = COL_X - NODE_W / 2 - 34
+  const x = COL_X - NODE_W / 2 - lane
   const color = active ? "#f85149" : "#30363d"
   return (
     <path
@@ -102,7 +107,7 @@ function MotionNode({ node, index }: { node: MotionNodeProjection; index: number
           strokeWidth={node.state === "current" ? 2 : 1}
         />
         <text x={COL_X} y={y + 4} textAnchor="middle" fontSize="11" fill={NODE_TEXT[node.state]}>
-          ◆ {node.label}
+          {stateGlyph(node.state)} ◆ {node.label}
         </text>
       </g>
     )
@@ -120,7 +125,7 @@ function MotionNode({ node, index }: { node: MotionNodeProjection; index: number
         strokeWidth={node.state === "current" ? 2 : 1}
       />
       <text x={COL_X} y={y + 4} textAnchor="middle" fontSize="11" fill={NODE_TEXT[node.state]}>
-        {node.kind === "terminal" ? `■ ${node.label}` : `▶ ${node.label}`}
+        {node.kind === "terminal" ? `${stateGlyph(node.state)} ■ ${node.label}` : `${stateGlyph(node.state)} ${node.label}`}
       </text>
     </g>
   )
@@ -153,7 +158,7 @@ function ExternalNode({ node }: { node: MotionNodeProjection }): React.ReactElem
         strokeWidth={1}
       />
       <text x={EXT_X} y={y + 4} textAnchor="middle" fontSize="11" fill={text}>
-        {node.label}
+        {stateGlyph(node.state)} ◇ {node.label}
       </text>
     </g>
   )
@@ -166,15 +171,16 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
   )
 
   const height = rowY(PIPELINE_STAGES.length - 1) + 30
-  const currentNode = resolved.nodes.find((node) => node.state === "current") ?? null
+  const currentNode =
+    [...resolved.nodes, ...resolved.externals].find((node) => node.state === "current") ?? null
   const lastLog = resolved.log.length > 0 ? resolved.log[resolved.log.length - 1] : null
-  const { counts } = resolved
+  const { counts, hotEdge } = resolved
 
-  const edgeIntoCurrent = (index: number): boolean => {
-    if (!currentNode || index <= 0) return false
+  const isHotEdge = (index: number): boolean => {
+    if (!hotEdge || index <= 0) return false
     const node = resolved.nodes[index]
     const prev = resolved.nodes[index - 1]
-    return node.id === currentNode.id && prev.state !== "idle"
+    return node.id === hotEdge.to && prev.id === hotEdge.from
   }
 
   return (
@@ -190,10 +196,10 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
           data-testid="motion-legend"
           className="flex flex-wrap items-center justify-center gap-3 text-[11px] text-[#8b949e]"
         >
-          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#58a6ff]" />當前路徑</span>
-          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#d29922]" />外部依賴</span>
-          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#f85149]" />返工回路</span>
-          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#484f58]" />其餘節點</span>
+          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#58a6ff]" />▶ 當前路徑</span>
+          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#d29922]" />◇ 外部依賴（虛線）</span>
+          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#f85149]" />↩ 返工回路（有計數才紅）</span>
+          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#484f58]" />○ 其餘節點（● 已走過）</span>
         </div>
         <p data-testid="motion-stats" className="text-center text-[11px] text-[#8b949e]">
           事件 <b className="text-[#e6edf3]">{counts.events}</b>
@@ -220,12 +226,11 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
           role="img"
           aria-label="寫作管線動態圖"
         >
-          {resolved.nodes.slice(1).map((node, offset) => {
+          {resolved.nodes.slice(1).map((_node, offset) => {
             const index = offset + 1
             const y1 = rowY(index - 1) + NODE_H / 2
             const y2 = rowY(index) - NODE_H / 2
-            const hot = edgeIntoCurrent(index)
-            void node
+            const hot = isHotEdge(index)
             return (
               <line
                 key={`edge-${index}`}
@@ -246,6 +251,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
               from={edge.from}
               to={edge.to}
               active={(resolved.reworkCounts[`${edge.from}->${edge.to}`] ?? 0) > 0}
+              lane={edge.from === "self-gate" ? 58 : 34}
             />
           ))}
           {resolved.nodes.map((node, index) => (
