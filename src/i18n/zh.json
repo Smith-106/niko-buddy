@@ -1665,6 +1665,12 @@
       "titleStudio": "标题工坊",
       "styleEngine": "风格引擎",
       "antiAiRules": "反AI味",
+      "workflowEditor": "工作流",
+      "marketRadar": "市场雷达",
+      "modelRoutes": "模型路由",
+      "mcpManager": "MCP 服务",
+      "exportCenter": "导出中心",
+      "help": "帮助",
       "railLabel": "主导航",
       "close": "关闭"
     },

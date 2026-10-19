@@ -21,14 +21,9 @@ export interface PlannedViewSpec {
 }
 
 export const PLANNED_VIEWS: readonly PlannedViewSpec[] = [
-  // 配置
-  { view: "modelRoutes", labelKey: "wb.card.modelRoutes", descKey: "wb.card.modelRoutesDesc" },
-  { view: "mcpManager", labelKey: "wb.card.mcp", descKey: "wb.card.mcpDesc" },
-  { view: "workflowEditor", labelKey: "wb.card.workflowEditor", descKey: "wb.card.workflowEditorDesc" },
-  { view: "marketRadar", labelKey: "wb.card.marketRadar", descKey: "wb.card.marketRadarDesc" },
-  { view: "help", labelKey: "wb.card.help", descKey: "wb.card.helpDesc" },
-  // 数据
-  { view: "exportCenter", labelKey: "wb.card.exportCenter", descKey: "wb.card.exportCenterDesc" },
+  // WaveC 毕业后登记表已清空：全部 15 个灰卡视图均已落地为真视图。
+  // 注册表与 isPlannedView/getPlannedView 保留（空表恒返回 false/undefined），
+  // content-area 的占位分支与 workbench 的置灰逻辑随之自然退役（无分支改动）。
 ] as const
 
 const PLANNED_VIEW_BY_KEY = new Map(PLANNED_VIEWS.map((spec) => [spec.view, spec]))

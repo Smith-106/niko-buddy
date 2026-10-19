@@ -51,11 +51,12 @@ describe("WorkbenchView 工作台总览", () => {
     expect(setActiveView).toHaveBeenCalledWith("dataManager")
   })
 
-  it("未实现模块卡 disabled 且显示即将上线", () => {
+  it("全部模块均已实现：无 disabled 占位卡、无即将上线徽标（WaveC 毕业后计划表已清空）", () => {
     render(<WorkbenchView />)
-    const planned = screen.getByText("wb.card.modelRoutes").closest("button")!
-    expect(planned.disabled).toBe(true)
-    expect(screen.getAllByText("wb.planned").length).toBeGreaterThan(0)
+    expect(screen.queryAllByText("wb.planned")).toHaveLength(0)
+    // 抽查 WaveC 毕业的卡片已是可用态
+    const card = screen.getByText("wb.card.exportCenter").closest("button")!
+    expect(card.disabled).toBe(false)
   })
 
   it("无项目时显示提示", () => {

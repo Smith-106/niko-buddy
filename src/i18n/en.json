@@ -2046,6 +2046,12 @@
       "titleStudio": "Title Studio",
       "styleEngine": "Style Engine",
       "antiAiRules": "Anti-AI Rules",
+      "workflowEditor": "Workflow",
+      "marketRadar": "Market Radar",
+      "modelRoutes": "Model Routes",
+      "mcpManager": "MCP Services",
+      "exportCenter": "Export Center",
+      "help": "Help",
       "railLabel": "Main navigation",
       "close": "Close"
     },

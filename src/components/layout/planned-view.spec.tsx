@@ -28,17 +28,10 @@ function lookup(dict: unknown, key: string): unknown {
 }
 
 describe("计划态视图登记表（P2-7）", () => {
-  it("登记表覆盖 6 个计划模块，视图名唯一（WaveA 运行态3视图＋WaveB 资产库6视图已落地为真视图）", () => {
-    expect(PLANNED_VIEWS).toHaveLength(6)
-    const views = PLANNED_VIEWS.map((spec) => spec.view)
-    expect(new Set(views).size).toBe(views.length)
-    // 抽查几个仍为计划态的视图
-    for (const view of ["modelRoutes", "exportCenter"]) {
-      expect(isPlannedView(view)).toBe(true)
-      expect(getPlannedView(view)?.view).toBe(view)
-    }
-    // WaveA（followUpCenter/liveExecution/creativeHub）＋WaveB（bookshelf/genreLibrary/storyModeLibrary/titleStudio/styleEngine/antiAiRules）已从计划态毕业（真视图），不得再登记为占位。
-    for (const view of ["knowledgeLibrary", "followUpCenter", "liveExecution", "creativeHub", "bookshelf", "genreLibrary", "storyModeLibrary", "titleStudio", "styleEngine", "antiAiRules"]) {
+  it("登记表已清空：全部 15 个灰卡视图均已毕业为真视图（WaveA 运行态3＋WaveB 资产库6＋WaveC 配置数据6）", () => {
+    expect(PLANNED_VIEWS).toHaveLength(0)
+    // 全部 15 个曾经的计划态视图 + 早前毕业的 knowledgeLibrary/worldLibrary/dataManager，一律不得再登记为占位。
+    for (const view of ["knowledgeLibrary", "followUpCenter", "liveExecution", "creativeHub", "bookshelf", "genreLibrary", "storyModeLibrary", "titleStudio", "styleEngine", "antiAiRules", "modelRoutes", "mcpManager", "workflowEditor", "marketRadar", "help", "exportCenter", "worldLibrary", "dataManager"]) {
       expect(isPlannedView(view)).toBe(false)
       expect(getPlannedView(view)).toBeUndefined()
     }
@@ -72,12 +65,13 @@ describe("PlannedView 占位渲染", () => {
     setActiveView.mockClear()
   })
 
-  it("渲染登记项标题/描述/即将上线徽标，而不是聊天面板", () => {
+  it("已毕业的视图名走占位退化分支（标题回显原始 key，不崩）", () => {
     render(<PlannedView view="modelRoutes" />)
     const root = screen.getByTestId("planned-view")
     expect(root.getAttribute("data-planned-view")).toBe("modelRoutes")
-    expect(screen.getByTestId("planned-view-title").textContent).toBe("wb.card.modelRoutes")
-    expect(screen.getByTestId("planned-view-desc").textContent).toBe("wb.card.modelRoutesDesc")
+    // 已毕业，真入口在 content-area；占位页仅退化回显，不伪造文案。
+    expect(screen.getByTestId("planned-view-title").textContent).toBe("modelRoutes")
+    expect(screen.queryByTestId("planned-view-desc")).toBeNull()
     expect(screen.getByText("wb.plannedView.hint")).toBeTruthy()
     expect(screen.getByText("wb.planned")).toBeTruthy()
   })

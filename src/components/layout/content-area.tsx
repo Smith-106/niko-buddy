@@ -135,6 +135,36 @@ const AntiAiRulesView = lazy(async () => {
   return { default: mod.AntiAiRulesView }
 })
 
+const ModelRoutesView = lazy(async () => {
+  const mod = await import("@/components/novel/model-routes-view")
+  return { default: mod.ModelRoutesView }
+})
+
+const McpManagerView = lazy(async () => {
+  const mod = await import("@/components/novel/mcp-manager-view")
+  return { default: mod.McpManagerView }
+})
+
+const WorkflowEditorView = lazy(async () => {
+  const mod = await import("@/components/novel/workflow-editor-view")
+  return { default: mod.WorkflowEditorView }
+})
+
+const MarketRadarView = lazy(async () => {
+  const mod = await import("@/components/novel/market-radar-view")
+  return { default: mod.MarketRadarView }
+})
+
+const HelpView = lazy(async () => {
+  const mod = await import("@/components/novel/help-view")
+  return { default: mod.HelpView }
+})
+
+const ExportCenterView = lazy(async () => {
+  const mod = await import("@/components/novel/export-center-view")
+  return { default: mod.ExportCenterView }
+})
+
 const MainControlView = lazy(async () => {
   const mod = await import("@/components/novel/main-control-view")
   return { default: mod.MainControlView }
@@ -336,6 +366,48 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <AntiAiRulesView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "modelRoutes":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <ModelRoutesView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "mcpManager":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <McpManagerView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "workflowEditor":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <WorkflowEditorView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "marketRadar":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <MarketRadarView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "help":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <HelpView projectPath={projectPath} />
+          </Suspense>
+        )
+        break
+      case "exportCenter":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <ExportCenterView projectPath={projectPath} />
           </Suspense>
         )
         break
