@@ -3927,7 +3927,7 @@
       "modelRoutesDesc": "模型路由与 provider 配置摘要（只读）",
       "mcp": "MCP管理",
       "mcpDesc": "MCP服务器+外部知识库(notion/weknora/obsidian)",
-      "workflowEditor": "工作流编辑器",
+      "workflowEditor": "工作流",
       "workflowEditorDesc": "工作流模板与运行账本（只读）",
       "marketRadar": "市场雷达",
       "marketRadarDesc": "市场榜单预留位（数据未接入）",

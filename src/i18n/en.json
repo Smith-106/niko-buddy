@@ -3927,7 +3927,7 @@
       "modelRoutesDesc": "Model routing & provider summary (read-only)",
       "mcp": "MCP Manager",
       "mcpDesc": "MCP servers + external KB (notion/weknora/obsidian)",
-      "workflowEditor": "Workflow Editor",
+      "workflowEditor": "Workflow",
       "workflowEditorDesc": "Workflow templates & run ledger (read-only)",
       "marketRadar": "Market Radar",
       "marketRadarDesc": "Market listing placeholder (no data source)",
