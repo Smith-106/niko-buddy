@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { getEnabledWritingStyle, setEnabledWritingStyle } from "@/lib/novel"
+import { loadWritingStyleStore, setEnabledWritingStyle } from "@/lib/novel"
 import type { WritingStylePreset } from "@/lib/novel"
 
 export interface StyleEngineViewProps {
@@ -68,10 +68,10 @@ function findSelected(
 /**
  * 写法引擎视图：风格预设管理。
  *
- * 数据源走 barrel（@/lib/novel）：getEnabledWritingStyle 读取当前启用预设，
- * setEnabledWritingStyle 切换启用并内部经 saveWritingStyleStore 落盘
- * （<projectPath>/.niko-buddy/writing-style.json），返回全量 store（含 styles
- * 列表）驱动列表刷新。store 无 deps 注入（签名即 projectPath 直传）。
+ * 数据源走 barrel（@/lib/novel）：loadWritingStyleStore 只读装载全量 store
+ * （含 styles 列表 + enabledStyleId，不触盘）驱动列表刷新；
+ * setEnabledWritingStyle 仅由用户显式切换启用时调用（内部经 saveWritingStyleStore 落盘
+ * <projectPath>/.niko-buddy/writing-style.json）。装载分支零写盘（BGH-20261019 M3）。
  */
 export function StyleEngineView({ projectPath }: StyleEngineViewProps) {
   const [presets, setPresets] = useState<WritingStylePreset[]>([])
@@ -95,9 +95,7 @@ export function StyleEngineView({ projectPath }: StyleEngineViewProps) {
       setLoading(true)
       setError("")
       try {
-        const enabled = await getEnabledWritingStyle(projectPath)
-        // setEnabledWritingStyle 返回全量 store（含 styles 列表）；同 id 回写为等幂刷新，不改变启用态。
-        const store = await setEnabledWritingStyle(projectPath, enabled ? enabled.id : null)
+        const store = await loadWritingStyleStore(projectPath)
         if (cancelled) return
         setPresets(store.styles)
         setEnabledId(store.enabledStyleId)

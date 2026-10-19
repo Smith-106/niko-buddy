@@ -13,19 +13,14 @@
  * - 选中态走 `useBookAnalysisStore.setSelectedLibraryBookId`，
  *   视图跳转走 `useWikiStore.setActiveView("bookAnalysis")`（仿 director-view 写法）。
  *
- * Barrel 缺口（已记录，未 deep import `@/lib/novel/*`）：
- * - `loadBookLibrary` 与 `BookLibrary/BookLibraryEntry` 类型尚未由
- *   `@/lib/novel` barrel 导出（index.ts 仅导出 asset-library-store 相关），
- *   故本文件用 `@/commands/fs.readFile` 按同契约直读同路径文件
- *   （路径拼接与空/坏回空规则与 library-store 一致）。
- *   待 barrel 补出口后可改为直接复用 loadBookLibrary；展示类型在本地按契约声明。
+ * Barrel 缺口已解决（BGH-20261019 m6）：`loadBookLibrary` 与类型经 barrel 复用，
+ * 文件直读解析器已删除；展示类型仍为本地投影子集（字段收窄，非契约复刻）。
  *
  * @license MIT © Niko Buddy
  */
 
 import { useEffect, useState } from "react"
-import { readFile } from "@/commands/fs"
-import { joinPath, normalizePath } from "@/lib/path-utils"
+import { loadBookLibrary } from "@/lib/novel"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
 
@@ -42,9 +37,6 @@ export interface BookshelfEntry {
 export interface BookshelfViewProps {
   readonly projectPath: string
 }
-
-const LIBRARY_FILE = "library.json"
-const LIBRARY_VERSION = 1
 
 const STATUS_LABEL: Record<BookshelfEntry["status"], string> = {
   completed: "已完成",
@@ -75,27 +67,17 @@ function toBookshelfEntry(raw: unknown): BookshelfEntry | null {
 }
 
 /**
- * 书架装载（同 `loadBookLibrary` 契约：空/坏回空数组，不抛错）。
- * Barrel 未导出 loadBookLibrary，故此处直读同路径文件，缺口见文件头注释。
+ * 书架装载（复用 `loadBookLibrary` 真源：空/坏回空数组，不抛错；
+ * 再经 `toBookshelfEntry` 投影为展示子集。BGH-20261019 m6：直读解析器已删除）。
  */
 export async function loadBookshelfEntries(projectPath: string): Promise<BookshelfEntry[]> {
-  try {
-    const raw = await readFile(normalizePath(joinPath(projectPath, "book-analysis", LIBRARY_FILE)))
-    if (!raw || raw.trim().length === 0) return []
-    const parsed: unknown = JSON.parse(raw)
-    if (!isRecord(parsed)) return []
-    if (parsed["version"] !== LIBRARY_VERSION) return []
-    const rawEntries = parsed["entries"]
-    if (!Array.isArray(rawEntries)) return []
-    const entries: BookshelfEntry[] = []
-    for (const item of rawEntries) {
-      const entry = toBookshelfEntry(item)
-      if (entry) entries.push(entry)
-    }
-    return entries
-  } catch {
-    return []
+  const library = await loadBookLibrary(projectPath)
+  const entries: BookshelfEntry[] = []
+  for (const item of library.entries) {
+    const entry = toBookshelfEntry(item)
+    if (entry) entries.push(entry)
   }
+  return entries
 }
 
 export function BookshelfView({ projectPath }: BookshelfViewProps) {

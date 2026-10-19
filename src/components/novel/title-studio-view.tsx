@@ -24,6 +24,7 @@ import { useEffect, useState } from "react"
 import {
   forgeTitles,
   loadAssetLibraryArtifact,
+  TITLE_SEED_ENTRY_SCHEMA,
   type TitleForgeReport,
   type TitleSeedEntry,
 } from "@/lib/novel"
@@ -32,20 +33,15 @@ export interface TitleStudioViewProps {
   readonly projectPath: string
 }
 
-/** artifact 条目收窄为标题种子（缺 pattern/entryId 的脏条目丢弃，不猜）。 */
+/**
+ * artifact 条目收窄为标题种子（BGH-20261019 m9：改走真源 schema 规范化入口；
+ * `passthrough()` 容忍历史脏字段，失败项丢弃不猜）。
+ */
 function toTitleSeedEntry(entry: unknown): TitleSeedEntry | null {
-  if (entry === null || typeof entry !== "object") return null
-  const record = entry as {
-    readonly entryId?: unknown
-    readonly pattern?: unknown
-    readonly constraints?: unknown
-  }
-  if (typeof record.entryId !== "string" || typeof record.pattern !== "string") return null
-  if (record.entryId.length === 0 || record.pattern.length === 0) return null
-  const constraints = Array.isArray(record.constraints)
-    ? record.constraints.filter((item): item is string => typeof item === "string" && item.length > 0)
-    : []
-  return { entryId: record.entryId, pattern: record.pattern, constraints, examples: [] }
+  const parsed = TITLE_SEED_ENTRY_SCHEMA.passthrough().safeParse(entry)
+  if (!parsed.success) return null
+  const { entryId, pattern, constraints, examples } = parsed.data
+  return { entryId, pattern, constraints, examples }
 }
 
 /** 淘汰/通过原因码 → 中文（machine-readable 原因码保留展示，可对账）。 */

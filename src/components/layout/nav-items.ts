@@ -87,6 +87,8 @@ export const NAV_ITEMS: NavItem[] = [
   { view: "diagnosticsCenter", icon: Stethoscope, labelKey: "novel.nav.diagnosticsCenter", group: "maint" },
   { view: "dataManager", icon: Database, labelKey: "novel.nav.dataManager", group: "maint" },
   { view: "modelRoutes", icon: Route, labelKey: "novel.nav.modelRoutes", group: "maint" },
+  // BGH-20261019 m7 说明：配置数据 6 视图走扁平导航（与既有 24 项同构），未做分组折叠；
+  // 当前 30 项规模下可读性可接受，分组重构留待导航项继续膨胀时再议。
   { view: "mcpManager", icon: Plug, labelKey: "novel.nav.mcpManager", group: "maint" },
   { view: "exportCenter", icon: Download, labelKey: "novel.nav.exportCenter", group: "maint" },
   { view: "help", icon: CircleQuestionMark, labelKey: "novel.nav.help", group: "maint" },

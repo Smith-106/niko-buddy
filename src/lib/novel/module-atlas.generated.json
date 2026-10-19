@@ -85,13 +85,13 @@
  ],
  "stats": {
   "modules": 1077,
-  "reachable": 864,
-  "unwired": 213,
+  "reachable": 865,
+  "unwired": 212,
   "orphan": 293,
   "specOnly": 280,
   "barrelOnly": 2,
-  "edges": 3770,
-  "loc": 258908
+  "edges": 3771,
+  "loc": 258866
  },
  "modules": [
   {
@@ -1366,7 +1366,7 @@
   {
    "p": "src/components/layout/nav-items.ts",
    "s": 16,
-   "l": 123,
+   "l": 125,
    "r": true,
    "o": false,
    "x": false,
@@ -2041,14 +2041,13 @@
   {
    "p": "src/components/novel/bookshelf-view.tsx",
    "s": 16,
-   "l": 202,
+   "l": 184,
    "r": true,
    "o": false,
    "x": false,
    "b": false,
    "i": [
-    3,
-    915,
+    671,
     1062,
     1073
    ],
@@ -2661,7 +2660,7 @@
   {
    "p": "src/components/novel/genre-library-view.tsx",
    "s": 16,
-   "l": 252,
+   "l": 227,
    "r": true,
    "o": false,
    "x": false,
@@ -3526,7 +3525,7 @@
   {
    "p": "src/components/novel/style-engine-view.tsx",
    "s": 16,
-   "l": 232,
+   "l": 230,
    "r": true,
    "o": false,
    "x": false,
@@ -3621,7 +3620,7 @@
   {
    "p": "src/components/novel/title-studio-view.tsx",
    "s": 16,
-   "l": 258,
+   "l": 254,
    "r": true,
    "o": false,
    "x": false,
@@ -11212,7 +11211,7 @@
   {
    "p": "src/lib/novel/index.ts",
    "s": 18,
-   "l": 1453,
+   "l": 1457,
    "r": true,
    "o": false,
    "x": false,
@@ -11243,6 +11242,7 @@
     454,
     455,
     459,
+    460,
     462,
     463,
     464,
@@ -11369,6 +11369,7 @@
     724,
     726,
     727,
+    728,
     729,
     734,
     738,
@@ -12265,8 +12266,8 @@
   {
    "p": "src/lib/novel/outline-genres.ts",
    "s": 4,
-   "l": 41,
-   "r": false,
+   "l": 42,
+   "r": true,
    "o": false,
    "x": false,
    "b": false,

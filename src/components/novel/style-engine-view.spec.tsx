@@ -218,11 +218,11 @@ describe("StyleEngineView", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument()
   })
 
-  it("挂载期写盘失败也显式报错", async () => {
+  it("挂载零写盘（M3：只读装载，不调用写盘）", async () => {
     fsMocks.readFile.mockResolvedValue(storeJson([makePreset("s1", "沧海文风", "沧海卷")], null))
-    fsMocks.writeFileAtomic.mockRejectedValueOnce(new Error("目录不可写"))
     render(<StyleEngineView projectPath={PROJECT_PATH} />)
-    expect(await screen.findByRole("alert")).toHaveTextContent("目录不可写")
+    await screen.findByTestId("style-list")
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("projectPath 变化时重新加载", async () => {
