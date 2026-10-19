@@ -91,7 +91,7 @@
   "specOnly": 280,
   "barrelOnly": 2,
   "edges": 3770,
-  "loc": 258907
+  "loc": 258908
  },
  "modules": [
   {
@@ -7480,7 +7480,7 @@
   {
    "p": "src/lib/novel/agent-studio-projection.ts",
    "s": 9,
-   "l": 571,
+   "l": 572,
    "r": true,
    "o": true,
    "x": true,
