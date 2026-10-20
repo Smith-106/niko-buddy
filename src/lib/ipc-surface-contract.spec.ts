@@ -19,6 +19,7 @@
  * （该命令在 Rust 侧根本不存在），把它算进调用面只会制造假缺陷。
  */
 
+import * as ts from "typescript"
 import { describe, expect, it } from "vitest"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
@@ -107,76 +108,63 @@ interface InvokeScan {
 }
 
 /**
- * invoke( / invokeCanon<...>( 调用的首实参区扫描：截取到调用内第一个顶层逗号/右括号，
- * 从中提取字面量命令名（覆盖 `cond ? "a" : "b"` 动态选择；对象实参里的普通字符串因
- * 不在首实参区而不会污染调用面）。
+ * 四-10：invoke( / invokeCanon<...>( 调用点提取改走 TS compiler API。
+ * 旧 INVOKE_RE＋括号步进扫描在换行/嵌套/注释下漏误报；AST 天然跳过注释与
+ * 类型实参，首实参按表达式语义取值：
+ * - 字符串字面量（含无替换模板）→ 直接计入；
+ * - 条件表达式 → 两分支字面量都计入（覆盖 `cond ? "a" : "b"` 动态选择）；
+ * - 括号/`as`/`satisfies`/`!` 包装 → 拆包后递归判定；
+ * - 其余（变量/模板插值/函数调用）→ unresolved 盲区上报。
  * B2 注：安全壳调用点 `invokeCanon<...>(` 视为 invoke 调用面的别名（同文件字面量逐条
- * 计入 wired），其泛型实参中的类型名不计入（过滤首字母大写 token）。
+ * 计入 wired），其泛型实参是类型节点，不在 arguments 内，不会污染。
  */
+function firstArgLiterals(expr: ts.Expression, source: ts.SourceFile): string[] | null {
+  if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) return [expr.text]
+  if (ts.isParenthesizedExpression(expr)) return firstArgLiterals(expr.expression, source)
+  if (ts.isAsExpression(expr) || ts.isSatisfiesExpression(expr) || ts.isNonNullExpression(expr)) {
+    return firstArgLiterals(expr.expression, source)
+  }
+  if (ts.isConditionalExpression(expr)) {
+    const whenTrue = firstArgLiterals(expr.whenTrue, source)
+    const whenFalse = firstArgLiterals(expr.whenFalse, source)
+    if (whenTrue && whenFalse) return [...whenTrue, ...whenFalse]
+    return null
+  }
+  return null
+}
+
 function extractInvokeSites(): InvokeScan {
   const called = new Map<string, string>()
   const unresolved: string[] = []
-  const invokeRe = /\binvoke(?:Canon)?\b(?:<[^()]*>\s*)?\(/g
-  const firstArgLiteralRe = /["'`]([a-z][a-z0-9_]*)["'`]/g
-
   for (const file of walkProductionFiles(SRC)) {
     const text = readFileSync(file, "utf-8")
     const rel = relative(ROOT, file).replace(/\\/g, "/")
-    invokeRe.lastIndex = 0
-    let match: RegExpExecArray | null
-    while ((match = invokeRe.exec(text)) !== null) {
-      const lineStart = text.lastIndexOf("\n", match.index) + 1
-      const linePrefix = text.slice(lineStart, match.index)
-      // 注释里的 invoke 不是调用面。
-      if (/^\s*(\/\/|\*|\/\*)/.test(linePrefix)) continue
-      if (linePrefix.includes("//") || linePrefix.includes("/*")) continue
-
-      let cursor = match.index + match[0].length
-      let depth = 1
-      let quote: string | null = null
-      while (cursor < text.length) {
-        const ch = text[cursor]
-        if (quote !== null) {
-          if (ch === "\\") {
-            cursor += 2
-            continue
+    const scriptKind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+    const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, scriptKind)
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        const callee = node.expression
+        if (ts.isIdentifier(callee) && (callee.text === "invoke" || callee.text === "invokeCanon")) {
+          const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1
+          const first = node.arguments[0]
+          const literals = first ? firstArgLiterals(first, source) : null
+          if (literals && literals.length > 0) {
+            for (const command of literals) {
+              if (!called.has(command)) called.set(command, `${rel}:${line}`)
+            }
+          } else {
+            // 中转透传定义点（`invoke<T>(command, ...)`）无字面量是预期的，不计盲区。
+            if (rel === "src/lib/novel/canon-graph-client.ts" && callee.text === "invoke" && first && first.getText(source) === "command") {
+              // 透传，不计
+            } else {
+              unresolved.push(`${rel}:${line}`)
+            }
           }
-          if (ch === quote) quote = null
-          cursor++
-          continue
         }
-        if (ch === '"' || ch === "'" || ch === "`") {
-          quote = ch
-          cursor++
-          continue
-        }
-        if (ch === "(") depth++
-        else if (ch === ")") {
-          depth--
-          if (depth === 0) break
-        } else if (ch === "," && depth === 1) break
-        cursor++
       }
-      const firstArg = text.slice(match.index + match[0].length, cursor)
-      const line = text.slice(0, match.index).split("\n").length
-
-      const literals: string[] = []
-      firstArgLiteralRe.lastIndex = 0
-      let literal: RegExpExecArray | null
-      while ((literal = firstArgLiteralRe.exec(firstArg)) !== null) literals.push(literal[1])
-      if (literals.length === 0) {
-        // 中转透传定义点（`invoke<T>(command, ...)`）无字面量是预期的，不计盲区。
-        if (rel === "src/lib/novel/canon-graph-client.ts" && /^invoke</.test(match[0]) && /^command$/.test(firstArg.trim())) continue
-        unresolved.push(`${rel}:${line}`)
-        continue
-      }
-      for (const command of literals) {
-        // 中转透传去重：安全壳定义点 `invoke<T>(command, ...)` 的变量透传不计为调用面
-        // （字面量已在同文件各调用点计入）；其余字面量正常计入。
-        // 另：安全壳调用点 `invokeCanon<...>(` 自身不是 invoke 调用面，跳过。
-        if (!called.has(command)) called.set(command, `${rel}:${line}`)
-      }
+      ts.forEachChild(node, visit)
     }
+    visit(source)
   }
   return { called, unresolved }
 }
