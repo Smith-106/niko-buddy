@@ -753,29 +753,34 @@ pub async fn export_backup(
 ) -> Result<ExportResult, String> {
     // Reset cancellation flag at the start of each export.
     BACKUP_CANCEL.store(false, Ordering::SeqCst);
-    run_guarded("export_backup", || {
+    // 前置（plugin-store 落盘）：快操作，留 async 侧；panic 仍由 run_guarded 转 Err。
+    let app_state_path = run_guarded("export_backup", || {
         // Flush the plugin-store to disk first so the zip gets the latest state.
         let app_data_dir = app
             .path()
             .app_data_dir()
             .map_err(|err| format!("无法获取 app_data_dir: {err}"))?;
 
-        let app_state_path = match app.store("app-state.json") {
+        match app.store("app-state.json") {
             Ok(store) => {
                 if let Err(e) = store.save() {
                     // 非致命：导出继续，但 zip 内 app-state 可能落后于内存态。
                     log::warn!("保存 app-state 存储失败: {e}");
                 }
-                app_data_dir.join("app-state.json")
+                Ok(app_data_dir.join("app-state.json"))
             }
             Err(e) => {
                 // 非致命：回退到磁盘上的 app-state.json。
                 log::warn!("无法获取 app-state 存储句柄: {e}");
-                app_data_dir.join("app-state.json")
+                Ok(app_data_dir.join("app-state.json"))
             }
-        };
+        }
+    })?;
 
-        let app_clone = app.clone();
+    let app_clone = app.clone();
+    // P1-12：同步 zip 编解码搬入 spawn_blocking，不再阻塞 async worker；
+    // blocking 侧 panic 经 JoinError 转 Err（命令签名/进度事件不变）。
+    tokio::task::spawn_blocking(move || {
         do_export_backup(params, &app_state_path, move |payload| {
             emit_progress(
                 &app_clone,
@@ -787,6 +792,14 @@ pub async fn export_backup(
             );
         })
     })
+    .await
+    .map_err(|e| {
+        if e.is_panic() {
+            "Internal error in export_backup: 构建任务 panic".to_string()
+        } else {
+            format!("备份导出失败：构建任务异常: {e}")
+        }
+    })?
 }
 
 #[tauri::command]
@@ -794,14 +807,17 @@ pub async fn import_backup(
     app: tauri::AppHandle,
     params: ImportParams,
 ) -> Result<ImportResult, String> {
-    run_guarded("import_backup", || {
-        let app_data_dir = app
-            .path()
+    // 前置（app_data_dir）：快操作，留 async 侧。
+    let app_data_dir = run_guarded("import_backup", || {
+        app.path()
             .app_data_dir()
-            .map_err(|err| format!("无法获取 app_data_dir: {err}"))?;
+            .map_err(|err| format!("无法获取 app_data_dir: {err}"))
+    })?;
 
-        let app_clone = app.clone();
-        let result = do_import_backup(params, &app_data_dir, move |payload| {
+    let app_clone = app.clone();
+    // P1-12：同 export，同步 zip 编解码搬入 spawn_blocking。
+    let result = tokio::task::spawn_blocking(move || {
+        do_import_backup(params, &app_data_dir, move |payload| {
             emit_progress(
                 &app_clone,
                 &payload.operation,
@@ -810,16 +826,24 @@ pub async fn import_backup(
                 payload.total,
                 &payload.message,
             );
-        })?;
-
-        // Re-hydrate the in-memory plugin-store so the app doesn't revert to
-        // the old state on next shutdown.
-        if let Some(ref app_state_json) = result.app_state {
-            restore_app_state_via_store(&app, app_state_json)?;
-        }
-
-        Ok(result)
+        })
     })
+    .await
+    .map_err(|e| {
+        if e.is_panic() {
+            "Internal error in import_backup: 构建任务 panic".to_string()
+        } else {
+            format!("备份导入失败：构建任务异常: {e}")
+        }
+    })??;
+
+    // Re-hydrate the in-memory plugin-store so the app doesn't revert to
+    // the old state on next shutdown.
+    if let Some(ref app_state_json) = result.app_state {
+        restore_app_state_via_store(&app, app_state_json)?;
+    }
+
+    Ok(result)
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
