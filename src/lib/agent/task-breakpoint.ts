@@ -1,5 +1,6 @@
 import type { TraceWebSearch } from "./context-trace"
 import type { TraceMcpCall } from "./mcp-trace"
+import { normalizePath } from "@/lib/path-utils"
 
 export interface TaskBreakpoint {
   taskId: string
@@ -59,8 +60,7 @@ export async function saveTaskBreakpoint(
   breakpoint: TaskBreakpoint
 ): Promise<void> {
   const { writeFileAtomic } = await import("@/commands/fs")
-  const { normalizePath } = await import("@/lib/path-utils")
-  const pp = normalizePath(projectPath)
+    const pp = normalizePath(projectPath)
   const filePath = `${pp}/.qm/breakpoint.json`
   await writeFileAtomic(filePath, JSON.stringify(breakpoint, null, 2))
 }
@@ -70,8 +70,7 @@ export async function loadTaskBreakpoint(
 ): Promise<TaskBreakpoint | null> {
   try {
     const { readFile, fileExists } = await import("@/commands/fs")
-    const { normalizePath } = await import("@/lib/path-utils")
-    const pp = normalizePath(projectPath)
+        const pp = normalizePath(projectPath)
     const filePath = `${pp}/.qm/breakpoint.json`
     const exists = await fileExists(filePath)
     if (!exists) return null
@@ -87,8 +86,7 @@ export async function clearTaskBreakpoint(
 ): Promise<void> {
   try {
     const { writeFileAtomic } = await import("@/commands/fs")
-    const { normalizePath } = await import("@/lib/path-utils")
-    const pp = normalizePath(projectPath)
+        const pp = normalizePath(projectPath)
     const filePath = `${pp}/.qm/breakpoint.json`
     await writeFileAtomic(filePath, JSON.stringify(null))
   } catch {

@@ -151,10 +151,11 @@ export function invokeCanonAutoBackup(request: CanonAutoBackupRequest): Promise<
   return invoke<CanonAutoBackupResult>("canon_auto_backup", { request })
 }
 
+import { pad } from "@/lib/utils"
+
 /** 导出包默认文件名：niko-buddy-project-backup-YYYYMMDD-HHMMSS.zip */
 export function defaultExportName(now: Date = new Date()): string {
-  const p = (n: number) => String(n).padStart(2, "0")
-  const stamp = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
   return `niko-buddy-project-backup-${stamp}.zip`
 }
 

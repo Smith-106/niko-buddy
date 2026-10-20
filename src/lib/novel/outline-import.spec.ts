@@ -41,10 +41,10 @@ vi.mock("@/lib/path-utils", () => ({
   getUniqueOutlinePath: async (dir: string, fileName: string) => `${dir}/${fileName}`,
 }))
 
-vi.mock("@/lib/wiki-filename", () => ({
-  makeSafeFileSlug: (title: string) => title,
-  yamlEscape: (value: string) => value.replace(/"/g, '\\"'),
-}))
+vi.mock("@/lib/wiki-filename", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/wiki-filename")>()
+  return { ...actual, makeSafeFileSlug: (title: string) => title }
+})
 
 import {
   collectOutlineImportCandidatesFromFolder,

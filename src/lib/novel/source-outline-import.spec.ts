@@ -32,10 +32,10 @@ vi.mock("@/lib/path-utils", async (importOriginal) => {
   }
 })
 
-vi.mock("@/lib/wiki-filename", () => ({
-  makeSafeFileSlug: (title: string) => title,
-  yamlEscape: (value: string) => value.replace(/"/g, '\\"'),
-}))
+vi.mock("@/lib/wiki-filename", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/wiki-filename")>()
+  return { ...actual, makeSafeFileSlug: (title: string) => title }
+})
 
 import {
   addSourceToOutlineCategory,

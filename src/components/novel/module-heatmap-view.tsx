@@ -13,7 +13,7 @@ import {
 } from "@/lib/novel"
 import { shouldFlushHeat, useModuleHeatStore } from "@/stores/module-heat-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { cn } from "@/lib/utils"
+import { cn, pad } from "@/lib/utils"
 import { Activity, CircleDot, ExternalLink, Flame, Layers, RefreshCw, Unplug } from "lucide-react"
 
 /** 主链泳道（按写作流程顺序）。 */
@@ -60,7 +60,6 @@ export interface ModuleHeatmapViewProps {
 
 function formatClock(at: number): string {
   const d = new Date(at)
-  const pad = (n: number) => String(n).padStart(2, "0")
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 

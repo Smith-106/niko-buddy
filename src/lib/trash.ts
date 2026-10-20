@@ -7,6 +7,7 @@
 import { createDirectory, deleteFile, fileExists, readFile, writeFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { makeChapterFileStem, makeSafeFileSlug } from "@/lib/wiki-filename"
+import { pad } from "@/lib/utils"
 
 export type TrashItemKind = "chapter" | "outline" | "page" | "file" | "history"
 
@@ -63,8 +64,7 @@ function stemOf(name: string): string {
 
 function formatTimestamp(ts: number): string {
   const d = new Date(ts)
-  const p = (n: number) => String(n).padStart(2, "0")
-  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}-${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}-${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}`
 }
 
 function generateId(now: number): string {

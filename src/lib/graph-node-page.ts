@@ -1,6 +1,7 @@
 import { normalizePath } from "./path-utils"
 import { entitySubdirOf } from "./novel/entity-subdir-resolver"
 import type { GraphNode } from "./wiki-graph"
+import { makeSafeFileSlug } from "./wiki-filename"
 import { todayStamp } from "./utils"
 
 export interface EditableGraphNodePage {
@@ -26,7 +27,7 @@ const TYPE_TAGS: Record<string, string> = {
 }
 
 function fileNameFromLabel(label: string): string {
-  return label.replace(/[\\/:*?"<>|]/g, "-").trim() || "未命名节点"
+  return makeSafeFileSlug(label, "未命名节点")
 }
 
 function pageIdFromPath(path: string, fallback: string): string {

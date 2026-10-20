@@ -59,12 +59,14 @@ function defaultDeps(): CapabilityTraceDeps {
   }
 }
 
-function normalizePath(p: string): string {
-  return p.replace(/\\/g, "/").replace(/\/+$/, "")
+import { normalizePath } from "@/lib/path-utils"
+
+function normalizeProjectId(p: string): string {
+  return normalizePath(p).replace(/\/+$/, "")
 }
 
 export function capabilityTraceDirPath(projectId: string): string {
-  return `${normalizePath(projectId)}/.novel/${CAPABILITY_TRACE_DIR}`
+  return `${normalizeProjectId(projectId)}/.novel/${CAPABILITY_TRACE_DIR}`
 }
 
 export function capabilityTraceFilePath(projectId: string): string {
