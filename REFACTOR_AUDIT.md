@@ -35,7 +35,7 @@
 10. 【✅完成 2026-10-20 `chat-message.tsx`（1205→922 行，-283；commit `dbb706a4`）】内容解析纯层下沉 `chat-message-content.ts`（291：标记/状态识别＋thinking 管线＋processContent，三段逐字节一致）；ACTION_BUTTON_BASE 留守，两组件 export 不变，spec 零改动。
 11. 【✅完成 2026-10-20 `sidebar-panel.tsx`（1142→996 行，-146；commit `92e467eb`）】helpers 下沉 `sidebar-helpers.ts`（83：推断/计数/IO＋3 类型）＋子面板 verbatim `sidebar-panels.tsx`（75），五段逐字节一致；MEMORY_ICONS/USAGE_GUIDE_URL 留守，SidebarPanel 对外不变，app-layout/spec 零改动。全量门禁附带一次偶发单用例失败（连续两次复跑全绿，判 flaky）。
 12. 【✅完成 2026-10-21 `knowledge-tree.tsx`（1490→1162 行，-328；commit `a2f21675`）】helpers 下沉 `knowledge-tree-helpers.tsx`（340：3 接口＋13 纯函数＋DeleteButton），四段逐字节一致；KnowledgeTree/RawSourcesSection/source-sidebar/spec 零改动。
-13. 【`wiki-store.ts`（1087 行）】症状：provider/技能草稿/工程配置三域同 store。方案：按域拆 slice（仍组合同一 store，selector 名不变）。影响：全应用读处；分步低风险。
+13. 【✅完成 2026-10-21 `wiki-store.ts`（1087→468 行，-619；commit `04b5c8be`）】配置层下沉 `wiki-store-config.ts`（644：存储键＋配置类型/默认值＋readStored＋confirmDiscard），排序后 588 行与原段一致；28 外部名 re-export 保底，useWikiStore/WikiState 路径不变。
 14. 【`character-aura-view.tsx`（1045 行）＋`character-aura.ts`（2014 行）】症状：视图直组装算法。方案：下沉 `useCharacterAuraModel`。影响：仅光环页。
 
 ## 三、卡顿与性能瓶颈（重点）
