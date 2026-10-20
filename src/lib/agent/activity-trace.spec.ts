@@ -33,3 +33,32 @@ describe("activity-trace.ts smoke", () => {
     expect(resolveAgentStageTitle).toBeDefined()
   })
 })
+
+describe("activityEventFromToolEvent — sourceRefs 窄化（四-15 行为锁）", () => {
+  const base = {
+    type: "result" as const,
+    callId: "c1",
+    name: "web_search",
+    params: {},
+    timestamp: 1,
+  }
+  it("params.sources 字符串数组 → web refs", () => {
+    const ev = activityEventFromToolEvent({ ...base, params: { sources: ["指南 https://example.com/a"] } })
+    expect(ev.sourceRefs).toEqual([{ title: "指南", path: "https://example.com/a", type: "web" }])
+  })
+  it("result JSON results 数组 → web refs", () => {
+    const ev = activityEventFromToolEvent({
+      ...base,
+      result: JSON.stringify({ results: [{ url: "https://example.com/b", title: "B" }] }),
+    })
+    expect(ev.sourceRefs).toEqual([{ title: "B", path: "https://example.com/b", type: "web" }])
+  })
+  it("垃圾 result → sourceRefs undefined（不崩）", () => {
+    const ev = activityEventFromToolEvent({ ...base, result: "not json at all" })
+    expect(ev.sourceRefs).toBeUndefined()
+  })
+  it("result 数组 JSON → sourceRefs undefined（非对象守卫）", () => {
+    const ev = activityEventFromToolEvent({ ...base, result: "[1,2]" })
+    expect(ev.sourceRefs).toBeUndefined()
+  })
+})
