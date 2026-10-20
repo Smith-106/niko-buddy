@@ -42,6 +42,8 @@
 
 ## 三、卡顿与性能瓶颈（重点）
 
+> W2-2 清账（2026-10-21）：绿灯项核查结论——P0-2（disposable 存 ref＋unmount 释放）与 P1-15（模块级 once）已在 `c857eea9` 落地；P1-9（subscribeStatusJson 返回 unlisten，两调用方 chat-panel/dashboard-view 均保存并在 cleanup 调用）已在前序提交落地；P1-8（separateThinking/processContent 三处 useMemo：chat-message.tsx:622/706-708）已在位。本波仅补单测：monaco unmount-dispose 断言＋chat-panel 切项目 unlisten 断言（`46f4e750`）；typecheck 0＋4 文件 358 用例绿。`editor.getModel()?.dispose()` 有意不加（DiffEditor 库自管 model 生命周期，手动 dispose 会双重释放）。
+
 P0（高收益/低风险）：
 1. 【`monaco-loader.ts:19-27`】Worker 与 `vs` 全走 CDN，离线/弱网白屏。方案：本地 `?worker` 构建＋`getWorker` 本地路径，CDN 仅降级；`loader.config` 全局 once。影响：Diff 预览首开与离线可用。⚠️ 落地必须遵守 Monaco 路径红线（只加 fallback，不动已调通的生产路径）。
 2. 【`monaco-diff-editor.tsx:35-38`】`onDidChangeModelContent` disposable 被丢弃，model 重建不 dispose。方案：`onMount` 存 disposable 并在 unmount dispose；`editor.getModel()?.dispose()`。影响：三处复用组件内存泄漏。
