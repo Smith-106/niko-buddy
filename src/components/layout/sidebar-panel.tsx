@@ -18,6 +18,8 @@ import {
   Users,
   Wand2,
 } from "lucide-react"
+import { countMemoryFileEntries, getExistingChapterTitles, getUniqueWikiPagePath, inferModeFromPath, MEMORY_LABEL_KEYS, type PendingPageInfo, type ImportMemoryDecision, type ImportMemoryDecisionRequest } from "./sidebar-helpers"
+import { MemoryCenterListButton, SearchHistoryPanel } from "./sidebar-panels"
 import { KnowledgeTree, RawSourcesSection, type KnowledgeCreateRequest } from "./knowledge-tree"
 import { TrashPanel } from "./trash-panel"
 import { GraphSidebarPanel } from "./graph-sidebar-panel"
@@ -30,8 +32,8 @@ import { AutonomousIncubatorDialog } from "@/components/novel/autonomous-incubat
 
 import { useWikiStore } from "@/stores/wiki-store"
 import { createOutlineIngestTask, runOutlineIngestTask, flattenMdFiles, getNextChapterNumber, invalidateChapterCache, OUTLINE_IMPORT_EXTENSIONS, collectOutlineImportCandidatesFromFolder, importOutlineCandidates, importOutlineFiles, CHAPTER_IMPORT_EXTENSIONS, collectChapterImportCandidatesFromFolder, importChapterFiles, runImportedChapterMemoryExtraction } from "@/lib/novel"
-import type { MemoryCenterData, MemoryCenterFilePreview, ImportedChapter } from "@/lib/novel"
-import { createDirectory, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
+import type { MemoryCenterData, ImportedChapter } from "@/lib/novel"
+import { createDirectory, listDirectory, readFile, writeFile } from "@/commands/fs"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { buildChapterTotalWordCountLabel } from "@/lib/chapter-display"
 import { getFileName, normalizePath } from "@/lib/path-utils"
@@ -45,76 +47,7 @@ import { toErrorMessage } from "@/lib/utils"
 
 const USAGE_GUIDE_URL = "https://tcnk9ik08e1c.feishu.cn/wiki/FWiSwYQKoifpwBk6mSRcSlB8nrh?from=from_copylink"
 
-function SearchHistoryPanel() {
-  const { t } = useTranslation()
-  const searchHistory = useWikiStore((s) => s.searchHistory)
-  const setActiveView = useWikiStore((s) => s.setActiveView)
-  const setSearchTrigger = useWikiStore((s) => s.setSearchTrigger)
 
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
-        <div className="text-sm font-semibold text-foreground">
-          {t("novel.nav.search")}
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto px-2 py-3">
-        {searchHistory.length === 0 ? (
-          <div className="px-2 py-4 text-xs text-muted-foreground">{t("novel.outlineImport.noHistory")}</div>
-        ) : (
-          <div className="space-y-1">
-            {searchHistory.map((item) => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => {
-                  setActiveView("search")
-                  setSearchTrigger({ query: item, ts: Date.now() })
-                }}
-                className="w-full rounded-md px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
-              >
-                <span className="line-clamp-2 break-all">{item}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-
-function inferModeFromPath(path: string): "knowledge" | "files" {
-  const normalized = normalizePath(path)
-  if (normalized.includes("/wiki/outlines/")) return "files"
-  return "knowledge"
-}
-
-interface PendingPageInfo {
-  path: string
-  title: string
-  type: "chapter" | "outline"
-  tags: string[]
-  origin?: string
-}
-
-type ImportMemoryDecision = "extract" | "import-only" | "cancel"
-
-interface ImportMemoryDecisionRequest {
-  kind: "chapter" | "outline"
-  count: number
-}
-
-const MEMORY_LABEL_KEYS: Record<string, string> = {
-  "dismantling-library": "拆文记忆库",
-  snapshots: "novel.memoryCenter.snapshots.title",
-  "character-states": "novel.memoryCenter.sections.characterStates",
-  "character-cognition": "novel.memoryCenter.sections.cognition",
-  "foreshadowing-tracker": "novel.memoryCenter.sections.foreshadowing",
-  timeline: "novel.memoryCenter.sections.timeline",
-  "canon-facts": "novel.memoryCenter.sections.canonFacts",
-  conflicts: "novel.memoryCenter.sections.conflicts",
-}
 
 const MEMORY_ICONS: Record<string, typeof Users> = {
   "dismantling-library": BookOpenCheck,
@@ -127,84 +60,7 @@ const MEMORY_ICONS: Record<string, typeof Users> = {
   conflicts: GitBranchPlus,
 }
 
-function countMemoryFileEntries(file: MemoryCenterFilePreview | null | undefined): number {
-  if (!file) return 0
-  return file.sections.reduce(
-    (sum, section) => sum + section.items.length + section.groups.length,
-    0,
-  )
-}
 
-function MemoryCenterListButton({
-  label,
-  count,
-  selected,
-  icon: Icon,
-  disabled,
-  onClick,
-}: {
-  label: string
-  count: number
-  selected: boolean
-  icon: typeof Users
-  disabled: boolean
-  onClick: () => void
-}) {
-  return (
-    <Button
-      type="button"
-      variant={selected ? "secondary" : "ghost"}
-      className="h-auto w-full justify-between px-3 py-2.5"
-      disabled={disabled}
-      onClick={onClick}
-    >
-      <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
-        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <span className="truncate">{label}</span>
-      </span>
-      <span className="ml-3 shrink-0 text-sm font-semibold leading-none">{count}</span>
-    </Button>
-  )
-}
-
-async function getExistingChapterTitles(projectPath: string): Promise<Set<string>> {
-  const titles = new Set<string>()
-  try {
-    const tree = await listDirectory(`${projectPath}/wiki/chapters`)
-    const files = flattenMdFiles(tree)
-    for (const file of files) {
-      try {
-        const content = await readFile(file.path)
-        const titleMatch = content.match(/^title:\s*["']?(.+?)["']?\s*$/m)
-        if (titleMatch?.[1]) {
-          titles.add(titleMatch[1].trim())
-        } else {
-          titles.add(file.name.replace(/\.md$/, "").replace(/-/g, " ").trim())
-        }
-      } catch {
-        titles.add(file.name.replace(/\.md$/, "").replace(/-/g, " ").trim())
-      }
-    }
-  } catch {
-    // Ignore missing chapter directories.
-  }
-  return titles
-}
-
-async function getUniqueWikiPagePath(dir: string, fileName: string): Promise<string> {
-  const firstPath = `${dir}/${fileName}`
-  if (!(await fileExists(firstPath))) return firstPath
-
-  const extensionIndex = fileName.lastIndexOf(".")
-  const stem = extensionIndex > 0 ? fileName.slice(0, extensionIndex) : fileName
-  const extension = extensionIndex > 0 ? fileName.slice(extensionIndex) : ""
-  for (let index = 2; index <= 99; index += 1) {
-    const candidate = `${dir}/${stem}-${index}${extension}`
-    if (!(await fileExists(candidate))) return candidate
-  }
-
-  return `${dir}/${stem}-${Date.now()}${extension}`
-}
 
 export function SidebarPanel() {
   const { t } = useTranslation()
