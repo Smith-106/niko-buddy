@@ -13,6 +13,7 @@
 
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { z } from "zod"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { ChatMessage, ContentBlock, RequestOverrides } from "./llm-providers"
 import type { StreamCallbacks } from "./llm-client"
@@ -24,6 +25,17 @@ import type { StreamCallbacks } from "./llm-client"
  * - {role:"assistant"/"model", content|parts}
  * - {candidates:[{content:{parts:[{text}]}}]}（Gemini generateContent 风）
  */
+/**
+ * 四-14：JSON 边界 zod 窄化。`as` 断言改为 safeParse 守卫——上游加层时
+ * 返回 null 走容错路径，不再因断言错位而崩。
+ */
+const cliRecordSchema = z.record(z.string(), z.unknown())
+
+function asCliRecord(value: unknown): Record<string, unknown> | null {
+  const parsed = cliRecordSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
+}
+
 export function parseAntigravityCliLine(rawLine: string): string | null {
   const line = rawLine.trim()
   if (!line) return null
@@ -34,11 +46,12 @@ export function parseAntigravityCliLine(rawLine: string): string | null {
     return null
   }
   if (!evt || typeof evt !== "object") return null
-  const obj = evt as Record<string, unknown>
+  const obj = asCliRecord(evt)
+  if (!obj) return null
 
   // codex 风
   if (obj.type === "item.completed") {
-    const item = obj.item as Record<string, unknown> | undefined
+    const item = asCliRecord(obj.item)
     if (item?.type === "agent_message" && typeof item.text === "string") return item.text
   }
   // 直出 text/content/delta
@@ -47,10 +60,10 @@ export function parseAntigravityCliLine(rawLine: string): string | null {
     if (typeof v === "string" && v.length > 0) return v
   }
   // parts 数组
-  const parts = obj.parts ?? (obj.content as Record<string, unknown> | undefined)?.parts
+  const parts = obj.parts ?? asCliRecord(obj.content)?.parts
   if (Array.isArray(parts)) {
     const text = parts
-      .map((p) => (p && typeof p === "object" ? (p as Record<string, unknown>).text : null))
+      .map((p) => asCliRecord(p)?.text ?? null)
       .filter((t): t is string => typeof t === "string")
       .join("")
     if (text) return text
@@ -58,13 +71,11 @@ export function parseAntigravityCliLine(rawLine: string): string | null {
   // Gemini candidates
   const candidates = obj.candidates
   if (Array.isArray(candidates) && candidates.length > 0) {
-    const content = (candidates[0] as Record<string, unknown>)?.content as
-      | Record<string, unknown>
-      | undefined
+    const content = asCliRecord(asCliRecord(candidates[0])?.content)
     const cparts = content?.parts
     if (Array.isArray(cparts)) {
       const text = cparts
-        .map((p) => (p && typeof p === "object" ? (p as Record<string, unknown>).text : null))
+        .map((p) => asCliRecord(p)?.text ?? null)
         .filter((t): t is string => typeof t === "string")
         .join("")
       if (text) return text
@@ -80,16 +91,11 @@ export function extractAntigravityCliError(rawOutput: string): string {
     const trimmed = line.trim()
     if (!trimmed) continue
     try {
-      const parsed = JSON.parse(trimmed) as {
-        type?: string
-        message?: unknown
-        error?: { message?: unknown }
-      }
-      const message = typeof parsed.error?.message === "string"
-        ? parsed.error.message
-        : typeof parsed.message === "string"
-          ? parsed.message
-          : ""
+      const parsed = asCliRecord(JSON.parse(trimmed))
+      if (!parsed) continue
+      const nestedError = asCliRecord(parsed.error)
+      const nestedMessage = typeof nestedError?.message === "string" ? nestedError.message : ""
+      const message = nestedMessage || (typeof parsed.message === "string" ? parsed.message : "")
       if (parsed.type === "turn.failed" && message) return message
       if (parsed.type === "error" && message) lastError = message
     } catch {
