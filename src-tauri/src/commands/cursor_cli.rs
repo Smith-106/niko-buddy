@@ -336,6 +336,10 @@ fn read_export_from_rc(rc_path: &std::path::Path, name: &str) -> Option<String> 
 }
 
 fn read_cursor_api_key_from_user_files() -> Option<String> {
+    read_cached_user_auth(&CURSOR_API_KEY_CACHE, read_cursor_api_key_uncached)
+}
+
+fn read_cursor_api_key_uncached() -> Option<String> {
     let home = resolve_home_dir()?;
     for rel in [
         ".zshrc",
@@ -359,6 +363,10 @@ fn read_cursor_api_key_from_user_files() -> Option<String> {
 }
 
 fn read_agent_credential_store_from_user_files() -> Option<String> {
+    read_cached_user_auth(&CREDENTIAL_STORE_CACHE, read_credential_store_uncached)
+}
+
+fn read_credential_store_uncached() -> Option<String> {
     let home = resolve_home_dir()?;
     for rel in [
         ".zshrc",
@@ -372,6 +380,49 @@ fn read_agent_credential_store_from_user_files() -> Option<String> {
         }
     }
     None
+}
+
+/// P1-13：用户文件 auth 读缓存（TTL 60s）。每次 spawn 代理都经
+/// apply_cursor_auth_env 读 5 个 rc + auth.json；同步小文件读虽快但走在
+/// async spawn 链上，缓存后仅 TTL 过期才重读。密钥轮换最长 60s 生效。
+const AUTH_CACHE_TTL: Duration = Duration::from_secs(60);
+
+struct AuthCacheEntry {
+    value: Option<String>,
+    fetched: std::time::Instant,
+}
+
+static CURSOR_API_KEY_CACHE: std::sync::OnceLock<std::sync::Mutex<AuthCacheEntry>> =
+    std::sync::OnceLock::new();
+static CREDENTIAL_STORE_CACHE: std::sync::OnceLock<std::sync::Mutex<AuthCacheEntry>> =
+    std::sync::OnceLock::new();
+
+fn read_cached_user_auth(
+    cache: &std::sync::OnceLock<std::sync::Mutex<AuthCacheEntry>>,
+    reader: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    if let Some(entry) = cache.get() {
+        if let Ok(guard) = entry.lock() {
+            if guard.fetched.elapsed() < AUTH_CACHE_TTL {
+                return guard.value.clone();
+            }
+        }
+    }
+    let value = reader();
+    if let Some(entry) = cache.get() {
+        if let Ok(mut guard) = entry.lock() {
+            *guard = AuthCacheEntry {
+                value: value.clone(),
+                fetched: std::time::Instant::now(),
+            };
+        }
+    } else {
+        let _ = cache.set(std::sync::Mutex::new(AuthCacheEntry {
+            value: value.clone(),
+            fetched: std::time::Instant::now(),
+        }));
+    }
+    value
 }
 
 /// GUI apps do not load ~/.zshrc. Inject the same Cursor CLI auth the user
@@ -601,6 +652,24 @@ mod tests {
         let port = allocate_proxy_port().unwrap();
         assert_ne!(port, PREFERRED_PROXY_PORT);
         assert!(port > 0);
+    }
+
+    #[test]
+    fn auth_cache_serves_cached_value_within_ttl() {
+        // P1-13：TTL 内不重读用户文件（reader 只调一次）。
+        let cache = std::sync::OnceLock::new();
+        let calls = std::cell::Cell::new(0);
+        let first = read_cached_user_auth(&cache, || {
+            calls.set(calls.get() + 1);
+            Some("cached-key".to_string())
+        });
+        let second = read_cached_user_auth(&cache, || {
+            calls.set(calls.get() + 1);
+            Some("rotated-key".to_string())
+        });
+        assert_eq!(first.as_deref(), Some("cached-key"));
+        assert_eq!(second.as_deref(), Some("cached-key"));
+        assert_eq!(calls.get(), 1);
     }
 
     #[test]
