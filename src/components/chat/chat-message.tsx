@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useMemo, memo } from "react"
 import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
-import remarkMath from "remark-math"
-import rehypeKatex from "rehype-katex"
 import "katex/dist/katex.min.css"
 import {
   Bot, User, FileText, ChevronDown, ChevronRight, RefreshCw, Copy, Check,
@@ -21,7 +18,7 @@ import { ContextRing } from "@/components/chat/context-ring"
 import type { DisplayMessage } from "@/stores/chat-store"
 
 import { convertLatexToUnicode } from "@/lib/latex-to-unicode"
-import { resolveMarkdownImageSrc } from "@/lib/markdown-image-resolver"
+import { resolveMarkdownImageSrc, sharedRehypePlugins, sharedRemarkPlugins } from "@/lib/markdown-image-resolver"
 import { findRawSourceForImage, imageUrlToAbsolute } from "@/lib/raw-source-resolver"
 import { detectLanguage } from "@/lib/detect-language"
 import { getHtmlLang, getTextDirection } from "@/lib/language-metadata"
@@ -810,8 +807,8 @@ const MarkdownContent = memo(function MarkdownContent({ content }: { content: st
         style={{ textAlign: "start" }}
       >
         <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkMath]}
-          rehypePlugins={[rehypeKatex]}
+          remarkPlugins={sharedRemarkPlugins}
+          rehypePlugins={sharedRehypePlugins}
           components={{
             a: ({ href, children }) => {
               if (href?.startsWith("wikilink:")) {

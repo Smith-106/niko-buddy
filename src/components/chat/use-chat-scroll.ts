@@ -46,7 +46,9 @@ export function useChatAutoScroll(deps: {
         userScrolledUpRef.current = false
       }
       lastScrollTopRef.current = currentScrollTop
-      setShowScrollToBottom(userScrolledUpRef.current)
+      const nextShow = userScrolledUpRef.current
+      // 仅布尔值真正变化时才更新 state：相同值直接返回 prev，React 直接 bail out，无重渲染。
+      setShowScrollToBottom((prev) => (prev === nextShow ? prev : nextShow))
     }
     container.addEventListener("scroll", handleScroll)
     return () => container.removeEventListener("scroll", handleScroll)

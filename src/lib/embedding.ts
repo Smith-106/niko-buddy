@@ -201,7 +201,15 @@ export async function fetchEmbedding(
   text: string,
   cfg: EmbeddingConfig,
   maxRetries = 3,
+  onError?: (message: string | null) => void,
 ): Promise<number[] | null> {
+  // 错误归因出口：默认写模块级 lastEmbeddingError；并行调用方可传入采集器
+  // 以保证确定性（见 collectPageChunkRows：收尾按原 chunk 序回写最后一条）。
+  // 早退分支（离线/无 endpoint）沿袭原语义：不上报、不动全局。
+  const report = (message: string | null): void => {
+    if (onError) onError(message)
+    else lastEmbeddingError = message
+  }
   // G10 (39 号修复): 统一离线模式短路可选网络依赖
   if (useWikiStore.getState().offlineMode) return null
   if (!cfg.endpoint) return null
@@ -230,11 +238,11 @@ export async function fetchEmbedding(
         const data = await resp.json()
         const embedding = adapter.parseResponse(data)
         if (isNonEmptyNumberArray(embedding)) {
-          lastEmbeddingError = null
+          report(null)
           return embedding
         }
         const expectedShape = adapter.expectedShapeName
-        lastEmbeddingError = `Embedding response missing ${expectedShape} (got ${JSON.stringify(data).slice(0, 200)})`
+        report(`Embedding response missing ${expectedShape} (got ${JSON.stringify(data).slice(0, 200)})`)
         console.warn(`[Embedding] ${lastEmbeddingError}`)
         return null
       }
@@ -261,20 +269,20 @@ export async function fetchEmbedding(
         // Out of retries on a SERVER-oversize error — give the user a
         // message that names the smallest size that still failed so
         // they can tune Settings → Embedding accordingly.
-        lastEmbeddingError = `Endpoint rejected input even at ${current.length} chars — server context smaller than expected. Lower Settings → Embedding → Max Chunk Chars (${bodyText.slice(0, 160)}).`
+        report(`Endpoint rejected input even at ${current.length} chars — server context smaller than expected. Lower Settings → Embedding → Max Chunk Chars (${bodyText.slice(0, 160)}).`)
         console.warn(`[Embedding] ${lastEmbeddingError}`)
         return null
       }
 
       // Non-oversize definitive failure (auth, rate limit, server down, …).
-      lastEmbeddingError = `API ${resp.status} ${resp.statusText}${bodyText ? ` — ${bodyText.slice(0, 200)}` : ""} at ${endpoint}`
+      report(`API ${resp.status} ${resp.statusText}${bodyText ? ` — ${bodyText.slice(0, 200)}` : ""} at ${endpoint}`)
       console.warn(`[Embedding] ${lastEmbeddingError}`)
       return null
     } catch (err) {
       if (isFetchNetworkError(err)) {
-        lastEmbeddingError = `Network error reaching ${endpoint}. Check endpoint URL, API key, and connectivity.`
+        report(`Network error reaching ${endpoint}. Check endpoint URL, API key, and connectivity.`)
       } else {
-        lastEmbeddingError = err instanceof Error ? err.message : String(err)
+        report(err instanceof Error ? err.message : String(err))
       }
       console.warn(`[Embedding] ${lastEmbeddingError}`)
       return null
@@ -283,7 +291,7 @@ export async function fetchEmbedding(
 
   // Exhausted retries (only reachable if every halving round triggered
   // the retry branch and then the loop condition ended).
-  lastEmbeddingError = `Embedding endpoint rejected every size down to ${current.length} chars — the server's context is smaller than ${current.length * 2}. Lower Settings → Embedding → Max Chunk Chars.`
+  report(`Embedding endpoint rejected every size down to ${current.length} chars — the server's context is smaller than ${current.length * 2}. Lower Settings → Embedding → Max Chunk Chars.`)
   console.warn(`[Embedding] ${lastEmbeddingError}`)
   return null
 }
@@ -502,6 +510,36 @@ interface EmbedPageRows {
 }
 
 /**
+ * 页内 embedding HTTP 并发度：只并行 `fetchEmbedding` 网络段。
+ * 指纹 `has`/`add`/`save` 与行集组装仍单线程串行（单写者），
+ * 页与页仍串行（每页独占 load→removeByPage→save），禁止无锁 Promise.all 包住指纹读写。
+ */
+const EMBEDDING_FETCH_CONCURRENCY = 5
+
+/**
+ * 有界并发 map：保持输入顺序。`fn` 只允许做 HTTP 取数，
+ * 不得触碰指纹索引/行集等共享可变状态（由调用方串行收尾）。
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  const workerCount = Math.min(Math.max(concurrency, 1), items.length)
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const i = next++
+      if (i >= items.length) return
+      results[i] = await fn(items[i], i)
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
+
+/**
  * chunk → per-chunk embed → 页级行集（不做 upsert）。
  * 与 `embedPage`/`embedAllPages` 共用，保证「实际写入的行集」与「对账清单」同源，
  * 对账不会凭另一套推断去删写。
@@ -535,27 +573,54 @@ async function collectPageChunkRows(
   const rows: ChunkUpsertInput[] = []
   let failedChunks = 0
   let dedupedChunks = 0
+  // 单写者阶段 1（串行）：仅剔除已被其他存活页拥有的 chunk（跨页去重）。
+  // 同页重复不在此预占——原串行语义下，先行 chunk 取数失败时后行同文 chunk
+  // 仍会重试；预占会吃掉这次重试机会。页内折叠统一放到阶段 3 串行收尾。
+  // 本阶段不做任何网络 IO，只划分出待取数的候选集。
+  const pending: { chunk: Chunk; fp: string; embedText: string }[] = []
   for (const chunk of chunks) {
     const fp = chunkFingerprint(chunk.text)
     if (fingerprintIndex.has(fp)) {
-      // Already owned by a different (live) page — skip re-embedding it.
+      // 已被另一存活页拥有——跳过，不取数。
       dedupedChunks++
       continue
     }
-    const embedText = enrichChunkForEmbedding(title, chunk)
-    const vec = await fetchEmbedding(embedText, cfg)
-    if (vec) {
+    pending.push({ chunk, fp, embedText: enrichChunkForEmbedding(title, chunk) })
+  }
+  // 并行阶段（仅 HTTP）：并发取回向量，不触碰指纹索引、行集与全局错误。
+  // 每个 chunk 的错误归因按下标采集，收尾按原 chunk 序回写最后一条，
+  // 与原串行语义一致（串行时全局错误恒等于最后一次取数的结果；若最后一次
+  // 取数早退未上报，则保持原值不动）。
+  const pendingErrors = new Array<string | null | undefined>(pending.length)
+  const vecs = await mapWithConcurrency(pending, EMBEDDING_FETCH_CONCURRENCY, (t, i) =>
+    fetchEmbedding(t.embedText, cfg, 3, (message) => {
+      pendingErrors[i] = message
+    }),
+  )
+  // 单写者阶段 3（串行）：按原 chunk 顺序组装行集 + 指纹落子。
+  // 页内同文：首个成功者落子，后行同文计 deduped；各自取数失败则各计 failed，
+  // 与原串行（失败不落子、后行重试）完全一致。
+  const addedInPage = new Set<string>()
+  for (let i = 0; i < pending.length; i++) {
+    const vec = vecs[i]
+    const fp = pending[i].fp
+    if (vec && !fingerprintIndex.has(fp) && !addedInPage.has(fp)) {
       rows.push({
-        chunkIndex: chunk.index,
-        chunkText: chunk.text,
-        headingPath: chunk.headingPath,
+        chunkIndex: pending[i].chunk.index,
+        chunkText: pending[i].chunk.text,
+        headingPath: pending[i].chunk.headingPath,
         embedding: vec,
       })
       fingerprintIndex.add(fp, pageId)
-    } else {
+      addedInPage.add(fp)
+    } else if (!vec) {
       failedChunks++
+    } else {
+      dedupedChunks++
     }
   }
+  const lastReported = pending.length > 0 ? pendingErrors[pending.length - 1] : undefined
+  if (lastReported !== undefined) lastEmbeddingError = lastReported
   await fingerprintIndex.save(projectPath)
   return { rows, failedChunks, dedupedChunks, chunksTotal: chunks.length }
 }

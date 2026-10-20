@@ -1,12 +1,9 @@
 import { useMemo } from "react"
 import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
-import remarkMath from "remark-math"
-import rehypeKatex from "rehype-katex"
 import "katex/dist/katex.min.css"
 import { transformWikilinks } from "@/lib/wikilink-transform"
 import { resolveRelatedSlug } from "@/lib/wiki-page-resolver"
-import { resolveMarkdownImageSrc } from "@/lib/markdown-image-resolver"
+import { resolveMarkdownImageSrc, sharedRehypePlugins, sharedRemarkPlugins } from "@/lib/markdown-image-resolver"
 import { normalizePath } from "@/lib/path-utils"
 import { detectLanguage } from "@/lib/detect-language"
 import { getHtmlLang, getTextDirection } from "@/lib/language-metadata"
@@ -65,8 +62,8 @@ export function WikiReader({ body }: WikiReaderProps) {
       style={{ textAlign: "start" }}
     >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeKatex]}
+        remarkPlugins={sharedRemarkPlugins}
+        rehypePlugins={sharedRehypePlugins}
         components={{
           h1: ({ children, ...props }) => (
             <h1 className="mb-5 mt-1 border-b border-border pb-3 text-3xl font-bold leading-tight tracking-tight text-foreground" {...props}>

@@ -1,8 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react"
 import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
-import remarkMath from "remark-math"
-import rehypeKatex from "rehype-katex"
 import "katex/dist/katex.min.css"
 import {
   FileText,
@@ -15,7 +12,7 @@ import {
 import { getFileCategory, getCodeLanguage } from "@/lib/file-types"
 import type { FileCategory } from "@/lib/file-types"
 import { getFileName } from "@/lib/path-utils"
-import { resolveMarkdownImageSrc } from "@/lib/markdown-image-resolver"
+import { resolveMarkdownImageSrc, sharedRehypePlugins, sharedRemarkPlugins } from "@/lib/markdown-image-resolver"
 import { detectLanguage } from "@/lib/detect-language"
 import { getHtmlLang, getTextDirection } from "@/lib/language-metadata"
 import { parseFrontmatter } from "@/lib/frontmatter"
@@ -222,8 +219,8 @@ function TextPreview({ filePath, content, label }: { filePath: string; content: 
         style={{ textAlign: "start" }}
       >
         <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkMath]}
-          rehypePlugins={[rehypeKatex]}
+          remarkPlugins={sharedRemarkPlugins}
+          rehypePlugins={sharedRehypePlugins}
           components={{
             img: ({ src, alt, ...props }) => {
               /* v8 ignore next -- ReactMarkdown supplies image sources as strings. */

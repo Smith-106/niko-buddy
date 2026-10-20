@@ -38,9 +38,13 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
   }
 })
 
-vi.mock("@/lib/markdown-image-resolver", () => ({
-  resolveMarkdownImageSrc: mocks.resolveMarkdownImageSrc,
-}))
+vi.mock("@/lib/markdown-image-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/markdown-image-resolver")>()
+  return {
+    ...actual,
+    resolveMarkdownImageSrc: mocks.resolveMarkdownImageSrc,
+  }
+})
 
 const ENGLISH_BODY = [
   "# 标题一",

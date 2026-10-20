@@ -468,22 +468,29 @@ export interface DeepChapterRouteRuntime {
   shellMode: "legacy"
 }
 
+/** after_* → 规范阶段共享表（mapResumeStageToRouteStage 与 mapCheckpointStageToCanonicalInline
+ * 共用一张表；未知值调用方各自降级为 context，与原 switch default 等价）。
+ * B2 说明：曾委托 stage-vocabulary canonic 映射，该模块系他人 P5 untracked（CI 缺失）
+ * 已回退为本文件内联表，行为等价。 */
+const AFTER_STAGE_TO_CANONICAL: Record<DeepChapterGenerationResumeStage, RouteStage> = {
+  after_context: "context",
+  after_scene_breakdown: "scene_breakdown",
+  after_task_brief: "task_brief",
+  after_draft: "draft",
+  after_review: "review",
+  after_revision: "revision",
+}
+
 /** 恢复检查点 resume stage → route() RouteStage（与 control-sentinels ROUTE_STAGES 同构；
- * 未知值降级为 context，不静默终态）。B2 说明：曾委托 stage-vocabulary canonic 映射，
- * 该模块系他人 P5 untracked（CI 缺失）已回退为内联 switch，行为等价。 */
+ * 未知值降级为 context，不静默终态）。薄封装：查共享表。 */
 function mapResumeStageToRouteStage(
   checkpoint: DeepChapterGenerationResumeCheckpoint | undefined,
 ): RouteStage {
   if (!checkpoint) return "context"
-  switch (checkpoint.stage) {
-    case "after_context": return "context"
-    case "after_scene_breakdown": return "scene_breakdown"
-    case "after_task_brief": return "task_brief"
-    case "after_draft": return "draft"
-    case "after_review": return "review"
-    case "after_revision": return "revision"
-    default: return "context"
-  }
+  // typeof 守卫：与原 switch default 完全等价（任意非表内字符串一律回落 context，
+  // 含原型链属性名如 "__proto__"/"toString" 查表时的误命中）。
+  const raw: unknown = (AFTER_STAGE_TO_CANONICAL as Record<string, unknown>)[checkpoint.stage]
+  return typeof raw === "string" ? (raw as RouteStage) : "context"
 }
 
 /** UI 阶段短标签统一出口——checkpoint_stage raw 值 → 中文短标签（未知值标「未知阶段」不隐藏）。
@@ -514,15 +521,9 @@ const CANONICAL_SHORT_LABELS_INLINE: Record<CanonicalStageInline, string> = {
 function mapCheckpointStageToCanonicalInline(stage: string): CanonicalStageInline {
   if (stage === "started") return "context"
   if (stage === "completed") return "done"
-  switch (stage) {
-    case "after_context": return "context"
-    case "after_scene_breakdown": return "scene_breakdown"
-    case "after_task_brief": return "task_brief"
-    case "after_draft": return "draft"
-    case "after_review": return "review"
-    case "after_revision": return "revision"
-    default: return "context"
-  }
+  // 薄封装：查共享表；未知值降级为 context（与原 switch default 等价，含原型链属性名误命中防护）。
+  const raw: unknown = (AFTER_STAGE_TO_CANONICAL as Record<string, unknown>)[stage]
+  return typeof raw === "string" ? (raw as CanonicalStageInline) : "context"
 }
 
 function checkpointStageShortLabelInline(stage: string): string {

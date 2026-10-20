@@ -44,6 +44,7 @@ import { LLM_PRESETS } from "@/lib/llm-config/llm-presets"
 import { saveAiChatModel } from "@/lib/project-store"
 import { isTauri } from "@/lib/platform"
 import { createStreamSessionGuard } from "./stream-session"
+import { useChatAutoScroll } from "./use-chat-scroll"
 import {
   appendContinueUnfinishedDeepChapterContext,
   buildInterruptedResumeContextPayload,
@@ -305,17 +306,15 @@ export function ChatPanel() {
   const streamSessionGuardRef = sharedStreamSessionGuardRef
   const activeStreamSessionsRef = sharedActiveStreamSessionsRef
   const novelManagedStopRef = sharedNovelManagedStopRef
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
   const soulDialogResolverRef = useRef<((confirmed: boolean) => void) | null>(null)
-  const userScrolledUpRef = useRef(false)
-  const lastScrollTopRef = useRef(0)
-  // POLISH-02 (odyssey-ui): scroll-to-bottom FAB visibility. The ref tracks
-  // auto-scroll lock for the streaming effect; this state mirrors it so the
-  // FAB can reactively appear/disappear. Kept separate from the ref so the
-  // streaming effect (which only reads the ref) doesn't re-render on every
-  // scroll tick.
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+  // POLISH-02 (odyssey-ui): scroll-to-bottom FAB visibility + auto-scroll lock
+  // 由 useChatAutoScroll 统一管理（单一状态机真源；内联副本已删除）。
+  const { scrollContainerRef, bottomRef, showScrollToBottom, scrollToBottom } = useChatAutoScroll({
+    activeMessages,
+    streamingContent,
+    isStreaming,
+    activeConversationId,
+  })
 
   // ISS-20260709-010 (EC-004): 虚拟列表只渲染可见消息,避免 1000+ 消息全量
   // 挂载 ChatMessage + ReactMarkdown 解析拖垮滚动。measureElement 动态测高
@@ -773,62 +772,6 @@ export function ChatPanel() {
   // 注意：组件卸载时不 abort 流式请求，允许 AI 在后台继续生成
   // 聊天数据存在全局 Zustand store 中，切回来时仍可看到生成结果
   // 删除会话时会单独 abort 该会话的请求（见 abortConversationStream）
-
-  // Auto-scroll to bottom when messages change or streaming content updates
-  // But stop if user manually scrolled up
-  useEffect(() => {
-    const container = scrollContainerRef.current
-    if (!container) return
-    if (!userScrolledUpRef.current) {
-      container.scrollTop = container.scrollHeight
-      lastScrollTopRef.current = container.scrollTop
-    }
-  }, [activeMessages, streamingContent])
-
-  // Detect user scroll: if user scrolls up, stop auto-scroll; if at bottom, resume
-  useEffect(() => {
-    const container = scrollContainerRef.current
-    if (!container) return
-    lastScrollTopRef.current = container.scrollTop
-    const handleScroll = () => {
-      const threshold = 50
-      const currentScrollTop = container.scrollTop
-      const atBottom = container.scrollHeight - currentScrollTop - container.clientHeight < threshold
-      if (currentScrollTop < lastScrollTopRef.current - 1) {
-        userScrolledUpRef.current = true
-      /* v8 ignore next */
-      } else if (atBottom) { /* v8 ignore start */ /* v8 ignore stop */
-        userScrolledUpRef.current = false
-      }
-      lastScrollTopRef.current = currentScrollTop
-      setShowScrollToBottom(userScrolledUpRef.current)
-    }
-    container.addEventListener("scroll", handleScroll)
-    return () => container.removeEventListener("scroll", handleScroll)
-  }, [activeConversationId])
-
-  // Reset scroll lock when streaming ends or conversation changes
-  useEffect(() => {
-    if (!isStreaming) {
-      userScrolledUpRef.current = false
-      setShowScrollToBottom(false)
-    }
-  }, [isStreaming])
-
-  useEffect(() => {
-    userScrolledUpRef.current = false
-    setShowScrollToBottom(false)
-  }, [activeConversationId])
-
-  const scrollToBottom = useCallback(() => {
-    const container = scrollContainerRef.current
-    /* v8 ignore next */
-    if (!container) return
-    container.scrollTop = container.scrollHeight
-    lastScrollTopRef.current = container.scrollTop
-    userScrolledUpRef.current = false
-    setShowScrollToBottom(false)
-  }, [])
 
   // 切换会话时不再中断后台生成——每个会话独立运行
 

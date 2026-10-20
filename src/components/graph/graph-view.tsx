@@ -1441,6 +1441,7 @@ export function GraphView() {
 
   // 2. Detect panel drag resize via data-panel-resizing attribute on body
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
     const observer = new MutationObserver(() => {
       const dragging = document.body.dataset.panelResizing === "true"
       if (dragging && !isResizing) {
@@ -1448,14 +1449,17 @@ export function GraphView() {
       }
       if (!dragging && isResizing) {
         // Drag ended — remount sigma after a tick
-        setTimeout(() => {
+        timer = setTimeout(() => {
           setSigmaKey((k) => k + 1)
           setIsResizing(false)
         }, 50)
       }
     })
     observer.observe(document.body, { attributes: true, attributeFilter: ["data-panel-resizing"] })
-    return () => observer.disconnect()
+    return () => {
+      if (timer !== undefined) clearTimeout(timer)
+      observer.disconnect()
+    }
   }, [isResizing])
 
   useEffect(() => {
@@ -1465,10 +1469,14 @@ export function GraphView() {
   }, [graphMode])
 
   // Count nodes by type for legend
-  const typeCounts = nodes.reduce<Record<string, number>>((acc, n) => {
-    acc[n.type] = (acc[n.type] ?? 0) + 1
-    return acc
-  }, {})
+  const typeCounts = useMemo(
+    () =>
+      nodes.reduce<Record<string, number>>((acc, n) => {
+        acc[n.type] = (acc[n.type] ?? 0) + 1
+        return acc
+      }, {}),
+    [nodes],
+  )
 
   const effectiveFilters = useMemo<GraphFilterState>(() => {
     const modePreset = GRAPH_MODE_PRESETS[graphMode]
