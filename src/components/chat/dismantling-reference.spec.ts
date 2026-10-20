@@ -6,7 +6,8 @@ const root = resolve(__dirname, "../../..")
 
 describe("chat dismantling reference", () => {
   it("disables dismantling structure injection while the feature is hidden", () => {
-    const chatSource = readFileSync(resolve(root, "src/components/chat/chat-panel.tsx"), "utf8")
+    const chatSource = readFileSync(resolve(root, "src/components/chat/chat-panel-widgets.tsx"), "utf8")
+      + readFileSync(resolve(root, "src/components/chat/chat-panel.tsx"), "utf8")
 
     expect(chatSource).toContain("async function loadEnabledDismantlingDirective")
     expect(chatSource).toContain('return ""')
