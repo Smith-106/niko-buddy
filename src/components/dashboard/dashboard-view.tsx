@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, type ReactNode } from "react
 import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel, runFactCheck, analyzeForeshadowingDebt, loadSnapshot, listSnapshots, loadForeshadowingTracker, loadNovelSessionStatus, saveNovelSessionStatus, updateChaseDebtStatus, subscribeStatusJson, getTopEmotionalDebt, loadEmotionLedger } from "@/lib/novel"
-import type { NovelReviewResult, FactCheckResult, FactCheckReport, ForeshadowingDebtReport, ChapterSnapshot, ChaseDebt, ChaseDebtEvent, EmotionLedgerEntry } from "@/lib/novel"
+import type { FactCheckReport, ForeshadowingDebtReport, ChapterSnapshot, ChaseDebt, ChaseDebtEvent, EmotionLedgerEntry } from "@/lib/novel"
 import { readFile, writeFile } from "@/commands/fs"
 import {
   AlertTriangle,
@@ -13,9 +13,9 @@ import {
   ChevronRight,
   Loader2,
 } from "lucide-react"
-import type { LintResult } from "@/lib/lint"
 import { searchWiki } from "@/lib/search"
 import { getFileStem, normalizePath } from "@/lib/path-utils"
+import { DEBT_LEVEL_LABEL_KEYS, DashSeverity, DashItem, RewriteDialogState, extractChapterNumberFromTargetPath, formatDashItemDetail, mapFactCheckSeverity, mapLintSeverity, mapReviewSeverity } from "./dashboard-items"
 import { DebtBoardView } from "./debt-board-view"
 import { DoctorPanel } from "./doctor-panel"
 import { TextTransformPreviewDialog } from "@/components/novel/text-transform-preview-dialog"
@@ -32,100 +32,16 @@ import {
   parseFactCheckInsertPlan,
   restoreDashboardRewriteInMarkdown,
   saveDashboardIssueState,
-  type DashboardIssueAnchor,
-  type DashboardIssueRewriteBackup,
-  type DashboardIssueState,
 } from "@/lib/dashboard-issue-actions"
+import type { DashboardIssueRewriteBackup, DashboardIssueState } from "@/lib/dashboard-issue-actions"
 import { toErrorMessage } from "@/lib/utils"
 
-type DashSeverity = "blocking" | "high" | "medium" | "low"
-
-interface DashItem {
-  id: string
-  severity: DashSeverity
-  source: "review" | "lint" | "factcheck"
-  message: string
-  detail: string
-  evidence?: string
-  secondaryEvidence?: string
-  suggestion?: string
-  targetPath?: string | null
-  targetChapterNumber?: number
-}
-
-interface RewriteDialogState {
-  mode: "replace" | "insert_before"
-  item: DashItem
-  targetPath: string
-  anchor: DashboardIssueAnchor | null
-  sourceContent: string
-  candidateContent: string
-}
 
 const SEVERITY_CONFIG: Record<DashSeverity, { icon: typeof AlertTriangle; labelKey: string; color: string; bgColor: string; dotClass: string }> = {
   blocking: { icon: AlertOctagon, labelKey: "dashboard.severity.blocking", color: "text-destructive", bgColor: "border-destructive/30 bg-destructive/5", dotClass: "bg-destructive" },
   high: { icon: ShieldAlert, labelKey: "dashboard.severity.high", color: "text-warning", bgColor: "border-warning/30 bg-warning/5", dotClass: "bg-warning" },
   medium: { icon: AlertTriangle, labelKey: "dashboard.severity.medium", color: "text-warning", bgColor: "border-warning/20 bg-warning/5", dotClass: "bg-warning" },
   low: { icon: Info, labelKey: "dashboard.severity.low", color: "text-muted-foreground", bgColor: "border-border bg-muted/30", dotClass: "bg-muted-foreground" },
-}
-
-const FACT_CHECK_TYPE_LABEL_KEYS: Record<FactCheckResult["type"], string> = {
-  character_jump: "dashboard.factCheckType.character_jump",
-  location_conflict: "dashboard.factCheckType.location_conflict",
-  item_holder_change: "dashboard.factCheckType.item_holder_change",
-  org_flip: "dashboard.factCheckType.org_flip",
-  timeline_conflict: "dashboard.factCheckType.timeline_conflict",
-  setting_conflict: "dashboard.factCheckType.setting_conflict",
-  relationship_reversal: "dashboard.factCheckType.relationship_reversal",
-  causality_break: "dashboard.factCheckType.causality_break",
-}
-
-const DEBT_LEVEL_LABEL_KEYS: Record<"critical" | "warning", string> = {
-  critical: "dashboard.debtLevel.critical",
-  warning: "dashboard.debtLevel.warning",
-}
-
-function mapReviewSeverity(severity: NovelReviewResult["severity"]): DashSeverity {
-  switch (severity) {
-    case "error": return "high"
-    case "warning": return "medium"
-    case "info": return "low"
-    default: return "medium"
-  }
-}
-
-function mapLintSeverity(severity: LintResult["severity"]): DashSeverity {
-  switch (severity) {
-    case "warning": return "medium"
-    case "info": return "low"
-    default: return "medium"
-  }
-}
-
-function mapFactCheckSeverity(severity: FactCheckResult["severity"]): DashSeverity {
-  switch (severity) {
-    case "blocking": return "blocking"
-    case "high": return "high"
-    case "medium": return "medium"
-    case "low": return "low"
-    default: return "medium"
-  }
-}
-
-function extractChapterNumberFromTargetPath(targetPath: string | null | undefined): number | null {
-  /* v8 ignore next */
-  if (!targetPath) return null
-  const stem = getFileStem(targetPath)
-  const match = stem.match(/^(\d{1,4})(?:\D|$)/)
-  if (!match) return null
-  return Number.parseInt(match[1], 10)
-}
-
-function formatDashItemDetail(item: DashItem): string {
-  if (item.source === "factcheck" && item.detail in FACT_CHECK_TYPE_LABEL_KEYS) {
-    return FACT_CHECK_TYPE_LABEL_KEYS[item.detail as FactCheckResult["type"]]
-  }
-  return item.detail
 }
 
 interface DashboardViewProps {
