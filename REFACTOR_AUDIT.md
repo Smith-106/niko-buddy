@@ -26,7 +26,7 @@
 1. 【`chat-panel.tsx:778,950,1735,2265`（2900 行，82 函数）】症状：`handleSend` 内联路由/深章节会话/三次 `streamChat`/打分/写盘，import 拉 40+ novel 函数。方案：下沉 `useChatSend`＋`useDeepChapterSession` 到 `chat/hooks/`，`streamChat` 收敛 `send-service.ts`。影响：仅 chat 发送/续写/深章节三路径。
 2. 【`preview-panel.tsx:888,911,956,1104`（1762 行，95 函数）】症状：DeAI 单改/批量/选中变换三套 AI 流程＋摄取＋存盘同文件。方案：抽 `useDeAiBatch`/`useDeAiSingle`。影响：仅预览页 DeAI 对话框。
 3. 【`review-view.tsx:368,798,808,818`（1625 行）】症状：`handleNovelReview` 双 run＋8 rewrite handlers 混渲染文件。方案：抽 `useReviewRun`＋`useReviewRewrite`。影响：仅 Review 页。
-4. 【✅首阶段完成 2026-10-20 `graph-view.tsx:88,150,495,1076,1132`（2198→2104 行，-94；commit `52d12949`）】纯函数（颜色/尺寸/标签）已下沉 `lib/graph-style.ts`（NODE_TYPE_COLORS＋2 类型＋8 纯函数，逐字节一致；对外仅导出 GraphView 不变）。剩余：再拆 `DocumentGraphView`＋`useGraphViewModel`（待排期）。
+4. 【✅二期完成 2026-10-20 `graph-view.tsx`（2104→1119 行，-985；commit `73120ad3`）】子视图 verbatim 下沉：sigma-graph-views.tsx（337）＋document-graph-view.tsx（606）＋mindmap-views.tsx（75），三文件逐字节一致；GraphView 主体与 Hook 时序零改动，对外仅导出 GraphView 不变。累计首阶段 `52d12949`（2198→2104）。
 5. 【`story-simulation-view.tsx:361,613,658,941,1024`（2151 行）】症状：编排＋引擎调用＋8 裸 `setTimeout` toast 混杂。方案：抽 `useSimulationRun`＋`toast-service`。影响：仅推演页；引擎不动。
 6. 【`canon-editor.tsx:21,25`（993 行）】症状：直调 `invoke`＋`queryCanonBatch`＋filter 构造散渲染层。方案：收敛进已有 `canon-editor-client.ts`。影响：仅 canon 编辑器；搬运风险最低。
 7. 【`writing-skill-library-view.tsx:3,5`（1200 行）】症状：Tauri dialog＋fs＋20+ skill CRUD＋dnd 渲染同文件。方案：IO 下沉 `skill-io-service.ts`。影响：技能库两视图。
