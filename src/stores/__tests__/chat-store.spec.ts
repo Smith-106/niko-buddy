@@ -20,10 +20,11 @@ vi.mock("@/i18n", async (importOriginal) => {
 })
 
 // 每个测试前重置 store，防止跨测试状态污染
-import { useChatStore } from "../chat-store"
+import { flushStreamTokens, useChatStore } from "../chat-store"
 import type { DisplayMessage, Conversation } from "../chat-store"
 
 function resetStore(): void {
+  flushStreamTokens() // 先刷掉模块级缓冲（随后被下面的空态覆盖），防跨测试泄漏
   useChatStore.setState({
     conversations: [],
     activeConversationId: null,
@@ -409,7 +410,23 @@ describe("streaming 生命周期", () => {
 
     useChatStore.getState().appendStreamToken("你好", convId)
     useChatStore.getState().appendStreamToken("世界", convId)
+    flushStreamTokens(convId) // P0-3 批刷：断言前显式刷入
     expect(useChatStore.getState().streamingContents[convId]).toBe("你好世界")
+  })
+
+  it("appendStreamToken 高频突发一次 set 合并（批刷）", () => {
+    const convId = createActiveConv()
+    useChatStore.getState().startStreaming(convId)
+    let notifications = 0
+    const unsub = useChatStore.subscribe(() => { notifications += 1 })
+    for (let i = 0; i < 50; i++) useChatStore.getState().appendStreamToken("a", convId)
+    // 刷新前 state 未变，但 getStreamingContent 已含缓冲（最新语义）
+    expect(useChatStore.getState().streamingContents[convId]).toBe("")
+    expect(useChatStore.getState().getStreamingContent(convId)).toBe("a".repeat(50))
+    flushStreamTokens(convId)
+    expect(useChatStore.getState().streamingContents[convId]).toBe("a".repeat(50))
+    expect(notifications).toBe(1)
+    unsub()
   })
 
   it("setStreamingContent 整体替换指定会话的流式内容", () => {
@@ -458,6 +475,7 @@ describe("streaming 生命周期", () => {
   it("appendStreamToken 未 startStreaming 时从空串累积（?? 兜底分支）", () => {
     const convId = createActiveConv()
     useChatStore.getState().appendStreamToken("abc", convId) // streamingContents[convId] === undefined
+    flushStreamTokens(convId)
     expect(useChatStore.getState().streamingContents[convId]).toBe("abc")
   })
 

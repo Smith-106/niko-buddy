@@ -58,7 +58,7 @@ interface ChatState {
   setConversations: (conversations: Conversation[]) => void
   /** Begin streaming generation for the given conversation. */
   startStreaming: (conversationId: string) => void
-  /** Append an incremental token to the streaming buffer. */
+  /** Append an incremental token (32ms/1KB batched; use flushStreamTokens in tests). */
   appendStreamToken: (token: string, conversationId: string) => void
   /** Replace the entire streaming buffer (used by deep mode batch updates). */
   setStreamingContent: (content: string, conversationId: string) => void
@@ -102,6 +102,58 @@ function makeConversationId(): string {
 function withoutKey<V>(record: Record<string, V>, key: string): Record<string, V> {
   const { [key]: _removed, ...rest } = record
   return rest
+}
+
+// P0-3：流式 token 批刷。每 token 一次 set 会触发全量对象扩散 + O(n²)
+// 拼接；此处先缓冲，32ms 或 1KB 阈值到达后一次 set 合并。startStreaming
+// 仍同步建键（handleRegenerate / auto-save 的守卫依赖同步可见性）。
+const STREAM_FLUSH_MS = 32
+const STREAM_FLUSH_CHARS = 1024
+const pendingStreamTokens: Record<string, string> = {}
+let pendingStreamChars = 0
+let streamFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+function dropPendingStreamTokens(conversationId: string): void {
+  if (pendingStreamTokens[conversationId] !== undefined) {
+    pendingStreamChars -= pendingStreamTokens[conversationId]!.length
+    delete pendingStreamTokens[conversationId]
+  }
+  if (Object.keys(pendingStreamTokens).length === 0 && streamFlushTimer !== null) {
+    clearTimeout(streamFlushTimer)
+    streamFlushTimer = null
+  }
+}
+
+/** Flush buffered stream tokens into state (single set). Tests call this explicitly. */
+export function flushStreamTokens(conversationId?: string): void {
+  const ids = conversationId !== undefined ? [conversationId] : Object.keys(pendingStreamTokens)
+  if (ids.length === 0) return
+  useChatStore.setState((prev) => {
+    const next = { ...prev.streamingContents }
+    for (const id of ids) {
+      const pending = pendingStreamTokens[id]
+      if (pending === undefined) continue
+      next[id] = (next[id] ?? "") + pending
+      pendingStreamChars -= pending.length
+      delete pendingStreamTokens[id]
+    }
+    return { streamingContents: next }
+  })
+  if (Object.keys(pendingStreamTokens).length === 0 && streamFlushTimer !== null) {
+    clearTimeout(streamFlushTimer)
+    streamFlushTimer = null
+  }
+}
+
+function scheduleStreamFlush(): void {
+  if (streamFlushTimer !== null || pendingStreamChars >= STREAM_FLUSH_CHARS) {
+    if (pendingStreamChars >= STREAM_FLUSH_CHARS) flushStreamTokens()
+    return
+  }
+  streamFlushTimer = setTimeout(() => {
+    streamFlushTimer = null
+    flushStreamTokens()
+  }, STREAM_FLUSH_MS)
 }
 
 /**
@@ -213,25 +265,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setMessages: (messages) => set({ messages }),
   setConversations: (conversations) => set({ conversations }),
 
-  startStreaming: (conversationId) =>
+  startStreaming: (conversationId) => {
+    dropPendingStreamTokens(conversationId)
     set((prev) => ({
       streamingContents: { ...prev.streamingContents, [conversationId]: "" },
-    })),
+    }))
+  },
 
-  appendStreamToken: (token, conversationId) =>
-    set((prev) => ({
-      streamingContents: {
-        ...prev.streamingContents,
-        [conversationId]: (prev.streamingContents[conversationId] ?? "") + token,
-      },
-    })),
+  appendStreamToken: (token, conversationId) => {
+    pendingStreamTokens[conversationId] = (pendingStreamTokens[conversationId] ?? "") + token
+    pendingStreamChars += token.length
+    scheduleStreamFlush()
+  },
 
-  setStreamingContent: (content, conversationId) =>
+  setStreamingContent: (content, conversationId) => {
+    // 显式整体替换优先：丢弃该会话缓冲（与旧“覆盖一切”语义一致）。
+    dropPendingStreamTokens(conversationId)
     set((prev) => ({
       streamingContents: { ...prev.streamingContents, [conversationId]: content },
-    })),
+    }))
+  },
 
-  finalizeStream: (content, references, targetConvId) =>
+  finalizeStream: (content, references, targetConvId) => {
+    const st = get()
+    dropPendingStreamTokens(targetConvId ?? st.activeConversationId ?? "")
     set((prev) => {
       const convId = targetConvId ?? prev.activeConversationId
       if (!convId) return {}
@@ -252,12 +309,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
           c.id === convId ? { ...c, updatedAt: Date.now() } : c
         ),
       }
-    }),
+    })
+  },
 
-  clearStreaming: (conversationId) =>
+  clearStreaming: (conversationId) => {
+    dropPendingStreamTokens(conversationId)
     set((prev) => ({
       streamingContents: withoutKey(prev.streamingContents, conversationId),
-    })),
+    }))
+  },
 
   setMode: (mode) => set({ mode }),
   setIngestSource: (source) => set({ ingestSource: source }),
@@ -306,9 +366,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   isConversationStreaming: (conversationId) => conversationId in get().streamingContents,
 
-  getStreamingContent: (conversationId) => get().streamingContents[conversationId] ?? "",
+  getStreamingContent: (conversationId) =>
+    (get().streamingContents[conversationId] ?? "") + (pendingStreamTokens[conversationId] ?? ""),
 
-  isAnyStreaming: () => Object.keys(get().streamingContents).length > 0,
+  isAnyStreaming: () =>
+    Object.keys(get().streamingContents).length > 0 || Object.keys(pendingStreamTokens).length > 0,
 }))
 
 /** Converts display messages to the LLM wire format for API submission. */
