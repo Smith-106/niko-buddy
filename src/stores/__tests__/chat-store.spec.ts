@@ -429,12 +429,24 @@ describe("streaming 生命周期", () => {
     unsub()
   })
 
-  it("setStreamingContent 整体替换指定会话的流式内容", () => {
+  it("setStreamingContent 整体替换指定会话的流式内容（flush 后覆盖可见）", () => {
     const convId = createActiveConv()
     useChatStore.getState().startStreaming(convId)
     useChatStore.getState().appendStreamToken("旧内容", convId)
     useChatStore.getState().setStreamingContent("新内容", convId)
+    flushStreamTokens(convId)
     expect(useChatStore.getState().streamingContents[convId]).toBe("新内容")
+  })
+
+  it("P0-7：setStreamingContent 非空替换走批刷（同步不可见，flush 后覆盖）", () => {
+    const convId = createActiveConv()
+    useChatStore.getState().startStreaming(convId)
+    useChatStore.getState().setStreamingContent("第一版", convId)
+    useChatStore.getState().setStreamingContent("第二版", convId)
+    expect(useChatStore.getState().streamingContents[convId]).toBe("")
+    expect(useChatStore.getState().getStreamingContent(convId)).toBe("第二版")
+    flushStreamTokens(convId)
+    expect(useChatStore.getState().streamingContents[convId]).toBe("第二版")
   })
 
   it("finalizeStream 将内容保存为 assistant 消息并清理流式状态", () => {

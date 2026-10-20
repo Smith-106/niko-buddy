@@ -110,15 +110,25 @@ function withoutKey<V>(record: Record<string, V>, key: string): Record<string, V
 const STREAM_FLUSH_MS = 32
 const STREAM_FLUSH_CHARS = 1024
 const pendingStreamTokens: Record<string, string> = {}
+// P0-7：整体替换缓冲（deep-thinking 每 token 全量替换显示，与 append 共用批刷）。
+const pendingStreamReplaces: Record<string, string> = {}
 let pendingStreamChars = 0
 let streamFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+function hasPendingStreamData(): boolean {
+  return Object.keys(pendingStreamTokens).length > 0 || Object.keys(pendingStreamReplaces).length > 0
+}
 
 function dropPendingStreamTokens(conversationId: string): void {
   if (pendingStreamTokens[conversationId] !== undefined) {
     pendingStreamChars -= pendingStreamTokens[conversationId]!.length
     delete pendingStreamTokens[conversationId]
   }
-  if (Object.keys(pendingStreamTokens).length === 0 && streamFlushTimer !== null) {
+  if (pendingStreamReplaces[conversationId] !== undefined) {
+    pendingStreamChars -= pendingStreamReplaces[conversationId]!.length
+    delete pendingStreamReplaces[conversationId]
+  }
+  if (!hasPendingStreamData() && streamFlushTimer !== null) {
     clearTimeout(streamFlushTimer)
     streamFlushTimer = null
   }
@@ -126,11 +136,20 @@ function dropPendingStreamTokens(conversationId: string): void {
 
 /** Flush buffered stream tokens into state (single set). Tests call this explicitly. */
 export function flushStreamTokens(conversationId?: string): void {
-  const ids = conversationId !== undefined ? [conversationId] : Object.keys(pendingStreamTokens)
+  const ids = conversationId !== undefined
+    ? [conversationId]
+    : [...new Set([...Object.keys(pendingStreamTokens), ...Object.keys(pendingStreamReplaces)])]
   if (ids.length === 0) return
   useChatStore.setState((prev) => {
     const next = { ...prev.streamingContents }
     for (const id of ids) {
+      const replace = pendingStreamReplaces[id]
+      if (replace !== undefined) {
+        next[id] = replace
+        pendingStreamChars -= replace.length
+        delete pendingStreamReplaces[id]
+        continue
+      }
       const pending = pendingStreamTokens[id]
       if (pending === undefined) continue
       next[id] = (next[id] ?? "") + pending
@@ -139,7 +158,7 @@ export function flushStreamTokens(conversationId?: string): void {
     }
     return { streamingContents: next }
   })
-  if (Object.keys(pendingStreamTokens).length === 0 && streamFlushTimer !== null) {
+  if (!hasPendingStreamData() && streamFlushTimer !== null) {
     clearTimeout(streamFlushTimer)
     streamFlushTimer = null
   }
@@ -279,11 +298,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setStreamingContent: (content, conversationId) => {
-    // 显式整体替换优先：丢弃该会话缓冲（与旧“覆盖一切”语义一致）。
+    if (content === "") {
+      // 显式清空优先：丢弃该会话缓冲（与旧语义一致），同步清零。
+      dropPendingStreamTokens(conversationId)
+      set((prev) => ({
+        streamingContents: { ...prev.streamingContents, [conversationId]: "" },
+      }))
+      return
+    }
+    // P0-7：非空整体替换同样走批刷（deep-thinking 每 token 全量替换显示）；
+    // 先丢弃该会话旧缓冲（替换语义），flush 时覆盖而非拼接。
     dropPendingStreamTokens(conversationId)
-    set((prev) => ({
-      streamingContents: { ...prev.streamingContents, [conversationId]: content },
-    }))
+    pendingStreamReplaces[conversationId] = content
+    pendingStreamChars += content.length
+    scheduleStreamFlush()
   },
 
   finalizeStream: (content, references, targetConvId) => {
@@ -368,7 +396,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     conversationId in get().streamingContents || conversationId in pendingStreamTokens,
 
   getStreamingContent: (conversationId) =>
-    (get().streamingContents[conversationId] ?? "") + (pendingStreamTokens[conversationId] ?? ""),
+    pendingStreamReplaces[conversationId] ??
+    ((get().streamingContents[conversationId] ?? "") + (pendingStreamTokens[conversationId] ?? "")),
 
   isAnyStreaming: () =>
     Object.keys(get().streamingContents).length > 0 || Object.keys(pendingStreamTokens).length > 0,
