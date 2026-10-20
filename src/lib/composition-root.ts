@@ -21,6 +21,7 @@ import { resolveConfig } from "@/lib/llm-config/preset-resolver"
 import { loadEnvLlmDefault } from "@/lib/env-llm-defaults"
 import { applyTheme } from "@/lib/theme-utils"
 import type { WikiProject } from "@/types/wiki"
+import { todayStamp } from "./utils"
 
 /**
  * 应用启动编排（组合根）。
@@ -37,7 +38,7 @@ let detachTaskPersistence: (() => void) | null = null
  * which is also UTC, so the validation query reads `llm-metrics-<today>.jsonl`).
  */
 function llmMetricsDateStamp(d: Date = new Date()): string {
-  return d.toISOString().slice(0, 10)
+  return todayStamp(d)
 }
 
 export async function initializeApp(): Promise<void> {

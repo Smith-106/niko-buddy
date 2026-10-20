@@ -11,6 +11,7 @@
  */
 
 import yaml from "js-yaml"
+import { todayStamp } from "./utils"
 
 export type FrontmatterValue = string | string[]
 
@@ -188,7 +189,7 @@ function stringifyScalar(v: unknown): string {
   if (typeof v === "string") return v
   if (typeof v === "number" || typeof v === "boolean") return String(v)
   /* v8 ignore next */
-  if (v instanceof Date) return v.toISOString().slice(0, 10)
+  if (v instanceof Date) return todayStamp(v)
   // Objects/nested arrays → JSON string to preserve visibility
   try {
     return JSON.stringify(v)

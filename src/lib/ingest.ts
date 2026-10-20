@@ -18,7 +18,7 @@ import {
 } from "@/lib/extract-source-images"
 import { captionMarkdownImages, loadCaptionCache } from "@/lib/image-caption-pipeline"
 import type { MultimodalConfig } from "@/stores/wiki-store"
-import { toErrorMessage } from "@/lib/utils"
+import { toErrorMessage, todayStamp } from "@/lib/utils"
 
 /**
  * Resolve the LLM config that the caption pipeline should use.
@@ -645,7 +645,7 @@ async function autoIngestImpl(
   // Returning no files lets processNext's length-0 safety net mark the
   // task for retry rather than "success".
   if (!hasSourceSummary && !signal?.aborted) {
-    const date = new Date().toISOString().slice(0, 10)
+    const date = todayStamp()
     const fallbackContent = [
       "---",
       `type: source`,
@@ -1363,7 +1363,7 @@ async function injectImagesIntoSourceSummary(
       // them, which means the lint view's orphan-page sweep eventually
       // reaps the media directory (cascadeDeleteWikiPage triggered by
       // a missing source page) — silent loss of extracted images.
-      const date = new Date().toISOString().slice(0, 10)
+      const date = todayStamp()
       const stubFrontmatter = [
         "---",
         "type: source",

@@ -7,7 +7,7 @@ import type { ChatMessage, RequestOverrides } from "./llm-providers"
 import type { StreamCallbacks } from "./llm-client"
 import { classifyTransportError, type TransportError } from "./transport-error"
 import { hasAnthropicApiKey } from "@/lib/llm-config/preset-resolver"
-import { toErrorMessage } from "@/lib/utils"
+import { toErrorMessage, todayStamp } from "@/lib/utils"
 
 export type ClaudeCodeStreamParseResult =
   | { kind: "token"; text: string }
@@ -77,7 +77,7 @@ async function spoolStalledStreamToDisk(
   try {
     const { getStore } = await import("./web-store")
     const store = await getStore()
-    const key = `claudeCli.stallSpool.${new Date().toISOString().slice(0, 10)}`
+    const key = `claudeCli.stallSpool.${todayStamp()}`
     const prior = (await store.get<string[]>(key)) ?? []
     prior.push(
       JSON.stringify({

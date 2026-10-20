@@ -22,6 +22,13 @@ export function toErrorMessage(error: unknown): string {
 }
 
 /**
+ * 今日戳 YYYY-MM-DD（UTC）。收敛散落的 new Date().toISOString().slice(0, 10)。
+ */
+export function todayStamp(d: Date = new Date()): string {
+  return d.toISOString().slice(0, 10)
+}
+
+/**
  * 字符串数组去重 + trim + 过滤空值。
  */
 export function uniqueNonEmpty(values: string[]): string[] {

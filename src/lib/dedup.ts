@@ -29,6 +29,7 @@
  */
 
 import { parseFrontmatter } from "./frontmatter"
+import { todayStamp } from "./utils"
 import {
   parseFrontmatterArray,
   mergeArrayFieldsIntoContent,
@@ -591,7 +592,7 @@ function setFrontmatterScalar(
 }
 
 function defaultToday(): string {
-  return new Date().toISOString().slice(0, 10)
+  return todayStamp()
 }
 
 // ──────────────────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ import type { AntiAiAnalysisReport, AntiAiTextOrigin } from "./anti-ai-candidate
 import type { SlopReport } from "./mechanical-slop-detector"
 import type { AntiAiMode } from "./novel-session-status"
 import type { GateVerdict } from "./rule-stack"
+import { todayStamp } from "@/lib/utils"
 
 // ── 常量（规格 §1/§3） ──────────────────────────────────────────────────────
 export const TELEMETRY_SCHEMA_VERSION = "qm-anti-ai-telemetry/1.0" as const
@@ -172,7 +173,7 @@ export function segmentFileName(dayUtc: string, sessionId: string, seq: number):
 }
 
 function dayUtcOf(deps: TelemetrySinkDeps): string {
-  return deps.now().toISOString().slice(0, 10)
+  return todayStamp(deps.now())
 }
 
 /** 保留期清理：删早于 N 天的段文件；deps 缺省时跳过。 */

@@ -54,7 +54,7 @@ import {
   type ReviewRewriteIssue,
 } from "@/lib/review-rewrite-plan"
 import { FindingCompareDialog } from "./finding-compare-dialog"
-import { toErrorMessage } from "@/lib/utils"
+import { toErrorMessage, todayStamp } from "@/lib/utils"
 
 const typeConfig: Record<ReviewItem["type"], { icon: typeof AlertTriangle; labelKey: string; novelLabelKey: string; color: string }> = {
   contradiction: { icon: AlertTriangle, labelKey: "review.typeLabels.contradiction", novelLabelKey: "novel.review.typeLabels.contradiction", color: "text-warning" },
@@ -878,7 +878,7 @@ export function ReviewView({
         const firstLine = cleanContent.split("\n").find((l) => l.trim() && !l.startsWith("<!--"))?.replace(/^#+\s*/, "").trim() ?? i18n.t("review.fallbacks.savedQueryTitle")
         const title = firstLine.slice(0, 60)
         const slug = title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 50)
-        const date = new Date().toISOString().slice(0, 10)
+        const date = todayStamp()
         const fileName = `${slug}-${date}.md`
         const filePath = `${pp}/wiki/queries/${fileName}`
 
@@ -952,7 +952,7 @@ export function ReviewView({
           const titlePrefixPattern = new RegExp(`^(${i18n.t("review.fallbacks.stripTitlePrefixes")})[:\\s]*`, "i")
           const title = item.title.replace(titlePrefixPattern, "").trim() || i18n.t("review.fallbacks.untitled")
           const slug = title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 50)
-          const date = new Date().toISOString().slice(0, 10)
+          const date = todayStamp()
 
           const pageType = detectPageType(realAction, item.type)
           const dir = pageType === "query" ? "queries" : pageType === "entity" ? "entities" : pageType === "concept" ? "concepts" : "queries" /* v8 ignore start */ /* v8 ignore stop */

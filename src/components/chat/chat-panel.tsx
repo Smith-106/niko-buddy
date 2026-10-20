@@ -2,7 +2,7 @@
 import { useRef, useEffect, useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { formatOperationError } from "@/lib/format-operation-error"
-import { logger, toErrorMessage } from "@/lib/utils"
+import { logger, toErrorMessage, todayStamp } from "@/lib/utils"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { BookOpen, Brain, Plus, Trash2, FileEdit, Sparkles, ArrowDown, ClipboardList } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -552,7 +552,7 @@ export function ChatPanel() {
       const chapterTitle = extractedTitle || `Chapter ${targetChapterNumber}`
 
       const buildDraftContent = (chapterNumber: number, title: string, bodyContent: string) => {
-        const now = new Date().toISOString().slice(0, 10)
+        const now = todayStamp()
         const frontmatter = [
           "---",
           "type: chapter",

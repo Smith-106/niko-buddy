@@ -5,6 +5,7 @@
  * mind-map generation, and human-readable document export.
  */
 import type { GraphEdge, GraphNode } from "./wiki-graph"
+import { todayStamp } from "./utils"
 
 // ── Exported types ─────────────────────────────────────────────────
 
@@ -244,7 +245,7 @@ export function getGraphRiskSummaryTotal(items: GraphRiskSummaryItem[]): number 
 export function buildGraphRiskReport(nodes: GraphNode[], riskStateOverrides: Record<string, string>): string {
   const riskTypes = new Set(["foreshadowing", "secret", "canon-rule", "timeline-point", "conflict"])
   const riskNodes = nodes.filter((n) => riskTypes.has(n.type))
-  const lines: string[] = ["# 风险排查报告", "", `生成时间：${new Date().toISOString().slice(0, 10)}`, "", `共 ${riskNodes.length} 个风险追踪节点。`, ""]
+  const lines: string[] = ["# 风险排查报告", "", `生成时间：${todayStamp()}`, "", `共 ${riskNodes.length} 个风险追踪节点。`, ""]
 
   for (const node of riskNodes) {
     const state = riskStateOverrides[node.id] ?? getGraphNodeRiskStateLabel(node.type)

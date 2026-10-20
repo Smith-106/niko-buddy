@@ -6,6 +6,7 @@
  */
 
 import { parseFrontmatter } from "./frontmatter"
+import { todayStamp } from "./utils"
 
 /** A draft ready to be persisted as an outline document. */
 export interface OutlineSaveDraft {
@@ -42,7 +43,7 @@ function pickTitleFromContent(content: string): string {
       return line
     }
   }
-  return `${TITLE_PREFIX}-${new Date().toISOString().slice(0, 10)}`
+  return `${TITLE_PREFIX}-${todayStamp()}`
 }
 
 /** Remove unsafe filename characters and cap length. */
@@ -52,7 +53,7 @@ function sanitizeTitle(title: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 24)
-  return cleaned || `${TITLE_PREFIX}-${new Date().toISOString().slice(0, 10)}`
+  return cleaned || `${TITLE_PREFIX}-${todayStamp()}`
 }
 
 /** Append suffixes until the title is not in the existing set. */

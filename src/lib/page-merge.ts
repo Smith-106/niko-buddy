@@ -25,6 +25,7 @@
  */
 import { parseFrontmatter } from "./frontmatter"
 import { mergeArrayFieldsIntoContent } from "./sources-merge"
+import { todayStamp } from "./utils"
 
 /** Frontmatter array fields unioned across re-ingests. */
 const UNION_FIELDS = ["sources", "tags", "related"] as const
@@ -195,7 +196,7 @@ async function tryBackup(
 }
 
 function defaultToday(): string {
-  return new Date().toISOString().slice(0, 10)
+  return todayStamp()
 }
 
 /**

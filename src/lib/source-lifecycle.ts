@@ -34,7 +34,7 @@ import {
   stripDeletedWikilinks,
 } from "@/lib/wiki-cleanup"
 import { collectAllFilesIncludingDot } from "@/lib/sources-tree-delete"
-import { toErrorMessage } from "@/lib/utils"
+import { toErrorMessage, todayStamp } from "@/lib/utils"
 
 export const INGESTABLE_SOURCE_EXTENSIONS = new Set([
   "md", "mdx", "txt", "pdf", "docx", "pptx", "xlsx",
@@ -311,7 +311,7 @@ async function appendDeleteLog(pp: string, names: string[], detail: { reason: st
   try {
     const logPath = `${pp}/wiki/log.md`
     const logContent = await readFile(logPath).catch(() => "# Wiki Log\n")
-    const date = new Date().toISOString().slice(0, 10)
+    const date = todayStamp()
     const subject = names.length === 1 ? names[0] : `${names.length} 个源文件`
     const listed = names.length === 1 ? "" : `\n\n源文件：\n${names.map((n) => `- ${n}`).join("\n")}`
     const entry = `\n## [${date}] ${detail.reason} | ${subject}\n\n已删除 ${names.length} 个源文件和 ${detail.deletedWikiCount} 个知识页面。${detail.keptWikiCount > 0 ? ` ${detail.keptWikiCount} 个共享页面已保留（有其他源文件引用）。` : ""}${listed}\n`

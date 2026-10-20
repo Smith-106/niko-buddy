@@ -1,6 +1,7 @@
 import { normalizePath } from "./path-utils"
 import { entitySubdirOf } from "./novel/entity-subdir-resolver"
 import type { GraphNode } from "./wiki-graph"
+import { todayStamp } from "./utils"
 
 export interface EditableGraphNodePage {
   path: string
@@ -41,7 +42,7 @@ export function buildEditableGraphNodePage(projectPath: string, node: GraphNode)
   const subdir = entitySubdirOf(tag)
   const path = node.path || `${pp}/wiki/entities/${subdir ? subdir + "/" : ""}${fileNameFromLabel(node.label)}.md`
   const pageId = pageIdFromPath(path, fileNameFromLabel(node.label))
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayStamp()
   const content = [
     "---",
     `title: ${title}`,
