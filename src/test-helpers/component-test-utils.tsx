@@ -16,7 +16,21 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import "@testing-library/jest-dom/vitest"
 import { vi } from "vitest"
 
-;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+/**
+ * 四-16：垫片全局表的唯一类型边界。原来 `globalThis as unknown as Record<…>`
+ * 散落在各处——现在收敛到这一个声明，后续新增垫片只改这里。
+ */
+interface TestDomGlobals {
+  IS_REACT_ACT_ENVIRONMENT: boolean
+  matchMedia?: typeof window.matchMedia
+  IntersectionObserver?: typeof IntersectionObserver
+  ResizeObserver?: typeof ResizeObserver
+  getComputedStyle?: typeof window.getComputedStyle
+}
+
+const testGlobals = globalThis as unknown as TestDomGlobals
+
+testGlobals.IS_REACT_ACT_ENVIRONMENT = true
 
 export interface DomGlobalsOptions {
   matchMedia?: boolean
@@ -40,9 +54,9 @@ export function setupDomGlobals(options: DomGlobalsOptions = {}): void {
     getComputedStyle: false,
     ...options,
   }
-  const w = globalThis as unknown as Record<string, unknown>
+  const w: TestDomGlobals = testGlobals
   if (o.matchMedia && typeof w.matchMedia !== "function") {
-    w.matchMedia = vi.fn((query: string) => ({
+    w.matchMedia = vi.fn<typeof window.matchMedia>((query) => ({
       matches: false,
       media: query,
       onchange: null,
@@ -51,7 +65,7 @@ export function setupDomGlobals(options: DomGlobalsOptions = {}): void {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
-    }))
+    })) as typeof window.matchMedia
   }
   if (o.intersectionObserver && typeof w.IntersectionObserver !== "function") {
     w.IntersectionObserver = class {
@@ -71,17 +85,18 @@ export function setupDomGlobals(options: DomGlobalsOptions = {}): void {
       disconnect = vi.fn()
     }
   }
-  if (o.scrollTo && typeof w.Element !== "undefined" && typeof Element.prototype.scrollTo !== "function") {
-    Element.prototype.scrollTo = vi.fn() as never
+  if (o.scrollTo && typeof Element.prototype.scrollTo !== "function") {
+    // 重载签名导致 Mock<T> 不能直赋：此处是唯一的 shim 边界断言（测试替身）。
+    Element.prototype.scrollTo = vi.fn((): void => {}) as typeof Element.prototype.scrollTo
   }
   if (o.getComputedStyle && typeof w.getComputedStyle !== "function") {
-    w.getComputedStyle = vi.fn(() => ({})) as never
+    w.getComputedStyle = vi.fn<typeof window.getComputedStyle>(() => ({}) as CSSStyleDeclaration)
   }
 }
 
 /** Remove stubs installed by setupDomGlobals (call in afterEach if needed). */
 export function cleanupDomGlobals(): void {
-  const w = globalThis as unknown as Record<string, unknown>
+  const w: TestDomGlobals = testGlobals
   delete w.matchMedia
   delete w.IntersectionObserver
   delete w.ResizeObserver
