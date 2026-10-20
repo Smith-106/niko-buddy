@@ -84,7 +84,7 @@ export {
 } from "./chat-message-markers"
 // ChatPanel can be mounted from multiple layout entry points. Share stream runtime
 // state across instances so stop/finalize always targets the active generation session.
-const sharedAbortControllersRef = { current: {} as Record<string, AbortController> }
+const sharedAbortControllersRef: { current: Record<string, AbortController> } = { current: {} }
 const sharedStreamSessionGuardRef = { current: createStreamSessionGuard() }
 const sharedActiveStreamSessionsRef = { current: {} as Record<string, number> }
 const sharedNovelManagedStopRef = { current: {} as Record<string, boolean> }
