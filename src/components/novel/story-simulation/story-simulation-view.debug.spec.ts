@@ -23,6 +23,12 @@ describe("story simulation debug process view wiring", () => {
     const source = readFileSync(
       resolve(
         process.cwd(),
+        "src/components/novel/story-simulation/simulation-debug-panels.tsx",
+      ),
+      "utf8",
+    ) + readFileSync(
+      resolve(
+        process.cwd(),
         "src/components/novel/story-simulation/story-simulation-view.tsx",
       ),
       "utf8",
