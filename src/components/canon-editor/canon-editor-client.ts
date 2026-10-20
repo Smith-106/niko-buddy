@@ -8,7 +8,8 @@
 // 仅顶层 invoke 参数名使用 camelCase（Tauri 自动转换为 Rust 的 project_id）。
 
 import { invoke } from "@tauri-apps/api/core"
-import type { CanonEdgeFilter, CanonQueryBatchResponse } from "./canon-types"
+import type { CanonEdgeFilter, CanonQueryBatchResponse, EdgeKind } from "./canon-types"
+import { buildCanonEdgeFilter } from "@/lib/novel"
 
 /**
  * 调用 `canon_query_batch`：一批 filter → 一批结果 + max_revision。
@@ -27,4 +28,31 @@ export async function queryCanonBatch(
     projectId,
     filters,
   })
+}
+
+
+/**
+ * 将当前过滤输入构建为单个 CanonEdgeFilter。
+ * v2.8 P1-2：委托共享构造器 buildCanonEdgeFilter（42-spec §17 P1-2 骨架接线），
+ * 产物为全 null 字段对象（未提供的维不过滤）。分页 offset/limit 不在此处搭载，
+ * 仅在 reload 调用点注入（避免 page → filter → 重置 page 死循环）。
+ */
+export function buildFilter(input: {
+  knownBy: string
+  validAtChapter: string
+  edgeKind: EdgeKind | "all"
+}): CanonEdgeFilter {
+  const chapter = Number.parseInt(input.validAtChapter, 10)
+  return buildCanonEdgeFilter({
+    knownBy: input.knownBy.trim() || undefined,
+    validAtChapter: Number.isFinite(chapter) ? chapter : undefined,
+    edgeKinds: input.edgeKind === "all" ? undefined : [input.edgeKind],
+  })
+}
+
+/** 解析 revealed_at 输入框文本：空白 → null（未登记）；非法整数 → NaN。 */
+export function parseChapterInput(text: string): number | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  return Number.parseInt(trimmed, 10)
 }
