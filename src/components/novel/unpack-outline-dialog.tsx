@@ -22,6 +22,7 @@ import {
   unpackOutlineToChapterFiles,
   type UnpackOutlineResult,
 } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 interface UnpackOutlineDialogProps {
   open: boolean
@@ -72,7 +73,7 @@ export function UnpackOutlineDialog({
       onSuccess?.(result)
       onOpenChange(false)
     } catch (err) {
-      toast.error(`铺排章节失败：${err instanceof Error ? err.message : String(err)}`)
+      toast.error(`铺排章节失败：${toErrorMessage(err)}`)
     } finally {
       setIsUnpacking(false)
     }

@@ -17,6 +17,7 @@ import {
   type SettingProjectionLoader,
 } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * 世界构建只读视图（Wave 2）：复用 `loadWorldBlueprint` + `validateWorldBlueprint`
@@ -110,7 +111,7 @@ export function WorldLibraryView({
       .catch((err: unknown) => {
         if (!cancelled) {
           setSnapshot(null)
-          setError(err instanceof Error ? err.message : String(err))
+          setError(toErrorMessage(err))
         }
       })
       .finally(() => {
@@ -140,7 +141,7 @@ export function WorldLibraryView({
       .catch((err: unknown) => {
         if (!cancelled) {
           setSetting(null)
-          setSettingError(err instanceof Error ? err.message : String(err))
+          setSettingError(toErrorMessage(err))
         }
       })
       .finally(() => {

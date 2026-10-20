@@ -24,6 +24,7 @@ import { parseFrontmatter } from "@/lib/frontmatter"
 import { parseChapterMeta, persistRevisionFeedbackForChapter, pickRevisionFeedbackFromLintResults, deleteGenerationHistoryEntry, listGenerationHistory, saveGenerationHistoryEntry } from "@/lib/novel"
 import type { GenerationHistoryEntry } from "@/lib/novel"
 import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
+import { toErrorMessage } from "@/lib/utils"
 
 export function LintView() {
   const { t } = useTranslation()
@@ -140,7 +141,7 @@ export function LintView() {
         )
       }
     } catch (err) {
-      console.error("检查失败:", err instanceof Error ? err.message : String(err))
+      console.error("检查失败:", toErrorMessage(err))
       useWikiStore.getState().finishLintRun(runId, { running: false, hasRun: true, error: t("lint.messages.runFailed") })
     } finally {
       const current = useWikiStore.getState().lintRun

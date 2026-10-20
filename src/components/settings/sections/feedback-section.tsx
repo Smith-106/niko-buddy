@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { submitFeedback, type FeedbackType } from "@/lib/feedback"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * Feedback section allowing users to submit suggestions, bug reports,
@@ -35,7 +36,7 @@ export function FeedbackSection() {
       setContact("")
       setStatus("反馈已提交，谢谢。")
     } catch (err) {
-      const text = err instanceof Error ? err.message : String(err)
+      const text = toErrorMessage(err)
       setStatus(text)
     } finally {
       setSubmitting(false)

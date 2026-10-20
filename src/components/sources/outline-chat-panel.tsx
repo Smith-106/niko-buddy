@@ -24,6 +24,7 @@ import {
   collectWebResearch,
   shouldUseWebResearch,
 } from "@/lib/web-research"
+import { toErrorMessage } from "@/lib/utils"
 
 async function loadOutlineContext(projectPath: string): Promise<{ context: string; sources: string[] }> {
   const pp = normalizePath(projectPath)
@@ -409,7 +410,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       if (partial) {
         replaceLastAssistant(convId!, partial)
       } else {
-        const errorMsg = err instanceof Error ? err.message : String(err)
+        const errorMsg = toErrorMessage(err)
         if (errorMsg && !errorMsg.includes("aborted")) {
           replaceLastAssistant(convId!, `生成失败：${errorMsg}`)
         } else {
@@ -505,7 +506,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       if (partial) {
         replaceLastAssistant(activeConversationId, partial)
       } else {
-        const errorMsg = err instanceof Error ? err.message : String(err)
+        const errorMsg = toErrorMessage(err)
         if (errorMsg && !errorMsg.includes("aborted")) {
           replaceLastAssistant(activeConversationId, `生成失败：${errorMsg}`)
         }
@@ -546,7 +547,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       await refreshProjectState(pp)
       setSaveStatus(`已保存：${fileName}`)
     } catch (err) {
-      setSaveStatus(`保存失败：${err instanceof Error ? err.message : String(err)}`)
+      setSaveStatus(`保存失败：${toErrorMessage(err)}`)
     }
   }, [project])
 

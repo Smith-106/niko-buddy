@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { buildSignedWebhookRequest, dispatchNotify, verifyWebhookSignature } from "@/lib/novel"
 import type { NotifyEvent, NotifyEventType } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * WebhookSection — Webhook 守护配置卡（65 号共识 G2 挂载：形态轴 F6 消费侧）。
@@ -61,7 +62,7 @@ export function WebhookSection() {
       )
       setNotice(`dispatch=${result.ok ? "ok" : `failed(${result.status})`}`)
     } catch (err) {
-      setNotice(`${t("novel.webhook.pingFailed") ?? "ping 发送失败（签名已生成可验签）"}：${err instanceof Error ? err.message : String(err)}`)
+      setNotice(`${t("novel.webhook.pingFailed") ?? "ping 发送失败（签名已生成可验签）"}：${toErrorMessage(err)}`)
     }
   }, [url, secret, eventType, t])
 

@@ -35,6 +35,7 @@ import {
   type NovelIncubatorResult,
   type CampaignReport,
 } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 interface AutonomousIncubatorDialogProps {
   open: boolean
@@ -124,7 +125,7 @@ export function AutonomousIncubatorDialog({
       if (controller.signal.aborted) {
         toast.info("全自动孵化已被中止")
       } else {
-        toast.error(`全自动孵化失败：${err instanceof Error ? err.message : String(err)}`)
+        toast.error(`全自动孵化失败：${toErrorMessage(err)}`)
       }
     } finally {
       setIsRunning(false)

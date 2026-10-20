@@ -8,6 +8,7 @@ import { readFile, listDirectory, deleteFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
 import type { ChapterSelectionData } from "./use-character-extraction"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface UseLibraryOperationsParams {
   currentProjectPath: string | null
@@ -111,7 +112,7 @@ export function useLibraryOperations({
       await reloadLibraryState()
       useBookAnalysisStore.getState().triggerSidebarRefresh()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
+      const msg = toErrorMessage(err)
       console.error("[文风提取失败]", msg)
       useBookAnalysisStore.getState().errorTask(taskId, msg)
       toast.error(`提取文风失败：${msg}`)
@@ -144,7 +145,7 @@ export function useLibraryOperations({
       }
       await reloadLibraryState()
     } catch (err) {
-      toast.error(`操作失败：${err instanceof Error ? err.message : String(err)}`)
+      toast.error(`操作失败：${toErrorMessage(err)}`)
     }
   }, [currentProjectPath, selectedLibraryBook, libraryState.enabledStyle, reloadLibraryState])
 
@@ -189,7 +190,7 @@ export function useLibraryOperations({
       }
       await reloadLibraryState()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
+      const msg = toErrorMessage(err)
       console.error("[加入灵魂库失败]", msg)
       toast.error(`添加失败：${msg}`)
     } finally {

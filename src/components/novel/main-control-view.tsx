@@ -17,7 +17,7 @@ import {
 } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { DEFAULT_AI_WORKFLOW_MODE } from "@/lib/agent/workflow-mode"
-import { cn } from "@/lib/utils"
+import { cn, toErrorMessage } from "@/lib/utils"
 import { ChapterDirectory } from "./chapter-directory"
 import { ForeshadowingPanel } from "./foreshadowing-panel"
 import { WorkHeatmapPanel } from "./work-heatmap-panel"
@@ -123,7 +123,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
       void saveTraceSnapshot(projectPath, snapshot)
       if (out.error) setError(out.error)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(toErrorMessage(err))
     } finally {
       setRunning(false)
       abortRef.current = null

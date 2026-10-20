@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast"
 import { saveRecognizedCharacters } from "@/lib/novel"
 import type { RecognizedCharacter } from "@/lib/novel"
 import type { ChapterSelectionData } from "./use-character-extraction"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface UseCharacterRecognitionParams {
   chapterSelectionData: ChapterSelectionData | null
@@ -127,7 +128,7 @@ export function useCharacterRecognition({
       const errorMessage = isTimeout
         ? `${rawMessage}（请求超时：可少选几章、或更换更快 / 更稳定的模型后重试）`
         : rawMessage
-      console.error("[角色识别] 失败：", err instanceof Error ? err.message : String(err))
+      console.error("[角色识别] 失败：", toErrorMessage(err))
       setRecognitionStatus("error")
       setRecognitionError(errorMessage)
       updateTaskProgress(taskId, {

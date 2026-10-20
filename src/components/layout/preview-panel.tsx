@@ -9,6 +9,7 @@ import { useReviewStore } from "@/stores/review-store"
 import { deleteFile, fileExists, readFile, writeFile, writeFileAtomic, listDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { formatOperationError } from "@/lib/format-operation-error"
+import { toErrorMessage } from "@/lib/utils"
 import { getFileCategory, isBinary } from "@/lib/file-types"
 import { WikiEditor } from "@/components/editor/wiki-editor"
 import { WikiReader } from "@/components/editor/wiki-reader"
@@ -932,7 +933,7 @@ export function PreviewPanel() {
         },
       )
     } catch (err) {
-      console.error("去AI味处理失败:", err instanceof Error ? err.message : String(err))
+      console.error("去AI味处理失败:", toErrorMessage(err))
       setDeAiProcessing(false)
     }
   }, [fileContent])
@@ -1150,7 +1151,7 @@ export function PreviewPanel() {
     } catch (err) {
       // F-16 (CWE-532 / PAT-DC1-MSG-UI): catch-path twin of onError above.
       clearTimeout(deadline)
-      const message = err instanceof Error ? err.message : String(err)
+      const message = toErrorMessage(err)
       const safe = message.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
       if (selectedFileRef.current !== actionFile) return
       console.error(`${actionLabel}失败:`, message)

@@ -18,6 +18,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { loadMemoryCenterData } from "@/lib/novel"
 import type { MemoryCenterSnapshotCard } from "@/lib/novel"
 import { formatOperationError } from "@/lib/format-operation-error"
+import { toErrorMessage } from "@/lib/utils"
 
 const SnapshotViewer = lazy(async () => {
   const mod = await import("@/components/novel/snapshot-viewer")
@@ -269,7 +270,7 @@ export function MemoryCenterView() {
         parentView: null,
       })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = toErrorMessage(err)
       setError(message)
     } finally {
       setLoading(false)
@@ -332,7 +333,7 @@ export function MemoryCenterView() {
         scrollContainerRef.current?.scrollTo({ top: 0 })
       })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = toErrorMessage(err)
       setError(message)
     }
   }, [detailView, rememberOpenLocation])

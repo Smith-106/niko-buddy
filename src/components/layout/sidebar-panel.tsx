@@ -41,6 +41,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
 import { useImportProgressStore } from "@/stores/import-progress-store"
 import { openExternalUrl } from "@/lib/open-external-url"
+import { toErrorMessage } from "@/lib/utils"
 
 const USAGE_GUIDE_URL = "https://tcnk9ik08e1c.feishu.cn/wiki/FWiSwYQKoifpwBk6mSRcSlB8nrh?from=from_copylink"
 
@@ -793,7 +794,7 @@ export function SidebarPanel() {
       })
       .catch((err) => {
         if (cancelled) return
-        const message = err instanceof Error ? err.message : String(err)
+        const message = toErrorMessage(err)
         setMemoryError(message)
       })
       .finally(() => {
@@ -879,7 +880,7 @@ export function SidebarPanel() {
               void loadMemoryCenter(project.path)
                 .then((nextData) => setMemoryData(nextData))
                 .catch((err) => {
-                  const message = err instanceof Error ? err.message : String(err)
+                  const message = toErrorMessage(err)
                   setMemoryError(message)
                 })
                 .finally(() => setMemoryLoading(false))

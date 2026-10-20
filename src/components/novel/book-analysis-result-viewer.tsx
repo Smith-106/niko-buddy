@@ -15,6 +15,7 @@ import type { ImportedBookAnalysisAura, BookAnalysisResult, BookAnalysisMetadata
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
 import { refreshProjectState } from "@/lib/project-refresh"
+import { toErrorMessage } from "@/lib/utils"
 
 interface BookAnalysisResultViewerProps {
   projectPath: string
@@ -180,7 +181,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
       toast.success(`已重新提取 ${updated.length} 个角色`)
       setReextractOpen(false)
     } catch (err) {
-      toast.error(`重新提取失败：${err instanceof Error ? err.message : String(err)}`)
+      toast.error(`重新提取失败：${toErrorMessage(err)}`)
     } finally {
       setReextractRunning(false)
     }
@@ -214,7 +215,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
       if (cur) useBookAnalysisStore.getState().setCurrentResult({ ...cur, styleProfile: profile })
       toast.success("已提取作品文风")
     } catch (err) {
-      toast.error(`提取文风失败：${err instanceof Error ? err.message : String(err)}`)
+      toast.error(`提取文风失败：${toErrorMessage(err)}`)
     } finally {
       setStyleExtracting(false)
     }
@@ -239,7 +240,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
         toast.success("已启用该文风，生成时会按此文风写作")
       }
     } catch (err) {
-      toast.error(`操作失败：${err instanceof Error ? err.message : String(err)}`)
+      toast.error(`操作失败：${toErrorMessage(err)}`)
     }
   }
 
@@ -349,7 +350,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
         // carry provider endpoint URL / auth header — strip before surfacing in
         // the toast. Raw message logged to console only.
         // (Twin of ingest.ts activity sites; PAT-G2 LLM throw-chain variant.)
-        const raw = err instanceof Error ? err.message : String(err)
+        const raw = toErrorMessage(err)
         console.error('[单角色提取] 错误:', raw)
         const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
         toast.error(

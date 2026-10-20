@@ -38,6 +38,7 @@ import {
   type CampaignReport,
   type BatchAcceptResult,
 } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 interface CampaignDashboardDialogProps {
   open: boolean
@@ -83,7 +84,7 @@ export function CampaignDashboardDialog({
       })
       .catch((err) => {
         if (cancelled) return
-        console.error("[Campaign] detect next chapter failed:", err instanceof Error ? err.message : String(err))
+        console.error("[Campaign] detect next chapter failed:", toErrorMessage(err))
       })
     return () => {
       cancelled = true
@@ -152,7 +153,7 @@ export function CampaignDashboardDialog({
       if (controller.signal.aborted) {
         toast.info("战役推进已被用户终止")
       } else {
-        toast.error(`战役运行异常：${err instanceof Error ? err.message : String(err)}`)
+        toast.error(`战役运行异常：${toErrorMessage(err)}`)
       }
     } finally {
       setIsRunning(false)
@@ -203,7 +204,7 @@ export function CampaignDashboardDialog({
         }`,
       )
     } catch (err) {
-      toast.error(`批量验收失败：${err instanceof Error ? err.message : String(err)}`)
+      toast.error(`批量验收失败：${toErrorMessage(err)}`)
     } finally {
       setIsAccepting(false)
     }

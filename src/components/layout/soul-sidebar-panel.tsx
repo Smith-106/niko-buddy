@@ -10,6 +10,7 @@ import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import { bindCharacterAura, BUILT_IN_CHARACTER_AURAS, getCharacterAuraBindings, listCharacterAuras, unbindCharacterAura } from "@/lib/novel"
 import type { CharacterAura, CharacterAuraBinding } from "@/lib/novel"
 import { useEffect, useMemo, useState } from "react"
+import { toErrorMessage } from "@/lib/utils"
 
 export function SoulSidebarPanel() {
   const { t } = useTranslation()
@@ -42,7 +43,7 @@ export function SoulSidebarPanel() {
       })
       .catch((err) => {
         if (cancelled) return
-        console.error("[Soul] aura load failed:", err instanceof Error ? err.message : String(err))
+        console.error("[Soul] aura load failed:", toErrorMessage(err))
       })
     return () => {
       cancelled = true

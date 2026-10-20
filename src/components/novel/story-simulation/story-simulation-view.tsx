@@ -25,6 +25,7 @@ import { AgentChatPanel } from "./agent-chat-panel";
 import { ProgressPanel } from "./progress-panel";
 import { Button } from "@/components/ui/button";
 import { formatOperationError } from "@/lib/format-operation-error";
+import { toErrorMessage } from "@/lib/utils";
 
 const PROGRESS_PHASES = [
   "extracting",
@@ -956,7 +957,7 @@ export function StorySimulationView() {
           } catch (err) {
             setError(
               t("storySimulation.restoreAgentFailed", {
-                message: err instanceof Error ? err.message : String(err),
+                message: toErrorMessage(err),
               }),
             );
             return;

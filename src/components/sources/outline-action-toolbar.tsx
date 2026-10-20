@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { OutlineGeneratorDialog, type OutlineGeneratorMode } from "@/components/sources/outline-generator-dialog"
 import { runBulkOutlineIngest } from "@/lib/novel"
-import { cn } from "@/lib/utils"
+import { cn, toErrorMessage } from "@/lib/utils"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { useWikiStore } from "@/stores/wiki-store"
 
@@ -62,7 +62,7 @@ export function OutlineActionToolbar({
         onBulkIngestResult?.(t("novel.outlineGenerator.bulkIngestResult", result))
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = toErrorMessage(err)
       onBulkIngestResult?.(t("novel.outlineGenerator.bulkIngestError", { message }))
     } finally {
       setBulkIngestRunning(false)

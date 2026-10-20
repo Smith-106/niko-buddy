@@ -12,7 +12,7 @@ import {
   type ChapterSnapshot,
 } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
-import { cn } from "@/lib/utils"
+import { cn, toErrorMessage } from "@/lib/utils"
 
 /**
  * 章节目录条目的三列来源（grok 计划审查要求：多源只读拼接，缺列写 N/A，禁止另建章节索引）：
@@ -108,7 +108,7 @@ export function ChapterDirectory({ loader = loadChapterDirectory }: ChapterDirec
       .catch((err: unknown) => {
         if (cancelled) return
         setRows(null)
-        setError(err instanceof Error ? err.message : String(err))
+        setError(toErrorMessage(err))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)

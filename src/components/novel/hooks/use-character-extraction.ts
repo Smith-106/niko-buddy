@@ -6,6 +6,7 @@ import type { AnalysisDepth, ExtractedCharacter, RecognizedCharacter, BookAnalys
 import { readFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface ChapterSelectionData {
   taskId: string
@@ -221,7 +222,7 @@ export function useCharacterExtraction({
           {
             onToken: (text) => { response += text },
             onDone: () => {},
-            onError: (err) => { console.error("[simple-extract] LLM error:", err instanceof Error ? err.message : String(err)) },
+            onError: (err) => { console.error("[simple-extract] LLM error:", toErrorMessage(err)) },
           },
           abortController.signal,
         )
@@ -427,7 +428,7 @@ export function useCharacterExtraction({
         {
           onToken: (text) => { response += text },
           onDone: () => {},
-          onError: (err) => { console.error("[resume] LLM error:", err instanceof Error ? err.message : String(err)) },
+          onError: (err) => { console.error("[resume] LLM error:", toErrorMessage(err)) },
         },
         abortController.signal,
       )

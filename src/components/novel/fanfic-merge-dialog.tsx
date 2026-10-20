@@ -12,6 +12,7 @@ import {
 import { useWikiStore } from "@/stores/wiki-store"
 import { loadFanficMergeProposal, proposeCanonMerge, saveFanficMergeProposal } from "@/lib/novel"
 import type { CanonMergeProposal, BookAnalysisLibraryBook, BookRules } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * FanficMergeDialog — 同人正典合并导入器（65 号共识 G2 挂载：形态轴 F3 消费侧）。
@@ -55,7 +56,7 @@ export function FanficMergeDialog({ open, onOpenChange, sourceBook, targetNames 
         `${p.characters.length} 角色 → bind_existing ${p.characters.filter((c) => c.action === "bind_existing").length} / create_new ${p.characters.filter((c) => c.action === "create_new").length} / skip ${p.characters.filter((c) => c.action === "skip").length}`,
       )
     } catch (err) {
-      setNotice(`${t("novel.fanfic.previewFailed") ?? "预览失败"}：${err instanceof Error ? err.message : String(err)}`)
+      setNotice(`${t("novel.fanfic.previewFailed") ?? "预览失败"}：${toErrorMessage(err)}`)
     } finally {
       setLoading(false)
     }

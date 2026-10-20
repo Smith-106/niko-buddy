@@ -146,6 +146,20 @@ function buildSearXngEndpoint(instanceUrl: string): URL {
   return url
 }
 
+// ── 搜索请求错误处理（tavily/searxng/serpApi 三处同模板收敛） ───────────────
+// 仅收敛“网络错重抛 + 非 OK 拼串”两段式；各 provider 的文案、请求体、结果归一化保留原样。
+function rethrowSearchNetworkError(err: unknown, message: string): never {
+  if (isFetchNetworkError(err)) throw new Error(message)
+  throw err
+}
+
+async function throwIfSearchFailed(response: Response, provider: string): Promise<void> {
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "Unknown error")
+    throw new Error(`${provider} search failed (${response.status}): ${errorText}`)
+  }
+}
+
 async function searxngSearch(
   query: string,
   instanceUrl: string,
@@ -171,16 +185,10 @@ async function searxngSearch(
       headers: { Accept: "application/json" },
     })
   } catch (err) {
-    if (isFetchNetworkError(err)) {
-      throw new Error("Network error reaching the SearXNG instance. Check the instance URL and whether JSON search is enabled.")
-    }
-    throw err
+    rethrowSearchNetworkError(err, "Network error reaching the SearXNG instance. Check the instance URL and whether JSON search is enabled.")
   }
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "Unknown error")
-    throw new Error(`SearXNG search failed (${response.status}): ${errorText}`)
-  }
+  await throwIfSearchFailed(response, "SearXNG")
 
   const data = await response.json()
   return normaliseSearXngResults(data, maxResults)
@@ -220,16 +228,10 @@ async function tavilySearch(query: string, apiKey: string, maxResults: number): 
       }),
     })
   } catch (err) {
-    if (isFetchNetworkError(err)) {
-      throw new Error("Network error reaching api.tavily.com. Check your connectivity and whether the Tavily API key is still valid.")
-    }
-    throw err
+    rethrowSearchNetworkError(err, "Network error reaching api.tavily.com. Check your connectivity and whether the Tavily API key is still valid.")
   }
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "Unknown error")
-    throw new Error(`Tavily search failed (${response.status}): ${errorText}`)
-  }
+  await throwIfSearchFailed(response, "Tavily")
 
   const data = await response.json()
   return (data.results ?? []).map((r: { title: string; url: string; content: string }) => ({
@@ -258,16 +260,10 @@ async function serpApiSearch(
       headers: { Accept: "application/json" },
     })
   } catch (err) {
-    if (isFetchNetworkError(err)) {
-      throw new Error("Network error reaching serpapi.com. Check your connectivity and whether the SerpApi API key is still valid.")
-    }
-    throw err
+    rethrowSearchNetworkError(err, "Network error reaching serpapi.com. Check your connectivity and whether the SerpApi API key is still valid.")
   }
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "Unknown error")
-    throw new Error(`SerpApi search failed (${response.status}): ${errorText}`)
-  }
+  await throwIfSearchFailed(response, "SerpApi")
 
   const data = await response.json()
   if (typeof data.error === "string" && data.error.trim()) {

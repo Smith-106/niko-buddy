@@ -30,6 +30,7 @@ import {
   type EvidenceSnapshot,
   type NovelProjectMeta,
 } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface CreativeHubViewProps {
   readonly projectPath: string
@@ -128,7 +129,7 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
         setSnapshot(loadedSnapshot)
       } catch (err) {
         if (cancelled) return
-        setLoadError(err instanceof Error ? err.message : String(err))
+        setLoadError(toErrorMessage(err))
       }
     })()
     return () => {

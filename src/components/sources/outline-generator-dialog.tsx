@@ -17,6 +17,7 @@ import type { OutlineRefinementWriteMode, OutlineSectionGenerationKey } from "@/
 import { useOutlineGenerationStore, type OutlineGenerationState, type OutlineGenerationTask } from "@/stores/outline-generation-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { formatOperationError } from "@/lib/format-operation-error"
+import { toErrorMessage } from "@/lib/utils"
 
 const GENRE_KEYS = [
   "mystery",
@@ -270,7 +271,7 @@ export function OutlineGeneratorDialog({
       setIngestResult(null)
       void runOutlineGenerationTask(taskId, llmConfig, { multiAgent })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = toErrorMessage(err)
       setError(message)
       /* v8 ignore next */
       if (project) {
@@ -302,7 +303,7 @@ export function OutlineGeneratorDialog({
       const refreshed = useOutlineGenerationStore.getState().tasks.find((task) => task.id === latestTask.id)
       setIngestResult(refreshed?.message ?? t("novel.outlineGenerator.ingestFailed"))
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = toErrorMessage(err)
       setIngestResult(message)
       updateTask(latestTask.id, { status: "error", error: message, message })
     } finally {
@@ -319,7 +320,7 @@ export function OutlineGeneratorDialog({
         setIngestResult(t("novel.outlineGenerator.addedToOutlineList"))
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = toErrorMessage(err)
       setError(message)
     } finally {
       setAddingToList(false)

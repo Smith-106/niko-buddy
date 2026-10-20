@@ -35,6 +35,7 @@ import {
   type AdvanceMode,
   type AssetLibrarySnapshot,
 } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * 门中文名（本视图刻意展示变体：设定一致性/反 AI 味/文学质量，spec 锁定；
@@ -95,7 +96,7 @@ export function StoryModeLibraryView({ projectPath }: StoryModeLibraryViewProps)
               modes.push(normalizeAdvanceMode(artifact.entries[index]))
             } catch (err) {
               invalidEntries.push(
-                `条目[${index}]契约违反：${err instanceof Error ? err.message : String(err)}`,
+                `条目[${index}]契约违反：${toErrorMessage(err)}`,
               )
             }
           }

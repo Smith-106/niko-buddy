@@ -33,6 +33,7 @@ import {
 } from "@/lib/dedup-queue"
 import type { DuplicateGroup } from "@/lib/dedup"
 import { loadDivergenceTrace } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 interface GroupUiEntry {
   group: DuplicateGroup
@@ -130,7 +131,7 @@ export function MaintenanceSection() {
     } catch (err) {
       setSharedScanState({
         projectPath: project.path,
-        scanError: err instanceof Error ? err.message : String(err),
+        scanError: toErrorMessage(err),
       })
     } finally {
       setSharedScanState({ projectPath: project.path, scanning: false })

@@ -2,7 +2,7 @@
 import { useRef, useEffect, useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { formatOperationError } from "@/lib/format-operation-error"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { BookOpen, Brain, Plus, Trash2, FileEdit, Sparkles, ArrowDown, ClipboardList } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -760,7 +760,7 @@ export function ChatPanel() {
     }).catch((err) => {
       // R4 共识（deepseek+glm）: 原先只有 .then，订阅失败成为未处理 rejection。
       logger.warn("ChatPanel", "subscribeStatusJson failed", {
-        error: err instanceof Error ? err.message : String(err),
+        error: toErrorMessage(err),
       })
     })
     return () => {
@@ -1248,7 +1248,7 @@ export function ChatPanel() {
             delete activeStreamSessionsRef.current[capturedConvId]
           })
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
+          const message = toErrorMessage(err)
           sessionDebug.errorMessage = message
           sessionDebug.abortRequested = controller.signal.aborted
           const existing = deepStream.getContent()
@@ -1549,7 +1549,7 @@ export function ChatPanel() {
             // R4 共识（deepseek+glm）: 原先空 catch —— 小说上下文装配完全失败时零诊断。
             // 行为不变（仍继续生成），但降级必须留痕。
             logger.warn("ChatPanel", "novel context preamble build failed, continuing without it", {
-              error: err instanceof Error ? err.message : String(err),
+              error: toErrorMessage(err),
             })
           }
         }
@@ -1758,7 +1758,7 @@ export function ChatPanel() {
               // in the user-visible chat stream. Raw message logged to console only.
               // (Twin of ingest.ts:1532/1622 startIngest/executeIngestWrites sites,
               // PAT-G2 16th recurrence — chat-panel main stream was the missed twin.)
-              const raw = err instanceof Error ? err.message : String(err)
+              const raw = toErrorMessage(err)
               console.error("[chat] stream error:", raw)
               const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
               finalizeStream(`出错：${safe}`, undefined, capturedConvId)
@@ -1866,7 +1866,7 @@ export function ChatPanel() {
         s.messages.some((m) => m.id === lastUserMsg.id) ? {} : { messages: [...s.messages, lastUserMsg] }
       )
       logger.warn("ChatPanel", "regenerate failed; restored the removed user message", {
-        error: err instanceof Error ? err.message : String(err),
+        error: toErrorMessage(err),
       })
     }
   }, [removeLastAssistantMessage, handleSend])
@@ -2317,7 +2317,7 @@ export function ChatPanel() {
         delete abortControllersRef.current[convId]
       })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = toErrorMessage(err)
       let pausePersistError: string | null = null
       /* v8 ignore next */
       if (project && originalRequest?.trim()) {

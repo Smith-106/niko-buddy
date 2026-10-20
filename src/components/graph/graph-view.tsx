@@ -28,6 +28,7 @@ import { GRAPH_LAYOUT_ITERATIONS, GRAPH_LAYOUT_SETTINGS, getGraphVisualSettings,
 import { GRAPH_MODE_LABELS, GRAPH_MODE_PRESETS, type GraphMode } from "@/lib/graph-mode"
 import { useTranslation } from "react-i18next"
 import { formatOperationError } from "@/lib/format-operation-error"
+import { toErrorMessage } from "@/lib/utils"
 
 const NODE_TYPE_COLORS: Record<string, string> = {
   entity: "#60a5fa",    // blue-400
@@ -1192,7 +1193,7 @@ export function GraphView() {
       })
       .catch((err) => {
         if (cancelled) return
-        console.error("[Graph] foreshadowing tracker load failed:", err instanceof Error ? err.message : String(err))
+        console.error("[Graph] foreshadowing tracker load failed:", toErrorMessage(err))
         setForeshadowingStore(null)
       })
     return () => {
@@ -1237,7 +1238,7 @@ export function GraphView() {
     } catch (err) {
       if (loadGraphGenRef.current !== gen) return
       // R4 共识（glm+qwen）: 原错误页直接渲染原始 err.message，未按「本地化引导 + 原始诊断」。
-      setError(`${t("graph.buildFailed")}：${err instanceof Error ? err.message : String(err)}`)
+      setError(`${t("graph.buildFailed")}：${toErrorMessage(err)}`)
     } finally {
       if (loadGraphGenRef.current === gen) setLoading(false)
     }
@@ -1383,7 +1384,7 @@ export function GraphView() {
       setEditStatus(embCfg.enabled && embCfg.model ? t("graph.savedRealProfileWithEmbedding") : t("graph.savedRealProfile"))
     } catch (err) {
       // R4 共识（glm+qwen）: 原直接展示原始 err.message。
-      setEditStatus(`${t("graph.saveNodeFailed")}：${err instanceof Error ? err.message : String(err)}`)
+      setEditStatus(`${t("graph.saveNodeFailed")}：${toErrorMessage(err)}`)
     } finally {
       setSavingNode(false)
     }

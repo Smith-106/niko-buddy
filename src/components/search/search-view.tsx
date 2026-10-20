@@ -10,6 +10,7 @@ import { resolveMarkdownImageSrc } from "@/lib/markdown-image-resolver"
 import { findRawSourceForImage, imageUrlToAbsolute } from "@/lib/raw-source-resolver"
 import { isImeComposing } from "@/lib/keyboard-utils"
 import { Pagination } from "@/components/ui/pagination"
+import { toErrorMessage } from "@/lib/utils"
 
 const MAX_HISTORY = 20
 // 搜索结果池上限（解除原 20 硬顶）：一次最多取回的候选数，展示层再按 SEARCH_PAGE_SIZE 分页。
@@ -217,7 +218,7 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
         setResults(found)
         setPage(0)
       } catch (err) {
-        console.error("[搜索] 失败：", err instanceof Error ? err.message : String(err))
+        console.error("[搜索] 失败：", toErrorMessage(err))
         setResults([])
       } finally {
         setSearching(false)

@@ -6,6 +6,7 @@ import { actionTypeShortLabel } from "@/lib/novel"
 import type { SimulationBranch, DirectorScore } from "@/lib/novel"
 import { Button } from "@/components/ui/button"
 import { useSimulationWorker } from "./use-simulation-worker"
+import { toErrorMessage } from "@/lib/utils"
 
 interface BranchCompareViewProps {
   branches: SimulationBranch[]
@@ -377,7 +378,7 @@ function KeyDifferencesTab({ branches }: { branches: SimulationBranch[] }) {
       })
       .catch((err) => {
         if (cancelled) return
-        console.error("[BranchCompare] diff failed:", err instanceof Error ? err.message : String(err))
+        console.error("[BranchCompare] diff failed:", toErrorMessage(err))
         setLoading(false)
       })
     return () => {

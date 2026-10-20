@@ -7,6 +7,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { createEmptyTranslationGlossary, createEmptyTranslationProgress, loadTranslationGlossary, runTranslationProject, saveTranslationDraft, saveTranslationGlossary, translationProgressSummary, upsertGlossaryEntry, createBudgetRun, advanceBudgetBatch, saveGenerationHistoryEntry } from "@/lib/novel"
 import type { TranslationLlmPort, TranslationProgress } from "@/lib/novel"
 import { normalizePath } from "@/lib/path-utils"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * TranslationWorkbenchView — 翻译工作台（65 号共识 G2 挂载：形态轴 F4 消费侧）。
@@ -118,7 +119,7 @@ export function TranslationWorkbenchView({ port, chapterNumbers = [1, 2, 3, 4, 5
                 `完成 ${result.artifacts.length} 段（stopped=${result.stopped}，预算剩余 ${result.budget.remainingBudget}）`,
         )
       } catch (err) {
-        setNotice(`${t("novel.translation.failed") ?? "翻译运行失败"}：${err instanceof Error ? err.message : String(err)}`)
+        setNotice(`${t("novel.translation.failed") ?? "翻译运行失败"}：${toErrorMessage(err)}`)
       } finally {
         setRunning(false)
       }

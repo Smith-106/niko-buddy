@@ -36,6 +36,7 @@ import {
   type DashboardIssueRewriteBackup,
   type DashboardIssueState,
 } from "@/lib/dashboard-issue-actions"
+import { toErrorMessage } from "@/lib/utils"
 
 type DashSeverity = "blocking" | "high" | "medium" | "low"
 
@@ -214,7 +215,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
         const ledger = await loadEmotionLedger(projectPath)
         if (!cancelled) setEmotionDebts(getTopEmotionalDebt(ledger, 5))
       } catch (err) {
-        console.error("[Dashboard] Failed to load extras:", err instanceof Error ? err.message : String(err))
+        console.error("[Dashboard] Failed to load extras:", toErrorMessage(err))
       } finally {
         if (!cancelled) setExtrasLoading(false)
       }
@@ -478,7 +479,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
       )
     } catch (err) {
       // F-16 (CWE-532 / PAT-DC1-MSG-UI): catch-path twin of onError above.
-      const raw = err instanceof Error ? err.message : String(err)
+      const raw = toErrorMessage(err)
       console.error("[Dashboard] rewrite failed:", raw)
       const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
       setRewriteError(safe || t("dashboard.rewrite.errorFallback"))
@@ -897,7 +898,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
                   await saveNovelSessionStatus(pp, next)
                 }
               } catch (err) {
-                console.error("[Dashboard] Settle debt failed:", err instanceof Error ? err.message : String(err))
+                console.error("[Dashboard] Settle debt failed:", toErrorMessage(err))
               }
             })()
           }}

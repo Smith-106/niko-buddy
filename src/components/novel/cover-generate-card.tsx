@@ -6,6 +6,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { buildCoverImageTask, runCoverImageGeneration, saveGenerationHistoryEntry } from "@/lib/novel"
 import type { CoverAspect, CoverImagePort, BookCoverMeta } from "@/lib/novel"
 import { normalizePath } from "@/lib/path-utils"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * CoverGenerateCard — 封面生成卡（65 号共识 G2 挂载：形态轴 F5 消费侧）。
@@ -54,7 +55,7 @@ export function CoverGenerateCard({ port, meta, aspect = "portrait", promptOverr
       }
       setNotice(`${result.reason ?? "done"}：${result.message ?? ""}`)
     } catch (err) {
-      setNotice(`${t("novel.coverGen.failed") ?? "封面生成失败"}：${err instanceof Error ? err.message : String(err)}`)
+      setNotice(`${t("novel.coverGen.failed") ?? "封面生成失败"}：${toErrorMessage(err)}`)
     } finally {
       setRunning(false)
     }

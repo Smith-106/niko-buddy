@@ -11,6 +11,7 @@ import {
   type ClosureRow,
 } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * Closure 级叙事结构面板（**只读**）。三个结构面：信息差 / 世界事件 / 涟漪。
@@ -132,7 +133,7 @@ export function ClosurePanel({ projection, loader = loadClosureProjection }: Clo
         if (cancelled) return
         // 读失败按空真源渲染 + 显式错误，不把「读不到」说成「没有数据」。
         setLoaded(projectClosureState())
-        setError(err instanceof Error ? err.message : String(err))
+        setError(toErrorMessage(err))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)

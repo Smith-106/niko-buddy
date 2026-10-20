@@ -18,6 +18,7 @@ import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { ModelSelectInput } from "../model-select-input"
 import { SavedModelsManager } from "./saved-models-manager"
 import { CustomProviderCards } from "./custom-provider-cards"
+import { toErrorMessage } from "@/lib/utils"
 
 export function LlmProviderSection() {
   const { t } = useTranslation()
@@ -66,7 +67,7 @@ export function LlmProviderSection() {
     const next = { ...providerConfigs, [id]: merged }
     setProviderConfigs(next)
     persist(next, activePresetId).catch((err) => {
-      toast.error(t("settings.sections.llm.saveFailed", { message: err instanceof Error ? err.message : String(err) }))
+      toast.error(t("settings.sections.llm.saveFailed", { message: toErrorMessage(err) }))
     })
     // If this preset is active, refresh the resolved LlmConfig live.
     if (id === activePresetId) {
@@ -85,7 +86,7 @@ export function LlmProviderSection() {
     setActivePresetId(next)
     /* v8 ignore next -- PresetRow intentionally drops this unused callback. */
     persist(providerConfigs, next).catch((err) => {
-      toast.error(t("settings.sections.llm.saveFailed", { message: err instanceof Error ? err.message : String(err) }))
+      toast.error(t("settings.sections.llm.saveFailed", { message: toErrorMessage(err) }))
     })
   }
   /* v8 ignore stop */
@@ -97,7 +98,7 @@ export function LlmProviderSection() {
     const next = { ...providerConfigs, [id]: merged }
     setProviderConfigs(next)
     persist(next, activePresetId).catch((err) => {
-      toast.error(t("settings.sections.llm.saveFailed", { message: err instanceof Error ? err.message : String(err) }))
+      toast.error(t("settings.sections.llm.saveFailed", { message: toErrorMessage(err) }))
     })
   }
 

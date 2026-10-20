@@ -5,6 +5,7 @@ import { readFile } from "@/commands/fs"
 import { listSnapshotHistory, loadSnapshot, restoreSnapshotHistory, syncSnapshotToMemory, sampleTruthFoldDrift, emitTruthFoldDriftAlarm } from "@/lib/novel"
 import type { ChapterSnapshot, SnapshotHistoryEntry } from "@/lib/novel"
 import { MonacoDiffEditor } from "./monaco-diff-editor"
+import { toErrorMessage } from "@/lib/utils"
 
 interface SnapshotViewerProps {
   projectPath: string
@@ -328,7 +329,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
         void triggerTruthFoldDriftAlarm(projectPath)
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = toErrorMessage(err)
       setSaveMessage(`保存失败：${message}`)
     } finally {
       setSaving(false)
@@ -349,7 +350,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
       await refreshHistory()
       setSaveMessage("已恢复历史快照，并自动重建小说记忆。")
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = toErrorMessage(err)
       setSaveMessage(`恢复失败：${message}`)
     } finally {
       setRestoring(false)
@@ -366,7 +367,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
       const raw = await readFile(entry.path)
       setDiffState({ open: true, original: JSON.stringify(JSON.parse(raw), null, 2) })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = toErrorMessage(err)
       setSaveMessage(`对比失败：${message}`)
     }
   }
