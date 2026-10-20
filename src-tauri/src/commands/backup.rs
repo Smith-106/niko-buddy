@@ -53,9 +53,11 @@ pub struct ExportResult {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub enum ImportStrategy {
     Full,
+    // 四-2：主名统一 camel（globalOnly），旧 kebab（global-only，前端现状在发）经 alias 加法兼容。
+    #[serde(alias = "global-only")]
     GlobalOnly,
     Selective,
 }
@@ -827,6 +829,24 @@ mod tests {
     use super::*;
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
+
+    #[test]
+    fn import_strategy_accepts_camel_and_legacy_kebab() {
+        // camel 主名＋旧 kebab alias 双可读（前端现状发 global-only）。
+        for raw in [
+            "\"globalOnly\"",
+            "\"global-only\"",
+            "\"full\"",
+            "\"selective\"",
+        ] {
+            let parsed: ImportStrategy = serde_json::from_str(raw).unwrap();
+            let _ = parsed;
+        }
+        assert!(matches!(
+            serde_json::from_str::<ImportStrategy>("\"global-only\"").unwrap(),
+            ImportStrategy::GlobalOnly
+        ));
+    }
 
     #[test]
     fn test_extract_dir_rejects_path_traversal() {
