@@ -8,11 +8,12 @@
 - **禁止 clean-room 重写**。已有锚点能承载职责就不新开平行实现。
 - 桌面架构固定 `Tauri 2 + React + Rust`；IPC 走直 invoke，不引入 Node gateway；向量存储沿用 LanceDB。
 
-## 三条不可退让的硬约束
+## 四条不可退让的硬约束
 
 1. **`status.json` 是运行时唯一真源** — `.novel/status.json`，编排层与生成层共同读取、分层写入。禁止新建第二份会话状态文件替代它，禁止用临时 Markdown 清单替代状态契约。
 2. **Draft-first 是写作安全边界** — 所有 AI 输出先进 pending/ready 草稿，accept 后才回填正式正文与正式记忆。accept 前禁止污染正式层。
 3. **门控优先级固定** — `Consistency(P0) > Anti-AI(P1) > Quality(P2)`。Quality 不得覆盖 Consistency 的失败；机械层检测先于语义层。
+4. **收敛入口锁死** — 新增时间戳一律 `utils.todayStamp`，新增错误文案一律 `utils.toErrorMessage`；严禁在新文件中硬编码散落同类逻辑。
 
 > **版本/CHANGELOG/generated 单写者红线（P0-2f）与 commit 纪律（P0-2g）**：以 `.workflow/PARALLEL-PACT.md` 会话地盘表「单写者红线」与 P16 为准。
 
