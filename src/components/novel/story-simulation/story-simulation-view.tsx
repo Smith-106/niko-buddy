@@ -991,6 +991,20 @@ export function StorySimulationView() {
       content: "",
       timestamp: new Date().toISOString(),
     };
+    // P0-5：末条独立更新（只替换 placeholder 那条，不碰其余消息引用）。
+    const flushChatPlaceholder = () => {
+      const state = useStorySimulationStore.getState();
+      const msgs = [...state.agentChatMessages];
+      const lastIdx = msgs.length - 1;
+      if (lastIdx >= 0 && msgs[lastIdx].id === placeholderId) {
+        msgs[lastIdx] = {
+          ...msgs[lastIdx],
+          content: chatStreamRef.current,
+        };
+        useStorySimulationStore.setState({ agentChatMessages: msgs });
+      }
+    };
+    let chatFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
     try {
       // 把已有消息（除 placeholder）组织成 session
@@ -1017,22 +1031,26 @@ export function StorySimulationView() {
         session,
         onToken: (token) => {
           chatStreamRef.current += token;
-          // 直接更新最后一条消息：通过替换 store 中的消息
-          // 简化：用 setAgentChatMessages 替换整条消息；这里用 addAgentChatMessage 不好做增量
-          // 我们用一个小技巧：拿到当前消息列表，替换最后一条 content
-          const state = useStorySimulationStore.getState();
-          const msgs = [...state.agentChatMessages];
-          const lastIdx = msgs.length - 1;
-          if (lastIdx >= 0 && msgs[lastIdx].id === placeholderId) {
-            msgs[lastIdx] = {
-              ...msgs[lastIdx],
-              content: chatStreamRef.current,
-            };
-            useStorySimulationStore.setState({ agentChatMessages: msgs });
-          }
+          // P0-5：逐 token setState 会全数组拷贝＋整列表重渲染；64ms trailing 节流，onDone/onError 同步 flush。
+          if (chatFlushTimer !== null) return;
+          chatFlushTimer = setTimeout(() => {
+            chatFlushTimer = null;
+            flushChatPlaceholder();
+          }, 64);
         },
-        onDone: () => {},
+        onDone: () => {
+          if (chatFlushTimer !== null) {
+            clearTimeout(chatFlushTimer);
+            chatFlushTimer = null;
+          }
+          flushChatPlaceholder();
+        },
         onError: (err) => {
+          if (chatFlushTimer !== null) {
+            clearTimeout(chatFlushTimer);
+            chatFlushTimer = null;
+          }
+          flushChatPlaceholder();
           setError(err.message);
         },
       });
