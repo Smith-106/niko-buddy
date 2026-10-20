@@ -42,20 +42,34 @@ async function invokeCanon<T>(command: "canon_facts_known_by" | "canon_query" | 
 }
 
 /** 边类别（与 Rust `EdgeKind` snake_case 序列化一致）。 */
-export type CanonEdgeKind =
-  | "world_fact"
-  | "motivation"
-  | "arc"
-  | "foreshadow"
-  | "hook"
-  | "attribute"
+export const CANON_EDGE_KINDS = [
+  "world_fact",
+  "motivation",
+  "arc",
+  "foreshadow",
+  "hook",
+  "attribute",
+] as const
+export type CanonEdgeKind = (typeof CANON_EDGE_KINDS)[number]
+
+/**
+ * 四-4：未知 edge_kind 回退。Rust 加变体而前端未跟进时收敛为 world_fact
+ *（最中性的事实边），不让未知字面量流入投影与展示。
+ */
+export function normalizeEdgeKind(value: unknown): CanonEdgeKind {
+  for (const kind of CANON_EDGE_KINDS) if (value === kind) return kind
+  return "world_fact"
+}
 
 /** 事实认知模态（落点①，与 edgeKind 正交）：assertive=叙述者断言（默认）；belief=角色相信；hypothesis=假设；retconned=回溯改写。 */
-export type CanonModality =
-  | "assertive"
-  | "belief"
-  | "hypothesis"
-  | "retconned"
+export const CANON_MODALITIES = ["assertive", "belief", "hypothesis", "retconned"] as const
+export type CanonModality = (typeof CANON_MODALITIES)[number]
+
+/** 四-4：未知 modality 回退为 null（与旧数据缺字段同语义）。 */
+export function normalizeModality(value: unknown): CanonModality | null {
+  for (const modality of CANON_MODALITIES) if (value === modality) return modality
+  return null
+}
 
 /** 原始边（IPC 返回，serde snake_case；含内部句柄 `known_by`/`digest`）。 */
 export interface RawCanonEdge {
@@ -199,7 +213,7 @@ export function projectEdge(raw: RawCanonEdge): CanonFact {
     sourceId: raw.source_id,
     targetId: raw.target_id,
     predicate: raw.predicate,
-    edgeKind: raw.edge_kind,
+    edgeKind: normalizeEdgeKind(raw.edge_kind),
     validAt: raw.valid_at ?? null,
     invalidAt: raw.invalid_at ?? null,
     referenceTime: raw.reference_time ?? null,
@@ -212,7 +226,7 @@ export function projectEdge(raw: RawCanonEdge): CanonFact {
     hookType: raw.hook_type ?? null,
     payoffChapter: raw.payoff_chapter ?? null,
     archived: raw.archived ?? false,
-    modality: raw.modality ?? null,
+    modality: normalizeModality(raw.modality),
     recordedRevision: raw.recorded_revision ?? null,
   }
   assertNoHandleLeak(fact)

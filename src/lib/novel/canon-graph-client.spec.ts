@@ -169,3 +169,21 @@ describe("getFactsKnownByPaged 分页 + 投影防泄密 (P1-1)", () => {
     expect(facts[0]).not.toHaveProperty("known_by")
   })
 })
+
+describe("normalizeEdgeKind / normalizeModality 未知值回退（四-4）", () => {
+  it("已知字面量原样通过，未知 edge_kind 收敛 world_fact", async () => {
+    const { normalizeEdgeKind, normalizeModality, projectEdge } = await import("./canon-graph-client")
+    expect(normalizeEdgeKind("arc")).toBe("arc")
+    expect(normalizeEdgeKind("future_variant")).toBe("world_fact")
+    expect(normalizeEdgeKind(null)).toBe("world_fact")
+    expect(normalizeModality("belief")).toBe("belief")
+    expect(normalizeModality("future_modality")).toBeNull()
+    expect(normalizeModality(undefined)).toBeNull()
+    const fact = projectEdge({
+      id: "e1", source_id: "s", target_id: "t", predicate: "p",
+      edge_kind: "future_variant", modality: "future_modality",
+    } as unknown as import("./canon-graph-client").RawCanonEdge)
+    expect(fact.edgeKind).toBe("world_fact")
+    expect(fact.modality).toBeNull()
+  })
+})
