@@ -105,6 +105,7 @@ pub(crate) fn split_body_paragraphs(body: &str) -> Vec<String> {
 fn build_and_write_docx(
     chapters: &[NovelChapter],
     export_path: &str,
+    progress: Option<&dyn Fn(usize, usize)>,
 ) -> Result<DocxExportResult, String> {
     if export_path.trim().is_empty() {
         return Err("export_path must not be empty".to_string());
@@ -113,7 +114,7 @@ fn build_and_write_docx(
     let mut docx = Docx::new();
     let count = chapters.len();
 
-    for chapter in chapters {
+    for (index, chapter) in chapters.iter().enumerate() {
         // Heading1 so Word's navigation pane and TOC work out of the box.
         let heading = Paragraph::new()
             .style("Heading1")
@@ -126,6 +127,10 @@ fn build_and_write_docx(
         for collapsed in split_body_paragraphs(&chapter.body) {
             let body = Paragraph::new().add_run(Run::new().add_text(&collapsed));
             docx = docx.add_paragraph(body);
+        }
+        // P1-11：构建侧分片进度，每完成一章上报。
+        if let Some(report) = progress {
+            report(index + 1, count);
         }
     }
 
@@ -160,17 +165,20 @@ pub async fn export_novel_docx(
     chapters: Vec<NovelChapter>,
     export_path: String,
 ) -> Result<DocxExportResult, String> {
-    let count = chapters.len();
-    for (index, _) in chapters.iter().enumerate() {
-        let _ = app.emit(
-            "docx-export-progress",
-            DocxExportProgress {
-                current: index + 1,
-                total: count,
-            },
-        );
-    }
-    build_and_write_docx(&chapters, &export_path)
+    // P1-11：同步大构建搬入 spawn_blocking，不再阻塞 async worker；
+    // 进度由构建侧按章上报，转为真实分片进度（命令签名/事件名/载荷不变）。
+    let app_task = app.clone();
+    tokio::task::spawn_blocking(move || {
+        let report = |current: usize, total: usize| {
+            let _ = app_task.emit(
+                "docx-export-progress",
+                DocxExportProgress { current, total },
+            );
+        };
+        build_and_write_docx(&chapters, &export_path, Some(&report))
+    })
+    .await
+    .map_err(|e| format!("failed to pack docx: 构建任务异常: {e}"))?
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -199,8 +207,8 @@ mod tests {
         let path = dir.join("niko_buddy_docx_test.docx");
         let path_str = path.to_string_lossy().to_string();
 
-        let result =
-            build_and_write_docx(&chapters_fixture(), &path_str).expect("export should succeed");
+        let result = build_and_write_docx(&chapters_fixture(), &path_str, None)
+            .expect("export should succeed");
         assert!(result.success);
         assert_eq!(result.chapter_count, 2);
         assert_eq!(result.export_path, path_str);
@@ -216,8 +224,8 @@ mod tests {
 
     #[tokio::test]
     async fn export_novel_docx_rejects_empty_path() {
-        let err =
-            build_and_write_docx(&chapters_fixture(), "").expect_err("empty path should error");
+        let err = build_and_write_docx(&chapters_fixture(), "", None)
+            .expect_err("empty path should error");
         assert!(err.contains("export_path"));
     }
 
@@ -275,7 +283,7 @@ mod tests {
     async fn export_novel_docx_empty_chapters_still_valid() {
         let dir = std::env::temp_dir();
         let path = dir.join("niko_buddy_docx_empty.docx");
-        let result = build_and_write_docx(&[], &path.to_string_lossy())
+        let result = build_and_write_docx(&[], &path.to_string_lossy(), None)
             .expect("empty chapter list should still produce a valid docx");
         assert_eq!(result.chapter_count, 0);
 
@@ -283,6 +291,27 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         Docx::new().build().pack(&mut cursor).unwrap();
         assert!(!cursor.into_inner().is_empty());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn build_docx_reports_per_chapter_progress() {
+        // P1-11：构建侧按章上报 (1..=n, n)，None 时不报。
+        let dir = std::env::temp_dir();
+        let path = dir.join("niko_buddy_docx_progress.docx");
+        let chapters = chapters_fixture();
+        let seen = std::cell::RefCell::new(Vec::new());
+        build_and_write_docx(
+            &chapters,
+            &path.to_string_lossy(),
+            Some(&|current: usize, total: usize| {
+                seen.borrow_mut().push((current, total));
+            }),
+        )
+        .expect("export should succeed");
+        let expected: Vec<(usize, usize)> =
+            (1..=chapters.len()).map(|i| (i, chapters.len())).collect();
+        assert_eq!(*seen.borrow(), expected);
         let _ = std::fs::remove_file(&path);
     }
 

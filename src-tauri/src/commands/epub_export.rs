@@ -86,14 +86,18 @@ pub fn build_and_write_epub(
             language: None,
             identifier: None,
         },
+        None,
     )
 }
 
 /// 构建并写出 EPUB3 包（前端可注入 title/author/language/identifier）。
+/// `progress` 为构建侧分片进度回调（P1-11）：每写完一章上报 `(current, total)`，
+/// 由命令层接入后转 `epub-export-progress` 事件；`None` 时不报（单测/旧调用）。
 pub fn build_and_write_epub_with_meta(
     chapters: &[NovelChapter],
     export_path: &str,
     meta: &EpubMeta,
+    progress: Option<&dyn Fn(usize, usize)>,
 ) -> Result<EpubExportResult, String> {
     if chapters.is_empty() {
         return Err("EPUB 导出失败：章节列表为空".to_string());
@@ -220,6 +224,9 @@ pub fn build_and_write_epub_with_meta(
             .map_err(|e| format!("EPUB 导出失败：章节 {i} 写入错误: {e}"))?;
         zip.write_all(xhtml.as_bytes())
             .map_err(|e| format!("EPUB 导出失败：章节 {i} 写入错误: {e}"))?;
+        if let Some(report) = progress {
+            report(i + 1, chapters.len());
+        }
     }
 
     zip.finish()
@@ -250,20 +257,26 @@ pub async fn export_novel_epub(
     export_path: String,
     meta: Option<EpubMeta>,
 ) -> Result<EpubExportResult, String> {
-    let count = chapters.len();
-    for (index, _) in chapters.iter().enumerate() {
-        let _ = app.emit(
-            "epub-export-progress",
-            serde_json::json!({ "current": index + 1, "total": count }),
-        );
-    }
     let m = meta.unwrap_or(EpubMeta {
         title: None,
         author: None,
         language: None,
         identifier: None,
     });
-    build_and_write_epub_with_meta(&chapters, &export_path, &m)
+    // P1-11：同步大构建搬入 spawn_blocking，不再阻塞 async worker；
+    // 进度由构建侧按章上报，转为真实分片进度（命令签名/事件名不变）。
+    let app_task = app.clone();
+    tokio::task::spawn_blocking(move || {
+        let report = |current: usize, total: usize| {
+            let _ = app_task.emit(
+                "epub-export-progress",
+                serde_json::json!({ "current": current, "total": total }),
+            );
+        };
+        build_and_write_epub_with_meta(&chapters, &export_path, &m, Some(&report))
+    })
+    .await
+    .map_err(|e| format!("EPUB 导出失败：构建任务异常: {e}"))?
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -389,6 +402,35 @@ mod tests {
     }
 
     #[test]
+    fn epub_export_reports_per_chapter_progress() {
+        // P1-11：构建侧按章上报 (1..=n, n)，None 时不报。
+        let dir = std::env::temp_dir().join(format!("niko-epub-progress-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("progress.epub");
+        let meta = EpubMeta {
+            title: None,
+            author: None,
+            language: None,
+            identifier: None,
+        };
+        let seen = std::cell::RefCell::new(Vec::new());
+        build_and_write_epub_with_meta(
+            &chapters_fixture(),
+            path.to_str().unwrap(),
+            &meta,
+            Some(&|current: usize, total: usize| {
+                seen.borrow_mut().push((current, total));
+            }),
+        )
+        .unwrap();
+        let chapters = chapters_fixture();
+        let expected: Vec<(usize, usize)> =
+            (1..=chapters.len()).map(|i| (i, chapters.len())).collect();
+        assert_eq!(*seen.borrow(), expected);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn epub_export_with_meta_injects_title_author_language() {
         let dir = std::env::temp_dir().join(format!("niko-epub-meta-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -399,7 +441,8 @@ mod tests {
             language: Some("zh-TW".to_string()),
             identifier: Some("urn:uuid:fixed-test-id".to_string()),
         };
-        build_and_write_epub_with_meta(&chapters_fixture(), path.to_str().unwrap(), &meta).unwrap();
+        build_and_write_epub_with_meta(&chapters_fixture(), path.to_str().unwrap(), &meta, None)
+            .unwrap();
         let file = std::fs::File::open(&path).unwrap();
         let mut zip = zip::ZipArchive::new(file).unwrap();
         let mut opf = String::new();
