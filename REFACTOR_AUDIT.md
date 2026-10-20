@@ -65,6 +65,7 @@ P1（中高收益/低风险）：
 - Not found：循环内高频 invoke（除 CLI spawn/kill 配对）未见；其余 listen 均已配对 cleanup；`batch_replace.rs` 同步 fs 均在测试/同步 helper 非热路径。
 
 ## 四、类型与测试脆弱点
+> W2-4 清账（2026-10-21）：TS 可动项十项——四-3 门枚举 TS 运行时元组＋Rust as_str 字面量双向对账单测（`8ba95ed6`）；四-4 canon edge_kind/modality 未知值回退 normalize＋projectEdge 接入＋回退单测（`c6bb71e8`，附：canon-types EdgeKind 与 CanonEdgeKind 双镜像现状保留，未合并）；四-7 ContentBlock 线协议键拼写样例单测（`255c158c`，TS 类型本就与 serde(rename) 一致）；四-8 LLM extract 脏字段集中断言（llm-json 新增 isLlmRecord/llmStringField 谓词，character 引擎 category/relationships/keyEvents 收敛＋脏输入单测，`9d66c8af`；注：账本原指 profile_extract.rs/extract_images.rs 行号已漂移，实际落点为 book-analysis extract 边界）；四-9 epub invoke 参数键集合＋meta 四键快照单测（`80187050`）；四-11 chat-panel AbortController 显式注解去 as（`d8515581`）；四-14 antigravity CLI JSON 边界 zod 窄化＋形态/回退单测（`19225a9d`）；四-15 activity sourceRefs 窄化行为锁单测（`18f6f539`，生产侧本已辨别联合＋守卫，仅加锁）；四-20 app-updater dialog options 收窄（`2e6be32e`，message 返回保持 unknown——plugin-dialog MessageDialogResult 未导出且含 string 成员，Promise<void> 不兼容）；四-21 审计无变更（validateKnownByCorrection 的 readonly unknown[] 是 fail-closed 校验边界本意，非 ActorId 逃避）。每项 typecheck 0＋域测试绿。剩余 Rust 项（四-1/2/5/6）进 W2-6，测试基建项（四-10/16/17/18/19）进 W2-5，高风险项（四-12/13/22）进 W2-7。
 
 1. 【`proxy.rs:429,439`】`ProxyConfig` 双格式兼容靠 `allow(non_snake_case)` 掩盖。方案：Rust 加 `serde(alias)` 去 allow，TS 只用 camel。影响：仅代理配置。⚠️ 加法兼容，禁改字段名。
 2. 【`commands/backup.rs:56`】全仓唯一 kebab-case 结构。方案：统一 camel＋alias 兼容旧值。影响：备份面板。
