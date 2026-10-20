@@ -90,4 +90,17 @@ describe("MonacoDiffEditor (RPC-2 / TASK-004)", () => {
     onMount({ getModifiedEditor: () => modifiedEditor })
     expect(() => contentListener()).not.toThrow()
   })
+
+  it("P0-2：unmount 时释放 content 监听（重挂载不残留旧 disposable）", () => {
+    const dispose = vi.fn()
+    const modifiedEditor = {
+      onDidChangeModelContent: () => ({ dispose }),
+      getValue: () => "v",
+    }
+    const { unmount } = render(<MonacoDiffEditor original="a" modified="b" />)
+    const onMount = mockDiffEditor.mock.calls[0][0].onMount as (editor: unknown) => void
+    onMount({ getModifiedEditor: () => modifiedEditor })
+    unmount()
+    expect(dispose).toHaveBeenCalledTimes(1)
+  })
 })

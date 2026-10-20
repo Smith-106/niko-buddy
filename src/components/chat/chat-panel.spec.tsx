@@ -4832,3 +4832,17 @@ describe("ChatPanel — 补覆盖：写入按钮与占位", () => {
     expect(lastFinalize()[0]).toBe("已停止生成。")
   })
 })
+
+describe("ChatPanel — P1-9 status 订阅清理", () => {
+  it("切项目/unmount 时调用 subscribeStatusJson 返回的 unlisten", async () => {
+    const unlisten = vi.fn()
+    mocks.subscribeStatusJson.mockResolvedValueOnce(unlisten)
+    mocks.wikiState.project = PROJECT
+    renderPanel()
+    await flushAsync()
+    await flushAsync()
+    expect(mocks.subscribeStatusJson).toHaveBeenCalled()
+    unmountPanel()
+    expect(unlisten).toHaveBeenCalledTimes(1)
+  })
+})
