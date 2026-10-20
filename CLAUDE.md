@@ -190,7 +190,8 @@
 1. 在 `src/lib/novel/` 之外平行复制一套 novel 主链。
 2. 新建第二份会话状态文件替代 `.novel/status.json`。
 3. 用临时 Markdown 清单替代状态契约作为运行真源。
-4. **向 `origin`（Mochocyang/QMAI）推送产品发布** — 产品远程真源是 **`smith` → `Smith-106/niko-buddy`**。日常：`git push smith HEAD:<branch>`；合并 master 走 PR 或 `smith/master`，禁止 force-push master。本地 `master...origin/main` diverge 是预期现象，不要用 `git pull origin` 同步产品线。
+4. 向已拆分的 15 个主视图/Store 文件直接堆砌新的纯辅助函数、静态配置或独立子面板（F1–F15 边界，见 REFACTOR_AUDIT.md §二）：新增纯逻辑/解析函数必须放入对应的 `*-helpers.ts` / `*-content.ts` / `*-items.ts`；新增独立子组件必须放入对应的 `*-widgets.tsx` / `*-panels.tsx` / `*-cards.tsx`；新增静态配置必须放入 `*-config.ts` / `*-style.ts`。主文件只保留编排、Hook 时序与对外 export（re-export 保底）。
+5. **向 `origin`（Mochocyang/QMAI）推送产品发布** — 产品远程真源是 **`smith` → `Smith-106/niko-buddy`**。日常：`git push smith HEAD:<branch>`；合并 master 走 PR 或 `smith/master`，禁止 force-push master。本地 `master...origin/main` diverge 是预期现象，不要用 `git pull origin` 同步产品线。
 
 ## Git 远程（防踩坑）
 
