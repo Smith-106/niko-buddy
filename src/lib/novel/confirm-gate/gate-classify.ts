@@ -29,9 +29,12 @@ export const DERIVED_ROOTS = [".niko-buddy/", ".novel/", "backups/"] as const;
 export const GATE_CONFIRM_PREFIX = "GATE_REQUIRE_CONFIRM:";
 export const GATE_DENIED_PREFIX = "GATE_DENIED:";
 
-export type RebuildClass = "rebuildable" | "derived_rebuildable" | "irreversible";
-export type GateDecision = "allowed" | "require_confirm" | "denied" | "resume_after_halt";
-export type GateActor = "user" | "agent" | "cli" | "external";
+export const REBUILD_CLASSES = ["rebuildable", "derived_rebuildable", "irreversible"] as const;
+export type RebuildClass = (typeof REBUILD_CLASSES)[number];
+export const GATE_DECISIONS = ["allowed", "require_confirm", "denied", "resume_after_halt"] as const;
+export type GateDecision = (typeof GATE_DECISIONS)[number];
+export const GATE_ACTORS = ["user", "agent", "cli", "external"] as const;
+export type GateActor = (typeof GATE_ACTORS)[number];
 
 export interface PendingGate {
   request_id: string;
