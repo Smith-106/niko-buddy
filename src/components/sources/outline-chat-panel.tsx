@@ -2,7 +2,7 @@ import React, { useRef, useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { X, Save, Copy, RefreshCw, FileText, Plus, Trash2, Layers } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { useOutlineChatStore, type OutlineChatMessage } from "@/stores/outline-chat-store"
+import { flushStreamingContent, useOutlineChatStore, type OutlineChatMessage } from "@/stores/outline-chat-store"
 import { normalizePath } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
 import { readFile, writeFile, listDirectory, createDirectory, fileExists } from "@/commands/fs"
@@ -406,6 +406,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       setStreamingContent("")
     } catch (err) {
       // If aborted, keep partial content; otherwise show error
+      flushStreamingContent()
       const partial = useOutlineChatStore.getState().streamingContent
       if (partial) {
         replaceLastAssistant(convId!, partial)
@@ -431,6 +432,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const handleStop = useCallback(() => {
     abortRef.current?.abort()
     // Force stop streaming state immediately in case abort doesn't trigger catch
+    flushStreamingContent()
     const partial = useOutlineChatStore.getState().streamingContent
     if (partial && activeConversationId) {
       replaceLastAssistant(activeConversationId, partial)
@@ -502,6 +504,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       replaceLastAssistant(activeConversationId, result, sources)
       setStreamingContent("")
     } catch (err) {
+      flushStreamingContent()
       const partial = useOutlineChatStore.getState().streamingContent
       if (partial) {
         replaceLastAssistant(activeConversationId, partial)

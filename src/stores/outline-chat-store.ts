@@ -26,6 +26,28 @@ export interface OutlineChatConversation {
   messages: OutlineChatMessage[]
 }
 
+/**
+ * P0-4：streamingContent 显示批刷。逐 token set 会触发订阅者逐帧重渲染
+ * （含 ReactMarkdown 全量解析）；此处 32ms trailing 节流，"" 重置同步
+ * 生效。abort/完成路径必须先调 flushStreamingContent() 再读 partial。
+ */
+const STREAM_DISPLAY_MS = 32
+let displayTimer: ReturnType<typeof setTimeout> | null = null
+let pendingDisplay: string | null = null
+
+/** 同步刷出待显示内容（测试与 abort/完成路径显式调用）。 */
+export function flushStreamingContent(): void {
+  if (displayTimer !== null) {
+    clearTimeout(displayTimer)
+    displayTimer = null
+  }
+  if (pendingDisplay !== null) {
+    const content = pendingDisplay
+    pendingDisplay = null
+    useOutlineChatStore.setState({ streamingContent: content })
+  }
+}
+
 /** Internal state shape for the outline chat store. */
 interface OutlineChatState {
   conversations: OutlineChatConversation[]
@@ -144,7 +166,23 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => ({
     void get().saveToDisk()
   },
 
-  setStreamingContent: (content) => set({ streamingContent: content }),
+  setStreamingContent: (content) => {
+    if (content === "") {
+      if (displayTimer !== null) {
+        clearTimeout(displayTimer)
+        displayTimer = null
+      }
+      pendingDisplay = null
+      set({ streamingContent: "" })
+      return
+    }
+    pendingDisplay = content
+    if (displayTimer !== null) return
+    displayTimer = setTimeout(() => {
+      displayTimer = null
+      flushStreamingContent()
+    }, STREAM_DISPLAY_MS)
+  },
   setIsStreaming: (active) => set({ isStreaming: active }),
 
   loadFromDisk: async () => {

@@ -83,6 +83,8 @@ const mocks = vi.hoisted(() => {
     setStreamingContent: vi.fn<(c: string) => void>((c: string) => { outlineState.streamingContent = c }),
     setIsStreaming: vi.fn<(v: boolean) => void>((v: boolean) => { outlineState.isStreaming = v }),
     loadFromDisk: vi.fn<() => Promise<void>>(async () => {}),
+    // P0-4：mock store 的 set 是同步直写，flush 为 no-op（与真实批刷语义对齐）
+    flushStreamingContent: vi.fn<() => void>(() => {}),
     // llm / 生成管线
     streamChat: vi.fn<(
       _config: unknown,
@@ -153,6 +155,7 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
 })
 
 vi.mock("@/stores/outline-chat-store", () => ({
+  flushStreamingContent: mocks.flushStreamingContent,
   useOutlineChatStore: Object.assign(
     (selector: (s: Record<string, unknown>) => unknown) =>
       selector({
@@ -166,6 +169,7 @@ vi.mock("@/stores/outline-chat-store", () => ({
         setStreamingContent: mocks.setStreamingContent,
         setIsStreaming: mocks.setIsStreaming,
         loadFromDisk: mocks.loadFromDisk,
+        flushStreamingContent: mocks.flushStreamingContent,
       }),
     {
       getState: () => mocks.outlineState,

@@ -30,7 +30,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   }
 })
 
-import { useOutlineChatStore } from "./outline-chat-store"
+import { flushStreamingContent, useOutlineChatStore } from "./outline-chat-store"
 import { readFile, writeFile, createDirectory } from "@/commands/fs"
 
 const DISK_PATH = "E:/Novel/.niko-buddy/outline-chats.json"
@@ -42,6 +42,7 @@ async function flushAsync(): Promise<void> {
 }
 
 beforeEach(() => {
+  flushStreamingContent() // 清模块级待刷定时器，防跨用例泄漏
   mockWiki.project = { path: "E:\\Novel" } // 反斜杠路径 → normalizePath 转正斜杠
   ;(readFile as Mock).mockReset()
   ;(writeFile as Mock).mockReset()
@@ -238,12 +239,31 @@ describe("outline chat store — replaceLastAssistant", () => {
 })
 
 describe("outline chat store — 流式状态", () => {
-  it("setStreamingContent / setIsStreaming", () => {
+  it("setStreamingContent / setIsStreaming（显式 flush 后可见）", () => {
     useOutlineChatStore.getState().setStreamingContent("正在生成…")
+    flushStreamingContent()
     useOutlineChatStore.getState().setIsStreaming(true)
     const s = useOutlineChatStore.getState()
     expect(s.streamingContent).toBe("正在生成…")
     expect(s.isStreaming).toBe(true)
+  })
+
+  it("P0-4：高频 set 批刷（同步不可见，flush 后取最新）", () => {
+    const { setStreamingContent } = useOutlineChatStore.getState()
+    setStreamingContent("a")
+    setStreamingContent("ab")
+    setStreamingContent("abc")
+    expect(useOutlineChatStore.getState().streamingContent).toBe("")
+    flushStreamingContent()
+    expect(useOutlineChatStore.getState().streamingContent).toBe("abc")
+  })
+
+  it("P0-4：\"\" 重置丢弃待刷内容并同步清零", () => {
+    const { setStreamingContent } = useOutlineChatStore.getState()
+    setStreamingContent("pending")
+    setStreamingContent("")
+    flushStreamingContent()
+    expect(useOutlineChatStore.getState().streamingContent).toBe("")
   })
 })
 
