@@ -52,8 +52,13 @@ export function fnv1aHex(input: string): string {
  */
 export function safeStorageGet(key: string): string | null {
   try {
-    if (typeof window === "undefined" || !window.localStorage) return null
-    return window.localStorage.getItem(key)
+    // W2-8：回退 e65a2243 收窄——旧契约读全局 localStorage（jsdom/单测 mock
+    // globalThis.localStorage）；window 优先，缺失时回落 globalThis，保证两环境一致。
+    const scoped = typeof window !== "undefined" ? window.localStorage : undefined
+    const store =
+      scoped ?? (globalThis as { localStorage?: Storage }).localStorage ?? undefined
+    if (!store) return null
+    return store.getItem(key)
   } catch {
     return null
   }

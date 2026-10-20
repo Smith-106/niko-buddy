@@ -6,7 +6,6 @@
  */
 
 import { parseFrontmatter } from "./frontmatter"
-import { makeSafeFileSlug } from "./wiki-filename"
 import { todayStamp } from "./utils"
 
 /** A draft ready to be persisted as an outline document. */
@@ -49,7 +48,14 @@ function pickTitleFromContent(content: string): string {
 
 /** Remove unsafe filename characters and cap length. */
 function sanitizeTitle(title: string): string {
-  return makeSafeFileSlug(title, `${TITLE_PREFIX}-${todayStamp()}`).slice(0, 24)
+  // W2-8：回退 29e2122a 的去重替换——makeSafeFileSlug 是连字符 slug 语义，
+  // 本函数契约是 strip 为空（spec 锁定），两者用户可见行为不同，不可合并。
+  const cleaned = title
+    .replace(/[\\/:*?"<>|#`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 24)
+  return cleaned || `${TITLE_PREFIX}-${todayStamp()}`
 }
 
 /** Append suffixes until the title is not in the existing set. */
