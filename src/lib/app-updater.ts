@@ -2,11 +2,19 @@ import { isTauri } from "@/lib/platform"
 import type { Update } from "@tauri-apps/plugin-updater"
 import { toErrorMessage } from "@/lib/utils"
 
+/** 对话框选项（@tauri-apps/plugin-dialog 的选项接口未导出，按实际使用面建模）。 */
+export interface UpdaterDialogOptions {
+  title?: string
+  kind?: "info" | "warning" | "error"
+  okLabel?: string
+  cancelLabel?: string
+}
+
 type UpdaterBindings = {
   isTauri: boolean
   check: () => Promise<Update | null>
-  confirm: (message: string, options?: Record<string, unknown>) => Promise<boolean>
-  message: (message: string, options?: Record<string, unknown>) => Promise<unknown>
+  confirm: (message: string, options?: string | UpdaterDialogOptions) => Promise<boolean>
+  message: (message: string, options?: string | UpdaterDialogOptions) => Promise<unknown>
 }
 
 export interface AppUpdateFlowOptions {
