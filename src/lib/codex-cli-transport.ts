@@ -210,12 +210,15 @@ export async function streamCodexCli(
   try {
     // Setup data listener for streamed agent messages
     unlistenData = await listen<string>(`codex-cli:${streamId}`, (event) => {
-      const token = parseCodexCliLine(event.payload)
-      if (token !== null) {
-        emittedAgentMessage = true
-        onToken(token)
-      } else {
-        captureUnparsed(event.payload)
+      // P1-10：后端聚合 payload 按行拆分，语义与逐行 emit 一致。
+      for (const line of event.payload.split(/\r?\n/)) {
+        const token = parseCodexCliLine(line)
+        if (token !== null) {
+          emittedAgentMessage = true
+          onToken(token)
+        } else {
+          captureUnparsed(line)
+        }
       }
     })
     if (aborted || finished) {

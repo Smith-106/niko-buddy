@@ -560,26 +560,29 @@ export async function streamClaudeCodeCli(
         const setupAttempt = async () => {
           try {
             const unlistenDataFn = await listen<string>(`claude-cli:${streamId}`, (event) => {
-              const parsed = parse(event.payload)
-              if (parsed.kind === "token") {
-                emittedToken = true
-                noteMeaningfulOutput()
-                onToken(parsed.text)
-              } else if (parsed.kind === "structured") {
-                emittedToken = true
-                noteMeaningfulOutput()
-                onToken(JSON.stringify(parsed.data))
-              } else if (parsed.kind === "diagnostic") {
-                noteMeaningfulOutput()
-                captureStdoutDiagnostic(parsed.text)
-              } else if (parsed.kind === "stderr") {
-                noteProgressOutput()
-                captureStdoutDiagnostic(`[stderr] ${parsed.text}`)
-              } else if (parsed.kind === "unknown") {
-                noteMeaningfulOutput()
-                captureUnparsed(event.payload)
-              } else if (parsed.kind === "heartbeat") {
-                noteProgressOutput()
+              // P1-10：后端聚合 payload 按行拆分，逐行走 parse 状态机。
+              for (const line of event.payload.split(/\r?\n/)) {
+                const parsed = parse(line)
+                if (parsed.kind === "token") {
+                  emittedToken = true
+                  noteMeaningfulOutput()
+                  onToken(parsed.text)
+                } else if (parsed.kind === "structured") {
+                  emittedToken = true
+                  noteMeaningfulOutput()
+                  onToken(JSON.stringify(parsed.data))
+                } else if (parsed.kind === "diagnostic") {
+                  noteMeaningfulOutput()
+                  captureStdoutDiagnostic(parsed.text)
+                } else if (parsed.kind === "stderr") {
+                  noteProgressOutput()
+                  captureStdoutDiagnostic(`[stderr] ${parsed.text}`)
+                } else if (parsed.kind === "unknown") {
+                  noteMeaningfulOutput()
+                  captureUnparsed(line)
+                } else if (parsed.kind === "heartbeat") {
+                  noteProgressOutput()
+                }
               }
             })
             if (settled) {

@@ -204,12 +204,15 @@ export async function streamAntigravityCli(
 
   try {
     unlistenData = await listen<string>(`antigravity-cli:${streamId}`, (event) => {
-      const token = parseAntigravityCliLine(event.payload)
-      if (token !== null) {
-        emittedAgentMessage = true
-        onToken(token)
-      } else {
-        captureUnparsed(event.payload)
+      // P1-10：后端 24ms/8KB 聚合后单 payload 可含多行，逐行 parse（语义与逐行 emit 一致）。
+      for (const line of event.payload.split(/\r?\n/)) {
+        const token = parseAntigravityCliLine(line)
+        if (token !== null) {
+          emittedAgentMessage = true
+          onToken(token)
+        } else {
+          captureUnparsed(line)
+        }
       }
     })
     if (aborted || finished) {

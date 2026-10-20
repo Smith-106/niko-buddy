@@ -34,6 +34,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
+use super::cli_emit::EmitBatcher;
 use super::cli_resolver::find_cli_command;
 use super::local_cli_config::{
     apply_local_cli_environment, read_claude_local_config, resolve_home_dir, LocalCliConfigInfo,
@@ -786,6 +787,8 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
         // instead of hanging forever on a full pipe.
         let mut stdout_bytes: usize = 0;
         let mut stdout_overflowed = false;
+        // P1-10：24ms/8KB 聚合刷（控制标记行仍即时 emit，不经 batcher）。
+        let mut batcher = EmitBatcher::new();
 
         loop {
             match reader.next_line().await {
@@ -806,7 +809,10 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
                             // further lines are discarded to bound memory.
                         }
                     }
-                    emitter_task.emit_data(&stream_id_task, line);
+                    batcher.push(&line);
+                    if batcher.should_flush() {
+                        emitter_task.emit_data(&stream_id_task, batcher.take());
+                    }
                 }
                 Ok(None) => break,
                 Err(e) => {
@@ -814,6 +820,11 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
                     break;
                 }
             }
+        }
+        // 尾刷：EOF/出错时把窗口残余一次发出，done 事件前不丢行。
+        let tail = batcher.take();
+        if !tail.is_empty() {
+            emitter_task.emit_data(&stream_id_task, tail);
         }
 
         // Wait for the child to fully exit so we can report its code.

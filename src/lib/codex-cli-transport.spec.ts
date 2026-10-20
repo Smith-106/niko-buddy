@@ -206,6 +206,32 @@ describe("streamCodexCli", () => {
     expect(cb.onError).not.toHaveBeenCalled()
   })
 
+  it("splits a batched multi-line payload line by line (P1-10)", async () => {
+    const listeners = installListeners()
+    vi.mocked(invoke).mockResolvedValue(undefined)
+    const cb = callbacks()
+
+    const streamPromise = streamCodexCli(codexConfig(), [{ role: "user", content: "hi" }], cb)
+
+    await Promise.resolve()
+    await Promise.resolve()
+    const { dataEventName, doneEventName } = findEvents(listeners)
+
+    // 后端 24ms/8KB 聚合后单 payload 可含多行（含尾换行），必须逐行出 token。
+    listeners.get(dataEventName)!({
+      payload:
+        '{"type":"item.completed","item":{"type":"agent_message","text":"batch-one"}}\n' +
+        '{"type":"item.completed","item":{"type":"agent_message","text":"batch-two"}}\n',
+    })
+    listeners.get(doneEventName)!({ payload: { code: 0, stderr: "" } })
+
+    await expect(resolveWithin(streamPromise, 200)).resolves.toBeUndefined()
+    expect(cb.onToken).toHaveBeenNthCalledWith(1, "batch-one")
+    expect(cb.onToken).toHaveBeenNthCalledWith(2, "batch-two")
+    expect(cb.onDone).toHaveBeenCalledTimes(1)
+    expect(cb.onError).not.toHaveBeenCalled()
+  })
+
   it("passes model, prompt and isolation flags to the spawn command", async () => {
     const listeners = installListeners()
     const cb = callbacks()

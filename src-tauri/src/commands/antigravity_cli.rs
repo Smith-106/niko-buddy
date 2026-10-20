@@ -22,6 +22,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
+use super::cli_emit::EmitBatcher;
 use super::cli_resolver::{child_path_env, find_cli_command};
 use super::local_cli_config::apply_local_cli_environment;
 
@@ -353,11 +354,16 @@ pub async fn do_antigravity_cli_spawn<E: AntigravityEmitter>(
         });
 
         let mut stdout_text = String::new();
+        // P1-10：24ms/8KB 聚合刷，多行并一次 emit（前端按行拆分）。
+        let mut batcher = EmitBatcher::new();
         loop {
             match reader.next_line().await {
                 Ok(Some(line)) => {
                     append_capped_line(&mut stdout_text, &line, STDOUT_LIMIT_BYTES);
-                    emitter_task.emit_data(&stream_id_task, line);
+                    batcher.push(&line);
+                    if batcher.should_flush() {
+                        emitter_task.emit_data(&stream_id_task, batcher.take());
+                    }
                 }
                 Ok(None) => break,
                 Err(e) => {
@@ -365,6 +371,11 @@ pub async fn do_antigravity_cli_spawn<E: AntigravityEmitter>(
                     break;
                 }
             }
+        }
+        // 尾刷：EOF/出错时把窗口残余一次发出，done 事件前不丢行。
+        let tail = batcher.take();
+        if !tail.is_empty() {
+            emitter_task.emit_data(&stream_id_task, tail);
         }
 
         let child_opt = children.lock().await.remove(&stream_id_task);

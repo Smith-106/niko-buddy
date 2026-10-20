@@ -231,6 +231,54 @@ describe("classifySpawnError / buildSpawnErrorGuide (v2.8 P1-3 权限引导)", (
 })
 
 describe("streamClaudeCodeCli", () => {
+  it("splits a batched multi-line data payload line by line (P1-10)", async () => {
+    const listeners = new Map<string, (event: { payload: string | { code: number | null; stderr: string } }) => void>()
+    vi.mocked(listen).mockImplementation(async (eventName, handler) => {
+      listeners.set(String(eventName), handler as (event: { payload: string | { code: number | null; stderr: string } }) => void)
+      return noopUnlisten
+    })
+    vi.mocked(invoke).mockResolvedValue(undefined)
+
+    const callbacks = {
+      onToken: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    }
+
+    const streamPromise = streamClaudeCodeCli(
+      claudeCliConfig(),
+      [{ role: "user", content: "batched lines" }],
+      callbacks,
+    )
+
+    await Promise.resolve()
+    await Promise.resolve()
+    const eventNames = [...listeners.keys()]
+    const dataEventName = eventNames.find((name) =>
+      name.startsWith("claude-cli:") && !name.endsWith(":done"),
+    )
+    const doneEventName = eventNames.find((name) => name.endsWith(":done"))
+    if (!dataEventName || !doneEventName) {
+      throw new Error("expected claude-cli listeners")
+    }
+
+    const dataListener = listeners.get(dataEventName) as ((event: { payload: string }) => void) | undefined
+    const doneListener = listeners.get(doneEventName) as ((event: { payload: { code: number | null; stderr: string } }) => void) | undefined
+
+    // 后端聚合后单 payload 可含多行（含尾换行），必须逐行进 parse 状态机。
+    dataListener?.({
+      payload:
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"batch-one"}]}}\n' +
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"batch-two"}]}}\n',
+    })
+    doneListener?.({ payload: { code: 0, stderr: "" } })
+
+    await expect(resolveWithin(streamPromise, 200)).resolves.toBeUndefined()
+    expect(callbacks.onToken).toHaveBeenNthCalledWith(1, "batch-one")
+    expect(callbacks.onToken).toHaveBeenNthCalledWith(2, "batch-two")
+    expect(callbacks.onDone).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
   it("retries a transient claude stdin pipe-closed startup failure and succeeds on the next spawn", async () => {
     vi.useFakeTimers()
 
