@@ -188,7 +188,7 @@ export function createWriteOutlineNodeTool(outlinesDir: string): Tool {
         }
         return `已写入大纲节点「${nodeTitle}」到「${outlineName}」，读回验证通过。`
       } catch (err) {
-        return `错误：写入大纲失败 — ${err instanceof Error ? err.message : String(err)}`
+        return `错误：写入大纲失败 — ${toErrorMessage(err)}`
       }
     },
   }

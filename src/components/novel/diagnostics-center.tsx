@@ -46,6 +46,7 @@ import { loadExportHistoryView, type ExportHistoryViewEntry } from "@/lib/export
 import { loadNovelSessionStatus } from "@/lib/novel"
 import { KbHealthView } from "./kb-health-view"
 import { collectKbMetricsLive, type KbMetrics } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 // ── 展示文案（直书中文，零 i18n 键） ─────────────────────────────────────────
 
@@ -471,7 +472,7 @@ export function DiagnosticsCenterView() {
         const res = await action.run()
         setRecoverNote(res.ok ? `恢复成功：${res.detail}` : `恢复未完成：${res.detail}`)
       } catch (e) {
-        setRecoverNote(`恢复失败：${e instanceof Error ? e.message : String(e)}`)
+        setRecoverNote(`恢复失败：${toErrorMessage(e)}`)
       } finally {
         setRecovering(null)
         await refresh()

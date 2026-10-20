@@ -85,7 +85,7 @@ export async function splitNovelIntoChapters(
   try {
     content = await readFile(sourcePath)
   } catch (error) {
-    throw new Error(`读取文件失败: ${error instanceof Error ? error.message : String(error)}`)
+    throw new Error(`读取文件失败: ${toErrorMessage(error)}`)
   }
   const contentHash = fingerprintFileSample(content)
   const normalizedSource = normalizePath(sourcePath)

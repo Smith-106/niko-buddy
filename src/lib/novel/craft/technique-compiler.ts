@@ -35,6 +35,7 @@ import {
   type ArcStage,
   type EntityCraftFields,
 } from "./canon-craft-fields"
+import { toErrorMessage } from "@/lib/utils"
 import {
   NMEM_SNAPSHOT,
   NMEM_SNAPSHOT_VERSION,
@@ -805,7 +806,7 @@ export async function compileWithFallback(deps: NmemFetchDeps): Promise<Fallback
     return {
       registry: compileFromCommittedSnapshot(),
       source: "snapshot",
-      fallbackReason: `live 抓取/编译失败，回落入仓快照：${error instanceof Error ? error.message : String(error)}`,
+      fallbackReason: `live 抓取/编译失败，回落入仓快照：${toErrorMessage(error)}`,
     }
   }
 }

@@ -59,7 +59,7 @@ export async function exportInteractiveStory(
       success: false,
       exportedPath: exportPath,
       chapterCount: 0,
-      message: `互动影游导出失败：${err instanceof Error ? err.message : String(err)}`,
+      message: `互动影游导出失败：${toErrorMessage(err)}`,
     }
   }
 }

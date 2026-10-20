@@ -19,6 +19,7 @@ import {
 } from "@/commands/fs"
 import type { FileNode } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
+import { toErrorMessage } from "@/lib/utils"
 import {
   DATA_DOMAINS,
   TRASH_BIN_DIR,
@@ -188,7 +189,7 @@ export async function moveAllToTrash(projectPath: string, stamp: string): Promis
     try {
       await moveDomainToTrash(projectPath, domain, stamp)
     } catch (e) {
-      failures.push(`${domain.id}: ${e instanceof Error ? e.message : String(e)}`)
+      failures.push(`${domain.id}: ${toErrorMessage(e)}`)
     }
   }
   if (failures.length > 0) {

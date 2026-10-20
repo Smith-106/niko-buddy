@@ -67,7 +67,7 @@ export async function runAppUpdateFlow(
     await update.download()
   } catch (error) {
     await bindings.message(
-      `下载更新失败：${error instanceof Error ? error.message : String(error)}\n\n请稍后重试或前往 GitHub 手动下载安装包。`,
+      `下载更新失败：${toErrorMessage(error)}\n\n请稍后重试或前往 GitHub 手动下载安装包。`,
       {
         title: "下载失败",
         kind: "error",

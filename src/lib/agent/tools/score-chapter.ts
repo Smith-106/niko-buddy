@@ -1,4 +1,5 @@
 import type { Tool } from "../types"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface QualityToolDeps {
   /** 六维评分：返回维度 → 分数（0-10）。实现方自行决定走 LLM 还是本地启发式。 */
@@ -40,7 +41,7 @@ export function createScoreChapterTool(deps: QualityToolDeps): Tool {
               : sorted[mid]
         return `${JSON.stringify({ dims, median: Math.round(median * 100) / 100 })}`
       } catch (err) {
-        return `错误：评分失败 — ${err instanceof Error ? err.message : String(err)}`
+        return `错误：评分失败 — ${toErrorMessage(err)}`
       }
     },
   }
@@ -70,7 +71,7 @@ export function createReviseChapterTool(deps: QualityToolDeps): Tool {
       try {
         return await deps.reviseChapter(content, brief)
       } catch (err) {
-        return `错误：重写失败 — ${err instanceof Error ? err.message : String(err)}`
+        return `错误：重写失败 — ${toErrorMessage(err)}`
       }
     },
   }

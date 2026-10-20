@@ -504,7 +504,7 @@ export class AgentRunner {
             params = parsed as Record<string, unknown>
           }
         } catch (error) {
-          argumentError = `工具参数不是合法 JSON：${error instanceof Error ? error.message : String(error)}`
+          argumentError = `工具参数不是合法 JSON：${toErrorMessage(error)}`
         }
         const executed = argumentError
           ? rejectAgentToolCall(

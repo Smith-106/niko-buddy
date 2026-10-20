@@ -1,6 +1,7 @@
 import type { Tool } from "../types"
 import { readFile, writeFile, fileExists, createDirectory } from "@/commands/fs"
 import { writeDraft } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 interface WriteChapterOptions {
   draftMode?: boolean
@@ -39,7 +40,7 @@ export function createWriteChapterTool(chaptersDir: string, options: WriteChapte
           })
           return `已生成章节草稿「${name}」，等待确认保存。\n草稿ID: ${draft.id}\n字数：${content.length}字`
         } catch (err) {
-          return `错误：写入草稿失败 — ${err instanceof Error ? err.message : String(err)}`
+          return `错误：写入草稿失败 — ${toErrorMessage(err)}`
         }
       }
 
@@ -56,7 +57,7 @@ export function createWriteChapterTool(chaptersDir: string, options: WriteChapte
         }
         return `已写入章节「${name}」，读回验证通过。`
       } catch (err) {
-        return `错误：写入章节失败 — ${err instanceof Error ? err.message : String(err)}`
+        return `错误：写入章节失败 — ${toErrorMessage(err)}`
       }
     },
   }

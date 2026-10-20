@@ -54,6 +54,7 @@ import type { CanonFact } from "./canon-graph-client"
 import { queryEpisodesByChapter } from "./canon-graph-client"
 import { promote, promotionAudit } from "./promotion-bridge"
 import { logger } from "@/lib/utils"
+import { toErrorMessage } from "@/lib/utils"
 
 // ──────────────────────────────────────────────────────────────────────────
 // 快照发现（路径 + 文件名契约）
@@ -586,7 +587,7 @@ export async function backfillCanonHistory(
         } catch (err) {
           logger.warn(
             "promotion-bridge",
-            `canon-backfill promote failed (non-fatal, chapter ${chapter}): ${err instanceof Error ? err.message : String(err)}`,
+            `canon-backfill promote failed (non-fatal, chapter ${chapter}): ${toErrorMessage(err)}`,
           )
         }
       }
@@ -615,7 +616,7 @@ export async function backfillCanonHistory(
   } catch (err) {
     logger.warn(
       "promotion-bridge",
-      `canon-backfill promotionAudit failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+      `canon-backfill promotionAudit failed (non-fatal): ${toErrorMessage(err)}`,
     )
   }
   return {

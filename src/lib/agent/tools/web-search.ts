@@ -1,6 +1,7 @@
 import type { Tool } from "../types"
 import { providerRequiresApiKey, resolveSearchConfig, webSearch } from "@/lib/web-search"
 import type { SearchApiConfig } from "@/stores/wiki-store"
+import { toErrorMessage } from "@/lib/utils"
 
 interface WebSearchToolResult {
   status: "ok" | "not_configured" | "error"
@@ -92,7 +93,7 @@ export function createWebSearchTool(getSearchApiConfig?: () => SearchApiConfig |
           provider: resolveSearchConfig(config).provider,
           resultCount: 0,
           results: [],
-          message: `外部搜索失败，本次未使用联网资料。原因：${error instanceof Error ? error.message : String(error)}`,
+          message: `外部搜索失败，本次未使用联网资料。原因：${toErrorMessage(error)}`,
         }
         return JSON.stringify(result)
       }

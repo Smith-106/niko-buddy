@@ -1,6 +1,7 @@
 import type { Tool } from "../types"
 import { buildContextPack } from "@/lib/novel"
 import type { TaskRouteResult } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 export function createLoadContextTool(
   projectPath: string,
@@ -21,7 +22,7 @@ export function createLoadContextTool(
           : `【上下文数据源】\n共加载 ${Object.keys(pack).length} 个数据源`
         return contextStr
       } catch (e) {
-        return `错误：加载上下文失败 - ${e instanceof Error ? e.message : String(e)}`
+        return `错误：加载上下文失败 - ${toErrorMessage(e)}`
       }
     },
   }

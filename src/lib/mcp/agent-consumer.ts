@@ -16,6 +16,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import { buildMcpRuntime } from "./runtime"
 import { RealMcpConnector } from "./real-connector"
 import type { McpConfig } from "./config"
+import { toErrorMessage } from "@/lib/utils"
 /** 结构兼容接口：mcp/types.Tool 与 agent/types.Tool 均可传入。 */
 export interface McpToolLike {
   name: string
@@ -178,7 +179,7 @@ export async function runMcpToolLoop(options: RunMcpToolLoopOptions): Promise<Ru
         summary = typeof result === "string" ? result.slice(0, 4000) : JSON.stringify(result).slice(0, 4000)
       } catch (error) {
         ok = false
-        summary = `工具执行失败：${error instanceof Error ? error.message : String(error)}`
+        summary = `工具执行失败：${toErrorMessage(error)}`
       }
       toolCalls.push({ name: parsed.name, ok, summary })
       if (turn + 1 >= maxTurns) {

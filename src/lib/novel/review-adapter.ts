@@ -525,7 +525,7 @@ export async function appendAuditFindings(
   } catch (err) {
     logger.warn(
       "continuity-engine",
-      `audit findings sink degraded: ${err instanceof Error ? err.message : String(err)}`,
+      `audit findings sink degraded: ${toErrorMessage(err)}`,
     )
   }
 }
@@ -595,7 +595,7 @@ export async function runAuditTriadPreflight(
   } catch (err) {
     logger.warn(
       "continuity-engine",
-      `audit triad degraded: ${err instanceof Error ? err.message : String(err)}`,
+      `audit triad degraded: ${toErrorMessage(err)}`,
     )
     return [{
       severity: "warning",
@@ -681,7 +681,7 @@ export async function runContinuityMechanicalPreflight(
     } catch (err) {
       logger.warn(
         "continuity-engine",
-        `override store load degraded: ${err instanceof Error ? err.message : String(err)}`,
+        `override store load degraded: ${toErrorMessage(err)}`,
       )
       overrideStore = undefined
     }
@@ -752,7 +752,7 @@ export async function runContinuityMechanicalPreflight(
   } catch (err) {
     // Decision 7.3 + fold_rebuildable: 引擎异常降级 LLM continuity 维度兜底, 不阻断审查。
     // logger 双参 scope='continuity-engine' (memory a19-emotion-ledger 坑: 单参丢 scope)。
-    logger.error("continuity-engine", `engine degraded: ${err instanceof Error ? err.message : String(err)}`)
+    logger.error("continuity-engine", `engine degraded: ${toErrorMessage(err)}`)
     collectContinuityMetric({
       execution_ms: Date.now() - startMs,
       critical_count: 0,

@@ -25,6 +25,7 @@ import {
   type WorkHeatmapProjection,
 } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
+import { toErrorMessage } from "@/lib/utils"
 
 /** 默认刷新周期（毫秒）：够"看得见在动"，又不至于一直拉盘。 */
 export const WORK_HEATMAP_DEFAULT_REFRESH_MS = 5000
@@ -87,7 +88,7 @@ export function WorkHeatmapPanel({
     } catch (e) {
       if (!mounted.current || seq !== readSeq.current) return
       // 失败不覆盖上次数据；只把错误态摆出来。
-      setError(`刷新失败：${e instanceof Error ? e.message : String(e)}`)
+      setError(`刷新失败：${toErrorMessage(e)}`)
     } finally {
       if (mounted.current) setRefreshing(false)
     }

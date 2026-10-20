@@ -12,6 +12,7 @@
 
 import { invoke } from "@tauri-apps/api/core"
 import { isTauri } from "@/lib/platform"
+import { toErrorMessage } from "@/lib/utils"
 
 const ENCRYPTED_PREFIX = "enc::v1::"
 
@@ -170,7 +171,7 @@ export async function safeEncryptApiKey(plaintext: string): Promise<string> {
     return await encryptString(plaintext)
   } catch (e) {
     console.error("[crypto] Encryption failed, refusing to return plaintext:", e)
-    throw new Error(`API key encryption failed: ${e instanceof Error ? e.message : String(e)}`)
+    throw new Error(`API key encryption failed: ${toErrorMessage(e)}`)
   }
 }
 

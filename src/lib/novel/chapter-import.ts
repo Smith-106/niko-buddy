@@ -430,7 +430,7 @@ export async function runImportedChapterMemoryExtraction({
       }
     } catch (error) {
       failed += 1
-      errors.push(`${getFileName(chapterPath)}：${error instanceof Error ? error.message : String(error)}`)
+      errors.push(`${getFileName(chapterPath)}：${toErrorMessage(error)}`)
     }
   }
 

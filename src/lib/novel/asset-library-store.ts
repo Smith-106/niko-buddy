@@ -16,6 +16,7 @@
  */
 
 import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
+import { toErrorMessage } from "@/lib/utils"
 import {
   LIBRARY_IDS,
   entrySchemaFor,
@@ -116,7 +117,7 @@ export async function loadAssetLibrarySnapshot(
       schemaVersion: null,
       conserved: false,
       health: null,
-      error: `JSON 解析失败：${error instanceof Error ? error.message : String(error)}`,
+      error: `JSON 解析失败：${toErrorMessage(error)}`,
     }
   }
   const artifact = parsed as LibraryArtifact

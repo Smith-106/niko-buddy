@@ -7,6 +7,7 @@ import {
 } from "@/commands/exemplar"
 import { appendExemplarABSample, exemplarABStats, loadCognitionState } from "@/lib/novel"
 import { normalizePath, getFileName } from "@/lib/path-utils"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * Manages the Style Exemplar marking UI state and operations.
@@ -77,7 +78,7 @@ export function useExemplarState(params: {
       setExemplarFeedback("已标记为用户锚点（非自动生成）")
       setExemplarDialog({ open: false, text: "", chapterId: "" })
     } catch (e) {
-      setExemplarFeedback(`标记失败：${e instanceof Error ? e.message : String(e)}`)
+      setExemplarFeedback(`标记失败：${toErrorMessage(e)}`)
     }
   }, [project, exemplarDialog, exemplarMarkType, exemplarNote])
 

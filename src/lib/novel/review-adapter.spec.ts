@@ -828,7 +828,7 @@ describe("review-adapter — 全口径收口 (可达分支 100%) ", () => {
   })
 
   it("override store 加载失败时降级到 raw findings, 不阻断审查", async () => {
-    // 非 Error 抛出值 → catch 内 err instanceof Error ? err.message : String(err) 的 String 侧
+    // 非 Error 抛出值 → catch 内 toErrorMessage(err) 的 String 侧
     mocks.overrideLoadError = "override store corrupt"
     streamChatMock.mockImplementation(async (
       _config: LlmConfig,
@@ -846,7 +846,7 @@ describe("review-adapter — 全口径收口 (可达分支 100%) ", () => {
   })
 
   it("override store 加载失败(Error 值) 时降级到 raw findings, 不阻断审查", async () => {
-    // Error 实例 → catch 内 err instanceof Error ? err.message : String(err) 的 err.message 侧
+    // Error 实例 → catch 内 toErrorMessage(err) 的 err.message 侧
     mocks.overrideLoadError = new Error("override store corrupt")
     streamChatMock.mockImplementation(async (
       _config: LlmConfig,

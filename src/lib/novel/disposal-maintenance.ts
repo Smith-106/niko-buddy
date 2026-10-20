@@ -19,6 +19,7 @@
 import { normalizePath } from "@/lib/path-utils"
 import { readFile, listDirectory, deleteFile } from "@/commands/fs"
 import { loadNovelSessionStatus, type NovelSessionStatus } from "./novel-session-status"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface DisposalAuditRecord {
   timestamp: string
@@ -88,7 +89,7 @@ export async function diagnoseProjectIntegrity(projectPath: string): Promise<Pro
       hasActiveReviewReadyDraft = true
     }
   } catch (err) {
-    issues.push(`无法加载会话状态文件 .novel/status.json: ${err instanceof Error ? err.message : String(err)}`)
+    issues.push(`无法加载会话状态文件 .novel/status.json: ${toErrorMessage(err)}`)
     healthScore -= 30
   }
 
@@ -242,7 +243,7 @@ export async function purgeStaleDrafts(options: PurgeDraftsOptions): Promise<Dis
       purgedDraftCount,
       reclaimedBytes,
       preservedFinalChaptersCount,
-      details: [`处置过程异常中断: ${err instanceof Error ? err.message : String(err)}`],
+      details: [`处置过程异常中断: ${toErrorMessage(err)}`],
       success: false,
     }
   }

@@ -21,6 +21,7 @@ import { z } from "zod"
 import type { GateKey } from "./audit-taxonomy"
 import { gateDisplayStatus, type GateDisplayStatus } from "./run-event-ledger"
 import type { GateRunStatus } from "./rule-stack"
+import { toErrorMessage } from "@/lib/utils"
 
 // ============================================================================
 // 阶段与模式 zod 契约
@@ -70,7 +71,7 @@ export function normalizeAdvanceMode(raw: unknown): AdvanceMode {
     mode = ADVANCE_MODE_SCHEMA.parse(raw)
   } catch (err) {
     throw new DirectorModeError(
-      `AdvanceMode 契约违反: ${err instanceof Error ? err.message : String(err)}`,
+      `AdvanceMode 契约违反: ${toErrorMessage(err)}`,
     )
   }
   const seen = new Set<string>()

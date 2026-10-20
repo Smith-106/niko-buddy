@@ -9,7 +9,7 @@ import {
   type DeepChapterGenerationResult,
 } from "./deep-chapter-generation"
 import { anonymousId, pickBestDraft, type DraftCandidate, type PeerEvaluation } from "./consensus-aggregate"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { resolveConsensusModels } from "./model-resolver"
 
 /**
@@ -69,7 +69,7 @@ async function evaluateDraft(
       onDone: () => {},
       onError: (err: unknown) => {
         // IMT-ODX-02: 同型修复（见 consensus-review.ts）——互评席位流中断不再静默
-        logger.warn("Consensus Writing", `互评席位流中断: ${err instanceof Error ? err.message : String(err)}`)
+        logger.warn("Consensus Writing", `互评席位流中断: ${toErrorMessage(err)}`)
       },
     },
     combineAbortSignals(signal, AbortSignal.timeout(120000)),

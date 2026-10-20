@@ -19,6 +19,7 @@
 import { z } from "zod"
 import type { GateKey } from "./audit-taxonomy"
 import { eventsByReplayId, type RunEvent, type RunEventLedger } from "./run-event-ledger"
+import { toErrorMessage } from "@/lib/utils"
 
 // ============================================================================
 // 工件 zod 契约
@@ -111,7 +112,7 @@ export function registerPromptArtifact(
     normalized = PROMPT_ARTIFACT_SCHEMA.parse(artifact)
   } catch (err) {
     throw new PromptArtifactRegistryError(
-      `prompt artifact 契约违反: ${err instanceof Error ? err.message : String(err)}`,
+      `prompt artifact 契约违反: ${toErrorMessage(err)}`,
     )
   }
   const existing = registry.artifacts.find(

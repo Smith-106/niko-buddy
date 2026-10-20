@@ -2,6 +2,7 @@ import type { ToolRegistry } from "./registry"
 import type { AgentRunCallbacks, AgentRunRecord, ToolCall } from "./types"
 import { TOOL_EXECUTE_TIMEOUT_MS } from "./types"
 import { isToolErrorResult } from "./tool-result"
+import { toErrorMessage } from "@/lib/utils"
 
 function withToolTimeout<T>(operation: Promise<T>, timeoutMs: number | undefined): Promise<T> {
   const resolvedTimeoutMs = timeoutMs ?? TOOL_EXECUTE_TIMEOUT_MS
@@ -153,7 +154,7 @@ export async function executeAgentTool(
         success: true,
       }
     } catch (error) {
-      const result = `预览生成失败：${error instanceof Error ? error.message : String(error)}`
+      const result = `预览生成失败：${toErrorMessage(error)}`
       record.status = "error"
       record.result = result
       record.finishedAt = Date.now()
@@ -207,7 +208,7 @@ export async function executeAgentTool(
       ...(deliveredFinalContent ? { finalContent: deliveredFinalContent } : {}),
     }
   } catch (error) {
-    const result = `错误: ${error instanceof Error ? error.message : String(error)}`
+    const result = `错误: ${toErrorMessage(error)}`
     record.status = signal?.aborted ? "cancelled" : "error"
     record.result = result
     record.finishedAt = Date.now()

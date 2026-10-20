@@ -809,7 +809,7 @@ export async function shadowWriteCanon(
       } catch (err) {
         logger.warn(
           "promotion-bridge",
-          `canon-dual-write promote failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+          `canon-dual-write promote failed (non-fatal): ${toErrorMessage(err)}`,
         )
       }
     }

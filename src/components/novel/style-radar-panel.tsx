@@ -16,6 +16,7 @@
 import { useEffect, useState } from "react"
 import { Radar } from "lucide-react"
 
+import { toErrorMessage } from "@/lib/utils"
 import {
   projectStyleRadar,
   radarPoints,
@@ -64,7 +65,7 @@ export function StyleRadarPanel({ projection, input, loader }: StyleRadarPanelPr
         if (!cancelled) setLoaded(next)
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(`装载失败：${e instanceof Error ? e.message : String(e)}`)
+        if (!cancelled) setError(`装载失败：${toErrorMessage(e)}`)
       })
     return () => {
       cancelled = true

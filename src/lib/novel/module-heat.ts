@@ -13,6 +13,7 @@
  */
 
 import type { ModuleAtlas, ModuleAtlasEntry } from "./module-atlas"
+import { toErrorMessage } from "@/lib/utils"
 
 /** 单次模块命中。 */
 export interface ModuleHit {
@@ -96,7 +97,7 @@ export async function withModuleHeat<T>(
       ok: false,
       ms: options.now() - startedAt,
       detail: options.detail
-        ? `${options.detail}: ${error instanceof Error ? error.message : String(error)}`
+        ? `${options.detail}: ${toErrorMessage(error)}`
         : error instanceof Error
           ? error.message
           : String(error),

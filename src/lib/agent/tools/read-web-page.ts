@@ -1,5 +1,6 @@
 import type { Tool } from "../types"
 import { getHttpFetch } from "@/lib/tauri-fetch"
+import { toErrorMessage } from "@/lib/utils"
 
 interface FetchResponseLike {
   ok: boolean
@@ -132,7 +133,7 @@ export function createReadWebPageTool(deps: ReadWebPageDeps = {}): Tool {
           url: url.toString(),
           content: "",
           truncated: false,
-          message: `网页读取失败：${error instanceof Error ? error.message : String(error)}`,
+          message: `网页读取失败：${toErrorMessage(error)}`,
         }
         return JSON.stringify(result)
       }

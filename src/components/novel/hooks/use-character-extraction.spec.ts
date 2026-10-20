@@ -265,7 +265,7 @@ function errorProfile(name: string, errorKind?: string) {
 
 /**
  * 类型上满足 Error、运行时不是 Error 实例。
- * 用于覆盖 hook 内 `err instanceof Error ? err.message : String(err)` 的 String(err) 兜底分支。
+ * 用于覆盖 hook 内 `toErrorMessage(err)` 的 String(err) 兜底分支。
  */
 class RawStringError {
   name = "Error"

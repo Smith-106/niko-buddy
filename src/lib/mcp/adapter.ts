@@ -1,4 +1,5 @@
 import type { Tool, ToolParameter } from "./types"
+import { toErrorMessage } from "@/lib/utils"
 import type {
   McpJsonSchema,
   McpToolCaller,
@@ -96,7 +97,7 @@ function createMcpToolFromParameters(
           toolName: descriptor.name,
           content: "",
           summary: "",
-          message: `MCP 调用失败，普通 AI 会话可以继续。原因：${error instanceof Error ? error.message : String(error)}`,
+          message: `MCP 调用失败，普通 AI 会话可以继续。原因：${toErrorMessage(error)}`,
         })
       }
     },

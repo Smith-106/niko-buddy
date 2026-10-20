@@ -6,6 +6,7 @@ import { useState, useMemo } from "react"
 import { Users, GitMerge, ShieldAlert, Sparkles, Copy, Check, EyeOff, BookOpen, Layers } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/lib/toast"
+import { toErrorMessage } from "@/lib/utils"
 import {
   createMultiPovMesh,
   detectPovIntersections,
@@ -111,7 +112,7 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
     } catch (e) {
       setSlmResult({
         passed: false,
-        message: `自检异常：${e instanceof Error ? e.message : String(e)}`,
+        message: `自检异常：${toErrorMessage(e)}`,
       })
     } finally {
       setSlmChecking(false)

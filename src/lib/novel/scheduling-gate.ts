@@ -22,6 +22,7 @@ import { z } from "zod"
 import { evaluateTokenGate, type BudgetCounters, type TokenBudgetConfig } from "./budget-counters"
 import type { GateKey } from "./audit-taxonomy"
 import type { NovelErrorKind, TaskTier, WritingRole } from "@/lib/llm/model-resolver"
+import { toErrorMessage } from "@/lib/utils"
 
 // ============================================================================
 // 前置闸：admit / reject / defer
@@ -231,7 +232,7 @@ export function normalizeRoutePolicy(raw: unknown): RoutePolicy {
     return ROUTE_POLICY_SCHEMA.parse(raw)
   } catch (err) {
     throw new SchedulingGateInvariantError(
-      `RoutePolicy 契约违反: ${err instanceof Error ? err.message : String(err)}`,
+      `RoutePolicy 契约违反: ${toErrorMessage(err)}`,
     )
   }
 }

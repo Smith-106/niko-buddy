@@ -1,3 +1,4 @@
+import { toErrorMessage } from "@/lib/utils"
 export interface OutlineWritebackItem {
   type: string
   name: string
@@ -51,7 +52,7 @@ function parseJsonObject(text: string): OutlineProtocolParseResult<Record<string
     }
     return { ok: true, value: parsed as Record<string, unknown> }
   } catch (err) {
-    return { ok: false, error: `结构化输出 JSON 解析失败：${err instanceof Error ? err.message : String(err)}` }
+    return { ok: false, error: `结构化输出 JSON 解析失败：${toErrorMessage(err)}` }
   }
 }
 

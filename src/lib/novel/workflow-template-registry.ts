@@ -32,6 +32,7 @@ import {
   VOLUME_OUTLINE_REQUIRED_FIELDS,
 } from "./outline-templates"
 import type { NovelSkillStage } from "./novel-skill-hooks"
+import { toErrorMessage } from "@/lib/utils"
 
 /** 条目类别：`volume` / `chapter` 为模板类，其余（枚举清单、技能挂点）归「其他」。 */
 export type WorkflowTemplateKind = "chapter" | "enum" | "skill-stage" | "volume"
@@ -166,7 +167,7 @@ function renderTemplate(render: (() => unknown) | null, label: string): Rendered
       status: "failed",
       head: null,
       length: 0,
-      error: `${label}渲染抛错：${error instanceof Error ? error.message : String(error)}`,
+      error: `${label}渲染抛错：${toErrorMessage(error)}`,
       text: null,
     }
   }

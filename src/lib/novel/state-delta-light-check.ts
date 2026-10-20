@@ -7,6 +7,7 @@
 import type { CharacterState } from "./character-state"
 import type { NovelReviewResult } from "./review-adapter"
 import { z } from "zod"
+import { toErrorMessage } from "@/lib/utils"
 
 export type LightIssueSeverity = "info" | "warn" | "error"
 
@@ -101,7 +102,7 @@ export function parseStateDeltaStrict(raw: string, chapter: number): StateDelta 
   try {
     obj = JSON.parse(text)
   } catch (e) {
-    throw new Error(`StateDelta JSON 解析失败: ${e instanceof Error ? e.message : String(e)}`)
+    throw new Error(`StateDelta JSON 解析失败: ${toErrorMessage(e)}`)
   }
   if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
     throw new Error(`StateDelta 根须为对象, 实际为 ${Array.isArray(obj) ? "array" : typeof obj}`)

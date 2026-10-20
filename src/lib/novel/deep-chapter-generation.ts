@@ -1041,13 +1041,13 @@ export async function runDeepChapterGeneration(
     } catch (err) {
       callbacks.onThinking?.(formatStageThinking(
         "avoid-ai 审计持久化",
-        `摘要写入跳过 (非致命): ${err instanceof Error ? err.message : String(err)}`,
+        `摘要写入跳过 (非致命): ${toErrorMessage(err)}`,
       ))
     }
   } catch (err) {
     callbacks.onThinking?.(formatStageThinking(
       "avoid-ai 审计",
-      `审计跳过 (非致命): ${err instanceof Error ? err.message : String(err)}`,
+      `审计跳过 (非致命): ${toErrorMessage(err)}`,
     ))
   }
   // 55 号设计 W2-5 (B-01): 数值事实检查 (warn-only, 不硬短路)。
@@ -1101,7 +1101,7 @@ export async function runDeepChapterGeneration(
   } catch (err) {
     callbacks.onThinking?.(formatStageThinking(
       "追读债务记账",
-      `chase_debt 记账跳过 (非致命): ${err instanceof Error ? err.message : String(err)}`,
+      `chase_debt 记账跳过 (非致命): ${toErrorMessage(err)}`,
     ))
   }
   // ISS-20260714-002: explicit run-end flush of buffered LLM metrics. Fire-

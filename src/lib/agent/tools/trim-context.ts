@@ -1,6 +1,7 @@
 import type { Tool } from "../types"
 import { contextPackToPrompt } from "@/lib/novel"
 import type { ContextPack } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * @param tokenBudget ContextPack token budget (not characters).
@@ -23,7 +24,7 @@ export function createTrimContextTool(contextPack: ContextPack, tokenBudget: num
         const hardInjectEnabled = useWikiStore.getState().novelConfig.hardInjectEnabled
         return contextPackToPrompt(contextPack, tokenBudget, { hardInjectEnabled })
       } catch (e) {
-        return `错误：裁剪上下文失败 - ${e instanceof Error ? e.message : String(e)}`
+        return `错误：裁剪上下文失败 - ${toErrorMessage(e)}`
       }
     },
   }

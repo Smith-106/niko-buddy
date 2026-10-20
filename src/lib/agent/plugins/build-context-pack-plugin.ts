@@ -108,7 +108,7 @@ export function createBuildContextPackPlugin(deps: BuildContextPackPluginDeps = 
             ]))
           } catch (e) {
             routeSource = "default"
-            classificationFallbackReason = `分类路由应用失败：${e instanceof Error ? e.message : String(e)}`
+            classificationFallbackReason = `分类路由应用失败：${toErrorMessage(e)}`
           }
         }
 
@@ -138,7 +138,7 @@ export function createBuildContextPackPlugin(deps: BuildContextPackPluginDeps = 
             keptSources = result.keptSources
           } catch (e) {
             routeSource = "default"
-            classificationFallbackReason = `分类路由应用失败：${e instanceof Error ? e.message : String(e)}`
+            classificationFallbackReason = `分类路由应用失败：${toErrorMessage(e)}`
           }
         }
 

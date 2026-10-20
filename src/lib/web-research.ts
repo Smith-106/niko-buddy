@@ -7,6 +7,7 @@
 import type { SearchApiConfig } from "@/stores/wiki-store"
 import { getHttpFetch } from "@/lib/tauri-fetch"
 import { webSearch, type WebSearchResult } from "@/lib/web-search"
+import { toErrorMessage } from "@/lib/utils"
 
 /** A fetched web document with title, URL, source, and plain-text content. */
 export interface WebResearchDocument {
@@ -101,7 +102,7 @@ export async function collectWebResearch(input: WebResearchInput): Promise<WebRe
     try {
       searchResults = await webSearch(query, input.searchApiConfig, maxSearchResults)
     } catch (error) {
-      notes.push(`网页搜索失败：${error instanceof Error ? error.message : String(error)}`)
+      notes.push(`网页搜索失败：${toErrorMessage(error)}`)
     }
   }
 

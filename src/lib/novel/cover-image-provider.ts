@@ -12,6 +12,7 @@
 import { createDirectory, fileExists, writeFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { coverBriefToPrompt, type BookCoverMeta, type CoverBrief } from "./cover-brief"
+import { toErrorMessage } from "@/lib/utils"
 
 export type CoverAspect = "portrait" | "square" | "landscape"
 
@@ -104,7 +105,7 @@ export async function runCoverImageGeneration(
     return {
       ok: false,
       reason: "failed",
-      message: `封面生成失败：${err instanceof Error ? err.message : String(err)}`,
+      message: `封面生成失败：${toErrorMessage(err)}`,
     }
   }
 }

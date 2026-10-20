@@ -1,3 +1,4 @@
+import { toErrorMessage } from "@/lib/utils"
 /**
  * Track B skill hooks (mid-loop) — NovelForge-shaped hang points, not a migration.
  *
@@ -100,7 +101,7 @@ export async function runNovelSkillHooks(
       await hook.run(ctx)
     } catch (error) {
       ctx.bag.notes.push(
-        `skill-hook ${hook.id} failed soft: ${error instanceof Error ? error.message : String(error)}`,
+        `skill-hook ${hook.id} failed soft: ${toErrorMessage(error)}`,
       )
     }
   }
@@ -154,7 +155,7 @@ export function createCedSoftReportHook(options: {
         if (frag) ctx.bag.promptFragments.push(frag)
       } catch (error) {
         ctx.bag.notes.push(
-          `ced soft report failed: ${error instanceof Error ? error.message : String(error)}`,
+          `ced soft report failed: ${toErrorMessage(error)}`,
         )
       }
     },
@@ -222,7 +223,7 @@ export function createAvoidAiMechanicalSlopHook(options: {
           if (frag) ctx.bag.promptFragments.push(frag)
         } catch (error) {
           ctx.bag.notes.push(
-            `avoid-ai full patterns soft-failed: ${error instanceof Error ? error.message : String(error)}`,
+            `avoid-ai full patterns soft-failed: ${toErrorMessage(error)}`,
           )
         }
       }
@@ -262,7 +263,7 @@ export function createDeAiDualPassHook(options: {
         }
       } catch (error) {
         ctx.bag.notes.push(
-          `de-ai dual-pass soft-failed: ${error instanceof Error ? error.message : String(error)}`,
+          `de-ai dual-pass soft-failed: ${toErrorMessage(error)}`,
         )
       }
     },
@@ -300,7 +301,7 @@ export function createStatisticalAiSignatureHook(options: {
         if (frag) ctx.bag.promptFragments.push(frag)
       } catch (error) {
         ctx.bag.notes.push(
-          `statistical-ai-signature soft-failed: ${error instanceof Error ? error.message : String(error)}`,
+          `statistical-ai-signature soft-failed: ${toErrorMessage(error)}`,
         )
       }
     },

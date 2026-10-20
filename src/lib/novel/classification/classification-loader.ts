@@ -3,6 +3,7 @@ import { normalizePath } from "@/lib/path-utils"
 import type { ClassificationConfig, RouteRule, LoadClassificationResult, DataSourceCategory, ClassificationVersionCheckResult } from "./types"
 import { deserializeClassificationFromMarkdown, serializeClassificationToMarkdown, generateDefaultClassificationMarkdown } from "./markdown-serializer"
 import { DEFAULT_CLASSIFICATION_CONFIG, hasDefaultRoute } from "./default-routes"
+import { toErrorMessage } from "@/lib/utils"
 
 const CLASSIFICATION_DIR = "classification"
 const CLASSIFICATION_FILENAME = "classification.md"
@@ -19,7 +20,7 @@ export async function loadClassificationConfig(
   try {
     projectConfig = await loadProjectClassification(pp)
   } catch (e) {
-    fallbackReason = `项目级 classification.md 加载失败：${e instanceof Error ? e.message : String(e)}`
+    fallbackReason = `项目级 classification.md 加载失败：${toErrorMessage(e)}`
   }
 
   if (!projectConfig) {
@@ -51,7 +52,7 @@ export async function loadClassificationConfig(
       }
     }
   } catch (e) {
-    fallbackReason = `分支级 classification 加载失败：${e instanceof Error ? e.message : String(e)}`
+    fallbackReason = `分支级 classification 加载失败：${toErrorMessage(e)}`
   }
 
   return {

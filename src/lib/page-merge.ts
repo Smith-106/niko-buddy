@@ -26,6 +26,7 @@
 import { parseFrontmatter } from "./frontmatter"
 import { mergeArrayFieldsIntoContent } from "./sources-merge"
 import { todayStamp } from "./utils"
+import { toErrorMessage } from "@/lib/utils"
 
 /** Frontmatter array fields unioned across re-ingests. */
 const UNION_FIELDS = ["sources", "tags", "related"] as const
@@ -128,7 +129,7 @@ export async function mergePageContent(
     )
   } catch (err) {
     console.warn(
-      `[page-merge] LLM merge failed for ${opts.pagePath}, falling back to incoming + array-field union: ${err instanceof Error ? err.message : String(err)}`,
+      `[page-merge] LLM merge failed for ${opts.pagePath}, falling back to incoming + array-field union: ${toErrorMessage(err)}`,
     )
     await tryBackup(opts, existingContent)
     return arrayMerged

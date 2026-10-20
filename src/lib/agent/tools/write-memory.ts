@@ -43,7 +43,7 @@ export function createWriteMemoryTool(memoryDir: string): Tool {
         }
         return `已写入记忆「${name}」，读回验证通过。`
       } catch (err) {
-        return `错误：写入记忆失败 — ${err instanceof Error ? err.message : String(err)}`
+        return `错误：写入记忆失败 — ${toErrorMessage(err)}`
       }
     },
   }

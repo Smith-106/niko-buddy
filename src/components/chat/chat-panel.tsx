@@ -295,7 +295,7 @@ export function ChatPanel() {
       setExemplarFeedback("已标记为用户锚点（非自动生成）")
       setExemplarDialog({ open: false, text: "", chapterId: "" })
     } catch (e) {
-      setExemplarFeedback(`标记失败：${e instanceof Error ? e.message : String(e)}`)
+      setExemplarFeedback(`标记失败：${toErrorMessage(e)}`)
     }
   }, [project, exemplarDialog, exemplarMarkType, exemplarNote])
 
@@ -311,7 +311,7 @@ export function ChatPanel() {
       setExemplarFeedback(`已删除范例 ${exemplarId.slice(0, 8)}`)
       setExemplarDeleteConfirmId(null)
     } catch (e) {
-      setExemplarFeedback(`删除失败：${e instanceof Error ? e.message : String(e)}`)
+      setExemplarFeedback(`删除失败：${toErrorMessage(e)}`)
     }
   }, [project])
 

@@ -432,7 +432,7 @@ export async function sweepResolvedReviews(
     } catch (err) {
       activity.updateItem(activityId, {
         status: "error",
-        detail: `Review cleanup failed: ${err instanceof Error ? err.message : String(err)}`,
+        detail: `Review cleanup failed: ${toErrorMessage(err)}`,
       })
       activityId = null
     }

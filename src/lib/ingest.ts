@@ -910,7 +910,7 @@ async function writeFileBlocks(
       }
       writtenPaths.push(relativePath)
     } catch (err) {
-      const msg = `写入 "${relativePath}" 失败：${err instanceof Error ? err.message : String(err)}`
+      const msg = `写入 "${relativePath}" 失败：${toErrorMessage(err)}`
       console.error(`[ingest] ${msg}`)
       warnings.push(msg)
       hardFailures.push(relativePath)
@@ -1641,7 +1641,7 @@ export async function executeIngestWrites(
     } catch (err) {
       // F-16 (CWE-532): message-only to avoid leaking OS/IPC error payload.
       // Mirrors writeFileBlocks catch at :902 (PAT-G2 file-internal twin).
-      console.error(`[ingest] 写入 ${fullPath} 失败：${err instanceof Error ? err.message : String(err)}`)
+      console.error(`[ingest] 写入 ${fullPath} 失败：${toErrorMessage(err)}`)
     }
   }
 

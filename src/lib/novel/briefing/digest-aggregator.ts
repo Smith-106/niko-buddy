@@ -11,6 +11,7 @@
  */
 
 import { loadFactsFile, type FactRecord } from "../facts-store"
+import { toErrorMessage } from "@/lib/utils"
 
 /** 五个确定性来源的 kind 字面量。 */
 export const BRIEFING_SOURCE_KINDS = [
@@ -275,7 +276,7 @@ export function buildBriefingDigest(bundle: BriefingSourceBundle): BriefingDiges
     facts = factAssertions(bundle)
   } catch (e) {
     // facts.json schema 不匹配时既有加载器 fail-loud；简报降级为「该块缺失」而不是猜测。
-    warnings.push(`fact-store unavailable: ${e instanceof Error ? e.message : String(e)}`)
+    warnings.push(`fact-store unavailable: ${toErrorMessage(e)}`)
   }
 
   const bundles: Array<[BriefingBlockKind, BriefingAssertion[]]> = [

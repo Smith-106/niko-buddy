@@ -23,7 +23,7 @@ import {
 import { forecastBranches } from "./plot-forecast"
 import { collectContinuityMetric } from "@/lib/llm-client"
 import { runAuditTriadPreflight, type NovelReviewResult } from "./review-adapter"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 
 export async function runContinuityPreCheck(
   projectPath: string,
@@ -54,7 +54,7 @@ export async function runContinuityPreCheck(
     } catch (err) {
       logger.warn(
         "continuity-engine",
-        `override store load degraded: ${err instanceof Error ? err.message : String(err)}`,
+        `override store load degraded: ${toErrorMessage(err)}`,
       )
       overrideStore = undefined
     }
@@ -137,7 +137,7 @@ export async function checkContinuityCritical(
     } catch (err) {
       logger.warn(
         "continuity-engine",
-        `override store load degraded: ${err instanceof Error ? err.message : String(err)}`,
+        `override store load degraded: ${toErrorMessage(err)}`,
       )
       overrideStore = undefined
     }

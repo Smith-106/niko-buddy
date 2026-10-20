@@ -38,6 +38,7 @@
 import { z } from "zod"
 import type { GateKey } from "./audit-taxonomy"
 import type { GateRunStatus } from "./rule-stack"
+import { toErrorMessage } from "@/lib/utils"
 
 // ============================================================================
 // 事件类别（共识四维切片 + 辅助类别）
@@ -171,7 +172,7 @@ function normalizeEvent(raw: unknown, expectedSeq: number): RunEvent {
   try {
     parsed = RUN_EVENT_SCHEMA.parse(raw)
   } catch (err) {
-    throw new RunEventIntegrityError(`run-event 契约违反: ${err instanceof Error ? err.message : String(err)}`)
+    throw new RunEventIntegrityError(`run-event 契约违反: ${toErrorMessage(err)}`)
   }
   if (parsed.seq !== expectedSeq) {
     throw new RunEventIntegrityError(

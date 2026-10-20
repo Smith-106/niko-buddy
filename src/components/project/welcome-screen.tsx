@@ -6,6 +6,7 @@ import type { WikiProject } from "@/types/wiki"
 import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
 import { importBackup } from "@/lib/backup/import"
+import { toErrorMessage } from "@/lib/utils"
 
 interface WelcomeScreenProps {
   onCreateProject: () => void
@@ -62,7 +63,7 @@ export function WelcomeScreen({
         alert(`恢复失败：${result.error || "未知错误"}`)
       }
     } catch (e) {
-      alert(`恢复失败：${e instanceof Error ? e.message : String(e)}`)
+      alert(`恢复失败：${toErrorMessage(e)}`)
     } finally {
       setIsRestoring(false)
     }

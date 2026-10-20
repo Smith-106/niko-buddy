@@ -31,6 +31,7 @@ import {
   type RunEventLedger,
 } from "./run-event-ledger"
 import { withProjectLock } from "./novel-locks"
+import { toErrorMessage } from "@/lib/utils"
 
 // ============================================================================
 // 路径与 DI
@@ -137,7 +138,7 @@ function parseLedgerText(raw: string | null): RunEventLedger {
       ledger = appendRunEvent(ledger, parsed as RunEventInput)
     } catch (err) {
       throw new RunEventLedgerStoreError(
-        `run-events.jsonl 第 ${i + 1} 行契约违反: ${err instanceof Error ? err.message : String(err)}`,
+        `run-events.jsonl 第 ${i + 1} 行契约违反: ${toErrorMessage(err)}`,
       )
     }
   }
