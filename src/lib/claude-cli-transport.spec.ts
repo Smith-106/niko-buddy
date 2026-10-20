@@ -898,3 +898,19 @@ describe("streamClaudeCodeCli", () => {
     expect(callbacks.onToken).toHaveBeenCalledWith(JSON.stringify({ chapterId: "chapter-6", chapterNumber: 6 }))
   })
 })
+
+describe("ContentBlock 线协议样例（四-7：与 Rust ClaudeContentBlock 大小写对账）", () => {
+  it("text/image 样例 JSON 键拼写与 Rust serde(rename) 一致", () => {
+    const blocks: import("./llm-providers").ContentBlock[] = [
+      { type: "text", text: "hello" },
+      { type: "image", mediaType: "image/png", dataBase64: "aGVsbG8=" },
+    ]
+    const wire = JSON.stringify(blocks)
+    const parsed = JSON.parse(wire) as Array<Record<string, unknown>>
+    expect(parsed[0]).toEqual({ type: "text", text: "hello" })
+    // Rust 侧 Image 分支要求 mediaType/dataBase64（camelCase），snake_case 会进 untagged 失败分支
+    expect(parsed[1]).toEqual({ type: "image", mediaType: "image/png", dataBase64: "aGVsbG8=" })
+    expect("media_type" in parsed[1]).toBe(false)
+    expect("data_base64" in parsed[1]).toBe(false)
+  })
+})
