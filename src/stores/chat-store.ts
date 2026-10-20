@@ -364,7 +364,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       : []
   },
 
-  isConversationStreaming: (conversationId) => conversationId in get().streamingContents,
+  isConversationStreaming: (conversationId) =>
+    conversationId in get().streamingContents || conversationId in pendingStreamTokens,
 
   getStreamingContent: (conversationId) =>
     (get().streamingContents[conversationId] ?? "") + (pendingStreamTokens[conversationId] ?? ""),
