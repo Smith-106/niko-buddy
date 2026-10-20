@@ -28,7 +28,7 @@
 3. 【`review-view.tsx:368,798,808,818`（1625 行）】症状：`handleNovelReview` 双 run＋8 rewrite handlers 混渲染文件。方案：抽 `useReviewRun`＋`useReviewRewrite`。影响：仅 Review 页。
 4. 【✅二期完成 2026-10-20 `graph-view.tsx`（2104→1119 行，-985；commit `73120ad3`）】子视图 verbatim 下沉：sigma-graph-views.tsx（337）＋document-graph-view.tsx（606）＋mindmap-views.tsx（75），三文件逐字节一致；GraphView 主体与 Hook 时序零改动，对外仅导出 GraphView 不变。累计首阶段 `52d12949`（2198→2104）。
 5. 【`story-simulation-view.tsx:361,613,658,941,1024`（2151 行）】症状：编排＋引擎调用＋8 裸 `setTimeout` toast 混杂。方案：抽 `useSimulationRun`＋`toast-service`。影响：仅推演页；引擎不动。
-6. 【`canon-editor.tsx:21,25`（993 行）】症状：直调 `invoke`＋`queryCanonBatch`＋filter 构造散渲染层。方案：收敛进已有 `canon-editor-client.ts`。影响：仅 canon 编辑器；搬运风险最低。
+6. 【✅完成 2026-10-20 `canon-editor.tsx`（993→799 行，-194；commit `90f8baa0`）】校正纯层下沉 `canon-correction.ts`（173，5 函数＋5 类型逐字节一致）＋`buildFilter`/`parseChapterInput` 并入 `canon-editor-client.ts`；原文件保留 re-export，对外 export 100% 不变，barrel/spec 零改动。
 7. 【`writing-skill-library-view.tsx:3,5`（1200 行）】症状：Tauri dialog＋fs＋20+ skill CRUD＋dnd 渲染同文件。方案：IO 下沉 `skill-io-service.ts`。影响：技能库两视图。
 8. 【`llm-provider-section.tsx:5,16`（1453 行）】症状：settings 唯一直调 `invoke`＋proxy＋model list＋测试 hook 同文件。方案：抽 `provider-connection-service.ts`。影响：仅设置页模型测试。
 9. 【`dashboard-view.tsx:201,408`（971 行）】症状：`runFactCheck`/改写 handlers 与渲染同文件。方案：抽 `useDashboardFactCheck`，rewrite 复用 review hook（可再删一份重复）。影响：仅 Dashboard。
