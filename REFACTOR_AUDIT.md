@@ -31,7 +31,7 @@
 6. 【✅完成 2026-10-20 `canon-editor.tsx`（993→799 行，-194；commit `90f8baa0`）】校正纯层下沉 `canon-correction.ts`（173，5 函数＋5 类型逐字节一致）＋`buildFilter`/`parseChapterInput` 并入 `canon-editor-client.ts`；原文件保留 re-export，对外 export 100% 不变，barrel/spec 零改动。
 7. 【`writing-skill-library-view.tsx:3,5`（1200 行）】症状：Tauri dialog＋fs＋20+ skill CRUD＋dnd 渲染同文件。方案：IO 下沉 `skill-io-service.ts`。影响：技能库两视图。
 8. 【`llm-provider-section.tsx:5,16`（1453 行）】症状：settings 唯一直调 `invoke`＋proxy＋model list＋测试 hook 同文件。方案：抽 `provider-connection-service.ts`。影响：仅设置页模型测试。
-9. 【`dashboard-view.tsx:201,408`（971 行）】症状：`runFactCheck`/改写 handlers 与渲染同文件。方案：抽 `useDashboardFactCheck`，rewrite 复用 review hook（可再删一份重复）。影响：仅 Dashboard。
+9. 【✅完成 2026-10-20 `dashboard-view.tsx`（971→889 行，-82；commit `e84df596`）】事项纯层下沉 `dashboard-items.ts`（88：3 类型＋2 label 映射＋5 函数，两段逐字节一致）；SEVERITY_CONFIG 图标配置留守，DashboardView 对外不变，review-center/spec 零改动。
 10. 【✅完成 2026-10-20 `chat-message.tsx`（1205→922 行，-283；commit `dbb706a4`）】内容解析纯层下沉 `chat-message-content.ts`（291：标记/状态识别＋thinking 管线＋processContent，三段逐字节一致）；ACTION_BUTTON_BASE 留守，两组件 export 不变，spec 零改动。
 11. 【`sidebar-panel.tsx:477,522,561,596`（1142 行）】症状：摄取/导入/记忆抽取与侧栏树拖拽同文件。方案：抽 `import-orchestrator.ts`。影响：侧栏导入链路。
 12. 【`knowledge-tree.tsx:10,14~18`（1490 行）】症状：fs 全家桶＋59 hook 调用与树渲染同文件。方案：抽 `useFileTreeModel`。影响：文件树；`FileNode` 不动。
