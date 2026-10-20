@@ -43,6 +43,7 @@
 ## 三、卡顿与性能瓶颈（重点）
 
 > W2-2 清账（2026-10-21）：绿灯项核查结论——P0-2（disposable 存 ref＋unmount 释放）与 P1-15（模块级 once）已在 `c857eea9` 落地；P1-9（subscribeStatusJson 返回 unlisten，两调用方 chat-panel/dashboard-view 均保存并在 cleanup 调用）已在前序提交落地；P1-8（separateThinking/processContent 三处 useMemo：chat-message.tsx:622/706-708）已在位。本波仅补单测：monaco unmount-dispose 断言＋chat-panel 切项目 unlisten 断言（`46f4e750`）；typecheck 0＋4 文件 358 用例绿。`editor.getModel()?.dispose()` 有意不加（DiffEditor 库自管 model 生命周期，手动 dispose 会双重释放）。
+> W2-3 清账（2026-10-21）：黄灯五项——P0-3（chat-store 32ms/1KB 批刷）已在前序提交落地；P0-4 outline streamingContent 显示 32ms 节流＋abort/停止/catch 三处 flush（`09a34776`，panel spec 补 flush mock 一次修复）；P0-5 访谈 placeholder 64ms 节流＋onDone/onError flush（`c273c845`）；P0-6 agent-parser 改顶层 import 并删 Module._load require 垫片（`cae7a3f3`）；P0-7 setStreamingContent 非空替换并入同批刷（pendingReplaces 覆盖语义＋getStreamingContent 最新语义，`d4f1bcdc`）。每项 typecheck 0＋域测试绿（store 53＋panel 196＋outline 61/88＋simulation 34）。
 
 P0（高收益/低风险）：
 1. 【`monaco-loader.ts:19-27`】Worker 与 `vs` 全走 CDN，离线/弱网白屏。方案：本地 `?worker` 构建＋`getWorker` 本地路径，CDN 仅降级；`loader.config` 全局 once。影响：Diff 预览首开与离线可用。⚠️ 落地必须遵守 Monaco 路径红线（只加 fallback，不动已调通的生产路径）。
