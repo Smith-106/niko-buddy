@@ -7,6 +7,16 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.20.0] - 2026-10-21
+
+### Changed
+
+- 全仓大文件拆分＋重构波（F1–F15，约 -5670 行，零 public API 变更）：graph-view 2198→1119 行冻结、llm-provider 1453→131、wiki-store 1087→468、chat-panel 2900→2731、chat-panel.spec 拆为 test-setup＋4 主题文件（196 用例零损失）。
+- 流式性能批刷：chat-store 32ms/1KB 批刷、outline/访谈节流、三路 CLI 后端 24ms/8KB 聚合刷、epub/docx/备份大构建搬入 spawn_blocking（按章真进度）。
+- 类型加固与线协议对账：门枚举 TS 运行时元组、canon 未知值回退、serde 加法兼容 alias（proxy/backup/canon/mcp），线协议/持久化 Schema 零触碰。
+- 门禁：typecheck 0、cargo 423 绿、vitest 15441 绿/0 红（基线 15413）。
+- 发布语义：常规 tag 触发 CI 构建安装包（v2.19.0 未打 tag，本版含其全部内容）。
+
 ## [2.19.0] - 2026-10-19
 
 ### Added

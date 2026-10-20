@@ -15,6 +15,20 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.20.0",
+    date: "2026-10-21",
+    highlights: {
+      en: [
+        "Changed: repo-wide large-file split and refactor wave (F1–F15, ~5670 lines removed, zero public API changes) with streaming batching (chat-store 32ms/1KB, three CLI backends 24ms/8KB aggregation, spawn_blocking export/backup builds) and additive serde alias hardening — wire protocol and persistence schemas untouched.",
+        "Fixed: two regressions caught by the full gate — outline-save title sanitize restored to strip semantics, storage read falls back to globalThis.",
+      ],
+      zh: [
+        "调整：全仓大文件拆分＋重构波（F1–F15，约 -5670 行，零 public API 变更），流式批刷（chat-store 32ms/1KB、三路 CLI 后端 24ms/8KB 聚合、导出/备份大构建 spawn_blocking）与加法式 serde alias 加固——线协议与持久化 Schema 零触碰。",
+        "修复：全量门禁捕获两处回归——outline-save 标题清理恢复 strip 语义、storage 读取回补 globalThis 回落。",
+      ],
+    },
+  },
+  {
     version: "2.19.0",
     date: "2026-10-19",
     highlights: {
