@@ -8,6 +8,8 @@
 
 ## 一、代码冗余与重复造轮子
 
+> W2-1 清账（2026-10-21）：一-1 `7e102f73`（56 文件 family-A→toErrorMessage，family-B 自定义 fallback 保留）；一-2/3/4/8/9 `29e2122a`（normalizePath 去重/fileNameFromLabel 与 sanitizeTitle 收敛 makeSafeFileSlug/spec yaml 用 canonical/3 处 pad 收敛/task-breakpoint 静态 import）；一-6/7 `e65a2243`（utils 新增 bytesToHex＋fnv1aHex＋safeStorageGet，8 处 hex＋3 处 fnv 收敛，crypto/depth-preference 用 safeStorageGet，utils.spec 补 2 组单测）；一-5 生产侧已收敛（仅剩 spec oracle 自算，保留）；一-10 已内用 toErrorMessage，改接 formatOperationError 会变用户文案，保持不动；一-11 `scripts/lib/fs-json.mjs` 已建并迁移 1 处（hub 根非 git 仓，文件在工作树，存量脚本无测试覆盖暂缓逐个迁移）；browser-crypto-shim 为 Vite-alias 零依赖垫片故意不引 utils；conformal-gate 数值型 fnv 与 fnv1a64（64 位）属不同域保留；web-store/export.ts 循环体已有守卫/形态不同保留。
+
 1. 【`src/lib/ingest.ts` 等 137 处 vs canonical `src/lib/utils.ts:18`】症状：`err instanceof Error ? err.message : String(err)` 裸写 137 命中，仅约 30 处已用 `toErrorMessage`。方案：codemod 全量替换（PAT-DC1 脱敏点保留在 canonical 内）。影响：全 src 错误文案上游归一；纯机械，回归风险极低。收益最高。
 2. 【`src/lib/agent/capability-trace-store.ts:62` 私刻 `normalizePath` vs canonical `src/lib/path-utils.ts:7`】症状：私刻多 `.replace(/\/+$/,"")`，语义分叉（尾斜杠）。方案：删私刻，调 canonical＋显式去尾斜杠。影响：仅 2 调用点；消分叉 bug 源。
 3. 【`src/lib/graph-node-page.ts:27` `fileNameFromLabel`、`src/lib/outline-save.ts:45` `sanitizeTitle` vs canonical `src/lib/wiki-filename.ts:34` `makeSafeFileSlug`】症状：三套非法字符类各写一遍，graph 版无截断/NFKC。方案：改为 `makeSafeFileSlug` 薄包装（保留各自 fallback 默认值）。影响：建页 3～4 调用点；统一跨平台文件名行为。
