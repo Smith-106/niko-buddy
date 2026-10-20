@@ -660,6 +660,42 @@ describe("exportNovelEpub（54 号设计 ⑥）", () => {
     expect(result.success).toBe(false)
     expect(result.message).toBe("zip failed")
   })
+
+  it("meta 原样透传且参数键集合锁定（四-9：防自定义标签黑洞/多传字段）", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.files.set(`${PROJECT}/wiki/chapters/001.md`, [
+      "---",
+      "chapter_number: 1",
+      "title: 第一章 开端",
+      "chapter_status: final",
+      "---",
+      "雨停了。",
+    ].join("\n"))
+    fsState.directories.set(`${PROJECT}/wiki/chapters`, [
+      { name: "001.md", path: `${PROJECT}/wiki/chapters/001.md`, is_dir: false },
+    ])
+    const invokeMock = vi.mocked(invoke)
+    invokeMock.mockClear()
+    invokeMock.mockResolvedValueOnce({
+      success: true,
+      exportedPath: `${PROJECT}/complete-novel.epub`,
+      chapterCount: 1,
+      message: "ok",
+    })
+    await exportNovelEpub({
+      projectPath: PROJECT,
+      exportPath: `${PROJECT}/complete-novel.epub`,
+      meta: { title: "T", author: "A", language: "zh-CN", identifier: "urn:uuid:1" },
+    })
+    expect(invokeMock).toHaveBeenCalledTimes(1)
+    const [command, args] = invokeMock.mock.calls[0] as [string, Record<string, unknown>]
+    expect(command).toBe("export_novel_epub")
+    // 接口快照：参数键集合与 meta 键集合双锁定——Rust EpubMeta 仅认此 4 键，
+    // 多传即静默黑洞，少传即缺省覆盖，任一漂移都在这里变红。
+    expect(Object.keys(args).sort()).toEqual(["chapters", "exportPath", "meta"])
+    expect(args.meta).toEqual({ title: "T", author: "A", language: "zh-CN", identifier: "urn:uuid:1" })
+  })
 })
 
 describe("exportInteractiveStory (64 号实施接线：P0-1 互动影游落盘)", () => {
