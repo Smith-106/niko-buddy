@@ -4,26 +4,10 @@
  * 断言严格对照 src/components/sources/outline-chat-panel.tsx 源码实现。
  */
 import { act } from "react"
-import Module from "node:module"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { fireEvent, render, screen, setupDomGlobals, waitFor } from "@/test-helpers/component-test-utils"
 import { OutlineChatPanel } from "./outline-chat-panel"
-
-// 源码 outline-chat-panel.tsx:131 在 render 期用 Node 的 require() 读取 agent-parser
-// （vite-node 的 createRequire 无法解析 @/ 别名）。拦截 Module._load 把该请求
-// 映射到 vi.mock 的导出，保证 require 与动态 import 返回同一份 mock。
-const originalLoad = (Module as unknown as { _load: (request: string, parent: unknown, isMain: boolean) => unknown })._load
-;(Module as unknown as { _load: (request: string, parent: unknown, isMain: boolean) => unknown })._load = function (this: unknown, request: string, parent: unknown, isMain: boolean) {
-  if (request === "@/lib/novel/agent-parser") {
-    return {
-      parseAgentResponse: mocks.parseAgentResponse,
-      detectEditIntent: mocks.detectEditIntent,
-      buildAgentSystemSuffix: mocks.buildAgentSystemSuffix,
-    }
-  }
-  return originalLoad.call(this, request, parent, isMain)
-}
 
 interface ProjectLike {
   id: string

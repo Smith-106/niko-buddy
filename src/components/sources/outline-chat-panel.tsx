@@ -18,6 +18,7 @@ import { UnpackOutlineDialog } from "@/components/novel/unpack-outline-dialog"
 import { prepareOutlineSaveDraft } from "@/lib/outline-save"
 import { resolveUserVisibleReasoning } from "@/lib/user-visible-reasoning"
 import { createDeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
+import { parseAgentResponse } from "@/lib/novel/agent-parser"
 import { ChatInput } from "@/components/chat/chat-input"
 import {
   buildWebResearchContext,
@@ -131,7 +132,6 @@ function OutlineAssistantMessage({ msg, index, isStreaming, streamingContent, ac
   // Parse for file edits
   const parsed = useMemo(() => {
     if (!answer) return { textContent: "", edits: [], hasEdits: false }
-    const { parseAgentResponse } = require("@/lib/novel/agent-parser") as typeof import("@/lib/novel/agent-parser")
     return parseAgentResponse(answer)
   }, [answer])
 
