@@ -381,7 +381,7 @@ export function ChatPanel() {
       const plan = await buildChapterPlan(normalizePath(project.path), chapterNumber ?? 0)
       setPlanningPlan(plan)
     } catch (error) {
-      setPlanningError(error instanceof Error ? error.message : String(error))
+      setPlanningError(toErrorMessage(error))
     } finally {
       setPlanningLoading(false)
     }
@@ -653,7 +653,7 @@ export function ChatPanel() {
       useWikiStore.getState().setActiveView("wiki")
       return { success: true, chapterNumber: targetChapterNumber, chapterPath }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       setChapterSaveState({
         conversationId: latestDraftContext.conversationId,
         messageId: latestDraftContext.assistantMessage.id,
@@ -719,7 +719,7 @@ export function ChatPanel() {
         isSaving: false,
       })
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       setChapterSaveState({
         conversationId: latestDraftContext.conversationId,
         messageId: latestDraftContext.assistantMessage.id,
@@ -1158,7 +1158,7 @@ export function ChatPanel() {
                   }
                   checkpointPersistError = null
                 } catch (error) {
-                  checkpointPersistError = error instanceof Error ? error.message : String(error)
+                  checkpointPersistError = toErrorMessage(error)
                   sessionDebug.checkpointWrite = { error: checkpointPersistError }
                   throw new Error(`CHECKPOINT_PERSIST_FAILED: ${checkpointPersistError}`)
                 }
@@ -1277,7 +1277,7 @@ export function ChatPanel() {
                 lastError: pausedState.current_task.last_error ?? null,
               }
             } catch (persistError) {
-              pausePersistError = persistError instanceof Error ? persistError.message : String(persistError)
+              pausePersistError = toErrorMessage(persistError)
               sessionDebug.pauseWrite = { error: pausePersistError }
               console.warn("深度生成暂停状态落盘失败:", persistError)
             }
@@ -2103,7 +2103,7 @@ export function ChatPanel() {
                 }
                 checkpointPersistError = null
               } catch (error) {
-                checkpointPersistError = error instanceof Error ? error.message : String(error)
+                checkpointPersistError = toErrorMessage(error)
                 sessionDebug.checkpointWrite = { error: checkpointPersistError }
                 throw new Error(`CHECKPOINT_PERSIST_FAILED: ${checkpointPersistError}`)
               }
@@ -2350,7 +2350,7 @@ export function ChatPanel() {
             }
           }
         } catch (persistError) {
-          pausePersistError = persistError instanceof Error ? persistError.message : String(persistError)
+          pausePersistError = toErrorMessage(persistError)
           /* v8 ignore next */
           if (continueSessionDebug) {
             continueSessionDebug.pauseWrite = { error: pausePersistError }

@@ -10,6 +10,7 @@ import { withProjectLock } from "@/lib/project-mutex"
 import type { ReviewItem } from "@/stores/review-store"
 import type { DisplayMessage, Conversation } from "@/stores/chat-store"
 import { normalizePath } from "@/lib/path-utils"
+import { toErrorMessage } from "@/lib/utils"
 
 /** Safely parse a JSON string into an array, returning [] on failure. */
 function safeParseArray<T>(content: string, fieldName: string = "items"): T[] {
@@ -56,7 +57,7 @@ interface PersistedChatData {
 }
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return toErrorMessage(error)
 }
 
 /**

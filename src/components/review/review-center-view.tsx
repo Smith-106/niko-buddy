@@ -20,6 +20,7 @@ import { isArcStage } from "@/lib/novel"
 import { readFile } from "@/commands/fs"
 import { startSixDimensionReviewRun, SIX_REVIEW_DIMENSION_ORDER } from "@/lib/novel"
 import type { SixReviewDimensionKey } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 function isSixReviewDimensionKey(value: string | null): value is SixReviewDimensionKey {
   return SIX_REVIEW_DIMENSION_ORDER.includes(value as SixReviewDimensionKey)
@@ -282,7 +283,7 @@ function ReviewStartButton() {
           // F11-3：去掉中文 fallback 兜底（key 中英在位：zh.json/en.json readFailed）。
           // F13：全宽冒号 → 半宽（en 面零 CJK 标点口径；zh 面渲染等价）。
           `${t("reviewCenter.readFailed")}: ${
-            error instanceof Error ? error.message : String(error)
+            toErrorMessage(error)
           }`,
         )
       })

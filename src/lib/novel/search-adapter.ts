@@ -1,7 +1,7 @@
 import { searchWiki } from "@/lib/search"
 import { readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { rerankCandidates } from "@/lib/rerank"
 import { type EmbeddingConfig } from "@/stores/wiki-store"
 import { loadSnapshot, listSnapshots } from "./chapter-ingest"
@@ -302,7 +302,7 @@ async function runSearchBranch<T>(label: string, promise: Promise<T>): Promise<T
   try {
     return await withTimeout(promise, SEARCH_SOURCE_TIMEOUT_MS, label)
   } catch (err) {
-    logger.error("Novel Search", `${label} error`, { error: err instanceof Error ? err.message : String(err) })
+    logger.error("Novel Search", `${label} error`, { error: toErrorMessage(err) })
     ledger.check(RETRIEVAL_BUDGET_PATHS.searchBranch, Date.now() - startedAt)
     return ledger.rollback<undefined, T>(RETRIEVAL_BUDGET_PATHS.searchBranch, undefined)
   }

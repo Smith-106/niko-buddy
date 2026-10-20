@@ -21,6 +21,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { normalizeReviewTitle } from "@/lib/review-utils"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { resolveDefaultModel } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -256,7 +257,7 @@ async function judgeBatch(
       signal,
     )
   } catch (err) {
-    console.warn("[Sweep Reviews] LLM call failed:", err instanceof Error ? err.message : String(err))
+    console.warn("[Sweep Reviews] LLM call failed:", toErrorMessage(err))
     return new Set()
   }
 

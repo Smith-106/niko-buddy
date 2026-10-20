@@ -233,7 +233,7 @@ function PresetRow({
         loading: false,
         success: false,
         message: t("settings.sections.shared.modelListFailed", {
-          message: error instanceof Error ? error.message : String(error),
+          message: toErrorMessage(error),
         }),
       })
     }
@@ -1028,7 +1028,7 @@ function ClaudeCliStatusPill() {
         installed: false,
         version: null,
         path: null,
-        error: e instanceof Error ? e.message : String(e),
+        error: toErrorMessage(e),
       })
       setState("err")
     }
@@ -1135,7 +1135,7 @@ function CodexCliStatusPill() {
         installed: false,
         version: null,
         path: null,
-        error: e instanceof Error ? e.message : String(e),
+        error: toErrorMessage(e),
       })
       setState("err")
     }
@@ -1238,7 +1238,7 @@ function AntigravityCliStatusPill() {
       setResult(r)
       setState(r.installed ? "ok" : "err")
     } catch (e) {
-      setResult({ installed: false, version: null, path: null, error: e instanceof Error ? e.message : String(e) })
+      setResult({ installed: false, version: null, path: null, error: toErrorMessage(e) })
       setState("err")
     }
   }
@@ -1346,7 +1346,7 @@ function CursorProxyStatusBadge() {
         healthy: false,
         base_url: "",
         managed: false,
-        error: e instanceof Error ? e.message : String(e),
+        error: toErrorMessage(e),
       })
       setState("err")
     }

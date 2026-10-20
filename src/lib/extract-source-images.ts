@@ -12,6 +12,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { getFileName, normalizePath } from "@/lib/path-utils"
 import { isTauri } from "@/lib/platform"
 import { toast } from "@/lib/toast"
+import { toErrorMessage } from "@/lib/utils"
 
 /** Mirrors `commands::extract_images::SavedImage` on the Rust side. */
 export interface SavedImage {
@@ -110,7 +111,7 @@ export async function extractAndSaveSourceImages(
     }
   } catch (err) {
     // ③-11：错误从静默吞错改为 toast 提示（保留 console.warn 供诊断）
-    const message = err instanceof Error ? err.message : String(err)
+    const message = toErrorMessage(err)
     toast.error(`图片提取失败（${fileName}）：${message}`)
     console.warn(
       `[ingest:images] extraction failed for "${fileName}":`,

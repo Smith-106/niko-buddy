@@ -525,7 +525,7 @@ export function SidebarPanel() {
       await finishChapterImport(projectPath, importedChapters, extractMemory)
       invalidateChapterCache(projectPath)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       console.error("[SidebarPanel] chapter file import failed:", error)
       window.alert(`导入失败：${message}`)
     } finally {
@@ -564,7 +564,7 @@ export function SidebarPanel() {
       await finishChapterImport(projectPath, importedChapters, extractMemory)
       invalidateChapterCache(projectPath)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       console.error("[SidebarPanel] chapter folder import failed:", error)
       window.alert(`导入失败：${message}`)
     } finally {
@@ -600,7 +600,7 @@ export function SidebarPanel() {
       }
       await refreshTree(projectPath, importedPaths[0])
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       console.error("[SidebarPanel] outline file import failed:", error)
       window.alert(t("novel.outlineImport.importFailed", {
         message,
@@ -645,7 +645,7 @@ export function SidebarPanel() {
         await extractImportedOutlineMemories(projectPath, importedPaths)
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       console.error("[SidebarPanel] outline folder import failed:", error)
       window.alert(t("novel.outlineImport.importFailed", {
         message,

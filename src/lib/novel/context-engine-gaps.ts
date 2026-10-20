@@ -7,7 +7,7 @@
  * IC-02 gap 契约状态（contextGaps + 激活开关）/ build-scoped mutex /
  * build 预算持有 / 降级分级日志 logDegradation。
  */
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { classifyKbError, recoveryPlanFor } from "./kb-observability"
 import type { ContextGapReason } from "./context-data-source"
 import type { ContextBudget } from "@/lib/context-budget"
@@ -215,7 +215,7 @@ export function logDegradation(
   const cls = classifyKbError(error, ctx)
   const plan = recoveryPlanFor(cls)
   logger.warn("ContextEngine", message, {
-    error: error instanceof Error ? error.message : String(error),
+    error: toErrorMessage(error),
     class: cls,
     eventType: plan.eventType,
     recovery: plan.action,

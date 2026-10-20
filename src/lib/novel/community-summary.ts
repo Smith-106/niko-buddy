@@ -6,7 +6,7 @@ import { resolveNovelModel } from "@/lib/novel/model-resolver"
 import { embedPage, searchByEmbedding } from "@/lib/embedding"
 import { useWikiStore, type NovelConfig, type LlmConfig, type EmbeddingConfig } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 
 /** 社区摘要持久化结构 */
 export interface CommunitySummaryRecord {
@@ -123,7 +123,7 @@ export async function generateCommunitySummaries(
             },
           }
         } catch (err) {
-          logger.warn("CommunitySummary", `生成社区 ${community.id} 摘要失败`, { error: err instanceof Error ? err.message : String(err) })
+          logger.warn("CommunitySummary", `生成社区 ${community.id} 摘要失败`, { error: toErrorMessage(err) })
         }
       } finally {
         semaphore.release()
@@ -141,7 +141,7 @@ export async function generateCommunitySummaries(
     try {
       await writeFile(summaryPath, JSON.stringify(record, null, 2))
     } catch (err) {
-      logger.warn("CommunitySummary", `持久化社区 ${community.id} 摘要失败`, { error: err instanceof Error ? err.message : String(err) })
+      logger.warn("CommunitySummary", `持久化社区 ${community.id} 摘要失败`, { error: toErrorMessage(err) })
       continue
     }
 
@@ -152,7 +152,7 @@ export async function generateCommunitySummaries(
         const title = `社区 ${community.id} 摘要（${community.topNodes[0] ?? ""}）`
         await embedPage(pp, pageId, title, record.summary, embCfgResolved)
       } catch (err) {
-        logger.warn("CommunitySummary", `向量化社区 ${community.id} 失败`, { error: err instanceof Error ? err.message : String(err) })
+        logger.warn("CommunitySummary", `向量化社区 ${community.id} 失败`, { error: toErrorMessage(err) })
       }
     }
   }
@@ -442,7 +442,7 @@ export async function generateCommunitySummariesForChapter(
           communitySummaryCache.set(cacheKey, summary)
         } catch (err) {
           // Non-blocking: skip this community, keep others.
-          logger.warn("CommunitySummary", `生成社区 ${community.id} 摘要失败`, { error: err instanceof Error ? err.message : String(err) })
+          logger.warn("CommunitySummary", `生成社区 ${community.id} 摘要失败`, { error: toErrorMessage(err) })
           continue
         }
       }

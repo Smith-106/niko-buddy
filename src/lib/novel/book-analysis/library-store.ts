@@ -5,7 +5,7 @@
  */
 import { readFile, writeFile, createDirectory } from "@/commands/fs"
 import { joinPath, normalizePath } from "@/lib/path-utils"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import type { BookLibrary, BookLibraryEntry } from "./types"
 
 const LIBRARY_FILE = "library.json"
@@ -29,7 +29,7 @@ export async function loadBookLibrary(projectPath: string): Promise<BookLibrary>
     }
     return parsed
   } catch (err) {
-    logger.warn("Library Store", "load failed, fallback to empty", { error: err instanceof Error ? err.message : String(err) })
+    logger.warn("Library Store", "load failed, fallback to empty", { error: toErrorMessage(err) })
     return emptyLibrary()
   }
 }

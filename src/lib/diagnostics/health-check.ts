@@ -32,6 +32,7 @@ import { loadFtsIndex, rebuildWikiFtsIndex } from "@/lib/novel/fts-index"
 import { loadExportHistoryView } from "@/lib/export/export-history-view"
 import { assessLlmHealth, type LlmHealthStatus } from "@/lib/llm-health"
 import { isTauri } from "@/lib/platform"
+import { toErrorMessage } from "@/lib/utils"
 
 // ── 健康状态机（J15 顶层聚合态） ─────────────────────────────────────────────
 export type HealthStatus =
@@ -239,7 +240,7 @@ async function runHealthItem(projectPath: string): Promise<HealthItem> {
       userImpact: "无法读取写作会话状态",
       suggestedAction: "检查项目 .novel/status.json 是否损坏",
       autoRecoverable: false,
-      technicalDetail: e instanceof Error ? e.message : String(e),
+      technicalDetail: toErrorMessage(e),
       errorCode: "RUN_STATUS_UNREADABLE",
       recoveries: [],
     }
@@ -288,7 +289,7 @@ async function historyHealthItem(projectPath: string): Promise<HealthItem> {
       userImpact: "无法读取导出历史",
       suggestedAction: "检查 .novel/export-history.json 是否损坏",
       autoRecoverable: false,
-      technicalDetail: e instanceof Error ? e.message : String(e),
+      technicalDetail: toErrorMessage(e),
       errorCode: "HISTORY_UNREADABLE",
       recoveries: [],
     }
@@ -346,7 +347,7 @@ async function indexHealthItem(projectPath: string): Promise<HealthItem> {
       userImpact: "无法检测搜索索引状态",
       suggestedAction: "重建搜索索引",
       autoRecoverable: true,
-      technicalDetail: e instanceof Error ? e.message : String(e),
+      technicalDetail: toErrorMessage(e),
       errorCode: "INDEX_CHECK_FAILED",
       recoveries: [
         {
@@ -409,7 +410,7 @@ async function projectFsHealthItem(projectPath: string): Promise<HealthItem> {
       userImpact: "项目目录不可访问",
       suggestedAction: "确认项目路径存在且可读",
       autoRecoverable: false,
-      technicalDetail: e instanceof Error ? e.message : String(e),
+      technicalDetail: toErrorMessage(e),
       errorCode: "PROJECT_UNREACHABLE",
       recoveries: [],
     }
@@ -481,7 +482,7 @@ async function versionHealthItem(projectPath: string): Promise<HealthItem> {
       userImpact: "无法检测版本/协议状态",
       suggestedAction: "重新检测",
       autoRecoverable: false,
-      technicalDetail: e instanceof Error ? e.message : String(e),
+      technicalDetail: toErrorMessage(e),
       errorCode: "VERSION_CHECK_FAILED",
       recoveries: [],
     }
@@ -535,7 +536,7 @@ async function runtimeHealthItem(projectPath: string): Promise<HealthItem> {
       userImpact: "应用进程/IPC 不可达",
       suggestedAction: "重启应用",
       autoRecoverable: false,
-      technicalDetail: e instanceof Error ? e.message : String(e),
+      technicalDetail: toErrorMessage(e),
       errorCode: "RUNTIME_PROBE_FAILED",
       recoveries: [
         {

@@ -5,7 +5,7 @@
 import { readFile } from "@/commands/fs"
 import { searchWiki } from "@/lib/search"
 import { joinPath } from "@/lib/path-utils"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import type {
   CharacterAura,
   CharacterAuraBinding,
@@ -259,7 +259,7 @@ export async function hasCharacterProfile(projectPath: string, characterName: st
       const content = await readFile(result.path)
       if (/人物小传|人物设定/.test(content) && content.includes(characterName)) return true
     } catch (err) {
-      logger.warn("Character Aura", "readFile failed for research file", { error: err instanceof Error ? err.message : String(err) })
+      logger.warn("Character Aura", "readFile failed for research file", { error: toErrorMessage(err) })
     }
   }
   return false

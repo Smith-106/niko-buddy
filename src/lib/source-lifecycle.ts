@@ -34,6 +34,7 @@ import {
   stripDeletedWikilinks,
 } from "@/lib/wiki-cleanup"
 import { collectAllFilesIncludingDot } from "@/lib/sources-tree-delete"
+import { toErrorMessage } from "@/lib/utils"
 
 export const INGESTABLE_SOURCE_EXTENSIONS = new Set([
   "md", "mdx", "txt", "pdf", "docx", "pptx", "xlsx",
@@ -122,7 +123,7 @@ export async function importSourceFiles(
       preprocessFile(dest).catch((err) => {
         console.error(
           `Failed to preprocess imported file ${orig}:`,
-          err instanceof Error ? err.message : String(err),
+          toErrorMessage(err),
         )
       })
     } catch (err) { console.error(`Failed to import ${orig}:`, err) }

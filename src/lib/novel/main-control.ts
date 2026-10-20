@@ -18,6 +18,7 @@ import type { RunDeepChapterGeneration } from "@/lib/agent/tools/run-chapter-wor
 import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { recordModuleHit } from "./module-heat"
+import { toErrorMessage } from "@/lib/utils"
 
 /** 质量闭环工具（仅在调用方注入 scoreChapter/reviseChapter 时才注册）。 */
 export const MAIN_CONTROL_QUALITY_TOOLS = ["score_chapter", "revise_chapter"] as const
@@ -230,7 +231,7 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
   try {
     record = await runner.run(config, registry, messages, callbacks, options.signal)
   } catch (err) {
-    if (!fatal) runError = err instanceof Error ? err.message : String(err)
+    if (!fatal) runError = toErrorMessage(err)
   }
 
   const steps2 = record?.toolCalls?.length

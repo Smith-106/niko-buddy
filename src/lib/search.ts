@@ -4,6 +4,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import type { FileNode } from "@/types/wiki"
 import { normalizePath, getFileStem } from "@/lib/path-utils"
 import { sanitizeEntitySlug } from "./novel/graph-adapter"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * One image reference extracted from a matched page's markdown.
@@ -443,7 +444,7 @@ export async function searchWiki(
     // F-16 (CWE-532): rerank may hit an embedding/rerank provider whose error
     // object carries request URL/auth — message-only, mirroring :356 vector
     // search catch (PAT-G2 file-internal twin).
-    console.warn("[search] rerank failed, using fused order:", error instanceof Error ? error.message : String(error))
+    console.warn("[search] rerank failed, using fused order:", toErrorMessage(error))
     return limited
   }
 }

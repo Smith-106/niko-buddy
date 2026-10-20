@@ -51,7 +51,7 @@ import {
   type PreWriteGateMode,
 } from "./canon-pre-write-gate"
 import { appendFoldConflictLog, promote } from "./promotion-bridge"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 
 // ──────────────────────────────────────────────────────────────────────────
 // canon revision 持久化 TS 侧预热（DEBT-20260820-13）
@@ -110,7 +110,7 @@ export async function saveDivergenceTrace(
     })
   } catch (err) {
     // divergence trace 是非致命审计操作，写入失败不阻断主流程
-    console.warn("[canon] saveDivergenceTrace failed (non-fatal):", err instanceof Error ? err.message : String(err))
+    console.warn("[canon] saveDivergenceTrace failed (non-fatal):", toErrorMessage(err))
   }
 }
 
@@ -124,7 +124,7 @@ export async function loadDivergenceTrace(projectPath: string): Promise<string> 
       projectId: projectPath,
     })
   } catch (err) {
-    console.warn("[canon] loadDivergenceTrace failed (non-fatal):", err instanceof Error ? err.message : String(err))
+    console.warn("[canon] loadDivergenceTrace failed (non-fatal):", toErrorMessage(err))
     return ""
   }
 }
@@ -460,7 +460,7 @@ export async function canonStoreWriter(
     })
     return { ok: true, revision: res.max_revision }
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    return { ok: false, error: toErrorMessage(err) }
   }
 }
 
@@ -519,7 +519,7 @@ export async function snapshotLegacyWriter(
     await writeFileAtomic(legacyPath, existing + line)
     return { ok: true }
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    return { ok: false, error: toErrorMessage(err) }
   }
 }
 
@@ -558,7 +558,7 @@ async function safeWrite<P>(
   try {
     return await fn(projectPath, payload)
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    return { ok: false, error: toErrorMessage(err) }
   }
 }
 

@@ -1,6 +1,6 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat, setMetricsFilePath, setMetricsTraceId, flushMetrics, setContinuityMetricsFilePath, flushContinuityMetrics, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
-import { setLogTraceId, logger } from "@/lib/utils"
+import { logger, setLogTraceId, toErrorMessage } from "@/lib/utils"
 import { resolveTaskExtraPrompt } from "./task-customization"
 import { useWikiStore } from "@/stores/wiki-store"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
@@ -1168,7 +1168,7 @@ function runPreWriteOutlineThrillSoftGate(
     return reviewResults
   } catch (error) {
     logger.warn("DeepChapter", "outline thril soft-gate failed (non-fatal)", {
-      error: error instanceof Error ? error.message : String(error), /* v8 ignore start */ /* v8 ignore stop */
+      error: toErrorMessage(error), /* v8 ignore start */ /* v8 ignore stop */
     })
     return []
   }
@@ -1248,7 +1248,7 @@ async function runPostDraftStateDeltaLightCheck(
     return reviewResults
   } catch (error) {
     logger.warn("DeepChapter", "StateDelta light-check failed (non-fatal)", {
-      error: error instanceof Error ? error.message : String(error),
+      error: toErrorMessage(error),
     })
     return []
   }
@@ -1292,7 +1292,7 @@ async function runPreviousChaptersAnalysis(
     }
   } catch (error) {
     // F-16 (CWE-532): message-only to avoid leaking provider request details.
-    logger.error("deep-chapter-generation", "前情分析失败", { error: error instanceof Error ? error.message : String(error) })
+    logger.error("deep-chapter-generation", "前情分析失败", { error: toErrorMessage(error) })
   }
   return previousChaptersAnalysis
 }

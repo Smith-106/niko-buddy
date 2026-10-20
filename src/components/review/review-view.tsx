@@ -54,6 +54,7 @@ import {
   type ReviewRewriteIssue,
 } from "@/lib/review-rewrite-plan"
 import { FindingCompareDialog } from "./finding-compare-dialog"
+import { toErrorMessage } from "@/lib/utils"
 
 const typeConfig: Record<ReviewItem["type"], { icon: typeof AlertTriangle; labelKey: string; novelLabelKey: string; color: string }> = {
   contradiction: { icon: AlertTriangle, labelKey: "review.typeLabels.contradiction", novelLabelKey: "novel.review.typeLabels.contradiction", color: "text-warning" },
@@ -338,7 +339,7 @@ export function ReviewView({
       }, meta.chapter)
       setAlertMessage(`${t("review.results.dismiss.confirmButton")} (${meta.ref})`)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       setAlertMessage(`${t("review.results.dismiss.titleLabel")}: ${message}`)
     } finally {
       setDismissTarget(null)
@@ -414,7 +415,7 @@ export function ReviewView({
       // carry provider endpoint URL / auth header — strip before surfacing in
       // the rewriteError banner. Raw message logged to console only.
       // (Twin of dashboard-view.tsx rewrite catch + ingest.ts activity sites.)
-      const raw = error instanceof Error ? error.message : String(error)
+      const raw = toErrorMessage(error)
       console.error("[ReviewView] AI review rewrite failed:", raw)
       const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
       setRewriteError(safe || t("review.rewrite.errorRegenerate"))
@@ -527,7 +528,7 @@ export function ReviewView({
     } catch (error) {
       // F-16 (CWE-532 / PAT-DC1-MSG-UI): catch-path twin of the generate-rewrite
       // catch above. err.message may carry provider URL/auth — strip before UI.
-      const raw = error instanceof Error ? error.message : String(error)
+      const raw = toErrorMessage(error)
       console.error("[ReviewView] rewrite apply failed:", raw)
       const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
       setRewriteError(safe || t("review.rewrite.errorRegenerate"))

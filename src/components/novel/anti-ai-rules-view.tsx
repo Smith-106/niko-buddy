@@ -8,6 +8,7 @@ import {
   type DeAiSkill,
   type DeAiSkillConfig,
 } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface AntiAiRulesViewProps {
   readonly projectPath: string
@@ -76,7 +77,7 @@ export function AntiAiRulesView({ projectPath }: AntiAiRulesViewProps) {
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          const message = error instanceof Error ? error.message : String(error)
+          const message = toErrorMessage(error)
           setConfig(null)
           setLoadError(`加载失败：${message}`)
           setLoading(false)
@@ -110,7 +111,7 @@ export function AntiAiRulesView({ projectPath }: AntiAiRulesViewProps) {
       await saveDeAiSkillConfig(projectPath, next)
       setConfig(next)
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       setSaveError(`保存失败：${skill.name}切换失败，请重试（${message}）`)
     } finally {
       setSavingId(null)

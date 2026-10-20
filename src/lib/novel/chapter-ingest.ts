@@ -5,7 +5,7 @@ import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } 
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { isChapterPage, isFinalChapter, parseChapterNumber } from "./chapter-meta"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequestCancelledError, type StreamCallbacks } from "@/lib/llm-client"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import { canonicalizeSnapshotCharacters, writeSnapshotToWiki, writePatchFieldsToWiki, sanitizeEntitySlug } from "./graph-adapter"
@@ -476,7 +476,7 @@ export async function runCanonDualWriteHook(
     }
   } catch (err) {
     logger.warn("Chapter Ingest", "Canon dual-write hook failed (non-fatal)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
     })
   }
 }
@@ -505,7 +505,7 @@ export async function ingestChapter(
     }
   } catch (err) {
     logger.warn("Chapter Ingest", "Canon dual-write replay failed (non-fatal)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
     })
   }
 
@@ -546,7 +546,7 @@ export async function ingestChapter(
     }
   } catch (err) {
     logger.warn("Chapter Ingest", "failed 投影自愈异常（非致命，继续本章摄取）", {
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
     })
   }
 
@@ -582,7 +582,7 @@ export async function ingestChapter(
       snapshot.validationWarnings = [...linkWarnings, ...entityWarnings, ...canonWarnings, ...truthAuthorityWarnings]
       snapshot.entityIsNew = snapshot.entityIsNew || {}
     } catch (err) {
-      logger.warn("Chapter Ingest", "Validation failed", { error: err instanceof Error ? err.message : String(err) })
+      logger.warn("Chapter Ingest", "Validation failed", { error: toErrorMessage(err) })
       snapshot.validationWarnings = []
       snapshot.entityIsNew = {}
     }
@@ -606,7 +606,7 @@ export async function ingestChapter(
       }
     } catch (err) {
       logger.warn("Chapter Ingest", "memory-op plan skipped", {
-        error: err instanceof Error ? err.message : String(err),
+        error: toErrorMessage(err),
       })
     }
     // 54 号设计 ③: facts-store 接线 (graphiti Fact 契约吸收)。
@@ -651,7 +651,7 @@ export async function ingestChapter(
       }
     } catch (err) {
       logger.warn("Chapter Ingest", "facts-store write skipped", {
-        error: err instanceof Error ? err.message : String(err),
+        error: toErrorMessage(err),
       })
     }
     // T16 / F-14: canon 影子双写钩子（仅 final/accepted 章触发，deps 缺省空操作）。
@@ -729,7 +729,7 @@ export async function ingestChapter(
       await appendProjectionAuditEntry(pp, entry)
     } catch (err) {
       logger.warn("Chapter Ingest", "Projection audit append failed (non-fatal)", {
-        error: err instanceof Error ? err.message : String(err),
+        error: toErrorMessage(err),
       })
     }
   }
@@ -745,7 +745,7 @@ export async function ingestChapter(
       projectionLedger = recordProjectionStatus(projectionLedger, chapterNo, projection, "committed")
       await recordProjectionAuditEvent(projection, "committed", Date.now() - startedAt)
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = toErrorMessage(err)
       logger.warn("Chapter Ingest", `Projection "${projection}" failed`, { error: message })
       projectionLedger = recordProjectionStatus(projectionLedger, chapterNo, projection, "failed", message)
       await recordProjectionAuditEvent(projection, "failed", Date.now() - startedAt, message)
@@ -840,7 +840,7 @@ export async function ingestChapter(
     try {
       await saveProjectionStatusLedger(pp, projectionLedger)
     } catch (err) {
-      logger.warn("Chapter Ingest", "ProjectionStatusLedger save failed", { error: err instanceof Error ? err.message : String(err) })
+      logger.warn("Chapter Ingest", "ProjectionStatusLedger save failed", { error: toErrorMessage(err) })
     }
   }
 
@@ -858,7 +858,7 @@ export async function ingestChapter(
       try {
         await generateCommunitySummaries(pp, llmConfig, novelConfig)
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
+        const message = toErrorMessage(err)
         logger.warn("Chapter Ingest", "社区摘要生成失败", { error: message })
         await restoreCommunitySummariesLastGood(pp)
         await recordProjectionAuditEvent("community_summary", "failed", Date.now() - rebuildStartedAt, message)
@@ -886,7 +886,7 @@ export async function ingestChapter(
 export const ingestChapterPipeline = createChapterPipeline({ ingestChapter })
 
 function normalizeOutlineIngestError(err: unknown): Error {
-  const message = err instanceof Error ? err.message : String(err)
+  const message = toErrorMessage(err)
   if (/request cancelled|aborted|cancelled/i.test(message)) {
     return new Error("大纲摄取已中断，请稍后重试")
   }
@@ -1146,7 +1146,7 @@ ${sliceChapterForReview(chapterBody)}
       eventDetails: record.eventDetails || undefined,
     }, { chapterId: `chapter-${chapterNumber}`, chapterNumber })
   } catch (err) {
-    logger.error("Chapter Ingest", "Failed to extract snapshot", { error: err instanceof Error ? err.message : String(err) })
+    logger.error("Chapter Ingest", "Failed to extract snapshot", { error: toErrorMessage(err) })
     throw err
   }
 }
@@ -1480,7 +1480,7 @@ async function sampleUnfoldedMemoryDriftSuspected(projectPath: string): Promise<
       .map((r) => r.file)
   } catch (err) {
     logger.warn("Chapter Ingest", "syncSnapshotToMemory 6 类 drift 采样失败（债务记 trace，不阻断）", {
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
     })
     return []
   }
@@ -1609,7 +1609,7 @@ export async function syncSnapshotToMemory(
           chapter: syncedSnapshot.chapterNumber,
           status: "failed",
           durationMs: Date.now() - startedAt,
-          error: err instanceof Error ? err.message : String(err),
+          error: toErrorMessage(err),
           timestamp: new Date().toISOString(),
         })
       } catch {
@@ -1994,7 +1994,7 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
         await cleanupSupersededEntityFiles(projectPath, snapshot, writtenPaths)
       }
     } catch (err) {
-      logger.warn("Chapter Ingest", "Graph projection rebuild failed for chapter", { chapter: snapshot.chapterNumber, error: err instanceof Error ? err.message : String(err) })
+      logger.warn("Chapter Ingest", "Graph projection rebuild failed for chapter", { chapter: snapshot.chapterNumber, error: toErrorMessage(err) })
     }
   }
 
@@ -2024,7 +2024,7 @@ async function rebuildFromCommittedSnapshot(projectPath: string, latestSnapshot?
         logger.warn("Chapter Ingest", `rebuild: ${skippedNoSummary} snapshot(s) skipped (summary empty — REBUILD_REEMBED_SOURCE unavailable)`, { skipped: skippedNoSummary })
       }
     } catch (err) {
-      logger.warn("Chapter Ingest", "Vector projection rebuild failed", { error: err instanceof Error ? err.message : String(err) })
+      logger.warn("Chapter Ingest", "Vector projection rebuild failed", { error: toErrorMessage(err) })
     }
   }
 }
@@ -2108,7 +2108,7 @@ export async function selfHealFailedProjections(
     await saveProjectionStatusLedger(pp, ledger)
     return { attempted: true, healed: healed.map((f) => f.projection) }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = toErrorMessage(err)
     logger.warn("Chapter Ingest", "failed 投影自愈失败（非致命，账本保留 failed 状态）", { error: message })
     return { attempted: true, healed: [], error: message }
   }
@@ -2184,7 +2184,7 @@ export async function sampleTruthFoldDrift(
     return { driftCount: driftedFiles.length, driftedFiles }
   } catch (err) {
     logger.warn("Chapter Ingest", "sampleTruthFoldDrift 采样失败（债务记 trace，不阻断）", {
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
     })
     return null
   }
@@ -2212,7 +2212,7 @@ export async function emitTruthFoldDriftAlarm(
     )
   } catch (err) {
     logger.warn("Chapter Ingest", "drift telemetry 写入失败（债务记 trace，不阻断）", {
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
     })
   }
   return true
@@ -2253,7 +2253,7 @@ async function writeDriftSelfHealTelemetry(
     await writeFileAtomic(`${telemetryDir}/selfheal-${ts}.jsonl`, JSON.stringify(event) + "\n")
   } catch (err) {
     logger.warn("Chapter Ingest", "selfheal telemetry 写入失败（债务记 trace，不阻断）", {
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
     })
   }
 }
@@ -2297,7 +2297,7 @@ export async function autoRepairTruthFoldDrift(
       const snapshots = await loadValidMemorySnapshots(pp)
       await rebuildRegistryProjections(pp, snapshots, { now }, driftedIds)
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err)
+      error = toErrorMessage(err)
       logger.warn("Chapter Ingest", "drift 自动修复重建失败（转告警升级）", { error })
     }
   }
@@ -2606,7 +2606,7 @@ export async function listSnapshots(projectPath: string, opts?: { failLoud?: boo
 
 /** 目录不存在（首次打开尚未生成快照）与真正的 IO 失败的区分。 */
 function isNotFoundError(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err)
+  const message = toErrorMessage(err)
   return /not found|no such file|does not exist|cannot find the (file|path)/i.test(message)
 }
 
@@ -2777,7 +2777,7 @@ ${body}
     const syncResult = await syncSnapshotToMemory(pp, snapshot)
     return { ...snapshot, memorySyncedAt: syncResult.memorySyncedAt }
   } catch (err) {
-    logger.error("Outline Ingest", "Failed", { error: err instanceof Error ? err.message : String(err) })
+    logger.error("Outline Ingest", "Failed", { error: toErrorMessage(err) })
     throw normalizeOutlineIngestError(err)
   }
 }

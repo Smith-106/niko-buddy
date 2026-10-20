@@ -20,6 +20,7 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { resolveDefaultModel } from "@/lib/novel"
 import { executeMerge } from "@/lib/dedup-runner"
 import type { DuplicateGroup } from "@/lib/dedup"
+import { toErrorMessage } from "@/lib/utils"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -327,7 +328,7 @@ async function processNext(projectId: string): Promise<void> {
   } catch (err) {
     if (currentProjectId !== projectId) return
     currentAbortController = null
-    const message = err instanceof Error ? err.message : String(err)
+    const message = toErrorMessage(err)
     next.retryCount++
     next.error = message
 

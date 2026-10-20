@@ -30,6 +30,7 @@ import {
   type RunEventLedgerStoreDeps,
 } from "./run-event-ledger-store"
 import type { GateRunStatus } from "./rule-stack"
+import { toErrorMessage } from "@/lib/utils"
 
 /** 三门顺序固定（Consistency P0 > Anti-AI P1 > Quality P2）。 */
 const GATE_ORDER: readonly DeepChapterDecisionGateKey[] = ["consistency", "anti_ai", "quality"]
@@ -119,6 +120,6 @@ export async function recordChapterGateEvidence(
     await append(storeDeps, input.projectPath, events)
     return { recorded }
   } catch (error) {
-    return { recorded, error: error instanceof Error ? error.message : String(error) }
+    return { recorded, error: toErrorMessage(error) }
   }
 }

@@ -4,6 +4,7 @@
 import { useState, useCallback } from "react"
 import { testSettingsLlmModel } from "@/lib/settings-model-test"
 import type { LlmConfig } from "@/stores/wiki-store"
+import { toErrorMessage } from "@/lib/utils"
 
 /** State shape for batch model test results. */
 export interface BatchModelTestState {
@@ -72,7 +73,7 @@ export function useBatchModelTest(
             const result = await testSettingsLlmModel(buildConfig(modelId))
             results.push({ model: result.model, ok: true })
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error)
+            const message = toErrorMessage(error)
             results.push({ model: modelId, ok: false, error: message })
           }
         }
@@ -110,7 +111,7 @@ export function useBatchModelTest(
         setModelTestState({
           loading: false,
           success: false,
-          message: error instanceof Error ? error.message : String(error),
+          message: toErrorMessage(error),
         })
       }
     },

@@ -16,6 +16,7 @@ import {
 } from "@/lib/mcp/config"
 import { buildMcpRuntime } from "@/lib/mcp/runtime"
 import { RealMcpConnector } from "@/lib/mcp/real-connector"
+import { toErrorMessage } from "@/lib/utils"
 
 interface TestState {
   loading: boolean
@@ -51,7 +52,7 @@ export function McpSection() {
       setSavedAt(null)
       setSaveError(
         t("settings.sections.mcp.saveFailed", {
-          message: error instanceof Error ? error.message : String(error),
+          message: toErrorMessage(error),
         }),
       )
     }
@@ -152,7 +153,7 @@ export function McpSection() {
           status: "error",
           toolCount: 0,
           message: t("settings.sections.mcp.testFailed", {
-            message: error instanceof Error ? error.message : String(error),
+            message: toErrorMessage(error),
           }),
         },
       }))

@@ -15,6 +15,7 @@ import { loadCharacterStates } from "./character-state"
 import { loadForeshadowingTracker } from "./foreshadowing-tracker"
 import { loadCognitionState } from "./character-cognition"
 import { buildInteractiveExport, type InteractiveStoryGraph } from "./interactive-film-graph"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface InteractiveExportOptions {
   projectPath: string
@@ -215,7 +216,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
       message: `导出完成：${chapterCount} 个章节`,
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
+    const message = toErrorMessage(error)
     return { success: false, exportedPath: exportPath, chapterCount: 0, message }
   }
 }
@@ -353,7 +354,7 @@ export async function exportNovelDocx(options: DocxExportOptions): Promise<DocxE
       message: result.message,
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
+    const message = toErrorMessage(error)
     return { success: false, exportedPath: exportPath, chapterCount: 0, message }
   }
 }
@@ -387,7 +388,7 @@ export async function exportNovelEpub(options: EbookExportOptions): Promise<Eboo
       message: result.message,
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
+    const message = toErrorMessage(error)
     return { success: false, exportedPath: exportPath, chapterCount: 0, message }
   }
 }
@@ -443,7 +444,7 @@ export async function finalizeManuscript(options: FinalizeManuscriptOptions): Pr
     artifacts.push("MANIFEST.json")
     return { success: true, exportedDir: dir, chapterCount: base.chapterCount, artifacts, message: `定稿包出箱完成：${base.chapterCount} 章，${artifacts.length} 件` }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
+    const message = toErrorMessage(error)
     return { success: false, exportedDir: dir, chapterCount: 0, artifacts, message }
   }
 }

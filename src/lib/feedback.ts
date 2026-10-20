@@ -1,4 +1,5 @@
 import { isTauri } from "@/lib/platform"
+import { toErrorMessage } from "@/lib/utils"
 
 const FEEDBACK_URL = "https://niko-buddy-analytics.niko-buddy.workers.dev/feedback"
 const MAX_MESSAGE_LENGTH = 3000
@@ -50,7 +51,7 @@ async function sendFeedbackRequest(request: RequestInit): Promise<Response> {
     try {
       return await fetch(FEEDBACK_URL, request)
     } catch {
-      const message = tauriError instanceof Error ? tauriError.message : String(tauriError)
+      const message = toErrorMessage(tauriError)
       throw new Error(`\u53cd\u9988\u63d0\u4ea4\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc\u540e\u91cd\u8bd5\uff1a${message}`)
     }
   }

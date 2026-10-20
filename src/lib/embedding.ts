@@ -29,6 +29,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { getHttpFetch, isFetchNetworkError } from "@/lib/tauri-fetch"
 import { chunkMarkdown, type Chunk } from "@/lib/text-chunker"
 import { ChunkFingerprintIndex, chunkFingerprint } from "@/lib/chunk-fingerprint"
+import { toErrorMessage } from "@/lib/utils"
 
 // ── Error surfacing ──────────────────────────────────────────────────────
 
@@ -282,7 +283,7 @@ export async function fetchEmbedding(
       if (isFetchNetworkError(err)) {
         report(`Network error reaching ${endpoint}. Check endpoint URL, API key, and connectivity.`)
       } else {
-        report(err instanceof Error ? err.message : String(err))
+        report(toErrorMessage(err))
       }
       console.warn(`[Embedding] ${lastEmbeddingError}`)
       return null
@@ -785,7 +786,7 @@ export async function embedAllPages(
     } catch (error) {
       lastReconcileOutcome = {
         status: "failed",
-        error: error instanceof Error ? error.message : String(error),
+        error: toErrorMessage(error),
       }
     }
   }

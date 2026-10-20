@@ -10,6 +10,7 @@ import { fetchLlmModelList } from "@/lib/settings-model-list"
 import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { useTranslation } from "react-i18next"
 import { HttpTimeoutControls, ReasoningControls } from "./llm-provider-section"
+import { toErrorMessage } from "@/lib/utils"
 
 interface CustomProviderCard {
   id: string
@@ -283,7 +284,7 @@ function CustomProviderCardItem({
         loading: false,
         success: false,
         message: t("settings.sections.shared.modelListFailed", {
-          message: error instanceof Error ? error.message : String(error),
+          message: toErrorMessage(error),
         }),
       })
     }

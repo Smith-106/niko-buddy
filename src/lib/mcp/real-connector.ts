@@ -2,6 +2,7 @@ import type { McpConfig, McpServerConfig } from "./config"
 import type { McpJsonSchema, McpToolCaller, McpToolCallRequest, McpToolCallResult, McpToolDescriptor } from "./types"
 import { JsonRpcClient } from "./transport/json-rpc"
 import { TauriStdioTransport } from "./transport/stdio"
+import { toErrorMessage } from "@/lib/utils"
 
 interface ConnectedMcpServer {
   client: JsonRpcClient
@@ -97,7 +98,7 @@ export class RealMcpConnector {
         message: `MCP 服务“${serverName}”连接成功，发现 ${tools.length} 个可用工具。`,
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       return {
         status: "error",
         serverName,
@@ -146,7 +147,7 @@ export class RealMcpConnector {
         summary: content,
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       return {
         status: "error",
         content: "",

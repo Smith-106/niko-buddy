@@ -10,6 +10,7 @@ import {
   rejectGate,
   remainingWindowMs,
 } from "@/lib/novel";
+import { toErrorMessage } from "@/lib/utils"
 
 export interface ConfirmGateDialogProps {
   /** 待裁决请求；为空时不渲染。 */
@@ -83,7 +84,7 @@ export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDia
         onResolved?.(outcome);
       } catch (error) {
         // 裁决失败 → 错误态；用户可通过重试按钮重发最后一次尝试。
-        setErrorMessage(error instanceof Error ? error.message : String(error));
+        setErrorMessage(toErrorMessage(error));
       } finally {
         setBusy(false);
       }

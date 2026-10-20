@@ -59,9 +59,7 @@ import type {
   ChatMessage,
   RequestOverrides,
 } from "@/lib/llm-client"
-import {
-  logger,
-} from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import {
   LlmConfig,
 } from "@/stores/wiki-store"
@@ -453,7 +451,7 @@ export async function safeBuildChapterContextPack(
     // notePartial here or returning a {contextPack, error} tuple — both are part
     // of the broader partial-state-object refactor (F-8) and tracked as an issue;
     // the log at least makes the failure observable in the app's stderr.
-    logger.error("Deep Chapter", "Context pack assembly failed (continuing with empty context)", { error: err instanceof Error ? err.message : String(err) })
+    logger.error("Deep Chapter", "Context pack assembly failed (continuing with empty context)", { error: toErrorMessage(err) })
     return {
       task: userRequest,
       chapterGoal: "",

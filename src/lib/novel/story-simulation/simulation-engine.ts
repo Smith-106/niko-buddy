@@ -41,6 +41,7 @@ import type {
 } from "@/lib/novel/story-simulation/types"
 import { calcMaxRoundsPerNode, getModeConfig } from "@/lib/novel/story-simulation/types"
 import type { ModeConfig } from "@/lib/novel/story-simulation/types"
+import { toErrorMessage } from "@/lib/utils"
 
 // ── 对外接口 ──
 
@@ -1375,7 +1376,7 @@ export async function runSimulation(
               degraded = true
               callbacks.onDegraded?.({
                 consecutiveFailures: consecutiveAgentFailures,
-                lastError: agentErr instanceof Error ? agentErr.message : String(agentErr),
+                lastError: toErrorMessage(agentErr),
               })
               const degradedEvent: SimulationEvent = {
                 type: "info",

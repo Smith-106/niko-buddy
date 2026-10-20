@@ -39,6 +39,7 @@ import type { StageJournalRuntime } from "./stage-output-journal"
 import { recordModuleHit } from "./module-heat"
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import type { LlmConfig } from "@/stores/wiki-store"
+import { toErrorMessage } from "@/lib/utils"
 
 /** 阶段产物存档（供后续阶段当上游、供面板展示摘要）。 */
 export const DIRECTOR_ARTIFACTS_FILE = "director-stage-artifacts.json"
@@ -394,7 +395,7 @@ export async function advanceDirectorAutomatically(
       ...(drafts.length > 0 ? { drafts } : {}),
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = toErrorMessage(err)
     const failedState = failDirectorPhase(state, message)
     await persistDirectorState(projectPath, failedState).catch(() => {})
     const findings = (err as { findings?: StageValidationFinding[] }).findings

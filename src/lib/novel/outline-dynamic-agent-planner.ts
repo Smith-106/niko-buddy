@@ -4,6 +4,7 @@
   type OutlineSubAgentKind,
   type OutlineSubAgentPlan,
 } from "./outline-multi-agent-orchestrator"
+import { toErrorMessage } from "@/lib/utils"
  interface DynamicOutlinePlannerSkill {
   name: string
   description: string
@@ -182,5 +183,5 @@ function inferLegacyKind(dimension: string): OutlineSubAgentKind {
 }
 
 function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return toErrorMessage(error)
 }

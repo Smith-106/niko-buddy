@@ -3,7 +3,7 @@ import i18n from "@/i18n"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { useWikiStore, type LlmConfig, type NovelConfig } from "@/stores/wiki-store"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
-import { validateSeverity, logger } from "@/lib/utils"
+import { logger, toErrorMessage, validateSeverity } from "@/lib/utils"
 import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
 import { resolveNovelModel } from "./model-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -122,7 +122,7 @@ ${langReminder}`
       },
       onDone: () => {},
       onError: (error: Error) => {
-        logger.error("Novel Lint", "Stream error", { error: error instanceof Error ? error.message : String(error) })
+        logger.error("Novel Lint", "Stream error", { error: toErrorMessage(error) })
       },
     }
 
@@ -148,7 +148,7 @@ ${langReminder}`
       suggestion: String(item.suggestion || ""),
     }))
   } catch (err) {
-    logger.error("Novel Lint", "Failed", { error: err instanceof Error ? err.message : String(err) })
+    logger.error("Novel Lint", "Failed", { error: toErrorMessage(err) })
     return []
   }
 }

@@ -9,7 +9,7 @@ import {
   advanceReviewJobRunning,
 } from "@/lib/novel/review-job-lifecycle"
 import { runContinuityMechanicalPreflight } from "@/lib/novel/review-adapter"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 
 interface StartSixDimensionReviewRunArgs {
@@ -160,11 +160,11 @@ export async function startSixDimensionReviewRun({
     ).catch(() => {})
   } catch (error) {
     // F-16 (CWE-532): message-only to avoid leaking provider request details.
-    logger.error("Six-Dim Review", "六维审查失败", { error: error instanceof Error ? error.message : String(error) })
+    logger.error("Six-Dim Review", "六维审查失败", { error: toErrorMessage(error) })
     finishReviewRun(runId, { running: false, error: t("novel.review.runFailed") })
     void advanceReviewJobFailed(
       projectPath,
-      error instanceof Error ? error.message : String(error),
+      toErrorMessage(error),
     ).catch(() => {})
   } finally {
     useWikiStore.setState({ reviewRunAbortController: null })

@@ -39,7 +39,7 @@ vi.mock("@/lib/utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/utils")>()
   return {
     ...actual,
-    toErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    toErrorMessage: (e: unknown) => actual.toErrorMessage(e),
     logger: { warn: ledgerMocks.loggerWarn, error: vi.fn() },
   }
 })

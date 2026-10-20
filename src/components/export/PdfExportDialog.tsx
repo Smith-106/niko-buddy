@@ -16,6 +16,7 @@ import {
   type PdfExportHistoryEntry,
 } from "@/lib/export/pdf-export-gate";
 import { readFile } from "@/commands/fs";
+import { toErrorMessage } from "@/lib/utils"
 
 export interface PdfExportDialogProps {
   /** 当前项目根路径。 */
@@ -76,7 +77,7 @@ export function PdfExportDialog({ projectPath, title, paragraphs, chapterPath }:
     } catch (cause) {
       setReport(null);
       setConfirmed(null);
-      const text = cause instanceof Error ? cause.message : String(cause);
+      const text = toErrorMessage(cause);
       setError(
         isPathInsideDataSectionError(cause)
           ? t("pdfexport.path.outsideData")

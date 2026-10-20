@@ -7,6 +7,7 @@ import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import { resolveNovelModel, buildDismantlingAnalysisPrompt, buildDismantlingWebResearchPrompt, extractStructureMemoryFromAnalysis, loadDismantlingLibrary, saveDismantlingLibrary, selectNextDismantlingBatch } from "@/lib/novel"
 import type { DismantlingAnalysis, DismantlingChapter, DismantlingProject } from "@/lib/novel"
 import { buildWebResearchContext, collectWebResearch } from "@/lib/web-research"
+import { toErrorMessage } from "@/lib/utils"
 
 const DEFAULT_BATCH_SIZE = 3
 
@@ -107,7 +108,7 @@ export function DismantlingView() {
       }))
       setStatus(`本批拆文完成，新增 ${memory.length} 条结构记忆。`)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       await upsertSelectedProject((current) => ({
         ...current,
         updatedAt: Date.now(),
@@ -179,7 +180,7 @@ export function DismantlingView() {
       }))
       setStatus(`网页热门分析完成，参考来源 ${webResearchContext.sources.length} 条，新增 ${memory.length} 条结构记忆。`)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       setStatus(`网页热门分析失败：${message}`)
     } finally {
       setRunning(false)

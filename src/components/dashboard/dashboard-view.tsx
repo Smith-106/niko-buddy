@@ -469,7 +469,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
             // the rewriteError banner. Raw message logged to console only.
             // (Twin of ingest.ts activity sites; PAT-G2 console-sanitized but UI-twin
             // missed — both onError and catch paths now strip.)
-            const raw = error instanceof Error ? error.message : String(error)
+            const raw = toErrorMessage(error)
             console.error("[Dashboard] rewrite failed:", raw)
             const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
             setRewriteError(safe || t("dashboard.rewrite.errorFallback"))

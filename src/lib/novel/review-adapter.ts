@@ -3,7 +3,7 @@ import i18n from "@/i18n"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { useWikiStore, type LlmConfig, type NovelConfig } from "@/stores/wiki-store"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
-import { validateSeverity, logger } from "@/lib/utils"
+import { logger, toErrorMessage, validateSeverity } from "@/lib/utils"
 import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
 import type { TemporalFact } from "./temporal-memory"
 import { buildCharacterAuraContext } from "./character-aura"
@@ -869,7 +869,7 @@ export async function reviewChapter(
     }
   } catch (err) {
     // F-16 (CWE-532): message-only to avoid leaking provider request details.
-    logger.error("Novel Review", "重新匹配角色光环失败，沿用阶段1的光环", { error: err instanceof Error ? err.message : String(err) })
+    logger.error("Novel Review", "重新匹配角色光环失败，沿用阶段1的光环", { error: toErrorMessage(err) })
   }
 
   if (signal?.aborted) throw new Error("已停止生成")
@@ -941,7 +941,7 @@ ${langReminder}`
   } catch (err) {
     // F-16 (CWE-532): message-only; the full error is still propagated via
     // toError(err) for the caller, so the stderr log only needs the message.
-    logger.error("Novel Review", "Failed", { error: err instanceof Error ? err.message : String(err) })
+    logger.error("Novel Review", "Failed", { error: toErrorMessage(err) })
     throw toError(err)
   }
 }
@@ -1045,7 +1045,7 @@ async function runReviewStage(
     onDone: () => {},
     onError: (error: Error) => {
       // F-16 (CWE-532): message-only to avoid leaking provider request details.
-      logger.error("Novel Review", "Stream error", { error: error instanceof Error ? error.message : String(error) })
+      logger.error("Novel Review", "Stream error", { error: toErrorMessage(error) })
       streamError = error
     },
   }

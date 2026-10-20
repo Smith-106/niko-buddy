@@ -1,5 +1,6 @@
 import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * MAINT-002: 统一的 .novel/ 投影 JSON 存储工厂。消散 emotional-arcs /
@@ -156,7 +157,7 @@ export function createAtomicJsonStore<T>(
       try {
         parsed = JSON.parse(raw) as Record<string, unknown>
       } catch (err) {
-        const detail = err instanceof Error ? err.message : String(err)
+        const detail = toErrorMessage(err)
         if (onCorrupt === "throw") {
           throw new Error(`Failed to parse ${relativePath}: ${detail}`)
         }

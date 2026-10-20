@@ -12,7 +12,7 @@ import type { ContextPack } from "./context-engine"
 import { runContinuityMechanicalPreflight, isReviewParseError, type NovelReviewResult } from "./review-adapter"
 import { dimensionResultsToReviewResults, type SixReviewDimensionKey, type DimensionReviewResult } from "./dimension-review-adapter"
 import { recordAntiAiShadowTelemetry } from "./anti-ai-shadow-telemetry"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import type { DeepChapterGenerationCallbacks, DeepChapterGenerationDeps } from "./deep-chapter-generation"
 
 export async function runFullReviewWithSixDim(
@@ -77,7 +77,7 @@ export async function runFullReviewWithSixDim(
     // F-16 (CWE-532): log only the message, not the full error object — streamChat
     // errors may carry provider request details (URL/headers) that should not
     // reach the app's stderr. Matches the :778 six-dim error-message extraction.
-    logger.error("Deep Chapter", "Review failed", { error: err instanceof Error ? err.message : String(err) })
+    logger.error("Deep Chapter", "Review failed", { error: toErrorMessage(err) })
     // F-1 (orphan 6-dim process): when reviewChapter throws, the `await
     // sixDimP` at the coalesce step below is unreachable, so the 6-dim review
     // launched in parallel would keep running as an orphan background LLM
@@ -139,7 +139,7 @@ export async function runFullReviewWithSixDim(
     // NovelReviewResult so status.json / ContextGap consumers can see the 6-dim
     // review was skipped, not clean. Non-blocking preserved (info, not error).
     const sixDimErr = sixDimOutcome.__sixDimError
-    const errMsg = sixDimErr instanceof Error ? sixDimErr.message : String(sixDimErr)
+    const errMsg = toErrorMessage(sixDimErr)
     // F-16 (CWE-532): message-only to avoid leaking provider request details.
     logger.error("Deep Chapter", "6-dimension review failed (non-blocking)", { error: errMsg })
     reviewResults = [

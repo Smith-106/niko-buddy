@@ -13,6 +13,7 @@
  * - 使用点统计与场景组合预览**没有**真源，故不提供，面板显式 N/A。
  */
 import { PROMPTS } from "./prompt-templates"
+import { toErrorMessage } from "@/lib/utils"
 
 /** 渲染预览时使用的哨兵（一眼能看出是占位符）。 */
 export const PROMPT_PREVIEW_SENTINEL = (index: number) => `«arg${index + 1}»`
@@ -70,7 +71,7 @@ function renderWith(
     if (typeof rendered === "string") return { ok: true, text: rendered }
     return { ok: true, text: rendered === undefined ? "" : String(rendered) }
   } catch (caught) {
-    return { ok: false, message: caught instanceof Error ? caught.message : String(caught) }
+    return { ok: false, message: toErrorMessage(caught) }
   }
 }
 

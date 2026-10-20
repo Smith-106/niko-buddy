@@ -13,6 +13,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { ingestOutline } from "./chapter-ingest"
 import { normalizeMarkdownBody } from "./normalize-markdown-body"
 import { buildContextPack, type ContextPack } from "./context-engine"
+import { toErrorMessage } from "@/lib/utils"
 
 export type OutlineSectionGenerationKey =
   | "chapterOutlines"
@@ -479,7 +480,7 @@ export async function runOutlineGenerationTask(
       message: "大纲生成完成",
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = toErrorMessage(err)
     useOutlineGenerationStore.getState().updateTask(taskId, {
       status: "error",
       error: message,
@@ -556,7 +557,7 @@ export async function runOutlineRefinementTask(taskId: string, llmConfig: LlmCon
       message: task.displayTitle ? `${task.displayTitle} 细化完成` : "细化生成完成",
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = toErrorMessage(err)
     useOutlineGenerationStore.getState().updateTask(taskId, {
       status: "error",
       error: message,
@@ -740,7 +741,7 @@ export async function runOutlineIngestTask(taskId: string): Promise<void> {
       message: snapshot ? `${outlineFileName} 提取完成` : `${outlineFileName} 提取失败`,
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = toErrorMessage(err)
     useOutlineGenerationStore.getState().updateTask(taskId, {
       status: "error",
       message,

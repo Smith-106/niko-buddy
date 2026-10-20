@@ -533,7 +533,7 @@ export function useCharacterExtraction({
       } catch (e) {
         // F-16 (CWE-532): skill regeneration is an LLM call — message-only to
         // avoid leaking provider request details (PAT-DC1, twin of :161/:392).
-        console.error("[resume] regenerate skills failed:", e instanceof Error ? e.message : String(e))
+        console.error("[resume] regenerate skills failed:", toErrorMessage(e))
       }
     }
   }, [])

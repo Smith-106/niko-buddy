@@ -24,6 +24,7 @@ import {
 } from "@/lib/novel"
 
 import { PipelineMotionPanel } from "./pipeline-motion-panel"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface PipelineMotionViewProps {
   /** 項目磁盤路徑（content-area 傳 project.path，不是 UUID；UUID 讀不到賬本）。 */
@@ -102,7 +103,7 @@ export function PipelineMotionView({
         // 時無任何失敗可報（串行鏈下後輪尚未開火），保持 loading。
         // 無重疊請求，error 與 loading 不可能並存，也不會有過期錯誤覆蓋新數據。
         if (first || hasDataRef.current || streak >= 2) {
-          setLoadError(error instanceof Error ? error.message : String(error))
+          setLoadError(toErrorMessage(error))
           setReady(true)
         }
       }

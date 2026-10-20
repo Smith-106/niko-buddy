@@ -38,6 +38,7 @@ import { writeFile, readFile, createDirectory, fileExists, readFileAsBase64 } fr
 import { captionImage } from "@/lib/vision-caption"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
+import { toErrorMessage } from "@/lib/utils"
 
 interface CaptionEntry {
   caption: string
@@ -402,7 +403,7 @@ export async function captionMarkdownImages(
     } catch (err) {
       console.warn(
         `[caption-pipeline] caption failed for ${absPath}:`,
-        err instanceof Error ? err.message : String(err),
+        toErrorMessage(err),
       )
       failed++
     }

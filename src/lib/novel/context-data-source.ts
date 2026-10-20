@@ -1,4 +1,4 @@
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import type { RevisionFeedbackWindowConfig } from "@/stores/wiki-store"
 
 /**
@@ -102,7 +102,7 @@ export class DataSourceRegistry {
           : loadedValue
         return { name: source.name, value, error: null }
       } catch (error) {
-        logger.warn("DataSource", `${source.name} failed to load`, { error: error instanceof Error ? error.message : String(error) })
+        logger.warn("DataSource", `${source.name} failed to load`, { error: toErrorMessage(error) })
         context.recordGap?.(source.name, "datasource_error")
         
         // 尝试使用降级策略
@@ -112,7 +112,7 @@ export class DataSourceRegistry {
             : this.getDefaultValue(source.name)
           return { name: source.name, value: fallbackValue, error: error as Error }
         } catch (fallbackError) {
-          logger.warn("DataSource", `${source.name} fallback also failed`, { error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError) })
+          logger.warn("DataSource", `${source.name} fallback also failed`, { error: toErrorMessage(fallbackError) })
           return { 
             name: source.name, 
             value: this.getDefaultValue(source.name), 

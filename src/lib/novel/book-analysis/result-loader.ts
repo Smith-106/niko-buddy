@@ -6,7 +6,7 @@
  */
 import { readFile, listDirectory } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import type {
   BookAnalysisResult,
   BookAnalysisMetadata,
@@ -35,7 +35,7 @@ export async function loadBookAnalysisResult(
     const raw = await readFile(joinPath(bookPath, "metadata.json"))
     metadata = JSON.parse(raw) as BookAnalysisMetadata
   } catch (err) {
-    logger.warn("Result Loader", `读取 metadata 失败`, { bookId, error: err instanceof Error ? err.message : String(err) })
+    logger.warn("Result Loader", `读取 metadata 失败`, { bookId, error: toErrorMessage(err) })
     return null
   }
 

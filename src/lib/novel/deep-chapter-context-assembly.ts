@@ -74,9 +74,7 @@ import {
 import {
   UserMemoryStore,
 } from "@/lib/user-memory/types"
-import {
-  logger,
-} from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import {
   LlmConfig,
   useWikiStore,
@@ -172,7 +170,7 @@ export async function assembleContext(
     )
   } catch (err) {
     // F-16 (CWE-532): message-only.
-    logger.warn("Deep Chapter", "社区摘要生成失败（非阻断）", { error: err instanceof Error ? err.message : String(err) })
+    logger.warn("Deep Chapter", "社区摘要生成失败（非阻断）", { error: toErrorMessage(err) })
   }
 
   // Track B skill hooks at pre_write_prompt (soft; empty registry = no-op).
@@ -187,7 +185,7 @@ export async function assembleContext(
     }
   } catch (err) {
     logger.warn("Deep Chapter", "pre_write skill hooks soft-failed", {
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
     })
   }
 
@@ -209,7 +207,7 @@ export async function assembleContext(
       }
     } catch (err) {
       logger.warn("Deep Chapter", "任务自定义技能装载失败（非阻断）", {
-        error: err instanceof Error ? err.message : String(err),
+        error: toErrorMessage(err),
       })
     }
   }
@@ -279,7 +277,7 @@ export async function runSceneBreakdownStage(
   } catch (error) {
     // F-16 (CWE-532): message-only. Scene breakdown 是加性中间层（ADR-30），
     // 失败不阻断主链——跳过阶段 1.5 继续到 task_brief（向后兼容降级）。
-    logger.error("deep-chapter-generation", "场景拆解失败（非阻断，跳过阶段1.5）", { error: error instanceof Error ? error.message : String(error) })
+    logger.error("deep-chapter-generation", "场景拆解失败（非阻断，跳过阶段1.5）", { error: toErrorMessage(error) })
   }
   assertNotAborted(signal, USER_ABORT_MESSAGE)
   if (sceneResult && sceneResult.scenes.length > 0) {
@@ -289,7 +287,7 @@ export async function runSceneBreakdownStage(
       await persistSceneBreakdownDraft(input.projectPath, chapterId, sceneResult)
     } catch (error) {
       // 持久化失败不阻断主链（加性中间层），仅记日志。
-      logger.error("deep-chapter-generation", "场景拆解持久化失败（非阻断）", { error: error instanceof Error ? error.message : String(error) })
+      logger.error("deep-chapter-generation", "场景拆解持久化失败（非阻断）", { error: toErrorMessage(error) })
     }
     // EPIC-002 / TASK-013 / Story 2.3: 阶段指标溯源写 status.json stage_metrics
     // （HARD-1 真源 additive optional 字段，非新真源）。sceneResult.tokenCost/

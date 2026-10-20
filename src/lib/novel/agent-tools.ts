@@ -11,6 +11,7 @@ import { readFile, writeFile, listDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { isSafeIngestPath } from "@/lib/ingest"
 import type { FileEditAction } from "./agent-parser"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface FileEditResult {
   filePath: string
@@ -128,7 +129,7 @@ export async function applyFileEdit(
     return {
       filePath: edit.filePath,
       success: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
     }
   }
 }

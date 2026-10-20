@@ -1,5 +1,6 @@
 import { isTauri } from "@/lib/platform"
 import type { Update } from "@tauri-apps/plugin-updater"
+import { toErrorMessage } from "@/lib/utils"
 
 type UpdaterBindings = {
   isTauri: boolean
@@ -95,7 +96,7 @@ export async function runAppUpdateFlow(
     await update.install()
     return { status: "installed", prompted: true, version: update.version }
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error)
+    const msg = toErrorMessage(error)
     // 正常退出关键词：软件在安装过程中重启属于预期行为
     const normalExitKeywords = ["process exited", "disconnected", "closed"]
     const isNormalExit = normalExitKeywords.some((kw) => msg.toLowerCase().includes(kw.toLowerCase()))

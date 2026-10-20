@@ -2,7 +2,7 @@ import { readFile, } from "@/commands/fs"
 import { listEntityFiles } from "./entity-subdir-resolver"
 import { } from "@/lib/search"
 import { normalizePath } from "@/lib/path-utils"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig, type RevisionFeedbackWindowConfig } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { sampleTruthFoldDrift, type ChapterSnapshot } from "./chapter-ingest"
@@ -670,7 +670,7 @@ async function buildContextPackUnlocked(
     }
     void appendRoutingROISample(pp, roiSample).catch((error) => {
       // non-fatal — ROI 采集失败不阻塞主链装配
-      logger.warn("ContextEngine", "routing ROI sample append failed (non-fatal)", { error: error instanceof Error ? error.message : String(error) })
+      logger.warn("ContextEngine", "routing ROI sample append failed (non-fatal)", { error: toErrorMessage(error) })
     })
     // Wave 5 (v2.5.0): 上下文用量快照 — 预算线直读 currentBuildBudget（本 build
     // 已算，不重算），记忆段实测 user-memory preference 字符数。additive：加载

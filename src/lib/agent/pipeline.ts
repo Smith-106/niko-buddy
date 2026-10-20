@@ -2,6 +2,7 @@ import type { AgentConfig } from "./types"
 import type { TaskRouteResult, ContextPack, UserSkill } from "@/lib/novel"
 import type { AiWorkflowMode } from "./workflow-mode"
 import type { AiCapability, SelectedCapabilityTrace } from "./capabilities/types"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface PrePluginInput {
   userMessage: string
@@ -97,7 +98,7 @@ export function createPrePluginChain(plugins: PrePlugin[]): PrePluginChain {
             return { ...current, shouldStop: true, stopReason: output.stopReason, errors, executedPlugins: executed }
           }
         } catch (e) {
-          errors.push({ pluginName: plugin.name, error: e instanceof Error ? e.message : String(e) })
+          errors.push({ pluginName: plugin.name, error: toErrorMessage(e) })
         }
       }
       return { ...current, errors, executedPlugins: executed }

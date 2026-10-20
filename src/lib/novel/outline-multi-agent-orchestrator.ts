@@ -2,6 +2,7 @@ import {
   coerceOutlineSubAgentResult,
   type OutlineSubAgentResult,
 } from "./outline-result-protocol"
+import { toErrorMessage } from "@/lib/utils"
 
 export type { OutlineSubAgentResult } from "./outline-result-protocol"
 
@@ -339,7 +340,7 @@ async function executeWithRetry(
 }
 
 function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return toErrorMessage(error)
 }
 
 function formatWritebackItems(items: OutlineSubAgentResult["writebackItems"]): string {

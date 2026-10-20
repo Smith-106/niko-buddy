@@ -9,7 +9,7 @@ import {
 import { persistRevisionFeedbackForChapter, pickRevisionFeedbackFromReviewResults } from "@/lib/novel/revision-feedback"
 import { saveGenerationHistoryEntry } from "@/lib/novel/generation-history"
 import { getFileStem } from "@/lib/path-utils"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { createReviewThinkingPublisher } from "./review-thinking-publisher"
 import { yieldToBrowserFrame } from "./yield-to-browser"
@@ -128,7 +128,7 @@ export async function startNovelReviewRun({
     }
   } catch (error) {
     // F-16 (CWE-532): message-only to avoid leaking provider request details.
-    logger.error("Novel Review", "审查失败", { error: error instanceof Error ? error.message : String(error) })
+    logger.error("Novel Review", "审查失败", { error: toErrorMessage(error) })
     thinkingPublisher.flush()
     finishReviewRun(runId, { running: false, error: t("novel.review.runFailed") })
   } finally {

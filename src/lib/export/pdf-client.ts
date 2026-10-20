@@ -7,6 +7,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { toErrorMessage } from "@/lib/utils"
 
 /** 数据区目录名；这些目录内的路径一律不可作为导出目标。 */
 export const DATA_SECTIONS = [".novel", "QM", ".niko-buddy", "backups"] as const;
@@ -47,7 +48,7 @@ export function validateExportTarget(path: string): string | null {
 }
 
 export function isPathInsideDataSectionError(error: unknown): boolean {
-  const text = error instanceof Error ? error.message : String(error);
+  const text = toErrorMessage(error);
   return text.includes(PATH_INSIDE_DATA_SECTION_PREFIX);
 }
 

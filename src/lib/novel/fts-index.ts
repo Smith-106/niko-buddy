@@ -17,6 +17,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { flattenMdFilesBase } from "./chapter-utils"
 import { tokenizeForBm25 } from "./bm25-ranking"
 import type { RebuildProgressCallback } from "./rebuild"
+import { toErrorMessage } from "@/lib/utils"
 
 /** 索引格式版本位（chunk-fingerprint v2 同款纪律：格式变更 bump）。 */
 export const FTS_INDEX_VERSION = 1
@@ -202,7 +203,7 @@ export async function rebuildWikiFtsIndex(
       const title = titleMatch?.[1]?.trim() ?? pageId
       docs.push({ id: pageId, title, text: content, path: file.path })
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
+      const msg = toErrorMessage(err)
       errors.push(`${file.name}：${msg}`)
     }
   }

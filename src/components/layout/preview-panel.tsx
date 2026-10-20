@@ -9,7 +9,6 @@ import { useReviewStore } from "@/stores/review-store"
 import { deleteFile, fileExists, readFile, writeFile, writeFileAtomic, listDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { formatOperationError } from "@/lib/format-operation-error"
-import { toErrorMessage } from "@/lib/utils"
 import { getFileCategory, isBinary } from "@/lib/file-types"
 import { WikiEditor } from "@/components/editor/wiki-editor"
 import { WikiReader } from "@/components/editor/wiki-reader"
@@ -42,6 +41,7 @@ import {
 import { ChapterEmptyState } from "./chapter-empty-state"
 import { InspectorPanel } from "@/components/inspector/inspector-panel"
 import type { FileNode } from "@/types/wiki"
+import { toErrorMessage } from "@/lib/utils"
 
 const SnapshotViewer = lazy(async () => {
   const mod = await import("@/components/novel/snapshot-viewer")
@@ -794,9 +794,9 @@ export function PreviewPanel() {
         updatePhase(false, "saved")
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       updatePhase(false, "ingest_failed", { message: `快照提取异常: ${message.slice(0, 100)}` })
-      console.error("[preview-panel] ingest failed:", error instanceof Error ? error.message : String(error))
+      console.error("[preview-panel] ingest failed:", toErrorMessage(error))
     } finally {
       setIsSavingFinal(false)
     }
@@ -851,7 +851,7 @@ export function PreviewPanel() {
         updatePhase(false, "ingest_failed")
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       useImportProgressStore.getState().finishTask(ingestTaskId, "error", {
         completed: 0,
         total: 1,
@@ -927,7 +927,7 @@ export function PreviewPanel() {
             setDeAiProcessing(false)
           },
           onError: (error) => {
-            console.error("去AI味处理失败:", error instanceof Error ? error.message : String(error))
+            console.error("去AI味处理失败:", toErrorMessage(error))
             setDeAiProcessing(false)
           },
         },
@@ -1140,7 +1140,7 @@ export function PreviewPanel() {
             // the saveStatus UI. Raw message logged to console only.
             // (Twin of ingest.ts activity sites; PAT-G2 console-sanitized but UI-twin
             // missed — both onError and catch paths now strip.)
-            const raw = error instanceof Error ? error.message : String(error)
+            const raw = toErrorMessage(error)
             console.error(`${actionLabel}失败:`, raw)
             const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
             setSaveStatus(`${actionLabel}失败：${safe}`)

@@ -18,7 +18,7 @@ import type {
 } from "./types"
 import { readFile, writeFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/lib/llm-client"
 import { analyzeSixDimensions, DEPTH_DESCRIPTIONS } from "./six-dimension-engine"
 import { stableCharacterId } from "./character-recognition-engine"
@@ -95,7 +95,7 @@ ${chapterContent.substring(0, 8000)} ${chapterContent.length > 8000 ? "...(内�
     await streamChat(llmConfig, messages, {
       onToken: (text) => { response += text },
       onDone: () => {},
-      onError: (err) => { logger.error("Character Extraction", "LLM error", { error: err instanceof Error ? err.message : String(err) }) },
+      onError: (err) => { logger.error("Character Extraction", "LLM error", { error: toErrorMessage(err) }) },
     }, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)))
 
     // 解析 JSON（jsonrepair 容错）
@@ -107,7 +107,7 @@ ${chapterContent.substring(0, 8000)} ${chapterContent.length > 8000 ? "...(内�
 
     return []
   } catch (error) {
-    logger.error("Character Extraction", `Failed to identify characters in chapter ${chapterTitle}`, { error: error instanceof Error ? error.message : String(error) })
+    logger.error("Character Extraction", `Failed to identify characters in chapter ${chapterTitle}`, { error: toErrorMessage(error) })
     return []
   }
 }
@@ -167,7 +167,7 @@ ${corpus}
     await streamChat(llmConfig, messages, {
       onToken: (text) => { response += text },
       onDone: () => {},
-      onError: (err) => { logger.error("Character Extraction", "LLM error", { error: err instanceof Error ? err.message : String(err) }) },
+      onError: (err) => { logger.error("Character Extraction", "LLM error", { error: toErrorMessage(err) }) },
     }, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)))
 
     // 解析 JSON（jsonrepair 容错）
@@ -196,7 +196,7 @@ ${corpus}
 
     return null
   } catch (error) {
-    logger.error("Character Extraction", `Failed to analyze character ${characterName}`, { error: error instanceof Error ? error.message : String(error) })
+    logger.error("Character Extraction", `Failed to analyze character ${characterName}`, { error: toErrorMessage(error) })
     return null
   }
 }
@@ -249,7 +249,7 @@ export async function extractCharactersFromChapters(
         }
       }
     } catch (error) {
-        logger.error("Character Extraction", `Failed to read chapter ${chapterId}`, { error: error instanceof Error ? error.message : String(error) })
+        logger.error("Character Extraction", `Failed to read chapter ${chapterId}`, { error: toErrorMessage(error) })
     }
   }
 
@@ -395,7 +395,7 @@ export async function extractCharactersFromChapters(
         })
         characters[i] = result.character
       } catch (e) {
-        logger.error("6d", `failed for ${character.name}`, { error: e instanceof Error ? e.message : String(e) })
+        logger.error("6d", `failed for ${character.name}`, { error: toErrorMessage(e) })
       }
       // 保存更新后的角色（feature/fix-six-dim-extract：writeFile 失败不应中断整个 6 维流程）
       try {
@@ -404,7 +404,7 @@ export async function extractCharactersFromChapters(
           JSON.stringify(characters[i], null, 2)
         )
       } catch (writeErr) {
-        logger.warn("6d", `保存角色档案失败（不影响 6 维返回）：${character.name}`, { error: writeErr instanceof Error ? writeErr.message : String(writeErr) })
+        logger.warn("6d", `保存角色档案失败（不影响 6 维返回）：${character.name}`, { error: toErrorMessage(writeErr) })
       }
     }
   }
@@ -469,7 +469,7 @@ export async function extractSingleCharacter(
       {
         onToken: (text) => { response += text },
         onDone: () => {},
-        onError: (err) => { logger.error("single-reextract", "LLM error", { error: err instanceof Error ? err.message : String(err) }) },
+        onError: (err) => { logger.error("single-reextract", "LLM error", { error: toErrorMessage(err) }) },
       },
       combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)),
     )
@@ -513,7 +513,7 @@ export async function extractSingleCharacter(
         JSON.stringify(updated, null, 2),
       )
     } catch (err) {
-      logger.warn("single-reextract", `保存失败：${character.name}`, { error: err instanceof Error ? err.message : String(err) })
+      logger.warn("single-reextract", `保存失败：${character.name}`, { error: toErrorMessage(err) })
     }
     if (profileError) {
       // 透传错误信息，让 viewer 能 toast 提示
@@ -538,7 +538,7 @@ export async function extractSingleCharacter(
       JSON.stringify(result.character, null, 2),
     )
   } catch (err) {
-    logger.warn("single-reextract", `保存失败：${character.name}`, { error: err instanceof Error ? err.message : String(err) })
+    logger.warn("single-reextract", `保存失败：${character.name}`, { error: toErrorMessage(err) })
   }
   return { character: result.character }
 }

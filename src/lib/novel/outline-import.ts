@@ -1,6 +1,6 @@
 import { createDirectory, listDirectory, readFile, writeFile } from "@/commands/fs"
 import { getFileName, getFileStem, getRelativePath, getUniqueOutlinePath, normalizePath } from "@/lib/path-utils"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import type { FileNode } from "@/types/wiki"
 import { makeSafeFileSlug, yamlEscape } from "@/lib/wiki-filename"
 
@@ -148,7 +148,7 @@ export async function importOutlineFiles(projectPath: string, sourcePaths: strin
       const importedPath = await importSingleOutlineFile(projectPath, sourcePath)
       if (importedPath) importedPaths.push(importedPath)
     } catch (error) {
-      logger.error("Outline Import", "failed to import file", { path: sourcePath, error: error instanceof Error ? error.message : String(error) })
+      logger.error("Outline Import", "failed to import file", { path: sourcePath, error: toErrorMessage(error) })
     }
   }
 
@@ -166,7 +166,7 @@ export async function importOutlineCandidates(
       const importedPath = await importSingleOutlineFile(projectPath, candidate.path, candidate.targetFolders)
       if (importedPath) importedPaths.push(importedPath)
     } catch (error) {
-      logger.error("Outline Import", "failed to import folder file", { path: candidate.path, error: error instanceof Error ? error.message : String(error) })
+      logger.error("Outline Import", "failed to import folder file", { path: candidate.path, error: toErrorMessage(error) })
     }
   }
 

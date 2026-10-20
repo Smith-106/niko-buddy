@@ -1,6 +1,7 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
 import type { ContextPack, DataSourceCategory, RouteSource } from "@/lib/novel"
 import type { ApplyRouteResult, LoadClassificationResult, RouteRule } from "@/lib/novel/classification"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface BuildContextPackPluginDeps {
   buildContextPack?: (
@@ -176,7 +177,7 @@ export function createBuildContextPackPlugin(deps: BuildContextPackPluginDeps = 
         if (onVirtualTool && callId) {
           onVirtualTool("end", "build_context_pack", {
             callId,
-            result: error instanceof Error ? error.message : String(error),
+            result: toErrorMessage(error),
             status: "error",
           })
         }

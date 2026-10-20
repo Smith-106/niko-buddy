@@ -7,6 +7,7 @@ import type { ChatMessage, RequestOverrides } from "./llm-providers"
 import type { StreamCallbacks } from "./llm-client"
 import { classifyTransportError, type TransportError } from "./transport-error"
 import { hasAnthropicApiKey } from "@/lib/llm-config/preset-resolver"
+import { toErrorMessage } from "@/lib/utils"
 
 export type ClaudeCodeStreamParseResult =
   | { kind: "token"; text: string }
@@ -639,7 +640,7 @@ export async function streamClaudeCodeCli(
             }
           } catch (err) {
             if (settled) return
-            const message = err instanceof Error ? err.message : String(err)
+            const message = toErrorMessage(err)
             // v2.8 P1-3：spawn 错误细分（未安装/权限不足/其他）→ 带引导的用户可读信息
             const spawnKind = classifySpawnError(message)
             settle({
@@ -697,7 +698,7 @@ export async function streamClaudeCodeCli(
               await streamChat(fallbackConfig, messages, callbacks, signal, overrides)
               return
             } catch (fallbackErr) {
-              const fallbackMessage = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)
+              const fallbackMessage = toErrorMessage(fallbackErr)
               onError(new Error(
                 `SessionTransportFallback to the Anthropic API failed after the CLI stalled twice: ${fallbackMessage}. The CLI transport will retry on the next request.`,
               ))
@@ -718,7 +719,7 @@ export async function streamClaudeCodeCli(
       return
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = toErrorMessage(err)
     if (/not found|No such file|executable file not found/i.test(message)) {
       onError(new Error(
         "Claude Code CLI not found. Install `claude` (https://www.anthropic.com/claude-code) or pick a different provider.",

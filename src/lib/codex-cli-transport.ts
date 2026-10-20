@@ -15,6 +15,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { ChatMessage, ContentBlock, RequestOverrides } from "./llm-providers"
 import type { StreamCallbacks } from "./llm-client"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * Parse a single Codex CLI JSONL line and extract agent message text.
@@ -279,7 +280,7 @@ export async function streamCodexCli(
     await completion
   } catch (err) {
     finishWith(() => {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = toErrorMessage(err)
       if (/not found|No such file|executable file not found/i.test(message)) {
         onError(new Error(
           "Codex CLI not found. Install `codex` with `npm install -g @openai/codex` or pick a different provider.",

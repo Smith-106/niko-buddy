@@ -20,6 +20,7 @@ import { applyReviewRewriteEditsToMarkdown } from "@/lib/review-rewrite-plan"
 import { writeFileAtomic, readFile } from "@/commands/fs"
 import type { NovelReviewActionItem } from "@/lib/novel-review-action-items"
 import type { LlmConfig } from "@/stores/wiki-store"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface FindingCompareDialogProps {
   open: boolean
@@ -95,14 +96,14 @@ export function FindingCompareDialog({
             findingId: finding.id,
           }).catch((error: unknown) => {
             if (!cancelled) {
-              setErrorMsg(error instanceof Error ? error.message : String(error))
+              setErrorMsg(toErrorMessage(error))
             }
           })
         }
       })
       .catch((error: unknown) => {
         if (cancelled) return
-        setErrorMsg(error instanceof Error ? error.message : String(error))
+        setErrorMsg(toErrorMessage(error))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -163,7 +164,7 @@ export function FindingCompareDialog({
         await writeFileAtomic(finding.targetPath, rewritten.markdown)
       } catch (writeError: unknown) {
         setErrorMsg(
-          writeError instanceof Error ? writeError.message : String(writeError),
+          toErrorMessage(writeError),
         )
         setGateChecking(false)
         return
@@ -172,7 +173,7 @@ export function FindingCompareDialog({
       await acceptFindingRewriteDraft(projectPath, sessionId)
       onAccept()
     } catch (error: unknown) {
-      setErrorMsg(error instanceof Error ? error.message : String(error))
+      setErrorMsg(toErrorMessage(error))
     } finally {
       setGateChecking(false)
     }

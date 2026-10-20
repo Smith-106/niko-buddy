@@ -1,7 +1,7 @@
 import { readFile, listDirectory } from "@/commands/fs"
 import { streamChat } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import type { FileNode } from "@/types/wiki"
 import { useActivityStore } from "@/stores/activity-store"
 import { getFileName, getRelativePath, normalizePath } from "@/lib/path-utils"
@@ -295,7 +295,7 @@ export async function runSemanticLint(
         // carry provider endpoint URL / auth header — strip before surfacing in
         // the user-visible Activity panel. Raw message logged to console only.
         // (Twin of ingest.ts:553/613 analysis/generation activity sites.)
-        const raw = err instanceof Error ? err.message : String(err)
+        const raw = toErrorMessage(err)
         console.error("[Novel Lint] LLM stream error:", raw)
         const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
         activity.updateItem(activityId, {

@@ -15,6 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { auditRetrievedChunk, type InjectionAuditVerdict } from "@/lib/novel/prompt-injection-auditor";
 import { auditRagSource, isRagTrustAllowed, type RagTrustInput, type RagTrustVerdict } from "@/lib/novel/rag-trust-audit";
+import { toErrorMessage } from "@/lib/utils"
 
 export const TRANSPORT_MODES = ["stdio", "http", "sse"] as const;
 export type TransportMode = (typeof TRANSPORT_MODES)[number];
@@ -155,7 +156,7 @@ export function auditRemotePayload(payload: string, trustInput: RagTrustInput): 
 
 /** 后端拦截错误的判定（供 UI 决定是否展示审计拦截提示）。 */
 export function isAuditBlocked(error: unknown): boolean {
-  const text = error instanceof Error ? error.message : String(error);
+  const text = toErrorMessage(error);
   return text.includes(AUDIT_BLOCKED_PREFIX);
 }
 

@@ -2,6 +2,7 @@ import { streamChat } from "@/lib/llm-client"
 import { useWikiStore, type LlmConfig, type RerankConfig } from "@/stores/wiki-store"
 import { isRerankCapableEndpoint, requestDirectRerank } from "@/lib/rerank-api"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface RerankCandidate {
   id: string
@@ -181,7 +182,7 @@ export async function rerankCandidates<T extends RerankCandidate>(
       rerankCache.set(cacheKey, { candidatesKey, result: finalResult, cachedAt: Date.now() })
       return finalResult
     } catch (error) {
-      console.warn("[rerank] direct rerank endpoint failed, using original order:", error instanceof Error ? error.message : String(error))
+      console.warn("[rerank] direct rerank endpoint failed, using original order:", toErrorMessage(error))
       return candidates.slice(0, options.topK ?? candidates.length)
     }
   }
@@ -197,7 +198,7 @@ export async function rerankCandidates<T extends RerankCandidate>(
     onError: (error) => {
       // 存 message 而非 Error 对象：本函数只用文案做 warn，且 string 闭包变量
       // 不触发 TS 对 Error | null 闭包赋值的 CFA 窄化（await 后误判为 null）。
-      streamErrorMessage = error instanceof Error ? error.message : String(error)
+      streamErrorMessage = toErrorMessage(error)
     },
   }, AbortSignal.timeout(45000), {
     temperature: 0,

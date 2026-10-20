@@ -2,6 +2,7 @@ import type { ToolRegistry } from "./registry"
 import type { AgentRunCallbacks, AgentRunRecord, Tool } from "./types"
 import { executeAgentTool, type ExecuteAgentToolResult } from "./tool-executor"
 import { RequiredToolFallbackError } from "./required-tools-gate"
+import { toErrorMessage } from "@/lib/utils"
 
 interface RequiredToolFallbackResult {
   attempted: boolean
@@ -41,7 +42,7 @@ export async function executeRequiredToolFallback(input: {
     try {
       params = tool.buildRequiredToolFallbackParams({ taskGoal: input.taskGoal })
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
+      const detail = toErrorMessage(error)
       return {
         attempted: true,
         toolName,

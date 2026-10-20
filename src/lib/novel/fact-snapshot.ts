@@ -5,7 +5,7 @@ import {
 } from "./temporal-memory"
 import { resolveCanonicalName } from "./character-cognition"
 import type { NameAliasMap } from "./book-analysis/types"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { useWikiStore, type LlmConfig, type NovelConfig } from "@/stores/wiki-store"
 
 export interface FactCheckResult {
@@ -616,7 +616,7 @@ ${itemsText}`
         },
         onDone: () => {},
         onError: (error: Error) => {
-          logger.error("FactCheck LLM", "Stream error", { error: error instanceof Error ? error.message : String(error) })
+          logger.error("FactCheck LLM", "Stream error", { error: toErrorMessage(error) })
         },
       },
       signal
@@ -637,7 +637,7 @@ ${itemsText}`
       verdicts = JSON.parse(jsonMatch[0])
     } catch (error) {
       /* v8 ignore next */
-      logger.error("FactCheck LLM", "Verdict JSON parse failed", { error: error instanceof Error ? error.message : String(error) })
+      logger.error("FactCheck LLM", "Verdict JSON parse failed", { error: toErrorMessage(error) })
       return results
     }
     /* v8 ignore next */
@@ -665,7 +665,7 @@ ${itemsText}`
 
     return results
   } catch (error) {
-    logger.error("FactCheck LLM", "Failed", { error: error instanceof Error ? error.message : String(error) })
+    logger.error("FactCheck LLM", "Failed", { error: toErrorMessage(error) })
     return results
   }
 }

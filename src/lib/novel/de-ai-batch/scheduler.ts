@@ -60,6 +60,7 @@ import {
   type DeAiBatchSummary,
   type DeAiChapterState,
 } from "./types"
+import { toErrorMessage } from "@/lib/utils"
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -71,7 +72,7 @@ function clampConcurrency(value: number | undefined): number {
 }
 
 function isAbortError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
+  const message = toErrorMessage(error)
   return /abort|request cancelled|request canceled/i.test(message)
 }
 
@@ -378,7 +379,7 @@ export async function runDeAiBatch(
         await updateChapter(chapterNumber, { status: "pending", updatedAt: nowIso() })
         return
       }
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       await updateChapter(chapterNumber, {
         status: "failed",
         lastError: message,

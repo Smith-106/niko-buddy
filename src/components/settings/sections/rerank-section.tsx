@@ -15,6 +15,7 @@ import { ModelSelectInput } from "../model-select-input"
 import { ResourceLink } from "../resource-link"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import type { CustomApiMode, LlmConfig, RerankConfig } from "@/stores/wiki-store"
+import { toErrorMessage } from "@/lib/utils"
 
 const SILICONFLOW_RESOURCE_URL = "https://cloud.siliconflow.cn/i/1lKTd7hi"
 
@@ -145,7 +146,7 @@ export function RerankSection({ draft, setDraft }: Props) {
             : t("settings.sections.shared.testSuccessWithModel", { model: result.model }),
         })
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
+        const message = toErrorMessage(error)
         setTestState({
           loading: false,
           success: false,
@@ -178,7 +179,7 @@ export function RerankSection({ draft, setDraft }: Props) {
         loading: false,
         success: false,
         message: t("settings.sections.shared.modelListFailed", {
-          message: error instanceof Error ? error.message : String(error),
+          message: toErrorMessage(error),
         }),
       })
     }

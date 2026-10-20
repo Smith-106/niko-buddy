@@ -6,6 +6,7 @@ import { streamChat } from "@/lib/llm-client"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { runPostWriteCheck } from "./post-write-check-plugin"
 import { useWikiStore } from "@/stores/wiki-store"
+import { toErrorMessage } from "@/lib/utils"
 
 interface PostWriteCheckAIResult {
   check: PostWriteCheck
@@ -169,7 +170,7 @@ export async function runPostWriteCheckAI(params: {
     }
     return { check, source: "ai" }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = toErrorMessage(err)
     const isTimeout = message.includes("aborted") || message.includes("timeout") || message.includes("超时")
     return {
       check: runPostWriteCheck(chapterContent),

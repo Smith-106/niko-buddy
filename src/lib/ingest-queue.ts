@@ -5,6 +5,7 @@ import { normalizePath, isAbsolutePath } from "@/lib/path-utils"
 import { getProjectPathById } from "@/lib/project-identity"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { resolveDefaultModel } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -466,7 +467,7 @@ async function onQueueDrained(projectId: string, projectPath: string): Promise<v
     const { sweepResolvedReviews } = await import("@/lib/sweep-reviews")
     await sweepResolvedReviews(projectPath, signal)
   } catch (err) {
-    console.error("[Ingest Queue] Failed to load sweep-reviews:", err instanceof Error ? err.message : String(err))
+    console.error("[Ingest Queue] Failed to load sweep-reviews:", toErrorMessage(err))
   } finally {
     if (sweepAbortController && sweepAbortController.signal === signal) {
       sweepAbortController = null
@@ -485,7 +486,7 @@ async function processNext(projectId: string): Promise<void> {
     // Queue drained — trigger review cleanup (auto-resolve stale items)
     const pathAtDrain = currentProjectPath
     onQueueDrained(projectId, pathAtDrain).catch((err) =>
-      console.error("[Ingest Queue] sweep failed:", err instanceof Error ? err.message : String(err))
+      console.error("[Ingest Queue] sweep failed:", toErrorMessage(err))
     )
     return
   }
@@ -559,7 +560,7 @@ async function processNext(projectId: string): Promise<void> {
   } catch (err) {
     if (currentProjectId !== projectId) return
     currentAbortController = null
-    const message = err instanceof Error ? err.message : String(err)
+    const message = toErrorMessage(err)
     next.retryCount++
     next.error = message
 

@@ -18,6 +18,7 @@ import {
 } from "@/lib/extract-source-images"
 import { captionMarkdownImages, loadCaptionCache } from "@/lib/image-caption-pipeline"
 import type { MultimodalConfig } from "@/stores/wiki-store"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * Resolve the LLM config that the caption pipeline should use.
@@ -376,7 +377,7 @@ async function autoIngestImpl(
             } catch (err) {
               console.warn(
                 `[ingest:caption] 缓存命中图片标注失败：`,
-                err instanceof Error ? err.message : String(err),
+                toErrorMessage(err),
               )
             }
           }
@@ -394,7 +395,7 @@ async function autoIngestImpl(
     } catch (err) {
       console.warn(
         `[ingest:images] 缓存命中注入失败，文件 "${fileName}"：`,
-        err instanceof Error ? err.message : String(err),
+        toErrorMessage(err),
       )
     }
     activity.updateItem(activityId, {
@@ -505,7 +506,7 @@ async function autoIngestImpl(
     } catch (err) {
       console.warn(
         `[ingest:caption] 处理流程失败，文件 "${fileName}"：`,
-        err instanceof Error ? err.message : String(err),
+        toErrorMessage(err),
       )
       // Fall through with original (empty-alt) source content —
       // captioning failure must NEVER break ingest.
@@ -536,7 +537,7 @@ async function autoIngestImpl(
         // F-16 (CWE-532 / PAT-DC1-MSG-UI): err.message from the LLM transport may
         // carry provider endpoint URL / auth header — strip before surfacing in
         // the user-visible Activity panel. Raw message logged to console only.
-        const raw = err instanceof Error ? err.message : String(err)
+        const raw = toErrorMessage(err)
         console.error("[ingest] analysis stream error:", raw)
         const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
         activity.updateItem(activityId, { status: "error", detail: i18n.t("activity.ingest.analysisFailed", { message: safe }) })
@@ -595,7 +596,7 @@ async function autoIngestImpl(
       onError: (err) => {
         // F-16 (CWE-532 / PAT-DC1-MSG-UI): strip provider URL/auth from err.message
         // before surfacing in the user-visible Activity panel (twin of analysis site).
-        const raw = err instanceof Error ? err.message : String(err)
+        const raw = toErrorMessage(err)
         console.error("[ingest] generation stream error:", raw)
         const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
         activity.updateItem(activityId, { status: "error", detail: i18n.t("activity.ingest.generationFailed", { message: safe }) })
@@ -1417,7 +1418,7 @@ async function reembedSourceSummary(pp: string, fileName: string): Promise<void>
   } catch (err) {
     console.warn(
       `[ingest:caption] 重新嵌入 ${sourceBaseName} 失败：`,
-      err instanceof Error ? err.message : String(err),
+      toErrorMessage(err),
     )
   }
 }
@@ -1511,7 +1512,7 @@ export async function startIngest(
       onError: (err) => {
         // F-16 (CWE-532 / PAT-DC1-MSG-UI): strip provider URL/auth from err.message
         // before writing into the user-visible chat stream.
-        const raw = err instanceof Error ? err.message : String(err)
+        const raw = toErrorMessage(err)
         console.error("[ingest] startIngest stream error:", raw)
         const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
         getStore().finalizeStream(`Error during ingest: ${safe}`)
@@ -1601,7 +1602,7 @@ export async function executeIngestWrites(
       onError: (err) => {
         // F-16 (CWE-532 / PAT-DC1-MSG-UI): strip provider URL/auth before surfacing
         // in the user-visible chat stream (twin of startIngest site).
-        const raw = err instanceof Error ? err.message : String(err)
+        const raw = toErrorMessage(err)
         console.error("[ingest] executeIngestWrites stream error:", raw)
         const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
         getStore().finalizeStream(`Error generating wiki files: ${safe}`)

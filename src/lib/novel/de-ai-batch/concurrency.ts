@@ -13,6 +13,7 @@ import {
   DE_AI_BATCH_JITTER,
   DE_AI_BATCH_MAX_RETRIES,
 } from "./types"
+import { toErrorMessage } from "@/lib/utils"
 
 /** 信号量原语：acquire/release/tryAcquire。 */
 export interface Semaphore {
@@ -57,7 +58,7 @@ export function createSemaphore(limit: number): Semaphore {
 
 /** 瞬时错误判定：429 / 5xx / 网络 / 超时 / 传输停滞。 */
 export function isTransientLlmError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
+  const message = toErrorMessage(error)
   return /429|5\d\d|rate\s*limit|too many requests|timeout|timed\s*out|network|econnreset|socket|transport inactivity|produced no (meaningful )?stream output/i.test(
     message,
   )

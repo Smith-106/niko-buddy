@@ -1,4 +1,5 @@
 import { createAtomicJsonStore } from "./projection-store"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface CharacterState {
   characterName: string
@@ -89,7 +90,7 @@ const store = createAtomicJsonStore<CharacterStateStore>(
   {
     onCorrupt: "throw",
     isMissingError: (err) => {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = toErrorMessage(err)
       return /not found|ENOENT|does not exist|os error 2|系统找不到/i.test(message)
     },
     arrayFieldCaps: { characters: 400 },

@@ -13,7 +13,7 @@ import { createDirectory, writeFile, readFile, listDirectory } from "@/commands/
 import { normalizePath, joinPath } from "@/lib/path-utils"
 import { fingerprintFileSample } from "./content-fingerprint"
 import { findBookLibraryEntry, upsertBookLibraryEntry } from "./library-store"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 
 export interface SplitChaptersInput {
   sourcePath: string
@@ -281,7 +281,7 @@ export async function loadChapterList(bookPath: string): Promise<ChapterSelectio
           }
         }
       } catch (err) {
-        logger.error("Analysis Engine", `Failed to read chapter ${file.path}`, { error: err instanceof Error ? err.message : String(err) })
+        logger.error("Analysis Engine", `Failed to read chapter ${file.path}`, { error: toErrorMessage(err) })
       }
     }
 
@@ -290,7 +290,7 @@ export async function loadChapterList(bookPath: string): Promise<ChapterSelectio
 
     return chapters
   } catch (error) {
-    logger.error("Analysis Engine", "Failed to load chapter list", { error: error instanceof Error ? error.message : String(error) })
+    logger.error("Analysis Engine", "Failed to load chapter list", { error: toErrorMessage(error) })
     return []
   }
 }
@@ -304,7 +304,7 @@ export async function loadMetadata(bookPath: string): Promise<BookAnalysisMetada
     const content = await readFile(metadataPath)
     return JSON.parse(content) as BookAnalysisMetadata
   } catch (error) {
-    logger.error("Analysis Engine", "Failed to load metadata", { error: error instanceof Error ? error.message : String(error) })
+    logger.error("Analysis Engine", "Failed to load metadata", { error: toErrorMessage(error) })
     return null
   }
 }

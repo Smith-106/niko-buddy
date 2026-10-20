@@ -29,6 +29,7 @@ import { DEFAULT_NOVEL_CONFIG, type NovelConfig } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
 import { recordModuleHit } from "./module-heat"
 import { createDirectory, writeFileAtomic } from "@/commands/fs"
+import { toErrorMessage } from "@/lib/utils"
 
 function countWords(text: string): number {
   return text.replace(/\s/g, "").length
@@ -505,7 +506,7 @@ export async function runAutonomousDraftCampaign(
         })
       }
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err)
+      const errorMsg = toErrorMessage(err)
       const failedResult: CampaignChapterResult = {
         chapterNumber: currentChapterNum,
         content: "",

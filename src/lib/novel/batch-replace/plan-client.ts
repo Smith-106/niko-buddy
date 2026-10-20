@@ -18,6 +18,7 @@ import {
   type PreWriteGateResult,
 } from "../canon-pre-write-gate";
 import type { FileDiffModel } from "./diff-model";
+import { toErrorMessage } from "@/lib/utils"
 
 /** 确认门里的操作名（与 Rust 侧 `BATCH_REPLACE_OP` 一致）。 */
 export const BATCH_REPLACE_OP = "batchReplace";
@@ -77,17 +78,17 @@ export async function applyBatchReplace(req: BatchReplaceRequest): Promise<Apply
 }
 
 export function isGateRequireConfirm(error: unknown): boolean {
-  const text = error instanceof Error ? error.message : String(error);
+  const text = toErrorMessage(error);
   return text.includes(GATE_CONFIRM_PREFIX);
 }
 
 export function isGateDenied(error: unknown): boolean {
-  const text = error instanceof Error ? error.message : String(error);
+  const text = toErrorMessage(error);
   return text.includes(GATE_DENIED_PREFIX);
 }
 
 export function isTransactionRolledBack(error: unknown): boolean {
-  const text = error instanceof Error ? error.message : String(error);
+  const text = toErrorMessage(error);
   return text.includes("BATCH_REPLACE_ROLLED_BACK");
 }
 

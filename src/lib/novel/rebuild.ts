@@ -11,6 +11,7 @@ import { ingestChapter } from "./chapter-ingest"
 import { defaultCanonDualWriteDeps } from "./canon-dual-write"
 import { flattenMdFilesBase } from "./chapter-utils"
 import { useWikiStore, type EmbeddingConfig } from "@/stores/wiki-store"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface RebuildProgress {
   total: number
@@ -97,7 +98,7 @@ export async function rebuildAllSnapshots(
       }
     } catch (err) {
       failed++
-      const msg = err instanceof Error ? err.message : String(err)
+      const msg = toErrorMessage(err)
       errors.push(`第${chapter.chapterNumber}章：${msg}`)
     }
   }
@@ -159,7 +160,7 @@ export async function rebuildVectorIndex(
       await embedPage(pp, pageId, title, content, embCfgResolved)
       indexed++
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
+      const msg = toErrorMessage(err)
       errors.push(`${file.name}：${msg}`)
     }
   }

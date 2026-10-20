@@ -11,6 +11,7 @@ import { isReasoningDisabled, isReasoningOnlyResponseError, withReasoningDisable
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
 import { trimChatMessagesToBudget } from "./chat-request-budget"
 import { clampHttpTimeoutMs, resolveProviderOverride } from "@/lib/llm-config/preset-resolver"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * 从运行时 LlmConfig 解析三档 HTTP 超时 (毫秒)。
@@ -153,7 +154,7 @@ export async function flushMetrics(): Promise<number> {
     await writeFileAtomic(metricsFilePath, next)
     return toFlush.length
   } catch (e) {
-    console.error("[metrics] flush failed:", e instanceof Error ? e.message : String(e))
+    console.error("[metrics] flush failed:", toErrorMessage(e))
     if (metricsBuffer.length < 1000) metricsBuffer.unshift(...toFlush)
     return 0
   }
@@ -208,7 +209,7 @@ export async function flushContinuityMetrics(): Promise<number> {
   } catch (e) {
     console.error(
       "[continuity-metrics] flush failed:",
-      e instanceof Error ? e.message : String(e),
+      toErrorMessage(e),
     )
     if (continuityMetricBuffer.length < 1000) continuityMetricBuffer.unshift(...toFlush)
     return 0

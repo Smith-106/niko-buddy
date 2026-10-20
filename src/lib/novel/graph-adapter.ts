@@ -1,7 +1,7 @@
 import { readFile, writeFileAtomic, fileExists, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { mergeArrayFieldsIntoContent } from "@/lib/sources-merge"
-import { uniqueNonEmpty, logger } from "@/lib/utils"
+import { logger, toErrorMessage, uniqueNonEmpty } from "@/lib/utils"
 import { withProjectLock } from "./novel-locks"
 import { resolveEntityPath } from "./entity-subdir-resolver"
 import type { ChapterSnapshot } from "./chapter-ingest"
@@ -747,7 +747,7 @@ export async function writeSnapshotToWiki(
         // （见下方 withProjectLock）——这里只做与磁盘无关的纯构建。
         return { filePath, newContent, nodeId: node.id }
       } catch (err) {
-        logger.warn("Graph Adapter", `Failed to prepare entity page for node ${node.id}`, { error: err instanceof Error ? err.message : String(err) })
+        logger.warn("Graph Adapter", `Failed to prepare entity page for node ${node.id}`, { error: toErrorMessage(err) })
         return null
       }
     }),
@@ -775,7 +775,7 @@ export async function writeSnapshotToWiki(
       })
       writtenPaths.push(item.filePath)
     } catch (err) {
-      logger.warn("Graph Adapter", `Failed to write entity page for node ${item.nodeId}`, { error: err instanceof Error ? err.message : String(err) })
+      logger.warn("Graph Adapter", `Failed to write entity page for node ${item.nodeId}`, { error: toErrorMessage(err) })
     }
   }
 
@@ -948,7 +948,7 @@ export async function writePatchFieldsToWiki(
         // 写循环的 per-page 锁内完成（见下方 withProjectLock），这里只做纯构建。
         return { filePath, title: entry.title, tag, sectionMd, aliases, entryId: entry.entryId }
       } catch (err) {
-        logger.warn("Graph Adapter", `Failed to prepare patch fields for entry ${entry.entryId}`, { error: err instanceof Error ? err.message : String(err) })
+        logger.warn("Graph Adapter", `Failed to prepare patch fields for entry ${entry.entryId}`, { error: toErrorMessage(err) })
         return null
       }
     }),
@@ -974,7 +974,7 @@ export async function writePatchFieldsToWiki(
       })
       writtenPaths.push(item.filePath)
     } catch (err) {
-      logger.warn("Graph Adapter", `Failed to write patch fields for entry ${item.entryId}`, { error: err instanceof Error ? err.message : String(err) })
+      logger.warn("Graph Adapter", `Failed to write patch fields for entry ${item.entryId}`, { error: toErrorMessage(err) })
     }
   }
 

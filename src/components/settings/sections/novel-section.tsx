@@ -18,6 +18,7 @@ import { WritingPreferenceSection } from "./writing-preference-section"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import type { NovelConfig } from "@/stores/wiki-store"
 import { TASK_PROMPT_KEYS } from "@/stores/wiki-store"
+import { toErrorMessage } from "@/lib/utils"
 
 interface Props {
   draft: SettingsDraft
@@ -106,7 +107,7 @@ export function NovelSection({ draft, setDraft }: Props) {
       await saveAntiAiTelemetryConsent(next)
     } catch (error) {
       setAntiAiTelemetryConsent(prev)
-      setConsentError(error instanceof Error ? error.message : String(error))
+      setConsentError(toErrorMessage(error))
       return
     }
     try {
@@ -115,7 +116,7 @@ export function NovelSection({ draft, setDraft }: Props) {
       }
     } catch (error) {
       // store 已写入 next，UI 保持 next；sink 半态由下次项目打开自愈
-      setConsentError(error instanceof Error ? error.message : String(error))
+      setConsentError(toErrorMessage(error))
     }
   }
 
@@ -148,7 +149,7 @@ export function NovelSection({ draft, setDraft }: Props) {
         written: null,
         failed: 0,
         skipped: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: toErrorMessage(error),
       })
     }
   }
@@ -213,7 +214,7 @@ export function NovelSection({ draft, setDraft }: Props) {
         [task]: {
           loading: false,
           message: t("novel.settings.testFailed", {
-            message: error instanceof Error ? error.message : String(error),
+            message: toErrorMessage(error),
           }),
           success: false,
         },

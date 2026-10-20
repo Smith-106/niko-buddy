@@ -20,6 +20,7 @@ import {
   type SkillBundleImportResult,
   type SkillBundleVerifyResult,
 } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface SkillBundleImportDialogProps {
   /** 是否打开。 */
@@ -67,7 +68,7 @@ export function SkillBundleImportDialog({
         if (!cancelled)
           setError({
             message: t("skillbundle.import.verifyFailed"),
-            detail: cause instanceof Error ? cause.message : String(cause),
+            detail: toErrorMessage(cause),
           })
       })
       .finally(() => {
@@ -104,7 +105,7 @@ export function SkillBundleImportDialog({
     } catch (cause: unknown) {
       setError({
         message: t("skillbundle.import.importFailed"),
-        detail: cause instanceof Error ? cause.message : String(cause),
+        detail: toErrorMessage(cause),
       })
     } finally {
       setBusy(false)

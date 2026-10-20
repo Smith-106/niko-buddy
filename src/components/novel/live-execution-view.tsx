@@ -28,6 +28,7 @@ import {
   type TraceEntry,
 } from "@/lib/novel"
 import { useActivityStore, type ActivityItem } from "@/stores/activity-store"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface LiveExecutionViewProps {
   /** 项目磁盘路径（content-area 传 project.path，不是 UUID；UUID 读不到账本）。 */
@@ -116,7 +117,7 @@ export function LiveExecutionView({
         // 时无任何失败可报（串行链下后轮尚未开火），保持 loading。
         // 无重叠请求，error 与 loading 不可能并存，也不会有过期错误覆盖新数据。
         if (first || hasDataRef.current || streak >= 2) {
-          setLoadError(error instanceof Error ? error.message : String(error))
+          setLoadError(toErrorMessage(error))
           setReady(true)
         }
       }

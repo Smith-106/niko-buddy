@@ -28,6 +28,7 @@ import {
   enqueueSourceIngest,
   isIngestableSourcePath,
 } from "@/lib/source-lifecycle"
+import { toErrorMessage } from "@/lib/utils"
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -259,7 +260,7 @@ export async function scanAndImport(
           preprocessFile(p).catch((err) => {
             console.warn(
               `[scheduled-import] preprocess failed for ${p}:`,
-              err instanceof Error ? err.message : String(err),
+              toErrorMessage(err),
             )
           }),
         ),

@@ -1,3 +1,4 @@
+import { toErrorMessage } from "@/lib/utils"
 // MIT License
 // Copyright (c) 2026 Niko Buddy
 // SPDX-License-Identifier: MIT
@@ -131,7 +132,7 @@ export async function detectOllamaSlmStatus(
       baseUrl: cleanUrl,
       latencyMs: Date.now() - start,
       installedModels: [],
-      error: err instanceof Error ? err.message : String(err),
+      error: toErrorMessage(err),
     }
   }
 }

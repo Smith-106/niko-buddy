@@ -22,6 +22,7 @@ import { testSettingsEmbeddingModel } from "@/lib/settings-model-test"
 import { ModelSelectInput } from "../model-select-input"
 import { ResourceLink } from "../resource-link"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
+import { toErrorMessage } from "@/lib/utils"
 
 const SILICONFLOW_RESOURCE_URL = "https://cloud.siliconflow.cn/i/1lKTd7hi"
 
@@ -153,7 +154,7 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
           }),
         })
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
+        const message = toErrorMessage(error)
         setTestState({
           loading: false,
           success: false,
@@ -194,7 +195,7 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
         loading: false,
         success: false,
         message: t("settings.sections.shared.modelListFailed", {
-          message: error instanceof Error ? error.message : String(error),
+          message: toErrorMessage(error),
         }),
       })
     }

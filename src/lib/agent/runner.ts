@@ -31,6 +31,7 @@ import {
   isRequiredToolExecutionFulfilled,
 } from "./required-tool-fallback"
 import { withWritingWakeLock } from "../writing-wake-lock"
+import { toErrorMessage } from "@/lib/utils"
 
 export class ModelDoesNotSupportToolsError extends Error {
   constructor() {
@@ -286,7 +287,7 @@ export class AgentRunner {
           : baseOverrides
       let requestOverrides = buildRequestOverrides()
       const isToolUnsupportedError = (err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err)
+        const msg = toErrorMessage(err)
         return /function[\s_.-]*call|tool_choice|tools?\s+(?:is|are)\s+not\s+supported|does\s+not\s+support\s+(?:function|tools?)|unsupported\s+(?:function|tools?|tool_choice)|不支持\s*(?:工具|function\s*call|FunctionCall)/i.test(msg)
       }
       const failToolsUnsupported = () => {

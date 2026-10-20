@@ -2,6 +2,7 @@ import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
 import type { ContextPack, TrimResult } from "@/lib/novel"
 import { resolveContextPackTokenBudget } from "@/lib/context-budget"
 import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
+import { toErrorMessage } from "@/lib/utils"
 
 interface TrimContextPluginDeps {
   contextPackToPromptFn?: (pack: ContextPack, tokenBudget?: number, options?: { excludeOutline?: boolean }) => string
@@ -79,7 +80,7 @@ export function createTrimContextPlugin(deps: TrimContextPluginDeps = {}): PrePl
         if (onVirtualTool && callId) {
           onVirtualTool("end", "trim_context", {
             callId,
-            result: error instanceof Error ? error.message : String(error),
+            result: toErrorMessage(error),
             status: "error",
           })
         }

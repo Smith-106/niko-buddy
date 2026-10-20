@@ -22,6 +22,7 @@
  */
 
 import type { CapabilityDoc, RetrievedCapability } from "./capability-retrieval"
+import { toErrorMessage } from "@/lib/utils"
 
 export const MAX_CAPABILITY_NODES = 6
 
@@ -263,5 +264,5 @@ function booleanValue(value: unknown): boolean {
 }
 
 function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return toErrorMessage(error)
 }

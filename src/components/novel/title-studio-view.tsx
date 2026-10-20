@@ -28,6 +28,7 @@ import {
   type TitleForgeReport,
   type TitleSeedEntry,
 } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
 
 export interface TitleStudioViewProps {
   readonly projectPath: string
@@ -85,7 +86,7 @@ export function TitleStudioView({ projectPath }: TitleStudioViewProps) {
         // 装载失败：不臆造种子，落诚实空态并展示原因。
         if (cancelled) return
         setSeeds([])
-        setLoadError(error instanceof Error ? error.message : String(error))
+        setLoadError(toErrorMessage(error))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)

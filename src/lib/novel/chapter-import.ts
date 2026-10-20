@@ -1,6 +1,6 @@
 import { createDirectory, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
 import { getFileName, getFileStem, normalizePath } from "@/lib/path-utils"
-import { logger } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { makeSafeFileSlug, yamlEscape } from "@/lib/wiki-filename"
 import { defaultCanonDualWriteDeps } from "./canon-dual-write"
 import type { IngestChapterOptions } from "./chapter-ingest"
@@ -387,7 +387,7 @@ async function importChapterCandidates(
       }))
       imported.push({ sourcePath: candidate.path, path: targetPath, title, chapterNumber })
     } catch (error) {
-      logger.error("Chapter Import", "failed to import chapter file", { path: candidate.path, error: error instanceof Error ? error.message : String(error) })
+      logger.error("Chapter Import", "failed to import chapter file", { path: candidate.path, error: toErrorMessage(error) })
     }
   }
 

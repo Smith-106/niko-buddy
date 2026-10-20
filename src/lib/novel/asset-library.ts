@@ -20,6 +20,7 @@
 
 import { z } from "zod"
 import { ADVANCE_MODE_SCHEMA, type AdvanceMode } from "./director-modes"
+import { toErrorMessage } from "@/lib/utils"
 
 // ============================================================================
 // 五库条目 schema
@@ -290,7 +291,7 @@ export function probeLibraryHealth(artifact: LibraryArtifact): LibraryHealthRepo
   try {
     assertArtifactImmutable(artifact)
   } catch (err) {
-    violations.push(err instanceof Error ? err.message : String(err))
+    violations.push(toErrorMessage(err))
   }
   if (artifact.libraryId === "world_sample") {
     for (const entry of artifact.entries) {
