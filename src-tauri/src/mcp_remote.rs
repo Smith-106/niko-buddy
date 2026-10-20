@@ -87,12 +87,16 @@ pub struct RemoteRequestPlan {
 }
 
 /// 远程取回的载荷。**必须**先过审计才允许入库。
+// 四-6：读侧加法兼容 camel（serverId/auditPending），主名 snake 不变——
+// 当前线协议为 Rust→TS 单向（remote-transport.ts 以 snake 镜像），零写变更。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemotePayload {
+    #[serde(alias = "serverId")]
     pub server_id: String,
     pub transport: String,
     pub body: String,
     /// 恒为 true：提示调用方「未经审计不得入库」。
+    #[serde(alias = "auditPending")]
     pub audit_pending: bool,
     /// 审计放行后由调用方置为 false 的来源标记。
     pub origin: String,
@@ -527,6 +531,21 @@ mod mcp {
         mcp_remote_close("demo").unwrap();
         std::env::remove_var("NB_MCP_ENDPOINT");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn remote_payload_accepts_snake_and_camel_spellings() {
+        // 四-6：读侧双拼写兼容（主名 snake；camel 经 alias）。
+        let snake: RemotePayload = serde_json::from_str(
+            r#"{"server_id":"s","transport":"http","body":"b","audit_pending":true,"origin":"o"}"#,
+        )
+        .unwrap();
+        let camel: RemotePayload = serde_json::from_str(
+            r#"{"serverId":"s","transport":"http","body":"b","auditPending":true,"origin":"o"}"#,
+        )
+        .unwrap();
+        assert_eq!(snake.server_id, camel.server_id);
+        assert_eq!(snake.audit_pending, camel.audit_pending);
     }
 
     #[test]
