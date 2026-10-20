@@ -1,4 +1,5 @@
 import type { RawCanonEdge } from "@/lib/novel"
+import { fnv1aHex } from "@/lib/utils"
 
 // ============================================================================
 // wire 契约（与 src-tauri/src/canon_commands.rs serde snake_case 对齐）
@@ -40,12 +41,7 @@ export function makeCorrectionId(oldId: string, salt: string): string {
 
 /** FNV-1a 32 位摘要（十六进制）。校正后继边的写路径幂等键（确定性，同内容同值）。 */
 export function computeCorrectionDigest(input: string): string {
-  let h = 0x811c9dc5
-  for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i)
-    h = Math.imul(h, 0x01000193) >>> 0
-  }
-  return h.toString(16).padStart(8, "0")
+  return fnv1aHex(input)
 }
 
 /**

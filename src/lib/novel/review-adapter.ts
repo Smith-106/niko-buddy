@@ -3,7 +3,7 @@ import i18n from "@/i18n"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { useWikiStore, type LlmConfig, type NovelConfig } from "@/stores/wiki-store"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
-import { logger, toErrorMessage, validateSeverity } from "@/lib/utils"
+import { bytesToHex, logger, toErrorMessage, validateSeverity } from "@/lib/utils"
 import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
 import type { TemporalFact } from "./temporal-memory"
 import { buildCharacterAuraContext } from "./character-aura"
@@ -456,7 +456,7 @@ const AUDIT_FINDINGS_LINE_SCHEMA = z.object({
 async function auditEntryHash(payload: string, prevHash: string): Promise<string> {
   const data = new TextEncoder().encode(prevHash + "|" + payload)
   const digest = await crypto.subtle.digest("SHA-256", data)
-  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("")
+  return bytesToHex(new Uint8Array(digest))
 }
 
 export async function appendAuditFindings(

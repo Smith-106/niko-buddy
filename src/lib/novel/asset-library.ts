@@ -20,7 +20,7 @@
 
 import { z } from "zod"
 import { ADVANCE_MODE_SCHEMA, type AdvanceMode } from "./director-modes"
-import { toErrorMessage } from "@/lib/utils"
+import { fnv1aHex, toErrorMessage } from "@/lib/utils"
 
 // ============================================================================
 // 五库条目 schema
@@ -192,12 +192,7 @@ export function stableStringify(value: unknown): string {
 
 /** 确定性身份哈希（FNV-1a 32-bit + 长度后缀；与 prompt-artifacts 同法）。 */
 export function computeLibraryHash(input: string): string {
-  let hash = 0x811c9dc5
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193) >>> 0
-  }
-  return `lib-fnv1a-${hash.toString(16).padStart(8, "0")}-len${input.length}`
+  return `lib-fnv1a-${fnv1aHex(input)}-len${input.length}`
 }
 
 /**

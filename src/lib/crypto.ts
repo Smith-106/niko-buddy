@@ -12,7 +12,7 @@
 
 import { invoke } from "@tauri-apps/api/core"
 import { isTauri } from "@/lib/platform"
-import { toErrorMessage } from "@/lib/utils"
+import { bytesToHex, safeStorageGet, toErrorMessage } from "@/lib/utils"
 
 const ENCRYPTED_PREFIX = "enc::v1::"
 
@@ -45,11 +45,11 @@ export async function getDeviceFingerprint(): Promise<string> {
   }
 
   // Fallback: generate random fingerprint stored in localStorage
-  let fallback = localStorage.getItem("niko_buddy_fallback_fingerprint")
+  let fallback = safeStorageGet("niko_buddy_fallback_fingerprint")
   if (!fallback) {
     const buf = new Uint8Array(32)
     crypto.getRandomValues(buf)
-    fallback = Array.from(buf, b => b.toString(16).padStart(2, "0")).join("")
+    fallback = bytesToHex(buf)
     localStorage.setItem("niko_buddy_fallback_fingerprint", fallback)
   }
   // Do not cache fallback fingerprint to allow retry when Tauri is ready

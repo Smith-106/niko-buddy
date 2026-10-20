@@ -1,6 +1,6 @@
 import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
-import { toErrorMessage } from "@/lib/utils"
+import { bytesToHex, toErrorMessage } from "@/lib/utils"
 
 /**
  * MAINT-002: 统一的 .novel/ 投影 JSON 存储工厂。消散 emotional-arcs /
@@ -274,7 +274,5 @@ export async function truthStoreHash(store: unknown): Promise<string> {
   const canonical = canonicalizeForHash(store)
   const bytes = new TextEncoder().encode(JSON.stringify(canonical))
   const digest = await crypto.subtle.digest("SHA-256", bytes)
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("")
+  return bytesToHex(Array.from(new Uint8Array(digest)))
 }

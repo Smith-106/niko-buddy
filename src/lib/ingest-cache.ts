@@ -1,5 +1,6 @@
 import { readFile, writeFile, fileExists } from "@/commands/fs"
 import { normalizePath, isAbsolutePath } from "@/lib/path-utils"
+import { bytesToHex } from "@/lib/utils"
 
 /**
  * SHA256-based ingest cache.
@@ -22,7 +23,7 @@ async function sha256(content: string): Promise<string> {
   const data = encoder.encode(content)
   const hashBuffer = await crypto.subtle.digest("SHA-256", data)
   const hashArray = Array.from(new Uint8Array(hashBuffer))
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("")
+  return bytesToHex(hashArray)
 }
 
 function cachePath(projectPath: string): string {

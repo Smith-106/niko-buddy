@@ -29,6 +29,37 @@ export function todayStamp(d: Date = new Date()): string {
 }
 
 /**
+ * 字节数组 → 小写 hex（SHA-256 digest 等同形收敛）。
+ */
+export function bytesToHex(bytes: ArrayLike<number>): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")
+}
+
+/**
+ * FNV-1a 32 位字符串摘要（十六进制 8 位）。确定性，同内容同值。
+ */
+export function fnv1aHex(input: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h.toString(16).padStart(8, "0")
+}
+
+/**
+ * SSR/隐私模式安全的 localStorage 读取（不可用返回 null，不抛错）。
+ */
+export function safeStorageGet(key: string): string | null {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return null
+    return window.localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+/**
  * 字符串数组去重 + trim + 过滤空值。
  */
 export function uniqueNonEmpty(values: string[]): string[] {

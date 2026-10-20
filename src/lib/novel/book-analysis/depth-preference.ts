@@ -12,6 +12,7 @@
  */
 
 import type { AnalysisDepth } from "./types"
+import { safeStorageGet } from "@/lib/utils"
 
 const STORAGE_KEY = "niko-buddy.book-analysis.depth-preference"
 
@@ -25,12 +26,7 @@ function isValidDepth(value: unknown): value is AnalysisDepth {
  * 安全读取 localStorage（无 window 时返回 null）
  */
 function safeGet(key: string): string | null {
-  try {
-    if (typeof window === "undefined") return null
-    return window.localStorage.getItem(key)
-  } catch {
-    return null
-  }
+  return safeStorageGet(key)
 }
 
 /**

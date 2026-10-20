@@ -38,7 +38,7 @@ import { writeFile, readFile, createDirectory, fileExists, readFileAsBase64 } fr
 import { captionImage } from "@/lib/vision-caption"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
-import { toErrorMessage } from "@/lib/utils"
+import { bytesToHex, toErrorMessage } from "@/lib/utils"
 
 interface CaptionEntry {
   caption: string
@@ -66,9 +66,7 @@ async function sha256OfBase64(b64: string): Promise<string> {
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
   const digest = await crypto.subtle.digest("SHA-256", bytes)
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("")
+  return bytesToHex(Array.from(new Uint8Array(digest)))
 }
 
 /**
