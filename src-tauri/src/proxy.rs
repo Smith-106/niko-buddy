@@ -24,7 +24,7 @@ pub struct ProxyConfig {
     pub enabled: bool,
     #[serde(default)]
     pub url: String,
-    #[serde(default = "default_true", rename = "bypassLocal")]
+    #[serde(default = "default_true", alias = "bypassLocal")]
     pub bypass_local: bool,
 }
 
@@ -426,18 +426,21 @@ mod tests {
     }
 
     #[test]
-    #[allow(non_snake_case)]
-    fn parses_camelcase_bypassLocal_field() {
-        let json = r#"{"enabled": true, "url": "http://x:1", "bypassLocal": false}"#;
-        let cfg: ProxyConfig = serde_json::from_str(json).unwrap();
-        assert!(cfg.enabled);
-        assert_eq!(cfg.url, "http://x:1");
-        assert!(!cfg.bypass_local);
+    fn parses_both_bypass_local_spellings() {
+        // 前端写 camel（既有 app-state.json）；snake 为新增主名。双向可读，加法兼容。
+        for json in [
+            r#"{"enabled": true, "url": "http://x:1", "bypassLocal": false}"#,
+            r#"{"enabled": true, "url": "http://x:1", "bypass_local": false}"#,
+        ] {
+            let cfg: ProxyConfig = serde_json::from_str(json).unwrap();
+            assert!(cfg.enabled);
+            assert_eq!(cfg.url, "http://x:1");
+            assert!(!cfg.bypass_local);
+        }
     }
 
     #[test]
-    #[allow(non_snake_case)]
-    fn missing_proxyConfig_returns_none() {
+    fn missing_proxy_config_returns_none() {
         let dir = tempdir_for_test();
         let path = dir.join("missing.json");
         assert!(read_proxy_config_from_store(&path).is_none());
