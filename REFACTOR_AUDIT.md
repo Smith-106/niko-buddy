@@ -23,7 +23,7 @@
 
 ## 二、结构与职责耦合（巨型文件）
 
-1. 【`chat-panel.tsx:778,950,1735,2265`（2900 行，82 函数）】症状：`handleSend` 内联路由/深章节会话/三次 `streamChat`/打分/写盘，import 拉 40+ novel 函数。方案：下沉 `useChatSend`＋`useDeepChapterSession` 到 `chat/hooks/`，`streamChat` 收敛 `send-service.ts`。影响：仅 chat 发送/续写/深章节三路径。
+1. 【✅完成 2026-10-21 `chat-panel.tsx`（2900→2731 行，-169；commit `d921d24c`）】零风险 verbatim：ConversationTabs＋3 纯函数下沉 `chat-panel-widgets.tsx`（186），167 行逐字节一致；Hook 密集主体不动；dismantling.spec 白盒路径跟随。
 2. 【✅完成 2026-10-21 `preview-panel.tsx`（1762→1604 行，-158；commit `2f32851c`）】纯层下沉 `preview-panel-helpers.ts`（165：15 纯函数＋4 常量），逐字节一致；PreviewPanel/sources-view/spec 零改动。
 3. 【✅完成 2026-10-20 `review-view.tsx`（1626→1368 行，-258；commit `30829131`）】cards 下沉 `review-cards.tsx`（278：typeConfig＋2 纯函数＋PreviewDialog＋Badge＋ReviewCard），七段逐字节一致（顺序微调）；ReviewView/review-center/spec 零改动。
 4. 【✅二期完成 2026-10-20 `graph-view.tsx`（2104→1119 行，-985；commit `73120ad3`）】子视图 verbatim 下沉：sigma-graph-views.tsx（337）＋document-graph-view.tsx（606）＋mindmap-views.tsx（75），三文件逐字节一致；GraphView 主体与 Hook 时序零改动，对外仅导出 GraphView 不变。累计首阶段 `52d12949`（2198→2104）。
