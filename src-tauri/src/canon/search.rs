@@ -125,8 +125,11 @@ pub struct RecallItem {
     /// 在该来源 ranked list 中的 0-based 位置。
     pub rank: usize,
     /// 原始相关性分数（FTS BM25 / 向量相似度；诊断用，不进 RRF）。
+    // 四-5：读侧加法兼容 camel（rawScore），主名 snake 不变（内部融合数学，零 IPC 写变更）。
+    #[serde(alias = "rawScore")]
     pub raw_score: f64,
     /// 叙事参考章节（窗口衰减距离基准；None=不衰减）。
+    #[serde(alias = "referenceChapter")]
     pub reference_chapter: Option<i32>,
 }
 
@@ -154,14 +157,20 @@ impl RecallItem {
 pub struct FusedResult {
     pub id: String,
     /// RRF 融合分（Σ 1/(rank_const+rank)，未衰减）。
+    // 四-5：同上，读侧 camel alias，主名不变。
+    #[serde(alias = "fusionScore")]
     pub fusion_score: f64,
     /// 窗口衰减后最终分（fusion_score × decay(d)）。
+    #[serde(alias = "decayedScore")]
     pub decayed_score: f64,
     /// 该 id 在 FTS 通道的 rank（若命中）。
+    #[serde(alias = "ftsRank")]
     pub fts_rank: Option<usize>,
     /// 该 id 在向量通道的 rank（若命中）。
+    #[serde(alias = "vectorRank")]
     pub vector_rank: Option<usize>,
     /// 用于衰减的章节距离 d（≥0；0=同章或未知）。
+    #[serde(alias = "chapterDistance")]
     pub chapter_distance: i32,
 }
 
@@ -1189,6 +1198,26 @@ mod tests {
     }
     fn vec_(id: &str, rank: usize, ch: Option<i32>) -> RecallItem {
         RecallItem::new(id, RecallSource::Vector, rank, 1.0, ch)
+    }
+
+    #[test]
+    fn recall_and_fused_accept_snake_and_camel_spellings() {
+        // 四-5：读侧双拼写兼容（主名 snake；camel 经 alias）。
+        let snake: RecallItem = serde_json::from_str(
+            r#"{"id":"a","source":"fts","rank":0,"raw_score":0.5,"reference_chapter":3}"#,
+        )
+        .unwrap();
+        let camel: RecallItem = serde_json::from_str(
+            r#"{"id":"a","source":"fts","rank":0,"rawScore":0.5,"referenceChapter":3}"#,
+        )
+        .unwrap();
+        assert_eq!(snake, camel);
+        let fused: FusedResult = serde_json::from_str(
+            r#"{"id":"a","fusionScore":1.0,"decayedScore":0.5,"ftsRank":0,"vectorRank":1,"chapterDistance":2}"#,
+        )
+        .unwrap();
+        assert_eq!(fused.fusion_score, 1.0);
+        assert_eq!(fused.chapter_distance, 2);
     }
 
     // ── RRF 融合 ──
