@@ -19,3 +19,8 @@
 - 现象：`pi --exclude-tools browser --model sub2-responses/grok-4.7` 单字/十字回答成功（OK/好/写法正确能防重复订阅），评审级回答 180–600s 超时 ×5（含禁工具指令、压缩prompt、二分小diff）。
 - 推断：与白天 sub2api grok 通道清洗问题同源（tool schema `false` 拒收为 400，本次为生成侧 stall 超时），通道尚未真正恢复评审能力。
 - 替代终审仍为独立 analyst（ACCEPT-WITH-CHANGES，唯一整改已落实并提交）。
+
+## grok-4.7 终审 verdict：ACCEPT（通道恢复后补跑成功）
+- 时间：2026-10-20 晚；`pi --exclude-tools browser --model sub2-responses/grok-4.7` 返回 `ACCEPT`。
+- 范围：c857eea9 / 4cb6cc61(+isConversationStreaming fix) / 717f873d / 71dd5130。
+- DEBT-20261020-05 关闭：grok 终审已补跑，无必须整改项。
