@@ -1193,3 +1193,36 @@ describe("extractSingleCharacter — six-dimension 模式", () => {
     expect(result.character).toBeDefined()
   })
 })
+
+describe("analyze 脏字段集中断言（四-8）", () => {
+  it("非法 category → minor，缺字段条目丢弃", async () => {
+    setChapters({ c1: chapterFile("第一章", 1, "韩立出场") })
+    setStreamDispatch({
+      identify: () => identifyJson([{ name: "韩立", importance: 9 }]),
+      analyze: () => JSON.stringify({
+        name: "韩立",
+        category: "boss",
+        relationships: [
+          { target: "厉飞雨", relation: "挚友" },
+          { target: "缺关系人" },
+          "纯字符串条目",
+          null,
+        ],
+        keyEvents: [
+          { chapterId: "1", description: "拜入七玄门" },
+          { chapterId: "2" },
+        ],
+      }),
+    })
+    const result = await extractCharactersFromChapters({
+      bookPath: "E:/books/b1",
+      selectedChapterIds: ["c1"],
+      llmConfig,
+    })
+    expect(result.success).toBe(true)
+    const c = result.characters[0]
+    expect(c.category).toBe("minor")
+    expect(c.relationships).toEqual([{ target: "厉飞雨", relation: "挚友", description: undefined }])
+    expect(c.keyEvents).toEqual([{ chapterId: "1", description: "拜入七玄门" }])
+  })
+})

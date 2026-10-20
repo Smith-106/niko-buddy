@@ -8,7 +8,7 @@
  */
 
 import type { LlmConfig } from "@/stores/wiki-store"
-import { parseLlmJsonObject } from "./llm-json"
+import { isLlmRecord, llmStringField, parseLlmJsonObject } from "./llm-json"
 import type {
   AnalysisDepth,
   ExtractedCharacter,
@@ -53,6 +53,43 @@ export interface CharacterExtractionInput {
 export interface CharacterExtractionResult {
   success: boolean
   characters: ExtractedCharacter[]
+}
+
+/**
+ * 四-8：LLM extract 边界集中断言。LLM 常返回脏字段（非法 category、
+ * 缺字段的关系/事件条目），在此收敛——未知 category → minor，缺字段条目丢弃。
+ */
+const CHARACTER_CATEGORIES = ["protagonist", "antagonist", "supporting", "minor"] as const
+
+function normalizeCharacterCategory(value: unknown): ExtractedCharacter["category"] {
+  for (const category of CHARACTER_CATEGORIES) if (value === category) return category
+  return "minor"
+}
+
+function normalizeRelationships(value: unknown): ExtractedCharacter["relationships"] {
+  if (!Array.isArray(value)) return []
+  const out: ExtractedCharacter["relationships"] = []
+  for (const item of value) {
+    if (!isLlmRecord(item)) continue
+    const target = llmStringField(item, "target")
+    const relation = llmStringField(item, "relation")
+    if (!target || !relation) continue
+    out.push({ target, relation, description: llmStringField(item, "description") })
+  }
+  return out
+}
+
+function normalizeKeyEvents(value: unknown): ExtractedCharacter["keyEvents"] {
+  if (!Array.isArray(value)) return []
+  const out: ExtractedCharacter["keyEvents"] = []
+  for (const item of value) {
+    if (!isLlmRecord(item)) continue
+    const chapterId = llmStringField(item, "chapterId")
+    const description = llmStringField(item, "description")
+    if (!chapterId || !description) continue
+    out.push({ chapterId, description })
+  }
+  return out
 }
 
 /**
@@ -171,7 +208,7 @@ ${corpus}
     }, combineAbortSignals(signal, AbortSignal.timeout(DEFAULT_LLM_REQUEST_TIMEOUT_MS)))
 
     // 解析 JSON（jsonrepair 容错）
-    const data = parseLlmJsonObject(response) as Record<string, unknown> | null
+    const data = parseLlmJsonObject(response)
     if (data) {
       const character: ExtractedCharacter = {
         // feature/fix-six-dim-extract：用稳定 hash id 替代 Math.random，避免 id 跨调用漂移
@@ -179,15 +216,15 @@ ${corpus}
         name: typeof data.name === "string" ? data.name : characterName,
         aliases: Array.isArray(data.aliases) ? data.aliases.map(String) : [],
         importance: 5, // 默认值，稍后会更新
-        category: (typeof data.category === "string" ? data.category : "minor") as ExtractedCharacter["category"],
+        category: normalizeCharacterCategory(data.category),
         firstAppearance: relevantChapters[0]?.order || 1,
         lastAppearance: relevantChapters[relevantChapters.length - 1]?.order || 1,
         appearanceCount: relevantChapters.length,
         description: typeof data.description === "string" ? data.description : "",
         personality: typeof data.personality === "string" ? data.personality : "",
         speechStyle: typeof data.speechStyle === "string" ? data.speechStyle : "",
-        relationships: Array.isArray(data.relationships) ? data.relationships.map((r: unknown) => r as { target: string; relation: string; description?: string }) : [],
-        keyEvents: Array.isArray(data.keyEvents) ? data.keyEvents.map((e: unknown) => e as { chapterId: string; description: string }) : [],
+        relationships: normalizeRelationships(data.relationships),
+        keyEvents: normalizeKeyEvents(data.keyEvents),
         corpus: corpus.substring(0, 10000), // 保留部分语料
       }
 

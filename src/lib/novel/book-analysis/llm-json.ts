@@ -1,4 +1,18 @@
 /**
+ * 四-8：LLM extract 边界集中断言。类型谓词代替 `as`——调用方先收窄再读字段，
+ * 脏条目在 normalize 层被丢弃/回退，不再把断言错位埋进下游。
+ */
+export function isLlmRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/** 读 record 的 string 字段：非 string 一律 undefined（缺字段/类型错都走回退）。 */
+export function llmStringField(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key]
+  return typeof value === "string" ? value : undefined
+}
+
+/**
  * 解析 LLM 返回的 JSON object：剥 fence / 定位 `{...}`，再用 jsonrepair 修复脏输出。
  */
 
