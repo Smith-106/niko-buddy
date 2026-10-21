@@ -356,6 +356,7 @@
     "switch": "Switch theme",
     "toDark": "Switch to dark mode",
     "toDeepBlue": "Switch to deep blue eye-care mode",
+    "toEyeCare": "Switch to warm-paper eye-care mode",
     "toLight": "Switch to light mode",
     "toSystem": "Switch to system default"
   },

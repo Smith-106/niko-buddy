@@ -65,10 +65,12 @@ describe("applyTheme", () => {
     expect(document.documentElement.classList.contains("deep-blue")).toBe(false)
   })
 
-  it("adds the deep-blue class for deep-blue themes", () => {
+  it("adds the eye-care class for eye-care themes", () => {
     installMatchMedia(false, false)
-    applyTheme("deep-blue")
-    expect(document.documentElement.classList.contains("deep-blue")).toBe(true)
+    applyTheme("eye-care")
+    expect(document.documentElement.classList.contains("eye-care")).toBe(true)
+    expect(document.documentElement.classList.contains("dark")).toBe(false)
+    expect(document.documentElement.classList.contains("deep-blue")).toBe(false)
   })
 
   it("clears both classes for light themes", () => {

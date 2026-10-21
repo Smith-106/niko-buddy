@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: MIT
 
 import { useTranslation } from "react-i18next"
-import { Sun, Moon, Monitor, ArrowLeftRight, Minus, Square, X, Type, Search } from "lucide-react"
+import { Sun, Moon, Monitor, Eye, ArrowLeftRight, Minus, Square, X, Type, Search } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { saveTheme } from "@/lib/project-store"
 import { applyTheme, type ThemeMode } from "@/lib/theme-utils"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isTauri } from "@/lib/platform"
 
-const THEME_ORDER: ThemeMode[] = ["system", "light", "dark", "deep-blue"]
+const THEME_ORDER: ThemeMode[] = ["system", "light", "dark", "deep-blue", "eye-care"]
 
 /**
  * 应用顶栏：logo+项目名（左）· 主题/字号快捷入口（中）· 窗口控制（右，仅 Tauri）。
@@ -37,6 +37,7 @@ export function TitleBar({ onOpenCommandPalette }: { onOpenCommandPalette?: () =
       case "light": return <Sun className="h-4 w-4" />
       case "dark": return <Moon className="h-4 w-4" />
       case "deep-blue": return <Monitor className="h-4 w-4" />
+      case "eye-care": return <Eye className="h-4 w-4" />
       default: return <ArrowLeftRight className="h-4 w-4" />
     }
   }

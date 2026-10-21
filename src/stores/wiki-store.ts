@@ -102,7 +102,7 @@ export interface WikiState {
   reviewRun: ReviewRunState | null
   /** G4 (39 号修复): 当前六维审查的 AbortController, 供 cancelReviewRun 级联 abort。 */
   reviewRunAbortController: AbortController | null
-  theme: "light" | "dark" | "deep-blue" | "system"
+  theme: "light" | "dark" | "deep-blue" | "eye-care" | "system"
   uiFontSizeScale: number
   dataVersion: number
 
@@ -178,7 +178,7 @@ export interface WikiState {
   /** G4 (39 号修复): 取消当前六维审查 (abort 级联到 streamChat)。 */
   cancelReviewRun: () => void
   clearTransientTaskState: () => void
-  setTheme: (theme: "light" | "dark" | "deep-blue" | "system") => void
+  setTheme: (theme: "light" | "dark" | "deep-blue" | "eye-care" | "system") => void
   setUiFontSizeScale: (scale: number) => void
   /** G10 (39 号修复): 统一离线模式 — 短路 embedding/rerank 等可选网络依赖。 */
   offlineMode: boolean

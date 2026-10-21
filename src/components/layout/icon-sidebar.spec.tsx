@@ -261,13 +261,14 @@ describe("IconSidebar", () => {
     expect(() => fireEvent.click(logo2)).not.toThrow()
   })
 
-  it("主题循环：system → light → dark → deep-blue → system（含持久化与主题应用）", async () => {
+  it("主题循环：system → light → dark → deep-blue → eye-care → system（含持久化与主题应用）", async () => {
     const { rerender } = renderSidebar()
     const steps: Array<[string, string, string]> = [
       ["system", "light", "theme.toLight"],
       ["light", "dark", "theme.toDark"],
       ["dark", "deep-blue", "theme.toDeepBlue"],
-      ["deep-blue", "system", "theme.toSystem"],
+      ["deep-blue", "eye-care", "theme.toEyeCare"],
+      ["eye-care", "system", "theme.toSystem"],
     ]
     for (const [current, next, tip] of steps) {
       mocks.wikiState.theme = current
@@ -300,7 +301,8 @@ describe("IconSidebar", () => {
       ["system", "theme.toLight"],
       ["light", "theme.toDark"],
       ["dark", "theme.toDeepBlue"],
-      ["deep-blue", "theme.toSystem"],
+      ["deep-blue", "theme.toEyeCare"],
+      ["eye-care", "theme.toSystem"],
     ]
     for (const [theme, tip] of tooltips) {
       mocks.wikiState.theme = theme

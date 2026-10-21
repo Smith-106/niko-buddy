@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from "react"
 import {
-  ArrowLeftRight, ChevronRight, GitMerge, Image, Languages, Monitor, Moon, Search, Settings, Sun, Trash2,
+  ArrowLeftRight, ChevronRight, Eye, GitMerge, Image, Languages, Monitor, Moon, Search, Settings, Sun, Trash2,
 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { CoverPromptWorkbench } from "@/components/novel/cover-prompt-workbench"
@@ -71,7 +71,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
   }, [activeView])
 
   const handleCycleTheme = () => {
-    const themes: ("light" | "dark" | "deep-blue" | "system")[] = ["system", "light", "dark", "deep-blue"]
+    const themes: ("light" | "dark" | "deep-blue" | "eye-care" | "system")[] = ["system", "light", "dark", "deep-blue", "eye-care"]
     const currentIndex = themes.indexOf(theme)
     const nextIndex = (currentIndex + 1) % themes.length
     const nextTheme = themes[nextIndex]
@@ -86,6 +86,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
       case "light": return <Sun className="h-5 w-5 shrink-0" />
       case "dark": return <Moon className="h-5 w-5 shrink-0" />
       case "deep-blue": return <Monitor className="h-5 w-5 shrink-0" />
+      case "eye-care": return <Eye className="h-5 w-5 shrink-0" />
       case "system": return <ArrowLeftRight className="h-5 w-5 shrink-0" />
       default: return <Sun className="h-5 w-5 shrink-0" />
     }
@@ -96,7 +97,8 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
       case "system": return t("theme.toLight")
       case "light": return t("theme.toDark")
       case "dark": return t("theme.toDeepBlue")
-      case "deep-blue": return t("theme.toSystem")
+      case "deep-blue": return t("theme.toEyeCare")
+      case "eye-care": return t("theme.toSystem")
       default: return t("theme.switch")
     }
   }
