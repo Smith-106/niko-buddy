@@ -205,7 +205,7 @@ describe("PlanningPanel — P2-IMP-11 四新维", () => {
     cleanup()
   })
 
-  it("四维齐备 → 四个 section 标题与条目均渲染（带 POV 标注）", () => {
+  it("四维齐备 → 四个 section 标题与条目均渲染（带视角标注）", () => {
     const plan = makePlan({
       povCharacter: "林动",
       cognition: slice<string>({ items: ["黑市入口在城西"], text: "黑市入口在城西" }),
@@ -220,10 +220,10 @@ describe("PlanningPanel — P2-IMP-11 四新维", () => {
       }),
     })
     render(<PlanningPanel {...makeProps({ plan })} />)
-    expect(screen.getByText("认知盲区（POV 林动）")).toBeTruthy()
+    expect(screen.getByText("认知盲区（视角：林动）")).toBeTruthy()
     expect(screen.getByText("近章状态变更")).toBeTruthy()
-    expect(screen.getByText("见面边界（POV 林动）")).toBeTruthy()
-    expect(screen.getByText("粒子持有（POV 林动）")).toBeTruthy()
+    expect(screen.getByText("见面边界（视角：林动）")).toBeTruthy()
+    expect(screen.getByText("粒子持有（视角：林动）")).toBeTruthy()
     expect(screen.getByText("不知道：黑市入口在城西")).toBeTruthy()
     expect(screen.getByText("第7章 [item] 青铜古戒：归属 → 林动")).toBeTruthy()
     expect(screen.getByText("已见过：应欢欢")).toBeTruthy()
@@ -232,13 +232,13 @@ describe("PlanningPanel — P2-IMP-11 四新维", () => {
 
   it("degraded 新维 → 可见标记 + 降级原因", () => {
     const plan = makePlan({
-      cognition: slice<string>({ status: "degraded", reason: "POV 未声明" }),
+      cognition: slice<string>({ status: "degraded", reason: "视角未声明" }),
       recentStateDeltas: slice<StateDeltaPlanItem>({ status: "degraded", reason: "章节摘要数据源不可用" }),
-      encounter: slice<string>({ status: "degraded", reason: "POV 未声明" }),
-      particles: slice<ParticlePlanItem>({ status: "degraded", reason: "POV 未声明" }),
+      encounter: slice<string>({ status: "degraded", reason: "视角未声明" }),
+      particles: slice<ParticlePlanItem>({ status: "degraded", reason: "视角未声明" }),
     })
     render(<PlanningPanel {...makeProps({ plan })} />)
-    expect(screen.getAllByText("数据源不可用（POV 未声明）").length).toBe(3)
+    expect(screen.getAllByText("数据源不可用（视角未声明）").length).toBe(3)
     expect(screen.getByText("数据源不可用（章节摘要数据源不可用）")).toBeTruthy()
   })
 

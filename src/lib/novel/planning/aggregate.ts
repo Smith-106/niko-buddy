@@ -252,7 +252,7 @@ export function buildChapterPlanView(
     : null
 
   const cognitionSlice: PlanDimensionSlice<string> = !pov
-    ? degradedDimension<string>("POV 未声明（per-chapter POV 真源待落地）")
+    ? degradedDimension<string>("视角未声明（分章视角数据源待接入）")
     : !sourceOk(input.cognition)
       ? degradedDimension<string>("认知数据源不可用")
       : {
@@ -266,7 +266,7 @@ export function buildChapterPlanView(
         }
 
   const encounterSlice: PlanDimensionSlice<string> = !pov
-    ? degradedDimension<string>("POV 未声明（per-chapter POV 真源待落地）")
+    ? degradedDimension<string>("视角未声明（分章视角数据源待接入）")
     : !sourceOk(input.encounterMatrix)
       ? degradedDimension<string>("见面矩阵数据源不可用")
       : {
@@ -280,7 +280,7 @@ export function buildChapterPlanView(
         }
 
   const particlesSlice: PlanDimensionSlice<ParticlePlanItem> = !pov
-    ? degradedDimension<ParticlePlanItem>("POV 未声明（per-chapter POV 真源待落地）")
+    ? degradedDimension<ParticlePlanItem>("视角未声明（分章视角数据源待接入）")
     : !sourceOk(input.particles)
       ? degradedDimension<ParticlePlanItem>("粒子账本数据源不可用")
       : {

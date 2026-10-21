@@ -296,7 +296,7 @@ describe("buildPlanningPrefillBlock — P2-IMP-11 四新维", () => {
   it("degraded 新维渲染可见原因而非静默省略", () => {
     const plan = buildChapterPlanView(makePlanInput())
     const block = buildPlanningPrefillBlock(plan)
-    expect(block).toContain("认知盲区：数据源不可用（POV 未声明")
+    expect(block).toContain("认知盲区：数据源不可用（视角未声明")
     expect(block).toContain("近章状态变更：数据源不可用（章节摘要数据源不可用）")
   })
 

@@ -120,8 +120,8 @@ export function AgentStudioPanel({ projection, staticDeclarationOnly = false }: 
         <h3 className="text-base font-semibold">代理工作室设置规范化（只读）</h3>
         <p className="text-xs leading-5 text-muted-foreground" data-testid="agent-studio-subtitle">
           {staticDeclarationOnly
-            ? "本面板只做投影展示：不写入任何配置，也不改变任何模型路由。重复声明已登记；文件是否仍存在未探测（见上方范围说明）。"
-            : "本面板只做投影展示：不写入任何配置，也不改变任何模型路由。重复真源与缺失真源一律显式列出。"}
+            ? "本面板只负责展示：不写入任何配置，也不改变任何模型路由。重复声明已登记；文件是否仍存在未探测（见上方范围说明）。"
+            : "本面板只负责展示：不写入任何配置，也不改变任何模型路由。重复来源与缺失来源一律显式列出。"}
         </p>
         <p className="text-xs leading-5 text-muted-foreground" data-testid="agent-studio-totals">
           {staticDeclarationOnly
@@ -132,7 +132,7 @@ export function AgentStudioPanel({ projection, staticDeclarationOnly = false }: 
 
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground" data-testid="agent-studio-empty">
-          没有可展示的设置项（投影为空）。
+          没有可展示的设置项（暂无数据）。
         </p>
       ) : (
         <ul className="space-y-2">

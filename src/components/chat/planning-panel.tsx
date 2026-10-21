@@ -203,7 +203,7 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
 
           {/* P2-IMP-11 四新维：认知盲区 / 近章状态变更 / 见面边界 / 粒子持有 */}
           <DimensionSection
-            title={t("novel.planning.cognition", { defaultValue: "认知盲区" }) + (plan.povCharacter ? `（POV ${plan.povCharacter}）` : "")}
+            title={t("novel.planning.cognition", { defaultValue: "认知盲区" }) + (plan.povCharacter ? `（视角：${plan.povCharacter}）` : "")}
             slice={plan.cognition}
             emptyText={t("novel.planning.cognitionEmpty", { defaultValue: "无认知盲区记录" })}
             renderItem={(fact) => `不知道：${fact}`}
@@ -215,13 +215,13 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
             renderItem={(d: StateDeltaPlanItem) => `第${d.chapter}章 [${d.kind}] ${d.entity}：${d.change}`}
           />
           <DimensionSection
-            title={t("novel.planning.encounter", { defaultValue: "见面边界" }) + (plan.povCharacter ? `（POV ${plan.povCharacter}）` : "")}
+            title={t("novel.planning.encounter", { defaultValue: "见面边界" }) + (plan.povCharacter ? `（视角：${plan.povCharacter}）` : "")}
             slice={plan.encounter}
             emptyText={t("novel.planning.encounterEmpty", { defaultValue: "无已见面记录" })}
             renderItem={(name) => `已见过：${name}`}
           />
           <DimensionSection
-            title={t("novel.planning.particles", { defaultValue: "粒子持有" }) + (plan.povCharacter ? `（POV ${plan.povCharacter}）` : "")}
+            title={t("novel.planning.particles", { defaultValue: "粒子持有" }) + (plan.povCharacter ? `（视角：${plan.povCharacter}）` : "")}
             slice={plan.particles}
             emptyText={t("novel.planning.particlesEmpty", { defaultValue: "无粒子账本" })}
             renderItem={(p: ParticlePlanItem) => `${p.kind}：${p.name} → ${p.state}`}
