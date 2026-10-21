@@ -924,7 +924,7 @@ describe("CanonEditor — 校正模式（写路径，合并收口）", () => {
       }),
     )
     expect(await screen.findByTestId("correction-saved")).toHaveTextContent(
-      /封顶 1 条 · 插入 1 条 · revision → 8/,
+      /本次改了 1 条事实.*版本 8/,
     )
     // 挂载查询(1) + 进入校正查询(2) + supersede(3) + 保存后重载(4)
     expect(invokeMock).toHaveBeenCalledTimes(4)

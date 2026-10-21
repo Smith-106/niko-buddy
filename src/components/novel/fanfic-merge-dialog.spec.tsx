@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { FanficMergeDialog } from "./fanfic-merge-dialog"
 import type { BookAnalysisLibraryBook } from "@/lib/novel"
 
@@ -50,21 +50,25 @@ describe("FanficMergeDialog", () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => cleanup())
 
-  it("生成合并预览（proposeCanonMerge 接线）：重名→bind_existing", async () => {
+  it("生成合并预览（proposeCanonMerge 接线）：重名→认领新建跳过", async () => {
     render(
       <FanficMergeDialog open onOpenChange={() => undefined} sourceBook={sourceBook} targetNames={["林晚"]} />,
     )
     fireEvent.click(screen.getByText("novel.fanfic.preview"))
-    expect((await screen.findAllByText(/bind_existing/)).length).toBeGreaterThan(0)
-    expect((await screen.findAllByText(/create_new/)).length).toBeGreaterThan(0)
+    const dlg = screen.getByTestId("fanfic-merge-dialog")
+    await waitFor(() => expect(dlg.textContent).toMatch(/认领.*新建.*跳过/))
+    await waitFor(() => {
+      expect(dlg.textContent).toContain("novel.fanfic.actionBind")
+      expect(dlg.textContent).toContain("novel.fanfic.actionCreate")
+    })
   })
 
-  it("保存 pending 工件（Draft-first）", async () => {
+  it("保存合并草稿（Draft-first）", async () => {
     render(
       <FanficMergeDialog open onOpenChange={() => undefined} sourceBook={sourceBook} targetNames={["林晚"]} />,
     )
     fireEvent.click(screen.getByText("novel.fanfic.preview"))
-    await screen.findAllByText(/bind_existing/)
+    await screen.findByText(/认领/)
     fireEvent.click(screen.getByText("novel.fanfic.savePending"))
     await screen.findByText("novel.fanfic.pendingSaved")
     expect(mocks.saveProposal).toHaveBeenCalled()

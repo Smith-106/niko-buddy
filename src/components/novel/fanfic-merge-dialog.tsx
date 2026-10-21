@@ -32,6 +32,12 @@ export interface FanficMergeDialogProps {
 export function FanficMergeDialog({ open, onOpenChange, sourceBook, targetNames = [], rules }: FanficMergeDialogProps) {
   const { t } = useTranslation()
   const projectPath = useWikiStore((s) => s.project?.path)
+  const actionLabel = (action: string): string => {
+    if (action === "bind_existing") return t("novel.fanfic.actionBind")
+    if (action === "create_new") return t("novel.fanfic.actionCreate")
+    if (action === "skip") return t("novel.fanfic.actionSkip")
+    return action
+  }
   const [proposal, setProposal] = useState<CanonMergeProposal | null>(null)
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -53,7 +59,7 @@ export function FanficMergeDialog({ open, onOpenChange, sourceBook, targetNames 
       })
       setProposal(p)
       setNotice(
-        `${p.characters.length} 角色 → bind_existing ${p.characters.filter((c) => c.action === "bind_existing").length} / create_new ${p.characters.filter((c) => c.action === "create_new").length} / skip ${p.characters.filter((c) => c.action === "skip").length}`,
+        `${p.characters.length} 角色 → 认领 ${p.characters.filter((c) => c.action === "bind_existing").length} / 新建 ${p.characters.filter((c) => c.action === "create_new").length} / 跳过 ${p.characters.filter((c) => c.action === "skip").length}`,
       )
     } catch (err) {
       setNotice(`${t("novel.fanfic.previewFailed") ?? "预览失败"}：${toErrorMessage(err)}`)
@@ -109,7 +115,7 @@ export function FanficMergeDialog({ open, onOpenChange, sourceBook, targetNames 
             <div className="max-h-64 space-y-1 overflow-y-auto rounded border p-2">
               {proposal.characters.map((c) => (
                 <p key={c.sourceId} className="text-xs">
-                  <span className="font-medium">{c.canonicalName}</span> → {c.action}
+                  <span className="font-medium">{c.canonicalName}</span> → {actionLabel(c.action)}
                   {c.aliases.length > 0 && <span className="text-muted-foreground">（{c.aliases.join(" / ")}）</span>}
                 </p>
               ))}
