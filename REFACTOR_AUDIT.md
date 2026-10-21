@@ -104,3 +104,13 @@ P1（中高收益/低风险）：
 ## 六、活账本维护约定
 
 本文件是活账本，不必一次性清完：平时每开发完一个新特性、有多余 Token 时，顺手从上文挑 2 个低风险项消掉，并在对应条目注明 commit 与行数对比。
+
+## 七、v2.20.0 发布后 CI 解红波（2026-10-21，team-swarm TS-auditgate-20261021）
+
+- 现象：v2.20.0 tag 触发 Release 构建被 skip + master CI 三连红，根因 `ci-gate/node-gates` ——首犯 `scripts/audit-gate.mjs`（vite 高危 GHSA-698v-4r3x-3vcv/GHSA-r825-w8mm-5pxw/GHSA-587h-7wmj-h5pm，锁 pin 8.2.2 落在 >=8.2.0<=8.2.3）。
+- swarm 收敛（1 轮，best 1.0）：三 ant 一致 upgrade-vite，否决 exception-entry（有 patch 不符合例外先例）与 override-pin（直接依赖不适用）；scorer 独立验证 1.0/0.9/0.8；best-solution.md 在 `.swarm/ts-auditgate-20261021/outputs/`。
+- 修复链（4 commits）：`bd3ef95c` vite ^8.3.4+锁 regen（AUDIT-GATE-PASS；附带 oxc/unrs 依赖链内浮动可接受；vitest/cov8 4.1.11/4.1.10 错配系存量非本次引入）→ `8790a8cb` Cargo.toml/lock 2.19.0→2.20.0（consistency 13/14→14/14，release bump 漏 Cargo 系旧 grep 引号口径所致）→ `a863ecf1` atlas regen（W2 拆分 +20 模块/3772→4050 边，gen:check 6/6）→ `3c40c1e6` stable 提升。
+- CI 全绿：master `39549872418` success；Release `39551806054` success（tag v2.20.0 前移至 a863ecf1 后重触发；删 remote tag 重建，非 force；该 tag 未产出过资产，无 B5 冲突）。
+- 资产：`niko-buddy_2.20.0_windows_X64.exe` + `.sig` + `portable.exe` + `latest.json`（Windows x64 矩阵）。
+- stable 决策：同周双 stable（周一 v2.18.1）打破“同周 ≤1”惯例，经用户明确批准。
+- 残留：Goal d4989676 仍 paused(verification) 待用户 resume；vitest 全量本地曾因机器负载出现 pool 抖动（3 文件隔离复跑 27 绿，CI 全绿佐证非回归）。
