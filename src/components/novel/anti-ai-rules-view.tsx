@@ -181,7 +181,7 @@ export function AntiAiRulesView({ projectPath }: AntiAiRulesViewProps) {
           <p className="text-xs text-muted-foreground">正在读取技能配置…</p>
         ) : skills.length === 0 ? (
           <p data-testid="anti-ai-empty" className="text-xs text-muted-foreground">
-            暂无可用技能
+            暂无可用技能（当前版本未内置可切换项）
           </p>
         ) : (
           <ul className="flex flex-col gap-2">

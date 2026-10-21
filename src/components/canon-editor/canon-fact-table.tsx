@@ -100,6 +100,7 @@ export function CanonFactTable({ edges, maxRevision }: CanonFactTableProps) {
                   className="px-3 py-6 text-center text-muted-foreground"
                 >
                   当前过滤下暂无事实边。
+                  <div className="mt-1 text-xs">尝试放宽上方的筛选条件。</div>
                 </td>
               </tr>
             ) : (

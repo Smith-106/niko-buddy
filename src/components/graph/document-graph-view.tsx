@@ -408,7 +408,10 @@ export function DocumentGraphView({
           <section className="rounded-lg border bg-card p-5 shadow-sm">
             <h2 className="mb-4 text-lg font-semibold">{activeGroupIndex + 1}. {activeGroup.title}</h2>
             {visibleNodes.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{showOnlyIsolatedNodes ? "当前分类暂无孤立节点。" : "当前筛选下暂无节点。"}</p>
+              <div>
+                <p className="text-sm text-muted-foreground">{showOnlyIsolatedNodes ? "当前分类暂无孤立节点。" : "当前筛选下暂无节点。"}</p>
+                <p className="mt-1 text-xs text-muted-foreground">可调整上方的筛选条件。</p>
+              </div>
             ) : (
               <div className="space-y-3">
                 {visibleDocumentNodes.map((node, nodeIndex) => {

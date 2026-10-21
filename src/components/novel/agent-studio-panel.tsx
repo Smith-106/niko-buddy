@@ -132,7 +132,7 @@ export function AgentStudioPanel({ projection, staticDeclarationOnly = false }: 
 
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground" data-testid="agent-studio-empty">
-          没有可展示的设置项（暂无数据）。
+          没有可展示的设置项。完成相关设置后，这里会显示汇总。
         </p>
       ) : (
         <ul className="space-y-2">

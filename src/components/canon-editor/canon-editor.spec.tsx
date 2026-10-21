@@ -232,7 +232,7 @@ describe("CanonEditor — 渲染与 max_revision 展示", () => {
   it("空边集渲染占位行", async () => {
     await renderLoaded(batchResponse([], 0))
     expect(screen.getByTestId("canon-fact-table-empty")).toBeTruthy()
-    expect(screen.getByText("当前过滤下暂无事实边。")).toBeTruthy()
+    expect(screen.getByTestId("canon-fact-table-empty").textContent).toContain("当前过滤下暂无事实边")
   })
 
   it("批量结果首项缺失时降级为空（results[0] ?? []）", async () => {
