@@ -50,7 +50,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 <img width="1239" height="883" alt="image" src="https://github.com/user-attachments/assets/076740be-85ef-4503-842d-565c367aebdc" />
 <img width="1201" height="832" alt="image" src="https://github.com/user-attachments/assets/57936132-45b2-4fed-8c80-2c9282fedbf5" />
 
-## v2.20.0 调整（全仓重构波，prerelease）
+## v2.20.0 调整（全仓重构波，stable）
 
 大文件拆分＋性能批刷＋类型加固，零 public API 变更、线协议与持久化零触碰：
 
@@ -123,7 +123,7 @@ Draft-first 是硬边界：白名单只有只读工具 + `write_chapter(draftMod
 
 | 波次 | 版本 | 能力 | 核心交付 |
 |---|---|---|---|
-| — | **v2.20.0** | **全仓重构波（拆分/批刷/加固）** | F1–F15 约 -5670 行零 API 变更 + 流式批刷 + spawn_blocking + serde alias 加固 + 全量门禁绿（prerelease，2026-10-21；安装包由 tag 触发 CI 构建，验证通过后提升 stable） |
+| — | **v2.20.0** | **全仓重构波（拆分/批刷/加固）** | F1–F15 约 -5670 行零 API 变更 + 流式批刷 + spawn_blocking + serde alias 加固 + 全量门禁绿（stable，2026-10-21；安装包由 tag 构建验证通过：niko-buddy_2.20.0_windows_X64.exe + portable + sig；同周双 stable 经用户批准，打破“同周 ≤1”惯例） |
 | — | **v2.19.0** | **15 灰卡转正（运行态/资产库/配置数据）** | 运行态 3 视图 + 资产库 6 视图 + 配置数据 6 视图（只读装载/诚实空态）+ 对抗审查 BLOCK/MAJOR 全修 + MINOR-1~5 清零（prerelease，2026-10-19） |
 | — | **v2.18.1** | **对抗式审查修复（6 P1）** | 模板占位不再被读成压力级 / 覆盖判定不短路不误报 / 单字名恒 N/A / 关系候选上限 20 条 / 能力矩阵需求改管线 / 未装载整段 N/A（stable，2026-10-19） |
 | — | **v2.18.0** | **动态工作热力图 + 风格/节奏雷达 + 资产联动诊断** | 阶段×时间桶热力（缺值 null / undated 单列 / 三条 N/A / 5s 轮询失败保留旧数据）+ 六轴机械代理雷达（自由文本风格维度不进半径 / 目标节奏不叠量纲 / 无正文不画）+ 资产联动只读比对（产物 hash 陈旧 / 快照关系未回填 / 图谱边缺多，绝不自动改写产物）+ 冗余 A 级精简（删别名与旧桶）（stable，2026-10-18） |

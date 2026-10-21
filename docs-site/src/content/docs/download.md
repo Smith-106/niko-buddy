@@ -7,14 +7,14 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.20.0**（2026-10-21 发布：全仓重构波——拆分/批刷/加固，零 API 变更 — prerelease；功能内容见下，v2.18.1 stable 仍为稳定版）
+**v2.20.0**（2026-10-21 发布：全仓重构波——拆分/批刷/加固，零 API 变更 — stable；安装包已验证，替代 v2.18.1 成为稳定版）
 
 ### v2.20.0 更新亮点（2026-10-21）
 
 - **大文件拆分**：F1–F15 约 -5670 行，零 public API 变更（chat-panel.spec 拆 4 文件 196 用例零损失）。
 - **流式批刷**：chat-store 32ms/1KB、三路 CLI 后端 24ms/8KB 聚合、导出/备份大构建进后台线程（按章真进度）。
 - **类型加固**：线协议对账＋加法式兼容，持久化 Schema 零触碰；门禁全绿（typecheck 0/cargo 423/vitest 15441）。
-- 发布语义：**prerelease**（安装包由 tag 触发 CI 构建，验证通过后提升 stable）。
+- 发布语义：**stable**（2026-10-21 安装包验证通过后由 prerelease 提升；Release CI Gate 全绿 + Windows x64 setup/portable/sig 资产已发布；同周双 stable 经用户批准）。
 
 ### v2.19.0 更新亮点（2026-10-19）
 
