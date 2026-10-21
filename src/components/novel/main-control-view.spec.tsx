@@ -111,6 +111,42 @@ describe("MainControlView", () => {
     fireEvent.click(screen.getByTestId("main-control-heatmap"))
     expect(setActiveView).toHaveBeenCalledWith("moduleHeatmap")
   })
+
+  it("亲手中止后显示已取消态而不是红字失败", async () => {
+    runMainControlAgent.mockImplementation(
+      ({ signal }: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))
+        }),
+    )
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "任意目标" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-stop")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("main-control-stop"))
+    await waitFor(() => expect(screen.getByTestId("main-control-cancelled")).toBeTruthy())
+    expect(screen.queryByTestId("main-control-error")).toBeNull()
+  })
+
+  it("某一步 90 秒无返回提示可能卡住", async () => {
+    runMainControlAgent.mockImplementation(
+      ({ onStep }: { onStep: (s: unknown) => void }) => {
+        onStep({
+          callId: "c1",
+          name: "slow_tool",
+          params: {},
+          status: "running",
+          at: Date.now() - 200_000,
+        })
+        return new Promise(() => {})
+      },
+    )
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "任意目标" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-stuck")).toBeTruthy())
+    expect(screen.getByTestId("main-control-stuck").textContent).toContain("slow_tool")
+  })
 })
 
 describe("MainControlView 运行轨迹与证据", () => {

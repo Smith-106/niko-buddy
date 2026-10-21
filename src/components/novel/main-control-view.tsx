@@ -56,6 +56,15 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const [result, setResult] = useState<MainControlResult | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [cancelledAt, setCancelledAt] = useState<number | null>(null)
+  // 心跳 tick：运行时每 10 秒重渲染一次，用于卡住/超时提示（不碰主链计时）。
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    if (!running) return
+    const timer = setInterval(() => setTick((v) => v + 1), 10_000)
+    return () => clearInterval(timer)
+  }, [running])
   const [trace, setTrace] = useState<TraceEntry[]>([])
   const [expanded, setExpanded] = useState<string[]>([])
   const [replaySavedAt, setReplaySavedAt] = useState<number | null>(null)
@@ -85,6 +94,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
     setError(null)
     setResult(null)
     setSteps([])
+    setCancelledAt(null)
     setRunning(true)
     const controller = new AbortController()
     abortRef.current = controller
@@ -124,7 +134,12 @@ export function MainControlView(_props: MainControlViewProps = {}) {
       void saveTraceSnapshot(projectPath, snapshot)
       if (out.error) setError(out.error)
     } catch (err) {
-      setError(toErrorMessage(err))
+      // 用户亲手点的中止不算失败：已取消态单独展示不进红字错误。
+      if (controller.signal.aborted) {
+        setCancelledAt(Date.now())
+      } else {
+        setError(toErrorMessage(err))
+      }
     } finally {
       setRunning(false)
       abortRef.current = null
@@ -134,7 +149,16 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const stop = () => {
     abortRef.current?.abort()
     setRunning(false)
+    setCancelledAt(Date.now())
   }
+
+  // 卡住/超时：正在跑的那一步 90 秒无返回提示卡住5 分钟建议中止（只读判断不动执行）。
+  void tick
+  const stuckStep = running
+    ? steps.find((s) => s.status === "running" && Date.now() - s.at > 90_000)
+    : undefined
+  const stuckSecs = stuckStep ? Math.floor((Date.now() - stuckStep.at) / 1000) : 0
+  const stuckTimeout = stuckSecs >= 300
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4" data-testid="main-control-view">
@@ -202,6 +226,22 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           <p className="flex items-center gap-1 text-[11px] text-destructive" data-testid="main-control-error">
             <CircleAlert className="h-3 w-3" />
             {error}
+          </p>
+        ) : null}
+        {!running && cancelledAt && !error ? (
+          <p className="flex items-center gap-1 text-[11px] text-warning" data-testid="main-control-cancelled">
+            <Square className="h-3 w-3" />
+            {t("mainControl.cancelled", {
+              time: new Date(cancelledAt).toLocaleTimeString("zh-CN", { hour12: false }),
+            })}
+          </p>
+        ) : null}
+        {stuckStep ? (
+          <p className="flex items-center gap-1 text-[11px] text-warning" data-testid="main-control-stuck">
+            <CircleAlert className="h-3 w-3" />
+            {stuckTimeout
+              ? t("mainControl.timeoutHint", { step: stuckStep.name })
+              : t("mainControl.stuckHint", { step: stuckStep.name, secs: stuckSecs })}
           </p>
         ) : null}
       </div>

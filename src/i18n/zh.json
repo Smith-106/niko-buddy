@@ -3895,7 +3895,10 @@
     "draftWords": "{{count}} 字",
     "finalTitle": "结论",
     "roundsUsed": "{{count}} 轮",
-    "viewHeatmap": "看热力图"
+    "viewHeatmap": "看热力图",
+    "cancelled": "已取消（{{time}}）",
+    "stuckHint": "「{{step}}」跑了 {{secs}} 秒还没回来可能卡住了可以点中止重来",
+    "timeoutHint": "「{{step}}」跑了超过 5 分钟建议中止后换个说法重试"
   },
   "wb": {
     "title": "写作工作台",
