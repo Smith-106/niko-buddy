@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label"
 import type { CharacterAura, CharacterAuraGenerationProgress, CharacterAuraResearchFileName } from "@/lib/novel"
 import { CHARACTER_AURA_RESEARCH_FILES, loadCharacterAuraResearchDocument, loadCharacterAuraSkillDocument } from "@/lib/novel"
 import { formatOperationError } from "@/lib/format-operation-error"
+import { WikiReader } from "@/components/editor/wiki-reader"
 import { useWikiStore } from "@/stores/wiki-store"
 
 export type AuraFormState = {
@@ -211,7 +212,11 @@ export function AuraDetails({
         <div className="mb-2 text-sm font-medium">{t("novel.soul.docPreview")}</div>
         {skillLoading && <div className="text-sm text-muted-foreground">{t("novel.soul.readingDoc")}</div>}
         {skillError && <div className="text-sm text-destructive">{skillError}</div>}
-        {!skillLoading && !skillError && skillDocument && <pre className="max-h-96 overflow-auto whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{skillDocument}</pre>}
+        {!skillLoading && !skillError && skillDocument && (
+          <div className="max-h-96 overflow-auto rounded-md border bg-background p-3">
+            <WikiReader body={skillDocument} />
+          </div>
+        )}
         {!skillLoading && !skillError && !skillDocument && <div className="text-sm text-muted-foreground">{t("novel.soul.noDoc")}</div>}
       </div>
 
@@ -234,7 +239,11 @@ export function AuraDetails({
         </div>
         {researchLoading && <div className="text-sm text-muted-foreground">{t("novel.soul.readingResearch")}</div>}
         {researchError && <div className="text-sm text-destructive">{researchError}</div>}
-        {!researchLoading && !researchError && researchDocument && <pre className="max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{researchDocument}</pre>}
+        {!researchLoading && !researchError && researchDocument && (
+          <div className="max-h-80 overflow-auto rounded-md border bg-background p-3">
+            <WikiReader body={researchDocument} />
+          </div>
+        )}
         {!researchLoading && !researchError && !researchDocument && <div className="text-sm text-muted-foreground">{t("novel.soul.noResearch")}</div>}
       </div>
     </div>

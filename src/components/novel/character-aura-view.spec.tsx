@@ -286,14 +286,14 @@ describe("CharacterAuraView", () => {
     // 生成提示词 + AI 搜索
     expect(screen.getByText("gp1")).toBeInTheDocument()
     expect(screen.getByText("已开启")).toBeInTheDocument()
-    // 灵魂文档
-    expect(await screen.findByText("# SKILL 文档")).toBeInTheDocument()
+    // 灵魂文档（阅读模式渲染为标题）
+    expect(await screen.findByRole("heading", { name: "SKILL 文档" })).toBeInTheDocument()
     // 研究文件：默认 01
-    expect(await screen.findByText("# 研究文档 01-writings.md")).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "研究文档 01-writings.md" })).toBeInTheDocument()
     expect(auraLib.loadCharacterAuraSkillDocument).toHaveBeenCalledWith(auraLib.customAuras[0], "E:/Novel")
     // 切换研究文件
     fireEvent.click(screen.getByText("02 对话方式"))
-    expect(await screen.findByText("# 研究文档 02-conversations.md")).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "研究文档 02-conversations.md" })).toBeInTheDocument()
     expect(auraLib.loadCharacterAuraResearchDocument).toHaveBeenLastCalledWith(auraLib.customAuras[0], "02-conversations.md", "E:/Novel")
   })
 
@@ -970,11 +970,8 @@ describe("CharacterAuraView", () => {
       target: { value: "任务" },
     })
     fireEvent.click(screen.getByText("预览本次注入"))
-    // 空流 → 预览区内渲染 EMPTY_AURA_PREVIEW_MESSAGE（<pre> 内）
-    await waitFor(() => {
-      const pre = document.querySelector("pre")
-      expect(pre?.textContent).toContain("未匹配到已绑定人物灵魂")
-    })
+    // 空流 → 预览区内渲染 EMPTY_AURA_PREVIEW_MESSAGE（阅读模式文本，非 <pre>）
+    expect(await screen.findByText(/未匹配到已绑定人物灵魂/)).toBeInTheDocument()
   })
 
   it("edits the advanced fields and saves their values", async () => {

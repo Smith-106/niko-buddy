@@ -9,6 +9,7 @@ import { buildContextPack, contextPackToPrompt, resolveNovelModel, bindCharacter
 import type { CharacterAura, CharacterAuraBinding, CharacterAuraGenerationProgress } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { SoulDocEditor } from "./soul-doc-editor"
+import { WikiReader } from "@/components/editor/wiki-reader"
 import { refreshProjectState } from "@/lib/project-refresh"
 
 import {
@@ -570,7 +571,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
               {auraPreviewLoading && <span className="text-sm text-muted-foreground">{t("novel.soul.building")}</span>}
             </div>
             <div className="mt-3 rounded-md border bg-muted/20 p-3 text-sm leading-6 text-muted-foreground">
-              {auraPreview ? <pre className="whitespace-pre-wrap text-xs leading-5">{auraPreview}</pre> : EMPTY_AURA_PREVIEW_MESSAGE}
+              {auraPreview ? <WikiReader body={auraPreview} /> : EMPTY_AURA_PREVIEW_MESSAGE}
             </div>
           </div>
 
