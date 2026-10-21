@@ -724,7 +724,7 @@
     "recentProjects": "Novel Shelf",
     "quickStart": "Quick Start",
     "quickStart1": "New project — create a workspace (novel writing mode is on by default: wiki + .novel memory)",
-    "quickStart2": "Set up the model — click here to start creation; fill API endpoint + key on the same page (proxy supported)",
+    "quickStart2": "Set up the model — click here to open creation, hit Configure now in the model section, fill the key in settings (proxy supported)",
     "quickStart3": "Start writing — chapter generation is Draft-first: AI draft writes to canon only after accept",
     "quickStart1Action": "Create a project, start quick-start step 1",
     "restoreBackup": "Restore previous data",

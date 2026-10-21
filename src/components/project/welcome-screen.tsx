@@ -126,9 +126,7 @@ export function WelcomeScreen({
                   className="text-left underline decoration-dotted underline-offset-2 hover:text-foreground"
                 >
                 {t("welcome.quickStart2", {
-                  defaultValue: novelMode
-                    ? "配模型 —— 点这里打开新建，API endpoint + key 在同页填（支持代理）"
-                    : "新建项目 —— 点这里打开新建，创建 wiki 知识库工作区",
+                  defaultValue: "配模型 —— 点这里打开新建，模型服务区点立即配置，跳设置填 key",
                 })}
                 </button>
               </li>

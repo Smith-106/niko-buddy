@@ -262,7 +262,7 @@
     "recentProjects": "小说书架",
     "quickStart": "快速上手",
     "quickStart1": "新建项目——创建工作区（小说模式默认开启：wiki + .novel 记忆）",
-    "quickStart2": "配模型 —— 点这里打开新建，API endpoint + key 在同页填（支持代理）",
+    "quickStart2": "配模型 —— 点这里打开新建，模型服务区点立即配置，跳设置填 key（支持代理）",
     "quickStart3": "开始写作——章节生成走 Draft-first：AI 草稿 accept 后才写正式，安全可靠",
     "quickStart1Action": "新建项目，开始快速上手第一步",
     "restoreBackup": "恢复先前数据",
