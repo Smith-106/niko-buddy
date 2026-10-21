@@ -4,6 +4,7 @@
 // 不发起任何 IPC，不做过滤——过滤逻辑在父组件 canon-editor.tsx 中，
 // 通过 canon_query_batch 的 filter 参数下推到 Rust 侧。
 
+import { useTranslation } from "react-i18next"
 import { EDGE_KIND_LABELS, type CanonEdge, type EdgeKind } from "./canon-types"
 
 /** 表格列定义（只读）。 */
@@ -60,6 +61,7 @@ export interface CanonFactTableProps {
  * - 无任何编辑控件（只读版硬约束）。
  */
 export function CanonFactTable({ edges, maxRevision }: CanonFactTableProps) {
+  const { t } = useTranslation()
   return (
     <div className="rounded-lg border bg-card shadow-sm">
       <div className="flex items-center justify-between border-b px-4 py-3">
@@ -73,7 +75,7 @@ export function CanonFactTable({ edges, maxRevision }: CanonFactTableProps) {
           className="rounded-md border bg-muted/30 px-2 py-1 text-xs"
           data-testid="canon-max-revision"
         >
-          max_revision:{" "}
+          {t("canon.maxRevision")}:{" "}
           <span data-testid="canon-max-revision-value">
             {maxRevision === null ? "—" : String(maxRevision)}
           </span>

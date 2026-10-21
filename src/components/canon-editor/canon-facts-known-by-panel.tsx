@@ -38,6 +38,13 @@ export function CanonFactsKnownByPanel({
 }: CanonFactsKnownByPanelProps) {
   const { t } = useTranslation()
 
+  const modalityLabels: Record<NonNullable<CanonFact["modality"]>, string> = {
+    assertive: t("canon.factsPanel.modalityAssertive"),
+    belief: t("canon.factsPanel.modalityBelief"),
+    hypothesis: t("canon.factsPanel.modalityHypothesis"),
+    retconned: t("canon.factsPanel.modalityRetconned"),
+  }
+
   const [pov, setPov] = useState("")
   const [atChapter, setAtChapter] = useState("")
   const [appliedChapter, setAppliedChapter] = useState<number | null>(null)
@@ -226,7 +233,7 @@ export function CanonFactsKnownByPanel({
               {t("canon.factsPanel.total", { count: total })}
             </span>
             {maxRevision !== null && (
-              <span data-testid="canon-facts-max-revision">revision: {maxRevision}</span>
+              <span data-testid="canon-facts-max-revision">{t("canon.factsPanel.maxRevision", { rev: maxRevision })}</span>
             )}
           </div>
           <ul className="divide-y text-sm">
@@ -244,16 +251,16 @@ export function CanonFactsKnownByPanel({
                 </div>
                 <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-muted-foreground">
                   <span data-testid={`canon-facts-valid-at-${fact.id}`}>
-                    valid_at: {formatChapter(fact.validAt)}
+                    {t("canon.factsPanel.validFrom")}: {formatChapter(fact.validAt)}
                   </span>
                   <span data-testid={`canon-facts-invalid-at-${fact.id}`}>
-                    invalid_at: {formatChapter(fact.invalidAt)}
+                    {t("canon.factsPanel.invalidFrom")}: {formatChapter(fact.invalidAt)}
                   </span>
-                  {fact.revealedAt != null && <span>revealed_at: {fact.revealedAt}</span>}
-                  {fact.modality && <span>modality: {fact.modality}</span>}
+                  {fact.revealedAt != null && <span>{t("canon.factsPanel.revealedAt")}: {fact.revealedAt}</span>}
+                  {fact.modality && <span>{t("canon.factsPanel.modality")}: {modalityLabels[fact.modality]}</span>}
                   {fact.recordedRevision != null && (
                     <span data-testid={`canon-facts-recorded-rev-${fact.id}`}>
-                      recorded_revision: {fact.recordedRevision}
+                      {t("canon.factsPanel.recordedRevision")}: {fact.recordedRevision}
                     </span>
                   )}
                 </div>

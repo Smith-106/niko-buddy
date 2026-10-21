@@ -99,7 +99,7 @@ function FilterBar({
     >
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-xs text-muted-foreground">known_by（POV）</span>
+          <span className="text-xs text-muted-foreground">{t("canon.filterKnownBy")}</span>
           <input
             type="text"
             className="h-8 min-w-48 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
@@ -110,7 +110,7 @@ function FilterBar({
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-xs text-muted-foreground">valid_at_chapter</span>
+          <span className="text-xs text-muted-foreground">{t("canon.filterValidAtChapter")}</span>
           <input
             type="number"
             className="h-8 w-28 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
@@ -121,7 +121,7 @@ function FilterBar({
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-xs text-muted-foreground">edge_kind</span>
+          <span className="text-xs text-muted-foreground">{t("canon.filterEdgeKind")}</span>
           <select
             className="h-8 rounded-md border bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-ring"
             value={edgeKind}
@@ -619,8 +619,8 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
                     <th className="px-2 py-1.5">id</th>
                     <th className="px-2 py-1.5">{t("canon.predicate")}</th>
                     <th className="px-2 py-1.5">{t("canon.category")}</th>
-                    <th className="px-2 py-1.5">known_by</th>
-                    <th className="px-2 py-1.5">revealed_at</th>
+                    <th className="px-2 py-1.5">{t("canon.knownByHeader")}</th>
+                    <th className="px-2 py-1.5">{t("canon.revealedAtHeader")}</th>
                     <th className="px-2 py-1.5">{t("canon.actions")}</th>
                   </tr>
                 </thead>
