@@ -90,6 +90,39 @@ describe("ModuleHeatmapView", () => {
     expect(screen.getByTestId("heatmap-lane-draft").getAttribute("data-active")).toBe("true")
   })
 
+  it("泳道间流向边带上下游文案零命中时静止", () => {
+    render(<ModuleHeatmapView />)
+    const flow = screen.getByTestId("heatmap-flow-plan")
+    expect(flow.getAttribute("data-flowing")).toBe("false")
+    expect(flow.textContent).toContain("→")
+    expect(screen.queryByTestId("heatmap-now")).toBeNull()
+    expect(screen.getByTestId("heatmap-lightup")).toBeTruthy()
+  })
+
+  it("命中后下游流向边呼吸并出现当前进行一句话", async () => {
+    const store = useModuleHeatStore.getState()
+    store.install()
+    recordModuleHit({
+      path: "src/lib/novel/campaign-runner.ts",
+      at: Date.now(),
+      ok: true,
+    })
+    render(<ModuleHeatmapView />)
+    expect(screen.getByTestId("heatmap-flow-plan").getAttribute("data-flowing")).toBe("true")
+    const now = screen.getByTestId("heatmap-now")
+    expect(now.textContent?.length).toBeGreaterThan(0)
+    expect(screen.queryByTestId("heatmap-lightup")).toBeNull()
+  })
+
+  it("空态点亮按钮一切到主控", async () => {
+    const { useWikiStore } = await import("@/stores/wiki-store")
+    const before = useWikiStore.getState().activeView
+    render(<ModuleHeatmapView />)
+    fireEvent.click(screen.getByTestId("heatmap-lightup"))
+    expect(useWikiStore.getState().activeView).toBe("mainControl")
+    useWikiStore.getState().setActiveView(before)
+  })
+
   it("过滤框可按路径缩小模块集合", () => {
     render(<ModuleHeatmapView />)
     fireEvent.change(screen.getByTestId("heatmap-search"), { target: { value: "campaign-runner" } })

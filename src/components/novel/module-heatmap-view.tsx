@@ -123,7 +123,71 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
     return max
   }, [heat])
 
-  // 最近 60 秒内被调用的泳道 = 「当前路径」
+  /** 泳道间流向边：上游→下游显式箭头；下游 60 秒内有命中才呼吸（零事件不伪造流动）。 */
+  const renderFlow = (fromId: string, toId: string) => {
+    const from = MODULE_ATLAS.stages.find((s) => s.id === fromId)
+    const to = MODULE_ATLAS.stages.find((s) => s.id === toId)
+    if (!from || !to) return null
+    const flowing = activeLanes.has(toId)
+    return (
+      <div
+        className="flex items-center gap-2 py-0.5 pl-24"
+        data-testid={`heatmap-flow-${fromId}`}
+        data-flowing={flowing ? "true" : "false"}
+      >
+        <span
+          aria-hidden
+          className={cn(
+            "flex flex-col items-center",
+            flowing ? "text-accent" : "text-muted-foreground/60",
+          )}
+        >
+          <span className="h-2.5 w-px bg-current opacity-60" />
+          <span className={cn("text-[10px] leading-none", flowing && "animate-pulse")}>▼</span>
+        </span>
+        <span className="text-[11px] text-muted-foreground">
+          {from.label} → {to.label}
+        </span>
+      </div>
+    )
+  }
+
+  /** 当前进行一句话：最新命中所在步 / 本步调用数 / 上一步（无命中时不渲染）。 */
+  const nowStep = useMemo(() => {
+    if (hits.length === 0) return null
+    const stageOf = (path: string): string | null => {
+      const entry = index.get(path)
+      if (!entry) return null
+      return MODULE_ATLAS.stages[entry.s]?.id ?? null
+    }
+    let cur: string | null = null
+    let prev: string | null = null
+    for (let i = hits.length - 1; i >= 0; i -= 1) {
+      const s = stageOf(hits[i].path)
+      if (!s) continue
+      if (!cur) {
+        cur = s
+        continue
+      }
+      if (s !== cur) {
+        prev = s
+        break
+      }
+    }
+    if (!cur) return null
+    let calls = 0
+    for (const h of hits) {
+      if (stageOf(h.path) === cur) calls += 1
+    }
+    const mainIdx = (MAIN_LANES as readonly string[]).indexOf(cur)
+    const label = MODULE_ATLAS.stages.find((s) => s.id === cur)?.label ?? cur
+    const prevLabel = prev
+      ? (MODULE_ATLAS.stages.find((s) => s.id === prev)?.label ?? prev)
+      : t("heatmap.nowStepOrigin")
+    return { mainIdx, total: MAIN_LANES.length, label, calls, prevLabel }
+  }, [hits, index, t])
+
+  // 最近 60 秒内被调用的泳道 = 「当前路径」（流向边呼吸与在跑叙事共用）。
   const activeLanes = useMemo(() => {
     const cutoff = Date.now() - 60_000
     const lanes = new Set<string>()
@@ -280,6 +344,30 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
         <Stat label={t("heatmap.statErrors")} value={totals.errors} icon={CircleDot} tone="destructive" />
       </div>
 
+      {nowStep ? (
+        <div
+          data-testid="heatmap-now"
+          className="flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/5 px-3 py-1.5 text-xs"
+        >
+          <span aria-hidden className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
+          <span>
+            {nowStep.mainIdx >= 0
+              ? t("heatmap.nowStep", {
+                index: nowStep.mainIdx + 1,
+                total: nowStep.total,
+                stage: nowStep.label,
+                calls: nowStep.calls,
+                prev: nowStep.prevLabel,
+              })
+              : t("heatmap.nowStepSupport", {
+                stage: nowStep.label,
+                calls: nowStep.calls,
+                prev: nowStep.prevLabel,
+              })}
+          </span>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={query}
@@ -320,9 +408,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
           {MAIN_LANES.map((stageId, i) => (
             <div key={stageId} className="flex flex-col gap-1">
               {renderLane(stageId)}
-              {i < MAIN_LANES.length - 1 ? (
-                <div className="pl-24 text-[11px] text-muted-foreground">↓</div>
-              ) : null}
+              {i < MAIN_LANES.length - 1 ? renderFlow(stageId, MAIN_LANES[i + 1]) : null}
             </div>
           ))}
           {showSupport ? (
@@ -416,7 +502,17 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
       <div className="rounded-lg border p-2" data-testid="heatmap-session-log">
         <h3 className="mb-1 text-xs font-semibold">{t("heatmap.sessionLog")}</h3>
         {log.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground">{t("heatmap.logEmpty")}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[11px] text-muted-foreground">{t("heatmap.logEmpty")}</p>
+            <button
+              type="button"
+              data-testid="heatmap-lightup"
+              onClick={() => useWikiStore.getState().setActiveView("mainControl")}
+              className="h-6 rounded-md border border-accent/50 bg-accent/10 px-2 text-[11px] text-foreground transition-colors hover:bg-accent/20"
+            >
+              {t("heatmap.lightUp")}
+            </button>
+          </div>
         ) : (
           <ul className="flex flex-col gap-0.5 font-mono text-[11px]">
             {log.map((row, i) => (

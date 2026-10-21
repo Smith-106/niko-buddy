@@ -3860,6 +3860,10 @@
     "unwiredReasonOrphan": "无人引用",
     "unwiredReasonUnreachable": "入口不可达",
     "sessionLog": "会话日志",
+    "nowStep": "当前第 {{index}} 步 / 共 {{total}} 步 · {{stage}} · 本步调用 {{calls}} 次 · 上一步 {{prev}}",
+    "nowStepSupport": "当前 {{stage}}（支撑泳道）· 本步调用 {{calls}} 次 · 上一步 {{prev}}",
+    "nowStepOrigin": "起点",
+    "lightUp": "去主控跑一次点亮这张图",
     "logEmpty": "尚无调用记录——跑一次孵化、巡航或推进阶段即可点亮"
   },
   "mainControl": {

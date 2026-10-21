@@ -3860,6 +3860,10 @@
     "unwiredReasonOrphan": "no importer",
     "unwiredReasonUnreachable": "unreachable",
     "sessionLog": "Session log",
+    "nowStep": "Step {{index}} of {{total}} · {{stage}} · {{calls}} calls this step · previous: {{prev}}",
+    "nowStepSupport": "Now {{stage}} (support lane) · {{calls}} calls this step · previous: {{prev}}",
+    "nowStepOrigin": "start",
+    "lightUp": "Run once from Main Control to light it up",
     "logEmpty": "No calls yet — run an incubation, cruise, or stage advance"
   },
   "mainControl": {
