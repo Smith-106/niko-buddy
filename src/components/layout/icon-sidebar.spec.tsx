@@ -124,6 +124,8 @@ afterEach(() => {
 beforeEach(() => {
   setupDomGlobals()
   vi.clearAllMocks()
+  // 交互用例沿用全展开（批5首刷默认折叠由 nav-items.spec 覆盖，避免 11 个点击用例重写）。
+  localStorage.setItem("niko-buddy-nav-collapsed-groups", JSON.stringify([]))
   mocks.wikiState.activeView = "wiki"
   mocks.wikiState.selectedFile = null
   mocks.wikiState.theme = "system"
@@ -396,21 +398,24 @@ describe("IconSidebar", () => {
     expect(document.querySelector('[data-nav-group="si"] button[aria-expanded]')?.textContent).toContain("18")
   })
 
-  it("组头可折叠：点击收起组内导航项，再点恢复（含 localStorage 持久化）", () => {
+  it("首刷构思组默认收起：点开展开再收起（含 localStorage 持久化）", () => {
     window.localStorage.removeItem("niko-buddy-nav-collapsed-groups")
     renderSidebar()
     const header = document.querySelector('[data-nav-group="si"] button[aria-expanded]') as HTMLButtonElement
+    expect(header.getAttribute("aria-expanded")).toBe("false")
+    expect(document.querySelector('[data-nav-group="si"] [data-view="graph"]')).toBeNull()
+
+    fireEvent.click(header)
     expect(header.getAttribute("aria-expanded")).toBe("true")
     expect(document.querySelector('[data-nav-group="si"] [data-view="graph"]')).toBeTruthy()
+    expect(JSON.parse(window.localStorage.getItem("niko-buddy-nav-collapsed-groups") ?? "[]")).toEqual([
+      "shen",
+      "maint",
+    ])
 
     fireEvent.click(header)
     expect(header.getAttribute("aria-expanded")).toBe("false")
     expect(document.querySelector('[data-nav-group="si"] [data-view="graph"]')).toBeNull()
-    expect(JSON.parse(window.localStorage.getItem("niko-buddy-nav-collapsed-groups") ?? "[]")).toEqual(["si"])
-
-    fireEvent.click(header)
-    expect(header.getAttribute("aria-expanded")).toBe("true")
-    expect(document.querySelector('[data-nav-group="si"] [data-view="graph"]')).toBeTruthy()
   })
 
   it("当前视图所在组被折叠时自动展开（键盘/外部跳转不会落到看不见的高亮项）", () => {

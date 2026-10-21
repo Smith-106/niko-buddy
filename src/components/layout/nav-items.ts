@@ -109,12 +109,18 @@ export const NAV_GROUP_ORDER: { group: NavModeGroup; labelKey: string }[] = [
 
 export const NAV_COLLAPSED_GROUPS_KEY = "niko-buddy-nav-collapsed-groups"
 
+/**
+ * 首刷默认折叠（第一小时只看「码字」组）：无存储偏好时 si/shen/maint 收起；
+ * 用户点过一次分组后以存储为准（含全展开的空数组），不再回退默认。
+ */
+export const DEFAULT_COLLAPSED_GROUPS: NavModeGroup[] = ["si", "shen", "maint"]
+
 export function readCollapsedGroups(): NavModeGroup[] {
   /* v8 ignore next */
   if (typeof localStorage === "undefined") return []
   try {
     const raw = localStorage.getItem(NAV_COLLAPSED_GROUPS_KEY)
-    if (!raw) return []
+    if (raw === null) return [...DEFAULT_COLLAPSED_GROUPS]
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     return parsed.filter((g): g is NavModeGroup => NAV_GROUP_ORDER.some((o) => o.group === g))
