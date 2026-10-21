@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
-  CJK_FONT_FILE,
   LINE_HEIGHT_RATIO,
   exportPdf,
   isPathInsideDataSectionError,
@@ -97,7 +96,7 @@ export function PdfExportDialog({ projectPath, title, paragraphs, chapterPath }:
       <h2 className="text-lg font-semibold">{t("pdfexport.dialog.title")}</h2>
 
       <p data-testid="pdfexport-font-notice" className="text-xs">
-        {t("pdfexport.font.cjk")} · {CJK_FONT_FILE} · {LINE_HEIGHT_RATIO}×
+        {t("pdfexport.font.cjk")} · {t("pdfexport.font.ratio", { ratio: LINE_HEIGHT_RATIO })}
       </p>
 
       <label className="flex flex-col gap-1 text-sm">

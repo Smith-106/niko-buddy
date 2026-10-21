@@ -3360,7 +3360,7 @@
       "title": "修订历史",
       "currentRevision": "当前 revision",
       "noStampGroup": "旧数据（无 revision 戳）",
-      "groupLabel": "revision {{rev}}",
+      "groupLabel": "版本 {{rev}}",
       "empty": "暂无修订记录。",
       "factCount": "{{count}} 条边",
       "canonTitle": "canon 修订历史"
@@ -3389,15 +3389,15 @@
     "knownByHeader": "知晓者",
     "revealedAtHeader": "揭晓章节",
     "maxRevision": "版本",
-    "edgeList": "canon 事实边列表",
+    "edgeList": "事实边列表",
     "edge": "事实边",
-    "predicate": "谓词",
+    "predicate": "断言",
     "category": "类别",
     "actions": "操作",
     "cognitionPanel": "认知轴校正面板",
     "emptyUnknown": "（空 — 无人知晓）",
     "addKnownByPlaceholder": "新增知晓角色（限白名单）",
-    "revealedAtHint": "revealed_at（向 known_by 揭示的章节；留空=未登记）"
+    "revealedAtHint": "向知晓角色揭示的章节；留空=未登记"
   },
   "errorBoundary": {
     "title": "出错了",
@@ -3702,6 +3702,7 @@
   "batchreplace.transaction.rollback": "事务已回滚：没有文件被留在半完成状态",
   "pdfexport.dialog.title": "导出 PDF（只读投影）",
   "pdfexport.font.cjk": "内嵌中文字体（不依赖本机字体）",
+  "pdfexport.font.ratio": "行高 {{ratio}}×",
   "pdfexport.path.outsideData": "导出目标必须在数据区之外（.novel / QM / .niko-buddy / backups）",
   "workspace.tools.exportPdf": "导出 PDF",
   "workspace.tools.batchReplace": "批量替换",

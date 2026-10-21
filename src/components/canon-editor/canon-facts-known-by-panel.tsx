@@ -71,7 +71,7 @@ export function CanonFactsKnownByPanel({
       setTotal(r.total)
       setMaxRevision(r.maxRevision)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "canon_facts_known_by 调用失败")
+      setError(err instanceof Error ? err.message : "已知事实加载失败")
       setFacts([])
       setTotal(0)
       setMaxRevision(null)

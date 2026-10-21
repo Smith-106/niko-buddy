@@ -3360,7 +3360,7 @@
       "title": "Revision History",
       "currentRevision": "Current revision",
       "noStampGroup": "Legacy data (no revision stamp)",
-      "groupLabel": "revision {{rev}}",
+      "groupLabel": "Revision {{rev}}",
       "empty": "No revisions yet.",
       "factCount": "{{count}} edges",
       "canonTitle": "Canon revision history"
@@ -3389,15 +3389,15 @@
     "knownByHeader": "Known by",
     "revealedAtHeader": "Revealed in",
     "maxRevision": "Revision",
-    "edgeList": "Canon fact-edge list",
+    "edgeList": "Fact-edge list",
     "edge": "Fact edges",
-    "predicate": "Predicate",
+    "predicate": "Assertion",
     "category": "Category",
     "actions": "Actions",
     "cognitionPanel": "Cognition-axis correction panel",
     "emptyUnknown": "(Empty — unknown to all)",
     "addKnownByPlaceholder": "Add knowing character (allowlist only)",
-    "revealedAtHint": "revealed_at (chapter revealed to known_by; blank = unregistered)"
+    "revealedAtHint": "Chapter revealed to knowing characters; blank = unregistered"
   },
   "errorBoundary": {
     "title": "Something went wrong",
@@ -3702,6 +3702,7 @@
   "batchreplace.transaction.rollback": "Transaction rolled back: no file was left half-written",
   "pdfexport.dialog.title": "Export PDF (read-only projection)",
   "pdfexport.font.cjk": "Embedded CJK font (no reliance on local fonts)",
+  "pdfexport.font.ratio": "Line height {{ratio}}×",
   "pdfexport.path.outsideData": "Choose a target outside the data sections (.novel / QM / .niko-buddy / backups)",
   "workspace.tools.exportPdf": "Export PDF",
   "workspace.tools.batchReplace": "Batch replace",

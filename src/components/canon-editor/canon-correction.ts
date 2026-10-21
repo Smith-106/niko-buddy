@@ -117,18 +117,18 @@ export function validateKnownByCorrection(
   for (const raw of nextKnownBy) {
     const pov = typeof raw === "string" ? raw.trim() : ""
     if (!pov) {
-      violations.push({ code: "empty_pov", message: "known_by 含空白 POV 条目" })
+      violations.push({ code: "empty_pov", message: "知晓角色里有空白条目，请删掉或填入角色" })
       continue
     }
     if (seen.has(pov)) {
-      violations.push({ code: "duplicate_pov", message: `known_by 重复 POV：${pov}` })
+      violations.push({ code: "duplicate_pov", message: `知晓角色重复：${pov}` })
       continue
     }
     seen.add(pov)
     if (!allowlist.includes(pov)) {
       violations.push({
         code: "not_in_allowlist",
-        message: `POV「${pov}」不在项目角色白名单内（POV 防泄密：known_by 增补仅接受白名单成员）`,
+        message: `「${pov}」不在项目角色白名单内，只能添加白名单中的角色`,
       })
     }
   }
@@ -151,17 +151,17 @@ export function validateRevealedAtCorrection(
     if (!Number.isInteger(revealedAt) || revealedAt < 1) {
       violations.push({
         code: "invalid_revealed_at",
-        message: "revealed_at 必须是 ≥1 的整数章号（或留空表示未登记揭示点）",
+        message: "揭晓章节必须是 ≥1 的整数（留空表示尚未揭晓）",
       })
     } else if (validAt != null && revealedAt < validAt) {
       violations.push({
         code: "revealed_before_valid",
-        message: `revealed_at=${revealedAt} 早于 valid_at=${validAt}：揭示不得早于事实生效（POV 防泄密时态不变量）`,
+        message: `揭晓章节（第${revealedAt}章）早于生效章节（第${validAt}章）：揭示不能早于事实生效`,
       })
     } else if (knownByCount === 0) {
       violations.push({
         code: "revealed_without_known_by",
-        message: "revealed_at 已登记但 known_by 为空：无人知晓的事实不可能被揭示",
+        message: "已填写揭晓章节，但知晓角色为空：没人知道的事实无法被揭示",
       })
     }
   }

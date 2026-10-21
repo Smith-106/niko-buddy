@@ -283,7 +283,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
         setPage(1)
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "canon_query_batch 调用失败"
+      const message = err instanceof Error ? err.message : "事实列表加载失败"
       setError(message)
       if (mode === "browse") setBrowseEdges([])
       else setCorrectEdges([])
@@ -409,7 +409,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
             violations: [
               {
                 code: "invalid_revealed_at" as const,
-                message: "revealed_at 必须是 ≥1 的整数章号（或留空表示未登记揭示点）",
+                message: "揭晓章节必须是 ≥1 的整数（留空表示尚未揭晓）",
               },
             ],
           }
@@ -437,7 +437,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
       // ③-2 保存后刷新：成功回调内自动重新 query 刷新边列表。
       await reload()
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "canon_supersede_edges 调用失败")
+      setSaveError(err instanceof Error ? err.message : "校正保存失败")
     } finally {
       setSaving(false)
     }
@@ -475,7 +475,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
               </button>
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              项目 {projectId} · 接 canon_query_batch 渲染事实表（known_by / valid_at_chapter / edge_kinds 过滤 + 服务端分页 offset/limit + total；max_revision 展示）。点「校正」进入认知轴校正（写路径）。
+              项目 {projectId} · 下方是本项目的事实列表，可按知晓角色、有效章节、关系类型筛选。点「校正」可修正某条事实的知晓范围与揭晓章节。
             </p>
           </header>
 
@@ -563,7 +563,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
             </div>
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
-            项目 {projectId} · 选择事实边校正 known_by（白名单）与 revealed_at；保存走 canon_supersede_edges（旧边封顶留痕 + 校正后继边）。
+            项目 {projectId} · 选择一条事实，校正它的知晓角色（白名单）与揭晓章节；保存时旧版本封顶留痕并写入新版本。
           </p>
         </header>
 
@@ -674,7 +674,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
                 <span className="font-mono text-xs text-muted-foreground">
                   {selected.predicate}（
                   {EDGE_KIND_LABELS[selected.edge_kind as EdgeKind] ?? selected.edge_kind}
-                  ，valid_at={selected.valid_at ?? "—"}）
+                  ，{selected.valid_at != null ? `有效自第${selected.valid_at}章` : "未设有效章节"}）
                 </span>
               </h2>
               <button
@@ -689,7 +689,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
 
             {/* known_by 草稿 chips */}
             <div className="mb-2 flex flex-wrap items-center gap-2">
-              <span className="text-xs text-muted-foreground">known_by：</span>
+              <span className="text-xs text-muted-foreground">{t("canon.filterKnownBy")}：</span>
               {draftKnownBy.length === 0 && (
                 <span className="text-xs italic text-muted-foreground/70">{t("canon.emptyUnknown")}</span>
               )}
@@ -773,7 +773,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
                 {saving ? "保存中…" : "保存校正"}
               </button>
               <span className="text-xs text-muted-foreground">
-                保存 = canon_supersede_edges：旧边封顶于 valid_at={selected.valid_at ?? 0} + 校正后继边
+                保存后旧版本封顶留痕，并写入校正后的新版本。
               </span>
             </div>
 
@@ -785,7 +785,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
               >
                 {saveViolations.map((v) => (
                   <li key={v.code}>
-                    [{v.code}] {v.message}
+                    {v.message}
                   </li>
                 ))}
               </ul>

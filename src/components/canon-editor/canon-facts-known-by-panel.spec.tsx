@@ -126,7 +126,7 @@ describe("CanonFactsKnownByPanel — POV 选择与三态", () => {
       target: { value: "pov:alpha" },
     })
     expect(await screen.findByTestId("canon-facts-error")).toHaveTextContent(
-      "canon_facts_known_by 调用失败",
+      "已知事实加载失败",
     )
   })
 })

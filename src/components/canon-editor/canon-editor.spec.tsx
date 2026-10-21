@@ -412,7 +412,7 @@ describe("CanonEditor — loading / error / 刷新", () => {
     render(<CanonEditor projectId={PROJECT_ID} />)
     await waitFor(() => {
       expect(screen.getByTestId("canon-editor-error").textContent).toContain(
-        "canon_query_batch 调用失败",
+        "事实列表加载失败",
       )
     })
   })
@@ -827,7 +827,7 @@ describe("CanonEditor — 校正模式（写路径，合并收口）", () => {
   it("非 Error 拒绝展示兜底文案", async () => {
     invokeMock.mockRejectedValueOnce("raw")
     render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
-    expect(await screen.findByRole("alert")).toHaveTextContent("canon_query_batch 调用失败")
+    expect(await screen.findByRole("alert")).toHaveTextContent("事实列表加载失败")
   })
 
   it("无边时展示空态（过滤控件已具备，文案有对应控件）", async () => {
@@ -890,12 +890,12 @@ describe("CanonEditor — 校正模式（写路径，合并收口）", () => {
     fireEvent.click(screen.getByTestId("correction-save"))
     expect(
       screen.getAllByRole("alert").map((el) => el.textContent).join("\n"),
-    ).toContain("revealed_before_valid")
+    ).toContain("揭示不能早于事实生效")
     fireEvent.change(screen.getByTestId("correction-revealed-at"), { target: { value: "abc" } })
     fireEvent.click(screen.getByTestId("correction-save"))
     expect(
       screen.getAllByRole("alert").map((el) => el.textContent).join("\n"),
-    ).toContain("invalid_revealed_at")
+    ).toContain("揭晓章节必须是")
     expect(invokeMock).not.toHaveBeenCalledWith("canon_supersede_edges", expect.anything())
   })
 
@@ -963,7 +963,7 @@ describe("CanonEditor — 校正模式（写路径，合并收口）", () => {
     fireEvent.change(screen.getByTestId("correction-revealed-at"), { target: { value: "6" } })
     fireEvent.click(screen.getByTestId("correction-save"))
     expect(await screen.findByTestId("correction-save-error")).toHaveTextContent(
-      "canon_supersede_edges 调用失败",
+      "校正保存失败",
     )
   })
 
