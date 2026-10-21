@@ -112,11 +112,21 @@ describe("MainControlView", () => {
     expect(setActiveView).toHaveBeenCalledWith("moduleHeatmap")
   })
 
-  it("亲手中止后显示已取消态而不是红字失败", async () => {
+  it("亲手中止后显示已取消态而不是红字失败（生产契约：resolve + error）", async () => {
+    // 生产路径不抛：runner abort 时 onError("操作已取消") 后 resolve，error 经返回值回来。
     runMainControlAgent.mockImplementation(
       ({ signal }: { signal?: AbortSignal }) =>
-        new Promise((_resolve, reject) => {
-          signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))
+        new Promise((resolve) => {
+          signal?.addEventListener("abort", () =>
+            resolve({
+              ok: false,
+              finalText: "",
+              roundsUsed: 0,
+              steps: [],
+              drafts: [],
+              error: "操作已取消",
+            }),
+          )
         }),
     )
     render(<MainControlView />)

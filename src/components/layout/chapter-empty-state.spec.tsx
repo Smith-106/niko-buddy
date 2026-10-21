@@ -3,38 +3,38 @@
 // SPDX-License-Identifier: MIT
 //
 // Spec for src/components/layout/chapter-empty-state.tsx — 第一小时：
-// 无章节空态必须给可点的新建入口（有 onCreateChapter 时渲染按钮，无时保底文案）。
+// 无章节空态必须给可点的新建入口（经 store nonce 直连，不经 Props 回调）。
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { fireEvent, render, screen } from "@/test-helpers/component-test-utils"
 import { ChapterEmptyState } from "./chapter-empty-state"
 
+const requestChapterCreate = vi.fn()
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 
+vi.mock("@/stores/wiki-store", () => ({
+  useWikiStore: (selector: (s: { requestChapterCreate: () => void }) => unknown) =>
+    selector({ requestChapterCreate }),
+}))
+
 afterEach(() => {
   cleanup()
+  requestChapterCreate.mockClear()
 })
 
 describe("ChapterEmptyState", () => {
-  it("无章节且有 onCreateChapter 时渲染可点新建按钮", () => {
-    const onCreate = vi.fn()
+  it("无章节时渲染可点新建按钮，点击走 store nonce", () => {
     const onSelect = vi.fn()
-    render(
-      <ChapterEmptyState recentChapters={[]} onSelectChapter={onSelect} onCreateChapter={onCreate} />,
-    )
+    render(<ChapterEmptyState recentChapters={[]} onSelectChapter={onSelect} />)
     const button = screen.getByTestId("preview-empty-create")
     expect(button).toBeTruthy()
     fireEvent.click(button)
-    expect(onCreate).toHaveBeenCalledTimes(1)
+    expect(requestChapterCreate).toHaveBeenCalledTimes(1)
     expect(onSelect).not.toHaveBeenCalled()
-  })
-
-  it("无 onCreateChapter 时保底纯文案不崩", () => {
-    render(<ChapterEmptyState recentChapters={[]} onSelectChapter={() => {}} />)
-    expect(screen.queryByTestId("preview-empty-create")).toBeNull()
   })
 
   it("有最近章节时渲染快捷入口", () => {

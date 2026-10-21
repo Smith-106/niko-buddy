@@ -604,7 +604,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold">{t("canon.edge")}</h2>
             <span className="text-xs text-muted-foreground">
-              共 {total} 条事实
+              {t("canon.edgeTotalLine", { count: total })}
             </span>
           </div>
           {correctEdges.length === 0 ? (
@@ -616,7 +616,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
               <table className="w-full text-left text-xs" data-testid="canon-edge-table">
                 <thead className="text-muted-foreground">
                   <tr>
-                    <th className="px-2 py-1.5">编号</th>
+                    <th className="px-2 py-1.5">{t("canon.factIndexHeader")}</th>
                     <th className="px-2 py-1.5">{t("canon.predicate")}</th>
                     <th className="px-2 py-1.5">{t("canon.category")}</th>
                     <th className="px-2 py-1.5">{t("canon.knownByHeader")}</th>
@@ -805,8 +805,16 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
             role="status"
             data-testid="correction-saved"
           >
-            校正已写入：本次改了 {lastSave.inserted} 条事实{lastSave.capped > 0 ? `（另有 ${lastSave.capped} 条超出上限没动）` : ""} · 版本 {lastSave.maxRevision}
-            {lastSave.missing.length > 0 && ` · 有旧记录没找到：${lastSave.missing.join(", ")}`}
+            {t("canon.correctionSaved", {
+              inserted: lastSave.inserted,
+              cappedSuffix:
+                lastSave.capped > 0 ? t("canon.correctionCappedSuffix", { count: lastSave.capped }) : "",
+              revision: lastSave.maxRevision,
+              missingSuffix:
+                lastSave.missing.length > 0
+                  ? t("canon.correctionMissingSuffix", { names: lastSave.missing.join(", ") })
+                  : "",
+            })}
           </div>
         )}
       </div>

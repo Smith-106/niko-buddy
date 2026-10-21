@@ -132,7 +132,14 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         now: Date.now(),
       })
       void saveTraceSnapshot(projectPath, snapshot)
-      if (out.error) setError(out.error)
+      if (out.error) {
+        // 用户亲手点的中止走成功分支回来（runner resolve + error)：以 signal 为准判取消，不进红字失败。
+        if (controller.signal.aborted) {
+          setCancelledAt(Date.now())
+        } else {
+          setError(out.error)
+        }
+      }
     } catch (err) {
       // 用户亲手点的中止不算失败：已取消态单独展示不进红字错误。
       if (controller.signal.aborted) {

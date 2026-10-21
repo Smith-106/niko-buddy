@@ -50,7 +50,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
   const [coverWorkbenchOpen, setCoverWorkbenchOpen] = useState(false)
   const [translationViewOpen, setTranslationViewOpen] = useState(false)
   const [fanficMergeOpen, setFanficMergeOpen] = useState(false)
-  // 导航组折叠（默认全展开；存 localStorage，不改变任何视图行为）
+  // 导航组折叠（首刷只展开码字组，用户点过后以存储为准；不改变任何视图行为）
   const [collapsedGroups, setCollapsedGroups] = useState<NavModeGroup[]>(() => readCollapsedGroups())
   const toggleGroup = (group: NavModeGroup) => {
     setCollapsedGroups((prev) => {

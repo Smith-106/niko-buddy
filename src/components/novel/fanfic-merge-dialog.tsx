@@ -59,7 +59,12 @@ export function FanficMergeDialog({ open, onOpenChange, sourceBook, targetNames 
       })
       setProposal(p)
       setNotice(
-        `${p.characters.length} 角色 → 认领 ${p.characters.filter((c) => c.action === "bind_existing").length} / 新建 ${p.characters.filter((c) => c.action === "create_new").length} / 跳过 ${p.characters.filter((c) => c.action === "skip").length}`,
+        t("novel.fanfic.previewSummary", {
+          count: p.characters.length,
+          bound: p.characters.filter((c) => c.action === "bind_existing").length,
+          created: p.characters.filter((c) => c.action === "create_new").length,
+          skipped: p.characters.filter((c) => c.action === "skip").length,
+        }),
       )
     } catch (err) {
       setNotice(`${t("novel.fanfic.previewFailed") ?? "预览失败"}：${toErrorMessage(err)}`)

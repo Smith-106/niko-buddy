@@ -74,7 +74,7 @@ export function SidebarPanel() {
   const setFileTree = useWikiStore((s) => s.setFileTree)
   const dataVersion = useWikiStore((s) => s.dataVersion)
   const chapterCreateNonce = useWikiStore((s) => s.chapterCreateNonce)
-  const chapterCreateSeen = useRef(chapterCreateNonce)
+  const chapterCreateSeen = useRef<number | null>(null)
   const [mode, setMode] = useState<"knowledge" | "files">("knowledge")
   const [refreshKey, setRefreshKey] = useState(0)
   const [pendingCreate, setPendingCreate] = useState<KnowledgeCreateRequest | null>(null)
@@ -617,8 +617,10 @@ export function SidebarPanel() {
   // 空态「新建章节」跨面板触发：nonce +1 即复用已有创建链路（含编号/落盘/选中）。
   useEffect(() => {
     if (chapterCreateSeen.current === chapterCreateNonce) return
+    const firstMount = chapterCreateSeen.current === null
     chapterCreateSeen.current = chapterCreateNonce
     if (!project) return
+    if (firstMount && chapterCreateNonce === 0) return
     void handleCreateNextChapter()
   }, [chapterCreateNonce, project])
 

@@ -127,8 +127,8 @@ export function WelcomeScreen({
                 >
                 {t("welcome.quickStart2", {
                   defaultValue: novelMode
-                    ? "配置 LLM —— 点这里打开新建在模型服务填 API endpoint + key（支持代理）"
-                    : "开始编辑 —— 左侧文件树新建/编辑 markdown 页面",
+                    ? "配模型 —— 点这里打开新建，API endpoint + key 在同页填（支持代理）"
+                    : "新建项目 —— 点这里打开新建，创建 wiki 知识库工作区",
                 })}
                 </button>
               </li>

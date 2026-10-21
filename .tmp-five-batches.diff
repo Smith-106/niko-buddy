@@ -1,0 +1,1116 @@
+diff --git a/src/components/canon-editor/canon-editor.spec.tsx b/src/components/canon-editor/canon-editor.spec.tsx
+index fac97805..966afdf1 100644
+--- a/src/components/canon-editor/canon-editor.spec.tsx
++++ b/src/components/canon-editor/canon-editor.spec.tsx
+@@ -924,7 +924,7 @@ describe("CanonEditor — 校正模式（写路径，合并收口）", () => {
+       }),
+     )
+     expect(await screen.findByTestId("correction-saved")).toHaveTextContent(
+-      /封顶 1 条 · 插入 1 条 · revision → 8/,
++      /本次改了 1 条事实.*版本 8/,
+     )
+     // 挂载查询(1) + 进入校正查询(2) + supersede(3) + 保存后重载(4)
+     expect(invokeMock).toHaveBeenCalledTimes(4)
+diff --git a/src/components/canon-editor/canon-editor.tsx b/src/components/canon-editor/canon-editor.tsx
+index f227f19d..4f6bde56 100644
+--- a/src/components/canon-editor/canon-editor.tsx
++++ b/src/components/canon-editor/canon-editor.tsx
+@@ -604,7 +604,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
+           <div className="mb-3 flex items-center justify-between">
+             <h2 className="text-sm font-semibold">{t("canon.edge")}</h2>
+             <span className="text-xs text-muted-foreground">
+-              共 {total} 条（服务端过滤后全量）
++              共 {total} 条事实
+             </span>
+           </div>
+           {correctEdges.length === 0 ? (
+@@ -616,7 +616,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
+               <table className="w-full text-left text-xs" data-testid="canon-edge-table">
+                 <thead className="text-muted-foreground">
+                   <tr>
+-                    <th className="px-2 py-1.5">id</th>
++                    <th className="px-2 py-1.5">编号</th>
+                     <th className="px-2 py-1.5">{t("canon.predicate")}</th>
+                     <th className="px-2 py-1.5">{t("canon.category")}</th>
+                     <th className="px-2 py-1.5">{t("canon.knownByHeader")}</th>
+@@ -805,8 +805,8 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
+             role="status"
+             data-testid="correction-saved"
+           >
+-            校正已写入：封顶 {lastSave.capped} 条 · 插入 {lastSave.inserted} 条 · revision → {lastSave.maxRevision}
+-            {lastSave.missing.length > 0 && ` · 未找到旧边：${lastSave.missing.join(", ")}`}
++            校正已写入：本次改了 {lastSave.inserted} 条事实{lastSave.capped > 0 ? `（另有 ${lastSave.capped} 条超出上限没动）` : ""} · 版本 {lastSave.maxRevision}
++            {lastSave.missing.length > 0 && ` · 有旧记录没找到：${lastSave.missing.join(", ")}`}
+           </div>
+         )}
+       </div>
+diff --git a/src/components/layout/chapter-empty-state.spec.tsx b/src/components/layout/chapter-empty-state.spec.tsx
+new file mode 100644
+index 00000000..fd207e86
+--- /dev/null
++++ b/src/components/layout/chapter-empty-state.spec.tsx
+@@ -0,0 +1,50 @@
++// @vitest-environment jsdom
++// MIT License - Copyright (c) 2026 Niko Buddy Contributors
++// SPDX-License-Identifier: MIT
++//
++// Spec for src/components/layout/chapter-empty-state.tsx — 第一小时：
++// 无章节空态必须给可点的新建入口（有 onCreateChapter 时渲染按钮，无时保底文案）。
++
++import { afterEach, describe, expect, it, vi } from "vitest"
++import { cleanup } from "@testing-library/react"
++import { fireEvent, render, screen } from "@/test-helpers/component-test-utils"
++import { ChapterEmptyState } from "./chapter-empty-state"
++
++vi.mock("react-i18next", () => ({
++  useTranslation: () => ({ t: (key: string) => key }),
++}))
++
++afterEach(() => {
++  cleanup()
++})
++
++describe("ChapterEmptyState", () => {
++  it("无章节且有 onCreateChapter 时渲染可点新建按钮", () => {
++    const onCreate = vi.fn()
++    const onSelect = vi.fn()
++    render(
++      <ChapterEmptyState recentChapters={[]} onSelectChapter={onSelect} onCreateChapter={onCreate} />,
++    )
++    const button = screen.getByTestId("preview-empty-create")
++    expect(button).toBeTruthy()
++    fireEvent.click(button)
++    expect(onCreate).toHaveBeenCalledTimes(1)
++    expect(onSelect).not.toHaveBeenCalled()
++  })
++
++  it("无 onCreateChapter 时保底纯文案不崩", () => {
++    render(<ChapterEmptyState recentChapters={[]} onSelectChapter={() => {}} />)
++    expect(screen.queryByTestId("preview-empty-create")).toBeNull()
++  })
++
++  it("有最近章节时渲染快捷入口", () => {
++    const onSelect = vi.fn()
++    render(
++      <ChapterEmptyState
++        recentChapters={[{ path: "/p/wiki/chapters/第1章.md", label: "第1章" }]}
++        onSelectChapter={onSelect}
++      />,
++    )
++    expect(screen.getByTestId("preview-empty-recent")).toBeTruthy()
++  })
++})
+diff --git a/src/components/layout/chapter-empty-state.tsx b/src/components/layout/chapter-empty-state.tsx
+index 425559b9..56606f71 100644
+--- a/src/components/layout/chapter-empty-state.tsx
++++ b/src/components/layout/chapter-empty-state.tsx
+@@ -13,6 +13,8 @@ interface ChapterEmptyStateProps {
+   /** 按章号倒序的最近章节（最多 6 条），来自文件树的只读投影。 */
+   recentChapters: RecentChapterFile[]
+   onSelectChapter: (path: string) => void
++  /** 空态直达新建：经 store nonce 复用 sidebar 已有创建链路（编号/落盘/选中）。 */
++  onCreateChapter?: () => void
+ }
+ 
+ /**
+@@ -26,7 +28,7 @@ interface ChapterEmptyStateProps {
+  *
+  * 纯展示层：不新增写路径、不触碰 Draft-first 门控，章节列表数据来自 store 的 fileTree。
+  */
+-export function ChapterEmptyState({ recentChapters, onSelectChapter }: ChapterEmptyStateProps) {
++export function ChapterEmptyState({ recentChapters, onSelectChapter, onCreateChapter }: ChapterEmptyStateProps) {
+   const { t } = useTranslation()
+   const hasRecent = recentChapters.length > 0
+ 
+@@ -68,6 +70,16 @@ export function ChapterEmptyState({ recentChapters, onSelectChapter }: ChapterEm
+               ))}
+             </div>
+           </div>
++        ) : onCreateChapter ? (
++          <button
++            type="button"
++            onClick={onCreateChapter}
++            data-testid="preview-empty-create"
++            className="inline-flex items-center gap-2 rounded-md border border-accent/50 bg-accent/10 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
++          >
++            <PlusCircle className="h-3.5 w-3.5 shrink-0" />
++            <span>{t("sidebar.newChapter")}</span>
++          </button>
+         ) : (
+           <div className="flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+             <PlusCircle className="h-3.5 w-3.5 shrink-0" />
+diff --git a/src/components/layout/icon-sidebar.spec.tsx b/src/components/layout/icon-sidebar.spec.tsx
+index 1ab7e667..4e811529 100644
+--- a/src/components/layout/icon-sidebar.spec.tsx
++++ b/src/components/layout/icon-sidebar.spec.tsx
+@@ -124,6 +124,8 @@ afterEach(() => {
+ beforeEach(() => {
+   setupDomGlobals()
+   vi.clearAllMocks()
++  // 交互用例沿用全展开（批5首刷默认折叠由 nav-items.spec 覆盖，避免 11 个点击用例重写）。
++  localStorage.setItem("niko-buddy-nav-collapsed-groups", JSON.stringify([]))
+   mocks.wikiState.activeView = "wiki"
+   mocks.wikiState.selectedFile = null
+   mocks.wikiState.theme = "system"
+@@ -396,21 +398,24 @@ describe("IconSidebar", () => {
+     expect(document.querySelector('[data-nav-group="si"] button[aria-expanded]')?.textContent).toContain("18")
+   })
+ 
+-  it("组头可折叠：点击收起组内导航项，再点恢复（含 localStorage 持久化）", () => {
++  it("首刷构思组默认收起：点开展开再收起（含 localStorage 持久化）", () => {
+     window.localStorage.removeItem("niko-buddy-nav-collapsed-groups")
+     renderSidebar()
+     const header = document.querySelector('[data-nav-group="si"] button[aria-expanded]') as HTMLButtonElement
+-    expect(header.getAttribute("aria-expanded")).toBe("true")
+-    expect(document.querySelector('[data-nav-group="si"] [data-view="graph"]')).toBeTruthy()
+-
+-    fireEvent.click(header)
+     expect(header.getAttribute("aria-expanded")).toBe("false")
+     expect(document.querySelector('[data-nav-group="si"] [data-view="graph"]')).toBeNull()
+-    expect(JSON.parse(window.localStorage.getItem("niko-buddy-nav-collapsed-groups") ?? "[]")).toEqual(["si"])
+ 
+     fireEvent.click(header)
+     expect(header.getAttribute("aria-expanded")).toBe("true")
+     expect(document.querySelector('[data-nav-group="si"] [data-view="graph"]')).toBeTruthy()
++    expect(JSON.parse(window.localStorage.getItem("niko-buddy-nav-collapsed-groups") ?? "[]")).toEqual([
++      "shen",
++      "maint",
++    ])
++
++    fireEvent.click(header)
++    expect(header.getAttribute("aria-expanded")).toBe("false")
++    expect(document.querySelector('[data-nav-group="si"] [data-view="graph"]')).toBeNull()
+   })
+ 
+   it("当前视图所在组被折叠时自动展开（键盘/外部跳转不会落到看不见的高亮项）", () => {
+diff --git a/src/components/layout/nav-items.spec.ts b/src/components/layout/nav-items.spec.ts
+new file mode 100644
+index 00000000..5eefdffd
+--- /dev/null
++++ b/src/components/layout/nav-items.spec.ts
+@@ -0,0 +1,37 @@
++// @vitest-environment jsdom
++// MIT License - Copyright (c) 2026 Niko Buddy Contributors
++// SPDX-License-Identifier: MIT
++//
++// Spec for src/components/layout/nav-items.ts — 批5入口收敛：
++// 首刷默认只展开「码字」组；用户动过分组后存储优先不再回退。
++
++import { afterEach, describe, expect, it } from "vitest"
++import {
++  DEFAULT_COLLAPSED_GROUPS,
++  NAV_COLLAPSED_GROUPS_KEY,
++  readCollapsedGroups,
++} from "./nav-items"
++
++afterEach(() => {
++  localStorage.clear()
++})
++
++describe("readCollapsedGroups", () => {
++  it("首刷无偏好时只展开码字组", () => {
++    expect(readCollapsedGroups()).toEqual(DEFAULT_COLLAPSED_GROUPS)
++    expect(DEFAULT_COLLAPSED_GROUPS).not.toContain("ma")
++    expect(DEFAULT_COLLAPSED_GROUPS).toEqual(["si", "shen", "maint"])
++  })
++
++  it("用户存过偏好（含全展开）后不再回退默认", () => {
++    localStorage.setItem(NAV_COLLAPSED_GROUPS_KEY, JSON.stringify([]))
++    expect(readCollapsedGroups()).toEqual([])
++    localStorage.setItem(NAV_COLLAPSED_GROUPS_KEY, JSON.stringify(["ma"]))
++    expect(readCollapsedGroups()).toEqual(["ma"])
++  })
++
++  it("脏数据回退空数组不崩", () => {
++    localStorage.setItem(NAV_COLLAPSED_GROUPS_KEY, "not-json")
++    expect(readCollapsedGroups()).toEqual([])
++  })
++})
+diff --git a/src/components/layout/nav-items.ts b/src/components/layout/nav-items.ts
+index c396ddf5..018f37a3 100644
+--- a/src/components/layout/nav-items.ts
++++ b/src/components/layout/nav-items.ts
+@@ -109,12 +109,18 @@ export const NAV_GROUP_ORDER: { group: NavModeGroup; labelKey: string }[] = [
+ 
+ export const NAV_COLLAPSED_GROUPS_KEY = "niko-buddy-nav-collapsed-groups"
+ 
++/**
++ * 首刷默认折叠（第一小时只看「码字」组）：无存储偏好时 si/shen/maint 收起；
++ * 用户点过一次分组后以存储为准（含全展开的空数组），不再回退默认。
++ */
++export const DEFAULT_COLLAPSED_GROUPS: NavModeGroup[] = ["si", "shen", "maint"]
++
+ export function readCollapsedGroups(): NavModeGroup[] {
+   /* v8 ignore next */
+   if (typeof localStorage === "undefined") return []
+   try {
+     const raw = localStorage.getItem(NAV_COLLAPSED_GROUPS_KEY)
+-    if (!raw) return []
++    if (raw === null) return [...DEFAULT_COLLAPSED_GROUPS]
+     const parsed: unknown = JSON.parse(raw)
+     if (!Array.isArray(parsed)) return []
+     return parsed.filter((g): g is NavModeGroup => NAV_GROUP_ORDER.some((o) => o.group === g))
+diff --git a/src/components/layout/preview-panel.spec.tsx b/src/components/layout/preview-panel.spec.tsx
+index a0ff2ef7..cfd10515 100644
+--- a/src/components/layout/preview-panel.spec.tsx
++++ b/src/components/layout/preview-panel.spec.tsx
+@@ -495,10 +495,10 @@ describe("PreviewPanel 空态与加载态", () => {
+     cleanup()
+   })
+ 
+-  it("无章节时显示新建指引（不再是一句无动作提示）", async () => {
++  it("无章节时显示可点新建入口（不再是一句无动作提示）", async () => {
+     mocks.state.fileTree = []
+     const { cleanup } = await renderPanel()
+-    expect(screen.getByText(/还没有章节：用左侧「章节」面板/)).toBeInTheDocument()
++    expect(screen.getByTestId("preview-empty-create")).toBeInTheDocument()
+     cleanup()
+   })
+ 
+diff --git a/src/components/layout/preview-panel.tsx b/src/components/layout/preview-panel.tsx
+index cee15166..3edba559 100644
+--- a/src/components/layout/preview-panel.tsx
++++ b/src/components/layout/preview-panel.tsx
+@@ -1098,6 +1098,7 @@ export function PreviewPanel() {
+       <ChapterEmptyState
+         recentChapters={recentChapterFiles}
+         onSelectChapter={(path) => setSelectedFile(path)}
++        onCreateChapter={() => useWikiStore.getState().requestChapterCreate()}
+       />
+     )
+   }
+diff --git a/src/components/layout/sidebar-panel.tsx b/src/components/layout/sidebar-panel.tsx
+index 1b59188f..29d46c4e 100644
+--- a/src/components/layout/sidebar-panel.tsx
++++ b/src/components/layout/sidebar-panel.tsx
+@@ -73,6 +73,8 @@ export function SidebarPanel() {
+   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
+   const setFileTree = useWikiStore((s) => s.setFileTree)
+   const dataVersion = useWikiStore((s) => s.dataVersion)
++  const chapterCreateNonce = useWikiStore((s) => s.chapterCreateNonce)
++  const chapterCreateSeen = useRef(chapterCreateNonce)
+   const [mode, setMode] = useState<"knowledge" | "files">("knowledge")
+   const [refreshKey, setRefreshKey] = useState(0)
+   const [pendingCreate, setPendingCreate] = useState<KnowledgeCreateRequest | null>(null)
+@@ -612,6 +614,14 @@ export function SidebarPanel() {
+     setInputTitle("")
+   }
+ 
++  // 空态「新建章节」跨面板触发：nonce +1 即复用已有创建链路（含编号/落盘/选中）。
++  useEffect(() => {
++    if (chapterCreateSeen.current === chapterCreateNonce) return
++    chapterCreateSeen.current = chapterCreateNonce
++    if (!project) return
++    void handleCreateNextChapter()
++  }, [chapterCreateNonce, project])
++
+   const inputPlaceholder = pendingCreate?.kind === "outline"
+     ? t("sidebar.newOutlinePrompt")
+     : pendingCreate?.kind === "volume"
+diff --git a/src/components/novel/fanfic-merge-dialog.spec.tsx b/src/components/novel/fanfic-merge-dialog.spec.tsx
+index 0149e879..efea9492 100644
+--- a/src/components/novel/fanfic-merge-dialog.spec.tsx
++++ b/src/components/novel/fanfic-merge-dialog.spec.tsx
+@@ -1,7 +1,7 @@
+ /** @vitest-environment jsdom */
+ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+ import { cleanup } from "@testing-library/react"
+-import { fireEvent, render, screen } from "@testing-library/react"
++import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+ import { FanficMergeDialog } from "./fanfic-merge-dialog"
+ import type { BookAnalysisLibraryBook } from "@/lib/novel"
+ 
+@@ -50,21 +50,25 @@ describe("FanficMergeDialog", () => {
+   beforeEach(() => vi.clearAllMocks())
+   afterEach(() => cleanup())
+ 
+-  it("生成合并预览（proposeCanonMerge 接线）：重名→bind_existing", async () => {
++  it("生成合并预览（proposeCanonMerge 接线）：重名→认领新建跳过", async () => {
+     render(
+       <FanficMergeDialog open onOpenChange={() => undefined} sourceBook={sourceBook} targetNames={["林晚"]} />,
+     )
+     fireEvent.click(screen.getByText("novel.fanfic.preview"))
+-    expect((await screen.findAllByText(/bind_existing/)).length).toBeGreaterThan(0)
+-    expect((await screen.findAllByText(/create_new/)).length).toBeGreaterThan(0)
++    const dlg = screen.getByTestId("fanfic-merge-dialog")
++    await waitFor(() => expect(dlg.textContent).toMatch(/认领.*新建.*跳过/))
++    await waitFor(() => {
++      expect(dlg.textContent).toContain("novel.fanfic.actionBind")
++      expect(dlg.textContent).toContain("novel.fanfic.actionCreate")
++    })
+   })
+ 
+-  it("保存 pending 工件（Draft-first）", async () => {
++  it("保存合并草稿（Draft-first）", async () => {
+     render(
+       <FanficMergeDialog open onOpenChange={() => undefined} sourceBook={sourceBook} targetNames={["林晚"]} />,
+     )
+     fireEvent.click(screen.getByText("novel.fanfic.preview"))
+-    await screen.findAllByText(/bind_existing/)
++    await screen.findByText(/认领/)
+     fireEvent.click(screen.getByText("novel.fanfic.savePending"))
+     await screen.findByText("novel.fanfic.pendingSaved")
+     expect(mocks.saveProposal).toHaveBeenCalled()
+diff --git a/src/components/novel/fanfic-merge-dialog.tsx b/src/components/novel/fanfic-merge-dialog.tsx
+index c354779d..daea8adb 100644
+--- a/src/components/novel/fanfic-merge-dialog.tsx
++++ b/src/components/novel/fanfic-merge-dialog.tsx
+@@ -32,6 +32,12 @@ export interface FanficMergeDialogProps {
+ export function FanficMergeDialog({ open, onOpenChange, sourceBook, targetNames = [], rules }: FanficMergeDialogProps) {
+   const { t } = useTranslation()
+   const projectPath = useWikiStore((s) => s.project?.path)
++  const actionLabel = (action: string): string => {
++    if (action === "bind_existing") return t("novel.fanfic.actionBind")
++    if (action === "create_new") return t("novel.fanfic.actionCreate")
++    if (action === "skip") return t("novel.fanfic.actionSkip")
++    return action
++  }
+   const [proposal, setProposal] = useState<CanonMergeProposal | null>(null)
+   const [loading, setLoading] = useState(false)
+   const [notice, setNotice] = useState<string | null>(null)
+@@ -53,7 +59,7 @@ export function FanficMergeDialog({ open, onOpenChange, sourceBook, targetNames
+       })
+       setProposal(p)
+       setNotice(
+-        `${p.characters.length} 角色 → bind_existing ${p.characters.filter((c) => c.action === "bind_existing").length} / create_new ${p.characters.filter((c) => c.action === "create_new").length} / skip ${p.characters.filter((c) => c.action === "skip").length}`,
++        `${p.characters.length} 角色 → 认领 ${p.characters.filter((c) => c.action === "bind_existing").length} / 新建 ${p.characters.filter((c) => c.action === "create_new").length} / 跳过 ${p.characters.filter((c) => c.action === "skip").length}`,
+       )
+     } catch (err) {
+       setNotice(`${t("novel.fanfic.previewFailed") ?? "预览失败"}：${toErrorMessage(err)}`)
+@@ -109,7 +115,7 @@ export function FanficMergeDialog({ open, onOpenChange, sourceBook, targetNames
+             <div className="max-h-64 space-y-1 overflow-y-auto rounded border p-2">
+               {proposal.characters.map((c) => (
+                 <p key={c.sourceId} className="text-xs">
+-                  <span className="font-medium">{c.canonicalName}</span> → {c.action}
++                  <span className="font-medium">{c.canonicalName}</span> → {actionLabel(c.action)}
+                   {c.aliases.length > 0 && <span className="text-muted-foreground">（{c.aliases.join(" / ")}）</span>}
+                 </p>
+               ))}
+diff --git a/src/components/novel/main-control-view.spec.tsx b/src/components/novel/main-control-view.spec.tsx
+index e211673c..4130a840 100644
+--- a/src/components/novel/main-control-view.spec.tsx
++++ b/src/components/novel/main-control-view.spec.tsx
+@@ -111,6 +111,42 @@ describe("MainControlView", () => {
+     fireEvent.click(screen.getByTestId("main-control-heatmap"))
+     expect(setActiveView).toHaveBeenCalledWith("moduleHeatmap")
+   })
++
++  it("亲手中止后显示已取消态而不是红字失败", async () => {
++    runMainControlAgent.mockImplementation(
++      ({ signal }: { signal?: AbortSignal }) =>
++        new Promise((_resolve, reject) => {
++          signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))
++        }),
++    )
++    render(<MainControlView />)
++    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "任意目标" } })
++    fireEvent.click(screen.getByTestId("main-control-run"))
++    await waitFor(() => expect(screen.getByTestId("main-control-stop")).toBeTruthy())
++    fireEvent.click(screen.getByTestId("main-control-stop"))
++    await waitFor(() => expect(screen.getByTestId("main-control-cancelled")).toBeTruthy())
++    expect(screen.queryByTestId("main-control-error")).toBeNull()
++  })
++
++  it("某一步 90 秒无返回提示可能卡住", async () => {
++    runMainControlAgent.mockImplementation(
++      ({ onStep }: { onStep: (s: unknown) => void }) => {
++        onStep({
++          callId: "c1",
++          name: "slow_tool",
++          params: {},
++          status: "running",
++          at: Date.now() - 200_000,
++        })
++        return new Promise(() => {})
++      },
++    )
++    render(<MainControlView />)
++    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "任意目标" } })
++    fireEvent.click(screen.getByTestId("main-control-run"))
++    await waitFor(() => expect(screen.getByTestId("main-control-stuck")).toBeTruthy())
++    expect(screen.getByTestId("main-control-stuck").textContent).toContain("slow_tool")
++  })
+ })
+ 
+ describe("MainControlView 运行轨迹与证据", () => {
+diff --git a/src/components/novel/main-control-view.tsx b/src/components/novel/main-control-view.tsx
+index e396e262..6855e559 100644
+--- a/src/components/novel/main-control-view.tsx
++++ b/src/components/novel/main-control-view.tsx
+@@ -56,6 +56,15 @@ export function MainControlView(_props: MainControlViewProps = {}) {
+   const [result, setResult] = useState<MainControlResult | null>(null)
+   const [running, setRunning] = useState(false)
+   const [error, setError] = useState<string | null>(null)
++  const [cancelledAt, setCancelledAt] = useState<number | null>(null)
++  // 心跳 tick：运行时每 10 秒重渲染一次，用于卡住/超时提示（不碰主链计时）。
++  const [tick, setTick] = useState(0)
++
++  useEffect(() => {
++    if (!running) return
++    const timer = setInterval(() => setTick((v) => v + 1), 10_000)
++    return () => clearInterval(timer)
++  }, [running])
+   const [trace, setTrace] = useState<TraceEntry[]>([])
+   const [expanded, setExpanded] = useState<string[]>([])
+   const [replaySavedAt, setReplaySavedAt] = useState<number | null>(null)
+@@ -85,6 +94,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
+     setError(null)
+     setResult(null)
+     setSteps([])
++    setCancelledAt(null)
+     setRunning(true)
+     const controller = new AbortController()
+     abortRef.current = controller
+@@ -124,7 +134,12 @@ export function MainControlView(_props: MainControlViewProps = {}) {
+       void saveTraceSnapshot(projectPath, snapshot)
+       if (out.error) setError(out.error)
+     } catch (err) {
+-      setError(toErrorMessage(err))
++      // 用户亲手点的中止不算失败：已取消态单独展示不进红字错误。
++      if (controller.signal.aborted) {
++        setCancelledAt(Date.now())
++      } else {
++        setError(toErrorMessage(err))
++      }
+     } finally {
+       setRunning(false)
+       abortRef.current = null
+@@ -134,8 +149,17 @@ export function MainControlView(_props: MainControlViewProps = {}) {
+   const stop = () => {
+     abortRef.current?.abort()
+     setRunning(false)
++    setCancelledAt(Date.now())
+   }
+ 
++  // 卡住/超时：正在跑的那一步 90 秒无返回提示卡住5 分钟建议中止（只读判断不动执行）。
++  void tick
++  const stuckStep = running
++    ? steps.find((s) => s.status === "running" && Date.now() - s.at > 90_000)
++    : undefined
++  const stuckSecs = stuckStep ? Math.floor((Date.now() - stuckStep.at) / 1000) : 0
++  const stuckTimeout = stuckSecs >= 300
++
+   return (
+     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4" data-testid="main-control-view">
+       <div className="flex items-center gap-2">
+@@ -204,6 +228,22 @@ export function MainControlView(_props: MainControlViewProps = {}) {
+             {error}
+           </p>
+         ) : null}
++        {!running && cancelledAt && !error ? (
++          <p className="flex items-center gap-1 text-[11px] text-warning" data-testid="main-control-cancelled">
++            <Square className="h-3 w-3" />
++            {t("mainControl.cancelled", {
++              time: new Date(cancelledAt).toLocaleTimeString("zh-CN", { hour12: false }),
++            })}
++          </p>
++        ) : null}
++        {stuckStep ? (
++          <p className="flex items-center gap-1 text-[11px] text-warning" data-testid="main-control-stuck">
++            <CircleAlert className="h-3 w-3" />
++            {stuckTimeout
++              ? t("mainControl.timeoutHint", { step: stuckStep.name })
++              : t("mainControl.stuckHint", { step: stuckStep.name, secs: stuckSecs })}
++          </p>
++        ) : null}
+       </div>
+ 
+       <div className="rounded-lg border p-2" data-testid="main-control-steps">
+diff --git a/src/components/novel/module-heatmap-view.spec.tsx b/src/components/novel/module-heatmap-view.spec.tsx
+index c8653bf3..a78e112c 100644
+--- a/src/components/novel/module-heatmap-view.spec.tsx
++++ b/src/components/novel/module-heatmap-view.spec.tsx
+@@ -90,6 +90,39 @@ describe("ModuleHeatmapView", () => {
+     expect(screen.getByTestId("heatmap-lane-draft").getAttribute("data-active")).toBe("true")
+   })
+ 
++  it("泳道间流向边带上下游文案零命中时静止", () => {
++    render(<ModuleHeatmapView />)
++    const flow = screen.getByTestId("heatmap-flow-plan")
++    expect(flow.getAttribute("data-flowing")).toBe("false")
++    expect(flow.textContent).toContain("→")
++    expect(screen.queryByTestId("heatmap-now")).toBeNull()
++    expect(screen.getByTestId("heatmap-lightup")).toBeTruthy()
++  })
++
++  it("命中后下游流向边呼吸并出现当前进行一句话", async () => {
++    const store = useModuleHeatStore.getState()
++    store.install()
++    recordModuleHit({
++      path: "src/lib/novel/campaign-runner.ts",
++      at: Date.now(),
++      ok: true,
++    })
++    render(<ModuleHeatmapView />)
++    expect(screen.getByTestId("heatmap-flow-plan").getAttribute("data-flowing")).toBe("true")
++    const now = screen.getByTestId("heatmap-now")
++    expect(now.textContent?.length).toBeGreaterThan(0)
++    expect(screen.queryByTestId("heatmap-lightup")).toBeNull()
++  })
++
++  it("空态点亮按钮一切到主控", async () => {
++    const { useWikiStore } = await import("@/stores/wiki-store")
++    const before = useWikiStore.getState().activeView
++    render(<ModuleHeatmapView />)
++    fireEvent.click(screen.getByTestId("heatmap-lightup"))
++    expect(useWikiStore.getState().activeView).toBe("mainControl")
++    useWikiStore.getState().setActiveView(before)
++  })
++
+   it("过滤框可按路径缩小模块集合", () => {
+     render(<ModuleHeatmapView />)
+     fireEvent.change(screen.getByTestId("heatmap-search"), { target: { value: "campaign-runner" } })
+diff --git a/src/components/novel/module-heatmap-view.tsx b/src/components/novel/module-heatmap-view.tsx
+index 7c428055..93b3c7f0 100644
+--- a/src/components/novel/module-heatmap-view.tsx
++++ b/src/components/novel/module-heatmap-view.tsx
+@@ -123,7 +123,71 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
+     return max
+   }, [heat])
+ 
+-  // 最近 60 秒内被调用的泳道 = 「当前路径」
++  /** 泳道间流向边：上游→下游显式箭头；下游 60 秒内有命中才呼吸（零事件不伪造流动）。 */
++  const renderFlow = (fromId: string, toId: string) => {
++    const from = MODULE_ATLAS.stages.find((s) => s.id === fromId)
++    const to = MODULE_ATLAS.stages.find((s) => s.id === toId)
++    if (!from || !to) return null
++    const flowing = activeLanes.has(toId)
++    return (
++      <div
++        className="flex items-center gap-2 py-0.5 pl-24"
++        data-testid={`heatmap-flow-${fromId}`}
++        data-flowing={flowing ? "true" : "false"}
++      >
++        <span
++          aria-hidden
++          className={cn(
++            "flex flex-col items-center",
++            flowing ? "text-accent" : "text-muted-foreground/60",
++          )}
++        >
++          <span className="h-2.5 w-px bg-current opacity-60" />
++          <span className={cn("text-[10px] leading-none", flowing && "animate-pulse")}>▼</span>
++        </span>
++        <span className="text-[11px] text-muted-foreground">
++          {from.label} → {to.label}
++        </span>
++      </div>
++    )
++  }
++
++  /** 当前进行一句话：最新命中所在步 / 本步调用数 / 上一步（无命中时不渲染）。 */
++  const nowStep = useMemo(() => {
++    if (hits.length === 0) return null
++    const stageOf = (path: string): string | null => {
++      const entry = index.get(path)
++      if (!entry) return null
++      return MODULE_ATLAS.stages[entry.s]?.id ?? null
++    }
++    let cur: string | null = null
++    let prev: string | null = null
++    for (let i = hits.length - 1; i >= 0; i -= 1) {
++      const s = stageOf(hits[i].path)
++      if (!s) continue
++      if (!cur) {
++        cur = s
++        continue
++      }
++      if (s !== cur) {
++        prev = s
++        break
++      }
++    }
++    if (!cur) return null
++    let calls = 0
++    for (const h of hits) {
++      if (stageOf(h.path) === cur) calls += 1
++    }
++    const mainIdx = (MAIN_LANES as readonly string[]).indexOf(cur)
++    const label = MODULE_ATLAS.stages.find((s) => s.id === cur)?.label ?? cur
++    const prevLabel = prev
++      ? (MODULE_ATLAS.stages.find((s) => s.id === prev)?.label ?? prev)
++      : t("heatmap.nowStepOrigin")
++    return { mainIdx, total: MAIN_LANES.length, label, calls, prevLabel }
++  }, [hits, index, t])
++
++  // 最近 60 秒内被调用的泳道 = 「当前路径」（流向边呼吸与在跑叙事共用）。
+   const activeLanes = useMemo(() => {
+     const cutoff = Date.now() - 60_000
+     const lanes = new Set<string>()
+@@ -280,6 +344,30 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
+         <Stat label={t("heatmap.statErrors")} value={totals.errors} icon={CircleDot} tone="destructive" />
+       </div>
+ 
++      {nowStep ? (
++        <div
++          data-testid="heatmap-now"
++          className="flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/5 px-3 py-1.5 text-xs"
++        >
++          <span aria-hidden className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
++          <span>
++            {nowStep.mainIdx >= 0
++              ? t("heatmap.nowStep", {
++                index: nowStep.mainIdx + 1,
++                total: nowStep.total,
++                stage: nowStep.label,
++                calls: nowStep.calls,
++                prev: nowStep.prevLabel,
++              })
++              : t("heatmap.nowStepSupport", {
++                stage: nowStep.label,
++                calls: nowStep.calls,
++                prev: nowStep.prevLabel,
++              })}
++          </span>
++        </div>
++      ) : null}
++
+       <div className="flex flex-wrap items-center gap-2">
+         <input
+           value={query}
+@@ -320,9 +408,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
+           {MAIN_LANES.map((stageId, i) => (
+             <div key={stageId} className="flex flex-col gap-1">
+               {renderLane(stageId)}
+-              {i < MAIN_LANES.length - 1 ? (
+-                <div className="pl-24 text-[11px] text-muted-foreground">↓</div>
+-              ) : null}
++              {i < MAIN_LANES.length - 1 ? renderFlow(stageId, MAIN_LANES[i + 1]) : null}
+             </div>
+           ))}
+           {showSupport ? (
+@@ -416,7 +502,17 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
+       <div className="rounded-lg border p-2" data-testid="heatmap-session-log">
+         <h3 className="mb-1 text-xs font-semibold">{t("heatmap.sessionLog")}</h3>
+         {log.length === 0 ? (
+-          <p className="text-[11px] text-muted-foreground">{t("heatmap.logEmpty")}</p>
++          <div className="flex flex-wrap items-center gap-2">
++            <p className="text-[11px] text-muted-foreground">{t("heatmap.logEmpty")}</p>
++            <button
++              type="button"
++              data-testid="heatmap-lightup"
++              onClick={() => useWikiStore.getState().setActiveView("mainControl")}
++              className="h-6 rounded-md border border-accent/50 bg-accent/10 px-2 text-[11px] text-foreground transition-colors hover:bg-accent/20"
++            >
++              {t("heatmap.lightUp")}
++            </button>
++          </div>
+         ) : (
+           <ul className="flex flex-col gap-0.5 font-mono text-[11px]">
+             {log.map((row, i) => (
+diff --git a/src/components/project/create-project-dialog.tsx b/src/components/project/create-project-dialog.tsx
+index e90ad16f..9f5f3137 100644
+--- a/src/components/project/create-project-dialog.tsx
++++ b/src/components/project/create-project-dialog.tsx
+@@ -56,7 +56,8 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
+   // J01-T01 (F-007)：模型服务健康检查——建项时可见 LLM 状态，可展开配置或明示跳过。
+   const llmConfig = useWikiStore((s) => s.llmConfig)
+   const setActiveView = useWikiStore((s) => s.setActiveView)
+-  const [llmExpanded, setLlmExpanded] = useState(false)
++  // 未配 key 时默认展开模型服务（第一小时：配了 key 的老用户保持折叠不打扰）。
++  const [llmExpanded, setLlmExpanded] = useState(() => !assessLlmHealth(useWikiStore.getState().llmConfig).canWrite)
+   const llmHealth = assessLlmHealth(llmConfig)
+   const llmTone = llmHealth.canWrite
+     ? "text-success dark:text-success"
+diff --git a/src/components/project/welcome-screen.tsx b/src/components/project/welcome-screen.tsx
+index fba4ce75..ebb0494e 100644
+--- a/src/components/project/welcome-screen.tsx
++++ b/src/components/project/welcome-screen.tsx
+@@ -120,11 +120,17 @@ export function WelcomeScreen({
+               </li>
+               <li className="flex gap-2">
+                 <span className="font-medium text-foreground">2.</span>
++                <button
++                  type="button"
++                  onClick={onCreateProject}
++                  className="text-left underline decoration-dotted underline-offset-2 hover:text-foreground"
++                >
+                 {t("welcome.quickStart2", {
+                   defaultValue: novelMode
+-                    ? "配置 LLM —— 设置 → LLM 提供商，填 API endpoint + key（支持代理）"
++                    ? "配置 LLM —— 点这里打开新建在模型服务填 API endpoint + key（支持代理）"
+                     : "开始编辑 —— 左侧文件树新建/编辑 markdown 页面",
+                 })}
++                </button>
+               </li>
+               <li className="flex gap-2">
+                 <span className="font-medium text-foreground">3.</span>
+diff --git a/src/i18n/en.json b/src/i18n/en.json
+index 9d3a2b0f..2c9f6b37 100644
+--- a/src/i18n/en.json
++++ b/src/i18n/en.json
+@@ -1536,9 +1536,9 @@
+         "title": "Vector Search / Embedding Model",
+         "description": "Enable semantic search. Supports OpenAI-compatible /v1/embeddings endpoints and Google Gemini embedContent endpoints. Local models such as LM Studio or Ollama embeddings do not require an API key.",
+         "enableLabel": "Enable vector search",
+-        "enableHint": "When off, search uses token matching only.",
++        "enableHint": "When off, search matches literal keywords only — related meanings will not be found.",
+         "offlineMode": "Offline mode",
+-        "offlineModeHint": "Short-circuits optional network dependencies (embedding/rerank); search degrades to keyword matching.",
++        "offlineModeHint": "Offline mode: no more network calls for semantic search and ranking; search degrades to keyword matching.",
+         "endpoint": "Endpoint",
+         "endpointHint": "OpenAI-compatible example: http://127.0.0.1:1234/v1/embeddings. Gemini example: https://generativelanguage.googleapis.com/v1beta with model gemini-embedding-001.",
+         "apiKey": "API Key (optional)",
+@@ -1548,11 +1548,11 @@
+         "outputDimensionalityHint": "Optional. Sent only to Gemini embedContent as output_dimensionality. OpenAI-compatible endpoints ignore it. Rebuild embeddings after changing model or dimension.",
+         "chunking": "Chunking",
+         "maxChunkChars": "Max characters per chunk",
+-        "maxChunkCharsHint": "Target length of each chunk. Lower it when endpoint context windows are small.",
++        "maxChunkCharsHint": "Target size when splitting long text. Lower it when the model cannot take much text at once (e.g. small local models).",
+         "overlapChunkChars": "Chunk overlap characters",
+-        "overlapChunkCharsHint": "Overlap between adjacent chunks so semantics are not cut off at boundaries.",
++        "overlapChunkCharsHint": "How much adjacent pieces overlap — more overlap means meaning is less likely to break at the joints.",
+         "statsHeading": "Index status",
+-        "chunkCount": "{{count}} chunks indexed",
++        "chunkCount": "{{count}} text pieces indexed",
+         "lastErrorHeading": "Last embedding error",
+         "reindexAll": "Reindex all pages",
+         "reindexing": "Indexing {{done}}/{{total}}...",
+@@ -2061,7 +2061,7 @@
+       "restoreConfirm": "Restoring will overwrite the project's status.json, drafts, and Canon data (current state is auto-backed-up before replacement). Continue?",
+       "restoreConfirmTitle": "Confirm Restore",
+       "title": "Project Backup & Restore",
+-      "description": "Standalone backup of the current project: status.json (session state) + drafts + Canon LanceDB snapshot, zip + SHA-256 checksum. For global config backup go to Settings → Data Management.",
++      "description": "Pack the current project into one zip: writing progress, drafts, and canon memory, with an integrity check. For global config backup go to Settings → Data Management.",
+       "passphraseLabel": "Local passphrase (optional)",
+       "passphrasePlaceholder": "Leave empty to skip encryption; applies to this operation only",
+       "passphraseNote": "AES-256 local encryption, not connected to the cloud; the passphrase is not saved and cannot be recovered if lost.",
+@@ -2073,16 +2073,16 @@
+       "exportButton": "Export Backup",
+       "exportSuccess": "Export succeeded",
+       "filesUnit": "files",
+-      "sidecarWritten": "Checksum file",
++      "sidecarWritten": "Includes a checksum file",
+       "verifyTitle": "Verify Backup",
+-      "verifyDescription": "Pre-check the backup before restoring: container SHA-256 (prefer .sha256 sidecar) + in-package manifest content digest. Verify only, nothing written to disk.",
++      "verifyDescription": "Inspect before restoring: checks the zip is intact and complete. Check only — your current project is untouched.",
+       "verifying": "Verifying...",
+       "verifyButton": "Select backup package to verify",
+       "verifySuccess": "Verification passed",
+       "verifyContentDigest": "Content digest verification",
+       "verifyShaMissing": "No .sha256 checksum file found: downgraded to in-package content digest only (re-export to obtain a full checksum).",
+       "restoreTitle": "Restore from Backup",
+-      "restoreDescription": "Atomically replace current project data after checksum (SHA-256 + content digest) passes; current state is auto-backed-up to backups/auto/ before replacement.",
++      "restoreDescription": "After the check passes, replace current project data with the backup; your current state is backed up again automatically first.",
+       "restoring": "Restoring...",
+       "restoreButton": "Select backup package to restore",
+       "restoreSuccess": "Restore succeeded",
+@@ -3041,13 +3041,16 @@
+     },
+     "fanfic": {
+       "title": "Fanfic Canon Merge",
+-      "hint": "Deterministic merge preview (duplicate→bind_existing / new→create_new / conflict→skip); saves as pending draft",
++      "hint": "Preview before merging: link duplicate names to existing records / create records for new names / skip conflicts. Saved as a draft until you accept.",
++      "actionBind": "Link to existing",
++      "actionCreate": "Create new",
++      "actionSkip": "Skip",
+       "preview": "Preview merge",
+-      "savePending": "Save pending",
+-      "loadPending": "Load pending",
+-      "pendingSaved": "Saved pending artifact (.novel/fanfic-merge-pending.json); no formal writeback before accept",
+-      "pendingLoaded": "Loaded existing pending proposal",
+-      "noPending": "No pending proposal",
++      "savePending": "Save draft",
++      "loadPending": "Load draft",
++      "pendingSaved": "Merge draft saved — nothing is written to canon until you accept below",
++      "pendingLoaded": "Loaded the previous merge draft",
++      "noPending": "No merge draft yet",
+       "previewFailed": "Preview failed"
+     },
+     "coverGen": {
+@@ -3392,7 +3395,7 @@
+     "maxRevision": "Revision",
+     "factTableConfidence": "Confidence",
+     "factTableSourceChapter": "Source chapter",
+-    "factTableDigest": "Digest",
++    "factTableDigest": "Checksum",
+     "edgeList": "Fact-edge list",
+     "edge": "Fact edges",
+     "predicate": "Assertion",
+@@ -3704,7 +3707,7 @@
+   "batchreplace.empty.hint": "Enter find and replace text, then click Preview (read-only). Preview never writes to disk, and the commit still needs human confirmation.",
+   "batchreplace.apply.confirm": "Apply after human confirmation",
+   "batchreplace.transaction.rollback": "Transaction rolled back: no file was left half-written",
+-  "pdfexport.dialog.title": "Export PDF (read-only projection)",
++  "pdfexport.dialog.title": "Export PDF",
+   "pdfexport.font.cjk": "Embedded CJK font (no reliance on local fonts)",
+   "pdfexport.font.ratio": "Line height {{ratio}}×",
+   "pdfexport.path.outsideData": "Choose a target outside the data sections (.novel / QM / .niko-buddy / backups)",
+@@ -3716,9 +3719,9 @@
+   "pdfexport.submit": "Export PDF",
+   "pdfexport.submit.busy": "Exporting…",
+   "pdfexport.paragraphs.label": "Body paragraphs",
+-  "pdfexport.empty.body": "The current chapter has no body paragraphs to export. Open a file that has content first.",
++  "pdfexport.empty.body": "This chapter has no body text to export. Open a chapter with content from the chapter library on the left first.",
+   "pdfexport.report": "{{pages}} page(s) · {{bytes}} bytes · {{font}}",
+-  "pdfexport.confirmed": "Confirmed version {{digest}} - {{chapter}}",
++  "pdfexport.confirmed": "This chapter passed review · {{chapter}}",
+   "pdfexport.notConfirmed": "Chapter is not confirmed final; export blocked. Complete review confirmation first.",
+   "pdfexport.contentChanged": "Chapter content changed during export; blocked. Re-confirm and retry.",
+   "pdfexport.history.count": "Export history: {{count}} entries - {{file}}",
+@@ -3837,29 +3840,33 @@
+     "statCoverage": "Call coverage",
+     "statErrors": "Failures",
+     "laneStats": "{{modules}} modules · {{hit}} hit · {{calls}} calls",
+-    "reworkMark": "◀ rework loop",
++    "reworkMark": "◀ Sent back for rework",
+     "searchPlaceholder": "Filter module path…",
+     "showSupport": "Show support lanes",
+     "hideSupport": "Hide support lanes",
+-    "flushNow": "Flush telemetry",
+-    "flushed": "flushed {{time}}",
++    "flushNow": "Save heat",
++    "flushed": "Heat saved {{time}}",
+     "drillTitle": "Module drill-down",
+-    "drillHint": "Click any module to inspect wiring and calls",
+-    "importsOut": "out {{count}}",
+-    "importsIn": "in {{count}}",
++    "drillHint": "Click any module to see what it connects to and how often it ran",
++    "importsOut": "Uses {{count}} modules",
++    "importsIn": "Used by {{count}} modules",
+     "loc": "{{count}} lines",
+     "calls": "{{count}} calls",
+     "never": "not called this session",
+     "lastCall": "last {{time}}",
+     "errors": "{{count}} failures",
+-    "unwiredFlag": "Unwired (spec-only or unreferenced)",
+-    "wiredFlag": "Wired",
+-    "unwiredTitle": "Unwired modules (by size)",
+-    "unwiredEmpty": "No unwired modules",
+-    "unwiredReasonSpec": "spec only",
+-    "unwiredReasonOrphan": "no importer",
+-    "unwiredReasonUnreachable": "unreachable",
++    "unwiredFlag": "Unused (test-only or zero references)",
++    "wiredFlag": "In use",
++    "unwiredTitle": "Unused modules (by size)",
++    "unwiredEmpty": "Every module is in use",
++    "unwiredReasonSpec": "test-only",
++    "unwiredReasonOrphan": "zero references",
++    "unwiredReasonUnreachable": "not reachable",
+     "sessionLog": "Session log",
++    "nowStep": "Step {{index}} of {{total}} · {{stage}} · {{calls}} calls this step · previous: {{prev}}",
++    "nowStepSupport": "Now {{stage}} (support lane) · {{calls}} calls this step · previous: {{prev}}",
++    "nowStepOrigin": "start",
++    "lightUp": "Run once from Main Control to light it up",
+     "logEmpty": "No calls yet — run an incubation, cruise, or stage advance"
+   },
+   "mainControl": {
+@@ -3888,7 +3895,10 @@
+     "draftWords": "{{count}} words",
+     "finalTitle": "Result",
+     "roundsUsed": "{{count}} rounds",
+-    "viewHeatmap": "Open heatmap"
++    "viewHeatmap": "Open heatmap",
++    "cancelled": "Cancelled ({{time}})",
++    "stuckHint": "{{step}} has been running for {{secs}}s with no response — it may be stuck; you can stop and retry",
++    "timeoutHint": "{{step}} has run for over 5 minutes — stop it and retry with different wording"
+   },
+   "wb": {
+     "title": "Writing Workbench",
+diff --git a/src/i18n/zh.json b/src/i18n/zh.json
+index af46d71e..811bfc17 100644
+--- a/src/i18n/zh.json
++++ b/src/i18n/zh.json
+@@ -953,9 +953,9 @@
+         "title": "向量检索/Embedding模型",
+         "description": "启用语义搜索。支持 OpenAI 兼容的 /v1/embeddings endpoint，也支持 Google Gemini 原生 embedContent endpoint。本地模型（如 LM Studio、Ollama embedding）不需要 API Key。",
+         "enableLabel": "启用向量搜索",
+-        "enableHint": "关掉后搜索只走 token 匹配。",
++        "enableHint": "关掉后搜索只按字面关键词找，搜不到意思相近的内容。",
+         "offlineMode": "离线模式",
+-        "offlineModeHint": "统一短路 embedding/rerank 等可选网络依赖（搜索降级为关键词匹配）。",
++        "offlineModeHint": "断网模式：不再联网做语义搜索和排序，搜索降级为关键词匹配。",
+         "endpoint": "接口地址",
+         "endpointHint": "OpenAI 兼容示例：http://127.0.0.1:1234/v1/embeddings。Gemini 示例：https://generativelanguage.googleapis.com/v1beta，模型填 gemini-embedding-001。",
+         "apiKey": "API密钥（可选）",
+@@ -965,11 +965,11 @@
+         "outputDimensionalityHint": "可选。仅对 Gemini 原生 embedContent endpoint 作为 `output_dimensionality` 发送；OpenAI 兼容 endpoint 会忽略此项。留空则使用模型默认值。修改模型或维度后需要重建嵌入。",
+         "chunking": "切分参数",
+         "maxChunkChars": "每块最大字符数",
+-        "maxChunkCharsHint": "单个 chunk 的目标长度。endpoint 上下文较小时（llama.cpp n_ctx=512、mxbai-embed-large 等）调低（如 500）。",
++        "maxChunkCharsHint": "切分长文时每块的目标字数。模型一次吃不下太多字时（比如本地小模型）调低（如 500）。",
+         "overlapChunkChars": "重叠字符数",
+-        "overlapChunkCharsHint": "相邻 chunk 之间的重叠字符数，避免语义在边界被切断。",
++        "overlapChunkCharsHint": "相邻两块互相重叠的字数重叠多一点不容易在交界处断意。",
+         "statsHeading": "索引状态",
+-        "chunkCount": "已索引 {{count}} 个 chunk",
++        "chunkCount": "已索引 {{count}} 个文本块",
+         "lastErrorHeading": "上次 embedding 错误",
+         "reindexAll": "重新索引全部页面",
+         "reindexing": "索引中 {{done}}/{{total}}…",
+@@ -1680,7 +1680,7 @@
+       "restoreConfirm": "恢复将覆盖当前项目的 status.json、草稿与 Canon 数据（替换前会自动备份现状）。确定继续？",
+       "restoreConfirmTitle": "确认恢复",
+       "title": "项目备份与恢复",
+-      "description": "当前项目的独立备份包：status.json（会话状态）+ drafts（草稿）+ Canon LanceDB 快照，zip + SHA-256 校验和。全局配置备份请到 设置 → 数据管理。",
++      "description": "把当前项目打包成一个 zip：写作进度、草稿和设定记忆都在里面，带完整性校验。全局配置备份请到 设置 → 数据管理。",
+       "passphraseLabel": "本地口令（可选）",
+       "passphrasePlaceholder": "留空则不加密；仅用于本次操作",
+       "passphraseNote": "AES-256 本地加密，不连接云端；口令不会保存，丢失后备份将无法恢复。",
+@@ -1692,16 +1692,16 @@
+       "exportButton": "导出备份包",
+       "exportSuccess": "导出成功",
+       "filesUnit": "个文件",
+-      "sidecarWritten": "校验和文件",
++      "sidecarWritten": "附带校验文件",
+       "verifyTitle": "验证备份包",
+-      "verifyDescription": "恢复前预检备份包：容器 SHA-256（优先 .sha256 sidecar）+ 包内 manifest 内容摘要，只校验不落盘。",
++      "verifyDescription": "恢复前先验货：检查 zip 包有没有坏、里面东西全不全只检查不动你现在的项目。",
+       "verifying": "验证中...",
+       "verifyButton": "选择备份包并验证",
+       "verifySuccess": "验证通过",
+       "verifyContentDigest": "内容摘要校验",
+       "verifyShaMissing": "未找到 .sha256 校验和文件：已降级为仅包内内容摘要校验（建议重新导出以获得完整校验）。",
+       "restoreTitle": "从备份包恢复",
+-      "restoreDescription": "校验（SHA-256 + 内容摘要）通过后原子替换当前项目数据；替换前自动备份现状到 backups/auto/。",
++      "restoreDescription": "检查通过后用备份包换掉当前项目数据；换之前会自动把现状再备一份。",
+       "restoring": "恢复中...",
+       "restoreButton": "选择备份包并恢复",
+       "restoreSuccess": "恢复成功",
+@@ -2660,13 +2660,16 @@
+     },
+     "fanfic": {
+       "title": "同人正典合并",
+-      "hint": "确定性合并预览（重名→bind_existing / 新名→create_new / 冲突→skip），保存为 pending 草稿",
++      "hint": "合并前先看一眼：重名角色认领到现有档案 / 新名字建新档 / 有冲突的跳过结果先存草稿你点头后才真正写进正典",
++      "actionBind": "认领到现有",
++      "actionCreate": "新建档案",
++      "actionSkip": "跳过",
+       "preview": "生成合并预览",
+-      "savePending": "保存 pending",
+-      "loadPending": "加载 pending",
+-      "pendingSaved": "已保存 pending 工件（.novel/fanfic-merge-pending.json），accept 前不回填正式正典",
+-      "pendingLoaded": "已加载既有 pending 提案",
+-      "noPending": "无 pending 提案",
++      "savePending": "存为草稿",
++      "loadPending": "读回草稿",
++      "pendingSaved": "已存为合并草稿：你在下面点接受后才会写进正式正典",
++      "pendingLoaded": "已读回上次的合并草稿",
++      "noPending": "还没有合并草稿",
+       "previewFailed": "预览失败"
+     },
+     "coverGen": {
+@@ -3392,7 +3395,7 @@
+     "maxRevision": "版本",
+     "factTableConfidence": "置信度",
+     "factTableSourceChapter": "出处章节",
+-    "factTableDigest": "指纹",
++    "factTableDigest": "校验码",
+     "edgeList": "事实边列表",
+     "edge": "事实边",
+     "predicate": "断言",
+@@ -3704,7 +3707,7 @@
+   "batchreplace.empty.hint": "输入查找与替换内容后点击「预览（只读）」：预览不写盘，提交前仍需人工确认。",
+   "batchreplace.apply.confirm": "人工确认后提交",
+   "batchreplace.transaction.rollback": "事务已回滚：没有文件被留在半完成状态",
+-  "pdfexport.dialog.title": "导出 PDF（只读投影）",
++  "pdfexport.dialog.title": "导出 PDF",
+   "pdfexport.font.cjk": "内嵌中文字体（不依赖本机字体）",
+   "pdfexport.font.ratio": "行高 {{ratio}}×",
+   "pdfexport.path.outsideData": "导出目标必须在数据区之外（.novel / QM / .niko-buddy / backups）",
+@@ -3716,9 +3719,9 @@
+   "pdfexport.submit": "导出 PDF",
+   "pdfexport.submit.busy": "导出中…",
+   "pdfexport.paragraphs.label": "正文字段数",
+-  "pdfexport.empty.body": "当前章节没有正文段落，无法导出。请先打开一个有正文的文件。",
++  "pdfexport.empty.body": "当前章节没有正文段落，无法导出。请先在左侧章节库打开一个有正文的章节。",
+   "pdfexport.report": "{{pages}} 页 · {{bytes}} 字节 · {{font}}",
+-  "pdfexport.confirmed": "已确认版本 {{digest}} · {{chapter}}",
++  "pdfexport.confirmed": "该章节已通过审核确认 · {{chapter}}",
+   "pdfexport.notConfirmed": "该章节尚未确认为正式版本，已阻断导出。请先完成审核确认。",
+   "pdfexport.contentChanged": "导出时章节内容发生变化，已阻断本次导出。请重新确认后再导出。",
+   "pdfexport.history.count": "导出历史 {{count}} 条 · {{file}}",
+@@ -3837,29 +3840,33 @@
+     "statCoverage": "调用覆盖",
+     "statErrors": "失败次数",
+     "laneStats": "{{modules}} 个 · 命中 {{hit}} · {{calls}} 次",
+-    "reworkMark": "◀ 返工回路",
++    "reworkMark": "◀ 打回重做",
+     "searchPlaceholder": "过滤模块路径…",
+     "showSupport": "展开支撑泳道",
+     "hideSupport": "收起支撑泳道",
+-    "flushNow": "落盘遥测",
+-    "flushed": "已落盘 {{time}}",
++    "flushNow": "保存热度",
++    "flushed": "热度已保存 {{time}}",
+     "drillTitle": "模块下钻",
+-    "drillHint": "点击任意模块查看接线与调用详情",
+-    "importsOut": "出边 {{count}}",
+-    "importsIn": "入边 {{count}}",
++    "drillHint": "点任意模块看它连着谁、被调用过几次",
++    "importsOut": "引用 {{count}} 个模块",
++    "importsIn": "被 {{count}} 个模块引用",
+     "loc": "{{count}} 行",
+     "calls": "调用 {{count}} 次",
+     "never": "本会话未调用",
+     "lastCall": "最近 {{time}}",
+     "errors": "失败 {{count}} 次",
+-    "unwiredFlag": "未接线（仅测试引用或无人引用）",
+-    "wiredFlag": "已接线",
+-    "unwiredTitle": "未接线模块（按体量）",
+-    "unwiredEmpty": "没有未接线模块",
+-    "unwiredReasonSpec": "仅测试",
+-    "unwiredReasonOrphan": "无人引用",
+-    "unwiredReasonUnreachable": "入口不可达",
++    "unwiredFlag": "没人用（只有测试引用或零引用）",
++    "wiredFlag": "在用",
++    "unwiredTitle": "没人用的模块（按体量）",
++    "unwiredEmpty": "全部模块都在用",
++    "unwiredReasonSpec": "只有测试在用",
++    "unwiredReasonOrphan": "零引用",
++    "unwiredReasonUnreachable": "进不去",
+     "sessionLog": "会话日志",
++    "nowStep": "当前第 {{index}} 步 / 共 {{total}} 步 · {{stage}} · 本步调用 {{calls}} 次 · 上一步 {{prev}}",
++    "nowStepSupport": "当前 {{stage}}（支撑泳道）· 本步调用 {{calls}} 次 · 上一步 {{prev}}",
++    "nowStepOrigin": "起点",
++    "lightUp": "去主控跑一次点亮这张图",
+     "logEmpty": "尚无调用记录——跑一次孵化、巡航或推进阶段即可点亮"
+   },
+   "mainControl": {
+@@ -3888,7 +3895,10 @@
+     "draftWords": "{{count}} 字",
+     "finalTitle": "结论",
+     "roundsUsed": "{{count}} 轮",
+-    "viewHeatmap": "看热力图"
++    "viewHeatmap": "看热力图",
++    "cancelled": "已取消（{{time}}）",
++    "stuckHint": "「{{step}}」跑了 {{secs}} 秒还没回来可能卡住了可以点中止重来",
++    "timeoutHint": "「{{step}}」跑了超过 5 分钟建议中止后换个说法重试"
+   },
+   "wb": {
+     "title": "写作工作台",
+diff --git a/src/stores/wiki-store.ts b/src/stores/wiki-store.ts
+index 3a114701..787409d4 100644
+--- a/src/stores/wiki-store.ts
++++ b/src/stores/wiki-store.ts
+@@ -105,6 +105,8 @@ export interface WikiState {
+   theme: "light" | "dark" | "deep-blue" | "eye-care" | "system"
+   uiFontSizeScale: number
+   dataVersion: number
++  /** 空态「新建章节」跨面板触发：preview 空态按钮 +1，sidebar 订阅后调已有 handleCreateNextChapter。 */
++  chapterCreateNonce: number
+ 
+   setProject: (project: WikiProject | null) => void
+   setFileTree: (tree: FileNode[]) => void
+@@ -184,6 +186,7 @@ export interface WikiState {
+   offlineMode: boolean
+   setOfflineMode: (enabled: boolean) => void
+   bumpDataVersion: () => void
++  requestChapterCreate: () => void
+ }
+ 
+ // ── Store initialisation ─────────────────────────────────────────────────────────
+@@ -256,6 +259,7 @@ export const useWikiStore = create<WikiState>((set) => ({
+   providerConfigs: {},
+   activePresetId: null,
+   dataVersion: 0,
++  chapterCreateNonce: 0,
+ 
+   // ── Search / embedding / rerank ────────────────────────────────────────────────
+   searchApiConfig: {
+@@ -465,4 +469,5 @@ export const useWikiStore = create<WikiState>((set) => ({
+     set({ offlineMode: enabled })
+   },
+   bumpDataVersion: () => set((prev) => ({ dataVersion: prev.dataVersion + 1 })),
++  requestChapterCreate: () => set((prev) => ({ chapterCreateNonce: prev.chapterCreateNonce + 1 })),
+ }))

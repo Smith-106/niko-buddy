@@ -56,7 +56,7 @@ describe("FanficMergeDialog", () => {
     )
     fireEvent.click(screen.getByText("novel.fanfic.preview"))
     const dlg = screen.getByTestId("fanfic-merge-dialog")
-    await waitFor(() => expect(dlg.textContent).toMatch(/认领.*新建.*跳过/))
+    await waitFor(() => expect(dlg.textContent).toContain("novel.fanfic.previewSummary"))
     await waitFor(() => {
       expect(dlg.textContent).toContain("novel.fanfic.actionBind")
       expect(dlg.textContent).toContain("novel.fanfic.actionCreate")
@@ -68,7 +68,7 @@ describe("FanficMergeDialog", () => {
       <FanficMergeDialog open onOpenChange={() => undefined} sourceBook={sourceBook} targetNames={["林晚"]} />,
     )
     fireEvent.click(screen.getByText("novel.fanfic.preview"))
-    await screen.findByText(/认领/)
+    await screen.findByText("novel.fanfic.previewSummary")
     fireEvent.click(screen.getByText("novel.fanfic.savePending"))
     await screen.findByText("novel.fanfic.pendingSaved")
     expect(mocks.saveProposal).toHaveBeenCalled()
