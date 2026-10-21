@@ -57,7 +57,7 @@ docs-site/
 
 ## 内容真源
 
-- 版本号以仓库根 `package.json` 的 `version` 字段为准（当前 `2.17.1`，与 `src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 三处一致）
+- 版本号以仓库根 `package.json` 的 `version` 字段为准（当前 `2.20.0`，与 `src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 三处一致）
 - 产品功能描述来自仓库根 `README.md` 与实际代码
 - 技术架构来自交付文档包 `../docs/niko-buddy-codex-delivery/`（工作区层级，位于本仓库之外），已转译为面向用户/开发者的公开语言
 - 阈值数据（absent/dormant）经 `scripts/calibrate-from-epub.mjs` 真实中文长篇样本校准

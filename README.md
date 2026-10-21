@@ -571,9 +571,9 @@ sequenceDiagram
 - **行为**：开启后 **embedding / rerank 入口短路**（本地无向量/重排，退化为仅关键词/图谱检索路径）。
 - **适用**：无 embedding 服务或离线写作场景；非 LLM 离线（LLM 调用仍按模型配置联网）。隔离网络环境可将 `VITE_QMAI_LLM_ENDPOINT` 指向本地 Ollama 或内网网关。
 
-> 注：当前源码 tip 为 **v2.7.8**（v2.7 系列七波收官：门控地基 → 对抗纵深 → 自动化闭环 → 写作产能 → 收敛泛化 → 参考池覆盖 v2 → 三轴 20 缺口 64 号实施；v2.7.8 为 notes-only 发版，安装包资产沿用 v2.7.7，源码 tip 语义；macOS/Linux 规划中（tauri.conf.json targets 仅 nsis，Windows 为主力平台）。
+> 注：v2.7.8 是 v2.7 系列收官（notes-only，安装包沿用 v2.7.7），不是当前 tip。当前源码 tip 与已发布 stable 为 **v2.20.0**（2026-10-21，全仓重构波；安装包 `niko-buddy_2.20.0_windows_X64.exe` + portable + sig）。
 > 注：CI 已具备三平台构建 matrix（build.yml），本地 tauri.conf 默认仅 nsis；历史发布资产为 Windows-only，macOS/Linux 是否正式发版以 Releases 为准。
-> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.7.8，v2.7.8 起三处一致）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
+> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.20.0）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
 
 ### 安装方式
 
