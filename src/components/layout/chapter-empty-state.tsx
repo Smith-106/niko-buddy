@@ -13,6 +13,8 @@ interface ChapterEmptyStateProps {
   /** 按章号倒序的最近章节（最多 6 条），来自文件树的只读投影。 */
   recentChapters: RecentChapterFile[]
   onSelectChapter: (path: string) => void
+  /** 空态直达新建：经 store nonce 复用 sidebar 已有创建链路（编号/落盘/选中）。 */
+  onCreateChapter?: () => void
 }
 
 /**
@@ -26,7 +28,7 @@ interface ChapterEmptyStateProps {
  *
  * 纯展示层：不新增写路径、不触碰 Draft-first 门控，章节列表数据来自 store 的 fileTree。
  */
-export function ChapterEmptyState({ recentChapters, onSelectChapter }: ChapterEmptyStateProps) {
+export function ChapterEmptyState({ recentChapters, onSelectChapter, onCreateChapter }: ChapterEmptyStateProps) {
   const { t } = useTranslation()
   const hasRecent = recentChapters.length > 0
 
@@ -68,6 +70,16 @@ export function ChapterEmptyState({ recentChapters, onSelectChapter }: ChapterEm
               ))}
             </div>
           </div>
+        ) : onCreateChapter ? (
+          <button
+            type="button"
+            onClick={onCreateChapter}
+            data-testid="preview-empty-create"
+            className="inline-flex items-center gap-2 rounded-md border border-accent/50 bg-accent/10 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <PlusCircle className="h-3.5 w-3.5 shrink-0" />
+            <span>{t("sidebar.newChapter")}</span>
+          </button>
         ) : (
           <div className="flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
             <PlusCircle className="h-3.5 w-3.5 shrink-0" />

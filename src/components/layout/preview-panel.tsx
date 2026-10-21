@@ -1098,6 +1098,7 @@ export function PreviewPanel() {
       <ChapterEmptyState
         recentChapters={recentChapterFiles}
         onSelectChapter={(path) => setSelectedFile(path)}
+        onCreateChapter={() => useWikiStore.getState().requestChapterCreate()}
       />
     )
   }

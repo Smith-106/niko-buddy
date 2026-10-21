@@ -105,6 +105,8 @@ export interface WikiState {
   theme: "light" | "dark" | "deep-blue" | "eye-care" | "system"
   uiFontSizeScale: number
   dataVersion: number
+  /** 空态「新建章节」跨面板触发：preview 空态按钮 +1，sidebar 订阅后调已有 handleCreateNextChapter。 */
+  chapterCreateNonce: number
 
   setProject: (project: WikiProject | null) => void
   setFileTree: (tree: FileNode[]) => void
@@ -184,6 +186,7 @@ export interface WikiState {
   offlineMode: boolean
   setOfflineMode: (enabled: boolean) => void
   bumpDataVersion: () => void
+  requestChapterCreate: () => void
 }
 
 // ── Store initialisation ─────────────────────────────────────────────────────────
@@ -256,6 +259,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   providerConfigs: {},
   activePresetId: null,
   dataVersion: 0,
+  chapterCreateNonce: 0,
 
   // ── Search / embedding / rerank ────────────────────────────────────────────────
   searchApiConfig: {
@@ -465,4 +469,5 @@ export const useWikiStore = create<WikiState>((set) => ({
     set({ offlineMode: enabled })
   },
   bumpDataVersion: () => set((prev) => ({ dataVersion: prev.dataVersion + 1 })),
+  requestChapterCreate: () => set((prev) => ({ chapterCreateNonce: prev.chapterCreateNonce + 1 })),
 }))

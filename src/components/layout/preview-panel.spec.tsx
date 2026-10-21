@@ -495,10 +495,10 @@ describe("PreviewPanel 空态与加载态", () => {
     cleanup()
   })
 
-  it("无章节时显示新建指引（不再是一句无动作提示）", async () => {
+  it("无章节时显示可点新建入口（不再是一句无动作提示）", async () => {
     mocks.state.fileTree = []
     const { cleanup } = await renderPanel()
-    expect(screen.getByText(/还没有章节：用左侧「章节」面板/)).toBeInTheDocument()
+    expect(screen.getByTestId("preview-empty-create")).toBeInTheDocument()
     cleanup()
   })
 

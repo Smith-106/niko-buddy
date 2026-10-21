@@ -120,11 +120,17 @@ export function WelcomeScreen({
               </li>
               <li className="flex gap-2">
                 <span className="font-medium text-foreground">2.</span>
+                <button
+                  type="button"
+                  onClick={onCreateProject}
+                  className="text-left underline decoration-dotted underline-offset-2 hover:text-foreground"
+                >
                 {t("welcome.quickStart2", {
                   defaultValue: novelMode
-                    ? "配置 LLM —— 设置 → LLM 提供商，填 API endpoint + key（支持代理）"
+                    ? "配置 LLM —— 点这里打开新建在模型服务填 API endpoint + key（支持代理）"
                     : "开始编辑 —— 左侧文件树新建/编辑 markdown 页面",
                 })}
+                </button>
               </li>
               <li className="flex gap-2">
                 <span className="font-medium text-foreground">3.</span>

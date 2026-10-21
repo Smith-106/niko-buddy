@@ -56,7 +56,8 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
   // J01-T01 (F-007)：模型服务健康检查——建项时可见 LLM 状态，可展开配置或明示跳过。
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const setActiveView = useWikiStore((s) => s.setActiveView)
-  const [llmExpanded, setLlmExpanded] = useState(false)
+  // 未配 key 时默认展开模型服务（第一小时：配了 key 的老用户保持折叠不打扰）。
+  const [llmExpanded, setLlmExpanded] = useState(() => !assessLlmHealth(useWikiStore.getState().llmConfig).canWrite)
   const llmHealth = assessLlmHealth(llmConfig)
   const llmTone = llmHealth.canWrite
     ? "text-success dark:text-success"
