@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useId, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { formatOperationError } from "@/lib/format-operation-error"
+import { WikiReader } from "@/components/editor/wiki-reader"
 import i18n from "@/i18n"
 import { resolveDefaultModel, loadCognitionState, deleteGenerationHistoryEntry, listGenerationHistory, startNovelReviewRun, startSixDimensionReviewRun, SIX_REVIEW_DIMENSIONS, formatMeasurementFingerprintSummary, exportEvidenceChainForReview, dismissFinding, loadEmotionLedger, getCircuitBreakerStatus } from "@/lib/novel"
 import type { NovelReviewResult, CognitionState, GenerationHistoryEntry, SixReviewDimensionKey, ContinuityOverrideReasonCode } from "@/lib/novel"
@@ -1112,9 +1113,9 @@ export function ReviewView({
         {isReviewing && reviewThinkingContent && (
           <div className="m-3 rounded-md border bg-muted/40 p-3 text-xs">
             <div className="mb-2 font-medium text-foreground">{reviewThinkingTitle}</div>
-            <pre className="max-h-52 whitespace-pre-wrap overflow-auto text-muted-foreground">
-              {reviewThinkingContent}
-            </pre>
+            <div className="max-h-52 overflow-auto">
+              <WikiReader body={reviewThinkingContent} />
+            </div>
           </div>
         )}
         {pending.length === 0 && resolved.length === 0 && novelReviewActionItems.length === 0 && !showReviewHistory ? (

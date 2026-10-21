@@ -4,6 +4,7 @@ import { Check, Copy, Image } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CoverGenerateCard } from "./cover-generate-card"
 import { Input } from "@/components/ui/input"
+import { WikiReader } from "@/components/editor/wiki-reader"
 import defaultTemplatesJson from "../../../config/cover-platform-templates.json"
 import { buildCoverBrief, validateCoverBrief, coverBriefToPrompt } from "@/lib/novel"
 
@@ -211,7 +212,7 @@ export function CoverPromptWorkbench({ templates }: { templates?: CoverPlatformT
         {briefText && (
           <div className="mt-1.5 rounded-md border border-dashed bg-muted/10 p-2.5" data-cover-brief-preview="true">
             <div className="mb-1 text-[0.6875rem] font-semibold text-muted-foreground">{t("novel.coverWorkbench.brief")}</div>
-            <pre className="whitespace-pre-wrap font-sans text-[0.6875rem] leading-relaxed text-foreground/90">{briefText}</pre>
+            <div className="whitespace-pre-wrap font-sans text-[0.6875rem] leading-relaxed text-foreground/90"><WikiReader body={briefText} /></div>
           </div>
         )}
         <p className="mt-1.5 text-[0.6875rem] text-muted-foreground">{t("novel.coverWorkbench.hint")}</p>

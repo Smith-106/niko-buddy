@@ -4,6 +4,7 @@ import { X, MessageCircle, Trash2, Clock, User, ChevronRight, Download } from "l
 import { Button } from "@/components/ui/button"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import { useWikiStore } from "@/stores/wiki-store"
+import { WikiReader } from "@/components/editor/wiki-reader"
 import { loadInterviews, deleteInterview, exportInterview, deserializeSimulationSnapshot, loadSimulationResults } from "@/lib/novel"
 import type { SavedInterview, NovelAgent } from "@/lib/novel"
 import { formatOperationError } from "@/lib/format-operation-error"
@@ -286,7 +287,7 @@ export function InterviewHistoryView() {
                           <User className="h-3 w-3" />
                           {msg.role === "user" ? t("storySimulation.you") : viewingInterview.agentName}
                         </div>
-                        <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
+                        <div className="text-sm leading-relaxed"><WikiReader body={msg.content} /></div>
                       </div>
                     </div>
                   ))}

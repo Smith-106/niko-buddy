@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { Play, RotateCcw, Save, Share2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
+import { WikiReader } from "@/components/editor/wiki-reader"
 import { createPlayState, replayPlay, renderPlayFrame, stepPlay, evaluatePlayableEmotionPath, loadInteractiveGraph, loadPlaySession, savePlaySession, exportInteractiveStory, saveGenerationHistoryEntry } from "@/lib/novel"
 import type { PlayState, InteractiveStoryGraph } from "@/lib/novel"
 import { normalizePath } from "@/lib/path-utils"
@@ -152,7 +153,7 @@ export function PlayRuntimePanel() {
         {notice && <p className="text-xs text-muted-foreground">{notice}</p>}
         {frame ? (
           <div className="space-y-3">
-            <p className="whitespace-pre-wrap text-sm">{frame.text}</p>
+            <div className="text-sm"><WikiReader body={frame.text} /></div>
             {!frame.ended && frame.choices.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {frame.choices.map((c) => (

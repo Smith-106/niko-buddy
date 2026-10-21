@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { CheckCircle2, CircleAlert, Flame, Loader2, Play, Square, Sparkles } from "lucide-react"
 import { fileExists } from "@/commands/fs"
+import { WikiReader } from "@/components/editor/wiki-reader"
 import {
   buildTraceEntries,
   buildTraceSnapshot,
@@ -364,7 +365,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
       {result?.finalText ? (
       <div className="rounded-lg border p-2" data-testid="main-control-final">
           <h3 className="mb-1 text-xs font-semibold">{t("mainControl.finalTitle")}</h3>
-          <p className="whitespace-pre-wrap text-[11px]">{result.finalText}</p>
+          <WikiReader body={result.finalText} />
           <p className="mt-1 text-[10px] text-muted-foreground">
             {t("mainControl.roundsUsed", { count: result.roundsUsed })}
           </p>

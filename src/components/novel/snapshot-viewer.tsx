@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { readFile } from "@/commands/fs"
 import { listSnapshotHistory, loadSnapshot, restoreSnapshotHistory, syncSnapshotToMemory, sampleTruthFoldDrift, emitTruthFoldDriftAlarm } from "@/lib/novel"
 import type { ChapterSnapshot, SnapshotHistoryEntry } from "@/lib/novel"
+import { WikiReader } from "@/components/editor/wiki-reader"
 import { MonacoDiffEditor } from "./monaco-diff-editor"
 import { toErrorMessage } from "@/lib/utils"
 
@@ -67,7 +68,7 @@ function TextSection({ title, content }: { title: string; content: string }) {
   return (
     <div className="mb-3">
       <h4 className="mb-1 text-sm font-semibold text-foreground">{title}</h4>
-      <p className="whitespace-pre-wrap text-sm text-muted-foreground">{content}</p>
+      <WikiReader body={content} />
     </div>
   )
 }

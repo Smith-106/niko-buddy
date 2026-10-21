@@ -4,6 +4,7 @@ import { BookOpenCheck, CheckCircle2, Loader2, Play, RefreshCw } from "lucide-re
 import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import { WikiReader } from "@/components/editor/wiki-reader"
 import { resolveNovelModel, buildDismantlingAnalysisPrompt, buildDismantlingWebResearchPrompt, extractStructureMemoryFromAnalysis, loadDismantlingLibrary, saveDismantlingLibrary, selectNextDismantlingBatch } from "@/lib/novel"
 import type { DismantlingAnalysis, DismantlingChapter, DismantlingProject } from "@/lib/novel"
 import { buildWebResearchContext, collectWebResearch } from "@/lib/web-research"
@@ -352,7 +353,9 @@ export function DismantlingView() {
                     {selectedProject.analyses.slice(0, 5).map((analysis) => (
                       <article key={analysis.id} className="rounded-lg border bg-background p-3">
                         <div className="mb-2 text-sm font-medium">{analysis.title}</div>
-                        <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-xs leading-6 text-muted-foreground">{analysis.markdown}</pre>
+                        <div className="max-h-64 overflow-auto rounded-md border bg-background p-3">
+                          <WikiReader body={analysis.markdown} />
+                        </div>
                       </article>
                     ))}
                   </div>

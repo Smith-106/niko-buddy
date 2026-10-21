@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { loadWritingStyleStore, setEnabledWritingStyle } from "@/lib/novel"
 import type { WritingStylePreset } from "@/lib/novel"
+import { WikiReader } from "@/components/editor/wiki-reader"
 
 export interface StyleEngineViewProps {
   projectPath: string
@@ -216,9 +217,9 @@ export function StyleEngineView({ projectPath }: StyleEngineViewProps) {
                 <div className="text-sm font-medium">
                   预览：{selected.name}（《{selected.sourceBook}》）
                 </div>
-                <pre className="whitespace-pre-wrap rounded-md border bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
-                  {renderPresetPreview(selected)}
-                </pre>
+                <div className="whitespace-pre-wrap rounded-md border bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
+                  <WikiReader body={renderPresetPreview(selected)} />
+                </div>
               </div>
             ) : null}
           </main>

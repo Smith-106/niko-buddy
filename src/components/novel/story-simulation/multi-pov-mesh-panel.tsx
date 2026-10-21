@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import { useState, useMemo } from "react"
+import { WikiReader } from "@/components/editor/wiki-reader"
 import { Users, GitMerge, ShieldAlert, Sparkles, Copy, Check, EyeOff, BookOpen, Layers } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/lib/toast"
@@ -231,9 +232,9 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
               {/* Prompt 指令包预览 */}
               <div className="space-y-1.5">
                 <div className="text-xs font-medium text-muted-foreground">生成的视点注入指令包：</div>
-                <pre className="max-h-60 overflow-y-auto rounded-md bg-muted p-3 text-[0.6875rem] leading-relaxed whitespace-pre-wrap font-mono">
-                  {sliceDirective}
-                </pre>
+                <div className="max-h-60 overflow-y-auto rounded-md bg-muted p-3">
+                  <WikiReader body={sliceDirective} />
+                </div>
               </div>
 
               {/* 端侧 SLM 穿帮快速自检互动区 */}

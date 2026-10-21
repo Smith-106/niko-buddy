@@ -172,7 +172,8 @@ describe("DismantlingView", () => {
     expect(screen.getByText(/- 记忆B/)).toBeInTheDocument()
     // analyses
     expect(screen.getByText("第 3 章拆文")).toBeInTheDocument()
-    expect(screen.getByText("# 分析输出")).toBeInTheDocument()
+    // 拆文结果阅读模式渲染
+    expect(await screen.findByRole("heading", { name: "分析输出" })).toBeInTheDocument()
     // batch size default 3 章
     expect(screen.getByRole("combobox")).toHaveValue("3")
   })

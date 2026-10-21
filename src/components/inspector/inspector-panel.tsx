@@ -19,6 +19,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { queryInspectorState } from "@/lib/novel"
 import type { InspectorSnapshot } from "@/lib/novel"
 import { formatOperationError } from "@/lib/format-operation-error"
+import { WikiReader } from "@/components/editor/wiki-reader"
 
 /** PAT-DC2 防抖阈值（≥500ms，防 O(N²) onUpdate 放大）。 */
 const INSPECTOR_DEBOUNCE_MS = 500
@@ -267,9 +268,9 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
                   {/* n 为 query 层截断后的长度（inspector-query.ts 截断至 4000 字符），非原始草稿长度 */}
                   {t("novel.inspector.preview", "预览（前 {{n}} 字）", { n: snapshot.draft.contentPreview.length })}
                 </summary>
-                <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-1 text-[0.6875rem]">
-                  {snapshot.draft.contentPreview}
-                </pre>
+                <div className="mt-1 max-h-60 overflow-auto break-words rounded bg-muted/40 p-1">
+                  <WikiReader body={snapshot.draft.contentPreview} />
+                </div>
               </details>
             )}
           </Section>
