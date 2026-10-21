@@ -2302,6 +2302,8 @@
       "saveProjectSoul": "Save Project Soul",
       "saveProjectSoulSuccess": "Project soul saved",
       "saveProjectSoulFailed": "Failed to save project soul, check project file permissions",
+      "readMode": "Read",
+      "editMode": "Edit",
       "projectSoulItem": "Project Soul Document",
       "builtInSoul": "Built-in Soul",
       "customSoul": "Custom Soul",

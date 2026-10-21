@@ -1910,6 +1910,8 @@
       "saveProjectSoul": "保存项目灵魂",
       "saveProjectSoulSuccess": "项目灵魂已保存",
       "saveProjectSoulFailed": "项目灵魂保存失败，请检查项目文件权限后重试",
+      "readMode": "阅读",
+      "editMode": "编辑",
       "projectSoulItem": "项目灵魂文档",
       "builtInSoul": "内置灵魂",
       "customSoul": "自定义灵魂",
