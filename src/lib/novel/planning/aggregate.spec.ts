@@ -398,7 +398,7 @@ describe("buildChapterPlanView — P2-IMP-11 四新维三态", () => {
     expect(view.recentStateDeltas!.status).toBe("degraded")
     expect(view.cognition!.items).toEqual([])
     expect(view.cognition!.text).toBe("")
-    expect(view.cognition!.reason).toContain("POV")
+    expect(view.cognition!.reason).toContain("视角未声明")
     expect(view.recentStateDeltas!.reason).toContain("章节摘要")
     // 既有三维不受影响
     expect(view.foreshadowing.status).toBe("ok")
