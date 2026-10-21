@@ -17,8 +17,15 @@ function formatChapter(value: number | null | undefined): string {
   return String(value)
 }
 
-/** 单条事实的展示行：predicate + source → target + valid_at/invalid_at/modality。 */
+/** 单条事实的展示行：断言 + 来源 → 目标 + 有效/失效章节/认知标签。 */
 function FactLine({ fact }: { fact: CanonFact }) {
+  const { t } = useTranslation()
+  const modalityLabels: Record<NonNullable<CanonFact["modality"]>, string> = {
+    assertive: t("canon.factsPanel.modalityAssertive"),
+    belief: t("canon.factsPanel.modalityBelief"),
+    hypothesis: t("canon.factsPanel.modalityHypothesis"),
+    retconned: t("canon.factsPanel.modalityRetconned"),
+  }
   return (
     <div className="px-3 py-2">
       <div className="flex items-baseline gap-2">
@@ -28,9 +35,9 @@ function FactLine({ fact }: { fact: CanonFact }) {
         </span>
       </div>
       <div className="mt-0.5 text-xs text-muted-foreground">
-        valid_at: {formatChapter(fact.validAt)} · invalid_at:{" "}
+        {t("canon.factsPanel.validFrom")}: {formatChapter(fact.validAt)} · {t("canon.factsPanel.invalidFrom")}:{" "}
         {formatChapter(fact.invalidAt)}
-        {fact.modality ? ` · modality: ${fact.modality}` : ""}
+        {fact.modality ? ` · ${t("canon.factsPanel.modality")}: ${modalityLabels[fact.modality]}` : ""}
       </div>
     </div>
   )

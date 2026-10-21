@@ -28,6 +28,16 @@ interface RevisionGroup {
   facts: CanonFact[]
 }
 
+/** modality 代码 → 人话（与认知轴校正面板共用 factsPanel 词条）。 */
+function useModalityLabels(t: (key: string) => string): Record<NonNullable<CanonFact["modality"]>, string> {
+  return {
+    assertive: t("canon.factsPanel.modalityAssertive"),
+    belief: t("canon.factsPanel.modalityBelief"),
+    hypothesis: t("canon.factsPanel.modalityHypothesis"),
+    retconned: t("canon.factsPanel.modalityRetconned"),
+  }
+}
+
 /** 按 recorded_revision 分组，数值倒序，null 组（旧数据无戳）排最后。 */
 export function groupByRecordedRevision(facts: CanonFact[]): RevisionGroup[] {
   const map = new Map<number | null, CanonFact[]>()
@@ -56,6 +66,7 @@ export function CanonRevisionViewer({
   refreshSignal = 0,
 }: CanonRevisionViewerProps) {
   const { t } = useTranslation()
+  const modalityLabels = useModalityLabels(t)
 
   const [maxRevision, setMaxRevision] = useState<number | null>(null)
   const [edges, setEdges] = useState<CanonFact[]>([])
@@ -334,9 +345,9 @@ export function CanonRevisionViewer({
                       </span>
                     </div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
-                      valid_at: {formatChapter(fact.validAt)} · invalid_at:{" "}
+                      {t("canon.factsPanel.validFrom")}: {formatChapter(fact.validAt)} · {t("canon.factsPanel.invalidFrom")}:{" "}
                       {formatChapter(fact.invalidAt)}
-                      {fact.modality ? ` · modality: ${fact.modality}` : ""}
+                      {fact.modality ? ` · ${t("canon.factsPanel.modality")}: ${modalityLabels[fact.modality]}` : ""}
                     </div>
                   </li>
                 ))}

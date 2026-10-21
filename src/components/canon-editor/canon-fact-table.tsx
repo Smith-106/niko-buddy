@@ -62,6 +62,20 @@ export interface CanonFactTableProps {
  */
 export function CanonFactTable({ edges, maxRevision }: CanonFactTableProps) {
   const { t } = useTranslation()
+  const columnLabel = (col: (typeof COLUMNS)[number]): string => {
+    switch (col) {
+      case "predicate": return t("canon.predicate")
+      case "edge_kind": return t("canon.filterEdgeKind")
+      case "valid_at": return t("canon.factsPanel.validFrom")
+      case "invalid_at": return t("canon.factsPanel.invalidFrom")
+      case "known_by": return t("canon.filterKnownBy")
+      case "revealed_at": return t("canon.revealedAtHeader")
+      case "confidence": return t("canon.factTableConfidence")
+      case "source_chapter": return t("canon.factTableSourceChapter")
+      case "digest": return t("canon.factTableDigest")
+      default: return col
+    }
+  }
   return (
     <div className="rounded-lg border bg-card shadow-sm">
       <div className="flex items-center justify-between border-b px-4 py-3">
@@ -87,7 +101,7 @@ export function CanonFactTable({ edges, maxRevision }: CanonFactTableProps) {
             <tr className="border-b text-left text-xs text-muted-foreground">
               {COLUMNS.map((col) => (
                 <th key={col} className="whitespace-nowrap px-3 py-2 font-medium">
-                  {col}
+                  {columnLabel(col)}
                 </th>
               ))}
             </tr>

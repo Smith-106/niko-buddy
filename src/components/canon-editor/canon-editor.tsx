@@ -550,7 +550,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
                 className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground"
                 data-testid="canon-max-revision"
               >
-                revision: {maxRevision === null ? "—" : maxRevision}
+                {t("canon.maxRevision")}: {maxRevision === null ? "—" : maxRevision}
               </span>
               <button
                 type="button"
