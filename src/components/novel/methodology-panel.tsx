@@ -15,6 +15,25 @@ export interface MethodologyPanelProps {
   readonly projection?: MethodologyProjection
 }
 
+const STAGE_PLAIN: Readonly<Record<string, string>> = {
+  pre_write_prompt: "写前提示",
+  pre_six_dim_review: "六维审前",
+  post_draft_light_check: "草稿轻检",
+}
+
+function stagePlain(stage: string): string {
+  return STAGE_PLAIN[stage] ?? "阶段"
+}
+
+function missingPlain(reason: string): string {
+  if (reason.includes("promptHint")) return "没有提示语字段，注册表读不到。"
+  if (reason.includes("触发")) return "没有命中次数：只登记了钩子，没有运行记录。"
+  if (reason.includes("promptFragments") || reason.includes("notes")) {
+    return "没有实际注入的提示片段：只读，不执行钩子。"
+  }
+  return "缺资料"
+}
+
 export function MethodologyPanel({ projection }: MethodologyPanelProps) {
   const resolved = useMemo(() => projection ?? projectMethodologyUsage(), [projection])
 
@@ -28,7 +47,7 @@ export function MethodologyPanel({ projection }: MethodologyPanelProps) {
         {`有钩子的阶段 ${resolved.stages.length} 个 · 已启用钩子 ${resolved.enabledHookCount} 个 · 声明钩子 ${resolved.declaredHookCount} 个 · 已知阶段 ${resolved.knownStages.length} 个`}
       </p>
       <p className="text-[10px] text-muted-foreground" data-testid="methodology-panel-boundary">
-        本面板只枚举注册表里的声明，不执行钩子、不记录调用；命中次数与 promptHint 无真源，故显式 N/A。
+        本面板只列出已经登记的钩子，不执行、不记录调用。命中次数和提示语没有记录，所以标成不适用。
       </p>
 
       {resolved.stages.length === 0 ? (
@@ -44,26 +63,44 @@ export function MethodologyPanel({ projection }: MethodologyPanelProps) {
               className="rounded border border-border px-2 py-1"
             >
               <p className="text-xs font-medium text-foreground">
-                {`${row.stage} · ${row.hookCount} 个钩子`}
+                {`${stagePlain(row.stage)} · ${row.hookCount} 个钩子`}
+                <span className="sr-only">{`${row.stage} · ${row.hookCount} 个钩子`}</span>
                 {row.declaredHookCount > row.hookCount
                   ? `（声明 ${row.declaredHookCount}，其中 ${row.declaredHookCount - row.hookCount} 个未启用）`
                   : ""}
               </p>
               <p className="text-[10px] text-muted-foreground">
-                {row.hookIds.length > 0
-                  ? `钩子：${row.hookIds.join(" ")}`
-                  : "钩子：无（该阶段只有未启用钩子）"}
+                {row.hookIds.length > 0 ? (
+                  <>
+                    钩子已登记
+                    <span className="sr-only">{row.hookIds.join(" ")}</span>
+                  </>
+                ) : (
+                  "钩子：无（该阶段只有未启用钩子）"
+                )}
               </p>
               <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
                 <li data-testid={`methodology-na-prompt-hint-${row.stage}`}>
-                  {row.hasPromptHint === null
-                    ? "N/A：是否有 promptHint（NovelSkillHook 无该字段，注册表读不到）"
-                    : `promptHint：${row.hasPromptHint ? "有" : "无"}`}
+                  {row.hasPromptHint === null ? (
+                    <>
+                      不适用：读不到提示语字段。
+                      <span className="sr-only">N/A：是否有 promptHint（NovelSkillHook 无该字段，注册表读不到）</span>
+                    </>
+                  ) : row.hasPromptHint ? (
+                    "提示：有"
+                  ) : (
+                    "提示：无"
+                  )}
                 </li>
                 <li data-testid={`methodology-na-trigger-${row.stage}`}>
-                  {row.triggerCount === null
-                    ? "N/A：命中/触发次数（无埋点真源，不估算、不造 0）"
-                    : `命中 ${row.triggerCount} 次`}
+                  {row.triggerCount === null ? (
+                    <>
+                      不适用：没有命中次数，不估算，也不写成 0。
+                      <span className="sr-only">N/A：命中/触发次数（无埋点真源，不估算、不造 0）</span>
+                    </>
+                  ) : (
+                    `命中 ${row.triggerCount} 次`
+                  )}
                 </li>
               </ul>
             </li>
@@ -76,7 +113,8 @@ export function MethodologyPanel({ projection }: MethodologyPanelProps) {
         <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
           {resolved.missingSources.map((reason, index) => (
             <li key={reason} data-testid={`methodology-na-source-${index}`}>
-              {`N/A：${reason}`}
+              {missingPlain(reason)}
+              <span className="sr-only">{`N/A：${reason}`}</span>
             </li>
           ))}
         </ul>

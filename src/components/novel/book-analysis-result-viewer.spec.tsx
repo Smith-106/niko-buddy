@@ -523,7 +523,7 @@ describe("BookAnalysisResultViewer", () => {
       ),
     )
     expect(mocks.refreshProjectState).toHaveBeenCalledWith("E:/Novel")
-    expect(mocks.toast.success).toHaveBeenCalledWith("已添加 1 个角色 Skill 到自定义灵魂")
+    expect(mocks.toast.success).toHaveBeenCalledWith("已添加 1 个角色技能到自定义灵魂")
 
     // 绑定区出现（importedAuras + bindableCharacters 都非空）
     await waitFor(() => expect(screen.getByText("绑定小说人物（多选）")).toBeInTheDocument())
@@ -1397,7 +1397,7 @@ describe("BookAnalysisResultViewer", () => {
     await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(3))
     fireEvent.click(screen.getAllByRole("checkbox")[0])
     fireEvent.click(screen.getByRole("button", { name: /添加所选角色到自定义灵魂/ }))
-    await waitFor(() => expect(mocks.toast.success).toHaveBeenCalledWith("已添加 0 个角色 Skill 到自定义灵魂"))
+    await waitFor(() => expect(mocks.toast.success).toHaveBeenCalledWith("已添加 0 个角色技能到自定义灵魂"))
     // 无绑定区
     expect(screen.queryByText("绑定小说人物（多选）")).not.toBeInTheDocument()
   })

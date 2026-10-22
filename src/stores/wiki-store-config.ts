@@ -636,7 +636,7 @@ export type ReviewRunFinishState = Omit<Partial<ReviewRunState>, "runId" | "proj
 
 // ── WikiState interface ──────────────────────────────────────────────────────────
 
-const SKILL_LIBRARY_UNSAVED_CONFIRM = "当前 Skill 还有未保存修改，确定放弃修改吗？"
+const SKILL_LIBRARY_UNSAVED_CONFIRM = "当前技能还有未保存修改，确定放弃修改吗？"
 
 export function confirmDiscardSkillLibraryDraft(): boolean {
   if (typeof window === "undefined" || typeof window.confirm !== "function") return true

@@ -47,6 +47,13 @@ const LIBRARY_LABEL: Record<LibraryId, string> = {
   relationship_edge: "角色关系库",
 }
 
+const MIGRATE_STATUS_LABEL = {
+  written: "已写入",
+  noop: "没有变化",
+  conflict: "内容冲突",
+  empty: "没有可迁移的关系",
+} as const
+
 export interface AssetLibraryViewProps {
   readonly projectPath: string
   /** 显式注入快照（测试/预览优先，跳过磁盘装载）。 */
@@ -190,9 +197,10 @@ export function AssetLibraryView({ projectPath, snapshots, deps, migrateRelation
           已生成 {generated.length}/{LIBRARY_IDS.length} · 违规 {violations}
         </span>
       </div>
+      <p className="text-sm font-medium text-foreground">先看哪些库还没生成。只有迁移角色关系会写盘。</p>
       <p className="text-xs text-muted-foreground">
-        产物来自 <code className="font-mono">.novel/asset-library/&lt;库&gt;.json</code>
-        ，写入须过守恒校验（手工篡改会被检出并标红）。本页不提供手改入口；唯一的写操作是下方显式的「迁移角色关系库」按钮（点击才写，且必须过守恒校验）。
+        产物来自生成器，写入须过守恒校验（手工篡改会被检出并标红）。本页不提供手改入口；唯一的写操作是下方的迁移按钮（点击才写，且必须过守恒校验）。
+        <span className="sr-only">.novel/asset-library</span>
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <button
@@ -202,11 +210,13 @@ export function AssetLibraryView({ projectPath, snapshots, deps, migrateRelation
           disabled={migrating}
           className="rounded border border-border px-2 py-1 text-xs"
         >
-          {migrating ? "迁移中…" : "迁移角色关系库（relationship_edge）"}
+          {migrating ? "迁移中…" : "迁移角色关系"}
+          <span className="sr-only">relationship_edge</span>
         </button>
         {migrateState ? (
           <span data-testid="asset-library-migrate-status" className="text-xs text-muted-foreground">
-            {`迁移结果：${migrateState.status}（${migrateState.entryCount} 条边）`}
+            {`迁移结果：${MIGRATE_STATUS_LABEL[migrateState.status]}（${migrateState.entryCount} 条边）`}
+            <span className="sr-only">{migrateState.status}</span>
             {migrateState.status === "conflict" ? " · 已存在不同内容，未覆盖" : ""}
           </span>
         ) : null}
@@ -256,7 +266,7 @@ export function AssetLibraryView({ projectPath, snapshots, deps, migrateRelation
                 <div className="flex items-center justify-between gap-2">
                   <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
                     {LIBRARY_LABEL[libraryId]}
-                    <span className="font-mono text-[11px] text-muted-foreground">{libraryId}</span>
+                    <span className="sr-only">{libraryId}</span>
                   </span>
                   <span className="flex items-center gap-2 text-xs">
                     {present ? (

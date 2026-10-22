@@ -55,12 +55,12 @@ describe("BookAnalysisActiveContext", () => {
   it("renders empty states when no style and no bindings", () => {
     renderContext(null, [])
     expect(screen.getByText("当前未启用拆书文风。")).toBeInTheDocument()
-    expect(screen.getByText("当前没有小说人物绑定拆书角色 Skill。")).toBeInTheDocument()
+    expect(screen.getByText("当前没有小说人物绑定拆书角色技能。")).toBeInTheDocument()
   })
 
   it("falls back to 未知角色 Skill when auraName is empty", () => {
     renderContext(null, [{ characterName: "反派", auraId: "aura-x", auraName: "" }])
-    expect(screen.getByText("反派 → 未知角色 Skill")).toBeInTheDocument()
+    expect(screen.getByText("反派 → 未知角色技能")).toBeInTheDocument()
   })
 
   it("renders multiple bindings with distinct keys", () => {

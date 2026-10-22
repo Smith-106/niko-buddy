@@ -306,7 +306,7 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     setDeepMode(true)
     await sendText("深度写")
     expect(mocks.pauseDeepChapterSession).toHaveBeenCalledWith(
-      expect.objectContaining({ errorMessage: expect.stringContaining("PARTIAL_DRAFT_PRESERVED") }),
+      expect.objectContaining({ errorMessage: expect.stringContaining("写到一半的正文已留下") }),
     )
     expect(decodeURIComponent(lastFinalize()[0])).toContain('"draftStatus":"pending"')
     setDeepMode(false)
@@ -326,7 +326,7 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     const [content] = lastFinalize()
     expect(content).toContain("出错：深度生成章节失败")
     expect(content).toContain("CHECKPOINT_PERSIST_FAILED")
-    expect(content).toContain("checkpoint 落盘失败")
+    expect(content).toContain("进度点没能保存")
     expect(mocks.pauseDeepChapterSession).toHaveBeenCalled()
     setDeepMode(false)
   })
@@ -370,7 +370,7 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     await sendText("深度写")
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("深度生成暂停状态落盘失败"), expect.any(Error))
     const [content] = lastFinalize()
-    expect(content).toContain("pause 落盘失败")
+    expect(content).toContain("暂停状态没能保存")
     warnSpy.mockRestore()
     setDeepMode(false)
   })

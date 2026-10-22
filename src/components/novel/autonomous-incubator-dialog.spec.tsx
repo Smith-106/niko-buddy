@@ -92,7 +92,7 @@ describe("AutonomousIncubatorDialog (全自动小说冷启动孵化器组件)", 
   it("正确渲染对话框标题、输入框与提交按钮", () => {
     render(<AutonomousIncubatorDialog open={true} onOpenChange={vi.fn()} />)
 
-    expect(screen.getByText("全自动小说冷启动孵化器 (Autonomous Novel Incubator)")).toBeTruthy()
+    expect(screen.getByText("全自动小说冷启动孵化器")).toBeTruthy()
     expect(screen.getByPlaceholderText(/赛博朋克都市中一名被遗忘的机械记忆修复师/)).toBeTruthy()
     expect(screen.getByText("一键启动全自动孵化")).toBeTruthy()
   })

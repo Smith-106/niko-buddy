@@ -631,3 +631,20 @@ export async function backfillCanonHistory(
     perChapter,
   }
 }
+
+/**
+ * 当前项目入口：回填该项目快照目录里已发现的全部章节。
+ * 不传 exclusiveUpperBound，因此不会停在「第 N-1 章」。
+ * 不写章节正文，也不制造审查门、运行事件或 scenes.json。
+ */
+export async function runCanonHistoryBackfill(
+  projectPath: string,
+  deps: CanonBackfillDeps = defaultCanonBackfillDeps(),
+  now: number = Date.now(),
+): Promise<CanonBackfillReport> {
+  const trimmed = projectPath.trim()
+  if (!trimmed) {
+    throw new Error("canon backfill requires an open project path")
+  }
+  return backfillCanonHistory(deps, trimmed, {}, now)
+}

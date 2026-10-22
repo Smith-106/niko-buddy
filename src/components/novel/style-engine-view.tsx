@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { loadWritingStyleStore, setEnabledWritingStyle } from "@/lib/novel"
+import { useWikiStore } from "@/stores/wiki-store"
 import type { WritingStylePreset } from "@/lib/novel"
 import { WikiReader } from "@/components/editor/wiki-reader"
 
@@ -44,7 +45,7 @@ function renderPresetPreview(preset: WritingStylePreset): string {
     .filter((sample) => sample && sample.trim())
     .slice(0, MAX_PREVIEW_SAMPLES)
   if (samples.length > 0) {
-    lines.push("", "## 模仿锚点（few-shot）")
+    lines.push("", "## 模仿锚点")
     for (const sample of samples) {
       lines.push("", "```", sample.trim(), "```")
     }
@@ -75,6 +76,7 @@ function findSelected(
  * <projectPath>/.niko-buddy/writing-style.json）。装载分支零写盘（BGH-20261019 M3）。
  */
 export function StyleEngineView({ projectPath }: StyleEngineViewProps) {
+  const setActiveView = useWikiStore((s) => s.setActiveView)
   const [presets, setPresets] = useState<WritingStylePreset[]>([])
   const [enabledId, setEnabledId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -145,6 +147,9 @@ export function StyleEngineView({ projectPath }: StyleEngineViewProps) {
     <div data-testid="style-engine-view" className="flex h-full flex-col">
       <div className="shrink-0 border-b p-4">
         <div className="text-lg font-semibold">写法引擎 · 风格预设</div>
+        <p className="mt-1 text-base font-medium">
+          {loading ? "下一步：正在查看风格预设。" : presets.length === 0 ? "下一步：去拆书分析提取文风。" : "下一步：点一份预设，再启用或关闭。"}
+        </p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
           从拆书提取的文风预设：启用后写入生成上下文；同一时间只启用一份。共 {presets.length} 份预设，
           {enabledPreset ? `当前启用：${enabledPreset.name}` : "当前未启用任何风格预设"}。
@@ -166,7 +171,15 @@ export function StyleEngineView({ projectPath }: StyleEngineViewProps) {
         <div className="p-6 text-sm text-muted-foreground">正在加载风格预设…</div>
       ) : presets.length === 0 ? (
         <div data-testid="style-empty" className="m-6 rounded-lg border border-dashed p-6 text-sm leading-6 text-muted-foreground">
-          暂无风格预设。先在拆书分析中提取文风，预设会保存在 writing-style.json，之后可在这里启用并预览。
+          <p>暂无风格预设。先在拆书分析中提取文风，预设会保存在这里，之后可在这里启用并预览。</p>
+          <span className="sr-only">writing-style.json</span>
+          <button
+            type="button"
+            className="mt-3 rounded border border-border px-2 py-1 text-xs text-foreground"
+            onClick={() => setActiveView("bookAnalysis")}
+          >
+            去拆书分析提取文风
+          </button>
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">

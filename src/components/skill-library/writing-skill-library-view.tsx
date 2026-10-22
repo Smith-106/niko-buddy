@@ -56,7 +56,7 @@ function useWritingSkillConfig() {
       .catch(() => {
         if (cancelled) return
         setConfig(null)
-        setLoadError("写作 Skill 加载失败")
+        setLoadError("写作技能加载失败")
       })
     return () => {
       cancelled = true
@@ -137,7 +137,7 @@ export function WritingSkillLibrarySidebarPanel() {
       setMessage("已保存")
       bumpDataVersion()
     } catch {
-      setMessage("写作 Skill 保存失败")
+      setMessage("写作技能保存失败")
     } finally {
       setSaving(false)
     }
@@ -173,14 +173,14 @@ export function WritingSkillLibrarySidebarPanel() {
         multiple: false,
         filters: [
           {
-            name: "Skill 文件",
+            name: "技能文件",
             extensions: ["json", "md", "txt"],
           },
         ],
       })
       if (!selected || typeof selected !== "string") return
       const content = await readFile(selected)
-      const fileName = selected.split(/[\\/]/).pop() || "未命名 Skill"
+      const fileName = selected.split(/[\\/]/).pop() || "未命名技能"
       const isJson = /\.json$/i.test(fileName)
       let next: UserSkillConfig
       if (isJson) {
@@ -243,7 +243,7 @@ export function WritingSkillLibrarySidebarPanel() {
 
   async function handleDeleteCategory(categoryId: string, categoryName: string) {
     if (!config || !project || saving) return
-    const confirmed = window.confirm(`确定删除分类「${categoryName}」吗？删除分类后，分类下的Skill将变为未分类。`)
+    const confirmed = window.confirm(`确定删除分类「${categoryName}」吗？删除分类后，分类下的技能将变为未分类。`)
     if (!confirmed) return
     const next = deleteSkillCategory(config, categoryId)
     if (selectedCategoryId === categoryId) {
@@ -381,7 +381,7 @@ export function WritingSkillLibrarySidebarPanel() {
             disabled={!config || !project || saving}
             className="rounded-md border px-2 py-1 text-xs hover:bg-accent disabled:opacity-50"
           >
-            新建 Skill
+            新建技能
           </button>
         </div>
       </div>
@@ -391,7 +391,7 @@ export function WritingSkillLibrarySidebarPanel() {
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {config && filteredSkills.length === 0 ? (
           <div className="rounded-md border border-dashed p-3 text-xs leading-5 text-muted-foreground">
-            还没有写作 Skill。可以新建“三翻四抖”“章节计划”“伏笔检查”等规则。
+            还没有写作技能。可以新建“三翻四抖”“章节计划”“伏笔检查”等规则。
           </div>
         ) : null}
         {filteredSkills.map((skill) => {
@@ -571,7 +571,7 @@ export function WritingSkillLibraryView() {
       setMessage("已保存")
       bumpDataVersion()
     } catch {
-      setMessage("写作 Skill 保存失败")
+      setMessage("写作技能保存失败")
     } finally {
       setSaving(false)
     }
@@ -714,7 +714,7 @@ export function WritingSkillLibraryView() {
           </div>
         ) : !selectedSkill ? (
           <div className="rounded-md border border-dashed p-5 text-sm text-muted-foreground">
-            还没有写作 Skill。请在左侧新建 Skill。
+            还没有写作技能。请在左侧新建技能。
           </div>
         ) : (
           <div className="mx-auto flex max-w-5xl flex-col gap-4">

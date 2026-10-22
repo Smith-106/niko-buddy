@@ -94,7 +94,7 @@ describe("DeAiSkillPicker", () => {
 
     const button = container.querySelector<HTMLButtonElement>("button")
     expect(button?.textContent).toContain("去AI味：综合去AI味-项目版")
-    expect(button?.title).toBe("当前去AI味 Skill：综合去AI味-项目版")
+    expect(button?.title).toBe("当前去AI味技能：综合去AI味-项目版")
 
     await act(async () => {
       button?.click()
@@ -144,7 +144,7 @@ describe("DeAiSkillPicker", () => {
 
     const button = container.querySelector<HTMLButtonElement>("button")
     expect(button?.textContent).toContain("去AI味：配置损坏")
-    expect(button?.title).toBe("当前去AI味 Skill：配置损坏")
+    expect(button?.title).toBe("当前去AI味技能：配置损坏")
 
     await act(async () => {
       button?.click()
@@ -324,8 +324,8 @@ describe("DeAiSkillPicker", () => {
 
     expect(button?.textContent).not.toContain("去AI味")
     expect(button?.textContent).not.toContain("综合去AI味")
-    expect(button?.title).toBe("当前去AI味 Skill：综合去AI味-项目版。点击选择去AI味 Skill")
-    expect(button?.getAttribute("aria-label")).toBe("当前去AI味 Skill：综合去AI味-项目版。点击选择去AI味 Skill")
+    expect(button?.title).toBe("当前去AI味技能：综合去AI味-项目版。点击选择去AI味技能")
+    expect(button?.getAttribute("aria-label")).toBe("当前去AI味技能：综合去AI味-项目版。点击选择去AI味技能")
 
     cleanup(root, container)
   })

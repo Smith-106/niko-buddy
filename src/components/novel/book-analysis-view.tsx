@@ -383,7 +383,7 @@ export function BookAnalysisView() {
           <div className="space-y-2">
             <h2 className="text-2xl font-bold">{t("bookAnalysis.title")}</h2>
             <p className="text-muted-foreground">
-              从小说中提取角色信息，生成可复用的角色 Skill，添加到自定义灵魂库
+              从小说中提取角色信息，生成可复用的角色技能，添加到自定义灵魂库
             </p>
           </div>
 

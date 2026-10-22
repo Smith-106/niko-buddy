@@ -331,7 +331,9 @@ export function ChatPanel() {
       const stats = exemplarABStats(state)
       const enabledStr = stats.enabledAvg !== null ? stats.enabledAvg.toFixed(2) : "N/A"
       const disabledStr = stats.disabledAvg !== null ? stats.disabledAvg.toFixed(2) : "N/A"
-      setExemplarFeedback(`已记录评分 ${score}★（${variant}）— enabled 均分 ${enabledStr} vs disabled ${disabledStr}`)
+      setExemplarFeedback(
+        `已记录评分 ${score}★（${variant === "enabled" ? "开启" : "关闭"}）— 开启均分 ${enabledStr === "N/A" ? "无" : enabledStr}，关闭均分 ${disabledStr === "N/A" ? "无" : disabledStr}`,
+      )
     } catch (err) {
       // R4 共识（deepseek+qwen）: 评分提交失败原本无 catch ⇒ 浮空 rejection + 界面无反馈。
       setExemplarFeedback(formatOperationError(t, err))
@@ -1030,7 +1032,7 @@ export function ChatPanel() {
               chapterNumber: effectiveTaskRoute?.chapterNumber,
               sessionId: novelSessionId,
               checkpoint: latestCheckpoint,
-              errorMessage: `PARTIAL_DRAFT_PRESERVED: ${generationResult.partialReason ?? "transport inactivity timeout"} — 已保留部分正文，可用“继续未完成”恢复。`,
+              errorMessage: `写到一半的正文已留下，可以用「继续未完成」接着写。`,
             })
             sessionDebug.finalWrite = {
               status: pausedState.status,
@@ -1135,8 +1137,8 @@ export function ChatPanel() {
           } else {
             streamSessionGuardRef.current.finish(capturedConvId, sessionId, () => {
               const persistenceDetails = [
-                checkpointPersistError ? `checkpoint 落盘失败：${checkpointPersistError}` : "",
-                pausePersistError ? `pause 落盘失败：${pausePersistError}` : "",
+                checkpointPersistError ? `进度点没能保存：${checkpointPersistError}` : "",
+                pausePersistError ? `暂停状态没能保存：${pausePersistError}` : "",
               ].filter(Boolean).join("；")
               const visibleFailure = `${existing ? `${existing}
 
@@ -1970,7 +1972,7 @@ export function ChatPanel() {
             chapterNumber: resumeRoute?.chapterNumber,
             sessionId: novelSessionId,
             checkpoint: latestCheckpoint,
-            errorMessage: `PARTIAL_DRAFT_PRESERVED: ${generationResult.partialReason ?? "transport inactivity timeout"} — 已保留部分正文，可再次“继续未完成”恢复。`,
+            errorMessage: `写到一半的正文已留下，可以再次用「继续未完成」接着写。`,
           })
           sessionDebug.finalWrite = {
             status: pausedState.status,
@@ -2189,7 +2191,7 @@ export function ChatPanel() {
         }
       }
       streamSessionGuardRef.current.finish(convId, sessionId, () => {
-        const persistenceDetails = pausePersistError ? `\n\n状态写回异常：pause 落盘失败：${pausePersistError}` : ""
+        const persistenceDetails = pausePersistError ? `\n\n状态写回异常：暂停状态没能保存：${pausePersistError}` : ""
         const visibleFailure = `${accumulated ? `${accumulated}\n\n` : ""}出错：继续未完成失败：${message}${persistenceDetails}`
         const inheritedResumeContext = [
           rootResumeContext,
@@ -2701,7 +2703,7 @@ export function ChatPanel() {
                     onClick={() => submitExemplarABScore(s, "enabled")}
                     title={t("chat.exemplarSlopScore")}
                   >
-                    {s}★E
+                    {s}★开
                   </Button>
                 ))}
                 {[1, 2, 3, 4, 5].map((s) => (
@@ -2713,7 +2715,7 @@ export function ChatPanel() {
                     onClick={() => submitExemplarABScore(s, "disabled")}
                     title={t("chat.slopOnlyScore")}
                   >
-                    {s}★D
+                    {s}★关
                   </Button>
                 ))}
               </div>

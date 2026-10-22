@@ -31,7 +31,7 @@ const STAGE_DESCRIPTIONS: Record<ArcStage, string> = {
   ghost_exposed: "主角的过去创伤或未解心结被揭示",
   refusal: "主角犹豫或回避冲突，不愿面对挑战",
   commitment: "主角做出明确承诺，接受内心渴望与需求",
-  active: "主角主动推进行动，arc_fundamentals 稳步提升",
+  active: "主角主动推进行动，弧光基础分稳步提升",
   crisis: "冲突升级，主角面临最严峻的考验",
   climax: "主角与核心冲突正面交锋，做出最终抉择",
   resolution: "弧光闭环，主角达成转变或接受结局",

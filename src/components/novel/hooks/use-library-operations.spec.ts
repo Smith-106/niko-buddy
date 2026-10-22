@@ -542,13 +542,13 @@ describe("useLibraryOperations", () => {
     mocks.listBindableNovelCharacters.mockResolvedValue([])
     const { result } = makeParams()
     await act(async () => { await result.current.handleLibraryBindCharacter("char-1") })
-    expect(mocks.toast.info).toHaveBeenCalledWith("请先在大纲中添加人物小传或人物设定，再绑定角色 Skill。")
+    expect(mocks.toast.info).toHaveBeenCalledWith("请先在大纲中添加人物小传或人物设定，再绑定角色技能。")
   })
 
   it("bind: 无对应 aura → toast.info 先加入灵魂库", async () => {
     const { result } = makeParams()
     await act(async () => { await result.current.handleLibraryBindCharacter("char-1") })
-    expect(mocks.toast.info).toHaveBeenCalledWith("请先将该角色 Skill 加入自定义灵魂库，再绑定到小说人物。")
+    expect(mocks.toast.info).toHaveBeenCalledWith("请先将该角色技能加入自定义灵魂库，再绑定到小说人物。")
   })
 
   it("bind: 成功 → 绑定 + 刷新 + toast.success + reload", async () => {

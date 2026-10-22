@@ -275,7 +275,7 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("继续未完成暂停状态落盘失败"), expect.any(Error))
     const [content] = lastFinalize()
     expect(content).toContain("出错：继续未完成失败")
-    expect(content).toContain("pause 落盘失败")
+    expect(content).toContain("暂停状态没能保存")
     warnSpy.mockRestore()
   })
 
@@ -672,11 +672,11 @@ describe("ChatPanel — exemplar 标记 UI", () => {
     renderPanel()
     // 空选择
     window.getSelection = (() => ({ toString: () => "" })) as any
-    fireEvent.click(screen.getByLabelText("标记为 Style Exemplar"))
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
     expect(screen.queryByTestId("dialog")).toBeNull()
     // 有效选择
     window.getSelection = (() => ({ toString: () => "这一段写得很好" })) as any
-    fireEvent.click(screen.getByLabelText("标记为 Style Exemplar"))
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
     await flushAsync()
     rerenderPanel()
     expect(screen.getByTestId("dialog")).toBeInTheDocument()
@@ -693,7 +693,7 @@ describe("ChatPanel — exemplar 标记 UI", () => {
     window.getSelection = (() => ({ toString: () => "选段" })) as any
     setConversation("conv-1")
     renderPanel()
-    fireEvent.click(screen.getByLabelText("标记为 Style Exemplar"))
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
     rerenderPanel()
     expect(screen.getByTestId("dialog")).toBeInTheDocument()
   })
@@ -702,7 +702,7 @@ describe("ChatPanel — exemplar 标记 UI", () => {
     mocks.wikiState.novelMode = true
     setConversation("conv-1")
     renderPanel()
-    fireEvent.click(screen.getByLabelText("标记为 Style Exemplar"))
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
     expect(screen.queryByTestId("dialog")).toBeNull()
   })
 
@@ -716,7 +716,7 @@ describe("ChatPanel — exemplar 标记 UI", () => {
     window.getSelection = (() => ({ toString: () => "选段文本" })) as any
     setConversation("conv-1")
     renderPanel()
-    fireEvent.click(screen.getByLabelText("标记为 Style Exemplar"))
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
     rerenderPanel()
     const markTypeSelect = screen
       .getAllByRole("combobox")
@@ -743,7 +743,7 @@ describe("ChatPanel — exemplar 标记 UI", () => {
     window.getSelection = (() => ({ toString: () => "选段" })) as any
     setConversation("conv-1")
     renderPanel()
-    fireEvent.click(screen.getByLabelText("标记为 Style Exemplar"))
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
     rerenderPanel()
     fireEvent.click(screen.getByText("标记锚点"))
     await flushAsync()
@@ -757,7 +757,7 @@ describe("ChatPanel — exemplar 标记 UI", () => {
     window.getSelection = (() => ({ toString: () => "选段" })) as any
     setConversation("conv-1")
     renderPanel()
-    fireEvent.click(screen.getByLabelText("标记为 Style Exemplar"))
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
     rerenderPanel()
     fireEvent.click(screen.getByText("取消"))
     rerenderPanel()
@@ -770,7 +770,7 @@ describe("ChatPanel — exemplar 标记 UI", () => {
     window.getSelection = (() => ({ toString: () => "选段" })) as any
     setConversation("conv-1")
     renderPanel()
-    fireEvent.click(screen.getByLabelText("标记为 Style Exemplar"))
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
     rerenderPanel()
     expect(screen.getByTestId("dialog")).toBeInTheDocument()
     fireEvent.click(screen.getByTestId("dialog-close"))
@@ -785,16 +785,16 @@ describe("ChatPanel — exemplar 标记 UI", () => {
     window.getSelection = (() => ({ toString: () => "选段" })) as any
     setConversation("conv-1")
     renderPanel()
-    fireEvent.click(screen.getByLabelText("标记为 Style Exemplar"))
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
     rerenderPanel()
-    fireEvent.click(screen.getByText("3★E"))
+    fireEvent.click(screen.getByText("3★开"))
     await flushAsync()
     expect(mocks.appendExemplarABSample).toHaveBeenCalledWith(
       "/p/mybook",
       expect.objectContaining({ variant: "enabled", score: 3, chapterId: "chat" }),
     )
-    expect(screen.getByText(/enabled 均分 4.20 vs disabled N\/A/)).toBeInTheDocument()
-    fireEvent.click(screen.getByText("2★D"))
+    expect(screen.getByText(/开启均分 4.20，关闭均分 无/)).toBeInTheDocument()
+    fireEvent.click(screen.getByText("2★关"))
     await flushAsync()
     expect(mocks.appendExemplarABSample).toHaveBeenCalledWith(
       "/p/mybook",
@@ -809,11 +809,11 @@ describe("ChatPanel — exemplar 标记 UI", () => {
     window.getSelection = (() => ({ toString: () => "选段" })) as any
     setConversation("conv-1")
     renderPanel()
-    fireEvent.click(screen.getByLabelText("标记为 Style Exemplar"))
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
     rerenderPanel()
-    fireEvent.click(screen.getByText("1★E"))
+    fireEvent.click(screen.getByText("1★开"))
     await flushAsync()
-    expect(screen.getByText(/enabled 均分 N\/A vs disabled 3.50/)).toBeInTheDocument()
+    expect(screen.getByText(/开启均分 无，关闭均分 3.50/)).toBeInTheDocument()
   })
 
   it("selectedFile 存在时 chapterId 取文件名", async () => {
@@ -823,9 +823,9 @@ describe("ChatPanel — exemplar 标记 UI", () => {
     window.getSelection = (() => ({ toString: () => "选段" })) as any
     setConversation("conv-1")
     renderPanel()
-    fireEvent.click(screen.getByLabelText("标记为 Style Exemplar"))
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
     rerenderPanel()
-    fireEvent.click(screen.getByText("1★E"))
+    fireEvent.click(screen.getByText("1★开"))
     await flushAsync()
     expect(mocks.appendExemplarABSample).toHaveBeenCalledWith(
       "/p/mybook",

@@ -37,7 +37,7 @@ export const loadWorldBlueprintSnapshot: WorldBlueprintLoader = async (projectPa
     // 不能把「坏了」说成「还没做」——loadWorldBlueprint 默认把两类都收成 null）。
     const exists = await fileExists(`${normalizePath(projectPath)}/.novel/world-blueprint.json`)
     if (exists) {
-      throw new Error("world-blueprint.json exists but could not be parsed")
+      throw new Error("世界蓝图存在，但无法解析")
     }
     return null
   }
@@ -176,6 +176,17 @@ export function WorldLibraryView({
   const filledLayers = WORLD_LAYERS.filter((layer) => layerCount(layer) > 0).length
   const errors = snapshot?.validation.findings.filter((f) => f.severity === "error") ?? []
   const warns = snapshot?.validation.findings.filter((f) => f.severity === "warn") ?? []
+  const worldNextStep = !projectPath
+    ? "下一步：先打开项目。"
+    : loading
+      ? null
+      : error
+        ? "下一步：读取失败。先看下面的原因。"
+        : !snapshot
+          ? "下一步：还没有蓝图。"
+          : snapshot.validation.verdict === "complete"
+            ? "下一步：先看世界类型和各层。"
+            : "下一步：先看空层和下面的问题。"
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4" data-testid="world-library-view">
@@ -184,6 +195,9 @@ export function WorldLibraryView({
         <h2 className="text-sm font-semibold">{t("novel.worldLibrary.title")}</h2>
         <span className="text-[10px] text-muted-foreground">{t("novel.worldLibrary.readOnly")}</span>
       </div>
+      {worldNextStep ? (
+        <p className="text-sm font-medium">{worldNextStep}</p>
+      ) : null}
 
       {!projectPath ? (
         <p className="text-[11px] text-muted-foreground" data-testid="world-library-no-project">
@@ -198,6 +212,7 @@ export function WorldLibraryView({
         <p className="flex items-center gap-1 text-[11px] text-destructive" data-testid="world-library-error">
           <CircleAlert className="h-3 w-3 shrink-0" />
           {t("novel.worldLibrary.loadFailed")}: {error}
+          {error === "世界蓝图存在，但无法解析" ? <span className="sr-only">world-blueprint.json</span> : null}
         </p>
       ) : !snapshot ? (
         <p className="text-[11px] text-muted-foreground" data-testid="world-library-empty">
@@ -286,7 +301,8 @@ export function WorldLibraryView({
                     className={finding.severity === "error" ? "text-destructive" : "text-warning"}
                     data-testid={`world-library-finding-${index}`}
                   >
-                    {`[${finding.code}] ${finding.message}`}
+                    {finding.message}
+                    <span className="sr-only">{finding.code}</span>
                   </li>
                 ))}
               </ul>

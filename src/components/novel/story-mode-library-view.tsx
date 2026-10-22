@@ -48,15 +48,19 @@ const GATE_LABEL: Record<string, string> = {
   quality: "文学质量",
 }
 
-/** 门列表中文串（空门显「无」，未知键回退原文，不臆造）。 */
-function gateText(gates: readonly string[]): string {
+/** 门列表：可见中文名，英文键只留给读屏；未知键回退原文。 */
+function gateText(gates: readonly string[]) {
   if (gates.length === 0) return "无"
-  const parts: string[] = []
-  for (const gate of gates) {
-    const label = GATE_LABEL[gate] ?? gate
-    parts.push(label === gate ? gate : `${label}（${gate}）`)
-  }
-  return parts.join("、")
+  return gates.map((gate, index) => {
+    const label = GATE_LABEL[gate]
+    return (
+      <span key={`${gate}:${index}`}>
+        {index > 0 ? "、" : null}
+        {label ?? gate}
+        {label ? <span className="sr-only">{gate}</span> : null}
+      </span>
+    )
+  })
 }
 
 export interface StoryModeLibraryViewProps {

@@ -27,6 +27,7 @@ import {
   auditPreMigrationFacts,
   backfillCanonHistory,
   buildBackfillOps,
+  runCanonHistoryBackfill,
   buildSupersedeOps,
   classifyBackfillMerge,
   defaultCanonBackfillDeps,
@@ -839,5 +840,32 @@ describe("defaultCanonBackfillDeps", () => {
     listDirectoryMock.mockReset().mockRejectedValue(new Error("ENOENT"))
     const deps = defaultCanonBackfillDeps()
     await expect(deps.listSnapshotsDir(snapshotsDir(PROJECT))).resolves.toEqual([])
+  })
+})
+
+describe("runCanonHistoryBackfill", () => {
+  it("只回填当前项目已发现的全部快照，不设排他上界", async () => {
+    const { dualWrite } = makeHarness()
+    const deps = makeFsDeps(
+      {
+        1: snapshotJson(1, ["第一章事实"]),
+        2: snapshotJson(2, ["第二章事实"]),
+      },
+      dualWrite,
+    )
+    const report = await runCanonHistoryBackfill(`  ${PROJECT}  `, deps, 1_000)
+    expect(report.projectPath).toBe(PROJECT)
+    expect(report.selectedChapters).toEqual([1, 2])
+    expect(report.factsWritten).toBe(2)
+  })
+
+  it("空白项目路径拒绝执行，不读快照", async () => {
+    const { dualWrite } = makeHarness()
+    const deps = makeFsDeps({ 1: snapshotJson(1, ["第一章事实"]) }, dualWrite)
+    const listSnapshotsDir = vi.fn(deps.listSnapshotsDir)
+    await expect(
+      runCanonHistoryBackfill("   ", { ...deps, listSnapshotsDir }, 1_000),
+    ).rejects.toThrow(/open project path/)
+    expect(listSnapshotsDir).not.toHaveBeenCalled()
   })
 })

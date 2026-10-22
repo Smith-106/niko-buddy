@@ -139,7 +139,7 @@ export function TitleStudioView({ projectPath }: TitleStudioViewProps) {
                   <span className="text-sm font-medium text-foreground">{row.title}</span>
                   <span className="text-xs text-muted-foreground">
                     {`命中种子 ${row.seedMatchCount} · 命中约束 ${row.totalConstraintHits} · ${reasonLabel(row.reason)}`}
-                    <code className="ml-1 font-mono text-[11px]">{row.reason}</code>
+                    <span className="sr-only">{row.reason}</span>
                   </span>
                 </div>
                 <ul className="mt-1 flex flex-col gap-1 pl-4 text-xs text-muted-foreground">

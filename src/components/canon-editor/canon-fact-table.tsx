@@ -71,6 +71,7 @@ export function CanonFactTable({ edges, maxRevision }: CanonFactTableProps) {
       case "known_by": return t("canon.filterKnownBy")
       case "revealed_at": return t("canon.revealedAtHeader")
       case "confidence": return t("canon.factTableConfidence")
+      case "source → target": return "来源 → 对象"
       case "source_chapter": return t("canon.factTableSourceChapter")
       case "digest": return t("canon.factTableDigest")
       default: return col

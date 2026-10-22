@@ -342,7 +342,7 @@ export function BackupExportView() {
       const confirmed = await ask(
         tOr(
           "novel.backupExport.restoreConfirm",
-          "恢复将覆盖当前项目的 status.json、草稿与 Canon 数据（替换前会自动备份现状）。确定继续？",
+          "恢复将覆盖当前项目的写作状态、草稿和设定数据（替换前会自动备份现状）。确定继续？",
         ),
         { title: tOr("novel.backupExport.restoreConfirmTitle", "确认恢复"), kind: "warning" },
       )
@@ -648,7 +648,7 @@ export function BackupExportView() {
                     <p className="text-xs text-warning">
                       {tOr(
                         "novel.backupExport.verifyShaMissing",
-                        "未找到 .sha256 校验和文件：已降级为仅包内内容摘要校验（建议重新导出以获得完整校验）。",
+                        "没有找到旁边的校验文件：这次只检查包里的内容是否完整。建议重新导出，才能做完整校验。",
                       )}
                     </p>
                   )}
@@ -732,12 +732,12 @@ export function BackupExportView() {
       <div className="rounded-lg border p-4 space-y-3">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-5 w-5 shrink-0 text-primary" />
-          <h3 className="font-medium">{tOr("novel.backupExport.autoTitle", "自动备份（supersede / 迁移前）")}</h3>
+          <h3 className="font-medium">{tOr("novel.backupExport.autoTitle", "自动备份（替换设定或迁移之前）")}</h3>
         </div>
         <p className="text-sm text-muted-foreground">
           {tOr(
             "novel.backupExport.autoDescription",
-            "在执行 Canon supersede 或 schema 迁移等破坏性写操作前，先落一份带校验和的时间戳快照到 backups/auto/。",
+            "在替换正式设定或做数据结构迁移之前，先把当前项目存一份带校验的快照，放在项目内的自动备份目录。",
           )}
         </p>
         <Button onClick={() => void handleAutoBackup()} disabled={!projectPath || isBusy !== null} variant="outline">
@@ -783,7 +783,7 @@ export function BackupExportView() {
         <p className="text-sm text-muted-foreground">
           {tOr(
             "novel.backupExport.historyDescription",
-            "项目内自动备份（backups/auto/）：恢复前自动备份与手动自动备份落点。导出到外部路径的备份不在此列。",
+            "这里列出项目内部的自动备份：恢复前自动留下的，以及你手动点的。导出到外部路径的备份不在这里。",
           )}
         </p>
         {!projectPath ? null : backupHistory.length === 0 ? (

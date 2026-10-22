@@ -484,15 +484,6 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
       <main className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-3xl space-y-6">
           <div className="rounded-lg border bg-card p-4">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-              <div className="text-sm leading-6 text-muted-foreground">
-                创建自定义灵魂时，仅使用公开或已授权资料，避免输入隐私、敏感信息或未授权聊天记录。角色灵魂不是复活真人，也不能用于冒充、欺骗或替代真实人物。
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-lg border bg-card p-4">
             <h3 className="mb-2 font-semibold">绑定小说人物</h3>
             <p className="mb-3 text-sm text-muted-foreground">{t("novel.soul.bindHint")}</p>
             <div className="flex gap-2">
@@ -552,6 +543,15 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
               )}
             </div>
             {message && <div role="status" className="mt-3 text-sm text-muted-foreground">{message}</div>}
+          </div>
+
+          <div className="rounded-lg border bg-card p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              <div className="text-sm leading-6 text-muted-foreground">
+                创建自定义灵魂时，仅使用公开或已授权资料，避免输入隐私、敏感信息或未授权聊天记录。角色灵魂不是复活真人，也不能用于冒充、欺骗或替代真实人物。
+              </div>
+            </div>
           </div>
 
           <div className="rounded-lg border bg-card p-4">

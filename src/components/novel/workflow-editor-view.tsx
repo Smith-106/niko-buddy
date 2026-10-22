@@ -36,6 +36,28 @@ import {
   type WorkflowTemplateGroup,
 } from "@/lib/novel"
 
+const EVENT_KIND_LABEL: Record<string, string> = {
+  "gate-run": "门控运行",
+  retrieval: "检索",
+  generate: "生成",
+  accept: "接受",
+  retry: "重试",
+  quota: "配额",
+  "kb-rebuild": "重建资料",
+  error: "出错",
+  stage: "阶段",
+}
+
+const EVENT_ACTOR_LABEL: Record<string, string> = {
+  system: "系统",
+  writer: "写手",
+  critic: "审稿",
+  reviser: "修订",
+  arbiter: "仲裁",
+  judge: "裁决",
+  user: "用户",
+}
+
 export interface RecentWorkflowEvent {
   readonly seq: number
   readonly eventId: string
@@ -237,8 +259,10 @@ export function WorkflowEditorView({ projectPath, snapshot: snapshotOverride }: 
                       className="flex flex-wrap gap-x-2 font-mono text-xs text-muted-foreground"
                     >
                       <span>#{event.seq}</span>
-                      <span>{event.kind}</span>
-                      <span>{event.actor}</span>
+                      <span>{EVENT_KIND_LABEL[event.kind] ?? "事件"}</span>
+                      <span className="sr-only">{event.kind}</span>
+                      <span>{EVENT_ACTOR_LABEL[event.actor] ?? "执行者"}</span>
+                      <span className="sr-only">{event.actor}</span>
                       <span>{event.ts}</span>
                     </li>
                   ))}

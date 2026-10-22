@@ -96,7 +96,9 @@ export function useExemplarState(params: {
     const stats = exemplarABStats(state)
     const enabledStr = stats.enabledAvg !== null ? stats.enabledAvg.toFixed(2) : "N/A"
     const disabledStr = stats.disabledAvg !== null ? stats.disabledAvg.toFixed(2) : "N/A"
-    setExemplarFeedback(`已记录评分 ${score}★（${variant}）— enabled 均分 ${enabledStr} vs disabled ${disabledStr}`)
+    setExemplarFeedback(
+      `已记录评分 ${score}★（${variant === "enabled" ? "开启" : "关闭"}）— 开启均分 ${enabledStr === "N/A" ? "无" : enabledStr}，关闭均分 ${disabledStr === "N/A" ? "无" : disabledStr}`,
+    )
   }, [project, selectedFile])
 
   return {

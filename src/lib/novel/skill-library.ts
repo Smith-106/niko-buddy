@@ -119,7 +119,7 @@ export function normalizeUserSkill(value: Partial<UserSkill>): UserSkill {
   }
   return {
     id: typeof value.id === "string" && value.id.trim() ? value.id.trim() : `project:${Date.now()}`,
-    name: typeof value.name === "string" && value.name.trim() ? value.name.trim() : "未命名 Skill",
+    name: typeof value.name === "string" && value.name.trim() ? value.name.trim() : "未命名技能",
     description: typeof value.description === "string" ? value.description.trim() : "",
     kind: uniqueValid(value.kind, VALID_KINDS, ["style"]),
     stages: uniqueValid(value.stages, VALID_STAGES, ["rewrite", "output"]),

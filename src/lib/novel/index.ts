@@ -29,6 +29,8 @@ export { parseOutlineToChapters, unpackOutlineToChapterFiles } from "./outline-c
 export type { UnpackedOutlineChapter, UnpackOutlineOptions, UnpackOutlineResult } from "./outline-chapter-unpack"
 export { advanceBudgetBatch, createBudgetRun } from "./budget-resume"
 export { defaultCanonDualWriteDeps, getCanonRevision, loadDivergenceTrace } from "./canon-dual-write"
+export { runCanonHistoryBackfill } from "./canon-backfill"
+export type { CanonBackfillReport } from "./canon-backfill"
 export { buildCanonEdgeFilter, getFactsKnownByPaged, queryCanonEdges } from "./canon-graph-client"
 export type { CanonFact, CanonQueryBatchResponseRaw, RawCanonEdge } from "./canon-graph-client"
 export { asOfSnapshot, diffCanonRevisions, distinctRecordedRevisions } from "./canon-revision-diff"

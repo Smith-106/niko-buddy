@@ -218,7 +218,7 @@ describe("ChatPanel — 空态与输入区", () => {
     expect(screen.getByTestId("chat-dock-controls")).toBeInTheDocument()
     expect(screen.getByLabelText("开启深度模式")).toBeInTheDocument()
     expect(screen.getByLabelText("编辑章节")).toBeInTheDocument()
-    expect(screen.getByLabelText("标记为 Style Exemplar")).toBeInTheDocument()
+    expect(screen.getByLabelText("标记为风格范例")).toBeInTheDocument()
     expect(screen.getByTestId("chat-model-select")).toBeInTheDocument()
   })
 
@@ -227,7 +227,7 @@ describe("ChatPanel — 空态与输入区", () => {
     renderPanel()
     expect(screen.queryByLabelText("开启深度模式")).toBeNull()
     expect(screen.queryByLabelText("编辑章节")).toBeNull()
-    expect(screen.queryByLabelText("标记为 Style Exemplar")).toBeNull()
+    expect(screen.queryByLabelText("标记为风格范例")).toBeNull()
   })
 
   it("模型选择 onChange 联动 setAiChatModel + saveAiChatModel", () => {

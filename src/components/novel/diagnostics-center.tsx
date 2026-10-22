@@ -398,7 +398,7 @@ export function DiagnosticsCenter(props: DiagnosticsCenterProps) {
       {/* 只读审计区（默认折叠）：健康/恢复/导出仍是首屏主角，审计不抢首屏。 */}
       <details data-testid="diagnostics-audit-section" className="rounded-md border border-border px-3 py-2">
         <summary className="cursor-pointer text-xs font-medium text-foreground">
-          只读审计（提示词 / 方法论 / 模板 / skills 覆盖 / 叙事结构 / 设置盘点）
+          只读审计（提示词 / 方法论 / 模板 / 技能覆盖 / 叙事结构 / 设置盘点）
         </summary>
         <div className="mt-3 space-y-4">
           <PromptRegistryPanel />

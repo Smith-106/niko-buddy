@@ -30,6 +30,46 @@ import { toErrorMessage } from "@/lib/utils"
 /** 默认刷新周期（毫秒）：够"看得见在动"，又不至于一直拉盘。 */
 export const WORK_HEATMAP_DEFAULT_REFRESH_MS = 5000
 
+const STAGE_PLAIN: Readonly<Record<string, string>> = {
+  write_llm: "模型写作",
+  six_dim: "六维审阅",
+  pack: "资料装包",
+  ingest: "资料入库",
+  scene_breakdown: "场景拆分",
+  pre_outline_soft_gate: "大纲前检查",
+  pre_write_prompt: "写前提示",
+  post_draft_light_check: "草稿轻检",
+  pre_six_dim_review: "六维审前",
+  post_gate_literary_polish: "过门后润色",
+}
+
+function stagePlain(stage: string): string {
+  return STAGE_PLAIN[stage] ?? "阶段"
+}
+
+function statusPlain(status: string | null): string {
+  if (!status) return "无"
+  if (status === "idle") return "空闲"
+  if (status === "running" || status === "writing") return "进行中"
+  if (status === "paused") return "已暂停"
+  if (status === "failed" || status === "error") return "失败"
+  if (status === "done" || status === "completed") return "完成"
+  return "已记录"
+}
+
+function naPlain(id: string): string {
+  if (id === "chapter-axis") return "阶段记录里的章节号多数不写，所以不按章画热力。"
+  if (id === "live-stream") return "这里只有汇总后的阶段指标，按刷新重读，不是实时事件流。"
+  if (id === "quality-score") return "记录里只有字数消耗、耗时和是否未完成，没有质量分。"
+  return "不适用"
+}
+
+function missingPlain(line: string): string {
+  if (line.includes("timestamp")) return "有阶段记录，但没有可解析的时间，画不出时间轴。"
+  if (line.includes("stage_metrics")) return "还没有阶段记录：要么还没跑过，要么状态里没写入。"
+  return "缺资料"
+}
+
 export interface WorkHeatmapPanelProps {
   /** 注入投影（测试可替换）；给了它就不再读盘。 */
   readonly projection?: WorkHeatmapProjection
@@ -83,7 +123,7 @@ export function WorkHeatmapPanel({
       const next = await read()
       if (!mounted.current || seq !== readSeq.current) return
       setLive(next)
-      setError(next === null ? "读不到 `.novel/status.json`（项目未初始化，或真源尚未写入）" : null)
+      setError(next === null ? "读不到写作状态（项目未初始化，或还没写入）" : null)
       setLastLoadedAt(new Date().toISOString())
     } catch (e) {
       if (!mounted.current || seq !== readSeq.current) return
@@ -150,23 +190,25 @@ export function WorkHeatmapPanel({
       </header>
 
       <p className="text-[10px] text-muted-foreground" data-testid="work-heatmap-scope">
-        真源 `.novel/status.json` 的 `stage_metrics`（stage / tokenCost / latencyMs / partial / timestamp）。
-        每 {Math.round(Math.max(refreshMs, 0) / 1000)} 秒重读一次快照 —— 这是**轮询快照**，不是事件流；
+        数据来自写作状态里的阶段记录。
+        <span className="sr-only">.novel/status.json stage_metrics stage tokenCost latencyMs partial timestamp</span>
+        每 {Math.round(Math.max(refreshMs, 0) / 1000)} 秒重读一次快照 —— 这是轮询快照，不是事件流；
         页面隐藏时暂停。
       </p>
 
       <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground" data-testid="work-heatmap-progress">
         <span>
-          状态 <b className="text-foreground">{resolved.progress.status ?? "N/A"}</b>
+          状态 <b className="text-foreground">{statusPlain(resolved.progress.status)}</b>
+          {resolved.progress.status ? <span className="sr-only">{resolved.progress.status}</span> : null}
         </span>
         <span>
-          步骤 <b className="text-foreground">{resolved.progress.activeStepIndex ?? "N/A"}</b>
+          步骤 <b className="text-foreground">{resolved.progress.activeStepIndex ?? "无"}</b>
         </span>
         <span>
-          当前章 <b className="text-foreground">{resolved.progress.currentChapterNumber ?? "N/A"}</b>
+          当前章 <b className="text-foreground">{resolved.progress.currentChapterNumber ?? "无"}</b>
         </span>
         <span>
-          更新于 <b className="text-foreground">{resolved.progress.updatedAt ?? "N/A"}</b>
+          更新于 <b className="text-foreground">{resolved.progress.updatedAt ?? "无"}</b>
         </span>
         <span>
           阶段指标 <b className="text-foreground">{resolved.totals.entries}</b> 条 · 阶段{" "}
@@ -179,6 +221,7 @@ export function WorkHeatmapPanel({
       {error ? (
         <p className="text-[11px] text-amber-700 dark:text-amber-400" data-testid="work-heatmap-error">
           {error}
+          {error.startsWith("读不到写作状态") ? <span className="sr-only">.novel/status.json</span> : null}
         </p>
       ) : null}
 
@@ -201,8 +244,9 @@ export function WorkHeatmapPanel({
             <tbody>
               {resolved.rows.map((row) => (
                 <tr key={row.stage} data-testid={`work-heatmap-row-${row.stage}`}>
-                  <th className="sticky left-0 bg-background px-1 text-left font-mono font-normal text-foreground">
-                    {row.stage}
+                  <th className="sticky left-0 bg-background px-1 text-left font-normal text-foreground">
+                    {stagePlain(row.stage)}
+                    <span className="sr-only">{row.stage}</span>
                   </th>
                   {row.cells.map((cell) => (
                     <td
@@ -212,7 +256,7 @@ export function WorkHeatmapPanel({
                       title={
                         cell.count === 0
                           ? "该时间桶没有条目"
-                          : `${cell.count} 条 · token ${formatNumber(cell.tokenCost)} · 耗时 ${formatNumber(cell.latencyMs)}ms · partial ${cell.partialCount}`
+                          : `${cell.count} 条 · 字数消耗 ${formatNumber(cell.tokenCost)} · 耗时 ${formatNumber(cell.latencyMs)} 毫秒 · 未完成 ${cell.partialCount}`
                       }
                       className={`h-5 w-5 rounded-sm text-center align-middle ${cellClass(cell.count, resolved.maxCount)}`}
                     >
@@ -220,8 +264,13 @@ export function WorkHeatmapPanel({
                     </td>
                   ))}
                   <td className="px-1 text-right text-foreground">
-                    {row.count} · {formatNumber(row.tokenCost)} tok · {formatNumber(row.latencyMs)} ms
-                    {row.partialCount > 0 ? ` · partial ${row.partialCount}` : ""}
+                    {row.count} · {formatNumber(row.tokenCost)} 字 · {formatNumber(row.latencyMs)} 毫秒
+                    {row.partialCount > 0 ? (
+                      <>
+                        {` · 未完成 ${row.partialCount}`}
+                        <span className="sr-only">{`partial ${row.partialCount}`}</span>
+                      </>
+                    ) : ""}
                   </td>
                 </tr>
               ))}
@@ -232,14 +281,15 @@ export function WorkHeatmapPanel({
         <p className="text-[11px] text-muted-foreground" data-testid="work-heatmap-empty">
           {resolved.foldedCount + resolved.foldedNewerCount > 0
             ? `没有落在窗口内的条目：${resolved.foldedCount} 条早于窗口、${resolved.foldedNewerCount} 条晚于锚点（见下方说明）。这不是「缺时间戳」。`
-            : "没有可画的数据：`stage_metrics` 为空，或全部条目缺可解析时间戳 → 不画空网格（避免「看起来跑了」）。"}
+            : "没有可画的数据：阶段记录是空的，或全部条目没有可解析的时间。这里不画空格子，避免看起来像已经跑过。"}
         </p>
       )}
 
       {resolved.undated.length > 0 ? (
         <div className="text-[10px] text-muted-foreground" data-testid="work-heatmap-undated">
           无时间戳条目（不进时间轴，单列）：
-          {resolved.undated.map((u) => `${u.stage}×${u.count}`).join(" · ")}
+          {resolved.undated.map((u) => `${stagePlain(u.stage)} ${u.count} 条`).join(" · ")}
+          <span className="sr-only">{resolved.undated.map((u) => `${u.stage}×${u.count}`).join(" · ")}</span>
         </div>
       ) : null}
 
@@ -247,7 +297,8 @@ export function WorkHeatmapPanel({
         <li className="font-medium text-foreground">明确不适用（不是缺失，是没有真源/无意义）</li>
         {resolved.notApplicable.map((item) => (
           <li key={item.id} data-testid={`work-heatmap-na-${item.id}`}>
-            {item.label}：{item.reason}
+            {item.label}：{naPlain(item.id)}
+            <span className="sr-only">{item.reason}</span>
           </li>
         ))}
       </ul>
@@ -255,7 +306,10 @@ export function WorkHeatmapPanel({
       {resolved.missingSources.length > 0 ? (
         <ul className="space-y-0.5 text-[10px] text-amber-700 dark:text-amber-400" data-testid="work-heatmap-missing">
           {resolved.missingSources.map((line) => (
-            <li key={line}>{line}</li>
+            <li key={line}>
+              {missingPlain(line)}
+              <span className="sr-only">{line}</span>
+            </li>
           ))}
         </ul>
       ) : null}

@@ -21,7 +21,8 @@ import { Button } from "@/components/ui/button"
 import { exportBackup, cancelBackup } from "@/lib/backup/export"
 import { importBackup } from "@/lib/backup/import"
 import { exportNovelDocx, exportNovelEpub, countFinalChapters } from "@/lib/novel"
-import type { DocxExportResult, EbookExportResult } from "@/lib/novel"
+import type { CanonBackfillReport, DocxExportResult, EbookExportResult } from "@/lib/novel"
+import { runCanonHistoryBackfill } from "@/lib/novel/canon-backfill"
 import { revealInFileManager } from "@/lib/reveal-in-file-manager"
 import { countVectorChunks, legacyVectorRowCount, dropLegacyVectorTable } from "@/lib/embedding"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -65,6 +66,9 @@ export function DataManagementSection() {
   const [cleaningLegacy, setCleaningLegacy] = useState(false)
   /** 清理遗留向量表的失败提示（旧实现失败静默）。 */
   const [cleanLegacyError, setCleanLegacyError] = useState("")
+  const [isBackfillingCanon, setIsBackfillingCanon] = useState(false)
+  const [canonBackfillReport, setCanonBackfillReport] = useState<CanonBackfillReport | null>(null)
+  const [canonBackfillError, setCanonBackfillError] = useState("")
 
   // DOCX export progress subscription (audit ③-4): the Rust side emits
   // "docx-export-progress" {current, total} per chapter while exporting.
@@ -254,7 +258,23 @@ export function DataManagementSection() {
     }
   }
 
-  const isBusy = isExporting || isImporting
+  async function handleCanonBackfill() {
+    /* v8 ignore next -- 按钮在无 project 时 disabled，守卫不可达 */
+    if (!currentProject?.path) return
+    setIsBackfillingCanon(true)
+    setCanonBackfillReport(null)
+    setCanonBackfillError("")
+    try {
+      const report = await runCanonHistoryBackfill(currentProject.path)
+      setCanonBackfillReport(report)
+    } catch (err) {
+      setCanonBackfillError(String(err))
+    } finally {
+      setIsBackfillingCanon(false)
+    }
+  }
+
+  const isBusy = isExporting || isImporting || isBackfillingCanon
 
   return (
     <div className="space-y-6">
@@ -524,6 +544,72 @@ export function DataManagementSection() {
                 <p>{epubResult.message}</p>
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* Canon snapshot backfill — current project only */}
+      <div className="rounded-lg border p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Database className="h-5 w-5 shrink-0 text-primary" />
+          <h3 className="font-medium">
+            {t("settings.sections.dataManagement.canonBackfillTitle", { defaultValue: "从快照回填 Canon" })}
+          </h3>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {t("settings.sections.dataManagement.canonBackfillDescription", {
+            defaultValue:
+              "只处理当前打开的项目：把已有章节快照写入 Canon。不改正文，不补审查门、运行事件或场景文件。可以重复执行，同一事实不会重复入库。",
+          })}
+        </p>
+        <Button
+          onClick={() => void handleCanonBackfill()}
+          disabled={isBusy || !currentProject?.path}
+        >
+          {isBackfillingCanon ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
+              {t("settings.sections.dataManagement.canonBackfillRunning", { defaultValue: "回填中..." })}
+            </>
+          ) : (
+            <>
+              <Database className="mr-2 h-4 w-4 shrink-0" />
+              {t("settings.sections.dataManagement.canonBackfillButton", { defaultValue: "回填当前项目 Canon" })}
+            </>
+          )}
+        </Button>
+        {!currentProject?.path && (
+          <p className="text-sm text-muted-foreground">
+            {t("settings.sections.dataManagement.canonBackfillNoProject", { defaultValue: "请先打开项目" })}
+          </p>
+        )}
+        {canonBackfillError && (
+          <div className="flex items-start gap-2 text-destructive text-sm">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <p>{canonBackfillError}</p>
+          </div>
+        )}
+        {canonBackfillReport && (
+          <div className="text-sm space-y-1">
+            <p>
+              {t("settings.sections.dataManagement.canonBackfillSummary", {
+                defaultValue:
+                  "已处理 {{selected}} 章（发现 {{discovered}} 章）。写入 {{written}} 条，排队 {{queued}} 条。无事实 {{empty}} 章，快照不可读 {{unreadable}} 章。",
+                selected: canonBackfillReport.selectedChapters.length,
+                discovered: canonBackfillReport.discoveredChapters.length,
+                written: canonBackfillReport.factsWritten,
+                queued: canonBackfillReport.factsQueued,
+                empty: canonBackfillReport.perChapter.filter((chapter) => chapter.status === "no-facts").length,
+                unreadable: canonBackfillReport.perChapter.filter((chapter) => chapter.status === "snapshot-unreadable").length,
+              })}
+            </p>
+            <p className={canonBackfillReport.consistent ? "text-success" : "text-warning"}>
+              {canonBackfillReport.consistent
+                ? t("settings.sections.dataManagement.canonBackfillConsistent", { defaultValue: "对账一致。" })
+                : t("settings.sections.dataManagement.canonBackfillDivergent", {
+                    defaultValue: "对账未收敛。可以再执行一次；已写入的行会按幂等键跳过。",
+                  })}
+            </p>
           </div>
         )}
       </div>

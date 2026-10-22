@@ -331,9 +331,9 @@ describe("BookAnalysisSidebarPanel", () => {
     expect(text.indexOf("新书")).toBeGreaterThan(-1)
     expect(text.indexOf("新书")).toBeLessThan(text.indexOf("旧书"))
     // 计数：旧书 2 角色 2 Skills
-    expect(text).toContain("2 角色 · 2 Skills")
+    expect(text).toContain("2 角色 · 2 技能")
     // 新书目录缺失 → 0
-    expect(text).toContain("0 角色 · 0 Skills")
+    expect(text).toContain("0 角色 · 0 技能")
     expect(text).toContain("已分析 2 部作品")
     cleanup()
     await flushAsync(20)

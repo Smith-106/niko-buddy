@@ -164,10 +164,10 @@ export function DeAiSkillPicker({
     defaultSkillId,
     loadError,
   } = useDeAiSkillOptions({ projectPath: project?.path, selectedSkillId: value })
-  const triggerTitle = buttonLabel === "技能库" ? "技能库：选择去AI味 Skill" : `当前去AI味 Skill：${effectiveName}`
+  const triggerTitle = buttonLabel === "技能库" ? "技能库：选择去AI味技能" : `当前去AI味技能：${effectiveName}`
   const iconTriggerDescription = buttonLabel === "技能库"
     ? `${triggerTitle}。点击打开技能选择`
-    : `${triggerTitle}。点击选择去AI味 Skill`
+    : `${triggerTitle}。点击选择去AI味技能`
 
   useEffect(() => {
     if (!open) return

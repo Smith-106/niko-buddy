@@ -125,7 +125,7 @@ export function normalizeUserSkillConfig(value: unknown): UserSkillConfig {
 export function createBlankWritingSkill(config: UserSkillConfig, now = Date.now()): UserSkillConfig {
   const skill = normalizeUserSkill({
     id: `skill:${now}`,
-    name: "新建写作 Skill",
+    name: "新建写作技能",
     description: "",
     kind: ["structure", "planning"],
     stages: ["planning", "drafting"],

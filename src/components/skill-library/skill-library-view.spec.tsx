@@ -144,16 +144,16 @@ describe("SkillLibraryView", () => {
     const saved = JSON.parse(savedConfigContent)
     expect(saved.projectSkills[0]).toMatchObject({
       id: "project:1234",
-      name: "新建去AI味 Skill",
+      name: "新建去AI味技能",
       description: "",
       templateId: "custom",
       source: "project",
     })
-    expect(saved.projectSkills[0].content).toContain("在这里填写这个 Skill")
+    expect(saved.projectSkills[0].content).toContain("在这里填写这个技能")
     expect(saved.projectSkills[0].content).not.toContain("综合去AI味规则")
-    expect(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')?.value).toBe("新建去AI味 Skill")
+    expect(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')?.value).toBe("新建去AI味技能")
     expect(container.querySelector<HTMLTextAreaElement>('[data-testid="skill-content-input"]')?.value).toContain(
-      "在这里填写这个 Skill",
+      "在这里填写这个技能",
     )
 
     nowSpy.mockRestore()
@@ -226,7 +226,7 @@ describe("SkillLibraryView", () => {
     })
     await flushEffects()
 
-    expect(confirmSpy).toHaveBeenCalledWith("当前 Skill 还有未保存修改，确定放弃修改吗？")
+    expect(confirmSpy).toHaveBeenCalledWith("当前技能还有未保存修改，确定放弃修改吗？")
     expect(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')?.value).toBe("未保存的技能草稿")
     expect(useWikiStore.getState().selectedSkillLibrarySkillId).toBe("built-in:comprehensive")
 
@@ -363,7 +363,7 @@ describe("SkillLibraryView", () => {
     })
     await flushEffects()
 
-    expect(confirmSpy).toHaveBeenCalledWith("当前 Skill 还有未保存修改，确定放弃修改吗？")
+    expect(confirmSpy).toHaveBeenCalledWith("当前技能还有未保存修改，确定放弃修改吗？")
     expect(writeFileMock).not.toHaveBeenCalled()
     expect(checkbox?.checked).toBe(true)
     expect(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')?.value).toBe("未保存的技能草稿")

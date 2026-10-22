@@ -204,12 +204,12 @@ export function useLibraryOperations({
     if (!character) return
     const bindableCharacters = await listBindableNovelCharacters(currentProjectPath)
     if (bindableCharacters.length === 0) {
-      toast.info("请先在大纲中添加人物小传或人物设定，再绑定角色 Skill。")
+      toast.info("请先在大纲中添加人物小传或人物设定，再绑定角色技能。")
       return
     }
     const aura = libraryState.bindings.find((binding) => binding.auraName === character.name)
     if (!aura) {
-      toast.info("请先将该角色 Skill 加入自定义灵魂库，再绑定到小说人物。")
+      toast.info("请先将该角色技能加入自定义灵魂库，再绑定到小说人物。")
       return
     }
     const targetName = bindableCharacters[0]

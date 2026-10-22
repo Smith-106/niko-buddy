@@ -183,7 +183,7 @@ export function BookAnalysisSidebarPanel() {
 
   const handleDeleteBook = async (book: BookItem) => {
     const confirmed = window.confirm(
-      `确认删除作品"${book.title}"吗？\n\n这将删除：\n- 所有角色信息\n- 所有生成的 Skills\n- 分析元数据\n\n此操作无法撤销。`
+      `确认删除作品"${book.title}"吗？\n\n这将删除：\n- 所有角色信息\n- 所有生成的技能\n- 分析元数据\n\n此操作无法撤销。`
     )
     if (!confirmed) return
 
@@ -271,7 +271,7 @@ export function BookAnalysisSidebarPanel() {
                     </span>
                   )}
                   <span className="mt-1 block text-xs text-muted-foreground">
-                    {book.totalChapters} 章 · {book.charactersCount} 角色 · {book.skillsCount} Skills
+                    {book.totalChapters} 章 · {book.charactersCount} 角色 · {book.skillsCount} 技能
                   </span>
                   {(bookAuraCount[book.id] ?? 0) > 0 && (
                     <span className="mt-1 flex items-center gap-1 text-xs text-primary">

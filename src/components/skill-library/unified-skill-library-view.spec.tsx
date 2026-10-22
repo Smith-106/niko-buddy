@@ -155,7 +155,7 @@ describe("UnifiedSkillLibraryView", () => {
     const { container, root } = await renderLibrary()
     const sidebar = container.querySelector<HTMLElement>('[data-testid="unified-skill-library-sidebar"]')
 
-    for (const label of ["新建去AI技能", "新建 Skill", "导入文件", "导入文件夹", "导出当前"]) {
+    for (const label of ["新建去AI技能", "新建技能", "导入文件", "导入文件夹", "导出当前"]) {
       expect(sidebar?.textContent).not.toContain(label)
     }
 
@@ -172,7 +172,7 @@ describe("UnifiedSkillLibraryView", () => {
     expect(actions?.textContent).not.toContain("导入技能")
     expect(actions?.textContent).not.toContain("导入文件")
     expect(actions?.textContent).not.toContain("导入文件夹")
-    expect(actions?.textContent).not.toContain("新建 Skill")
+    expect(actions?.textContent).not.toContain("新建写作技能")
     expect(actions?.textContent).not.toContain("导出当前")
 
     cleanup(root, container)
@@ -182,7 +182,7 @@ describe("UnifiedSkillLibraryView", () => {
     const { container, root } = await renderLibrary()
 
     await act(async () => {
-      getButton(container, "写作 Skill")?.click()
+      getButton(container, "写作技能")?.click()
     })
     await flushEffects()
 
@@ -190,7 +190,7 @@ describe("UnifiedSkillLibraryView", () => {
     const actionLabels = Array.from(actions?.querySelectorAll("button") ?? [])
       .map((button) => button.textContent?.trim())
 
-    expect(actionLabels).toEqual(["新建 Skill", "导入"])
+    expect(actionLabels).toEqual(["新建写作技能", "导入"])
     expect(actions?.textContent).not.toContain("导入 Skill")
     expect(actions?.textContent).not.toContain("导入文件")
     expect(actions?.textContent).not.toContain("导入文件夹")
@@ -204,12 +204,12 @@ describe("UnifiedSkillLibraryView", () => {
     const { container, root } = await renderLibrary()
 
     await act(async () => {
-      getButton(container, "写作 Skill")?.click()
+      getButton(container, "写作技能")?.click()
     })
     await flushEffects()
 
     await act(async () => {
-      getButton(container, "新建 Skill")?.click()
+      getButton(container, "新建写作技能")?.click()
     })
     await flushEffects()
 
@@ -217,7 +217,7 @@ describe("UnifiedSkillLibraryView", () => {
     expect(useWikiStore.getState().selectedWritingSkillLibrarySkillId).toMatch(/^skill:/)
     expect(writeFileAtomicMock).toHaveBeenCalledWith(
       "C:/project/.niko-buddy/writing-skills.json",
-      expect.stringContaining("新建写作 Skill"),
+      expect.stringContaining("新建写作技能"),
     )
 
     cleanup(root, container)

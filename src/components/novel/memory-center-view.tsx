@@ -428,10 +428,10 @@ export function MemoryCenterView() {
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold">
-            {detailView?.title ?? t("novel.memoryCenter.title")}
+            {detailView?.title ?? "下一步"}
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            {detailView?.description ?? t("novel.memoryCenter.description")}
+            {detailView?.description ?? "先在左侧点一条记忆"}
           </p>
         </div>
         {detailView ? (

@@ -147,7 +147,7 @@ export function AutonomousIncubatorDialog({
         <DialogHeader>
           <div className="flex items-center gap-2">
             <Wand2 className="h-5 w-5 text-purple-500" />
-            <DialogTitle>全自动小说冷启动孵化器 (Autonomous Novel Incubator)</DialogTitle>
+            <DialogTitle>全自动小说冷启动孵化器</DialogTitle>
           </div>
           <DialogDescription>
             只需一句构思灵感，全自动链式推演灵魂文档、世界观蓝图、角色档案、大纲细纲骨架与起承转合框架。

@@ -15,7 +15,7 @@ import { FavoriteListView } from "./favorite-list-view"
 
 const skillLibraryTabs = [
   { view: "skillLibrary" as const, label: "去AI味技能" },
-  { view: "writingSkillLibrary" as const, label: "写作 Skill" },
+  { view: "writingSkillLibrary" as const, label: "写作技能" },
   { view: "skillFavorites" as const, label: "收藏" },
 ]
 
@@ -65,7 +65,7 @@ function writingSkillToEntry(skill: UserSkill): UnifiedSkillEntry {
 }
 
 function fileBaseName(path: string): string {
-  return path.split(/[\\/]/).pop() || "未命名 Skill"
+  return path.split(/[\\/]/).pop() || "未命名技能"
 }
 
 function stripSkillFileExtension(name: string): string {
@@ -115,7 +115,7 @@ function importedDeAiSkillFromContent(path: string, content: string): DeAiSkill 
   if (!body) return null
   return {
     id: `project:${now}`,
-    name: parsed.name || nameFromPath || "未命名去AI味 Skill",
+    name: parsed.name || nameFromPath || "未命名去AI味技能",
     description: parsed.description || "",
     templateId: "custom",
     content: body,
@@ -175,9 +175,9 @@ function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | 
       if (nextSkillId) setSelectedWritingSkillId(nextSkillId)
       setActiveView("writingSkillLibrary")
       bumpDataVersion()
-      setMessage("写作 Skill 已保存")
+      setMessage("写作技能已保存")
     } catch {
-      setMessage("写作 Skill 保存失败")
+      setMessage("写作技能保存失败")
     } finally {
       setSaving(false)
     }
@@ -212,13 +212,13 @@ function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | 
     try {
       const selected = await open({
         multiple: false,
-        filters: [{ name: "去AI味 Skill 文件", extensions: ["json", "md", "txt"] }],
+        filters: [{ name: "去AI味技能文件", extensions: ["json", "md", "txt"] }],
       })
       if (!selected || typeof selected !== "string") return
       const content = await readFile(selected)
       const imported = importedDeAiSkillFromContent(selected, content)
       if (!imported) {
-        setMessage("导入失败：文件内容不是有效的去AI味 Skill")
+        setMessage("导入失败：文件内容不是有效的去AI味技能")
         return
       }
       const config = await loadDeAiSkillConfig(project.path)
@@ -229,7 +229,7 @@ function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | 
       })
       await persistDeAiConfig(next, imported.id)
     } catch {
-      setMessage("导入去AI味 Skill 失败")
+      setMessage("导入去AI味技能失败")
     }
   }
 
@@ -245,7 +245,7 @@ function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | 
     try {
       const selected = await open({
         multiple: false,
-        filters: [{ name: "Skill 文件", extensions: ["json", "md", "txt"] }],
+        filters: [{ name: "技能文件", extensions: ["json", "md", "txt"] }],
       })
       if (!selected || typeof selected !== "string") return
       const content = await readFile(selected)
@@ -293,7 +293,7 @@ function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | 
       ) : activeTab === "writingSkillLibrary" ? (
         <>
           <button type="button" onClick={() => void handleCreateWritingSkill()} disabled={disabled} className={buttonClass}>
-            新建 Skill
+            新建写作技能
           </button>
           <button type="button" onClick={() => void handleImportWritingSkill()} disabled={disabled} className={buttonClass}>
             导入

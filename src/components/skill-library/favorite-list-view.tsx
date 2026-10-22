@@ -13,6 +13,7 @@ export function FavoriteListView() {
   const removeFavorite = useFavoriteSkillStore((s) => s.removeFavorite)
   const copyToCurrentProject = useFavoriteSkillStore((s) => s.copyToCurrentProject)
   const project = useWikiStore((s) => s.project)
+  const setActiveView = useWikiStore((s) => s.setActiveView)
   const [searchQuery, setSearchQuery] = useState("")
   const [copyingId, setCopyingId] = useState<string | null>(null)
 
@@ -61,6 +62,13 @@ export function FavoriteListView() {
         <Star className="h-12 w-12 opacity-30" />
         <p className="text-sm">{t("skillLibrary.noFavorites")}</p>
         <p className="text-xs">{t("skillLibrary.favoriteHint")}</p>
+        <button
+          type="button"
+          className="mt-2 rounded border border-border px-3 py-1.5 text-sm text-foreground"
+          onClick={() => setActiveView("skillLibrary")}
+        >
+          去技能库挑一个
+        </button>
       </div>
     )
   }

@@ -55,22 +55,32 @@ export function AssetLinkagePanel({ result, input }: AssetLinkagePanelProps) {
       <p className="text-[11px] text-muted-foreground" data-testid="asset-linkage-summary">
         角色状态关系边：
         <b className="text-foreground">
-          {resolved.derivedEdgeCount === null ? "N/A（未装载）" : `${resolved.derivedEdgeCount} 条`}
+          {resolved.derivedEdgeCount === null ? (
+            <>
+              不适用（未装载）
+              <span className="sr-only">N/A（未装载）</span>
+            </>
+          ) : `${resolved.derivedEdgeCount} 条`}
         </b>{" "}
         · 已存产物：
         <b className="text-foreground">
-          {resolved.artifactEdgeCount === null ? "N/A（未迁移）" : `${resolved.artifactEdgeCount} 条`}
+          {resolved.artifactEdgeCount === null ? (
+            <>
+              不适用（未迁移）
+              <span className="sr-only">N/A（未迁移）</span>
+            </>
+          ) : `${resolved.artifactEdgeCount} 条`}
         </b>{" "}
         · 冲突：<b className="text-foreground">{conflictCount}</b> 条
       </p>
 
       {unloaded ? (
         <p className="text-[11px] text-muted-foreground" data-testid="asset-linkage-unloaded">
-          角色状态尚未装载：比对面整段 N/A，**不能**当成「暂无不一致」。
+          角色状态尚未装载：比对面整段不适用，不能当成「暂无不一致」。
         </p>
       ) : conflictCount === 0 ? (
         <p className="text-[11px] text-emerald-700 dark:text-emerald-400" data-testid="asset-linkage-clean">
-          暂未发现联动不一致（缺失面见下方 N/A，不要当成「全部一致」）。
+          暂未发现联动不一致（缺失面见下方不适用说明，不要当成「全部一致」）。
         </p>
       ) : (
         <ul className="space-y-1" data-testid="asset-linkage-conflicts">
@@ -89,7 +99,9 @@ export function AssetLinkagePanel({ result, input }: AssetLinkagePanelProps) {
       )}
 
       <ul className="space-y-0.5 text-[10px] text-muted-foreground" data-testid="asset-linkage-na">
-        <li className="font-medium text-foreground">N/A 与非冲突说明</li>
+        <li className="font-medium text-foreground">
+          不适用与非冲突说明<span className="sr-only">N/A</span>
+        </li>
         {resolved.na.map((line) => (
           <li key={line}>{line}</li>
         ))}

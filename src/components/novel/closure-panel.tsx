@@ -30,6 +30,18 @@ export interface ClosurePanelProps {
   readonly loader?: ClosureProjectionLoader
 }
 
+function storyTimeLabel(value: string): string {
+  const chapter = /^ch(\d+)$/i.exec(value)
+  return chapter ? `第 ${chapter[1]} 章` : "已记录"
+}
+
+function modalityLabel(value: string): string {
+  if (value === "fact") return "事实"
+  if (value === "belief") return "看法"
+  if (value === "hypothesis") return "猜想"
+  return "已记录"
+}
+
 const KIND_LABEL: Record<ClosureKind, string> = {
   "info-gap": "信息差",
   "world-event": "世界事件",
@@ -66,26 +78,57 @@ function ClosureSection({
               <p className="text-xs font-medium text-foreground">{row.label}</p>
               <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
                 <li data-testid={`closure-na-detail-${row.id}`}>
-                  {row.detail === null ? "N/A：详情（该真源无详情文本，不编造）" : row.detail}
+                  {row.detail === null ? (
+                    <>
+                      不适用：这一条没有详情，不编造。
+                      <span className="sr-only">N/A：详情（该真源无详情文本，不编造）</span>
+                    </>
+                  ) : (
+                    row.detail
+                  )}
                 </li>
                 <li data-testid={`closure-na-chapter-${row.id}`}>
-                  {row.chapterNumber === null
-                    ? "N/A：章号（该真源不含章号字段，不写 0）"
-                    : `第 ${row.chapterNumber} 章`}
+                  {row.chapterNumber === null ? (
+                    <>
+                      不适用：这一条没有章号，不写成第 0 章。
+                      <span className="sr-only">N/A：章号（该真源不含章号字段，不写 0）</span>
+                    </>
+                  ) : (
+                    `第 ${row.chapterNumber} 章`
+                  )}
                 </li>
                 <li data-testid={`closure-na-storytime-${row.id}`}>
-                  {row.storyTime === null
-                    ? "N/A：故事时间（该真源不含故事时间字段）"
-                    : `故事时间 ${row.storyTime}`}
+                  {row.storyTime === null ? (
+                    <>
+                      不适用：这一条没有故事时间。
+                      <span className="sr-only">N/A：故事时间（该真源不含故事时间字段）</span>
+                    </>
+                  ) : (
+                    <>
+                      {`故事时间 ${storyTimeLabel(row.storyTime)}`}
+                      <span className="sr-only">{`故事时间 ${row.storyTime}`}</span>
+                    </>
+                  )}
                 </li>
                 <li data-testid={`closure-na-modality-${row.id}`}>
-                  {row.modality === null
-                    ? "N/A：模态（该真源不含 fact/belief/hypothesis）"
-                    : `模态 ${row.modality}`}
+                  {row.modality === null ? (
+                    <>
+                      不适用：这一条没有事实、看法或猜想。
+                      <span className="sr-only">N/A：模态（该真源不含 fact/belief/hypothesis）</span>
+                    </>
+                  ) : (
+                    <>
+                      {`模态 ${modalityLabel(row.modality)}`}
+                      <span className="sr-only">{`模态 ${row.modality}`}</span>
+                    </>
+                  )}
                 </li>
-                <li>{`来源 ${row.source}`}</li>
+                <li>
+                  来源
+                  <span className="sr-only">{` ${row.source}`}</span>
+                </li>
                 {row.knownCount !== null && row.unknownCount !== null ? (
-                  <li>{`已知 ${row.knownCount} 人 · 未知 ${row.unknownCount} 人 · 关联 id ${row.relatedIds.length} 个`}</li>
+                  <li>{`已知 ${row.knownCount} 人 · 未知 ${row.unknownCount} 人 · 关联 ${row.relatedIds.length} 条`}</li>
                 ) : null}
                 {row.consequenceCount !== null ? (
                   <li>
@@ -151,19 +194,19 @@ export function ClosurePanel({ projection, loader = loadClosureProjection }: Clo
     <section data-testid="closure-panel" className="flex flex-col gap-2">
       <h3 className="flex items-center gap-1 text-sm font-semibold text-foreground">
         <Network className="h-4 w-4" />
-        Closure 级叙事结构面（只读）
+        叙事结构（只读）
       </h3>
       <p className="text-[10px] text-muted-foreground" data-testid="closure-panel-scope">
         {`信息差 ${resolved.infoGaps.length} 行 · 世界事件 ${resolved.worldEvents.length} 行 · 涟漪 ${resolved.ripples.length} 行 · 合计 ${total} 行`}
       </p>
       <p className="text-[10px] text-muted-foreground" data-testid="closure-panel-boundary">
-        零新真源：只读 .novel/narrative-state.json 与 .novel/timeline.json，不写盘、不造字段；涟漪沿 events[].causedBy
-        派生直接下游，不做传递闭包。缺真源处显式中文 N/A。
+        只读叙事状态和事件时间线，不写盘、不造字段。涟漪只看直接因果，不把整条链都算进来。缺资料处写「不适用」。
+        <span className="sr-only">.novel/narrative-state.json .novel/timeline.json causedBy N/A</span>
       </p>
 
       {!projection && project === null ? (
         <p className="text-xs text-muted-foreground" data-testid="closure-panel-no-project">
-          当前没有打开的项目：按空真源渲染（计数为 0，缺真源逐条 N/A）。
+          当前没有打开的项目：按空资料显示（计数为 0，缺的项逐条写不适用）。
         </p>
       ) : null}
 
@@ -188,22 +231,22 @@ export function ClosurePanel({ projection, loader = loadClosureProjection }: Clo
           <ClosureSection
             kind="info-gap"
             rows={resolved.infoGaps}
-            emptyText="没有信息差行：narrative-state 的 declarations 为空（无人知道什么可言）。"
+            emptyText="没有信息差行：叙事状态里没有任何「谁知道什么」的声明。"
           />
           <ClosureSection
             kind="world-event"
             rows={resolved.worldEvents}
-            emptyText="没有世界事件行：timeline 的 entries 与 narrative-state 的 events 都为空。"
+            emptyText="没有世界事件行：时间线和叙事状态里都没有事件。"
           />
           <ClosureSection
             kind="ripple"
             rows={resolved.ripples}
-            emptyText="没有涟漪行：事件日志里没有任何 causedBy 因果链（无下游后果可派生）。"
+            emptyText="没有涟漪行：事件里没有因果链，所以没有下游后果。"
           />
 
           <div className="flex flex-col gap-0.5">
             <p className="text-[10px] font-medium text-muted-foreground">
-              以下真源缺失或无数据，故显式 N/A：
+              以下资料缺失或没有数据，所以标成不适用：
             </p>
             {resolved.missingSources.length === 0 ? (
               <p className="text-[10px] text-muted-foreground" data-testid="closure-na-source-none">
@@ -213,7 +256,8 @@ export function ClosurePanel({ projection, loader = loadClosureProjection }: Clo
               <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
                 {resolved.missingSources.map((reason, index) => (
                   <li key={reason} data-testid={`closure-na-source-${index}`}>
-                    {`N/A：${reason}`}
+                    {`不适用：${reason.split("：")[0] || "缺资料"}`}
+                    <span className="sr-only">{`N/A：${reason}`}</span>
                   </li>
                 ))}
               </ul>

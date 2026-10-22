@@ -26,7 +26,7 @@ const KIND_LABELS: Readonly<Record<string, string>> = {
   volume: "卷纲",
   chapter: "章纲",
   enum: "枚举清单",
-  "skill-stage": "技能挂点（stage）",
+  "skill-stage": "技能挂点",
 }
 
 function kindLabel(kind: string): string {
@@ -38,11 +38,17 @@ function EntryRow({ entry }: { readonly entry: WorkflowTemplateEntry }) {
     entry.requiredFields.length > 0
       ? `必填字段 ${entry.requiredFieldCount} 项：${entry.requiredFields.join("、")}`
       : null
-  const enumText =
+  const enumPlain =
     entry.enums.length > 0
       ? `可选枚举 ${entry.enumListCount} 类 / ${entry.enumValueCount} 值：${entry.enums
-          .map((ref) => `${ref.name}（${ref.linkedField ?? "未链接模板字段"} · ${ref.valueCount} 值）`)
+          .map((ref) => `${ref.linkedField ?? "未链接字段"} · ${ref.valueCount} 值`)
           .join("；")}`
+      : null
+  const enumLocked =
+    entry.enums.length > 0
+      ? entry.enums
+          .map((ref) => `${ref.name}（${ref.linkedField ?? "未链接模板字段"} · ${ref.valueCount} 值）`)
+          .join("；")
       : null
   return (
     <li
@@ -51,19 +57,27 @@ function EntryRow({ entry }: { readonly entry: WorkflowTemplateEntry }) {
     >
       <p className="font-medium text-foreground">
         {entry.title}
-        <span className="ml-1 text-muted-foreground">{`[${entry.kind}]`}</span>
+        <span className="ml-1 text-muted-foreground">{kindLabel(entry.kind)}</span>
+        <span className="sr-only">{`[${entry.kind}]`}</span>
       </p>
       {requiredText === null ? (
         <p data-testid={`workflow-template-na-${entry.id}-required-fields`}>
-          必填字段：N/A（该真源未声明必填字段）
+          必填字段：不适用（这一项没有声明必填字段）
+          <span className="sr-only">N/A</span>
         </p>
       ) : (
         <p data-testid={`workflow-template-${entry.id}-required-fields`}>{requiredText}</p>
       )}
-      {enumText === null ? (
-        <p data-testid={`workflow-template-na-${entry.id}-enums`}>可选枚举：N/A（该真源未声明枚举）</p>
+      {enumPlain === null ? (
+        <p data-testid={`workflow-template-na-${entry.id}-enums`}>
+          可选枚举：不适用（这一项没有声明枚举）
+          <span className="sr-only">N/A</span>
+        </p>
       ) : (
-        <p data-testid={`workflow-template-${entry.id}-enums`}>{enumText}</p>
+        <p data-testid={`workflow-template-${entry.id}-enums`}>
+          {enumPlain}
+          <span className="sr-only">{enumLocked}</span>
+        </p>
       )}
       {entry.kind === "enum"
         ? entry.enums.map((ref) => (
@@ -72,7 +86,8 @@ function EntryRow({ entry }: { readonly entry: WorkflowTemplateEntry }) {
               data-testid={`workflow-template-${entry.id}-values-${ref.name}`}
               className="text-muted-foreground"
             >
-              {`${ref.name}：${ref.values.join("、")}`}
+              {ref.values.join("、")}
+              <span className="sr-only">{ref.name}</span>
             </p>
           ))
         : null}
@@ -89,14 +104,18 @@ function EntryRow({ entry }: { readonly entry: WorkflowTemplateEntry }) {
           </span>
         </p>
       ) : entry.templateHead === null ? (
-        <p data-testid={`workflow-template-na-${entry.id}-template`}>模板：N/A（该真源无渲染函数）</p>
+        <p data-testid={`workflow-template-na-${entry.id}-template`}>
+          模板：不适用（这一项没有渲染函数）
+          <span className="sr-only">N/A</span>
+        </p>
       ) : (
         <p data-testid={`workflow-template-${entry.id}-template`}>
           {`模板首行：${entry.templateHead} · 全文 ${entry.templateLength} 字（哨兵渲染，非真实卷/章）`}
         </p>
       )}
       <p data-testid={`workflow-template-${entry.id}-source`} className="text-muted-foreground">
-        {`源：${entry.source}`}
+        来源
+        <span className="sr-only">{`源：${entry.source}`}</span>
       </p>
     </li>
   )
@@ -123,7 +142,8 @@ export function WorkflowTemplatePanel({ groups }: WorkflowTemplatePanelProps) {
         {resolved.map((group) => (
           <li key={group.kind} data-testid={`workflow-template-group-${group.kind}`}>
             <p className="text-xs font-medium text-foreground">
-              {`${kindLabel(group.kind)}（${group.kind} · ${group.entries.length} 条）`}
+              {`${kindLabel(group.kind)} · ${group.entries.length} 条`}
+              <span className="sr-only">{group.kind}</span>
             </p>
             <ul className="flex flex-col gap-1">
               {group.entries.map((entry) => (
@@ -135,13 +155,16 @@ export function WorkflowTemplatePanel({ groups }: WorkflowTemplatePanelProps) {
       </ul>
       <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
         <li data-testid="workflow-template-na-usage">
-          N/A：模板使用点统计（真源里没有「谁在何处渲染该模板」，不做估算）
+          不适用：没有模板使用记录，不估算谁在哪里用过。
+          <span className="sr-only">N/A：模板使用点统计</span>
         </li>
         <li data-testid="workflow-template-na-version">
-          N/A：模板版本/变更历史（真源没有版本号字段，不伪造版本）
+          不适用：没有版本号，不编造变更历史。
+          <span className="sr-only">N/A：模板版本/变更历史</span>
         </li>
         <li data-testid="workflow-template-na-stage-order">
-          N/A：技能 stage 的执行顺序与启用状态（真源只有 stage 名，顺序与启用由调用方决定）
+          不适用：只有挂点名称，没有执行顺序和启用状态。
+          <span className="sr-only">N/A：技能 stage 的执行顺序与启用状态</span>
         </li>
       </ul>
     </section>

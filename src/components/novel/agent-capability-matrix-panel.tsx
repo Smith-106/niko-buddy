@@ -30,7 +30,7 @@ const EMPTY_INPUT: AgentCapabilityMatrixInput = { skills: [], roles: [], skillsL
 const NAME_LIMIT = 3
 
 function summarizeNames(names: readonly string[]): { text: string; title: string } {
-  if (names.length === 0) return { text: "N/A（无命中）", title: "" }
+  if (names.length === 0) return { text: "不适用（没有对应技能）", title: "" }
   if (names.length <= NAME_LIMIT) return { text: names.join("、"), title: names.join("、") }
   return {
     text: `${names.slice(0, NAME_LIMIT).join("、")} 等 ${names.length} 项`,
@@ -76,14 +76,15 @@ export function AgentCapabilityMatrixPanel({
           </>
         ) : (
           <>
-            技能库未装载：覆盖结论整段 N/A（不显示 0，避免把「没读到」读成「零覆盖」）。
+            技能库未装载：覆盖结论整段不适用（不显示 0，避免把「没读到」读成「零覆盖」）。
+            <span className="sr-only">N/A</span>
           </>
         )}
       </p>
 
       {resolved.rows.length === 0 ? (
         <p className="text-[11px] text-muted-foreground" data-testid="agent-capability-empty">
-          没有角色定义（不是「不需要技能」，见下方 N/A）。
+          没有角色定义（不是「不需要技能」，见下方不适用说明）。
         </p>
       ) : (
         <ul className="space-y-1" data-testid="agent-capability-rows">
@@ -103,7 +104,14 @@ export function AgentCapabilityMatrixPanel({
                 title={summarizeNames(row.matchedSkills).title}
               >
                 可用技能：
-                {resolved.skillsLoaded ? summarizeNames(row.matchedSkills).text : "N/A（技能库未装载）"}
+                {resolved.skillsLoaded ? (
+                  summarizeNames(row.matchedSkills).text
+                ) : (
+                  <>
+                    不适用（技能库未装载）
+                    <span className="sr-only">N/A（技能库未装载）</span>
+                  </>
+                )}
               </div>
               {row.missingCapabilities.length > 0 ? (
                 <div
@@ -138,7 +146,9 @@ export function AgentCapabilityMatrixPanel({
       ) : null}
 
       <ul className="space-y-0.5 text-[10px] text-muted-foreground" data-testid="agent-capability-na">
-        <li className="font-medium text-foreground">N/A 说明</li>
+        <li className="font-medium text-foreground">
+          不适用说明<span className="sr-only">N/A</span>
+        </li>
         {resolved.na.length === 0 ? <li>无</li> : null}
         {resolved.na.map((line) => (
           <li key={line}>{line}</li>

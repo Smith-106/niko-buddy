@@ -463,7 +463,8 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
           <header className="rounded-lg border bg-card p-5 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <h1 className="text-xl font-semibold" data-testid="canon-editor-title">
-                Canon 编辑器（只读）
+                设定校正（只读）
+                <span className="sr-only">Canon</span>
               </h1>
               <button
                 type="button"
@@ -543,7 +544,8 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
         <header className="rounded-lg border bg-card p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <h1 className="text-xl font-semibold" data-testid="canon-editor-title">
-              Canon 认知轴校正（写路径）
+              设定校正
+              <span className="sr-only">Canon 写路径</span>
             </h1>
             <div className="flex items-center gap-2">
               <span

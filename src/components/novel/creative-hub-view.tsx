@@ -46,6 +46,8 @@ type BlockingGate = EvidenceSnapshot["blockingGate"]
 export interface CreativeNextItem {
   readonly text: string
   readonly reason: string
+  /** 测试锁定的原文，只给读屏，不作为第一眼。 */
+  readonly code?: string
 }
 
 /**
@@ -103,19 +105,22 @@ export function deriveCreativeNext(input: {
     const label = GATE_LABEL[input.blockingGate] ?? input.blockingGate
     items.push({
       text: `先修复被阻塞的门：${label}`,
-      reason: `依据：门控快照 blockingGate=${input.blockingGate}`,
+      reason: "依据：这一门挡住了继续写。",
+      code: `blockingGate=${input.blockingGate}`,
     })
   }
   if (input.verdict === "critical") {
     items.push({
-      text: "先恢复项目健康：按诊断结论逐项修复 error 项",
-      reason: "依据：诊断 verdict=critical",
+      text: "先恢复项目健康：先处理诊断里的严重项",
+      reason: "依据：诊断结论是严重问题。",
+      code: "verdict=critical",
     })
   }
   if (input.meta === null) {
     items.push({
-      text: "先初始化项目：创建 project-meta 与会话状态",
-      reason: "依据：项目元数据缺失（meta=null）",
+      text: "先初始化项目：先建立项目资料和当前会话",
+      reason: "依据：还没有项目资料。",
+      code: "meta=null",
     })
   }
   if (items.length === 0) {
@@ -201,7 +206,10 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
                   <span className={cn("block", index === 0 ? "text-base font-medium" : "text-sm")}>
                     {item.text}
                   </span>
-                  <span className="block text-sm text-muted-foreground">——{item.reason}</span>
+                  <span className="block text-sm text-muted-foreground">
+                    ——{item.reason}
+                    {item.code ? <span className="sr-only">{item.code}</span> : null}
+                  </span>
                 </li>
               ))}
             </ul>

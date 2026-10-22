@@ -120,7 +120,7 @@ describe("WritingSkillLibraryView", () => {
       .map((button) => button.textContent?.trim())
 
     expect(sidebarButtons).toContain("导入")
-    expect(sidebarButtons).toContain("新建 Skill")
+    expect(sidebarButtons).toContain("新建技能")
     expect(sidebarButtons).not.toContain("导入文件")
     expect(sidebarButtons).not.toContain("导入文件夹")
     expect(container.textContent).not.toContain("导出当前")
@@ -133,10 +133,10 @@ describe("WritingSkillLibraryView", () => {
     const { container, root } = await renderLibrary()
 
     expect(container.querySelector('[data-testid="writing-skill-library-view"]')).not.toBeNull()
-    expect(container.textContent).toContain("写作 Skill")
+    expect(container.textContent).toContain("写作技能")
 
     const createButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-      .find((button) => button.textContent?.includes("新建 Skill"))
+      .find((button) => button.textContent?.includes("新建技能"))
     await click(createButton ?? null)
 
     await setInputValue(container.querySelector('[data-testid="writing-skill-name-input"]')!, "三翻四抖")

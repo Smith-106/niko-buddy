@@ -8,6 +8,7 @@ import type { FinalChapterSavePhase } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { deleteFile, fileExists, readFile, writeFile, writeFileAtomic, listDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { restoreTrashItem } from "@/lib/trash"
 import { formatOperationError } from "@/lib/format-operation-error"
 import { getFileCategory, isBinary } from "@/lib/file-types"
 import { WikiEditor } from "@/components/editor/wiki-editor"
@@ -61,6 +62,7 @@ export function PreviewPanel() {
   const selectedFile = useWikiStore((s) => s.selectedFile)
   const selectedTrashItem = useWikiStore((s) => s.selectedTrashItem)
   const setSelectedTrashItem = useWikiStore((s) => s.setSelectedTrashItem)
+  const setActiveView = useWikiStore((s) => s.setActiveView)
   const fileContent = useWikiStore((s) => s.fileContent)
   const novelMode = useWikiStore((s) => s.novelMode)
   const chatExpanded = useWikiStore((s) => s.chatExpanded)
@@ -78,6 +80,7 @@ export function PreviewPanel() {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [isSavingFinal, setIsSavingFinal] = useState(false)
   const [saveStatus, setSaveStatus] = useState<string>("")
+  const [restoringTrash, setRestoringTrash] = useState(false)
   const [showSnapshot, setShowSnapshot] = useState(false)
   const [showOutlineSnapshot, setShowOutlineSnapshot] = useState(false)
   const [outlineSnapshotNumber, setOutlineSnapshotNumber] = useState<number | null>(null)
@@ -1052,6 +1055,30 @@ export function PreviewPanel() {
     }
   }, [])
 
+  async function handleRestoreTrash() {
+    if (!project || !selectedTrashItem || restoringTrash) return
+    setRestoringTrash(true)
+    try {
+      const pp = normalizePath(project.path)
+      const result = await restoreTrashItem(pp, selectedTrashItem.id)
+      try {
+        setFileTree(await listDirectory(pp))
+      } catch {
+        // 目录刷新失败不阻断已完成的恢复
+      }
+      bumpDataVersion()
+      setSelectedTrashItem(null)
+      if (result.item.kind !== "history") {
+        setActiveView("wiki")
+        setSelectedFile(result.restoredPath)
+      }
+    } catch (err) {
+      console.error("[PreviewPanel] restore failed:", err)
+    } finally {
+      setRestoringTrash(false)
+    }
+  }
+
   // Check if we're showing a trash item
   if (selectedTrashItem) {
     const category = getFileCategory(selectedTrashItem.originalPath)
@@ -1064,6 +1091,7 @@ export function PreviewPanel() {
           <div className="flex items-center gap-2">
             <div className="flex min-w-0 flex-1">
               <div className="flex flex-col min-w-0 flex-1">
+                <div className="text-sm font-medium">要留下这条，点恢复</div>
                 <div className="text-sm font-medium truncate min-w-0">{selectedTrashItem.name}</div>
                 <div className="text-xs text-muted-foreground truncate min-w-0">
                   {t("trash.deletedItem", { defaultValue: "已删除项目" })} · {selectedTrashItem.kind === "chapter" ? t("trash.kindChapter", { defaultValue: "章节" }) : selectedTrashItem.kind === "outline" ? t("trash.kindOutline", { defaultValue: "大纲" }) : selectedTrashItem.kind === "history" ? t("trash.kindHistory", { defaultValue: "历史记录" }) : t("trash.kindPage", { defaultValue: "页面" })}
@@ -1073,6 +1101,14 @@ export function PreviewPanel() {
                 </div>
               </div>
             </div>
+            <button
+              type="button"
+              onClick={() => void handleRestoreTrash()}
+              disabled={restoringTrash || !project}
+              className="shrink-0 rounded border px-2 py-1 text-xs"
+            >
+              {restoringTrash ? "正在恢复" : "恢复"}
+            </button>
             <button
               onClick={() => setSelectedTrashItem(null)}
               className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted"

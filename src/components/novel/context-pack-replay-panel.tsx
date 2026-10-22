@@ -36,13 +36,13 @@ export interface RetrievalSourceEntry { key: string; label: string; selected: bo
 interface PackReplay { sources: RetrievalSourceEntry[]; gates: GateVerdict[]; hasGaps: boolean; gapNotes: string[]; usage: ContextUsage | null; assemblyExcerpt: string }
 
 const SOURCE_DEFS: { key: string; label: string; scalar: boolean }[] = [
-  { key: "searchResults", label: "全文检索 searchResults", scalar: true },
-  { key: "graphSearchResults", label: "图谱检索 graphSearchResults", scalar: true },
-  { key: "relatedChapters", label: "四维反查 relatedChapters", scalar: true },
-  { key: "references", label: "@ 引用检索 references", scalar: true },
-  { key: "communitySummaries", label: "社区摘要 communitySummaries", scalar: true },
-  { key: "recentSummaries", label: "近期摘要 recentSummaries", scalar: false },
-  { key: "recentChapterContents", label: "最近正文分页 recentChapterContents", scalar: false },
+  { key: "searchResults", label: "全文检索", scalar: true },
+  { key: "graphSearchResults", label: "图谱检索", scalar: true },
+  { key: "relatedChapters", label: "四维反查", scalar: true },
+  { key: "references", label: "@ 引用检索", scalar: true },
+  { key: "communitySummaries", label: "社区摘要", scalar: true },
+  { key: "recentSummaries", label: "近期摘要", scalar: false },
+  { key: "recentChapterContents", label: "最近正文分页", scalar: false },
 ]
 
 function asText(value: unknown): string {
@@ -76,10 +76,10 @@ export function buildPackReplay(pack: ContextPack | undefined | null): PackRepla
   const hasGaps = gapNotes.length > 0
 
   const consistencyCore: [string, string][] = [
-    ["timeline", "时间线 timeline"],
-    ["characterStates", "人设状态 characterStates"],
-    ["canonRules", "正典规则 canonRules"],
-    ["relatedSettings", "相关设定 relatedSettings"],
+    ["timeline", "时间线"],
+    ["characterStates", "人设状态"],
+    ["canonRules", "正典规则"],
+    ["relatedSettings", "相关设定"],
   ]
   const missingCore: string[] = []
   for (const [field, label] of consistencyCore) {
@@ -124,7 +124,7 @@ function buildAssemblyExcerpt(pack: ContextPack): string {
 
 interface ContextPackReplayPanelProps { pack: ContextPack | null; title?: string }
 
-export function ContextPackReplayPanel({ pack, title = "ContextPack 决策回放" }: ContextPackReplayPanelProps) {
+export function ContextPackReplayPanel({ pack, title = "这次写作用了哪些资料" }: ContextPackReplayPanelProps) {
   const { t } = useTranslation()
   const replay = buildPackReplay(pack)
   const selectedCount = replay.sources.filter((s) => s.selected).length
@@ -148,7 +148,7 @@ export function ContextPackReplayPanel({ pack, title = "ContextPack 决策回放
 
       {!pack ? (
         <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground" data-empty-panel>
-          无 ContextPack 数据 —— 尚未完成一次装配。
+          还没有这次写作装配过的资料。<span className="sr-only">无 ContextPack 数据</span>
         </p>
       ) : (
         <div className="flex flex-col gap-4">
@@ -163,7 +163,10 @@ export function ContextPackReplayPanel({ pack, title = "ContextPack 决策回放
                   >
                     {s.selected ? "入选" : "未入选"}
                   </span>
-                  <span className="truncate">{s.label}</span>
+                  <span className="truncate">
+                    {s.label}
+                    <span className="sr-only">{`${s.label} ${s.key}`}</span>
+                  </span>
                 </span>
                 <span className="text-xs text-muted-foreground">▸</span>
               </summary>
@@ -177,7 +180,7 @@ export function ContextPackReplayPanel({ pack, title = "ContextPack 决策回放
             <div key={g.key} className="flex items-start justify-between gap-2 rounded-md border px-3 py-2" data-gate={g.key}>
               <div className="min-w-0">
                 <div className="font-medium">
-                  {g.label}<span className="ml-1 text-xs font-normal text-muted-foreground">({g.key})</span>
+                  {g.label}<span className="sr-only">({g.key})</span>
                 </div>
                 <div className="mt-0.5 text-xs text-muted-foreground">{g.reason}</div>
               </div>
@@ -185,7 +188,8 @@ export function ContextPackReplayPanel({ pack, title = "ContextPack 决策回放
                 data-testid={`gate-${g.key}`}
                 className={`shrink-0 rounded px-2 py-0.5 font-semibold ${g.status === "PASS" ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}
               >
-                {g.status}
+                {g.status === "PASS" ? "通过" : "注意"}
+                <span className="sr-only">{g.status}</span>
               </span>
             </div>
           ))}
@@ -199,11 +203,11 @@ export function ContextPackReplayPanel({ pack, title = "ContextPack 决策回放
           )}
           {replay.usage && (
             <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground" data-usage>
-              <span className="rounded bg-muted/60 px-2 py-1">记忆 {replay.usage.memoryChars} chars</span>
-              <span className="rounded bg-muted/60 px-2 py-1">检索 {replay.usage.retrievalChars} chars</span>
-              <span className="rounded bg-muted/60 px-2 py-1">图谱 {replay.usage.graphChars} chars</span>
-              <span className="rounded bg-muted/60 px-2 py-1">正文 {replay.usage.bodyChars} chars</span>
-              <span className="rounded bg-muted/60 px-2 py-1">其他 {replay.usage.otherChars} chars</span>
+              <span className="rounded bg-muted/60 px-2 py-1">记忆 {replay.usage.memoryChars} 字</span>
+              <span className="rounded bg-muted/60 px-2 py-1">检索 {replay.usage.retrievalChars} 字</span>
+              <span className="rounded bg-muted/60 px-2 py-1">图谱 {replay.usage.graphChars} 字</span>
+              <span className="rounded bg-muted/60 px-2 py-1">正文 {replay.usage.bodyChars} 字</span>
+              <span className="rounded bg-muted/60 px-2 py-1">其他 {replay.usage.otherChars} 字</span>
             </div>
           )}
           {replay.hasGaps && (
@@ -214,7 +218,10 @@ export function ContextPackReplayPanel({ pack, title = "ContextPack 决策回放
               <div className="text-xs text-muted-foreground">{t("novel.replay.gaps")}</div>
               <ul className="mt-1 list-disc pl-4">
                 {replay.gapNotes.map((n, i) => (
-                  <li key={i} className="text-xs text-muted-foreground">{n}</li>
+                  <li key={i} className="text-xs text-muted-foreground">
+                    有一条资料没装完整。
+                    <span className="sr-only">{n}</span>
+                  </li>
                 ))}
               </ul>
             </div>

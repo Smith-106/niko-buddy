@@ -396,7 +396,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
       setSelectedAuraId((current) => current || imported[0]?.auraId || "")
       setSelectedCharacterIds(new Set())
       await refreshProjectState(currentProject.path)
-      toast.success(`已添加 ${imported.length} 个角色 Skill 到自定义灵魂`)
+      toast.success(`已添加 ${imported.length} 个角色技能到自定义灵魂`)
     } catch (err) {
       const errorMsg = err instanceof Error && err.message ? err.message : "未知错误"
       toast.error(`添加失败：${errorMsg}`)
@@ -601,7 +601,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
               </div>
             </div>
             <div className="mt-2 text-xs text-muted-foreground">
-              也可以在拆书库主界面统一管理文风、角色 Skill 和绑定关系。
+              也可以在拆书库主界面统一管理文风、角色技能和绑定关系。
             </div>
             {styleProfile && (
               <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">

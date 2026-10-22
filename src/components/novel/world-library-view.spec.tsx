@@ -136,7 +136,7 @@ describe("世界蓝图：文件存在但解析失败 ≠ 还没生成", () => {
     const novel = await import("@/lib/novel")
     const existsSpy = vi.spyOn(fsMod, "fileExists").mockResolvedValue(true)
     const loadSpy = vi.spyOn(novel, "loadWorldBlueprint").mockResolvedValue(null)
-    await expect(mod.loadWorldBlueprintSnapshot("C:/p")).rejects.toThrow(/exists but could not be parsed/)
+    await expect(mod.loadWorldBlueprintSnapshot("C:/p")).rejects.toThrow(/世界蓝图存在，但无法解析/)
     existsSpy.mockRestore()
     loadSpy.mockRestore()
   })

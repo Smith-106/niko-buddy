@@ -214,7 +214,7 @@ describe("ChatPanel — 补覆盖：深度生成分支", () => {
     renderPanel()
     setDeepMode(true)
     await sendText("深度写")
-    expect(lastFinalize()[0]).toContain("pause 落盘失败：pause-string")
+    expect(lastFinalize()[0]).toContain("暂停状态没能保存：pause-string")
     warnSpy.mockRestore()
     setDeepMode(false)
   })
@@ -282,7 +282,7 @@ describe("ChatPanel — 补覆盖：深度生成分支", () => {
     setDeepMode(true)
     await sendText("深度写")
     expect(mocks.pauseDeepChapterSession).toHaveBeenCalledWith(
-      expect.objectContaining({ errorMessage: expect.stringContaining("transport inactivity timeout") }),
+      expect.objectContaining({ errorMessage: expect.stringContaining("写到一半的正文已留下") }),
     )
     setDeepMode(false)
   })
@@ -514,7 +514,7 @@ describe("ChatPanel — 补覆盖：继续未完成分支", () => {
     fireEvent.click(screen.getByTestId("continue-unfinished"))
     await flushAsync()
     expect(mocks.pauseDeepChapterSession).toHaveBeenCalledWith(
-      expect.objectContaining({ errorMessage: expect.stringContaining("transport inactivity timeout") }),
+      expect.objectContaining({ errorMessage: expect.stringContaining("写到一半的正文已留下") }),
     )
   })
 
@@ -593,7 +593,7 @@ describe("ChatPanel — 补覆盖：继续未完成分支", () => {
     renderPanel()
     fireEvent.click(screen.getByTestId("continue-unfinished"))
     await flushAsync()
-    expect(lastFinalize()[0]).toContain("pause 落盘失败：pause-string")
+    expect(lastFinalize()[0]).toContain("暂停状态没能保存：pause-string")
     warnSpy.mockRestore()
   })
 
@@ -797,7 +797,7 @@ describe("ChatPanel — 补覆盖：exemplar 防御分支", () => {
     window.getSelection = (() => ({ toString: () => "选段" })) as any
     setConversation("conv-1")
     renderPanel()
-    fireEvent.click(screen.getByLabelText("标记为 Style Exemplar"))
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
     rerenderPanel()
     expect(screen.getByTestId("dialog")).toBeInTheDocument()
     mocks.wikiState.project = null
@@ -813,11 +813,11 @@ describe("ChatPanel — 补覆盖：exemplar 防御分支", () => {
     window.getSelection = (() => ({ toString: () => "选段" })) as any
     setConversation("conv-1")
     renderPanel()
-    fireEvent.click(screen.getByLabelText("标记为 Style Exemplar"))
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
     rerenderPanel()
     mocks.wikiState.project = null
     rerenderPanel()
-    fireEvent.click(screen.getByText("1★E"))
+    fireEvent.click(screen.getByText("1★开"))
     await flushAsync()
     expect(mocks.appendExemplarABSample).not.toHaveBeenCalled()
   })
@@ -828,7 +828,7 @@ describe("ChatPanel — 补覆盖：exemplar 防御分支", () => {
     window.getSelection = (() => null) as any
     setConversation("conv-1")
     renderPanel()
-    fireEvent.click(screen.getByLabelText("标记为 Style Exemplar"))
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
     expect(screen.queryByTestId("dialog")).toBeNull()
   })
 
@@ -839,7 +839,7 @@ describe("ChatPanel — 补覆盖：exemplar 防御分支", () => {
     window.getSelection = (() => ({ toString: () => "选段" })) as any
     setConversation("conv-1")
     renderPanel()
-    fireEvent.click(screen.getByLabelText("标记为 Style Exemplar"))
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
     rerenderPanel()
     fireEvent.click(screen.getByText("标记锚点"))
     await flushAsync()

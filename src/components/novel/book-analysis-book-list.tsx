@@ -63,7 +63,7 @@ export function BookAnalysisBookList({ books, selectedBookId, onSelectBook, onDe
                         <div className="mt-0.5 truncate text-xs text-muted-foreground">{book.metadata.author}</div>
                       )}
                       <div className="mt-1 text-xs text-muted-foreground">
-                        {book.metadata.totalChapters} 章 · {book.characters.length} 角色 · {book.skills.length} Skill
+                        {book.metadata.totalChapters} 章 · {book.characters.length} 角色 · {book.skills.length} 技能
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
                         <span className={book.styleStatus === "enabled" ? "text-primary" : "text-muted-foreground"}>

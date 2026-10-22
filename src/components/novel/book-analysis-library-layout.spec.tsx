@@ -114,7 +114,7 @@ describe("BookAnalysisLibraryLayout", () => {
     expect(html).toContain("启用文风")
     expect(html).toContain("凡人修仙传")
     expect(html).toContain("作品文风")
-    expect(html).toContain("角色 Skill")
+    expect(html).toContain("角色技能")
     expect(html).toContain("当前 AI 会话约束")
     expect(html).toContain("主角")
     expect(html).toContain("韩立")
@@ -167,7 +167,7 @@ describe("BookAnalysisLibraryLayout", () => {
     )
 
     expect(html).toContain("还没有拆书作品")
-    expect(html).toContain("导入 TXT 小说后，可以提取角色 Skill 和作品文风。")
+    expect(html).toContain("导入 TXT 小说后，可以提取角色技能和作品文风。")
     expect(html).not.toContain("重新提取角色")
   })
 

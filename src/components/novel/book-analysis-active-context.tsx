@@ -43,7 +43,7 @@ export function BookAnalysisActiveContext({ enabledStyle, bindings }: BookAnalys
             ) : (
               bindings.map((binding) => (
                 <div key={`${binding.characterName}-${binding.auraId}`} className="rounded-md bg-muted/40 px-3 py-2 text-xs">
-                  {binding.characterName} → {binding.auraName || "未知角色 Skill"}
+                  {binding.characterName} → {binding.auraName || "未知角色技能"}
                 </div>
               ))
             )}

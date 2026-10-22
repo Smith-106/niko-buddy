@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   createDirectory: vi.fn(),
   writeFileAtomic: vi.fn(),
   commitAcceptedDeepChapterDraft: vi.fn(),
+  registerManagedCampaignDraft: vi.fn(),
   ingestChapter: vi.fn(),
   defaultCanonDualWriteDeps: vi.fn(() => ({})),
 }))
@@ -40,6 +41,10 @@ vi.mock("@/commands/fs", () => ({
 
 vi.mock("./formal-writeback", () => ({
   commitAcceptedDeepChapterDraft: mocks.commitAcceptedDeepChapterDraft,
+}))
+
+vi.mock("./novel-session-status", () => ({
+  registerManagedCampaignDraft: mocks.registerManagedCampaignDraft,
 }))
 
 vi.mock("./chapter-ingest", () => ({
@@ -60,6 +65,8 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     mocks.writeFileAtomic.mockResolvedValue(undefined)
     mocks.commitAcceptedDeepChapterDraft.mockReset()
     mocks.commitAcceptedDeepChapterDraft.mockResolvedValue(undefined)
+    mocks.registerManagedCampaignDraft.mockReset()
+    mocks.registerManagedCampaignDraft.mockResolvedValue("draft://autonomous-campaign")
     mocks.ingestChapter.mockReset()
     mocks.ingestChapter.mockResolvedValue({ snapshot: { chapter: 1 } })
   })
@@ -203,8 +210,36 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
 
     expect(acceptResult.acceptedCount).toBe(2)
     expect(acceptResult.chapterPaths).toHaveLength(2)
-    // H1 收拢：经正式晋升通道落盘，失败降级直写
+    expect(mocks.registerManagedCampaignDraft).toHaveBeenCalledTimes(2)
     expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledTimes(2)
+    const registerOrders = mocks.registerManagedCampaignDraft.mock.invocationCallOrder
+    const commitOrders = mocks.commitAcceptedDeepChapterDraft.mock.invocationCallOrder
+    expect(registerOrders[0]).toBeLessThan(commitOrders[0])
+    expect(commitOrders[0]).toBeLessThan(registerOrders[1])
+    expect(registerOrders[1]).toBeLessThan(commitOrders[1])
+    for (const index of [0, 1]) {
+      const registered = mocks.registerManagedCampaignDraft.mock.calls[index][0] as {
+        conversationId: string
+        chapterNumber: number
+        userRequest: string
+        finalContent: string
+      }
+      const committed = mocks.commitAcceptedDeepChapterDraft.mock.calls[index][0] as {
+        conversationId: string
+        chapterNumber: number
+        userRequest: string
+        finalChapterContent: string
+        decisionGates?: unknown
+        reviewResults?: unknown
+      }
+      expect(registered.conversationId).toBe(committed.conversationId)
+      expect(registered.chapterNumber).toBe(committed.chapterNumber)
+      expect(registered.userRequest).toBe(committed.userRequest)
+      expect(registered.finalContent).toBe(committed.finalChapterContent)
+      expect(committed.finalChapterContent).toContain("chapter_status: final")
+      expect(committed.decisionGates).toBeUndefined()
+      expect(committed.reviewResults).toBeUndefined()
+    }
 
     // 验证正式通道入参：conversationId / overwriteExisting / taskBrief 透传
     const firstCommitInput = mocks.commitAcceptedDeepChapterDraft.mock.calls[0][0] as {
@@ -233,7 +268,7 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     expect(acceptResult.ingestedCount).toBe(2)
   })
 
-  it("H1: 晋升通道失败降级直写 —— 批跑不断且计入成功", async () => {
+  it("DF-1: 晋升通道失败不直写、不计入成功，后续章仍提交", async () => {
     mocks.commitAcceptedDeepChapterDraft
       .mockRejectedValueOnce(new Error("status.json 不可用"))
       .mockResolvedValue(undefined)
@@ -266,13 +301,13 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       autoIngest: false,
     })
 
-    // 失败章降级直写落盘：计入 acceptedCount / chapterPaths，批跑不断
-    expect(res.acceptedCount).toBe(2)
+    expect(res.acceptedCount).toBe(1)
+    expect(res.acceptedCount).toBe(res.chapterPaths.length)
     expect(res.chapterPaths).toEqual([
-      "/mock/project/wiki/chapters/chapter-001.md",
       "/mock/project/wiki/chapters/chapter-002.md",
     ])
-    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(mocks.registerManagedCampaignDraft).toHaveBeenCalledTimes(2)
     expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledTimes(2)
   })
 
@@ -307,6 +342,14 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledTimes(2)
     expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     expect(mocks.ingestChapter).toHaveBeenCalledTimes(2)
+    expect(mocks.registerManagedCampaignDraft).toHaveBeenCalledTimes(2)
+    for (const call of mocks.registerManagedCampaignDraft.mock.calls) {
+      expect(call[0].decisionGates).toEqual({
+        consistency: "passed",
+        antiAi: "passed",
+        quality: "passed",
+      })
+    }
   })
 
   it("全自动巡航模式安全挂起：某章出现 blocked 时停止后续连写并保留现场", async () => {
@@ -484,9 +527,8 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
       cruiseMode: true,
     })
 
-    expect(report.results[0].autoAccepted).toBe(true)
-    // H1: 晋升通道失败降级直写正文（批跑不断；autoAccepted 仍为 true，因正文已落盘）
-    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    expect(report.results[0].autoAccepted).toBe(false)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("batchAcceptCampaignDrafts 默认标题回退与过滤空白内容", async () => {

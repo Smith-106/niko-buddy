@@ -85,7 +85,7 @@ describe("BookAnalysisBookList", () => {
       skills: [{ id: "s1", characterId: "c1", characterName: "韩立", skillContent: "# 韩立", sourceBook: "凡人修仙传", chapterRange: ["1"], createdAt: 1 }],
     })
     render(<BookAnalysisBookList books={[book]} selectedBookId={null} onSelectBook={vi.fn()} />)
-    expect(screen.getByText(/10 章 · 1 角色 · 1 Skill/)).toBeInTheDocument()
+    expect(screen.getByText(/10 章 · 1 角色 · 1 技能/)).toBeInTheDocument()
   })
 
   it("renders health badges from healthByBookId (波2-D 列表健康列) and omits when absent", () => {

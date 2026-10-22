@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => {
     countVectorChunks: vi.fn(),
     legacyVectorRowCount: vi.fn(),
     dropLegacyVectorTable: vi.fn(),
+    runCanonHistoryBackfill: vi.fn(),
     listen: vi.fn(),
     unlisten: vi.fn(),
     project: { path: "E:/Novel", name: "Test Novel" },
@@ -61,6 +62,10 @@ vi.mock("@/lib/novel/export", async (importOriginal) => {
 
 vi.mock("@/lib/reveal-in-file-manager", () => ({
   revealInFileManager: mocks.revealInFileManager,
+}))
+
+vi.mock("@/lib/novel/canon-backfill", () => ({
+  runCanonHistoryBackfill: mocks.runCanonHistoryBackfill,
 }))
 
 vi.mock("@/lib/embedding", async (importOriginal) => {
@@ -128,6 +133,7 @@ beforeEach(() => {
   mocks.countVectorChunks.mockReset()
   mocks.legacyVectorRowCount.mockReset()
   mocks.dropLegacyVectorTable.mockReset()
+  mocks.runCanonHistoryBackfill.mockReset()
   mocks.listen.mockReset()
   mocks.unlisten.mockReset()
   mocks.exportBackup.mockResolvedValue(exportResult())
@@ -772,5 +778,98 @@ describe("DataManagementSection", () => {
       expect(mocks.countFinalChapters).toHaveBeenCalledWith("E:/Novel")
     })
     expect(screen.queryByTestId("vector-clean-error")).toBeNull()
+  })
+
+  it("canon backfill calls the current project path and shows the report", async () => {
+    mocks.runCanonHistoryBackfill.mockResolvedValueOnce({
+      projectPath: "E:/Novel",
+      discoveredChapters: [1, 2, 3],
+      selectedChapters: [1, 2, 3],
+      factsTotal: 2,
+      factsWritten: 2,
+      factsQueued: 0,
+      consistent: true,
+      divergences: [],
+      perChapter: [
+        { chapter: 1, status: "backfilled", factCount: 2, written: 2, queued: 0 },
+        { chapter: 2, status: "no-facts", factCount: 0, written: 0, queued: 0 },
+        { chapter: 3, status: "snapshot-unreadable", factCount: 0, written: 0, queued: 0 },
+      ],
+    })
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.canonBackfillButton"))
+    await waitFor(() => {
+      expect(mocks.runCanonHistoryBackfill).toHaveBeenCalledWith("E:/Novel")
+    })
+    expect(screen.getByText("settings.sections.dataManagement.canonBackfillSummary")).toBeInTheDocument()
+    expect(screen.getByText("settings.sections.dataManagement.canonBackfillConsistent")).toBeInTheDocument()
+  })
+
+  it("canon backfill shows the divergent report without claiming a gate pass", async () => {
+    mocks.runCanonHistoryBackfill.mockResolvedValueOnce({
+      projectPath: "E:/Novel",
+      discoveredChapters: [1],
+      selectedChapters: [1],
+      factsTotal: 1,
+      factsWritten: 0,
+      factsQueued: 1,
+      consistent: false,
+      divergences: [{ digest: "d", reasons: ["queued"] }],
+      perChapter: [{ chapter: 1, status: "backfilled", factCount: 1, written: 0, queued: 1 }],
+    })
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.canonBackfillButton"))
+    await waitFor(() => {
+      expect(screen.getByText("settings.sections.dataManagement.canonBackfillDivergent")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("settings.sections.dataManagement.canonBackfillConsistent")).not.toBeInTheDocument()
+  })
+
+  it("canon backfill shows String(err) and leaves the report empty", async () => {
+    mocks.runCanonHistoryBackfill.mockRejectedValueOnce(new Error("canon ipc down"))
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.canonBackfillButton"))
+    await waitFor(() => {
+      expect(screen.getByText("Error: canon ipc down")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("settings.sections.dataManagement.canonBackfillSummary")).not.toBeInTheDocument()
+  })
+
+  it("canon backfill button shows the running label until the report returns", async () => {
+    let resolveBackfill: ((report: object) => void) | undefined
+    mocks.runCanonHistoryBackfill.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveBackfill = resolve
+        }),
+    )
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.canonBackfillButton"))
+    await flushAsync()
+    expect(screen.getByText("settings.sections.dataManagement.canonBackfillRunning")).toBeInTheDocument()
+    await act(async () => {
+      resolveBackfill?.({
+        projectPath: "E:/Novel",
+        discoveredChapters: [],
+        selectedChapters: [],
+        factsTotal: 0,
+        factsWritten: 0,
+        factsQueued: 0,
+        consistent: true,
+        divergences: [],
+        perChapter: [],
+      })
+    })
+    await waitFor(() => {
+      expect(screen.getByText("settings.sections.dataManagement.canonBackfillSummary")).toBeInTheDocument()
+    })
+  })
+
+  it("canon backfill button is disabled and explains when no project is open", () => {
+    mocks.project.path = ""
+    render(<DataManagementSection />)
+    expect(screen.getByText("settings.sections.dataManagement.canonBackfillButton")).toBeDisabled()
+    expect(screen.getByText("settings.sections.dataManagement.canonBackfillNoProject")).toBeInTheDocument()
+    mocks.project.path = "E:/Novel"
   })
 })

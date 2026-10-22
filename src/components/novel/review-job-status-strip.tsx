@@ -7,7 +7,16 @@ import type { ReviewJobUiModel } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { cn } from "@/lib/utils"
 
+const PHASE_PLAIN: Record<string, string> = {
+  idle: "审稿空闲",
+  queued: "审稿排队",
+  running: "审稿进行中",
+  done: "审稿完成",
+  failed: "审稿失败",
+}
+
 export function ReviewJobStatusStrip({
+
   className,
   refreshKey,
 }: {
@@ -69,14 +78,23 @@ export function ReviewJobStatusStrip({
         className,
       )}
       data-testid="review-job-status-strip"
-      title="Write/review split — review never blocks accept"
+      title="审稿不挡住写作"
     >
-      <span className="font-medium text-foreground/80">{model.phaseLabel}</span>
+      <span className="font-medium text-foreground/80">
+        {PHASE_PLAIN[model.phase] ?? "审稿"}
+        <span className="sr-only">{model.phaseLabel}</span>
+      </span>
       {model.chapterNumber != null && (
-        <span className="ml-1.5">ch={model.chapterNumber}</span>
+        <span className="ml-1.5">
+          第 {model.chapterNumber} 章
+          <span className="sr-only">ch={model.chapterNumber}</span>
+        </span>
       )}
-      <span className="ml-1.5 opacity-80">· write unblocked</span>
-      <div className="mt-0.5 truncate font-mono text-[0.625rem] opacity-70">
+      <span className="ml-1.5 opacity-80">
+        · 写作没有被挡住
+        <span className="sr-only">write unblocked</span>
+      </span>
+      <div className="sr-only">
         {formatReviewJobStatusLine(
           // reconstruct minimal for line — model already has statusLine
           {

@@ -28,7 +28,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import { DEFAULT_NOVEL_CONFIG, type NovelConfig } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
 import { recordModuleHit } from "./module-heat"
-import { createDirectory, writeFileAtomic } from "@/commands/fs"
+import { createDirectory } from "@/commands/fs"
 import { toErrorMessage } from "@/lib/utils"
 
 function countWords(text: string): number {
@@ -64,6 +64,7 @@ import { decidePausedChapter, type PausedChapterDecision } from "./cruise-wiring
 import { updateChapterStatus } from "./chapter-meta"
 import { normalizeChapterDocument, resolveChapterTitle } from "./chapter-typography"
 import { commitAcceptedDeepChapterDraft } from "./formal-writeback"
+import { registerManagedCampaignDraft } from "./novel-session-status"
 
 /**
  * M2 巡航满血预设：缺省 novelConfig 时默认开启场景拆解（sceneBreakdownEnabled），
@@ -338,6 +339,7 @@ export async function runAutonomousDraftCampaign(
                 taskBrief: genResult.taskBrief,
                 draftContent: genResult.draftContent,
                 reviewResults: genResult.reviewResults,
+                decisionGates: genResult.decisionGates,
                 revised: genResult.revised,
                 wordCount: words,
                 status: "ready",
@@ -566,6 +568,7 @@ export async function batchAcceptCampaignDrafts(
   await createDirectory(chapterDir)
 
   const chapterPaths: string[] = []
+  let acceptedCount = 0
   let ingestedCount = 0
 
   // 仅提交非空且未失败的章节草稿（纯过滤逻辑见 filterAcceptableChapters，便于单测）
@@ -608,8 +611,16 @@ export async function batchAcceptCampaignDrafts(
         ? ch.taskBrief
         : `请撰写第 ${chapterNum} 章正文。`
     try {
-      // H1 晋升收拢：经正式晋升通道落盘（状态晋升 + 情绪账本 + promotion 登记）；
-      // 通道失败（如 status.json 不可用）时降级直写，保证批跑不断。
+      // DF-1：先注册 ready 受管草稿，再走正式晋升。任一步失败都不直写正文、不计入成功。
+      await registerManagedCampaignDraft({
+        projectPath: pp,
+        conversationId: "autonomous-campaign",
+        userRequest,
+        chapterNumber: chapterNum,
+        finalContent,
+        reviewResults: ch.reviewResults,
+        decisionGates: ch.decisionGates,
+      })
       await commitAcceptedDeepChapterDraft({
         projectPath: pp,
         conversationId: "autonomous-campaign",
@@ -620,10 +631,9 @@ export async function batchAcceptCampaignDrafts(
         overwriteExisting: true,
       })
       chapterPaths.push(filePath)
+      acceptedCount += 1
     } catch (commitErr) {
-      console.warn(`[campaign-batch-accept] 正式晋升通道失败，降级直写 ${filePath}:`, commitErr)
-      await writeFileAtomic(filePath, finalContent)
-      chapterPaths.push(filePath)
+      console.warn(`[campaign-batch-accept] 正式晋升通道失败，未直写 ${filePath}:`, commitErr)
     }
   }
 
@@ -659,7 +669,7 @@ export async function batchAcceptCampaignDrafts(
   })
 
   return {
-    acceptedCount: validChapters.length,
+    acceptedCount,
     chapterPaths,
     ingestedCount,
   }

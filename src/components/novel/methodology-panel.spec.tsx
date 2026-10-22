@@ -99,7 +99,7 @@ describe("MethodologyPanel", () => {
     rerender(<MethodologyPanel projection={projectionWithRealSources} />)
     const promptHint = screen.getByTestId("methodology-na-prompt-hint-pre_write_prompt").textContent ?? ""
     const trigger = screen.getByTestId("methodology-na-trigger-pre_write_prompt").textContent ?? ""
-    expect(promptHint).toBe("promptHint：有")
+    expect(promptHint).toBe("提示：有")
     expect(promptHint).not.toContain("N/A")
     expect(trigger).toBe("命中 4 次")
     expect(trigger).not.toContain("N/A")

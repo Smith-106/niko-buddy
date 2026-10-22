@@ -88,7 +88,7 @@ export function TensionCurveChart({ tensionCurve }: TensionCurveChartProps) {
         },
       },
       legend: {
-        data: ["Raw 原始张力", "Smoothed 平滑张力"],
+        data: ["原始张力", "平滑张力"],
         bottom: 0,
         textStyle: { fontSize: 10 },
       },
@@ -110,7 +110,7 @@ export function TensionCurveChart({ tensionCurve }: TensionCurveChartProps) {
       },
       series: [
         {
-          name: "Raw 原始张力",
+          name: "原始张力",
           type: "line",
           data: rawData,
           smooth: false,
@@ -119,7 +119,7 @@ export function TensionCurveChart({ tensionCurve }: TensionCurveChartProps) {
           areaStyle: { opacity: 0.05 },
         },
         {
-          name: "Smoothed 平滑张力",
+          name: "平滑张力",
           type: "line",
           data: smoothedData,
           smooth: true,

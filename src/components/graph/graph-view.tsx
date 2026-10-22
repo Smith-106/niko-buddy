@@ -38,6 +38,30 @@ const GRAPH_EDGE_COLOR_KEY = "lk-graph-edge-color"
 const GRAPH_EDGE_STRENGTH_KEY = "lk-graph-edge-strength"
 const GRAPH_EDGE_STYLE_KEY = "lk-graph-edge-style"
 
+async function openProjectFromGraph() {
+  const { pickDirectory } = await import("@/lib/platform")
+  const { openProject } = await import("@/commands/fs")
+  const path = await pickDirectory()
+  if (!path) return
+  try {
+    const proj = await openProject(path)
+    const { claimProjectOwnership } = await import("@/lib/project-owner")
+    const claim = await claimProjectOwnership(proj.path)
+    if (!claim.ok && claim.conflict && claim.occupant) {
+      const proceed = window.confirm(
+        `该项目正被「${claim.occupant.app}」占用（${new Date(claim.occupant.startedAt).toLocaleTimeString()} 起）。\n` +
+        `两个引擎实例同时写入 .niko-buddy/ 与 .novel/status.json 会互相覆盖。\n\n` +
+        `确定继续打开？`,
+      )
+      if (!proceed) return
+    }
+    const { hydrateProjectOnOpen } = await import("@/lib/composition-root")
+    await hydrateProjectOnOpen(proj)
+  } catch (err) {
+    window.alert(`打开项目失败：${err}`)
+  }
+}
+
 
 
 
@@ -456,6 +480,7 @@ export function GraphView() {
       <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
         <Network className="h-10 w-10 opacity-30" />
         <p className="text-sm">{t("graph.openProject")}</p>
+        <Button variant="outline" size="sm" onClick={() => void openProjectFromGraph()}>打开项目</Button>
       </div>
     )
   }
@@ -485,6 +510,7 @@ export function GraphView() {
         <Network className="h-10 w-10 opacity-30" />
         <p className="text-sm">{t("graph.noPages")}</p>
         <p className="text-xs">{t(novelMode ? "novel.graph.importSourcesHint" : "graph.importSourcesHint")}</p>
+        <Button variant="outline" size="sm" onClick={() => setActiveView("sources")}>去导入资料</Button>
       </div>
     )
   }

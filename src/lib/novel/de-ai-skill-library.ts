@@ -674,14 +674,14 @@ export function isDeAiSkillModified(config: DeAiSkillConfig, skillId: string): b
 export function createBlankProjectDeAiSkill(config: DeAiSkillConfig, now = Date.now()): DeAiSkillConfig {
   const skill: DeAiSkill = {
     id: `project:${now}`,
-    name: "新建去AI味 Skill",
+    name: "新建去AI味技能",
     description: "",
     templateId: "custom",
     content: `# de-AI-writing
 
 ## 自定义去AI味规则
 
-在这里填写这个 Skill 的适用场景、AI味识别标准、改写步骤和输出要求。
+在这里填写这个技能的适用场景、AI味识别标准、改写步骤和输出要求。
 
 默认只输出处理后的正文。不要输出解释、分析或修改说明。`,
     source: "project",

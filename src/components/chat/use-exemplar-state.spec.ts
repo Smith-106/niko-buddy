@@ -248,7 +248,7 @@ describe("useExemplarState", () => {
     })
     expect(mocks.loadCognitionState).toHaveBeenCalledWith(NORMALIZED)
     expect(result.current.exemplarFeedback).toBe(
-      "已记录评分 4★（enabled）— enabled 均分 4.50 vs disabled 3.25",
+      "已记录评分 4★（开启）— 开启均分 4.50，关闭均分 3.25",
     )
   })
 
@@ -265,7 +265,7 @@ describe("useExemplarState", () => {
       expect.objectContaining({ variant: "disabled", score: 5, chapterId: "chat" }),
     )
     expect(result.current.exemplarFeedback).toBe(
-      "已记录评分 5★（disabled）— enabled 均分 N/A vs disabled N/A",
+      "已记录评分 5★（关闭）— 开启均分 无，关闭均分 无",
     )
   })
 
