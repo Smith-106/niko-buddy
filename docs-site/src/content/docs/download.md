@@ -9,6 +9,15 @@ description: 下载 Niko Buddy 最新版本安装包
 
 **v2.21.0**（2026-10-22 发布：状态条与第一小时写作 — stable；用户批准由 prerelease 提升，同周已有 v2.20.0，节奏豁免已登记）
 
+源码 tip **v2.21.1** 是同日 prerelease：首屏内部英文码改成中文，Canon 回填覆盖已发现的章节快照，巡航接受失败不再直写正文。它不替换下面的 stable 安装包，也不进 Latest。
+
+### v2.21.1 更新亮点（2026-10-22，prerelease）
+
+- **界面**：首屏和报告页的内部英文码改成中文。文件格式名和 AES-256 保持原样。
+- **回填**：当前项目的 Canon 回填处理已发现的全部章节快照，不改正文，不补审查门或场景文件。
+- **巡航**：接受失败时不再把正文直接写进正式文件。
+- 发布语义：**prerelease**（同日已有 v2.21.0 stable，不进 Latest；安装包仍用 v2.21.0，直到本 tag 的构建附上资产）。
+
 ### v2.21.0 更新亮点（2026-10-22）
 
 - **状态条**：仪表盘、确认门、审查、校注、云备份、快照时间线、PDF 导出复用 StatusChip 与 MeterBar。错误文案优先，备份不画编造清单，时间线只在选中快照时显示对比。
@@ -339,7 +348,7 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## Windows 安装包
 
-当前 stable 是 **v2.21.0**。
+当前 stable 是 **v2.21.0**。同日源码 tip v2.21.1 是 prerelease，没有替换下面的安装包。
 
 下载 [`niko-buddy_2.21.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.21.0/niko-buddy_2.21.0_windows_X64.exe)，双击运行 NSIS 安装程序即可。
 
