@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.20.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.21.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -49,6 +49,14 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 ---
 <img width="1239" height="883" alt="image" src="https://github.com/user-attachments/assets/076740be-85ef-4503-842d-565c367aebdc" />
 <img width="1201" height="832" alt="image" src="https://github.com/user-attachments/assets/57936132-45b2-4fed-8c80-2c9282fedbf5" />
+
+## v2.21.0 新增（状态条与第一小时，prerelease）
+
+本 ISO 周已有 v2.20.0 stable，所以这一版走内测渠道，不替换 Latest：
+
+- **状态条**：仪表盘、确认门、审查、校注、云备份、快照时间线、PDF 导出复用 StatusChip / MeterBar。错误文案优先，备份不画编造清单，时间线只在选中快照时显示对比。
+- **写作入口**：暖纸护眼模式、第一小时能写字、热力三要素、入口分组默认折叠、主 Agent 状态诚实化。
+- **文案**：灵魂文档默认 Markdown 阅读，Canon 与通用标签去黑话，空态给出下一步，浅色 muted 对比度达到 AA。
 
 ## v2.20.0 调整（全仓重构波，stable）
 
@@ -123,6 +131,7 @@ Draft-first 是硬边界：白名单只有只读工具 + `write_chapter(draftMod
 
 | 波次 | 版本 | 能力 | 核心交付 |
 |---|---|---|---|
+| — | **v2.21.0** | **状态条 + 第一小时写作** | 仪表盘/确认门/审查/校注/云备份/时间线/PDF 导出复用 StatusChip 与 MeterBar + 暖纸护眼 + 入口折叠 + 文案人话化（prerelease，2026-10-22；同周已有 v2.20.0 stable，不进 Latest） |
 | — | **v2.20.0** | **全仓重构波（拆分/批刷/加固）** | F1–F15 约 -5670 行零 API 变更 + 流式批刷 + spawn_blocking + serde alias 加固 + 全量门禁绿（stable，2026-10-21；安装包由 tag 构建验证通过：niko-buddy_2.20.0_windows_X64.exe + portable + sig；同周双 stable 经用户批准，打破“同周 ≤1”惯例） |
 | — | **v2.19.0** | **15 灰卡转正（运行态/资产库/配置数据）** | 运行态 3 视图 + 资产库 6 视图 + 配置数据 6 视图（只读装载/诚实空态）+ 对抗审查 BLOCK/MAJOR 全修 + MINOR-1~5 清零（prerelease，2026-10-19） |
 | — | **v2.18.1** | **对抗式审查修复（6 P1）** | 模板占位不再被读成压力级 / 覆盖判定不短路不误报 / 单字名恒 N/A / 关系候选上限 20 条 / 能力矩阵需求改管线 / 未装载整段 N/A（stable，2026-10-19） |
@@ -571,9 +580,9 @@ sequenceDiagram
 - **行为**：开启后 **embedding / rerank 入口短路**（本地无向量/重排，退化为仅关键词/图谱检索路径）。
 - **适用**：无 embedding 服务或离线写作场景；非 LLM 离线（LLM 调用仍按模型配置联网）。隔离网络环境可将 `VITE_QMAI_LLM_ENDPOINT` 指向本地 Ollama 或内网网关。
 
-> 注：v2.7.8 是 v2.7 系列收官（notes-only，安装包沿用 v2.7.7），不是当前 tip。当前源码 tip 与已发布 stable 为 **v2.20.0**（2026-10-21，全仓重构波；安装包 `niko-buddy_2.20.0_windows_X64.exe` + portable + sig）。
+> 注：v2.7.8 是 v2.7 系列收官（notes-only，安装包沿用 v2.7.7），不是当前 tip。当前源码 tip 为 **v2.21.0**（2026-10-22，prerelease）；已发布 stable 仍是 **v2.20.0**（2026-10-21，安装包 `niko-buddy_2.20.0_windows_X64.exe` + portable + sig）。
 > 注：CI 已具备三平台构建 matrix（build.yml），本地 tauri.conf 默认仅 nsis；历史发布资产为 Windows-only，macOS/Linux 是否正式发版以 Releases 为准。
-> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.20.0）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
+> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.21.0）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
 
 ### 安装方式
 

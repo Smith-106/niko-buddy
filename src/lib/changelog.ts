@@ -15,6 +15,22 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    version: "2.21.0",
+    date: "2026-10-22",
+    highlights: {
+      en: [
+        "Added: shared StatusChip and MeterBar on the dashboard, confirm gate, review, lint, cloud backup, snapshot timeline, and PDF export. Color is not the only cue; an error label wins over a confirmed label; backup does not invent a checklist; the timeline compare chip appears only when a snapshot is selected.",
+        "Added: warm-paper eye-care theme, a first-hour writing path, the three heat-map essentials, entry groups collapsed by default, and an honest main-agent status.",
+        "Changed: soul documents open as rendered Markdown with a source toggle; Canon and generic labels drop internal jargon; empty states name the next step; light-theme muted text meets AA contrast.",
+      ],
+      zh: [
+        "新增：仪表盘、确认门、审查、校注、云备份、快照时间线和 PDF 导出复用 StatusChip 与 MeterBar。颜色不是唯一提示；错误文案优先于已确认文案；备份不再画编造清单；时间线只在选中快照时显示对比。",
+        "新增：暖纸护眼模式、第一小时能写字、热力三要素、入口分组默认折叠、主 Agent 状态诚实化。",
+        "调整：灵魂文档默认按 Markdown 阅读并保留源码切换；Canon 与通用文案去黑话；空态补下一步；浅色主题 muted 文字对比度达到 AA。",
+      ],
+    },
+  },
+  {
     version: "2.20.0",
     date: "2026-10-21",
     highlights: {
