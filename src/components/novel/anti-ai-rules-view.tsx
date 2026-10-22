@@ -9,7 +9,7 @@ import {
   type DeAiSkillConfig,
 } from "@/lib/novel"
 import { toErrorMessage } from "@/lib/utils"
-import { ReportPage } from "./report-page"
+import { ReportPage, ReportSection } from "./report-page"
 
 const SEVERITY_LABEL: Record<string, string> = {
   critical: "严重",
@@ -130,8 +130,11 @@ export function AntiAiRulesView({ projectPath }: AntiAiRulesViewProps) {
     <ReportPage
       testId="anti-ai-rules-view"
       title="反AI规则"
-      description="7 类规则为只读说明；技能开关切换后即写盘保存到 .niko-buddy/de-ai-skills.json。"
+      description="先拨技能开关。规则说明在下面，只读。"
     >
+      <ReportSection title="下一步">
+        <p className="text-base font-medium">先看技能开关。要收紧或放开某一项，直接点启用或禁用。规则分类只是说明。</p>
+      </ReportSection>
 
       <p data-testid="anti-ai-preview" className="text-sm text-foreground">
         {loading
@@ -150,7 +153,8 @@ export function AntiAiRulesView({ projectPath }: AntiAiRulesViewProps) {
         </p>
       ) : null}
 
-      <div data-testid="anti-ai-categories" className="flex flex-col gap-2">
+      <div className="flex flex-col gap-4">
+      <div data-testid="anti-ai-categories" className="order-2 flex flex-col gap-2">
         <h3 className="text-sm font-medium text-foreground">规则分类（{categories.length} 类 · 只读）</h3>
         <ul className="flex flex-col gap-2">
             {categories.map((category) => {
@@ -181,7 +185,7 @@ export function AntiAiRulesView({ projectPath }: AntiAiRulesViewProps) {
           </ul>
       </div>
 
-      <div data-testid="anti-ai-skills" className="flex flex-col gap-2">
+      <div data-testid="anti-ai-skills" className="order-1 flex flex-col gap-2">
         <h3 className="text-sm font-medium text-foreground">技能开关</h3>
         {loading ? (
           <p className="text-xs text-muted-foreground">正在读取技能配置…</p>
@@ -205,7 +209,7 @@ export function AntiAiRulesView({ projectPath }: AntiAiRulesViewProps) {
                     {skill.description ? (
                       <span className="text-xs text-muted-foreground">{skill.description}</span>
                     ) : null}
-                    <span className="font-mono text-[11px] text-muted-foreground">{skill.id}</span>
+                    <span className="sr-only">{skill.id}</span>
                     <span
                       data-testid={`anti-ai-skill-status-${skill.id}`}
                       className="text-xs text-muted-foreground"
@@ -228,6 +232,7 @@ export function AntiAiRulesView({ projectPath }: AntiAiRulesViewProps) {
             })}
           </ul>
         )}
+      </div>
       </div>
     </ReportPage>
   )

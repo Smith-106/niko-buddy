@@ -88,8 +88,23 @@ export function MarketRadarView({ projectPath }: MarketRadarViewProps) {
     <ReportPage
       testId="market-radar-view"
       title="市场雷达"
-      description="外部市场榜单/热度数据的预留展示位；数据源接入前本页保持诚实空态。"
+      description="外部榜单还没接入。接入前这一页保持空白，不编造热度。"
     >
+      {!loading && snapshot === null ? (
+        <ReportSection title="下一步">
+          <p className="text-base font-medium">先打开一个项目。没有项目时，这里不显示榜单。</p>
+        </ReportSection>
+      ) : null}
+      {!loading && snapshot !== null && snapshot.connected && snapshot.signals.length > 0 ? (
+        <ReportSection title="下一步">
+          <p className="text-base font-medium">看下面的榜单。这一页只展示，不写回项目。</p>
+        </ReportSection>
+      ) : null}
+      {!loading && snapshot !== null && !(snapshot.connected && snapshot.signals.length > 0) ? (
+        <ReportSection title="下一步">
+          <p className="text-base font-medium">市场榜单还没接入。先去写作，不要在这里等热度。</p>
+        </ReportSection>
+      ) : null}
       {loading ? (
         <p data-testid="market-radar-loading" className="flex items-center gap-1 text-sm text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
@@ -117,7 +132,8 @@ export function MarketRadarView({ projectPath }: MarketRadarViewProps) {
         </ReportSection>
       ) : (
         <ReportCallout testId="market-radar-empty" tone="warn">
-          市场数据未接入：{snapshot.reason}
+          市场数据未接入
+          <span className="sr-only">：{snapshot.reason}</span>
         </ReportCallout>
       )}
     </ReportPage>

@@ -31,7 +31,7 @@
 
 import { useEffect, useState } from "react"
 import { Cpu, Loader2 } from "lucide-react"
-import { ReportCallout, ReportPage } from "./report-page"
+import { ReportCallout, ReportPage, ReportSection } from "./report-page"
 import {
   normalizeRoutePolicy,
   resolveReviewModel,
@@ -151,8 +151,8 @@ export function ModelRoutesView({ projectPath }: ModelRoutesViewProps) {
   return (
     <ReportPage
       testId="model-routes-view"
-      title="模型路由配置（只读）"
-      description="全局模型路由与 provider 配置摘要；本页只读，修改请走设置页。本页不触发任何模型调用。"
+      title="模型路由"
+      description="这里只看每个角色用哪个模型。要改，去设置页。"
     >
       {loading ? (
         <p data-testid="model-routes-loading" className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -165,9 +165,13 @@ export function ModelRoutesView({ projectPath }: ModelRoutesViewProps) {
         </ReportCallout>
       ) : (
         <>
-          <p className="text-base font-medium text-foreground">
-            角色绑定表为空，五个角色目前都走兜底模型。要改模型，去设置页。
-          </p>
+          <ReportSection title="下一步">
+            <p className="text-base font-medium text-foreground">
+              {snapshot.resolutions.every((row) => row.resolution.usedDefault)
+                ? "角色绑定表为空，五个角色目前都走兜底模型。要改模型，去设置页。"
+                : "有角色已经指定了模型。要改，去设置页。"}
+            </p>
+          </ReportSection>
           <div data-testid="model-routes-base" className="rounded-md border border-border bg-background px-3 py-2">
             <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
               <Cpu className="h-3.5 w-3.5" />
@@ -206,7 +210,7 @@ export function ModelRoutesView({ projectPath }: ModelRoutesViewProps) {
                   className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground"
                 >
                   <span className="font-medium text-foreground">{row.label}</span>
-                  <span className="font-mono">{row.role}</span>
+                  <span className="sr-only">{row.role}</span>
                   <span className="font-mono">{row.resolution.modelId}</span>
                   {row.resolution.usedDefault ? (
                     <span className="rounded bg-muted px-1.5 py-0.5">走兜底</span>
@@ -218,7 +222,7 @@ export function ModelRoutesView({ projectPath }: ModelRoutesViewProps) {
 
           <div data-testid="model-routes-providers" className="rounded-md border border-border bg-background px-3 py-2">
             <p className="text-sm font-medium text-foreground">
-              Provider 配置（全局，共 {snapshot.providers.length} 个）
+              模型来源（全局，共 {snapshot.providers.length} 个）
             </p>
             {snapshot.providers.length === 0 ? (
               <p data-testid="model-routes-no-providers" className="mt-1 text-xs text-muted-foreground">

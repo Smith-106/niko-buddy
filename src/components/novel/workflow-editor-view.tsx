@@ -25,7 +25,7 @@
 
 import { useEffect, useState } from "react"
 import { Loader2, ScrollText } from "lucide-react"
-import { ReportCallout, ReportPage } from "./report-page"
+import { ReportCallout, ReportPage, ReportSection } from "./report-page"
 import {
   createFsRunEventLedgerStoreDeps,
   groupWorkflowTemplates,
@@ -136,8 +136,8 @@ export function WorkflowEditorView({ projectPath, snapshot: snapshotOverride }: 
   return (
     <ReportPage
       testId="workflow-editor-view"
-      title="工作流（只读）"
-      description="仓库内无可写工作流 DSL，本页只做只读展示：模板注册表登记 + 运行事件账本尾部；写回一律不做。"
+      title="工作流"
+      description="只能看模板和最近的运行记录。这里不能改工作流，也不写盘。"
     >
       {loading ? (
         <p data-testid="workflow-loading" className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -145,11 +145,23 @@ export function WorkflowEditorView({ projectPath, snapshot: snapshotOverride }: 
           正在读取工作流模板与运行事件…
         </p>
       ) : snapshot === null ? (
-        <ReportCallout testId="workflow-empty" tone="neutral">
-          未指定项目路径
-        </ReportCallout>
+        <ReportSection title="下一步">
+          <p className="text-base font-medium">先打开一个项目，才能看模板和运行记录。</p>
+          <ReportCallout testId="workflow-empty" tone="neutral">
+            未指定项目路径
+          </ReportCallout>
+        </ReportSection>
       ) : (
         <>
+          <ReportSection title="下一步">
+            <p className="text-base font-medium">
+              {snapshot.ledgerError !== null
+                ? "运行记录读失败。模板仍可查看，这里仍然不写回。"
+                : snapshot.ledgerEventCount === 0
+                  ? "先看下面的模板。运行记录还是空的，这里不编造事件。"
+                  : "最近的运行记录在下面。这一页只读。"}
+            </p>
+          </ReportSection>
           <div data-testid="workflow-templates" className="rounded-md border border-border bg-background px-3 py-2">
             <p className="text-sm font-medium text-foreground">
               模板注册表（共 {snapshot.templates.length} 项）
@@ -163,19 +175,34 @@ export function WorkflowEditorView({ projectPath, snapshot: snapshotOverride }: 
                 {snapshot.groups.map((group) => (
                   <li key={group.kind} data-testid={`workflow-group-${group.kind}`}>
                     <p className="text-xs font-medium text-foreground">
-                      {group.kind}（{group.entries.length} 项）
+                      {group.kind === "chapter"
+                        ? "章节"
+                        : group.kind === "volume"
+                          ? "卷"
+                          : group.kind === "skill-stage"
+                            ? "技能阶段"
+                            : group.kind === "enum"
+                              ? "枚举"
+                              : group.kind}
+                      （{group.entries.length} 项）
+                      <span className="sr-only">{group.kind}</span>
                     </p>
                     <ul className="mt-0.5 flex flex-wrap gap-1.5">
-                      {group.entries.map((entry) => (
+                      {group.entries.map((entry, index) => {
+                        const visible = entry.title.split("（")[0].replace(/stage：.*/, "").trim() || "模板"
+                        const repeated = visible === "技能挂点" && index > 0
+                        return (
                         <li
                           key={entry.id}
                           data-testid={`workflow-template-${entry.id}`}
                           title={entry.title}
-                          className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+                          className={repeated ? "sr-only" : "rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"}
                         >
-                          {entry.title}
+                          {repeated ? null : visible}
+                          <span className="sr-only">{entry.title}</span>
                         </li>
-                      ))}
+                        )
+                      })}
                     </ul>
                   </li>
                 ))}
@@ -186,8 +213,8 @@ export function WorkflowEditorView({ projectPath, snapshot: snapshotOverride }: 
           <div data-testid="workflow-ledger" className="rounded-md border border-border bg-background px-3 py-2">
             <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
               <ScrollText className="h-3.5 w-3.5" />
-              运行事件账本
-              <span className="font-mono text-[11px] text-muted-foreground">run-events.jsonl</span>
+              运行记录
+              <span className="sr-only">run-events.jsonl</span>
             </div>
             {snapshot.ledgerError !== null ? (
               <p data-testid="workflow-ledger-error" role="alert" className="mt-1 text-xs text-red-700 dark:text-red-300">

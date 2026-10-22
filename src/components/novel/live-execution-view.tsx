@@ -159,14 +159,19 @@ export function LiveExecutionView({
           实况装载中…
         </p>
       ) : isEmpty ? (
-        <ReportCallout testId="live-empty" tone="neutral">
-          暂无运行中的活动、事件与轨迹
-        </ReportCallout>
+        <ReportSection title="下一步">
+          <p className="text-base font-medium">现在没有正在跑的事。有运行之后，活动、事件和轨迹会出现在这里。</p>
+          <ReportCallout testId="live-empty" tone="neutral">
+            暂无运行中的活动、事件与轨迹
+          </ReportCallout>
+        </ReportSection>
       ) : (
         <>
-          <p className="text-base font-medium text-foreground">
-            {running.length > 0 ? `${running.length} 个活动正在运行` : "当前没有正在运行的活动"}
-          </p>
+          <ReportSection title="下一步">
+            <p className="text-base font-medium text-foreground">
+              {running.length > 0 ? `${running.length} 个活动正在运行。先看运行中的，再看最近事件。` : "当前没有正在运行的活动。下面只留已经发生的事件和轨迹。"}
+            </p>
+          </ReportSection>
           {running.length > 0 ? (
             <ReportSection testId="live-running" title="运行中活动">
               <ul className="space-y-1">

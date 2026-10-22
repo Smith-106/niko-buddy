@@ -21,7 +21,7 @@
  */
 
 import { useEffect, useState } from "react"
-import { ReportPage } from "./report-page"
+import { ReportPage, ReportSection } from "./report-page"
 import {
   forgeTitles,
   loadAssetLibraryArtifact,
@@ -171,9 +171,18 @@ export function TitleStudioView({ projectPath }: TitleStudioViewProps) {
   return (
     <ReportPage
       testId="title-studio-view"
-      title="标题工坊（机械筛选 · 无模型调用）"
-      description="候选标题按标题种子 constraints 做机械命中筛选（标题须含锚点子串）。本页不生成标题、不调用模型，只输出通过/淘汰＋逐条命中证据。"
+      title="标题工坊"
+      description="把候选标题贴进来筛选。本页不生成标题，也不调用模型。"
     >
+      <ReportSection title="下一步">
+        <p className="text-base font-medium">
+          {loading
+            ? "正在读取标题种子。"
+            : !hasSeeds
+              ? "还没有标题种子，筛选先不可用。种子生成之后再回来贴标题。"
+              : "把候选标题贴在下面，每行一个，然后按筛选。"}
+        </p>
+      </ReportSection>
       {loading ? (
         <p data-testid="title-loading" className="text-xs text-muted-foreground">
           正在读取标题种子…
@@ -186,29 +195,9 @@ export function TitleStudioView({ projectPath }: TitleStudioViewProps) {
       ) : null}
       {!loading && !hasSeeds ? (
         <p data-testid="title-empty" className="text-xs text-muted-foreground">
-          暂无标题种子（title_seed 库未生成或为空），无法筛选。请先生成标题种子后再试。
+          暂无标题种子，无法筛选。请先生成标题种子后再试。
+          <span className="sr-only">title_seed 库未生成或为空</span>
         </p>
-      ) : null}
-      {!loading && hasSeeds ? (
-        <div className="flex flex-col gap-1">
-          <h3 className="text-sm font-medium text-foreground">种子模式（{seedList.length}）</h3>
-          <ul data-testid="title-seeds" className="flex flex-col gap-2">
-            {seedList.map((seed) => (
-              <li
-                key={seed.entryId}
-                data-testid={`title-seed-${seed.entryId}`}
-                className="rounded-md border border-border bg-background px-3 py-2 text-xs"
-              >
-                <div className="text-sm font-medium text-foreground">{`模式：${seed.pattern}`}</div>
-                <div className="mt-0.5 text-muted-foreground">
-                  {seed.constraints.length > 0
-                    ? `约束：${seed.constraints.join(" / ")}`
-                    : "无约束（仅按模式命中）"}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
       ) : null}
       <div className="flex flex-col gap-1">
         <label htmlFor="title-studio-input" className="text-sm font-medium text-foreground">
@@ -235,6 +224,27 @@ export function TitleStudioView({ projectPath }: TitleStudioViewProps) {
           筛选
         </button>
       </div>
+      {!loading && hasSeeds ? (
+        <ReportSection title="种子">
+          <p className="text-xs text-muted-foreground">筛选依据。正常时收在这里，不挡输入。</p>
+          <ul data-testid="title-seeds" className="flex flex-col gap-2">
+            {seedList.map((seed) => (
+              <li
+                key={seed.entryId}
+                data-testid={`title-seed-${seed.entryId}`}
+                className="rounded-md border border-border bg-background px-3 py-2 text-xs"
+              >
+                <div className="text-sm font-medium text-foreground">{`模式：${seed.pattern}`}</div>
+                <div className="mt-0.5 text-muted-foreground">
+                  {seed.constraints.length > 0
+                    ? `约束：${seed.constraints.join(" / ")}`
+                    : "无约束（仅按模式命中）"}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </ReportSection>
+      ) : null}
       {hint ? (
         <p data-testid="title-hint" className="text-xs text-muted-foreground">
           {hint}

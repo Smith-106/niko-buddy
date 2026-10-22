@@ -24,7 +24,7 @@
  */
 
 import { useEffect, useState } from "react"
-import { ReportCallout, ReportPage } from "./report-page"
+import { ReportCallout, ReportPage, ReportSection } from "./report-page"
 import {
   buildBlockingQueue,
   buildDashboardEvidenceSnapshot,
@@ -160,6 +160,15 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
         </p>
       ) : (
         <>
+          <ReportSection title="下一步">
+            <p className="text-base font-medium">
+              {snapshot !== null && snapshot.blocked
+                ? "先处理被挡住的门，再看返修。"
+                : isEmpty
+                  ? "现在没有要跟进的。"
+                  : "先完成下面待处理的返修。"}
+            </p>
+          </ReportSection>
           {failed ? (
             <ReportCallout tone="warn" testId="followup-ledger-failed">
               账本装载失败（断网/账本不可读）：门状态未知，仅展示本地返修任务

@@ -20,7 +20,7 @@
  */
 
 import { useEffect, useState } from "react"
-import { ReportCallout, ReportPage } from "./report-page"
+import { ReportCallout, ReportPage, ReportSection } from "./report-page"
 import { loadBookLibrary, type BookLibraryEntry } from "@/lib/novel"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -113,7 +113,7 @@ export function BookshelfView({ projectPath }: BookshelfViewProps) {
     <ReportPage
       testId="bookshelf-view"
       title="书架"
-      description="已导入的拆书作品。选择一本后可以打开拆书分析。"
+      description="已导入的拆书作品。先选一本，再继续或打开分析。"
       actions={
         entries !== null && entries.length > 0 ? (
           <span className="text-xs text-muted-foreground">共 {entries.length} 本拆书作品</span>
@@ -123,10 +123,17 @@ export function BookshelfView({ projectPath }: BookshelfViewProps) {
       {entries === null ? (
         <p className="text-sm text-muted-foreground">正在读取书架…</p>
       ) : entries.length === 0 ? (
-        <ReportCallout testId="bookshelf-empty" tone="neutral">
-          暂无拆书作品。先去「拆书分析」导入一本小说吧。
-        </ReportCallout>
+        <ReportSection title="下一步">
+          <p className="text-base font-medium">书架是空的。先去「拆书分析」导入一本小说。</p>
+          <ReportCallout testId="bookshelf-empty" tone="neutral">
+            暂无拆书作品。先去「拆书分析」导入一本小说吧。
+          </ReportCallout>
+        </ReportSection>
       ) : (
+        <>
+        <ReportSection title="下一步">
+          <p className="text-base font-medium">点一本，然后继续创作或打开分析。</p>
+        </ReportSection>
         <ul data-testid="bookshelf-list" className="flex flex-col gap-2">
           {entries.map((entry) => {
             const selected = entry.bookId === selectedBookId
@@ -180,6 +187,7 @@ export function BookshelfView({ projectPath }: BookshelfViewProps) {
             )
           })}
         </ul>
+        </>
       )}
     </ReportPage>
   )

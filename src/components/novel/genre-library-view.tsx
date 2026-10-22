@@ -23,7 +23,7 @@
 
 import { useEffect, useState } from "react"
 import { Database, Loader2 } from "lucide-react"
-import { ReportPage } from "./report-page"
+import { ReportPage, ReportSection } from "./report-page"
 import { CHANNELS, loadAssetLibrarySnapshot, type AssetLibrarySnapshot, type ChannelGenre, type MainGenre, type SubGenre } from "@/lib/novel"
 
 /** 频道（男频 / 女频）——真源 `outline-genres.ts` 经 barrel 转出（BGH-20261019 m5）。 */
@@ -115,8 +115,8 @@ export function GenreLibraryView({ projectPath, snapshot: snapshotOverride }: Ge
   return (
     <ReportPage
       testId="genre-library-view"
-      title="题材基底库（只读浏览）"
-      description="静态分类树来自大纲生成器（男频 18 主分类 · 女频 18 主分类），子类型只展示名称；本页只读，不写盘、不改产物。"
+      title="题材库"
+      description="先选频道和主分类。这一页只浏览名称，不写盘。"
       actions={
         <div className="flex items-center gap-2" role="group" aria-label="频道切换">
           {CHANNELS.map((item) => (
@@ -134,51 +134,9 @@ export function GenreLibraryView({ projectPath, snapshot: snapshotOverride }: Ge
         </div>
       }
     >
-
-      <div data-testid="genre-snapshot" className="rounded-md border border-border bg-background px-3 py-2">
-        <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-          <Database className="h-3.5 w-3.5" />
-          本项目题材基底快照
-          <span className="font-mono text-[11px] text-muted-foreground">genre_base.json</span>
-        </div>
-        {loading ? (
-          <p data-testid="genre-snapshot-loading" className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            正在读取题材基底库…
-          </p>
-        ) : snapshot !== null && snapshot.present ? (
-          <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <div className="flex gap-1">
-              <dt>状态：</dt>
-              <dd data-testid="genre-snapshot-present">已生成</dd>
-            </div>
-            <div className="flex gap-1">
-              <dt>条目数：</dt>
-              <dd data-testid="genre-snapshot-count">{snapshot.entryCount} 条</dd>
-            </div>
-            <div className="flex gap-1">
-              <dt>内容哈希：</dt>
-              <dd data-testid="genre-snapshot-hash" className="font-mono">
-                {snapshot.contentHash ?? "未知"}
-              </dd>
-            </div>
-          </dl>
-        ) : (
-          <div className="mt-1">
-            <p data-testid="genre-empty" className="text-xs text-muted-foreground">
-              未生成
-              {projectPath === ""
-                ? "（未指定项目路径）"
-                : "（本项目尚未生成 `.novel/asset-library/genre_base.json`）"}
-            </p>
-            {snapshotError !== null ? (
-              <p data-testid="genre-snapshot-error" className="mt-1 text-xs text-red-700 dark:text-red-300">
-                读取失败：{snapshotError}
-              </p>
-            ) : null}
-          </div>
-        )}
-      </div>
+      <ReportSection title="下一步">
+        <p className="text-base font-medium">先用右上角切换频道，再点一个主分类。下面是分类名，不是项目进度。</p>
+      </ReportSection>
 
       <div data-testid="genre-tree" className="flex flex-col gap-2">
         <p data-testid="genre-tree-summary" className="text-xs text-muted-foreground">
@@ -217,6 +175,53 @@ export function GenreLibraryView({ projectPath, snapshot: snapshotOverride }: Ge
             </ul>
           </div>
         ) : null}
+      </div>
+
+      <div data-testid="genre-snapshot" className="rounded-md border border-border bg-background px-3 py-2">
+        <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+          <Database className="h-3.5 w-3.5" />
+          本项目题材文件
+          <span className="sr-only">genre_base.json</span>
+        </div>
+        {loading ? (
+          <p data-testid="genre-snapshot-loading" className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            正在读取题材基底库…
+          </p>
+        ) : snapshot !== null && snapshot.present ? (
+          <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <div className="flex gap-1">
+              <dt>状态：</dt>
+              <dd data-testid="genre-snapshot-present">已生成</dd>
+            </div>
+            <div className="flex gap-1">
+              <dt>条目数：</dt>
+              <dd data-testid="genre-snapshot-count">{snapshot.entryCount} 条</dd>
+            </div>
+            <div className="flex gap-1">
+              <dt>内容哈希：</dt>
+              <dd data-testid="genre-snapshot-hash" className="font-mono">
+                {snapshot.contentHash ?? "未知"}
+              </dd>
+            </div>
+          </dl>
+        ) : (
+          <div className="mt-1">
+            <p data-testid="genre-empty" className="text-xs text-muted-foreground">
+              未生成
+              <span className="sr-only">
+                {projectPath === ""
+                  ? "（未指定项目路径）"
+                  : "（本项目尚未生成 `.novel/asset-library/genre_base.json`）"}
+              </span>
+            </p>
+            {snapshotError !== null ? (
+              <p data-testid="genre-snapshot-error" className="mt-1 text-xs text-red-700 dark:text-red-300">
+                读取失败：{snapshotError}
+              </p>
+            ) : null}
+          </div>
+        )}
       </div>
     </ReportPage>
   )

@@ -25,7 +25,7 @@
 
 import { useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
-import { ReportPage } from "./report-page"
+import { ReportPage, ReportSection } from "./report-page"
 import { DEFAULT_MCP_CONFIG, normalizeMcpConfig, type McpConfig } from "@/lib/mcp/config"
 import { loadMcpConfig, saveMcpConfig } from "@/lib/project-store"
 
@@ -124,9 +124,22 @@ export function McpManagerView({ projectPath, config: configOverride }: McpManag
   return (
     <ReportPage
       testId="mcp-manager-view"
-      title="MCP 服务管理"
-      description="全局 MCP 服务配置（非项目级）；启停开关立即落盘，其余字段只读。状态列仅反映配置开关，不做存活探测。"
+      title="MCP 服务"
+      description="开关会马上保存。要添加服务，去设置页。"
     >
+      <ReportSection title="下一步">
+        <p className="text-base font-medium">
+          {loading
+            ? "正在读取 MCP 配置。"
+            : error !== null
+              ? "配置读失败。开关没有改动。"
+              : config === null
+                ? "先打开一个项目，再看全局配置。"
+                : config.servers.length === 0
+                  ? "还没有服务。要添加，去设置页的 MCP 分区。"
+                  : `${config.servers.filter((server) => server.enabled).length} 个已启用，共 ${config.servers.length} 个。开关会马上保存。`}
+        </p>
+      </ReportSection>
 
       {loading ? (
         <p data-testid="mcp-loading" className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -135,7 +148,8 @@ export function McpManagerView({ projectPath, config: configOverride }: McpManag
         </p>
       ) : error !== null ? (
         <p data-testid="mcp-error" role="alert" className="text-xs text-red-700 dark:text-red-300">
-          读取失败：{error}
+          读取失败。配置没有加载，开关没有改动。
+          <span className="sr-only">{error}</span>
         </p>
       ) : config === null ? (
         <p data-testid="mcp-empty" className="text-xs text-muted-foreground">

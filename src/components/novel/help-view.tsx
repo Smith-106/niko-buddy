@@ -15,7 +15,7 @@
  */
 
 import { useState } from "react"
-import { ReportCallout, ReportPage } from "./report-page"
+import { ReportCallout, ReportPage, ReportSection } from "./report-page"
 
 export interface HelpItem {
   readonly q: string
@@ -118,7 +118,9 @@ export function HelpView({ projectPath }: HelpViewProps) {
   const visible = filterHelpSections(HELP_SECTIONS, keyword)
 
   return (
-    <ReportPage testId="help-view" title="帮助" description="按关键词过滤功能说明和常见问题。">
+    <ReportPage testId="help-view" title="帮助" description="先搜索，再看对应说明。">
+      <ReportSection title="下一步">
+        <p className="text-base font-medium">在下面搜一个词。没有匹配就换个说法，不要把整页当说明书往下读。</p>
       <div className="flex items-center gap-2">
         <label htmlFor="help-search" className="text-xs text-muted-foreground">
           搜索帮助
@@ -133,6 +135,7 @@ export function HelpView({ projectPath }: HelpViewProps) {
           className="w-64 rounded border border-border bg-background px-2 py-1 text-xs"
         />
       </div>
+      </ReportSection>
 
       {visible.length === 0 ? (
         <ReportCallout testId="help-no-match" tone="neutral">

@@ -28,7 +28,7 @@
 
 import { useEffect, useState } from "react"
 import { AlertTriangle, CheckCircle2, Loader2, Lock } from "lucide-react"
-import { ReportPage } from "./report-page"
+import { ReportPage, ReportSection } from "./report-page"
 import {
   loadAssetLibraryArtifact,
   loadAssetLibrarySnapshot,
@@ -122,26 +122,35 @@ export function StoryModeLibraryView({ projectPath }: StoryModeLibraryViewProps)
   return (
     <ReportPage
       testId="story-mode-library-view"
-      title="推进模式库（只读浏览）"
-      description={
-        <>
-          模式来自 <code className="font-mono">.novel/asset-library/pacing_pattern.json</code>
-          （生成器产物，只读呈现）。阶段进出以既有三门裁定为准，本页不提供手改入口。
-        </>
-      }
+      title="推进模式库"
+      description="往下看模式和阶段。阶段进出仍由三门裁定，这里不能手改。"
       actions={
         <span data-testid="story-mode-summary" className="text-xs text-muted-foreground">
           {loading ? "读取中…" : `共 ${state.modes.length} 个推进模式`}
         </span>
       }
     >
+      <ReportSection title="下一步">
+        <p className="text-base font-medium">
+          {loading
+            ? "正在读取本项目的推进模式。"
+            : error
+              ? "推进模式读失败。下面不编造模式。"
+              : present && snapshot !== null && !snapshot.conserved
+                ? "先核对守恒。这份记录可能被改过，不要当成可用模式。"
+                : present
+                  ? "往下看推进模式。这里只浏览，不能手改阶段。"
+                  : "本项目还没有节奏模式。生成之后才会出现在这里。"}
+        </p>
+      </ReportSection>
       <div
         data-testid="story-mode-snapshot"
         className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs"
       >
         <span className="flex items-center gap-1 text-muted-foreground">
           <Lock className="h-3 w-3" />
-          本项目 pacing_pattern 快照：
+          本项目的推进模式：
+          <span className="sr-only">pacing_pattern.json</span>
         </span>
         {loading ? (
           <span className="flex items-center gap-1 text-muted-foreground">
@@ -169,7 +178,7 @@ export function StoryModeLibraryView({ projectPath }: StoryModeLibraryViewProps)
           <span className="text-red-700 dark:text-red-300">读取失败：{error}</span>
         ) : (
           <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
-            未生成（pacing_pattern.json 缺失）
+            未生成<span className="sr-only">（pacing_pattern.json 缺失）</span>
           </span>
         )}
       </div>
@@ -189,7 +198,7 @@ export function StoryModeLibraryView({ projectPath }: StoryModeLibraryViewProps)
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-medium text-foreground">{mode.displayName}</span>
-                  <span className="font-mono text-[11px] text-muted-foreground">{mode.modeId}</span>
+                  <span className="sr-only">{mode.modeId}</span>
                 </div>
                 <ol className="mt-1 flex flex-col gap-1 pl-1">
                   {mode.phases.map((phase, phaseIndex) => (
@@ -201,7 +210,7 @@ export function StoryModeLibraryView({ projectPath }: StoryModeLibraryViewProps)
                       <span className="text-foreground">
                         阶段{phaseIndex + 1}：{phase.name}
                       </span>
-                      <span className="font-mono text-[11px]">（{phase.key}）</span>
+                      <span className="sr-only">（{phase.key}）</span>
                       <span>
                         入场门：{gateText(phase.entryGates)}；出场门：{gateText(phase.exitGates)}
                       </span>
@@ -215,7 +224,8 @@ export function StoryModeLibraryView({ projectPath }: StoryModeLibraryViewProps)
             <p data-testid="story-mode-empty" className="text-xs text-muted-foreground">
               {present
                 ? "暂无可展示的推进模式（条目缺失或校验未通过，见快照状态）"
-                : "本项目尚未生成节奏模式（pacing_pattern 未生成）"}
+                : "本项目尚未生成节奏模式"}
+              {present ? null : <span className="sr-only">（pacing_pattern 未生成）</span>}
             </p>
           ) : null}
           {state.invalidEntries.length > 0 ? (
