@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test"
+import { expandNavGroups } from "./nav"
 import { MOCK_INIT } from "./tauri-mock"
 
 /**
@@ -24,6 +25,7 @@ async function openProject(page: Page): Promise<void> {
   await page.waitForSelector("#root", { state: "attached" })
   await page.getByRole("button", { name: "小说目录" }).click()
   await page.waitForSelector('[data-view="wiki"]', { timeout: 10000 })
+  await expandNavGroups(page)
 }
 
 /** 悬浮后返回提示文案、文字矩形、箭头矩形及其重叠面积。

@@ -39,6 +39,7 @@ interface WikiStateLike {
   novelMode: boolean
   selectedFile: string | null
   selectedMemoryCenterEntry: string | null
+  chapterCreateNonce: number
   setSelectedMemoryCenterEntry: ReturnType<typeof vi.fn>
   setSelectedFile: ReturnType<typeof vi.fn>
   setFileTree: ReturnType<typeof vi.fn>
@@ -59,6 +60,7 @@ const mocks = vi.hoisted(() => {
     novelMode: true,
     selectedFile: null,
     selectedMemoryCenterEntry: null,
+    chapterCreateNonce: 0,
     setSelectedMemoryCenterEntry: vi.fn(),
     setSelectedFile: vi.fn(),
     setFileTree: vi.fn(),

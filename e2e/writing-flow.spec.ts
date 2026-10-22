@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test"
+import { expandNavGroups } from "./nav"
 import { MOCK_INIT, collectErrors } from "./tauri-mock"
 
 // 写作全流程实操检验（波 3 执行资产）
@@ -9,6 +10,7 @@ async function openMockProject(page: import("@playwright/test").Page) {
   await page.getByRole("button", { name: "小说目录" }).click()
   // 打开已有项目落 wiki（hydrate fromCreate=false 默认）；30s 配额给 CI runner 慢启动留余量
   await page.waitForSelector('[data-view="wiki"]', { timeout: 30000 })
+  await expandNavGroups(page)
 }
 
 /** 展开 AI 会话：点击章节 → 预览面板章节头工具栏 → AI会话 按钮 */

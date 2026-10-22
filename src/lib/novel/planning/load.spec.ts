@@ -251,7 +251,7 @@ describe("buildChapterPlan — P2-IMP-11 四新维 IO 三态", () => {
     expect(view.cognition!.status).toBe("degraded")
     expect(view.encounter!.status).toBe("degraded")
     expect(view.particles!.status).toBe("degraded")
-    expect(view.cognition!.reason).toContain("POV")
+    expect(view.cognition!.reason).toContain("视角未声明")
     // 摘要投影缺失 = 合法空数据（createAtomicJsonStore onMissing:empty）→ ok
     expect(view.recentStateDeltas!.status).toBe("ok")
     expect(view.recentStateDeltas!.items).toEqual([])

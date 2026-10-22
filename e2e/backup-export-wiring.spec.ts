@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test"
+import { expandNavGroups } from "./nav"
 import { MOCK_INIT, collectErrors } from "./tauri-mock"
 
 /**
@@ -14,6 +15,7 @@ import { MOCK_INIT, collectErrors } from "./tauri-mock"
 async function openBackupExport(page: import("@playwright/test").Page): Promise<void> {
   await page.getByRole("button", { name: "小说目录" }).click()
   await page.waitForSelector('[data-view="wiki"]', { timeout: 10000 })
+  await expandNavGroups(page)
   await page.click('[data-view="backupExport"]')
   await page.waitForSelector('[data-testid="backup-export-view"]', { timeout: 10000 })
 }

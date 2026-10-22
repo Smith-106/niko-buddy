@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test"
+import { expandNavGroups } from "./nav"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { MOCK_INIT } from "./tauri-mock"
@@ -73,6 +74,7 @@ async function boot(page: Page): Promise<void> {
   await page.waitForSelector("#root", { state: "attached" })
   await page.getByRole("button", { name: "小说目录" }).click()
   await page.waitForSelector('[data-view="wiki"]', { timeout: 10000 })
+  await expandNavGroups(page)
 }
 
 interface Leaks {

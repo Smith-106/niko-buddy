@@ -13,6 +13,7 @@
  *   UI_AUDIT_LABEL=after npx playwright test e2e/ui-audit-walk.spec.ts
  */
 import { test, expect } from "@playwright/test"
+import { expandNavGroups } from "./nav"
 import { MOCK_INIT, collectErrors } from "./tauri-mock"
 import fs from "node:fs"
 import path from "node:path"
@@ -169,6 +170,7 @@ test.describe("UI 审计走查", () => {
     await page.screenshot({ path: path.join(SHOT_DIR, "00-welcome.png"), fullPage: false })
     await page.getByRole("button", { name: "小说目录" }).click()
     await page.waitForSelector('[data-view="wiki"]', { timeout: 15_000 })
+    await expandNavGroups(page)
 
     const metrics: ViewMetrics[] = []
     for (const view of SIDEBAR_VIEWS) {

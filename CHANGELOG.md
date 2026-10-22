@@ -17,7 +17,7 @@
 ### Changed
 
 - 灵魂文档默认按 Markdown 阅读，保留源码切换；Canon 与通用文案去黑话；空态补下一步；浅色主题 muted 文字对比度达到 AA。
-- 发布语义：prerelease。v2.20.0 stable 已在本 ISO 周，本版不进 Latest；安装包由 tag CI 构建。
+- 发布语义：prerelease。v2.20.0 stable 已在本 ISO 周，本版不进 Latest；tag v2.21.0 门禁失败后未重指，这一版不附安装包。
 
 ## [2.20.0] - 2026-10-21
 

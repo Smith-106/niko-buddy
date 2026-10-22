@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test"
+import { expandNavGroups } from "./nav"
 import { MOCK_INIT } from "./tauri-mock"
 
 /**
@@ -23,6 +24,7 @@ async function boot(page: Page): Promise<void> {
   await page.getByRole("button", { name: "小说目录" }).click()
   // 打开已有项目落 wiki（hydrate fromCreate=false 默认）；30s 配额给 CI runner 慢启动留余量
   await page.waitForSelector('[data-view="wiki"]', { timeout: 30000 })
+  await expandNavGroups(page)
 }
 
 // 与 ui-walkthrough.spec.ts 同口径的 14 个侧栏视图（横向覆盖面）

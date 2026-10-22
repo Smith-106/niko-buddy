@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test"
+import { expandNavGroups } from "./nav"
 import { MOCK_INIT, collectErrors } from "./tauri-mock"
 
 // 16 activeView 全 UI 实操检验（波 3 执行资产）
@@ -31,6 +32,7 @@ test.beforeEach(async ({ page }) => {
   // 启动页 → 打开项目（mock open_project）→ 主界面（sidebar 出现）
   await page.getByRole("button", { name: "小说目录" }).click()
   await page.waitForSelector('[data-view="wiki"]', { timeout: 10000 })
+  await expandNavGroups(page)
 })
 
 test("14 sidebar 视图导航 + 渲染 + 无 console error", async ({ page }) => {
