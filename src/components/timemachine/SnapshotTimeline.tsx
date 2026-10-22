@@ -22,6 +22,7 @@ import {
 } from "@/lib/novel";
 
 import { formatOperationError } from "@/lib/format-operation-error";
+import { MeterBar, StatusChip } from "@/components/ui/status-visuals";
 
 export interface SnapshotTimelineProps {
   projectPath: string;
@@ -130,9 +131,21 @@ export function SnapshotTimeline({ projectPath, onRestored }: SnapshotTimelinePr
     <section data-testid="snapshot-timeline" className="flex h-full flex-col gap-3 p-4">
       <header className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">{t("timemachine.title")}</h2>
-        <span className="text-xs opacity-70">
-          {t("timemachine.count", { count: chain?.total ?? 0 })}
-        </span>
+        <div className="flex flex-wrap items-center justify-end gap-2" data-testid="snapshot-status-rail">
+          <span className="text-xs opacity-70">
+            {t("timemachine.count", { count: chain?.total ?? 0 })}
+          </span>
+          <MeterBar
+            label={t("timemachine.title")}
+            value={chain?.points.length ?? 0}
+            max={Math.max(chain?.total ?? 0, chain?.points.length ?? 0, 1)}
+          />
+          {error ? (
+            <StatusChip label={error} tone="danger" />
+          ) : leftId || rightId ? (
+            <StatusChip label={t("timemachine.compareTitle")} tone="info" />
+          ) : null}
+        </div>
       </header>
 
       {error ? (

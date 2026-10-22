@@ -11,6 +11,7 @@ import {
   remainingWindowMs,
 } from "@/lib/novel";
 import { toErrorMessage } from "@/lib/utils"
+import { MeterBar, StatusChip } from "@/components/ui/status-visuals"
 
 export interface ConfirmGateDialogProps {
   /** 待裁决请求；为空时不渲染。 */
@@ -33,6 +34,16 @@ const CRITERION_LABEL: Record<string, string> = {
   rebuildable: "gate.confirm.criterion.rebuildable",
   external_side_effect: "gate.confirm.criterion.external",
 };
+
+const GATE_CRITERION_ORDER = Object.keys(CRITERION_LABEL);
+
+function orderedHitCriteria(hits: readonly string[]): string[] {
+  const rank = (key: string) => {
+    const index = GATE_CRITERION_ORDER.indexOf(key);
+    return index === -1 ? GATE_CRITERION_ORDER.length : index;
+  };
+  return [...hits].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}
 
 /**
  * 写入确认门对话框：展示 op / target / 三分类 / 四判据命中 / diff 摘要，
@@ -151,22 +162,34 @@ export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDia
           </div>
           <div className="flex gap-2">
             <dt className="w-20 shrink-0 opacity-60">{t("gate.confirm.criteriaLabel")}</dt>
-            <dd className="flex flex-wrap gap-1" data-testid="confirm-gate-criteria">
-              {pending.hit_criteria.map((c) => (
-                <span key={c} className="rounded bg-warning/15 px-1.5 py-0.5 text-xs">
-                  {CRITERION_LABEL[c] ? t(CRITERION_LABEL[c]) : c}
-                </span>
-              ))}
+            <dd className="flex min-w-0 flex-col gap-1" data-testid="confirm-gate-criteria">
+              <MeterBar
+                label={t("gate.confirm.criteriaLabel")}
+                value={pending.hit_criteria.length}
+                max={Math.max(GATE_CRITERION_ORDER.length, pending.hit_criteria.length)}
+              />
+              <div className="flex flex-wrap gap-1">
+                {orderedHitCriteria(pending.hit_criteria).map((c) => (
+                  <StatusChip
+                    key={c}
+                    tone="warning"
+                    label={CRITERION_LABEL[c] ? t(CRITERION_LABEL[c]) : c}
+                  />
+                ))}
+              </div>
             </dd>
           </div>
         </dl>
 
-        <pre
-          className="mt-3 max-h-32 overflow-auto rounded bg-muted p-2 text-xs"
-          data-testid="confirm-gate-diff"
-        >
-          {pending.diff_summary}
-        </pre>
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs text-muted-foreground">diff</summary>
+          <pre
+            className="mt-1 max-h-32 overflow-auto rounded bg-muted p-2 text-xs"
+            data-testid="confirm-gate-diff"
+          >
+            {pending.diff_summary}
+          </pre>
+        </details>
 
         <p className="mt-2 text-xs opacity-70" data-testid="confirm-gate-timeout">
           {expired ? t("gate.confirm.timeout") : t("gate.confirm.windowNotice", { seconds })}

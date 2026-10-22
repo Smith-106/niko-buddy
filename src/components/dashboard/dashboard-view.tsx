@@ -19,6 +19,7 @@ import { DEBT_LEVEL_LABEL_KEYS, DashSeverity, DashItem, RewriteDialogState, extr
 import { DebtBoardView } from "./debt-board-view"
 import { DoctorPanel } from "./doctor-panel"
 import { TextTransformPreviewDialog } from "@/components/novel/text-transform-preview-dialog"
+import { MeterBar, StatusChip } from "@/components/ui/status-visuals"
 import { streamChat } from "@/lib/llm-client"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import {
@@ -668,21 +669,31 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
         <span className="text-xs text-muted-foreground">
           [{item.source === "review" ? t("dashboard.source.review") : item.source === "lint" ? t("dashboard.source.lint") : t("dashboard.section.factCheck")}]
         </span>
-        <span className="truncate text-xs text-muted-foreground">{t(formatDashItemDetail(item), item.detail)}</span>
+        <StatusChip label={t(formatDashItemDetail(item), item.detail)} tone={item.severity === "low" ? "neutral" : item.severity === "medium" ? "warning" : "danger"} />
       </div>
-      <p className="mt-1 text-xs">{item.message}</p>
-      {item.evidence && (
-        <span className="mt-1 block text-left text-xs italic text-muted-foreground">
-          {String.fromCharCode(0x300C)}{item.evidence}{String.fromCharCode(0x300D)}
-        </span>
-      )}
-      {item.secondaryEvidence && (
-        <p className="mt-1 text-xs text-muted-foreground">
-          {String.fromCharCode(0x300C)}{item.secondaryEvidence}{String.fromCharCode(0x300D)}
-        </p>
-      )}
-      {item.suggestion && (
-        <p className="mt-1 text-xs text-success">{item.suggestion}</p>
+      <p className="mt-1 line-clamp-2 text-xs">{item.message}</p>
+      {(item.evidence || item.secondaryEvidence || item.suggestion) && (
+        <details className="mt-1">
+          <summary
+            className="cursor-pointer text-xs text-muted-foreground"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {t("dashboard.evidenceToggle")}
+          </summary>
+          {item.evidence && (
+            <span className="mt-1 block text-left text-xs italic text-muted-foreground">
+              {String.fromCharCode(0x300C)}{item.evidence}{String.fromCharCode(0x300D)}
+            </span>
+          )}
+          {item.secondaryEvidence && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {String.fromCharCode(0x300C)}{item.secondaryEvidence}{String.fromCharCode(0x300D)}
+            </p>
+          )}
+          {item.suggestion && (
+            <p className="mt-1 text-xs text-success">{item.suggestion}</p>
+          )}
+        </details>
       )}
       {renderActionBar(item)}
     </article>
@@ -703,6 +714,18 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
           )}
           {headerActions}
         </div>
+        {items.length > 0 && (
+          <div className="flex w-full flex-wrap gap-x-3 gap-y-1" data-testid="dashboard-severity-rail">
+            {(["blocking", "high", "medium", "low"] as const).map((severity) => (
+              <MeterBar
+                key={severity}
+                label={t(`dashboard.severity.${severity}`)}
+                value={grouped[severity].length}
+                max={items.length}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto scroll-fade-y">

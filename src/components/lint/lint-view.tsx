@@ -13,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { StatusChip } from "@/components/ui/status-visuals"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { runStructuralLint, runSemanticLint, type LintResult } from "@/lib/lint"
@@ -349,6 +350,19 @@ export function LintView() {
           </div>
         ) : (
           <div className="flex flex-col gap-2 p-3">
+            <div className="flex flex-wrap gap-1" data-testid="lint-type-chips">
+              {(["orphan", "broken-link", "no-outlinks", "semantic"] as const).map((key) => {
+                const count = results.filter((result) => result.type === key).length
+                if (count === 0) return null
+                return (
+                  <StatusChip
+                    key={key}
+                    tone={key === "semantic" ? "info" : "warning"}
+                    label={`${typeConfig[key].label} ${count}`}
+                  />
+                )
+              })}
+            </div>
             {warnings.length > 0 && (
               <SectionHeader icon={AlertTriangle} label={t("lint.warnings")} count={warnings.length} color="text-warning" t={t} />
             )}
@@ -501,7 +515,14 @@ function LintCard({
         </div>
       </div>
 
-      <p className="mb-2 text-xs text-muted-foreground">{result.detail}</p>
+      {result.detail.length > 80 ? (
+        <details className="mb-2">
+          <summary className="cursor-pointer text-xs text-muted-foreground">{result.detail.slice(0, 80)}</summary>
+          <p className="mt-1 text-xs text-muted-foreground">{result.detail}</p>
+        </details>
+      ) : (
+        <p className="mb-2 text-xs text-muted-foreground">{result.detail}</p>
+      )}
 
       {result.affectedPages && result.affectedPages.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1">

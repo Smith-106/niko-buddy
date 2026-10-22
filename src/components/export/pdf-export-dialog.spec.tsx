@@ -51,6 +51,10 @@ describe("PdfExportDialog 空正文与进行态", () => {
     expect(screen.getByTestId("pdfexport-target")).toHaveValue("exports/book.pdf")
     expect(screen.getByTestId("pdfexport-empty-hint")).toHaveTextContent("pdfexport.empty.body")
     expect(screen.getByTestId("pdfexport-paragraphs")).toHaveTextContent("0")
+    const rail = screen.getByTestId("pdfexport-status-rail")
+    expect(rail.querySelector("meter")).toBeNull()
+    expect(rail).toHaveTextContent("pdfexport.empty.body")
+    expect(rail).not.toHaveTextContent("pdfexport.dialog.title")
 
     const submit = screen.getByTestId("pdfexport-submit")
     expect(submit).toBeDisabled()
@@ -67,6 +71,8 @@ describe("PdfExportDialog 空正文与进行态", () => {
     render(<PdfExportDialog projectPath="E:/Novel" title="第一章" paragraphs={["a", "b"]} />)
 
     expect(screen.queryByTestId("pdfexport-empty-hint")).toBeNull()
+    expect(screen.getByTestId("pdfexport-status-rail").querySelector("meter")).toBeNull()
+    expect(screen.getByTestId("pdfexport-status-rail")).not.toHaveTextContent("pdfexport.confirmed")
     const submit = screen.getByTestId("pdfexport-submit")
     expect(submit).toBeEnabled()
 

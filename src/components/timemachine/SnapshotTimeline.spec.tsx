@@ -3,13 +3,18 @@
 import { describe, expect, it } from "vitest"
 import { SnapshotTimeline } from "./SnapshotTimeline"
 import DefaultExport from "./SnapshotTimeline"
-import { render } from "@/test-helpers/component-test-utils"
+import { render, screen } from "@/test-helpers/component-test-utils"
 import type { ComponentType } from "react"
 describe("SnapshotTimeline.tsx smoke", () => {
   it("renders SnapshotTimeline without crashing", () => {
     const C = SnapshotTimeline as ComponentType
     const { unmount } = render(<C />)
     expect(document.body.innerHTML.length).toBeGreaterThan(0)
+    const rail = screen.getByTestId("snapshot-status-rail")
+    expect(rail.querySelector("meter")).toHaveAttribute("value", "0")
+    expect(rail.querySelector("meter")).toHaveAttribute("max", "1")
+    expect(rail).toHaveTextContent("timemachine.count")
+    expect(rail).not.toHaveTextContent("timemachine.compareTitle")
     unmount()
   })
   it("has default export", () => {

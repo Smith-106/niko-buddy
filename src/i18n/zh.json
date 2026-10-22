@@ -75,6 +75,7 @@
     "title": "项目仪表盘",
     "noIssues": "未发现任何问题",
     "noIssuesHint": "项目质量良好，可以放心继续创作",
+    "evidenceToggle": "证据与建议",
     "rewriteAlertPrefix": "AI修改暂时无法继续",
     "severity": {
       "blocking": "阻塞",

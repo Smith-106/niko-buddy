@@ -16,6 +16,7 @@ import {
 } from "@/lib/export/pdf-export-gate";
 import { readFile } from "@/commands/fs";
 import { toErrorMessage } from "@/lib/utils"
+import { StatusChip } from "@/components/ui/status-visuals"
 
 export interface PdfExportDialogProps {
   /** 当前项目根路径。 */
@@ -130,6 +131,22 @@ export function PdfExportDialog({ projectPath, title, paragraphs, chapterPath }:
       >
         {busy ? t("pdfexport.submit.busy") : t("pdfexport.submit")}
       </button>
+
+      <div className="flex flex-wrap items-center gap-2" data-testid="pdfexport-status-rail">
+        {error ? (
+          <StatusChip label={error} tone="danger" />
+        ) : paragraphs.length === 0 ? (
+          <StatusChip label={t("pdfexport.empty.body")} tone="warning" />
+        ) : confirmed ? (
+          <StatusChip
+            label={t("pdfexport.confirmed", {
+              digest: confirmed.confirmedDigest,
+              chapter: confirmed.chapterPath,
+            })}
+            tone="ok"
+          />
+        ) : null}
+      </div>
 
       <p data-testid="pdfexport-paragraphs" className="text-xs">
         {t("pdfexport.paragraphs.label")}: {paragraphs.length}

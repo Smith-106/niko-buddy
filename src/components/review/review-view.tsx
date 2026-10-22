@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next"
 import { formatOperationError } from "@/lib/format-operation-error"
 import { WikiReader } from "@/components/editor/wiki-reader"
 import i18n from "@/i18n"
-import { resolveDefaultModel, loadCognitionState, deleteGenerationHistoryEntry, listGenerationHistory, startNovelReviewRun, startSixDimensionReviewRun, SIX_REVIEW_DIMENSIONS, formatMeasurementFingerprintSummary, exportEvidenceChainForReview, dismissFinding, loadEmotionLedger, getCircuitBreakerStatus } from "@/lib/novel"
+import { resolveDefaultModel, loadCognitionState, deleteGenerationHistoryEntry, listGenerationHistory, startNovelReviewRun, startSixDimensionReviewRun, SIX_REVIEW_DIMENSIONS, SIX_REVIEW_DIMENSION_ORDER, formatMeasurementFingerprintSummary, exportEvidenceChainForReview, dismissFinding, loadEmotionLedger, getCircuitBreakerStatus } from "@/lib/novel"
 import type { NovelReviewResult, CognitionState, GenerationHistoryEntry, SixReviewDimensionKey, ContinuityOverrideReasonCode } from "@/lib/novel"
 import {
   AlertTriangle,
@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { actionLooksLikeCreate, BreakerStatusBadge, detectPageType, ReviewCard, ReviewRewritePreviewDialog, type ReviewRewriteEditState } from "./review-cards"
 import { Button } from "@/components/ui/button"
+import { MeterBar, StatusChip } from "@/components/ui/status-visuals"
 import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { useReviewStore } from "@/stores/review-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -128,6 +129,15 @@ export function ReviewView({
 
   const dimensionScoped = Boolean(dimensionKey) || resultScoreDimensionKeys !== undefined
   const selectedDimensionResult = dimensionKey ? reviewRun?.dimensionResults?.[dimensionKey] : undefined
+  const dimensionMeters = useMemo(() => {
+    const results = reviewRun?.dimensionResults
+    if (!results) return []
+    return SIX_REVIEW_DIMENSION_ORDER.flatMap((key) => {
+      const row = results[key]
+      if (!row || typeof row.score !== "number" || !Number.isFinite(row.score)) return []
+      return [{ key, label: SIX_REVIEW_DIMENSIONS[key].label, score: row.score }]
+    })
+  }, [reviewRun?.dimensionResults])
   const selectedDimensionThinking = dimensionKey ? reviewRun?.dimensionThinking?.[dimensionKey] : undefined
   const novelReviewActionItems = useMemo(
     () => dimensionKey
@@ -1110,6 +1120,13 @@ export function ReviewView({
             )}
           </div>
         )}
+        {dimensionMeters.length > 0 && (
+          <div className="mx-3 mt-3 flex flex-col gap-1" data-testid="review-dimension-strip">
+            {dimensionMeters.map((row) => (
+              <MeterBar key={row.key} label={row.label} value={row.score} max={10} />
+            ))}
+          </div>
+        )}
         {isReviewing && reviewThinkingContent && (
           <div className="m-3 rounded-md border bg-muted/40 p-3 text-xs">
             <div className="mb-2 font-medium text-foreground">{reviewThinkingTitle}</div>
@@ -1179,7 +1196,10 @@ export function ReviewView({
                           }`}
                           aria-hidden="true"
                         />
-                        <span className="font-medium">{typeLabel}</span>
+                        <StatusChip
+                          label={typeLabel}
+                          tone={item.reviewSeverity === "error" ? "danger" : item.reviewSeverity === "warning" ? "warning" : "neutral"}
+                        />
                         {item.continuityMeta && i18n.exists(`review.results.subtype.${item.continuityMeta.subtype}`) ? (
                           <span className="rounded border border-border/60 px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                             {i18n.t(`review.results.subtype.${item.continuityMeta.subtype}`)}
@@ -1187,12 +1207,12 @@ export function ReviewView({
                         ) : null}
                         <span className="text-xs text-muted-foreground">{severityLabel}</span>
                       </div>
-                      <p className="mt-1">{item.message}</p>
+                      <p className="mt-1 line-clamp-2 text-left">{item.message}</p>
                       {item.evidence && (
-                        <p className="mt-1 text-xs text-muted-foreground italic">「{item.evidence}」</p>
+                        <p className="mt-1 line-clamp-1 text-left text-xs text-muted-foreground italic">「{item.evidence}」</p>
                       )}
                       {item.suggestion && (
-                        <p className="mt-1 text-xs text-success">
+                        <p className="mt-1 line-clamp-1 text-left text-xs text-success">
                           💡 {item.suggestion}
                         </p>
                       )}

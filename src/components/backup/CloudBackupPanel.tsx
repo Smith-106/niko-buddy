@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { StatusChip } from "@/components/ui/status-visuals"
 import {
   cloudBackupStatus,
   configureCloudBackup,
@@ -165,6 +166,17 @@ export function CloudBackupPanel({ projectPath, deviceId }: CloudBackupPanelProp
       <header className="flex flex-col gap-1">
         <h2 className="text-lg font-medium">{t("backup.cloud.title")}</h2>
         <p className="text-sm text-muted-foreground">{t("backup.cloud.subtitle")}</p>
+        <div className="flex flex-wrap items-center gap-2" data-testid="cloud-backup-status-rail">
+          {status !== null && !status.credentialAvailable ? (
+            <StatusChip label={t("backup.cloud.credentialUnavailable")} tone="danger" />
+          ) : configReasons[0] !== undefined ? (
+            <StatusChip label={configReasons[0]} tone="warning" />
+          ) : null}
+          <StatusChip
+            label={t(conflicts.length > 0 ? "backup.cloud.conflicts" : "backup.cloud.noConflicts")}
+            tone={conflicts.length > 0 ? "warning" : "neutral"}
+          />
+        </div>
       </header>
 
       <div className="grid grid-cols-2 gap-3">

@@ -187,6 +187,7 @@
     "title": "Project Dashboard",
     "noIssues": "No issues found",
     "noIssuesHint": "Project quality is good, continue writing with confidence",
+    "evidenceToggle": "Evidence and suggestion",
     "rewriteAlertPrefix": "AI rewrite cannot continue",
     "severity": {
       "blocking": "Blocking",
