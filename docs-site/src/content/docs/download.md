@@ -7,14 +7,14 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.21.0**（2026-10-22 发布：状态条与第一小时写作 — prerelease；同周已有 v2.20.0 stable，不替换 Latest；这一版不附安装包）
+**v2.21.0**（2026-10-22 发布：状态条与第一小时写作 — stable；用户批准由 prerelease 提升，同周已有 v2.20.0，节奏豁免已登记）
 
 ### v2.21.0 更新亮点（2026-10-22）
 
 - **状态条**：仪表盘、确认门、审查、校注、云备份、快照时间线、PDF 导出复用 StatusChip 与 MeterBar。错误文案优先，备份不画编造清单，时间线只在选中快照时显示对比。
 - **写作入口**：暖纸护眼模式、第一小时能写字、热力三要素、入口分组默认折叠、主 Agent 状态诚实化。
 - **文案**：灵魂文档默认 Markdown 阅读；Canon 与通用标签去黑话；空态给出下一步；浅色 muted 对比度达到 AA。
-- 发布语义：**prerelease**（v2.20.0 stable 已在本 ISO 周，候选版不进 Latest；tag 未重指，这一版不附安装包）。
+- 发布语义：**stable**（2026-10-22 用户批准由 prerelease 提升；同周已有 v2.20.0，节奏豁免已登记；安装包由 tag Release 构建附上）。
 
 ### v2.20.0 更新亮点（2026-10-21）
 
@@ -339,13 +339,13 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## Windows 安装包
 
-当前可安装的 stable 是 **v2.20.0**（v2.21.0 不附安装包）。
+当前 stable 是 **v2.21.0**。
 
-下载 [`niko-buddy_2.20.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.20.0/niko-buddy_2.20.0_windows_X64.exe)（约 34 MB），双击运行 NSIS 安装程序即可。
+下载 [`niko-buddy_2.21.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.21.0/niko-buddy_2.21.0_windows_X64.exe)，双击运行 NSIS 安装程序即可。
 
 ## 便携版
 
-下载 [`niko-buddy_2.20.0_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.20.0/niko-buddy_2.20.0_windows_X64_portable.exe)（约 149 MB，单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
+下载 [`niko-buddy_2.21.0_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.21.0/niko-buddy_2.21.0_windows_X64_portable.exe)（单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
 
 ## 系统要求
 

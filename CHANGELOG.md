@@ -17,7 +17,7 @@
 ### Changed
 
 - 灵魂文档默认按 Markdown 阅读，保留源码切换；Canon 与通用文案去黑话；空态补下一步；浅色主题 muted 文字对比度达到 AA。
-- 发布语义：prerelease。v2.20.0 stable 已在本 ISO 周，本版不进 Latest；tag v2.21.0 门禁失败后未重指，这一版不附安装包。
+- 发布语义：stable。用户于 2026-10-22 批准由 prerelease 提升；同周已有 v2.20.0，weekly-stable 与 thirty-day-stable 豁免已登记。零资产旧 tag 改指到门禁变绿的提交，安装包由该 tag 的 Release 构建附上。
 
 ## [2.20.0] - 2026-10-21
 

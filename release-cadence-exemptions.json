@@ -41,6 +41,16 @@
         "thirty-day-stable",
         "same-day-duplicate"
       ]
+    },
+    {
+      "tag": "v2.21.0",
+      "reason": "用户于 2026-10-22 明确要求把 v2.21.0 由 prerelease 提升为正式版。原 tag 停在门禁失败、零资产的 a0431b43；修复已在 smith/master 且 CI 39731981080 全绿。零资产 tag 改指到该提交后由 Release 构建附上 Windows 安装包。同周已有 v2.20.0 stable，近 30 天 stable 亦超过上限。",
+      "approvedBy": "user",
+      "approvedAt": "2026-10-22",
+      "scope": [
+        "weekly-stable",
+        "thirty-day-stable"
+      ]
     }
   ]
 }
