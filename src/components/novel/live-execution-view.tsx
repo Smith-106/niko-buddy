@@ -164,42 +164,39 @@ export function LiveExecutionView({
         </ReportCallout>
       ) : (
         <>
-          <ReportSection testId="live-running" title="运行中活动">
-            {running.length === 0 ? (
-              <p className="text-xs text-muted-foreground">当前无运行中活动</p>
-            ) : (
+          <p className="text-base font-medium text-foreground">
+            {running.length > 0 ? `${running.length} 个活动正在运行` : "当前没有正在运行的活动"}
+          </p>
+          {running.length > 0 ? (
+            <ReportSection testId="live-running" title="运行中活动">
               <ul className="space-y-1">
                 {running.map((item) => (
-                  <li key={item.id} data-testid="live-running-item" className="text-xs">
+                  <li key={item.id} data-testid="live-running-item" className="text-sm">
                     <span className="font-medium">{item.title}</span>
                     <span className="text-muted-foreground">（{item.type}）</span>
                     {item.detail ? <span className="text-muted-foreground">：{item.detail}</span> : null}
                   </li>
                 ))}
               </ul>
-            )}
-          </ReportSection>
-          <ReportSection testId="live-events" title="最近事件">
-            {recentEvents.length === 0 ? (
-              <p className="text-xs text-muted-foreground">暂无事件</p>
-            ) : (
+            </ReportSection>
+          ) : null}
+          {recentEvents.length > 0 ? (
+            <ReportSection testId="live-events" title="最近事件">
               <ul className="space-y-1">
                 {recentEvents.map((event) => (
-                  <li key={event.eventId} data-testid="live-event-item" className="text-xs">
-                    <span>{event.kind}</span>
+                  <li key={event.eventId} data-testid="live-event-item" className="text-sm">
+                    <span className="font-medium">{event.kind}</span>
                     <span className="text-muted-foreground"> / {event.actor} / {event.ts}</span>
                   </li>
                 ))}
               </ul>
-            )}
-          </ReportSection>
-          <ReportSection testId="live-trace" title="轨迹">
-            {loadedEntries.length === 0 ? (
-              <p className="text-xs text-muted-foreground">暂无轨迹</p>
-            ) : (
+            </ReportSection>
+          ) : null}
+          {loadedEntries.length > 0 ? (
+            <ReportSection testId="live-trace" title="轨迹">
               <ul className="space-y-1">
                 {loadedEntries.map((entry) => (
-                  <li key={entry.callId} data-testid="live-trace-item" className="text-xs">
+                  <li key={entry.callId} data-testid="live-trace-item" className="text-sm">
                     <span className="font-medium">{entry.name}</span>
                     <span className="text-muted-foreground">
                       {" "}/ {entry.status}
@@ -209,8 +206,8 @@ export function LiveExecutionView({
                   </li>
                 ))}
               </ul>
-            )}
-          </ReportSection>
+            </ReportSection>
+          ) : null}
         </>
       )}
     </ReportPage>

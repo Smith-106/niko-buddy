@@ -166,9 +166,9 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
             </ReportCallout>
           ) : null}
           {snapshot !== null && snapshot.blocked ? (
-            <p className="mb-2 text-xs text-muted-foreground" data-testid="followup-blocked-banner">
+            <ReportCallout tone="error" testId="followup-blocked-banner">
               当前被{gateLabel(snapshot.blockingGate ?? "")}门阻塞：先处理首要阻塞项
-            </p>
+            </ReportCallout>
           ) : null}
           {isEmpty ? (
             <p className="text-xs text-muted-foreground" data-testid="followup-empty">
@@ -183,6 +183,7 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
               <div className="mb-2 flex gap-2">
                 <button
                   type="button"
+                  className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40"
                   data-testid="followup-resolve-all"
                   disabled={pendingCount === 0}
                   onClick={handleResolveAllPending}
@@ -191,6 +192,7 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
                 </button>
                 <button
                   type="button"
+                  className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40"
                   data-testid="followup-clear-resolved"
                   disabled={resolvedItems.length === 0 && novelReviewEntries.length === 0}
                   onClick={handleClearResolved}
@@ -215,6 +217,7 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
                         <span className="text-muted-foreground">{item.description}</span>
                         <button
                           type="button"
+                          className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40"
                           data-testid={`followup-resolve-${item.id}`}
                           onClick={() => resolveItem(item.id, item.options[0]?.action ?? "accept")}
                         >
@@ -222,6 +225,7 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
                         </button>
                         <button
                           type="button"
+                          className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40"
                           data-testid={`followup-dismiss-${item.id}`}
                           onClick={() => dismissItem(item.id)}
                         >
@@ -248,6 +252,7 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
                         {!entry.resolved ? (
                           <button
                             type="button"
+                            className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40"
                             data-testid={`followup-entry-resolve-${entry.id}`}
                             onClick={() => dismissNovelReviewEntry(entry.id)}
                           >
@@ -278,6 +283,7 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
                         </span>
                         <button
                           type="button"
+                          className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40"
                           data-testid={`followup-dismiss-${item.id}`}
                           onClick={() => dismissItem(item.id)}
                         >

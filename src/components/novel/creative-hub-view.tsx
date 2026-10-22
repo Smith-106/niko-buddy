@@ -75,6 +75,19 @@ function findingTone(severity: string): ReportTone {
   return "neutral"
 }
 
+/** 给写作者看的短句。诊断原文仍留在页面里，但不作为第一眼的句子。 */
+const FINDING_PLAIN: Record<string, { readonly title: string; readonly body: string }> = {
+  "status-json": { title: "会话状态", body: "写作状态文件还没建立" },
+  "canon-dual-write": { title: "正式层双写", body: "正式保存还没有门控" },
+  "fts-index": { title: "全文检索", body: "检索索引还没建好，重建后才能搜索" },
+  "chapter-backups": { title: "章节备份", body: "还没有章节备份，第一次保存章节后会自动留下" },
+  "budget-ledger": { title: "预算账本", body: "预算记录对不上" },
+  "volume-arc": { title: "分卷", body: "分卷进度需要看一眼" },
+  "fanfic-merge-pending": { title: "同人合并", body: "有一份同人合并还没确认" },
+  "translation-drafts": { title: "翻译草稿", body: "翻译草稿还停在草稿区" },
+  "play-graph": { title: "互动分支", body: "互动分支图有阻断" },
+}
+
 /**
  * 下一步建议纯函数（零 IO，确定性同输入同输出）。
  * 优先级：blockingGate 存在 → 先修该门；verdict critical → 先恢复健康；
@@ -156,6 +169,9 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
       : []
   const hasGateEvents = snapshot !== null && snapshot.cards.some((card) => card.hasEvent)
   const isZeroData = ready && meta === null && !hasGateEvents
+  const problems =
+    report === null ? [] : report.findings.filter((finding) => finding.severity === "error" || finding.severity === "warn")
+  const okCount = report === null ? 0 : report.findings.length - problems.length
 
   return (
     <ReportPage
@@ -171,58 +187,21 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
         <p className="text-sm text-muted-foreground">加载中……</p>
       ) : (
         <>
-          <ReportSection testId="creative-binding" title="小说状态绑定">
-            {meta !== null ? (
-              <dl className="grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-1">
-                <dt className="text-muted-foreground">标题</dt>
-                <dd>{meta.title}</dd>
-                <dt className="text-muted-foreground">题材</dt>
-                <dd>{meta.genre === "" ? "未填写" : meta.genre}</dd>
-                <dt className="text-muted-foreground">进度</dt>
-                <dd>
-                  第 {meta.currentChapter} 章 / 共 {meta.totalChapters} 章（{meta.totalWords} 字）
-                </dd>
-              </dl>
-            ) : (
-              <ReportCallout tone="warn">项目尚未初始化：未找到 project-meta</ReportCallout>
-            )}
-          </ReportSection>
-          <ReportSection testId="creative-diagnosis" title="诊断结论">
-            <p className={cn("rounded-md border px-3 py-2", reportToneClass(verdictTone(report.verdict)))}>
-              总体：{VERDICT_LABEL[report.verdict]}（{report.verdict}）
-            </p>
-            {report.findings.length === 0 ? (
-              <p className="text-muted-foreground">暂无诊断发现</p>
-            ) : (
-              <ul className="space-y-1">
-                {report.findings.map((finding) => (
-                  <li
-                    key={finding.id}
-                    className={cn("rounded-md border px-3 py-1.5", reportToneClass(findingTone(finding.severity)))}
-                  >
-                    {finding.name}：{finding.message}（{finding.severity}）
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p
-              className={cn(
-                "rounded-md border px-3 py-2",
-                reportToneClass(snapshot.blocked ? "error" : "ok"),
-              )}
-            >
-              门控：
-              {snapshot.blocked && snapshot.blockingGate !== null
-                ? `被${GATE_LABEL[snapshot.blockingGate] ?? snapshot.blockingGate}阻塞`
-                : "无阻塞"}
-            </p>
-          </ReportSection>
-          <ReportSection title="下一步建议">
+          <ReportSection title="下一步">
             <ul className="space-y-2">
               {next.map((item, index) => (
-                <li key={index} data-testid="creative-next" className="rounded-md border border-border bg-muted/30 px-3 py-2">
-                  <span className="block font-medium">{item.text}</span>
-                  <span className="block text-muted-foreground">——{item.reason}</span>
+                <li
+                  key={index}
+                  data-testid="creative-next"
+                  className={cn(
+                    "rounded-md border px-3 py-2",
+                    index === 0 ? "border-border bg-card" : "border-transparent",
+                  )}
+                >
+                  <span className={cn("block", index === 0 ? "text-base font-medium" : "text-sm")}>
+                    {item.text}
+                  </span>
+                  <span className="block text-sm text-muted-foreground">——{item.reason}</span>
                 </li>
               ))}
             </ul>
@@ -232,6 +211,65 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
               暂无项目数据：尚未初始化，且暂无门控运行事件（诚实空态，不虚构进度）
             </ReportCallout>
           ) : null}
+          <div className="grid gap-3 md:grid-cols-2">
+            <ReportSection testId="creative-diagnosis" title="诊断">
+              <p className={cn("rounded-md border px-3 py-2 text-base font-medium", reportToneClass(verdictTone(report.verdict)))}>
+                {VERDICT_LABEL[report.verdict]}
+                <span className="sr-only">（{report.verdict}）</span>
+              </p>
+              <p
+                className={cn(
+                  "rounded-md border px-3 py-2",
+                  reportToneClass(snapshot.blocked ? "error" : "ok"),
+                )}
+              >
+                门控：
+                {snapshot.blocked && snapshot.blockingGate !== null
+                  ? `被${GATE_LABEL[snapshot.blockingGate] ?? snapshot.blockingGate}阻塞`
+                  : "无阻塞"}
+              </p>
+            </ReportSection>
+            <ReportSection testId="creative-binding" title="小说状态">
+              {meta !== null ? (
+                <dl className="grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-1">
+                  <dt className="text-muted-foreground">标题</dt>
+                  <dd>{meta.title}</dd>
+                  <dt className="text-muted-foreground">题材</dt>
+                  <dd>{meta.genre === "" ? "未填写" : meta.genre}</dd>
+                  <dt className="text-muted-foreground">进度</dt>
+                  <dd>
+                    第 {meta.currentChapter} 章 / 共 {meta.totalChapters} 章（{meta.totalWords} 字）
+                  </dd>
+                </dl>
+              ) : (
+                <ReportCallout tone="warn">项目尚未初始化：未找到 project-meta</ReportCallout>
+              )}
+            </ReportSection>
+          </div>
+          <ReportSection title="需要处理">
+            {problems.length === 0 ? (
+              <p className="text-muted-foreground">没有需要立刻处理的诊断</p>
+            ) : (
+              <ul className="space-y-2">
+                {problems.map((finding) => (
+                  <li
+                    key={finding.id}
+                    className={cn("rounded-md border px-3 py-2", reportToneClass(findingTone(finding.severity)))}
+                  >
+                    <span className="font-medium">{FINDING_PLAIN[finding.id]?.title ?? finding.name}</span>
+                    <span className="sr-only">{finding.name}（{finding.severity}）</span>
+                    <span className="mt-0.5 block">{FINDING_PLAIN[finding.id]?.body ?? finding.message}</span>
+                    <span className="sr-only">{finding.message}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {okCount > 0 ? (
+              <p className="text-xs text-muted-foreground">{okCount} 项正常，已收起</p>
+            ) : report.findings.length === 0 ? (
+              <p className="text-muted-foreground">暂无诊断发现</p>
+            ) : null}
+          </ReportSection>
         </>
       )}
     </ReportPage>

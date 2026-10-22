@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next"
 import { Stethoscope, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
-import { formatDoctorReport, runProjectDoctor } from "@/lib/novel"
+import { runProjectDoctor } from "@/lib/novel"
 import type { DoctorReport } from "@/lib/novel"
 import { toErrorMessage } from "@/lib/utils"
 
@@ -12,8 +12,40 @@ import { toErrorMessage } from "@/lib/utils"
  *
  * 边界：`runProjectDoctor` 只读 IO（不写任何文件）；extras 由调用方
  * 从现有 store 状态聚合（canonDualWriteEnabled / ftsIndexReady / budgetTasks）；
- * 零 LLM；渲染走 `formatDoctorReport` 文本契约。
+ * 零 LLM。需要处理的发现单独列出，正常项收成一行，不再整段预格式化文本。
  */
+function DoctorFindings({ report }: { readonly report: DoctorReport }) {
+  const problems = report.findings.filter((finding) => finding.severity === "error" || finding.severity === "warn")
+  const ok = report.findings.filter((finding) => finding.severity === "ok")
+  const verdict =
+    report.verdict === "critical" ? "严重" : report.verdict === "degraded" ? "退化" : report.verdict === "healthy" ? "健康" : report.verdict
+  return (
+    <div className="space-y-2 text-sm">
+      <p className="font-medium">
+        {verdict}
+        <span className="sr-only">（{report.verdict}）</span>
+      </p>
+      {problems.length === 0 ? (
+        <p className="text-muted-foreground">没有需要立刻处理的诊断</p>
+      ) : (
+        <ul className="space-y-1">
+          {problems.map((finding) => (
+            <li key={finding.id}>
+              <span className="font-medium">{finding.name}</span>
+              <span className="text-muted-foreground">：{finding.message}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {ok.length > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {ok.length} 项正常：{ok.map((finding) => finding.name).join("、")}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 export function DoctorPanel() {
   const { t } = useTranslation()
   const projectPath = useWikiStore((s) => s.project?.path)
@@ -72,7 +104,7 @@ export function DoctorPanel() {
           </p>
         )}
         {report ? (
-          <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded border p-2 text-xs">{formatDoctorReport(report)}</pre>
+          <DoctorFindings report={report} />
         ) : (
           <p className="text-sm text-muted-foreground">{projectPath ? t("novel.doctor.empty") : t("novel.doctor.noProject")}</p>
         )}

@@ -165,6 +165,9 @@ export function ModelRoutesView({ projectPath }: ModelRoutesViewProps) {
         </ReportCallout>
       ) : (
         <>
+          <p className="text-base font-medium text-foreground">
+            角色绑定表为空，五个角色目前都走兜底模型。要改模型，去设置页。
+          </p>
           <div data-testid="model-routes-base" className="rounded-md border border-border bg-background px-3 py-2">
             <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
               <Cpu className="h-3.5 w-3.5" />
@@ -190,9 +193,7 @@ export function ModelRoutesView({ projectPath }: ModelRoutesViewProps) {
                 <dd className="font-mono">{snapshot.aiChatModel.trim() || "未配置"}</dd>
               </div>
             </dl>
-            <p className="mt-1 text-xs text-muted-foreground">
-              角色绑定表为空（仓库内无持久化 RoutePolicy 真源），以下五角色全部走兜底模型，未编造绑定关系。
-            </p>
+
           </div>
 
           <div data-testid="model-routes-roles" className="rounded-md border border-border bg-background px-3 py-2">

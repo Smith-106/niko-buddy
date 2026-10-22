@@ -11,6 +11,13 @@ import {
 import { toErrorMessage } from "@/lib/utils"
 import { ReportPage } from "./report-page"
 
+const SEVERITY_LABEL: Record<string, string> = {
+  critical: "严重",
+  high: "高",
+  medium: "中",
+  low: "低",
+}
+
 export interface AntiAiRulesViewProps {
   readonly projectPath: string
 }
@@ -163,7 +170,7 @@ export function AntiAiRulesView({ projectPath }: AntiAiRulesViewProps) {
                   <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
                     {rules.map((item, index) => (
                       <li key={`${category}-${index}`}>
-                        <span className="mr-1 rounded bg-muted px-1 text-[11px]">{item.severity}</span>
+                        <span className="mr-1 rounded bg-muted px-1 text-[11px]">{SEVERITY_LABEL[item.severity] ?? item.severity}</span>
                         {item.rule}
                       </li>
                     ))}
