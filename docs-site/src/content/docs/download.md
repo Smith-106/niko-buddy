@@ -339,11 +339,13 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## Windows 安装包
 
-下载 [`niko-buddy_2.17.1_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.17.1/niko-buddy_2.17.1_windows_X64.exe)（约 34 MB），双击运行 NSIS 安装程序即可。
+当前可安装的 stable 是 **v2.20.0**（v2.21.0 不附安装包）。
+
+下载 [`niko-buddy_2.20.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.20.0/niko-buddy_2.20.0_windows_X64.exe)（约 34 MB），双击运行 NSIS 安装程序即可。
 
 ## 便携版
 
-下载 [`niko-buddy_2.17.1_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.17.1/niko-buddy_2.17.1_windows_X64_portable.exe)（约 149 MB，单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
+下载 [`niko-buddy_2.20.0_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.20.0/niko-buddy_2.20.0_windows_X64_portable.exe)（约 149 MB，单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
 
 ## 系统要求
 
