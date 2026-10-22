@@ -24,7 +24,8 @@
  */
 
 import { useEffect, useState } from "react"
-import { GitBranch, Loader2, ScrollText } from "lucide-react"
+import { Loader2, ScrollText } from "lucide-react"
+import { ReportCallout, ReportPage } from "./report-page"
 import {
   createFsRunEventLedgerStoreDeps,
   groupWorkflowTemplates,
@@ -133,24 +134,20 @@ export function WorkflowEditorView({ projectPath, snapshot: snapshotOverride }: 
   }, [projectPath, snapshotOverride])
 
   return (
-    <section data-testid="workflow-editor-view" className="flex flex-col gap-3 p-4">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-        <GitBranch className="h-4 w-4" />
-        工作流（只读）
-      </h2>
-      <p className="text-xs text-muted-foreground">
-        仓库内无可写工作流 DSL，本页只做只读展示：模板注册表登记 + 运行事件账本尾部；写回一律不做。
-      </p>
-
+    <ReportPage
+      testId="workflow-editor-view"
+      title="工作流（只读）"
+      description="仓库内无可写工作流 DSL，本页只做只读展示：模板注册表登记 + 运行事件账本尾部；写回一律不做。"
+    >
       {loading ? (
-        <p data-testid="workflow-loading" className="flex items-center gap-1 text-xs text-muted-foreground">
+        <p data-testid="workflow-loading" className="flex items-center gap-1 text-sm text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
           正在读取工作流模板与运行事件…
         </p>
       ) : snapshot === null ? (
-        <p data-testid="workflow-empty" className="text-xs text-muted-foreground">
+        <ReportCallout testId="workflow-empty" tone="neutral">
           未指定项目路径
-        </p>
+        </ReportCallout>
       ) : (
         <>
           <div data-testid="workflow-templates" className="rounded-md border border-border bg-background px-3 py-2">
@@ -224,6 +221,6 @@ export function WorkflowEditorView({ projectPath, snapshot: snapshotOverride }: 
           </div>
         </>
       )}
-    </section>
+    </ReportPage>
   )
 }

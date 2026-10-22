@@ -20,7 +20,8 @@
  */
 
 import { useEffect, useState } from "react"
-import { Loader2, Radar } from "lucide-react"
+import { Loader2 } from "lucide-react"
+import { ReportCallout, ReportPage, ReportSection } from "./report-page"
 
 /** 市场信号（预留形状；数据源接入前恒为空数组）。 */
 export interface MarketRadarSignal {
@@ -84,43 +85,41 @@ export function MarketRadarView({ projectPath }: MarketRadarViewProps) {
   }, [projectPath])
 
   return (
-    <section data-testid="market-radar-view" className="flex flex-col gap-3 p-4">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-        <Radar className="h-4 w-4" />
-        市场雷达
-      </h2>
-      <p className="text-xs text-muted-foreground">
-        外部市场榜单/热度数据的预留展示位；数据源接入前本页保持诚实空态。
-      </p>
-
+    <ReportPage
+      testId="market-radar-view"
+      title="市场雷达"
+      description="外部市场榜单/热度数据的预留展示位；数据源接入前本页保持诚实空态。"
+    >
       {loading ? (
-        <p data-testid="market-radar-loading" className="flex items-center gap-1 text-xs text-muted-foreground">
+        <p data-testid="market-radar-loading" className="flex items-center gap-1 text-sm text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
           正在读取市场雷达数据…
         </p>
       ) : snapshot === null ? (
-        <p data-testid="market-radar-empty" className="text-xs text-muted-foreground">
+        <ReportCallout testId="market-radar-empty" tone="neutral">
           未指定项目路径
-        </p>
+        </ReportCallout>
       ) : snapshot.connected && snapshot.signals.length > 0 ? (
-        <ul data-testid="market-radar-list" className="flex flex-col gap-1">
-          {snapshot.signals.map((signal) => (
-            <li
-              key={signal.id}
-              data-testid={`market-radar-signal-${signal.id}`}
-              className="flex flex-wrap gap-x-2 text-xs text-muted-foreground"
-            >
-              <span className="font-medium text-foreground">#{signal.rank}</span>
-              <span>{signal.title}</span>
-              <span>{signal.source}</span>
-            </li>
-          ))}
-        </ul>
+        <ReportSection title="榜单">
+          <ul data-testid="market-radar-list" className="flex flex-col gap-1">
+            {snapshot.signals.map((signal) => (
+              <li
+                key={signal.id}
+                data-testid={`market-radar-signal-${signal.id}`}
+                className="flex flex-wrap gap-x-2"
+              >
+                <span className="font-medium text-foreground">#{signal.rank}</span>
+                <span>{signal.title}</span>
+                <span className="text-muted-foreground">{signal.source}</span>
+              </li>
+            ))}
+          </ul>
+        </ReportSection>
       ) : (
-        <p data-testid="market-radar-empty" className="text-xs text-muted-foreground">
+        <ReportCallout testId="market-radar-empty" tone="warn">
           市场数据未接入：{snapshot.reason}
-        </p>
+        </ReportCallout>
       )}
-    </section>
+    </ReportPage>
   )
 }

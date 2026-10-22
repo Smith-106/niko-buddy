@@ -27,7 +27,8 @@
  */
 
 import { useEffect, useState } from "react"
-import { AlertTriangle, CheckCircle2, Layers, Loader2, Lock } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Loader2, Lock } from "lucide-react"
+import { ReportPage } from "./report-page"
 import {
   loadAssetLibraryArtifact,
   loadAssetLibrarySnapshot,
@@ -119,20 +120,21 @@ export function StoryModeLibraryView({ projectPath }: StoryModeLibraryViewProps)
   const error = snapshot !== null ? snapshot.error : undefined
 
   return (
-    <section data-testid="story-mode-library-view" className="flex flex-col gap-3 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-          <Layers className="h-4 w-4" />
-          推进模式库（只读浏览）
-        </h2>
+    <ReportPage
+      testId="story-mode-library-view"
+      title="推进模式库（只读浏览）"
+      description={
+        <>
+          模式来自 <code className="font-mono">.novel/asset-library/pacing_pattern.json</code>
+          （生成器产物，只读呈现）。阶段进出以既有三门裁定为准，本页不提供手改入口。
+        </>
+      }
+      actions={
         <span data-testid="story-mode-summary" className="text-xs text-muted-foreground">
           {loading ? "读取中…" : `共 ${state.modes.length} 个推进模式`}
         </span>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        模式来自 <code className="font-mono">.novel/asset-library/pacing_pattern.json</code>
-        （生成器产物，只读呈现）。阶段进出以既有三门裁定为准，本页不提供手改入口。
-      </p>
+      }
+    >
       <div
         data-testid="story-mode-snapshot"
         className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs"
@@ -228,6 +230,6 @@ export function StoryModeLibraryView({ projectPath }: StoryModeLibraryViewProps)
           ) : null}
         </>
       )}
-    </section>
+    </ReportPage>
   )
 }

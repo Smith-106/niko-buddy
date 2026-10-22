@@ -9,6 +9,7 @@ import {
   type DeAiSkillConfig,
 } from "@/lib/novel"
 import { toErrorMessage } from "@/lib/utils"
+import { ReportPage } from "./report-page"
 
 export interface AntiAiRulesViewProps {
   readonly projectPath: string
@@ -119,13 +120,11 @@ export function AntiAiRulesView({ projectPath }: AntiAiRulesViewProps) {
   }
 
   return (
-    <section data-testid="anti-ai-rules-view" className="flex flex-col gap-4 p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-foreground">反AI规则</h2>
-        <p className="text-xs text-muted-foreground">
-          7 类规则为只读说明；技能开关切换后即写盘保存到 .niko-buddy/de-ai-skills.json。
-        </p>
-      </div>
+    <ReportPage
+      testId="anti-ai-rules-view"
+      title="反AI规则"
+      description="7 类规则为只读说明；技能开关切换后即写盘保存到 .niko-buddy/de-ai-skills.json。"
+    >
 
       <p data-testid="anti-ai-preview" className="text-sm text-foreground">
         {loading
@@ -223,6 +222,6 @@ export function AntiAiRulesView({ projectPath }: AntiAiRulesViewProps) {
           </ul>
         )}
       </div>
-    </section>
+    </ReportPage>
   )
 }

@@ -21,6 +21,7 @@
  */
 
 import { useEffect, useState } from "react"
+import { ReportPage } from "./report-page"
 import {
   forgeTitles,
   loadAssetLibraryArtifact,
@@ -168,13 +169,11 @@ export function TitleStudioView({ projectPath }: TitleStudioViewProps) {
   }
 
   return (
-    <section data-testid="title-studio-view" className="flex flex-col gap-3 p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-foreground">标题工坊（机械筛选 · 无模型调用）</h2>
-        <p className="text-xs text-muted-foreground">
-          候选标题按标题种子 constraints 做机械命中筛选（标题须含锚点子串）。本页不生成标题、不调用模型，只输出通过/淘汰＋逐条命中证据。
-        </p>
-      </div>
+    <ReportPage
+      testId="title-studio-view"
+      title="标题工坊（机械筛选 · 无模型调用）"
+      description="候选标题按标题种子 constraints 做机械命中筛选（标题须含锚点子串）。本页不生成标题、不调用模型，只输出通过/淘汰＋逐条命中证据。"
+    >
       {loading ? (
         <p data-testid="title-loading" className="text-xs text-muted-foreground">
           正在读取标题种子…
@@ -250,6 +249,6 @@ export function TitleStudioView({ projectPath }: TitleStudioViewProps) {
           {renderGroup(false)}
         </div>
       ) : null}
-    </section>
+    </ReportPage>
   )
 }

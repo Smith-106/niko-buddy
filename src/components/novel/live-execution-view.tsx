@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useRef, useState } from "react"
+import { ReportCallout, ReportPage, ReportSection } from "./report-page"
 
 import {
   createFsRunEventLedgerStoreDeps,
@@ -143,24 +144,27 @@ export function LiveExecutionView({
   const isEmpty = running.length === 0 && recentEvents.length === 0 && loadedEntries.length === 0
 
   return (
-    <div data-testid="live-execution-view" className="space-y-2">
+    <ReportPage
+      testId="live-execution-view"
+      title="AI 实况"
+      description="只读显示运行中的活动、最近事件和轨迹。没有这些记录时保持空态，不编造运行状态。"
+    >
       {loadError ? (
-        <p data-testid="live-load-error" className="text-[11px] text-destructive">
+        <ReportCallout testId="live-load-error" tone="error">
           实况装载失败（保留上次数据）：{loadError}
-        </p>
+        </ReportCallout>
       ) : null}
       {!ready ? (
-        <p data-testid="live-view-loading" className="text-xs text-muted-foreground">
+        <p data-testid="live-view-loading" className="text-sm text-muted-foreground">
           实况装载中…
         </p>
       ) : isEmpty ? (
-        <p data-testid="live-empty" className="text-xs text-muted-foreground">
+        <ReportCallout testId="live-empty" tone="neutral">
           暂无运行中的活动、事件与轨迹
-        </p>
+        </ReportCallout>
       ) : (
         <>
-          <section data-testid="live-running" className="space-y-1">
-            <h3 className="text-xs font-medium">运行中活动</h3>
+          <ReportSection testId="live-running" title="运行中活动">
             {running.length === 0 ? (
               <p className="text-xs text-muted-foreground">当前无运行中活动</p>
             ) : (
@@ -174,9 +178,8 @@ export function LiveExecutionView({
                 ))}
               </ul>
             )}
-          </section>
-          <section data-testid="live-events" className="space-y-1">
-            <h3 className="text-xs font-medium">最近事件</h3>
+          </ReportSection>
+          <ReportSection testId="live-events" title="最近事件">
             {recentEvents.length === 0 ? (
               <p className="text-xs text-muted-foreground">暂无事件</p>
             ) : (
@@ -189,9 +192,8 @@ export function LiveExecutionView({
                 ))}
               </ul>
             )}
-          </section>
-          <section data-testid="live-trace" className="space-y-1">
-            <h3 className="text-xs font-medium">轨迹</h3>
+          </ReportSection>
+          <ReportSection testId="live-trace" title="轨迹">
             {loadedEntries.length === 0 ? (
               <p className="text-xs text-muted-foreground">暂无轨迹</p>
             ) : (
@@ -208,9 +210,9 @@ export function LiveExecutionView({
                 ))}
               </ul>
             )}
-          </section>
+          </ReportSection>
         </>
       )}
-    </div>
+    </ReportPage>
   )
 }

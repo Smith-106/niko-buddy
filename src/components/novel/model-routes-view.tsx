@@ -30,7 +30,8 @@
  */
 
 import { useEffect, useState } from "react"
-import { Cpu, Loader2, Network } from "lucide-react"
+import { Cpu, Loader2 } from "lucide-react"
+import { ReportCallout, ReportPage } from "./report-page"
 import {
   normalizeRoutePolicy,
   resolveReviewModel,
@@ -148,24 +149,20 @@ export function ModelRoutesView({ projectPath }: ModelRoutesViewProps) {
   }, [projectPath])
 
   return (
-    <section data-testid="model-routes-view" className="flex flex-col gap-3 p-4">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-        <Network className="h-4 w-4" />
-        模型路由配置（只读）
-      </h2>
-      <p className="text-xs text-muted-foreground">
-        全局模型路由与 provider 配置摘要；本页只读，修改请走设置页。本页不触发任何模型调用。
-      </p>
-
+    <ReportPage
+      testId="model-routes-view"
+      title="模型路由配置（只读）"
+      description="全局模型路由与 provider 配置摘要；本页只读，修改请走设置页。本页不触发任何模型调用。"
+    >
       {loading ? (
-        <p data-testid="model-routes-loading" className="flex items-center gap-1 text-xs text-muted-foreground">
+        <p data-testid="model-routes-loading" className="flex items-center gap-1 text-sm text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
           正在读取模型路由配置…
         </p>
       ) : snapshot === null ? (
-        <p data-testid="model-routes-empty" className="text-xs text-muted-foreground">
+        <ReportCallout testId="model-routes-empty" tone="neutral">
           {projectPath === "" ? "未指定项目路径，打开任意项目后查看全局配置" : "全局未配置可用模型（审查/默认/会话模型均为空），请先在设置页配置模型"}
-        </p>
+        </ReportCallout>
       ) : (
         <>
           <div data-testid="model-routes-base" className="rounded-md border border-border bg-background px-3 py-2">
@@ -244,6 +241,6 @@ export function ModelRoutesView({ projectPath }: ModelRoutesViewProps) {
           </div>
         </>
       )}
-    </section>
+    </ReportPage>
   )
 }

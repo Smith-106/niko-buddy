@@ -22,7 +22,8 @@
  */
 
 import { useEffect, useState } from "react"
-import { BookOpen, Database, Loader2 } from "lucide-react"
+import { Database, Loader2 } from "lucide-react"
+import { ReportPage } from "./report-page"
 import { CHANNELS, loadAssetLibrarySnapshot, type AssetLibrarySnapshot, type ChannelGenre, type MainGenre, type SubGenre } from "@/lib/novel"
 
 /** 频道（男频 / 女频）——真源 `outline-genres.ts` 经 barrel 转出（BGH-20261019 m5）。 */
@@ -112,12 +113,11 @@ export function GenreLibraryView({ projectPath, snapshot: snapshotOverride }: Ge
   const snapshotError = snapshot !== null && !snapshot.present ? (snapshot.error ?? null) : null
 
   return (
-    <section data-testid="genre-library-view" className="flex flex-col gap-3 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-          <BookOpen className="h-4 w-4" />
-          题材基底库（只读浏览）
-        </h2>
+    <ReportPage
+      testId="genre-library-view"
+      title="题材基底库（只读浏览）"
+      description="静态分类树来自大纲生成器（男频 18 主分类 · 女频 18 主分类），子类型只展示名称；本页只读，不写盘、不改产物。"
+      actions={
         <div className="flex items-center gap-2" role="group" aria-label="频道切换">
           {CHANNELS.map((item) => (
             <button
@@ -132,11 +132,8 @@ export function GenreLibraryView({ projectPath, snapshot: snapshotOverride }: Ge
             </button>
           ))}
         </div>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        静态分类树来自大纲生成器（男频 18 主分类 · 女频 18 主分类），子类型只展示名称；
-        本页只读，不写盘、不改产物。
-      </p>
+      }
+    >
 
       <div data-testid="genre-snapshot" className="rounded-md border border-border bg-background px-3 py-2">
         <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
@@ -221,6 +218,6 @@ export function GenreLibraryView({ projectPath, snapshot: snapshotOverride }: Ge
           </div>
         ) : null}
       </div>
-    </section>
+    </ReportPage>
   )
 }

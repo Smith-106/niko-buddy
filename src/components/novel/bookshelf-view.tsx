@@ -20,6 +20,7 @@
  */
 
 import { useEffect, useState } from "react"
+import { ReportCallout, ReportPage } from "./report-page"
 import { loadBookLibrary, type BookLibraryEntry } from "@/lib/novel"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -109,22 +110,22 @@ export function BookshelfView({ projectPath }: BookshelfViewProps) {
   }
 
   return (
-    <section data-testid="bookshelf-view" className="flex flex-col gap-3 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold text-foreground">书架</h2>
-        {entries !== null && entries.length > 0 ? (
+    <ReportPage
+      testId="bookshelf-view"
+      title="书架"
+      description="已导入的拆书作品。选择一本后可以打开拆书分析。"
+      actions={
+        entries !== null && entries.length > 0 ? (
           <span className="text-xs text-muted-foreground">共 {entries.length} 本拆书作品</span>
-        ) : null}
-      </div>
+        ) : null
+      }
+    >
       {entries === null ? (
-        <p className="text-xs text-muted-foreground">正在读取书架…</p>
+        <p className="text-sm text-muted-foreground">正在读取书架…</p>
       ) : entries.length === 0 ? (
-        <p
-          data-testid="bookshelf-empty"
-          className="rounded-md border border-dashed p-4 text-xs leading-5 text-muted-foreground"
-        >
+        <ReportCallout testId="bookshelf-empty" tone="neutral">
           暂无拆书作品。先去「拆书分析」导入一本小说吧。
-        </p>
+        </ReportCallout>
       ) : (
         <ul data-testid="bookshelf-list" className="flex flex-col gap-2">
           {entries.map((entry) => {
@@ -180,6 +181,6 @@ export function BookshelfView({ projectPath }: BookshelfViewProps) {
           })}
         </ul>
       )}
-    </section>
+    </ReportPage>
   )
 }

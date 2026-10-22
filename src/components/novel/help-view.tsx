@@ -15,7 +15,7 @@
  */
 
 import { useState } from "react"
-import { LifeBuoy } from "lucide-react"
+import { ReportCallout, ReportPage } from "./report-page"
 
 export interface HelpItem {
   readonly q: string
@@ -118,11 +118,7 @@ export function HelpView({ projectPath }: HelpViewProps) {
   const visible = filterHelpSections(HELP_SECTIONS, keyword)
 
   return (
-    <section data-testid="help-view" className="flex flex-col gap-3 p-4">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-        <LifeBuoy className="h-4 w-4" />
-        帮助
-      </h2>
+    <ReportPage testId="help-view" title="帮助" description="按关键词过滤功能说明和常见问题。">
       <div className="flex items-center gap-2">
         <label htmlFor="help-search" className="text-xs text-muted-foreground">
           搜索帮助
@@ -139,9 +135,9 @@ export function HelpView({ projectPath }: HelpViewProps) {
       </div>
 
       {visible.length === 0 ? (
-        <p data-testid="help-no-match" className="text-xs text-muted-foreground">
+        <ReportCallout testId="help-no-match" tone="neutral">
           无匹配的帮助条目（关键词：{keyword.trim()}），请换个关键词再试。
-        </p>
+        </ReportCallout>
       ) : (
         <div data-testid="help-sections" className="flex flex-col gap-3">
           {visible.map((section) => (
@@ -163,6 +159,6 @@ export function HelpView({ projectPath }: HelpViewProps) {
           ))}
         </div>
       )}
-    </section>
+    </ReportPage>
   )
 }

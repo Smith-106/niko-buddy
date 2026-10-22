@@ -24,7 +24,8 @@
  */
 
 import { useEffect, useState } from "react"
-import { Loader2, PlugZap } from "lucide-react"
+import { Loader2 } from "lucide-react"
+import { ReportPage } from "./report-page"
 import { DEFAULT_MCP_CONFIG, normalizeMcpConfig, type McpConfig } from "@/lib/mcp/config"
 import { loadMcpConfig, saveMcpConfig } from "@/lib/project-store"
 
@@ -121,14 +122,11 @@ export function McpManagerView({ projectPath, config: configOverride }: McpManag
   }
 
   return (
-    <section data-testid="mcp-manager-view" className="flex flex-col gap-3 p-4">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-        <PlugZap className="h-4 w-4" />
-        MCP 服务管理
-      </h2>
-      <p className="text-xs text-muted-foreground">
-        全局 MCP 服务配置（非项目级）；启停开关立即落盘，其余字段只读。状态列仅反映配置开关，不做存活探测。
-      </p>
+    <ReportPage
+      testId="mcp-manager-view"
+      title="MCP 服务管理"
+      description="全局 MCP 服务配置（非项目级）；启停开关立即落盘，其余字段只读。状态列仅反映配置开关，不做存活探测。"
+    >
 
       {loading ? (
         <p data-testid="mcp-loading" className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -206,6 +204,6 @@ export function McpManagerView({ projectPath, config: configOverride }: McpManag
           </ul>
         </>
       )}
-    </section>
+    </ReportPage>
   )
 }
