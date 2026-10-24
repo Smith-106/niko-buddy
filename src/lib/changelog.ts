@@ -2142,14 +2142,12 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
  * Full visible version history, newest first. ENTRIES is already
  * descending, so the visibility window is the only filter.
  *
- * Parity note: the pre-refactor list was hand-maintained and frozen at
- * 2.6.3 — 2.7.x and 2.6.4-2.6.13 entries exist (served by
- * currentVersionChangelog) but were never appended to the history, and
- * the intermediate 2.4.7/2.4.8 entries were skipped. This window is
- * preserved verbatim for behavioral parity.
+ * 补全说明（用户 2026-10-24 要求补全更新历史）：历史窗口不再冻结在
+ * 2.6.3，上限取 ENTRIES 最新条目并随发版自动后移；2.4.7/2.4.8 同步放行。
+ * HIDDEN_VERSIONS（被合并的补丁号段）保持不变——那些版本从未有过独立条目。
  */
-const HISTORY_CEILING = "2.6.3"
-const HISTORY_SKIPPED_VERSIONS: ReadonlySet<string> = new Set(["2.4.8", "2.4.7"])
+const HISTORY_CEILING = ENTRIES[0]?.version ?? "2.6.3"
+const HISTORY_SKIPPED_VERSIONS: ReadonlySet<string> = new Set<string>([])
 
 function compareVersions(a: string, b: string): number {
   const aParts = a.split(".").map(Number)

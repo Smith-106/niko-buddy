@@ -2,27 +2,23 @@ import { describe, expect, it } from "vitest"
 import { allChangelog, currentVersionChangelog, ENTRIES } from "./changelog"
 
 describe("changelog", () => {
-  it("shows the latest visible 2.3 and 2.2 releases before earlier releases", () => {
+  it("shows the newest releases first with complete history (ceiling lifted)", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    // 2.6.3 头部 + 2.6.2 + 2.6.1 + 2.6.0 + 2.5.1 + 2.5.0 + 2.4.x 链（2.6.3 发布后整体后移）
-    expect(versions.slice(0, 10)).toEqual(["2.6.3", "2.6.2", "2.6.1", "2.6.0", "2.5.1", "2.5.0", "2.4.11", "2.4.10", "2.4.6", "2.4.5"])
-    expect(versions[10]).toBe("2.4.4")
-    expect(versions[11]).toBe("2.4.3")
-    expect(versions[12]).toBe("2.4.2")
-    expect(versions[13]).toBe("2.4.1")
-    expect(versions[14]).toBe("2.4.0")
-    expect(versions[15]).toBe("2.3.2")
-    expect(versions[16]).toBe("2.3.1")
-    expect(versions[17]).toBe("2.3.0")
-    // 2.2.x patch chain starts after 2.6.x + 2.5.x + 2.4.x + 2.3.x heads
-    expect(versions.slice(18, 38)).toEqual([
-      "2.2.24", "2.2.23", "2.2.22", "2.2.21", "2.2.20",
-      "2.2.19", "2.2.18", "2.2.17", "2.2.16", "2.2.14",
-      "2.2.13", "2.2.12", "2.2.11", "2.2.10", "2.2.9",
-      "2.2.8", "2.2.7", "2.2.0", "2.1.0", "2.0.0",
+    // 上限已放开：头部是当前最新发布链，不再冻结在 2.6.3
+    expect(versions.slice(0, 10)).toEqual([
+      "2.22.0", "2.21.1", "2.21.0", "2.20.0", "2.19.0",
+      "2.18.1", "2.18.0", "2.17.1", "2.17.0", "2.16.0",
     ])
+    // 2.6.3 发布后整体后移的中段链保持可见
+    expect(versions).toEqual(expect.arrayContaining([
+      "2.6.3", "2.6.2", "2.6.1", "2.6.0", "2.5.1", "2.5.0",
+    ]))
+    // 2.4.7/2.4.8 已放行（此前按旧 parity 跳过）
+    expect(versions).toContain("2.4.8")
+    expect(versions).toContain("2.4.7")
+    // 2.2.x patch 链：可见头之后是 2.2.0/2.1.0/2.0.0（被合并号段仍隐藏）
 
     for (let patch = 1; patch <= 6; patch += 1) {
       expect(versions).not.toContain(`2.2.${patch}`)
@@ -141,17 +137,14 @@ describe("changelog", () => {
 
 // ── P0 batch A3 invariant upgrades ───────────────────────────────────────────
 //
-// Design decision (reported): the pre-A3 idea "allChangelog()[0] >= pkg.version"
-// anchors on the WRONG view. allChangelog is the frozen HISTORY view
-// (HISTORY_CEILING = 2.6.3, intentional A1/A2 freeze), so its head is pinned at
-// the ceiling, never at pkg.version. The "newest entry may lead the released
-// version" invariant anchors on ENTRIES (the draft head 2.7.10 may lead
-// pkg.version 2.7.9 by one unreleased version), and the "released version is
-// visible" invariant anchors on ENTRIES + currentVersionChangelog(pkg.version)
-// — NOT on allChangelog, which deliberately freezes 2.7.x out of the history.
-// The draft lead is additionally bounded (D3, PASS-with-notes fix): the
-// ENTRIES head may be at most ONE unreleased version above pkg.version
-// (head <= major.minor.(patch+1)), closing the lockstep blind spot.
+// Design decision (updated 2026-10-24): the pre-A3 idea "allChangelog()[0] >= pkg.version"
+// anchors on the WRONG view only while the history is frozen. The 2.6.3 freeze
+// (HISTORY_CEILING, intentional A1/A2) was lifted per user request to complete
+// the update history: the ceiling now tracks the newest ENTRIES version, so the
+// history head follows releases and pkg.version IS visible in allChangelog.
+// The "newest entry may lead the released version" invariant still anchors on
+// ENTRIES (draft head may lead pkg.version by one unreleased version), and the
+// draft lead remains bounded (D3): ENTRIES head <= one version above pkg.version.
 
 /** HIDDEN_VERSIONS mirror (changelog.ts): folded releases, never surfaced. */
 const HIDDEN_RELEASES = [
@@ -160,7 +153,7 @@ const HIDDEN_RELEASES = [
   "2.0.1", "2.0.2", "2.0.3", "2.0.4", "2.0.5", "2.0.6", "2.0.7", "2.0.8", "2.0.9", "2.0.10", "2.0.11", "2.0.12",
 ]
 
-/** HISTORY_SKIPPED_VERSIONS mirror: in ENTRIES, but skipped by the frozen hand-maintained history. */
+/** HISTORY_SKIPPED_VERSIONS mirror (now empty — 2.4.7/2.4.8 released into history 2026-10-24). */
 const HISTORY_SKIPPED = ["2.4.7", "2.4.8"]
 
 /** 1.0.8..1.0.32 merged into the single 1.0.7 entry (isMergedOnePointRelease). */
@@ -206,35 +199,34 @@ describe("changelog invariants (P0 A3)", () => {
     expect(compareSemver(versions[0]!, oneVersionAheadOf(__APP_VERSION__))).toBeLessThanOrEqual(0)
   })
 
-  it("the released pkg.version stays visible via ENTRIES / exact lookup", () => {
+  it("the released pkg.version stays visible via ENTRIES / exact lookup / history", () => {
     const versions = ENTRIES.map((entry) => entry.version)
 
     // The A3 toContain anchor: pkg.version must exist as an entry and be
-    // served by currentVersionChangelog — even though HISTORY_CEILING keeps
-    // it out of allChangelog (2.7.9 > 2.6.3).
+    // served by currentVersionChangelog — and since the ceiling was lifted,
+    // also by the history view itself.
     expect(versions).toContain(__APP_VERSION__)
     const release = currentVersionChangelog(__APP_VERSION__)
     expect(release).toHaveLength(1)
     expect(release[0]!.version).toBe(__APP_VERSION__)
+    expect(allChangelog().map((entry) => entry.version)).toContain(__APP_VERSION__)
   })
 
-  it("allChangelog stays frozen at the 2.6.3 ceiling by design (A1/A2)", () => {
+  it("allChangelog tracks the newest release (ceiling lifted 2026-10-24)", () => {
     const versions = allChangelog().map((entry) => entry.version)
 
-    // Freeze-faithful: the history head is pinned to HISTORY_CEILING.
-    expect(versions[0]).toBe("2.6.3")
+    // Ceiling follows ENTRIES head: history head is the newest release.
+    expect(versions[0]).toBe(ENTRIES[0]!.version)
     for (const version of versions) {
-      expect(compareSemver(version, "2.6.3")).toBeLessThanOrEqual(0)
+      expect(compareSemver(version, ENTRIES[0]!.version)).toBeLessThanOrEqual(0)
     }
 
-    // The released version (2.7.9) and the draft head (2.7.10) are beyond the
-    // ceiling: they must NOT appear in the history view — they are served by
-    // currentVersionChangelog instead (see the sibling assertion above).
-    expect(versions).not.toContain(__APP_VERSION__)
-    expect(versions).not.toContain("2.7.10")
+    // The released version and the newest entry appear in the history view.
+    expect(versions).toContain(__APP_VERSION__)
+    expect(versions).toContain(ENTRIES[0]!.version)
   })
 
-  it("hidden, merged and history-skipped versions never leak into ENTRIES/history", () => {
+  it("hidden and merged versions never leak into ENTRIES/history; formerly-skipped are released", () => {
     const entryVersions = ENTRIES.map((entry) => entry.version)
     const historyVersions = allChangelog().map((entry) => entry.version)
     const hidden = [...HIDDEN_RELEASES, ...MERGED_ONE_POINT]
@@ -245,12 +237,12 @@ describe("changelog invariants (P0 A3)", () => {
       expect(currentVersionChangelog(version)).toEqual([])
     }
 
-    // Skipped versions are a history-view-only freeze quirk: they stay
-    // reachable by exact lookup but never appear in allChangelog.
+    // Formerly-skipped versions are now released into the history view:
+    // still reachable by exact lookup AND present in allChangelog.
     for (const version of HISTORY_SKIPPED) {
       expect(entryVersions).toContain(version)
       expect(currentVersionChangelog(version)).toHaveLength(1)
-      expect(historyVersions).not.toContain(version)
+      expect(historyVersions).toContain(version)
     }
   })
 })
