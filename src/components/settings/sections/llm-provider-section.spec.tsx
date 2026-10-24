@@ -721,15 +721,16 @@ describe("LlmProviderSection — local CLI pills", () => {
   })
 
   it("claude pill: invoke rejects — Error message then plain-string String(e)", async () => {
+    // CliProbeStrip 同页挂载并行抢占 claude_cli_detect：Once 只够一次消费，改持续拒绝保证 pill 可达。
     mocks.isTauri.mockReturnValue(true)
-    mocks.invoke.mockRejectedValueOnce(new Error("detect-boom"))
+    mocks.invoke.mockRejectedValue(new Error("detect-boom"))
     render(<LlmProviderSection />)
     const card = cardByLabel("ClaudeCli")
     expandCard(card)
     await waitFor(() => {
       expect(within(card).getByText("detect-boom")).toBeInTheDocument()
     })
-    mocks.invoke.mockRejectedValueOnce("detect-boom-plain")
+    mocks.invoke.mockRejectedValue("detect-boom-plain")
     fireEvent.click(within(card).getByText("重新检查"))
     await waitFor(() => {
       expect(within(card).getByText("detect-boom-plain")).toBeInTheDocument()
