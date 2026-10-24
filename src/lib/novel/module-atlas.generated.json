@@ -91,7 +91,7 @@
   "specOnly": 272,
   "barrelOnly": 2,
   "edges": 4139,
-  "loc": 265333
+  "loc": 265495
  },
  "modules": [
   {
@@ -1614,7 +1614,7 @@
   {
    "p": "src/components/layout/nav-items.ts",
    "s": 16,
-   "l": 152,
+   "l": 153,
    "r": true,
    "o": false,
    "x": false,
@@ -3155,7 +3155,7 @@
   {
    "p": "src/components/novel/main-control-view.tsx",
    "s": 16,
-   "l": 501,
+   "l": 508,
    "r": true,
    "o": false,
    "x": false,
@@ -3357,7 +3357,7 @@
   {
    "p": "src/components/novel/pipeline-motion-panel.tsx",
    "s": 16,
-   "l": 559,
+   "l": 612,
    "r": true,
    "o": false,
    "x": false,
@@ -3897,7 +3897,7 @@
   {
    "p": "src/components/novel/story-simulation/story-simulation-view.tsx",
    "s": 16,
-   "l": 1524,
+   "l": 1525,
    "r": true,
    "o": false,
    "x": false,
@@ -4971,7 +4971,7 @@
   {
    "p": "src/components/settings/sections/vector-health-card.tsx",
    "s": 16,
-   "l": 92,
+   "l": 96,
    "r": true,
    "o": false,
    "x": false,
@@ -6724,7 +6724,7 @@
   {
    "p": "src/lib/changelog.ts",
    "s": 18,
-   "l": 2188,
+   "l": 2209,
    "r": true,
    "o": false,
    "x": false,
@@ -7176,7 +7176,7 @@
   {
    "p": "src/lib/doctor-extras.ts",
    "s": 18,
-   "l": 135,
+   "l": 140,
    "r": true,
    "o": false,
    "x": false,
@@ -14610,7 +14610,7 @@
   {
    "p": "src/lib/novel/story-simulation/agent-profile-builder.ts",
    "s": 14,
-   "l": 370,
+   "l": 375,
    "r": true,
    "o": false,
    "x": false,
@@ -14784,7 +14784,7 @@
   {
    "p": "src/lib/novel/story-simulation/sim-agent-tools.ts",
    "s": 14,
-   "l": 261,
+   "l": 266,
    "r": true,
    "o": false,
    "x": false,
@@ -14800,7 +14800,7 @@
   {
    "p": "src/lib/novel/story-simulation/simulation-engine.ts",
    "s": 14,
-   "l": 1714,
+   "l": 1759,
    "r": true,
    "o": true,
    "x": true,
@@ -14849,7 +14849,7 @@
   {
    "p": "src/lib/novel/story-simulation/story-draft-generator.ts",
    "s": 14,
-   "l": 229,
+   "l": 244,
    "r": true,
    "o": true,
    "x": true,
