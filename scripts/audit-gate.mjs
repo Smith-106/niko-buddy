@@ -7,6 +7,7 @@
 // 本门做法：JSON 全量审查 + 显式例外清单。例外必须逐条记录理由与复查条件，
 // 非清单 high/critical 依然失败。门禁只增不减。
 import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 
 // 例外清单：每条必须有 advisory URL + 接受理由 + 自动复查条件
 const EXCEPTIONS = [
@@ -25,6 +26,22 @@ const EXCEPTIONS = [
       const latest = vers[vers.length - 1]
       if (latest !== '3.0.3') {
         return `braces 已发布新版 ${latest}，请复审 GHSA-vfj7-8cjw-p6xm 是否已修复并移除例外`
+      }
+      return null
+    },
+  },
+  {
+    url: 'https://github.com/advisories/GHSA-mrhx-c7xc-m3w5',
+    reason:
+      'zod 校验超大受限集合内存耗尽 DoS；修复版仅 4.6.7（semver major），当前 ^3.25.76，v3 线无 patch；' +
+      '本应用为本地 Tauri 桌面应用，zod 仅校验本地项目文件/用户本机操作数据，无远程未认证输入路径；' +
+      'v4 迁移为独立大版本事项，不在本次图谱管线修复 scope 内。',
+    // 复查条件：zod 依赖范围一旦离开 v3（启动 v4 迁移），本例外即过期，逼人工复审后移除
+    revalidate: () => {
+      const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+      const range = String(pkg.dependencies?.zod ?? pkg.devDependencies?.zod ?? '')
+      if (!/^\^?~?3\./.test(range)) {
+        return `zod 依赖范围已变更（${range}），请复审 GHSA-mrhx-c7xc-m3w5 是否已修复并移除例外`
       }
       return null
     },

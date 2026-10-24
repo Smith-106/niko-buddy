@@ -13,7 +13,16 @@ describe("audit-gate.mjs contract (F15: arch -0.3 regression net)", () => {
     // 需要 registry 网络（npm audit --json + revalidate 的 npm view）；CI 有网。
     const out = execFileSync(process.execPath, [gate], { encoding: "utf8", timeout: 280000 })
     expect(out).toContain("AUDIT-GATE-PASS")
-    // 当前 4 条 high 全归因同一例外 advisory：放行行必须逐条列出根因 URL
-    expect(out).toContain("GHSA-vfj7-8cjw-p6xm")
+    // 例外清单处于武装态：有例外放行时门脚本逐条打印根因 URL；此处白名单须与
+    // audit-gate.mjs EXCEPTIONS 逐条对应，未知例外仍干红灯（fail-closed 不变）。
+    const knownExceptions = [
+      "GHSA-vfj7-8cjw-p6xm", // braces（休眠：上游无 patch）
+      "GHSA-mrhx-c7xc-m3w5", // zod v3 无 patch，v4 迁移前接受（复查：zod 离开 v3 即过期）
+    ]
+    for (const line of out.split("\n")) {
+      if (line.startsWith("EXCEPT")) {
+        expect(knownExceptions.some((u) => line.includes(u))).toBe(true)
+      }
+    }
   }, 300000)
 })
