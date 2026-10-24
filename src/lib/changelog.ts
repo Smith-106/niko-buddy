@@ -15,6 +15,25 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // C 波授权发版（2026-10-24）：v2.22.1 prerelease。同日已有 v2.22.0 prerelease（tag 不可变），不进 Latest。
+    version: "2.22.1",
+    date: "2026-10-24",
+    highlights: {
+      en: [
+        "Added: control-plane truth sources — doctor volumeArc resolves real volume/arc state with honest empty-state, budget ledger accumulates stage_metrics (tokenCost/latencyMs/entries).",
+        "Added: dark terminal topology cockpit mounted on main-control/live views; CLI four-probe strip + DAG replay drawer on diagnostics/settings.",
+        "Added: UX convergence — export tucked into More (writing-desk toolbar is the primary entry); settings three-domain isolated save (model/storage/interface) + import double-confirm; export directory picker (absolute/relative compatible).",
+        "Fixed: release semantics are prerelease. v2.22.0 prerelease shipped the same day (tag immutable, never moved); this version does not become Latest. Installers still follow v2.22.0 until this tag's build attaches assets.",
+      ],
+      zh: [
+        "新增：控制面真实化——诊断 volumeArc 接卷纲真源（卷号/起承转合/卷内计数，诚实空态），budget 台账累计 stage_metrics（tokenCost/latencyMs/条数）。",
+        "新增：深色终端拓扑大屏——管线运动驾驶舱挂载主控/实况，CLI 四探针条 + DAG 回放抽屉挂载诊断设置面。",
+        "新增：UX 收敛——导出收进 More（写作台工具条为主入口）；设置三域分存（模型/存储/界面仅保存本域）+ 导入双确认；导出目录选择器（绝对/相对双兼容）。",
+        "修复：发布语义为 prerelease。同日已有 v2.22.0 prerelease（tag 不可变，不移动），本版不进 Latest。安装包仍用 v2.22.0，直到本 tag 的构建附上资产。",
+      ],
+    },
+  },
+  {
     // 用户授权完整发版（2026-10-24）：v2.22.0 prerelease。同周已有 v2.21.0 stable，不进 Latest。
     version: "2.22.0",
     date: "2026-10-24",

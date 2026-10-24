@@ -3958,7 +3958,8 @@
     "viewHeatmap": "Open heatmap",
     "cancelled": "Cancelled ({{time}})",
     "stuckHint": "{{step}} has been running for {{secs}}s with no response — it may be stuck; you can stop and retry",
-    "timeoutHint": "{{step}} has run for over 5 minutes — stop it and retry with different wording"
+    "timeoutHint": "{{step}} has run for over 5 minutes — stop it and retry with different wording",
+    "motionTitle": "Pipeline Motion (Live Topology)"
   },
   "wb": {
     "title": "Writing Workbench",
