@@ -15,6 +15,25 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 用户授权完整发版（2026-10-24）：v2.22.0 prerelease。同周已有 v2.21.0 stable，不进 Latest。
+    version: "2.22.0",
+    date: "2026-10-24",
+    highlights: {
+      en: [
+        "Added: graph interaction in the Obsidian style — single click focuses the Ego subgraph and stays in the graph, double click (or the Jump to Editor menu item) opens the page and scrolls to the first heading anchor.",
+        "Added: writing focus mode — hides the icon rail and side panels for a centered narrow editing column.",
+        "Changed: navigation groups are slimmer; main control is organized into three tabs (run flow, collect drafts, chapter context).",
+        "Fixed: release semantics are prerelease. v2.21.0 stable shipped earlier this week; this version does not become Latest. Installers still follow v2.21.0 until this tag's build attaches assets.",
+      ],
+      zh: [
+        "新增：图谱 Obsidian 式交互——单击聚焦 Ego 子图并留在图谱内连续探图，双击（或右键跳到正文）打开档案页并定位到首标题锚点。",
+        "新增：写作专注模式——隐藏图标栏与侧栏，编辑区居中窄栏。",
+        "调整：导航分组瘦身；主控收纳为跑流程/收草稿/本章上下文三 Tab。",
+        "修复：发布语义为 prerelease。同周已有 v2.21.0 stable，本版不进 Latest。安装包仍用 v2.21.0，直到本 tag 的构建附上资产。",
+      ],
+    },
+  },
+  {
     // P14 一次性授权补录（2026-10-24，第 7 块 B 族）：内容逐字转录自
     // CHANGELOG.md 的 [2.21.1] 小节，不碰版本号与 CHANGELOG.md 本体。
     version: "2.21.1",
