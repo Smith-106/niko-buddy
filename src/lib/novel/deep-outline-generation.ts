@@ -182,7 +182,7 @@ function buildOutlineDraftPrompt(context: string, history: string, taskBrief: st
     "1. 只输出可保存为大纲的 Markdown 正文。",
     "2. 不要输出思考过程、任务书、解释、引用来源或后续建议。",
     "3. 必须承接已有大纲、章节内容、人物状态和伏笔。",
-    "4. 如果用户要求章节细纲，需要写清章节目标、冲突、转折、伏笔推进和结尾钩子。",
+    "4. 每一章都要写清本章目标、冲突、转折、伏笔推进和章尾钩子。人物要写动机和关系，设定要写规则、限制和代价。",
     "",
     `用户要求：${userRequest}`,
     history ? `\n近期对话：\n${history}` : "",

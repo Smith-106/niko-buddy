@@ -28,5 +28,11 @@ describe("ReportPage", () => {
     expect(screen.getByTestId("report-root").textContent).toContain("只读，不写盘")
     expect(screen.getByTestId("report-section").textContent).toContain("诊断结论")
     expect(screen.getByTestId("report-callout").textContent).toContain("项目尚未初始化：未找到 project-meta")
+    const root = screen.getByTestId("report-root")
+    const column = root.firstElementChild as HTMLElement
+    expect(root.className).toContain("w-full")
+    expect(column.className).toContain("w-full")
+    expect(root.className).not.toContain("max-w-")
+    expect(column.className).not.toContain("max-w-")
   })
 })

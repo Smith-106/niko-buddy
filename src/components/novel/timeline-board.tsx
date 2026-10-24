@@ -65,7 +65,7 @@ export function TimelineBoard({ entries, ticks, filteredOut = false, onOpenChapt
     return (
       <div className="rounded-lg border p-3" data-testid="timeline-board">
         <p
-          className="text-[11px] text-muted-foreground"
+          className="text-xs text-muted-foreground"
           data-testid={filteredOut ? "timeline-board-filtered-empty" : "timeline-board-empty"}
         >
           {filteredOut ? t("novel.timelineBoard.filteredEmpty") : t("novel.timelineBoard.empty")}
@@ -84,7 +84,7 @@ export function TimelineBoard({ entries, ticks, filteredOut = false, onOpenChapt
     <div className="flex flex-col gap-2 rounded-lg border p-3" data-testid="timeline-board">
       <div className="flex items-center justify-between">
         <h3 className="text-xs font-semibold">{t("novel.timelineBoard.title")}</h3>
-        <span className="text-[10px] text-muted-foreground" data-testid="timeline-board-summary">
+        <span className="text-xs text-muted-foreground" data-testid="timeline-board-summary">
           {t("novel.timelineBoard.summary", { chapters: lanes.length, events: entries.length })}
         </span>
       </div>
@@ -107,7 +107,7 @@ export function TimelineBoard({ entries, ticks, filteredOut = false, onOpenChapt
               {count === 0 ? (
                 // 空刻度不画柱：只在可见位置标 N/A，避免被读成「该章有一点时间线」
                 <span
-                  className="text-[7px] leading-none text-muted-foreground"
+                  className="text-xs leading-none text-muted-foreground"
                   data-testid={`timeline-board-tick-na-${chapter}`}
                 >
                   {t("novel.timelineBoard.na")}
@@ -115,7 +115,7 @@ export function TimelineBoard({ entries, ticks, filteredOut = false, onOpenChapt
               ) : (
                 <span className="w-full rounded-t bg-accent" style={{ height: `${heightPct}%`, minHeight: 4 }} />
               )}
-              <span className="text-[8px] tabular-nums text-muted-foreground">{chapter}</span>
+              <span className="text-xs tabular-nums text-muted-foreground">{chapter}</span>
             </button>
           )
         })}
@@ -126,7 +126,7 @@ export function TimelineBoard({ entries, ticks, filteredOut = false, onOpenChapt
         {lanes.map((lane) => (
           <li
             key={lane.chapterNumber}
-            className="flex items-start gap-2 text-[11px]"
+            className="flex items-start gap-2 text-xs"
             data-testid={`timeline-board-lane-${lane.chapterNumber}`}
           >
             <button
@@ -141,7 +141,7 @@ export function TimelineBoard({ entries, ticks, filteredOut = false, onOpenChapt
               {lane.events.map((event, index) => (
                 <span
                   key={`${lane.chapterNumber}-${index}`}
-                  className="rounded bg-accent/15 px-1 py-0.5 text-[10px] text-accent-foreground"
+                  className="rounded bg-accent/15 px-1 py-0.5 text-xs text-accent-foreground"
                   data-testid={`timeline-board-point-${lane.chapterNumber}-${index}`}
                 >
                   {event}
@@ -153,7 +153,7 @@ export function TimelineBoard({ entries, ticks, filteredOut = false, onOpenChapt
       </ul>
 
       {/* 诚实性声明：真源没有这些字段，所以做不到，不是没做 */}
-      <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground" data-testid="timeline-board-na">
+      <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground" data-testid="timeline-board-na">
         <li data-testid="timeline-board-na-lanes">{t("novel.timelineBoard.naThreads")}</li>
         <li data-testid="timeline-board-na-granularity">{t("novel.timelineBoard.naGranularity")}</li>
         <li data-testid="timeline-board-na-pacing">{t("novel.timelineBoard.naPacing")}</li>

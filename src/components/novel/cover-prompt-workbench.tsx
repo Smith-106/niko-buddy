@@ -211,11 +211,11 @@ export function CoverPromptWorkbench({ templates }: { templates?: CoverPlatformT
         />
         {briefText && (
           <div className="mt-1.5 rounded-md border border-dashed bg-muted/10 p-2.5" data-cover-brief-preview="true">
-            <div className="mb-1 text-[0.6875rem] font-semibold text-muted-foreground">{t("novel.coverWorkbench.brief")}</div>
-            <div className="whitespace-pre-wrap font-sans text-[0.6875rem] leading-relaxed text-foreground/90"><WikiReader body={briefText} /></div>
+            <div className="mb-1 text-xs font-semibold text-muted-foreground">{t("novel.coverWorkbench.brief")}</div>
+            <div className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-foreground/90"><WikiReader body={briefText} /></div>
           </div>
         )}
-        <p className="mt-1.5 text-[0.6875rem] text-muted-foreground">{t("novel.coverWorkbench.hint")}</p>
+        <p className="mt-1.5 text-xs text-muted-foreground">{t("novel.coverWorkbench.hint")}</p>
       </div>
 
       {/* 65 号 G2: 封面生成（形态轴 F5 消费侧；Port 未注入时优雅降级） */}

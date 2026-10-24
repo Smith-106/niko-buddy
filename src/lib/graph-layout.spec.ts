@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest"
 import {
+  DEFAULT_LAYOUT_PRESET,
   getGraphVisualSettings,
   GRAPH_LAYOUT_ITERATIONS,
+  GRAPH_LAYOUT_PRESETS,
   GRAPH_LAYOUT_SETTINGS,
   GRAPH_VISUAL_SETTINGS,
+  LAYOUT_PRESET_ORDER,
 } from "./graph-layout"
 
 describe("graph-layout constants", () => {
@@ -20,13 +23,38 @@ describe("graph-layout constants", () => {
 
   it("exports the layout settings", () => {
     expect(GRAPH_LAYOUT_SETTINGS).toEqual({
-      gravity: 0.2,
-      scalingRatio: 4.6,
-      slowDown: 2.2,
+      gravity: 1,
+      scalingRatio: 1.5,
+      slowDown: 1,
       adjustSizes: true,
       strongGravityMode: false,
+      linLogMode: false,
+      outboundAttractionDistribution: false,
     })
     expect(GRAPH_LAYOUT_ITERATIONS).toBe(220)
+  })
+
+  it("uses plain FA2: linLog/outbound falsified by clustering evidence", () => {
+    // graph-layout-clustering.spec.ts：linLog/outbound 组合在小说型社区图谱上
+    // silhouette 反而低于默认 FA2，故 community 预设改走显式 plain FA2。
+    expect(GRAPH_LAYOUT_SETTINGS.linLogMode).toBe(false)
+    expect(GRAPH_LAYOUT_SETTINGS.outboundAttractionDistribution).toBe(false)
+  })
+
+  it("exposes three layout presets with community derived from settings", () => {
+    expect(LAYOUT_PRESET_ORDER).toEqual(["community", "compact", "explore"])
+    expect(DEFAULT_LAYOUT_PRESET).toBe("community")
+    expect(GRAPH_LAYOUT_PRESETS.community).toEqual({ ...GRAPH_LAYOUT_SETTINGS })
+    expect(GRAPH_LAYOUT_PRESETS.compact.strongGravityMode).toBe(true)
+    expect(GRAPH_LAYOUT_PRESETS.compact.gravity).toBeGreaterThan(
+      GRAPH_LAYOUT_PRESETS.community.gravity ?? 0,
+    )
+    expect(GRAPH_LAYOUT_PRESETS.explore.gravity).toBeLessThan(
+      GRAPH_LAYOUT_PRESETS.community.gravity ?? 0,
+    )
+    expect(GRAPH_LAYOUT_PRESETS.explore.scalingRatio).toBeGreaterThan(
+      GRAPH_LAYOUT_PRESETS.community.scalingRatio ?? 0,
+    )
   })
 })
 

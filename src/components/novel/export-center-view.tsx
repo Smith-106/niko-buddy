@@ -25,6 +25,7 @@
 
 import { useEffect, useState } from "react"
 import { FileDown, History, Loader2 } from "lucide-react"
+import { fileExists } from "@/commands/fs"
 import {
   countFinalChapters,
   exportNovelDocx,
@@ -76,13 +77,29 @@ export interface ExportCenterViewProps {
   readonly projectPath: string
   /** 显式注入导出动作（测试优先；缺省为真实 barrel 导出函数）。 */
   readonly actions?: ExportCenterActions
+  /** 同名检测。缺省读磁盘；测试可注入。 */
+  readonly fileExists?: (path: string) => Promise<boolean>
 }
 
-export function ExportCenterView({ projectPath, actions = DEFAULT_EXPORT_ACTIONS }: ExportCenterViewProps) {
+export function manuscriptExportPath(projectPath: string, folderName: string, baseName: string, format: ManuscriptExportFormat): string {
+  const folder = folderName.trim().replace(/[\\/]/g, "") || "exports"
+  const base = baseName.trim().replace(/[\\/]/g, "") || "complete-novel"
+  const ext = format === "DOCX" ? "docx" : "epub"
+  return `${projectPath}/${folder}/${base}.${ext}`
+}
+
+export function ExportCenterView({
+  projectPath,
+  actions = DEFAULT_EXPORT_ACTIONS,
+  fileExists: fileExistsImpl = fileExists,
+}: ExportCenterViewProps) {
   const [snapshot, setSnapshot] = useState<ExportCenterSnapshot | null>(null)
   const [loading, setLoading] = useState(projectPath !== "")
   const [exporting, setExporting] = useState<ManuscriptExportFormat | null>(null)
   const [records, setRecords] = useState<readonly ManuscriptExportRecord[]>([])
+  const [folderName, setFolderName] = useState("exports")
+  const [baseName, setBaseName] = useState("complete-novel")
+  const [pendingOverwrite, setPendingOverwrite] = useState<ManuscriptExportFormat | null>(null)
 
   useEffect(() => {
     if (projectPath === "") {
@@ -107,12 +124,22 @@ export function ExportCenterView({ projectPath, actions = DEFAULT_EXPORT_ACTIONS
     }
   }, [projectPath])
 
-  async function handleExport(format: ManuscriptExportFormat) {
+  async function handleExport(format: ManuscriptExportFormat, confirmed = false) {
     if (exporting !== null || projectPath === "") return
-    const exportPath =
-      format === "DOCX"
-        ? `${projectPath}/exports/complete-novel.docx`
-        : `${projectPath}/exports/complete-novel.epub`
+    const exportPath = manuscriptExportPath(projectPath, folderName, baseName, format)
+    if (!confirmed) {
+      let occupied = true
+      try {
+        occupied = await fileExistsImpl(exportPath)
+      } catch {
+        occupied = true
+      }
+      if (occupied) {
+        setPendingOverwrite(format)
+        return
+      }
+    }
+    setPendingOverwrite(null)
     setExporting(format)
     try {
       const result =
@@ -174,6 +201,59 @@ export function ExportCenterView({ projectPath, actions = DEFAULT_EXPORT_ACTIONS
           </div>
 
           <div className="flex flex-wrap gap-2">
+            <label className="flex items-center gap-1 text-xs text-muted-foreground">
+              目录
+              <input
+                data-testid="export-folder-name"
+                value={folderName}
+                onChange={(event) => {
+                  setFolderName(event.target.value)
+                  setPendingOverwrite(null)
+                }}
+                className="w-28 rounded border border-border bg-background px-2 py-1 text-foreground"
+              />
+            </label>
+            <label className="flex items-center gap-1 text-xs text-muted-foreground">
+              文件名
+              <input
+                data-testid="export-file-name"
+                value={baseName}
+                onChange={(event) => {
+                  setBaseName(event.target.value)
+                  setPendingOverwrite(null)
+                }}
+                className="w-40 rounded border border-border bg-background px-2 py-1 text-foreground"
+              />
+            </label>
+          </div>
+          <p className="text-xs text-muted-foreground" data-testid="export-target-path">
+            将写到 {manuscriptExportPath(projectPath, folderName, baseName, "DOCX")} 或{" "}
+            {manuscriptExportPath(projectPath, folderName, baseName, "EPUB")}。同名文件会先要求确认。
+          </p>
+          {pendingOverwrite !== null ? (
+            <div data-testid="export-overwrite-confirm" className="flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2">
+              <p className="text-xs text-foreground">
+                已有同名文件，继续会覆盖 {manuscriptExportPath(projectPath, folderName, baseName, pendingOverwrite)}
+              </p>
+              <button
+                type="button"
+                data-testid="export-overwrite-confirm-button"
+                className="rounded border border-border px-2 py-1 text-xs"
+                onClick={() => void handleExport(pendingOverwrite, true)}
+              >
+                确认覆盖
+              </button>
+              <button
+                type="button"
+                className="rounded border border-border px-2 py-1 text-xs"
+                onClick={() => setPendingOverwrite(null)}
+              >
+                取消
+              </button>
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               data-testid="export-docx-button"
@@ -202,10 +282,6 @@ export function ExportCenterView({ projectPath, actions = DEFAULT_EXPORT_ACTIONS
               导出 PDF（尚未接入）
             </button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            默认导出到 `{projectPath === "" ? "<项目路径>" : projectPath}/exports/complete-novel.docx(.epub)`。
-          </p>
-
           <div className="rounded-md border border-border bg-background px-3 py-2">
             <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
               <History className="h-3.5 w-3.5" />

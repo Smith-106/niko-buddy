@@ -352,7 +352,7 @@ describe("ReviewCenterView — storyboard 子面板（F-010）", () => {
 
   it("点击悬浮按钮 → 打开子面板并默认显示 corkboard tab，按钮隐藏", async () => {
     render(<ReviewCenterView />)
-    fireEvent.click(screen.getByRole("button", { name: "分镜板" }))
+    fireEvent.click(document.querySelector("[data-storyboard-toggle]") as HTMLElement)
     expect(document.querySelector("[data-storyboard-panel]")).toBeTruthy()
     expect(document.querySelector("[data-storyboard-toggle]")).toBeNull()
     await waitFor(() =>
@@ -363,7 +363,7 @@ describe("ReviewCenterView — storyboard 子面板（F-010）", () => {
 
   it("tab 切换：plotgrid / timeline 占位渲染", async () => {
     render(<ReviewCenterView />)
-    fireEvent.click(screen.getByRole("button", { name: "分镜板" }))
+    fireEvent.click(document.querySelector("[data-storyboard-toggle]") as HTMLElement)
     fireEvent.click(document.querySelector('[data-storyboard-tab="plotgrid"]') as HTMLElement)
     await waitFor(() =>
       expect(document.querySelector('[data-storyboard-placeholder="plotgrid"]')).toBeTruthy(),
@@ -376,7 +376,7 @@ describe("ReviewCenterView — storyboard 子面板（F-010）", () => {
 
   it("关闭子面板 → 面板消失、悬浮按钮恢复", async () => {
     render(<ReviewCenterView />)
-    fireEvent.click(screen.getByRole("button", { name: "分镜板" }))
+    fireEvent.click(document.querySelector("[data-storyboard-toggle]") as HTMLElement)
     expect(document.querySelector("[data-storyboard-panel]")).toBeTruthy()
     fireEvent.click(document.querySelector("[data-storyboard-close]") as HTMLElement)
     expect(document.querySelector("[data-storyboard-panel]")).toBeNull()
@@ -393,7 +393,7 @@ describe("ReviewCenterView — craft 子面板（F-06/F-07/F-08 + F8 wish-drive�
 
   it("点击悬浮按钮 → 打开子面板并默认显示 arc-workbench tab，按钮隐藏", async () => {
     render(<ReviewCenterView />)
-    fireEvent.click(screen.getByRole("button", { name: "技法·卡文引导" }))
+    fireEvent.click(document.querySelector("[data-craft-toggle]") as HTMLElement)
     expect(document.querySelector("[data-craft-panel]")).toBeTruthy()
     expect(document.querySelector("[data-craft-toggle]")).toBeNull()
     await waitFor(() =>
@@ -403,7 +403,7 @@ describe("ReviewCenterView — craft 子面板（F-06/F-07/F-08 + F8 wish-drive�
 
   it("tab 切换：thrill-dashboard / technique-panel / wish-drive 占位渲染", async () => {
     render(<ReviewCenterView />)
-    fireEvent.click(screen.getByRole("button", { name: "技法·卡文引导" }))
+    fireEvent.click(document.querySelector("[data-craft-toggle]") as HTMLElement)
     fireEvent.click(document.querySelector('[data-craft-tab="thrill-dashboard"]') as HTMLElement)
     await waitFor(() =>
       expect(document.querySelector('[data-craft-placeholder="thrill-dashboard"]')).toBeTruthy(),
@@ -421,8 +421,8 @@ describe("ReviewCenterView — craft 子面板（F-06/F-07/F-08 + F8 wish-drive�
 
   it("F10-3：craft tab 标签走 i18n（reviewCenter.craftTabs.*），悬浮按钮走 craftToggle", async () => {
     render(<ReviewCenterView />)
-    expect(screen.getByRole("button", { name: "技法·卡文引导" })).toBeTruthy()
-    fireEvent.click(screen.getByRole("button", { name: "技法·卡文引导" }))
+    expect(document.querySelector("[data-craft-toggle]" )).toBeTruthy()
+    fireEvent.click(document.querySelector("[data-craft-toggle]") as HTMLElement)
     const tabText = (key: string) =>
       (document.querySelector(`[data-craft-tab="${key}"]`) as HTMLElement | null)?.textContent
     expect(tabText("arc-workbench")).toBe("弧光工作台")
@@ -454,7 +454,7 @@ describe("ReviewCenterView — craft 子面板（F-06/F-07/F-08 + F8 wish-drive�
 
   it("关闭子面板 → 面板消失、悬浮按钮恢复", async () => {
     render(<ReviewCenterView />)
-    fireEvent.click(screen.getByRole("button", { name: "技法·卡文引导" }))
+    fireEvent.click(document.querySelector("[data-craft-toggle]") as HTMLElement)
     expect(document.querySelector("[data-craft-panel]")).toBeTruthy()
     fireEvent.click(document.querySelector("[data-craft-close]") as HTMLElement)
     expect(document.querySelector("[data-craft-panel]")).toBeNull()
@@ -502,10 +502,54 @@ describe("projectWishDriveProfile（F8 wish-drive 数据源投影）", () => {
     mocks.state.selectedReviewDimension = "thrill"
     render(<ReviewCenterView />)
     expect(document.querySelector("[data-review-view]")).toBeTruthy()
-    fireEvent.click(screen.getByRole("button", { name: "分镜板" }))
+    fireEvent.click(document.querySelector("[data-storyboard-toggle]") as HTMLElement)
     await waitFor(() =>
       expect(document.querySelector('[data-storyboard-placeholder="corkboard"]')).toBeTruthy(),
     )
     expect(document.querySelector("[data-review-view]")).toBeTruthy()
+  })
+})
+
+describe("ReviewCenterView — 顶部审校概览条（第 6 块）", () => {
+  it("常驻渲染：标题 + 当前分区分组（六维 thrill 走 dimension 键）", () => {
+    mocks.state.selectedReviewDimension = "thrill"
+    render(<ReviewCenterView />)
+    const strip = screen.getByTestId("review-center-summary-strip")
+    expect(strip.getAttribute("aria-label")).toBe(lookupZhLocale("reviewCenter.summaryStrip"))
+    expect(strip.textContent).toContain(lookupZhLocale("reviewCenter.title"))
+    expect(strip.textContent).toContain(lookupZhLocale("reviewCenter.dimension.thrill"))
+  })
+
+  it("分区分组跟随路由：ai-review / character-report / 空维度回仪表盘", () => {
+    mocks.state.selectedReviewDimension = "ai-review"
+    const { unmount } = render(<ReviewCenterView />)
+    expect(screen.getByTestId("review-center-summary-strip").textContent).toContain(
+      lookupZhLocale("reviewCenter.aiReview"),
+    )
+    unmount()
+    mocks.state.selectedReviewDimension = "character-report"
+    render(<ReviewCenterView />)
+    expect(screen.getByTestId("review-center-summary-strip").textContent).toContain(
+      lookupZhLocale("reviewCenter.characterHitReport"),
+    )
+    cleanup()
+    mocks.state.selectedReviewDimension = null
+    render(<ReviewCenterView />)
+    expect(screen.getByTestId("review-center-summary-strip").textContent).toContain(
+      lookupZhLocale("dashboard.title"),
+    )
+  })
+
+  it("快捷入口复用浮钮开关：点分镜/技法打开对应面板，打开后按钮禁用", async () => {
+    mocks.state.selectedReviewDimension = null
+    render(<ReviewCenterView />)
+    fireEvent.click(screen.getByTestId("review-center-summary-storyboard"))
+    await waitFor(() => expect(document.querySelector("[data-storyboard-panel]")).toBeTruthy())
+    // 打开后快捷按钮禁用，浮钮隐藏（与直接点浮钮语义一致）。
+    expect(screen.getByTestId("review-center-summary-storyboard")).toBeDisabled()
+    expect(document.querySelector("[data-storyboard-toggle]" )).toBeNull()
+    fireEvent.click(screen.getByTestId("review-center-summary-craft"))
+    await waitFor(() => expect(document.querySelector("[data-craft-panel]")).toBeTruthy())
+    expect(screen.getByTestId("review-center-summary-craft")).toBeDisabled()
   })
 })

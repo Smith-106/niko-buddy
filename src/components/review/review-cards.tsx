@@ -70,7 +70,7 @@ export function BreakerStatusBadge({ status }: { status: { status: "tripped" | "
   return (
     <span
       title={status.reason}
-      className={`inline-flex items-center rounded border px-2 py-0.5 text-[0.625rem] font-medium leading-none ${colorMap[status.status]}`}
+      className={`inline-flex items-center rounded border px-2 py-0.5 text-xs font-medium leading-none ${colorMap[status.status]}`}
     >
       <span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${
         status.status === "tripped" ? "bg-destructive" : status.status === "armed" ? "bg-warning" : "bg-success"

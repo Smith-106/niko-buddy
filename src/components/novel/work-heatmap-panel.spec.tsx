@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** 动态工作热力图面板：只读渲染 + 进度指针 + 空态/错误态 + N/A 三条。 */
+/** 动态工作热力图面板：只读渲染 + 进度指针 + 空态/错误态 + 暂无声明三条。 */
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, render, screen, waitFor } from "@testing-library/react"
 
@@ -64,7 +64,7 @@ describe("有数据：渲染阶段行与时间桶", () => {
   })
 })
 
-describe("空态与 N/A：不画空网格", () => {
+describe("空态与暂无声明：不画空网格", () => {
   it("投影为空 → 空态文案出现，且没有网格", () => {
     render(<WorkHeatmapPanel projection={projectWorkHeatmap({})} refreshMs={0} />)
     expect(screen.getByTestId("work-heatmap-empty")).toBeTruthy()

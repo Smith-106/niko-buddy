@@ -48,13 +48,13 @@ export function AssetExtractionGapPanel({ projection, input }: AssetExtractionGa
           <FileSearch className="h-4 w-4" />
           资产提取缺口（只读诊断）
         </h3>
-        <p className="text-[10px] text-muted-foreground" data-testid="asset-extraction-gap-scope">
+        <p className="text-xs text-muted-foreground" data-testid="asset-extraction-gap-scope">
           只列缺口、给草稿建议：本面板不建实体、不改资产。世界构建与场景没有结构化真源，一律 N/A
           —— 不猜实体，避免污染资产库。
         </p>
       </header>
 
-      <p className="text-[11px] text-muted-foreground" data-testid="asset-extraction-gap-summary">
+      <p className="text-xs text-muted-foreground" data-testid="asset-extraction-gap-summary">
         正文识别到人物：<b className="text-foreground">{resolved.counts.mentionedCharacters}</b> 人 · wiki 人物实体：
         <b className="text-foreground">{resolved.counts.wikiCharacters}</b> · 角色状态：
         <b className="text-foreground">{resolved.counts.stateCharacters}</b> 人 · 缺口：
@@ -69,7 +69,7 @@ export function AssetExtractionGapPanel({ projection, input }: AssetExtractionGa
 
       {gapCount === 0 ? (
         <p
-          className="text-[11px] text-muted-foreground"
+          className="text-xs text-muted-foreground"
           data-testid="asset-extraction-gap-empty"
         >
           暂无可判定的缺口（若上方 N/A 说明「未装载 / 无正文」，这行**不代表**资产已齐）。
@@ -83,18 +83,18 @@ export function AssetExtractionGapPanel({ projection, input }: AssetExtractionGa
               data-testid={`asset-extraction-gap-${gap.code}-${
                 resolved.gaps.slice(0, index).filter((item) => item.code === gap.code).length
               }`}
-              className="rounded border border-sky-500/40 bg-sky-500/5 p-1.5 text-[11px] text-sky-800 dark:text-sky-300"
+              className="rounded border border-sky-500/40 bg-sky-500/5 p-1.5 text-xs text-sky-800 dark:text-sky-300"
             >
               <b>{gap.code}</b> · {gap.subject}
-              <div className="text-[10px] text-muted-foreground">{gap.detail}</div>
-              <div className="text-[10px] text-muted-foreground">证据：{gap.evidence}</div>
+              <div className="text-xs text-muted-foreground">{gap.detail}</div>
+              <div className="text-xs text-muted-foreground">证据：{gap.evidence}</div>
             </li>
           ))}
         </ul>
       )}
 
       {resolved.proposals.length > 0 ? (
-        <details className="text-[10px] text-muted-foreground" data-testid="asset-extraction-gap-proposals">
+        <details className="text-xs text-muted-foreground" data-testid="asset-extraction-gap-proposals">
           <summary className="cursor-pointer text-foreground">
             补充建议（{resolved.proposals.length} 条，粘去草稿区后 accept 才会生效）
           </summary>
@@ -112,7 +112,7 @@ export function AssetExtractionGapPanel({ projection, input }: AssetExtractionGa
         </details>
       ) : null}
 
-      <ul className="space-y-0.5 text-[10px] text-muted-foreground" data-testid="asset-extraction-gap-na">
+      <ul className="space-y-0.5 text-xs text-muted-foreground" data-testid="asset-extraction-gap-na">
         <li className="font-medium text-foreground">N/A 说明</li>
         {resolved.na.map((line) => (
           <li key={line}>{line}</li>

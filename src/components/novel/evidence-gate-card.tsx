@@ -63,7 +63,7 @@ export function EvidenceGateCards({ snapshot }: { snapshot: EvidenceSnapshot | n
             </span>
             {card.score !== null ? <span className="tabular-nums">{card.score}</span> : null}
             {card.promptArtifact ? (
-              <span className="text-[0.625rem] text-muted-foreground" title={card.promptArtifact}>
+              <span className="text-xs text-muted-foreground" title={card.promptArtifact}>
                 {card.promptArtifact}
               </span>
             ) : null}
@@ -71,14 +71,14 @@ export function EvidenceGateCards({ snapshot }: { snapshot: EvidenceSnapshot | n
               <span className="ml-auto text-muted-foreground">证据 {card.evidenceCount}</span>
             ) : null}
             {card.replayId ? (
-              <span className="text-[0.625rem] text-muted-foreground" title={t("novel.replayable")}>
+              <span className="text-xs text-muted-foreground" title={t("novel.replayable")}>
                 replay
               </span>
             ) : null}
           </li>
         ))}
       </ul>
-      <div className="flex items-center gap-3 text-[0.625rem] text-muted-foreground">
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
         <span>事件覆盖率 {Math.round(snapshot.gateEventCoverage * 100)}%</span>
         {snapshot.promptLineageRate !== null ? (
           <span>裁判血缘 {Math.round(snapshot.promptLineageRate * 100)}%</span>

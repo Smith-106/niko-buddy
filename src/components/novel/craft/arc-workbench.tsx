@@ -9,7 +9,8 @@
  */
 import { useMemo, useId } from "react"
 import { useTranslation } from "react-i18next"
-import { CheckCircle2, Circle, ArrowRight, AlertTriangle } from "lucide-react"
+import { CheckCircle2, Circle, ArrowRight, AlertTriangle, PenLine, BookOpen } from "lucide-react"
+import { useWikiStore } from "@/stores/wiki-store"
 import { detectArcProgression, ARC_STAGE_VALUES } from "@/lib/novel"
 import type { ArcProgressionResult, ArcProgressionInput, ArcStage } from "@/lib/novel"
 
@@ -66,10 +67,21 @@ export function ArcWorkbench({ input, result, characterName }: ArcWorkbenchProps
   }, [input, result])
 
   if (!progression) {
+    const goWrite = () => useWikiStore.getState().setActiveView("wiki")
+    const goImport = () => useWikiStore.getState().setActiveView("bookAnalysis")
     return (
-      <div className="flex h-full flex-col items-center justify-center p-6 text-center text-sm text-muted-foreground">
-        <Circle className="mb-2 h-8 w-8 opacity-40" aria-hidden="true" />
-        <p>{t("craft.arcWorkbench.noData", "暂无弧光数据，请先摄取实体技法字段")}</p>
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+        <Circle className="mb-1 h-8 w-8 opacity-40" aria-hidden="true" />
+        <p className="text-sm font-medium text-foreground">{t("craft.arcWorkbench.noData", "暂无弧光数据，请先摄取实体技法字段")}</p>
+        <p className="text-xs text-muted-foreground">先写出第一章正文或导入拆书，再回来查看七阶段弧光推进。</p>
+        <div className="mt-1 flex gap-2">
+          <button type="button" onClick={goWrite} className="rounded border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent/40">
+            <span className="inline-flex items-center gap-1"><PenLine className="h-3 w-3" aria-hidden="true" />去写第一章</span>
+          </button>
+          <button type="button" onClick={goImport} className="rounded border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent/40">
+            <span className="inline-flex items-center gap-1"><BookOpen className="h-3 w-3" aria-hidden="true" />导入拆书</span>
+          </button>
+        </div>
       </div>
     )
   }
@@ -94,13 +106,13 @@ export function ArcWorkbench({ input, result, characterName }: ArcWorkbenchProps
           <div className="mt-0.5 text-base font-bold text-foreground">
             {STAGE_LABELS[progression.currentStage]}
           </div>
-          <div className="mt-1 text-[0.6875rem] leading-tight text-muted-foreground">
+          <div className="mt-1 text-xs leading-tight text-muted-foreground">
             {STAGE_DESCRIPTIONS[progression.currentStage]}
           </div>
         </div>
-        <div className="flex flex-col items-center gap-1">
+        <div className="flex flex-col items-center gap-1" title="置信度 = 规则命中程度，越高越可信">
           <div
-            className="flex h-14 w-14 items-center justify-center rounded-full text-sm font-bold"
+            className="flex h-14 w-14 items-center justify-center rounded-full text-base font-extrabold tabular-nums"
             style={{
               background: `conic-gradient(var(--primary) ${confidencePct}%, var(--muted) ${confidencePct}% 100%)`,
             }}
@@ -109,7 +121,7 @@ export function ArcWorkbench({ input, result, characterName }: ArcWorkbenchProps
               {confidencePct}%
             </span>
           </div>
-          <span className="text-[0.625rem] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {t("craft.arcWorkbench.confidence", "置信度")}
           </span>
         </div>
@@ -179,12 +191,12 @@ export function ArcWorkbench({ input, result, characterName }: ArcWorkbenchProps
                       {STAGE_LABELS[stage]}
                     </span>
                     {isCurrent && (
-                      <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary">
+                      <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
                         {t("craft.arcWorkbench.current", "当前")}
                       </span>
                     )}
                   </div>
-                  <p className="mt-0.5 text-[0.6875rem] leading-tight text-muted-foreground">
+                  <p className="mt-0.5 text-xs leading-tight text-muted-foreground">
                     {STAGE_DESCRIPTIONS[stage]}
                   </p>
                 </div>
@@ -199,7 +211,7 @@ export function ArcWorkbench({ input, result, characterName }: ArcWorkbenchProps
         <div className="flex items-start gap-2">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
           <div className="min-w-0">
-            <div className="text-[0.625rem] font-medium text-muted-foreground">
+            <div className="text-xs font-medium text-muted-foreground">
               {t("craft.arcWorkbench.reason", "检测依据")}
             </div>
             <p className="mt-0.5 text-xs leading-relaxed text-foreground">

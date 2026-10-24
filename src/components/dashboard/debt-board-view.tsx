@@ -28,6 +28,72 @@ const CHASE_DEBT_STATUS_LABEL_KEYS: Record<string, string> = {
   written_off: "dashboard.debtStatus.written_off",
 }
 
+export interface ChaseDebtSpan {
+  /** 当前章在 source→due 槽内的进度 0~100（超期钳制 100） */
+  cursorPct: number
+  /** 超期章数（未超期为 0） */
+  overdueBy: number
+  /** current/original 复利膨胀倍数（original<=0 时为 1） */
+  compoundRatio: number
+}
+
+/** 追读债务跨度条纯计算：source→due 为槽，currentChapter 为游标（第 6 块可视化用）。 */
+export function getChaseDebtSpan(
+  sourceChapter: number,
+  dueChapter: number,
+  currentChapter: number,
+  originalAmount: number,
+  currentAmount: number,
+): ChaseDebtSpan {
+  const span = Math.max(dueChapter - sourceChapter, 1)
+  const raw = (currentChapter - sourceChapter) / span
+  const cursorPct = Math.min(Math.max(raw, 0), 1) * 100
+  return {
+    cursorPct,
+    overdueBy: Math.max(currentChapter - dueChapter, 0),
+    compoundRatio: originalAmount > 0 ? currentAmount / originalAmount : 1,
+  }
+}
+
+export interface ForeshadowingDebtGauge {
+  criticalPct: number
+  warningPct: number
+  restPct: number
+}
+
+/** 伏笔债务三色堆叠纯计算：critical / warning / 其余未回收占 totalUnresolved 百分比。 */
+export function getForeshadowingDebtGauge(totalUnresolved: number, criticalCount: number, warningCount: number): ForeshadowingDebtGauge {
+  if (totalUnresolved <= 0) return { criticalPct: 0, warningPct: 0, restPct: 0 }
+  const criticalPct = Math.min((criticalCount / totalUnresolved) * 100, 100)
+  const warningPct = Math.min((warningCount / totalUnresolved) * 100, 100 - criticalPct)
+  const rawRest = Math.max(100 - criticalPct - warningPct, 0)
+  return { criticalPct, warningPct, restPct: rawRest < 1e-9 ? 0 : rawRest }
+}
+
+/** 情绪 history sparkline 纯计算：chapter→x、delta→y 归一化折线点串。 */
+export function buildEmotionSparkline(
+  history: Array<{ chapter: number; delta: number }>,
+  width = 72,
+  height = 20,
+): string {
+  if (history.length === 0) return ""
+  const chapters = history.map((h) => h.chapter)
+  const deltas = history.map((h) => h.delta)
+  const minC = Math.min(...chapters)
+  const maxC = Math.max(...chapters)
+  const minD = Math.min(...deltas)
+  const maxD = Math.max(...deltas)
+  const spanC = maxC - minC || 1
+  const spanD = maxD - minD || 1
+  return history
+    .map((h) => {
+      const x = ((h.chapter - minC) / spanC) * (width - 4) + 2
+      const y = height - 2 - ((h.delta - minD) / spanD) * (height - 4)
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(" ")
+}
+
 export interface DebtBoardViewProps {
   /** chase_debt 追读债务台账（additive-optional，缺失时为空数组） */
   chaseDebts?: ChaseDebt[]
@@ -75,6 +141,8 @@ export function DebtBoardView({
   const hasChaseDebts = chaseDebts.length > 0
   const hasEmotionDebts = emotionDebts.length > 0
   const hasForeshadowingDebt = Boolean(debtReport && debtReport.totalUnresolved > 0)
+  // 情绪双向条归一化分母：全员最大 |netValue|（全 0 时退化为 1，不画条只标数）。
+  const emotionMaxAbs = Math.max(1e-6, ...emotionDebts.map((e) => Math.abs(calculateEmotionNetValue(e))))
   if (!hasChaseDebts && !hasEmotionDebts && !hasForeshadowingDebt) return null
 
   return (
@@ -112,6 +180,45 @@ export function DebtBoardView({
                     {t("dashboard.section.chaseDebtDue")}: 第{debt.due_chapter}
                     {t("dashboard.section.chapters")}
                   </p>
+                  {/* 第 6 块：章节跨度甘特条（source→due 槽 + currentChapter 游标 + 超期赤字 + 复利条）。 */}
+                  {(() => {
+                    const span = getChaseDebtSpan(
+                      debt.source_chapter,
+                      debt.due_chapter,
+                      currentChapter,
+                      debt.original_amount,
+                      computed.current_amount,
+                    )
+                    const duePct =
+                      Math.min(
+                        Math.max((debt.due_chapter - debt.source_chapter) / Math.max(debt.due_chapter - debt.source_chapter, 1), 0),
+                        1,
+                      ) * 100
+                    return (
+                      <div className="mt-1" data-testid={`debt-span-bar-${debt.id}`}>
+                        <div className="relative h-2 overflow-hidden rounded bg-muted">
+                          <div className="absolute inset-y-0 left-0 rounded-l bg-accent/60" style={{ width: `${span.cursorPct}%` }} />
+                          {isOverdue && (
+                            <div
+                              className="absolute inset-y-0 rounded-r bg-destructive/70"
+                              style={{ left: `${duePct}%`, width: `${Math.max(span.cursorPct - duePct, 0)}%` }}
+                            />
+                          )}
+                          <div
+                            className="absolute inset-y-0 w-0.5 bg-foreground"
+                            style={{ left: `${span.cursorPct}%` }}
+                            title={`current:${currentChapter}`}
+                          />
+                        </div>
+                        <p className="mt-0.5 text-muted-foreground">
+                          第{debt.source_chapter}→第{debt.due_chapter}
+                          {t("dashboard.section.chapters")} · 当前第{currentChapter}
+                          {t("dashboard.section.chapters")} · {t("dashboard.section.chaseDebtCompound")}×{span.compoundRatio.toFixed(2)}
+                          {span.overdueBy > 0 && !isSettled ? ` · 超期${span.overdueBy}${t("dashboard.section.chapters")}` : ""}
+                        </p>
+                      </div>
+                    )
+                  })()}
                   {/* 55 号设计 W1-5 (54④ 收尾): 结账按钮——paid/written_off 态可达 (updateChaseDebtStatus 接线)。
                       回调缺省 → 不渲染 (现状只读行为)。 */}
                   {onSettleDebt && !isSettled && (
@@ -169,6 +276,29 @@ export function DebtBoardView({
               {debtReport.warningCount} {t("dashboard.debtLevel.warning")}
             </span>
           </div>
+          {/* 第 6 块：伏笔风险三色堆叠条 + debtScore 压力水位槽。 */}
+          {(() => {
+            const gauge = getForeshadowingDebtGauge(
+              debtReport.totalUnresolved,
+              debtReport.criticalCount,
+              debtReport.warningCount,
+            )
+            return (
+              <div className="mt-1" data-testid="foreshadowing-debt-gauge">
+                <div className="flex h-2 overflow-hidden rounded bg-muted" title={`critical:${debtReport.criticalCount} warning:${debtReport.warningCount}`}>
+                  <div className="h-full bg-destructive/80" style={{ width: `${gauge.criticalPct}%` }} />
+                  <div className="h-full bg-warning/80" style={{ width: `${gauge.warningPct}%` }} />
+                  <div className="h-full bg-muted-foreground/40" style={{ width: `${gauge.restPct}%` }} />
+                </div>
+                <div className="mt-1 h-1.5 overflow-hidden rounded bg-muted" title={`debtScore:${debtReport.debtScore}`}>
+                  <div
+                    className="h-full rounded bg-accent/70"
+                    style={{ width: `${Math.min(Math.max(debtReport.debtScore, 0), 100)}%` }}
+                  />
+                </div>
+              </div>
+            )
+          })()}
         </div>
       )}
 
@@ -182,20 +312,43 @@ export function DebtBoardView({
           <div className="space-y-1">
             {emotionDebts.map((entry) => {
               const netValue = calculateEmotionNetValue(entry)
+              const pct = Math.min((Math.abs(netValue) / emotionMaxAbs) * 50, 50)
+              const points = entry.history.length >= 2 ? buildEmotionSparkline(entry.history) : ""
               return (
-                <div key={entry.characterName} className="flex items-center justify-between text-xs">
-                  <span>{entry.characterName}</span>
-                  <span
-                    className={
-                      netValue < -0.3
-                        ? "text-destructive"
-                        : netValue > 0.3
-                          ? "text-foreground"
-                          : "text-muted-foreground"
-                    }
-                  >
-                    {t("dashboard.section.emotionNetValue")}: {netValue.toFixed(2)}
-                  </span>
+                <div key={entry.characterName} className="text-xs">
+                  <div className="flex items-center justify-between">
+                    <span>{entry.characterName}</span>
+                    <span
+                      className={
+                        netValue < -0.3
+                          ? "text-destructive"
+                          : netValue > 0.3
+                            ? "text-foreground"
+                            : "text-muted-foreground"
+                      }
+                    >
+                      {t("dashboard.section.emotionNetValue")}: {netValue.toFixed(2)}
+                    </span>
+                  </div>
+                  {/* 第 6 块：0 中轴双向条 + V/A/D 胶囊 + history sparkline。 */}
+                  <div className="mt-0.5 flex items-center gap-1.5" data-testid={`emotion-net-bar-${entry.characterName}`}>
+                    <div className="relative h-2 flex-1 overflow-hidden rounded bg-muted" title={`net:${netValue.toFixed(2)}`}>
+                      <div className="absolute inset-y-0 left-1/2 w-px bg-foreground/60" />
+                      {netValue < 0 ? (
+                        <div className="absolute inset-y-0 bg-destructive/70" style={{ right: "50%", width: `${pct}%` }} />
+                      ) : netValue > 0 ? (
+                        <div className="absolute inset-y-0 bg-emerald-500/70" style={{ left: "50%", width: `${pct}%` }} />
+                      ) : null}
+                    </div>
+                    <span className="shrink-0 rounded border px-1 text-muted-foreground">
+                      V{entry.valence.toFixed(1)} A{entry.arousal.toFixed(1)} D{entry.dominance.toFixed(1)}
+                    </span>
+                    {points ? (
+                      <svg width="72" height="20" aria-hidden="true" className="shrink-0">
+                        <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" className="text-muted-foreground" />
+                      </svg>
+                    ) : null}
+                  </div>
                 </div>
               )
             })}

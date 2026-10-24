@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** 风格/节奏雷达面板：SVG 多边形来自投影、无正文不画、目标风格与目标节奏分栏、N/A 三条。 */
+/** 风格/节奏雷达面板：SVG 多边形来自投影、无正文不画、目标风格与目标节奏分栏、暂无声明三条。 */
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, render, screen, waitFor } from "@testing-library/react"
 
@@ -37,7 +37,7 @@ describe("有正文：画雷达", () => {
     render(<StyleRadarPanel projection={projection} />)
     for (const axis of projection.axes) {
       const text = screen.getByTestId(`style-radar-axis-${axis.key}`).textContent ?? ""
-      expect(text).toContain(axis.value === null ? "N/A" : axis.value.toFixed(1))
+      expect(text).toContain(axis.value === null ? "暂无" : axis.value.toFixed(1))
     }
     expect(screen.getByTestId("style-radar-axes").textContent).toContain(
       projection.overall!.toFixed(1),
@@ -47,7 +47,7 @@ describe("有正文：画雷达", () => {
 })
 
 describe("无正文：不画", () => {
-  it("空态出现、没有 svg、轴值显示 N/A 而不是 0", () => {
+  it("空态出现、没有 svg、轴值显示暂无而不是 0", () => {
     render(<StyleRadarPanel projection={projectStyleRadar({})} />)
     expect(screen.getByTestId("style-radar-empty")).toBeTruthy()
     expect(screen.queryByTestId("style-radar-svg")).toBeNull()
@@ -81,14 +81,14 @@ describe("量纲隔离与文本维度", () => {
     expect(screen.getByTestId("style-radar-axes").textContent).not.toContain("第三人称限知")
   })
 
-  it("未选风格画像 → 显式 N/A 文案", () => {
+  it("未选风格画像 → 显式暂无文案", () => {
     render(<StyleRadarPanel projection={projectStyleRadar({ text: SAMPLE })} />)
-    expect(screen.getByTestId("style-radar-target-style").textContent).toContain("N/A")
+    expect(screen.getByTestId("style-radar-target-style").textContent).toContain("暂无")
   })
 })
 
 describe("不适用三条 + 装载器", () => {
-  it("三条 N/A 都渲染（文风九维 / 文学分 / 叠量纲）", () => {
+  it("三条暂无声明都渲染（文风九维 / 文学分 / 叠量纲）", () => {
     render(<StyleRadarPanel projection={projectStyleRadar({ text: SAMPLE })} />)
     expect(screen.getByTestId("style-radar-na-text-style-axes")).toBeTruthy()
     expect(screen.getByTestId("style-radar-na-literary-score")).toBeTruthy()

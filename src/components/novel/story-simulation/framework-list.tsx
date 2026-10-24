@@ -177,7 +177,7 @@ export function FrameworkList({
                       >
                         {displayTitle(framework)}
                       </span>
-                      <span className="mt-0.5 text-[0.6875rem] text-muted-foreground">
+                      <span className="mt-0.5 text-xs text-muted-foreground">
                         {t("storySimulation.nodesWords", {
                           nodes: framework.nodes.length,
                           words: framework.targetWords,

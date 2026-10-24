@@ -25,6 +25,78 @@ const STATUS_BULB_CLASS: Record<string, string> = {
   resolved: "text-success fill-success/40",
 }
 
+// 甘特条逾期阈值与 foreshadowing-debt.ts 同源（plantedStale=5 / advancedStale=10），
+// 面板内纯展示不再调 analyze（store 已在手），保持单向依赖。
+const GANTT_PLANTED_STALE = 5
+const GANTT_ADVANCED_STALE = 10
+const GANTT_MAX_ROWS = 60
+
+export type ForeshadowingGanttLevel = "critical" | "warning" | "normal"
+
+export interface ForeshadowingGanttBar {
+  start: number
+  end: number
+  level: ForeshadowingGanttLevel
+}
+
+export function getForeshadowingGanttWindow(
+  items: readonly Foreshadowing[],
+  currentChapter: number,
+): { min: number; max: number } {
+  let min = currentChapter
+  let max = currentChapter
+  for (const f of items) {
+    min = Math.min(min, f.plantedChapter)
+    max = Math.max(max, f.plantedChapter)
+    if (typeof f.resolvedChapter === "number") max = Math.max(max, f.resolvedChapter)
+    for (const a of f.advancedChapters ?? []) max = Math.max(max, a)
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: 1, max: 1 }
+  return { min, max: Math.max(max, min) }
+}
+
+export function getForeshadowingGanttBar(
+  f: Foreshadowing,
+  currentChapter: number,
+): ForeshadowingGanttBar {
+  const start = f.plantedChapter
+  const end = typeof f.resolvedChapter === "number" ? f.resolvedChapter : currentChapter
+  // 与 analyzeForeshadowingDebt 同口径：critical 仅 planted 超 plantedStale；
+  // advanced 只看上次推进是否超 advancedStale（否则 normal）。
+  let level: ForeshadowingGanttLevel = "normal"
+  if (f.status === "planted" && currentChapter - f.plantedChapter >= GANTT_PLANTED_STALE) {
+    level = "critical"
+  } else if (f.status === "advanced") {
+    const last = (f.advancedChapters ?? []).length > 0 ? Math.max(...(f.advancedChapters ?? [])) : undefined
+    if (last !== undefined && currentChapter - last >= GANTT_ADVANCED_STALE) level = "warning"
+  }
+  return { start, end: Math.max(end, start), level }
+}
+
+function groupByChapter(
+  items: Foreshadowing[],
+  chapterOf: (item: Foreshadowing) => number | undefined,
+) {
+  const order: Array<number | undefined> = []
+  const buckets = new Map<string, Foreshadowing[]>()
+  for (const item of items) {
+    const chapter = chapterOf(item)
+    const key = chapter === undefined ? "?" : String(chapter)
+    const bucket = buckets.get(key)
+    if (bucket) bucket.push(item)
+    else {
+      buckets.set(key, [item])
+      order.push(chapter)
+    }
+  }
+  return order
+    .map((chapter) => ({
+      chapter,
+      items: buckets.get(chapter === undefined ? "?" : String(chapter)) ?? [],
+    }))
+    .sort((a, b) => (a.chapter ?? Number.POSITIVE_INFINITY) - (b.chapter ?? Number.POSITIVE_INFINITY))
+}
+
 export function ForeshadowingPanel() {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
@@ -70,21 +142,21 @@ export function ForeshadowingPanel() {
   // 无项目不再静默消失（grok 计划审查：该出现的区块消失 = 撒谎）；显式空态。
   if (!project) {
     return (
-      <div className="flex h-full items-start p-3" data-testid="foreshadowing-panel-no-project">
-        <p className="text-[11px] text-muted-foreground">{t("novel.foreshadowing.empty")}</p>
+      <div className="flex items-start p-3" data-testid="foreshadowing-panel-no-project">
+        <p className="text-xs text-muted-foreground">{t("novel.foreshadowing.empty")}</p>
       </div>
     )
   }
 
   return (
-    <div className="flex h-full flex-col" data-testid="foreshadowing-panel">
+    <div className="flex flex-col" data-testid="foreshadowing-panel">
       <div className="border-b px-4 py-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Lightbulb className={`h-4 w-4 shrink-0 ${unresolved.length > 0 ? "text-warning fill-warning/30" : "text-muted-foreground/40"}`} />
             <h2 className="text-sm font-semibold">{t("novel.foreshadowing.title")}</h2>
           </div>
-          <div className="flex items-center gap-1 text-[0.6875rem] text-muted-foreground">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <span>{t("novel.range.from", { defaultValue: "起" })}</span>
             <input
               type="number"
@@ -104,7 +176,7 @@ export function ForeshadowingPanel() {
           </div>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto scroll-fade-y p-3">
+      <div className="p-3">
         {loading ? (
           <div className="space-y-2" role="status" aria-label={t("novel.foreshadowing.loading")}>
             <div className="skeleton-bar h-16 w-full rounded-md" />
@@ -126,33 +198,81 @@ export function ForeshadowingPanel() {
                 resolved: resolved.length,
               })}
             </div>
+            {(() => {
+              const win = getForeshadowingGanttWindow(visibleItems, Math.max(...visibleItems.map((f) => f.plantedChapter), 1))
+              const span = Math.max(win.max - win.min, 1)
+              const rows = [...visibleItems].sort((a, b) => a.plantedChapter - b.plantedChapter).slice(0, GANTT_MAX_ROWS)
+              const current = win.max
+              return (
+                <div data-testid="foreshadowing-gantt" className="rounded-md border bg-muted/20 p-2">
+                  <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{t("novel.foreshadowing.gantt", { defaultValue: "埋设→回收" })}</span>
+                    <span>第{win.min}章 → 第{win.max}章</span>
+                  </div>
+                  <div className="space-y-1">
+                    {rows.map((f) => {
+                      const bar = getForeshadowingGanttBar(f, current)
+                      const left = ((bar.start - win.min) / span) * 100
+                      const width = Math.max(((bar.end - bar.start) / span) * 100, 2)
+                      const color = bar.level === "critical"
+                        ? "bg-destructive/80"
+                        : bar.level === "warning"
+                          ? "bg-warning/80"
+                          : f.status === "resolved"
+                            ? "bg-success/70"
+                            : f.status === "advanced"
+                              ? "bg-accent"
+                              : "bg-warning/60"
+                      return (
+                        <div key={f.id} data-testid={`foreshadowing-gantt-row-${f.id}`} data-overdue={bar.level} className="flex items-center gap-2">
+                          <span className="w-20 shrink-0 truncate text-xs" title={f.name}>{f.name}·{bar.start}</span>
+                          <div className="relative h-2 flex-1 rounded bg-muted">
+                            <div className={`absolute top-0 h-2 rounded ${color}`} style={{ left: `${left}%`, width: `${width}%` }} />
+                            {(f.advancedChapters ?? []).map((a) => (
+                              <span key={a} className="absolute top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground" style={{ left: `${((a - win.min) / span) * 100}%` }} />
+                            ))}
+                          </div>
+                          <span className="w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums">{bar.start}→{bar.end}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {visibleItems.length > GANTT_MAX_ROWS && (
+                    <p className="mt-1 text-xs text-muted-foreground">…还有{visibleItems.length - GANTT_MAX_ROWS}条</p>
+                  )}
+                </div>
+              )
+            })()}
             {unresolved.length > 0 && (
               <div>
                 <h3 className="mb-2 text-xs font-semibold text-warning">
                   {t("novel.foreshadowing.unresolved")} ({unresolved.length})
                 </h3>
-                <div className="space-y-2">
-                  {unresolved.map((f) => (
-                    <div key={f.id} className="rounded-lg border p-2 text-sm transition-colors hover:border-primary/40">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2 truncate">
-                          <Lightbulb className={`h-3.5 w-3.5 shrink-0 ${STATUS_BULB_CLASS[f.status] ?? ""}`} aria-hidden="true" />
-                          <span className="font-medium truncate min-w-0">{f.name}</span>
-                        </div>
-                        <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${STATUS_BADGE[f.status] ?? ""}`}>
-                          {t(STATUS_LABEL_KEY[f.status] ?? "novel.foreshadowing.unresolved")}
-                        </span>
-                      </div>
-                      {f.description && (
-                        <p className="mt-1 text-xs text-muted-foreground break-words">{f.description}</p>
-                      )}
-                      <button type="button"
-                        onClick={() => void handleOpenChapter(f.plantedChapter)}
-                        title={t("novel.foreshadowing.openPlanted", { num: f.plantedChapter, defaultValue: `打开第${f.plantedChapter}章` })}
-                        className="mt-1 cursor-pointer text-xs text-muted-foreground hover:underline"
+                <div className="space-y-3">
+                  {groupByChapter(unresolved, (item) => item.plantedChapter).map((group) => (
+                    <div key={group.chapter ?? "?"} className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => { if (typeof group.chapter === "number") void handleOpenChapter(group.chapter) }}
+                        title={typeof group.chapter === "number" ? t("novel.foreshadowing.openPlanted", { num: group.chapter, defaultValue: `打开第${group.chapter}章` }) : undefined}
+                        className="border-0 bg-transparent p-0 text-left text-xs text-muted-foreground hover:underline"
                       >
-                        {t("novel.foreshadowing.plantedAt", { chapter: f.plantedChapter })}
+                        {t("novel.foreshadowing.plantedAt", { chapter: group.chapter ?? "?" })}
                       </button>
+                      {group.items.map((f) => (
+                        <div key={f.id} className="rounded-lg border px-3 py-2 text-sm">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Lightbulb className={`h-3.5 w-3.5 shrink-0 ${STATUS_BULB_CLASS[f.status] ?? ""}`} aria-hidden="true" />
+                            <span className="min-w-0 font-medium break-words">{f.name}</span>
+                            <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${STATUS_BADGE[f.status] ?? ""}`}>
+                              {t(STATUS_LABEL_KEY[f.status] ?? "novel.foreshadowing.unresolved")}
+                            </span>
+                          </div>
+                          {f.description && (
+                            <p className="mt-1 text-xs text-muted-foreground break-words">{f.description}</p>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>
@@ -163,25 +283,28 @@ export function ForeshadowingPanel() {
                 <h3 className="mb-2 text-xs font-semibold text-success">
                   {t("novel.foreshadowing.resolved")} ({resolved.length})
                 </h3>
-                <div className="space-y-2">
-                  {resolved.map((f) => (
-                    <div key={f.id} className="rounded-lg border bg-success/5 p-2 text-sm">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2 truncate">
-                          <Lightbulb className="h-3.5 w-3.5 shrink-0 text-success fill-success/40" aria-hidden="true" />
-                          <span className="font-medium line-through truncate min-w-0">{f.name}</span>
-                        </div>
-                        <span className="shrink-0 rounded px-1.5 py-0.5 text-xs bg-success/15 text-success">
-                          {t(/* v8 ignore next -- resolved is filtered to the only status with a guaranteed label. */ STATUS_LABEL_KEY[f.status] ?? "novel.foreshadowing.unresolved")}
-                        </span>
-                      </div>
-                      <button type="button"
-                        onClick={() => { if (typeof f.resolvedChapter === "number") void handleOpenChapter(f.resolvedChapter) }}
-                        title={typeof f.resolvedChapter === "number" ? t("novel.foreshadowing.openResolved", { num: f.resolvedChapter, defaultValue: `打开第${f.resolvedChapter}章` }) : undefined}
-                        className="mt-1 cursor-pointer text-xs text-muted-foreground hover:underline"
+                <div className="space-y-3">
+                  {groupByChapter(resolved, (item) => item.resolvedChapter).map((group) => (
+                    <div key={group.chapter ?? "?"} className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => { if (typeof group.chapter === "number") void handleOpenChapter(group.chapter) }}
+                        title={typeof group.chapter === "number" ? t("novel.foreshadowing.openResolved", { num: group.chapter, defaultValue: `打开第${group.chapter}章` }) : undefined}
+                        className="border-0 bg-transparent p-0 text-left text-xs text-muted-foreground hover:underline"
                       >
-                        {t("novel.foreshadowing.resolvedAt", { chapter: f.resolvedChapter ?? "?" })}
+                        {t("novel.foreshadowing.resolvedAt", { chapter: group.chapter ?? "?" })}
                       </button>
+                      {group.items.map((f) => (
+                        <div key={f.id} className="rounded-lg border bg-success/5 px-3 py-2 text-sm">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Lightbulb className="h-3.5 w-3.5 shrink-0 text-success fill-success/40" aria-hidden="true" />
+                            <span className="min-w-0 font-medium line-through break-words">{f.name}</span>
+                            <span className="shrink-0 rounded bg-success/15 px-1.5 py-0.5 text-xs text-success">
+                              {t(/* v8 ignore next -- resolved is filtered to the only status with a guaranteed label. */ STATUS_LABEL_KEY[f.status] ?? "novel.foreshadowing.unresolved")}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  EDGE_LABEL_FULL_GRAPH_THRESHOLD,
   NODE_TYPE_COLORS,
   edgeTypeForStyle,
   hexToRgba,
@@ -8,6 +9,7 @@ import {
   nodeColor,
   nodeSize,
   safeNodeLabel,
+  shouldRenderEdgeLabels,
   shouldShowNodeLabel,
 } from "./graph-style"
 import type { GraphNode } from "./wiki-graph"
@@ -89,6 +91,20 @@ describe("initialGraphPosition", () => {
   })
 })
 
+describe("shouldRenderEdgeLabels", () => {
+  it("焦点模式恒开（含大边数）", () => {
+    expect(shouldRenderEdgeLabels(1000, true)).toBe(true)
+    expect(shouldRenderEdgeLabels(0, true)).toBe(true)
+  })
+  it("全图小边数开", () => {
+    expect(shouldRenderEdgeLabels(0, false)).toBe(true)
+    expect(shouldRenderEdgeLabels(EDGE_LABEL_FULL_GRAPH_THRESHOLD, false)).toBe(true)
+  })
+  it("全图超阈值关", () => {
+    expect(shouldRenderEdgeLabels(EDGE_LABEL_FULL_GRAPH_THRESHOLD + 1, false)).toBe(false)
+    expect(shouldRenderEdgeLabels(5000, false)).toBe(false)
+  })
+})
 describe("shouldShowNodeLabel", () => {
   it("all 模式恒显示", () => {
     expect(shouldShowNodeLabel(node({ linkCount: 0 }), 10, "overview", "all")).toBe(true)

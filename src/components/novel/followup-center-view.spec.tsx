@@ -1,21 +1,40 @@
 // @vitest-environment jsdom
 /**
- * followup-center-view.spec — 导演跟进中心视图组件测试（jsdom）。
+ * followup-center-view.spec — 跟进中心视图组件测试（jsdom）。
  * 覆盖：空态诚实面（followup-empty，不渲染任务/阻塞区）/ 返修分组与单条
  * 完成-忽略 / 阻塞队列 gate-优先级-blockedBy + 阻塞横幅 / 批量操作
  * （一键完成全部待处理、清空已解决含章节审查条目）/ 章节审查条目渲染与
  * 标记完成 / 磁盘装载（deps 注入）。
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { readFile } from "@/commands/fs"
 import {
   appendRunEvents,
   createRunEventLedger,
+  findChapterFileByNumber,
   type RunEventInput,
   type RunEventLedgerStoreDeps,
 } from "@/lib/novel"
 import { useReviewStore, type NovelReviewEntry, type ReviewItem } from "@/stores/review-store"
+import { useWikiStore } from "@/stores/wiki-store"
 import { FollowupCenterView } from "./followup-center-view"
+
+vi.mock("@/lib/novel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel")>()
+  return {
+    ...actual,
+    findChapterFileByNumber: vi.fn(async () => null),
+  }
+})
+
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+    readFile: vi.fn(async () => ""),
+  }
+})
 
 const TS = "2026-09-16T00:00:00.000Z"
 
@@ -23,6 +42,11 @@ afterEach(() => cleanup())
 
 beforeEach(() => {
   useReviewStore.setState({ items: [], novelReviewEntries: [] })
+  useWikiStore.setState({ pendingEditorHighlight: null, selectedFile: null })
+  vi.mocked(findChapterFileByNumber).mockReset()
+  vi.mocked(findChapterFileByNumber).mockResolvedValue(null)
+  vi.mocked(readFile).mockReset()
+  vi.mocked(readFile).mockResolvedValue("")
 })
 
 function gateRun(seq: number, gate: string, status: "pass" | "fail" | "skipped"): RunEventInput {
@@ -67,7 +91,7 @@ function makeEntry(id: string, chapterNumber: number, resolved: boolean): NovelR
   }
 }
 
-describe("FollowupCenterView（导演跟进中心）", () => {
+describe("FollowupCenterView（跟进中心）", () => {
   it("空态：返修与阻塞均为空 → 诚实空态，不渲染任务/阻塞区", () => {
     render(<FollowupCenterView projectPath="test-proj" ledger={createRunEventLedger()} />)
     expect(screen.getByTestId("followup-center-view")).toBeTruthy()
@@ -131,6 +155,39 @@ describe("FollowupCenterView（导演跟进中心）", () => {
     expect(screen.getByTestId("followup-empty")).toBeTruthy()
   })
 
+  it("一键完成跳过矛盾项，矛盾项只能逐条选动作", () => {
+    useReviewStore.setState({
+      items: [
+        makeItem("item-ok", "补过渡", false),
+        {
+          ...makeItem("item-bad", "人物年龄矛盾", false),
+          type: "contradiction",
+          options: [{ label: "接受", action: "accept" }],
+        },
+      ],
+    })
+    render(<FollowupCenterView projectPath="test-proj" ledger={createRunEventLedger()} />)
+    fireEvent.click(screen.getByTestId("followup-resolve-all"))
+    const state = useReviewStore.getState()
+    expect(state.items.find((item) => item.id === "item-ok")?.resolved).toBe(true)
+    expect(state.items.find((item) => item.id === "item-bad")?.resolved).toBe(false)
+    expect(screen.queryByTestId("followup-resolve-item-bad")).toBeNull()
+    fireEvent.click(screen.getByTestId("followup-option-item-bad-accept"))
+    expect(useReviewStore.getState().items.find((item) => item.id === "item-bad")?.resolvedAction).toBe("accept")
+  })
+
+  it("清空已解决保留未解决的章节审查", () => {
+    useReviewStore.setState({
+      items: [makeItem("item-done", "已改错字", true)],
+      novelReviewEntries: [makeEntry("entry-open", 2, false), makeEntry("entry-done", 4, true)],
+    })
+    render(<FollowupCenterView projectPath="test-proj" ledger={createRunEventLedger()} />)
+    fireEvent.click(screen.getByTestId("followup-clear-resolved"))
+    const state = useReviewStore.getState()
+    expect(state.items).toHaveLength(0)
+    expect(state.novelReviewEntries.map((entry) => entry.id)).toEqual(["entry-open"])
+  })
+
   it("章节审查条目：第 X 章 + 意见数 + 标记完成", () => {
     useReviewStore.getState().addNovelReviewEntry(makeEntry("entry-1", 3, false))
     render(<FollowupCenterView projectPath="test-proj" ledger={createRunEventLedger()} />)
@@ -140,6 +197,60 @@ describe("FollowupCenterView（导演跟进中心）", () => {
 
     fireEvent.click(screen.getByTestId("followup-entry-resolve-entry-1"))
     expect(useReviewStore.getState().novelReviewEntries[0]?.resolved).toBe(true)
+  })
+
+  it("回到正文：原文对得上才高亮那一句，对不上只打开章", async () => {
+    vi.mocked(findChapterFileByNumber).mockResolvedValue("C:/book/第3章.md")
+    vi.mocked(readFile).mockResolvedValue("# 第三章\n\n第三章开头下雨。")
+    useReviewStore.setState({
+      novelReviewEntries: [makeEntry("entry-hit", 3, false)],
+    })
+    const view = render(<FollowupCenterView projectPath="C:/book" ledger={createRunEventLedger()} />)
+    fireEvent.click(screen.getByTestId("followup-entry-open-entry-hit"))
+    await waitFor(() => {
+      expect(useWikiStore.getState().pendingEditorHighlight?.text).toBe("第三章开头")
+    })
+    expect(useWikiStore.getState().pendingEditorHighlight?.path).toBe("C:/book/第3章.md")
+    expect(useWikiStore.getState().selectedFile).toBe("C:/book/第3章.md")
+    expect(screen.queryByTestId("followup-open-note")).toBeNull()
+
+    view.unmount()
+    useWikiStore.setState({ pendingEditorHighlight: null, selectedFile: null })
+    useReviewStore.setState({
+      novelReviewEntries: [
+        {
+          ...makeEntry("entry-miss", 3, false),
+          results: [
+            {
+              severity: "error",
+              type: "continuity",
+              message: "没有原句",
+              evidence: "这段正文里根本没有",
+              relatedMemory: "",
+              suggestion: "",
+            },
+          ],
+        },
+      ],
+    })
+    render(<FollowupCenterView projectPath="C:/book" ledger={createRunEventLedger()} />)
+    fireEvent.click(screen.getByTestId("followup-entry-open-entry-miss"))
+    await waitFor(() => {
+      expect(screen.getByTestId("followup-open-note").textContent).toContain("没有对得上的原句")
+    })
+    expect(useWikiStore.getState().selectedFile).toBe("C:/book/第3章.md")
+    expect(useWikiStore.getState().pendingEditorHighlight).toBeNull()
+
+    cleanup()
+    vi.mocked(findChapterFileByNumber).mockResolvedValue(null)
+    useWikiStore.setState({ pendingEditorHighlight: null, selectedFile: "C:/book/第3章.md" })
+    useReviewStore.setState({ novelReviewEntries: [makeEntry("entry-gone", 9, false)] })
+    render(<FollowupCenterView projectPath="C:/book" ledger={createRunEventLedger()} />)
+    fireEvent.click(screen.getByTestId("followup-entry-open-entry-gone"))
+    await waitFor(() => {
+      expect(screen.getByTestId("followup-open-note").textContent).toContain("找不到这一章")
+    })
+    expect(useWikiStore.getState().pendingEditorHighlight).toBeNull()
   })
 
   it("磁盘装载：deps 注入 JSONL → 阻塞队列渲染", async () => {

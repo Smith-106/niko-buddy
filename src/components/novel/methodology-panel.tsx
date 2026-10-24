@@ -43,10 +43,10 @@ export function MethodologyPanel({ projection }: MethodologyPanelProps) {
         <Activity className="h-4 w-4" />
         创作方法论生效（只读）
       </h3>
-      <p className="text-[10px] text-muted-foreground" data-testid="methodology-panel-scope">
+      <p className="text-xs text-muted-foreground" data-testid="methodology-panel-scope">
         {`有钩子的阶段 ${resolved.stages.length} 个 · 已启用钩子 ${resolved.enabledHookCount} 个 · 声明钩子 ${resolved.declaredHookCount} 个 · 已知阶段 ${resolved.knownStages.length} 个`}
       </p>
-      <p className="text-[10px] text-muted-foreground" data-testid="methodology-panel-boundary">
+      <p className="text-xs text-muted-foreground" data-testid="methodology-panel-boundary">
         本面板只列出已经登记的钩子，不执行、不记录调用。命中次数和提示语没有记录，所以标成不适用。
       </p>
 
@@ -69,7 +69,7 @@ export function MethodologyPanel({ projection }: MethodologyPanelProps) {
                   ? `（声明 ${row.declaredHookCount}，其中 ${row.declaredHookCount - row.hookCount} 个未启用）`
                   : ""}
               </p>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {row.hookIds.length > 0 ? (
                   <>
                     钩子已登记
@@ -79,7 +79,7 @@ export function MethodologyPanel({ projection }: MethodologyPanelProps) {
                   "钩子：无（该阶段只有未启用钩子）"
                 )}
               </p>
-              <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+              <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                 <li data-testid={`methodology-na-prompt-hint-${row.stage}`}>
                   {row.hasPromptHint === null ? (
                     <>
@@ -109,8 +109,8 @@ export function MethodologyPanel({ projection }: MethodologyPanelProps) {
       )}
 
       <div className="flex flex-col gap-0.5">
-        <p className="text-[10px] font-medium text-muted-foreground">以下真源不存在，故显式 N/A：</p>
-        <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+        <p className="text-xs font-medium text-muted-foreground">以下真源不存在，故显式 N/A：</p>
+        <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
           {resolved.missingSources.map((reason, index) => (
             <li key={reason} data-testid={`methodology-na-source-${index}`}>
               {missingPlain(reason)}

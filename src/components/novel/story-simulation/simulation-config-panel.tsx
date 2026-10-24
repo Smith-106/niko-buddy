@@ -53,7 +53,7 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
   const selectedModeInfo = MODE_VISUAL_INFO[mode]
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-6">
+    <div className="flex w-full min-w-0 flex-col gap-6 p-6">
       {/* 1. 仿真模式选择 */}
       <section className="flex flex-col gap-3">
         <h3 className="flex items-center gap-1.5 text-sm font-medium">
@@ -78,7 +78,7 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
               >
                 <div className="flex w-full items-center justify-between">
                   <span className="text-sm font-medium">{info.name}</span>
-                  <span className={cn("rounded-full px-2 py-0.5 text-[0.625rem] font-medium", info.color)}>
+                  <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", info.color)}>
                     {info.freedomLabel}
                   </span>
                 </div>

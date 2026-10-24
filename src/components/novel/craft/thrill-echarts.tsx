@@ -82,9 +82,14 @@ export function TensionCurveChart({ tensionCurve }: TensionCurveChartProps) {
         formatter: (params: unknown) => {
           const arr = params as Array<{ seriesName: string; value: number; axisValueLabel: string }>
           if (!Array.isArray(arr)) return ""
-          return arr
-            .map((p) => `${p.seriesName}: ${p.value.toFixed(3)}`)
-            .join("<br/>")
+          const pos = arr[0]?.axisValueLabel ?? ""
+          const lines = arr.map((p) => {
+            const meaning = p.seriesName === "原始张力"
+              ? "该位置爽点原始叠加强度（0–1）"
+              : "滑动平均后的阅读体感节奏（0–1）"
+            return `${p.seriesName}: ${p.value.toFixed(3)}（${meaning}）`
+          })
+          return [`全书位置 ${pos}%`, ...lines].join("<br/>")
         },
       },
       legend: {
@@ -148,6 +153,7 @@ export function TensionCurveChart({ tensionCurve }: TensionCurveChartProps) {
       className="h-52 w-full"
       role="img"
       aria-label={t("craft.tensionCurve")}
+      title="张力值 0–1：越高代表该位置爽点越密集；平滑线代表阅读体感节奏"
     />
   )
 }
@@ -184,11 +190,10 @@ export function BeatIntensityChart({ hits }: BeatIntensityChartProps) {
           const hit = sorted[idx]
           if (!hit) return ""
           return [
-            `类型: ${hit.beatType}`,
-            `加权强度: ${hit.weightedIntensity.toFixed(3)}`,
-            `原始强度: ${hit.rawIntensity.toFixed(3)}`,
-            `位置: ${(hit.positionRatio * 100).toFixed(1)}%`,
-            `闭环: ${hit.closureState === "closed" ? "已闭环" : "开放"}`,
+            `类型: ${hit.beatType}（全书位置 ${(hit.positionRatio * 100).toFixed(1)}%）`,
+            `加权强度: ${hit.weightedIntensity.toFixed(3)}（原始强度 × 闭环权重，>1 为高光）`,
+            `原始强度: ${hit.rawIntensity.toFixed(3)}（该 beat 自身强度，0–1+）`,
+            `闭环: ${hit.closureState === "closed" ? "已闭环疏解" : "开放延宕"}`,
           ].join("<br/>")
         },
       },
@@ -236,6 +241,7 @@ export function BeatIntensityChart({ hits }: BeatIntensityChartProps) {
       className="h-52 w-full"
       role="img"
       aria-label={t("craft.beatChart")}
+      title="加权强度 = 原始强度 × 闭环权重（>1 为高光）；绿=已闭环疏解，黄=开放延宕"
     />
   )
 }
@@ -290,9 +296,8 @@ export function SixDimRadarChart({ scores, labels }: SixDimRadarChartProps) {
         formatter: (params: unknown) => {
           const arr = params as Array<{ value: number[]; name: string }>
           if (!Array.isArray(arr) || arr.length === 0) return ""
-          return dims
-            .map((_key, i) => `${indicator[i].name}: ${values[i].toFixed(1)}`)
-            .join("<br/>")
+          const head = "六维评分（0–10 分，越高越好）"
+          return [head, ...dims.map((_key, i) => `${indicator[i].name}: ${values[i].toFixed(1)} / 10`)].join("<br/>")
         },
       },
       radar: {
@@ -340,6 +345,7 @@ export function SixDimRadarChart({ scores, labels }: SixDimRadarChartProps) {
       className="h-52 w-full"
       role="img"
       aria-label={t("craft.sixDimRadar")}
+      title="六维评分 0–10 分，越高越好"
     />
   )
 }

@@ -69,9 +69,13 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
   }
 })
 
-vi.mock("@/commands/fs", () => ({
-  listDirectory: vi.fn(async () => []),
-}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+    listDirectory: vi.fn(async () => []),
+  }
+})
 
 vi.mock("@/lib/toast", () => ({
   toast: {

@@ -18,6 +18,13 @@ const SEVERITY_LABEL: Record<string, string> = {
   low: "低",
 }
 
+const SEVERITY_CLASS: Record<string, string> = {
+  critical: "bg-destructive/10 text-destructive",
+  high: "bg-amber-500/15 text-amber-800 dark:text-amber-200",
+  medium: "bg-muted text-foreground",
+  low: "bg-muted text-muted-foreground",
+}
+
 export interface AntiAiRulesViewProps {
   readonly projectPath: string
 }
@@ -156,14 +163,14 @@ export function AntiAiRulesView({ projectPath }: AntiAiRulesViewProps) {
       <div className="flex flex-col gap-4">
       <div data-testid="anti-ai-categories" className="order-2 flex flex-col gap-2">
         <h3 className="text-sm font-medium text-foreground">规则分类（{categories.length} 类 · 只读）</h3>
-        <ul className="flex flex-col gap-2">
+        <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] gap-3">
             {categories.map((category) => {
               const rules = rulesByCategory.get(category) ?? []
               return (
                 <li
                   key={category}
                   data-testid={`anti-ai-category-${category}`}
-                  className="rounded-md border border-border bg-background px-3 py-2"
+                  className="rounded-md border border-border bg-card px-4 py-3"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm font-medium text-foreground">{category}</span>
@@ -171,11 +178,13 @@ export function AntiAiRulesView({ projectPath }: AntiAiRulesViewProps) {
                       {rules.length} 条
                     </span>
                   </div>
-                  <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                  <ul className="mt-2 space-y-2 text-sm leading-6 text-foreground">
                     {rules.map((item, index) => (
-                      <li key={`${category}-${index}`}>
-                        <span className="mr-1 rounded bg-muted px-1 text-[11px]">{SEVERITY_LABEL[item.severity] ?? item.severity}</span>
-                        {item.rule}
+                      <li key={`${category}-${index}`} className="flex items-start gap-2">
+                        <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-xs leading-4 ${SEVERITY_CLASS[item.severity] ?? "bg-muted text-foreground"}`}>
+                          {SEVERITY_LABEL[item.severity] ?? item.severity}
+                        </span>
+                        <span className="min-w-0">{item.rule}</span>
                       </li>
                     ))}
                   </ul>

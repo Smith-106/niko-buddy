@@ -143,9 +143,9 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
           )}
         >
           <span className="h-2.5 w-px bg-current opacity-60" />
-          <span className={cn("text-[10px] leading-none", flowing && "animate-pulse")}>▼</span>
+          <span className={cn("text-xs leading-none", flowing && "animate-pulse")}>▼</span>
         </span>
-        <span className="text-[11px] text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           {from.label} → {to.label}
         </span>
       </div>
@@ -247,7 +247,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
           <span className={cn("text-xs font-semibold", isActive ? "text-accent" : "text-foreground")}>
             {stage.label}
           </span>
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {t("heatmap.laneStats", {
               modules: row?.modules ?? 0,
               hit: row?.hitModules ?? 0,
@@ -255,7 +255,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
             })}
           </span>
           {rework ? (
-            <span className="text-[10px] text-destructive" data-testid={`heatmap-rework-${stageId}`}>
+            <span className="text-xs text-destructive" data-testid={`heatmap-rework-${stageId}`}>
               {t("heatmap.reworkMark")}
             </span>
           ) : null}
@@ -274,7 +274,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
                 data-testid={`heatmap-node-${moduleLabel(entry.p)}`}
                 data-unwired={unwiredFlag ? "true" : "false"}
                 className={cn(
-                  "flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] transition-colors",
+                  "flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs transition-colors",
                   unwiredFlag ? "border-dashed border-muted-foreground/40 text-muted-foreground" : "border-border",
                   moduleHeat ? "text-foreground" : "text-muted-foreground",
                   selected === entry.p ? "ring-1 ring-accent" : "",
@@ -290,7 +290,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
                 ) : null}
                 <span>{moduleLabel(entry.p)}</span>
                 {moduleHeat ? (
-                  <span className="text-[10px] text-muted-foreground">{moduleHeat.count}</span>
+                  <span className="text-xs text-muted-foreground">{moduleHeat.count}</span>
                 ) : null}
                 {entry.e && entry.e.length > 0 ? (
                   <ExternalLink className="h-2.5 w-2.5 text-warning" />
@@ -315,7 +315,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
           <h2 className="text-base font-semibold">{t("heatmap.title")}</h2>
           <span className="text-xs text-muted-foreground">{t("heatmap.subtitle")}</span>
         </div>
-        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <span className="h-2 w-2 rounded-sm bg-accent" /> {t("heatmap.legendCurrent")}
           </span>
@@ -397,7 +397,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
           {t("heatmap.flushNow")}
         </button>
         {flushedAt ? (
-          <span className="text-[11px] text-muted-foreground" data-testid="heatmap-flushed">
+          <span className="text-xs text-muted-foreground" data-testid="heatmap-flushed">
             {t("heatmap.flushed", { time: formatClock(flushedAt) })}
           </span>
         ) : null}
@@ -422,10 +422,10 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
           <div className="rounded-lg border p-2" data-testid="heatmap-drill">
             <h3 className="mb-1 text-xs font-semibold">{t("heatmap.drillTitle")}</h3>
             {!selectedEntry ? (
-              <p className="text-[11px] text-muted-foreground">{t("heatmap.drillHint")}</p>
+              <p className="text-xs text-muted-foreground">{t("heatmap.drillHint")}</p>
             ) : (
-              <div className="flex flex-col gap-1 text-[11px]">
-                <code className="break-all text-[11px]">{selectedEntry.p}</code>
+              <div className="flex flex-col gap-1 text-xs">
+                <code className="break-all text-xs">{selectedEntry.p}</code>
                 <div className="flex flex-wrap gap-2 text-muted-foreground">
                   <span>
                     {t("heatmap.importsOut", { count: selectedEntry.i.length })}
@@ -472,7 +472,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
           <div className="rounded-lg border p-2" data-testid="heatmap-unwired">
             <h3 className="mb-1 text-xs font-semibold">{t("heatmap.unwiredTitle")}</h3>
             {unwired.length === 0 ? (
-              <p className="text-[11px] text-muted-foreground">{t("heatmap.unwiredEmpty")}</p>
+              <p className="text-xs text-muted-foreground">{t("heatmap.unwiredEmpty")}</p>
             ) : (
               <ul className="flex flex-col gap-0.5">
                 {unwired.slice(0, 10).map((row) => (
@@ -480,10 +480,10 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
                     <button
                       type="button"
                       onClick={() => setSelected(row.path)}
-                      className="flex w-full items-center justify-between gap-2 rounded px-1 text-left text-[11px] hover:bg-muted"
+                      className="flex w-full items-center justify-between gap-2 rounded px-1 text-left text-xs hover:bg-muted"
                     >
                       <span className="truncate text-muted-foreground">{moduleLabel(row.path)}</span>
-                      <span className="shrink-0 text-[10px] text-warning">
+                      <span className="shrink-0 text-xs text-warning">
                         {row.reason === "specOnly"
                           ? t("heatmap.unwiredReasonSpec")
                           : row.reason === "orphan"
@@ -503,18 +503,18 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
         <h3 className="mb-1 text-xs font-semibold">{t("heatmap.sessionLog")}</h3>
         {log.length === 0 ? (
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-[11px] text-muted-foreground">{t("heatmap.logEmpty")}</p>
+            <p className="text-xs text-muted-foreground">{t("heatmap.logEmpty")}</p>
             <button
               type="button"
               data-testid="heatmap-lightup"
               onClick={() => useWikiStore.getState().setActiveView("mainControl")}
-              className="h-6 rounded-md border border-accent/50 bg-accent/10 px-2 text-[11px] text-foreground transition-colors hover:bg-accent/20"
+              className="h-6 rounded-md border border-accent/50 bg-accent/10 px-2 text-xs text-foreground transition-colors hover:bg-accent/20"
             >
               {t("heatmap.lightUp")}
             </button>
           </div>
         ) : (
-          <ul className="flex flex-col gap-0.5 font-mono text-[11px]">
+          <ul className="flex flex-col gap-0.5 font-mono text-xs">
             {log.map((row, i) => (
               <li key={`${row.at}-${row.path}-${i}`} className="flex gap-2">
                 <span className="text-muted-foreground">{formatClock(row.at)}</span>
@@ -556,7 +556,7 @@ function Stat({
       />
       <div className="flex flex-col leading-tight">
         <span className="text-xs font-semibold">{value}</span>
-        <span className="text-[10px] text-muted-foreground">{label}</span>
+        <span className="text-xs text-muted-foreground">{label}</span>
       </div>
     </div>
   )

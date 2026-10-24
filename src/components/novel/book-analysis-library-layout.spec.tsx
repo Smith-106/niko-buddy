@@ -110,7 +110,7 @@ describe("BookAnalysisLibraryLayout", () => {
       />,
     )
 
-    expect(html).toContain("拆书库")
+    expect(html).toContain("拆文库")
     expect(html).toContain("启用文风")
     expect(html).toContain("凡人修仙传")
     expect(html).toContain("作品文风")

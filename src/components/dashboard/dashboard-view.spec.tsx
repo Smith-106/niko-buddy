@@ -1271,3 +1271,60 @@ describe("DashboardView — f4 终局：取消竞态 / 非 Error 异常 / 边界
   })
 })
 
+describe("DashboardView — 章节心电图 (w10)", () => {
+  function seedEcg() {
+    mocks.listSnapshots.mockResolvedValue(["s1", "s2", "s3", "s4", "s5"])
+    mocks.loadSnapshot.mockResolvedValue(makeSnapshot())
+    mocks.analyzeForeshadowingDebt.mockReturnValue(makeDebtReport({
+      totalUnresolved: 2,
+      criticalCount: 1,
+      items: [
+        { id: "d1", name: "玉牌", description: "", status: "planted", plantedChapter: 1, chaptersSincePlanted: 4, debtLevel: "normal" },
+        { id: "d2", name: "密信", description: "", status: "advanced", plantedChapter: 2, lastAdvancedChapter: 3, chaptersSincePlanted: 3, chaptersSinceAdvanced: 2, debtLevel: "warning" },
+      ],
+    }))
+    mocks.getTopEmotionalDebt.mockReturnValue([
+      { characterName: "主角", netValue: -1.5, valence: 0, arousal: 0, dominance: 0, lastUpdatedChapter: 4, history: [
+        { chapter: 2, delta: -2, reason: "受挫" },
+        { chapter: 4, delta: 1, reason: "回暖" },
+      ] },
+    ])
+  }
+
+  it("buildChapterEcg：情绪按章求和、伏笔埋设+推进按章计数", async () => {
+    const { buildChapterEcg } = await import("./dashboard-view")
+    const points = buildChapterEcg(
+      [{ plantedChapter: 1 }, { plantedChapter: 2, lastAdvancedChapter: 3 }],
+      [{ history: [{ chapter: 2, delta: -2, reason: "x" }, { chapter: 9, delta: 5, reason: "越界" }] }],
+      5,
+    )
+    expect(points).toHaveLength(5)
+    expect(points[1]).toEqual({ chapter: 2, emotion: -2, foreshadowing: 1 })
+    expect(points[2]).toEqual({ chapter: 4 - 1, emotion: 0, foreshadowing: 1 })
+    // 越界 history（第 9 章）被丢弃
+    expect(points[4]).toEqual({ chapter: 5, emotion: 0, foreshadowing: 0 })
+    expect(buildChapterEcg([], [], 0)).toEqual([])
+  })
+
+  it("渲染双折线：情绪实线 + 伏笔虚线，第1/5章刻度", async () => {
+    seedEcg()
+    render(<DashboardView />)
+    const ecg = await screen.findByTestId("chapter-ecg")
+    expect(ecg).toBeInTheDocument()
+    expect(screen.getByTestId("chapter-ecg-emotion").getAttribute("points")?.split(" ")).toHaveLength(5)
+    expect(screen.getByTestId("chapter-ecg-foreshadowing").getAttribute("points")?.split(" ")).toHaveLength(5)
+    expect(ecg.textContent).toContain("第1章")
+    expect(ecg.textContent).toContain("第5章")
+  })
+
+  it("无信号时不渲染（全零 5 章）", async () => {
+    mocks.listSnapshots.mockResolvedValue(["s1", "s2", "s3", "s4", "s5"])
+    mocks.loadSnapshot.mockResolvedValue(makeSnapshot())
+    mocks.analyzeForeshadowingDebt.mockReturnValue(makeDebtReport())
+    mocks.getTopEmotionalDebt.mockReturnValue([])
+    render(<DashboardView />)
+    await waitFor(() => expect(mocks.analyzeForeshadowingDebt).toHaveBeenCalled())
+    expect(screen.queryByTestId("chapter-ecg")).not.toBeInTheDocument()
+  })
+})
+

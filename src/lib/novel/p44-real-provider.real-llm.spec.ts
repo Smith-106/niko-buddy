@@ -104,7 +104,9 @@ describeOrSkip("#44 真实Provider联合补证(配置→健康→生成→门控
       },
       undefined,
       // reasoning 模型先花 token 推理再输出正文；64 会被 reasoning 吃光（finish length 空正文），512 留足预算
-      { max_tokens: 512 },
+      // CPA/muse-spark 推理占预算（2026-10-24 实证：512 会被推理吃光 finish=length 空正文）；
+      // 2048 留足推理+正文（finish=stop）。旧 grok-4.6 用 512 的典故见上。
+      { max_tokens: 2048 },
     )
     expect(streamErr).toBeNull()
     expect(done).toBe(true)

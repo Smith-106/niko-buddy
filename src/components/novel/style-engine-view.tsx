@@ -226,7 +226,7 @@ export function StyleEngineView({ projectPath }: StyleEngineViewProps) {
           </aside>
           <main className="flex-1 overflow-y-auto p-6">
             {selected ? (
-              <div data-testid="style-preview" className="mx-auto max-w-3xl space-y-3">
+              <div data-testid="style-preview" className="w-full min-w-0 space-y-3">
                 <div className="text-sm font-medium">
                   预览：{selected.name}（《{selected.sourceBook}》）
                 </div>

@@ -92,14 +92,14 @@ export function StyleRadarPanel({ projection, input, loader }: StyleRadarPanelPr
           <Radar className="h-4 w-4" />
           风格 / 节奏雷达（只读）
         </h3>
-        <p className="text-[10px] text-muted-foreground" data-testid="style-radar-scope">
+        <p className="text-xs text-muted-foreground" data-testid="style-radar-scope">
           半径 = 6 项**机械代理指标**（正文抽样统计，0–100），不是文学评分。目标风格（自由文本）与目标节奏
           （压力级 1–5 / 情绪 1–10）**不同量纲**，都不叠进这张图。
         </p>
       </header>
 
       {error ? (
-        <p className="text-[11px] text-amber-700 dark:text-amber-400" data-testid="style-radar-error">
+        <p className="text-xs text-amber-700 dark:text-amber-400" data-testid="style-radar-error">
           {error}
         </p>
       ) : null}
@@ -158,7 +158,7 @@ export function StyleRadarPanel({ projection, input, loader }: StyleRadarPanelPr
                   y={ly}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  className="fill-muted-foreground text-[9px]"
+                  className="fill-muted-foreground text-xs"
                 >
                   {axis.label}
                 </text>
@@ -166,39 +166,39 @@ export function StyleRadarPanel({ projection, input, loader }: StyleRadarPanelPr
             })}
           </svg>
 
-          <ul className="space-y-0.5 text-[11px] text-muted-foreground" data-testid="style-radar-axes">
+          <ul className="space-y-0.5 text-xs text-muted-foreground" data-testid="style-radar-axes">
             {resolved.axes.map((axis) => (
               <li key={axis.key} data-testid={`style-radar-axis-${axis.key}`}>
                 {axis.label}：
-                <b className="text-foreground">{axis.value === null ? "N/A" : axis.value.toFixed(1)}</b>
+                <b className="text-foreground">{axis.value === null ? "暂无" : axis.value.toFixed(1)}</b>
               </li>
             ))}
             <li className="pt-1">
-              机械层均分：<b className="text-foreground">{resolved.overall === null ? "N/A" : resolved.overall.toFixed(1)}</b>
+              机械层均分：<b className="text-foreground">{resolved.overall === null ? "暂无" : resolved.overall.toFixed(1)}</b>
             </li>
           </ul>
         </div>
       ) : (
-        <p className="text-[11px] text-muted-foreground" data-testid="style-radar-empty">
+        <p className="text-xs text-muted-foreground" data-testid="style-radar-empty">
           没有可画的轴：缺少章节正文（或轴数 &lt; 3）→ 不画 0 分雷达。
         </p>
       )}
 
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="rounded border border-border p-2" data-testid="style-radar-target">
-          <p className="text-[11px] font-medium text-foreground">目标节奏（章纲定位 · 不同量纲）</p>
-          <p className="text-[10px] text-muted-foreground">
-            章节：<b className="text-foreground">{resolved.target.chapterLabel ?? "N/A"}</b> · 压力级：
-            <b className="text-foreground">{resolved.target.pressureLevel ?? "N/A"}</b> · 情绪强度：
-            <b className="text-foreground">{resolved.target.emotionIntensity ?? "N/A"}</b>
+          <p className="text-xs font-medium text-foreground">目标节奏（章纲定位 · 不同量纲）</p>
+          <p className="text-xs text-muted-foreground">
+            章节：<b className="text-foreground">{resolved.target.chapterLabel ?? "暂无"}</b> · 压力级：
+            <b className="text-foreground">{resolved.target.pressureLevel ?? "暂无"}</b> · 情绪强度：
+            <b className="text-foreground">{resolved.target.emotionIntensity ?? "暂无"}</b>
           </p>
         </div>
         <div className="rounded border border-border p-2" data-testid="style-radar-target-style">
-          <p className="text-[11px] font-medium text-foreground">目标风格（无数值，不进半径）</p>
+          <p className="text-xs font-medium text-foreground">目标风格（无数值，不进半径）</p>
           {resolved.targetStyleText.length === 0 ? (
-            <p className="text-[10px] text-muted-foreground">N/A：未选定作品库风格画像</p>
+            <p className="text-xs text-muted-foreground">暂无：未选定作品库风格画像</p>
           ) : (
-            <ul className="text-[10px] text-muted-foreground">
+            <ul className="text-xs text-muted-foreground">
               {resolved.targetStyleText.map((item) => (
                 <li key={item.label}>
                   {item.label}：{item.value}
@@ -209,7 +209,7 @@ export function StyleRadarPanel({ projection, input, loader }: StyleRadarPanelPr
         </div>
       </div>
 
-      <ul className="space-y-0.5 text-[10px] text-muted-foreground" data-testid="style-radar-na">
+      <ul className="space-y-0.5 text-xs text-muted-foreground" data-testid="style-radar-na">
         <li className="font-medium text-foreground">明确不适用（防造假）</li>
         {resolved.notApplicable.map((item) => (
           <li key={item.id} data-testid={`style-radar-na-${item.id}`}>
@@ -219,7 +219,7 @@ export function StyleRadarPanel({ projection, input, loader }: StyleRadarPanelPr
       </ul>
 
       {resolved.missingSources.length > 0 ? (
-        <ul className="space-y-0.5 text-[10px] text-amber-700 dark:text-amber-400" data-testid="style-radar-missing">
+        <ul className="space-y-0.5 text-xs text-amber-700 dark:text-amber-400" data-testid="style-radar-missing">
           {resolved.missingSources.map((line) => (
             <li key={line}>{line}</li>
           ))}

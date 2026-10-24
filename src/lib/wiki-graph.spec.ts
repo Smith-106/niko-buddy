@@ -72,7 +72,7 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
 })
 
 import { listDirectory, readFile } from "@/commands/fs"
-import { buildWikiGraph, type GraphEdge } from "./wiki-graph"
+import { buildWikiGraph, dedupeImportEdges, type GraphEdge } from "./wiki-graph"
 
 const mockedListDirectory = vi.mocked(listDirectory)
 const mockedReadFile = vi.mocked(readFile)
@@ -507,5 +507,19 @@ describe("buildWikiGraph — community detection", () => {
     for (const node of graph.nodes) {
       expect(ids).toContain(node.community)
     }
+  })
+})
+
+describe("dedupeImportEdges（P0-2 去重计数 == sigma 实际渲染数）", () => {
+  const ids = new Set(["a", "b"])
+  const e = (source: string, target: string): GraphEdge => ({ source, target, weight: 1 })
+  it("反向重复只保留首见端点缺失丢弃", () => {
+    expect(dedupeImportEdges(ids, [e("a", "b"), e("b", "a"), e("a", "x"), e("y", "a")])).toEqual([e("a", "b")])
+  })
+  it("同键重复只保留首见自环按导入语义保留", () => {
+    expect(dedupeImportEdges(ids, [e("a", "b"), e("a", "b"), e("a", "a")])).toEqual([e("a", "b"), e("a", "a")])
+  })
+  it("空输入返回空", () => {
+    expect(dedupeImportEdges(new Set<string>(), [])).toEqual([])
   })
 })

@@ -461,7 +461,7 @@ export function WikiEditor({
                 background: oklch(0.65 0 0);
               }
             `}</style>
-            <div className="mx-auto w-full max-w-4xl flex-col px-8 py-10">
+            <div className="w-full min-w-0 px-8 py-10">
               <WritingTextarea
                 content={body}
                 onSave={handleSave}

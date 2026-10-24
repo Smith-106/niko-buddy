@@ -276,7 +276,7 @@ describe("outline-generation context prompt builders", () => {
 
     await buildOutlineGenerationPrompt("E:/Novel", "悬疑", "中篇", "")
 
-    expect(mocks.buildContextPack).toHaveBeenCalledWith("E:/Novel", "?????悬疑")
+    expect(mocks.buildContextPack).toHaveBeenCalledWith("E:/Novel", "生成大纲 悬疑")
   })
 
   it("returns refinement context sections when the pack has content", async () => {
@@ -428,7 +428,7 @@ describe("generateOutlineRefinementSectionFile", () => {
 
     expect(prompt).toContain("未额外指定")
     expect(prompt).toContain("本次只生成：章节细纲")
-    expect(prompt).toContain("章节推进需要")
+    expect(prompt).toContain("章纲审核表")
   })
 
   it("throws the stream error surfaced by onError", async () => {

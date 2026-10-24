@@ -9,7 +9,14 @@ const fsState = vi.hoisted(() => ({
 const streamChatMock = vi.hoisted(() => vi.fn())
 const modelResolverMock = vi.hoisted(() => vi.fn())
 
-vi.mock("@/commands/fs", () => fsState)
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+    listDirectory: fsState.listDirectory,
+    readFile: fsState.readFile,
+  }
+})
 vi.mock("@/lib/llm-client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/llm-client")>()
   return {

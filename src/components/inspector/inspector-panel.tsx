@@ -309,17 +309,17 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
                   <li key={f.dimensionKey}>
                     <div className="flex items-center gap-1">
                       <span className="font-medium">{f.dimensionLabel}</span>
-                      <span className="font-mono text-[0.6875rem]">{f.score}/100</span>
+                      <span className="font-mono text-xs">{f.score}/100</span>
                       <StatusBadge status={f.status} />
                     </div>
                     {f.summary && <div className="pl-2 text-muted-foreground">{f.summary}</div>}
                     {f.messages.length > 0 && (
                       <ul className="pl-4 list-disc">
                         {f.messages.slice(0, 5).map((msg, idx) => (
-                          <li key={`${idx}-${msg.slice(0, 16)}`} className="text-[0.6875rem]">{msg}</li>
+                          <li key={`${idx}-${msg.slice(0, 16)}`} className="text-xs">{msg}</li>
                         ))}
                         {f.messages.length > 5 && (
-                          <li className="text-[0.6875rem] text-muted-foreground">
+                          <li className="text-xs text-muted-foreground">
                             {t("novel.inspector.moreMessages", "…另有 {{n}} 条", { n: f.messages.length - 5 })}
                           </li>
                         )}
@@ -337,12 +337,12 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
                 <div className="font-medium">{t("novel.inspector.deAiSlopHits", "静态 de-ai slop 命中：")}</div>
                 <ul className="pl-4 list-disc">
                   {snapshot.deAiSlopHits.slice(0, 10).map((hit) => (
-                    <li key={hit.word} className="text-[0.6875rem]">
+                    <li key={hit.word} className="text-xs">
                       {hit.word} ×{hit.count}
                     </li>
                   ))}
                   {snapshot.deAiSlopHits.length > 10 && (
-                    <li className="text-[0.6875rem] text-muted-foreground">
+                    <li className="text-xs text-muted-foreground">
                       {t("novel.inspector.moreSlop", "…及其余 {{n}} 项", { n: snapshot.deAiSlopHits.length - 10 })}
                     </li>
                   )}

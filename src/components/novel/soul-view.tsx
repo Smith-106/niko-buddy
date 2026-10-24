@@ -10,7 +10,7 @@ export function SoulView() {
   if (selectedSoulId === "de-ai-skill") {
     return (
       <div className="flex h-full overflow-y-auto p-6">
-        <div className="mx-auto max-w-3xl">
+        <div className="w-full min-w-0">
           <DeAiSkillEditor />
         </div>
       </div>
@@ -20,7 +20,7 @@ export function SoulView() {
   if (selectedSoulTab === "project" || selectedSoulId === "project-soul") {
     return (
       <div className="flex h-full overflow-y-auto p-6">
-        <div className="mx-auto max-w-3xl">
+        <div className="w-full min-w-0">
           <SoulDocEditor />
         </div>
       </div>

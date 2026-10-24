@@ -46,6 +46,12 @@ vi.mock("react-i18next", () => ({
 import { ArcWorkbench } from "./arc-workbench"
 import { ThrillDashboard } from "./thrill-dashboard"
 import { TechniquePanel } from "./technique-panel"
+import { useWikiStore } from "@/stores/wiki-store"
+
+// Odyssey FIX：echarts 真实例在 jsdom 无 canvas 会崩，图表分区标题断言需要可解析的实例
+vi.mock("echarts", () => ({
+  init: () => ({ setOption: () => {}, resize: () => {}, dispose: () => {} }),
+}))
 import type { ArcProgressionInput, ArcProgressionResult, ThrillQuantifierResult, CompiledTechniqueRegistry } from "@/lib/novel"
 
 // ============================================================================
@@ -332,4 +338,61 @@ describe("TechniquePanel (F-08)", () => {
     render(<TechniquePanel registry={noHooks} />)
     expect(screen.getByText("暂无钩子类型注册")).toBeInTheDocument()
   })
+})
+
+// ============================================================================
+// Odyssey FIX-2/FIX-3：空态行动按钮 + 数值含义 title
+// ============================================================================
+
+describe("Odyssey FIX：空态行动 + 数值含义", () => {
+  it("ThrillDashboard 空态有行动按钮，点击走现有 setActiveView", () => {
+    const spy = vi.spyOn(useWikiStore.getState(), "setActiveView").mockImplementation(() => {})
+    try {
+      render(<ThrillDashboard />)
+      const writeBtn = screen.getByText("去写第一章")
+      const importBtn = screen.getByText("导入拆书")
+      expect(writeBtn).toBeInTheDocument()
+      expect(importBtn).toBeInTheDocument()
+      act(() => { writeBtn.click() })
+      expect(spy).toHaveBeenCalledWith("wiki")
+      act(() => { importBtn.click() })
+      expect(spy).toHaveBeenCalledWith("bookAnalysis")
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it("ArcWorkbench 空态有行动按钮，点击走现有 setActiveView", () => {
+    const spy = vi.spyOn(useWikiStore.getState(), "setActiveView").mockImplementation(() => {})
+    try {
+      render(<ArcWorkbench />)
+      const writeBtn = screen.getByText("去写第一章")
+      const importBtn = screen.getByText("导入拆书")
+      expect(writeBtn).toBeInTheDocument()
+      expect(importBtn).toBeInTheDocument()
+      act(() => { writeBtn.click() })
+      expect(spy).toHaveBeenCalledWith("wiki")
+      act(() => { importBtn.click() })
+      expect(spy).toHaveBeenCalledWith("bookAnalysis")
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it("张弛比卡片带数值含义 title", () => {
+    const { container } = render(<ThrillDashboard result={MOCK_THRILL_RESULT} />)
+    expect(container.querySelector('[title*="张弛比"]')).toBeTruthy()
+    expect(container.querySelector('[title*="已闭环"]')).toBeTruthy()
+  })
+
+  it("弧光置信度带含义 title", () => {
+    const { container } = render(<ArcWorkbench result={MOCK_ARC_RESULT} />)
+    expect(container.querySelector('[title*="置信度"]')).toBeTruthy()
+  })
+
+  it("图表分区标题带单位与含义（懒加载解析后）", async () => {
+    render(<ThrillDashboard result={MOCK_THRILL_RESULT} />)
+    expect(await screen.findByText(/张力曲线/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText(/Beat 强度/, {}, { timeout: 5000 })).toBeInTheDocument()
+  }, 15000)
 })

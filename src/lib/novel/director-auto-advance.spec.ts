@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // 内存 fs：writeFileAtomic / createDirectory / readFile 全部走内存，测试零磁盘。
 const files = new Map<string, string>()
 vi.mock("@/commands/fs", () => ({
+  fileExists: async (path: string) => files.has(path),
   readFile: async (path: string) => {
     const found = files.get(path)
     if (found === undefined) throw new Error(`ENOENT ${path}`)

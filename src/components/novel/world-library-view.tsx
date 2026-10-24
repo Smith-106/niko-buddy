@@ -193,34 +193,34 @@ export function WorldLibraryView({
       <div className="flex items-center gap-2">
         <Globe2 className="h-4 w-4 shrink-0 text-muted-foreground" />
         <h2 className="text-sm font-semibold">{t("novel.worldLibrary.title")}</h2>
-        <span className="text-[10px] text-muted-foreground">{t("novel.worldLibrary.readOnly")}</span>
+        <span className="text-xs text-muted-foreground">{t("novel.worldLibrary.readOnly")}</span>
       </div>
       {worldNextStep ? (
         <p className="text-sm font-medium">{worldNextStep}</p>
       ) : null}
 
       {!projectPath ? (
-        <p className="text-[11px] text-muted-foreground" data-testid="world-library-no-project">
+        <p className="text-xs text-muted-foreground" data-testid="world-library-no-project">
           {t("novel.worldLibrary.noProject")}
         </p>
       ) : loading ? (
-        <p className="flex items-center gap-1 text-[11px] text-muted-foreground" data-testid="world-library-loading">
+        <p className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="world-library-loading">
           <Loader2 className="h-3 w-3 animate-spin" />
           …
         </p>
       ) : error ? (
-        <p className="flex items-center gap-1 text-[11px] text-destructive" data-testid="world-library-error">
+        <p className="flex items-center gap-1 text-xs text-destructive" data-testid="world-library-error">
           <CircleAlert className="h-3 w-3 shrink-0" />
           {t("novel.worldLibrary.loadFailed")}: {error}
           {error === "世界蓝图存在，但无法解析" ? <span className="sr-only">world-blueprint.json</span> : null}
         </p>
       ) : !snapshot ? (
-        <p className="text-[11px] text-muted-foreground" data-testid="world-library-empty">
+        <p className="text-xs text-muted-foreground" data-testid="world-library-empty">
           {t("novel.worldLibrary.empty")}
         </p>
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-2 text-[11px]" data-testid="world-library-summary">
+          <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="world-library-summary">
             <span className="rounded bg-accent/15 px-1.5 py-0.5" data-testid="world-library-world-type">
               {t("novel.worldLibrary.worldType", { type: snapshot.blueprint.worldType || t("novel.worldLibrary.na") })}
             </span>
@@ -240,7 +240,7 @@ export function WorldLibraryView({
             </span>
           </div>
 
-          <table className="w-full text-left text-[11px]" data-testid="world-library-layers">
+          <table className="w-full text-left text-xs" data-testid="world-library-layers">
             <thead className="text-muted-foreground">
               <tr>
                 <th className="py-1 pr-2 font-normal">{t("novel.worldLibrary.colLayer")}</th>
@@ -270,7 +270,7 @@ export function WorldLibraryView({
             </tbody>
           </table>
 
-          <div className="flex flex-col gap-1 text-[11px]" data-testid="world-library-crossrefs">
+          <div className="flex flex-col gap-1 text-xs" data-testid="world-library-crossrefs">
             <span className="text-xs font-semibold">{t("novel.worldLibrary.crossRefsTitle")}</span>
             {snapshot.blueprint.crossRefs && snapshot.blueprint.crossRefs.length > 0 ? (
               <ul className="flex flex-col gap-0.5">
@@ -287,7 +287,7 @@ export function WorldLibraryView({
             )}
           </div>
 
-          <div className="flex flex-col gap-1 text-[11px]" data-testid="world-library-findings">
+          <div className="flex flex-col gap-1 text-xs" data-testid="world-library-findings">
             <span className="text-xs font-semibold">{t("novel.worldLibrary.findingsTitle")}</span>
             {snapshot.validation.findings.length === 0 ? (
               <p className="text-muted-foreground" data-testid="world-library-findings-empty">
@@ -310,7 +310,7 @@ export function WorldLibraryView({
           </div>
 
           {/* 设定中心 3A：角色与关系只读投影（自由文本，缺结构化字段处显式 N/A） */}
-          <div className="flex flex-col gap-1 text-[11px]" data-testid="setting-center">
+          <div className="flex flex-col gap-1 text-xs" data-testid="setting-center">
             <span className="text-xs font-semibold">{t("novel.settingCenter.title")}</span>
             {settingError ? (
               <p className="text-destructive" data-testid="setting-center-error">
@@ -377,7 +377,7 @@ export function WorldLibraryView({
                     ))}
                   </ul>
                 ) : null}
-                <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+                <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                   {structured && structured.entries.length > 0 ? (
                     <li data-testid="setting-center-structured-source">{t("novel.settingCenter.structuredSource")}</li>
                   ) : (
@@ -392,7 +392,7 @@ export function WorldLibraryView({
             )}
           </div>
 
-          <p className="text-[10px] text-muted-foreground" data-testid="world-library-defer-note">
+          <p className="text-xs text-muted-foreground" data-testid="world-library-defer-note">
             {t("novel.worldLibrary.writeBackDeferred")}
           </p>
         </>

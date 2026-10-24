@@ -2,7 +2,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
-import { DebtBoardView } from "./debt-board-view"
+import { DebtBoardView, getChaseDebtSpan, getForeshadowingDebtGauge, buildEmotionSparkline } from "./debt-board-view"
 import type { ForeshadowingDebtReport, ChaseDebt, ChaseDebtEvent, EmotionLedgerEntry } from "@/lib/novel"
 
 // useTranslation mock — 返回 key fallback（i18n 在 SSR 下需要 mock，
@@ -273,5 +273,82 @@ describe("W3 / R16 / TASK-302: DebtBoardView 债务看板", () => {
     )
     expect(html).not.toContain("settle-debt-")
     expect(html).not.toContain("writeoff-debt-")
+  })
+})
+
+describe("第 6 块：债务可视化（跨度条 + 堆叠条 + 双向条）", () => {
+  it("getChaseDebtSpan：游标百分比/超期章数/复利倍数，零跨度不除零", () => {
+    // source=1 due=5 current=4 → 游标 75%，未超期，倍数 2。
+    expect(getChaseDebtSpan(1, 5, 4, 1, 2)).toEqual({ cursorPct: 75, overdueBy: 0, compoundRatio: 2 })
+    // debt-2 口径：source=1 due=3 current=4 → 游标钳制 100%，超期 1 章。
+    expect(getChaseDebtSpan(1, 3, 4, 2, 2)).toEqual({ cursorPct: 100, overdueBy: 1, compoundRatio: 1 })
+    // due<=source 退化为 1 章槽；original<=0 倍数退化为 1。
+    expect(getChaseDebtSpan(5, 5, 5, 0, 0)).toEqual({ cursorPct: 0, overdueBy: 0, compoundRatio: 1 })
+  })
+
+  it("getForeshadowingDebtGauge：三色百分比求和 100，零未回收归零", () => {
+    // sampleDebtReport：total=3 critical=1 warning=2 → 其余 0。
+    expect(getForeshadowingDebtGauge(3, 1, 2)).toEqual({
+      criticalPct: expect.closeTo(100 / 3, 5),
+      warningPct: expect.closeTo(200 / 3, 5),
+      restPct: 0,
+    })
+    expect(getForeshadowingDebtGauge(0, 0, 0)).toEqual({ criticalPct: 0, warningPct: 0, restPct: 0 })
+  })
+
+  it("buildEmotionSparkline：多点归一化点串，空数组给空串", () => {
+    const points = buildEmotionSparkline(
+      [
+        { chapter: 1, delta: -0.5 },
+        { chapter: 3, delta: 0.5 },
+      ],
+      72,
+      20,
+    )
+    expect(points).toBe("2.0,18.0 70.0,2.0")
+    expect(buildEmotionSparkline([])).toBe("")
+  })
+
+  it("逐条渲染 debt-span-bar：逾期 debt-2 带赤字段与超期文案", () => {
+    const html = renderToStaticMarkup(
+      <DebtBoardView
+        chaseDebts={sampleChaseDebts}
+        chaseDebtEvents={sampleChaseDebtEvents}
+        currentChapter={4}
+        debtReport={null}
+        emotionDebts={[]}
+      />,
+    )
+    expect(html).toContain('data-testid="debt-span-bar-debt-1"')
+    expect(html).toContain('data-testid="debt-span-bar-debt-2"')
+    // debt-2 超期 1 章：赤字段 + 超期文案 + 复利 key。
+    expect(html).toContain("bg-destructive/70")
+    expect(html).toContain("超期1")
+    expect(html).toContain("dashboard.section.chaseDebtCompound")
+  })
+
+  it("渲染 foreshadowing-debt-gauge：三色堆叠 + debtScore 水位", () => {
+    const html = renderToStaticMarkup(<DebtBoardView debtReport={sampleDebtReport} />)
+    expect(html).toContain('data-testid="foreshadowing-debt-gauge"')
+    expect(html).toContain("critical:1 warning:2")
+    expect(html).toContain("debtScore:72")
+  })
+
+  it("情绪双向条：角色 testid + VAD 胶囊 + 多点 history 才有 sparkline", () => {
+    const withHistory: EmotionLedgerEntry = {
+      ...sampleEmotionDebts[0]!,
+      history: [
+        { chapter: 5, delta: -0.4, reason: "挫败" },
+        { chapter: 6, delta: 0.1, reason: "回暖" },
+      ],
+    }
+    const html = renderToStaticMarkup(<DebtBoardView emotionDebts={[withHistory]} />)
+    expect(html).toContain('data-testid="emotion-net-bar-林烬"')
+    expect(html).toContain("V-0.5 A0.3 D-0.2")
+    expect(html).toContain("<polyline")
+    // 无 history → 无 sparkline，但双向条仍在。
+    const bare = renderToStaticMarkup(<DebtBoardView emotionDebts={sampleEmotionDebts} />)
+    expect(bare).toContain('data-testid="emotion-net-bar-林烬"')
+    expect(bare).not.toContain("<polyline")
   })
 })

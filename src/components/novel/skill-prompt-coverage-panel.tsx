@@ -30,13 +30,13 @@ export function SkillPromptCoveragePanel({ coverage }: SkillPromptCoveragePanelP
         <Table2 className="h-4 w-4" />
         技能与提示词覆盖（只读）
       </h3>
-      <p className="text-[10px] text-muted-foreground" data-testid="skill-prompt-coverage-scope">
+      <p className="text-xs text-muted-foreground" data-testid="skill-prompt-coverage-scope">
         {`技能 ${resolved.skills.length} 个（内建 ${resolved.builtInSkillCount} · 项目 ${resolved.projectSkillCount} · 停用 ${resolved.disabledSkillCount}）· 钩子 ${resolved.hooks.length} 个 · 提示词键 ${resolved.promptKeys.length} 个 · 有覆盖 ${resolved.associationSourceDeclared ? `${resolved.coveredPromptKeyCount} 个` : "不适用（没有关联记录）"} · 未覆盖 ${resolved.associationSourceDeclared ? `${resolved.uncoveredPromptKeys.length} 个` : "不适用（没有关联记录）"}`}
         <span className="sr-only">
           {`skill ${resolved.skills.length} 个（内建 ${resolved.builtInSkillCount} · 项目 ${resolved.projectSkillCount} · 停用 ${resolved.disabledSkillCount}）· 钩子 ${resolved.hooks.length} 个 · 提示词键 ${resolved.promptKeys.length} 个 · 有覆盖 ${resolved.associationSourceDeclared ? `${resolved.coveredPromptKeyCount} 个` : "N/A（无关联真源）"} · uncovered ${resolved.associationSourceDeclared ? `${resolved.uncoveredPromptKeys.length} 个` : "N/A（无关联真源）"}`}
         </span>
       </p>
-      <p className="text-[10px] text-muted-foreground" data-testid="skill-prompt-coverage-boundary">
+      <p className="text-xs text-muted-foreground" data-testid="skill-prompt-coverage-boundary">
         只列出已经登记的内容：不按关键词猜测技能和提示词的关联、不读盘、不执行钩子；缺资料的格子写不适用。
       </p>
 
@@ -56,11 +56,11 @@ export function SkillPromptCoveragePanel({ coverage }: SkillPromptCoveragePanelP
                 {row.isDefault ? " · 当前默认" : ""}
                 {row.isFactoryDefault ? " · 出厂默认" : ""}
               </p>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {`声明阶段 ${row.coveredStageCount} 个`}
                 <span className="sr-only">{`stage ${row.declaredStages.join(" ")}`}</span>
               </p>
-              <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+              <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                 <li
                   data-testid={
                     row.promptKeyCount === null
@@ -99,7 +99,7 @@ export function SkillPromptCoveragePanel({ coverage }: SkillPromptCoveragePanelP
         ) : (
           <ul className="flex flex-col gap-0.5">
             {resolved.promptKeys.map((row) => (
-              <li key={row.key} data-testid={`skill-prompt-key-${row.key}`} className="text-[11px]">
+              <li key={row.key} data-testid={`skill-prompt-key-${row.key}`} className="text-xs">
                 <span className="text-foreground">{row.key}</span>
                 <span
                   data-testid={
@@ -140,7 +140,7 @@ export function SkillPromptCoveragePanel({ coverage }: SkillPromptCoveragePanelP
       <div className="flex flex-col gap-1">
         <p className="text-xs font-medium text-foreground">{`钩子（${resolved.hooks.length}）`}</p>
         {resolved.hooks.length === 0 ? (
-          <p className="text-[10px] text-muted-foreground" data-testid="skill-prompt-hooks-empty">
+          <p className="text-xs text-muted-foreground" data-testid="skill-prompt-hooks-empty">
             当前钩子注册表没有声明任何钩子（默认注册表为空，不造行假装统计过）。
           </p>
         ) : (
@@ -156,11 +156,11 @@ export function SkillPromptCoveragePanel({ coverage }: SkillPromptCoveragePanelP
                   <span className="sr-only">{hook.id}</span>
                   {hook.enabled ? "" : " · 未启用"}
                 </p>
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {`声明阶段 ${hook.stages.length} 个`}
                   <span className="sr-only">{`stage ${hook.stages.join(" ")}`}</span>
                 </p>
-                <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+                <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                   <li
                     data-testid={
                       hook.promptKeyCount === null
@@ -185,8 +185,8 @@ export function SkillPromptCoveragePanel({ coverage }: SkillPromptCoveragePanelP
       </div>
 
       <div className="flex flex-col gap-0.5">
-        <p className="text-[10px] font-medium text-muted-foreground">以下真源不存在，故显式 N/A：</p>
-        <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+        <p className="text-xs font-medium text-muted-foreground">以下真源不存在，故显式 N/A：</p>
+        <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
           {resolved.missingSources.map((reason, index) => (
             <li key={reason} data-testid={`skill-prompt-na-source-${index}`}>
               不适用

@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useMemo, useState, useRef } from "react"
 import { SigmaContainer } from "@react-sigma/core"
+import type { Settings } from "sigma/settings"
 import "@react-sigma/core/lib/style.css"
 import {
   EdgeArrowProgram,
@@ -7,12 +8,12 @@ import {
   EdgeLineProgram,
 } from "sigma/rendering"
 import EdgeCurveProgram from "@sigma/edge-curve"
-import { Network, RefreshCw, Lightbulb, AlertTriangle, Link2, X, Filter, EyeOff, FileText } from "lucide-react"
+import { Network, Lightbulb, AlertTriangle, Link2, X, Filter, EyeOff, FileText, Crosshair, ArrowRight } from "lucide-react"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
 import { readFile, writeFileAtomic, createDirectory, fileExists } from "@/commands/fs"
-import { buildWikiGraph, type GraphNode, type GraphEdge, type CommunityInfo } from "@/lib/wiki-graph"
+import { buildWikiGraph, dedupeImportEdges, type GraphNode, type GraphEdge, type CommunityInfo } from "@/lib/wiki-graph"
 import { buildEditableGraphNodePage } from "@/lib/graph-node-page"
 import { findSurprisingConnections, detectKnowledgeGaps, type SurprisingConnection, type KnowledgeGap } from "@/lib/graph-insights"
 import { normalizePath } from "@/lib/path-utils"
@@ -20,13 +21,14 @@ import { applyGraphFilters, DEFAULT_GRAPH_FILTERS, type GraphFilterState } from 
 import { buildGraphMindMap } from "@/lib/graph-readable"
 import { NOVEL_NODE_TYPE_LABELS, NOVEL_RELATION_LABELS, loadForeshadowingTracker } from "@/lib/novel"
 import type { ForeshadowingStore } from "@/lib/novel"
-import { getGraphVisualSettings } from "@/lib/graph-layout"
+import { DEFAULT_LAYOUT_PRESET, LAYOUT_PRESET_ORDER, getGraphVisualSettings, type GraphLayoutPresetKey } from "@/lib/graph-layout"
 import { GRAPH_MODE_LABELS, GRAPH_MODE_PRESETS, type GraphMode } from "@/lib/graph-mode"
+import { extractNeighborhood, pickDefaultFocus } from "@/lib/graph-neighborhood"
 import { useTranslation } from "react-i18next"
 import { formatOperationError } from "@/lib/format-operation-error"
-import { NODE_TYPE_COLORS, edgeTypeForStyle, hexToRgba, mixColor, type GraphEdgeStyle, type GraphLabelDisplayMode } from "@/lib/graph-style"
+import { NODE_TYPE_COLORS, edgeTypeForStyle, hexToRgba, mixColor, shouldRenderEdgeLabels, type GraphEdgeStyle, type GraphLabelDisplayMode } from "@/lib/graph-style"
 import { toErrorMessage } from "@/lib/utils"
-import { COMMUNITY_COLORS, EventHandler, GraphLoader, HighlightManager, type ColorMode } from "./sigma-graph-views"
+import { COMMUNITY_COLORS, EventHandler, GraphLoader, HighlightManager, SigmaResizeRefresher, type ColorMode } from "./sigma-graph-views"
 import { DocumentGraphView } from "./document-graph-view"
 import { MindMapGraphView, ZoomControls } from "./mindmap-views"
 
@@ -37,6 +39,21 @@ const GRAPH_LABEL_MODE_KEY = "lk-graph-label-display-mode"
 const GRAPH_EDGE_COLOR_KEY = "lk-graph-edge-color"
 const GRAPH_EDGE_STRENGTH_KEY = "lk-graph-edge-strength"
 const GRAPH_EDGE_STYLE_KEY = "lk-graph-edge-style"
+/** 焦点邻域模式自动开启的节点数阈值：小图保持全图，大图默认只看焦点邻域 */
+const FOCUS_AUTO_THRESHOLD = 120
+
+/** 章节号解析：支撑时间轴过滤（第12章/第12回/ch12/012-xxx.md），无编号返回 null。 */
+export function parseChapterNumber(node: Pick<GraphNode, "label" | "path">): number | null {
+  const text = `${node.label} ${node.path}`
+  const cn = text.match(/第\s*(\d+)\s*[章节回话]/)
+  if (cn) return Number(cn[1])
+  const en = text.match(/(?:ch(?:apter)?|c)[-_ ]?(\d+)/i)
+  if (en) return Number(en[1])
+  const file = node.path.split(/[/\\]/).pop() ?? ""
+  const num = file.match(/^(\d+)[-_ ]/)
+  if (num) return Number(num[1])
+  return null
+}
 
 async function openProjectFromGraph() {
   const { pickDirectory } = await import("@/lib/platform")
@@ -80,6 +97,7 @@ export function GraphView() {
   const dataVersion = useWikiStore((s) => s.dataVersion)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const setFileContent = useWikiStore((s) => s.setFileContent)
+  const setPendingEditorHighlight = useWikiStore((s) => s.setPendingEditorHighlight)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
 
@@ -104,9 +122,10 @@ export function GraphView() {
   const setRefreshGraph = useWikiStore((s) => s.setRefreshGraph)
   const [showInsights, setShowInsights] = useState(false)
   const [highlightedNodes, setHighlightedNodes] = useState<Set<string>>(new Set())
+  // 第8块：孤立节点高亮开关（全图 linkCount<=1）：辅助发现未织入主线的废设定/断头伏笔。
+  const [orphanHighlight, setOrphanHighlight] = useState(false)
   const [dismissedInsights, setDismissedInsights] = useState<Set<string>>(new Set())
   const [sigmaKey, setSigmaKey] = useState(0)
-  const [isResizing, setIsResizing] = useState(false)
   const [legendCollapsed, setLegendCollapsed] = useState(false)
   const [filters, setFilters] = useState<GraphFilterState>(() => ({
     ...DEFAULT_GRAPH_FILTERS,
@@ -114,6 +133,12 @@ export function GraphView() {
     hiddenNodeIds: new Set(),
   }))
   const [nodeMenu, setNodeMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(null)
+  const [layoutPreset, setLayoutPreset] = useState<GraphLayoutPresetKey>(DEFAULT_LAYOUT_PRESET)
+  const [focusDepth, setFocusDepth] = useState<1 | 2>(1)
+  const [focusOverride, setFocusOverride] = useState<boolean | null>(null)
+  // 章节时间轴：null = 不限（默认全量），数字 = 只看 <= N 章的章节节点与其关联边。
+  const [maxChapter, setMaxChapter] = useState<number | null>(null)
   const [editingNode, setEditingNode] = useState<GraphNode | null>(null)
   const [editingPath, setEditingPath] = useState("")
   const [editingContent, setEditingContent] = useState("")
@@ -238,19 +263,52 @@ export function GraphView() {
     }
   }, [loadGraph, dataVersion])
 
+  // A（单击探图聚焦 + 双击/按钮跳正文）：打开档案页并预写高亮锚点是共享的，
+  // 只有双击/显式按钮才切 wiki 视图——单击留在图谱内（探图不被打断）。
+  const openNodeFile = useCallback(
+    async (node: GraphNode) => {
+      const content = await readFile(node.path)
+      setSelectedFile(node.path)
+      setFileContent(content)
+      // P2 高亮→原文定位：取正文首个 Markdown 标题（必命中内容自身），无标题回退节点 label；
+      // 复用审查问题同款 pendingEditorHighlight 通道（WikiEditor 滚动+选中，未命中安全 no-op）。
+      const heading = content.split("\n").map((line) => line.trim()).find((line) => line.startsWith("#"))
+      const anchorText = (heading ? heading.replace(/^#+\s*/, "") : node.label).trim()
+      if (anchorText) {
+        setPendingEditorHighlight({ path: node.path, text: anchorText, nonce: Date.now() })
+      }
+    },
+    [setSelectedFile, setFileContent, setPendingEditorHighlight],
+  )
+
   const handleNodeClick = useCallback(
     async (nodeId: string) => {
       const node = nodes.find((n) => n.id === nodeId)
       if (!node) return
+      // 焦点模式下点节点即把焦点切过去（同时照常打开档案页）
+      setFocusNodeId(nodeId)
       try {
-        const content = await readFile(node.path)
-        setSelectedFile(node.path)
-        setFileContent(content)
+        await openNodeFile(node)
       } catch (err) {
         console.error("Failed to open wiki page:", err)
       }
     },
-    [nodes, setSelectedFile, setFileContent],
+    [nodes, openNodeFile],
+  )
+
+  const handleNodeDoubleClick = useCallback(
+    async (nodeId: string) => {
+      const node = nodes.find((n) => n.id === nodeId)
+      if (!node) return
+      setFocusNodeId(nodeId)
+      try {
+        await openNodeFile(node)
+        setActiveView("wiki")
+      } catch (err) {
+        console.error("Failed to open wiki page:", err)
+      }
+    },
+    [nodes, openNodeFile, setActiveView],
   )
 
   const handleEditNode = useCallback(
@@ -363,49 +421,8 @@ export function GraphView() {
     setEditStatus(null)
   }, [])
 
-  // Unmount sigma when panels resize or toggle to prevent WebGL crash.
-  // Sigma crashes with "could not find suitable program for node type circle"
-  // when its canvas is resized by external layout changes.
-
-  // 1. Detect panel open/close (selectedFile, insights)
-  const selectedFileForLayout = useWikiStore((s) => s.selectedFile)
-  const layoutKey = `${!!selectedFileForLayout}-${showInsights}`
-  const prevLayoutKey = useRef(layoutKey)
-
-  useEffect(() => {
-    if (prevLayoutKey.current !== layoutKey) {
-      prevLayoutKey.current = layoutKey
-      setIsResizing(true)
-      const timer = setTimeout(() => {
-        setSigmaKey((k) => k + 1)
-        setIsResizing(false)
-      }, 100)
-      return () => clearTimeout(timer)
-    }
-  }, [layoutKey])
-
-  // 2. Detect panel drag resize via data-panel-resizing attribute on body
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const observer = new MutationObserver(() => {
-      const dragging = document.body.dataset.panelResizing === "true"
-      if (dragging && !isResizing) {
-        setIsResizing(true)
-      }
-      if (!dragging && isResizing) {
-        // Drag ended — remount sigma after a tick
-        timer = setTimeout(() => {
-          setSigmaKey((k) => k + 1)
-          setIsResizing(false)
-        }, 50)
-      }
-    })
-    observer.observe(document.body, { attributes: true, attributeFilter: ["data-panel-resizing"] })
-    return () => {
-      if (timer !== undefined) clearTimeout(timer)
-      observer.disconnect()
-    }
-  }, [isResizing])
+  // Sigma 自带容器尺寸自适应：面板开合 / 拖拽 resize 只需防抖 refresh（见 SigmaResizeRefresher），
+  // 不再 remount，相机位姿与交互态完整保留。graphMode 切换仍 remount（过滤语义变化）。
 
   useEffect(() => {
     setHighlightedNodes(new Set())
@@ -446,7 +463,133 @@ export function GraphView() {
     () => applyGraphFilters(nodes, edges, effectiveFilters),
     [nodes, edges, effectiveFilters],
   )
+  // 章节时间轴范围：从 chapter 类型节点解析编号；无章节节点时不展示滑块。
+  const chapterRange = useMemo(() => {
+    const nums = filteredGraph.nodes
+      .filter((n) => n.type === "chapter")
+      .map(parseChapterNumber)
+      .filter((n): n is number => n !== null)
+    if (nums.length === 0) return null
+    return { min: Math.min(...nums), max: Math.max(...nums), current: maxChapter ?? Math.max(...nums) }
+  }, [filteredGraph.nodes, maxChapter])
+  // 时间轴过滤：仅隐藏超前章节节点与其关联边，其余类型保留（默认 null = 不限）。
+  const timelineGraph = useMemo(() => {
+    if (!chapterRange || maxChapter === null || maxChapter >= chapterRange.max) return filteredGraph
+    const visibleIds = new Set(
+      filteredGraph.nodes
+        .filter((n) => {
+          if (n.type !== "chapter") return true
+          const num = parseChapterNumber(n)
+          return num === null || num <= maxChapter
+        })
+        .map((n) => n.id),
+    )
+    return {
+      ...filteredGraph,
+      nodes: filteredGraph.nodes.filter((n) => visibleIds.has(n.id)),
+      edges: filteredGraph.edges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target)),
+    }
+  }, [filteredGraph, chapterRange, maxChapter])
+  // 焦点邻域模式：节点超阈值（>120）或长连载（章节节点 >=10）时默认 Ego，主角 1~2 跳；
+  // 小图保持全图，避免打扰现有行为；点击任意节点可切换焦点。
+  const chapterCount = useMemo(
+    () => filteredGraph.nodes.filter((n) => n.type === "chapter").length,
+    [filteredGraph.nodes],
+  )
+  const focusActive = focusOverride ?? (nodes.length > FOCUS_AUTO_THRESHOLD || chapterCount >= 10)
+  const autoFocusNode = useMemo(() => pickDefaultFocus(timelineGraph.nodes), [timelineGraph.nodes])
+  const effectiveFocusId = focusNodeId && timelineGraph.nodes.some((n) => n.id === focusNodeId)
+    ? focusNodeId
+    : autoFocusNode?.id ?? null
+  const neighborhood = useMemo(() => {
+    if (!focusActive || !effectiveFocusId || displayMode !== "graph") return null
+    return extractNeighborhood(timelineGraph.nodes, timelineGraph.edges, {
+      focusId: effectiveFocusId,
+      depth: focusDepth,
+    })
+  }, [focusActive, effectiveFocusId, displayMode, timelineGraph.nodes, timelineGraph.edges, focusDepth])
+  const displayNodes = neighborhood?.nodes ?? timelineGraph.nodes
+  const displayEdges = neighborhood?.edges ?? timelineGraph.edges
+  const focusNode = effectiveFocusId ? timelineGraph.nodes.find((n) => n.id === effectiveFocusId) ?? null : null
   const visualSettings = useMemo(() => getGraphVisualSettings(nodes.length), [nodes.length])
+  // #39 根因A修复:settings 身份稳定 —— 内联字面量每 render 新身份会触发 react-sigma
+  // isEqual 判异 → kill + 重建风暴;useMemo 限定仅视觉旋钮变化时才更新。
+  const sigmaSettings = useMemo<Partial<Settings>>(
+    () => ({
+    // 默认关闭边标签降噪（毛线球根因），Hover/选中经 edgeReducer forceLabel 高亮关系名；
+    // 用户在设置中显式开启 edgeLabelsAlwaysVisible 时才按 LOD 渲染。
+    renderEdgeLabels: edgeLabelsAlwaysVisible && shouldRenderEdgeLabels(displayEdges.length, false),
+    defaultEdgeColor: edgeColorHex,
+    defaultEdgeType: edgeTypeForStyle(edgeStyle),
+    edgeProgramClasses: {
+      line: EdgeLineProgram,
+      clamped: EdgeClampedProgram,
+      curve: EdgeCurveProgram,
+      arrow: EdgeArrowProgram,
+    },
+    defaultNodeColor: "#94a3b8",
+    labelSize: 13,
+    labelWeight: "bold",
+    labelColor: { color: "#1e293b" },
+    edgeLabelSize: 14,
+    edgeLabelWeight: "600",
+    edgeLabelColor: { color: "#334155" },
+    labelDensity: labelDisplayMode === "all" ? 1 : labelDisplayMode === "focused" ? 0.25 : 0.4,
+    labelRenderedSizeThreshold: labelDisplayMode === "all" ? 0 : labelDisplayMode === "focused" ? 8 : 6,
+    stagePadding: 30,
+    nodeReducer: (_node, attrs) => {
+      const result = { ...attrs }
+      if (attrs.insightHighlight) {
+        result.size = (attrs.size ?? visualSettings.baseNodeSize) * 1.5
+        result.zIndex = 10
+        result.forceLabel = true
+      }
+      if (attrs.hovering) {
+        result.size = (attrs.size ?? visualSettings.baseNodeSize) * 1.4
+        result.zIndex = 10
+        result.forceLabel = true
+      }
+      if (attrs.dragging) {
+        result.size = (attrs.size ?? visualSettings.baseNodeSize) * 1.35
+        result.zIndex = 12
+        result.forceLabel = true
+      }
+      if (attrs.dimmed) {
+        result.color = mixColor(attrs.color ?? "#94a3b8", "#e2e8f0", 0.75)
+        result.label = ""
+        result.size = (attrs.size ?? visualSettings.baseNodeSize) * 0.6
+      }
+      return result
+    },
+    edgeReducer: (edge, attrs) => {
+      const result = { ...attrs }
+      if (attrs.dimmed) {
+        result.color = mixColor(edgeColorHex, "#e2e8f0", 0.75)
+        result.size = 0.3
+      }
+      if (attrs.highlighted) {
+        result.color = "#1e293b"
+        result.size = Math.max(2, (attrs.size ?? 1) * 1.5)
+        // 显示关系描述而非相关度数字
+        const relation = attrs.relation as string | undefined
+        if (relation) {
+          const relationLabel = NOVEL_RELATION_LABELS[relation as keyof typeof NOVEL_RELATION_LABELS] ?? relation
+          result.label = relationLabel
+        } else {
+          // 从 edge key (source->target) 提取节点名显示关系
+          const parts = edge.split("->")
+          if (parts.length === 2) {
+            result.label = `${parts[0]} \u2194 ${parts[1]}`
+          }
+        }
+        result.forceLabel = true
+      }
+      return result
+    },
+    }),
+    [displayEdges.length, edgeColorHex, edgeStyle, edgeLabelsAlwaysVisible, labelDisplayMode, visualSettings],
+  )
+
   const foreshadowingStatusMap = useMemo(() => {
     const map = new Map<string, string>()
     if (!foreshadowingStore) return map
@@ -460,17 +603,32 @@ export function GraphView() {
     [filteredGraph.nodes, filteredGraph.edges],
   )
   const hiddenCount = nodes.length - filteredGraph.nodes.length
+  // 第8块：孤立节点 id 集（展示层节点，全图 linkCount<=1；切换过滤时自动刷新）。
+  const orphanNodeIds = useMemo(
+    () => displayNodes.filter((n) => (n.linkCount ?? 0) <= 1).map((n) => n.id),
+    [displayNodes],
+  )
+  useEffect(() => {
+    if (!orphanHighlight) return
+    setHighlightedNodes(new Set(orphanNodeIds))
+  }, [orphanHighlight, orphanNodeIds])
   const modePreset = GRAPH_MODE_PRESETS[graphMode]
 
+  // P0-2 边计数对齐：统计口径 = 实际渲染口径（展示层节点 + dedupeImportEdges 去重），
+  // 与 GraphLoader 导入共用 helper，保证去重计数 == sigma 实际边数。
+  const renderableEdgeCount = useMemo(
+    () => dedupeImportEdges(new Set(displayNodes.map((n) => n.id)), displayEdges).length,
+    [displayNodes, displayEdges],
+  )
   useEffect(() => {
     setGraphStats({
       nodeCount: nodes.length,
       edgeCount: edges.length,
       hiddenCount,
-      filteredNodeCount: filteredGraph.nodes.length,
-      filteredEdgeCount: filteredGraph.edges.length,
+      filteredNodeCount: displayNodes.length,
+      filteredEdgeCount: renderableEdgeCount,
     })
-  }, [nodes.length, edges.length, hiddenCount, filteredGraph.nodes.length, filteredGraph.edges.length, setGraphStats])
+  }, [nodes.length, edges.length, hiddenCount, displayNodes.length, renderableEdgeCount, setGraphStats])
   const modeControlsStructural = modePreset.hideStructural
   const modeControlsIsolated = modePreset.hideIsolated
   const contextNode = nodeMenu ? nodes.find((node) => node.id === nodeMenu.nodeId) : null
@@ -487,8 +645,23 @@ export function GraphView() {
 
   if (loading) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
-        <RefreshCw className="h-8 w-8 animate-spin opacity-50" />
+      <div
+        className="flex h-full flex-col items-center justify-center gap-4 text-muted-foreground"
+        data-testid="graph-loading-skeleton"
+        aria-busy="true"
+        aria-label={t("graph.buildingGraph")}
+      >
+        <div className="relative h-40 w-64" aria-hidden="true">
+          <div className="absolute left-6 top-16 h-px w-14 rotate-12 animate-pulse bg-muted" />
+          <div className="absolute left-24 top-10 h-px w-16 -rotate-12 animate-pulse bg-muted" />
+          <div className="absolute left-24 top-24 h-px w-14 rotate-6 animate-pulse bg-muted" />
+          <div className="absolute left-6 top-8 h-px w-12 rotate-45 animate-pulse bg-muted" />
+          <div className="absolute left-4 top-20 h-5 w-5 animate-pulse rounded-full bg-muted" />
+          <div className="absolute left-20 top-6 h-4 w-4 animate-pulse rounded-full bg-muted" />
+          <div className="absolute left-40 top-14 h-6 w-6 animate-pulse rounded-full bg-muted" />
+          <div className="absolute left-24 top-28 h-4 w-4 animate-pulse rounded-full bg-muted" />
+          <div className="absolute left-44 top-28 h-3 w-3 animate-pulse rounded-full bg-muted" />
+        </div>
         <p className="text-sm">{t("graph.buildingGraph")}</p>
       </div>
     )
@@ -542,89 +715,17 @@ export function GraphView() {
             />
           ) : displayMode === "mindmap" ? (
             <MindMapGraphView mindMap={graphMindMap} />
-          ) : isResizing ? (
-            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-              {t("graph.resizing")}
-            </div>
           ) : (
             <ErrorBoundary>
               <SigmaContainer
                 key={`${sigmaKey}-${edgeStyle}`}
                 style={{ width: "100%", height: "100%", background: "transparent" }}
-                settings={{
-                  renderEdgeLabels: true,
-                  defaultEdgeColor: edgeColorHex,
-                  defaultEdgeType: edgeTypeForStyle(edgeStyle),
-                  edgeProgramClasses: {
-                    line: EdgeLineProgram,
-                    clamped: EdgeClampedProgram,
-                    curve: EdgeCurveProgram,
-                    arrow: EdgeArrowProgram,
-                  },
-                  defaultNodeColor: "#94a3b8",
-                  labelSize: 13,
-                  labelWeight: "bold",
-                  labelColor: { color: "#1e293b" },
-                  edgeLabelSize: 14,
-                  edgeLabelWeight: "600",
-                  edgeLabelColor: { color: "#334155" },
-                  labelDensity: labelDisplayMode === "all" ? 1 : labelDisplayMode === "focused" ? 0.25 : 0.4,
-                  labelRenderedSizeThreshold: labelDisplayMode === "all" ? 0 : labelDisplayMode === "focused" ? 8 : 6,
-                  stagePadding: 30,
-                  nodeReducer: (_node, attrs) => {
-                    const result = { ...attrs }
-                    if (attrs.insightHighlight) {
-                      result.size = (attrs.size ?? visualSettings.baseNodeSize) * 1.5
-                      result.zIndex = 10
-                      result.forceLabel = true
-                    }
-                    if (attrs.hovering) {
-                      result.size = (attrs.size ?? visualSettings.baseNodeSize) * 1.4
-                      result.zIndex = 10
-                      result.forceLabel = true
-                    }
-                    if (attrs.dragging) {
-                      result.size = (attrs.size ?? visualSettings.baseNodeSize) * 1.35
-                      result.zIndex = 12
-                      result.forceLabel = true
-                    }
-                    if (attrs.dimmed) {
-                      result.color = mixColor(attrs.color ?? "#94a3b8", "#e2e8f0", 0.75)
-                      result.label = ""
-                      result.size = (attrs.size ?? visualSettings.baseNodeSize) * 0.6
-                    }
-                    return result
-                  },
-                  edgeReducer: (edge, attrs) => {
-                    const result = { ...attrs }
-                    if (attrs.dimmed) {
-                      result.color = mixColor(edgeColorHex, "#e2e8f0", 0.75)
-                      result.size = 0.3
-                    }
-                    if (attrs.highlighted) {
-                      result.color = "#1e293b"
-                      result.size = Math.max(2, (attrs.size ?? 1) * 1.5)
-                      // 显示关系描述而非相关度数字
-                      const relation = attrs.relation as string | undefined
-                      if (relation) {
-                        const relationLabel = NOVEL_RELATION_LABELS[relation as keyof typeof NOVEL_RELATION_LABELS] ?? relation
-                        result.label = relationLabel
-                      } else {
-                        // 从 edge key (source->target) 提取节点名显示关系
-                        const parts = edge.split("->")
-                        if (parts.length === 2) {
-                          result.label = `${parts[0]} \u2194 ${parts[1]}`
-                        }
-                      }
-                      result.forceLabel = true
-                    }
-                    return result
-                  },
-                }}
+                settings={sigmaSettings}
               >
                 <GraphLoader
-                  nodes={filteredGraph.nodes}
-                  edges={filteredGraph.edges}
+                  nodes={displayNodes}
+                  edges={displayEdges}
+                  layoutPreset={layoutPreset}
                   colorMode={colorMode}
                   novelMode={novelMode}
                   graphMode={graphMode}
@@ -635,11 +736,92 @@ export function GraphView() {
                   visualSettings={visualSettings}
                   foreshadowingStatusMap={foreshadowingStatusMap}
                 />
-                <EventHandler onNodeClick={handleNodeClick} onNodeContextMenu={handleNodeContextMenu} />
+                <EventHandler onNodeClick={handleNodeClick} onNodeDoubleClick={handleNodeDoubleClick} onNodeContextMenu={handleNodeContextMenu} />
                 <HighlightManager highlightedNodes={highlightedNodes} />
+                <SigmaResizeRefresher />
                 <ZoomControls />
               </SigmaContainer>
             </ErrorBoundary>
+          )}
+
+          {!loading && !error && nodes.length > 0 && displayMode === "graph" && (!focusActive || (neighborhood && focusNode)) && (
+            <div className="absolute top-3 left-1/2 z-10 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border bg-background/95 py-1 pl-3 pr-1.5 text-xs shadow-lg backdrop-blur-sm">
+              <Crosshair className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              {!focusActive ? (
+                <button
+                  type="button"
+                  className="rounded-full px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  onClick={() => setFocusOverride(true)}
+                >
+                  {t("graph.enableFocus", { defaultValue: "聚焦模式" })}
+                </button>
+              ) : neighborhood && focusNode ? (
+                <>
+                  <span className="max-w-40 truncate font-medium text-foreground" title={`${focusNode.label} · ${t("graph.focusHint", { defaultValue: "点击任意节点切换焦点" })}`}>
+                    {t("graph.focus", { defaultValue: "焦点" })}：{focusNode.label}
+                  </span>
+                  <span className="shrink-0 text-muted-foreground">
+                    {displayNodes.length}/{timelineGraph.nodes.length}
+                  </span>
+                  <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-muted p-0.5">
+                    {([1, 2] as const).map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        data-testid={`graph-focus-depth-${d}`}
+                        className={`rounded-full px-2 py-0.5 ${focusDepth === d ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        onClick={() => setFocusDepth(d)}
+                      >
+                        {d === 1 ? t("graph.oneHop", { defaultValue: "1跳" }) : t("graph.twoHops", { defaultValue: "2跳" })}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-full px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    onClick={() => setFocusOverride(false)}
+                  >
+                    {t("graph.showFullGraph", { defaultValue: "全图" })}
+                  </button>
+                </>
+              ) : null}
+            </div>
+          )}
+
+          {chapterRange && !loading && !error && nodes.length > 0 && displayMode === "graph" && (
+            <div
+              className="absolute top-12 left-1/2 z-10 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border bg-background/95 px-3 py-1 text-xs shadow-lg backdrop-blur-sm"
+              data-testid="graph-chapter-timeline"
+            >
+              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="shrink-0 tabular-nums text-muted-foreground">
+                {t("graph.chapterUpTo", { current: chapterRange.current, max: chapterRange.max, defaultValue: `看到第 ${chapterRange.current} 章 / 共 ${chapterRange.max} 章` })}
+              </span>
+              <input
+                type="range"
+                min={chapterRange.min}
+                max={chapterRange.max}
+                step={1}
+                value={chapterRange.current}
+                aria-label={t("graph.chapterTimeline", { defaultValue: "章节时间轴" })}
+                data-testid="graph-chapter-timeline-slider"
+                className="h-1 w-36 cursor-pointer accent-primary"
+                onChange={(e) => {
+                  const v = Number(e.target.value)
+                  setMaxChapter(Number.isFinite(v) && v < chapterRange.max ? v : null)
+                }}
+              />
+              {maxChapter !== null && (
+                <button
+                  type="button"
+                  data-testid="graph-chapter-timeline-reset"
+                  className="shrink-0 rounded-full px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  onClick={() => setMaxChapter(null)}
+                >
+                  {t("graph.reset", { defaultValue: "重置" })}
+                </button>
+              )}
+            </div>
           )}
 
           {showFilters && (
@@ -652,7 +834,7 @@ export function GraphView() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 px-1.5 text-[0.625rem]"
+                  className="h-6 px-1.5 text-xs"
                   onClick={resetFilters}
                 >
                   {t("graph.reset")}
@@ -672,7 +854,7 @@ export function GraphView() {
                     />
                     <span>{t("graph.hideIndexOverview")}</span>
                     {modeControlsStructural && (
-                      <span className="text-[0.625rem] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         ({t("novel.graph.modeControlHint", {
                           mode: t(`novel.graph.modeLabels.${graphMode}`, { defaultValue: GRAPH_MODE_LABELS[graphMode] }),
                         })})
@@ -690,7 +872,7 @@ export function GraphView() {
                     />
                     <span>{t("graph.hideIsolated")}</span>
                     {modeControlsIsolated && (
-                      <span className="text-[0.625rem] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         ({t("novel.graph.modeControlHint", {
                           mode: t(`novel.graph.modeLabels.${graphMode}`, { defaultValue: GRAPH_MODE_LABELS[graphMode] }),
                         })})
@@ -698,6 +880,24 @@ export function GraphView() {
                     )}
                   </label>
                   {/* v8 ignore stop */}
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="font-medium text-muted-foreground">{t("graph.layoutPreset.label", { defaultValue: "布局预设" })}</div>
+                  <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5" role="group" aria-label={t("graph.layoutPreset.label", { defaultValue: "布局预设" })}>
+                    {LAYOUT_PRESET_ORDER.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        data-testid={`layout-preset-${preset}`}
+                        className={`flex-1 rounded-md px-2 py-1 ${layoutPreset === preset ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        aria-pressed={layoutPreset === preset}
+                        onClick={() => setLayoutPreset(preset)}
+                      >
+                        {t(`graph.layoutPreset.${preset}`, { defaultValue: preset })}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="space-y-1.5">
@@ -777,7 +977,10 @@ export function GraphView() {
                 )}
 
                 <div className="rounded bg-muted/50 px-2 py-1.5 text-muted-foreground">
-                  {t("graph.showingStats", { pages: filteredGraph.nodes.length, total: nodes.length, links: filteredGraph.edges.length, totalLinks: edges.length })}
+                  {t("graph.showingStats", { pages: displayNodes.length, total: nodes.length, links: displayEdges.length, totalLinks: edges.length })}
+                  {neighborhood && neighborhood.omittedEdgeCount > 0 && (
+                    <span className="mt-0.5 block">{t("graph.focusOmitted", { count: neighborhood.omittedEdgeCount, defaultValue: `已收起弱连接 ${neighborhood.omittedEdgeCount} 条` })}</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -797,7 +1000,7 @@ export function GraphView() {
                   const typeColor = NODE_TYPE_COLORS[contextNode.type] ?? "#94a3b8"
                   return (
                     <span
-                      className="mt-1 inline-block rounded px-1.5 py-0.5 text-[0.625rem] font-medium"
+                      className="mt-1 inline-block rounded px-1.5 py-0.5 text-xs font-medium"
                       style={{
                         backgroundColor: hexToRgba(typeColor, 0.15),
                         color: typeColor,
@@ -834,11 +1037,37 @@ export function GraphView() {
               })()}
               <button
                 type="button"
+                data-testid="graph-jump-to-editor"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+                title={t("graph.jumpToEditor", { defaultValue: "跳到正文" })}
+                onClick={() => {
+                  setNodeMenu(null)
+                  void handleNodeDoubleClick(contextNode.id)
+                }}
+              >
+                <ArrowRight className="h-3.5 w-3.5 shrink-0" />
+                {t("graph.jumpToEditor", { defaultValue: "跳到正文" })}
+              </button>
+              <button
+                type="button"
                 className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
                 onClick={() => void handleOpenNodeProfilePage(contextNode)}
               >
                 <FileText className="h-3.5 w-3.5 shrink-0" />
                 {t("graph.editRealProfilePage")}
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+                title={t("graph.setAsFocusHint", { defaultValue: "之后点击任意节点也会切换焦点" })}
+                onClick={() => {
+                  setFocusNodeId(contextNode.id)
+                  setFocusOverride(true)
+                  setNodeMenu(null)
+                }}
+              >
+                <Crosshair className="h-3.5 w-3.5 shrink-0" />
+                {t("graph.setAsFocus", { defaultValue: "设为焦点" })}
               </button>
               <button
                 type="button"
@@ -864,11 +1093,32 @@ export function GraphView() {
                 {colorMode === "type" ? t("graph.nodeTypesLabel") : t("graph.communitiesLabel")}
               </span>
               <div className="flex items-center gap-1">
+                {displayMode === "graph" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs px-1"
+                    data-testid="graph-orphan-filter-toggle"
+                    aria-pressed={orphanHighlight}
+                    title={t("graph.orphanHighlight")}
+                    onClick={() => {
+                      if (orphanHighlight) {
+                        setOrphanHighlight(false)
+                        setHighlightedNodes(new Set())
+                      } else {
+                        setOrphanHighlight(true)
+                        setHighlightedNodes(new Set(orphanNodeIds))
+                      }
+                    }}
+                  >
+                    {t("graph.orphanHighlight")}{orphanHighlight ? ` (${orphanNodeIds.length})` : ""}
+                  </Button>
+                )}
                 {colorMode === "type" && filters.hiddenTypes.size > 0 && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 text-[0.625rem] px-1"
+                    className="h-6 text-xs px-1"
                     onClick={() => setFilters((prev) => ({ ...prev, hiddenTypes: new Set() }))}
                     title={t("graph.showAllTypes")}
                   >
@@ -928,7 +1178,7 @@ export function GraphView() {
                                   {label}
                                 </span>
                                 <span className="text-muted-foreground/60 ml-auto">{typeCounts[type]}</span>
-                                {isHidden && <span className="text-muted-foreground/60 text-[0.625rem]">{t("graph.hidden")}</span>}
+                                {isHidden && <span className="text-muted-foreground/60 text-xs">{t("graph.hidden")}</span>}
                               </div>
                             )
                           }
@@ -936,7 +1186,7 @@ export function GraphView() {
                             <>
                               {novelTypes.some((t) => (typeCounts[t] ?? 0) > 0) && (
                                 <>
-                                  <div className="text-muted-foreground/70 text-[0.625rem] font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
+                                  <div className="text-muted-foreground/70 text-xs font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
                                     {t("novel.graph.novelNodeTypes")}
                                   </div>
                                   {/* v8 ignore start */}
@@ -948,7 +1198,7 @@ export function GraphView() {
                               )}
                               {baseTypes.some((t) => (typeCounts[t] ?? 0) > 0) && (
                                 <>
-                                  <div className="text-muted-foreground/70 text-[0.625rem] font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
+                                  <div className="text-muted-foreground/70 text-xs font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
                                     {t("novel.graph.baseNodeTypes")}
                                   </div>
                                   {/* v8 ignore start */}
@@ -997,19 +1247,38 @@ export function GraphView() {
                                   {label}
                                 </span>
                                 <span className="text-muted-foreground/60 ml-auto">{typeCounts[type]}</span>
-                                {isHidden && <span className="text-muted-foreground/60 text-[0.625rem]">{t("graph.hidden")}</span>}
+                                {isHidden && <span className="text-muted-foreground/60 text-xs">{t("graph.hidden")}</span>}
                               </div>
                             )
                           })}
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col gap-0.5 max-h-48 overflow-y-auto legend-scroll" style={{ direction: "rtl" }}>
+                <div
+                  data-testid="graph-community-legend"
+                  className="flex flex-col gap-0.5 max-h-48 overflow-y-auto legend-scroll" style={{ direction: "rtl" }}>
                   <div className="flex flex-col gap-0.5" style={{ direction: "ltr" }}>
-                    {communities.map((c) => (
-                    <div
+                    {communities.map((c) => {
+                    const memberIds = displayNodes.filter((n) => n.community === c.id).map((n) => n.id)
+                    const memberSet = new Set(memberIds)
+                    const isActive = memberSet.size > 0 && highlightedNodes.size === memberSet.size &&
+                      [...memberSet].every((id) => highlightedNodes.has(id))
+                    return (
+                    <button
+                      type="button"
                       key={c.id}
-                      className="flex items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-accent/50"
+                      aria-pressed={isActive}
+                      title={t("graph.focusCommunity")}
+                      onClick={() => {
+                        if (isActive) {
+                          if (orphanHighlight) setOrphanHighlight(false)
+                          setHighlightedNodes(new Set())
+                        } else {
+                          if (orphanHighlight) setOrphanHighlight(false)
+                          setHighlightedNodes(memberSet)
+                        }
+                      }}
+                      className={`flex w-full items-center gap-2 rounded px-1 py-0.5 text-left transition-colors hover:bg-accent/50 ${isActive ? "bg-info/10" : ""}`}
                     >
                       <span
                         className="inline-block h-3 w-3 rounded-full shrink-0 shadow-sm"
@@ -1023,10 +1292,11 @@ export function GraphView() {
                       </span>
                       <span className="text-muted-foreground/60 ml-auto shrink-0">{c.nodeCount}</span>
                       {c.cohesion < 0.15 && c.nodeCount >= 3 && (
-                        <span className="text-warning shrink-0" title={t("graph.lowCohesion", { value: c.cohesion.toFixed(2) })}>!</span>
+                        <span className="text-warning shrink-0" role="img" aria-label={t("graph.lowCohesion", { value: c.cohesion.toFixed(2) })} title={t("graph.lowCohesion", { value: c.cohesion.toFixed(2) })}>!</span>
                       )}
-                    </div>
-                  ))}
+                    </button>
+                    )
+                  })}
                   </div>
                 </div>
               )

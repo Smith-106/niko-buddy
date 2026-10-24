@@ -70,6 +70,21 @@ export function runVolumeOutlineQualityCheck(
   return results;
 }
 
+export function formatOutlineQualityReport(content: string, kind: "volume" | "chapter"): string {
+  const items = kind === "chapter"
+    ? runChapterOutlineQualityCheck(content)
+    : runVolumeOutlineQualityCheck(content)
+  const problems = items.filter((item) => item.status !== "pass")
+  const title = kind === "chapter" ? "章纲审核" : "大纲审核"
+  if (problems.length === 0) return `${title}：通过。`
+  const lines = [`${title}：有缺项。`]
+  for (const item of problems) {
+    lines.push(`- ${item.category}：${item.message}`)
+    for (const detail of item.details ?? []) lines.push(`  - ${detail}`)
+  }
+  return lines.join("\n")
+}
+
 export function runChapterOutlineQualityCheck(content: string): QualityCheckItem[] {
   return [
     checkChapterRequiredSections(content),

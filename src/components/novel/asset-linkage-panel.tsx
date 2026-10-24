@@ -46,13 +46,13 @@ export function AssetLinkagePanel({ result, input }: AssetLinkagePanelProps) {
           <Link2 className="h-4 w-4" />
           资产联动一致性（只读诊断）
         </h3>
-        <p className="text-[10px] text-muted-foreground" data-testid="asset-linkage-scope">
+        <p className="text-xs text-muted-foreground" data-testid="asset-linkage-scope">
           只比对、不改写：资产产物带 contentHash 是不可变快照，重建只能走既有迁移入口。关系语义一律
           unknown，不猜种类。
         </p>
       </header>
 
-      <p className="text-[11px] text-muted-foreground" data-testid="asset-linkage-summary">
+      <p className="text-xs text-muted-foreground" data-testid="asset-linkage-summary">
         角色状态关系边：
         <b className="text-foreground">
           {resolved.derivedEdgeCount === null ? (
@@ -75,11 +75,11 @@ export function AssetLinkagePanel({ result, input }: AssetLinkagePanelProps) {
       </p>
 
       {unloaded ? (
-        <p className="text-[11px] text-muted-foreground" data-testid="asset-linkage-unloaded">
+        <p className="text-xs text-muted-foreground" data-testid="asset-linkage-unloaded">
           角色状态尚未装载：比对面整段不适用，不能当成「暂无不一致」。
         </p>
       ) : conflictCount === 0 ? (
-        <p className="text-[11px] text-emerald-700 dark:text-emerald-400" data-testid="asset-linkage-clean">
+        <p className="text-xs text-emerald-700 dark:text-emerald-400" data-testid="asset-linkage-clean">
           暂未发现联动不一致（缺失面见下方不适用说明，不要当成「全部一致」）。
         </p>
       ) : (
@@ -88,17 +88,17 @@ export function AssetLinkagePanel({ result, input }: AssetLinkagePanelProps) {
             <li
               key={`${conflict.code}-${index}`}
               data-testid={`asset-linkage-conflict-${conflict.code}-${index}`}
-              className="rounded border border-amber-500/40 bg-amber-500/5 p-1.5 text-[11px] text-amber-800 dark:text-amber-300"
+              className="rounded border border-amber-500/40 bg-amber-500/5 p-1.5 text-xs text-amber-800 dark:text-amber-300"
             >
               <b>{conflict.code}</b> · {conflict.left}
               {conflict.right ? ` → ${conflict.right}` : ""}
-              <div className="text-[10px] text-muted-foreground">{conflict.detail}</div>
+              <div className="text-xs text-muted-foreground">{conflict.detail}</div>
             </li>
           ))}
         </ul>
       )}
 
-      <ul className="space-y-0.5 text-[10px] text-muted-foreground" data-testid="asset-linkage-na">
+      <ul className="space-y-0.5 text-xs text-muted-foreground" data-testid="asset-linkage-na">
         <li className="font-medium text-foreground">
           不适用与非冲突说明<span className="sr-only">N/A</span>
         </li>

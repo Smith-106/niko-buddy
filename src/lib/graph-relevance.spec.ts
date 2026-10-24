@@ -194,6 +194,28 @@ test("resolveTarget matches case-insensitively and via slug normalization", asyn
   expect(villain.outLinks.size).toBe(0)
 })
 
+test("resolveTarget 经标题兜底解析 CJK 显示名链接（#38 回归）", async () => {
+  mockedListDirectory.mockResolvedValue([
+    { name: "lin-jin.md", path: "/P/wiki/lin-jin.md", is_dir: false },
+    { name: "chapter-001.md", path: "/P/wiki/chapter-001.md", is_dir: false },
+  ])
+  mockedReadFile.mockImplementation(async (p: string) => {
+    if (String(p).endsWith("lin-jin.md")) return "# 林烬\n[[第一章 初见]]"
+    return "# 第一章 初见\n[[林烬]]"
+  })
+  const graph = await buildRetrievalGraph("/P", 6)
+  const hero = graph.nodes.get("lin-jin")!
+  const chapter = graph.nodes.get("chapter-001")!
+  // 无 frontmatter title 时标题取自 # Heading，不再恒为文件名 slug
+  expect(hero.title).toBe("林烬")
+  expect(chapter.title).toBe("第一章 初见")
+  expect(hero.outLinks.has("chapter-001")).toBe(true)
+  expect(chapter.inLinks.has("lin-jin")).toBe(true)
+  expect(chapter.outLinks.has("lin-jin")).toBe(true)
+  // 双向直接链接得分远超 overview minimumEdgeWeight(2)：边可渲染
+  expect(calculateRelevance(hero, chapter, graph)).toBeGreaterThan(2)
+})
+
 test("evicts a failed build from the cache and allows retry", async () => {
   // listDirectory resolving outside its contract (null tree) makes flattenMd throw,
   // which escapes the internal catch and rejects the build promise → cache eviction.

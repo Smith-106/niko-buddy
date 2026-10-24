@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
-import { ChapterDirectory, type ChapterDirectoryRow } from "./chapter-directory"
+import { ChapterDirectory, chapterDirectoryTitle, type ChapterDirectoryRow } from "./chapter-directory"
 
 const storeState = vi.hoisted(() => ({
   project: { id: "p1", name: "proj", path: "C:/proj" } as { id: string; name: string; path: string } | null,
@@ -34,6 +34,21 @@ function makeRows(): ChapterDirectoryRow[] {
   ]
 }
 
+describe("chapterDirectoryTitle", () => {
+  it("快照没有标题时用正文里的章名", () => {
+    const body = "---\ntitle: \"第1章\"\n---\n\n# 第1章 夜航\n\n正文"
+    expect(chapterDirectoryTitle(undefined, body, "C:/proj/第1章.md")).toBe("第1章 夜航")
+  })
+
+  it("快照已有章名时不改", () => {
+    expect(chapterDirectoryTitle("第1章 旧题", "# 第1章 新题\n", null)).toBe("第1章 旧题")
+  })
+
+  it("正文和快照都没有章名时才空", () => {
+    expect(chapterDirectoryTitle("", "正文没有标题", "C:/proj/001.md")).toBeNull()
+  })
+})
+
 describe("ChapterDirectory", () => {
   beforeEach(() => {
     storeState.project = { id: "p1", name: "proj", path: "C:/proj" }
@@ -42,7 +57,7 @@ describe("ChapterDirectory", () => {
   })
   afterEach(cleanup)
 
-  it("渲染行：章号/标题/字数，缺列为 N/A", async () => {
+  it("渲染行：章号/标题/字数，缺列为暂无标记", async () => {
     render(<ChapterDirectory loader={async () => makeRows()} />)
     await waitFor(() => expect(screen.getByTestId("chapter-directory-row-2")).toBeTruthy())
     expect(screen.getByTestId("chapter-directory-title-1").textContent).toBe("开端")

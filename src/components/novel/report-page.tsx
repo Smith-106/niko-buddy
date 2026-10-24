@@ -33,13 +33,13 @@ export function ReportPage({
   readonly children: ReactNode
 }) {
   return (
-    <div data-testid={testId} className="h-full overflow-y-auto bg-background">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-5">
+    <div data-testid={testId} className="h-full w-full min-w-0 overflow-y-auto bg-background">
+      <div className="flex w-full min-w-0 flex-col gap-4 px-6 py-5">
         <header className="flex items-start justify-between gap-4 border-b border-border pb-3">
           <div className="min-w-0 space-y-1">
             <h2 className="text-lg font-semibold tracking-tight text-foreground">{title}</h2>
             {description ? (
-              <div className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</div>
+              <div className="text-sm leading-6 text-muted-foreground">{description}</div>
             ) : null}
           </div>
           {actions ? <div className="shrink-0">{actions}</div> : null}

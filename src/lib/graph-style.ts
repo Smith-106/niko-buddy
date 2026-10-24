@@ -28,6 +28,14 @@ export const NODE_TYPE_COLORS: Record<string, string> = {
 export type GraphLabelDisplayMode = "all" | "auto" | "focused"
 export type GraphEdgeStyle = "curve" | "arrow" | "line"
 
+/** 全图模式下渲染边标签的边数上限：超过则关闭边标签降噪（LOD）；焦点邻域模式不受限 */
+export const EDGE_LABEL_FULL_GRAPH_THRESHOLD = 150
+
+export function shouldRenderEdgeLabels(edgeCount: number, focusActive: boolean): boolean {
+  if (focusActive) return true
+  return edgeCount <= EDGE_LABEL_FULL_GRAPH_THRESHOLD
+}
+
 export function nodeColor(type: string): string {
   /* v8 ignore next */
   return NODE_TYPE_COLORS[type] ?? NODE_TYPE_COLORS.other

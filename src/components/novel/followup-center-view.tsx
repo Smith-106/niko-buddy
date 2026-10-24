@@ -4,8 +4,8 @@
  * 数据源（只读派生＋本地 store，零写账本）：
  *   - 返修任务：@/stores/review-store 的 useReviewStore（items / novelReviewEntries）。
  *     单条完成/忽略走 resolveItem / dismissItem / dismissNovelReviewEntry；
- *     批量操作经 useReviewStore.getState() 直接调用
- *     resolveItem / clearResolved / clearNovelReviewEntries；
+ *     一键完成跳过矛盾项。清空已解决只删已解决条目，未解决的章节审查留下；
+ *     回到正文：章节文件里对得上原句才高亮那一句，对不上只打开章并说明；
  *   - 阻塞队列：运行事件账本经 buildBlockingQueue 派生——真实位置是
  *     @/lib/novel/director-followup.ts（非 dashboard-evidence.ts），签名
  *     (ledger: RunEventLedger) => readonly BlockingQueueItem[]，经 @/lib/novel
@@ -24,19 +24,23 @@
  */
 
 import { useEffect, useState } from "react"
+import { readFile } from "@/commands/fs"
+import { findReviewRewriteAnchors } from "@/lib/review-rewrite-plan"
 import { ReportCallout, ReportPage, ReportSection } from "./report-page"
 import {
   buildBlockingQueue,
   buildDashboardEvidenceSnapshot,
   createFsRunEventLedgerStoreDeps,
   createRunEventLedger,
+  findChapterFileByNumber,
   loadRunEventLedgerStore,
   type BlockingQueueItem,
   type EvidenceSnapshot,
   type RunEventLedger,
   type RunEventLedgerStoreDeps,
 } from "@/lib/novel"
-import { useReviewStore, type ReviewItem } from "@/stores/review-store"
+import { useReviewStore, type NovelReviewEntry, type ReviewItem } from "@/stores/review-store"
+import { useWikiStore } from "@/stores/wiki-store"
 
 export interface FollowupCenterViewProps {
   readonly projectPath: string
@@ -75,6 +79,7 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
   const [loaded, setLoaded] = useState<RunEventLedger | null>(ledger ?? null)
   const [loadedDeps, setLoadedDeps] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [openNote, setOpenNote] = useState<string | null>(null)
 
   useEffect(() => {
     if (ledger !== undefined && ledger !== null) {
@@ -132,26 +137,62 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
   function handleResolveAllPending(): void {
     const state = useReviewStore.getState()
     for (const item of state.items) {
-      if (!item.resolved) state.resolveItem(item.id, item.options[0]?.action ?? "accept")
+      if (item.resolved || item.type === "contradiction") continue
+      state.resolveItem(item.id, item.options[0]?.action ?? "accept")
     }
     for (const entry of state.novelReviewEntries) {
       if (!entry.resolved) state.dismissNovelReviewEntry(entry.id)
     }
   }
 
-  // 清空已解决：clearResolved 只清已解决 items；clearNovelReviewEntries 按
-  // store 既有语义清空全部章节审查条目（含未解决）——此处遵循任务指定的
-  // action 组合，不另行改写 store 语义。
   function handleClearResolved(): void {
-    const state = useReviewStore.getState()
-    state.clearResolved()
-    state.clearNovelReviewEntries()
+    useReviewStore.getState().clearResolved()
+    useReviewStore.setState((prev) => ({
+      novelReviewEntries: prev.novelReviewEntries.filter((entry) => !entry.resolved),
+    }))
+  }
+
+  async function openEntryInChapter(entry: NovelReviewEntry): Promise<void> {
+    if (projectPath === "") {
+      setOpenNote("没有项目，不能回到正文。")
+      return
+    }
+    const path = await findChapterFileByNumber(projectPath, entry.chapterNumber)
+    if (!path) {
+      setOpenNote("找不到这一章，没有可以跳的句子。")
+      return
+    }
+    const wiki = useWikiStore.getState()
+    wiki.setSelectedFile(path)
+    wiki.setActiveView("wiki")
+    let markdown = ""
+    try {
+      markdown = await readFile(path)
+    } catch {
+      setOpenNote("章节打不开，没有跳到句子。")
+      return
+    }
+    const anchor = findReviewRewriteAnchors(
+      markdown,
+      entry.results.map((result) => result.evidence),
+    )[0]
+    if (!anchor) {
+      wiki.setPendingEditorHighlight(null)
+      setOpenNote("没有对得上的原句，只打开了这一章。")
+      return
+    }
+    wiki.setPendingEditorHighlight({
+      path,
+      text: anchor.selection.text,
+      nonce: Date.now(),
+    })
+    setOpenNote(null)
   }
 
   return (
     <ReportPage
       testId="followup-center-view"
-      title="导演跟进中心"
+      title="跟进中心"
       description="返修任务和阻塞队列。账本读不到时只显示本地返修，不编造门状态。"
     >
       {!loadedDeps ? (
@@ -189,7 +230,7 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
               <h3 className="mb-1 text-xs font-semibold">
                 返修任务（待处理 {pendingCount} / 已解决 {resolvedCount}）
               </h3>
-              <div className="mb-2 flex gap-2">
+              <div className="mb-2">
                 <button
                   type="button"
                   className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40"
@@ -199,11 +240,13 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
                 >
                   一键完成全部待处理
                 </button>
+              </div>
+              <div className="mb-3">
                 <button
                   type="button"
                   className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40"
                   data-testid="followup-clear-resolved"
-                  disabled={resolvedItems.length === 0 && novelReviewEntries.length === 0}
+                  disabled={resolvedItems.length === 0 && resolvedEntries.length === 0}
                   onClick={handleClearResolved}
                 >
                   清空已解决
@@ -219,19 +262,33 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
                         data-testid={`followup-item-${item.id}`}
                         className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-xs"
                       >
-                        <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                           {REVIEW_TYPE_LABELS[item.type]}
                         </span>
                         <span className="font-medium">{item.title}</span>
                         <span className="text-muted-foreground">{item.description}</span>
-                        <button
-                          type="button"
-                          className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40"
-                          data-testid={`followup-resolve-${item.id}`}
-                          onClick={() => resolveItem(item.id, item.options[0]?.action ?? "accept")}
-                        >
-                          完成
-                        </button>
+                        {item.type === "contradiction" ? (
+                          item.options.map((option) => (
+                            <button
+                              key={option.action}
+                              type="button"
+                              className="rounded border border-border bg-background px-2 py-1 text-xs"
+                              data-testid={`followup-option-${item.id}-${option.action}`}
+                              onClick={() => resolveItem(item.id, option.action)}
+                            >
+                              {option.label}
+                            </button>
+                          ))
+                        ) : (
+                          <button
+                            type="button"
+                            className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40"
+                            data-testid={`followup-resolve-${item.id}`}
+                            onClick={() => resolveItem(item.id, item.options[0]?.action ?? "accept")}
+                          >
+                            完成
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40"
@@ -258,6 +315,14 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
                         <span className="font-medium">第 {entry.chapterNumber} 章审查</span>
                         <span className="text-muted-foreground">{entry.results.length} 条意见</span>
                         <span className="text-muted-foreground">{entry.resolved ? "已完成" : "待处理"}</span>
+                        <button
+                          type="button"
+                          className="rounded border border-border bg-background px-2 py-1 text-xs"
+                          data-testid={`followup-entry-open-${entry.id}`}
+                          onClick={() => void openEntryInChapter(entry)}
+                        >
+                          回到正文
+                        </button>
                         {!entry.resolved ? (
                           <button
                             type="button"
@@ -271,6 +336,11 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
                       </li>
                     ))}
                   </ul>
+                  {openNote ? (
+                    <p className="mt-1 text-xs text-muted-foreground" data-testid="followup-open-note">
+                      {openNote}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
               {resolvedItems.length > 0 ? (
@@ -283,7 +353,7 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
                         data-testid={`followup-item-${item.id}`}
                         className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-xs"
                       >
-                        <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                           {REVIEW_TYPE_LABELS[item.type]}
                         </span>
                         <span className="font-medium">{item.title}</span>
@@ -316,14 +386,14 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
                     className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-xs"
                   >
                     <span className="font-medium">{gateLabel(entry.gate)}门</span>
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                       优先级 P{entry.priority}
                     </span>
                     <span className="text-muted-foreground">
                       {entry.blockedBy === null ? "首要阻塞（可优先处理）" : `被${gateLabel(entry.blockedBy)}门阻塞`}
                     </span>
                     {entry.evidenceCount > 0 ? (
-                      <span className="ml-auto text-[0.625rem] text-muted-foreground">证据 {entry.evidenceCount}</span>
+                      <span className="ml-auto text-xs text-muted-foreground">证据 {entry.evidenceCount}</span>
                     ) : null}
                   </li>
                 ))}

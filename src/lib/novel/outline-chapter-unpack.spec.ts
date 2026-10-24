@@ -8,19 +8,26 @@ import {
 const mocks = vi.hoisted(() => ({
   createDirectory: vi.fn(),
   fileExists: vi.fn(),
+  writeFile: vi.fn(),
   writeFileAtomic: vi.fn(),
+  readFile: vi.fn(),
+  listDirectory: vi.fn(),
 }))
 
 vi.mock("@/commands/fs", () => ({
   createDirectory: mocks.createDirectory,
   fileExists: mocks.fileExists,
+  writeFile: mocks.writeFile,
   writeFileAtomic: mocks.writeFileAtomic,
+  readFile: mocks.readFile,
+  listDirectory: mocks.listDirectory,
 }))
 
 describe("outline-chapter-unpack (大纲自动解构分发器)", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.createDirectory.mockResolvedValue(undefined)
+    mocks.writeFile.mockResolvedValue(undefined)
     mocks.writeFileAtomic.mockResolvedValue(undefined)
   })
 

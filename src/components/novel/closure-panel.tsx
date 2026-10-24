@@ -60,7 +60,7 @@ function ClosureSection({
 }) {
   return (
     <div data-testid={`closure-panel-section-${kind}`} className="flex flex-col gap-1">
-      <p className="text-[10px] font-medium text-muted-foreground">
+      <p className="text-xs font-medium text-muted-foreground">
         {`${KIND_LABEL[kind]} · ${rows.length} 行`}
       </p>
       {rows.length === 0 ? (
@@ -76,7 +76,7 @@ function ClosureSection({
               className="rounded border border-border px-2 py-1"
             >
               <p className="text-xs font-medium text-foreground">{row.label}</p>
-              <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+              <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                 <li data-testid={`closure-na-detail-${row.id}`}>
                   {row.detail === null ? (
                     <>
@@ -196,10 +196,10 @@ export function ClosurePanel({ projection, loader = loadClosureProjection }: Clo
         <Network className="h-4 w-4" />
         叙事结构（只读）
       </h3>
-      <p className="text-[10px] text-muted-foreground" data-testid="closure-panel-scope">
+      <p className="text-xs text-muted-foreground" data-testid="closure-panel-scope">
         {`信息差 ${resolved.infoGaps.length} 行 · 世界事件 ${resolved.worldEvents.length} 行 · 涟漪 ${resolved.ripples.length} 行 · 合计 ${total} 行`}
       </p>
-      <p className="text-[10px] text-muted-foreground" data-testid="closure-panel-boundary">
+      <p className="text-xs text-muted-foreground" data-testid="closure-panel-boundary">
         只读叙事状态和事件时间线，不写盘、不造字段。涟漪只看直接因果，不把整条链都算进来。缺资料处写「不适用」。
         <span className="sr-only">.novel/narrative-state.json .novel/timeline.json causedBy N/A</span>
       </p>
@@ -245,15 +245,15 @@ export function ClosurePanel({ projection, loader = loadClosureProjection }: Clo
           />
 
           <div className="flex flex-col gap-0.5">
-            <p className="text-[10px] font-medium text-muted-foreground">
+            <p className="text-xs font-medium text-muted-foreground">
               以下资料缺失或没有数据，所以标成不适用：
             </p>
             {resolved.missingSources.length === 0 ? (
-              <p className="text-[10px] text-muted-foreground" data-testid="closure-na-source-none">
+              <p className="text-xs text-muted-foreground" data-testid="closure-na-source-none">
                 无缺失真源：三个结构面都有真源。
               </p>
             ) : (
-              <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+              <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                 {resolved.missingSources.map((reason, index) => (
                   <li key={reason} data-testid={`closure-na-source-${index}`}>
                     {`不适用：${reason.split("：")[0] || "缺资料"}`}

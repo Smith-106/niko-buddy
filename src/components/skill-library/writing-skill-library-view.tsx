@@ -411,9 +411,9 @@ export function WritingSkillLibrarySidebarPanel() {
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{skill.name}</span>
-                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">{t("skillLibrary.writing")}</span>
+                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{t("skillLibrary.writing")}</span>
                   {isLinked ? (
-                    <span className="shrink-0 rounded bg-info/15 px-1.5 py-0.5 text-[0.625rem] text-info">引用</span>
+                    <span className="shrink-0 rounded bg-info/15 px-1.5 py-0.5 text-xs text-info">引用</span>
                   ) : null}
                 </div>
                 <div className="mt-1 min-w-0 truncate text-xs text-muted-foreground">{skill.description || "未填写说明"}</div>
@@ -717,7 +717,7 @@ export function WritingSkillLibraryView() {
             还没有写作技能。请在左侧新建技能。
           </div>
         ) : (
-          <div className="mx-auto flex max-w-5xl flex-col gap-4">
+          <div className="flex w-full min-w-0 flex-col gap-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <div>
@@ -984,7 +984,7 @@ export function WritingSkillLibraryView() {
           className="max-h-[38vh] shrink-0 overflow-y-auto border-t px-5 py-3"
           data-testid="skill-pack-section"
         >
-          <div className="mx-auto max-w-5xl space-y-3">
+          <div className="w-full min-w-0 space-y-3">
             {/* A-F-002 / B-F-006 技能包（.zip）离线导入：此前同样无壳层入口。
                 选文件用 Tauri 原生对话框（动态 import，与 sidebar-panel 一致）；
                 落点根由宿主给出（用户不可在弹窗内改写）。 */}

@@ -153,12 +153,30 @@ function extractRelationLinks(content: string): Array<{ target: string; relation
   return links
 }
 
-function resolveTarget(raw: string, nodeIds: ReadonlySet<string>): string | null {
+// 与 wiki-graph.extractTitle 同序:frontmatter title → # Heading → 文件名(空格化)。
+// 缺 heading 兜底时 CJK 项目标题恒为文件名 slug,上游标题匹配永远落空。
+function resolveNodeTitle(content: string, fileName: string, fmTitle: string): string {
+  if (fmTitle.trim()) return fmTitle.trim()
+  const headingMatch = content.match(/^#\s+(.+)$/m)
+  if (headingMatch) return headingMatch[1].trim()
+  return fileName.replace(/\.md$/, "").replace(/-/g, " ")
+}
+
+function resolveTarget(raw: string, nodeIds: ReadonlySet<string>, nodeTitles?: ReadonlyMap<string, string>): string | null {
   if (nodeIds.has(raw)) return raw
-  const norm = raw.toLowerCase().replace(/\s+/g, "-")
+  const rawLo = raw.toLowerCase()
+  const norm = rawLo.replace(/\s+/g, "-")
   for (const id of nodeIds) {
     const lo = id.toLowerCase()
-    if (lo === norm || lo === raw.toLowerCase() || lo.replace(/\s+/g, "-") === norm) return id
+    if (lo === norm || lo === rawLo || lo.replace(/\s+/g, "-") === norm) return id
+  }
+  // 与 wiki-graph 侧对齐:CJK 显示名链接经标题兜底(如 [[林烬]] → lin-jin),
+  // 否则检索图恒空、相关度坍缩到类型亲和 floor(0.5),边权阈值全灭零边渲染。
+  if (nodeTitles) {
+    for (const [id, title] of nodeTitles) {
+      const t = title.trim().toLowerCase()
+      if (t === rawLo || t.replace(/\s+/g, "-") === norm) return id
+    }
   }
   return null
 }
@@ -216,7 +234,7 @@ async function buildGraphInternal(projectPath: string, dataVersion: number): Pro
     const fm = parseFrontmatter(content)
     if (fm.isHistorical) continue
     rawNodes.push({
-      id, title: fm.title || file.name.replace(/\.md$/, "").replace(/-/g, " "),
+      id, title: resolveNodeTitle(content, file.name, fm.title),
       type: fm.type, path: file.path, sources: fm.sources,
       rawLinks: extractWikilinks(content),
       rawRels: extractRelationLinks(content),
@@ -225,6 +243,8 @@ async function buildGraphInternal(projectPath: string, dataVersion: number): Pro
   }
 
   const nodeIds = new Set(rawNodes.map((n) => n.id))
+  const nodeTitles = new Map<string, string>()
+  for (const n of rawNodes) nodeTitles.set(n.id, n.title)
 
   // Second pass — resolve links
   const outLinks = new Map<string, Set<string>>()
@@ -234,13 +254,13 @@ async function buildGraphInternal(projectPath: string, dataVersion: number): Pro
 
   for (const raw of rawNodes) {
     for (const target of raw.rawLinks) {
-      const rid = resolveTarget(target, nodeIds)
+      const rid = resolveTarget(target, nodeIds, nodeTitles)
       if (!rid || rid === raw.id) continue
       outLinks.get(raw.id)!.add(rid)
       inLinks.get(rid)!.add(raw.id)
     }
     for (const rel of raw.rawRels) {
-      const rid = resolveTarget(rel.target, nodeIds)
+      const rid = resolveTarget(rel.target, nodeIds, nodeTitles)
       if (!rid || rid === raw.id) continue
       relEdges.get(raw.id)!.push({ target: rid, relation: rel.relation })
     }

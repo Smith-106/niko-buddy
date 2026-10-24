@@ -149,7 +149,7 @@ function RadarChart({
         y={y}
         textAnchor="middle"
         dominantBaseline="middle"
-        className="fill-current text-[0.6875rem] text-foreground"
+        className="fill-current text-xs text-foreground"
       >
         {dimensionLabel(key, t)}
       </text>
@@ -313,7 +313,7 @@ function TimelineCompareTab({ branches }: { branches: SimulationBranch[] }) {
               <div className="space-y-3">
                 {rounds.map(({ round, events }) => (
                   <div key={round} className="space-y-1.5">
-                    <div className="text-[0.6875rem] font-medium text-muted-foreground">
+                    <div className="text-xs font-medium text-muted-foreground">
                       {t("storySimulation.roundEventsSummary", { round: round + 1, count: events.length })}
                     </div>
                     {events.map((ev) => (

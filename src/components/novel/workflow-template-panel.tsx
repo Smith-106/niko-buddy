@@ -53,7 +53,7 @@ function EntryRow({ entry }: { readonly entry: WorkflowTemplateEntry }) {
   return (
     <li
       data-testid={`workflow-template-${entry.id}`}
-      className="flex flex-col gap-0.5 rounded bg-muted/40 px-2 py-1 text-[11px]"
+      className="flex flex-col gap-0.5 rounded bg-muted/40 px-2 py-1 text-xs"
     >
       <p className="font-medium text-foreground">
         {entry.title}
@@ -135,7 +135,7 @@ export function WorkflowTemplatePanel({ groups }: WorkflowTemplatePanelProps) {
         <ListChecks className="h-4 w-4" />
         {`工作流/大纲模板注册表（${entryCount} 条 · ${resolved.length} 组）`}
       </h3>
-      <p className="text-[10px] text-muted-foreground" data-testid="workflow-template-scope">
+      <p className="text-xs text-muted-foreground" data-testid="workflow-template-scope">
         只读登记：必填字段名、枚举取值、源文件:符号名，加一次哨兵渲染的首行与字数。模板正文不复制进注册表；渲染失败或真源缺失一律显式标注，不写空串、不猜内容。
       </p>
       <ul className="flex flex-col gap-2">
@@ -153,7 +153,7 @@ export function WorkflowTemplatePanel({ groups }: WorkflowTemplatePanelProps) {
           </li>
         ))}
       </ul>
-      <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+      <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
         <li data-testid="workflow-template-na-usage">
           不适用：没有模板使用记录，不估算谁在哪里用过。
           <span className="sr-only">N/A：模板使用点统计</span>

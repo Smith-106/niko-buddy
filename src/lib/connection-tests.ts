@@ -7,7 +7,10 @@ export interface ProviderTestResult {
   message: string
 }
 
-export const LLM_PROVIDER_TEST_MAX_TOKENS = 512
+// 连接探测预算：推理型模型（CPA/muse-spark，2026-10-24 实证）推理细节会吃掉
+// 上千 token，512 会间歇性 finish=length 空正文导致探测误报失败；2048 留足余量。
+// 仅连接探测/冒烟路径使用，不进正式生成配额。
+export const LLM_PROVIDER_TEST_MAX_TOKENS = 2048
 
 export async function testEmbeddingConnection(cfg: EmbeddingConfig): Promise<ProviderTestResult> {
   if (!cfg.endpoint.trim()) {

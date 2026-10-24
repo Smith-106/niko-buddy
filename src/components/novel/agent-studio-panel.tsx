@@ -112,7 +112,7 @@ export function AgentStudioPanel({ projection, staticDeclarationOnly = false }: 
   return (
     <section data-testid="agent-studio-panel" className="space-y-4">
       {staticDeclarationOnly ? (
-        <p className="text-[10px] text-muted-foreground" data-testid="agent-studio-static-scope">
+        <p className="text-xs text-muted-foreground" data-testid="agent-studio-static-scope">
           静态声明表：位置来自代码内 catalog 的 <code>file:line</code>；运行时<b>未</b>探测文件是否仍存在、行内是否仍是该符号，文件被删或挪行本面板不会变红。因此下面只统计「已登记 / 重复声明」，不判断「缺失」。
         </p>
       ) : null}

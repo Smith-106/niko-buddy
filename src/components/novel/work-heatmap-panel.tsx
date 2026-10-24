@@ -92,7 +92,7 @@ function cellClass(count: number, maxCount: number): string {
 }
 
 function formatNumber(value: number | null): string {
-  return value === null ? "N/A" : String(Math.round(value))
+  return value === null ? "—" : String(Math.round(value))
 }
 
 export function WorkHeatmapPanel({
@@ -182,21 +182,21 @@ export function WorkHeatmapPanel({
           data-testid="work-heatmap-refresh"
           onClick={() => void readOnce()}
           disabled={refreshing}
-          className="flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-accent disabled:opacity-50"
+          className="flex items-center gap-1 rounded border border-border px-2 py-0.5 text-xs text-foreground hover:bg-accent disabled:opacity-50"
         >
           <RefreshCw className="h-3 w-3" />
           {refreshing ? "刷新中…" : "立即刷新"}
         </button>
       </header>
 
-      <p className="text-[10px] text-muted-foreground" data-testid="work-heatmap-scope">
+      <p className="text-xs text-muted-foreground" data-testid="work-heatmap-scope">
         数据来自写作状态里的阶段记录。
         <span className="sr-only">.novel/status.json stage_metrics stage tokenCost latencyMs partial timestamp</span>
         每 {Math.round(Math.max(refreshMs, 0) / 1000)} 秒重读一次快照 —— 这是轮询快照，不是事件流；
         页面隐藏时暂停。
       </p>
 
-      <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground" data-testid="work-heatmap-progress">
+      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground" data-testid="work-heatmap-progress">
         <span>
           状态 <b className="text-foreground">{statusPlain(resolved.progress.status)}</b>
           {resolved.progress.status ? <span className="sr-only">{resolved.progress.status}</span> : null}
@@ -219,7 +219,7 @@ export function WorkHeatmapPanel({
       </div>
 
       {error ? (
-        <p className="text-[11px] text-amber-700 dark:text-amber-400" data-testid="work-heatmap-error">
+        <p className="text-xs text-amber-700 dark:text-amber-400" data-testid="work-heatmap-error">
           {error}
           {error.startsWith("读不到写作状态") ? <span className="sr-only">.novel/status.json</span> : null}
         </p>
@@ -227,7 +227,7 @@ export function WorkHeatmapPanel({
 
       {hasData ? (
         <div className="overflow-x-auto" data-testid="work-heatmap-grid">
-          <table className="min-w-full border-separate border-spacing-0.5 text-[10px]">
+          <table className="min-w-full border-separate border-spacing-0.5 text-xs">
             <thead>
               <tr>
                 <th className="sticky left-0 bg-background px-1 text-left font-medium text-muted-foreground">
@@ -278,7 +278,7 @@ export function WorkHeatmapPanel({
           </table>
         </div>
       ) : (
-        <p className="text-[11px] text-muted-foreground" data-testid="work-heatmap-empty">
+        <p className="text-xs text-muted-foreground" data-testid="work-heatmap-empty">
           {resolved.foldedCount + resolved.foldedNewerCount > 0
             ? `没有落在窗口内的条目：${resolved.foldedCount} 条早于窗口、${resolved.foldedNewerCount} 条晚于锚点（见下方说明）。这不是「缺时间戳」。`
             : "没有可画的数据：阶段记录是空的，或全部条目没有可解析的时间。这里不画空格子，避免看起来像已经跑过。"}
@@ -286,14 +286,14 @@ export function WorkHeatmapPanel({
       )}
 
       {resolved.undated.length > 0 ? (
-        <div className="text-[10px] text-muted-foreground" data-testid="work-heatmap-undated">
+        <div className="text-xs text-muted-foreground" data-testid="work-heatmap-undated">
           无时间戳条目（不进时间轴，单列）：
           {resolved.undated.map((u) => `${stagePlain(u.stage)} ${u.count} 条`).join(" · ")}
           <span className="sr-only">{resolved.undated.map((u) => `${u.stage}×${u.count}`).join(" · ")}</span>
         </div>
       ) : null}
 
-      <ul className="space-y-0.5 text-[10px] text-muted-foreground" data-testid="work-heatmap-na">
+      <ul className="space-y-0.5 text-xs text-muted-foreground" data-testid="work-heatmap-na">
         <li className="font-medium text-foreground">明确不适用（不是缺失，是没有真源/无意义）</li>
         {resolved.notApplicable.map((item) => (
           <li key={item.id} data-testid={`work-heatmap-na-${item.id}`}>
@@ -304,7 +304,7 @@ export function WorkHeatmapPanel({
       </ul>
 
       {resolved.missingSources.length > 0 ? (
-        <ul className="space-y-0.5 text-[10px] text-amber-700 dark:text-amber-400" data-testid="work-heatmap-missing">
+        <ul className="space-y-0.5 text-xs text-amber-700 dark:text-amber-400" data-testid="work-heatmap-missing">
           {resolved.missingSources.map((line) => (
             <li key={line}>
               {missingPlain(line)}

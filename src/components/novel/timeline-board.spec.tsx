@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** TimelineBoard：章节序刻度 + 每章泳道 + 事件点 + 显式 N/A（不做伪故事线分道）。 */
+/** TimelineBoard：章节序刻度 + 每章泳道 + 事件点 + 显式暂无标记（不做伪故事线分道）。 */
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 
@@ -48,7 +48,7 @@ describe("TimelineBoard", () => {
     expect(screen.queryByTestId("timeline-board-empty")).toBeNull()
   })
 
-  it("空刻度不画柱，只在可见位置标 N/A", () => {
+  it("空刻度不画柱，只在可见位置标暂无", () => {
     render(<TimelineBoard entries={[{ chapterNumber: 1, event: "a" }, { chapterNumber: 3, event: "b" }]} />)
     expect(screen.getByTestId("timeline-board-tick-na-2").textContent).toBe("novel.timelineBoard.na")
     expect(screen.queryByTestId("timeline-board-tick-na-1")).toBeNull()
@@ -60,7 +60,7 @@ describe("TimelineBoard", () => {
     expect(screen.getByTestId("timeline-board-na-folded").textContent).toBe("novel.timelineBoard.naFolded")
   })
 
-  it("N/A 文案本身被断言（防止改成「这是完整故事线」还绿）", () => {
+  it("暂无文案本身被断言（防止改成「这是完整故事线」还绿）", () => {
     render(<TimelineBoard entries={[{ chapterNumber: 2, event: "x" }]} />)
     expect(screen.getByTestId("timeline-board-na-lanes").textContent).toBe("novel.timelineBoard.naThreads")
     expect(screen.getByTestId("timeline-board-na-granularity").textContent).toBe("novel.timelineBoard.naGranularity")
@@ -89,7 +89,7 @@ describe("TimelineBoard", () => {
     expect(screen.queryByTestId("timeline-board-lane-2")).toBeNull()
   })
 
-  it("三条 N/A 诚实声明必须存在（无类型/无粒度/无节奏打分）", () => {
+  it("三条暂无诚实声明必须存在（无类型/无粒度/无节奏打分）", () => {
     render(<TimelineBoard entries={[{ chapterNumber: 1, event: "x" }]} />)
     expect(screen.getByTestId("timeline-board-na-lanes")).toBeTruthy()
     expect(screen.getByTestId("timeline-board-na-granularity")).toBeTruthy()

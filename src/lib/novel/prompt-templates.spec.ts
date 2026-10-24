@@ -45,6 +45,9 @@ describe("prompt-templates PROMPTS", () => {
     const p = PROMPTS.outlineGeneration("玄幻", "长篇", "设定")
     expect(p).toContain("暂无可用的剧情记忆")
     expect(p).toContain("[LANG:设定]")
+    expect(p).toContain("## 本卷目标")
+    expect(p).toContain("## 伏笔布局")
+    expect(p).toContain("本章目标")
   })
 
   it("outlineGeneration uses provided context when given", () => {

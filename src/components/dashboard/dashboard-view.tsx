@@ -49,6 +49,44 @@ interface DashboardViewProps {
   headerActions?: ReactNode
 }
 
+export interface ChapterEcgPoint {
+  chapter: number
+  emotion: number
+  foreshadowing: number
+}
+
+/** 章节心电图纯算子：情绪=TopN债务history delta按章求和；伏笔=未回收埋设+推进事件按章计数。 */
+export function buildChapterEcg(
+  debtItems: ReadonlyArray<{ plantedChapter: number; lastAdvancedChapter?: number }>,
+  emotionDebts: ReadonlyArray<{ history: ReadonlyArray<{ chapter: number; delta: number; reason?: string }> }>,
+  chapterCount: number,
+): ChapterEcgPoint[] {
+  const count = Math.max(Math.floor(chapterCount), 0)
+  if (count === 0) return []
+  const emotionByChapter = new Map<number, number>()
+  for (const entry of emotionDebts) {
+    for (const h of entry.history ?? []) {
+      if (h.chapter >= 1 && h.chapter <= count) {
+        emotionByChapter.set(h.chapter, (emotionByChapter.get(h.chapter) ?? 0) + h.delta)
+      }
+    }
+  }
+  const foreByChapter = new Map<number, number>()
+  for (const item of debtItems) {
+    if (item.plantedChapter >= 1 && item.plantedChapter <= count) {
+      foreByChapter.set(item.plantedChapter, (foreByChapter.get(item.plantedChapter) ?? 0) + 1)
+    }
+    if (item.lastAdvancedChapter !== undefined && item.lastAdvancedChapter >= 1 && item.lastAdvancedChapter <= count) {
+      foreByChapter.set(item.lastAdvancedChapter, (foreByChapter.get(item.lastAdvancedChapter) ?? 0) + 1)
+    }
+  }
+  return Array.from({ length: count }, (_, i) => ({
+    chapter: i + 1,
+    emotion: emotionByChapter.get(i + 1) ?? 0,
+    foreshadowing: foreByChapter.get(i + 1) ?? 0,
+  }))
+}
+
 export function DashboardView({ headerActions }: DashboardViewProps = {}) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
@@ -815,6 +853,42 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
             ))}
           </div>
         )}
+
+        {(() => {
+          const points = buildChapterEcg(debtReport?.items ?? [], emotionDebts, chapterCount)
+          const hasSignal = points.some((p) => p.emotion !== 0 || p.foreshadowing !== 0)
+          if (points.length < 2 || !hasSignal) return null
+          const W = 560; const H = 150; const ML = 8; const MR = 8; const MT = 10; const MB = 20
+          const innerW = W - ML - MR; const innerH = H - MT - MB
+          const x = (ch: number) => ML + ((ch - 1) / Math.max(points.length - 1, 1)) * innerW
+          const maxAbsEmo = Math.max(...points.map((p) => Math.abs(p.emotion)), 1e-9)
+          const maxFore = Math.max(...points.map((p) => p.foreshadowing), 1e-9)
+          const zeroY = MT + innerH / 2
+          const emoY = (v: number) => zeroY - (v / maxAbsEmo) * (innerH / 2)
+          const foreY = (v: number) => MT + innerH - (v / maxFore) * innerH
+          const emoLine = points.map((p) => `${x(p.chapter)},${emoY(p.emotion).toFixed(1)}`).join(" ")
+          const emoArea = `${ML},${zeroY.toFixed(1)} ${emoLine} ${x(points.length)},${zeroY.toFixed(1)}`
+          const foreLine = points.map((p) => `${x(p.chapter)},${foreY(p.foreshadowing).toFixed(1)}`).join(" ")
+          return (
+            <div className="border-t p-3" data-testid="chapter-ecg">
+              <div className="mb-1 flex items-center gap-2">
+                <h3 className="text-sm font-medium">{t("dashboard.section.chapterEcg", { defaultValue: "章节心电图" })}</h3>
+                <span className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "#10b981" }} aria-hidden="true" />情绪Top5Δ</span>
+                  <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "#f59e0b" }} aria-hidden="true" />伏笔事件</span>
+                </span>
+              </div>
+              <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="chapter-ecg">
+                <line x1={ML} y1={zeroY} x2={W - MR} y2={zeroY} stroke="currentColor" strokeOpacity={0.2} />
+                <polygon points={emoArea} fill="#10b981" fillOpacity={0.18} />
+                <polyline points={emoLine} fill="none" stroke="#10b981" strokeWidth={2} data-testid="chapter-ecg-emotion" />
+                <polyline points={foreLine} fill="none" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 3" data-testid="chapter-ecg-foreshadowing" />
+                <text x={ML} y={H - 6} fontSize={10} fill="currentColor" opacity={0.6}>第1章</text>
+                <text x={W - MR} y={H - 6} fontSize={10} fill="currentColor" opacity={0.6} textAnchor="end">第{points.length}章</text>
+              </svg>
+            </div>
+          )
+        })()}
 
         <DebtBoardView
           chaseDebts={chaseDebts}

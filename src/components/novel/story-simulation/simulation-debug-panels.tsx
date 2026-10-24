@@ -364,13 +364,13 @@ export function SimulatingTimelinePanel({
                           ) : (
                             <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                           )}
-                          <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[0.6875rem] font-medium text-primary">
+                          <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
                             {phaseLabel(phase)}
                           </span>
                           <span className="text-sm font-medium">
                             节点 {nodeIndex + 1}：{nodeTitle}
                           </span>
-                          <span className="ml-auto text-[0.6875rem] text-muted-foreground">
+                          <span className="ml-auto text-xs text-muted-foreground">
                             {nodeEvents.length} 条事件
                           </span>
                         </button>
@@ -379,7 +379,7 @@ export function SimulatingTimelinePanel({
                           <div className="space-y-1.5 border-t px-3 py-2">
                             {nodeEvents.map((ev) => (
                               <div key={ev.id} className="leading-relaxed">
-                                <span className="mr-1 rounded bg-muted px-1 py-0.5 text-[0.625rem] text-muted-foreground">
+                                <span className="mr-1 rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">
                                   R{ev.round + 1}
                                 </span>
                                 {onInterviewAgent ? (
@@ -544,7 +544,7 @@ export function ProcessDebugPanel({
               className="rounded-md border bg-background/70 p-3"
             >
               <div className="mb-2 flex flex-wrap items-center gap-2">
-                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[0.6875rem] font-medium text-primary">
+                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
                   {trace.type === "round-plan" ? t("storySimulation.traceRoundPlan") : "事件写入"}
                 </span>
                 <span className="text-xs text-muted-foreground">
@@ -602,7 +602,7 @@ export function ProcessDebugPanel({
                       </span>
                       <span> 可见事件 {agent.visibleEventCount ?? 0} 条</span>
                       {agent.recentEvents && agent.recentEvents.length > 0 && (
-                        <div className="mt-0.5 max-h-12 overflow-y-auto text-[0.625rem] text-muted-foreground/70">
+                        <div className="mt-0.5 max-h-12 overflow-y-auto text-xs text-muted-foreground/70">
                           {agent.recentEvents
                             .map((event) => event.id)
                             .join("、")}
@@ -623,7 +623,7 @@ export function ProcessDebugPanel({
 export function DebugStat({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-md border bg-background/70 px-3 py-2">
-      <div className="text-[0.6875rem] text-muted-foreground">{label}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
       <div className="text-lg font-semibold">{value}</div>
     </div>
   );
@@ -647,7 +647,7 @@ export function DebugAgentList({
           agents.map((agent) => (
             <span
               key={`${title}-${agent.agentId}`}
-              className="max-w-[120px] truncate rounded bg-background px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground"
+              className="max-w-[120px] truncate rounded bg-background px-1.5 py-0.5 text-xs text-muted-foreground"
               title={agent.reason}
             >
               {agent.agentName}

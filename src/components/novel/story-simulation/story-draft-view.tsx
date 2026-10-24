@@ -248,7 +248,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <div className="mx-auto max-w-3xl space-y-4">
+        <div className="w-full min-w-0 space-y-4">
           <div className="text-xs text-muted-foreground">
             {t("storySimulation.totalWords")}: {draft.totalWords}
           </div>

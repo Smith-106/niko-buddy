@@ -14,7 +14,14 @@ const buildLanguageDirectiveMock = vi.hoisted(() => vi.fn((s: string) => `[LANG:
 const buildContextPackMock = vi.hoisted(() => vi.fn())
 const contextPackToPromptMock = vi.hoisted(() => vi.fn((p: unknown) => `CP:${JSON.stringify(p)}`))
 
-vi.mock("@/commands/fs", () => fsState)
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+    listDirectory: fsState.listDirectory,
+    readFile: fsState.readFile,
+  }
+})
 vi.mock("@/lib/llm-client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/llm-client")>()
   return {

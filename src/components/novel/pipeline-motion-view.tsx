@@ -122,7 +122,7 @@ export function PipelineMotionView({
   return (
     <div data-testid="pipeline-motion-view" className="space-y-2">
       {loadError ? (
-        <p data-testid="motion-load-error" className="text-[11px] text-destructive">
+        <p data-testid="motion-load-error" className="text-xs text-destructive">
           事件裝載失敗（保留上次數據）：{loadError}
         </p>
       ) : null}

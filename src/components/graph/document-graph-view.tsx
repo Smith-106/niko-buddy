@@ -226,7 +226,7 @@ export function DocumentGraphView({
 
   return (
     <div className="h-full overflow-auto bg-background p-6">
-      <div className="mx-auto max-w-4xl space-y-5">
+      <div className="w-full min-w-0 space-y-5">
         <div className="rounded-lg border bg-card p-5 shadow-sm">
           <h1 className="text-xl font-semibold">{t("graph.docTitle")}</h1>
           <p className="mt-2 text-sm text-muted-foreground">{t("graph.docHint")}</p>
@@ -380,6 +380,7 @@ export function DocumentGraphView({
             </button>
             <button
               type="button"
+              data-testid="graph-orphan-filter-toggle"
               className={`rounded-md border px-2 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${graphDocumentButtonClass(showOnlyIsolatedNodes)}`}
               disabled={isolationStats.isolated === 0}
               onClick={() => {
@@ -435,7 +436,7 @@ export function DocumentGraphView({
                           <h3 className="break-words text-base font-semibold">{activeGroupIndex + 1}.{documentNodePage * DOCUMENT_NODES_PAGE_SIZE + nodeIndex + 1} {node.label}</h3>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             <span>{getGraphNodeTypeLabel(node.type)} · {t("graph.contextNodeLinks", { count: node.linkCount })}</span>
-                            {riskLabel && <span className="rounded border border-warning bg-warning/10 px-1.5 py-0.5 text-[0.6875rem] text-warning dark:border-warning dark:text-warning">{riskLabel}</span>}
+                            {riskLabel && <span className="rounded border border-warning bg-warning/10 px-1.5 py-0.5 text-xs text-warning dark:border-warning dark:text-warning">{riskLabel}</span>}
                           </div>
                         </div>
                         <span className="shrink-0 rounded-md border px-2 py-1 text-xs text-muted-foreground">{isExpanded ? t("chat.collapse", { defaultValue: "收起" }) : t("chat.expand", { defaultValue: "展开" })}</span>
@@ -445,7 +446,7 @@ export function DocumentGraphView({
                         return (
                           <button
                             type="button"
-                            className={`mt-2 rounded border px-1.5 py-0.5 text-[0.6875rem] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${labelColor.bg} ${labelColor.border} ${labelColor.text}`}
+                            className={`mt-2 rounded border px-1.5 py-0.5 text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${labelColor.bg} ${labelColor.border} ${labelColor.text}`}
                             aria-label={t("graph.riskStateFilterLabel") + ": " + riskStateLabel}
                             onClick={() => cycleRiskStateLabel(node)}
                           >

@@ -59,13 +59,13 @@ export function AgentCapabilityMatrixPanel({
           <Users className="h-4 w-4" />
           Agent 能力矩阵（角色 × 技能）
         </h3>
-        <p className="text-[10px] text-muted-foreground" data-testid="agent-capability-scope">
+        <p className="text-xs text-muted-foreground" data-testid="agent-capability-scope">
           能力 = 角色声明的类型/阶段标记 ∩ 技能声明的标记（复用技能库既有 kinds/stages）。
           本面板不生成技能、不改技能库、不决定模型路由。
         </p>
       </header>
 
-      <p className="text-[11px] text-muted-foreground" data-testid="agent-capability-summary">
+      <p className="text-xs text-muted-foreground" data-testid="agent-capability-summary">
         {resolved.skillsLoaded ? (
           <>
             角色：<b className="text-foreground">{counts.roles}</b> · 技能：
@@ -83,7 +83,7 @@ export function AgentCapabilityMatrixPanel({
       </p>
 
       {resolved.rows.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground" data-testid="agent-capability-empty">
+        <p className="text-xs text-muted-foreground" data-testid="agent-capability-empty">
           没有角色定义（不是「不需要技能」，见下方不适用说明）。
         </p>
       ) : (
@@ -94,13 +94,13 @@ export function AgentCapabilityMatrixPanel({
               data-testid={`agent-capability-row-${row.roleId}`}
               className={
                 !resolved.skillsLoaded || row.matchedSkills.length > 0
-                  ? "rounded border border-border p-1.5 text-[11px]"
-                  : "rounded border border-amber-500/40 bg-amber-500/5 p-1.5 text-[11px] text-amber-800 dark:text-amber-300"
+                  ? "rounded border border-border p-1.5 text-xs"
+                  : "rounded border border-amber-500/40 bg-amber-500/5 p-1.5 text-xs text-amber-800 dark:text-amber-300"
               }
             >
               <b>{row.label}</b>
               <div
-                className="text-[10px] text-muted-foreground"
+                className="text-xs text-muted-foreground"
                 title={summarizeNames(row.matchedSkills).title}
               >
                 可用技能：
@@ -115,7 +115,7 @@ export function AgentCapabilityMatrixPanel({
               </div>
               {row.missingCapabilities.length > 0 ? (
                 <div
-                  className="text-[10px] text-amber-700 dark:text-amber-400"
+                  className="text-xs text-amber-700 dark:text-amber-400"
                   data-testid={`agent-capability-missing-${row.roleId}`}
                 >
                   缺口：{row.missingCapabilities.join("、")}
@@ -128,7 +128,7 @@ export function AgentCapabilityMatrixPanel({
 
       {resolved.missingCapabilities.length > 0 ? (
         <p
-          className="text-[11px] text-amber-800 dark:text-amber-300"
+          className="text-xs text-amber-800 dark:text-amber-300"
           data-testid="agent-capability-global-missing"
         >
           全角色合起来仍无人覆盖：{resolved.missingCapabilities.join("、")}
@@ -137,7 +137,7 @@ export function AgentCapabilityMatrixPanel({
 
       {resolved.unusedSkills.length > 0 ? (
         <p
-          className="text-[11px] text-muted-foreground"
+          className="text-xs text-muted-foreground"
           data-testid="agent-capability-unused"
           title={summarizeNames(resolved.unusedSkills).title}
         >
@@ -145,7 +145,7 @@ export function AgentCapabilityMatrixPanel({
         </p>
       ) : null}
 
-      <ul className="space-y-0.5 text-[10px] text-muted-foreground" data-testid="agent-capability-na">
+      <ul className="space-y-0.5 text-xs text-muted-foreground" data-testid="agent-capability-na">
         <li className="font-medium text-foreground">
           不适用说明<span className="sr-only">N/A</span>
         </li>

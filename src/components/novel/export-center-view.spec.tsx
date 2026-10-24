@@ -17,14 +17,15 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
-  return { ...actual, readFile: vi.fn(), listDirectory: vi.fn() }
+  return { ...actual, readFile: vi.fn(), listDirectory: vi.fn(), fileExists: vi.fn(async () => false) }
 })
 
-import { listDirectory, readFile } from "@/commands/fs"
+import { fileExists, listDirectory, readFile } from "@/commands/fs"
 import { ExportCenterView, loadExportCenterSnapshot } from "./export-center-view"
 
 const listDirectoryMock = vi.mocked(listDirectory)
 const readFileMock = vi.mocked(readFile)
+const fileExistsMock = vi.mocked(fileExists)
 
 const FINAL_CHAPTER_MD = "---\nchapter_status: final\nchapter_number: 1\ntitle: 开篇\n---\n正文内容\n"
 
@@ -40,6 +41,8 @@ afterEach(cleanup)
 beforeEach(() => {
   listDirectoryMock.mockReset()
   readFileMock.mockReset()
+  fileExistsMock.mockReset()
+  fileExistsMock.mockResolvedValue(false)
 })
 
 describe("ExportCenterView", () => {
@@ -120,5 +123,27 @@ describe("ExportCenterView", () => {
     fireEvent.click(screen.getByTestId("export-epub-button"))
     await waitFor(() => expect(screen.getAllByTestId("export-record-failure")).toHaveLength(2))
     expect(screen.getAllByTestId("export-record-failure")[1]?.textContent).toContain("epub invoke failed")
+  })
+
+  it("同名文件先确认，确认后才导出", async () => {
+    mockOneFinalChapter()
+    fileExistsMock.mockResolvedValue(true)
+    const exportDocx = vi.fn().mockResolvedValue({
+      success: true,
+      exportedPath: "C:/proj/exports/complete-novel.docx",
+      chapterCount: 1,
+      message: "ok",
+    })
+    render(<ExportCenterView projectPath="C:/proj" actions={{ exportDocx, exportEpub: vi.fn() }} />)
+    await waitFor(() => expect(screen.getByTestId("export-center-count")).toBeTruthy())
+    fireEvent.change(screen.getByTestId("export-file-name"), { target: { value: "终稿" } })
+    fireEvent.click(screen.getByTestId("export-docx-button"))
+    await waitFor(() => expect(screen.getByTestId("export-overwrite-confirm")).toBeTruthy())
+    expect(exportDocx).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId("export-overwrite-confirm-button"))
+    await waitFor(() => expect(exportDocx).toHaveBeenCalledWith({
+      projectPath: "C:/proj",
+      exportPath: "C:/proj/exports/终稿.docx",
+    }))
   })
 })

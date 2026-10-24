@@ -601,7 +601,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
               </div>
             </div>
             <div className="mt-2 text-xs text-muted-foreground">
-              也可以在拆书库主界面统一管理文风、角色技能和绑定关系。
+              也可以在拆文库主界面统一管理文风、角色技能和绑定关系。
             </div>
             {styleProfile && (
               <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">

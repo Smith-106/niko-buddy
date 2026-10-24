@@ -116,6 +116,15 @@ export function ReviewCenterView() {
     () => (wishEdges === null ? null : projectWishDriveProfile(wishEdges)),
     [wishEdges],
   )
+  // 第 6 块：概览条当前分区分组（复用既有 i18n 键，零新文案面）。
+  const sectionLabel =
+    selectedReviewDimension === "ai-review"
+      ? t("reviewCenter.aiReview")
+      : selectedReviewDimension === "character-report"
+        ? t("reviewCenter.characterHitReport")
+        : selectedReviewDimension && isSixReviewDimensionKey(selectedReviewDimension)
+          ? t(`reviewCenter.dimension.${selectedReviewDimension}`)
+          : t("dashboard.title")
 
   let content: ReactNode
   if (selectedReviewDimension === "ai-review") {
@@ -139,6 +148,35 @@ export function ReviewCenterView() {
 
   return (
     <div className="relative h-full min-h-0">
+      {/* 第 6 块：顶部审校概览条（当前分区 + 分镜/技法快捷入口，复用浮钮开关，零新路由）。 */}
+      <div
+        className="flex items-center gap-2 border-b px-3 py-1.5 text-xs"
+        data-testid="review-center-summary-strip"
+        aria-label={t("reviewCenter.summaryStrip")}
+      >
+        <span className="font-medium">{t("reviewCenter.title")}</span>
+        <span className="truncate text-muted-foreground">{sectionLabel}</span>
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            data-testid="review-center-summary-storyboard"
+            onClick={() => setStoryboardOpen(true)}
+            disabled={storyboardOpen}
+            className="rounded-md border px-2 py-0.5 text-muted-foreground hover:bg-accent disabled:cursor-default disabled:opacity-50"
+          >
+            {t("reviewCenter.storyboard.toggle")}
+          </button>
+          <button
+            type="button"
+            data-testid="review-center-summary-craft"
+            onClick={() => setCraftOpen(true)}
+            disabled={craftOpen}
+            className="rounded-md border px-2 py-0.5 text-muted-foreground hover:bg-accent disabled:cursor-default disabled:opacity-50"
+          >
+            {t("reviewCenter.craftToggle")}
+          </button>
+        </span>
+      </div>
       {content}
       {/* F-010: storyboard opt-in 入口（右下角悬浮按钮，默认隐藏） */}
       {!storyboardOpen && (

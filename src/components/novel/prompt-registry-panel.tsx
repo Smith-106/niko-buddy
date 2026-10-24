@@ -26,7 +26,7 @@ export function PromptRegistryPanel({ entries }: PromptRegistryPanelProps) {
         <ListChecks className="h-4 w-4" />
         提示词注册表（{resolved.length} 条 · {groups.length} 个场景）
       </h3>
-      <p className="text-[10px] text-muted-foreground" data-testid="prompt-registry-scope">
+      <p className="text-xs text-muted-foreground" data-testid="prompt-registry-scope">
         预览是用占位符（«argN»）做的一次哨兵渲染，不是真实上下文；真值哨兵会绕过空值分支，读全局设置的片段（如输出语言指令）也会出现在预览里。
       </p>
       <ul className="flex flex-col gap-2">
@@ -37,7 +37,7 @@ export function PromptRegistryPanel({ entries }: PromptRegistryPanelProps) {
             </p>
             <ul className="flex flex-col gap-0.5">
               {group.entries.map((entry) => (
-                <li key={entry.id} data-testid={`prompt-registry-entry-${entry.id}`} className="text-[11px]">
+                <li key={entry.id} data-testid={`prompt-registry-entry-${entry.id}`} className="text-xs">
                   <button
                     type="button"
                     data-testid={`prompt-registry-toggle-${entry.id}`}
@@ -56,7 +56,7 @@ export function PromptRegistryPanel({ entries }: PromptRegistryPanelProps) {
                   {expanded === entry.id ? (
                     <pre
                       data-testid={`prompt-registry-preview-${entry.id}`}
-                      className="mt-1 whitespace-pre-wrap rounded bg-muted px-2 py-1 font-mono text-[10px] text-muted-foreground"
+                      className="mt-1 whitespace-pre-wrap rounded bg-muted px-2 py-1 font-mono text-xs text-muted-foreground"
                     >
                       {entry.preview ?? entry.error ?? ""}
                     </pre>
@@ -67,7 +67,7 @@ export function PromptRegistryPanel({ entries }: PromptRegistryPanelProps) {
           </li>
         ))}
       </ul>
-      <ul className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+      <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
         <li data-testid="prompt-registry-na-usage">N/A：使用点统计（无「谁在何处调用」真源，不做估算）</li>
         <li data-testid="prompt-registry-na-compose">N/A：场景组合预览（需真实上下文包，不在只读面板伪造）</li>
       </ul>

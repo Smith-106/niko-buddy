@@ -459,7 +459,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
         className={className ?? "h-full overflow-auto bg-background p-6"}
         data-testid="canon-editor-root"
       >
-        <div className="mx-auto max-w-5xl space-y-5">
+        <div className="w-full min-w-0 space-y-5">
           <header className="rounded-lg border bg-card p-5 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <h1 className="text-xl font-semibold" data-testid="canon-editor-title">
@@ -540,7 +540,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
       className={className ?? "h-full overflow-auto bg-background p-6"}
       data-testid="canon-editor-root"
     >
-      <div className="mx-auto max-w-5xl space-y-5">
+      <div className="w-full min-w-0 space-y-5">
         <header className="rounded-lg border bg-card p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <h1 className="text-xl font-semibold" data-testid="canon-editor-title">

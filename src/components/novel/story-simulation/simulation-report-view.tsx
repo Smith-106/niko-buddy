@@ -241,7 +241,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <div className={`mx-auto ${compact ? "max-w-none" : "max-w-3xl"} space-y-6`}>
+        <div className="w-full min-w-0 space-y-6">
           {/* 关键剧情事件时间线 */}
           {timelineDiff && (
             <div className="flex items-center gap-4 rounded-lg border bg-muted/30 px-3 py-2 text-xs">
@@ -504,7 +504,7 @@ export function SimulationReportView({
           <TrendingUp className="h-4 w-4 shrink-0 text-primary" />
           <h2 className="text-sm font-semibold truncate">{t("storySimulation.reportTitle")}</h2>
           {currentResult && (
-            <span className="shrink-0 rounded bg-muted px-2 py-0.5 text-[0.625rem] text-muted-foreground">
+            <span className="shrink-0 rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
               {formatDate(currentResult.createdAt)}
             </span>
           )}
@@ -754,13 +754,13 @@ function TimelineGroupedEvents({
                 ) : (
                   <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 )}
-                <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[0.6875rem] font-medium text-primary">
+                <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
                   {phaseLabel(phase)}
                 </span>
                 <span className={`font-medium min-w-0 truncate ${compact ? "text-xs" : "text-sm"}`}>
                   {t("storySimulation.nodeWithTitle", { index: nodeIndex + 1, title: nodeTitle })}
                 </span>
-                <span className="ml-auto shrink-0 text-[0.6875rem] text-muted-foreground">
+                <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                   {t("storySimulation.countItems", { count: nodeEvents.length })}
                 </span>
               </button>
@@ -773,7 +773,7 @@ function TimelineGroupedEvents({
                       className={`rounded-md border bg-muted/20 ${compact ? "px-2 py-1.5 text-xs" : "px-3 py-2 text-sm"}`}
                     >
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground">
+                        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                           R{ev.round + 1}
                         </span>
                         {onInterviewAgent ? (

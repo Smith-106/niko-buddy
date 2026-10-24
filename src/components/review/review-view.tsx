@@ -586,10 +586,20 @@ export function ReviewView({
           type="button"
           onClick={(event) => {
             event.stopPropagation()
+            void openNovelReviewActionItem(item, true)
+          }}
+          className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
+        >
+          {t("dashboard.actions.edit")}
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
             void runNovelReviewAiRewrite(item)
           }}
           disabled={isRewriting}
-          className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isRewriting ? t("dashboard.actions.rewriting") : t("dashboard.actions.aiRewrite")}
         </button>
@@ -599,7 +609,7 @@ export function ReviewView({
             event.stopPropagation()
             setFindingCompareTarget(item)
           }}
-          className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent"
+          className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
         >
           对比改写
         </button>
@@ -610,7 +620,7 @@ export function ReviewView({
               event.stopPropagation()
               void handleViewRewrite(item)
             }}
-            className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent"
+            className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
           >
             {t("dashboard.actions.viewRewrite")}
           </button>
@@ -622,7 +632,7 @@ export function ReviewView({
               event.stopPropagation()
               void handleRestoreRewrite(item)
             }}
-            className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent"
+            className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
           >
             {t("dashboard.actions.restore")}
           </button>
@@ -633,7 +643,7 @@ export function ReviewView({
             event.stopPropagation()
             void handleIgnoreNovelReviewItem(item)
           }}
-          className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent"
+          className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
         >
           {t("dashboard.actions.ignore")}
         </button>
@@ -650,7 +660,7 @@ export function ReviewView({
                 setDismissNote("")
               }
             }}
-            className="rounded border border-primary/40 px-2 py-1 text-[0.6875rem] text-primary hover:bg-primary/10"
+            className="rounded border border-primary/40 px-2 py-1 text-xs text-primary hover:bg-primary/10"
           >
             {t("review.results.dismiss.dismissButton")}
           </button>
@@ -715,7 +725,7 @@ export function ReviewView({
       ) : null}
       </div>
     )
-  }, [dismissPanelId, dismissNote, dismissReason, dismissTarget, handleDismissFinding, handleIgnoreNovelReviewItem, handleRestoreRewrite, handleViewRewrite, issueState.rewrites, rewriteBusyId, runNovelReviewAiRewrite, t])
+  }, [dismissPanelId, dismissNote, dismissReason, dismissTarget, handleDismissFinding, handleIgnoreNovelReviewItem, handleRestoreRewrite, handleViewRewrite, issueState.rewrites, openNovelReviewActionItem, rewriteBusyId, runNovelReviewAiRewrite, t])
 
   const handleRewriteEditReplacementChange = useCallback((editId: string, replacementText: string) => {
     /* v8 ignore next */
@@ -1102,19 +1112,19 @@ export function ReviewView({
                   : t("reviewCenter.trackADimBadge")}
               </span>
               {(dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull") && (
-                <span className="text-[0.625rem] text-muted-foreground">{t("reviewCenter.notProductGate")}</span>
+                <span className="text-xs text-muted-foreground">{t("reviewCenter.notProductGate")}</span>
               )}
             </div>
             {reviewRun?.measurementFingerprint && (
               <p
-                className="mt-1 font-mono text-[0.625rem] leading-4 text-muted-foreground break-all"
+                className="mt-1 font-mono text-xs leading-4 text-muted-foreground break-all"
                 title={t("reviewCenter.measurementFingerprintHint")}
                 data-testid="measurement-fingerprint-summary"
               >
                 {formatMeasurementFingerprintSummary(reviewRun.measurementFingerprint)}
               </p>
             )}
-            <p className="mt-1 text-[0.625rem] text-muted-foreground">{t("reviewCenter.perDimOnly")}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t("reviewCenter.perDimOnly")}</p>
             {selectedDimensionResult.summary && (
               <p className="mt-2 text-xs leading-5 text-muted-foreground">{selectedDimensionResult.summary}</p>
             )}
@@ -1140,6 +1150,15 @@ export function ReviewView({
             <CheckCircle2 className="h-8 w-8 animate-pulse text-success" style={{ animationDuration: "1.5s" }} aria-hidden="true" />
             <p>{emptyMessage || t(novelMode ? "novel.review.allClear" : "review.allClear")}</p>
             <p className="text-xs italic text-muted-foreground">{t(novelMode ? "novel.review.allClearHint" : "review.allClearHint")}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="review-empty-continue"
+              className="mt-2 text-foreground"
+              onClick={() => setActiveView("wiki")}
+            >
+              {t("review.continueWriting", { defaultValue: "继续写作" })}
+            </Button>
           </div>
         ) : (
           <div className="flex flex-col gap-2 p-3">
@@ -1201,7 +1220,7 @@ export function ReviewView({
                           tone={item.reviewSeverity === "error" ? "danger" : item.reviewSeverity === "warning" ? "warning" : "neutral"}
                         />
                         {item.continuityMeta && i18n.exists(`review.results.subtype.${item.continuityMeta.subtype}`) ? (
-                          <span className="rounded border border-border/60 px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
+                          <span className="rounded border border-border/60 px-1.5 py-0.5 text-xs text-muted-foreground">
                             {i18n.t(`review.results.subtype.${item.continuityMeta.subtype}`)}
                           </span>
                         ) : null}
@@ -1250,7 +1269,7 @@ export function ReviewView({
                         <button
                           type="button"
                           onClick={() => void handleDeleteHistory(entry)}
-                          className="shrink-0 text-[0.625rem] text-muted-foreground hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="shrink-0 text-xs text-muted-foreground hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           aria-label={t("novel.history.delete")}
                         >
                           {t("novel.history.delete")}

@@ -12,6 +12,9 @@ import {
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { GraphView } from "./graph-view"
+import Graph from "graphology"
+import { HighlightManager } from "./sigma-graph-views"
+import { MindMapGraphView } from "./mindmap-views"
 import type { GraphNode, GraphEdge, CommunityInfo } from "@/lib/wiki-graph"
 import zhLocale from "@/i18n/zh.json"
 
@@ -48,6 +51,7 @@ interface WikiStateLike {
   embeddingConfig: { enabled: boolean; model: string }
   setSelectedFile: (path: string | null) => void
   setFileContent: (content: string) => void
+  setPendingEditorHighlight: (highlight: { path: string; text: string; nonce: number } | null) => void
   setActiveView: (view: string) => void
   bumpDataVersion: () => void
   setGraphStats: (stats: unknown) => void
@@ -74,6 +78,7 @@ const mocks = vi.hoisted(() => {
       state.selectedFile = path
     }),
     setFileContent: vi.fn(),
+    setPendingEditorHighlight: vi.fn(),
     setActiveView: vi.fn(),
     bumpDataVersion: vi.fn(() => {
       state.dataVersion += 1
@@ -430,10 +435,14 @@ describe("GraphView — 空态 / 加载 / 错误", () => {
     mocks.loadForeshadowingTracker.mockResolvedValue({ items: [], lastUpdated: "" })
     setState({ project: PROJECT })
     const { unmount } = render(<GraphView />)
+    const skeleton = screen.getByTestId("graph-loading-skeleton")
+    expect(skeleton).toBeTruthy()
+    expect(skeleton).toHaveAttribute("aria-busy", "true")
     expect(screen.getByText("正在构建关系图...")).toBeTruthy()
     await act(async () => {
       resolveLoad(BASIC_RESULT)
     })
+    await waitFor(() => expect(screen.queryByTestId("graph-loading-skeleton")).toBeNull())
     unmount()
   })
 
@@ -521,7 +530,8 @@ describe("GraphView — 图谱加载与 Sigma 生命周期", () => {
     const graph = await waitForGraph()
     expect(graph).not.toBeNull()
     // overview 预设 allowedNodeTypes 过滤掉 custom-type 节点 → 3 节点入图；
-    // 4 条边中 1 条重复反向、1 条悬空被跳过 → 2 条边
+    // 4 条边中 1 条重复反向、1 条悬空被跳过 → 2 条边；
+    // P0-2：统计口径与渲染一致，filteredEdgeCount == sigma 实际边数（2，非 3）。
     expect((graph as { nodes: () => string[] }).nodes()).toHaveLength(3)
     expect((graph as { edges: () => string[] }).edges()).toHaveLength(2)
     expect(mocks.state.setRefreshGraph).toHaveBeenCalled()
@@ -531,7 +541,7 @@ describe("GraphView — 图谱加载与 Sigma 生命周期", () => {
         edgeCount: 4,
         hiddenCount: 1,
         filteredNodeCount: 3,
-        filteredEdgeCount: 3,
+        filteredEdgeCount: 2,
       })
     })
   })
@@ -545,6 +555,48 @@ describe("GraphView — 图谱加载与 Sigma 生命周期", () => {
     })
     await waitFor(() => {
       expect(mocks.buildWikiGraph).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  it("视觉旋钮未变时重渲染保持 settings 同一身份（#37 防 kill+重建风暴回归）", async () => {
+    const { rerender } = await renderLoadedGraph()
+    const before = sigma.getSettings()
+    expect(before).toBeTruthy()
+    await act(async () => {
+      rerender(<GraphView />)
+    })
+    expect(sigma.getSettings()).toBe(before)
+  })
+
+  it("视觉旋钮变化时 settings 更新（防过度 memo 冻结）", async () => {
+    const { rerender } = await renderLoadedGraph()
+    const before = sigma.getSettings()
+    setState({ graphEdgeColorHex: "#123456" })
+    await act(async () => {
+      rerender(<GraphView />)
+    })
+    expect(sigma.getSettings()).not.toBe(before)
+    expect((sigma.getSettings() as { defaultEdgeColor: string }).defaultEdgeColor).toBe("#123456")
+  })
+
+  describe("HighlightManager P0-1 三重加固（#37 stale refresh 回归）", () => {
+    it("空图时跳过 refresh（空图守卫）", () => {
+      sigma.setGraph(new Graph())
+      sigma.refresh.mockClear()
+      render(<HighlightManager highlightedNodes={new Set(["ghost"])} />)
+      expect(sigma.refresh).not.toHaveBeenCalled()
+    })
+
+    it("非空图时高亮正常落定并刷新一次（守卫不误伤）", () => {
+      const g = new Graph()
+      g.addNode("a", { x: 0, y: 0, size: 1, color: "#000000", label: "A" })
+      g.addNode("b", { x: 1, y: 1, size: 1, color: "#000000", label: "B" })
+      sigma.setGraph(g)
+      sigma.refresh.mockClear()
+      render(<HighlightManager highlightedNodes={new Set(["a"])} />)
+      expect(sigma.refresh).toHaveBeenCalledTimes(1)
+      expect(g.getNodeAttribute("a", "insightHighlight")).toBe(true)
+      expect(g.getNodeAttribute("b", "dimmed")).toBe(true)
     })
   })
 
@@ -690,6 +742,14 @@ describe("GraphView — Sigma 事件与交互", () => {
     })
     expect(mocks.state.setSelectedFile).toHaveBeenCalledWith("/p/test/wiki/chapters/alpha.md")
     expect(mocks.state.setFileContent).toHaveBeenCalledWith("file content")
+    // P2：无标题正文回退节点 label 定位
+    expect(mocks.state.setPendingEditorHighlight).toHaveBeenCalledWith({
+      path: "/p/test/wiki/chapters/alpha.md",
+      text: "Alpha",
+      nonce: expect.any(Number),
+    })
+    // A：单击留在图谱视图（探图不被打断），只预写定位请求
+    expect(mocks.state.setActiveView).not.toHaveBeenCalled()
     // 未知节点 → 直接返回
     fireSigmaEvent("clickNode", { node: "missing" })
     expect(mocks.readFile).toHaveBeenCalledTimes(1)
@@ -701,6 +761,60 @@ describe("GraphView — Sigma 事件与交互", () => {
       expect(errorSpy).toHaveBeenCalled()
     })
     errorSpy.mockRestore()
+  })
+
+  it("点击节点附带首标题定位高亮（P2 高亮→原文）", async () => {
+    mocks.readFile.mockResolvedValue("# Beta\n\n正文段落")
+    vi.mocked(mocks.state.setActiveView).mockClear()
+    await renderLoadedGraph()
+    fireSigmaEvent("clickNode", { node: "n1" })
+    await waitFor(() => {
+      expect(mocks.state.setPendingEditorHighlight).toHaveBeenCalledWith({
+        path: "/p/test/wiki/chapters/alpha.md",
+        text: "Beta",
+        nonce: expect.any(Number),
+      })
+    })
+    // A：单击不切视图
+    expect(mocks.state.setActiveView).not.toHaveBeenCalled()
+  })
+
+  it("双击节点切回正文视图并定位（A 双击跳正文）", async () => {
+    mocks.readFile.mockResolvedValue("# Beta\n\n正文段落")
+    vi.mocked(mocks.state.setActiveView).mockClear()
+    vi.mocked(mocks.state.setPendingEditorHighlight).mockClear()
+    await renderLoadedGraph()
+    fireSigmaEvent("doubleClickNode", { node: "n1" })
+    await waitFor(() => {
+      expect(mocks.state.setPendingEditorHighlight).toHaveBeenCalledWith({
+        path: "/p/test/wiki/chapters/alpha.md",
+        text: "Beta",
+        nonce: expect.any(Number),
+      })
+    })
+    expect(mocks.state.setActiveView).toHaveBeenCalledWith("wiki")
+  })
+
+  it("节点菜单跳到正文按钮切回正文视图（A 显式按钮）", async () => {
+    mocks.readFile.mockResolvedValue("# Beta\n\n正文段落")
+    vi.mocked(mocks.state.setActiveView).mockClear()
+    vi.mocked(mocks.state.setPendingEditorHighlight).mockClear()
+    await renderLoadedGraph()
+    fireSigmaEvent("rightClickNode", {
+      node: "n1",
+      event: { original: new MouseEvent("contextmenu", { clientX: 10, clientY: 10 }) },
+      preventSigmaDefault: vi.fn(),
+    })
+    await waitFor(() => expect(screen.getByTestId("graph-jump-to-editor")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("graph-jump-to-editor"))
+    await waitFor(() => {
+      expect(mocks.state.setActiveView).toHaveBeenCalledWith("wiki")
+    })
+    expect(mocks.state.setPendingEditorHighlight).toHaveBeenCalledWith({
+      path: "/p/test/wiki/chapters/alpha.md",
+      text: "Beta",
+      nonce: expect.any(Number),
+    })
   })
 
   it("左键拖拽移动节点、释放后点击被抑制", async () => {
@@ -997,6 +1111,8 @@ describe("GraphView — 过滤器 / 图例 / 缩放 / 布局", () => {
     expect(screen.getByText("Alpha")).toBeTruthy()
     expect(screen.getByText("Lonely")).toBeTruthy()
     expect(screen.getByTitle(/凝聚度偏低/)).toBeTruthy()
+    // 低内聚标记具备可访问名（role=img + aria-label），不只依赖颜色/"!"字形
+    expect(screen.getByRole("img", { name: /凝聚度偏低/ })).toBeTruthy()
     expect(screen.getByText(/簇 /)).toBeTruthy()
     unmount()
   })
@@ -1017,45 +1133,38 @@ describe("GraphView — 过滤器 / 图例 / 缩放 / 布局", () => {
     unmount()
   })
 
-  it("布局变化（selectedFile）触发重挂载遮罩并恢复", async () => {
+  it("布局变化（selectedFile）不再重挂载：同一容器持续渲染、无遮罩", async () => {
     mocks.findSurprisingConnections.mockReturnValue([])
     mocks.detectKnowledgeGaps.mockReturnValue([])
     const { rerender } = await renderLoadedGraph()
+    const before = screen.getByTestId("sigma-container")
     expect(screen.queryByText("调整中...")).toBeNull()
     setState({ selectedFile: "/p/test/wiki/chapters/alpha.md" })
     await act(async () => {
       rerender(<GraphView />)
     })
-    expect(screen.getByText("调整中...")).toBeTruthy()
-    await waitFor(
-      () => {
-        expect(screen.queryByText("调整中...")).toBeNull()
-      },
-      { timeout: 2000 },
-    )
-    expect(screen.getByTestId("sigma-container")).toBeTruthy()
+    // 防抖 refresh 不 remount：同一容器实例持续渲染，相机位姿保留
+    expect(screen.getByTestId("sigma-container")).toBe(before)
+    expect(screen.queryByText("调整中...")).toBeNull()
   })
 
-  it("面板拖拽（body dataset）触发重挂载遮罩并恢复", async () => {
+  it("面板拖拽不再重挂载：容器持续存在且无遮罩", async () => {
     mocks.findSurprisingConnections.mockReturnValue([])
     mocks.detectKnowledgeGaps.mockReturnValue([])
     await renderLoadedGraph()
+    const before = screen.getByTestId("sigma-container")
     document.body.dataset.panelResizing = "true"
-    await waitFor(() => {
-      expect(screen.getByText("调整中...")).toBeTruthy()
-    })
-    // 等待 isResizing=true 后的 effect 重绑 observer，避免结束属性变更被旧闭包忽略。
     await act(async () => {
       await Promise.resolve()
     })
+    expect(screen.getByTestId("sigma-container")).toBe(before)
+    expect(screen.queryByText("调整中...")).toBeNull()
     document.body.dataset.panelResizing = "false"
-    await waitFor(
-      () => {
-        expect(screen.queryByText("调整中...")).toBeNull()
-      },
-      { timeout: 2000 },
-    )
-    expect(screen.getByTestId("sigma-container")).toBeTruthy()
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId("sigma-container")).toBe(before)
+    expect(screen.queryByText("调整中...")).toBeNull()
   })
 })
 
@@ -1552,6 +1661,62 @@ describe("GraphView — 思维导图模式", () => {
     expect(screen.getByText("林烬")).toBeTruthy()
     unmount()
   })
+
+  it("工具条一键收展，连接线轨道与折叠徽标齐备", async () => {
+    mocks.buildWikiGraph.mockResolvedValue({
+      nodes: [
+        makeNode({ id: "n1", label: "角色页", type: "character", path: "/p/a.md", linkCount: 2, community: 0 }),
+        makeNode({ id: "n2", label: "林烬", type: "character", path: "/p/b.md", linkCount: 1, community: 0 }),
+        makeNode({ id: "n3", label: "事件", type: "event", path: "/p/c.md", linkCount: 1, community: 0 }),
+      ],
+      edges: [makeEdge({ source: "n2", target: "n3", weight: 1, relation: "APPEARS_IN" })],
+      communities: [],
+    })
+    mocks.loadForeshadowingTracker.mockResolvedValue({ items: [], lastUpdated: "" })
+    mocks.findSurprisingConnections.mockReturnValue([])
+    mocks.detectKnowledgeGaps.mockReturnValue([])
+    setState({ project: PROJECT, graphDisplayMode: "mindmap" })
+    const { unmount } = render(<GraphView />)
+    await waitFor(() => {
+      expect(screen.getByTestId("mindmap-toolbar")).toBeTruthy()
+    })
+    expect(screen.getByText("全部展开")).toBeTruthy()
+    expect(screen.getByText("全部收起")).toBeTruthy()
+    // 连接线轨道：根 + 两个分组各一条
+    expect(screen.getAllByTestId("mindmap-connector-rail").length).toBeGreaterThan(0)
+    // 折叠开关带子节点数徽标（根下 2 个分组）
+    const rootToggle = screen.getByTestId("mindmap-collapse-toggle-root")
+    expect(rootToggle.textContent).toContain("2")
+    expect(rootToggle.getAttribute("aria-expanded")).toBe("true")
+    // 折叠根 → 子树隐藏
+    fireEvent.click(rootToggle)
+    expect(screen.queryByText("角色页")).toBeNull()
+    expect(rootToggle.getAttribute("aria-expanded")).toBe("false")
+    // 工具条一键展开 → 恢复
+    fireEvent.click(screen.getByText("全部展开"))
+    await waitFor(() => {
+      expect(screen.getByText("角色页")).toBeTruthy()
+    })
+    // 一键收起 → 全树折叠
+    fireEvent.click(screen.getByText("全部收起"))
+    await waitFor(() => {
+      expect(screen.queryByText("角色页")).toBeNull()
+    })
+    unmount()
+  })
+
+  it("胶囊卡片点击透传 onNodeClick", async () => {
+    const clicked: string[] = []
+    const { unmount } = render(
+      <MindMapGraphView
+        mindMap={[{ id: "r", label: "根", children: [{ id: "c1", label: "叶子", nodeType: "character", children: [] }] }]}
+        onNodeClick={(node) => { clicked.push(node.id) }}
+      />,
+    )
+    fireEvent.click(screen.getByText("叶子"))
+    expect(clicked).toEqual(["c1"])
+    unmount()
+  })
 })
 
 describe("GraphView — 覆盖补充：Sigma 配置与边界分支", () => {
@@ -1676,6 +1841,36 @@ describe("GraphView — 覆盖补充：Sigma 配置与边界分支", () => {
         expect.objectContaining({ settings: expect.objectContaining({ barnesHutOptimize: true }) }),
       )
     })
+  })
+
+  it("布局预设切换：紧凑中心触发强引力重排，宽松探索触发弱引力", async () => {
+    mocks.findSurprisingConnections.mockReturnValue([])
+    mocks.detectKnowledgeGaps.mockReturnValue([])
+    const { unmount } = await renderLoadedGraph({ graphShowFilters: true })
+    // 默认社区优先：首次布局走 community 参数（证据调优后的 plain FA2）
+    await waitFor(() => {
+      expect(mocks.fa2.assign).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ settings: expect.objectContaining({ gravity: 1, scalingRatio: 1.5, linLogMode: false }) }),
+      )
+    })
+    mocks.fa2.assign.mockClear()
+    fireEvent.click(screen.getByTestId("layout-preset-compact"))
+    await waitFor(() => {
+      expect(mocks.fa2.assign).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ settings: expect.objectContaining({ gravity: 1.2, strongGravityMode: true }) }),
+      )
+    })
+    mocks.fa2.assign.mockClear()
+    fireEvent.click(screen.getByTestId("layout-preset-explore"))
+    await waitFor(() => {
+      expect(mocks.fa2.assign).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ settings: expect.objectContaining({ gravity: 0.05, linLogMode: false }) }),
+      )
+    })
+    unmount()
   })
 })
 
@@ -2358,6 +2553,208 @@ describe("GraphView — 覆盖率终局：可达边界", () => {
     // fireEvent 直接派发 click 事件（绕过浏览器 disabled 拦截），触发 React onChange 处理器
     fireEvent.click(structural as HTMLInputElement)
     fireEvent.click(isolated as HTMLInputElement)
+    unmount()
+  })
+})
+
+describe("GraphView — LOD 边标签与焦点邻域", () => {
+  beforeEach(() => {
+    resetBaseline()
+    setupDomGlobals()
+    if (typeof Element !== "undefined" && typeof Element.prototype.scrollIntoView !== "function") {
+      Element.prototype.scrollIntoView = vi.fn() as never
+    }
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
+    document.body.dataset.panelResizing = ""
+    delete document.body.dataset.panelResizing
+  })
+
+  /** 全图态可测 LOD：节点数 ≤120（不自动聚焦）但边数可超阈值 */
+  function denseGraph(nodeCount: number, edgeCount: number) {
+    const nodes: GraphNode[] = Array.from({ length: nodeCount }, (_, i) =>
+      makeNode({
+        id: `d${i}`,
+        label: `节点${i}`,
+        type: "character",
+        path: `/p/test/wiki/characters/${i}.md`,
+        linkCount: 2,
+        community: i % 3,
+      }),
+    )
+    const edges: GraphEdge[] = []
+    for (let i = 0; i < nodeCount && edges.length < edgeCount; i++) {
+      for (let j = i + 1; j < nodeCount && edges.length < edgeCount; j++) {
+        edges.push(makeEdge({ source: `d${i}`, target: `d${j}`, weight: 3, relation: "KNOWS" }))
+      }
+    }
+    return { nodes, edges, communities: [] as CommunityInfo[] }
+  }
+
+  function renderEdgeLabelsSetting(): boolean {
+    return (sigma.getSettings() as { renderEdgeLabels: boolean }).renderEdgeLabels
+  }
+
+  async function renderDenseGraph(patch: Record<string, unknown> = {}) {
+    mocks.buildWikiGraph.mockResolvedValue(denseGraph(60, 160))
+    mocks.loadForeshadowingTracker.mockResolvedValue({ items: [], lastUpdated: "" })
+    mocks.findSurprisingConnections.mockReturnValue([])
+    mocks.detectKnowledgeGaps.mockReturnValue([])
+    setState({ project: PROJECT, ...patch })
+    const utils = render(<GraphView />)
+    await waitFor(() => expect(screen.getByTestId("sigma-container")).toBeTruthy())
+    await waitForGraph()
+    return utils
+  }
+
+  it("小说模式小图默认全图且边标签关闭（降噪）", async () => {
+    const { unmount } = await renderLoadedGraph({ novelMode: true })
+    // 小图（<120 节点且章节 <10）保持全图：无焦点胶囊；边标签默认关闭。
+    expect(renderEdgeLabelsSetting()).toBe(false)
+    expect(screen.queryByText("1跳")).toBeNull()
+    unmount()
+  })
+
+  it("长连载（章节>=10）自动进入 Ego 焦点", async () => {
+    const longNodes = Array.from({ length: 12 }, (_, i) =>
+      makeNode({ id: `ch:${i + 1}`, label: `第${i + 1}章`, type: "chapter", path: `/p/test/wiki/chapters/${i + 1}.md`, linkCount: 2, community: 0 }),
+    )
+    mocks.buildWikiGraph.mockResolvedValue({ nodes: longNodes, edges: [], communities: [] as CommunityInfo[] })
+    mocks.loadForeshadowingTracker.mockResolvedValue({ items: [], lastUpdated: "" })
+    mocks.findSurprisingConnections.mockReturnValue([])
+    mocks.detectKnowledgeGaps.mockReturnValue([])
+    setState({ project: PROJECT, novelMode: true })
+    const { unmount } = render(<GraphView />)
+    await waitFor(() => expect(screen.getByTestId("sigma-container")).toBeTruthy())
+    await waitForGraph()
+    expect(screen.getByText("1跳")).toBeTruthy()
+    unmount()
+  })
+
+  it("显式开启边标签时才渲染（opt-in）", async () => {
+    const { unmount } = await renderLoadedGraph({ novelMode: true, graphEdgeLabelsAlwaysVisible: true })
+    expect(renderEdgeLabelsSetting()).toBe(true)
+    unmount()
+  })
+
+  it("非小说模式大全图（边数超阈值）关闭边标签并提供聚焦入口", async () => {
+    const { unmount } = await renderDenseGraph({ novelMode: false })
+    await waitFor(() => expect(renderEdgeLabelsSetting()).toBe(false))
+    expect(screen.getByText("聚焦模式")).toBeTruthy()
+    unmount()
+  })
+
+  it("焦点模式下边标签仍默认关闭（Hover 高亮才显示关系名）", async () => {
+    const { unmount } = await renderDenseGraph({ novelMode: false })
+    await waitFor(() => expect(renderEdgeLabelsSetting()).toBe(false))
+    fireEvent.click(screen.getByText("聚焦模式"))
+    await waitFor(() => expect(renderEdgeLabelsSetting()).toBe(false))
+    // 焦点胶囊展示 1/2 跳切换
+    expect(screen.getByText("1跳")).toBeTruthy()
+    expect(screen.getByText("2跳")).toBeTruthy()
+    unmount()
+  })
+
+  it("章节时间轴：滑块存在且过滤超前章节", async () => {
+    const { parseChapterNumber } = await import("./graph-view")
+    expect(parseChapterNumber({ label: "第12章 起点", path: "/p/test/wiki/chapters/12.md" })).toBe(12)
+    expect(parseChapterNumber({ label: "ch3", path: "/p/test/wiki/chapters/ch3.md" })).toBe(3)
+    expect(parseChapterNumber({ label: "Alpha", path: "/p/test/wiki/characters/a.md" })).toBeNull()
+    mocks.buildWikiGraph.mockResolvedValue({
+      nodes: [
+        makeNode({ id: "ch:1", label: "第1章", type: "chapter", path: "/p/test/wiki/chapters/1.md", linkCount: 2, community: 0 }),
+        makeNode({ id: "ch:5", label: "第5章", type: "chapter", path: "/p/test/wiki/chapters/5.md", linkCount: 2, community: 0 }),
+        makeNode({ id: "n1", label: "主角", type: "character", path: "/p/test/wiki/characters/a.md", linkCount: 2, community: 0 }),
+      ],
+      edges: [
+        makeEdge({ source: "n1", target: "ch:1", weight: 5 }),
+        makeEdge({ source: "n1", target: "ch:5", weight: 5 }),
+      ],
+      communities: [],
+    })
+    mocks.loadForeshadowingTracker.mockResolvedValue({ items: [], lastUpdated: "" })
+    mocks.findSurprisingConnections.mockReturnValue([])
+    mocks.detectKnowledgeGaps.mockReturnValue([])
+    setState({ project: PROJECT, novelMode: true })
+    const { unmount } = render(<GraphView />)
+    await waitFor(() => expect(screen.getByTestId("sigma-container")).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId("graph-chapter-timeline")).toBeTruthy())
+    const slider = screen.getByTestId("graph-chapter-timeline-slider") as HTMLInputElement
+    expect(slider.max).toBe("5")
+    fireEvent.change(slider, { target: { value: "1" } })
+    await waitFor(() => expect(screen.getByTestId("graph-chapter-timeline-reset")).toBeTruthy())
+    unmount()
+  })
+})
+
+describe("GraphView — 第8块：孤立高亮与社区图例", () => {
+  beforeEach(() => {
+    resetBaseline()
+    setupDomGlobals()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
+    document.body.dataset.panelResizing = ""
+    delete document.body.dataset.panelResizing
+  })
+
+  it("孤立开关高亮 linkCount<=1 节点，再点清除", async () => {
+    const { unmount } = await renderLoadedGraph()
+    const toggle = screen.getByTestId("graph-orphan-filter-toggle")
+    expect(toggle.getAttribute("aria-pressed")).toBe("false")
+    fireEvent.click(toggle)
+    // 注：GraphLoader 可能在布局完成后重建图实例（insights 高亮同机制），
+    // 断言一律读 live 图，不持有 stale 引用。
+    const liveGraph = () =>
+      sigma.getGraph() as {
+        getNodeAttribute: (node: string, key: string) => unknown
+      }
+    await waitFor(() => {
+      // n2 linkCount=1 → 高亮；n1 linkCount=3 → 被 dim
+      expect(liveGraph().getNodeAttribute("n2", "insightHighlight")).toBe(true)
+    })
+    expect(liveGraph().getNodeAttribute("n1", "dimmed")).toBe(true)
+    expect(toggle.getAttribute("aria-pressed")).toBe("true")
+    expect(toggle.textContent).toContain("1")
+    fireEvent.click(toggle)
+    await waitFor(() => {
+      expect(liveGraph().getNodeAttribute("n2", "insightHighlight") ?? null).toBeNull()
+    })
+    unmount()
+  })
+
+  it("社区图例点击聚焦对应簇，再点取消", async () => {
+    const { unmount } = await renderLoadedGraph({ graphColorMode: "community" })
+    const legend = screen.getByTestId("graph-community-legend")
+    expect(legend.textContent).toContain("Alpha")
+    const clusterBtn = within(legend).getByTitle("点击聚焦该社区")
+    fireEvent.click(clusterBtn)
+    const liveGraph = () =>
+      sigma.getGraph() as {
+        getNodeAttribute: (node: string, key: string) => unknown
+      }
+    await waitFor(() => {
+      // 社区 0 在展示层仅 n1 → 高亮 n1，其余 dim
+      expect(liveGraph().getNodeAttribute("n1", "insightHighlight")).toBe(true)
+    })
+    expect(liveGraph().getNodeAttribute("n2", "dimmed")).toBe(true)
+    fireEvent.click(clusterBtn)
+    await waitFor(() => {
+      expect(liveGraph().getNodeAttribute("n1", "insightHighlight") ?? null).toBeNull()
+    })
+    unmount()
+  })
+
+  it("文档模式孤立按钮带统一 testid", async () => {
+    const { unmount } = await renderDocumentView()
+    expect(screen.getByTestId("graph-orphan-filter-toggle")).toBeTruthy()
     unmount()
   })
 })

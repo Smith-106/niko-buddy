@@ -172,7 +172,7 @@ describe("DeAiSkillEditor", () => {
   it("renders the label, usage hints and save button", async () => {
     render(<DeAiSkillEditor />)
     await screen.findByRole("textbox")
-    expect(screen.getByText("去AI味Skill")).toBeInTheDocument()
+    expect(screen.getByText("去AI味技能")).toBeInTheDocument()
     expect(screen.getByText("使用提示：")).toBeInTheDocument()
     expect(screen.getByText(/编辑规则后点击"保存"/)).toBeInTheDocument()
     expect(screen.getByText(/系统默认使用 de-AI-writing skill/)).toBeInTheDocument()

@@ -11,6 +11,7 @@ import { useImportProgressStore } from "@/stores/import-progress-store"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { ingestOutline } from "./chapter-ingest"
+import { formatOutlineQualityReport } from "./outline-quality-check"
 import { normalizeMarkdownBody } from "./normalize-markdown-body"
 import { buildContextPack, type ContextPack } from "./context-engine"
 import { toErrorMessage } from "@/lib/utils"
@@ -53,7 +54,7 @@ export const OUTLINE_SECTION_GENERATION_CONFIGS: OutlineSectionGenerationConfig[
     title: "章节细纲",
     englishTitle: "Chapter Outlines",
     englishFileName: "chapter-outlines.md",
-    requestHint: "根据已有总纲、分卷大纲与章节推进需要，生成或完善章节细纲，明确每章目标、冲突、转折和结尾钩子。",
+    requestHint: "按章纲审核表逐章写。每一章都要有这些标题：基础信息、上层依据、本章目标、核心事件、场景顺序、结构节点、章首钩子、爽点设计、章尾钩子、执行约束、人物状态、伏笔与追踪、待写回设定、写作约束、AI写作提示。基础信息要写时间锚点、章内时间跨度、与上章时间差。核心事件至少 6 条，每条写事件内容、事件作用、涉及人物、因果关系、必须写出的细节。场景顺序写 2 到 4 个场景，每个场景写场景地点、出场人物、场景目标、冲突点、关键动作、关键对白、情绪变化、必须出现的信息、禁止偏离。结构节点写 CBN、CPNs、CEN。人物状态写主角状态、关键配角状态、反派/阻力方状态、人物关系变化、本章后人物认知变化。伏笔与追踪写本章投放伏笔、本章回收伏笔、本章延后处理；没有新伏笔就写本章无新增伏笔。写作约束写必须遵守、不允许改变、不允许出现。AI写作提示写严格遵循本章章纲，不得自行改写。",
   },
   {
     key: "characterBriefs",
@@ -81,7 +82,7 @@ export const OUTLINE_SECTION_GENERATION_CONFIGS: OutlineSectionGenerationConfig[
     title: "伏笔计划",
     englishTitle: "Foreshadowing Plan",
     englishFileName: "foreshadowing-plan.md",
-    requestHint: "根据已有大纲和项目记忆，整理伏笔的埋设、推进、回收节奏与对应章节节点。",
+    requestHint: "根据已有大纲和项目记忆，整理伏笔的埋设、推进、回收节奏与对应章节节点。用表格：| ID | 内容 | 优先级 | 预计回收时机 |，预计回收时机必须是具体章节。",
   },
   {
     key: "locationsOutline",
@@ -169,7 +170,7 @@ export async function buildOutlineGenerationPrompt(
   scale: string,
   premise: string,
 ): Promise<string> {
-  const pack = await safeBuildOutlineContextPack(projectPath, `?????${premise || genre}`)
+  const pack = await safeBuildOutlineContextPack(projectPath, `生成大纲 ${premise || genre}`)
   return PROMPTS.outlineGeneration(genre, scale, premise, formatOutlineGenerationContext(pack))
 }
 
@@ -444,6 +445,20 @@ export interface OutlineGenerationTaskOptions {
   multiAgent?: boolean
 }
 
+function appendOutlineQuality(message: string, content: string, kind: "volume" | "chapter"): string {
+  if (!content.trim()) return message
+  return `${message}\n${formatOutlineQualityReport(content, kind)}`
+}
+
+async function readWrittenOutline(outlinePath: string): Promise<string> {
+  try {
+    const written = await readFile(outlinePath)
+    return typeof written === "string" ? written : ""
+  } catch {
+    return ""
+  }
+}
+
 export async function runOutlineGenerationTask(
   taskId: string,
   llmConfig: LlmConfig,
@@ -463,14 +478,14 @@ export async function runOutlineGenerationTask(
   })
 
   try {
-    const { outlinePath } = options?.multiAgent
+    const generated = options?.multiAgent
       ? await generateOutlineFileMultiAgent(task.projectPath, llmConfig, task.prompt, abortController.signal)
       : await generateOutlineFile(task.projectPath, llmConfig, task.prompt, abortController.signal)
     await refreshProjectState(task.projectPath)
     useOutlineGenerationStore.getState().updateTask(taskId, {
       status: "generated",
-      outlinePath,
-      message: i18n.t("novel.outlineGenerator.generatedNotification"),
+      outlinePath: generated.outlinePath,
+      message: appendOutlineQuality(i18n.t("novel.outlineGenerator.generatedNotification"), generated.content, "volume"),
       error: null,
     })
     useImportProgressStore.getState().finishTask(progressTaskId, "done", {
@@ -542,12 +557,16 @@ export async function runOutlineRefinementTask(taskId: string, llmConfig: LlmCon
     }
 
     await refreshProjectState(task.projectPath)
+    const baseMessage = task.selectedSectionKey && task.displayTitle
+      ? i18n.t("novel.outlineGenerator.sectionGenerated", { title: task.displayTitle })
+      : i18n.t("novel.outlineGenerator.refineGenerated")
+    const qualityKind = task.selectedSectionKey === "chapterOutlines" || !task.selectedSectionKey
+      ? "chapter" as const
+      : null
     useOutlineGenerationStore.getState().updateTask(taskId, {
       status: "generated",
       outlinePath,
-      message: task.selectedSectionKey && task.displayTitle
-        ? i18n.t("novel.outlineGenerator.sectionGenerated", { title: task.displayTitle })
-        : i18n.t("novel.outlineGenerator.refineGenerated"),
+      message: qualityKind ? appendOutlineQuality(baseMessage, await readWrittenOutline(outlinePath), qualityKind) : baseMessage,
       error: null,
     })
     useImportProgressStore.getState().finishTask(progressTaskId, "done", {

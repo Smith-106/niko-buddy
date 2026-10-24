@@ -45,7 +45,7 @@ export function BookAnalysisLibraryLayout({
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 items-center justify-between border-b bg-background px-5 py-3">
           <div>
-            <h2 className="text-xl font-semibold">拆书库</h2>
+            <h2 className="text-xl font-semibold">拆文库</h2>
             <p className="mt-1 text-xs text-muted-foreground">{t("bookAnalysis.libraryManageHint")}</p>
           </div>
           <div className="flex items-center gap-2">

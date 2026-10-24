@@ -466,6 +466,26 @@ export async function buildWikiGraph(
   return { nodes, edges, communities }
 }
 
+/**
+ * P0-2 边计数对齐：与 GraphLoader 导入口径一致的去重（纯函数）。
+ * 丢弃任一端点不在节点集中的边；同键/反向键只保留首见（sigma 单图无平行边）。
+ * 返回的即实际会被 sigma 渲染的边列表——侧栏统计与 GraphLoader 共用此口径，
+ * 保证“去重计数 == 实际渲染数”。自环（source == target）按导入语义保留。
+ */
+export function dedupeImportEdges(nodeIds: Set<string>, edges: GraphEdge[]): GraphEdge[] {
+  const seen = new Set<string>()
+  const out: GraphEdge[] = []
+  for (const edge of edges) {
+    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) continue
+    const forward = `${edge.source}->${edge.target}`
+    const backward = `${edge.target}->${edge.source}`
+    if (seen.has(forward) || seen.has(backward)) continue
+    seen.add(forward)
+    out.push(edge)
+  }
+  return out
+}
+
 function resolveTarget(
   raw: string,
   nodeMap: Map<string, { id: string; aliases?: string[]; label?: string }>,

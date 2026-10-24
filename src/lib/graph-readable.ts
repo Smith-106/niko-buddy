@@ -13,6 +13,8 @@ export interface MindMapNode {
   id: string
   label: string
   children: MindMapNode[]
+  /** 原始图谱节点类型（raw type）：导图胶囊按类型着色；分组/根节点无此字段时用中性样式。 */
+  nodeType?: string
 }
 
 export interface GraphNodeRelationSummary {
@@ -372,9 +374,11 @@ export function buildGraphMindMap(nodes: GraphNode[], edges: GraphEdge[]): MindM
       children: groupNodes.map((node) => ({
         id: node.id,
         label: node.label,
+        nodeType: node.type,
         children: relatedEdges(edges, node.id).slice(0, 8).map((edge) => {
           const otherId = edge.source === node.id ? edge.target : edge.source
-          return { id: `${node.id}:${otherId}`, label: nodeLabel(nodes, otherId), children: [] }
+          const other = nodes.find((n) => n.id === otherId)
+          return { id: `${node.id}:${otherId}`, label: other?.label ?? otherId, nodeType: other?.type, children: [] }
         }),
       })),
     })

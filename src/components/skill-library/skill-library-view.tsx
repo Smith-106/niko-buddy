@@ -170,11 +170,11 @@ export function SkillLibrarySidebarPanel() {
               >
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{skill.name}</span>
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                     {sourceLabel(skill)}
                   </span>
                   {config?.defaultSkillId === skill.id ? (
-                    <span className="rounded bg-primary px-1.5 py-0.5 text-[0.625rem] text-primary-foreground">{t("skillLibrary.default")}</span>
+                    <span className="rounded bg-primary px-1.5 py-0.5 text-xs text-primary-foreground">{t("skillLibrary.default")}</span>
                   ) : null}
                 </div>
                 <div className="mt-1 truncate text-xs text-muted-foreground">{skill.description}</div>
@@ -399,7 +399,7 @@ export function SkillLibraryView() {
 
       <main className="min-h-0 flex-1 overflow-y-auto p-5">
         {loadError ? (
-          <div className="mx-auto max-w-3xl rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+          <div className="w-full min-w-0 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
             <div className="text-sm font-medium text-destructive">{loadError}</div>
             <p className="mt-2 text-sm text-muted-foreground">
               当前项目的技能库配置无法读取。你可以先尝试从备份恢复；如果没有可用备份，再重新创建默认配置。
@@ -429,7 +429,7 @@ export function SkillLibraryView() {
         ) : !selectedSkill ? (
           <div className="text-sm text-muted-foreground">{t("skillLibrary.noSkills")}</div>
         ) : (
-          <div className="mx-auto flex max-w-5xl flex-col gap-4">
+          <div className="flex w-full min-w-0 flex-col gap-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-sm text-muted-foreground">{sourceLabel(selectedSkill)}技能</div>

@@ -482,7 +482,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
       )}
 
       <main className="flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-3xl space-y-6">
+        <div className="w-full min-w-0 space-y-6">
           <div className="rounded-lg border bg-card p-4">
             <h3 className="mb-2 font-semibold">绑定小说人物</h3>
             <p className="mb-3 text-sm text-muted-foreground">{t("novel.soul.bindHint")}</p>

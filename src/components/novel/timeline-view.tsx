@@ -57,7 +57,7 @@ export function TimelineView() {
             <Clock className="h-4 w-4 text-muted-foreground" />
             <h2 className="text-sm font-semibold">{t("novel.timeline.title")}</h2>
           </div>
-          <div className="flex items-center gap-1 text-[0.6875rem] text-muted-foreground">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <span>{t("novel.range.from", { defaultValue: "起" })}</span>
             <input
               type="number"

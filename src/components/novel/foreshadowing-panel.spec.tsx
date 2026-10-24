@@ -197,4 +197,28 @@ describe("ForeshadowingPanel", () => {
     await waitFor(() => expect(tracker.loadForeshadowingTracker).toHaveBeenCalledTimes(2))
     expect(screen.queryByText("陈旧伏笔")).not.toBeInTheDocument()
   })
+
+  it("甘特 helpers：窗口/超期判定与默认 store 数据一致", async () => {
+    const { getForeshadowingGanttWindow, getForeshadowingGanttBar } = await import("./foreshadowing-panel")
+    const items = makeStore().items
+    // planted 最小 1 章；最大 max(12 回收, advanced 6)=12
+    expect(getForeshadowingGanttWindow(items, 12)).toEqual({ min: 1, max: 12 })
+    // f1 planted@2，当前 12 章 → 10 章未推进 → critical，且 end 延至当前章
+    expect(getForeshadowingGanttBar(items[0], 12)).toEqual({ start: 2, end: 12, level: "critical" })
+    // f2 advanced，上次推进 6 章 → 未达 advancedStale(10) → normal
+    expect(getForeshadowingGanttBar(items[1], 12).level).toBe("normal")
+    // f3 resolved 1→12，end 收敛回收章
+    expect(getForeshadowingGanttBar(items[2], 12)).toEqual({ start: 1, end: 12, level: "normal" })
+  })
+
+  it("甘特渲染：容器+三行条目，超期行标 critical", async () => {
+    render(<ForeshadowingPanel />)
+    const gantt = await screen.findByTestId("foreshadowing-gantt")
+    expect(gantt).toBeInTheDocument()
+    expect(screen.getByTestId("foreshadowing-gantt-row-f1").getAttribute("data-overdue")).toBe("critical")
+    expect(screen.getByTestId("foreshadowing-gantt-row-f2").getAttribute("data-overdue")).toBe("normal")
+    // f2 推进刻度：第 6 章圆点
+    expect(screen.getByText("2→12")).toBeInTheDocument()
+    expect(screen.getByText("1→12")).toBeInTheDocument()
+  })
 })

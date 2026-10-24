@@ -33,6 +33,8 @@ vi.mock("@/commands/fs", () => ({
   fileExists: vi.fn(),
   readFile: vi.fn(),
   listDirectory: vi.fn(),
+  createDirectory: vi.fn(),
+  writeFile: vi.fn(),
 }))
 
 vi.mock("@/stores/wiki-store", async (importOriginal) => {

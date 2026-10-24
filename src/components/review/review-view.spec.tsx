@@ -461,6 +461,14 @@ describe("ReviewView — 空态 / 头部 / 基础渲染", () => {
     expect(reviewBtn).toBeDisabled()
   })
 
+  it("空态继续写作按钮：点击切回 wiki 写作视图", () => {
+    mocks.state.novelMode = false
+    renderView()
+    const btn = screen.getByTestId("review-empty-continue")
+    fireEvent.click(btn)
+    expect(mocks.state.setActiveView).toHaveBeenCalledWith("wiki")
+  })
+
   it("title prop 覆盖默认标题; headerCount 徽标仅在 count>0 渲染", () => {
     renderView({ title: "自定义标题" })
     expect(screen.getByText("自定义标题")).toBeInTheDocument()
@@ -800,6 +808,27 @@ describe("ReviewView — novel review 结果 / 行动项 / action bar", () => {
     await waitFor(() => expect(mocks.state.setSelectedFile).toHaveBeenCalledTimes(2))
     fireEvent.click(card)
     await waitFor(() => expect(mocks.state.setSelectedFile).toHaveBeenCalledTimes(3))
+  })
+
+  it("行动项定位按钮 → 打开 wiki 并写入 pendingEditorHighlight（举证高亮）", async () => {
+    setRun({
+      runId: "r1",
+      filePath: "E:/Novel/chapter-8.md",
+      results: [makeResult()],
+      running: false,
+      error: null,
+    })
+    mocks.buildVisibleNovelReviewActionItems.mockReturnValue([makeActionItem({ id: "a1" })])
+    mocks.findReviewRewriteAnchors.mockReturnValueOnce([
+      { selection: { text: "行动项证据", start: 0, end: 5 } },
+    ])
+    renderView()
+    fireEvent.click(screen.getByText("dashboard.actions.edit"))
+    await waitFor(() => expect(mocks.state.setSelectedFile).toHaveBeenCalledWith("E:/Novel/chapter-8.md"))
+    expect(mocks.state.setActiveView).toHaveBeenCalledWith("wiki")
+    expect(mocks.state.setPendingEditorHighlight).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "E:/Novel/chapter-8.md", text: "行动项证据" }),
+    )
   })
 
   it("openNovelReviewActionItem: readFile 失败 → console.error + 返回 null", async () => {

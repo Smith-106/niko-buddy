@@ -96,7 +96,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
     return (
       <div className="my-2 rounded border border-destructive/60 bg-destructive/50 dark:bg-destructive/20 p-2 text-xs text-destructive dark:text-destructive">
         <p className="font-medium mb-1">{t("mermaid.syntaxError", "Mermaid 语法错误")}</p>
-        <pre className="whitespace-pre-wrap text-[0.6875rem] opacity-70">{error}</pre>
+        <pre className="whitespace-pre-wrap text-xs opacity-70">{error}</pre>
       </div>
     )
   }

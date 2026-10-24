@@ -270,7 +270,7 @@ export function InterviewHistoryView() {
 
               {/* 对话消息 */}
               <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                <div className="mx-auto max-w-2xl space-y-4">
+                <div className="w-full min-w-0 space-y-4">
                   {viewingInterview.session.messages.map((msg) => (
                     <div
                       key={msg.id}
@@ -329,7 +329,7 @@ export function InterviewHistoryView() {
                             <div className="flex items-center gap-2">
                               <span className="font-medium">{interview.agentName}</span>
                               {interview.frameworkTitle && (
-                                <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
+                                <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                                   {interview.frameworkTitle}
                                 </span>
                               )}
@@ -337,7 +337,7 @@ export function InterviewHistoryView() {
                             <p className="mt-1 text-xs text-muted-foreground line-clamp-1">
                               {getPreview(interview)}
                             </p>
-                            <div className="mt-2 flex items-center gap-3 text-[0.6875rem] text-muted-foreground">
+                            <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
                               <span className="flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
                                 {formatDate(interview.updatedAt)}

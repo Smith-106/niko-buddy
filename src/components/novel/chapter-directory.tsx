@@ -6,8 +6,10 @@ import { normalizePath } from "@/lib/path-utils"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import {
   findChapterFileByNumber,
+  isRichChapterTitle,
   listSnapshots,
   loadSnapshot,
+  resolveChapterTitle,
 
   type ChapterSnapshot,
 } from "@/lib/novel"
@@ -15,12 +17,35 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { cn, toErrorMessage } from "@/lib/utils"
 
 /**
- * 章节目录条目的三列来源（grok 计划审查要求：多源只读拼接，缺列写 N/A，禁止另建章节索引）：
+ * 章节目录条目的三列来源（grok 计划审查要求：多源只读拼接，缺列显式标注暂无，禁止另建章节索引）：
  * - 章号：`.novel/snapshots/*.snapshot.json` 的文件名（listSnapshots）
- * - 标题：快照 `chapterTitle`（可选字段，旧数据可能没有 → N/A）
- * - 字数：正文文件按 countChapterBodyWords 现算（读不到 → N/A）
+ * - 标题：快照里的富标题优先；没有则用正文 frontmatter / H1（resolveChapterTitle）。两边都没有才标暂无
+ * - 字数：正文文件按 countChapterBodyWords 现算（读不到 → 暂无）
  * 本组件不写任何文件，不新增真源。
  */
+
+function filenameTitle(filePath: string | null | undefined): string {
+  if (!filePath) return ""
+  const stem = (filePath.split(/[/\\]/).pop() ?? "").replace(/\.md$/i, "").trim()
+  return stem && isRichChapterTitle(stem) ? stem : ""
+}
+
+/** 目录标题：快照富标题优先，否则从已读正文解析，再不行用带章名的文件名。 */
+export function chapterDirectoryTitle(
+  snapshotTitle: string | null | undefined,
+  fileContent: string | null | undefined,
+  filePath: string | null | undefined,
+): string | null {
+  const snapshot = snapshotTitle?.trim() ?? ""
+  if (snapshot && isRichChapterTitle(snapshot)) return snapshot
+  const fallback = filenameTitle(filePath)
+  if (fileContent && fileContent.trim()) {
+    const resolved = resolveChapterTitle(fileContent, snapshot || fallback).trim()
+    if (resolved) return resolved
+  }
+  if (snapshot) return snapshot
+  return fallback || null
+}
 export interface ChapterDirectoryRow {
   chapterNumber: number
   /** 负数条目 = 大纲快照（outline-00N），与正文章节区分展示。 */
@@ -40,18 +65,15 @@ export const loadChapterDirectory: ChapterDirectoryLoader = async (projectPath) 
   const rows = await Promise.all(
     numbers.map(async (chapterNumber): Promise<ChapterDirectoryRow> => {
       const isOutline = chapterNumber < 0
-      let title: string | null = null
       let snapshot: ChapterSnapshot | null = null
       try {
         snapshot = await loadSnapshot(projectPath, chapterNumber)
       } catch {
         snapshot = null
       }
-      if (snapshot?.chapterTitle && snapshot.chapterTitle.trim().length > 0) {
-        title = snapshot.chapterTitle.trim()
-      }
       let wordCount: number | null = null
       let filePath: string | null = null
+      let fileContent: string | null = null
       try {
         filePath = await findChapterFileByNumber(projectPath, chapterNumber)
       } catch {
@@ -61,13 +83,15 @@ export const loadChapterDirectory: ChapterDirectoryLoader = async (projectPath) 
         try {
           const exists = await fileExists(filePath)
           if (exists) {
-            const body = await readFile(filePath)
-            wordCount = countChapterBodyWords(body)
+            fileContent = await readFile(filePath)
+            wordCount = countChapterBodyWords(fileContent)
           }
         } catch {
           wordCount = null
+          fileContent = null
         }
       }
+      const title = chapterDirectoryTitle(snapshot?.chapterTitle, fileContent, filePath)
       return { chapterNumber, isOutline, title, wordCount, filePath }
     }),
   )
@@ -134,29 +158,29 @@ export function ChapterDirectory({ loader = loadChapterDirectory }: ChapterDirec
       </div>
 
       {!projectPath ? (
-        <p className="text-[11px] text-muted-foreground" data-testid="chapter-directory-no-project">
+        <p className="text-xs text-muted-foreground" data-testid="chapter-directory-no-project">
           {t("novel.chapterDirectory.noProject")}
         </p>
       ) : loading ? (
-        <p className="flex items-center gap-1 text-[11px] text-muted-foreground" data-testid="chapter-directory-loading">
+        <p className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="chapter-directory-loading">
           <Loader2 className="h-3 w-3 animate-spin" />
           …
         </p>
       ) : error ? (
-        <p className="flex items-center gap-1 text-[11px] text-destructive" data-testid="chapter-directory-error">
+        <p className="flex items-center gap-1 text-xs text-destructive" data-testid="chapter-directory-error">
           <CircleAlert className="h-3 w-3 shrink-0" />
           {t("novel.chapterDirectory.loadFailed")}: {error}
         </p>
       ) : !rows || rows.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground" data-testid="chapter-directory-empty">
+        <p className="text-xs text-muted-foreground" data-testid="chapter-directory-empty">
           {t("novel.chapterDirectory.empty")}
         </p>
       ) : (
         <>
-          <p className="text-[10px] text-muted-foreground" data-testid="chapter-directory-total">
+          <p className="text-xs text-muted-foreground" data-testid="chapter-directory-total">
             {t("novel.chapterDirectory.total", { count: rows.length })}
           </p>
-          <table className="w-full text-left text-[11px]">
+          <table className="w-full text-left text-xs">
             <thead className="text-muted-foreground">
               <tr>
                 <th className="py-1 pr-2 font-normal">{t("novel.chapterDirectory.colChapter")}</th>
@@ -185,7 +209,7 @@ export function ChapterDirectory({ loader = loadChapterDirectory }: ChapterDirec
               ))}
             </tbody>
           </table>
-          <p className="text-[10px] text-muted-foreground" data-testid="chapter-directory-hint">
+          <p className="text-xs text-muted-foreground" data-testid="chapter-directory-hint">
             {t("novel.chapterDirectory.hint")}
           </p>
         </>

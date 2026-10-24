@@ -172,17 +172,17 @@ export function HistoryResultsModal({
                         })}
                       </span>
                       {result.hasDraft && (
-                        <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] text-primary">
+                        <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
                           {t("storySimulation.badgeDraft")}
                         </span>
                       )}
                       {result.status === "degraded" && (
-                        <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-[0.625rem] text-destructive dark:text-destructive">
+                        <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive dark:text-destructive">
                           {t("storySimulation.badgeDegraded")}
                         </span>
                       )}
                       {(result.status === "partial" || result.status === "cancelled") && (
-                        <span className="shrink-0 rounded bg-warning/10 px-1.5 py-0.5 text-[0.625rem] text-warning dark:text-warning">
+                        <span className="shrink-0 rounded bg-warning/10 px-1.5 py-0.5 text-xs text-warning dark:text-warning">
                           {t("storySimulation.badgePartial")}
                         </span>
                       )}

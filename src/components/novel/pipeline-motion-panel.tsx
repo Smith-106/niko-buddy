@@ -194,14 +194,14 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
         </h3>
         <div
           data-testid="motion-legend"
-          className="flex flex-wrap items-center justify-center gap-3 text-[11px] text-[#8b949e]"
+          className="flex flex-wrap items-center justify-center gap-3 text-xs text-[#8b949e]"
         >
           <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#58a6ff]" />▶ 當前路徑</span>
           <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#d29922]" />◇ 外部依賴（虛線）</span>
           <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#f85149]" />↩ 返工回路（有計數才紅）</span>
           <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#484f58]" />○ 其餘節點（● 已走過）</span>
         </div>
-        <p data-testid="motion-stats" className="text-center text-[11px] text-[#8b949e]">
+        <p data-testid="motion-stats" className="text-center text-xs text-[#8b949e]">
           事件 <b className="text-[#e6edf3]">{counts.events}</b>
           {" · "}取證 <b className="text-[#e6edf3]">{counts.evidence}</b>
           {" · "}生成 <b className="text-[#e6edf3]">{counts.generated}</b>
@@ -215,7 +215,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
       </header>
 
       {!resolved.checked ? (
-        <p data-testid="motion-empty" className="py-8 text-center text-[12px] text-[#8b949e]">
+        <p data-testid="motion-empty" className="py-8 text-center text-xs text-[#8b949e]">
           尚無運行事件：主控跑過一次章節工作流，藍色當前路徑才會亮起（不播演示動畫）。
         </p>
       ) : (
@@ -264,13 +264,13 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
       )}
 
       <div className="mt-2 border-t border-[#21262d] pt-2">
-        <p className="text-[11px] text-[#484f58]">session log</p>
+        <p className="text-xs text-[#484f58]">session log</p>
         {resolved.log.length === 0 ? (
-          <p data-testid="motion-log-empty" className="text-[11px] text-[#484f58]">
+          <p data-testid="motion-log-empty" className="text-xs text-[#484f58]">
             （空）
           </p>
         ) : (
-          <ul data-testid="motion-log" className="max-h-28 space-y-0.5 overflow-y-auto text-[11px]">
+          <ul data-testid="motion-log" className="max-h-28 space-y-0.5 overflow-y-auto text-xs">
             {resolved.log.slice(-8).map((entry, index) => (
               <li key={`${entry.ts}-${index}`} className="flex gap-2">
                 <span className="shrink-0 text-[#484f58]">{entry.ts}</span>
@@ -291,7 +291,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
             ))}
           </ul>
         )}
-        <p data-testid="motion-status" className="mt-1 text-[11px] text-[#8b949e]">
+        <p data-testid="motion-status" className="mt-1 text-xs text-[#8b949e]">
           {currentNode ? (
             <>當前路徑 [{currentNode.label}]{lastLog ? ` · ${lastLog.label}` : ""}</>
           ) : (

@@ -118,7 +118,8 @@ describeOrSkip("Step 0 A/B 校准 — 旧/新 prompt 分数中位数对照", () 
               },
             } satisfies StreamCallbacks,
             AbortSignal.timeout(REAL_CALL_TIMEOUT_MS),
-            { temperature: 0.4, max_tokens: 2000 },
+            // CPA/muse-spark 推理占预算（2026-10-24 实证：推理细节会吃掉上千 token，2000 会 length 截断空分）；4000 留足推理+评分 JSON。
+            { temperature: 0.4, max_tokens: 4000 },
           )
           const raw = extractScore(content)
           if (!Number.isNaN(raw)) value = raw > 10.5 ? raw / 10 : raw
