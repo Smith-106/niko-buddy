@@ -158,8 +158,20 @@ describe("PipelineMotionPanel 雙編碼與分支覆蓋", () => {
     expect(screen.getByTestId("motion-node-knowledge-base").getAttribute("data-state")).toBe("idle")
   })
 
+  it("七層縱向 viewBox + 回放末幀顯示重新回放", () => {
+    const { container } = render(<PipelineMotionPanel {...panelProps([input(0, "retrieval"), input(1, "generate")])} />)
+    expect(screen.getByTestId("motion-diagram").getAttribute("viewBox")).toBe("0 0 1100 680")
+    // 外部依赖连线为有效长度的琥珀色虚线（零长度 Bug 已修复）。
+    const kb = container.querySelector('[data-testid="motion-node-knowledge-base"]')
+    expect(kb?.querySelectorAll("path").length).toBeGreaterThan(0)
+    // 回放到末帧：定时器清理且按钮显示重新回放。
+    fireEvent.click(screen.getByTestId("motion-replay-toggle"))
+    act(() => { vi.advanceTimersByTime(700 * 10) })
+    expect(screen.getByTestId("motion-replay-toggle").textContent).toContain("重新回放")
+  })
+
   it("進入當前節點的主線邊高亮，其餘邊冷", () => {
-    // 自檢門 current、前序正文 visited → 進入邊（index 5）高亮；
+    // 自檢門 current、前序正文 visited → 進入邊（draft→self-gate，index 4）高亮；
     // 稀疏跳躍（前序 idle）的邊不高亮：沒走過的路不點亮。
     render(
       <PipelineMotionPanel
@@ -169,8 +181,8 @@ describe("PipelineMotionPanel 雙編碼與分支覆蓋", () => {
         ])}
       />,
     )
-    expect(screen.getByTestId("motion-edge-5").getAttribute("data-hot")).toBe("true")
-    expect(screen.getByTestId("motion-edge-1").getAttribute("data-hot")).toBe("false")
+    expect(screen.getByTestId("motion-edge-4").getAttribute("data-hot")).toBe("true")
+    expect(screen.getByTestId("motion-edge-0").getAttribute("data-hot")).toBe("false")
   })
 
   it("log 只顯示最近 8 條；純軌跡輸入顯示未在運行", () => {

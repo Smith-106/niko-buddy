@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { CheckCircle2, CircleAlert, Flame, Loader2, Play, Square, Sparkles } from "lucide-react"
 import { fileExists } from "@/commands/fs"
@@ -60,8 +60,8 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const [cancelledAt, setCancelledAt] = useState<number | null>(null)
   // 页内分层（IA：跑流程 / 收草稿 / 本章上下文分开，不再上下堆一屏；只切换展示，不碰执行语义）。
   const [tab, setTab] = useState<"run" | "drafts" | "context">("run")
-  // 管線動態可折叠：默認收起不擠占跑流程主操作區，需要時展開看實況拓撲。
-  const [motionOpen, setMotionOpen] = useState(false)
+  // 管線動態：默認展開實況拓撲，開始運行自動展開，無需等磁盤輪詢。
+  const [motionOpen, setMotionOpen] = useState(true)
   // 运行起点（已运行秒数展示用；10s 心跳 tick 驱动重渲染，无假进度条）。
   const [runStartAt, setRunStartAt] = useState<number | null>(null)
   // 心跳 tick：运行时每 10 秒重渲染一次，用于卡住/超时提示（不碰主链计时）。
@@ -77,6 +77,8 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const [replaySavedAt, setReplaySavedAt] = useState<number | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
+  // 运行中实况轨迹：steps 派生（无需等磁盘轮询）；空闲时沿用磁盘快照。
+  const liveTrace = useMemo(() => buildTraceEntries(steps), [steps])
   // 回放：进面板时载入上一次运行的轨迹快照（缺失即空）。
   useEffect(() => {
     if (!projectPath) return
@@ -101,7 +103,9 @@ export function MainControlView(_props: MainControlViewProps = {}) {
     setError(null)
     setResult(null)
     setSteps([])
-    setCancelledAt(null)
+    setTrace([])
+    setReplaySavedAt(null)
+    setMotionOpen(true)
     setRunStartAt(Date.now())
     setRunning(true)
     const controller = new AbortController()
@@ -349,7 +353,10 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         </button>
         {motionOpen && projectPath ? (
           <div className="mt-2">
-            <PipelineMotionView projectPath={projectPath} />
+            <PipelineMotionView
+              projectPath={projectPath}
+              traceEntries={(steps.length > 0 ? liveTrace : trace).length > 0 ? (steps.length > 0 ? liveTrace : trace) : undefined}
+            />
           </div>
         ) : null}
       </div>

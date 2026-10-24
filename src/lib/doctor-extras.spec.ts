@@ -32,7 +32,7 @@ vi.mock("@/lib/embedding", () => ({
   triggerIdleCompaction: vi.fn(async () => ({ chunks_compacted: 1, old_fragments_cleared: 0 })),
 }))
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(async () => ({ deleted_pages: [], upserted_pages: [], failed_pages: [] })),
+  invoke: vi.fn(async () => ({ skipped: true, deleted_pages: [], upserted_pages: [], failed_pages: [] })),
 }))
 
 import { collectDoctorExtras, safeRebuildFtsIndex, safeRunVectorReconcile, safeTriggerVectorCompaction } from "./doctor-extras"
@@ -57,5 +57,12 @@ describe("doctor-extras", () => {
     expect((await safeRebuildFtsIndex("/p/book")).indexed).toBe(2)
     expect((await safeTriggerVectorCompaction("/p/book")).ok).toBe(true)
     expect((await safeRunVectorReconcile("/p/book")).ok).toBe(true)
+  })
+
+  it("空清单对账诚实展示已跳过，不假报 deleted", async () => {
+    const r = await safeRunVectorReconcile("/p/book")
+    expect(r.ok).toBe(true)
+    expect(r.detail).toContain("已跳过")
+    expect(r.detail).not.toContain("deleted=")
   })
 })

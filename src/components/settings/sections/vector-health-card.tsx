@@ -49,11 +49,15 @@ export function VectorHealthCard() {
           setNote("drop legacy ok")
         } else {
           const { invoke } = await import("@tauri-apps/api/core")
-          await invoke("vector_run_startup_reconcile", {
-            projectPath: project.path,
-            expected: [],
-          })
-          setNote("reconcile ok")
+          const report = await invoke<{ skipped?: boolean; deleted_pages?: string[] }>(
+            "vector_run_startup_reconcile",
+            { projectPath: project.path, expected: [] },
+          )
+          setNote(
+            report?.skipped === true
+              ? "已跳过（无预置索引清单，请先触发索引构建）"
+              : "reconcile ok",
+          )
         }
         await refresh()
       } catch (err) {

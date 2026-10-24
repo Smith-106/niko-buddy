@@ -123,10 +123,15 @@ export async function safeTriggerVectorCompaction(projectPath: string): Promise<
 export async function safeRunVectorReconcile(projectPath: string): Promise<{ ok: boolean; detail: string }> {
   try {
     const core = await import("@tauri-apps/api/core")
-    const report = await core.invoke<{ deleted_pages: string[]; upserted_pages: string[]; failed_pages: string[] }>(
-      "vector_run_startup_reconcile",
-      { projectPath: normalizePath(projectPath), expected: [] },
-    )
+    const report = await core.invoke<{
+      skipped?: boolean
+      deleted_pages: string[]
+      upserted_pages: string[]
+      failed_pages: string[]
+    }>("vector_run_startup_reconcile", { projectPath: normalizePath(projectPath), expected: [] })
+    if (report.skipped === true) {
+      return { ok: true, detail: "已跳过（无预置索引清单，请先触发索引构建）" }
+    }
     return { ok: true, detail: "deleted=" + report.deleted_pages.length }
   } catch (err) {
     return { ok: false, detail: toErrorMessage(err) }

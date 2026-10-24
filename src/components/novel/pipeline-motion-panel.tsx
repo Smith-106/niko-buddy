@@ -16,7 +16,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import {
-  PIPELINE_STAGES,
   REWORK_EDGES,
   projectPipelineMotion,
   type MotionNodeProjection,
@@ -34,51 +33,46 @@ export interface PipelineMotionPanelProps {
 
 const EMPTY_INPUT: PipelineMotionInput = { events: [], traceEntries: [] }
 
-// ── 正交拓撲版式：6 層 × 列，主線自上而下折返 ────────────────────────────────
-// 13 主階段按列排布（層 = 列）：L0 goal/evidence · L1 outline/chapter-plan ·
-// L2 draft/self-gate · L3 review/review-gate · L4 revise/ingest · L5 deliver/reflow/retrospective。
-// 外部依賴掛右側琥珀列。固定座標，節點數固定=15，不隨數據變化。
+// ── 自上而下分層正交拓撲：7 層縱向主幹 + 左右外掛 + 右側雙回路 ───────────────
+// L1 goal→evidence · L2 outline→chapter-plan（左掛 knowledge-base）·
+// L3 draft（左/右掛 model-router）· L4 self-gate→review · L5 審查維度芯片條 ·
+// L6 review-gate→ingest（右側紅色返工走廊）· L7 ingest→deliver→reflow→retrospective。
+// 外部依賴掛左右琥珀列。固定座標，節點數固定=15，不隨數據變化。
 
-const COL_X = [120, 300, 480, 660, 840, 1020]
-const EXT_X = 1180
 const NODE_W = 120
 const NODE_H = 30
-const ROW_Y = [70, 170, 270, 370]
 
-const LAYER_OF: Record<string, number> = {
-  goal: 0,
-  evidence: 0,
-  outline: 1,
-  "chapter-plan": 1,
-  draft: 2,
-  "self-gate": 2,
-  review: 3,
-  "review-gate": 3,
-  revise: 4,
-  ingest: 4,
-  deliver: 5,
-  reflow: 5,
-  retrospective: 5,
-}
-
-const ROW_OF: Record<string, number> = {
-  goal: 0,
-  evidence: 2,
-  outline: 0,
-  "chapter-plan": 2,
-  draft: 0,
-  "self-gate": 2,
-  review: 0,
-  "review-gate": 2,
-  revise: 0,
-  ingest: 2,
-  deliver: 0,
-  reflow: 1,
-  retrospective: 2,
+const NODE_XY: Record<string, { x: number; y: number }> = {
+  goal: { x: 360, y: 60 },
+  evidence: { x: 640, y: 60 },
+  outline: { x: 360, y: 145 },
+  "chapter-plan": { x: 640, y: 145 },
+  draft: { x: 500, y: 230 },
+  "self-gate": { x: 360, y: 315 },
+  review: { x: 640, y: 315 },
+  "review-gate": { x: 500, y: 455 },
+  revise: { x: 940, y: 455 },
+  ingest: { x: 500, y: 545 },
+  deliver: { x: 360, y: 625 },
+  reflow: { x: 640, y: 625 },
+  retrospective: { x: 880, y: 625 },
+  "model-router": { x: 130, y: 230 },
+  "knowledge-base": { x: 130, y: 145 },
 }
 
 function nodeXY(id: string): { x: number; y: number } {
-  return { x: COL_X[LAYER_OF[id] ?? 0], y: ROW_Y[ROW_OF[id] ?? 1] }
+  return NODE_XY[id] ?? { x: 500, y: 60 }
+}
+
+/** 主幹正交邊：同列縱連畫豎線，異列畫自上而下的 L 形（上出下入）。 */
+function trunkPath(a: { x: number; y: number }, b: { x: number; y: number }): string {
+  if (a.x === b.x) {
+    return `M ${a.x} ${a.y + NODE_H / 2} V ${b.y - NODE_H / 2}`
+  }
+  const outY = a.y + NODE_H / 2
+  const inY = b.y - NODE_H / 2
+  const midY = (outY + inY) / 2
+  return `M ${a.x} ${outY} V ${midY} H ${b.x} V ${inY}`
 }
 
 const STATE_TEXT: Record<string, string> = {
@@ -210,17 +204,34 @@ function MotionNode({ node }: { node: MotionNodeProjection }): React.ReactElemen
   )
 }
 
-function ExternalNode({ node, row }: { node: MotionNodeProjection; row: number }): React.ReactElement {
+function ExternalNode({ node, tos }: { node: MotionNodeProjection; tos: readonly string[] }): React.ReactElement {
+  const { x, y } = nodeXY(node.id)
   const lit = node.state !== "idle"
   const stroke = lit ? "#f59e0b" : "#334155"
   const text = lit ? "#f59e0b" : "#475569"
   return (
     <g data-testid={`motion-node-${node.id}`} data-state={node.state}>
-      <line x1={EXT_X - 62} y1={ROW_Y[row]} x2={EXT_X - 62} y2={ROW_Y[row]} stroke={stroke} strokeWidth={1} strokeDasharray="4 3" />
+      {tos.map((to) => {
+        const t = nodeXY(to)
+        const d = x < t.x
+          ? `M ${x + NODE_W / 2} ${y} H ${(x + NODE_W / 2 + (t.x - NODE_W / 2)) / 2} V ${t.y} H ${t.x - NODE_W / 2}`
+          : `M ${x - NODE_W / 2} ${y} H ${(x - NODE_W / 2 + (t.x + NODE_W / 2)) / 2} V ${t.y} H ${t.x + NODE_W / 2}`
+        return (
+          <path
+            key={to}
+            d={d}
+            fill="none"
+            stroke={stroke}
+            strokeWidth={lit ? 2 : 1.25}
+            strokeDasharray="5 4"
+            className={lit ? "motion-glow-amber" : undefined}
+          />
+        )
+      })}
       <rect
-        x={EXT_X - 62}
-        y={ROW_Y[row] - NODE_H / 2}
-        width={124}
+        x={x - NODE_W / 2}
+        y={y - NODE_H / 2}
+        width={NODE_W}
         height={NODE_H}
         rx={5}
         fill="#0b1220"
@@ -228,7 +239,7 @@ function ExternalNode({ node, row }: { node: MotionNodeProjection; row: number }
         strokeWidth={1.5}
         className={lit ? "motion-glow-amber" : undefined}
       />
-      <text x={EXT_X} y={ROW_Y[row] + 4} textAnchor="middle" fontSize="12" fill={text}>
+      <text x={x} y={y + 4} textAnchor="middle" fontSize="12" fill={text}>
         {stateGlyph(node.state)} ◇ {node.label}
       </text>
     </g>
@@ -270,6 +281,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
   const [replaying, setReplaying] = useState(false)
   const [frame, setFrame] = useState(0)
   const [demoMode, setDemoMode] = useState(false)
+  const [finished, setFinished] = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const sourceEvents = useMemo<readonly RunEvent[]>(() => {
     if (projection) return []
@@ -296,6 +308,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
     setReplaying(false)
     setDemoMode(false)
     setFrame(0)
+    setFinished(false)
   }, [])
 
   useEffect(() => () => {
@@ -312,6 +325,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
     if (total === 0) return
     setDemoMode(useDemo)
     setFrame(0)
+    setFinished(false)
     setReplaying(true)
     timerRef.current = setInterval(() => {
       setFrame((f) => {
@@ -320,6 +334,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
             clearInterval(timerRef.current)
             timerRef.current = null
           }
+          setFinished(true)
           return f
         }
         return f + 1
@@ -340,23 +355,25 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
   const isHotEdge = (from: string, to: string): boolean =>
     !!hotEdge && hotEdge.from === from && hotEdge.to === to
 
-  // 主線正交邊：同列縱連 + 跨列折線（L 形），hot 邊發光。
+  // 主線正交邊（自上而下 7 層縱向主幹，自顯式序列；主幹自上而下折向，hot 邊發光）。
+  const TRUNK_ORDER: ReadonlyArray<readonly [string, string]> = [
+    ["goal", "evidence"],
+    ["outline", "chapter-plan"],
+    ["evidence", "outline"],
+    ["chapter-plan", "draft"],
+    ["draft", "self-gate"],
+    ["self-gate", "review"],
+    ["review", "review-gate"],
+    ["review-gate", "ingest"],
+    ["ingest", "deliver"],
+    ["deliver", "reflow"],
+    ["reflow", "retrospective"],
+  ]
   const trunkEdges: Array<{ key: string; d: string; hot: boolean; index: number }> = []
-  for (let i = 1; i < PIPELINE_STAGES.length; i += 1) {
-    const prev = PIPELINE_STAGES[i - 1]
-    const cur = PIPELINE_STAGES[i]
-    const a = nodeXY(prev.id)
-    const b = nodeXY(cur.id)
-    const hot = isHotEdge(prev.id, cur.id)
-    let d: string
-    if (a.x === b.x) {
-      d = `M ${a.x} ${a.y + NODE_H / 2} V ${b.y - NODE_H / 2}`
-    } else {
-      const midX = (a.x + b.x) / 2
-      d = `M ${a.x + NODE_W / 2} ${a.y} H ${midX} V ${b.y} H ${b.x - NODE_W / 2}`
-    }
-    trunkEdges.push({ key: `${prev.id}->${cur.id}`, d, hot, index: i })
-  }
+  TRUNK_ORDER.forEach(([from, to], orderIdx) => {
+    const hot = isHotEdge(from, to)
+    trunkEdges.push({ key: `${from}->${to}`, d: trunkPath(nodeXY(from), nodeXY(to)), hot, index: orderIdx })
+  })
 
   return (
     <section
@@ -375,7 +392,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
             onClick={toggleReplay}
             className="ml-auto rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-300 hover:bg-slate-800"
           >
-            {replaying ? "■ 停止回放" : "▶ 流程回放 / 步進演示"}
+            {finished ? "↻ 重新回放 / 退出" : replaying ? "■ 停止回放" : "▶ 流程回放 / 步進演示"}
           </button>
         </div>
         {showingDemo ? (
@@ -424,7 +441,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
       ) : (
         <svg
           data-testid="motion-diagram"
-          viewBox="0 0 1320 440"
+          viewBox="0 0 1100 680"
           className="mx-auto block w-full min-w-[640px]"
           role="img"
           aria-label="寫作管線動態圖"
@@ -474,33 +491,69 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
           {resolved.nodes.map((node) => (
             <MotionNode key={node.id} node={node} />
           ))}
-          {resolved.externals.map((node, i) => (
-            <ExternalNode key={node.id} node={node} row={i === 0 ? 0 : 2} />
+          {resolved.externals.map((node) => (
+            <ExternalNode
+              key={node.id}
+              node={node}
+              tos={node.id === "knowledge-base" ? ["evidence", "chapter-plan"] : ["draft"]}
+            />
           ))}
-          {/* 審查維度芯片條（review / self-gate 區域下方） */}
-          <g data-testid="motion-review-dims">
-            {REVIEW_DIMS.map((dim, i) => (
-              <g key={dim}>
-                <rect x={440 + i * 62} y={392} width={56} height={20} rx={10} fill="#0f172a" stroke="#334155" strokeWidth={1} />
-                <text x={468 + i * 62} y={406} textAnchor="middle" fontSize="11" fill="#94a3b8">
-                  {dim}
+          {/* 審查維度芯片條：review 下方居中 9 維；自檢/審稿活躍時青藍點亮 */}
+          {(() => {
+            const lit = ["self-gate", "review", "review-gate"].some(
+              (id) => resolved.nodes.find((n) => n.id === id)?.state !== "idle",
+            )
+            const stroke = lit ? "#38bdf8" : "#334155"
+            const fill = lit ? "#38bdf8" : "#94a3b8"
+            return (
+              <g data-testid="motion-review-dims">
+                <line
+                  x1={nodeXY("review").x}
+                  y1={nodeXY("review").y + NODE_H / 2}
+                  x2={nodeXY("review").x}
+                  y2={371}
+                  stroke={stroke}
+                  strokeWidth={1}
+                />
+                {REVIEW_DIMS.map((dim, i) => (
+                  <g key={dim}>
+                    <rect x={221 + i * 62} y={371} width={56} height={20} rx={10} fill="#0f172a" stroke={stroke} strokeWidth={1} />
+                    <text x={249 + i * 62} y={385} textAnchor="middle" fontSize="11" fill={fill}>
+                      {dim}
+                    </text>
+                  </g>
+                ))}
+              </g>
+            )
+          })()}
+          {/* 記憶回流閉環：reflow/retrospective 沿右側大環回到頂部 goal（青綠色） */}
+          {(() => {
+            const lit = ["reflow", "retrospective"].some(
+              (id) => resolved.nodes.find((n) => n.id === id)?.state !== "idle",
+            )
+            const stroke = lit ? "#34d399" : "#1f3a33"
+            const d = `M ${nodeXY("retrospective").x + NODE_W / 2} ${nodeXY("retrospective").y} H 1040 V 30 H ${nodeXY("goal").x} V ${nodeXY("goal").y - NODE_H / 2}`
+            return (
+              <g data-testid="motion-reflow-loop">
+                <path
+                  d={d}
+                  fill="none"
+                  stroke={stroke}
+                  strokeWidth={lit ? 2.5 : 1.5}
+                  strokeDasharray={lit ? undefined : "6 4"}
+                  className={lit ? "motion-glow" : undefined}
+                />
+                {lit ? (
+                  <circle r="4" fill="#34d399" className="motion-pulse-dot">
+                    <animateMotion dur="1.6s" repeatCount="indefinite" path={d} />
+                  </circle>
+                ) : null}
+                <text x={1052} y={330} fontSize="11" fill={stroke} transform="rotate(90 1052,330)" textAnchor="middle">
+                  記憶回流
                 </text>
               </g>
-            ))}
-          </g>
-          {/* 記憶回流閉環：deliver → reflow → retrospective → goal（青綠色） */}
-          <g data-testid="motion-reflow-loop">
-            <path
-              d={`M ${nodeXY("deliver").x} ${nodeXY("deliver").y + NODE_H / 2 + 8} H 1120 V 40 H ${nodeXY("goal").x} V ${nodeXY("goal").y - NODE_H / 2}`}
-              fill="none"
-              stroke="#34d399"
-              strokeWidth={1.5}
-              strokeDasharray="6 4"
-            />
-            <text x={1130} y={220} fontSize="11" fill="#34d399" transform="rotate(90 1130,220)" textAnchor="middle">
-              記憶回流
-            </text>
-          </g>
+            )
+          })()}
         </svg>
       )}
 

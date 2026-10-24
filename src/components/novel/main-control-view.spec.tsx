@@ -54,18 +54,18 @@ afterEach(() => {
 })
 
 describe("MainControlView 管線動態掛載", () => {
-  it("跑流程 Tab 內含可折疊管線動態區塊（默認收起不佔位）", () => {
+  it("跑流程 Tab 內含可折疊管線動態區塊（默認展開實況拓撲）", () => {
     render(<MainControlView />)
     expect(screen.getByTestId("main-control-tab-run").getAttribute("aria-selected")).toBe("true")
     const block = screen.getByTestId("main-control-motion")
     expect(block).toBeTruthy()
     const toggle = screen.getByTestId("main-control-motion-toggle")
-    expect(toggle.getAttribute("aria-expanded")).toBe("false")
-    // 默認收起：不裝載視圖；展開且有 project.path 時裝載。
-    expect(screen.queryByTestId("pipeline-motion-view")).toBeNull()
-    fireEvent.click(toggle)
     expect(toggle.getAttribute("aria-expanded")).toBe("true")
+    // 默認展開：直接裝載實況視圖；收起後卸載。
     expect(screen.getByTestId("pipeline-motion-view")).toBeTruthy()
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.queryByTestId("pipeline-motion-view")).toBeNull()
   })
 })
 
