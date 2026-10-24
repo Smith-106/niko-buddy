@@ -61,6 +61,11 @@ const DYNAMIC_INVOKE_SITES: ReadonlyArray<{ file: string; reason: string }> = [
     reason:
       "命令名由 detectCommand() 的联合类型变量传入（claude/codex/cursor/antigravity detect 四字面量均已注册且各有静态调用面），无法在调用点静态提取",
   },
+  {
+    file: "src/components/settings/sections/cli-probe-strip.tsx",
+    reason:
+      "PROBES 表驱动并行 invoke（command 经 p.command 变量传入；四字面量 clamp 在 PROBES 常量表，四命令均已注册且 llm-provider-widgets 各有静态调用面），无法在调用点静态提取",
+  },
 ]
 
 // ── 注册面：解析 lib.rs 的 generate_handler![...] ────────────────────────────
