@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test"
 
-/** 首刷默认只展开「码字」组。点开其余分组后，data-view 按钮才进入 DOM。 */
+/** 有书时首刷只展开「写和审」。点开其余分组后，data-view 按钮才进入 DOM。 */
 export async function expandNavGroups(page: Page): Promise<void> {
   for (let guard = 0; guard < 6; guard++) {
     const toggle = page.locator('[data-nav-group] > button[aria-expanded="false"]').first()

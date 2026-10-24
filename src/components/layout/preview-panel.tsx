@@ -1533,12 +1533,12 @@ export function PreviewPanel() {
               <button
                 type="button"
                 onClick={handleSelectionActionCancel}
-                className="shrink-0 rounded border border-border px-2 py-0.5 text-[0.6875rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="shrink-0 rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 {t("preview.cancel")}
               </button>
             ) : null}
-            <span className="block truncate text-[0.6875rem] text-muted-foreground/80 min-w-0">
+            <span className="block truncate text-xs text-muted-foreground/80 min-w-0">
               {visibleSaveStatus}
             </span>
           </div>
@@ -1557,7 +1557,7 @@ export function PreviewPanel() {
             immersiveWriting={isChapterPath(selectedFile)}
             onSelectionAction={isChapterPath(selectedFile) ? handleSelectionAction : undefined}
             selectionActionDisabled={selectionActionPending}
-            highlightRequest={isChapterPath(selectedFile) ? activeHighlightRequest : null}
+            highlightRequest={activeHighlightRequest}
             onHighlightHandled={() => {
               if (activeHighlightRequest) setPendingEditorHighlight(null)
             }}

@@ -4,6 +4,8 @@ import type { LintResult } from "@/lib/lint"
 export const CHAT_DOCK_POSITION_KEY = "niko-buddy-chat-dock-position"
 export const OFFLINE_MODE_KEY = "niko-buddy-offline-mode"
 export const UI_FONT_SIZE_SCALE_KEY = "niko-buddy-ui-font-size-scale"
+/** 写作专注模式开关（开 = "1"，默认关闭）。 */
+export const FOCUS_MODE_KEY = "niko-buddy-focus-mode"
 
 const GRAPH_LABEL_MODE_KEY = "lk-graph-label-display-mode"
 const GRAPH_EDGE_COLOR_KEY = "lk-graph-edge-color"
@@ -45,6 +47,12 @@ export const readStoredUiFontSizeScale = (): number => {
   if (typeof localStorage === "undefined") return 1
   const saved = Number(localStorage.getItem(UI_FONT_SIZE_SCALE_KEY) ?? "1")
   return Number.isFinite(saved) ? Math.max(0.85, Math.min(1.3, Number(saved.toFixed(2)))) : 1
+}
+
+/** Reads the persisted focus mode, defaulting to false (off). */
+export const readStoredFocusMode = (): boolean => {
+  if (typeof localStorage === "undefined") return false
+  return localStorage.getItem(FOCUS_MODE_KEY) === "1"
 }
 
 /** Reads the persisted graph label display mode, defaulting to "all". */

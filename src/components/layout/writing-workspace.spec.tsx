@@ -21,16 +21,29 @@ const mocks = vi.hoisted(() => {
     chatDockPosition: "bottom" | "right"
     project: { path: string } | null
     novelConfig: { preWriteGateMode: "warn" }
+    focusMode: boolean
+    setFocusMode: (v: boolean) => void
     selectedFile: string | null
     fileContent: string
+    finalChapterSave: {
+      filePath: string
+      projectPath: string
+      saving: boolean
+      phase: "saving" | "saved" | "ingested" | null
+    } | null
   } = {
     chatExpanded: false,
     chatDockPosition: "bottom",
     // 写作工具抽屉（PDF 导出 / 批量替换）读取这三项，mock 形状需与真实 store 一致
     project: null,
     novelConfig: { preWriteGateMode: "warn" },
+    focusMode: false,
+    setFocusMode: vi.fn((v: boolean) => {
+      mocks.wikiState.focusMode = v
+    }),
     selectedFile: null,
     fileContent: "",
+    finalChapterSave: null,
   }
   return {
     wikiState,
@@ -59,6 +72,22 @@ vi.mock("./preview-panel", () => ({
   PreviewPanel: () => <div data-testid="preview-panel">preview</div>,
 }))
 
+vi.mock("@/components/novel/export-center-view", () => ({
+  ExportCenterView: () => <div data-testid="export-center-view">export</div>,
+}))
+
+vi.mock("@/components/novel/foreshadowing-panel", () => ({
+  ForeshadowingPanel: () => <div data-testid="foreshadowing-panel">foreshadow</div>,
+}))
+
+vi.mock("@/components/sources/sources-view", () => ({
+  SourcesView: () => <div data-testid="sources-view">sources</div>,
+}))
+
+vi.mock("@/components/search/search-view", () => ({
+  SearchView: () => <div data-testid="search-view">search</div>,
+}))
+
 // The lazy ChatPanel is loaded via `await import("@/components/chat/chat-panel")`.
 vi.mock("@/components/chat/chat-panel", () => ({
   ChatPanel: () => <div data-testid="chat-panel">chat</div>,
@@ -77,8 +106,10 @@ beforeEach(() => {
   mocks.wikiState.chatExpanded = false
   mocks.wikiState.chatDockPosition = "bottom"
   mocks.wikiState.project = null
+  mocks.wikiState.focusMode = false
   mocks.wikiState.selectedFile = null
   mocks.wikiState.fileContent = ""
+  mocks.wikiState.finalChapterSave = null
   localStorage.clear()
 })
 
@@ -103,6 +134,46 @@ function mockRect(el: HTMLElement, rect: { bottom: number; right: number }): voi
   } as DOMRect)
 }
 
+describe("WritingWorkspace — 专注模式最小 AI", () => {
+  it("专注模式收起工具按钮与章节侧柜，保留底部状态条", async () => {
+    mocks.wikiState.project = { path: "/proj" }
+    mocks.wikiState.focusMode = true
+    mocks.wikiState.chatExpanded = true
+    mocks.wikiState.chatDockPosition = "bottom"
+    render(<WritingWorkspace />)
+    expect(screen.getByTestId("preview-panel")).toBeInTheDocument()
+    expect(screen.getByTestId("focus-ai-strip")).toBeInTheDocument()
+    expect(screen.queryByTestId("workspace-tools-toggle-pdf")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("workspace-chapter-dock")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("chat-panel")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("focus-ai-toggle"))
+    await waitFor(() => {
+      expect(screen.getByTestId("chat-panel")).toBeInTheDocument()
+    })
+  })
+
+  it("Zen 开关常驻工具条，点击切换 focusMode", async () => {
+    mocks.wikiState.project = { path: "/proj" }
+    mocks.wikiState.focusMode = false
+    const setFocusMode = mocks.wikiState.setFocusMode as unknown as ReturnType<typeof vi.fn>
+    setFocusMode.mockClear()
+    render(<WritingWorkspace />)
+    const zen = screen.getByTestId("workspace-zen-toggle")
+    expect(zen.getAttribute("aria-pressed")).toBe("false")
+    fireEvent.click(zen)
+    expect(setFocusMode).toHaveBeenCalledWith(true)
+  })
+
+  it("专注模式正文居中 max-w-4xl 阅读版心", () => {
+    mocks.wikiState.project = { path: "/proj" }
+    mocks.wikiState.focusMode = true
+    render(<WritingWorkspace />)
+    const centered = document.querySelector(".max-w-4xl")
+    expect(centered).toBeTruthy()
+    expect(screen.getByTestId("workspace-zen-toggle").getAttribute("aria-pressed")).toBe("true")
+  })
+})
+
 describe("WritingWorkspace", () => {
   it("聊天关闭时只渲染 PreviewPanel（无 dock 分支）", async () => {
     render(<WritingWorkspace />)
@@ -119,8 +190,7 @@ describe("WritingWorkspace", () => {
     mocks.wikiState.chatExpanded = true
     mocks.wikiState.chatDockPosition = "bottom"
     render(<WritingWorkspace />)
-    // Suspense 挂起阶段显示回退文案
-    expect(screen.getByText("加载中...")).toBeInTheDocument()
+    // 懒加载解析后 ChatPanel 挂载（挂起回退仅过渡一帧，不做同步断言）
     await waitFor(() => {
       expect(screen.getByTestId("chat-panel")).toBeInTheDocument()
     })
@@ -318,6 +388,44 @@ describe("WritingWorkspace — 写作工具抽屉接线", () => {
     expect(screen.getByTestId("batchreplace-find")).toBeInTheDocument()
     // 面板已挂载但尚未预览/提交：不产生任何写入（submit 前置预览按钮存在且未点）
     expect(screen.getByTestId("batchreplace-preview")).toBeInTheDocument()
+    expect(title).toContain("8字")
+    expect(title).toContain("草稿")
+    expect(screen.getByTestId("batch-replace-section").className).toContain("max-h-[40%]")
+  })
+
+  it("当前章正在保存时，章节行显示保存态", () => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    mocks.wikiState.selectedFile = "C:/novels/demo/正文/第01章.md"
+    mocks.wikiState.fileContent = "# 第一章 起点\n\n第一段。"
+    mocks.wikiState.finalChapterSave = {
+      filePath: "C:/novels/demo/正文/第01章.md",
+      projectPath: "C:/novels/demo",
+      saving: true,
+      phase: "saving",
+    }
+    render(<WritingWorkspace />)
+    expect(screen.getByTestId("workspace-tools-target").textContent).toContain("novel.chapter.savingAsFinal")
+  })
+
+  it("大纲、搜索、本章伏笔和书稿导出停在正文旁，不另开页面", async () => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    mocks.wikiState.chatExpanded = true
+    mocks.wikiState.chatDockPosition = "right"
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-desk-outline"))
+    expect(await screen.findByTestId("sources-view")).toBeTruthy()
+    expect(screen.getByTestId("workspace-chapter-dock")).toBeTruthy()
+    expect(screen.getByTestId("preview-panel")).toBeTruthy()
+    fireEvent.click(screen.getByTestId("workspace-desk-search"))
+    expect(await screen.findByTestId("search-view")).toBeTruthy()
+    expect(screen.queryByTestId("sources-view")).toBeNull()
+    fireEvent.click(screen.getByTestId("workspace-desk-foreshadow"))
+    expect(await screen.findByTestId("foreshadowing-panel")).toBeTruthy()
+    expect(screen.getByTestId("workspace-desk-drafts")).toBeTruthy()
+    fireEvent.click(screen.getByTestId("workspace-tools-toggle-manuscript"))
+    expect(await screen.findByTestId("export-center-view")).toBeTruthy()
+    expect(screen.getByTestId("manuscript-export-section").className).toContain("max-h-[40%]")
+    expect(screen.getByTestId("chat-panel")).toBeTruthy()
   })
 
 })

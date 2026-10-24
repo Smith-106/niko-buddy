@@ -39,6 +39,9 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
   const retryBookAnalysisTask = useBookAnalysisStore((s) => s.retryTask)
   const [leftWidth, setLeftWidth] = useState(220)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  // 写作专注模式（store 持久化，默认关）：开时隐藏图标侧边栏与侧边面板，编辑区全宽。
+  const focusMode = useWikiStore((s) => s.focusMode)
+  const setFocusMode = useWikiStore((s) => s.setFocusMode)
   // 命令面板（Ctrl/⌘+K）：findings-1 F-12 / findings-4 ROI #1 — 键盘直达全部视图与章节
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [usageGuidePromptDismissed, setUsageGuidePromptDismissed] = useState(() => {
@@ -140,16 +143,24 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
 
   // 命令面板热键：Ctrl/⌘+K（findings-1 F-12）。用捕获阶段监听，避免输入框里
   // 未处理的按键被吞掉；Ctrl/⌘+Shift+K 同样命中，便于 macOS 上避开浏览器快捷键。
+  // Ctrl/⌘+\ 切换写作专注模式（与 Ctrl+K 不冲突；状态走 store，刷新后保持）。
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+      const key = event.key.toLowerCase()
+      if (key === "k") {
         event.preventDefault()
         setCommandPaletteOpen((prev) => !prev)
+        return
+      }
+      if (!event.shiftKey && event.key === "\\") {
+        event.preventDefault()
+        setFocusMode(!useWikiStore.getState().focusMode)
       }
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [])
+  }, [setFocusMode])
 
   const dismissUsageGuidePrompt = useCallback(() => {
     setUsageGuidePromptDismissed(true)
@@ -361,12 +372,14 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
         </div>
       )}
       <div className="flex min-h-0 flex-1">
-        <IconSidebar
-          onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
-          onOpenSidebar={() => setSidebarCollapsed(false)}
-          onSwitchProject={onSwitchProject}
-        />        <div ref={containerRef} className="flex min-w-0 flex-1 overflow-hidden">
-        {!isSettings && !sidebarCollapsed && (
+        {!focusMode && (
+          <IconSidebar
+            onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+            onOpenSidebar={() => setSidebarCollapsed(false)}
+            onSwitchProject={onSwitchProject}
+          />
+        )}        <div ref={containerRef} className="flex min-w-0 flex-1 overflow-hidden">
+        {!isSettings && !sidebarCollapsed && !focusMode && (
           <>
             <div
               className="flex shrink-0 flex-col overflow-hidden border-r"

@@ -1,7 +1,7 @@
 // Copyright © Niko Buddy
 // SPDX-License-Identifier: MIT
 
-import { BookOpen, FileText, PlusCircle } from "lucide-react"
+import { BookOpen, FileText, Network, PlusCircle } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
 
@@ -31,6 +31,9 @@ export function ChapterEmptyState({ recentChapters, onSelectChapter }: ChapterEm
   const { t } = useTranslation()
   // 空态直达新建：经 store nonce 复用 sidebar 已有创建链路（编号/落盘/选中），不经 Props 回调。
   const requestChapterCreate = useWikiStore((s) => s.requestChapterCreate)
+  // 无项目时新建链路静默无操作（sidebar 守卫 + App 层 WelcomeScreen 拦截），此时只给图谱跳转。
+  const project = useWikiStore((s) => s.project)
+  const setActiveView = useWikiStore((s) => s.setActiveView)
   const hasRecent = recentChapters.length > 0
 
   return (
@@ -71,19 +74,37 @@ export function ChapterEmptyState({ recentChapters, onSelectChapter }: ChapterEm
               ))}
             </div>
           </div>
-        ) : (
+        ) : null}
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {project ? (
+            <button
+              type="button"
+              onClick={requestChapterCreate}
+              data-testid="preview-empty-create"
+              className="inline-flex items-center gap-2 rounded-md border border-accent/50 bg-accent/10 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              <PlusCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>{t("sidebar.newChapter")}</span>
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={requestChapterCreate}
-            data-testid="preview-empty-create"
-            className="inline-flex items-center gap-2 rounded-md border border-accent/50 bg-accent/10 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            onClick={() => setActiveView("graph")}
+            data-testid="preview-empty-graph"
+            className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >
-            <PlusCircle className="h-3.5 w-3.5 shrink-0" />
-            <span>{t("sidebar.newChapter")}</span>
+            <Network className="h-3.5 w-3.5 shrink-0" />
+            <span>{t("preview.emptyState.viewGraph", { defaultValue: "去看看图谱" })}</span>
           </button>
-        )}
+        </div>
 
-        <div className="text-[0.6875rem] text-muted-foreground/80">
+        {!project ? (
+          <div className="text-xs text-muted-foreground/80">
+            {t("preview.emptyState.noProjectHint", { defaultValue: "还没有打开项目，可以先看看图谱了解结构" })}
+          </div>
+        ) : null}
+
+        <div className="text-xs text-muted-foreground/80">
           {t("preview.emptyState.commandHint")}
         </div>
       </div>

@@ -7,7 +7,7 @@ import type { McpConfig } from "@/lib/mcp/config"
 import type { WikiProject, FileNode } from "@/types/wiki"
 import { DEFAULT_SOURCE_WATCH_CONFIG } from "@/lib/source-watch-config"
 import type { TrashItem } from "@/lib/trash"
-import { CHAT_DOCK_POSITION_KEY, OFFLINE_MODE_KEY, UI_FONT_SIZE_SCALE_KEY } from "./wiki-store-config"
+import { CHAT_DOCK_POSITION_KEY, FOCUS_MODE_KEY, OFFLINE_MODE_KEY, UI_FONT_SIZE_SCALE_KEY } from "./wiki-store-config"
 
 import type {
   ChatDockPosition, SettingsCategoryId,
@@ -19,7 +19,7 @@ import type {
 } from "./wiki-store-config"
 import {
   DEFAULT_RERANK_CONFIG, DEFAULT_NOVEL_CONFIG,
-  readStoredChatDockPosition, readStoredUiFontSizeScale, readStoredGraphLabelDisplayMode,
+  readStoredChatDockPosition, readStoredUiFontSizeScale, readStoredFocusMode, readStoredGraphLabelDisplayMode,
   readStoredGraphEdgeColorHex, readStoredGraphEdgeStrengthPercent, readStoredGraphEdgeStyle,
   readStoredGraphEdgeLabelsAlways, confirmDiscardSkillLibraryDraft,
 } from "./wiki-store-config"
@@ -52,6 +52,8 @@ export interface WikiState {
   chatExpanded: boolean
   chatDockPosition: ChatDockPosition
   searchPanelOpen: boolean
+  /** 写作专注模式（additive）：开时隐藏图标侧边栏与侧边面板，编辑区全宽。默认 false。 */
+  focusMode: boolean
   activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "storySimulation" | "backupExport" | "diagnosticsCenter" | "canonEditor" | "director" | "moduleHeatmap" | "pipelineMotion" | "mainControl" | "dataManager" | "workbench" | "followUpCenter" | "liveExecution" | "bookshelf" | "creativeHub" | "knowledgeLibrary" | "worldLibrary" | "genreLibrary" | "storyModeLibrary" | "titleStudio" | "styleEngine" | "antiAiRules" | "modelRoutes" | "mcpManager" | "workflowEditor" | "marketRadar" | "help" | "exportCenter"
   activeSettingsCategory: SettingsCategoryId | null
   selectedSoulId: string | null
@@ -119,6 +121,7 @@ export interface WikiState {
   setChatExpanded: (expanded: boolean) => void
   setChatDockPosition: (position: ChatDockPosition) => void
   setSearchPanelOpen: (open: boolean) => void
+  setFocusMode: (enabled: boolean) => void
   setActiveView: (view: WikiState["activeView"]) => void
   setActiveSettingsCategory: (category: SettingsCategoryId | null) => void
   setSelectedSoulId: (id: string | null) => void
@@ -212,6 +215,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   chatExpanded: false,
   chatDockPosition: readStoredChatDockPosition(),
   searchPanelOpen: false,
+  focusMode: readStoredFocusMode(),
   activeView: "wiki",
   bindingVersion: 0,
   selectedSkillLibrarySkillId: null,
@@ -335,6 +339,12 @@ export const useWikiStore = create<WikiState>((set) => ({
     set({ chatDockPosition })
   },
   setSearchPanelOpen: (searchPanelOpen) => set({ searchPanelOpen }),
+  setFocusMode: (focusMode) => {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(FOCUS_MODE_KEY, focusMode ? "1" : "0")
+    }
+    set({ focusMode })
+  },
   setActiveView: (activeView) => set((state) => {
     if (
       state.activeView === "skillLibrary"

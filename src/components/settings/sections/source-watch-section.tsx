@@ -205,7 +205,7 @@ export function SourceWatchSection({ draft, setDraft, projectReady }: Props) {
             rows={2}
             className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
           />
-          <p className="text-[0.6875rem] leading-relaxed text-muted-foreground">
+          <p className="text-xs leading-relaxed text-muted-foreground">
             {t("settings.sections.sourceWatch.excludeDirsHint", {
               defaultValue: "Folder names match any path segment. Paths such as subdir/drafts match that nested folder.",
             })}
@@ -227,7 +227,7 @@ export function SourceWatchSection({ draft, setDraft, projectReady }: Props) {
             rows={2}
             className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
           />
-          <p className="text-[0.6875rem] leading-relaxed text-muted-foreground">
+          <p className="text-xs leading-relaxed text-muted-foreground">
             {t("settings.sections.sourceWatch.excludeExtensionsHint", {
               defaultValue: "Use extensions without dots. These override the allowed file type checkboxes.",
             })}
@@ -246,7 +246,7 @@ export function SourceWatchSection({ draft, setDraft, projectReady }: Props) {
             rows={2}
             className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
           />
-          <p className="text-[0.6875rem] leading-relaxed text-muted-foreground">
+          <p className="text-xs leading-relaxed text-muted-foreground">
             {t("settings.sections.sourceWatch.excludeGlobsHint", {
               defaultValue: "Use comma-separated patterns such as *.draft.*, ~$*, .~lock.*#.",
             })}

@@ -136,6 +136,8 @@ beforeEach(() => {
 describe("IconSidebar", () => {
   it("渲染全部导航项、搜索、回收站、主题、设置与切换项目按钮", () => {
     renderSidebar()
+    // primary 常驻项首刷即见；lint 为 secondary，需先展开 More。
+    fireEvent.click(screen.getByTestId("nav-more-shen"))
     const labels = [
       "novel.nav.wiki",
       "novel.nav.sources",
@@ -204,6 +206,10 @@ describe("IconSidebar", () => {
     for (const view of ["graph", "lint", "soul", "bookAnalysis", "reviewCenter"]) {
       mocks.wikiState.selectedFile = "/p/wiki/entities/x.md"
       renderSidebar()
+      // lint 为 secondary，需先展开 shen 组 More。
+      if (view === "lint" && screen.queryByTestId("nav-more-shen")) {
+        fireEvent.click(screen.getByTestId("nav-more-shen"))
+      }
       await clickTooltip(`novel.nav.${view === "bookAnalysis" ? "dismantling" : view === "reviewCenter" ? "reviewCenter" : view}`)
       expect(mocks.wikiState.setSelectedFile).not.toHaveBeenCalled()
       expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith(view)
@@ -379,13 +385,25 @@ describe("IconSidebar", () => {
     for (const key of ["novel.nav.groupMa", "novel.nav.groupSi", "novel.nav.groupShen", "novel.nav.groupMaint"]) {
       expect(screen.getByText(key)).toBeTruthy()
     }
-    // 分组顺序：码字 < 构思 < 审校 < 维护（DOM 先后；默认视图 章节库 落在首组 = 写作优先）
+    // 分组顺序：写和审 < 开书 < 查账 < 设置（默认视图 章节库 落在首组）
     const html = document.body.innerHTML
     expect(html.indexOf("novel.nav.groupMa")).toBeLessThan(html.indexOf("novel.nav.groupSi"))
     expect(html.indexOf("novel.nav.groupSi")).toBeLessThan(html.indexOf("novel.nav.groupShen"))
     expect(html.indexOf("novel.nav.groupShen")).toBeLessThan(html.indexOf("novel.nav.groupMaint"))
-    // 全部 30 个 NAV_ITEMS 仍渲染（data-view 可定位），30 个 data-view 无缺失
-    const views = ["workbench", "wiki", "director", "sources", "graph", "lint", "soul", "skillLibrary", "storySimulation", "bookAnalysis", "canonEditor", "backupExport", "diagnosticsCenter", "reviewCenter", "dataManager", "followUpCenter", "liveExecution", "creativeHub", "bookshelf", "genreLibrary", "storyModeLibrary", "titleStudio", "styleEngine", "antiAiRules", "workflowEditor", "marketRadar", "modelRoutes", "mcpManager", "exportCenter", "help"]
+    // 分层收纳：primary 首刷即见，secondary 需展开 More 后可达。
+    const primaryViews = ["workbench", "wiki", "director", "sources", "graph", "soul", "bookAnalysis", "canonEditor", "reviewCenter", "followUpCenter", "mainControl", "creativeHub", "bookshelf", "backupExport", "exportCenter"]
+    for (const v of primaryViews) {
+      expect(document.querySelector(`[data-view="${v}"]`), v).toBeTruthy()
+    }
+    // secondary 首刷收起（More 未展开时不可见）
+    expect(document.querySelector('[data-view="marketRadar"]')).toBeNull()
+    expect(document.querySelector('[data-view="lint"]')).toBeNull()
+    // 展开各组 More 后 31 个 data-view 无缺失
+    for (const g of ["si", "shen", "maint"]) {
+      const moreBtn = document.querySelector(`[data-testid="nav-more-${g}"]`) as HTMLButtonElement | null
+      if (moreBtn) fireEvent.click(moreBtn)
+    }
+    const views = ["workbench", "wiki", "director", "sources", "graph", "lint", "soul", "skillLibrary", "storySimulation", "bookAnalysis", "canonEditor", "backupExport", "diagnosticsCenter", "reviewCenter", "dataManager", "followUpCenter", "mainControl", "liveExecution", "creativeHub", "bookshelf", "genreLibrary", "storyModeLibrary", "titleStudio", "styleEngine", "antiAiRules", "workflowEditor", "marketRadar", "modelRoutes", "mcpManager", "exportCenter", "help"]
     for (const v of views) {
       expect(document.querySelector(`[data-view="${v}"]`), v).toBeTruthy()
     }
@@ -394,8 +412,12 @@ describe("IconSidebar", () => {
     expect(document.querySelector('[data-nav-group="maint"] [data-view="backupExport"]')).toBeTruthy()
     expect(document.querySelector('[data-nav-group="ma"] [data-view="wiki"]')).toBeTruthy()
     // 组头显示条目数
-    expect(document.querySelector('[data-nav-group="ma"] button[aria-expanded]')?.textContent).toContain("3")
-    expect(document.querySelector('[data-nav-group="si"] button[aria-expanded]')?.textContent).toContain("18")
+    expect(document.querySelector('[data-nav-group="ma"] [data-view="reviewCenter"]')).toBeTruthy()
+    expect(document.querySelector('[data-nav-group="ma"] [data-view="followUpCenter"]')).toBeTruthy()
+    expect(document.querySelector('[data-nav-group="ma"] [data-view="exportCenter"]')).toBeNull()
+    expect(document.querySelector('[data-nav-group="maint"] [data-view="exportCenter"]')).toBeTruthy()
+    expect(document.querySelector('[data-nav-group="ma"] button[aria-expanded]')?.textContent).toContain("4")
+    expect(document.querySelector('[data-nav-group="si"] button[aria-expanded]')?.textContent).toContain("6")
   })
 
   it("首刷构思组默认收起：点开展开再收起（含 localStorage 持久化）", () => {
@@ -403,11 +425,11 @@ describe("IconSidebar", () => {
     renderSidebar()
     const header = document.querySelector('[data-nav-group="si"] button[aria-expanded]') as HTMLButtonElement
     expect(header.getAttribute("aria-expanded")).toBe("false")
-    expect(document.querySelector('[data-nav-group="si"] [data-view="graph"]')).toBeNull()
+    expect(document.querySelector('[data-nav-group="si"] [data-view="director"]')).toBeNull()
 
     fireEvent.click(header)
     expect(header.getAttribute("aria-expanded")).toBe("true")
-    expect(document.querySelector('[data-nav-group="si"] [data-view="graph"]')).toBeTruthy()
+    expect(document.querySelector('[data-nav-group="si"] [data-view="director"]')).toBeTruthy()
     expect(JSON.parse(window.localStorage.getItem("niko-buddy-nav-collapsed-groups") ?? "[]")).toEqual([
       "shen",
       "maint",
@@ -415,21 +437,37 @@ describe("IconSidebar", () => {
 
     fireEvent.click(header)
     expect(header.getAttribute("aria-expanded")).toBe("false")
-    expect(document.querySelector('[data-nav-group="si"] [data-view="graph"]')).toBeNull()
+    expect(document.querySelector('[data-nav-group="si"] [data-view="director"]')).toBeNull()
   })
 
   it("当前视图所在组被折叠时自动展开（键盘/外部跳转不会落到看不见的高亮项）", () => {
     window.localStorage.setItem("niko-buddy-nav-collapsed-groups", JSON.stringify(["si"]))
-    mocks.wikiState.activeView = "graph"
+    mocks.wikiState.activeView = "director"
     renderSidebar()
-    expect(document.querySelector('[data-nav-group="si"] [data-view="graph"]')).toBeTruthy()
+    expect(document.querySelector('[data-nav-group="si"] [data-view="director"]')).toBeTruthy()
     window.localStorage.removeItem("niko-buddy-nav-collapsed-groups")
   })
 
   it("localStorage 存储值非法时降级为全部展开（不崩溃）", () => {
     window.localStorage.setItem("niko-buddy-nav-collapsed-groups", "{not-json")
     expect(() => renderSidebar()).not.toThrow()
-    expect(document.querySelector('[data-nav-group="si"] [data-view="graph"]')).toBeTruthy()
+    expect(document.querySelector('[data-nav-group="si"] [data-view="director"]')).toBeTruthy()
     window.localStorage.removeItem("niko-buddy-nav-collapsed-groups")
+  })
+
+  it("More 收纳：secondary 首刷隐藏，点击 More 后展开", () => {
+    renderSidebar()
+    expect(document.querySelector('[data-nav-group="maint"] [data-view="marketRadar"]')).toBeNull()
+    fireEvent.click(screen.getByTestId("nav-more-maint"))
+    expect(document.querySelector('[data-nav-group="maint"] [data-view="marketRadar"]')).toBeTruthy()
+    fireEvent.click(screen.getByTestId("nav-more-maint"))
+    expect(document.querySelector('[data-nav-group="maint"] [data-view="marketRadar"]')).toBeNull()
+  })
+
+  it("命中 secondary 时自动展开 More（外部跳转不落空）", () => {
+    mocks.wikiState.activeView = "marketRadar"
+    renderSidebar()
+    expect(document.querySelector('[data-nav-group="maint"] [data-view="marketRadar"]')).toBeTruthy()
+    mocks.wikiState.activeView = "wiki"
   })
 })

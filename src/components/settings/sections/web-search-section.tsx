@@ -122,17 +122,17 @@ export function WebSearchSection() {
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium">{provider.label}</span>
                     {hasConfig && !isActive && (
-                      <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
+                      <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                         {t("settings.sections.webSearch.configuredBadge")}
                       </span>
                     )}
                     {isActive && (
-                      <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary">
+                      <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-xs font-medium text-primary">
                         {t("settings.sections.webSearch.activeBadge")}
                       </span>
                     )}
                     {savedId === provider.id && (
-                      <span className="shrink-0 text-[0.625rem] text-success">
+                      <span className="shrink-0 text-xs text-success">
                         {t("settings.sections.webSearch.savedBadge")}
                       </span>
                     )}

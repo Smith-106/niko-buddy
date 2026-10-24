@@ -12,13 +12,17 @@ const mocks = vi.hoisted(() => {
   const state: {
     activeView: string
     fileTree: unknown[]
+    focusMode: boolean
     setActiveView: ReturnType<typeof vi.fn>
     setSelectedFile: ReturnType<typeof vi.fn>
+    setFocusMode: ReturnType<typeof vi.fn>
   } = {
     activeView: "wiki",
     fileTree: [],
+    focusMode: false,
     setActiveView: vi.fn(),
     setSelectedFile: vi.fn(),
+    setFocusMode: vi.fn(),
   }
   return { state, t: vi.fn((key: string) => key) }
 })
@@ -141,6 +145,14 @@ describe("CommandPalette", () => {
     expect(() => fireEvent.keyDown(input(), { key: "Enter" })).not.toThrow()
     expect(mocks.state.setActiveView).not.toHaveBeenCalled()
     expect(mocks.state.setSelectedFile).not.toHaveBeenCalled()
+  })
+
+  it("可搜索并执行专注模式切换", () => {
+    const { onOpenChange } = renderPalette()
+    fireEvent.change(input(), { target: { value: "layout.focusMode.enter" } })
+    fireEvent.click(screen.getAllByRole("option")[0])
+    expect(mocks.state.setFocusMode).toHaveBeenCalledWith(true)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
   it("重新打开时清空上次查询", () => {

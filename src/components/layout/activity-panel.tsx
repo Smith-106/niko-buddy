@@ -213,17 +213,17 @@ export function ActivityPanel() {
         <div className="max-h-64 overflow-y-auto border-t">
           {hasFileSync && (
             <div className="border-b border-border/50 px-3 py-1.5">
-              <div className="mb-1 flex items-center justify-between gap-2 text-[0.625rem] text-muted-foreground">
+              <div className="mb-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
                 <span>{t("activity.fileSync")}</span>
                 <button
                   onClick={handleFileSyncRescan}
-                  className="rounded px-1.5 py-0.5 text-[0.625rem] hover:bg-accent hover:text-foreground"
+                  className="rounded px-1.5 py-0.5 text-xs hover:bg-accent hover:text-foreground"
                   title={t("activity.rescanTitle")}
                 >
                   {t("activity.rescan")}
                 </button>
               </div>
-              <div className="mb-1 flex flex-wrap items-center gap-1 text-[0.625rem] text-muted-foreground">
+              <div className="mb-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
                 <select
                   value={fsKindFilter}
                   onChange={(e) => { setFsKindFilter(e.target.value as FileChangeKind | "all"); setFsPage(0) }}
@@ -250,7 +250,7 @@ export function ActivityPanel() {
                 </select>
               </div>
               {fileSyncError && (
-                <div className="mb-1 truncate text-[0.625rem] text-destructive">{mapFileSyncError(fileSyncError)}</div>
+                <div className="mb-1 truncate text-xs text-destructive">{mapFileSyncError(fileSyncError)}</div>
               )}
               {(() => {
                 const filtered = fileSyncTasks.filter(
@@ -272,7 +272,7 @@ export function ActivityPanel() {
                       />
                     ))}
                     {pageCount > 1 && (
-                      <div className="mt-1 flex items-center justify-center gap-2 text-[0.625rem] text-muted-foreground">
+                      <div className="mt-1 flex items-center justify-center gap-2 text-xs text-muted-foreground">
                         <button
                           type="button"
                           onClick={() => setFsPage(Math.max(0, safePage - 1))}
@@ -301,7 +301,7 @@ export function ActivityPanel() {
           {/* Queue progress bar */}
           {hasQueue && (queueSummary.processing > 0 || queueSummary.pending > 0) && (
             <div className="px-3 py-1.5 border-b border-border/50">
-              <div className="flex items-center justify-between text-[0.625rem] text-muted-foreground mb-1 gap-2">
+              <div className="flex items-center justify-between text-xs text-muted-foreground mb-1 gap-2">
                 <span>{t("activity.ingestQueue")}</span>
                 <span className="flex-1 text-right">
                   {t("activity.completedProgress", {
@@ -312,7 +312,7 @@ export function ActivityPanel() {
                 {queueSummary.pending + queueSummary.processing >= 2 && (
                   <button
                     onClick={handleCancelAll}
-                    className="rounded px-1.5 py-0.5 text-[0.625rem] text-destructive hover:bg-destructive/10"
+                    className="rounded px-1.5 py-0.5 text-xs text-destructive hover:bg-destructive/10"
                     title={t("activity.cancelAllTitle")}
                   >
                     {t("activity.cancelAll")}
@@ -356,7 +356,7 @@ export function ActivityPanel() {
           {items.some((i) => i.status !== "running") && (
             <button
               onClick={clearDone}
-              className="w-full px-3 py-1 text-center text-[0.625rem] text-muted-foreground hover:underline"
+              className="w-full px-3 py-1 text-center text-xs text-muted-foreground hover:underline"
             >
               {t("activity.clearCompleted")}
             </button>
@@ -382,10 +382,10 @@ function QueueRow({ task, onRetry, onCancel }: { task: IngestTask; onRetry: (id:
         <div className="min-w-0 flex-1">
           <div className="font-medium truncate">{fileName}</div>
           {task.folderContext && (
-            <div className="text-[0.625rem] text-muted-foreground/70 truncate">{task.folderContext}</div>
+            <div className="text-xs text-muted-foreground/70 truncate">{task.folderContext}</div>
           )}
           {task.status === "failed" && task.error && (
-            <div className="text-[0.625rem] text-destructive mt-0.5 truncate">{task.error}</div>
+            <div className="text-xs text-destructive mt-0.5 truncate">{task.error}</div>
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -441,12 +441,12 @@ function FileSyncRow({ task, onRetry, onIgnore }: { task: FileChangeTask; onRetr
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{fileName}</div>
-          <div className="truncate text-[0.625rem] text-muted-foreground/70">{kindLabel} - {task.path}</div>
+          <div className="truncate text-xs text-muted-foreground/70">{kindLabel} - {task.path}</div>
           {task.status === "failed" && task.error && (
-            <div className="mt-0.5 truncate text-[0.625rem] text-destructive">{mapFileSyncError(task.error)}</div>
+            <div className="mt-0.5 truncate text-xs text-destructive">{mapFileSyncError(task.error)}</div>
           )}
           {isConflict && (
-            <div className="mt-0.5 text-[0.625rem] text-warning">
+            <div className="mt-0.5 text-xs text-warning">
               {task.status === "superseded"
                 ? t("activity.fileSyncSuperseded", "文件在同步期间被外部修改，此任务已被新变更取代")
                 : t("activity.fileSyncConflict", "文件在同步期间被外部修改，将自动重新同步")}
@@ -527,7 +527,7 @@ function ActivityRow({ item, onCancel }: { item: ActivityItem; onCancel?: () => 
                 className="flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
               >
                 <Icon className="h-3 w-3 shrink-0" />
-                <span className="text-[0.625rem] font-medium text-muted-foreground/70 w-14 shrink-0">{type}</span>
+                <span className="text-xs font-medium text-muted-foreground/70 w-14 shrink-0">{type}</span>
                 <span className="min-w-0 truncate">{fileName}</span>
               </button>
             )

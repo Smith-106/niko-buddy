@@ -484,7 +484,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
               className="flex w-full items-center gap-1.5 rounded text-left"
               title={page.path}
             >
-              <span className="text-[0.625rem] tabular-nums text-muted-foreground w-4 shrink-0 text-right">[{i + 1}]</span>
+              <span className="text-xs tabular-nums text-muted-foreground w-4 shrink-0 text-right">[{i + 1}]</span>
               {/*
                * Image badge — clickable, separately from the page
                * row. Click → resolve the FIRST image's raw source
@@ -502,7 +502,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
                 <button
                   type="button"
                   onClick={() => handleJumpToImageSource(info.firstUrl!, page.path)}
-                  className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[0.625rem] text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
+                  className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-xs text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
                   title={`打开第一张图片所在原始文档（本页共 ${info.count} 张图片）`}
                 >
                   <ImageIcon className="h-3 w-3 shrink-0" />
@@ -524,7 +524,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
           <button
             type="button"
             onClick={() => setExpanded(true)}
-            className="w-full text-center text-[0.625rem] text-muted-foreground hover:text-primary pt-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="w-full text-center text-xs text-muted-foreground hover:text-primary pt-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             +{citedPages.length - MAX_COLLAPSED} 条更多引用...
           </button>
@@ -827,7 +827,7 @@ function WorkflowBlock({ content }: { content: string }) {
       <div className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground">
         <span className="text-sm">📋</span>
         <span className="font-medium">{t("chat.workflowStage")}</span>
-        <span className="text-[0.625rem] tabular-nums">{paragraphs.length} 个阶段</span>
+        <span className="text-xs tabular-nums">{paragraphs.length} 个阶段</span>
       </div>
       <div className="max-h-72 overflow-y-auto border-t border-border px-2.5 py-2 pr-1 text-xs text-foreground/90 whitespace-pre-wrap break-words leading-relaxed">
         {paragraphs.map((p, i) => (

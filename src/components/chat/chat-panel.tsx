@@ -2488,7 +2488,7 @@ export function ChatPanel() {
                           >
                             {/* ③-6 审计修复：计数徽标 */}
                             {exemplarCount > 0 ? (
-                              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-1 text-[0.5625rem] font-bold leading-none text-primary-foreground" aria-label={`已标记 ${exemplarCount} 条范例`}>{exemplarCount}</span>
+                              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-1 text-xs font-bold leading-none text-primary-foreground" aria-label={`已标记 ${exemplarCount} 条范例`}>{exemplarCount}</span>
                             ) : null}
                             <TooltipContent>{t("chat.markExemplarUserAnchor")}</TooltipContent>
                           </TooltipTrigger>
@@ -2663,13 +2663,13 @@ export function ChatPanel() {
                           <Button
                             variant="destructive"
                             size="sm"
-                            className="h-6 px-2 text-[0.625rem]"
+                            className="h-6 px-2 text-xs"
                             onClick={() => void deleteExemplar(ex.exemplarId)}
                           >{t("chat.confirmDelete")}</Button>
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-6 px-2 text-[0.625rem]"
+                            className="h-6 px-2 text-xs"
                             onClick={() => setExemplarDeleteConfirmId(null)}
                           >{t("common.cancel")}</Button>
                         </div>
@@ -2677,7 +2677,7 @@ export function ChatPanel() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 shrink-0 px-2 text-[0.625rem]"
+                          className="h-6 shrink-0 px-2 text-xs"
                           onClick={() => setExemplarDeleteConfirmId(ex.exemplarId)}
                           title={t("chat.deleteExemplar")}
                           aria-label={t("chat.deleteExemplar")}

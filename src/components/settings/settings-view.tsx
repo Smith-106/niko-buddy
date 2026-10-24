@@ -496,7 +496,7 @@ export function SettingsView() {
   return (
     <div className="flex h-full overflow-hidden">
       <aside className="flex w-56 shrink-0 flex-col border-r bg-muted/30">
-        <div className="flex items-center gap-1.5 px-4 pb-2 pt-4 text-[0.6875rem] font-semibold uppercase tracking-wider">
+        <div className="flex items-center gap-1.5 px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider">
           <PanelHeaderWithHelp
             title={t("settings.title")}
             helpKey="settings"
@@ -534,11 +534,11 @@ export function SettingsView() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto px-8 py-6">
-          <div className="mx-auto max-w-2xl">{body}</div>
+          <div className="w-full min-w-0">{body}</div>
         </div>
 
         <div className="shrink-0 border-t bg-background/80 backdrop-blur px-8 py-3">
-          <div className="mx-auto flex max-w-2xl items-center justify-between gap-4">
+          <div className="flex w-full min-w-0 items-center justify-between gap-4">
             <p className="text-xs text-muted-foreground">
               {saved ? t("settings.savedTick") : t("settings.changeHint")}
             </p>

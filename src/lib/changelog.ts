@@ -15,6 +15,28 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // P14 一次性授权补录（2026-10-24，第 7 块 B 族）：内容逐字转录自
+    // CHANGELOG.md 的 [2.21.1] 小节，不碰版本号与 CHANGELOG.md 本体。
+    version: "2.21.1",
+    date: "2026-10-22",
+    highlights: {
+      en: [
+        "Changed: internal English identifiers on the first screen and report pages are now Chinese. Test-locked source strings stay in accessibility text, or whole-sentence assertions were rewritten as the new Chinese sentences. File format names and AES-256 remain as-is.",
+        "Changed: read-only report pages lead with the next step; normal diagnostics stay collapsed.",
+        "Changed: Canon backfill for the current project now processes all discovered chapter snapshots instead of stopping at the previous chapter. Formal text is untouched; no review gates, runtime events, or scene files are backfilled.",
+        "Changed: when cruise-accept fails, draft text is no longer written directly into formal files.",
+        "Fixed: release semantics are prerelease. v2.21.0 stable shipped the same day; this version does not become Latest and does not move tag v2.21.0. Installers still follow the v2.21.0 stable on the download page until this tag's build attaches assets.",
+      ],
+      zh: [
+        "调整：首屏和报告页里的内部英文码改成中文。测试锁定的原文留在无障碍文本里，或把整句断言改成新的中文句子。文件格式名和 AES-256 保持原样。",
+        "调整：只读报告页先给出下一步；正常诊断收起。",
+        "调整：当前项目的 Canon 回填处理已发现的全部章节快照，不再停在上一章。不改正文，不补审查门、运行事件或场景文件。",
+        "调整：巡航接受失败时不再把正文直接写进正式文件。",
+        "修复：发布语义为 prerelease。同日已有 v2.21.0 stable，本版不进 Latest，不移动 tag v2.21.0。安装包仍以下载页的 v2.21.0 stable 为准，直到本 tag 的构建附上资产。",
+      ],
+    },
+  },
+  {
     version: "2.21.0",
     date: "2026-10-22",
     highlights: {

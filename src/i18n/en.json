@@ -71,6 +71,17 @@
       "description": "Open the full tutorial, user manual, and novel feature guide."
     }
   },
+  "layout": {
+    "focusMode": {
+      "enter": "Enter focus mode",
+      "exit": "Exit focus mode",
+      "label": "Focus",
+      "shortcut": "Ctrl+\\",
+      "status": "Focus on: sidebars and tools hidden",
+      "showAi": "AI context",
+      "hideAi": "Hide AI"
+    }
+  },
   "sidebar": {
     "knowledge": "Chapters",
     "files": "Outlines",
@@ -210,9 +221,11 @@
       "chaseDebtDue": "Due",
       "chaseDebtSettle": "Settle",
       "chaseDebtWriteOff": "Write Off",
+      "chaseDebtCompound": "compound",
       "emotionDebt": "Emotional Debt",
       "emotionNetValue": "Emotion Net",
       "loadingExtras": "Loading supplementary data...",
+      "chapterEcg": "Chapter ECG",
       "factCheckHint": "Fact-check issues are listed above, merged into the severity groups."
     },
     "debt": {
@@ -278,6 +291,7 @@
   "reviewCenter": {
     "readFailed": "Failed to read the chapter; review did not start",
     "title": "Review Center",
+    "summaryStrip": "Review overview",
     "chapterTarget": "Review Chapter",
     "noChapterAvailable": "No chapters available",
     "sixDimensions": "Six Dimensions",
@@ -339,19 +353,9 @@
     "closeCraft": "Close craft panel"
   },
   "nav": {
-    "wiki": "Knowledge Base",
-    "sources": "Sources",
-    "search": "Search",
-    "graph": "Graph",
-    "chat": "Chat",
-    "lint": "Check",
     "soul": "Soul",
-    "reviewCenter": "Review Center",
-    "dismantling": "Dismantling",
-    "settings": "Settings",
     "switchProject": "Switch Project",
-    "trash": "Trash",
-    "coverWorkbench": "Cover Workbench"
+    "trash": "Trash"
   },
   "theme": {
     "switch": "Switch theme",
@@ -1009,9 +1013,33 @@
     "noRelations": "No recorded relations yet.",
     "noRelatedEvents": "No directly related events yet.",
     "showAllTypes": "Show all types",
+    "chapterUpTo": "Up to chapter {{current}} of {{max}}",
+    "chapterTimeline": "Chapter timeline",
     "expandLegend": "Expand legend",
     "collapseLegend": "Collapse legend",
     "doubleClickToggleVisibility": "Double-click to toggle visibility",
+    "enableFocus": "Focus mode",
+    "focus": "Focus",
+    "focusHint": "Click any node to switch focus",
+    "oneHop": "1 hop",
+    "twoHops": "2 hops",
+    "showFullGraph": "Full graph",
+    "focusOmitted": "{{count}} weak links hidden",
+    "setAsFocus": "Set as focus",
+    "setAsFocusHint": "Clicking any node will switch focus afterwards",
+    "jumpToEditor": "Jump to editor",
+    "mindmapExpandAll": "Expand all",
+    "mindmapCollapseAll": "Collapse all",
+    "mindmapCollapseBranch": "Collapse branch",
+    "mindmapExpandBranch": "Expand branch",
+    "orphanHighlight": "Highlight orphans",
+    "focusCommunity": "Click to focus this community",
+    "layoutPreset": {
+      "label": "Layout preset",
+      "community": "Community",
+      "compact": "Compact",
+      "explore": "Explore"
+    },
     "lowCohesion": "Low cohesion: {{value}}",
     "savedRealProfileWithEmbedding": "Saved to the real profile page and updated the vector index.",
     "savedRealProfile": "Saved to the real profile page. The graph and mind map will refresh automatically.",
@@ -1184,6 +1212,7 @@
     "title": "Review",
     "allClear": "No review items found",
     "allClearHint": "Good novels are born from revision — keep writing",
+    "continueWriting": "Continue writing",
     "sixDimensionTitle": "Six-Dimension Staged Review",
     "stagedDeepTitle": "Staged Deep Review",
     "reviewingDimension": "Reviewing this dimension",
@@ -1942,7 +1971,9 @@
       "hint": "Click a chapter in the left “Chapters” panel to start writing, or pick one from the recent list below.",
       "recentTitle": "Recent chapters",
       "noChapterHint": "No chapters yet: use the + button in the “Chapters” panel to create the first one.",
-      "commandHint": "Shortcut: Ctrl/⌘+K to search chapters and features"
+      "commandHint": "Shortcut: Ctrl/⌘+K to search chapters and features",
+      "viewGraph": "View the graph",
+      "noProjectHint": "No project open yet. Explore the graph to understand the structure."
     },
     "chatSession": "AI Session",
     "openChatSession": "Open session panel",
@@ -2040,14 +2071,15 @@
       "coverWorkbench": "Cover Workbench",
       "director": "Director",
       "translationWorkbench": "Translation Workbench",
-      "groupSi": "Plan",
-      "groupMa": "Write",
-      "groupShen": "Review",
-      "groupMaint": "Maintenance",
+      "groupSi": "Open",
+      "groupMa": "Write and review",
+      "groupShen": "Ledger",
+      "groupMaint": "Settings",
       "fanficMerge": "Fanfic Canon Merge",
       "dataManager": "Data Manager",
       "workbench": "Workbench",
       "followUpCenter": "Follow-up Center",
+      "mainControl": "Main Control",
       "liveExecution": "Live Execution",
       "creativeHub": "Creative Hub",
       "bookshelf": "Bookshelf",
@@ -2063,6 +2095,8 @@
       "exportCenter": "Export Center",
       "help": "Help",
       "railLabel": "Main navigation",
+      "more": "More ({{count}})",
+      "less": "Collapse",
       "close": "Close"
     },
     "backupExport": {
@@ -2805,6 +2839,7 @@
       "resolvedAt": "Resolved in Chapter {{chapter}}",
       "openPlanted": "Open chapter {{num}}",
       "openResolved": "Open resolved chapter {{num}}",
+      "gantt": "Planted → Resolved",
       "empty": "No project selected — foreshadowing records appear after you open or create a project"
     },
     "character": {
@@ -3885,13 +3920,18 @@
     "logEmpty": "No calls yet — run an incubation, cruise, or stage advance"
   },
   "mainControl": {
-    "title": "Main Control Agent",
+    "title": "Main Control",
     "subtitle": "One-sentence goal → read-only evidence → draft output",
     "goalLabel": "Goal",
     "goalPlaceholder": "e.g. Draft an opening for chapter 12, reading context first and keeping established canon",
     "run": "Run",
     "running": "Running…",
     "stop": "Stop",
+    "elapsed": "Running {{secs}}s",
+    "tabsLabel": "Main control sections",
+    "tabRun": "Run",
+    "tabDrafts": "Drafts",
+    "tabContext": "Chapter context",
     "noProject": "Open a project first",
     "stepsTitle": "Trace ({{count}} steps)",
     "stepsEmpty": "No tool calls yet",
@@ -3939,13 +3979,13 @@
       "heatmapDesc": "Live wiring and call heat across all modules",
       "pipelineMotion": "Pipeline Motion",
       "pipelineMotionDesc": "Live writing-pipeline motion: brief to delivery to reflow",
-      "mainControl": "Main Control Agent",
+      "mainControl": "Main Control",
       "mainControlDesc": "Goal-driven: read-only evidence plus draft output",
       "simulation": "Story Simulation",
       "simulationDesc": "Simulation frameworks & interview branches",
       "followUp": "Follow-up Center",
       "followUpDesc": "Production task aggregation & batch ops",
-      "live": "AI Live",
+      "live": "Live Execution",
       "liveDesc": "Realtime generation status & logs",
       "bookshelf": "Bookshelf",
       "bookshelfDesc": "Work cards · continue writing",
@@ -4033,6 +4073,7 @@
     "empty": "No matching chapter or feature",
     "kindView": "View",
     "kindChapter": "Chapter",
+    "kindAction": "Action",
     "hint": "Ctrl/⌘+K opens the command palette"
   }
 }

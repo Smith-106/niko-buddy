@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { useTranslation } from "react-i18next"
-import { Sun, Moon, Monitor, Eye, ArrowLeftRight, Minus, Square, X, Type, Search } from "lucide-react"
+import { Sun, Moon, Monitor, Eye, ArrowLeftRight, Minus, Square, X, Type, Search, Expand, Shrink } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { saveTheme } from "@/lib/project-store"
 import { applyTheme, type ThemeMode } from "@/lib/theme-utils"
@@ -24,6 +24,9 @@ export function TitleBar({ onOpenCommandPalette }: { onOpenCommandPalette?: () =
   const setUiFontSizeScale = useWikiStore((s) => s.setUiFontSizeScale)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const setActiveSettingsCategory = useWikiStore((s) => s.setActiveSettingsCategory)
+  // 写作专注模式：顶栏常驻开关，显眼但不打扰；AppLayout 据此隐藏两侧边栏。
+  const focusMode = useWikiStore((s) => s.focusMode)
+  const setFocusMode = useWikiStore((s) => s.setFocusMode)
 
   const cycleTheme = () => {
     const next = THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % THEME_ORDER.length]
@@ -86,11 +89,25 @@ export function TitleBar({ onOpenCommandPalette }: { onOpenCommandPalette?: () =
       >
         <Search className="h-3.5 w-3.5 shrink-0" />
         <span className="hidden text-xs sm:inline">{t("commandPalette.placeholder", { defaultValue: "搜索章节与功能" })}</span>
-        <kbd className="hidden shrink-0 rounded border border-border px-1 text-[0.625rem] sm:inline">Ctrl K</kbd>
+        <kbd className="hidden shrink-0 rounded border border-border px-1 text-xs sm:inline">Ctrl K</kbd>
       </button>
       <div className="flex-1" />
-      {/* 中：主题 / 字号快捷入口 */}
+      {/* 中：主题 / 专注 / 字号快捷入口 */}
       <div className="flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setFocusMode(!focusMode)}
+          data-testid="focus-mode-toggle"
+          aria-pressed={focusMode ?? false}
+          title={`${t(focusMode ? "layout.focusMode.exit" : "layout.focusMode.enter", { defaultValue: focusMode ? "退出专注模式" : "进入专注模式" })} (${t("layout.focusMode.shortcut", { defaultValue: "Ctrl+\\" })})`}
+          aria-label={t(focusMode ? "layout.focusMode.exit" : "layout.focusMode.enter", { defaultValue: focusMode ? "退出专注模式" : "进入专注模式" })}
+          className={`soft-button flex h-7 shrink-0 items-center gap-1.5 rounded-xl px-2 text-xs transition-colors hover:bg-accent/60 hover:text-foreground ${
+            focusMode ? "bg-accent text-foreground" : "text-muted-foreground"
+          }`}
+        >
+          {focusMode ? <Shrink className="h-3.5 w-3.5" /> : <Expand className="h-3.5 w-3.5" />}
+          <span className="hidden sm:inline">{t("layout.focusMode.label", { defaultValue: "专注" })}</span>
+        </button>
         <button
           type="button"
           onClick={cycleTheme}
@@ -109,7 +126,7 @@ export function TitleBar({ onOpenCommandPalette }: { onOpenCommandPalette?: () =
           aria-label="减小字号"
         >
           <Type className="h-3.5 w-3.5" />
-          <span className="text-[0.625rem]">−</span>
+          <span className="text-xs">−</span>
         </button>
         <button
           type="button"
@@ -131,7 +148,7 @@ export function TitleBar({ onOpenCommandPalette }: { onOpenCommandPalette?: () =
           aria-label="增大字号"
         >
           <Type className="h-3.5 w-3.5" />
-          <span className="text-[0.625rem]">＋</span>
+          <span className="text-xs">＋</span>
         </button>
       </div>
       {/* 右：窗口控制（仅桌面端） */}

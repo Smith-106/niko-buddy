@@ -176,19 +176,19 @@ export function PresetRow({
           <div className="flex items-center gap-2 min-w-0">
             <span className="truncate text-sm font-medium min-w-0">{preset.label}</span>
             {hasConfig && !isEnabled && (
-              <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
+              <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                 {t("settings.sections.llm.configuredBadge")}
               </span>
             )}
             {isEnabled && (ov.savedModels ?? []).length > 0 && (
-              <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary">
+              <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-xs font-medium text-primary">
                 { /* v8 ignore start */ }
                 {t("settings.sections.llm.enabledBadge", { count: (ov.savedModels ?? []).length })}
                 { /* v8 ignore stop */ }
               </span>
             )}
             {savedHere && (
-              <span className="shrink-0 text-[0.625rem] text-success">{t("settings.sections.llm.savedBadge")}</span>
+              <span className="shrink-0 text-xs text-success">{t("settings.sections.llm.savedBadge")}</span>
             )}
           </div>
           {preset.hint && (
@@ -824,11 +824,11 @@ export function ClaudeCliStatusPill() {
                   versionSuffix: result?.version ? ` ${result.version}` : "",
                 })}
               </div>
-              <div className="text-muted-foreground text-[0.6875rem]">
+              <div className="text-muted-foreground text-xs">
                 {t("settings.sections.llm.cliStatus.claudeTransportHint")}
               </div>
               {result?.path && (
-                <div className="truncate font-mono text-[0.625rem] text-muted-foreground">
+                <div className="truncate font-mono text-xs text-muted-foreground">
                   {result.path}
                 </div>
               )}
@@ -839,7 +839,7 @@ export function ClaudeCliStatusPill() {
                   Wiki bug. */}
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.authErrorPrefix")}{" "}
-                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-xs">
                   claude
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.claudeAuthErrorSuffix")}
@@ -851,7 +851,7 @@ export function ClaudeCliStatusPill() {
               <div>{result?.error ?? t("settings.sections.llm.cliStatus.claudeUnavailable")}</div>
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
-                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-xs">
                   npm i -g @anthropic-ai/claude-code
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.installSuffix")}
@@ -932,13 +932,13 @@ export function CodexCliStatusPill() {
                 })}
               </div>
               {result?.path && (
-                <div className="truncate font-mono text-[0.625rem] text-muted-foreground">
+                <div className="truncate font-mono text-xs text-muted-foreground">
                   {result.path}
                 </div>
               )}
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.authErrorPrefix")}{" "}
-                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-xs">
                   codex
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.codexAuthErrorSuffix")}
@@ -950,7 +950,7 @@ export function CodexCliStatusPill() {
               <div>{result?.error ?? t("settings.sections.llm.cliStatus.codexUnavailable")}</div>
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
-                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-xs">
                   npm install -g @openai/codex
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.installSuffix")}
@@ -1034,10 +1034,10 @@ export function AntigravityCliStatusPill() {
                 })}
               </div>
               {result?.path && (
-                <div className="truncate font-mono text-[0.625rem] text-muted-foreground">{result.path}</div>
+                <div className="truncate font-mono text-xs text-muted-foreground">{result.path}</div>
               )}
               {result?.fallback_path && result.path !== result.fallback_path && (
-                <div className="truncate font-mono text-[0.625rem] text-muted-foreground">
+                <div className="truncate font-mono text-xs text-muted-foreground">
                   {t("settings.sections.llm.cliStatus.antigravityFallback")}: {result.fallback_path}
                 </div>
               )}
@@ -1048,7 +1048,7 @@ export function AntigravityCliStatusPill() {
               <div>{result?.error ?? t("settings.sections.llm.cliStatus.antigravityUnavailable")}</div>
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
-                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-xs">
                   antigravity / gemini
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.installSuffix")}

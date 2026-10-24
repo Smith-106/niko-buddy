@@ -731,7 +731,7 @@ ${frontmatterBody}
                 )}
                 <Folder className="h-4 w-4 shrink-0 text-warning" />
                 <span className="truncate font-medium">{node.name}</span>
-                <span className="ml-auto text-[0.625rem] text-muted-foreground/60">{countMarkdownDescendants(node)}</span>
+                <span className="ml-auto text-xs text-muted-foreground/60">{countMarkdownDescendants(node)}</span>
               </button>
             </div>
             {!isCollapsed && node.children && renderNodes(node.children, depth + 1)}
@@ -813,7 +813,7 @@ ${frontmatterBody}
                   />
                 )}
                 {page.type === "chapter" && page.wordCountLabel && (
-                  <span className={`shrink-0 text-right text-[0.6875rem] ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
+                  <span className={`shrink-0 text-right text-xs ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
                     {page.wordCountLabel}
                   </span>
                 )}
@@ -1011,7 +1011,7 @@ ${frontmatterBody}
                         >
                           <Folder className="h-3 w-3 shrink-0 text-warning" />
                           <span className="truncate">{vol.name}</span>
-                          {isCurrentVolume && <span className="ml-auto text-[0.625rem] text-muted-foreground">当前</span>}
+                          {isCurrentVolume && <span className="ml-auto text-xs text-muted-foreground">当前</span>}
                         </button>
                       )
                     })}

@@ -71,6 +71,17 @@
       "description": "查看完整教程、用户手册和小说功能介绍。"
     }
   },
+  "layout": {
+    "focusMode": {
+      "enter": "进入专注模式",
+      "exit": "退出专注模式",
+      "label": "专注",
+      "shortcut": "Ctrl+\\",
+      "status": "专注中，侧栏与工具已收起",
+      "showAi": "AI 上下文",
+      "hideAi": "收起 AI"
+    }
+  },
   "dashboard": {
     "title": "项目仪表盘",
     "noIssues": "未发现任何问题",
@@ -98,9 +109,11 @@
       "chaseDebtDue": "截止",
       "chaseDebtSettle": "结清",
       "chaseDebtWriteOff": "核销",
+      "chaseDebtCompound": "利滚利",
       "emotionDebt": "情绪债务",
       "emotionNetValue": "情绪净值",
       "loadingExtras": "正在加载补充数据...",
+      "chapterEcg": "章节心电图",
       "factCheckHint": "事实核查问题已并入上方严重度分组卡片。"
     },
     "debt": {
@@ -166,6 +179,7 @@
   "reviewCenter": {
     "readFailed": "读取章节失败，未开始审查",
     "title": "审查中心",
+    "summaryStrip": "审校概览",
     "chapterTarget": "审查章节",
     "noChapterAvailable": "暂无可审查章节",
     "sixDimensions": "六维审查",
@@ -227,19 +241,9 @@
     "closeCraft": "关闭技法面板"
   },
   "nav": {
-    "wiki": "章节库",
-    "sources": "原始资料",
-    "search": "搜索",
-    "graph": "关系图",
-    "lint": "检查",
     "soul": "灵魂",
-    "reviewCenter": "审查中心",
-    "dismantling": "拆文库",
-    "settings": "设置",
     "switchProject": "切换小说",
-    "trash": "回收站",
-    "chat": "聊天",
-    "coverWorkbench": "封面工作台"
+    "trash": "回收站"
   },
   "theme": {
     "switch": "切换主题",
@@ -621,6 +625,7 @@
     "clearAll": "清空全部",
     "allClear": "一切正常，无需审阅",
     "allClearHint": "好小说是改出来的，继续创作下一章",
+    "continueWriting": "继续写作",
     "sixDimensionTitle": "六维阶段式审查",
     "stagedDeepTitle": "阶段式深度审稿",
     "reviewingDimension": "正在审查此维度",
@@ -1379,7 +1384,9 @@
       "hint": "在左侧「章节」面板点一章即可开始写作；也可以直接选下面的最近章节。",
       "recentTitle": "最近章节",
       "noChapterHint": "还没有章节：用左侧「章节」面板右上角的 + 新建第一章。",
-      "commandHint": "快捷键：Ctrl/⌘+K 搜索章节与功能"
+      "commandHint": "快捷键：Ctrl/⌘+K 搜索章节与功能",
+      "viewGraph": "去看看图谱",
+      "noProjectHint": "还没有打开项目，可以先看看图谱了解结构"
     },
     "chatSession": "AI会话",
     "openChatSession": "打开会话栏",
@@ -1584,9 +1591,33 @@
     "noRelations": "暂无已记录关系。",
     "noRelatedEvents": "暂无直接关联事件。",
     "showAllTypes": "显示全部类型",
+    "chapterUpTo": "看到第{{current}}章 / 共{{max}}章",
+    "chapterTimeline": "章节时间轴",
     "expandLegend": "展开图例",
     "collapseLegend": "收起图例",
     "doubleClickToggleVisibility": "双击切换可见性",
+    "enableFocus": "聚焦模式",
+    "focus": "焦点",
+    "focusHint": "点击任意节点切换焦点",
+    "oneHop": "1跳",
+    "twoHops": "2跳",
+    "showFullGraph": "全图",
+    "focusOmitted": "已收起弱连接 {{count}} 条",
+    "setAsFocus": "设为焦点",
+    "setAsFocusHint": "之后点击任意节点也会切换焦点",
+    "jumpToEditor": "跳到正文",
+    "mindmapExpandAll": "全部展开",
+    "mindmapCollapseAll": "全部收起",
+    "mindmapCollapseBranch": "折叠子树",
+    "mindmapExpandBranch": "展开子树",
+    "orphanHighlight": "孤立高亮",
+    "focusCommunity": "点击聚焦该社区",
+    "layoutPreset": {
+      "label": "布局预设",
+      "community": "社区优先",
+      "compact": "紧凑中心",
+      "explore": "宽松探索"
+    },
     "lowCohesion": "凝聚度偏低：{{value}}",
     "savedRealProfileWithEmbedding": "已保存到真实档案页，并已更新向量索引。",
     "savedRealProfile": "已保存到真实档案页，图谱和脑图将自动刷新。",
@@ -1659,14 +1690,15 @@
       "coverWorkbench": "封面工作台",
       "director": "开书导演",
       "translationWorkbench": "翻译工作台",
-      "groupSi": "构思",
-      "groupMa": "码字",
-      "groupShen": "审校",
-      "groupMaint": "维护",
+      "groupSi": "开书",
+      "groupMa": "写和审",
+      "groupShen": "查账",
+      "groupMaint": "设置",
       "fanficMerge": "同人正典合并",
       "dataManager": "数据管理",
       "workbench": "工作台",
       "followUpCenter": "跟进中心",
+      "mainControl": "主控",
       "liveExecution": "AI 实况",
       "creativeHub": "创作中枢",
       "bookshelf": "书架",
@@ -1682,6 +1714,8 @@
       "exportCenter": "导出中心",
       "help": "帮助",
       "railLabel": "主导航",
+      "more": "更多 ({{count}})",
+      "less": "收起",
       "close": "关闭"
     },
     "backupExport": {
@@ -2413,6 +2447,7 @@
       "resolvedAt": "第{{chapter}}章回收",
       "openPlanted": "打开第{{num}}章",
       "openResolved": "打开第{{num}}章",
+      "gantt": "埋设→回收",
       "empty": "未选择项目——选择或新建项目后这里显示伏笔记录"
     },
     "character": {
@@ -2887,9 +2922,9 @@
       "colChapter": "章号",
       "colTitle": "标题",
       "colWords": "字数",
-      "na": "N/A",
+      "na": "暂无",
       "total": "共 {{count}} 条",
-      "hint": "标题/字数取自章节快照与正文文件；缺失列显式标注 N/A，不造数据",
+      "hint": "标题/字数取自章节快照与正文文件；缺失列显式标注「暂无」，不造数据",
       "noProject": "尚未选择项目——选择或新建项目后这里列出章节目录"
     },
     "timelineBoard": {
@@ -2898,12 +2933,12 @@
       "tickHint": "第 {{chapter}} 章 · {{count}} 个事件",
       "chapterLabel": "第 {{chapter}} 章",
       "empty": "暂无时间线事件——章节入库后这里会按章显示事件点",
-      "naThreads": "N/A：事件未打类型/角色标签，无法按故事线或人物分道",
-      "naGranularity": "N/A：粒度仅到章节序，无章内时序、时长与因果箭头",
-      "naPacing": "N/A：不做节奏/密度打分，只呈现章节计数",
+      "naThreads": "暂无：事件未打类型/角色标签，无法按故事线或人物分道",
+      "naGranularity": "暂无：粒度仅到章节序，无章内时序、时长与因果箭头",
+      "naPacing": "暂无：不做节奏/密度打分，只呈现章节计数",
       "filteredEmpty": "当前章号范围内没有事件——事件仍存在，调整范围即可看到",
-      "na": "N/A",
-      "naFolded": "N/A：章号跨度超过 400，刻度已折叠，柱距不等于章距"
+      "na": "暂无",
+      "naFolded": "暂无：章号跨度超过 400，刻度已折叠，柱距不等于章距"
     },
     "worldLibrary": {
       "title": "世界构建",
@@ -2919,8 +2954,8 @@
       "colLayer": "层",
       "colItems": "条目数",
       "colEntries": "条目",
-      "layerEmpty": "未铺（N/A）",
-      "na": "N/A",
+      "layerEmpty": "未铺（暂无）",
+      "na": "暂无",
       "crossRefsTitle": "交叉引用",
       "crossRefsEmpty": "暂无交叉引用",
       "findingsTitle": "校验发现",
@@ -2950,12 +2985,12 @@
       "lastChapter": "最近第 {{chapter}} 章",
       "dead": "已退场",
       "edgesEmpty": "角色之间暂无关系记录",
-      "na": "N/A",
-      "naType": "N/A：关系为自由文本，没有「师徒/敌对/盟友」等类型字段",
-      "naStrength": "N/A：没有关系强度/信任度数值，无法排序或告警",
-      "naGraph": "N/A：关系图为文字边，尚未画成可交互节点图（写回与结构化契约延后）",
+      "na": "暂无",
+      "naType": "暂无：关系为自由文本，没有「师徒/敌对/盟友」等类型字段",
+      "naStrength": "暂无：没有关系强度/信任度数值，无法排序或告警",
+      "naGraph": "暂无：关系图为文字边，尚未画成可交互节点图（写回与结构化契约延后）",
       "loading": "角色状态读取中…",
-      "lastChapterNa": "最近章号 N/A",
+      "lastChapterNa": "最近章号暂无",
       "structuredSource": "来自结构化关系库（relationship_edge，kind=unknown 表示原文未分类）"
     }
   },
@@ -3885,13 +3920,18 @@
     "logEmpty": "尚无调用记录——跑一次孵化、巡航或推进阶段即可点亮"
   },
   "mainControl": {
-    "title": "主控 Agent",
+    "title": "主控",
     "subtitle": "一句话目标 → 只读取证 → 产出草稿",
     "goalLabel": "目标",
     "goalPlaceholder": "例如：给第 12 章起一版开头，需要先读上下文、保持既有设定",
     "run": "开始执行",
     "running": "执行中…",
     "stop": "中止",
+    "elapsed": "已运行 {{secs}} 秒",
+    "tabsLabel": "主控分层",
+    "tabRun": "跑流程",
+    "tabDrafts": "收草稿",
+    "tabContext": "本章上下文",
     "noProject": "请先打开一个项目",
     "stepsTitle": "执行轨迹（{{count}} 步）",
     "stepsEmpty": "还没有工具调用",
@@ -3929,9 +3969,9 @@
     "card": {
       "director": "开书导演",
       "directorDesc": "5阶段开书流水线推进与门控",
-      "dismantling": "拆书库",
+      "dismantling": "拆文库",
       "dismantlingDesc": "拆解对标作品沉淀写法资产",
-      "reviewCenter": "评审中心",
+      "reviewCenter": "审查中心",
       "reviewCenterDesc": "章节评审与返修任务",
       "graph": "小说图谱",
       "graphDesc": "实体/关系图谱可视化",
@@ -3939,15 +3979,15 @@
       "heatmapDesc": "全仓模块实时接线与调用热度",
       "pipelineMotion": "管线动态",
       "pipelineMotionDesc": "写作管线实时动态：需求 → 成片 → 回流",
-      "mainControl": "主控 Agent",
+      "mainControl": "主控",
       "mainControlDesc": "一句话目标驱动：只读取证 + 草稿产出",
       "simulation": "故事推演",
       "simulationDesc": "推演框架与访谈分支",
-      "followUp": "导演跟进中心",
+      "followUp": "跟进中心",
       "followUpDesc": "生产任务状态聚合与批量操作",
-      "live": "AI实况",
+      "live": "AI 实况",
       "liveDesc": "生成过程实时状态与日志",
-      "bookshelf": "我的书架",
+      "bookshelf": "书架",
       "bookshelfDesc": "作品卡片浏览·继续创作",
       "creativeHub": "创作中枢",
       "creativeHubDesc": "绑定小说·诊断阻塞·下一步建议",
@@ -4033,6 +4073,7 @@
     "empty": "没有匹配的章节或功能",
     "kindView": "视图",
     "kindChapter": "章节",
+    "kindAction": "操作",
     "hint": "Ctrl/⌘+K 打开命令面板"
   }
 }

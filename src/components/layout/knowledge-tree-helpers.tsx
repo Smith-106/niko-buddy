@@ -313,7 +313,7 @@ export function DeleteButton({
       <Button
         variant="destructive"
         size="sm"
-        className={`h-6 shrink-0 px-1.5 text-[0.625rem] font-semibold animate-pulse ${className}`}
+        className={`h-6 shrink-0 px-1.5 text-xs font-semibold animate-pulse ${className}`}
         onClick={(event) => {
           event.stopPropagation()
           onClick()

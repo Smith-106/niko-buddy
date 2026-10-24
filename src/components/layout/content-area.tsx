@@ -463,7 +463,7 @@ export function ContentArea() {
   // F1（Round-1 评估）：内容区单点 ErrorBoundary——任一视图（写作台/设置/图谱/评审/
   // 故事模拟/预览等）渲染崩溃时只降级内容区，不白屏整个应用；key 随视图切换重置。
   return (
-    <div className="h-full">
+    <div className="h-full w-full min-w-0">
       <ErrorBoundary key={showWritingWorkspace ? "writing" : activeView}>
         {content}
       </ErrorBoundary>

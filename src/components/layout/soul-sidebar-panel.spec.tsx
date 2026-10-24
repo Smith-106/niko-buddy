@@ -325,10 +325,10 @@ describe("SoulSidebarPanel", () => {
     const { rerender } = render(<SoulSidebarPanel />)
     const projectBtn = screen.getByText("项目灵魂文档").closest("button") as HTMLElement
     expect(String(projectBtn.className)).toContain("qm-selected")
-    fireEvent.click(screen.getByText("去AI味Skill"))
+    fireEvent.click(screen.getByText("去AI味技能"))
     expect(mocks.state.selectedSoulId).toBe("de-ai-skill")
     rerender(<SoulSidebarPanel />)
-    const deAiBtn = screen.getByText("去AI味Skill").closest("button") as HTMLElement
+    const deAiBtn = screen.getByText("去AI味技能").closest("button") as HTMLElement
     expect(String(deAiBtn.className)).toContain("qm-selected")
 
     // 回到 project tab 并点击 project-soul 条目（覆盖 onClick 与未选中态样式）

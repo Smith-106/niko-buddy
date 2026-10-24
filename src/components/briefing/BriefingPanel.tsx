@@ -87,7 +87,7 @@ export function BriefingPanel({ digest, canonClaims = [], onWritePatch }: Briefi
                 <button
                   type="button"
                   data-testid={`briefing-source-${line.id}`}
-                  className="rounded border px-1 text-[0.625rem] opacity-70"
+                  className="rounded border px-1 text-xs opacity-70"
                   onClick={() =>
                     setSourceOpen((prev) => (prev === line.id ? null : line.id))
                   }
@@ -95,7 +95,7 @@ export function BriefingPanel({ digest, canonClaims = [], onWritePatch }: Briefi
                   {t("briefing.source.badge")}
                 </button>
                 {sourceOpen === line.id ? (
-                  <code className="text-[0.625rem] opacity-80" data-testid="briefing-source-detail">
+                  <code className="text-xs opacity-80" data-testid="briefing-source-detail">
                     {sourceLine(line)}
                   </code>
                 ) : null}

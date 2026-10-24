@@ -54,12 +54,18 @@ afterEach(() => {
 })
 
 describe("MainControlView", () => {
-  it("渲染目标输入与空态轨迹", () => {
+  it("渲染目标输入与空态轨迹（默认跑流程 Tab）", () => {
     render(<MainControlView />)
     expect(screen.getByTestId("main-control-view")).toBeTruthy()
+    expect(screen.getByTestId("main-control-tabs")).toBeTruthy()
+    expect(screen.getByTestId("main-control-tab-run").getAttribute("aria-selected")).toBe("true")
     expect(screen.getByTestId("main-control-goal")).toBeTruthy()
     expect(screen.getByTestId("main-control-steps").textContent).toContain("还没有工具调用")
+    // 草稿在收草稿 Tab，不在默认 Tab 堆叠
+    expect(screen.queryByTestId("main-control-drafts")).toBeNull()
+    fireEvent.click(screen.getByTestId("main-control-tab-drafts"))
     expect(screen.getByTestId("main-control-drafts").textContent).toContain("Draft-first")
+    expect(screen.queryByTestId("main-control-steps")).toBeNull()
   })
 
   it("空目标点击运行不会调用 Agent", () => {
@@ -82,9 +88,11 @@ describe("MainControlView", () => {
     fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "给第12章写开头" } })
     fireEvent.click(screen.getByTestId("main-control-run"))
     await waitFor(() => expect(screen.getByTestId("main-control-step-read_chapter")).toBeTruthy())
+    expect(screen.getByTestId("main-control-final").textContent).toContain("已读完上下文并产出草稿")
+    // 草稿在收草稿 Tab
+    fireEvent.click(screen.getByTestId("main-control-tab-drafts"))
     expect(screen.getByTestId("main-control-drafts").textContent).toContain("第12章 旧梦")
     expect(screen.getByTestId("main-control-drafts").textContent).toContain("1800")
-    expect(screen.getByTestId("main-control-final").textContent).toContain("已读完上下文并产出草稿")
     expect(runMainControlAgent).toHaveBeenCalledWith(
       expect.objectContaining({ projectPath: "/proj", wikiPath: "/proj/wiki", goal: "给第12章写开头" }),
     )
@@ -212,6 +220,8 @@ describe("主控面板挂载：章节目录 + 伏笔看板（grok 计划审查�
   it("两个区块都挂载在 main-control-view 内，且无项目时不静默消失", async () => {
     render(<MainControlView />)
     expect(screen.getByTestId("main-control-view")).toBeTruthy()
+    // 本章上下文 Tab：目录 + 伏笔并列收纳，不再与跑流程堆叠
+    fireEvent.click(screen.getByTestId("main-control-tab-context"))
     expect(screen.getByTestId("main-control-chapter-directory")).toBeTruthy()
     expect(screen.getByTestId("main-control-foreshadowing")).toBeTruthy()
     // 有项目：走有项目分支
@@ -226,6 +236,7 @@ describe("无项目不得静默消失（可失败断言：把无项目分支改�
   it("project=null 时两个面板都渲染显式空态", async () => {
     wikiState.project = null
     render(<MainControlView />)
+    fireEvent.click(screen.getByTestId("main-control-tab-context"))
     await waitFor(() => expect(screen.getByTestId("chapter-directory-no-project")).toBeTruthy())
     expect(screen.getByTestId("foreshadowing-panel-no-project")).toBeTruthy()
     // 章节目录根节点仍在，但不得出现「有项目」才有的汇总/表格
@@ -233,5 +244,36 @@ describe("无项目不得静默消失（可失败断言：把无项目分支改�
     // 伏笔面板必须换到无项目分支：有项目分支的根节点不得存在（改回 return null → 本断言变红）
     expect(screen.queryByTestId("foreshadowing-panel")).toBeNull()
     wikiState.project = { id: "p1", path: "/proj" }
+  })
+})
+
+describe("主控页内分层与运行反馈", () => {
+  it("三 Tab 互斥：同一时间只渲染当前 Tab 区块", () => {
+    render(<MainControlView />)
+    // 默认跑流程 Tab：目标 + 步骤可见，草稿与上下文不堆叠
+    expect(screen.getByTestId("main-control-steps")).toBeTruthy()
+    expect(screen.queryByTestId("main-control-drafts")).toBeNull()
+    expect(screen.queryByTestId("main-control-chapter-directory")).toBeNull()
+    fireEvent.click(screen.getByTestId("main-control-tab-context"))
+    expect(screen.getByTestId("main-control-chapter-directory")).toBeTruthy()
+    expect(screen.getByTestId("main-control-work-heatmap")).toBeTruthy()
+    expect(screen.queryByTestId("main-control-steps")).toBeNull()
+    expect(screen.queryByTestId("main-control-drafts")).toBeNull()
+  })
+
+  it("运行时显示已运行秒数与当前步骤（诚实反馈，无假进度）", async () => {
+    runMainControlAgent.mockImplementation(
+      ({ onStep }: { onStep: (s: unknown) => void }) => {
+        onStep({ callId: "c1", name: "read_chapter", params: {}, status: "running", at: Date.now() })
+        return new Promise(() => {})
+      },
+    )
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "任意目标" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-elapsed")).toBeTruthy())
+    expect(screen.getByTestId("main-control-elapsed").textContent).toContain("已运行")
+    expect(screen.getByTestId("main-control-elapsed").textContent).toContain("read_chapter")
+    expect(screen.getByTestId("main-control-elapsed").textContent).toContain("0/1")
   })
 })

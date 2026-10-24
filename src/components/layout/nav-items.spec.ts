@@ -9,7 +9,11 @@ import { afterEach, describe, expect, it } from "vitest"
 import {
   DEFAULT_COLLAPSED_GROUPS,
   NAV_COLLAPSED_GROUPS_KEY,
+  NAV_ITEMS,
+  initialCollapsedGroups,
+  isNavPrimaryTier,
   readCollapsedGroups,
+  type NavView,
 } from "./nav-items"
 
 afterEach(() => {
@@ -17,10 +21,14 @@ afterEach(() => {
 })
 
 describe("readCollapsedGroups", () => {
-  it("首刷无偏好时只展开码字组", () => {
+  it("有书且无偏好时只展开写和审", () => {
     expect(readCollapsedGroups()).toEqual(DEFAULT_COLLAPSED_GROUPS)
+    expect(initialCollapsedGroups(false)).toEqual(["si", "shen", "maint"])
     expect(DEFAULT_COLLAPSED_GROUPS).not.toContain("ma")
-    expect(DEFAULT_COLLAPSED_GROUPS).toEqual(["si", "shen", "maint"])
+  })
+
+  it("没有书且无偏好时展开开书组", () => {
+    expect(initialCollapsedGroups(true)).toEqual(["shen", "maint"])
   })
 
   it("用户存过偏好（含全展开）后不再回退默认", () => {
@@ -33,5 +41,39 @@ describe("readCollapsedGroups", () => {
   it("脏数据回退空数组不崩", () => {
     localStorage.setItem(NAV_COLLAPSED_GROUPS_KEY, "not-json")
     expect(readCollapsedGroups()).toEqual([])
+  })
+})
+
+describe("nav tier 分层", () => {
+  it("31 项总量（主控直达补位），主次分层 16/15", () => {
+    expect(NAV_ITEMS).toHaveLength(31)
+    const primary = NAV_ITEMS.filter(isNavPrimaryTier)
+    const secondary = NAV_ITEMS.filter((i) => !isNavPrimaryTier(i))
+    expect(primary).toHaveLength(16)
+    expect(secondary).toHaveLength(15)
+  })
+
+  it("主控直达：ma 组 primary，复用 content-area mainControl 分支", () => {
+    const entry = NAV_ITEMS.find((i) => i.view === "mainControl")
+    expect(entry?.group).toBe("ma")
+    expect(entry?.tier).toBe("primary")
+  })
+
+  it("高频入口常驻 primary，低频收进 secondary", () => {
+    const byView = new Map<NavView, string>(NAV_ITEMS.map((i) => [i.view, i.tier ?? "primary"]))
+    const primaryViews: NavView[] = ["wiki", "reviewCenter", "mainControl", "workbench", "sources", "graph", "soul", "creativeHub", "exportCenter"]
+    const secondaryViews: NavView[] = ["marketRadar", "antiAiRules", "workflowEditor", "mcpManager", "help"]
+    for (const v of primaryViews) {
+      expect(byView.get(v)).toBe("primary")
+    }
+    for (const v of secondaryViews) {
+      expect(byView.get(v)).toBe("secondary")
+    }
+  })
+
+  it("缺省 tier 按 primary 处理（向后兼容）", () => {
+    expect(isNavPrimaryTier({})).toBe(true)
+    expect(isNavPrimaryTier({ tier: "primary" })).toBe(true)
+    expect(isNavPrimaryTier({ tier: "secondary" })).toBe(false)
   })
 })

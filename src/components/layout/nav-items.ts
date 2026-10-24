@@ -29,6 +29,7 @@ import {
   Shapes,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Stethoscope,
   UserRound,
   Workflow,
@@ -41,58 +42,67 @@ export type NavView = WikiState["activeView"]
 
 export type NavModeGroup = "ma" | "si" | "shen" | "maint"
 
+/** 导航分层：primary 常驻展示，secondary 收进 More 抽屉；undefined 按 primary 处理（向后兼容）。 */
+export type NavTier = "primary" | "secondary"
+
 export interface NavItem {
   view: NavView
   icon: typeof FileText
   labelKey: string
   group: NavModeGroup
+  tier?: NavTier
 }
 
 /**
  * 导航四组（作家语言，纯展示层；content-area.tsx 的 switch 零改动）。
  *
- * 顺序 = 「写作优先」：默认视图 章节库 落在首组第一行（findings-1 F-02）。
- * - ma: 码字（章节库/技能库/设定校正）——日常写作用
- * - si: 构思（工作台/开书导演/大纲/图谱/灵魂/故事模拟/拆文库）——规划与资料
- * - shen: 审校（审查中心/记忆中心）——审稿与一致性
- * - maint: 维护（备份与恢复/诊断中心/数据管理）——不再混入「审校」组（findings-1 F-03）
+ * 顺序 = 「写作优先」：有书时默认只展开章节库、审查中心、跟进中心。
+ * 导出不占这一格，收在设置组里。
+ * - ma: 写和审（章节库/审查中心/跟进中心）
+ * - si: 开书（工作台/书架/题材/导演/拆文）——没有书时默认展开
+ * - shen: 查账（大纲/图谱/灵魂/设定/审校/技能）
+ * - maint: 设置（备份/诊断/数据/模型/导出/帮助，以及退出日常一级的页）
  *
  * 侧栏与命令面板（Ctrl/⌘+K）共用这一张表，避免两处各写一份导航清单。
  */
 export const NAV_ITEMS: NavItem[] = [
-  { view: "wiki", icon: FileText, labelKey: "novel.nav.wiki", group: "ma" },
-  { view: "skillLibrary", icon: Wrench, labelKey: "novel.nav.skillLibrary", group: "ma" },
-  { view: "canonEditor", icon: ScrollText, labelKey: "novel.nav.canonEditor", group: "ma" },
-  { view: "workbench", icon: LayoutDashboard, labelKey: "novel.nav.workbench", group: "si" },
-  { view: "followUpCenter", icon: ClipboardList, labelKey: "novel.nav.followUpCenter", group: "si" },
-  { view: "liveExecution", icon: Activity, labelKey: "novel.nav.liveExecution", group: "si" },
-  { view: "creativeHub", icon: Compass, labelKey: "novel.nav.creativeHub", group: "si" },
-  { view: "bookshelf", icon: Library, labelKey: "novel.nav.bookshelf", group: "si" },
-  { view: "genreLibrary", icon: Shapes, labelKey: "novel.nav.genreLibrary", group: "si" },
-  { view: "storyModeLibrary", icon: Layers, labelKey: "novel.nav.storyModeLibrary", group: "si" },
-  { view: "titleStudio", icon: PenTool, labelKey: "novel.nav.titleStudio", group: "si" },
-  { view: "styleEngine", icon: SlidersHorizontal, labelKey: "novel.nav.styleEngine", group: "si" },
-  { view: "antiAiRules", icon: ShieldCheck, labelKey: "novel.nav.antiAiRules", group: "si" },
-  { view: "director", icon: Clapperboard, labelKey: "novel.nav.director", group: "si" },
-  { view: "sources", icon: FolderOpen, labelKey: "novel.nav.sources", group: "si" },
-  { view: "graph", icon: Network, labelKey: "novel.nav.graph", group: "si" },
-  { view: "soul", icon: UserRound, labelKey: "novel.nav.soul", group: "si" },
-  { view: "storySimulation", icon: Play, labelKey: "novel.nav.storySimulation", group: "si" },
-  { view: "bookAnalysis", icon: BookOpen, labelKey: "novel.nav.dismantling", group: "si" },
-  { view: "workflowEditor", icon: Workflow, labelKey: "novel.nav.workflowEditor", group: "si" },
-  { view: "marketRadar", icon: Radar, labelKey: "novel.nav.marketRadar", group: "si" },
-  { view: "reviewCenter", icon: ClipboardCheck, labelKey: "novel.nav.reviewCenter", group: "shen" },
-  { view: "lint", icon: Brain, labelKey: "novel.nav.lint", group: "shen" },
-  { view: "backupExport", icon: ArchiveRestore, labelKey: "novel.nav.backupExport", group: "maint" },
-  { view: "diagnosticsCenter", icon: Stethoscope, labelKey: "novel.nav.diagnosticsCenter", group: "maint" },
-  { view: "dataManager", icon: Database, labelKey: "novel.nav.dataManager", group: "maint" },
-  { view: "modelRoutes", icon: Route, labelKey: "novel.nav.modelRoutes", group: "maint" },
-  // BGH-20261019 m7 说明：配置数据 6 视图走扁平导航（与既有 24 项同构），未做分组折叠；
-  // 当前 30 项规模下可读性可接受，分组重构留待导航项继续膨胀时再议。
-  { view: "mcpManager", icon: Plug, labelKey: "novel.nav.mcpManager", group: "maint" },
-  { view: "exportCenter", icon: Download, labelKey: "novel.nav.exportCenter", group: "maint" },
-  { view: "help", icon: CircleQuestionMark, labelKey: "novel.nav.help", group: "maint" },
+  { view: "wiki", icon: FileText, labelKey: "novel.nav.wiki", group: "ma", tier: "primary" },
+  { view: "reviewCenter", icon: ClipboardCheck, labelKey: "novel.nav.reviewCenter", group: "ma", tier: "primary" },
+  { view: "followUpCenter", icon: ClipboardList, labelKey: "novel.nav.followUpCenter", group: "ma", tier: "primary" },
+  { view: "mainControl", icon: Sparkles, labelKey: "novel.nav.mainControl", group: "ma", tier: "primary" },
+  { view: "workbench", icon: LayoutDashboard, labelKey: "novel.nav.workbench", group: "si", tier: "primary" },
+  { view: "bookshelf", icon: Library, labelKey: "novel.nav.bookshelf", group: "si", tier: "primary" },
+  { view: "genreLibrary", icon: Shapes, labelKey: "novel.nav.genreLibrary", group: "si", tier: "secondary" },
+  { view: "storyModeLibrary", icon: Layers, labelKey: "novel.nav.storyModeLibrary", group: "si", tier: "secondary" },
+  { view: "director", icon: Clapperboard, labelKey: "novel.nav.director", group: "si", tier: "primary" },
+  { view: "bookAnalysis", icon: BookOpen, labelKey: "novel.nav.dismantling", group: "si", tier: "primary" },
+  { view: "sources", icon: FolderOpen, labelKey: "novel.nav.sources", group: "shen", tier: "primary" },
+  { view: "graph", icon: Network, labelKey: "novel.nav.graph", group: "shen", tier: "primary" },
+  { view: "soul", icon: UserRound, labelKey: "novel.nav.soul", group: "shen", tier: "primary" },
+  { view: "canonEditor", icon: ScrollText, labelKey: "novel.nav.canonEditor", group: "shen", tier: "primary" },
+  { view: "lint", icon: Brain, labelKey: "novel.nav.lint", group: "shen", tier: "secondary" },
+  { view: "skillLibrary", icon: Wrench, labelKey: "novel.nav.skillLibrary", group: "shen", tier: "secondary" },
+  { view: "liveExecution", icon: Activity, labelKey: "novel.nav.liveExecution", group: "maint", tier: "secondary" },
+  { view: "creativeHub", icon: Compass, labelKey: "novel.nav.creativeHub", group: "maint", tier: "primary" },
+  { view: "titleStudio", icon: PenTool, labelKey: "novel.nav.titleStudio", group: "maint", tier: "primary" },
+  { view: "styleEngine", icon: SlidersHorizontal, labelKey: "novel.nav.styleEngine", group: "maint", tier: "secondary" },
+  { view: "antiAiRules", icon: ShieldCheck, labelKey: "novel.nav.antiAiRules", group: "maint", tier: "secondary" },
+  { view: "storySimulation", icon: Play, labelKey: "novel.nav.storySimulation", group: "maint", tier: "secondary" },
+  { view: "workflowEditor", icon: Workflow, labelKey: "novel.nav.workflowEditor", group: "maint", tier: "secondary" },
+  { view: "marketRadar", icon: Radar, labelKey: "novel.nav.marketRadar", group: "maint", tier: "secondary" },
+  { view: "backupExport", icon: ArchiveRestore, labelKey: "novel.nav.backupExport", group: "maint", tier: "primary" },
+  { view: "diagnosticsCenter", icon: Stethoscope, labelKey: "novel.nav.diagnosticsCenter", group: "maint", tier: "secondary" },
+  { view: "dataManager", icon: Database, labelKey: "novel.nav.dataManager", group: "maint", tier: "secondary" },
+  { view: "modelRoutes", icon: Route, labelKey: "novel.nav.modelRoutes", group: "maint", tier: "secondary" },
+  { view: "mcpManager", icon: Plug, labelKey: "novel.nav.mcpManager", group: "maint", tier: "secondary" },
+  { view: "exportCenter", icon: Download, labelKey: "novel.nav.exportCenter", group: "maint", tier: "primary" },
+  { view: "help", icon: CircleQuestionMark, labelKey: "novel.nav.help", group: "maint", tier: "secondary" },
 ]
+
+/** 是否常驻展示（tier 缺省按 primary 处理，保持旧数据兼容）。 */
+export function isNavPrimaryTier(item: Pick<NavItem, "tier">): boolean {
+  return (item.tier ?? "primary") === "primary"
+}
 
 export const SEARCH_NAV_ITEM: { view: NavView; icon: typeof FileText; labelKey: string } = {
   view: "search",
@@ -110,10 +120,19 @@ export const NAV_GROUP_ORDER: { group: NavModeGroup; labelKey: string }[] = [
 export const NAV_COLLAPSED_GROUPS_KEY = "niko-buddy-nav-collapsed-groups"
 
 /**
- * 首刷默认折叠（第一小时只看「码字」组）：无存储偏好时 si/shen/maint 收起；
- * 用户点过一次分组后以存储为准（含全展开的空数组），不再回退默认。
+ * 有书时首刷只展开写和审：无存储偏好时 si/shen/maint 收起。
+ * 没有书时开书组不收起。用户点过一次分组后以存储为准。
  */
 export const DEFAULT_COLLAPSED_GROUPS: NavModeGroup[] = ["si", "shen", "maint"]
+
+/** 无存储偏好时的首刷折叠。projectIsNull 为真才展开开书组。 */
+export function initialCollapsedGroups(projectIsNull: boolean): NavModeGroup[] {
+  if (typeof localStorage !== "undefined" && localStorage.getItem(NAV_COLLAPSED_GROUPS_KEY) !== null) {
+    return readCollapsedGroups()
+  }
+  if (projectIsNull) return DEFAULT_COLLAPSED_GROUPS.filter((group) => group !== "si")
+  return [...DEFAULT_COLLAPSED_GROUPS]
+}
 
 export function readCollapsedGroups(): NavModeGroup[] {
   /* v8 ignore next */

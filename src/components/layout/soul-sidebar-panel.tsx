@@ -159,11 +159,11 @@ export function SoulSidebarPanel() {
                 <div className="mt-2 space-y-2">
                   {bindings.map((binding) => (
                     <div key={binding.characterName} className="rounded-md border bg-background/80 p-2">
-                      <div className="text-[0.6875rem] font-medium text-muted-foreground">{t("novel.soul.novelCharacters")}</div>
+                      <div className="text-xs font-medium text-muted-foreground">{t("novel.soul.novelCharacters")}</div>
                       <div className="mt-1 truncate text-sm font-medium text-foreground">{binding.characterName}</div>
                       <div className="mt-2 flex items-end gap-2">
                         <div className="min-w-0 flex-1">
-                          <div className="text-[0.6875rem] font-medium text-muted-foreground">{t("novel.soul.bindSoul")}</div>
+                          <div className="text-xs font-medium text-muted-foreground">{t("novel.soul.bindSoul")}</div>
                           <select
                             value={binding.auraId}
                             onChange={(event) => void handleBindingAuraChange(binding, event.target.value)}

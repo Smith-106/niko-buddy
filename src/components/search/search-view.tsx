@@ -438,7 +438,7 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
                   key={optKey}
                   type="button"
                   onClick={() => toggleSearchOpt(optKey)}
-                  className={`rounded-full px-2.5 py-0.5 text-[0.6875rem] font-medium transition-colors ${
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
                     active
                       ? "bg-primary/10 text-primary ring-1 ring-primary/30"
                       : "bg-muted text-muted-foreground hover:bg-muted/80"
@@ -498,7 +498,7 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
                       <button
                         type="button"
                         onClick={() => setShowSupportingImages((s) => !s)}
-                        className="text-[0.6875rem] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                        className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
                       >
                         {showSupportingImages
                           ? t("search.hideSupporting")
@@ -656,7 +656,7 @@ function Lightbox({
                 {hit.alt || t("search.noCaption")}
               </div>
             </DialogTitle>
-            <div className="mt-1 truncate text-[0.6875rem] text-muted-foreground">
+            <div className="mt-1 truncate text-xs text-muted-foreground">
               {t("search.fromSource")}{hit.sourceTitle}
             </div>
           </div>
@@ -712,7 +712,7 @@ function SectionHeader({
 }) {
   return (
     <div className="flex items-center justify-between border-b pb-1">
-      <div className="flex items-center gap-1.5 text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {icon}
         {label}
         <span className="text-muted-foreground/60">({count})</span>
@@ -757,13 +757,13 @@ const ImageHitCard = memo(
         </div>
         <div className="flex min-h-0 flex-1 flex-col gap-0.5 p-2">
           {hit.alt ? (
-            <div className="line-clamp-2 text-[0.6875rem] leading-snug">
+            <div className="line-clamp-2 text-xs leading-snug">
               <HighlightedText text={hit.alt} query={query} />
             </div>
           ) : (
-            <div className="text-[0.6875rem] italic text-muted-foreground">{t("search.noCaption")}</div>
+            <div className="text-xs italic text-muted-foreground">{t("search.noCaption")}</div>
           )}
-          <div className="mt-auto truncate text-[0.625rem] text-muted-foreground">
+          <div className="mt-auto truncate text-xs text-muted-foreground">
             {hit.sourceTitle}
           </div>
         </div>
@@ -799,7 +799,7 @@ const SearchResultCard = memo(function SearchResultCard({
           <div className="font-medium truncate">
             <HighlightedText text={result.title} query={query} />
           </div>
-          <div className="text-[0.6875rem] text-muted-foreground truncate">{shortPath}</div>
+          <div className="text-xs text-muted-foreground truncate">{shortPath}</div>
         </div>
       </div>
       <p className="text-xs text-muted-foreground line-clamp-2">

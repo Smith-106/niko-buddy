@@ -66,6 +66,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const { t } = useTranslation()
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
+  const focusMode = useWikiStore((s) => s.focusMode)
+  const setFocusMode = useWikiStore((s) => s.setFocusMode)
   const fileTree = useWikiStore((s) => s.fileTree)
   const [query, setQuery] = useState("")
   const [activeIndex, setActiveIndex] = useState(0)
@@ -78,6 +80,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   }, [open])
 
   const entries = useMemo<PaletteEntry[]>(() => {
+    const focusEntry: PaletteEntry = {
+      id: "action:focus-mode",
+      label: t(focusMode ? "layout.focusMode.exit" : "layout.focusMode.enter"),
+      hint: t("commandPalette.kindAction", { defaultValue: "操作" }),
+      keywords: `focus zen ${t("layout.focusMode.label")} ${t("layout.focusMode.enter")} ${t("layout.focusMode.exit")}`,
+      run: () => setFocusMode(!focusMode),
+    }
     const navEntries: PaletteEntry[] = NAV_ITEMS.map((item: NavItem) => ({
       id: `view:${item.view}`,
       label: t(item.labelKey),
@@ -109,8 +118,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
         setSelectedFile(chapter.path)
       },
     }))
-    return [...chapterEntries, ...navEntries]
-  }, [fileTree, setActiveView, setSelectedFile, t])
+    return [focusEntry, ...chapterEntries, ...navEntries]
+  }, [fileTree, focusMode, setActiveView, setFocusMode, setSelectedFile, t])
 
   const filtered = useMemo(() => {
     const q = normalizeQuery(query)
@@ -179,7 +188,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             placeholder={t("commandPalette.placeholder", { defaultValue: "搜索章节与功能" })}
             className="h-8 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
           />
-          <kbd className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
+          <kbd className="shrink-0 rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
             Esc
           </kbd>
         </div>
@@ -211,7 +220,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               >
                 <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-                <span className="shrink-0 text-[0.6875rem] text-muted-foreground">{entry.hint}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{entry.hint}</span>
                 {index === activeIndex && <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
               </button>
             ))

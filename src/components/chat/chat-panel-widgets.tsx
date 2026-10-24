@@ -125,8 +125,8 @@ export function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: st
                 <span className="max-w-[140px] truncate font-medium">
                   {getConversationTabTitle(conv.title, 10)}
                 </span>
-                <span className="hidden text-[0.625rem] tabular-nums text-muted-foreground @md:inline">{msgCount}</span>
-                <span className="hidden text-[0.625rem] tabular-nums text-muted-foreground @md:inline">{formatDate(conv.updatedAt)}</span>
+                <span className="hidden text-xs tabular-nums text-muted-foreground @md:inline">{msgCount}</span>
+                <span className="hidden text-xs tabular-nums text-muted-foreground @md:inline">{formatDate(conv.updatedAt)}</span>
                 {/*
                  * MI-002/MI-009 (odyssey-ui): delete button.
                  * - Real <button> with aria-label (was <span onClick> — AT + keyboard blind).
@@ -163,7 +163,7 @@ export function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: st
                       onBlur={() => setConfirmDeleteId((cur) => (cur === conv.id ? null : cur))}
                     >
                       {armed ? (
-                        <span className="text-[0.625rem] font-medium">{t("chat.confirmShort")}</span>
+                        <span className="text-xs font-medium">{t("chat.confirmShort")}</span>
                       ) : (
                         <Trash2 className="h-3 w-3 shrink-0" />
                       )}

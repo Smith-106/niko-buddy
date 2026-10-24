@@ -57,6 +57,10 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cancelledAt, setCancelledAt] = useState<number | null>(null)
+  // 页内分层（IA：跑流程 / 收草稿 / 本章上下文分开，不再上下堆一屏；只切换展示，不碰执行语义）。
+  const [tab, setTab] = useState<"run" | "drafts" | "context">("run")
+  // 运行起点（已运行秒数展示用；10s 心跳 tick 驱动重渲染，无假进度条）。
+  const [runStartAt, setRunStartAt] = useState<number | null>(null)
   // 心跳 tick：运行时每 10 秒重渲染一次，用于卡住/超时提示（不碰主链计时）。
   const [tick, setTick] = useState(0)
 
@@ -95,6 +99,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
     setResult(null)
     setSteps([])
     setCancelledAt(null)
+    setRunStartAt(Date.now())
     setRunning(true)
     const controller = new AbortController()
     abortRef.current = controller
@@ -166,6 +171,10 @@ export function MainControlView(_props: MainControlViewProps = {}) {
     : undefined
   const stuckSecs = stuckStep ? Math.floor((Date.now() - stuckStep.at) / 1000) : 0
   const stuckTimeout = stuckSecs >= 300
+  // 运行摘要（诚实反馈：已运行秒 + 当前步骤 + 完成计数，无百分比假进度）。
+  const runningStep = running ? [...steps].reverse().find((s) => s.status === "running") : undefined
+  const doneCount = steps.filter((s) => s.status !== "running").length
+  const elapsedSecs = running && runStartAt ? Math.max(Math.floor((Date.now() - runStartAt) / 1000), 0) : 0
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4" data-testid="main-control-view">
@@ -175,6 +184,32 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         <span className="text-xs text-muted-foreground">{t("mainControl.subtitle")}</span>
       </div>
 
+      <div className="flex items-center gap-1" role="tablist" aria-label={t("mainControl.tabsLabel")} data-testid="main-control-tabs">
+        {(
+          [
+            { key: "run", labelKey: "mainControl.tabRun" },
+            { key: "drafts", labelKey: "mainControl.tabDrafts" },
+            { key: "context", labelKey: "mainControl.tabContext" },
+          ] as const
+        ).map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === item.key}
+            data-testid={`main-control-tab-${item.key}`}
+            onClick={() => setTab(item.key)}
+            className={cn(
+              "h-7 rounded-md border px-2 text-xs",
+              tab === item.key ? "text-accent" : "text-muted-foreground",
+            )}
+          >
+            {t(item.labelKey)}
+          </button>
+        ))}
+      </div>
+
+      {tab === "run" && (
       <div className="flex flex-col gap-2 rounded-lg border p-2">
         <label className="text-xs font-medium text-muted-foreground" htmlFor="main-control-goal">
           {t("mainControl.goalLabel")}
@@ -214,9 +249,16 @@ export function MainControlView(_props: MainControlViewProps = {}) {
             </button>
           )}
           {running ? (
-            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" />
               {t("mainControl.running")}
+            </span>
+          ) : null}
+          {running && runStartAt ? (
+            <span className="text-xs text-muted-foreground tabular-nums" data-testid="main-control-elapsed">
+              {t("mainControl.elapsed", { secs: elapsedSecs })}
+              {runningStep ? ` · ${runningStep.name}` : ""}
+              {steps.length > 0 ? ` · ${doneCount}/${steps.length}` : ""}
             </span>
           ) : null}
           <button
@@ -230,13 +272,13 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           </button>
         </div>
         {error ? (
-          <p className="flex items-center gap-1 text-[11px] text-destructive" data-testid="main-control-error">
+          <p className="flex items-center gap-1 text-xs text-destructive" data-testid="main-control-error">
             <CircleAlert className="h-3 w-3" />
             {error}
           </p>
         ) : null}
         {!running && cancelledAt && !error ? (
-          <p className="flex items-center gap-1 text-[11px] text-warning" data-testid="main-control-cancelled">
+          <p className="flex items-center gap-1 text-xs text-warning" data-testid="main-control-cancelled">
             <Square className="h-3 w-3" />
             {t("mainControl.cancelled", {
               time: new Date(cancelledAt).toLocaleTimeString("zh-CN", { hour12: false }),
@@ -244,7 +286,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           </p>
         ) : null}
         {stuckStep ? (
-          <p className="flex items-center gap-1 text-[11px] text-warning" data-testid="main-control-stuck">
+          <p className="flex items-center gap-1 text-xs text-warning" data-testid="main-control-stuck">
             <CircleAlert className="h-3 w-3" />
             {stuckTimeout
               ? t("mainControl.timeoutHint", { step: stuckStep.name })
@@ -252,18 +294,20 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           </p>
         ) : null}
       </div>
+      )}
 
+      {tab === "run" && (
       <div className="rounded-lg border p-2" data-testid="main-control-steps">
         <h3 className="mb-1 text-xs font-semibold">
           {t("mainControl.stepsTitle", { count: steps.length })}
         </h3>
         {steps.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground">{t("mainControl.stepsEmpty")}</p>
+          <p className="text-xs text-muted-foreground">{t("mainControl.stepsEmpty")}</p>
         ) : (
           <ul className="flex flex-col gap-1">
             {steps.map((step) => (
               <li key={step.callId} className="flex flex-col gap-0.5" data-testid={`main-control-step-${step.name}`}>
-                <span className="flex items-center gap-1 text-[11px]">
+                <span className="flex items-center gap-1 text-xs">
                   {step.status === "running" ? (
                     <Loader2 className="h-3 w-3 animate-spin text-accent" />
                   ) : step.status === "error" ? (
@@ -271,13 +315,13 @@ export function MainControlView(_props: MainControlViewProps = {}) {
                   ) : (
                     <CheckCircle2 className="h-3 w-3 text-success" />
                   )}
-                  <code className="text-[11px]">{step.name}</code>
+                  <code className="text-xs">{step.name}</code>
                   <span className="truncate text-muted-foreground">
                     {Object.keys(step.params).length > 0 ? JSON.stringify(step.params).slice(0, 120) : ""}
                   </span>
                 </span>
                 {step.result || step.error ? (
-                  <p className="ml-4 line-clamp-3 whitespace-pre-wrap text-[11px] text-muted-foreground">
+                  <p className="ml-4 line-clamp-3 whitespace-pre-wrap text-xs text-muted-foreground">
                     {(step.error ?? step.result ?? "").slice(0, 400)}
                   </p>
                 ) : null}
@@ -286,18 +330,20 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           </ul>
         )}
       </div>
+      )}
 
+      {tab === "run" && (
       <div className="rounded-lg border p-2" data-testid="main-control-trace">
         <h3 className="mb-1 flex items-center gap-2 text-xs font-semibold">
           {t("mainControl.traceTitle", { count: trace.length })}
           {replaySavedAt ? (
-            <span className="text-[10px] font-normal text-muted-foreground" data-testid="main-control-trace-replay">
+            <span className="text-xs font-normal text-muted-foreground" data-testid="main-control-trace-replay">
               {t("mainControl.traceReplay")}
             </span>
           ) : null}
         </h3>
         {trace.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground">{t("mainControl.traceEmpty")}</p>
+          <p className="text-xs text-muted-foreground">{t("mainControl.traceEmpty")}</p>
         ) : (
           <ul className="flex flex-col gap-1.5">
             {trace.map((entry) => {
@@ -318,7 +364,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
                       )
                     }
                     data-testid={`main-control-trace-toggle-${entry.name}`}
-                    className="flex w-full flex-wrap items-center gap-1.5 text-left text-[11px]"
+                    className="flex w-full flex-wrap items-center gap-1.5 text-left text-xs"
                   >
                     {entry.status === "error" ? (
                       <CircleAlert className="h-3 w-3 text-destructive" />
@@ -328,29 +374,29 @@ export function MainControlView(_props: MainControlViewProps = {}) {
                       <CheckCircle2 className="h-3 w-3 text-success" />
                     )}
                     <span className="font-medium">{entry.title}</span>
-                    <code className="text-[10px] text-muted-foreground">{entry.name}</code>
+                    <code className="text-xs text-muted-foreground">{entry.name}</code>
                     {entry.durationMs !== undefined ? (
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {t("mainControl.traceDuration", { ms: entry.durationMs })}
                       </span>
                     ) : null}
-                    <span className="ml-auto text-[10px] text-accent">
+                    <span className="ml-auto text-xs text-accent">
                       {open ? t("mainControl.traceHideRaw") : t("mainControl.traceShowRaw")}
                     </span>
                   </button>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">{entry.summary}</p>
-                  <p className="text-[10px] text-muted-foreground" data-testid={`main-control-trace-input-${entry.name}`}>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{entry.summary}</p>
+                  <p className="text-xs text-muted-foreground" data-testid={`main-control-trace-input-${entry.name}`}>
                     {t("mainControl.traceInput", { input: entry.input })}
                   </p>
                   {entry.error ? (
-                    <p className="text-[10px] text-destructive">
+                    <p className="text-xs text-destructive">
                       {t("mainControl.traceFailure", { reason: entry.error })}
                     </p>
                   ) : null}
                   {entry.details.length > 0 ? (
                     <ul className="mt-0.5 flex flex-col gap-0.5">
                       {entry.details.map((detail, index) => (
-                        <li key={`${detail.label}-${index}`} className="text-[10px] text-muted-foreground">
+                        <li key={`${detail.label}-${index}`} className="text-xs text-muted-foreground">
                           {detail.label}：{detail.value}
                         </li>
                       ))}
@@ -358,7 +404,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
                   ) : null}
                   {open ? (
                     <pre
-                      className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-1 text-[10px]"
+                      className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-1 text-xs"
                       data-testid={`main-control-trace-raw-${entry.name}`}
                     >
                       {(entry.error ?? entry.result ?? t("mainControl.traceNoResult")).slice(0, 4000)}
@@ -370,50 +416,58 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           </ul>
         )}
       </div>
+      )}
 
+      {tab === "drafts" && (
       <div className="rounded-lg border p-2" data-testid="main-control-drafts">
         <h3 className="mb-1 text-xs font-semibold">{t("mainControl.draftsTitle")}</h3>
         {!result || result.drafts.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground">{t("mainControl.draftHint")}</p>
+          <p className="text-xs text-muted-foreground">{t("mainControl.draftHint")}</p>
         ) : (
           <ul className="flex flex-col gap-0.5">
             {result.drafts.map((draft) => (
-              <li key={draft.id} className="flex items-center gap-2 text-[11px]">
+              <li key={draft.id} className="flex items-center gap-2 text-xs">
                 <span className="text-accent">{draft.chapterName || draft.id}</span>
                 {draft.words ? (
                   <span className="text-muted-foreground">
                     {t("mainControl.draftWords", { count: draft.words })}
                   </span>
                 ) : null}
-                <code className="truncate text-[10px] text-muted-foreground">{draft.id}</code>
+                <code className="truncate text-xs text-muted-foreground">{draft.id}</code>
               </li>
             ))}
           </ul>
         )}
-        <p className="mt-1 text-[10px] text-muted-foreground" data-testid="main-control-draft-hint">
+        <p className="mt-1 text-xs text-muted-foreground" data-testid="main-control-draft-hint">
           {t("mainControl.draftAcceptHint")}
         </p>
       </div>
+      )}
 
+      {tab === "context" && (
         <div className="rounded-lg border p-2" data-testid="main-control-chapter-directory">
         <ChapterDirectory />
       </div>
+      )}
 
+      {tab === "context" && (
       <div className="rounded-lg border p-2" data-testid="main-control-foreshadowing">
         <ForeshadowingPanel />
       </div>
+      )}
 
-      {/* 动态工作热力图：实时看「跑到哪个阶段 / 卡在哪 / 每阶段烧了多少」，
-          真源是 status.json 的 stage_metrics；不再多开一页。 */}
+      {tab === "context" && (
       <div className="rounded-lg border p-2" data-testid="main-control-work-heatmap">
+        {/* 动态工作热力图：实时看「跑到哪个阶段 / 卡在哪 / 每阶段烧了多少」，真源是 status.json 的 stage_metrics；不再多开一页。 */}
         <WorkHeatmapPanel />
       </div>
+      )}
 
-      {result?.finalText ? (
+      {tab === "run" && result?.finalText ? (
       <div className="rounded-lg border p-2" data-testid="main-control-final">
           <h3 className="mb-1 text-xs font-semibold">{t("mainControl.finalTitle")}</h3>
           <WikiReader body={result.finalText} />
-          <p className="mt-1 text-[10px] text-muted-foreground">
+          <p className="mt-1 text-xs text-muted-foreground">
             {t("mainControl.roundsUsed", { count: result.roundsUsed })}
           </p>
         </div>

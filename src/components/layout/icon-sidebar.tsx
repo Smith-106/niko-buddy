@@ -20,7 +20,8 @@ import {
   NAV_GROUP_ORDER,
   NAV_ITEMS,
   SEARCH_NAV_ITEM,
-  readCollapsedGroups,
+  initialCollapsedGroups,
+  isNavPrimaryTier,
   type NavModeGroup,
   type NavView,
 } from "./nav-items"
@@ -46,12 +47,20 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
   const pendingReviewItems = useReviewStore((s) => s.items.filter((i) => !i.resolved).length)
   const pendingNovelEntries = useReviewStore((s) => s.novelReviewEntries.filter((e) => !e.resolved).length)
   const pendingCount = pendingReviewItems + pendingNovelEntries
+  const project = useWikiStore((s) => s.project)
   // F-012: 封面 Prompt 工作台入口（独立 dialog，不新增 activeView，不进主链热路径）
   const [coverWorkbenchOpen, setCoverWorkbenchOpen] = useState(false)
   const [translationViewOpen, setTranslationViewOpen] = useState(false)
   const [fanficMergeOpen, setFanficMergeOpen] = useState(false)
-  // 导航组折叠（首刷只展开码字组，用户点过后以存储为准；不改变任何视图行为）
-  const [collapsedGroups, setCollapsedGroups] = useState<NavModeGroup[]>(() => readCollapsedGroups())
+  // 有书时只展开写和审。没有书时开书组展开。用户点过后以存储为准。
+  const [collapsedGroups, setCollapsedGroups] = useState<NavModeGroup[]>(() =>
+    initialCollapsedGroups(useWikiStore.getState().project === null),
+  )
+  // 二级导航收纳：默认只展示 primary，secondary 收进 More；命中 secondary 时自动展开。
+  const [expandedMore, setExpandedMore] = useState<NavModeGroup[]>([])
+  const toggleMore = (group: NavModeGroup) => {
+    setExpandedMore((prev) => (prev.includes(group) ? prev.filter((g) => g !== group) : [...prev, group]))
+  }
   const toggleGroup = (group: NavModeGroup) => {
     setCollapsedGroups((prev) => {
       const next = prev.includes(group) ? prev.filter((g) => g !== group) : [...prev, group]
@@ -64,11 +73,26 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
     })
   }
 
-  // 当前视图所在组被折叠时自动展开：键盘/外部跳转不会落到「看不见的高亮项」
+  // 没有书且还没点过分组时展开开书组。当前页所在组即使被折起也展开，避免高亮落在看不见的地方。
+  // secondary 命中时同步展开该组 More，保证 data-view 可达。
   useEffect(() => {
-    const activeGroup = NAV_ITEMS.find((item) => item.view === activeView)?.group
-    if (activeGroup) setCollapsedGroups((prev) => (prev.includes(activeGroup) ? prev.filter((g) => g !== activeGroup) : prev))
-  }, [activeView])
+    const activeItem = NAV_ITEMS.find((item) => item.view === activeView)
+    const activeGroup = activeItem?.group
+    const hasStoredPreference = typeof localStorage !== "undefined" && localStorage.getItem(NAV_COLLAPSED_GROUPS_KEY) !== null
+    if (!hasStoredPreference) {
+      setCollapsedGroups(initialCollapsedGroups(project === null).filter((group) => group !== activeGroup))
+      if (activeItem && !isNavPrimaryTier(activeItem) && activeGroup) {
+        setExpandedMore((prev) => (prev.includes(activeGroup) ? prev : [...prev, activeGroup]))
+      }
+      return
+    }
+    if (activeGroup) {
+      setCollapsedGroups((prev) => (prev.includes(activeGroup) ? prev.filter((group) => group !== activeGroup) : prev))
+      if (activeItem && !isNavPrimaryTier(activeItem)) {
+        setExpandedMore((prev) => (prev.includes(activeGroup) ? prev : [...prev, activeGroup]))
+      }
+    }
+  }, [activeView, project])
 
   const handleCycleTheme = () => {
     const themes: ("light" | "dark" | "deep-blue" | "eye-care" | "system")[] = ["system", "light", "dark", "deep-blue", "eye-care"]
@@ -142,7 +166,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             alt={t("iconSidebar.logoAlt")}
             className="h-6 w-6 shrink-0 rounded-[28%]"
           />
-          <span className="truncate text-[0.8125rem] font-semibold">Niko Buddy</span>
+          <span className="truncate text-sm font-semibold">Niko Buddy</span>
         </button>
         {/* Top: main nav items —— 本栏唯一可滚动组。14 个导航项在 720px 视口下就已
             超出 w-12 窄栏高度，而 flex 项的 min-height:auto 会阻止收缩，溢出将逃出
@@ -155,21 +179,25 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
           {NAV_GROUP_ORDER.map(({ group, labelKey: groupLabelKey }) => {
             const items = NAV_ITEMS.filter((item) => item.group === group)
             const collapsed = collapsedGroups.includes(group)
+            const primaryItems = items.filter(isNavPrimaryTier)
+            const secondaryItems = items.filter((item) => !isNavPrimaryTier(item))
+            const moreOpen = expandedMore.includes(group)
+            const activeIsSecondary = secondaryItems.some((item) => item.view === activeView)
+            const showSecondary = moreOpen || activeIsSecondary
+            const visibleItems = collapsed ? [] : showSecondary ? items : primaryItems
             return (
               <div key={group} data-nav-group={group}>
                 <button
                   type="button"
                   onClick={() => toggleGroup(group)}
                   aria-expanded={!collapsed}
-                  className="flex h-6 w-full items-center gap-1 rounded px-2 text-[0.6875rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  className="flex h-6 w-full items-center gap-1 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                 >
                   <ChevronRight className={`h-3 w-3 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`} />
                   <span className="min-w-0 flex-1 truncate text-left">{t(groupLabelKey)}</span>
-                  <span className="shrink-0 tabular-nums text-[0.625rem] text-muted-foreground/60">{items.length}</span>
+                  <span className="shrink-0 tabular-nums text-xs text-muted-foreground/60">{items.length}</span>
                 </button>
-                {collapsed
-                  ? null
-                  : items.map(({ view, icon: Icon, labelKey }) => (
+                {visibleItems.map(({ view, icon: Icon, labelKey }) => (
                     <button
                       key={view}
                       type="button"
@@ -184,14 +212,42 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
                       }`}
                     >
                       <Icon className="h-[1.125rem] w-[1.125rem] shrink-0" />
-                      <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t(labelKey)}</span>
+                      <span className="min-w-0 flex-1 truncate text-sm">{t(labelKey)}</span>
                       {view === "reviewCenter" && pendingCount > 0 && (
-                        <span data-testid="nav-badge" className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-bold text-primary-foreground">
+                        <span data-testid="nav-badge" className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-xs font-bold text-primary-foreground">
                           {pendingCount > 99 ? "99+" : pendingCount}
                         </span>
                       )}
                     </button>
                   ))}
+                {!collapsed && secondaryItems.length > 0 && !showSecondary ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleMore(group)}
+                    data-testid={`nav-more-${group}`}
+                    aria-expanded={false}
+                    className="soft-button flex h-7 w-full items-center gap-2 rounded-xl px-2.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-left">
+                      {t("novel.nav.more", { count: secondaryItems.length, defaultValue: `更多 (${secondaryItems.length})` })}
+                    </span>
+                    <ChevronRight className="h-3 w-3 shrink-0" />
+                  </button>
+                ) : null}
+                {!collapsed && secondaryItems.length > 0 && showSecondary && !activeIsSecondary ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleMore(group)}
+                    data-testid={`nav-more-${group}`}
+                    aria-expanded={true}
+                    className="soft-button flex h-7 w-full items-center gap-2 rounded-xl px-2.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-left">
+                      {t("novel.nav.less", { defaultValue: "收起" })}
+                    </span>
+                    <ChevronRight className="h-3 w-3 shrink-0 rotate-90" />
+                  </button>
+                ) : null}
               </div>
             )
           })}
@@ -208,7 +264,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             }`}
           >
             <Search className="h-[1.125rem] w-[1.125rem] shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t(SEARCH_NAV_ITEM.labelKey)}</span>
+            <span className="min-w-0 flex-1 truncate text-sm">{t(SEARCH_NAV_ITEM.labelKey)}</span>
           </button>
         </nav>
         {/* Bottom: 低频工具（压缩为图标行）+ 主题 + 设置 + 切换小说 */}
@@ -275,7 +331,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             className="soft-button flex h-8 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
           >
             {getThemeIcon()}
-            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{getThemeTooltip()}</span>
+            <span className="min-w-0 flex-1 truncate text-sm">{getThemeTooltip()}</span>
           </button>
           <button
             type="button"
@@ -293,7 +349,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             }`}
           >
             <Settings className="h-[1.125rem] w-[1.125rem] shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t("novel.nav.settings")}</span>
+            <span className="min-w-0 flex-1 truncate text-sm">{t("novel.nav.settings")}</span>
           </button>
           <button
             type="button"
@@ -305,7 +361,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             className="soft-button flex h-8 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
           >
             <ArrowLeftRight className="h-[1.125rem] w-[1.125rem] shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-[0.8125rem]">{t("nav.switchProject")}</span>
+            <span className="min-w-0 flex-1 truncate text-sm">{t("nav.switchProject")}</span>
           </button>
         </div>
       </div>
