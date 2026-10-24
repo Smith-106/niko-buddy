@@ -391,7 +391,7 @@ describe("IconSidebar", () => {
     expect(html.indexOf("novel.nav.groupSi")).toBeLessThan(html.indexOf("novel.nav.groupShen"))
     expect(html.indexOf("novel.nav.groupShen")).toBeLessThan(html.indexOf("novel.nav.groupMaint"))
     // 分层收纳：primary 首刷即见，secondary 需展开 More 后可达。
-    const primaryViews = ["workbench", "wiki", "director", "sources", "graph", "soul", "bookAnalysis", "canonEditor", "reviewCenter", "followUpCenter", "mainControl", "creativeHub", "bookshelf", "backupExport", "exportCenter"]
+    const primaryViews = ["workbench", "wiki", "director", "sources", "graph", "soul", "bookAnalysis", "canonEditor", "reviewCenter", "followUpCenter", "mainControl", "creativeHub", "bookshelf", "backupExport"]
     for (const v of primaryViews) {
       expect(document.querySelector(`[data-view="${v}"]`), v).toBeTruthy()
     }

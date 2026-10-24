@@ -350,6 +350,40 @@ describe("DataManagementSection", () => {
     expect(bar.style.width).toBe("0%")
   })
 
+  it("import double-confirm：首次取消不执行；full 需两次确认，global-only 一次", async () => {
+    // B 波二次确认：首次取消 → importBackup 零调用。
+    const confirmMock = vi.mocked(window.confirm)
+    confirmMock.mockReturnValueOnce(false)
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.importButton"))
+    await flushAsync()
+    expect(mocks.importBackup).not.toHaveBeenCalled()
+    expect(confirmMock).toHaveBeenCalledTimes(1)
+    cleanup()
+
+    // full 策略：两次确认都通过 → 执行。
+    confirmMock.mockClear()
+    confirmMock.mockReturnValue(true)
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.importButton"))
+    await waitFor(() => expect(mocks.importBackup).toHaveBeenCalled())
+    expect(confirmMock).toHaveBeenCalledTimes(2)
+    cleanup()
+
+    // global-only：一次确认 → 执行。
+    confirmMock.mockClear()
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByRole("radio", { name: "仅导入全局配置（模型、UI偏好）" }))
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.importButton"))
+    await waitFor(() => expect(mocks.importBackup).toHaveBeenCalledWith(
+      "global-only",
+      undefined,
+      expect.any(Function),
+    ))
+    expect(confirmMock).toHaveBeenCalledTimes(1)
+    cleanup()
+  })
+
   it("import success with mixed project outcomes: count + failed list", async () => {
     mocks.importBackup.mockResolvedValue(
       importResult({

@@ -183,6 +183,10 @@ export function DataManagementSection() {
   }
 
   async function handleImport() {
+    // B 波二次确认：完全覆盖会清除当前所有数据，global-only 只换全局配置；先确认再执行。
+    const strategyLabel = importStrategy === "full" ? "完全覆盖（清除当前所有数据）" : "仅导入全局配置"
+    if (!window.confirm(`导入备份（${strategyLabel}）将改写现有数据，继续吗？`)) return
+    if (importStrategy === "full" && !window.confirm("再次确认：完全覆盖不可恢复，确定继续导入吗？")) return
     setIsImporting(true)
     setImportResult(null)
     setProgress(null)

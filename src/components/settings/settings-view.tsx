@@ -23,7 +23,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { isTauri } from "@/lib/platform"
 import { toast } from "@/lib/toast"
 import { useChatStore } from "@/stores/chat-store"
-import { loadSourceWatchConfig, saveLanguage, loadNovelConfig, loadRerankConfig } from "@/lib/project-store"
+import { loadSourceWatchConfig, loadNovelConfig, loadRerankConfig } from "@/lib/project-store"
 import type { SettingsDraft, DraftSetter } from "./settings-types"
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
 // B7 挂载覆盖门：sections/ 下每个非 spec 模块必须在这里（含传递 import）挂载，
@@ -60,6 +60,30 @@ type CategoryId =
   | "changelog"
   | "skill-library"
   | "mcp"
+
+/** B 波三域分存：每个设置分类恰属一域，保存按域隔离。 */
+export type SettingsDomain = "model" | "storage" | "interface"
+
+export const SETTINGS_DOMAIN_OF: Record<CategoryId, SettingsDomain> = {
+  llm: "model",
+  rerank: "model",
+  embedding: "model",
+  mcp: "model",
+  "skill-library": "model",
+  network: "storage",
+  novel: "storage",
+  maintenance: "storage",
+  "data-management": "storage",
+  interface: "interface",
+  "usage-guide": "interface",
+  feedback: "interface",
+  "contact-support": "interface",
+  changelog: "interface",
+}
+
+export function settingsDomainOf(category: CategoryId): SettingsDomain {
+  return SETTINGS_DOMAIN_OF[category]
+}
 
 interface Category {
   id: CategoryId
@@ -298,20 +322,14 @@ export function SettingsView() {
     setDraftState((prev) => ({ ...prev, [key]: value }))
   }, [])
 
-  const handleSave = useCallback(async () => {
+  // B 波三域分存：每个持久化助手只读写自己域的 store + 落盘键。
+  // active 域变更时只存该域；其它域的 draft 照常保留在内存，不丢失、不串写。
+  const persistModelDomain = useCallback(async () => {
     const {
       saveLlmConfig,
       saveEmbeddingConfig,
       saveRerankConfig,
       saveMultimodalConfig,
-      saveProxyConfig,
-      saveScheduledImportConfig,
-      saveSourceWatchConfig,
-      saveRevisionFeedbackWindowConfig,
-      saveNovelConfig,
-      saveOutputLanguage,
-      saveMaxHistoryMessages,
-      saveUiFontSizeScale,
     } = await import("@/lib/project-store")
 
     const newLlm = {
@@ -355,12 +373,6 @@ export function SettingsView() {
       concurrency: Math.max(1, Math.min(16, draft.multimodalConcurrency || 4)),
     }
 
-    const newProxy = {
-      enabled: draft.proxyEnabled,
-      url: draft.proxyUrl.trim(),
-      bypassLocal: draft.proxyBypassLocal,
-    }
-
     setLlmConfig(newLlm)
     await saveLlmConfig(newLlm)
     setEmbeddingConfig(newEmbed)
@@ -369,6 +381,29 @@ export function SettingsView() {
     await saveRerankConfig(newRerank, project?.id, project?.path)
     setMultimodalConfig(newMultimodal)
     await saveMultimodalConfig(newMultimodal)
+  }, [
+    draft,
+    project,
+    setLlmConfig,
+    setEmbeddingConfig,
+    setRerankConfig,
+    setMultimodalConfig,
+  ])
+
+  const persistStorageDomain = useCallback(async () => {
+    const {
+      saveProxyConfig,
+      saveScheduledImportConfig,
+      saveSourceWatchConfig,
+      saveRevisionFeedbackWindowConfig,
+      saveNovelConfig,
+    } = await import("@/lib/project-store")
+
+    const newProxy = {
+      enabled: draft.proxyEnabled,
+      url: draft.proxyUrl.trim(),
+      bypassLocal: draft.proxyBypassLocal,
+    }
     setProxyConfig(newProxy)
     await saveProxyConfig(newProxy)
     const newSourceWatch = normalizeSourceWatchConfig(draft.sourceWatchConfig)
@@ -427,6 +462,24 @@ export function SettingsView() {
 
     setNovelConfig(draft.novelConfig)
     await saveNovelConfig(draft.novelConfig, project?.id, project?.path)
+  }, [
+    draft,
+    project,
+    setProxyConfig,
+    setScheduledImportConfig,
+    setSourceWatchConfig,
+    setRevisionFeedbackWindowConfig,
+    setNovelConfig,
+    scheduledImportConfig,
+  ])
+
+  const persistInterfaceDomain = useCallback(async () => {
+    const {
+      saveOutputLanguage,
+      saveMaxHistoryMessages,
+      saveUiFontSizeScale,
+      saveLanguage,
+    } = await import("@/lib/project-store")
 
     setOutputLanguage(draft.outputLanguage)
     await saveOutputLanguage(draft.outputLanguage, project?.id)
@@ -439,26 +492,25 @@ export function SettingsView() {
       await i18n.changeLanguage(draft.uiLanguage)
       await saveLanguage(draft.uiLanguage)
     }
-
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
   }, [
     draft,
     project,
-    setLlmConfig,
-    setEmbeddingConfig,
-    setRerankConfig,
     setOutputLanguage,
-    setProxyConfig,
-    setScheduledImportConfig,
-    setSourceWatchConfig,
-    setRevisionFeedbackWindowConfig,
-    setNovelConfig,
-    scheduledImportConfig,
     setMaxHistoryMessages,
     outputLanguage,
     setUiFontSizeScale,
   ])
+
+  // 按当前分类所属域只存该域：模型域 / 存储域 / 界面域互不串写。
+  const handleSave = useCallback(async () => {
+    const domain = settingsDomainOf(active)
+    if (domain === "model") await persistModelDomain()
+    else if (domain === "storage") await persistStorageDomain()
+    else await persistInterfaceDomain()
+
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }, [active, persistModelDomain, persistStorageDomain, persistInterfaceDomain])
 
   const body = useMemo(() => {
     switch (active) {
@@ -541,8 +593,9 @@ export function SettingsView() {
           <div className="flex w-full min-w-0 items-center justify-between gap-4">
             <p className="text-xs text-muted-foreground">
               {saved ? t("settings.savedTick") : t("settings.changeHint")}
+              {`（${settingsDomainOf(active) === "model" ? "模型域" : settingsDomainOf(active) === "storage" ? "存储域" : "界面域"} · 仅保存本域）`}
             </p>
-            <Button onClick={handleSave}>
+            <Button onClick={handleSave} data-testid="settings-save-domain">
               {saved ? t("settings.saved") : t("settings.save")}
             </Button>
           </div>

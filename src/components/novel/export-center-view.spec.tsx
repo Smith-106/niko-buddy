@@ -125,6 +125,42 @@ describe("ExportCenterView", () => {
     expect(screen.getAllByTestId("export-record-failure")[1]?.textContent).toContain("epub invoke failed")
   })
 
+  it("目录选择器回填绝对路径：导出写到所选目录 + 取消保留手输", async () => {
+    const { manuscriptExportPath } = await import("./export-center-view")
+    // 绝对路径直拼文件名（Windows 盘符 + POSIX 双兼容）。
+    expect(manuscriptExportPath("C:/proj", "D:/out", "终稿", "DOCX")).toBe("D:/out/终稿.docx")
+    expect(manuscriptExportPath("C:/proj", "/tmp/out/", "终稿", "EPUB")).toBe("/tmp/out/终稿.epub")
+    // 相对目录仍走项目内。
+    expect(manuscriptExportPath("C:/proj", "exports", "终稿", "DOCX")).toBe("C:/proj/exports/终稿.docx")
+
+    mockOneFinalChapter()
+    const exportDocx = vi.fn().mockResolvedValue({
+      success: true,
+      exportedPath: "D:/out/终稿.docx",
+      chapterCount: 1,
+      message: "ok",
+    })
+    // 选择器返回绝对目录 → 回填 → 导出路径跟随。
+    const { rerender } = render(
+      <ExportCenterView projectPath="C:/proj" actions={{ exportDocx, exportEpub: vi.fn() }} pickDirectory={async () => "D:/out"} />,
+    )
+    await waitFor(() => expect(screen.getByTestId("export-center-count")).toBeTruthy())
+    fireEvent.change(screen.getByTestId("export-file-name"), { target: { value: "终稿" } })
+    fireEvent.click(screen.getByTestId("export-pick-directory"))
+    await waitFor(() => expect(screen.getByTestId("export-target-path").textContent).toContain("D:/out/终稿.docx"))
+    fireEvent.click(screen.getByTestId("export-docx-button"))
+    await waitFor(() => expect(exportDocx).toHaveBeenCalledWith({
+      projectPath: "C:/proj",
+      exportPath: "D:/out/终稿.docx",
+    }))
+    // 选择器取消（null）→ 保留手输目录。
+    rerender(
+      <ExportCenterView projectPath="C:/proj" actions={{ exportDocx, exportEpub: vi.fn() }} pickDirectory={async () => null} />,
+    )
+    fireEvent.click(screen.getByTestId("export-pick-directory"))
+    await waitFor(() => expect(screen.getByTestId("export-target-path").textContent).toContain("D:/out/终稿.docx"))
+  })
+
   it("同名文件先确认，确认后才导出", async () => {
     mockOneFinalChapter()
     fileExistsMock.mockResolvedValue(true)

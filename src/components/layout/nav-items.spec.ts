@@ -45,12 +45,12 @@ describe("readCollapsedGroups", () => {
 })
 
 describe("nav tier 分层", () => {
-  it("31 项总量（主控直达补位），主次分层 16/15", () => {
+  it("31 项总量（B 波导出收进 More），主次分层 15/16", () => {
     expect(NAV_ITEMS).toHaveLength(31)
     const primary = NAV_ITEMS.filter(isNavPrimaryTier)
     const secondary = NAV_ITEMS.filter((i) => !isNavPrimaryTier(i))
-    expect(primary).toHaveLength(16)
-    expect(secondary).toHaveLength(15)
+    expect(primary).toHaveLength(15)
+    expect(secondary).toHaveLength(16)
   })
 
   it("主控直达：ma 组 primary，复用 content-area mainControl 分支", () => {
@@ -61,8 +61,8 @@ describe("nav tier 分层", () => {
 
   it("高频入口常驻 primary，低频收进 secondary", () => {
     const byView = new Map<NavView, string>(NAV_ITEMS.map((i) => [i.view, i.tier ?? "primary"]))
-    const primaryViews: NavView[] = ["wiki", "reviewCenter", "mainControl", "workbench", "sources", "graph", "soul", "creativeHub", "exportCenter"]
-    const secondaryViews: NavView[] = ["marketRadar", "antiAiRules", "workflowEditor", "mcpManager", "help"]
+    const primaryViews: NavView[] = ["wiki", "reviewCenter", "mainControl", "workbench", "sources", "graph", "soul", "creativeHub"]
+    const secondaryViews: NavView[] = ["marketRadar", "antiAiRules", "workflowEditor", "mcpManager", "help", "exportCenter"]
     for (const v of primaryViews) {
       expect(byView.get(v)).toBe("primary")
     }

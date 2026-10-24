@@ -72,6 +72,17 @@ export interface ManuscriptExportRecord {
   readonly message: string
 }
 
+export function manuscriptExportPath(projectPath: string, folderName: string, baseName: string, format: ManuscriptExportFormat): string {
+  // B 波 B3：目录支持绝对路径（目录选择器回填）与项目内相对目录；绝对路径直接拼接文件名。
+  const trimmedFolder = folderName.trim()
+  const isAbsolute = /^[a-zA-Z]:[\\/]/.test(trimmedFolder) || trimmedFolder.startsWith("/")
+  const folder = isAbsolute ? trimmedFolder.replace(/[\\/]+$/, "") : trimmedFolder.replace(/[\\/]/g, "") || "exports"
+  const base = baseName.trim().replace(/[\\/]/g, "") || "complete-novel"
+  const ext = format === "DOCX" ? "docx" : "epub"
+  if (isAbsolute && folder !== "") return `${folder}/${base}.${ext}`
+  return `${projectPath}/${folder}/${base}.${ext}`
+}
+
 export interface ExportCenterViewProps {
   /** 项目根路径（计数与默认导出路径均由此派生）。 */
   readonly projectPath: string
@@ -79,19 +90,15 @@ export interface ExportCenterViewProps {
   readonly actions?: ExportCenterActions
   /** 同名检测。缺省读磁盘；测试可注入。 */
   readonly fileExists?: (path: string) => Promise<boolean>
-}
-
-export function manuscriptExportPath(projectPath: string, folderName: string, baseName: string, format: ManuscriptExportFormat): string {
-  const folder = folderName.trim().replace(/[\\/]/g, "") || "exports"
-  const base = baseName.trim().replace(/[\\/]/g, "") || "complete-novel"
-  const ext = format === "DOCX" ? "docx" : "epub"
-  return `${projectPath}/${folder}/${base}.${ext}`
+  /** 目录选择器。缺省走 pickDirectory；测试可注入返回绝对路径或 null（取消）。 */
+  readonly pickDirectory?: () => Promise<string | null>
 }
 
 export function ExportCenterView({
   projectPath,
   actions = DEFAULT_EXPORT_ACTIONS,
   fileExists: fileExistsImpl = fileExists,
+  pickDirectory: pickDirectoryImpl,
 }: ExportCenterViewProps) {
   const [snapshot, setSnapshot] = useState<ExportCenterSnapshot | null>(null)
   const [loading, setLoading] = useState(projectPath !== "")
@@ -212,6 +219,25 @@ export function ExportCenterView({
                 }}
                 className="w-28 rounded border border-border bg-background px-2 py-1 text-foreground"
               />
+              <button
+                type="button"
+                data-testid="export-pick-directory"
+                className="rounded border border-border px-2 py-1 text-xs"
+                onClick={() => void (async () => {
+                  try {
+                    const pick = pickDirectoryImpl ?? (await import("@/lib/platform")).pickDirectory
+                    const dir = await pick()
+                    if (dir) {
+                      setFolderName(dir)
+                      setPendingOverwrite(null)
+                    }
+                  } catch {
+                    /* 目录选择取消/失败时静默保留手输目录 */
+                  }
+                })()}
+              >
+                选择…
+              </button>
             </label>
             <label className="flex items-center gap-1 text-xs text-muted-foreground">
               文件名

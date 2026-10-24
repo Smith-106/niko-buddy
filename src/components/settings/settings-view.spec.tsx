@@ -491,7 +491,7 @@ describe("SettingsView 渲染覆盖", () => {
     expect(activeButton).toHaveAttribute("aria-current", "page")
     const inactiveButton = screen.getByText("settings.categories.novel").closest("button")
     expect(inactiveButton).not.toHaveAttribute("aria-current")
-    expect(screen.getByText("settings.changeHint")).toBeTruthy()
+    expect(screen.queryByText("settings.changeHint", { exact: false })).toBeTruthy()
     expect(screen.getByText("settings.save")).toBeTruthy()
   })
 
@@ -690,11 +690,12 @@ describe("SettingsView 渲染覆盖", () => {
     expect(screen.getByTestId("draft-ui-language")).toHaveTextContent("en")
   })
 
-  it("handleSave 全链路：写 store + 磁盘 + 停止文件同步/定时导入 + 保存标记", async () => {
+  it("handleSave 三域分存：llm 域只存模型域（存储/界面域零串写）+ 保存标记", async () => {
     mocks.wikiState.project = PROJECT
     render(<SettingsView />)
     await flushAsync()
 
+    // 默认 active=llm → 模型域
     clickSave()
     await waitFor(() => expect(mocks.saveLlmConfig).toHaveBeenCalled())
 
@@ -744,11 +745,6 @@ describe("SettingsView 渲染覆盖", () => {
       apiMode: undefined,
       concurrency: 4,
     }
-    const newProxy = { enabled: false, url: "", bypassLocal: true }
-    const newSourceWatch = mocks.wikiState.sourceWatchConfig
-    // initialDraft：scheduledImport.path 为空 + 项目存在 → displayPath = `${projectPath}/raw/sources`
-    const newScheduledImport = { enabled: false, path: "/p/x/raw/sources", interval: 60, lastScan: 0 }
-
     expect(mocks.wikiState.setLlmConfig).toHaveBeenCalledWith(newLlm)
     expect(mocks.saveLlmConfig).toHaveBeenCalledWith(newLlm)
     expect(mocks.wikiState.setEmbeddingConfig).toHaveBeenCalledWith(newEmbed)
@@ -757,37 +753,38 @@ describe("SettingsView 渲染覆盖", () => {
     expect(mocks.saveRerankConfig).toHaveBeenCalledWith(newRerank, "p1", "/p/x")
     expect(mocks.wikiState.setMultimodalConfig).toHaveBeenCalledWith(newMultimodal)
     expect(mocks.saveMultimodalConfig).toHaveBeenCalledWith(newMultimodal)
-    expect(mocks.wikiState.setProxyConfig).toHaveBeenCalledWith(newProxy)
-    expect(mocks.saveProxyConfig).toHaveBeenCalledWith(newProxy)
-    expect(mocks.wikiState.setSourceWatchConfig).toHaveBeenCalledWith(newSourceWatch)
-    expect(mocks.saveSourceWatchConfig).toHaveBeenCalledWith(newSourceWatch, "p1", "/p/x")
-    expect(mocks.stopProjectFileSync).toHaveBeenCalledTimes(1)
+    // B 波三域分存：llm 域只存模型域，存储/界面域零串写
+    // （project 切换加载 effect 会调 setSourceWatchConfig 做 draft 同步，非保存串写，故不断言它）
+    expect(mocks.wikiState.setProxyConfig).not.toHaveBeenCalled()
+    expect(mocks.saveProxyConfig).not.toHaveBeenCalled()
+    expect(mocks.saveSourceWatchConfig).not.toHaveBeenCalled()
+    expect(mocks.stopProjectFileSync).not.toHaveBeenCalled()
     expect(mocks.startProjectFileSync).not.toHaveBeenCalled()
-    expect(mocks.wikiState.setScheduledImportConfig).toHaveBeenCalledWith(newScheduledImport)
-    expect(mocks.saveScheduledImportConfig).toHaveBeenCalledWith("/p/x", newScheduledImport)
-    expect(mocks.stopScheduledImport).toHaveBeenCalledTimes(1)
+    expect(mocks.wikiState.setScheduledImportConfig).not.toHaveBeenCalled()
+    expect(mocks.saveScheduledImportConfig).not.toHaveBeenCalled()
+    expect(mocks.stopScheduledImport).not.toHaveBeenCalled()
     expect(mocks.startScheduledImport).not.toHaveBeenCalled()
-    expect(mocks.wikiState.setRevisionFeedbackWindowConfig).toHaveBeenCalledWith(mocks.wikiState.revisionFeedbackWindowConfig)
-    expect(mocks.saveRevisionFeedbackWindowConfig).toHaveBeenCalledWith(mocks.wikiState.revisionFeedbackWindowConfig, "p1", "/p/x")
-    expect(mocks.wikiState.setNovelConfig).toHaveBeenCalledWith(mocks.wikiState.novelConfig)
-    expect(mocks.saveNovelConfig).toHaveBeenCalledWith(mocks.wikiState.novelConfig, "p1", "/p/x")
-    expect(mocks.wikiState.setOutputLanguage).toHaveBeenCalledWith("zh-CN")
-    expect(mocks.saveOutputLanguage).toHaveBeenCalledWith("zh-CN", "p1")
-    expect(mocks.chatState.setMaxHistoryMessages).toHaveBeenCalledWith(50)
-    expect(mocks.saveMaxHistoryMessages).toHaveBeenCalledWith(50, "p1", "/p/x")
-    expect(mocks.wikiState.setUiFontSizeScale).toHaveBeenCalledWith(1)
-    expect(mocks.saveUiFontSizeScale).toHaveBeenCalledWith(1, "p1", "/p/x")
+    expect(mocks.wikiState.setRevisionFeedbackWindowConfig).not.toHaveBeenCalled()
+    expect(mocks.saveRevisionFeedbackWindowConfig).not.toHaveBeenCalled()
+    expect(mocks.wikiState.setNovelConfig).not.toHaveBeenCalled()
+    expect(mocks.saveNovelConfig).not.toHaveBeenCalled()
+    expect(mocks.wikiState.setOutputLanguage).not.toHaveBeenCalled()
+    expect(mocks.saveOutputLanguage).not.toHaveBeenCalled()
+    expect(mocks.chatState.setMaxHistoryMessages).not.toHaveBeenCalled()
+    expect(mocks.saveMaxHistoryMessages).not.toHaveBeenCalled()
+    expect(mocks.wikiState.setUiFontSizeScale).not.toHaveBeenCalled()
+    expect(mocks.saveUiFontSizeScale).not.toHaveBeenCalled()
     // uiLanguage 未变 → 不切换语言
     expect(mocks.changeLanguage).not.toHaveBeenCalled()
     expect(mocks.saveLanguage).not.toHaveBeenCalled()
 
-    // 保存标记 + 2s 后复位
-    expect(screen.getByText("settings.savedTick")).toBeTruthy()
+    // 保存标记 + 2s 后复位（B 波 footer 带域后缀，文案断言改模糊匹配）
+    expect(screen.queryByText("settings.savedTick", { exact: false })).toBeTruthy()
     expect(screen.getByText("settings.saved")).toBeTruthy()
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 2100))
     })
-    expect(screen.getByText("settings.changeHint")).toBeTruthy()
+    expect(screen.queryByText("settings.changeHint", { exact: false })).toBeTruthy()
     expect(screen.getByText("settings.save")).toBeTruthy()
   })
 
@@ -970,11 +967,15 @@ describe("SettingsView 渲染覆盖", () => {
     expect(mocks.saveLanguage).toHaveBeenCalledWith("en")
   })
 
-  it("handleSave 无项目：跳过文件同步与定时导入落盘，其余照常", async () => {
+  it("handleSave 无项目存储域：跳过文件同步与定时导入落盘，存储域其余照常", async () => {
     render(<SettingsView />)
     await flushAsync()
+    clickNav("novel")
     clickSave()
-    await waitFor(() => expect(mocks.saveLlmConfig).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.saveNovelConfig).toHaveBeenCalled())
+    // B 波三域分存：novel 域只存存储域，模型域零串写
+    expect(mocks.saveLlmConfig).not.toHaveBeenCalled()
+    expect(mocks.saveEmbeddingConfig).not.toHaveBeenCalled()
     expect(mocks.saveScheduledImportConfig).not.toHaveBeenCalled()
     expect(mocks.startScheduledImport).not.toHaveBeenCalled()
     expect(mocks.stopScheduledImport).not.toHaveBeenCalled()
@@ -982,5 +983,18 @@ describe("SettingsView 渲染覆盖", () => {
     expect(mocks.stopProjectFileSync).not.toHaveBeenCalled()
     expect(mocks.saveSourceWatchConfig).toHaveBeenCalledWith(mocks.wikiState.sourceWatchConfig, undefined, undefined)
     expect(mocks.saveNovelConfig).toHaveBeenCalledWith(mocks.wikiState.novelConfig, undefined, undefined)
+  })
+
+  it("handleSave 存储域隔离：novel 域保存不串写界面域", async () => {
+    mocks.wikiState.project = PROJECT
+    render(<SettingsView />)
+    await flushAsync()
+    clickNav("novel")
+    clickSave()
+    await waitFor(() => expect(mocks.saveNovelConfig).toHaveBeenCalled())
+    expect(mocks.saveOutputLanguage).not.toHaveBeenCalled()
+    expect(mocks.saveMaxHistoryMessages).not.toHaveBeenCalled()
+    expect(mocks.saveUiFontSizeScale).not.toHaveBeenCalled()
+    expect(mocks.saveLanguage).not.toHaveBeenCalled()
   })
 })

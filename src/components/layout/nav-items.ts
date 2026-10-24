@@ -56,12 +56,14 @@ export interface NavItem {
 /**
  * 导航四组（作家语言，纯展示层；content-area.tsx 的 switch 零改动）。
  *
- * 顺序 = 「写作优先」：有书时默认只展开章节库、审查中心、跟进中心。
- * 导出不占这一格，收在设置组里。
+ * B 波收敛：有书时默认只展开 ma（写和审：章节库/审查中心/跟进中心/主控直达）；
+ * si（开书）/shen（查账）/maint（备份/诊断/数据/模型/帮助）默认收起只露组头。
+ * 导出不占侧栏常驻格：maint 组里 exportCenter 降为 secondary（More 里按需开），
+ * 书稿导出主入口在写作台工具条（manuscript）与交稿尾部，侧栏只留按需入口。
  * - ma: 写和审（章节库/审查中心/跟进中心）
  * - si: 开书（工作台/书架/题材/导演/拆文）——没有书时默认展开
  * - shen: 查账（大纲/图谱/灵魂/设定/审校/技能）
- * - maint: 设置（备份/诊断/数据/模型/导出/帮助，以及退出日常一级的页）
+ * - maint: 设置（备份/诊断/数据/模型/帮助，以及退出日常一级的页；导出收进 More）
  *
  * 侧栏与命令面板（Ctrl/⌘+K）共用这一张表，避免两处各写一份导航清单。
  */
@@ -95,7 +97,7 @@ export const NAV_ITEMS: NavItem[] = [
   { view: "dataManager", icon: Database, labelKey: "novel.nav.dataManager", group: "maint", tier: "secondary" },
   { view: "modelRoutes", icon: Route, labelKey: "novel.nav.modelRoutes", group: "maint", tier: "secondary" },
   { view: "mcpManager", icon: Plug, labelKey: "novel.nav.mcpManager", group: "maint", tier: "secondary" },
-  { view: "exportCenter", icon: Download, labelKey: "novel.nav.exportCenter", group: "maint", tier: "primary" },
+  { view: "exportCenter", icon: Download, labelKey: "novel.nav.exportCenter", group: "maint", tier: "secondary" },
   { view: "help", icon: CircleQuestionMark, labelKey: "novel.nav.help", group: "maint", tier: "secondary" },
 ]
 
