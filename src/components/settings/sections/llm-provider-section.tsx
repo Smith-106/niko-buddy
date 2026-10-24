@@ -4,6 +4,7 @@ import { toast } from "@/lib/toast"
 import { useWikiStore, type ProviderOverride } from "@/stores/wiki-store"
 import { LLM_PRESETS } from "@/lib/llm-config/llm-presets"
 import { resolveConfig } from "@/lib/llm-config/preset-resolver"
+import { CliProbeStrip } from "./cli-probe-strip"
 import { PresetRow } from "./llm-provider-widgets"
 import { CustomProviderCards } from "./custom-provider-cards"
 import { toErrorMessage } from "@/lib/utils"
@@ -101,6 +102,9 @@ export function LlmProviderSection() {
 
       {/* Custom Provider Cards - 放在顶部 */}
       <CustomProviderCards />
+
+      {/* 本地 CLI 四探针统一状态条（第二波范围A，只读诊断） */}
+      <CliProbeStrip />
 
       {/* Built-in Presets - 内置预设，过滤掉通用的"自定义模型"预设 */}
       <div className="space-y-2">

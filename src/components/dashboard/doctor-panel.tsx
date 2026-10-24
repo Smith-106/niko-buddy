@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { CapabilityReplayDrawer } from "./capability-replay-drawer"
 import { Stethoscope, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -153,6 +154,7 @@ export function DoctorPanel() {
           </div>
         ) : null}
         {healNote ? <p className="text-xs text-muted-foreground">{healNote}</p> : null}
+        {projectPath ? <CapabilityReplayDrawer /> : null}
       </div>
     </div>
   )
