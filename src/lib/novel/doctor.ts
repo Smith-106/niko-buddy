@@ -34,6 +34,8 @@ export interface DoctorContext {
   budgetTasks: readonly { taskId: string }[]
   /** 预算账本已完成集合。 */
   budgetCompleted: readonly string[]
+  /** budget 台账累计（真源 status.json stage_metrics；只读展示口径）。 */
+  budgetTotals?: { tokenCost: number; latencyMs: number; entries: number }
   /** 卷弧状态（无卷 → null）。 */
   volumeArc: { volumeNumber: number; segment: string | null; completedInVolume: number } | null
   /** 额外注入的原始状态（诊断项可读）。 */
@@ -103,7 +105,9 @@ const CHECK_BUDGET_LEDGER: DoctorCheckInput = {
         message: `预算账本不一致：已完成集合含未知任务 ${orphans.join(", ")}`,
       }
     }
-    return { severity: "ok", message: `预算账本一致（${ctx.budgetCompleted.length}/${ctx.budgetTasks.length} 完成）` }
+    const t = ctx.budgetTotals
+    const trail = t && t.entries > 0 ? `；累计 tokenCost=${t.tokenCost} latencyMs=${t.latencyMs}（${t.entries} 条）` : ""
+    return { severity: "ok", message: `预算账本一致（${ctx.budgetCompleted.length}/${ctx.budgetTasks.length} 完成）${trail}` }
   },
 }
 
@@ -222,7 +226,11 @@ export async function runProjectDoctor(
     ftsIndexReady: extras.ftsIndexReady === true,
     backupsPresent,
     budgetTasks: Array.isArray(extras.budgetTasks) ? (extras.budgetTasks as { taskId: string }[]) : [],
-    budgetCompleted: Array.isArray(extras.budgetCompleted) ? (extras.budgetCompleted as string[]) : [],
+      budgetCompleted: Array.isArray(extras.budgetCompleted) ? (extras.budgetCompleted as string[]) : [],
+    budgetTotals:
+      extras.budgetTotals && typeof extras.budgetTotals === "object"
+        ? (extras.budgetTotals as DoctorContext["budgetTotals"])
+        : undefined,
     volumeArc: extras.volumeArc && typeof extras.volumeArc === "object"
       ? (extras.volumeArc as DoctorContext["volumeArc"])
       : null,

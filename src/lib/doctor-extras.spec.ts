@@ -15,9 +15,17 @@ vi.mock("@/lib/novel/fanfic-canon-import", () => ({
 }))
 vi.mock("@/lib/novel/interactive-io", () => ({ loadInteractiveGraph: vi.fn(async () => null) }))
 vi.mock("@/lib/novel/interactive-film-graph", () => ({ validateInteractiveGraph: vi.fn(() => []) }))
+vi.mock("@/lib/novel/volume", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/volume")>()
+  return { ...actual, getChapterVolumes: vi.fn(async () => [{ volumeNumber: 2, title: "卷二", summary: "", chapterRangeStart: 1, chapterRangeEnd: 10 }]) }
+})
 vi.mock("@/lib/novel/novel-session-status", () => ({
   loadNovelSessionStatus: vi.fn(async () => ({
     current_task: { task_id: "t1", status: "running", chapter_number: 5 },
+    stage_metrics: [
+      { stage: "write_llm", tokenCost: 100, latencyMs: 50 },
+      { stage: "six_dim", tokenCost: 200, latencyMs: 70 },
+    ],
   })),
 }))
 vi.mock("@/lib/embedding", () => ({
@@ -37,7 +45,12 @@ describe("doctor-extras", () => {
     expect(e.budgetTasks).toEqual([{ taskId: "t1" }])
     expect(e.translationDraftCount).toBe(1)
     expect(e.playGraphErrors).toBe(0)
+    // 卷纲真源：第 2 卷（1-10 章）第 5 章 → 卷内第 5 章，段 = 承。
+    expect(e.volumeArc?.volumeNumber).toBe(2)
+    expect(e.volumeArc?.segment).toBe("承")
     expect(e.volumeArc?.completedInVolume).toBe(5)
+    // budget 台账真源：stage_metrics 累计。
+    expect(e.budgetTotals).toEqual({ tokenCost: 300, latencyMs: 120, entries: 2 })
   })
 
   it("自愈动作成功路径", async () => {

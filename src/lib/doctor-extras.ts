@@ -6,6 +6,11 @@ import { loadFanficMergeProposal } from "@/lib/novel/fanfic-canon-import"
 import { loadInteractiveGraph } from "@/lib/novel/interactive-io"
 import { validateInteractiveGraph } from "@/lib/novel/interactive-film-graph"
 import { loadNovelSessionStatus } from "@/lib/novel/novel-session-status"
+import {
+  allocateVolumeArc,
+  arcSegmentForChapter,
+  getChapterVolumes,
+} from "@/lib/novel/volume"
 import { toErrorMessage } from "@/lib/utils"
 
 export interface DoctorExtrasCollected extends Record<string, unknown> {
@@ -13,6 +18,8 @@ export interface DoctorExtrasCollected extends Record<string, unknown> {
   ftsIndexReady: boolean
   budgetTasks: ReadonlyArray<{ taskId: string }>
   budgetCompleted: string[]
+  /** 累计台账：stage_metrics tokenCost/latencyMs 求和（真源 status.json）。 */
+  budgetTotals: { tokenCost: number; latencyMs: number; entries: number }
   volumeArc: { volumeNumber: number; segment: string | null; completedInVolume: number } | null
   fanficMergePending: { sourceBookId: string; mode: string } | null
   translationDraftCount: number
@@ -36,16 +43,41 @@ export async function collectDoctorExtras(projectPath: string): Promise<DoctorEx
   const ftsIndexReady = ftsIdx !== null
   let budgetTasks: DoctorExtrasCollected["budgetTasks"] = []
   let budgetCompleted: string[] = []
+  let budgetTotals: DoctorExtrasCollected["budgetTotals"] = { tokenCost: 0, latencyMs: 0, entries: 0 }
   let volumeArc: DoctorExtrasCollected["volumeArc"] = null
   if (status?.current_task?.task_id) {
     budgetTasks = [{ taskId: status.current_task.task_id }]
     if (status.current_task.status === "completed") budgetCompleted = [status.current_task.task_id]
   }
+  // budget 完整台账真源：status.json stage_metrics 累计（tokenCost/latencyMs/条数）。
+  if (Array.isArray(status?.stage_metrics)) {
+    let tokenCost = 0
+    let latencyMs = 0
+    for (const entry of status.stage_metrics) {
+      if (typeof entry?.tokenCost === "number" && Number.isFinite(entry.tokenCost)) tokenCost += entry.tokenCost
+      if (typeof entry?.latencyMs === "number" && Number.isFinite(entry.latencyMs)) latencyMs += entry.latencyMs
+    }
+    budgetTotals = { tokenCost, latencyMs, entries: status.stage_metrics.length }
+  }
+  // volumeArc 真源：卷纲 frontmatter（chapter_range_*）定位当前卷 + allocateVolumeArc 派段。
   if (typeof status?.current_task?.chapter_number === "number") {
-    volumeArc = {
-      volumeNumber: 1,
-      segment: null,
-      completedInVolume: Math.max(0, status.current_task.chapter_number),
+    const chapterNumber = status.current_task.chapter_number
+    try {
+      const volumes = await getChapterVolumes(pp, chapterNumber)
+      const current = volumes.length > 0 ? volumes[0] : undefined
+      if (current) {
+        const start = current.chapterRangeStart ?? chapterNumber
+        const end = current.chapterRangeEnd ?? chapterNumber
+        const allocations = allocateVolumeArc(current.volumeNumber, start, end)
+        const segment = arcSegmentForChapter(allocations, chapterNumber)
+        volumeArc = {
+          volumeNumber: current.volumeNumber,
+          segment,
+          completedInVolume: Math.max(0, chapterNumber - start + 1),
+        }
+      }
+    } catch {
+      volumeArc = null
     }
   }
   const fanficMergePending = proposal
@@ -61,6 +93,7 @@ export async function collectDoctorExtras(projectPath: string): Promise<DoctorEx
     ftsIndexReady,
     budgetTasks,
     budgetCompleted,
+    budgetTotals,
     volumeArc,
     fanficMergePending,
     translationDraftCount: drafts,
