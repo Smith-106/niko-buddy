@@ -30,6 +30,21 @@ vi.mock("@/lib/novel/doctor", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel/doctor")>()
   return { ...actual, runProjectDoctor: mocks.runDoctor }
 })
+vi.mock("@/lib/doctor-extras", () => ({
+  collectDoctorExtras: vi.fn(async () => ({
+    canonDualWriteEnabled: true,
+    ftsIndexReady: true,
+    budgetTasks: [{ taskId: "t1" }],
+    budgetCompleted: [],
+    volumeArc: null,
+    fanficMergePending: null,
+    translationDraftCount: 0,
+    playGraphErrors: 0,
+  })),
+  safeRebuildFtsIndex: vi.fn(async () => ({ indexed: 1, errors: [] })),
+  safeRunVectorReconcile: vi.fn(async () => ({ ok: true, detail: "deleted=0" })),
+  safeTriggerVectorCompaction: vi.fn(async () => ({ ok: true, detail: "ok" })),
+}))
 
 describe("DoctorPanel", () => {
   beforeEach(() => vi.clearAllMocks())

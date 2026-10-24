@@ -1,9 +1,9 @@
 # Tauri 命令参考（自动生成）
 
-> 生成时间：2026-10-17（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
-> 注册数：**115**（`generate_handler!` 块）；未注册声明（死命令）：**1**
+> 生成时间：2026-10-24（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
+> 注册数：**116**（`generate_handler!` 块）；未注册声明（死命令）：**0**
 
-## 注册命令（115）
+## 注册命令（116）
 
 | 命令 | 模块 | 注册 |
 |------|------|------|
@@ -82,6 +82,7 @@
 | `write_file` | fs | ✓ |
 | `write_file_atomic` | fs | ✓ |
 | `write_files_atomic` | fs | ✓ |
+| `set_proxy_env` | lib | ✓ |
 | `log_diagnostic` | log_diagnostic | ✓ |
 | `mcp_remote_close` | mcp_remote::api | ✓ |
 | `mcp_remote_connect` | mcp_remote::api | ✓ |
@@ -123,9 +124,9 @@
 | `vector_trigger_idle_compaction` | vectorstore | ✓ |
 | `vector_upsert_chunks` | vectorstore | ✓ |
 
-## 死命令审计（声明未注册，1）
+## 死命令审计（声明未注册，0）
 
-- `set_proxy_env` — src-tauri/src/lib.rs
+（无）
 
 ## 再生成
 

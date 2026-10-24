@@ -51,6 +51,11 @@ const handlerMatch = libRs.match(/generate_handler!\[([\s\S]*?)\]\s*\)/)
 if (!handlerMatch) throw new Error("generate_handler! block not found in lib.rs")
 const registered = new Map() // name -> module
 for (const line of handlerMatch[1].split("\n")) {
+  const bare = line.trim().match(/^(\w+),?$/)
+  if (bare && bare[1] !== "generate_handler") {
+    registered.set(bare[1], "lib")
+    continue
+  }
   const m = line.trim().match(/^([\w:]+)::(\w+),?$/)
   if (!m) continue
   const mod = m[1].replace(/^commands::/, "")
@@ -81,13 +86,13 @@ for (const d of cmdFiles) walk(join(root, d), rsFiles)
 // Repo-relative forward-slash path: join() emits backslashes on Windows, and the
 // raw absolute path leaks the local machine layout into the committed doc (M0 CI fix).
 const rel = (p) => relative(root, p).replaceAll("\\", "/")
-const attrRe = /#\[tauri::command\s*\(?([^)\]]*)\)?\]\s*(?:pub\s+)?(?:async\s+)?fn\s+(\w+)/g
+const attrRe = /#\[tauri::command(?:\s*\(([^\]]*)\))?\]\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)/g
 const dead = []
 for (const f of rsFiles) {
   const src = readFileSync(f, "utf8")
   let m
   while ((m = attrRe.exec(src)) !== null) {
-    if (m[1].includes("rename_all")) continue // 属性内不含 rename_all 时正常
+    if ((m[1] ?? "").includes("rename_all")) continue // 属性内不含 rename_all 时正常
     const name = m[2]
     if (src.slice(m.index - 400, m.index).includes("cfg(test)") || src.slice(m.index - 200, m.index).includes("#[cfg(test)]")) continue
     if (declared.has(name)) continue

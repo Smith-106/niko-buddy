@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { WebhookSection } from "./webhook-section"
+import { VectorHealthCard } from "./vector-health-card"
 import { useWikiStore } from "@/stores/wiki-store"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { runDuplicateDetection } from "@/lib/dedup-runner"
@@ -260,6 +261,9 @@ export function MaintenanceSection() {
 
       {/* 65 号 G2: Webhook 守护配置（形态轴 F6 消费侧） */}
       <WebhookSection />
+
+      {/* 控制面第一波：向量库健康度与手动运维（count/reconcile/compaction/dropLegacy） */}
+      <VectorHealthCard />
 
       <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-4">
         <div className="flex items-center gap-2">

@@ -22,6 +22,13 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve, reject }
 }
 
+const doctorExtrasMock = vi.hoisted(() => ({
+  collect: vi.fn(),
+  rebuild: vi.fn(),
+  reconcile: vi.fn(),
+  compact: vi.fn(),
+}))
+
 const mocks = vi.hoisted(() => {
   const state: Record<string, unknown> = {}
   return {
@@ -197,6 +204,13 @@ vi.mock("@/lib/dashboard-issue-actions", () => ({
   restoreDashboardRewriteInMarkdown: mocks.restoreDashboardRewriteInMarkdown,
 }))
 
+vi.mock("@/lib/doctor-extras", () => ({
+  collectDoctorExtras: doctorExtrasMock.collect,
+  safeRebuildFtsIndex: doctorExtrasMock.rebuild,
+  safeRunVectorReconcile: doctorExtrasMock.reconcile,
+  safeTriggerVectorCompaction: doctorExtrasMock.compact,
+}))
+
 vi.mock("./debt-board-view", () => ({
   DebtBoardView: (props: { chaseDebts: unknown[]; chaseDebtEvents: unknown[]; currentChapter: number; debtReport: unknown; emotionDebts: unknown[] }) => (
     <div data-testid="debt-board-view" data-chase={String(props.chaseDebts.length)} data-chapter={String(props.currentChapter)} data-emotion={String(props.emotionDebts.length)} />
@@ -334,6 +348,19 @@ function runReview() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  doctorExtrasMock.collect.mockResolvedValue({
+    canonDualWriteEnabled: false,
+    ftsIndexReady: false,
+    budgetTasks: [],
+    budgetCompleted: [],
+    volumeArc: null,
+    fanficMergePending: null,
+    translationDraftCount: 0,
+    playGraphErrors: 0,
+  })
+  doctorExtrasMock.rebuild.mockResolvedValue({ indexed: 0, errors: [] })
+  doctorExtrasMock.reconcile.mockResolvedValue({ ok: true, detail: "mock" })
+  doctorExtrasMock.compact.mockResolvedValue({ ok: true, detail: "mock" })
   mocks.state.project = { path: "E:/Novel" }
   mocks.state.dataVersion = 0
   mocks.state.reviewRun = null
@@ -1191,12 +1218,13 @@ describe("DashboardView — f4 终局：取消竞态 / 非 Error 异常 / 边界
     )
     mocks.searchWiki.mockResolvedValue([{ path: "E:/Novel/wiki/c.md", title: "第3章" }])
     render(<DashboardView />)
-    // G2 波 DoctorPanel 挂载诊断读 status.json（mount 副作用），清零后仅断言点击链不读候选
-    mocks.readFile.mockClear()
+    // DoctorPanel 采集器已 mock（挂载零读盘）：等卡片稳定后再清零，仅断言点击链不选中文件
     const [card] = await screen.findAllByText("单章项")
+    mocks.readFile.mockClear()
+    ;(mocks.state.setSelectedFile as ReturnType<typeof vi.fn>).mockClear()
     fireEvent.click(card.closest("[data-dash-card]") as HTMLElement)
-    await waitFor(() => expect(mocks.state.setSelectedFile).not.toHaveBeenCalled())
-    expect(mocks.readFile).not.toHaveBeenCalled()
+    await act(async () => {})
+    expect(mocks.state.setSelectedFile).not.toHaveBeenCalled()
   })
 
   it("targetPath 尾斜杠 → stem 为空 → 跳过 stem 搜索（if (stem) 假分支）", async () => {

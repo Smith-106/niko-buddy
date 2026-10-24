@@ -5,6 +5,12 @@ import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
 import { runProjectDoctor } from "@/lib/novel"
 import type { DoctorReport } from "@/lib/novel"
+import {
+  collectDoctorExtras,
+  safeRebuildFtsIndex,
+  safeRunVectorReconcile,
+  safeTriggerVectorCompaction,
+} from "@/lib/doctor-extras"
 import { toErrorMessage } from "@/lib/utils"
 
 /**
@@ -52,18 +58,16 @@ export function DoctorPanel() {
   const [report, setReport] = useState<DoctorReport | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [healing, setHealing] = useState<string | null>(null)
+  const [healNote, setHealNote] = useState<string | null>(null)
 
   const run = useCallback(async () => {
     if (!projectPath) return
     setRunning(true)
     setError(null)
     try {
-      const r = await runProjectDoctor(projectPath, {
-        canonDualWriteEnabled: false,
-        ftsIndexReady: false,
-        budgetTasks: [],
-        budgetCompleted: [],
-      })
+      const extras = await collectDoctorExtras(projectPath)
+      const r = await runProjectDoctor(projectPath, extras)
       setReport(r)
     } catch (err) {
       setError(`${t("novel.doctor.failed")}：${toErrorMessage(err)}`)
@@ -71,6 +75,33 @@ export function DoctorPanel() {
       setRunning(false)
     }
   }, [projectPath, t])
+
+  const heal = useCallback(
+    async (kind: "fts" | "compaction" | "reconcile") => {
+      if (!projectPath || healing) return
+      setHealing(kind)
+      setHealNote(null)
+      try {
+        if (kind === "fts") {
+          const r = await safeRebuildFtsIndex(projectPath)
+          setHealNote(`FTS重建 indexed=${r.indexed} errors=${r.errors.length}`)
+        } else if (kind === "compaction") {
+          const r = await safeTriggerVectorCompaction(projectPath)
+          setHealNote(`向量压缩 ok=${r.ok} ${r.detail}`)
+        } else {
+          const r = await safeRunVectorReconcile(projectPath)
+          setHealNote(`向量对账 ok=${r.ok} ${r.detail}`)
+        }
+        const extras = await collectDoctorExtras(projectPath)
+        setReport(await runProjectDoctor(projectPath, extras))
+      } catch (err) {
+        setHealNote(toErrorMessage(err))
+      } finally {
+        setHealing(null)
+      }
+    },
+    [projectPath, healing],
+  )
 
   // 项目打开/切换后自动跑一次（只读诊断，无副作用）；无项目时渲染空态提示
   useEffect(() => {
@@ -108,6 +139,20 @@ export function DoctorPanel() {
         ) : (
           <p className="text-sm text-muted-foreground">{projectPath ? t("novel.doctor.empty") : t("novel.doctor.noProject")}</p>
         )}
+        {projectPath ? (
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button size="sm" variant="outline" disabled={!projectPath || healing !== null} onClick={() => void heal("fts")}>
+              {healing === "fts" ? "重建中…" : "一键重建FTS索引"}
+            </Button>
+            <Button size="sm" variant="outline" disabled={!projectPath || healing !== null} onClick={() => void heal("compaction")}>
+              {healing === "compaction" ? "压缩中…" : "向量压缩"}
+            </Button>
+            <Button size="sm" variant="outline" disabled={!projectPath || healing !== null} onClick={() => void heal("reconcile")}>
+              {healing === "reconcile" ? "对账中…" : "向量对账"}
+            </Button>
+          </div>
+        ) : null}
+        {healNote ? <p className="text-xs text-muted-foreground">{healNote}</p> : null}
       </div>
     </div>
   )
