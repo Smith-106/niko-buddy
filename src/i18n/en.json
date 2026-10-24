@@ -1471,6 +1471,9 @@
         "emptyValue": "(empty)",
         "endpointPreviewWillUse": "Will use",
         "endpointPreviewAutoApply": "(auto-applies on blur)",
+        "cliStrip": {
+          "title": "Local CLI probes"
+        },
         "cliStatus": {
           "title": "CLI Status",
           "checking": "Checking…",
@@ -3119,7 +3122,9 @@
       "failed": "Diagnostics failed",
       "empty": "Run diagnostics automatically after opening a project",
       "noProject": "No project open",
-      "refresh": "Re-run diagnostics"
+      "refresh": "Re-run diagnostics",
+      "capabilityReplay": "Capability replay",
+      "capabilityReplayEmpty": "No capability planning records yet"
     },
     "outlineImport": {
       "documentFilter": "Documents",

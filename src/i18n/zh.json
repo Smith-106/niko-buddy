@@ -865,6 +865,9 @@
         "emptyValue": "未填写",
         "endpointPreviewWillUse": "将使用",
         "endpointPreviewAutoApply": "，失焦后自动应用",
+        "cliStrip": {
+          "title": "本地 CLI 探针"
+        },
         "cliStatus": {
           "title": "CLI 状态",
           "checking": "检查中...",
@@ -2738,7 +2741,9 @@
       "failed": "诊断失败",
       "empty": "打开项目后自动运行整链诊断",
       "noProject": "未打开项目",
-      "refresh": "重新诊断"
+      "refresh": "重新诊断",
+      "capabilityReplay": "能力回放",
+      "capabilityReplayEmpty": "暂无能力规划记录"
     },
     "outlineImport": {
       "documentFilter": "文档",
