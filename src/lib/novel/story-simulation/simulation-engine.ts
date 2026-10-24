@@ -675,6 +675,40 @@ function formatActionDescription(action: AgentAction, agentName: string): string
   }
 }
 
+// ── 内部辅助：按认知边界过滤全局 recentEventDescs ──
+//
+// recentEventDescs 三类来源混排：resume 预载 `[已保存] 名：原文`、随机 `[系统事件] 原文`、
+// 实时决策 `formatActionDescription` 输出。过滤规则：
+// - 系统事件（全体可见）：保留；
+// - 能在 state.timelineEvents 按 actorName+content 回查到的：按 event.observableBy 判定；
+// - 回查不到的（如 resume 预载跨轮残留）：保守丢弃（visibleEvents 黑板已覆盖可见部分）。
+function filterRecentDescsForAgent(
+  descs: string[],
+  state: SimulationState,
+  visibleEventIds: Set<string>,
+  agentId: string,
+): string[] {
+  return descs.filter((desc) => {
+    if (desc.startsWith("[系统事件]")) return true
+    const match = state.timelineEvents.find(
+      (ev) =>
+        (visibleEventIds.has(ev.id) || ev.observableBy.includes(agentId)) &&
+        desc.includes(ev.actorName) &&
+        ev.content.length > 0 &&
+        desc.includes(ev.content.slice(0, 24)),
+    )
+    // 回查命中且可见 → 保留；命中但不可见 → 丢弃；回查不到 → 保守丢弃。
+    if (match) return visibleEventIds.has(match.id) || match.observableBy.includes(agentId)
+    const fallbackVisible = state.timelineEvents.some(
+      (ev) =>
+        (visibleEventIds.has(ev.id) || ev.observableBy.includes(agentId)) &&
+        ev.content.length > 0 &&
+        desc.includes(ev.content.slice(0, 24)),
+    )
+    return fallbackVisible
+  })
+}
+
 // ── 内部辅助：检查节点是否达成目标（简单启发式） ──
 
 const RANDOM_EVENTS = [
@@ -911,14 +945,19 @@ async function agentDecideAndAct(
   const visibleEvents = getBlackboardVisibleEvents(blackboard, agent.characterId, 10)
   const visibleRumors = getBlackboardVisibleRumors(blackboard, agent.characterId, 5)
 
-  // 2. 构建上下文（基于认知边界）
+  // 2. 构建上下文（基于认知边界）：recentEventDescs 是全局数组（resume 预载/随机事件/实时决策
+  // 三类来源混排），必须按黑板可见性过滤，严禁把其他角色 visibility === "self" 或非本人的
+  // "target_only" 事件原文泄进当前 Prompt。
+  const visibleEventIds = new Set(visibleEvents.map((e) => e.id))
+  const filteredRecentDescs = filterRecentDescsForAgent(recentEventDescs, state, visibleEventIds, agent.characterId)
   const context = buildAgentContext(
     agent,
     node,
-    recentEventDescs.slice(-8),
+    filteredRecentDescs.slice(-8),
     extraction.worldRules,
     visibleEvents,
     visibleRumors,
+    new Map(Array.from(state.activeAgents.values()).map((a) => [a.characterId, a.name])),
   )
 
   // 3. 构建 LLM 消息
@@ -1054,13 +1093,16 @@ export async function agentDecideAndActWithReact(
   const visibleEvents = getBlackboardVisibleEvents(blackboard, agent.characterId, 10)
   const visibleRumors = getBlackboardVisibleRumors(blackboard, agent.characterId, 5)
 
+  const visibleEventIds = new Set(visibleEvents.map((e) => e.id))
+  const filteredRecentDescs = filterRecentDescsForAgent(recentEventDescs, state, visibleEventIds, agent.characterId)
   const context = buildAgentContext(
     agent,
     node,
-    recentEventDescs.slice(-8),
+    filteredRecentDescs.slice(-8),
     extraction.worldRules,
     visibleEvents,
     visibleRumors,
+    new Map(Array.from(state.activeAgents.values()).map((a) => [a.characterId, a.name])),
   )
 
   const userMessageParts: string[] = [context]
@@ -1632,13 +1674,16 @@ async function triggerReaction(
 
   const reactionNote = `\n\n【刚才发生的事情】\n${actor.name}刚刚对你做出了行为：[${triggerEvent.actionType}] ${triggerEvent.content}\n请你立即对此做出反应（react类型行为）。`
 
+  const targetVisibleIds = new Set(visibleEvents.map((e) => e.id))
+  const filteredForTarget = filterRecentDescsForAgent(recentEventDescs, state, targetVisibleIds, targetAgent.characterId)
   const baseContext = buildAgentContext(
     targetAgent,
     node,
-    recentEventDescs.slice(-8),
+    filteredForTarget.slice(-8),
     extraction.worldRules,
     visibleEvents,
     visibleRumors,
+    new Map(Array.from(state.activeAgents.values()).map((a) => [a.characterId, a.name])),
   )
 
   const context = baseContext + reactionNote

@@ -238,6 +238,7 @@ export function buildAgentContext(
   worldRules: string,
   visibleTimelineEvents?: TimelineEvent[],
   visibleRumors?: RumorEvent[],
+  agentNameById?: ReadonlyMap<string, string>,
 ): string {
   const sections: string[] = []
 
@@ -312,8 +313,12 @@ export function buildAgentContext(
     sections.push("【你对其他角色的情感】")
     for (const [otherId, value] of agent.memory.sentiments.entries()) {
       if (otherId === agent.characterId) continue
-      // 尝试找到角色名
-      sections.push(`对角色[${otherId}]：好感度 ${value}`)
+      const otherName = agentNameById?.get(otherId)
+      sections.push(
+        otherName && otherName !== otherId
+          ? `对角色[${otherName}]（${otherId}）：好感度 ${value}`
+          : `对角色[${otherId}]：好感度 ${value}`,
+      )
     }
   }
 

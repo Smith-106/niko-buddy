@@ -391,7 +391,7 @@ describe("IconSidebar", () => {
     expect(html.indexOf("novel.nav.groupSi")).toBeLessThan(html.indexOf("novel.nav.groupShen"))
     expect(html.indexOf("novel.nav.groupShen")).toBeLessThan(html.indexOf("novel.nav.groupMaint"))
     // 分层收纳：primary 首刷即见，secondary 需展开 More 后可达。
-    const primaryViews = ["workbench", "wiki", "director", "sources", "graph", "soul", "bookAnalysis", "canonEditor", "reviewCenter", "followUpCenter", "mainControl", "creativeHub", "bookshelf", "backupExport"]
+    const primaryViews = ["workbench", "wiki", "director", "storySimulation", "sources", "graph", "soul", "bookAnalysis", "canonEditor", "reviewCenter", "followUpCenter", "mainControl", "creativeHub", "bookshelf", "backupExport"]
     for (const v of primaryViews) {
       expect(document.querySelector(`[data-view="${v}"]`), v).toBeTruthy()
     }
@@ -417,7 +417,7 @@ describe("IconSidebar", () => {
     expect(document.querySelector('[data-nav-group="ma"] [data-view="exportCenter"]')).toBeNull()
     expect(document.querySelector('[data-nav-group="maint"] [data-view="exportCenter"]')).toBeTruthy()
     expect(document.querySelector('[data-nav-group="ma"] button[aria-expanded]')?.textContent).toContain("4")
-    expect(document.querySelector('[data-nav-group="si"] button[aria-expanded]')?.textContent).toContain("6")
+    expect(document.querySelector('[data-nav-group="si"] button[aria-expanded]')?.textContent).toContain("7")
   })
 
   it("首刷构思组默认收起：点开展开再收起（含 localStorage 持久化）", () => {

@@ -9,6 +9,7 @@ import type {
   StoryDraft,
   StoryFramework,
   StoryNode,
+  TimelineEvent,
 } from "@/lib/novel/story-simulation/types"
 
 // ── 对外接口 ──
@@ -22,6 +23,8 @@ export interface DraftGenerationOptions {
   projectPath?: string
   /** 写作配置 */
   novelConfig?: import("@/stores/wiki-store").NovelConfig
+  /** 当前节点的真实推演事件序列（一手台词/动作/内心动机，诚实来源优先 timelineEvents） */
+  nodeTimelineEvents?: TimelineEvent[]
   /** 是否启用核心深章引擎（默认 true，若无 projectPath 则自动回退轻量流） */
   useDeepChapterEngine?: boolean
   onProgress?: (label: string) => void
@@ -73,6 +76,7 @@ function buildChapterPrompt(
   chapterIndex: number,
   totalChapters: number,
   targetWords: number,
+  nodeTimelineEvents?: TimelineEvent[],
 ): string {
   const lines: string[] = []
   lines.push(`当前是第 ${chapterIndex + 1} / ${totalChapters} 章，对应故事框架中的「${node.title}」节点。`)
@@ -110,9 +114,19 @@ function buildChapterPrompt(
       }
     }
   }
+  // 一手推演事件序列：角色名 + 动作类型 + 原话/行为内容 + 内心动机，优先于概括复述。
+  const nodeEvents = (nodeTimelineEvents ?? []).filter((e) => e.nodeIndex === node.index)
+  if (nodeEvents.length > 0) {
+    lines.push("")
+    lines.push("【本节点一手推演事件序列（优先采用原话与动作交锋）】")
+    for (const e of nodeEvents) {
+      const target = e.targetName ? ` → ${e.targetName}` : ""
+      lines.push(`- 第${e.round + 1}轮 ${e.actorName}${target} [${e.actionType}]：${e.content}`)
+    }
+  }
   lines.push("")
   lines.push("【写作要求】")
-  lines.push("1. 请根据以上框架节点、走向分支和角色行为分析，撰写本章正文。")
+  lines.push("1. 请根据以上框架节点、走向分支、角色行为分析及一手推演事件序列，撰写本章正文；台词与关键动作优先保留推演原话与交锋顺序。")
   lines.push(`2. 本章目标字数约 ${targetWords} 字。`)
   lines.push("3. 只输出正文内容，不要输出章节标题，也不要输出任何说明、标注或元信息。")
   lines.push("4. 保持叙事连贯，自然承接上一章。")
@@ -153,6 +167,7 @@ export async function generateStoryDraft(options: DraftGenerationOptions): Promi
       i,
       nodeCount,
       perChapterTarget,
+      options.nodeTimelineEvents,
     )
 
     let trimmed = ""

@@ -766,6 +766,7 @@ export function StorySimulationView() {
         report: currentReport,
         selectedBranch: branch,
         llmConfig,
+        nodeTimelineEvents: timelineEvents,
         onProgress: (label) => setProgress(phaseBaseProgressRef.current, label),
         signal: ac.signal,
       });

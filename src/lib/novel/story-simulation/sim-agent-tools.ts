@@ -19,7 +19,7 @@ function formatEventsText(events: TimelineEvent[]): string {
   return events.map((e) => `- ${formatTimelineEvent(e)}`).join("\n")
 }
 
-function buildIntrospectText(agent: NovelAgent): string {
+function buildIntrospectText(agent: NovelAgent, blackboard?: SimulationBlackboard): string {
   const lines: string[] = []
 
   lines.push("【内心审视】")
@@ -38,7 +38,12 @@ function buildIntrospectText(agent: NovelAgent): string {
     lines.push("【对他人的情感】")
     for (const [otherId, value] of agent.memory.sentiments.entries()) {
       if (otherId === agent.characterId) continue
-      lines.push(`- 角色[${otherId}]：好感度 ${value}`)
+      const otherName = blackboard?.allAgents.get(otherId)?.name
+      lines.push(
+        otherName && otherName !== otherId
+          ? `- 角色[${otherName}]（${otherId}）：好感度 ${value}`
+          : `- 角色[${otherId}]：好感度 ${value}`,
+      )
     }
   }
 
@@ -177,7 +182,7 @@ export function createSimAgentTools(
     category: "read",
     parameters: {},
     execute: async () => {
-      return buildIntrospectText(agent)
+      return buildIntrospectText(agent, blackboard)
     },
   }
 

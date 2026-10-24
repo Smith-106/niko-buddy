@@ -77,6 +77,7 @@ export const NAV_ITEMS: NavItem[] = [
   { view: "genreLibrary", icon: Shapes, labelKey: "novel.nav.genreLibrary", group: "si", tier: "secondary" },
   { view: "storyModeLibrary", icon: Layers, labelKey: "novel.nav.storyModeLibrary", group: "si", tier: "secondary" },
   { view: "director", icon: Clapperboard, labelKey: "novel.nav.director", group: "si", tier: "primary" },
+  { view: "storySimulation", icon: Play, labelKey: "novel.nav.storySimulation", group: "si", tier: "primary" },
   { view: "bookAnalysis", icon: BookOpen, labelKey: "novel.nav.dismantling", group: "si", tier: "primary" },
   { view: "sources", icon: FolderOpen, labelKey: "novel.nav.sources", group: "shen", tier: "primary" },
   { view: "graph", icon: Network, labelKey: "novel.nav.graph", group: "shen", tier: "primary" },
@@ -89,7 +90,7 @@ export const NAV_ITEMS: NavItem[] = [
   { view: "titleStudio", icon: PenTool, labelKey: "novel.nav.titleStudio", group: "maint", tier: "primary" },
   { view: "styleEngine", icon: SlidersHorizontal, labelKey: "novel.nav.styleEngine", group: "maint", tier: "secondary" },
   { view: "antiAiRules", icon: ShieldCheck, labelKey: "novel.nav.antiAiRules", group: "maint", tier: "secondary" },
-  { view: "storySimulation", icon: Play, labelKey: "novel.nav.storySimulation", group: "maint", tier: "secondary" },
+ 
   { view: "workflowEditor", icon: Workflow, labelKey: "novel.nav.workflowEditor", group: "maint", tier: "secondary" },
   { view: "marketRadar", icon: Radar, labelKey: "novel.nav.marketRadar", group: "maint", tier: "secondary" },
   { view: "backupExport", icon: ArchiveRestore, labelKey: "novel.nav.backupExport", group: "maint", tier: "primary" },
