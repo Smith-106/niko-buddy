@@ -30,6 +30,7 @@ import {
 } from "@/lib/novel"
 import { useActivityStore, type ActivityItem } from "@/stores/activity-store"
 import { toErrorMessage } from "@/lib/utils"
+import { PipelineMotionPanel } from "./pipeline-motion-panel"
 
 export interface LiveExecutionViewProps {
   /** 项目磁盘路径（content-area 传 project.path，不是 UUID；UUID 读不到账本）。 */
@@ -149,6 +150,8 @@ export function LiveExecutionView({
       title="AI 实况"
       description="只读显示运行中的活动、最近事件和轨迹。没有这些记录时保持空态，不编造运行状态。"
     >
+      {/* 管線動態拓撲（只讀投影，零事件時顯示空態） */}
+      <PipelineMotionPanel input={{ events: loadedEvents, traceEntries: loadedEntries }} />
       {loadError ? (
         <ReportCallout testId="live-load-error" tone="error">
           实况装载失败（保留上次数据）：{loadError}

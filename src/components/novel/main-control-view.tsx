@@ -20,6 +20,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { DEFAULT_AI_WORKFLOW_MODE } from "@/lib/agent/workflow-mode"
 import { cn, toErrorMessage } from "@/lib/utils"
 import { ChapterDirectory } from "./chapter-directory"
+import { PipelineMotionView } from "./pipeline-motion-view"
 import { ForeshadowingPanel } from "./foreshadowing-panel"
 import { WorkHeatmapPanel } from "./work-heatmap-panel"
 
@@ -59,6 +60,8 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const [cancelledAt, setCancelledAt] = useState<number | null>(null)
   // 页内分层（IA：跑流程 / 收草稿 / 本章上下文分开，不再上下堆一屏；只切换展示，不碰执行语义）。
   const [tab, setTab] = useState<"run" | "drafts" | "context">("run")
+  // 管線動態可折叠：默認收起不擠占跑流程主操作區，需要時展開看實況拓撲。
+  const [motionOpen, setMotionOpen] = useState(false)
   // 运行起点（已运行秒数展示用；10s 心跳 tick 驱动重渲染，无假进度条）。
   const [runStartAt, setRunStartAt] = useState<number | null>(null)
   // 心跳 tick：运行时每 10 秒重渲染一次，用于卡住/超时提示（不碰主链计时）。
@@ -329,6 +332,26 @@ export function MainControlView(_props: MainControlViewProps = {}) {
             ))}
           </ul>
         )}
+      </div>
+      )}
+
+      {tab === "run" && (
+      <div className="rounded-lg border p-2" data-testid="main-control-motion">
+        <button
+          type="button"
+          onClick={() => setMotionOpen((v) => !v)}
+          data-testid="main-control-motion-toggle"
+          aria-expanded={motionOpen}
+          className="flex w-full items-center gap-2 text-left text-xs font-semibold"
+        >
+          <span>{motionOpen ? "▾" : "▸"}</span>
+          {t("mainControl.motionTitle", "管線動態（實況拓撲）")}
+        </button>
+        {motionOpen && projectPath ? (
+          <div className="mt-2">
+            <PipelineMotionView projectPath={projectPath} />
+          </div>
+        ) : null}
       </div>
       )}
 

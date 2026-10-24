@@ -95,6 +95,9 @@ describe("LiveExecutionView", () => {
     expect(screen.getByTestId("live-trace").textContent).toContain("boom")
     expect(screen.queryByTestId("live-view-loading")).toBeNull()
     expect(screen.queryByTestId("live-empty")).toBeNull()
+    // 頂部掛載管線動態拓撲（注入賬本 → 渲染圖）。
+    expect(screen.getByTestId("pipeline-motion-panel")).toBeTruthy()
+    expect(screen.getByTestId("motion-diagram")).toBeTruthy()
   })
 
   it("三路全空时为诚实空态（不编造运行状态）", () => {

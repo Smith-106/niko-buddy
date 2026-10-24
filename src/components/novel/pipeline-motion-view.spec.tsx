@@ -43,6 +43,10 @@ describe("PipelineMotionView", () => {
     )
     expect(screen.getByTestId("motion-diagram")).toBeTruthy()
     expect(screen.getByTestId("motion-node-draft").getAttribute("data-state")).toBe("current")
+    // 大屏穿透：KPI 矩陣 + 回放開關 + CLI 膠囊條隨視圖一併掛載。
+    expect(screen.getByTestId("motion-kpis")).toBeTruthy()
+    expect(screen.getByTestId("motion-replay-toggle")).toBeTruthy()
+    expect(screen.getByTestId("motion-status").textContent).toContain("niko-buddy pipeline --live")
     expect(screen.queryByTestId("motion-view-loading")).toBeNull()
   })
 
