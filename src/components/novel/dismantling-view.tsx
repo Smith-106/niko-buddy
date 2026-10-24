@@ -223,8 +223,16 @@ export function DismantlingView() {
                   <div>
                     <div className="text-xs font-medium text-muted-foreground">{t("novel.dismantle.workDetail")}</div>
                     <h2 className="mt-1 text-base font-semibold">{selectedProject.title}</h2>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      已自动识别章节结构：{selectedProject.chapters.length} 章 · {selectedProject.structureMemory.length} 条结构记忆
+                    <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                      <span data-testid="dismantle-counts">已自动识别章节结构：{Array.isArray(selectedProject.chapters) ? selectedProject.chapters.length : 0} 章 · {Array.isArray(selectedProject.structureMemory) ? selectedProject.structureMemory.length : 0} 条结构记忆</span>
+                      <span data-testid="dismantle-progress" className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5" aria-label="拆文进度">
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+                        {Array.isArray(selectedProject.chapters) ? selectedProject.chapters.filter((c) => c.status === "done").length : 0}已拆
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-sky-500" aria-hidden="true" />
+                        {Array.isArray(selectedProject.chapters) ? selectedProject.chapters.filter((c) => c.status === "running").length : 0}进行中
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-rose-500" aria-hidden="true" />
+                        {Array.isArray(selectedProject.chapters) ? selectedProject.chapters.filter((c) => c.status === "failed").length : 0}失败
+                      </span>
                     </p>
                   </div>
                 </div>
@@ -278,7 +286,7 @@ export function DismantlingView() {
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="flex gap-1">
-                        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSelectedChapterIds(selectedProject.chapters.map((chapter) => chapter.id))}>全选</Button>
+                        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSelectedChapterIds((Array.isArray(selectedProject.chapters) ? selectedProject.chapters : []).map((chapter) => chapter.id))}>全选</Button>
                         <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSelectedChapterIds([])}>清空</Button>
                       </div>
                       <label className="flex items-center gap-1.5 text-xs">
@@ -286,7 +294,7 @@ export function DismantlingView() {
                         <select
                           value={batchSize}
                           onChange={(event) => setBatchSize(Number(event.target.value))}
-                          className="rounded border bg-background px-1.5 py-0.5 text-xs"
+                          className="rounded border bg-background px-1.5 py-0.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           {[1, 3, 5, 10].map((size) => <option key={size} value={size}>{size}章</option>)}
                         </select>
@@ -294,15 +302,16 @@ export function DismantlingView() {
                     </div>
                   </div>
                   <div className="divide-y max-h-[calc(100vh-420px)] min-h-[120px] overflow-y-auto">
-                    {selectedProject.chapters.map((chapter) => (
+                    {(Array.isArray(selectedProject.chapters) ? selectedProject.chapters : []).map((chapter) => (
                       <label key={chapter.id} className="flex cursor-pointer items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted/40">
                         <input
                           type="checkbox"
                           checked={selectedChapterIds.includes(chapter.id)}
                           onChange={(event) => toggleChapter(chapter.id, event.target.checked)}
+                          className="h-4 w-4 shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         />
                         <span className="w-14 shrink-0 text-muted-foreground">第{chapter.chapterNumber}章</span>
-                        <span className="min-w-0 flex-1 truncate">{chapter.title}</span>
+                        <span className="min-w-0 flex-1 truncate" title={chapter.title}>{chapter.title}</span>
                         <StatusBadge status={chapter.status} />
                       </label>
                     ))}
@@ -331,12 +340,14 @@ export function DismantlingView() {
               </div>
 
               <section className="rounded-lg border bg-card p-3">
-                <div className="mb-2 text-sm font-medium">{t("novel.dismantle.structuralMemory")}</div>
-                {selectedProject.structureMemory.length === 0 ? (
+                <div className="mb-2 flex items-center gap-2 text-sm font-medium">{t("novel.dismantle.structuralMemory")}
+                  <span data-testid="dismantle-memory-count" className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">{Array.isArray(selectedProject.structureMemory) ? selectedProject.structureMemory.length : 0} 条</span>
+                </div>
+                {!Array.isArray(selectedProject.structureMemory) || selectedProject.structureMemory.length === 0 ? (
                   <div className="text-xs text-muted-foreground">{t("novel.dismantle.structuralHint")}</div>
                 ) : (
                   <ul className="space-y-1.5 text-xs leading-5">
-                    {selectedProject.structureMemory.slice(0, 30).map((item) => <li key={item}>- {item}</li>)}
+                    {(Array.isArray(selectedProject.structureMemory) ? selectedProject.structureMemory : []).slice(0, 30).map((item) => <li key={item} className="truncate" title={item}>- {item}</li>)}
                   </ul>
                 )}
               </section>
@@ -346,11 +357,11 @@ export function DismantlingView() {
                   <RefreshCw className="h-4 w-4" />
                   最近拆文结果
                 </div>
-                {selectedProject.analyses.length === 0 ? (
+                {(!Array.isArray(selectedProject.analyses) || selectedProject.analyses.length === 0) ? (
                   <div className="text-xs text-muted-foreground">{t("novel.dismantle.noResult")}</div>
                 ) : (
                   <div className="space-y-3">
-                    {selectedProject.analyses.slice(0, 5).map((analysis) => (
+                    {(Array.isArray(selectedProject.analyses) ? selectedProject.analyses : []).slice(0, 5).map((analysis) => (
                       <article key={analysis.id} className="rounded-lg border bg-background p-3">
                         <div className="mb-2 text-sm font-medium">{analysis.title}</div>
                         <div className="max-h-64 overflow-auto rounded-md border bg-background p-3">
@@ -375,7 +386,8 @@ export function DismantlingView() {
 
 function StatusBadge({ status }: { status: DismantlingChapter["status"] }) {
   const label = status === "done" ? "已拆" : status === "running" ? "拆文中" : status === "failed" ? "失败" : "待拆"
-  return <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">{label}</span>
+  const dot = status === "done" ? "bg-emerald-500" : status === "running" ? "bg-sky-500" : status === "failed" ? "bg-rose-500" : "bg-muted-foreground/40"
+  return <span className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs text-muted-foreground"><span className={`inline-block h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden="true" />{label}</span>
 }
 
 function mergeUnique(items: string[]): string[] {

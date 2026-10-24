@@ -625,6 +625,7 @@ describe("ChapterSelectionPanel", () => {
   })
 
   it("C7 onBasicDraftChange 接内存态：写入后落回 initialDrafts", () => {
+    localStorage.clear()
     const { container, cleanup } = mount({
       recognitionStatus: "done",
       recognizedCharacters: CHARS,
@@ -641,7 +642,10 @@ describe("ChapterSelectionPanel", () => {
     // 重新打开：initialDrafts 应携带之前写入的内存草稿（持久化后续批接）
     act(() => findButton(container, "进入角色工作台").click())
     expect(mocks.workstationProps).toMatchObject({ initialDrafts: { c1: "林烬专属草稿" } })
+    // R1-F1：写透 localStorage 真实数据源，可跨挂载恢复
+    expect(localStorage.getItem("niko-buddy.workstationDrafts.v1")).toContain("林烬专属草稿")
     cleanup()
+    localStorage.clear()
   })
 
   it("C7 弹窗原流程不受影响：工作台与角色选择弹窗可并存，点击还原既有流程", () => {

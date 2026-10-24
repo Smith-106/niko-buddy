@@ -258,7 +258,7 @@ export function CharacterStationSwitcher({
               }
               if (consumed) event.preventDefault()
             }}
-            className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+            className={`rounded-md px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
               selected
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground qm-hover"
@@ -305,6 +305,10 @@ function CharacterStation({
           <span className="text-xs text-muted-foreground">出场 {character.appearances}</span>
         )}
         <span className="text-xs text-muted-foreground">{categoryLabel(character)}工位待写</span>
+        <span data-testid={`station-draft-indicator-${character.id}`} className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs text-muted-foreground" aria-label="草稿指示器">
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${draftText.trim() ? "bg-emerald-500" : "bg-muted-foreground/40"}`} aria-hidden="true" />
+          {draftText.trim() ? `已保存 · ${draftText.trim().length}字` : "空草稿"}
+        </span>
       </header>
 
       {character.description && (

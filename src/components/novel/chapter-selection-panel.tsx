@@ -97,10 +97,24 @@ export function ChapterSelectionPanel({
   // 不再级联取消（cancelTask 会清识别态致入口消失）。setTimeout(0) 在派发完成后自动清理。
   const panelEscSuppressRef = useRef(false)
 
-  // C7 角色工作台：草稿先接内存态（按角色 id 隔离），持久化接口后续批接。
-  // TODO(持久化): 识别/提取落库后，将本模块草稿写入角色档案存储。
-  // 已知债务（2026-08-31 登记）：owner=角色工作台模块，目标版本 v2.8；不阻塞当前发版。
+  // C7 角色工作台：草稿按角色 id 隔离，写透 localStorage 真实数据源（R1-F1）。
+  // 获取时洗掉破坏 JSON，保持与内存态同步；钮为固定版本键，后续批次可按 project 拆分。
   const workstationDraftsRef = useRef<Record<string, string>>({})
+  const draftsRestoredRef = useRef(false)
+  if (!draftsRestoredRef.current) {
+    draftsRestoredRef.current = true
+    try {
+      const raw = typeof localStorage !== "undefined" ? localStorage.getItem("niko-buddy.workstationDrafts.v1") : null
+      if (raw) {
+        const parsed = JSON.parse(raw) as unknown
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          workstationDraftsRef.current = parsed as Record<string, string>
+        }
+      }
+    } catch {
+      workstationDraftsRef.current = {}
+    }
+  }
 
   // 同步 isAnalyzing 到父组件
   useEffect(() => {
@@ -214,11 +228,16 @@ export function ChapterSelectionPanel({
     appearances: c.appearances,
   }))
 
-  /** 工作台草稿变更：先写入内存（按 id 隔离），落库由后续批次接入。 */
+  /** 工作台草稿变更：内存（按 id 隔离）+ localStorage 写透，保持重开/重挂载可恢复。 */
   const handleWorkstationDraft = (id: string, draft: string) => {
     workstationDraftsRef.current[id] = draft
-    // TODO(持久化): 落库接口接入位置。
-    // 已知债务（2026-08-31 登记）：owner=角色工作台模块，目标版本 v2.8；不阻塞当前发版。
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem("niko-buddy.workstationDrafts.v1", JSON.stringify(workstationDraftsRef.current))
+      }
+    } catch {
+      /* 存储不可用时仅保留内存态，不阻断写作流程 */
+    }
   }
 
   return (

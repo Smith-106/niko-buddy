@@ -948,8 +948,11 @@ export async function runDeepChapterGeneration(
   if (stage45.manualHandoff) {
     callbacks.onFinalContent?.(stage45.currentContent)
     // DEBT-20260822-t34-wiring: run-end flush of pending status writes.
+    // R1-F2：flush 失败不再裸吞，记 warn 留痕（仍不阻断 run 返回）。
     if (statusMerger) {
-      await statusMerger.flush().catch(() => {})
+      await statusMerger.flush().catch((err: unknown) => {
+        logger.warn("deep-chapter", `status flush failed (manualHandoff): ${toErrorMessage(err)}`)
+      })
     }
     return {
       finalContent: stage45.currentContent,
@@ -1115,8 +1118,11 @@ export async function runDeepChapterGeneration(
   // never breaks the run return; no-op when the buffer is empty (:209).
   void flushContinuityMetrics()
   // DEBT-20260822-t34-wiring: run-end flush of pending status writes.
+  // R1-F2：同上，失败记 warn 留痕。
   if (statusMerger) {
-    await statusMerger.flush().catch(() => {})
+    await statusMerger.flush().catch((err: unknown) => {
+      logger.warn("deep-chapter", `status flush failed (run-end): ${toErrorMessage(err)}`)
+    })
   }
   return {
     finalContent: finalContentNorm,

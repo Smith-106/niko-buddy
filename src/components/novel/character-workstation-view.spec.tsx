@@ -13,7 +13,11 @@ import {
 setupDomGlobals()
 
 // vitest 未启用 globals，@testing-library/react 不会自动 afterEach cleanup，需显式清理。
-afterEach(() => cleanup())
+// R3-F3：并行跑时防 timer 串扰，强制回到真实时钟。
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 const characters: CharacterWorkstationItem[] = [
   { id: "char-linjing", name: "林烬", category: "主角", importanceScore: 95, appearances: 3, description: "旧城巡夜人。" },

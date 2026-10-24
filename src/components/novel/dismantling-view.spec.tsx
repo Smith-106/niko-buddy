@@ -138,6 +138,9 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  // R3-F3：并行跑时防 timer 串扰，强制回到真实时钟并还原桩。
+  vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 
 describe("DismantlingView", () => {
