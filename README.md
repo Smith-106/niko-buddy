@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.21.1-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.22.2-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -49,6 +49,15 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 ---
 <img width="1239" height="883" alt="image" src="https://github.com/user-attachments/assets/076740be-85ef-4503-842d-565c367aebdc" />
 <img width="1201" height="832" alt="image" src="https://github.com/user-attachments/assets/57936132-45b2-4fed-8c80-2c9282fedbf5" />
+
+## v2.22.2 修复（故事推演穿帮封堵与导航提权，prerelease）
+
+同日已有 v2.22.1 prerelease（tag 不可变，不移动），本版不进 Latest，安装包仍用 v2.22.0：
+
+- **穿帮封堵**：全局 recentEventDescs 按黑板 observableBy 过滤，三处决策调用点不再泄漏其他角色内心戏/私聊原文。
+- **好感度实名**：【你对其他角色的情感】显示真实姓名（对角色[姓名]（ID）：好感度 X）。
+- **原话直通草稿**：草稿生成注入【本节点一手推演事件序列】，台词与关键动作保留推演原话与交锋顺序。
+- **导航提权**：故事推演从设置组提至开书组（紧随导演之后），首刷即可见。
 
 ## v2.21.1 调整（中文界面与落盘收紧，prerelease）
 

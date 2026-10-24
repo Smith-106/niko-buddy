@@ -7,6 +7,16 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.22.2] - 2026-10-24
+
+### Fixed
+
+- 故事推演穿帮修复：全局 recentEventDescs 按黑板 observableBy 过滤，agentDecideAndAct、agentDecideAndActWithReact、triggerReaction 三处调用点不再把其他角色 visibility === "self"（conceal/evaluate/observe）或非本人 target_only 事件泄进当前 Prompt。
+- 好感度实名化：【你对其他角色的情感】显示真实姓名（对角色[姓名]（ID）：好感度 X），introspect 工具同步；查不到名时回退旧格式。
+- 推演原话直通草稿：buildChapterPrompt 支持注入【本节点一手推演事件序列】（轮次 + 角色名 + 动作类型 + 原话内容），台词与关键动作保留推演原话与交锋顺序；推演页透传 timelineEvents。
+- 导航提权：故事推演从 maint/secondary 提至 si/primary（紧随导演之后），总量 31 不变，主次分层 15/16 → 16/15。
+- 发布语义：prerelease。同日已有 v2.22.1 prerelease（tag 不可变，不移动），本版不进 Latest。
+
 ## [2.22.1] - 2026-10-24
 
 ### Added

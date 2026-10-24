@@ -15,6 +15,27 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // S-release-v222 授权发版（2026-10-24）：v2.22.2 prerelease。同日已有 v2.22.1 prerelease（tag 不可变），不进 Latest。
+    version: "2.22.2",
+    date: "2026-10-24",
+    highlights: {
+      en: [
+        "Fixed: story-simulation prompt leak — global recentEventDescs now filtered by blackboard observableBy at all three buildAgentContext call sites; other agents' self/target_only events never leak into the current prompt.",
+        "Fixed: affection display now resolves real character names (role[name](id): sentiment), introspect tool synced; falls back to legacy format when unresolvable.",
+        "Added: verbatim sim dialogue flows into drafts — buildChapterPrompt injects per-node live event sequence (round + name + action type + verbatim content); timeline events passed through from the simulation view.",
+        "Changed: story-simulation nav entry promoted from maint/secondary to si/primary (right after director); total stays 31, primary/secondary split 15/16 → 16/15.",
+        "Fixed: release semantics are prerelease. v2.22.1 prerelease shipped the same day (tag immutable, never moved); this version does not become Latest.",
+      ],
+      zh: [
+        "修复：故事推演穿帮——全局 recentEventDescs 按黑板 observableBy 过滤，三处 buildAgentContext 调用点不再泄漏其他角色 self/target_only 事件原文。",
+        "修复：好感度实名化——【你对其他角色的情感】显示真实姓名（对角色[姓名]（ID）：好感度 X），introspect 工具同步；查不到名回退旧格式。",
+        "新增：推演原话直通草稿——buildChapterPrompt 注入【本节点一手推演事件序列】（轮次 + 角色名 + 动作类型 + 原话），推演页透传 timelineEvents。",
+        "变更：故事推演导航提权——从 maint/secondary 提至 si/primary（紧随导演）；总量 31 不变，主次分层 15/16 → 16/15。",
+        "修复：发布语义为 prerelease。同日已有 v2.22.1 prerelease（tag 不可变，不移动），本版不进 Latest。",
+      ],
+    },
+  },
+  {
     // C 波授权发版（2026-10-24）：v2.22.1 prerelease。同日已有 v2.22.0 prerelease（tag 不可变），不进 Latest。
     version: "2.22.1",
     date: "2026-10-24",
