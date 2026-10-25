@@ -9,6 +9,7 @@ pub mod archive;
 pub mod commands;
 pub mod export;
 pub mod search;
+pub mod search_scoring;
 pub mod store;
 pub mod store_state;
 pub mod types;
