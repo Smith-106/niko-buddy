@@ -571,7 +571,7 @@ sequenceDiagram
 
 ### 环境要求
 
-- **操作系统**：Windows 10+ / macOS / Linux
+- **操作系统**：Windows 10+（当前正式发版平台）；macOS / Linux 规划中，是否正式发版以 Releases 实际资产为准
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
 
 ### 构建期 LLM 环境变量（可选）
@@ -777,3 +777,4 @@ npm run build:github-release
 - 🐛 [问题反馈](https://github.com/Smith-106/niko-buddy/issues)
 - 💬 [功能建议](https://github.com/Smith-106/niko-buddy/issues/new)
 - 📋 [版本发布说明（Release Notes）](https://github.com/Smith-106/niko-buddy/releases) —— 各版本功能变更与修复记录
+- 🗒️ [更新日志（CHANGELOG）](./CHANGELOG.md) —— 仓库内完整版本历史（Keep a Changelog），发布语义与版本锁定说明见文内注记
