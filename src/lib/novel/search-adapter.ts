@@ -24,9 +24,11 @@ import {
   withTimeout,
 } from "./retrieval-source-pipeline"
 // P1-IMP-14: 向量检索孪生（本文件 runVectorSearch / context-engine runVectorSearchForContext）
-// 公共核心抽到独立模块 —— 不挂本文件导出面，避免 context-engine.spec /
+// 公共核心抽到独立模块 —— 不挂本文件导出面，避免 context-engine.spec / 
 // context-pack-freeze.spec 的 vi.mock("./search-adapter") 整体替换后拿到 undefined。
 import { runVectorSearchShared } from "./vector-search-core"
+// ISS-20260709-039 去孪生：图检索孪生体（matched 单遍 + related 并行）唯一定义点。
+import { collectGraphScoredSnippets } from "./graph-search-shared"
 
 export interface NovelSearchParams {
   projectPath: string
@@ -356,60 +358,14 @@ async function runGraphSearch(
       }
     }
 
-    const seenIds = new Set<string>()
-    const scoredNodes: { title: string; path: string; snippet: string; relevance: number }[] = []
-
-    // PERF-004/PAT-G2 (odyssey-improve): SINGLE-PASS match collection — iterate
-    // graph.nodes once, matching against ALL candidate names, dedup by node id.
-    // Replaces the prior per-name full-graph rescan (was O(names × nodes)).
-    // This function is the same-shape sibling of context-engine.ts
-    // searchGraphRelevantContent and must mirror its PERF-004 optimization.
-    const matchedNodes: { id: string; title: string; path: string }[] = []
-    for (const [, node] of graph.nodes) {
-      if (
-        seenIds.has(node.id) === false &&
-        Array.from(candidateNames).some(
-          (name) => node.title.includes(name) || node.id.includes(name),
-        )
-      ) {
-        seenIds.add(node.id)
-        matchedNodes.push({ id: node.id, title: node.title, path: node.path })
-      }
-    }
-
-    // PERF-NEW-02/PAT-G2: collect all unseen related-node reads first (dedup
-    // against seenIds), then read them in parallel. The prior nested for...of
-    // awaited readFile serially (up to M×5 sequential IPC round-trips).
-    type PendingRead = { title: string; path: string; relevance: number }
-    const pendingReads: PendingRead[] = []
-    for (const matchedNode of matchedNodes) {
-      const related = getRelatedNodes(matchedNode.id, graph, 5)
-      for (const { node, relevance } of related) {
-        if (seenIds.has(node.id)) continue
-        seenIds.add(node.id)
-        pendingReads.push({ title: node.title, path: node.path, relevance })
-      }
-    }
-    const readResults = await Promise.all(
-      pendingReads.map(async (entry) => {
-        try {
-          const content = await readFile(entry.path)
-          return {
-            title: entry.title,
-            path: entry.path,
-            snippet: content.slice(0, 300).replace(/\n/g, " "),
-            relevance: Math.round(entry.relevance * 100) / 100,
-          }
-        } catch {
-          return null
-        }
-      }),
+    // ISS-20260709-039 去孪生：候选扩展保留本通道口径（split 小写包含；检索侧为
+    // tokenizeQuery + CORR-110 守卫——通道语义不同，刻意不收敛，见 graph-search-shared）。
+    // matched 单遍扫描 + related 并行片段已收敛到共享核心（行为等价）。
+    const scoredNodes = await collectGraphScoredSnippets(
+      graph,
+      Array.from(candidateNames),
+      { getRelatedNodes, readFile },
     )
-    for (const r of readResults) {
-      if (r) scoredNodes.push(r)
-    }
-
-    scoredNodes.sort((a, b) => b.relevance - a.relevance)
     return scoredNodes.slice(0, topK).map(n => ({
       type: "graph" as const,
       path: n.path,

@@ -71,6 +71,47 @@ import type {
 } from "./deep-chapter-generation"
 
 export const REPEAT_CHECK_MIN_CHARS = 600
+/**
+ * ISS-20260709-045 类型化 partial 状态（接 CORR-107 语义，不变语义只换承载）。
+ *
+ * 改前：`deep-chapter-generation.ts` 内三个散装闭包变量
+ * `partialReason: string | null`（首因保留）+ `clearPartial`（成功清除）+
+ * `draftStageHadPartial: boolean`（draft 阶段污染标记），经 `notePartial` /
+ * `onPartial` / `onCompleteClearPartial` 回调层层 threading。
+ * 改后：同一语义收拢为一个状态对象 + 四个纯函数；generation 层保留同名薄闭包
+ * （委托给本模块函数）供既有调用点（runSceneBreakdownStage/generateDraft/
+ * collectModelText 回调位）零改动消费。语义逐项等价：
+ * - first-wins：`notePartialState` 仅在 reason === null 时写入；
+ * - 成功清除：`clearPartialState` 置 null（collectModelText 完整成功经
+ *   onCompleteClearPartial 调用；编排层 draft 完整成功幂等补清）；
+ * - draft 污染标记：`noteDraftPartialState` 置 draftStageHadPartial = true。
+ */
+export interface PartialState {
+  /** 首个 partial 原因；null = 当前无 partial（完整成功后被清除）。 */
+  reason: string | null
+  /** draft 阶段是否出现过 partial（编排层成功点判定用）。 */
+  draftStageHadPartial: boolean
+}
+
+export function createPartialState(): PartialState {
+  return { reason: null, draftStageHadPartial: false }
+}
+
+/** 首因保留：已有 reason 时忽略后来者（CORR-107 first-wins）。 */
+export function notePartialState(state: PartialState, reason: string): void {
+  if (state.reason === null) state.reason = reason
+}
+
+/** 成功清除：完整成功 supersede 早期 partial（CORR-107 成功清除）。 */
+export function clearPartialState(state: PartialState): void {
+  state.reason = null
+}
+
+/** draft 阶段 partial：记首因 + 立 draft 污染标记。 */
+export function noteDraftPartialState(state: PartialState, reason: string): void {
+  state.draftStageHadPartial = true
+  notePartialState(state, reason)
+}
 export const REPEAT_WINDOW_CHARS = 120
 export const REPEAT_HIT_LIMIT = 3
 // F-4/F-12: throttle onUpdate so it does not pass the entire growing content /

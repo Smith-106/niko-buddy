@@ -62,4 +62,11 @@ describe("barrel retrieval 别名字面 import（F10-5 G6 行为证据）", () =
       expect(typeof fn).toBe("function")
     }
   })
+
+  // ISS-20260709-038 去孪生：非 Unified 实现已删，searchRelevantContent* 为 Unified 同一对象。
+  it("ISS-20260709-038: searchRelevantContent 已废弃别名（与 Unified 同一对象）", () => {
+    expect(searchRelevantContentFromRetrieval).toBe(searchRelevantContentUnifiedFromRetrieval)
+    expect(searchRelevantContentFromRetrieval).toBe(searchRelevantContentUnifiedSource)
+    expect(searchRelevantContentSource).toBe(searchRelevantContentUnifiedSource)
+  })
 })

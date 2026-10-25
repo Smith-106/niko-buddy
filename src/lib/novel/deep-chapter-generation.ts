@@ -705,6 +705,10 @@ import {
 import {
   USER_ABORT_MESSAGE,
   collectModelText,
+  createPartialState,
+  notePartialState,
+  clearPartialState,
+  noteDraftPartialState,
 } from "./deep-chapter-runtime-support"
 export {
   applyChapterContractCheck,
@@ -754,15 +758,17 @@ export async function runDeepChapterGeneration(
   // partial-preserve branch. The first partial reason wins; later stages
   // (expansion/polish) keep the flag set so the caller routes the result to the
   // pause / continue-unfinished path instead of completeDeepChapterSession.
-  let partialReason: string | null = null
+  // ISS-20260709-045: 散装闭包改类型化状态对象（CORR-107 语义不变：first-wins + 成功清除）。
+  // notePartial/clearPartial 保留同名薄闭包，供既有阶段调用点零改动消费。
+  const partialState = createPartialState()
   const notePartial = (reason: string) => {
-    if (partialReason === null) partialReason = reason
+    notePartialState(partialState, reason)
   }
   // CORR-107: a subsequent full successful generation supersedes an earlier
   // transport-inactivity partial — clear it so a recovered draft is not
   // falsely marked partial (which would route it to pause instead of complete).
   const clearPartial = () => {
-    partialReason = null
+    clearPartialState(partialState)
   }
   const resumeCheckpoint = input.resumeCheckpoint
   const baseWritingConfig = resolveWritingConfig(input.llmConfig)
@@ -885,10 +891,9 @@ export async function runDeepChapterGeneration(
   // 仅当整阶段零 partial 且草稿验证完整（非空、达 minChars、非 meta）时，才在编排层补清早期 scene 残留。
   // 降级/兜底（fallback taskBrief、空 polish 回退、repeat 截断、resume 短路复用旧草稿）不满足“完整”谓词，绝不 clear。
   // generateDraft 内部初稿/纠偏/扩写完整成功已 via onCompleteClearPartial 清除，此处为幂等补清（clear null 安全）。
-  let draftStageHadPartial = false
+  // ISS-20260709-045: draft 污染标记收拢进 partialState（单源；读位直读状态对象）。
   const draftNotePartial = (reason: string) => {
-    draftStageHadPartial = true
-    notePartial(reason)
+    noteDraftPartialState(partialState, reason)
   }
   const rawDraftContent = await generateDraft(
     input, writingConfig, deps, signal, callbacks,
@@ -897,7 +902,7 @@ export async function runDeepChapterGeneration(
   )
   assertNotAborted(signal, USER_ABORT_MESSAGE)
   // 编排层成功点：draft 阶段零 partial + 内容完整 ⇒ 清除早期 partial（真正完整成功；降级/兜底不调）。
-  if (!draftStageHadPartial) {
+  if (!partialState.draftStageHadPartial) {
     const draftComplete = rawDraftContent.trim().length > 0 && !isMetaDraftContent(rawDraftContent) && countChapterChars(rawDraftContent) >= lengthSpec.minChars
     if (draftComplete) {
       clearPartial()
@@ -983,8 +988,8 @@ export async function runDeepChapterGeneration(
       decisionGates: stage45.decisionGates,
       manualReviewRequired: true,
       retryCount: stage45.retryCount,
-      partial: partialReason !== null,
-      partialReason,
+      partial: partialState.reason !== null,
+      partialReason: partialState.reason,
       contextUsage: contextPack.contextUsage,
     }
   }
@@ -1153,8 +1158,8 @@ export async function runDeepChapterGeneration(
     decisionGates: stage45.decisionGates,
     manualReviewRequired: false,
     retryCount: stage45.retryCount,
-    partial: partialReason !== null,
-    partialReason,
+    partial: partialState.reason !== null,
+    partialReason: partialState.reason,
     contextUsage: contextPack.contextUsage,
   }
 }

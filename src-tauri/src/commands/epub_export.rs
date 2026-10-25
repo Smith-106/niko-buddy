@@ -73,6 +73,10 @@ pub struct EpubExportResult {
 }
 
 /// 构建并写出 EPUB3 包（默认元数据；保持旧调用兼容）。
+/// ISS-20260731-002 处置：误报保留——生产命令走 `build_and_write_epub_with_meta`
+/// （需进度回调），本兼容包装仅 `#[cfg(test)]` 用例调用（4 处）；
+/// 新增 allow 零容忍：本条为消除现网唯一 live dead_code 警告而新增，附因说明。
+#[allow(dead_code)]
 pub fn build_and_write_epub(
     chapters: &[NovelChapter],
     export_path: &str,

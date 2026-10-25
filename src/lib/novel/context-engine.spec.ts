@@ -1447,72 +1447,50 @@ describe("computeIrrelevantRatio", () => {
 })
 
 describe("searchRelevantContent / searchRelevantContentUnified（向量路径）", () => {
-  it("searchRelevantContent: 关键词+索引+向量合并去重 + 第N章查询", async () => {
-    hoisted.searchWiki.mockImplementation(async (_pp: string, query: string) => {
-      if (query.includes("关键词索引")) {
-        return [{ title: "索引条目", snippet: "idx-snip", path: "/i.md" }]
-      }
-      return [{ title: "角色", snippet: "kw-snip", path: "/k.md" }]
-    })
-    hoisted.searchByEmbedding.mockResolvedValue([{ id: "alice" }])
-    hoisted.readFile.mockResolvedValue("# Alice\n内容")
-    const out = await searchRelevantContent("/p", "甲 乙", 5, 2, {
-      embeddingConfig: mkEmbeddingConfig(true, "m"),
-      novelConfig: mkNovelConfig(),
-    })
-    expect(out).toContain("kw-snip")
-    expect(out).toContain("idx-snip")
-    expect(out).toContain("Alice")
-  })
-
-  it("searchRelevantContent: 向量启用但零结果 / embedding 未启用 → 无向量项", async () => {
-    const outDisabled = await searchRelevantContent("/p", "task", undefined, 2, {
-      embeddingConfig: mkEmbeddingConfig(false, ""),
-      novelConfig: mkNovelConfig(),
-    })
-    expect(outDisabled).toBe("")
+  // ISS-20260709-038 去孪生：非 Unified 实现已删，searchRelevantContent 为已废弃别名
+  // （直转 Unified）。以下锁定废弃契约：同输入同输出、降级一致、回退一致。
+  it("ISS-20260709-038: 已废弃别名与 Unified 同输入同输出（零行为分叉）", async () => {
+    hoisted.novelMixedSearch.mockResolvedValue([
+      { type: "memory", path: "/p/wiki/m.md", title: "M1", snippet: "s1" },
+    ])
+    hoisted.searchWiki.mockResolvedValue([{ title: "idx", snippet: "is", path: "/p/wiki/i.md" }])
     hoisted.searchByEmbedding.mockResolvedValue([])
-    const outEmpty = await searchRelevantContent("/p", "task", undefined, 2, {
+    hoisted.readFile.mockResolvedValue("# Alice\n内容")
+    const opts = {
       embeddingConfig: mkEmbeddingConfig(true, "m"),
       novelConfig: mkNovelConfig(),
-    })
-    expect(outEmpty).toBe("")
+    }
+    const [aliasOut, unifiedOut] = await Promise.all([
+      searchRelevantContent("/p", "甲", 5, 2, opts),
+      searchRelevantContentUnified("/p", "甲", 5, 2, opts),
+    ])
+    expect(aliasOut).toBe(unifiedOut)
+    expect(aliasOut).toContain("M1")
   })
 
-  it("searchRelevantContent: 向量检索抛错 → catch 降级", async () => {
-    hoisted.searchByEmbedding.mockRejectedValue(new Error("emb"))
-    const out = await searchRelevantContent("/p", "task", undefined, 2, {
-      embeddingConfig: mkEmbeddingConfig(true, "m"),
-      novelConfig: mkNovelConfig(),
-    })
-    expect(out).toBe("")
+  it("ISS-20260709-038: 空结果降级一致", async () => {
+    hoisted.novelMixedSearch.mockResolvedValue([])
+    hoisted.searchWiki.mockResolvedValue([])
+    hoisted.searchByEmbedding.mockResolvedValue([])
+    const opts = { novelConfig: mkNovelConfig() }
+    const [aliasOut, unifiedOut] = await Promise.all([
+      searchRelevantContent("/p", "任务", undefined, 2, opts),
+      searchRelevantContentUnified("/p", "任务", undefined, 2, opts),
+    ])
+    expect(aliasOut).toBe("")
+    expect(unifiedOut).toBe("")
   })
 
-  it("searchRelevantContent: entityBoost 开/关 + weight 传递", async () => {
-    hoisted.searchWiki.mockResolvedValue([{ title: "t", snippet: "s", path: "/t.md" }])
-    await searchRelevantContent("/p", "林晚秋 苏明月", undefined, 2, {
-      novelConfig: mkNovelConfig({ entityBoostEnabled: true }),
-      entityNames: ["已知实体"],
-    })
-    expect(hoisted.reorderByEntityBoost).toHaveBeenCalledTimes(1)
-    const [, boostEntities, weight] = hoisted.reorderByEntityBoost.mock.calls[0] as unknown[]
-    expect(boostEntities).toEqual(expect.arrayContaining(["已知实体", "林晚秋", "苏明月"]))
-    expect(weight).toBe(0.4)
-    hoisted.reorderByEntityBoost.mockClear()
-
-    await searchRelevantContent("/p", "林晚秋", undefined, 2, {
-      novelConfig: mkNovelConfig({ entityBoostEnabled: true, entityBoostWeight: 0.9 }),
-    })
-    const [, , weight2] = hoisted.reorderByEntityBoost.mock.calls[0] as unknown[]
-    expect(weight2).toBe(0.9)
-  })
-
-  it("searchRelevantContent: searchWiki 抛错 → catch 空", async () => {
-    hoisted.searchWiki.mockRejectedValue(new Error("search"))
-    const out = await searchRelevantContent("/p", "task", 3, 2, {
-      novelConfig: mkNovelConfig(),
-    })
-    expect(out).toBe("")
+  it("ISS-20260709-038: novelMixedSearch 抛错回退一致", async () => {
+    hoisted.novelMixedSearch.mockRejectedValue(new Error("mixed-down"))
+    hoisted.searchWiki.mockResolvedValue([])
+    hoisted.searchByEmbedding.mockResolvedValue([])
+    const opts = { novelConfig: mkNovelConfig() }
+    const [aliasOut, unifiedOut] = await Promise.all([
+      searchRelevantContent("/p", "甲", undefined, 2, opts),
+      searchRelevantContentUnified("/p", "甲", undefined, 2, opts),
+    ])
+    expect(aliasOut).toBe(unifiedOut)
   })
 
   it("searchRelevantContentUnified: 过滤 + 去重 + 合并", async () => {
@@ -2321,41 +2299,23 @@ describe("contextPackToPrompt 补充分支", () => {
   })
 })
 
-describe("searchRelevantContent 向量 probePath 分支", () => {
-  it("title 三种来源：# heading / ---title / vrId 兜底 + 读取失败跳过", async () => {
+// ISS-20260709-038 去孪生：旧非 Unified 向量 probe 内核已删（title 三来源/SEC-001 为其
+// 专属分支，随实现一并移除）。向量 probe 面现由 Unified + runVectorSearchForContext 承载，
+// 别名等价性见上 block；此处保留一例别名透传冒烟。
+describe("searchRelevantContent 向量 probePath 分支（别名透传冒烟）", () => {
+  it("ISS-20260709-038: 别名经 Unified 返回与直接调用一致", async () => {
     hoisted.searchWiki.mockResolvedValue([])
-    hoisted.searchByEmbedding.mockResolvedValue([
-      { id: "heading-one" },
-      { id: "title-two" },
-      { id: "bare-three" },
-      { id: "missing-four" },
+    hoisted.novelMixedSearch.mockResolvedValue([])
+    hoisted.searchByEmbedding.mockResolvedValue([])
+    const opts = {
+      embeddingConfig: mkEmbeddingConfig(true, "m"),
+      novelConfig: mkNovelConfig(),
+    }
+    const [aliasOut, unifiedOut] = await Promise.all([
+      searchRelevantContent("/p", "任务", undefined, 4, opts),
+      searchRelevantContentUnified("/p", "任务", undefined, 4, opts),
     ])
-    hoisted.readFile.mockImplementation(async (p: string) => {
-      if (p.includes("heading-one")) return "# 标题甲\n正文"
-      if (p.includes("title-two")) return "---\ntitle: 标题乙\n---\n正文"
-      if (p.includes("bare-three")) return "无标题正文"
-      throw new Error("no file")
-    })
-    const out = await searchRelevantContent("/p", "任务", undefined, 4, {
-      embeddingConfig: mkEmbeddingConfig(true, "m"),
-      novelConfig: mkNovelConfig(),
-    })
-    expect(out).toContain("标题甲")
-    expect(out).toContain("标题乙")
-    expect(out).toContain("bare-three") // vrId 兜底
-    expect(out).not.toContain("missing-four")
-  })
-
-  it("SEC-001：vr.id 路径穿越被 sanitize 后探测（sanitizeEntitySlug 生效）", async () => {
-    hoisted.searchWiki.mockResolvedValue([])
-    hoisted.searchByEmbedding.mockResolvedValue([{ id: "evil/../../escape" }])
-    hoisted.readFile.mockResolvedValue("# Safe")
-    const out = await searchRelevantContent("/p", "任务", undefined, 1, {
-      embeddingConfig: mkEmbeddingConfig(true, "m"),
-      novelConfig: mkNovelConfig(),
-    })
-    expect(hoisted.sanitizeEntitySlug).toHaveBeenCalledWith("evil/../../escape")
-    expect(out).toContain("Safe")
+    expect(aliasOut).toBe(unifiedOut)
   })
 })
 
@@ -2724,36 +2684,18 @@ describe("第三轮补齐：context-engine 分支全覆盖", () => {
     expect(prompt).toContain("规则乙")
   })
 
-  it("searchRelevantContent: options.novelConfig 缺省回退 store（?? 右侧）", async () => {
+  // ISS-20260709-038 去孪生：旧非 Unified 专属 `??` 兜底分支（novelConfig 回退 snippet 空串/
+  // weight null）随实现一并移除；Unified 侧同名兜底由其专属用例覆盖。此处锁定别名缺省
+  // options 透传一致。
+  it("ISS-20260709-038: 别名缺省 options 与 Unified 缺省一致", async () => {
     hoisted.searchWiki.mockResolvedValue([])
+    hoisted.novelMixedSearch.mockResolvedValue([])
     hoisted.searchByEmbedding.mockResolvedValue([])
-    const out = await searchRelevantContent("/p", "任务", undefined, 2)
-    expect(out).toBe("")
-  })
-
-  it("searchRelevantContent: keyword/index 结果 snippet 缺失 → ?? 空串", async () => {
-    hoisted.searchWiki.mockResolvedValue([
-      { title: "kw", snippet: undefined, path: "/k.md" },
-      { title: "idx", snippet: undefined, path: "/i.md" },
+    const [aliasOut, unifiedOut] = await Promise.all([
+      searchRelevantContent("/p", "任务", undefined, 2),
+      searchRelevantContentUnified("/p", "任务", undefined, 2),
     ])
-    hoisted.searchByEmbedding.mockResolvedValue([])
-    const out = await searchRelevantContent("/p", "任务", undefined, 2, {
-      novelConfig: mkNovelConfig(),
-    })
-    expect(out).toContain("- kw: ")
-    expect(out).toContain("- idx: ")
-  })
-
-  it("searchRelevantContent: entityBoostWeight null → ?? 0.4", async () => {
-    hoisted.searchWiki.mockResolvedValue([{ title: "t", snippet: "s", path: "/t.md" }])
-    await searchRelevantContent("/p", "任务", undefined, 2, {
-      novelConfig: mkNovelConfig({
-        entityBoostEnabled: true,
-        entityBoostWeight: null as unknown as number,
-      }),
-    })
-    const [, , weight] = hoisted.reorderByEntityBoost.mock.calls[0] as unknown[]
-    expect(weight).toBe(0.4)
+    expect(aliasOut).toBe(unifiedOut)
   })
 
   it("searchRelevantContentUnified: searchWiki(索引) reject → catch 降级", async () => {

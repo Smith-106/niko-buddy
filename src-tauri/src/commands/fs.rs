@@ -50,13 +50,8 @@ const LEGACY_KNOWLEDGE_DIR: &str = "wiki";
 const META_DIR: &str = ".niko-buddy";
 const LEGACY_META_DIR: &str = ".llm-wiki";
 
-#[allow(dead_code)]
-fn replace_last_path_segment(path: &str, from: &str, to: &str) -> Option<String> {
-    let mut parts: Vec<&str> = path.split('/').collect();
-    let index = parts.iter().rposition(|part| *part == from)?;
-    parts[index] = to;
-    Some(parts.join("/"))
-}
+// ISS-20260731-002 处置：真死删——`replace_last_path_segment`（单段替换）在本仓零引用
+// （grep 仅定义点；多段场景由 `replace_all_path_segments` 承载）。已删除，误用时按需从 git 恢复。
 
 /// Replace **all** path segments matching `from` with `to`.
 /// Used when the path may contain multiple legacy directory names
@@ -421,6 +416,9 @@ pub fn set_resource_dir_hint(dir: std::path::PathBuf) {
 /// 测试/诊断用：候选路径里是否存在任一 pdfium 动态库（只做文件存在性探测，不 dlopen）。
 /// CI 的 mac/ubuntu 作业会把 pdfium 解压到 `src-tauri/pdfium/libpdfium.dylib|so`，
 /// 因此该探测与 CI 解包布局对齐后即可让渲染类测试在三平台真实运行。
+/// ISS-20260731-002 处置：误报保留——生产零调用，但为 pdf_export 渲染测试的唯一可用性探针
+/// （`pdf_export.rs` tests 经 `pdfium_available()` 调用；生产渲染走同源 `pdfium_candidate_paths`）。
+/// 新增 allow 零容忍：本条为既有抑制，附因保留，不新增。
 #[allow(dead_code)]
 pub fn pdfium_dynamic_library_present() -> bool {
     !pdfium_candidate_paths().is_empty()

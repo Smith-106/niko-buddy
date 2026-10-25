@@ -29,6 +29,8 @@ import {
   type NovelSearchResult,
 } from "./search-adapter"
 import { runVectorSearchShared } from "./vector-search-core"
+// ISS-20260709-039 去孪生：图检索孪生体（matched 单遍 + related 并行）唯一定义点。
+import { collectGraphScoredSnippets } from "./graph-search-shared"
 import { RETRIEVAL_BUDGET_PATHS, getRetrievalBudgetLedger } from "./retrieval-budget"
 import { rerankCandidates } from "@/lib/rerank"
 import { selectRelevantNovelVectorResults } from "./vector-relevance"
@@ -116,60 +118,20 @@ export function computeIrrelevantRatio(
   return irrelevantCount / candidateNames.size
 }
 
-export async function searchRelevantContent(
-  pp: string,
-  task: string,
-  chapterNumber: number | undefined,
-  limit: number,
-  options: BuildContextOptions = {},
-): Promise<string> {
-  const tokens = tokenizeQuery(task)
-  const entityHints = tokens.filter(t => t.length >= 2).slice(0, 5)
-  const queryParts = [task]
-  if (chapterNumber) {
-    queryParts.push(`第${chapterNumber}章`)
-  }
-  if (entityHints.length > 0) {
-    queryParts.push(entityHints.join(" "), "伏笔", "人物", "设定", "时间线")
-  } else {
-    queryParts.push("伏笔", "人物", "设定")
-  }
-  const query = queryParts.join(" ")
-
-  const [keywordResults, indexResults, vectorResults] = await Promise.all([
-    searchWiki(pp, query).catch(() => []),
-    searchWiki(pp, `关键词索引 向量索引 ${task}`).catch(() => []),
-    runVectorSearchForContext(pp, query, limit, options).catch(() => []), /* v8 ignore start */ /* v8 ignore stop */
-  ])
-
-  const seen = new Set<string>()
-  const merged: string[] = []
-
-  const add = (title: string, snippet: string) => {
-    const key = `${title}|${snippet.slice(0, 50)}`
-    if (!seen.has(key)) {
-      seen.add(key)
-      merged.push(`- ${title}: ${snippet}`)
-    }
-  }
-
-  const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
-  const boostEntities = [...(options.entityNames ?? []), ...entityHints]
-  type Hit = { title: string; snippet: string }
-  let hits: Hit[] = [
-    ...keywordResults.slice(0, limit).map((r) => ({ title: r.title, snippet: r.snippet ?? "" })),
-    ...indexResults.slice(0, limit).map((r) => ({ title: r.title, snippet: r.snippet ?? "" })),
-    ...vectorResults.slice(0, limit).map((r) => ({ title: r.title, snippet: r.snippet })),
-  ]
-  if (novelConfig.entityBoostEnabled) {
-    hits = reorderByEntityBoost(hits, boostEntities, novelConfig.entityBoostWeight ?? 0.4)
-  }
-  for (const r of hits) {
-    add(r.title, r.snippet)
-  }
-
-  return merged.slice(0, Math.max(limit, limit * 2)).join("\n")
-}
+/**
+ * ISS-20260709-038 去孪生：非 Unified `searchRelevantContent` 已删（死代码）。
+ *
+ * 删除证据（grep，生产零调用）：
+ * - 生产调用方唯一 `context-data-sources.ts:526` 走 `searchRelevantContentUnified`；
+ * - `searchRelevantContent\b` 在 src 下的生产引用仅剩本别名 + engine 包容转发 +
+ *   barrel 再导出（spec 调用除外，见下）。
+ * 向后兼容：保留同名同签名的已废弃别名，直转 Unified（签名一致
+ * `(pp, task, chapterNumber, limit, options) => Promise<string>`，生产行为零变化——
+ * 原先生产路径本就只走 Unified）。engine 侧 wrapper 与 barrel 导出面不变。
+ *
+ * @deprecated 直接使用 `searchRelevantContentUnified`。
+ */
+export const searchRelevantContent = searchRelevantContentUnified
 
 export async function searchRelevantContentUnified(
   pp: string,
@@ -426,58 +388,24 @@ export async function searchGraphRelevantContent(
         }
       }
     }
+    // ISS-20260709-039 去孪生：候选扩展保留本检索簇口径（tokenizeQuery + CORR-110
+    // 空标题守卫 + nextNames 两阶段扩展；adapter 侧为 split 小写包含——通道语义不同，
+    // 刻意不收敛，见 graph-search-shared）。matched 单遍 + related 并行已收敛到共享核心。
     const allNames = [...candidateNames, ...nextNames]
 
-    // PERF-004 (ISS-011): SINGLE-PASS match collection — iterate graph.nodes
-    // once, matching against ALL candidate names, dedup by node id. Replaces
-    // the per-name full-graph rescan (was O(names × nodes), now O(nodes)).
-    const seenIds = new Set<string>()
-    const scoredNodes: { title: string; snippet: string; relevance: number }[] = []
-    const matchedNodes = []
-    for (const [, node] of graph.nodes) {
-      if (allNames.some((name) => node.title.includes(name) || node.id.includes(name))) {
-        /* v8 ignore next */
-        if (!seenIds.has(node.id)) {
-          seenIds.add(node.id)
-          matchedNodes.push(node)
-        }
-      }
-    }
-
-    // PERF-NEW-02: collect all unseen related-node reads first (dedup against
-    // seenIds), then read them in parallel. The prior nested for...of awaited
-    // readFile serially (up to M×5 sequential IPC round-trips). Each matched
-    // node's related set is independent, so the reads parallelize cleanly.
-    type PendingRead = { title: string; path: string; relevance: number }
-    const pendingReads: PendingRead[] = []
-    for (const matchedNode of matchedNodes) {
-      const related = getRelatedNodes(matchedNode.id, graph, 5)
-      for (const { node, relevance } of related) {
-        if (seenIds.has(node.id)) continue
-        seenIds.add(node.id)
-        pendingReads.push({ title: node.title, path: node.path, relevance })
-      }
-    }
-    const readResults = await Promise.all(
-      pendingReads.map(async (entry) => {
-        try {
-          const content = await readFile(entry.path)
-          return {
-            title: entry.title,
-            snippet: content.slice(0, 300).replace(/\n/g, " "),
-            relevance: Math.round(entry.relevance * 100) / 100,
-          }
-        } catch {
+    // ISS-20260709-039: 孪生体收一到 collectGraphScoredSnippets（与 search-adapter
+    // runGraphSearch 同源：单遍 matched + 并行 related + relevance 降序；读错 warn 留痕
+    // 经 onReadError 注入，语义与改前 catch 内 logger.warn 一致）。
+    const scoredNodes = await collectGraphScoredSnippets(
+      graph,
+      allNames,
+      { getRelatedNodes, readFile },
+      {
+        onReadError: () => {
           logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 2433 })
-          return null
-        }
-      }),
+        },
+      },
     )
-    for (const r of readResults) {
-      if (r) scoredNodes.push(r)
-    }
-
-    scoredNodes.sort((a, b) => b.relevance - a.relevance)
     const topNodes = await rerankCandidates(
       task,
       scoredNodes.slice(0, 10).map((node, index) => ({

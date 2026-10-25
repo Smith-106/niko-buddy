@@ -353,6 +353,8 @@ export type { ArcProgressionInput, ArcProgressionResult } from "./craft/arc-trac
 // 消费者契约 = 诊断/外部工具链 + 同一对象行为 spec（context-barrel-alias.spec.ts）。
 // 生产写作链刻意走 engine wrapper（gap 注入为默认语义），故不设生产调用点——
 // 增设调用点将绕过 gap 注入，属于行为变更而非 hygiene 修复。此处以契约注释 + spec 锁面关闭残留。
+// ISS-20260709-038 去孪生：searchRelevantContent* 别名现为 Unified 同一对象（已废弃别名，
+// import 面不变；见 context-retrieval.ts）。其余别名仍为检索簇源函数同一对象。
 export { computeIrrelevantRatio as computeIrrelevantRatioFromRetrieval, searchRelevantContent as searchRelevantContentFromRetrieval, searchRelevantContentUnified as searchRelevantContentUnifiedFromRetrieval, runVectorSearchForContext as runVectorSearchForContextFromRetrieval, searchGraphRelevantContent as searchGraphRelevantContentFromRetrieval } from "./context-retrieval"
 // F8 (Round-8 断链修复): wish-drive 纯函数装配层公开面（ADR-19 零 LLM/零 IO；review-center 卡文引导 tab 经 barrel 消费，app 侧不再深导入）
 export { assembleWishList, detectWriterBlock, buildWishDrivePrompt } from "./wish-drive"

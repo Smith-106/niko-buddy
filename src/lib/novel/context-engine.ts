@@ -1325,7 +1325,6 @@ export async function selectActiveEntities(
 // build 期（contextGapsActive）转发 recorder；直接调用（单测/脚本）走无记账
 // 原函数——与改前 contextGapsActive=false 默认一致，行为零变化。
 import {
-  searchRelevantContent as searchRelevantContentImpl,
   searchRelevantContentUnified as searchRelevantContentUnifiedImpl,
   runVectorSearchForContext as runVectorSearchForContextImpl,
   __setGapRecorderForTests,
@@ -1381,6 +1380,11 @@ export {
   computeIrrelevantRatio,
   searchGraphRelevantContent,
 } from "./context-retrieval"
+/**
+ * ISS-20260709-038 去孪生：非 Unified 实现已删（见 context-retrieval 别名；生产零调用）。
+ * 本 wrapper 保留作包容转发——gap 注入语义与 Unified wrapper 一字不差，直转 Unified。
+ * @deprecated 直接使用 `searchRelevantContentUnified`。
+ */
 export async function searchRelevantContent(
   pp: string,
   task: string,
@@ -1388,13 +1392,7 @@ export async function searchRelevantContent(
   limit: number,
   options: BuildContextOptions = {},
 ): Promise<string> {
-  if (!getContextGapsActive()) return searchRelevantContentImpl(pp, task, chapterNumber, limit, options)
-  __setGapRecorderForTests(contextGaps, true)
-  try {
-    return await searchRelevantContentImpl(pp, task, chapterNumber, limit, options)
-  } finally {
-    __setGapRecorderForTests(null, false)
-  }
+  return searchRelevantContentUnified(pp, task, chapterNumber, limit, options)
 }
 export async function searchRelevantContentUnified(
   pp: string,

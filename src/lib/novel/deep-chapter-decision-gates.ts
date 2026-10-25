@@ -65,6 +65,44 @@ function uniqueSuggestions(findings: NovelReviewResult[]): string[] {
   )]
 }
 
+/**
+ * ISS-20260709-044 去耦合：单门 verdict 显式分支（行为等价）。
+ *
+ * 解开前：`createGate` 内 `status` 与 `verdict` 由同一嵌套三元一次算出，WARNING 路由
+ * （collectRepairIssues）与 verdict 判定字面交织——读者无法分辨“门状态机”与“修复路由”边界。
+ * 解开后：状态（resolveGateStatus）与裁决（本函数）各自显式 if/else；路由函数只读
+ * `severity`（见 collectRepairIssues），三者经真值表 spec 锁定（p1-iss-044-gate-verdict.spec.ts）。
+ * 真值表（与改前三元逐项等价）：manualReview+（error|升级）→ manual_review；
+ * （error|升级）→ fail；warning → warning；否则 pass。
+ */
+export function resolveGateVerdict(input: {
+  hasError: boolean
+  upgradedToFail: boolean
+  hasWarning: boolean
+  manualReviewRequired: boolean
+}): DeepChapterGateVerdict {
+  if (input.manualReviewRequired && (input.hasError || input.upgradedToFail)) {
+    return "manual_review"
+  }
+  if (input.hasError || input.upgradedToFail) {
+    return "fail"
+  }
+  if (input.hasWarning) {
+    return "warning"
+  }
+  return "pass"
+}
+
+export function resolveGateStatus(input: {
+  hasError: boolean
+  upgradedToFail: boolean
+}): "passed" | "failed" {
+  if (input.hasError || input.upgradedToFail) {
+    return "failed"
+  }
+  return "passed"
+}
+
 export function buildDecisionGates(
   reviewResults: NovelReviewResult[],
   retryCount: number,
@@ -93,15 +131,11 @@ export function buildDecisionGates(
       !hasError &&
       hasWarning &&
       warningCount >= getUpgradeThreshold(genre, GATE_MAPPING.quality.dimensionIds[0])
+    // ISS-20260709-044: 状态与裁决分两步显式分支（与改前嵌套三元逐项等价）。
+    const status = resolveGateStatus({ hasError, upgradedToFail })
     return {
-      status: hasError || upgradedToFail ? "failed" : "passed",
-      verdict: manualReviewRequired && (hasError || upgradedToFail)
-        ? "manual_review"
-        : hasError || upgradedToFail
-          ? "fail"
-          : hasWarning
-            ? "warning"
-            : "pass",
+      status,
+      verdict: resolveGateVerdict({ hasError, upgradedToFail, hasWarning, manualReviewRequired }),
       findings,
       repair_suggestions: uniqueSuggestions(findings),
       retry_count: retryCount,
@@ -115,23 +149,41 @@ export function buildDecisionGates(
     quality: createGate(grouped.quality, "quality"),
     overall: "pass",
   }
-  // CORR-108 fix (ADR-17 priority: Consistency > Anti-AI > Quality): a
-  // Quality-gate FAILURE must still produce overall='fail', even when the
-  // Anti-AI gate has only a warning. Group all status==='failed' checks
-  // first (any failed gate → 'fail'), then warnings, then pass.
-  const anyFailed = gates.consistency.status === "failed"
-    || gates.anti_ai.status === "failed"
-    || gates.quality.status === "failed"
-  gates.overall = manualReviewRequired && anyFailed
-    ? "manual_review"
-    : anyFailed
-      ? "fail"
-      : gates.consistency.verdict === "warning"
-          || gates.anti_ai.verdict === "warning"
-          || gates.quality.verdict === "warning"
-        ? "warning"
-        : "pass"
+  // ISS-20260709-044: overall 经显式分支函数聚合（与改前 CORR-108 注释块逐项等价）。
+  gates.overall = resolveOverallVerdict(gates, manualReviewRequired)
   return gates
+}
+
+/**
+ * ISS-20260709-044 去耦合：overall 聚合显式分支（行为等价）。
+ * CORR-108 (ADR-17 priority: Consistency > Anti-AI > Quality)：任一门 failed →
+ * overall fail（Quality-failure 不被 Anti-AI warning 掩盖）；manualReviewRequired +
+ * 任一 failed → manual_review；否则任一 warning → warning；否则 pass。
+ * 本函数只读各门已算好的 status/verdict，不再参与单门判定——与 WARNING 路由
+ * （collectRepairIssues，只读 severity）彻底解开：判定归判定，路由归路由。
+ */
+export function resolveOverallVerdict(
+  gates: Pick<DeepChapterDecisionGates, "consistency" | "anti_ai" | "quality">,
+  manualReviewRequired: boolean,
+): DeepChapterGateVerdict {
+  const anyFailed =
+    gates.consistency.status === "failed" ||
+    gates.anti_ai.status === "failed" ||
+    gates.quality.status === "failed"
+  if (manualReviewRequired && anyFailed) {
+    return "manual_review"
+  }
+  if (anyFailed) {
+    return "fail"
+  }
+  if (
+    gates.consistency.verdict === "warning" ||
+    gates.anti_ai.verdict === "warning" ||
+    gates.quality.verdict === "warning"
+  ) {
+    return "warning"
+  }
+  return "pass"
 }
 
 export function collectBlockingIssues(decisionGates: DeepChapterDecisionGates): NovelReviewResult[] {
@@ -154,6 +206,8 @@ export function collectBlockingIssues(decisionGates: DeepChapterDecisionGates): 
  * F-003 (ANL-010): route WARNING-severity review findings to the stage-5
  * repair loop. Error-only collectBlockingIssues MUST stay that way —
  * warnings never block, but SHOULD reach the repair model. Exported for TS-01.
+ *
+ * ISS-20260709-044: WARNING 路由唯一入口，只读 finding.severity，不读/不写门 verdict。
  */
 export function collectRepairIssues(
   decisionGates: DeepChapterDecisionGates,
