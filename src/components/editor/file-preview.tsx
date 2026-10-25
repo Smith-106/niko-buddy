@@ -139,7 +139,7 @@ function AudioPreview({ filePath, fileName }: { filePath: string; fileName: stri
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 p-6">
       <div className="text-xs text-muted-foreground">{filePath}</div>
-      <Music className="h-16 w-16 text-muted-foreground/50" />
+      <Music className="h-16 w-16 text-muted-foreground" />
       <p className="text-sm font-medium">{fileName}</p>
       <audio src={src} controls className="w-full max-w-md">
         <track kind="captions" label={fileName} />
@@ -294,7 +294,7 @@ function BinaryPlaceholder({
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
-      <Icon className="h-16 w-16 text-muted-foreground/30" />
+      <Icon className="h-16 w-16 text-muted-foreground" />
       <div>
         <p className="text-sm font-medium">{fileName}</p>
         <p className="mt-1 text-xs text-muted-foreground">{filePath}</p>

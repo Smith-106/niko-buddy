@@ -60,8 +60,8 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
   const [llmExpanded, setLlmExpanded] = useState(() => !assessLlmHealth(useWikiStore.getState().llmConfig).canWrite)
   const llmHealth = assessLlmHealth(llmConfig)
   const llmTone = llmHealth.canWrite
-    ? "text-success dark:text-success"
-    : "text-warning dark:text-warning"
+    ? "text-success"
+    : "text-warning"
 
   // J01-T06 (F-006)：建项步骤指示——让用户知道自己在哪一步、还剩几步。
   // 步骤为逻辑分区（名称→目录→模型服务→创建），非分页；返回/关闭不丢输入（state 保留）。
@@ -185,7 +185,7 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
           {/* J01-T06：步骤进度指示（逻辑分区，非分页） */}
           <div className="flex items-center gap-1 pt-2 text-xs text-muted-foreground" aria-label={t("project.stepProgress", { defaultValue: "创建步骤" })}>
             {STEPS.map((label, i) => (
-              <span key={i} className="flex items-center">
+              <span key={`step-${label.slice(0, 24)}-${i}`} className="flex items-center">
                 <span
                   className={i <= currentStep + 1
                     ? "rounded-full bg-primary px-1.5 py-0.5 text-primary-foreground"

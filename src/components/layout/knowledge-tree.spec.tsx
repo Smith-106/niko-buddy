@@ -67,8 +67,14 @@ const mocks = vi.hoisted(() => {
     deleteNovelSourceMemory: vi.fn(),
     confirm: vi.fn<(message?: string) => boolean>(() => true),
     alert: vi.fn<(message?: string) => void>(() => {}),
+    toastError: vi.fn<(message?: string) => void>(() => {}),
+    toastInfo: vi.fn<(message?: string) => void>(() => {}),
   }
 })
+
+vi.mock("@/lib/toast", () => ({
+  toast: { error: mocks.toastError, info: mocks.toastInfo, success: vi.fn() },
+}))
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
@@ -589,7 +595,7 @@ describe("KnowledgeTree", () => {
     fireEvent.contextMenu(screen.getByText("卷1"))
     fireEvent.click(screen.getByText("删除卷"))
     await flush()
-    expect(mocks.alert).toHaveBeenCalledWith('文件夹「{{name}}」中仍有未移入回收站的其他文件，已保留文件夹本身。::{"name":"卷1"}')
+    expect(mocks.toastError).toHaveBeenCalledWith('文件夹「{{name}}」中仍有未移入回收站的其他文件，已保留文件夹本身。::{"name":"卷1"}')
     expect(mocks.deleteFile).not.toHaveBeenCalledWith(`${CHAPTERS}/卷1`)
     view.unmount()
   })
@@ -778,7 +784,7 @@ describe("KnowledgeTree", () => {
     let menu = screen.getByText("重命名").closest("div.absolute") as HTMLElement
     fireEvent.click(within(menu).getByText("卷1"))
     await flush()
-    expect(mocks.alert).toHaveBeenCalledWith("目标卷中已存在同名文件，无法移动")
+    expect(mocks.toastError).toHaveBeenCalledWith("目标卷中已存在同名文件，无法移动")
     expect(mocks.copyFile).not.toHaveBeenCalled()
     // 当前卷禁用（第一章-开端 在卷1 内 → isCurrentVolume）
     const volRow = pageRow(view.container, `${CHAPTERS}/卷1/第一章-开端.md`)
@@ -1343,7 +1349,7 @@ describe("KnowledgeTree", () => {
     fireEvent.click(screen.getByText("删除卷"))
     await flush()
     // 递归展平后仍有文件 → 阻止删除目录
-    expect(mocks.alert).toHaveBeenCalledWith('文件夹「{{name}}」中仍有未移入回收站的其他文件，已保留文件夹本身。::{"name":"卷1"}')
+    expect(mocks.toastError).toHaveBeenCalledWith('文件夹「{{name}}」中仍有未移入回收站的其他文件，已保留文件夹本身。::{"name":"卷1"}')
     expect(mocks.deleteFile).not.toHaveBeenCalledWith(`${CHAPTERS}/卷1`)
     view.unmount()
   })

@@ -200,7 +200,7 @@ export function SimulatingTimelinePanel({
             type="button"
             className={`rounded px-3 py-1.5 ${
               activeStreamView === "timeline"
-                ? "bg-background text-foreground shadow-sm"
+                ? "bg-background text-foreground elevation-1"
                 : "text-muted-foreground hover:text-foreground"
             }`}
             onClick={() => setActiveStreamView("timeline")}
@@ -211,7 +211,7 @@ export function SimulatingTimelinePanel({
             type="button"
             className={`rounded px-3 py-1.5 ${
               activeStreamView === "overview"
-                ? "bg-background text-foreground shadow-sm"
+                ? "bg-background text-foreground elevation-1"
                 : "text-muted-foreground hover:text-foreground"
             }`}
             onClick={() => setActiveStreamView("overview")}
@@ -222,7 +222,7 @@ export function SimulatingTimelinePanel({
             type="button"
             className={`rounded px-3 py-1.5 ${
               activeStreamView === "rumors"
-                ? "bg-background text-foreground shadow-sm"
+                ? "bg-background text-foreground elevation-1"
                 : "text-muted-foreground hover:text-foreground"
             }`}
             onClick={() => setActiveStreamView("rumors")}
@@ -233,7 +233,7 @@ export function SimulatingTimelinePanel({
             type="button"
             className={`rounded px-3 py-1.5 ${
               activeStreamView === "clues"
-                ? "bg-background text-foreground shadow-sm"
+                ? "bg-background text-foreground elevation-1"
                 : "text-muted-foreground hover:text-foreground"
             }`}
             onClick={() => setActiveStreamView("clues")}
@@ -244,7 +244,7 @@ export function SimulatingTimelinePanel({
             type="button"
             className={`rounded px-3 py-1.5 ${
               activeStreamView === "branches"
-                ? "bg-background text-foreground shadow-sm"
+                ? "bg-background text-foreground elevation-1"
                 : "text-muted-foreground hover:text-foreground"
             }`}
             onClick={() => setActiveStreamView("branches")}
@@ -255,7 +255,7 @@ export function SimulatingTimelinePanel({
             type="button"
             className={`rounded px-3 py-1.5 ${
               activeStreamView === "multi-pov-mesh"
-                ? "bg-background text-foreground shadow-sm"
+                ? "bg-background text-foreground elevation-1"
                 : "text-muted-foreground hover:text-foreground"
             }`}
             onClick={() => setActiveStreamView("multi-pov-mesh")}
@@ -602,7 +602,7 @@ export function ProcessDebugPanel({
                       </span>
                       <span> 可见事件 {agent.visibleEventCount ?? 0} 条</span>
                       {agent.recentEvents && agent.recentEvents.length > 0 && (
-                        <div className="mt-0.5 max-h-12 overflow-y-auto text-xs text-muted-foreground/70">
+                        <div className="mt-0.5 max-h-12 overflow-y-auto text-xs text-muted-foreground">
                           {agent.recentEvents
                             .map((event) => event.id)
                             .join("、")}

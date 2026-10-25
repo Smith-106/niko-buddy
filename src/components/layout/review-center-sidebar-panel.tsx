@@ -263,7 +263,7 @@ export function ReviewCenterSidebarPanel() {
                   </span>
                 )}
                 {thrilLiveStatus.allStructuralOk && !thrilLiveStatus.fix1Blocked && (
-                  <span className="rounded border border-success/30 px-1.5 py-0.5 text-success dark:text-success">
+                  <span className="rounded border border-success/30 px-1.5 py-0.5 text-success">
                     {t("novel.settings.outlineThrillAllOk")}
                   </span>
                 )}
@@ -284,7 +284,7 @@ export function ReviewCenterSidebarPanel() {
                           ? "text-success"
                           : row.status === "fail"
                             ? "text-destructive"
-                            : "text-muted-foreground/80"
+                            : "text-muted-foreground"
                       }`}
                       aria-hidden
                     >
@@ -293,7 +293,7 @@ export function ReviewCenterSidebarPanel() {
                     <span className="min-w-0 flex-1">
                       <span className="text-foreground/90">{row.label}</span>
                       {"evidence" in row && (row as { evidence?: string }).evidence ? (
-                        <span className="mt-0.5 block text-xs text-muted-foreground/80">
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
                           {(row as { evidence?: string }).evidence}
                         </span>
                       ) : null}
@@ -309,7 +309,7 @@ export function ReviewCenterSidebarPanel() {
               onClick={() => setThrillSoftGateAcknowledged(selectedChapterNumber, !thrilAcknowledged)}
               className={`w-full rounded-md border px-3 py-2 text-left text-xs transition-colors ${
                 thrilAcknowledged
-                  ? "border-success/40 bg-success/10 text-success dark:text-success"
+                  ? "border-success/40 bg-success/10 text-success"
                   : "border-input bg-background text-muted-foreground qm-hover"
               }`}
               aria-pressed={thrilAcknowledged}
@@ -370,7 +370,7 @@ export function ReviewCenterSidebarPanel() {
             {t("reviewCenter.splitAcceptanceHint")}
           </p>
           <div className="mb-2">
-            <div className="px-1 mb-1 flex items-center gap-1.5 text-xs font-medium text-success dark:text-success">
+            <div className="px-1 mb-1 flex items-center gap-1.5 text-xs font-medium text-success">
               <span className="rounded border border-success/40 px-1 py-0.5">{t("reviewCenter.trackABadge")}</span>
               <span className="text-muted-foreground font-normal">{t("reviewCenter.trackAHint")}</span>
             </div>

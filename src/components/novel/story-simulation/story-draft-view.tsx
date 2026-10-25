@@ -413,12 +413,12 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                   </span>
                 </label>
                 {overwrite && (
-                  <p className="pl-6 text-xs text-success dark:text-success">
+                  <p className="pl-6 text-xs text-success">
                     {t("storySimulation.overwriteBackupHint")}
                   </p>
                 )}
                 {!overwrite && (
-                  <p className="pl-6 text-xs text-warning dark:text-warning">
+                  <p className="pl-6 text-xs text-warning">
                     {t("storySimulation.overwriteWarnHint")}
                   </p>
                 )}

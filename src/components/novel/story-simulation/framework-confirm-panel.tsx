@@ -36,9 +36,9 @@ interface FrameworkConfirmPanelProps {
 
 // 起/承/转/合 阶段对应的标签配色
 const PHASE_STYLES: Record<StoryNode["phase"], string> = {
-  起: "bg-success/15 text-success dark:text-success",
-  承: "bg-info/15 text-info dark:text-info",
-  转: "bg-warning/15 text-warning dark:text-warning",
+  起: "bg-success/15 text-success",
+  承: "bg-info/15 text-info",
+  转: "bg-warning/15 text-warning",
   合: "bg-purple-500/15 text-purple-600 dark:text-purple-400",
 };
 
@@ -299,7 +299,7 @@ export function FrameworkConfirmPanel({
       >
         <div className="text-sm font-medium text-muted-foreground">
           {t("storySimulation.frameworkNodes")}
-          <span className="ml-2 text-xs font-normal text-muted-foreground/70">
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
             {t("storySimulation.dragSortHint")}
           </span>
         </div>
@@ -353,7 +353,7 @@ function SortableNodeCard({
     <div ref={setNodeRef} style={style} className="relative">
       <button
         type="button"
-        className="absolute left-0 top-0 z-10 flex h-full w-6 cursor-grab items-center justify-center text-muted-foreground/30 hover:text-primary active:cursor-grabbing"
+        className="absolute left-0 top-0 z-10 flex h-full w-6 cursor-grab items-center justify-center text-muted-foreground hover:text-primary active:cursor-grabbing"
         {...attributes}
         {...listeners}
         title={t("storySimulation.dragToSort")}

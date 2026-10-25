@@ -66,6 +66,11 @@ const DYNAMIC_INVOKE_SITES: ReadonlyArray<{ file: string; reason: string }> = [
     reason:
       "PROBES 表驱动并行 invoke（command 经 p.command 变量传入；四字面量 clamp 在 PROBES 常量表，四命令均已注册且 llm-provider-widgets 各有静态调用面），无法在调用点静态提取",
   },
+  {
+    file: "src/commands/fs.ts",
+    reason:
+      "S3 fileLockGuard choke point：withFileLockRetry 包裹 invokeFs，命令名字面量仍静态可审，属受控集中出口",
+  },
 ]
 
 // ── 注册面：解析 lib.rs 的 generate_handler![...] ────────────────────────────

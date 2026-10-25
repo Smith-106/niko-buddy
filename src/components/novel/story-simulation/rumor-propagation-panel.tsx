@@ -204,10 +204,10 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
                 <div
                   className={`text-lg font-semibold ${
                     selectedRumor.distortion < 0.3
-                      ? "text-success dark:text-success"
+                      ? "text-success"
                       : selectedRumor.distortion < 0.6
-                        ? "text-warning dark:text-warning"
-                        : "text-destructive dark:text-destructive"
+                        ? "text-warning"
+                        : "text-destructive"
                   }`}
                 >
                   {(selectedRumor.distortion * 100).toFixed(0)}%

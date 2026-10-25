@@ -122,7 +122,7 @@ function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: () => void
   return (
     <div
       role="status"
-      className={`pointer-events-auto flex items-start gap-2 rounded-md border bg-background p-3 shadow-lg ${config.container}`}
+      className={`pointer-events-auto flex items-start gap-2 rounded-md border bg-background p-3 elevation-3 ${config.container}`}
     >
       <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${config.iconClass}`} />
       <div className="flex-1 whitespace-pre-wrap text-sm leading-5 text-foreground">{item.message}</div>

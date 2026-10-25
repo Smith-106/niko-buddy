@@ -20,7 +20,7 @@ function graphNodeLabel(nodes: GraphNode[], id: string): string {
 
 function graphDocumentButtonClass(active: boolean): string {
   return active
-    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+    ? "border-primary bg-primary text-primary-foreground elevation-1"
     : "border-border bg-background text-foreground hover:bg-muted"
 }
 
@@ -227,11 +227,11 @@ export function DocumentGraphView({
   return (
     <div className="h-full overflow-auto bg-background p-6">
       <div className="w-full min-w-0 space-y-5">
-        <div className="rounded-lg border bg-card p-5 shadow-sm">
+        <div className="rounded-lg border bg-card p-5 elevation-1">
           <h1 className="text-xl font-semibold">{t("graph.docTitle")}</h1>
           <p className="mt-2 text-sm text-muted-foreground">{t("graph.docHint")}</p>
         </div>
-        <div className="rounded-lg border bg-card p-4 shadow-sm">
+        <div className="rounded-lg border bg-card p-4 elevation-1">
           <div className="flex items-center justify-between">
             <div className="text-sm font-medium">
               当前分类风险统计
@@ -287,7 +287,7 @@ export function DocumentGraphView({
             </div>
           )}
         </div>
-        <div className="rounded-lg border bg-card p-4 shadow-sm">
+        <div className="rounded-lg border bg-card p-4 elevation-1">
           <div className="flex flex-wrap gap-2">
             {groups.map((group) => (
               <button
@@ -406,7 +406,7 @@ export function DocumentGraphView({
           </div>
         </div>
         {activeGroup && (
-          <section className="rounded-lg border bg-card p-5 shadow-sm">
+          <section className="rounded-lg border bg-card p-5 elevation-1">
             <h2 className="mb-4 text-lg font-semibold">{activeGroupIndex + 1}. {activeGroup.title}</h2>
             {visibleNodes.length === 0 ? (
               <div>
@@ -486,9 +486,9 @@ export function DocumentGraphView({
                                 <p className="text-muted-foreground">{t("graph.noRelatedEvents")}</p>
                               ) : (
                                 <ul className="space-y-1 text-muted-foreground">
-                                  {eventEdges.slice(0, 8).map((edge, index) => {
+                                  {eventEdges.slice(0, 8).map((edge) => {
                                     const otherId = edge.source === node.id ? edge.target : edge.source
-                                    return <li key={`${edge.source}-${edge.target}-${index}`}>{graphNodeLabel(nodes, otherId)}：{getGraphRelationLabel(edge.relation)}</li>
+                                    return <li key={`${edge.source}-${edge.target}-${otherId}`}>{graphNodeLabel(nodes, otherId)}：{getGraphRelationLabel(edge.relation)}</li>
                                   })}
                                 </ul>
                               )}
@@ -501,12 +501,12 @@ export function DocumentGraphView({
                                 <div>
                                   <div className="mb-1 font-medium">{t("graph.statusHistory")}</div>
                                   <ul className="space-y-1 text-muted-foreground text-xs">
-                                    {nodeHistory.slice(-10).reverse().map((entry, index) => {
+                                    {nodeHistory.slice(-10).reverse().map((entry) => {
                                       const time = new Date(entry.timestamp)
                                       const timeStr = `${time.getHours().toString().padStart(2, "0")}:${time.getMinutes().toString().padStart(2, "0")}:${time.getSeconds().toString().padStart(2, "0")}`
                                       return (
-                                        <li key={index}>
-                                          <span className="text-muted-foreground/60">{timeStr}</span>{" "}
+                                        <li key={`${entry.timestamp}-${entry.from}-${entry.to}`}>
+                                          <span className="text-muted-foreground">{timeStr}</span>{" "}
                                           {entry.from} → {entry.to}
                                         </li>
                                       )
@@ -543,11 +543,11 @@ export function DocumentGraphView({
                                           </tr>
                                         </thead>
                                         <tbody>
-                                          {nodeEdges.slice(0, 12).map((edge, index) => {
+                                          {nodeEdges.slice(0, 12).map((edge) => {
                                             const isSource = edge.source === node.id
                                             const otherId = isSource ? edge.target : edge.source
                                             return (
-                                              <tr key={`${edge.source}-${edge.target}-${index}`} className="border-b last:border-0">
+                                              <tr key={`${edge.source}-${edge.target}-${otherId}`} className="border-b last:border-0">
                                                 <td className="py-1 pr-3">{graphNodeLabel(nodes, otherId)}</td>
                                                 <td className="py-1 pr-3">{getGraphRelationLabel(edge.relation)}</td>
                                                 <td className="py-1 pr-3">{isSource ? "指向对方" : "来自对方"}</td>

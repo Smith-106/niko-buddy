@@ -466,7 +466,7 @@ export function OutlineGeneratorDialog({
                     className="h-3.5 w-3.5 accent-primary"
                   />
                   <span>{t("novel.outlineGenerator.multiAgent")}</span>
-                  <span className="text-muted-foreground/60">（{t("novel.outlineGenerator.multiAgentHint")}）</span>
+                  <span className="text-muted-foreground">（{t("novel.outlineGenerator.multiAgentHint")}）</span>
                 </label>
               </div>
 

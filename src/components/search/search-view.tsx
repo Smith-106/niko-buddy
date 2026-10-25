@@ -465,7 +465,7 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
         </div>
       ) : !hasSearched ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground">
-          <Search className="h-8 w-8 text-muted-foreground/30" />
+          <Search className="h-8 w-8 text-muted-foreground" />
           <p>{t("search.pressEnter")}</p>
         </div>
       ) : results.length === 0 ? (
@@ -646,7 +646,7 @@ function Lightbox({
       >
       <div
         tabIndex={-1}
-        className="flex max-h-[90vh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border bg-background shadow-xl outline-none"
+        className="flex max-h-[90vh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border bg-background elevation-3 outline-none"
       >
         {/* Header strip 鈥?caption + close button. */}
         <div className="flex items-start justify-between gap-3 border-b px-4 py-2.5">
@@ -715,7 +715,7 @@ function SectionHeader({
       <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {icon}
         {label}
-        <span className="text-muted-foreground/60">({count})</span>
+        <span className="text-muted-foreground">({count})</span>
       </div>
       {trailing}
     </div>
@@ -822,11 +822,11 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
     <>
       {parts.map((part, i) =>
         i % 2 !== 0 ? (
-          <mark key={i} className="bg-warning dark:bg-warning rounded px-0.5">
+          <mark key={`hl-${part.slice(0, 24)}-${i}`} className="bg-warning rounded px-0.5">
             {part}
           </mark>
         ) : (
-          <span key={i}>{part}</span>
+          <span key={`tx-${part.slice(0, 24)}-${i}`}>{part}</span>
         )
       )}
     </>

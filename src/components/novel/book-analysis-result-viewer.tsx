@@ -511,7 +511,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
           event.preventDefault()
         }}
       >
-      <div className="w-full max-w-6xl mx-4 bg-background rounded-lg shadow-lg flex flex-col max-h-[90vh] outline-none">
+      <div className="w-full max-w-6xl mx-4 bg-background rounded-lg elevation-3 flex flex-col max-h-[90vh] outline-none">
         {/* 标题栏 */}
         <div className="flex items-center justify-between border-b px-6 py-4">
           <div>
@@ -533,7 +533,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                 {reextractRunning ? "提取中..." : "重新提取角色"}
               </Button>
               {reextractOpen && (
-                <div className="absolute right-0 top-full mt-1 z-10 w-56 rounded-md border bg-background p-2 shadow-md space-y-2">
+                <div className="absolute right-0 top-full mt-1 z-10 w-56 rounded-md border bg-background p-2 elevation-2 space-y-2">
                   <div className="text-xs text-muted-foreground px-1">{t("bookAnalysis.extractMethod")}</div>
                   <label className="flex items-center gap-2 px-1 text-sm">
                     <input
@@ -624,7 +624,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                 <div className="font-medium">{t("bookAnalysis.representativeExcerpt")}</div>
                 <div className="mt-1 space-y-1">
                   {styleProfile.samples.map((sample, i) => (
-                    <div key={i} className="text-muted-foreground leading-5 border-l-2 border-primary/30 pl-2">{sample}</div>
+                    <div key={`sample-${sample.slice(0, 32)}-${i}`} className="text-muted-foreground leading-5 border-l-2 border-primary/30 pl-2">{sample}</div>
                   ))}
                 </div>
               </div>
@@ -999,7 +999,7 @@ function SimpleProfileCard({ profile }: { profile: PersonalityProfile }) {
           <h4 className="text-sm font-semibold">{t("bookAnalysis.representativeLine")}</h4>
           <ul className="text-sm text-muted-foreground list-disc list-inside">
             {profile.quotes.map((q, i) => (
-              <li key={i}>「{q}」</li>
+              <li key={`quote-${q.slice(0, 32)}-${i}`}>「{q}」</li>
             ))}
           </ul>
         </div>

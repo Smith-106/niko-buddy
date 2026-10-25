@@ -50,7 +50,7 @@ export function MindMapBranch({ node, level = 0, onNodeClick, collapsedIds, onTo
             aria-expanded={!collapsed}
             aria-label={collapsed ? t("graph.mindmapExpandBranch") : t("graph.mindmapCollapseBranch")}
             onClick={() => onToggleCollapse?.(node.id)}
-            className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-background px-1.5 py-1 text-xs text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
+            className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-background px-1.5 py-1 text-xs text-muted-foreground elevation-1 transition-colors hover:bg-accent hover:text-foreground"
           >
             {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
             <span className="min-w-4 rounded-full bg-muted px-1 text-center tabular-nums">{node.children.length}</span>
@@ -63,7 +63,7 @@ export function MindMapBranch({ node, level = 0, onNodeClick, collapsedIds, onTo
           tabIndex={onNodeClick ? 0 : undefined}
           onClick={onNodeClick ? () => onNodeClick(node) : undefined}
           onKeyDown={onNodeClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNodeClick(node) } } : undefined}
-          className={`flex min-w-0 flex-1 items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-sm shadow-sm transition-colors ${onNodeClick ? "cursor-pointer hover:bg-accent/60" : ""}`}
+          className={`flex min-w-0 flex-1 items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-sm elevation-1 transition-colors ${onNodeClick ? "cursor-pointer hover:bg-accent/60" : ""}`}
           style={accent ? { borderColor: hexToRgba(accent, 0.5), backgroundColor: mixColor(accent, chipTint, 0.92) } : undefined}
           title={node.label}
         >

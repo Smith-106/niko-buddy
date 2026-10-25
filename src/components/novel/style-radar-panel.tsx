@@ -99,7 +99,7 @@ export function StyleRadarPanel({ projection, input, loader }: StyleRadarPanelPr
       </header>
 
       {error ? (
-        <p className="text-xs text-amber-700 dark:text-amber-400" data-testid="style-radar-error">
+        <p className="text-xs text-warning" data-testid="style-radar-error">
           {error}
         </p>
       ) : null}
@@ -123,6 +123,7 @@ export function StyleRadarPanel({ projection, input, loader }: StyleRadarPanelPr
               />
             ))}
             {Array.from({ length: axisCount }, (_, i) => {
+              // stable key: 辐线按原始轴位，plottedAxes[i].key 唯一
               // 辐线按**原始轴位**取角度，与 radarPoints 的顶点角度一致。
               const originalIndex = resolved.axes.indexOf(plottedAxes[i]!)
               const angle = (Math.PI * 2 * originalIndex) / resolved.axes.length - Math.PI / 2
@@ -130,7 +131,7 @@ export function StyleRadarPanel({ projection, input, loader }: StyleRadarPanelPr
               const y = CENTER + Math.sin(angle) * RADIUS
               return (
                 <line
-                  key={i}
+                  key={`axis-line-${plottedAxes[i]!.key}`}
                   x1={CENTER}
                   y1={CENTER}
                   x2={x}
@@ -143,7 +144,7 @@ export function StyleRadarPanel({ projection, input, loader }: StyleRadarPanelPr
             <polygon
               data-testid="style-radar-polygon"
               points={polygon}
-              className="fill-emerald-500/25 stroke-emerald-600"
+              className="fill-success/25 stroke-success"
               strokeWidth={2}
             />
             {plottedAxes.map((axis) => {
@@ -219,7 +220,7 @@ export function StyleRadarPanel({ projection, input, loader }: StyleRadarPanelPr
       </ul>
 
       {resolved.missingSources.length > 0 ? (
-        <ul className="space-y-0.5 text-xs text-amber-700 dark:text-amber-400" data-testid="style-radar-missing">
+        <ul className="space-y-0.5 text-xs text-warning" data-testid="style-radar-missing">
           {resolved.missingSources.map((line) => (
             <li key={line}>{line}</li>
           ))}

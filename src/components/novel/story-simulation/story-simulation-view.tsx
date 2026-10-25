@@ -1160,7 +1160,7 @@ export function StorySimulationView() {
       {/* 主区域：单栏全宽 */}
       <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
         {error && (
-          <div className="flex items-center justify-between gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive dark:text-destructive">
+          <div className="flex items-center justify-between gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive">
             <span>
               {t("storySimulation.error")}: {error}
             </span>
@@ -1174,7 +1174,7 @@ export function StorySimulationView() {
           </div>
         )}
         {infoMessage && !error && (
-          <div className="flex items-center justify-between gap-3 border-b border-success/30 bg-success/10 px-4 py-2 text-sm text-success dark:text-success">
+          <div className="flex items-center justify-between gap-3 border-b border-success/30 bg-success/10 px-4 py-2 text-sm text-success">
             <span>{infoMessage}</span>
             <button
               type="button"
@@ -1282,7 +1282,7 @@ export function StorySimulationView() {
                       type="button"
                       className={`rounded px-3 py-1.5 ${
                         reportViewTab === "report"
-                          ? "bg-background text-foreground shadow-sm"
+                          ? "bg-background text-foreground elevation-1"
                           : "text-muted-foreground hover:text-foreground"
                       }`}
                       onClick={() => setReportViewTab("report")}
@@ -1293,7 +1293,7 @@ export function StorySimulationView() {
                       type="button"
                       className={`rounded px-3 py-1.5 ${
                         reportViewTab === "timeline"
-                          ? "bg-background text-foreground shadow-sm"
+                          ? "bg-background text-foreground elevation-1"
                           : "text-muted-foreground hover:text-foreground"
                       }`}
                       onClick={() => setReportViewTab("timeline")}
@@ -1304,7 +1304,7 @@ export function StorySimulationView() {
                       type="button"
                       className={`rounded px-3 py-1.5 ${
                         reportViewTab === "overview"
-                          ? "bg-background text-foreground shadow-sm"
+                          ? "bg-background text-foreground elevation-1"
                           : "text-muted-foreground hover:text-foreground"
                       }`}
                       onClick={() => setReportViewTab("overview")}
@@ -1315,7 +1315,7 @@ export function StorySimulationView() {
                       type="button"
                       className={`rounded px-3 py-1.5 ${
                         reportViewTab === "rumors"
-                          ? "bg-background text-foreground shadow-sm"
+                          ? "bg-background text-foreground elevation-1"
                           : "text-muted-foreground hover:text-foreground"
                       }`}
                       onClick={() => setReportViewTab("rumors")}
@@ -1326,7 +1326,7 @@ export function StorySimulationView() {
                       type="button"
                       className={`rounded px-3 py-1.5 ${
                         reportViewTab === "clues"
-                          ? "bg-background text-foreground shadow-sm"
+                          ? "bg-background text-foreground elevation-1"
                           : "text-muted-foreground hover:text-foreground"
                       }`}
                       onClick={() => setReportViewTab("clues")}
@@ -1361,7 +1361,7 @@ export function StorySimulationView() {
                               <div className="mb-1 text-xs font-medium">分支走向概率</div>
                               <div className="space-y-1">
                                 {currentReport.branches.map((b, i) => (
-                                  <div key={i} className="flex items-center gap-2 text-xs">
+                                  <div key={`${b.title.slice(0, 32)}-${i}`} className="flex items-center gap-2 text-xs">
                                     <span className="w-16 shrink-0 truncate">{b.title}</span>
                                     <div className="h-2 min-w-0 flex-1 rounded bg-muted">
                                       <div
@@ -1511,7 +1511,7 @@ export function StorySimulationView() {
                   type="button"
                   className={`rounded px-3 py-1.5 ${
                     draftViewTab === "draft"
-                      ? "bg-background text-foreground shadow-sm"
+                      ? "bg-background text-foreground elevation-1"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                   onClick={() => setDraftViewTab("draft")}
@@ -1522,7 +1522,7 @@ export function StorySimulationView() {
                   type="button"
                   className={`rounded px-3 py-1.5 ${
                     draftViewTab === "report"
-                      ? "bg-background text-foreground shadow-sm"
+                      ? "bg-background text-foreground elevation-1"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                   onClick={() => setDraftViewTab("report")}
@@ -1533,7 +1533,7 @@ export function StorySimulationView() {
                   type="button"
                   className={`rounded px-3 py-1.5 ${
                     draftViewTab === "timeline"
-                      ? "bg-background text-foreground shadow-sm"
+                      ? "bg-background text-foreground elevation-1"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                   onClick={() => setDraftViewTab("timeline")}
@@ -1544,7 +1544,7 @@ export function StorySimulationView() {
                   type="button"
                   className={`rounded px-3 py-1.5 ${
                     draftViewTab === "overview"
-                      ? "bg-background text-foreground shadow-sm"
+                      ? "bg-background text-foreground elevation-1"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                   onClick={() => setDraftViewTab("overview")}
@@ -1555,7 +1555,7 @@ export function StorySimulationView() {
                   type="button"
                   className={`rounded px-3 py-1.5 ${
                     draftViewTab === "rumors"
-                      ? "bg-background text-foreground shadow-sm"
+                      ? "bg-background text-foreground elevation-1"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                   onClick={() => setDraftViewTab("rumors")}
@@ -1566,7 +1566,7 @@ export function StorySimulationView() {
                   type="button"
                   className={`rounded px-3 py-1.5 ${
                     draftViewTab === "clues"
-                      ? "bg-background text-foreground shadow-sm"
+                      ? "bg-background text-foreground elevation-1"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                   onClick={() => setDraftViewTab("clues")}

@@ -324,17 +324,17 @@ export function CampaignDashboardDialog({
                           <CheckCheck className="h-3 w-3" /> 巡航落盘
                         </span>
                       ) : result.status === "ready" ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 text-xs font-medium border border-emerald-500/20">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-success/10 text-success px-2 py-0.5 text-xs font-medium border border-success/40">
                           <Check className="h-3 w-3" /> 就绪
                         </span>
                       ) : null}
                       {result.status === "blocked" && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 text-xs font-medium border border-amber-500/20">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 text-warning px-2 py-0.5 text-xs font-medium border border-warning/20">
                           <AlertTriangle className="h-3 w-3" /> 阻断转人工
                         </span>
                       )}
                       {result.status === "failed" && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 px-2 py-0.5 text-xs font-medium border border-rose-500/20">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 text-destructive px-2 py-0.5 text-xs font-medium border border-destructive/20">
                           <XCircle className="h-3 w-3" /> 失败
                         </span>
                       )}
@@ -365,8 +365,8 @@ export function CampaignDashboardDialog({
 
         {/* 批量验收结果横幅 */}
         {acceptResult && (
-          <div className="flex items-center gap-2 text-xs px-3 py-2 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 rounded border border-emerald-500/20">
-            <CheckCheck className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <div className="flex items-center gap-2 text-xs px-3 py-2 bg-success/10 text-success rounded border border-success/40">
+            <CheckCheck className="h-4 w-4 shrink-0 text-success" />
             <span>
               已成功验收落盘 {acceptResult.acceptedCount} 章节{acceptResult.ingestedCount > 0 ? `，事实库自动摄取 ${acceptResult.ingestedCount} 章` : ""}。
             </span>
@@ -380,7 +380,7 @@ export function CampaignDashboardDialog({
               战役统计：共生成 {chapterResults.length} 章 · 合计 {totalWords.toLocaleString()} 字
             </span>
             <span className="font-medium text-foreground">
-              可晋升草稿：<strong className="text-emerald-600 dark:text-emerald-400">{readyCount}</strong> 章
+              可晋升草稿：<strong className="text-success">{readyCount}</strong> 章
             </span>
           </div>
         )}

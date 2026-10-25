@@ -117,7 +117,7 @@ export function KbHealthView({ metrics, onRebuild, rebuilding = false, selfHeale
           data-testid="kb-health-drift-alarm"
           className="mt-2 flex items-center justify-between gap-2 rounded-md border border-warning bg-warning px-3 py-2 dark:border-warning/60 dark:bg-warning/40"
         >
-          <p className="text-sm text-warning dark:text-warning">
+          <p className="text-sm text-warning">
             记忆漂移：truth_fold_drift={drift.value} &gt; 0，真相文件与快照重放不一致，建议执行全量重建。
           </p>
           <button
@@ -136,7 +136,7 @@ export function KbHealthView({ metrics, onRebuild, rebuilding = false, selfHeale
           data-testid="kb-health-drift-selfhealed"
           className="mt-2 rounded-md border border-success bg-success px-3 py-2 dark:border-success/60 dark:bg-success/40"
         >
-          <p className="text-sm text-success dark:text-success">
+          <p className="text-sm text-success">
             漂移已自动修复：{selfHealedFiles!.length} 类真相文件经投影注册表重建，复测 drift=0。
           </p>
         </div>

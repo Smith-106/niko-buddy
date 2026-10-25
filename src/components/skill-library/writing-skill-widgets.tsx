@@ -75,7 +75,7 @@ export function SortableCategoryItem({
       style={style}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className={`group relative ${isDragging ? "z-10 opacity-80 shadow-md" : ""}`}
+      className={`group relative ${isDragging ? "z-10 opacity-80 elevation-2" : ""}`}
     >
       {isEditing ? (
         <div className="flex items-center gap-1 rounded-md px-2 py-1">

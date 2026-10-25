@@ -110,7 +110,7 @@ export function UnpackOutlineDialog({
 
           {chapters.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-8 border rounded-lg bg-muted/20 text-center gap-2">
-              <AlertCircle className="h-8 w-8 text-amber-500/80" />
+              <AlertCircle className="h-8 w-8 text-warning/80" />
               <div className="text-sm font-medium">未能在大纲中识别出章节标题</div>
               <p className="text-xs text-muted-foreground max-w-sm">
                 请确保大纲包含类似 <code>## 第1章 标题</code>、<code>### 第十二回 标题</code> 或 <code>Chapter 1</code> 格式的章节划分。
@@ -133,7 +133,7 @@ export function UnpackOutlineDialog({
                       {ch.summary}
                     </p>
                   ) : (
-                    <span className="text-muted-foreground/60 italic">（无细纲摘要）</span>
+                    <span className="text-muted-foreground italic">（无细纲摘要）</span>
                   )}
                 </div>
               ))}

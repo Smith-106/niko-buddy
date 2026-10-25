@@ -70,7 +70,7 @@ export function SkillLibrarySection() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   {skill.description}
                 </p>
-                <p className="mt-1 text-xs text-muted-foreground/80">
+                <p className="mt-1 text-xs text-muted-foreground">
                   用途：{skill.usage}
                 </p>
               </div>

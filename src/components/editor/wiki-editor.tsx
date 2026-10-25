@@ -242,7 +242,7 @@ function WritingTextarea({
       {selection && toolbarPosition && onSelectionAction ? (
         <div
           data-selection-toolbar="true"
-          className="fixed z-30 flex items-center gap-1 rounded-full border border-border/80 bg-background/95 px-2 py-1 shadow-lg backdrop-blur"
+          className="fixed z-30 flex items-center gap-1 rounded-full border border-border/80 bg-background/95 px-2 py-1 elevation-3 backdrop-blur"
           style={{ top: toolbarPosition.top, left: toolbarPosition.left, transform: "translate(-50%, -100%)" }}
         >
           <button
@@ -428,7 +428,7 @@ export function WikiEditor({
           type="button"
           onClick={() => setMode((m) => (m === "read" ? "edit" : "read"))}
           title={mode === "read" ? "Edit (raw markdown)" : "Done editing"}
-          className="absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-md border border-border/60 bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"
+          className="absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-md border border-border/60 bg-background/90 px-2 py-1 text-xs text-muted-foreground elevation-1 hover:bg-accent hover:text-foreground"
         >
           {mode === "read" ? <Pencil className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
           {mode === "read" ? "Edit" : "Done"}

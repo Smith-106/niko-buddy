@@ -199,7 +199,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
     <div className="flex h-screen flex-col bg-background text-foreground">
       <TitleBar onOpenCommandPalette={() => setCommandPaletteOpen(true)} />
       {latestOutlineTask && (
-        <div className="fixed bottom-3 right-3 z-50 w-80 rounded-lg border bg-background p-3 shadow-lg">
+        <div className="fixed bottom-3 right-3 z-50 w-80 rounded-lg border bg-background p-3 elevation-3">
           <div className="text-sm font-medium">
             {latestOutlineTask.status === "generating"
               ? latestOutlineTask.kind === "refine"
@@ -259,7 +259,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
       )}
       {/* 拆书分析后台任务通知 */}
       {latestBookAnalysisTask && (
-        <div className={`fixed z-50 w-80 rounded-lg border bg-background p-3 shadow-lg ${latestOutlineTask ? "bottom-[calc(0.75rem+13rem)]" : "bottom-3"} right-3`}>
+        <div className={`fixed z-50 w-80 rounded-lg border bg-background p-3 elevation-3 ${latestOutlineTask ? "bottom-[calc(0.75rem+13rem)]" : "bottom-3"} right-3`}>
           <button
             type="button"
             onClick={() => {
@@ -340,7 +340,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
         </div>
       )}
       {!isSettings && !usageGuidePromptDismissed && (
-        <div data-testid="usage-guide-prompt" className="fixed bottom-4 left-48 z-50 w-56 rounded-lg border border-primary/40 bg-background/95 p-3 shadow-xl backdrop-blur">
+        <div data-testid="usage-guide-prompt" className="fixed bottom-4 left-48 z-50 w-56 rounded-lg border border-primary/40 bg-background/95 p-3 elevation-3 backdrop-blur">
           <button
             type="button"
             onClick={dismissUsageGuidePrompt}

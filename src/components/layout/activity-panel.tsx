@@ -382,7 +382,7 @@ function QueueRow({ task, onRetry, onCancel }: { task: IngestTask; onRetry: (id:
         <div className="min-w-0 flex-1">
           <div className="font-medium truncate">{fileName}</div>
           {task.folderContext && (
-            <div className="text-xs text-muted-foreground/70 truncate">{task.folderContext}</div>
+            <div className="text-xs text-muted-foreground truncate">{task.folderContext}</div>
           )}
           {task.status === "failed" && task.error && (
             <div className="text-xs text-destructive mt-0.5 truncate">{task.error}</div>
@@ -441,7 +441,7 @@ function FileSyncRow({ task, onRetry, onIgnore }: { task: FileChangeTask; onRetr
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{fileName}</div>
-          <div className="truncate text-xs text-muted-foreground/70">{kindLabel} - {task.path}</div>
+          <div className="truncate text-xs text-muted-foreground">{kindLabel} - {task.path}</div>
           {task.status === "failed" && task.error && (
             <div className="mt-0.5 truncate text-xs text-destructive">{mapFileSyncError(task.error)}</div>
           )}
@@ -527,7 +527,7 @@ function ActivityRow({ item, onCancel }: { item: ActivityItem; onCancel?: () => 
                 className="flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
               >
                 <Icon className="h-3 w-3 shrink-0" />
-                <span className="text-xs font-medium text-muted-foreground/70 w-14 shrink-0">{type}</span>
+                <span className="text-xs font-medium text-muted-foreground w-14 shrink-0">{type}</span>
                 <span className="min-w-0 truncate">{fileName}</span>
               </button>
             )

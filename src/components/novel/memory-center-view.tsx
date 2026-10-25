@@ -461,14 +461,14 @@ export function MemoryCenterView() {
           </div>
         ) : null}
         {statusMessage ? (
-          <div className="mb-4 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success dark:text-success">
+          <div className="mb-4 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
             {statusMessage}
           </div>
         ) : null}
 
         {!selectedMemoryCenterEntry ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
-            <FileText className="h-8 w-8 text-muted-foreground/30" />
+            <FileText className="h-8 w-8 text-muted-foreground" />
             <p>{t("novel.memoryCenter.selectPrompt")}</p>
             <p className="text-xs">{t("novel.memoryCenter.selectHint")}</p>
           </div>
@@ -703,7 +703,7 @@ function DeleteMemoryConfirmDialog({
           if (deleting) event.preventDefault()
         }}
       >
-      <div className="w-full max-w-md rounded-lg border border-destructive/60 bg-background shadow-xl outline-none">
+      <div className="w-full max-w-md rounded-lg border border-destructive/60 bg-background elevation-3 outline-none">
         <div className="flex items-start gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-3 text-destructive">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
           <div className="min-w-0">

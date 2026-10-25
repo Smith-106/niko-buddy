@@ -123,10 +123,10 @@ function demoEvents(): RunEvent[] {
 function KpiCard({ label, value, tone, max }: { label: string; value: number; tone: string; max: number }) {
   const ratio = max > 0 ? Math.min(1, value / max) : 0
   return (
-    <div className="rounded border border-slate-800 bg-slate-900/60 px-2 py-1.5">
-      <div className="text-[11px] text-slate-400">{label}</div>
-      <div className="text-lg font-bold tabular-nums text-slate-100">{value}</div>
-      <div className="mt-1 h-0.5 w-full bg-slate-800">
+    <div className="rounded border border-border bg-card px-2 py-1.5">
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className="text-lg font-bold tabular-nums text-foreground">{value}</div>
+      <div className="mt-1 h-0.5 w-full bg-muted">
         <div className="h-0.5" style={{ width: `${Math.round(ratio * 100)}%`, background: tone }} />
       </div>
     </div>
@@ -378,31 +378,31 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
   return (
     <section
       data-testid="pipeline-motion-panel"
-      className="overflow-x-auto rounded-md border border-slate-800 bg-slate-950 p-3 font-mono text-slate-100"
+      className="overflow-x-auto rounded-md border border-border bg-card p-3 font-mono text-foreground"
     >
       <style>{`.motion-glow{filter:drop-shadow(0 0 6px rgba(56,189,248,.65))}.motion-glow-red{filter:drop-shadow(0 0 6px rgba(248,81,73,.75))}.motion-glow-amber{filter:drop-shadow(0 0 6px rgba(245,158,11,.6))}.motion-pulse-dot{filter:drop-shadow(0 0 6px currentColor)}`}</style>
       <header className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-center text-sm font-semibold tracking-widest text-slate-100">
+          <h3 className="text-center text-sm font-semibold tracking-widest text-foreground">
             NIKO-BUDDY · 完整寫作管線 · 目標 → 定稿 → 回流
           </h3>
           <button
             type="button"
             data-testid="motion-replay-toggle"
             onClick={toggleReplay}
-            className="ml-auto rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-300 hover:bg-slate-800"
+            className="ml-auto rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-300 hover:bg-muted"
           >
             {finished ? "↻ 重新回放 / 退出" : replaying ? "■ 停止回放" : "▶ 流程回放 / 步進演示"}
           </button>
         </div>
         {showingDemo ? (
-          <p data-testid="motion-demo-note" className="text-center text-xs text-amber-400">
+          <p data-testid="motion-demo-note" className="text-center text-xs text-warning">
             演示模式：內置示例事件流（取證→生成→審稿門返修→v2通過→入庫→回流），退出恢復原狀
           </p>
         ) : null}
         <div
           data-testid="motion-legend"
-          className="flex flex-wrap items-center justify-center gap-3 text-xs text-slate-400"
+          className="flex flex-wrap items-center justify-center gap-3 text-xs text-muted-foreground"
         >
           <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#38bdf8]" />當前路徑</span>
           <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#f59e0b]" />外部依賴</span>
@@ -421,21 +421,21 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
           <KpiCard label="入庫章節" value={counts.chapters} tone="#34d399" max={maxCount} />
         </div>
         {/* 契约統計條：完整文本保留，兼容既有單測配對 */}
-        <p data-testid="motion-stats" className="text-center text-xs text-slate-400">
-          事件 <b className="text-slate-100">{counts.events}</b>
-          {" · "}取證 <b className="text-slate-100">{counts.evidence}</b>
-          {" · "}生成 <b className="text-slate-100">{counts.generated}</b>
-          {" · "}門運行 <b className="text-slate-100">{counts.gates}</b>
-          {" · "}通過 <b className="text-slate-100">{counts.passed}</b>
-          {" · "}返工 <b className="text-red-400">{counts.reworks}</b>
-          {" · "}接收 <b className="text-slate-100">{counts.accepts}</b>
-          {" · "}錯誤 <b className="text-red-400">{counts.errors}</b>
-          {" · "}章節 <b className="text-slate-100">{counts.chapters}</b>
+        <p data-testid="motion-stats" className="text-center text-xs text-muted-foreground">
+          事件 <b className="text-foreground">{counts.events}</b>
+          {" · "}取證 <b className="text-foreground">{counts.evidence}</b>
+          {" · "}生成 <b className="text-foreground">{counts.generated}</b>
+          {" · "}門運行 <b className="text-foreground">{counts.gates}</b>
+          {" · "}通過 <b className="text-foreground">{counts.passed}</b>
+          {" · "}返工 <b className="text-destructive">{counts.reworks}</b>
+          {" · "}接收 <b className="text-foreground">{counts.accepts}</b>
+          {" · "}錯誤 <b className="text-destructive">{counts.errors}</b>
+          {" · "}章節 <b className="text-foreground">{counts.chapters}</b>
         </p>
       </header>
 
       {isEmpty ? (
-        <p data-testid="motion-empty" className="py-8 text-center text-xs text-slate-500">
+        <p data-testid="motion-empty" className="py-8 text-center text-xs text-muted-foreground">
           尚無運行事件：主控跑過一次章節工作流，藍色當前路徑才會亮起（不播演示動畫）。
         </p>
       ) : (
@@ -557,17 +557,17 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
         </svg>
       )}
 
-      <div className="mt-2 border-t border-slate-800 pt-2">
-        <p className="text-xs text-slate-500">session log</p>
+      <div className="mt-2 border-t border-border pt-2">
+        <p className="text-xs text-muted-foreground">session log</p>
         {(resolved.log.length === 0) ? (
-          <p data-testid="motion-log-empty" className="text-xs text-slate-500">
+          <p data-testid="motion-log-empty" className="text-xs text-muted-foreground">
             （空）
           </p>
         ) : (
           <ul data-testid="motion-log" className="max-h-36 space-y-0.5 overflow-y-auto rounded bg-black/40 p-2 text-xs">
             {resolved.log.slice(-8).map((entry, index) => (
               <li key={`${entry.ts}-${index}`} className="flex items-center gap-2">
-                <span className="shrink-0 text-slate-500 tabular-nums">{entry.ts}</span>
+                <span className="shrink-0 text-muted-foreground tabular-nums">{entry.ts}</span>
                 <span
                   className="shrink-0 rounded px-1"
                   style={{ color: logToneColor(entry.tone), border: `1px solid ${logToneColor(entry.tone)}55`, background: `${logToneColor(entry.tone)}11` }}
@@ -583,11 +583,11 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
           </ul>
         )}
         {/* CLI 命令狀態欄：提示符 + 階段膠囊條 */}
-        <div data-testid="motion-status" className="mt-1 flex flex-wrap items-center gap-1.5 rounded bg-black/40 px-2 py-1.5 text-xs text-slate-400">
-          <span className="text-emerald-400">$</span>
+        <div data-testid="motion-status" className="mt-1 flex flex-wrap items-center gap-1.5 rounded bg-black/40 px-2 py-1.5 text-xs text-muted-foreground">
+          <span className="text-success">$</span>
           <span className="text-slate-300">niko-buddy pipeline --live</span>
           <span className="text-slate-600">|</span>
-          <span className="text-slate-500">階段</span>
+          <span className="text-muted-foreground">階段</span>
           {STAGE_CAPSULES.map((cap) => {
             const active = currentNode?.id === cap.id
             return (
@@ -595,13 +595,13 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
                 key={cap.id}
                 data-stage={cap.id}
                 data-active={active ? "true" : "false"}
-                className={active ? "rounded border border-sky-400/60 bg-sky-400/10 px-1 text-sky-300" : "rounded border border-slate-800 px-1 text-slate-500"}
+                className={active ? "rounded border border-info/40 bg-info/10 px-1 text-info" : "rounded border border-border px-1 text-muted-foreground"}
               >
                 [{cap.label}]
               </span>
             )
           })}
-          <span className="ml-auto text-slate-500">
+          <span className="ml-auto text-muted-foreground">
             {currentNode ? <>當前路徑 [{currentNode.label}]{lastLog ? ` · ${lastLog.label}` : ""}</> : <>未在運行{lastLog ? ` · 上次：${lastLog.label}` : ""}</>}
           </span>
         </div>

@@ -87,7 +87,7 @@ export function BookAnalysisStyleCard({ book, extracting, onExtractStyle, onTogg
                   <div className="font-medium">{t("bookAnalysis.representativeExcerpt")}</div>
                   <div className="mt-1 space-y-2">
                     {profile.samples.map((sample, i) => (
-                      <div key={i} className="text-muted-foreground leading-5 border-l-2 border-primary/30 pl-2">
+                      <div key={`sample-${sample.slice(0, 32)}-${i}`} className="text-muted-foreground leading-5 border-l-2 border-primary/30 pl-2">
                         {sample}
                       </div>
                     ))}

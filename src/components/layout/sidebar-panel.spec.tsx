@@ -134,8 +134,15 @@ const mocks = vi.hoisted(() => {
     dialogOpen: vi.fn<(options?: unknown) => Promise<unknown>>(async () => null),
     CHAPTER_IMPORT_EXTENSIONS: ["txt", "md", "mdx", "doc", "docx"],
     OUTLINE_IMPORT_EXTENSIONS: ["md", "mdx"],
+    toastError: vi.fn(),
+    toastInfo: vi.fn(),
+    toastSuccess: vi.fn(),
   }
 })
+
+vi.mock("@/lib/toast", () => ({
+  toast: { error: mocks.toastError, info: mocks.toastInfo, success: mocks.toastSuccess },
+}))
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
@@ -880,7 +887,7 @@ describe("SidebarPanel 知识模式（章节）", () => {
   })
 
   it("章节导入文件：空结果时 alert", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
     mocks.importChapterFiles.mockResolvedValue([])
     renderSidebar()
@@ -889,13 +896,13 @@ describe("SidebarPanel 知识模式（章节）", () => {
     fireEvent.click(screen.getByText("导入文件"))
     await waitFor(() => expect(screen.getByText("是否提取记忆")).toBeInTheDocument())
     fireEvent.click(screen.getByText("提取记忆"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("没有找到可导入的章节文档。"))
+    await waitFor(() => expect(mocks.toastInfo).toHaveBeenCalledWith("没有找到可导入的章节文档。"))
     await flushAsync()
     expect(mocks.importProgressActions.startTask).not.toHaveBeenCalled()
   })
 
   it("章节导入文件：失败时 alert 导入失败", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
     mocks.importChapterFiles.mockRejectedValue(new Error("chapter boom"))
@@ -905,7 +912,7 @@ describe("SidebarPanel 知识模式（章节）", () => {
     fireEvent.click(screen.getByText("导入文件"))
     await waitFor(() => expect(screen.getByText("是否提取记忆")).toBeInTheDocument())
     fireEvent.click(screen.getByText("提取记忆"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("导入失败：chapter boom"))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("导入失败：chapter boom"))
     await flushAsync()
     expect(console.error).toHaveBeenCalled()
   })
@@ -933,14 +940,14 @@ describe("SidebarPanel 知识模式（章节）", () => {
   })
 
   it("章节导入文件夹：无候选时 alert 并关闭菜单", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     mocks.dialogOpen.mockResolvedValue("/tmp/folder")
     mocks.collectChapterImportCandidatesFromFolder.mockResolvedValue([])
     renderSidebar()
 
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件夹"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("没有找到可导入的章节文档。"))
+    await waitFor(() => expect(mocks.toastInfo).toHaveBeenCalledWith("没有找到可导入的章节文档。"))
     expect(screen.queryByText("导入文件")).not.toBeInTheDocument()
   })
 
@@ -1082,7 +1089,7 @@ describe("SidebarPanel 知识模式（章节）", () => {
   })
 
   it("章节导入文件：非 Error 拒绝时 alert 字符串", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
     mocks.importChapterFiles.mockRejectedValue("chapter-boom-str")
@@ -1091,7 +1098,7 @@ describe("SidebarPanel 知识模式（章节）", () => {
     fireEvent.click(screen.getByText("导入文件"))
     await waitFor(() => screen.getByText("是否提取记忆"))
     fireEvent.click(screen.getByText("提取记忆"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("导入失败：chapter-boom-str"))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("导入失败：chapter-boom-str"))
     await flushAsync()
   })
 
@@ -1108,7 +1115,7 @@ describe("SidebarPanel 知识模式（章节）", () => {
   })
 
   it("章节导入文件夹：失败时 alert 导入失败（Error 对象）", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue("/tmp/folder")
     mocks.collectChapterImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/folder/a.md", name: "a.md" }])
@@ -1118,12 +1125,12 @@ describe("SidebarPanel 知识模式（章节）", () => {
     fireEvent.click(screen.getByText("导入文件夹"))
     await waitFor(() => screen.getByText("是否提取记忆"))
     fireEvent.click(screen.getByText("提取记忆"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("导入失败：folder-err"))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("导入失败：folder-err"))
     await flushAsync()
   })
 
   it("章节导入文件夹：非 Error 拒绝时 alert 导入失败（非 Error）", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue("/tmp/folder")
     mocks.collectChapterImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/folder/a.md", name: "a.md" }])
@@ -1133,7 +1140,7 @@ describe("SidebarPanel 知识模式（章节）", () => {
     fireEvent.click(screen.getByText("导入文件夹"))
     await waitFor(() => screen.getByText("是否提取记忆"))
     fireEvent.click(screen.getByText("提取记忆"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("导入失败：folder-boom-str"))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("导入失败：folder-boom-str"))
     await flushAsync()
     expect(console.error).toHaveBeenCalled()
   })
@@ -1304,24 +1311,24 @@ describe("SidebarPanel 文件模式（大纲）", () => {
   })
 
   it("大纲导入文件：空结果 alert", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     mocks.dialogOpen.mockResolvedValue(["/tmp/o1.md"])
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("没有找到可导入的大纲文档。"))
+    await waitFor(() => expect(mocks.toastInfo).toHaveBeenCalledWith("没有找到可导入的大纲文档。"))
     await flushAsync()
   })
 
   it("大纲导入文件：失败 alert 带消息", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue(["/tmp/o1.md"])
     mocks.importOutlineFiles.mockRejectedValue(new Error("outline boom"))
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("导入失败：{{message}}"))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("导入失败：{{message}}"))
     await flushAsync()
     expect(console.error).toHaveBeenCalled()
   })
@@ -1406,12 +1413,12 @@ describe("SidebarPanel 文件模式（大纲）", () => {
   })
 
   it("大纲导入文件夹：无候选时 alert 并关闭菜单", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("文件夹"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("没有找到可导入的大纲文档。"))
+    await waitFor(() => expect(mocks.toastInfo).toHaveBeenCalledWith("没有找到可导入的大纲文档。"))
     expect(screen.queryByText("文件夹")).not.toBeInTheDocument()
   })
 
@@ -1548,14 +1555,14 @@ describe("SidebarPanel 文件模式（大纲）", () => {
   })
 
   it("大纲导入文件：非 Error 拒绝时 alert 失败", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue(["/tmp/o1.md"])
     mocks.importOutlineFiles.mockRejectedValue("outline-boom-str")
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("导入失败：{{message}}"))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("导入失败：{{message}}"))
     await flushAsync()
   })
 
@@ -1575,7 +1582,7 @@ describe("SidebarPanel 文件模式（大纲）", () => {
   })
 
   it("大纲导入文件夹：导入结果为空时 alert 并返回", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
     mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] }])
     mocks.importOutlineCandidates.mockResolvedValue([])
@@ -1584,13 +1591,13 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     fireEvent.click(screen.getByText("文件夹"))
     await waitFor(() => screen.getByText("是否提取记忆"))
     fireEvent.click(screen.getByText("提取记忆"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("没有找到可导入的大纲文档。"))
+    await waitFor(() => expect(mocks.toastInfo).toHaveBeenCalledWith("没有找到可导入的大纲文档。"))
     await flushAsync()
     expect(mocks.importProgressActions.startTask).not.toHaveBeenCalled()
   })
 
   it("大纲导入文件夹：非 Error 拒绝时 alert 失败", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
     mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] }])
@@ -1600,12 +1607,12 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     fireEvent.click(screen.getByText("文件夹"))
     await waitFor(() => screen.getByText("是否提取记忆"))
     fireEvent.click(screen.getByText("提取记忆"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("导入失败：{{message}}"))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("导入失败：{{message}}"))
     await flushAsync()
   })
 
   it("大纲导入文件夹：失败时 alert（Error 对象）", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
     mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] }])
@@ -1615,7 +1622,7 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     fireEvent.click(screen.getByText("文件夹"))
     await waitFor(() => screen.getByText("是否提取记忆"))
     fireEvent.click(screen.getByText("提取记忆"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("导入失败：{{message}}"))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("导入失败：{{message}}"))
     await flushAsync()
     expect(console.error).toHaveBeenCalledWith(
       expect.stringContaining("[SidebarPanel] outline folder import failed:"),

@@ -159,7 +159,7 @@ export function AutonomousIncubatorDialog({
             {/* 核心灵感输入 */}
             <div className="flex flex-col gap-1.5">
               <Label className="text-xs font-semibold">
-                核心创意 / 灵感点子 <span className="text-rose-500">*</span>
+                核心创意 / 灵感点子 <span className="text-destructive">*</span>
               </Label>
               <Textarea
                 rows={3}
@@ -259,14 +259,14 @@ export function AutonomousIncubatorDialog({
                         key={st.key}
                         className={`flex items-center gap-2 p-1.5 rounded text-xs border ${
                           isDone
-                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                            ? "bg-success/10 text-success border-success/40"
                             : isCurrent
                               ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30 animate-pulse"
                               : "bg-muted/30 text-muted-foreground border-border/40"
                         }`}
                       >
                         {isDone ? (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                          <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" />
                         ) : (
                           <Icon className="h-3.5 w-3.5 shrink-0" />
                         )}
@@ -281,8 +281,8 @@ export function AutonomousIncubatorDialog({
         ) : (
           /* 孵化成果报告卡片 */
           <div className="flex flex-col gap-3 py-2 overflow-y-auto text-xs">
-            <div className="flex items-center gap-2 p-3 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 rounded border border-emerald-500/20">
-              <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
+            <div className="flex items-center gap-2 p-3 bg-success/10 text-success rounded border border-success/40">
+              <CheckCircle2 className="h-5 w-5 text-success shrink-0" />
               <div>
                 <p className="font-semibold text-sm">《{result.incubation.title}》全自动孵化大获成功！</p>
                 <p className="text-xs text-muted-foreground mt-0.5">

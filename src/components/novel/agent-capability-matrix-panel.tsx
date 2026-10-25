@@ -95,7 +95,7 @@ export function AgentCapabilityMatrixPanel({
               className={
                 !resolved.skillsLoaded || row.matchedSkills.length > 0
                   ? "rounded border border-border p-1.5 text-xs"
-                  : "rounded border border-amber-500/40 bg-amber-500/5 p-1.5 text-xs text-amber-800 dark:text-amber-300"
+                  : "rounded border border-warning/40 bg-warning/5 p-1.5 text-xs text-warning"
               }
             >
               <b>{row.label}</b>
@@ -115,7 +115,7 @@ export function AgentCapabilityMatrixPanel({
               </div>
               {row.missingCapabilities.length > 0 ? (
                 <div
-                  className="text-xs text-amber-700 dark:text-amber-400"
+                  className="text-xs text-warning"
                   data-testid={`agent-capability-missing-${row.roleId}`}
                 >
                   缺口：{row.missingCapabilities.join("、")}
@@ -128,7 +128,7 @@ export function AgentCapabilityMatrixPanel({
 
       {resolved.missingCapabilities.length > 0 ? (
         <p
-          className="text-xs text-amber-800 dark:text-amber-300"
+          className="text-xs text-warning"
           data-testid="agent-capability-global-missing"
         >
           全角色合起来仍无人覆盖：{resolved.missingCapabilities.join("、")}

@@ -707,9 +707,8 @@ describe("useCharacterExtraction", () => {
     expect(mocks.extractSingleProfile).not.toHaveBeenCalled()
   })
 
-  it("resume: 未配置 LLM → alert 提示", async () => {
+  it("resume: 未配置 LLM → toast 提示", async () => {
     mocks.wiki.llmConfig = null
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
     mocks.bookAnalysis.tasks = [
       { id: "task-1", metadata: { failedCharacterNames: ["林烬"] }, characters: deepCharacters },
     ]
@@ -717,12 +716,10 @@ describe("useCharacterExtraction", () => {
     await act(async () => {
       await result.current.handleResumeFailedExtraction("task-1")
     })
-    expect(alertSpy).toHaveBeenCalledWith("未配置 LLM，请先在设置中配置")
-    alertSpy.mockRestore()
+    expect(mocks.toast.error).toHaveBeenCalledWith("未配置 LLM，请先在设置中配置")
   })
 
-  it("resume: 无 sourceBook → alert 提示", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+  it("resume: 无 sourceBook → toast 提示", async () => {
     mocks.bookAnalysis.tasks = [
       { id: "task-1", metadata: { failedCharacterNames: ["林烬"] }, characters: deepCharacters },
     ]
@@ -730,12 +727,10 @@ describe("useCharacterExtraction", () => {
     await act(async () => {
       await result.current.handleResumeFailedExtraction("task-1")
     })
-    expect(alertSpy).toHaveBeenCalledWith("找不到原始作品路径，无法继续生成")
-    alertSpy.mockRestore()
+    expect(mocks.toast.error).toHaveBeenCalledWith("找不到原始作品路径，无法继续生成")
   })
 
-  it("resume: 读取原始章节失败 → alert 提示", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+  it("resume: 读取原始章节失败 → toast 提示", async () => {
     mocks.readFile.mockRejectedValue(new Error("no file"))
     mocks.bookAnalysis.tasks = [
       { id: "task-1", metadata: { failedCharacterNames: ["林烬"], sourceBook: "/books/b1" }, characters: deepCharacters },
@@ -744,8 +739,7 @@ describe("useCharacterExtraction", () => {
     await act(async () => {
       await result.current.handleResumeFailedExtraction("task-1")
     })
-    expect(alertSpy).toHaveBeenCalledWith("无法读取原始章节内容，请重新发起提取")
-    alertSpy.mockRestore()
+    expect(mocks.toast.error).toHaveBeenCalledWith("无法读取原始章节内容，请重新发起提取")
   })
 
   it("resume: 成功/失败混合 → 更新角色、回写 stillFailed、partial 状态、重生成技能", async () => {

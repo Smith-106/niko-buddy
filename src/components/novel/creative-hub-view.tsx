@@ -196,7 +196,7 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
             <ul className="space-y-2">
               {next.map((item, index) => (
                 <li
-                  key={index}
+                  key={`${item.code ?? item.text.slice(0, 32)}-${index}`}
                   data-testid="creative-next"
                   className={cn(
                     "rounded-md border px-3 py-2",

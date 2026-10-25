@@ -153,7 +153,7 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
             onClick={() => setOpen(false)}
           />
           <div
-            className="fixed z-50 rounded-md border bg-popover p-1 shadow-md"
+            className="fixed z-50 rounded-md border bg-popover p-1 elevation-2"
             style={{
               left: dropdownStyle.left,
               top: dropdownStyle.top,

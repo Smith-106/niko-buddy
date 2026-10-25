@@ -216,7 +216,7 @@ export function GenreLibraryView({ projectPath, snapshot: snapshotOverride }: Ge
               </span>
             </p>
             {snapshotError !== null ? (
-              <p data-testid="genre-snapshot-error" className="mt-1 text-xs text-red-700 dark:text-red-300">
+              <p data-testid="genre-snapshot-error" className="mt-1 text-xs text-destructive">
                 读取失败：{snapshotError}
               </p>
             ) : null}

@@ -416,7 +416,7 @@ export function useCharacterExtraction({
       ? resolveModelConfig(resumeStoreState.aiChatModel, resumeStoreState.llmConfig, resumeStoreState.providerConfigs)
       : resumeStoreState.llmConfig
     if (!llmConfig) {
-      alert("未配置 LLM，请先在设置中配置")
+      toast.error("未配置 LLM，请先在设置中配置")
       return
     }
     const { streamChat } = await import("@/lib/llm-client")
@@ -438,7 +438,7 @@ export function useCharacterExtraction({
     const taskMetadata = task.metadata
     const sourceBook = taskMetadata?.sourceBook
     if (!taskMetadata || !sourceBook) {
-      alert("找不到原始作品路径，无法继续生成")
+      toast.error("找不到原始作品路径，无法继续生成")
       return
     }
     const samples: string[] = []
@@ -446,7 +446,7 @@ export function useCharacterExtraction({
       const raw = await readFile(joinPath(sourceBook, "chapters", "1.md"))
       samples.push(`【第 1 章】\n${raw.replace(/^---[\s\S]*?---\n/, "").slice(0, 1500)}`)
     } catch {
-      alert("无法读取原始章节内容，请重新发起提取")
+      toast.error("无法读取原始章节内容，请重新发起提取")
       return
     }
     const chapterSamples = samples.join("\n\n")

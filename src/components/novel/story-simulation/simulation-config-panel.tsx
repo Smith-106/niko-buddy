@@ -117,7 +117,7 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
               <p className="mb-1.5 text-xs font-medium text-muted-foreground">{t("storySimulation.modeFeatures")}</p>
               <ul className="space-y-1">
                 {selectedModeInfo.features.map((feature, i) => (
-                  <li key={i} className="flex items-start gap-1.5 text-xs">
+                  <li key={`feature-${feature.slice(0, 32)}-${i}`} className="flex items-start gap-1.5 text-xs">
                     <span className="text-primary">•</span>
                     <span>{feature}</span>
                   </li>
@@ -127,7 +127,7 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
 
             <div className="rounded-md bg-primary/5 p-2 text-xs">
               <span className="font-medium text-primary">{t("storySimulation.bestFor")}</span>
-              <span className="text-foreground/80"> {selectedModeInfo.bestFor}</span>
+              <span className="text-foreground"> {selectedModeInfo.bestFor}</span>
             </div>
           </div>
         )}

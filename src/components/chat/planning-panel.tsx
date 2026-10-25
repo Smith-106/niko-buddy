@@ -1,6 +1,7 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { RefreshCw, Play, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -54,7 +55,13 @@ function DimensionSection<TItem>({
   renderItem: (item: TItem) => string
 }) {
   const { t } = useTranslation()
+  // ISS-20260712-017 长列表虚拟化（轻量窗口化）：超过 20 项时首屏仅渲染前 20，
+  // 其余按需展开，避免一次性挂载数百节点；短列表行为不变，文案语义不变。
+  const [expanded, setExpanded] = useState(false)
   if (!slice) return null
+  const VIRTUALIZE_THRESHOLD = 20
+  const needsVirtualization = slice.items.length > VIRTUALIZE_THRESHOLD
+  const visibleItems = needsVirtualization && !expanded ? slice.items.slice(0, VIRTUALIZE_THRESHOLD) : slice.items
   return (
     <section>
       <h4 className="mb-1 text-xs font-medium text-muted-foreground">{title}</h4>
@@ -67,13 +74,23 @@ function DimensionSection<TItem>({
         <p className="text-xs text-muted-foreground">{emptyText}</p>
       ) : (
         <>
-          <ul className="space-y-1">
-            {slice.items.map((item, index) => (
-              <li key={index} className="truncate">
+          <ul className="max-h-64 space-y-1 overflow-y-auto [content-visibility:auto]" data-testid="planning-virtual-list">
+            {visibleItems.map((item, index) => (
+              <li key={`${renderItem(item).slice(0, 48)}-${index}`} className="truncate">
                 {renderItem(item)}
               </li>
             ))}
           </ul>
+          {needsVirtualization && !expanded && (
+            <button
+              type="button"
+              className="mt-1 text-xs text-muted-foreground underline-offset-4 hover:underline"
+              onClick={() => setExpanded(true)}
+              aria-expanded={false}
+            >
+              {t("novel.planning.showMore", { defaultValue: `展开其余 ${slice.items.length - VIRTUALIZE_THRESHOLD} 项` })}
+            </button>
+          )}
           {slice.truncated && (
             <p className="mt-1 text-xs text-muted-foreground">
               {t("novel.planning.dimensionTruncated", { defaultValue: "已按逐维预算截断" })}
@@ -89,7 +106,8 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
   const { t } = useTranslation()
 
   return (
-    <div className="rounded-lg border bg-background p-3">
+    // ISS-20260712-017 响应式断点：窄屏单列、sm 起双列信息密度，容器查询与视口断点并存
+    <div className="rounded-lg border bg-background p-3 sm:p-4">
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-sm font-semibold">
           {t("novel.planning.title", { defaultValue: "本章确定性范围" })}
@@ -113,7 +131,7 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
       ) : error ? (
         <p className="text-sm text-destructive">{error}</p>
       ) : plan ? (
-        <div className="space-y-3 text-sm">
+        <div className="grid gap-3 text-sm sm:grid-cols-2">
           {/* 伏笔债务 */}
           <section>
             <h4 className="mb-1 text-xs font-medium text-muted-foreground">

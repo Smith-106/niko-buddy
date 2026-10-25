@@ -300,7 +300,7 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
             aria-label={draft.embeddingEnabled ? t("settings.sections.llm.deactivate") : t("settings.sections.llm.activate")}
           >
             <span
-              className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform ${
+              className={`inline-block h-3.5 w-3.5 rounded-full bg-white elevation-1 ring-1 ring-black/10 transition-transform ${
                 draft.embeddingEnabled ? "translate-x-4" : "translate-x-0.5"
               }`}
             />

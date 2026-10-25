@@ -239,7 +239,7 @@ export function WorkflowEditorView({ projectPath, snapshot: snapshotOverride }: 
               <span className="sr-only">run-events.jsonl</span>
             </div>
             {snapshot.ledgerError !== null ? (
-              <p data-testid="workflow-ledger-error" role="alert" className="mt-1 text-xs text-red-700 dark:text-red-300">
+              <p data-testid="workflow-ledger-error" role="alert" className="mt-1 text-xs text-destructive">
                 账本读取失败：{snapshot.ledgerError}
               </p>
             ) : snapshot.ledgerEventCount === 0 ? (

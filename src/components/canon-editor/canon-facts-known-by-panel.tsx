@@ -127,7 +127,7 @@ export function CanonFactsKnownByPanel({
 
   return (
     <section
-      className="rounded-lg border bg-card p-4 shadow-sm"
+      className="rounded-lg border bg-card p-4 elevation-1"
       aria-label={t("canon.factsPanel.canonTitle")}
       data-testid="canon-facts-panel"
     >

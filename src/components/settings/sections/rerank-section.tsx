@@ -78,7 +78,7 @@ function SettingsToggle({
       aria-label={checked ? labelOn : labelOff}
     >
       <span
-        className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform ${
+        className={`inline-block h-3.5 w-3.5 rounded-full bg-white elevation-1 ring-1 ring-black/10 transition-transform ${
           checked ? "translate-x-4" : "translate-x-0.5"
         }`}
       />
@@ -480,8 +480,8 @@ function RerankEndpointField({
         <div
           className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
             preview.changed
-              ? "border-warning/40 bg-warning/5 text-warning dark:text-warning"
-              : "border-info/40 bg-info/5 text-info dark:text-info"
+              ? "border-warning/40 bg-warning/5 text-warning"
+              : "border-info/40 bg-info/5 text-info"
           }`}
         >
           {preview.changed ? (

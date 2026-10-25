@@ -100,9 +100,10 @@ export function PdfExportDialog({ projectPath, title, paragraphs, chapterPath }:
         {t("pdfexport.font.cjk")} · {t("pdfexport.font.ratio", { ratio: LINE_HEIGHT_RATIO })}
       </p>
 
-      <label className="flex flex-col gap-1 text-sm">
+      <label className="flex flex-col gap-1 text-sm" htmlFor="pdfexport-target-input">
         <span>{t("pdfexport.target.label")}</span>
         <input
+          id="pdfexport-target-input"
           className="rounded border px-2 py-1 text-sm"
           data-testid="pdfexport-target"
           value={target}

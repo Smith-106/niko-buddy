@@ -171,7 +171,7 @@ function Warnings({ items }: { items: string[] }) {
   return (
     <div className="text-warning text-xs space-y-1">
       {items.map((w, i) => (
-        <p key={i}>⚠ {w}</p>
+        <p key={`warning-${w.slice(0, 32)}-${i}`}>⚠ {w}</p>
       ))}
     </div>
   )

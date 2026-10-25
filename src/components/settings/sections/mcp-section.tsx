@@ -248,7 +248,7 @@ export function McpSection() {
                   aria-label={server.enabled ? t("settings.sections.mcp.disable") : t("settings.sections.mcp.enable")}
                 >
                   <span
-                    className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform ${
+                    className={`inline-block h-3.5 w-3.5 rounded-full bg-white elevation-1 ring-1 ring-black/10 transition-transform ${
                       server.enabled ? "translate-x-4" : "translate-x-0.5"
                     }`}
                   />

@@ -24,6 +24,8 @@ const mocks = vi.hoisted(() => {
     getRecentProjects: vi.fn<() => Promise<WikiProject[]>>(async () => []),
     removeFromRecentProjects: vi.fn(async () => {}),
     importBackup: vi.fn(),
+    toastSuccess: vi.fn(),
+    toastError: vi.fn(),
   }
 })
 
@@ -44,6 +46,10 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
 vi.mock("@/lib/project-store", () => ({
   getRecentProjects: mocks.getRecentProjects,
   removeFromRecentProjects: mocks.removeFromRecentProjects,
+}))
+
+vi.mock("@/lib/toast", () => ({
+  toast: { success: mocks.toastSuccess, error: mocks.toastError, info: vi.fn() },
 }))
 
 vi.mock("@/lib/backup/import", () => ({
@@ -93,7 +99,7 @@ beforeEach(() => {
   mocks.getRecentProjects.mockResolvedValue([])
   mocks.removeFromRecentProjects.mockReset()
   mocks.importBackup.mockReset()
-  vi.spyOn(window, "alert").mockImplementation(() => {})
+  // P2: window.alert → toast，通道迁移，文案不变
 })
 
 afterEach(() => {
@@ -198,7 +204,7 @@ describe("WelcomeScreen", () => {
     expect(screen.queryByText("welcome.recentProjects")).not.toBeInTheDocument()
   })
 
-  it("restores backup successfully: alert success + refreshes recent projects", async () => {
+  it("restores backup successfully: toast success + refreshes recent projects", async () => {
     mocks.importBackup.mockResolvedValue({
       success: true,
       projects: [{ success: true }, { success: false }],
@@ -214,7 +220,7 @@ describe("WelcomeScreen", () => {
     await waitFor(() => {
       expect(mocks.importBackup).toHaveBeenCalledWith("full", undefined, expect.any(Function))
     })
-    expect(window.alert).toHaveBeenCalledWith(
+    expect(mocks.toastSuccess).toHaveBeenCalledWith(
       "恢复成功！共恢复 1 个项目。\n请在列表中选择项目打开。",
     )
     await waitFor(() => {
@@ -225,12 +231,12 @@ describe("WelcomeScreen", () => {
     progressCb({ stage: "import", message: "extracting" })
   })
 
-  it("restores backup with success=false → alert failure with result.error", async () => {
+  it("restores backup with success=false → toast failure with result.error", async () => {
     mocks.importBackup.mockResolvedValue({ success: false, error: "zip corrupt", projects: [] })
     renderWelcome()
     fireEvent.click(screen.getByText("welcome.restoreBackup")); fireEvent.click(screen.getByText("welcome.restoreConfirmGo"))
     await waitFor(() => {
-      expect(window.alert).toHaveBeenCalledWith("恢复失败：zip corrupt")
+      expect(mocks.toastError).toHaveBeenCalledWith("恢复失败：zip corrupt")
     })
   })
 
@@ -239,25 +245,25 @@ describe("WelcomeScreen", () => {
     renderWelcome()
     fireEvent.click(screen.getByText("welcome.restoreBackup")); fireEvent.click(screen.getByText("welcome.restoreConfirmGo"))
     await waitFor(() => {
-      expect(window.alert).toHaveBeenCalledWith("恢复失败：未知错误")
+      expect(mocks.toastError).toHaveBeenCalledWith("恢复失败：未知错误")
     })
   })
 
-  it("restore throws an Error → alert with its message", async () => {
+  it("restore throws an Error → toast with its message", async () => {
     mocks.importBackup.mockRejectedValue(new Error("disk failure"))
     renderWelcome()
     fireEvent.click(screen.getByText("welcome.restoreBackup")); fireEvent.click(screen.getByText("welcome.restoreConfirmGo"))
     await waitFor(() => {
-      expect(window.alert).toHaveBeenCalledWith("恢复失败：disk failure")
+      expect(mocks.toastError).toHaveBeenCalledWith("恢复失败：disk failure")
     })
   })
 
-  it("restore throws a non-Error value → alert with String(value)", async () => {
+  it("restore throws a non-Error value → toast with String(value)", async () => {
     mocks.importBackup.mockRejectedValue("raw-string")
     renderWelcome()
     fireEvent.click(screen.getByText("welcome.restoreBackup")); fireEvent.click(screen.getByText("welcome.restoreConfirmGo"))
     await waitFor(() => {
-      expect(window.alert).toHaveBeenCalledWith("恢复失败：raw-string")
+      expect(mocks.toastError).toHaveBeenCalledWith("恢复失败：raw-string")
     })
   })
 

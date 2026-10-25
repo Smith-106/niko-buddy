@@ -112,7 +112,7 @@ export function HistoryResultsModal({
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="mx-4 flex max-h-[70vh] w-full max-w-md flex-col rounded-lg bg-background shadow-xl">
+      <div className="mx-4 flex max-h-[70vh] w-full max-w-md flex-col rounded-lg bg-background elevation-3">
         {/* 头部 */}
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-2">
@@ -177,12 +177,12 @@ export function HistoryResultsModal({
                         </span>
                       )}
                       {result.status === "degraded" && (
-                        <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive dark:text-destructive">
+                        <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive">
                           {t("storySimulation.badgeDegraded")}
                         </span>
                       )}
                       {(result.status === "partial" || result.status === "cancelled") && (
-                        <span className="shrink-0 rounded bg-warning/10 px-1.5 py-0.5 text-xs text-warning dark:text-warning">
+                        <span className="shrink-0 rounded bg-warning/10 px-1.5 py-0.5 text-xs text-warning">
                           {t("storySimulation.badgePartial")}
                         </span>
                       )}

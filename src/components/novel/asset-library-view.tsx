@@ -287,7 +287,7 @@ export function AssetLibraryView({ projectPath, snapshots, deps, migrateRelation
                     {present && conserved ? (
                       <span
                         data-testid={`asset-library-conserved-${libraryId}`}
-                        className="flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+                        className="flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-success"
                       >
                         <CheckCircle2 className="h-3 w-3" />
                         守恒校验通过
@@ -296,7 +296,7 @@ export function AssetLibraryView({ projectPath, snapshots, deps, migrateRelation
                     {present && !conserved ? (
                       <span
                         data-testid={`asset-library-drift-${libraryId}`}
-                        className="flex items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-red-900 dark:bg-red-950/40 dark:text-red-200"
+                        className="flex items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 text-destructive"
                       >
                         <AlertTriangle className="h-3 w-3" />
                         守恒失配
@@ -309,14 +309,14 @@ export function AssetLibraryView({ projectPath, snapshots, deps, migrateRelation
                   </span>
                 </div>
                 {error ? (
-                  <p data-testid={`asset-library-error-${libraryId}`} className="mt-1 text-xs text-red-700 dark:text-red-300">
+                  <p data-testid={`asset-library-error-${libraryId}`} className="mt-1 text-xs text-destructive">
                     读取失败：{error}
                   </p>
                 ) : null}
                 {violationList.length > 0 ? (
                   <ul
                     data-testid={`asset-library-violations-${libraryId}`}
-                    className="mt-1 list-disc pl-5 text-xs text-amber-700 dark:text-amber-300"
+                    className="mt-1 list-disc pl-5 text-xs text-warning"
                   >
                     {violationList.map((violation) => (
                       <li key={violation}>{violation}</li>

@@ -94,13 +94,14 @@ function FilterBar({
   const { t } = useTranslation()
   return (
     <section
-      className="rounded-lg border bg-card p-4 shadow-sm"
+      className="rounded-lg border bg-card p-4 elevation-1"
       aria-label={t("canon.filter")}
     >
       <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1 text-sm" htmlFor="canon-filter-known-by-input">
           <span className="text-xs text-muted-foreground">{t("canon.filterKnownBy")}</span>
           <input
+            id="canon-filter-known-by-input"
             type="text"
             className="h-8 min-w-48 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
             placeholder={t("canon.filterPlaceholder")}
@@ -109,9 +110,10 @@ function FilterBar({
             data-testid="canon-filter-known-by"
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1 text-sm" htmlFor="canon-filter-valid-at-chapter-input">
           <span className="text-xs text-muted-foreground">{t("canon.filterValidAtChapter")}</span>
           <input
+            id="canon-filter-valid-at-chapter-input"
             type="number"
             className="h-8 w-28 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
             placeholder="章节号"
@@ -120,9 +122,10 @@ function FilterBar({
             data-testid="canon-filter-valid-at-chapter"
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1 text-sm" htmlFor="canon-filter-edge-kind-select">
           <span className="text-xs text-muted-foreground">{t("canon.filterEdgeKind")}</span>
           <select
+            id="canon-filter-edge-kind-select"
             className="h-8 rounded-md border bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-ring"
             value={edgeKind}
             onChange={(e) => onEdgeKind(e.target.value as EdgeKind | "all")}
@@ -470,7 +473,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
         data-testid="canon-editor-root"
       >
         <div className="w-full min-w-0 space-y-5">
-          <header className="rounded-lg border bg-card p-5 shadow-sm">
+          <header className="rounded-lg border bg-card p-5 elevation-1">
             <div className="flex items-center justify-between gap-3">
               <h1 className="text-xl font-semibold" data-testid="canon-editor-title">
                 设定校正（只读）
@@ -551,7 +554,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
       data-testid="canon-editor-root"
     >
       <div className="w-full min-w-0 space-y-5">
-        <header className="rounded-lg border bg-card p-5 shadow-sm">
+        <header className="rounded-lg border bg-card p-5 elevation-1">
           <div className="flex items-center justify-between gap-3">
             <h1 className="text-xl font-semibold" data-testid="canon-editor-title">
               设定校正
@@ -612,7 +615,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
           </div>
         )}
 
-        <section aria-label={t("canon.edgeList")} className="rounded-lg border bg-card p-4 shadow-sm">
+        <section aria-label={t("canon.edgeList")} className="rounded-lg border bg-card p-4 elevation-1">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold">{t("canon.edge")}</h2>
             <span className="text-xs text-muted-foreground">
@@ -677,7 +680,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
         {selected && (
           <section
             aria-label={t("canon.cognitionPanel")}
-            className="rounded-lg border bg-card p-4 shadow-sm"
+            className="rounded-lg border bg-card p-4 elevation-1"
             data-testid="correction-panel"
           >
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -703,7 +706,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="text-xs text-muted-foreground">{t("canon.filterKnownBy")}：</span>
               {draftKnownBy.length === 0 && (
-                <span className="text-xs italic text-muted-foreground/70">{t("canon.emptyUnknown")}</span>
+                <span className="text-xs italic text-muted-foreground">{t("canon.emptyUnknown")}</span>
               )}
               {draftKnownBy.map((pov) => (
                 <span

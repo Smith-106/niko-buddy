@@ -31,15 +31,16 @@ describe("EPIC-000 / ADR-31 / TASK-003: lifecycle-twin 结构不变量", () => {
     expect(matches, "工厂提取后不应存在手动 `const next: NovelSessionStatus = {` 块").toBeNull()
   })
 
-  it("buildNextStatus 调用点 >= 7 (1 定义 + 6 lifecycle 调用)", () => {
-    // 1 export function 定义 (line ~503) + 6 lifecycle 调用:
-    // persistDeepChapterCheckpoint / completeDeepChapterSession /
-    // pauseDeepChapterSession / blockDeepChapterSession /
-    // acceptDeepChapterDraft / rejectDeepChapterDraft。
-    // startDeepChapterSession 走 createBaseStatus (start 路径, 非工厂) 故不计。
-    // 若 count < 7, 说明有 lifecycle 函数退回手动块, 工厂覆盖不全。
+  it("buildNextStatus 调用点 == 2 (1 定义 + 1 通用调用；P0 #61 收敛)", () => {
+    // P0 #61 收敛：6 persist* 函数收敛为 persistCheckpointBaseWithinLock 单次批量
+    // 写盘（经 writeFilesAtomic），lifecycle 状态构造统一经 buildLifecycleStatus
+    // 别名（buildNextStatus 的同一函数别名，7 lifecycle 调用点：grep
+    // `buildLifecycleStatus\(` == 7）。buildNextStatus 字面仅剩 1 export function
+    // 定义（line ~900）+ 1 通用调用（appendStageMetric 内 updateNovelSessionStatus
+    // 回调，line ~1110）= 2 处。若 count != 2，说明有人绕过别名/重引手动块，
+    // 工厂覆盖不全。startDeepChapterSession 走 createBaseStatus（start 路径）故不计。
     const matches = source.match(/buildNextStatus\(/g) ?? []
-    expect(matches.length, "buildNextStatus 应有 1 定义 + 6 调用 = 7 处").toBeGreaterThanOrEqual(7)
+    expect(matches.length, "P0 #61 后 buildNextStatus 应仅剩 1 定义 + 1 通用调用 = 2 处（lifecycle 经 buildLifecycleStatus 别名 7 调用 + persistCheckpointBaseWithinLock 批量提交）").toBe(2)
   })
 
   it("persistCheckpointBase 调用点 >= 7 (1 定义 + 6 lifecycle 调用)", () => {

@@ -83,7 +83,7 @@ export function AssetExtractionGapPanel({ projection, input }: AssetExtractionGa
               data-testid={`asset-extraction-gap-${gap.code}-${
                 resolved.gaps.slice(0, index).filter((item) => item.code === gap.code).length
               }`}
-              className="rounded border border-sky-500/40 bg-sky-500/5 p-1.5 text-xs text-sky-800 dark:text-sky-300"
+              className="rounded border border-info/40 bg-info/5 p-1.5 text-xs text-info"
             >
               <b>{gap.code}</b> · {gap.subject}
               <div className="text-xs text-muted-foreground">{gap.detail}</div>

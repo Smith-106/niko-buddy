@@ -185,7 +185,7 @@ export function ReviewCenterView() {
           onClick={() => setStoryboardOpen(true)}
           data-storyboard-toggle="true"
           title={t("reviewCenter.storyboard.title")}
-          className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 rounded-full border bg-background px-3 py-2 text-xs font-medium shadow-md transition-colors hover:bg-accent hover:text-accent-foreground"
+          className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 rounded-full border bg-background px-3 py-2 text-xs font-medium elevation-2 transition-colors hover:bg-accent hover:text-accent-foreground"
         >
           <Clapperboard className="h-4 w-4" aria-hidden="true" />
           {t("reviewCenter.storyboard.toggle")}
@@ -195,7 +195,7 @@ export function ReviewCenterView() {
         <aside
           data-storyboard-panel="true"
           aria-label={t("reviewCenter.storyboard.title")}
-          className="absolute inset-y-0 right-0 z-30 flex w-[420px] max-w-[90%] flex-col border-l bg-background shadow-xl"
+          className="absolute inset-y-0 right-0 z-30 flex w-[420px] max-w-[90%] flex-col border-l bg-background elevation-3"
         >
           <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
             <div className="flex items-center gap-1">
@@ -237,7 +237,7 @@ export function ReviewCenterView() {
           onClick={() => setCraftOpen(true)}
           data-craft-toggle="true"
           title={t("reviewCenter.craftWorkbench")}
-          className="absolute bottom-4 right-20 z-20 flex items-center gap-1.5 rounded-full border bg-background px-3 py-2 text-xs font-medium shadow-md transition-colors hover:bg-accent hover:text-accent-foreground"
+          className="absolute bottom-4 right-20 z-20 flex items-center gap-1.5 rounded-full border bg-background px-3 py-2 text-xs font-medium elevation-2 transition-colors hover:bg-accent hover:text-accent-foreground"
         >
           <Wrench className="h-4 w-4" aria-hidden="true" />
           {t("reviewCenter.craftToggle")}
@@ -247,7 +247,7 @@ export function ReviewCenterView() {
         <aside
           data-craft-panel="true"
           aria-label={t("reviewCenter.craftWorkbench")}
-          className="absolute inset-y-0 right-0 z-30 flex w-[420px] max-w-[90%] flex-col border-l bg-background shadow-xl"
+          className="absolute inset-y-0 right-0 z-30 flex w-[420px] max-w-[90%] flex-col border-l bg-background elevation-3"
         >
           <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
             <div className="flex items-center gap-1">

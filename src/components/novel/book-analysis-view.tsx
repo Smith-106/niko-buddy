@@ -46,7 +46,7 @@ function dimensionTextClass(
   if (status === "done") return "text-muted-foreground"
   /* v8 ignore next */
   if (status === "failed") return "text-destructive"
-  return "text-muted-foreground/60"
+  return "text-muted-foreground"
 {/* v8 ignore stop */}
 }
 

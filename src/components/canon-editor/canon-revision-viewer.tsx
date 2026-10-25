@@ -168,7 +168,7 @@ export function CanonRevisionViewer({
 
   return (
     <section
-      className="rounded-lg border bg-card p-4 shadow-sm"
+      className="rounded-lg border bg-card p-4 elevation-1"
       aria-label={t("canon.revisionViewer.canonTitle")}
       data-testid="canon-revision-viewer"
     >
@@ -331,7 +331,7 @@ export function CanonRevisionViewer({
                     ? t("canon.revisionViewer.noStampGroup")
                     : t("canon.revisionViewer.groupLabel", { rev: group.revision })}
                 </span>
-                <span className="text-xs text-muted-foreground/70">
+                <span className="text-xs text-muted-foreground">
                   {t("canon.revisionViewer.factCount", { count: group.facts.length })}
                 </span>
               </div>

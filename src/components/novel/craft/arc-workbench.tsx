@@ -160,7 +160,7 @@ export function ArcWorkbench({ input, result, characterName }: ArcWorkbenchProps
                         ? "bg-primary text-primary-foreground"
                         : isCurrent
                           ? "border-2 border-primary bg-primary/10 text-primary"
-                          : "border border-muted-foreground/30 bg-muted/20 text-muted-foreground/50"
+                          : "border border-muted-foreground/30 bg-muted/20 text-muted-foreground"
                     }`}
                   >
                     {isPast ? (

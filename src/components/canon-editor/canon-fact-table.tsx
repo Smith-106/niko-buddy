@@ -78,7 +78,7 @@ export function CanonFactTable({ edges, maxRevision }: CanonFactTableProps) {
     }
   }
   return (
-    <div className="rounded-lg border bg-card shadow-sm">
+    <div className="rounded-lg border bg-card elevation-1">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="text-sm font-medium">
           事实表

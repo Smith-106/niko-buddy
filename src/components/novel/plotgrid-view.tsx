@@ -172,13 +172,13 @@ export function PlotgridView() {
           </div>
         ) : rows.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground">
-            <Table className="h-8 w-8 text-muted-foreground/40" />
+            <Table className="h-8 w-8 text-muted-foreground" />
             <p>{t("novel.plotgrid.noData")}</p>
             <p className="text-xs italic">{t("novel.plotgrid.noDataHint")}</p>
           </div>
         ) : chapters.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground">
-            <Table className="h-8 w-8 text-muted-foreground/40" />
+            <Table className="h-8 w-8 text-muted-foreground" />
             <p>{t("novel.plotgrid.noChapters")}</p>
             <p className="text-xs italic">{t("novel.plotgrid.noChaptersHint")}</p>
           </div>

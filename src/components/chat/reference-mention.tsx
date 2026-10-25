@@ -12,8 +12,8 @@ import { isImeComposing } from "@/lib/keyboard-utils"
 
 /** 彩色标签配色：角色蓝 / 章节绿 / 设定紫 */
 const KIND_STYLES: Record<string, string> = {
-  character: "border-info/40 bg-info/10 text-info dark:text-info",
-  chapter: "border-success/40 bg-success/10 text-success dark:text-success",
+  character: "border-info/40 bg-info/10 text-info",
+  chapter: "border-success/40 bg-success/10 text-success",
   setting: "border-purple-500/40 bg-purple-500/10 text-purple-600 dark:text-purple-400",
 }
 
@@ -171,7 +171,7 @@ export const ReferenceMention = forwardRef<ReferenceMentionHandle, {
         </div>
       )}
       {open && candidates.length > 0 && (
-        <ul className="max-h-48 overflow-y-auto rounded-md border bg-background shadow-md">
+        <ul className="max-h-48 overflow-y-auto rounded-md border bg-background elevation-2">
           {candidates.map((c, i) => (
             <li key={c.id}>
               <button

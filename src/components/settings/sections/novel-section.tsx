@@ -47,7 +47,7 @@ function NovelToggle({
       }`}
     >
       <span
-        className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
+        className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background elevation-3 ring-0 transition-transform ${
           checked ? "translate-x-5" : "translate-x-0"
         }`}
       />

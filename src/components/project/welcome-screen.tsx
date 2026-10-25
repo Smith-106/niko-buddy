@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
 import { importBackup } from "@/lib/backup/import"
 import { toErrorMessage } from "@/lib/utils"
+import { toast } from "@/lib/toast"
 
 interface WelcomeScreenProps {
   onCreateProject: () => void
@@ -58,12 +59,12 @@ export function WelcomeScreen({
         // 恢复成功后刷新最近项目列表
         const updated = await getRecentProjects()
         setRecentProjects(updated)
-        alert(`恢复成功！共恢复 ${result.projects.filter(p => p.success).length} 个项目。\n请在列表中选择项目打开。`)
+        toast.success(`恢复成功！共恢复 ${result.projects.filter(p => p.success).length} 个项目。\n请在列表中选择项目打开。`)
       } else {
-        alert(`恢复失败：${result.error || "未知错误"}`)
+        toast.error(`恢复失败：${result.error || "未知错误"}`)
       }
     } catch (e) {
-      alert(`恢复失败：${toErrorMessage(e)}`)
+      toast.error(`恢复失败：${toErrorMessage(e)}`)
     } finally {
       setIsRestoring(false)
     }
@@ -189,7 +190,7 @@ export function WelcomeScreen({
               if (e.target === e.currentTarget) setConfirmRestore(false)
             }}
           >
-            <div className="w-full max-w-sm rounded-lg border bg-background p-5 shadow-lg">
+            <div className="w-full max-w-sm rounded-lg border bg-background p-5 elevation-3">
               <h2 className="text-base font-semibold">
                 {t("welcome.restoreConfirmTitle", { defaultValue: "恢复先前数据？" })}
               </h2>

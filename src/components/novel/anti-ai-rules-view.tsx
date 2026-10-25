@@ -20,7 +20,7 @@ const SEVERITY_LABEL: Record<string, string> = {
 
 const SEVERITY_CLASS: Record<string, string> = {
   critical: "bg-destructive/10 text-destructive",
-  high: "bg-amber-500/15 text-amber-800 dark:text-amber-200",
+  high: "bg-warning/15 text-warning",
   medium: "bg-muted text-foreground",
   low: "bg-muted text-muted-foreground",
 }
@@ -150,12 +150,12 @@ export function AntiAiRulesView({ projectPath }: AntiAiRulesViewProps) {
       </p>
 
       {loadError ? (
-        <p data-testid="anti-ai-load-error" className="text-sm text-red-700 dark:text-red-300">
+        <p data-testid="anti-ai-load-error" className="text-sm text-destructive">
           {loadError}
         </p>
       ) : null}
       {saveError ? (
-        <p data-testid="anti-ai-save-error" className="text-sm text-red-700 dark:text-red-300">
+        <p data-testid="anti-ai-save-error" className="text-sm text-destructive">
           {saveError}
         </p>
       ) : null}

@@ -126,7 +126,7 @@ export function BookAnalysisInputDialog({
               <li>{t("bookAnalysis.capabilitySkills")}</li>
               <li>{t("bookAnalysis.capabilityLibrary")}</li>
             </ul>
-            <p className="text-xs mt-3 text-muted-foreground/80">
+            <p className="text-xs mt-3 text-muted-foreground">
               💡 提示：大型小说（500+章）分析耗时较长，支持随时暂停和继续
             </p>
           </div>

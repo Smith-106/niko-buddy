@@ -201,7 +201,7 @@ export function InterviewHistoryView() {
         if (e.target === e.currentTarget) handleClose()
       }}
     >
-      <div className="flex h-[80vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-background shadow-2xl">
+      <div className="flex h-[80vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-background elevation-3">
         {/* 头部 */}
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-2">

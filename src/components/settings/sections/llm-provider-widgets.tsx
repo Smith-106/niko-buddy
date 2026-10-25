@@ -211,7 +211,7 @@ export function PresetRow({
           aria-label={isEnabled ? t("settings.sections.llm.deactivate") : t("settings.sections.llm.activate")}
         >
           <span
-            className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform ${
+            className={`inline-block h-3.5 w-3.5 rounded-full bg-white elevation-1 ring-1 ring-black/10 transition-transform ${
               isEnabled ? "translate-x-4" : "translate-x-0.5"
             }`}
           />
@@ -333,7 +333,7 @@ export function PresetRow({
                   aria-label={t("settings.sections.llm.localCliIsolation")}
                 >
                   <span
-                    className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform ${
+                    className={`inline-block h-3.5 w-3.5 rounded-full bg-white elevation-1 ring-1 ring-black/10 transition-transform ${
                       localCliIsolation ? "translate-x-4" : "translate-x-0.5"
                     }`}
                   />
@@ -626,8 +626,8 @@ export function EndpointField({ value, mode, placeholder, onChange }: EndpointFi
         <div
           className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
             preview.changed
-              ? "border-warning/40 bg-warning/5 text-warning dark:text-warning"
-              : "border-info/40 bg-info/5 text-info dark:text-info"
+              ? "border-warning/40 bg-warning/5 text-warning"
+              : "border-info/40 bg-info/5 text-info"
           }`}
         >
           {preview.changed ? (
@@ -806,9 +806,9 @@ export function ClaudeCliStatusPill() {
       <div
         className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
           state === "ok"
-            ? "border-success/40 bg-success/5 text-success dark:text-success"
+            ? "border-success/40 bg-success/5 text-success"
             : state === "err"
-              ? "border-destructive/40 bg-destructive/5 text-destructive dark:text-destructive"
+              ? "border-destructive/40 bg-destructive/5 text-destructive"
               : "border-border bg-background/50 text-muted-foreground"
         }`}
       >
@@ -913,9 +913,9 @@ export function CodexCliStatusPill() {
       <div
         className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
           state === "ok"
-            ? "border-success/40 bg-success/5 text-success dark:text-success"
+            ? "border-success/40 bg-success/5 text-success"
             : state === "err"
-              ? "border-destructive/40 bg-destructive/5 text-destructive dark:text-destructive"
+              ? "border-destructive/40 bg-destructive/5 text-destructive"
               : "border-border bg-background/50 text-muted-foreground"
         }`}
       >
@@ -1015,9 +1015,9 @@ export function AntigravityCliStatusPill() {
       <div
         className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
           state === "ok"
-            ? "border-success/40 bg-success/5 text-success dark:text-success"
+            ? "border-success/40 bg-success/5 text-success"
             : state === "err"
-              ? "border-destructive/40 bg-destructive/5 text-destructive dark:text-destructive"
+              ? "border-destructive/40 bg-destructive/5 text-destructive"
               : "border-border bg-background/50 text-muted-foreground"
         }`}
       >
@@ -1141,9 +1141,9 @@ export function CursorProxyStatusBadge() {
       <div
         className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
           state === "ok"
-            ? "border-success/40 bg-success/5 text-success dark:text-success"
+            ? "border-success/40 bg-success/5 text-success"
             : state === "err"
-              ? "border-destructive/40 bg-destructive/5 text-destructive dark:text-destructive"
+              ? "border-destructive/40 bg-destructive/5 text-destructive"
               : "border-border bg-background/50 text-muted-foreground"
         }`}
       >

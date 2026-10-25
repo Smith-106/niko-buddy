@@ -699,7 +699,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
     <article
       key={key}
       onClick={() => void handleOpenDashItem(item)}
-      className={`group cursor-pointer rounded-lg border p-2 text-sm transition-all duration-150 hover:border-primary/60 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${config.bgColor}`}
+      className={`group cursor-pointer rounded-lg border p-2 text-sm transition-all duration-150 hover:border-primary/60 hover:elevation-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${config.bgColor}`}
       tabIndex={-1}
       data-dash-card={item.id}
       aria-label={`${item.message}（${t(formatDashItemDetail(item), item.detail)}）`}

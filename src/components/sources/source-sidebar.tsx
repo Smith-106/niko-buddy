@@ -20,6 +20,7 @@ import {
 } from "@/lib/source-lifecycle"
 import { getQueue } from "@/lib/ingest-queue"
 import type { KnowledgeCreateRequest } from "@/components/layout/knowledge-tree"
+import { toast } from "@/lib/toast"
 
 const SOURCE_TREE_INITIAL_ROWS = 160
 const SOURCE_TREE_LOAD_BATCH = 160
@@ -172,7 +173,7 @@ export function SourceSidebar({
   async function handleImportFiles() {
     if (!project) return
     if (!isTauri()) {
-      window.alert("导入文件功能仅在桌面端可用")
+      toast.info("导入文件功能仅在桌面端可用")
       return
     }
     const { open } = await import("@tauri-apps/plugin-dialog")
@@ -207,7 +208,7 @@ export function SourceSidebar({
   async function handleImportFolder() {
     if (!project) return
     if (!isTauri()) {
-      window.alert("导入文件夹功能仅在桌面端可用")
+      toast.info("导入文件夹功能仅在桌面端可用")
       return
     }
     const { open } = await import("@tauri-apps/plugin-dialog")
@@ -244,7 +245,7 @@ export function SourceSidebar({
       }
     } catch (err) {
       console.error("删除源文件失败：", err)
-      window.alert(`删除失败：${err}`)
+      toast.error(`删除失败：${err}`)
     }
   }
 
@@ -262,7 +263,7 @@ export function SourceSidebar({
       }
     } catch (err) {
       console.error("删除文件夹失败：", err)
-      window.alert(`删除文件夹失败：${err}`)
+      toast.error(`删除文件夹失败：${err}`)
     }
   }
 
@@ -359,7 +360,7 @@ export function SourceSidebar({
       }
     } catch (error) {
       console.error("重命名源文件失败：", error)
-      window.alert(`重命名失败：${error}`)
+      toast.error(`重命名失败：${error}`)
     } finally {
       setRenamingBusy(false)
       setRenamingPath(null)
@@ -395,7 +396,7 @@ export function SourceSidebar({
                 aria-pressed={novelConfig.autoExtractOnImport}
               >
                 <span
-                  className={`pointer-events-none inline-block h-3.5 w-3.5 rounded-full bg-background shadow transition-transform ${
+                  className={`pointer-events-none inline-block h-3.5 w-3.5 rounded-full bg-background elevation-1 transition-transform ${
                     novelConfig.autoExtractOnImport ? "translate-x-4" : "translate-x-0"
                   }`}
                 />
@@ -413,7 +414,7 @@ export function SourceSidebar({
                 {importing ? t("sources.importing") : t("novel.sources.import", { defaultValue: "导入" })}
               </Button>
               {importMenuOpen ? (
-                <div className="absolute left-0 top-full z-20 mt-1 w-32 rounded-md border bg-popover py-1 text-xs text-popover-foreground shadow-lg" data-source-interactive="true">
+                <div className="absolute left-0 top-full z-20 mt-1 w-32 rounded-md border bg-popover py-1 text-xs text-popover-foreground elevation-3" data-source-interactive="true">
                   <button
                     type="button"
                     className="block w-full px-3 py-1.5 text-left hover:bg-accent"
@@ -473,7 +474,7 @@ export function SourceSidebar({
         </ScrollArea>
         {createMenu ? (
           <div
-            className="absolute z-20 w-40 rounded-md border bg-background py-1 text-xs shadow-lg"
+            className="absolute z-20 w-40 rounded-md border bg-background py-1 text-xs elevation-3"
             style={{ left: createMenu.x, top: createMenu.y }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
@@ -505,7 +506,7 @@ export function SourceSidebar({
         ) : null}
         {fileMenu ? (
           <div
-            className="absolute z-20 w-40 rounded-md border bg-background py-1 text-xs shadow-lg"
+            className="absolute z-20 w-40 rounded-md border bg-background py-1 text-xs elevation-3"
             style={{ left: fileMenu.x, top: fileMenu.y }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
@@ -687,7 +688,7 @@ function SourceTree({
                   {isCollapsed ? <ChevronRight className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
                   <Folder className="h-4 w-4 shrink-0 text-warning" />
                   <span className="truncate font-medium">{node.name}</span>
-                  <span className="ml-auto shrink-0 text-xs text-muted-foreground/60">{countFiles(node.children)}</span>
+                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">{countFiles(node.children)}</span>
                 </button>
                 <DeleteButton
                   isPending={isPendingDelete}

@@ -20,6 +20,9 @@ const mocks = vi.hoisted(() => {
     tauri: { value: false },
     openProjectFolder: vi.fn(),
     dialogMessage: vi.fn(),
+    toastError: vi.fn(),
+    toastInfo: vi.fn(),
+    toastSuccess: vi.fn(),
     t: vi.fn((key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key),
   }
 })
@@ -55,6 +58,10 @@ vi.mock("@/lib/platform", async (importOriginal) => {
     
   }
 })
+
+vi.mock("@/lib/toast", () => ({
+  toast: { error: mocks.toastError, info: mocks.toastInfo, success: mocks.toastSuccess },
+}))
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   message: mocks.dialogMessage,
@@ -172,14 +179,12 @@ describe("FileTree 打开项目文件夹", () => {
     await waitFor(() => expect(mocks.openProjectFolder).toHaveBeenCalledWith("/proj"))
   })
 
-  it("失败且非 Tauri → window.alert 中文提示", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+  it("失败且非 Tauri → toast.error 中文提示", async () => {
     mocks.state.project = PROJECT
     mocks.openProjectFolder.mockRejectedValue(new Error("boom"))
     render(<FileTree />)
     fireEvent.click(screen.getByText("Open project folder"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("无法打开项目文件夹"))
-    alertSpy.mockRestore()
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("无法打开项目文件夹"))
   })
 
   it("失败且 Tauri → 动态导入 plugin-dialog message 弹窗", async () => {

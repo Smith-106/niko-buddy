@@ -212,7 +212,7 @@ export function PersonaCritiquePanel({ projectPath, onClose, draftId: draftIdPro
                 ) : null}
                 {r.error ? <p className="mt-1 text-xs text-destructive">{r.error}</p> : null}
                 {r.writtenPath ? (
-                  <p className="mt-1 truncate text-xs text-muted-foreground/80" title={r.writtenPath}>
+                  <p className="mt-1 truncate text-xs text-muted-foreground" title={r.writtenPath}>
                     {t("novel.persona.written", { path: r.writtenPath })}
                   </p>
                 ) : null}

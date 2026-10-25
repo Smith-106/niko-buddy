@@ -44,6 +44,7 @@ import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "
 import { useImportProgressStore } from "@/stores/import-progress-store"
 import { openExternalUrl } from "@/lib/open-external-url"
 import { toErrorMessage } from "@/lib/utils"
+import { toast } from "@/lib/toast"
 
 const USAGE_GUIDE_URL = "https://tcnk9ik08e1c.feishu.cn/wiki/FWiSwYQKoifpwBk6mSRcSlB8nrh?from=from_copylink"
 
@@ -355,7 +356,7 @@ export function SidebarPanel() {
 
   async function finishChapterImport(projectPath: string, importedChapters: ImportedChapter[], extractMemory: boolean) {
     if (importedChapters.length === 0) {
-      window.alert("没有找到可导入的章节文档。")
+      toast.info("没有找到可导入的章节文档。")
       return
     }
     await refreshTree(projectPath, importedChapters[0].path)
@@ -390,7 +391,7 @@ export function SidebarPanel() {
     } catch (error) {
       const message = toErrorMessage(error)
       console.error("[SidebarPanel] chapter file import failed:", error)
-      window.alert(`导入失败：${message}`)
+      toast.error(`导入失败：${message}`)
     } finally {
       setChapterImporting(false)
       setChapterImportMenuOpen(false)
@@ -410,7 +411,7 @@ export function SidebarPanel() {
     const candidates = await collectChapterImportCandidatesFromFolder(selectedFolder)
 
     if (candidates.length === 0) {
-      window.alert("没有找到可导入的章节文档。")
+      toast.info("没有找到可导入的章节文档。")
       setChapterImportMenuOpen(false)
       return
     }
@@ -429,7 +430,7 @@ export function SidebarPanel() {
     } catch (error) {
       const message = toErrorMessage(error)
       console.error("[SidebarPanel] chapter folder import failed:", error)
-      window.alert(`导入失败：${message}`)
+      toast.error(`导入失败：${message}`)
     } finally {
       setChapterImporting(false)
       setChapterImportMenuOpen(false)
@@ -458,14 +459,14 @@ export function SidebarPanel() {
       const projectPath = normalizePath(project.path)
       const importedPaths = await importOutlineFiles(projectPath, sourcePaths)
       if (importedPaths.length === 0) {
-        window.alert(t("novel.outlineImport.emptyResult", { defaultValue: "没有找到可导入的大纲文档。" }))
+        toast.info(t("novel.outlineImport.emptyResult", { defaultValue: "没有找到可导入的大纲文档。" }))
         return
       }
       await refreshTree(projectPath, importedPaths[0])
     } catch (error) {
       const message = toErrorMessage(error)
       console.error("[SidebarPanel] outline file import failed:", error)
-      window.alert(t("novel.outlineImport.importFailed", {
+      toast.error(t("novel.outlineImport.importFailed", {
         message,
         defaultValue: `导入失败：${message}`,
       }))
@@ -487,7 +488,7 @@ export function SidebarPanel() {
     const candidates = await collectOutlineImportCandidatesFromFolder(selected)
 
     if (candidates.length === 0) {
-      window.alert(t("novel.outlineImport.emptyResult", { defaultValue: "没有找到可导入的大纲文档。" }))
+      toast.info(t("novel.outlineImport.emptyResult", { defaultValue: "没有找到可导入的大纲文档。" }))
       setOutlineImportMenuOpen(false)
       return
     }
@@ -500,7 +501,7 @@ export function SidebarPanel() {
       const projectPath = normalizePath(project.path)
       const importedPaths = await importOutlineCandidates(projectPath, candidates)
       if (importedPaths.length === 0) {
-        window.alert(t("novel.outlineImport.emptyResult", { defaultValue: "没有找到可导入的大纲文档。" }))
+        toast.info(t("novel.outlineImport.emptyResult", { defaultValue: "没有找到可导入的大纲文档。" }))
         return
       }
       await refreshTree(projectPath, importedPaths[0])
@@ -510,7 +511,7 @@ export function SidebarPanel() {
     } catch (error) {
       const message = toErrorMessage(error)
       console.error("[SidebarPanel] outline folder import failed:", error)
-      window.alert(t("novel.outlineImport.importFailed", {
+      toast.error(t("novel.outlineImport.importFailed", {
         message,
         defaultValue: `导入失败：${message}`,
       }))
@@ -846,7 +847,7 @@ export function SidebarPanel() {
                 <ChevronDown className="ml-1 h-3.5 w-3.5" />
               </Button>
               {chapterImportMenuOpen ? (
-                <div className="absolute right-0 top-full z-20 mt-1 w-28 rounded-md border bg-popover py-1 text-xs text-popover-foreground shadow-lg">
+                <div className="absolute right-0 top-full z-20 mt-1 w-28 rounded-md border bg-popover py-1 text-xs text-popover-foreground elevation-3">
                   <button
                     type="button"
                     className="block w-full px-3 py-1.5 text-left hover:bg-accent"
@@ -879,7 +880,7 @@ export function SidebarPanel() {
                 <ChevronDown className="ml-1 h-3.5 w-3.5" />
               </Button>
               {outlineImportMenuOpen ? (
-                <div className="absolute right-0 top-full z-20 mt-1 w-28 rounded-md border bg-popover py-1 text-xs text-popover-foreground shadow-lg">
+                <div className="absolute right-0 top-full z-20 mt-1 w-28 rounded-md border bg-popover py-1 text-xs text-popover-foreground elevation-3">
                   <button
                     type="button"
                     className="block w-full px-3 py-1.5 text-left hover:bg-accent"

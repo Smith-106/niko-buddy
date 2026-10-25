@@ -244,7 +244,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
         {/* J05-04/F-010：LLM 不可用时，开书管线 CTA 禁用 + 本地写作分流 */}
         {llmBlocked ? (
           <div className="flex max-w-md flex-col items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4" data-testid="director-llm-blocked">
-            <p className="text-sm font-medium text-warning dark:text-warning">
+            <p className="text-sm font-medium text-warning">
               {llmHealth.label}
             </p>
             <p className="text-center text-xs text-muted-foreground">
@@ -291,7 +291,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
       {llmBlocked && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3" data-testid="director-llm-blocked-banner">
           <div className="flex items-center gap-2 text-sm">
-            <span className="text-warning dark:text-warning">●</span>
+            <span className="text-warning">●</span>
             <span className="font-medium">{llmHealth.label}</span>
             <span className="text-xs text-muted-foreground">
               {t("directorPanel.llmBlockedBanner", { defaultValue: "AI 开书与章节生成受限，本地写作仍可用" })}

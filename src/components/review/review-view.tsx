@@ -1134,7 +1134,7 @@ export function ReviewView({
               <span className={`rounded px-2 py-0.5 text-xs ${
                 dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull"
                   ? "border border-violet-600/40 text-violet-700 dark:text-violet-300"
-                  : "border border-success/40 text-success dark:text-success"
+                  : "border border-success/40 text-success"
               }`}>
                 {dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull"
                   ? t("reviewCenter.trackBDimBadge")
@@ -1262,7 +1262,7 @@ export function ReviewView({
                     <button type="button"
                       key={item.id}
                       onClick={() => void openNovelReviewActionItem(item)}
-                      className={`group cursor-pointer rounded-lg border p-3 text-sm transition-all duration-150 hover:border-primary/60 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${
+                      className={`group cursor-pointer rounded-lg border p-3 text-sm transition-all duration-150 hover:border-primary/60 hover:elevation-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${
                         item.reviewSeverity === "error"
                           ? "border-destructive/30 bg-destructive/5"
                           : item.reviewSeverity === "warning"

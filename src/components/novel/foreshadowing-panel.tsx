@@ -153,7 +153,7 @@ export function ForeshadowingPanel() {
       <div className="border-b px-4 py-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Lightbulb className={`h-4 w-4 shrink-0 ${unresolved.length > 0 ? "text-warning fill-warning/30" : "text-muted-foreground/40"}`} />
+            <Lightbulb className={`h-4 w-4 shrink-0 ${unresolved.length > 0 ? "text-warning fill-warning/30" : "text-muted-foreground"}`} />
             <h2 className="text-sm font-semibold">{t("novel.foreshadowing.title")}</h2>
           </div>
           <div className="flex items-center gap-1 text-xs text-muted-foreground">

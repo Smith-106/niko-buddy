@@ -89,7 +89,7 @@ function App() {
       }
       await hydrateProjectOnOpen(validated)
     } catch (err) {
-      window.alert(`打开项目失败：${err}`)
+      toast.error(`打开项目失败：${err}`)
     }
   }
 
@@ -110,7 +110,7 @@ function App() {
       }
       await hydrateProjectOnOpen(proj)
     } catch (err) {
-      window.alert(`打开项目失败：${err}`)
+      toast.error(`打开项目失败：${err}`)
     }
   }
 
@@ -119,7 +119,7 @@ function App() {
       // 新建项目：创建后 novel 项目落 director 写作生产台（J01-T02 F-005）。
       await hydrateProjectOnOpen(proj, { fromCreate: true })
     } catch (err) {
-      window.alert(`项目创建后初始化失败：${err}`)
+      toast.error(`项目创建后初始化失败：${err}`)
     }
   }
 

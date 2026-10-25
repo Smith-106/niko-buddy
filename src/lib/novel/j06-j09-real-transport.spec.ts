@@ -17,6 +17,11 @@ const fsState = vi.hoisted(() => {
     writeFileAtomic: vi.fn(async (path: string, content: string) => {
       fileMap.set(path, content)
     }),
+    writeFilesAtomic: vi.fn(async (files: Array<[string, string]>) => {
+      for (const [path, content] of files) {
+        fileMap.set(path, content)
+      }
+    }),
   }
 })
 vi.mock("@/commands/fs", async (importOriginal) => {
@@ -26,6 +31,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
     createDirectory: fsState.createDirectory,
     readFile: fsState.readFile,
     writeFileAtomic: fsState.writeFileAtomic,
+    writeFilesAtomic: fsState.writeFilesAtomic,
   }
 })
 

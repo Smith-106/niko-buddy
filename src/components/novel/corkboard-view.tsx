@@ -284,12 +284,12 @@ export function CorkboardView() {
         {loading ? (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3" role="status" aria-label={t("novel.corkboard.loading")}>
             {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="skeleton-bar h-28 w-full rounded-lg" />
+              <div key={`corkboard-skeleton-${i}`} className="skeleton-bar h-28 w-full rounded-lg" />
             ))}
           </div>
         ) : cards.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground">
-            <LayoutGrid className="h-8 w-8 text-muted-foreground/40" />
+            <LayoutGrid className="h-8 w-8 text-muted-foreground" />
             <p>{t("novel.corkboard.noData")}</p>
             <p className="text-xs italic">{t("novel.corkboard.noDataHint")}</p>
             <button

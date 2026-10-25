@@ -195,7 +195,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
                 >
                   <ChevronRight className={`h-3 w-3 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`} />
                   <span className="min-w-0 flex-1 truncate text-left">{t(groupLabelKey)}</span>
-                  <span className="shrink-0 tabular-nums text-xs text-muted-foreground/60">{items.length}</span>
+                  <span className="shrink-0 tabular-nums text-xs text-muted-foreground">{items.length}</span>
                 </button>
                 {visibleItems.map(({ view, icon: Icon, labelKey }) => (
                     <button

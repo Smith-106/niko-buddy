@@ -218,7 +218,7 @@ export function ContextPackReplayPanel({ pack, title = "这次写作用了哪些
               <div className="text-xs text-muted-foreground">{t("novel.replay.gaps")}</div>
               <ul className="mt-1 list-disc pl-4">
                 {replay.gapNotes.map((n, i) => (
-                  <li key={i} className="text-xs text-muted-foreground">
+                  <li key={`gap-${String(n).slice(0, 32)}-${i}`} className="text-xs text-muted-foreground">
                     有一条资料没装完整。
                     <span className="sr-only">{n}</span>
                   </li>

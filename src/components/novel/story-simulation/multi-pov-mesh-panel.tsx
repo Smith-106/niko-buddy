@@ -152,7 +152,7 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
                   onClick={() => setSelectedPovId(t.id)}
                   className={`w-full rounded-md p-2.5 text-left transition-all ${
                     isSelected
-                      ? "bg-primary text-primary-foreground shadow-sm"
+                      ? "bg-primary text-primary-foreground elevation-1"
                       : "hover:bg-accent hover:text-accent-foreground"
                   }`}
                 >
@@ -174,7 +174,7 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
                       <BookOpen className="h-3 w-3" />
                       知晓 {t.epistemicScope.knows.length}
                     </span>
-                    <span className="flex items-center gap-0.5 text-rose-500">
+                    <span className="flex items-center gap-0.5 text-destructive">
                       <EyeOff className="h-3 w-3" />
                       隐秘 {t.epistemicScope.doesNotKnow.length}
                     </span>
@@ -211,8 +211,8 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
               </div>
 
               {/* 认知盲区提示 */}
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs space-y-1.5">
-                <div className="flex items-center gap-1.5 font-semibold text-amber-600 dark:text-amber-400">
+              <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs space-y-1.5">
+                <div className="flex items-center gap-1.5 font-semibold text-warning">
                   <ShieldAlert className="h-4 w-4" />
                   防穿帮铁律 (Epistemic Constraints)
                 </div>
@@ -263,8 +263,8 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
                   <div
                     className={`rounded p-2 text-xs ${
                       slmResult.passed
-                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                        : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
+                        ? "bg-success/10 text-success border border-success/40"
+                        : "bg-destructive/10 text-destructive border border-destructive/20"
                     }`}
                   >
                     {slmResult.message}
@@ -297,7 +297,7 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
             mesh.intersections.map((inter: PovIntersection) => {
               const packText = generateConvergencePack(mesh, inter)
               return (
-                <div key={inter.id} className="rounded-lg border bg-background p-3 shadow-xs space-y-2">
+                <div key={inter.id} className="rounded-lg border bg-background p-3 elevation-1 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="rounded bg-primary/10 text-primary px-1.5 py-0.5 text-xs font-semibold">
                       第 {inter.chapterNumber} 章交汇

@@ -226,11 +226,11 @@ export function DismantlingView() {
                     <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                       <span data-testid="dismantle-counts">已自动识别章节结构：{Array.isArray(selectedProject.chapters) ? selectedProject.chapters.length : 0} 章 · {Array.isArray(selectedProject.structureMemory) ? selectedProject.structureMemory.length : 0} 条结构记忆</span>
                       <span data-testid="dismantle-progress" className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5" aria-label="拆文进度">
-                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />
                         {Array.isArray(selectedProject.chapters) ? selectedProject.chapters.filter((c) => c.status === "done").length : 0}已拆
-                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-sky-500" aria-hidden="true" />
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-info" aria-hidden="true" />
                         {Array.isArray(selectedProject.chapters) ? selectedProject.chapters.filter((c) => c.status === "running").length : 0}进行中
-                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-rose-500" aria-hidden="true" />
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />
                         {Array.isArray(selectedProject.chapters) ? selectedProject.chapters.filter((c) => c.status === "failed").length : 0}失败
                       </span>
                     </p>
@@ -386,7 +386,7 @@ export function DismantlingView() {
 
 function StatusBadge({ status }: { status: DismantlingChapter["status"] }) {
   const label = status === "done" ? "已拆" : status === "running" ? "拆文中" : status === "failed" ? "失败" : "待拆"
-  const dot = status === "done" ? "bg-emerald-500" : status === "running" ? "bg-sky-500" : status === "failed" ? "bg-rose-500" : "bg-muted-foreground/40"
+  const dot = status === "done" ? "bg-success" : status === "running" ? "bg-info" : status === "failed" ? "bg-destructive" : "bg-muted-foreground/40"
   return <span className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs text-muted-foreground"><span className={`inline-block h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden="true" />{label}</span>
 }
 

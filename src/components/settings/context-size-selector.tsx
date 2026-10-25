@@ -67,7 +67,7 @@ export function ContextSizeSelector({
             type="button"
             onClick={() => onChange(preset.value)}
             className={`text-xs px-0.5 ${
-              i === closestIndex ? "text-primary font-bold" : "text-muted-foreground/50"
+              i === closestIndex ? "text-primary font-bold" : "text-muted-foreground"
             }`}
           >
             {preset.label}

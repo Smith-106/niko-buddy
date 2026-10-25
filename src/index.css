@@ -484,8 +484,39 @@ button:disabled {
   --soft-shadow-sm: 0 1px 2px oklch(0.3 0 0 / 6%), 0 1px 6px oklch(0.3 0 0 / 5%);
   --soft-shadow-md: 0 2px 6px oklch(0.3 0 0 / 7%), 0 4px 16px oklch(0.3 0 0 / 6%);
   --soft-shadow-lg: 0 4px 12px oklch(0.3 0 0 / 8%), 0 8px 28px oklch(0.3 0 0 / 7%);
+  /* P2 elevation 体系（ISS-20260709-015）：shadow 硬编码迁 token，视觉等价映射
+     elevation-1 ← shadow-xs/sm（卡片/行内浮层）
+     elevation-2 ← shadow-md（下拉/浮层面板）
+     elevation-3 ← shadow-lg/xl/2xl（模态/全屏对话框） */
+  --elevation-1: var(--soft-shadow-sm);
+  --elevation-2: var(--soft-shadow-md);
+  --elevation-3: var(--soft-shadow-lg);
+}
+@utility elevation-1 {
+  box-shadow: var(--elevation-1);
+}
+@utility elevation-2 {
+  box-shadow: var(--elevation-2);
+}
+@utility elevation-3 {
+  box-shadow: var(--elevation-3);
 }
 @layer components {
+  /* Inspector stale-refreshing 过渡（ISS-20260712-004）：数据保留可见 + 轻微降透明 + 旋转指示，
+     避免 skeleton 闪烁；prefers-reduced-motion 下无动画仅保留透明度变化。 */
+  .stale-refreshing {
+    opacity: 0.75;
+    transition: opacity 200ms ease-out;
+  }
+  /* 草稿接受轻量庆祝（ISS-20260709-018）：一次性淡入上浮 240ms，不过度打扰，
+     不抢焦点（aria-live polite 由调用方提供），降级为静态呈现。 */
+  .draft-celebrate {
+    animation: draft-celebrate-in 240ms ease-out;
+  }
+  @keyframes draft-celebrate-in {
+    from { opacity: 0; transform: translateY(2px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
   .soft-card {
     border-radius: var(--radius-xl);
     border: 1px solid color-mix(in oklch, var(--border) 65%, transparent);

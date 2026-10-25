@@ -145,7 +145,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
                 // POLISH-09 (odyssey-ui): accept is the primary commitment \u2014
                 // solid-fill primary with Check icon, visually dominant over
                 // reject/continue so the safe/forward action is unmistakable.
-                className={`${ACTION_BUTTON_BASE} inline-flex items-center gap-1 border border-primary bg-primary font-medium text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50`}
+                className={`${ACTION_BUTTON_BASE} inline-flex items-center gap-1 border border-primary bg-primary font-medium text-primary-foreground elevation-1 hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 {isSaving ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> : <Check className="h-3 w-3 shrink-0" />}
                 {isSaving ? "\u4fdd\u5b58\u4e2d" : "\u63a5\u53d7\u8349\u7a3f"}

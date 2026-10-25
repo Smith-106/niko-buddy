@@ -61,7 +61,7 @@ import {
 
 export function getDeepChapterToggleButtonClass(enabled: boolean): string {
   return enabled
-    ? "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground"
+    ? "border-primary bg-primary text-primary-foreground elevation-1 hover:bg-primary/90 hover:text-primary-foreground"
     : "text-muted-foreground hover:text-foreground"
 }
 
@@ -2390,7 +2390,7 @@ export function ChatPanel() {
                 type="button"
                 onClick={scrollToBottom}
                 aria-label={t("chat.scrollToLatest")}
-                className="animate-in fade-in-0 zoom-in-95 absolute bottom-3 right-4 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="animate-in fade-in-0 zoom-in-95 absolute bottom-3 right-4 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-foreground elevation-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <ArrowDown className="h-4 w-4 shrink-0" />
               </button>

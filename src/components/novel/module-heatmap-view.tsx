@@ -139,7 +139,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
           aria-hidden
           className={cn(
             "flex flex-col items-center",
-            flowing ? "text-accent" : "text-muted-foreground/60",
+            flowing ? "text-accent" : "text-muted-foreground",
           )}
         >
           <span className="h-2.5 w-px bg-current opacity-60" />

@@ -367,7 +367,7 @@ export function DataManagementSection() {
             {exportResult.warnings.length > 0 && (
               <div className="text-warning text-xs space-y-1">
                 {exportResult.warnings.map((w, i) => (
-                  <p key={i}>⚠ {w}</p>
+                  <p key={`export-warn-${w.slice(0, 32)}-${i}`}>⚠ {w}</p>
                 ))}
               </div>
             )}
@@ -769,14 +769,14 @@ export function DataManagementSection() {
             {importResult.warnings?.length > 0 && (
               <div className="text-warning text-xs space-y-1">
                 {importResult.warnings.map((w, i) => (
-                  <p key={i}>⚠ {w}</p>
+                  <p key={`import-warn-${w.slice(0, 32)}-${i}`}>⚠ {w}</p>
                 ))}
               </div>
             )}
             {importResult.projects?.some((p) => !p.success) && (
               <div className="text-destructive text-xs space-y-1">
                 {importResult.projects.filter((p) => !p.success).map((p, i) => (
-                  <p key={i}>✗ {p.id}: {p.error}</p>
+                  <p key={`import-err-${p.id}-${i}`}>✗ {p.id}: {p.error}</p>
                 ))}
               </div>
             )}

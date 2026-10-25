@@ -87,10 +87,10 @@ export interface WorkHeatmapPanelProps {
 function cellClass(count: number, maxCount: number): string {
   if (count <= 0) return "bg-muted/40"
   const ratio = maxCount <= 0 ? 0 : count / maxCount
-  if (ratio >= 0.75) return "bg-emerald-600/80"
-  if (ratio >= 0.5) return "bg-emerald-500/60"
-  if (ratio >= 0.25) return "bg-emerald-400/45"
-  return "bg-emerald-300/30"
+  if (ratio >= 0.75) return "bg-success/80"
+  if (ratio >= 0.5) return "bg-success/60"
+  if (ratio >= 0.25) return "bg-success/45"
+  return "bg-success/30"
 }
 
 function formatNumber(value: number | null): string {
@@ -221,7 +221,7 @@ export function WorkHeatmapPanel({
       </div>
 
       {error ? (
-        <p className="text-xs text-amber-700 dark:text-amber-400" data-testid="work-heatmap-error">
+        <p className="text-xs text-warning" data-testid="work-heatmap-error">
           {error}
           {error.startsWith("读不到写作状态") ? <span className="sr-only">.novel/status.json</span> : null}
         </p>
@@ -306,7 +306,7 @@ export function WorkHeatmapPanel({
       </ul>
 
       {resolved.missingSources.length > 0 ? (
-        <ul className="space-y-0.5 text-xs text-amber-700 dark:text-amber-400" data-testid="work-heatmap-missing">
+        <ul className="space-y-0.5 text-xs text-warning" data-testid="work-heatmap-missing">
           {resolved.missingSources.map((line) => (
             <li key={line}>
               {missingPlain(line)}

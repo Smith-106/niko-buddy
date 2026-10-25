@@ -191,7 +191,7 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
                           ))}
                         </ul>
                       ) : (
-                        <p className="mt-0.5 text-xs italic text-muted-foreground/60">{t("novel.cognition.empty")}</p>
+                        <p className="mt-0.5 text-xs italic text-muted-foreground">{t("novel.cognition.empty")}</p>
                       )}
                     </div>
                     <div className="rounded-md border-l-2 border-destructive/50 bg-destructive/5 p-2">
@@ -205,7 +205,7 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
                           ))}
                         </ul>
                       ) : (
-                        <p className="mt-0.5 text-xs italic text-muted-foreground/60">{t("novel.cognition.empty")}</p>
+                        <p className="mt-0.5 text-xs italic text-muted-foreground">{t("novel.cognition.empty")}</p>
                       )}
                     </div>
                   </div>

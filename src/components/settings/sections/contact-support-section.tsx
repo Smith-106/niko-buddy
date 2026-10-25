@@ -14,7 +14,7 @@ const DONATION_CHANNELS = [
 function QrPlaceholder({ label }: { label: string }) {
   return (
     <div className="flex aspect-[3/4] w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/30 p-4 text-center">
-      <QrCode className="h-8 w-8 text-muted-foreground/60" />
+      <QrCode className="h-8 w-8 text-muted-foreground" />
       <span className="text-xs text-muted-foreground">{label}</span>
     </div>
   )

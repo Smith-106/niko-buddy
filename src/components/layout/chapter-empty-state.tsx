@@ -99,12 +99,12 @@ export function ChapterEmptyState({ recentChapters, onSelectChapter }: ChapterEm
         </div>
 
         {!project ? (
-          <div className="text-xs text-muted-foreground/80">
+          <div className="text-xs text-muted-foreground">
             {t("preview.emptyState.noProjectHint", { defaultValue: "还没有打开项目，可以先看看图谱了解结构" })}
           </div>
         ) : null}
 
-        <div className="text-xs text-muted-foreground/80">
+        <div className="text-xs text-muted-foreground">
           {t("preview.emptyState.commandHint")}
         </div>
       </div>

@@ -221,7 +221,7 @@ export function FindingCompareDialog({
             </div>
             <ul className="list-disc pl-4 space-y-1 text-destructive/80">
               {gateErrors.map((err, i) => (
-                <li key={i}>{err.message}</li>
+                <li key={`gate-${err.message.slice(0, 32)}-${i}`}>{err.message}</li>
               ))}
             </ul>
             <div className="mt-2 text-muted-foreground">

@@ -18,6 +18,7 @@ import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 const fsMocks = vi.hoisted(() => ({
   readFile: vi.fn(),
   writeFileAtomic: vi.fn(),
+  writeFilesAtomic: vi.fn(),
   listDirectory: vi.fn(),
   fileExists: vi.fn(),
   createDirectory: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
     ...actual,
       readFile: (...args: unknown[]) => fsMocks.readFile(...args),
       writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
+      writeFilesAtomic: (...args: unknown[]) => fsMocks.writeFilesAtomic(...args),
       listDirectory: (...args: unknown[]) => fsMocks.listDirectory(...args),
       fileExists: (...args: unknown[]) => fsMocks.fileExists(...args),
       createDirectory: (...args: unknown[]) => fsMocks.createDirectory(...args),
@@ -279,6 +281,13 @@ function installFs(files: Map<string, string>) {
   })
   fsMocks.writeFileAtomic.mockImplementation(async (p: string, content: string) => {
     files.set(p, content)
+  })
+  // P0 #61 收敛：saveSnapshot 经 writeFilesAtomic 单次批量事务落盘；harness 逐文件
+  // 经 writeFileAtomic 记账，保持 writtenPaths 顺序断言（先自愈后提交）零变更。
+  fsMocks.writeFilesAtomic.mockImplementation(async (batch: Array<[string, string]>) => {
+    for (const [p, content] of batch) {
+      await fsMocks.writeFileAtomic(p, content)
+    }
   })
   fsMocks.createDirectory.mockResolvedValue(undefined)
   fsMocks.deleteFile.mockResolvedValue(undefined)

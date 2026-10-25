@@ -116,7 +116,7 @@ function separateThinking(text: string): { thinking: string | null; answer: stri
 const OutlineThinkingBlock = React.memo(function OutlineThinkingBlock({ content, open }: { content: string; open: boolean }) {
   return (
     <div className="mb-2 rounded-md border border-dashed border-warning/30 bg-warning/50 px-3 py-2 text-xs dark:bg-warning/20 min-h-[3rem]">
-      <div className="mb-1.5 flex items-center gap-1.5 text-warning dark:text-warning">
+      <div className="mb-1.5 flex items-center gap-1.5 text-warning">
         <span className={open ? "animate-pulse" : undefined}>💭</span>
         <span className="font-medium">{open ? "思考中..." : "思考过程"}</span>
       </div>

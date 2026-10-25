@@ -19,6 +19,7 @@ import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 const fsMocks = vi.hoisted(() => ({
   readFile: vi.fn(),
   writeFileAtomic: vi.fn(),
+  writeFilesAtomic: vi.fn(),
   listDirectory: vi.fn(),
   fileExists: vi.fn(),
   createDirectory: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
     ...actual,
       readFile: (...args: unknown[]) => fsMocks.readFile(...args),
       writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
+      writeFilesAtomic: (...args: unknown[]) => fsMocks.writeFilesAtomic(...args),
       listDirectory: (...args: unknown[]) => fsMocks.listDirectory(...args),
       fileExists: (...args: unknown[]) => fsMocks.fileExists(...args),
       createDirectory: (...args: unknown[]) => fsMocks.createDirectory(...args),
@@ -289,6 +291,7 @@ beforeEach(() => {
   setupDefaultFs()
   fsMocks.createDirectory.mockResolvedValue(undefined)
   fsMocks.writeFileAtomic.mockResolvedValue(undefined)
+  fsMocks.writeFilesAtomic.mockResolvedValue(undefined)
   fsMocks.deleteFile.mockResolvedValue(undefined)
   fsMocks.fileExists.mockResolvedValue(false)
   moduleMocks.writeSnapshotToWiki.mockResolvedValue([])

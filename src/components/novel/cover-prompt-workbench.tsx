@@ -122,7 +122,7 @@ export function CoverPromptWorkbench({ templates }: { templates?: CoverPlatformT
   if (platforms.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground">
-        <Image className="h-8 w-8 text-muted-foreground/40" />
+        <Image className="h-8 w-8 text-muted-foreground" />
         <p>{t("novel.coverWorkbench.emptyTemplates")}</p>
         <p className="text-xs italic">config/cover-platform-templates.json</p>
       </div>

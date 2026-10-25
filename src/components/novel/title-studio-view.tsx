@@ -189,7 +189,7 @@ export function TitleStudioView({ projectPath }: TitleStudioViewProps) {
         </p>
       ) : null}
       {!loading && loadError ? (
-        <p data-testid="title-error" className="text-xs text-red-700 dark:text-red-300">
+        <p data-testid="title-error" className="text-xs text-destructive">
           读取失败：{loadError}
         </p>
       ) : null}

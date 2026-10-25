@@ -64,7 +64,7 @@ function Section({ title, defaultOpen = false, children }: SectionProps) {
           id={panelId}
           role="region"
           aria-label={title}
-          className="mt-1 animate-in fade-in slide-in-from-top-1 pl-4 text-xs text-foreground/80 duration-150"
+          className="mt-1 animate-in fade-in slide-in-from-top-1 pl-4 text-xs text-foreground duration-150"
         >
           {children}
         </div>
@@ -150,11 +150,15 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
   }
 
   const isStale = snapshot?.isStale === true
+  // ISS-20260712-004：数据 + 刷新中 → stale-refreshing 过渡：保留旧数据可见，
+  // 轻微降透明 + 顶部刷新中提示（role=status / aria-live polite），避免 skeleton 闪烁。
+  const isRefreshing = snapshot !== null && loading
 
   return (
     <div
-      className={`inspector-panel border-b border-border/40 px-2 py-2 ${isStale ? "opacity-50 saturate-0" : ""}`}
+      className={`inspector-panel border-b border-border/40 px-2 py-2 ${isStale ? "opacity-50 saturate-0" : ""} ${isRefreshing ? "stale-refreshing" : ""}`}
       data-stale={isStale ? "true" : "false"}
+      data-refreshing={isRefreshing ? "true" : "false"}
     >
       <div className="flex items-center justify-between mb-2">
         <Button
@@ -179,6 +183,18 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
           <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
         </Button>
       </div>
+
+      {isRefreshing && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="inspector-refreshing"
+          className="mb-2 flex items-center gap-1 rounded bg-muted/40 px-2 py-1 text-xs text-muted-foreground"
+        >
+          <RefreshCw className="h-3 w-3 animate-spin" aria-hidden="true" />
+          <span>{t("novel.inspector.refreshing", "刷新中…")}</span>
+        </div>
+      )}
 
       {isStale && (
         <div

@@ -432,7 +432,7 @@ export function PreviewPanel() {
   const chapterStatusMeta = chapterHeader ? (
     chapterHeader.status === "final" ? (
       <span
-        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-success/35 bg-success/10 px-2 py-0.5 text-xs font-medium leading-5 text-success dark:text-success"
+        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-success/35 bg-success/10 px-2 py-0.5 text-xs font-medium leading-5 text-success"
         title={chapterStatusTitle}
       >
         <Check className="h-3 w-3 shrink-0" />
@@ -1251,7 +1251,7 @@ export function PreviewPanel() {
                 <MoreHorizontal className="h-3.5 w-3.5 shrink-0" />
               </button>
               {chapterToolbarMoreOpen ? (
-                <div id="preview-chapter-toolbar-menu" role="menu" className="absolute right-0 top-8 z-30 w-40 rounded-md border bg-popover p-1 text-xs text-popover-foreground shadow-lg">
+                <div id="preview-chapter-toolbar-menu" role="menu" className="absolute right-0 top-8 z-30 w-40 rounded-md border bg-popover p-1 text-xs text-popover-foreground elevation-3">
                   {chapterHeader ? (
                     <button
                       type="button"
@@ -1558,7 +1558,7 @@ export function PreviewPanel() {
                 {t("preview.cancel")}
               </button>
             ) : null}
-            <span className="block truncate text-xs text-muted-foreground/80 min-w-0">
+            <span className="block truncate text-xs text-muted-foreground min-w-0">
               {visibleSaveStatus}
             </span>
           </div>

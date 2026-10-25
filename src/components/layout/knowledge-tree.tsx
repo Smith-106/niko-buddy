@@ -19,6 +19,7 @@ import {
   type WikiPageInfo, type KnowledgeTreeProps, type CreateMenuState,
 } from "./knowledge-tree-helpers"
 import { useImportProgressStore } from "@/stores/import-progress-store"
+import { toast } from "@/lib/toast"
 
 
 export interface KnowledgeCreateRequest {
@@ -198,7 +199,7 @@ export function KnowledgeTree({
     if (normalizedSource === destPath) return
 
     if (await fileExists(destPath)) {
-      window.alert(t("knowledgeTree.moveTargetExists"))
+      toast.error(t("knowledgeTree.moveTargetExists"))
       return
     }
 
@@ -306,7 +307,7 @@ export function KnowledgeTree({
         if (flattenAllFiles(remainingNodes).length === 0) {
           await deleteFile(normalizedFolderPath)
         } else {
-          window.alert(t("knowledgeTree.deleteFolderBlocked", { name: folderName }))
+          toast.error(t("knowledgeTree.deleteFolderBlocked", { name: folderName }))
         }
       } catch {
         // 目录可能已经不存在了，直接视为删除成功
@@ -742,7 +743,7 @@ ${frontmatterBody}
                 )}
                 <Folder className="h-4 w-4 shrink-0 text-warning" />
                 <span className="truncate font-medium">{node.name}</span>
-                <span className="ml-auto text-xs text-muted-foreground/60">{countMarkdownDescendants(node)}</span>
+                <span className="ml-auto text-xs text-muted-foreground">{countMarkdownDescendants(node)}</span>
               </button>
             </div>
             {!isCollapsed && node.children && renderNodes(node.children, depth + 1)}
@@ -899,7 +900,7 @@ ${frontmatterBody}
 
         {createMenu && (
           <div
-            className="absolute z-20 w-40 rounded-md border bg-background py-1 text-xs shadow-lg"
+            className="absolute z-20 w-40 rounded-md border bg-background py-1 text-xs elevation-3"
             style={{ left: createMenu.x, top: createMenu.y }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
@@ -948,7 +949,7 @@ ${frontmatterBody}
 
         {pageMenu && (
           <div
-            className="absolute z-20 w-40 rounded-md border bg-background py-1 text-xs shadow-lg"
+            className="absolute z-20 w-40 rounded-md border bg-background py-1 text-xs elevation-3"
             style={{ left: pageMenu.x, top: pageMenu.y }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
@@ -1172,4 +1173,3 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
     </div>
   )
 }
-

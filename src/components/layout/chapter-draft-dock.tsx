@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { CheckCircle2 } from "lucide-react"
 import { fileExists } from "@/commands/fs"
 import {
   acceptChapterDraft,
@@ -112,7 +113,7 @@ export function ChapterDraftDock({
         ))}
       </ul>
       {pending ? (
-        <div className="rounded border border-amber-500/40 bg-amber-500/10 p-2" data-testid="chapter-draft-confirm">
+        <div className="rounded border border-warning/40 bg-warning/10 p-2" data-testid="chapter-draft-confirm">
           <p>
             确认后才把「{pending.draft.chapterName}」写入 {pending.target}。
             {pending.occupied ? "这个文件已存在，会覆盖。" : "确认前不会写入。"}
@@ -138,7 +139,23 @@ export function ChapterDraftDock({
           </div>
         </div>
       ) : null}
-      {note ? <p data-testid="chapter-draft-note">{note}</p> : null}
+      {note ? (
+        note === "已写入正式章。" ? (
+          // ISS-20260709-018：草稿接受轻量庆祝 — 内联成功态，不弹窗、不抢焦点、
+          // role=status + aria-live polite 播报，文案语义不变，仅加视觉反馈。
+          <p
+            data-testid="chapter-draft-note"
+            role="status"
+            aria-live="polite"
+            className="draft-celebrate flex items-center gap-1.5 rounded border border-success/40 bg-success/10 px-2 py-1.5 text-success"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>{note}</span>
+          </p>
+        ) : (
+          <p data-testid="chapter-draft-note">{note}</p>
+        )
+      ) : null}
     </div>
   )
 }

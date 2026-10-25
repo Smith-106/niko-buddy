@@ -127,7 +127,7 @@ export function BookAnalysisCharacterPanel({
                   <div className="font-medium">{t("bookAnalysis.representativeLine")}</div>
                   <div className="mt-1 space-y-1 text-muted-foreground">
                     {profile.quotes.map((q, i) => (
-                      <div key={i}>「{q}」</div>
+                      <div key={`quote-${q.slice(0, 32)}-${i}`}>「{q}」</div>
                     ))}
                   </div>
                 </div>

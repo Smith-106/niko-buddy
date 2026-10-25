@@ -106,7 +106,7 @@ export function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: st
                 // Pattern for tabs). focus-visible ring restored.
                 className={`group flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring ${
                   isActive
-                    ? "border-primary/40 bg-background text-foreground shadow-sm"
+                    ? "border-primary/40 bg-background text-foreground elevation-1"
                     : "border-border bg-background/70 text-muted-foreground hover:bg-accent hover:text-foreground"
                 }`}
                 onClick={() => setActiveConversation(conv.id)}

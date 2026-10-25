@@ -167,19 +167,19 @@ export function StoryModeLibraryView({ projectPath }: StoryModeLibraryViewProps)
               已生成 {snapshot.entryCount} 个模式
             </span>
             {snapshot.conserved ? (
-              <span className="flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+              <span className="flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-success">
                 <CheckCircle2 className="h-3 w-3" />
                 守恒校验通过
               </span>
             ) : (
-              <span className="flex items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-red-900 dark:bg-red-950/40 dark:text-red-200">
+              <span className="flex items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 text-destructive">
                 <AlertTriangle className="h-3 w-3" />
                 守恒失配（疑似手工篡改）
               </span>
             )}
           </>
         ) : error ? (
-          <span className="text-red-700 dark:text-red-300">读取失败：{error}</span>
+          <span className="text-destructive">读取失败：{error}</span>
         ) : (
           <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
             未生成<span className="sr-only">（pacing_pattern.json 缺失）</span>
@@ -235,7 +235,7 @@ export function StoryModeLibraryView({ projectPath }: StoryModeLibraryViewProps)
           {state.invalidEntries.length > 0 ? (
             <ul
               data-testid="story-mode-invalid"
-              className="list-disc pl-5 text-xs text-red-700 dark:text-red-300"
+              className="list-disc pl-5 text-xs text-destructive"
             >
               {state.invalidEntries.map((reason) => (
                 <li key={reason}>{reason}</li>

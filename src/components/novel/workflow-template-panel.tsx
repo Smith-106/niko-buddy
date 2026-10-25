@@ -92,7 +92,7 @@ function EntryRow({ entry }: { readonly entry: WorkflowTemplateEntry }) {
           ))
         : null}
       {entry.missingRequiredFieldNames !== null && entry.missingRequiredFieldNames.length > 0 ? (
-        <p data-testid={`workflow-template-${entry.id}-missing`} className="text-amber-600">
+        <p data-testid={`workflow-template-${entry.id}-missing`} className="text-warning">
           {`渲染正文里未出现这些必填字段名：${entry.missingRequiredFieldNames.join("、")}（如实列出，不补内容）`}
         </p>
       ) : null}

@@ -193,7 +193,7 @@ export function SavedModelsManager({ savedModels, onChange }: SavedModelsManager
           {savedModels.map((model) => (
             <div
               key={model.id}
-              className="flex flex-col gap-3 rounded-lg border bg-card p-4 shadow-sm transition-shadow hover:shadow-md"
+              className="flex flex-col gap-3 rounded-lg border bg-card p-4 elevation-1 transition-elevation-1 hover:elevation-2"
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">

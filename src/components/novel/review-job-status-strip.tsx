@@ -80,7 +80,7 @@ export function ReviewJobStatusStrip({
       data-testid="review-job-status-strip"
       title="审稿不挡住写作"
     >
-      <span className="font-medium text-foreground/80">
+      <span className="font-medium text-foreground">
         {PHASE_PLAIN[model.phase] ?? "审稿"}
         <span className="sr-only">{model.phaseLabel}</span>
       </span>

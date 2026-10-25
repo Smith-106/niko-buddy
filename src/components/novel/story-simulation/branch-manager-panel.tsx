@@ -166,7 +166,7 @@ export function BranchManagerPanel({
         </div>
 
         {isMaxBranches && (
-          <div className="flex items-center gap-2 rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-xs text-warning dark:text-warning">
+          <div className="flex items-center gap-2 rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-xs text-warning">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
             <span>{t("storySimulation.branchLimitReached")}</span>
           </div>

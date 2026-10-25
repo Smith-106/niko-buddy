@@ -90,7 +90,7 @@ const STATIC_STATUS_LABEL: Record<AgentStudioPanelStatus, string> = {
 
 const STATUS_CLASS: Record<AgentStudioPanelStatus, string> = {
   ok: "border-border text-muted-foreground",
-  duplicated: "border-amber-500/60 text-amber-700 dark:text-amber-400",
+  duplicated: "border-warning/40 text-warning",
   missing: "border-destructive/60 text-destructive",
 }
 
@@ -173,9 +173,9 @@ export function AgentStudioPanel({ projection, staticDeclarationOnly = false }: 
                 {row.duplicatedIn.length > 0 ? (
                   <div
                     data-testid={`agent-studio-duplicate-${row.id}`}
-                    className="rounded border border-amber-500/60 bg-amber-500/5 p-2"
+                    className="rounded border border-warning/40 bg-warning/5 p-2"
                   >
-                    <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                    <p className="text-xs font-medium text-warning">
                       同一口径在 {row.duplicatedIn.length} 处被重复声明（口径漂移风险）：
                     </p>
                     <ul className="mt-1 space-y-0.5">

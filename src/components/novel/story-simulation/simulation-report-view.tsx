@@ -144,7 +144,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
 
   const getCharHighlightClass = (name: string): string => {
     if (!characterDiff) return ""
-    if (characterDiff.onlyInA.has(name)) return "bg-success dark:bg-success/40"
+    if (characterDiff.onlyInA.has(name)) return "bg-success-success/40"
     if (characterDiff.onlyInB.has(name)) return "bg-destructive dark:bg-destructive/40"
     if (characterDiff.scoreDiff.has(name)) return "bg-warning dark:bg-warning/40"
     return ""
@@ -169,7 +169,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
 
   const getBranchHighlightClass = (title: string): string => {
     if (!branchDiff) return ""
-    if (branchDiff.onlyInA.has(title)) return "bg-success dark:bg-success/40"
+    if (branchDiff.onlyInA.has(title)) return "bg-success-success/40"
     if (branchDiff.onlyInB.has(title)) return "bg-destructive dark:bg-destructive/40"
     if (branchDiff.probDiff.has(title)) return "bg-warning dark:bg-warning/40"
     return ""
@@ -313,7 +313,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                         <p className="mb-1 text-xs font-medium text-muted-foreground">{t("storySimulation.behaviors")}</p>
                         <ul className="space-y-1">
                           {char.behaviors.map((b, i) => (
-                            <li key={i} className="text-sm">
+                            <li key={`${b.node}-${b.action.slice(0, 24)}-${i}`} className="text-sm">
                               <span className="text-muted-foreground">[{b.node}]</span> {b.action}
                               <span className="text-muted-foreground">{t("storySimulation.motivation", { motivation: b.motivation })}</span>
                             </li>
@@ -326,7 +326,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                       <div className="mt-2">
                         <p className="mb-1 text-xs font-medium text-muted-foreground">{t("storySimulation.stateChanges")}</p>
                         <ul className="list-disc space-y-0.5 pl-4 text-sm">
-                          {char.stateChanges.map((s, i) => <li key={i}>{s}</li>)}
+                          {char.stateChanges.map((s, i) => <li key={`state-${s.slice(0, 32)}-${i}`}>{s}</li>)}
                         </ul>
                       </div>
                     )}
@@ -367,7 +367,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                       <div className="mt-2">
                         <p className="mb-1 text-xs font-medium text-muted-foreground">{t("storySimulation.keyEvents")}</p>
                         <ul className="list-disc space-y-0.5 pl-4 text-sm">
-                          {branch.keyEvents.map((e, i) => <li key={i}>{e}</li>)}
+                          {branch.keyEvents.map((e, i) => <li key={`event-${e.slice(0, 32)}-${i}`}>{e}</li>)}
                         </ul>
                       </div>
                     )}
@@ -375,13 +375,13 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                     <div className="mt-2 grid gap-2 sm:grid-cols-2">
                       {branch.pros && (
                         <div className="rounded-md bg-success p-2 text-sm dark:bg-success/30">
-                          <span className="font-medium text-success dark:text-success">{t("storySimulation.pros")}</span>
+                          <span className="font-medium text-success">{t("storySimulation.pros")}</span>
                           {branch.pros}
                         </div>
                       )}
                       {branch.cons && (
                         <div className="rounded-md bg-destructive p-2 text-sm dark:bg-destructive/30">
-                          <span className="font-medium text-destructive dark:text-destructive">{t("storySimulation.cons")}</span>
+                          <span className="font-medium text-destructive">{t("storySimulation.cons")}</span>
                           {branch.cons}
                         </div>
                       )}
@@ -419,7 +419,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                   <div className="space-y-1 text-sm leading-relaxed">
                     {recommendationDiff.segments.map((seg, i) => (
                       <span
-                        key={i}
+                        key={`seg-${seg.text.slice(0, 24)}-${i}`}
                         className={seg.isDifferent ? "rounded bg-warning px-1 dark:bg-warning/40" : ""}
                       >
                         {seg.text}。

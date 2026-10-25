@@ -362,15 +362,14 @@ describe("App 组件树渲染与初始化流程", () => {
     cleanup()
   })
 
-  it("打开目录失败时 alert 提示", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+  it("打开目录失败时 toast 提示", async () => {
     mocks.pickDirectory.mockResolvedValue("/p/opened")
     mocks.openProject.mockRejectedValue(new Error("bad"))
     const { container, cleanup } = renderApp()
     await flushAsync()
 
     await clickAndFlush(container.querySelector('[data-testid="welcome-open"]'))
-    expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining("打开项目失败"))
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("打开项目失败"))
     cleanup()
   })
 
@@ -385,14 +384,13 @@ describe("App 组件树渲染与初始化流程", () => {
     cleanup()
   })
 
-  it("选择最近项目失败时 alert 提示", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+  it("选择最近项目失败时 toast 提示", async () => {
     mocks.openProject.mockRejectedValue(new Error("bad-recent"))
     const { container, cleanup } = renderApp()
     await flushAsync()
 
     await clickAndFlush(container.querySelector('[data-testid="welcome-recent"]'))
-    expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining("打开项目失败"))
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("打开项目失败"))
     cleanup()
   })
 
@@ -435,8 +433,7 @@ describe("App 组件树渲染与初始化流程", () => {
     cleanup()
   })
 
-  it("创建对话框 onCreated hydrate 失败时弹窗提示（与打开路径一致）", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+  it("创建对话框 onCreated hydrate 失败时 toast 提示（与打开路径一致）", async () => {
     mocks.hydrateProjectOnOpen.mockRejectedValueOnce(new Error("hydrate-boom"))
     const { container, cleanup } = renderApp()
     await flushAsync()
@@ -444,8 +441,7 @@ describe("App 组件树渲染与初始化流程", () => {
     await clickAndFlush(container.querySelector('[data-testid="welcome-create"]'))
     await clickAndFlush(container.querySelector('[data-testid="dialog-created"]'))
     expect(mocks.hydrateProjectOnOpen).toHaveBeenCalledWith({ id: "new-1", name: "New", path: "/p/new" }, { fromCreate: true })
-    expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining("项目创建后初始化失败"))
-    alertSpy.mockRestore()
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("项目创建后初始化失败"))
     cleanup()
   })
 

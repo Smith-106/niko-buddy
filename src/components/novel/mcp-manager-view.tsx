@@ -147,7 +147,7 @@ export function McpManagerView({ projectPath, config: configOverride }: McpManag
           正在读取 MCP 配置…
         </p>
       ) : error !== null ? (
-        <p data-testid="mcp-error" role="alert" className="text-xs text-red-700 dark:text-red-300">
+        <p data-testid="mcp-error" role="alert" className="text-xs text-destructive">
           读取失败。配置没有加载，开关没有改动。
           <span className="sr-only">{error}</span>
         </p>
@@ -163,7 +163,7 @@ export function McpManagerView({ projectPath, config: configOverride }: McpManag
       ) : (
         <>
           {saveError !== null ? (
-            <p data-testid="mcp-save-error" role="alert" className="text-xs text-red-700 dark:text-red-300">
+            <p data-testid="mcp-save-error" role="alert" className="text-xs text-destructive">
               保存失败：{saveError}
             </p>
           ) : null}

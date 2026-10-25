@@ -32,6 +32,7 @@ import { isSystemDark } from "@/lib/theme-utils"
 import { COMMUNITY_COLORS, EventHandler, GraphLoader, HighlightManager, SigmaResizeRefresher, type ColorMode } from "./sigma-graph-views"
 import { DocumentGraphView } from "./document-graph-view"
 import { MindMapGraphView, ZoomControls } from "./mindmap-views"
+import { toast } from "@/lib/toast"
 
 
 type GraphDisplayMode = "graph" | "document" | "mindmap"
@@ -76,7 +77,7 @@ async function openProjectFromGraph() {
     const { hydrateProjectOnOpen } = await import("@/lib/composition-root")
     await hydrateProjectOnOpen(proj)
   } catch (err) {
-    window.alert(`打开项目失败：${err}`)
+    toast.error(`打开项目失败：${err}`)
   }
 }
 
@@ -763,7 +764,7 @@ export function GraphView() {
           )}
 
           {!loading && !error && nodes.length > 0 && displayMode === "graph" && (!focusActive || (neighborhood && focusNode)) && (
-            <div className="absolute top-3 left-1/2 z-10 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border bg-background/95 py-1 pl-3 pr-1.5 text-xs shadow-lg backdrop-blur-sm">
+            <div className="absolute top-3 left-1/2 z-10 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border bg-background/95 py-1 pl-3 pr-1.5 text-xs elevation-3 backdrop-blur-sm">
               <Crosshair className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               {!focusActive ? (
                 <button
@@ -787,7 +788,7 @@ export function GraphView() {
                         key={d}
                         type="button"
                         data-testid={`graph-focus-depth-${d}`}
-                        className={`rounded-full px-2 py-0.5 ${focusDepth === d ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        className={`rounded-full px-2 py-0.5 ${focusDepth === d ? "bg-background font-medium text-foreground elevation-1" : "text-muted-foreground hover:text-foreground"}`}
                         onClick={() => setFocusDepth(d)}
                       >
                         {d === 1 ? t("graph.oneHop", { defaultValue: "1跳" }) : t("graph.twoHops", { defaultValue: "2跳" })}
@@ -808,7 +809,7 @@ export function GraphView() {
 
           {chapterRange && !loading && !error && nodes.length > 0 && displayMode === "graph" && (
             <div
-              className="absolute top-12 left-1/2 z-10 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border bg-background/95 px-3 py-1 text-xs shadow-lg backdrop-blur-sm"
+              className="absolute top-12 left-1/2 z-10 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border bg-background/95 px-3 py-1 text-xs elevation-3 backdrop-blur-sm"
               data-testid="graph-chapter-timeline"
             >
               <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -843,7 +844,7 @@ export function GraphView() {
           )}
 
           {showFilters && (
-            <div className="absolute top-3 left-3 w-72 rounded-lg border bg-background/95 p-3 text-xs shadow-lg backdrop-blur-sm">
+            <div className="absolute top-3 left-3 w-72 rounded-lg border bg-background/95 p-3 text-xs elevation-3 backdrop-blur-sm">
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-1.5 font-semibold text-foreground">
                   <Filter className="h-3.5 w-3.5 shrink-0" />
@@ -908,7 +909,7 @@ export function GraphView() {
                         key={preset}
                         type="button"
                         data-testid={`layout-preset-${preset}`}
-                        className={`flex-1 rounded-md px-2 py-1 ${layoutPreset === preset ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        className={`flex-1 rounded-md px-2 py-1 ${layoutPreset === preset ? "bg-background font-medium text-foreground elevation-1" : "text-muted-foreground hover:text-foreground"}`}
                         aria-pressed={layoutPreset === preset}
                         onClick={() => setLayoutPreset(preset)}
                       >
@@ -961,7 +962,7 @@ export function GraphView() {
                             }}
                           />
                           <span className="truncate min-w-0">{label}</span>
-                          <span className="text-muted-foreground/60 shrink-0 ml-auto">{typeCounts[type]}</span>
+                          <span className="text-muted-foreground shrink-0 ml-auto">{typeCounts[type]}</span>
                         </label>
                       ))}
                   </div>
@@ -1006,7 +1007,7 @@ export function GraphView() {
 
           {nodeMenu && contextNode && (
             <div
-              className="absolute z-20 w-56 rounded-md border bg-background py-1 text-xs shadow-lg"
+              className="absolute z-20 w-56 rounded-md border bg-background py-1 text-xs elevation-3"
               style={{ left: nodeMenu.x, top: nodeMenu.y }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -1037,18 +1038,18 @@ export function GraphView() {
                 return (
                   <div className="border-b px-3 py-2 max-h-32 overflow-y-auto">
                     <div className="text-muted-foreground mb-1">{t("novel.graph.relations")}</div>
-                    {nodeEdges.slice(0, 8).map((edge, i) => {
+                    {nodeEdges.slice(0, 8).map((edge) => {
                       const isSource = edge.source === contextNode.id
                       const otherId = isSource ? edge.target : edge.source
                       const otherNode = nodes.find((n) => n.id === otherId)
                       return (
-                        <div key={i} className="text-muted-foreground/80 truncate min-w-0">
+                        <div key={`${edge.source}-${edge.target}`} className="text-muted-foreground truncate min-w-0">
                           {isSource ? "→" : "←"} {otherNode?.label ?? otherId}
                         </div>
                       )
                     })}
                     {nodeEdges.length > 8 && (
-                      <div className="text-muted-foreground/60">+{nodeEdges.length - 8}</div>
+                      <div className="text-muted-foreground">+{nodeEdges.length - 8}</div>
                     )}
                   </div>
                 )
@@ -1105,7 +1106,7 @@ export function GraphView() {
           )}
 
           {/* Legend */}
-          <div className="absolute bottom-3 left-3 rounded-lg border bg-background/90 backdrop-blur-sm px-3 py-2 text-xs shadow-sm max-w-[260px]">
+          <div className="absolute bottom-3 left-3 rounded-lg border bg-background/90 backdrop-blur-sm px-3 py-2 text-xs elevation-1 max-w-[260px]">
             <div className="flex items-center justify-between mb-1.5">
               <span className="font-semibold text-foreground">
                 {colorMode === "type" ? t("graph.nodeTypesLabel") : t("graph.communitiesLabel")}
@@ -1186,7 +1187,7 @@ export function GraphView() {
                                 title={t("graph.doubleClickToggleVisibility")}
                               >
                                 <span
-                                  className="inline-block h-3 w-3 rounded-full shrink-0 shadow-sm"
+                                  className="inline-block h-3 w-3 rounded-full shrink-0 elevation-1"
                                   style={{
                                     backgroundColor: isHidden ? "#94a3b8" : NODE_TYPE_COLORS[type],
                                     boxShadow: `0 0 4px ${hexToRgba(isHidden ? "#94a3b8" : shadowColor, 0.4)}`,
@@ -1195,8 +1196,8 @@ export function GraphView() {
                                 <span className={hoveredType === type ? "text-foreground font-medium" : "text-muted-foreground"}>
                                   {label}
                                 </span>
-                                <span className="text-muted-foreground/60 ml-auto">{typeCounts[type]}</span>
-                                {isHidden && <span className="text-muted-foreground/60 text-xs">{t("graph.hidden")}</span>}
+                                <span className="text-muted-foreground ml-auto">{typeCounts[type]}</span>
+                                {isHidden && <span className="text-muted-foreground text-xs">{t("graph.hidden")}</span>}
                               </div>
                             )
                           }
@@ -1204,7 +1205,7 @@ export function GraphView() {
                             <>
                               {novelTypes.some((t) => (typeCounts[t] ?? 0) > 0) && (
                                 <>
-                                  <div className="text-muted-foreground/70 text-xs font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
+                                  <div className="text-muted-foreground text-xs font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
                                     {t("novel.graph.novelNodeTypes")}
                                   </div>
                                   {/* v8 ignore start */}
@@ -1216,7 +1217,7 @@ export function GraphView() {
                               )}
                               {baseTypes.some((t) => (typeCounts[t] ?? 0) > 0) && (
                                 <>
-                                  <div className="text-muted-foreground/70 text-xs font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
+                                  <div className="text-muted-foreground text-xs font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
                                     {t("novel.graph.baseNodeTypes")}
                                   </div>
                                   {/* v8 ignore start */}
@@ -1255,7 +1256,7 @@ export function GraphView() {
                                 title={t("graph.doubleClickToggleVisibility")}
                               >
                                 <span
-                                  className="inline-block h-3 w-3 rounded-full shrink-0 shadow-sm"
+                                  className="inline-block h-3 w-3 rounded-full shrink-0 elevation-1"
                                   style={{
                                     backgroundColor: isHidden ? "#94a3b8" : NODE_TYPE_COLORS[type],
                                     boxShadow: `0 0 4px ${hexToRgba(isHidden ? "#94a3b8" : shadowColor, 0.4)}`,
@@ -1264,8 +1265,8 @@ export function GraphView() {
                                 <span className={hoveredType === type ? "text-foreground font-medium" : "text-muted-foreground"}>
                                   {label}
                                 </span>
-                                <span className="text-muted-foreground/60 ml-auto">{typeCounts[type]}</span>
-                                {isHidden && <span className="text-muted-foreground/60 text-xs">{t("graph.hidden")}</span>}
+                                <span className="text-muted-foreground ml-auto">{typeCounts[type]}</span>
+                                {isHidden && <span className="text-muted-foreground text-xs">{t("graph.hidden")}</span>}
                               </div>
                             )
                           })}
@@ -1299,7 +1300,7 @@ export function GraphView() {
                       className={`flex w-full items-center gap-2 rounded px-1 py-0.5 text-left transition-colors hover:bg-accent/50 ${isActive ? "bg-info/10" : ""}`}
                     >
                       <span
-                        className="inline-block h-3 w-3 rounded-full shrink-0 shadow-sm"
+                        className="inline-block h-3 w-3 rounded-full shrink-0 elevation-1"
                         style={{
                           backgroundColor: COMMUNITY_COLORS[c.id % COMMUNITY_COLORS.length],
                           boxShadow: `0 0 4px ${hexToRgba(COMMUNITY_COLORS[c.id % COMMUNITY_COLORS.length], 0.4)}`,
@@ -1308,7 +1309,7 @@ export function GraphView() {
                       <span className="text-muted-foreground truncate min-w-0" title={c.topNodes.join(", ")}>
                         {c.topNodes[0] ?? `${t("graph.cluster", { id: c.id })}`}
                       </span>
-                      <span className="text-muted-foreground/60 ml-auto shrink-0">{c.nodeCount}</span>
+                      <span className="text-muted-foreground ml-auto shrink-0">{c.nodeCount}</span>
                       {c.cohesion < 0.15 && c.nodeCount >= 3 && (
                         <span className="text-warning shrink-0" role="img" aria-label={t("graph.lowCohesion", { value: c.cohesion.toFixed(2) })} title={t("graph.lowCohesion", { value: c.cohesion.toFixed(2) })}>!</span>
                       )}
@@ -1356,13 +1357,13 @@ export function GraphView() {
                   <div className="flex flex-col gap-2">
                     {surprisingConns
                       .filter((conn) => !dismissedInsights.has(conn.key))
-                      .map((conn, i) => {
+                      .map((conn) => {
                         const ids = new Set([conn.source.id, conn.target.id])
                         const isActive = highlightedNodes.size === ids.size &&
                           [...ids].every((id) => highlightedNodes.has(id))
                         return (
                           <div
-                            key={i}
+                            key={conn.key}
                             className={`relative rounded-lg border p-3 text-sm transition-colors ${isActive ? "bg-info/10 border-info/40" : "hover:bg-muted/50"}`}
                           >
                             <button
@@ -1403,20 +1404,20 @@ export function GraphView() {
                     {t("graph.knowledgeGaps")}
                   </div>
                   <div className="flex flex-col gap-2">
-                    {knowledgeGaps.map((gap, i) => {
+                    {knowledgeGaps.map((gap) => {
                       const ids = new Set(gap.nodeIds)
                       const isActive = highlightedNodes.size > 0 &&
                         [...ids].every((id) => highlightedNodes.has(id)) &&
                         [...highlightedNodes].every((id) => ids.has(id))
                       return (
                         <button type="button"
-                          key={i}
+                          key={gap.title}
                           className={`rounded-lg border p-3 text-sm cursor-pointer transition-colors ${isActive ? "bg-warning/10 border-warning/40" : "hover:bg-muted/50"}`}
                           onClick={() => setHighlightedNodes(isActive ? new Set() : ids)}
                         >
                           <div className="font-medium text-xs text-foreground mb-1">{gap.title}</div>
                           <p className="text-xs text-muted-foreground mb-2">{gap.description}</p>
-                          <p className="text-xs text-muted-foreground/80 italic mb-2">{gap.suggestion}</p>
+                          <p className="text-xs text-muted-foreground italic mb-2">{gap.suggestion}</p>
                         </button>
                       )
                     })}

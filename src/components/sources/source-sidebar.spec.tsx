@@ -70,8 +70,14 @@ const mocks = vi.hoisted(() => {
     importSourceFolder: vi.fn(),
     queue: [] as Array<{ id: string; status: string; [key: string]: unknown }>,
     dialogOpen: vi.fn(),
+    toastError: vi.fn(),
+    toastInfo: vi.fn(),
   }
 })
+
+vi.mock("@/lib/toast", () => ({
+  toast: { error: mocks.toastError, info: mocks.toastInfo, success: vi.fn() },
+}))
 
 vi.mock("@/lib/platform", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/platform")>()
@@ -438,7 +444,7 @@ describe("SourceSidebar — 删除（arm → fire 两段式）", () => {
   })
 
   it("文件删除失败时 alert + console.error", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.deleteSourceFile.mockRejectedValue(new Error("del-fail"))
     render(<SourceSidebar />)
@@ -446,9 +452,8 @@ describe("SourceSidebar — 删除（arm → fire 两段式）", () => {
     const row = fileRow("alpha.md")
     fireEvent.click(within(row).getByTitle("删除 {{name}}"))
     fireEvent.click(within(row).getByTitle("再次点击删除 {{name}}"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining("删除失败")))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("删除失败")))
     expect(errorSpy).toHaveBeenCalled()
-    alertSpy.mockRestore()
     errorSpy.mockRestore()
   })
 
@@ -508,7 +513,7 @@ describe("SourceSidebar — 删除（arm → fire 两段式）", () => {
   })
 
   it("文件夹删除失败时 alert", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.deleteSourceFolder.mockRejectedValue(new Error("folder-fail"))
     render(<SourceSidebar />)
@@ -516,9 +521,8 @@ describe("SourceSidebar — 删除（arm → fire 两段式）", () => {
     const row = fileRow("notes")
     fireEvent.click(within(row).getByTitle("删除文件夹 {{name}}（递归）"))
     fireEvent.click(within(row).getByTitle("再次点击删除文件夹 {{name}} 及全部内容"))
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining("删除文件夹失败")))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("删除文件夹失败")))
     expect(errorSpy).toHaveBeenCalled()
-    alertSpy.mockRestore()
     errorSpy.mockRestore()
   })
 
@@ -669,19 +673,18 @@ describe("SourceSidebar — 摄取队列", () => {
 
 describe("SourceSidebar — 导入菜单", () => {
   it("非 Tauri 环境点击导入文件/文件夹弹窗提示", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast
     render(<SourceSidebar />)
     await screen.findByText("alpha.md")
     fireEvent.click(screen.getByRole("button", { name: "导入大纲" }))
     fireEvent.click(screen.getByText("导入文件"))
-    expect(alertSpy).toHaveBeenCalledWith("导入文件功能仅在桌面端可用")
+    expect(mocks.toastInfo).toHaveBeenCalledWith("导入文件功能仅在桌面端可用")
     fireEvent.click(screen.getByText("文件夹"))
-    expect(alertSpy).toHaveBeenCalledWith("导入文件夹功能仅在桌面端可用")
-    alertSpy.mockRestore()
+    expect(mocks.toastInfo).toHaveBeenCalledWith("导入文件夹功能仅在桌面端可用")
   })
 
   it("无项目时点击导入文件直接返回（不弹窗不导入）", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast
     mocks.state.project = null
     render(<SourceSidebar />)
     await act(async () => {})
@@ -689,10 +692,10 @@ describe("SourceSidebar — 导入菜单", () => {
     fireEvent.click(screen.getByText("导入文件"))
     fireEvent.click(screen.getByText("文件夹"))
     await act(async () => {})
-    expect(alertSpy).not.toHaveBeenCalled()
+    expect(mocks.toastError).not.toHaveBeenCalled()
+    expect(mocks.toastInfo).not.toHaveBeenCalled()
     expect(mocks.importSourceFiles).not.toHaveBeenCalled()
     expect(mocks.importSourceFolder).not.toHaveBeenCalled()
-    alertSpy.mockRestore()
   })
 
   it("Tauri：对话框取消时不导入", async () => {
@@ -1029,16 +1032,15 @@ describe("SourceSidebar — 重命名", () => {
   })
 
   it("重命名失败时 alert + console.error 并复位状态", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+    // P2: window.alert → toast
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.copyFile.mockRejectedValue(new Error("copy-fail"))
     const input = await startRename()
     fireEvent.change(input, { target: { value: "renamed" } })
     fireEvent.keyDown(input, { key: "Enter" })
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining("重命名失败")))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("重命名失败")))
     expect(errorSpy).toHaveBeenCalled()
     await waitFor(() => expect(document.querySelector("input[type='text']")).toBeNull())
-    alertSpy.mockRestore()
     errorSpy.mockRestore()
   })
 

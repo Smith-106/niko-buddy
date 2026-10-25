@@ -9,6 +9,7 @@ import type { FileNode } from "@/types/wiki"
 import { useTranslation } from "react-i18next"
 import { openProjectFolder } from "@/commands/fs"
 import { isTauri } from "@/lib/platform"
+import { toast } from "@/lib/toast"
 
 function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
   const [expanded, setExpanded] = useState(depth < 1)
@@ -84,7 +85,7 @@ export function FileTree() {
           },
         )
       } else {
-        window.alert("无法打开项目文件夹")
+        toast.error("无法打开项目文件夹")
       }
     }
   }

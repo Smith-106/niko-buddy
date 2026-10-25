@@ -211,7 +211,7 @@ export function DeAiSkillPicker({
       {open ? (
         <div
           data-testid="de-ai-skill-picker-popover"
-          className="fixed z-50 w-64 rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-lg"
+          className="fixed z-50 w-64 rounded-md border bg-popover p-1 text-sm text-popover-foreground elevation-3"
           style={panelStyle}
         >
           <DeAiSkillOptionsPanel

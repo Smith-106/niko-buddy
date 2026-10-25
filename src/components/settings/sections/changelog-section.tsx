@@ -130,7 +130,7 @@ export function ChangelogSection() {
           </button>
 
           {updateStatus === "up-to-date" && (
-            <span className="inline-flex items-center gap-1.5 text-sm text-success dark:text-success">
+            <span className="inline-flex items-center gap-1.5 text-sm text-success">
               <CheckCircle className="h-4 w-4" />
               当前已是最新版本
             </span>
@@ -138,7 +138,7 @@ export function ChangelogSection() {
 
           {updateStatus === "error" && (
             /* v8 ignore start */
-            <span className="inline-flex items-center gap-1.5 text-sm text-destructive dark:text-destructive">
+            <span className="inline-flex items-center gap-1.5 text-sm text-destructive">
               <AlertCircle className="h-4 w-4" />
               {errorMessage || "检查更新失败"}
             </span>
@@ -151,11 +151,11 @@ export function ChangelogSection() {
           <div className="mt-3 rounded-md border border-warning bg-warning p-3 dark:border-warning/60 dark:bg-warning/40">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-warning dark:text-warning">
+                <p className="text-sm font-medium text-warning">
                   发现新版本：v{latestVersion}
                 </p>
                 {updateNotes && (
-                  <p className="mt-1 text-xs text-warning dark:text-warning">{updateNotes}</p>
+                  <p className="mt-1 text-xs text-warning">{updateNotes}</p>
                 )}
               </div>
               <button
@@ -189,7 +189,7 @@ export function ChangelogSection() {
         {/* Ready to install banner */}
         {updateStatus === "ready" && (
           <div className="mt-3 rounded-md border border-success bg-success p-3 dark:border-success/60 dark:bg-success/40">
-            <p className="text-sm font-medium text-success dark:text-success">
+            <p className="text-sm font-medium text-success">
               ✅ 更新已下载完成！安装时会关闭当前软件，请确保已保存编辑内容。
             </p>
             <button
@@ -228,12 +228,12 @@ export function ChangelogSection() {
                 </span>
                 <span className="text-xs text-muted-foreground">{entry.date}</span>
                 {entry.version === __APP_VERSION__ && (
-                  <span className="text-xs text-success dark:text-success">{t("settings.sections.changelog.current")}</span>
+                  <span className="text-xs text-success">{t("settings.sections.changelog.current")}</span>
                 )}
               </div>
               <ul className="mt-3 space-y-2 text-sm leading-relaxed text-foreground/90">
                 {visibleLines.map((line, i) => (
-                  <li key={i} className="flex gap-2">
+                  <li key={`changelog-${line.slice(0, 32)}-${i}`} className="flex gap-2">
                     <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
                     <span>{line}</span>
                   </li>

@@ -337,7 +337,7 @@ export function DebtBoardView({
                       {netValue < 0 ? (
                         <div className="absolute inset-y-0 bg-destructive/70" style={{ right: "50%", width: `${pct}%` }} />
                       ) : netValue > 0 ? (
-                        <div className="absolute inset-y-0 bg-emerald-500/70" style={{ left: "50%", width: `${pct}%` }} />
+                        <div className="absolute inset-y-0 bg-success/70" style={{ left: "50%", width: `${pct}%` }} />
                       ) : null}
                     </div>
                     <span className="shrink-0 rounded border px-1 text-muted-foreground">

@@ -122,7 +122,7 @@ export function SkillBundleImportDialog({
         if (!busy && e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="w-[640px] max-h-[80vh] overflow-y-auto rounded-lg bg-background p-6 shadow-xl">
+      <div className="w-[640px] max-h-[80vh] overflow-y-auto rounded-lg bg-background p-6 elevation-3">
         <h2 id="skillbundle-import-title" className="mb-3 text-lg font-semibold">
           {t("skillbundle.import.title")}
         </h2>

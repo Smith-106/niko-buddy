@@ -94,7 +94,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
 
   if (error) {
     return (
-      <div className="my-2 rounded border border-destructive/60 bg-destructive/50 dark:bg-destructive/20 p-2 text-xs text-destructive dark:text-destructive">
+      <div className="my-2 rounded border border-destructive/60 bg-destructive/50 dark:bg-destructive/20 p-2 text-xs text-destructive">
         <p className="font-medium mb-1">{t("mermaid.syntaxError", "Mermaid 语法错误")}</p>
         <pre className="whitespace-pre-wrap text-xs opacity-70">{error}</pre>
       </div>
@@ -150,7 +150,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
           autoFocus
         >
           <div
-            className="relative h-[90vh] w-[90vw] overflow-auto rounded-lg bg-background border border-border shadow-2xl p-6"
+            className="relative h-[90vh] w-[90vw] overflow-auto rounded-lg bg-background border border-border elevation-3 p-6"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="absolute top-3 right-3 z-10 flex items-center gap-1">

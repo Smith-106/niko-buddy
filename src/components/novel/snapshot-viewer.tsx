@@ -56,7 +56,7 @@ function Section({ title, items }: { title: string; items: string[] }) {
       <h4 className="mb-1 text-sm font-semibold text-foreground">{title}</h4>
       <ul className="list-inside list-disc space-y-0.5">
         {items.map((item, i) => (
-          <li key={i} className="text-sm text-muted-foreground">{item}</li>
+          <li key={`snapshot-${item.slice(0, 32)}-${i}`} className="text-sm text-muted-foreground">{item}</li>
         ))}
       </ul>
     </div>
@@ -198,7 +198,7 @@ export function SnapshotDiffModal({ open, original, modified, onClose }: Snapsho
           ;(event.currentTarget as HTMLElement | null)?.focus()
         }}
       >
-      <div className="flex max-h-[80vh] w-[860px] flex-col rounded-lg border border-border bg-background shadow-xl outline-none">
+      <div className="mx-4 flex max-h-[80vh] w-full max-w-[860px] flex-col rounded-lg border border-border bg-background elevation-3 outline-none sm:mx-0">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <DialogTitle asChild>
             <h3 className="text-lg font-semibold text-foreground">{t("novel.snapshot.compareCurrent")}</h3>
@@ -446,7 +446,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
           ;(event.currentTarget as HTMLElement | null)?.focus()
         }}
       >
-      <div className="flex max-h-[80vh] w-[720px] flex-col rounded-lg border border-border bg-background shadow-xl outline-none">
+      <div className="flex max-h-[80vh] w-[720px] flex-col rounded-lg border border-border bg-background elevation-3 outline-none">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div className="min-w-0">
             <DialogTitle asChild>

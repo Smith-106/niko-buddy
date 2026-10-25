@@ -91,7 +91,7 @@ export function TimelineView() {
         {loading ? (
           <div className="space-y-3 p-4" role="status" aria-label={t("novel.timeline.loading")}>
             {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="flex items-start gap-4">
+              <div key={`timeline-skeleton-${i}`} className="flex items-start gap-4">
                 <div className="skeleton-bar h-3 w-3 shrink-0 rounded-full" />
                 <div className="skeleton-bar h-4 w-full" />
               </div>
@@ -99,7 +99,7 @@ export function TimelineView() {
           </div>
         ) : events.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground">
-            <Clock className="h-8 w-8 text-muted-foreground/40" />
+            <Clock className="h-8 w-8 text-muted-foreground" />
             <p>{t("novel.timeline.noEvents")}</p>
             <p className="text-xs italic">{t("novel.timeline.noEventsHint")}</p>
           </div>
