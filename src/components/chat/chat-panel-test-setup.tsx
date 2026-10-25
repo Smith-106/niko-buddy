@@ -397,6 +397,7 @@ const mocks = vi.hoisted(() => {
       async () => {},
     ),
     loadStyleExemplarsViaRust: vi.fn<(projectPath: string) => Promise<StyleExemplarRecord[]>>(async () => []),
+    deleteStyleExemplarViaRust: vi.fn<(projectPath: string, exemplarId: string) => Promise<void>>(async () => {}),
     appendExemplarABSample: vi.fn<(projectPath: string, sample: ExemplarABSample) => Promise<void>>(
       async () => {},
     ),
@@ -979,6 +980,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 vi.mock("@/commands/exemplar", () => ({
   markStyleExemplarViaRust: mocks.markStyleExemplarViaRust,
   loadStyleExemplarsViaRust: mocks.loadStyleExemplarsViaRust,
+  deleteStyleExemplarViaRust: mocks.deleteStyleExemplarViaRust,
 }))
 
 vi.mock("@/lib/novel/character-cognition", async (importOriginal) => {
@@ -1441,6 +1443,7 @@ export function resetMockDefaults(): void {
   mocks.exemplarABStats.mockReturnValue({ enabledAvg: null, disabledAvg: null })
   mocks.loadStyleExemplarsViaRust.mockImplementation(async () => [])
   mocks.markStyleExemplarViaRust.mockImplementation(async () => {})
+  mocks.deleteStyleExemplarViaRust.mockImplementation(async () => {})
   mocks.refreshProjectState.mockImplementation(async () => {})
   mocks.executeIngestWrites.mockImplementation(async () => [])
   mocks.resolveChapterLengthSpec.mockReturnValue({

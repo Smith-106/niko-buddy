@@ -16,19 +16,12 @@ import { PlanningPanel } from "./planning-panel"
 import { ChatModelSelector } from "./chat-model-selector"
 import { useChatStore, chatMessagesToLLM, type DisplayMessage } from "@/stores/chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { chapterMarkdownHasBody, resolveChapterLengthSpec, routeTask, buildTaskDirective, appendExemplarABSample, exemplarABStats, loadCognitionState, detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat, buildQmQuaiSystemPrompt, injectDeAiDirective, cleanGeneratedChapterContentWithTitle, resolveNovelModel, resolveReviewModel, buildGoldenThreeChapterDirective, detectGoldenThreeChapterRequest, isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEditResult, backupChapterFile, appendChapterWorkspaceSnapshot, updateChapterStatus, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber, normalizeChapterEditFile, commitAcceptedDeepChapterDraft, blockDeepChapterSession, completeDeepChapterSession, createNovelSessionId, loadNovelSessionStatus, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, startDeepChapterSession, subscribeStatusJson, buildStageJournalRuntime } from "@/lib/novel"
+import { chapterMarkdownHasBody, resolveChapterLengthSpec, routeTask, buildTaskDirective, detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat, buildQmQuaiSystemPrompt, injectDeAiDirective, cleanGeneratedChapterContentWithTitle, resolveNovelModel, resolveReviewModel, buildGoldenThreeChapterDirective, detectGoldenThreeChapterRequest, isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEditResult, backupChapterFile, appendChapterWorkspaceSnapshot, updateChapterStatus, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber, normalizeChapterEditFile, commitAcceptedDeepChapterDraft, blockDeepChapterSession, completeDeepChapterSession, createNovelSessionId, loadNovelSessionStatus, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, startDeepChapterSession, subscribeStatusJson, buildStageJournalRuntime } from "@/lib/novel"
 import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
 import { activeRustStreamIds } from "@/lib/claude-cli-transport"
 import { executeIngestWrites } from "@/lib/ingest"
 import { readFile, writeFileAtomic, createDirectory, fileExists } from "@/commands/fs"
 // C4 覆盖守卫：目标章节 Markdown 是否有正文的纯函数（chapter-save-strategy 模块）。
-import {
-  markStyleExemplarViaRust,
-  loadStyleExemplarsViaRust,
-  deleteStyleExemplarViaRust,
-  type StyleExemplarMarkType,
-  type StyleExemplarRecord,
-} from "@/commands/exemplar"
 import { searchWiki, tokenizeQuery } from "@/lib/search"
 import { normalizePath, getFileName, getRelativePath } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
@@ -57,6 +50,8 @@ import { ContextPackReplayPanel } from "@/components/novel/context-pack-replay-p
 import {
   ConversationTabs, findPreviousUserRequest, loadEnabledDismantlingDirective,
 } from "./chat-panel-widgets"
+import { useExemplarState } from "./use-exemplar-state"
+import { ExemplarMarkDialog } from "./chat-exemplar-dialog"
 
 
 export function getDeepChapterToggleButtonClass(enabled: boolean): string {
@@ -168,20 +163,16 @@ export function ChatPanel() {
   // C4 覆盖守卫（CORR-012 落地，方案 a）：保存目标章节已有正文时，覆盖前必须显式确认。
   const chapterOverwriteResolverRef = useRef<((confirmed: boolean) => void) | null>(null)
   const [pendingChapterOverwrite, setPendingChapterOverwrite] = useState({ open: false, chapterNumber: 0 })
-  // EPIC-001 / TASK-005 / ADR-29: exemplar 标记 UI 状态。
+  // EPIC-001 / TASK-005 / ADR-29: exemplar 标记 UI 状态（M1-3 切片：内聚块迁至 use-exemplar-state + chat-exemplar-dialog）。
   // C-001 Draft-first 例外 — 用户主动标记非 AI 产出，直写正式层。
-  const [exemplarDialog, setExemplarDialog] = useState<{
-    open: boolean
-    text: string
-    chapterId: string
-  }>({ open: false, text: "", chapterId: "" })
-  const [exemplarMarkType, setExemplarMarkType] = useState<StyleExemplarMarkType>("style")
-  const [exemplarNote, setExemplarNote] = useState("")
-  const [exemplarCount, setExemplarCount] = useState<number>(0)
-  const [exemplarFeedback, setExemplarFeedback] = useState<string>("")
-  // ③-6 审计修复：范例列表 + 删除确认状态。
-  const [exemplarList, setExemplarList] = useState<StyleExemplarRecord[]>([])
-  const [exemplarDeleteConfirmId, setExemplarDeleteConfirmId] = useState<string | null>(null)
+  const {
+    exemplarDialog, setExemplarDialog,
+    exemplarMarkType, setExemplarMarkType,
+    exemplarNote, setExemplarNote,
+    exemplarCount, exemplarFeedback,
+    exemplarList, exemplarDeleteConfirmId, setExemplarDeleteConfirmId,
+    openExemplarDialogFromSelection, submitExemplarMark, deleteExemplar, submitExemplarABScore,
+  } = useExemplarState({ project, selectedFile, formatError: (err) => formatOperationError(t, err) })
   const [deepChapterEnabled, setDeepChapterEnabledState] = useState(sharedDeepChapterEnabledRef.current)
   // Wave C6: 最近一次 buildContextPack 装配结果 —— ContextPackReplayPanel 决策回放用（只读展示，零副作用）。
   const [replayContextPack, setReplayContextPack] = useState<React.ComponentProps<typeof ContextPackReplayPanel>["pack"]>(null)
@@ -249,96 +240,6 @@ export function ChatPanel() {
       chapterOverwriteResolverRef.current = resolve
     })
   }, [])
-
-  // EPIC-001 / TASK-005 / ADR-29: 从当前选段打开 exemplar 标记 Dialog。
-  // 用 window.getSelection() 取选段文本（最小侵入 — 不改消息渲染结构）。
-  // C-001 措辞：UI 明确标注「用户标记锚点」非自动生成。
-  const openExemplarDialogFromSelection = useCallback(async () => {
-    if (!project) return
-    const selection = window.getSelection?.()
-    const text = selection?.toString().trim() ?? ""
-    if (!text) {
-      setExemplarFeedback("请先在消息中选中一段文本")
-      return
-    }
-    const pp = normalizePath(project.path)
-    const chapterId = selectedFile ? getFileName(selectedFile) : "chat-selection"
-    setExemplarDialog({ open: true, text, chapterId })
-    setExemplarMarkType("style")
-    setExemplarNote("")
-    setExemplarFeedback("")
-    // 刷新计数 + 范例列表（标记前基线）
-    try {
-      const list = await loadStyleExemplarsViaRust(pp)
-      setExemplarCount(list.length)
-      setExemplarList(list)
-    } catch {
-      // non-fatal — 计数失败不阻断标记
-    }
-  }, [project, selectedFile])
-
-  // EPIC-001 / TASK-005: 提交 exemplar 标记 → Rust command 写 .novel/style-exemplars.json
-  // （Draft-first 例外 C-001，直写正式层）+ 刷新计数。
-  const submitExemplarMark = useCallback(async () => {
-    if (!project) return
-    const pp = normalizePath(project.path)
-    try {
-      await markStyleExemplarViaRust(pp, {
-        chapterId: exemplarDialog.chapterId,
-        text: exemplarDialog.text,
-        markType: exemplarMarkType,
-        note: exemplarNote.trim() || undefined,
-      })
-      const list = await loadStyleExemplarsViaRust(pp)
-      setExemplarCount(list.length)
-      setExemplarList(list)
-      setExemplarFeedback("已标记为用户锚点（非自动生成）")
-      setExemplarDialog({ open: false, text: "", chapterId: "" })
-    } catch (e) {
-      setExemplarFeedback(`标记失败：${toErrorMessage(e)}`)
-    }
-  }, [project, exemplarDialog, exemplarMarkType, exemplarNote])
-
-  // ③-6 审计修复：删除一条已标记的 style exemplar（二次确认）。
-  const deleteExemplar = useCallback(async (exemplarId: string) => {
-    if (!project) return
-    const pp = normalizePath(project.path)
-    try {
-      await deleteStyleExemplarViaRust(pp, exemplarId)
-      const list = await loadStyleExemplarsViaRust(pp)
-      setExemplarList(list)
-      setExemplarCount(list.length)
-      setExemplarFeedback(`已删除范例 ${exemplarId.slice(0, 8)}`)
-      setExemplarDeleteConfirmId(null)
-    } catch (e) {
-      setExemplarFeedback(`删除失败：${toErrorMessage(e)}`)
-    }
-  }, [project])
-
-  // EPIC-001 / TASK-005: 提交文风主观评分（1-5 星）→ cognition-state.json A/B 埋点。
-  // G-002 UI 埋点驱动 PM-03 文风一致性 ROI 可量化。
-  const submitExemplarABScore = useCallback(async (score: number, variant: "enabled" | "disabled") => {
-    if (!project) return
-    const pp = normalizePath(project.path)
-    try {
-      await appendExemplarABSample(pp, {
-        variant,
-        score,
-        chapterId: selectedFile ? getFileName(selectedFile) : "chat",
-        timestamp: new Date().toISOString(),
-      })
-      const state = await loadCognitionState(pp)
-      const stats = exemplarABStats(state)
-      const enabledStr = stats.enabledAvg !== null ? stats.enabledAvg.toFixed(2) : "N/A"
-      const disabledStr = stats.disabledAvg !== null ? stats.disabledAvg.toFixed(2) : "N/A"
-      setExemplarFeedback(
-        `已记录评分 ${score}★（${variant === "enabled" ? "开启" : "关闭"}）— 开启均分 ${enabledStr === "N/A" ? "无" : enabledStr}，关闭均分 ${disabledStr === "N/A" ? "无" : disabledStr}`,
-      )
-    } catch (err) {
-      // R4 共识（deepseek+qwen）: 评分提交失败原本无 catch ⇒ 浮空 rejection + 界面无反馈。
-      setExemplarFeedback(formatOperationError(t, err))
-    }
-  }, [project, selectedFile, t])
 
   const getLatestAssistantDraftContext = useCallback(() => {
     /* v8 ignore next */
@@ -2610,122 +2511,24 @@ export function ChatPanel() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-        {/* EPIC-001 / TASK-005 / ADR-29: exemplar 标记 UI（C-001 Draft-first 例外，用户标记锚点非自动生成） */}
-        <Dialog open={exemplarDialog.open} onOpenChange={/* v8 ignore next */ (open) => { if (!open) setExemplarDialog({ open: false, text: "", chapterId: "" }) }}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{t("chat.markExemplar")}</DialogTitle>
-              <DialogDescription>
-                用户标记锚点（非自动生成）— 作为 de-AI 正向锚点经 contextPack 注入，Draft-first 例外直写正式层。
-              </DialogDescription>
-            </DialogHeader>
-            <div className="max-h-48 overflow-y-auto rounded-md border bg-muted/20 p-3 text-xs leading-6 text-foreground whitespace-pre-wrap">
-              {exemplarDialog.text}
-            </div>
-            <div className="flex flex-col gap-2 text-xs">
-              <label className="flex items-center gap-2">
-                <span className="w-16 text-muted-foreground">markType</span>
-                <select
-                  className="rounded border bg-background px-2 py-1 text-xs"
-                  value={exemplarMarkType}
-                  onChange={(e) => setExemplarMarkType(e.target.value as StyleExemplarMarkType)}
-                >
-                  <option value="style">{t("chat.exemplarStyle")}</option>
-                  <option value="voice">{t("chat.exemplarVoice")}</option>
-                  <option value="pacing">{t("chat.exemplarPacing")}</option>
-                </select>
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-muted-foreground">{t("chat.exemplarNote")}</span>
-                <textarea
-                  className="rounded border bg-background px-2 py-1 text-xs"
-                  rows={2}
-                  value={exemplarNote}
-                  onChange={(e) => setExemplarNote(e.target.value)}
-                  placeholder={t("chat.exemplarWhyPlaceholder")}
-                />
-              </label>
-              <div className="text-muted-foreground">
-                当前项目已标记 exemplar：<span className="font-mono">{exemplarCount}</span> 条
-              </div>
-              {/* ③-6 审计修复：范例列表 + 删除按钮（二次确认） */}
-              {exemplarList.length > 0 ? (
-                <div className="max-h-32 overflow-y-auto rounded-md border bg-muted/10">
-                  <div className="sticky top-0 bg-muted/30 px-2 py-1 text-xs font-medium text-muted-foreground">{t("chat.exemplarsMarked")}</div>
-                  {exemplarList.map((ex) => (
-                    <div key={ex.exemplarId} className="flex items-start gap-2 border-t px-2 py-1 text-xs first:border-t-0">
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-foreground">{ex.text.slice(0, 60)}{ex.text.length > 60 ? "…" : ""}</div>
-                        <div className="text-muted-foreground">{ex.markType}{ex.chapterId !== "chat-selection" ? ` · ${ex.chapterId}` : ""}</div>
-                      </div>
-                      {exemplarDeleteConfirmId === ex.exemplarId ? (
-                        <div className="flex shrink-0 gap-1">
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            className="h-6 px-2 text-xs"
-                            onClick={() => void deleteExemplar(ex.exemplarId)}
-                          >{t("chat.confirmDelete")}</Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-6 px-2 text-xs"
-                            onClick={() => setExemplarDeleteConfirmId(null)}
-                          >{t("common.cancel")}</Button>
-                        </div>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 shrink-0 px-2 text-xs"
-                          onClick={() => setExemplarDeleteConfirmId(ex.exemplarId)}
-                          title={t("chat.deleteExemplar")}
-                          aria-label={t("chat.deleteExemplar")}
-                        >{t("common.delete")}</Button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              {exemplarFeedback && (
-                <div className="rounded bg-muted/40 px-2 py-1 text-xs text-foreground">{exemplarFeedback}</div>
-              )}
-            </div>
-            <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
-              <div className="flex gap-1">
-                <span className="self-center text-xs text-muted-foreground">{t("chat.abScore")}</span>
-                {[1, 2, 3, 4, 5].map((s) => (
-                  <Button
-                    key={`en-${s}`}
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => submitExemplarABScore(s, "enabled")}
-                    title={t("chat.exemplarSlopScore")}
-                  >
-                    {s}★开
-                  </Button>
-                ))}
-                {[1, 2, 3, 4, 5].map((s) => (
-                  <Button
-                    key={`dis-${s}`}
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => submitExemplarABScore(s, "disabled")}
-                    title={t("chat.slopOnlyScore")}
-                  >
-                    {s}★关
-                  </Button>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setExemplarDialog({ open: false, text: "", chapterId: "" })}>取消</Button>
-                <Button onClick={submitExemplarMark}>{t("chat.markAnchor")}</Button>
-              </div>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <ExemplarMarkDialog
+          dialog={exemplarDialog}
+          markType={exemplarMarkType}
+          note={exemplarNote}
+          count={exemplarCount}
+          feedback={exemplarFeedback}
+          list={exemplarList}
+          deleteConfirmId={exemplarDeleteConfirmId}
+          t={t}
+          onClose={() => setExemplarDialog({ open: false, text: "", chapterId: "" })}
+          onMarkTypeChange={setExemplarMarkType}
+          onNoteChange={setExemplarNote}
+          onDeleteRequest={setExemplarDeleteConfirmId}
+          onDeleteCancel={() => setExemplarDeleteConfirmId(null)}
+          onDeleteConfirm={(id) => void deleteExemplar(id)}
+          onABScore={(s, v) => void submitExemplarABScore(s, v)}
+          onSubmit={() => void submitExemplarMark()}
+        />
       </div>
     </div>
   )

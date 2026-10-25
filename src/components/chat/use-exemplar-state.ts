@@ -3,7 +3,9 @@ import { useState, useCallback } from "react"
 import {
   markStyleExemplarViaRust,
   loadStyleExemplarsViaRust,
+  deleteStyleExemplarViaRust,
   type StyleExemplarMarkType,
+  type StyleExemplarRecord,
 } from "@/commands/exemplar"
 import { appendExemplarABSample, exemplarABStats, loadCognitionState } from "@/lib/novel"
 import { normalizePath, getFileName } from "@/lib/path-utils"
@@ -26,8 +28,10 @@ import { toErrorMessage } from "@/lib/utils"
 export function useExemplarState(params: {
   project: { path: string } | null
   selectedFile: string | null
+  /** 异常文案格式化（ panel 传入 (err) => formatOperationError(t, err)；缺省回退 toErrorMessage ） */
+  formatError?: (err: unknown) => string
 }) {
-  const { project, selectedFile } = params
+  const { project, selectedFile, formatError } = params
 
   const [exemplarDialog, setExemplarDialog] = useState<{
     open: boolean
@@ -38,6 +42,9 @@ export function useExemplarState(params: {
   const [exemplarNote, setExemplarNote] = useState("")
   const [exemplarCount, setExemplarCount] = useState<number>(0)
   const [exemplarFeedback, setExemplarFeedback] = useState<string>("")
+  // ③-6 审计修复：范例列表 + 删除确认状态（与 chat-panel 内联实现 parity）。
+  const [exemplarList, setExemplarList] = useState<StyleExemplarRecord[]>([])
+  const [exemplarDeleteConfirmId, setExemplarDeleteConfirmId] = useState<string | null>(null)
 
   // Open exemplar dialog from current text selection (window.getSelection).
   const openExemplarDialogFromSelection = useCallback(async () => {
@@ -57,8 +64,9 @@ export function useExemplarState(params: {
     try {
       const list = await loadStyleExemplarsViaRust(pp)
       setExemplarCount(list.length)
+      setExemplarList(list)
     } catch {
-      // non-fatal — counting failure should not block marking
+      // non-fatal — 计数失败不阻断标记
     }
   }, [project, selectedFile])
 
@@ -75,6 +83,7 @@ export function useExemplarState(params: {
       })
       const list = await loadStyleExemplarsViaRust(pp)
       setExemplarCount(list.length)
+      setExemplarList(list)
       setExemplarFeedback("已标记为用户锚点（非自动生成）")
       setExemplarDialog({ open: false, text: "", chapterId: "" })
     } catch (e) {
@@ -82,24 +91,45 @@ export function useExemplarState(params: {
     }
   }, [project, exemplarDialog, exemplarMarkType, exemplarNote])
 
+  // ③-6 审计修复：删除一条已标记的 style exemplar（二次确认）。
+  const deleteExemplar = useCallback(async (exemplarId: string) => {
+    if (!project) return
+    const pp = normalizePath(project.path)
+    try {
+      await deleteStyleExemplarViaRust(pp, exemplarId)
+      const list = await loadStyleExemplarsViaRust(pp)
+      setExemplarList(list)
+      setExemplarCount(list.length)
+      setExemplarFeedback(`已删除范例 ${exemplarId.slice(0, 8)}`)
+      setExemplarDeleteConfirmId(null)
+    } catch (e) {
+      setExemplarFeedback(`删除失败：${toErrorMessage(e)}`)
+    }
+  }, [project])
+
   // Submit A/B style quality score (1-5 stars) to cognition-state.json
   const submitExemplarABScore = useCallback(async (score: number, variant: "enabled" | "disabled") => {
     if (!project) return
     const pp = normalizePath(project.path)
-    await appendExemplarABSample(pp, {
-      variant,
-      score,
-      chapterId: selectedFile ? getFileName(selectedFile) : "chat",
-      timestamp: new Date().toISOString(),
-    })
-    const state = await loadCognitionState(pp)
-    const stats = exemplarABStats(state)
-    const enabledStr = stats.enabledAvg !== null ? stats.enabledAvg.toFixed(2) : "N/A"
-    const disabledStr = stats.disabledAvg !== null ? stats.disabledAvg.toFixed(2) : "N/A"
-    setExemplarFeedback(
-      `已记录评分 ${score}★（${variant === "enabled" ? "开启" : "关闭"}）— 开启均分 ${enabledStr === "N/A" ? "无" : enabledStr}，关闭均分 ${disabledStr === "N/A" ? "无" : disabledStr}`,
-    )
-  }, [project, selectedFile])
+    try {
+      await appendExemplarABSample(pp, {
+        variant,
+        score,
+        chapterId: selectedFile ? getFileName(selectedFile) : "chat",
+        timestamp: new Date().toISOString(),
+      })
+      const state = await loadCognitionState(pp)
+      const stats = exemplarABStats(state)
+      const enabledStr = stats.enabledAvg !== null ? stats.enabledAvg.toFixed(2) : "N/A"
+      const disabledStr = stats.disabledAvg !== null ? stats.disabledAvg.toFixed(2) : "N/A"
+      setExemplarFeedback(
+        `已记录评分 ${score}★（${variant === "enabled" ? "开启" : "关闭"}）— 开启均分 ${enabledStr === "N/A" ? "无" : enabledStr}，关闭均分 ${disabledStr === "N/A" ? "无" : disabledStr}`,
+      )
+    } catch (err) {
+      // R4 共识（deepseek+qwen）: 评分提交失败原本无 catch ⇒ 浮空 rejection + 界面无反馈。
+      setExemplarFeedback(formatError ? formatError(err) : toErrorMessage(err))
+    }
+  }, [project, selectedFile, formatError])
 
   return {
     exemplarDialog,
@@ -110,8 +140,13 @@ export function useExemplarState(params: {
     setExemplarNote,
     exemplarCount,
     exemplarFeedback,
+    exemplarList,
+    setExemplarList,
+    exemplarDeleteConfirmId,
+    setExemplarDeleteConfirmId,
     openExemplarDialogFromSelection,
     submitExemplarMark,
+    deleteExemplar,
     submitExemplarABScore,
   }
 }

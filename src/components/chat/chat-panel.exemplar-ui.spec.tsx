@@ -10,7 +10,13 @@ import { describe, expect, it } from "vitest"
  * 组件渲染 mock（项目测试惯例：chat-panel 用源码断言而非渲染）。
  */
 describe("chat-panel exemplar UI (TASK-005 / EPIC-001 / ADR-29)", () => {
-  const source = readFileSync(resolve(__dirname, "chat-panel.tsx"), "utf8")
+  // M1-3 切片：exemplar 内聚块已迁至 use-exemplar-state.ts（hook） +
+  // chat-exemplar-dialog.tsx（纯 Dialog 组件）；断言三文件拼接，覆盖面零弱化。
+  const source =
+    readFileSync(resolve(__dirname, "chat-panel.tsx"), "utf8") +
+    readFileSync(resolve(__dirname, "use-exemplar-state.ts"), "utf8") +
+    readFileSync(resolve(__dirname, "chat-exemplar-dialog.tsx"), "utf8")
+  const panelSource = readFileSync(resolve(__dirname, "chat-panel.tsx"), "utf8")
 
   it("imports the exemplar Rust command wrapper (UI → commands/exemplar → Rust)", () => {
     expect(source).toContain('from "@/commands/exemplar"')
@@ -22,6 +28,9 @@ describe("chat-panel exemplar UI (TASK-005 / EPIC-001 / ADR-29)", () => {
     expect(source).toContain("appendExemplarABSample")
     expect(source).toContain("exemplarABStats")
     expect(source).toContain("loadCognitionState")
+    // M1-3：hook 由 chat-panel 经同目录 import 接线，对外 import 面不变。
+    expect(panelSource).toContain('from "./use-exemplar-state"')
+    expect(panelSource).toContain('from "./chat-exemplar-dialog"')
   })
 
   it("has markExemplar trigger button (i18n key chat.markExemplar → 标记为风格范例)", () => {

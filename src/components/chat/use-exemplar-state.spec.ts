@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => {
     selected,
     markStyleExemplarViaRust: vi.fn(async () => {}),
     loadStyleExemplarsViaRust: vi.fn<(path: string) => Promise<StyleExemplarRecord[]>>(async () => []),
+    deleteStyleExemplarViaRust: vi.fn(async () => {}),
     appendExemplarABSample: vi.fn(async () => {}),
     exemplarABStats: vi.fn<(state: CognitionState | null) => { enabledAvg: number | null; disabledAvg: number | null }>(() => ({ enabledAvg: null, disabledAvg: null })),
     loadCognitionState: vi.fn(async () => ({})),
@@ -30,6 +31,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("@/commands/exemplar", () => ({
   markStyleExemplarViaRust: mocks.markStyleExemplarViaRust,
   loadStyleExemplarsViaRust: mocks.loadStyleExemplarsViaRust,
+  deleteStyleExemplarViaRust: mocks.deleteStyleExemplarViaRust,
 }))
 
 vi.mock("@/lib/novel/character-cognition", async (importOriginal) => {
@@ -66,6 +68,7 @@ describe("useExemplarState", () => {
     })
     mocks.getSelection.mockReturnValue(null)
     mocks.loadStyleExemplarsViaRust.mockResolvedValue([])
+    mocks.deleteStyleExemplarViaRust.mockResolvedValue(undefined)
     mocks.exemplarABStats.mockReturnValue({ enabledAvg: null, disabledAvg: null })
     mocks.normalizePath.mockImplementation((p: string) => p.replace(/\\/g, "/"))
   })
@@ -267,6 +270,82 @@ describe("useExemplarState", () => {
     expect(result.current.exemplarFeedback).toBe(
       "已记录评分 5★（关闭）— 开启均分 无，关闭均分 无",
     )
+  })
+
+  it("submitExemplarABScore 失败时走 formatError（缺省回退 toErrorMessage）", async () => {
+    mocks.appendExemplarABSample.mockRejectedValue(new Error("ab-boom"))
+    const { result } = renderHook(() =>
+      useExemplarState({ project: PROJECT, selectedFile: null }),
+    )
+    await act(async () => {
+      await result.current.submitExemplarABScore(3, "enabled")
+    })
+    expect(result.current.exemplarFeedback).toBe("ab-boom")
+  })
+
+  it("submitExemplarABScore 失败时优先使用 formatError", async () => {
+    mocks.appendExemplarABSample.mockRejectedValue(new Error("ab-boom"))
+    const { result } = renderHook(() =>
+      useExemplarState({ project: PROJECT, selectedFile: null, formatError: () => "fmt-fail" }),
+    )
+    await act(async () => {
+      await result.current.submitExemplarABScore(3, "disabled")
+    })
+    expect(result.current.exemplarFeedback).toBe("fmt-fail")
+  })
+
+  it("打开弹窗时同步 exemplar 列表（标记前基线）", async () => {
+    mocks.getSelection.mockReturnValue({ toString: () => "text" } as unknown as Selection)
+    const records: StyleExemplarRecord[] = [
+      { exemplarId: "e1", chapterId: "ch1", text: "t1", markType: "style", createdAt: "2026-01-01T00:00:00.000Z" },
+    ]
+    mocks.loadStyleExemplarsViaRust.mockResolvedValue(records)
+    const { result } = renderHook(() =>
+      useExemplarState({ project: PROJECT, selectedFile: null }),
+    )
+    await act(async () => {
+      await result.current.openExemplarDialogFromSelection()
+    })
+    expect(result.current.exemplarList).toEqual(records)
+    expect(result.current.exemplarCount).toBe(1)
+  })
+
+  it("deleteExemplar 成功：删除 + 列表刷新 + 确认态复位", async () => {
+    const { result } = renderHook(() =>
+      useExemplarState({ project: PROJECT, selectedFile: null }),
+    )
+    await act(async () => {
+      result.current.setExemplarDeleteConfirmId("e1")
+      await result.current.deleteExemplar("e1-long-id-1234")
+    })
+    expect(mocks.deleteStyleExemplarViaRust).toHaveBeenCalledWith(NORMALIZED, "e1-long-id-1234")
+    expect(result.current.exemplarFeedback).toBe("已删除范例 e1-long-")
+    expect(result.current.exemplarDeleteConfirmId).toBeNull()
+  })
+
+  it("deleteExemplar 无项目时直接返回", async () => {
+    const { result } = renderHook(() =>
+      useExemplarState({ project: null, selectedFile: null }),
+    )
+    await act(async () => {
+      await result.current.deleteExemplar("e1")
+    })
+    expect(mocks.deleteStyleExemplarViaRust).not.toHaveBeenCalled()
+  })
+
+  it("deleteExemplar 失败：反馈错误且保留确认态", async () => {
+    mocks.deleteStyleExemplarViaRust.mockRejectedValue(new Error("del-boom"))
+    const { result } = renderHook(() =>
+      useExemplarState({ project: PROJECT, selectedFile: null }),
+    )
+    await act(async () => {
+      result.current.setExemplarDeleteConfirmId("e1")
+    })
+    await act(async () => {
+      await result.current.deleteExemplar("e1")
+    })
+    expect(result.current.exemplarFeedback).toBe("删除失败：del-boom")
+    expect(result.current.exemplarDeleteConfirmId).toBe("e1")
   })
 
   it("渲染初始状态：dialog 关闭、默认 markType style、计数 0", () => {
