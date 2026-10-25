@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core"
 import type { FileNode, WikiProject } from "@/types/wiki"
 import { ensureProjectId, upsertProjectInfo } from "@/lib/project-identity"
+import { withFileLockRetry } from "./file-lock-guard"
 
 /**
  * ipcContract 标准错误信封（ledger-d）：所有 fs.ts 导出统一经 invokeFs，
@@ -61,7 +62,8 @@ export async function writeFile(path: string, contents: string): Promise<void> {
 }
 
 export async function writeFileAtomic(path: string, contents: string): Promise<void> {
-  return invokeFs<void>("write_file_atomic", { path, contents })
+  // Windows 并发 rename 瞬态错误（sharing violation/EBUSY）：TS 侧 choke point 重试。
+  return withFileLockRetry(() => invokeFs<void>("write_file_atomic", { path, contents }))
 }
 
 export async function listDirectory(path: string): Promise<FileNode[]> {
@@ -181,5 +183,7 @@ export async function getResourceDir(): Promise<string> {
  * 空数组为 no-op 成功。
  */
 export async function writeFilesAtomic(files: Array<[string, string]>): Promise<void> {
-  return invokeFs<void>("write_files_atomic", { files })
+  if (files.length === 0) return
+  // Windows 并发 rename 瞬态错误（sharing violation/EBUSY）：TS 侧 choke point 重试。
+  return withFileLockRetry(() => invokeFs<void>("write_files_atomic", { files }))
 }
