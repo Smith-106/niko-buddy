@@ -177,3 +177,56 @@ describe("DataSourceRegistry", () => {
     expect(registry.size()).toBe(0)
   })
 })
+
+describe("IC-02 gaps 恰好一次 (P0)", () => {
+  it("primary 与 fallback 双败 → 恰一条 gap（fallback 路径不再补记，避免重复）", async () => {
+    const recordGap = vi.fn()
+    const registry = new DataSourceRegistry()
+    registry.register({
+      name: "outline",
+      priority: 1,
+      load: async () => {
+        throw new Error("load")
+      },
+      fallback: async () => {
+        throw new Error("fallback")
+      },
+    })
+
+    const loaded = await registry.loadAll({ ...context, recordGap })
+
+    expect(loaded.outline).toBe("")
+    expect(recordGap).toHaveBeenCalledTimes(1)
+    expect(recordGap).toHaveBeenCalledWith("outline", "datasource_error")
+  })
+
+  it("primary 失败 + fallback 成功 → 恰一条 gap（已有路径）", async () => {
+    const recordGap = vi.fn()
+    const registry = new DataSourceRegistry()
+    registry.register({
+      name: "outline",
+      priority: 1,
+      load: async () => {
+        throw new Error("load")
+      },
+      fallback: async () => "降级值",
+    })
+
+    const loaded = await registry.loadAll({ ...context, recordGap })
+
+    expect(loaded.outline).toBe("降级值")
+    expect(recordGap).toHaveBeenCalledTimes(1)
+    expect(recordGap).toHaveBeenCalledWith("outline", "datasource_error")
+  })
+
+  it("全部成功 → 零 gap", async () => {
+    const recordGap = vi.fn()
+    const registry = new DataSourceRegistry()
+    registry.register({ name: "outline", priority: 1, load: async () => "真实大纲" })
+
+    const loaded = await registry.loadAll({ ...context, recordGap })
+
+    expect(loaded.outline).toBe("真实大纲")
+    expect(recordGap).not.toHaveBeenCalled()
+  })
+})

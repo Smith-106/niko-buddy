@@ -244,6 +244,10 @@ export const recentChapterContentsDataSource: DataSource<string[]> = {
     // missing (common for draft-only projects), fall back to
     // `.novel/chapters/{n}/draft.md` so mid-chapter Track A review still gets
     // prior text (head+tail excerpt).
+    // IC-02: per-chapter failures must surface exactly once (no silent drop,
+    // no per-chapter spam). load() resolves (registry adds nothing), so a
+    // single "recentChapterContents" gap covers any number of chapter drops.
+    let chapterLoadFailed = false
     const results = await Promise.all(
       chapterNumbers.map(async (chapterNumber) => {
         try {
@@ -257,10 +261,12 @@ export const recentChapterContentsDataSource: DataSource<string[]> = {
           if (!draftBody) return null
           return `## 第${chapterNumber}章正文片段（draft）\n${excerptChapterContent(draftBody)}`
         } catch {
+          chapterLoadFailed = true
           return null
         }
       }),
     )
+    if (chapterLoadFailed) context.recordGap?.("recentChapterContents", "datasource_error")
     return results.filter((r): r is string => r !== null)
   },
 }
@@ -277,6 +283,11 @@ export const fallbackRecentSummariesDataSource: DataSource<string[]> = {
       // fixed the primary; this fallback was still serial). Each iteration is
       // independent (own file path + own parse), so Promise.all + filter
       // preserves order without serial N IPC round-trips.
+      // IC-02: per-item read failures must surface exactly once. The outer
+      // searchWiki catch (below) covers index-level failure; this flag covers
+      // item-level drops without double-counting when both fire (the outer
+      // throw path never sets the flag).
+      let itemLoadFailed = false
       const fetched = await Promise.all(
         results.slice(0, context.config.recentSummaryWindow).map(async (r) => {
           try {
@@ -292,10 +303,12 @@ export const fallbackRecentSummariesDataSource: DataSource<string[]> = {
             }
             return null
           } catch {
+            itemLoadFailed = true
             return null
           }
         }),
       )
+      if (itemLoadFailed) context.recordGap?.("fallbackRecentSummaries", "datasource_error")
       for (const s of fetched) {
         if (s !== null) summaries.push(s)
       }
@@ -633,6 +646,10 @@ export const storySimulationBindingDataSource: DataSource<string> = {
       }
       return lines.join("\n")
     } catch {
+      // IC-02: whole-source load failure with no other recorder on this path
+      // (load() resolves "", so the registry adds nothing) — record exactly once.
+      // Reason reuses the existing ContextGapReason union; no new member.
+      context.recordGap?.("storySimulationBinding", "datasource_error")
       return ""
     }
   },

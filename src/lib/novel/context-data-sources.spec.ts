@@ -860,3 +860,123 @@ describe("storySimulationBindingDataSource", () => {
     expect(result).toContain("深渊苏醒")
   })
 })
+
+describe("IC-02 gaps 恰好一次 (P0)", () => {
+  it("storySimulationBinding: 绑定损坏导致装配抛错 → 空串 + 恰一条 gap", async () => {
+    const recordGap = vi.fn()
+    // loadBinding 内部吞错返回 null（文件缺失=合法无绑定，不记 gap）；
+    // 此处用畸形 chapterAllocation（非数组）触发装配期 TypeError，
+    // 覆盖外层 catch 这一真正的全源失败路径。
+    mocks.readFile.mockResolvedValue(
+      JSON.stringify({ frameworkId: "fw-1", frameworkTitle: "坏绑定", chapterAllocation: {} }),
+    )
+    await expect(
+      storySimulationBindingDataSource.load({ ...context, chapterNumber: 3, recordGap }),
+    ).resolves.toBe("")
+    expect(recordGap).toHaveBeenCalledTimes(1)
+    expect(recordGap).toHaveBeenCalledWith("storySimulationBinding", "datasource_error")
+  })
+
+  it("storySimulationBinding: 无绑定文件 → 空串 + 零 gap（合法空值非失败）", async () => {
+    const recordGap = vi.fn()
+    mocks.readFile.mockRejectedValue(new Error("not found"))
+    await expect(
+      storySimulationBindingDataSource.load({ ...context, chapterNumber: 3, recordGap }),
+    ).resolves.toBe("")
+    expect(recordGap).not.toHaveBeenCalled()
+  })
+
+  it("storySimulationBinding: 成功命中 → 零 gap", async () => {
+    const recordGap = vi.fn()
+    const mockBinding = JSON.stringify({
+      frameworkId: "fw-1",
+      frameworkTitle: "逆天反击战",
+      targetChapterCount: 10,
+      chapterAllocation: [
+        { nodeIndex: 1, nodeTitle: "深渊苏醒", startChapter: 1, endChapter: 3 },
+      ],
+      boundAt: "2026-09-29T00:00:00Z",
+    })
+    mocks.readFile.mockImplementation(async (filePath: string) => {
+      if (typeof filePath === "string" && filePath.includes("active-binding.json")) return mockBinding
+      return ""
+    })
+    const result = await storySimulationBindingDataSource.load({ ...context, chapterNumber: 2, recordGap })
+    expect(result).toContain("故事模拟框架指引")
+    expect(recordGap).not.toHaveBeenCalled()
+  })
+
+  it("recentChapterContents: 单章抛错 → 其余保留 + 恰一条 gap", async () => {
+    const recordGap = vi.fn()
+    mocks.searchWiki.mockImplementation(async (_projectPath: string, query: string) => {
+      const matched = query.match(/chapter_number:(\d+)/)
+      return matched ? [{ path: `E:/Novel/wiki/chapters/chapter-${matched[1]}.md` }] : []
+    })
+    mocks.readFile.mockImplementation(async (p: string) => {
+      if (p.includes("chapter-1.md")) throw new Error("read fail")
+      return "---\ntype: chapter\nchapter_number: 2\nstatus: final\n---\n第二章正文"
+    })
+    const result = await recentChapterContentsDataSource.load({
+      ...context,
+      chapterNumber: 3,
+      config: { ...context.config, recentSummaryWindow: 2 },
+      recordGap,
+    })
+    expect(result).toHaveLength(1)
+    expect(result[0]).toContain("第二章正文")
+    expect(recordGap).toHaveBeenCalledTimes(1)
+    expect(recordGap).toHaveBeenCalledWith("recentChapterContents", "datasource_error")
+  })
+
+  it("recentChapterContents: 全成功 → 零 gap", async () => {
+    const recordGap = vi.fn()
+    mocks.searchWiki.mockImplementation(async (_projectPath: string, query: string) => {
+      const matched = query.match(/chapter_number:(\d+)/)
+      return matched ? [{ path: `E:/Novel/wiki/chapters/chapter-${matched[1]}.md` }] : []
+    })
+    mocks.readFile.mockResolvedValue("---\ntype: chapter\n---\n正文内容")
+    const result = await recentChapterContentsDataSource.load({
+      ...context,
+      chapterNumber: 3,
+      config: { ...context.config, recentSummaryWindow: 2 },
+      recordGap,
+    })
+    expect(result).toHaveLength(2)
+    expect(recordGap).not.toHaveBeenCalled()
+  })
+
+  it("fallbackRecentSummaries: 单条目读取失败 → 其余保留 + 恰一条 gap", async () => {
+    const recordGap = vi.fn()
+    mocks.searchWiki.mockResolvedValue([{ path: "c1.md" }, { path: "c2.md" }])
+    mocks.readFile.mockImplementation(async (p: string) => {
+      if (p === "c1.md") throw new Error("c1 down")
+      return "---\ntype: chapter\nchapter_number: 2\nchapter_status: final\n---\n第二章正文"
+    })
+    const result = await fallbackRecentSummariesDataSource.load({ ...context, recordGap })
+    expect(result).toEqual(["第2章 (final): 第二章正文"])
+    expect(recordGap).toHaveBeenCalledTimes(1)
+    expect(recordGap).toHaveBeenCalledWith("fallbackRecentSummaries", "datasource_error")
+  })
+
+  it("fallbackRecentSummaries: searchWiki 抛错 → 恰一条 gap（条目 flag 未置，无重复计数）", async () => {
+    const recordGap = vi.fn()
+    mocks.searchWiki.mockRejectedValue(new Error("index down"))
+    const result = await fallbackRecentSummariesDataSource.load({
+      ...context,
+      chapterNumber: undefined,
+      recordGap,
+    })
+    expect(result).toEqual([])
+    expect(recordGap).toHaveBeenCalledTimes(1)
+    expect(recordGap).toHaveBeenCalledWith("fallbackRecentSummaries", "datasource_error")
+  })
+
+  it("fallbackCharacterStates: 结构化与 wiki 双败 → 仍恰一条（首 catch soft 不重复计数）", async () => {
+    const recordGap = vi.fn()
+    mocks.loadCharacterStates.mockRejectedValue(new Error("missing"))
+    mocks.searchWiki.mockRejectedValue(new Error("index down"))
+    await expect(fallbackCharacterStatesDataSource.load({ ...context, recordGap })).resolves.toBe("")
+    expect(recordGap).toHaveBeenCalledTimes(1)
+    expect(recordGap).toHaveBeenCalledWith("fallbackCharacterStates", "datasource_error")
+  })
+})
