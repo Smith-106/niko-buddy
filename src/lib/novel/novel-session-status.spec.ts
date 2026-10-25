@@ -22,6 +22,11 @@ const fsState = vi.hoisted(() => {
     writeFileAtomic: vi.fn<typeof import("@/commands/fs").writeFileAtomic>(async (path, content) => {
       fileMap.set(path, content)
     }),
+    writeFilesAtomic: vi.fn<typeof import("@/commands/fs").writeFilesAtomic>(async (files: Array<[string, string]>) => {
+      for (const [path, content] of files) {
+        fileMap.set(path, content)
+      }
+    }),
   }
 })
 
@@ -32,7 +37,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
       createDirectory: fsState.createDirectory,
       readFile: fsState.readFile,
       writeFileAtomic: fsState.writeFileAtomic,
-    
+      writeFilesAtomic: fsState.writeFilesAtomic,
   }
 })
 
@@ -1011,6 +1016,11 @@ describe("novel-session-status 分支补足", () => {
     })
     fsState.writeFileAtomic.mockImplementation(async (path: string, content: string) => {
       fsState.fileMap.set(path, content)
+    })
+    fsState.writeFilesAtomic.mockImplementation(async (files: Array<[string, string]>) => {
+      for (const [path, content] of files) {
+        fsState.fileMap.set(path, content)
+      }
     })
   })
 
@@ -2401,6 +2411,19 @@ describe("markSessionInterrupted (J10-02 幽灵running降级)", () => {
     vi.clearAllMocks()
     fsState.fileMap.clear()
     fsState.createdDirs.clear()
+    fsState.writeFilesAtomic.mockImplementation(async (files: Array<[string, string]>) => {
+      for (const [path, content] of files) {
+        fsState.fileMap.set(path, content)
+      }
+    })
+    fsState.writeFileAtomic.mockImplementation(async (path: string, content: string) => {
+      fsState.fileMap.set(path, content)
+    })
+    fsState.readFile.mockImplementation(async (path: string) => {
+      const content = fsState.fileMap.get(path)
+      if (content === undefined) throw new Error(`ENOENT: ${path}`)
+      return content
+    })
   })
 
   it("running → interrupted 落盘，幂等且不改draft", async () => {

@@ -1,4 +1,4 @@
-import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
+import { createDirectory, readFile, writeFileAtomic, writeFilesAtomic } from "@/commands/fs"
 import { listen } from "@tauri-apps/api/event"
 import { normalizePath } from "@/lib/path-utils"
 import { isTauri } from "@/lib/platform"
@@ -413,6 +413,213 @@ async function writeVerifiedJson<T>(
 
   if (!verify(parsed)) {
     throw new Error(`${label} 写入回读校验失败（${path}）`)
+  }
+}
+
+/**
+ * P0 原子提交（R4 模式）：draft + status 单次 writeFilesAtomic 批量事务。
+ *
+ * 背景：6 个 lifecycle 函数（persist/complete/pause/block/accept/reject）此前
+ * 先 writeDraftArtifact（drafts/*.json）再 saveNovelSessionStatus，中途崩溃 =
+ * 状态分叉（draft 新 + status 旧）。参考本仓既有 R4 模式（chapter-ingest.ts
+ * saveSnapshot 用 writeFilesAtomic([jsonPath, mdPath]) 单次批量事务，失败即
+ * 零落盘，见其注释），此处 draft 工件 + status.json 同属一次快照，同理批量提交：
+ * prepare 阶段任一 temp 失败即零落盘；提交阶段为顺序 rename（微秒窗口）。
+ * 失败抛错由调用方处理，禁止吞错降级为静默不一致。
+ */
+interface PendingDraftFile {
+  path: string
+  content: string
+  label: string
+  verify: (parsed: unknown) => boolean
+}
+
+function buildDraftArtifacts(
+  input: DeepChapterSessionInput,
+  sessionId: string,
+  draftStatus: NovelDraftStatus,
+  checkpoint: DeepChapterGenerationResumeCheckpoint | undefined,
+  reviewResults: NovelReviewResult[],
+  options: WriteDraftArtifactOptions,
+  existing: NovelDraftArtifact | null,
+  now: string,
+): {
+  filePath: string
+  artifact: NovelDraftArtifact
+  supersededPath: string | null
+  supersededArtifact: NovelDraftArtifact | null
+} {
+  const draftId = input.conversationId
+  const filePath = novelDraftArtifactPath(input.projectPath, draftId)
+  let supersededPath: string | null = null
+  let supersededArtifact: NovelDraftArtifact | null = null
+  // CORR-003 (odyssey) 语义与 writeDraftArtifact 一致：异 session / 无 session_id
+  // 遗留草稿走 supersede 审计拷贝分支，same-session 复写不产生 superseded 文件。
+  if (
+    existing
+    && existing.session_id !== sessionId
+    && existing.draft_status !== "superseded"
+  ) {
+    supersededPath = novelSupersededDraftArtifactPath(input.projectPath, draftId, now)
+    supersededArtifact = {
+      ...existing,
+      draft_status: "superseded",
+      updated_at: now,
+      superseded_by: filePath,
+    }
+  }
+  const content = extractDraftContent(checkpoint, options.finalContent)
+  // CORR-001 语义与 writeDraftArtifact 一致：same-session 复写保留 created_at。
+  const createdAt = existing && existing.session_id === sessionId && existing.draft_status !== "superseded"
+    ? existing.created_at
+    : now
+  const artifact: NovelDraftArtifact = {
+    draft_id: draftId,
+    session_id: sessionId,
+    conversation_id: input.conversationId,
+    source_task_id: taskIdForConversation(input.conversationId),
+    user_request: normalizeUserRequest(input.userRequest),
+    chapter_number: checkpoint?.chapterNumber ?? input.resumeCheckpoint?.chapterNumber ?? input.chapterNumber,
+    draft_status: draftStatus,
+    checkpoint_stage: checkpoint?.stage,
+    content,
+    review_results: reviewResults,
+    checkpoint,
+    decision_gates: cloneDecisionGates(options.decisionGates ?? checkpoint?.decisionGates),
+    created_at: createdAt,
+    updated_at: now,
+    accepted_at: options.acceptedAt,
+    rejected_at: options.rejectedAt,
+    formal_chapter_path: options.formalChapterPath,
+    superseded_by: undefined,
+    context_usage: options.contextUsage,
+  }
+  return { filePath, artifact, supersededPath, supersededArtifact }
+}
+
+function verifySupersededDraft(
+  parsed: unknown,
+  draftId: string,
+  filePath: string,
+): boolean {
+  const candidate = parsed as Partial<NovelDraftArtifact> | null
+  return candidate?.draft_id === draftId
+    && candidate?.draft_status === "superseded"
+    && candidate?.superseded_by === filePath
+}
+
+function verifyDraftArtifact(
+  parsed: unknown,
+  draftId: string,
+  conversationId: string,
+  sessionId: string,
+  draftStatus: NovelDraftStatus,
+): boolean {
+  const candidate = parsed as Partial<NovelDraftArtifact> | null
+  return candidate?.draft_id === draftId
+    && candidate?.conversation_id === conversationId
+    && candidate?.session_id === sessionId
+    && candidate?.draft_status === draftStatus
+}
+
+function verifySessionStatus(parsed: unknown, status: NovelSessionStatus): boolean {
+  const candidate = parsed as Partial<NovelSessionStatus> | null
+  return candidate?.session_id === status.session_id
+    && candidate?.current_task?.conversation_id === status.current_task.conversation_id
+    && candidate?.status === status.status
+    && candidate?.draft?.draft_status === status.draft.draft_status
+}
+
+/**
+ * 批量前准备：读既有草稿（判定 supersede / created_at 复用）并序列化 draft
+ * 工件为待提交文件，不落盘。调用方在同一把 session-status 锁内先 prepare、
+ * 再 buildNextStatus、最后经 persistCheckpointBaseWithinLock 单次批量提交，
+ * 保证 draft + status 同事务。
+ */
+async function prepareDraftWrites(
+  input: DeepChapterSessionInput,
+  sessionId: string,
+  draftStatus: NovelDraftStatus,
+  checkpoint: DeepChapterGenerationResumeCheckpoint | undefined,
+  reviewResults: NovelReviewResult[],
+  options: WriteDraftArtifactOptions = {},
+): Promise<{ filePath: string; files: PendingDraftFile[] }> {
+  const now = new Date().toISOString()
+  const existing = await loadNovelDraftArtifact(input.projectPath, input.conversationId)
+  const { filePath, artifact, supersededPath, supersededArtifact } = buildDraftArtifacts(
+    input,
+    sessionId,
+    draftStatus,
+    checkpoint,
+    reviewResults,
+    options,
+    existing,
+    now,
+  )
+  const files: PendingDraftFile[] = []
+  if (supersededPath && supersededArtifact) {
+    const draftId = input.conversationId
+    const capturedPath = supersededPath
+    const capturedArtifact = supersededArtifact
+    files.push({
+      path: capturedPath,
+      content: JSON.stringify(capturedArtifact, null, 2),
+      label: "superseded 草稿文件",
+      verify: (parsed) => verifySupersededDraft(parsed, draftId, filePath),
+    })
+  }
+  const draftId = input.conversationId
+  const conversationId = input.conversationId
+  files.push({
+    path: filePath,
+    content: JSON.stringify(artifact, null, 2),
+    label: "草稿文件",
+    verify: (parsed) => verifyDraftArtifact(parsed, draftId, conversationId, sessionId, draftStatus),
+  })
+  return { filePath, files }
+}
+
+/**
+ * 单次 writeFilesAtomic 批量提交（draft 工件 + status.json 同事务）。
+ * 成功后逐文件回读校验（fail-loud，与 writeVerifiedJson 同语义）；
+ * 批量本身抛错直接上抛，零落盘，禁止吞错降级。
+ */
+async function commitDraftAndStatusBatch(
+  projectPath: string,
+  draftFiles: PendingDraftFile[],
+  status: NovelSessionStatus,
+): Promise<void> {
+  await ensureNovelSessionDirs(projectPath)
+  const statusPath = novelSessionStatusPath(projectPath)
+  const capturedStatus = status
+  const allFiles: PendingDraftFile[] = [
+    ...draftFiles,
+    {
+      path: statusPath,
+      content: JSON.stringify(capturedStatus, null, 2),
+      label: "小说会话状态文件",
+      verify: (parsed) => verifySessionStatus(parsed, capturedStatus),
+    },
+  ]
+  // S4-R4：draft + status 改走 writeFilesAtomic 单次批量事务。两文件同属一次
+  // 快照，prepare 阶段任一 temp 失败即零落盘；提交阶段为顺序 rename（微秒窗口）。
+  await writeFilesAtomic(allFiles.map((f) => [f.path, f.content] as [string, string]))
+  for (const f of allFiles) {
+    let raw: string
+    try {
+      raw = await readFile(f.path)
+    } catch (error) {
+      throw new Error(`${f.label} 写入后回读失败（${f.path}）：${toErrorMessage(error)}`)
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch (error) {
+      throw new Error(`${f.label} 写入后回读不是有效 JSON（${f.path}）：${toErrorMessage(error)}`)
+    }
+    if (!f.verify(parsed)) {
+      throw new Error(`${f.label} 写入回读校验失败（${f.path}）`)
+    }
   }
 }
 
@@ -840,15 +1047,21 @@ export async function persistCheckpointBase(
  * （经 withSessionStatusLock / updateNovelSessionStatus 进入）；写盘走无锁
  * writeNovelSessionStatusUnlocked，避免对同一把非重入锁二次获取导致等待超时。
  * 真源身份护栏与 evidence 合并语义与 persistCheckpointBase 完全一致。
+ *
+ * P0 原子提交：draft 工件 + status.json 经 commitDraftAndStatusBatch 单次
+ * writeFilesAtomic 批量事务落盘（R4 模式），失败即零落盘并上抛，禁止吞错
+ * 降级为静默不一致。无 draft 变更时 draftFiles 为空数组，退化为单文件批量
+ * （仍走 writeFilesAtomic，保持统一失败语义）。
  */
 async function persistCheckpointBaseWithinLock(
   projectPath: string,
   sessionId: string,
   next: NovelSessionStatus,
   evidenceEntries?: string[],
+  draftFiles: PendingDraftFile[] = [],
 ): Promise<void> {
   preparePersistPayload(sessionId, next, evidenceEntries)
-  await writeNovelSessionStatusUnlocked(projectPath, next)
+  await commitDraftAndStatusBatch(projectPath, draftFiles, next)
 }
 
 /**
@@ -902,8 +1115,17 @@ async function writeDraftArtifact(
 ): Promise<string> {
   const now = new Date().toISOString()
   const draftId = input.conversationId
-  const filePath = novelDraftArtifactPath(input.projectPath, draftId)
   const existing = await loadNovelDraftArtifact(input.projectPath, draftId)
+  const { filePath, artifact, supersededPath, supersededArtifact } = buildDraftArtifacts(
+    input,
+    sessionId,
+    draftStatus,
+    checkpoint,
+    reviewResults,
+    options,
+    existing,
+    now,
+  )
   // CORR-003 (odyssey): supersede when the existing draft belongs to a
   // different session OR is a legacy draft with no session_id (the field is
   // optional — loadNovelDraftArtifact does not require it). Previously the
@@ -911,74 +1133,21 @@ async function writeDraftArtifact(
   // a silent overwrite, losing the original content/review_results without
   // creating a superseded.{timestamp}.json audit copy. `undefined !== sessionId`
   // is true, so legacy drafts now route through the supersede path.
-  if (
-    existing
-    && existing.session_id !== sessionId
-    && existing.draft_status !== "superseded"
-  ) {
-    const supersededPath = novelSupersededDraftArtifactPath(input.projectPath, draftId, now)
-    const supersededArtifact: NovelDraftArtifact = {
-      ...existing,
-      draft_status: "superseded",
-      updated_at: now,
-      superseded_by: filePath,
-    }
+  if (supersededPath && supersededArtifact) {
     await ensureNovelSessionDirs(input.projectPath)
     await writeVerifiedJson(
       supersededPath,
       supersededArtifact,
       "superseded 草稿文件",
-      (parsed) => {
-        const candidate = parsed as Partial<NovelDraftArtifact> | null
-        return candidate?.draft_id === draftId
-          && candidate?.draft_status === "superseded"
-          && candidate?.superseded_by === filePath
-      },
+      (parsed) => verifySupersededDraft(parsed, draftId, filePath),
     )
-  }
-  const content = extractDraftContent(checkpoint, options.finalContent)
-  // CORR-001 (odyssey): preserve the original creation timestamp across
-  // rewrites. Previously every writeDraftArtifact call reset created_at to
-  // `now`, making it semantically identical to updated_at and losing the
-  // draft's first-creation time (used for audit/timeline). Keep existing
-  // when rewriting the same draft (same session_id, not superseded); only a
-  // brand-new draft (no existing, or existing is being superseded) uses `now`.
-  const createdAt = existing && existing.session_id === sessionId && existing.draft_status !== "superseded"
-    ? existing.created_at
-    : now
-  const artifact: NovelDraftArtifact = {
-    draft_id: draftId,
-    session_id: sessionId,
-    conversation_id: input.conversationId,
-    source_task_id: taskIdForConversation(input.conversationId),
-    user_request: normalizeUserRequest(input.userRequest),
-    chapter_number: checkpoint?.chapterNumber ?? input.resumeCheckpoint?.chapterNumber ?? input.chapterNumber,
-    draft_status: draftStatus,
-    checkpoint_stage: checkpoint?.stage,
-    content,
-    review_results: reviewResults,
-    checkpoint,
-    decision_gates: cloneDecisionGates(options.decisionGates ?? checkpoint?.decisionGates),
-    created_at: createdAt,
-    updated_at: now,
-    accepted_at: options.acceptedAt,
-    rejected_at: options.rejectedAt,
-    formal_chapter_path: options.formalChapterPath,
-    superseded_by: undefined,
-    context_usage: options.contextUsage,
   }
   await ensureNovelSessionDirs(input.projectPath)
   await writeVerifiedJson(
     filePath,
     artifact,
     "草稿文件",
-    (parsed) => {
-      const candidate = parsed as Partial<NovelDraftArtifact> | null
-      return candidate?.draft_id === draftId
-        && candidate?.conversation_id === input.conversationId
-        && candidate?.session_id === sessionId
-        && candidate?.draft_status === draftStatus
-    },
+    (parsed) => verifyDraftArtifact(parsed, draftId, input.conversationId, sessionId, draftStatus),
   )
   void sessionId
   return filePath
@@ -1424,7 +1593,9 @@ async function persistDeepChapterCheckpointWithinLock(
       now,
       novelDraftArtifactPath(input.projectPath, input.conversationId),
     )
-  const draftPath = await writeDraftArtifact(
+  // P0 原子提交：先 prepare 草稿待提交文件（不落盘），再构造 status，最后
+  // 单次 writeFilesAtomic 批量提交 draft + status 同事务。
+  const prepared = await prepareDraftWrites(
     input,
     input.sessionId,
     "pending",
@@ -1432,6 +1603,7 @@ async function persistDeepChapterCheckpointWithinLock(
     input.checkpoint.reviewResults ?? [],
     { decisionGates: input.checkpoint.decisionGates },
   )
+  const draftPath = prepared.filePath
   const next = buildNextStatus(base, {
     updated_at: now,
     status: "running",
@@ -1458,7 +1630,7 @@ async function persistDeepChapterCheckpointWithinLock(
     // it; loadNovelSessionStatus spreads Partial safely.
     dimension_results: resolveDimensionResults(input.checkpoint, base),
   })
-  await persistCheckpointBaseWithinLock(input.projectPath, input.sessionId, next)
+  await persistCheckpointBaseWithinLock(input.projectPath, input.sessionId, next, undefined, prepared.files)
   return next
 }
 
@@ -1483,7 +1655,9 @@ async function completeDeepChapterSessionWithinLock(
       now,
       novelDraftArtifactPath(input.projectPath, input.conversationId),
     )
-  const draftPath = await writeDraftArtifact(
+  // P0 原子提交：先 prepare 草稿待提交文件（不落盘），再构造 status，最后
+  // 单次 writeFilesAtomic 批量提交 draft + status 同事务。
+  const prepared = await prepareDraftWrites(
     input,
     input.sessionId,
     "ready",
@@ -1495,6 +1669,7 @@ async function completeDeepChapterSessionWithinLock(
       contextUsage: input.contextUsage,
     },
   )
+  const draftPath = prepared.filePath
   const next = buildNextStatus(base, {
     updated_at: now,
     status: "completed",
@@ -1527,7 +1702,7 @@ async function completeDeepChapterSessionWithinLock(
       input.checkpoint?.chapterNumber ?? input.chapterNumber,
     ),
   })
-  await persistCheckpointBaseWithinLock(input.projectPath, input.sessionId, next)
+  await persistCheckpointBaseWithinLock(input.projectPath, input.sessionId, next, undefined, prepared.files)
   return next
 }
 
@@ -1553,8 +1728,10 @@ async function pauseDeepChapterSessionWithinLock(
       novelDraftArtifactPath(input.projectPath, input.conversationId),
     )
   let draftPath = base.draft.file_path
+  let draftFiles: PendingDraftFile[] = []
   if (input.checkpoint) {
-    draftPath = await writeDraftArtifact(
+    // P0 原子提交：prepare 不落盘，后续与 status 同一批次提交。
+    const prepared = await prepareDraftWrites(
       input,
       input.sessionId,
       "pending",
@@ -1562,6 +1739,8 @@ async function pauseDeepChapterSessionWithinLock(
       input.checkpoint.reviewResults ?? [],
       { decisionGates: input.checkpoint.decisionGates ?? base.decision_gates },
     )
+    draftPath = prepared.filePath
+    draftFiles = prepared.files
   }
   const next = buildNextStatus(base, {
     updated_at: now,
@@ -1590,7 +1769,7 @@ async function pauseDeepChapterSessionWithinLock(
     // now twin-safe — cannot be omitted by a future lifecycle function).
     dimension_results: resolveDimensionResults(input.checkpoint, base),
   })
-  await persistCheckpointBaseWithinLock(input.projectPath, input.sessionId, next)
+  await persistCheckpointBaseWithinLock(input.projectPath, input.sessionId, next, undefined, draftFiles)
   return next
 }
 
@@ -1646,8 +1825,10 @@ async function blockDeepChapterSessionWithinLock(
       novelDraftArtifactPath(input.projectPath, input.conversationId),
     )
   let draftPath = base.draft.file_path
+  let draftFiles: PendingDraftFile[] = []
   if (input.checkpoint) {
-    draftPath = await writeDraftArtifact(
+    // P0 原子提交：prepare 不落盘，后续与 status 同一批次提交。
+    const prepared = await prepareDraftWrites(
       input,
       input.sessionId,
       "pending",
@@ -1655,6 +1836,8 @@ async function blockDeepChapterSessionWithinLock(
       input.checkpoint.reviewResults ?? [],
       { decisionGates: input.checkpoint.decisionGates ?? base.decision_gates },
     )
+    draftPath = prepared.filePath
+    draftFiles = prepared.files
   }
   const next = buildNextStatus(base, {
     updated_at: now,
@@ -1680,7 +1863,7 @@ async function blockDeepChapterSessionWithinLock(
     // DC-2: 6-dim review map via centralized helper (was ARCH-006 twin fix).
     dimension_results: resolveDimensionResults(input.checkpoint, base),
   })
-  await persistCheckpointBaseWithinLock(input.projectPath, input.sessionId, next)
+  await persistCheckpointBaseWithinLock(input.projectPath, input.sessionId, next, undefined, draftFiles)
   return next
 }
 
@@ -1749,7 +1932,9 @@ async function acceptDeepChapterDraftWithinLock(
   const chapterNumber = draft?.chapter_number ?? checkpoint?.chapterNumber ?? base.current_task.chapter_number ?? input.chapterNumber /* v8 ignore start */ /* v8 ignore stop */
   const reviewResults = draft?.review_results ?? checkpoint?.reviewResults ?? [] /* v8 ignore start */ /* v8 ignore stop */
   const decisionGates = draft?.decision_gates ?? checkpoint?.decisionGates ?? base.decision_gates /* v8 ignore start */ /* v8 ignore stop */
-  const draftPath = await writeDraftArtifact(
+  // P0 原子提交：prepare 不落盘，后续与 status 同一批次提交。
+  // 断言位置保持回填发生前（prepare 之前已做 commit-discipline 校验）。
+  const prepared = await prepareDraftWrites(
     {
       ...input,
       chapterNumber,
@@ -1765,6 +1950,7 @@ async function acceptDeepChapterDraftWithinLock(
       decisionGates,
     },
   )
+  const draftPath = prepared.filePath
   const next = buildNextStatus(base, {
     updated_at: now,
     status: "completed",
@@ -1795,7 +1981,7 @@ async function acceptDeepChapterDraftWithinLock(
     // Mirror the other 4 lifecycle functions via the centralized helper.
     dimension_results: resolveDimensionResults(checkpoint, base),
   })
-  await persistCheckpointBaseWithinLock(input.projectPath, base.session_id, next)
+  await persistCheckpointBaseWithinLock(input.projectPath, base.session_id, next, undefined, prepared.files)
   return next
 }
 
@@ -1821,7 +2007,8 @@ async function rejectDeepChapterDraftWithinLock(
   const chapterNumber = draft?.chapter_number ?? checkpoint?.chapterNumber ?? base.current_task.chapter_number ?? input.chapterNumber /* v8 ignore start */ /* v8 ignore stop */
   const reviewResults = draft?.review_results ?? checkpoint?.reviewResults ?? [] /* v8 ignore start */ /* v8 ignore stop */
   const decisionGates = draft?.decision_gates ?? checkpoint?.decisionGates ?? base.decision_gates /* v8 ignore start */ /* v8 ignore stop */
-  const draftPath = await writeDraftArtifact(
+  // P0 原子提交：prepare 不落盘，后续与 status 同一批次提交。
+  const prepared = await prepareDraftWrites(
     {
       ...input,
       chapterNumber,
@@ -1836,6 +2023,7 @@ async function rejectDeepChapterDraftWithinLock(
       decisionGates,
     },
   )
+  const draftPath = prepared.filePath
   const next = buildNextStatus(base, {
     updated_at: now,
     status: "completed",
@@ -1864,7 +2052,7 @@ async function rejectDeepChapterDraftWithinLock(
     // dropping the 6-dim review map on fresh base. Mirror via centralized helper.
     dimension_results: resolveDimensionResults(checkpoint, base),
   })
-  await persistCheckpointBaseWithinLock(input.projectPath, base.session_id, next)
+  await persistCheckpointBaseWithinLock(input.projectPath, base.session_id, next, undefined, prepared.files)
   return next
 }
 
