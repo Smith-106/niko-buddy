@@ -30,6 +30,13 @@ export {
   snapshotToMarkdown,
 } from "./snapshot-paths"
 import { resolveNovelModel } from "./model-resolver"
+// S5 首拆切片 #2（chapter-ingest 拆分第 2 步）：快照预览纯函数簇已拆至 ./snapshot-preview。
+// 本地 import 供内部调用点使用，并 re-export 保持既有 import 面不变。
+import {
+  projectSnapshotForImpact,
+  projectSnapshotToImpactStores,
+} from "./snapshot-preview"
+export { buildSnapshotMemorySyncPreview } from "./snapshot-preview"
 import { emptyCognitionState, mergeCognitionFromSnapshot, loadCognitionState, saveCognitionState } from "./character-cognition"
 import { createEmptyCharacterStateStore, loadCharacterStates, saveCharacterStates } from "./character-state"
 import { createEmptyForeshadowingStore, loadForeshadowingTracker, saveForeshadowingTracker } from "./foreshadowing-tracker"
@@ -79,7 +86,7 @@ import { decideDriftAlarmAfterRepair } from "./kb-observability"
 import type { CanonDualWriteDeps, CanonDualWriteOp } from "./canon-dual-write"
 import { shadowWriteCanon, replayPendingQueue } from "./canon-dual-write"
 import { runTruthAuthorityCheck } from "./truth-authority-adapter"
-import { analyzeEditImpact, type EditImpactStores } from "./edit-impact-analyzer"
+import { analyzeEditImpact } from "./edit-impact-analyzer"
 
 export interface ValidationWarning {
   type: "entity_new" | "canon_conflict" | "truth_authority_conflict"
@@ -1293,78 +1300,12 @@ export async function saveEditedSnapshot(projectPath: string, snapshot: ChapterS
 }
 
 /** 51 号报告 G4: 将快照投影为影响分析文本（实体名 + 关键内容字段拼接）。 */
-function projectSnapshotForImpact(snapshot: ChapterSnapshot | null): string {
-  if (!snapshot) return ""
-  const parts: string[] = [
-    snapshot.summary ?? "",
-    ...(snapshot.characters ?? []),
-    ...(snapshot.locations ?? []),
-    ...(snapshot.organizations ?? []),
-    ...(snapshot.items ?? []),
-    ...(snapshot.events ?? []),
-    ...(snapshot.newCanonFacts ?? []),
-    ...(snapshot.characterStateChanges ?? []),
-    ...(snapshot.foreshadowingChanges ?? []),
-  ]
-  return parts.filter(Boolean).join("\n")
-}
+// 已拆至 ./snapshot-preview（S5 首拆切片 #2），此处保留注释锚点，函数由 import 提供。
 
 /** 51 号报告 G4: 从快照派生影响分析 stores（角色/伏笔/canon 事实；subplot 不在快照内留空）。 */
-function projectSnapshotToImpactStores(snapshot: ChapterSnapshot): EditImpactStores {
-  return {
-    characters: (snapshot.characters ?? []).map((name) => ({ id: name, characterName: name })),
-    // 52 号报告终验补全：newCanonFacts/foreshadowingChanges 也投影进 stores，
-    // 使 analyzeEditImpact 能命中 canon 边与伏笔的受影响判定（此前仅 characters）。
-    canonEdges: (snapshot.newCanonFacts ?? []).map((fact) => ({
-      id: fact,
-      source_id: "",
-      target_id: "",
-      predicate: fact,
-      edge_kind: "world_fact" as const,
-    })),
-    foreshadows: (snapshot.foreshadowingChanges ?? []).map((f) => ({
-      id: f,
-      name: f,
-      description: f,
-      status: "planted" as const,
-      plantedChapter: snapshot.chapterNumber,
-      advancedChapters: [],
-      relatedCharacters: [],
-      relatedEvents: [],
-      notes: "",
-    })),
-  }
-}
+// 已拆至 ./snapshot-preview（S5 首拆切片 #2）。
 
-function appendPreviewSection(lines: string[], title: string, items: string[]): void {
-  lines.push(`${title}：`)
-  if (items.length === 0) {
-    lines.push("- 无")
-  } else {
-    lines.push(...items.map(item => `- ${item}`))
-  }
-  lines.push("")
-}
-
-export function buildSnapshotMemorySyncPreview(snapshot: ChapterSnapshot): string {
-  const graphItems = [
-    ...snapshot.characters,
-    ...snapshot.locations,
-    ...snapshot.organizations,
-    ...snapshot.items,
-    ...snapshot.events,
-  ]
-  const uniqueGraphItems = Array.from(new Set(graphItems.filter(Boolean)))
-  const lines = ["本次将同步以下内容：", ""]
-
-  appendPreviewSection(lines, "人物状态", snapshot.characterStateChanges)
-  appendPreviewSection(lines, "角色认知", snapshot.knowledgeChanges)
-  appendPreviewSection(lines, "伏笔追踪", snapshot.foreshadowingChanges)
-  appendPreviewSection(lines, "实体页 / 图谱", uniqueGraphItems)
-  appendPreviewSection(lines, "RAG 记忆页面", ["章节快照记忆", "角色认知状态", "人物状态记忆", "伏笔追踪记忆"])
-
-  return lines.join("\n").trimEnd()
-}
+// appendPreviewSection + buildSnapshotMemorySyncPreview 已拆至 ./snapshot-preview（S5 首拆切片 #2）。
 
 async function listActualChapterNumbers(projectPath: string): Promise<number[]> {
   const pp = normalizePath(projectPath)
