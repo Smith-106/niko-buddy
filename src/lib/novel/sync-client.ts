@@ -13,7 +13,7 @@
  * 断言，漂移会在测试层暴露而不是在用户面前暴露。
  */
 
-import { invoke } from "@tauri-apps/api/core"
+import { syncConfigureCommand, syncTestCommand, syncStatusCommand, syncPushCommand, syncPullCommand, syncConflictsCommand } from "@/commands/sync"
 
 /** 传输配置文件名（与 Rust `SYNC_CONFIG_FILE` 同值）。 */
 export const SYNC_CONFIG_FILE = ".niko-buddy/sync-config.json"
@@ -180,7 +180,7 @@ interface RawSyncConflict {
   name: string
   path: string
   size: number
-  default_resolution: "keep_both"
+  default_resolution?: "keep_both"
 }
 
 function fromRawTestResult(raw: RawSyncTestResult): SyncTestResult {
@@ -237,7 +237,7 @@ function fromRawConflict(raw: RawSyncConflict): SyncConflict {
     name: raw.name,
     path: raw.path,
     size: raw.size,
-    defaultResolution: raw.default_resolution,
+    defaultResolution: raw.default_resolution ?? "keep_both",
   }
 }
 
@@ -317,17 +317,17 @@ export async function configureCloudBackup(projectPath: string, config: SyncConf
   if (reasons.length > 0) {
     throw new Error(`invalid cloud backup config: ${reasons.join("; ")}`)
   }
-  await invoke("sync_configure", { projectPath, config: toRaw(config) })
+  await syncConfigureCommand(projectPath, toRaw(config))
 }
 
 /** 连接测试（凭据不可用时 Rust 侧直接回报不可用，不降级）。 */
 export async function testCloudBackup(projectPath: string): Promise<SyncTestResult> {
-  return fromRawTestResult(await invoke<RawSyncTestResult>("sync_test", { projectPath }))
+  return fromRawTestResult(await syncTestCommand(projectPath))
 }
 
 /** 读取传输状态（不触网）。 */
 export async function cloudBackupStatus(projectPath: string): Promise<SyncStatus> {
-  return fromRawStatus(await invoke<RawSyncStatus>("sync_status", { projectPath }))
+  return fromRawStatus(await syncStatusCommand(projectPath))
 }
 
 /** 推送导出产物（唯一同步对象 = 显式传入的导出文件）。 */
@@ -337,7 +337,7 @@ export async function pushCloudBackup(
   deviceId: string,
 ): Promise<SyncPushResult> {
   return fromRawPushResult(
-    await invoke<RawSyncPushResult>("sync_push", { projectPath, artifactPath, deviceId }),
+    await syncPushCommand(projectPath, artifactPath, deviceId),
   )
 }
 
@@ -348,12 +348,12 @@ export async function pullCloudBackup(
   deviceId: string,
 ): Promise<SyncPullResult> {
   return fromRawPullResult(
-    await invoke<RawSyncPullResult>("sync_pull", { projectPath, manifestId, deviceId }),
+    await syncPullCommand(projectPath, manifestId, deviceId),
   )
 }
 
 /** 列出本地冲突副本。 */
 export async function listCloudConflicts(projectPath: string): Promise<SyncConflict[]> {
-  const raw = await invoke<RawSyncConflict[]>("sync_conflicts", { projectPath })
+  const raw = await syncConflictsCommand(projectPath)
   return raw.map(fromRawConflict)
 }

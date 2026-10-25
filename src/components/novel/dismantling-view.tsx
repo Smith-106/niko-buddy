@@ -374,7 +374,7 @@ export function DismantlingView() {
               </section>
 
               {status && (
-                <div className="rounded-lg border bg-card p-3 text-xs leading-5 text-muted-foreground">{status}</div>
+                <div role={status.includes("失败") ? "alert" : "status"} className="rounded-lg border bg-card p-3 text-xs leading-5 text-muted-foreground">{status}</div>
               )}
             </div>
           )}

@@ -41,6 +41,8 @@ const STAGE_PLAIN: Readonly<Record<string, string>> = {
   post_draft_light_check: "草稿轻检",
   pre_six_dim_review: "六维审前",
   post_gate_literary_polish: "过门后润色",
+  simulation_agent_run: "多智能体推演",
+  simulation_report: "推演报告分析",
 }
 
 function stagePlain(stage: string): string {
