@@ -20,10 +20,11 @@ import { isAbsolutePath, normalizePath } from "@/lib/path-utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel } from "@/lib/novel"
 import type { ScheduledImportConfig } from "@/stores/wiki-store"
-import {
-  loadScheduledImportConfig,
-  saveScheduledImportConfig,
-} from "@/lib/project-store"
+// ISS-20260708-001（依赖倒置）：lib 热路径只依赖抽象/类型。
+// 具体持久化实现经 ScanOptions.configPort 注入；缺省经动态 import 懒加载，
+// 不再静态 import @/lib/project-store（Settings 持久化层）。
+import type { ScheduledImportConfigPort } from "@/lib/settings-ports"
+import { loadDefaultScheduledImportConfigPort } from "@/lib/settings-ports"
 import {
   enqueueSourceIngest,
   isIngestableSourcePath,
@@ -42,7 +43,7 @@ interface ImportDbStore {
   directories: Record<string, ImportDb>
 }
 
-type ScanOptions = { runId?: number }
+type ScanOptions = { runId?: number; configPort?: ScheduledImportConfigPort }
 
 /** scanAndImport 单次扫描结果统计（供 UI 反馈扫描条数）。
  *  F15：新增可选 `skippedCount`——被跳过的文件数（非可导入类型/超限/未变更），
@@ -280,9 +281,10 @@ export async function scanAndImport(
     }
 
     await saveDb(pp, importRoot, nextDb)
-    const currentConfig = await loadScheduledImportConfig(pp)
+    const configPort = options.configPort ?? await loadDefaultScheduledImportConfigPort()
+    const currentConfig = await configPort.loadScheduledImportConfig(pp)
     if (currentConfig) {
-      await saveScheduledImportConfig(pp, { ...currentConfig, lastScan: nextDb.lastScan })
+      await configPort.saveScheduledImportConfig(pp, { ...currentConfig, lastScan: nextDb.lastScan })
     }
     if (isCurrentProject(project.id) && currentConfig) {
       useWikiStore.getState().setScheduledImportConfig({ ...currentConfig, lastScan: nextDb.lastScan })

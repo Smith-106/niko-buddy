@@ -248,7 +248,8 @@ export async function runReviewAndRepair(
   if (hasCheckpointRevision(resumeCheckpoint)) {
     currentContent = resumeCheckpoint.currentContent.trim()
     revised = true
-    /* v8 ignore next */
+    // ISS-20260708-016：stage-5.5 resume 可达性已由单测覆盖（全仓 grep 证有调用），
+    // 移除覆盖抑制死代码（结构性 unreachable 不成立，分支保留行为等价）。
     if (novelConfig.deepChapterReview && decisionGates.overall === "pending") {
       callbacks.onThinking?.(formatStageThinking(
         "阶段5.5：返修后复审",

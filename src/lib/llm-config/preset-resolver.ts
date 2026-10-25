@@ -3,6 +3,7 @@
 
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { ProviderOverride } from "@/stores/wiki-store"
+import { isNonEmptyString } from "@/lib/string-guards"
 import { AZURE_OPENAI_API_VERSION } from "@/lib/azure-openai"
 import type { LlmPreset } from "./llm-presets"
 
@@ -167,12 +168,13 @@ export function resolveConfig(
  * `ANTHROPIC_API_KEY` environment variable.
  */
 export function hasAnthropicApiKey(config: Pick<LlmConfig, "apiKey">): boolean {
-  const fromConfig = typeof config.apiKey === "string" && config.apiKey.trim().length > 0
+  // ISS-20260708-002：经公共守卫收敛（语义等价：config.apiKey 非空即 true，否则看 env）。
+  const fromConfig = isNonEmptyString(config.apiKey)
   if (fromConfig) return true
 
   const fromEnv = typeof process !== "undefined"
     && typeof process.env?.ANTHROPIC_API_KEY === "string"
-    && process.env.ANTHROPIC_API_KEY.trim().length > 0
+    && isNonEmptyString(process.env.ANTHROPIC_API_KEY)
   return fromEnv
 }
 

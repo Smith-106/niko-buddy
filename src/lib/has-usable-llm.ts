@@ -7,6 +7,7 @@
  */
 
 import type { LlmConfig } from "@/stores/wiki-store"
+import { isNonEmptyString } from "@/lib/string-guards"
 
 export type LlmProvider = LlmConfig["provider"]
 
@@ -24,9 +25,9 @@ export const PROVIDERS_WITHOUT_KEY: ReadonlySet<LlmProvider> = new Set<LlmProvid
   "codex-cli",
 ])
 
-/** True when the value is a non-empty, non-whitespace string. */
+/** True when the value is a non-empty, non-whitespace string (ISS-20260708-002: 委托公共守卫）。 */
 function isNonEmpty(value?: string): boolean {
-  return typeof value === "string" && value.trim().length > 0
+  return isNonEmptyString(value)
 }
 
 /**

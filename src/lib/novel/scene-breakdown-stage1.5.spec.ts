@@ -220,7 +220,11 @@ describe("EPIC-002 / ADR-30 / TASK-012: 阶段 1.5 scene-breakdown 插入", () =
     expect(result.finalContent).toContain("最终去AI味正文")
   })
 
-  it("partial 传播（S-444k typed signal）：sceneResult.partial → result.partial=true + partialReason 含 scene-breakdown 前缀", async () => {
+  it("partial 传播经 CORR-107 纠正：scene partial 后初稿完整成功 → result.partial=false（残留被清除）", async () => {
+    // CORR-107 纠正（P0 #65 first-wins + 后续完整成功清除）：scene partial 后初稿完整成功
+    // （本 fixture 初稿 chapterText 3000字达 minChars、无 draft partial-preserve）应清除早期
+    // scene 残留 → partial=false、partialReason null（complete 路由），旧期望 partial=true 系残留 bug。
+    // 参见 deep-chapter-generation.ts draftComplete 编排层补清 + deep-chapter-generation.spec.ts 已同步 scene 用例。
     const priorNovelConfig = useWikiStore.getState().novelConfig
     useWikiStore.setState({ novelConfig: { ...priorNovelConfig, sceneBreakdownEnabled: true } })
     // Scene breakdown returns partial (transport stalled mid-stream).
@@ -238,13 +242,11 @@ describe("EPIC-002 / ADR-30 / TASK-012: 阶段 1.5 scene-breakdown 插入", () =
       deps,
     )
 
-    // Scene partial propagated to the chapter-level result — chat-panel will route
-    // to pauseDeepChapterSession (draft_status pending), NOT completeDeepChapterSession
-    // (ready), preventing the truncated draft from being persisted as complete
-    // (Draft-first boundary, spec S-444k).
-    expect(result.partial).toBe(true)
-    expect(result.partialReason).toContain("scene-breakdown")
-    expect(result.partialReason).toContain("produced no additional stream output")
+    // CORR-107：初稿完整成功（达 minChars、无 draft partial）清除早期 scene 残留 →
+    // complete 路由（partial=false），不再误路由 pause（旧断言 partial=true 系残留 bug，此处纠正）。
+    // Scene draft 仍已持久化（pending 可用草稿，供 continue-unfinished 恢复）。
+    expect(result.partial).toBe(false)
+    expect(result.partialReason).toBeNull()
     // Scene draft still persisted (pending) even when partial — the partial scene list
     // is a usable Draft-first artifact for continue-unfinished to resume from.
     expect(sceneMocks.persistSceneBreakdownDraft).toHaveBeenCalledTimes(1)

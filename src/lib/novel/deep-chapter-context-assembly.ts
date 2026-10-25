@@ -57,6 +57,8 @@ import {
 import type {
   SceneBreakdownResult,
 } from "./scene-breakdown"
+// ISS-20260713-009：resume 重试语义（仅已完成才跳过，否则重试失败 scene）。
+import { checkpointStageAtLeast } from "./deep-chapter-runtime-support"
 import {
   computeInstructionDigest,
   resolveStageOutput,
@@ -248,7 +250,17 @@ export async function assembleContext(
 // .novel/chapters/{n}/scenes.pending.json（Draft-first pending，ADR-08），并通过
 // ADR-31 工厂 buildNextStatus 写回 status.json evidence_refs（HARD-1 真源不变）。
 // 向后兼容（ADR-30）：flag=false 时跳过整段，after_task_brief 恢复序不变。
-// resume 时若已过 after_scene_breakdown 也跳过（避免重复拆解已 checkpoint 的章节）。
+// ISS-20260713-009：resume 时仅已过 after_scene_breakdown 才跳过；
+// 否则（含失败/未执行）重试失败 scene——首次成功路径仍单次调用，零行为变更。
+/** 场景拆解重试上限（含首次）：失败 scene 最多补试一次，非阻断。 */
+export const SCENE_BREAKDOWN_MAX_ATTEMPTS = 2
+
+/** resume 已完成判定：checkpoint 阶段已达 after_scene_breakdown 即视为已拆解。 */
+export function isSceneBreakdownCheckpointComplete(
+  checkpoint: DeepChapterGenerationResumeCheckpoint | undefined,
+): boolean {
+  return checkpointStageAtLeast(checkpoint, "after_scene_breakdown")
+}
 export async function runSceneBreakdownStage(
   input: DeepChapterGenerationInput,
   novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
@@ -258,26 +270,43 @@ export async function runSceneBreakdownStage(
   signal: AbortSignal | undefined,
   notePartial: (reason: string) => void,
 ): Promise<void> {
-  if (
-    !novelConfig.sceneBreakdownEnabled
-    || resumeCheckpoint
-  ) {
-    // R4 共识（deepseek+glm）: 原先还写了 `|| checkpointStageAtLeast(resumeCheckpoint, ...)`，
-    // 但 resumeCheckpoint 为真时已短路、为假时 checkpointStageAtLeast 必为 false ⇒ 死条件。
-    // 删除死条件，语义不变（有 checkpoint 就跳过场景拆解）。
+  if (!novelConfig.sceneBreakdownEnabled) {
+    return
+  }
+  // ISS-20260713-009：有 checkpoint 但未过 after_scene_breakdown（含失败/中断）
+  // 不再整体跳过——进入下述重试路径；已完成才跳过（避免重复拆解）。
+  if (isSceneBreakdownCheckpointComplete(resumeCheckpoint)) {
     return
   }
   callbacks.onThinking?.(formatStageThinking("阶段1.5：场景拆解", "正在根据章节蓝图拆解连续场景..."))
   const chapterId = String(input.chapterNumber ?? "")
   let sceneResult: SceneBreakdownResult | null = null
-  try {
-    // blueprint = 章节原始意图（userRequest）；buildSceneBreakdownPrompt 再补充
-    // contextPack 的结构化字段（chapterGoal/outline/mustDo/mustAvoid/...）。
-    sceneResult = await runSceneBreakdown(input.userRequest, contextPack, signal)
-  } catch (error) {
-    // F-16 (CWE-532): message-only. Scene breakdown 是加性中间层（ADR-30），
-    // 失败不阻断主链——跳过阶段 1.5 继续到 task_brief（向后兼容降级）。
-    logger.error("deep-chapter-generation", "场景拆解失败（非阻断，跳过阶段1.5）", { error: toErrorMessage(error) })
+  // ISS-20260713-009：失败 scene 重试（最多 SCENE_BREAKDOWN_MAX_ATTEMPTS 次）。
+  // 成功路径首次即中（单次调用，与改前字节级一致）；仅失败/空结果才补试，
+  // 且全失败仍非阻断（与改前降级语义一致：记日志后继续 task_brief）。
+  let lastError: unknown = null
+  for (let attempt = 1; attempt <= SCENE_BREAKDOWN_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      // blueprint = 章节原始意图（userRequest）；buildSceneBreakdownPrompt 再补充
+      // contextPack 的结构化字段（chapterGoal/outline/mustDo/mustAvoid/...）。
+      const attemptResult = await runSceneBreakdown(input.userRequest, contextPack, signal)
+      if (attemptResult && attemptResult.scenes.length > 0) {
+        sceneResult = attemptResult
+        lastError = null
+        break
+      }
+      // 空结果视为失败 scene：继续补试（最后一次则落到非阻断降级）。
+      lastError = new Error("scene breakdown returned no scenes")
+    } catch (error) {
+      lastError = error
+      // F-16 (CWE-532): message-only. Scene breakdown 是加性中间层（ADR-30），
+      // 失败不阻断主链——记日志后按 attempt 决定重试或降级。
+      logger.error("deep-chapter-generation", `场景拆解失败（非阻断，尝试 ${attempt}/${SCENE_BREAKDOWN_MAX_ATTEMPTS}）`, { error: toErrorMessage(error) })
+      if (attempt >= SCENE_BREAKDOWN_MAX_ATTEMPTS) break
+    }
+  }
+  if (!sceneResult && lastError) {
+    logger.error("deep-chapter-generation", "场景拆解失败（非阻断，跳过阶段1.5）", { error: toErrorMessage(lastError) })
   }
   assertNotAborted(signal, USER_ABORT_MESSAGE)
   if (sceneResult && sceneResult.scenes.length > 0) {

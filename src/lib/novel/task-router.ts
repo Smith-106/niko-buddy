@@ -221,9 +221,39 @@ const CHAPTER_NUMBER_PATTERNS = [
   /ch\.?\s*(\d+)/i,
 ]
 
+/**
+ * ISS-20260709-006/007/008 三项收敛：路由评分与守卫公共核。
+ * - 006（1.6 倍率）：KEYWORD_SCORE_RATIO=0.6 单一真源，MAX_SCORE_MULTIPLIER=1.6=1+0.6。
+ * - 007（否定守卫）：NEGATED_OPENING_RE 单一真源，hasNegatedOpening 供 isOpening 共用。
+ * - 008（真值守卫）：hasTruthyText 供 routeTask/buildTaskDirective 共用（空/空白即无指令）。
+ * 语义与收敛前字面量完全等价。
+ */
+export const KEYWORD_SCORE_RATIO = 0.6
+
+export const MAX_SCORE_MULTIPLIER = 1 + KEYWORD_SCORE_RATIO
+
+export const NEGATED_OPENING_RE =
+  /(?:不要|别|禁止|避免|勿|不用|不需)[^。！？\n]{0,12}(?:第一章|第\s*1\s*章|开篇章节|小说开头|开篇|开局|首章)/
+
+/** 真值守卫：去空白后非空即为有效指令（与 `if (!trimmed)` 等价，收敛三处重复）。 */
+export function hasTruthyText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0
+}
+
+/** 否定守卫：开篇关键词被否定词前置修饰时视为非开篇请求（CORR-005 收敛）。 */
+export function hasNegatedOpening(text: string): boolean {
+  return NEGATED_OPENING_RE.test(text)
+}
+
+/** 章节号真值守卫：`!== undefined` 重复收敛（与 hasTruthyText 同族）。 */
+export function hasChapterNumber(value: number | undefined): value is number {
+  return value !== undefined
+}
+
 export function routeTask(userInput: string): TaskRouteResult {
+  // ISS-20260709-006/007/008：真值守卫收敛（与 buildTaskDirective/isOpening 共用）。
   const trimmed = userInput.trim()
-  if (!trimmed) {
+  if (!hasTruthyText(trimmed)) {
     return { intent: "general_chat", confidence: 1, extractedParams: {} }
   }
 
@@ -231,7 +261,7 @@ export function routeTask(userInput: string): TaskRouteResult {
     const chapterNumber = extractOpeningChapterNumber(trimmed)
     const extractedParams: Record<string, string> = {}
     /* v8 ignore next */
-    if (chapterNumber !== undefined) {
+    if (hasChapterNumber(chapterNumber)) {
       extractedParams.chapterNumber = String(chapterNumber)
     }
     return {
@@ -255,10 +285,10 @@ export function routeTask(userInput: string): TaskRouteResult {
       }
     }
 
-    // 关键词匹配
+    // 关键词匹配（ISS-20260709-006：1.6 倍率收敛到 KEYWORD_SCORE_RATIO）。
     for (const keyword of intentDef.keywords) {
       if (trimmed.includes(keyword)) {
-        score += intentDef.weight * 0.6
+        score += intentDef.weight * KEYWORD_SCORE_RATIO
         break
       }
     }
@@ -271,7 +301,7 @@ export function routeTask(userInput: string): TaskRouteResult {
   // 提取章节号
   const chapterNumber = extractChapterNumber(trimmed)
   const extractedParams: Record<string, string> = {}
-  if (chapterNumber !== undefined) {
+  if (hasChapterNumber(chapterNumber)) {
     extractedParams.chapterNumber = String(chapterNumber)
   }
 
@@ -286,7 +316,8 @@ export function routeTask(userInput: string): TaskRouteResult {
   // is 12 + 12*0.6 = 19.2; the old constant 16 capped it at 100% identically to
   // a weight-10 intent, making relative confidence uncomparable. max score for
   // any intent = weight * (1 + 0.6) = weight * 1.6.
-  const maxPossible = Math.max(...INTENT_PATTERNS.map((p) => p.weight * 1.6))
+  // ISS-20260709-006：经 MAX_SCORE_MULTIPLIER 收敛（= 1 + KEYWORD_SCORE_RATIO）。
+  const maxPossible = Math.max(...INTENT_PATTERNS.map((p) => p.weight * MAX_SCORE_MULTIPLIER))
   const confidence = Math.min(best.score / maxPossible, 1)
 
   return {
@@ -303,7 +334,7 @@ function extractChapterNumber(text: string): number | undefined {
   if (hasNextChapterContinuationWording(text)) return undefined
 
   const openingChapterNumber = extractOpeningChapterNumber(text)
-  if (openingChapterNumber !== undefined) return openingChapterNumber
+  if (hasChapterNumber(openingChapterNumber)) return openingChapterNumber
 
   for (const pattern of CHAPTER_NUMBER_PATTERNS) {
     const match = text.match(pattern)
@@ -354,7 +385,8 @@ function isOpeningChapterRequest(text: string): boolean {
   // best-effort guard — regex routing cannot fully resolve negation semantics
   // (documented constraint); the deep-chapter-generation mainchain still
   // derives the final target from context, so a misroute here is recoverable.
-  if (/(?:不要|别|禁止|避免|勿|不用|不需)[^。！？\n]{0,12}(?:第一章|第\s*1\s*章|开篇章节|小说开头|开篇|开局|首章)/.test(text)) {
+  // ISS-20260709-007：经 hasNegatedOpening 公共守卫收敛（语义等价）。
+  if (hasNegatedOpening(text)) {
     return false
   }
   if ([
@@ -455,7 +487,8 @@ export function buildTaskDirective(route: TaskRouteResult): string {
   }
 
   const directive = directives[route.intent]
-  if (!directive) return ""
+  // ISS-20260709-008：真值守卫收敛（与 routeTask 空输入早退同一谓词）。
+  if (!hasTruthyText(directive)) return ""
 
   return `\n## 任务类型识别\n意图：${intentToLabel(route.intent)}（置信度 ${Math.round(route.confidence * 100)}%）\n指令：${directive}\n`
 }

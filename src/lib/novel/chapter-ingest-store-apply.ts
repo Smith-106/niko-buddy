@@ -22,6 +22,34 @@ function textField(value: unknown): string {
   return ""
 }
 
+/**
+ * ISS-20260708-003：fold 时间戳公共合一（character/foreshadowing/emotional/resource/subplot 五处同模板）。
+ * 语义等价：`ctx?.now ?? store.lastUpdated`——有 ctx.now 则推进，无则保留原值（E-03 fold 纯性）。
+ */
+export function touchFoldTimestamp<S extends { lastUpdated: string }>(store: S, ctx?: FoldContext): S {
+  store.lastUpdated = ctx?.now ?? store.lastUpdated
+  return store
+}
+
+/**
+ * ISS-20260708-003：章节号去重追加公共合一（foreshadowing advancedChapters 等复用）。
+ * 已含该章则不重复追加，保证 fold_rebuildable 幂等。
+ */
+export function appendChapterOnce(chapters: number[], chapterNumber: number): number[] {
+  if (!chapters.includes(chapterNumber)) chapters.push(chapterNumber)
+  return chapters
+}
+
+/**
+ * ISS-20260708-003：fold 备注行追加公共合一（`[第N章XX] detail` 累积而非覆盖）。
+ * 空 detail 不写行，保持原 notes 不变。
+ */
+export function appendFoldNote(notes: string, chapterNumber: number, verb: string, detail: string): string {
+  if (!detail) return notes
+  const line = `[第${chapterNumber}章${verb}] ${detail}`
+  return notes ? `${notes}\n${line}` : line
+}
+
 export function applyEmotionalArcsToStore(
   arcStore: EmotionalArcStore,
   snapshot: ChapterSnapshot,
@@ -54,8 +82,8 @@ export function applyEmotionalArcsToStore(
       })
     }
   }
-  // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳。
-  arcStore.lastUpdated = ctx?.now ?? arcStore.lastUpdated
+  // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳（ISS-20260708-003 公共合一）。
+  touchFoldTimestamp(arcStore, ctx)
   return arcStore
 }
 
@@ -109,8 +137,8 @@ export function applyResourceLedgerToStore(
       entry.currentHolder = canonicalHolder
     }
   }
-  // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳。
-  ledger.lastUpdated = ctx?.now ?? ledger.lastUpdated
+  // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳（ISS-20260708-003 公共合一）。
+  touchFoldTimestamp(ledger, ctx)
   return ledger
 }
 
@@ -188,8 +216,8 @@ export function applySubplotChangesToStore(
     }
   }
 
-  // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳。
-  board.lastUpdated = ctx?.now ?? board.lastUpdated
+  // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳（ISS-20260708-003 公共合一）。
+  touchFoldTimestamp(board, ctx)
   return board
 }
 
@@ -317,8 +345,8 @@ export function applyCharacterStateChangesToStore(
       }
     }
   }
-  // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳。
-  existingChars.lastUpdated = ctx?.now ?? existingChars.lastUpdated
+  // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳（ISS-20260708-003 公共合一）。
+  touchFoldTimestamp(existingChars, ctx)
   return existingChars
 }
 
@@ -381,16 +409,12 @@ export function applyForeshadowingChangesToStore(existingForeshadows: Foreshadow
       )
       if (matched) {
         matched.status = "advanced"
-        if (!matched.advancedChapters.includes(snapshot.chapterNumber)) {
-          matched.advancedChapters.push(snapshot.chapterNumber)
-        }
+        appendChapterOnce(matched.advancedChapters, snapshot.chapterNumber)
         // CORR-105: preserve the LLM-provided advance detail in notes (was
         // silently discarded by the prior `desc: ""` parser). Append with
         // chapter context so repeated advances accumulate rather than overwrite.
-        if (parsed.desc) {
-          const noteLine = `[第${snapshot.chapterNumber}章推进] ${parsed.desc}`
-          matched.notes = matched.notes ? `${matched.notes}\n${noteLine}` : noteLine
-        }
+        // ISS-20260708-003：经 appendFoldNote 公共合一（语义等价）。
+        matched.notes = appendFoldNote(matched.notes, snapshot.chapterNumber, "推进", parsed.desc)
       }
     /* v8 ignore next */
     } else if (parsed.kind === "resolve") { /* v8 ignore start */ /* v8 ignore stop */
@@ -401,14 +425,12 @@ export function applyForeshadowingChangesToStore(existingForeshadows: Foreshadow
         matched.status = "resolved"
         matched.resolvedChapter = snapshot.chapterNumber
         // CORR-105: preserve the LLM-provided resolution detail in notes.
-        if (parsed.desc) {
-          const noteLine = `[第${snapshot.chapterNumber}章回收] ${parsed.desc}`
-          matched.notes = matched.notes ? `${matched.notes}\n${noteLine}` : noteLine
-        }
+        // ISS-20260708-003：经 appendFoldNote 公共合一（语义等价）。
+        matched.notes = appendFoldNote(matched.notes, snapshot.chapterNumber, "回收", parsed.desc)
       }
     }
   }
-  // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳。
-  existingForeshadows.lastUpdated = ctx?.now ?? existingForeshadows.lastUpdated
+  // E-03 (C-3): fold 纯性 — 缺省保留输入 store 时间戳（ISS-20260708-003 公共合一）。
+  touchFoldTimestamp(existingForeshadows, ctx)
   return existingForeshadows
 }

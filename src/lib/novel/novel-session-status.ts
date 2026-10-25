@@ -994,6 +994,19 @@ export function buildNextStatus(
 }
 
 /**
+ * ISS-20260709-005/027：lifecycle 孪生收敛到 buildLifecycleStatus 工厂。
+ *
+ * canonical 工厂名（ISS 命名口径）；实现与 ADR-31 `buildNextStatus` 同一函数
+ * （别名，非复制），7 lifecycle 函数经此收敛，8 核心字段全保留：
+ * updated_at/status/active_step_index/current_task/draft/decision_gates/
+ * resume_checkpoint/evidence_refs（其余 additive 字段同样透传，零行为变更）。
+ * 保留 `buildNextStatus` 导出作向后兼容别名，对外接口不变。
+ */
+export const buildLifecycleStatus = buildNextStatus
+
+export type BuildLifecycleStatusOverrides = Parameters<typeof buildNextStatus>[1]
+
+/**
  * ADR-31 (EPIC-000, lifecycle-twin factory extraction): shared checkpoint
  * persistence helper. Encapsulates the status.json truth-source write (the
  * `.novel/status.json` file, which carries the embedded resume_checkpoint as a
@@ -1606,7 +1619,7 @@ async function persistDeepChapterCheckpointWithinLock(
     { decisionGates: input.checkpoint.decisionGates },
   )
   const draftPath = prepared.filePath
-  const next = buildNextStatus(base, {
+  const next = buildLifecycleStatus(base, {
     updated_at: now,
     status: "running",
     active_step_index: stageToActiveStepIndex(input.checkpoint.stage),
@@ -1672,7 +1685,7 @@ async function completeDeepChapterSessionWithinLock(
     },
   )
   const draftPath = prepared.filePath
-  const next = buildNextStatus(base, {
+  const next = buildLifecycleStatus(base, {
     updated_at: now,
     status: "completed",
     active_step_index: stageToActiveStepIndex("completed"),
@@ -1744,7 +1757,7 @@ async function pauseDeepChapterSessionWithinLock(
     draftPath = prepared.filePath
     draftFiles = prepared.files
   }
-  const next = buildNextStatus(base, {
+  const next = buildLifecycleStatus(base, {
     updated_at: now,
     status: "paused",
     active_step_index: input.checkpoint
@@ -1793,7 +1806,7 @@ async function markSessionInterruptedWithinLock(
   if (!existing) return null
   if (existing.status !== "running" && existing.status !== "paused") return existing
   const now = new Date().toISOString()
-  const next = buildNextStatus(existing, {
+  const next = buildLifecycleStatus(existing, {
     updated_at: now,
     status: "interrupted",
     current_task: {
@@ -1841,7 +1854,7 @@ async function blockDeepChapterSessionWithinLock(
     draftPath = prepared.filePath
     draftFiles = prepared.files
   }
-  const next = buildNextStatus(base, {
+  const next = buildLifecycleStatus(base, {
     updated_at: now,
     status: "blocked",
     active_step_index: null,
@@ -1953,7 +1966,7 @@ async function acceptDeepChapterDraftWithinLock(
     },
   )
   const draftPath = prepared.filePath
-  const next = buildNextStatus(base, {
+  const next = buildLifecycleStatus(base, {
     updated_at: now,
     status: "completed",
     active_step_index: stageToActiveStepIndex("completed"),
@@ -2026,7 +2039,7 @@ async function rejectDeepChapterDraftWithinLock(
     },
   )
   const draftPath = prepared.filePath
-  const next = buildNextStatus(base, {
+  const next = buildLifecycleStatus(base, {
     updated_at: now,
     status: "completed",
     active_step_index: stageToActiveStepIndex("completed"),

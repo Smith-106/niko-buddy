@@ -1,5 +1,6 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { hasUsableLlm } from "./has-usable-llm"
+import { isBlankString } from "@/lib/string-guards"
 
 /**
  * J01-T01 (F-007)：模型服务健康状态机。
@@ -27,7 +28,8 @@ export interface LlmHealth {
 }
 
 function isBlank(s: string | undefined | null): boolean {
-  return !s || s.trim().length === 0
+  // ISS-20260708-002：委托公共守卫（语义等价：非 string/空/空白均视为 blank）。
+  return isBlankString(s)
 }
 
 /** CLI provider 两档：

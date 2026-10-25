@@ -8,7 +8,10 @@
 import { fetchEmbedding } from "@/lib/embedding"
 import { streamChat } from "@/lib/llm-client"
 import { isRerankCapableEndpoint, requestDirectRerank } from "@/lib/rerank-api"
-import { fetchLlmModelList } from "@/lib/settings-model-list"
+// ISS-20260708-001（依赖倒置）：本模块只依赖模型列表端口抽象；
+// 具体实现经 LlmModelListPort 注入，缺省动态 import（非静态依赖）。
+import type { LlmModelListPort } from "@/lib/settings-ports"
+import { loadDefaultLlmModelListPort } from "@/lib/settings-ports"
 import type { EmbeddingConfig, LlmConfig, RerankConfig } from "@/stores/wiki-store"
 
 const TIMEOUT = 30_000
@@ -71,12 +74,13 @@ function extractUnsupportedModel(msg: string): string | null {
   return null
 }
 
-async function resolveChatConfig(config: LlmConfig): Promise<{ config: LlmConfig; model: string }> {
+async function resolveChatConfig(config: LlmConfig, modelListPort?: LlmModelListPort): Promise<{ config: LlmConfig; model: string }> {
   const explicit = config.model.trim()
   if (explicit) return { config, model: explicit }
 
   if (config.provider === "claude-code" || config.provider === "codex-cli") {
-    const result = await fetchLlmModelList(config)
+    const port = modelListPort ?? await loadDefaultLlmModelListPort()
+    const result = await port.fetchLlmModelList(config)
     const model = requireModel(result.models[0] ?? "", "请先在本地 CLI 中设置默认模型，或在软件里手动填写模型后再测试。")
     return { config: { ...config, model }, model }
   }

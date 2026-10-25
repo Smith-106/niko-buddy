@@ -2,6 +2,14 @@ import type { TFunction } from "i18next"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { parseChapterMeta } from "@/lib/novel/chapter-meta"
 import { saveGenerationHistoryEntry } from "@/lib/novel/generation-history"
+// ISS-20260709-009：孪生公共 runner 收敛（守卫/DI/runId/失败+收口）。
+import {
+  failReviewRun,
+  finishCurrentReviewRunIfOwned,
+  isEmptyReviewInput,
+  newReviewRunId,
+  resolveReviewRunActions,
+} from "@/lib/novel/review-runner"
 import { runSixDimensionReview, type SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
 import {
   advanceReviewJobDoneWithDimensionResults,
@@ -9,7 +17,7 @@ import {
   advanceReviewJobRunning,
 } from "@/lib/novel/review-job-lifecycle"
 import { runContinuityMechanicalPreflight } from "@/lib/novel/review-adapter"
-import { logger, toErrorMessage } from "@/lib/utils"
+import { toErrorMessage } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 
 interface StartSixDimensionReviewRunArgs {
@@ -42,16 +50,15 @@ export async function startSixDimensionReviewRun({
   signal,
   storeActions,
 }: StartSixDimensionReviewRunArgs): Promise<void> {
-  if (!selectedFile || !fileContent.trim()) return
+  // ISS-20260709-009：经公共 runner 收敛（语义等价）。
+  if (isEmptyReviewInput(selectedFile, fileContent)) return
 
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（向后兼容）
-  const setReviewRun = storeActions?.setReviewRun ?? ((r) => useWikiStore.getState().setReviewRun(r))
-  const finishReviewRun = storeActions?.finishReviewRun ?? ((id, r) => useWikiStore.getState().finishReviewRun(id, r))
-  const getReviewRun = storeActions?.getReviewRun ?? (() => useWikiStore.getState().reviewRun)
+  const { setReviewRun, finishReviewRun, getReviewRun } = resolveReviewRunActions(storeActions)
 
   const parsed = parseFrontmatter(fileContent)
   const meta = parsed.frontmatter ? parseChapterMeta(parsed.frontmatter as Record<string, unknown>) : null
-  const runId = `${Date.now()}-${Math.random()}`
+  const runId = newReviewRunId()
   // G4 (39 号修复): 自建 controller 注册到 store, 供 UI 取消按钮级联 abort。
   const controller = new AbortController()
   const effectiveSignal = signal ?? controller.signal
@@ -160,17 +167,18 @@ export async function startSixDimensionReviewRun({
     ).catch(() => {})
   } catch (error) {
     // F-16 (CWE-532): message-only to avoid leaking provider request details.
-    logger.error("Six-Dim Review", "六维审查失败", { error: toErrorMessage(error) })
-    finishReviewRun(runId, { running: false, error: t("novel.review.runFailed") })
+    // ISS-20260709-009：经公共 runner 收敛（保持 advanceReviewJobFailed 副作用顺序）。
+    failReviewRun("Six-Dim Review", "六维审查失败", error, finishReviewRun, runId, t("novel.review.runFailed"))
     void advanceReviewJobFailed(
       projectPath,
       toErrorMessage(error),
     ).catch(() => {})
   } finally {
     useWikiStore.setState({ reviewRunAbortController: null })
+    // ISS-20260709-009：经公共 runner 收口（仅本 run 才覆盖，防跨 run）。
     const current = getReviewRun()
-    if (current?.runId === runId) {
-      finishReviewRun(runId, {
+    if (current) {
+      finishCurrentReviewRunIfOwned(getReviewRun, finishReviewRun, runId, {
         running: false,
         results: current.results,
         dimensionResults: current.dimensionResults,

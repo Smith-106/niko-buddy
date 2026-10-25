@@ -2,6 +2,14 @@ import type { TFunction } from "i18next"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { parseChapterMeta } from "@/lib/novel/chapter-meta"
 import { reviewChapter } from "@/lib/novel/review-adapter"
+// ISS-20260709-009：孪生公共 runner 收敛（守卫/DI/runId/失败+收口）。
+import {
+  failReviewRun,
+  finishCurrentReviewRunIfOwned,
+  isEmptyReviewInput,
+  newReviewRunId,
+  resolveReviewRunActions,
+} from "@/lib/novel/review-runner"
 import {
   checkReviewCompletionGate,
   computeChapterHash,
@@ -9,7 +17,6 @@ import {
 import { persistRevisionFeedbackForChapter, pickRevisionFeedbackFromReviewResults } from "@/lib/novel/revision-feedback"
 import { saveGenerationHistoryEntry } from "@/lib/novel/generation-history"
 import { getFileStem } from "@/lib/path-utils"
-import { logger, toErrorMessage } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { createReviewThinkingPublisher } from "./review-thinking-publisher"
 import { yieldToBrowserFrame } from "./yield-to-browser"
@@ -68,15 +75,14 @@ export async function startNovelReviewRun({
   onHistorySaved,
   storeActions,
 }: StartNovelReviewRunArgs): Promise<void> {
-  if (!selectedFile || !fileContent.trim()) return
+  // ISS-20260709-009：经公共 runner 收敛（语义等价）。
+  if (isEmptyReviewInput(selectedFile, fileContent)) return
 
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（向后兼容）
-  const setReviewRun = storeActions?.setReviewRun ?? ((r) => useWikiStore.getState().setReviewRun(r))
-  const finishReviewRun = storeActions?.finishReviewRun ?? ((id, r) => useWikiStore.getState().finishReviewRun(id, r))
-  const getReviewRun = storeActions?.getReviewRun ?? (() => useWikiStore.getState().reviewRun)
+  const { setReviewRun, finishReviewRun, getReviewRun } = resolveReviewRunActions(storeActions)
 
   const target = resolveReviewChapterTarget(fileContent, selectedFile)
-  const runId = `${Date.now()}-${Math.random()}`
+  const runId = newReviewRunId()
   setReviewRun({ runId, projectPath, filePath: selectedFile, running: true, results: [] })
   await yieldToBrowserFrame()
   const thinkingPublisher = createReviewThinkingPublisher({
@@ -128,14 +134,18 @@ export async function startNovelReviewRun({
     }
   } catch (error) {
     // F-16 (CWE-532): message-only to avoid leaking provider request details.
-    logger.error("Novel Review", "审查失败", { error: toErrorMessage(error) })
+    // ISS-20260709-009：经公共 runner 收敛（先记日志再 flush，保持原顺序）。
+    failReviewRun("Novel Review", "审查失败", error, finishReviewRun, runId, t("novel.review.runFailed"))
     thinkingPublisher.flush()
-    finishReviewRun(runId, { running: false, error: t("novel.review.runFailed") })
   } finally {
     thinkingPublisher.flush()
+    // ISS-20260709-009：经公共 runner 收口（仅本 run 才覆盖，防跨 run）。
     const current = getReviewRun()
-    if (current?.runId === runId) {
-      finishReviewRun(runId, { running: false, results: current.results })
+    if (current) {
+      finishCurrentReviewRunIfOwned(getReviewRun, finishReviewRun, runId, {
+        running: false,
+        results: current.results,
+      })
     }
   }
 }
