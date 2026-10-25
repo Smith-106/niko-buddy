@@ -144,8 +144,87 @@ export async function runStructuralLint(projectPath: string): Promise<LintResult
   return results
 }
 
+// Hardened LINT block opener: anchored to line start (multiline ^) so a
+// marker inside a heading (`# ---LINT: ...`), inline prose, or a list item
+// no longer registers. Header separators are horizontal-only (`[ \t]*`,
+// never bare `\s*`) so type/severity/title cannot smuggle a newline — a
+// header split across two lines is malformed and ignored. Header fields
+// keep their original single-line classes (`[^\n...]`, no `s` flag). Body
+// keeps the original lazy match up to the nearest END marker. Fenced code
+// (```/~~~) is stripped before matching (stripFencedCodeSegments) so
+// markers quoted inside code fences are never parsed.
 const LINT_BLOCK_REGEX =
-  /---LINT:\s*([^\n|]+?)\s*\|\s*([^\n|]+?)\s*\|\s*([^\n-]+?)\s*---\n([\s\S]*?)---END LINT---/g
+  /^---LINT:[ \t]*([^\n|]+?)[ \t]*\|[ \t]*([^\n|]+?)[ \t]*\|[ \t]*([^\n-]+?)[ \t]*---\n([\s\S]*?)---END LINT---/gm
+
+// Fence delimiters per CommonMark (triple+ backticks or tildes). Leading
+// indentation ≤ 3 spaces is still a fence; 4+ spaces does not open one.
+// Mirrors ingest.ts FENCE_LINE so both block parsers share fence semantics.
+const LINT_FENCE_LINE = /^\s{0,3}(```+|~~~+)/
+
+/**
+ * Blank out closed fenced-code regions before LINT block-marker parsing
+ * (same contract as ingest.ts stripFencedCodeSegments). Exported for tests.
+ */
+export function stripFencedCodeSegments(text: string): string {
+  const lines = text.split("\n")
+  const out = [...lines]
+  let openIdx: number | null = null
+  let fenceChar = ""
+  let fenceLen = 0
+  for (let i = 0; i < lines.length; i++) {
+    const fenceMatch = LINT_FENCE_LINE.exec(lines[i])
+    if (!fenceMatch) continue
+    const run = fenceMatch[1]
+    const char = run[0]
+    const len = run.length
+    if (openIdx === null) {
+      openIdx = i
+      fenceChar = char
+      fenceLen = len
+    } else if (char === fenceChar && len >= fenceLen) {
+      for (let j = openIdx; j <= i; j++) out[j] = ""
+      openIdx = null
+      fenceChar = ""
+      fenceLen = 0
+    }
+  }
+  return out.join("\n")
+}
+
+/**
+ * Pure LINT block parser extracted from runSemanticLint (behavior
+ * unchanged): parse raw LLM output into semantic lint results.
+ * Exported for tests; runSemanticLint delegates to it.
+ */
+export function parseLintBlocks(raw: string): LintResult[] {
+  const results: LintResult[] = []
+  const matches = stripFencedCodeSegments(raw).matchAll(LINT_BLOCK_REGEX)
+
+  for (const match of matches) {
+    const rawType = match[1].trim().toLowerCase()
+    const severity = match[2].trim().toLowerCase()
+    const title = match[3].trim()
+    const body = match[4].trim()
+    void rawType
+
+    const pagesMatch = body.match(/^PAGES:\s*(.+)$/m)
+    const affectedPages = pagesMatch
+      ? pagesMatch[1].split(",").map((p) => p.trim())
+      : undefined
+
+    const detail = body.replace(/^PAGES:.*$/m, "").trim()
+
+    results.push({
+      type: "semantic",
+      severity: (severity === "warning" ? "warning" : "info") as LintResult["severity"],
+      page: title,
+      detail: `[${rawType}] ${detail}`,
+      affectedPages,
+    })
+  }
+
+  return results
+}
 
 function buildSemanticWikiPrompt(summaries: string[]): string {
   const summarySample = summaries.join("\n").slice(0, 2000)
@@ -308,31 +387,7 @@ export async function runSemanticLint(
 
   if (hadError) return []
 
-  const results: LintResult[] = []
-  const matches = raw.matchAll(LINT_BLOCK_REGEX)
-
-  for (const match of matches) {
-    const rawType = match[1].trim().toLowerCase()
-    const severity = match[2].trim().toLowerCase()
-    const title = match[3].trim()
-    const body = match[4].trim()
-    void rawType
-
-    const pagesMatch = body.match(/^PAGES:\s*(.+)$/m)
-    const affectedPages = pagesMatch
-      ? pagesMatch[1].split(",").map((p) => p.trim())
-      : undefined
-
-    const detail = body.replace(/^PAGES:.*$/m, "").trim()
-
-    results.push({
-      type: "semantic",
-      severity: (severity === "warning" ? "warning" : "info") as LintResult["severity"],
-      page: title,
-      detail: `[${rawType}] ${detail}`,
-      affectedPages,
-    })
-  }
+  const results = parseLintBlocks(raw)
 
   activity.updateItem(activityId, {
     status: "done",

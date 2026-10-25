@@ -920,14 +920,59 @@ async function writeFileBlocks(
   return { writtenPaths, warnings, hardFailures }
 }
 
-const REVIEW_BLOCK_REGEX = /---REVIEW:\s*(\w[\w-]*)\s*\|\s*(.+?)\s*---\n([\s\S]*?)---END REVIEW---/g
+// Hardened REVIEW block opener: anchored to line start (multiline ^) so a
+// marker inside a heading (`# ---REVIEW: ...`), inline prose, or a list item
+// no longer registers. Header separators are horizontal-only (`[ \t]*`,
+// never bare `\s*`) so type/title cannot smuggle a newline — a header split
+// across two lines is malformed and ignored. Title keeps a single-line
+// class (`[^\n]`, no `s` flag). Body keeps the original lazy match up to
+// the nearest END marker. Fenced code (```/~~~) is stripped before matching
+// (stripFencedCodeSegments) so markers quoted inside code fences are never
+// parsed.
+const REVIEW_BLOCK_REGEX =
+  /^---REVIEW:[ \t]*(\w[\w-]*)[ \t]*\|[ \t]*([^\n]+?)[ \t]*---\n([\s\S]*?)---END REVIEW---/gm
 
-function parseReviewBlocks(
+/**
+ * Blank out closed fenced-code regions (``` / ~~~, same fence rule as
+ * parseFileBlocks' FENCE_LINE) before block-marker parsing, so block
+ * markers quoted inside code fences are never parsed. Fenced lines are
+ * replaced with "" to preserve line structure for the multiline-anchored
+ * regex; an unclosed opener is left intact rather than swallowing the
+ * rest of the stream.
+ * Exported for tests.
+ */
+export function stripFencedCodeSegments(text: string): string {
+  const lines = text.split("\n")
+  const out = [...lines]
+  let openIdx: number | null = null
+  let fenceChar = ""
+  let fenceLen = 0
+  for (let i = 0; i < lines.length; i++) {
+    const fenceMatch = FENCE_LINE.exec(lines[i])
+    if (!fenceMatch) continue
+    const run = fenceMatch[1]
+    const char = run[0]
+    const len = run.length
+    if (openIdx === null) {
+      openIdx = i
+      fenceChar = char
+      fenceLen = len
+    } else if (char === fenceChar && len >= fenceLen) {
+      for (let j = openIdx; j <= i; j++) out[j] = ""
+      openIdx = null
+      fenceChar = ""
+      fenceLen = 0
+    }
+  }
+  return out.join("\n")
+}
+
+export function parseReviewBlocks(
   text: string,
   sourcePath: string,
 ): Omit<ReviewItem, "id" | "resolved" | "createdAt">[] {
   const items: Omit<ReviewItem, "id" | "resolved" | "createdAt">[] = []
-  const matches = text.matchAll(REVIEW_BLOCK_REGEX)
+  const matches = stripFencedCodeSegments(text).matchAll(REVIEW_BLOCK_REGEX)
 
   for (const match of matches) {
     const rawType = match[1].trim().toLowerCase()
