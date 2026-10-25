@@ -954,6 +954,7 @@
     "buildingGraph": "Building graph...",
     "buildFailed": "Failed to build graph",
     "retry": "Retry",
+    "dismissInsight": "Dismiss insight",
     "noPages": "No pages yet",
     "knowledgeGraph": "Knowledge Graph",
     "hidden": "Hidden",
@@ -3826,7 +3827,10 @@
   },
   "mermaid": {
     "syntaxError": "Mermaid syntax error",
-    "zoomIn": "Zoom chart (Esc to close)"
+    "zoomIn": "Zoom chart (Esc to close)",
+    "zoomInLarge": "Zoom in chart",
+    "zoomOut": "Zoom out chart",
+    "close": "Close chart"
   },
   "dataManager": {
     "title": "Data Manager",

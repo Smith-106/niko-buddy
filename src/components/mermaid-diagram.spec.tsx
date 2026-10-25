@@ -194,19 +194,19 @@ describe("MermaidDiagram", () => {
     expect(screen.getByText("100%")).toBeInTheDocument()
 
     // + 放大
-    fireEvent.click(screen.getByRole("button", { name: "+" }))
+    fireEvent.click(screen.getByRole("button", { name: "放大图表" }))
     expect(screen.getByText("130%")).toBeInTheDocument()
     // 连续放大至上限 5
     for (let i = 0; i < 15; i += 1) {
-      fireEvent.click(screen.getByRole("button", { name: "+" }))
+      fireEvent.click(screen.getByRole("button", { name: "放大图表" }))
     }
     expect(screen.getByText("500%")).toBeInTheDocument()
 
     // − 缩小（含下限 0.3）
-    fireEvent.click(screen.getByRole("button", { name: "−" }))
+    fireEvent.click(screen.getByRole("button", { name: "缩小图表" }))
     expect(screen.getByText("470%")).toBeInTheDocument()
     for (let i = 0; i < 15; i += 1) {
-      fireEvent.click(screen.getByRole("button", { name: "−" }))
+      fireEvent.click(screen.getByRole("button", { name: "缩小图表" }))
     }
     expect(screen.getByText("30%")).toBeInTheDocument()
 
@@ -234,7 +234,7 @@ describe("MermaidDiagram", () => {
       expect(screen.getByTitle("放大图表（Esc 关闭）")).toBeInTheDocument()
     })
     fireEvent.click(screen.getByTitle("放大图表（Esc 关闭）"))
-    fireEvent.click(screen.getByRole("button", { name: "+" }))
+    fireEvent.click(screen.getByRole("button", { name: "放大图表" }))
     expect(screen.getByText("130%")).toBeInTheDocument()
 
     // 非 Escape 键不关闭

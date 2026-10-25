@@ -222,6 +222,7 @@ vi.mock("@react-sigma/core", async () => {
       return React.createElement("div", { "data-testid": "sigma-container" }, children)
     },
     useLoadGraph: () => (graph: unknown) => sigma.setGraph(graph),
+    useSetSettings: () => sigma.setSetting,
     useRegisterEvents: () => (handlers: Record<string, (...a: unknown[]) => void>) =>
       sigma.registerEvents(handlers),
     useSigma: () => sigma,

@@ -3,6 +3,8 @@ import { useSigma } from "@react-sigma/core"
 import { ZoomIn, ZoomOut, Maximize, ChevronRight, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { NODE_TYPE_COLORS, hexToRgba, mixColor } from "@/lib/graph-style"
+import { useWikiStore } from "@/stores/wiki-store"
+import { isSystemDark } from "@/lib/theme-utils"
 import { type MindMapNode } from "@/lib/graph-readable"
 import { useTranslation } from "react-i18next"
 
@@ -34,6 +36,9 @@ export function MindMapBranch({ node, level = 0, onNodeClick, collapsedIds, onTo
   const hasChildren = node.children.length > 0
   const collapsed = collapsedIds?.has(node.id) ?? false
   const accent = node.nodeType ? NODE_TYPE_COLORS[node.nodeType] : undefined
+  // S3-4: 92% 白 tint 芯片在深色下白底白字沉底。浅色保持 #ffffff（零行为变化），深色改向深收敛。
+  const appTheme = useWikiStore((s) => s.theme)
+  const chipTint = appTheme === "dark" || appTheme === "deep-blue" || (appTheme === "system" && isSystemDark()) ? "#0f172a" : "#ffffff"
 
   return (
     <div className={level === 0 ? "space-y-1.5" : ""}>
@@ -59,7 +64,7 @@ export function MindMapBranch({ node, level = 0, onNodeClick, collapsedIds, onTo
           onClick={onNodeClick ? () => onNodeClick(node) : undefined}
           onKeyDown={onNodeClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNodeClick(node) } } : undefined}
           className={`flex min-w-0 flex-1 items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-sm shadow-sm transition-colors ${onNodeClick ? "cursor-pointer hover:bg-accent/60" : ""}`}
-          style={accent ? { borderColor: hexToRgba(accent, 0.5), backgroundColor: mixColor(accent, "#ffffff", 0.92) } : undefined}
+          style={accent ? { borderColor: hexToRgba(accent, 0.5), backgroundColor: mixColor(accent, chipTint, 0.92) } : undefined}
           title={node.label}
         >
           {accent && (

@@ -285,12 +285,14 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
                   </button>
                   <button
                     onClick={() => handleEditOne(i)}
+                    aria-label="编辑"
                     className="rounded border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent shrink-0"
                   >
                     <Pencil className="h-3 w-3 shrink-0" />
                   </button>
                   <button
                     onClick={() => handleDismissOne(i)}
+                    aria-label="忽略"
                     className="rounded border px-2 py-0.5 text-xs text-muted-foreground hover:text-destructive hover:bg-accent shrink-0"
                   >
                     <X className="h-3 w-3 shrink-0" />

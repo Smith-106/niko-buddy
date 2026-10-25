@@ -1534,6 +1534,7 @@
     "buildingGraph": "正在构建关系图...",
     "buildFailed": "构建图谱失败",
     "retry": "重试",
+    "dismissInsight": "关闭洞察",
     "noPages": "暂无页面",
     "importSourcesHint": "导入资料以开始构建知识图谱",
     "knowledgeGraph": "知识关系图",
@@ -3826,7 +3827,10 @@
   },
   "mermaid": {
     "syntaxError": "Mermaid 语法错误",
-    "zoomIn": "放大图表（Esc 关闭）"
+    "zoomIn": "放大图表（Esc 关闭）",
+    "zoomInLarge": "放大图表",
+    "zoomOut": "缩小图表",
+    "close": "关闭图表"
   },
   "dataManager": {
     "title": "数据管理",

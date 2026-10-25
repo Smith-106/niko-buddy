@@ -8,7 +8,7 @@ export type ThemeMode = "light" | "dark" | "deep-blue" | "eye-care" | "system"
  * 检测系统是否为深色模式
  */
 export function isSystemDark(): boolean {
-  if (typeof window === "undefined") return false
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false
   return window.matchMedia("(prefers-color-scheme: dark)").matches
 }
 

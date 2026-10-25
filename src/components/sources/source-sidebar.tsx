@@ -388,6 +388,7 @@ export function SourceSidebar({
               <button
                 type="button"
                 onClick={() => void handleToggleAutoExtract()}
+                aria-label={t("novel.sources.autoExtract", { defaultValue: "自动提取" })}
                 className={`relative inline-flex h-4 w-8 shrink-0 rounded-full border border-transparent transition-colors ${
                   novelConfig.autoExtractOnImport ? "bg-primary" : "bg-input"
                 }`}

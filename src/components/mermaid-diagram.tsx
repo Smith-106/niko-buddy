@@ -157,6 +157,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
               <button
                 type="button"
                 onClick={() => setScale((s) => Math.min(s + 0.3, 5))}
+                aria-label={t("mermaid.zoomInLarge")}
                 className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
               >
                 +
@@ -165,6 +166,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
               <button
                 type="button"
                 onClick={() => setScale((s) => Math.max(s - 0.3, 0.3))}
+                aria-label={t("mermaid.zoomOut")}
                 className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
               >
                 −
@@ -172,6 +174,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
               <button
                 type="button"
                 onClick={() => { setExpanded(false); setScale(1) }}
+                aria-label={t("mermaid.close")}
                 className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
               >
                 <X className="h-4 w-4" />

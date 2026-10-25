@@ -256,7 +256,9 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
       try {
         const content = await readFile(candidate)
         return { path: candidate, content }
-      } catch {
+      } catch (err) {
+        // S3-1: 候选逐个试读，失败记 warn 后试下一个（禁空 catch）。
+        console.warn("[Dashboard] 跳过不可读候选:", candidate, toErrorMessage(err))
       }
     }
     return null

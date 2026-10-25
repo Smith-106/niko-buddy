@@ -105,3 +105,21 @@ export function shouldShowNodeLabel(node: GraphNode, maxLinks: number, mode: Gra
   }
   return node.linkCount >= Math.max(1, Math.ceil(maxLinks * 0.2))
 }
+
+/** sigma 文本/高亮色（主题感知）。浅色值 = 历史字面量（零行为变化）；深色值 = slate 浅盘。 */
+export interface SigmaThemeColors {
+  /** 节点标签 */
+  label: string
+  /** 边标签 */
+  edgeLabel: string
+  /** 高亮边 */
+  edgeHighlight: string
+  /** dimmed 混色目标（向背景收敛：浅色混白系、深色混黑系） */
+  dimMix: string
+}
+
+export function getSigmaThemeColors(isDark: boolean): SigmaThemeColors {
+  return isDark
+    ? { label: "#e2e8f0", edgeLabel: "#cbd5e1", edgeHighlight: "#f1f5f8", dimMix: "#0f172a" }
+    : { label: "#1e293b", edgeLabel: "#334155", edgeHighlight: "#1e293b", dimMix: "#e2e8f0" }
+}

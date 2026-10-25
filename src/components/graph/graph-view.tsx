@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useMemo, useState, useRef } from "react"
-import { SigmaContainer } from "@react-sigma/core"
+import { SigmaContainer, useSetSettings } from "@react-sigma/core"
 import type { Settings } from "sigma/settings"
 import "@react-sigma/core/lib/style.css"
 import {
@@ -26,8 +26,9 @@ import { GRAPH_MODE_LABELS, GRAPH_MODE_PRESETS, type GraphMode } from "@/lib/gra
 import { extractNeighborhood, pickDefaultFocus } from "@/lib/graph-neighborhood"
 import { useTranslation } from "react-i18next"
 import { formatOperationError } from "@/lib/format-operation-error"
-import { NODE_TYPE_COLORS, edgeTypeForStyle, hexToRgba, mixColor, shouldRenderEdgeLabels, type GraphEdgeStyle, type GraphLabelDisplayMode } from "@/lib/graph-style"
+import { NODE_TYPE_COLORS, edgeTypeForStyle, getSigmaThemeColors, hexToRgba, mixColor, shouldRenderEdgeLabels, type GraphEdgeStyle, type GraphLabelDisplayMode, type SigmaThemeColors } from "@/lib/graph-style"
 import { toErrorMessage } from "@/lib/utils"
+import { isSystemDark } from "@/lib/theme-utils"
 import { COMMUNITY_COLORS, EventHandler, GraphLoader, HighlightManager, SigmaResizeRefresher, type ColorMode } from "./sigma-graph-views"
 import { DocumentGraphView } from "./document-graph-view"
 import { MindMapGraphView, ZoomControls } from "./mindmap-views"
@@ -90,6 +91,17 @@ async function openProjectFromGraph() {
 
 // --- Main component ---
 
+/** S3-3: 主题切换时热推 sigma 文本色（setSetting，不重建实例，不丢相机/布局）。 */
+function SigmaThemeSync({ colorsRef, isDark }: { colorsRef: { current: SigmaThemeColors }; isDark: boolean }) {
+  const setSettings = useSetSettings()
+  useEffect(() => {
+    const colors = getSigmaThemeColors(isDark)
+    colorsRef.current = colors
+    setSettings({ labelColor: { color: colors.label }, edgeLabelColor: { color: colors.edgeLabel } })
+  }, [isDark, colorsRef, setSettings])
+  return null
+}
+
 export function GraphView() {
   const { t } = useTranslation()
   const novelMode = useWikiStore((s) => s.novelMode)
@@ -117,6 +129,11 @@ export function GraphView() {
   const edgeStrengthPercent = useWikiStore((s) => s.graphEdgeStrengthPercent)
   const edgeStyle = useWikiStore((s) => s.graphEdgeStyle) as GraphEdgeStyle
   const edgeLabelsAlwaysVisible = useWikiStore((s) => s.graphEdgeLabelsAlwaysVisible)
+  const appTheme = useWikiStore((s) => s.theme)
+  // S3-3: 深色主题下 sigma 标签（#1e293b/#334155）沉底不可读。settings 身份必须稳定
+  //（#39 教训：换身份即 kill+重建），故主题色走 ref + SigmaThemeSync 热推，不进 useMemo 依赖。
+  const isDarkTheme = appTheme === "dark" || appTheme === "deep-blue" || (appTheme === "system" && isSystemDark())
+  const themeColorsRef = useRef<SigmaThemeColors>(getSigmaThemeColors(isDarkTheme))
   const showFilters = useWikiStore((s) => s.graphShowFilters)
   const setGraphStats = useWikiStore((s) => s.setGraphStats)
   const setRefreshGraph = useWikiStore((s) => s.setRefreshGraph)
@@ -530,10 +547,10 @@ export function GraphView() {
     defaultNodeColor: "#94a3b8",
     labelSize: 13,
     labelWeight: "bold",
-    labelColor: { color: "#1e293b" },
+    labelColor: { color: themeColorsRef.current.label },
     edgeLabelSize: 14,
     edgeLabelWeight: "600",
-    edgeLabelColor: { color: "#334155" },
+    edgeLabelColor: { color: themeColorsRef.current.edgeLabel },
     labelDensity: labelDisplayMode === "all" ? 1 : labelDisplayMode === "focused" ? 0.25 : 0.4,
     labelRenderedSizeThreshold: labelDisplayMode === "all" ? 0 : labelDisplayMode === "focused" ? 8 : 6,
     stagePadding: 30,
@@ -555,7 +572,7 @@ export function GraphView() {
         result.forceLabel = true
       }
       if (attrs.dimmed) {
-        result.color = mixColor(attrs.color ?? "#94a3b8", "#e2e8f0", 0.75)
+        result.color = mixColor(attrs.color ?? "#94a3b8", themeColorsRef.current.dimMix, 0.75)
         result.label = ""
         result.size = (attrs.size ?? visualSettings.baseNodeSize) * 0.6
       }
@@ -564,11 +581,11 @@ export function GraphView() {
     edgeReducer: (edge, attrs) => {
       const result = { ...attrs }
       if (attrs.dimmed) {
-        result.color = mixColor(edgeColorHex, "#e2e8f0", 0.75)
+        result.color = mixColor(edgeColorHex, themeColorsRef.current.dimMix, 0.75)
         result.size = 0.3
       }
       if (attrs.highlighted) {
-        result.color = "#1e293b"
+        result.color = themeColorsRef.current.edgeHighlight
         result.size = Math.max(2, (attrs.size ?? 1) * 1.5)
         // 显示关系描述而非相关度数字
         const relation = attrs.relation as string | undefined
@@ -722,6 +739,7 @@ export function GraphView() {
                 style={{ width: "100%", height: "100%", background: "transparent" }}
                 settings={sigmaSettings}
               >
+                <SigmaThemeSync colorsRef={themeColorsRef} isDark={isDarkTheme} />
                 <GraphLoader
                   nodes={displayNodes}
                   edges={displayEdges}
@@ -1316,6 +1334,7 @@ export function GraphView() {
                 </div>
                 <button
                   className="p-1 rounded hover:bg-muted text-muted-foreground"
+                  aria-label={t("graph.dismissInsight")}
                   onClick={() => {
                     setShowInsights(false)
                     setHighlightedNodes(new Set())
@@ -1348,6 +1367,7 @@ export function GraphView() {
                           >
                             <button
                               className="absolute top-1.5 right-1.5 z-10 rounded p-0.5 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
+                              aria-label={t("graph.dismissInsight")}
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setDismissedInsights((prev) => new Set([...prev, conn.key]))

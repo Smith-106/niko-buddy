@@ -3,6 +3,7 @@ import {
   EDGE_LABEL_FULL_GRAPH_THRESHOLD,
   NODE_TYPE_COLORS,
   edgeTypeForStyle,
+  getSigmaThemeColors,
   hexToRgba,
   initialGraphPosition,
   mixColor,
@@ -117,5 +118,13 @@ describe("shouldShowNodeLabel", () => {
     expect(shouldShowNodeLabel(node({ linkCount: 4 }), 10, "overview", "auto")).toBe(true)
     expect(shouldShowNodeLabel(node({ linkCount: 4 }), 10, "storyline", "auto")).toBe(true)
     expect(shouldShowNodeLabel(node({ linkCount: 1 }), 10, "storyline", "auto")).toBe(false)
+  })
+})
+describe("getSigmaThemeColors", () => {
+  it("浅色 = 历史字面量（零行为变化）", () => {
+    expect(getSigmaThemeColors(false)).toEqual({ label: "#1e293b", edgeLabel: "#334155", edgeHighlight: "#1e293b", dimMix: "#e2e8f0" })
+  })
+  it("深色 = slate 浅盘 + 向深收敛", () => {
+    expect(getSigmaThemeColors(true)).toEqual({ label: "#e2e8f0", edgeLabel: "#cbd5e1", edgeHighlight: "#f1f5f8", dimMix: "#0f172a" })
   })
 })
