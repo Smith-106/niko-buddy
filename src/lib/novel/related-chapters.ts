@@ -147,14 +147,34 @@ export function buildRelatedChapters(input: RelatedChaptersInput, options: Relat
 
   /** chapter → RelatedChapter 聚合 */
   const byChapter = new Map<number, RelatedChapter>()
+  // ISS-20260709-051: reasons/matchedEntities 判重改 Set O(1)
+  // （改前 includes 线性扫描随命中增长 O(n²)）；数组字段保留首见序，对外接口不变。
+  const reasonSets = new Map<number, Set<RelatedChapterReason>>()
+  const entitySets = new Map<number, Set<string>>()
 
   function addMatch(chapter: number, reason: RelatedChapterReason, entity: string, note?: string) {
     if (chapter >= current) return // 只反查历史章
     if (chapter >= minChapter) return // 太近不去噪
     const existing = byChapter.get(chapter)
     if (existing) {
-      if (!existing.reasons.includes(reason)) existing.reasons.push(reason)
-      if (!existing.matchedEntities.includes(entity)) existing.matchedEntities.push(entity)
+      let rset = reasonSets.get(chapter)
+      if (!rset) {
+        rset = new Set(existing.reasons)
+        reasonSets.set(chapter, rset)
+      }
+      if (!rset.has(reason)) {
+        rset.add(reason)
+        existing.reasons.push(reason)
+      }
+      let eset = entitySets.get(chapter)
+      if (!eset) {
+        eset = new Set(existing.matchedEntities)
+        entitySets.set(chapter, eset)
+      }
+      if (!eset.has(entity)) {
+        eset.add(entity)
+        existing.matchedEntities.push(entity)
+      }
       if (note && !existing.note) existing.note = note
     } else {
       byChapter.set(chapter, {
@@ -163,6 +183,8 @@ export function buildRelatedChapters(input: RelatedChaptersInput, options: Relat
         matchedEntities: [entity],
         note,
       })
+      reasonSets.set(chapter, new Set([reason]))
+      entitySets.set(chapter, new Set([entity]))
     }
   }
 

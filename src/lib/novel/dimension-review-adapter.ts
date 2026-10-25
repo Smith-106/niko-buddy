@@ -674,6 +674,7 @@ export async function runSixDimensionReview({
   novelConfig,
   novelMode,
   priorReviewResults,
+  contextPack: injectedContextPack,
 }: {
   projectPath: string
   chapterContent: string
@@ -699,6 +700,14 @@ export async function runSixDimensionReview({
    * 本 TASK 不改 deep-chapter-generation.ts 出 scope)。
    */
   priorReviewResults?: NovelReviewResult[]
+  /**
+   * ISS-20260713-002: 复用调用方已持有的 ContextPack（零重建）。
+   * runFullReviewWithSixDim 入参即持有 contextPack（并已传给 reviewChapter），
+   * 改前本函数无视该包、无条件再 `await buildContextPack` 一次（整包重建 ≈
+   * 数十次 wiki IO + rerank）。传入时直接复用（prompt/指纹/六维只读消费同一
+   * 包）；未传时回退原行为（UI 单文件重跑等无包路径不受影响）。
+   */
+  contextPack?: ContextPack
 }): Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>> {
   const injectedNovelConfig = novelConfig ?? useWikiStore.getState().novelConfig
   const llmConfigResolved = resolveNovelModel(
@@ -708,7 +717,8 @@ export async function runSixDimensionReview({
   )
   if (!hasUsableLlm(llmConfigResolved) || !(novelMode ?? useWikiStore.getState().novelMode)) return {}
 
-  const contextPack = await buildContextPack(
+  // ISS-20260713-002: 调用方已传包时复用，跳过整包重建；未传时沿用原 build 路径。
+  const contextPack = injectedContextPack ?? await buildContextPack(
     projectPath,
     `六维审查第${chapterNumber || "?"}章`,
     chapterNumber,

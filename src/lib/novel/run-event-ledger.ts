@@ -413,11 +413,15 @@ export function eventsByReplayId(ledger: RunEventLedger, replayId: string): read
   return sliceRunEvents(ledger, { replayId })
 }
 
-/** 全账本去重 replay id（首见序）。 */
+/** 全账本去重 replay id（首见序）。ISS-20260709-051: Set 判重 O(1)，数组仅保序。 */
 export function listReplayIds(ledger: RunEventLedger): readonly string[] {
   const seen: string[] = []
+  const seenSet = new Set<string>()
   for (const event of ledger.events) {
-    if (event.replayId !== undefined && !seen.includes(event.replayId)) seen.push(event.replayId)
+    if (event.replayId !== undefined && !seenSet.has(event.replayId)) {
+      seenSet.add(event.replayId)
+      seen.push(event.replayId)
+    }
   }
   return seen
 }

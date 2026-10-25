@@ -181,18 +181,20 @@ export function buildSkillPromptCoverage(options: SkillPromptCoverageOptions = {
   const promptKeySet = new Set(promptKeys)
 
   // 关联索引：key 侧与来源侧各存一份（都只来自显式 links；真源本身不声明关联）。
-  const skillIdsByKey = new Map<string, string[]>()
-  const hookIdsByKey = new Map<string, string[]>()
-  const keysBySkillId = new Map<string, string[]>()
-  const keysByHookId = new Map<string, string[]>()
+  // ISS-20260709-051: 去重桶改 Set（插入 O(1)，改前 includes+push O(n²)）；
+  // 读取侧统一按 Set 消费（size/展开+排序），首见序由 Set 插入序天然保持。
+  const skillIdsByKey = new Map<string, Set<string>>()
+  const hookIdsByKey = new Map<string, Set<string>>()
+  const keysBySkillId = new Map<string, Set<string>>()
+  const keysByHookId = new Map<string, Set<string>>()
 
-  const pushUnique = (bucket: Map<string, string[]>, bucketKey: string, value: string) => {
-    const existing = bucket.get(bucketKey)
+  const pushUnique = (bucket: Map<string, Set<string>>, bucketKey: string, value: string) => {
+    let existing = bucket.get(bucketKey)
     if (!existing) {
-      bucket.set(bucketKey, [value])
-      return
+      existing = new Set<string>()
+      bucket.set(bucketKey, existing)
     }
-    if (!existing.includes(value)) existing.push(value)
+    existing.add(value)
   }
 
   for (const link of links) {
@@ -226,7 +228,7 @@ export function buildSkillPromptCoverage(options: SkillPromptCoverageOptions = {
         isFactoryDefault: skill.id === DEFAULT_DE_AI_SKILL_ID,
         declaredStages,
         coveredStageCount: declaredStages.length,
-        promptKeyCount: associationSourceDeclared ? (linkedKeys?.length ?? 0) : null,
+        promptKeyCount: associationSourceDeclared ? (linkedKeys?.size ?? 0) : null,
       }
     })
 
@@ -237,7 +239,7 @@ export function buildSkillPromptCoverage(options: SkillPromptCoverageOptions = {
       title: hook.title,
       enabled: hook.enabled !== false,
       stages: [...hook.stages].sort(compareCodePoint),
-      promptKeyCount: associationSourceDeclared ? (linkedKeys?.length ?? 0) : null,
+      promptKeyCount: associationSourceDeclared ? (linkedKeys?.size ?? 0) : null,
     }
   })
 

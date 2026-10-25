@@ -96,13 +96,23 @@ async function loadChapterWordCounts(projectPath: string): Promise<Map<number, n
 /** 情绪投影 → 章节 → 去重情绪标签列表。 */
 async function loadEmotionsByChapter(projectPath: string): Promise<Map<number, string[]>> {
   const byChapter = new Map<number, string[]>()
+  // ISS-20260709-051: 每章情绪判重改 Set O(1)（改前 list.includes 线性扫描 O(n²)）。
+  const seenByChapter = new Map<number, Set<string>>()
   try {
     const arcs = await loadEmotionalArcs(projectPath)
     for (const beat of arcs.beats) {
       const emotion = beat.emotion.trim()
       if (!emotion) continue
       const list = byChapter.get(beat.chapterNumber) ?? []
-      if (!list.includes(emotion)) list.push(emotion)
+      let seen = seenByChapter.get(beat.chapterNumber)
+      if (!seen) {
+        seen = new Set(list)
+        seenByChapter.set(beat.chapterNumber, seen)
+      }
+      if (!seen.has(emotion)) {
+        seen.add(emotion)
+        list.push(emotion)
+      }
       byChapter.set(beat.chapterNumber, list)
     }
   } catch {

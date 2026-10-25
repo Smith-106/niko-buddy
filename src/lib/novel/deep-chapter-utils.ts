@@ -32,34 +32,96 @@ export function sourceIndexFromCompactIndex(content: string, compactIndex: numbe
 }
 
 /**
+ * ISS-20260709-047: 增量重复尾检测器（compact 缓冲跨次复用）。
+ *
+ * 改前 findRepeatedTailStart 每次调用都从整串重建 compact（两次全串 regex +
+ * 全串 indexOf 计数），在 collectModelText 的每-token 回调里是 O(N) 重建 × O(N)
+ * 扫描 = O(N²/window) 总量。检测器把 compact（含 compact→raw 坐标映射）做成
+ * append-only 增量缓冲：push 只处理新增 chunk（O(new)），check 与改前完全同一
+ * 计数流程（同 tail 取法、同非重叠步进、同 hitLimit 早停），返回的 raw 坐标与
+ * sourceIndexFromCompactIndex 逐元素一致。调用方每 token push + 门控 check，
+ * 彻底消灭逐次全串重建。
+ */
+export interface RepeatedTailDetector {
+  /** 只读：当前缓冲 compact 长度（供调用方门控/断言）。 */
+  readonly compactLength: number
+  /** 喂入新增原文（token/整串均可；空白字符边界无关，可任意切分）。 */
+  push(rawChunk: string): void
+  /** 与改前 findRepeatedTailStart 同语义检测，返回 raw 坐标系起点或 null。 */
+  check(): number | null
+  /** 清空缓冲（含坐标映射与 raw 长度）。 */
+  reset(): void
+}
+
+export function createRepeatedTailDetector(opts: {
+  minChars: number
+  windowChars: number
+  hitLimit: number
+}): RepeatedTailDetector {
+  let compactChars: string[] = []
+  let compactToRaw: number[] = []
+  let rawLength = 0
+  return {
+    get compactLength(): number {
+      return compactChars.length
+    },
+    push(rawChunk: string): void {
+      for (let i = 0; i < rawChunk.length; i += 1) {
+        const ch = rawChunk[i]
+        // 空白跳过（\r\n 跨 chunk 配对不影响：两者最终都被整体移除）。
+        if (/\s/.test(ch)) {
+          rawLength += 1
+          continue
+        }
+        compactChars.push(ch)
+        compactToRaw.push(rawLength)
+        rawLength += 1
+      }
+    },
+    check(): number | null {
+      const compact = compactChars.join("")
+      if (compact.length < opts.minChars) return null
+      const tail = compact.slice(-opts.windowChars)
+      const first = compact.indexOf(tail)
+      if (first === -1 || first >= compact.length - opts.windowChars) return null
+      let hits = 0
+      let searchIndex = 0
+      while (true) {
+        const found = compact.indexOf(tail, searchIndex)
+        if (found === -1) break
+        hits += 1
+        if (hits >= opts.hitLimit) {
+          // 与 sourceIndexFromCompactIndex(content, first + windowChars) 同值：
+          // compact[target] 对应第 target+1 个非空白字符的 raw 下标。
+          const target = first + opts.windowChars
+          return target < compactToRaw.length ? compactToRaw[target] : rawLength
+        }
+        searchIndex = found + Math.max(1, tail.length)
+      }
+      return null
+    },
+    reset(): void {
+      compactChars = []
+      compactToRaw = []
+      rawLength = 0
+    },
+  }
+}
+
+/**
  * 重复尾检测：紧凑串末尾 REPEAT_WINDOW_CHARS 窗口在全文出现 ≥REPEAT_HIT_LIMIT
  * 次 → 返回重复起点（原 content 坐标系）。无 → null。
+ *
+ * ISS-20260709-047：本函数现委托增量检测器（单次 push + check），计数流程、
+ * 步进、早停、坐标回落与改前逐字一致，纯函数签名与评分语义零变化。
  */
 export function findRepeatedTailStart(
   content: string,
   opts: { minChars: number; windowChars: number; hitLimit: number },
 ): number | null {
-  const normalized = content.replace(/\r\n/g, "\n")
-  const compact = normalized.replace(/\s+/g, "")
-  if (compact.length < opts.minChars) return null
-
-  const tail = compact.slice(-opts.windowChars)
-  const first = compact.indexOf(tail)
-  if (first === -1 || first >= compact.length - opts.windowChars) return null
-
-  let hits = 0
-  let searchIndex = 0
-  while (true) {
-    const found = compact.indexOf(tail, searchIndex)
-    if (found === -1) break
-    hits += 1
-    if (hits >= opts.hitLimit) {
-      // 返回 RAW content 坐标系（:1886 slices raw content；CRLF→LF 归一会切早 N 字符）。
-      return sourceIndexFromCompactIndex(content, first + opts.windowChars)
-    }
-    searchIndex = found + Math.max(1, tail.length)
-  }
-  return null
+  const detector = createRepeatedTailDetector(opts)
+  detector.push(content)
+  return detector.check()
 }
 
 /** thinking 文本截断（ISS-20260712-ARCH-1: 供 deep-chapter-task-brief 复用）。 */

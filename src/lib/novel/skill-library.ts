@@ -97,10 +97,15 @@ const VALID_MODES = new Set<SkillMode>(["fast", "standard", "strict"])
 function uniqueValid<T extends string>(values: unknown, valid: Set<T>, fallback: T[]): T[] {
   if (!Array.isArray(values)) return fallback
   const result: T[] = []
+  // ISS-20260709-051: Set 判重 O(1)（改前 result.includes 线性扫描 O(n²)），首见序不变。
+  const seen = new Set<T>()
   for (const value of values) {
     if (typeof value !== "string") continue
     if (!valid.has(value as T)) continue
-    if (!result.includes(value as T)) result.push(value as T)
+    if (!seen.has(value as T)) {
+      seen.add(value as T)
+      result.push(value as T)
+    }
   }
   return result.length > 0 ? result : fallback
 }
@@ -111,10 +116,15 @@ export function normalizeUserSkill(value: Partial<UserSkill>): UserSkill {
   const priority = Math.max(1, Math.min(100, Math.round(rawPriority)))
   const rawTags = Array.isArray(value.tags) ? value.tags : []
   const tags: string[] = []
+  // ISS-20260709-051: Set 判重 O(1)（改前 tags.includes 线性扫描 O(n²)），首见序不变。
+  const tagSeen = new Set<string>()
   for (const tag of rawTags) {
     if (typeof tag === "string") {
       const trimmed = tag.trim()
-      if (trimmed && !tags.includes(trimmed)) tags.push(trimmed)
+      if (trimmed && !tagSeen.has(trimmed)) {
+        tagSeen.add(trimmed)
+        tags.push(trimmed)
+      }
     }
   }
   return {

@@ -117,41 +117,50 @@ export async function runVectorSearchShared(
       }
     }
 
-    const hits: VectorSearchProbeHit[] = []
-    for (const vr of candidates) {
-      // SEC-001 (odyssey-review, CWE-22): sanitize vr.id (LanceDB page_id) before
-      // path construction. vr.id 是 LanceDB 外部存储态（手工改库 / 非实体写入路径 /
-      // 未来 embedPage 调用方均可污染）；Rust readFile 无项目根约束，本 TS path join
-      // 是唯一的穿越边界（写入侧 chapter-ingest 已 sanitize，读侧必须自洽）。
-      // F-002 (odyssey-review): 标题回退值取 safeId（等价于改前 context 侧 probePath
-      // 显式接收的 vrId 参数），不依赖循环变量闭包。
-      try {
-        const safeId = sanitize(vr.id)
-        const candidatePaths = [
-          ...dirs.map((dir) => `${pp}/wiki/${dir}/${safeId}.md`),
-          `${pp}/wiki/${safeId}.md`,
-        ]
-        const settled = await Promise.allSettled(candidatePaths.map((p) => probePath(p)))
-        // Priority order: dirs first (in declared order), then root fallback.
-        const hit = settled
-          .map((r) => (r.status === "fulfilled" ? r.value : null)) /* v8 ignore start */ /* v8 ignore stop */
-          .find((v): v is { path: string; content: string } => v !== null)
-        if (hit) {
-          hits.push({
-            vr,
-            safeId,
-            path: hit.path,
-            title: extractTitle(hit.content, safeId),
-            snippet: hit.content.slice(0, 300).replace(/\n/g, " "),
-          })
+    // ISS-20260709-036: N 个 vr 间串行改并行（Promise.all 保序回填）。
+    // 改前 `for (const vr of candidates)` 逐 vr 串行 await 7 路 probe（N×7 串行 IPC）；
+    // 现 N 个 vr 并发 probe，Promise.all 按输入序回填 → hits 顺序与改前 serial push
+    // 逐元素一致。perItemGuard=false（context 语义）时任一 vr 抛错即 Promise.all
+    // 整体 reject → 外层 catch 整批 []，与改前循环内 throw 中断语义等价；
+    // perItemGuard=true（adapter 语义）时单条失败只丢该条，其余保序保留。
+    const probed = await Promise.all(
+      candidates.map(async (vr): Promise<VectorSearchProbeHit | null> => {
+        // SEC-001 (odyssey-review, CWE-22): sanitize vr.id (LanceDB page_id) before
+        // path construction. vr.id 是 LanceDB 外部存储态（手工改库 / 非实体写入路径 /
+        // 未来 embedPage 调用方均可污染）；Rust readFile 无项目根约束，本 TS path join
+        // 是唯一的穿越边界（写入侧 chapter-ingest 已 sanitize，读侧必须自洽）。
+        // F-002 (odyssey-review): 标题回退值取 safeId（等价于改前 context 侧 probePath
+        // 显式接收的 vrId 参数），不依赖循环变量闭包。
+        try {
+          const safeId = sanitize(vr.id)
+          const candidatePaths = [
+            ...dirs.map((dir) => `${pp}/wiki/${dir}/${safeId}.md`),
+            `${pp}/wiki/${safeId}.md`,
+          ]
+          const settled = await Promise.allSettled(candidatePaths.map((p) => probePath(p)))
+          // Priority order: dirs first (in declared order), then root fallback.
+          const hit = settled
+            .map((r) => (r.status === "fulfilled" ? r.value : null)) /* v8 ignore start */ /* v8 ignore stop */
+            .find((v): v is { path: string; content: string } => v !== null)
+          if (hit) {
+            return {
+              vr,
+              safeId,
+              path: hit.path,
+              title: extractTitle(hit.content, safeId),
+              snippet: hit.content.slice(0, 300).replace(/\n/g, " "),
+            }
+          }
+          return null
+        } catch (err) {
+          // 差异点 2：adapter 单条失败只丢该条；context 语义（perItemGuard=false）原样
+          // 冒泡到外层 catch → 整批 []（与改前逐字一致，不包新 Error）。
+          if (!perItemGuard) throw err
+          return null
         }
-      } catch (err) {
-        // 差异点 2：adapter 单条失败只丢该条；context 语义（perItemGuard=false）原样
-        // 冒泡到外层 catch → 整批 []（与改前逐字一致，不包新 Error）。
-        if (!perItemGuard) throw err
-      }
-    }
-    return hits
+      }),
+    )
+    return probed.filter((h): h is VectorSearchProbeHit => h !== null)
   } catch {
     return []
   }

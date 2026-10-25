@@ -31,7 +31,7 @@ import {
 } from "./deep-chapter-task-brief"
 import {
   assertNotAborted,
-  findRepeatedTailStart,
+  createRepeatedTailDetector,
 } from "./deep-chapter-utils"
 import {
   RESIDUAL_OVERALL_MEDIAN_THRESHOLD,
@@ -270,7 +270,15 @@ export async function collectModelText(
   // a separate stream event. The tail changes meaningfully only after
   // REPEAT_WINDOW_CHARS new chars, so gating on that drops per-token cost to
   // O(1) amortized and the whole-draft cost to O(n).
+  // ISS-20260709-047: compact 改增量缓冲（createRepeatedTailDetector）——改前每次
+  // check 都从整串重建 compact（两次全串 regex），现 detector 跨 token 复用缓冲，
+  // push 只处理新增 token（O(new)），check 计数流程与旧函数逐字一致。
   let lastRepeatCheckLen = 0
+  const repeatDetector = createRepeatedTailDetector({
+    minChars: REPEAT_CHECK_MIN_CHARS,
+    windowChars: REPEAT_WINDOW_CHARS,
+    hitLimit: REPEAT_HIT_LIMIT,
+  })
   // F-4/F-12: throttle onUpdate flushes. Track how much content/reasoning we
   // have already pushed so we only invoke onUpdate (which re-formats the whole
   // string on the caller side) when enough new chars accumulated. A final flush
@@ -314,14 +322,19 @@ export async function collectModelText(
           feedToken(watchdog, Date.now())
         }
         content += token
+        // ISS-20260709-047: 增量喂入检测器（O(token)），不再每次重建整串 compact。
+        repeatDetector.push(token)
         // Only re-scan for repeated tail when the content has grown by at least
         // REPEAT_WINDOW_CHARS since the last check; the trailing window cannot
         // form a new 3x repeat until that much new content arrives.
         if (content.length - lastRepeatCheckLen >= REPEAT_WINDOW_CHARS) {
           lastRepeatCheckLen = content.length
-          const loopStart = findRepeatedTailStart(content, { minChars: REPEAT_CHECK_MIN_CHARS, windowChars: REPEAT_WINDOW_CHARS, hitLimit: REPEAT_HIT_LIMIT })
+          const loopStart = repeatDetector.check()
           if (loopStart !== null) {
             content = content.slice(0, loopStart).trimEnd()
+            // 内容被截断：检测器缓冲与新 content 同步（重建，避免悬空映射）。
+            repeatDetector.reset()
+            repeatDetector.push(content)
             // Reset the flush tracker: content shrank, so the next flush must
             // emit even if length compares as "not greater" than the old value.
             lastPushedContentLen = 0

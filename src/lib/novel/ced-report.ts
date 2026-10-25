@@ -124,6 +124,15 @@ export function computeCedReport(input: ComputeCedReportInput): CedReport {
 
   const evidence: CedEvidenceItem[] = []
   let weightedTotal = 0
+  // ISS-20260709-051: 每维 findingTypes 判重改 Set O(1)（改前 includes 线性扫描
+  // 随 findings 增长 O(n²)）；数组字段保留（首见序，对外接口不变）。
+  const findingTypeSets: Record<CedDimension, Set<string>> = {
+    timeline: new Set<string>(),
+    characterization: new Set<string>(),
+    world: new Set<string>(),
+    factual: new Set<string>(),
+    style: new Set<string>(),
+  }
 
   for (const f of input.findings ?? []) {
     const dimension = mapFindingTypeToCedDimension(f.type)
@@ -132,7 +141,11 @@ export function computeCedReport(input: ComputeCedReportInput): CedReport {
     const w = severityWeight(f.severity)
     bucket.weighted += w
     weightedTotal += w
-    if (!bucket.findingTypes.includes(f.type)) bucket.findingTypes.push(f.type)
+    const typeSet = findingTypeSets[dimension]
+    if (!typeSet.has(f.type)) {
+      typeSet.add(f.type)
+      bucket.findingTypes.push(f.type)
+    }
     if (evidence.length < maxEvidence) {
       evidence.push({
         dimension,

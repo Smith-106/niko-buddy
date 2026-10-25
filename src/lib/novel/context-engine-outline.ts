@@ -127,12 +127,38 @@ export async function readChapterOutlineDirect(pp: string, chapterNumber: number
   try {
     const tree = await listDirectory(`${pp}/wiki/outlines`)
     const files = flattenOutlineMarkdownFiles(tree)
-    const candidates = await Promise.all(
-      files.slice(0, 80).map(async (file) => ({
-        path: file.path,
-        content: await readFile(file.path).catch(() => ""),
-      })),
-    )
+    // ISS-20260709-037: 80 文件全量读改按需增量（行为等价）。
+    // 改前 `files.slice(0, 80)` 经 Promise.all 一次读全 80 个文件内容，即便目标章节的
+    // frontmatter 在第 1 个文件里也要等 80 路 IPC。现改增量分批（每批 10，保持原扁平序，
+    // 80 上限不变）：每批后检查累积前缀的 frontmatter 首见命中 ——
+    // pickChapterOutlineByNumber 本就 frontmatter 优先，累积前缀已含 frontmatter 命中时，
+    // 全量扫描的首个 frontmatter 命中必在该前缀内（后缀命中只会更晚），此时直接返回与全量
+    // 完全一致；无 frontmatter 时才继续读完（heading 回退分支语义不变）。
+    // tieredSlice 切片每次现算（currentBuildBudget 逐 build 自适应）。
+    const scoped = files.slice(0, 80)
+    const candidates: Array<{ path: string; content: string }> = []
+    const BATCH = 10
+    for (let i = 0; i < scoped.length; i += BATCH) {
+      const batch = scoped.slice(i, i + BATCH)
+      // 注：每次现读，不做跨调用内容缓存 —— 大纲文件可随时被编辑/生成，
+      // path-keyed 常驻缓存会串味（旧内容覆盖新文件），与改前每次现读不等价。
+      const contents = await Promise.all(
+        batch.map((file) => readFile(file.path).catch(() => "")),
+      )
+      for (let j = 0; j < batch.length; j += 1) {
+        candidates.push({ path: batch[j].path, content: contents[j] })
+      }
+      const prefixHit = candidates.find(
+        (candidate) => readFrontmatterChapterNumber(candidate.content) === chapterNumber,
+      )
+      if (prefixHit) {
+        // 前缀已含 frontmatter 首见 == 全量 frontmatter 首见（证见上），直接结算。
+        return pickChapterOutlineByNumber(
+          candidates.filter((candidate) => candidate.content.trim()),
+          chapterNumber,
+        )
+      }
+    }
     const fromWiki = pickChapterOutlineByNumber(
       candidates.filter((candidate) => candidate.content.trim()),
       chapterNumber,

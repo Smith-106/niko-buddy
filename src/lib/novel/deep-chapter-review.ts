@@ -56,7 +56,9 @@ export async function runFullReviewWithSixDim(
   // 不独立 reload): injectedContinuityResults 消除重复 load, 总 preflight 调用次数 = 1。
   const preflightContinuity = await runContinuityMechanicalPreflight(projectPath, chapterNumber)
   const sixDimP: Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> | { __sixDimError: unknown } | undefined> = runSixDim
-    ? runSixDim({ projectPath, chapterContent: content, chapterNumber, signal: sixDimSignal, priorReviewResults: preflightContinuity })
+    // ISS-20260713-002: 透传本函数入参已持有的 contextPack，适配器侧复用、跳过整包重建
+    // （reviewChapter 同包只读消费；六维同样只读，无事实依赖冲突）。
+    ? runSixDim({ projectPath, chapterContent: content, chapterNumber, signal: sixDimSignal, priorReviewResults: preflightContinuity, contextPack })
         .then((res) => res as Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>)
         .catch((err: unknown) => {
           // Non-blocking: capture the original error so the gap log can print

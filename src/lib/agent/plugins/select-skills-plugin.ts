@@ -488,6 +488,13 @@ function topoOrderPlan(plan: { id: string; dependsOn: string[] }[]): string[] {
     }
   }
   // 残留节点（理论上有环才被拦，防御性补齐防漏选）
-  for (const n of plan) if (!order.includes(n.id)) order.push(n.id)
+  // ISS-20260709-051: 判重改 Set O(1)（改前 order.includes 线性扫描 O(n²)），补齐序不变。
+  const seenOrder = new Set(order)
+  for (const n of plan) {
+    if (!seenOrder.has(n.id)) {
+      seenOrder.add(n.id)
+      order.push(n.id)
+    }
+  }
   return order
 }

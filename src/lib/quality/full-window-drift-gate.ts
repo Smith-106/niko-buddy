@@ -37,6 +37,7 @@ export interface FullWindowDriftResult {
 export function evaluateFullWindowDrift(scores: number[]): FullWindowDriftResult {
   const driftedWindows: Array<{ start: number; drift: number }> = []
   const chaptersToRecheck: number[] = []
+  const recheckSeen = new Set<number>()
   if (scores.length < WINDOW_SIZE) return { driftedWindows, chaptersToRecheck, triggered: false }
 
   const windowMeans: number[] = []
@@ -49,8 +50,12 @@ export function evaluateFullWindowDrift(scores: number[]): FullWindowDriftResult
     if (drift > WINDOW_DRIFT_THRESHOLD) {
       driftedWindows.push({ start: i, drift })
       // 整章重检：漂移窗覆盖的章
+      // ISS-20260709-051: 判重改 Set O(1)（改前 includes 线性扫描，重叠窗下 O(n²)）。
       for (let c = i; c < i + WINDOW_SIZE; c++) {
-        if (!chaptersToRecheck.includes(c)) chaptersToRecheck.push(c)
+        if (!recheckSeen.has(c)) {
+          recheckSeen.add(c)
+          chaptersToRecheck.push(c)
+        }
       }
     }
   }
