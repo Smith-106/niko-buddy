@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => {
   return {
     t: vi.fn((key: string, _options?: Record<string, unknown>) => key),
     exportBackup: vi.fn(),
-    cancelBackup: vi.fn(),
+    cancelBackup: vi.fn(async () => {}),
     importBackup: vi.fn(),
     exportNovelDocx: vi.fn(),
     exportNovelEpub: vi.fn(),
@@ -320,6 +320,24 @@ describe("DataManagementSection", () => {
     await waitFor(() => {
       expect(screen.queryByText("settings.sections.dataManagement.cancelExport")).toBeNull()
     })
+  })
+
+  it("取消按钮：cancelBackup 拒绝时记 warn 且不产生未处理拒绝（BB-0206）", async () => {
+    mocks.exportBackup.mockImplementation(
+      () => new Promise<ReturnType<typeof exportResult>>(() => {}),
+    )
+    mocks.cancelBackup.mockRejectedValueOnce(new Error("boom"))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      render(<DataManagementSection />)
+      fireEvent.click(screen.getByText("settings.sections.dataManagement.exportButton"))
+      await flushAsync()
+      fireEvent.click(screen.getByText("settings.sections.dataManagement.cancelExport"))
+      await flushAsync()
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it("progress bar renders 0% width when total is 0", async () => {

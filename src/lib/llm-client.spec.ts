@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => {
   const resolveRuntimeLocalCliConfig = vi.fn()
   const probeEndpointReachability = vi.fn()
   const detectLocalCliConfig = vi.fn()
+  const ensureCursorProxyRunning = vi.fn()
+  const withCursorProxyEndpoint = vi.fn()
   return {
     fsReadFile,
     fsWriteFileAtomic,
@@ -22,6 +24,8 @@ const mocks = vi.hoisted(() => {
     resolveRuntimeLocalCliConfig,
     probeEndpointReachability,
     detectLocalCliConfig,
+    ensureCursorProxyRunning,
+    withCursorProxyEndpoint,
     globalFetch: vi.fn(),
   }
 })
@@ -61,6 +65,11 @@ vi.mock("./codex-cli-transport", () => ({
 vi.mock("./local-cli-config", () => ({
   resolveRuntimeLocalCliConfig: (c: LlmConfig) => mocks.resolveRuntimeLocalCliConfig(c),
   detectLocalCliConfig: (...a: unknown[]) => mocks.detectLocalCliConfig(...a),
+}))
+
+vi.mock("./cursor-cli-proxy", () => ({
+  ensureCursorProxyRunning: (...a: unknown[]) => mocks.ensureCursorProxyRunning(...a),
+  withCursorProxyEndpoint: (c: unknown) => mocks.withCursorProxyEndpoint(c),
 }))
 
 import {
@@ -483,6 +492,20 @@ describe("streamChat CLI transports", () => {
       callbacks,
     )
     expect(callbacks.onError).toHaveBeenCalledWith(expect.objectContaining({ message: "timed out waiting for response" }))
+  })
+
+  it("cursor-cli: proxy-ensure failure routes through onError instead of rejecting (BB-0221)", async () => {
+    mocks.ensureCursorProxyRunning.mockRejectedValueOnce(new Error("proxy down"))
+    const callbacks = makeCallbacks()
+    await streamChat(
+      llmConfig({ provider: "cursor-cli", apiKey: "" }),
+      [{ role: "user", content: "hi" }],
+      callbacks,
+    )
+    expect(mocks.ensureCursorProxyRunning).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError).toHaveBeenCalledWith(expect.objectContaining({ message: "proxy down" }))
+    expect(callbacks.onDone).not.toHaveBeenCalled()
   })
 
   it("routes codex-cli through streamCodexCli with overrides and signal", async () => {

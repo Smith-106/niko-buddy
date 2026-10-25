@@ -338,7 +338,7 @@ export function DataManagementSection() {
           )}
         </Button>
         {isExporting && (
-          <Button variant="outline" onClick={() => void cancelBackup()}>
+          <Button variant="outline" onClick={() => void cancelBackup().catch((err: unknown) => console.warn("[backup] cancel_backup 失败（已忽略）:", err))}>
             {t("settings.sections.dataManagement.cancelExport", { defaultValue: "取消导出" })}
           </Button>
         )}

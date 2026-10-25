@@ -637,7 +637,15 @@ async function streamChatHeld(
   let mutableRuntimeConfig = runtimeConfig
   if (mutableRuntimeConfig.provider === "cursor-cli") {
     const mod = await import("./cursor-cli-proxy")
-    const endpoint = await mod.ensureCursorProxyRunning(mutableRuntimeConfig)
+    let endpoint: string
+    try {
+      endpoint = await mod.ensureCursorProxyRunning(mutableRuntimeConfig)
+    } catch (err) {
+      // BB-0221: pre-stream setup failure must surface through onError,
+      // not as a rejection — chat handlers await streamChat without try.
+      callbacks.onError(err instanceof Error ? err : new Error(String(err)))
+      return
+    }
     mutableRuntimeConfig = mod.withCursorProxyEndpoint(mutableRuntimeConfig, endpoint)
   }
   const providerConfig = defaultRegistry.getProviderConfig(mutableRuntimeConfig)
