@@ -262,7 +262,21 @@ export function WorldLibraryView({
                       {entries.length === 0 ? t("novel.worldLibrary.na") : entries.length}
                     </td>
                     <td className="py-1 pr-2" data-testid={`world-library-layer-entries-${layer}`}>
-                      {entries.length === 0 ? t("novel.worldLibrary.layerEmpty") : entries.join("、")}
+                      {entries.length === 0 ? (
+                        t("novel.worldLibrary.layerEmpty")
+                      ) : (
+                        <span className="flex flex-wrap gap-1">
+                          {entries.map((entry, idx) => (
+                            <span
+                              key={`${layer}-${idx}`}
+                              data-testid={`world-library-entry-${layer}-${idx}`}
+                              className="rounded bg-accent/15 px-1.5 py-0.5 text-xs"
+                            >
+                              {entry}
+                            </span>
+                          ))}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 )

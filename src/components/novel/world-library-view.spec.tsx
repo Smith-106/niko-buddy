@@ -79,6 +79,15 @@ describe("WorldLibraryView", () => {
     expect(screen.getByTestId("world-library-layer-count-axioms").textContent).toBe("novel.worldLibrary.na")
     expect(screen.getByTestId("world-library-crossref-0").textContent).toBe("magicSystem → geography: 灵脉")
     expect(screen.getByTestId("world-library-verdict").textContent).toBe("novel.worldLibrary.verdictIncomplete")
+    // 结构化徽章：多实体不再拼“、”文本墙，badge 数量等于实体数（空分支不动）
+    expect(screen.getByTestId("world-library-layer-entries-geography").textContent).not.toContain("、")
+    expect(screen.getByTestId("world-library-layer-entries-geography").textContent).not.toBe("青石镇、云海")
+    expect(screen.getAllByTestId(/world-library-entry-geography-/)).toHaveLength(2)
+    expect(screen.getByTestId("world-library-entry-geography-0").textContent).toBe("青石镇")
+    expect(screen.getByTestId("world-library-entry-geography-1").textContent).toBe("云海")
+    expect(screen.getAllByTestId(/world-library-entry-magicSystem-/)).toHaveLength(1)
+    expect(screen.getByTestId("world-library-layer-entries-axioms").textContent).toBe("novel.worldLibrary.layerEmpty")
+    expect(screen.queryAllByTestId(/world-library-entry-axioms-/)).toHaveLength(0)
   })
 
   it("装载失败：显式错误而非空态", async () => {
