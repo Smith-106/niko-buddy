@@ -19,15 +19,24 @@ import type { DataSource, ContextLoadContext } from "./context-data-source"
 import { loadBinding } from "./story-simulation/framework-binding"
 import { loadFrameworks } from "./story-simulation/framework-store"
 
-// 导入现有的辅助函数
+// ISS-20260709-031: 单向依赖 —— 直接引用各 helper 的定义源模块，
+// 不再经由 ./context-engine 中转（后者聚合 getAllDataSources，本模块再
+// 回引它即构成 context-engine ↔ context-data-sources 运行时双向 import）。
+// 定义源：大纲读取 ← context-engine-outline；检索 ← context-retrieval；
+// 纯组装（join/select） ← context-task-brief-builders。三者均零运行时
+// 回引 context-engine / context-data-sources（仅 type-only import）。
 import {
   readOutlineContent,
   readChapterOutlineContent,
+} from "./context-engine-outline"
+import {
   searchRelevantContentUnified,
   searchGraphRelevantContent,
+} from "./context-retrieval"
+import {
   selectLookbackChapterNumbers,
   joinNonEmpty,
-} from "./context-engine"
+} from "./context-task-brief-builders"
 
 const RECENT_CHAPTER_CONTENT_MAX_CHARS = 6000
 const RECENT_CHAPTER_CONTENT_HEAD_CHARS = 2200
@@ -375,7 +384,12 @@ export const fallbackCharacterStatesDataSource: DataSource<string> = {
   async load(context: ContextLoadContext): Promise<string> {
     // Prefer structured character-states.json (non-empty after seed/ingest) before wiki search.
     try {
-      const { loadCharacterStates, characterStatesToContextText } = await import("./character-state")
+      // ISS-20260709-048: character-state 为显式懒加载依赖（首屏不进主 chunk）。
+      // CharacterStateModule 类型别名向类型系统声明依赖边；运行时 dynamic
+      // import 保持懒加载。反向无环由 p1-decouple.spec 断言。
+      type CharacterStateModule = typeof import("./character-state")
+      const stateModule: CharacterStateModule = await import("./character-state")
+      const { loadCharacterStates, characterStatesToContextText } = stateModule
       const store = await loadCharacterStates(context.projectPath)
       const structured = characterStatesToContextText(store)
       if (structured.trim()) return structured.slice(0, 3000)

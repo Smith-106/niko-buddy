@@ -2,7 +2,7 @@ import { readFile, } from "@/commands/fs"
 import { listEntityFiles } from "./entity-subdir-resolver"
 import { } from "@/lib/search"
 import { normalizePath } from "@/lib/path-utils"
-import { logger, toErrorMessage } from "@/lib/utils"
+import { logger } from "@/lib/utils"
 import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig, type RevisionFeedbackWindowConfig } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { sampleTruthFoldDrift, type ChapterSnapshot } from "./chapter-ingest"
@@ -30,7 +30,7 @@ import { buildTrustGradeMap } from "./trust-grader"
 import { retrieveDualTrack, kbRoutingView, type HardInjectItem, type KbGap, type DualTrackResult } from "./search-adapter"
 // P1-IMP-14: 向量检索共享核心（与 search-adapter.runVectorSearch 同形孪生归一）。
 import type { FileNode } from "@/types/wiki"
-import { DataSourceRegistry, ContextLoadContext, } from "./context-data-source"
+import { DataSourceRegistry, ContextLoadContext, type ContextRawData, } from "./context-data-source"
 import { getAllDataSources } from "./context-data-sources"
 import { computeContextBudget, } from "@/lib/context-budget"
 // Wave 5 (v2.5.0): 上下文用量快照装配 — 预算线 + 记忆实测（user-memory 模块是
@@ -42,8 +42,15 @@ import { loadNarrativeState } from "./narrative-state"
 // EPIC-001 / TASK-004 / ADR-29: Style Exemplars loader（正向锚点注入，
 // de-ai-adapter 单次 pass 不变 — exemplar 经 contextPack 消费）。
 import { loadStyleExemplars, pickTopKExemplars, type StyleExemplar } from "./style-exemplars-loader"
-// EPIC-003 / TASK-008: ROI 埋点写入 cognition-state.json（现有 key，HARD-1 守恒）。
-import { appendRoutingROISample, resolveChapterPovCharacter, type RoutingROISample } from "./character-cognition"
+// EPIC-003 / TASK-008: ROI 遥测经 context-telemetry 分层投递（ISS-20260713-005：
+// engine 只产出样本数据，落盘归 telemetry sink；默认 sink 写 cognition-state.json
+// 既有 key，HARD-1 守恒）。POV 解析仍直引 character-cognition（纯读快照，无环）。
+import { resolveChapterPovCharacter } from "./character-cognition"
+import { reportRoutingROI, type RoutingTelemetrySink } from "./context-telemetry"
+// ISS-20260709-048: 动态 import 显式依赖声明 —— community-summary 为本模块
+// 懒加载依赖（运行时 dynamic import 见 loadCommunitySummaryText），此处
+// type-only import 向打包器/类型系统显式声明依赖边（编译期擦除，零运行时环）。
+import type { loadPersistedCommunitySummaries as loadPersistedCommunitySummariesType } from "./community-summary"
 // P2-IMP-13 (P2-M4): KbMetrics 三项真实采集 — buildContextPackUnlocked 尾部装配
 // （truth_fold_drift ← IMP-06 采样 / hard_injection_budget_usage ← pack.hardInjectUsage /
 // gap_report_rate ← pack.gaps 计数；两评测 gate 项显式 N/A 保留，不伪造）。
@@ -321,6 +328,12 @@ export interface BuildContextOptions {
    * 调用方显式传入时优先，激活 POV 过滤注入。
    */
   povCharacter?: string
+  /**
+   * ISS-20260713-005: ROI 遥测投递 sink。缺省 → 默认 sink（写
+   * cognition-state.json 既有 key，与原内联行为一致）；测试可注入
+   * 探针 sink 断言样本内容而不触文件。
+   */
+  telemetrySink?: RoutingTelemetrySink
 }
 
 /**
@@ -510,7 +523,9 @@ async function buildContextPackUnlocked(
           })()
         : Promise.resolve(null)
     const [pack, exemplars, activeEntities, relatedChaptersText, referencesResult, hardInjectResult] = await Promise.all([
-      buildContextPackFromRawData(rawData, context, temporalFactsPreloaded),
+      // ISS-20260709-035: loadAll 产出 Record<string, unknown>，经显式 cast
+      // 收敛到 ContextRawData 契约（键集合一致，收窄语义由 normalize 入口保证）。
+      buildContextPackFromRawData(rawData as ContextRawData, context, temporalFactsPreloaded),
       // TASK-004: exemplarEnabled 默认 true；关闭时跳过注入返回 []。
       novelConfig.exemplarEnabled
         ? loadStyleExemplars(pp).then((all) => pickTopKExemplars(all)) /* token budget: prefer keeping thril/pull exemplar slots when present */.catch((error) => {
@@ -653,25 +668,17 @@ async function buildContextPackUnlocked(
         retainedLength: 0,
       })
     }
-    // EPIC-003 / ADR-32 / TASK-008: 条件路由 ROI 埋点（fire-and-forget，非阻塞）。
-    // contextPack 装配后统计无关内容占比，写入 cognition-state.json routingROIBuckets
-    // （现有 key，HARD-1 守恒 — 不写 status.json）。A/B 分组：conditionalRoutingEnabled
-    // true → 'enabled'，false → 'disabled'。G-002/G-003 跨章节累积统计。
-    // 失败非致命（.catch 吞噬）— ROI 采集不影响主链装配。
-    const variant: RoutingROISample["variant"] = novelConfig.conditionalRoutingEnabled
-      ? "enabled"
-      : "disabled"
-    const irrelevantRatio = computeIrrelevantRatio(pack, activeEntities)
-    const roiSample: RoutingROISample = {
-      variant,
-      irrelevantRatio,
-      chapterId: context.chapterNumber != null ? String(context.chapterNumber) : "unknown",
-      timestamp: new Date().toISOString(),
-    }
-    void appendRoutingROISample(pp, roiSample).catch((error) => {
-      // non-fatal — ROI 采集失败不阻塞主链装配
-      logger.warn("ContextEngine", "routing ROI sample append failed (non-fatal)", { error: toErrorMessage(error) })
-    })
+    // ISS-20260713-005: 条件路由 ROI 遥测经 context-telemetry 分层投递。
+    // engine 只产出样本（variant/占比/章节/时间），落盘归 sink；缺省 sink
+    // 写 cognition-state.json routingROIBuckets（现有 key，HARD-1 守恒）。
+    // A/B 分组：conditionalRoutingEnabled true → 'enabled'，false → 'disabled'。
+    // G-002/G-003 跨章节累积统计。失败非致命 — ROI 采集不影响主链装配。
+    reportRoutingROI(pp, {
+      pack,
+      activeEntities,
+      chapterNumber: context.chapterNumber,
+      conditionalRoutingEnabled: novelConfig.conditionalRoutingEnabled,
+    }, options.telemetrySink)
     // Wave 5 (v2.5.0): 上下文用量快照 — 预算线直读 currentBuildBudget（本 build
     // 已算，不重算），记忆段实测 user-memory preference 字符数。additive：加载
     // 失败/无 store 时 memoryChars=0，仍冻结预算线（ring 照常渲染其余四段）。
@@ -775,39 +782,61 @@ function createDataSourceRegistry(): DataSourceRegistry {
  * 本函数不再重复加载（D7 避免 PAT-G2 孪生重复 load）。null = 未启用或加载失败 →
  * canonRules 回退 raw（向后兼容；原 catch 降级语义已上移至 loadCanonSourceFacts）。
  */
-async function buildContextPackFromRawData(
-  rawData: Record<string, unknown>,
-  context: ContextLoadContext,
-  temporalFactsPreloaded: TemporalFact[] | null,
-): Promise<ContextPack> {
-  // C2 类型债：loadAll 返回 Record<string, unknown> —— 动态载荷经本函数入口
-  // 三 helper 收窄（行为与 any 时代字节级一致：缺失/非 string → ""/[]）。
-  const snapshots = (typeof rawData.snapshots === "object" && rawData.snapshots !== null
-    ? rawData.snapshots
-    : {}) as {
-    recentSummaries?: unknown
-    previousChapterEnding?: unknown
-    characterStates?: unknown
-    foreshadowingSignals?: unknown
-    timeline?: unknown
-    recentStateDeltas?: unknown
-  }
-  const rawStr = (v: unknown): string => (typeof v === "string" ? v : "")
-  const rawStrArr = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : [])
-  // PERF-011 (TASK-007): the adaptive budget for this build was already
-  // computed in `buildContextPack` (stored as `currentBuildBudget`) before
-  // the data-source load, so the tieredSlice call sites in
-  // readChapterOutlineContent / pickChapterOutlineByNumber drive their caps
-  // from `currentBuildBudget.maxPageSize` (which supersedes the static
-  // CHAPTER_OUTLINE_PROTECTED_CAP) instead of the legacy hardcoded constant.
-  // No recompute here — single source of truth via the module-level budget.
+// ============================================================================
+// ISS-20260709-034: buildContextPackFromRawData（原单函数 156 行 7 职责）
+// 拆分为以下小函数（本文件内，导出供结构/等价单测）：
+//  1. normalizeRawSnapshots —— 快照入口收窄
+//  2. resolveSummaryBasics —— 摘要/上章结尾/delta 基础段
+//  3. loadProjectionTexts —— 五投影 store 并行预取
+//  4. resolveCharacterStates —— 人物状态拼装
+//  5. resolveTimelineSection / resolveForeshadowingSection —— 时间线/伏笔
+//  6. resolveChapterGoalSection —— 章节目标/大纲/修订指令
+//  7. resolveAuraMatchingText / loadCommunitySummaryText /
+//     applyTemporalFactsToCanonRules / resolveDerivedStoreSections ——
+//     aura 匹配文本 / 社区摘要 / 时序 canon / 派生 stores
+// 编排函数 buildContextPackFromRawData 只负责调用顺序与 Promise.all 并发
+// 结构（字节级行为等价：各 helper 均为原内联代码逐字搬迁）。
+// ISS-20260709-035: 入参改类型化契约 ContextRawData（见 context-data-source.ts）。
+// ============================================================================
 
+/** 快照视图（ContextRawData.snapshots 非空收窄结果）。 */
+export type RawSnapshotView = NonNullable<ContextRawData["snapshots"]>
+
+function rawStrField(v: unknown): string {
+  return typeof v === "string" ? v : ""
+}
+
+function rawStrArrField(v: unknown): string[] {
+  return Array.isArray(v) ? (v as string[]) : []
+}
+
+/**
+ * 职责 1 入口：快照收窄（原内联 snapshots 表达式逐字搬迁）。
+ * 非对象/缺失 → 空对象（后继 rawStr/rawStrArr 降级 ""/[]，字节级一致）。
+ */
+export function normalizeRawSnapshots(rawData: ContextRawData): RawSnapshotView {
+  return (typeof rawData.snapshots === "object" && rawData.snapshots !== null
+    ? rawData.snapshots
+    : {}) as RawSnapshotView
+}
+
+export interface SummaryBasics {
+  recentSummaries: string[]
+  recentChapterContents: string[]
+  recentStateDeltas: string | undefined
+  previousChapterEnding: string
+}
+
+/**
+ * 职责 1 主体：摘要/正文/delta/上章结尾（原内联合并快照与降级数据逐字搬迁）。
+ */
+export function resolveSummaryBasics(rawData: ContextRawData, snapshots: RawSnapshotView): SummaryBasics {
   // 合并快照数据和降级数据
-  const snapshotRecentSummaries = rawStrArr(snapshots.recentSummaries)
+  const snapshotRecentSummaries = rawStrArrField(snapshots.recentSummaries)
   const recentSummaries = snapshotRecentSummaries.length > 0
     ? snapshotRecentSummaries
-    : rawStrArr(rawData.fallbackRecentSummaries)
-  const recentChapterContents = rawStrArr(rawData.recentChapterContents)
+    : rawStrArrField(rawData.fallbackRecentSummaries)
+  const recentChapterContents = rawStrArrField(rawData.recentChapterContents)
   // P2-IMP-10 (M2): stateDelta additive 透传 — snapshotDataSource 经
   // chapterSummariesToContextText 渲染的键控子表文本。空 store / 无快照时
   // rawData.snapshots.recentStateDeltas 缺失 → undefined（renderIf 非空才渲染，
@@ -818,134 +847,261 @@ async function buildContextPackFromRawData(
       ? snapshots.recentStateDeltas
       : undefined
 
-  const previousChapterEnding = rawStr(snapshots.previousChapterEnding)
-    || rawStr(rawData.fallbackPreviousEnding)
-  
+  const previousChapterEnding = rawStrField(snapshots.previousChapterEnding)
+    || rawStrField(rawData.fallbackPreviousEnding)
+  return { recentSummaries, recentChapterContents, recentStateDeltas, previousChapterEnding }
+}
+
+export interface ProjectionTexts {
+  emotionalText: string
+  subplotText: string
+  resourceText: string
+  emotionLedgerText: string
+  auraEvolutionText: string
+}
+
+/**
+ * 职责 2 前半：五投影 store 文本并行预取
+ * （原 PERF-NEW-04 Promise.all 逐字搬迁；各 store 独立）。
+ */
+export async function loadProjectionTexts(projectPath: string): Promise<ProjectionTexts> {
   // PERF-NEW-04: pre-fetch the four projection-store texts in parallel
   // before joinNonEmpty (was 3 serial readFile IPC round-trips inside the
   // array literal). The stores are independent.
   const [emotionalText, subplotText, resourceText, emotionLedgerText, auraEvolutionText] = await Promise.all([
-    readEmotionalArcsText(context.projectPath),
-    readSubplotBoardText(context.projectPath),
-    readResourceLedgerText(context.projectPath),
-    readEmotionLedgerText(context.projectPath),
-    readAuraEvolutionText(context.projectPath),
+    readEmotionalArcsText(projectPath),
+    readSubplotBoardText(projectPath),
+    readResourceLedgerText(projectPath),
+    readEmotionLedgerText(projectPath),
+    readAuraEvolutionText(projectPath),
   ])
-  const characterStates = joinNonEmpty([
-    rawStr(snapshots.characterStates),
-    rawStr(rawData.fallbackCharacterStates),
+  return { emotionalText, subplotText, resourceText, emotionLedgerText, auraEvolutionText }
+}
+
+/**
+ * 职责 2 后半：人物状态拼装（原 characterStates joinNonEmpty 逐字搬迁）。
+ */
+export function resolveCharacterStates(
+  rawData: ContextRawData,
+  snapshots: RawSnapshotView,
+  projections: ProjectionTexts,
+): string {
+  return joinNonEmpty([
+    rawStrField(snapshots.characterStates),
+    rawStrField(rawData.fallbackCharacterStates),
     // R4 (S4 / ANL-013): emotional-arcs projection injected as protected-tier
     // canon — character emotion is part of character state. Loaded directly
     // from the .novel/emotional-arcs.json store (same pattern as
     // readCognitionStates). Empty when no arcs recorded (backward compatible).
-    emotionalText,
+    projections.emotionalText,
     // A19 emotion-ledger pilot (NovelForge-v5 移植): 情绪债务账本注入为
     // protected-tier canon — 机械层零 LLM 算术产出的 netValue/history 文本化
     // 结果，LLM 只读不推断。与 emotional-arcs 互补（弧线 beat vs 债务净值），
     // 不重叠。空 store 渲染 ''（向后兼容 — 未接入时不注入）。
-    emotionLedgerText,
+    projections.emotionLedgerText,
     // A19 借鉴点 #3: P14 画像漂移历史注入 (机械字段 diff 文本化, LLM 只读)。
     // 与 emotional-arcs/emotion-ledger 互补不重叠。空 store 渲染 '' (写入端未接入
     // 时不注入, backward compatible)。
-    auraEvolutionText,
+    projections.auraEvolutionText,
     // MAINT-002 (TASK-008): subplot-board + resource-ledger projections
     // injected as protected-tier canon alongside emotional-arcs — active
     // subplots and current item holders are load-bearing for the current
     // chapter (renderer docstrings: subplot-board.ts:70, resource-ledger.ts:78
     // say 'protected-tier context'). Empty stores render '' (backward
     // compatible — no injection when unwired).
-    subplotText,
-    resourceText,
+    projections.subplotText,
+    projections.resourceText,
   ], "\n\n")
-  
-  const timeline = joinNonEmpty([
-    rawStr(snapshots.timeline),
-    rawStr(rawData.fallbackTimeline)
-  ], "\n\n")
+}
 
-  const snapshotForeshadowingSignals = rawStrArr(snapshots.foreshadowingSignals)
-  const foreshadowingStates = mergeForeshadowingSignals(
+/** 职责 3a：时间线（原内联 joinNonEmpty 逐字搬迁）。 */
+export function resolveTimelineSection(rawData: ContextRawData, snapshots: RawSnapshotView): string {
+  return joinNonEmpty([
+    rawStrField(snapshots.timeline),
+    rawStrField(rawData.fallbackTimeline)
+  ], "\n\n")
+}
+
+/** 职责 3b：伏笔状态（原内联 mergeForeshadowingSignals 调用逐字搬迁）。 */
+export function resolveForeshadowingSection(rawData: ContextRawData, snapshots: RawSnapshotView): string {
+  const snapshotForeshadowingSignals = rawStrArrField(snapshots.foreshadowingSignals)
+  return mergeForeshadowingSignals(
     snapshotForeshadowingSignals.length > 0
       ? snapshotForeshadowingSignals
-      : [rawStr(rawData.fallbackForeshadowingStates)].filter(Boolean),
-    rawStr(rawData.searchResults),
+      : [rawStrField(rawData.fallbackForeshadowingStates)].filter(Boolean),
+    rawStrField(rawData.searchResults),
   )
+}
 
+export interface ChapterGoalSection {
+  chapterGoal: string
+  mergedOutline: string
+  revisionDirectives: string
+}
+
+/**
+ * 职责 4：章节目标/合并大纲/修订指令（原内联三段逐字搬迁）。
+ */
+export function resolveChapterGoalSection(
+  rawData: ContextRawData,
+  chapterNumber: number | undefined,
+): ChapterGoalSection {
   // 构建章节目标
   const chapterGoal = buildChapterGoal(
-    rawStr(rawData.outline),
-    joinNonEmpty([rawStr(rawData.storySimulationBinding), rawStr(rawData.chapterOutline)], "\n\n"),
-    context.chapterNumber
+    rawStrField(rawData.outline),
+    joinNonEmpty([rawStrField(rawData.storySimulationBinding), rawStrField(rawData.chapterOutline)], "\n\n"),
+    chapterNumber
   )
 
   // 合并大纲信息
   const mergedOutline = joinNonEmpty([
-    rawStr(rawData.outline),
-    rawStr(rawData.volumeContext),
-    rawStr(rawData.storySimulationBinding),
-    rawStr(rawData.chapterOutline)
+    rawStrField(rawData.outline),
+    rawStrField(rawData.volumeContext),
+    rawStrField(rawData.storySimulationBinding),
+    rawStrField(rawData.chapterOutline)
   ], "\n\n")
 
   // 构建修订指令
   const revisionDirectives = buildRevisionDirectives(rawData.revisionFeedback as NovelRevisionFeedback)
+  return { chapterGoal, mergedOutline, revisionDirectives }
+}
+
+/**
+ * 职责 5a：角色氛围匹配文本（原 characterAuraPromise matchingText 逐字搬迁）。
+ */
+export function resolveAuraMatchingText(
+  rawData: ContextRawData,
+  snapshots: RawSnapshotView,
+  chapterGoal: string,
+): string {
+  return joinNonEmpty([
+    chapterGoal,
+    rawStrField(rawData.chapterOutline),
+    rawStrField(rawData.fallbackCharacterStates),
+    rawStrField(snapshots.characterStates),
+    rawStrField(rawData.cognitionText),
+  ], "\n\n")
+}
+
+/**
+ * 职责 5b：社区摘要加载（原 communityPromise IIFE 逐字搬迁）。
+ * ISS-20260709-048: community-summary 为显式懒加载依赖 —— 运行时仍走
+ * dynamic import（首屏不进主 chunk），类型经顶部 type-only import 声明
+ * （CommunitySummaryLoader），打包器/类型系统均可见依赖边。
+ */
+export async function loadCommunitySummaryText(projectPath: string): Promise<string> {
+  try {
+    const novelConfig = useWikiStore.getState().novelConfig
+    // Default true in wiki-store; only skip when explicitly disabled.
+    if (novelConfig?.communitySummaryEnabled === false) return ""
+    const { loadPersistedCommunitySummaries } = await import("./community-summary")
+    const loader: typeof loadPersistedCommunitySummariesType = loadPersistedCommunitySummaries
+    const loaded = await loader(projectPath, {
+      maxRecords: 6,
+      maxChars: 2000,
+    })
+    return loaded.text
+  } catch {
+    logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1179 })
+    return ""
+  }
+}
+
+/**
+ * 职责 5c：时序 canon 合并（原 temporalBlock 内联合并逐字搬迁）。
+ * facts 为 null → 回退 raw canon（向后兼容）。
+ */
+export function applyTemporalFactsToCanonRules(
+  baseRules: string,
+  temporalFacts: TemporalFact[] | null,
+  targetChapter: number,
+): string {
+  if (temporalFacts) {
+    const temporalBlock = renderTemporalCanonBlock(targetChapter, temporalFacts)
+    if (temporalBlock) {
+      return joinNonEmpty([baseRules, temporalBlock], "\n\n")
+    }
+  }
+  return baseRules
+}
+
+export interface DerivedStoreSections {
+  worldBlueprint: string | undefined
+  narrativeVisibility: string | undefined
+}
+
+/**
+ * 职责 7：派生 stores（世界骨架/叙事可见性，原 return 内联 await 逐字搬迁）。
+ */
+export async function resolveDerivedStoreSections(projectPath: string): Promise<DerivedStoreSections> {
+  // MIG-002: 世界骨架接入 context pack — loadWorldBlueprint 非空且有完备层时
+  // 渲染为 prompt 片段注入；null/空骨架 → undefined → 不渲染（字节级不变）。
+  const worldBlueprint = await loadWorldBlueprint(projectPath).then(
+    (bp) => (bp ? worldBlueprintToPromptFragment(bp) || undefined : undefined),
+  ).catch(() => undefined)
+  // MIG-003: 叙事信息差可见性——loadNarrativeState 非空且有效声明时
+  // 渲染视角可见性摘要；空 store → undefined → 不渲染。
+  const narrativeVisibility = await loadNarrativeState(projectPath).then(
+    (store) => narrativeVisibilitySummary(store) || undefined,
+  ).catch(() => undefined)
+  return { worldBlueprint, narrativeVisibility }
+}
+
+async function buildContextPackFromRawData(
+  rawData: ContextRawData,
+  context: ContextLoadContext,
+  temporalFactsPreloaded: TemporalFact[] | null,
+): Promise<ContextPack> {
+  // ISS-20260709-035: rawData 已是类型化契约 —— 动态载荷经 normalize 入口
+  // 收窄（行为与 any 时代字节级一致：缺失/非 string → ""/[]）。下沉 helper
+  // 内 rawStrField/rawStrArrField 与原内联三 helper 语义同一。
+  const snapshots = normalizeRawSnapshots(rawData)
+  // PERF-011 (TASK-007): the adaptive budget for this build was already
+  // computed in `buildContextPack` (stored as `currentBuildBudget`) before
+  // the data-source load, so the tieredSlice call sites in
+  // readChapterOutlineContent / pickChapterOutlineByNumber drive their caps
+  // from `currentBuildBudget.maxPageSize` (which supersedes the static
+  // CHAPTER_OUTLINE_PROTECTED_CAP) instead of the legacy hardcoded constant.
+  // No recompute here — single source of truth via the module-level budget.
+
+  // 职责 1：摘要/正文/delta/上章结尾
+  const { recentSummaries, recentChapterContents, recentStateDeltas, previousChapterEnding } =
+    resolveSummaryBasics(rawData, snapshots)
+
+  // 职责 2：投影预取 + 人物状态拼装
+  const projections = await loadProjectionTexts(context.projectPath)
+  const characterStates = resolveCharacterStates(rawData, snapshots, projections)
+  
+  // 职责 3：时间线 + 伏笔
+  const timeline = resolveTimelineSection(rawData, snapshots)
+  const foreshadowingStates = resolveForeshadowingSection(rawData, snapshots)
+
+  // 职责 4：章节目标 + 合并大纲 + 修订指令
+  const { chapterGoal, mergedOutline, revisionDirectives } =
+    resolveChapterGoalSection(rawData, context.chapterNumber)
 
   // 构建角色氛围上下文（依赖其他数据）
   const characterAuraPromise = buildCharacterAuraContext(context.projectPath, context.task, {
-    matchingText: joinNonEmpty([
-      chapterGoal,
-      rawStr(rawData.chapterOutline),
-      rawStr(rawData.fallbackCharacterStates),
-      rawStr(snapshots.characterStates),
-      rawStr(rawData.cognitionText),
-    ], "\n\n"),
+    matchingText: resolveAuraMatchingText(rawData, snapshots, chapterGoal),
   })
 
-  // TASK-004: temporal memory — derive the time-ordered fact view from the
-  // committed snapshot chain + ledger and inject as a protected-tier canon
-  // block. getFactsAt (via renderTemporalCanonBlock) yields only facts
-  // authoritative at the current chapter, so superseded / negated facts are
-  // automatically excluded. Failure to load is non-fatal: canonRules falls
-  // back to the raw canon rules (backward compatible).
-  //
-  // T25 (A-04.4): the facts are now PRELOADED by the three-source parallel
-  // stage in buildContextPackUnlocked (loadCanonSourceFacts — default fold
-  // path, or T14 canon-graph query + fromCanonGraph when canon_migration ≥
-  // dual) and handed in as `temporalFactsPreloaded`. This function only
-  // consumes the resolved value — no duplicate load here (D7, avoids the
-  // PAT-G2 twin-load). null = not enabled / load failed → canonRules keeps
-  // the raw canon rules (backward compatible).
+  // 职责 5：时序 canon 基线 + 社区摘要并发（temporal 预载直传消费）。
   const targetChapter = context.chapterNumber ?? 0
-  let canonRules = rawStr(rawData.canonRules)
+  const baseCanonRules = rawStrField(rawData.canonRules)
   const temporalFactsPromise = Promise.resolve(temporalFactsPreloaded)
-  const communityPromise = (async () => {
-    try {
-      const novelConfig = useWikiStore.getState().novelConfig
-      // Default true in wiki-store; only skip when explicitly disabled.
-      if (novelConfig?.communitySummaryEnabled === false) return ""
-      const { loadPersistedCommunitySummaries } = await import("./community-summary")
-      const loaded = await loadPersistedCommunitySummaries(context.projectPath, {
-        maxRecords: 6,
-        maxChars: 2000,
-      })
-      return loaded.text
-    } catch {
-      logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1179 })
-      return ""
-    }
-  })()
+  const communityPromise = loadCommunitySummaryText(context.projectPath)
 
   const [characterAuras, temporalFacts, communitySummaries] = await Promise.all([
     characterAuraPromise,
     temporalFactsPromise,
     communityPromise,
   ])
-  if (temporalFacts) {
-    const temporalBlock = renderTemporalCanonBlock(targetChapter, temporalFacts)
-    if (temporalBlock) {
-      canonRules = joinNonEmpty([canonRules, temporalBlock], "\n\n")
-    }
-  }
+  const canonRules = applyTemporalFactsToCanonRules(baseCanonRules, temporalFacts, targetChapter)
 
+  // 职责 7：派生 stores（世界骨架/叙事可见性）
+  const derivedStores = await resolveDerivedStoreSections(context.projectPath)
+
+  // 职责 6：最终装配
   return {
     task: context.task,
     chapterGoal,
@@ -954,28 +1110,20 @@ async function buildContextPackFromRawData(
     recentSummaries,
     previousChapterEnding,
     characterStates,
-    soulDoc: rawStr(rawData.soulDoc),
+    soulDoc: rawStrField(rawData.soulDoc),
     characterAuras,
-    cognitionStates: rawStr(rawData.cognitionText),
+    cognitionStates: rawStrField(rawData.cognitionText),
     foreshadowingStates,
     timeline,
-    relatedSettings: rawStr(rawData.relatedSettings),
+    relatedSettings: rawStrField(rawData.relatedSettings),
     canonRules,
-    writingStyle: rawStr(rawData.writingStyle),
-    voiceStyleGuide: rawStr(rawData.voiceStyleGuide) || undefined,
-    searchResults: rawStr(rawData.searchResults),
-    graphSearchResults: rawStr(rawData.graphSearchResults),
+    writingStyle: rawStrField(rawData.writingStyle),
+    voiceStyleGuide: rawStrField(rawData.voiceStyleGuide) || undefined,
+    searchResults: rawStrField(rawData.searchResults),
+    graphSearchResults: rawStrField(rawData.graphSearchResults),
     communitySummaries: communitySummaries || undefined,
-    // MIG-002: 世界骨架接入 context pack — loadWorldBlueprint 非空且有完备层时
-    // 渲染为 prompt 片段注入；null/空骨架 → undefined → 不渲染（字节级不变）。
-    worldBlueprint: (await loadWorldBlueprint(context.projectPath).then(
-      (bp) => (bp ? worldBlueprintToPromptFragment(bp) || undefined : undefined),
-    ).catch(() => undefined)),
-    // MIG-003: 叙事信息差可见性——loadNarrativeState 非空且有效声明时
-    // 渲染视角可见性摘要；空 store → undefined → 不渲染。
-    narrativeVisibility: (await loadNarrativeState(context.projectPath).then(
-      (store) => narrativeVisibilitySummary(store) || undefined,
-    ).catch(() => undefined)),
+    worldBlueprint: derivedStores.worldBlueprint,
+    narrativeVisibility: derivedStores.narrativeVisibility,
     mustDo: buildMustDo(chapterGoal, previousChapterEnding, foreshadowingStates),
     mustAvoid: buildMustAvoid(canonRules, timeline, characterStates),
     nextChapterAdvice: buildNextChapterAdvice({
@@ -984,7 +1132,7 @@ async function buildContextPackFromRawData(
       previousChapterEnding,
       foreshadowingStates,
       timeline,
-      searchResults: rawStr(rawData.searchResults),
+      searchResults: rawStrField(rawData.searchResults),
     }),
     revisionDirectives,
     gaps: [],
@@ -1169,13 +1317,14 @@ export async function selectActiveEntities(
 }
 // F8（Round-8 评估）：检索簇已拆至 ./context-retrieval（巨石拆分第 3 步）。
 // 本模块是检索簇的唯一定义点；以下 re-export 保持既有 import 面
-//（spec 与 context-data-sources 不动——后者仍经由本模块消费，无需改 import）。
+//（外部 spec 消费不动）。ISS-20260709-031 后 context-data-sources 已直连
+// 定义源模块（./context-retrieval / ./context-engine-outline /
+// ./context-task-brief-builders），不再经由本模块中转——单向依赖，消环。
 // 端夏校准：检索模块内的向量门控截断记账经 __setGapRecorderForTests 注入
 // 的 gapSink 进入 engine 的 build 作用域缓冲（IC-02）。同名 wrapper 只在
 // build 期（contextGapsActive）转发 recorder；直接调用（单测/脚本）走无记账
 // 原函数——与改前 contextGapsActive=false 默认一致，行为零变化。
 import {
-  computeIrrelevantRatio,
   searchRelevantContent as searchRelevantContentImpl,
   searchRelevantContentUnified as searchRelevantContentUnifiedImpl,
   runVectorSearchForContext as runVectorSearchForContextImpl,

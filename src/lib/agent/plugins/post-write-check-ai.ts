@@ -95,6 +95,10 @@ export async function runPostWriteCheckAI(params: {
   contextPack?: ContextPack
   llmConfig?: LlmConfig
   signal?: AbortSignal
+  // ISS-20260709-033: 参数注入优先 —— 调用方可直接传入 store 切片，
+  // 缺省回退 useWikiStore.getState()（向后兼容，行为等价）。
+  providerConfigs?: ReturnType<typeof useWikiStore.getState>["providerConfigs"]
+  novelConfig?: ReturnType<typeof useWikiStore.getState>["novelConfig"]
 }): Promise<PostWriteCheckAIResult> {
   const { chapterContent, contextPack, llmConfig, signal } = params
 
@@ -106,7 +110,9 @@ export async function runPostWriteCheckAI(params: {
     }
   }
 
-  const { providerConfigs, novelConfig } = useWikiStore.getState()
+  const storeState = useWikiStore.getState()
+  const providerConfigs = params.providerConfigs ?? storeState.providerConfigs
+  const novelConfig = params.novelConfig ?? storeState.novelConfig
   const baseConfig: LlmConfig = llmConfig ?? ({} as LlmConfig)
 
   if (!hasUsableLlm(baseConfig, providerConfigs)) {

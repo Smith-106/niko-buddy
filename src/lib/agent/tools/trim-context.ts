@@ -5,8 +5,10 @@ import { toErrorMessage } from "@/lib/utils"
 
 /**
  * @param tokenBudget ContextPack token budget (not characters).
+ * @param deps ISS-20260709-033: 显式注入 UI 侧 flag，缺省回退惰性读 store
+ * （向后兼容，行为等价；测试可注入确定值避免耦合 UI store）。
  */
-export function createTrimContextTool(contextPack: ContextPack, tokenBudget: number): Tool {
+export function createTrimContextTool(contextPack: ContextPack, tokenBudget: number, deps?: { hardInjectEnabled?: boolean }): Tool {
   return {
     name: "trim_context",
     description:
@@ -19,9 +21,10 @@ export function createTrimContextTool(contextPack: ContextPack, tokenBudget: num
       }
       try {
         // P2-IMP-07: hardInject 渲染门穿参（flag 默认 false → 缺省即关，零行为变化）。
-        // 与 run-chapter-workflow.ts 同款惰性 store 读取，避免 lib 层静态耦合 UI store。
-        const { useWikiStore } = await import("@/stores/wiki-store")
-        const hardInjectEnabled = useWikiStore.getState().novelConfig.hardInjectEnabled
+        // ISS-20260709-033: 注入优先（deps.hardInjectEnabled），缺省沿用原惰性
+        // store 读取（向后兼容，行为等价）。
+        const hardInjectEnabled = deps?.hardInjectEnabled
+          ?? (await import("@/stores/wiki-store")).useWikiStore.getState().novelConfig.hardInjectEnabled
         return contextPackToPrompt(contextPack, tokenBudget, { hardInjectEnabled })
       } catch (e) {
         return `错误：裁剪上下文失败 - ${toErrorMessage(e)}`

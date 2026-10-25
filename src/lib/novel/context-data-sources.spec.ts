@@ -84,14 +84,26 @@ vi.mock("./soul-doc", () => ({
   readSoulDoc: mocks.readSoulDoc,
 }))
 
-vi.mock("./context-engine", () => ({
+// ISS-20260709-031: helper 来自其定义源模块（与 context-data-sources.ts 一致），
+// 不再经由 ./context-engine 中转 mock。
+vi.mock("./context-engine-outline", () => ({
   readOutlineContent: mocks.readOutlineContent,
   readChapterOutlineContent: mocks.readChapterOutlineContent,
+}))
+
+vi.mock("./context-retrieval", () => ({
   searchRelevantContentUnified: mocks.searchRelevantContentUnified,
   searchGraphRelevantContent: mocks.searchGraphRelevantContent,
-  selectLookbackChapterNumbers: mocks.selectLookbackChapterNumbers,
-  joinNonEmpty: mocks.joinNonEmpty,
 }))
+
+vi.mock("./context-task-brief-builders", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./context-task-brief-builders")>()
+  return {
+    ...actual,
+    selectLookbackChapterNumbers: mocks.selectLookbackChapterNumbers,
+    joinNonEmpty: mocks.joinNonEmpty,
+  }
+})
 
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()

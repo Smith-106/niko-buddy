@@ -57,14 +57,17 @@ describe("TASK-008 subplot/resource renderer wiring in context-engine", () => {
     // passed into joinNonEmpty. The wiring intent (all 3 helpers feed
     // characterStates) is preserved — assert the helpers are called in the
     // pre-fetch and their results feed the join.
+    // ISS-20260709-034: buildContextPackFromRawData 已拆分为小函数 —— join
+    // 下沉至 resolveCharacterStates，预取下沉至 loadProjectionTexts（逐字搬迁，
+    // 接线意图不变）。断言锚点随之定位到两 helper（同等强度，非弱化）。
     const src = readSource("context-engine.ts")
-    const joinBlock = src.match(/const characterStates = joinNonEmpty\([\s\S]*?\], "\\n\\n"\)/)
+    const joinBlock = src.match(/export function resolveCharacterStates\([\s\S]*?return joinNonEmpty\([\s\S]*?\], "\\n\\n"\)/)
     expect(joinBlock).not.toBeNull()
     expect(joinBlock![0]).toContain("emotionalText")
     expect(joinBlock![0]).toContain("subplotText")
     expect(joinBlock![0]).toContain("resourceText")
     // The pre-fetch block must call all three helpers (parallelized).
-    const preFetch = src.match(/Promise\.all\([\s\S]*?readEmotionalArcsText[\s\S]*?readSubplotBoardText[\s\S]*?readResourceLedgerText[\s\S]*?\)/)
+    const preFetch = src.match(/export async function loadProjectionTexts[\s\S]*?Promise\.all\([\s\S]*?readEmotionalArcsText[\s\S]*?readSubplotBoardText[\s\S]*?readResourceLedgerText[\s\S]*?\)/)
     expect(preFetch).not.toBeNull()
   })
 

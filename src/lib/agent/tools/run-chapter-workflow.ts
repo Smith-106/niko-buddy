@@ -26,6 +26,11 @@ interface RunChapterWorkflowToolOptions {
    * 本轮已选定的写作 Skill 提示。不作为工具参数，避免模型漏传。
    */
   getSelectedSkillsPrompt?: () => string | undefined
+  /**
+   * ISS-20260709-033: novelConfig 显式注入通道。提供时优先使用，
+   * 缺省回退惰性读 UI store（向后兼容，行为等价）。
+   */
+  getNovelConfig?: () => import("@/stores/wiki-store").NovelConfig
 }
 
 interface RunChapterWorkflowParams {
@@ -110,8 +115,12 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
 
       // 兜底：AI 未在工具调用参数中携带 planBlueprint 时，从外部 getter 补上，
       // 保证用户确认的计划一定进入章节生成链路，不依赖模型是否遵守自然语言提示。
+      // ISS-20260709-033: novelConfig 注入优先（getNovelConfig），缺省回退原惰性
+      // store 读取（向后兼容，行为等价）。
       const rawChapterNumber = params.chapterNumber
-      const novelConfig = (await import("@/stores/wiki-store")).useWikiStore.getState().novelConfig
+      const novelConfig = options.getNovelConfig
+        ? options.getNovelConfig()
+        : (await import("@/stores/wiki-store")).useWikiStore.getState().novelConfig
       const result = await options.runDeepChapterGeneration(
         {
           projectPath: options.projectPath,

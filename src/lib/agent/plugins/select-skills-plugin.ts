@@ -336,6 +336,10 @@ interface PlanCapabilitySelectionInput {
   mode: Exclude<AiWorkflowMode, "fast">
   availableSkills: UserSkill[]
   novelConfig?: import("@/stores/wiki-store").NovelConfig
+  // ISS-20260709-033: 参数注入优先 —— llm/provider 显式传入时不再直读 UI store；
+  // 缺省回退 useWikiStore.getState()（向后兼容，行为等价）。
+  llmConfig?: import("@/stores/wiki-store").LlmConfig
+  providerConfigs?: ReturnType<typeof useWikiStore.getState>["providerConfigs"]
   /** .novel/ trace 落盘用；缺省则只规划不持久化 */
   projectPath?: string
 }
@@ -353,7 +357,11 @@ interface PlanCapabilitySelectionResult {
  */
 async function planCapabilitySelection(input: PlanCapabilitySelectionInput): Promise<PlanCapabilitySelectionResult> {
   const empty: PlanCapabilitySelectionResult = { skills: [], traces: [] }
-  const { providerConfigs, llmConfig, novelConfig: storeNovelConfig } = useWikiStore.getState()
+  // ISS-20260709-033: 注入优先，缺省回退 store（向后兼容，行为等价）。
+  const storeState = useWikiStore.getState()
+  const providerConfigs = input.providerConfigs ?? storeState.providerConfigs
+  const llmConfig = input.llmConfig ?? storeState.llmConfig
+  const storeNovelConfig = storeState.novelConfig
   if (!hasUsableLlm(llmConfig, providerConfigs)) {
     await recordTrace(input, empty, "fallback", "无可用 LLM")
     return empty

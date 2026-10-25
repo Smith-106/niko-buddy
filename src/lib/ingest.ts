@@ -716,7 +716,12 @@ async function autoIngestImpl(
   const embCfg = useWikiStore.getState().embeddingConfig
   if (embCfg.enabled && embCfg.model && writtenPaths.length > 0) {
     try {
-      const { embedPage } = await import("@/lib/embedding")
+      // ISS-20260709-048: embedding 为显式懒加载依赖（首屏不进主 chunk）。
+      // EmbeddingModule 类型别名向类型系统声明依赖边；运行时 dynamic import
+      // 保持懒加载。反向无环由 p1-decouple.spec 断言（embedding 不回引 ingest）。
+      type EmbeddingModule = typeof import("@/lib/embedding")
+      const embeddingModule: EmbeddingModule = await import("@/lib/embedding")
+      const { embedPage } = embeddingModule
       // PERF (odyssey-review): pages are independent (each writes its own pageId
       // rows) — parallelize readFile + embedPage per page instead of serial
       // await-in-loop. Per-page try/catch preserved (non-critical, one failure
@@ -1547,7 +1552,10 @@ async function reembedSourceSummary(pp: string, fileName: string): Promise<void>
       /^---\n[\s\S]*?^title:\s*["']?(.+?)["']?\s*$/m,
     )
     const title = titleMatch ? titleMatch[1].trim() : sourceBaseName
-    const { embedPage } = await import("@/lib/embedding")
+    // ISS-20260709-048: 同上 —— embedding 显式懒加载依赖声明（第二调用点）。
+    type EmbeddingModuleLocal = typeof import("@/lib/embedding")
+    const embeddingModuleLocal: EmbeddingModuleLocal = await import("@/lib/embedding")
+    const { embedPage } = embeddingModuleLocal
     await embedPage(pp, sourceBaseName, title, content, embCfg)
   } catch (err) {
     console.warn(
@@ -1656,11 +1664,86 @@ export async function startIngest(
   )
 }
 
+// ============================================================================
+// ISS-20260713-004: SoC —— 数据函数只返回值，UI 更新归调用方。
+//
+// 分层说明（行为等价保证）：
+// - buildIngestWritePlan: 纯函数。LLM 累积文本 → 写操作计划（路径解析 +
+//   log 追加判定）。不触 IO、不触 store。
+// - buildIngestWriteSummary: 纯函数。writtenPaths → 系统提示文案（与原内联
+//   两分支文案字节级一致）。不触 store；由 wrapper 决定何时/是否写入 UI。
+// - executeIngestWrites (wrapper): 编排 + UI 副作用。默认行为与原来完全一致
+//   （store 消息、流式 token、image cascade）；数据侧输入可经 deps 注入。
+// ============================================================================
+
+/** 单个落盘操作（纯数据，无副作用）。 */
+export interface IngestWriteOperation {
+  relativePath: string
+  fullPath: string
+  content: string
+  /** true → log 追加语义（读现有后拼接），false → 全量覆盖写。 */
+  isLogAppend: boolean
+}
+
+/** 写计划（纯数据）：操作序列 + 解析期非致命告警。 */
+export interface IngestWritePlan {
+  operations: IngestWriteOperation[]
+  warnings: string[]
+}
+
+/** executeIngestWrites 数据侧注入（全部可选；缺省回退原 store 读取）。 */
+export interface ExecuteIngestWritesDeps {
+  /** 显式 ingest 源路径（默认读 chat store ingestSource）。 */
+  ingestSource?: string | null
+  /** multimodal 总开关（默认读 UI store multimodalConfig.enabled）。 */
+  multimodalEnabled?: boolean
+}
+
+function isLogAppendPath(relativePath: string): boolean {
+  return relativePath === "wiki/log.md" || relativePath.endsWith("/log.md")
+}
+
+/**
+ * 纯函数：由 LLM 累积输出构建写操作计划。
+ * 语义与原 executeIngestWrites 内联循环一致：同一 accumulated 经同一
+ * parseFileBlocks 解析，路径拼接规则与 log 判定不变。
+ */
+export function buildIngestWritePlan(projectPath: string, accumulated: string): IngestWritePlan {
+  const pp = normalizePath(projectPath)
+  const { blocks, warnings } = parseFileBlocks(accumulated)
+  return {
+    operations: blocks.map(({ path: relativePath, content }) => ({
+      relativePath,
+      fullPath: `${pp}/${relativePath}`,
+      content,
+      isLogAppend: isLogAppendPath(relativePath),
+    })),
+    warnings,
+  }
+}
+
+/**
+ * 纯函数：由落盘结果构建系统提示文案（原内联两分支文案逐字保留）。
+ * 返回字符串由调用方决定写入何处（默认 wrapper 写入 chat store system 消息）。
+ */
+export function buildIngestWriteSummary(writtenPaths: string[]): string {
+  if (writtenPaths.length > 0) {
+    const fileList = writtenPaths.map((p) => `- ${p}`).join("\n")
+    return `已写入知识库文件：\n${fileList}`
+  }
+  return "未写入任何文件。LLM 响应中未包含有效的文件块。"
+}
+
 export async function executeIngestWrites(
   projectPath: string,
   llmConfig: LlmConfig,
   userGuidance?: string,
   signal?: AbortSignal,
+  // ISS-20260713-004: SoC 注入点 —— 数据侧输入（multimodal 开关 / ingest 源）
+  // 显式传入时不再直读 UI/chat store；缺省回退原 store 读取（向后兼容，行为等价）。
+  // UI 副作用（store.addMessage / 流式 token 追加）仍保留在 wrapper 内以保行为字节级
+  // 一致；纯数据决策已下沉为 buildIngestWritePlan / buildIngestWriteSummary。
+  deps?: ExecuteIngestWritesDeps,
 ): Promise<string[]> {
   const pp = normalizePath(projectPath)
   const store = getStore()
@@ -1745,7 +1828,6 @@ export async function executeIngestWrites(
     signal,
   )
 
-  const writtenPaths: string[] = []
   // Route through the hardened line-level parser (parseFileBlocks) instead of
   // the legacy FILE_BLOCK_REGEX matchAll. parseFileBlocks already applies
   // isSafeIngestPath (:253) and handles the H1/H3/H5 hazards the bare regex
@@ -1755,36 +1837,32 @@ export async function executeIngestWrites(
   // parse correctness. Reusing the single parser closes both the guard twin
   // and the parse-hazard divergence between the autoIngest and Save-to-Wiki
   // paths (S-20260712-bur3 consolidation).
-  const { blocks, warnings } = parseFileBlocks(accumulated)
-  for (const w of warnings) store.addMessage("system", w)
+  // ISS-20260713-004: 数据决策下沉 —— 解析→计划→落盘均为纯函数/显式 IO，
+  // 本 wrapper 只负责 UI 副作用（store 消息）与返回，保持字节级行为等价。
+  const writePlan = buildIngestWritePlan(pp, accumulated)
+  for (const w of writePlan.warnings) store.addMessage("system", w)
 
-  for (const { path: relativePath, content } of blocks) {
-    const fullPath = `${pp}/${relativePath}`
-
+  const writtenPaths: string[] = []
+  for (const op of writePlan.operations) {
     try {
-      if (relativePath === "wiki/log.md" || relativePath.endsWith("/log.md")) {
-        const existing = await tryReadFile(fullPath)
+      if (op.isLogAppend) {
+        const existing = await tryReadFile(op.fullPath)
         const appended = existing
-          ? `${existing}\n\n${content.trim()}`
-          : content.trim()
-        await writeFileAtomic(fullPath, appended)
+          ? `${existing}\n\n${op.content.trim()}`
+          : op.content.trim()
+        await writeFileAtomic(op.fullPath, appended)
       } else {
-        await writeFileAtomic(fullPath, content)
+        await writeFileAtomic(op.fullPath, op.content)
       }
-      writtenPaths.push(fullPath)
+      writtenPaths.push(op.fullPath)
     } catch (err) {
       // F-16 (CWE-532): message-only to avoid leaking OS/IPC error payload.
       // Mirrors writeFileBlocks catch at :902 (PAT-G2 file-internal twin).
-      console.error(`[ingest] 写入 ${fullPath} 失败：${toErrorMessage(err)}`)
+      console.error(`[ingest] 写入 ${op.fullPath} 失败：${toErrorMessage(err)}`)
     }
   }
 
-  if (writtenPaths.length > 0) {
-    const fileList = writtenPaths.map((p) => `- ${p}`).join("\n")
-    getStore().addMessage("system", `已写入知识库文件：\n${fileList}`)
-  } else {
-    getStore().addMessage("system", "未写入任何文件。LLM 响应中未包含有效的文件块。")
-  }
+  getStore().addMessage("system", buildIngestWriteSummary(writtenPaths))
 
   // Image cascade: surface any embedded images on the source-summary
   // page. `startIngest` already kicked off extraction in parallel
@@ -1801,13 +1879,15 @@ export async function executeIngestWrites(
   // parameter (the chat-panel "Save to Wiki" button only passes
   // projectPath). Skipped silently when there's no ingestSource
   // (e.g. user manually entered chat mode and called this).
-  const ingestSource = getStore().ingestSource
+  // ISS-20260713-004: 数据侧输入注入优先，缺省回退原 store 读取（行为等价）。
+  const ingestSource = deps?.ingestSource !== undefined ? deps.ingestSource : getStore().ingestSource
   // Master toggle gate — see autoIngestImpl Step 0.6 / 3.5 for
   // the full rationale. When captioning is disabled, we skip the
   // safety-net inject here too so the executeIngestWrites path
   // stays consistent with autoIngest.
-  const mmCfgWrites = useWikiStore.getState().multimodalConfig
-  if (ingestSource && mmCfgWrites.enabled) {
+  const multimodalEnabled = deps?.multimodalEnabled
+    ?? useWikiStore.getState().multimodalConfig.enabled
+  if (ingestSource && multimodalEnabled) {
     try {
       const savedImages = await extractAndSaveSourceImages(pp, ingestSource)
       if (savedImages.length > 0) {

@@ -46,6 +46,46 @@ export interface ContextLoadContext {
 }
 
 /**
+ * ISS-20260709-035: 类型化 DataSource 载荷契约。
+ *
+ * 替代裸字典（未知值 any）/ 纯未知字典：每个已知
+ * 数据源 key 显式声明（全部可选，向后兼容缺失/未知 key）。继承
+ * `Record<string, unknown>` 使未知扩展 key 仍可携带，且既有
+ * `Record<string, unknown>` 生产者（DataSourceRegistry.loadAll）可直接传入。
+ * 消费方一律经本契约访问，由入口收窄 helper 保证缺失/非 string → ""/[]
+ *（与 any 时代字节级一致）。
+ */
+export interface ContextRawData extends Record<string, unknown> {
+  snapshots?: {
+    recentSummaries?: unknown
+    previousChapterEnding?: unknown
+    characterStates?: unknown
+    foreshadowingSignals?: unknown
+    timeline?: unknown
+    recentStateDeltas?: unknown
+  }
+  outline?: unknown
+  chapterOutline?: unknown
+  volumeContext?: unknown
+  storySimulationBinding?: unknown
+  recentChapterContents?: unknown
+  fallbackRecentSummaries?: unknown
+  fallbackPreviousEnding?: unknown
+  fallbackCharacterStates?: unknown
+  fallbackForeshadowingStates?: unknown
+  fallbackTimeline?: unknown
+  relatedSettings?: unknown
+  canonRules?: unknown
+  writingStyle?: unknown
+  voiceStyleGuide?: unknown
+  searchResults?: unknown
+  graphSearchResults?: unknown
+  revisionFeedback?: unknown
+  cognitionText?: unknown
+  soulDoc?: unknown
+}
+
+/**
  * 数据源接口
  */
 export interface DataSource<T> {
