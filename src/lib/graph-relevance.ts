@@ -227,10 +227,19 @@ async function buildGraphInternal(projectPath: string, dataVersion: number): Pro
   }
   const rawNodes: RawNode[] = []
 
-  for (const file of mdFiles) {
+  // PAT-IM: 独立项并行 —— 并发 readFile（Promise.all 保序回填），再按原序串行过滤/push，历史跳过语义不变。
+  const relevanceContents = await Promise.all(
+    mdFiles.map((file) => readFile(file.path).then(
+      (content) => ({ ok: true as const, content }),
+      () => ({ ok: false as const, content: "" }),
+    )),
+  )
+  for (let relevanceIndex = 0; relevanceIndex < mdFiles.length; relevanceIndex += 1) {
+    const file = mdFiles[relevanceIndex]
+    const read = relevanceContents[relevanceIndex]
+    if (!read.ok) continue
+    const content = read.content
     const id = stemId(file.name)
-    let content = ""
-    try { content = await readFile(file.path) } catch { continue }
     const fm = parseFrontmatter(content)
     if (fm.isHistorical) continue
     rawNodes.push({

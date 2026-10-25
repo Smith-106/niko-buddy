@@ -39,12 +39,21 @@ export function BookAnalysisVersionHistory({ projectPath }: { projectPath: strin
       try {
         const base = joinPath(projectPath, "book-analysis")
         const items = await listDirectory(base)
+        // PAT-IM: 独立项并行 —— 候选目录先过滤，并发 readFile（Promise.all 保序回填），再按原序串行解析/排序。
+        const versionCandidates = items.filter((item) => item.is_dir && item.name.startsWith("book-"))
+        const versionContents = await Promise.all(
+          versionCandidates.map((item) => readFile(joinPath(item.path, "metadata.json")).then(
+            (metaRaw) => ({ ok: true as const, metaRaw }),
+            () => ({ ok: false as const, metaRaw: "" }),
+          )),
+        )
         const books: VersionItem[] = []
-        for (const item of items) {
-          if (!item.is_dir || !item.name.startsWith("book-")) continue
+        for (let versionIndex = 0; versionIndex < versionCandidates.length; versionIndex += 1) {
+          const item = versionCandidates[versionIndex]
+          const read = versionContents[versionIndex]
+          if (!read.ok) continue
           try {
-            const metaRaw = await readFile(joinPath(item.path, "metadata.json"))
-            const meta = JSON.parse(metaRaw) as BookAnalysisMetadata
+            const meta = JSON.parse(read.metaRaw) as BookAnalysisMetadata
             books.push({ id: item.name, title: meta.title, createdAt: meta.createdAt, path: item.path })
           } catch {
             // 单本书元数据损坏不影响其它版本

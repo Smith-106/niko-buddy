@@ -61,22 +61,33 @@ async function buildWikiIndex(projectPath: string): Promise<WikiIndex> {
     const tree = await listDirectory(`${pp}/wiki`)
     const files = flattenMdFiles(tree)
 
-    for (const file of files) {
+    // PAT-IM1: 独立项并行 IPC —— 并发 readFile（Promise.all 保序回填），再按原序串行建索引，pages/byId/byTitle 顺序不变。
+    const sweepContents = await Promise.all(
+      files.map((file) => readFile(file.path).then(
+        (content) => ({ ok: true as const, content }),
+        () => ({ ok: false as const, content: "" }),
+      )),
+    )
+    for (let sweepIndex = 0; sweepIndex < files.length; sweepIndex += 1) {
+      const file = files[sweepIndex]
+      const read = sweepContents[sweepIndex]
       const id = file.name.replace(/\.md$/, "").toLowerCase()
       byId.add(id)
 
       let title: string | null = null
-      try {
-        const content = await readFile(file.path)
-        // 收敛 canonical frontmatter（arch-risk W3 补）——私有 regex → parseFrontmatter
-        const { frontmatter } = parseFrontmatter(content)
-        const fmTitle = (frontmatter?.title as string | undefined)?.trim()
-        if (fmTitle) {
-          title = fmTitle
-          byTitle.add(title.toLowerCase())
+      if (read.ok) {
+        try {
+          const content = read.content
+          // 收敛 canonical frontmatter（arch-risk W3 补）——私有 regex → parseFrontmatter
+          const { frontmatter } = parseFrontmatter(content)
+          const fmTitle = (frontmatter?.title as string | undefined)?.trim()
+          if (fmTitle) {
+            title = fmTitle
+            byTitle.add(title.toLowerCase())
+          }
+        } catch {
+          // skip unreadable files
         }
-      } catch {
-        // skip unreadable files
       }
 
       pages.push({ id, title })

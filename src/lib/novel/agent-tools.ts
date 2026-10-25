@@ -51,12 +51,20 @@ export async function readScopeFileContents(
   maxFiles = 20,
 ): Promise<{ name: string; path: string; content: string }[]> {
   const files = await listScopeFiles(projectPath, scope)
+  // PAT-IM: 独立项并行 —— 并发 readFile（Promise.all 保序回填），再按切片原序串行 push，顺序与跳过语义不变。
+  const scopeSlice = files.slice(0, maxFiles)
+  const scopeContents = await Promise.all(
+    scopeSlice.map((file) => readFile(file.path).then(
+      (content) => ({ ok: true as const, content }),
+      () => ({ ok: false as const, content: "" }),
+    )),
+  )
   const results: { name: string; path: string; content: string }[] = []
-
-  for (const file of files.slice(0, maxFiles)) {
+  for (let scopeIndex = 0; scopeIndex < scopeSlice.length; scopeIndex += 1) {
+    const read = scopeContents[scopeIndex]
+    if (!read.ok) continue
     try {
-      const content = await readFile(file.path)
-      results.push({ ...file, content })
+      results.push({ ...scopeSlice[scopeIndex], content: read.content })
     } catch {
       // skip unreadable files
     }

@@ -1383,12 +1383,12 @@ async function writeStructuredMemoryDocuments(projectPath: string, snapshots: Ch
   const memoryDocuments = buildStructuredMemoryDocuments(snapshots)
 
   await createDirectory(memoryDir)
-  const writtenPaths: string[] = []
-  for (const [fileName, content] of Object.entries(memoryDocuments)) {
-    const filePath = `${memoryDir}/${fileName}`
-    await writeFileAtomic(filePath, content)
-    writtenPaths.push(filePath)
-  }
+  // PAT-IM1: 独立路径并行写（不同 fileName 互异），Promise.all 并发，writtenPaths 按 entries 原序回填保序。
+  const memoryEntries = Object.entries(memoryDocuments)
+  await Promise.all(
+    memoryEntries.map(([fileName, content]) => writeFileAtomic(`${memoryDir}/${fileName}`, content)),
+  )
+  const writtenPaths: string[] = memoryEntries.map(([fileName]) => `${memoryDir}/${fileName}`)
   return writtenPaths
 }
 

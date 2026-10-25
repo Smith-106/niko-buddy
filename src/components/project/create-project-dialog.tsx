@@ -152,15 +152,13 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
       const pp = normalizePath(project.path)
 
       const template = getTemplate(selectedTemplateId)
-      await writeFileAtomic(`${pp}/schema.md`, template.schema)
-      await writeFileAtomic(`${pp}/purpose.md`, template.purpose)
-      for (const dir of template.extraDirs) {
-        await createDirectory(`${pp}/${dir}`)
-      }
-      // F3（Round-1 评估）：演示模板种子文件（大纲/人物卡/样例章）——零 API 试写。
-      for (const seed of template.seedFiles ?? []) {
-        await writeFileAtomic(`${pp}/${seed.path}`, seed.content)
-      }
+      // PAT-IM1: 独立路径并行写 —— schema/purpose/extraDirs/seedFiles 路径互异，Promise.all 并发，语义不变。
+      await Promise.all([
+        writeFileAtomic(`${pp}/schema.md`, template.schema),
+        writeFileAtomic(`${pp}/purpose.md`, template.purpose),
+        ...template.extraDirs.map((dir) => createDirectory(`${pp}/${dir}`)),
+        ...(template.seedFiles ?? []).map((seed) => writeFileAtomic(`${pp}/${seed.path}`, seed.content)),
+      ])
 
       const lang: OutputLanguage = "Chinese"
       setOutputLanguage(lang)

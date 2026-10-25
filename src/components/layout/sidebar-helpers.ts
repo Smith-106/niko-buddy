@@ -48,9 +48,22 @@ export async function getExistingChapterTitles(projectPath: string): Promise<Set
   try {
     const tree = await listDirectory(`${projectPath}/wiki/chapters`)
     const files = flattenMdFiles(tree)
-    for (const file of files) {
+    // PAT-IM1: 独立项并行 IPC —— 先 Promise.all 并发读（map+索引回填保序），再按原序串行解析，语义/顺序零变化。
+    const contents = await Promise.all(
+      files.map((file) => readFile(file.path).then(
+        (content) => ({ ok: true as const, content }),
+        () => ({ ok: false as const, content: "" }),
+      )),
+    )
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index]
+      const read = contents[index]
+      if (!read.ok) {
+        titles.add(file.name.replace(/\.md$/, "").replace(/-/g, " ").trim())
+        continue
+      }
       try {
-        const content = await readFile(file.path)
+        const content = read.content
         const titleMatch = content.match(/^title:\s*["']?(.+?)["']?\s*$/m)
         if (titleMatch?.[1]) {
           titles.add(titleMatch[1].trim())

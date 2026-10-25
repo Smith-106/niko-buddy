@@ -137,9 +137,18 @@ async function readOutlines(pp: string): Promise<string> {
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
 
   const contents: string[] = []
-  for (const node of mdFiles) {
+  // PAT-IM: 独立项并行 —— 并发 readFile（Promise.all 保序回填），再按 mdFiles 原序串行组装，拼接顺序不变。
+  const outlineContents = await Promise.all(
+    mdFiles.map((node) => readFile(node.path).then(
+      (content) => ({ ok: true as const, content }),
+      () => ({ ok: false as const, content: "" }),
+    )),
+  )
+  for (let outlineIndex = 0; outlineIndex < mdFiles.length; outlineIndex += 1) {
+    const read = outlineContents[outlineIndex]
+    if (!read.ok) continue
     try {
-      contents.push(await readFile(node.path))
+      contents.push(read.content)
     } catch {
       // 单个文件读取失败，跳过
     }
@@ -166,11 +175,20 @@ async function readRecentChapters(
   const mdFiles = nodes.filter((n) => !n.is_dir && n.name.endsWith(".md"))
 
   // 解析每个章节文件，获取章节号、标题和正文
+  // PAT-IM: 独立项并行 —— 并发 readFile（Promise.all 保序回填），再按 mdFiles 原序串行解析/push。
   const parsed: { number: number; title: string; content: string }[] = []
-  for (const node of mdFiles) {
+  const recentContents = await Promise.all(
+    mdFiles.map((node) => readFile(node.path).then(
+      (raw) => ({ ok: true as const, raw }),
+      () => ({ ok: false as const, raw: "" }),
+    )),
+  )
+  for (let recentIndex = 0; recentIndex < mdFiles.length; recentIndex += 1) {
+    const node = mdFiles[recentIndex]
+    const read = recentContents[recentIndex]
+    if (!read.ok) continue
     try {
-      const raw = await readFile(node.path)
-      const result = parseFrontmatter(raw)
+      const result = parseFrontmatter(read.raw)
       const fm = result.frontmatter
       const chapterNumber = fmNumber(fm?.chapter_number)
       if (!Number.isFinite(chapterNumber)) continue
@@ -296,9 +314,18 @@ async function extractCharactersFromIngestOutput(
   // 按文件名排序，保证后续章节覆盖前面的（取最新）
   outputFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
 
-  for (const node of outputFiles) {
+  // PAT-IM: 独立项并行 —— 并发 readFile（Promise.all 保序回填），再按 outputFiles 排序后原序串行合并，覆盖顺序不变。
+  const outputContents = await Promise.all(
+    outputFiles.map((node) => readFile(node.path).then(
+      (raw) => ({ ok: true as const, raw }),
+      () => ({ ok: false as const, raw: "" }),
+    )),
+  )
+  for (let outputIndex = 0; outputIndex < outputFiles.length; outputIndex += 1) {
+    const read = outputContents[outputIndex]
+    if (!read.ok) continue
     try {
-      const raw = await readFile(node.path)
+      const raw = read.raw
       const data = JSON.parse(raw)
       const entries = data?.wikiUpdatePatch?.entries ?? []
       for (const entry of entries) {

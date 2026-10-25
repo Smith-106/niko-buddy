@@ -75,16 +75,27 @@ function toRelative(pp: string, abs: string): string {
 export async function loadAllEntitySummaries(projectPath: string): Promise<EntitySummary[]> {
   const pp = normalizePath(projectPath)
   const tree = await listDirectory(pp)
-  const out: EntitySummary[] = []
+  // PAT-IM1: 独立项并行 IPC —— 展平内外两层循环，并发 readFile（Promise.all 保序回填），再按原序串行解析/push。
+  const entityNodes: { path: string }[] = []
   for (const prefix of ["wiki/entities", "wiki/concepts"]) {
-    for (const node of walkMd(tree, prefix)) {
-      try {
-        const content = await readFile(node.path)
-        const rel = toRelative(pp, node.path)
-        const summary = extractEntitySummary(rel, content)
-        if (summary) out.push(summary)
-      } catch { /* best-effort */ }
-    }
+    for (const node of walkMd(tree, prefix)) entityNodes.push(node)
+  }
+  const entityContents = await Promise.all(
+    entityNodes.map((node) => readFile(node.path).then(
+      (content) => ({ ok: true as const, content }),
+      () => ({ ok: false as const, content: "" }),
+    )),
+  )
+  const out: EntitySummary[] = []
+  for (let entityIndex = 0; entityIndex < entityNodes.length; entityIndex += 1) {
+    const node = entityNodes[entityIndex]
+    const read = entityContents[entityIndex]
+    if (!read.ok) continue
+    try {
+      const rel = toRelative(pp, node.path)
+      const summary = extractEntitySummary(rel, read.content)
+      if (summary) out.push(summary)
+    } catch { /* best-effort */ }
   }
   return out
 }
@@ -93,11 +104,20 @@ export async function loadAllEntitySummaries(projectPath: string): Promise<Entit
 export async function loadAllWikiPages(projectPath: string): Promise<{ path: string; content: string }[]> {
   const pp = normalizePath(projectPath)
   const tree = await listDirectory(pp)
+  // PAT-IM1: 独立项并行 IPC —— 并发 readFile（Promise.all 保序回填），再按原序串行 push。
+  const wikiNodes = [...walkMd(tree, "wiki")]
+  const wikiContents = await Promise.all(
+    wikiNodes.map((node) => readFile(node.path).then(
+      (content) => ({ ok: true as const, content }),
+      () => ({ ok: false as const, content: "" }),
+    )),
+  )
   const out: { path: string; content: string }[] = []
-  for (const node of walkMd(tree, "wiki")) {
+  for (let wikiIndex = 0; wikiIndex < wikiNodes.length; wikiIndex += 1) {
+    const read = wikiContents[wikiIndex]
+    if (!read.ok) continue
     try {
-      const content = await readFile(node.path)
-      out.push({ path: toRelative(pp, node.path), content })
+      out.push({ path: toRelative(pp, wikiNodes[wikiIndex].path), content: read.content })
     } catch { /* ignore */ }
   }
   return out
@@ -167,23 +187,30 @@ export async function executeMerge(
     { signal: options.signal },
   )
 
-  // 2. Snapshot backup
+  // 2. Snapshot backup — PAT-IM: 独立路径并行写（路径经 replace 互异），Promise.all 保序，语义不变。
   const stamp = new Date().toISOString().replace(/[:.]/g, "-")
   const backupDir = `${pp}/.niko-buddy/page-history/dedup-${stamp}`
-  for (const b of result.backup) {
-    await writeFileAtomic(`${backupDir}/${b.path.replace(/[/\\]/g, "_")}`, b.content)
-  }
+  await Promise.all(
+    result.backup.map((b) => writeFileAtomic(`${backupDir}/${b.path.replace(/[/\\]/g, "_")}`, b.content)),
+  )
 
   // 3. Write canonical
   await writeFileAtomic(`${pp}/${result.canonicalPath}`, result.canonicalContent)
 
-  // 4. Apply rewrites
-  for (const r of result.rewrites) await writeFileAtomic(`${pp}/${r.path}`, r.newContent)
+  // 4. Apply rewrites — PAT-IM: 独立路径并行写，Promise.all，顺序无关（不同 path 无共享状态）。
+  await Promise.all(
+    result.rewrites.map((r) => writeFileAtomic(`${pp}/${r.path}`, r.newContent)),
+  )
 
-  // 5. Delete merged-away pages
-  for (const dead of result.pagesToDelete) {
-    try { await deleteFile(`${pp}/${dead}`) } catch (err) { console.warn(`[dedup] failed to delete ${dead}: ${err}`) }
-  }
+  // 5. Delete merged-away pages — PAT-IM: 独立路径并行删，Promise.allSettled 保序收集，单项失败 warn 继续语义不变。
+  const deleteResults = await Promise.allSettled(
+    result.pagesToDelete.map((dead) => deleteFile(`${pp}/${dead}`)),
+  )
+  deleteResults.forEach((res, deleteIndex) => {
+    if (res.status === "rejected") {
+      console.warn(`[dedup] failed to delete ${result.pagesToDelete[deleteIndex]}: ${res.reason}`)
+    }
+  })
 
   // 6. Rewrite index.md
   const indexPath = `${pp}/wiki/index.md`

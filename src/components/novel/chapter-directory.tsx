@@ -76,11 +76,20 @@ export type ChapterDirectoryLoader = (projectPath: string) => Promise<ChapterDir
 async function loadVolumeMetas(projectPath: string): Promise<VolumeMeta[]> {
   try {
     const hits = await searchWiki(projectPath, "volume 第 卷 chapter_range")
+    // PAT-IM: 独立项并行 —— 并发 readFile（Promise.all 保序回填），再按 hits 切片原序串行解析/排序。
+    const volumeSlice = hits.slice(0, 24)
+    const volumeContents = await Promise.all(
+      volumeSlice.map((h) => readFile(h.path).then(
+        (content) => ({ ok: true as const, content }),
+        () => ({ ok: false as const, content: "" }),
+      )),
+    )
     const metas: VolumeMeta[] = []
-    for (const h of hits.slice(0, 24)) {
+    for (let volumeIndex = 0; volumeIndex < volumeSlice.length; volumeIndex += 1) {
+      const read = volumeContents[volumeIndex]
+      if (!read.ok) continue
       try {
-        const content = await readFile(h.path)
-        const { frontmatter } = parseFrontmatter(content)
+        const { frontmatter } = parseFrontmatter(read.content)
         const meta = frontmatter ? parseVolumeMeta(frontmatter as Record<string, unknown>) : null
         if (meta) metas.push(meta)
       } catch {

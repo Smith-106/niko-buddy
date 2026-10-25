@@ -54,11 +54,20 @@ export async function rebuildAllSnapshots(
   }
 
   // 筛选正式章节并排序
+  // PAT-IM: 独立项并行 —— 并发 readFile（Promise.all 保序回填），再按 files 原序串行解析/push，排序后顺序不变。
   const chapters: { path: string; chapterNumber: number }[] = []
-  for (const file of files) {
+  const rebuildContents = await Promise.all(
+    files.map((file) => readFile(file.path).then(
+      (content) => ({ ok: true as const, content }),
+      () => ({ ok: false as const, content: "" }),
+    )),
+  )
+  for (let rebuildIndex = 0; rebuildIndex < files.length; rebuildIndex += 1) {
+    const file = files[rebuildIndex]
+    const read = rebuildContents[rebuildIndex]
+    if (!read.ok) continue
     try {
-      const content = await readFile(file.path)
-      const parsed = parseFrontmatter(content)
+      const parsed = parseFrontmatter(read.content)
       const fm = parsed.frontmatter as Record<string, unknown> | null
       if (!fm) continue
       if (!isChapterPage(fm)) continue

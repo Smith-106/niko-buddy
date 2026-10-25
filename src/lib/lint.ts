@@ -81,9 +81,22 @@ export async function runStructuralLint(projectPath: string): Promise<LintResult
   type PageData = { path: string; slug: string; content: string; outlinks: string[] }
   const pages: PageData[] = []
 
-  for (const f of contentFiles) {
+  // PAT-IM1: 独立项并行 IPC —— 并发 readFile（Promise.all 保序回填），再按原序串行解析/push，顺序与容错语义不变。
+  const lintContents = await Promise.all(
+    contentFiles.map((f) => readFile(f.path).then(
+      (content) => ({ ok: true as const, content }),
+      () => ({ ok: false as const, content: "" }),
+    )),
+  )
+  for (let lintIndex = 0; lintIndex < contentFiles.length; lintIndex += 1) {
+    const f = contentFiles[lintIndex]
+    const read = lintContents[lintIndex]
+    if (!read.ok) {
+      logger.warn("lint", "lint: 读取wiki页面失败跳过（吞错已标记）")
+      continue
+    }
     try {
-      const content = await readFile(f.path)
+      const content = read.content
       const slug = relativeToSlug(getRelativePath(f.path, wikiRoot))
       const outlinks = extractWikilinks(content)
       pages.push({ path: f.path, slug, content, outlinks })
@@ -334,9 +347,22 @@ export async function runSemanticLint(
   )
 
   const summaries: string[] = []
-  for (const f of wikiFiles) {
+  // PAT-IM1: 独立项并行 IPC —— 并发 readFile（Promise.all 保序回填），再按原序串行组装 summaries，空跳过语义不变。
+  const summaryContents = await Promise.all(
+    wikiFiles.map((f) => readFile(f.path).then(
+      (content) => ({ ok: true as const, content }),
+      () => ({ ok: false as const, content: "" }),
+    )),
+  )
+  for (let summaryIndex = 0; summaryIndex < wikiFiles.length; summaryIndex += 1) {
+    const f = wikiFiles[summaryIndex]
+    const read = summaryContents[summaryIndex]
+    if (!read.ok) {
+      logger.warn("lint", "lint: 读取wiki页面失败跳过（吞错已标记）")
+      continue
+    }
     try {
-      const content = await readFile(f.path)
+      const content = read.content
       const preview = content.slice(0, 500) + (content.length > 500 ? "..." : "")
       const shortPath = getRelativePath(f.path, wikiRoot)
       summaries.push(`### ${shortPath}\n${preview}`)

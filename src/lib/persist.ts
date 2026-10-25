@@ -169,10 +169,18 @@ export async function loadChatHistory(projectPath: string): Promise<PersistedCha
     const conversations = safeParseArray<Conversation>(convContent, "conversations")
 
     const allMessages: DisplayMessage[] = []
-    for (const conv of conversations) {
+    // PAT-IM: 独立项并行 —— 并发 readFile（Promise.all 保序回填），再按 conversations 原序串行解析/展开，消息顺序不变。
+    const chatContents = await Promise.all(
+      conversations.map((conv) => readFile(`${pp}/.niko-buddy/chats/${conv.id}.json`).then(
+        (msgContent) => ({ ok: true as const, msgContent }),
+        () => ({ ok: false as const, msgContent: "" }),
+      )),
+    )
+    for (let chatIndex = 0; chatIndex < conversations.length; chatIndex += 1) {
+      const read = chatContents[chatIndex]
+      if (!read.ok) continue
       try {
-        const msgContent = await readFile(`${pp}/.niko-buddy/chats/${conv.id}.json`)
-        const msgs = safeParseArray<DisplayMessage>(msgContent, "messages")
+        const msgs = safeParseArray<DisplayMessage>(read.msgContent, "messages")
         allMessages.push(...msgs)
       } catch {
         // Missing conversation file — skip.

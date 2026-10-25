@@ -73,12 +73,23 @@ export function KnowledgeTree({
     const projectPath = normalizePath(project.path)
     try {
       const wikiTree = await listDirectory(`${projectPath}/wiki`)
+      // PAT-IM: 独立项并行 —— 并发 readFile（Promise.all 保序回填），再按过滤后原序串行解析/push。
+      const pageFiles = flattenMdFiles(wikiTree).filter(
+        (file) => file.name !== "index.md" && file.name !== "log.md",
+      )
+      const pageContents = await Promise.all(
+        pageFiles.map((file) => readFile(file.path).then(
+          (content) => ({ ok: true as const, content }),
+          () => ({ ok: false as const, content: "" }),
+        )),
+      )
       const nextPages: WikiPageInfo[] = []
-      for (const file of flattenMdFiles(wikiTree)) {
-        if (file.name === "index.md" || file.name === "log.md") continue
+      for (let pageIndex = 0; pageIndex < pageFiles.length; pageIndex += 1) {
+        const file = pageFiles[pageIndex]
+        const read = pageContents[pageIndex]
+        if (!read.ok) continue
         try {
-          const content = await readFile(file.path)
-          const info = parsePageInfo(file.path, file.name, content)
+          const info = parsePageInfo(file.path, file.name, read.content)
           if (info) nextPages.push(info)
         } catch {
           // Ignore unreadable pages in the navigator.

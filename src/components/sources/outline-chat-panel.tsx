@@ -35,15 +35,24 @@ async function loadOutlineContext(projectPath: string): Promise<{ context: strin
   try {
     const outlinesDir = `${pp}/wiki/outlines`
     const tree = await listDirectory(outlinesDir)
-    for (const file of tree.slice(0, 10)) {
-      if (file.name.endsWith(".md")) {
-        try {
-          const content = await readFile(`${outlinesDir}/${file.name}`)
-          const trimmed = content.length > 3000 ? content.slice(0, 3000) + "\n...(已截断)" : content
-          sections.push(`【${file.name.replace(/\.md$/, "")}】\n${trimmed}`)
-          sources.push(`大纲: ${file.name.replace(/\.md$/, "")}`)
-        } catch { /* skip */ }
-      }
+    // PAT-IM: 独立项并行 —— 并发 readFile（Promise.all 保序回填），再按切片原序串行组装，顺序不变。
+    const outlineSlice = tree.slice(0, 10).filter((file) => file.name.endsWith(".md"))
+    const outlineContents = await Promise.all(
+      outlineSlice.map((file) => readFile(`${outlinesDir}/${file.name}`).then(
+        (content) => ({ ok: true as const, content }),
+        () => ({ ok: false as const, content: "" }),
+      )),
+    )
+    for (let outlineIndex = 0; outlineIndex < outlineSlice.length; outlineIndex += 1) {
+      const file = outlineSlice[outlineIndex]
+      const read = outlineContents[outlineIndex]
+      if (!read.ok) continue
+      try {
+        const content = read.content
+        const trimmed = content.length > 3000 ? content.slice(0, 3000) + "\n...(已截断)" : content
+        sections.push(`【${file.name.replace(/\.md$/, "")}】\n${trimmed}`)
+        sources.push(`大纲: ${file.name.replace(/\.md$/, "")}`)
+      } catch { /* skip */ }
     }
   } catch { /* no outlines dir */ }
 
@@ -51,9 +60,19 @@ async function loadOutlineContext(projectPath: string): Promise<{ context: strin
     const chaptersDir = `${pp}/wiki/chapters`
     const tree = await listDirectory(chaptersDir)
     const chapterFiles = tree.filter(f => f.name.endsWith(".md")).slice(-5)
-    for (const file of chapterFiles) {
+    // PAT-IM: 独立项并行 —— 并发 readFile（Promise.all 保序回填），再按原序串行组装。
+    const chapterContents = await Promise.all(
+      chapterFiles.map((file) => readFile(`${chaptersDir}/${file.name}`).then(
+        (content) => ({ ok: true as const, content }),
+        () => ({ ok: false as const, content: "" }),
+      )),
+    )
+    for (let chapterIndex = 0; chapterIndex < chapterFiles.length; chapterIndex += 1) {
+      const file = chapterFiles[chapterIndex]
+      const read = chapterContents[chapterIndex]
+      if (!read.ok) continue
       try {
-        const content = await readFile(`${chaptersDir}/${file.name}`)
+        const content = read.content
         const preview = content.length > 1500 ? content.slice(0, 1500) + "\n...(已截断)" : content
         sections.push(`【章节:${file.name.replace(/\.md$/, "")}】\n${preview}`)
         sources.push(`章节: ${file.name.replace(/\.md$/, "")}`)

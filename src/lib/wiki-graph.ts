@@ -305,15 +305,22 @@ export async function buildWikiGraph(
     }
   >()
 
-  for (const file of mdFiles) {
+  // PAT-IM1: 独立项并行 IPC —— 并发 readFile（Promise.all 保序回填），再按原序串行建 nodeMap，跳过不可读语义不变。
+  const wikiGraphContents = await Promise.all(
+    mdFiles.map((file) => readFile(file.path).then(
+      (content) => ({ ok: true as const, content }),
+      () => ({ ok: false as const, content: "" }),
+    )),
+  )
+  for (let graphIndex = 0; graphIndex < mdFiles.length; graphIndex += 1) {
+    const file = mdFiles[graphIndex]
+    const read = wikiGraphContents[graphIndex]
     const id = fileNameToId(file.name)
-    let content = ""
-    try {
-      content = await readFile(file.path)
-    } catch {
+    if (!read.ok) {
       // Skip unreadable files
       continue
     }
+    const content = read.content
 
     const sources = extractFrontmatterLinks(content, "sources")
 
