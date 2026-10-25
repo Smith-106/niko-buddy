@@ -704,7 +704,7 @@ function DeleteMemoryConfirmDialog({
           if (deleting) event.preventDefault()
         }}
       >
-      <div className="w-full max-w-md rounded-lg border border-destructive/60 bg-background elevation-3 outline-none">
+      <div className="w-full max-w-md rounded-lg border border-destructive/60 bg-background elevation-3 outline-none" tabIndex={-1}>
         <div className="flex items-start gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-3 text-destructive">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
           <div className="min-w-0">

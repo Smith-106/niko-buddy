@@ -24,7 +24,6 @@ export interface ImportMemoryDecisionRequest {
 }
 
 export const MEMORY_LABEL_KEYS: Record<string, string> = {
-  "dismantling-library": "拆文记忆库",
   snapshots: "novel.memoryCenter.snapshots.title",
   "character-states": "novel.memoryCenter.sections.characterStates",
   "character-cognition": "novel.memoryCenter.sections.cognition",

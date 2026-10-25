@@ -928,7 +928,9 @@
     "exemplarSlopScore": "exemplar+slop score",
     "slopOnlyScore": "slop-only score",
     "markAnchor": "Mark anchor",
-    "originalText": "Original:"
+    "originalText": "Original:",
+    "dockToSidebar": "Dock to sidebar",
+    "dockToBottom": "Dock to bottom"
   },
   "search": {
     "title": "Search",
@@ -1196,7 +1198,18 @@
     },
     "nextPage": "Next page",
     "prevPage": "Previous page",
-    "pageInfo": "Page {{page}} of {{total}}"
+    "pageInfo": "Page {{page}} of {{total}}",
+    "fileType": {
+      "sources": "Sources",
+      "entities": "Entities",
+      "concepts": "Concepts",
+      "queries": "Queries",
+      "synthesis": "Synthesis",
+      "comparisons": "Comparisons",
+      "index": "Index",
+      "log": "Log",
+      "file": "File"
+    }
   },
   "fileTree": {
     "noProject": "No project open",

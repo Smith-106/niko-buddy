@@ -863,7 +863,7 @@ export function ReviewView({
           .replace(/<!--\s*sources:.*?-->/g, "")
           .trimEnd()
 
-        const firstLine = cleanContent.split("\n").find((l) => l.trim() && !l.startsWith("<!--"))?.replace(/^#+\s*/, "").trim() ?? i18n.t("review.fallbacks.savedQueryTitle")
+        const firstLine = cleanContent.split("\n").find((l) => l.trim() && !l.startsWith("<!--"))?.replace(/^#+\s*/, "").trim() ?? i18n.t(novelMode ? "novel.review.fallbacks.savedQueryTitle" : "review.fallbacks.savedQueryTitle")
         const title = firstLine.slice(0, 60)
         const slug = title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 50)
         const date = todayStamp()
@@ -925,10 +925,10 @@ export function ReviewView({
         await deleteFile(filePath)
         const tree = await listDirectory(pp)
         setFileTree(tree)
-        resolveItem(id, i18n.t("review.notifications.deleted"))
+        resolveItem(id, novelMode ? i18n.t("novel.review.notifications.deleted") : i18n.t("review.notifications.deleted"))
       } catch (err) {
         console.error("删除失败:", err)
-        resolveItem(id, i18n.t("review.notifications.deleteFailed"))
+        resolveItem(id, novelMode ? i18n.t("novel.review.notifications.deleteFailed") : i18n.t("review.notifications.deleteFailed"))
       }
     } else if ((action.startsWith("__create_page__:") || actionLooksLikeCreate(action)) && project) {
       const realAction = action.startsWith("__create_page__:")
@@ -937,8 +937,8 @@ export function ReviewView({
       const item = items.find((i) => i.id === id)
       if (item) {
         try {
-          const titlePrefixPattern = new RegExp(`^(${i18n.t("review.fallbacks.stripTitlePrefixes")})[:\\s]*`, "i")
-          const title = item.title.replace(titlePrefixPattern, "").trim() || i18n.t("review.fallbacks.untitled")
+          const titlePrefixPattern = new RegExp(`^(${i18n.t(novelMode ? "novel.review.fallbacks.stripTitlePrefixes" : "review.fallbacks.stripTitlePrefixes")})[:\\s]*`, "i")
+          const title = item.title.replace(titlePrefixPattern, "").trim() || i18n.t(novelMode ? "novel.review.fallbacks.untitled" : "review.fallbacks.untitled")
           const slug = title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 50)
           const date = todayStamp()
 
@@ -978,10 +978,10 @@ export function ReviewView({
           resolveItem(id, novelMode ? i18n.t("novel.review.notifications.createFailed") : i18n.t("review.notifications.createFailed"))
         }
       } else {
-        resolveItem(id, i18n.t("review.fallbacks.genericActionLabel"))
+        resolveItem(id, i18n.t(novelMode ? "novel.review.fallbacks.genericActionLabel" : "review.fallbacks.genericActionLabel"))
       }
     } else {
-      resolveItem(id, i18n.t("review.fallbacks.genericActionLabel"))
+      resolveItem(id, i18n.t(novelMode ? "novel.review.fallbacks.genericActionLabel" : "review.fallbacks.genericActionLabel"))
     }
   }, [project, items, resolveItem, setFileTree])
 

@@ -40,25 +40,38 @@ const FILE_TYPE_ICONS: Record<string, typeof FileText> = {
   comparisons: BarChart3,
 }
 
-const FILE_TYPE_LABELS: Record<string, string> = {
+const FILE_TYPE_LABEL_KEYS: Record<string, string> = {
+  sources: "activity.fileType.sources",
+  entities: "activity.fileType.entities",
+  concepts: "activity.fileType.concepts",
+  queries: "activity.fileType.queries",
+  synthesis: "activity.fileType.synthesis",
+  comparisons: "activity.fileType.comparisons",
+}
+
+// 中文兜底（键已入 zh/en 双语语料，兜底防回退；镜像 FileSyncRow FILE_CHANGE_KIND_DEFAULT 模式）。
+const FILE_TYPE_FALLBACK: Record<string, string> = {
   sources: "来源",
   entities: "实体",
   concepts: "概念",
   queries: "查询",
   synthesis: "综合",
   comparisons: "对比",
+  index: "索引",
+  log: "日志",
+  file: "文件",
 }
 
-function getFileTypeInfo(path: string): { icon: typeof FileText; type: string } {
+function getFileTypeInfo(path: string): { icon: typeof FileText; labelKey: string; fallback: string } {
   for (const [dir, icon] of Object.entries(FILE_TYPE_ICONS)) {
     if (path.includes(`/${dir}/`) || path.startsWith(`wiki/${dir}/`)) {
       /* v8 ignore next */
-      return { icon, type: FILE_TYPE_LABELS[dir] ?? dir }
+      return { icon, labelKey: FILE_TYPE_LABEL_KEYS[dir] ?? dir, fallback: FILE_TYPE_FALLBACK[dir] ?? dir }
     }
   }
-  if (path.includes("index.md")) return { icon: Layout, type: "索引" }
-  if (path.includes("log.md")) return { icon: FileText, type: "日志" }
-  return { icon: FileText, type: "文件" }
+  if (path.includes("index.md")) return { icon: Layout, labelKey: "activity.fileType.index", fallback: "索引" }
+  if (path.includes("log.md")) return { icon: FileText, labelKey: "activity.fileType.log", fallback: "日志" }
+  return { icon: FileText, labelKey: "activity.fileType.file", fallback: "文件" }
 }
 
 export function ActivityPanel() {
@@ -521,7 +534,7 @@ function ActivityRow({ item, onCancel }: { item: ActivityItem; onCancel?: () => 
       {item.filesWritten.length > 0 && item.status === "done" && (
         <div className="mt-1.5 ml-5 flex flex-col gap-0.5">
           {item.filesWritten.map((filePath) => {
-            const { icon: Icon, type } = getFileTypeInfo(filePath)
+            const { icon: Icon, labelKey, fallback } = getFileTypeInfo(filePath)
             const fileName = getFileName(filePath)
             return (
               <button
@@ -531,7 +544,7 @@ function ActivityRow({ item, onCancel }: { item: ActivityItem; onCancel?: () => 
                 className="flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
               >
                 <Icon className="h-3 w-3 shrink-0" />
-                <span className="text-xs font-medium text-muted-foreground w-14 shrink-0">{type}</span>
+                <span className="text-xs font-medium text-muted-foreground w-14 shrink-0">{t(labelKey, { defaultValue: fallback })}</span>
                 <span className="min-w-0 truncate">{fileName}</span>
               </button>
             )

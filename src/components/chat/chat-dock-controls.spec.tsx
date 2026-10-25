@@ -11,6 +11,11 @@ const mocks = vi.hoisted(() => ({
   },
 }))
 
+vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
+  useTranslation: () => ({ t: (key: string) => key }),
+}))
+
 vi.mock("@/stores/wiki-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
   return {
@@ -31,8 +36,8 @@ describe("ChatDockControls", () => {
 
     const html = renderToStaticMarkup(<ChatDockControls />)
 
-    expect(html).toContain("停靠在侧栏")
-    expect(html).not.toContain("停靠在底栏")
+    expect(html).toContain("chat.dockToSidebar")
+    expect(html).not.toContain("chat.dockToBottom")
     expect((html.match(/<button/g) || []).length).toBe(1)
   })
 
@@ -41,20 +46,20 @@ describe("ChatDockControls", () => {
 
     const html = renderToStaticMarkup(<ChatDockControls />)
 
-    expect(html).toContain("停靠在底栏")
-    expect(html).not.toContain("停靠在侧栏")
+    expect(html).toContain("chat.dockToBottom")
+    expect(html).not.toContain("chat.dockToSidebar")
     expect((html.match(/<button/g) || []).length).toBe(1)
   })
 
   it("clicking the toggle moves the chat to the opposite dock", () => {
     mocks.state.chatDockPosition = "bottom"
     render(<ChatDockControls />)
-    fireEvent.click(screen.getByRole("button", { name: "停靠在侧栏" }))
+    fireEvent.click(screen.getByRole("button", { name: "chat.dockToSidebar" }))
     expect(mocks.state.setChatDockPosition).toHaveBeenCalledWith("right")
 
     mocks.state.chatDockPosition = "right"
     render(<ChatDockControls />)
-    fireEvent.click(screen.getByRole("button", { name: "停靠在底栏" }))
+    fireEvent.click(screen.getByRole("button", { name: "chat.dockToBottom" }))
     expect(mocks.state.setChatDockPosition).toHaveBeenCalledWith("bottom")
   })
 })

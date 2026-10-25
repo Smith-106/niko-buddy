@@ -502,7 +502,7 @@ describe("ReviewView — ReviewCard (review store items)", () => {
     // 选项按钮 → onResolve(id, action): "accept:1" 不属于 save/open/delete/create 前缀,
     // handleResolve 落入 generic 分支 (review-view.tsx:917-919), 通知文案用 genericActionLabel
     fireEvent.click(screen.getAllByText("接受")[0])
-    expect(mocks.resolveItem).toHaveBeenCalledWith("t1", "review.fallbacks.genericActionLabel")
+    expect(mocks.resolveItem).toHaveBeenCalledWith("t1", "novel.review.fallbacks.genericActionLabel")
     // X dismiss → dismissItem(id)
     const dismissButtons = screen.getAllByLabelText("common.dismiss")
     fireEvent.click(dismissButtons[0])
@@ -646,7 +646,7 @@ describe("ReviewView — handleResolve (save/open/delete/create/generic)", () =>
     mocks.reviewItems = [makeReviewItem({ id: "d1", options: [{ label: "删除", action: "delete:E:/Novel/target.md" }] })]
     renderView()
     fireEvent.click(screen.getByText("删除"))
-    await waitFor(() => expect(mocks.resolveItem).toHaveBeenCalledWith("d1", "review.notifications.deleted"))
+    await waitFor(() => expect(mocks.resolveItem).toHaveBeenCalledWith("d1", "novel.review.notifications.deleted"))
     expect(mocks.deleteFile).toHaveBeenCalledWith("E:/Novel/target.md")
     expect(mocks.state.setFileTree).toHaveBeenCalled()
     cleanup()
@@ -654,7 +654,7 @@ describe("ReviewView — handleResolve (save/open/delete/create/generic)", () =>
     mocks.deleteFile.mockRejectedValue(new Error("locked"))
     renderView()
     fireEvent.click(screen.getByText("删除"))
-    await waitFor(() => expect(mocks.resolveItem).toHaveBeenCalledWith("d2", "review.notifications.deleteFailed"))
+    await waitFor(() => expect(mocks.resolveItem).toHaveBeenCalledWith("d2", "novel.review.notifications.deleteFailed"))
   })
 
   it("create page: query 类型 (action 含 query) → queries 目录 + index ## Queries 替换", async () => {
@@ -704,7 +704,7 @@ describe("ReviewView — handleResolve (save/open/delete/create/generic)", () =>
     expect((await runCreate("e14", "new:page", "新页", "contradiction"))).toContain("type: query")
     expect((await runCreate("e15", "create:page", "创建页标题", "contradiction"))).toContain("type: query")
     // 标题带前缀 → stripTitlePrefixes 剥离 (review-view.tsx:879-880)
-    mocks.t.mockImplementation((key: string) => (key === "review.fallbacks.stripTitlePrefixes" ? "问题" : key))
+    mocks.t.mockImplementation((key: string) => (key === "novel.review.fallbacks.stripTitlePrefixes" ? "问题" : key))
     const e16 = await runCreate("e16", "create:query:x", "问题: 剥离标题", "contradiction")
     expect(e16).toContain("type: query")
     expect(e16).toContain("剥离标题")
@@ -716,7 +716,7 @@ describe("ReviewView — handleResolve (save/open/delete/create/generic)", () =>
     fireEvent.click(screen.getByText("建页"))
     await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     const created = mocks.writeFileAtomic.mock.calls.find((c) => String(c[0]).includes("/wiki/queries/")) as [string, string]
-    expect(created[1]).toContain("review.fallbacks.untitled")
+    expect(created[1]).toContain("novel.review.fallbacks.untitled")
     cleanup()
     mocks.reviewItems = [makeReviewItem({ id: "c3", title: "失败页", options: [{ label: "建页", action: "__create_page__:query:x" }] })]
     mocks.writeFileAtomic.mockRejectedValue(new Error("no space"))
@@ -728,14 +728,14 @@ describe("ReviewView — handleResolve (save/open/delete/create/generic)", () =>
     mocks.reviewItems = [makeReviewItem({ id: "other" })]
     renderView()
     fireEvent.click(screen.getByText("接受"))
-    expect(mocks.resolveItem).toHaveBeenCalledWith("other", "review.fallbacks.genericActionLabel")
+    expect(mocks.resolveItem).toHaveBeenCalledWith("other", "novel.review.fallbacks.genericActionLabel")
   })
 
   it("未知 action / 无 project → genericActionLabel", () => {
     mocks.reviewItems = [makeReviewItem({ id: "g1", options: [{ label: "奇怪", action: "weird:x" }] })]
     renderView()
     fireEvent.click(screen.getByText("奇怪"))
-    expect(mocks.resolveItem).toHaveBeenCalledWith("g1", "review.fallbacks.genericActionLabel")
+    expect(mocks.resolveItem).toHaveBeenCalledWith("g1", "novel.review.fallbacks.genericActionLabel")
     cleanup()
     mocks.state.project = null
     mocks.reviewItems = [
@@ -749,7 +749,7 @@ describe("ReviewView — handleResolve (save/open/delete/create/generic)", () =>
       fireEvent.click(screen.getByText(label))
       expect(mocks.resolveItem).toHaveBeenCalledWith(
         expect.stringMatching(/^g[2-5]$/),
-        "review.fallbacks.genericActionLabel",
+        "novel.review.fallbacks.genericActionLabel",
       )
     }
   })
@@ -1754,7 +1754,7 @@ describe("ReviewView — W4 边界与异步分支", () => {
     renderView()
     mocks.reviewItems.length = 0
     fireEvent.click(screen.getByText("建页"))
-    expect(mocks.resolveItem).toHaveBeenCalledWith("create-missing", "review.fallbacks.genericActionLabel")
+    expect(mocks.resolveItem).toHaveBeenCalledWith("create-missing", "novel.review.fallbacks.genericActionLabel")
   })
 
   it("审稿按钮覆盖无 project 与空正文守卫; compare 对话框使用 project/session fallback", async () => {
@@ -1998,7 +1998,7 @@ describe("ReviewView — 覆盖率终局：可达边界", () => {
     fireEvent.click(screen.getByText("保存"))
     await waitFor(() =>
       expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
-        expect.stringContaining("/wiki/queries/reviewfallbackssavedquerytitle-"),
+        expect.stringContaining("/wiki/queries/novelreviewfallbackssavedquerytitle-"),
         expect.any(String),
       ),
     )

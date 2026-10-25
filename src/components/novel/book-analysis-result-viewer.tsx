@@ -511,7 +511,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
           event.preventDefault()
         }}
       >
-      <div className="w-full max-w-6xl mx-4 bg-background rounded-lg elevation-3 flex flex-col max-h-[90vh] outline-none">
+      <div className="w-full max-w-6xl mx-4 bg-background rounded-lg elevation-3 flex flex-col max-h-[90vh] outline-none" tabIndex={-1}>
         {/* 标题栏 */}
         <div className="flex items-center justify-between border-b px-6 py-4">
           <div>

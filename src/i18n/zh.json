@@ -547,7 +547,9 @@
     "exemplarSlopScore": "范例加去AI味评分",
     "slopOnlyScore": "只评去AI味",
     "markAnchor": "标记锚点",
-    "originalText": "原文："
+    "originalText": "原文：",
+    "dockToSidebar": "停靠在侧栏",
+    "dockToBottom": "停靠在底栏"
   },
   "search": {
     "title": "搜索",
@@ -1522,7 +1524,18 @@
     },
     "nextPage": "下一页",
     "prevPage": "上一页",
-    "pageInfo": "第 {{page}}/{{total}} 页"
+    "pageInfo": "第 {{page}}/{{total}} 页",
+    "fileType": {
+      "sources": "来源",
+      "entities": "实体",
+      "concepts": "概念",
+      "queries": "查询",
+      "synthesis": "综合",
+      "comparisons": "对比",
+      "index": "索引",
+      "log": "日志",
+      "file": "文件"
+    }
   },
   "fileTree": {
     "noProject": "未打开项目",

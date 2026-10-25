@@ -4,7 +4,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
-  BookOpenCheck,
   BookText,
   Brain,
   ChevronDown,
@@ -51,7 +50,6 @@ const USAGE_GUIDE_URL = "https://tcnk9ik08e1c.feishu.cn/wiki/FWiSwYQKoifpwBk6mSR
 
 
 const MEMORY_ICONS: Record<string, typeof Users> = {
-  "dismantling-library": BookOpenCheck,
   snapshots: FileText,
   "character-states": Users,
   "character-cognition": Brain,
