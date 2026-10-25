@@ -21,6 +21,7 @@
  */
 import { readFile, getFileModifiedTime } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { loadNovelSessionStatus } from "./novel-session-status"
 import { loadCognitionState, type CognitionState } from "./character-cognition"
 import {
@@ -114,6 +115,11 @@ export interface InspectorSceneBlock {
 /**
  * Inspector 6 分块之一：门控状态（只读派生自 status.decision_gates）。
  * Inspector 是咨询性非门控（C-208）；门控结论权威不变。
+ * ISS-20260712-ARCH-3: spec 对齐代码 — 代码实际派生自 DeepChapterDecisionGates
+ * （overall 五态 pending/pass/warning/fail/manual_review；各门 status 为
+ * pending/passed/failed + verdict 五态，见 deep-chapter-decision-gates.ts）。
+ * 本接口保持 string 宽松（不收窄对外接口，UI 侧 StatusBadge 另有 low/medium/
+ * error 等展示态）；精确口径由 p1-gate-overall.spec.ts 锁定代码真源。
  */
 export interface InspectorDecisionBlock {
   consistency: { status: string; verdict: string }
@@ -205,6 +211,31 @@ function scanSlopWords(draftContent: string): InspectorDeAiSlopHit[] {
 }
 
 /**
+ * ISS-20260710-001: Inspector 缓存访问器（cached accessor）。
+ * 对 getCachedDimensionResults 的薄封装：纯函数、无 IO、不触发新 6-dim 运行
+ * （沿用 HARD-1 唯一真源约束）。缺失（undefined/空对象）时返回 []，调用方
+ * 走 execute 现有路径（queryInspectorState 的 draft/cognition/scene/decision
+ * 派生不变）——行为等价，仅收敛“缓存读取”单一入口，防多处手写派生漂移。
+ */
+export function getCachedInspectorFindings(
+  dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> | undefined,
+): InspectorFinding[] {
+  return toFindings(getCachedDimensionResults(dimensionResults))
+}
+
+/**
+ * ISS-20260710-001: 缓存审查块访问器。reviewedAt 由调用方传入
+ * status.updated_at（与 queryInspectorState 现有口径一致）；缺失缓存时
+ * findings=[]，调用方仍走 execute 现有路径（空快照语义不变）。
+ */
+export function getCachedInspectorReviewBlock(
+  dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> | undefined,
+  reviewedAt: string | null,
+): InspectorReviewBlock {
+  return { findings: getCachedInspectorFindings(dimensionResults), reviewedAt }
+}
+
+/**
  * 从 DimensionReviewResult[] 派生脱敏后的 InspectorFinding[]。PAT-DC1:
  * message/evidence 字段已是结构化字符串（review-adapter normalizeIssue 已
  * String() 强制），无 raw error / provider detail。
@@ -288,8 +319,10 @@ async function readDraftPreview(
         : content,
       mtime,
     }
-  } catch {
+  } catch (err) {
     // 草稿文件可能尚未落盘（pending 状态）— 返回空内容，mtime=0。
+    // ISS-20260709-025 PAT-IM2: 静默 catch 加诊断（warn + 脱敏 message），控制流不变。
+    logger.warn("Inspector", "read draft preview failed, degrade to empty (non-fatal)", { path: filePath, error: toErrorMessage(err) })
     return { content: "", mtime: 0 }
   }
 }
@@ -351,10 +384,9 @@ export async function queryInspectorState(
     }
 
     // 审查块：缓存 6-dim 发现（status.dimension_results，S3 F-003 additive field）。
-    const cachedResults = getCachedDimensionResults(status?.dimension_results)
-    const findings = toFindings(cachedResults)
-    const reviewedAt = status?.updated_at ?? null
-    const reviewBlock: InspectorReviewBlock = { findings, reviewedAt }
+    // ISS-20260710-001: 经 cached accessor 读取；缺失时返回空 findings 并继续
+    // execute 现有路径（draft/cognition/scene/decision 照常派生），行为等价。
+    const reviewBlock = getCachedInspectorReviewBlock(status?.dimension_results, status?.updated_at ?? null)
 
     // 认知状态块：cognition-state.json 派生（只读，不改）。
     const cognitionState = cognitionStateBlock(cognition)
@@ -365,8 +397,10 @@ export async function queryInspectorState(
     if (sceneListProvider) {
       try {
         sceneTitles = await sceneListProvider(pp, chapterId)
-      } catch {
+      } catch (err) {
         // scene provider 失败不阻塞 Inspector — 降级空场景块。
+        // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
+        logger.warn("Inspector", "scene provider failed, degrade to empty (non-fatal)", { error: toErrorMessage(err) })
         sceneTitles = []
       }
     }

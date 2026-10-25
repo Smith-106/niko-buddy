@@ -1652,7 +1652,8 @@ export async function runSimulation(
       return events
     }
     // 其他致命错误才回调 onError 并抛出
-    console.error("[simulation] 仿真引擎致命错误：", error)
+    // ISS-20260709-050: 脱敏 — 控制台只记名与 message（完整 error 仍经 onError 透传调用方处理，不落盘）。
+    console.error("[simulation] 仿真引擎致命错误：", error instanceof Error ? `${error.name}: ${error.message}` : toErrorMessage(error))
     callbacks.onError(error)
     // 如果已经收集了一些事件，仍然返回它们而非抛出，让上层能部分使用结果
     if (events.length > 0) {

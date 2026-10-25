@@ -16,6 +16,7 @@ import {
 import { useFileSyncStore } from "@/stores/file-sync-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { getFileStem, normalizePath } from "@/lib/path-utils"
+import { toErrorMessage } from "@/lib/utils"
 import { resolveDefaultModel } from "@/lib/novel"
 import type { WikiProject } from "@/types/wiki"
 import type { SourceWatchConfig } from "@/stores/wiki-store"
@@ -169,7 +170,7 @@ async function enqueueRawChanges(project: WikiProject, tasks: FileChangeTask[]):
 
   try {
     await enqueueSourceIngest(project, paths, resolveDefaultModel(useWikiStore.getState().llmConfig))
-  } catch (err) { console.error("[file-sync] failed to enqueue raw source ingest:", err) }
+  } catch (err) { console.error("[file-sync] failed to enqueue raw source ingest:", err instanceof Error ? `${err.name}: ${err.message}` : toErrorMessage(err)) }
 }
 
 function isIngestableRaw(relativePath: string): boolean {
@@ -195,13 +196,13 @@ async function cleanupDeleted(project: WikiProject, tasks: FileChangeTask[]): Pr
         logReason: rawSources.length === 1 ? "external delete" : "external batch delete",
       })
       deletedSlugs = new Set(result.deletedWikiPaths.map((p) => getFileStem(p)))
-    } catch (err) { console.error("[file-sync] failed to clean deleted raw sources:", err) }
+    } catch (err) { console.error("[file-sync] failed to clean deleted raw sources:", err instanceof Error ? `${err.name}: ${err.message}` : toErrorMessage(err)) }
   }
 
   const wikiToClean = wikiPages.filter((p) => !deletedSlugs.has(getFileStem(p)))
   if (wikiToClean.length > 0) {
     try { await cleanupDeletedWikiPages(project.path, wikiToClean) }
-    catch (err) { console.error("[file-sync] failed to clean deleted wiki pages:", err) }
+    catch (err) { console.error("[file-sync] failed to clean deleted wiki pages:", err instanceof Error ? `${err.name}: ${err.message}` : toErrorMessage(err)) }
   }
 }
 

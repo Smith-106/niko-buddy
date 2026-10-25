@@ -15,6 +15,16 @@ import { recordAntiAiShadowTelemetry } from "./anti-ai-shadow-telemetry"
 import { logger, toErrorMessage } from "@/lib/utils"
 import type { DeepChapterGenerationCallbacks, DeepChapterGenerationDeps } from "./deep-chapter-generation"
 
+export type SixDimOutcome =
+  | { kind: "success"; results: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> }
+  | { kind: "failure"; error: unknown }
+  | { kind: "skipped" }
+
+/** ISS-20260709-049: 穷尽分支断言 — 新增 kind 必须在此 switch 显式处理，否则编译期报错。 */
+export function assertNeverSixDimOutcome(value: never): never {
+  throw new Error(`Unhandled SixDimOutcome kind: ${JSON.stringify(value)}`)
+}
+
 export async function runFullReviewWithSixDim(
   content: string,
   chapterNumber: number | undefined,
@@ -55,18 +65,25 @@ export async function runFullReviewWithSixDim(
   // 净收益 = 省 1 轮 continuity LLM (短路命中时)。守 S-20260718-ito3 (复用已加载 store
   // 不独立 reload): injectedContinuityResults 消除重复 load, 总 preflight 调用次数 = 1。
   const preflightContinuity = await runContinuityMechanicalPreflight(projectPath, chapterNumber)
-  const sixDimP: Promise<Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> | { __sixDimError: unknown } | undefined> = runSixDim
+  // ISS-20260709-049: 类型化状态对象（成功/失败显式分支，调用方穷尽处理）。
+  // 旧 __sixDimError 哨兵对象系 union type 反模式（"__sixDimError" in 收窄
+  // 脆弱、调用方易漏分支）；现改为显式判别联合 SixDimOutcome，coalesce 处
+  // switch 穷尽（default 走 assertNever 编译期兜底）。行为等价：success 透传
+  // 结果集、failure 捕获原始 error（非阻塞）、skipped 对应 runSixDim 缺失。
+  const sixDimP: Promise<SixDimOutcome> = runSixDim
     // ISS-20260713-002: 透传本函数入参已持有的 contextPack，适配器侧复用、跳过整包重建
     // （reviewChapter 同包只读消费；六维同样只读，无事实依赖冲突）。
     ? runSixDim({ projectPath, chapterContent: content, chapterNumber, signal: sixDimSignal, priorReviewResults: preflightContinuity, contextPack })
-        .then((res) => res as Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>)
+        .then((res) => ({
+          kind: "success" as const,
+          results: res as Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>,
+        }))
         .catch((err: unknown) => {
-          // Non-blocking: capture the original error so the gap log can print
-          // the real Error object (matches the prior console.error shape).
+          // Non-blocking: 捕获原始 error 供 gap 日志脱敏打印（toErrorMessage）。
           // Re-throws are NOT propagated (preserves 6-dim-non-blocking contract).
-          return { __sixDimError: err }
+          return { kind: "failure" as const, error: err }
         })
-    : Promise.resolve(undefined)
+    : Promise.resolve({ kind: "skipped" as const })
   try {
     reviewResults = signal
       ? await deps.reviewChapter(projectPath, content, chapterNumber, { onThinking: callbacks.onThinking, contextPack, injectedContinuityResults: preflightContinuity }, signal)
@@ -86,9 +103,9 @@ export async function runFullReviewWithSixDim(
     // stream (up to 6 dimensions × stream timeout). ISS-20260709-049: now
     // that runSixDimensionReview accepts an AbortSignal, abort the local
     // sixDimController to cascade-cancel the in-flight 6-dim LLM streams,
-    // reclaiming the orphaned token/quota. sixDimP already has a .catch above
-    // so the abort surfaces as a non-blocking __sixDimError (discarded: the
-    // coalesce step is unreachable on this path, and reviewChapter's failure
+    // reclaiming the orphaned token/quota. sixDimP already normalizes rejections
+    // to { kind: "failure" } (non-blocking) above so the abort surfaces as a
+    // failure outcome (discarded: the coalesce step is unreachable on this path, and reviewChapter's failure
     // already fails the whole review). Attach a terminal .catch so the orphan
     // is explicitly owned (never becomes an unhandled rejection if the .catch
     // above is ever changed). The external signal is NOT aborted — only the
@@ -133,38 +150,53 @@ export async function runFullReviewWithSixDim(
   // the main review flow.
   let dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> = {}
   const sixDimOutcome = await sixDimP
-  if (sixDimOutcome && typeof sixDimOutcome === "object" && "__sixDimError" in sixDimOutcome) {
-    // CORR-109 (IC-02 contract): record the gap. The prior catch only logged
-    // and left dimensionResults={}, so a chapter whose 6-dim review threw was
-    // indistinguishable downstream from one where 6-dim passed clean (the
-    // F-003/ARCH-001 "6-dim orphan" silently recurred). Push an info-severity
-    // NovelReviewResult so status.json / ContextGap consumers can see the 6-dim
-    // review was skipped, not clean. Non-blocking preserved (info, not error).
-    const sixDimErr = sixDimOutcome.__sixDimError
-    const errMsg = toErrorMessage(sixDimErr)
-    // F-16 (CWE-532): message-only to avoid leaking provider request details.
-    logger.error("Deep Chapter", "6-dimension review failed (non-blocking)", { error: errMsg })
-    reviewResults = [
-      ...reviewResults,
-      {
-        severity: "info",
-        type: "quality",
-        message: `[6-dim review unavailable: ${errMsg}]`,
-        evidence: "",
-        relatedMemory: "",
-        suggestion: "",
-      },
-    ]
-  } else if (sixDimOutcome) {
-    dimensionResults = sixDimOutcome
-    if (Object.keys(dimensionResults).length > 0) {
-      // §GAP-88-03 (ainovel 强制举证硬门激活): 传入 content 作 chapterBody，
-      // 使 dimensionResultsToReviewResults 内的举证机械校验真正生效——无
-      // chapterBody 时 verifyEvidenceCitations 全跳过，硬门形同虚设。
+  // ISS-20260709-049: 穷尽处理三分支（success/failure/skipped），default 编译期兜底。
+  // 行为等价：failure 记 info gap（非阻塞）、success 合并举证、skipped 空合并。
+  switch (sixDimOutcome.kind) {
+    case "failure": {
+      // CORR-109 (IC-02 contract): record the gap. The prior catch only logged
+      // and left dimensionResults={}, so a chapter whose 6-dim review threw was
+      // indistinguishable downstream from one where 6-dim passed clean (the
+      // F-003/ARCH-001 "6-dim orphan" silently recurred). Push an info-severity
+      // NovelReviewResult so status.json / ContextGap consumers can see the 6-dim
+      // review was skipped, not clean. Non-blocking preserved (info, not error).
+      const sixDimErr = sixDimOutcome.error
+      const errMsg = toErrorMessage(sixDimErr)
+      // F-16 (CWE-532): message-only to avoid leaking provider request details.
+      logger.error("Deep Chapter", "6-dimension review failed (non-blocking)", { error: errMsg })
       reviewResults = [
         ...reviewResults,
-        ...dimensionResultsToReviewResults(dimensionResults, content),
+        {
+          severity: "info",
+          type: "quality",
+          message: `[6-dim review unavailable: ${errMsg}]`,
+          evidence: "",
+          relatedMemory: "",
+          suggestion: "",
+        },
       ]
+      break
+    }
+    case "success": {
+      dimensionResults = sixDimOutcome.results
+      if (Object.keys(dimensionResults).length > 0) {
+        // §GAP-88-03 (ainovel 强制举证硬门激活): 传入 content 作 chapterBody，
+        // 使 dimensionResultsToReviewResults 内的举证机械校验真正生效——无
+        // chapterBody 时 verifyEvidenceCitations 全跳过，硬门形同虚设。
+        reviewResults = [
+          ...reviewResults,
+          ...dimensionResultsToReviewResults(dimensionResults, content),
+        ]
+      }
+      break
+    }
+    case "skipped": {
+      // runSixDimensionReview 缺失（测试注入/降级路径）：空合并，保持既有语义。
+      break
+    }
+    default: {
+      assertNeverSixDimOutcome(sixDimOutcome)
+      break
     }
   }
   // ISS-20260719-002 (option C1 真接线已激活): 机械预检在 sixDimP 启动前先跑

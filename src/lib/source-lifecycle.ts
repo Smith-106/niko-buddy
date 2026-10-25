@@ -126,7 +126,7 @@ export async function importSourceFiles(
           toErrorMessage(err),
         )
       })
-    } catch (err) { console.error(`Failed to import ${orig}:`, err) }
+    } catch (err) { console.error(`Failed to import ${orig}:`, err instanceof Error ? `${err.name}: ${err.message}` : toErrorMessage(err)) }
   }
 
   const taskIdsByPath = options.autoExtract === false ? {} : await ingestWithTaskMap(project, imported, llmConfig)

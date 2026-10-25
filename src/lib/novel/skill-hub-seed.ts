@@ -136,5 +136,9 @@ const SKILL_ROUTE_REGISTRY_MISSING_NAMES = validateSkillRouteRegistry(
 )
 
 if (SKILL_ROUTE_REGISTRY_MISSING_NAMES.length > 0) {
-  console.error("Skill 路由注册表包含不存在的 SkillHub 名称：", SKILL_ROUTE_REGISTRY_MISSING_NAMES)
+  // ISS-20260709-050: 脱敏 — 名称清单非密钥但仍收敛为计数+清单字符串（禁错误对象透出）。
+  console.error(
+    "Skill 路由注册表包含不存在的 SkillHub 名称：",
+    `${SKILL_ROUTE_REGISTRY_MISSING_NAMES.length} missing: ${SKILL_ROUTE_REGISTRY_MISSING_NAMES.join(", ")}`,
+  )
 }

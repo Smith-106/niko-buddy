@@ -2,7 +2,7 @@ import { createDirectory, readFile, writeFileAtomic, writeFilesAtomic } from "@/
 import { listen } from "@tauri-apps/api/event"
 import { normalizePath } from "@/lib/path-utils"
 import { isTauri } from "@/lib/platform"
-import { pad, toErrorMessage } from "@/lib/utils"
+import { pad, toErrorMessage, logger } from "@/lib/utils"
 import { z } from "zod"
 import { withProjectLock } from "./novel-locks"
 import { DRAFT_AUTO_ARM_SCHEMA, type DraftAutoArmStatus } from "./auto-arm-status"
@@ -1100,8 +1100,10 @@ export async function appendStageMetric(
         stage_metrics: next,
       })
     })
-  } catch {
+  } catch (err) {
     // non-fatal — 阶段指标采集失败不阻断主链
+    // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
+    logger.warn("Novel Session", "stage metrics append failed (non-fatal)", { error: toErrorMessage(err) })
   }
 }
 
@@ -1183,7 +1185,9 @@ export async function loadNovelDraftArtifact(
       ...(parsed as NovelDraftArtifact),
       decision_gates: cloneDecisionGates(parsed.decision_gates),
     }
-  } catch {
+  } catch (err) {
+    // ISS-20260709-025 PAT-IM2: 草稿解析降级记诊断（控制流不变，仍返回 null）。
+    logger.warn("Novel Session", "parse draft artifact failed, degrade to null (non-fatal)", { error: toErrorMessage(err) })
     return null
   }
 }
@@ -1370,18 +1374,14 @@ async function preserveCorruptStatusFile(projectPath: string, raw: string): Prom
     const stamp = new Date().toISOString().replace(/[:.]/g, "-")
     const corruptPath = `${novelDirPath(projectPath)}/status.corrupt-${stamp}.json`
     await writeFileAtomic(corruptPath, raw)
-    console.error(
-      `[novel-session-status] corrupted status.json detected at ${statusPath}; ` +
-        `original contents preserved to ${corruptPath}`,
-    )
+    // ISS-20260709-050: 脱敏 — 只记路径，不记原文/错误对象。
+    logger.error("Novel Session", "corrupted status.json detected, original preserved", { status: statusPath, preservedTo: corruptPath })
     return corruptPath
   } catch (error) {
     // 保全失败 → fail-loud；startDeepChapterSession 检测到「未保全」标记后
     // 拒绝覆盖已有文件（禁止在未保全的情况下覆盖唯一副本）。
-    console.error(
-      `[novel-session-status] FAILED to preserve corrupt status.json at ${statusPath}; ` +
-        `overwrite of the only copy must be refused: ${toErrorMessage(error)}`,
-    )
+    // ISS-20260709-050: 只记名与 message（toErrorMessage），禁原文外泄。
+    logger.error("Novel Session", "FAILED to preserve corrupt status.json, refuse overwrite", { status: statusPath, error: toErrorMessage(error) })
     return null
   }
 }
@@ -1432,10 +1432,12 @@ async function loadNovelSessionStatusDetailed(projectPath: string): Promise<Nove
       return { status: null, corrupt: { preservedTo: await preserveCorruptStatusFile(projectPath, raw) } }
     }
     return { status: backfilled }
-  } catch {
+  } catch (err) {
     // CORR-A: 读取失败（ENOENT 等）或空文件无原始字节可保全，保持既有 null
     // 降级；解析失败（raw 已取得）先把原始内容写为 `.corrupt-<时间戳>` 兄弟
     // 文件，再 fail-loud 返回 null。禁止在未保全的情况下被下游覆盖。
+    // ISS-20260709-025 PAT-IM2: 记诊断（读失败 vs 解析失败分支不变）。
+    logger.warn("Novel Session", "load session detailed failed, degrade to null (non-fatal)", { error: toErrorMessage(err) })
     if (raw === undefined || raw.length === 0) return { status: null }
     return { status: null, corrupt: { preservedTo: await preserveCorruptStatusFile(projectPath, raw) } }
   }

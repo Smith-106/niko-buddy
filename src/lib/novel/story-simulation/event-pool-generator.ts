@@ -1,4 +1,5 @@
 import { streamChat } from "@/lib/llm-client"
+import { toErrorMessage } from "@/lib/utils"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { ChatMessage } from "@/lib/llm-client"
 
@@ -141,8 +142,12 @@ ${characters.join("、")}
       },
     })
 
-    if (streamError) {
-      console.error("[event-pool-generator] LLM 调用出错：", streamError)
+    // TS 控制流将回调赋值的 streamError 收窄为 null（回调未同步执行），经闭包读取保留 Error|null 类型。
+    const readStreamError = (): Error | null => streamError
+    const streamErrorNow = readStreamError()
+    if (streamErrorNow) {
+      // ISS-20260709-050: 脱敏 — 只记名与 message，禁原文/密钥外泄。
+      console.error("[event-pool-generator] LLM 调用出错：", `${streamErrorNow.name}: ${streamErrorNow.message}`)
       return createEmptyStagedPool()
     }
 
@@ -194,7 +199,8 @@ ${characters.join("、")}
     console.warn("[event-pool-generator] LLM 返回格式无法解析")
     return createEmptyStagedPool()
   } catch (err) {
-    console.error("[event-pool-generator] 解析或调用失败：", err)
+    // ISS-20260709-050: 脱敏 — 只记名与 message。
+    console.error("[event-pool-generator] 解析或调用失败：", err instanceof Error ? `${err.name}: ${err.message}` : toErrorMessage(err))
     return createEmptyStagedPool()
   }
 }

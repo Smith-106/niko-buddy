@@ -22,7 +22,8 @@ function safeParseArray<T>(content: string, fieldName: string = "items"): T[] {
     }
     return parsed as T[]
   } catch (err) {
-    console.error(`persist: JSON 解析失败，字段: ${fieldName}`, err)
+    // ISS-20260709-050: 脱敏 — 只记名与 message。
+    console.error(`persist: JSON 解析失败，字段: ${fieldName}`, err instanceof Error ? `${err.name}: ${err.message}` : toErrorMessage(err))
     return []
   }
 }

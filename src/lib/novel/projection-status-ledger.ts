@@ -1,5 +1,6 @@
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { withProjectLock } from "./novel-locks"
 import type { NameAliasMap } from "./book-analysis/types"
 import type { ChapterSnapshot } from "./chapter-ingest"
@@ -440,20 +441,20 @@ export async function loadProjectionStatusLedger(projectPath: string): Promise<P
       return emptyLedger()
     }
     parsed = candidate
-  } catch {
+  } catch (err) {
     // A5: a thrown read (ENOENT) or a JSON.parse failure (corrupt file) must
     // NOT silently reset the ledger. When we actually held file contents that
     // failed to parse, copy them to a .corrupt-<timestamp> sibling in the same
     // directory and warn — then still return emptyLedger() to stay available.
+    // ISS-20260709-025 PAT-IM2: 记诊断（读失败 vs 解析失败可区分），控制流不变。
+    logger.warn("Projection Ledger", "load ledger failed, degrade to empty (non-fatal)", { error: toErrorMessage(err) })
     if (raw !== undefined) {
       try {
         await preserveCorruptLedger(projectPath, raw)
       } catch (preserveErr) {
         // Preserving the original is best-effort; never let it break the load.
-        console.error(
-          "[projection-status-ledger] failed to preserve corrupt ledger file:",
-          preserveErr,
-        )
+        // ISS-20260709-050: 脱敏 — 只记名与 message，禁原文/密钥外泄。
+        logger.error("Projection Ledger", "failed to preserve corrupt ledger file", { error: toErrorMessage(preserveErr) })
       }
     }
     return emptyLedger()
@@ -494,10 +495,8 @@ async function preserveCorruptLedger(projectPath: string, raw: string): Promise<
   const stamp = new Date().toISOString().replace(/[:.]/g, "-")
   const corruptPath = `${pp}/.novel/projection-status.corrupt-${stamp}.json`
   await writeFileAtomic(corruptPath, raw)
-  console.error(
-    `[projection-status-ledger] corrupted ledger detected at ${ledgerPath(projectPath)}; ` +
-      `original contents preserved to ${corruptPath}`,
-  )
+  // ISS-20260709-050: 脱敏 — 路径可记（本地路径非密钥），不记原文/错误对象明细。
+  logger.error("Projection Ledger", "corrupted ledger detected, original preserved", { ledger: ledgerPath(projectPath), preservedTo: corruptPath })
 }
 
 export async function saveProjectionStatusLedger(
@@ -553,9 +552,11 @@ export async function appendProjectionAuditEntry(
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         doc = parsed as Record<string, unknown>
       }
-    } catch {
+    } catch (err) {
       // Missing or corrupt file → start a fresh document; the spread below
       // keeps whatever fields were recoverable (none) without failing the caller.
+      // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
+      logger.warn("Projection Ledger", "read ledger for audit append failed, start fresh (non-fatal)", { error: toErrorMessage(err) })
     }
     const existing = Array.isArray(doc.auditTrail) ? (doc.auditTrail as ProjectionAuditEntry[]) : []
     await writeFileAtomic(

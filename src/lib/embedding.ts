@@ -830,7 +830,8 @@ export async function searchByEmbedding(
   try {
     rawChunks = await vectorSearchChunks(projectPath, queryEmb, Math.max(topK * 3, 30))
   } catch (err) {
-    console.error(`[Embedding] LanceDB chunk search failed: ${err instanceof Error ? err.message : err}`)
+    // ISS-20260709-050: 脱敏 — 只记名与 message。
+    console.error(`[Embedding] LanceDB chunk search failed: ${err instanceof Error ? `${err.name}: ${err.message}` : toErrorMessage(err)}`)
     return []
   }
   if (rawChunks.length === 0) return []

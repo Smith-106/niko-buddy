@@ -506,7 +506,7 @@ describe("enqueueRawChanges gating", () => {
     await rescanProjectFileSync(project)
     expect(error).toHaveBeenCalledWith(
       "[file-sync] failed to enqueue raw source ingest:",
-      expect.any(Error),
+      "Error: queue down",
     )
     error.mockRestore()
   })
@@ -576,7 +576,7 @@ describe("cleanupDeleted", () => {
     ]
     mocks.rescanProjectFiles.mockResolvedValue({ queue: { version: 1, tasks: changed }, changedTasks: changed })
     await rescanProjectFileSync(project)
-    expect(error).toHaveBeenCalledWith("[file-sync] failed to clean deleted raw sources:", expect.any(Error))
+    expect(error).toHaveBeenCalledWith("[file-sync] failed to clean deleted raw sources:", "Error: lancedb down")
     expect(mocks.cleanupDeletedWikiPages).toHaveBeenCalledWith("/proj", ["wiki/notes/story.md"])
     error.mockRestore()
   })
@@ -587,7 +587,7 @@ describe("cleanupDeleted", () => {
     const changed = [task({ id: "d1", path: "wiki/notes/story.md", kind: "deleted" })]
     mocks.rescanProjectFiles.mockResolvedValue({ queue: { version: 1, tasks: changed }, changedTasks: changed })
     await expect(rescanProjectFileSync(project)).resolves.toBeUndefined()
-    expect(error).toHaveBeenCalledWith("[file-sync] failed to clean deleted wiki pages:", expect.any(Error))
+    expect(error).toHaveBeenCalledWith("[file-sync] failed to clean deleted wiki pages:", "Error: boom")
     error.mockRestore()
   })
 

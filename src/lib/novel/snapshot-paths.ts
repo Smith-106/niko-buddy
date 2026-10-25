@@ -32,11 +32,61 @@ export function snapshotHistoryFileName(): string {
 }
 
 export function snapshotSourceFileNameCandidates(chapterNumber: number): string[] {
-  const canonical = chapterNumber < 0
-    ? `outline-${String(Math.abs(chapterNumber)).padStart(3, "0")}.snapshot.json`
-    : `${String(chapterNumber).padStart(3, "0")}.snapshot.json`
-  const legacy = `${String(chapterNumber).padStart(3, "0")}.snapshot.json`
-  return Array.from(new Set([canonical, legacy]))
+  // ISS-20260712-MAINT-4: 统一双态候选（与 delete-source-memory 对齐）。
+  // 正文章节同时接受补零与非补零（003.snapshot.json + 3.snapshot.json），
+  // 大纲章节同时接受 outline-补零与 outline-非补零；旧 snapshot-paths 正数
+  // 仅返回补零单项（Set 去重后坍缩）且负数 legacy 缺 outline 前缀（会与正数
+  // 碰撞），此处修复。调用方必须经 exact token 匹配（has/isOnly*）消费，
+  // 禁止 content.includes(候选) 子串判定（跨章节误伤：如 "3.snapshot.json"
+  // 是 "13.snapshot.json" 的子串）。
+  if (chapterNumber < 0) {
+    const absolute = Math.abs(chapterNumber)
+    const padded = `outline-${String(absolute).padStart(3, "0")}.snapshot.json`
+    const unpadded = `outline-${absolute}.snapshot.json`
+    return Array.from(new Set([padded, unpadded]))
+  }
+  const padded = `${String(chapterNumber).padStart(3, "0")}.snapshot.json`
+  const unpadded = `${chapterNumber}.snapshot.json`
+  return Array.from(new Set([padded, unpadded]))
+}
+
+/** 快照源文件名 token 正则（exact token 抽取唯一口径）。 */
+const SNAPSHOT_SOURCE_TOKEN_RE = /[A-Za-z0-9_-]+\.snapshot\.json/g
+
+/**
+ * ISS-20260712-MAINT-4: 从正文/实体内容中抽取快照源 token（exact token，
+ * 非子串）。返回全部 `*.snapshot.json` token（保持出现序，去重与否由调用方定）。
+ */
+export function extractSnapshotSourceTokens(content: string): string[] {
+  return content.match(SNAPSHOT_SOURCE_TOKEN_RE) ?? []
+}
+
+/**
+ * ISS-20260712-MAINT-4: 内容是否引用任一候选（exact Set 命中，非 includes 子串）。
+ * 跨章节子串风险修复："003.snapshot.json" 不再误匹配 "1003.snapshot.json"
+ *（后者 token 为 "1003.snapshot.json"，不在候选 Set 中）。
+ */
+export function hasSnapshotSourceReference(
+  content: string,
+  candidates: Set<string> | readonly string[],
+): boolean {
+  const set = candidates instanceof Set ? candidates : new Set(candidates)
+  const tokens = extractSnapshotSourceTokens(content)
+  return tokens.some((token) => set.has(token))
+}
+
+/**
+ * ISS-20260712-MAINT-4: 内容引用的快照源是否全部且仅属于当前章节候选
+ *（至少命中一个候选 token，且所有 token 均在候选 Set 内）。truth store 残留
+ * 修的判定口径：仅当前章节来源的孤儿实体方可删除，跨章节混引永不删。
+ */
+export function isOnlyCurrentChapterSource(
+  content: string,
+  candidates: Set<string> | readonly string[],
+): boolean {
+  const set = candidates instanceof Set ? candidates : new Set(candidates)
+  const tokens = extractSnapshotSourceTokens(content)
+  return tokens.length > 0 && tokens.every((token) => set.has(token))
 }
 
 export function snapshotToMarkdown(snapshot: ChapterSnapshot): string {

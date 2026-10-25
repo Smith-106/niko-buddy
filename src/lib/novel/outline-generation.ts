@@ -14,7 +14,7 @@ import { ingestOutline } from "./chapter-ingest"
 import { formatOutlineQualityReport } from "./outline-quality-check"
 import { normalizeMarkdownBody } from "./normalize-markdown-body"
 import { buildContextPack, type ContextPack } from "./context-engine"
-import { toErrorMessage } from "@/lib/utils"
+import { toErrorMessage, logger } from "@/lib/utils"
 
 export type OutlineSectionGenerationKey =
   | "chapterOutlines"
@@ -187,7 +187,9 @@ export async function hasOutlineForRefinement(projectPath: string): Promise<bool
       return files
     }
     return flattenFiles(tree).length > 0
-  } catch {
+  } catch (err) {
+    // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变（判空失败按无大纲处理）。
+    logger.warn("Outline Generation", "check outlines existence failed, degrade to false (non-fatal)", { error: toErrorMessage(err) })
     return false
   }
 }
@@ -231,7 +233,9 @@ function emptyOutlineContextPack(task: string): ContextPack {
 async function safeBuildOutlineContextPack(projectPath: string, task: string): Promise<ContextPack> {
   try {
     return await buildContextPack(projectPath, task)
-  } catch {
+  } catch (err) {
+    // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变（降级空包）。
+    logger.warn("Outline Generation", "build context pack failed, degrade to empty (non-fatal)", { error: toErrorMessage(err) })
     return emptyOutlineContextPack(task)
   }
 }
@@ -454,7 +458,9 @@ async function readWrittenOutline(outlinePath: string): Promise<string> {
   try {
     const written = await readFile(outlinePath)
     return typeof written === "string" ? written : ""
-  } catch {
+  } catch (err) {
+    // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
+    logger.warn("Outline Generation", "read written outline failed, degrade to empty (non-fatal)", { path: outlinePath, error: toErrorMessage(err) })
     return ""
   }
 }
@@ -699,7 +705,9 @@ export async function runBulkOutlineIngest(projectPath: string): Promise<{
     const tree = await listDirectory(`${pp}/wiki/outlines`)
     outlinePaths = collectOutlineMarkdownPaths(tree as Array<{ path: string; name: string; is_dir: boolean; children?: Array<{ path: string; name: string; is_dir: boolean; children?: unknown[] }> }>)
       .sort((a, b) => a.localeCompare(b, "zh-CN"))
-  } catch {
+  } catch (err) {
+    // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变（列目录失败按空批量处理）。
+    logger.warn("Outline Generation", "bulk ingest list failed, degrade to empty batch (non-fatal)", { error: toErrorMessage(err) })
     return { total: 0, succeeded: 0, failed: 0 }
   }
 
@@ -713,6 +721,9 @@ export async function runBulkOutlineIngest(projectPath: string): Promise<{
     if (task?.status === "done") succeeded += 1
     else failed += 1
   }
+
+  // ISS-20260712-REL-1: outline-import 失败汇总收敛 — 批量结果统一记一行（脱敏计数，不含原文）。
+  logger.warn("Outline Generation", "bulk outline ingest summary", { total: outlinePaths.length, succeeded, failed })
 
   return {
     total: outlinePaths.length,
@@ -795,7 +806,9 @@ export async function generateOutlineFileMultiAgent(
   try {
     const built = await buildMcpAgentTools(useWikiStore.getState().mcpConfig)
     if (built.tools.length > 0) mcpTools = built.tools
-  } catch {
+  } catch (err) {
+    // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变（无 MCP 工具继续生成）。
+    logger.warn("Outline Generation", "mcp tools build failed, continue without tools (non-fatal)", { error: toErrorMessage(err) })
     mcpTools = undefined
   }
 
@@ -805,8 +818,10 @@ export async function generateOutlineFileMultiAgent(
   try {
     const userSkills = await loadUserSkillConfig(projectPath)
     skillNames.push(...userSkills.skills.map((skill) => skill.id))
-  } catch {
+  } catch (err) {
     // 技能装载失败不阻断大纲生成
+    // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
+    logger.warn("Outline Generation", "skill load failed, continue without skills (non-fatal)", { error: toErrorMessage(err) })
   }
   const plan = planOutlineSubAgents({ taskPrompt: prompt, preferredSkillNames: skillNames })
   const contextPack = {

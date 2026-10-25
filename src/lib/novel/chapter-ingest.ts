@@ -19,6 +19,8 @@ import {
   snapshotMarkdownPath,
   snapshotSourceFileNameCandidates,
   snapshotToMarkdown,
+  hasSnapshotSourceReference,
+  isOnlyCurrentChapterSource,
 } from "./snapshot-paths"
 export {
   snapshotFilePrefix,
@@ -28,6 +30,8 @@ export {
   snapshotMarkdownPath,
   snapshotSourceFileNameCandidates,
   snapshotToMarkdown,
+  hasSnapshotSourceReference,
+  isOnlyCurrentChapterSource,
 } from "./snapshot-paths"
 import { resolveNovelModel } from "./model-resolver"
 // S5 首拆切片 #2（chapter-ingest 拆分第 2 步）：快照预览纯函数簇已拆至 ./snapshot-preview。
@@ -636,8 +640,10 @@ export async function ingestChapter(
       try {
         const raw = await readFile(factsPath)
         factsState = loadFactsFile(raw)
-      } catch {
+      } catch (err) {
         // 无 facts.json → 空表重建 (零迁移成本)
+        // ISS-20260709-025 PAT-IM2: 记诊断（首次建表为预期路径，warn 弱提示），控制流不变。
+        logger.warn("Chapter Ingest", "facts file missing or corrupt, rebuild empty (non-fatal)", { error: toErrorMessage(err) })
       }
       const canonFacts = snapshot.newCanonFacts ?? []
       if (canonFacts.length > 0) {
@@ -1516,8 +1522,10 @@ export async function syncSnapshotToMemory(
           error: toErrorMessage(err),
           timestamp: new Date().toISOString(),
         })
-      } catch {
+      } catch (auditErr) {
         // 审计 append 失败绝不断 sync 主流程
+        // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
+        logger.warn("Chapter Ingest", "projection audit append failed (non-fatal)", { projection: id, error: toErrorMessage(auditErr) })
       }
     }
   }
@@ -1594,7 +1602,9 @@ async function cleanupSupersededEntityFiles(
   try {
     // listEntityFiles 递归聚合 entities/ 子目录+顶层散装（双态兼容物理分层）。
     oldEntityFiles = (await listEntityFiles(projectPath)).map((f) => `${f.name}.md`)
-  } catch {
+  } catch (err) {
+    // ISS-20260712-REL-1: 空 catch 收敛 — 记诊断，控制流不变（列目录失败即跳过清理）。
+    logger.warn("Chapter Ingest", "list entities failed, skip superseded cleanup (non-fatal)", { error: toErrorMessage(err) })
     return
   }
 
@@ -1614,7 +1624,9 @@ async function cleanupSupersededEntityFiles(
       try {
         const content = await readFile(entry.filePath)
         return { entry, content, ok: true }
-      } catch {
+      } catch (err) {
+        // ISS-20260709-025 PAT-IM2: 逐文件探针失败记诊断，控制流不变（ok:false 跳过）。
+        logger.warn("Chapter Ingest", "entity probe read failed, skip file (non-fatal)", { path: entry.filePath, error: toErrorMessage(err) })
         return { entry, content: null, ok: false }
       }
     }),
@@ -1627,10 +1639,13 @@ async function cleanupSupersededEntityFiles(
       toDelete.push(entry.filePath)
       continue
     }
-    if (Array.from(snapshotSourceFiles).some((sourceFile) => content.includes(sourceFile))) {
-      const allSources = content.match(/[A-Za-z0-9_-]+\.snapshot\.json/g) /* v8 ignore start */ /* v8 ignore stop */ ?? []
-      const onlyCurrentSource = allSources.length > 0 && allSources.every((sourceFile) => snapshotSourceFiles.has(sourceFile))
-      if (onlyCurrentSource) {
+    // ISS-20260712-MAINT-4: exact token 匹配（防跨章节子串误伤）。
+    // 旧 `content.includes(候选)` 会把 "3.snapshot.json" 误判进
+    // "13.snapshot.json"；现经 has/isOnly* exact Set 口径：仅当内容引用的
+    // 全部 snapshot token 均属于当前章节候选时才删（混引永不删）。行为等价
+    // （孤儿判定语义不变），仅消除子串假阳性。
+    if (hasSnapshotSourceReference(content, snapshotSourceFiles)) {
+      if (isOnlyCurrentChapterSource(content, snapshotSourceFiles)) {
         toDelete.push(entry.filePath)
       }
     }
@@ -1640,8 +1655,9 @@ async function cleanupSupersededEntityFiles(
     toDelete.map(async (filePath) => {
       try {
         await deleteFile(filePath)
-      } catch {
-        // ignore cleanup failures per file
+      } catch (err) {
+        // ISS-20260712-REL-1: 空 catch 收敛 — 记诊断不改控制流（清理失败不阻断）。
+        logger.warn("Chapter Ingest", "cleanup superseded entity failed (non-fatal)", { path: filePath, error: toErrorMessage(err) })
       }
     }),
   )
@@ -2005,8 +2021,10 @@ export async function selfHealFailedProjections(
       ledger = recordProjectionAudit(ledger, auditEntry)
       try {
         await appendProjectionAuditEntry(pp, auditEntry)
-      } catch {
+      } catch (auditErr) {
         /* 审计追加非致命（audit 永不阻断主链） */
+        // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
+        logger.warn("Chapter Ingest", "self-heal audit append failed (non-fatal)", { error: toErrorMessage(auditErr) })
       }
     }
     await saveProjectionStatusLedger(pp, ledger)
@@ -2299,7 +2317,9 @@ async function loadEntityLinkIndex(projectPath: string) {
         }
       }))
     return buildEntityLinkIndex(summaries.filter((summary): summary is EntitySummary => Boolean(summary)))
-  } catch {
+  } catch (err) {
+    // ISS-20260709-025 PAT-IM2: 实体链接索引构建失败记诊断，控制流不变（空索引降级）。
+    logger.warn("Chapter Ingest", "load entity link index failed, degrade to empty (non-fatal)", { error: toErrorMessage(err) })
     return buildEntityLinkIndex([])
   }
 }
@@ -2398,7 +2418,9 @@ async function validateEntityReferences(
     probes.map(async (probe) => {
       try {
         return { probe, exists: await fileExists(probe.filePath), errored: false }
-      } catch {
+      } catch (err) {
+        // ISS-20260709-025 PAT-IM2: 探针失败记诊断，控制流不变（按不存在处理）。
+        logger.warn("Chapter Ingest", "entity exists probe failed, treat as new (non-fatal)", { path: probe.filePath, error: toErrorMessage(err) })
         return { probe, exists: false, errored: true }
       }
     }),
@@ -2429,7 +2451,9 @@ async function validateCanonConflicts(
     const canonPath = `${projectPath}/wiki/canon.md`
     try {
       await readFile(canonPath)
-    } catch {
+    } catch (err) {
+      // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变（无 canon 按零冲突处理）。
+      logger.warn("Chapter Ingest", "canon file missing, skip conflict check (non-fatal)", { error: toErrorMessage(err) })
       return warnings
     }
 
@@ -2450,8 +2474,10 @@ async function validateCanonConflicts(
         }
       }
     }
-  } catch {
+  } catch (err) {
     // 校验失败不影响主流程
+    // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
+    logger.warn("Chapter Ingest", "canon conflict validation failed (non-fatal)", { error: toErrorMessage(err) })
   }
 
   return warnings
@@ -2518,10 +2544,16 @@ export async function deleteChapterSnapshots(projectPath: string, chapterNumber:
   const jsonPath = snapshotJsonPath(pp, chapterNumber)
   const mdPath = snapshotMarkdownPath(pp, chapterNumber)
   const historyDir = snapshotHistoryDir(pp, chapterNumber)
-  try { if (await fileExists(jsonPath)) await deleteFile(jsonPath) } catch { /* ignore */ }
-  try { if (await fileExists(mdPath)) await deleteFile(mdPath) } catch { /* ignore */ }
-  try { if (await fileExists(historyDir)) await deleteFile(historyDir) } catch { /* ignore */ }
+  // ISS-20260712-REL-1: 空 catch 收敛 — 记诊断（warn + 脱敏 message），控制流不变
+  // （删除失败不阻断 rebuild；缺文件仍视为已删）。
+  try { if (await fileExists(jsonPath)) await deleteFile(jsonPath) } catch (err) { logger.warn("Chapter Ingest", "delete snapshot json failed (non-fatal)", { path: jsonPath, error: toErrorMessage(err) }) }
+  try { if (await fileExists(mdPath)) await deleteFile(mdPath) } catch (err) { logger.warn("Chapter Ingest", "delete snapshot md failed (non-fatal)", { path: mdPath, error: toErrorMessage(err) }) }
+  try { if (await fileExists(historyDir)) await deleteFile(historyDir) } catch (err) { logger.warn("Chapter Ingest", "delete snapshot history failed (non-fatal)", { path: historyDir, error: toErrorMessage(err) }) }
   await rebuildDerivedMemoryFromSnapshots(pp)
+  // ISS-20260712-MAINT-4: truth store 残留修 — rebuild 仅重放剩余快照，已删章节的
+  // 孤儿实体（其 snapshot token 全属于被删章节候选）在此兜底清扫。exact 匹配
+  // 口径（isOnlyCurrentChapterSource），混引永不删；失败记 warn 不阻断。
+  await cleanupDeletedChapterResidualEntities(pp, chapterNumber)
   // P2-IMP-15：delete 后 drift>0 → 自动经注册表 rebuild 漂移类 → 复测仍>0 才告警升级。
   await autoRepairTruthFoldDrift(pp, { trigger: "delete" })
   clearGraphCache()
@@ -2529,6 +2561,44 @@ export async function deleteChapterSnapshots(projectPath: string, chapterNumber:
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入 callback 优先, 缺省回退 store。
   const bump = onDataVersionBump ?? (() => useWikiStore.getState().bumpDataVersion())
   bump()
+}
+
+/**
+ * ISS-20260712-MAINT-4: 已删章节的 truth store 残留兜底清扫。
+ * 列出 entities/ 下 .md，其 snapshot token 全部命中被删章节候选则删除
+ * （exact 口径，跨章节子串不误伤；混引保留）。best-effort：读删失败记 warn。
+ */
+export async function cleanupDeletedChapterResidualEntities(projectPath: string, chapterNumber: number): Promise<string[]> {
+  const pp = normalizePath(projectPath)
+  const candidates = new Set(snapshotSourceFileNameCandidates(chapterNumber))
+  let oldFiles: string[] = []
+  try {
+    oldFiles = (await listEntityFiles(pp)).map((f) => `${f.name}.md`)
+  } catch (err) {
+    logger.warn("Chapter Ingest", "residual sweep list failed (non-fatal)", { error: toErrorMessage(err) })
+    return []
+  }
+  const deleted: string[] = []
+  const entitiesDir = `${pp}/wiki/entities`
+  for (const oldFile of oldFiles) {
+    const filePath = `${entitiesDir}/${oldFile}`
+    let content: string
+    try {
+      content = await readFile(filePath)
+    } catch (err) {
+      logger.warn("Chapter Ingest", "residual sweep read failed (non-fatal)", { path: filePath, error: toErrorMessage(err) })
+      continue
+    }
+    if (!hasSnapshotSourceReference(content, candidates)) continue
+    if (!isOnlyCurrentChapterSource(content, candidates)) continue
+    try {
+      await deleteFile(filePath)
+      deleted.push(filePath)
+    } catch (err) {
+      logger.warn("Chapter Ingest", "residual sweep delete failed (non-fatal)", { path: filePath, error: toErrorMessage(err) })
+    }
+  }
+  return deleted
 }
 
 export async function ingestOutline(
@@ -2624,7 +2694,8 @@ ${body}
       // ingestFailedNotification. Return null here aligns the no-JSON path
       // with the JSON.parse SyntaxError path @2016 and honors the contract
       // the ISS-026 comment already claimed. Spec S-20260711-6ed4.
-      logger.error("Outline Ingest", "ingestOutline: model returned no parseable JSON object")
+      // ISS-20260712-REL-1: 失败汇总收敛 — 附 outline 名 + 脱敏原因（控制流不变，仍返回 null 走友好降级）。
+      logger.error("Outline Ingest", "ingestOutline: model returned no parseable JSON object", { outline: outlineName })
       return null
     }
 
@@ -2642,7 +2713,8 @@ ${body}
     } catch (error) {
       /* v8 ignore next */
       if (error instanceof SyntaxError) {
-        logger.error("Outline Ingest", "Malformed outline JSON", { error: error.message })
+        // ISS-20260712-REL-1: 附 outline 名汇总（脱敏 message，不含原文）。
+        logger.error("Outline Ingest", "Malformed outline JSON", { outline: outlineName, error: error.message })
         return null
       }
       throw error
@@ -2673,14 +2745,16 @@ ${body}
       // correctly propagates normalizeChapterSnapshot's null to its caller.
       // Spec S-20260711-6ed4: parse/structure-validation failure must route to
       // the caller's friendly degrade, not bare-throw past it.
-      logger.error("Outline Ingest", "normalizeChapterSnapshot returned null: parsed payload is not a valid snapshot object")
+      // ISS-20260712-REL-1: 附 outline 名汇总。
+      logger.error("Outline Ingest", "normalizeChapterSnapshot returned null: parsed payload is not a valid snapshot object", { outline: outlineName })
       return null
     }
 
     const syncResult = await syncSnapshotToMemory(pp, snapshot)
     return { ...snapshot, memorySyncedAt: syncResult.memorySyncedAt }
   } catch (err) {
-    logger.error("Outline Ingest", "Failed", { error: toErrorMessage(err) })
+    // ISS-20260712-REL-1: 附 outline 名汇总（脱敏 message；控制流不变，仍 throw 归一化错误）。
+    logger.error("Outline Ingest", "Failed", { outline: outlineName, error: toErrorMessage(err) })
     throw normalizeOutlineIngestError(err)
   }
 }

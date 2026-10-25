@@ -536,10 +536,11 @@ async function autoIngestImpl(
       onError: (err) => {
         // F-16 (CWE-532 / PAT-DC1-MSG-UI): err.message from the LLM transport may
         // carry provider endpoint URL / auth header — strip before surfacing in
-        // the user-visible Activity panel. Raw message logged to console only.
+        // the user-visible Activity panel. ISS-20260709-050: 控制台同样只记脱敏后
+        // safe（禁原文/密钥外泄），行为等价（仅日志内容收敛）。
         const raw = toErrorMessage(err)
-        console.error("[ingest] analysis stream error:", raw)
         const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+        console.error("[ingest] analysis stream error:", safe)
         activity.updateItem(activityId, { status: "error", detail: i18n.t("activity.ingest.analysisFailed", { message: safe }) })
       },
     },
@@ -596,9 +597,10 @@ async function autoIngestImpl(
       onError: (err) => {
         // F-16 (CWE-532 / PAT-DC1-MSG-UI): strip provider URL/auth from err.message
         // before surfacing in the user-visible Activity panel (twin of analysis site).
+        // ISS-20260709-050: 控制台只记 safe。
         const raw = toErrorMessage(err)
-        console.error("[ingest] generation stream error:", raw)
         const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+        console.error("[ingest] generation stream error:", safe)
         activity.updateItem(activityId, { status: "error", detail: i18n.t("activity.ingest.generationFailed", { message: safe }) })
       },
     },
@@ -1654,9 +1656,10 @@ export async function startIngest(
       onError: (err) => {
         // F-16 (CWE-532 / PAT-DC1-MSG-UI): strip provider URL/auth from err.message
         // before writing into the user-visible chat stream.
+        // ISS-20260709-050: 控制台只记 safe。
         const raw = toErrorMessage(err)
-        console.error("[ingest] startIngest stream error:", raw)
         const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+        console.error("[ingest] startIngest stream error:", safe)
         getStore().finalizeStream(`Error during ingest: ${safe}`)
       },
     },
@@ -1819,9 +1822,10 @@ export async function executeIngestWrites(
       onError: (err) => {
         // F-16 (CWE-532 / PAT-DC1-MSG-UI): strip provider URL/auth before surfacing
         // in the user-visible chat stream (twin of startIngest site).
+        // ISS-20260709-050: 控制台只记 safe。
         const raw = toErrorMessage(err)
-        console.error("[ingest] executeIngestWrites stream error:", raw)
         const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+        console.error("[ingest] executeIngestWrites stream error:", safe)
         getStore().finalizeStream(`Error generating wiki files: ${safe}`)
       },
     },

@@ -398,11 +398,11 @@ export async function runSemanticLint(
         hadError = true
         // F-16 (CWE-532 / PAT-DC1-MSG-UI): err.message from the LLM transport may
         // carry provider endpoint URL / auth header — strip before surfacing in
-        // the user-visible Activity panel. Raw message logged to console only.
+        // the user-visible Activity panel. ISS-20260709-050: 控制台同样只记 safe。
         // (Twin of ingest.ts:553/613 analysis/generation activity sites.)
         const raw = toErrorMessage(err)
-        console.error("[Novel Lint] LLM stream error:", raw)
         const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+        console.error("[Novel Lint] LLM stream error:", safe)
         activity.updateItem(activityId, {
           status: "error",
           detail: `LLM error: ${safe}`,

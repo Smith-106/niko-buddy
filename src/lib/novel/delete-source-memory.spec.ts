@@ -21,6 +21,8 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 
 const loggerMocks = vi.hoisted(() => ({
   error: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
 }))
 
 vi.mock("@/lib/utils", async (importOriginal) => {

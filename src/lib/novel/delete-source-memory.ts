@@ -1,4 +1,8 @@
 import { normalizePath } from "@/lib/path-utils"
+import { snapshotSourceFileNameCandidates } from "./snapshot-paths"
+
+// ISS-20260712-MAINT-4: 本地双态候选已收敛至 snapshot-paths 唯一真源（exact token
+// 口径 + outline 双变体）。保留函数名作薄包装，防既有 import 面变化。
 import { logger, toErrorMessage } from "@/lib/utils"
 import { deleteFile, listDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { parseSources, writeSources } from "@/lib/sources-merge"
@@ -57,28 +61,17 @@ function flattenEntityFiles(nodes: readonly FileNode[]): FileNode[] {
   return files
 }
 
-function snapshotSourceFileNameCandidates(snapshotNumber: number): string[] {
-  if (snapshotNumber < 0) {
-    const absolute = Math.abs(snapshotNumber)
-    return [
-      `outline-${String(absolute).padStart(3, "0")}.snapshot.json`,
-      `outline-${absolute}.snapshot.json`,
-    ]
-  }
-  return [
-    `${String(snapshotNumber).padStart(3, "0")}.snapshot.json`,
-    `${snapshotNumber}.snapshot.json`,
-  ]
-}
-
 async function cleanupDeletedSourceEntities(projectPath: string, snapshotNumber: number): Promise<void> {
   const pp = normalizePath(projectPath)
+  // ISS-20260712-MAINT-4: 经 snapshot-paths 唯一真源取候选（exact token 口径）。
   const deletedSources = new Set(snapshotSourceFileNameCandidates(snapshotNumber))
   let entityFiles: FileNode[] = []
 
   try {
     entityFiles = flattenEntityFiles(await listDirectory(`${pp}/wiki/entities`))
-  } catch {
+  } catch (err) {
+    // ISS-20260712-REL-1: 空 catch 收敛 — 记诊断，控制流不变（列目录失败即跳过清理）。
+    logger.warn("Delete Source Memory", "list entities failed, skip cleanup (non-fatal)", { error: toErrorMessage(err) })
     return
   }
 

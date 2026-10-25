@@ -170,7 +170,8 @@ export async function safeEncryptApiKey(plaintext: string): Promise<string> {
   try {
     return await encryptString(plaintext)
   } catch (e) {
-    console.error("[crypto] Encryption failed, refusing to return plaintext:", e)
+    // ISS-20260709-050: 脱敏 — 只记名与 message，禁密钥/原文外泄。
+    console.error("[crypto] Encryption failed, refusing to return plaintext:", e instanceof Error ? `${e.name}: ${e.message}` : toErrorMessage(e))
     throw new Error(`API key encryption failed: ${toErrorMessage(e)}`)
   }
 }

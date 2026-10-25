@@ -741,8 +741,10 @@ export async function runSixDimensionReview({
       packKind: "app-runtime-six-dimension",
     })
     callbacks.onMeasurementFingerprint?.(measurementFingerprint)
-  } catch {
+  } catch (err) {
     // non-fatal
+    // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变（指纹失败不阻断六维）。
+    logger.warn("SixDim", "measurement fingerprint failed (non-fatal)", { error: toErrorMessage(err) })
   }
 
   // Track B: gold scale materials + skill hooks at pre_six_dim_review (soft).
@@ -758,8 +760,10 @@ export async function runSixDimensionReview({
     goldReadinessHint = readiness.promptHint
     try {
       registerNovelSkillHook(createGoldScaleReadinessHook(readiness.promptHint))
-    } catch {
+    } catch (err) {
       // registry may already have same id — ignore
+      // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
+      logger.warn("SixDim", "gold readiness hook register skipped (non-fatal)", { error: toErrorMessage(err) })
     }
     try {
       // Track B soft: mechanical avoid-ai / slop (zero-LLM). Not product hard gate.
@@ -769,8 +773,10 @@ export async function runSixDimensionReview({
           stages: ["pre_six_dim_review"],
         }),
       )
-    } catch {
+    } catch (err) {
       // ignore registry race
+      // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
+      logger.warn("SixDim", "avoid-ai slop hook register skipped (non-fatal)", { error: toErrorMessage(err) })
     }
     try {
       // Wave A CED soft report (empty findings here; full CED logs in continuity preflight).
@@ -782,8 +788,10 @@ export async function runSixDimensionReview({
           stages: ["pre_six_dim_review"],
         }),
       )
-    } catch {
+    } catch (err) {
       // ignore registry race
+      // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
+      logger.warn("SixDim", "ced soft hook register skipped (non-fatal)", { error: toErrorMessage(err) })
     }
     try {
       // Wave C: dual-pass de-AI notes (Track B soft; never product hard gate).
@@ -793,8 +801,10 @@ export async function runSixDimensionReview({
           stages: ["pre_six_dim_review"],
         }),
       )
-    } catch {
+    } catch (err) {
       // ignore registry race
+      // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
+      logger.warn("SixDim", "de-ai dualpass hook register skipped (non-fatal)", { error: toErrorMessage(err) })
     }
     try {
       // Wave C: statistical AI signature proxy (experimental; soft only).
@@ -804,8 +814,10 @@ export async function runSixDimensionReview({
           stages: ["pre_six_dim_review"],
         }),
       )
-    } catch {
+    } catch (err) {
       // ignore registry race
+      // ISS-20260709-025 PAT-IM2: 记诊断，控制流不变。
+      logger.warn("SixDim", "statistical-ai-signature hook register skipped (non-fatal)", { error: toErrorMessage(err) })
     }
     const hookCtx = await runNovelSkillHooks("pre_six_dim_review", {
       projectPath,
