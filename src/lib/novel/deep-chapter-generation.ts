@@ -656,7 +656,11 @@ export async function computeStepDigest(stageLabel: string, payload: unknown): P
 // 外部 import 路径不变。改决策门逻辑只动子模块，不再动本编排体。
 import {
   assertNotAborted,
+  countChapterChars,
 } from "./deep-chapter-utils"
+import {
+  isMetaDraftContent,
+} from "./deep-chapter-task-brief"
 
 // F4-6（Round-4 评估）：thinking 格式化簇已迁至 ./deep-chapter-utils
 //（巨石拆分第 6 步）。本地 import 供内部调用点使用，并 re-export 保持既有
@@ -876,13 +880,29 @@ export async function runDeepChapterGeneration(
   pollWatchdogAtBoundary()
   await statusMerger?.drain()
 
-  // 阶段3 + 3.5：正文初稿 + 草稿纠偏
+  // 阶段3 + 3.5：正文初稿 + 草稿纠偏（CORR-107：first-wins + 成功清除）
+  // draft 阶段内任何 partial 经 draftNotePartial 进入 partialReason（首因保留）；
+  // 仅当整阶段零 partial 且草稿验证完整（非空、达 minChars、非 meta）时，才在编排层补清早期 scene 残留。
+  // 降级/兜底（fallback taskBrief、空 polish 回退、repeat 截断、resume 短路复用旧草稿）不满足“完整”谓词，绝不 clear。
+  // generateDraft 内部初稿/纠偏/扩写完整成功已 via onCompleteClearPartial 清除，此处为幂等补清（clear null 安全）。
+  let draftStageHadPartial = false
+  const draftNotePartial = (reason: string) => {
+    draftStageHadPartial = true
+    notePartial(reason)
+  }
   const rawDraftContent = await generateDraft(
     input, writingConfig, deps, signal, callbacks,
     outlinePrompt, contextPrompt, taskBrief, lengthSpec, resumeCheckpoint, cachePrefix,
-    notePartial, clearPartial, watchdog,
+    draftNotePartial, clearPartial, watchdog,
   )
   assertNotAborted(signal, USER_ABORT_MESSAGE)
+  // 编排层成功点：draft 阶段零 partial + 内容完整 ⇒ 清除早期 partial（真正完整成功；降级/兜底不调）。
+  if (!draftStageHadPartial) {
+    const draftComplete = rawDraftContent.trim().length > 0 && !isMetaDraftContent(rawDraftContent) && countChapterChars(rawDraftContent) >= lengthSpec.minChars
+    if (draftComplete) {
+      clearPartial()
+    }
+  }
 
   // 54 号设计 ②: format-normalizer 机械层接线 (character-arc humanizer-zh 吸收)。
   // Draft-first: 规范化只作用于草稿 (pending 阶段), 不直接回填正式正文;

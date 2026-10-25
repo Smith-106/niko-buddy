@@ -567,7 +567,9 @@ export async function generateDraft(
       { max_tokens: lengthSpec.maxOutputTokens },
       cachePrefix,
       notePartial,
-      undefined,
+      // CORR-107: 初稿完整成功（无 partial-preserve）时清除早期 partial（first-wins + 成功清除；
+      // 仅完整成功清，降级/兜底不在此；partial-preserve 时 collectModelText 内部 tookPartialPreserve 守卫不调 clear）。
+      clearPartial,
       watchdog,
     )
     assertNotAborted(signal, USER_ABORT_MESSAGE)
@@ -632,7 +634,8 @@ export async function generateDraft(
       { max_tokens: lengthSpec.maxOutputTokens },
       cachePrefix,
       notePartial,
-      undefined,
+      // CORR-107: 纠偏重写完整成功时清除早期 partial（同上；兜底 fallback/空回退不调 clear）。
+      clearPartial,
       watchdog,
     )
     assertNotAborted(signal, USER_ABORT_MESSAGE)

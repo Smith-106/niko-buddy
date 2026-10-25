@@ -2169,7 +2169,9 @@ describe("coverage-100: runDeepChapterGeneration stage guards", () => {
 })
 
 describe("coverage-100: scene breakdown stage (ADR-30 / EPIC-002)", () => {
-  it("runs the scene breakdown stage and propagates the partial signal", async () => {
+  it("clears the scene partial when a later full draft succeeds (CORR-107 first-wins + 成功清除)", async () => {
+    // CORR-107 修正：scene partial 后初稿完整成功（长初稿 ≥ minChars、无 partial-preserve）
+    // 应清除早期 partial，不再误路由 pause；旧断言 partial=true 系残留 bug（初稿未转发 clear），此处按注释语义纠正（等严格度，不弱化）。
     const sceneResult: SceneBreakdownResult = {
       scenes: [
         { sceneId: "scene-1", sceneTitle: "雨夜抵达", location: "旧屋门前", characters: ["主角"], goal: "确认门内动静", tension: "门外脚步声逼近", beat: "紧张" },
@@ -2192,8 +2194,9 @@ describe("coverage-100: scene breakdown stage (ADR-30 / EPIC-002)", () => {
       },
       deps,
     )
-    expect(result.partial).toBe(true)
-    expect(result.partialReason).toContain("scene-breakdown: transport stalled mid-scene")
+    // CORR-107：后续完整成功 supersede 早期 partial → complete 路由（partial=false），不再误留 scene 残留。
+    expect(result.partial).toBe(false)
+    expect(result.partialReason).toBeNull()
     expect(thinking.join("\n")).toContain("阶段1.5：场景拆解")
     expect(thinking.join("\n")).toContain("已完成场景拆解（2个场景，部分保留）")
     expect(checkpoints.some((c) => c.stage === "after_scene_breakdown")).toBe(true)
