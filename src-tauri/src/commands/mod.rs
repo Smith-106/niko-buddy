@@ -11,6 +11,7 @@ pub mod epub_export;
 pub mod exemplar_commands;
 pub mod extract_images;
 pub mod file_sync;
+pub mod file_sync_watch;
 pub mod fs;
 pub mod fs_archive;
 pub mod local_cli_config;
