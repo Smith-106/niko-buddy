@@ -1342,6 +1342,21 @@ function buildPageMerger(llmConfig: LlmConfig): MergeFn {
 }
 
 /**
+ * CWE-22: flatten a wiki-relative path into a single filename segment for page-history.
+ * Minimal hardening over the original `[/\\]` -> `_`: also strips NUL/controls and
+ * the Windows drive/ADS `:` so `C:\evil`, absolute paths, and NUL payloads cannot
+ * escape or become unwritable. Never returns a string containing `/`, `\\`, `:` or NUL;
+ * empty/dot-only inputs map to `unnamed`. Exported for tests.
+ */
+export function sanitizeBackupRelativePath(relativePath: string): string {
+  const withoutNul = relativePath.replace(/\0/g, "")
+  const flattened = withoutNul.replace(/[/\\:]/g, "_").replace(/[\x00-\x1F\x7F]/g, "")
+  const trimmed = flattened.trim()
+  if (trimmed === "" || trimmed === "." || trimmed === "..") return "unnamed"
+  return trimmed
+}
+
+/**
  * Best-effort snapshot of a page before a fallback merge overwrites
  * it. Saved to `.niko-buddy/page-history/<sanitized-path>-<timestamp>.md`
  * so a user who later notices content lost in a merge can recover it.
@@ -1353,7 +1368,7 @@ async function backupExistingPage(
   existingContent: string,
 ): Promise<void> {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-")
-  const sanitized = relativePath.replace(/[/\\]/g, "_")
+  const sanitized = sanitizeBackupRelativePath(relativePath)
   const backupPath = `${projectPath}/.niko-buddy/page-history/${sanitized}-${stamp}`
   await writeFileAtomic(backupPath, existingContent)
 }
