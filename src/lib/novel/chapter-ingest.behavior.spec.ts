@@ -16,6 +16,7 @@ import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 const fsMocks = vi.hoisted(() => ({
   readFile: vi.fn(),
   writeFileAtomic: vi.fn(),
+  writeFilesAtomic: vi.fn(),
   listDirectory: vi.fn(),
   fileExists: vi.fn(),
   createDirectory: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
     ...actual,
       readFile: (...args: unknown[]) => fsMocks.readFile(...args),
       writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
+      writeFilesAtomic: (...args: unknown[]) => fsMocks.writeFilesAtomic(...args),
       listDirectory: (...args: unknown[]) => fsMocks.listDirectory(...args),
       fileExists: (...args: unknown[]) => fsMocks.fileExists(...args),
       createDirectory: (...args: unknown[]) => fsMocks.createDirectory(...args),
@@ -251,6 +253,7 @@ beforeEach(() => {
   setupDefaultFs()
   fsMocks.createDirectory.mockResolvedValue(undefined)
   fsMocks.writeFileAtomic.mockResolvedValue(undefined)
+  fsMocks.writeFilesAtomic.mockResolvedValue(undefined)
   fsMocks.deleteFile.mockResolvedValue(undefined)
   fsMocks.fileExists.mockResolvedValue(false)
   moduleMocks.writeSnapshotToWiki.mockResolvedValue([])
@@ -410,10 +413,15 @@ describe("ingestChapter — full success path with projections", () => {
     // entityIsNew + validation warnings computed from the entity probes
     expect(result.snapshot!.entityIsNew).toEqual({ 阿宁: true, 码头: true })
     expect(result.snapshot!.validationWarnings?.some((w) => w.type === "entity_new")).toBe(true)
-    // snapshot json + md writes (saveSnapshot), then 4 ingest-output files
+    // S4-R4：snapshot json+md 经 writeFilesAtomic 批量事务落盘（saveSnapshot + syncSnapshotToMemory
+    // 各一次，均为同批次 json+md；随后 4 ingest-output 文件仍走单写）
+    const batchCalls = fsMocks.writeFilesAtomic.mock.calls.map(([files]) => files as Array<[string, string]>)
+    expect(batchCalls.some((files) => {
+      const paths = files.map(([p]) => String(p))
+      return paths.some((p) => p.endsWith(".novel/snapshots/001.snapshot.json"))
+        && paths.some((p) => p.endsWith(".novel/snapshots/001.snapshot.md"))
+    })).toBe(true)
     const writtenPaths = fsMocks.writeFileAtomic.mock.calls.map(([p]) => String(p))
-    expect(writtenPaths.some((p) => p.endsWith(".novel/snapshots/001.snapshot.json"))).toBe(true)
-    expect(writtenPaths.some((p) => p.endsWith(".novel/snapshots/001.snapshot.md"))).toBe(true)
     expect(writtenPaths.some((p) => p.endsWith(".novel/chapter-ingest-output/001.output.json"))).toBe(true)
     expect(writtenPaths.some((p) => p.endsWith(".novel/chapter-ingest-output/001.wiki-patch.json"))).toBe(true)
     expect(writtenPaths.some((p) => p.endsWith(".novel/chapter-ingest-output/001.search-index.json"))).toBe(true)
@@ -432,6 +440,14 @@ describe("ingestChapter — full success path with projections", () => {
     // sync_snapshot_to_memory bump
     expect(storeState.bumpDataVersion).toHaveBeenCalled()
     expect(result.snapshot!.memorySyncedAt).toBeTruthy()
+  })
+
+  it("S4-R4：批量事务失败时不合并 timeline（prepare 失败＝零落盘语义）", async () => {
+    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockLlmJsonResponse(llmSnapshotJson())
+    fsMocks.writeFilesAtomic.mockRejectedValueOnce(new Error("batch commit failed"))
+    await expect(ingestChapter(PROJECT, CHAPTER_PATH)).rejects.toThrow("batch commit failed")
+    expect(moduleMocks.mergeSnapshotTimeline).not.toHaveBeenCalled()
   })
 
   it("skips data-driven projections whose change lists are empty", async () => {
@@ -495,7 +511,8 @@ describe("ingestChapter — full success path with projections", () => {
     }))
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result.snapshot).not.toBeNull()
-    const mdWrite = fsMocks.writeFileAtomic.mock.calls.find(([p]) => String(p).endsWith(".novel/snapshots/001.snapshot.md"))
+    const batchFiles = fsMocks.writeFilesAtomic.mock.calls.map(([files]) => files as Array<[string, string]>).flat()
+    const mdWrite = batchFiles.find(([p]) => String(p).endsWith(".novel/snapshots/001.snapshot.md"))
     const md = String(mdWrite![1])
     // snapshotToMarkdown 非空数组分支 (organizations/items/relationshipChanges/graphNodes/graphEdges)
     expect(md).toContain("- 商会")
@@ -1089,7 +1106,8 @@ describe("chapter-ingest residual branches (L2A)", () => {
     mockLlmJsonResponse(llmSnapshotJson({ characters: [], locations: [] }))
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result.snapshot).not.toBeNull()
-    const mdWrite = fsMocks.writeFileAtomic.mock.calls.find(([p]) => String(p).endsWith(".novel/snapshots/001.snapshot.md"))
+    const emptyBatchFiles = fsMocks.writeFilesAtomic.mock.calls.map(([files]) => files as Array<[string, string]>).flat()
+    const mdWrite = emptyBatchFiles.find(([p]) => String(p).endsWith(".novel/snapshots/001.snapshot.md"))
     const md = String(mdWrite![1])
     expect(md).toContain("## 出场人物\n（无）")
     expect(md).toContain("## 出场地点\n（无）")

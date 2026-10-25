@@ -269,6 +269,26 @@ export function PreviewPanel() {
     }
   }, [flushChapterBeforeLeave])
 
+  // S4-R2：标签页隐藏/窗口关闭前刷出待保存的章节（防 1s 防抖窗口内丢稿）。
+  // kill-9 级崩溃仍由 writeFileAtomic 的 temp+fsync+rename 原子性兜底。
+  useEffect(() => {
+    const flush = () => {
+      const currentFile = selectedFileRef.current
+      if (currentFile && isChapterPath(currentFile)) {
+        void flushChapterBeforeLeave(currentFile, fileContentRef.current)
+      }
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush()
+    }
+    window.addEventListener("pagehide", flush)
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    return () => {
+      window.removeEventListener("pagehide", flush)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+    }
+  }, [flushChapterBeforeLeave])
+
   const handleSave = useCallback(
     (markdown: string) => {
       /* v8 ignore next */

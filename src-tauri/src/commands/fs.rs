@@ -2620,6 +2620,69 @@ mod tests {
         assert!(result.is_err() || result.is_ok()); // must at least return
     }
 
+    /// S4-R2 kill-9 harness：崩溃写原子性＋恢复时间阈值，连续 5 轮通过。
+    /// 子进程＝同一测试二进制（env NIKO_CRASH_WRITER=目标路径）循环写单调版本；
+    /// 父进程用 std child.kill()（TerminateProcess/SIGKILL，不做任何清理）击杀后断言：
+    /// 目标文件恒为某次完整写入（`v-%08d-` 前缀＋定长载荷，零撕裂/零空文件），
+    /// 且 kill 后首次读回耗时 < 2000ms。每轮独立目标文件与目录。
+    #[test]
+    fn crash_kill_write_atomicity_and_recovery() {
+        let exe = std::env::current_exe().expect("current test exe");
+        let root = std::env::temp_dir().join(format!("niko-crash-harness-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("harness root");
+        for round in 0..5u32 {
+            let target = root.join(format!("chapter-{round}.md"));
+            let target_s = target.to_string_lossy().to_string();
+            let mut child = std::process::Command::new(&exe)
+                .arg("__crash_writer_loop")
+                .arg("--nocapture")
+                .env("NIKO_CRASH_WRITER", &target_s)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .expect("spawn crash writer");
+            // 等子进程至少完成几次写入（版本单调递增，载荷 4KB/次，远超 rename 窗口）
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            child.kill().expect("kill crash writer");
+            let _ = child.wait();
+            // 恢复：首次读回计时（阈值 2000ms，真实读回为毫秒级）
+            let t0 = std::time::Instant::now();
+            let content = std::fs::read_to_string(&target)
+                .unwrap_or_else(|e| panic!("round {round}: 目标文件不可读: {e}"));
+            let elapsed = t0.elapsed();
+            assert!(
+                elapsed < std::time::Duration::from_millis(2000),
+                "round {round}: 恢复读回超时: {elapsed:?}"
+            );
+            // 完整性：必须匹配某次完整写入，拒绝撕裂/截断/空文件
+            assert!(!content.is_empty(), "round {round}: 空文件（撕裂）");
+            let head = content.split('-').collect::<Vec<_>>();
+            assert!(
+                content.starts_with("v-") && head.len() >= 3 && content.len() > 4100,
+                "round {round}: 内容非完整版本（撕裂）: len={} head={:?}",
+                content.len(),
+                &content[..content.len().min(32)]
+            );
+            let _ = std::fs::remove_file(&target);
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// kill-9 harness 子进程入口：env 置位时循环写单调版本直到被击杀；
+    /// 常规测试运行时 env 未置位，直接返回（恒通过）。
+    #[test]
+    fn __crash_writer_loop() {
+        let Ok(path) = std::env::var("NIKO_CRASH_WRITER") else {
+            return;
+        };
+        let mut i: u64 = 0;
+        loop {
+            i += 1;
+            let payload = format!("v-{i:08}-{}", "x".repeat(4096));
+            let _ = do_write_file_atomic(&path, &payload);
+        }
+    }
+
     /// Ad-hoc probe: run the production PDF extraction path against every
     /// .pdf under a user-provided directory and print a per-file report of
     /// Ok / Err (library returned an error) / Panic (library panicked and

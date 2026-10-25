@@ -1,4 +1,4 @@
-﻿import { readFile, writeFileAtomic, listDirectory, fileExists, createDirectory, deleteFile } from "@/commands/fs"
+﻿import { readFile, writeFileAtomic, writeFilesAtomic, listDirectory, fileExists, createDirectory, deleteFile } from "@/commands/fs"
 import { listEntityFiles, resolveEntityPath } from "./entity-subdir-resolver"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } from "@/stores/wiki-store"
@@ -2349,13 +2349,12 @@ async function saveSnapshot(projectPath: string, snapshot: ChapterSnapshot): Pro
   const mdPath = snapshotMarkdownPath(projectPath, normalizedSnapshot.chapterNumber)
 
   await createDirectory(snapshotDir)
-  // PERF-NEW-09 (odyssey-improve DC-3): parallelize the independent json+md
-  // writes. writeFileAtomic is a single Tauri invoke doing atomic write +
-  // read-back on distinct paths — no cross-file dependency, safe to run
-  // concurrently. Halves the 2 serial IPC round-trips to ~1 concurrent batch.
-  await Promise.all([
-    writeFileAtomic(jsonPath, JSON.stringify(normalizedSnapshot, null, 2)),
-    writeFileAtomic(mdPath, snapshotToMarkdown(normalizedSnapshot)),
+  // S4-R4：json+md 改走 writeFilesAtomic 单次批量事务。两文件同属一次快照，
+  // prepare 阶段任一 temp 失败即零落盘；提交阶段为顺序 rename（微秒窗口）。
+  // mergeSnapshotTimeline 为幂等第三写，崩溃后重跑收敛。
+  await writeFilesAtomic([
+    [jsonPath, JSON.stringify(normalizedSnapshot, null, 2)],
+    [mdPath, snapshotToMarkdown(normalizedSnapshot)],
   ])
 
   await mergeSnapshotTimeline(projectPath, normalizedSnapshot.chapterNumber, normalizedSnapshot.timelineEvents)

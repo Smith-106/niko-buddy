@@ -14,6 +14,7 @@ import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 const fsMocks = vi.hoisted(() => ({
   readFile: vi.fn(),
   writeFileAtomic: vi.fn(),
+  writeFilesAtomic: vi.fn(),
   listDirectory: vi.fn(),
   fileExists: vi.fn(),
   createDirectory: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
     ...actual,
       readFile: (...args: unknown[]) => fsMocks.readFile(...args),
       writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
+      writeFilesAtomic: (...args: unknown[]) => fsMocks.writeFilesAtomic(...args),
       listDirectory: (...args: unknown[]) => fsMocks.listDirectory(...args),
       fileExists: (...args: unknown[]) => fsMocks.fileExists(...args),
       createDirectory: (...args: unknown[]) => fsMocks.createDirectory(...args),
@@ -239,6 +241,7 @@ beforeEach(() => {
   fsMocks.listDirectory.mockRejectedValue(new Error("ENOENT: no such file or directory"))
   fsMocks.createDirectory.mockResolvedValue(undefined)
   fsMocks.writeFileAtomic.mockResolvedValue(undefined)
+  fsMocks.writeFilesAtomic.mockResolvedValue(undefined)
   fsMocks.deleteFile.mockResolvedValue(undefined)
   fsMocks.fileExists.mockResolvedValue(false)
   moduleMocks.writeSnapshotToWiki.mockResolvedValue([])
@@ -364,7 +367,8 @@ describe("saveEditedSnapshot", () => {
     const history = JSON.parse(String(historyWrite![1]))
     expect(history.isHistorical).toBe(true)
     // current snapshot has revision 2 + supersedes r1
-    const jsonWrite = fsMocks.writeFileAtomic.mock.calls.find(([p]) => String(p).endsWith(".novel/snapshots/001.snapshot.json"))
+    const batchFiles = fsMocks.writeFilesAtomic.mock.calls.map(([files]) => files as Array<[string, string]>).flat()
+    const jsonWrite = batchFiles.find(([p]) => String(p).endsWith(".novel/snapshots/001.snapshot.json"))
     const saved = JSON.parse(String(jsonWrite![1]))
     expect(saved.revision).toBe(2)
     expect(saved.supersedes).toBe("chapter-1-r1")
@@ -411,7 +415,8 @@ describe("restoreSnapshotHistory", () => {
     expect(restored.revision).toBe(2)
     expect(restored.snapshotId).toBe("chapter-1-r2")
     expect(restored.isHistorical).toBe(false)
-    const jsonWrite = fsMocks.writeFileAtomic.mock.calls.find(([p]) => String(p).endsWith(".novel/snapshots/001.snapshot.json"))
+    const restoreBatchFiles = fsMocks.writeFilesAtomic.mock.calls.map(([files]) => files as Array<[string, string]>).flat()
+    const jsonWrite = restoreBatchFiles.find(([p]) => String(p).endsWith(".novel/snapshots/001.snapshot.json"))
     expect(jsonWrite).toBeTruthy()
     expect(moduleMocks.writeSnapshotToWiki).toHaveBeenCalled()
     expect(moduleMocks.clearTemporalFactsCache).toHaveBeenCalledWith(PROJECT)
@@ -435,7 +440,8 @@ describe("restoreSnapshotHistory", () => {
       throw new Error("ENOENT")
     })
     await restoreSnapshotHistory(PROJECT, 1, "2026-06-01T00-00-00.000Z.snapshot.json")
-    const jsonWrite = fsMocks.writeFileAtomic.mock.calls.find(([p]) => String(p).endsWith(".novel/snapshots/001.snapshot.json"))
+    const restoreBatchFiles2 = fsMocks.writeFilesAtomic.mock.calls.map(([files]) => files as Array<[string, string]>).flat()
+    const jsonWrite = restoreBatchFiles2.find(([p]) => String(p).endsWith(".novel/snapshots/001.snapshot.json"))
     const saved = JSON.parse(String(jsonWrite![1]))
     expect(saved.revision).toBe(6)
     expect(saved.supersedes).toBe("chapter-1-r5")

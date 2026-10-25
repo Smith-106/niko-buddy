@@ -710,6 +710,37 @@ describe("PreviewPanel 工具栏收敛回归锁定 (C项防退化)", () => {
 })
 
 describe("PreviewPanel 文件切换与保存 flush", () => {
+  it("S4-R2：pagehide 刷出待保存章节（防抖窗口内不丢稿）", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    mocks.saveText.value = CHAPTER_MD + "\n新增段落"
+    const view = render(<PreviewPanel />)
+    await flushAsync(10)
+    fireEvent.click(screen.getByTestId("editor-save"))
+    mocks.writeFileAtomic.mockClear()
+    fireEvent(window, new Event("pagehide"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+    expect(mocks.writeFileAtomic.mock.calls[0][0]).toBe(CHAPTER_PATH)
+    view.unmount()
+  })
+
+  it("S4-R2：visibilitychange hidden 刷出待保存章节", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    mocks.saveText.value = CHAPTER_MD + "\n新增段落"
+    const view = render(<PreviewPanel />)
+    await flushAsync(10)
+    fireEvent.click(screen.getByTestId("editor-save"))
+    mocks.writeFileAtomic.mockClear()
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
+    document.dispatchEvent(new Event("visibilitychange"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
+    view.unmount()
+  })
+
   it("章节切换到另一文件时 flush 前一章节（canonical 路径相同 → 不删除）", async () => {
     mocks.state.selectedFile = CHAPTER_PATH
     mocks.state.fileContent = CHAPTER_MD
