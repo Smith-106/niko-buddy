@@ -73,19 +73,19 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
     })
     .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null
 
-  const loadFileTree = useCallback(async () => {
-    if (!project) return
-    try {
-      const tree = await listDirectory(normalizePath(project.path))
-      setFileTree(tree)
-    } catch (err) {
-      console.error("Failed to load file tree:", err)
-    }
-  }, [project, setFileTree])
-
   useEffect(() => {
-    loadFileTree()
-  }, [loadFileTree])
+    let cancelled = false
+    void (async () => {
+      if (!project) return
+      try {
+        const tree = await listDirectory(normalizePath(project.path))
+        if (!cancelled) setFileTree(tree)
+      } catch (err) {
+        console.error("Failed to load file tree:", err)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [project, setFileTree])
 
   const startDrag = useCallback(
     (side: "left") => (e: React.MouseEvent) => {

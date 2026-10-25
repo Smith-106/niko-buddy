@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { ChevronDown, ChevronUp, Feather, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -17,6 +17,7 @@ export function BookAnalysisStyleCard({ book, extracting, onExtractStyle, onTogg
   const profile = book.styleProfile
   const enabled = book.styleStatus === "enabled"
   const [expanded, setExpanded] = useState(false)
+  const panelId = useId()
 
   return (
     <section className="rounded-lg border bg-background p-4">
@@ -59,14 +60,16 @@ export function BookAnalysisStyleCard({ book, extracting, onExtractStyle, onTogg
           {/* 展开/收起 */}
           <button
             type="button"
-            className="mt-2 flex items-center gap-1 text-xs text-primary hover:underline"
+            className="mt-2 flex items-center gap-1 text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
             onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            aria-controls={panelId}
           >
-            {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            {expanded ? <ChevronUp className="h-3 w-3" aria-hidden="true" /> : <ChevronDown className="h-3 w-3" aria-hidden="true" />}
             {expanded ? "收起详情" : "查看全部维度、风格宪法与代表样本"}
           </button>
           {expanded && (
-            <div className="mt-3 space-y-4">
+            <div id={panelId} role="region" aria-label={t("bookAnalysis.workStyle")} className="mt-3 space-y-4">
               {/* 剩余维度 */}
               {STYLE_DIMENSIONS.slice(4).map((d) => (
                 <div key={d.key} className="rounded-md bg-muted/40 p-3 text-xs">

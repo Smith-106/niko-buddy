@@ -2853,6 +2853,7 @@
       "unknown": "Unknown",
       "equipment": "Equipment",
       "abilities": "Abilities",
+      "relationships": "Relationships",
       "noStateData": "No detailed state data for this character"
     },
     "export": {

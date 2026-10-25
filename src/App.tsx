@@ -47,7 +47,9 @@ function App() {
 
   // 启动编排（组合根）：加载全部持久化配置并自动打开上次项目
   useEffect(() => {
-    void initializeApp().finally(() => setLoading(false))
+    let cancelled = false
+    void initializeApp().finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [])
 
   // 监听系统主题变化，当设置为跟随系统时自动切换

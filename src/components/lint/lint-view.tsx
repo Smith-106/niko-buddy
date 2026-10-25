@@ -85,13 +85,21 @@ export function LintView() {
   }, [project])
 
   useEffect(() => {
-    if (novelMode && project) {
-      void loadHistory()
+    if (!novelMode || !project) {
+      setHistory([])
+      setExpandedHistoryId(null)
       return
     }
-    setHistory([])
-    setExpandedHistoryId(null)
-  }, [novelMode, project, loadHistory])
+    let cancelled = false
+    void (async () => {
+      const next = await listGenerationHistory(project.path, "lint")
+      if (!cancelled) {
+        setHistory(next)
+        setHistoryPage(0)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [novelMode, project])
 
   const handleDeleteHistory = useCallback(async (entry: GenerationHistoryEntry) => {
     /* v8 ignore next */

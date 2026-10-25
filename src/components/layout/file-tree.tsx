@@ -1,7 +1,7 @@
 // Copyright © Niko Buddy
 // SPDX-License-Identifier: MIT
 
-import { useState } from "react"
+import { useId, useState } from "react"
 import { ChevronRight, ChevronDown, File, Folder, FolderOpen } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -15,6 +15,7 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
   const [expanded, setExpanded] = useState(depth < 1)
   const selectedFile = useWikiStore((s) => s.selectedFile)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
+  const panelId = useId()
 
   const isSelected = selectedFile === node.path
   const paddingLeft = 12 + depth * 16
@@ -23,8 +24,11 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
     return (
       <div>
         <button
+          type="button"
           onClick={() => setExpanded(!expanded)}
-          className="flex w-full min-w-0 items-center gap-1 py-1 text-sm text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+          aria-expanded={expanded}
+          aria-controls={panelId}
+          className="flex w-full min-w-0 items-center gap-1 py-1 text-sm text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           style={{ paddingLeft }}
         >
           {expanded ? (
@@ -32,12 +36,16 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
           ) : (
             <ChevronRight className="h-3.5 w-3.5 shrink-0" />
           )}
-          <Folder className="h-3.5 w-3.5 shrink-0 text-info" />
+          <Folder className="h-3.5 w-3.5 shrink-0 text-info" aria-hidden="true" />
           <span className="min-w-0 truncate">{node.name}</span>
         </button>
-        {expanded && node.children?.map((child) => (
-          <TreeNode key={child.path} node={child} depth={depth + 1} />
-        ))}
+        {expanded && (
+          <div id={panelId} role="region" aria-label={node.name}>
+            {node.children?.map((child) => (
+              <TreeNode key={child.path} node={child} depth={depth + 1} />
+            ))}
+          </div>
+        )}
       </div>
     )
   }

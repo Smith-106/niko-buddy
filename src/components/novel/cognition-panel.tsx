@@ -132,8 +132,9 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
             )}
             {state.characters.map((char) => {
               const cs = charStates.get(char.character)
+              const relationshipEntries = Object.entries(cs?.relationships ?? {})
               const hasStateDetail = cs && (
-                cs.currentLocation || cs.status || cs.equipment.length > 0 || cs.abilities.length > 0
+                cs.currentLocation || cs.status || cs.equipment.length > 0 || cs.abilities.length > 0 || relationshipEntries.length > 0
               )
               return (
               <div key={char.character} className="rounded-lg border p-3">
@@ -173,6 +174,16 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
                             {t("novel.character.abilities")}
                           </div>
                           <p className="mt-1 text-xs">{cs.abilities.join("、")}</p>
+                        </div>
+                      )}
+                      {relationshipEntries.length > 0 && (
+                        <div className="rounded-md border p-2">
+                          <div className="text-xs text-muted-foreground">{t("novel.character.relationships", { defaultValue: "人际关系" })}</div>
+                          <ul className="mt-1 space-y-0.5 text-xs">
+                            {relationshipEntries.map(([other, relation]) => (
+                              <li key={other}>{other}：{relation}</li>
+                            ))}
+                          </ul>
                         </div>
                       )}
                     </div>

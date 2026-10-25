@@ -198,6 +198,7 @@ export function MemoryCenterView() {
   const selectedMemoryCenterEntry = useWikiStore((s) => s.selectedMemoryCenterEntry)
   const setSelectedMemoryCenterEntry = useWikiStore((s) => s.setSelectedMemoryCenterEntry)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
+  const dataVersion = useWikiStore((s) => s.dataVersion)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -275,7 +276,7 @@ export function MemoryCenterView() {
     } finally {
       setLoading(false)
     }
-  }, [project?.path, selectedMemoryCenterEntry, t])
+  }, [project?.path, selectedMemoryCenterEntry, t, dataVersion])
 
   useEffect(() => {
     void refresh()

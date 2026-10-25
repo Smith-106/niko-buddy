@@ -17,7 +17,7 @@
  * - 中文标签直书（与 kb-health-view 同款约定），零新增 i18n 键。
  */
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useId, useState } from "react"
 import { AgentStudioPanelMounted } from "./agent-studio-panel"
 import { ClosurePanel } from "./closure-panel"
 import { MethodologyPanel } from "./methodology-panel"
@@ -111,6 +111,7 @@ function HealthItemRow({
   onRecover: (itemId: string, actionId: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  const panelId = useId()
   const runnable = item.recoveries.filter((a) => a.run !== null)
   const manual = item.recoveries.filter((a) => a.run === null)
   return (
@@ -132,7 +133,9 @@ function HealthItemRow({
           type="button"
           data-testid={`health-expand-${item.id}`}
           onClick={() => setExpanded((v) => !v)}
-          className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
+          aria-expanded={expanded}
+          aria-controls={panelId}
+          className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {expanded ? "收起" : "详情"}
         </button>
@@ -142,7 +145,7 @@ function HealthItemRow({
       </p>
       <p className="mt-0.5 text-xs text-muted-foreground">建议：{item.suggestedAction}</p>
       {expanded ? (
-        <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+        <div id={panelId} role="region" aria-label={`${item.objectName}详情`} className="mt-1 space-y-0.5 text-xs text-muted-foreground">
           <p data-testid={`health-evidence-${item.id}`}>证据来源：{item.evidenceSource}</p>
           <p>检测时间：{item.checkedAt}</p>
           {item.errorCode ? (
@@ -221,7 +224,9 @@ function HistoryViewSection({ historyView }: { historyView: ExportHistoryViewEnt
                 type="button"
                 data-testid={`export-open-${v.entry.id}`}
                 onClick={() => setOpenId(open ? null : v.entry.id)}
-                className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
+                aria-expanded={open}
+                aria-controls={`history-provenance-${v.entry.id}`}
+                className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {open ? "收起" : "溯源"}
               </button>
@@ -230,7 +235,7 @@ function HistoryViewSection({ historyView }: { historyView: ExportHistoryViewEnt
               导出于 {v.entry.exportedAt} · {v.entry.pages} 页
             </p>
             {open ? (
-              <div data-testid={`export-provenance-${v.entry.id}`} className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+              <div id={`history-provenance-${v.entry.id}`} role="region" aria-label={`${v.entry.chapterTitle}溯源`} data-testid={`export-provenance-${v.entry.id}`} className="mt-1 space-y-0.5 text-xs text-muted-foreground">
                 <p>确认版本：{p.confirmedVersion.confirmedDigest || "（无）"}</p>
                 <p>
                   写作会话：{p.run.sessionId || "（无会话）"}

@@ -1,7 +1,7 @@
 // Copyright © Niko Buddy
 // SPDX-License-Identifier: MIT
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useId } from "react"
 import {
   ChevronUp, ChevronDown, Loader2, CheckCircle2, AlertCircle,
   FileText, Users, Lightbulb, BookOpen, GitMerge, BarChart3, HelpCircle, Layout,
@@ -70,6 +70,7 @@ export function ActivityPanel() {
   const setFileSyncTasks = useFileSyncStore((s) => s.setTasks)
   const fileSyncError = useFileSyncStore((s) => s.lastError)
   const [expanded, setExpanded] = useState(false)
+  const panelId = useId()
   const [queueTasks, setQueueTasks] = useState<IngestTask[]>([])
   const [fsKindFilter, setFsKindFilter] = useState<FileChangeKind | "all">("all")
   const [fsStatusFilter, setFsStatusFilter] = useState<FileChangeStatus | "all">("all")
@@ -191,8 +192,11 @@ export function ActivityPanel() {
   return (
     <div className="border-t bg-muted/30">
       <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent/50"
+        aria-expanded={expanded}
+        aria-controls={panelId}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {isActive ? (
           <Loader2 className="h-3 w-3 animate-spin shrink-0" />
@@ -210,7 +214,7 @@ export function ActivityPanel() {
       </button>
 
       {expanded && (
-        <div className="max-h-64 overflow-y-auto border-t">
+        <div id={panelId} role="region" aria-label={t("activity.fileSync", { defaultValue: "活动" })} className="max-h-64 overflow-y-auto border-t">
           {hasFileSync && (
             <div className="border-b border-border/50 px-3 py-1.5">
               <div className="mb-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">

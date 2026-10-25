@@ -2461,6 +2461,7 @@
       "unknown": "未知",
       "equipment": "装备",
       "abilities": "能力",
+      "relationships": "人际关系",
       "noStateData": "暂无此人物的详细状态数据"
     },
     "export": {
