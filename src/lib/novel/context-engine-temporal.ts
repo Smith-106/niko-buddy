@@ -68,6 +68,20 @@ export function setTemporalFactsCache(pp: string, entry: { latestRevision: strin
 }
 
 /**
+ * ISS-20260709-030 (F-004): singleflight for cold-cache builds.
+ * Concurrent loadTemporalFactsCached calls for the same project on a cold
+ * cache would each miss and each reload + refold the full snapshot chain
+ * (N x loadSnapshot + fold). The map holds the in-progress build promise per
+ * project; concurrent callers share it, so a cold-cache stampede builds once.
+ * Entries are deleted on settle.
+ */
+const temporalFactsInFlight = new Map<string, Promise<TemporalFact[]>>()
+
+export function __getTemporalFactsInFlightSizeForTests(): number {
+  return temporalFactsInFlight.size
+}
+
+/**
  * List snapshot files directly (mirrors chapter-ingest.listSnapshots naming)
  * while also collecting each file's mtime(ms) in the same readdir pass. The
  * mtime is fetched per-file via getFileModifiedTime because the listDirectory
@@ -91,13 +105,30 @@ export async function listSnapshotEntriesWithMtime(
         return { file: f, num }
       })
       .filter((e) => !isNaN(e.num))
-    const withMtimes = await Promise.all(
-      entries.map(async (e) => ({
-        number: e.num,
-        snapshotMtime: await getFileModifiedTime(e.file.path).catch(() => 0),
-      })),
+    // ISS-20260709-026: merge duplicate key computation. Multiple entries
+    // can reference the same absolute file path (duplicate readdir rows /
+    // case-alias twins); fetching mtime per entry would issue N getters for
+    // the same key. Dedupe by file.path → one getFileModifiedTime per unique
+    // key, then backfill by index so result order matches input order.
+    const uniquePaths: string[] = []
+    const seenPaths = new Set<string>()
+    for (const e of entries) {
+      if (!seenPaths.has(e.file.path)) {
+        seenPaths.add(e.file.path)
+        uniquePaths.push(e.file.path)
+      }
+    }
+    const mtimeByPath = new Map<string, number>()
+    await Promise.all(
+      uniquePaths.map(async (filePath) => {
+        const mtime = await getFileModifiedTime(filePath).catch(() => 0)
+        mtimeByPath.set(filePath, mtime)
+      }),
     )
-    return withMtimes
+    return entries.map((e) => ({
+      number: e.num,
+      snapshotMtime: mtimeByPath.get(e.file.path) ?? 0,
+    }))
   } catch {
     return []
   }
@@ -115,8 +146,22 @@ export async function listSnapshotEntriesWithMtime(
  *
  * Exported for test instrumentation (cache-hit / mtime-invalidation tests).
  */
-export async function loadTemporalFactsCached(projectPath: string): Promise<TemporalFact[]> {
+export function loadTemporalFactsCached(projectPath: string): Promise<TemporalFact[]> {
   const pp = normalizePath(projectPath)
+  // ISS-20260709-030: singleflight — a cold-cache stampede (two builds
+  // racing before the first populates the cache) shares one build promise
+  // instead of loading + folding twice. Synchronous map check before the
+  // first await guarantees the second concurrent caller observes it.
+  const inFlight = temporalFactsInFlight.get(pp)
+  if (inFlight !== undefined) return inFlight
+  const build = loadTemporalFactsCachedInner(pp).finally(() => {
+    if (temporalFactsInFlight.get(pp) === build) temporalFactsInFlight.delete(pp)
+  })
+  temporalFactsInFlight.set(pp, build)
+  return build
+}
+
+async function loadTemporalFactsCachedInner(pp: string): Promise<TemporalFact[]> {
   const entries = await listSnapshotEntriesWithMtime(pp)
   if (entries.length === 0) {
     // No snapshots → nothing to fold. Still cache the empty result so
@@ -199,9 +244,12 @@ export async function loadTemporalFactsCached(projectPath: string): Promise<Temp
 export function clearTemporalFactsCache(projectPath?: string): void {
   if (projectPath === undefined) {
     temporalFactsCache.clear()
+    temporalFactsInFlight.clear()
     return
   }
-  temporalFactsCache.delete(normalizePath(projectPath))
+  const pp = normalizePath(projectPath)
+  temporalFactsCache.delete(pp)
+  temporalFactsInFlight.delete(pp)
 }
 
 /**
@@ -210,6 +258,7 @@ export function clearTemporalFactsCache(projectPath?: string): void {
  */
 export function __resetTemporalFactsCacheForTests(): void {
   clearTemporalFactsCache()
+  temporalFactsInFlight.clear()
 }
 
 /**

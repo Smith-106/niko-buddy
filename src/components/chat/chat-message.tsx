@@ -293,6 +293,118 @@ interface CitedImageInfo {
   firstUrl: string | null
 }
 
+/**
+ * ISS-20260709-013: module-level image-info cache for CitedReferencesPanel.
+ * Keyed by `${normalizedProjectPath}\n${page.path}` so a second render of
+ * the same citation (same project + same path, e.g. re-render / another
+ * message citing the same page) hits the cache without re-issuing readFile
+ * IPC round-trips. Bounded LRU-ish (insertion-order eviction at cap) so a
+ * 1000-message list cannot grow it without bound.
+ */
+export const citedPageImageCache = new Map<string, CitedImageInfo>()
+export const CITED_PAGE_IMAGE_CACHE_MAX = 200
+
+export function getCitedImageCacheKey(projectPath: string, pagePath: string): string {
+  return `${normalizePath(projectPath)}\n${pagePath}`
+}
+
+export function __resetCitedImageCacheForTests(): void {
+  citedPageImageCache.clear()
+}
+
+export function __getCitedImageCacheSizeForTests(): number {
+  return citedPageImageCache.size
+}
+
+/** Build the ordered candidate absolute paths for a cited page. */
+export function buildCitedPageCandidates(projectPath: string, pagePath: string): string[] {
+  const pp = normalizePath(projectPath)
+  const id = getFileName(pagePath.replace(/^wiki\//, "").replace(/\.md$/, ""))
+  return [
+    `${pp}/${pagePath}`,
+    `${pp}/wiki/entities/${id}.md`,
+    // 物理分层：实体可能已迁入 entities/<subdir>/，逐一探测。
+    `${pp}/wiki/entities/characters/${id}.md`,
+    `${pp}/wiki/entities/items/${id}.md`,
+    `${pp}/wiki/entities/locations/${id}.md`,
+    `${pp}/wiki/entities/organizations/${id}.md`,
+    `${pp}/wiki/entities/events/${id}.md`,
+    `${pp}/wiki/concepts/${id}.md`,
+    `${pp}/wiki/sources/${id}.md`,
+    `${pp}/wiki/queries/${id}.md`,
+    `${pp}/wiki/synthesis/${id}.md`,
+    `${pp}/wiki/comparisons/${id}.md`,
+    `${pp}/wiki/${id}.md`,
+  ]
+}
+
+/**
+ * Probe candidate paths in PARALLEL and return the first existing file in
+ * candidate order (index backfill保序). Each candidate is read concurrently
+ * via Promise.all; the smallest index that succeeded wins, so result order
+ * matches the serial fallback chain without paying N sequential IPC trips.
+ * Returns null when every candidate is missing.
+ */
+export async function readFirstExistingCandidate(
+  candidates: string[],
+): Promise<{ index: number; path: string; text: string } | null> {
+  const settled = await Promise.all(
+    candidates.map(async (candidate, index) => {
+      try {
+        const text = await readFile(candidate)
+        return { index, path: candidate, text }
+      } catch {
+        return null
+      }
+    }),
+  )
+  let best: { index: number; path: string; text: string } | null = null
+  for (const entry of settled) {
+    if (entry !== null && (best === null || entry.index < best.index)) best = entry
+  }
+  return best
+}
+
+export function extractCitedImageInfo(text: string): CitedImageInfo {
+  // Reset stateful regex.lastIndex by `new RegExp(...)` —
+  // module-level `g` regexes carry state across calls
+  // and would skip matches on the second invocation.
+  const re = new RegExp(CITED_IMAGE_RE.source, CITED_IMAGE_RE.flags)
+  const matches = [...text.matchAll(re)]
+  return {
+    count: matches.length,
+    firstUrl: matches.length > 0 ? (matches[0][1] as string) : null,
+  }
+}
+
+/**
+ * ISS-20260709-013: cached fetch for one citation (testable core of the
+ * panel effect). Cache hit returns immediately without readFile; miss probes
+ * candidates in parallel, stores the result, and returns it. Exported so the
+ * perf spec can assert "同 projectPath+path 二次渲染命中缓存" without
+ * mounting React.
+ */
+export async function getOrFetchCitedImageInfo(
+  projectPath: string,
+  pagePath: string,
+): Promise<CitedImageInfo> {
+  const pp = normalizePath(projectPath)
+  const key = getCitedImageCacheKey(pp, pagePath)
+  const hit = citedPageImageCache.get(key)
+  if (hit !== undefined) return hit
+  const candidates = buildCitedPageCandidates(pp, pagePath)
+  const found = await readFirstExistingCandidate(candidates)
+  const info: CitedImageInfo =
+    found !== null ? extractCitedImageInfo(found.text) : { count: 0, firstUrl: null }
+  citedPageImageCache.set(key, info)
+  while (citedPageImageCache.size > CITED_PAGE_IMAGE_CACHE_MAX) {
+    const oldest = citedPageImageCache.keys().next().value
+    if (oldest === undefined) break
+    citedPageImageCache.delete(oldest)
+  }
+  return info
+}
+
 function CitedReferencesPanel({ content, savedReferences }: { content: string; savedReferences?: CitedPage[] }) {
   const project = useWikiStore((s) => s.project)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
@@ -315,61 +427,55 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
     return extractCitedPages(content)
   }, [content, savedReferences])
 
-  // Async-fetch each cited page's content once and extract image
-  // info: count + first URL. Done in parallel; failures are
-  // silently treated as { count: 0, firstUrl: null } (page may
-  // not exist on disk yet, e.g. a citation the LLM hallucinated).
+  // ISS-20260709-013: parallel fetch + result cache. Pages are independent
+  // so they resolve via one outer Promise.all; each page's candidate chain
+  // probes in parallel (readFirstExistingCandidate) with index backfill
+  //保序, and hits consult citedPageImageCache first (same
+  // projectPath+path → no second readFile). Failures degrade to
+  // { count: 0, firstUrl: null } (page may not exist on disk yet, e.g. a
+  // citation the LLM hallucinated).
   useEffect(() => {
     if (!project || citedPages.length === 0) return
     const pp = normalizePath(project.path)
     let cancelled = false
-    Promise.all(
-      citedPages.map(async (page) => {
-        // Try the path verbatim first, then the same fallback set
-        // the click-handler uses below — keeps "is the file on
-        // disk" check consistent across the panel.
-        const id = getFileName(page.path.replace(/^wiki\//, "").replace(/\.md$/, ""))
-        const candidates = [
-          `${pp}/${page.path}`,
-          `${pp}/wiki/entities/${id}.md`,
-          // 物理分层：实体可能已迁入 entities/<subdir>/，逐一探测。
-          `${pp}/wiki/entities/characters/${id}.md`,
-          `${pp}/wiki/entities/items/${id}.md`,
-          `${pp}/wiki/entities/locations/${id}.md`,
-          `${pp}/wiki/entities/organizations/${id}.md`,
-          `${pp}/wiki/entities/events/${id}.md`,
-          `${pp}/wiki/concepts/${id}.md`,
-          `${pp}/wiki/sources/${id}.md`,
-          `${pp}/wiki/queries/${id}.md`,
-          `${pp}/wiki/synthesis/${id}.md`,
-          `${pp}/wiki/comparisons/${id}.md`,
-          `${pp}/wiki/${id}.md`,
-        ]
-        for (const candidate of candidates) {
-          try {
-            const text = await readFile(candidate)
-            // Reset stateful regex.lastIndex by `new RegExp(...)` —
-            // module-level `g` regexes carry state across calls
-            // and would skip matches on the second invocation.
-            const re = new RegExp(CITED_IMAGE_RE.source, CITED_IMAGE_RE.flags)
-            const matches = [...text.matchAll(re)]
-            const info: CitedImageInfo = {
-              count: matches.length,
-              firstUrl: matches.length > 0 ? matches[0][1] : null,
-            }
-            return [page.path, info] as const
-          } catch {
-            // try next candidate
-          }
-        }
-        return [page.path, { count: 0, firstUrl: null }] as const
-      }),
-    ).then((entries) => {
+    // De-duplicate identical page.path values within this render so one
+    // cache-miss fetch serves every duplicate citation.
+    const seenPaths = new Set<string>()
+    const uniquePages = citedPages.filter((page) => {
+      if (seenPaths.has(page.path)) return false
+      seenPaths.add(page.path)
+      return true
+    })
+    const cachedEntries: Array<readonly [string, CitedImageInfo]> = []
+    const missPages: typeof uniquePages = []
+    for (const page of uniquePages) {
+      const hit = citedPageImageCache.get(getCitedImageCacheKey(pp, page.path))
+      if (hit !== undefined) cachedEntries.push([page.path, hit] as const)
+      else missPages.push(page)
+    }
+    const fetchMiss = async (page: (typeof uniquePages)[number]): Promise<readonly [string, CitedImageInfo]> => {
+      const info = await getOrFetchCitedImageInfo(pp, page.path)
+      return [page.path, info] as const
+    }
+    Promise.all(missPages.map((page) => fetchMiss(page))).then((missEntries) => {
       if (cancelled) return
       const next: Record<string, CitedImageInfo> = {}
-      for (const [path, info] of entries) next[path] = info
-      setImageInfos(next)
+      for (const [path, info] of [...cachedEntries, ...missEntries]) next[path] = info
+      // Expand back to every cited page (duplicates share the same info).
+      const full: Record<string, CitedImageInfo> = {}
+      for (const page of citedPages) {
+        const info = next[page.path]
+        if (info !== undefined) full[page.path] = info
+      }
+      setImageInfos(full)
     })
+    // Seed synchronously-available cache hits so a cached second render
+    // paints badges without waiting a tick for the miss fetch.
+    if (cachedEntries.length > 0) {
+      const seed: Record<string, CitedImageInfo> = {}
+      for (const [path, info] of cachedEntries) seed[path] = info
+      setImageInfos((prev) => ({ ...seed, ...prev }))
+    }
     return () => {
       cancelled = true
     }
@@ -447,30 +553,13 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
           const openCitedPage = async () => {
             if (!project) return
             const pp = normalizePath(project.path)
-            const id = getFileName(page.path.replace(/^wiki\//, "").replace(/\.md$/, ""))
-            const candidates = [
-              `${pp}/${page.path}`,
-              `${pp}/wiki/entities/${id}.md`,
-              `${pp}/wiki/entities/characters/${id}.md`,
-              `${pp}/wiki/entities/items/${id}.md`,
-              `${pp}/wiki/entities/locations/${id}.md`,
-              `${pp}/wiki/entities/organizations/${id}.md`,
-              `${pp}/wiki/entities/events/${id}.md`,
-              `${pp}/wiki/concepts/${id}.md`,
-              `${pp}/wiki/sources/${id}.md`,
-              `${pp}/wiki/queries/${id}.md`,
-              `${pp}/wiki/synthesis/${id}.md`,
-              `${pp}/wiki/comparisons/${id}.md`,
-              `${pp}/wiki/${id}.md`,
-            ]
-            for (const candidate of candidates) {
-              try {
-                await readFile(candidate)
-                setSelectedFile(candidate)
-                return
-              } catch {
-                // try next
-              }
+            const candidates = buildCitedPageCandidates(pp, page.path)
+            // ISS-20260709-013: parallel candidate probe (index backfill保序)
+            // instead of serial await-in-loop; first existing candidate wins.
+            const found = await readFirstExistingCandidate(candidates)
+            if (found !== null) {
+              setSelectedFile(found.path)
+              return
             }
             setSelectedFile(`${pp}/${page.path}`)
           }

@@ -25,7 +25,7 @@ import {
   waitFor,
 } from "@/test-helpers/component-test-utils"
 import type { DisplayMessage } from "@/stores/chat-store"
-import { ChatMessage, StreamingMessage } from "./chat-message"
+import { ChatMessage, StreamingMessage, __resetCitedImageCacheForTests } from "./chat-message"
 import { getDeepChapterToggleButtonClass } from "./chat-panel"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -207,6 +207,11 @@ function createAssistantMessage(content: string): DisplayMessage {
 
 function resetMocks(): void {
   vi.clearAllMocks()
+  try {
+    __resetCitedImageCacheForTests()
+  } catch {
+    void 0
+  }
   mocks.wikiState.project = null
   mocks.readFile.mockImplementation(async () => {
     throw new Error("not found")
@@ -1078,12 +1083,14 @@ describe("ChatMessage 引用面板", () => {
 
   it("图片徽标：raw 与回退读取都失败时记录 warn", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
-    mocks.readFile.mockResolvedValue("![a](img-1.png)")
-    // 第一次读取（candidates 扫描）成功；跳转时全部失败
-    mocks.readFile
-      .mockResolvedValueOnce("![a](img-1.png)")
-      .mockRejectedValueOnce(new Error("raw fail"))
-      .mockRejectedValueOnce(new Error("fallback fail"))
+    // ISS-20260709-013: parallel scan issues 13 candidate reads at once;
+    // first batch (scan) succeeds so the badge renders, later jump reads fail.
+    let calls = 0
+    mocks.readFile.mockImplementation(async () => {
+      calls += 1
+      if (calls <= 13) return "![a](img-1.png)"
+      throw new Error(calls === 14 ? "raw fail" : "fallback fail")
+    })
     render(<ChatMessage message={msgWithRefs([REFS[0]])} />)
     const badge = await screen.findByTitle(/打开第一张图片所在原始文档（本页共 1 张图片）/)
     fireEvent.click(badge)
@@ -1681,9 +1688,15 @@ describe("ChatMessage 引用面板全口径补充", () => {
 
   it("图片徽标：raw 源读取失败 → console.warn（raw 分支）", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
-    mocks.readFile
-      .mockResolvedValueOnce("![a](img-1.png)") // effect 扫描命中
-      .mockRejectedValueOnce(new Error("raw read fail")) // 跳转读取 rawPath 失败
+    // ISS-20260709-013: parallel scan issues 13 candidate reads at once;
+    // scan batch succeeds, jump raw read fails (fallback may succeed — warn still emitted).
+    let calls = 0
+    mocks.readFile.mockImplementation(async (path: string) => {
+      calls += 1
+      if (calls <= 13) return "![a](img-1.png)"
+      if (String(path).includes("raw/sources")) throw new Error("raw read fail")
+      return "![a](img-1.png)"
+    })
     mocks.findRawSourceForImage.mockResolvedValue("/p/raw/sources/a.pdf")
     render(<ChatMessage message={msgWithRefs([REF1])} />)
     const badge = await screen.findByTitle(/打开第一张图片所在原始文档（本页共 1 张图片）/)

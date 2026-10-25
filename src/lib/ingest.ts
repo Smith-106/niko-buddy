@@ -800,7 +800,9 @@ function contentMatchesTargetLanguage(content: string, target: string): boolean 
   return !detectedIsCjk
 }
 
-async function writeFileBlocks(
+// ISS-20260713-008: exported for perf regression spec (parallel保序/
+// hardFailures semantics). Production call path unchanged (autoIngest).
+export async function writeFileBlocks(
   projectPath: string,
   text: string,
   llmConfig: LlmConfig,
@@ -822,7 +824,32 @@ async function writeFileBlocks(
 
   const targetLang = useWikiStore.getState().outputLanguage
 
-  for (const { path: relativePath, content: rawContent } of blocks) {
+  // ISS-20260713-008: parallelize the per-block write pipeline.
+  // Serial `await` in the loop made N blocks pay N sequential
+  // read+merge+write IPC round-trips. Blocks are independent except
+  // when two blocks target the SAME file (duplicate log.md appends /
+  // duplicate index overwrites) — those keep serial semantics by
+  // grouping on fullPath (sequential within a group in input order,
+  // parallel across groups). Results are backfilled by input index so
+  // writtenPaths / warnings / hardFailures order is identical to the
+  // serial path, and hardFailures keeps its exact meaning (only FS
+  // write failures; language-guard soft drops never enter it).
+  type PendingBlock = {
+    index: number
+    relativePath: string
+    content: string
+    fullPath: string
+    kind: "log" | "listing" | "content"
+  }
+  type SlotResult = {
+    index: number
+    writtenPath?: string
+    warning?: string
+    hardFailure?: string
+  }
+  const pending: PendingBlock[] = []
+  const softDropByIndex = new Map<number, string>()
+  blocks.forEach(({ path: relativePath, content: rawContent }, index) => {
     // Sanitize at the boundary — strip stray code-fence wrappers,
     // `frontmatter:` prefixes, and repair invalid wikilink-list
     // YAML lines so the file we write is canonical regardless of
@@ -857,22 +884,43 @@ async function writeFileBlocks(
     ) {
       const msg = `已丢弃 "${relativePath}" — 正文语言与目标语言 ${targetLang} 不匹配。`
       console.warn(`[ingest] ${msg}`)
-      warnings.push(msg)
-      continue
+      softDropByIndex.set(index, msg)
+      return
     }
 
     const fullPath = `${projectPath}/${relativePath}`
+    const kind: PendingBlock["kind"] =
+      relativePath === "wiki/log.md" || relativePath.endsWith("/log.md")
+        ? "log"
+        : relativePath === "wiki/index.md" ||
+            relativePath.endsWith("/index.md") ||
+            relativePath === "wiki/overview.md" ||
+            relativePath.endsWith("/overview.md")
+          ? "listing"
+          : "content"
+    pending.push({ index, relativePath, content, fullPath, kind })
+  })
+
+  // Group by fullPath so duplicate-path blocks (e.g. two log.md appends
+  // from one generation) still apply sequentially in input order —
+  // parallel read-modify-write on the same file would otherwise lose
+  // one append (last-wins race). Distinct files run fully parallel.
+  const groups = new Map<string, PendingBlock[]>()
+  for (const p of pending) {
+    const arr = groups.get(p.fullPath)
+    if (arr) arr.push(p)
+    else groups.set(p.fullPath, [p])
+  }
+  for (const arr of groups.values()) arr.sort((a, b) => a.index - b.index)
+
+  const writeOne = async (block: PendingBlock): Promise<SlotResult> => {
+    const { index, relativePath, content, fullPath, kind } = block
     try {
-      if (relativePath === "wiki/log.md" || relativePath.endsWith("/log.md")) {
+      if (kind === "log") {
         const existing = await tryReadFile(fullPath)
         const appended = existing ? `${existing}\n\n${content.trim()}` : content.trim()
         await writeFileAtomic(fullPath, appended)
-      } else if (
-        relativePath === "wiki/index.md" ||
-        relativePath.endsWith("/index.md") ||
-        relativePath === "wiki/overview.md" ||
-        relativePath.endsWith("/overview.md")
-      ) {
+      } else if (kind === "listing") {
         // Listing pages (index / overview) are always overwritten
         // wholesale — their sources field is incidental and merging
         // wouldn't make semantic sense (they aren't source-derived
@@ -908,13 +956,39 @@ async function writeFileBlocks(
         )
         await writeFileAtomic(fullPath, toWrite)
       }
-      writtenPaths.push(relativePath)
+      return { index, writtenPath: relativePath }
     } catch (err) {
       const msg = `写入 "${relativePath}" 失败：${toErrorMessage(err)}`
       console.error(`[ingest] ${msg}`)
-      warnings.push(msg)
-      hardFailures.push(relativePath)
+      return { index, warning: msg, hardFailure: relativePath }
     }
+  }
+
+  // Parallel across groups, sequential within a same-file group.
+  // Promise.all + index backfill keeps result order identical to serial.
+  const groupedResults = await Promise.all(
+    [...groups.values()].map(async (group) => {
+      const out: SlotResult[] = []
+      for (const block of group) out.push(await writeOne(block))
+      return out
+    }),
+  )
+  const slotByIndex = new Map<number, SlotResult>()
+  for (const out of groupedResults) for (const r of out) slotByIndex.set(r.index, r)
+
+  // Index backfill in input order: parse warnings first (unchanged),
+  // then per-block outcomes (soft drops + write results) by index.
+  for (let i = 0; i < blocks.length; i++) {
+    const soft = softDropByIndex.get(i)
+    if (soft !== undefined) {
+      warnings.push(soft)
+      continue
+    }
+    const r = slotByIndex.get(i)
+    if (!r) continue
+    if (r.warning !== undefined) warnings.push(r.warning)
+    if (r.writtenPath !== undefined) writtenPaths.push(r.writtenPath)
+    if (r.hardFailure !== undefined) hardFailures.push(r.hardFailure)
   }
 
   return { writtenPaths, warnings, hardFailures }
