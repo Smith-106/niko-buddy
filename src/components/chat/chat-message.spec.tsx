@@ -39,6 +39,15 @@ vi.mock("react-markdown", async () => {
   return {
     ...actual,
     default: (props: any) => {
+      const text = String(props.children ?? "")
+      // P0 robustness: simulate a rehype-katex render throw for malformed LaTeX so the
+      // ErrorBoundary fallback path is exercised deterministically. Real rehype-katex 7
+      // usually renders a katex-error span instead of throwing, but KaTeX internals /
+      // future versions can throw synchronously during React render — the boundary must
+      // degrade to raw text instead of whitescreening the message.
+      if (text.includes("$\\broken{") || (text.includes("\\begin{align}") && !text.includes("\\end{align}"))) {
+        throw new Error("KaTeX parse error: mocked malformed LaTeX")
+      }
       if (String(props.children).includes("__direct_image__")) {
         const renderImage = props.components?.img as ((imageProps: any) => ReactNode) | undefined
         return (
@@ -1687,3 +1696,69 @@ describe("ChatMessage 引用面板全口径补充", () => {
 function msgWithRefs(refs: { title: string; path: string }[], content = "answer"): DisplayMessage {
   return { ...createAssistantMessage(content), references: refs }
 }
+
+// ── P0 robustness: malformed-LaTeX ErrorBoundary fallback ──────────────────────
+// rehype-katex 含畸形 LaTeX（未闭合 \begin、坏宏）抛错时，MarkdownContent 的独立
+// ErrorBoundary 应降级为原文 + errorBoundary.title，而不是整条消息白屏。
+// react-markdown mock（文件顶部）对以下两类畸形输入同步 throw，模拟 KaTeX 渲染抛错。
+describe("ChatMessage malformed-LaTeX ErrorBoundary (P0)", () => {
+  beforeEach(() => {
+    resetMocks()
+    mocks.wikiState.project = { id: "p1", name: "P", path: "/p" }
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it("畸形公式 $\\broken{ 不抛错并渲染降级文本", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const content = "公式 $\\broken{ 结束"
+    let view!: { container: HTMLElement }
+    expect(() => {
+      view = render(<ChatMessage message={createAssistantMessage(content)} />)
+    }).not.toThrow()
+    // fallback 复用 errorBoundary.title（zh: 出错了 / defaultValue 英文短串）
+    expect(screen.getByText(/出错了|Render failed|内容渲染失败/)).toBeInTheDocument()
+    // 降级文本保留原 processed 文本（坏宏原文可见、可复制排查）
+    expect(document.body.textContent).toContain("broken")
+    // 抛错路径不应渲染出 katex 成功节点（fallback 替代了整段 markdown）
+    expect(view.container.querySelector(".katex")).toBeNull()
+    errorSpy.mockRestore()
+  })
+
+  it("未闭合 \\begin{align} 不抛错并渲染降级文本", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const content = "\\begin{align} x 未闭合"
+    expect(() => {
+      render(<ChatMessage message={createAssistantMessage(content)} />)
+    }).not.toThrow()
+    expect(screen.getByText(/出错了|Render failed|内容渲染失败/)).toBeInTheDocument()
+    expect(document.body.textContent).toContain("begin{align}")
+    errorSpy.mockRestore()
+  })
+
+  it("正常公式仍正常渲染 katex（无降级）", () => {
+    const { container } = render(
+      <ChatMessage message={createAssistantMessage("公式 $x^2$ 结束")} />,
+    )
+    expect(container.querySelector(".katex")).not.toBeNull()
+    expect(screen.queryByText(/出错了|Render failed|内容渲染失败/)).not.toBeInTheDocument()
+  })
+
+  it("单条崩只影响单条：畸形与正常消息独立边界", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { container } = render(
+      <div>
+        <ChatMessage message={createAssistantMessage("坏公式 $\\broken{ 结束")} />
+        <ChatMessage message={createAssistantMessage("好公式 $x^2$ 结束")} />
+      </div>,
+    )
+    // 畸形那条降级（fallback 标题出现），正常那条仍有 katex
+    expect(screen.getByText(/出错了|Render failed|内容渲染失败/)).toBeInTheDocument()
+    expect(container.querySelector(".katex")).not.toBeNull()
+    expect(document.body.textContent).toContain("broken")
+    errorSpy.mockRestore()
+  })
+})

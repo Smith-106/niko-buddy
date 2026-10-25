@@ -23,6 +23,7 @@ import { findRawSourceForImage, imageUrlToAbsolute } from "@/lib/raw-source-reso
 import { detectLanguage } from "@/lib/detect-language"
 import { getHtmlLang, getTextDirection } from "@/lib/language-metadata"
 import { MermaidDiagram, unwrapMermaidPre } from "@/components/mermaid-diagram"
+import { ErrorBoundary } from "@/components/error-boundary"
 import { canContinueUnfinishedDeepChapter } from "@/lib/chat/resume"
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content"
 import { parseAgentResponse } from "@/lib/novel"
@@ -693,6 +694,7 @@ function AgentAwareContent({ content, projectPath }: { content: string; projectP
 // ReactMarkdown/remark/rehype 重新解析(KaTeX/Mermaid 重算昂贵)。content 是
 // string 浅比较即可,父 ChatMessage 已 memo 保证 content 引用稳定。
 const MarkdownContent = memo(function MarkdownContent({ content }: { content: string }) {
+  const { t } = useTranslation()
   // Strip hidden comments
   const cleaned = content.replace(/<!--.*?-->/gs, "").trimEnd()
 
@@ -718,7 +720,20 @@ const MarkdownContent = memo(function MarkdownContent({ content }: { content: st
         lang={htmlLang}
         style={{ textAlign: "start" }}
       >
-        <ReactMarkdown
+        {/* P0 robustness: each MarkdownContent owns an independent ErrorBoundary so a
+            single malformed-KaTeX throw only degrades that message, never whitescreens
+            the list. Fallback reuses errorBoundary.title (no new i18n key) + raw text. */}
+        <ErrorBoundary
+          fallback={
+            <div className="whitespace-pre-wrap break-words text-xs">
+              <p className="mb-1 font-medium text-destructive">
+                {t("errorBoundary.title", { defaultValue: "Render failed, showing raw text / 内容渲染失败，已显示原文" })}
+              </p>
+              <pre className="whitespace-pre-wrap break-words">{processed}</pre>
+            </div>
+          }
+        >
+          <ReactMarkdown
           remarkPlugins={sharedRemarkPlugins}
           rehypePlugins={sharedRehypePlugins}
           components={{
@@ -781,7 +796,8 @@ const MarkdownContent = memo(function MarkdownContent({ content }: { content: st
           }}
         >
           {processed}
-        </ReactMarkdown>
+          </ReactMarkdown>
+        </ErrorBoundary>
       </div>
     </div>
   )
