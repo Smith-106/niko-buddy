@@ -1,4 +1,3 @@
-export { useNovelLabel, useNovelMode } from "./ui-labels"
 export { parseChapterMeta, isChapterPage, isOutlinePage, type ChapterMeta, type ChapterStatus, type OutlineType } from "./chapter-meta"
 export { parseVolumeMeta, isVolumePage, getChapterVolumes, type VolumeMeta } from "./volume"
 export {
