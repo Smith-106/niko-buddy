@@ -354,7 +354,16 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
     return !sameSet || originalRevealed !== draftRevealedAt.trim()
   }, [selected, draftKnownBy, draftRevealedAt])
 
+  // 脏草稿守卫：取消/切行会静默丢弃未保存校正时，先经用户确认。
+  const confirmDiscardDirty = useCallback(() => {
+    if (!correctionDirty) return true
+    return window.confirm(
+      t("canon.correctionDiscardConfirm", { defaultValue: "校正草稿尚未保存，确定要放弃吗？" }),
+    )
+  }, [correctionDirty, t])
+
   const handleSelect = useCallback((edge: RawCanonEdge) => {
+    if (!confirmDiscardDirty()) return
     setSelectedId(edge.id)
     setDraftKnownBy([...(edge.known_by ?? [])])
     setDraftRevealedAt(edge.revealed_at == null ? "" : String(edge.revealed_at))
@@ -363,9 +372,10 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
     setSaveViolations([])
     setSaveError(null)
     setLastSave(null)
-  }, [])
+  }, [confirmDiscardDirty])
 
   const handleDeselect = useCallback(() => {
+    if (!confirmDiscardDirty()) return
     setSelectedId(null)
     setDraftKnownBy([])
     setDraftRevealedAt("")
@@ -373,7 +383,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
     setAddPovError(null)
     setSaveViolations([])
     setSaveError(null)
-  }, [])
+  }, [confirmDiscardDirty])
 
   const handleRemovePov = useCallback((pov: string) => {
     // 移除知晓成员永不扩大知晓面（POV 安全方向），不做白名单限制。

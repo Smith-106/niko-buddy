@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  FsError,
   copyDirectory,
   copyFile,
   createDirectory,
@@ -20,6 +21,7 @@ import {
   preprocessFile,
   readFile,
   readFileAsBase64,
+  toFsError,
   writeFile,
   writeFileAtomic,
   writeFilesAtomic,
@@ -117,10 +119,39 @@ describe("fs command wrappers", () => {
     expect(mocks.upsertProjectInfo).toHaveBeenCalledWith("oid", "/p/opened", "Opened")
   })
 
-  it("invoke 拒绝时异常原样传播（readFile）", async () => {
+  it("invoke 拒绝时包装为 FsError 信封（readFile，Error 输入）", async () => {
     const err = new Error("invoke failed")
     mocks.invoke.mockRejectedValue(err)
-    await expect(readFile("/p/a.md")).rejects.toBe(err)
+    const caught = await readFile("/p/a.md").catch((e) => e)
+    expect(caught).toBeInstanceOf(FsError)
+    expect(caught.command).toBe("read_file")
+    expect(caught.code).toBe("fs/read_file")
+    expect(caught.message).toBe("invoke failed")
+    expect(caught.details).toBe(err)
+  })
+
+  it("invoke 拒绝字符串时 message 原样保留（Tauri 后端常直接拒绝字符串）", async () => {
+    mocks.invoke.mockRejectedValue("path not found")
+    const caught = await readFile("/p/a.md").catch((e) => e)
+    expect(caught).toBeInstanceOf(FsError)
+    expect(caught.message).toBe("path not found")
+    expect(caught.details).toBe("path not found")
+  })
+
+  it("createProject 的 invoke 失败同样进信封", async () => {
+    mocks.invoke.mockRejectedValue(new Error("backend panic"))
+    const caught = await createProject("Book", "/p/book").catch((e) => e)
+    expect(caught).toBeInstanceOf(FsError)
+    expect(caught.command).toBe("create_project")
+  })
+
+  it("toFsError：FsError 直接透传；对象拒绝值 JSON 化进 message", () => {
+    const inner = new FsError("read_file", "m", { raw: 1 })
+    expect(toFsError("read_file", inner)).toBe(inner)
+    const fromObj = toFsError("list_directory", { code: 500 })
+    expect(fromObj).toBeInstanceOf(FsError)
+    expect(fromObj.message).toBe(JSON.stringify({ code: 500 }))
+    expect(fromObj.details).toEqual({ code: 500 })
   })
 
   it("createProject 在 ensureProjectId 失败时异常传播", async () => {

@@ -33,7 +33,7 @@ import { AutonomousIncubatorDialog } from "@/components/novel/autonomous-incubat
 import { useWikiStore } from "@/stores/wiki-store"
 import { createOutlineIngestTask, runOutlineIngestTask, flattenMdFiles, getNextChapterNumber, invalidateChapterCache, OUTLINE_IMPORT_EXTENSIONS, collectOutlineImportCandidatesFromFolder, importOutlineCandidates, importOutlineFiles, CHAPTER_IMPORT_EXTENSIONS, collectChapterImportCandidatesFromFolder, importChapterFiles, runImportedChapterMemoryExtraction } from "@/lib/novel"
 import type { MemoryCenterData, ImportedChapter } from "@/lib/novel"
-import { createDirectory, listDirectory, readFile, writeFile } from "@/commands/fs"
+import { createDirectory, listDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { buildChapterTotalWordCountLabel } from "@/lib/chapter-display"
 import { getFileName, normalizePath } from "@/lib/path-utils"
@@ -85,6 +85,7 @@ export function SidebarPanel() {
   const [memoryLoading, setMemoryLoading] = useState(false)
   const [memoryError, setMemoryError] = useState<string | null>(null)
   const [sidebarTotalWordCount, setSidebarTotalWordCount] = useState<number | null>(null)
+  const [sidebarWordCountFailed, setSidebarWordCountFailed] = useState(0)
   const [outlineImporting, setOutlineImporting] = useState(false)
   const [outlineImportMenuOpen, setOutlineImportMenuOpen] = useState(false)
   const outlineImportMenuRef = useRef<HTMLDivElement | null>(null)
@@ -126,6 +127,7 @@ export function SidebarPanel() {
   useEffect(() => {
     if (!project || !isChapter) {
       setSidebarTotalWordCount(null)
+      setSidebarWordCountFailed(0)
       return
     }
 
@@ -135,14 +137,17 @@ export function SidebarPanel() {
       try {
         const chapterNodes = await listDirectory(`${normalizePath(project.path)}/wiki/chapters`)
         const files = flattenMdFiles(chapterNodes)
-        const contents = await Promise.all(files.map((file) => readFile(file.path).catch(() => "")))
-        const total = contents.reduce((sum, markdown) => sum + countChapterBodyWords(markdown), 0)
+        const contents = await Promise.all(files.map((file) => readFile(file.path).catch(() => null)))
+        const failed = contents.filter((c) => c === null).length
+        const total = contents.reduce((sum, markdown) => sum + countChapterBodyWords(markdown ?? ""), 0)
         if (!cancelled) {
           setSidebarTotalWordCount(total)
+          setSidebarWordCountFailed(failed)
         }
       } catch {
         if (!cancelled) {
           setSidebarTotalWordCount(null)
+          setSidebarWordCountFailed(0)
         }
       }
     }
@@ -522,8 +527,8 @@ export function SidebarPanel() {
       const projectPath = normalizePath(project.path)
       const chaptersRoot = `${projectPath}/wiki/chapters`
       const targetDir = parentDir ?? chaptersRoot
-      await createDirectory(chaptersRoot).catch(() => {})
-      await createDirectory(targetDir).catch(() => {})
+      await createDirectory(chaptersRoot).catch((err) => { console.warn("[sidebar] ignored error:", err) })
+      await createDirectory(targetDir).catch((err) => { console.warn("[sidebar] ignored error:", err) })
 
       const existingTitles = await getExistingChapterTitles(projectPath)
       let nextNumber = await getNextChapterNumber(projectPath)
@@ -545,7 +550,7 @@ export function SidebarPanel() {
         "",
       ].join("\n")
 
-      await writeFile(filePath, content)
+      await writeFileAtomic(filePath, content)
       invalidateChapterCache(projectPath)
       setPendingPages((prev) => [
         { path: filePath, title, type: "chapter", tags: [] },
@@ -569,8 +574,8 @@ export function SidebarPanel() {
       if (pendingCreate.kind === "outline") {
         const outlinesRoot = `${projectPath}/wiki/outlines`
         const targetDir = pendingCreate.parentDir ?? outlinesRoot
-        await createDirectory(outlinesRoot).catch(() => {})
-        await createDirectory(targetDir).catch(() => {})
+        await createDirectory(outlinesRoot).catch((err) => { console.warn("[sidebar] ignored error:", err) })
+        await createDirectory(targetDir).catch((err) => { console.warn("[sidebar] ignored error:", err) })
         const filePath = await getUniqueWikiPagePath(targetDir, `${makeSafeFileSlug(title)}.md`)
         const content = [
           "---",
@@ -581,7 +586,7 @@ export function SidebarPanel() {
           `# ${title}`,
           "",
         ].join("\n")
-        await writeFile(filePath, content)
+        await writeFileAtomic(filePath, content)
         setPendingPages((prev) => [
           { path: filePath, title, type: "outline", tags: [] },
           ...prev.filter((page) => page.path !== filePath),
@@ -590,7 +595,7 @@ export function SidebarPanel() {
       } else {
         const baseDir = pendingCreate.parentDir
           ?? `${projectPath}/wiki/${pendingCreate.kind === "volume" ? "chapters" : "outlines"}`
-        await createDirectory(baseDir).catch(() => {})
+        await createDirectory(baseDir).catch((err) => { console.warn("[sidebar] ignored error:", err) })
         const folderPath = `${baseDir}/${makeSafeFileSlug(title)}`
         await createDirectory(folderPath)
         await refreshTree(projectPath)
@@ -809,6 +814,7 @@ export function SidebarPanel() {
           {isChapter && sidebarTotalWordCount !== null ? (
             <div className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
               {buildChapterTotalWordCountLabel(sidebarTotalWordCount)}
+              {sidebarWordCountFailed > 0 ? <span role="note">（{sidebarWordCountFailed}章读取失败，未计入）</span> : null}
             </div>
           ) : null}
         </div>

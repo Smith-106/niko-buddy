@@ -1,4 +1,4 @@
-import { readFile, writeFile, fileExists } from "@/commands/fs"
+import { readFile, writeFileAtomic, fileExists } from "@/commands/fs"
 import { normalizePath, isAbsolutePath } from "@/lib/path-utils"
 import { bytesToHex } from "@/lib/utils"
 
@@ -41,7 +41,7 @@ async function loadCache(projectPath: string): Promise<CacheData> {
 
 async function saveCache(projectPath: string, cache: CacheData): Promise<void> {
   try {
-    await writeFile(cachePath(projectPath), JSON.stringify(cache, null, 2))
+    await writeFileAtomic(cachePath(projectPath), JSON.stringify(cache, null, 2))
   } catch {
     // non-critical
   }

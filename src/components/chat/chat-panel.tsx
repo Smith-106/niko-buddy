@@ -20,7 +20,7 @@ import { chapterMarkdownHasBody, resolveChapterLengthSpec, routeTask, buildTaskD
 import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
 import { activeRustStreamIds } from "@/lib/claude-cli-transport"
 import { executeIngestWrites } from "@/lib/ingest"
-import { readFile, writeFile, createDirectory, fileExists } from "@/commands/fs"
+import { readFile, writeFileAtomic, createDirectory, fileExists } from "@/commands/fs"
 // C4 覆盖守卫：目标章节 Markdown 是否有正文的纯函数（chapter-save-strategy 模块）。
 import {
   markStyleExemplarViaRust,
@@ -855,7 +855,7 @@ export function ChatPanel() {
           })
           // 64 号实施接线（chapter-workspace 消费）：保存后追加快照（静默失败）
           await appendChapterWorkspaceSnapshot(pp, chapter.chapterNumber, normalizedResult.content)
-          await writeFile(chapter.chapterPath, normalizedResult.content)
+          await writeFileAtomic(chapter.chapterPath, normalizedResult.content)
         }
         invalidateChapterCache(pp)
 

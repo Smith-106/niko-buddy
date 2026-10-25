@@ -6,7 +6,7 @@ import { createApplySkillTool } from "./apply-skill"
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
   return {
-    ...actual, readFile: vi.fn(), writeFile: vi.fn(), fileExists: vi.fn(), createDirectory: vi.fn() 
+    ...actual, readFile: vi.fn(), writeFileAtomic: vi.fn(), fileExists: vi.fn(), createDirectory: vi.fn() 
   }
 })
 vi.mock("@/lib/novel/de-ai-skill-library", async (importOriginal) => {
@@ -18,7 +18,7 @@ vi.mock("@/lib/novel/de-ai-skill-library", async (importOriginal) => {
   }
 })
 
-import { readFile, writeFile, fileExists, createDirectory } from "@/commands/fs"
+import { readFile, writeFileAtomic, fileExists, createDirectory } from "@/commands/fs"
 import { getAllDeAiSkills } from "@/lib/novel"
 
 describe("write tools", () => {
@@ -29,35 +29,35 @@ describe("write tools", () => {
   })
 
   it("write_chapter writes content to chapters dir", async () => {
-    vi.mocked(writeFile).mockResolvedValue()
+    vi.mocked(writeFileAtomic).mockResolvedValue()
     vi.mocked(readFile).mockResolvedValue("chapter body")
     const tool = createWriteChapterTool("/project/wiki/chapters")
     const result = await tool.execute({ name: "第1章", content: "chapter body" })
     expect(result).toContain("已写入")
     expect(result).toContain("读回验证通过")
-    expect(writeFile).toHaveBeenCalledWith("/project/wiki/chapters/第1章.md", "chapter body")
+    expect(writeFileAtomic).toHaveBeenCalledWith("/project/wiki/chapters/第1章.md", "chapter body")
     expect(readFile).toHaveBeenCalledWith("/project/wiki/chapters/第1章.md")
   })
 
   it("write_chapter reports error on failure", async () => {
-    vi.mocked(writeFile).mockRejectedValue(new Error("permission denied"))
+    vi.mocked(writeFileAtomic).mockRejectedValue(new Error("permission denied"))
     const tool = createWriteChapterTool("/project/wiki/chapters")
     const result = await tool.execute({ name: "第1章", content: "x" })
     expect(result).toContain("错误")
   })
 
   it("write_memory writes to memory dir", async () => {
-    vi.mocked(writeFile).mockResolvedValue()
+    vi.mocked(writeFileAtomic).mockResolvedValue()
     vi.mocked(readFile).mockResolvedValue("desc")
     const tool = createWriteMemoryTool("/project/wiki/memory")
     const result = await tool.execute({ name: "曙光", content: "desc" })
-    expect(writeFile).toHaveBeenCalledWith("/project/wiki/memory/曙光.md", "desc")
+    expect(writeFileAtomic).toHaveBeenCalledWith("/project/wiki/memory/曙光.md", "desc")
     expect(readFile).toHaveBeenCalledWith("/project/wiki/memory/曙光.md")
     expect(result).toContain("读回验证通过")
   })
 
   it("write tools report verification failures after writing", async () => {
-    vi.mocked(writeFile).mockResolvedValue()
+    vi.mocked(writeFileAtomic).mockResolvedValue()
     vi.mocked(readFile).mockResolvedValue("different content")
     const tool = createWriteChapterTool("/project/wiki/chapters")
     const result = await tool.execute({ name: "第1章", content: "chapter body" })

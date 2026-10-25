@@ -43,6 +43,8 @@ interface DirectorPanelProps {
   progress?: DirectorPanelProgress
   onAdvance: () => void
   onRetry: () => void
+  /** 在途推进存在时传入 → 面板渲染终止按钮（真中断 advance 的 AbortSignal）。 */
+  onTerminate?: () => void
 }
 
 /**
@@ -50,7 +52,7 @@ interface DirectorPanelProps {
  * 对齐 ANWA director 的进度展示（projections/ 收缩态）：每阶段状态
  * （pending/running/done/failed）+ 推进/重试操作 + 缺口提示。
  */
-export function DirectorPanel({ state, gap, busy = false, progress, onAdvance, onRetry }: DirectorPanelProps) {
+export function DirectorPanel({ state, gap, busy = false, progress, onAdvance, onRetry, onTerminate }: DirectorPanelProps) {
   const { t } = useTranslation()
   const currentFailed = state.statuses[state.currentPhase] === "failed"
   const allDone = DIRECTOR_PHASES.every((p) => state.statuses[p] === "done")
@@ -175,8 +177,14 @@ export function DirectorPanel({ state, gap, busy = false, progress, onAdvance, o
             ) : (
               <Play className="mr-1 h-3.5 w-3.5" />
             )}
-            {t("directorPanel.advance")}
+            {busy ? t("directorPanel.advancing", { defaultValue: "推进中…" }) : t("directorPanel.advance")}
           </Button>
+          {onTerminate ? (
+            <Button size="sm" variant="destructive" onClick={onTerminate} data-testid="director-terminate">
+              <CircleX className="mr-1 h-3.5 w-3.5" />
+              {t("directorPanel.terminate", { defaultValue: "终止推演" })}
+            </Button>
+          ) : null}
         </div>
       )}
     </div>

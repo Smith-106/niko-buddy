@@ -74,7 +74,6 @@ const mocks = vi.hoisted(() => {
       lookupZhLocale(key) ?? (typeof opts === "string" ? opts : opts?.defaultValue) ?? key
     ),
     readFile: vi.fn(),
-    writeFile: vi.fn(),
     writeFileAtomic: vi.fn(),
     listDirectory: vi.fn(),
     deleteFile: vi.fn(),
@@ -200,7 +199,6 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: mocks.readFile,
-      writeFile: mocks.writeFile,
       writeFileAtomic: mocks.writeFileAtomic,
       listDirectory: mocks.listDirectory,
       copyFile: mocks.copyFile,
@@ -457,7 +455,7 @@ beforeEach(() => {
   mocks.saveText.value = "用户改动的内容"
   mocks.selectionText.value = "选中文本"
   mocks.readFile.mockResolvedValue("")
-  mocks.writeFile.mockResolvedValue(undefined)
+  mocks.writeFileAtomic.mockResolvedValue(undefined)
   mocks.writeFileAtomic.mockResolvedValue(undefined)
   mocks.listDirectory.mockResolvedValue([])
   mocks.deleteFile.mockResolvedValue(undefined)
@@ -1255,8 +1253,8 @@ describe("PreviewPanel 一键排版与去AI味", () => {
     fireEvent.click(screen.getByText("去AI味"))
     await waitFor(() => expect(screen.getByTestId("de-ai-save-draft")).toBeInTheDocument())
     fireEvent.click(screen.getByTestId("de-ai-save-draft"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
-    expect(mocks.writeFile.mock.calls[0][0]).toContain("去AI味稿.md")
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+    expect(mocks.writeFileAtomic.mock.calls[0][0]).toContain("去AI味稿.md")
     expect(mocks.state.setFileTree).toHaveBeenCalled()
     expect(mocks.state.bumpDataVersion).toHaveBeenCalled()
     cleanup()
@@ -1265,7 +1263,7 @@ describe("PreviewPanel 一键排版与去AI味", () => {
   it("另存草稿失败 → console.error", async () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     chapterSetup()
-    mocks.writeFile.mockRejectedValue(new Error("draft-fail"))
+    mocks.writeFileAtomic.mockRejectedValue(new Error("draft-fail"))
     mocks.streamChat.mockImplementation((_c: unknown, _m: unknown, cb: any) => {
       cb.onToken("x")
       cb.onDone()
@@ -2405,7 +2403,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     await waitFor(() => expect(screen.getByTestId("de-ai-save-draft")).toBeInTheDocument())
     fireEvent.click(screen.getByTestId("de-ai-save-draft"))
     await flushAsync(30)
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     cleanup()
   })
 

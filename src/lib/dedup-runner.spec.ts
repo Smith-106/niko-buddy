@@ -5,7 +5,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 const mocks = vi.hoisted(() => ({
   listDirectory: vi.fn(),
   readFile: vi.fn(),
-  writeFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
   deleteFile: vi.fn(),
   streamChat: vi.fn(),
   extractEntitySummary: vi.fn(),
@@ -21,7 +21,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
     ...actual,
       listDirectory: mocks.listDirectory,
       readFile: mocks.readFile,
-      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
       deleteFile: mocks.deleteFile,
     
   }
@@ -275,15 +275,15 @@ describe("executeMerge", () => {
       { signal: undefined },
     )
     // snapshot + canonical + rewrites
-    expect(mocks.writeFile).toHaveBeenCalledWith(
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
       expect.stringMatching(/\/P\/\.niko-buddy\/page-history\/dedup-/),
       "old A",
     )
-    expect(mocks.writeFile).toHaveBeenCalledWith("/P/wiki/entities/canon.md", "# Canon merged")
-    expect(mocks.writeFile).toHaveBeenCalledWith("/P/wiki/entities/B.md", "[[canon]]")
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith("/P/wiki/entities/canon.md", "# Canon merged")
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith("/P/wiki/entities/B.md", "[[canon]]")
     expect(mocks.deleteFile).toHaveBeenCalledWith("/P/wiki/entities/A.md")
     expect(mocks.rewriteIndexMd).toHaveBeenCalledWith("# Index", expect.any(Set))
-    expect(mocks.writeFile).toHaveBeenCalledWith("/P/wiki/index.md", "# Index\nrewritten")
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith("/P/wiki/index.md", "# Index\nrewritten")
   })
 
   it("ignores non-markdown pages while resolving duplicate slugs", async () => {
@@ -350,6 +350,6 @@ describe("executeMerge", () => {
     mocks.readFile.mockImplementation(async (p: string) => (p.endsWith("index.md") ? "plain" : "content"))
     mocks.rewriteIndexMd.mockReturnValue("plain")
     await executeMerge("/P", { slugs: ["A", "B"], reason: "dup", confidence: "high" }, "A", fakeLlmConfig)
-    expect(mocks.writeFile).not.toHaveBeenCalledWith("/P/wiki/index.md", "plain")
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalledWith("/P/wiki/index.md", "plain")
   })
 })

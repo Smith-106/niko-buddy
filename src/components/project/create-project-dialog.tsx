@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FolderOpen } from "lucide-react"
-import { createProject, writeFile, createDirectory, getExecutableDir, listDirectory } from "@/commands/fs"
+import { createProject, writeFileAtomic, createDirectory, getExecutableDir, listDirectory } from "@/commands/fs"
 import { getTemplate } from "@/lib/templates"
 import { TemplatePicker } from "./template-picker"
 import type { WikiProject } from "@/types/wiki"
@@ -152,14 +152,14 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
       const pp = normalizePath(project.path)
 
       const template = getTemplate(selectedTemplateId)
-      await writeFile(`${pp}/schema.md`, template.schema)
-      await writeFile(`${pp}/purpose.md`, template.purpose)
+      await writeFileAtomic(`${pp}/schema.md`, template.schema)
+      await writeFileAtomic(`${pp}/purpose.md`, template.purpose)
       for (const dir of template.extraDirs) {
         await createDirectory(`${pp}/${dir}`)
       }
       // F3（Round-1 评估）：演示模板种子文件（大纲/人物卡/样例章）——零 API 试写。
       for (const seed of template.seedFiles ?? []) {
-        await writeFile(`${pp}/${seed.path}`, seed.content)
+        await writeFileAtomic(`${pp}/${seed.path}`, seed.content)
       }
 
       const lang: OutputLanguage = "Chinese"

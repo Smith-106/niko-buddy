@@ -10,6 +10,8 @@ import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
 import { splitChapterHeading } from "@/lib/chapter-selection"
 import { getFileName, getRelativePath } from "@/lib/path-utils"
 import { clampChatHeight, clampChatWidth } from "@/lib/workspace-layout"
+import { getFileModifiedTime } from "@/commands/fs"
+import { analyzeForeshadowingDebt, getForeshadowingWatermark, loadForeshadowingTracker } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { shouldShowRightDockChat, shouldShowWritingChat } from "./chat-layout"
 import { Flame } from "lucide-react"
@@ -52,6 +54,7 @@ export function WritingWorkspace() {
   const setFocusMode = useWikiStore((s) => s.setFocusMode)
   const [focusAiOpen, setFocusAiOpen] = useState(false)
   const projectPath = useWikiStore((s) => s.project)?.path ?? ""
+  const dataVersion = useWikiStore((s) => s.dataVersion)
   const selectedFile = useWikiStore((s) => s.selectedFile)
   const fileContent = useWikiStore((s) => s.fileContent)
   const [chatHeight, setChatHeight] = useState(260)
@@ -89,6 +92,50 @@ export function WritingWorkspace() {
     && finalChapterSave.projectPath === projectPath
     ? finalChapterSave
     : null
+  // 伏笔逾期注入通道（foreshadowingAlert coreIssues）：读 tracker 真源 →
+  // 水位（panel 甘特同口径）→ debt 分析取 critical/warning 计数；fail-open 无徽标。
+  const [foreshadowOverdue, setForeshadowOverdue] = useState<{ critical: number; warning: number } | null>(null)
+  useEffect(() => {
+    if (!projectPath) {
+      setForeshadowOverdue(null)
+      return
+    }
+    let cancelled = false
+    void loadForeshadowingTracker(projectPath).then(
+      (storeData) => {
+        if (cancelled) return
+        const watermark = getForeshadowingWatermark(storeData.items)
+        const report = analyzeForeshadowingDebt(storeData, watermark)
+        setForeshadowOverdue({ critical: report.criticalCount, warning: report.warningCount })
+      },
+      () => {
+        if (!cancelled) setForeshadowOverdue(null)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [projectPath, dataVersion])
+  // 本地时间机器指示：所选文件的真实 mtime（fail-open：读不到就不显示，不伪造）。
+  const [snapshotMtime, setSnapshotMtime] = useState<number | null>(null)
+  useEffect(() => {
+    if (!selectedFile) {
+      setSnapshotMtime(null)
+      return
+    }
+    let cancelled = false
+    void getFileModifiedTime(selectedFile).then(
+      (ms) => {
+        if (!cancelled) setSnapshotMtime(Number.isFinite(ms) ? ms : null)
+      },
+      () => {
+        if (!cancelled) setSnapshotMtime(null)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [selectedFile])
   const saveLabel = matchedSave?.saving
     ? t("novel.chapter.savingAsFinal")
     : matchedSave?.phase === "saved" || matchedSave?.phase === "ingested"
@@ -261,9 +308,20 @@ export function WritingWorkspace() {
         </button></>}
         <span className="truncate text-xs text-muted-foreground" data-testid="workspace-tools-target">
           {selectedFile
-            ? `${chapterTitle} · ${fileName}${chapterHeader ? ` · ${chapterHeader.wordCountLabel}` : ""}${saveLabel ? ` · ${saveLabel}` : ""}`
+            ? `${chapterTitle} · ${fileName}${chapterHeader ? ` · ${chapterHeader.wordCountLabel}` : ""}${saveLabel ? ` · ${saveLabel}` : ""}${snapshotMtime ? ` · 本地快照 ${new Date(snapshotMtime).toLocaleString()}` : ""}`
             : t("workspace.tools.noFile")}
         </span>
+        {foreshadowOverdue && foreshadowOverdue.critical + foreshadowOverdue.warning > 0 ? (
+          <button
+            type="button"
+            data-testid="workspace-foreshadow-alert"
+            title="打开伏笔面板查看逾期明细"
+            onClick={() => setDeskTab("foreshadow")}
+            className="shrink-0 rounded border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs text-warning hover:bg-warning/20"
+          >
+            {`伏笔逾期 ${foreshadowOverdue.critical + foreshadowOverdue.warning}（严重${foreshadowOverdue.critical}）`}
+          </button>
+        ) : null}
       </div>
       {!focusMode && toolsPanel === "pdf" ? (
         <div

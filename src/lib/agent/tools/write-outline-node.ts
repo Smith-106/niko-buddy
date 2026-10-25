@@ -1,5 +1,5 @@
 import type { Tool } from "../types"
-import { readFile, writeFile, fileExists } from "@/commands/fs"
+import { readFile, writeFileAtomic, fileExists } from "@/commands/fs"
 import { logger, toErrorMessage } from "@/lib/utils"
 import { isLikelyChapterOutline, summarizeChapterOutlineQuality } from "@/lib/novel"
 
@@ -181,7 +181,7 @@ export function createWriteOutlineNodeTool(outlinesDir: string): Tool {
         if (await fileExists(path)) {
           return `错误：「${outlineName}」已存在。请选择覆盖、另存为新版本或追加修改说明后再保存，系统不会静默覆盖已有章纲。`
         }
-        await writeFile(path, content)
+        await writeFileAtomic(path, content)
         const verified = await readFile(path)
         if (verified !== content) {
           return `已写入大纲节点「${nodeTitle}」到「${outlineName}」，警告：写入后读回验证失败，请手动检查文件内容。`

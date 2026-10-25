@@ -10,7 +10,7 @@ import { advanceDirectorAutomatically, buildStageJournalRuntime, collectProjectS
 import type { DirectorSnapshot, DirectorIdeaInput, DirectorPersistedFile, DirectorStageArtifacts } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { assessLlmHealth } from "@/lib/llm-health"
-import { writeFile, createDirectory, fileExists } from "@/commands/fs"
+import { writeFileAtomic, createDirectory, fileExists } from "@/commands/fs"
 import { Play, Rocket, PenLine, Settings as SettingsIcon } from "lucide-react"
 
 export interface DirectorViewProps {
@@ -39,6 +39,16 @@ export function DirectorView({ projectId }: DirectorViewProps) {
   // B 范围：推进＝生成→出口门→推进，面板要看得见「现在在做什么」与「生成了什么」。
   const [progress, setProgress] = useState<DirectorPanelProgress>({ status: "idle", artifacts: null })
   const [artifacts, setArtifacts] = useState<DirectorStageArtifacts>({})
+  // 终止推演：在途推进的 AbortController（仅 advance 接 signal，长 LLM 可真中断）。
+  const [advanceCtl, setAdvanceCtl] = useState<AbortController | null>(null)
+  // 调度运行记录：本视图真实推进事件（开始/成功/失败/终止/重试/骨架），级别+折叠。
+  const [runLog, setRunLog] = useState<Array<{ t: number; level: "info" | "success" | "error"; text: string }>>([])
+  const [logOpen, setLogOpen] = useState(false)
+  const [logLevel, setLogLevel] = useState<"all" | "info" | "success" | "error">("all")
+  const appendLog = useCallback((level: "info" | "success" | "error", text: string) => {
+    setRunLog((prev) => [...prev.slice(-29), { t: Date.now(), level, text }])
+  }, [])
+  const filteredLog = runLog.filter((e) => logLevel === "all" || e.level === logLevel)
 
   useEffect(() => {
     let cancelled = false
@@ -105,15 +115,19 @@ export function DirectorView({ projectId }: DirectorViewProps) {
 
   const handleAdvance = useCallback(async () => {
     if (!persisted) return
+    const ctl = new AbortController()
+    setAdvanceCtl(ctl)
     setBusy(true)
     setGap(null)
     setProgress({ status: "generating", artifacts: artifacts, error: null })
+    appendLog("info", "开始推进当前阶段")
     try {
       const journal = buildStageJournalRuntime(projectId, true)
       // 门校验阶段先亮出来（生成结束后由 outcome 覆盖）——长任务也要有可见进度。
       const outcome = await advanceDirectorAutomatically(projectId, persisted.state, persisted.ideaInput, {
         llmConfig,
         journal,
+        signal: ctl.signal,
       })
       const file = { ...persisted, state: outcome.state }
       await saveDirectorPersisted(projectId, file)
@@ -126,18 +140,39 @@ export function DirectorView({ projectId }: DirectorViewProps) {
         error: outcome.error ?? null,
         ...(outcome.drafts ? { drafts: outcome.drafts } : {}),
       })
-      if (!outcome.advanced) {
-        setGap(outcome.error ?? outcome.blockedReason ?? outcome.gap ?? null)
+      if (outcome.advanced) {
+        appendLog("success", "推进成功，进入下一阶段")
+      } else {
+        const reason = outcome.error ?? outcome.blockedReason ?? outcome.gap ?? null
+        appendLog(outcome.error ? "error" : "info", outcome.error ? `推进失败：${reason}` : `未过门：${reason ?? "原因未知"}`)
+        setGap(reason)
+      }
+    } catch (e) {
+      if (ctl.signal.aborted) {
+        appendLog("info", "已终止本次推进")
+        setGap(t("directorPanel.terminated", { defaultValue: "已终止本次推进，管线状态保持不变。" }))
+        setProgress({ status: "idle", artifacts: artifacts, error: null })
+      } else {
+        const msg = e instanceof Error ? e.message : String(e)
+        appendLog("error", `推进异常：${msg}`)
+        setGap(msg)
+        setProgress({ status: "failed", artifacts: artifacts, error: msg })
       }
     } finally {
+      setAdvanceCtl(null)
       setBusy(false)
     }
-  }, [artifacts, llmConfig, persisted, projectId, refreshArtifacts, refreshSnapshot])
+  }, [artifacts, llmConfig, persisted, projectId, refreshArtifacts, refreshSnapshot, appendLog, t])
+
+  const handleTerminate = useCallback(() => {
+    advanceCtl?.abort()
+  }, [advanceCtl])
 
   const handleRetry = useCallback(async () => {
     if (!persisted) return
     setBusy(true)
     setGap(null)
+    appendLog("info", "重试当前阶段")
     try {
       const file = { ...persisted, state: retryDirector(persisted.state) }
       await saveDirectorPersisted(projectId, file)
@@ -146,7 +181,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
     } finally {
       setBusy(false)
     }
-  }, [artifacts, persisted, projectId])
+  }, [artifacts, persisted, projectId, appendLog])
 
   // MIG-002：世界骨架生成 — 从项目实体推导骨架落盘 .novel/world-blueprint.json，
   // 让 worldComplete 能真正判真（不再靠手动 checkbox / 死数据）。
@@ -159,14 +194,16 @@ export function DirectorView({ projectId }: DirectorViewProps) {
       await refreshSnapshot()
       const total = Object.values(bp.layers).reduce((n, arr) => n + (arr?.length ?? 0), 0)
       if (total === 0) {
+        appendLog("info", "世界骨架为空：未检测到项目实体")
         setGap(t("directorPanel.blueprintEmpty", { defaultValue: "未检测到项目实体——世界骨架暂为空。请先写作或建立角色/地点/组织等实体后再生成。" }))
       } else {
+        appendLog("success", "已根据实体生成世界骨架草稿")
         setGap(t("directorPanel.blueprintDone", { defaultValue: "已根据实体生成世界骨架草稿。" }))
       }
     } finally {
       setBusy(false)
     }
-  }, [projectId, refreshSnapshot, t])
+  }, [projectId, refreshSnapshot, t, appendLog])
 
   // J05-04/F-010：跳过 LLM 的本地写作路径——建空白第一章 → 写作工作区编辑器。
   // 兑现建项流程「跳过=仅本地编辑可用」的承诺。不依赖任何 LLM/Provider。
@@ -188,7 +225,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
       const title = ideaInput.title.trim() || `第${num}章`
       // frontmatter 标记章节 + 标题占位——Draft-first 本地正文，不走 LLM
       const content = `---\nkind: chapter\nchapter: ${num}\ntitle: ${title}\nstatus: draft\n---\n\n# ${title}\n\n`
-      await writeFile(chapterPath, content)
+      await writeFileAtomic(chapterPath, content)
       setSelectedFile(chapterPath)
       setActiveView("wiki")
     } finally {
@@ -322,6 +359,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
           progress={{ ...progress, artifacts: progress.artifacts ?? artifacts }}
           onAdvance={() => void handleAdvance()}
           onRetry={() => void handleRetry()}
+          onTerminate={advanceCtl ? handleTerminate : undefined}
         />
 
         <div className="flex flex-col gap-2 rounded-lg border p-4">
@@ -358,6 +396,54 @@ export function DirectorView({ projectId }: DirectorViewProps) {
 
       <EvidenceDashboardSection projectId={projectId} />
       <SubgateAlertsSection projectId={projectId} />
+
+      {/* 调度运行记录：本视图真实推进事件，级别筛选+折叠（默认收起）。 */}
+      <div className="flex flex-col gap-2 rounded-lg border p-3" data-testid="director-runlog">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            data-testid="director-runlog-toggle"
+            aria-expanded={logOpen}
+            onClick={() => setLogOpen((v) => !v)}
+            className="text-sm font-semibold"
+          >
+            {logOpen ? "▾" : "▸"} {t("directorPanel.runlogTitle", { defaultValue: "调度运行记录" })}
+          </button>
+          {logOpen && (
+            <div className="ml-auto flex items-center gap-1" role="group" aria-label="级别筛选">
+              {(["all", "info", "success", "error"] as const).map((lv) => (
+                <button
+                  key={lv}
+                  type="button"
+                  data-testid={`director-runlog-filter-${lv}`}
+                  aria-pressed={logLevel === lv}
+                  onClick={() => setLogLevel(lv)}
+                  className={logLevel === lv ? "rounded border border-primary px-2 py-0.5 text-xs font-medium" : "rounded border px-2 py-0.5 text-xs text-muted-foreground"}
+                >
+                  {lv === "all" ? "全部" : lv === "info" ? "信息" : lv === "success" ? "成功" : "失败"}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        {logOpen && (filteredLog.length === 0 ? (
+          <p className="text-xs text-muted-foreground" data-testid="director-runlog-empty">暂无运行记录</p>
+        ) : (
+          <ol className="flex flex-col gap-1">
+            {filteredLog.map((entry, idx) => (
+              <li
+                key={`${entry.t}-${idx}`}
+                data-testid="director-runlog-item"
+                data-level={entry.level}
+                className="flex items-center gap-2 text-xs"
+              >
+                <span className="text-muted-foreground">[{new Date(entry.t).toLocaleTimeString()}]</span>
+                <span className={entry.level === "error" ? "text-destructive" : entry.level === "success" ? "text-success" : "text-foreground"}>{entry.text}</span>
+              </li>
+            ))}
+          </ol>
+        ))}
+      </div>
 
       <div className="flex items-center justify-between rounded-lg border p-3">
         <span className="text-xs text-muted-foreground">{t("directorPanel.nextStep")}</span>

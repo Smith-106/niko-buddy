@@ -10,7 +10,7 @@ const fsMocks = vi.hoisted(() => {
       if (content === undefined) throw new Error(`ENOENT: ${path}`)
       return content
     }),
-    writeFile: vi.fn(async (path: string, content: string) => {
+    writeFileAtomic: vi.fn(async (path: string, content: string) => {
       files.set(path, content)
     }),
   }
@@ -22,7 +22,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
     ...actual,
       fileExists: fsMocks.fileExists,
       readFile: fsMocks.readFile,
-      writeFile: fsMocks.writeFile,
+      writeFileAtomic: fsMocks.writeFileAtomic,
     
   }
 })
@@ -84,7 +84,7 @@ describe("loadNotDuplicates", () => {
 describe("saveNotDuplicates", () => {
   it("writes the list as pretty JSON", async () => {
     await saveNotDuplicates(PROJECT, [["a", "b"]])
-    expect(fsMocks.writeFile).toHaveBeenCalledWith(
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledWith(
       FILE,
       JSON.stringify([["a", "b"]], null, 2),
     )
@@ -94,18 +94,18 @@ describe("saveNotDuplicates", () => {
 describe("addNotDuplicate", () => {
   it("ignores groups with fewer than two slugs", async () => {
     await addNotDuplicate(PROJECT, ["solo"])
-    expect(fsMocks.writeFile).not.toHaveBeenCalled()
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("appends a sorted copy of a new group", async () => {
     await addNotDuplicate(PROJECT, ["b", "a"])
-    expect(fsMocks.writeFile).toHaveBeenCalledWith(FILE, JSON.stringify([["a", "b"]], null, 2))
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledWith(FILE, JSON.stringify([["a", "b"]], null, 2))
   })
 
   it("is a no-op when an equivalent group already exists (any order/case)", async () => {
     fsMocks.files.set(FILE, JSON.stringify([["Alpha", "Beta"]]))
     await addNotDuplicate(PROJECT, ["beta", "ALPHA"])
-    expect(fsMocks.writeFile).not.toHaveBeenCalled()
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("appends to an existing whitelist", async () => {

@@ -11,7 +11,7 @@
  * lexical-graph.json (when added) — same `.niko-buddy/` directory,
  * same JSON-on-disk pattern.
  */
-import { readFile, writeFile, fileExists } from "@/commands/fs"
+import { readFile, writeFileAtomic, fileExists } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 
 const FILE_NAME = ".niko-buddy/dedup-not-duplicates.json"
@@ -42,7 +42,7 @@ export async function saveNotDuplicates(
   list: string[][],
 ): Promise<void> {
   const pp = normalizePath(projectPath)
-  await writeFile(`${pp}/${FILE_NAME}`, JSON.stringify(list, null, 2))
+  await writeFileAtomic(`${pp}/${FILE_NAME}`, JSON.stringify(list, null, 2))
 }
 
 /**

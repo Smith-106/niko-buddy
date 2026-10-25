@@ -1,4 +1,4 @@
-import { readFile, writeFile, listDirectory } from "@/commands/fs"
+import { readFile, writeFileAtomic, listDirectory } from "@/commands/fs"
 import { parseFrontmatter } from "./frontmatter"
 import { streamChat } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
@@ -663,7 +663,7 @@ async function autoIngestImpl(
       "",
     ].join("\n")
     try {
-      await writeFile(sourceSummaryFullPath, fallbackContent)
+      await writeFileAtomic(sourceSummaryFullPath, fallbackContent)
       writtenPaths.push(sourceSummaryPath)
     } catch {
       // non-critical
@@ -866,7 +866,7 @@ async function writeFileBlocks(
       if (relativePath === "wiki/log.md" || relativePath.endsWith("/log.md")) {
         const existing = await tryReadFile(fullPath)
         const appended = existing ? `${existing}\n\n${content.trim()}` : content.trim()
-        await writeFile(fullPath, appended)
+        await writeFileAtomic(fullPath, appended)
       } else if (
         relativePath === "wiki/index.md" ||
         relativePath.endsWith("/index.md") ||
@@ -877,7 +877,7 @@ async function writeFileBlocks(
         // wholesale — their sources field is incidental and merging
         // wouldn't make semantic sense (they aren't source-derived
         // content pages).
-        await writeFile(fullPath, content)
+        await writeFileAtomic(fullPath, content)
       } else {
         // Content pages (entities / concepts / queries / synthesis /
         // comparisons / sources summaries): if a page with this
@@ -906,7 +906,7 @@ async function writeFileBlocks(
             backup: (oldContent) => backupExistingPage(projectPath, relativePath, oldContent),
           },
         )
-        await writeFile(fullPath, toWrite)
+        await writeFileAtomic(fullPath, toWrite)
       }
       writtenPaths.push(relativePath)
     } catch (err) {
@@ -1310,7 +1310,7 @@ async function backupExistingPage(
   const stamp = new Date().toISOString().replace(/[:.]/g, "-")
   const sanitized = relativePath.replace(/[/\\]/g, "_")
   const backupPath = `${projectPath}/.niko-buddy/page-history/${sanitized}-${stamp}`
-  await writeFile(backupPath, existingContent)
+  await writeFileAtomic(backupPath, existingContent)
 }
 
 /**
@@ -1355,7 +1355,7 @@ async function injectImagesIntoSourceSummary(
         new RegExp(`\\n*${marker}[\\s\\S]*?${marker}\\n*`, "g"),
         "",
       )
-      await writeFile(sourceSummaryFullPath, stripped.trimEnd() + wrapped)
+      await writeFileAtomic(sourceSummaryFullPath, stripped.trimEnd() + wrapped)
     } else {
       // Page is missing — write a minimal stub so the user actually
       // sees the images in the file tree. Without this fallback, the
@@ -1378,7 +1378,7 @@ async function injectImagesIntoSourceSummary(
         `# Source: ${fileName}`,
         "",
       ].join("\n")
-      await writeFile(sourceSummaryFullPath, stubFrontmatter + wrapped)
+      await writeFileAtomic(sourceSummaryFullPath, stubFrontmatter + wrapped)
     }
   } catch (err) {
     console.warn(
@@ -1633,9 +1633,9 @@ export async function executeIngestWrites(
         const appended = existing
           ? `${existing}\n\n${content.trim()}`
           : content.trim()
-        await writeFile(fullPath, appended)
+        await writeFileAtomic(fullPath, appended)
       } else {
-        await writeFile(fullPath, content)
+        await writeFileAtomic(fullPath, content)
       }
       writtenPaths.push(fullPath)
     } catch (err) {

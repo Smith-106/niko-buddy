@@ -12,7 +12,7 @@
  * @license MIT © Niko Buddy
  */
 
-import { readFile, writeFile } from "@/commands/fs"
+import { readFile, writeFileAtomic } from "@/commands/fs"
 import { useWikiStore } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
 import { getProjectPathById } from "@/lib/project-identity"
@@ -52,7 +52,7 @@ function queueFilePath(projectPath: string): string {
 async function saveQueue(projectPath: string): Promise<void> {
   try {
     const toSave = queue.filter((t) => t.status !== "done")
-    await writeFile(queueFilePath(projectPath), JSON.stringify(toSave, null, 2))
+    await writeFileAtomic(queueFilePath(projectPath), JSON.stringify(toSave, null, 2))
   } catch {
     // Non-critical failure
   }

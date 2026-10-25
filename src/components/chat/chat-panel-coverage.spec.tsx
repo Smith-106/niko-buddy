@@ -87,7 +87,7 @@ describe("ChatPanel — 补覆盖：handleSend 分支", () => {
     setConversation("conv-1")
     renderPanel()
     await sendText("修改第3章")
-    expect(mocks.writeFile).toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).toHaveBeenCalled()
     expect(lastFinalize()[0]).toContain("已完成第3章修改")
   })
 

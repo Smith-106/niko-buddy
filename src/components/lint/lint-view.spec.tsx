@@ -112,7 +112,7 @@ const mocks = vi.hoisted(() => {
     runSemanticLint: vi.fn<() => Promise<LintResult[]>>(async () => [SEMANTIC]),
     hasUsableLlm: vi.fn<() => boolean>(() => false),
     readFile: vi.fn<() => Promise<string>>(async () => "content"),
-    writeFile: vi.fn<(path: string, contents: string) => Promise<void>>(async () => {}),
+    writeFileAtomic: vi.fn<(path: string, contents: string) => Promise<void>>(async () => {}),
     listDirectory: vi.fn<() => Promise<Array<{ name: string; path: string; is_dir: boolean }>>>(async () => [{ name: "wiki", path: "/p/mybook/wiki", is_dir: true }]),
     normalizePath: vi.fn<(p: string) => string>((p: string) => p),
     parseFrontmatter: vi.fn<(content: string) => { frontmatter: Record<string, unknown> | null; body: string; rawBlock: string }>(() => ({ frontmatter: null, body: "body", rawBlock: "" })),
@@ -181,7 +181,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: mocks.readFile,
-      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
       listDirectory: mocks.listDirectory,
     
   }
@@ -314,7 +314,7 @@ beforeEach(() => {
   mocks.hasUsableLlm.mockReturnValue(false)
   mocks.readFile.mockReset()
   mocks.readFile.mockResolvedValue("content")
-  mocks.writeFile.mockReset()
+  mocks.writeFileAtomic.mockReset()
   mocks.listDirectory.mockReset()
   mocks.listDirectory.mockResolvedValue([
     { name: "wiki", path: "/p/mybook/wiki", is_dir: true },
@@ -727,7 +727,7 @@ describe("LintView — fixes", () => {
     renderLintView()
     fireEvent.click(screen.getAllByText("lint.fix")[0])
     await waitFor(() => {
-      expect(mocks.writeFile).toHaveBeenCalledWith(
+      expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
         "/p/mybook/wiki/index.md",
         expect.stringContaining("- [[foo]]"),
       )
@@ -744,12 +744,12 @@ describe("LintView — fixes", () => {
     renderLintView()
     fireEvent.click(screen.getAllByText("lint.fix")[0])
     await waitFor(() => {
-      expect(mocks.writeFile).toHaveBeenCalledWith(
+      expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
         "/p/mybook/wiki/index.md",
         expect.stringContaining("- [[foo]]"),
       )
     })
-    const content = mocks.writeFile.mock.calls[0][1] as string
+    const content = mocks.writeFileAtomic.mock.calls[0][1] as string
     expect(content).toContain(mocks.t("lint.indexFallbackTitle"))
   })
 
@@ -761,7 +761,7 @@ describe("LintView — fixes", () => {
     await waitFor(() => {
       expect(mocks.state.bumpDataVersion).toHaveBeenCalled()
     })
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("broken-link fix → confirm review item + result removed", async () => {

@@ -57,7 +57,7 @@ describe("ChatPanel — 编辑章节模式 (chat edit mode)", () => {
     expect(mocks.backupChapterFile).toHaveBeenCalledWith(
       expect.objectContaining({ chapterPath: "/p/mybook/wiki/chapters/chapter-003.md", chapterNumber: 3 }),
     )
-    expect(mocks.writeFile).toHaveBeenCalledWith("/p/mybook/wiki/chapters/chapter-003.md", "NORMALIZED")
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith("/p/mybook/wiki/chapters/chapter-003.md", "NORMALIZED")
     expect(mocks.invalidateChapterCache).toHaveBeenCalledWith("/p/mybook")
     expect(mocks.refreshProjectState).toHaveBeenCalledWith("/p/mybook")
     expect(mocks.wikiState.setSelectedFile).toHaveBeenCalledWith("/p/mybook/wiki/chapters/chapter-003.md")
@@ -90,8 +90,10 @@ describe("ChatPanel — 编辑章节模式 (chat edit mode)", () => {
     setConversation("conv-1")
     renderPanel()
     await sendText("批量修改")
-    expect(mocks.writeFile).toHaveBeenNthCalledWith(1, "/p/mybook/wiki/chapters/chapter-003.md", "NORMALIZED")
-    expect(mocks.writeFile).toHaveBeenNthCalledWith(2, "/p/mybook/wiki/chapters/chapter-004.md", "NORMALIZED")
+    // 快照（chapter-workspace.json）与章节写回共用 writeFileAtomic：按 .md 后缀过滤章节写回。
+    const chapterCalls = mocks.writeFileAtomic.mock.calls.filter(([p]) => String(p).endsWith(".md"))
+    expect(chapterCalls[0]).toEqual(["/p/mybook/wiki/chapters/chapter-003.md", "NORMALIZED"])
+    expect(chapterCalls[1]).toEqual(["/p/mybook/wiki/chapters/chapter-004.md", "NORMALIZED"])
     expect(lastFinalize()[0]).toContain("已完成 2 个章节的批量修改")
     await flushAsync()
   })
@@ -155,7 +157,7 @@ describe("ChatPanel — 编辑章节模式 (chat edit mode)", () => {
     renderPanel()
     await sendText("修改第3章")
     expect(lastFinalize()[0]).toBe("格式错误")
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("edit onError → finalize 修改失败文案", async () => {
@@ -172,7 +174,7 @@ describe("ChatPanel — 编辑章节模式 (chat edit mode)", () => {
     renderPanel()
     await sendText("修改第3章")
     expect(lastFinalize()[0]).toContain("修改失败：")
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("edit onToken 时 guard 失效 → token 被忽略", async () => {
@@ -194,7 +196,7 @@ describe("ChatPanel — 编辑章节模式 (chat edit mode)", () => {
     await sendText("修改第3章")
     expect(mocks.chatState.appendStreamToken).toHaveBeenCalledTimes(1)
     expect(mocks.chatState.appendStreamToken).toHaveBeenCalledWith("有效内容", "conv-1")
-    expect(mocks.writeFile).toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).toHaveBeenCalled()
   })
 })
 

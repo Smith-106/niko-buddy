@@ -10,9 +10,11 @@ import {
   listSnapshots,
   loadSnapshot,
   resolveChapterTitle,
-
   type ChapterSnapshot,
 } from "@/lib/novel"
+import { parseVolumeMeta, type VolumeMeta } from "@/lib/novel/volume"
+import { searchWiki } from "@/lib/search"
+import { parseFrontmatter } from "@/lib/frontmatter"
 import { useWikiStore } from "@/stores/wiki-store"
 import { cn, toErrorMessage } from "@/lib/utils"
 
@@ -21,7 +23,7 @@ import { cn, toErrorMessage } from "@/lib/utils"
  * - 章号：`.novel/snapshots/*.snapshot.json` 的文件名（listSnapshots）
  * - 标题：快照里的富标题优先；没有则用正文 frontmatter / H1（resolveChapterTitle）。两边都没有才标暂无
  * - 字数：正文文件按 countChapterBodyWords 现算（读不到 → 暂无）
- * 本组件不写任何文件，不新增真源。
+ * 本组件不写任何文件，不新增真源，不支持拖拽排序（只读表）。
  */
 
 function filenameTitle(filePath: string | null | undefined): string {
@@ -46,6 +48,7 @@ export function chapterDirectoryTitle(
   if (snapshot) return snapshot
   return fallback || null
 }
+
 export interface ChapterDirectoryRow {
   chapterNumber: number
   /** 负数条目 = 大纲快照（outline-00N），与正文章节区分展示。 */
@@ -56,9 +59,63 @@ export interface ChapterDirectoryRow {
   filePath: string | null
 }
 
-export type ChapterDirectoryLoader = (projectPath: string) => Promise<ChapterDirectoryRow[]>
+export interface VolumeGroup {
+  /** null = 未落入任何卷区间。 */
+  meta: VolumeMeta | null
+  rows: ChapterDirectoryRow[]
+}
 
-/** 默认装载：快照目录 + 正文文件，全部只读，逐行容错（单条失败只影响该行）。 */
+export interface ChapterDirectoryData {
+  outlines: ChapterDirectoryRow[]
+  volumes: VolumeGroup[]
+}
+
+export type ChapterDirectoryLoader = (projectPath: string) => Promise<ChapterDirectoryData>
+
+/** 一次搜索捞取全部分卷页（失败 → 空数组降级为未分组平铺）。 */
+async function loadVolumeMetas(projectPath: string): Promise<VolumeMeta[]> {
+  try {
+    const hits = await searchWiki(projectPath, "volume 第 卷 chapter_range")
+    const metas: VolumeMeta[] = []
+    for (const h of hits.slice(0, 24)) {
+      try {
+        const content = await readFile(h.path)
+        const { frontmatter } = parseFrontmatter(content)
+        const meta = frontmatter ? parseVolumeMeta(frontmatter as Record<string, unknown>) : null
+        if (meta) metas.push(meta)
+      } catch {
+        // 单卷失败不影响其他卷
+      }
+    }
+    return metas.sort((a, b) => a.volumeNumber - b.volumeNumber)
+  } catch {
+    return []
+  }
+}
+
+/** 纯函数：大纲轨分离 + 正文按卷区间分组（区间外 → 未分卷组）。 */
+export function groupRowsByVolume(rows: ChapterDirectoryRow[], volumes: VolumeMeta[]): ChapterDirectoryData {
+  const outlines = rows.filter((r) => r.isOutline)
+  const groups: VolumeGroup[] = volumes.map((meta) => ({ meta, rows: [] }))
+  const ungrouped: ChapterDirectoryRow[] = []
+  for (const row of rows) {
+    if (row.isOutline) continue
+    const hit = volumes.findIndex(
+      (m) =>
+        m.chapterRangeStart !== undefined &&
+        m.chapterRangeEnd !== undefined &&
+        row.chapterNumber >= m.chapterRangeStart &&
+        row.chapterNumber <= m.chapterRangeEnd,
+    )
+    if (hit >= 0) groups[hit].rows.push(row)
+    else ungrouped.push(row)
+  }
+  const volumesOut = groups.filter((g) => g.rows.length > 0)
+  if (ungrouped.length > 0) volumesOut.push({ meta: null, rows: ungrouped })
+  return { outlines, volumes: volumesOut }
+}
+
+/** 默认装载：快照目录 + 正文文件 + 卷元数据，全部只读，逐行容错。 */
 export const loadChapterDirectory: ChapterDirectoryLoader = async (projectPath) => {
   // failLoud：目录不存在 → 空态；权限/IO 失败必须进错误态，不得伪装成「暂无章节」。
   const numbers = await listSnapshots(projectPath, { failLoud: true })
@@ -95,7 +152,8 @@ export const loadChapterDirectory: ChapterDirectoryLoader = async (projectPath) 
       return { chapterNumber, isOutline, title, wordCount, filePath }
     }),
   )
-  return rows
+  const metas = await loadVolumeMetas(projectPath)
+  return groupRowsByVolume(rows, metas)
 }
 
 export interface ChapterDirectoryProps {
@@ -108,15 +166,16 @@ export function ChapterDirectory({ loader = loadChapterDirectory }: ChapterDirec
   const project = useWikiStore((s) => s.project)
   const dataVersion = useWikiStore((s) => s.dataVersion)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
-  const [rows, setRows] = useState<ChapterDirectoryRow[] | null>(null)
+  const [data, setData] = useState<ChapterDirectoryData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const projectPath = project ? normalizePath(project.path) : null
+  const total = data ? data.outlines.length + data.volumes.reduce((n, g) => n + g.rows.length, 0) : 0
 
   useEffect(() => {
     if (!projectPath) {
-      setRows(null)
+      setData(null)
       setLoading(false)
       setError(null)
       return
@@ -127,11 +186,11 @@ export function ChapterDirectory({ loader = loadChapterDirectory }: ChapterDirec
     void loader(projectPath)
       .then((next) => {
         if (cancelled) return
-        setRows(next)
+        setData(next)
       })
       .catch((err: unknown) => {
         if (cancelled) return
-        setRows(null)
+        setData(null)
         setError(toErrorMessage(err))
       })
       .finally(() => {
@@ -148,6 +207,33 @@ export function ChapterDirectory({ loader = loadChapterDirectory }: ChapterDirec
       setSelectedFile(filePath)
     },
     [setSelectedFile],
+  )
+
+  const renderRows = (rows: ChapterDirectoryRow[]) => (
+    <tbody>
+      {rows.map((row) => (
+        <tr
+          key={`${row.isOutline ? "outline" : "chapter"}-${row.chapterNumber}`}
+          data-testid={`chapter-directory-row-${row.chapterNumber}`}
+          className={cn("border-t border-border/50", row.filePath ? "hover:bg-muted/40" : "opacity-60")}
+          onClick={() => handleOpen(row.filePath)}
+        >
+          <td className="py-1 pr-2 tabular-nums">
+            {row.isOutline ? t("novel.chapterDirectory.outline") : Math.abs(row.chapterNumber)}
+          </td>
+          <td
+            className="max-w-40 truncate py-1 pr-2"
+            title={row.title ?? undefined}
+            data-testid={`chapter-directory-title-${row.chapterNumber}`}
+          >
+            {row.title ?? t("novel.chapterDirectory.na")}
+          </td>
+          <td className="py-1 pr-2 tabular-nums" data-testid={`chapter-directory-words-${row.chapterNumber}`}>
+            {row.wordCount === null ? t("novel.chapterDirectory.na") : row.wordCount}
+          </td>
+        </tr>
+      ))}
+    </tbody>
   )
 
   return (
@@ -171,44 +257,52 @@ export function ChapterDirectory({ loader = loadChapterDirectory }: ChapterDirec
           <CircleAlert className="h-3 w-3 shrink-0" />
           {t("novel.chapterDirectory.loadFailed")}: {error}
         </p>
-      ) : !rows || rows.length === 0 ? (
+      ) : !data || total === 0 ? (
         <p className="text-xs text-muted-foreground" data-testid="chapter-directory-empty">
           {t("novel.chapterDirectory.empty")}
         </p>
       ) : (
         <>
           <p className="text-xs text-muted-foreground" data-testid="chapter-directory-total">
-            {t("novel.chapterDirectory.total", { count: rows.length })}
+            {t("novel.chapterDirectory.total", { count: total })}
           </p>
-          <table className="w-full text-left text-xs">
-            <thead className="text-muted-foreground">
-              <tr>
-                <th className="py-1 pr-2 font-normal">{t("novel.chapterDirectory.colChapter")}</th>
-                <th className="py-1 pr-2 font-normal">{t("novel.chapterDirectory.colTitle")}</th>
-                <th className="py-1 pr-2 font-normal">{t("novel.chapterDirectory.colWords")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr
-                  key={`${row.isOutline ? "outline" : "chapter"}-${row.chapterNumber}`}
-                  data-testid={`chapter-directory-row-${row.chapterNumber}`}
-                  className={cn("border-t border-border/50", row.filePath ? "hover:bg-muted/40" : "opacity-60")}
-                  onClick={() => handleOpen(row.filePath)}
-                >
-                  <td className="py-1 pr-2 tabular-nums">
-                    {row.isOutline ? t("novel.chapterDirectory.outline") : Math.abs(row.chapterNumber)}
-                  </td>
-                  <td className="py-1 pr-2" data-testid={`chapter-directory-title-${row.chapterNumber}`}>
-                    {row.title ?? t("novel.chapterDirectory.na")}
-                  </td>
-                  <td className="py-1 pr-2 tabular-nums" data-testid={`chapter-directory-words-${row.chapterNumber}`}>
-                    {row.wordCount === null ? t("novel.chapterDirectory.na") : row.wordCount}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {data.outlines.length > 0 && (
+            <details open data-testid="chapter-directory-outline-track">
+              <summary className="cursor-pointer text-xs font-medium">大纲轨（{data.outlines.length}）</summary>
+              <table className="w-full text-left text-xs">
+                <thead className="text-muted-foreground">
+                  <tr>
+                    <th className="py-1 pr-2 font-normal">{t("novel.chapterDirectory.colChapter")}</th>
+                    <th className="py-1 pr-2 font-normal">{t("novel.chapterDirectory.colTitle")}</th>
+                    <th className="py-1 pr-2 font-normal">{t("novel.chapterDirectory.colWords")}</th>
+                  </tr>
+                </thead>
+                {renderRows(data.outlines)}
+              </table>
+            </details>
+          )}
+          {data.volumes.map((g) => (
+            <details
+              key={g.meta ? `volume-${g.meta.volumeNumber}` : "volume-ungrouped"}
+              data-testid={
+                g.meta ? `chapter-directory-volume-${g.meta.volumeNumber}` : "chapter-directory-volume-ungrouped"
+              }
+            >
+              <summary className="cursor-pointer text-xs font-medium">
+                {g.meta ? `第${g.meta.volumeNumber}卷 ${g.meta.title}（${g.rows.length}章）` : `未分卷（${g.rows.length}章）`}
+              </summary>
+              <table className="w-full text-left text-xs">
+                <thead className="text-muted-foreground">
+                  <tr>
+                    <th className="py-1 pr-2 font-normal">{t("novel.chapterDirectory.colChapter")}</th>
+                    <th className="py-1 pr-2 font-normal">{t("novel.chapterDirectory.colTitle")}</th>
+                    <th className="py-1 pr-2 font-normal">{t("novel.chapterDirectory.colWords")}</th>
+                  </tr>
+                </thead>
+                {renderRows(g.rows)}
+              </table>
+            </details>
+          ))}
           <p className="text-xs text-muted-foreground" data-testid="chapter-directory-hint">
             {t("novel.chapterDirectory.hint")}
           </p>

@@ -4,7 +4,7 @@ import { Check, FileText, LayoutGrid, Plus, Trash2, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { listSnapshots, loadSnapshot, loadEmotionalArcs, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, extractChapterNumber } from "@/lib/novel"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
-import { deleteFile, listDirectory, readFile, writeFile } from "@/commands/fs"
+import { deleteFile, listDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 
 /**
  * CorkboardView — 场景卡片墙（F-010，审查/记忆面板可选可视化子面板）。
@@ -210,7 +210,7 @@ export function CorkboardView() {
         `# ${title}`,
         "",
       ].join("\n")
-      await writeFile(chapterPath, content)
+      await writeFileAtomic(chapterPath, content)
       invalidateChapterCache(project.path)
       setNotice(t("novel.corkboard.created", { num: next, defaultValue: `已创建 ${title}` }))
       refresh()

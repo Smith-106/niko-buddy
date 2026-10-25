@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { open, save } from "@tauri-apps/plugin-dialog"
-import { readFile, writeFile } from "@/commands/fs"
+import { readFile, writeFileAtomic } from "@/commands/fs"
 import { createBlankWritingSkill, createSkillCategory, deleteWritingSkill, deleteSkillCategory, exportSkillToJson, importSkillFromJson, importWritingSkill, loadAllLinkedSkillsContent, loadLinkedSkillContent, loadUserSkillConfig, moveSkillToCategory, normalizeUserSkillConfig, renameSkillCategory, reorderSkillCategories, resolveEnabledWritingSkills, saveUserSkillConfig, setWritingSkillEnabled, touchSkillUsage, updateWritingSkill, WRITING_SKILL_KIND_OPTIONS, WRITING_SKILL_MODE_OPTIONS, WRITING_SKILL_STAGE_OPTIONS, SKILL_KIND_LABELS, SKILL_MODE_LABELS, SKILL_STAGE_LABELS } from "@/lib/novel"
 import type { UserSkillConfig, SkillCategory, SkillKind, SkillMode, SkillStage, UserSkill, ImportResult } from "@/lib/novel"
 import { hasDraftChanged, resolveInitialSkillId, toggleValue } from "./writing-skill-helpers"
@@ -651,7 +651,7 @@ export function WritingSkillLibraryView() {
         ],
       })
       if (!filePath) return
-      await writeFile(filePath, jsonStr)
+      await writeFileAtomic(filePath, jsonStr)
       setMessage("导出成功")
     } catch {
       setMessage("导出 Skill 失败")

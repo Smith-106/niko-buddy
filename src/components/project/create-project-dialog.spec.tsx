@@ -41,7 +41,7 @@ const mocks = vi.hoisted(() => {
     template,
     t: vi.fn((key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key),
     createProject: vi.fn(async () => ({ id: "proj-1", name: "Novel", path: "C:\\books\\novel" })),
-    writeFile: vi.fn(async () => {}),
+    writeFileAtomic: vi.fn(async () => {}),
     createDirectory: vi.fn(async () => {}),
     listDirectory: vi.fn(async () => [] as Array<{ name: string }>),
     getExecutableDir: vi.fn(async () => "C:\\Program Files\\Niko Buddy"),
@@ -65,7 +65,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       createProject: mocks.createProject,
-      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
       createDirectory: mocks.createDirectory,
       listDirectory: mocks.listDirectory,
       getExecutableDir: mocks.getExecutableDir,
@@ -266,11 +266,11 @@ describe("CreateProjectDialog", () => {
     fireEvent.change(nameInput(), { target: { value: "DemoBook" } })
     fireEvent.submit(formOf())
     await flushAsync()
-    expect(mocks.writeFile).toHaveBeenCalledWith(
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
       expect.stringContaining("outline.md"),
       "# 演示样例大纲",
     )
-    expect(mocks.writeFile).toHaveBeenCalledWith(
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
       expect.stringContaining("chapter-001.md"),
       "# 演示样例第一章",
     )
@@ -287,8 +287,8 @@ describe("CreateProjectDialog", () => {
 
     expect(mocks.createDirectory).toHaveBeenCalledWith("C:/QM-BOOK")
     expect(mocks.createProject).toHaveBeenCalledWith("MyBook", "C:/QM-BOOK")
-    expect(mocks.writeFile).toHaveBeenCalledWith("C:/books/novel/schema.md", "# schema")
-    expect(mocks.writeFile).toHaveBeenCalledWith("C:/books/novel/purpose.md", "# purpose")
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith("C:/books/novel/schema.md", "# schema")
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith("C:/books/novel/purpose.md", "# purpose")
     expect(mocks.createDirectory).toHaveBeenCalledWith("C:/books/novel/wiki")
     expect(mocks.createDirectory).toHaveBeenCalledWith("C:/books/novel/raw")
     expect(mocks.wikiState.setOutputLanguage).toHaveBeenCalledWith("Chinese")

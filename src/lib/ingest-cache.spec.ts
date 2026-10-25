@@ -7,7 +7,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
   readFile: vi.fn(),
-  writeFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
   fileExists: vi.fn(),
 }))
 
@@ -16,7 +16,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: mocks.readFile,
-      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
       fileExists: mocks.fileExists,
     
   }
@@ -41,7 +41,7 @@ async function sha256(content: string): Promise<string> {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.readFile.mockRejectedValue(new Error("no cache file"))
-  mocks.writeFile.mockResolvedValue(undefined)
+  mocks.writeFileAtomic.mockResolvedValue(undefined)
   mocks.fileExists.mockResolvedValue(true)
 })
 
@@ -116,11 +116,11 @@ describe("checkIngestCache", () => {
 describe("saveIngestCache", () => {
   it("writes the hash entry keyed by source filename", async () => {
     await saveIngestCache("/proj", "a.pdf", "content", ["wiki/a.md"])
-    expect(mocks.writeFile).toHaveBeenCalledWith(
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
       cachePath,
       expect.any(String),
     )
-    const saved = JSON.parse(mocks.writeFile.mock.calls[0][1] as string)
+    const saved = JSON.parse(mocks.writeFileAtomic.mock.calls[0][1] as string)
     expect(saved.entries["a.pdf"].hash).toBe(await sha256("content"))
     expect(saved.entries["a.pdf"].filesWritten).toEqual(["wiki/a.md"])
     expect(typeof saved.entries["a.pdf"].timestamp).toBe("number")
@@ -131,7 +131,7 @@ describe("saveIngestCache", () => {
       JSON.stringify({ entries: { "old.pdf": entry("oldhash", ["wiki/old.md"]) } }),
     )
     await saveIngestCache("/proj", "new.pdf", "new content", ["wiki/new.md"])
-    const saved = JSON.parse(mocks.writeFile.mock.calls[0][1] as string)
+    const saved = JSON.parse(mocks.writeFileAtomic.mock.calls[0][1] as string)
     expect(saved.entries["old.pdf"].hash).toBe("oldhash")
     expect(saved.entries["new.pdf"].hash).toBe(await sha256("new content"))
   })
@@ -141,20 +141,20 @@ describe("saveIngestCache", () => {
       JSON.stringify({ entries: { "a.pdf": entry("oldhash", ["wiki/a.md"]) } }),
     )
     await saveIngestCache("/proj", "a.pdf", "newer content", ["wiki/a.md"])
-    const saved = JSON.parse(mocks.writeFile.mock.calls[0][1] as string)
+    const saved = JSON.parse(mocks.writeFileAtomic.mock.calls[0][1] as string)
     expect(saved.entries["a.pdf"].hash).toBe(await sha256("newer content"))
     expect(saved.entries["a.pdf"].filesWritten).toEqual(["wiki/a.md"])
   })
 
   it("survives a failed save (non-critical)", async () => {
-    mocks.writeFile.mockRejectedValue(new Error("disk full"))
+    mocks.writeFileAtomic.mockRejectedValue(new Error("disk full"))
     await expect(saveIngestCache("/proj", "a.pdf", "content", ["wiki/a.md"])).resolves.toBeUndefined()
   })
 
   it("still writes when the cache file is missing or corrupt", async () => {
     mocks.readFile.mockRejectedValue(new Error("ENOENT"))
     await saveIngestCache("/proj", "a.pdf", "content", ["wiki/a.md"])
-    expect(mocks.writeFile).toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).toHaveBeenCalled()
   })
 })
 
@@ -171,7 +171,7 @@ describe("removeFromIngestCache", () => {
       }),
     )
     await removeFromIngestCache("/proj", "a.pdf")
-    const saved = JSON.parse(mocks.writeFile.mock.calls[0][1] as string)
+    const saved = JSON.parse(mocks.writeFileAtomic.mock.calls[0][1] as string)
     expect(saved.entries["a.pdf"]).toBeUndefined()
     expect(saved.entries["b.pdf"].hash).toBe("h2")
   })
@@ -179,13 +179,13 @@ describe("removeFromIngestCache", () => {
   it("is a no-op for a source that is not cached", async () => {
     mocks.readFile.mockResolvedValue(JSON.stringify({ entries: {} }))
     await removeFromIngestCache("/proj", "missing.pdf")
-    const saved = JSON.parse(mocks.writeFile.mock.calls[0][1] as string)
+    const saved = JSON.parse(mocks.writeFileAtomic.mock.calls[0][1] as string)
     expect(saved.entries).toEqual({})
   })
 
   it("survives a missing cache file", async () => {
     mocks.readFile.mockRejectedValue(new Error("ENOENT"))
     await expect(removeFromIngestCache("/proj", "a.pdf")).resolves.toBeUndefined()
-    expect(mocks.writeFile).toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).toHaveBeenCalled()
   })
 })

@@ -18,7 +18,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { runStructuralLint, runSemanticLint, type LintResult } from "@/lib/lint"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import { readFile, writeFile, listDirectory } from "@/commands/fs"
+import { readFile, writeFileAtomic, listDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { useTranslation } from "react-i18next"
 import { parseFrontmatter } from "@/lib/frontmatter"
@@ -196,7 +196,7 @@ export function LintView() {
           const entry = `- [[${pageName}]]`
           if (!indexContent.includes(entry)) {
             indexContent = indexContent.trimEnd() + "\n" + entry + "\n"
-            await writeFile(indexPath, indexContent)
+            await writeFileAtomic(indexPath, indexContent)
           }
           // Remove from results
           setResults((prev) => prev.filter((_, i) => i !== index))

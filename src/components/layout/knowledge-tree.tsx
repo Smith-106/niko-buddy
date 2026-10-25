@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
-import { deleteFile, fileExists, listDirectory, readFile, writeFile, openFileLocation, copyFile } from "@/commands/fs"
+import { deleteFile, fileExists, listDirectory, readFile, writeFileAtomic, openFileLocation, copyFile } from "@/commands/fs"
 import type { FileNode } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
 import { moveFileToTrash } from "@/lib/trash"
@@ -425,7 +425,7 @@ ${frontmatterBody}
         : `${makeSafeFileSlug(newTitle)}.md`
       const targetPath = await getUniquePagePath(getDirName(renamingPath), targetFileName, renamingPath)
 
-      await writeFile(targetPath, nextContent)
+      await writeFileAtomic(targetPath, nextContent)
       if (targetPath !== renamingPath) {
         await deleteFile(renamingPath)
         if (selectedFile === renamingPath) setSelectedFile(targetPath)
@@ -486,13 +486,13 @@ ${frontmatterBody}
       const appliedWrites: { path: string; content: string }[] = []
       try {
         for (const item of writes) {
-          await writeFile(item.path, updateChapterNumberContent(item.content, item.nextNumber))
+          await writeFileAtomic(item.path, updateChapterNumberContent(item.content, item.nextNumber))
           appliedWrites.push({ path: item.path, content: item.content })
         }
       } catch (error) {
         for (const item of appliedWrites.reverse()) {
           try {
-            await writeFile(item.path, item.content)
+            await writeFileAtomic(item.path, item.content)
           } catch {
             // Ignore rollback failures and preserve the original error.
           }

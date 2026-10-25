@@ -41,11 +41,11 @@ const mocks = vi.hoisted(() => {
     t: vi.fn((key: string) => key),
     i18nExists: vi.fn(() => true),
     resolveItem: vi.fn<(id: string) => void>(),
+    setItems: vi.fn<(items: ReviewItem[]) => void>(),
     dismissItem: vi.fn<(id: string) => void>(),
     clearResolved: vi.fn<() => void>(),
     // @/commands/fs mirror
     readFile: vi.fn<(path: string) => Promise<string>>(),
-    writeFile: vi.fn<(path: string, content: string) => Promise<void>>(),
     writeFileAtomic: vi.fn<(path: string, content: string) => Promise<void>>(),
     listDirectory: vi.fn<(path: string) => Promise<FileEntry[]>>(),
     deleteFile: vi.fn<(path: string) => Promise<void>>(),
@@ -120,6 +120,7 @@ vi.mock("@/stores/review-store", () => ({
     selector({
       items: mocks.reviewItems,
       resolveItem: mocks.resolveItem,
+      setItems: mocks.setItems,
       dismissItem: mocks.dismissItem,
       clearResolved: mocks.clearResolved,
     }),
@@ -130,7 +131,6 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: mocks.readFile,
-      writeFile: mocks.writeFile,
       writeFileAtomic: mocks.writeFileAtomic,
       listDirectory: mocks.listDirectory,
       deleteFile: mocks.deleteFile,
@@ -411,7 +411,7 @@ beforeEach(() => {
   mocks.t.mockImplementation((key: string) => key)
   mocks.hasUsableLlm.mockReturnValue(true)
   mocks.readFile.mockResolvedValue("# Chapter\n正文")
-  mocks.writeFile.mockResolvedValue(undefined)
+  mocks.writeFileAtomic.mockResolvedValue(undefined)
   mocks.listDirectory.mockResolvedValue([])
   mocks.deleteFile.mockResolvedValue(undefined)
   mocks.loadCognitionState.mockResolvedValue(makeCognition())
@@ -556,16 +556,16 @@ describe("ReviewView — handleResolve (save/open/delete/create/generic)", () =>
     ]
     renderView()
     fireEvent.click(screen.getByText("保存"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
-    const [targetPath, content] = mocks.writeFile.mock.calls.find((c) => String(c[0]).includes("/wiki/queries/")) as [string, string]
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+    const [targetPath, content] = mocks.writeFileAtomic.mock.calls.find((c) => String(c[0]).includes("/wiki/queries/")) as [string, string]
     expect(content).toContain("type: query")
     expect(content).toContain("My Query Page")
     expect(content).not.toContain("save-worthy")
     // index.md 被更新 (包含新 entry)
-    const indexCall = mocks.writeFile.mock.calls.find((c) => String(c[0]).endsWith("index.md")) as [string, string]
+    const indexCall = mocks.writeFileAtomic.mock.calls.find((c) => String(c[0]).endsWith("index.md")) as [string, string]
     expect(indexCall[1]).toContain("- [[queries/")
     expect(indexCall[1]).toContain("My Query Page")
-    const logCall = mocks.writeFile.mock.calls.find((c) => String(c[0]).endsWith("log.md")) as [string, string]
+    const logCall = mocks.writeFileAtomic.mock.calls.find((c) => String(c[0]).endsWith("log.md")) as [string, string]
     expect(logCall[1]).toContain("Saved query page")
     expect(mocks.listDirectory).toHaveBeenCalledWith("E:/Novel")
     expect(mocks.state.setFileTree).toHaveBeenCalled()
@@ -582,17 +582,17 @@ describe("ReviewView — handleResolve (save/open/delete/create/generic)", () =>
       .mockRejectedValueOnce(new Error("no log"))
     renderView()
     fireEvent.click(screen.getByText("保存"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
-    const indexCall = mocks.writeFile.mock.calls.find((c) => String(c[0]).endsWith("index.md")) as [string, string]
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+    const indexCall = mocks.writeFileAtomic.mock.calls.find((c) => String(c[0]).endsWith("index.md")) as [string, string]
     expect(indexCall[1]).toContain("## Queries")
-    const logCall = mocks.writeFile.mock.calls.find((c) => String(c[0]).endsWith("log.md")) as [string, string]
+    const logCall = mocks.writeFileAtomic.mock.calls.find((c) => String(c[0]).endsWith("log.md")) as [string, string]
     expect(logCall[1]).toContain("Saved query page")
   })
 
-  it("save: 非 novelMode → savedToWiki 通知; writeFile 失败 → saveFailed", async () => {
+  it("save: 非 novelMode → savedToWiki 通知; writeFileAtomic 失败 → saveFailed", async () => {
     mocks.state.novelMode = false
     mocks.reviewItems = [makeReviewItem({ id: "sv1", options: [{ label: "保存", action: `save:${btoa("Title Line")}` }] })]
-    mocks.writeFile.mockRejectedValueOnce(new Error("disk full"))
+    mocks.writeFileAtomic.mockRejectedValueOnce(new Error("disk full"))
     renderView()
     fireEvent.click(screen.getByText("保存"))
     await waitFor(() =>
@@ -662,10 +662,10 @@ describe("ReviewView — handleResolve (save/open/delete/create/generic)", () =>
     mocks.reviewItems = [makeReviewItem({ id: "c1", title: "问题标题", options: [{ label: "建页", action: "__create_page__:query:new" }] })]
     renderView()
     fireEvent.click(screen.getByText("建页"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
-    const created = mocks.writeFile.mock.calls.find((c) => String(c[0]).includes("/wiki/queries/")) as [string, string]
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+    const created = mocks.writeFileAtomic.mock.calls.find((c) => String(c[0]).includes("/wiki/queries/")) as [string, string]
     expect(created[1]).toContain("type: query")
-    const indexCall = mocks.writeFile.mock.calls.find((c) => String(c[0]).endsWith("index.md")) as [string, string]
+    const indexCall = mocks.writeFileAtomic.mock.calls.find((c) => String(c[0]).endsWith("index.md")) as [string, string]
     // slug 由标题经 [^a-z0-9\s-] 剥离生成, 中文标题 → slug 为空, 条目为 "- [[queries/-<date>|问题标题]]" (review-view.tsx:882-889)
     expect(indexCall[1]).toContain("- [[queries/")
     expect(indexCall[1]).toContain("问题标题")
@@ -676,12 +676,12 @@ describe("ReviewView — handleResolve (save/open/delete/create/generic)", () =>
   it("create page: detectPageType 分支 (entity/人物/地点/组织/concept/设定/概念/itemType 兜底)", async () => {
     const runCreate = async (id: string, action: string, title: string, type: ReviewItem["type"]) => {
       cleanup()
-      mocks.writeFile.mockClear()
+      mocks.writeFileAtomic.mockClear()
       mocks.reviewItems = [makeReviewItem({ id, title, type, options: [{ label: "建页", action }] })]
       renderView()
       fireEvent.click(screen.getByText("建页"))
-      await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
-      const created = mocks.writeFile.mock.calls.find((c) => String(c[0]).includes("/wiki/")) as [string, string]
+      await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+      const created = mocks.writeFileAtomic.mock.calls.find((c) => String(c[0]).includes("/wiki/")) as [string, string]
       return created[1]
     }
     // 只有 __create_page__:/create:/new:/含"创建/新增" 的 action 才进入建页分支
@@ -714,12 +714,12 @@ describe("ReviewView — handleResolve (save/open/delete/create/generic)", () =>
     mocks.reviewItems = [makeReviewItem({ id: "c2", title: "   ", options: [{ label: "建页", action: "__create_page__:query:x" }] })]
     renderView()
     fireEvent.click(screen.getByText("建页"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
-    const created = mocks.writeFile.mock.calls.find((c) => String(c[0]).includes("/wiki/queries/")) as [string, string]
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+    const created = mocks.writeFileAtomic.mock.calls.find((c) => String(c[0]).includes("/wiki/queries/")) as [string, string]
     expect(created[1]).toContain("review.fallbacks.untitled")
     cleanup()
     mocks.reviewItems = [makeReviewItem({ id: "c3", title: "失败页", options: [{ label: "建页", action: "__create_page__:query:x" }] })]
-    mocks.writeFile.mockRejectedValue(new Error("no space"))
+    mocks.writeFileAtomic.mockRejectedValue(new Error("no space"))
     renderView()
     fireEvent.click(screen.getByText("建页"))
     await waitFor(() => expect(mocks.resolveItem).toHaveBeenCalledWith("c3", "novel.review.notifications.createFailed"))
@@ -1174,7 +1174,7 @@ describe("ReviewView — novel review 结果 / 行动项 / action bar", () => {
     fireEvent.click(screen.getByText("review.rewrite.regenerateAll"))
     await waitFor(() => expect(screen.getByText("原文1")).toBeInTheDocument())
     fireEvent.click(applyBtn)
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     expect(mocks.state.bumpDataVersion).toHaveBeenCalled()
     // 对话框关闭
     await waitFor(() => expect(screen.queryByTestId("dialog")).not.toBeInTheDocument())
@@ -1229,11 +1229,11 @@ describe("ReviewView — novel review 结果 / 行动项 / action bar", () => {
     // (对话框打开时的 readFile 已消耗默认 mock; 这里只需给第一次 apply 注册 reject Once)
     mocks.readFile.mockRejectedValueOnce(new Error("gone")) // 第一次 apply: 读取失败
     fireEvent.click(screen.getByText("review.rewrite.apply"))
-    await waitFor(() => expect(mocks.writeFile).not.toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).not.toHaveBeenCalled())
     // 成功路径 + selectedFile === targetPath
     mocks.readFile.mockResolvedValueOnce("# latest\n正文")
     fireEvent.click(screen.getByText("review.rewrite.apply"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     expect(mocks.state.setFileContent).toHaveBeenCalled()
     expect(mocks.state.setPendingEditorHighlight).toHaveBeenCalledWith(
       expect.objectContaining({ path: "E:/Novel/chapter-8.md", text: "替换1" }),
@@ -1270,8 +1270,8 @@ describe("ReviewView — novel review 结果 / 行动项 / action bar", () => {
     await waitFor(() => expect(mocks.state.setActiveView).toHaveBeenCalledTimes(1))
     // restore
     fireEvent.click(screen.getByText("dashboard.actions.restore"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
-    expect(mocks.writeFile).toHaveBeenCalledWith("E:/Novel/chapter-8.md", "restored-md")
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith("E:/Novel/chapter-8.md", "restored-md")
     expect(mocks.saveDashboardIssueState).toHaveBeenCalledWith(
       "E:/Novel",
       expect.objectContaining({ rewrites: {} }),
@@ -1283,8 +1283,8 @@ describe("ReviewView — novel review 结果 / 行动项 / action bar", () => {
     renderView()
     await waitFor(() => expect(screen.getByText("dashboard.actions.restore")).toBeInTheDocument())
     fireEvent.click(screen.getByText("dashboard.actions.restore"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledTimes(2))
-    expect(mocks.writeFile.mock.calls[1]).toEqual(["E:/Novel/chapter-8.md", "# Chapter\n正文"])
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2))
+    expect(mocks.writeFileAtomic.mock.calls[1]).toEqual(["E:/Novel/chapter-8.md", "# Chapter\n正文"])
   })
 
   it("对比改写: FindingCompareDialog 打开, accept/reject/close 关闭", () => {
@@ -1725,7 +1725,7 @@ describe("ReviewView — W4 边界与异步分支", () => {
     await waitFor(() => expect(screen.getByText("dashboard.actions.restore")).toBeInTheDocument())
     mocks.readFile.mockResolvedValueOnce("")
     fireEvent.click(screen.getByText("dashboard.actions.restore"))
-    await waitFor(() => expect(mocks.writeFile).not.toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).not.toHaveBeenCalled())
     view.unmount()
 
     mocks.state.selectedFile = "E:/Novel/chapter-8.md"
@@ -1748,7 +1748,7 @@ describe("ReviewView — W4 边界与异步分支", () => {
     renderView()
     fireEvent.click(screen.getByText("建页"))
     await waitFor(() => expect(mocks.resolveItem).toHaveBeenCalledWith("create-fallback", "novel.review.notifications.created"))
-    expect(mocks.writeFile.mock.calls.some(([path, content]) => String(path).endsWith("index.md") && String(content).includes("## Queries"))).toBe(true)
+    expect(mocks.writeFileAtomic.mock.calls.some(([path, content]) => String(path).endsWith("index.md") && String(content).includes("## Queries"))).toBe(true)
     cleanup()
     mocks.reviewItems = [makeReviewItem({ id: "create-missing", options: [{ label: "建页", action: "create:query" }] })]
     renderView()
@@ -1946,7 +1946,7 @@ describe("ReviewView — 覆盖率终局：可达边界", () => {
     await waitFor(() => expect(screen.getByText(/single-boom/)).toBeInTheDocument())
     // apply 未禁用 (仅 busy/无内容禁用) → rewriteError 守卫拦截
     fireEvent.click(screen.getByText("review.rewrite.apply"))
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     expect(screen.getByTestId("dialog")).toBeInTheDocument()
   })
 
@@ -1983,10 +1983,10 @@ describe("ReviewView — 覆盖率终局：可达边界", () => {
     // restore: readFile 拒绝 → catch 兜底空串 → 静默 return
     mocks.readFile.mockRejectedValueOnce(new Error("gone"))
     fireEvent.click(screen.getByText("dashboard.actions.restore"))
-    await waitFor(() => expect(mocks.writeFile).not.toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).not.toHaveBeenCalled())
     // restore 再次点击成功: 双备份回写后清理 rewrites
     fireEvent.click(screen.getByText("dashboard.actions.restore"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledWith("E:/Novel/chapter-8.md", "restored-md"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledWith("E:/Novel/chapter-8.md", "restored-md"))
     expect(mocks.saveDashboardIssueState).toHaveBeenCalledWith("E:/Novel", expect.objectContaining({ rewrites: {} }))
   })
 
@@ -1997,7 +1997,7 @@ describe("ReviewView — 覆盖率终局：可达边界", () => {
     renderView()
     fireEvent.click(screen.getByText("保存"))
     await waitFor(() =>
-      expect(mocks.writeFile).toHaveBeenCalledWith(
+      expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
         expect.stringContaining("/wiki/queries/reviewfallbackssavedquerytitle-"),
         expect.any(String),
       ),
@@ -2020,7 +2020,7 @@ describe("ReviewView — 覆盖率终局：可达边界", () => {
     fireEvent.click(screen.getByText("建页"))
     await waitFor(() => expect(mocks.resolveItem).toHaveBeenCalledWith("cp1", "review.notifications.createdPage"))
     cleanup()
-    mocks.writeFile.mockRejectedValueOnce(new Error("disk full"))
+    mocks.writeFileAtomic.mockRejectedValueOnce(new Error("disk full"))
     mocks.reviewItems = [makeReviewItem({ id: "cp2", title: "新页", options: [{ label: "建页", action: "create:page" }] })]
     renderView()
     fireEvent.click(screen.getByText("建页"))
@@ -2030,7 +2030,7 @@ describe("ReviewView — 覆盖率终局：可达边界", () => {
   it("save: novelMode 写入失败 → novel saveFailed 通知", async () => {
     setNovelRun()
     mocks.reviewItems = [makeReviewItem({ id: "svf", options: [{ label: "保存", action: `save:${btoa("Title Line")}` }] })]
-    mocks.writeFile.mockRejectedValueOnce(new Error("disk full"))
+    mocks.writeFileAtomic.mockRejectedValueOnce(new Error("disk full"))
     renderView()
     fireEvent.click(screen.getByText("保存"))
     await waitFor(() => expect(mocks.resolveItem).toHaveBeenCalledWith("svf", "novel.review.notifications.saveFailed"))
@@ -2039,12 +2039,12 @@ describe("ReviewView — 覆盖率终局：可达边界", () => {
   it("create page: entity/concept 类型写入对应目录 (entities/concepts)", async () => {
     const runCreatePath = async (id: string, action: string, title: string) => {
       cleanup()
-      mocks.writeFile.mockClear()
+      mocks.writeFileAtomic.mockClear()
       mocks.reviewItems = [makeReviewItem({ id, title, options: [{ label: "建页", action }] })]
       renderView()
       fireEvent.click(screen.getByText("建页"))
-      await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
-      return String(mocks.writeFile.mock.calls.find((c) => String(c[0]).includes("/wiki/"))?.[0] ?? "")
+      await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+      return String(mocks.writeFileAtomic.mock.calls.find((c) => String(c[0]).includes("/wiki/"))?.[0] ?? "")
     }
     // action 含关键词 → detectPageType 返回 entity / concept → 目录实体化
     expect(await runCreatePath("en1", "create:entity", "人物甲")).toContain("/wiki/entities/")
@@ -2096,5 +2096,105 @@ describe("ReviewView — 覆盖率终局：可达边界", () => {
     view.unmount()
     await act(async () => d.reject(new Error("late")))
     expect(mocks.loadDashboardIssueState).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("ReviewView — 严重度筛选与批量采纳（reviewCenter coreIssues）", () => {
+  function actionItem(over: Partial<NovelReviewActionItem> = {}): NovelReviewActionItem {
+    return {
+      id: "a1",
+      severity: "high",
+      reviewSeverity: "error",
+      source: "review",
+      message: "条目消息",
+      detail: "character_consistency",
+      targetPath: "ch.md",
+      ...over,
+    } as NovelReviewActionItem
+  }
+
+  function confirmOnce(value: boolean) {
+    return vi.spyOn(window, "confirm").mockReturnValue(value)
+  }
+
+  it("严重度筛选：默认全部，切 warning 只留 warning 条目", () => {
+    mocks.buildVisibleNovelReviewActionItems.mockReturnValue([
+      actionItem({ id: "e1", reviewSeverity: "error", message: "严重问题" }),
+      actionItem({ id: "w1", severity: "medium", reviewSeverity: "warning", message: "警告问题" }),
+      actionItem({ id: "i1", severity: "low", reviewSeverity: "info", message: "提示问题" }),
+    ])
+    renderView()
+    expect(screen.getByText("严重问题")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("review-severity-warning"))
+    expect(screen.queryByText("严重问题")).not.toBeInTheDocument()
+    expect(screen.getByText("警告问题")).toBeInTheDocument()
+    expect(screen.queryByText("提示问题")).not.toBeInTheDocument()
+  })
+
+  it("严重度筛选：无命中时显示空态提示", () => {
+    mocks.buildVisibleNovelReviewActionItems.mockReturnValue([
+      actionItem({ id: "w1", severity: "medium", reviewSeverity: "warning", message: "警告问题" }),
+    ])
+    renderView()
+    fireEvent.click(screen.getByTestId("review-severity-error"))
+    expect(screen.getByTestId("review-severity-empty")).toBeInTheDocument()
+    expect(screen.queryByText("警告问题")).not.toBeInTheDocument()
+  })
+
+  it("批量采纳：confirm 后逐条 resolve 并出现撤销入口", () => {
+    mocks.buildVisibleNovelReviewActionItems.mockReturnValue([])
+    mocks.reviewItems = [makeReviewItem({ id: "b1" }), makeReviewItem({ id: "b2" })]
+    const spy = confirmOnce(true)
+    try {
+      renderView()
+      fireEvent.click(screen.getByTestId("review-batch-accept"))
+      expect(mocks.resolveItem).toHaveBeenCalledWith("b1", "batch-accept")
+      expect(mocks.resolveItem).toHaveBeenCalledWith("b2", "batch-accept")
+      expect(screen.getByTestId("review-batch-undo")).toBeInTheDocument()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it("批量采纳：拒绝确认则不处理且无撤销入口", () => {
+    mocks.buildVisibleNovelReviewActionItems.mockReturnValue([])
+    mocks.reviewItems = [makeReviewItem({ id: "b1" })]
+    const spy = confirmOnce(false)
+    try {
+      renderView()
+      fireEvent.click(screen.getByTestId("review-batch-accept"))
+      expect(mocks.resolveItem).not.toHaveBeenCalled()
+      expect(screen.queryByTestId("review-batch-undo")).not.toBeInTheDocument()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it("撤销：仅回滚 batch-accept 标记条目，逐条处理的不动", () => {
+    mocks.buildVisibleNovelReviewActionItems.mockReturnValue([])
+    mocks.reviewItems = [
+      makeReviewItem({ id: "b1" }),
+      makeReviewItem({ id: "b2" }),
+      makeReviewItem({ id: "k1", resolved: true, resolvedAction: "accept:9" }),
+    ]
+    const spy = confirmOnce(true)
+    try {
+      const view = renderView()
+      fireEvent.click(screen.getByTestId("review-batch-accept"))
+      mocks.reviewItems = [
+        makeReviewItem({ id: "b1", resolved: true, resolvedAction: "batch-accept" }),
+        makeReviewItem({ id: "b2", resolved: true, resolvedAction: "batch-accept" }),
+        makeReviewItem({ id: "k1", resolved: true, resolvedAction: "accept:9" }),
+      ]
+      view.rerender(<ReviewView />)
+      fireEvent.click(screen.getByTestId("review-batch-undo"))
+      expect(mocks.setItems).toHaveBeenCalledTimes(1)
+      const arg = mocks.setItems.mock.calls[0][0]
+      expect(arg.find((i) => i.id === "b1")).toMatchObject({ resolved: false, resolvedAction: undefined })
+      expect(arg.find((i) => i.id === "b2")).toMatchObject({ resolved: false, resolvedAction: undefined })
+      expect(arg.find((i) => i.id === "k1")).toMatchObject({ resolved: true, resolvedAction: "accept:9" })
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

@@ -1,5 +1,5 @@
 import type { Tool } from "../types"
-import { readFile, writeFile, fileExists, createDirectory } from "@/commands/fs"
+import { readFile, writeFileAtomic, fileExists, createDirectory } from "@/commands/fs"
 import { writeDraft } from "@/lib/novel"
 import { toErrorMessage } from "@/lib/utils"
 
@@ -50,7 +50,7 @@ export function createWriteChapterTool(chaptersDir: string, options: WriteChapte
         if (!await fileExists(dir)) {
           await createDirectory(dir)
         }
-        await writeFile(path, content)
+        await writeFileAtomic(path, content)
         const verified = await readFile(path)
         if (verified !== content) {
           return `已写入章节「${name}」，警告：写入后读回验证失败，请手动检查文件内容。`

@@ -23,7 +23,7 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
 
 const fsMock = vi.hoisted(() => ({
   readFile: vi.fn(async () => "自定义去AI规则"),
-  writeFile: vi.fn(async () => {}),
+  writeFileAtomic: vi.fn(async () => {}),
 }))
 
 vi.mock("@/commands/fs", async (importOriginal) => {
@@ -31,7 +31,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: fsMock.readFile,
-      writeFile: fsMock.writeFile,
+      writeFileAtomic: fsMock.writeFileAtomic,
     
   }
 })
@@ -53,7 +53,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   wiki.state.project = { id: "p1", name: "Novel", path: "E:/Novel" }
   fsMock.readFile.mockResolvedValue("自定义去AI规则")
-  fsMock.writeFile.mockResolvedValue(undefined)
+  fsMock.writeFileAtomic.mockResolvedValue(undefined)
   pathMock.join.mockImplementation(async (...parts: string[]) => parts.join("/"))
 })
 
@@ -75,7 +75,7 @@ describe("DeAiSkillEditor", () => {
     expect(fsMock.readFile).not.toHaveBeenCalled()
   })
 
-  it("guards handleSave without a project (no writeFile)", async () => {
+  it("guards handleSave without a project (no writeFileAtomic)", async () => {
     wiki.state.project = null
     render(<DeAiSkillEditor />)
     const textbox = await screen.findByRole("textbox")
@@ -83,7 +83,7 @@ describe("DeAiSkillEditor", () => {
     fireEvent.change(textbox, { target: { value: "规则" } })
     fireEvent.click(screen.getByRole("button", { name: "保存" }))
     // de-ai-skill-editor.tsx handleSave 的 `if (!project) return` 守卫命中
-    expect(fsMock.writeFile).not.toHaveBeenCalled()
+    expect(fsMock.writeFileAtomic).not.toHaveBeenCalled()
     expect(screen.queryByText("保存成功")).not.toBeInTheDocument()
   })
 
@@ -108,7 +108,7 @@ describe("DeAiSkillEditor", () => {
         for (let i = 0; i < 8; i++) await Promise.resolve()
       })
       expect(screen.getByText("保存成功")).toBeInTheDocument()
-      expect(fsMock.writeFile).toHaveBeenCalledWith("E:/Novel/de-ai-skill.txt", "新规则")
+      expect(fsMock.writeFileAtomic).toHaveBeenCalledWith("E:/Novel/de-ai-skill.txt", "新规则")
       // 保存后 isDefault → false
       expect(screen.queryByText(/当前使用系统默认skill/)).not.toBeInTheDocument()
       act(() => {
@@ -121,7 +121,7 @@ describe("DeAiSkillEditor", () => {
   })
 
   it("reports a save failure", async () => {
-    fsMock.writeFile.mockRejectedValue(new Error("io"))
+    fsMock.writeFileAtomic.mockRejectedValue(new Error("io"))
     render(<DeAiSkillEditor />)
     await screen.findByRole("textbox")
     // 等内容异步加载完成，保存按钮解除 disabled（全量运行下 readFile 可能延迟）
@@ -134,7 +134,7 @@ describe("DeAiSkillEditor", () => {
 
   it("disables save while saving and when content is empty", async () => {
     let resolveWrite!: (v: void) => void
-    fsMock.writeFile.mockImplementationOnce(() => new Promise((res) => { resolveWrite = res }))
+    fsMock.writeFileAtomic.mockImplementationOnce(() => new Promise((res) => { resolveWrite = res }))
     render(<DeAiSkillEditor />)
     await screen.findByRole("textbox")
     const saveButton = screen.getByRole("button", { name: "保存" })

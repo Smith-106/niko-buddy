@@ -20,6 +20,8 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 import {
   createEmptyForeshadowingStore,
   foreshadowingToContextText,
+  getActiveForeshadowings,
+  getForeshadowingWatermark,
   loadForeshadowingTracker,
   markAbandoned,
   saveForeshadowingTracker,
@@ -144,6 +146,28 @@ describe("foreshadowing-tracker", () => {
 
     it("abandoned 不可二次废弃 → 抛错", () => {
       expect(() => markAbandoned(shadow({ status: "abandoned" }))).toThrow()
+    })
+  })
+
+  describe("编辑器注入上游（foreshadowingAlert）", () => {
+    it("getActiveForeshadowings：仅 planted/advanced（resolved/abandoned 退出）", () => {
+      const store = createEmptyForeshadowingStore()
+      store.items = [
+        shadow({ id: "p", status: "planted" }),
+        shadow({ id: "a", status: "advanced", advancedChapters: [4] }),
+        shadow({ id: "r", status: "resolved", resolvedChapter: 8 }),
+        shadow({ id: "x", status: "abandoned" }),
+      ]
+      expect(getActiveForeshadowings(store).map((f) => f.id)).toEqual(["p", "a"])
+    })
+
+    it("getForeshadowingWatermark：取 planted/resolved/advanced 最大引用；空库为 1", () => {
+      expect(getForeshadowingWatermark([])).toBe(1)
+      expect(getForeshadowingWatermark([
+        shadow({ plantedChapter: 3 }),
+        shadow({ plantedChapter: 2, status: "advanced", advancedChapters: [5, 9] }),
+        shadow({ plantedChapter: 1, status: "resolved", resolvedChapter: 7 }),
+      ])).toBe(9)
     })
   })
 })

@@ -171,9 +171,16 @@ async function renderLoaded(
   })
 }
 
+beforeEach(() => {
+  // jsdom 未实现 window.confirm（默认返回 undefined=拒绝），与浏览器行为相反；
+  // 默认放行以复刻旧“无守卫”基线，脏守卫分支由单测显式 mockReturnValue 覆盖。
+  vi.spyOn(window, "confirm").mockReturnValue(true)
+})
+
 afterEach(() => {
   cleanup()
   tSpy.mockClear()
+  vi.restoreAllMocks()
 })
 
 describe("CanonEditor — 渲染与 max_revision 展示", () => {
@@ -847,6 +854,29 @@ describe("CanonEditor — 校正模式（写路径，合并收口）", () => {
     expect(screen.getByTestId("correction-revealed-at")).toHaveValue("4")
     expect(screen.getByTestId("correction-save")).toBeDisabled()
     fireEvent.click(screen.getByTestId("correction-cancel"))
+    expect(screen.queryByTestId("correction-panel")).not.toBeInTheDocument()
+  })
+
+  it("脏草稿取消：拒绝确认则面板保留、草稿不丢", async () => {
+    vi.mocked(window.confirm).mockReturnValue(false)
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    fireEvent.click(await screen.findByTestId("canon-select-e1"))
+    fireEvent.click(screen.getByLabelText("移除 pov:alpha"))
+    expect(screen.getByTestId("correction-save")).not.toBeDisabled()
+    fireEvent.click(screen.getByTestId("correction-cancel"))
+    expect(window.confirm).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId("correction-panel")).toBeInTheDocument()
+  })
+
+  it("脏草稿取消：确认放弃则关闭", async () => {
+    vi.mocked(window.confirm).mockReturnValue(true)
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    fireEvent.click(await screen.findByTestId("canon-select-e1"))
+    fireEvent.click(screen.getByLabelText("移除 pov:alpha"))
+    fireEvent.click(screen.getByTestId("correction-cancel"))
+    expect(window.confirm).toHaveBeenCalledTimes(1)
     expect(screen.queryByTestId("correction-panel")).not.toBeInTheDocument()
   })
 

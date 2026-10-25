@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel, runFactCheck, analyzeForeshadowingDebt, loadSnapshot, listSnapshots, loadForeshadowingTracker, loadNovelSessionStatus, saveNovelSessionStatus, updateChaseDebtStatus, subscribeStatusJson, getTopEmotionalDebt, loadEmotionLedger } from "@/lib/novel"
 import type { FactCheckReport, ForeshadowingDebtReport, ChapterSnapshot, ChaseDebt, ChaseDebtEvent, EmotionLedgerEntry } from "@/lib/novel"
-import { readFile, writeFile } from "@/commands/fs"
+import { readFile, writeFileAtomic } from "@/commands/fs"
 import {
   AlertTriangle,
   AlertOctagon,
@@ -471,7 +471,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
       if (!nextMarkdown) return
     }
 
-    await writeFile(rewriteDialog.targetPath, nextMarkdown)
+    await writeFileAtomic(rewriteDialog.targetPath, nextMarkdown)
     bumpDataVersion()
     if (selectedFile === rewriteDialog.targetPath) {
       setFileContent(nextMarkdown)
@@ -517,7 +517,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
     const restoredMarkdown = restoreDashboardRewriteInMarkdown(latestMarkdown, backup)
     if (!restoredMarkdown) return
 
-    await writeFile(backup.targetPath, restoredMarkdown)
+    await writeFileAtomic(backup.targetPath, restoredMarkdown)
     bumpDataVersion()
     if (selectedFile === backup.targetPath) {
       setFileContent(restoredMarkdown)

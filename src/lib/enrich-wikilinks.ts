@@ -15,7 +15,7 @@
  * @license MIT © Niko Buddy
  */
 
-import { readFile, writeFile } from "@/commands/fs"
+import { readFile, writeFileAtomic } from "@/commands/fs"
 import { streamChat } from "./llm-client"
 import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
 import { buildLanguageDirective } from "./output-language"
@@ -98,7 +98,7 @@ export async function enrichWithWikilinks(
   const enriched = applyLinks(content, links)
   if (enriched === content) return
 
-  await writeFile(fp, enriched)
+  await writeFileAtomic(fp, enriched)
   useWikiStore.getState().bumpDataVersion()
 }
 

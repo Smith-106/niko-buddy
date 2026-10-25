@@ -3,8 +3,8 @@ import { useTranslation } from "react-i18next";
 
 import { useWikiStore } from "@/stores/wiki-store";
 import { useStorySimulationStore } from "@/stores/story-simulation-store";
-import { extractStoryContent, generateStoryFramework, buildAgents, runSimulation, generateDynamicEventPool, generateSimulationReport, generateStoryDraft, saveFramework, saveSimulationResult, loadSimulationResults, resolveDefaultModel, interviewAgent, saveInterview, loadInterviews, exportInterview, serializeSimulationState, deserializeSimulationSnapshot, actionTypeShortLabel, actionTypeIcon } from "@/lib/novel"
-import type { SimulationCallbacks, AgentChatMessage, ExtractionResult, NovelAgent, RumorEvent, SimulationDebugTrace, SimulationHistoryEntry, SimulationReport, SimulationResumePoint, SimulationState, StoryBranch, StoryFramework, TimelineEvent } from "@/lib/novel"
+import { extractStoryContent, generateStoryFramework, buildAgents, runSimulation, generateDynamicEventPool, generateSimulationReport, generateStoryDraft, saveFramework, saveSimulationResult, loadSimulationResults, resolveDefaultModel, interviewAgent, saveInterview, loadInterviews, exportInterview, serializeSimulationState, deserializeSimulationSnapshot, actionTypeShortLabel, actionTypeIcon, appendStageMetric } from "@/lib/novel"
+import type { SimulationCallbacks, AgentChatMessage, ExtractionResult, NovelAgent, RumorEvent, SimulationDebugTrace, SimulationHistoryEntry, SimulationReport, SimulationResumePoint, SimulationState, StoryBranch, StoryDraft, StoryFramework, TimelineEvent } from "@/lib/novel"
 
 import { PROGRESS_PHASES, SimulatingTimelinePanel, ProcessDebugPanel } from "./simulation-debug-panels";
 import { SimulationConfigPanel } from "./simulation-config-panel";
@@ -22,6 +22,45 @@ import { ProgressPanel } from "./progress-panel";
 import { formatOperationError } from "@/lib/format-operation-error";
 import { toErrorMessage } from "@/lib/utils";
 
+
+/** 一键提取：冲突类动作集合（对抗/推进/对话/反应），只取有正文的事件。 */
+const CONFLICT_ACTION_TYPES: ReadonlySet<string> = new Set(["confront", "pushPlot", "speak", "react"]);
+
+/** 过滤出可一键提取的冲突动作事件（原文直取，不过 LLM）。 */
+export function pickConflictEvents(events: TimelineEvent[]): TimelineEvent[] {
+  return events.filter(
+    (ev) => ev.content && ev.content.trim().length > 0 && CONFLICT_ACTION_TYPES.has(ev.actionType),
+  );
+}
+
+/** 用冲突事件原文组装正文草稿（每事件一节，所见即所得）。 */
+export function buildConflictDraft(events: TimelineEvent[], frameworkId: string): StoryDraft {
+  const picked = pickConflictEvents(events).slice(0, 20);
+  const chapters = picked.map((ev) => ({
+    title: `${ev.actorName || "旁白"} · 节点${ev.nodeIndex + 1}第${ev.round}轮`,
+    content: ev.content,
+    correspondingNode: ev.nodeIndex,
+    rawContent: ev.content,
+  }));
+  return {
+    branchId: "extracted-conflicts",
+    frameworkId,
+    chapters,
+    totalWords: chapters.reduce((n, c) => n + c.content.length, 0),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+/** 0-100 人设一致性评分 → CSS 条宽（钳制越界与 NaN）。 */
+export function scoreBarWidth(score: number): number {
+  if (!Number.isFinite(score)) return 0;
+  return Math.min(100, Math.max(0, Math.round(score)));
+}
+
+/** 推演报告分支概率 → 条宽映射。 */
+export function branchProbabilityWidth(p: StoryBranch["probability"]): number {
+  return p === "high" ? 100 : p === "medium" ? 60 : 30;
+}
 
 /**
  * 故事推演室主视图（重构后）。
@@ -550,6 +589,14 @@ export function StorySimulationView() {
         onDegraded: () => {
           degradedRef.current = true;
         },
+        onTelemetry: (tele) => {
+          void appendStageMetric(projectPath, {
+            stage: "simulation_agent_run",
+            latencyMs: tele.latencyMs,
+            partial: tele.degraded || tele.aborted,
+            timestamp: tele.timestamp,
+          });
+        },
         onTimelineEvent: (event) => {
           collectedTimeline.push(event);
           addTimelineEvent(event);
@@ -629,6 +676,8 @@ export function StorySimulationView() {
         return;
       }
 
+      // 遥测上报已收敛到 engine onTelemetry 单通道（避免与旧桥重复计数）。
+
       // 保存仿真状态供采访使用
       lastSimulationStateRef.current = {
         currentRound: 0,
@@ -643,6 +692,7 @@ export function StorySimulationView() {
       setPhase("report-generating");
       phaseBaseProgressRef.current = 80;
       setProgress(80, t("storySimulation.generatingReport"));
+      const reportStart = Date.now()
       const report = await generateSimulationReport({
         events,
         framework: currentFramework,
@@ -659,6 +709,13 @@ export function StorySimulationView() {
         setTimeout(() => setError(null), 3000);
         return;
       }
+
+      // 热力图遥测桥：推演报告生成即记一条 stage_metrics（non-fatal）
+      void appendStageMetric(projectPath, {
+        stage: "simulation_report",
+        latencyMs: Date.now() - reportStart,
+        timestamp: new Date().toISOString(),
+      })
 
       setCurrentReport(report);
       setPhase("report-viewing");
@@ -848,6 +905,19 @@ export function StorySimulationView() {
     if (currentDraft) {
       setPhase("draft-viewing");
     }
+  };
+
+  /** 一键提取：将本轮冲突动作原文直送正文草稿（无 LLM 改写，所见即所得）。 */
+  const handleExtractConflictsToDraft = () => {
+    const conflicts = pickConflictEvents(timelineEvents);
+    if (conflicts.length === 0) {
+      setError("本轮暂无可提取的冲突动作");
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+    setError(null);
+    setCurrentDraft(buildConflictDraft(timelineEvents, currentFramework?.id ?? "extracted"));
+    setPhase("draft-viewing");
   };
 
   /** 打开 Agent 采访面板。 */
@@ -1124,7 +1194,27 @@ export function StorySimulationView() {
             cancelling={isCancelling}
           />
         ) : phase === "simulating" ? (
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div
+              className="max-h-40 shrink-0 space-y-1.5 overflow-y-auto border-b px-3 py-2"
+              data-testid="sim-live-bubbles"
+            >
+              <div className="text-xs font-medium text-muted-foreground">实时台词</div>
+              {timelineEvents.slice(-8).map((ev) => (
+                <div
+                  key={ev.id}
+                  data-testid={`sim-live-bubble-${ev.id}`}
+                  className="w-fit max-w-full rounded-2xl rounded-tl-sm bg-muted px-3 py-1.5 text-sm"
+                >
+                  <span className="mr-2 text-xs font-medium text-primary">{ev.actorName}</span>
+                  {ev.content}
+                </div>
+              ))}
+              {timelineEvents.length === 0 && (
+                <div className="text-xs text-muted-foreground">等待推演事件…</div>
+              )}
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
             {isCompareMode ? (
               <BranchCompareView
                 branches={branches}
@@ -1154,6 +1244,7 @@ export function StorySimulationView() {
                 onClearCompareSelection={clearCompareSelection}
               />
             )}
+            </div>
           </div>
         ) : phase === "framework-confirming" ? (
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -1244,9 +1335,51 @@ export function StorySimulationView() {
                     </button>
                   </div>
                 </div>
-                <div className="min-h-0 flex-1 overflow-hidden">
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   {reportViewTab === "report" ? (
-                    <SimulationReportView
+                    <>
+                      {currentReport && currentReport.characterAnalyses.length > 0 && (
+                        <div className="shrink-0 border-b px-3 py-2" data-testid="sim-score-overview">
+                          <div className="mb-1 text-xs font-medium">人设一致性评分</div>
+                          <div className="space-y-1">
+                            {currentReport.characterAnalyses.map((ca) => (
+                              <div key={ca.characterId} className="flex items-center gap-2 text-xs">
+                                <span className="w-16 shrink-0 truncate">{ca.name}</span>
+                                <div className="h-2 min-w-0 flex-1 rounded bg-muted">
+                                  <div
+                                    className="h-2 rounded bg-primary"
+                                    data-testid={`sim-score-bar-${ca.characterId}`}
+                                    style={{ width: `${scoreBarWidth(ca.consistencyScore)}%` }}
+                                  />
+                                </div>
+                                <span className="w-8 shrink-0 text-right tabular-nums">{ca.consistencyScore}</span>
+                              </div>
+                            ))}
+                          </div>
+                          {currentReport.branches.length > 0 && (
+                            <div className="mt-2">
+                              <div className="mb-1 text-xs font-medium">分支走向概率</div>
+                              <div className="space-y-1">
+                                {currentReport.branches.map((b, i) => (
+                                  <div key={i} className="flex items-center gap-2 text-xs">
+                                    <span className="w-16 shrink-0 truncate">{b.title}</span>
+                                    <div className="h-2 min-w-0 flex-1 rounded bg-muted">
+                                      <div
+                                        className="h-2 rounded bg-primary"
+                                        data-testid={`sim-branch-bar-${i}`}
+                                        style={{ width: `${branchProbabilityWidth(b.probability)}%` }}
+                                      />
+                                    </div>
+                                    <span className="w-8 shrink-0 text-right tabular-nums">{b.probability}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <div className="min-h-0 flex-1 overflow-hidden">
+                      <SimulationReportView
                       onResimulate={handleResimulate}
                       onGenerateDraft={(branch) =>
                         void handleGenerateDraft(branch)
@@ -1259,11 +1392,23 @@ export function StorySimulationView() {
                       onViewInterviewHistory={() =>
                         setShowInterviewHistory(true)
                       }
-                    />
+                      />
+                      </div>
+                    </>
                   ) : reportViewTab === "timeline" ? (
                     <div className="h-full overflow-y-auto p-3">
-                      <div className="mb-2 text-xs text-muted-foreground">
-                        共 {timelineEvents.length} 条事件
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          共 {timelineEvents.length} 条事件
+                        </span>
+                        <button
+                          type="button"
+                          data-testid="sim-extract-conflicts"
+                          className="rounded border px-2 py-1 text-xs hover:bg-muted"
+                          onClick={handleExtractConflictsToDraft}
+                        >
+                          一键提取冲突动作到草稿
+                        </button>
                       </div>
                       <div className="space-y-2">
                         {timelineEvents.map((ev) => (

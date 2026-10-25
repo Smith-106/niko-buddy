@@ -1,5 +1,5 @@
 import type { Tool } from "../types"
-import { readFile, writeFile, fileExists } from "@/commands/fs"
+import { readFile, writeFileAtomic, fileExists } from "@/commands/fs"
 import { logger, toErrorMessage } from "@/lib/utils"
 
 export function createWriteMemoryTool(memoryDir: string): Tool {
@@ -36,7 +36,7 @@ export function createWriteMemoryTool(memoryDir: string): Tool {
       const content = params.content as string
       const path = `${memoryDir}/${name}.md`
       try {
-        await writeFile(path, content)
+        await writeFileAtomic(path, content)
         const verified = await readFile(path)
         if (verified !== content) {
           return `已写入记忆「${name}」，警告：写入后读回验证失败，请手动检查文件内容。`

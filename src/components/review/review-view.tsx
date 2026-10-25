@@ -19,7 +19,7 @@ import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { useReviewStore } from "@/stores/review-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { getUserMemoryStore } from "@/lib/user-memory/session"
-import { writeFile, readFile, listDirectory, deleteFile } from "@/commands/fs"
+import { writeFileAtomic, readFile, listDirectory, deleteFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { ReviewJobStatusStrip } from "@/components/novel/review-job-status-strip"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -79,6 +79,7 @@ export function ReviewView({
   const novelMode = useWikiStore((s) => s.novelMode)
   const items = useReviewStore((s) => s.items)
   const resolveItem = useReviewStore((s) => s.resolveItem)
+  const setItems = useReviewStore((s) => s.setItems)
   const dismissItem = useReviewStore((s) => s.dismissItem)
   const clearResolved = useReviewStore((s) => s.clearResolved)
   const project = useWikiStore((s) => s.project)
@@ -431,7 +432,7 @@ export function ReviewView({
     }
 
     try {
-      await writeFile(rewriteDialog.targetPath, applyResult.markdown)
+      await writeFileAtomic(rewriteDialog.targetPath, applyResult.markdown)
     } catch (err) {
       setRewriteError(formatOperationError(t, err))
       return
@@ -531,7 +532,7 @@ export function ReviewView({
       if (nextMarkdown) restoredMarkdown = nextMarkdown
     }
 
-    await writeFile(firstBackup.targetPath, restoredMarkdown)
+    await writeFileAtomic(firstBackup.targetPath, restoredMarkdown)
     bumpDataVersion()
     if (selectedFile === firstBackup.targetPath) {
       setFileContent(restoredMarkdown)
@@ -870,7 +871,7 @@ export function ReviewView({
         const filePath = `${pp}/wiki/queries/${fileName}`
 
         const frontmatter = `---\ntype: query\ntitle: "${title.replace(/"/g, '\\"')}"\ncreated: ${date}\ntags: []\n---\n\n`
-        await writeFile(filePath, frontmatter + cleanContent)
+        await writeFileAtomic(filePath, frontmatter + cleanContent)
 
         const indexPath = `${pp}/wiki/index.md`
         let indexContent = ""
@@ -881,12 +882,12 @@ export function ReviewView({
         } else {
           indexContent = indexContent.trimEnd() + "\n\n## Queries\n" + entry + "\n"
         }
-        await writeFile(indexPath, indexContent)
+        await writeFileAtomic(indexPath, indexContent)
 
         const logPath = `${pp}/wiki/log.md`
         let logContent = ""
         try { logContent = await readFile(logPath) } catch { logContent = "# Wiki Log\n" }
-        await writeFile(logPath, logContent.trimEnd() + `\n- ${date}: Saved query page \`${fileName}\`\n`)
+        await writeFileAtomic(logPath, logContent.trimEnd() + `\n- ${date}: Saved query page \`${fileName}\`\n`)
 
         const tree = await listDirectory(pp)
         setFileTree(tree)
@@ -948,7 +949,7 @@ export function ReviewView({
 
           const frontmatter = `---\ntype: ${pageType}\ntitle: "${title.replace(/"/g, '\\"')}"\ncreated: ${date}\ntags: []\nrelated: []\n---\n\n`
           const body = `# ${title}\n\n${item.description}\n`
-          await writeFile(filePath, frontmatter + body)
+          await writeFileAtomic(filePath, frontmatter + body)
 
           const indexPath = `${pp}/wiki/index.md`
           let indexContent = ""
@@ -960,12 +961,12 @@ export function ReviewView({
           } else {
             indexContent = indexContent.trimEnd() + `\n\n${sectionHeader}\n${entry}\n`
           }
-          await writeFile(indexPath, indexContent)
+          await writeFileAtomic(indexPath, indexContent)
 
           const logPath = `${pp}/wiki/log.md`
           let logContent = ""
           try { logContent = await readFile(logPath) } catch { logContent = "# Wiki Log\n" }
-          await writeFile(logPath, logContent.trimEnd() + `\n- ${date}: Created ${pageType} page \`${fileName}\` from review\n`)
+          await writeFileAtomic(logPath, logContent.trimEnd() + `\n- ${date}: Created ${pageType} page \`${fileName}\` from review\n`)
 
           const tree = await listDirectory(pp)
           setFileTree(tree)
@@ -984,6 +985,34 @@ export function ReviewView({
     }
   }, [project, items, resolveItem, setFileTree])
 
+  // 严重度筛选 + 批量采纳守卫/撤销（reviewCenter coreIssues）：
+  // severity 只读过滤六维条目；批量仅作用于待处理 ReviewItem，先 confirm 再逐条 resolve，
+  // 撤销仅回滚本次以 batch-accept 标记的条目（用户逐条处理的保持不动）。
+  const [severityFilter, setSeverityFilter] = useState<"all" | "error" | "warning" | "info">("all")
+  const [lastBatchIds, setLastBatchIds] = useState<string[] | null>(null)
+  const filteredActionItems = useMemo(
+    () => severityFilter === "all"
+      ? novelReviewActionItems
+      : novelReviewActionItems.filter((item) => (item.reviewSeverity ?? "info") === severityFilter),
+    [novelReviewActionItems, severityFilter],
+  )
+  const handleBatchAccept = useCallback(() => {
+    const targets = items.filter((i) => !i.resolved)
+    if (targets.length === 0) return
+    if (!window.confirm(t("review.batchAcceptConfirm", { defaultValue: `确认采纳全部 ${targets.length} 条待处理意见？` }))) return
+    const ids = targets.map((i) => i.id)
+    ids.forEach((id) => resolveItem(id, "batch-accept"))
+    setLastBatchIds(ids)
+  }, [items, resolveItem, t])
+  const handleBatchUndo = useCallback(() => {
+    if (!lastBatchIds) return
+    setItems(items.map((i) =>
+      lastBatchIds.includes(i.id) && i.resolvedAction === "batch-accept"
+        ? { ...i, resolved: false, resolvedAction: undefined }
+        : i,
+    ))
+    setLastBatchIds(null)
+  }, [items, lastBatchIds, setItems])
   const pending = dimensionScoped ? [] : items.filter((i) => !i.resolved)
   const resolved = dimensionScoped ? [] : items.filter((i) => i.resolved)
   const headerCount = dimensionScoped ? novelReviewActionItems.length : pending.length
@@ -1162,6 +1191,20 @@ export function ReviewView({
           </div>
         ) : (
           <div className="flex flex-col gap-2 p-3">
+            {(pending.length > 0 || lastBatchIds) && (
+              <div className="flex items-center gap-2" data-testid="review-batch-bar">
+                {pending.length > 0 && (
+                  <Button size="sm" variant="outline" data-testid="review-batch-accept" onClick={handleBatchAccept}>
+                    {t("review.batchAccept", { defaultValue: `一键采纳全部 (${pending.length})` })}
+                  </Button>
+                )}
+                {lastBatchIds && (
+                    <Button size="sm" variant="ghost" data-testid="review-batch-undo" onClick={handleBatchUndo}>
+                      {t("review.batchUndo", { defaultValue: "撤销上次批量" })}
+                    </Button>
+                  )}
+                </div>
+              )}
             {pending.map((item) => (
               <ReviewCard
                 key={item.id}
@@ -1190,7 +1233,26 @@ export function ReviewView({
                     {t("novel.review.resultsTitle")}
                   </h3>
                 )}
-                {novelReviewActionItems.map((item) => {
+                <div className="flex items-center gap-1" data-testid="review-severity-filter" role="group" aria-label={t("review.severityFilter", { defaultValue: "严重度筛选" })}>
+                  {(["all", "error", "warning", "info"] as const).map((sev) => (
+                    <button
+                      key={sev}
+                      type="button"
+                      data-testid={`review-severity-${sev}`}
+                      aria-pressed={severityFilter === sev}
+                      onClick={() => setSeverityFilter(sev)}
+                      className={severityFilter === sev ? "rounded border border-primary px-2 py-0.5 text-xs font-medium" : "rounded border px-2 py-0.5 text-xs text-muted-foreground"}
+                    >
+                      {t(`review.severity.${sev}`, { defaultValue: sev === "all" ? "全部" : sev === "error" ? "严重" : sev === "warning" ? "警告" : "提示" })}
+                    </button>
+                  ))}
+                </div>
+                {filteredActionItems.length === 0 && novelReviewActionItems.length > 0 && (
+                  <p className="text-xs text-muted-foreground" data-testid="review-severity-empty">
+                    {t("review.severityEmpty", { defaultValue: "该严重度下暂无条目" })}
+                  </p>
+                )}
+                {filteredActionItems.map((item) => {
                   const severityKey = `review.results.severity.${item.reviewSeverity}`
                   const dimensionKey = `review.results.dimension.${item.detail}`
                   const severityLabel = i18n.exists(severityKey) ? i18n.t(severityKey) : item.reviewSeverity

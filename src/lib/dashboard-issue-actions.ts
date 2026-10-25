@@ -4,7 +4,7 @@
  * Dashboard issue state persistence, evidence matching, and
  * rewrite/insert operations for the novel quality dashboard.
  */
-import { createDirectory, readFile, writeFile } from "@/commands/fs"
+import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import {
   rebuildChapterBody,
   replaceChapterBodySelection,
@@ -70,7 +70,7 @@ export async function loadDashboardIssueState(projectPath: string): Promise<Dash
 export async function saveDashboardIssueState(projectPath: string, state: DashboardIssueState): Promise<void> {
   const pp = normalizePath(projectPath)
   await createDirectory(`${pp}/.niko-buddy`).catch(() => {})
-  await writeFile(
+  await writeFileAtomic(
     getDashboardIssueStorePath(pp),
     JSON.stringify({ ignored: normaliseIgnored(state.ignored), rewrites: normaliseRewrites(state.rewrites) }, null, 2),
   )

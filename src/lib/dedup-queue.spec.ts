@@ -14,7 +14,7 @@ import type { DuplicateGroup } from "./dedup"
 
 const mocks = vi.hoisted(() => ({
   readFile: vi.fn(),
-  writeFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
   wikiGetState: vi.fn(),
   getProjectPathById: vi.fn(),
   hasUsableLlm: vi.fn(),
@@ -28,7 +28,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: mocks.readFile,
-      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
     
   }
 })
@@ -115,7 +115,7 @@ describe("enqueueMerge", () => {
     mocks.resolveDefaultModel.mockImplementation((c: unknown) => c)
     mocks.hasUsableLlm.mockReturnValue(true)
     mocks.executeMerge.mockResolvedValue(undefined)
-    mocks.writeFile.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
     mocks.readFile.mockRejectedValue(new Error("no queue file"))
   })
 
@@ -153,7 +153,7 @@ describe("enqueueMerge", () => {
 
   it("survives a failed saveQueue write", async () => {
     await restoreQueue("pid", "/proj")
-    mocks.writeFile.mockRejectedValueOnce(new Error("disk full"))
+    mocks.writeFileAtomic.mockRejectedValueOnce(new Error("disk full"))
     const id = await enqueueMerge("pid", group, "dpao")
     expect(id).toMatch(/^dedup-/)
     await vi.waitFor(() => expect(getQueue()).toHaveLength(0))
@@ -201,7 +201,7 @@ describe("retry / cancel / pause / clear", () => {
     mocks.resolveDefaultModel.mockImplementation((c: unknown) => c)
     mocks.hasUsableLlm.mockReturnValue(true)
     mocks.executeMerge.mockResolvedValue(undefined)
-    mocks.writeFile.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
     mocks.readFile.mockRejectedValue(new Error("no queue file"))
   })
 
@@ -289,7 +289,7 @@ describe("retry / cancel / pause / clear", () => {
     expect(getQueue()).toHaveLength(0)
     expect(getQueueSummary().total).toBe(0)
     expect(mocks.executeMerge.mock.calls[0][4].signal.aborted).toBe(true)
-    const saved = JSON.parse(mocks.writeFile.mock.calls[mocks.writeFile.mock.calls.length - 1][1] as string)
+    const saved = JSON.parse(mocks.writeFileAtomic.mock.calls[mocks.writeFileAtomic.mock.calls.length - 1][1] as string)
     expect(saved[0].status).toBe("pending")
     gate.reject(new Error("aborted"))
     await flush()
@@ -321,7 +321,7 @@ describe("restoreQueue", () => {
     mocks.resolveDefaultModel.mockImplementation((c: unknown) => c)
     mocks.hasUsableLlm.mockReturnValue(true)
     mocks.executeMerge.mockResolvedValue(undefined)
-    mocks.writeFile.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
     mocks.readFile.mockRejectedValue(new Error("no queue file"))
   })
 
@@ -378,7 +378,7 @@ describe("restoreQueue", () => {
     )
     await restoreQueue("pid", "/proj")
     expect(getQueue().map((t) => t.id)).toEqual(["t1"])
-    const saved = JSON.parse(mocks.writeFile.mock.calls[mocks.writeFile.mock.calls.length - 1][1] as string)
+    const saved = JSON.parse(mocks.writeFileAtomic.mock.calls[mocks.writeFileAtomic.mock.calls.length - 1][1] as string)
     expect(saved).toEqual([])
   })
 
@@ -407,7 +407,7 @@ describe("processNext mid-flight project switches", () => {
     mocks.resolveDefaultModel.mockImplementation((c: unknown) => c)
     mocks.hasUsableLlm.mockReturnValue(true)
     mocks.executeMerge.mockResolvedValue(undefined)
-    mocks.writeFile.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
     mocks.readFile.mockRejectedValue(new Error("no queue file"))
   })
 
@@ -442,7 +442,7 @@ describe("processNext mid-flight project switches", () => {
     await restoreQueue("pid", "/proj")
     const gate = deferred<void>()
     let wc = 0
-    mocks.writeFile.mockImplementation(async () => {
+    mocks.writeFileAtomic.mockImplementation(async () => {
       wc++
       if (wc === 2) return gate.promise
       return undefined
@@ -519,7 +519,7 @@ describe("processNext mid-flight project switches", () => {
     const saveGate = deferred<void>()
     mocks.executeMerge.mockReturnValue(gate.promise)
     let wc = 0
-    mocks.writeFile.mockImplementation(async () => {
+    mocks.writeFileAtomic.mockImplementation(async () => {
       wc++
       if (wc === 2) return saveGate.promise
       return undefined

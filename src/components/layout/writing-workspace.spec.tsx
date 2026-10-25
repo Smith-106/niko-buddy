@@ -14,6 +14,7 @@ import {
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { WritingWorkspace } from "./writing-workspace"
+import type { ForeshadowingStore } from "@/lib/novel"
 
 const mocks = vi.hoisted(() => {
   const wikiState: {
@@ -92,6 +93,22 @@ vi.mock("@/components/search/search-view", () => ({
 vi.mock("@/components/chat/chat-panel", () => ({
   ChatPanel: () => <div data-testid="chat-panel">chat</div>,
 }))
+
+const fsMocks = vi.hoisted(() => ({ getFileModifiedTime: vi.fn(async (_path: string) => 0) }))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return { ...actual, getFileModifiedTime: fsMocks.getFileModifiedTime }
+})
+
+const novelMocks = vi.hoisted(() => ({
+  loadForeshadowingTracker: vi.fn(async (_path: string): Promise<ForeshadowingStore> => {
+    throw new Error("not mocked")
+  }),
+}))
+vi.mock("@/lib/novel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel")>()
+  return { ...actual, loadForeshadowingTracker: novelMocks.loadForeshadowingTracker }
+})
 
 afterEach(() => {
   cleanup()
@@ -391,6 +408,47 @@ describe("WritingWorkspace — 写作工具抽屉接线", () => {
     expect(title).toContain("8字")
     expect(title).toContain("草稿")
     expect(screen.getByTestId("batch-replace-section").className).toContain("max-h-[40%]")
+  })
+
+  it("选中文件时显示本地快照 mtime（时间机器指示）", async () => {
+    fsMocks.getFileModifiedTime.mockResolvedValueOnce(1720000000000)
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    mocks.wikiState.selectedFile = "C:/novels/demo/正文/第01章.md"
+    mocks.wikiState.fileContent = "# 第一章 起点\n\n第一段。"
+    render(<WritingWorkspace />)
+    await waitFor(() => expect(fsMocks.getFileModifiedTime).toHaveBeenCalledWith("C:/novels/demo/正文/第01章.md"))
+    expect(screen.getByTestId("workspace-tools-target").textContent).toContain("本地快照")
+  })
+
+  it("伏笔逾期注入：critical 徽标出现，点击打开伏笔抽屉", async () => {
+    novelMocks.loadForeshadowingTracker.mockResolvedValue({
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      items: [
+        { id: "o1", name: "玉佩", description: "", status: "planted", plantedChapter: 1, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+        { id: "o2", name: "密信", description: "", status: "planted", plantedChapter: 8, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+      ],
+    })
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    render(<WritingWorkspace />)
+    // 水位 8：第 1 章 planted 逾期 7 章 → critical
+    const alert = await screen.findByTestId("workspace-foreshadow-alert")
+    expect(alert.textContent).toContain("伏笔逾期 1")
+    expect(alert.textContent).toContain("严重1")
+    fireEvent.click(alert)
+    expect(await screen.findByTestId("foreshadowing-panel")).toBeInTheDocument()
+  })
+
+  it("伏笔无逾期 → 不显示徽标（零打扰）", async () => {
+    novelMocks.loadForeshadowingTracker.mockResolvedValue({
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      items: [
+        { id: "o2", name: "密信", description: "", status: "planted", plantedChapter: 8, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+      ],
+    })
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    render(<WritingWorkspace />)
+    await waitFor(() => expect(novelMocks.loadForeshadowingTracker).toHaveBeenCalled())
+    expect(screen.queryByTestId("workspace-foreshadow-alert")).not.toBeInTheDocument()
   })
 
   it("当前章正在保存时，章节行显示保存态", () => {

@@ -24,19 +24,19 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: vi.fn(),
-      writeFile: vi.fn(),
+      writeFileAtomic: vi.fn(),
       createDirectory: vi.fn(),
     
   }
 })
 
 import { flushStreamingContent, useOutlineChatStore } from "./outline-chat-store"
-import { readFile, writeFile, createDirectory } from "@/commands/fs"
+import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
 
 const DISK_PATH = "E:/Novel/.niko-buddy/outline-chats.json"
 const PARENT_DIR = "E:/Novel/.niko-buddy"
 
-/** 等待 fire-and-forget 的 saveToDisk 异步链（createDirectory → writeFile）完成 */
+/** 等待 fire-and-forget 的 saveToDisk 异步链（createDirectory → writeFileAtomic）完成 */
 async function flushAsync(): Promise<void> {
   await new Promise((r) => setTimeout(r, 0))
 }
@@ -45,10 +45,10 @@ beforeEach(() => {
   flushStreamingContent() // 清模块级待刷定时器，防跨用例泄漏
   mockWiki.project = { path: "E:\\Novel" } // 反斜杠路径 → normalizePath 转正斜杠
   ;(readFile as Mock).mockReset()
-  ;(writeFile as Mock).mockReset()
+  ;(writeFileAtomic as Mock).mockReset()
   ;(createDirectory as Mock).mockReset()
   ;(readFile as Mock).mockResolvedValue('{"conversations":[],"activeConversationId":null}')
-  ;(writeFile as Mock).mockResolvedValue(undefined)
+  ;(writeFileAtomic as Mock).mockResolvedValue(undefined)
   ;(createDirectory as Mock).mockResolvedValue(undefined)
   useOutlineChatStore.setState({
     conversations: [],
@@ -84,8 +84,8 @@ describe("outline chat store — 会话管理", () => {
     expect(s.activeConversationId).toBe(id)
     // 磁盘持久化
     expect(createDirectory).toHaveBeenCalledWith(PARENT_DIR)
-    expect(writeFile).toHaveBeenCalledTimes(1)
-    const [path, content] = (writeFile as Mock).mock.calls[0]!
+    expect(writeFileAtomic).toHaveBeenCalledTimes(1)
+    const [path, content] = (writeFileAtomic as Mock).mock.calls[0]!
     expect(path).toBe(DISK_PATH)
     expect(JSON.parse(content as string).conversations[0].id).toBe(id)
   })
@@ -116,26 +116,26 @@ describe("outline chat store — 会话管理", () => {
     expect(conv2.messages[0]!.content).toBe("你好")
     const conv1 = useOutlineChatStore.getState().conversations.find((c) => c.id === id1)!
     expect(conv1.messages).toEqual([])
-    expect(writeFile).toHaveBeenCalled()
+    expect(writeFileAtomic).toHaveBeenCalled()
   })
 
   it("deleteConversation 删除活跃会话时清空活跃 ID 并持久化", async () => {
     const id = useOutlineChatStore.getState().createConversation()
     await flushAsync()
-    ;(writeFile as Mock).mockClear()
+    ;(writeFileAtomic as Mock).mockClear()
     useOutlineChatStore.getState().deleteConversation(id)
     await flushAsync()
     const s = useOutlineChatStore.getState()
     expect(s.conversations).toEqual([])
     expect(s.activeConversationId).toBeNull()
-    expect(writeFile).toHaveBeenCalled()
+    expect(writeFileAtomic).toHaveBeenCalled()
   })
 
   it("deleteConversation 删除非活跃会话时保留活跃 ID", async () => {
     const id1 = useOutlineChatStore.getState().createConversation()
     const id2 = useOutlineChatStore.getState().createConversation() // active = id2
     await flushAsync()
-    ;(writeFile as Mock).mockClear()
+    ;(writeFileAtomic as Mock).mockClear()
     useOutlineChatStore.getState().deleteConversation(id1)
     await flushAsync()
     const s = useOutlineChatStore.getState()
@@ -320,24 +320,24 @@ describe("outline chat store — 磁盘保存", () => {
     mockWiki.project = null
     await useOutlineChatStore.getState().saveToDisk()
     expect(createDirectory).not.toHaveBeenCalled()
-    expect(writeFile).not.toHaveBeenCalled()
+    expect(writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("createDirectory 失败时错误被吞掉（内存状态保留）", async () => {
     ;(createDirectory as Mock).mockRejectedValue(new Error("EACCES"))
     await expect(useOutlineChatStore.getState().saveToDisk()).resolves.toBeUndefined()
-    expect(writeFile).not.toHaveBeenCalled()
+    expect(writeFileAtomic).not.toHaveBeenCalled()
   })
 
-  it("writeFile 失败时错误被吞掉", async () => {
-    ;(writeFile as Mock).mockRejectedValue(new Error("ENOSPC"))
+  it("writeFileAtomic 失败时错误被吞掉", async () => {
+    ;(writeFileAtomic as Mock).mockRejectedValue(new Error("ENOSPC"))
     await expect(useOutlineChatStore.getState().saveToDisk()).resolves.toBeUndefined()
   })
 
   it("saveToDisk 写出完整 conversations + activeConversationId", async () => {
     useOutlineChatStore.getState().createConversation()
     await useOutlineChatStore.getState().saveToDisk()
-    const [path, content] = (writeFile as Mock).mock.calls[0]!
+    const [path, content] = (writeFileAtomic as Mock).mock.calls[0]!
     expect(path).toBe(DISK_PATH)
     const payload = JSON.parse(content as string)
     expect(payload.conversations).toHaveLength(1)

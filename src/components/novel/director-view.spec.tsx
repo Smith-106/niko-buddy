@@ -9,8 +9,7 @@ import type { DirectorPipelineState, DirectorPersistedFile } from "@/lib/novel"
 const mocks = vi.hoisted(() => ({
   fileExists: vi.fn(),
   readFile: vi.fn(),
-  writeFileAtomic: vi.fn(),
-  writeFile: vi.fn(async () => {}),
+  writeFileAtomic: vi.fn<(path: string, content: string) => Promise<void>>(async () => {}),
   createDirectory: vi.fn(),
   setActiveView: vi.fn(),
   setSelectedFile: vi.fn(),
@@ -23,7 +22,7 @@ function resetMocks() {
   mocks.fileExists.mockReset()
   mocks.readFile.mockReset()
   mocks.writeFileAtomic.mockReset()
-  mocks.writeFile.mockReset()
+  mocks.writeFileAtomic.mockReset()
   mocks.createDirectory.mockReset()
   mocks.setActiveView.mockReset()
   mocks.setSelectedFile.mockReset()
@@ -55,7 +54,6 @@ vi.mock("@/commands/fs", async (importOriginal) => {
       fileExists: mocks.fileExists,
       readFile: mocks.readFile,
       writeFileAtomic: mocks.writeFileAtomic,
-      writeFile: mocks.writeFile,
       createDirectory: mocks.createDirectory,
     
   }
@@ -234,12 +232,65 @@ describe("DirectorView（60 号设计：开书导演主视图）", () => {
     fireEvent.click(screen.getByTestId("director-local-write"))
     await waitFor(() => {
       expect(mocks.createDirectory).toHaveBeenCalledWith("C:/proj/book/QM/chapters")
-      expect(mocks.writeFile).toHaveBeenCalledWith(
+      expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
         "C:/proj/book/QM/chapters/chapter-001.md",
         expect.stringContaining("chapter: 1"),
       )
       expect(mocks.setSelectedFile).toHaveBeenCalledWith("C:/proj/book/QM/chapters/chapter-001.md")
       expect(mocks.setActiveView).toHaveBeenCalledWith("wiki")
     })
+  })
+
+  it("推进中可终止：signal 中断 → 缺口提示终止且恢复空闲", async () => {
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    advanceMock.fn.mockImplementation(
+      (_p: string, _s: unknown, _i: unknown, opts?: { signal?: AbortSignal }) =>
+        new Promise((_res, rej) => {
+          opts?.signal?.addEventListener("abort", () => rej(new DOMException("Aborted", "AbortError")))
+        }),
+    )
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-advance")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-advance"))
+    // 在途：推进按钮 busy 禁用 + loading，终止按钮出现
+    await waitFor(() => expect(screen.getByTestId("director-terminate")).toBeInTheDocument())
+    expect(screen.getByTestId("director-advance")).toBeDisabled()
+    fireEvent.click(screen.getByTestId("director-terminate"))
+    await waitFor(() => expect(screen.getByTestId("director-gap")).toBeInTheDocument())
+    expect(screen.getByTestId("director-gap").textContent).toContain("directorPanel.terminated")
+    expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "idle")
+    expect(screen.getByTestId("director-advance")).not.toBeDisabled()
+    expect(screen.queryByTestId("director-terminate")).not.toBeInTheDocument()
+  })
+
+  it("调度运行记录：成功记 success，级别筛选可折叠过滤", async () => {
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    advanceMock.fn.mockResolvedValue({
+      state: createDirectorPipeline(),
+      advanced: true,
+      completed: false,
+      generated: true,
+      stage: "idea",
+    })
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-advance")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-advance"))
+    await waitFor(() =>
+      expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "advanced"),
+    )
+    // 默认折叠：无条目渲染
+    expect(screen.queryByTestId("director-runlog-item")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("director-runlog-toggle"))
+    expect(screen.getByText("开始推进当前阶段")).toBeInTheDocument()
+    expect(screen.getByText("推进成功，进入下一阶段")).toBeInTheDocument()
+    // 切到失败级别 → 两条都被滤掉，显示空态
+    fireEvent.click(screen.getByTestId("director-runlog-filter-error"))
+    expect(screen.queryByTestId("director-runlog-item")).not.toBeInTheDocument()
+    expect(screen.getByTestId("director-runlog-empty")).toBeInTheDocument()
+    // 切回全部 → 恢复
+    fireEvent.click(screen.getByTestId("director-runlog-filter-all"))
+    expect(screen.getAllByTestId("director-runlog-item")).toHaveLength(2)
   })
 })

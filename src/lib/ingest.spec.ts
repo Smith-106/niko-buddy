@@ -23,7 +23,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 
 const mocks = vi.hoisted(() => ({
   readFile: vi.fn(),
-  writeFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
   listDirectory: vi.fn(),
   streamChat: vi.fn(),
   wikiGetState: vi.fn(),
@@ -52,7 +52,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: mocks.readFile,
-      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
       listDirectory: mocks.listDirectory,
     
   }
@@ -371,7 +371,7 @@ function reviewBlock(type: string, title: string, body: string): string {
 }
 
 function writtenFiles(): Array<[string, string]> {
-  return mocks.writeFile.mock.calls as Array<[string, string]>
+  return mocks.writeFileAtomic.mock.calls as Array<[string, string]>
 }
 
 const IMAGE = { relPath: "media/doc/img.png", page: 1, sha256: "abc" }
@@ -727,7 +727,7 @@ describe("autoIngest cache-hit paths", () => {
 
     expect(result).toEqual(["wiki/sources/doc.md"])
     expect(mocks.captionMarkdownImages).not.toHaveBeenCalled()
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     expect(mocks.embedPage).not.toHaveBeenCalled()
     const activity = mocks.activityGetState() as FakeActivity
     expect(activity.items[0].status).toBe("done")
@@ -747,7 +747,7 @@ describe("autoIngest cache-hit paths", () => {
 
     expect(result).toEqual(["wiki/sources/doc.md"])
     expect(mocks.captionMarkdownImages).not.toHaveBeenCalled()
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     expect(mocks.embedPage).not.toHaveBeenCalled()
   })
 
@@ -974,7 +974,7 @@ describe("autoIngest cache-hit paths", () => {
     mocks.checkIngestCache.mockResolvedValue(["wiki/sources/doc.md"])
     mocks.extractAndSaveSourceImages.mockResolvedValue([IMAGE as never])
     installWikiState({ multimodalConfig: { ...makeWikiState().multimodalConfig, enabled: true } })
-    mocks.writeFile.mockRejectedValue(new Error("inject write boom"))
+    mocks.writeFileAtomic.mockRejectedValue(new Error("inject write boom"))
 
     const result = await autoIngest(PP, SP, LLM)
 
@@ -987,7 +987,7 @@ describe("autoIngest cache-hit paths", () => {
     mocks.checkIngestCache.mockResolvedValue(["wiki/sources/doc.md"])
     mocks.extractAndSaveSourceImages.mockResolvedValue([IMAGE as never])
     installWikiState({ multimodalConfig: { ...makeWikiState().multimodalConfig, enabled: true } })
-    mocks.writeFile.mockRejectedValue("inject write boom (string)")
+    mocks.writeFileAtomic.mockRejectedValue("inject write boom (string)")
 
     const result = await autoIngest(PP, SP, LLM)
 
@@ -1257,7 +1257,7 @@ describe("autoIngest full pipeline", () => {
 
   it("skips the cache when any block hits a hard FS failure", async () => {
     installReads(defaultReads())
-    mocks.writeFile.mockImplementation((path: string) =>
+    mocks.writeFileAtomic.mockImplementation((path: string) =>
       path.includes("wiki/concepts/alpha.md")
         ? Promise.reject("disk full (string)")
         : Promise.resolve(undefined),
@@ -1798,7 +1798,7 @@ describe("executeIngestWrites", () => {
     const chat = installChatState()
     chat.ingestSource = null
     installReads(defaultReads())
-    mocks.writeFile.mockRejectedValue(new Error("write boom"))
+    mocks.writeFileAtomic.mockRejectedValue(new Error("write boom"))
     installStreamChat([streamSuccess([blocksText])])
 
     const result = await executeIngestWrites(PP, LLM)
@@ -1812,7 +1812,7 @@ describe("executeIngestWrites", () => {
     const chat = installChatState()
     chat.ingestSource = null
     installReads(defaultReads())
-    mocks.writeFile.mockRejectedValue("write boom (string)")
+    mocks.writeFileAtomic.mockRejectedValue("write boom (string)")
     installStreamChat([streamSuccess([blocksText])])
 
     const result = await executeIngestWrites(PP, LLM)

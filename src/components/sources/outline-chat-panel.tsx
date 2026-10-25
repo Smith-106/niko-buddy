@@ -5,7 +5,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { flushStreamingContent, useOutlineChatStore, type OutlineChatMessage } from "@/stores/outline-chat-store"
 import { normalizePath } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
-import { readFile, writeFile, listDirectory, createDirectory, fileExists } from "@/commands/fs"
+import { readFile, writeFileAtomic, listDirectory, createDirectory, fileExists } from "@/commands/fs"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import { finalizeStructuredMarkdownMessage, repairMarkdownFormatWithAi, OUTLINE_SECTION_GENERATION_CONFIGS, runDeepOutlineGeneration, resolveNovelModel } from "@/lib/novel"
 import { toast } from "@/lib/toast"
@@ -546,7 +546,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       const fileName = outlinePath.split("/").pop()?.replace(/\.md$/, "") ?? draft.title
       const body = draft.content.replace(/^#\s+.+(?:\r?\n){1,2}/, "").trim()
       const mdContent = `---\ntype: outline\ntitle: "${fileName}"\n---\n\n# ${fileName}\n\n${body}\n`
-      await writeFile(outlinePath, mdContent)
+      await writeFileAtomic(outlinePath, mdContent)
       await refreshProjectState(pp)
       setSaveStatus(`已保存：${fileName}`)
     } catch (err) {

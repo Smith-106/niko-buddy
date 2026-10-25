@@ -57,7 +57,7 @@ const mocks = vi.hoisted(() => {
     wikiState,
     importState,
     readFile: vi.fn(),
-    writeFile: vi.fn(),
+    writeFileAtomic: vi.fn(),
     listDirectory: vi.fn(),
     deleteFile: vi.fn(),
     fileExists: vi.fn(),
@@ -113,7 +113,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: mocks.readFile,
-      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
       listDirectory: mocks.listDirectory,
       deleteFile: mocks.deleteFile,
       fileExists: mocks.fileExists,
@@ -304,7 +304,7 @@ beforeEach(() => {
     return []
   })
   mocks.fileExists.mockResolvedValue(false)
-  mocks.writeFile.mockResolvedValue(undefined)
+  mocks.writeFileAtomic.mockResolvedValue(undefined)
   mocks.deleteFile.mockResolvedValue(undefined)
   mocks.copyFile.mockResolvedValue(undefined)
   mocks.moveFileToTrash.mockResolvedValue({ id: "trash-1", name: "x", originalPath: "x", trashPath: "x", deletedAt: 0, expiresAt: 0, kind: "chapter" })
@@ -813,8 +813,8 @@ describe("KnowledgeTree", () => {
     fireEvent.keyDown(input, { key: "Enter" })
     await flush()
     const targetPath = `${CHAPTERS}/第4章-新篇章.md`
-    expect(mocks.writeFile).toHaveBeenCalledWith(targetPath, expect.stringContaining('title: "第4章-新篇章"'))
-    expect(mocks.writeFile).toHaveBeenCalledWith(targetPath, expect.stringContaining("chapter_number: 4"))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(targetPath, expect.stringContaining('title: "第4章-新篇章"'))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(targetPath, expect.stringContaining("chapter_number: 4"))
     expect(mocks.deleteFile).toHaveBeenCalledWith(`${CHAPTERS}/第三章-高潮.md`)
     expect(mocks.wikiState.setSelectedFile).toHaveBeenCalledWith(targetPath)
     expect(onRemovePendingPage).toHaveBeenCalledWith(`${CHAPTERS}/第三章-高潮.md`)
@@ -834,8 +834,8 @@ describe("KnowledgeTree", () => {
     fireEvent.change(input1, { target: { value: "第五章-开端改" } })
     fireEvent.keyDown(input1, { key: "Enter" })
     await flush()
-    expect(mocks.writeFile).toHaveBeenCalledWith(`${CHAPTERS}/卷1/第5章-开端改.md`, expect.stringContaining("chapter_number: 5"))
-    expect(mocks.writeFile).toHaveBeenCalledWith(`${CHAPTERS}/卷1/第5章-开端改.md`, expect.stringContaining('title: "第5章-开端改"'))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(`${CHAPTERS}/卷1/第5章-开端改.md`, expect.stringContaining("chapter_number: 5"))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(`${CHAPTERS}/卷1/第5章-开端改.md`, expect.stringContaining('title: "第5章-开端改"'))
     expect(mocks.deleteFile).toHaveBeenCalledWith(`${CHAPTERS}/卷1/第一章-开端.md`)
     // 序章-引子：无章号 → 纯标题、无 chapter_number 写入
     await screen.findByText("序章-引子")
@@ -846,7 +846,7 @@ describe("KnowledgeTree", () => {
     fireEvent.change(input2, { target: { value: "引子修改" } })
     fireEvent.keyDown(input2, { key: "Enter" })
     await flush()
-    expect(mocks.writeFile).toHaveBeenCalledWith(`${CHAPTERS}/引子修改.md`, expect.stringContaining("# 引子修改"))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(`${CHAPTERS}/引子修改.md`, expect.stringContaining("# 引子修改"))
     expect(mocks.deleteFile).toHaveBeenCalledWith(`${CHAPTERS}/序章-引子.md`)
     view.unmount()
   })
@@ -862,7 +862,7 @@ describe("KnowledgeTree", () => {
     fireEvent.change(input, { target: { value: "第二章-进展" } })
     fireEvent.keyDown(input, { key: "Enter" })
     await flush()
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     // 章号冲突（第三章 → 第二章 → 与第二章-进展 冲突）
     fireEvent.contextMenu(row)
     fireEvent.click(screen.getByText("重命名"))
@@ -870,7 +870,7 @@ describe("KnowledgeTree", () => {
     fireEvent.change(input, { target: { value: "第二章-冲突" } })
     fireEvent.keyDown(input, { key: "Enter" })
     await flush()
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     // 空标题 → 取消
     fireEvent.contextMenu(row)
     fireEvent.click(screen.getByText("重命名"))
@@ -878,7 +878,7 @@ describe("KnowledgeTree", () => {
     fireEvent.change(input, { target: { value: "   " } })
     fireEvent.keyDown(input, { key: "Enter" })
     expect(within(row).queryByRole("textbox")).not.toBeInTheDocument()
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     // 相同标题 → 取消
     fireEvent.contextMenu(row)
     fireEvent.click(screen.getByText("重命名"))
@@ -886,14 +886,14 @@ describe("KnowledgeTree", () => {
     fireEvent.change(input, { target: { value: "第三章-高潮" } })
     fireEvent.keyDown(input, { key: "Enter" })
     expect(within(row).queryByRole("textbox")).not.toBeInTheDocument()
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     // Escape → 取消
     fireEvent.contextMenu(row)
     fireEvent.click(screen.getByText("重命名"))
     input = within(row).getByRole("textbox")
     fireEvent.keyDown(input, { key: "Escape" })
     expect(within(row).queryByRole("textbox")).not.toBeInTheDocument()
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     view.unmount()
   })
 
@@ -908,7 +908,7 @@ describe("KnowledgeTree", () => {
     fireEvent.keyDown(input, { key: "Enter" })
     await flush()
     // slug("分卷大纲 2") === "分卷大纲-2" → 同路径写回
-    expect(mocks.writeFile).toHaveBeenCalledWith(`${OUTLINES}/分卷大纲-2.md`, expect.stringContaining('title: "分卷大纲 2"'))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(`${OUTLINES}/分卷大纲-2.md`, expect.stringContaining('title: "分卷大纲 2"'))
     expect(mocks.deleteFile).not.toHaveBeenCalled()
     expect(mocks.wikiState.setFileTree).toHaveBeenCalled()
     view.unmount()
@@ -926,7 +926,7 @@ describe("KnowledgeTree", () => {
     fireEvent.change(input, { target: { value: "分卷大纲 2" } })
     fireEvent.keyDown(input, { key: "Enter" })
     await flush()
-    expect(mocks.writeFile).toHaveBeenCalledWith(`${OUTLINES}/分卷大纲-2-2.md`, expect.any(String))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(`${OUTLINES}/分卷大纲-2-2.md`, expect.any(String))
     expect(mocks.deleteFile).toHaveBeenCalledWith(`${OUTLINES}/分卷大纲-2-3.md`)
     // 场景2：候选 -2 占用、-3 等于排除路径 → 同路径写回（覆盖 candidate === excludePath）
     mocks.fileExists.mockImplementation(async (p: string) => p === `${OUTLINES}/分卷大纲-2.md` || p === `${OUTLINES}/分卷大纲-2-2.md`)
@@ -937,7 +937,7 @@ describe("KnowledgeTree", () => {
     fireEvent.change(input, { target: { value: "分卷大纲 2" } })
     fireEvent.keyDown(input, { key: "Enter" })
     await flush()
-    expect(mocks.writeFile).toHaveBeenCalledWith(`${OUTLINES}/分卷大纲-2-3.md`, expect.any(String))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(`${OUTLINES}/分卷大纲-2-3.md`, expect.any(String))
     // 场景3：全部候选占用 → Date.now 时间戳兜底
     mocks.fileExists.mockImplementation(async (p: string) => p.startsWith(`${OUTLINES}/分卷大纲-2`))
     const row3 = pageRow(view.container, `${OUTLINES}/全书大纲.md`)
@@ -947,7 +947,7 @@ describe("KnowledgeTree", () => {
     fireEvent.change(input, { target: { value: "分卷大纲 2" } })
     fireEvent.keyDown(input, { key: "Enter" })
     await flush()
-    const fallbackCalls = mocks.writeFile.mock.calls.map(([p]) => p as string).filter((p) => p.startsWith(`${OUTLINES}/分卷大纲-2-`) && /-\d{13}\.md$/.test(p))
+    const fallbackCalls = mocks.writeFileAtomic.mock.calls.map(([p]) => p as string).filter((p) => p.startsWith(`${OUTLINES}/分卷大纲-2-`) && /-\d{13}\.md$/.test(p))
     expect(fallbackCalls.length).toBeGreaterThan(0)
     view.unmount()
   })
@@ -968,7 +968,7 @@ describe("KnowledgeTree", () => {
     fireEvent.keyDown(input, { key: "Escape" })
     resolveRead(CONTENTS[`${CHAPTERS}/第三章-高潮.md`])
     await flush()
-    expect(mocks.writeFile).toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).toHaveBeenCalled()
     // readFile 失败 → console.error + 输入框清理
     mocks.readFile.mockRejectedValueOnce(new Error("read-fail"))
     fireEvent.contextMenu(row)
@@ -1006,7 +1006,7 @@ describe("KnowledgeTree", () => {
     // 正确 pointerup → finishDrag → executeChapterReorder
     act(() => { window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: 0, clientY: 90 })) })
     await act(async () => {})
-    expect(mocks.writeFile).toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).toHaveBeenCalled()
     expect(mocks.wikiState.setFileTree).toHaveBeenCalled()
     expect(mocks.wikiState.bumpDataVersion).toHaveBeenCalled()
     vi.useRealTimers()
@@ -1028,7 +1028,7 @@ describe("KnowledgeTree", () => {
     act(() => { window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, pointerType: "mouse", clientX: 0, clientY: 90 })) })
     act(() => { window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: 0, clientY: 90 })) })
     await act(async () => {})
-    const calls = mocks.writeFile.mock.calls.map(([p, c]) => [p as string, c as string])
+    const calls = mocks.writeFileAtomic.mock.calls.map(([p, c]) => [p as string, c as string])
     // 高潮(3→2)：有 frontmatter 无 chapter_number → 追加
     const high = calls.find(([p]) => p === `${CHAPTERS}/第三章-高潮.md`)
     expect(high?.[1]).toContain("chapter_number: 2")
@@ -1058,7 +1058,7 @@ describe("KnowledgeTree", () => {
     setElementFromPoint(targetRow)
     vi.spyOn(targetRow, "getBoundingClientRect").mockReturnValue({ top: 0, height: 100 } as DOMRect)
     // 第1次写入成功（高潮）、第2次失败（进展）、回滚（高潮原文）再失败
-    mocks.writeFile
+    mocks.writeFileAtomic
       .mockImplementationOnce(async () => {})
       .mockRejectedValueOnce(new Error("write-fail"))
       .mockRejectedValueOnce(new Error("rollback-fail"))
@@ -1104,7 +1104,7 @@ describe("KnowledgeTree", () => {
     const earlyUp = new PointerEvent("pointerup", { pointerId: 7 })
     act(() => { window.dispatchEvent(earlyUp) })
     await act(async () => {})
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     vi.useRealTimers()
     view.unmount()
   })
@@ -1129,7 +1129,7 @@ describe("KnowledgeTree", () => {
     act(() => { window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, pointerType: "mouse", clientX: 0, clientY: 0 })) })
     act(() => { window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: 0, clientY: 0 })) })
     await act(async () => {})
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     vi.useRealTimers()
     view.unmount()
   })
@@ -1152,7 +1152,7 @@ describe("KnowledgeTree", () => {
     fireEvent.pointerMove(view.container as HTMLElement, { pointerId: 1, clientX: 0, clientY: 90 })
     act(() => { window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 })) })
     await act(async () => {})
-    expect(mocks.writeFile).toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).toHaveBeenCalled()
     vi.useRealTimers()
     view.unmount()
   })
@@ -1406,8 +1406,8 @@ describe("KnowledgeTree", () => {
     act(() => { window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, pointerType: "mouse", clientX: 0, clientY: 10 })) })
     act(() => { window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: 0, clientY: 10 })) })
     await act(async () => {})
-    expect(mocks.writeFile).toHaveBeenCalled()
-    const calls = mocks.writeFile.mock.calls.map(([p, c]) => [p as string, c as string])
+    expect(mocks.writeFileAtomic).toHaveBeenCalled()
+    const calls = mocks.writeFileAtomic.mock.calls.map(([p, c]) => [p as string, c as string])
     const high = calls.find(([p]) => p === `${CHAPTERS}/第三章-高潮.md`)
     expect(high?.[1]).toContain("chapter_number: 2")
     vi.useRealTimers()
@@ -1432,7 +1432,7 @@ describe("KnowledgeTree", () => {
     act(() => { window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, pointerType: "mouse", clientX: 0, clientY: 10 })) })
     act(() => { window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: 0, clientY: 10 })) })
     await act(async () => {})
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     vi.useRealTimers()
     view.unmount()
   })
@@ -1451,7 +1451,7 @@ describe("KnowledgeTree", () => {
     act(() => { window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, pointerType: "mouse", clientX: 0, clientY: 10 })) })
     act(() => { window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: 0, clientY: 10 })) })
     await act(async () => {})
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     vi.useRealTimers()
     view.unmount()
   })
@@ -1466,10 +1466,10 @@ describe("KnowledgeTree", () => {
     // 300ms 内 pointerup → finishDrag：清 timer + 无 source → 空操作
     act(() => { window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: 0, clientY: 0 })) })
     await act(async () => {})
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     // timer 已清：再 advance 也不触发拖拽
     act(() => { vi.advanceTimersByTime(300) })
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     vi.useRealTimers()
     view.unmount()
   })
@@ -1499,7 +1499,7 @@ describe("KnowledgeTree", () => {
     }
     act(() => { window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: 0, clientY: 10 })) })
     await act(async () => {})
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     vi.useRealTimers()
     view.unmount()
   })
@@ -1524,7 +1524,7 @@ describe("KnowledgeTree", () => {
     fireEvent.pointerMove(inner, { pointerId: 1, clientX: 0, clientY: 90 })
     act(() => { window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: 0, clientY: 90 })) })
     await act(async () => {})
-    expect(mocks.writeFile).toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).toHaveBeenCalled()
     vi.useRealTimers()
     view.unmount()
   })
@@ -1565,7 +1565,7 @@ describe("KnowledgeTree", () => {
     act(() => { window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 2, clientX: 0, clientY: 90 })) })
     await act(async () => {})
     vi.useRealTimers()
-    expect(mocks.writeFile).toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).toHaveBeenCalled()
     view.unmount()
   })
 
@@ -1591,7 +1591,7 @@ describe("KnowledgeTree", () => {
     fireEvent.blur(input)
     resolveRead(CONTENTS[`${CHAPTERS}/第三章-高潮.md`])
     await flush()
-    expect(mocks.writeFile).toHaveBeenCalledTimes(1)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
     view.unmount()
   })
 
@@ -1622,7 +1622,7 @@ describe("KnowledgeTree", () => {
     // timer 已清：advance 后无拖拽
     act(() => { vi.advanceTimersByTime(300) })
     await act(async () => {})
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     expect(row.className).not.toContain("ring-2")
     vi.useRealTimers()
     view.unmount()

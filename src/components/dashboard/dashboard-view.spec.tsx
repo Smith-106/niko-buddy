@@ -35,7 +35,6 @@ const mocks = vi.hoisted(() => {
     state,
     t: vi.fn((key: string) => key),
     readFile: vi.fn(),
-    writeFile: vi.fn(),
     writeFileAtomic: vi.fn(),
     listDirectory: vi.fn(),
     deleteFile: vi.fn(),
@@ -99,7 +98,6 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: mocks.readFile,
-      writeFile: mocks.writeFile,
       writeFileAtomic: mocks.writeFileAtomic,
       listDirectory: mocks.listDirectory,
       deleteFile: mocks.deleteFile,
@@ -376,7 +374,7 @@ beforeEach(() => {
   mocks.t.mockImplementation((key: string) => key)
   mocks.hasUsableLlm.mockReturnValue(true)
   mocks.readFile.mockResolvedValue("# Chapter\n正文")
-  mocks.writeFile.mockResolvedValue(undefined)
+  mocks.writeFileAtomic.mockResolvedValue(undefined)
   mocks.searchWiki.mockResolvedValue([])
   mocks.listSnapshots.mockResolvedValue([])
   mocks.loadSnapshot.mockResolvedValue(null)
@@ -779,7 +777,7 @@ describe("DashboardView — AI 改写 (runAiRewrite / 对话框 / 应用)", () =
     fireEvent.change(screen.getByTestId("ttpd-candidate"), { target: { value: "修改后候选" } })
     // apply
     fireEvent.click(screen.getByTestId("ttpd-apply"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledWith("E:/Novel/wiki/chapter-8.md", "# rewritten\n正文"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledWith("E:/Novel/wiki/chapter-8.md", "# rewritten\n正文"))
     expect(mocks.state.bumpDataVersion).toHaveBeenCalled()
     expect(mocks.state.setFileContent).toHaveBeenCalled()
     expect(mocks.state.setPendingEditorHighlight).toHaveBeenCalledWith(expect.objectContaining({ path: "E:/Novel/wiki/chapter-8.md", text: "修改后候选" }))
@@ -906,17 +904,17 @@ describe("DashboardView — AI 改写 (runAiRewrite / 对话框 / 应用)", () =
     render(<DashboardView />)
     fireEvent.click(screen.getByText("dashboard.actions.aiRewrite"))
     await waitFor(() => expect(screen.getByTestId("ttpd")).toBeInTheDocument())
-    // 空 candidate → applyDisabled (fireEvent 仍派发 → 守卫 return, writeFile 不调用)
+    // 空 candidate → applyDisabled (fireEvent 仍派发 → 守卫 return, writeFileAtomic 不调用)
     fireEvent.change(screen.getByTestId("ttpd-candidate"), { target: { value: "   " } })
     fireEvent.click(screen.getByTestId("ttpd-apply"))
-    await waitFor(() => expect(mocks.writeFile).not.toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).not.toHaveBeenCalled())
     // 有效 candidate; applyDashboardRewriteToMarkdown 首次失败 → refresh anchor 成功 → 应用
     fireEvent.change(screen.getByTestId("ttpd-candidate"), { target: { value: "有效候选" } })
     mocks.applyDashboardRewriteToMarkdown
       .mockReturnValueOnce(null)
       .mockReturnValueOnce("# refreshed")
     fireEvent.click(screen.getByTestId("ttpd-apply"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledWith("E:/Novel/wiki/chapter-8.md", "# refreshed"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledWith("E:/Novel/wiki/chapter-8.md", "# refreshed"))
     expect(mocks.findChapterSelectionByEvidence).toHaveBeenCalled()
   })
 
@@ -929,19 +927,19 @@ describe("DashboardView — AI 改写 (runAiRewrite / 对话框 / 应用)", () =
     // readFile 最新失败
     mocks.readFile.mockRejectedValueOnce(new Error("gone"))
     fireEvent.click(screen.getByTestId("ttpd-apply"))
-    await waitFor(() => expect(mocks.writeFile).not.toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).not.toHaveBeenCalled())
     // refresh anchor 返回 null
     mocks.applyDashboardRewriteToMarkdown.mockReturnValue(null)
     mocks.findChapterSelectionByEvidence.mockReturnValueOnce(null)
     fireEvent.click(screen.getByTestId("ttpd-apply"))
-    await waitFor(() => expect(mocks.writeFile).not.toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).not.toHaveBeenCalled())
     // refresh anchor 有值但二次 apply 仍失败
     mocks.findChapterSelectionByEvidence.mockReturnValueOnce({
       evidence: "x",
       selection: { start: 0, end: 4, text: "正文", bodySnapshot: "正文" },
     })
     fireEvent.click(screen.getByTestId("ttpd-apply"))
-    await waitFor(() => expect(mocks.writeFile).not.toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).not.toHaveBeenCalled())
     expect(mocks.applyDashboardRewriteToMarkdown).toHaveBeenCalledTimes(3)
   })
 })
@@ -966,14 +964,14 @@ describe("DashboardView — viewRewrite / restore / alert", () => {
     expect(mocks.state.setPendingEditorHighlight).toHaveBeenCalledWith(expect.objectContaining({ text: "新文" }))
     // restore
     fireEvent.click(screen.getByText("dashboard.actions.restore"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     expect(mocks.saveDashboardIssueState).toHaveBeenCalledWith("E:/Novel", expect.objectContaining({ rewrites: {} }))
     cleanup()
-    // restore: restoreDashboardRewriteInMarkdown null → 早退 (writeFile 总调用数保持 part1 的 1 次)
+    // restore: restoreDashboardRewriteInMarkdown null → 早退 (writeFileAtomic 总调用数保持 part1 的 1 次)
     mocks.restoreDashboardRewriteInMarkdown.mockReturnValue(null)
     render(<DashboardView />)
     fireEvent.click(await screen.findByText("dashboard.actions.restore"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1))
   })
 
   it("viewRewrite: 读取失败静默返回", async () => {
@@ -1111,7 +1109,7 @@ describe("DashboardView — 全口径缺口补齐 (w4f5)", () => {
     mocks.readFile.mockRejectedValue(new Error("gone"))
     render(<DashboardView />)
     fireEvent.click(await screen.findByText("dashboard.actions.restore"))
-    await waitFor(() => expect(mocks.writeFile).not.toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).not.toHaveBeenCalled())
     expect(mocks.saveDashboardIssueState).not.toHaveBeenCalled()
   })
 
@@ -1283,7 +1281,7 @@ describe("DashboardView — f4 终局：取消竞态 / 非 Error 异常 / 边界
     mocks.state.selectedFile = "E:/Novel/other.md"
     render(<DashboardView />)
     fireEvent.click(await screen.findByText("dashboard.actions.restore"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     expect(mocks.state.setFileContent).not.toHaveBeenCalled()
   })
 

@@ -5,7 +5,7 @@
  * project filesystem and LLM.  The UI layer calls these functions;
  * the algorithm core stays testable without filesystem or LLM mocks.
  */
-import { listDirectory, readFile, writeFile, deleteFile } from "@/commands/fs"
+import { listDirectory, readFile, writeFileAtomic, deleteFile } from "@/commands/fs"
 import { streamChat } from "@/lib/llm-client"
 import { normalizePath } from "@/lib/path-utils"
 import type { LlmConfig } from "@/stores/wiki-store"
@@ -171,14 +171,14 @@ export async function executeMerge(
   const stamp = new Date().toISOString().replace(/[:.]/g, "-")
   const backupDir = `${pp}/.niko-buddy/page-history/dedup-${stamp}`
   for (const b of result.backup) {
-    await writeFile(`${backupDir}/${b.path.replace(/[/\\]/g, "_")}`, b.content)
+    await writeFileAtomic(`${backupDir}/${b.path.replace(/[/\\]/g, "_")}`, b.content)
   }
 
   // 3. Write canonical
-  await writeFile(`${pp}/${result.canonicalPath}`, result.canonicalContent)
+  await writeFileAtomic(`${pp}/${result.canonicalPath}`, result.canonicalContent)
 
   // 4. Apply rewrites
-  for (const r of result.rewrites) await writeFile(`${pp}/${r.path}`, r.newContent)
+  for (const r of result.rewrites) await writeFileAtomic(`${pp}/${r.path}`, r.newContent)
 
   // 5. Delete merged-away pages
   for (const dead of result.pagesToDelete) {
@@ -191,7 +191,7 @@ export async function executeMerge(
   if (indexEntry) {
     const removed = new Set(group.slugs.filter((s) => s !== canonicalSlug))
     const rewritten = rewriteIndexMd(indexEntry.content, removed)
-    if (rewritten !== indexEntry.content) await writeFile(indexPath, rewritten)
+    if (rewritten !== indexEntry.content) await writeFileAtomic(indexPath, rewritten)
   }
 
   return result

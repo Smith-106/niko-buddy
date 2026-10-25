@@ -3,7 +3,7 @@
 // Outline chat store — persistent conversation state for the outline planning panel.
 
 import { create } from "zustand"
-import { readFile, writeFile, createDirectory } from "@/commands/fs"
+import { readFile, writeFileAtomic, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore } from "@/stores/wiki-store"
 
@@ -212,7 +212,7 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => ({
     try {
       const parentDir = diskPath.replace(/[/\\][^/\\]+$/, "")
       await createDirectory(parentDir)
-      await writeFile(diskPath, JSON.stringify({ conversations, activeConversationId }, null, 2))
+      await writeFileAtomic(diskPath, JSON.stringify({ conversations, activeConversationId }, null, 2))
     } catch {
       // Persistence errors are swallowed — chat remains in memory.
     }

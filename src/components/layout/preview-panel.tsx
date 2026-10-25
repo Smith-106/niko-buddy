@@ -6,7 +6,7 @@ import { resolveDefaultModel, isChapterPage, isFinalChapter, parseChapterMeta, u
 import type { DeAiBatchProgress, DeAiBatchSummary } from "@/lib/novel"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
-import { deleteFile, fileExists, readFile, writeFile, writeFileAtomic, listDirectory } from "@/commands/fs"
+import { deleteFile, fileExists, readFile, writeFileAtomic, listDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { restoreTrashItem } from "@/lib/trash"
 import { formatOperationError } from "@/lib/format-operation-error"
@@ -889,7 +889,7 @@ export function PreviewPanel() {
     const baseName = fileName.replace(/\.md$/, "")
     const draftPath = normalizePath(`${dir}${baseName}-去AI味稿.md`)
     try {
-      await writeFile(draftPath, deAiCandidateContent)
+      await writeFileAtomic(draftPath, deAiCandidateContent)
       const tree = await listDirectory(normalizePath(project.path))
       setFileTree(tree)
       bumpDataVersion()

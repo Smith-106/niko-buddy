@@ -3,7 +3,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 
 const mocks = vi.hoisted(() => ({
   readFile: vi.fn(),
-  writeFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
   streamChat: vi.fn(),
   bumpDataVersion: vi.fn(),
 }))
@@ -13,7 +13,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: mocks.readFile,
-      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
     
   }
 })
@@ -49,7 +49,7 @@ describe("enrichWithWikilinks", () => {
     mocks.readFile.mockImplementation(async (p: string) => (p.endsWith("index.md") ? "# Index" : ""))
     await enrichWithWikilinks("/P", "/P/wiki/a.md", fakeLlmConfig)
     expect(mocks.streamChat).not.toHaveBeenCalled()
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("bails out when the wiki index cannot be read", async () => {
@@ -76,7 +76,7 @@ describe("enrichWithWikilinks", () => {
       expect.any(Array),
       expect.any(Object),
     )
-    const written = mocks.writeFile.mock.calls[0]
+    const written = mocks.writeFileAtomic.mock.calls[0]
     expect(written[0]).toBe("/P/wiki/a.md")
     expect(String(written[1])).toContain("[[Transformer]]")
     expect(String(written[1])).toContain("[[Other]]")
@@ -94,7 +94,7 @@ describe("enrichWithWikilinks", () => {
 
     await enrichWithWikilinks("/P", "/P/wiki/b.md", fakeLlmConfig)
 
-    const written = String(mocks.writeFile.mock.calls[0][1])
+    const written = String(mocks.writeFileAtomic.mock.calls[0][1])
     expect(written.startsWith("---\ntitle: X\nterm: not-linked\n---")).toBe(true)
     expect(written).toContain("[[term]] term term")
   })
@@ -108,7 +108,7 @@ describe("enrichWithWikilinks", () => {
       callbacks.onDone()
     })
     await enrichWithWikilinks("/P", "/P/wiki/c.md", fakeLlmConfig)
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("does nothing when parsing fails entirely", async () => {
@@ -120,7 +120,7 @@ describe("enrichWithWikilinks", () => {
       callbacks.onDone()
     })
     await enrichWithWikilinks("/P", "/P/wiki/c.md", fakeLlmConfig)
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("does not write when enrichment leaves content unchanged", async () => {
@@ -133,7 +133,7 @@ describe("enrichWithWikilinks", () => {
       callbacks.onDone()
     })
     await enrichWithWikilinks("/P", "/P/wiki/c.md", fakeLlmConfig)
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("tolerates markdown-fenced JSON with nested braces and escaped strings", async () => {
@@ -145,8 +145,8 @@ describe("enrichWithWikilinks", () => {
       callbacks.onDone()
     })
     await enrichWithWikilinks("/P", "/P/wiki/d.md", fakeLlmConfig)
-    expect(mocks.writeFile).toHaveBeenCalledTimes(1)
-    expect(String(mocks.writeFile.mock.calls[0][1])).toContain("[[t|term]]")
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    expect(String(mocks.writeFileAtomic.mock.calls[0][1])).toContain("[[t|term]]")
   })
 
   it("handles escaped quotes inside LLM JSON terms", async () => {
@@ -158,7 +158,7 @@ describe("enrichWithWikilinks", () => {
       callbacks.onDone()
     })
     await enrichWithWikilinks("/P", "/P/wiki/g.md", fakeLlmConfig)
-    expect(String(mocks.writeFile.mock.calls[0][1])).toBe('[[t|he said "hi"]] there')
+    expect(String(mocks.writeFileAtomic.mock.calls[0][1])).toBe('[[t|he said "hi"]] there')
   })
 
   it("returns no links for unbalanced braces", async () => {
@@ -170,7 +170,7 @@ describe("enrichWithWikilinks", () => {
       callbacks.onDone()
     })
     await enrichWithWikilinks("/P", "/P/wiki/h.md", fakeLlmConfig)
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("returns no links when links is not an array", async () => {
@@ -182,7 +182,7 @@ describe("enrichWithWikilinks", () => {
       callbacks.onDone()
     })
     await enrichWithWikilinks("/P", "/P/wiki/i.md", fakeLlmConfig)
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("returns no links when the JSON inside braces is malformed", async () => {
@@ -194,7 +194,7 @@ describe("enrichWithWikilinks", () => {
       callbacks.onDone()
     })
     await enrichWithWikilinks("/P", "/P/wiki/j.md", fakeLlmConfig)
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("stops scanning when a skipped term ends at the document boundary", async () => {
@@ -206,7 +206,7 @@ describe("enrichWithWikilinks", () => {
       callbacks.onDone()
     })
     await enrichWithWikilinks("/P", "/P/wiki/k.md", fakeLlmConfig)
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("handles stream errors without throwing", async () => {
@@ -217,7 +217,7 @@ describe("enrichWithWikilinks", () => {
       callbacks.onError(new Error("stream broke"))
     })
     await expect(enrichWithWikilinks("/P", "/P/wiki/e.md", fakeLlmConfig)).resolves.toBeUndefined()
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("ignores invalid link entries and keeps only well-formed ones", async () => {
@@ -231,6 +231,6 @@ describe("enrichWithWikilinks", () => {
       callbacks.onDone()
     })
     await enrichWithWikilinks("/P", "/P/wiki/f.md", fakeLlmConfig)
-    expect(String(mocks.writeFile.mock.calls[0][1])).toBe("[[ok|alpha]] beta")
+    expect(String(mocks.writeFileAtomic.mock.calls[0][1])).toBe("[[ok|alpha]] beta")
   })
 })

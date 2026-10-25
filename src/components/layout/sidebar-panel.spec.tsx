@@ -91,7 +91,7 @@ const mocks = vi.hoisted(() => {
     listDirectory: vi.fn<(path: string) => Promise<FileNode[]>>(async () => []),
     preprocessFile: vi.fn<(path: string) => Promise<string>>(async () => ""),
     readFile: vi.fn<(path: string) => Promise<string>>(async () => ""),
-    writeFile: vi.fn<(path: string, contents: string) => Promise<void>>(async () => {}),
+    writeFileAtomic: vi.fn<(path: string, contents: string) => Promise<void>>(async () => {}),
     // libs
     countChapterBodyWords: vi.fn<(markdown: string) => number>(() => 0),
     buildChapterTotalWordCountLabel: vi.fn<(n: number) => string>((n: number) => `total:${n}`),
@@ -175,7 +175,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
       listDirectory: mocks.listDirectory,
       preprocessFile: mocks.preprocessFile,
       readFile: mocks.readFile,
-      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
     
   }
 })
@@ -692,7 +692,7 @@ describe("SidebarPanel 知识模式（章节）", () => {
     mocks.listDirectory.mockResolvedValue([])
     mocks.readFile.mockResolvedValue("")
     mocks.fileExists.mockResolvedValue(false)
-    mocks.writeFile.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
     mocks.createDirectory.mockResolvedValue(undefined)
     mocks.dialogOpen.mockResolvedValue(null)
     mocks.importChapterFiles.mockResolvedValue([])
@@ -1206,13 +1206,13 @@ describe("SidebarPanel 知识模式（章节）", () => {
     fireEvent.click(screen.getByTitle("新建章节"))
     await flushAsync()
     expect(mocks.createDirectory).not.toHaveBeenCalled()
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("新建章节：写入失败时吞掉并记录 error", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.listDirectory.mockResolvedValue([])
-    mocks.writeFile.mockRejectedValue(new Error("write boom"))
+    mocks.writeFileAtomic.mockRejectedValue(new Error("write boom"))
     renderSidebar()
     await flushAsync()
     fireEvent.click(screen.getByTitle("新建章节"))
@@ -1234,10 +1234,10 @@ describe("SidebarPanel 知识模式（章节）", () => {
     await flushAsync()
 
     fireEvent.click(screen.getByTitle("新建章节"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1))
     await flushAsync()
     fireEvent.click(screen.getByTitle("新建章节"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2))
     await flushAsync()
 
     const pending = screen.getByTestId("kt-pending").textContent ?? ""
@@ -1252,7 +1252,7 @@ describe("SidebarPanel 知识模式（章节）", () => {
     fireEvent.change(input, { target: { value: "标题" } })
     fireEvent.click(screen.getByText("创建"))
     await flushAsync()
-    expect(mocks.writeFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 })
 
@@ -1641,7 +1641,7 @@ describe("SidebarPanel 创建流程", () => {
     mocks.listDirectory.mockResolvedValue([])
     mocks.readFile.mockResolvedValue("")
     mocks.fileExists.mockResolvedValue(false)
-    mocks.writeFile.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
     mocks.createDirectory.mockResolvedValue(undefined)
     mocks.getNextChapterNumber.mockResolvedValue(1)
     mocks.flattenMdFiles.mockImplementation(
@@ -1663,8 +1663,8 @@ describe("SidebarPanel 创建流程", () => {
     await flushAsync()
 
     fireEvent.click(screen.getByTitle("新建章节"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
-    expect(mocks.writeFile).toHaveBeenCalledWith(
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
       "/p/mybook/wiki/chapters/chapter-no-ext-2",
       expect.any(String),
     )
@@ -1691,12 +1691,12 @@ describe("SidebarPanel 创建流程", () => {
     await flushAsync()
 
     fireEvent.click(screen.getByTitle("新建章节"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     await flushAsync()
 
     const filePath = "/p/mybook/wiki/chapters/chapter-2-第2章.md"
-    expect(mocks.writeFile).toHaveBeenCalledWith(filePath, expect.stringContaining("chapter_number: 2"))
-    expect(mocks.writeFile).toHaveBeenCalledWith(filePath, expect.stringContaining('title: "第2章"'))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(filePath, expect.stringContaining("chapter_number: 2"))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(filePath, expect.stringContaining('title: "第2章"'))
     expect(mocks.invalidateChapterCache).toHaveBeenCalledWith("/p/mybook")
     expect(mocks.createDirectory).toHaveBeenCalledWith("/p/mybook/wiki/chapters")
     expect(mocks.state.setSelectedFile).toHaveBeenCalledWith(filePath)
@@ -1718,10 +1718,10 @@ describe("SidebarPanel 创建流程", () => {
     await flushAsync()
 
     fireEvent.click(screen.getByTitle("新建章节"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     await flushAsync()
 
-    expect(mocks.writeFile).toHaveBeenCalledWith(
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
       "/p/mybook/wiki/chapters/chapter-2-第2章-2.md",
       expect.stringContaining("chapter_number: 2"),
     )
@@ -1734,10 +1734,10 @@ describe("SidebarPanel 创建流程", () => {
     await flushAsync()
 
     fireEvent.click(screen.getByTitle("新建章节"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     await flushAsync()
 
-    const filePath = (mocks.writeFile.mock.calls[0]?.[0] as string) ?? ""
+    const filePath = (mocks.writeFileAtomic.mock.calls[0]?.[0] as string) ?? ""
     expect(filePath).toMatch(/chapter-1-第1章-\d+\.md$/)
   })
 
@@ -1749,9 +1749,9 @@ describe("SidebarPanel 创建流程", () => {
     renderSidebar()
     await flushAsync()
     fireEvent.click(screen.getByTitle("新建章节"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     await flushAsync()
-    expect(mocks.writeFile).toHaveBeenCalledWith(
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
       "/p/mybook/wiki/chapters/chapter-1-第1章.md",
       expect.stringContaining("chapter_number: 1"),
     )
@@ -1763,9 +1763,9 @@ describe("SidebarPanel 创建流程", () => {
     renderSidebar()
     await flushAsync()
     fireEvent.click(screen.getByTitle("新建章节"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     await flushAsync()
-    expect(mocks.writeFile).toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).toHaveBeenCalled()
   })
 
   it("新建章节：通过 KnowledgeTree 请求携带 parentDir", async () => {
@@ -1773,7 +1773,7 @@ describe("SidebarPanel 创建流程", () => {
     renderSidebar()
     await flushAsync()
     fireEvent.click(screen.getByTestId("kt-create-parent"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     await flushAsync()
     expect(mocks.createDirectory).toHaveBeenCalledWith("/p/mybook/wiki/chapters/v1")
   })
@@ -1785,14 +1785,14 @@ describe("SidebarPanel 创建流程", () => {
     const input = screen.getByPlaceholderText("请输入大纲标题")
     const user = userEvent.setup()
     await user.type(input, "新大纲{Enter}")
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     await flushAsync()
 
-    expect(mocks.writeFile).toHaveBeenCalledWith(
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
       "/p/mybook/wiki/outlines/新大纲.md",
       expect.stringContaining("type: outline"),
     )
-    expect(mocks.writeFile).toHaveBeenCalledWith(
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
       "/p/mybook/wiki/outlines/新大纲.md",
       expect.stringContaining('title: "新大纲"'),
     )
@@ -1807,9 +1807,9 @@ describe("SidebarPanel 创建流程", () => {
     const input = screen.getByPlaceholderText("请输入大纲标题")
     fireEvent.change(input, { target: { value: "回车提交" } })
     fireEvent.keyDown(input, { key: "Enter" })
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     await flushAsync()
-    expect(mocks.writeFile).toHaveBeenCalledWith(
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
       "/p/mybook/wiki/outlines/回车提交.md",
       expect.stringContaining("type: outline"),
     )
@@ -1841,14 +1841,14 @@ describe("SidebarPanel 创建流程", () => {
     expect(mocks.state.setSelectedFile).not.toHaveBeenCalled()
   })
 
-  it("新建失败：writeFile 抛错时保留输入", async () => {
+  it("新建失败：writeFileAtomic 抛错时保留输入", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     renderSidebar({ activeView: "sources" })
     await flushAsync()
     fireEvent.click(screen.getByTitle("新建大纲"))
     const input = screen.getByPlaceholderText("请输入大纲标题")
     fireEvent.change(input, { target: { value: "坏文件" } })
-    mocks.writeFile.mockRejectedValue(new Error("write boom"))
+    mocks.writeFileAtomic.mockRejectedValue(new Error("write boom"))
     fireEvent.click(screen.getByText("创建"))
     await waitFor(() => expect(console.error).toHaveBeenCalled())
     await flushAsync()
@@ -1915,7 +1915,7 @@ describe("SidebarPanel 创建流程", () => {
     await flushAsync()
     // 先创建一章制造 pending 页面
     fireEvent.click(screen.getByTitle("新建章节"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     await flushAsync()
     expect(screen.getByTestId("kt-pending")).not.toHaveTextContent("[]")
 
@@ -1930,14 +1930,14 @@ describe("SidebarPanel 创建流程", () => {
     let input = screen.getByPlaceholderText("请输入大纲标题")
     fireEvent.change(input, { target: { value: "大纲A" } })
     fireEvent.keyDown(input, { key: "Enter" })
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1))
     await flushAsync()
 
     fireEvent.click(screen.getByTitle("新建大纲"))
     input = screen.getByPlaceholderText("请输入大纲标题")
     fireEvent.change(input, { target: { value: "大纲B" } })
     fireEvent.keyDown(input, { key: "Enter" })
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2))
     await flushAsync()
 
     const pending = screen.getByTestId("kt-pending").textContent ?? ""
@@ -1953,9 +1953,9 @@ describe("SidebarPanel 创建流程", () => {
     const input = screen.getByPlaceholderText("请输入大纲标题")
     fireEvent.change(input, { target: { value: "新大纲" } })
     fireEvent.keyDown(input, { key: "Enter" })
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
     await flushAsync()
-    expect(mocks.writeFile).toHaveBeenCalledWith(
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
       "/p/mybook/wiki/outlines/新大纲.md",
       expect.stringContaining("type: outline"),
     )
@@ -1986,7 +1986,7 @@ describe("SidebarPanel 创建流程", () => {
     fireEvent.change(input, { target: { value: "父目录大纲" } })
     fireEvent.click(screen.getByText("创建"))
     await waitFor(() =>
-      expect(mocks.writeFile).toHaveBeenCalledWith(
+      expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
         "/p/mybook/wiki/chapters/v1/父目录大纲.md",
         expect.stringContaining("type: outline"),
       ),

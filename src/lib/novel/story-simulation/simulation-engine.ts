@@ -45,11 +45,24 @@ import { toErrorMessage } from "@/lib/utils"
 
 // ── 对外接口 ──
 
+/** 引擎上报：一次推演运行的遥测摘要（engine → status.json 上报载荷，view 侧接 appendStageMetric）。 */
+export interface SimulationTelemetry {
+  rounds: number
+  eventCount: number
+  timelineEventCount: number
+  degraded: boolean
+  aborted: boolean
+  latencyMs: number
+  timestamp: string
+}
+
 export interface SimulationCallbacks {
   onEvent: (event: SimulationEvent) => void
   onProgress: (progress: number, label: string) => void
   onComplete: (events: SimulationEvent[]) => void
   onError: (error: Error) => void
+  /** 推演遥测上报回调：正常完成/降级/中止均触发一次，view 侧直写 stage_metrics */
+  onTelemetry?: (telemetry: SimulationTelemetry) => void
   /** 新引擎时间线事件回调 */
   onTimelineEvent?: (event: TimelineEvent) => void
   /** 推演过程观察回调：用于 UI 展示 Agent 调度和 blackboard 状态 */
@@ -1216,6 +1229,7 @@ export async function runSimulation(
   signal?: AbortSignal,
 ): Promise<SimulationEvent[]> {
   const events: SimulationEvent[] = []
+  const simStart = Date.now()
   const { agents, framework, wordBudget, llmConfig, injectionEvent, maxRoundsPerNode, dynamicEventPool, resume } = input
   const mode = input.mode || framework.simulationMode || "hybrid"
   const modeConfig: ModeConfig = getModeConfig(mode)
@@ -1269,6 +1283,19 @@ export async function runSimulation(
     agents: Array.from(state.activeAgents.values()),
     timelineEvents: resumeTimelineEvents,
   })
+
+  /** 组装并上报本次推演遥测（成功/降级/中止统一出口）。 */
+  const emitTelemetry = (abortedFlag: boolean): void => {
+    callbacks.onTelemetry?.({
+      rounds: state.currentRound,
+      eventCount: events.length,
+      timelineEventCount: state.timelineEvents.length,
+      degraded,
+      aborted: abortedFlag,
+      latencyMs: Date.now() - simStart,
+      timestamp: new Date().toISOString(),
+    })
+  }
 
   try {
     for (const event of resumeTimelineEvents) {
@@ -1611,6 +1638,7 @@ export async function runSimulation(
       )
     }
 
+    emitTelemetry(Boolean(aborted || signal?.aborted))
     if (!aborted && !signal?.aborted) {
       callbacks.onComplete(events)
     }
@@ -1620,6 +1648,7 @@ export async function runSimulation(
     const error = err instanceof Error ? err : new Error(String(err))
     // 如果是 abort 导致的错误，正常返回已收集事件
     if (signal?.aborted || error.name === "AbortError") {
+      emitTelemetry(true)
       return events
     }
     // 其他致命错误才回调 onError 并抛出
@@ -1634,6 +1663,7 @@ export async function runSimulation(
       }
       events.push(errorEvent)
       callbacks.onEvent(errorEvent)
+      emitTelemetry(false)
       callbacks.onComplete(events)
       return events
     }

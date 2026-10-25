@@ -6,7 +6,7 @@ const fsState = vi.hoisted(() => ({
   fileExists: vi.fn(),
   readFile: vi.fn(),
   readFileAsBase64: vi.fn(),
-  writeFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
 }))
 const captionImageMock = vi.hoisted(() => vi.fn())
 
@@ -45,7 +45,7 @@ beforeEach(() => {
   fsState.fileExists.mockReset().mockResolvedValue(false)
   fsState.readFile.mockReset().mockRejectedValue(new Error("no cache file"))
   fsState.readFileAsBase64.mockReset().mockRejectedValue(new Error("no image"))
-  fsState.writeFile.mockReset().mockResolvedValue(undefined)
+  fsState.writeFileAtomic.mockReset().mockResolvedValue(undefined)
   captionImageMock.mockReset().mockResolvedValue("a caption")
   warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
 })
@@ -153,7 +153,7 @@ describe("captionMarkdownImages", () => {
       { contextBefore: "", contextAfter: "" },
     )
     expect(fsState.createDirectory).toHaveBeenCalledWith("/P/.niko-buddy")
-    expect(fsState.writeFile).toHaveBeenCalledWith(CACHE_PATH, expect.stringContaining(helloHash))
+    expect(fsState.writeFileAtomic).toHaveBeenCalledWith(CACHE_PATH, expect.stringContaining(helloHash))
   })
 
   it("serves a caption from the cache without calling the LLM", async () => {
@@ -170,7 +170,7 @@ describe("captionMarkdownImages", () => {
       failed: 0,
     })
     expect(captionImageMock).not.toHaveBeenCalled()
-    expect(fsState.writeFile).not.toHaveBeenCalled()
+    expect(fsState.writeFileAtomic).not.toHaveBeenCalled()
   })
 
   it("resolves absolute image URLs as-is against the wiki root fallback", async () => {
@@ -230,7 +230,7 @@ describe("captionMarkdownImages", () => {
   it("still returns the enriched markdown when persisting the cache fails", async () => {
     fsState.readFileAsBase64.mockResolvedValue({ base64: B64, mimeType: "image/png" })
     captionImageMock.mockResolvedValue("cap")
-    fsState.writeFile.mockRejectedValue(new Error("disk full"))
+    fsState.writeFileAtomic.mockRejectedValue(new Error("disk full"))
     const result = await captionMarkdownImages("/P", "![a](x.png)", llmConfig)
     expect(result.freshCaptions).toBe(1)
     expect(result.enrichedMarkdown).toBe("![cap](x.png)")
@@ -240,7 +240,7 @@ describe("captionMarkdownImages", () => {
   it("logs a non-Error cache persist failure verbatim", async () => {
     fsState.readFileAsBase64.mockResolvedValue({ base64: B64, mimeType: "image/png" })
     captionImageMock.mockResolvedValue("cap")
-    fsState.writeFile.mockRejectedValue("readonly filesystem")
+    fsState.writeFileAtomic.mockRejectedValue("readonly filesystem")
     const result = await captionMarkdownImages("/P", "![a](x.png)", llmConfig)
     expect(result.freshCaptions).toBe(1)
     expect(result.enrichedMarkdown).toBe("![cap](x.png)")

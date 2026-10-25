@@ -117,7 +117,7 @@ const mocks = vi.hoisted(() => {
     normalizePath: vi.fn<(p: string) => string>((p: string) => p.replace(/\\/g, "/")),
     // fs
     readFile: vi.fn<(path: string) => Promise<string>>(async () => "file-content"),
-    writeFile: vi.fn<(path: string, content: string) => Promise<void>>(async () => {}),
+    writeFileAtomic: vi.fn<(path: string, content: string) => Promise<void>>(async () => {}),
     listDirectory: vi.fn<(path: string) => Promise<Array<{ name: string; is_dir: boolean; path?: string }>>>(async () => []),
     createDirectory: vi.fn<(path: string) => Promise<void>>(async () => {}),
     fileExists: vi.fn<(path: string) => Promise<boolean>>(async () => false),
@@ -252,7 +252,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: mocks.readFile,
-      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
       listDirectory: mocks.listDirectory,
       createDirectory: mocks.createDirectory,
       fileExists: mocks.fileExists,
@@ -337,7 +337,7 @@ function defaultFs(): void {
     return "正常内容"
   })
   mocks.fileExists.mockImplementation(async (path: string) => existingPaths().has(path))
-  mocks.writeFile.mockResolvedValue(undefined)
+  mocks.writeFileAtomic.mockResolvedValue(undefined)
   mocks.createDirectory.mockResolvedValue(undefined)
   mocks.prepareOutlineSaveDraft.mockImplementation((content: string) => ({ title: "测试大纲", content: `# 测试大纲\n\n${content}` }))
 }
@@ -1035,11 +1035,11 @@ describe("OutlineChatPanel — 复制 / 保存为大纲", () => {
   it("保存为大纲成功：唯一路径 + frontmatter 写入 + 状态提示", async () => {
     renderAssistant()
     fireEvent.click(screen.getByText("保存为大纲"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1))
     expect(mocks.createDirectory).toHaveBeenCalledWith("E:/Novel/wiki/outlines")
     expect(mocks.listDirectory).toHaveBeenCalledWith("E:/Novel/wiki/outlines")
     expect(mocks.prepareOutlineSaveDraft).toHaveBeenCalled()
-    const [path, content] = mocks.writeFile.mock.calls[0]
+    const [path, content] = mocks.writeFileAtomic.mock.calls[0]
     expect(path).toBe("E:/Novel/wiki/outlines/测试大纲.md")
     expect(content).toContain('type: outline')
     expect(content).toContain('title: "测试大纲"')
@@ -1053,23 +1053,23 @@ describe("OutlineChatPanel — 复制 / 保存为大纲", () => {
     mocks.fileExists.mockImplementation(async (path: string) => existing.has(path))
     renderAssistant()
     fireEvent.click(screen.getByText("保存为大纲"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledTimes(1))
-    expect(mocks.writeFile.mock.calls[0][0]).toBe("E:/Novel/wiki/outlines/测试大纲-2.md")
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1))
+    expect(mocks.writeFileAtomic.mock.calls[0][0]).toBe("E:/Novel/wiki/outlines/测试大纲-2.md")
   })
 
   it("全部候选路径冲突 → 回退 Date.now() 路径", async () => {
     mocks.fileExists.mockResolvedValue(true)
     renderAssistant()
     fireEvent.click(screen.getByText("保存为大纲"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledTimes(1))
-    expect(mocks.writeFile.mock.calls[0][0]).toMatch(/^E:\/Novel\/wiki\/outlines\/测试大纲-\d{13}\.md$/)
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1))
+    expect(mocks.writeFileAtomic.mock.calls[0][0]).toMatch(/^E:\/Novel\/wiki\/outlines\/测试大纲-\d{13}\.md$/)
   })
 
   it("listDirectory 读取失败 → 空标题集合继续保存", async () => {
     mocks.listDirectory.mockRejectedValue(new Error("ls-fail"))
     renderAssistant()
     fireEvent.click(screen.getByText("保存为大纲"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1))
     expect(screen.getByText(/已保存：/)).toBeTruthy()
   })
 
@@ -1077,19 +1077,19 @@ describe("OutlineChatPanel — 复制 / 保存为大纲", () => {
     mocks.listDirectory.mockResolvedValue([{ name: ".md", is_dir: false }, { name: "总纲.md", is_dir: false }])
     renderAssistant()
     fireEvent.click(screen.getByText("保存为大纲"))
-    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1))
     expect(mocks.prepareOutlineSaveDraft).toHaveBeenCalledWith(expect.any(String), expect.arrayContaining(["总纲"]))
   })
 
   it("保存失败 → 状态提示 保存失败", async () => {
-    mocks.writeFile.mockRejectedValue(new Error("write-fail"))
+    mocks.writeFileAtomic.mockRejectedValue(new Error("write-fail"))
     renderAssistant()
     fireEvent.click(screen.getByText("保存为大纲"))
     await waitFor(() => expect(screen.getByText("保存失败：write-fail")).toBeTruthy())
   })
 
   it("保存失败（非 Error）→ String 化错误文案", async () => {
-    mocks.writeFile.mockRejectedValueOnce("write-boom")
+    mocks.writeFileAtomic.mockRejectedValueOnce("write-boom")
     renderAssistant()
     fireEvent.click(screen.getByText("保存为大纲"))
     await waitFor(() => expect(screen.getByText("保存失败：write-boom")).toBeTruthy())

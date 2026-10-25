@@ -161,7 +161,7 @@ export { loadFanficMergeProposal, proposeCanonMerge, saveFanficMergeProposal } f
 export type { CanonMergeProposal } from "./fanfic-canon-import"
 export { analyzeForeshadowingDebt } from "./foreshadowing-debt"
 export type { ForeshadowingDebtReport } from "./foreshadowing-debt"
-export { loadForeshadowingTracker } from "./foreshadowing-tracker"
+export { getActiveForeshadowings, getForeshadowingWatermark, loadForeshadowingTracker } from "./foreshadowing-tracker"
 export type { Foreshadowing, ForeshadowingStore } from "./foreshadowing-tracker"
 export { commitAcceptedDeepChapterDraft } from "./formal-writeback"
 export type { CommitAcceptedDeepChapterDraftInput } from "./formal-writeback"

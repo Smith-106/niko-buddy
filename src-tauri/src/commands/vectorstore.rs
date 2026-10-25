@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
+use tokio::sync::{Semaphore, SemaphorePermit};
 
 use crate::panic_guard::run_guarded_async;
 
@@ -990,11 +992,38 @@ pub async fn vector_upsert_chunks(
 /// Top-K chunk search. Returns every matching chunk's metadata + score
 /// (1 / (1 + distance), matching v1's convention for drop-in replacement
 /// at the TS layer). TS is responsible for grouping by page_id.
+// ──────────────────────────────────────────────────────────────────────
+// Search concurrency guard (lancedbStore coreIssue b: 高并发排队超时兜底).
+// Embedded LanceDB opens a dataset per call; unbounded concurrent
+// searches pile up native threads and can collapse the store. A static
+// semaphore bounds in-flight searches; waiters queue up to
+// SEARCH_QUEUE_TIMEOUT, then fail fast with a retryable frontend-facing
+// error instead of wedging the command pipeline.
+// ──────────────────────────────────────────────────────────────────────
+/// Max concurrent vector searches (embedded-LanceDB friendly).
+const SEARCH_MAX_CONCURRENT: usize = 4;
+/// Max time a search waits for a guard slot before failing fast.
+const SEARCH_QUEUE_TIMEOUT: Duration = Duration::from_secs(10);
+
+static SEARCH_GUARD: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(SEARCH_MAX_CONCURRENT));
+
+/// Acquire one search-guard slot, bounding queue wait. Split out (rather
+/// than inlined) so tests exercise the real production path hermetically
+/// with a local saturated semaphore and a short timeout.
+async fn acquire_search_permit(sem: &Semaphore, timeout: Duration) -> Result<SemaphorePermit<'_>, String> {
+    tokio::time::timeout(timeout, sem.acquire())
+        .await
+        .map_err(|_| "Search queue timeout: too many concurrent searches, retry later".to_string())?
+        .map_err(|_| "Search guard closed".to_string())
+}
+
 pub async fn do_vector_search_chunks(
     project_path: String,
     query_embedding: Vec<f32>,
     top_k: usize,
 ) -> Result<Vec<ChunkSearchResult>, String> {
+    // Guard first: fail fast before touching disk when saturated.
+    let _permit = acquire_search_permit(&SEARCH_GUARD, SEARCH_QUEUE_TIMEOUT).await?;
     let db = connect(&db_path(&project_path))
         .execute()
         .await
@@ -1324,6 +1353,26 @@ mod tests_v2 {
                 embedding: fake_embedding(i, dim),
             })
             .collect()
+    }
+
+    #[tokio::test]
+    async fn search_guard_timeout_trips_when_saturated() {
+        // Hermetic: local 1-permit semaphore held by us; the production
+        // helper must fail fast with a retryable message, never hang.
+        let sem = Semaphore::new(1);
+        let _held = sem.acquire().await.unwrap();
+        let err = acquire_search_permit(&sem, Duration::from_millis(50))
+            .await
+            .expect_err("saturated guard must fail");
+        assert!(err.contains("retry later"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn search_guard_permits_idle_path() {
+        // Production static guard grants immediately when idle.
+        let _permit = acquire_search_permit(&SEARCH_GUARD, Duration::from_secs(5))
+            .await
+            .expect("idle guard must grant");
     }
 
     #[tokio::test]

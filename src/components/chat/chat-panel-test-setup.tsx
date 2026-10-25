@@ -390,7 +390,7 @@ const mocks = vi.hoisted(() => {
     readFile: vi.fn<(path: string) => Promise<string>>(async () => ""),
     // C4 覆盖守卫：默认目标文件不存在（不弹确认，直接保存）。
     fileExists: vi.fn<(path: string) => Promise<boolean>>(async () => false),
-    writeFile: vi.fn<(path: string, contents: string) => Promise<void>>(async () => {}),
+    writeFileAtomic: vi.fn<(path: string, contents: string) => Promise<void>>(async () => {}),
     createDirectory: vi.fn<(path: string) => Promise<void>>(async () => {}),
     deleteFile: vi.fn<(path: string) => Promise<void>>(async () => {}),
     markStyleExemplarViaRust: vi.fn<(projectPath: string, mark: MarkStyleExemplarInput) => Promise<void>>(
@@ -969,7 +969,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
     ...actual,
       readFile: mocks.readFile,
       fileExists: mocks.fileExists,
-      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
       createDirectory: mocks.createDirectory,
       deleteFile: mocks.deleteFile,
     

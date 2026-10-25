@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   readFile: vi.fn(),
-  writeFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
   createDirectory: vi.fn(),
 }))
 
@@ -11,7 +11,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: mocks.readFile,
-      writeFile: mocks.writeFile,
+      writeFileAtomic: mocks.writeFileAtomic,
       createDirectory: mocks.createDirectory,
     
   }
@@ -111,7 +111,7 @@ describe("saveDashboardIssueState", () => {
   it("writes the normalized state after ensuring the .niko-buddy dir", async () => {
     await saveDashboardIssueState("/P", { ignored: { a: true }, rewrites: {} })
     expect(mocks.createDirectory).toHaveBeenCalledWith("/P/.niko-buddy")
-    expect(mocks.writeFile).toHaveBeenCalledWith(
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
       "/P/.niko-buddy/dashboard-issues.json",
       expect.stringContaining('"ignored"'),
     )

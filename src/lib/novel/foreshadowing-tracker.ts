@@ -50,6 +50,32 @@ export async function loadForeshadowingTracker(
 }
 
 /**
+ * 当前活跃伏笔（planted/advanced）：编辑器注入通道的上游真源。
+ * resolved/abandoned 视为已退出伏笔链（与 markAbandoned/toContextText/debt 分析同口径）。
+ */
+export function getActiveForeshadowings(store: ForeshadowingStore): Foreshadowing[] {
+  return store.items.filter((f) => f.status === "planted" || f.status === "advanced")
+}
+
+/**
+ * 伏笔库章节水位：items 引用的最大章节号（至少 1）。
+ * 与 foreshadowing-panel 甘特 current 口径一致：无独立 currentChapter 真源时，
+ * 以库内最大引用为水位，避免在编辑器侧发明章节解析启发式。
+ */
+export function getForeshadowingWatermark(items: readonly Foreshadowing[]): number {
+  let max = 1
+  for (const f of items) {
+    if (Number.isFinite(f.plantedChapter)) max = Math.max(max, f.plantedChapter)
+    if (typeof f.resolvedChapter === "number" && Number.isFinite(f.resolvedChapter)) {
+      max = Math.max(max, f.resolvedChapter)
+    }
+    for (const a of f.advancedChapters ?? []) {
+      if (Number.isFinite(a)) max = Math.max(max, a)
+    }
+  }
+  return max
+}
+/**
  * 将伏笔标记为「已废弃」：合法转移为 planted/advanced → abandoned；
  * 已是 resolved 或 abandoned 的项拒绝变更并抛错（防误弃已回收/已废弃伏笔）。
  * 返回变更后的新对象（immutable），不原地改写入参。
@@ -65,9 +91,7 @@ export function markAbandoned(f: Foreshadowing): Foreshadowing {
 
 export function foreshadowingToContextText(store: ForeshadowingStore): string {
   // abandoned 视为已退出活跃伏笔链：不进入生成链上下文（与 resolved 等价过滤）。
-  const unresolved = store.items.filter(
-    (f) => f.status === "planted" || f.status === "advanced",
-  )
+  const unresolved = getActiveForeshadowings(store)
   if (unresolved.length === 0) return ""
   return unresolved
     .map(
