@@ -10,5 +10,6 @@ pub mod commands;
 pub mod export;
 pub mod search;
 pub mod store;
+pub mod store_state;
 pub mod types;
 pub mod write_authority;
