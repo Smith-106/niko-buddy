@@ -1,6 +1,7 @@
 pub mod antigravity_cli;
 pub mod backup;
 pub mod claude_cli;
+pub mod claude_cli_launch;
 pub mod cli_emit;
 mod cli_resolver;
 pub mod codex_cli;

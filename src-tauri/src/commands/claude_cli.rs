@@ -20,7 +20,7 @@
 //! capabilities JSON.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -36,140 +36,24 @@ use tokio::sync::Mutex;
 
 use super::cli_emit::EmitBatcher;
 use super::cli_resolver::find_cli_command;
-use super::local_cli_config::{
-    apply_local_cli_environment, read_claude_local_config, resolve_home_dir, LocalCliConfigInfo,
+use super::local_cli_config::apply_local_cli_environment;
+#[cfg(test)]
+use super::local_cli_config::LocalCliConfigInfo;
+
+// M7-2: launch纯层已剥离至 `claude_cli_launch.rs`—file_sync_watch 模式：新文件 + 原文件回引，外部 import 面零变化。
+pub(crate) use super::claude_cli_launch::{
+    append_capped_line, append_launch_debug_context, cap_output_text, claude_content_blocks,
+    claude_content_text_only, format_launch_debug_context, format_startup_io_failure_message,
+    prefer_direct_claude_exe, prepare_claude_cli_launch, read_current_claude_local_config,
+    resolve_claude_cli_working_dir, resolve_startup_output_timeout_secs,
+    select_claude_cli_input_mode, suppress_windows_console, ClaudeCliInputMode, ClaudeContent,
+    TempFileGuard, CLAUDE_STDERR_LIMIT_BYTES, CLAUDE_STDOUT_LIMIT_BYTES,
 };
-
-/// C-101 (GRL-008): Rust-side startup watchdog. Fires if the CLI produces
-/// zero output (not even a heartbeat) within this many seconds — i.e. the
-/// process is stuck before its first byte. Overridable via the
-/// `QMAI_CLAUDE_STARTUP_TIMEOUT_SECS` env var for slow/portable/cold-start
-/// environments. The TS transport separately enforces a (longer, also
-/// configurable) "first meaningful output" timeout; the two are intentionally
-/// layered (Rust = process-liveness, TS = provider-progress).
-fn resolve_startup_output_timeout_secs() -> u64 {
-    const DEFAULT: u64 = 30;
-    const MIN: u64 = 5;
-    match std::env::var("QMAI_CLAUDE_STARTUP_TIMEOUT_SECS") {
-        Ok(v) => v
-            .trim()
-            .parse::<u64>()
-            .ok()
-            .filter(|n| *n >= MIN)
-            .unwrap_or(DEFAULT),
-        Err(_) => DEFAULT,
-    }
-}
-const CLAUDE_STDERR_LIMIT_BYTES: usize = 1024 * 1024;
-/// F-001 (ANL-010 C1): bounded stdout JSON buffer cap. The stdout BufReader
-/// drain loop previously had NO cap (only stderr was capped at
-/// CLAUDE_STDERR_LIMIT_BYTES), so a pipe-buffer-deadlock — the CLI blocks on
-/// writing to a full stdout pipe while Niko Buddy stops draining — could grow
-/// stdout unbounded and stall indefinitely (the S2 Chapter-12 root cause).
-/// Symmetric with codex_cli.rs STDOUT_LIMIT_BYTES (raised to match). On
-/// overflow the drain emits a final `stdout-buffer-overflow` marker line and
-/// breaks, surfacing the failure instead of deadlocking. 64MB is generous
-/// (a full novel chapter stream-json is well under this) but finite.
-const CLAUDE_STDOUT_LIMIT_BYTES: usize = 64 * 1024 * 1024;
-const EMPTY_MCP_CONFIG_JSON: &[u8] = br#"{"mcpServers":{}}"#;
-const CLAUDE_CLI_TEXT_STDIN_MAX_BYTES: usize = 8 * 1024;
-
-fn append_capped_line(collected: &mut String, line: &str, limit_bytes: usize) {
-    if collected.len() >= limit_bytes {
-        return;
-    }
-    for ch in line.chars() {
-        if collected.len() + ch.len_utf8() > limit_bytes {
-            break;
-        }
-        collected.push(ch);
-    }
-    if collected.len() < limit_bytes {
-        collected.push('\n');
-    }
-}
-
-fn cap_output_text(bytes: &[u8], limit_bytes: usize) -> String {
-    let text = String::from_utf8_lossy(bytes);
-    let mut collected = String::new();
-    for line in text.lines() {
-        append_capped_line(&mut collected, line, limit_bytes);
-        if collected.len() >= limit_bytes {
-            break;
-        }
-    }
-    if collected.trim().is_empty() {
-        for ch in text.chars() {
-            if collected.len() + ch.len_utf8() > limit_bytes {
-                break;
-            }
-            collected.push(ch);
-        }
-    }
-    collected.trim().to_string()
-}
-
-fn input_mode_label(input_mode: &ClaudeCliInputMode) -> &'static str {
-    match input_mode {
-        ClaudeCliInputMode::StreamJson => "stream-json",
-        ClaudeCliInputMode::TextStdin(_) => "text",
-    }
-}
-
-fn resolve_claude_cli_working_dir() -> Option<PathBuf> {
-    resolve_home_dir().or_else(|| std::env::current_dir().ok())
-}
-
-fn format_launch_debug_context(
-    claude: &Path,
-    launch_args: &[String],
-    input_mode: &ClaudeCliInputMode,
-    isolate_local_config: bool,
-    working_dir: Option<&Path>,
-    local_config: &LocalCliConfigInfo,
-) -> String {
-    let cwd = working_dir
-        .map(|path| path.to_string_lossy().to_string())
-        .unwrap_or_else(|| "<inherit>".to_string());
-    let configured_model = local_config.model.as_deref().unwrap_or("<none>");
-    let args = if launch_args.is_empty() {
-        "<none>".to_string()
-    } else {
-        launch_args.join(" ")
-    };
-    format!(
-        "Claude CLI launch context:\npath: {}\ncwd: {cwd}\ninput_mode: {}\nisolate_local_config: {isolate_local_config}\nlocal_config.model: {configured_model}\nargs: {args}",
-        claude.display(),
-        input_mode_label(input_mode),
-    )
-}
-
-fn append_launch_debug_context(message: String, debug_context: &str) -> String {
-    if debug_context.trim().is_empty() {
-        message
-    } else {
-        format!("{message}\n\n{debug_context}")
-    }
-}
-
-fn format_startup_io_failure_message(
-    phase: &str,
-    error: &std::io::Error,
-    exit_code: Option<i32>,
-    stderr: &str,
-    stdout: &str,
-) -> String {
-    let mut parts = vec![format!("Failed to {phase}: {error}")];
-    if let Some(code) = exit_code {
-        parts.push(format!("claude CLI exited early with code {code}."));
-    }
-    if !stderr.trim().is_empty() {
-        parts.push(format!("Claude CLI stderr:\n{}", stderr.trim()));
-    } else if !stdout.trim().is_empty() {
-        parts.push(format!("Claude CLI stdout:\n{}", stdout.trim()));
-    }
-    parts.join("\n\n")
-}
+// M7-2: 仅单测命名的 launch 符号放 cfg(test) 导入，保非 test 构建零 unused-imports 警告。
+#[cfg(test)]
+use super::claude_cli_launch::{
+    build_claude_cli_args, CLAUDE_CLI_TEXT_STDIN_MAX_BYTES, EMPTY_MCP_CONFIG_JSON,
+};
 
 async fn collect_startup_io_failure(
     child: Child,
@@ -220,42 +104,6 @@ async fn collect_startup_io_failure(
 pub trait CliEmitter: Clone + Send + Sync + 'static {
     fn emit_data(&self, stream_id: &str, data: String);
     fn emit_done(&self, stream_id: &str, code: Option<i32>, stderr: String);
-}
-
-#[derive(Debug)]
-struct TempFileGuard {
-    path: PathBuf,
-}
-
-impl TempFileGuard {
-    fn write_json(prefix: &str, content: &[u8]) -> Result<Self, String> {
-        let path = std::env::temp_dir().join(format!("{prefix}-{}.json", uuid::Uuid::new_v4()));
-        std::fs::write(&path, content)
-            .map_err(|e| format!("Failed to write temporary file `{}`: {e}", path.display()))?;
-        Ok(Self { path })
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TempFileGuard {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-    }
-}
-
-#[derive(Debug)]
-struct ClaudeCliLaunchConfig {
-    args: Vec<String>,
-    temp_files: Vec<TempFileGuard>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ClaudeCliInputMode {
-    StreamJson,
-    TextStdin(String),
 }
 
 #[derive(Debug)]
@@ -320,152 +168,9 @@ pub struct ClaudeMessage {
     content: ClaudeContent,
 }
 
-#[derive(Clone, Deserialize)]
-#[serde(untagged)]
-enum ClaudeContent {
-    Text(String),
-    Blocks(Vec<ClaudeContentBlock>),
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(tag = "type")]
-enum ClaudeContentBlock {
-    #[serde(rename = "text")]
-    Text { text: String },
-    #[serde(rename = "image")]
-    Image {
-        #[serde(rename = "mediaType")]
-        media_type: String,
-        #[serde(rename = "dataBase64")]
-        data_base64: String,
-    },
-}
-
-fn claude_content_text_only(content: &ClaudeContent) -> String {
-    match content {
-        ClaudeContent::Text(text) => text.clone(),
-        ClaudeContent::Blocks(blocks) => blocks
-            .iter()
-            .filter_map(|block| match block {
-                ClaudeContentBlock::Text { text } => Some(text.as_str()),
-                ClaudeContentBlock::Image { .. } => None,
-            })
-            .collect::<Vec<_>>()
-            .join(""),
-    }
-}
-
-fn claude_content_blocks(content: &ClaudeContent) -> Vec<serde_json::Value> {
-    match content {
-        ClaudeContent::Text(text) => vec![serde_json::json!({ "type": "text", "text": text })],
-        ClaudeContent::Blocks(blocks) => blocks
-            .iter()
-            .map(|block| match block {
-                ClaudeContentBlock::Text { text } => {
-                    serde_json::json!({ "type": "text", "text": text })
-                }
-                ClaudeContentBlock::Image {
-                    media_type,
-                    data_base64,
-                } => serde_json::json!({
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": media_type,
-                        "data": data_base64,
-                    },
-                }),
-            })
-            .collect(),
-    }
-}
-
-async fn find_claude_command() -> Result<std::path::PathBuf, String> {
+async fn find_claude_command() -> Result<PathBuf, String> {
     let path = find_cli_command("claude", &["claude.exe", "claude.cmd", "claude.ps1"]).await?;
     Ok(prefer_direct_claude_exe(path))
-}
-
-#[cfg(windows)]
-fn prefer_direct_claude_exe(path: std::path::PathBuf) -> std::path::PathBuf {
-    let is_wrapper = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "cmd" | "ps1"));
-    if !is_wrapper {
-        return path;
-    }
-
-    let Some(parent) = path.parent() else {
-        return path;
-    };
-    let candidate = parent
-        .join("node_modules")
-        .join("@anthropic-ai")
-        .join("claude-code")
-        .join("bin")
-        .join("claude.exe");
-    if candidate.exists() {
-        candidate
-    } else {
-        path
-    }
-}
-
-fn select_claude_cli_input_mode(turns: &[(String, Vec<serde_json::Value>)]) -> ClaudeCliInputMode {
-    if cfg!(windows) {
-        return ClaudeCliInputMode::StreamJson;
-    }
-
-    if turns.len() != 1 {
-        return ClaudeCliInputMode::StreamJson;
-    }
-
-    let Some((role, content)) = turns.first() else {
-        return ClaudeCliInputMode::StreamJson;
-    };
-    if role != "user" {
-        return ClaudeCliInputMode::StreamJson;
-    }
-
-    let mut prompt = String::new();
-    for block in content {
-        let Some(block_type) = block.get("type").and_then(serde_json::Value::as_str) else {
-            return ClaudeCliInputMode::StreamJson;
-        };
-        if block_type != "text" {
-            return ClaudeCliInputMode::StreamJson;
-        }
-        let Some(text) = block.get("text").and_then(serde_json::Value::as_str) else {
-            return ClaudeCliInputMode::StreamJson;
-        };
-        prompt.push_str(text);
-    }
-
-    // `text` input is a latency optimization for short one-shot prompts.
-    // Long-form writing prompts are more stable through the regular
-    // stream-json event path and avoid early stdin pipe-closed exits on
-    // real desktop resume flows.
-    if prompt.len() > CLAUDE_CLI_TEXT_STDIN_MAX_BYTES {
-        return ClaudeCliInputMode::StreamJson;
-    }
-
-    ClaudeCliInputMode::TextStdin(prompt)
-}
-
-#[cfg(not(windows))]
-fn prefer_direct_claude_exe(path: std::path::PathBuf) -> std::path::PathBuf {
-    path
-}
-
-fn suppress_windows_console(_cmd: &mut Command) {
-    #[cfg(windows)]
-    {
-        #[allow(unused_imports)]
-        use std::os::windows::process::CommandExt;
-
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        _cmd.creation_flags(CREATE_NO_WINDOW);
-    }
 }
 
 /// Locate `claude` on PATH and confirm it's runnable by calling
@@ -896,95 +601,6 @@ pub async fn claude_cli_spawn(
         json_schema,
     )
     .await
-}
-
-fn build_claude_cli_args(
-    model: &str,
-    isolate_local_config: bool,
-    json_schema: Option<&serde_json::Value>,
-    mcp_config_path: Option<&Path>,
-    input_mode: &ClaudeCliInputMode,
-) -> Vec<String> {
-    let mut args = vec!["-p".to_string()];
-    args.extend(["--output-format".to_string(), "stream-json".to_string()]);
-    match input_mode {
-        ClaudeCliInputMode::StreamJson => {
-            args.extend(["--input-format".to_string(), "stream-json".to_string()]);
-        }
-        ClaudeCliInputMode::TextStdin(_) => {
-            args.extend(["--input-format".to_string(), "text".to_string()]);
-        }
-    }
-    args.push("--verbose".to_string());
-    // Stream partial `stream_event`/`content_block_delta` tokens as they are
-    // generated. Without this flag the CLI only emits the complete
-    // `AssistantMessage` after the model finishes thinking + generating, so a
-    // long-form draft with heavy reasoning produces zero stream-json lines for
-    // longer than the transport's first-meaningful-output timeout and gets
-    // killed mid-generation. The TS parser already routes `text_delta` events
-    // to `onToken`, so partial streaming both feeds the UI live and keeps the
-    // inactivity watchdog alive.
-    args.push("--include-partial-messages".to_string());
-
-    if isolate_local_config {
-        let mcp_config_path = mcp_config_path
-            .expect("isolated Claude CLI launch requires a temporary MCP config file");
-        args.extend([
-            "--strict-mcp-config".to_string(),
-            "--mcp-config".to_string(),
-            mcp_config_path.to_string_lossy().to_string(),
-            "--disable-slash-commands".to_string(),
-            "--tools".to_string(),
-            "".to_string(),
-            "--no-session-persistence".to_string(),
-            "--prompt-suggestions".to_string(),
-            "false".to_string(),
-        ]);
-    }
-
-    if !model.trim().is_empty() {
-        args.extend(["--model".to_string(), model.to_string()]);
-    }
-    if let Some(schema) = json_schema {
-        if let Ok(text) = serde_json::to_string(schema) {
-            args.extend(["--json-schema".to_string(), text]);
-        }
-    }
-    args
-}
-
-fn prepare_claude_cli_launch(
-    model: &str,
-    isolate_local_config: bool,
-    json_schema: Option<&serde_json::Value>,
-    input_mode: &ClaudeCliInputMode,
-) -> Result<ClaudeCliLaunchConfig, String> {
-    let mut temp_files = Vec::new();
-    let mcp_config_path = if isolate_local_config {
-        let file =
-            TempFileGuard::write_json("niko-buddy-claude-mcp-config", EMPTY_MCP_CONFIG_JSON)?;
-        let path = file.path().to_path_buf();
-        temp_files.push(file);
-        Some(path)
-    } else {
-        None
-    };
-
-    Ok(ClaudeCliLaunchConfig {
-        args: build_claude_cli_args(
-            model,
-            isolate_local_config,
-            json_schema,
-            mcp_config_path.as_deref(),
-            input_mode,
-        ),
-        temp_files,
-    })
-}
-
-fn read_current_claude_local_config() -> LocalCliConfigInfo {
-    let home = resolve_home_dir();
-    read_claude_local_config(home.as_deref())
 }
 
 /// Kill a running child registered under `stream_id`. Called on
