@@ -1116,18 +1116,18 @@ export function ReviewView({
                         {t("novel.cognition.lastUpdated", { chapter: cognitionState.lastUpdatedChapter })}
                       </p>
                     )}
-                    {cognitionState.characters.length === 0 && cognitionState.readerKnows.length === 0 ? (
+                    {(cognitionState?.characters ?? []).length === 0 && (cognitionState?.readerKnows ?? []).length === 0 ? (
                       <p className="text-muted-foreground">{t("novel.cognition.noData")}</p>
                     ) : (
                       <>
-                        {cognitionState.characters.map((char) => (
+                        {(cognitionState?.characters ?? []).map((char) => (
                           <div key={char.character}>
                             <p className="font-medium">{char.character}</p>
-                            {char.knows.length > 0 && (
+                            {(char.knows ?? []).length > 0 && (
                               <p className="ml-3 text-muted-foreground">
                                 {t("novel.cognition.knows")}：
                                 <span className="inline-flex flex-wrap gap-1.5">
-                                  {char.knows.map((fact, index) => (
+                                  {(char.knows ?? []).map((fact, index) => (
                                     <span
                                       key={`${fact}-${index}`}
                                       className="inline-flex items-center gap-1 rounded-full border bg-muted/40 px-2 py-0.5 text-xs"
@@ -1138,11 +1138,11 @@ export function ReviewView({
                                 </span>
                               </p>
                             )}
-                            {char.doesNotKnow.length > 0 && (
+                            {(char.doesNotKnow ?? []).length > 0 && (
                               <p className="ml-3 text-muted-foreground">
                                 {t("novel.cognition.doesNotKnow")}：
                                 <span className="inline-flex flex-wrap gap-1.5">
-                                  {char.doesNotKnow.map((fact, index) => (
+                                  {(char.doesNotKnow ?? []).map((fact, index) => (
                                     <span
                                       key={`${fact}-${index}`}
                                       className="inline-flex items-center gap-1 rounded-full border bg-muted/40 px-2 py-0.5 text-xs"
@@ -1155,12 +1155,12 @@ export function ReviewView({
                             )}
                           </div>
                         ))}
-                        {cognitionState.readerKnows.length > 0 && (
+                        {(cognitionState?.readerKnows ?? []).length > 0 && (
                           <div>
                             <p className="font-medium">{t("novel.cognition.readerKnows")}</p>
                             <p className="ml-3 text-muted-foreground">
                               <span className="inline-flex flex-wrap gap-1.5">
-                                {cognitionState.readerKnows.map((fact, index) => (
+                                {(cognitionState?.readerKnows ?? []).map((fact, index) => (
                                   <span
                                     key={`${fact}-${index}`}
                                     className="inline-flex items-center gap-1 rounded-full border bg-muted/40 px-2 py-0.5 text-xs"
