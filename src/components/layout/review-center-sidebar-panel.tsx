@@ -313,6 +313,13 @@ export function ReviewCenterSidebarPanel() {
                   : "border-input bg-background text-muted-foreground qm-hover"
               }`}
               aria-pressed={thrilAcknowledged}
+              aria-label={
+                thrilAcknowledged
+                  ? t("novel.settings.outlineThrillAckDone", {
+                      chapter: thrilAckChapterKey(selectedChapterNumber),
+                    })
+                  : t("novel.settings.outlineThrillAckButton")
+              }
             >
               {thrilAcknowledged
                 ? t("novel.settings.outlineThrillAckDone", {
