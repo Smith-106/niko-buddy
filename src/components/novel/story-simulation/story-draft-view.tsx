@@ -325,6 +325,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                   <button
                     type="button"
                     onClick={toggleAll}
+                    aria-label={allSelected ? t("storySimulation.deselectAll") : t("storySimulation.selectAll")}
                     className="text-xs text-primary hover:underline"
                   >
                     {allSelected ? t("storySimulation.deselectAll") : t("storySimulation.selectAll")}
