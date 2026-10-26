@@ -88,6 +88,7 @@ import {
   saveProjectionStatusLedger,
   registerProjections,
   isAutoRebuildableProjection,
+  shouldRetryLedgerSave,
   PROJECTION_CATEGORIES,
   PROJECTION_REGISTRY,
   syncDirectWriteProjectionIds,
@@ -315,6 +316,19 @@ export const REBUILD_REEMBED_SOURCE = "snapshot.summary" as const
 export interface IngestResult {
   snapshot: ChapterSnapshot | null
   failReason?: IngestFailReason
+  /**
+   * R4（真相库失败投影账本可见与入口自愈收敛加固，方案 a）：入口自愈可观测 ——
+   * 本次 ingest 入口自愈尝试的结果（attempted/healed/error）。仅成功路径携带；
+   * 早退失败路径（failReason）为保持既有行为契约精确形状而省略本字段
+   * （自愈尝试本身的 warn 日志仍保留）。向后兼容：可选字段，调用方可忽略。
+   */
+  selfHeal?: ProjectionSelfHealResult
+  /**
+   * R4（方案 a）：finally 账本落盘（含恰好 1 次重试）是否最终失败。
+   * true = 两次写盘均失败但主链未阻断（snapshot 照常返回），调用方可凭此标记
+   * 触发下次入口自愈收敛；false = 落盘成功；省略 = 未进入投影落盘段。
+   */
+  ledgerSaveFailed?: boolean
 }
 
 /**
@@ -509,6 +523,38 @@ export async function runCanonDualWriteHook(
   }
 }
 
+/**
+ * R4（真相库失败投影账本可见与入口自愈收敛加固，方案 a）：finally 账本落盘
+ * （含恰好 1 次重试）。是否重试由 projection-status-ledger 的纯函数
+ * shouldRetryLedgerSave(0) 判定（attempt 语义：首次失败 attempt=0，可再试 1 次）。
+ *
+ * 永不抛错：首次成功返回 true；首次失败则 warn 后重试一次，重试成功返回 true，
+ * 两次均失败记 warn 并返回 false（调用方记 IngestResult.ledgerSaveFailed=true，
+ * 主链不阻断，下次 ingest 入口自愈收敛）。幂等：落盘内容为同一 ledger 文档的
+ * 全量覆写，重试不收窄提交边界、不引入跨文件事务。
+ */
+export async function saveProjectionLedgerWithSingleRetry(
+  projectPath: string,
+  ledger: ProjectionStatusLedger,
+): Promise<boolean> {
+  try {
+    await saveProjectionStatusLedger(projectPath, ledger)
+    return true
+  } catch (firstErr) {
+    logger.warn("Chapter Ingest", "ProjectionStatusLedger save failed, retrying once (non-fatal)", {
+      error: toErrorMessage(firstErr),
+    })
+  }
+  if (!shouldRetryLedgerSave(0)) return false
+  try {
+    await saveProjectionStatusLedger(projectPath, ledger)
+    return true
+  } catch (retryErr) {
+    logger.warn("Chapter Ingest", "ProjectionStatusLedger save failed", { error: toErrorMessage(retryErr) })
+    return false
+  }
+}
+
 export async function ingestChapter(
   projectPath: string,
   chapterPath: string,
@@ -564,15 +610,18 @@ export async function ingestChapter(
   // 先经注册表从 committed 快照序列确定性重建这些类（只重建失败类，不碰
   // 非确定性 graph/vector），再继续本章增量。自愈失败仅告警不阻断（原 failed
   // 状态在账本保留可见）。
+  // R4（方案 a）：自愈结果进 IngestResult.selfHeal 可观测（成功/异常两路均赋值）。
+  let entrySelfHeal: ProjectionSelfHealResult = { attempted: false, healed: [] }
   try {
-    const heal = await selfHealFailedProjections(pp, { now: options.now })
-    if (heal.healed.length > 0) {
+    entrySelfHeal = await selfHealFailedProjections(pp, { now: options.now })
+    if (entrySelfHeal.healed.length > 0) {
       logger.info(
         "Chapter Ingest",
-        `failed 投影自愈：${heal.healed.length} 类已按注册表重建（${heal.healed.join(", ")}）`,
+        `failed 投影自愈：${entrySelfHeal.healed.length} 类已按注册表重建（${entrySelfHeal.healed.join(", ")}）`,
       )
     }
   } catch (err) {
+    entrySelfHeal = { attempted: false, healed: [], error: toErrorMessage(err) }
     logger.warn("Chapter Ingest", "failed 投影自愈异常（非致命，继续本章摄取）", {
       error: toErrorMessage(err),
     })
@@ -733,6 +782,8 @@ export async function ingestChapter(
   // CORR-007: captured from inside runProjection('sync_snapshot_to_memory')
   // so the return value can carry memorySyncedAt (runProjection returns void).
   let memorySyncedAt: string | undefined
+  // R4（方案 a）：finally 落盘（含 1 次重试）最终失败标记（成功路径经 return 携带）。
+  let ledgerSaveFailed = false
 
   // F-005 (v2.6 Tier2): single audit choke-point for projection events.
   // Keeps the in-memory ledger's auditTrail in sync (so the end-of-loop
@@ -867,11 +918,9 @@ export async function ingestChapter(
   } finally {
     // Persist the ledger regardless of whether the loop threw — a partially-
     // updated ledger still tells the next ingest which projections need rebuild.
-    try {
-      await saveProjectionStatusLedger(pp, projectionLedger)
-    } catch (err) {
-      logger.warn("Chapter Ingest", "ProjectionStatusLedger save failed", { error: toErrorMessage(err) })
-    }
+    // R4（方案 a）：经 saveProjectionLedgerWithSingleRetry 落盘（含恰好 1 次重试）；
+    // 两次均失败仅记 ledgerSaveFailed=true（成功路径返回携带），永不阻断主链。
+    ledgerSaveFailed = !(await saveProjectionLedgerWithSingleRetry(pp, projectionLedger))
   }
 
   // 社区摘要定期重建
@@ -910,7 +959,7 @@ export async function ingestChapter(
     }
   }
 
-  return { snapshot: { ...snapshot, memorySyncedAt } }
+  return { snapshot: { ...snapshot, memorySyncedAt }, selfHeal: entrySelfHeal, ledgerSaveFailed }
 }
 
 export const ingestChapterPipeline = createChapterPipeline({ ingestChapter })
@@ -2042,6 +2091,20 @@ export async function selfHealFailedProjections(
     logger.warn("Chapter Ingest", "failed 投影自愈失败（非致命，账本保留 failed 状态）", { error: message })
     return { attempted: true, healed: [], error: message }
   }
+}
+
+/**
+ * R4（真相库失败投影账本可见与入口自愈收敛加固，方案 a）：账本失败投影重放
+ * 薄包装 —— 唯一对外重放入口。零新增语义：原样委托 selfHealFailedProjections
+ *（同参同返），不复制遍历/门槛/记账逻辑，门槛仍以 PROJECTION_REGISTRY +
+ * mayEnterFoldReplay 为唯一事实源。ingestChapter 入口内部仍直调
+ * selfHealFailedProjections（热路径零间接），本包装供外部调用方/单测显式重放。
+ */
+export async function replayFailedProjectionsFromLedger(
+  projectPath: string,
+  options: { now?: string } = {},
+): Promise<ProjectionSelfHealResult> {
+  return selfHealFailedProjections(projectPath, options)
 }
 
 // ============================================================================

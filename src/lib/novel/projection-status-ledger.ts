@@ -592,3 +592,27 @@ export function recordProjectionStatus(
   chapters[key] = chapterEntry
   return { ...ledger, chapters }
 }
+
+// ============================================================================
+// R4（真相库失败投影账本可见与入口自愈收敛加固，方案 a）：finally 落盘纯函数重试辅助
+// ============================================================================
+// 硬约束：本文件仅允许新增纯函数重试辅助 —— 不改写路径签名/锁/审计 RMW /
+// schemaVersion / 类别表（PROJECTION_CATEGORIES）/ 注册表门槛。以下两个新增均为
+// 纯函数（无 IO、无时钟、无全局状态），供 chapter-ingest.ts finally 经
+// saveProjectionLedgerWithSingleRetry 调用（首次失败 attempt=0，可再试 1 次）。
+
+/**
+ * R4（方案 a）：finally 落盘允许的最大重试次数（首次失败后恰好再试 1 次，
+ * 全链至多 2 次写盘）。落盘内容为同一 ledger 文档的全量覆写，重试天然幂等，
+ * 不收窄提交边界、不引入跨文件事务。
+ */
+export const LEDGER_SAVE_MAX_RETRIES = 1 as const
+
+/**
+ * R4（方案 a）：是否应对第 `attempt` 次落盘失败发起重试。
+ * 纯函数：仅由 attempt 计数与 LEDGER_SAVE_MAX_RETRIES 派生，不读盘/不写盘。
+ * attempt 语义与调用点一致 —— 首次失败 attempt=0（可重试），重试失败 attempt=1（停止）。
+ */
+export function shouldRetryLedgerSave(attempt: number): boolean {
+  return Number.isInteger(attempt) && attempt >= 0 && attempt < LEDGER_SAVE_MAX_RETRIES
+}

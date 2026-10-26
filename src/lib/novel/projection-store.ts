@@ -269,6 +269,13 @@ function isVolatileKey(key: string): boolean {
 /**
  * E-03: 真相文件状态哈希 — sha256 over canonicalizeForHash 的稳定 JSON。
  * 供 computeTruthFoldDrift 比对 live 盘上 store 与快照重放 store。
+ *
+ * R4（真相库失败投影账本可见与入口自愈收敛加固，方案 a）只读核验注记：
+ * 本函数是幂等论证的计算基石 —— 同一 store 内容在任意键序/任意易变元数据
+ * （lastUpdated / fileVersion / At$ 墙钟）下恒得同一哈希（canonicalizeForHash
+ * 已剔除易变键、递归排序），故 failed 自愈重放（fold from empty → save）与
+ * 入口增量写盘的同一 store 必然哈希相等；重放前后哈希不变即收敛证据。
+ * 本文件本次仅加注记，不改任何运行时语义（store schema / load 降级 / 迁移链不动）。
  */
 export async function truthStoreHash(store: unknown): Promise<string> {
   const canonical = canonicalizeForHash(store)
