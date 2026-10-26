@@ -24,9 +24,14 @@ import {
 const RUST_SOURCE = fileURLToPath(
   new URL("../../../../src-tauri/src/agent_gate.rs", import.meta.url),
 );
+// 可重建根清单的真源在 policy 模块（agent_gate.rs 只做编排与状态机）。
+const RUST_POLICY_SOURCE = fileURLToPath(
+  new URL("../../../../src-tauri/src/agent_gate_policy.rs", import.meta.url),
+);
 
 describe("gate-classify / 漂移探测（真源 = agent_gate.rs）", () => {
   const rust = readFileSync(RUST_SOURCE, "utf8");
+  const rustPolicy = readFileSync(RUST_POLICY_SOURCE, "utf8");
 
   it("超时与循环常量与 Rust 侧一致", () => {
     expect(rust).toContain(`pub const GATE_TIMEOUT_MS: u64 = ${GATE_TIMEOUT_MS.toLocaleString("en-US").replace(/,/g, "_")};`);
@@ -50,9 +55,9 @@ describe("gate-classify / 漂移探测（真源 = agent_gate.rs）", () => {
 
   it("可重建根只含既有目录约定", () => {
     for (const r of DERIVED_ROOTS) {
-      expect(rust).toContain(`"${r}"`);
+      expect(rustPolicy).toContain(`"${r}"`);
     }
-    expect(rust).not.toContain('"output/"');
+    expect(rustPolicy).not.toContain('"output/"');
   });
 
   it("错误码前缀与 Rust 侧一致", () => {
