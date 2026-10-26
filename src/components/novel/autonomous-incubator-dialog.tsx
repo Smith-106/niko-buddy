@@ -305,7 +305,17 @@ export function AutonomousIncubatorDialog({
                   <Users className="h-4 w-4 text-primary" /> 核心角色卡片
                 </span>
                 <p className="text-muted-foreground">
-                  已塑造 {result.incubation.characters.length} 位角色：{result.incubation.characters.map((c) => c.name).join("、")}
+                  已塑造 {result.incubation.characters.length} 位角色：
+                  <span className="inline-flex flex-wrap items-center gap-1">
+                    {result.incubation.characters?.map((c, i) => (
+                      <span
+                        key={`${c.name}-${i}`}
+                        className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-foreground"
+                      >
+                        {c.name}
+                      </span>
+                    ))}
+                  </span>
                 </p>
                 <p className="text-muted-foreground">人设卡片已归档至 wiki/characters/</p>
               </div>
