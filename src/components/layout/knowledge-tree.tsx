@@ -782,6 +782,7 @@ ${frontmatterBody}
           >
             <button
               type="button"
+              aria-label={filterType === "chapter" ? t("sidebar.newChapter") : t("sidebar.newOutline")}
               className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
               onClick={() => {
                 onRequestCreate?.({ kind: filterType, parentDir: createMenu.parentDir })
@@ -793,6 +794,7 @@ ${frontmatterBody}
             </button>
             <button
               type="button"
+              aria-label={filterType === "chapter" ? t("sidebar.newVolume") : t("sidebar.newFolder")}
               className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
               onClick={() => {
                 onRequestCreate?.({ kind: filterType === "chapter" ? "volume" : "folder", parentDir: createMenu.parentDir })
@@ -805,6 +807,7 @@ ${frontmatterBody}
             {createMenu.targetFolderPath ? (
               <button
                 type="button"
+                aria-label={filterType === "chapter" ? t("knowledgeTree.deleteVolume") : t("knowledgeTree.deleteFolder")}
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-accent"
                 onClick={() => {
                   const targetFolderPath = createMenu.targetFolderPath
@@ -831,6 +834,7 @@ ${frontmatterBody}
           >
             <button
               type="button"
+              aria-label={filterType === "chapter" ? t("sidebar.newChapter") : t("sidebar.newOutline")}
               className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
               onClick={() => {
                 const target = pageInfoByPath.get(pageMenu.path)
@@ -843,6 +847,7 @@ ${frontmatterBody}
             </button>
             <button
               type="button"
+              aria-label={filterType === "chapter" ? t("sidebar.newVolume") : t("sidebar.newFolder")}
               className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
               onClick={() => {
                 const target = pageInfoByPath.get(pageMenu.path)
