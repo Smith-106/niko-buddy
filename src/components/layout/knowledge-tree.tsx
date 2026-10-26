@@ -2,22 +2,22 @@
 // SPDX-License-Identifier: MIT
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, Globe, Loader2, Pencil, Plus, Trash2, Check, X } from "lucide-react"
+import { BookOpen, ChevronDown, ChevronRight, Folder, FolderInput, FolderOpen, Loader2, Pencil, Plus, Trash2, Check, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
 import { deleteFile, fileExists, listDirectory, readFile, writeFileAtomic, openFileLocation, copyFile } from "@/commands/fs"
-import type { FileNode } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
 import { moveFileToTrash } from "@/lib/trash"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
 import {
   extractPageOrderFromTitle, extractChapterNumberFromContent, getDirName,
   getUniquePagePath, flattenMdFiles, flattenAllFiles, cleanupDeletedSourceMemory, parsePageInfo,
-  chapterStatusDotClass, findNodeByPath, sortFileNodes, countMarkdownDescendants, DeleteButton,
+  findNodeByPath,
   type WikiPageInfo, type KnowledgeTreeProps, type CreateMenuState,
 } from "./knowledge-tree-helpers"
+import { KnowledgeTreeNodes } from "./knowledge-tree-nodes"
 import { useImportProgressStore } from "@/stores/import-progress-store"
 import { toast } from "@/lib/toast"
 
@@ -715,156 +715,7 @@ ${frontmatterBody}
     ? t("knowledgeTree.emptyFiltered", { label: t("trash.kindChapter") })
     : t("knowledgeTree.emptyFiltered", { label: t("trash.kindOutline") })
 
-  const renderNodes = useCallback((nodes: FileNode[], depth = 0) => {
-    const chapterIndexMap = new Map<string, number>()
-    sortedChapterPages.forEach((page, index) => chapterIndexMap.set(page.path, index))
-
-    return sortFileNodes(nodes, pageInfoByPath, filterType).flatMap((node) => {
-      const normalizedPath = normalizePath(node.path)
-      if (node.is_dir) {
-        const isCollapsed = collapsedFolders[normalizedPath] ?? false
-        const folderRow = (
-          <div key={normalizedPath}>
-            <div
-              data-knowledge-interactive="true"
-              className="group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground qm-hover"
-              style={{ paddingLeft: `${depth * 16 + 8}px` }}
-              onContextMenu={(event) => openCreateMenu(event, normalizedPath, node.name)}
-            >
-              <button
-                type="button"
-                onClick={() => toggleFolder(normalizedPath)}
-                className="flex flex-1 items-center gap-1.5 text-left"
-              >
-                {isCollapsed ? (
-                  <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                ) : (
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-                )}
-                <Folder className="h-4 w-4 shrink-0 text-warning" />
-                <span className="truncate font-medium">{node.name}</span>
-                <span className="ml-auto text-xs text-muted-foreground">{countMarkdownDescendants(node)}</span>
-              </button>
-            </div>
-            {!isCollapsed && node.children && renderNodes(node.children, depth + 1)}
-          </div>
-        )
-        return [folderRow]
-      }
-
-      if (!node.name.endsWith(".md")) return []
-      const page = pageInfoByPath.get(normalizedPath) ?? {
-        path: normalizedPath,
-        title: node.name.replace(/\.md$/, "").replace(/-/g, " "),
-        type: filterType,
-        tags: [],
-      }
-      const isSelected = selectedFile === normalizedPath
-      const isArmed = armedPath === normalizedPath
-      const isDeleting = deletingPath === normalizedPath
-      const isDragSource = dragSource === normalizedPath
-      const chapterIndex = chapterIndexMap.get(normalizedPath)
-      const isInsertTarget = isDragging && dragInsertIndex !== null && chapterIndex !== undefined && chapterIndex === dragInsertIndex && !isDragSource
-      return [
-        <div
-          key={normalizedPath}
-          data-knowledge-interactive="true"
-          data-page-path={normalizedPath}
-          className={`group flex items-center gap-1 rounded-md ${isSelected ? "qm-selected" : "qm-hover"} ${isDragSource ? "ring-2 ring-primary/50" : ""} ${isInsertTarget ? "border-t-[3px] border-primary/70" : ""}`}
-          onContextMenu={(event) => handlePageContextMenu(event, normalizedPath)}
-          onPointerDown={(event) => handleItemPointerDown(event, normalizedPath)}
-          style={{
-            marginLeft: `${depth * 16}px`,
-            userSelect: filterType === "chapter" ? "none" : undefined,
-            WebkitUserSelect: filterType === "chapter" ? "none" : undefined,
-            WebkitTouchCallout: filterType === "chapter" ? "none" : undefined,
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => handlePageClick(normalizedPath)}
-            disabled={renamingPath === normalizedPath}
-            className={`flex min-w-0 flex-1 items-center justify-between gap-2 px-2 py-1 text-left text-sm ${
-              isSelected ? "qm-selected-muted" : "text-muted-foreground group-hover:text-foreground"
-            }`}
-            title={normalizedPath}
-          >
-            {page.origin === "web-clip" ? <Globe className="h-3 w-3 shrink-0 text-info" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
-            {renamingPath === normalizedPath ? (
-              <input
-                type="text"
-                value={renameValue}
-                onChange={(event) => setRenameValue(event.target.value)}
-                onMouseDown={(event) => event.stopPropagation()}
-                onClick={(event) => event.stopPropagation()}
-                onFocus={(event) => event.stopPropagation()}
-                onBlur={() => void submitRenamePage()}
-                onKeyDown={(event) => {
-                  event.stopPropagation()
-                  if (event.key === "Enter") {
-                    event.preventDefault()
-                    void submitRenamePage()
-                  } else if (event.key === "Escape") {
-                    event.preventDefault()
-                    cancelRenamePage()
-                  }
-                }}
-                className="w-full rounded border bg-background px-1.5 py-0.5 text-xs outline-none focus:ring-1 focus:ring-ring"
-                autoFocus
-                disabled={renamingBusy}
-              />
-            ) : (
-              <>
-                <span className="min-w-0 flex-1 truncate">{page.title}</span>
-                {page.type === "chapter" && page.statusLabel && (
-                  <span
-                    data-chapter-status={page.status}
-                    title={page.statusLabel}
-                    aria-label={page.statusLabel}
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${chapterStatusDotClass(page.status)}`}
-                  />
-                )}
-                {page.type === "chapter" && page.wordCountLabel && (
-                  <span className={`shrink-0 text-right text-xs ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
-                    {page.wordCountLabel}
-                  </span>
-                )}
-              </>
-            )}
-          </button>
-          <DeleteButton
-            armed={isArmed}
-            deleting={isDeleting}
-            className={`mr-1 transition-opacity ${isArmed || isDeleting ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus:opacity-100"}`}
-            onClick={() => void handleDeleteClick(normalizedPath)}
-            name={page.title}
-          />
-        </div>,
-      ]
-    })
-  }, [
-    pageInfoByPath,
-    filterType,
-    collapsedFolders,
-    selectedFile,
-    armedPath,
-    deletingPath,
-    renamingPath,
-    renameValue,
-    renamingBusy,
-    openCreateMenu,
-    toggleFolder,
-    submitRenamePage,
-    cancelRenamePage,
-    handleDeleteClick,
-    handleItemPointerDown,
-    handlePageContextMenu,
-    handlePageClick,
-    dragSource,
-    dragInsertIndex,
-    isDragging,
-    sortedChapterPages,
-  ])
+  // M11-1: 节点渲染已剥离至 ./knowledge-tree-nodes (KnowledgeTreeNodes 纯组件)
 
   if (!project) {
     return (
@@ -895,7 +746,31 @@ ${frontmatterBody}
         {sectionNodes.length === 0 && pendingPages.length === 0 ? (
           <div className="px-2 py-4 text-center text-xs text-muted-foreground">{emptyLabel}</div>
         ) : (
-          renderNodes(sectionNodes)
+          <KnowledgeTreeNodes
+            nodes={sectionNodes}
+            filterType={filterType}
+            pageInfoByPath={pageInfoByPath}
+            sortedChapterPages={sortedChapterPages}
+            collapsedFolders={collapsedFolders}
+            selectedFile={selectedFile}
+            armedPath={armedPath}
+            deletingPath={deletingPath}
+            renamingPath={renamingPath}
+            renameValue={renameValue}
+            renamingBusy={renamingBusy}
+            dragSource={dragSource}
+            dragInsertIndex={dragInsertIndex}
+            isDragging={isDragging}
+            onToggleFolder={toggleFolder}
+            onOpenCreateMenu={openCreateMenu}
+            onPageClick={handlePageClick}
+            onPageContextMenu={handlePageContextMenu}
+            onItemPointerDown={handleItemPointerDown}
+            onDeleteClick={(pagePath) => void handleDeleteClick(pagePath)}
+            onRenameValueChange={setRenameValue}
+            onSubmitRename={() => void submitRenamePage()}
+            onCancelRename={cancelRenamePage}
+          />
         )}
 
         {createMenu && (
