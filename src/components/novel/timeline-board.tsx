@@ -133,6 +133,7 @@ export function TimelineBoard({ entries, ticks, filteredOut = false, onOpenChapt
               type="button"
               className="w-14 shrink-0 text-left tabular-nums text-muted-foreground hover:underline"
               onClick={() => onOpenChapter?.(lane.chapterNumber)}
+              aria-label={t("novel.timelineBoard.chapterLabel", { chapter: lane.chapterNumber })}
             >
               {t("novel.timelineBoard.chapterLabel", { chapter: lane.chapterNumber })}
             </button>
