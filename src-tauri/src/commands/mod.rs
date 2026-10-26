@@ -22,5 +22,6 @@ pub mod project;
 pub mod secret_store;
 pub mod skill_bundle;
 pub mod sync_target;
+pub mod sync_target_decision;
 pub mod vectorstore;
 pub mod vectorstore_reconcile;
