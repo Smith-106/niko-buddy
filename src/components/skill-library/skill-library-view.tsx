@@ -438,14 +438,38 @@ export function SkillLibraryView() {
                 </div>
                 {selectedGenericSkill ? (
                   <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
-                    <span className="rounded bg-muted px-2 py-0.5">
-                      类型：{selectedGenericSkill.kind.map((kind) => SKILL_KIND_LABELS[kind]).join("、")}
+                    <span className="inline-flex flex-wrap items-center gap-1 rounded bg-muted px-2 py-0.5">
+                      类型：
+                      {selectedGenericSkill.kind.map((kind) => (
+                        <span
+                          key={kind}
+                          className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5"
+                        >
+                          {SKILL_KIND_LABELS[kind]}
+                        </span>
+                      ))}
                     </span>
-                    <span className="rounded bg-muted px-2 py-0.5">
-                      阶段：{selectedGenericSkill.stages.map((stage) => SKILL_STAGE_LABELS[stage]).join("、")}
+                    <span className="inline-flex flex-wrap items-center gap-1 rounded bg-muted px-2 py-0.5">
+                      阶段：
+                      {selectedGenericSkill.stages.map((stage) => (
+                        <span
+                          key={stage}
+                          className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5"
+                        >
+                          {SKILL_STAGE_LABELS[stage]}
+                        </span>
+                      ))}
                     </span>
-                    <span className="rounded bg-muted px-2 py-0.5">
-                      模式：{selectedGenericSkill.modes.map((mode) => SKILL_MODE_LABELS[mode]).join("、")}
+                    <span className="inline-flex flex-wrap items-center gap-1 rounded bg-muted px-2 py-0.5">
+                      模式：
+                      {selectedGenericSkill.modes.map((mode) => (
+                        <span
+                          key={mode}
+                          className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5"
+                        >
+                          {SKILL_MODE_LABELS[mode]}
+                        </span>
+                      ))}
                     </span>
                   </div>
                 ) : null}
