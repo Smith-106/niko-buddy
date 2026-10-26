@@ -16,8 +16,7 @@ import { FilePreview } from "@/components/editor/file-preview"
 import { TrashPreview } from "@/components/layout/trash-preview"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
-import { CognitionPanel } from "@/components/novel/cognition-panel"
-import { PersonaCritiquePanel } from "@/components/novel/persona-critique-panel"
+import { PreviewCognitionOverlays } from "./preview-cognition-overlays"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import {
   inferEditorMode, selectionTimeoutMessage, isChapterPath, isOutlinePath,
@@ -30,7 +29,7 @@ import {
 import { getNextChatExpanded } from "./chat-layout"
 import { DeAiPreviewDialog } from "@/components/novel/de-ai-preview-dialog"
 import { DeAiBatchDialog } from "@/components/novel/de-ai-batch-dialog"
-import { UnpackOutlineDialog } from "@/components/novel/unpack-outline-dialog"
+import { PreviewOutlineOverlays } from "./preview-outline-overlays"
 import { TextTransformPreviewDialog } from "@/components/novel/text-transform-preview-dialog"
 import { streamChat } from "@/lib/llm-client"
 import { makeDefaultChapterTitle } from "@/lib/wiki-filename"
@@ -1239,31 +1238,24 @@ export function PreviewPanel() {
           />
         </Suspense>
       ) : null}
-      {showOutlineSnapshot && project && outlineSnapshotNumber !== null ? (
-        <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">{t("common.loading")}</div>}>
-          <SnapshotViewer
-            projectPath={project.path}
-            chapterNumber={outlineSnapshotNumber}
-            onClose={() => setShowOutlineSnapshot(false)}
-          />
-        </Suspense>
-      ) : null}
-      {showCognition && project ? (
-        <div className="absolute inset-0 z-20 bg-background" role="dialog" aria-modal="true" aria-label={t("preview.cognitionTitle")}>
-          <CognitionPanel
-            projectPath={project.path}
-            onClose={() => setShowCognition(false)}
-          />
-        </div>
-      ) : null}
-      {showPersona && project ? (
-        <div className="absolute inset-0 z-20 bg-background" role="dialog" aria-modal="true" aria-label={t("novel.persona.title")}>
-          <PersonaCritiquePanel
-            projectPath={project.path}
-            onClose={() => setShowPersona(false)}
-          />
-        </div>
-      ) : null}
+      <PreviewOutlineOverlays
+        showOutlineSnapshot={showOutlineSnapshot}
+        projectPath={project?.path ?? null}
+        outlineSnapshotNumber={outlineSnapshotNumber}
+        unpackOpen={showUnpackOutlineDialog}
+        onUnpackOpenChange={setShowUnpackOutlineDialog}
+        outlineContent={fileContent}
+        onCloseOutlineSnapshot={() => setShowOutlineSnapshot(false)}
+        t={t}
+      />
+      <PreviewCognitionOverlays
+        showCognition={showCognition}
+        showPersona={showPersona}
+        projectPath={project?.path ?? null}
+        onCloseCognition={() => setShowCognition(false)}
+        onClosePersona={() => setShowPersona(false)}
+        t={t}
+      />
       <DeAiPreviewDialog
         open={deAiPreviewOpen}
         sourceContent={deAiSourceContent}
@@ -1295,11 +1287,6 @@ export function PreviewPanel() {
         applyLabel={t("preview.replaceSelection")}
         onApply={handleApplySelectionTransform}
         onClose={handleCloseSelectionTransform}
-      />
-      <UnpackOutlineDialog
-        open={showUnpackOutlineDialog}
-        onOpenChange={setShowUnpackOutlineDialog}
-        outlineContent={fileContent}
       />
     </div>
   )

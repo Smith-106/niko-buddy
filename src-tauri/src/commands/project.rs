@@ -232,22 +232,95 @@ pub fn validate_wiki_project_root(root: &Path) -> Result<(), String> {
 
 // ── Migration ───────────────────────────────────────────────────────────────
 
+/// 单步迁移动作（G2 迁移报告：每对 from→to 到底发生了什么）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MigrationAction {
+    /// 已执行 rename，旧目录内容搬到新位置。
+    Migrated,
+    /// 源目录不存在，无事可做。
+    SkippedSourceMissing,
+    /// 目标已存在（新目录或同名文件占位），跳过以防覆盖；旧目录原样保留待人工处理。
+    SkippedTargetExists,
+}
+
+/// 单步迁移明细：哪一对目录、什么动作。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigrationStep {
+    pub from: &'static str,
+    pub to: &'static str,
+    pub action: MigrationAction,
+}
+
+/// G2 迁移报告：三步顺序迁移各自的迁移/跳过明细。
+///
+/// 向后兼容说明：此前签名为 `Result<(), String>`；现有调用方只有三类用法
+/// （`migrate_project_dirs(root)?;` 丢弃 Ok 值、`if let Err(e) = ...` 只看 Err、
+/// 测试 `...unwrap();` 作语句丢弃返回值），改为 `Result<MigrationReport, String>`
+/// 后三类调用均无需改动即可编译通过，错误语义不变。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MigrationReport {
+    pub steps: Vec<MigrationStep>,
+}
+
+impl MigrationReport {
+    /// 实际发生 rename 的步骤。
+    pub fn migrated(&self) -> Vec<&MigrationStep> {
+        self.steps.iter().filter(|s| s.action == MigrationAction::Migrated).collect()
+    }
+
+    /// 被跳过的步骤（源缺失或目标已存在）。
+    pub fn skipped(&self) -> Vec<&MigrationStep> {
+        self.steps.iter().filter(|s| s.action != MigrationAction::Migrated).collect()
+    }
+
+    /// 是否空跑（无任何实际迁移）。
+    pub fn is_noop(&self) -> bool {
+        self.migrated().is_empty()
+    }
+}
+
 /// Rename legacy directories to the current naming convention when safe.
-pub fn migrate_project_dirs(root: &Path) -> Result<(), String> {
+///
+/// 返回三步各自的迁移/跳过明细（G2）；调用方忽略返回值时语义与旧版完全一致。
+pub fn migrate_project_dirs(root: &Path) -> Result<MigrationReport, String> {
     // 多代旧名顺序迁移：.llm-wiki → .qmai → .niko-buddy（每个只在目标不存在时 rename）
-    rename_dir_if_safe(root, LEGACY_META_DIR, META_DIR)?;
-    rename_dir_if_safe(root, LEGACY_QMAI_DIR, META_DIR)?;
-    rename_dir_if_safe(root, LEGACY_KNOWLEDGE_DIR, KNOWLEDGE_DIR)?;
-    Ok(())
+    let mut steps = Vec::with_capacity(3);
+    for (from, to) in [(LEGACY_META_DIR, META_DIR), (LEGACY_QMAI_DIR, META_DIR), (LEGACY_KNOWLEDGE_DIR, KNOWLEDGE_DIR)] {
+        let action = rename_dir_if_safe(root, from, to)?;
+        steps.push(MigrationStep { from, to, action });
+    }
+    Ok(MigrationReport { steps })
+}
+
+/// Dry-run：只计算三步各自会是什么动作，不触碰文件系统（G2）。
+pub fn migrate_project_dirs_dry_run(root: &Path) -> MigrationReport {
+    let steps = [(LEGACY_META_DIR, META_DIR), (LEGACY_QMAI_DIR, META_DIR), (LEGACY_KNOWLEDGE_DIR, KNOWLEDGE_DIR)]
+        .into_iter()
+        .map(|(from, to)| {
+            let action = if !root.join(from).exists() {
+                MigrationAction::SkippedSourceMissing
+            } else if root.join(to).exists() {
+                MigrationAction::SkippedTargetExists
+            } else {
+                // dry-run 下“可迁移”用 Migrated 表示“将会迁移”。
+                MigrationAction::Migrated
+            };
+            MigrationStep { from, to, action }
+        })
+        .collect();
+    MigrationReport { steps }
 }
 
 /// Rename `root/from` to `root/to` only when `from` exists and `to` does not,
-/// preventing accidental overwrites.
-fn rename_dir_if_safe(root: &Path, from: &str, to: &str) -> Result<(), String> {
+/// preventing accidental overwrites. 返回本次动作供迁移报告使用。
+fn rename_dir_if_safe(root: &Path, from: &str, to: &str) -> Result<MigrationAction, String> {
     let source = root.join(from);
     let target = root.join(to);
-    if !source.exists() || target.exists() {
-        return Ok(()); // Nothing to do or target already present.
+    if !source.exists() {
+        return Ok(MigrationAction::SkippedSourceMissing);
+    }
+    if target.exists() {
+        return Ok(MigrationAction::SkippedTargetExists); // Nothing to do or target already present.
     }
     fs::rename(&source, &target).map_err(|e| {
         format!(
@@ -256,7 +329,8 @@ fn rename_dir_if_safe(root: &Path, from: &str, to: &str) -> Result<(), String> {
             target.display(),
             e
         )
-    })
+    })?;
+    Ok(MigrationAction::Migrated)
 }
 
 // ── File-writing helper ─────────────────────────────────────────────────────
@@ -630,5 +704,58 @@ mod migration_tests {
         fs::write(root.path().join(KNOWLEDGE_DIR), b"blocker").unwrap();
         migrate_project_dirs(root.path()).unwrap();
         assert!(root.has(LEGACY_KNOWLEDGE_DIR), "目标被占用时应跳过而非报错");
+    }
+
+    // ── G2 迁移报告 ────────────────────────────────────────────────────
+
+    #[test]
+    fn report_lists_migrated_and_skipped_steps() {
+        let root = TempRoot::new("report");
+        root.seed(LEGACY_META_DIR, "meta");
+        root.seed(LEGACY_KNOWLEDGE_DIR, "knowledge");
+
+        let report = migrate_project_dirs(root.path()).unwrap();
+
+        // 三步顺序固定：.llm-wiki→.niko-buddy / .qmai→.niko-buddy / wiki→QM。
+        assert_eq!(report.steps.len(), 3);
+        assert_eq!(report.steps[0].action, MigrationAction::Migrated);
+        // .qmai 不存在 → 源缺失跳过。
+        assert_eq!(report.steps[1].action, MigrationAction::SkippedSourceMissing);
+        assert_eq!(report.steps[2].action, MigrationAction::Migrated);
+        assert_eq!(report.migrated().len(), 2);
+        assert_eq!(report.skipped().len(), 1);
+        assert!(!report.is_noop());
+    }
+
+    #[test]
+    fn report_marks_conflicts_as_target_exists() {
+        let root = TempRoot::new("report-conflict");
+        root.seed(META_DIR, "current");
+        root.seed(LEGACY_META_DIR, "legacy");
+
+        let report = migrate_project_dirs(root.path()).unwrap();
+
+        assert_eq!(report.steps[0].action, MigrationAction::SkippedTargetExists);
+        assert!(root.has(LEGACY_META_DIR), "冲突时旧目录应保留");
+        assert_eq!(report.migrated().len(), 0);
+        assert!(report.is_noop());
+    }
+
+    #[test]
+    fn dry_run_predicts_without_touching_fs() {
+        let root = TempRoot::new("dryrun");
+        root.seed(LEGACY_QMAI_DIR, "qmai");
+
+        let predicted = migrate_project_dirs_dry_run(root.path());
+        // dry-run 不搬任何东西。
+        assert!(root.has(LEGACY_QMAI_DIR), "dry-run 不得改动文件系统");
+        assert!(!root.has(META_DIR));
+        // 预测：.llm-wiki 缺失跳过，.qmai 将迁移，wiki 缺失跳过。
+        assert_eq!(predicted.steps[0].action, MigrationAction::SkippedSourceMissing);
+        assert_eq!(predicted.steps[1].action, MigrationAction::Migrated);
+        assert_eq!(predicted.steps[2].action, MigrationAction::SkippedSourceMissing);
+        // 实跑结论应与预测一致。
+        let actual = migrate_project_dirs(root.path()).unwrap();
+        assert_eq!(actual, predicted);
     }
 }
