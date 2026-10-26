@@ -498,6 +498,7 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
                       <button
                         type="button"
                         onClick={() => setShowSupportingImages((s) => !s)}
+                        aria-label={showSupportingImages ? t("search.hideSupporting") : t("search.showAllPlus", { count: supportingImages.length })}
                         className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
                       >
                         {showSupportingImages
