@@ -3,17 +3,14 @@ import { useTranslation } from "react-i18next";
 
 import { useWikiStore } from "@/stores/wiki-store";
 import { useStorySimulationStore } from "@/stores/story-simulation-store";
-import { extractStoryContent, generateStoryFramework, buildAgents, runSimulation, generateDynamicEventPool, generateSimulationReport, generateStoryDraft, saveFramework, saveSimulationResult, loadSimulationResults, resolveDefaultModel, interviewAgent, saveInterview, loadInterviews, exportInterview, serializeSimulationState, deserializeSimulationSnapshot, actionTypeShortLabel, actionTypeIcon, appendStageMetric } from "@/lib/novel"
+import { extractStoryContent, generateStoryFramework, buildAgents, runSimulation, generateDynamicEventPool, generateSimulationReport, generateStoryDraft, saveFramework, saveSimulationResult, loadSimulationResults, resolveDefaultModel, interviewAgent, saveInterview, loadInterviews, exportInterview, serializeSimulationState, deserializeSimulationSnapshot, appendStageMetric } from "@/lib/novel"
 import type { SimulationCallbacks, AgentChatMessage, ExtractionResult, NovelAgent, RumorEvent, SimulationDebugTrace, SimulationHistoryEntry, SimulationReport, SimulationResumePoint, SimulationState, StoryBranch, StoryDraft, StoryFramework, TimelineEvent } from "@/lib/novel"
 
-import { PROGRESS_PHASES, SimulatingTimelinePanel, ProcessDebugPanel } from "./simulation-debug-panels";
+import { PROGRESS_PHASES, SimulatingTimelinePanel } from "./simulation-debug-panels";
 import { SimulationConfigPanel } from "./simulation-config-panel";
 import { FrameworkConfirmPanel } from "./framework-confirm-panel";
-import { SimulationReportView } from "./simulation-report-view";
-import { StoryDraftView } from "./story-draft-view";
+import { DraftPhaseView, ReportPhaseCenter } from "./simulation-phase-views";
 import { InterviewHistoryView } from "./interview-history-view";
-import { RumorPropagationPanel } from "./rumor-propagation-panel";
-import { ClueTimelinePanel } from "./detective-board-panel";
 import { BranchManagerPanel } from "./branch-manager-panel";
 import { HistoryResultsModal } from "./history-results-modal";
 import { BranchCompareView } from "./branch-compare-view";
@@ -51,16 +48,8 @@ export function buildConflictDraft(events: TimelineEvent[], frameworkId: string)
   };
 }
 
-/** 0-100 人设一致性评分 → CSS 条宽（钳制越界与 NaN）。 */
-export function scoreBarWidth(score: number): number {
-  if (!Number.isFinite(score)) return 0;
-  return Math.min(100, Math.max(0, Math.round(score)));
-}
-
-/** 推演报告分支概率 → 条宽映射。 */
-export function branchProbabilityWidth(p: StoryBranch["probability"]): number {
-  return p === "high" ? 100 : p === "medium" ? 60 : 30;
-}
+/** 条宽 helper 已切片至 ./simulation-phase-views；此处过渡 re-export 保外部引用路径/签名兼容。 */
+export { branchProbabilityWidth, scoreBarWidth } from "./simulation-phase-views";
 
 /**
  * 故事推演室主视图（重构后）。
@@ -1275,198 +1264,22 @@ export function StorySimulationView() {
                 />
               </div>
             ) : (
-              <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
-                <div className="shrink-0 border-b px-3 py-2">
-                  <div className="inline-flex flex-wrap rounded-md border bg-muted/40 p-0.5 text-xs">
-                    <button
-                      type="button"
-                      className={`rounded px-3 py-1.5 ${
-                        reportViewTab === "report"
-                          ? "bg-background text-foreground elevation-1"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                      onClick={() => setReportViewTab("report")}
-                    >
-                      推演报告
-                    </button>
-                    <button
-                      type="button"
-                      className={`rounded px-3 py-1.5 ${
-                        reportViewTab === "timeline"
-                          ? "bg-background text-foreground elevation-1"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                      onClick={() => setReportViewTab("timeline")}
-                    >
-                      时间线
-                    </button>
-                    <button
-                      type="button"
-                      className={`rounded px-3 py-1.5 ${
-                        reportViewTab === "overview"
-                          ? "bg-background text-foreground elevation-1"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                      onClick={() => setReportViewTab("overview")}
-                    >
-                      概览
-                    </button>
-                    <button
-                      type="button"
-                      className={`rounded px-3 py-1.5 ${
-                        reportViewTab === "rumors"
-                          ? "bg-background text-foreground elevation-1"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                      onClick={() => setReportViewTab("rumors")}
-                    >
-                      传闻
-                    </button>
-                    <button
-                      type="button"
-                      className={`rounded px-3 py-1.5 ${
-                        reportViewTab === "clues"
-                          ? "bg-background text-foreground elevation-1"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                      onClick={() => setReportViewTab("clues")}
-                    >
-                      线索
-                    </button>
-                  </div>
-                </div>
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                  {reportViewTab === "report" ? (
-                    <>
-                      {currentReport && currentReport.characterAnalyses.length > 0 && (
-                        <div className="shrink-0 border-b px-3 py-2" data-testid="sim-score-overview">
-                          <div className="mb-1 text-xs font-medium">人设一致性评分</div>
-                          <div className="space-y-1">
-                            {currentReport.characterAnalyses.map((ca) => (
-                              <div key={ca.characterId} className="flex items-center gap-2 text-xs">
-                                <span className="w-16 shrink-0 truncate">{ca.name}</span>
-                                <div className="h-2 min-w-0 flex-1 rounded bg-muted">
-                                  <div
-                                    className="h-2 rounded bg-primary"
-                                    data-testid={`sim-score-bar-${ca.characterId}`}
-                                    style={{ width: `${scoreBarWidth(ca.consistencyScore)}%` }}
-                                  />
-                                </div>
-                                <span className="w-8 shrink-0 text-right tabular-nums">{ca.consistencyScore}</span>
-                              </div>
-                            ))}
-                          </div>
-                          {currentReport.branches.length > 0 && (
-                            <div className="mt-2">
-                              <div className="mb-1 text-xs font-medium">分支走向概率</div>
-                              <div className="space-y-1">
-                                {currentReport.branches.map((b, i) => (
-                                  <div key={`${b.title.slice(0, 32)}-${i}`} className="flex items-center gap-2 text-xs">
-                                    <span className="w-16 shrink-0 truncate">{b.title}</span>
-                                    <div className="h-2 min-w-0 flex-1 rounded bg-muted">
-                                      <div
-                                        className="h-2 rounded bg-primary"
-                                        data-testid={`sim-branch-bar-${i}`}
-                                        style={{ width: `${branchProbabilityWidth(b.probability)}%` }}
-                                      />
-                                    </div>
-                                    <span className="w-8 shrink-0 text-right tabular-nums">{b.probability}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      <div className="min-h-0 flex-1 overflow-hidden">
-                      <SimulationReportView
-                      onResimulate={handleResimulate}
-                      onGenerateDraft={(branch) =>
-                        void handleGenerateDraft(branch)
-                      }
-                      onInterviewAgent={(id, name) =>
-                        handleInterviewAgent(id, name)
-                      }
-                      onViewDraft={handleViewDraft}
-                      hasDraft={!!currentDraft}
-                      onViewInterviewHistory={() =>
-                        setShowInterviewHistory(true)
-                      }
-                      />
-                      </div>
-                    </>
-                  ) : reportViewTab === "timeline" ? (
-                    <div className="h-full overflow-y-auto p-3">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <span className="text-xs text-muted-foreground">
-                          共 {timelineEvents.length} 条事件
-                        </span>
-                        <button
-                          type="button"
-                          data-testid="sim-extract-conflicts"
-                          className="rounded border px-2 py-1 text-xs hover:bg-muted"
-                          onClick={handleExtractConflictsToDraft}
-                        >
-                          一键提取冲突动作到草稿
-                        </button>
-                      </div>
-                      <div className="space-y-2">
-                        {timelineEvents.map((ev) => (
-                          <div
-                            key={ev.id}
-                            className="rounded-md border bg-background/70 p-3 text-sm"
-                          >
-                            <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
-                              <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
-                                节点{ev.nodeIndex + 1} · 第{ev.round}轮
-                              </span>
-                              <span className="text-muted-foreground">
-                                {ev.actorName || t("storySimulation.system")}
-                              </span>
-                              <span className="text-muted-foreground">·</span>
-                              <span className="inline-flex items-center gap-1 text-muted-foreground">
-                                {(() => {
-                                  const Icon = actionTypeIcon(ev.actionType);
-                                  return <Icon className="h-3 w-3" />;
-                                })()}
-                                {actionTypeShortLabel(ev.actionType)}
-                              </span>
-                            </div>
-                            <div className="text-sm">
-                              {ev.content || t("storySimulation.noContent")}
-                            </div>
-                          </div>
-                        ))}
-                        {timelineEvents.length === 0 && (
-                          <div className="py-12 text-center text-sm text-muted-foreground">
-                            暂无事件
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ) : reportViewTab === "overview" ? (
-                    <div className="h-full overflow-hidden">
-                      <ProcessDebugPanel debugTraces={debugTraces} />
-                    </div>
-                  ) : reportViewTab === "rumors" ? (
-                    <div className="h-full">
-                      <RumorPropagationPanel
-                        rumors={currentRumors}
-                        agents={currentAgents}
-                        events={timelineEvents}
-                      />
-                    </div>
-                  ) : (
-                    <div className="h-full">
-                      <ClueTimelinePanel
-                        agents={currentAgents}
-                        rumors={currentRumors}
-                        events={timelineEvents}
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
+              <ReportPhaseCenter
+                tab={reportViewTab}
+                onTabChange={setReportViewTab}
+                currentReport={currentReport}
+                timelineEvents={timelineEvents}
+                debugTraces={debugTraces}
+                currentRumors={currentRumors}
+                currentAgents={currentAgents}
+                hasDraft={!!currentDraft}
+                onResimulate={handleResimulate}
+                onGenerateDraft={(branch) => void handleGenerateDraft(branch)}
+                onInterviewAgent={(id, name) => handleInterviewAgent(id, name)}
+                onViewDraft={handleViewDraft}
+                onViewInterviewHistory={() => setShowInterviewHistory(true)}
+                onExtractConflictsToDraft={handleExtractConflictsToDraft}
+              />
             )}
             {activeChatAgent ? (
               <AgentChatPanel
@@ -1504,149 +1317,21 @@ export function StorySimulationView() {
             )}
           </div>
         ) : phase === "draft-viewing" ? (
-          <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="shrink-0 border-b px-3 py-2">
-              <div className="inline-flex flex-wrap rounded-md border bg-muted/40 p-0.5 text-xs">
-                <button
-                  type="button"
-                  className={`rounded px-3 py-1.5 ${
-                    draftViewTab === "draft"
-                      ? "bg-background text-foreground elevation-1"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  onClick={() => setDraftViewTab("draft")}
-                >
-                  故事草稿
-                </button>
-                <button
-                  type="button"
-                  className={`rounded px-3 py-1.5 ${
-                    draftViewTab === "report"
-                      ? "bg-background text-foreground elevation-1"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  onClick={() => setDraftViewTab("report")}
-                >
-                  推演报告
-                </button>
-                <button
-                  type="button"
-                  className={`rounded px-3 py-1.5 ${
-                    draftViewTab === "timeline"
-                      ? "bg-background text-foreground elevation-1"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  onClick={() => setDraftViewTab("timeline")}
-                >
-                  时间线
-                </button>
-                <button
-                  type="button"
-                  className={`rounded px-3 py-1.5 ${
-                    draftViewTab === "overview"
-                      ? "bg-background text-foreground elevation-1"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  onClick={() => setDraftViewTab("overview")}
-                >
-                  过程观察
-                </button>
-                <button
-                  type="button"
-                  className={`rounded px-3 py-1.5 ${
-                    draftViewTab === "rumors"
-                      ? "bg-background text-foreground elevation-1"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  onClick={() => setDraftViewTab("rumors")}
-                >
-                  传闻
-                </button>
-                <button
-                  type="button"
-                  className={`rounded px-3 py-1.5 ${
-                    draftViewTab === "clues"
-                      ? "bg-background text-foreground elevation-1"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  onClick={() => setDraftViewTab("clues")}
-                >
-                  线索
-                </button>
-              </div>
-            </div>
-            <div className="min-h-0 flex-1 overflow-hidden">
-              {draftViewTab === "draft" ? (
-                <StoryDraftView onBack={handleBackToReport} />
-              ) : draftViewTab === "report" ? (
-                <SimulationReportView
-                  onResimulate={handleResimulate}
-                  onGenerateDraft={(branch) => void handleGenerateDraft(branch)}
-                  onInterviewAgent={(id, name) =>
-                    handleInterviewAgent(id, name)
-                  }
-                  onViewDraft={handleViewDraft}
-                  hasDraft={!!currentDraft}
-                  onViewInterviewHistory={() => setShowInterviewHistory(true)}
-                />
-              ) : draftViewTab === "timeline" ? (
-                <div className="h-full overflow-y-auto p-3">
-                  <div className="mb-2 text-xs text-muted-foreground">
-                    共 {timelineEvents.length} 条事件
-                  </div>
-                  <div className="space-y-2">
-                    {timelineEvents.map((ev) => (
-                      <div
-                        key={ev.id}
-                        className="rounded-md border bg-background/70 p-3 text-sm"
-                      >
-                        <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
-                          <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
-                            节点{ev.nodeIndex + 1} · 第{ev.round}轮
-                          </span>
-                          <span className="text-muted-foreground">
-                            {ev.actorName || t("storySimulation.system")}
-                          </span>
-                          <span className="text-muted-foreground">·</span>
-                          <span className="text-muted-foreground">
-                            {actionTypeShortLabel(ev.actionType)}
-                          </span>
-                        </div>
-                        <div className="text-sm">
-                          {ev.content || t("storySimulation.noContent")}
-                        </div>
-                      </div>
-                    ))}
-                    {timelineEvents.length === 0 && (
-                      <div className="py-12 text-center text-sm text-muted-foreground">
-                        暂无事件
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : draftViewTab === "overview" ? (
-                <div className="h-full overflow-hidden">
-                  <ProcessDebugPanel debugTraces={debugTraces} />
-                </div>
-              ) : draftViewTab === "rumors" ? (
-                <div className="h-full">
-                  <RumorPropagationPanel
-                    rumors={currentRumors}
-                    agents={currentAgents}
-                    events={timelineEvents}
-                  />
-                </div>
-              ) : (
-                <div className="h-full">
-                  <ClueTimelinePanel
-                    agents={currentAgents}
-                    rumors={currentRumors}
-                    events={timelineEvents}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
+          <DraftPhaseView
+            tab={draftViewTab}
+            onTabChange={setDraftViewTab}
+            timelineEvents={timelineEvents}
+            debugTraces={debugTraces}
+            currentRumors={currentRumors}
+            currentAgents={currentAgents}
+            hasDraft={!!currentDraft}
+            onBack={handleBackToReport}
+            onResimulate={handleResimulate}
+            onGenerateDraft={(branch) => void handleGenerateDraft(branch)}
+            onInterviewAgent={(id, name) => handleInterviewAgent(id, name)}
+            onViewDraft={handleViewDraft}
+            onViewInterviewHistory={() => setShowInterviewHistory(true)}
+          />
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto">
             <SimulationConfigPanel onStart={() => void handleStart()} />

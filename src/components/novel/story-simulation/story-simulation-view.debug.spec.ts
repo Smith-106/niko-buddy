@@ -32,6 +32,12 @@ describe("story simulation debug process view wiring", () => {
         "src/components/novel/story-simulation/story-simulation-view.tsx",
       ),
       "utf8",
+    ) + readFileSync(
+      resolve(
+        process.cwd(),
+        "src/components/novel/story-simulation/simulation-phase-views.tsx",
+      ),
+      "utf8",
     )
 
     expect(source).toContain("时间线")
