@@ -544,9 +544,20 @@ function FrameworkNodeCard({
             {t("storySimulation.involvedCharacters")}
           </dt>
           <dd className="break-words leading-relaxed">
-            {Array.isArray(node.involvedCharacters)
-              ? node.involvedCharacters.join("、")
-              : node.involvedCharacters}
+            {Array.isArray(node.involvedCharacters) ? (
+              <span className="inline-flex flex-wrap gap-1.5">
+                {node.involvedCharacters.map((name, index) => (
+                  <span
+                    key={`${name}-${index}`}
+                    className="inline-flex items-center gap-1 rounded-full border bg-muted/40 px-2 py-0.5 text-xs"
+                  >
+                    {name}
+                  </span>
+                ))}
+              </span>
+            ) : (
+              node.involvedCharacters
+            )}
           </dd>
 
           <dt className="whitespace-nowrap text-muted-foreground">
