@@ -142,6 +142,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
                 onClick={() => onSaveAsChapter(message.content)}
                 disabled={isSaving}
                 aria-busy={isSaving}
+                aria-label={isSaving ? "保存中" : "接受草稿"}
                 // POLISH-09 (odyssey-ui): accept is the primary commitment \u2014
                 // solid-fill primary with Check icon, visually dominant over
                 // reject/continue so the safe/forward action is unmistakable.
@@ -159,6 +160,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
                 aria-busy={isSaving}
                 className={`${ACTION_BUTTON_BASE} inline-flex items-center gap-1 border border-primary/60 bg-primary/10 font-medium text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50`}
                 title="接受当前草稿并自动发起下一章撰写"
+                aria-label="接受并撰写下一章"
               >
                 {isSaving ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> : <Sparkles className="h-3 w-3 shrink-0" />}
                 {"接受并撰写下一章"}
@@ -169,6 +171,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
                 type="button"
                 onClick={onDiscardDraft}
                 disabled={isSaving}
+                aria-label="拒绝草稿"
                 className={`${ACTION_BUTTON_BASE} border border-destructive/40 text-destructive hover:bg-destructive/5 disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 {"拒绝草稿"}
@@ -179,6 +182,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
                 type="button"
                 onClick={onContinueNextChapter}
                 disabled={isSaving}
+                aria-label="继续生成下一章"
                 className={`${ACTION_BUTTON_BASE} border border-border text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 继续生成下一章
@@ -189,6 +193,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
                 type="button"
                 onClick={onContinueUnfinished}
                 disabled={isSaving}
+                aria-label="继续未完成"
                 // VH-002 (odyssey-ui): amber resume button → primary token tier,
                 // consistent with the primary-tinted info banner above.
                 className={`${ACTION_BUTTON_BASE} border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50`}
@@ -206,6 +211,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
                 onClick={onRegenerate}
                 className={`${ACTION_BUTTON_BASE} inline-flex items-center gap-1 text-muted-foreground hover:bg-primary/10 hover:text-primary`}
                 title={t("chat.regenerate")}
+                aria-label={t("chat.regenerate")}
               >
                 <RefreshCw className="h-3 w-3 shrink-0" /> 重新生成
               </button>
@@ -237,6 +243,7 @@ function CopyButton({ content }: { content: string }) {
       onClick={handleCopy}
       className={`${ACTION_BUTTON_BASE} inline-flex items-center gap-1 text-muted-foreground hover:bg-primary/10 hover:text-primary`}
       title={t("chat.copyToClipboard")}
+      aria-label={t("chat.copyToClipboard")}
     >
       {copied ? <Check className="h-3 w-3 shrink-0" /> : <Copy className="h-3 w-3 shrink-0" />}
       {copied ? "已复制" : "复制"}
@@ -532,6 +539,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
         type="button"
         onClick={() => hasMore && setExpanded(!expanded)}
         aria-expanded={hasMore ? expanded : undefined}
+        aria-label={`引用资料（${citedPages.length}）`}
         className="flex w-full items-center gap-1.5 px-2 py-1 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <FileText className="h-3 w-3 shrink-0" />
@@ -594,6 +602,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
                   onClick={() => handleJumpToImageSource(info.firstUrl!, page.path)}
                   className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-xs text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
                   title={`打开第一张图片所在原始文档（本页共 ${info.count} 张图片）`}
+                  aria-label={`打开第一张图片所在原始文档（本页共 ${info.count} 张图片）`}
                 >
                   <ImageIcon className="h-3 w-3 shrink-0" />
                   {info.count}
@@ -602,6 +611,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
               <button
                 type="button"
                 onClick={openCitedPage}
+                aria-label={page.title}
                 className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-accent/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Icon className={`h-3 w-3 shrink-0 ${config.color}`} />
@@ -614,6 +624,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
           <button
             type="button"
             onClick={() => setExpanded(true)}
+            aria-label={`展开其余 ${citedPages.length - MAX_COLLAPSED} 条引用`}
             className="w-full text-center text-xs text-muted-foreground hover:text-primary pt-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             +{citedPages.length - MAX_COLLAPSED} 条更多引用...
@@ -1019,6 +1030,7 @@ function WikiLink({ pageName, children }: { pageName: string; children: React.Re
       onClick={handleClick}
       className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-primary underline decoration-primary/30 hover:bg-primary/10 hover:decoration-primary"
       title={`Open wiki page: ${pageName}`}
+      aria-label={`Open wiki page: ${pageName}`}
     >
       <FileText className="inline h-3 w-3 shrink-0" />
       {children}
