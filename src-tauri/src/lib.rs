@@ -1,4 +1,5 @@
 pub mod agent_gate;
+pub mod agent_gate_policy;
 pub mod app_lock;
 pub mod batch_replace;
 mod canon;

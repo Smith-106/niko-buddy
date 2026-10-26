@@ -6,11 +6,19 @@
 //! 同一目标指纹在窗口内重复触发即熔断停机，只有人工 `ResumeAfterHalt` 能解除。
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+
+// M9-2：目标策略纯层已剥离至 `agent_gate_policy.rs`——file_sync_watch 模式：新文件 + 原文件回引，外部 import 面零变化。
+pub use crate::agent_gate_policy::{
+    classify_rebuild_class, hit_criteria, is_destructive_op, is_protected_target, now_ms,
+};
+pub(crate) use crate::agent_gate_policy::{
+    append_audit, effective_decision, fingerprint, halt_path, normalize_target, outcome,
+    protected_prefix, relative_to_root,
+};
 
 /// 单个确认请求的人工响应窗口；到期未响应即视为拒绝，且不重试。
 pub const GATE_TIMEOUT_MS: u64 = 120_000;
@@ -261,124 +269,6 @@ pub fn set_gate_project_root(dir: PathBuf) {
     hydrate_halt_from_disk(&mut g);
 }
 
-pub fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-fn normalize_target(target: &str) -> String {
-    let t = target.replace('\\', "/");
-    let t = t.trim_start_matches("./").to_string();
-    // 折叠重复分隔符，避免 "QM//x" 绕过前缀判定。
-    let mut out = String::with_capacity(t.len());
-    let mut prev_slash = false;
-    for ch in t.chars() {
-        if ch == '/' {
-            if prev_slash {
-                continue;
-            }
-            prev_slash = true;
-        } else {
-            prev_slash = false;
-        }
-        out.push(ch);
-    }
-    out
-}
-
-fn prefix_match(t: &str) -> bool {
-    PROTECTED_PREFIXES.iter().any(|p| {
-        if p.ends_with('/') {
-            t.starts_with(*p)
-        } else {
-            t == *p || t.starts_with(&format!("{}/", p))
-        }
-    })
-}
-
-/// 项目相对归一：绝对路径先剥离项目根，避免绝对路径绕过前缀判定。
-fn relative_to_root(root: Option<&Path>, target: &str) -> String {
-    let p = Path::new(target);
-    if p.is_absolute() {
-        if let Some(root) = root {
-            if let Ok(rel) = p.strip_prefix(root) {
-                return normalize_target(&rel.to_string_lossy());
-            }
-        }
-    }
-    normalize_target(target)
-}
-
-/// 受保护区判定：项目相对前缀，或路径任意位置的不可混淆真源面。
-fn protected_prefix(target: &str) -> bool {
-    let t = normalize_target(target);
-    if prefix_match(&t) {
-        return true;
-    }
-    let wrapped = format!("/{}", t);
-    wrapped.ends_with("/.novel/status.json")
-        || wrapped.ends_with("/.novel/schema.md")
-        || wrapped.contains("/QM/")
-        || wrapped.contains("/canon/")
-}
-
-pub fn is_protected_target(target: &str) -> bool {
-    protected_prefix(&relative_to_root(None, target))
-}
-
-pub fn is_destructive_op(op: &str) -> bool {
-    DESTRUCTIVE_OPS.iter().any(|d| d.eq_ignore_ascii_case(op))
-}
-
-/// 目标可重建性：只认快照目录与既有投影目录，其余一律按不可重建处理。
-pub fn classify_rebuild_class(target: &str) -> RebuildClass {
-    let t = normalize_target(target);
-    if protected_prefix(&t) {
-        return RebuildClass::Irreversible;
-    }
-    if t.contains(".novel/snapshots/") || t.starts_with(".novel/snapshots/") {
-        return RebuildClass::Rebuildable;
-    }
-    // 只认既有目录约定；不发明新的“可重建根”。
-    const DERIVED_ROOTS: [&str; 3] = [".niko-buddy/", ".novel/", "backups/"];
-    if DERIVED_ROOTS.iter().any(|r| t.starts_with(*r)) {
-        return RebuildClass::DerivedRebuildable;
-    }
-    RebuildClass::Irreversible
-}
-
-/// 四判据命中清单（写进审计与确认对话框）。
-pub fn hit_criteria(op: &str, target: &str, actor: GateActor) -> Vec<String> {
-    let mut hits = Vec::new();
-    if protected_prefix(target) {
-        hits.push("protected_prefix".to_string());
-    }
-    if is_destructive_op(op) {
-        hits.push("destructive_op".to_string());
-    }
-    let class = classify_rebuild_class(target);
-    if matches!(
-        class,
-        RebuildClass::Rebuildable | RebuildClass::DerivedRebuildable
-    ) {
-        hits.push("rebuildable".to_string());
-    }
-    if op.eq_ignore_ascii_case("runCommand") || actor == GateActor::Cli {
-        hits.push("external_side_effect".to_string());
-    }
-    hits
-}
-
-fn fingerprint(op: &str, target: &str) -> String {
-    format!("{}|{}", op, normalize_target(target))
-}
-
-fn halt_path(root: &Path) -> PathBuf {
-    root.join(GATE_HALT_FILE)
-}
-
 fn hydrate_halt_from_disk(g: &mut GateState) {
     if g.halt.is_some() {
         return;
@@ -433,26 +323,6 @@ pub fn detect_tool_loop(key: &str, now_ms: u64) -> bool {
     record_event(&mut g, key, now_ms)
 }
 
-fn append_audit(root: Option<&Path>, rec: &GateAuditRecord) {
-    let Some(root) = root else { return };
-    let dir = root.join(GATE_AUDIT_DIR);
-    if std::fs::create_dir_all(&dir).is_err() {
-        return;
-    }
-    let Ok(mut line) = serde_json::to_string(rec) else {
-        return;
-    };
-    line.push('\n');
-    use std::io::Write;
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(root.join(GATE_AUDIT_FILE))
-    {
-        let _ = f.write_all(line.as_bytes());
-    }
-}
-
 fn audit(
     g: &GateState,
     op: &str,
@@ -474,22 +344,6 @@ fn audit(
             actor,
         },
     );
-}
-
-fn outcome(
-    decision: Decision,
-    class: RebuildClass,
-    hits: Vec<String>,
-    request_id: Option<String>,
-    reason: &str,
-) -> GateOutcome {
-    GateOutcome {
-        decision,
-        class,
-        hit_criteria: hits,
-        request_id,
-        reason: reason.to_string(),
-    }
 }
 
 /// 到期未响应的请求一律判为拒绝；返回本次被拒的请求 id。
@@ -538,52 +392,6 @@ fn sweep_timeouts(g: &mut GateState, now: u64) {
             );
             g.timed_out.push(p.request_id);
         }
-    }
-}
-
-fn effective_decision(
-    op: &str,
-    target: &str,
-    class: RebuildClass,
-    actor: GateActor,
-) -> (Decision, &'static str) {
-    if protected_prefix(target) {
-        if is_destructive_op(op) {
-            // 受保护区对破坏性操作硬拒绝，任何 actor 都不能绕过。
-            return (
-                Decision::Denied,
-                "target is a protected truth surface; not bypassable",
-            );
-        }
-        if actor != GateActor::User {
-            // 真源面的非破坏性写入：Agent/CLI/External 必须经人工确认，不得静默落地。
-            return (
-                Decision::RequireConfirm,
-                "protected truth surface requires human confirmation",
-            );
-        }
-        return (
-            Decision::Allowed,
-            "human actor may write a protected truth surface",
-        );
-    }
-    if !is_destructive_op(op) {
-        // 非破坏性操作不进入门的裁决面，门只拦真实副作用。
-        return (Decision::Allowed, "op is not destructive; gate not engaged");
-    }
-    if op.eq_ignore_ascii_case("runCommand") || actor == GateActor::Cli {
-        // 外部进程的逐次写入不在本进程可见范围内，可强制的人工边界是“不得指向保护区”。
-        return (
-            Decision::Allowed,
-            "external process target is outside protected prefixes; audited",
-        );
-    }
-    match class {
-        RebuildClass::Rebuildable | RebuildClass::DerivedRebuildable => (
-            Decision::Allowed,
-            "target is rebuildable from snapshots or projections",
-        ),
-        RebuildClass::Irreversible => (Decision::RequireConfirm, "target is irreversible"),
     }
 }
 
