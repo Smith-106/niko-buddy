@@ -1207,7 +1207,9 @@ export function GraphView() {
                                 {conn.source.label} ↔ {conn.target.label}
                               </div>
                               <p className="text-xs text-muted-foreground">
-                                {conn.reasons.join("，")}
+                                {conn.reasons?.map((reason, i) => (
+                                  <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground mr-1 mb-1">{reason}</span>
+                                ))}
                               </p>
                             </button>
                           </div>
