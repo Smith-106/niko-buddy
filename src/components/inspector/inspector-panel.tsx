@@ -256,14 +256,20 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
                 {snapshot.cognitionState.characters.map((c) => (
                   <li key={c.name}>
                     <span className="font-medium">{c.name}</span>
-                    {c.knows.length > 0 && <div className="pl-2 text-success">{t("novel.inspector.knows", "知道：")}{c.knows.join("、")}</div>}
-                    {c.doesNotKnow.length > 0 && <div className="pl-2 text-destructive">{t("novel.inspector.doesNotKnow", "不知道：")}{c.doesNotKnow.join("、")}</div>}
+                    {c.knows.length > 0 && <div className="pl-2 text-success">{t("novel.inspector.knows", "知道：")}{c.knows?.map((item, i) => (
+                      <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground mr-1 mb-1">{item}</span>
+                    ))}</div>}
+                    {c.doesNotKnow.length > 0 && <div className="pl-2 text-destructive">{t("novel.inspector.doesNotKnow", "不知道：")}{c.doesNotKnow?.map((item, i) => (
+                      <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground mr-1 mb-1">{item}</span>
+                    ))}</div>}
                   </li>
                 ))}
               </ul>
             )}
             {snapshot.cognitionState.readerKnows.length > 0 && (
-              <div className="mt-1">{t("novel.inspector.readerKnows", "读者知道：")}{snapshot.cognitionState.readerKnows.join("、")}</div>
+              <div className="mt-1">{t("novel.inspector.readerKnows", "读者知道：")}{snapshot.cognitionState.readerKnows?.map((item, i) => (
+                <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground mr-1 mb-1">{item}</span>
+              ))}</div>
             )}
             {snapshot.cognitionState.lastUpdatedChapter !== null && (
               <div className="mt-1 text-muted-foreground">{t("novel.inspector.lastUpdatedChapter", "最后更新章：")}{snapshot.cognitionState.lastUpdatedChapter}</div>
