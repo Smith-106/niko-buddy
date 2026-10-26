@@ -719,6 +719,7 @@ function SourceTree({
               type="button"
               onClick={() => onOpen(node)}
               disabled={renamingPath === node.path}
+              aria-label={node.name}
               className="flex flex-1 items-center gap-2 truncate px-2 py-1 text-left"
             >
               <FileText className="h-4 w-4 shrink-0" />
