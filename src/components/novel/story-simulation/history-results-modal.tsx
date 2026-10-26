@@ -161,6 +161,7 @@ export function HistoryResultsModal({
                     type="button"
                     className="flex-1 min-w-0 text-left"
                     onClick={() => onSelectResult(result.id)}
+                    aria-label={result.summary}
                   >
                     <div className="flex items-center gap-1.5">
                       <span className="truncate font-medium text-foreground">
