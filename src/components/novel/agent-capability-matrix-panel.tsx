@@ -5,7 +5,7 @@
  * 不生成技能、不改技能库、不决定模型路由；未装载技能库时整段 N/A。
  */
 
-import { useMemo } from "react"
+import { useMemo, type ReactNode } from "react"
 import { Users } from "lucide-react"
 
 import {
@@ -29,11 +29,38 @@ const EMPTY_INPUT: AgentCapabilityMatrixInput = { skills: [], roles: [], skillsL
  */
 const NAME_LIMIT = 3
 
-function summarizeNames(names: readonly string[]): { text: string; title: string } {
+function summarizeNames(names: readonly string[]): { text: ReactNode; title: string } {
   if (names.length === 0) return { text: "不适用（没有对应技能）", title: "" }
-  if (names.length <= NAME_LIMIT) return { text: names.join("、"), title: names.join("、") }
+  if (names.length <= NAME_LIMIT)
+    return {
+      text: (
+        <span className="inline-flex flex-wrap items-center gap-1">
+          {names?.map((n, i) => (
+            <span
+              key={`${n}-${i}`}
+              className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-foreground"
+            >
+              {n}
+            </span>
+          ))}
+        </span>
+      ),
+      title: names.join("、"),
+    }
   return {
-    text: `${names.slice(0, NAME_LIMIT).join("、")} 等 ${names.length} 项`,
+    text: (
+      <span className="inline-flex flex-wrap items-center gap-1">
+        {names?.slice(0, NAME_LIMIT).map((n, i) => (
+          <span
+            key={`${n}-${i}`}
+            className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-foreground"
+          >
+            {n}
+          </span>
+        ))}
+        <span className="text-xs text-muted-foreground">等 {names.length} 项</span>
+      </span>
+    ),
     title: names.join("、"),
   }
 }
@@ -118,7 +145,17 @@ export function AgentCapabilityMatrixPanel({
                   className="text-xs text-warning"
                   data-testid={`agent-capability-missing-${row.roleId}`}
                 >
-                  缺口：{row.missingCapabilities.join("、")}
+                  缺口：
+                  <span className="inline-flex flex-wrap items-center gap-1">
+                    {row.missingCapabilities?.map((m, i) => (
+                      <span
+                        key={`${m}-${i}`}
+                        className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs text-warning"
+                      >
+                        {m}
+                      </span>
+                    ))}
+                  </span>
                 </div>
               ) : null}
             </li>
@@ -131,7 +168,17 @@ export function AgentCapabilityMatrixPanel({
           className="text-xs text-warning"
           data-testid="agent-capability-global-missing"
         >
-          全角色合起来仍无人覆盖：{resolved.missingCapabilities.join("、")}
+          全角色合起来仍无人覆盖：
+          <span className="inline-flex flex-wrap items-center gap-1">
+            {resolved.missingCapabilities?.map((m, i) => (
+              <span
+                key={`${m}-${i}`}
+                className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs text-warning"
+              >
+                {m}
+              </span>
+            ))}
+          </span>
         </p>
       ) : null}
 
