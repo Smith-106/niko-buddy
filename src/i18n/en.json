@@ -43,7 +43,8 @@
     "success": "Success",
     "warning": "Warning",
     "info": "Info",
-    "operationFailed": "Operation failed"
+    "operationFailed": "Operation failed",
+    "retry": "Retry"
   },
   "appLayout": {
     "bookAnalysis": {
@@ -1331,7 +1332,13 @@
       "suggestion": "Suggestion"
     },
     "rewriteAlertPrefix": "Rewrite suggestion",
-    "compareRewrite": "Compare rewrites"
+    "compareRewrite": "Compare rewrites",
+    "deleteFileConfirm": "Delete this file?\n{{path}}\nThis cannot be undone.",
+    "batchAcceptConfirm": "Accept all {{count}} pending comment(s)?",
+    "batchAccept": "Accept all ({{count}})",
+    "batchUndo": "Undo last batch",
+    "severityFilter": "Filter by severity",
+    "severityEmpty": "No items at this severity"
   },
   "settings": {
     "title": "Settings",
@@ -2041,7 +2048,11 @@
     "restoreTitle": "Restore to original location; if a file with the same name already exists there, it will be restored with a new name automatically",
     "deletedItem": "Deleted Item",
     "originalPath": "Original Path",
-    "deleteForever": "Delete permanently"
+    "deleteForever": "Delete permanently",
+    "permanentDeleteConfirm": "Permanently delete \"{{name}}\"? This cannot be undone.",
+    "emptyTrashConfirm": "Empty the trash? {{count}} item(s) will be permanently deleted. This cannot be undone.",
+    "clearing": "Clearing…",
+    "emptyTrash": "Empty trash"
   },
   "knowledgeTree": {
     "noProject": "No project opened",
@@ -4101,5 +4112,22 @@
     "kindChapter": "Chapter",
     "kindAction": "Action",
     "hint": "Ctrl/⌘+K opens the command palette"
+  },
+  "gate": {
+    "confirm": {
+      "title": "Confirm write",
+      "classLabel": "Class",
+      "criteriaLabel": "Criteria",
+      "timeout": "Confirmation timed out; the operation was cancelled",
+      "windowNotice": "Confirm within {{seconds}}s",
+      "error": "Confirmation failed: {{message}}",
+      "retry": "Retry",
+      "reject": "Reject",
+      "accept": "Allow"
+    },
+    "halt": {
+      "banner": "Loop breaker tripped; a human must resume before work continues",
+      "resume": "Resume"
+    }
   }
 }

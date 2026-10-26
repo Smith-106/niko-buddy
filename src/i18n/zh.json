@@ -23,7 +23,8 @@
       "next": "下一页",
       "info": "第 {{page}} / {{pageCount}} 页 · 共 {{total}} 条"
     },
-    "operationFailed": "操作失败"
+    "operationFailed": "操作失败",
+    "retry": "重试"
   },
   "app": {
     "title": "Niko Buddy",
@@ -730,7 +731,13 @@
     "startReview": "开始审查",
     "reviewing": "审查中",
     "resultsTitle": "审查结果",
-    "compareRewrite": "对比改写"
+    "compareRewrite": "对比改写",
+    "deleteFileConfirm": "确认删除该文件吗？\n{{path}}\n此操作不可撤销。",
+    "batchAcceptConfirm": "确认采纳全部 {{count}} 条待处理意见？",
+    "batchAccept": "一键采纳全部 ({{count}})",
+    "batchUndo": "撤销上次批量",
+    "severityFilter": "严重度筛选",
+    "severityEmpty": "该严重度下暂无条目"
   },
   "settings": {
     "title": "设置",
@@ -1440,7 +1447,11 @@
     "restoreTitle": "恢复到原位置；如原位置已有同名文件，会自动改名恢复",
     "deletedItem": "已删除项目",
     "originalPath": "原路径",
-    "deleteForever": "永久删除"
+    "deleteForever": "永久删除",
+    "permanentDeleteConfirm": "彻底删除「{{name}}」？此操作不可恢复。",
+    "emptyTrashConfirm": "清空回收站？将彻底删除 {{count}} 个项目，此操作不可恢复。",
+    "clearing": "清理中…",
+    "emptyTrash": "清空回收站"
   },
   "knowledgeTree": {
     "noProject": "未打开项目",
@@ -4101,5 +4112,22 @@
     "kindChapter": "章节",
     "kindAction": "操作",
     "hint": "Ctrl/⌘+K 打开命令面板"
+  },
+  "gate": {
+    "confirm": {
+      "title": "写入确认",
+      "classLabel": "类别",
+      "criteriaLabel": "判据",
+      "timeout": "确认已超时，操作已取消",
+      "windowNotice": "请在 {{seconds}} 秒内确认",
+      "error": "确认失败：{{message}}",
+      "retry": "重试",
+      "reject": "拒绝",
+      "accept": "确认放行"
+    },
+    "halt": {
+      "banner": "循环熔断已触发，需人工解除后才能继续",
+      "resume": "解除熔断"
+    }
   }
 }
