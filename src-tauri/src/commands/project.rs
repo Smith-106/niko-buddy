@@ -489,3 +489,146 @@ outline_type: master-outline | volume-outline | chapter-outline
 ```
 "#
 }
+
+#[cfg(test)]
+mod migration_tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    /// 每次测试独占的临时项目根（OS tmpdir 不自动清理，测试内自清）。
+    struct TempRoot(PathBuf);
+
+    impl TempRoot {
+        fn new(tag: &str) -> Self {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let dir = std::env::temp_dir().join(format!("niko-migrate-{tag}-{nanos}"));
+            fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+
+        /// 建目录并放一个标记文件，便于断言「搬的是同一份内容」。
+        fn seed(&self, name: &str, marker: &str) {
+            let dir = self.0.join(name);
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("marker.txt"), marker).unwrap();
+        }
+
+        fn has(&self, name: &str) -> bool {
+            self.0.join(name).exists()
+        }
+
+        fn marker(&self, name: &str) -> String {
+            fs::read_to_string(self.0.join(name).join("marker.txt")).unwrap()
+        }
+    }
+
+    impl Drop for TempRoot {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn migrates_all_three_legacy_dirs() {
+        let root = TempRoot::new("all");
+        root.seed(LEGACY_META_DIR, "meta");
+        root.seed(LEGACY_KNOWLEDGE_DIR, "knowledge");
+
+        migrate_project_dirs(root.path()).unwrap();
+
+        assert!(root.has(META_DIR), "旧元数据目录应迁移为 .niko-buddy");
+        assert!(!root.has(LEGACY_META_DIR), "旧元数据目录不应残留");
+        assert!(root.has(KNOWLEDGE_DIR), "wiki 应迁移为 QM");
+        assert!(!root.has(LEGACY_KNOWLEDGE_DIR), "wiki 不应残留");
+        assert_eq!(root.marker(META_DIR), "meta", "迁移应保留内容");
+        assert_eq!(root.marker(KNOWLEDGE_DIR), "knowledge", "迁移应保留内容");
+    }
+
+    #[test]
+    fn noop_when_nothing_to_migrate() {
+        let root = TempRoot::new("empty");
+        // 空根：三步全部跳过，仍返回 Ok（幂等基线）。
+        migrate_project_dirs(root.path()).unwrap();
+        assert!(!root.has(META_DIR));
+        assert!(!root.has(KNOWLEDGE_DIR));
+    }
+
+    #[test]
+    fn never_overwrites_existing_target() {
+        let root = TempRoot::new("conflict");
+        root.seed(META_DIR, "current");
+        root.seed(LEGACY_META_DIR, "legacy");
+        root.seed(KNOWLEDGE_DIR, "current-knowledge");
+        root.seed(LEGACY_KNOWLEDGE_DIR, "legacy-knowledge");
+
+        migrate_project_dirs(root.path()).unwrap();
+
+        // 目标已存在 → 跳过，保留新目录内容，旧目录原样留下（不合并、不删除）。
+        assert_eq!(root.marker(META_DIR), "current", "不得覆盖既有新目录");
+        assert_eq!(root.marker(KNOWLEDGE_DIR), "current-knowledge");
+        assert!(root.has(LEGACY_META_DIR), "冲突时旧目录应保留待人工处理");
+        assert!(root.has(LEGACY_KNOWLEDGE_DIR));
+    }
+
+    #[test]
+    fn is_idempotent_across_repeated_runs() {
+        let root = TempRoot::new("idem");
+        root.seed(LEGACY_META_DIR, "meta");
+        root.seed(LEGACY_KNOWLEDGE_DIR, "knowledge");
+
+        migrate_project_dirs(root.path()).unwrap();
+        // 第二次：源已不存在，全部跳过，仍 Ok。
+        migrate_project_dirs(root.path()).unwrap();
+        migrate_project_dirs(root.path()).unwrap();
+
+        assert_eq!(root.marker(META_DIR), "meta");
+        assert_eq!(root.marker(KNOWLEDGE_DIR), "knowledge");
+    }
+
+    #[test]
+    fn first_legacy_meta_name_wins_when_both_present() {
+        let root = TempRoot::new("twogen");
+        root.seed(LEGACY_META_DIR, "llm-wiki");
+        root.seed(LEGACY_QMAI_DIR, "qmai");
+
+        migrate_project_dirs(root.path()).unwrap();
+
+        // 顺序即优先级：.llm-wiki 先迁到 .niko-buddy，.qmai 因目标已存在而跳过。
+        assert_eq!(root.marker(META_DIR), "llm-wiki", "先到先得");
+        assert!(root.has(LEGACY_QMAI_DIR), "后到的旧目录应保留待人工处理");
+    }
+
+    #[test]
+    fn qmai_dir_migrates_when_llm_wiki_absent() {
+        let root = TempRoot::new("qmai");
+        root.seed(LEGACY_QMAI_DIR, "qmai");
+
+        migrate_project_dirs(root.path()).unwrap();
+
+        assert_eq!(root.marker(META_DIR), "qmai");
+        assert!(!root.has(LEGACY_QMAI_DIR));
+    }
+
+    /// 目标路径被同名文件占用时走跳过分支（exists() 为真），不报错、不覆盖。
+    ///
+    /// 未覆盖分支：fs::rename 真正失败时的中文错误串。构造该失败需要跨盘/独占句柄
+    /// 等环境相关条件，跨平台不稳定，故不伪造；错误串格式由 rename_dir_if_safe
+    /// 的 map_err 单点保证。
+    #[test]
+    fn skips_when_target_path_is_occupied_by_a_file() {
+        let root = TempRoot::new("occupied");
+        root.seed(LEGACY_KNOWLEDGE_DIR, "k");
+        // 目标位置放一个同名文件：exists() 为真 → 走跳过分支，不报错。
+        fs::write(root.path().join(KNOWLEDGE_DIR), b"blocker").unwrap();
+        migrate_project_dirs(root.path()).unwrap();
+        assert!(root.has(LEGACY_KNOWLEDGE_DIR), "目标被占用时应跳过而非报错");
+    }
+}
