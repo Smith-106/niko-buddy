@@ -260,6 +260,7 @@ function WritingTextarea({
             className="rounded-full px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => triggerSelectionAction("de-ai")}
+            aria-label="去AI味"
           >
             去AI味
           </button>
