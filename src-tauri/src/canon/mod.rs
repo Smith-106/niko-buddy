@@ -14,4 +14,5 @@ pub mod search_scoring;
 pub mod store;
 pub mod store_state;
 pub mod types;
+pub mod types_query;
 pub mod write_authority;
