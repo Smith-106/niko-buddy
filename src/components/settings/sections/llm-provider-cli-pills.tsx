@@ -63,6 +63,7 @@ export function ClaudeCliStatusPill() {
           onClick={() => void detect()}
           className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           disabled={state === "loading"}
+          aria-label={state === "loading" ? t("settings.sections.llm.cliStatus.checking") : t("settings.sections.llm.cliStatus.recheck")}
         >
           {state === "loading"
             ? t("settings.sections.llm.cliStatus.checking")
@@ -170,6 +171,7 @@ export function CodexCliStatusPill() {
           onClick={() => void detect()}
           className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           disabled={state === "loading"}
+          aria-label={state === "loading" ? t("settings.sections.llm.cliStatus.checking") : t("settings.sections.llm.cliStatus.recheck")}
         >
           {state === "loading"
             ? t("settings.sections.llm.cliStatus.checking")
@@ -272,6 +274,7 @@ export function AntigravityCliStatusPill() {
           onClick={() => void detect()}
           className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           disabled={state === "loading"}
+          aria-label={state === "loading" ? t("settings.sections.llm.cliStatus.checking") : t("settings.sections.llm.cliStatus.recheck")}
         >
           {state === "loading"
             ? t("settings.sections.llm.cliStatus.checking")
@@ -398,6 +401,7 @@ export function CursorProxyStatusBadge() {
           onClick={() => void refresh()}
           className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           disabled={state === "loading"}
+          aria-label={state === "loading" ? t("settings.sections.llm.cliStatus.checking") : t("settings.sections.llm.cliStatus.recheck")}
         >
           {state === "loading"
             ? t("settings.sections.llm.cliStatus.checking")
