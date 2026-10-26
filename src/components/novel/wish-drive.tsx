@@ -326,7 +326,22 @@ export function WishDrive({ profile, characterName, className, onOpenCanonEditor
             <dl className="mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
               <div>
                 <dt className="inline text-muted-foreground">{t("novel.wishMotive")}</dt>
-                <dd className="inline">{nonBlank(profile.motive).join("、") || "—"}</dd>
+                <dd className="inline">
+                  {nonBlank(profile.motive)?.length ? (
+                    <span className="inline-flex flex-wrap items-center gap-1">
+                      {nonBlank(profile.motive)?.map((m, i) => (
+                        <span
+                          key={`${m}-${i}`}
+                          className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-foreground"
+                        >
+                          {m}
+                        </span>
+                      ))}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </dd>
               </div>
               <div>
                 <dt className="inline text-muted-foreground">{t("novel.wishActionEvidence")}</dt>
