@@ -7,6 +7,7 @@
 
 pub mod archive;
 pub mod commands;
+pub mod commands_core;
 pub mod export;
 pub mod export_fs;
 pub mod search;
