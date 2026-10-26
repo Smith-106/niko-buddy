@@ -88,6 +88,7 @@ export function BriefingPanel({ digest, canonClaims = [], onWritePatch }: Briefi
                   type="button"
                   data-testid={`briefing-source-${line.id}`}
                   className="rounded border px-1 text-xs opacity-70"
+                  aria-label={t("briefing.source.badge")}
                   onClick={() =>
                     setSourceOpen((prev) => (prev === line.id ? null : line.id))
                   }
@@ -136,6 +137,7 @@ export function BriefingPanel({ digest, canonClaims = [], onWritePatch }: Briefi
           type="button"
           data-testid="briefing-patch-write"
           disabled={!patchOptIn || !onWritePatch || patchState === "busy"}
+          aria-label="write"
           onClick={() => {
             if (!onWritePatch) return;
             setPatchState("busy");
