@@ -602,10 +602,16 @@ export function ProcessDebugPanel({
                       </span>
                       <span> 可见事件 {agent.visibleEventCount ?? 0} 条</span>
                       {agent.recentEvents && agent.recentEvents.length > 0 && (
-                        <div className="mt-0.5 max-h-12 overflow-y-auto text-xs text-muted-foreground">
-                          {agent.recentEvents
-                            .map((event) => event.id)
-                            .join("、")}
+                        <div className="mt-0.5 flex max-h-12 flex-wrap gap-1 overflow-y-auto">
+                          {agent.recentEvents.map((event) => (
+                            <span
+                              key={event.id}
+                              title={event.id}
+                              className="inline-flex max-w-[160px] items-center truncate rounded-full border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground"
+                            >
+                              {event.id}
+                            </span>
+                          ))}
                         </div>
                       )}
                     </div>
