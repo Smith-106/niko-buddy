@@ -657,6 +657,7 @@ function CustomProviderCardItem({
                 type="button"
                 onClick={() => void loadModelOptions()}
                 disabled={modelListState?.loading || modelTestState?.loading}
+                aria-label={modelListState?.loading ? t("settings.sections.llm.loadingModels") : t("settings.sections.llm.fetchModels")}
                 className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {modelListState?.loading
@@ -671,6 +672,7 @@ function CustomProviderCardItem({
                   modelTestState?.loading ||
                   (card.savedModels.length === 0 && !manualModelInput.trim())
                 }
+                aria-label={modelTestState?.loading ? t("settings.sections.shared.testing") : t("settings.sections.shared.testModel")}
                 className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {modelTestState?.loading
