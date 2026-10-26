@@ -790,6 +790,7 @@ export function GraphView() {
                         data-testid={`graph-focus-depth-${d}`}
                         className={`rounded-full px-2 py-0.5 ${focusDepth === d ? "bg-background font-medium text-foreground elevation-1" : "text-muted-foreground hover:text-foreground"}`}
                         onClick={() => setFocusDepth(d)}
+                        aria-label={d === 1 ? t("graph.oneHop", { defaultValue: "1跳" }) : t("graph.twoHops", { defaultValue: "2跳" })}
                       >
                         {d === 1 ? t("graph.oneHop", { defaultValue: "1跳" }) : t("graph.twoHops", { defaultValue: "2跳" })}
                       </button>
