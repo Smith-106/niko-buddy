@@ -22,6 +22,7 @@ pub mod power;
 pub mod project;
 pub mod secret_store;
 pub mod skill_bundle;
+pub mod skill_bundle_manifest;
 pub mod sync_target;
 pub mod sync_target_decision;
 pub mod vectorstore;
