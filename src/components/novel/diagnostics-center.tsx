@@ -180,7 +180,17 @@ function HealthItemRow({
       ) : null}
       {manual.length > 0 ? (
         <p className="mt-1 text-xs text-muted-foreground">
-          需手动处理：{manual.map((a) => a.label).join("；")}
+          需手动处理：
+          <span className="inline-flex flex-wrap items-center gap-1">
+            {manual?.map((a) => (
+              <span
+                key={a.id}
+                className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-foreground"
+              >
+                {a.label}
+              </span>
+            ))}
+          </span>
         </p>
       ) : null}
     </div>
@@ -294,9 +304,45 @@ function BundleSection({
         </p>
       ) : (
         <div data-testid="bundle-preview" className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-          <p>将包含：{preview.included.join("；")}</p>
-          <p>将排除：{preview.excluded.join("；")}</p>
-          <p>已脱敏：{preview.sanitizedFields.join("；")}</p>
+          <p>
+            将包含：
+            <span className="inline-flex flex-wrap items-center gap-1">
+              {preview.included?.map((s, i) => (
+                <span
+                  key={`${s}-${i}`}
+                  className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-foreground"
+                >
+                  {s}
+                </span>
+              ))}
+            </span>
+          </p>
+          <p>
+            将排除：
+            <span className="inline-flex flex-wrap items-center gap-1">
+              {preview.excluded?.map((s, i) => (
+                <span
+                  key={`${s}-${i}`}
+                  className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-foreground"
+                >
+                  {s}
+                </span>
+              ))}
+            </span>
+          </p>
+          <p>
+            已脱敏：
+            <span className="inline-flex flex-wrap items-center gap-1">
+              {preview.sanitizedFields?.map((s, i) => (
+                <span
+                  key={`${s}-${i}`}
+                  className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-foreground"
+                >
+                  {s}
+                </span>
+              ))}
+            </span>
+          </p>
           <p>
             保存位置：{preview.targetPath}（约 {preview.approxBytes} 字节）
           </p>
