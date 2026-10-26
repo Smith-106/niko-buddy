@@ -192,6 +192,7 @@ export function CanonRevisionViewer({
             onClick={() => void load()}
             disabled={loading}
             data-testid="revision-refresh"
+            aria-label={t("canon.common.refresh")}
           >
             {t("canon.common.refresh")}
           </button>
@@ -200,6 +201,7 @@ export function CanonRevisionViewer({
             className="h-8 rounded-md border bg-background px-3 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             onClick={toggleCompare}
             data-testid="revision-compare-toggle"
+            aria-label={compareMode ? t("canon.revisionDiff.toggleOff") : t("canon.revisionDiff.toggleOn")}
           >
             {compareMode
               ? t("canon.revisionDiff.toggleOff")
