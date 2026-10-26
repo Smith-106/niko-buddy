@@ -721,7 +721,7 @@ vi.mock("@/components/ui/dialog", () => ({
       <div data-testid="dialog">
         {children}
         {onOpenChange && (
-          <button type="button" data-testid="dialog-close" onClick={() => onOpenChange(false)}>
+          <button type="button" data-testid="dialog-close" onClick={() => onOpenChange(false)} aria-label="close-dialog">
             close-dialog
           </button>
         )}
@@ -774,27 +774,27 @@ vi.mock("./chat-message", () => ({
     >
       <div data-testid="chat-message-content">{message.content}</div>
       {onRegenerate && (
-        <button data-testid="regenerate" onClick={onRegenerate}>
+        <button data-testid="regenerate" onClick={onRegenerate} aria-label="regenerate">
           regenerate
         </button>
       )}
       {onSaveAsChapter && (
-        <button data-testid="save-as-chapter" onClick={() => onSaveAsChapter(message.content)}>
+        <button data-testid="save-as-chapter" onClick={() => onSaveAsChapter(message.content)} aria-label="save-as-chapter">
           save-as-chapter
         </button>
       )}
       {onDiscardDraft && (
-        <button data-testid="discard-draft" onClick={onDiscardDraft}>
+        <button data-testid="discard-draft" onClick={onDiscardDraft} aria-label="discard-draft">
           discard-draft
         </button>
       )}
       {onContinueNextChapter && (
-        <button data-testid="continue-next-chapter" onClick={onContinueNextChapter}>
+        <button data-testid="continue-next-chapter" onClick={onContinueNextChapter} aria-label="continue-next-chapter">
           continue-next-chapter
         </button>
       )}
       {onContinueUnfinished && (
-        <button data-testid="continue-unfinished" onClick={onContinueUnfinished}>
+        <button data-testid="continue-unfinished" onClick={onContinueUnfinished} aria-label="continue-unfinished">
           continue-unfinished
         </button>
       )}
@@ -817,10 +817,10 @@ vi.mock("./chat-input", () => ({
             onChange={(e) => setValue(e.target.value)}
             placeholder={placeholder}
           />
-          <button data-testid="chat-send" onClick={() => onSend(value)}>
+          <button data-testid="chat-send" onClick={() => onSend(value)} aria-label="send">
             send
           </button>
-          <button data-testid="chat-stop" onClick={onStop}>
+          <button data-testid="chat-stop" onClick={onStop} aria-label="stop">
             stop
           </button>
           <div data-testid="chat-input-footer">{footerControls}</div>
