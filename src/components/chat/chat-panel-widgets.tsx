@@ -77,6 +77,7 @@ export function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: st
           size="sm"
           className="shrink-0 gap-2 rounded-full"
           onClick={() => createConversation()}
+          aria-label={t(novelMode ? "novel.chat.newChat" : "chat.newChat")}
         >
           <Plus className="h-3.5 w-3.5 shrink-0" />
           {t(novelMode ? "novel.chat.newChat" : "chat.newChat")}
