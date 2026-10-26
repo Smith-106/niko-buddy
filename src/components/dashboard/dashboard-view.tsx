@@ -652,6 +652,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
             void runAiRewrite(item)
           }}
           disabled={isRewriting}
+          aria-label={isRewriting ? t("dashboard.actions.rewriting") : t("dashboard.actions.aiRewrite")}
           className="inline-flex min-h-6 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isRewriting && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />}
