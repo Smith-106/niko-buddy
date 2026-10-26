@@ -51,20 +51,25 @@
 //!   直测。
 
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
-use walkdir::WalkDir;
-use zip::result::ZipError;
-use zip::write::SimpleFileOptions;
-use zip::{AesMode, CompressionMethod, ZipArchive, ZipWriter};
+use zip::{AesMode, ZipArchive, ZipWriter};
 
 use crate::commands::backup::BackupProgressPayload;
 use crate::panic_guard::run_guarded;
+
+// M4-1：文件底层原语已剥离至 `export_fs.rs`——fs_archive 模式：新文件 + 原文件 re-export，外部 import 面零变化。
+pub(crate) use super::export_fs::{
+    ComponentRoots, base_opts, compute_content_digest_from_disk, copy_and_hash,
+    enumerate_entries, err_ctx, hex, normalize_pass, now_stamp, read_entry_bytes,
+    safe_staging_target, sanitize_reason, sidecar_path, staged_roots, stream_file_sha256,
+    unique_suffix, DRAFTS_REL, LANCEDB_REL, STATUS_REL,
+};
 
 // ──────────────────────────────────────────────────────────────────────────
 // 常量（zip 布局 + 项目相对路径）
@@ -72,19 +77,6 @@ use crate::panic_guard::run_guarded;
 
 /// manifest 条目名（zip 内）。
 const MANIFEST_ENTRY: &str = "manifest.json";
-/// status.json 在 zip 内的前缀。
-const STATUS_PREFIX: &str = "status/";
-/// 草稿目录在 zip 内的前缀（映射 `{project}/.novel/drafts`）。
-const DRAFTS_PREFIX: &str = "drafts/";
-/// Canon LanceDB 快照在 zip 内的前缀（映射 `{project}/.niko-buddy/lancedb`）。
-const LANCEDB_PREFIX: &str = "canon-lancedb/";
-
-/// 会话状态唯一真源（HARD-1）：`.novel/status.json`。
-const STATUS_REL: &str = ".novel/status.json";
-/// 草稿工件目录。
-const DRAFTS_REL: &str = ".novel/drafts";
-/// Canon LanceDB 库目录（与 `canon::store::db_path` 同源）。
-const LANCEDB_REL: &str = ".niko-buddy/lancedb";
 
 /// 自动备份落点：`{project}/backups/auto/`。
 const AUTO_BACKUP_DIR: &str = "backups/auto";
@@ -267,179 +259,6 @@ struct ManifestComponents {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// 小工具
-// ──────────────────────────────────────────────────────────────────────────
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// 本地时间戳（文件名安全）：`YYYYMMDD-HHMMSS`。
-fn now_stamp() -> String {
-    chrono::Local::now().format("%Y%m%d-%H%M%S").to_string()
-}
-
-/// 高精度唯一后缀，避免同一秒内多个操作的命名碰撞。
-fn unique_suffix() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    format!("{}-{}", now_stamp(), nanos)
-}
-
-/// 归一化 reason 为文件名安全段：非 [a-zA-Z0-9_-] 一律替换为 '-'。
-fn sanitize_reason(reason: &str) -> String {
-    let cleaned: String = reason
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let trimmed = cleaned.trim_matches('-').to_string();
-    if trimmed.is_empty() {
-        "unspecified".into()
-    } else {
-        trimmed
-    }
-}
-
-/// 规范化为 zip 内正斜杠路径。
-fn to_zip_path(p: &Path) -> String {
-    p.to_string_lossy().replace('\\', "/")
-}
-
-fn normalize_pass(passphrase: &Option<String>) -> Option<String> {
-    match passphrase {
-        Some(p) if !p.trim().is_empty() => Some(p.clone()),
-        _ => None,
-    }
-}
-
-fn err_ctx(prefix: &str, e: impl std::fmt::Display) -> String {
-    format!("{prefix}: {e}")
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-// 组件枚举（pack 与 verify 共用同一套顺序，保证 content digest 逐字节一致）
-// ──────────────────────────────────────────────────────────────────────────
-
-/// 三组件在磁盘上的根（None = 该组件不存在）。
-struct ComponentRoots {
-    status: Option<PathBuf>,
-    drafts: Option<PathBuf>,
-    lancedb: Option<PathBuf>,
-}
-
-impl ComponentRoots {
-    fn from_project(project: &Path) -> Self {
-        let status = project.join(STATUS_REL);
-        let drafts = project.join(DRAFTS_REL);
-        let lancedb = project.join(LANCEDB_REL);
-        ComponentRoots {
-            status: status.is_file().then_some(status),
-            drafts: drafts.is_dir().then_some(drafts),
-            lancedb: lancedb.is_dir().then_some(lancedb),
-        }
-    }
-}
-
-/// 枚举一个组件目录下的全部文件 → (zip 内路径, 磁盘路径)，按 zip 路径排序。
-fn enumerate_dir(root: &Path, zip_prefix: &str) -> Vec<(String, PathBuf)> {
-    let mut out: Vec<(String, PathBuf)> = Vec::new();
-    for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        let rel = match entry.path().strip_prefix(root) {
-            Ok(r) => r.to_path_buf(),
-            Err(_) => continue,
-        };
-        let name = format!("{zip_prefix}{}", to_zip_path(&rel));
-        out.push((name, entry.path().to_path_buf()));
-    }
-    out.sort_by(|a, b| a.0.cmp(&b.0));
-    out
-}
-
-/// 全部数据条目（status → drafts → lancedb 组内有序）。
-fn enumerate_entries(roots: &ComponentRoots) -> Vec<(String, PathBuf)> {
-    let mut all = Vec::new();
-    if let Some(s) = &roots.status {
-        all.push((format!("{STATUS_PREFIX}status.json"), s.clone()));
-    }
-    if let Some(d) = &roots.drafts {
-        all.extend(enumerate_dir(d, DRAFTS_PREFIX));
-    }
-    if let Some(l) = &roots.lancedb {
-        all.extend(enumerate_dir(l, LANCEDB_PREFIX));
-    }
-    all
-}
-
-/// 流式读取文件：同时喂给 zip writer 和 per-file hasher，返回 (len, hex)。
-///
-/// 单遍完成「写入 + 摘要」，大文件不驻留内存。
-fn copy_and_hash(
-    file: &mut fs::File,
-    sink: &mut ZipWriter<fs::File>,
-) -> Result<(u64, String), String> {
-    let mut hasher = Sha256::new();
-    let mut len: u64 = 0;
-    let mut buf = vec![0u8; 128 * 1024];
-    loop {
-        let n = file
-            .read(&mut buf)
-            .map_err(|e| err_ctx("读取源文件失败", e))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-        sink.write_all(&buf[..n])
-            .map_err(|e| err_ctx("写入 zip 失败", e))?;
-        len += n as u64;
-    }
-    Ok((len, hex(&hasher.finalize())))
-}
-
-/// 流式计算单文件 SHA-256（不驻留整文件内存），返回 (len, hex)。
-fn hash_file(path: &Path) -> Result<(u64, String), String> {
-    let mut f = fs::File::open(path)
-        .map_err(|e| err_ctx(format!("打开 {} 失败", path.display()).as_str(), e))?;
-    let mut hasher = Sha256::new();
-    let mut len: u64 = 0;
-    let mut buf = vec![0u8; 128 * 1024];
-    loop {
-        let n = f.read(&mut buf).map_err(|e| err_ctx("读取文件失败", e))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-        len += n as u64;
-    }
-    Ok((len, hex(&hasher.finalize())))
-}
-
-/// 从磁盘条目集计算内容层摘要（verify 用；记录格式必须与 pack 侧完全一致）。
-fn compute_content_digest_from_disk(entries: &[(String, PathBuf)]) -> Result<String, String> {
-    let mut digest = Sha256::new();
-    for (name, path) in entries {
-        let (len, file_hex) = hash_file(path)?;
-        digest.update(name.as_bytes());
-        digest.update(b"\0");
-        digest.update(&len.to_le_bytes());
-        digest.update(b"\0");
-        digest.update(file_hex.as_bytes());
-        digest.update(b"\n");
-    }
-    Ok(hex(&digest.finalize()))
-}
-
-// ──────────────────────────────────────────────────────────────────────────
 // TASK-004 薄适配：向块寻址原语（canon::archive）暴露单项目根
 //
 // 本模块的容器层 / 内容层二层校验面向 **zip 容器**（.sha256 sidecar + 包内
@@ -471,10 +290,6 @@ struct PackOutcome {
     total_size: u64,
     checksum_hex: String,
     warnings: Vec<String>,
-}
-
-fn base_opts() -> SimpleFileOptions {
-    SimpleFileOptions::default().compression_method(CompressionMethod::Deflated)
 }
 
 /// 把项目三组件打成 zip + 写 `.sha256` sidecar。
@@ -583,28 +398,6 @@ fn pack_project(
     })
 }
 
-fn stream_file_sha256(path: &Path) -> Result<String, String> {
-    let mut f = fs::File::open(path).map_err(|e| err_ctx("打开文件计算 SHA-256 失败", e))?;
-    let mut h = Sha256::new();
-    let mut buf = vec![0u8; 128 * 1024];
-    loop {
-        let n = f
-            .read(&mut buf)
-            .map_err(|e| err_ctx("读取文件计算 SHA-256 失败", e))?;
-        if n == 0 {
-            break;
-        }
-        h.update(&buf[..n]);
-    }
-    Ok(hex(&h.finalize()))
-}
-
-fn sidecar_path(zip_path: &Path) -> PathBuf {
-    let mut s = zip_path.as_os_str().to_os_string();
-    s.push(".sha256");
-    PathBuf::from(s)
-}
-
 /// 写标准 `sha256sum` 行格式：`<hex>  <filename>`。
 ///
 /// TASK-005 技能包复用同一 sidecar 范式（`<bundle>.sha256` 存 manifest sha256）。
@@ -632,31 +425,6 @@ pub(crate) fn parse_sidecar_checksum(zip_path: &Path) -> Option<String> {
 // 解包 / 校验核心
 // ──────────────────────────────────────────────────────────────────────────
 
-/// 解密感知地读取 zip 内指定条目为字节（AES 口令可选）。
-fn read_entry_bytes(
-    archive: &mut ZipArchive<fs::File>,
-    index: usize,
-    pass: Option<&str>,
-) -> Result<Vec<u8>, String> {
-    let mut zf = match pass {
-        Some(p) => archive
-            .by_index_decrypt(index, p.as_bytes())
-            .map_err(map_zip_read_err)?,
-        None => archive.by_index(index).map_err(map_zip_read_err)?,
-    };
-    let mut buf = Vec::new();
-    zf.read_to_end(&mut buf)
-        .map_err(|e| format!("解压读取失败: {e}"))?;
-    Ok(buf)
-}
-
-fn map_zip_read_err(e: ZipError) -> String {
-    match &e {
-        ZipError::InvalidPassword => "密码错误或文件损坏".to_string(),
-        other => format!("读取 zip 失败: {other}"),
-    }
-}
-
 /// 容器层校验：有期望值用期望值，否则找 sidecar；都没有返回 None（降级）。
 fn compare_container_checksum(
     zip_path: &Path,
@@ -672,63 +440,6 @@ fn compare_container_checksum(
         expected_norm.map(|exp| exp == actual.to_lowercase()),
         actual,
     ))
-}
-
-/// staging 内三组件根（从解压产物构造）。
-fn staged_roots(staging: &Path) -> ComponentRoots {
-    let status = staging.join("status").join("status.json");
-    let drafts = staging.join("drafts");
-    let lancedb = staging.join("canon-lancedb");
-    ComponentRoots {
-        status: status.is_file().then_some(status),
-        drafts: drafts.is_dir().then_some(drafts),
-        lancedb: lancedb.is_dir().then_some(lancedb),
-    }
-}
-
-/// Zip-Slip 防护的安全目标路径拼接（逐 component 走，拒绝逃逸）。
-/// 返回 None 表示该条目应跳过（不属于任何已知组件前缀）。
-fn safe_staging_target(
-    staging_canonical: &Path,
-    entry_name: &str,
-) -> Result<Option<PathBuf>, String> {
-    let (prefix, component) = if entry_name.starts_with(STATUS_PREFIX) {
-        (STATUS_PREFIX, "status")
-    } else if entry_name.starts_with(DRAFTS_PREFIX) {
-        (DRAFTS_PREFIX, "drafts")
-    } else if entry_name.starts_with(LANCEDB_PREFIX) {
-        (LANCEDB_PREFIX, "canon-lancedb")
-    } else {
-        return Ok(None);
-    };
-
-    let relative = entry_name[prefix.len()..].trim_start_matches('/');
-    if relative.is_empty() {
-        return Ok(None);
-    }
-
-    let mut dest = staging_canonical.join(component);
-    for comp in Path::new(relative).components() {
-        match comp {
-            std::path::Component::ParentDir => {
-                dest.pop();
-                if !dest.starts_with(staging_canonical) {
-                    return Err(format!(
-                        "安全拦截：zip 条目 \"{entry_name}\" 试图写入目标目录之外的位置"
-                    ));
-                }
-            }
-            std::path::Component::CurDir => {}
-            other => dest.push(other),
-        }
-    }
-    if !dest.starts_with(staging_canonical) {
-        return Err(format!(
-            "安全拦截：zip 条目 \"{entry_name}\" 试图写入目标目录之外的位置 {}",
-            dest.display()
-        ));
-    }
-    Ok(Some(dest))
 }
 
 /// 校验后的 staging 结果。

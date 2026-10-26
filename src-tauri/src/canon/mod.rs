@@ -8,6 +8,7 @@
 pub mod archive;
 pub mod commands;
 pub mod export;
+pub mod export_fs;
 pub mod search;
 pub mod search_scoring;
 pub mod store;
