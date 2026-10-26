@@ -46,7 +46,10 @@ function DoctorFindings({ report }: { readonly report: DoctorReport }) {
       )}
       {ok.length > 0 ? (
         <p className="text-xs text-muted-foreground">
-          {ok.length} 项正常：{ok.map((finding) => finding.name).join("、")}
+          {ok.length} 项正常：
+          {ok?.map((finding, i) => (
+            <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground mr-1 mb-1">{finding.name}</span>
+          ))}
         </p>
       ) : null}
     </div>
