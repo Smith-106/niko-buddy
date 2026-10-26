@@ -379,6 +379,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
         <button
           type="button"
           onClick={() => setShowSupport((v) => !v)}
+          aria-label={showSupport ? t("heatmap.hideSupport") : t("heatmap.showSupport")}
           data-testid="heatmap-toggle-support"
           className="h-7 rounded-md border px-2 text-xs text-muted-foreground"
         >
