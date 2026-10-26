@@ -87,7 +87,7 @@ export function WritingSkillLibrarySidebarPanel() {
   )
 
   const categoryIds = useMemo(
-    () => config?.categories.map((cat) => cat.id) ?? [],
+    () => (config?.categories ?? []).map((cat) => cat.id),
     [config?.categories],
   )
 
@@ -299,8 +299,8 @@ export function WritingSkillLibrarySidebarPanel() {
           onDragEnd={handleDragEnd}
         >
           <SortableContext items={categoryIds} strategy={verticalListSortingStrategy}>
-            {config?.categories.map((category) => {
-              const count = config.skills.filter((s) => s.categoryId === category.id).length
+            {(config?.categories ?? []).map((category) => {
+              const count = (config?.skills ?? []).filter((s) => s.categoryId === category.id).length
               const isEditing = editingCategoryId === category.id
               const isHovered = hoveredCategoryId === category.id
               return (
