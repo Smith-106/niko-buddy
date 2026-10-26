@@ -713,8 +713,19 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                                   <div className="flex-1 min-w-0">
                                     <div className="font-medium min-w-0 truncate">{character.name}</div>
                                     {character.aliases.length > 0 && (
-                                      <div className="text-xs text-muted-foreground mt-1 min-w-0 truncate">
-                                        别名：{character.aliases.join("、")}
+                                      <div className="text-xs text-muted-foreground mt-1 min-w-0">
+                                        <span>别名：</span>
+                                        <span className="inline-flex flex-wrap items-center gap-1">
+                                          {character.aliases?.map((a, i) => (
+                                            <span
+                                              key={`${a}-${i}`}
+                                              className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-foreground"
+                                            >
+                                              {a}
+                                            </span>
+                                          ))}
+                                        </span>
+                                        <span className="sr-only">{`别名：${character.aliases?.join("、")}`}</span>
                                       </div>
                                     )}
                                   </div>
@@ -817,7 +828,18 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                       <h3 className="text-2xl font-bold">{selectedCharacter.name}</h3>
                       {selectedCharacter.aliases.length > 0 && (
                         <p className="text-muted-foreground mt-1">
-                          别名：{selectedCharacter.aliases.join("、")}
+                          <span>别名：</span>
+                          <span className="inline-flex flex-wrap items-center gap-1">
+                            {selectedCharacter.aliases?.map((a, i) => (
+                              <span
+                                key={`${a}-${i}`}
+                                className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-foreground"
+                              >
+                                {a}
+                              </span>
+                            ))}
+                          </span>
+                          <span className="sr-only">{`别名：${selectedCharacter.aliases?.join("、")}`}</span>
                         </p>
                       )}
                     </div>
