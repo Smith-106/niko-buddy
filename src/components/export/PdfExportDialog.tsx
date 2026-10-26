@@ -128,6 +128,7 @@ export function PdfExportDialog({ projectPath, title, paragraphs, chapterPath }:
         type="button"
         data-testid="pdfexport-submit"
         disabled={targetIssue !== null || paragraphs.length === 0 || busy}
+        aria-label={busy ? t("pdfexport.submit.busy") : t("pdfexport.submit")}
         onClick={() => void run()}
       >
         {busy ? t("pdfexport.submit.busy") : t("pdfexport.submit")}
