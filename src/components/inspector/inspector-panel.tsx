@@ -109,7 +109,7 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
       setSnapshot(next)
     } catch (err) {
       // PAT-DC1: queryInspectorState 已脱敏 message（防 provider detail 泄露），
-      // 故可安全展示给用户。此前静默 catch{} 让 fetch 失败显示陈旧数据或误判无数据。
+      // 故可安全展示给用户。此前静默吞错让 fetch 失败显示陈旧数据或误判无数据。
       setError(formatOperationError(t, err))
     } finally {
       setLoading(false)
