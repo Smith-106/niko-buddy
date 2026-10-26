@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useCallback, useRef, useMemo, useState, useLayoutEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, MoreHorizontal, X } from "lucide-react"
+import { Check, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel, isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus, resolveReviewModel, buildDeAiRewriteMessages, acceptAllDeAiBatchDrafts, acceptDeAiBatchDraft, loadDeAiBatchState, rejectDeAiBatchDraft, runDeAiBatch, startOutlineIngestTask } from "@/lib/novel"
 import type { DeAiBatchProgress, DeAiBatchSummary } from "@/lib/novel"
@@ -47,7 +47,7 @@ import {
   type ChapterSelectionAction,
 } from "@/lib/chapter-selection"
 import { ChapterEmptyState } from "./chapter-empty-state"
-import { InspectorPanel } from "@/components/inspector/inspector-panel"
+import { ChapterToolbarHeader } from "./preview-chapter-toolbar"
 import { toErrorMessage } from "@/lib/utils"
 
 const SnapshotViewer = lazy(async () => {
@@ -1180,393 +1180,62 @@ export function PreviewPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b px-3 py-1.5">
-        <div ref={chapterToolbarRef} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          {/* ui-audit-20261016：标题组旧下限 9rem 太窄——实测标题输入框 inline 宽度
-              148px 被 flex shrink 压到 98px（章节名显示为 “chapt…”），而右侧 12 个次级按钮
-              占满整行。下限提到 16rem 并让输入框不自缩，空间不够时工具条换行（容器已 flex-wrap）。 */}
-          <div className="relative flex min-w-[16rem] max-w-full flex-1 items-center gap-1 overflow-hidden">
-            {chapterHeader ? (
-              <>
-                <span
-                  ref={titleMeasureRef}
-                  aria-hidden="true"
-                  className="pointer-events-none absolute left-0 top-0 whitespace-pre border-0 p-0 text-2xl font-bold leading-10 opacity-0"
-                  style={{ fontFamily: "inherit" }}
-                >
-                  {chapterTitleMeasureText}
-                </span>
-                <input
-                  type="text"
-                  value={chapterTitleDraft}
-                  onFocus={() => {
-                    setChapterTitleEditing(true)
-                    setChapterTitleDraft(chapterDisplayTitle)
-                  }}
-                  onChange={(e) => setChapterTitleDraft(e.target.value)}
-                  onBlur={() => {
-                    void commitChapterTitleDraft()
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                  onKeyDown={(e) => {
-                    e.stopPropagation()
-                    if (e.key === "Enter") {
-                      e.preventDefault()
-                      e.currentTarget.blur()
-                      return
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault()
-                      cancelChapterTitleEditing()
-                      e.currentTarget.blur()
-                    }
-                  }}
-                  className="min-w-[4rem] shrink-0 truncate border-0 bg-transparent p-0 text-2xl font-bold leading-10 text-foreground outline-none"
-                  style={{
-                    width: `${chapterTitleWidthPx}px`,
-                    maxWidth: chapterToolbarCompact ? "12rem" : "min(28rem, 100%)",
-                    fontFamily: "inherit",
-                  }}
-                  title={chapterDisplayTitle}
-                  spellCheck={false}
-                />
-                {chapterMeta}
-              </>
-            ) : null}
-          </div>
-          <div className="relative ml-auto flex shrink-0 items-center justify-end gap-1">
-          {chapterToolbarCompact && hasChapterToolbarActions ? (
-            <div className="relative shrink-0">
-              <button
-                type="button"
-                onClick={() => setChapterToolbarMoreOpen((open) => !open)}
-                className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
-                title={t("preview.moreActions")}
-                aria-label={t("preview.moreActions")}
-                aria-haspopup="menu"
-                aria-expanded={chapterToolbarMoreOpen}
-                aria-controls="preview-chapter-toolbar-menu"
-              >
-                <MoreHorizontal className="h-3.5 w-3.5 shrink-0" />
-              </button>
-              {chapterToolbarMoreOpen ? (
-                <div id="preview-chapter-toolbar-menu" role="menu" className="absolute right-0 top-8 z-30 w-40 rounded-md border bg-popover p-1 text-xs text-popover-foreground elevation-3">
-                  {chapterHeader ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setChapterToolbarMoreOpen(false)
-                        setChatExpanded(getNextChatExpanded(chatExpanded))
-                      }}
-                      className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
-                    >
-                      {chatExpanded ? t("preview.closeChatSession", { defaultValue: "关闭会话栏" }) : t("preview.openChatSession", { defaultValue: "打开会话栏" })}
-                    </button>
-                  ) : null}
-                  {chapterHeader ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setChapterToolbarMoreOpen(false)
-                        void handleDeAiProcess()
-                      }}
-                      disabled={deAiProcessing}
-                      className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {deAiProcessing ? t("preview.deAiProcessing") : t("preview.deAi")}
-                    </button>
-                  ) : null}
-                  {project ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setChapterToolbarMoreOpen(false)
-                        void handleDeAiBatchStart()
-                      }}
-                      disabled={batchRunning || deAiProcessing}
-                      className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {batchRunning ? t("preview.deAiBatchRunning") : t("preview.deAiBatch")}
-                    </button>
-                  ) : null}
-                  {canIngestOutline ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setChapterToolbarMoreOpen(false)
-                        void handleIngestOutline()
-                      }}
-                      disabled={isOutlineIngesting}
-                      className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {isOutlineIngesting ? t("novel.outlineGenerator.ingesting") : outlineIngested ? t("preview.deAiIngested") : t("novel.outlineGenerator.ingest")}
-                    </button>
-                  ) : null}
-                  {canIngestOutline ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setChapterToolbarMoreOpen(false)
-                        setShowUnpackOutlineDialog(true)
-                      }}
-                      className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
-                    >
-                      {t("preview.unpackOutline")}
-                    </button>
-                  ) : null}
-                  {canIngestOutline && outlineIngested && outlineSnapshotNumber !== null ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setChapterToolbarMoreOpen(false)
-                        setShowOutlineSnapshot(true)
-                      }}
-                      className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
-                    >
-                      {t("novel.snapshot.viewButton")}
-                    </button>
-                  ) : null}
-                  {canSaveAsFinal && !alreadyFinal ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setChapterToolbarMoreOpen(false)
-                        void handleSaveAsFinal()
-                      }}
-                      disabled={isFinalChapterSaving}
-                      className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {isFinalChapterSaving ? t("novel.chapter.savingAsFinal") : t("novel.chapter.saveAsCanon")}
-                    </button>
-                  ) : null}
-                  {canSaveAsFinal && alreadyFinal ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setChapterToolbarMoreOpen(false)
-                        void handleReingest()
-                      }}
-                      disabled={isFinalChapterSaving}
-                      className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {isFinalChapterSaving ? t("novel.chapter.savingAsFinal") : t("novel.chapter.reingestButton")}
-                    </button>
-                  ) : null}
-                  {canFormatWriting ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setChapterToolbarMoreOpen(false)
-                        void handleFormatWriting()
-                      }}
-                      className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
-                    >
-                      {t("preview.formatWriting", { defaultValue: "一键排版" })}
-                    </button>
-                  ) : null}
-                  {canViewSnapshot ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setChapterToolbarMoreOpen(false)
-                        setShowSnapshot(true)
-                      }}
-                      className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
-                    >
-                      {t("novel.snapshot.viewButton")}
-                    </button>
-                  ) : null}
-                  {novelMode && project ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setChapterToolbarMoreOpen(false)
-                        setShowCognition(true)
-                      }}
-                      className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
-                    >
-                      {t("novel.cognition.title")}
-                    </button>
-                  ) : null}
-                  {novelMode && project ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setChapterToolbarMoreOpen(false)
-                        setShowPersona(true)
-                      }}
-                      className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
-                    >
-                      {t("novel.persona.title")}
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {!chapterToolbarCompact && chapterHeader ? (
-            <button
-              type="button"
-              onClick={() => setChatExpanded(getNextChatExpanded(chatExpanded))}
-              className={`shrink-0 rounded border border-border px-2 py-1 text-xs hover:bg-accent ${
-                chatExpanded ? "bg-accent text-foreground" : "text-foreground"
-              }`}
-              title={chatExpanded ? t("preview.closeChatSession", { defaultValue: "关闭会话栏" }) : t("preview.openChatSession", { defaultValue: "打开会话栏" })}
-            >
-              {t("preview.chatSession", { defaultValue: "AI会话" })}
-            </button>
-          ) : null}
-          {!chapterToolbarCompact && chapterHeader ? (
-            <div className="relative shrink-0">
-              <button
-                type="button"
-                onClick={() => void handleDeAiProcess()}
-                disabled={deAiProcessing}
-                className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {deAiProcessing ? t("preview.deAiProcessing") : t("preview.deAi")}
-              </button>
-            </div>
-          ) : null}
-          {!chapterToolbarCompact && project ? (
-            <div className="relative shrink-0">
-              <button
-                type="button"
-                onClick={() => void handleDeAiBatchStart()}
-                disabled={batchRunning || deAiProcessing}
-                className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {batchRunning ? t("preview.deAiBatchRunning") : t("preview.deAiBatch")}
-              </button>
-            </div>
-          ) : null}
-          {!chapterToolbarCompact && canIngestOutline ? (
-            <button
-              type="button"
-              onClick={() => void handleIngestOutline()}
-              disabled={isOutlineIngesting}
-              className={`shrink-0 rounded border px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50 ${
-                outlineIngested
-                  ? "border-success/50 text-success hover:bg-success dark:text-success dark:hover:bg-success/30"
-                  : "border-border text-foreground hover:bg-accent"
-              }`}
-              title={outlineIngested ? t("preview.reingestTitleTip") : t("novel.outlineGenerator.ingest")}
-            >
-              {isOutlineIngesting ? t("novel.outlineGenerator.ingesting") : outlineIngested ? t("preview.deAiIngested") : t("novel.outlineGenerator.ingest")}
-            </button>
-          ) : null}
-          {!chapterToolbarCompact && canIngestOutline ? (
-            <button
-              type="button"
-              onClick={() => setShowUnpackOutlineDialog(true)}
-              className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
-              title={t("preview.unpackOutlineTip")}
-            >
-              {t("preview.unpackOutline")}
-            </button>
-          ) : null}
-          {!chapterToolbarCompact && canIngestOutline && outlineIngested && outlineSnapshotNumber !== null ? (
-            <button
-              type="button"
-              onClick={() => setShowOutlineSnapshot(true)}
-              className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
-              title={t("preview.viewSnapshotDetail")}
-            >
-              {t("novel.snapshot.viewButton")}
-            </button>
-          ) : null}
-          {!chapterToolbarCompact && canSaveAsFinal && !alreadyFinal ? (
-            <button
-              type="button"
-              onClick={() => void handleSaveAsFinal()}
-              disabled={isFinalChapterSaving}
-              className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-              title={t("novel.chapter.saveAsCanon")}
-            >
-              {isFinalChapterSaving ? t("novel.chapter.savingAsFinal") : t("novel.chapter.saveAsCanon")}
-            </button>
-          ) : null}
-          {!chapterToolbarCompact && canSaveAsFinal && alreadyFinal ? (
-            <button
-              type="button"
-              onClick={() => void handleReingest()}
-              disabled={isFinalChapterSaving}
-              className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-              title={t("preview.reingestTitle")}
-            >
-              {isFinalChapterSaving ? t("novel.chapter.savingAsFinal") : t("novel.chapter.reingestButton")}
-            </button>
-          ) : null}
-          {!chapterToolbarCompact && canFormatWriting ? (
-            <button
-              type="button"
-              onClick={() => void handleFormatWriting()}
-              className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
-              title={t("preview.formatWritingTitle", { defaultValue: "自动整理正文段落格式，并为段落添加首行缩进" })}
-            >
-              {t("preview.formatWriting", { defaultValue: "一键排版" })}
-            </button>
-          ) : null}
-          {!chapterToolbarCompact && canViewSnapshot ? (
-            <button
-              type="button"
-              onClick={() => setShowSnapshot(true)}
-              className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
-              title={t("preview.snapshotTitle")}
-            >
-              {t("novel.snapshot.viewButton")}
-            </button>
-          ) : null}
-          {!chapterToolbarCompact && novelMode && project ? (
-            <button
-              type="button"
-              onClick={() => setShowCognition(true)}
-              className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
-              title={t("preview.cognitionTitle")}
-            >
-              {t("novel.cognition.title")}
-            </button>
-          ) : null}
-          {!chapterToolbarCompact && novelMode && project ? (
-            <button
-              type="button"
-              onClick={() => setShowPersona(true)}
-              className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
-              title={t("novel.persona.title")}
-            >
-              {t("novel.persona.title")}
-            </button>
-          ) : null}
-          <button
-            aria-label={t("novel.preview.closePreview")}
-            onClick={() => setSelectedFile(null)}
-            className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent"
-          >
-            <X className="h-3.5 w-3.5 shrink-0" />
-          </button>
-          </div>
-        </div>
-        {visibleSaveStatus ? (
-          <div className="mt-1 flex items-center justify-end gap-2 text-right min-w-0">
-            {selectionActionPending ? (
-              <button
-                type="button"
-                onClick={handleSelectionActionCancel}
-                className="shrink-0 rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                {t("preview.cancel")}
-              </button>
-            ) : null}
-            <span className="block truncate text-xs text-muted-foreground min-w-0">
-              {visibleSaveStatus}
-            </span>
-          </div>
-        ) : null}
-        {isSelectedChapter && project ? (
-          <InspectorPanel projectPath={project.path} chapterId={selectedFile} refreshKey={fileContent} />
-        ) : null}
-      </div>
+      <ChapterToolbarHeader
+        toolbarRef={chapterToolbarRef}
+        titleMeasureRef={titleMeasureRef}
+        chapterHeader={chapterHeader}
+        chapterTitleDraft={chapterTitleDraft}
+        chapterDisplayTitle={chapterDisplayTitle}
+        chapterTitleMeasureText={chapterTitleMeasureText}
+        chapterTitleWidthPx={chapterTitleWidthPx}
+        chapterToolbarCompact={chapterToolbarCompact}
+        chapterMeta={chapterMeta}
+        hasChapterToolbarActions={hasChapterToolbarActions}
+        chapterToolbarMoreOpen={chapterToolbarMoreOpen}
+        onToggleMoreOpen={() => setChapterToolbarMoreOpen((open) => !open)}
+        onCloseMoreMenu={() => setChapterToolbarMoreOpen(false)}
+        chatExpanded={chatExpanded}
+        onToggleChat={() => setChatExpanded(getNextChatExpanded(chatExpanded))}
+        deAiProcessing={deAiProcessing}
+        onDeAiProcess={() => void handleDeAiProcess()}
+        hasProject={Boolean(project)}
+        batchRunning={batchRunning}
+        onDeAiBatchStart={() => void handleDeAiBatchStart()}
+        canIngestOutline={canIngestOutline}
+        onIngestOutline={() => handleIngestOutline()}
+        isOutlineIngesting={isOutlineIngesting}
+        outlineIngested={outlineIngested}
+        onOpenUnpackOutline={() => setShowUnpackOutlineDialog(true)}
+        outlineSnapshotNumber={outlineSnapshotNumber}
+        onShowOutlineSnapshot={() => setShowOutlineSnapshot(true)}
+        canSaveAsFinal={canSaveAsFinal}
+        alreadyFinal={alreadyFinal}
+        onSaveAsFinal={() => void handleSaveAsFinal()}
+        onReingest={() => void handleReingest()}
+        isFinalChapterSaving={isFinalChapterSaving}
+        canFormatWriting={canFormatWriting}
+        onFormatWriting={() => void handleFormatWriting()}
+        canViewSnapshot={canViewSnapshot}
+        onShowSnapshot={() => setShowSnapshot(true)}
+        novelMode={novelMode}
+        onShowCognition={() => setShowCognition(true)}
+        onShowPersona={() => setShowPersona(true)}
+        onClosePreview={() => setSelectedFile(null)}
+        onTitleFocus={() => {
+          setChapterTitleEditing(true)
+          setChapterTitleDraft(chapterDisplayTitle)
+        }}
+        onTitleChange={(value) => setChapterTitleDraft(value)}
+        onTitleCommit={() => void commitChapterTitleDraft()}
+        onTitleCancel={() => cancelChapterTitleEditing()}
+        visibleSaveStatus={visibleSaveStatus}
+        selectionActionPending={selectionActionPending}
+        onCancelSelectionAction={handleSelectionActionCancel}
+        showInspector={Boolean(isSelectedChapter && project)}
+        inspectorProjectPath={project?.path ?? ""}
+        inspectorChapterId={selectedFile ?? ""}
+        inspectorRefreshKey={fileContent}
+      />
       <div className={getPreviewContentContainerClass(isSelectedChapter)}>
         {category === "markdown" ? (
           <WikiEditor
