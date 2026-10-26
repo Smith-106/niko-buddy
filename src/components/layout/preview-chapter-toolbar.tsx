@@ -206,6 +206,7 @@ export function ChapterToolbarHeader({
                         onDeAiProcess()
                       }}
                       disabled={deAiProcessing}
+                      aria-label={deAiProcessing ? t("preview.deAiProcessing") : t("preview.deAi")}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {deAiProcessing ? t("preview.deAiProcessing") : t("preview.deAi")}
@@ -219,6 +220,7 @@ export function ChapterToolbarHeader({
                         onDeAiBatchStart()
                       }}
                       disabled={batchRunning || deAiProcessing}
+                      aria-label={batchRunning ? t("preview.deAiBatchRunning") : t("preview.deAiBatch")}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {batchRunning ? t("preview.deAiBatchRunning") : t("preview.deAiBatch")}
@@ -232,6 +234,7 @@ export function ChapterToolbarHeader({
                         onIngestOutline()
                       }}
                       disabled={isOutlineIngesting}
+                      aria-label={isOutlineIngesting ? t("novel.outlineGenerator.ingesting") : outlineIngested ? t("preview.deAiIngested") : t("novel.outlineGenerator.ingest")}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {isOutlineIngesting ? t("novel.outlineGenerator.ingesting") : outlineIngested ? t("preview.deAiIngested") : t("novel.outlineGenerator.ingest")}
@@ -269,6 +272,7 @@ export function ChapterToolbarHeader({
                         onSaveAsFinal()
                       }}
                       disabled={isFinalChapterSaving}
+                      aria-label={isFinalChapterSaving ? t("novel.chapter.savingAsFinal") : t("novel.chapter.saveAsCanon")}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {isFinalChapterSaving ? t("novel.chapter.savingAsFinal") : t("novel.chapter.saveAsCanon")}
@@ -282,6 +286,7 @@ export function ChapterToolbarHeader({
                         onReingest()
                       }}
                       disabled={isFinalChapterSaving}
+                      aria-label={isFinalChapterSaving ? t("novel.chapter.savingAsFinal") : t("novel.chapter.reingestButton")}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {isFinalChapterSaving ? t("novel.chapter.savingAsFinal") : t("novel.chapter.reingestButton")}
@@ -357,6 +362,7 @@ export function ChapterToolbarHeader({
                 type="button"
                 onClick={onDeAiProcess}
                 disabled={deAiProcessing}
+                aria-label={deAiProcessing ? t("preview.deAiProcessing") : t("preview.deAi")}
                 className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {deAiProcessing ? t("preview.deAiProcessing") : t("preview.deAi")}
@@ -369,6 +375,7 @@ export function ChapterToolbarHeader({
                 type="button"
                 onClick={onDeAiBatchStart}
                 disabled={batchRunning || deAiProcessing}
+                aria-label={batchRunning ? t("preview.deAiBatchRunning") : t("preview.deAiBatch")}
                 className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {batchRunning ? t("preview.deAiBatchRunning") : t("preview.deAiBatch")}
