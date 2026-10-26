@@ -22,16 +22,28 @@ const mocks = vi.hoisted(() => {
     isTauri: vi.fn(),
     saveReviewItems: vi.fn(),
     saveChatHistory: vi.fn(),
+    reviewItems: [] as unknown[],
+    chatConvs: [] as unknown[],
+    chatMsgs: [] as unknown[],
+    chatStreaming: {} as Record<string, string>,
   }
 })
 
 vi.mock("@/stores/review-store", () => ({
-  useReviewStore: { subscribe: mocks.subscribeReview },
+  useReviewStore: {
+    subscribe: mocks.subscribeReview,
+    getState: () => ({ items: mocks.reviewItems }),
+  },
 }))
 vi.mock("@/stores/chat-store", () => ({
   useChatStore: {
     subscribe: mocks.subscribeChat,
-    getState: () => ({ maxHistoryMessages: 50 }),
+    getState: () => ({
+      maxHistoryMessages: 50,
+      conversations: mocks.chatConvs,
+      messages: mocks.chatMsgs,
+      streamingContents: mocks.chatStreaming,
+    }),
   },
 }))
 vi.mock("@/stores/wiki-store", async (importOriginal) => {
@@ -39,7 +51,7 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
   return {
     ...actual,
       useWikiStore: { getState: () => ({ project: mocks.getProject() }) },
-    
+
   }
 })
 vi.mock("./persist", () => ({
@@ -49,17 +61,21 @@ vi.mock("./persist", () => ({
 vi.mock("@/lib/platform", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/platform")>()
   return {
-    ...actual, isTauri: () => mocks.isTauri() 
+    ...actual, isTauri: () => mocks.isTauri()
   }
 })
 
-import { setupAutoSave } from "./auto-save"
+import { flushAutoSave, setupAutoSave } from "./auto-save"
 
 beforeEach(() => {
   vi.clearAllMocks()
   vi.useFakeTimers()
   mocks.setReviewListener(null)
   mocks.setChatListener(null)
+  mocks.reviewItems = []
+  mocks.chatConvs = []
+  mocks.chatMsgs = []
+  mocks.chatStreaming = {}
   mocks.subscribeReview.mockImplementation((fn: (state: { items: unknown[] }) => void) => {
     mocks.setReviewListener(fn)
   })
@@ -210,5 +226,102 @@ describe("setupAutoSave", () => {
     await vi.advanceTimersByTimeAsync(2_100)
 
     expect(mocks.saveChatHistory).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("flushAutoSave / pagehide 兜底", () => {
+  function ensureWindowStub(): void {
+    const g = globalThis as unknown as {
+      window?: {
+        addEventListener: typeof EventTarget.prototype.addEventListener
+        removeEventListener: typeof EventTarget.prototype.removeEventListener
+        dispatchEvent: typeof EventTarget.prototype.dispatchEvent
+      }
+    }
+    if (
+      !g.window ||
+      typeof g.window.addEventListener !== "function" ||
+      typeof g.window.dispatchEvent !== "function"
+    ) {
+      const target = new EventTarget()
+      g.window = {
+        addEventListener: target.addEventListener.bind(target),
+        removeEventListener: target.removeEventListener.bind(target),
+        dispatchEvent: target.dispatchEvent.bind(target),
+      }
+    }
+  }
+
+  it("flush立即落盘无需推进定时器", async () => {
+    mocks.getProject.mockReturnValue({ path: "E:/Novel" })
+    mocks.reviewItems = [{ id: "r-flush" }]
+    mocks.chatConvs = [{ id: "c1" }]
+    mocks.chatMsgs = [{ id: "m1" }]
+    mocks.chatStreaming = {}
+    setupAutoSave()
+
+    await flushAutoSave()
+
+    expect(mocks.saveReviewItems).toHaveBeenCalledWith("E:/Novel", [{ id: "r-flush" }])
+    expect(mocks.saveChatHistory).toHaveBeenCalledWith("E:/Novel", [{ id: "c1" }], [{ id: "m1" }], 50)
+  })
+
+  it("pagehide触发flush保存", async () => {
+    ensureWindowStub()
+    mocks.getProject.mockReturnValue({ path: "E:/Novel" })
+    mocks.reviewItems = [{ id: "r-pagehide" }]
+    mocks.chatConvs = [{ id: "c1" }]
+    mocks.chatMsgs = [{ id: "m1" }]
+    mocks.chatStreaming = {}
+    setupAutoSave()
+
+    window.dispatchEvent(new Event("pagehide"))
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(mocks.saveReviewItems).toHaveBeenCalledWith("E:/Novel", [{ id: "r-pagehide" }])
+    expect(mocks.saveChatHistory).toHaveBeenCalledWith("E:/Novel", [{ id: "c1" }], [{ id: "m1" }], 50)
+  })
+
+  it("streaming非空时chat跳过但review仍保存", async () => {
+    mocks.getProject.mockReturnValue({ path: "E:/Novel" })
+    mocks.reviewItems = [{ id: "r1" }]
+    mocks.chatConvs = [{ id: "c1" }]
+    mocks.chatMsgs = [{ id: "m1" }]
+    mocks.chatStreaming = { c1: "partial" }
+
+    await flushAutoSave()
+
+    expect(mocks.saveReviewItems).toHaveBeenCalledWith("E:/Novel", [{ id: "r1" }])
+    expect(mocks.saveChatHistory).not.toHaveBeenCalled()
+  })
+
+  it("无项目路径时flush无保存", async () => {
+    mocks.reviewItems = [{ id: "r1" }]
+    mocks.chatConvs = [{ id: "c1" }]
+    mocks.chatMsgs = [{ id: "m1" }]
+    mocks.chatStreaming = {}
+
+    await flushAutoSave()
+
+    expect(mocks.saveReviewItems).not.toHaveBeenCalled()
+    expect(mocks.saveChatHistory).not.toHaveBeenCalled()
+  })
+
+  it("kill窗口语义：防抖未满即丢、flush兜底可救", async () => {
+    mocks.getProject.mockReturnValue({ path: "E:/Novel" })
+    mocks.chatConvs = [{ id: "c1" }]
+    mocks.chatMsgs = [{ id: "m1" }]
+    mocks.chatStreaming = {}
+    mocks.reviewItems = [{ id: "r1" }]
+    setupAutoSave()
+
+    mocks.chatListener()?.({ streamingContents: {}, conversations: [{ id: "c1" }], messages: [{ id: "m1" }] })
+    await vi.advanceTimersByTimeAsync(1_500)
+    expect(mocks.saveChatHistory).not.toHaveBeenCalled()
+
+    await flushAutoSave()
+    expect(mocks.saveChatHistory).toHaveBeenCalledWith("E:/Novel", [{ id: "c1" }], [{ id: "m1" }], 50)
   })
 })

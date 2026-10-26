@@ -101,6 +101,14 @@ describe("persist chat history", () => {
     expect(loaded.messages).toEqual(baseMessages)
   })
 
+  it("inputDraft随会话快照往返", async () => {
+    const convWithDraft = { ...baseConversation, inputDraft: "未发送草稿" }
+    await saveChatHistory(projectPath, [convWithDraft], baseMessages, 20)
+
+    const loaded = await loadChatHistory(projectPath)
+    expect(loaded.conversations[0]?.inputDraft).toBe("未发送草稿")
+  })
+
   it("serializes overlapping saves so the newer snapshot wins", async () => {
     let releaseFirstWrite!: () => void
     const firstWriteBlocked = new Promise<void>((resolve) => {
