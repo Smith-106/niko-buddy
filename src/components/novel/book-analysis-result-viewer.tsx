@@ -11,7 +11,8 @@ import { User, X, Plus, Feather } from "lucide-react"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { bindCharacterAura, listBindableNovelCharacters, importBookAnalysisSkillsAsAuras, extractSingleCharacter, analyzeWritingStyle, STYLE_DIMENSIONS, upsertWritingStylePreset, setEnabledWritingStyle, getEnabledWritingStyle, resolveModelConfig } from "@/lib/novel"
-import type { ImportedBookAnalysisAura, BookAnalysisResult, BookAnalysisMetadata, ExtractedCharacter, PersonalityProfile } from "@/lib/novel"
+import type { ImportedBookAnalysisAura, BookAnalysisResult, BookAnalysisMetadata, ExtractedCharacter } from "@/lib/novel"
+import { SimpleProfileCard } from "./book-analysis-simple-profile-card"
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
 import { refreshProjectState } from "@/lib/project-refresh"
@@ -967,43 +968,5 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
       </DialogContent>
     </div>
     </DialogRoot>
-  )
-}
-
-/**
- * 简单提取 profile 卡片（feature/character-recognition-and-simple-mode）
- * 4 字段 + 代表性台词渲染
- */
-function SimpleProfileCard({ profile }: { profile: PersonalityProfile }) {
-  const { t } = useTranslation()
-  return (
-    <div className="rounded-lg border p-4 space-y-2">
-      <div>
-        <h4 className="text-sm font-semibold">{t("bookAnalysis.personality")}</h4>
-        <p className="text-sm text-muted-foreground">{profile.personality}</p>
-      </div>
-      <div>
-        <h4 className="text-sm font-semibold">{t("bookAnalysis.motivation")}</h4>
-        <p className="text-sm text-muted-foreground">{profile.motivation}</p>
-      </div>
-      <div>
-        <h4 className="text-sm font-semibold">{t("bookAnalysis.speakingStyle")}</h4>
-        <p className="text-sm text-muted-foreground">{profile.speechStyle}</p>
-      </div>
-      <div>
-        <h4 className="text-sm font-semibold">{t("bookAnalysis.behaviorPattern")}</h4>
-        <p className="text-sm text-muted-foreground">{profile.behaviorPatterns}</p>
-      </div>
-      {profile.quotes.length > 0 && (
-        <div>
-          <h4 className="text-sm font-semibold">{t("bookAnalysis.representativeLine")}</h4>
-          <ul className="text-sm text-muted-foreground list-disc list-inside">
-            {profile.quotes.map((q, i) => (
-              <li key={`quote-${q.slice(0, 32)}-${i}`}>「{q}」</li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
   )
 }
