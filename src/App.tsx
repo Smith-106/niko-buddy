@@ -14,6 +14,7 @@ import { CreateProjectDialog } from "@/components/project/create-project-dialog"
 import { formatAppTitle } from "@/lib/app-title"
 import { resetProjectState } from "@/lib/reset-project-state"
 import { toast } from "@/lib/toast"
+import { toErrorMessage } from "@/lib/utils"
 import type { WikiProject } from "@/types/wiki"
 import { applyTheme, watchSystemTheme } from "@/lib/theme-utils"
 
@@ -91,7 +92,9 @@ function App() {
       }
       await hydrateProjectOnOpen(validated)
     } catch (err) {
-      toast.error(`打开项目失败：${err}`)
+      // UX-G3-D4-01: 此前直抛原始串（`打开项目失败：${err}`），用户看不到下一步。
+      // 脱敏 + 行动句：检查路径是否存在/换个目录重试，详情见日志。
+      toast.error(`打开项目失败：${toErrorMessage(err)}。请检查目录是否存在且可读，或换个目录重试。`)
     }
   }
 
@@ -112,7 +115,7 @@ function App() {
       }
       await hydrateProjectOnOpen(proj)
     } catch (err) {
-      toast.error(`打开项目失败：${err}`)
+      toast.error(`打开项目失败：${toErrorMessage(err)}。请检查目录是否存在且可读，或换个目录重试。`)
     }
   }
 
@@ -121,7 +124,7 @@ function App() {
       // 新建项目：创建后 novel 项目落 director 写作生产台（J01-T02 F-005）。
       await hydrateProjectOnOpen(proj, { fromCreate: true })
     } catch (err) {
-      toast.error(`项目创建后初始化失败：${err}`)
+      toast.error(`项目创建后初始化失败：${toErrorMessage(err)}。请重新打开该项目，或查看日志后重试。`)
     }
   }
 

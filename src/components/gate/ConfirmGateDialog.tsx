@@ -121,10 +121,47 @@ export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDia
       if (e.key === "Escape" && !busy) {
         void settle(false);
       }
+      // UX-G3-D6: 手写 dialog 无焦点陷阱时 Tab 会逃逸到底层页面。
+      // 在容器内首尾元素间循环，保持纯键盘用户不迷失。
+      if (e.key === "Tab" && dialogRef.current) {
+        const focusables = dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+        if (e.shiftKey && (active === first || !dialogRef.current.contains(active))) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [pending, busy, settle]);
+
+  // UX-G3-D6: 打开时记录此前焦点并聚焦确认区，关闭时归还（WCAG 2.4.3）。
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const acceptRef = useRef<HTMLButtonElement | null>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!pending) return;
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    const timer = window.setTimeout(() => {
+      // 优先聚焦确认按钮；不可用时聚焦容器。
+      if (acceptRef.current && !acceptRef.current.disabled) acceptRef.current.focus();
+      else dialogRef.current?.focus();
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      previouslyFocusedRef.current?.focus?.();
+      previouslyFocusedRef.current = null;
+    };
+  }, [pending?.request_id]);
 
   if (!pending) return null;
 
@@ -133,12 +170,14 @@ export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDia
 
   return (
     <div
+      ref={dialogRef}
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-gate-title"
       data-testid="confirm-gate-dialog"
       data-gate-timeout-ms={GATE_TIMEOUT_MS}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 outline-none"
     >
       <div className="w-full max-w-lg rounded-lg bg-background p-5 elevation-3">
         <h2 id="confirm-gate-title" className="text-lg font-semibold">
@@ -220,16 +259,17 @@ export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDia
             disabled={busy}
             data-testid="confirm-gate-reject"
             onClick={() => void settle(false)}
-            className="rounded-md border border-border bg-background px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             {t("gate.confirm.reject")}
           </button>
           <button
+            ref={acceptRef}
             type="button"
             disabled={busy || expired}
             data-testid="confirm-gate-accept"
             onClick={() => void settle(true)}
-            className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             {t("gate.confirm.accept")}
           </button>

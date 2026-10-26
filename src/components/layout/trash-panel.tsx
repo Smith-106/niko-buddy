@@ -104,6 +104,15 @@ export function TrashPanel() {
     e.stopPropagation()
     /* v8 ignore next */
     if (!project || deletingId || deletingAll) return
+    // UX-G3-D7: 回收站是最后一道防线，永久删除必须二次确认（此前零确认直接物理删除）。
+    const target = items.find((i) => i.id === itemId)
+    const confirmed = window.confirm(
+      t("trash.permanentDeleteConfirm", {
+        defaultValue: `彻底删除「${target?.name ?? itemId}」？此操作不可恢复。`,
+        name: target?.name ?? itemId,
+      }),
+    )
+    if (!confirmed) return
     setDeletingId(itemId)
     try {
       const pp = normalizePath(project.path)
@@ -122,6 +131,14 @@ export function TrashPanel() {
   const handleDeleteAll = async () => {
     /* v8 ignore next */
     if (!project || deletingAll) return
+    // UX-G3-D7: 清空回收站 = 批量不可逆删除，必须确认并明示数量。
+    const confirmed = window.confirm(
+      t("trash.emptyTrashConfirm", {
+        defaultValue: `清空回收站？将彻底删除 ${items.length} 个项目，此操作不可恢复。`,
+        count: items.length,
+      }),
+    )
+    if (!confirmed) return
     setDeletingAll(true)
     try {
       const pp = normalizePath(project.path)
@@ -153,7 +170,7 @@ export function TrashPanel() {
             className="h-7 text-xs text-destructive hover:text-destructive"
             onClick={() => void handleDeleteAll()}
           >
-            {deletingAll ? "清理中…" : "清空回收站"}
+            {deletingAll ? t("trash.clearing", { defaultValue: "清理中…" }) : t("trash.emptyTrash", { defaultValue: "清空回收站" })}
           </Button>
         )}
       </div>

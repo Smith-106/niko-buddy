@@ -128,6 +128,15 @@ export function BookshelfView({ projectPath }: BookshelfViewProps) {
           <ReportCallout testId="bookshelf-empty" tone="neutral">
             暂无拆书作品。先去「拆书分析」导入一本小说吧。
           </ReportCallout>
+          {/* UX-G3-D3-02: 空态此前只有文字指引、无可点击入口（非空态的 openInAnalysis 已存在却未复用）。 */}
+          <button
+            type="button"
+            data-testid="bookshelf-empty-cta"
+            onClick={() => setActiveView("bookAnalysis")}
+            className="mt-2 rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            去拆书分析
+          </button>
         </ReportSection>
       ) : (
         <>

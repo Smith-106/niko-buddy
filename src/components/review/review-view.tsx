@@ -643,6 +643,15 @@ export function ReviewView({
         : (novelMode ? i18n.t("novel.review.notifications.openFailed", { page }) : i18n.t("review.notifications.openFailed", { page })))
     } else if (action.startsWith("delete:") && project) {
       const filePath = action.slice(7)
+      // UX-G3-D1-1: 审稿 delete: 分支曾无确认直接删文件（与历史删除 confirm 口径不一致）。
+      // 不可逆删除必须先经用户确认；取消则按忽略处理不删盘。
+      const confirmed = window.confirm(
+        t("review.deleteFileConfirm", { defaultValue: `确认删除该文件吗？\n${filePath}\n此操作不可撤销。` }),
+      )
+      if (!confirmed) {
+        resolveItem(id, novelMode ? i18n.t("novel.review.notifications.deleteFailed") : i18n.t("review.notifications.deleteFailed"))
+        return
+      }
       try {
         await deleteFile(filePath)
         const tree = await listDirectory(pp)
@@ -705,7 +714,7 @@ export function ReviewView({
     } else {
       resolveItem(id, i18n.t(novelMode ? "novel.review.fallbacks.genericActionLabel" : "review.fallbacks.genericActionLabel"))
     }
-  }, [project, items, resolveItem, setFileTree])
+  }, [project, items, resolveItem, setFileTree, t])
 
   // 严重度筛选 + 批量采纳守卫/撤销（reviewCenter coreIssues）：
   // severity 只读过滤六维条目；批量仅作用于待处理 ReviewItem，先 confirm 再逐条 resolve，

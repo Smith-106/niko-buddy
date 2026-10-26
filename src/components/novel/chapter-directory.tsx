@@ -174,6 +174,7 @@ export function ChapterDirectory({ loader = loadChapterDirectory }: ChapterDirec
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const dataVersion = useWikiStore((s) => s.dataVersion)
+  const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const [data, setData] = useState<ChapterDirectoryData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -262,10 +263,21 @@ export function ChapterDirectory({ loader = loadChapterDirectory }: ChapterDirec
           …
         </p>
       ) : error ? (
-        <p className="flex items-center gap-1 text-xs text-destructive" data-testid="chapter-directory-error">
+        <div className="flex items-center gap-2 text-xs text-destructive" data-testid="chapter-directory-error">
           <CircleAlert className="h-3 w-3 shrink-0" />
-          {t("novel.chapterDirectory.loadFailed")}: {error}
-        </p>
+          <span className="min-w-0 flex-1 break-all">
+            {t("novel.chapterDirectory.loadFailed")}: {error}
+          </span>
+          {/* UX-G3-D3-03: 错误态此前无恢复入口，用户只能重进面板碰运气。重试复用装载器（dataVersion 触发重载）。 */}
+          <button
+            type="button"
+            data-testid="chapter-directory-retry"
+            onClick={() => bumpDataVersion()}
+            className="shrink-0 rounded border border-destructive/40 px-2 py-0.5 text-xs hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t("common.retry", { defaultValue: "重试" })}
+          </button>
+        </div>
       ) : !data || total === 0 ? (
         <p className="text-xs text-muted-foreground" data-testid="chapter-directory-empty">
           {t("novel.chapterDirectory.empty")}

@@ -132,8 +132,19 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
                 return (
                   <li
                     key={c.id}
-                    className="flex items-center gap-3 px-3 py-2 hover:bg-muted cursor-pointer"
+                    tabIndex={0}
+                    role="checkbox"
+                    aria-checked={checked}
+                    aria-label={c.name}
+                    className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                     onClick={() => onToggle(c.id)}
+                    onKeyDown={(e) => {
+                      // UX-G3-D6: 整行此前鼠标独占；Enter/Space 与 mindmap-views 同口径可达。
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault()
+                        onToggle(c.id)
+                      }
+                    }}
                     data-testid={`character-row-${c.id}`}
                   >
                     <input
