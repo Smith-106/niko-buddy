@@ -156,6 +156,7 @@ export function PersonaCritiquePanel({ projectPath, onClose, draftId: draftIdPro
         <button
           type="button"
           onClick={() => void run()}
+          aria-label={running ? t("novel.persona.running") : t("novel.persona.run")}
           disabled={running}
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
