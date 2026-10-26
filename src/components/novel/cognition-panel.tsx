@@ -164,7 +164,18 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
                             <Package className="h-3 w-3" aria-hidden="true" />
                             {t("novel.character.equipment")}
                           </div>
-                          <p className="mt-1 text-xs">{cs.equipment.join("、")}</p>
+                          <p className="mt-1 text-xs">
+                            <span className="inline-flex flex-wrap items-center gap-1">
+                              {cs.equipment?.map((e, i) => (
+                                <span
+                                  key={`${e}-${i}`}
+                                  className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-foreground"
+                                >
+                                  {e}
+                                </span>
+                              ))}
+                            </span>
+                          </p>
                         </div>
                       )}
                       {cs.abilities.length > 0 && (
@@ -173,7 +184,18 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
                             <Swords className="h-3 w-3" aria-hidden="true" />
                             {t("novel.character.abilities")}
                           </div>
-                          <p className="mt-1 text-xs">{cs.abilities.join("、")}</p>
+                          <p className="mt-1 text-xs">
+                            <span className="inline-flex flex-wrap items-center gap-1">
+                              {cs.abilities?.map((a, i) => (
+                                <span
+                                  key={`${a}-${i}`}
+                                  className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-foreground"
+                                >
+                                  {a}
+                                </span>
+                              ))}
+                            </span>
+                          </p>
                         </div>
                       )}
                       {relationshipEntries.length > 0 && (
