@@ -364,6 +364,7 @@ export function ReviewView({
             void runNovelReviewAiRewrite(item)
           }}
           disabled={isRewriting}
+          aria-label={isRewriting ? t("dashboard.actions.rewriting") : t("dashboard.actions.aiRewrite")}
           className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isRewriting ? t("dashboard.actions.rewriting") : t("dashboard.actions.aiRewrite")}
@@ -983,6 +984,7 @@ export function ReviewView({
                     <button type="button"
                       key={item.id}
                       onClick={() => void openNovelReviewActionItem(item)}
+                      aria-label={`${severityLabel} ${typeLabel}: ${item.message}`}
                       className={`group cursor-pointer rounded-lg border p-3 text-sm transition-all duration-150 hover:border-primary/60 hover:elevation-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${
                         item.reviewSeverity === "error"
                           ? "border-destructive/30 bg-destructive/5"
