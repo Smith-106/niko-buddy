@@ -29,7 +29,8 @@ import { formatOperationError } from "@/lib/format-operation-error"
 import { NODE_TYPE_COLORS, edgeTypeForStyle, getSigmaThemeColors, hexToRgba, mixColor, shouldRenderEdgeLabels, type GraphEdgeStyle, type GraphLabelDisplayMode, type SigmaThemeColors } from "@/lib/graph-style"
 import { toErrorMessage } from "@/lib/utils"
 import { isSystemDark } from "@/lib/theme-utils"
-import { COMMUNITY_COLORS, EventHandler, GraphLoader, HighlightManager, SigmaResizeRefresher, type ColorMode } from "./sigma-graph-views"
+import { EventHandler, GraphLoader, HighlightManager, SigmaResizeRefresher, type ColorMode } from "./sigma-graph-views"
+import { GraphLegend } from "./graph-legend"
 import { DocumentGraphView } from "./document-graph-view"
 import { MindMapGraphView, ZoomControls } from "./mindmap-views"
 import { toast } from "@/lib/toast"
@@ -121,7 +122,6 @@ export function GraphView() {
   const [knowledgeGaps, setKnowledgeGaps] = useState<KnowledgeGap[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [hoveredType, setHoveredType] = useState<string | null>(null)
   const colorMode = useWikiStore((s) => s.graphColorMode) as ColorMode
   const displayMode = useWikiStore((s) => s.graphDisplayMode) as GraphDisplayMode
   const graphMode = useWikiStore((s) => s.graphMode) as GraphMode
@@ -1105,222 +1105,43 @@ export function GraphView() {
             </div>
           )}
 
-          {/* Legend */}
-          <div className="absolute bottom-3 left-3 rounded-lg border bg-background/90 backdrop-blur-sm px-3 py-2 text-xs elevation-1 max-w-[260px]">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="font-semibold text-foreground">
-                {colorMode === "type" ? t("graph.nodeTypesLabel") : t("graph.communitiesLabel")}
-              </span>
-              <div className="flex items-center gap-1">
-                {displayMode === "graph" && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 text-xs px-1"
-                    data-testid="graph-orphan-filter-toggle"
-                    aria-pressed={orphanHighlight}
-                    title={t("graph.orphanHighlight")}
-                    onClick={() => {
-                      if (orphanHighlight) {
-                        setOrphanHighlight(false)
-                        setHighlightedNodes(new Set())
-                      } else {
-                        setOrphanHighlight(true)
-                        setHighlightedNodes(new Set(orphanNodeIds))
-                      }
-                    }}
-                  >
-                    {t("graph.orphanHighlight")}{orphanHighlight ? ` (${orphanNodeIds.length})` : ""}
-                  </Button>
-                )}
-                {colorMode === "type" && filters.hiddenTypes.size > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 text-xs px-1"
-                    onClick={() => setFilters((prev) => ({ ...prev, hiddenTypes: new Set() }))}
-                    title={t("graph.showAllTypes")}
-                  >
-                    {t("graph.showAll")}
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0"
-                  onClick={() => setLegendCollapsed(!legendCollapsed)}
-                  title={legendCollapsed ? t("graph.expandLegend") : t("graph.collapseLegend")}
-                >
-                  {legendCollapsed ? "▶" : "▼"}
-                </Button>
-              </div>
-            </div>
-            {!legendCollapsed && (
-              colorMode === "type" ? (
-                <div className="flex flex-col gap-0.5 max-h-48 overflow-y-auto legend-scroll" style={{ direction: "rtl" }}>
-                  <div className="flex flex-col gap-0.5" style={{ direction: "ltr" }}>
-                    {novelMode
-                      ? (() => {
-                          const novelTypes = ["character", "location", "organization", "item", "event", "chapter", "outline", "foreshadowing", "secret", "conflict", "timeline-point", "canon-rule"]
-                          const baseTypes = ["entity", "concept", "source", "query", "synthesis", "overview", "comparison", "other"]
-                          const renderTypeItem = (type: string, label: string) => {
-                            const isHidden = filters.hiddenTypes.has(type)
-                            /* v8 ignore next -- novelTypes/baseTypes 恒在 NODE_TYPE_COLORS */
-                            const shadowColor = NODE_TYPE_COLORS[type] ?? "#94a3b8"
-                            return (
-                              <div
-                                key={type}
-                                className={`flex items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-accent/50 ${isHidden ? "opacity-40" : ""}`}
-                                onMouseEnter={() => setHoveredType(type)}
-                                onMouseLeave={() => setHoveredType(null)}
-                                onDoubleClick={() => {
-                                  setFilters((prev) => {
-                                    const next = new Set(prev.hiddenTypes)
-                                    if (next.has(type)) {
-                                      next.delete(type)
-                                    } else {
-                                      next.add(type)
-                                    }
-                                    return { ...prev, hiddenTypes: next }
-                                  })
-                                }}
-                                title={t("graph.doubleClickToggleVisibility")}
-                              >
-                                <span
-                                  className="inline-block h-3 w-3 rounded-full shrink-0 elevation-1"
-                                  style={{
-                                    backgroundColor: isHidden ? "#94a3b8" : NODE_TYPE_COLORS[type],
-                                    boxShadow: `0 0 4px ${hexToRgba(isHidden ? "#94a3b8" : shadowColor, 0.4)}`,
-                                  }}
-                                />
-                                <span className={hoveredType === type ? "text-foreground font-medium" : "text-muted-foreground"}>
-                                  {label}
-                                </span>
-                                <span className="text-muted-foreground ml-auto">{typeCounts[type]}</span>
-                                {isHidden && <span className="text-muted-foreground text-xs">{t("graph.hidden")}</span>}
-                              </div>
-                            )
-                          }
-                          return (
-                            <>
-                              {novelTypes.some((t) => (typeCounts[t] ?? 0) > 0) && (
-                                <>
-                                  <div className="text-muted-foreground text-xs font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
-                                    {t("novel.graph.novelNodeTypes")}
-                                  </div>
-                                  {/* v8 ignore start */}
-                                  {novelTypes.filter((t) => (typeCounts[t] ?? 0) > 0).map((type) =>
-                                    renderTypeItem(type, nodeTypeLabels[type] ?? type)
-                                  )}
-                                  {/* v8 ignore stop */}
-                                </>
-                              )}
-                              {baseTypes.some((t) => (typeCounts[t] ?? 0) > 0) && (
-                                <>
-                                  <div className="text-muted-foreground text-xs font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
-                                    {t("novel.graph.baseNodeTypes")}
-                                  </div>
-                                  {/* v8 ignore start */}
-                                  {baseTypes.filter((t) => (typeCounts[t] ?? 0) > 0).map((type) =>
-                                    renderTypeItem(type, nodeTypeLabels[type] ?? type)
-                                  )}
-                                  {/* v8 ignore stop */}
-                                </>
-                              )}
-                            </>
-                          )
-                        })()
-                      : Object.entries(nodeTypeLabels)
-                          .filter(([type]) => (typeCounts[type] ?? 0) > 0)
-                          .map(([type, label]) => {
-                            const isHidden = filters.hiddenTypes.has(type)
-                            /* v8 ignore next -- nodeTypeLabels 固定映射，type 恒在 NODE_TYPE_COLORS */
-                            const shadowColor = NODE_TYPE_COLORS[type] ?? "#94a3b8"
-                            return (
-                              <div
-                                key={type}
-                                className={`flex items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-accent/50 ${isHidden ? "opacity-40" : ""}`}
-                                onMouseEnter={() => setHoveredType(type)}
-                                onMouseLeave={() => setHoveredType(null)}
-                                onDoubleClick={() => {
-                                  setFilters((prev) => {
-                                    const next = new Set(prev.hiddenTypes)
-                                    if (next.has(type)) {
-                                      next.delete(type)
-                                    } else {
-                                      next.add(type)
-                                    }
-                                    return { ...prev, hiddenTypes: next }
-                                  })
-                                }}
-                                title={t("graph.doubleClickToggleVisibility")}
-                              >
-                                <span
-                                  className="inline-block h-3 w-3 rounded-full shrink-0 elevation-1"
-                                  style={{
-                                    backgroundColor: isHidden ? "#94a3b8" : NODE_TYPE_COLORS[type],
-                                    boxShadow: `0 0 4px ${hexToRgba(isHidden ? "#94a3b8" : shadowColor, 0.4)}`,
-                                  }}
-                                />
-                                <span className={hoveredType === type ? "text-foreground font-medium" : "text-muted-foreground"}>
-                                  {label}
-                                </span>
-                                <span className="text-muted-foreground ml-auto">{typeCounts[type]}</span>
-                                {isHidden && <span className="text-muted-foreground text-xs">{t("graph.hidden")}</span>}
-                              </div>
-                            )
-                          })}
-                  </div>
-                </div>
-              ) : (
-                <div
-                  data-testid="graph-community-legend"
-                  className="flex flex-col gap-0.5 max-h-48 overflow-y-auto legend-scroll" style={{ direction: "rtl" }}>
-                  <div className="flex flex-col gap-0.5" style={{ direction: "ltr" }}>
-                    {communities.map((c) => {
-                    const memberIds = displayNodes.filter((n) => n.community === c.id).map((n) => n.id)
-                    const memberSet = new Set(memberIds)
-                    const isActive = memberSet.size > 0 && highlightedNodes.size === memberSet.size &&
-                      [...memberSet].every((id) => highlightedNodes.has(id))
-                    return (
-                    <button
-                      type="button"
-                      key={c.id}
-                      aria-pressed={isActive}
-                      title={t("graph.focusCommunity")}
-                      onClick={() => {
-                        if (isActive) {
-                          if (orphanHighlight) setOrphanHighlight(false)
-                          setHighlightedNodes(new Set())
-                        } else {
-                          if (orphanHighlight) setOrphanHighlight(false)
-                          setHighlightedNodes(memberSet)
-                        }
-                      }}
-                      className={`flex w-full items-center gap-2 rounded px-1 py-0.5 text-left transition-colors hover:bg-accent/50 ${isActive ? "bg-info/10" : ""}`}
-                    >
-                      <span
-                        className="inline-block h-3 w-3 rounded-full shrink-0 elevation-1"
-                        style={{
-                          backgroundColor: COMMUNITY_COLORS[c.id % COMMUNITY_COLORS.length],
-                          boxShadow: `0 0 4px ${hexToRgba(COMMUNITY_COLORS[c.id % COMMUNITY_COLORS.length], 0.4)}`,
-                        }}
-                      />
-                      <span className="text-muted-foreground truncate min-w-0" title={c.topNodes.join(", ")}>
-                        {c.topNodes[0] ?? `${t("graph.cluster", { id: c.id })}`}
-                      </span>
-                      <span className="text-muted-foreground ml-auto shrink-0">{c.nodeCount}</span>
-                      {c.cohesion < 0.15 && c.nodeCount >= 3 && (
-                        <span className="text-warning shrink-0" role="img" aria-label={t("graph.lowCohesion", { value: c.cohesion.toFixed(2) })} title={t("graph.lowCohesion", { value: c.cohesion.toFixed(2) })}>!</span>
-                      )}
-                    </button>
-                    )
-                  })}
-                  </div>
-                </div>
-              )
-            )}
-          </div>
+          <GraphLegend
+            colorMode={colorMode}
+            displayMode={displayMode}
+            novelMode={novelMode}
+            nodeTypeLabels={nodeTypeLabels}
+            typeCounts={typeCounts}
+            communities={communities}
+            displayNodes={displayNodes}
+            highlightedNodes={highlightedNodes}
+            hiddenTypes={filters.hiddenTypes}
+            orphanHighlight={orphanHighlight}
+            orphanNodeIds={orphanNodeIds}
+            legendCollapsed={legendCollapsed}
+            onToggleCollapsed={() => setLegendCollapsed((v) => !v)}
+            onShowAllTypes={() => setFilters((prev) => ({ ...prev, hiddenTypes: new Set() }))}
+            onToggleOrphan={() => {
+              if (orphanHighlight) {
+                setOrphanHighlight(false)
+                setHighlightedNodes(new Set())
+              } else {
+                setOrphanHighlight(true)
+                setHighlightedNodes(new Set(orphanNodeIds))
+              }
+            }}
+            onToggleType={(type) => {
+              setFilters((prev) => {
+                const next = new Set(prev.hiddenTypes)
+                if (next.has(type)) next.delete(type)
+                else next.add(type)
+                return { ...prev, hiddenTypes: next }
+              })
+            }}
+            onSelectCommunity={(memberIds, isActive) => {
+              if (orphanHighlight) setOrphanHighlight(false)
+              setHighlightedNodes(isActive ? new Set() : new Set(memberIds))
+            }}
+          />
         </div>
 
         {/* Insights Side Panel */}
