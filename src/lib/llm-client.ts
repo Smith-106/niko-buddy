@@ -11,7 +11,6 @@ import { isReasoningDisabled, isReasoningOnlyResponseError, withReasoningDisable
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
 import { trimChatMessagesToBudget } from "./chat-request-budget"
 import { clampHttpTimeoutMs, resolveProviderOverride } from "@/lib/llm-config/preset-resolver"
-import { toErrorMessage } from "@/lib/utils"
 
 /**
  * 从运行时 LlmConfig 解析三档 HTTP 超时 (毫秒)。
@@ -51,29 +50,19 @@ export function isOutputTruncatedError(error: unknown): boolean {
   return error instanceof Error && /truncated|max_tokens|output token limit/i.test(error.message)
 }
 
-export interface LlmMetric {
-  ts: string
-  model: string
-  provider: string
-  durationMs: number
-  success: boolean
-  errorKind?: string
-  traceId?: string
-  inputTokens?: number
-  outputTokens?: number
-}
-
-let metricsFilePath = ""
-let metricsTraceId = ""
-const metricsBuffer: LlmMetric[] = []
-
-export function setMetricsFilePath(path: string): void {
-  metricsFilePath = path
-}
-
-export function setMetricsTraceId(id: string): void {
-  metricsTraceId = id
-}
+import { collectLLMMetric } from "./llm-metrics"
+export {
+  __clearContinuityMetricsBufferForTest,
+  __clearMetricsBufferForTest,
+  collectContinuityMetric,
+  collectLLMMetric,
+  flushContinuityMetrics,
+  flushMetrics,
+  setContinuityMetricsFilePath,
+  setMetricsFilePath,
+  setMetricsTraceId,
+} from "./llm-metrics"
+export type { ContinuityMetric, LlmMetric } from "./llm-metrics"
 
 /**
  * Transport-stage error names. They ride on `Error#name` (not message
@@ -127,94 +116,7 @@ function classifyLlmError(err: unknown): string {
   return "unknown"
 }
 
-export function collectLLMMetric(metric: LlmMetric): void {
-  metricsBuffer.push({ ...metric, traceId: metric.traceId ?? metricsTraceId })
-  if (metricsBuffer.length >= 500 && metricsFilePath) {
-    void flushMetrics()
-  }
-}
-
-export function __clearMetricsBufferForTest(): void {
-  metricsBuffer.length = 0
-}
-
-export async function flushMetrics(): Promise<number> {
-  if (!metricsFilePath || metricsBuffer.length === 0) return 0
-  const toFlush = metricsBuffer.splice(0, metricsBuffer.length)
-  try {
-    const { readFile, writeFileAtomic } = await import("@/commands/fs")
-    let existing = ""
-    try {
-      existing = await readFile(metricsFilePath)
-    } catch {
-      existing = ""
-    }
-    const lines = toFlush.map(m => JSON.stringify(m)).join("\n")
-    const next = existing ? existing.replace(/\n?$/, "\n") + lines + "\n" : lines + "\n"
-    await writeFileAtomic(metricsFilePath, next)
-    return toFlush.length
-  } catch (e) {
-    console.error("[metrics] flush failed:", toErrorMessage(e))
-    if (metricsBuffer.length < 1000) metricsBuffer.unshift(...toFlush)
-    return 0
-  }
-}
-
-export interface ContinuityMetric {
-  execution_ms: number
-  critical_count: number
-  high_count: number
-  warning_count: number
-  data_gap_count: number
-  overrides_hit: number
-  short_circuit_hits: number
-  engine_error_count: number
-  gate: "consistency" | "quality" | "anti_ai"
-  timestamp: string
-}
-
-let continuityMetricsFilePath = ""
-const continuityMetricBuffer: ContinuityMetric[] = []
-
-export function setContinuityMetricsFilePath(path: string): void {
-  continuityMetricsFilePath = path
-}
-
-export function __clearContinuityMetricsBufferForTest(): void {
-  continuityMetricBuffer.length = 0
-}
-
-export function collectContinuityMetric(metric: ContinuityMetric): void {
-  continuityMetricBuffer.push(metric)
-  if (continuityMetricBuffer.length >= 500 && continuityMetricsFilePath) {
-    void flushContinuityMetrics()
-  }
-}
-
-export async function flushContinuityMetrics(): Promise<number> {
-  if (!continuityMetricsFilePath || continuityMetricBuffer.length === 0) return 0
-  const toFlush = continuityMetricBuffer.splice(0, continuityMetricBuffer.length)
-  try {
-    const { readFile, writeFileAtomic } = await import("@/commands/fs")
-    let existing = ""
-    try {
-      existing = await readFile(continuityMetricsFilePath)
-    } catch {
-      existing = ""
-    }
-    const lines = toFlush.map(m => JSON.stringify(m)).join("\n")
-    const next = existing ? existing.replace(/\n?$/, "\n") + lines + "\n" : lines + "\n"
-    await writeFileAtomic(continuityMetricsFilePath, next)
-    return toFlush.length
-  } catch (e) {
-    console.error(
-      "[continuity-metrics] flush failed:",
-      toErrorMessage(e),
-    )
-    if (continuityMetricBuffer.length < 1000) continuityMetricBuffer.unshift(...toFlush)
-    return 0
-  }
-}
+// (LLM + continuity metrics moved to ./llm-metrics — M13-1 slice.)
 
 async function streamViaClaudeCodeCli(
   config: LlmConfig,
