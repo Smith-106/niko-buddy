@@ -20,6 +20,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
+
+use super::process_tree::{self, ProcessTree};
 use tokio::sync::Mutex;
 
 use super::cli_emit::EmitBatcher;
@@ -69,6 +71,8 @@ impl AntigravityEmitter for TauriAntigravityEmitter {
 #[derive(Default)]
 pub struct AntigravityCliState {
     children: Arc<Mutex<HashMap<String, Child>>>,
+    /// R5: per-stream process-tree guard (Windows JobObject); drop kills descendants.
+    jobs: Arc<Mutex<HashMap<String, ProcessTree>>>,
 }
 
 #[derive(Serialize)]
@@ -320,10 +324,16 @@ pub async fn do_antigravity_cli_spawn<E: AntigravityEmitter>(
         .map_err(|e| format!("Failed to flush antigravity stdin: {e}"))?;
     drop(stdin);
 
+    // R5: attach process-tree guard (fail-open).
+    if let Some(tree) = child.id().and_then(process_tree::attach_pid) {
+        state.jobs.lock().await.insert(stream_id.clone(), tree);
+    }
     state.children.lock().await.insert(stream_id.clone(), child);
 
     let children = Arc::clone(&state.children);
+    let jobs = Arc::clone(&state.jobs);
     let timeout_children = Arc::clone(&state.children);
+    let timeout_jobs = Arc::clone(&state.jobs);
     let timed_out = Arc::new(AtomicBool::new(false));
     let timeout_flag = Arc::clone(&timed_out);
     let timeout_stream_id = stream_id.clone();
@@ -336,6 +346,8 @@ pub async fn do_antigravity_cli_spawn<E: AntigravityEmitter>(
         tokio::time::sleep(timeout_duration).await;
         if let Some(mut child) = timeout_children.lock().await.remove(&timeout_stream_id) {
             timeout_flag.store(true, Ordering::SeqCst);
+            // R5: destroy the whole tree first, then the direct child.
+            drop(timeout_jobs.lock().await.remove(&timeout_stream_id));
             let _ = child.start_kill();
         }
     });
@@ -378,6 +390,8 @@ pub async fn do_antigravity_cli_spawn<E: AntigravityEmitter>(
             emitter_task.emit_data(&stream_id_task, tail);
         }
 
+        // R5: release job handle after normal exit.
+        drop(jobs.lock().await.remove(&stream_id_task));
         let child_opt = children.lock().await.remove(&stream_id_task);
         let exit_code = if let Some(mut child) = child_opt {
             match child.wait().await {
@@ -432,6 +446,8 @@ pub async fn do_antigravity_cli_kill(
     state: &AntigravityCliState,
     stream_id: &str,
 ) -> Result<(), String> {
+    // R5: destroy the whole tree first, then the direct child.
+    drop(state.jobs.lock().await.remove(stream_id));
     if let Some(mut child) = state.children.lock().await.remove(stream_id) {
         let _ = child.start_kill();
     }

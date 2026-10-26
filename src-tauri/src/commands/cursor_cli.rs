@@ -12,6 +12,8 @@ use tauri::State;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::process::{Child, Command};
+
+use super::process_tree::{self, ProcessTree};
 use tokio::sync::Mutex;
 
 use super::cli_resolver::{child_path_env, find_cli_command};
@@ -25,6 +27,8 @@ const PROXY_POLL_MS: u64 = 200;
 #[derive(Default)]
 struct ManagedProxy {
     child: Option<Child>,
+    /// R5: process-tree guard (Windows JobObject); drop kills descendants.
+    tree: Option<ProcessTree>,
     /// e.g. http://127.0.0.1:8765 — the port this managed child actually bound.
     base_url: Option<String>,
 }
@@ -518,6 +522,10 @@ async fn spawn_proxy_process(port: u16) -> Result<Child, String> {
 
 async fn stop_managed_child(state: &CursorProxyState) {
     let mut guard = state.managed.lock().await;
+    // R5: destroy the whole tree first, then the direct child.
+    if let Some(mut tree) = guard.tree.take() {
+        tree.terminate();
+    }
     if let Some(mut child) = guard.child.take() {
         let _ = child.start_kill();
         let _ = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
@@ -576,9 +584,12 @@ pub async fn cursor_proxy_ensure(
     let port = allocate_proxy_port()?;
     let base = base_url_for_port(port);
     let child = spawn_proxy_process(port).await?;
+    // R5: attach process-tree guard (fail-open).
+    let tree = child.id().and_then(process_tree::attach_pid);
     {
         let mut guard = state.managed.lock().await;
         guard.child = Some(child);
+        guard.tree = tree;
         guard.base_url = Some(base.clone());
     }
 

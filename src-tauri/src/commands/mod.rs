@@ -20,6 +20,7 @@ pub mod local_cli_config;
 pub mod log_diagnostic;
 pub mod mcp_stdio;
 pub mod power;
+pub mod process_tree;
 pub mod project;
 pub mod secret_store;
 pub mod skill_bundle;

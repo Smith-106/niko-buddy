@@ -16,6 +16,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
+
+use super::process_tree::{self, ProcessTree};
 use tokio::sync::Mutex;
 
 use super::cli_emit::EmitBatcher;
@@ -68,6 +70,8 @@ impl CodexEmitter for TauriCodexEmitter {
 #[derive(Default)]
 pub struct CodexCliState {
     children: Arc<Mutex<HashMap<String, Child>>>,
+    /// R5：每个 stream 的进程树守卫（Windows JobObject）；drop 即连带销毁后代。
+    jobs: Arc<Mutex<HashMap<String, ProcessTree>>>,
 }
 
 #[derive(Serialize)]
@@ -283,10 +287,16 @@ pub async fn do_codex_cli_spawn<E: CodexEmitter>(
         .map_err(|e| format!("Failed to flush codex stdin: {e}"))?;
     drop(stdin);
 
+    // R5：挂进程树守卫（fail-open：挂载失败仍按原语义只杀直接子进程）。
+    if let Some(tree) = child.id().and_then(process_tree::attach_pid) {
+        state.jobs.lock().await.insert(stream_id.clone(), tree);
+    }
     state.children.lock().await.insert(stream_id.clone(), child);
 
     let children = Arc::clone(&state.children);
+    let jobs = Arc::clone(&state.jobs);
     let timeout_children = Arc::clone(&state.children);
+    let timeout_jobs = Arc::clone(&state.jobs);
     let timed_out = Arc::new(AtomicBool::new(false));
     let timeout_flag = Arc::clone(&timed_out);
     let timeout_stream_id = stream_id.clone();
@@ -299,6 +309,8 @@ pub async fn do_codex_cli_spawn<E: CodexEmitter>(
         tokio::time::sleep(timeout_duration).await;
         if let Some(mut child) = timeout_children.lock().await.remove(&timeout_stream_id) {
             timeout_flag.store(true, Ordering::SeqCst);
+            // R5：先销毁整棵进程树（drop 触发 KILL_ON_JOB_CLOSE），再杀直接子进程。
+            drop(timeout_jobs.lock().await.remove(&timeout_stream_id));
             let _ = child.start_kill();
         }
     });
@@ -341,6 +353,8 @@ pub async fn do_codex_cli_spawn<E: CodexEmitter>(
             emitter_task.emit_data(&stream_id_task, tail);
         }
 
+        // R5：子进程正常退出后释放 job 句柄（job 已空，drop 无副作用）。
+        drop(jobs.lock().await.remove(&stream_id_task));
         let child_opt = children.lock().await.remove(&stream_id_task);
         let exit_code = if let Some(mut child) = child_opt {
             match child.wait().await {
@@ -442,6 +456,8 @@ fn read_current_codex_local_config() -> LocalCliConfigInfo {
 ///
 /// Shared implementation used by both the Tauri command and the server handler.
 pub async fn do_codex_cli_kill(state: &CodexCliState, stream_id: &str) -> Result<(), String> {
+    // R5：先销毁整棵进程树，再杀直接子进程（覆盖 node/.cmd 启动器派生的孙进程）。
+    drop(state.jobs.lock().await.remove(stream_id));
     if let Some(mut child) = state.children.lock().await.remove(stream_id) {
         let _ = child.start_kill();
     }

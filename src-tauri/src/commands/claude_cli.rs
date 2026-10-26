@@ -32,6 +32,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
+
+use super::process_tree::{self, ProcessTree};
 use tokio::sync::Mutex;
 
 use super::cli_emit::EmitBatcher;
@@ -147,6 +149,8 @@ impl CliEmitter for TauriCliEmitter {
 #[derive(Default)]
 pub struct ClaudeCliState {
     children: Arc<Mutex<HashMap<String, RunningClaudeCli>>>,
+    /// R5：每个 stream 的进程树守卫（Windows JobObject）；drop 即连带销毁后代。
+    jobs: Arc<Mutex<HashMap<String, ProcessTree>>>,
 }
 
 #[derive(Serialize)]
@@ -420,6 +424,10 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
         .take()
         .ok_or_else(|| "Missing stderr handle".to_string())?;
 
+    // R5：挂进程树守卫（fail-open：挂载失败仍按原语义只杀直接子进程）。
+    if let Some(tree) = child.id().and_then(process_tree::attach_pid) {
+        state.jobs.lock().await.insert(stream_id.clone(), tree);
+    }
     // Register the child so `claude_cli_kill` can reach it.
     state.children.lock().await.insert(
         stream_id.clone(),
@@ -430,7 +438,9 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
     );
 
     let children = Arc::clone(&state.children);
+    let jobs = Arc::clone(&state.jobs);
     let timeout_children = Arc::clone(&state.children);
+    let timeout_jobs = Arc::clone(&state.jobs);
     let stream_id_task = stream_id.clone();
     let timeout_stream_id = stream_id.clone();
     let emitter_task = emitter.clone();
@@ -447,6 +457,8 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
         }
         if let Some(mut running) = timeout_children.lock().await.remove(&timeout_stream_id) {
             timeout_flag.store(true, Ordering::SeqCst);
+            // R5：先销毁整棵进程树（drop 触发 KILL_ON_JOB_CLOSE），再杀直接子进程。
+            drop(timeout_jobs.lock().await.remove(&timeout_stream_id));
             let _ = running.child.start_kill();
         }
     });
@@ -534,6 +546,8 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
 
         // Wait for the child to fully exit so we can report its code.
         // Don't hold the map lock across .wait() — kill could race.
+        // R5: release job handle after normal exit (job is empty, drop is a no-op).
+        drop(jobs.lock().await.remove(&stream_id_task));
         let child_opt = children.lock().await.remove(&stream_id_task);
         let exit_code = if let Some(mut running) = child_opt {
             match running.child.wait().await {
@@ -609,6 +623,8 @@ pub async fn claude_cli_spawn(
 ///
 /// Shared implementation used by both the Tauri command and the server handler.
 pub async fn do_claude_cli_kill(state: &ClaudeCliState, stream_id: &str) -> Result<(), String> {
+    // R5：先销毁整棵进程树，再杀直接子进程（覆盖 node/.cmd 启动器派生的孙进程）。
+    drop(state.jobs.lock().await.remove(stream_id));
     if let Some(mut running) = state.children.lock().await.remove(stream_id) {
         let _ = running.child.start_kill();
         // Don't wait() here — the stdout-drain task already holds a
