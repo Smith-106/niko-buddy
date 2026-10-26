@@ -37,12 +37,10 @@ const REVISE_SYSTEM_PROMPT = `你是章节定向重写器。只按给定 brief �
 不得增删情节事实、不得改人物设定、不得改动章节标题与序号，不得压缩或扩张篇幅到用户未要求的范围。
 直接输出重写后的正文全文，不要输出解释、不要包裹代码块。`
 
-/** 去掉模型偶尔包上的 ``` 代码围栏。 */
-export function stripCodeFence(text: string): string {
-  const trimmed = text.trim()
-  const fence = trimmed.match(/^```[a-zA-Z]*\n([\s\S]*?)\n```$/)
-  return fence ? fence[1] : trimmed
-}
+import { stripCodeFence } from "./chapter-typography"
+
+/** 去掉模型偶尔包上的 ``` 代码围栏（真源在 chapter-typography，此处再导出保持既有引用面）。 */
+export { stripCodeFence }
 
 /**
  * 真实六维评分：走既有 `runSixDimensionReview`（每维一个 LLM 调用 + 上下文包）。

@@ -588,6 +588,33 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     expect(h1Lines).toEqual(["# 第1章 身体赎回倒计时"])
   })
 
+  it("R6 格式回声：模型把正文包进代码围栏时，晋升剥除围栏不落进正式正文", async () => {
+    const res = await batchAcceptCampaignDrafts("/mock/project", [
+      {
+        chapterNumber: 1,
+        title: "第1章",
+        content: "```markdown\n# 第1章 雨夜\n\n白曦推门而入。\n```",
+        taskBrief: "b",
+        draftContent: "d",
+        reviewResults: [],
+        revised: false,
+        wordCount: 20,
+        status: "ready",
+      },
+    ])
+    expect(res.acceptedCount).toBe(1)
+    const committedInput = mocks.commitAcceptedDeepChapterDraft.mock.calls[0][0] as {
+      finalChapterContent: string
+    }
+    const written: string = committedInput.finalChapterContent
+    // 围栏字面量不得进入正式正文
+    expect(written).not.toContain("```")
+    expect(written).not.toContain("markdown")
+    // 正文实体保留
+    expect(written).toContain("白曦推门而入。")
+    expect(readFrontmatterTitle(written)).toBe("第1章 雨夜")
+  })
+
   it("batchAcceptCampaignDrafts 单章事实摄取失败时记录日志且不中断后续章节", async () => {
     mocks.ingestChapter.mockRejectedValueOnce(new Error("事实摄取超时"))
 

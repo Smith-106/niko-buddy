@@ -62,7 +62,7 @@ import {
 } from "./cruise-arbitration"
 import { decidePausedChapter, type PausedChapterDecision } from "./cruise-wiring"
 import { updateChapterStatus } from "./chapter-meta"
-import { normalizeChapterDocument, resolveChapterTitle } from "./chapter-typography"
+import { normalizeChapterDocument, resolveChapterTitle, stripCodeFence } from "./chapter-typography"
 import { commitAcceptedDeepChapterDraft } from "./formal-writeback"
 import {
   appendStageMetric,
@@ -708,7 +708,10 @@ export async function batchAcceptCampaignDrafts(
     options?.onProgress?.(i + 1, total, filePath)
 
     const dateStr = new Date().toISOString().split("T")[0]
-    const title = resolveChapterTitle(ch.content ?? "", (ch.title ?? "").trim() || `第${chapterNum}章`)
+    // R6 格式回声：模型偶尔把正文包进 ``` 围栏（提示词已禁但非强制）。
+    // 晋升是正文进入正式章的唯一收口，此处剥围栏，避免围栏字面量落进正式正文。
+    const bodyContent = stripCodeFence(ch.content ?? "")
+    const title = resolveChapterTitle(bodyContent, (ch.title ?? "").trim() || `第${chapterNum}章`)
 
     const rawChapterContent = [
       "---",
@@ -722,7 +725,7 @@ export async function batchAcceptCampaignDrafts(
       "",
       `# ${title}`,
       "",
-      ch.content,
+      bodyContent,
       "",
     ].join("\n")
 

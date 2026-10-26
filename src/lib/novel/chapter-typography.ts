@@ -118,6 +118,18 @@ export function extractH1Headings(content: string): string[] {
  *   4. 正文首个非裸 H1 → 用之（如无 frontmatter 的导入章节）；
  *   5. fallback（通常为文件名派生标题）。
  */
+/**
+ * 去掉模型偶尔包在正文外的 ``` 代码围栏（格式回声）。
+ *
+ * 提示词已要求「不要包裹代码块」，但模型并非强制遵守；围栏字面量一旦落进
+ * 正式章节文件会污染正文与目录。此函数是纯字符串处理，零依赖，供写入边界复用。
+ */
+export function stripCodeFence(text: string): string {
+  const trimmed = text.trim()
+  const fence = trimmed.match(/^```[a-zA-Z]*\n([\s\S]*?)\n```$/)
+  return fence ? fence[1] : trimmed
+}
+
 export function resolveChapterTitle(content: string, fallback?: string): string {
   const fmTitle = readFrontmatterTitle(content)
   const headings = extractH1Headings(content)
