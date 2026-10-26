@@ -765,6 +765,37 @@ describe("SourceSidebar — 导入菜单", () => {
     await waitFor(() => expect(screen.queryByText("文件夹")).toBeNull())
   })
 
+  it("Tauri：导入文件夹失败时 toast 报错（无 unhandled rejection）", async () => {
+    mocks.isTauri.mockReturnValue(true)
+    mocks.dialogOpen.mockResolvedValue("/tmp/folder")
+    mocks.importSourceFolder.mockRejectedValue(new Error("copy-boom"))
+    render(<SourceSidebar />)
+    await screen.findByText("alpha.md")
+    fireEvent.click(screen.getByRole("button", { name: "导入大纲" }))
+    fireEvent.click(screen.getByText("文件夹"))
+    await waitFor(() => expect(mocks.importSourceFolder).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("导入失败")),
+    )
+    // finally 照常关闭菜单
+    await waitFor(() => expect(screen.queryByText("文件夹")).toBeNull())
+  })
+
+  it("Tauri：导入文件失败时 toast 报错（无 unhandled rejection）", async () => {
+    mocks.isTauri.mockReturnValue(true)
+    mocks.dialogOpen.mockResolvedValue("/tmp/one.md")
+    mocks.importSourceFiles.mockRejectedValue(new Error("copy-boom"))
+    render(<SourceSidebar />)
+    await screen.findByText("alpha.md")
+    fireEvent.click(screen.getByRole("button", { name: "导入大纲" }))
+    fireEvent.click(screen.getByText("导入文件"))
+    await waitFor(() => expect(mocks.importSourceFiles).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("导入失败")),
+    )
+    await waitFor(() => expect(screen.queryByText("导入文件")).toBeNull())
+  })
+
   it("Tauri：导入文件夹对话框返回非字符串时直接返回", async () => {
     mocks.isTauri.mockReturnValue(true)
     mocks.dialogOpen.mockResolvedValue(["/tmp/a", "/tmp/b"])

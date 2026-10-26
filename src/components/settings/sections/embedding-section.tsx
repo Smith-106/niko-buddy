@@ -111,9 +111,15 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
   const handleDropLegacy = useCallback(async () => {
     /* v8 ignore next */
     if (!project) return
-    await dropLegacyVectorTable(project.path)
-    setLegacyCount(0)
-    setLegacyDropped(true)
+    try {
+      await dropLegacyVectorTable(project.path)
+      setLegacyCount(0)
+      setLegacyDropped(true)
+    } catch (error) {
+      // vector_drop_legacy 无本地 catch：此处承接，否则裸 await  rejection
+      // 沿 onClick 冒泡为 unhandled rejection 且用户无反馈。
+      setLastError(toErrorMessage(error))
+    }
   }, [project])
 
   const showLegacyMigration =

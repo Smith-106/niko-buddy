@@ -446,6 +446,25 @@ describe("EmbeddingSection", () => {
     expect(screen.getByText("settings.sections.embedding.dropLegacyDone")).toBeTruthy()
   })
 
+  it("drop legacy 失败时承接 rejection 并显示 lastError（无 unhandled rejection）", async () => {
+    mocks.state.project = DEFAULT_PROJECT
+    mocks.getEmbeddingCount.mockResolvedValue(0)
+    mocks.legacyVectorRowCount.mockResolvedValue(5)
+    mocks.dropLegacyVectorTable.mockRejectedValue(new Error("drop-fail"))
+    render(<EmbeddingSection draft={makeDraft()} setDraft={mocks.setDraft} />)
+    await flushAsync()
+    expandPanel()
+
+    fireEvent.click(screen.getByText("settings.sections.embedding.dropLegacy"))
+    await flushAsync()
+
+    expect(mocks.dropLegacyVectorTable).toHaveBeenCalledWith("/p/mybook")
+    // catch 生效：错误写入 lastError 并渲染，而非沿 onClick 冒泡
+    expect(screen.getByText("settings.sections.embedding.lastErrorHeading")).toBeTruthy()
+    expect(screen.getByText(/drop-fail/)).toBeTruthy()
+    expect(screen.queryByText("settings.sections.embedding.dropLegacyDone")).toBeNull()
+  })
+
   it("drop legacy 无项目时按钮禁用（项目被切走后 legacyCount 仍在）", async () => {
     mocks.state.project = DEFAULT_PROJECT
     mocks.getEmbeddingCount.mockResolvedValue(0)

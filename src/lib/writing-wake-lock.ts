@@ -14,18 +14,29 @@ import { invoke } from "@tauri-apps/api/core"
 
 /**
  * 阻止系统进入休眠状态（线程级，通过 SetThreadExecutionState）。
- * @returns Windows 上 true；非 Windows 目标 false（no-op）
+ * @returns Windows 上 true；非 Windows 目标 false（no-op）。Tauri bridge
+ * 缺失/命令未注册导致 invoke 拒绝时同样返回 false（调用方按 no-op
+ * 继续，不抛 unhandled rejection）。
  */
 export async function acquireWakeLock(): Promise<boolean> {
-  return invoke<boolean>("acquire_wake_lock")
+  try {
+    return await invoke<boolean>("acquire_wake_lock")
+  } catch {
+    return false
+  }
 }
 
 /**
  * 释放 wake lock，恢复系统休眠策略。必须与 acquireWakeLock 成对调用。
- * @returns Windows 上 true；非 Windows 目标 false（no-op）
+ * @returns Windows 上 true；非 Windows 目标 false（no-op）。invoke 拒绝
+ * 时返回 false，不抛错（finally 释放路径安全）。
  */
 export async function releaseWakeLock(): Promise<boolean> {
-  return invoke<boolean>("release_wake_lock")
+  try {
+    return await invoke<boolean>("release_wake_lock")
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -72,8 +83,9 @@ export async function withWritingWakeLock<T>(
   return queue(async () => {
     holdCount += 1
     if (holdCount === 1 && !active) {
-      active = true
-      await acquireWakeLock()
+      // acquire 失败返回 false（不抛错）：active 保持 false，finally
+      // 跳过 release（无锁可放），operation 照常执行，写流程不中断。
+      active = await acquireWakeLock()
     }
     try {
       return await operation()

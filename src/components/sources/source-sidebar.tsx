@@ -199,6 +199,11 @@ export function SourceSidebar({
       })
       registerExtractTasks(result.taskIdsByPath, result.importedPaths)
       await loadSources()
+    } catch (err) {
+      // copy_file/copy_directory 链无就地 catch：此处承接，否则 rejection
+      // 沿 void onClick 冒泡为 unhandled rejection 且用户无反馈。
+      console.error("导入文件失败：", err)
+      toast.error(`导入失败：${err}`)
     } finally {
       setImporting(false)
       setImportMenuOpen(false)
@@ -225,6 +230,11 @@ export function SourceSidebar({
       })
       registerExtractTasks(result.taskIdsByPath, result.importedPaths)
       await loadSources()
+    } catch (err) {
+      // copyDirectory 链无就地 catch：此处承接，否则 rejection 沿 void
+      // onClick 冒泡为 unhandled rejection 且用户无反馈。
+      console.error("导入文件夹失败：", err)
+      toast.error(`导入失败：${err}`)
     } finally {
       setImporting(false)
       setImportMenuOpen(false)

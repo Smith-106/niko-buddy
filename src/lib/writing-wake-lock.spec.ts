@@ -6,6 +6,10 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }))
 
+vi.mock("@/lib/platform", () => ({
+  isTauri: () => true,
+}))
+
 const invokeMock = invoke as unknown as ReturnType<typeof vi.fn>
 
 beforeEach(() => {
@@ -47,5 +51,26 @@ describe("writing-wake-lock", () => {
     invokeMock.mockResolvedValue(false)
     const r = await acquireWakeLock()
     expect(r).toBe(false)
+  })
+
+  it("acquire invoke 拒绝时返回 false（不抛 unhandled rejection）", async () => {
+    invokeMock.mockRejectedValue(new Error("bridge-missing"))
+    await expect(acquireWakeLock()).resolves.toBe(false)
+  })
+
+  it("release invoke 拒绝时返回 false（finally 释放路径安全）", async () => {
+    invokeMock.mockRejectedValue(new Error("bridge-missing"))
+    await expect(releaseWakeLock()).resolves.toBe(false)
+  })
+
+  it("withWakeLock: acquire 失败仍执行任务且不抛错", async () => {
+    invokeMock.mockRejectedValue(new Error("bridge-missing"))
+    await expect(withWakeLock(Promise.resolve(7))).resolves.toBe(7)
+  })
+
+  it("withWritingWakeLock: Tauri 下 acquire 失败仍执行 operation 且不抛错", async () => {
+    invokeMock.mockRejectedValue(new Error("bridge-missing"))
+    const { withWritingWakeLock } = await import("./writing-wake-lock")
+    await expect(withWritingWakeLock(true, async () => 42)).resolves.toBe(42)
   })
 })

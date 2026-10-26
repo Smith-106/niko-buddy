@@ -43,6 +43,7 @@ import {
   type TrashEntry,
 } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
+import { toast } from "@/lib/toast"
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return "0 B"
@@ -125,6 +126,11 @@ export function DataManagerView() {
         await moveDomainToTrash(projectPath, domain, newStamp())
         setConfirmText("")
         await refresh()
+      } catch (err) {
+        // copy-gate 上抛 + purge/restore 同源：此处承接，否则 rejection
+        // 冒泡为 unhandled rejection 且用户无反馈。
+        console.error("移入回收站失败：", err)
+        toast.error(`移入回收站失败：${err}`)
       } finally {
         setBusyId(null)
       }
@@ -151,6 +157,9 @@ export function DataManagerView() {
       await moveAllToTrash(projectPath, newStamp())
       setConfirmText("")
       await refresh()
+    } catch (err) {
+      console.error("整项目重置失败：", err)
+      toast.error(`整项目重置失败：${err}`)
     } finally {
       setBusyId(null)
     }
@@ -167,6 +176,9 @@ export function DataManagerView() {
       try {
         await purgeTrashStamp(projectPath, stamp)
         await refresh()
+      } catch (err) {
+        console.error("物理删除失败：", err)
+        toast.error(`物理删除失败：${err}`)
       } finally {
         setBusyId(null)
       }
@@ -182,6 +194,9 @@ export function DataManagerView() {
       try {
         await restoreDomainFromTrash(projectPath, domain, stamp)
         await refresh()
+      } catch (err) {
+        console.error("恢复失败：", err)
+        toast.error(`恢复失败：${err}`)
       } finally {
         setBusyId(null)
       }
