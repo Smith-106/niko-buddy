@@ -260,6 +260,7 @@ export function PresetRow({
                         if (nextBaseUrl) patch.baseUrl = nextBaseUrl
                         onChange(patch)
                       }}
+                      aria-label={t(m.labelKey)}
                       className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
                         active
                           ? "border-primary bg-primary text-primary-foreground"
@@ -428,6 +429,7 @@ export function PresetRow({
                 <button
                   type="button"
                   onClick={() => setIsModelSelectionExpanded(!isModelSelectionExpanded)}
+                  aria-label={`${t("settings.sections.llm.fetchedModelsCount", { count: modelOptions.length })} ${t("settings.sections.llm.selectedModelsCount", { count: (ov.savedModels ?? []).length })}`}
                   className="flex items-center gap-2 text-xs font-medium hover:text-primary"
                 >
                   <span>{t("settings.sections.llm.fetchedModelsCount", { count: modelOptions.length })}</span>
@@ -495,6 +497,7 @@ export function PresetRow({
                 type="button"
                 onClick={() => void loadModelOptions()}
                 disabled={modelListState?.loading || modelTestState?.loading}
+                aria-label={modelListState?.loading ? t("settings.sections.llm.loadingModels") : t("settings.sections.llm.fetchModels")}
                 className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {modelListState?.loading
@@ -505,6 +508,7 @@ export function PresetRow({
                 type="button"
                 onClick={() => void runSelectedModelTest()}
                 disabled={modelListState?.loading || modelTestState?.loading}
+                aria-label={modelTestState?.loading ? t("settings.sections.shared.testing") : t("settings.sections.shared.testModel")}
                 className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {modelTestState?.loading
