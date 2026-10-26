@@ -268,6 +268,19 @@ export function ForeshadowingPanel() {
                               {t(STATUS_LABEL_KEY[f.status] ?? "novel.foreshadowing.unresolved")}
                             </span>
                           </div>
+                          {/* Q14-C：人物维度 —— 关联角色徒标（无关联不渲染）。 */}
+                          {f.relatedCharacters.length > 0 ? (
+                            <div className="mt-1 flex flex-wrap items-center gap-1" data-testid={`foreshadow-related-${f.id}`}>
+                              {f.relatedCharacters.map((name) => (
+                                <span
+                                  key={name}
+                                  className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+                                >
+                                  {name}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
                           {f.description && (
                             <p className="mt-1 text-xs text-muted-foreground break-words">{f.description}</p>
                           )}

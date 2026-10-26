@@ -15,6 +15,11 @@ export interface ChapterDraftDockProps {
   readonly listDrafts?: typeof listChapterDrafts
   readonly acceptDraft?: typeof acceptChapterDraft
   readonly pathExists?: (path: string) => Promise<boolean>
+  /**
+   * Q14-B：连续性告警计数（与 toolsBar / Dock 呼吸灯同源 foreshadowOverdue）。
+   * null/undefined 或两项均 0 时不渲染告警条（fail-open，不伪造告警）。
+   */
+  readonly alerts?: { critical: number; warning: number } | null
 }
 
 interface PendingAdopt {
@@ -27,6 +32,7 @@ export function ChapterDraftDock({
   projectPath,
   selectedFile,
   onAdopted,
+  alerts,
   listDrafts = listChapterDrafts,
   acceptDraft = acceptChapterDraft,
   pathExists = fileExists,
@@ -92,6 +98,19 @@ export function ChapterDraftDock({
 
   return (
     <div className="space-y-2 p-2 text-xs" data-testid="chapter-draft-dock">
+      {/* Q14-B：草稿 dock 内连续性告警条（与 Dock 呼吸灯同源；无告警不渲染）。 */}
+      {alerts && alerts.critical + alerts.warning > 0 ? (
+        <p
+          className={
+            alerts.critical > 0
+              ? "rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-destructive"
+              : "rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning"
+          }
+          data-testid="chapter-draft-continuity-alert"
+        >
+          {`连续性告警 严重${alerts.critical} · 提示${alerts.warning}`}
+        </p>
+      ) : null}
       <p className="font-medium">本章草稿</p>
       {drafts.length === 0 ? <p className="text-muted-foreground">没有待采纳的章节草稿。</p> : null}
       <ul className="space-y-1.5">

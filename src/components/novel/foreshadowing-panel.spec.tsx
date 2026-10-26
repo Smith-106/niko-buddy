@@ -221,4 +221,18 @@ describe("ForeshadowingPanel", () => {
     expect(screen.getByText("2→12")).toBeInTheDocument()
     expect(screen.getByText("1→12")).toBeInTheDocument()
   })
+
+  it("Q14-C 关联角色徒标：有 relatedCharacters 时渲染，空数组不渲染", async () => {
+    tracker.loadForeshadowingTracker.mockResolvedValue(makeStore({
+      items: [
+        { id: "f1", name: "玉牌", description: "", status: "planted", plantedChapter: 2, advancedChapters: [], relatedCharacters: ["林逸", "苏晓"], relatedEvents: [], notes: "" },
+        { id: "f2", name: "旧友", description: "", status: "advanced", plantedChapter: 5, advancedChapters: [6], relatedCharacters: [], relatedEvents: [], notes: "" },
+      ],
+    }))
+    render(<ForeshadowingPanel />)
+    const badge = await screen.findByTestId("foreshadow-related-f1")
+    expect(badge.textContent).toContain("林逸")
+    expect(badge.textContent).toContain("苏晓")
+    expect(screen.queryByTestId("foreshadow-related-f2")).not.toBeInTheDocument()
+  })
 })

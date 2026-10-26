@@ -451,6 +451,40 @@ describe("WritingWorkspace — 写作工具抽屉接线", () => {
     expect(screen.queryByTestId("workspace-foreshadow-alert")).not.toBeInTheDocument()
   })
 
+  it("Q14-A Dock 呼吸灯：critical 逾期时 dock 头出现脉冲点，无逾期时整条不渲染", async () => {
+    novelMocks.loadForeshadowingTracker.mockResolvedValue({
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      items: [
+        { id: "o1", name: "玉佩", description: "", status: "planted", plantedChapter: 1, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+        { id: "o2", name: "密信", description: "", status: "planted", plantedChapter: 8, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+      ],
+    })
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    const dot = await screen.findByTestId("workspace-dock-continuity-dot")
+    expect(dot.getAttribute("data-severity")).toBe("critical")
+    expect(dot.textContent).toContain("严重1")
+    // 脉冲点：critical 用 destructive + animate-pulse
+    const pulse = dot.querySelector("span[aria-hidden='true']")
+    expect(pulse?.className).toContain("animate-pulse")
+    expect(pulse?.className).toContain("bg-destructive")
+  })
+
+  it("Q14-A 无逾期 → dock 呼吸灯不渲染（零打扰）", async () => {
+    novelMocks.loadForeshadowingTracker.mockResolvedValue({
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      items: [
+        { id: "o2", name: "密信", description: "", status: "planted", plantedChapter: 8, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+      ],
+    })
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    await screen.findByTestId("chapter-draft-dock")
+    expect(screen.queryByTestId("workspace-dock-continuity-dot")).not.toBeInTheDocument()
+  })
+
   it("当前章正在保存时，章节行显示保存态", () => {
     mocks.wikiState.project = { path: "C:/novels/demo" }
     mocks.wikiState.selectedFile = "C:/novels/demo/正文/第01章.md"

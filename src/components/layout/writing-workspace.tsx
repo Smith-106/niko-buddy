@@ -351,6 +351,27 @@ export function WritingWorkspace() {
 
   const chapterDock = !focusMode && deskTab ? (
     <aside className="h-full w-80 shrink-0 overflow-auto border-l bg-background" data-testid="workspace-chapter-dock">
+      {/* Q14-A：Dock 级连续性呼吸灯 —— 复用 toolsBar 同源 foreshadowOverdue 计数，
+          critical 红点脉冲、仅 warning 琥珀常亮；无逾期时整条不渲染（fail-open 不伪造）。 */}
+      {foreshadowOverdue && foreshadowOverdue.critical + foreshadowOverdue.warning > 0 ? (
+        <div
+          className="flex items-center gap-2 border-b px-2 py-1.5 text-xs"
+          data-testid="workspace-dock-continuity-dot"
+          data-severity={foreshadowOverdue.critical > 0 ? "critical" : "warning"}
+        >
+          <span
+            aria-hidden="true"
+            className={
+              foreshadowOverdue.critical > 0
+                ? "h-2 w-2 shrink-0 animate-pulse rounded-full bg-destructive"
+                : "h-2 w-2 shrink-0 rounded-full bg-warning"
+            }
+          />
+          <span className="min-w-0 truncate text-muted-foreground">
+            {`连续性告警 严重${foreshadowOverdue.critical} · 提示${foreshadowOverdue.warning}`}
+          </span>
+        </div>
+      ) : null}
       <Suspense fallback={<div className="p-2 text-xs text-muted-foreground">加载中...</div>}>
         {deskTab === "outline" ? <SourcesView /> : null}
         {deskTab === "search" ? (
@@ -367,6 +388,7 @@ export function WritingWorkspace() {
           <ChapterDraftDock
             projectPath={projectPath}
             selectedFile={selectedFile}
+            alerts={foreshadowOverdue}
             onAdopted={(path) => {
               setSelectedFile(path)
               setActiveView("wiki")

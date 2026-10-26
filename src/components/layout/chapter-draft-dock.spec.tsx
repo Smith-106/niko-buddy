@@ -59,4 +59,47 @@ describe("ChapterDraftDock", () => {
     })
     expect(onAdopted).toHaveBeenCalledWith("C:/book/正文/第01章.md")
   })
+
+  it("Q14-B 有告警时渲染连续性告警条（critical 用 destructive 色）", async () => {
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => [draft]}
+        pathExists={async () => true}
+        alerts={{ critical: 2, warning: 3 }}
+      />,
+    )
+    const bar = await screen.findByTestId("chapter-draft-continuity-alert")
+    expect(bar.textContent).toContain("严重2")
+    expect(bar.textContent).toContain("提示3")
+    expect(bar.className).toContain("border-destructive/40")
+  })
+
+  it("Q14-B 仅 warning 时用琥珀色；无告警或全 0 时不渲染告警条", async () => {
+    const { unmount } = render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => [draft]}
+        pathExists={async () => true}
+        alerts={{ critical: 0, warning: 4 }}
+      />,
+    )
+    const bar = await screen.findByTestId("chapter-draft-continuity-alert")
+    expect(bar.className).toContain("border-warning/40")
+    unmount()
+
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => [draft]}
+        pathExists={async () => true}
+        alerts={{ critical: 0, warning: 0 }}
+      />,
+    )
+    await screen.findByTestId("chapter-draft-dock")
+    expect(screen.queryByTestId("chapter-draft-continuity-alert")).toBeNull()
+  })
 })
