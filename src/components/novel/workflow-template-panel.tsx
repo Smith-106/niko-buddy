@@ -33,17 +33,28 @@ function kindLabel(kind: string): string {
   return KIND_LABELS[kind] ?? kind
 }
 
+/** 只读 Badge Flow：一组短文本横向换行徽章展示，替代 join("、"/"；")文本墙。 */
+function BadgeFlow({ items }: { readonly items: readonly string[] }) {
+  return (
+    <span className="inline-flex flex-wrap gap-1.5">
+      {items.map((item, index) => (
+        <span
+          key={`${item}-${index}`}
+          className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs"
+        >
+          {item}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 function EntryRow({ entry }: { readonly entry: WorkflowTemplateEntry }) {
-  const requiredText =
-    entry.requiredFields.length > 0
-      ? `必填字段 ${entry.requiredFieldCount} 项：${entry.requiredFields.join("、")}`
-      : null
-  const enumPlain =
-    entry.enums.length > 0
-      ? `可选枚举 ${entry.enumListCount} 类 / ${entry.enumValueCount} 值：${entry.enums
-          .map((ref) => `${ref.linkedField ?? "未链接字段"} · ${ref.valueCount} 值`)
-          .join("；")}`
-      : null
+  const hasRequired = entry.requiredFields.length > 0
+  const hasEnums = entry.enums.length > 0
+  const enumPlainItems = entry.enums.map(
+    (ref) => `${ref.linkedField ?? "未链接字段"} · ${ref.valueCount} 值`,
+  )
   const enumLocked =
     entry.enums.length > 0
       ? entry.enums
@@ -60,23 +71,27 @@ function EntryRow({ entry }: { readonly entry: WorkflowTemplateEntry }) {
         <span className="ml-1 text-muted-foreground">{kindLabel(entry.kind)}</span>
         <span className="sr-only">{`[${entry.kind}]`}</span>
       </p>
-      {requiredText === null ? (
+      {hasRequired ? (
+        <p data-testid={`workflow-template-${entry.id}-required-fields`}>
+          {`必填字段 ${entry.requiredFieldCount} 项：`}
+          <BadgeFlow items={entry.requiredFields} />
+        </p>
+      ) : (
         <p data-testid={`workflow-template-na-${entry.id}-required-fields`}>
           必填字段：不适用（这一项没有声明必填字段）
           <span className="sr-only">N/A</span>
         </p>
-      ) : (
-        <p data-testid={`workflow-template-${entry.id}-required-fields`}>{requiredText}</p>
       )}
-      {enumPlain === null ? (
+      {hasEnums ? (
+        <p data-testid={`workflow-template-${entry.id}-enums`}>
+          {`可选枚举 ${entry.enumListCount} 类 / ${entry.enumValueCount} 值：`}
+          <BadgeFlow items={enumPlainItems} />
+          <span className="sr-only">{enumLocked}</span>
+        </p>
+      ) : (
         <p data-testid={`workflow-template-na-${entry.id}-enums`}>
           可选枚举：不适用（这一项没有声明枚举）
           <span className="sr-only">N/A</span>
-        </p>
-      ) : (
-        <p data-testid={`workflow-template-${entry.id}-enums`}>
-          {enumPlain}
-          <span className="sr-only">{enumLocked}</span>
         </p>
       )}
       {entry.kind === "enum"
@@ -86,14 +101,16 @@ function EntryRow({ entry }: { readonly entry: WorkflowTemplateEntry }) {
               data-testid={`workflow-template-${entry.id}-values-${ref.name}`}
               className="text-muted-foreground"
             >
-              {ref.values.join("、")}
+              <BadgeFlow items={ref.values} />
               <span className="sr-only">{ref.name}</span>
             </p>
           ))
         : null}
       {entry.missingRequiredFieldNames !== null && entry.missingRequiredFieldNames.length > 0 ? (
         <p data-testid={`workflow-template-${entry.id}-missing`} className="text-warning">
-          {`渲染正文里未出现这些必填字段名：${entry.missingRequiredFieldNames.join("、")}（如实列出，不补内容）`}
+          {"渲染正文里未出现这些必填字段名："}
+          <BadgeFlow items={entry.missingRequiredFieldNames} />
+          {"（如实列出，不补内容）"}
         </p>
       ) : null}
       {entry.templateStatus === "failed" ? (

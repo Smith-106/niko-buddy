@@ -88,7 +88,9 @@ describe("WorkflowTemplatePanel", () => {
     expect(groupIds).toEqual(["workflow-template-group-volume", "workflow-template-group-chapter"])
 
     const volumeText = screen.getByTestId("workflow-template-fake-volume").textContent ?? ""
-    expect(volumeText).toContain("必填字段 2 项：甲字段、乙字段")
+    expect(volumeText).toContain("必填字段 2 项：")
+    expect(screen.getByTestId("workflow-template-fake-volume-required-fields").textContent).toContain("甲字段")
+    expect(screen.getByTestId("workflow-template-fake-volume-required-fields").textContent).toContain("乙字段")
     expect(volumeText).toContain("可选枚举 1 类 / 2 值")
     expect(volumeText).toContain("FAKE_ENUM（甲字段 · 2 值）")
     expect(volumeText).toContain("模板首行：「假首行」 · 全文 123 字")
