@@ -1338,7 +1338,13 @@
     "batchAccept": "Accept all ({{count}})",
     "batchUndo": "Undo last batch",
     "severityFilter": "Filter by severity",
-    "severityEmpty": "No items at this severity"
+    "severityEmpty": "No items at this severity",
+    "severity": {
+      "all": "All",
+      "error": "Error",
+      "warning": "Warning",
+      "info": "Info"
+    }
   },
   "settings": {
     "title": "Settings",
@@ -3487,7 +3493,8 @@
     "cognitionPanel": "Cognition-axis correction panel",
     "emptyUnknown": "(Empty — unknown to all)",
     "addKnownByPlaceholder": "Add knowing character (allowlist only)",
-    "revealedAtHint": "Chapter revealed to knowing characters; blank = unregistered"
+    "revealedAtHint": "Chapter revealed to knowing characters; blank = unregistered",
+    "correctionDiscardConfirm": "The correction draft is unsaved. Discard it?"
   },
   "errorBoundary": {
     "title": "Something went wrong",
@@ -3616,7 +3623,11 @@
     "artifactCharacter": "Cast {{count}} (protagonist {{protagonist}})",
     "artifactOutline": "Outline: {{framework}} · {{volumes}} vols · {{chapters}} ch planned",
     "artifactChapters": "First chapter “{{title}}” · {{beats}} beats",
-    "draftReceipt": "First-chapter draft ready: {{id}} ({{chars}} chars, awaiting your acceptance)"
+    "draftReceipt": "First-chapter draft ready: {{id}} ({{chars}} chars, awaiting your acceptance)",
+    "advancing": "Advancing…",
+    "terminate": "Terminate run",
+    "terminated": "This advance was terminated; pipeline state is unchanged.",
+    "runlogTitle": "Scheduler run log"
   },
   "skillbundle.export.title": "Export skill bundle",
   "skillbundle.export.submit": "Export",

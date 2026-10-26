@@ -737,7 +737,13 @@
     "batchAccept": "一键采纳全部 ({{count}})",
     "batchUndo": "撤销上次批量",
     "severityFilter": "严重度筛选",
-    "severityEmpty": "该严重度下暂无条目"
+    "severityEmpty": "该严重度下暂无条目",
+    "severity": {
+      "all": "全部",
+      "error": "严重",
+      "warning": "警告",
+      "info": "提示"
+    }
   },
   "settings": {
     "title": "设置",
@@ -3487,7 +3493,8 @@
     "cognitionPanel": "认知轴校正面板",
     "emptyUnknown": "（空 — 无人知晓）",
     "addKnownByPlaceholder": "新增知晓角色（限白名单）",
-    "revealedAtHint": "向知晓角色揭示的章节；留空=未登记"
+    "revealedAtHint": "向知晓角色揭示的章节；留空=未登记",
+    "correctionDiscardConfirm": "校正草稿尚未保存，确定要放弃吗？"
   },
   "errorBoundary": {
     "title": "出错了",
@@ -3616,7 +3623,11 @@
     "artifactCharacter": "角色账本 {{count}} 人（主角 {{protagonist}}）",
     "artifactOutline": "大纲：{{framework}} · {{volumes}} 卷 · 计划 {{chapters}} 章",
     "artifactChapters": "首章《{{title}}》· {{beats}} 个节拍",
-    "draftReceipt": "首章草稿已生成：{{id}}（{{chars}} 字，待你接受）"
+    "draftReceipt": "首章草稿已生成：{{id}}（{{chars}} 字，待你接受）",
+    "advancing": "推进中…",
+    "terminate": "终止推演",
+    "terminated": "已终止本次推进，管线状态保持不变。",
+    "runlogTitle": "调度运行记录"
   },
   "skillbundle.export.title": "导出技能包",
   "skillbundle.export.submit": "导出",

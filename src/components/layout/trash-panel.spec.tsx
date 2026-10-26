@@ -171,6 +171,8 @@ describe("TrashPanel", () => {
     mocks.permanentlyDeleteTrashItem.mockResolvedValue(undefined)
     mocks.permanentlyDeleteAllTrashItems.mockResolvedValue(undefined)
     mocks.listDirectory.mockResolvedValue([])
+    // UX-G3-D7：永久删除/清空回收站现在有二次确认；默认放行，个别用例可覆盖为拒绝。
+    vi.spyOn(window, "confirm").mockReturnValue(true)
   })
 
   afterEach(() => {
