@@ -122,6 +122,7 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
                 key={rumor.id}
                 type="button"
                 onClick={() => setSelectedRumorId(rumor.id)}
+                aria-label={rumor.content}
                 className={`w-full rounded-md border p-2.5 text-left transition-colors ${
                   selectedRumorId === rumor.id
                     ? "border-primary bg-primary/5"
