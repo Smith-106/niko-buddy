@@ -20,6 +20,7 @@
 
 import { createDirectory, writeFileAtomic } from "@/commands/fs"
 import { recordModuleHit } from "./module-heat"
+import { appendStageMetric } from "./novel-session-status"
 import { normalizePath } from "@/lib/path-utils"
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import { DEFAULT_NOVEL_CONFIG } from "@/stores/wiki-store"
@@ -417,6 +418,47 @@ async function deriveAndBindFramework(
 }
 
 /**
+ * R3 无头遥测私有纯函数（不导出）：孵化产物 token 近似（诊断用，非计费）。
+ * - string → 去空白后字符数；array → 逐项累加（Character 取 profile 累加）；
+ * - object → JSON 序列化去空白后字符数；其余 → 0。
+ */
+function incubatorTokenCost(value: unknown): number {
+  if (typeof value === "string") return value.replace(/\s/g, "").length
+  if (Array.isArray(value)) {
+    let sum = 0
+    for (const item of value) {
+      if (
+        item !== null &&
+        typeof item === "object" &&
+        "profile" in item &&
+        typeof (item as { profile: unknown }).profile === "string"
+      ) {
+        sum += ((item as { profile: string }).profile).replace(/\s/g, "").length
+      } else {
+        sum += incubatorTokenCost(item)
+      }
+    }
+    return sum
+  }
+  if (value !== null && typeof value === "object") {
+    try {
+      return JSON.stringify(value).replace(/\s/g, "").length
+    } catch {
+      return 0
+    }
+  }
+  return 0
+}
+
+/**
+ * R3 无头遥测私有纯函数（不导出）：墙钟差，负值钳 0。
+ */
+function stageLatencyMs(t0: number): number {
+  const d = Date.now() - t0
+  return d < 0 ? 0 : d
+}
+
+/**
  * 启动全自动小说冷启动孵化流水线 (Autonomous Novel Incubator)
  */
 export async function runAutonomousNovelIncubator(
@@ -443,8 +485,11 @@ export async function runAutonomousNovelIncubator(
     total: 6,
     message: `[1/6] 正在自主孵化《${title}》灵魂文档 (SoulDoc)...`,
   })
+  const t0SoulDoc = Date.now()
   const soulDoc = await generateSoulDocContent(title, genre, idea, llmConfig, signal)
   await writeSoulDoc(pp, soulDoc)
+  // R3：孵化 1/6 遥测（诊断近似，非计费；appendStageMetric 非致命，失败不阻断主链）
+  await appendStageMetric(pp, { stage: "incubator:soul-doc", tokenCost: incubatorTokenCost(soulDoc), latencyMs: stageLatencyMs(t0SoulDoc), partial: false, timestamp: new Date().toISOString() })
   recordModuleHit({ path: "src/lib/novel/soul-doc.ts", at: Date.now(), ok: true, detail: `孵化 1/6 灵魂文档 ${title}` })
 
   // 2/6 世界观蓝图
@@ -454,8 +499,11 @@ export async function runAutonomousNovelIncubator(
     total: 6,
     message: `[2/6] 正在构建《${title}》世界观五大分层骨架蓝图...`,
   })
+  const t0WorldBlueprint = Date.now()
   const worldBlueprint = await generateWorldBlueprintData(title, genre, idea, llmConfig, signal)
   await saveWorldBlueprint(pp, worldBlueprint)
+  // R3：孵化 2/6 遥测（诊断近似，非计费）
+  await appendStageMetric(pp, { stage: "incubator:world-blueprint", tokenCost: incubatorTokenCost(worldBlueprint), latencyMs: stageLatencyMs(t0WorldBlueprint), partial: false, timestamp: new Date().toISOString() })
   recordModuleHit({ path: "src/lib/novel/world-blueprint.ts", at: Date.now(), ok: true, detail: `孵化 2/6 世界观蓝图 ${title}` })
 
   // 3/6 核心人物卡
@@ -465,7 +513,10 @@ export async function runAutonomousNovelIncubator(
     total: 6,
     message: `[3/6] 正在塑造《${title}》主角、主要对抗者与核心盟友档案...`,
   })
+  const t0Characters = Date.now()
   const characters = await generateCoreCharacters(pp, title, genre, idea)
+  // R3：孵化 3/6 遥测（characters 取各 profile 累加）
+  await appendStageMetric(pp, { stage: "incubator:characters", tokenCost: incubatorTokenCost(characters), latencyMs: stageLatencyMs(t0Characters), partial: false, timestamp: new Date().toISOString() })
   recordModuleHit({ path: "src/lib/novel/autonomous-incubator.ts", at: Date.now(), ok: true, detail: `孵化 3/6 核心角色 ${title}` })
 
   // 4/6 宏观总纲推演
@@ -481,10 +532,13 @@ export async function runAutonomousNovelIncubator(
     total: 6,
     message: `[4/6] 正在进行大纲多智能体全局推演与分章规划...`,
   })
+  const t0Outline = Date.now()
   const outlineContent = await generateMacroOutline(title, genre, idea, targetChapters, llmConfig, signal)
   const outlineDir = `${pp}/wiki/outlines`
   await createDirectory(outlineDir)
   await writeFileAtomic(`${outlineDir}/story-outline.md`, outlineContent)
+  // R3：孵化 4/6 遥测
+  await appendStageMetric(pp, { stage: "incubator:outline", tokenCost: incubatorTokenCost(outlineContent), latencyMs: stageLatencyMs(t0Outline), partial: false, timestamp: new Date().toISOString() })
   recordModuleHit({ path: "src/lib/novel/autonomous-incubator.ts", at: Date.now(), ok: true, detail: `孵化 4/6 大纲推演 ${title}` })
 
   // 5/6 章节骨架零人工自动铺排
@@ -494,11 +548,14 @@ export async function runAutonomousNovelIncubator(
     total: 6,
     message: `[5/6] 正在自动解构并铺排章节骨架文件树...`,
   })
+  const t0Unpack = Date.now()
   const unpackedSkeletons = await unpackOutlineToChapterFiles({
     projectPath: pp,
     outlineContent,
     overwriteExisting: false,
   })
+  // R3：孵化 5/6 遥测
+  await appendStageMetric(pp, { stage: "incubator:unpack-chapters", tokenCost: incubatorTokenCost(unpackedSkeletons), latencyMs: stageLatencyMs(t0Unpack), partial: false, timestamp: new Date().toISOString() })
   recordModuleHit({ path: "src/lib/novel/outline-chapter-unpack.ts", at: Date.now(), ok: true, detail: `孵化 5/6 章节骨架铺排 ${title}` })
 
   // 6/6 起承转合故事模拟框架提取与绑定
@@ -508,7 +565,10 @@ export async function runAutonomousNovelIncubator(
     total: 6,
     message: `[6/6] 正在提取起承转合 4 节点故事模拟框架并写入全局激活绑定...`,
   })
+  const t0Binding = Date.now()
   const activeBinding = await deriveAndBindFramework(pp, title, idea, targetChapters)
+  // R3：孵化 6/6 遥测
+  await appendStageMetric(pp, { stage: "incubator:framework-binding", tokenCost: incubatorTokenCost(activeBinding), latencyMs: stageLatencyMs(t0Binding), partial: false, timestamp: new Date().toISOString() })
   recordModuleHit({ path: "src/lib/novel/story-simulation/framework-binding.ts", at: Date.now(), ok: true, detail: `孵化 6/6 框架绑定 ${title}` })
 
   onProgress?.({

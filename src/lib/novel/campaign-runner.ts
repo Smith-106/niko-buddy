@@ -64,7 +64,12 @@ import { decidePausedChapter, type PausedChapterDecision } from "./cruise-wiring
 import { updateChapterStatus } from "./chapter-meta"
 import { normalizeChapterDocument, resolveChapterTitle } from "./chapter-typography"
 import { commitAcceptedDeepChapterDraft } from "./formal-writeback"
-import { registerManagedCampaignDraft } from "./novel-session-status"
+import {
+  appendStageMetric,
+  buildNextStatus,
+  registerManagedCampaignDraft,
+  updateNovelSessionStatus,
+} from "./novel-session-status"
 
 /**
  * M2 巡航满血预设：缺省 novelConfig 时默认开启场景拆解（sceneBreakdownEnabled），
@@ -189,6 +194,22 @@ function extractBindingPovName(binding: unknown): string | null {
 }
 
 /**
+ * R3 无头遥测私有纯函数（不导出）：墙钟差，负值钳 0。
+ */
+function stageLatencyMs(t0: number): number {
+  const d = Date.now() - t0
+  return d < 0 ? 0 : d
+}
+
+/**
+ * R3 无头遥测私有纯函数（不导出）：战役 partial 唯一规则。
+ * ready 且未 skip → false；partial/blocked/failed 或 skipped → true。
+ */
+function campaignPartial(status: CampaignChapterResult["status"], skipped?: boolean): boolean {
+  return !(status === "ready" && !skipped)
+}
+
+/**
  * 启动预演式批量战役调度
  */
 export async function runAutonomousDraftCampaign(
@@ -219,6 +240,15 @@ export async function runAutonomousDraftCampaign(
   const total = Math.max(1, chapterCount)
   const endChapter = startChapter + total - 1
 
+  // R3：战役起笔顶层指针（running + active_step_index=startChapter，经 buildNextStatus 工厂；失败非致命，永不阻断巡航）
+  try {
+    await updateNovelSessionStatus(pp, (s) =>
+      s ? buildNextStatus(s, { updated_at: startTime, status: "running", active_step_index: startChapter }) : null,
+    )
+  } catch (err) {
+    console.warn(`[campaign-runner] R3 start pointer telemetry failed (non-fatal):`, err)
+  }
+
   for (let idx = 0; idx < total; idx++) {
     if (signal?.aborted) {
       throw new Error("批量战役已被用户取消")
@@ -232,6 +262,8 @@ export async function runAutonomousDraftCampaign(
       total,
       message: `正在调度生成第 ${currentChapterNum} 章 (${idx + 1}/${total})...`,
     })
+    // R3：章起始墙钟（enrichWithEventPool 与 auto-accept 耗时计入本章，不单列）
+    const chapterT0 = Date.now()
 
     // 构建该章节的用户提示词（显式 buildChapterRequest 优先；缺省走 S2 默认装配）
     let userRequest: string
@@ -427,6 +459,21 @@ export async function runAutonomousDraftCampaign(
             // 以重跑结局覆盖首跑记录（单章在报告中只保留最终处置）
             results[results.length - 1] = retryResult
             onChapterComplete?.(currentChapterNum, retryResult)
+            // R3：retry 终局 1 条（成功 continue / 失败 break 共用，首跑不写；attemptChapter 内禁写盘；吞错永不阻断主链）
+            try {
+              if (typeof appendStageMetric === "function") {
+                await appendStageMetric(pp, {
+                  stage: "campaign:chapter",
+                  chapterId: `chapter-${String(currentChapterNum).padStart(3, "0")}`,
+                  tokenCost: retryResult.wordCount,
+                  latencyMs: stageLatencyMs(chapterT0),
+                  partial: campaignPartial(retryResult.status, retryResult.skipped),
+                  timestamp: new Date().toISOString(),
+                })
+              }
+            } catch {
+              /* non-fatal: telemetry never blocks cruise */
+            }
             if (retryResult.status === "ready") {
               previousDraftSummary = buildCarryoverContext({
                 chapterNumber: currentChapterNum,
@@ -452,6 +499,21 @@ export async function runAutonomousDraftCampaign(
             }
             results[results.length - 1] = skippedResult
             onChapterComplete?.(currentChapterNum, skippedResult)
+            // R3：skip 终局 1 条（partial:true，chapterId 保留原章号；吞错永不阻断主链）
+            try {
+              if (typeof appendStageMetric === "function") {
+                await appendStageMetric(pp, {
+                  stage: "campaign:chapter",
+                  chapterId: `chapter-${String(currentChapterNum).padStart(3, "0")}`,
+                  tokenCost: skippedResult.wordCount,
+                  latencyMs: stageLatencyMs(chapterT0),
+                  partial: campaignPartial(skippedResult.status, skippedResult.skipped),
+                  timestamp: new Date().toISOString(),
+                })
+              }
+            } catch {
+              /* non-fatal: telemetry never blocks cruise */
+            }
             onProgress?.({
               stage: "arbitration-skip",
               current: idx + 1,
@@ -480,7 +542,38 @@ export async function runAutonomousDraftCampaign(
           total,
           message: `[第 ${currentChapterNum} 章] 门控未通过(${chapterResult.status})，全自动巡航已安全挂起并等待人工审阅。`,
         })
+        // R3：暂停挂起章终局 1 条（原始 chapterResult 为终局；retry/skip 已写过的不重复；吞错永不阻断主链）
+        try {
+          if (typeof appendStageMetric === "function") {
+            await appendStageMetric(pp, {
+              stage: "campaign:chapter",
+              chapterId: `chapter-${String(currentChapterNum).padStart(3, "0")}`,
+              tokenCost: chapterResult.wordCount,
+              latencyMs: stageLatencyMs(chapterT0),
+              partial: campaignPartial(chapterResult.status, chapterResult.skipped),
+              timestamp: new Date().toISOString(),
+            })
+          }
+        } catch {
+          /* non-fatal: telemetry never blocks cruise */
+        }
         break
+      }
+
+      // R3：直通章终局 1 条（cruise ready + 非 cruise 全量；仲裁改写章不在此写，避免一章两条；吞错永不阻断主链）
+      try {
+        if (typeof appendStageMetric === "function") {
+          await appendStageMetric(pp, {
+            stage: "campaign:chapter",
+            chapterId: `chapter-${String(currentChapterNum).padStart(3, "0")}`,
+            tokenCost: chapterResult.wordCount,
+            latencyMs: stageLatencyMs(chapterT0),
+            partial: campaignPartial(chapterResult.status, chapterResult.skipped),
+            timestamp: new Date().toISOString(),
+          })
+        }
+      } catch {
+        /* non-fatal: telemetry never blocks cruise */
       }
 
       // 更新前情记忆给下一章沙箱消费（结构化承接：承接章号 + 任务简报? + 远期段摘要? + 末段收束 + 开端锚点；
@@ -522,6 +615,21 @@ export async function runAutonomousDraftCampaign(
       }
       results.push(failedResult)
       onChapterComplete?.(currentChapterNum, failedResult)
+      // R3：catch failed 终局 1 条（wordCount=0，partial:true；吞错永不阻断主链）
+      try {
+        if (typeof appendStageMetric === "function") {
+          await appendStageMetric(pp, {
+            stage: "campaign:chapter",
+            chapterId: `chapter-${String(currentChapterNum).padStart(3, "0")}`,
+            tokenCost: failedResult.wordCount,
+            latencyMs: stageLatencyMs(chapterT0),
+            partial: campaignPartial(failedResult.status, failedResult.skipped),
+            timestamp: new Date().toISOString(),
+          })
+        }
+      } catch {
+        /* non-fatal: telemetry never blocks cruise */
+      }
       // 若出现不可恢复的异常（例如用户手动中断或巡航遇到系统错误），跳出
       if (signal?.aborted || cruiseMode) break
     }
@@ -530,6 +638,22 @@ export async function runAutonomousDraftCampaign(
   const endTime = new Date().toISOString()
   const readyCount = results.filter((r) => r.status === "ready").length
   const failedCount = results.filter((r) => r.status === "failed" || r.status === "blocked").length
+  const allPassed = failedCount === 0 && readyCount === total
+
+  // R3：战役收笔顶层指针（completed/blocked + active_step_index=endChapter；paused 仍由人工挂起路径写入，本轮只用二值）
+  try {
+    await updateNovelSessionStatus(pp, (s) =>
+      s
+        ? buildNextStatus(s, {
+            updated_at: endTime,
+            status: allPassed ? "completed" : "blocked",
+            active_step_index: endChapter,
+          })
+        : null,
+    )
+  } catch (err) {
+    console.warn(`[campaign-runner] R3 end pointer telemetry failed (non-fatal):`, err)
+  }
 
   return {
     projectPath: pp,
@@ -542,7 +666,7 @@ export async function runAutonomousDraftCampaign(
     endTime,
     results,
     summary: {
-      allPassed: failedCount === 0 && readyCount === total,
+      allPassed,
       readyCount,
       failedCount,
     },
