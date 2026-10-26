@@ -384,6 +384,61 @@ export function BackupExportView() {
     }
   }
 
+  /**
+   * 历史版本一键恢复：跳过 open 对话框，直接用历史列表条目路径恢复。
+   * 确认文案复用 handleRestore（消息后追加条目名），其余流程（口令透传/result/finally 刷新）一致。
+   */
+  async function handleRestoreFromHistory(entry: BackupHistoryEntry) {
+    /* v8 ignore next -- 无项目时按钮 disabled，守卫不可达 */
+    if (!projectPath) return
+    setIsBusy("restore")
+    setRestoreResult(null)
+    try {
+      const confirmed = await ask(
+        `${tOr(
+          "novel.backupExport.restoreConfirm",
+          "恢复将覆盖当前项目的写作状态、草稿和设定数据（替换前会自动备份现状）。确定继续？",
+        )}\n${entry.name}`,
+        { title: tOr("novel.backupExport.restoreConfirmTitle", "确认恢复"), kind: "warning" },
+      )
+      if (!confirmed) {
+        setRestoreResult({
+          success: false,
+          restoredStatus: false,
+          restoredDrafts: false,
+          restoredCanonLancedb: false,
+          restoredFiles: 0,
+          checksumVerified: null,
+          autoBackupPath: null,
+          warnings: [],
+          error: tOr("novel.backupExport.cancelled", "已取消"),
+        })
+        return
+      }
+      const result = await invokeCanonRestoreProject({
+        projectPath,
+        zipPath: entry.path,
+        passphrase: passphrase.trim() || null,
+      })
+      setRestoreResult(result)
+    } catch (err) {
+      setRestoreResult({
+        success: false,
+        restoredStatus: false,
+        restoredDrafts: false,
+        restoredCanonLancedb: false,
+        restoredFiles: 0,
+        checksumVerified: null,
+        autoBackupPath: null,
+        warnings: [],
+        error: String(err),
+      })
+    } finally {
+      setIsBusy(null)
+      void refreshBackupHistory()
+    }
+  }
+
   /** ①-1：恢复前预检备份包完整性（canon_verify_export，只校验不落盘）。 */
   async function handleVerify() {
     /* v8 ignore next -- 无项目时按钮 disabled，守卫不可达 */
@@ -800,6 +855,17 @@ export function BackupExportView() {
               <li key={entry.path} className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
                 <FileSearch className="h-3 w-3 shrink-0" />
                 <span className="truncate select-all min-w-0">{entry.name}</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isBusy !== null}
+                  data-testid={`restore-history-${entry.name}`}
+                  aria-label={`${tOr("novel.backupExport.restoreHistoryAria", "恢复此版：")}${entry.name}`}
+                  onClick={() => void handleRestoreFromHistory(entry)}
+                  className="ml-auto shrink-0"
+                >
+                  {tOr("novel.backupExport.restoreHistory", "恢复此版")}
+                </Button>
               </li>
             ))}
           </ul>

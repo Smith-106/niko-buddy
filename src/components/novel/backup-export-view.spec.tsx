@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   save: vi.fn(),
   open: vi.fn(),
   ask: vi.fn(),
+  listDir: vi.fn(),
   project: { path: "E:/Novel", name: "Novel" } as { path: string; name: string } | null,
 }))
 
@@ -39,6 +40,14 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   save: mocks.save,
   open: mocks.open,
   ask: mocks.ask,
+}))
+
+vi.mock("@/lib/platform", () => ({
+  isTauri: () => true,
+}))
+
+vi.mock("@/commands/fs", () => ({
+  listDirectory: mocks.listDir,
 }))
 
 vi.mock("@/stores/wiki-store", async (importOriginal) => {
@@ -108,6 +117,10 @@ beforeEach(() => {
   mocks.save.mockReset()
   mocks.open.mockReset()
   mocks.ask.mockReset()
+  mocks.listDir.mockReset()
+  mocks.listDir.mockResolvedValue([
+    { name: "20260102-000000-auto.zip", path: "E:/Novel/backups/auto/20260102-000000-auto.zip" },
+  ])
   mocks.project = { path: "E:/Novel", name: "Novel" }
   localStorage.clear()
 })
@@ -303,5 +316,48 @@ describe("接线：云端备份（F-004）与快照时间机器（F-002）", () 
     expect(screen.queryByTestId("mock-cloud-backup")).toBeNull()
     expect(screen.queryByTestId("mock-snapshot-timeline")).toBeNull()
     expect(screen.getByText("novel.backupExport.needsProject")).toBeInTheDocument()
+  })
+})
+
+describe("历史版本一键恢复", () => {
+  it("历史行恢复按钮：确认后直接用 entry.path 恢复并显示成功", async () => {
+    mocks.ask.mockResolvedValue(true)
+    mocks.invoke.mockResolvedValue(restoreResult())
+    render(<BackupExportView />)
+    const btn = await screen.findByTestId("restore-history-20260102-000000-auto.zip")
+    expect(btn).toHaveTextContent("novel.backupExport.restoreHistory")
+    expect(btn).toHaveAttribute(
+      "aria-label",
+      expect.stringContaining("20260102-000000-auto.zip"),
+    )
+    fireEvent.click(btn)
+    await waitFor(() => {
+      expect(mocks.ask).toHaveBeenCalled()
+    })
+    expect(mocks.open).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(mocks.invoke).toHaveBeenCalledWith("canon_restore_project", {
+        request: {
+          projectPath: "E:/Novel",
+          zipPath: "E:/Novel/backups/auto/20260102-000000-auto.zip",
+          passphrase: null,
+        },
+      })
+    })
+    await waitFor(() => {
+      expect(screen.getByText(/novel\.backupExport\.restoreSuccess/)).toBeInTheDocument()
+    })
+  })
+
+  it("历史恢复拒绝确认：无 invoke", async () => {
+    mocks.ask.mockResolvedValue(false)
+    render(<BackupExportView />)
+    const btn = await screen.findByTestId("restore-history-20260102-000000-auto.zip")
+    fireEvent.click(btn)
+    await waitFor(() => {
+      expect(screen.getByText("novel.backupExport.cancelled")).toBeInTheDocument()
+    })
+    expect(mocks.invoke).not.toHaveBeenCalled()
+    expect(mocks.open).not.toHaveBeenCalled()
   })
 })
