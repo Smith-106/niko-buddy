@@ -37,16 +37,20 @@ import type { DeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
 import type { StreamSessionGuard } from "./stream-session"
 import type { ContextBudget } from "@/lib/context-budget"
 import type { LlmPreset } from "@/lib/llm-config/llm-presets"
-import zhLocaleChatPanel from "@/i18n/zh.json"
-
-export function lookupZhChatPanel(key: string): string | undefined {
-  let o: unknown = zhLocaleChatPanel
-  for (const p of key.split(".")) {
-    if (o == null || typeof o !== "object") return undefined
-    o = (o as Record<string, unknown>)[p]
-  }
-  return typeof o === "string" ? o : undefined
-}
+import {
+  applyChatPanelMockDefaults,
+  lookupZhChatPanel,
+  resetChatPanelStates,
+} from "./chat-panel-test-fixtures"
+export {
+  EMPTY_DECISION_GATES,
+  SESSION_STATUS_BASE,
+  deepGenResult,
+  lookupZhChatPanel,
+  reviewResult,
+  sessionStatus,
+} from "./chat-panel-test-fixtures"
+export type { SessionStatusOverrides } from "./chat-panel-test-fixtures"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -703,89 +707,8 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-// ── 测试侧构造器（真实类型）───────────────────────────────────────────────────
-export const EMPTY_DECISION_GATES: DeepChapterDecisionGates = {
-  consistency: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
-  anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
-  quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
-  overall: "pass",
-}
+/* M6-1：纯 fixture 簇已迁至 ./chat-panel-test-fixtures（同名 re-export 保 import 面）。 */
 
-export function deepGenResult(over: Partial<DeepChapterGenerationResult> = {}): DeepChapterGenerationResult {
-  return {
-    finalContent: "F",
-    taskBrief: "",
-    draftContent: "",
-    reviewResults: [],
-    revised: false,
-    decisionGates: EMPTY_DECISION_GATES,
-    manualReviewRequired: false,
-    retryCount: 0,
-    partial: false,
-    partialReason: null,
-    // Wave 5 (v2.5.0): 上下文用量快照（additive，缺省 undefined）
-    contextUsage: {
-      memoryChars: 80,
-      retrievalChars: 5120,
-      graphChars: 2048,
-      bodyChars: 51200,
-      otherChars: 25600,
-      maxCtx: 100000,
-    },
-    ...over,
-  }
-}
-
-export function reviewResult(over: Partial<NovelReviewResult> = {}): NovelReviewResult {
-  return {
-    severity: "error",
-    type: "consistency",
-    message: "review finding",
-    evidence: "",
-    relatedMemory: "",
-    suggestion: "",
-    ...over,
-  }
-}
-
-export const SESSION_STATUS_BASE: NovelSessionStatus = {
-  schema_version: "1",
-  session_id: "session-1",
-  source: "deep_chapter_generation",
-  created_at: "t",
-  updated_at: "t",
-  status: "paused",
-  active_step_index: 1,
-  current_task: {
-    task_id: "tsk-conv-1",
-    conversation_id: "conv-1",
-    user_request: "需求",
-    checkpoint_stage: "started",
-    status: "paused",
-  },
-  draft: {
-    draft_id: "draft-1",
-    file_path: "/p/mybook/.novel/drafts/draft-1.md",
-    draft_status: "pending",
-    updated_at: "t",
-  },
-  decision_gates: EMPTY_DECISION_GATES,
-  evidence_refs: [],
-}
-
-export type SessionStatusOverrides = Partial<Omit<NovelSessionStatus, "current_task" | "draft">> & {
-  current_task?: Partial<NovelSessionStatus["current_task"]>
-  draft?: Partial<NovelSessionStatus["draft"]>
-}
-
-export function sessionStatus(over: SessionStatusOverrides = {}): NovelSessionStatus {
-  return {
-    ...SESSION_STATUS_BASE,
-    ...over,
-    current_task: { ...SESSION_STATUS_BASE.current_task, ...(over.current_task ?? {}) },
-    draft: { ...SESSION_STATUS_BASE.draft, ...(over.draft ?? {}) },
-  }
-}
 
 // ── UI 原语 mock ───────────────────────────────────────────────────────────────
 vi.mock("@/components/ui/button", () => ({
@@ -1320,140 +1243,11 @@ export function msg(over: Partial<Record<string, any>>): Record<string, any> {
 }
 
 export function resetStates(): void {
-  Object.assign(mocks.chatState, {
-    conversations: [],
-    activeConversationId: null,
-    messages: [],
-    streamingContents: {},
-    mode: "chat",
-    ingestSource: null,
-    maxHistoryMessages: 20,
-  })
-  Object.assign(mocks.wikiState, {
-    project: null,
-    novelMode: false,
-    novelConfig: {
-      autoIngestOnSave: false,
-      residualCampaignEnabled: false,
-      contextTokenBudget: 0,
-      chapterTargetChars: 3000,
-    },
-    llmConfig: {
-      provider: "openai",
-      apiKey: "",
-      model: "gpt-test",
-      ollamaUrl: "",
-      customEndpoint: "",
-      maxContextSize: 128000,
-      reasoning: { mode: "auto" },
-    },
-    providerConfigs: {},
-    aiChatModel: "",
-    chatEditModeEnabled: false,
-    selectedFile: null,
-    dataVersion: 0,
-  })
+  resetChatPanelStates(mocks.chatState, mocks.wikiState)
 }
 
 export function resetMockDefaults(): void {
-  mocks.t.mockImplementation((key: string, opts?: { message?: string }) => {
-    const base = lookupZhChatPanel(key) ?? key
-    return opts?.message ? `${base}::${opts.message}` : base
-  })
-  mocks.streamChat.mockImplementation(async (_config: any, _messages: any, handlers: any) => {
-    handlers?.onDone?.()
-  })
-  mocks.routeTask.mockImplementation(() => ({
-    intent: "general_chat",
-    confidence: 1,
-    chapterNumber: undefined,
-    extractedParams: {},
-  }))
-  mocks.streamGuard.isActive.mockReturnValue(true)
-  mocks.streamGuard.start.mockReturnValue(1)
-  mocks.readFile.mockImplementation(async () => "")
-  mocks.fileExists.mockImplementation(async () => false)
-  mocks.searchWiki.mockImplementation(async () => [])
-  mocks.isGreeting.mockReturnValue(false)
-  mocks.detectGoldenThreeChapterRequest.mockReturnValue({ enabled: false, requestedFirstThree: false })
-  mocks.buildGoldenThreeChapterDirective.mockReturnValue("")
-  mocks.buildTaskDirective.mockReturnValue("")
-  mocks.buildQmQuaiSystemPrompt.mockReturnValue("")
-  mocks.isChatEditRequest.mockReturnValue(false)
-  mocks.resolveChatEditTarget.mockReturnValue({ ok: false as const, message: "无法解析目标章节" })
-  mocks.validateStructuredChapterEditResult.mockReturnValue({ ok: false as const, message: "解析失败" })
-  mocks.normalizeChapterEditFile.mockReturnValue({ ok: true as const, content: "NORMALIZED" })
-  mocks.findChapterFileByNumber.mockImplementation(async () => null)
-  mocks.decideChapterSaveStrategy.mockReturnValue({ action: "direct_next_chapter" })
-  mocks.detectGeneratedTargetChapterNumber.mockReturnValue(null)
-  mocks.readSelectedChapterNumberForFile.mockImplementation(async () => undefined)
-  mocks.getNextChapterNumber.mockImplementation(async () => 7)
-  mocks.detectLastGeneratedChapterNumber.mockReturnValue(undefined)
-  mocks.resolveTargetChapterNumberForChat.mockImplementation(async () => 5)
-  mocks.loadNovelSessionStatus.mockImplementation(async () => {
-    throw new Error("no status")
-  })
-  mocks.resolveInterruptedSessionResumeCheckpoint.mockReturnValue(undefined)
-  mocks.startDeepChapterSession.mockImplementation(async () => sessionStatus({ status: "running" }))
-  mocks.runDeepChapterGeneration.mockImplementation(async () => deepGenResult({ finalContent: "FINAL" }))
-  mocks.pauseDeepChapterSession.mockImplementation(async () =>
-    sessionStatus({ current_task: { last_error: undefined } }),
-  )
-  mocks.persistDeepChapterCheckpoint.mockImplementation(async () => sessionStatus({ status: "running" }))
-  mocks.buildContextPack.mockImplementation(async () => ({
-    task: "",
-    chapterGoal: "",
-    outline: "",
-    recentSummaries: [],
-    previousChapterEnding: "",
-    characterStates: "",
-    soulDoc: "",
-    characterAuras: "",
-    cognitionStates: "",
-    foreshadowingStates: "",
-    timeline: "",
-    relatedSettings: "",
-    canonRules: "",
-    writingStyle: "",
-    searchResults: "",
-    graphSearchResults: "",
-    mustDo: "",
-    mustAvoid: "",
-    nextChapterAdvice: "",
-    revisionDirectives: "",
-  }))
-  mocks.contextPackToPrompt.mockReturnValue("CONTEXT_PROMPT")
-  mocks.detectEditIntent.mockReturnValue(false)
-  mocks.readScopeFileContents.mockImplementation(async () => [])
-  mocks.buildAgentSystemSuffix.mockReturnValue("AGENT_SUFFIX")
-  mocks.buildRetrievalGraph.mockImplementation(async () => ({ nodes: new Map(), dataVersion: 0 }))
-  mocks.getRelatedNodes.mockReturnValue([])
-  mocks.deepStreamRenderer.updateThinking.mockImplementation((c: string) => c)
-  mocks.deepStreamRenderer.appendFinal.mockImplementation((c: string) => c)
-  mocks.deepStreamRenderer.getContent.mockReturnValue("")
-  mocks.extractContinueUnfinishedDeepChapterContext.mockReturnValue(null)
-  mocks.buildInterruptedResumeContextPayload.mockReturnValue(null)
-  mocks.buildContinueUnfinishedDeepChapterPrompt.mockReturnValue("RESUME_PROMPT")
-  mocks.appendContinueUnfinishedDeepChapterContext.mockImplementation((content: string) => content)
-  mocks.cleanGeneratedChapterContentWithTitle.mockImplementation((content: string) => ({
-    content,
-    title: "测试章",
-  }))
-  mocks.ingestChapter.mockImplementation(async () => ({ snapshot: null }))
-  mocks.exemplarABStats.mockReturnValue({ enabledAvg: null, disabledAvg: null })
-  mocks.loadStyleExemplarsViaRust.mockImplementation(async () => [])
-  mocks.markStyleExemplarViaRust.mockImplementation(async () => {})
-  mocks.deleteStyleExemplarViaRust.mockImplementation(async () => {})
-  mocks.refreshProjectState.mockImplementation(async () => {})
-  mocks.executeIngestWrites.mockImplementation(async () => [])
-  mocks.resolveChapterLengthSpec.mockReturnValue({
-    targetChars: 3000,
-    minChars: 1500,
-    draftMaxChars: 6000,
-    maxOutputTokens: 4000,
-  })
-  mocks.createNovelSessionId.mockReturnValue("synthetic-session")
-  mocks.hasUsableLlm.mockReturnValue(true)
+  applyChatPanelMockDefaults(mocks)
 }
 
 let view: ReturnType<typeof render> | null = null
