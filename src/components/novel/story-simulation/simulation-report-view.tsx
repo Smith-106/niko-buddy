@@ -116,6 +116,31 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
     }
     return trimmed
   }, [report.recommendation])
+  // 数组型 JSON 建议逐条转 Badge Flow；非数组走 safeRecommendation 纯文本逻辑。
+  const recommendationItems = useMemo(() => {
+    const raw = report.recommendation
+    if (!raw) return null
+    const trimmed = raw.trim()
+    if (!trimmed) return null
+    if (!((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+        (trimmed.startsWith("[") && trimmed.endsWith("]")))) return null
+    try {
+      const parsed: unknown = JSON.parse(trimmed)
+      if (!Array.isArray(parsed)) return null
+      const items = parsed.map((item) => {
+        if (typeof item === "string") return item
+        if (typeof item === "object" && item !== null) {
+          const o = item as Record<string, unknown>
+          return String(o.text ?? o.content ?? o.recommendation ?? "")
+        }
+        return String(item)
+      }).filter(Boolean)
+      return items.length > 0 ? items : null
+    } catch {
+      // 解析失败，走原字符串逻辑
+      return null
+    }
+  }, [report.recommendation])
   // 构建名字到ID的映射
   const nameToId = useMemo(() => {
     const map = new Map<string, string>()
@@ -415,7 +440,18 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                     <span className="ml-auto text-xs font-normal text-warning">{t("storySimulation.hasDiff")}</span>
                   )}
                 </h3>
-                {recommendationDiff ? (
+                {recommendationItems ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {recommendationItems.map((item, i) => (
+                      <span
+                        key={`rec-item-${i}`}
+                        className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs leading-relaxed"
+                      >
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                ) : recommendationDiff ? (
                   <div className="space-y-1 text-sm leading-relaxed">
                     {recommendationDiff.segments.map((seg, i) => (
                       <span
