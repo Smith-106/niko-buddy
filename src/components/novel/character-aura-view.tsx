@@ -532,7 +532,25 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
                     >
                       <span className="min-w-0 truncate">
                         {binding.characterName}
-                        {binding.aliases && binding.aliases.length > 0 ? `（别名：${binding.aliases.join("、")}）` : ""}
+                        {binding.aliases?.length ? (
+                          <>
+                            <span aria-hidden="true">（别名：</span>
+                            <span className="inline-flex items-center gap-1">
+                              {binding.aliases?.map((a, i) => (
+                                <span
+                                  key={`${a}-${i}`}
+                                  className="inline-flex items-center rounded-full border border-border/50 bg-muted/40 px-1.5 py-px text-xs"
+                                >
+                                  {a}
+                                </span>
+                              ))}
+                            </span>
+                            <span aria-hidden="true">）</span>
+                            <span className="sr-only">{`（别名：${binding.aliases?.join("、")}）`}</span>
+                          </>
+                        ) : (
+                          ""
+                        )}
                       </span>
                       <Trash2 className="h-3 w-3 shrink-0 text-destructive" />
                     </button>
