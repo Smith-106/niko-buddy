@@ -15,6 +15,7 @@ pub mod file_sync;
 pub mod file_sync_watch;
 pub mod fs;
 pub mod fs_archive;
+pub mod fs_office;
 pub mod local_cli_config;
 pub mod log_diagnostic;
 pub mod mcp_stdio;
