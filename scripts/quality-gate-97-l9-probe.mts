@@ -94,7 +94,9 @@ try {
         onError: (e: Error) => { streamError = e; resolve() },
       } as any,
       AbortSignal.timeout(300000),
-      { temperature: 0.4, max_tokens: 2000 } as any,
+      // max_tokens 16000：thinking 3k~7k 字符会吃掉小预算导致零正文；
+      // 给足「思考 + 正文」预算，可经 L9_PROBE_MAX_TOKENS 覆盖。
+      { temperature: 0.4, max_tokens: Number(process.env.L9_PROBE_MAX_TOKENS ?? 16000) } as any,
     )
   })
   if (streamError) throw streamError

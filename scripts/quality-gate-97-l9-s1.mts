@@ -151,9 +151,10 @@ for (const ch of CHAPTERS) {
                 onError: (e: Error) => { streamError = e; resolve() },
               } as any,
               AbortSignal.timeout(300000),
-              // max_tokens 4000：给思考模型留足「思考 + 正文」预算；
-              // 2000 时偶发思考耗尽预算零正文（thinking-only null）。
-              { temperature: 0.4, max_tokens: 4000 } as any,
+              // max_tokens 16000（canary 9 实证）：thinking 常输出 3k~7k 字符，
+              // 2000/4000 预算会被思考吃光导致零正文；16k 让「思考 + 正文」共存。
+              // 残余失败模式是传输 stall（300s 超时），由外层 6 次退避吸收。
+              { temperature: 0.4, max_tokens: 16000 } as any,
             )
           })
           if (streamError) throw streamError
