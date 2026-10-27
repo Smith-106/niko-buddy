@@ -116,6 +116,7 @@ for (const ch of CHAPTERS) {
     const errors: string[] = []
     for (let s = 0; s < SAMPLES; s++) {
       let value: number | null = null
+      let lastErr = ""
       for (let attempt = 1; attempt <= 3 && value === null; attempt++) {
         let content = ""
         try {
@@ -136,13 +137,14 @@ for (const ch of CHAPTERS) {
           if (streamError) throw streamError
           const rawScore = extractScore(content)
           if (rawScore !== null && !Number.isNaN(rawScore)) value = rawScore > 10.5 ? rawScore / 10 : rawScore
-        } catch { /* retry */ }
+          else lastErr = `无score(${content.length}ch): ${content.slice(0, 120).replace(/\n/g, " ")}`
+        } catch (e) { lastErr = e instanceof Error ? `${e.name}: ${e.message}`.slice(0, 160) : String(e).slice(0, 160) }
         if (value === null && attempt < 3) await new Promise((r) => setTimeout(r, 3000 * attempt))
       }
       scores.push(value)
       doneCalls++
-      if (value === null) errors.push(`[ch${ch}/${dim}/s${s}] no score after retries`)
-      console.log(`[ch${ch}/${dim}/s${s}] score=${value} (累计 ${doneCalls}/480)`)
+      if (value === null) errors.push(`[ch${ch}/${dim}/s${s}] no score after retries: ${lastErr}`)
+      console.log(`[ch${ch}/${dim}/s${s}] score=${value}${value === null ? ` ERR:${lastErr}` : ""} (累计 ${doneCalls}/480)`)
     }
     const valid = scores.filter((v): v is number => v !== null)
     const med = valid.length ? median(valid) : null
