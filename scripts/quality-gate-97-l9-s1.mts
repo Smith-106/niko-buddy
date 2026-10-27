@@ -134,7 +134,9 @@ for (const ch of CHAPTERS) {
                 onError: (e: Error) => { streamError = e; resolve() },
               } as any,
               AbortSignal.timeout(300000),
-              { temperature: 0.4, max_tokens: 2000 } as any,
+              // max_tokens 4000：给思考模型留足「思考 + 正文」预算；
+              // 2000 时偶发思考耗尽预算零正文（thinking-only null）。
+              { temperature: 0.4, max_tokens: 4000 } as any,
             )
           })
           if (streamError) throw streamError
