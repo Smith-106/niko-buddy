@@ -1,0 +1,164 @@
+// L9 S1 噪声复测：8 章 × 全维 × N=10 = 480 calls
+//
+// 章单：pilot ch1/ch84/ch162 + 深水 ch2/ch3/ch36 + near-miss ch66/ch76（8.95 最贴线）。
+// 口径：CPA deepseek-v4.1-flash（muse-spark 对大 pack 只输出思考零正文，
+//   sub2 全线 503；见 l9-channel-blocker-20261027.md）。换口径 ⇒ 本轮同时是
+//   deepseek 新口径基线；与 muse-spark 基线不可直接比对（U2 已预见，
+//   pilot 3 章复测给出跨口径差）。
+// 断点续跑：每章完成后落盘，重启自动跳过已有 overall 的章。
+// 运行: npx tsx --import ./scripts/node-fs-register.mjs scripts/quality-gate-97-l9-s1.mts
+// 产物: ../.workflow/harvest-staging/quality-gate-97-l9-s1.json
+import { readFileSync, writeFileSync, existsSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
+import type { LlmConfig, NovelConfig } from "../src/stores/wiki-store.ts"
+
+const PROJECT = "C:/QM-BOOK/身体都是租的，你让我修仙？"
+const PROJECT_ID = "508dafa6-8006-4f6a-9219-10a58fb5e14c"
+const CHAPTERS = [1, 84, 162, 2, 3, 36, 66, 76]
+const SAMPLES = 10
+const MODEL = "deepseek-v4.1-flash"
+const OUT = "../.workflow/harvest-staging/quality-gate-97-l9-s1.json"
+
+const auth = JSON.parse(readFileSync(join(homedir(), ".pi", "agent", "auth.json"), "utf8"))
+const cpaKey: string = auth["cpa-responses"]?.key
+if (!cpaKey) throw new Error("auth.json 缺 cpa-responses.key")
+
+const llmConfig: LlmConfig = {
+  provider: "custom",
+  apiKey: cpaKey,
+  model: MODEL,
+  customEndpoint: "https://cpa.nikoniko.tech/v1",
+  apiMode: "chat_completions",
+  maxContextSize: 200000,
+  httpHeaderTimeoutMs: 120000,
+  httpStreamIdleMs: 300000,
+  reasoning: { mode: "auto" },
+}
+
+const state = JSON.parse(readFileSync("C:/Users/niko/AppData/Roaming/com.niko-buddy.app/app-state.json", "utf8")) as {
+  projectNovelConfigs?: Record<string, NovelConfig>
+}
+const novelConfig = {
+  ...(state.projectNovelConfigs?.[PROJECT_ID] ?? {}),
+  reviewModel: llmConfig.model,
+  communitySummaryEnabled: false,
+}
+
+const { useWikiStore } = await import("../src/stores/wiki-store.ts")
+useWikiStore.setState({ novelMode: true, llmConfig, novelConfig } as any)
+
+const { buildContextPack } = await import("../src/lib/novel/context-engine.ts")
+const { buildDimensionReviewPrompt, SIX_REVIEW_DIMENSIONS, SIX_REVIEW_DIMENSION_ORDER } = await import("../src/lib/novel/dimension-review-adapter.ts")
+const { createLiteraryExperimentProtocol } = await import("../src/lib/novel/literary-experiment-protocol.ts")
+const { buildMeasurementFingerprint } = await import("../src/lib/novel/measurement-fingerprint.ts")
+const { streamChat } = await import("../src/lib/llm-client.ts")
+
+function median(values: number[]): number {
+  const s = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(s.length / 2)
+  return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid]
+}
+function extractScore(text: string): number | null {
+  const m = text.match(/"score"\s*:\s*([\d.]+)/)
+  return m ? Number(m[1]) : null
+}
+function stripFrontmatter(t: string): string {
+  return t.replace(/^---\n.*?\n---\n/s, "")
+}
+
+const out: Record<string, unknown> = existsSync(OUT)
+  ? JSON.parse(readFileSync(OUT, "utf8"))
+  : {
+      generatedAt: new Date().toISOString(),
+      purpose: "L9 S1：8 章 × 全维 × N=10 噪声复测（deepseek 新口径基线）",
+      model: llmConfig.model,
+      channel: "cpa",
+      samples: SAMPLES,
+      chapters: CHAPTERS,
+      dimensions: SIX_REVIEW_DIMENSION_ORDER,
+      overallFormula: "overall = median(six dimension medians)",
+      criterion: "overall median >= 9.0 (Track L9 v2)",
+      results: {},
+    }
+const results = out.results as Record<string, unknown>
+function save() {
+  ;(out as any).updatedAt = new Date().toISOString()
+  writeFileSync(OUT, JSON.stringify(out, null, 2) + "\n")
+}
+
+let doneCalls = 0
+for (const ch of CHAPTERS) {
+  if ((results[`ch${ch}`] as any)?.overall !== undefined && (results[`ch${ch}`] as any)?.overall !== null) {
+    console.log(`[ch${ch}] 已有结果，跳过`)
+    continue
+  }
+  // 续跑：该章已有部分维度则保留（本版按章 checkpoint，章内重跑）。
+  const raw = readFileSync(`${PROJECT}/QM/chapters/chapter-${String(ch).padStart(3, "0")}.md`, "utf8")
+  const chapterText = stripFrontmatter(raw)
+  const pack = await buildContextPack(PROJECT, `L9-S1 第${ch}章`, ch, {
+    novelMode: true, llmConfig, novelConfig,
+  })
+  const dimMedians: Record<string, number | null> = {}
+  const dimResults: Record<string, unknown> = {}
+  for (const dim of SIX_REVIEW_DIMENSION_ORDER as (keyof typeof SIX_REVIEW_DIMENSIONS)[]) {
+    const prompt = buildDimensionReviewPrompt(pack, chapterText, SIX_REVIEW_DIMENSIONS[dim])
+    const protocol = createLiteraryExperimentProtocol({
+      model: llmConfig.model || "unknown",
+      samples: SAMPLES,
+      label: `gate97-l9-s1-ch${ch}-${dim}`,
+      notes: ["Track L9 S1; deepseek caliber; N=10"],
+    })
+    const fingerprint = buildMeasurementFingerprint({
+      protocol, pack, chapterText, packKind: "app-runtime-six-dimension",
+    })
+    const scores: (number | null)[] = []
+    const errors: string[] = []
+    for (let s = 0; s < SAMPLES; s++) {
+      let value: number | null = null
+      for (let attempt = 1; attempt <= 3 && value === null; attempt++) {
+        let content = ""
+        try {
+          let streamError: Error | null = null
+          await new Promise<void>((resolve) => {
+            void streamChat(
+              llmConfig,
+              [{ role: "user", content: `${prompt}\n\n只输出最终 JSON 对象（含 score、status、summary、issues），不要输出解释。` }] as any,
+              {
+                onToken: (t: string) => { content += t },
+                onDone: () => resolve(),
+                onError: (e: Error) => { streamError = e; resolve() },
+              } as any,
+              AbortSignal.timeout(300000),
+              { temperature: 0.4, max_tokens: 2000 } as any,
+            )
+          })
+          if (streamError) throw streamError
+          const rawScore = extractScore(content)
+          if (rawScore !== null && !Number.isNaN(rawScore)) value = rawScore > 10.5 ? rawScore / 10 : rawScore
+        } catch { /* retry */ }
+        if (value === null && attempt < 3) await new Promise((r) => setTimeout(r, 3000 * attempt))
+      }
+      scores.push(value)
+      doneCalls++
+      if (value === null) errors.push(`[ch${ch}/${dim}/s${s}] no score after retries`)
+      console.log(`[ch${ch}/${dim}/s${s}] score=${value} (累计 ${doneCalls}/480)`)
+    }
+    const valid = scores.filter((v): v is number => v !== null)
+    const med = valid.length ? median(valid) : null
+    dimMedians[dim as string] = med
+    dimResults[dim as string] = { scores, median: med, measurementFingerprint: fingerprint, errors }
+  }
+  const medVals = Object.values(dimMedians).filter((v): v is number => v !== null)
+  const overall = medVals.length === 6 ? median(medVals) : null
+  results[`ch${ch}`] = {
+    dimensions: dimResults,
+    dimensionMedians: dimMedians,
+    overall,
+    pass: overall !== null && overall >= 9.0,
+  }
+  save()
+  console.log(`[ch${ch}] overall=${overall} pass=${overall !== null && overall >= 9.0} — 已落盘`)
+}
+
+console.log(JSON.stringify({ overall: Object.fromEntries(Object.entries(results).map(([k, v]: [string, any]) => [k, v.overall])) }, null, 1))
