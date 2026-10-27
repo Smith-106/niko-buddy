@@ -64,7 +64,7 @@ function extractScore(text: string): number | null {
   return m ? Number(m[1]) : null
 }
 function stripFrontmatter(t: string): string {
-  return t.replace(/^---\n.*?\n---\n/s, "")
+  return t.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
 }
 
 const out: Record<string, unknown> = existsSync(OUT)
