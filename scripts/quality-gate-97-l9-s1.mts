@@ -199,3 +199,5 @@ for (const ch of CHAPTERS) {
 }
 
 console.log(JSON.stringify({ overall: Object.fromEntries(Object.entries(results).map(([k, v]: [string, any]) => [k, v.overall])) }, null, 1))
+clearInterval(heartbeat)
+process.exit(0)

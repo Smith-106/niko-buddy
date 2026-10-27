@@ -218,3 +218,5 @@ for (const { chapter: ch, withFullText } of ARMS) {
   console.log(`[ch${ch}] overall=${overall} hold=${holds[ch]} pacingDrop=${pactDrop} keep=${keep} — 已落盘`)
 }
 console.log("S2 DONE")
+clearInterval(heartbeat)
+process.exit(0)
