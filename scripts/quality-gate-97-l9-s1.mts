@@ -8,10 +8,24 @@
 // 断点续跑：每章完成后落盘，重启自动跳过已有 overall 的章。
 // 运行: npx tsx --import ./scripts/node-fs-register.mjs scripts/quality-gate-97-l9-s1.mts
 // 产物: ../.workflow/harvest-staging/quality-gate-97-l9-s1.json
-import { readFileSync, writeFileSync, existsSync } from "node:fs"
-import { homedir } from "node:os"
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import type { LlmConfig, NovelConfig } from "../src/stores/wiki-store.ts"
+
+// 单例锁：kill background job 时 node 子进程可能存活成幽灵，重启新实例前
+// 若锁内 pid 仍存活则直接退出（exit 3），杜绝多实例并发烧 call。
+const LOCK = join(tmpdir(), "l9-s1.lock")
+try {
+  const oldPid = Number(readFileSync(LOCK, "utf8").trim())
+  if (Number.isFinite(oldPid) && oldPid > 0) {
+    process.kill(oldPid, 0)
+    console.error(`另一 S1 实例仍在运行 (pid=${oldPid})，拒绝启动。先 kill 干净再跑。`)
+    process.exit(3)
+  }
+} catch { /* 无锁或 pid 已死 → 继续 */ }
+writeFileSync(LOCK, String(process.pid))
+process.on("exit", () => { try { if (readFileSync(LOCK, "utf8").trim() === String(process.pid)) unlinkSync(LOCK) } catch { /* ignore */ } })
 
 const PROJECT = "C:/QM-BOOK/身体都是租的，你让我修仙？"
 const PROJECT_ID = "508dafa6-8006-4f6a-9219-10a58fb5e14c"
@@ -33,7 +47,10 @@ const llmConfig: LlmConfig = {
   maxContextSize: 200000,
   httpHeaderTimeoutMs: 120000,
   httpStreamIdleMs: 300000,
-  reasoning: { mode: "auto" },
+  // 口径定义（含 reasoning off）：测量打分不需要深度思考；off 从源头消除
+  // thinking-only 零正文 null（isDeepSeekEndpoint 按模型名命中 → wire 上
+  // thinking:{type:"disabled"}）。S1 全 480 calls 同一设置，口径内自洽。
+  reasoning: { mode: "off" },
 }
 
 const state = JSON.parse(readFileSync("C:/Users/niko/AppData/Roaming/com.niko-buddy.app/app-state.json", "utf8")) as {
@@ -71,7 +88,7 @@ const out: Record<string, unknown> = existsSync(OUT)
   ? JSON.parse(readFileSync(OUT, "utf8"))
   : {
       generatedAt: new Date().toISOString(),
-      purpose: "L9 S1：8 章 × 全维 × N=10 噪声复测（deepseek 新口径基线）",
+      purpose: "L9 S1：8 章 × 全维 × N=10 噪声复测（deepseek 新口径基线，reasoning off）",
       model: llmConfig.model,
       channel: "cpa",
       samples: SAMPLES,
