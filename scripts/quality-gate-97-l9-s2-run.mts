@@ -15,7 +15,7 @@ const PROJECT = "C:/QM-BOOK/身体都是租的，你让我修仙？"
 const PROJECT_ID = "508dafa6-8006-4f6a-9219-10a58fb5e14c"
 const S1 = "../.workflow/harvest-staging/quality-gate-97-l9-s1.json"
 const OUT = "../.workflow/harvest-staging/quality-gate-97-l9-s2-run.json"
-const MODEL = "deepseek-v4.1-flash"
+const MODEL = process.env.L9_S1_MODEL ?? "muse-spark-1.3-contributor"
 const N = 5
 const ARMS = [
   { chapter: 2, withFullText: true },
@@ -68,7 +68,8 @@ function baseLlm(reasoningMode: "auto" | "off"): LlmConfig {
   }
 }
 const genLlm = baseLlm("auto")
-const measureLlm = baseLlm("off")
+// 复测口径 = S1 口径：deepseek 用 off，muse-spark 用 auto（同 S1 的 isDeepSeek 规则）。
+const measureLlm = baseLlm(/deepseek/i.test(MODEL) ? "off" : "auto")
 
 const state = JSON.parse(readFileSync("C:/Users/niko/AppData/Roaming/com.niko-buddy.app/app-state.json", "utf8")) as {
   projectNovelConfigs?: Record<string, NovelConfig>

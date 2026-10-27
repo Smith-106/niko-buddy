@@ -1,10 +1,10 @@
 // L9 S1 噪声复测：8 章 × 全维 × N=10 = 480 calls
 //
 // 章单：pilot ch1/ch84/ch162 + 深水 ch2/ch3/ch36 + near-miss ch66/ch76（8.95 最贴线）。
-// 口径：CPA deepseek-v4.1-flash（muse-spark 对大 pack 只输出思考零正文，
-//   sub2 全线 503；见 l9-channel-blocker-20261027.md）。换口径 ⇒ 本轮同时是
-//   deepseek 新口径基线；与 muse-spark 基线不可直接比对（U2 已预见，
-//   pilot 3 章复测给出跨口径差）。
+// 口径（L9_S1_MODEL 环境覆盖，缺省 muse-spark）：
+// - muse-spark = Oct-10 基线同一口径（U2 跨口径差天然消除）；
+//   deepseek 池 429 配额冷却中（见 blocker doc §十三），待恢复后可选跑对照。
+// - sub2 全线 503。
 // 断点续跑：每章完成后落盘，重启自动跳过已有 overall 的章。
 // 运行: npx tsx --import ./scripts/node-fs-register.mjs scripts/quality-gate-97-l9-s1.mts
 // 产物: ../.workflow/harvest-staging/quality-gate-97-l9-s1.json
@@ -31,7 +31,8 @@ const PROJECT = "C:/QM-BOOK/身体都是租的，你让我修仙？"
 const PROJECT_ID = "508dafa6-8006-4f6a-9219-10a58fb5e14c"
 const CHAPTERS = [1, 84, 162, 2, 3, 36, 66, 76]
 const SAMPLES = 10
-const MODEL = "deepseek-v4.1-flash"
+const MODEL = process.env.L9_S1_MODEL ?? "muse-spark-1.3-contributor"
+const isDeepSeek = /deepseek/i.test(MODEL)
 const OUT = "../.workflow/harvest-staging/quality-gate-97-l9-s1.json"
 
 const auth = JSON.parse(readFileSync(join(homedir(), ".pi", "agent", "auth.json"), "utf8"))
@@ -47,10 +48,10 @@ const llmConfig: LlmConfig = {
   maxContextSize: 200000,
   httpHeaderTimeoutMs: 120000,
   httpStreamIdleMs: 300000,
-  // 口径定义（含 reasoning off）：测量打分不需要深度思考；off 从源头消除
-  // thinking-only 零正文 null（isDeepSeekEndpoint 按模型名命中 → wire 上
-  // thinking:{type:"disabled"}）。S1 全 480 calls 同一设置，口径内自洽。
-  reasoning: { mode: "off" },
+  // 口径定义：deepseek 用 reasoning off（wire thinking disabled，能否执行看 relay）；
+  // muse-spark 用 auto（off 对其无 wire 映射，auto 保留 harness 的 thinking-only
+  // 自动降级重试）。S1 全 480 calls 同一设置，口径内自洽。
+  reasoning: { mode: isDeepSeek ? "off" : "auto" },
 }
 
 const state = JSON.parse(readFileSync("C:/Users/niko/AppData/Roaming/com.niko-buddy.app/app-state.json", "utf8")) as {
@@ -88,7 +89,7 @@ const out: Record<string, unknown> = existsSync(OUT)
   ? JSON.parse(readFileSync(OUT, "utf8"))
   : {
       generatedAt: new Date().toISOString(),
-      purpose: "L9 S1：8 章 × 全维 × N=10 噪声复测（deepseek 新口径基线，reasoning off）",
+      purpose: `L9 S1：8 章 × 全维 × N=10 噪声复测（${MODEL} 口径，基线可比）`,
       model: llmConfig.model,
       channel: "cpa",
       samples: SAMPLES,
