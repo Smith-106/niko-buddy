@@ -6,7 +6,7 @@
 // 口径：生成用 reasoning auto（写作用思考）；复测用 reasoning off（= S1 口径）。
 // Keep 门：overall ≥ hold 且 pacing 跌幅 < 0.3。
 // 产物: ../.workflow/harvest-staging/quality-gate-97-l9-s2-run.json
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs"
+import { readFileSync, writeFileSync, existsSync, unlinkSync, statSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import type { LlmConfig, NovelConfig } from "../src/stores/wiki-store.ts"
@@ -22,17 +22,22 @@ const ARMS = [
   { chapter: 36, withFullText: false },
 ]
 
+// 单例锁（mtime 心跳制，免疫 pid 复用）：与 S1 同语义，锁名不同。
 const LOCK = join(tmpdir(), "l9-s2.lock")
-try {
-  const oldPid = Number(readFileSync(LOCK, "utf8").trim())
-  if (Number.isFinite(oldPid) && oldPid > 0) {
-    process.kill(oldPid, 0)
-    console.error(`另一 S2 实例仍在运行 (pid=${oldPid})，拒绝启动。`)
-    process.exit(3)
-  }
-} catch { /* 继续 */ }
-writeFileSync(LOCK, String(process.pid))
-process.on("exit", () => { try { if (readFileSync(LOCK, "utf8").trim() === String(process.pid)) unlinkSync(LOCK) } catch { /* ignore */ } })
+const LOCK_TTL_MS = 120000
+function lockFresh(): boolean {
+  try {
+    const st = statSync(LOCK)
+    return Date.now() - st.mtimeMs < LOCK_TTL_MS
+  } catch { return false }
+}
+if (lockFresh()) {
+  console.error("另一 S2 实例仍在运行（锁在 120s 内刷新过），拒绝启动。")
+  process.exit(3)
+}
+writeFileSync(LOCK, `${process.pid}\n${new Date().toISOString()}\n`)
+const heartbeat = setInterval(() => { try { writeFileSync(LOCK, `${process.pid}\n${new Date().toISOString()}\n`) } catch { /* ignore */ } }, 30000)
+process.on("exit", () => { clearInterval(heartbeat); try { unlinkSync(LOCK) } catch { /* ignore */ } })
 
 if (!existsSync(S1)) {
   console.error("S1 未完成：quality-gate-97-l9-s1.json 不存在，拒绝执行（不消耗 LLM）。")

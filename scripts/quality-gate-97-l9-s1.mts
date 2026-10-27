@@ -8,24 +8,30 @@
 // 断点续跑：每章完成后落盘，重启自动跳过已有 overall 的章。
 // 运行: npx tsx --import ./scripts/node-fs-register.mjs scripts/quality-gate-97-l9-s1.mts
 // 产物: ../.workflow/harvest-staging/quality-gate-97-l9-s1.json
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs"
+import { readFileSync, writeFileSync, existsSync, unlinkSync, statSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import type { LlmConfig, NovelConfig } from "../src/stores/wiki-store.ts"
 
-// 单例锁：kill background job 时 node 子进程可能存活成幽灵，重启新实例前
-// 若锁内 pid 仍存活则直接退出（exit 3），杜绝多实例并发烧 call。
+// 单例锁（mtime 心跳制，免疫 pid 复用）：holder 每 30s 刷新 mtime；
+// contender 见 mtime 在 120s 内 → 有活锁，exit 3；否则接管。
+// 教训（§十八）：kill wrapper 后 node 子进程变幽灵 + 手动 rm 锁会破坏互斥，
+// 且 pidfile 在 pid 复用下会 TOCTOU 误判。永远不要手动删锁，让 mtime 语义处理一切。
 const LOCK = join(tmpdir(), "l9-s1.lock")
-try {
-  const oldPid = Number(readFileSync(LOCK, "utf8").trim())
-  if (Number.isFinite(oldPid) && oldPid > 0) {
-    process.kill(oldPid, 0)
-    console.error(`另一 S1 实例仍在运行 (pid=${oldPid})，拒绝启动。先 kill 干净再跑。`)
-    process.exit(3)
-  }
-} catch { /* 无锁或 pid 已死 → 继续 */ }
-writeFileSync(LOCK, String(process.pid))
-process.on("exit", () => { try { if (readFileSync(LOCK, "utf8").trim() === String(process.pid)) unlinkSync(LOCK) } catch { /* ignore */ } })
+const LOCK_TTL_MS = 120000
+function lockFresh(): boolean {
+  try {
+    const st = statSync(LOCK)
+    return Date.now() - st.mtimeMs < LOCK_TTL_MS
+  } catch { return false }
+}
+if (lockFresh()) {
+  console.error(`另一 S1 实例仍在运行（锁 ${LOCK} 在 ${LOCK_TTL_MS / 1000}s 内刷新过），拒绝启动。先 kill 干净再跑。`)
+  process.exit(3)
+}
+writeFileSync(LOCK, `${process.pid}\n${new Date().toISOString()}\n`)
+const heartbeat = setInterval(() => { try { writeFileSync(LOCK, `${process.pid}\n${new Date().toISOString()}\n`) } catch { /* ignore */ } }, 30000)
+process.on("exit", () => { clearInterval(heartbeat); try { unlinkSync(LOCK) } catch { /* ignore */ } })
 
 const PROJECT = "C:/QM-BOOK/身体都是租的，你让我修仙？"
 const PROJECT_ID = "508dafa6-8006-4f6a-9219-10a58fb5e14c"
