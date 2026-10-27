@@ -117,7 +117,10 @@ for (const ch of CHAPTERS) {
     for (let s = 0; s < SAMPLES; s++) {
       let value: number | null = null
       let lastErr = ""
-      for (let attempt = 1; attempt <= 3 && value === null; attempt++) {
+      // CPA injector 阵发 502（upstream connection refused）：6 次指数退避
+      // （5/10/20/40/60s），穿过风暴而非在风暴里烧掉样本。
+      const BACKOFF = [5000, 10000, 20000, 40000, 60000]
+      for (let attempt = 1; attempt <= 6 && value === null; attempt++) {
         let content = ""
         try {
           let streamError: Error | null = null
@@ -139,8 +142,13 @@ for (const ch of CHAPTERS) {
           if (rawScore !== null && !Number.isNaN(rawScore)) value = rawScore > 10.5 ? rawScore / 10 : rawScore
           else lastErr = `无score(${content.length}ch): ${content.slice(0, 120).replace(/\n/g, " ")}`
         } catch (e) { lastErr = e instanceof Error ? `${e.name}: ${e.message}`.slice(0, 160) : String(e).slice(0, 160) }
-        if (value === null && attempt < 3) await new Promise((r) => setTimeout(r, 3000 * attempt))
+        if (value === null && attempt <= BACKOFF.length) {
+          console.log(`[ch${ch}/${dim}/s${s}] attempt${attempt} 失败，${BACKOFF[attempt - 1] / 1000}s 后重试：${lastErr.slice(0, 100)}`)
+          await new Promise((r) => setTimeout(r, BACKOFF[attempt - 1]))
+        }
       }
+      // 样本间 3s 间隔，避免 плотный hammer 触发网关限流。
+      await new Promise((r) => setTimeout(r, 3000))
       scores.push(value)
       doneCalls++
       if (value === null) errors.push(`[ch${ch}/${dim}/s${s}] no score after retries: ${lastErr}`)
