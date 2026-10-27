@@ -287,9 +287,25 @@ pub fn migrate_project_dirs(root: &Path) -> Result<MigrationReport, String> {
     // 这样 dry-run 与实跑共用同一份「哪三步、什么顺序」的定义，不会漂移。
     let planned = migrate_project_dirs_dry_run(root);
     let mut steps = Vec::with_capacity(planned.steps.len());
+    // G3 可逆：记录本次已完成的 rename，任一步失败则逆序回滚，
+    // 保证「要么全迁、要么不动」——不会留下迁一半的半成品项目。
+    let mut completed: Vec<(&'static str, &'static str)> = Vec::new();
     for step in planned.steps {
-        let action = rename_dir_if_safe(root, step.from, step.to)?;
-        steps.push(MigrationStep { from: step.from, to: step.to, action });
+        match rename_dir_if_safe(root, step.from, step.to) {
+            Ok(action) => {
+                if action == MigrationAction::Migrated {
+                    completed.push((step.from, step.to));
+                }
+                steps.push(MigrationStep { from: step.from, to: step.to, action });
+            }
+            Err(err) => {
+                let rolled_back = rollback_renames(root, &completed);
+                return Err(format!(
+                    "{err}（已回滚 {rolled_back}/{} 步已完成迁移）",
+                    completed.len()
+                ));
+            }
+        }
     }
     let report = MigrationReport { steps };
     if !report.is_noop() {
@@ -300,6 +316,25 @@ pub fn migrate_project_dirs(root: &Path) -> Result<MigrationReport, String> {
         );
     }
     Ok(report)
+}
+
+/// G3 回滚：把本次已完成的 rename 逆序撤回（`to` → `from`）。
+///
+/// 只在 `to` 存在且 `from` 不存在时动手，避免覆盖回滚期间被外部创建的同名目录。
+/// 返回实际撤回的步数（尽力而为：单步失败不阻断后续撤回）。
+fn rollback_renames(root: &Path, completed: &[(&'static str, &'static str)]) -> usize {
+    let mut rolled_back = 0usize;
+    for (from, to) in completed.iter().rev() {
+        let current = root.join(to);
+        let original = root.join(from);
+        if current.exists() && !original.exists() && fs::rename(&current, &original).is_ok() {
+            rolled_back += 1;
+        }
+    }
+    if rolled_back > 0 {
+        log::warn!("[migrate] 迁移失败，已回滚 {rolled_back} 步");
+    }
+    rolled_back
 }
 
 /// Dry-run：只计算三步各自会是什么动作，不触碰文件系统（G2）。
@@ -767,5 +802,100 @@ mod migration_tests {
         // 实跑结论应与预测一致。
         let actual = migrate_project_dirs(root.path()).unwrap();
         assert_eq!(actual, predicted);
+    }
+
+    // ── G3 回滚（可逆）───────────────────────────────────────────────
+
+    #[test]
+    fn rollback_restores_completed_renames_in_reverse_order() {
+        let root = TempRoot::new("rollback");
+        // 模拟「前两步已迁移完成」：旧名消失、新名就位。
+        root.seed(META_DIR, "meta-moved");
+        root.seed(KNOWLEDGE_DIR, "knowledge-moved");
+        let completed: Vec<(&'static str, &'static str)> =
+            vec![(LEGACY_META_DIR, META_DIR), (LEGACY_KNOWLEDGE_DIR, KNOWLEDGE_DIR)];
+
+        let rolled_back = rollback_renames(root.path(), &completed);
+
+        assert_eq!(rolled_back, 2, "两步均应撤回");
+        assert!(root.has(LEGACY_META_DIR), "旧 meta 目录应恢复");
+        assert!(root.has(LEGACY_KNOWLEDGE_DIR), "旧 knowledge 目录应恢复");
+        assert!(!root.has(META_DIR), "新 meta 目录应消失");
+        assert!(!root.has(KNOWLEDGE_DIR), "新 knowledge 目录应消失");
+        // 内容随目录一起回滚（搬的是同一份）。
+        assert_eq!(root.marker(LEGACY_META_DIR), "meta-moved");
+        assert_eq!(root.marker(LEGACY_KNOWLEDGE_DIR), "knowledge-moved");
+    }
+
+    #[test]
+    fn rollback_never_overwrites_a_recreated_legacy_dir() {
+        let root = TempRoot::new("rollback-conflict");
+        // 回滚期间外部又建了同名旧目录 → 不得覆盖，该步计为未撤回。
+        root.seed(META_DIR, "moved");
+        root.seed(LEGACY_META_DIR, "recreated");
+        let completed: Vec<(&'static str, &'static str)> = vec![(LEGACY_META_DIR, META_DIR)];
+
+        let rolled_back = rollback_renames(root.path(), &completed);
+
+        assert_eq!(rolled_back, 0, "目标旧名已存在时不得覆盖");
+        assert_eq!(root.marker(LEGACY_META_DIR), "recreated", "外部新建内容应保留");
+        assert_eq!(root.marker(META_DIR), "moved", "已迁移目录应原地不动");
+    }
+
+    #[test]
+    fn rollback_is_noop_when_nothing_completed() {
+        let root = TempRoot::new("rollback-empty");
+        assert_eq!(rollback_renames(root.path(), &[]), 0);
+    }
+
+    // ── F1 老书 fixture：真实旧版目录布局端到端演练 ────────────────────
+
+    /// 旧版老书真实布局：`.llm-wiki/`（元数据）+ `wiki/`（知识库）+ 正文与素材。
+    /// 迁移后应变成 `.niko-buddy/` + `QM/`，且正文/素材原封不动。
+    #[test]
+    fn legacy_book_fixture_migrates_to_current_layout() {
+        let root = TempRoot::new("legacy-book");
+        root.seed(LEGACY_META_DIR, "legacy-meta");
+        root.seed(LEGACY_KNOWLEDGE_DIR, "legacy-knowledge");
+        // 老书正文与素材：迁移不得触碰。
+        root.seed("raw/sources", "source");
+        root.seed("exports", "export");
+        fs::write(root.path().join("complete-novel.md"), "# 老书正文\n").unwrap();
+
+        let report = migrate_project_dirs(root.path()).unwrap();
+
+        // 结构：旧名消失、新名就位。
+        assert!(!root.has(LEGACY_META_DIR), "旧 meta 目录应已迁走");
+        assert!(!root.has(LEGACY_KNOWLEDGE_DIR), "旧 knowledge 目录应已迁走");
+        assert!(root.has(META_DIR), "应出现 .niko-buddy");
+        assert!(root.has(KNOWLEDGE_DIR), "应出现 QM");
+        // 内容：搬的是同一份。
+        assert_eq!(root.marker(META_DIR), "legacy-meta");
+        assert_eq!(root.marker(KNOWLEDGE_DIR), "legacy-knowledge");
+        // 正文与素材原封不动。
+        assert_eq!(root.marker("raw/sources"), "source");
+        assert_eq!(root.marker("exports"), "export");
+        assert_eq!(
+            fs::read_to_string(root.path().join("complete-novel.md")).unwrap(),
+            "# 老书正文\n"
+        );
+        // 报告：两步实际迁移。
+        assert_eq!(report.migrated().len(), 2);
+        assert!(!report.is_noop());
+    }
+
+    /// 老书演练可重复：迁移完再跑一次应零动作（幂等，不会把 QM 再搬一次）。
+    #[test]
+    fn legacy_book_fixture_migration_is_repeatable() {
+        let root = TempRoot::new("legacy-book-repeat");
+        root.seed(LEGACY_META_DIR, "m");
+        root.seed(LEGACY_KNOWLEDGE_DIR, "k");
+
+        migrate_project_dirs(root.path()).unwrap();
+        let second = migrate_project_dirs(root.path()).unwrap();
+
+        assert!(second.is_noop(), "第二次应零动作");
+        assert_eq!(root.marker(META_DIR), "m");
+        assert_eq!(root.marker(KNOWLEDGE_DIR), "k");
     }
 }
