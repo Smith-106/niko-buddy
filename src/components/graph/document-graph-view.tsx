@@ -474,7 +474,7 @@ export function DocumentGraphView({
                                     <div key={summary.title} className="rounded-md border bg-muted/20 px-3 py-2">
                                       <div className="text-xs font-medium text-muted-foreground">{summary.title}</div>
                                       <div className="mt-1 text-sm">{summary.items?.map((item, i) => (
-                                        <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground mr-1 mb-1">{item}</span>
+                                        <span key={`${summary.title}#${i}-${item}`} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground mr-1 mb-1">{item}</span>
                                       ))}</div>
                                     </div>
                                   ))}

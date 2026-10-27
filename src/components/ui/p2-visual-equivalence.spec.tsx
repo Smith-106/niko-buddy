@@ -242,7 +242,8 @@ describe("P2-8 window.alert 迁移应用内 toast", () => {
   })
 
   it("迁移目标文件均走 toast 且文案不变", () => {
-    const sidebar = readSrc("src/components/layout/sidebar-panel.tsx")
+    // 导入/toast 逻辑已随 REFACTOR_AUDIT §二 拆分下沉至 sidebar-panel-import.ts。
+    const sidebar = readSrc("src/components/layout/sidebar-panel-import.ts")
     expect(sidebar).toContain('toast.info("没有找到可导入的章节文档。")')
     expect(sidebar).toContain("toast.error(`导入失败：${message}`)")
     const welcome = readSrc("src/components/project/welcome-screen.tsx")
@@ -254,7 +255,8 @@ describe("P2-8 window.alert 迁移应用内 toast", () => {
   })
 
   it("toast 成功与失败通道可区分（success/error/info 均被使用）", () => {
-    const sidebar = readSrc("src/components/layout/sidebar-panel.tsx")
+    // 同上：toast 通道断言跟随拆分后的实际落点。
+    const sidebar = readSrc("src/components/layout/sidebar-panel-import.ts")
     expect(sidebar).toContain("toast.info(")
     expect(sidebar).toContain("toast.error(")
     const welcome = readSrc("src/components/project/welcome-screen.tsx")
