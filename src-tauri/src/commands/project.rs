@@ -283,13 +283,23 @@ impl MigrationReport {
 ///
 /// 返回三步各自的迁移/跳过明细（G2）；调用方忽略返回值时语义与旧版完全一致。
 pub fn migrate_project_dirs(root: &Path) -> Result<MigrationReport, String> {
-    // 多代旧名顺序迁移：.llm-wiki → .qmai → .niko-buddy（每个只在目标不存在时 rename）
-    let mut steps = Vec::with_capacity(3);
-    for (from, to) in [(LEGACY_META_DIR, META_DIR), (LEGACY_QMAI_DIR, META_DIR), (LEGACY_KNOWLEDGE_DIR, KNOWLEDGE_DIR)] {
-        let action = rename_dir_if_safe(root, from, to)?;
-        steps.push(MigrationStep { from, to, action });
+    // 单一事实源：先由 dry-run 算出三步计划，再逐步执行 rename。
+    // 这样 dry-run 与实跑共用同一份「哪三步、什么顺序」的定义，不会漂移。
+    let planned = migrate_project_dirs_dry_run(root);
+    let mut steps = Vec::with_capacity(planned.steps.len());
+    for step in planned.steps {
+        let action = rename_dir_if_safe(root, step.from, step.to)?;
+        steps.push(MigrationStep { from: step.from, to: step.to, action });
     }
-    Ok(MigrationReport { steps })
+    let report = MigrationReport { steps };
+    if !report.is_noop() {
+        log::info!(
+            "[migrate] 项目目录迁移：{} 步实际 rename，{} 步跳过",
+            report.migrated().len(),
+            report.skipped().len()
+        );
+    }
+    Ok(report)
 }
 
 /// Dry-run：只计算三步各自会是什么动作，不触碰文件系统（G2）。

@@ -39,6 +39,7 @@
 12. 【✅完成 2026-10-21 `knowledge-tree.tsx`（1490→1162 行，-328；commit `a2f21675`）】helpers 下沉 `knowledge-tree-helpers.tsx`（340：3 接口＋13 纯函数＋DeleteButton），四段逐字节一致；KnowledgeTree/RawSourcesSection/source-sidebar/spec 零改动。
 13. 【✅完成 2026-10-21 `wiki-store.ts`（1087→468 行，-619；commit `04b5c8be`）】配置层下沉 `wiki-store-config.ts`（644：存储键＋配置类型/默认值＋readStored＋confirmDiscard），排序后 588 行与原段一致；28 外部名 re-export 保底，useWikiStore/WikiState 路径不变。
 14. 【✅完成 2026-10-21 `character-aura-view.tsx`（1045→616 行，-429；commit `f1f45922`）】面板下沉 `character-aura-panels.tsx`（442：表单纯层＋AuraDetails/CustomAuraForm/Detail/Field/TextField），412 行逐字节一致；`character-aura.ts` 算法库不动。
+15. 【✅完成 2026-10-27 `src-tauri/src/commands/fs.rs`（2452→2177 行，-275）】PDF 域 verbatim 下沉 `fs_pdf.rs`（280 行：PDFIUM/PDFIUM_LOCK/RESOURCE_DIR_HINT 三静态＋lock_pdfium/pdfium/pdfium_candidate_paths/pdfium_dynamic_library_present/extract_pdf_text/set_resource_dir_hint 六函数），与 `fs_archive.rs`/`fs_office.rs` 同惯例经 `pub use` 重导出保路径兼容；逐字节校验仅 3 行可见性修饰符差异（`pub(crate)`），零逻辑改动；`cargo check --lib` 0 告警 0 错误，`cargo test --lib` 439 passed。附带：`migrate_project_dirs` 改为复用 `migrate_project_dirs_dry_run` 的三步计划（单一事实源，消除 dry-run 死代码）并加迁移可观测日志。
 
 ## 三、卡顿与性能瓶颈（重点）
 
