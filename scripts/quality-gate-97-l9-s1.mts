@@ -86,7 +86,7 @@ function stripFrontmatter(t: string): string {
 }
 
 const out: Record<string, unknown> = existsSync(OUT)
-  ? JSON.parse(readFileSync(OUT, "utf8"))
+  ? (() => { const j = JSON.parse(readFileSync(OUT, "utf8")); j.model = MODEL; j.purpose = `L9 S1：8 章 × 全维 × N=10 噪声复测（${MODEL} 口径，基线可比）`; j.resumedAt = new Date().toISOString(); return j })()
   : {
       generatedAt: new Date().toISOString(),
       purpose: `L9 S1：8 章 × 全维 × N=10 噪声复测（${MODEL} 口径，基线可比）`,
