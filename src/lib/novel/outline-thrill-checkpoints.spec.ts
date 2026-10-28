@@ -318,3 +318,54 @@ describe("整本大纲 thril 审计（splitOutlineIntoChapters / auditOutlineThr
     expect(audit.averagePassPerChapter).toBe(0)
   })
 })
+
+describe("抗欺骗：裸关键词堆砌不得被判 pass（2026-10-28）", () => {
+  // 背景：原实现只做 RE.test(text)，章纲里塞一个"压抑"/"反击"就能变绿，
+  // 而实际内容仍是"冲突是什么"一句空话。改造后 pass 必须伴随可指认链条。
+
+  const GAMING_OUTLINE = `### 第1章 测试
+本章有冲突、有压抑、有释放、有反转。主角做出选择并决定反抗。章末有悬念，突然来电。`.repeat(2)
+
+  it("纯关键词堆砌：能动性与章末钩不得判 pass", () => {
+    const r = evaluateOutlineThrillCheckpoints(GAMING_OUTLINE)
+    expect(r.find((x) => x.id === "protagonist_agency")!.status).not.toBe("pass")
+    expect(r.find((x) => x.id === "chapter_end_hook")!.status).not.toBe("pass")
+  })
+
+  it("纯关键词堆砌的 evidence 明确指出缺可指认内容", () => {
+    const r = evaluateOutlineThrillCheckpoints(GAMING_OUTLINE)
+    const agency = r.find((x) => x.id === "protagonist_agency")!
+    expect(agency.evidence).toMatch(/bare|identifiable/)
+  })
+
+  const REAL_CHAIN_OUTLINE = `### 第1章 测试
+中介当面把续租费翻三倍，主角账户只够七天，被逼到绝境。陈默当众拆穿阴阳合同，用自己发现的条款反将对方一军，中介当场改口降价。
+章末钩：下一阶段他要面对天枢营业厅的资质审核，而审核表上有一栏他根本填不出来。`.repeat(2)
+
+  it("真实可指认链条（自然叙述）四项结构全 pass", () => {
+    const r = evaluateOutlineThrillCheckpoints(REAL_CHAIN_OUTLINE)
+    for (const id of ["crisis_info_early", "pressure_release", "protagonist_agency", "chapter_end_hook"] as const) {
+      expect(r.find((x) => x.id === id)!.status, `${id} 应 pass`).toBe("pass")
+    }
+  })
+
+  const LABELED_OUTLINE = `### 第1章 测试
+压抑铺垫：公司通知续租费翻三倍，账户余额只够七天，身体开始排异。
+压力释放：陈默当众拆穿阴阳合同，用自发现的条款反将一军，中介当场改口。
+主角能动性：陈默主动设局，提前录音并请来第三方见证。
+章末钩：下一阶段是资质审核，审核表上有一栏他根本填不出来。`.repeat(2)
+
+  it("显式标签写法四项结构全 pass", () => {
+    const r = evaluateOutlineThrillCheckpoints(LABELED_OUTLINE)
+    for (const id of ["crisis_info_early", "pressure_release", "protagonist_agency", "chapter_end_hook"] as const) {
+      expect(r.find((x) => x.id === id)!.status, `${id} 应 pass`).toBe("pass")
+    }
+  })
+
+  it("既有自然叙述基准（STRONG_OUTLINE）不被抗欺骗收紧误杀", () => {
+    const r = evaluateOutlineThrillCheckpoints(STRONG_OUTLINE)
+    for (const id of ["crisis_info_early", "pressure_release", "protagonist_agency", "chapter_end_hook"] as const) {
+      expect(r.find((x) => x.id === id)!.status, `${id} 不应被误杀`).toBe("pass")
+    }
+  })
+})

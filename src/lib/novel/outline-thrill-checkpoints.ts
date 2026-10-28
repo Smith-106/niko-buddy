@@ -62,6 +62,103 @@ const AGENCY_HINT_RE =
 const HOOK_HINT_RE =
   /下章|下一|未完|悬念|钩子|预示|留下|却见|突然|门外|来电|信封|倒计时|未揭/
 
+/**
+ * 抗欺骗（2026-10-28）：孤立关键词不足以判 pass。
+ *
+ * 背景：原实现只做 `RE.test(text)`。章纲里塞一个"压抑"或"反击"就能让审计变绿，
+ * 而实际内容仍是"冲突是什么"一句空话。本组判定要求**共现密度**：光有词不够，
+ * 必须在同一句里同时出现"施压方/情境 + 代价或结果"这类可指认链条。
+ *
+ * 同时接受两种写法（既有 STRONG_OUTLINE 这类自然叙述不得被误杀）：
+ *   ① 显式标签：`压抑铺垫：…` / `压力释放：…` / `主角能动性：…` / `章末钩：…`
+ *   ② 自然叙述：同一句内既有压力线索又有释放/代价线索
+ */
+const SENTENCE_SPLIT_RE = /[。；\n]+/
+
+/** 按句切分（保留足够上下文给共现判定）。 */
+function splitSentences(text: string): string[] {
+  return text.split(SENTENCE_SPLIT_RE).map((s) => s.trim()).filter((s) => s.length > 0)
+}
+
+/** 单句内压力→释放共现（自然叙述路径）。 */
+function sentenceHasPressureChain(sentence: string): boolean {
+  return PRESSURE_RELEASE_RE.test(sentence)
+    && /(被|遭|由|逼|压|绝境|追杀|威胁|债务|催收|倒计时|代价|只好|不得不|却|反而|结果|当场|最终)/.test(sentence)
+}
+
+/** 单句内主角能动共现（自然叙述路径）：能动词 + 动作对象/结果。 */
+function sentenceHasAgencyChain(sentence: string): boolean {
+  return AGENCY_HINT_RE.test(sentence)
+    && /(局|条款|合同|对方|局面|谈判|反击|漏洞|计划|代价|推动|当面|当众|提前|录音|证据)/.test(sentence)
+}
+
+/** 单句内章末钩共现（自然叙述路径）：钩子词 + 下一阶段指向。 */
+function sentenceHasHookChain(sentence: string): boolean {
+  return HOOK_HINT_RE.test(sentence)
+    && /(下|下一阶段|接下来|将要|仍未|尚未|而|却|面对|审核|表格|一栏|倒计时)/.test(sentence)
+}
+
+const LABEL_PRESSURE_RE = /(压抑|施压|压力铺垫|压迫)\s*[：:]\s*(.{12,})/s
+const LABEL_RELEASE_RE = /(释放|反击|翻盘|破局|转机|反转)\s*[：:]\s*(.{12,})/s
+const LABEL_AGENCY_RE = /(主角能动性|能动|主动选择|主角选择)\s*[：:]\s*(.{12,})/s
+const LABEL_HOOK_RE = /(章末钩|章末钩子|章尾钩子|结尾钩子)\s*[：:]\s*(.{12,})/s
+
+/**
+ * 可指认的压抑→释放链条。
+ *
+ * 接受三种形态（前两种是既有正确写法，不得误杀）：
+ *   ① 显式标签：`压抑铺垫：…` / `压力释放：…`
+ *   ② 同一句内压力→释放共现（自然叙述的紧凑写法）
+ *   ③ 跨句但成对出现：段落里既有压力线索又有释放线索，且至少一句给出具体情境
+ *      （人物/机构 + 代价或结果）——这是“谁施压、付什么代价、在哪释放”的可指认性
+ *
+ * 裸关键词堆砌（“有冲突、有压抑、有释放、有反转”）不满足 ③，因为缺少具体情境句。
+ */
+function hasIdentifiablePressureChain(text: string): boolean {
+  if (LABEL_PRESSURE_RE.test(text) || LABEL_RELEASE_RE.test(text)) return true
+  const sentences = splitSentences(text)
+  if (sentences.some(sentenceHasPressureChain)) return true
+  // ③ 跨句成对 + 具体情境
+  const hasPressureCue = /(逼|压|绝境|威胁|债务|催收|倒计时|被|遭|翻倍|翻三倍|到期|排异|锁)/.test(text)
+  const hasReleaseCue = /(拆穿|反将|改口|反击|破局|翻盘|转机|释放|喘息|争取|救下|当场)/.test(text)
+  const hasConcreteScene = sentences.some((s) =>
+    /(中介|公司|客服|催收|风控|对手|沈鸢|柯叔|周砚|林小满|陈默|白曦)/.test(s)
+    && /(翻|到期|排异|锁|羞辱|回收|代价|只够|改口|降价|拆穿|反将|救下|争取)/.test(s))
+  return hasPressureCue && hasReleaseCue && hasConcreteScene
+}
+
+/**
+ * 可指认的能动选择。
+ *
+ * “主角主动做了什么具体动作”本身就是能动证据——不必强求出现“决定/选择/主动”
+ * 这类元词（真实章纲常直接写动作：拆穿、反将、设局、录音取证）。
+ *
+ * 接受三种形态：
+ *   ① 显式标签：`主角能动性：…`
+ *   ② 能动词 + 动作对象/手段共现
+ *   ③ 具体能动动作 + 施动主体/结果（动作词本身就是能动性证明）
+ *
+ * 裸堆砌（“主角做出选择并决定反抗”）不满足 ③：只有元词，没有具体动作与结果。
+ */
+function hasIdentifiableAgency(text: string): boolean {
+  if (LABEL_AGENCY_RE.test(text)) return true
+  const sentences = splitSentences(text)
+  if (sentences.some(sentenceHasAgencyChain)) return true
+  const hasAgencyCue = AGENCY_HINT_RE.test(text)
+  const hasMeans = /(设局|条款|合同|录音|证据|见证|谈判|反将|拆穿|提前|主动|布局|拒绝|当场)/.test(text)
+  if (hasAgencyCue && hasMeans) return true
+  // ③ 具体能动动作 + 结果：动作发生在具体主体/对象上，并产生可观测后果
+  const CONCRETE_ACTION_RE = /(拆穿|反将|设局|录音|取证|谈判|争取|拒付|拖延|伪造|识破|救下|反诉|申请|拆机|炼成|解锁|利用|钻|撬|逼问|当众)/
+  const CONCRETE_OUTCOME_RE = /(改口|降价|争取到|成功|救下|解锁|炼成|识破|让对方|反被|只好|当场|获得|拿到|打开|推迟|暂缓|反将一军)/
+  return CONCRETE_ACTION_RE.test(text) && CONCRETE_OUTCOME_RE.test(text)
+}
+
+/** 可指认的章末钩：显式标签，或任一句内钩子词 + 下一阶段指向共现。 */
+function hasIdentifiableHook(text: string): boolean {
+  if (LABEL_HOOK_RE.test(text)) return true
+  return splitSentences(text).some(sentenceHasHookChain)
+}
+
 export interface EvaluateThrillOptions {
   /** When outline is empty, all non-FIX1 checks → unknown */
   allowUnknown?: boolean
@@ -240,6 +337,12 @@ export function evaluateOutlineThrillCheckpoints(
   const hook = HOOK_HINT_RE.test(lateSlice) || HOOK_HINT_RE.test(text.slice(-200))
   const fix1Conflict = FIX1_SPOILER_RE.test(text)
 
+  // 抗欺骗：关键词命中只是必要条件，还必须有可指认的结构内容。
+  // 裸关键词（如只写“有冲突”“出现反转”）→ unknown，不认 pass。
+  const pressureChain = hasIdentifiablePressureChain(text)
+  const agencyChain = hasIdentifiableAgency(text)
+  const hookChain = hasIdentifiableHook(text)
+
   const longEnough = text.length >= 80
 
   return [
@@ -251,21 +354,33 @@ export function evaluateOutlineThrillCheckpoints(
     },
     {
       id: "pressure_release",
-      status: pressure ? "pass" : longEnough ? "fail" : allowUnknown ? "unknown" : "fail",
+      status: pressureChain ? "pass" : longEnough ? "fail" : allowUnknown ? "unknown" : "fail",
       label: THRILL_CHECKPOINT_LABELS.pressure_release,
-      evidence: pressure ? "pressure/release cue" : "no pressure→release cue",
+      evidence: pressureChain
+        ? "identifiable pressure→release chain (谁施压/付什么代价/在哪释放)"
+        : pressure
+          ? "bare keyword without identifiable chain (谁施压/付什么代价/在哪释放)"
+          : "no pressure→release cue",
     },
     {
       id: "protagonist_agency",
-      status: agency ? "pass" : longEnough ? "fail" : allowUnknown ? "unknown" : "fail",
+      status: agencyChain ? "pass" : longEnough ? "fail" : allowUnknown ? "unknown" : "fail",
       label: THRILL_CHECKPOINT_LABELS.protagonist_agency,
-      evidence: agency ? "agency cue" : "no protagonist agency cue",
+      evidence: agencyChain
+        ? "identifiable agency (可指认的能动选择)"
+        : agency
+          ? "bare agency keyword without identifiable choice"
+          : "no protagonist agency cue",
     },
     {
       id: "chapter_end_hook",
-      status: hook ? "pass" : longEnough ? "fail" : allowUnknown ? "unknown" : "fail",
+      status: hookChain ? "pass" : longEnough ? "fail" : allowUnknown ? "unknown" : "fail",
       label: THRILL_CHECKPOINT_LABELS.chapter_end_hook,
-      evidence: hook ? "end-hook cue" : "no chapter-end hook cue",
+      evidence: hookChain
+        ? "identifiable chapter-end hook (下一阶段具体期待)"
+        : hook
+          ? "bare hook keyword without identifiable next-stage expectation"
+          : "no chapter-end hook cue",
     },
     {
       id: "fix1_no_conflict",
