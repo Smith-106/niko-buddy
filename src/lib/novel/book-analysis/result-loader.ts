@@ -43,11 +43,18 @@ export async function loadBookAnalysisResult(
   try {
     const charactersDir = joinPath(bookPath, "characters")
     const files = await listDirectory(charactersDir)
-    for (const f of files) {
-      if (!f.is_dir && f.name.endsWith(".json")) {
-        const content = await readFile(f.path)
-        characters.push(JSON.parse(content))
-      }
+    // PAT-IM1（ISS-20260709-024）：角色 JSON 彼此独立，并行读取后按目录顺序回填。
+    const jsonFiles = files.filter((f) => !f.is_dir && f.name.endsWith(".json"))
+    const parsed = await Promise.all(
+      jsonFiles.map((f) =>
+        readFile(f.path).then(
+          (content) => JSON.parse(content) as ExtractedCharacter,
+          () => null,
+        ),
+      ),
+    )
+    for (const item of parsed) {
+      if (item) characters.push(item)
     }
   } catch {
     // 没有角色数据

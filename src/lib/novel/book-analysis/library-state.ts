@@ -72,9 +72,15 @@ async function loadSkills(
   try {
     const files = await listDirectory(joinPath(bookPath, "skills"))
     const skills: CharacterSkill[] = []
-    for (const file of files) {
-      if (!file.is_dir && file.name.endsWith(".md")) {
-        const content = await readFile(file.path)
+    // PAT-IM1（ISS-20260709-024）：技能 md 彼此独立，并行读取后按目录顺序回填。
+    const mdFiles = files.filter((file) => !file.is_dir && file.name.endsWith(".md"))
+    const skillContents = await Promise.all(
+      mdFiles.map((file) => readFile(file.path).catch(() => null)),
+    )
+    for (const [fileIndex, file] of mdFiles.entries()) {
+      {
+        const content = skillContents[fileIndex]
+        if (content === null) continue
         const baseName = file.name.replace(/-skill\.md$/i, "").replace(/\.md$/i, "")
         // 匹配策略：1) 精确名称匹配 2) 文件名包含角色名 3) safeFileName 转换后匹配
         const character = characters.find((item) => {

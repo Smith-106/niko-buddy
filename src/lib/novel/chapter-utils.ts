@@ -173,10 +173,8 @@ async function readChapterIndexEntry(file: { name: string; path: string }): Prom
 async function loadChapterIndex(projectPath: string): Promise<ChapterIndex> {
   const tree = await listDirectory(`${projectPath}/wiki/chapters`)
   const files = flattenMdFiles(tree)
-  const entries: ChapterIndexEntry[] = []
-  for (const file of files) {
-    entries.push(await readChapterIndexEntry(file))
-  }
+  // PAT-IM1（ISS-20260709-024）：章节文件彼此独立，并行读取后按目录顺序回填。
+  const entries = await Promise.all(files.map((file) => readChapterIndexEntry(file)))
   return { entries }
 }
 

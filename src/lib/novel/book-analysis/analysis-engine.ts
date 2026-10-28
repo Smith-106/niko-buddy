@@ -256,9 +256,14 @@ export async function loadChapterList(bookPath: string): Promise<ChapterSelectio
     // 只处理 .md 文件
     const mdFiles = files.filter((f) => f.name.endsWith(".md") && !f.is_dir)
 
-    for (const file of mdFiles) {
+    // PAT-IM1（ISS-20260709-024）：章节文件彼此独立，并行读取后按原顺序回填。
+    const chapterContents = await Promise.all(
+      mdFiles.map((file) => readFile(file.path).catch(() => null)),
+    )
+    for (const [fileIndex, file] of mdFiles.entries()) {
       try {
-        const content = await readFile(file.path)
+        const content = chapterContents[fileIndex]
+        if (content === null) continue
 
         // 解析 frontmatter
         const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/)

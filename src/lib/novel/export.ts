@@ -168,14 +168,17 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
             return { num, snap }
           }),
         )
-        for (const { num, snap } of loaded) {
-          if (snap) {
+        // PAT-IM1（ISS-20260709-024）：各快照写入不同文件，彼此独立 → 并行落盘。
+        // 文件名由 num 决定，输出布局与写入完成顺序无关。
+        await Promise.all(
+          loaded.map(async ({ num, snap }) => {
+            if (!snap) return
             await writeFile(
               `${snapshotsDir}/${String(num).padStart(3, "0")}.snapshot.json`,
               JSON.stringify(snap, null, 2),
             )
-          }
-        }
+          }),
+        )
       } catch {
         // snapshots optional
       }

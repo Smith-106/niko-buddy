@@ -69,16 +69,21 @@ export async function analyzeWritingStyle(
   const sampled = pickEvenlySpread(pool, MAX_SAMPLE_CHAPTERS)
 
   onProgress?.(`读取 ${sampled.length} 章样本正文…`)
+  // PAT-IM1（ISS-20260709-024）：样本章节彼此独立，并行读取后按抽样顺序回填。
+  // 取消信号在派发前与汇总后各查一次，语义与逐章检查等价（无中途副作用）。
+  if (signal?.aborted) throw new Error("用户取消提取")
+  const sampleRaw = await Promise.all(
+    sampled.map((chapter) =>
+      readFile(joinPath(bookPath, "chapters", `${chapter.chapterId}.md`)).catch(() => null),
+    ),
+  )
+  if (signal?.aborted) throw new Error("用户取消提取")
   const sampleBlocks: string[] = []
-  for (const chapter of sampled) {
-    if (signal?.aborted) throw new Error("用户取消提取")
-    try {
-      const raw = await readFile(joinPath(bookPath, "chapters", `${chapter.chapterId}.md`))
-      const body = stripFrontmatter(raw).slice(0, PER_CHAPTER_CHAR_LIMIT)
-      if (body) sampleBlocks.push(`【${chapter.title}】\n${body}`)
-    } catch {
-      // 跳过读不到的章节
-    }
+  for (const [index, chapter] of sampled.entries()) {
+    const raw = sampleRaw[index]
+    if (raw === null) continue
+    const body = stripFrontmatter(raw).slice(0, PER_CHAPTER_CHAR_LIMIT)
+    if (body) sampleBlocks.push(`【${chapter.title}】\n${body}`)
   }
   if (sampleBlocks.length === 0) throw new Error("样本章节正文为空，无法分析文风")
 
