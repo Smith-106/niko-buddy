@@ -15,11 +15,17 @@ const CONTEXT_PRESETS = [
   { value: 1000000, label: "1M" },
 ]
 
-/** Format a character count into a human-readable size label. */
-function formatSize(chars: number): string {
-  if (chars >= 1000000) return `${(chars / 1000000).toFixed(1)}M characters`
-  if (chars >= 1000) return `${Math.round(chars / 1000)}K characters`
-  return `${chars} characters`
+/**
+ * Format a token count into a human-readable size label.
+ *
+ * 单位是 token 而不是字符：`maxContextSize` 是模型窗口，模型窗口本身就是
+ * token 计数的（预设的 suggestedContextSize 同样是 token）。这里曾渲染成
+ * "characters"，与 runner 侧按 token 裁剪的读法直接矛盾。
+ */
+function formatSize(tokens: number): string {
+  if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M tokens`
+  if (tokens >= 1000) return `${Math.round(tokens / 1000)}K tokens`
+  return `${tokens} tokens`
 }
 
 /**

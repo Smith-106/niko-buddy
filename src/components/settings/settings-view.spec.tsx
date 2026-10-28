@@ -5,6 +5,7 @@
  * 策略：vi.mock store / 外部依赖 / 12 个 section 子组件，断言对照源码实现。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { DEFAULT_MAX_CONTEXT_TOKENS } from "@/lib/llm-context-limits"
 import { cleanup } from "@testing-library/react"
 import { act, fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
 import { SettingsView } from "./settings-view"
@@ -623,7 +624,7 @@ describe("SettingsView 渲染覆盖", () => {
     const llm = mocks.saveLlmConfig.mock.calls[0]?.[0] as { azureApiVersion: string; azureModelFamily: string; maxContextSize: number }
     expect(llm.azureApiVersion).toBe("2024-10-21")
     expect(llm.azureModelFamily).toBe("auto")
-    expect(llm.maxContextSize).toBe(204800)
+    expect(llm.maxContextSize).toBe(DEFAULT_MAX_CONTEXT_TOKENS)
     const mm = mocks.saveMultimodalConfig.mock.calls[0]?.[0] as { azureApiVersion: string; azureModelFamily: string }
     expect(mm.azureApiVersion).toBe("2024-10-21")
     expect(mm.azureModelFamily).toBe("auto")

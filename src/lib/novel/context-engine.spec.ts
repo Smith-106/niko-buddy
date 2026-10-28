@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach, beforeAll } from "vitest"
+import { DEFAULT_MAX_CONTEXT_TOKENS } from "@/lib/llm-context-limits"
 import {
   contextPackToPrompt,
   truncateActiveEntitiesByBudget,
@@ -897,12 +898,14 @@ describe("TASK-003 chapterNumber 自适应预算", () => {
     expect(early.responseReserve).toBe(late.responseReserve)
   })
 
-  it("DEFAULT_MAX_CTX fallback 保持不变（falsy maxContextSize）", () => {
+  it("falsy maxContextSize 走 DEFAULT_MAX_CONTEXT_TOKENS 兜底，显式值原样透传", () => {
     const fromZero = computeContextBudget(0, 500)
     const fromUndefined = computeContextBudget(undefined, 500)
     const fromExplicit = computeContextBudget(204_800, 500)
-    expect(fromZero.maxCtx).toBe(204_800)
-    expect(fromUndefined.maxCtx).toBe(204_800)
+    // 兜底已从 204800 降到 32768：204800 对 32K 模型是 6 倍超窗。
+    // 用常量断言，避免下次调整默认值时又要改一堆字面量。
+    expect(fromZero.maxCtx).toBe(DEFAULT_MAX_CONTEXT_TOKENS)
+    expect(fromUndefined.maxCtx).toBe(DEFAULT_MAX_CONTEXT_TOKENS)
     expect(fromExplicit.maxCtx).toBe(204_800)
   })
 })

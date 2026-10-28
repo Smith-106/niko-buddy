@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from "react"
+import { DEFAULT_MAX_CONTEXT_TOKENS } from "@/lib/llm-context-limits"
 import { ChevronDown, ChevronRight, AlertCircle, CheckCircle2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Input } from "@/components/ui/input"
@@ -67,7 +68,7 @@ export function PresetRow({
   const baseUrl = ov.baseUrl ?? preset.baseUrl ?? ""
   const azureApiVersion = ov.azureApiVersion ?? preset.azureApiVersion ?? AZURE_OPENAI_API_VERSION
   const azureModelFamily = ov.azureModelFamily ?? preset.azureModelFamily ?? "auto"
-  const context = ov.maxContextSize ?? preset.suggestedContextSize ?? 131072
+  const context = ov.maxContextSize ?? preset.suggestedContextSize ?? DEFAULT_MAX_CONTEXT_TOKENS
   const reasoning = ov.reasoning ?? { mode: "auto" as const }
   const localCliIsolation = ov.localCliIsolation === true
   const codexCliTimeoutMinutes = Math.max(1, Math.min(240, ov.codexCliTimeoutMinutes ?? 10))

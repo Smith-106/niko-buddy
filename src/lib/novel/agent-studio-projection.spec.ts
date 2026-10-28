@@ -177,7 +177,7 @@ describe("projectAgentStudioSettings", () => {
 
   it("defaultsById 只收录 hasDefault 且 defaultValue !== null 的项", () => {
     const projection = projectAgentStudioSettings(realProbe())
-    expect(projection.defaultsById["llm.maxContextSize"]).toBe("204800")
+    expect(projection.defaultsById["llm.maxContextSize"]).toBe("32768")
     expect(projection.defaultsById["judge.judgePool"]).toBeUndefined()
     expect(projection.defaultsById["modelRoutes.view"]).toBeUndefined()
 
@@ -242,12 +242,15 @@ describe("真实仓库探针（口径回归闸）", () => {
     expect(row?.duplicatedIn).toContain("src/lib/novel/premium-execution.ts:463")
   })
 
-  it("llm.maxContextSize 默认值在两个真源里不一致（204800 vs 131072）", () => {
+  it("llm.maxContextSize 兜底默认值已收归单一真源（此前 204800 vs 131072 并存）", () => {
     const projection = projectAgentStudioSettings(realProbe())
     const row = projection.rows.find((r) => r.id === "llm.maxContextSize")
 
-    expect(row?.duplicatedIn).toContain("src/lib/env-llm-defaults.ts:17")
-    expect(row?.duplicatedIn).toContain("src/components/settings/sections/llm-provider-section.tsx:180")
+    // 五处各写各的默认值已合并为 DEFAULT_MAX_CONTEXT_TOKENS，不再有副本
+    expect(row?.status).toBe("ok")
+    expect(row?.duplicatedIn).toEqual([])
+    expect(row?.sourceFile).toBe("src/lib/llm-context-limits.ts:29")
+    expect(projection.defaultsById["llm.maxContextSize"]).toBe("32768")
   })
 })
 

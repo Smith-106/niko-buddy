@@ -1,8 +1,13 @@
 /**
  * Pure budget allocator for chat context assembly.
  *
- * Given an LLM's `maxContextSize` (in characters), computes per-section
- * character budgets used by the chat panel when packing the prompt:
+ * Given an LLM's `maxContextSize` (a **token** window), computes per-section
+ * **character** budgets used by the chat panel when packing the prompt:
+ *
+ * 为什么由 token 数直接派生字符预算不危险：CJK 约 1.5 字符/token（见
+ * `CJK_CHARS_PER_TOKEN`），所以 `pageBudget = maxCtx × 0.5` 得到的字符数
+ * 只相当于窗口的约 1/3 token。**这个方向的误差是安全的**——少花上下文
+ * 只是浪费容量，多花则直接撞上游 400。
  *
  *   ┌─────────────────────────────────────────────────────┐
  *   │              maxCtx (100%)                          │
@@ -14,6 +19,7 @@
  * MIT License — independently implemented.
  */
 
+import { DEFAULT_MAX_CONTEXT_TOKENS } from "./llm-context-limits"
 /**
  * F-008: 自适应上下文三态策略枚举。
  *
@@ -114,7 +120,7 @@ export function hardInjectionCapChars(maxCtx: number): number {
   return Math.min(baselineChars, Math.floor(maxCtx * HARD_INJECT_CTX_FRAC))
 }
 
-const DEFAULT_MAX_CTX = 204_800
+const DEFAULT_MAX_CTX = DEFAULT_MAX_CONTEXT_TOKENS
 const RESERVE_FRAC = 0.15
 const INDEX_FRAC = 0.05
 const PAGE_FRAC = 0.5
@@ -141,8 +147,8 @@ function adaptiveScale(chapterNumber: number | undefined): number {
 /**
  * Compute character budgets from the LLM's max context window.
  *
- * @param maxContextSize  The model's context window in characters.
- *                        Falsy values fall back to a 200K default.
+ * @param maxContextSize  The model's context window in **tokens**.
+ *                        Falsy values fall back to DEFAULT_MAX_CTX.
  * @param chapterNumber   Optional chapter number for adaptive scaling.
  *                        Omit to preserve original static behavior.
  * @param strategyConfig  Optional F-008 三态策略阈值覆盖。
@@ -197,5 +203,5 @@ export function computeContextBudget(
 export function resolveContextPackTokenBudget(
   config: { maxInputChars?: number; maxContextSize?: number } | undefined,
 ): number {
-  return config?.maxInputChars ?? config?.maxContextSize ?? 204_800
+  return config?.maxInputChars ?? config?.maxContextSize ?? DEFAULT_MAX_CONTEXT_TOKENS
 }

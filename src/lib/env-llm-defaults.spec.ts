@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { DEFAULT_MAX_CONTEXT_TOKENS } from "./llm-context-limits"
 import { loadEnvLlmDefault } from "./env-llm-defaults"
 
 const ORIGINAL = { ...import.meta.env }
@@ -53,7 +54,7 @@ describe("loadEnvLlmDefault", () => {
       reasoning: { mode: "auto" },
     })
     expect(result?.config.ollamaUrl).toBe("http://localhost:11434")
-    expect(result?.config.maxContextSize).toBe(204800)
+    expect(result?.config.maxContextSize).toBe(DEFAULT_MAX_CONTEXT_TOKENS)
     expect(result?.providerConfigs.custom).toMatchObject({
       apiKey: "sk-123",
       model: "gpt-4o",
@@ -80,9 +81,9 @@ describe("loadEnvLlmDefault", () => {
     vi.stubEnv("VITE_QMAI_LLM_MODEL", "gpt-4o")
     vi.stubEnv("VITE_QMAI_LLM_CONTEXT_SIZE", "not-a-number")
 
-    expect(loadEnvLlmDefault()?.config.maxContextSize).toBe(204800)
+    expect(loadEnvLlmDefault()?.config.maxContextSize).toBe(DEFAULT_MAX_CONTEXT_TOKENS)
 
     vi.stubEnv("VITE_QMAI_LLM_CONTEXT_SIZE", "-5")
-    expect(loadEnvLlmDefault()?.config.maxContextSize).toBe(204800)
+    expect(loadEnvLlmDefault()?.config.maxContextSize).toBe(DEFAULT_MAX_CONTEXT_TOKENS)
   })
 })

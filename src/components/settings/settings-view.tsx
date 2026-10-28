@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { DEFAULT_MAX_CONTEXT_TOKENS } from "@/lib/llm-context-limits"
 import {
   Bot,
   BookOpen,
@@ -139,7 +140,7 @@ function initialDraft(
     customEndpoint: llm.customEndpoint,
     azureApiVersion: llm.azureApiVersion ?? "2024-10-21",
     azureModelFamily: llm.azureModelFamily ?? "auto",
-    maxContextSize: llm.maxContextSize ?? 204800,
+    maxContextSize: llm.maxContextSize ?? DEFAULT_MAX_CONTEXT_TOKENS,
     apiMode: llm.apiMode,
     reasoning: llm.reasoning,
     localCliIsolation: llm.localCliIsolation === true,

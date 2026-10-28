@@ -7,6 +7,7 @@ import {
   isAzureOpenAiEndpoint,
 } from "@/lib/azure-openai"
 import { normalizeEndpoint } from "@/lib/endpoint-normalizer"
+import { DEFAULT_MAX_CONTEXT_TOKENS } from "./llm-context-limits"
 import {
   createResponsesTextParser,
   createResponsesToolDeltaParser,
@@ -1145,5 +1146,5 @@ export interface ToolCall {
 export function getEffectiveMaxContextSize(config: { maxContextSize?: number }): number {
   return typeof config.maxContextSize === "number" && config.maxContextSize > 0
     ? config.maxContextSize
-    : 204_800
+    : DEFAULT_MAX_CONTEXT_TOKENS
 }

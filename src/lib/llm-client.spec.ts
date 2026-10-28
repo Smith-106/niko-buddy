@@ -1970,3 +1970,76 @@ describe("thinking 块端到端回放（真实 SSE → 真实 body）", () => {
     expect(content.some((b) => b.type === "thinking")).toBe(false)
   })
 })
+
+/**
+ * 上游超窗 400 的识别与自动降级。
+ *
+ * 此前只认 DashScope 一种措辞（"input length X exceeds the maximum length Y"），
+ * OpenAI / Anthropic / Google 的格式全部落空 —— 用户拿到一条裸 400，
+ * 既不自动裁剪重试，也看不出「是上下文窗口设大了」。
+ *
+ * 这条链路是 B（兜底降到 32K）的另一半：兜底只保证 ≥32K 的模型不撞，
+ * <32K 的模型仍需用户把设置调小，而可读提示就是让他知道该调的那句话。
+ */
+describe("超窗 400：多厂商格式识别 + 自动裁剪重试", () => {
+  // 本 describe 在模块顶层，复用不到别的 describe 内部的 errorResponse
+  const errorResponse = (status: number, statusText: string, bodyText: string) =>
+    new Response(bodyText, { status, statusText })
+
+  const openAiOverflow = `{"error":{"message":"This model's maximum context length is 32768 tokens. However, your messages resulted in 41000 tokens. Please reduce the length of the messages.","type":"invalid_request_error"}}`
+  // 用 32768 作上限：正好对应「32K 模型 + 缺省窗口设大了」这个真实场景
+  const anthropicOverflow = `{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 41000 tokens > 32768 maximum"}}`
+  const googleOverflow = `{"error":{"message":"The input token count 41000 exceeds the maximum number of tokens allowed 32768."}}`
+  const dashscopeOverflow = "input length 41000 exceeds maximum length 32768"
+
+  it.each([
+    ["OpenAI", openAiOverflow],
+    ["Anthropic", anthropicOverflow],
+    ["Google", googleOverflow],
+    ["DashScope", dashscopeOverflow],
+  ])("%s 格式：裁剪后重试成功", async (_label, body) => {
+    // 内容必须超过报错里的 maxLength（32768），否则裁剪后 body 不变、不会重试
+    const longSystem = "x".repeat(60_000)
+    let calls = 0
+    setupHttpFetch((async () => {
+      calls += 1
+      if (calls === 1) return errorResponse(400, "Bad Request", body)
+      return streamResponse(sseLines(openAiToken("trimmed-ok"), "data: [DONE]"))
+    }) as typeof fetch)
+
+    const callbacks = makeCallbacks()
+    await streamChat(
+      llmConfig(),
+      [
+        { role: "system", content: longSystem },
+        { role: "user", content: "写一段" },
+      ],
+      callbacks,
+    )
+    expect(calls).toBe(2)
+    expect(callbacks.onToken).toHaveBeenCalledWith("trimmed-ok")
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["OpenAI", openAiOverflow],
+    ["Anthropic", anthropicOverflow],
+    ["Google", googleOverflow],
+  ])("%s 格式：正文已无法再裁剪时给出可读提示", async (_label, body) => {
+    setupHttpFetch(async () => errorResponse(400, "Bad Request", body))
+    const callbacks = makeCallbacks()
+    await streamChat(llmConfig(), [{ role: "user", content: "短" }], callbacks)
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("输入内容过长")
+  })
+
+  it("非超窗的 400 不会被误判成超窗（不能靠 400 就乱裁剪）", async () => {
+    setupHttpFetch(
+      async () => errorResponse(400, "Bad Request", `{"error":{"message":"unsupported parameter: seed"}}`),
+    )
+    const callbacks = makeCallbacks()
+    await streamChat(llmConfig(), [{ role: "user", content: "短" }], callbacks)
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError.mock.calls[0][0].message).not.toContain("输入内容过长")
+  })
+})

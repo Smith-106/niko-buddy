@@ -124,6 +124,11 @@ function classifyLlmError(err: unknown): string {
     if (/HTTP (401|403)\b|unauthorized|invalid api.?key|invalid_api_key|forbidden|认证失败|凭据/i.test(msg)) return "auth"
     if (/timed out|timeout/i.test(msg)) return "timeout"
     if (/网络连接|Connection lost|connection/i.test(msg)) return "network"
+    // 超窗独立成一类：它是配置问题（maxContextSize 设大了），不是网络/凭据问题，
+    // 混进泛化 "http" 会让指标看不出「到底是哪类失败」。
+    if (/maximum context length|prompt is too long|input length.*exceeds|context_length_exceeded|token count.*exceeds/i.test(msg)) {
+      return "context_overflow"
+    }
     if (/HTTP \d{3}/.test(msg)) return "http"
     if (/JSON|parse|解析/i.test(msg)) return "parse"
   }
@@ -289,14 +294,50 @@ function waitForRetry(ms: number, signal?: AbortSignal): Promise<boolean> {
   })
 }
 
+/**
+ * 从上游 400 的报错正文里解析出「本次输入多长 / 上限多少」。
+ *
+ * 解析成功才能自动裁剪重试；解析失败用户只会拿到一条裸 400。
+ * 此前只认 DashScope 一种措辞（"input length X exceeds the maximum length Y"），
+ * OpenAI / Anthropic / Google 的格式全落空——于是 32K 模型撞 OpenAI 风格
+ * 超窗时既不重试也没有可读提示。
+ *
+ * 单位注意：Anthropic / OpenAI 报的是 **token**，DashScope 报的是**字符**。
+ * 下游把 `maxLength` 直接当字符预算用——这是刻意的保守选择：CJK 约 1 字符
+ * ≈ 1 token，英文约 4 字符/token，所以「token 数当字符数」只会少发不会多发，
+ * 方向安全（多发才会再次 400）。
+ */
 function parseInputLengthLimit(errorDetail: string): { inputLength: number; maxLength: number } | null {
-  const match = /input length\s*([\d,]+)\s*exceeds(?:\s+the)?\s+maximum length\s*([\d,]+)/i.exec(errorDetail)
-    ?? /input length\s*([\d,]+)\s*exceeds(?:\s+the)?\s+max(?:imum)?\s*([\d,]+)/i.exec(errorDetail)
-  if (!match) return null
-  const inputLength = Number(match[1]?.replace(/,/g, ""))
-  const maxLength = Number(match[2]?.replace(/,/g, ""))
-  if (!Number.isFinite(inputLength) || !Number.isFinite(maxLength) || maxLength <= 0) return null
-  return { inputLength, maxLength }
+  const patterns = [
+    // DashScope / 部分代理（字符）
+    /input length\s*([\d,]+)\s*exceeds(?:\s+the)?\s+maximum length\s*([\d,]+)/i,
+    /input length\s*([\d,]+)\s*exceeds(?:\s+the)?\s+max(?:imum)?\s*([\d,]+)/i,
+    // OpenAI：This model's maximum context length is 32768 tokens. However, your
+    // messages resulted in 41000 tokens.
+    /maximum context length is\s*([\d,]+)\s*tokens?[\s\S]*?resulted in\s*([\d,]+)\s*tokens?/i,
+    // Anthropic：prompt is too long: 210000 tokens > 200000 maximum
+    /prompt is too long:\s*([\d,]+)\s*tokens?\s*>\s*([\d,]+)/i,
+    // Google：The input token count 41000 exceeds the maximum number of tokens allowed 32768.
+    // 中间有 "number of tokens allowed" 填充，不能用 \s* 直接接数字。
+    /token count\s*([\d,]+)\s*exceeds[\s\S]{0,80}?(\d[\d,]*)/i,
+    // 同族短句式：input token count 41000 exceeds the maximum 32768
+    /(?:input\s+)?token count\s*([\d,]+)\s*exceeds(?:\s+the)?\s*(?:maximum|max)?\s*([\d,]+)/i,
+    // 通用兜底：requested X tokens, limit Y / X tokens > Y tokens
+    /([\d,]+)\s*tokens?\s*(?:>|exceeds?)\s*(?:the\s+)?(?:maximum\s+|max\s+|limit\s+)?([\d,]+)\s*tokens?/i,
+  ]
+  for (const pattern of patterns) {
+    const match = pattern.exec(errorDetail)
+    if (!match) continue
+    let inputLength = Number(match[1]?.replace(/,/g, ""))
+    let maxLength = Number(match[2]?.replace(/,/g, ""))
+    // 少数句式把上限写在前面；数值方向明显反了就交换，保证 inputLength >= maxLength。
+    if (Number.isFinite(inputLength) && Number.isFinite(maxLength) && inputLength < maxLength) {
+      ;[inputLength, maxLength] = [maxLength, inputLength]
+    }
+    if (!Number.isFinite(inputLength) || !Number.isFinite(maxLength) || maxLength <= 0) continue
+    return { inputLength, maxLength }
+  }
+  return null
 }
 
 function inputLengthLimitMessage(limit: { inputLength: number; maxLength: number }): string {

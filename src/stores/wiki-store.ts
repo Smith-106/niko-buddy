@@ -6,6 +6,7 @@ import { create } from "zustand"
 import type { McpConfig } from "@/lib/mcp/config"
 import type { WikiProject, FileNode } from "@/types/wiki"
 import { DEFAULT_SOURCE_WATCH_CONFIG } from "@/lib/source-watch-config"
+import { DEFAULT_MAX_CONTEXT_TOKENS } from "@/lib/llm-context-limits"
 import type { TrashItem } from "@/lib/trash"
 import { CHAT_DOCK_POSITION_KEY, FOCUS_MODE_KEY, OFFLINE_MODE_KEY, UI_FONT_SIZE_SCALE_KEY } from "./wiki-store-config"
 
@@ -249,7 +250,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   llmConfig: {
     provider: "openai",
     apiKey: "",
-    maxContextSize: 204800,
+    maxContextSize: DEFAULT_MAX_CONTEXT_TOKENS,
     model: "",
     ollamaUrl: "http://localhost:11434",
     customEndpoint: "",

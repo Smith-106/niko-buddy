@@ -32,6 +32,8 @@
 // ── 类型 ─────────────────────────────────────────────────────────────────────────
 
 /** 单个设置项的规范化状态。 */
+import { DEFAULT_MAX_CONTEXT_TOKENS } from "@/lib/llm-context-limits"
+
 export type AgentStudioSettingStatus =
   /** 真源存在，且全仓只有一处声明。 */
   | "ok"
@@ -206,16 +208,16 @@ export const AGENT_STUDIO_SETTING_CATALOG: readonly AgentStudioCatalogEntry[] = 
   },
   {
     id: "llm.maxContextSize",
-    label: "上下文窗口（字符数）",
-    sourceFile: "src/stores/wiki-store.ts:119",
+    label: "上下文窗口（tokens）",
+    // 兜底默认值已收归单一真源：wiki-store / env-llm-defaults /
+    // settings-view / 自定义 provider 卡片 / 预设选择器全部 import 这个常量。
+    // 此前五处各写各的（204800 / 204_800 / 131072），204800 对 32K 模型是
+    // 6 倍超窗，且 duplicatedIn 里 llm-provider-section.tsx 那条早已失效
+    // （该文件里没有任何 maxContextSize）。
+    sourceFile: "src/lib/llm-context-limits.ts:29",
     hasDefault: true,
-    defaultValue: "204800",
-    duplicatedIn: [
-      "src/stores/wiki-store.ts:862",
-      "src/components/settings/settings-view.tsx:118",
-      "src/lib/env-llm-defaults.ts:17",
-      "src/components/settings/sections/llm-provider-section.tsx:180",
-    ],
+    defaultValue: String(DEFAULT_MAX_CONTEXT_TOKENS),
+    duplicatedIn: [],
   },
   {
     id: "llm.reasoning",

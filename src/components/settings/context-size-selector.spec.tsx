@@ -17,21 +17,21 @@ describe("ContextSizeSelector", () => {
   it("formats sizes across all three formatSize branches (B / K / M)", () => {
     const onChange = vi.fn()
     const { rerender } = render(<ContextSizeSelector value={500} onChange={onChange} />)
-    // 500 → "500 characters"；closest preset 4096 → slider index 0
-    expect(screen.getByText("500 characters")).toBeInTheDocument()
+    // 500 → "500 tokens"；closest preset 4096 → slider index 0
+    expect(screen.getByText("500 tokens")).toBeInTheDocument()
     expect(screen.getByText("~0K chars for wiki content")).toBeInTheDocument()
 
     rerender(<ContextSizeSelector value={2000} onChange={onChange} />)
-    // 2000 → "2K characters"；closest preset 4096 → index 0
-    expect(screen.getByText("2K characters")).toBeInTheDocument()
+    // 2000 → "2K tokens"；closest preset 4096 → index 0
+    expect(screen.getByText("2K tokens")).toBeInTheDocument()
 
     rerender(<ContextSizeSelector value={262144} onChange={onChange} />)
-    // 262144 → "262K characters"；closest preset 262144 → index 7
-    expect(screen.getByText("262K characters")).toBeInTheDocument()
+    // 262144 → "262K tokens"；closest preset 262144 → index 7
+    expect(screen.getByText("262K tokens")).toBeInTheDocument()
 
     rerender(<ContextSizeSelector value={1000000} onChange={onChange} />)
-    // 1000000 → "1.0M characters"；closest preset 1000000 → index 9
-    expect(screen.getByText("1.0M characters")).toBeInTheDocument()
+    // 1000000 → "1.0M tokens"；closest preset 1000000 → index 9
+    expect(screen.getByText("1.0M tokens")).toBeInTheDocument()
   })
 
   it("marks the closest preset button as active", () => {

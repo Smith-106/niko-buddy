@@ -1,4 +1,5 @@
 import type { LlmConfig, ProviderConfigs } from "@/stores/wiki-store"
+import { DEFAULT_MAX_CONTEXT_TOKENS } from "./llm-context-limits"
 
 const trimEnv = (value: unknown): string => {
   return typeof value === "string" ? value.trim() : ""
@@ -14,7 +15,7 @@ const readEnv = (suffix: string): string => {
 
 const readContextSize = (): number => {
   const raw = Number(readEnv("CONTEXT_SIZE"))
-  return Number.isFinite(raw) && raw > 0 ? raw : 204800
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_MAX_CONTEXT_TOKENS
 }
 
 export function loadEnvLlmDefault(): {

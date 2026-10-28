@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react"
+import { DEFAULT_MAX_CONTEXT_TOKENS } from "@/lib/llm-context-limits"
 import { Plus, Trash2, ChevronDown, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -719,7 +720,7 @@ function CustomProviderCardItem({
           <div className="space-y-2">
             <Label className="text-xs">{t("settings.sections.llm.contextWindow")}</Label>
             <ContextSizeSelector
-              value={card.maxContextSize ?? 131072}
+              value={card.maxContextSize ?? DEFAULT_MAX_CONTEXT_TOKENS}
               onChange={(v) => onUpdate({ maxContextSize: v })}
             />
           </div>

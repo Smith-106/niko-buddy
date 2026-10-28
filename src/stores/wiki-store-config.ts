@@ -114,7 +114,18 @@ export interface LlmConfig {
   customEndpoint: string
   azureApiVersion?: string
   azureModelFamily?: AzureModelFamily
-  maxContextSize: number // max context window in characters
+  /**
+   * 模型上下文窗口，单位 **token**（不是字符）。
+   *
+   * 这个单位曾经在仓里两种读法并存：`runner.ts` 按 token 裁剪（
+   * `maxContextSize × 0.75` 传给 `trimChatMessagesToTokenBudget`），
+   * 而 `context-budget.ts` 的文档写的是 characters。现在统一为 token——
+   * 模型窗口本身就是 token 计数的，预设的 `suggestedContextSize` 也是 token。
+   *
+   * `computeContextBudget` 返回的 `indexBudget` / `pageBudget` /
+   * `maxPageSize` 仍是**字符**预算，由 token 窗口保守派生（见该文件注释）。
+   */
+  maxContextSize: number
   /**
    * HTTP transport timeouts (UI 可调, 单位毫秒, 均为可选 additive)。
    * undefined = 沿用各档硬编码默认 (connect 10s / header 20s / stream-idle 90s), 零行为变更。
