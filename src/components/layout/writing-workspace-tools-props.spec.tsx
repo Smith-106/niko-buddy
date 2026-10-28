@@ -129,6 +129,8 @@ describe("WritingWorkspace 写作工具抽屉传参", () => {
       invoke: invokeSpy,
     }
     render(<WritingWorkspace />)
+    // 挂载期读取（伏笔追踪 read_file / 章节 get_file_modified_time）不属抽屉开合，清零后只断言开合本身。
+    invokeSpy.mockClear()
     fireEvent.click(screen.getByTestId("workspace-tools-toggle-pdf"))
     fireEvent.click(screen.getByTestId("workspace-tools-toggle-batch"))
     fireEvent.click(screen.getByTestId("workspace-tools-toggle-batch"))

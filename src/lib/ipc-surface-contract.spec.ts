@@ -154,7 +154,9 @@ function extractInvokeSites(): InvokeScan {
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node)) {
         const callee = node.expression
-        if (ts.isIdentifier(callee) && (callee.text === "invoke" || callee.text === "invokeCanon")) {
+        // fs.ts 的 invokeFs("cmd", ...) 是 S3 fileLockGuard 集中出口，命令名为字面量，视为 invoke 别名（仅限该文件）。
+        const isFsAlias = rel === "src/commands/fs.ts" && ts.isIdentifier(callee) && callee.text === "invokeFs"
+        if (ts.isIdentifier(callee) && (callee.text === "invoke" || callee.text === "invokeCanon" || isFsAlias)) {
           const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1
           const first = node.arguments[0]
           const literals = first ? firstArgLiterals(first, source) : null
