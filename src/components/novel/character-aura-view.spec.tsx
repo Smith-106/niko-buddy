@@ -404,7 +404,10 @@ describe("CharacterAuraView", () => {
       expect(auraLib.unbindCharacterAura).toHaveBeenCalledWith("E:/Novel", "林烬", "c1")
     })
     expect(wiki.state.bumpDataVersion).toHaveBeenCalled()
-    expect(screen.getByRole("status")).toHaveTextContent("已取消“林烬”与“自定义灵魂”的绑定")
+    // 去抖：状态提示是异步渲染的，全量并行负载下可能晚于 bumpDataVersion 一拍。
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("已取消“林烬”与“自定义灵魂”的绑定")
+    })
   })
 
   it("shows the empty injection message when no aura context is built", async () => {

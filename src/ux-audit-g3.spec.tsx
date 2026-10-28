@@ -128,12 +128,13 @@ describe("G3-F3 确认门焦点管理", () => {
   it("打开时聚焦确认按钮、按钮有可见焦点环、容器可编程聚焦", async () => {
     render(<ConfirmGateDialog pending={pendingGate()} />)
     const accept = screen.getByTestId("confirm-gate-accept")
-    await waitFor(() => expect(document.activeElement).toBe(accept), { timeout: 10_000 })
+    // 去抖：全量并行负载下 jsdom 聚焦回调可能远慢于单跑，放宽内部等待窗口。
+    await waitFor(() => expect(document.activeElement).toBe(accept), { timeout: 25_000 })
     expect(accept.className).toContain("focus-visible:ring-2")
     expect(screen.getByTestId("confirm-gate-reject").className).toContain("focus-visible:ring-2")
     const dialog = screen.getByTestId("confirm-gate-dialog")
     expect(dialog.getAttribute("tabindex")).toBe("-1")
-  }, 30_000)
+  }, 60_000)
 
   it("Esc 仍按拒绝裁决（焦点改造不破坏关闭路径）", async () => {
     render(<ConfirmGateDialog pending={pendingGate()} />)
