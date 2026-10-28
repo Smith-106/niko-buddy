@@ -151,13 +151,12 @@ export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDia
   useEffect(() => {
     if (!pending) return;
     previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
-    const timer = window.setTimeout(() => {
-      // 优先聚焦确认按钮；不可用时聚焦容器。
-      if (acceptRef.current && !acceptRef.current.disabled) acceptRef.current.focus();
-      else dialogRef.current?.focus();
-    }, 0);
+    // 同步聚焦：本 effect 在 ref 已挂载后执行，无需 setTimeout(0) 再等一拍。
+    // 旧实现的定时器在 jsdom 高负载（全量套件并行）下会被饿死，导致
+    // 首屏焦点停留在 body —— 既是测试 flake，也是真实的可访问性时序风险。
+    if (acceptRef.current && !acceptRef.current.disabled) acceptRef.current.focus();
+    else dialogRef.current?.focus();
     return () => {
-      window.clearTimeout(timer);
       previouslyFocusedRef.current?.focus?.();
       previouslyFocusedRef.current = null;
     };
