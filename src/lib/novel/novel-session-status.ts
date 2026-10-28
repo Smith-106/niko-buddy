@@ -22,6 +22,7 @@ import {
 import {
   canReuseExistingSession,
   cloneDecisionGates,
+  isSameSessionBase,
   createBaseStatus,
   extractDraftContent,
   mergeEvidenceRefs,
@@ -459,9 +460,11 @@ function buildDraftArtifacts(
   let supersededArtifact: NovelDraftArtifact | null = null
   // CORR-003 (odyssey) 语义与 writeDraftArtifact 一致：异 session / 无 session_id
   // 遗留草稿走 supersede 审计拷贝分支，same-session 复写不产生 superseded 文件。
+  // ISS-20260709-008：这里是 missing-as-different 语义（undefined !== sessionId 为真），
+  // 遗留草稿必须走 supersede 审计拷贝，不能静默覆盖。
   if (
     existing
-    && existing.session_id !== sessionId
+    && !isSameSessionBase(existing, sessionId)
     && existing.draft_status !== "superseded"
   ) {
     supersededPath = novelSupersededDraftArtifactPath(input.projectPath, draftId, now)
@@ -474,7 +477,7 @@ function buildDraftArtifacts(
   }
   const content = extractDraftContent(checkpoint, options.finalContent)
   // CORR-001 语义与 writeDraftArtifact 一致：same-session 复写保留 created_at。
-  const createdAt = existing && existing.session_id === sessionId && existing.draft_status !== "superseded"
+  const createdAt = isSameSessionBase(existing, sessionId) && existing.draft_status !== "superseded"
     ? existing.created_at
     : now
   const artifact: NovelDraftArtifact = {
@@ -1366,8 +1369,7 @@ async function persistDeepChapterCheckpointWithinLock(
 ): Promise<NovelSessionStatus> {
   const existing = await loadNovelSessionStatus(input.projectPath)
   const now = new Date().toISOString()
-  const base = existing
-    && existing.session_id === input.sessionId
+  const base = isSameSessionBase(existing, input.sessionId)
     ? existing
     : createBaseStatus(
       input,
@@ -1428,8 +1430,7 @@ async function completeDeepChapterSessionWithinLock(
 ): Promise<NovelSessionStatus> {
   const existing = await loadNovelSessionStatus(input.projectPath)
   const now = new Date().toISOString()
-  const base = existing
-    && existing.session_id === input.sessionId
+  const base = isSameSessionBase(existing, input.sessionId)
     ? existing
     : createBaseStatus(
       input,
@@ -1500,8 +1501,7 @@ async function pauseDeepChapterSessionWithinLock(
 ): Promise<NovelSessionStatus> {
   const existing = await loadNovelSessionStatus(input.projectPath)
   const now = new Date().toISOString()
-  const base = existing
-    && existing.session_id === input.sessionId
+  const base = isSameSessionBase(existing, input.sessionId)
     ? existing
     : createBaseStatus(
       input,
@@ -1597,8 +1597,7 @@ async function blockDeepChapterSessionWithinLock(
 ): Promise<NovelSessionStatus> {
   const existing = await loadNovelSessionStatus(input.projectPath)
   const now = new Date().toISOString()
-  const base = existing
-    && existing.session_id === input.sessionId
+  const base = isSameSessionBase(existing, input.sessionId)
     ? existing
     : createBaseStatus(
       input,

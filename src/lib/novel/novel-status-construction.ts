@@ -223,6 +223,27 @@ export function canReuseExistingSession(
   )
 }
 
+/**
+ * ISS-20260709-008（PAT-G7）：写入路径的“同会话基底”判定单一真源。
+ *
+ * 语义区分（此前 5 处裸 `existing.session_id === input.sessionId` 各自手写，
+ * 读代码时无法分辨 missing-as-skip 与 missing-as-different）：
+ * - `created_at`：保留既有值要求 **严格同一会话**（`missing-as-different`）。
+ *   遗留草稿的 `session_id` 可能缺失，此时 `undefined === id` 为 false → 取 now，
+ *   不把未知归属的旧时间戳冒充本会话创建时间。
+ * - 写入基底：同上，不同会话/缺 session_id 一律新建基底，避免把别的会话
+ *   的 status 当本会话继续写（missing-as-skip 会静默串写）。
+ *
+ * 只给写入/时间戳路径用；读取/恢复路径用 `canReuseExistingSession`（宽松：
+ * 按会话+请求匹配），两者语义不可互换。
+ */
+export function isSameSessionBase<T extends { session_id?: string }>(
+  existing: T | null,
+  sessionId: string,
+): existing is T & { session_id: string } {
+  return Boolean(existing && existing.session_id === sessionId)
+}
+
 export function createBaseStatus(
   input: DeepChapterSessionInput,
   sessionId: string,
