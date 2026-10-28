@@ -1,4 +1,4 @@
-﻿import { readFile, writeFileAtomic, listDirectory, fileExists, createDirectory, deleteFile } from "@/commands/fs"
+﻿import { readFile, writeFileAtomic, fileExists, createDirectory, deleteFile } from "@/commands/fs"
 import { listEntityFiles } from "./entity-subdir-resolver"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } from "@/stores/wiki-store"
@@ -36,8 +36,6 @@ export {
 import {
   backupSnapshotBeforeOverwrite,
   cleanupDeletedChapterResidualEntities,
-  listSnapshots,
-  loadSnapshot,
   saveChapterIngestOutput,
   saveSnapshot,
 } from "./chapter-ingest-snapshot-io"
@@ -49,13 +47,22 @@ export {
   loadSnapshot,
   saveChapterIngestOutput,
 } from "./chapter-ingest-snapshot-io"
+// W2（chapter-ingest 拆分第 6 步）：快照历史与当前快照物化已拆至 ./chapter-ingest-history。
+// 本地 import 供内部调用点使用，并 re-export 保持既有 import 面不变。
+import {
+  loadValidMemorySnapshots,
+  materializeNextCurrentSnapshot,
+  materializeRestoredCurrentSnapshot,
+  readCurrentSnapshot,
+} from "./chapter-ingest-history"
+export {
+  listSnapshotHistory,
+  saveEditedSnapshot,
+  type SnapshotHistoryEntry,
+} from "./chapter-ingest-history"
 import { resolveNovelModel } from "./model-resolver"
 // S5 首拆切片 #2（chapter-ingest 拆分第 2 步）：快照预览纯函数簇已拆至 ./snapshot-preview。
 // 本地 import 供内部调用点使用，并 re-export 保持既有 import 面不变。
-import {
-  projectSnapshotForImpact,
-  projectSnapshotToImpactStores,
-} from "./snapshot-preview"
 export { buildSnapshotMemorySyncPreview } from "./snapshot-preview"
 // S5 切片 #3：community-summaries last-good 对已拆至 ./community-summary-recovery。
 import {
@@ -90,7 +97,7 @@ import {
   validateCanonConflicts,
   validateEntityReferences,
 } from "./chapter-ingest-entity-validation"
-import { buildStructuredMemoryDocuments, isValidMemorySnapshot } from "./memory-rebuild"
+import { buildStructuredMemoryDocuments } from "./memory-rebuild"
 import { clearGraphCache } from "@/lib/graph-relevance"
 import { clearTemporalFactsCache } from "./context-engine"
 import { sliceChapterForReview } from "./chapter-window"
@@ -122,7 +129,6 @@ import { decideDriftAlarmAfterRepair } from "./kb-observability"
 import type { CanonDualWriteDeps, CanonDualWriteOp } from "./canon-dual-write"
 import { shadowWriteCanon, replayPendingQueue } from "./canon-dual-write"
 import { runTruthAuthorityCheck } from "./truth-authority-adapter"
-import { analyzeEditImpact } from "./edit-impact-analyzer"
 
 export interface ValidationWarning {
   type: "entity_new" | "canon_conflict" | "truth_authority_conflict"
@@ -268,55 +274,8 @@ import {
   normalizeChapterSnapshot,
   ensureSnapshotIdentity,
   buildAliasMapsFromSnapshot,
-  inferSnapshotSourceType,
-  inferSnapshotSourceSequence,
-  buildSnapshotRevisionId,
 } from "./chapter-snapshot-normalize"
 
-async function readCurrentSnapshot(projectPath: string, chapterNumber: number): Promise<ChapterSnapshot | null> {
-  try {
-    const raw = await readFile(snapshotJsonPath(projectPath, chapterNumber))
-    const parsed = normalizeChapterSnapshot(JSON.parse(raw), {
-      chapterId: `chapter-${chapterNumber}`,
-      chapterNumber,
-    })
-    return parsed ? ensureSnapshotIdentity(parsed) : null
-  } catch {
-    logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 218 })
-    return null
-  }
-}
-
-function materializeNextCurrentSnapshot(snapshot: ChapterSnapshot, currentSnapshot: ChapterSnapshot | null): ChapterSnapshot {
-  const existing = currentSnapshot ? ensureSnapshotIdentity(currentSnapshot) : null
-  const nextRevisionBase = Math.max(existing?.revision ?? 0, snapshot.revision ?? 0)
-  const nextRevision = nextRevisionBase > 0 ? nextRevisionBase + 1 : 1
-  return ensureSnapshotIdentity(snapshot, {
-    sourceType: snapshot.sourceType ?? existing?.sourceType ?? inferSnapshotSourceType(snapshot),
-    sourceSequence: snapshot.sourceSequence ?? existing?.sourceSequence ?? inferSnapshotSourceSequence(snapshot),
-    revision: nextRevision,
-    snapshotId: buildSnapshotRevisionId(snapshot, nextRevision),
-    supersedes: existing?.snapshotId ?? snapshot.snapshotId,
-    isHistorical: false,
-  })
-}
-
-function materializeRestoredCurrentSnapshot(
-  archivedSnapshot: ChapterSnapshot,
-  currentSnapshot: ChapterSnapshot | null,
-): ChapterSnapshot {
-  const archived = ensureSnapshotIdentity(archivedSnapshot, { isHistorical: true })
-  const current = currentSnapshot ? ensureSnapshotIdentity(currentSnapshot) : null
-  /* v8 ignore start */
-  const nextRevision = Math.max(archived.revision ?? 1, current?.revision ?? 0) + 1
-  /* v8 ignore stop */
-  return ensureSnapshotIdentity(archived, {
-    revision: nextRevision,
-    snapshotId: buildSnapshotRevisionId(archived, nextRevision),
-    supersedes: current?.snapshotId ?? archived.snapshotId,
-    isHistorical: false,
-  })
-}
 
 export type IngestFailReason = "no_llm" | "not_chapter" | "not_final" | "invalid_chapter_number" | "extract_failed" | "cancelled"
 
@@ -1245,32 +1204,6 @@ ${sliceChapterForReview(chapterBody)}
 }
 
 
-export interface SnapshotHistoryEntry {
-  fileName: string
-  path: string
-  createdAt: string
-}
-
-
-export async function listSnapshotHistory(projectPath: string, chapterNumber: number): Promise<SnapshotHistoryEntry[]> {
-  const pp = normalizePath(projectPath)
-  const historyDir = snapshotHistoryDir(pp, chapterNumber)
-  try {
-    const nodes = await listDirectory(historyDir)
-    return nodes
-      .filter(node => !node.is_dir && node.name.endsWith(".snapshot.json"))
-      .map(node => ({
-        fileName: node.name,
-        path: node.path,
-        createdAt: node.name.replace(/\.snapshot\.json$/, "").replace(/-(\d{2})-(\d{2})-(\d{2})\.(\d{3})Z$/, ":$1:$2.$3Z"),
-      }))
-      .sort((a, b) => b.fileName.localeCompare(a.fileName))
-  } catch {
-    logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1242 })
-    return []
-  }
-}
-
 export async function restoreSnapshotHistory(
   projectPath: string,
   chapterNumber: number,
@@ -1318,46 +1251,6 @@ export async function restoreSnapshotHistory(
 
 // P2-IMP-08 登记：saveEditedSnapshot 为死导出（无调用方；仅 context-engine.ts:1307
 // 注释引用）。处置随 Q8 族产品裁决（与 syncSnapshotToMemory 的彻底层重建同族，pending）。
-export async function saveEditedSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<{ requireConfirmation: boolean }> {
-  const pp = normalizePath(projectPath)
-  const currentSnapshot = await readCurrentSnapshot(pp, snapshot.chapterNumber)
-  const normalizedSnapshot = normalizeChapterSnapshot(snapshot, {
-    chapterId: snapshot.chapterId,
-    chapterNumber: snapshot.chapterNumber,
-  })
-  if (!normalizedSnapshot) {
-    throw new Error("Invalid snapshot data.")
-  }
-  // 51 号报告 G4: 编辑影响分析（事前冲击面预测，非阻断 trace）。
-  // 在覆写前对 before/after 快照投影做影响分析；异常吞掉，绝不阻断保存链路（守 ADR-19/29 additive）。
-  // riskLevel==='high' 时置 requireConfirmation 标志交调用方（52 号报告终验补全）。
-  let requireConfirmation = false
-  try {
-    const beforeText = projectSnapshotForImpact(currentSnapshot)
-    const afterText = projectSnapshotForImpact(normalizedSnapshot)
-    const impactStores = projectSnapshotToImpactStores(normalizedSnapshot)
-    if (beforeText || afterText) {
-      const impact = analyzeEditImpact({ before: beforeText, after: afterText }, impactStores)
-      requireConfirmation = impact.riskLevel === "high"
-      logger.info("Chapter Ingest", `Edit impact (ch${snapshot.chapterNumber}): risk=${impact.riskLevel}, affected=${impact.affectedEntities.length}`, {
-        chapterNumber: snapshot.chapterNumber,
-        riskLevel: impact.riskLevel,
-        affectedEntities: impact.affectedEntities,
-        rationale: impact.rationale,
-      })
-    }
-  } catch (impactError) {
-    logger.warn("Chapter Ingest", "Edit impact analysis failed (non-fatal)", { error: impactError })
-  }
-  await backupSnapshotBeforeOverwrite(pp, snapshot.chapterNumber)
-  await saveSnapshot(pp, materializeNextCurrentSnapshot(normalizedSnapshot, currentSnapshot))
-  // ARCH-006 (REG-001 sibling): overwriting the current snapshot changes its
-  // content/mtime, so the mtime-keyed temporalFactsCache may hold stale facts
-  // from the pre-edit version — clear it for this project (same root cause as
-  // delete/restore; saveEdited was missed).
-  clearTemporalFactsCache(pp)
-  return { requireConfirmation }
-}
 
 /** 51 号报告 G4: 将快照投影为影响分析文本（实体名 + 关键内容字段拼接）。 */
 // 已拆至 ./snapshot-preview（S5 首拆切片 #2），此处保留注释锚点，函数由 import 提供。
@@ -1367,57 +1260,6 @@ export async function saveEditedSnapshot(projectPath: string, snapshot: ChapterS
 
 // appendPreviewSection + buildSnapshotMemorySyncPreview 已拆至 ./snapshot-preview（S5 首拆切片 #2）。
 
-async function listActualChapterNumbers(projectPath: string): Promise<number[]> {
-  const pp = normalizePath(projectPath)
-  const chaptersDir = `${pp}/wiki/chapters`
-  try {
-    const nodes = await listDirectory(chaptersDir)
-    const chapterNumbers = await Promise.all(
-      nodes
-        .filter((node) => !node.is_dir && node.name.endsWith(".md"))
-        .map(async (node) => {
-          try {
-            const parsed = parseFrontmatter(await readFile(node.path))
-            const frontmatter = parsed.frontmatter as Record<string, unknown> | null
-            if (!frontmatter || !isChapterPage(frontmatter)) {
-              return null
-            }
-            return parseChapterNumber(frontmatter.chapter_number)
-          } catch {
-            logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1425 })
-            return null
-          }
-        }),
-    )
-    return chapterNumbers.filter((chapterNumber): chapterNumber is number => Number.isFinite(chapterNumber))
-  } catch {
-    logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1431 })
-    return []
-  }
-}
-
-async function loadValidMemorySnapshots(
-  projectPath: string,
-  latestSnapshot?: ChapterSnapshot,
-): Promise<ChapterSnapshot[]> {
-  const pp = normalizePath(projectPath)
-  const actualChapterNumbers = await listActualChapterNumbers(pp)
-  const snapshotNumbers = await listSnapshots(pp)
-  const snapshotMap = new Map<number, ChapterSnapshot>()
-
-  const loadedSnapshots = await Promise.all(snapshotNumbers.map((chapterNumber) => loadSnapshot(pp, chapterNumber)))
-  for (const loadedSnapshot of loadedSnapshots) {
-    if (isValidMemorySnapshot(loadedSnapshot, actualChapterNumbers)) {
-      snapshotMap.set(loadedSnapshot.chapterNumber, loadedSnapshot)
-    }
-  }
-
-  if (isValidMemorySnapshot(latestSnapshot ?? null, actualChapterNumbers)) {
-    snapshotMap.set(latestSnapshot!.chapterNumber, latestSnapshot!)
-  }
-
-  return [...snapshotMap.values()].sort((a, b) => a.chapterNumber - b.chapterNumber)
-}
 
 export async function exportStructuredMemoryToWiki(projectPath: string, snapshot: ChapterSnapshot): Promise<string[]> {
   const pp = normalizePath(projectPath)
