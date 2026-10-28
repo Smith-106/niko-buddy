@@ -1,5 +1,5 @@
 import { logger, toErrorMessage } from "@/lib/utils"
-import type { RevisionFeedbackWindowConfig } from "@/stores/wiki-store"
+import type { NovelConfig, RevisionFeedbackWindowConfig } from "@/stores/wiki-store"
 
 /**
  * 上下文数据源抽象层
@@ -35,6 +35,11 @@ export interface ContextLoadContext {
     snapshotLookback: number
     revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig
   }
+  /**
+   * ISS-20260709-033: 已解析的 novel 配置（注入优先 / 缺省回退 store 的解析结果），
+   * 供 build 内的二级加载函数（如社区摘要）复用，避免 lib 层再直读 UI store。
+   */
+  novelConfig?: NovelConfig
   /**
    * DC-8 (odyssey-improve): optional gap recorder injected by buildContextPack.
    * Data sources call this in their `catch` block (instead of a bare `catch {}`)

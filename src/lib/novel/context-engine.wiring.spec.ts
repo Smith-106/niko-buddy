@@ -168,3 +168,26 @@ describe("S2a (TASK-101/TASK-102) related-chapters 生产接线", () => {
     expect(src).toMatch(/novelConfig\.relatedChaptersEnabled\s*\?/)
   })
 })
+
+/**
+ * ISS-20260709-033：build 内的社区摘要加载不得再直读 UI store —— 走
+ * ContextLoadContext.novelConfig（buildLoadContext 已解析的注入值）。
+ */
+describe("ISS-20260709-033 社区摘要走注入配置而非直读 store", () => {
+  it("novelConfig.communitySummaryEnabled === false 时返回空串（注入生效）", async () => {
+    const { loadCommunitySummaryText } = await import("./context-engine")
+    const text = await loadCommunitySummaryText("/P", {
+      novelConfig: { communitySummaryEnabled: false } as never,
+    })
+    expect(text).toBe("")
+  })
+
+  it("context-engine 的社区摘要调用点携带 context.novelConfig", () => {
+    const src = readFileSync(
+      new URL("./context-engine.ts", import.meta.url),
+      "utf8",
+    )
+    expect(src).toContain("loadCommunitySummaryText(context.projectPath, {")
+    expect(src).toContain("novelConfig: context.novelConfig,")
+  })
+})

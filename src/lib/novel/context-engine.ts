@@ -550,6 +550,7 @@ function buildLoadContext(
     task,
     chapterNumber: chapterNumber ?? extractChapterNumberFromTask(task),
     maxContextSize: llmConfig.maxContextSize,
+    novelConfig,
     config: {
       recentSummaryWindow: novelConfig.recentSummaryWindow > 0 ? novelConfig.recentSummaryWindow : 8,
       searchTopK: novelConfig.searchTopK > 0 ? novelConfig.searchTopK : 5,
@@ -769,10 +770,15 @@ export function resolveAuraMatchingText(
  * ISS-20260709-048: community-summary 为显式懒加载依赖 —— 运行时仍走
  * dynamic import（首屏不进主 chunk），类型经顶部 type-only import 声明
  * （CommunitySummaryLoader），打包器/类型系统均可见依赖边。
+ * ISS-20260709-033: 配置改为参数注入（缺省回退 store），与 buildLoadContext
+ * 的 DC-7 渐进式 DI 同一口径，lib 层不再直接读 UI store。
  */
-export async function loadCommunitySummaryText(projectPath: string): Promise<string> {
+export async function loadCommunitySummaryText(
+  projectPath: string,
+  options: Pick<BuildContextOptions, "novelConfig"> = {},
+): Promise<string> {
   try {
-    const novelConfig = useWikiStore.getState().novelConfig
+    const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
     // Default true in wiki-store; only skip when explicitly disabled.
     if (novelConfig?.communitySummaryEnabled === false) return ""
     const { loadPersistedCommunitySummaries } = await import("./community-summary")
@@ -866,7 +872,9 @@ async function buildContextPackFromRawData(
   const targetChapter = context.chapterNumber ?? 0
   const baseCanonRules = rawStrField(rawData.canonRules)
   const temporalFactsPromise = Promise.resolve(temporalFactsPreloaded)
-  const communityPromise = loadCommunitySummaryText(context.projectPath)
+  const communityPromise = loadCommunitySummaryText(context.projectPath, {
+    novelConfig: context.novelConfig,
+  })
 
   const [characterAuras, temporalFacts, communitySummaries] = await Promise.all([
     characterAuraPromise,
