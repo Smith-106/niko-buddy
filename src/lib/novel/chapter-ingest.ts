@@ -1,8 +1,6 @@
 ﻿import { readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } from "@/stores/wiki-store"
-import { parseFrontmatter } from "@/lib/frontmatter"
-import { isChapterPage, isFinalChapter, parseChapterNumber } from "./chapter-meta"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequestCancelledError, type StreamCallbacks } from "@/lib/llm-client"
 import { logger, toErrorMessage } from "@/lib/utils"
 import type { ChatMessage } from "@/lib/llm-providers"
@@ -101,6 +99,9 @@ export {
   normalizeOutlineIngestError,
   restoreSnapshotHistory,
 } from "./chapter-ingest-extraction"
+// (A)-2（chapter-ingest 二次拆分第 1 步）：ingestChapter 的前置解析与守卫已拆至
+// ./chapter-ingest-ingest-guards（判定顺序与 failReason 字面值零变化）。
+import { resolveIngestTarget } from "./chapter-ingest-ingest-guards"
 import { resolveNovelModel } from "./model-resolver"
 // S5 首拆切片 #2（chapter-ingest 拆分第 2 步）：快照预览纯函数簇已拆至 ./snapshot-preview。
 // 本地 import 供内部调用点使用，并 re-export 保持既有 import 面不变。
@@ -525,10 +526,13 @@ export async function ingestChapter(
   signal?: AbortSignal,
   options: IngestChapterOptions = {},
 ): Promise<IngestResult> {
-  const pp = normalizePath(projectPath)
-  // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store（向后兼容）
-  const novelMode = options.novelMode ?? useWikiStore.getState().novelMode
-  if (!novelMode) return { snapshot: null }
+  // (A)-2：前置解析与 5 个早退判定已抽至 ./chapter-ingest-ingest-guards。
+  // 判定顺序与 failReason 字面值、以及「novelMode 关闭时不带 failReason」的
+  // 形状差异均为既有对外契约，搬迁零改动。
+  const target = await resolveIngestTarget(projectPath, chapterPath, options)
+  if (!target.ok) return target.result
+  const { pp, runtimeLlmConfig, llmConfig, novelConfig, chapterNumber, body, content } = target
+  const fm = target.fm
 
   // 55 号设计 W2-3 (54⑤ 收尾): replayPendingQueue 独立触发 — 每次 ingest 开头
   // 先重放积压双写队列 (LLM 提取前), 避免积压写无限延迟; 失败仅 warn 不阻断。
@@ -545,28 +549,6 @@ export async function ingestChapter(
       error: toErrorMessage(err),
     })
   }
-
-  const llmConfig = options.llmConfig ?? useWikiStore.getState().llmConfig
-  const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
-  // 使用 resolveNovelModel 正确解析提取模型（含供应商配置切换）
-  const runtimeLlmConfig = resolveNovelModel(llmConfig, novelConfig, "extract")
-  if (!hasUsableLlm(runtimeLlmConfig)) return { snapshot: null, failReason: "no_llm" }
-
-  const content = await readFile(chapterPath)
-  const parsed = parseFrontmatter(content)
-  const fm = parsed.frontmatter as Record<string, unknown> | null
-  if (!fm || !isChapterPage(fm)) return { snapshot: null, failReason: "not_chapter" }
-  if (!isFinalChapter(fm)) {
-    logger.warn("Chapter Ingest", "Chapter status is not final, skipping ingest.")
-    return { snapshot: null, failReason: "not_final" }
-  }
-
-  const chapterNumber = parseChapterNumber(fm.chapter_number) ?? 0
-  if (chapterNumber <= 0) {
-    logger.warn("Chapter Ingest", "Invalid chapter number, skipping ingest.")
-    return { snapshot: null, failReason: "invalid_chapter_number" }
-  }
-  const body = parsed.body
 
   // P2-IMP-14: failed 自愈（落地 F-002 注释承诺，闭合 P2-N3）——账本中存在
   // failed && fold_rebuildable && 注册表 rebuildable 的投影时，本次 ingest 入口
