@@ -19,7 +19,7 @@ import { resolve } from "node:path"
 const NOVEL_DIR = resolve(__dirname)
 // W3/W4 拆分后 fold 注册表与 drift 实现分居三文件：源码扫描型守护必须聚合，
 // 否则「硬编码 9 段已收敛」等结构性断言会因搬家而假红（不变量本身未变）。
-const FOLD_REGISTRY_FILES = ["chapter-ingest-fold-registry.ts", "chapter-ingest-drift.ts"]
+const FOLD_REGISTRY_FILES = ["chapter-ingest-fold-registry.ts", "chapter-ingest-drift.ts", "chapter-ingest-projections.ts"]
 function readSource(): string {
   return [
     readFileSync(resolve(NOVEL_DIR, "chapter-ingest.ts"), "utf-8"),

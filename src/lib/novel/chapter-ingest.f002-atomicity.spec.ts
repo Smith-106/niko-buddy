@@ -17,7 +17,10 @@ describe("F-002 ingest atomicity — structural invariants (grep-verifiable)", (
     // catch = 3 total. (Criterion was <=2 for the projection region proper;
     // the 3rd is the pre-commit validation catch which is a separate concern
     // from the post-commit projection segments being eliminated.)
-    const src = readSource("chapter-ingest.ts").split("\n")
+    const src = [
+      readSource("chapter-ingest.ts"),
+      readSource("chapter-ingest-projections.ts"),
+    ].join("\n").split("\n")
     // 锚点式定位：从 runProjection 定义处取 200 行作为 projection region。
     // 原硬编码 slice(550, 748) 因顶部新增 import 行位移而漂移（52 号报告
     // 终验回归），改为锚点后对新增 import/导出行免疫。

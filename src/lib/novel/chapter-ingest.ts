@@ -5,7 +5,7 @@ import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, isRequ
 import { logger, toErrorMessage } from "@/lib/utils"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
-import { canonicalizeSnapshotCharacters, writeSnapshotToWiki, writePatchFieldsToWiki } from "./graph-adapter"
+import { canonicalizeSnapshotCharacters, writeSnapshotToWiki } from "./graph-adapter"
 // F4-3（Round-3 评估）：快照路径与渲染纯函数已拆至 ./snapshot-paths
 //（chapter-ingest 拆分第 1 步）。本地 import 供内部调用点使用，并 re-export
 // 保持既有 import 面不变。
@@ -102,15 +102,12 @@ export {
 // ./chapter-ingest-ingest-guards（判定顺序与 failReason 字面值零变化）。
 import { resolveIngestTarget } from "./chapter-ingest-ingest-guards"
 import { commitIngestSnapshot } from "./chapter-ingest-commit"
+import { runIngestProjections } from "./chapter-ingest-projections"
 import { resolveNovelModel } from "./model-resolver"
 // S5 首拆切片 #2（chapter-ingest 拆分第 2 步）：快照预览纯函数簇已拆至 ./snapshot-preview。
 // 本地 import 供内部调用点使用，并 re-export 保持既有 import 面不变。
 export { buildSnapshotMemorySyncPreview } from "./snapshot-preview"
 // S5 切片 #3：community-summaries last-good 对已拆至 ./community-summary-recovery。
-import {
-  backupCommunitySummariesLastGood,
-  restoreCommunitySummariesLastGood,
-} from "./community-summary-recovery"
 export {
   backupCommunitySummariesLastGood,
   restoreCommunitySummariesLastGood,
@@ -127,7 +124,6 @@ import { loadEncounterMatrix, saveEncounterMatrix, appendMeetingEdge, foldMeetin
 import { loadChapterSummaries, saveChapterSummaries, upsertChapterSummary, foldChapterSummary, createEmptyChapterSummariesStore } from "./chapter-summaries"
 import { loadParticleLedger, saveParticleLedger, appendParticleEntry, foldParticleEntries, createEmptyParticleLedgerStore } from "./particle-ledger"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import { shouldRebuildCommunitySummaries, generateCommunitySummaries } from "./community-summary"
 import { createChapterPipeline } from "./chapter-pipeline"
 // M13-3 切片 #4（arch-risk W4 god-object 拆分）：实体链接/校验家族已拆至
 // ./chapter-ingest-entity-validation。本地 import 供 ingestChapter 调用点使用。
@@ -138,17 +134,10 @@ import { clearTemporalFactsCache } from "./context-engine"
 import { sliceChapterForReview } from "./chapter-window"
 import {
   appendProjectionAuditEntry,
-  loadProjectionStatusLedger,
-  recordProjectionAudit,
-  recordProjectionStatus,
   saveProjectionStatusLedger,
   registerProjections,
   shouldRetryLedgerSave,
   PROJECTION_REGISTRY,
-  emptyLedger,
-  type ProjectionAuditEntry,
-  type ProjectionAuditStatus,
-  type ProjectionFoldContext,
   type ProjectionStatusLedger,
 } from "./projection-status-ledger"
 // B2（守门四件套接线 · projection-self-heal 派生）：跳过集合与门槛的唯一事实源。
@@ -260,7 +249,6 @@ export interface ChapterSnapshot {
 
 import {
   normalizeChapterSnapshot,
-  buildAliasMapsFromSnapshot,
 } from "./chapter-snapshot-normalize"
 
 
@@ -600,218 +588,34 @@ export async function ingestChapter(
 
   const embCfg = options.embeddingConfig ?? useWikiStore.getState().embeddingConfig
 
-  // F-002 (ANL-010 / C-002): commit-then-project. The commit point above
-  // (saveSnapshot + saveChapterIngestOutput, per-file-atomic via
-  // writeFileAtomic) is the immutable fact layer. Everything below is a
-  // DERIVED projection — each runs independently and is tracked by the
-  // ProjectionStatusLedger so a mid-ingest failure is VISIBLE and
-  // recoverable instead of silently swallowed (the prior 8-segment
-  // error-handlers only console.warn'd, leaving corrupted projections
-  // undetectable). On failure: idempotent/fold_rebuildable projections are
-  // rebuilt on the next ingest via rebuildFromCommittedSnapshot;
-  // mutates_existing_non_rebuildable (graph) triggers delete+re-fold.
+  // F-002 (ANL-010 / C-002): commit-then-project. 提交点（上方 commitIngestSnapshot）
+  // 是不可变事实层；以下全是 DERIVED 投影，各自独立执行并经 ProjectionStatusLedger
+  // 记账，mid-ingest 失败可见且可恢复（不再是静默 warn）。
   //
-  // Single error-handler wraps the whole projection loop (was 7 independent
-  // handlers) — a projection's failure is recorded to the ledger and
-  // the loop CONTINUES to the next projection, so one bad projection does
-  // not skip the rest. The ledger is persisted after the loop.
-  let projectionLedger: ProjectionStatusLedger
-  try {
-    projectionLedger = await loadProjectionStatusLedger(pp)
-  } /* v8 ignore start */ catch {
-    // #4（账本 v2）：load 抛错（损坏/缺失）→ 空账本必须带 schemaVersion，否则违反接口契约。
-    // 用 emptyLedger() 保持与其余路径同构（schemaVersion/projections/chapters/auditTrail）。
-    projectionLedger = emptyLedger()
-  } /* v8 ignore stop */
-  // CORR-111 fix: derive chapterNo from the frontmatter-validated chapter
-  // number (line ~392, available regardless of snapshot extraction outcome),
-  // NOT from `snapshot?.chapterNumber ?? 0`. The vector projection below runs
-  // OUTSIDE the `if (snapshot)` guard (it uses content/fm, not snapshot), so
-  // when extraction fails (snapshot === null) the prior `?? 0` recorded the
-  // embedding under chapter 0 — orphaning the ledger entry and risking a
-  // duplicate embedding on re-ingest under the real number. Frontmatter
-  // validation already guarantees chapterNumber > 0 here (invalid numbers
-  // early-return at the parseChapterNumber guard above).
-  const chapterNo = chapterNumber
-  // CORR-007: captured from inside runProjection('sync_snapshot_to_memory')
-  // so the return value can carry memorySyncedAt (runProjection returns void).
-  let memorySyncedAt: string | undefined
-  // R4（方案 a）：finally 落盘（含 1 次重试）最终失败标记（成功路径经 return 携带）。
-  let ledgerSaveFailed = false
-
-  // F-005 (v2.6 Tier2): single audit choke-point for projection events.
-  // Keeps the in-memory ledger's auditTrail in sync (so the end-of-loop
-  // saveProjectionStatusLedger cannot clobber per-event durable flushes back
-  // off disk) AND durably appends each event to projection-status.json so a
-  // hard crash mid-ingest still leaves the emitted events on disk. Strictly
-  // additive — never throws into the projection loop.
-  const recordProjectionAuditEvent = async (
-    projection: string,
-    status: ProjectionAuditStatus,
-    durationMs: number,
-    error?: string,
-  ): Promise<void> => {
-    const entry: ProjectionAuditEntry = {
-      projection,
-      chapter: chapterNo,
-      status,
-      durationMs,
-      ...(error !== undefined ? { error } : {}),
-      timestamp: new Date().toISOString(),
-    }
-    projectionLedger = recordProjectionAudit(projectionLedger, entry)
-    try {
-      await appendProjectionAuditEntry(pp, entry)
-    } catch (err) {
-      logger.warn("Chapter Ingest", "Projection audit append failed (non-fatal)", {
-        error: toErrorMessage(err),
-      })
-    }
-  }
-
-  const runProjection = async (
-    projection: string,
-    fn: () => Promise<void>,
-  ): Promise<void> => {
-    // F-005: time the full projection body for the audit entry.
-    const startedAt = Date.now()
-    try {
-      await fn()
-      projectionLedger = recordProjectionStatus(projectionLedger, chapterNo, projection, "committed")
-      await recordProjectionAuditEvent(projection, "committed", Date.now() - startedAt)
-    } catch (err) {
-      const message = toErrorMessage(err)
-      logger.warn("Chapter Ingest", `Projection "${projection}" failed`, { error: message })
-      projectionLedger = recordProjectionStatus(projectionLedger, chapterNo, projection, "failed", message)
-      await recordProjectionAuditEvent(projection, "failed", Date.now() - startedAt, message)
-    }
-  }
-
-  try {
-    // single_snapshot_idempotent: vector embedding.
-    if (embCfg.enabled && embCfg.model) {
-      await runProjection("vector", async () => {
-        const { embedPage } = await import("@/lib/embedding")
-        /* v8 ignore next */
-        const pageId = chapterPath.split(/[/\\]/).pop()?.replace(/\.md$/, "") ?? ""
-        if (pageId) {
-          const title = typeof fm?.title === "string" ? fm.title : pageId
-          await embedPage(pp, pageId, title, content, embCfg)
-        }
-      })
-    }
-
-    /* v8 ignore next */
-    if (snapshot) {
-      // PERF-NEW-05: compute alias maps once for this snapshot and reuse across
-      // all projection closures (was recomputed 4x — character/cognition/
-      // emotional-arc/resource-ledger — for the same snapshot).
-      const aliasMaps = buildAliasMapsFromSnapshot(snapshot)
-      // E-03 (run-execute-1): fold 纯性 — 入口取一次显式时间戳, 全链下传
-      // (fold 函数体内禁止隐式时钟; 传入固定 now 时 ingest 全链确定性可测)。
-      // P2-IMP-14: aliasMaps 随注册表 fold 上下文下传（PERF-NEW-05 复用保留）。
-      const foldCtx: ProjectionFoldContext = {
-        now: options.now ?? new Date().toISOString(),
-        aliasMaps,
-      }
-      // mutates_existing_non_rebuildable: graph entity pages (writeSnapshotToWiki).
-      await runProjection("graph_entity_pages", async () => {
-        const writtenPaths = await writeSnapshotToWiki(pp, snapshot)
-        if (writtenPaths.length > 0) {
-        }
-      })
-
-      // mutates_existing_non_rebuildable: graph wiki-patch fields.
-      // CORR-009 fix: distinct ledger key from the snapshot-write above so the
-      // ledger can independently track each path's commit/fail status (the
-      // prior shared 'graph_entity_pages' key masked partial failures).
-      await runProjection("graph_entity_patch_fields", async () => {
-        const patchPath = `${pp}/.novel/chapter-ingest-output/${String(snapshot.chapterNumber).padStart(3, "0")}.wiki-patch.json`
-        const patchJson = await readFile(patchPath)
-        const patch = JSON.parse(patchJson)
-        const patchPaths = await writePatchFieldsToWiki(pp, patch)
-        if (patchPaths.length > 0) {
-        }
-      })
-
-      // P2-IMP-14: 9 个 store-backed fold_rebuildable 投影经注册表同源遍历
-      // （ingest 增量路径）——与 rebuild / drift 重放 / sync 路径共用同一
-      // applyToStore fold（新增投影只改注册表一处，四路径自动覆盖，F5 类
-      // 「某路径漏投影」缺陷结构上绝迹）。shouldApply 保留既有条件接线语义
-      // （cognition/character/foreshadow 仅在有变更时记账）。
-      for (const [projection, entry] of Object.entries(PROJECTION_REGISTRY)) {
-        if (!entry.applyToStore || !entry.load || !entry.save || !entry.createEmpty) continue
-        if (entry.shouldApply && !entry.shouldApply(snapshot)) continue
-        await runProjection(projection, async () => {
-          const loaded = await entry.load!(pp)
-          const base = loaded ?? entry.createEmpty!(foldCtx)
-          await entry.save!(pp, entry.applyToStore!(base, snapshot, foldCtx))
-        })
-      }
-
-      // fold_rebuildable: summary_structured_memory.
-      await runProjection("summary_structured_memory", async () => {
-        const memoryPaths = await exportStructuredMemoryToWiki(pp, snapshot)
-        /* v8 ignore next */
-        if (memoryPaths.length > 0) {
-        }
-      })
-    }
-
-    // CORR-007 fix: syncSnapshotToMemory runs inside the projection ledger
-    // (was outside the try/finally, exempt from the F-002 recoverable-failure
-    // contract — a sync failure threw unhandled while the ledger already
-    // claimed success). Tracked as fold_rebuildable.
-    /* v8 ignore next */
-    if (snapshot) {
-      await runProjection("sync_snapshot_to_memory", async () => {
-        const res = await syncSnapshotToMemory(pp, snapshot)
-        memorySyncedAt = res.memorySyncedAt
-      })
-    }
-  } finally {
-    // Persist the ledger regardless of whether the loop threw — a partially-
-    // updated ledger still tells the next ingest which projections need rebuild.
-    // R4（方案 a）：经 saveProjectionLedgerWithSingleRetry 落盘（含恰好 1 次重试）；
-    // 两次均失败仅记 ledgerSaveFailed=true（成功路径返回携带），永不阻断主链。
-    ledgerSaveFailed = !(await saveProjectionLedgerWithSingleRetry(pp, projectionLedger))
-  }
-
-  // 社区摘要定期重建
-  if (snapshot && shouldRebuildCommunitySummaries(snapshot.chapterNumber, novelConfig)) {
-    const rebuildCommunitySummaries = async () => {
-      // F-005: the scheduled community-summary rebuild is audited with the
-      // dedicated "rebuild" status on success; failures are audited as
-      // "failed" + error alongside the existing non-fatal warn/UI path.
-      // recordProjectionAuditEvent cannot reject (internal non-fatal catch),
-      // and audit calls stay OUTSIDE the summary try/catch so an audit hiccup
-      // could never be misreported as a summary failure.
-      const rebuildStartedAt = Date.now()
-      await backupCommunitySummariesLastGood(pp)
-      try {
-        await generateCommunitySummaries(pp, llmConfig, novelConfig)
-      } catch (err) {
-        const message = toErrorMessage(err)
-        logger.warn("Chapter Ingest", "社区摘要生成失败", { error: message })
-        await restoreCommunitySummariesLastGood(pp)
-        await recordProjectionAuditEvent("community_summary", "failed", Date.now() - rebuildStartedAt, message)
-        // 弹窗提示（通过 store 触发 UI 通知）
-        // ISS-20260709-023 (DC-7) 渐进式 DI: 注入 callback 优先, 缺省回退 store。
-        const onErr = options.onCommunitySummaryError ?? ((msg: string) => useWikiStore.getState().setCommunitySummaryError(msg))
-        onErr(message)
-        return
-      }
-      await recordProjectionAuditEvent("community_summary", "rebuild", Date.now() - rebuildStartedAt)
-    }
-
-    if (novelConfig.communitySummaryAsync) {
-      // 后台异步执行，不阻塞章节摄取
-      void rebuildCommunitySummaries()
-    } else {
-      // 同步等待
-      await rebuildCommunitySummaries()
-    }
-  }
+  // (A)-4：投影落盘与社区摘要重建已抽至 ./chapter-ingest-projections。
+  // runProjection 仍遍历 PROJECTION_REGISTRY（四路径同源），单投影失败只记 ledger
+  // 后继续循环；ledger 落盘在 finally（含 1 次重试）。三个母模块函数以依赖注入传入，
+  // 避免母模块 ↔ 本模块运行时循环依赖。
+  const projectionRun = await runIngestProjections({
+    pp,
+    chapterPath,
+    chapterNo: chapterNumber,
+    content,
+    fm,
+    snapshot,
+    embCfg,
+    llmConfig,
+    novelConfig,
+    options: {
+      ...(options.now !== undefined ? { now: options.now } : {}),
+      ...(options.onCommunitySummaryError !== undefined ? { onCommunitySummaryError: options.onCommunitySummaryError } : {}),
+    },
+    exportStructuredMemoryToWiki,
+    syncSnapshotToMemory,
+    saveProjectionLedgerWithSingleRetry,
+  })
+  const memorySyncedAt = projectionRun.memorySyncedAt
+  const ledgerSaveFailed = projectionRun.ledgerSaveFailed
 
   return { snapshot: { ...snapshot, memorySyncedAt }, selfHeal: entrySelfHeal, ledgerSaveFailed }
 }

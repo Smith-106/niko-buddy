@@ -17,7 +17,12 @@ function readSource(): string {
 function readIngestSource(): string {
   // registry 填充调用点仍在 chapter-ingest.ts（P2-IMP-14 块）——applyToStore
   // 委派共享 helper 的调用点断言用此源。
-  return readFileSync(resolve(NOVEL_DIR, "chapter-ingest.ts"), "utf-8")
+  // (A)-4：投影循环与 foldCtx 构建已拆至 chapter-ingest-projections.ts，
+  // 源码扫描需聚合两文件（不变量不变，仅扫描范围扩大）。
+  return [
+    readFileSync(resolve(NOVEL_DIR, "chapter-ingest.ts"), "utf-8"),
+    readFileSync(resolve(NOVEL_DIR, "chapter-ingest-projections.ts"), "utf-8"),
+  ].join("\n")
 }
 
 /**
