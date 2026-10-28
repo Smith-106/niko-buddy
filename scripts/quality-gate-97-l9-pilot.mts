@@ -37,7 +37,7 @@ const llmConfig: LlmConfig = {
   provider: "custom",
   apiKey: xaiProvider.apiKey,
   model: xaiProvider.model || "composer-2.5",
-  customEndpoint: xaiProvider.customEndpoint || "https://sub2.nikoniko.tech/v1",
+  customEndpoint: xaiProvider.customEndpoint || (() => { throw new Error("providerConfigs.customEndpoint 未配置：原中转端点已于 2026-10-28 弃用，不再隐式回退") })(),
   apiMode: "responses",
   maxContextSize: xaiProvider.maxContextSize ?? 200000,
   reasoning: xaiProvider.reasoning ?? { mode: "auto" },

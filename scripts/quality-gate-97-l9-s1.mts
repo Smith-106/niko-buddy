@@ -4,7 +4,7 @@
 // 口径（L9_S1_MODEL 环境覆盖，缺省 muse-spark）：
 // - muse-spark = Oct-10 基线同一口径（U2 跨口径差天然消除）；
 //   deepseek 池 429 配额冷却中（见 blocker doc §十三），待恢复后可选跑对照。
-// - sub2 全线 503。
+// - 原中转端点曾全线 503，已于 2026-10-28 弃用，不再作为口径候选。
 // 断点续跑：每章完成后落盘，重启自动跳过已有 overall 的章。
 // 运行: npx tsx --import ./scripts/node-fs-register.mjs scripts/quality-gate-97-l9-s1.mts
 // 产物: ../.workflow/harvest-staging/quality-gate-97-l9-s1.json

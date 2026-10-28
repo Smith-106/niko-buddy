@@ -18,7 +18,7 @@ import {
   type SixReviewDimensionKey,
 } from "./dimension-review-adapter"
 
-/** Canonical Track B diagnosis model (sub2 relay, grok-4.6). */
+/** Canonical Track B diagnosis model (grok-4.6; original relay endpoint deprecated 2026-10-28). */
 export const LITERARY_EXPERIMENT_DEFAULT_MODEL = "grok-4.6"
 
 /** Milestone / seal default sample count (N=3 is smoke-only). */
