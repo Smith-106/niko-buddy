@@ -9,6 +9,8 @@ import {
   apiModeSupportsTools,
 } from "./config"
 import { ToolRegistry } from "./registry"
+import { LLM_PRESETS } from "@/lib/llm-config/llm-presets"
+import { resolveConfig } from "@/lib/llm-config/preset-resolver"
 import type { LlmConfig } from "@/stores/wiki-store"
 
 function llmConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
@@ -43,26 +45,28 @@ describe("config.ts smoke", () => {
 })
 
 describe("apiMode 工具通道断言（P1-1 静默退化防线）", () => {
-  it("responses / chat_completions 具备工具通道，anthropic_messages 没有", () => {
+  it("三条 wire 协议都具备工具通道（anthropic_messages 已实现 tool_use 转发）", () => {
     expect(apiModeSupportsTools("chat_completions")).toBe(true)
     expect(apiModeSupportsTools("responses")).toBe(true)
     expect(apiModeSupportsTools(undefined)).toBe(true)
-    expect(apiModeSupportsTools("anthropic_messages")).toBe(false)
+    // 曾硬返回 false，连带禁掉 minimax-global / minimax-cn 预设；
+    // 代理不透传 tools 的 400 由 runner 的 isToolUnsupportedError 兜底降级。
+    expect(apiModeSupportsTools("anthropic_messages")).toBe(true)
   })
 
   it("modelSupportsTools 把 apiMode 纳入判定", () => {
     expect(modelSupportsTools("gpt-5.4", "custom", "responses")).toBe(true)
-    expect(modelSupportsTools("gpt-5.4", "custom", "anthropic_messages")).toBe(false)
+    expect(modelSupportsTools("gpt-5.4", "custom", "anthropic_messages")).toBe(true)
     // 未传 apiMode 时保持历史行为
     expect(modelSupportsTools("gpt-5.4", "custom")).toBe(true)
   })
 
-  it("effectiveToolsEnabled 对 anthropic_messages 关闭工具", () => {
+  it("effectiveToolsEnabled 对 anthropic_messages 开启工具", () => {
     expect(effectiveToolsEnabled("gpt-5.4", llmConfig({ apiMode: "responses" }))).toBe(true)
-    expect(effectiveToolsEnabled("gpt-5.4", llmConfig({ apiMode: "anthropic_messages" }))).toBe(false)
+    expect(effectiveToolsEnabled("gpt-5.4", llmConfig({ apiMode: "anthropic_messages" }))).toBe(true)
   })
 
-  it("buildAgentConfig 在无工具通道的协议下不注册任何工具，有通道时正常注册", () => {
+  it("buildAgentConfig 在 anthropic_messages 与 responses 下注册同样的工具集", () => {
     const deps = {
       wikiPath: "C:/demo/wiki",
       projectPath: "C:/demo",
@@ -72,11 +76,11 @@ describe("apiMode 工具通道断言（P1-1 静默退化防线）", () => {
     }
 
     const registry = new ToolRegistry()
-    const noToolsConfig = buildAgentConfig("gpt-5.4", "系统提示", registry, {
+    const anthropicConfig = buildAgentConfig("gpt-5.4", "系统提示", registry, {
       ...deps,
       llmConfig: llmConfig({ apiMode: "anthropic_messages" }),
     })
-    expect(noToolsConfig.tools).toEqual([])
+    expect(anthropicConfig.tools.length).toBeGreaterThan(0)
 
     const registry2 = new ToolRegistry()
     const responsesConfig = buildAgentConfig("gpt-5.4", "系统提示", registry2, {
@@ -84,6 +88,7 @@ describe("apiMode 工具通道断言（P1-1 静默退化防线）", () => {
       llmConfig: llmConfig({ apiMode: "responses" }),
     })
     expect(responsesConfig.tools.length).toBeGreaterThan(0)
+    expect(anthropicConfig.tools.length).toBe(responsesConfig.tools.length)
   })
 })
 
@@ -265,5 +270,124 @@ describe("P0 修复：工具往返消息转换", () => {
     // 工具调用必须挂在 model 回合
     const modelTurn = contents.find((c) => c.role === "model")
     expect(JSON.stringify(modelTurn)).toContain("functionCall")
+  })
+})
+
+/**
+ * P0 剩余缺口（2026-10-29）：工具注册层与 transport 转发层脱节。
+ *
+ * 四个 CLI transport 全文零处 `tools`（claude-cli / codex-cli /
+ * antigravity-cli / cursor-cli-proxy），但旧 buildAgentConfig 只看 apiMode，
+ * 于是 claude-code / codex-cli / antigravity-cli 三个 provider 会注册 23 个工具
+ * 却永远不会被转发——Agent 带着一份永不执行的清单空转，表现为「静默零工具调用」。
+ *
+ * 旧 TOOL_UNSUPPORTED_PROVIDERS 恰好把两者搞反：cursor-cli 被误禁（它靠
+ * providerUsesTextToolCalls 注入 prompt、runner 文本解析，确实支持工具），
+ * 而 codex-cli / antigravity-cli 被漏禁。
+ */
+describe("工具注册与 transport 能力一致（P0 剩余缺口）", () => {
+  const deps = {
+    wikiPath: "C:/demo/wiki",
+    projectPath: "C:/demo",
+    getSkillConfig: () => null,
+    getChatConversations: () => [],
+    getOutlineConversations: () => [],
+  }
+
+  const buildFor = (overrides: Partial<LlmConfig>, modelId = "gpt-5.4") =>
+    buildAgentConfig(modelId, "系统提示", new ToolRegistry(), {
+      ...deps,
+      llmConfig: llmConfig(overrides),
+    })
+
+  it.each(["claude-code", "codex-cli", "antigravity-cli"] as const)(
+    "%s 不注册工具（transport 不转发 tools，注册即静默退化）",
+    (provider) => {
+      const cfg = buildFor({ provider })
+      expect(cfg.tools).toEqual([])
+    },
+  )
+
+  it("cursor-cli 仍注册工具并注入文本调用约定（它靠文本解析，不是原生 tools）", () => {
+    const cfg = buildFor({ provider: "cursor-cli" })
+    expect(cfg.tools.length).toBeGreaterThan(0)
+    expect(cfg.systemPrompt).toContain('{"name":"工具名","arguments":{...}}')
+  })
+
+  it("非 CLI 的 OpenAI 形状通道正常注册且不注入文本约定", () => {
+    const cfg = buildFor({ provider: "custom", apiMode: "chat_completions" })
+    expect(cfg.tools.length).toBeGreaterThan(0)
+    expect(cfg.systemPrompt).not.toContain('{"name":"工具名"')
+  })
+
+  it("黑名单与文本解析名单不再互相矛盾", () => {
+    // cursor-cli 走文本解析 → modelSupportsTools 必须为 true
+    expect(modelSupportsTools("gpt-5.4", "cursor-cli", "chat_completions")).toBe(true)
+    expect(providerUsesTextToolCalls("cursor-cli")).toBe(true)
+    // 三个无通道 provider → false，且不走文本解析
+    for (const p of ["claude-code", "codex-cli", "antigravity-cli"] as const) {
+      expect(modelSupportsTools("gpt-5.4", p, "chat_completions")).toBe(false)
+      expect(providerUsesTextToolCalls(p)).toBe(false)
+    }
+  })
+
+  it("不支持工具的模型前缀同样被拦（旧 buildAgentConfig 完全没查这一层）", () => {
+    const cfg = buildFor({ provider: "custom", apiMode: "chat_completions" }, "o3-mini")
+    expect(cfg.tools).toEqual([])
+  })
+})
+
+/**
+ * MiniMax 预设端到端（P0 剩余缺口收尾）。
+ *
+ * 修复前因果链：
+ *   llm-presets.ts  minimax-global / minimax-cn 的 provider 是 "custom"，
+ *                   apiMode 是 "anthropic_messages"
+ *   → preset-resolver.ts:75  apiMode 只在 provider === "custom" 分支赋值
+ *   → config.ts  apiModeSupportsTools("anthropic_messages") === false
+ *   → 用户从下拉框选 MiniMax，拿到的是**无工具**的 Agent。
+ *
+ * 而 provider === "minimax" 分支虽然判定正确，却没有任何预设可达它，
+ * 所以「minimax 已修」此前只对一个不可达的代码路径成立。
+ */
+describe("MiniMax 预设工具可用性（端到端）", () => {
+  const fallback = llmConfig()
+
+  const resolvePreset = (id: string) => {
+    const preset = LLM_PRESETS.find((item) => item.id === id)
+    if (!preset) throw new Error(`preset not found: ${id}`)
+    return resolveConfig(preset, { apiKey: "sk-test" }, fallback)
+  }
+
+  it.each(["minimax-global", "minimax-cn"])(
+    "%s 解析后 provider=custom + apiMode=anthropic_messages（前提确认）",
+    (id) => {
+      const cfg = resolvePreset(id)
+      expect(cfg.provider).toBe("custom")
+      expect(cfg.apiMode).toBe("anthropic_messages")
+    },
+  )
+
+  it.each(["minimax-global", "minimax-cn"])(
+    "%s 解析后工具可用且真的注册进 registry",
+    (id) => {
+      const cfg = resolvePreset(id)
+      expect(effectiveToolsEnabled(cfg.model, cfg)).toBe(true)
+
+      const built = buildAgentConfig(cfg.model, "系统提示", new ToolRegistry(), {
+        wikiPath: "C:/demo/wiki",
+        projectPath: "C:/demo",
+        getSkillConfig: () => null,
+        getChatConversations: () => [],
+        getOutlineConversations: () => [],
+        llmConfig: cfg,
+      })
+      expect(built.tools.length).toBeGreaterThan(0)
+    },
+  )
+
+  it("用户关掉函数调用开关时仍可禁用（保留逃生口）", () => {
+    const cfg = { ...resolvePreset("minimax-global"), functionCallingEnabled: false }
+    expect(effectiveToolsEnabled(cfg.model, cfg as LlmConfig)).toBe(false)
   })
 })

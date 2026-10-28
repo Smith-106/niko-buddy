@@ -13,9 +13,23 @@ const TOOL_UNSUPPORTED_MODEL_PREFIXES: string[] = [
   "cursor-cli",
 ]
 
+/**
+ * 既不走原生 tools 字段、也不走文本解析的 provider。
+ *
+ * 四个 CLI transport 都不转发 `tools`（claude-cli / codex-cli /
+ * antigravity-cli / cursor-cli-proxy 全文零处 `tools`），区别在兼容手段：
+ *  - `cursor-cli` 靠 `providerUsesTextToolCalls` 注入 prompt 约定，让模型把工具调用
+ *    写成 JSON 再由 runner 解析 —— **它确实支持工具**，所以不在本名单。
+ *  - `claude-code` / `codex-cli` / `antigravity-cli` 既无 tools 字段也无文本解析，
+ *    注册了也永远不会被执行（“静默零工具调用”）。
+ *
+ * 旧名单写的是 claude-code + cursor-cli，恰好把两者搞反：cursor-cli 被误禁而
+ * codex-cli / antigravity-cli 被漏禁。
+ */
 const TOOL_UNSUPPORTED_PROVIDERS = new Set<LlmConfig["provider"]>([
   "claude-code",
-  "cursor-cli",
+  "codex-cli",
+  "antigravity-cli",
 ])
 
 /** cursor-api-proxy 无法返回原生 tool_calls delta，需从文本中解析工具调用。 */
@@ -35,15 +49,29 @@ interface BuildAgentConfigOptions extends ToolFactoryOptions {
  *   - `chat_completions` / `responses`：OpenAI 形状
  *   - `anthropic_messages`：tool_use / tool_result 块（parseAnthropicToolDelta）
  *
- * 但对 `custom` + `anthropic_messages` 仍返回 false。原因不是协议不支持，
- * 而是自定义端点的代理实现质量不可知：若代理不透传 tools，上游会直接 400，
- * 这比「不注册工具」对用户更糟。内置 anthropic / minimax 不经过这里
- * （它们不设 apiMode，恒为 undefined），走自己的已验证通道。
+ * 三条均返回 true。`anthropic_messages` 曾经硬返回 false，理由是「自定义端点
+ * 的代理质量不可知，代理不透传 tools 会直接 400」。但这个理由两头都不成立：
+ *   - 它把 `minimax-global` / `minimax-cn` 两个预设一并禁了。这两个预设是
+ *     provider:"custom" + apiMode:"anthropic_messages"，而 provider:"minimax"
+ *     分支没有任何预设可达——等于用户从下拉框选 MiniMax 永远拿不到工具。
+ *   - 代理不透传 tools 时上游返回的 400 已被 runner 处理：
+ *     isToolUnsupportedError 判定后 retryWithoutTools 重试一轮，并置
+ *     attemptedToolsFallback。所以“注册了但用不上”能自动降级，不需要在
+ *     注册层一刀切。
+ *
+ * 残留风险（如实记录）：若代理**静默丢弃** tools（200 但不返回 tool_use，
+ * 不报错），就没有错误可触发 fallback。这种代理只能靠用户关掉函数调用开关
+ * （isFunctionCallingEnabled）避开。
  */
 export function apiModeSupportsTools(
   apiMode?: "chat_completions" | "responses" | "anthropic_messages",
 ): boolean {
-  return apiMode !== "anthropic_messages"
+  return (
+    apiMode === undefined ||
+    apiMode === "chat_completions" ||
+    apiMode === "responses" ||
+    apiMode === "anthropic_messages"
+  )
 }
 
 export function modelSupportsTools(
@@ -87,10 +115,10 @@ export function buildAgentConfig(
   options: BuildAgentConfigOptions,
 ): AgentConfig {
   registry.clear()
-  const fcEnabled = isFunctionCallingEnabled(options.llmConfig)
-  // 协议不具备工具通道时（anthropic_messages）不注册工具：否则 Agent 会带着
-  // 一份永远不会被执行的工具清单空转，表现为「静默零工具调用」。
-  const toolsEnabled = fcEnabled && apiModeSupportsTools(options.llmConfig.apiMode)
+  // 唯一判定入口：provider 能力 + apiMode 协议 + 模型前缀 + 用户开关。
+  // 旧写法只看 apiMode，于是 claude-code / codex-cli / antigravity-cli 三个
+  // provider 会注册 23 个工具却永远不会被 transport 转发（静默退化）。
+  const toolsEnabled = effectiveToolsEnabled(modelId, options.llmConfig)
   registerAllBuiltInTools(registry, toolsEnabled
     ? options
     : {

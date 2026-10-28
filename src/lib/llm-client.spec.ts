@@ -75,6 +75,7 @@ vi.mock("./cursor-cli-proxy", () => ({
 import {
   __clearContinuityMetricsBufferForTest,
   __clearMetricsBufferForTest,
+  __resetRequestTraceCollectorForTest,
   collectContinuityMetric,
   collectLLMMetric,
   combineAbortSignals,
@@ -165,10 +166,46 @@ const openAiReasoning = (content: string) =>
   `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: content } }] })}`
 const openAiUsage = (input: number, output: number) =>
   `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: input, completion_tokens: output } })}`
+/**
+ * OpenAI 形状的带缓存明细 usage。
+ *
+ * OpenAI 的 `prompt_tokens` **已包含**缓存命中部分（cached 是子集），所以
+ * `input` 不能与 `cached` 相加。Anthropic 相反（见 anthropicUsage）。
+ */
+const openAiUsageWithCache = (input: number, output: number, cached: number) =>
+  `data: ${JSON.stringify({
+    choices: [],
+    usage: {
+      prompt_tokens: input,
+      completion_tokens: output,
+      prompt_tokens_details: { cached_tokens: cached },
+    },
+  })}`
+/**
+ * Anthropic 形状的带缓存明细 usage。
+ *
+ * Anthropic 的 `input_tokens` **不包含**缓存部分，总量 = input + cacheRead +
+ * cacheWrite（800 = 100 + 500 + 200）。这是与 OpenAI 相反的语义，也是
+ * cacheWriteTokens（首次写入溢价）唯一能产生的路径。
+ */
+const anthropicUsage = (input: number, output: number, cacheRead: number, cacheWrite: number) =>
+  `data: ${JSON.stringify({
+    type: "message_start",
+    message: {
+      usage: {
+        input_tokens: input,
+        output_tokens: output,
+        cache_read_input_tokens: cacheRead,
+        cache_creation_input_tokens: cacheWrite,
+      },
+    },
+  })}`
 
 beforeEach(() => {
   __clearMetricsBufferForTest()
   __clearContinuityMetricsBufferForTest()
+  // 模块级 trace 环形缓冲不清会让前一个用例的 trace 被当成「上一次同前缀请求」
+  __resetRequestTraceCollectorForTest()
   setMetricsFilePath("")
   setContinuityMetricsFilePath("")
   mocks.fsReadFile.mockReset()
@@ -1575,16 +1612,6 @@ describe("streamChatWithFailover", () => {
  * 回调 → 缓存字段透传。extractor 单测只能证明解析对，不能证明回调真的被调用。
  */
 describe("onUsage 回调接线（P0 回归）", () => {
-  const openAiUsageWithCache = (input: number, output: number, cached: number) =>
-    `data: ${JSON.stringify({
-      choices: [],
-      usage: {
-        prompt_tokens: input,
-        completion_tokens: output,
-        prompt_tokens_details: { cached_tokens: cached },
-      },
-    })}`
-
   it("streamChat 会调用 onUsage（旧实现从不调用）", async () => {
     setupHttpFetch(
       (() => Promise.resolve(streamResponse(sseLines(openAiToken("hi"), openAiUsage(120, 30))))) as typeof fetch,
@@ -1642,16 +1669,6 @@ describe("onUsage 回调接线（P0 回归）", () => {
  * 落盘（collectLLMMetric → flushMetrics → metrics.jsonl）。
  */
 describe("prompt 缓存诊断接线", () => {
-  const cacheUsage = (input: number, output: number, cacheRead: number) =>
-    `data: ${JSON.stringify({
-      choices: [],
-      usage: {
-        prompt_tokens: input,
-        completion_tokens: output,
-        prompt_tokens_details: { cached_tokens: cacheRead },
-      },
-    })}`
-
   it("有 cache_control 断点时，metric 带前缀指纹与估算 token", async () => {
     const { __clearMetricsBufferForTest, __peekMetricsBufferForTest } = await import("./llm-client")
     __clearMetricsBufferForTest()
@@ -1683,7 +1700,7 @@ describe("prompt 缓存诊断接线", () => {
     setupHttpFetch(
       (() =>
         Promise.resolve(
-          streamResponse(sseLines(openAiToken("hi"), cacheUsage(1000, 20, 800))),
+          streamResponse(sseLines(openAiToken("hi"), openAiUsageWithCache(1000, 20, 800))),
         )) as typeof fetch,
     )
     await streamChat(
@@ -1697,7 +1714,36 @@ describe("prompt 缓存诊断接线", () => {
 
     const buffer = __peekMetricsBufferForTest()
     const metric = buffer[buffer.length - 1]
-    expect(metric.cache?.cacheReadTokens).toBe(800)
+    // 缓存 token 在顶层（保持 metrics.jsonl 新旧同构），cache.* 只放新增诊断
+    expect(metric.cachedInputTokens).toBe(800)
+  })
+
+  it("Anthropic 形状：cacheWriteTokens 进 metric.cache（首次写入溢价）", async () => {
+    const { __clearMetricsBufferForTest, __peekMetricsBufferForTest } = await import("./llm-client")
+    __clearMetricsBufferForTest()
+    setupHttpFetch(
+      (() =>
+        Promise.resolve(
+          // 100 + 500 + 200 = 800（Anthropic 的 input_tokens 不含缓存，总量相加）
+          streamResponse(sseLines(openAiToken("hi"), anthropicUsage(100, 20, 500, 200))),
+        )) as typeof fetch,
+    )
+    await streamChat(
+      llmConfig({ provider: "anthropic", model: "claude-sonnet-4-5", apiMode: "anthropic_messages" }),
+      [
+        { role: "system", content: [{ type: "text", text: "系统提示", cacheControl: true }] },
+        { role: "user", content: "问题" },
+      ] as never,
+      makeCallbacks() as never,
+    )
+
+    const buffer = __peekMetricsBufferForTest()
+    const metric = buffer[buffer.length - 1]
+    // 这是 cacheWriteTokens 唯一能产生的路径：只有 Anthropic 有 cache_creation_input_tokens
+    expect(metric.cacheWriteInputTokens).toBe(200)
+    expect(metric.cachedInputTokens).toBe(500)
+    // 总量相加而非取单值（OpenAI 语义相反，已在 onUsage 组钉住）
+    expect(metric.inputTokens).toBe(800)
   })
 
   it("首 token 耗时被记录（缓存命中判据）", async () => {
@@ -1724,6 +1770,35 @@ describe("prompt 缓存诊断接线", () => {
     const buffer = __peekMetricsBufferForTest()
     const metric = buffer[buffer.length - 1]
     expect(metric.cache?.prefixFingerprint).toBeUndefined()
+  })
+
+  it("落盘 schema 同构：缓存 token 在顶层，诊断字段在 cache.*", async () => {
+    const { __clearMetricsBufferForTest, __peekMetricsBufferForTest } = await import("./llm-client")
+    __clearMetricsBufferForTest()
+    setupHttpFetch(
+      (() =>
+        Promise.resolve(
+          streamResponse(sseLines(openAiToken("hi"), openAiUsageWithCache(1000, 20, 800))),
+        )) as typeof fetch,
+    )
+    await streamChat(
+      llmConfig(),
+      [
+        { role: "system", content: [{ type: "text", text: "系统提示", cacheControl: true }] },
+        { role: "user", content: "问题" },
+      ] as never,
+      makeCallbacks() as never,
+    )
+
+    const buffer = __peekMetricsBufferForTest()
+    const metric = buffer[buffer.length - 1]!
+    // 历史字段保持在顶层，否则新旧 metrics.jsonl 不同构
+    expect(metric.cachedInputTokens).toBe(800)
+    expect(metric.inputTokens).toBe(1000)
+    // 新增诊断只在 cache.* 里，不重复承载 token 数量
+    expect(metric.cache?.prefixFingerprint).toMatch(/^[a-f0-9]{64}$/)
+    expect(metric.cache).not.toHaveProperty("cacheReadTokens")
+    expect(metric.cache).not.toHaveProperty("cacheWriteTokens")
   })
 
   it("同前缀连续两次请求产生 idleGapMs（区分命中与过期的必要值）", async () => {

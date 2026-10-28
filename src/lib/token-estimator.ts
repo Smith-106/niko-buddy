@@ -5,8 +5,10 @@
  *
  * 真正的 BPE tokenizer 需要厂商 vocab 文件（cl100k_base 约 1.6MB，且各模型不同），
  * 项目约束禁止新增依赖，因此本地路径是**按字符脚本分类的校准估算**，不是 BPE。
- * 需要精确值时用 `countTokensExact()` 走 provider 自己的 tokenizer（服务端真值，
- * 零依赖），代价是一次额外 HTTP 往返，不适合放进每次请求的热路径。
+ * 需要服务端真值时走 provider 自己的 count_tokens 端点（零依赖，代价是一次
+ * 额外 HTTP 往返，不适合放进每次请求的热路径）：先用
+ * `buildAnthropicCountTokensRequest()` / `buildGoogleCountTokensRequest()`
+ * 构造请求，再用 `parseCountTokensResponse()` 解析结果。
  *
  * ## 旧实现的问题
  *

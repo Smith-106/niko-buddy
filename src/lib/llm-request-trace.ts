@@ -162,32 +162,60 @@ export class LlmRequestTraceCollector {
   private traces: LlmRequestCacheTrace[] = []
   private omitted = 0
 
-  record = (trace: LlmRequestCacheTrace): void => {
-    this.traces.push(copyLlmRequestCacheTrace(trace))
+  /**
+   * 记录一次请求，返回带 startGapMs / idleGapMs 的那条。
+   *
+   * 返回而不是让调用方事后 snapshot() 回读：gap 依赖「同前缀的上一次请求」，
+   * 只有 collector 内部知道。旧写法要求调用方 record → snapshot → 反查刚写入
+   * 的那条（按 startedAt 匹配，同毫秒并发会取错），既 O(n) 又依赖顺序。
+   */
+  record = (trace: LlmRequestCacheTrace): LlmRequestCacheTrace => {
+    const previous = this.findPreviousByKey(trace)
+    const stored = copyLlmRequestCacheTrace(trace)
+    if (previous) {
+      stored.startGapMs = Math.max(0, trace.startedAt - previous.startedAt)
+      stored.idleGapMs = Math.max(0, trace.startedAt - previous.finishedAt)
+    }
+    this.traces.push(stored)
     this.traces.sort((left, right) => left.startedAt - right.startedAt)
     if (this.traces.length > MAX_LLM_REQUEST_CACHE_TRACES) {
       const overflow = this.traces.length - MAX_LLM_REQUEST_CACHE_TRACES
       this.traces.splice(0, overflow)
       this.omitted += overflow
     }
+    return copyLlmRequestCacheTrace(stored)
   }
 
+  /**
+   * 同前缀且 startedAt 严格更早的最后一条。
+   *
+   * 必须按 startedAt 比较而非「缓冲里的最后一条」：并发请求可能乱序完成，
+   * 后完成的请求 startedAt 反而更早，直接用队尾会把 gap 算成 0。
+   */
+  private findPreviousByKey(trace: LlmRequestCacheTrace): LlmRequestCacheTrace | undefined {
+    const key = requestKey(trace)
+    if (!key) return undefined
+    let best: LlmRequestCacheTrace | undefined
+    for (const candidate of this.traces) {
+      if (candidate.startedAt > trace.startedAt) continue
+      if (requestKey(candidate) !== key) continue
+      if (!best || candidate.startedAt > best.startedAt) best = candidate
+    }
+    return best
+  }
+
+  /** 纯读：gap 已在 record 时写入，这里不再就地修改。 */
   snapshot(): LlmRequestTraceSnapshot {
-    const previousByKey = new Map<string, LlmRequestCacheTrace>()
-    const requests = this.traces.map((source) => {
-      const trace = { ...source }
-      const key = requestKey(trace)
-      if (key) {
-        const previous = previousByKey.get(key)
-        if (previous) {
-          trace.startGapMs = Math.max(0, trace.startedAt - previous.startedAt)
-          trace.idleGapMs = Math.max(0, trace.startedAt - previous.finishedAt)
-        }
-        previousByKey.set(key, trace)
-      }
-      return trace
-    })
-    return { requests, omittedRequestCount: this.omitted }
+    return {
+      requests: this.traces.map((trace) => copyLlmRequestCacheTrace(trace)),
+      omittedRequestCount: this.omitted,
+    }
+  }
+
+  /** 清空缓冲。测试隔离用：模块级单例会让前一个用例的 trace 污染后一个。 */
+  reset(): void {
+    this.traces = []
+    this.omitted = 0
   }
 }
 

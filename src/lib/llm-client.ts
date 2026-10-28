@@ -174,6 +174,16 @@ const NETWORK_RETRY_DELAYS_MS = [2_000, 5_000, 10_000]
  */
 const llmRequestTraceCollector = new LlmRequestTraceCollector()
 
+/**
+ * 测试用：清空模块级 trace 环形缓冲。
+ *
+ * 不清会让前一个用例的 trace 被后一个用例当成「上一次同前缀请求」而算出
+ * 假的 gap；运行期切换项目时也会跨项目配对前缀。
+ */
+export function __resetRequestTraceCollectorForTest(): void {
+  llmRequestTraceCollector.reset()
+}
+
 export const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 30 * 60 * 1000
 
 /**
@@ -543,18 +553,15 @@ async function streamChatHeld(
               ? "network_error"
               : "error",
       })
-      llmRequestTraceCollector.record(trace)
-      // collector 会把同前缀的相邻请求配对算 gap；取刚写入的那条（同 startedAt 的最后一条）
-      const snapshot = llmRequestTraceCollector.snapshot()
-      const current = [...snapshot.requests].reverse().find((t) => t.startedAt === trace.startedAt)
+      // record 直接返回带 gap 的记录（旧写法要 record → snapshot → 反查，
+      // 按 startedAt 匹配在同毫秒并发下会取错）
+      const stored = llmRequestTraceCollector.record(trace)
       cacheDiagnostics = {
-        ...(trace.prefixFingerprint ? { prefixFingerprint: trace.prefixFingerprint } : {}),
-        ...(trace.prefixEstimatedTokens !== undefined ? { prefixEstimatedTokens: trace.prefixEstimatedTokens } : {}),
-        ...(trace.firstResponseMs !== undefined ? { firstResponseMs: trace.firstResponseMs } : {}),
-        ...(trace.cacheReadTokens !== undefined ? { cacheReadTokens: trace.cacheReadTokens } : {}),
-        ...(trace.cacheWriteTokens !== undefined ? { cacheWriteTokens: trace.cacheWriteTokens } : {}),
-        ...(current?.startGapMs !== undefined ? { startGapMs: current.startGapMs } : {}),
-        ...(current?.idleGapMs !== undefined ? { idleGapMs: current.idleGapMs } : {}),
+        ...(stored.prefixFingerprint ? { prefixFingerprint: stored.prefixFingerprint } : {}),
+        ...(stored.prefixEstimatedTokens !== undefined ? { prefixEstimatedTokens: stored.prefixEstimatedTokens } : {}),
+        ...(stored.firstResponseMs !== undefined ? { firstResponseMs: stored.firstResponseMs } : {}),
+        ...(stored.startGapMs !== undefined ? { startGapMs: stored.startGapMs } : {}),
+        ...(stored.idleGapMs !== undefined ? { idleGapMs: stored.idleGapMs } : {}),
       }
       if (Object.keys(cacheDiagnostics).length === 0) cacheDiagnostics = undefined
     } catch {
@@ -571,6 +578,9 @@ async function streamChatHeld(
       ...(metricsInputTokens > 0 || metricsOutputTokens > 0
         ? { inputTokens: metricsInputTokens, outputTokens: metricsOutputTokens }
         : {}),
+      // 缓存 token 保持顶层（metrics.jsonl 新旧同构）；cache.* 只放新增诊断
+      ...(metricsCachedInputTokens > 0 ? { cachedInputTokens: metricsCachedInputTokens } : {}),
+      ...(metricsCacheWriteInputTokens > 0 ? { cacheWriteInputTokens: metricsCacheWriteInputTokens } : {}),
       ...(cacheDiagnostics ? { cache: cacheDiagnostics } : {}),
     })
   }
