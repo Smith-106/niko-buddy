@@ -778,6 +778,9 @@ async function runReviewStage(
   let result = ""
   let reasoning = ""
   let streamError: Error | null = null
+  // #7: 内部 5 分钟阶段超时触发时置位，用于把 streamChat 上报的 "Request cancelled"
+  // 归一为可读的超时错误（streamChat 只看到组合信号中止，无法区分用户取消与内部超时）。
+  let stageTimedOut = false
   // F-4/PAT-G2: track last pushed combined length to throttle renderThinking.
   let lastPushedLen = 0
   const renderThinking = (force = false) => {
@@ -801,6 +804,14 @@ async function runReviewStage(
     },
     onDone: () => {},
     onError: (error: Error) => {
+      // #7: 内部阶段超时（非用户取消）→ 改写为明确的超时错误并降为 warn，
+      // 避免日志先误报 "Request cancelled" 再出现重试，造成“被取消却又重跑”的困惑。
+      if (stageTimedOut && !signal?.aborted && (error.name === "AbortError" || /request cancell?ed/i.test(error.message))) {
+        const timeoutError = new Error(`审查阶段「${stageTitle}」超过 5 分钟未完成，已超时`)
+        logger.warn("Novel Review", "Stage timed out", { stage: stageTitle })
+        streamError = timeoutError
+        return
+      }
       // F-16 (CWE-532): message-only to avoid leaking provider request details.
       logger.error("Novel Review", "Stream error", { error: toErrorMessage(error) })
       streamError = error
@@ -808,7 +819,10 @@ async function runReviewStage(
   }
 
   const timeoutController = new AbortController()
-  const timeoutId = setTimeout(() => timeoutController.abort(), 300000)
+  const timeoutId = setTimeout(() => {
+    stageTimedOut = true
+    timeoutController.abort()
+  }, 300000)
 
   const combinedSignal = signal
     ? combineSignals(signal, timeoutController.signal)
@@ -839,7 +853,11 @@ async function runReviewStage(
     clearTimeout(timeoutId)
     if (signal?.aborted) throw new Error("已停止生成")
     if (retryCount < 2) {
-      logger.warn("Novel Review", `Stage "${stageTitle}" failed, retrying`, { retry: `${retryCount + 1}/2` })
+      logger.warn("Novel Review", `Stage "${stageTitle}" failed, retrying`, {
+        retry: `${retryCount + 1}/2`,
+        // #7: 记录重试原因（仅 message，CWE-532），便于区分超时/网络/解析失败。
+        reason: toErrorMessage(err),
+      })
       publishReviewStageThinking(stageThinking, callbacks, stageTitle, "网络波动，正在重试...")
       await new Promise(resolve => setTimeout(resolve, 2000))
       return runReviewStage(llmConfig, systemPrompt, userPrompt, stageTitle, callbacks, stageThinking, signal, reasoningMode, retryCount + 1, chunkIndex)
