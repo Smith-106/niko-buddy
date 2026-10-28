@@ -1,4 +1,4 @@
-﻿import { readFile, writeFileAtomic, writeFilesAtomic, listDirectory, fileExists, createDirectory, deleteFile } from "@/commands/fs"
+﻿import { readFile, writeFileAtomic, listDirectory, fileExists, createDirectory, deleteFile } from "@/commands/fs"
 import { listEntityFiles } from "./entity-subdir-resolver"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } from "@/stores/wiki-store"
@@ -14,11 +14,9 @@ import { canonicalizeSnapshotCharacters, writeSnapshotToWiki, writePatchFieldsTo
 // 保持既有 import 面不变。
 import {
   snapshotHistoryDir,
-  snapshotHistoryFileName,
   snapshotJsonPath,
   snapshotMarkdownPath,
   snapshotSourceFileNameCandidates,
-  snapshotToMarkdown,
   hasSnapshotSourceReference,
   isOnlyCurrentChapterSource,
 } from "./snapshot-paths"
@@ -33,6 +31,24 @@ export {
   hasSnapshotSourceReference,
   isOnlyCurrentChapterSource,
 } from "./snapshot-paths"
+// W1（chapter-ingest 拆分第 5 步）：快照持久化原语已拆至 ./chapter-ingest-snapshot-io。
+// 本地 import 供内部调用点使用，并 re-export 保持既有 import 面不变（70 个消费方零改动）。
+import {
+  backupSnapshotBeforeOverwrite,
+  cleanupDeletedChapterResidualEntities,
+  listSnapshots,
+  loadSnapshot,
+  saveChapterIngestOutput,
+  saveSnapshot,
+} from "./chapter-ingest-snapshot-io"
+export {
+  backupSnapshotBeforeOverwrite,
+  cleanupDeletedChapterResidualEntities,
+  isNotFoundError,
+  listSnapshots,
+  loadSnapshot,
+  saveChapterIngestOutput,
+} from "./chapter-ingest-snapshot-io"
 import { resolveNovelModel } from "./model-resolver"
 // S5 首拆切片 #2（chapter-ingest 拆分第 2 步）：快照预览纯函数簇已拆至 ./snapshot-preview。
 // 本地 import 供内部调用点使用，并 re-export 保持既有 import 面不变。
@@ -64,7 +80,6 @@ import { loadParticleLedger, saveParticleLedger, appendParticleEntry, foldPartic
 import { truthStoreHash } from "./projection-store"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { shouldRebuildCommunitySummaries, generateCommunitySummaries } from "./community-summary"
-import { buildChapterIngestOutput, type ChapterIngestOutput } from "./chapter-ingest-output"
 import { createChapterPipeline } from "./chapter-pipeline"
 // M13-3 切片 #4（arch-risk W4 god-object 拆分）：实体链接/校验家族已拆至
 // ./chapter-ingest-entity-validation。本地 import 供 ingestChapter 调用点使用。
@@ -75,7 +90,6 @@ import {
   validateCanonConflicts,
   validateEntityReferences,
 } from "./chapter-ingest-entity-validation"
-import { mergeSnapshotTimeline } from "./timeline"
 import { buildStructuredMemoryDocuments, isValidMemorySnapshot } from "./memory-rebuild"
 import { clearGraphCache } from "@/lib/graph-relevance"
 import { clearTemporalFactsCache } from "./context-engine"
@@ -1231,38 +1245,12 @@ ${sliceChapterForReview(chapterBody)}
 }
 
 
-
 export interface SnapshotHistoryEntry {
   fileName: string
   path: string
   createdAt: string
 }
 
-
-
-
-
-
-
-
-
-
-
-async function backupSnapshotBeforeOverwrite(projectPath: string, chapterNumber: number): Promise<void> {
-  const currentJsonPath = snapshotJsonPath(projectPath, chapterNumber)
-  if (!(await fileExists(currentJsonPath))) return
-  const currentRaw = await readFile(currentJsonPath)
-  const normalizedCurrent = normalizeChapterSnapshot(JSON.parse(currentRaw), {
-    chapterId: `chapter-${chapterNumber}`,
-    chapterNumber,
-  })
-  const currentJson = normalizedCurrent
-    ? JSON.stringify(ensureSnapshotIdentity(normalizedCurrent, { isHistorical: true }), null, 2)
-    : currentRaw
-  const historyDir = snapshotHistoryDir(projectPath, chapterNumber)
-  await createDirectory(historyDir)
-  await writeFileAtomic(`${historyDir}/${snapshotHistoryFileName()}`, currentJson)
-}
 
 export async function listSnapshotHistory(projectPath: string, chapterNumber: number): Promise<SnapshotHistoryEntry[]> {
   const pp = normalizePath(projectPath)
@@ -1617,8 +1605,6 @@ export async function syncSnapshotToMemory(
 
   return { writtenEntityPaths, memoryPagePaths, memorySyncedAt, driftSuspected }
 }
-
-
 
 
 function shouldDeleteSupersededProjectionContent(content: string, snapshot: ChapterSnapshot): boolean {
@@ -2327,73 +2313,6 @@ export async function autoRepairTruthFoldDrift(
   }
 }
 
-async function saveSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<void> {
-  const canonicalSnapshot = ensureSnapshotIdentity(canonicalizeSnapshotCharacters(snapshot))
-  const normalizedSnapshot = normalizeChapterSnapshot(canonicalSnapshot, {
-    chapterId: snapshot.chapterId,
-    chapterNumber: snapshot.chapterNumber,
-  })
-  /* v8 ignore next */
-  if (!normalizedSnapshot) {
-    throw new Error("Invalid snapshot data.")
-  }
-  const snapshotDir = `${projectPath}/.novel/snapshots`
-  const jsonPath = snapshotJsonPath(projectPath, normalizedSnapshot.chapterNumber)
-  const mdPath = snapshotMarkdownPath(projectPath, normalizedSnapshot.chapterNumber)
-
-  await createDirectory(snapshotDir)
-  // S4-R4：json+md 改走 writeFilesAtomic 单次批量事务。两文件同属一次快照，
-  // prepare 阶段任一 temp 失败即零落盘；提交阶段为顺序 rename（微秒窗口）。
-  // mergeSnapshotTimeline 为幂等第三写，崩溃后重跑收敛。
-  await writeFilesAtomic([
-    [jsonPath, JSON.stringify(normalizedSnapshot, null, 2)],
-    [mdPath, snapshotToMarkdown(normalizedSnapshot)],
-  ])
-
-  await mergeSnapshotTimeline(projectPath, normalizedSnapshot.chapterNumber, normalizedSnapshot.timelineEvents)
-}
-
-async function saveChapterIngestOutput(projectPath: string, snapshot: ChapterSnapshot, options: { title?: string } = {}): Promise<ChapterIngestOutput> {
-  const output = buildChapterIngestOutput(snapshot, options)
-  const outputDir = `${projectPath}/.novel/chapter-ingest-output`
-  const prefix = `${outputDir}/${String(snapshot.chapterNumber).padStart(3, "0")}`
-
-  await createDirectory(outputDir)
-  // PERF-NEW-09 (odyssey-improve DC-3): parallelize the 4 independent ingest
-  // output writes. All four files derive from the already-built `output`
-  // object (no cross-file dependency) and target distinct paths, so
-  // writeFileAtomic invocations are safe to run concurrently. Drops 4 serial
-  // IPC round-trips to ~1 concurrent batch.
-  await Promise.all([
-    writeFileAtomic(`${prefix}.output.json`, JSON.stringify(output, null, 2)),
-    writeFileAtomic(`${prefix}.wiki-patch.json`, JSON.stringify(output.wikiUpdatePatch, null, 2)),
-    writeFileAtomic(`${prefix}.search-index.json`, JSON.stringify(output.searchIndexText, null, 2)),
-    writeFileAtomic(`${prefix}.vector-index.json`, JSON.stringify(output.vectorIndexText, null, 2)),
-  ])
-
-  return output
-}
-
-export async function loadSnapshot(
-  projectPath: string,
-  chapterNumber: number,
-): Promise<ChapterSnapshot | null> {
-  const pp = normalizePath(projectPath)
-  const prefix = chapterNumber < 0
-    ? `outline-${String(Math.abs(chapterNumber)).padStart(3, "0")}`
-    : String(chapterNumber).padStart(3, "0")
-  const jsonPath = `${pp}/.novel/snapshots/${prefix}.snapshot.json`
-  try {
-    const raw = await readFile(jsonPath)
-    return normalizeChapterSnapshot(JSON.parse(raw), {
-      chapterId: `chapter-${chapterNumber}`,
-      chapterNumber,
-    })
-  } catch {
-    logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 3003 })
-    return null
-  }
-}
 
 /**
  * 列出章节快照对应章号（大纲为负数）。
@@ -2401,34 +2320,7 @@ export async function loadSnapshot(
  * `failLoud`（默认 false）仅放行「目录不存在」→ []，其它 IO 异常继续抛出：
  * 章节目录等需要诚实错误态的调用方应传 true，否则权限/IO 失败会被显示成「暂无章节」。
  */
-export async function listSnapshots(projectPath: string, opts?: { failLoud?: boolean }): Promise<number[]> {
-  const pp = normalizePath(projectPath)
-  const snapshotDir = `${pp}/.novel/snapshots`
-  try {
-    const tree = await listDirectory(snapshotDir)
-    return tree
-      .filter(f => f.name.endsWith(".snapshot.json"))
-      .map(f => {
-        const stem = f.name.split(".")[0]
-        // outline-001 → -1, outline-002 → -2
-        const outlineMatch = stem.match(/^outline-(\d+)$/)
-        if (outlineMatch) return -parseInt(outlineMatch[1], 10)
-        return parseInt(stem, 10)
-      })
-      .filter(n => !isNaN(n))
-      .sort((a, b) => a - b)
-  } catch (err) {
-    if (opts?.failLoud && !isNotFoundError(err)) throw err
-    logger.warn("Chapter Ingest", "silent-degrade: 降级返回空值（吞错已标记）", { line: 3024 })
-    return []
-  }
-}
 
-/** 目录不存在（首次打开尚未生成快照）与真正的 IO 失败的区分。 */
-function isNotFoundError(err: unknown): boolean {
-  const message = toErrorMessage(err)
-  return /not found|no such file|does not exist|cannot find the (file|path)/i.test(message)
-}
 
 export async function deleteChapterSnapshots(projectPath: string, chapterNumber: number, onDataVersionBump?: () => void): Promise<void> {
   const pp = normalizePath(projectPath)
@@ -2452,44 +2344,6 @@ export async function deleteChapterSnapshots(projectPath: string, chapterNumber:
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入 callback 优先, 缺省回退 store。
   const bump = onDataVersionBump ?? (() => useWikiStore.getState().bumpDataVersion())
   bump()
-}
-
-/**
- * ISS-20260712-MAINT-4: 已删章节的 truth store 残留兜底清扫。
- * 列出 entities/ 下 .md，其 snapshot token 全部命中被删章节候选则删除
- * （exact 口径，跨章节子串不误伤；混引保留）。best-effort：读删失败记 warn。
- */
-export async function cleanupDeletedChapterResidualEntities(projectPath: string, chapterNumber: number): Promise<string[]> {
-  const pp = normalizePath(projectPath)
-  const candidates = new Set(snapshotSourceFileNameCandidates(chapterNumber))
-  let oldFiles: string[] = []
-  try {
-    oldFiles = (await listEntityFiles(pp)).map((f) => `${f.name}.md`)
-  } catch (err) {
-    logger.warn("Chapter Ingest", "residual sweep list failed (non-fatal)", { error: toErrorMessage(err) })
-    return []
-  }
-  const deleted: string[] = []
-  const entitiesDir = `${pp}/wiki/entities`
-  for (const oldFile of oldFiles) {
-    const filePath = `${entitiesDir}/${oldFile}`
-    let content: string
-    try {
-      content = await readFile(filePath)
-    } catch (err) {
-      logger.warn("Chapter Ingest", "residual sweep read failed (non-fatal)", { path: filePath, error: toErrorMessage(err) })
-      continue
-    }
-    if (!hasSnapshotSourceReference(content, candidates)) continue
-    if (!isOnlyCurrentChapterSource(content, candidates)) continue
-    try {
-      await deleteFile(filePath)
-      deleted.push(filePath)
-    } catch (err) {
-      logger.warn("Chapter Ingest", "residual sweep delete failed (non-fatal)", { path: filePath, error: toErrorMessage(err) })
-    }
-  }
-  return deleted
 }
 
 export async function ingestOutline(
