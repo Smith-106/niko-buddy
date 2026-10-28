@@ -1563,3 +1563,69 @@ describe("streamChatWithFailover", () => {
     expect(callbacks.onError.mock.calls[0][0].message).toContain("不可达")
   })
 })
+
+/**
+ * P0 回归（2026-10-29）：onUsage 回调曾经从未被调用。
+ *
+ * 改动前 llm-client.ts 只有 `onUsage?:` 的类型声明和 metrics 赋值，**没有任何
+ * `callbacks.onUsage` 调用**——runner.ts 的 onUsage 回调是死代码，token 用量
+ * 从未传到 agent 层。缓存指标接不通只是这个更根本缺陷的一部分。
+ *
+ * 本组从 streamChat 入口验证整条链路：SSE usage 行 → extractUsage → onUsage
+ * 回调 → 缓存字段透传。extractor 单测只能证明解析对，不能证明回调真的被调用。
+ */
+describe("onUsage 回调接线（P0 回归）", () => {
+  const openAiUsageWithCache = (input: number, output: number, cached: number) =>
+    `data: ${JSON.stringify({
+      choices: [],
+      usage: {
+        prompt_tokens: input,
+        completion_tokens: output,
+        prompt_tokens_details: { cached_tokens: cached },
+      },
+    })}`
+
+  it("streamChat 会调用 onUsage（旧实现从不调用）", async () => {
+    setupHttpFetch(
+      (() => Promise.resolve(streamResponse(sseLines(openAiToken("hi"), openAiUsage(120, 30))))) as typeof fetch,
+    )
+    const callbacks = { ...makeCallbacks(), onUsage: vi.fn() }
+    await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks as never)
+
+    expect(callbacks.onUsage).toHaveBeenCalled()
+    const usage = callbacks.onUsage.mock.calls[0][0] as { input: number; output: number }
+    expect(usage.input).toBe(120)
+    expect(usage.output).toBe(30)
+  })
+
+  it("缓存命中字段透传到 onUsage", async () => {
+    setupHttpFetch(
+      (() =>
+        Promise.resolve(
+          streamResponse(sseLines(openAiToken("hi"), openAiUsageWithCache(1000, 20, 800))),
+        )) as typeof fetch,
+    )
+    const callbacks = { ...makeCallbacks(), onUsage: vi.fn() }
+    await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks as never)
+
+    const usage = callbacks.onUsage.mock.calls[0][0] as {
+      input: number
+      output: number
+      cachedInput?: number
+    }
+    // OpenAI 的 prompt_tokens 已含缓存，input 不能被加上 cached
+    expect(usage.input).toBe(1000)
+    expect(usage.cachedInput).toBe(800)
+  })
+
+  it("无缓存明细时不传 cachedInput（避免报表出现 0 命中噪声）", async () => {
+    setupHttpFetch(
+      (() => Promise.resolve(streamResponse(sseLines(openAiToken("hi"), openAiUsage(50, 5))))) as typeof fetch,
+    )
+    const callbacks = { ...makeCallbacks(), onUsage: vi.fn() }
+    await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks as never)
+
+    const usage = callbacks.onUsage.mock.calls[0][0] as { cachedInput?: number }
+    expect(usage.cachedInput).toBeUndefined()
+  })
+})
