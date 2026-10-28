@@ -98,10 +98,31 @@ function sentenceHasHookChain(sentence: string): boolean {
     && /(下|下一阶段|接下来|将要|仍未|尚未|而|却|面对|审核|表格|一栏|倒计时)/.test(sentence)
 }
 
-const LABEL_PRESSURE_RE = /(压抑|施压|压力铺垫|压迫)\s*[：:]\s*(.{12,})/s
-const LABEL_RELEASE_RE = /(释放|反击|翻盘|破局|转机|反转)\s*[：:]\s*(.{12,})/s
-const LABEL_AGENCY_RE = /(主角能动性|能动|主动选择|主角选择)\s*[：:]\s*(.{12,})/s
-const LABEL_HOOK_RE = /(章末钩|章末钩子|章尾钩子|结尾钩子)\s*[：:]\s*(.{12,})/s
+/**
+ * 标签后必须跟**实质内容**，不能只是「有压力」「有释放」这类空壳。
+ * 判定：标签冒号后的片段需同时满足（a）足够长（b）含具体名词/动作，
+ * 且不含「有X」「存在X」「出现X」这类无信息量的占位写法。
+ */
+const SUBSTANCE_RE = /[一-龥A-Za-z0-9「」“”]{2,}/
+const EMPTY_SHELL_RE = /^(有|存在|出现|发生|具备|包含|涉及)?\s*(压力|释放|压抑|能动|钩子|悬念|冲突|反转)[。，、；;\s]*$/
+
+/** 从「标签：xxx」中取出 xxx，判断是否为实质内容（非空壳）。 */
+function labelHasSubstance(text: string, labelRe: RegExp): boolean {
+  const re = new RegExp(labelRe.source + "([^。；\n]{0,200})", "s")
+  const m = text.match(re)
+  if (!m) return false
+  const body = (m[2] ?? "").trim()
+  if (body.length < 12) return false
+  if (EMPTY_SHELL_RE.test(body)) return false
+  // 实质内容：至少含两个具体词（人名/机构/动作），而非纯抽象词
+  const concrete = body.match(/[一-龥]{2,}/g) ?? []
+  return concrete.length >= 3 && SUBSTANCE_RE.test(body)
+}
+
+const LABEL_PRESSURE_RE = /(压抑铺垫|压抑|施压|压力铺垫|压迫)\s*[：:]/s
+const LABEL_RELEASE_RE = /(压力释放|释放|反击|翻盘|破局|转机|反转)\s*[：:]/s
+const LABEL_AGENCY_RE = /(主角能动性|能动性|主动选择|主角选择)\s*[：:]/s
+const LABEL_HOOK_RE = /(章末钩|章末钩子|章尾钩子|结尾钩子)\s*[：:]/s
 
 /**
  * 可指认的压抑→释放链条。
@@ -115,7 +136,7 @@ const LABEL_HOOK_RE = /(章末钩|章末钩子|章尾钩子|结尾钩子)\s*[：
  * 裸关键词堆砌（“有冲突、有压抑、有释放、有反转”）不满足 ③，因为缺少具体情境句。
  */
 function hasIdentifiablePressureChain(text: string): boolean {
-  if (LABEL_PRESSURE_RE.test(text) || LABEL_RELEASE_RE.test(text)) return true
+  if (labelHasSubstance(text, LABEL_PRESSURE_RE) || labelHasSubstance(text, LABEL_RELEASE_RE)) return true
   const sentences = splitSentences(text)
   if (sentences.some(sentenceHasPressureChain)) return true
   // ③ 跨句成对 + 具体情境
@@ -141,7 +162,7 @@ function hasIdentifiablePressureChain(text: string): boolean {
  * 裸堆砌（“主角做出选择并决定反抗”）不满足 ③：只有元词，没有具体动作与结果。
  */
 function hasIdentifiableAgency(text: string): boolean {
-  if (LABEL_AGENCY_RE.test(text)) return true
+  if (labelHasSubstance(text, LABEL_AGENCY_RE)) return true
   const sentences = splitSentences(text)
   if (sentences.some(sentenceHasAgencyChain)) return true
   const hasAgencyCue = AGENCY_HINT_RE.test(text)
@@ -155,7 +176,7 @@ function hasIdentifiableAgency(text: string): boolean {
 
 /** 可指认的章末钩：显式标签，或任一句内钩子词 + 下一阶段指向共现。 */
 function hasIdentifiableHook(text: string): boolean {
-  if (LABEL_HOOK_RE.test(text)) return true
+  if (labelHasSubstance(text, LABEL_HOOK_RE)) return true
   return splitSentences(text).some(sentenceHasHookChain)
 }
 

@@ -369,3 +369,27 @@ describe("抗欺骗：裸关键词堆砌不得被判 pass（2026-10-28）", () =
     }
   })
 })
+
+describe("抗欺骗：空壳标签不得被判 pass（2026-10-28 加固）", () => {
+  // 首版抗欺骗只要求「标签 + 12 字以上」，于是「主角能动性：有能动。」这类
+  // 空壳仍能全过。加固后标签后的内容必须含具体名词/动作，否则不算可指认链条。
+
+  it("只写标签与空壳内容（有压力/有释放/有能动/有钩子）不得全 pass", () => {
+    const shell = `### 第1章 测试
+压抑铺垫：有压力。压力释放：有释放。主角能动性：有能动。章末钩：有钩子。`.repeat(2)
+    const r = evaluateOutlineThrillCheckpoints(shell)
+    const passCount = r.filter((x) => x.status === "pass").length
+    expect(passCount).toBeLessThan(5)
+    expect(r.find((x) => x.id === "protagonist_agency")!.status).not.toBe("pass")
+    expect(r.find((x) => x.id === "chapter_end_hook")!.status).not.toBe("pass")
+  })
+
+  it("真实改写章（含具体人物/机构/动作/后果）仍全 pass", () => {
+    const real = `### 第1章 合同到期日
+本章剧情概要与核心冲突：压抑铺垫：白曦毕业当天收到天枢人体租赁公司通知，身体债务与维护费同时到期，账户余额只够撑到月底；他翻看合同时看见小字灵纹，觉醒「合同修仙面板」。压力释放：天枢客服当面给出最后期限，白曦没签补充协议，而是把合同条款逐条拍下来，第一次看清「维护费」定义里有可钻的空白。主角能动性：他没有当场求情，而是主动选择先读完合同再回应，把被动催收变成争取时间的第一步。章末钩：面板提示「第一条可炼条款已锁定」，而下一阶段他要去营业厅协商展期，那里等着他的是信用评分与灵压契约。`
+    const r = evaluateOutlineThrillCheckpoints(real)
+    for (const id of ["crisis_info_early", "pressure_release", "protagonist_agency", "chapter_end_hook"] as const) {
+      expect(r.find((x) => x.id === id)!.status, `${id} 应 pass`).toBe("pass")
+    }
+  })
+})
