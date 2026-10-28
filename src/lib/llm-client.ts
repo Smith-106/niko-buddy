@@ -51,9 +51,15 @@ export function isOutputTruncatedError(error: unknown): boolean {
 }
 
 import { collectLLMMetric } from "./llm-metrics"
+import {
+  buildLlmRequestCacheTrace,
+  buildLlmRequestPrefixDescriptor,
+  LlmRequestTraceCollector,
+} from "./llm-request-trace"
 export {
   __clearContinuityMetricsBufferForTest,
   __clearMetricsBufferForTest,
+  __peekMetricsBufferForTest,
   collectContinuityMetric,
   collectLLMMetric,
   flushContinuityMetrics,
@@ -158,6 +164,16 @@ async function streamViaAntigravityCli(
  * probe (see probeEndpointReachability).
  */
 const NETWORK_RETRY_DELAYS_MS = [2_000, 5_000, 10_000]
+
+/**
+ * 进程内 prompt 缓存诊断环形缓冲（上限 32 条）。
+ *
+ * 它存在的意义不是存历史，而是算 startGapMs / idleGapMs：只有持有同前缀的
+ * 上一次请求，才能判断本次「本该命中缓存」还是「缓存已过期」。这两个值随
+ * metric 落盘后，命中率才可被区分于过期率。
+ */
+const llmRequestTraceCollector = new LlmRequestTraceCollector()
+
 export const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 30 * 60 * 1000
 
 /**
@@ -486,7 +502,65 @@ async function streamChatHeld(
   let metricsOutputTokens = 0
   let metricsCachedInputTokens = 0
   let metricsCacheWriteInputTokens = 0
+  let metricsFirstResponseAt: number | undefined
+
+  // Prompt 缓存前缀指纹：只有消息里存在 cache_control 断点时才有意义
+  // （buildLlmRequestPrefixDescriptor 内部先扫断点，无断点直接返回 {}，不做哈希）。
+  // 包 try/catch：诊断不能因为哈希失败而拖垮请求。
+  let cachePrefix: { prefixFingerprint?: string; prefixEstimatedTokens?: number } = {}
+  try {
+    cachePrefix = await buildLlmRequestPrefixDescriptor(resolvedLocal, messages, requestOverrides)
+  } catch {
+    cachePrefix = {}
+  }
+
   const recordMetric = () => {
+    // 缓存诊断：把 trace 的 startGapMs/idleGapMs 算出来并随 metric 落盘。
+    // 这两个值区分「缓存没命中」与「缓存本就过期」，是分析命中率的必要条件。
+    let cacheDiagnostics: import("./llm-metrics").LlmCacheDiagnostics | undefined
+    try {
+      const trace = buildLlmRequestCacheTrace({
+        config: resolvedLocal,
+        ...cachePrefix,
+        startedAt: metricsStart,
+        finishedAt: Date.now(),
+        ...(metricsFirstResponseAt !== undefined ? { firstResponseAt: metricsFirstResponseAt } : {}),
+        usage: {
+          ...(metricsInputTokens > 0 ? { inputTokens: metricsInputTokens } : {}),
+          ...(metricsOutputTokens > 0 ? { outputTokens: metricsOutputTokens } : {}),
+          ...(metricsCachedInputTokens > 0 ? { cachedInputTokens: metricsCachedInputTokens } : {}),
+          ...(metricsCacheWriteInputTokens > 0 ? { cacheWriteInputTokens: metricsCacheWriteInputTokens } : {}),
+        },
+        status: metricsErrorKind === undefined
+          ? "success"
+          : metricsErrorKind === "abort"
+            ? "cancelled"
+            : metricsErrorKind === "network"
+              || metricsErrorKind === "endpoint_unreachable"
+              || metricsErrorKind === "timeout"
+              || metricsErrorKind === "header_timeout"
+              || metricsErrorKind === "stream_idle"
+              ? "network_error"
+              : "error",
+      })
+      llmRequestTraceCollector.record(trace)
+      // collector 会把同前缀的相邻请求配对算 gap；取刚写入的那条（同 startedAt 的最后一条）
+      const snapshot = llmRequestTraceCollector.snapshot()
+      const current = [...snapshot.requests].reverse().find((t) => t.startedAt === trace.startedAt)
+      cacheDiagnostics = {
+        ...(trace.prefixFingerprint ? { prefixFingerprint: trace.prefixFingerprint } : {}),
+        ...(trace.prefixEstimatedTokens !== undefined ? { prefixEstimatedTokens: trace.prefixEstimatedTokens } : {}),
+        ...(trace.firstResponseMs !== undefined ? { firstResponseMs: trace.firstResponseMs } : {}),
+        ...(trace.cacheReadTokens !== undefined ? { cacheReadTokens: trace.cacheReadTokens } : {}),
+        ...(trace.cacheWriteTokens !== undefined ? { cacheWriteTokens: trace.cacheWriteTokens } : {}),
+        ...(current?.startGapMs !== undefined ? { startGapMs: current.startGapMs } : {}),
+        ...(current?.idleGapMs !== undefined ? { idleGapMs: current.idleGapMs } : {}),
+      }
+      if (Object.keys(cacheDiagnostics).length === 0) cacheDiagnostics = undefined
+    } catch {
+      cacheDiagnostics = undefined
+    }
+
     collectLLMMetric({
       ts: new Date().toISOString(),
       model: resolvedLocal.model,
@@ -495,13 +569,9 @@ async function streamChatHeld(
       success: metricsErrorKind === undefined,
       errorKind: metricsErrorKind,
       ...(metricsInputTokens > 0 || metricsOutputTokens > 0
-        ? {
-            inputTokens: metricsInputTokens,
-            outputTokens: metricsOutputTokens,
-            ...(metricsCachedInputTokens > 0 ? { cachedInputTokens: metricsCachedInputTokens } : {}),
-            ...(metricsCacheWriteInputTokens > 0 ? { cacheWriteInputTokens: metricsCacheWriteInputTokens } : {}),
-          }
+        ? { inputTokens: metricsInputTokens, outputTokens: metricsOutputTokens }
         : {}),
+      ...(cacheDiagnostics ? { cache: cacheDiagnostics } : {}),
     })
   }
   const { onToken, onDone } = callbacks
@@ -808,6 +878,8 @@ async function streamChatHeld(
     let contentCharsEmitted = 0
     let reasoningCharsObserved = 0
     const recordToken = (text: string) => {
+      // 首 token 耗时：缓存命中时明显低于未命中，是命中判据之一
+      if (metricsFirstResponseAt === undefined) metricsFirstResponseAt = Date.now()
       contentCharsEmitted += text.length
       onToken(text)
     }

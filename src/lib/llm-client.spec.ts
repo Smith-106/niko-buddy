@@ -1629,3 +1629,125 @@ describe("onUsage 回调接线（P0 回归）", () => {
     expect(usage.cachedInput).toBeUndefined()
   })
 })
+
+/**
+ * Prompt 缓存诊断接线（第三个问题：llm-request-trace.ts 曾是整文件死代码）。
+ *
+ * 该文件从 v3 移植后从未被接线：buildLlmRequestPrefixDescriptor、
+ * buildLlmRequestCacheTrace、LlmRequestTraceCollector 在生产代码里零调用方，
+ * 只有 spec 用。它算的 startGapMs / idleGapMs 正是区分「缓存没命中」与
+ * 「缓存本就过期」的关键，缺了它缓存命中率无法分析。
+ *
+ * 现接线：streamChatHeld 请求前算前缀指纹，收尾时把 trace 与 gap 随 LlmMetric
+ * 落盘（collectLLMMetric → flushMetrics → metrics.jsonl）。
+ */
+describe("prompt 缓存诊断接线", () => {
+  const cacheUsage = (input: number, output: number, cacheRead: number) =>
+    `data: ${JSON.stringify({
+      choices: [],
+      usage: {
+        prompt_tokens: input,
+        completion_tokens: output,
+        prompt_tokens_details: { cached_tokens: cacheRead },
+      },
+    })}`
+
+  it("有 cache_control 断点时，metric 带前缀指纹与估算 token", async () => {
+    const { __clearMetricsBufferForTest, __peekMetricsBufferForTest } = await import("./llm-client")
+    __clearMetricsBufferForTest()
+    setupHttpFetch(
+      (() => Promise.resolve(streamResponse(sseLines(openAiToken("hi"), openAiUsage(100, 10))))) as typeof fetch,
+    )
+    const callbacks = makeCallbacks()
+    await streamChat(
+      llmConfig(),
+      [
+        { role: "system", content: [{ type: "text", text: "系统提示", cacheControl: true }] },
+        { role: "user", content: "问题" },
+      ] as never,
+      callbacks as never,
+    )
+
+    const buffer = __peekMetricsBufferForTest()
+    expect(buffer.length).toBeGreaterThanOrEqual(1)
+    const metric = buffer[buffer.length - 1]
+    expect(metric.cache).toBeDefined()
+    // SHA-256 十六进制 64 位
+    expect(metric.cache?.prefixFingerprint).toMatch(/^[a-f0-9]{64}$/)
+    expect(metric.cache?.prefixEstimatedTokens).toBeGreaterThan(0)
+  })
+
+  it("缓存 token 进入 metric.cache（cacheReadTokens / cacheWriteTokens）", async () => {
+    const { __clearMetricsBufferForTest, __peekMetricsBufferForTest } = await import("./llm-client")
+    __clearMetricsBufferForTest()
+    setupHttpFetch(
+      (() =>
+        Promise.resolve(
+          streamResponse(sseLines(openAiToken("hi"), cacheUsage(1000, 20, 800))),
+        )) as typeof fetch,
+    )
+    await streamChat(
+      llmConfig(),
+      [
+        { role: "system", content: [{ type: "text", text: "系统提示", cacheControl: true }] },
+        { role: "user", content: "问题" },
+      ] as never,
+      makeCallbacks() as never,
+    )
+
+    const buffer = __peekMetricsBufferForTest()
+    const metric = buffer[buffer.length - 1]
+    expect(metric.cache?.cacheReadTokens).toBe(800)
+  })
+
+  it("首 token 耗时被记录（缓存命中判据）", async () => {
+    const { __clearMetricsBufferForTest, __peekMetricsBufferForTest } = await import("./llm-client")
+    __clearMetricsBufferForTest()
+    setupHttpFetch(
+      (() => Promise.resolve(streamResponse(sseLines(openAiToken("hi"), openAiUsage(50, 5))))) as typeof fetch,
+    )
+    await streamChat(llmConfig(), [{ role: "user", content: "hi" }], makeCallbacks() as never)
+
+    const buffer = __peekMetricsBufferForTest()
+    const metric = buffer[buffer.length - 1]
+    expect(metric.cache?.firstResponseMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it("无 cache_control 断点时不产生前缀指纹（不做无谓哈希）", async () => {
+    const { __clearMetricsBufferForTest, __peekMetricsBufferForTest } = await import("./llm-client")
+    __clearMetricsBufferForTest()
+    setupHttpFetch(
+      (() => Promise.resolve(streamResponse(sseLines(openAiToken("hi"), openAiUsage(50, 5))))) as typeof fetch,
+    )
+    await streamChat(llmConfig(), [{ role: "user", content: "hi" }], makeCallbacks() as never)
+
+    const buffer = __peekMetricsBufferForTest()
+    const metric = buffer[buffer.length - 1]
+    expect(metric.cache?.prefixFingerprint).toBeUndefined()
+  })
+
+  it("同前缀连续两次请求产生 idleGapMs（区分命中与过期的必要值）", async () => {
+    const { __clearMetricsBufferForTest, __peekMetricsBufferForTest } = await import("./llm-client")
+    __clearMetricsBufferForTest()
+    const messages = [
+      { role: "system", content: [{ type: "text", text: "固定系统提示", cacheControl: true }] },
+      { role: "user", content: "问题" },
+    ]
+    for (let i = 0; i < 2; i += 1) {
+      setupHttpFetch(
+        (() => Promise.resolve(streamResponse(sseLines(openAiToken("hi"), openAiUsage(50, 5))))) as typeof fetch,
+      )
+      await streamChat(llmConfig(), messages as never, makeCallbacks() as never)
+    }
+
+    const buffer = __peekMetricsBufferForTest()
+    expect(buffer.length).toBeGreaterThanOrEqual(2)
+    const first = buffer[buffer.length - 2]
+    const second = buffer[buffer.length - 1]
+    // 同前缀 → 指纹相同
+    expect(second.cache?.prefixFingerprint).toBe(first.cache?.prefixFingerprint)
+    // 第二次应算出与第一次的间隔
+    expect(second.cache?.idleGapMs).toBeGreaterThanOrEqual(0)
+    expect(second.cache?.startGapMs).toBeGreaterThanOrEqual(0)
+  })
+})
