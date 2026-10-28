@@ -1,7 +1,7 @@
 // Copyright © Niko Buddy
 // SPDX-License-Identifier: MIT
 
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 import {
   ArrowLeftRight, ChevronRight, Eye, GitMerge, Image, Languages, Monitor, Moon, Search, Settings, Sun, Trash2,
 } from "lucide-react"
@@ -185,18 +185,22 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             const activeIsSecondary = secondaryItems.some((item) => item.view === activeView)
             const showSecondary = moreOpen || activeIsSecondary
             const visibleItems = collapsed ? [] : showSecondary ? items : primaryItems
+            // PAT-U5（ISS-20260712-006 batch-2）：分组折叠/更多按钮补 aria-controls + region。
+            const groupPanelId = `nav-group-${group}`
             return (
               <div key={group} data-nav-group={group}>
                 <button
                   type="button"
                   onClick={() => toggleGroup(group)}
                   aria-expanded={!collapsed}
+                  aria-controls={groupPanelId}
                   className="flex h-6 w-full items-center gap-1 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                 >
                   <ChevronRight className={`h-3 w-3 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`} />
                   <span className="min-w-0 flex-1 truncate text-left">{t(groupLabelKey)}</span>
                   <span className="shrink-0 tabular-nums text-xs text-muted-foreground">{items.length}</span>
                 </button>
+                <div id={groupPanelId} role="region" aria-label={t(groupLabelKey)}>
                 {visibleItems.map(({ view, icon: Icon, labelKey }) => (
                     <button
                       key={view}
@@ -226,6 +230,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
                     onClick={() => toggleMore(group)}
                     data-testid={`nav-more-${group}`}
                     aria-expanded={false}
+                    aria-controls={groupPanelId}
                     className="soft-button flex h-7 w-full items-center gap-2 rounded-xl px-2.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
                   >
                     <span className="min-w-0 flex-1 truncate text-left">
@@ -240,6 +245,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
                     onClick={() => toggleMore(group)}
                     data-testid={`nav-more-${group}`}
                     aria-expanded={true}
+                    aria-controls={groupPanelId}
                     className="soft-button flex h-7 w-full items-center gap-2 rounded-xl px-2.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
                   >
                     <span className="min-w-0 flex-1 truncate text-left">
@@ -248,6 +254,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
                     <ChevronRight className="h-3 w-3 shrink-0 rotate-90" />
                   </button>
                 ) : null}
+                </div>
               </div>
             )
           })}

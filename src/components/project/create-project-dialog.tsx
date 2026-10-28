@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -58,6 +58,8 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
   const setActiveView = useWikiStore((s) => s.setActiveView)
   // 未配 key 时默认展开模型服务（第一小时：配了 key 的老用户保持折叠不打扰）。
   const [llmExpanded, setLlmExpanded] = useState(() => !assessLlmHealth(useWikiStore.getState().llmConfig).canWrite)
+  // PAT-U5（ISS-20260712-006 batch-2）：折叠触发点补 aria-controls + region。
+  const llmPanelId = useId()
   const llmHealth = assessLlmHealth(llmConfig)
   const llmTone = llmHealth.canWrite
     ? "text-success"
@@ -239,6 +241,7 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
                 className="flex w-full items-center justify-between text-left text-sm"
                 onClick={() => setLlmExpanded((v) => !v)}
                 aria-expanded={llmExpanded}
+                aria-controls={llmPanelId}
               >
                 <span className="flex items-center gap-2">
                   <span className={llmTone}>●</span>
@@ -250,7 +253,7 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
                 </span>
               </button>
               {llmExpanded && (
-                <div className="mt-2 flex flex-col gap-2 border-t pt-2 text-xs text-muted-foreground">
+                <div id={llmPanelId} role="region" aria-label={t("project.llmService")} className="mt-2 flex flex-col gap-2 border-t pt-2 text-xs text-muted-foreground">
                   {!llmHealth.canWrite && llmHealth.nextStep && (
                     <p>{llmHealth.nextStep}</p>
                   )}

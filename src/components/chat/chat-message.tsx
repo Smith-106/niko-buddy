@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useMemo, memo } from "react"
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import ReactMarkdown from "react-markdown"
 import "katex/dist/katex.min.css"
 import {
@@ -418,6 +418,8 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
   const setFileContent = useWikiStore((s) => s.setFileContent)
   const setPendingScrollImageSrc = useWikiStore((s) => s.setPendingScrollImageSrc)
   const [expanded, setExpanded] = useState(false)
+  // PAT-U5（ISS-20260712-006 batch-2）：折叠触发点补 aria-controls + region。
+  const citedPanelId = useId()
   /**
    * Per-cited-page image info: count + first image URL. We can't
    * hang this off `CitedPage` directly because `extractCitedPages`
@@ -539,6 +541,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
         type="button"
         onClick={() => hasMore && setExpanded(!expanded)}
         aria-expanded={hasMore ? expanded : undefined}
+        aria-controls={hasMore ? citedPanelId : undefined}
         aria-label={`引用资料（${citedPages.length}）`}
         className="flex w-full items-center gap-1.5 px-2 py-1 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
@@ -550,7 +553,7 @@ function CitedReferencesPanel({ content, savedReferences }: { content: string; s
             : <ChevronRight className="h-3 w-3 shrink-0 ml-auto" />
         )}
       </button>
-      <div className="px-2 pb-1.5">
+      <div id={citedPanelId} role="region" aria-label={`引用资料（${citedPages.length}）`} className="px-2 pb-1.5">
         {visiblePages.map((page, i) => {
           const refType = getRefType(page.path)
           /* v8 ignore next */

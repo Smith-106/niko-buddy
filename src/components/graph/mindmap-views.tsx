@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useId, useMemo, useState } from "react"
 import { useSigma } from "@react-sigma/core"
 import { ZoomIn, ZoomOut, Maximize, ChevronRight, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -37,6 +37,8 @@ export function MindMapBranch({ node, level = 0, onNodeClick, collapsedIds, onTo
   const collapsed = collapsedIds?.has(node.id) ?? false
   const accent = node.nodeType ? NODE_TYPE_COLORS[node.nodeType] : undefined
   // S3-4: 92% 白 tint 芯片在深色下白底白字沉底。浅色保持 #ffffff（零行为变化），深色改向深收敛。
+  // PAT-U5（ISS-20260712-006 batch-2）：折叠触发点补 aria-controls + region。
+  const branchPanelId = useId()
   const appTheme = useWikiStore((s) => s.theme)
   const chipTint = appTheme === "dark" || appTheme === "deep-blue" || (appTheme === "system" && isSystemDark()) ? "#0f172a" : "#ffffff"
 
@@ -48,6 +50,7 @@ export function MindMapBranch({ node, level = 0, onNodeClick, collapsedIds, onTo
             type="button"
             data-testid={`mindmap-collapse-toggle-${node.id}`}
             aria-expanded={!collapsed}
+            aria-controls={branchPanelId}
             aria-label={collapsed ? t("graph.mindmapExpandBranch") : t("graph.mindmapCollapseBranch")}
             onClick={() => onToggleCollapse?.(node.id)}
             className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-background px-1.5 py-1 text-xs text-muted-foreground elevation-1 transition-colors hover:bg-accent hover:text-foreground"
@@ -78,7 +81,7 @@ export function MindMapBranch({ node, level = 0, onNodeClick, collapsedIds, onTo
         </div>
       </div>
       {hasChildren && !collapsed && (
-        <div className="relative mt-1.5 space-y-1.5 pl-6">
+        <div id={branchPanelId} role="region" aria-label={node.label} className="relative mt-1.5 space-y-1.5 pl-6">
           <span
             data-testid="mindmap-connector-rail"
             aria-hidden="true"

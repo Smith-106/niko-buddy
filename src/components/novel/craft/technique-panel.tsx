@@ -24,6 +24,9 @@ interface PackCardProps {
 function PackCard({ pack, defaultExpanded = false }: PackCardProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(defaultExpanded)
+  // PAT-U5（ISS-20260712-006 batch-2）：自定义折叠需 aria-expanded + aria-controls，
+  // 展开区 role=region + aria-label，读屏才能定位被展开内容。
+  const panelId = useId()
 
   return (
     <div className="rounded-lg border bg-card">
@@ -31,6 +34,7 @@ function PackCard({ pack, defaultExpanded = false }: PackCardProps) {
       <button
         type="button"
         aria-expanded={expanded}
+        aria-controls={panelId}
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/30"
       >
@@ -54,7 +58,7 @@ function PackCard({ pack, defaultExpanded = false }: PackCardProps) {
 
       {/* 展开内容 */}
       {expanded && (
-        <div className="border-t px-3 py-2.5 space-y-3">
+        <div id={panelId} role="region" aria-label={pack.techniqueName} className="border-t px-3 py-2.5 space-y-3">
           {/* Canon 字段目标 */}
           <div>
             <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">

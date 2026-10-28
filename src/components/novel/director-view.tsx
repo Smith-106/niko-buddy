@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -44,6 +44,8 @@ export function DirectorView({ projectId }: DirectorViewProps) {
   // 调度运行记录：本视图真实推进事件（开始/成功/失败/终止/重试/骨架），级别+折叠。
   const [runLog, setRunLog] = useState<Array<{ t: number; level: "info" | "success" | "error"; text: string }>>([])
   const [logOpen, setLogOpen] = useState(false)
+  // PAT-U5（ISS-20260712-006 batch-2）：折叠触发点补 aria-controls + region。
+  const runlogPanelId = useId()
   const [logLevel, setLogLevel] = useState<"all" | "info" | "success" | "error">("all")
   const appendLog = useCallback((level: "info" | "success" | "error", text: string) => {
     setRunLog((prev) => [...prev.slice(-29), { t: Date.now(), level, text }])
@@ -404,6 +406,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
             type="button"
             data-testid="director-runlog-toggle"
             aria-expanded={logOpen}
+            aria-controls={runlogPanelId}
             onClick={() => setLogOpen((v) => !v)}
             className="text-sm font-semibold"
           >
@@ -426,7 +429,8 @@ export function DirectorView({ projectId }: DirectorViewProps) {
             </div>
           )}
         </div>
-        {logOpen && (filteredLog.length === 0 ? (
+        {logOpen && (<div id={runlogPanelId} role="region" aria-label={t("directorPanel.runlogTitle", { defaultValue: "调度运行记录" })}>
+        {filteredLog.length === 0 ? (
           <p className="text-xs text-muted-foreground" data-testid="director-runlog-empty">暂无运行记录</p>
         ) : (
           <ol className="flex flex-col gap-1">
@@ -442,7 +446,8 @@ export function DirectorView({ projectId }: DirectorViewProps) {
               </li>
             ))}
           </ol>
-        ))}
+        )}
+        </div>)}
       </div>
 
       <div className="flex items-center justify-between rounded-lg border p-3">

@@ -302,6 +302,7 @@ export function CampaignDashboardDialog({
           ) : (
             chapterResults.map((result) => {
               const isExpanded = expandedChapter === result.chapterNumber
+              const chapterDetailPanelId = `campaign-chapter-detail-${result.chapterNumber}`
               return (
                 <div key={result.chapterNumber} className="p-3 text-xs flex flex-col gap-2 hover:bg-muted/20">
                   <div className="flex items-center justify-between">
@@ -343,6 +344,7 @@ export function CampaignDashboardDialog({
                         type="button"
                         aria-label={isExpanded ? `收起第 ${result.chapterNumber} 章详情` : `展开第 ${result.chapterNumber} 章详情`}
                         aria-expanded={isExpanded}
+                        aria-controls={chapterDetailPanelId}
                         onClick={() => setExpandedChapter(isExpanded ? null : result.chapterNumber)}
                         className="p-1 text-muted-foreground hover:text-foreground"
                       >
@@ -353,7 +355,7 @@ export function CampaignDashboardDialog({
 
                   {/* 展开查看正文选段 */}
                   {isExpanded && (
-                    <div className="mt-1 p-2.5 rounded bg-muted/40 border text-xs text-muted-foreground font-sans whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed">
+                    <div id={chapterDetailPanelId} role="region" aria-label={`第 ${result.chapterNumber} 章详情`} className="mt-1 p-2.5 rounded bg-muted/40 border text-xs text-muted-foreground font-sans whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed">
                       {result.content ? result.content.slice(0, 500) + (result.content.length > 500 ? "..." : "") : "（空正文）"}
                     </div>
                   )}

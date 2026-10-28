@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { CheckCircle2, CircleAlert, Flame, Loader2, Play, Square, Sparkles } from "lucide-react"
 import { fileExists } from "@/commands/fs"
@@ -62,6 +62,8 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const [tab, setTab] = useState<"run" | "drafts" | "context">("run")
   // 管線動態：默認展開實況拓撲，開始運行自動展開，無需等磁盤輪詢。
   const [motionOpen, setMotionOpen] = useState(true)
+  // PAT-U5（ISS-20260712-006 batch-2）：折叠触发点补 aria-controls + region。
+  const motionPanelId = useId()
   // 运行起点（已运行秒数展示用；10s 心跳 tick 驱动重渲染，无假进度条）。
   const [runStartAt, setRunStartAt] = useState<number | null>(null)
   // 心跳 tick：运行时每 10 秒重渲染一次，用于卡住/超时提示（不碰主链计时）。
@@ -346,13 +348,14 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           onClick={() => setMotionOpen((v) => !v)}
           data-testid="main-control-motion-toggle"
           aria-expanded={motionOpen}
+          aria-controls={motionPanelId}
           className="flex w-full items-center gap-2 text-left text-xs font-semibold"
         >
           <span>{motionOpen ? "▾" : "▸"}</span>
           {t("mainControl.motionTitle", "管線動態（實況拓撲）")}
         </button>
         {motionOpen && projectPath ? (
-          <div className="mt-2">
+          <div id={motionPanelId} role="region" aria-label={t("mainControl.motionTitle", "管線動態（實況拓撲）")} className="mt-2">
             <PipelineMotionView
               projectPath={projectPath}
               traceEntries={(steps.length > 0 ? liveTrace : trace).length > 0 ? (steps.length > 0 ? liveTrace : trace) : undefined}
