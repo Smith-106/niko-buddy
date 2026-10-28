@@ -229,3 +229,40 @@ describe("thril soft-gate acknowledge helpers", () => {
     expect(reviews[0]!.evidence).toBe("no crisis/pressure cue in first ~40%")
   })
 })
+
+describe("thril 大纲层改造：提示块与评估同口径", () => {
+  it("buildThrillOutlinePromptBlock 覆盖四条结构检查点与 FIX-1", async () => {
+    const { buildThrillOutlinePromptBlock, THRILL_CHECKPOINT_LABELS } = await import("./outline-thrill-checkpoints")
+    const block = buildThrillOutlinePromptBlock()
+    for (const id of ["crisis_info_early", "pressure_release", "protagonist_agency", "chapter_end_hook", "fix1_no_conflict"] as const) {
+      expect(block).toContain(THRILL_CHECKPOINT_LABELS[id])
+      expect(block).toContain(id)
+    }
+    expect(block).toContain("【thril 结构硬要求】")
+  })
+
+  it("buildThrillOutlinePromptBlock 带章号落位，可关闭 FIX-1 段", async () => {
+    const { buildThrillOutlinePromptBlock } = await import("./outline-thrill-checkpoints")
+    expect(buildThrillOutlinePromptBlock({ chapterNumber: 36 })).toContain("第36章")
+    const noFix1 = buildThrillOutlinePromptBlock({ chapterNumber: null, includeFix1: false })
+    expect(noFix1).not.toContain("fix1_no_conflict")
+    expect(noFix1).toContain("crisis_info_early")
+  })
+
+  it("章纲提示块要求爽点设计/章尾钩子可执行落位", async () => {
+    const { buildThrillChapterOutlinePromptBlock } = await import("./outline-thrill-checkpoints")
+    const block = buildThrillChapterOutlinePromptBlock(2)
+    expect(block).toContain("第2章")
+    expect(block).toContain("爽点设计")
+    expect(block).toContain("章尾钩子")
+    expect(block).toContain("微爽点")
+  })
+
+  it("提示块要求的内容写进大纲后能通过软门结构检查", async () => {
+    const { buildThrillChapterOutlinePromptBlock, evaluateOutlineThrillCheckpoints } = await import("./outline-thrill-checkpoints")
+    // 提示块本身是要求而非正文；此处验证它点名的四项在合规大纲里都被识别。
+    expect(buildThrillChapterOutlinePromptBlock(1)).toContain("章末钩")
+    const r = evaluateOutlineThrillCheckpoints(STRONG_OUTLINE)
+    expect(r.filter((x) => x.status === "pass").length).toBe(5)
+  })
+})

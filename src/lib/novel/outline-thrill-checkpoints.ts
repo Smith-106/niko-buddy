@@ -3,6 +3,11 @@
  * Source: .workflow/harvest-staging/outline-thrill-checkpoints.md (5 checks).
  * Soft-gate only — does not replace Consistency. FIX-1 conflict is flagged and
  * cannot be treated as a literary “pass”.
+ *
+ * 大纲层改造（2026-10-28）：本文件同时是 thril 结构要求的单一口径——
+ * `buildThrillOutlinePromptBlock` 把同一组检查点写成给大纲模型的硬要求，
+ * 评估（`evaluateOutlineThrillCheckpoints`）与提示词共用 THRILL_CHECKPOINT_*，
+ * 不再另建平行清单。
  */
 
 import type { NovelReviewResult } from "./review-adapter"
@@ -60,6 +65,67 @@ const HOOK_HINT_RE =
 export interface EvaluateThrillOptions {
   /** When outline is empty, all non-FIX1 checks → unknown */
   allowUnknown?: boolean
+}
+
+/**
+ * 大纲层 thril 硬要求（写给大纲/章纲生成模型的提示块）。
+ *
+ * 与评估器共用同一组检查点与标签：模型被要求写出的，正是后续软门会检查的，
+ * 避免「大纲按另一套标准写、审查按这一套扣分」。
+ *
+ * @param options.chapterNumber 可选章号，写入标题便于模型逐章落位
+ * @param options.includeFix1 是否包含 FIX-1 禁提前揭穿（默认包含）
+ */
+export function buildThrillOutlinePromptBlock(options: {
+  chapterNumber?: number | null
+  includeFix1?: boolean
+} = {}): string {
+  const includeFix1 = options.includeFix1 !== false
+  const chapterNumber = options.chapterNumber
+  const title =
+    chapterNumber != null && Number.isFinite(chapterNumber)
+      ? `【thril 结构硬要求 — 第${Math.trunc(chapterNumber)}章】`
+      : "【thril 结构硬要求】"
+  const structural: ThrillCheckpointId[] = [
+    "crisis_info_early",
+    "pressure_release",
+    "protagonist_agency",
+    "chapter_end_hook",
+  ]
+  const lines: string[] = [
+    title,
+    "以下四条必须在大纲/章纲里写出可指认的具体内容，不能只写“有冲突”“有反转”这类空话：",
+  ]
+  for (const id of structural) {
+    lines.push(`- ${THRILL_CHECKPOINT_LABELS[id]}（${id}）`)
+  }
+  lines.push(
+    "- 压迫→释放至少要有一条可指认的链条：谁施压、主角付出什么代价、在哪里释放。",
+    "- 主角必须是推动局面的能动方，不能全程旁观或被救。",
+    "- 章末钩要给出下一阶段的具体期待，不得只写“留下悬念”。",
+  )
+  if (includeFix1) {
+    lines.push(
+      `- ${THRILL_CHECKPOINT_LABELS.fix1_no_conflict}（fix1_no_conflict）：禁止提前揭露 Offer、最终存活者、机制名或“真相是”。`,
+    )
+  }
+  return lines.join("\n")
+}
+
+/**
+ * 大纲生成提示的 thril 段（中文口径，供 outline-generation / 章纲模板复用）。
+ *
+ * 与 `buildThrillOutlinePromptBlock` 同一来源，仅多一层「章节细纲」落位措辞。
+ */
+export function buildThrillChapterOutlinePromptBlock(chapterNumber?: number | null): string {
+  return [
+    buildThrillOutlinePromptBlock({ chapterNumber }),
+    "",
+    "落位要求（章节细纲）：",
+    "- 「爽点设计」必须写出：本章核心爽点、铺垫、兼现方式、兼点后的新压力。",
+    "- 「章尾钩子」必须写出：结尾落点、悬念或反转、下一章期待。",
+    "- 若本章确实不设大爽点，必须写明“微爽点/期待点”具体是什么，不得留空。",
+  ].join("\n")
 }
 
 /**

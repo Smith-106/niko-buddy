@@ -12,6 +12,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { ingestOutline } from "./chapter-ingest"
 import { formatOutlineQualityReport } from "./outline-quality-check"
+import { buildThrillChapterOutlinePromptBlock } from "./outline-thrill-checkpoints"
 import { normalizeMarkdownBody } from "./normalize-markdown-body"
 import { buildContextPack, type ContextPack } from "./context-engine"
 import { toErrorMessage, logger } from "@/lib/utils"
@@ -263,6 +264,8 @@ function buildSectionRefinementPrompt(
     "",
     `本次只生成：${sectionTitle}`,
     config.requestHint,
+    // 大纲层 thril 改造：章节细纲额外要求爽点节拍/能动/章尾钩，与软门检查点同口径。
+    ...(config.key === "chapterOutlines" ? ["", buildThrillChapterOutlinePromptBlock()] : []),
   ].join("\n")
 }
 

@@ -282,10 +282,24 @@ function checkChapterExecutionConstraints(content: string): QualityCheckItem {
 function checkChapterHooksAndEnjoyment(content: string): QualityCheckItem {
   const missing = ["章首钩子", "爽点设计", "章尾钩子"].filter((section) => !extractSection(content, section));
   if (missing.length === 0) {
+    // 大纲层 thril 改造：章节存在不等于可执行——爽点设计/章尾钩子必须写出具体内容。
+    // 只写标题不写内容（或只写“有爽点/留下悬念”）属于空壳，计为 warning 而非 error：
+    // 不阻断保存，但在审查列表里明确要求补齐。
+    const hollow = ["爽点设计", "章尾钩子"].filter((section) => isHollowSection(extractSection(content, section)));
+    if (hollow.length === 0) {
+      return {
+        category: "钩子与爽点",
+        status: "pass",
+        message: "章首钩子、爽点设计和章尾钩子完整",
+      };
+    }
     return {
       category: "钩子与爽点",
-      status: "pass",
-      message: "章首钩子、爽点设计和章尾钩子完整",
+      status: "warn",
+      message: "钩子或爽点只有标题没有可执行内容",
+      details: hollow.map(
+        (section) => `「${section}」需写出具体压迫源/能动选择/释放落点（不能只写“有爽点/留下悬念”）`,
+      ),
     };
   }
 
@@ -295,6 +309,26 @@ function checkChapterHooksAndEnjoyment(content: string): QualityCheckItem {
     message: "钩子或爽点缺失",
     details: missing.map((section) => `缺少「${section}」内容`),
   };
+}
+
+/**
+ * 判定一个章纲小节是否“空壳”：去标记/空白后内容过少，或只剩套话。
+ * 纯函数，零 I/O。
+ */
+function isHollowSection(section: string): boolean {
+  const body = section
+    .split("\n")
+    .map((line) => line.replace(/^\s*[-*]\s*/, "").trim())
+    .filter((line) => line.length > 0)
+  // 只剩字段名（`本章核心爽点：` 后面没有任何内容）。
+  const filled = body
+    .map((line) => line.replace(/^[^：:]{1,20}[：:]/, "").trim())
+    .filter((line) => line.length > 0)
+  if (filled.length === 0) return true
+  const text = filled.join("")
+  if (text.length < 20) return true
+  // 只剩套话（无具体指认对象）。
+  return /^(有爽点|有反转|留下悬念|制造悬念|有冲突|待补|待定|同上|见前章)[。！？.!?]?$/.test(text)
 }
 
 function checkChapterCharacterState(content: string): QualityCheckItem {
