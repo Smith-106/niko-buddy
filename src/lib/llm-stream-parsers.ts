@@ -316,3 +316,100 @@ export function extractAnthropicUsage(line: string): { input: number; output: nu
     return null
   }
 }
+
+/**
+ * Anthropic Messages 流式工具调用增量解析。
+ *
+ * 协议（SSE）：
+ *   content_block_start  { index, content_block: { type: "tool_use", id, name, input: {} } }
+ *   content_block_delta  { index, delta: { type: "input_json_delta", partial_json } }
+ *
+ * 与 OpenAI 的差别：Anthropic 用 content block 的 `index` 定位工具块，
+ * 参数以 partial_json 分片到达，需按 index 累积拼接（由上层负责拼接）。
+ * 这里只负责把每个 SSE 行翻译成增量。
+ */
+export function parseAnthropicToolDelta(line: string): StreamToolCallDelta[] | null {
+  if (!line.startsWith("data: ")) return null
+  const data = line.slice(6).trim()
+  try {
+    const parsed = JSON.parse(data) as {
+      type?: string
+      index?: number
+      content_block?: { type?: string; id?: string; name?: string }
+      delta?: { type?: string; partial_json?: string }
+    }
+
+    // 工具块开始：给出 id 与 name，参数为空（后续由 input_json_delta 累积）
+    if (parsed.type === "content_block_start" && parsed.content_block?.type === "tool_use") {
+      const block = parsed.content_block
+      if (!block.name) return null
+      return [{
+        index: typeof parsed.index === "number" ? parsed.index : 0,
+        ...(block.id ? { id: block.id } : {}),
+        name: block.name,
+        arguments: "",
+      }]
+    }
+
+    // 参数分片
+    if (
+      parsed.type === "content_block_delta" &&
+      parsed.delta?.type === "input_json_delta" &&
+      typeof parsed.delta.partial_json === "string"
+    ) {
+      return [{
+        index: typeof parsed.index === "number" ? parsed.index : 0,
+        arguments: parsed.delta.partial_json,
+      }]
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Google Gemini 流式工具调用增量解析。
+ *
+ * 协议（SSE，streamGenerateContent?alt=sse）：
+ *   candidates[0].content.parts[] 中，functionCall 是**完整对象**：
+ *     { functionCall: { name, args } }
+ *
+ * 与 OpenAI/Anthropic 的差别：Gemini 不流式分片参数，一次给完整 args 对象。
+ * 所以这里把 args 序列化成一个完整 arguments 字符串，一次交付；
+ * 上层按 index 累积时，后到的完整对象会覆盖前面的同名增量。
+ * 每次 functionCall 用递增 index 区分（同一条消息里可能有多个）。
+ */
+export function parseGoogleToolDelta(line: string): StreamToolCallDelta[] | null {
+  if (!line.startsWith("data: ")) return null
+  const data = line.slice(6).trim()
+  if (data === "[DONE]") return null
+  try {
+    const parsed = JSON.parse(data) as {
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{
+            functionCall?: { name?: string; args?: Record<string, unknown> }
+          }>
+        }
+      }>
+    }
+    const parts = parsed.candidates?.[0]?.content?.parts
+    if (!Array.isArray(parts)) return null
+
+    const deltas: StreamToolCallDelta[] = []
+    for (const part of parts) {
+      const fc = part?.functionCall
+      if (!fc?.name) continue
+      deltas.push({
+        index: deltas.length,
+        name: fc.name,
+        arguments: JSON.stringify(fc.args ?? {}),
+      })
+    }
+    return deltas.length > 0 ? deltas : null
+  } catch {
+    return null
+  }
+}

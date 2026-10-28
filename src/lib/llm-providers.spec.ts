@@ -1173,22 +1173,30 @@ describe("审查修复：wire 契约细节", () => {
     ])
   })
 
-  it("Anthropic 通道整段丢弃 tool 回合并合并相邻同角色（不留半转换）", () => {
+  it("Anthropic 通道转发 tool 回合：tool_calls → tool_use，tool 结果 → tool_result", () => {
     const body = getProviderConfig(
       customConfig({ provider: "anthropic", apiMode: "anthropic_messages" }),
     ).buildBody([
       { role: "system", content: "系统" },
       { role: "user", content: "第一问" },
-      // 只有 tool_calls 没有正文的 assistant：丢弃后前后两条 user 会相邻，必须合并
+      // 只有 tool_calls 没有正文的 assistant：必须保留成 tool_use 块
       { role: "assistant", content: "", tool_calls: [{ id: "c1", type: "function", function: { name: "f", arguments: "{}" } }] },
       { role: "tool", content: "工具结果", tool_call_id: "c1" },
       { role: "user", content: "第二问" },
     ]) as Record<string, unknown>
-    const messages = body.messages as Array<{ role: string; content: string }>
-    expect(messages.every((m) => m.role === "user" || m.role === "assistant")).toBe(true)
-    expect(messages.map((m) => m.role)).toEqual(["user"])
-    expect(messages[0].content).toBe("第一问\n第二问")
-    expect(JSON.stringify(body)).not.toContain("工具结果")
+    const messages = body.messages as Array<{ role: string; content: unknown }>
+    // 严格交替：user / assistant(tool_use) / user(tool_result + 第二问)
+    expect(messages.map((m) => m.role)).toEqual(["user", "assistant", "user"])
+    const flat = JSON.stringify(messages)
+    expect(flat).toContain("tool_use")
+    expect(flat).toContain("tool_result")
+    expect(flat).toContain("工具结果")
+    expect(flat).toContain("第一问")
+    expect(flat).toContain("第二问")
+    // tool_result 必须落在 user 回合（Anthropic 硬要求）
+    const lastUser = messages[messages.length - 1]
+    expect(lastUser.role).toBe("user")
+    expect(JSON.stringify(lastUser.content)).toContain("tool_result")
   })
 })
 
@@ -1272,12 +1280,16 @@ describe("第二轮审查修复：前缀 added / 匿名槽位 / 乱序终稿 / �
       { role: "user", content: [{ type: "text", text: "补充问题" }] },
     ]) as Record<string, unknown>
     const messages = body.messages as Array<{ role: string; content: unknown }>
+    // tool_result 与后续 user 回合必须合并成一条 user（Anthropic 要求严格交替）
     expect(messages).toHaveLength(1)
     expect(messages[0].role).toBe("user")
     expect(Array.isArray(messages[0].content)).toBe(true)
-    expect((messages[0].content as Array<{ text?: string }>).map((b) => b.text)).toEqual([
+    const blocks = messages[0].content as Array<{ type?: string; text?: string }>
+    // text block 保持原顺序，tool_result block 夹在中间（不被丢弃）
+    expect(blocks.filter((b) => b.type === "text" || b.text !== undefined).map((b) => b.text)).toEqual([
       "带图问题",
       "补充问题",
     ])
+    expect(blocks.some((b) => b.type === "tool_result")).toBe(true)
   })
 })

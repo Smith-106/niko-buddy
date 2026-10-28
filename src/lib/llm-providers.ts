@@ -14,6 +14,8 @@ import {
   extractOpenAiUsage,
   extractResponsesUsage,
   parseAnthropicLine,
+  parseAnthropicToolDelta,
+  parseGoogleToolDelta,
   parseOpenAiLine,
   parseOpenAiToolDelta,
 } from "@/lib/llm-stream-parsers"
@@ -506,30 +508,136 @@ function mergeAnthropicContent(previous: unknown, next: unknown): unknown {
   return [...toBlocks(previous), ...toBlocks(next)]
 }
 
+/**
+ * OpenAI 形状的 tools → Anthropic 形状。
+ *   { type:"function", function:{ name, description, parameters } }
+ *   → { name, description, input_schema }
+ *
+ * input_schema 做与 Gemini 同一套清洗：Anthropic 的 input_schema 只接受
+ * JSON Schema 的一个子集，$schema / $ref / additionalProperties 等关键字
+ * 可能被上游以 400 拒绝。两条工具通道共用一个清洗函数，避免行为分叉。
+ */
+function toAnthropicTools(tools: unknown[]): unknown[] {
+  const out: unknown[] = []
+  for (const raw of tools) {
+    const t = raw as { type?: string; function?: { name?: string; description?: string; parameters?: Record<string, unknown> } }
+    if (!t?.function?.name) continue
+    out.push({
+      name: t.function.name,
+      ...(t.function.description ? { description: t.function.description } : {}),
+      input_schema: t.function.parameters
+        ? sanitizeToolSchema(t.function.parameters)
+        : { type: "object", properties: {} },
+    })
+  }
+  return out
+}
+
+/**
+ * 解析 assistant.tool_calls 的 arguments（JSON 字符串）成 Anthropic 的 input 对象。
+ * 参数非法时退回空对象，避免整轮请求 400。
+ */
+function toAnthropicToolInput(rawArgs: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(rawArgs)
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * 把一条 tool 结果消息转成 Anthropic 的 tool_result block。
+ * Anthropic 要求 tool_result 放在 **user** 回合里，且用 tool_use_id 关联。
+ */
+function toAnthropicToolResultBlock(message: ChatMessage): Record<string, unknown> {
+  return {
+    type: "tool_result",
+    tool_use_id: message.tool_call_id ?? "",
+    content: typeof message.content === "string" ? message.content : flattenAnthropicSystem(message.content),
+  }
+}
+
 function buildAnthropicBody(
   messages: ChatMessage[],
   overrides?: RequestOverrides,
 ): Record<string, unknown> {
   const systemMessages = messages.filter((m) => m.role === "system")
-  // Anthropic 通道不转发 tools（apiModeSupportsTools 已在注册层关掉工具），
-  // 所以 tool 消息与 assistant.tool_calls 在这里没有任何 wire 表达方式：
-  // 全部丢弃。只改名成 user 而不合并相邻回合会得到连续 user / 空 content
-  // 的 assistant，两者上游都会拒绝——半转换比不转更危险。
+  const anthropicTools = overrides?.tools?.length ? toAnthropicTools(overrides.tools) : []
+
   const conversationMessages: Array<{ role: "user" | "assistant"; content: unknown }> = []
+  // 待并入下一条 user 回合的 tool_result blocks（Anthropic 要求它们在 user 回合内）
+  let pendingToolResults: Record<string, unknown>[] = []
+
   for (const message of messages) {
-    if (message.role === "system" || message.role === "tool" || message.tool_call_id) continue
-    const content = toAnthropicContent(message.content)
-    if (content === "" || (Array.isArray(content) && content.length === 0)) continue
-    const role = message.role === "assistant" ? "assistant" : "user"
-    const previous = conversationMessages[conversationMessages.length - 1]
-    // 保持 user/assistant 交替：同角色相邻回合必须合并（字符串直接接，
-    // 块数组先提升成 text block 再拼——只处理 string 会留下连续 user 而 400）
-    if (previous && previous.role === role) {
-      previous.content = mergeAnthropicContent(previous.content, content)
+    if (message.role === "system") continue
+
+    // tool 结果 → 收集成 tool_result，等 flush 到 user 回合
+    if (message.role === "tool" || message.tool_call_id) {
+      pendingToolResults.push(toAnthropicToolResultBlock(message))
       continue
     }
-    conversationMessages.push({ role, content })
+
+    // 有 tool_result 待合并时，必须先落一个 user 回合承载它们
+    if (pendingToolResults.length > 0) {
+      const previous = conversationMessages[conversationMessages.length - 1]
+      if (previous && previous.role === "user") {
+        previous.content = mergeAnthropicContent(previous.content, pendingToolResults)
+      } else {
+        conversationMessages.push({ role: "user", content: pendingToolResults })
+      }
+      pendingToolResults = []
+    }
+
+    const content = toAnthropicContent(message.content)
+    const toolUseBlocks =
+      message.role === "assistant" && message.tool_calls?.length
+        ? message.tool_calls.map((call) => ({
+            type: "tool_use",
+            id: call.id ?? `toolu_${call.function.name}`,
+            name: call.function.name,
+            input: toAnthropicToolInput(call.function.arguments),
+          }))
+        : []
+
+    const hasContent = !(content === "" || (Array.isArray(content) && content.length === 0))
+    if (!hasContent && toolUseBlocks.length === 0) continue
+
+    const role = message.role === "assistant" ? "assistant" : "user"
+    // assistant 带 tool_use 时必须是块数组（text + tool_use 可共存）
+    const merged: unknown =
+      toolUseBlocks.length > 0
+        ? [
+            ...(hasContent
+              ? Array.isArray(content)
+                ? content
+                : [{ type: "text", text: content }]
+              : []),
+            ...toolUseBlocks,
+          ]
+        : content
+
+    const previous = conversationMessages[conversationMessages.length - 1]
+    // 保持 user/assistant 交替：同角色相邻回合必须合并
+    if (previous && previous.role === role) {
+      previous.content = mergeAnthropicContent(previous.content, merged)
+      continue
+    }
+    conversationMessages.push({ role, content: merged })
   }
+
+  // 末尾还有未消费的 tool_result（例如最后一条就是工具结果）
+  if (pendingToolResults.length > 0) {
+    const previous = conversationMessages[conversationMessages.length - 1]
+    if (previous && previous.role === "user") {
+      previous.content = mergeAnthropicContent(previous.content, pendingToolResults)
+    } else {
+      conversationMessages.push({ role: "user", content: pendingToolResults })
+    }
+  }
+
   const system =
     systemMessages.map((m) => flattenAnthropicSystem(m.content)).join("\n") ||
     undefined
@@ -539,6 +647,7 @@ function buildAnthropicBody(
     ...(system !== undefined ? { system } : {}),
     stream: true,
     max_tokens: overrides?.max_tokens ?? 4096,
+    ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
     ...(overrides?.temperature !== undefined ? { temperature: overrides.temperature } : {}),
     ...(overrides?.top_p !== undefined ? { top_p: overrides.top_p } : {}),
     ...(overrides?.top_k !== undefined ? { top_k: overrides.top_k } : {}),
@@ -624,6 +733,61 @@ function flattenGoogleSystemParts(content: string | ContentBlock[]): string {
   return content.map((b) => (b.type === "text" ? b.text : "")).join("")
 }
 
+/**
+ * OpenAI 形状的 tools → Gemini functionDeclarations。
+ *   { type:"function", function:{ name, description, parameters } }
+ *   → { name, description, parameters }
+ *
+ * Gemini 要求 parameters 是 OpenAPI 子集；JSON Schema 的 object/properties/required
+ * 与之兼容，但不支持 $schema / additionalProperties 等关键字，需剔除。
+ */
+function toGoogleFunctionDeclarations(tools: unknown[]): unknown[] {
+  const out: unknown[] = []
+  for (const raw of tools) {
+    const t = raw as { type?: string; function?: { name?: string; description?: string; parameters?: Record<string, unknown> } }
+    if (!t?.function?.name) continue
+    const params = t.function.parameters
+    out.push({
+      name: t.function.name,
+      ...(t.function.description ? { description: t.function.description } : {}),
+      ...(params ? { parameters: sanitizeToolSchema(params) } : {}),
+    })
+  }
+  return out
+}
+
+/**
+ * 剔除工具 schema 里各厂商不认的 JSON Schema 关键字（递归）。
+ * Anthropic 与 Gemini 都对完整 JSON Schema 有保留，共用一个清洗器。
+ */
+function sanitizeToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  const DROP = new Set(["$schema", "additionalProperties", "$id", "$ref", "definitions", "$defs"])
+  const walk = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(walk)
+    if (!node || typeof node !== "object") return node
+    const src = node as Record<string, unknown>
+    const out: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(src)) {
+      if (DROP.has(key)) continue
+      out[key] = walk(value)
+    }
+    return out
+  }
+  return walk(schema) as Record<string, unknown>
+}
+
+/** 解析 assistant.tool_calls 的 arguments 字符串成 Gemini 的 args 对象。 */
+function toGoogleArgs(rawArgs: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(rawArgs)
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {}
+  } catch {
+    return {}
+  }
+}
+
 function buildGoogleBody(
   messages: ChatMessage[],
   overrides?: RequestOverrides,
@@ -631,10 +795,37 @@ function buildGoogleBody(
   const systemMessages = messages.filter((m) => m.role === "system")
   const conversationMessages = messages.filter((m) => m.role !== "system")
 
-  const contents = conversationMessages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: toGoogleParts(m.content),
-  }))
+  const contents: Array<{ role: string; parts: unknown[] }> = []
+
+  for (const m of conversationMessages) {
+    // tool 结果 → 单独一个 user 回合，parts 为 functionResponse
+    if (m.role === "tool" || m.tool_call_id) {
+      let response: Record<string, unknown> = { result: typeof m.content === "string" ? m.content : flattenGoogleSystemParts(m.content) }
+      if (typeof m.content === "string") {
+        try {
+          const parsed = JSON.parse(m.content)
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) response = parsed as Record<string, unknown>
+        } catch { /* 非 JSON 就当纯文本结果 */ }
+      }
+      contents.push({
+        role: "user",
+        parts: [{ functionResponse: { name: m.name ?? "unknown", response } }],
+      })
+      continue
+    }
+
+    const parts: unknown[] = [...toGoogleParts(m.content)]
+    // assistant 的 tool_calls → functionCall parts
+    if (m.role === "assistant" && m.tool_calls?.length) {
+      for (const call of m.tool_calls) {
+        parts.push({
+          functionCall: { name: call.function.name, args: toGoogleArgs(call.function.arguments) },
+        })
+      }
+    }
+    if (parts.length === 0) continue
+    contents.push({ role: m.role === "assistant" ? "model" : "user", parts })
+  }
 
   const systemInstruction =
     systemMessages.length > 0
@@ -665,9 +856,14 @@ function buildGoogleBody(
     generationConfig.thinkingConfig = { thinkingBudget: budget }
   }
 
+  const googleTools = overrides?.tools?.length
+    ? [{ functionDeclarations: toGoogleFunctionDeclarations(overrides.tools) }]
+    : []
+
   return {
     contents,
     ...(systemInstruction !== undefined ? { systemInstruction } : {}),
+    ...(googleTools.length > 0 ? { tools: googleTools } : {}),
     ...(Object.keys(generationConfig).length > 0 ? { generationConfig } : {}),
   }
 }
@@ -703,6 +899,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         }),
         parseStream: parseAnthropicLine,
         extractUsage: extractAnthropicUsage,
+        parseToolDelta: parseAnthropicToolDelta,
       }
     }
 
@@ -720,6 +917,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         }),
         parseStream: parseGoogleLine,
         extractUsage: extractGoogleUsage,
+        parseToolDelta: parseGoogleToolDelta,
       }
     }
 
@@ -776,6 +974,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         }),
         parseStream: parseAnthropicLine,
         extractUsage: extractAnthropicUsage,
+        parseToolDelta: parseAnthropicToolDelta,
       }
     }
 

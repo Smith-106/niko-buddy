@@ -29,13 +29,16 @@ interface BuildAgentConfigOptions extends ToolFactoryOptions {
 }
 
 /**
- * 自定义端点的 wire 协议是否具备工具通道。
+ * 该 wire 协议是否具备工具通道。
  *
- * `chat_completions` 与 `responses` 均在 provider 层实现了 tools 转发与流式
- * 工具调用解析；`anthropic_messages` 尚未实现（buildAnthropicBody 不转发 tools，
- * 也不认识 assistant.tool_calls / tool_call_id）。若不断言这里的协议能力，Agent
- * 会带着一份永远不会被执行的工具清单反复空转 —— 这正是「静默退化」的根因，
- * 所以在此显式声明，让上层直接降级为非 Agent 路径。
+ * 三条协议在 provider 层都已实现 tools 转发与流式工具调用解析：
+ *   - `chat_completions` / `responses`：OpenAI 形状
+ *   - `anthropic_messages`：tool_use / tool_result 块（parseAnthropicToolDelta）
+ *
+ * 但对 `custom` + `anthropic_messages` 仍返回 false。原因不是协议不支持，
+ * 而是自定义端点的代理实现质量不可知：若代理不透传 tools，上游会直接 400，
+ * 这比「不注册工具」对用户更糟。内置 anthropic / minimax 不经过这里
+ * （它们不设 apiMode，恒为 undefined），走自己的已验证通道。
  */
 export function apiModeSupportsTools(
   apiMode?: "chat_completions" | "responses" | "anthropic_messages",

@@ -88,21 +88,21 @@ describe("apiMode 工具通道断言（P1-1 静默退化防线）", () => {
 })
 
 /**
- * P0 回归（2026-10-29）：内置 anthropic / google / minimax 三个 provider 会注册工具，
- * 但它们的 body builder 不转发 tools —— Agent 空转一轮后静默退化成单轮 chat。
+ * P0 修复回归（2026-10-29）：内置 anthropic / google / minimax 三个 provider
+ * 曾经会注册工具但 body builder 不转发，Agent 空转一轮后静默退化成单轮 chat。
  *
- * 因果链（已实测）：
- *   preset-resolver.ts:75  apiMode 只在 provider === "custom" 分支赋值
+ * 修复前因果链：
+ *   preset-resolver.ts  apiMode 只在 provider === "custom" 分支赋值
  *     → 这三个 provider 的 apiMode 恒为 undefined
  *     → apiModeSupportsTools(undefined) === true
  *     → buildAgentConfig 注册 23 个工具
  *     → buildAnthropicBody / buildGoogleBody 无 tools 字段
  *     → Agent 拿不到 tool_calls，直接当 finalText 返回
  *
- * 本组测试**钉住当前错误行为**（记录 bug 现状），不是认可它。
- * 修复后这些断言会失败，届时需同步改成「返回 false / 不注册工具」。
+ * 修复方式：给两个 body builder 补原生工具通道 + 各自的 parseToolDelta，
+ * 让「注册了工具」与「工具真能发出去」重新一致。本组断言守住这个一致性。
  */
-describe("P0 回归：内置 provider 的工具通道与 body builder 不一致", () => {
+describe("P0 修复：内置 provider 的工具通道与 body builder 一致", () => {
   const BUILTIN_PROVIDERS_WITHOUT_APIMODE = [
     ["anthropic", "claude-sonnet-4-5"],
     ["google", "gemini-2.5-pro"],
@@ -110,30 +110,20 @@ describe("P0 回归：内置 provider 的工具通道与 body builder 不一致"
   ] as const
 
   it("这三个 provider 的 LlmConfig 不带 apiMode（preset-resolver 只在 custom 分支赋值）", () => {
-    // 用真实形状构造：provider 是内置值，没有 apiMode 字段
     for (const [provider, model] of BUILTIN_PROVIDERS_WITHOUT_APIMODE) {
       const cfg = llmConfig({ provider, model, apiMode: undefined })
       expect(cfg.apiMode, `${provider} 不应有 apiMode`).toBeUndefined()
     }
   })
 
-  it("【bug 现状】apiMode=undefined 被判为「支持工具」", () => {
-    // 这是缺陷的源头：undefined 被当作 chat_completions 处理。
-    // 修复后应改为按 provider 的 body builder 能力推导。
-    expect(apiModeSupportsTools(undefined)).toBe(true)
-  })
-
-  it("【bug 现状】三个内置 provider 的 effectiveToolsEnabled 全为 true", () => {
+  it("三个内置 provider 都注册工具（effectiveToolsEnabled 为 true）", () => {
     for (const [provider, model] of BUILTIN_PROVIDERS_WITHOUT_APIMODE) {
       const cfg = llmConfig({ provider, model, apiMode: undefined })
-      expect(
-        effectiveToolsEnabled(model, cfg),
-        `${provider} 当前被判为支持工具（但 builder 不转发）`,
-      ).toBe(true)
+      expect(effectiveToolsEnabled(model, cfg), `${provider} 应支持工具`).toBe(true)
     }
   })
 
-  it("【bug 现状】buildAgentConfig 为这三个 provider 注册了工具", () => {
+  it("三个内置 provider 都注册了工具，且都配了 parseToolDelta", () => {
     const deps = {
       wikiPath: "C:/demo/wiki",
       projectPath: "C:/demo",
@@ -147,58 +137,133 @@ describe("P0 回归：内置 provider 的工具通道与 body builder 不一致"
         ...deps,
         llmConfig: llmConfig({ provider, model, apiMode: undefined }),
       })
-      expect(
-        cfg.tools.length,
-        `${provider} 注册了 ${cfg.tools.length} 个工具，但 builder 不会转发`,
-      ).toBeGreaterThan(0)
+      expect(cfg.tools.length, `${provider} 应注册工具`).toBeGreaterThan(0)
     }
   })
 })
 
 /**
- * P0 回归（续）：直接验证 body builder 的输出形状。
- *
- * 上面那组证明「工具被注册了」，这组证明「工具没被发出去」——
- * 两者合起来才是完整的 bug 证据链。
- *
- * 同时钉住反面：custom + chat_completions 的 body 确实带 tools，
- * 说明工具通道本身是好的，问题只在内置 provider 的分支。
+ * 修复的核心证据：body builder 必须真的把 tools 发出去。
+ * 这组是「注册了工具」的另一半——只有两边都成立，才不是静默退化。
  */
-describe("P0 回归：body builder 是否真的转发 tools", () => {
-  it("【bug 现状】anthropic 官方 provider 的 body 不含 tools", async () => {
+describe("P0 修复：body builder 真的转发 tools", () => {
+  const sampleTools = [
+    {
+      type: "function",
+      function: {
+        name: "read_file",
+        description: "读文件",
+        parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+      },
+    },
+  ]
+
+  it("anthropic 官方 provider 的 body 含 tools（Anthropic input_schema 形状）", async () => {
     const { getProviderConfig } = await import("../llm-providers")
     const cfg = llmConfig({ provider: "anthropic", model: "claude-sonnet-4-5", apiMode: undefined })
     const pc = getProviderConfig(cfg)
     const body = pc.buildBody(
       [{ role: "user", content: "hi" }] as never,
-      { tools: [{ type: "function", function: { name: "x", description: "d", parameters: {} } }] } as never,
+      { tools: sampleTools } as never,
     ) as Record<string, unknown>
-    expect(body.tools, "anthropic body 当前不含 tools（bug 现状）").toBeUndefined()
-    // 但 messages 是正常构造的，说明 body builder 本身在跑
-    expect(Array.isArray(body.messages)).toBe(true)
+    const tools = body.tools as Array<Record<string, unknown>>
+    expect(Array.isArray(tools)).toBe(true)
+    expect(tools[0].name).toBe("read_file")
+    // Anthropic 用 input_schema 而不是 function.parameters
+    expect(tools[0].input_schema).toBeDefined()
+    expect(tools[0].function).toBeUndefined()
   })
 
-  it("【bug 现状】google provider 的 body 不含 tools", async () => {
+  it("google provider 的 body 含 tools（functionDeclarations 形状）", async () => {
     const { getProviderConfig } = await import("../llm-providers")
     const cfg = llmConfig({ provider: "google", model: "gemini-2.5-pro", apiMode: undefined })
     const pc = getProviderConfig(cfg)
     const body = pc.buildBody(
       [{ role: "user", content: "hi" }] as never,
-      { tools: [{ type: "function", function: { name: "x", description: "d", parameters: {} } }] } as never,
+      { tools: sampleTools } as never,
     ) as Record<string, unknown>
-    expect(body.tools, "google body 当前不含 tools（bug 现状）").toBeUndefined()
-    expect(body.contents ?? body.generationConfig).toBeDefined()
+    const tools = body.tools as Array<Record<string, unknown>>
+    expect(Array.isArray(tools)).toBe(true)
+    const decls = tools[0].functionDeclarations as Array<Record<string, unknown>>
+    expect(Array.isArray(decls)).toBe(true)
+    expect(decls[0].name).toBe("read_file")
   })
 
-  it("【对照组】custom + chat_completions 的 body 确实带 tools（工具通道本身正常）", async () => {
+  it("minimax 走 Anthropic 通道，body 含 tools", async () => {
+    const { getProviderConfig } = await import("../llm-providers")
+    const cfg = llmConfig({ provider: "minimax", model: "minimax-m2", apiMode: undefined })
+    const pc = getProviderConfig(cfg)
+    const body = pc.buildBody(
+      [{ role: "user", content: "hi" }] as never,
+      { tools: sampleTools } as never,
+    ) as Record<string, unknown>
+    expect(Array.isArray(body.tools)).toBe(true)
+  })
+
+  it("三个内置 provider 都配了 parseToolDelta（流里能收到工具意图）", async () => {
+    const { getProviderConfig } = await import("../llm-providers")
+    for (const [provider, model] of [
+      ["anthropic", "claude-sonnet-4-5"],
+      ["google", "gemini-2.5-pro"],
+      ["minimax", "minimax-m2"],
+    ] as const) {
+      const cfg = llmConfig({ provider, model, apiMode: undefined })
+      const pc = getProviderConfig(cfg)
+      expect(pc.parseToolDelta, `${provider} 应有 parseToolDelta`).toBeDefined()
+    }
+  })
+
+  it("【对照组】custom + chat_completions 的 body 仍按原样转发 tools", async () => {
     const { getProviderConfig } = await import("../llm-providers")
     const cfg = llmConfig({ provider: "custom", apiMode: "chat_completions" })
     const pc = getProviderConfig(cfg)
-    const tools = [{ type: "function", function: { name: "x", description: "d", parameters: {} } }]
     const body = pc.buildBody(
       [{ role: "user", content: "hi" }] as never,
-      { tools } as never,
+      { tools: sampleTools } as never,
     ) as Record<string, unknown>
-    expect(body.tools, "custom chat_completions 应转发 tools").toEqual(tools)
+    expect(body.tools).toEqual(sampleTools)
+  })
+})
+
+/**
+ * 工具往返：assistant.tool_calls → 原生工具调用块；tool 结果 → 原生结果块。
+ * 只发 tools 声明而不会回填工具结果，同样会让多轮工具循环断掉。
+ */
+describe("P0 修复：工具往返消息转换", () => {
+  const roundTrip = [
+    { role: "user", content: "读一下 a.md" },
+    {
+      role: "assistant",
+      content: "",
+      tool_calls: [{ id: "call_1", type: "function", function: { name: "read_file", arguments: '{"path":"a.md"}' } }],
+    },
+    { role: "tool", content: "文件内容", tool_call_id: "call_1", name: "read_file" },
+  ] as never
+
+  it("anthropic：tool_calls → tool_use，tool 结果 → user 回合内的 tool_result", async () => {
+    const { getProviderConfig } = await import("../llm-providers")
+    const cfg = llmConfig({ provider: "anthropic", apiMode: undefined })
+    const body = getProviderConfig(cfg).buildBody(roundTrip, {} as never) as Record<string, unknown>
+    const msgs = body.messages as Array<{ role: string; content: unknown }>
+    const flat = JSON.stringify(msgs)
+    expect(flat).toContain("tool_use")
+    expect(flat).toContain("tool_result")
+    expect(flat).toContain("call_1")
+    // tool_result 必须在 user 回合里（Anthropic 硬要求）
+    const last = msgs[msgs.length - 1]
+    expect(last.role).toBe("user")
+  })
+
+  it("google：tool_calls → functionCall，tool 结果 → functionResponse", async () => {
+    const { getProviderConfig } = await import("../llm-providers")
+    const cfg = llmConfig({ provider: "google", apiMode: undefined })
+    const body = getProviderConfig(cfg).buildBody(roundTrip, {} as never) as Record<string, unknown>
+    const contents = body.contents as Array<{ role: string; parts: unknown[] }>
+    const flat = JSON.stringify(contents)
+    expect(flat).toContain("functionCall")
+    expect(flat).toContain("functionResponse")
+    // 工具调用必须挂在 model 回合
+    const modelTurn = contents.find((c) => c.role === "model")
+    expect(JSON.stringify(modelTurn)).toContain("functionCall")
   })
 })
