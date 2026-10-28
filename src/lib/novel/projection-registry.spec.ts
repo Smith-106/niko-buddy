@@ -17,8 +17,14 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 const NOVEL_DIR = resolve(__dirname)
+// W3 拆分后 fold 注册表实现分居两文件：源码扫描型守护必须聚合两处，
+// 否则「硬编码 9 段已收敛」等结构性断言会因搬家而假红（不变量本身未变）。
+const FOLD_REGISTRY_FILE = "chapter-ingest-fold-registry.ts"
 function readSource(): string {
-  return readFileSync(resolve(NOVEL_DIR, "chapter-ingest.ts"), "utf-8")
+  return [
+    readFileSync(resolve(NOVEL_DIR, "chapter-ingest.ts"), "utf-8"),
+    readFileSync(resolve(NOVEL_DIR, FOLD_REGISTRY_FILE), "utf-8"),
+  ].join("\\n")
 }
 
 const fsMocks = vi.hoisted(() => ({

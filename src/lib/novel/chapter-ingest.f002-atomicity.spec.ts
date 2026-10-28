@@ -48,7 +48,12 @@ describe("F-002 ingest atomicity — structural invariants (grep-verifiable)", (
   })
 
   it("chapter-ingest.ts has rebuildFromCommittedSnapshot covering vector+graph (extended rebuild)", () => {
-    const src = readSource("chapter-ingest.ts")
+    // W3 拆分后 rebuildFromCommittedSnapshot 迁至 chapter-ingest-fold-registry.ts，
+    // 不变量（vector+graph 全覆盖）不变，故聚合两文件扫描。
+    const src = [
+      readSource("chapter-ingest.ts"),
+      readSource("chapter-ingest-fold-registry.ts"),
+    ].join("\\n")
     expect(src).toMatch(/rebuildFromCommittedSnapshot/)
     // The extended rebuild covers vector (embedPage) and graph (writeSnapshotToWiki).
     expect(src).toMatch(/async function rebuildFromCommittedSnapshot[\s\S]*embedPage/)
