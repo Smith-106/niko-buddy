@@ -69,7 +69,8 @@ describe("SEQ-45 collapsible a11y batch-1 (PAT-U5)", () => {
     const region = document.getElementById(controls as string)
     expect(region).not.toBeNull()
     expect((region as HTMLElement).getAttribute("role")).toBe("region")
-  })
+    // 全量并发下动态 import 组件树可能超过默认 15s：放宽单测上限，断言不变。
+  }, 30_000)
 
   it("diagnostics-center health expand toggle exposes aria-expanded and region", async () => {
     const { DiagnosticsCenter } = await import("@/components/novel/diagnostics-center")

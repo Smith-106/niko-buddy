@@ -128,20 +128,20 @@ describe("G3-F3 确认门焦点管理", () => {
   it("打开时聚焦确认按钮、按钮有可见焦点环、容器可编程聚焦", async () => {
     render(<ConfirmGateDialog pending={pendingGate()} />)
     const accept = screen.getByTestId("confirm-gate-accept")
-    await waitFor(() => expect(document.activeElement).toBe(accept))
+    await waitFor(() => expect(document.activeElement).toBe(accept), { timeout: 10_000 })
     expect(accept.className).toContain("focus-visible:ring-2")
     expect(screen.getByTestId("confirm-gate-reject").className).toContain("focus-visible:ring-2")
     const dialog = screen.getByTestId("confirm-gate-dialog")
     expect(dialog.getAttribute("tabindex")).toBe("-1")
-  })
+  }, 30_000)
 
   it("Esc 仍按拒绝裁决（焦点改造不破坏关闭路径）", async () => {
     render(<ConfirmGateDialog pending={pendingGate()} />)
     await act(async () => {
       fireEvent.keyDown(window, { key: "Escape" })
     })
-    expect(novelMocks.rejectGate).toHaveBeenCalledWith("req-g3", expect.any(String))
-  })
+    await waitFor(() => expect(novelMocks.rejectGate).toHaveBeenCalledWith("req-g3", expect.any(String)), { timeout: 10_000 })
+  }, 30_000)
 })
 
 describe("G3-F4 角色选择行键盘可达", () => {

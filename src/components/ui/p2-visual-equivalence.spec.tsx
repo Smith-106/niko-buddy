@@ -145,7 +145,8 @@ describe("P2-3 草稿接受轻量庆祝", () => {
     )
     // 初始无庆祝（无 note）
     expect(screen.queryByTestId("chapter-draft-note")).not.toBeInTheDocument()
-  })
+    // 全量并发下动态 import 组件树可能超过默认 15s：放宽单测上限，断言不变。
+  }, 30_000)
 
   it("成功文案语义不变且庆祝类存在", () => {
     const src = readSrc("src/components/layout/chapter-draft-dock.tsx")

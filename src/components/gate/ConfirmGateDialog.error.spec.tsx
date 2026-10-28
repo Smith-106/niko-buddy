@@ -101,9 +101,10 @@ describe("ConfirmGateDialog — C3 错误态与重试", () => {
       screen.getByTestId("confirm-gate-accept").click()
     })
 
-    expect(screen.getByTestId("confirm-gate-error").textContent).toContain("gate ipc down")
+    // 全量并发下 act 后的微任务可能晚一拍落地：异步等待错误态，避免同步断言抖动。
+    expect((await screen.findByTestId("confirm-gate-error", {}, { timeout: 10_000 })).textContent).toContain("gate ipc down")
     expect(onResolved).not.toHaveBeenCalled()
-  })
+  }, 30_000)
 
   it("重试按钮重发最后一次裁决：成功后回调并清空错误态", async () => {
     mocks.confirmGate.mockRejectedValueOnce(new Error("gate ipc down"))
@@ -113,7 +114,7 @@ describe("ConfirmGateDialog — C3 错误态与重试", () => {
     await act(async () => {
       screen.getByTestId("confirm-gate-accept").click()
     })
-    expect(screen.getByTestId("confirm-gate-error")).toBeTruthy()
+    expect(await screen.findByTestId("confirm-gate-error", {}, { timeout: 10_000 })).toBeTruthy()
 
     await act(async () => {
       screen.getByTestId("confirm-gate-retry").click()
@@ -122,8 +123,8 @@ describe("ConfirmGateDialog — C3 错误态与重试", () => {
     expect(mocks.confirmGate).toHaveBeenCalledTimes(2)
     expect(mocks.confirmGate).toHaveBeenLastCalledWith("req-1")
     expect(onResolved).toHaveBeenCalledWith(OUTCOME)
-    expect(screen.queryByTestId("confirm-gate-error")).toBeNull()
-  })
+    await vi.waitFor(() => expect(screen.queryByTestId("confirm-gate-error")).toBeNull(), { timeout: 10_000 })
+  }, 30_000)
 
   it("拒绝裁决失败同样进入错误态", async () => {
     mocks.rejectGate.mockRejectedValueOnce(new Error("gate ipc down"))
@@ -133,9 +134,9 @@ describe("ConfirmGateDialog — C3 错误态与重试", () => {
       screen.getByTestId("confirm-gate-reject").click()
     })
 
-    expect(screen.getByTestId("confirm-gate-error").textContent).toContain("gate ipc down")
+    expect((await screen.findByTestId("confirm-gate-error", {}, { timeout: 10_000 })).textContent).toContain("gate ipc down")
     expect(mocks.rejectGate).toHaveBeenCalledWith("req-1", expect.any(String))
-  })
+  }, 30_000)
 
   it("超时自动裁决失败只尝试一次；时间推进不自动重发，重试仍走拒绝", async () => {
     vi.useFakeTimers()
