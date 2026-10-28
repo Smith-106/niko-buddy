@@ -235,6 +235,61 @@ export const MAX_SCORE_MULTIPLIER = 1 + KEYWORD_SCORE_RATIO
 export const NEGATED_OPENING_RE =
   /(?:不要|别|禁止|避免|勿|不用|不需)[^。！？\n]{0,12}(?:第一章|第\s*1\s*章|开篇章节|小说开头|开篇|开局|首章)/
 
+/**
+ * ISS-20260709-007 统一否定守卫：否定词表单一真源。
+ * NEGATED_OPENING_RE 与 isNegatedBefore 共用同一组否定词，不另建清单。
+ */
+export const NEGATION_WORD_RE = /(?:不要|不需要|不用|不必|无需|禁止|避免|勿|别)/
+
+/**
+ * 判定 `index` 位置上的触发词是否被否定（同一小句内前置否定）。
+ *
+ * 以标点/换行为小句边界：`不要重复第一章的内容，继续写` 中的“继续写”不被否定。
+ * 窗口上限 12 字，避免跨短语误伤（如“不要担心，直接写第一章”仍算非否定）。
+ */
+export function isNegatedBefore(text: string, index: number): boolean {
+  const start = Math.max(0, index - 12)
+  const window = text.slice(start, index)
+  const boundary = Math.max(
+    window.lastIndexOf("，"),
+    window.lastIndexOf(","),
+    window.lastIndexOf("。"),
+    window.lastIndexOf("."),
+    window.lastIndexOf("；"),
+    window.lastIndexOf(";"),
+    window.lastIndexOf("！"),
+    window.lastIndexOf("？"),
+    window.lastIndexOf("\n"),
+  )
+  const clause = boundary >= 0 ? window.slice(boundary + 1) : window
+  return NEGATION_WORD_RE.test(clause)
+}
+
+/**
+ * 触发词是否至少有一处未被否定（ISS-20260709-007）。
+ *
+ * 逐处判定而非“整句含否定词”：`别写第2章，写第3章` 中第 3 章那处未否定，
+ * 因此仍是写章请求；`不要写第2章` 两处全被否定，才抑制该意图。
+ */
+export function hasUnnegatedPatternMatch(text: string, pattern: RegExp): boolean {
+  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`
+  for (const match of text.matchAll(new RegExp(pattern.source, flags))) {
+    if (match.index !== undefined && !isNegatedBefore(text, match.index)) return true
+  }
+  return false
+}
+
+/** 关键词版本（`includes` 等价语义，逐处判定否定）。 */
+export function hasUnnegatedKeyword(text: string, keyword: string): boolean {
+  if (!keyword) return false
+  let index = text.indexOf(keyword)
+  while (index >= 0) {
+    if (!isNegatedBefore(text, index)) return true
+    index = text.indexOf(keyword, index + 1)
+  }
+  return false
+}
+
 /** 真值守卫：去空白后非空即为有效指令（与 `if (!trimmed)` 等价，收敛三处重复）。 */
 export function hasTruthyText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0
@@ -277,17 +332,17 @@ export function routeTask(userInput: string): TaskRouteResult {
   for (const intentDef of INTENT_PATTERNS) {
     let score = 0
 
-    // 正则匹配
+    // 正则匹配（ISS-20260709-007：逐处否定守卫，全被否定的触发词不计分）
     for (const pattern of intentDef.patterns) {
-      if (pattern.test(trimmed)) {
+      if (hasUnnegatedPatternMatch(trimmed, pattern)) {
         score += intentDef.weight
         break
       }
     }
 
-    // 关键词匹配（ISS-20260709-006：1.6 倍率收敛到 KEYWORD_SCORE_RATIO）。
+    // 关键词匹配（ISS-20260709-006：1.6 倍率收敛到 KEYWORD_SCORE_RATIO；007 同守卫）
     for (const keyword of intentDef.keywords) {
-      if (trimmed.includes(keyword)) {
+      if (hasUnnegatedKeyword(trimmed, keyword)) {
         score += intentDef.weight * KEYWORD_SCORE_RATIO
         break
       }
@@ -335,6 +390,10 @@ function extractChapterNumber(text: string): number | undefined {
 
   const openingChapterNumber = extractOpeningChapterNumber(text)
   if (hasChapterNumber(openingChapterNumber)) return openingChapterNumber
+
+  // ISS-20260709-007：优先取未被否定的章节号（“不要写第1章，写第5章” → 5）。
+  const unnegatedChapterNumber = firstUnnegatedChapterNumber(text)
+  if (hasChapterNumber(unnegatedChapterNumber)) return unnegatedChapterNumber
 
   for (const pattern of CHAPTER_NUMBER_PATTERNS) {
     const match = text.match(pattern)
@@ -399,7 +458,7 @@ function isOpeningChapterRequest(text: string): boolean {
     /小说开头/,
     /(生成|写|创作|撰写)\s*(第二章|第\s*2\s*章|第\s*二\s*章)/,
     /(生成|写|创作|撰写)\s*(第三章|第\s*3\s*章|第\s*三\s*章)/,
-  ].some((pattern) => pattern.test(text))) {
+  ].some((pattern) => hasUnnegatedPatternMatch(text, pattern))) {
     return true
   }
   return isAmbientOpeningKeywordRequest(text)
@@ -409,14 +468,36 @@ function extractOpeningChapterNumber(text: string): number | undefined {
   /* v8 ignore next */
   if (hasNextChapterContinuationWording(text)) return undefined
   if (hasExplicitLaterChapterNumber(text)) return undefined
-  const digitMatch = text.match(/第\s*([123])\s*章/)
-  if (digitMatch) return Number(digitMatch[1])
-  if (/首章|第一章|第\s*1\s*章|开篇章节|小说开头|生成前三章|写前三章|黄金三章/.test(text)) {
+  // ISS-20260709-007：逐处否定守卫——“别写第2章，写第3章”不得取被否定的第2章。
+  for (const match of text.matchAll(/第\s*([123])\s*章/g)) {
+    if (match.index !== undefined && isNegatedBefore(text, match.index)) continue
+    return Number(match[1])
+  }
+  if (hasUnnegatedPatternMatch(text, /首章|第一章|第\s*1\s*章|开篇章节|小说开头|生成前三章|写前三章|黄金三章/)) {
     return 1
   }
-  if (/第二章|第\s*二\s*章/.test(text)) return 2
-  if (/第三章|第\s*三\s*章/.test(text)) return 3
+  if (hasUnnegatedPatternMatch(text, /第二章|第\s*二\s*章/)) return 2
+  if (hasUnnegatedPatternMatch(text, /第三章|第\s*三\s*章/)) return 3
   if (isAmbientOpeningKeywordRequest(text)) return 1
+  return undefined
+}
+
+/**
+ * ISS-20260709-007：取第一个未被否定的章节号。
+ *
+ * “不要写第1章，写第5章” → 5；全被否定时返回 undefined（交由后续兜底）。
+ */
+function firstUnnegatedChapterNumber(text: string): number | undefined {
+  for (const pattern of CHAPTER_NUMBER_PATTERNS) {
+    const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`
+    for (const match of text.matchAll(new RegExp(pattern.source, flags))) {
+      if (match.index === undefined || isNegatedBefore(text, match.index)) continue
+      const raw = match[1]
+      if (!raw) continue
+      const num = /^\d+$/.test(raw) ? Number(raw) : parseChineseChapterNumber(raw)
+      if (Number.isFinite(num) && num > 0) return num
+    }
+  }
   return undefined
 }
 

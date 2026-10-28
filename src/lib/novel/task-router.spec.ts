@@ -73,10 +73,19 @@ describe("routeTask fallbacks / openings / chapter extraction", () => {
     expect(route.confidence).toBe(0.5)
   })
   it("does not treat negated opening directives as opening requests (CORR-005)", () => {
-    // “不要写第一章”命中 write_chapter 关键词但置信度低（非开篇请求 confidence 1）
+    // ISS-20260709-007：否定守卫从仅阻断开篇短路升级为逐处否定过滤——
+    // 完全被否定的写章触发词不再计分，整句不再误路由为 write_chapter。
     const route = routeTask("不要写第一章")
+    expect(route.intent).toBe("general_chat")
+    expect(route.chapterNumber).toBeUndefined()
+  })
+
+  it("keeps the unnegated chapter when a negated one is mentioned first (ISS-20260709-007)", () => {
+    // “别写第2章，写第3章”：第2章被否定，目标章应为 3。
+    const route = routeTask("别写第2章，写第3章")
     expect(route.intent).toBe("write_chapter")
-    expect(route.confidence).toBeLessThan(1)
+    expect(route.chapterNumber).toBe(3)
+    expect(routeTask("不要写第2章").intent).toBe("general_chat")
   })
 
   it("keeps an incidental 第一章 mention as the chapter target when not a next-chapter prompt", () => {
