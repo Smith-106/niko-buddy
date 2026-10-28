@@ -33,6 +33,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 
 import {
   __resetTemporalFactsCacheForTests,
+  loadAllSnapshots,
   loadTemporalFactsCached,
 } from "./context-engine-temporal"
 
@@ -85,5 +86,45 @@ describe("ISS-20260709-030 cold-cache singleflight单次构建", () => {
     expect(chapterIngestMocks.loadSnapshot).toHaveBeenCalledTimes(2)
     expect(first).toBe(second)
     expect(first.length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * ISS-20260709-030 第二层：同一次 buildContextPack 里 relatedChapters 与
+ * temporal facts 各自调 loadAllSnapshots，同批 snapshot 只应 readFile 一次。
+ */
+describe("ISS-20260709-030 loadAllSnapshots in-flight 去重", () => {
+  beforeEach(() => {
+    __resetTemporalFactsCacheForTests()
+    chapterIngestMocks.loadSnapshot.mockReset()
+    chapterIngestMocks.listSnapshots.mockReset()
+    fsMocks.listDirectory.mockReset()
+    fsMocks.getFileModifiedTime.mockReset()
+    fsMocks.readFile.mockReset()
+  })
+
+  it("并发两次 loadAllSnapshots 共享一次 list+load", async () => {
+    chapterIngestMocks.listSnapshots.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 20))
+      return [1, 2, 3]
+    })
+    chapterIngestMocks.loadSnapshot.mockImplementation(async (_pp: string, n: number) => makeSnapshot(n))
+
+    const [a, b] = await Promise.all([loadAllSnapshots("/P"), loadAllSnapshots("/P")])
+
+    expect(a).toHaveLength(3)
+    expect(b).toHaveLength(3)
+    expect(chapterIngestMocks.listSnapshots).toHaveBeenCalledTimes(1)
+    expect(chapterIngestMocks.loadSnapshot).toHaveBeenCalledTimes(3)
+  })
+
+  it("settle 后释放 in-flight，后续调用重新加载（不引入持久缓存）", async () => {
+    chapterIngestMocks.listSnapshots.mockResolvedValue([1])
+    chapterIngestMocks.loadSnapshot.mockImplementation(async (_pp: string, n: number) => makeSnapshot(n))
+
+    await loadAllSnapshots("/P")
+    await loadAllSnapshots("/P")
+
+    expect(chapterIngestMocks.listSnapshots).toHaveBeenCalledTimes(2)
   })
 })

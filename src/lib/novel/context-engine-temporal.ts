@@ -77,6 +77,14 @@ export function setTemporalFactsCache(pp: string, entry: { latestRevision: strin
  */
 const temporalFactsInFlight = new Map<string, Promise<TemporalFact[]>>()
 
+/**
+ * ISS-20260709-030（F-004）第二层：snapshot 全量加载的 in-flight 去重。
+ * 同一次 buildContextPack 里 relatedChapters 与 temporal facts 各自调
+ * loadAllSnapshots，两者共享同一次 list+load，避免同批 snapshot 读两遍。
+ * 不持久化，settle 即删。
+ */
+const snapshotsInFlight = new Map<string, Promise<ChapterSnapshot[]>>()
+
 export function __getTemporalFactsInFlightSizeForTests(): number {
   return temporalFactsInFlight.size
 }
@@ -247,11 +255,13 @@ export function clearTemporalFactsCache(projectPath?: string): void {
   if (projectPath === undefined) {
     temporalFactsCache.clear()
     temporalFactsInFlight.clear()
+    snapshotsInFlight.clear()
     return
   }
   const pp = normalizePath(projectPath)
   temporalFactsCache.delete(pp)
   temporalFactsInFlight.delete(pp)
+  snapshotsInFlight.delete(pp)
 }
 
 /**
@@ -267,10 +277,26 @@ export function __resetTemporalFactsCacheForTests(): void {
  * TASK-004: load every committed snapshot for the temporal-memory fold.
  * Uses listSnapshots + loadSnapshot (already imported). Returns an empty
  * array on failure so the temporal block is skipped (backward compatible).
+ *
+ * ISS-20260709-030（F-004）：cold-cache 单次 buildContextPack 会同时触发
+ * relatedChapters（loadAllSnapshots）与 temporal facts（loadAllSnapshots）
+ * 两条全量加载链，同批 snapshot 被 readFile 两次（100 章项目 = N×2 IPC）。
+ * 这里做 **in-flight 去重**：并发同项目共享同一次加载，settle 后立即释放，
+ * 不做持久缓存 —— 不引入陈旧风险，也不改变任何调用方的时序语义。
  */
 export async function loadAllSnapshots(projectPath: string): Promise<ChapterSnapshot[]> {
   const pp = normalizePath(projectPath)
-  const numbers = await listSnapshots(pp)
-  const loaded = await Promise.all(numbers.map((n) => loadSnapshot(pp, n)))
-  return loaded.filter((s): s is ChapterSnapshot => Boolean(s))
+  const inFlight = snapshotsInFlight.get(pp)
+  if (inFlight) return inFlight
+  const load = (async (): Promise<ChapterSnapshot[]> => {
+    const numbers = await listSnapshots(pp)
+    const loaded = await Promise.all(numbers.map((n) => loadSnapshot(pp, n)))
+    return loaded.filter((s): s is ChapterSnapshot => Boolean(s))
+  })()
+  snapshotsInFlight.set(pp, load)
+  try {
+    return await load
+  } finally {
+    if (snapshotsInFlight.get(pp) === load) snapshotsInFlight.delete(pp)
+  }
 }
