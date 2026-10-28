@@ -499,7 +499,7 @@ export function SidebarPanel() {
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-7 px-2 text-xs gap-1 text-purple-600 dark:text-purple-400 border-purple-500/30 hover:bg-purple-500/10"
+                className="h-7 px-2 text-xs gap-1 text-kind-purple dark:text-kind-purple border-kind-purple/30 hover:bg-kind-purple/10"
                 onClick={() => setIncubatorOpen(true)}
                 title="全自动小说冷启动孵化器"
                 aria-label="全自动小说冷启动孵化器"

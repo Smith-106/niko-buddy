@@ -258,11 +258,11 @@ interface CitedPage {
 
 const REF_TYPE_CONFIG: Record<string, { icon: typeof FileText; color: string }> = {
   entity: { icon: Users, color: "text-info" },
-  concept: { icon: Lightbulb, color: "text-purple-500" },
-  source: { icon: BookOpen, color: "text-orange-500" },
+  concept: { icon: Lightbulb, color: "text-kind-purple" },
+  source: { icon: BookOpen, color: "text-kind-orange" },
   query: { icon: HelpCircle, color: "text-success" },
   synthesis: { icon: GitMerge, color: "text-destructive" },
-  comparison: { icon: BarChart3, color: "text-teal-500" },
+  comparison: { icon: BarChart3, color: "text-kind-teal" },
   overview: { icon: Layout, color: "text-warning" },
   clip: { icon: Globe, color: "text-info" },
 }

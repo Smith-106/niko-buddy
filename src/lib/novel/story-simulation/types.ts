@@ -600,7 +600,7 @@ export const MODE_VISUAL_INFO: Record<SimulationMode, ModeVisualInfo> = {
     roundsLabel: "较多 (1.5x)",
     randomnessLabel: "高 (25%)",
     freedomLabel: "高",
-    color: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",
+    color: "bg-kind-purple text-kind-purple dark:bg-kind-purple dark:text-kind-purple",
     icon: "🌊",
   },
   "decision-tree": {

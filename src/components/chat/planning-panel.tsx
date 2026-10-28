@@ -35,7 +35,7 @@ const ARC_STATE_STYLES: Record<string, string> = {
   Rising: "bg-accent/10 text-accent",
   Setup: "bg-muted text-muted-foreground",
   Resolved: "bg-success/10 text-success",
-  Unresolved: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
+  Unresolved: "bg-kind-purple/10 text-kind-purple dark:text-kind-purple",
 }
 
 /**

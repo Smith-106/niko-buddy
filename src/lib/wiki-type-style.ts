@@ -50,8 +50,8 @@ export const WIKI_TYPE_STYLES: Record<string, WikiTypeStyle> = {
   source: {
     label: "Source",
     icon: FileText,
-    chipClass: "bg-slate-500/15 text-slate-700 dark:text-slate-300",
-    dotClass: "bg-slate-500",
+    chipClass: "bg-kind-slate/15 text-kind-slate dark:text-kind-slate",
+    dotClass: "bg-kind-slate",
   },
   thesis: {
     label: "Thesis",
@@ -62,32 +62,32 @@ export const WIKI_TYPE_STYLES: Record<string, WikiTypeStyle> = {
   finding: {
     label: "Finding",
     icon: TrendingUp,
-    chipClass: "bg-purple-500/15 text-purple-700 dark:text-purple-300",
-    dotClass: "bg-purple-500",
+    chipClass: "bg-kind-purple/15 text-kind-purple dark:text-kind-purple",
+    dotClass: "bg-kind-purple",
   },
   event: {
     label: "Event",
     icon: Calendar,
-    chipClass: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300",
-    dotClass: "bg-cyan-500",
+    chipClass: "bg-kind-cyan/15 text-kind-cyan dark:text-kind-cyan",
+    dotClass: "bg-kind-cyan",
   },
   overview: {
     label: "Overview",
     icon: BookOpen,
-    chipClass: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300",
-    dotClass: "bg-indigo-500",
+    chipClass: "bg-kind-indigo/15 text-kind-indigo dark:text-kind-indigo",
+    dotClass: "bg-kind-indigo",
   },
   chapter: {
     label: "Chapter",
     icon: BookOpen,
-    chipClass: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
-    dotClass: "bg-indigo-500",
+    chipClass: "bg-kind-indigo text-kind-indigo dark:bg-kind-indigo dark:text-kind-indigo",
+    dotClass: "bg-kind-indigo",
   },
   outline: {
     label: "Outline",
     icon: FileText,
-    chipClass: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200",
-    dotClass: "bg-cyan-500",
+    chipClass: "bg-kind-cyan text-kind-cyan dark:bg-kind-cyan dark:text-kind-cyan",
+    dotClass: "bg-kind-cyan",
   },
 }
 

@@ -864,7 +864,7 @@ export function ReviewView({
               </span>
               <span className={`rounded px-2 py-0.5 text-xs ${
                 dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull"
-                  ? "border border-violet-600/40 text-violet-700 dark:text-violet-300"
+                  ? "border border-kind-violet/40 text-kind-violet dark:text-kind-violet"
                   : "border border-success/40 text-success"
               }`}>
                 {dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull"

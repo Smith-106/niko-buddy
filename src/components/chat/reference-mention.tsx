@@ -14,7 +14,7 @@ import { isImeComposing } from "@/lib/keyboard-utils"
 const KIND_STYLES: Record<string, string> = {
   character: "border-info/40 bg-info/10 text-info",
   chapter: "border-success/40 bg-success/10 text-success",
-  setting: "border-purple-500/40 bg-purple-500/10 text-purple-600 dark:text-purple-400",
+  setting: "border-kind-purple/40 bg-kind-purple/10 text-kind-purple dark:text-kind-purple",
 }
 
 const KIND_LABELS: Record<string, string> = {

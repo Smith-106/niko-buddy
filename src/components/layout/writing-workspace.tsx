@@ -255,10 +255,10 @@ export function WritingWorkspace() {
         <button
           type="button"
           data-testid="workspace-tools-toggle-campaign"
-          className="inline-flex items-center gap-1.5 rounded border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs font-medium text-orange-600 hover:bg-orange-500/20 dark:text-orange-400"
+          className="inline-flex items-center gap-1.5 rounded border border-kind-orange/30 bg-kind-orange/10 px-2 py-1 text-xs font-medium text-kind-orange hover:bg-kind-orange/20"
           onClick={() => setCampaignOpen(true)}
         >
-          <Flame className="h-3 w-3 text-orange-500" />
+          <Flame className="h-3 w-3 text-kind-orange" />
           <span>长程战役调度</span>
         </button>
         <button

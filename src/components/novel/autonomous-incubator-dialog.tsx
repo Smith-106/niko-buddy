@@ -146,7 +146,7 @@ export function AutonomousIncubatorDialog({
       <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-6">
         <DialogHeader>
           <div className="flex items-center gap-2">
-            <Wand2 className="h-5 w-5 text-purple-500" />
+            <Wand2 className="h-5 w-5 text-kind-purple" />
             <DialogTitle>全自动小说冷启动孵化器</DialogTitle>
           </div>
           <DialogDescription>
@@ -241,8 +241,8 @@ export function AutonomousIncubatorDialog({
 
             {/* 进度显示区 */}
             {isRunning && (
-              <div className="flex flex-col gap-2 p-3 rounded-lg border bg-purple-500/5 border-purple-500/20">
-                <div className="flex items-center justify-between text-xs text-purple-600 dark:text-purple-400 font-medium">
+              <div className="flex flex-col gap-2 p-3 rounded-lg border bg-kind-purple/5 border-kind-purple/20">
+                <div className="flex items-center justify-between text-xs text-kind-purple dark:text-kind-purple font-medium">
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     <span>{progressMessage}</span>
@@ -261,7 +261,7 @@ export function AutonomousIncubatorDialog({
                           isDone
                             ? "bg-success/10 text-success border-success/40"
                             : isCurrent
-                              ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30 animate-pulse"
+                              ? "bg-kind-purple/10 text-kind-purple dark:text-kind-purple border-kind-purple/30 animate-pulse"
                               : "bg-muted/30 text-muted-foreground border-border/40"
                         }`}
                       >
@@ -340,9 +340,9 @@ export function AutonomousIncubatorDialog({
             </div>
 
             {result.campaign && (
-              <div className="p-3 rounded border bg-orange-500/10 border-orange-500/20 text-orange-700 dark:text-orange-300 flex items-center justify-between">
+              <div className="p-3 rounded border bg-kind-orange/10 border-kind-orange/20 text-kind-orange flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Flame className="h-4 w-4 text-orange-500" />
+                  <Flame className="h-4 w-4 text-kind-orange" />
                   <span>战役全自动巡航已完成第 1 至 {result.campaign.completedChapters} 章正文起草与事实库双写</span>
                 </div>
                 <span className="font-mono font-semibold">{result.campaign.totalWords.toLocaleString()} 字</span>
@@ -368,7 +368,7 @@ export function AutonomousIncubatorDialog({
                 size="sm"
                 disabled={isRunning || !idea.trim()}
                 onClick={handleStart}
-                className="gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:from-purple-700 hover:to-indigo-700"
+                className="gap-1.5 bg-gradient-to-r from-kind-purple to-kind-indigo text-white hover:from-kind-purple hover:to-kind-indigo"
               >
                 {isRunning ? (
                   <>

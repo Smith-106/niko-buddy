@@ -390,7 +390,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
             type="button"
             data-testid="motion-replay-toggle"
             onClick={toggleReplay}
-            className="ml-auto rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-300 hover:bg-muted"
+            className="ml-auto rounded border border-kind-slate px-2 py-0.5 text-xs text-kind-slate hover:bg-muted"
           >
             {finished ? "↻ 重新回放 / 退出" : replaying ? "■ 停止回放" : "▶ 流程回放 / 步進演示"}
           </button>
@@ -577,7 +577,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
                 <span className="truncate" style={{ color: logToneColor(entry.tone) }}>
                   {entry.label}
                 </span>
-                <span className="ml-auto shrink-0 text-slate-600">{phaseGroup(entry.label)}</span>
+                <span className="ml-auto shrink-0 text-kind-slate">{phaseGroup(entry.label)}</span>
               </li>
             ))}
           </ul>
@@ -585,8 +585,8 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
         {/* CLI 命令狀態欄：提示符 + 階段膠囊條 */}
         <div data-testid="motion-status" className="mt-1 flex flex-wrap items-center gap-1.5 rounded bg-black/40 px-2 py-1.5 text-xs text-muted-foreground">
           <span className="text-success">$</span>
-          <span className="text-slate-300">niko-buddy pipeline --live</span>
-          <span className="text-slate-600">|</span>
+          <span className="text-kind-slate">niko-buddy pipeline --live</span>
+          <span className="text-kind-slate">|</span>
           <span className="text-muted-foreground">階段</span>
           {STAGE_CAPSULES.map((cap) => {
             const active = currentNode?.id === cap.id

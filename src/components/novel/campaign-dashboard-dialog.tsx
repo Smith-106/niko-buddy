@@ -218,7 +218,7 @@ export function CampaignDashboardDialog({
       <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-6">
         <DialogHeader>
           <div className="flex items-center gap-2">
-            <Flame className="h-5 w-5 text-orange-500" />
+            <Flame className="h-5 w-5 text-kind-orange" />
             <DialogTitle>长程战役调度工作台 (Autonomous Campaign Runner)</DialogTitle>
           </div>
           <DialogDescription>
@@ -398,7 +398,7 @@ export function CampaignDashboardDialog({
                 variant="default"
                 size="sm"
                 onClick={handleStartCampaign}
-                className="gap-1.5 bg-orange-600 hover:bg-orange-700 text-white"
+                className="gap-1.5 bg-kind-orange hover:opacity-90 text-white"
               >
                 <Flame className="h-4 w-4 shrink-0" />
                 启动战役

@@ -310,3 +310,41 @@ describe("P2-9 响应式断点 + Label htmlFor + 长列表虚拟化", () => {
     })
   })
 })
+
+describe("P2-1b 分类色板 token（ISS-20260712-005 A 类 sweep 收口）", () => {
+  it("index.css 定义 kind-* 分类 token 并在四个主题各给值", () => {
+    const css = readSrc("src/index.css")
+    for (const token of ["purple", "cyan", "indigo", "violet", "teal", "orange", "slate"]) {
+      expect(css).toContain(`--color-kind-${token}: var(--kind-${token});`)
+      // 四主题（:root / .dark / .deep-blue / .eye-care）各自必须给值，否则某主题下标签会失色
+      const defs = css.split(`--kind-${token}:`).length - 1
+      expect(defs, `--kind-${token} 主题定义数`).toBeGreaterThanOrEqual(4)
+    }
+  })
+
+  it("非测试源码不再含裸色阶（含 kind/orange 已收敛）", () => {
+    const bare = /\b(?:text|bg|border|ring|from|to|via)-(?:purple|orange|teal|indigo|pink|cyan|lime|amber|emerald|violet|fuchsia|rose|red|green|yellow|blue|sky|slate)-\d{2,3}\b/
+    const files = [
+      "src/lib/wiki-type-style.ts",
+      "src/components/chat/chat-message.tsx",
+      "src/components/chat/planning-panel.tsx",
+      "src/components/chat/reference-mention.tsx",
+      "src/components/layout/writing-workspace.tsx",
+      "src/components/layout/sidebar-panel.tsx",
+      "src/components/layout/review-center-sidebar-panel.tsx",
+      "src/components/novel/autonomous-incubator-dialog.tsx",
+      "src/components/novel/campaign-dashboard-dialog.tsx",
+      "src/components/novel/pipeline-motion-panel.tsx",
+      "src/components/review/review-view.tsx",
+      "src/components/novel/story-simulation/framework-confirm-panel.tsx",
+      "src/lib/novel/story-simulation/types.ts",
+    ]
+    for (const rel of files) {
+      const code = readSrc(rel)
+        .split("\n")
+        .filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*"))
+        .join("\n")
+      expect(code, rel).not.toMatch(bare)
+    }
+  })
+})

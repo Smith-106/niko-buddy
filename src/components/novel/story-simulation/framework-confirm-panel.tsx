@@ -39,7 +39,7 @@ const PHASE_STYLES: Record<StoryNode["phase"], string> = {
   起: "bg-success/15 text-success",
   承: "bg-info/15 text-info",
   转: "bg-warning/15 text-warning",
-  合: "bg-purple-500/15 text-purple-600 dark:text-purple-400",
+  合: "bg-kind-purple/15 text-kind-purple dark:text-kind-purple",
 };
 
 export function FrameworkConfirmPanel({

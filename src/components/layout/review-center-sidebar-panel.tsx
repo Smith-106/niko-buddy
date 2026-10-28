@@ -254,7 +254,7 @@ export function ReviewCenterSidebarPanel() {
           ) : (
             <>
               <div className="mb-1 flex flex-wrap gap-1 px-1 text-xs">
-                <span className="rounded border border-violet-600/30 px-1.5 py-0.5 text-violet-700 dark:text-violet-300">
+                <span className="rounded border border-kind-violet/30 px-1.5 py-0.5 text-kind-violet dark:text-kind-violet">
                   Track B · soft
                 </span>
                 {thrilLiveStatus.fix1Blocked && (
@@ -407,8 +407,8 @@ export function ReviewCenterSidebarPanel() {
             </div>
           </div>
           <div className="mb-1">
-            <div className="px-1 mb-1 flex items-center gap-1.5 text-xs font-medium text-violet-700 dark:text-violet-400">
-              <span className="rounded border border-violet-600/40 px-1 py-0.5">{t("reviewCenter.trackBBadge")}</span>
+            <div className="px-1 mb-1 flex items-center gap-1.5 text-xs font-medium text-kind-violet dark:text-kind-violet">
+              <span className="rounded border border-kind-violet/40 px-1 py-0.5">{t("reviewCenter.trackBBadge")}</span>
               <span className="text-muted-foreground font-normal">{t("reviewCenter.trackBHint")}</span>
             </div>
             <div className="space-y-1">

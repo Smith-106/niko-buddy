@@ -133,6 +133,14 @@
     --color-warning: var(--warning);
     --color-success: var(--success);
     --color-info: var(--info);
+    /* 分类色板（非语义）：kind/type 标签与阶段标识使用，避免散落裸色阶 */
+    --color-kind-purple: var(--kind-purple);
+    --color-kind-cyan: var(--kind-cyan);
+    --color-kind-indigo: var(--kind-indigo);
+    --color-kind-violet: var(--kind-violet);
+    --color-kind-teal: var(--kind-teal);
+    --color-kind-orange: var(--kind-orange);
+    --color-kind-slate: var(--kind-slate);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -192,6 +200,13 @@
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: oklch(0.556 0 0);
+    --kind-purple: oklch(0.496 0.265 301.924);
+    --kind-cyan: oklch(0.52 0.105 223.128);
+    --kind-indigo: oklch(0.457 0.24 277.023);
+    --kind-violet: oklch(0.491 0.27 292.581);
+    --kind-teal: oklch(0.511 0.096 186.391);
+    --kind-orange: oklch(0.553 0.195 38.402);
+    --kind-slate: oklch(0.446 0.043 257.281);
 }
 
 .dark {
@@ -229,6 +244,13 @@
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
+    --kind-purple: oklch(0.827 0.119 306.383);
+    --kind-cyan: oklch(0.865 0.127 207.078);
+    --kind-indigo: oklch(0.785 0.115 274.713);
+    --kind-violet: oklch(0.811 0.111 293.571);
+    --kind-teal: oklch(0.855 0.138 181.071);
+    --kind-orange: oklch(0.837 0.128 66.29);
+    --kind-slate: oklch(0.869 0.022 252.894);
 }
 
 /* 深蓝护眼主题 */
@@ -267,6 +289,13 @@
     --sidebar-accent-foreground: oklch(0.95 0.02 230);
     --sidebar-border: oklch(0.32 0.06 235);
     --sidebar-ring: oklch(0.55 0.12 238);
+    --kind-purple: oklch(0.827 0.119 306.383);
+    --kind-cyan: oklch(0.865 0.127 207.078);
+    --kind-indigo: oklch(0.785 0.115 274.713);
+    --kind-violet: oklch(0.811 0.111 293.571);
+    --kind-teal: oklch(0.855 0.138 181.071);
+    --kind-orange: oklch(0.837 0.128 66.29);
+    --kind-slate: oklch(0.869 0.022 252.894);
 }
 
 /* 暖纸护眼主题（日间）：暖纸底 + 暖墨字，降蓝光，正文/次要文字对比仍达 AA */
@@ -305,6 +334,13 @@
     --sidebar-accent-foreground: oklch(0.32 0.02 70);
     --sidebar-border: oklch(0.86 0.02 85);
     --sidebar-ring: oklch(0.46 0.04 75);
+    --kind-purple: oklch(0.45 0.24 301.9);
+    --kind-cyan: oklch(0.47 0.1 223.1);
+    --kind-indigo: oklch(0.42 0.22 277);
+    --kind-violet: oklch(0.45 0.25 292.6);
+    --kind-teal: oklch(0.47 0.09 186.4);
+    --kind-orange: oklch(0.5 0.18 38.4);
+    --kind-slate: oklch(0.4 0.04 257.3);
 }
 
 @layer base {
