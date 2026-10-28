@@ -19,8 +19,8 @@ import {
   parseOpenAiLine,
   parseOpenAiToolDelta,
 } from "@/lib/llm-stream-parsers"
-import type { StreamToolCallDelta } from "@/lib/llm-stream-parsers"
-export type { StreamToolCallDelta } from "@/lib/llm-stream-parsers"
+import type { StreamToolCallDelta, StreamUsage } from "@/lib/llm-stream-parsers"
+export type { StreamToolCallDelta, StreamUsage } from "@/lib/llm-stream-parsers"
 
 export type ContentBlock =
   | { type: "text"; text: string; cacheControl?: boolean }
@@ -60,7 +60,7 @@ interface ProviderConfig {
   headers: Record<string, string>
   buildBody: (messages: ChatMessage[], overrides?: RequestOverrides) => unknown
   parseStream: (line: string) => string | null
-  extractUsage?: (line: string) => { input: number; output: number } | null
+  extractUsage?: (line: string) => StreamUsage | null
   /**
    * 解析流式行里的工具调用增量。缺省 = 该 provider 不回原生 tool_calls。
    * 不实现则 agent 的按流式工具循环永远收不到工具意图（正文为空即一轮空转）。
@@ -129,7 +129,7 @@ export function parseGoogleLine(line: string): string | null {
   }
 }
 
-export function extractGoogleUsage(line: string): { input: number; output: number } | null {
+export function extractGoogleUsage(line: string): StreamUsage | null {
   if (!line.startsWith("data: ")) return null
   const data = line.slice(6).trim()
   try {
@@ -138,12 +138,16 @@ export function extractGoogleUsage(line: string): { input: number; output: numbe
         promptTokenCount?: number
         candidatesTokenCount?: number
         thoughtsTokenCount?: number
+        /** Gemini 的 promptTokenCount 已包含缓存部分，cached 是子集。 */
+        cachedContentTokenCount?: number
       }
     }
     if (parsed.usageMetadata) {
+      const cached = parsed.usageMetadata.cachedContentTokenCount
       return {
         input: parsed.usageMetadata.promptTokenCount ?? 0,
         output: (parsed.usageMetadata.candidatesTokenCount ?? 0) + (parsed.usageMetadata.thoughtsTokenCount ?? 0),
+        ...(typeof cached === "number" && cached > 0 ? { cachedInput: cached } : {}),
       }
     }
     return null

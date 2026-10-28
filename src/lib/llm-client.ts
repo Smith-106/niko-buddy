@@ -40,7 +40,7 @@ export interface StreamCallbacks {
   /** Optional agent extensions (port of v3 agent chain). */
   onToolCallDelta?: (delta: { index: number; type?: string; id?: string; name?: string; arguments?: string }) => void
   onFinishReason?: (reason: string) => void
-  onUsage?: (usage: { input: number; output: number }) => void
+  onUsage?: (usage: { input: number; output: number; cachedInput?: number; cacheWriteInput?: number }) => void
   onUserMemoryDecision?: (decision: { memoryKey: string; action: "accept" | "reject" }) => void
   /** Optional transport status updates (e.g. failover switch notices). */
   onStatus?: (status: string) => void
@@ -484,6 +484,8 @@ async function streamChatHeld(
   let metricsErrorKind: string | undefined
   let metricsInputTokens = 0
   let metricsOutputTokens = 0
+  let metricsCachedInputTokens = 0
+  let metricsCacheWriteInputTokens = 0
   const recordMetric = () => {
     collectLLMMetric({
       ts: new Date().toISOString(),
@@ -493,7 +495,12 @@ async function streamChatHeld(
       success: metricsErrorKind === undefined,
       errorKind: metricsErrorKind,
       ...(metricsInputTokens > 0 || metricsOutputTokens > 0
-        ? { inputTokens: metricsInputTokens, outputTokens: metricsOutputTokens }
+        ? {
+            inputTokens: metricsInputTokens,
+            outputTokens: metricsOutputTokens,
+            ...(metricsCachedInputTokens > 0 ? { cachedInputTokens: metricsCachedInputTokens } : {}),
+            ...(metricsCacheWriteInputTokens > 0 ? { cacheWriteInputTokens: metricsCacheWriteInputTokens } : {}),
+          }
         : {}),
     })
   }
@@ -815,6 +822,14 @@ async function streamChatHeld(
       if (!usage) return
       if (usage.input > 0) metricsInputTokens = usage.input
       if (usage.output > 0) metricsOutputTokens = usage.output
+      // 缓存指标可能为 0（未命中），需用 >0 判定避免把已有的非零值覆盖掉
+      if (usage.cachedInput !== undefined && usage.cachedInput > 0) {
+        metricsCachedInputTokens = usage.cachedInput
+      }
+      if (usage.cacheWriteInput !== undefined && usage.cacheWriteInput > 0) {
+        metricsCacheWriteInputTokens = usage.cacheWriteInput
+      }
+      callbacks.onUsage?.(usage)
     }
     // 原生工具调用增量：不转发则 agent 的流式工具循环收不到任何工具意图。
     const recordToolDeltas = (line: string) => {

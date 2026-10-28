@@ -6,6 +6,11 @@
  */
 
 import type { ChatMessage, ContentBlock } from "./llm-providers"
+import {
+  estimateMessagesTokens,
+  estimateScaffoldTokens,
+  tokensToCharBudget,
+} from "./token-estimator"
 
 /** Marker string inserted when history is truncated due to budget constraints */
 const HISTORY_TRUNCATED_MARKER = "[history truncated]\n" as const
@@ -110,20 +115,48 @@ function trimMessage(message: ChatMessage, maxChars: number): ChatMessage {
 }
 
 /**
- * Trims chat messages to fit within character budget before sending to LLM.
+ * Trims chat messages to fit within a **token** budget before sending to LLM.
  * Preserves the most recent user message (carrying latest intent) by trimming
  * older messages first. Uses a multi-pass strategy: drop old messages, then
  * truncate remaining content as needed.
  *
+ * 参数是 token 预算，不是字符预算。调用方（runner）传的是
+ * `maxContextSize × 0.75`，那是 token 数；旧实现把 token 数当字符数比较，
+ * 中文场景因 1 字符 ≈ 1 token 碰巧接近，英文场景则浪费约 4 倍上下文。
+ *
+ * 实现方式：先用校准估算器算出真实 token 量，超预算时按本文本的实际
+ * tokens/char 比率折算成字符预算，再复用既有的字符裁剪机制（它已经处理了
+ * 「保留最新用户消息」「插截断标记」「块数组裁剪」等细节）。折算后复检，
+ * 仍未达标就按实际超限比例再压一次。
+ *
  * @param messages - Array of chat messages in conversation order
- * @param maxChars - Maximum total character budget allowed
+ * @param maxTokens - Maximum total token budget allowed
  * @returns Trimmed message array that fits within budget
  */
 export function trimChatMessagesToTokenBudget(
   messages: import("@/lib/llm-providers").ChatMessage[],
-  maxChars: number,
+  maxTokens: number,
 ): import("@/lib/llm-providers").ChatMessage[] {
-  return trimChatMessagesToBudget(messages, maxChars)
+  if (messages.length === 0) return messages
+  if (!Number.isFinite(maxTokens) || maxTokens <= 0) return messages
+
+  const currentTokens = estimateMessagesTokens(messages)
+  if (currentTokens <= maxTokens) return messages
+
+  // 第一轮：按实际 tokens/char 比率折算字符预算
+  let charBudget = tokensToCharBudget(messages, maxTokens)
+  let next = trimChatMessagesToBudget(messages, charBudget)
+
+  // 第二轮：字符裁剪的粒度不完全对齐 token 估算（例如截断标记本身也占 token），
+  // 复检一次，仍未达标就按剩余比例继续压。最多两轮，避免无限循环。
+  let remainingTokens = estimateMessagesTokens(next)
+  if (remainingTokens > maxTokens) {
+    charBudget = Math.max(1, Math.floor(charBudget * (maxTokens / remainingTokens)))
+    next = trimChatMessagesToBudget(next, charBudget)
+    remainingTokens = estimateMessagesTokens(next)
+  }
+
+  return next
 }
 
 export function trimChatMessagesToBudget(
@@ -193,23 +226,15 @@ export function trimChatMessagesToBudget(
 }
 
 /**
- * v3 agent 兼容：估算消息 token 总量（port of v3 chat-request-budget）。
+ * v3 agent 兼容：估算消息 token 总量。
+ *
+ * 口径已从「字符数 / 3」改为按字符脚本分类校准（见 token-estimator.ts）。
+ * 旧口径对中文低估约 2.6 倍，导致预算按低估值放行而实际发送量翻倍。
  */
 export function estimateChatMessagesTokens(messages: import("@/lib/llm-providers").ChatMessage[]): number {
-  let total = 0
-  for (const message of messages) {
-    const content = typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? [])
-    total += Math.ceil(content.length / 3)
-    if (message.reasoning_content) total += Math.ceil(message.reasoning_content.length / 3)
-  }
-  return total
+  return estimateMessagesTokens(messages)
 }
 
 export function estimateRequestScaffoldTokens(tools: unknown): number {
-  if (!tools) return 0
-  try {
-    return Math.ceil(JSON.stringify(tools).length / 3)
-  } catch {
-    return 0
-  }
+  return estimateScaffoldTokens(tools)
 }

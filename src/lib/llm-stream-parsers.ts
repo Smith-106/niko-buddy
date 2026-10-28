@@ -17,6 +17,24 @@ export interface StreamToolCallDelta {
   arguments?: string
 }
 
+/**
+ * 流式响应的用量统计。
+ *
+ * 缓存字段的语义**因厂商而异**，不能一概相加：
+ *   - Anthropic：`input_tokens` **不包含**缓存部分，总量 = input + cacheRead + cacheWrite
+ *   - OpenAI：`prompt_tokens` **已包含**缓存部分，cached 是其子集，不能再加
+ * 提取器负责把各家差异归一到这里，调用方拿到的 `input` 已经是「总输入」。
+ */
+export interface StreamUsage {
+  /** 总输入 token（含缓存部分）。 */
+  input: number
+  output: number
+  /** 命中缓存的输入 token（从缓存读，低价或不计费）。 */
+  cachedInput?: number
+  /** 写入缓存的输入 token（Anthropic 特有，首次写入有溢价）。 */
+  cacheWriteInput?: number
+}
+
 export function parseOpenAiLine(line: string): string | null {
   if (!line.startsWith("data: ")) return null
   const data = line.slice(6).trim()
@@ -65,16 +83,25 @@ export function parseOpenAiToolDelta(line: string): StreamToolCallDelta[] | null
   }
 }
 
-export function extractOpenAiUsage(line: string): { input: number; output: number } | null {
+export function extractOpenAiUsage(line: string): StreamUsage | null {
   if (!line.startsWith("data: ")) return null
   const data = line.slice(6).trim()
   if (data === "[DONE]") return null
   try {
-    const parsed = JSON.parse(data) as { usage?: { prompt_tokens?: number; completion_tokens?: number } }
+    const parsed = JSON.parse(data) as {
+      usage?: {
+        prompt_tokens?: number
+        completion_tokens?: number
+        /** OpenAI 的 prompt_tokens 已包含缓存部分，cached 是子集。 */
+        prompt_tokens_details?: { cached_tokens?: number }
+      }
+    }
     if (parsed.usage) {
+      const cached = parsed.usage.prompt_tokens_details?.cached_tokens
       return {
         input: parsed.usage.prompt_tokens ?? 0,
         output: parsed.usage.completion_tokens ?? 0,
+        ...(typeof cached === "number" && cached > 0 ? { cachedInput: cached } : {}),
       }
     }
     return null
@@ -254,18 +281,28 @@ export function createResponsesToolDeltaParser(): (line: string) => StreamToolCa
   }
 }
 
-export function extractResponsesUsage(line: string): { input: number; output: number } | null {
+export function extractResponsesUsage(line: string): StreamUsage | null {
   if (!line.startsWith("data: ")) return null
   const data = line.slice(6).trim()
   try {
     const parsed = JSON.parse(data) as {
       type?: string
-      response?: { usage?: { input_tokens?: number; output_tokens?: number } }
+      response?: {
+        usage?: {
+          input_tokens?: number
+          output_tokens?: number
+          /** Responses 的 input_tokens 已包含缓存部分，cached 是子集。 */
+          input_tokens_details?: { cached_tokens?: number }
+        }
+      }
     }
     if (parsed.type === "response.completed" && parsed.response?.usage) {
+      const u = parsed.response.usage
+      const cached = u.input_tokens_details?.cached_tokens
       return {
-        input: parsed.response.usage.input_tokens ?? 0,
-        output: parsed.response.usage.output_tokens ?? 0,
+        input: u.input_tokens ?? 0,
+        output: u.output_tokens ?? 0,
+        ...(typeof cached === "number" && cached > 0 ? { cachedInput: cached } : {}),
       }
     }
     return null
@@ -294,7 +331,7 @@ export function parseAnthropicLine(line: string): string | null {
   }
 }
 
-export function extractAnthropicUsage(line: string): { input: number; output: number } | null {
+export function extractAnthropicUsage(line: string): StreamUsage | null {
   if (!line.startsWith("data: ")) return null
   const data = line.slice(6).trim()
   try {
@@ -305,8 +342,17 @@ export function extractAnthropicUsage(line: string): { input: number; output: nu
     }
     if (parsed.type === "message_start" && parsed.message?.usage) {
       const u = parsed.message.usage
-      const input = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
-      return { input, output: u.output_tokens ?? 0 }
+      // Anthropic 的 input_tokens 不包含缓存部分，总量需相加；
+      // 但明细要单独保留，否则无法统计缓存命中率。
+      const cacheRead = u.cache_read_input_tokens ?? 0
+      const cacheWrite = u.cache_creation_input_tokens ?? 0
+      const input = (u.input_tokens ?? 0) + cacheRead + cacheWrite
+      return {
+        input,
+        output: u.output_tokens ?? 0,
+        ...(cacheRead > 0 ? { cachedInput: cacheRead } : {}),
+        ...(cacheWrite > 0 ? { cacheWriteInput: cacheWrite } : {}),
+      }
     }
     if (parsed.type === "message_delta" && parsed.usage) {
       return { input: parsed.usage.input_tokens ?? 0, output: parsed.usage.output_tokens ?? 0 }

@@ -261,6 +261,12 @@ export class AgentRunner {
             inputTokens: usage.input,
             outputTokens: usage.output,
             totalTokens: usage.input + usage.output,
+            ...(usage.cachedInput !== undefined && usage.cachedInput > 0
+              ? { cachedInputTokens: usage.cachedInput }
+              : {}),
+            ...(usage.cacheWriteInput !== undefined && usage.cacheWriteInput > 0
+              ? { cacheWriteInputTokens: usage.cacheWriteInput }
+              : {}),
           }
           roundUsage = mergeLlmUsageSnapshot(roundUsage, snapshot)
         },

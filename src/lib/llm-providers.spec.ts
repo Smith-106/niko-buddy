@@ -164,8 +164,9 @@ describe("ISS-20260719-002 extractUsage token data channel", () => {
     const cfg = getProviderConfig({ ...customConfig(), provider: "anthropic", apiKey: "sk-anthropic" })
     const start = cfg.extractUsage!(
       `data: {"type":"message_start","message":{"usage":{"input_tokens":1200,"cache_read_input_tokens":800}}}`,
-    ) as { input: number; output: number }
-    expect(start).toEqual({ input: 2000, output: 0 })
+    ) as { input: number; output: number; cachedInput?: number }
+    // 2026-10-29：缓存明细不再丢弃——input 仍是总量，cachedInput 单独保留
+    expect(start).toEqual({ input: 2000, output: 0, cachedInput: 800 })
 
     const delta = cfg.extractUsage!(
       `data: {"type":"message_delta","usage":{"output_tokens":450}}`,
@@ -269,7 +270,7 @@ describe("line parsers: openai / responses / anthropic / google", () => {
     expect(anthropic.parseStream(`data: {broken`)).toBeNull()
     expect(anthropic.extractUsage!(
       `data: {"type":"message_start","message":{"usage":{"input_tokens":1,"cache_read_input_tokens":2,"cache_creation_input_tokens":3,"output_tokens":4}}}`,
-    )).toEqual({ input: 6, output: 4 })
+    )).toEqual({ input: 6, output: 4, cachedInput: 2, cacheWriteInput: 3 })
     expect(anthropic.extractUsage!(`data: {"type":"message_start","message":{"usage":{"output_tokens":4}}}`)).toEqual({ input: 0, output: 4 })
     expect(anthropic.extractUsage!(`data: {"type":"message_delta","usage":{"input_tokens":0,"output_tokens":9}}`)).toEqual({ input: 0, output: 9 })
     expect(anthropic.extractUsage!(`data: {"type":"message_delta","usage":{"input_tokens":0}}`)).toEqual({ input: 0, output: 0 })
