@@ -219,7 +219,7 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
                 {activeThread.epistemicScope.doesNotKnow.length > 0 ? (
                   <ul className="list-disc pl-4 space-y-1 text-muted-foreground">
                     {activeThread.epistemicScope.doesNotKnow.map((fact, idx) => (
-                      <li key={idx}>
+                      <li key={`${fact}-${idx}`}>
                         【禁止描写】：{activeThread.characterName}此时绝对不知晓【{fact}】
                       </li>
                     ))}

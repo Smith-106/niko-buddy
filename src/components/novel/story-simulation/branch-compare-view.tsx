@@ -248,7 +248,7 @@ function ScoreCompareTab({ branches }: { branches: SimulationBranch[] }) {
                 <tr key={key} className="border-b hover:bg-muted/30">
                   <td className="px-3 py-2">{dimensionLabel(key, t)}</td>
                   {values.map((v, idx) => (
-                    <td key={idx} className="px-3 py-2 text-center font-medium">
+                    <td key={`${key}-col-${idx}`} className="px-3 py-2 text-center font-medium">
                       <span
                         style={{ color: v === max ? BRANCH_COLORS[idx] : undefined }}
                       >

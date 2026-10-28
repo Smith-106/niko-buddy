@@ -869,7 +869,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                         <h4 className="font-semibold mb-2">{t("graph.relationNetwork")}</h4>
                         <div className="space-y-2">
                           {selectedCharacter.relationships.map((rel, idx) => (
-                            <div key={idx} className="flex items-start gap-2 text-sm">
+                            <div key={`${rel.target}-${idx}`} className="flex items-start gap-2 text-sm">
                               <span className="font-medium">{rel.target}：</span>
                               <span className="text-muted-foreground">
                                 {rel.relation}

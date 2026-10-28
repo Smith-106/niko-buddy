@@ -137,7 +137,7 @@ function HitsTable({ hits }: HitsTableProps) {
         </thead>
         <tbody>
           {[...hits].map((h, idx) => (
-            <tr key={idx} className="border-b border-border/50 last:border-0 hover:bg-muted/10">
+            <tr key={`${h.arcId ?? ""}-${h.positionRatio}-${idx}`} className="border-b border-border/50 last:border-0 hover:bg-muted/10">
               <td className="px-2.5 py-1.5">
                 <span className="text-xs font-medium text-foreground">{h.beatType}</span>
               </td>

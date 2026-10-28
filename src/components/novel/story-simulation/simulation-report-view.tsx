@@ -369,7 +369,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
               </h3>
               <div className="space-y-3">
                 {report.branches.map((branch, idx) => (
-                  <div key={idx} className={cn("rounded-lg border p-3", getBranchHighlightClass(branch.title))}>
+                  <div key={`${branch.title}-${idx}`} className={cn("rounded-lg border p-3", getBranchHighlightClass(branch.title))}>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{branch.title}</span>
                       {branch.recommendation && (

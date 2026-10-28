@@ -254,7 +254,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
           </div>
 
           {draft.chapters.map((chapter, idx) => (
-            <div key={idx} className="rounded-lg border p-4">
+            <div key={`${chapter.title}-${idx}`} className="rounded-lg border p-4">
               <h3 className="mb-2 flex items-center gap-2 font-medium">
                 <FileText className="h-4 w-4 text-muted-foreground" />
                 {chapter.title}
@@ -334,7 +334,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                 <div className="max-h-48 space-y-1 overflow-y-auto rounded border p-2">
                   {draft.chapters.map((chapter, idx) => (
                     <label
-                      key={idx}
+                      key={`${chapter.title}-${idx}`}
                       className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-accent"
                     >
                       <input
