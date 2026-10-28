@@ -539,6 +539,11 @@ pub fn migrate_project_dirs_dry_run(root: &Path) -> MigrationReport {
 /// 只读：不移动、不覆盖、不删除任何文件，只产出报告。实跑的合并规则（以新目录为准，
 /// 同名冲突移入 `legacy-conflicts/`）见 [`merge_legacy_into_target`]；本报告用于预览
 /// 「这次合并会搬什么、丢什么、备份什么」。
+///
+/// 产品决策「以新目录为准」落地后，dry-run 已改为直接预测 [`MigrationAction::Merged`]，
+/// 本报告保留为**测试专用**的独立语义校验（`#[cfg(test)]`）：它从另一角度验证
+/// 合并规则的三分类与实跑结果一致，不作为生产 API 接线。
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationConflictReport {
     pub from: &'static str,
@@ -551,8 +556,10 @@ pub struct MigrationConflictReport {
     pub conflicting: Vec<String>,
 }
 
+#[cfg(test)]
 impl MigrationConflictReport {
     /// 是否存在需要规则裁决的同名冲突。
+    #[cfg(test)]
     pub fn has_conflicts(&self) -> bool {
         !self.conflicting.is_empty()
     }
@@ -560,6 +567,10 @@ impl MigrationConflictReport {
 
 /// G4 只读冲突报告：对每个「新旧目录并存」的步骤，列出仅旧侧文件、
 /// 同名一致文件与同名冲突文件。其余步骤（源缺失 / 可直接 rename）不产出条目。
+///
+/// 测试专用：dry-run 已改用 `MigrationAction::Merged` 预测，本函数仅作三分类的
+/// 独立交叉校验。
+#[cfg(test)]
 pub fn migrate_project_dirs_conflicts(root: &Path) -> Result<Vec<MigrationConflictReport>, String> {
     let mut reports = Vec::new();
     for (from, to) in MIGRATION_STEPS {
