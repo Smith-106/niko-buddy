@@ -67,6 +67,87 @@ export interface EvaluateThrillOptions {
   allowUnknown?: boolean
 }
 
+/** 单章 thril 审计结果（大纲层整本扫）。 */
+export interface OutlineThrillChapterAudit {
+  chapterNumber: number
+  title: string
+  results: ThrillCheckResult[]
+  /** 未通过的检查点 id（fix1 失败也会出现在这里）。 */
+  gaps: ThrillCheckpointId[]
+}
+
+/**
+ * 按章切分大纲正文（纯函数，零 I/O）：支持 `### 第12章 标题`、`## 第12章`、
+ * `**第12章**` 等常见章头。无法识别章头时返回整段作为单章（chapterNumber=0）。
+ */
+export function splitOutlineIntoChapters(
+  outlineText: string,
+): Array<{ chapterNumber: number; title: string; text: string }> {
+  const text = (outlineText ?? "").trim()
+  if (!text) return []
+  const headerRe = /^(?:#{1,6}\s*|\*\*\s*)?第\s*(\d+)\s*章[:：\s]*(.*)$/
+  const lines = text.split(/\r?\n/)
+  const chapters: Array<{ chapterNumber: number; title: string; text: string }> = []
+  let current: { chapterNumber: number; title: string; text: string } | null = null
+  for (const line of lines) {
+    const match = line.trim().replace(/\*\*$/, "").match(headerRe)
+    if (match) {
+      if (current) chapters.push(current)
+      current = {
+        chapterNumber: Number.parseInt(match[1]!, 10),
+        title: match[2]!.replace(/\*\*$/, "").trim(),
+        text: line,
+      }
+    } else if (current) {
+      current.text += `\n${line}`
+    }
+  }
+  if (current) chapters.push(current)
+  if (chapters.length === 0) {
+    return [{ chapterNumber: 0, title: "", text }]
+  }
+  return chapters
+}
+
+/**
+ * 整本大纲 thril 结构审计（纯函数，零 I/O）：逐章跑同一套检查点，
+ * 输出每章缺口与全书汇总。用于「大纲层改造」前后对比与选题。
+ */
+export function auditOutlineThrillByChapter(outlineText: string): {
+  chapters: OutlineThrillChapterAudit[]
+  /** 检查点 → 未通过章数。 */
+  missingTally: Partial<Record<ThrillCheckpointId, number>>
+  /** 全部检查点都过的章数。 */
+  fullPassCount: number
+  /** 每章平均通过数（0-5）。 */
+  averagePassPerChapter: number
+} {
+  const chapters = splitOutlineIntoChapters(outlineText).map((chapter) => {
+    const results = evaluateOutlineThrillCheckpoints(chapter.text)
+    return {
+      chapterNumber: chapter.chapterNumber,
+      title: chapter.title,
+      results,
+      gaps: results.filter((r) => r.status !== "pass").map((r) => r.id),
+    }
+  })
+  const missingTally: Partial<Record<ThrillCheckpointId, number>> = {}
+  for (const chapter of chapters) {
+    for (const id of chapter.gaps) missingTally[id] = (missingTally[id] ?? 0) + 1
+  }
+  const fullPassCount = chapters.filter((c) => c.gaps.length === 0).length
+  const totalPass = chapters.reduce(
+    (sum, c) => sum + c.results.filter((r) => r.status === "pass").length,
+    0,
+  )
+  return {
+    chapters,
+    missingTally,
+    fullPassCount,
+    averagePassPerChapter: chapters.length === 0 ? 0 : totalPass / chapters.length,
+  }
+}
+
 /**
  * 大纲层 thril 硬要求（写给大纲/章纲生成模型的提示块）。
  *

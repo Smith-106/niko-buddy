@@ -266,3 +266,55 @@ describe("thril 大纲层改造：提示块与评估同口径", () => {
     expect(r.filter((x) => x.status === "pass").length).toBe(5)
   })
 })
+
+describe("整本大纲 thril 审计（splitOutlineIntoChapters / auditOutlineThrillByChapter）", () => {
+  it("按 ### 第N章 切分，保留章号与标题", async () => {
+    const { splitOutlineIntoChapters } = await import("./outline-thrill-checkpoints")
+    const text = [
+      "### 第1章 合同到期日",
+      "危机逼近，主角被追杀。",
+      "### 第2章 小字",
+      "他主动设局反击破局。",
+    ].join("\n")
+    const chapters = splitOutlineIntoChapters(text)
+    expect(chapters.map((c) => c.chapterNumber)).toEqual([1, 2])
+    expect(chapters[0]!.title).toBe("合同到期日")
+    expect(chapters[1]!.text).toContain("主动设局")
+  })
+
+  it("支持 ## / **第N章** 形式与无章头回退", async () => {
+    const { splitOutlineIntoChapters } = await import("./outline-thrill-checkpoints")
+    expect(splitOutlineIntoChapters("## 第7章 转折\n内容").map((c) => c.chapterNumber)).toEqual([7])
+    expect(splitOutlineIntoChapters("**第9章**\n内容").map((c) => c.chapterNumber)).toEqual([9])
+    const fallback = splitOutlineIntoChapters("没有章头的整段大纲，长度足够时按整体评估。")
+    expect(fallback).toHaveLength(1)
+    expect(fallback[0]!.chapterNumber).toBe(0)
+    expect(splitOutlineIntoChapters("")).toEqual([])
+  })
+
+  it("逐章汇总缺口计数与通过率", async () => {
+    const { auditOutlineThrillByChapter } = await import("./outline-thrill-checkpoints")
+    const text = [
+      "### 第1章 完整",
+      "开篇危机逼近，主角被追杀陷入绝境。中段压抑到极点后主动反击破局，推动局面。章末钩：门外倒计时滴答，下一阶段仍未揭开。",
+      "### 第2章 只有危机",
+      "开篇危机逼近，主角被追杀陷入绝境，随后一路说明设定背景与人物关系，章末没有留下任何钩子。",
+    ].join("\n")
+    const audit = auditOutlineThrillByChapter(text)
+    expect(audit.chapters).toHaveLength(2)
+    expect(audit.chapters[0]!.gaps).toEqual([])
+    expect(audit.chapters[1]!.gaps.length).toBeGreaterThan(0)
+    expect(audit.fullPassCount).toBe(1)
+    expect(audit.averagePassPerChapter).toBeGreaterThan(3)
+    expect(audit.averagePassPerChapter).toBeLessThanOrEqual(5)
+    expect(audit.missingTally.protagonist_agency).toBeGreaterThanOrEqual(1)
+  })
+
+  it("空大纲审计不炸（0 章）", async () => {
+    const { auditOutlineThrillByChapter } = await import("./outline-thrill-checkpoints")
+    const audit = auditOutlineThrillByChapter("")
+    expect(audit.chapters).toHaveLength(0)
+    expect(audit.fullPassCount).toBe(0)
+    expect(audit.averagePassPerChapter).toBe(0)
+  })
+})
