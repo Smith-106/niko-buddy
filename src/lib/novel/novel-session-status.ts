@@ -1134,6 +1134,15 @@ interface NovelSessionStatusLoadResult {
  * 保全 best-effort：失败绝不打断 load 的可用性降级（仍返回 null），但必须
  * fail-loud 报出「未保全」，并返回 null 让 startDeepChapterSession 拒绝覆盖。
  */
+/**
+ * #7（2026-10-28）：status.json 缺失判定。新项目 / 尚未开写时文件不存在属预期状态，
+ * 不应每次读取都刷 warn。文案对齐 character-state.ts / director-pipeline-store.ts 既有先例
+ * （含 Windows Rust read_file 的 os error 2 与中文 locale 文案）。
+ */
+function isStatusFileMissingError(err: unknown): boolean {
+  return /ENOENT|not found|no such file|does not exist|os error 2|系统找不到/i.test(toErrorMessage(err))
+}
+
 async function preserveCorruptStatusFile(projectPath: string, raw: string): Promise<string | null> {
   const statusPath = novelSessionStatusPath(projectPath)
   try {
@@ -1203,6 +1212,11 @@ async function loadNovelSessionStatusDetailed(projectPath: string): Promise<Nove
     // 降级；解析失败（raw 已取得）先把原始内容写为 `.corrupt-<时间戳>` 兄弟
     // 文件，再 fail-loud 返回 null。禁止在未保全的情况下被下游覆盖。
     // ISS-20260709-025 PAT-IM2: 记诊断（读失败 vs 解析失败分支不变）。
+    if (raw === undefined && isStatusFileMissingError(err)) {
+      // #7：文件缺失是预期降级路径（新项目 / 尚未开写），降为 info，不再污染 warn 日志。
+      logger.info("Novel Session", "status.json not present yet, degrade to null", { status: novelSessionStatusPath(projectPath) })
+      return { status: null }
+    }
     logger.warn("Novel Session", "load session detailed failed, degrade to null (non-fatal)", { error: toErrorMessage(err) })
     if (raw === undefined || raw.length === 0) return { status: null }
     return { status: null, corrupt: { preservedTo: await preserveCorruptStatusFile(projectPath, raw) } }
