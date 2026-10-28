@@ -356,6 +356,107 @@ pub fn migrate_project_dirs_dry_run(root: &Path) -> MigrationReport {
     MigrationReport { steps }
 }
 
+/// G4 冲突明细：新旧两代目录并存（dry-run 判为 `SkippedTargetExists`）时的逐文件比对。
+///
+/// 只读：不移动、不覆盖、不删除任何文件。合并规则（同名冲突以哪边为准）属于产品决策，
+/// 尚未拍板，因此这里只产出报告供人工裁决，不做任何自动合并。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigrationConflictReport {
+    pub from: &'static str,
+    pub to: &'static str,
+    /// 仅旧目录有的文件（相对路径，`/` 分隔）：任何规则下都可无冲突搬入新目录。
+    pub only_in_legacy: Vec<String>,
+    /// 两边同名且字节一致：任何规则下旧副本都可安全丢弃。
+    pub identical: Vec<String>,
+    /// 两边同名但内容不同（或一侧是目录、一侧是文件）：真正需要规则裁决的冲突。
+    pub conflicting: Vec<String>,
+}
+
+impl MigrationConflictReport {
+    /// 是否存在需要人工/规则裁决的同名冲突。
+    pub fn has_conflicts(&self) -> bool {
+        !self.conflicting.is_empty()
+    }
+}
+
+/// G4 只读冲突报告：对 dry-run 中每个「新旧目录并存」的步骤，列出仅旧侧文件、
+/// 同名一致文件与同名冲突文件。其余步骤（源缺失 / 可直接 rename）不产出条目。
+pub fn migrate_project_dirs_conflicts(root: &Path) -> Result<Vec<MigrationConflictReport>, String> {
+    let planned = migrate_project_dirs_dry_run(root);
+    let mut reports = Vec::new();
+    for step in planned.steps {
+        if step.action != MigrationAction::SkippedTargetExists {
+            continue;
+        }
+        let legacy_root = root.join(step.from);
+        let target_root = root.join(step.to);
+        let mut report = MigrationConflictReport {
+            from: step.from,
+            to: step.to,
+            only_in_legacy: Vec::new(),
+            identical: Vec::new(),
+            conflicting: Vec::new(),
+        };
+        if !legacy_root.is_dir() || !target_root.is_dir() {
+            // 一侧是同名文件占位：整对目录无法逐文件合并，整体记为冲突。
+            report.conflicting.push(".".to_string());
+            reports.push(report);
+            continue;
+        }
+        let mut legacy_files = Vec::new();
+        collect_relative_files(&legacy_root, &legacy_root, &mut legacy_files)?;
+        legacy_files.sort();
+        for rel in legacy_files {
+            let legacy_path = legacy_root.join(&rel);
+            let target_path = target_root.join(&rel);
+            if !target_path.exists() {
+                report.only_in_legacy.push(rel);
+            } else if !target_path.is_file() {
+                report.conflicting.push(rel);
+            } else if files_identical(&legacy_path, &target_path)? {
+                report.identical.push(rel);
+            } else {
+                report.conflicting.push(rel);
+            }
+        }
+        reports.push(report);
+    }
+    Ok(reports)
+}
+
+/// 递归收集 `dir` 下所有普通文件相对 `base` 的路径（`/` 分隔）。符号链接不跟随、不收集。
+fn collect_relative_files(base: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
+    let entries = fs::read_dir(dir).map_err(|e| format!("读取目录 '{}' 失败：{}", dir.display(), e))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("读取目录项失败（{}）：{}", dir.display(), e))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("读取文件类型 '{}' 失败：{}", path.display(), e))?;
+        if file_type.is_dir() {
+            collect_relative_files(base, &path, out)?;
+        } else if file_type.is_file() {
+            let rel = path
+                .strip_prefix(base)
+                .map_err(|e| format!("计算相对路径 '{}' 失败：{}", path.display(), e))?;
+            out.push(rel.to_string_lossy().replace('\\', "/"));
+        }
+    }
+    Ok(())
+}
+
+/// 先比长度再比字节，判断两个文件内容是否一致。
+fn files_identical(a: &Path, b: &Path) -> Result<bool, String> {
+    let len_a = fs::metadata(a).map_err(|e| format!("读取元数据 '{}' 失败：{}", a.display(), e))?.len();
+    let len_b = fs::metadata(b).map_err(|e| format!("读取元数据 '{}' 失败：{}", b.display(), e))?.len();
+    if len_a != len_b {
+        return Ok(false);
+    }
+    let bytes_a = fs::read(a).map_err(|e| format!("读取文件 '{}' 失败：{}", a.display(), e))?;
+    let bytes_b = fs::read(b).map_err(|e| format!("读取文件 '{}' 失败：{}", b.display(), e))?;
+    Ok(bytes_a == bytes_b)
+}
+
 /// Rename `root/from` to `root/to` only when `from` exists and `to` does not,
 /// preventing accidental overwrites. 返回本次动作供迁移报告使用。
 fn rename_dir_if_safe(root: &Path, from: &str, to: &str) -> Result<MigrationAction, String> {
@@ -897,5 +998,87 @@ mod migration_tests {
         assert!(second.is_noop(), "第二次应零动作");
         assert_eq!(root.marker(META_DIR), "m");
         assert_eq!(root.marker(KNOWLEDGE_DIR), "k");
+    }
+
+    /// G4：新旧目录并存时只读产出逐文件冲突报告（仅旧侧 / 同名一致 / 同名冲突），不改动任何文件。
+    #[test]
+    fn conflicts_report_classifies_files_without_touching_fs() {
+        let root = TempRoot::new("g4-classify");
+        // 新旧元数据目录并存：marker.txt 内容不同 → 冲突。
+        root.seed(META_DIR, "current");
+        root.seed(LEGACY_META_DIR, "legacy");
+        let legacy = root.path().join(LEGACY_META_DIR);
+        let current = root.path().join(META_DIR);
+        // 同名且字节一致 → identical。
+        fs::write(legacy.join("same.json"), "{}").unwrap();
+        fs::write(current.join("same.json"), "{}").unwrap();
+        // 仅旧侧存在（含嵌套子目录）→ only_in_legacy，相对路径用 / 分隔。
+        fs::create_dir_all(legacy.join("sub")).unwrap();
+        fs::write(legacy.join("sub").join("old.md"), "old").unwrap();
+        // 仅新侧存在的文件不应出现在报告中。
+        fs::write(current.join("new-only.md"), "new").unwrap();
+
+        let reports = migrate_project_dirs_conflicts(root.path()).unwrap();
+        let meta = reports
+            .iter()
+            .find(|r| r.from == LEGACY_META_DIR)
+            .expect("新旧元数据目录并存时应产出冲突报告");
+
+        assert_eq!(meta.to, META_DIR);
+        assert_eq!(meta.only_in_legacy, vec!["sub/old.md".to_string()]);
+        assert_eq!(meta.identical, vec!["same.json".to_string()]);
+        assert_eq!(meta.conflicting, vec!["marker.txt".to_string()]);
+        assert!(meta.has_conflicts());
+
+        // 只读：两侧内容原样保留，旧目录不被搬走或删除。
+        assert_eq!(root.marker(META_DIR), "current");
+        assert_eq!(root.marker(LEGACY_META_DIR), "legacy");
+        assert!(legacy.join("sub").join("old.md").exists());
+        assert!(!current.join("sub").exists(), "报告阶段不得搬入任何文件");
+    }
+
+    /// G4：无并存目录（空根或可直接 rename）时不产出冲突条目。
+    #[test]
+    fn conflicts_report_empty_when_no_coexisting_dirs() {
+        let empty = TempRoot::new("g4-empty");
+        assert!(migrate_project_dirs_conflicts(empty.path()).unwrap().is_empty());
+
+        let renamable = TempRoot::new("g4-renamable");
+        renamable.seed(LEGACY_KNOWLEDGE_DIR, "k");
+        assert!(migrate_project_dirs_conflicts(renamable.path()).unwrap().is_empty());
+        assert!(renamable.has(LEGACY_KNOWLEDGE_DIR), "报告阶段不得执行 rename");
+    }
+
+    /// G4：全部同名文件一致时无需规则裁决（has_conflicts=false）。
+    #[test]
+    fn conflicts_report_identical_only_has_no_conflicts() {
+        let root = TempRoot::new("g4-identical");
+        root.seed(KNOWLEDGE_DIR, "same");
+        root.seed(LEGACY_KNOWLEDGE_DIR, "same");
+
+        let reports = migrate_project_dirs_conflicts(root.path()).unwrap();
+        let knowledge = reports
+            .iter()
+            .find(|r| r.from == LEGACY_KNOWLEDGE_DIR)
+            .expect("新旧知识目录并存时应产出报告");
+        assert_eq!(knowledge.identical, vec!["marker.txt".to_string()]);
+        assert!(knowledge.only_in_legacy.is_empty());
+        assert!(!knowledge.has_conflicts());
+    }
+
+    /// G4：目标位置被同名文件占位时整对记为冲突（"."），不报错。
+    #[test]
+    fn conflicts_report_marks_file_placeholder_as_whole_conflict() {
+        let root = TempRoot::new("g4-placeholder");
+        root.seed(LEGACY_KNOWLEDGE_DIR, "k");
+        fs::write(root.path().join(KNOWLEDGE_DIR), "placeholder").unwrap();
+
+        let reports = migrate_project_dirs_conflicts(root.path()).unwrap();
+        let knowledge = reports
+            .iter()
+            .find(|r| r.from == LEGACY_KNOWLEDGE_DIR)
+            .expect("占位文件场景应产出报告");
+        assert_eq!(knowledge.conflicting, vec![".".to_string()]);
+        assert!(knowledge.has_conflicts());
     }
 }
