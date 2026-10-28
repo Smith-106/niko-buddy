@@ -432,6 +432,47 @@ describe("review-adapter staged review", () => {
     }
   })
 
+  it("#7: 内部 5 分钟阶段超时被归一为可读超时错误，不再误报 Request cancelled", async () => {
+    // streamChat 只看到组合信号中止，会上报 "Request cancelled"（AbortError）。
+    // 若无 #7 归一化，日志会先出现「被取消」再出现重试，造成「被取消却又重跑」的困惑。
+    // 归一化后应抛出明确的中文超时错误，且不含 "Request cancelled"。
+    vi.useFakeTimers()
+    try {
+      streamChatMock.mockImplementation(async (
+        _config: LlmConfig,
+        _messages: Array<{ role: string; content: string }>,
+        callbacks: StreamCallbacks,
+      ) => {
+        // 先让 5 分钟内部计时器触发（置位 stageTimedOut 并 abort 组合信号），
+        // 再模拟 streamChat 只看到信号中止而误报 AbortError。
+        await new Promise<void>((resolve) => setTimeout(resolve, 300000))
+        callbacks.onError(Object.assign(new Error("Request cancelled"), { name: "AbortError" }))
+      })
+      const pending = expect(reviewChapter("E:/Novel", "正文", 8, { contextPack })).rejects.toThrow(
+        /超过 5 分钟未完成，已超时/,
+      )
+      await vi.runAllTimersAsync()
+      await pending
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("#7: 用户主动取消仍抛「已停止生成」，不被超时归一化吞掉", async () => {
+    const controller = new AbortController()
+    streamChatMock.mockImplementation(async (
+      _config: LlmConfig,
+      _messages: Array<{ role: string; content: string }>,
+      callbacks: StreamCallbacks,
+    ) => {
+      controller.abort()
+      callbacks.onError(Object.assign(new Error("Request cancelled"), { name: "AbortError" }))
+    })
+    await expect(reviewChapter("E:/Novel", "正文", 8, { contextPack }, controller.signal)).rejects.toThrow(
+      "已停止生成",
+    )
+  })
+
   it("propagates stream failures instead of silently degrading to an empty review result", async () => {
     streamChatMock.mockImplementation(async (
       _config: LlmConfig,
