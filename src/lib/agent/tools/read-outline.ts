@@ -35,17 +35,21 @@ async function readOutlineSnapshots(
 
   if (files.length === 0) return null
 
-  const sections: string[] = []
-  for (const file of files) {
-    try {
-      const content = await readTextFile(file.path)
-      if (content.trim()) {
-        sections.push(`## ${file.name}\n\n${content}`)
+  // PAT-IM1（ISS-20260709-024）：快照文件独立，并行读取后按文件名顺序拼接。
+  const contents = await Promise.all(
+    files.map(async (file) => {
+      try {
+        return { file, content: await readTextFile(file.path) }
+      } catch {
+        // 单个快照读取失败不影响其他快照。
+        return null
       }
-    } catch {
-      // 单个快照读取失败不影响其他快照。
-    }
-  }
+    }),
+  )
+  const sections = contents
+    .filter((item): item is { file: { name: string; path: string }; content: string } => item !== null)
+    .filter((item) => item.content.trim().length > 0)
+    .map((item) => `## ${item.file.name}\n\n${item.content}`)
 
   if (sections.length === 0) return null
   return [

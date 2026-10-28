@@ -83,11 +83,11 @@ export function __getTemporalFactsInFlightSizeForTests(): number {
 
 /**
  * List snapshot files directly (mirrors chapter-ingest.listSnapshots naming)
- * while also collecting each file's mtime(ms) in the same readdir pass. The
- * mtime is fetched per-file via getFileModifiedTime because the listDirectory
- * FileNode shape ({name,path,is_dir}) does not carry mtime. Returns the parsed
- * chapter numbers paired with their mtimes; empty on failure (backward
- * compatible).
+ * while also collecting each file's mtime(ms) in the same readdir pass.
+ *
+ * ISS-20260709-032：`listDirectory` 的 FileNode 已携带 `mtime_ms`，直接复用同一趟
+ * readdir 的元数据，不再逐文件发 `getFileModifiedTime` IPC（N 次 → 0 次）。仅当
+ * 后端未提供 mtime（旧版本/非文件节点）时，才回退到逐个获取。
  */
 export async function listSnapshotEntriesWithMtime(
   projectPath: string,
@@ -108,19 +108,21 @@ export async function listSnapshotEntriesWithMtime(
     // ISS-20260709-026: merge duplicate key computation. Multiple entries
     // can reference the same absolute file path (duplicate readdir rows /
     // case-alias twins); fetching mtime per entry would issue N getters for
-    // the same key. Dedupe by file.path → one getFileModifiedTime per unique
-    // key, then backfill by index so result order matches input order.
-    const uniquePaths: string[] = []
-    const seenPaths = new Set<string>()
+    // the same key. Dedupe by file.path → one fetch per unique key, then
+    // backfill by index so result order matches input order.
+    const mtimeByPath = new Map<string, number>()
+    const fallbackPaths: string[] = []
     for (const e of entries) {
-      if (!seenPaths.has(e.file.path)) {
-        seenPaths.add(e.file.path)
-        uniquePaths.push(e.file.path)
+      if (mtimeByPath.has(e.file.path)) continue
+      if (typeof e.file.mtime_ms === "number") {
+        mtimeByPath.set(e.file.path, e.file.mtime_ms)
+      } else if (!fallbackPaths.includes(e.file.path)) {
+        fallbackPaths.push(e.file.path)
       }
     }
-    const mtimeByPath = new Map<string, number>()
+    // 仅未携带 mtime 的节点走回退路径（正常项目上为空）。
     await Promise.all(
-      uniquePaths.map(async (filePath) => {
+      fallbackPaths.map(async (filePath) => {
         const mtime = await getFileModifiedTime(filePath).catch(() => 0)
         mtimeByPath.set(filePath, mtime)
       }),

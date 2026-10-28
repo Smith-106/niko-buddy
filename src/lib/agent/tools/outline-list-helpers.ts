@@ -94,30 +94,31 @@ export async function listOutlineEntries(
   readTextFile: (path: string) => Promise<string> = readFile,
 ): Promise<OutlineListEntry[]> {
   const files = await collectOutlineMarkdownFiles(outlinesDir)
-  const entries: OutlineListEntry[] = []
-
-  for (const file of files) {
-    const relativePath = toRelativePath(outlinesDir, file.path) || file.name
-    const folder = extractOutlineFolder(relativePath)
-    let type: string | undefined
-    let outlineType: string | undefined
-    try {
-      const content = await readTextFile(file.path)
-      // 只需 frontmatter；大卷纲全文可达数百 KB，避免 list 时整文件读入。
-      const fields = extractOutlineTypeFields(content.slice(0, FRONTMATTER_READ_CHARS))
-      type = fields.type
-      outlineType = fields.outlineType
-    } catch {
-      // 单个文件读失败仍列入清单
-    }
-    entries.push({
-      relativePath,
-      absolutePath: file.path,
-      folder,
-      type,
-      outlineType,
-    })
-  }
+  // PAT-IM1（ISS-20260709-024）：独立文件读取并行化，结果按原顺序回填。
+  const entries = await Promise.all(
+    files.map(async (file) => {
+      const relativePath = toRelativePath(outlinesDir, file.path) || file.name
+      const folder = extractOutlineFolder(relativePath)
+      let type: string | undefined
+      let outlineType: string | undefined
+      try {
+        const content = await readTextFile(file.path)
+        // 只需 frontmatter；大卷纲全文可达数百 KB，避免 list 时整文件读入。
+        const fields = extractOutlineTypeFields(content.slice(0, FRONTMATTER_READ_CHARS))
+        type = fields.type
+        outlineType = fields.outlineType
+      } catch {
+        // 单个文件读失败仍列入清单
+      }
+      return {
+        relativePath,
+        absolutePath: file.path,
+        folder,
+        type,
+        outlineType,
+      }
+    }),
+  )
 
   entries.sort((a, b) =>
     a.relativePath.localeCompare(b.relativePath, "zh-Hans-CN", { numeric: true }),

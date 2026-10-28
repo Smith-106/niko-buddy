@@ -593,10 +593,24 @@ fn build_tree(dir: &Path, depth: usize, max_depth: usize) -> Result<Vec<FileNode
             None
         };
 
+        // ISS-20260709-032: reuse the readdir metadata for mtime so callers do
+        // not pay an extra getFileModifiedTime IPC per file.
+        let mtime_ms = if is_dir {
+            None
+        } else {
+            entry
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as u64)
+        };
+
         nodes.push(FileNode {
             name,
             path: path_str,
             is_dir,
+            mtime_ms,
             children,
         });
     }

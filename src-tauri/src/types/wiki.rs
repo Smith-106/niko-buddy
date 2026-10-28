@@ -18,6 +18,11 @@ pub struct FileNode {
     pub name: String,
     pub path: String,
     pub is_dir: bool,
+    /// Modification time in ms since UNIX epoch (files only).
+    /// ISS-20260709-032: carried by the readdir pass so callers building
+    /// mtime-based cache keys do not need N extra getFileModifiedTime IPCs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mtime_ms: Option<u64>,
     /// Child nodes (only present for directory nodes).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<FileNode>>,

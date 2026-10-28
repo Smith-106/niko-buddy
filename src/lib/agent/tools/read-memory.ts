@@ -60,17 +60,21 @@ async function readMemoryAliases(
   const aliasFiles = resolveMemoryAliasFiles(name)
   if (aliasFiles.length === 0) return null
 
-  const sections: string[] = []
-  for (const alias of aliasFiles) {
-    try {
-      const content = await readTextFile(`${memoryDir}/${alias.fileName}`)
-      if (content.trim()) {
-        sections.push(`## ${alias.label}\n\n${content}`)
+  // PAT-IM1（ISS-20260709-024）：别名文件独立，并行读取后按声明顺序拼接。
+  const read = await Promise.all(
+    aliasFiles.map(async (alias) => {
+      try {
+        return { alias, content: await readTextFile(`${memoryDir}/${alias.fileName}`) }
+      } catch {
+        // 缺失的结构化记忆文件交给通用读取兜底处理。
+        return null
       }
-    } catch {
-      // 缺失的结构化记忆文件交给通用读取兜底处理。
-    }
-  }
+    }),
+  )
+  const sections = read
+    .filter((item): item is { alias: (typeof aliasFiles)[number]; content: string } => item !== null)
+    .filter((item) => item.content.trim().length > 0)
+    .map((item) => `## ${item.alias.label}\n\n${item.content}`)
 
   if (sections.length === 0) return null
   return `已读取记忆条目「${name}」对应的结构化记忆：\n\n${sections.join("\n\n---\n\n")}`

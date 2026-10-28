@@ -10,6 +10,8 @@ export interface FileNode {
   name: string
   path: string
   is_dir: boolean
+  /** 文件修改时间（UNIX epoch 毫秒）；目录不携带。ISS-20260709-032。 */
+  mtime_ms?: number
   children?: FileNode[]
 }
 
