@@ -38,9 +38,18 @@ function extractFirstBalancedJsonObject(text: string): string | null {
   return null
 }
 
+// W5 拆分后抽取/解析实现迁至 chapter-ingest-extraction.ts：源码扫描型守护必须
+// 聚合两文件，否则结构性断言会因搬家而假红（不变量本身未变）。
+function readIngestSource(): string {
+  return [
+    readFileSync(resolve(__dirname, "chapter-ingest.ts"), "utf8"),
+    readFileSync(resolve(__dirname, "chapter-ingest-extraction.ts"), "utf8"),
+  ].join("\n")
+}
+
 describe("chapter-ingest JSON extraction hardening", () => {
   it("uses balanced JSON extraction instead of greedy object matching", () => {
-    const source = readFileSync(resolve(__dirname, "chapter-ingest.ts"), "utf8")
+    const source = readIngestSource()
 
     expect(source).toContain("function extractFirstBalancedJsonObject")
     expect(source).toContain("function extractJsonObjectFromModelText")
@@ -70,7 +79,7 @@ describe("chapter-ingest JSON extraction hardening", () => {
     // routes to the friendly failReason:"extract_failed" branch, rather than
     // escaping as a raw "SyntaxError: Unexpected token" to UI callers. A
     // non-SyntaxError (transport/stream failure) must still re-throw.
-    const source = readFileSync(resolve(__dirname, "chapter-ingest.ts"), "utf8")
+    const source = readIngestSource()
 
     // The parse is wrapped: SyntaxError → return null, non-SyntaxError → throw.
     // ISS-20260709-019: the block now contains a logger.error call whose
@@ -85,7 +94,7 @@ describe("chapter-ingest JSON extraction hardening", () => {
     // normalizeOutlineIngestError distinguishes a SyntaxError (model emitted
     // invalid JSON) from a transport failure, surfacing a friendly message
     // instead of leaking "Unexpected token" to outline consumers.
-    const source = readFileSync(resolve(__dirname, "chapter-ingest.ts"), "utf8")
+    const source = readIngestSource()
 
     expect(source).toMatch(/if \(err instanceof SyntaxError\)\s*\{[^}]*无法解析的 JSON/s)
   })
@@ -97,7 +106,7 @@ describe("chapter-ingest JSON extraction hardening", () => {
     // (outline-generation.ts:708) routes to the friendly 'ingestFailed'
     // ternary branch, not escape via the catch@2017 throw path. PAT-G2 twin
     // mirror: the parse wrap must mirror extractSnapshotWithLLM's fix.
-    const source = readFileSync(resolve(__dirname, "chapter-ingest.ts"), "utf8")
+    const source = readIngestSource()
 
     // The outline parse is wrapped: SyntaxError → return null.
     // ISS-20260709-019: logger.error splits scope + message into separate
@@ -115,7 +124,7 @@ describe("chapter-ingest JSON extraction hardening", () => {
     // ingestChapter @400 → :403 friendly `failReason: "extract_failed"`
     // degrade. Return null here mirrors the JSON.parse SyntaxError path @845
     // and lets the caller route to the friendly UX. Spec S-20260711-6ed4.
-    const source = readFileSync(resolve(__dirname, "chapter-ingest.ts"), "utf8")
+    const source = readIngestSource()
 
     // The old throw on the no-JSON-text path must be gone for extractSnapshotWithLLM.
     expect(source).not.toContain("章节快照提取失败：模型没有返回可解析的 JSON")
@@ -133,7 +142,7 @@ describe("chapter-ingest JSON extraction hardening", () => {
     // route, sending outline-generation.ts:703 → :707-719 into the catch
     // branch with raw error.message instead of the i18n ingestFailedNotification.
     // Spec S-20260711-6ed4.
-    const source = readFileSync(resolve(__dirname, "chapter-ingest.ts"), "utf8")
+    const source = readIngestSource()
 
     // The old throw on the no-JSON-text path must be gone for ingestOutline.
     expect(source).not.toContain("大纲摄取失败：模型没有返回可解析的 JSON")
@@ -153,7 +162,7 @@ describe("chapter-ingest JSON extraction hardening", () => {
     // already-fixed ones (no-JSON + SyntaxError) and mirrors
     // extractSnapshotWithLLM @859 which correctly propagates normalize null.
     // Spec S-20260711-6ed4.
-    const source = readFileSync(resolve(__dirname, "chapter-ingest.ts"), "utf8")
+    const source = readIngestSource()
 
     // The old throw on the normalize-null path must be gone — assert the
     // throw statement form is absent (not just the string, since the test
