@@ -137,6 +137,13 @@ for (const ch of CHAPTERS) {
   const DIMS = SIX_REVIEW_DIMENSION_ORDER as (keyof typeof SIX_REVIEW_DIMENSIONS)[]
   const BACKOFF = [5000, 10000, 20000, 40000, 60000]
 
+  // 终态错误：重试不会改变结果，只会白烧退避时间。典型是模型被网关下线
+  // （HTTP 400 "unknown provider for model X"）、凭据失效、模型名写错。
+  // 2026-10-29 实测：muse-spark-1.3-contributor 被网关下线后，脚本按 6 次退避
+  // 空转，3 章就烧掉 546 次重试与数小时。终态错误必须立刻中止整轮。
+  const TERMINAL_ERROR_RE = /unknown provider for model|invalid_request_error|HTTP (400|401|403)|invalid api.?key|model not found|no such model/i
+  let terminalError: string | null = null
+
   type Task = { dim: string; s: number }
   const tasks: Task[] = []
   for (const dim of DIMS) for (let s = 0; s < SAMPLES; s++) tasks.push({ dim: dim as string, s })
@@ -188,6 +195,12 @@ for (const ch of CHAPTERS) {
         if (rawScore !== null && !Number.isNaN(rawScore)) value = rawScore > 10.5 ? rawScore / 10 : rawScore
         else lastErr = `no score(${content.length}ch): ${content.slice(0, 120).replace(/\n/g, " ")}`
       } catch (e) { lastErr = e instanceof Error ? `${e.name}: ${e.message}`.slice(0, 160) : String(e).slice(0, 160) }
+      // 终态错误立刻记下并跳出重试循环（不再退避）
+      if (value === null && TERMINAL_ERROR_RE.test(lastErr)) {
+        terminalError = lastErr
+        console.log(`[ch${ch}/${dim}/s${s}] TERMINAL error, aborting run: ${lastErr.slice(0, 140)}`)
+        break
+      }
       if (value === null && attempt <= BACKOFF.length) {
         console.log(`[ch${ch}/${dim}/s${s}] attempt${attempt} failed, retry in ${BACKOFF[attempt - 1] / 1000}s: ${lastErr.slice(0, 100)}`)
         await new Promise((r) => setTimeout(r, BACKOFF[attempt - 1]))
@@ -204,12 +217,23 @@ for (const ch of CHAPTERS) {
   let cursor = 0
   const workers = Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, async () => {
     while (true) {
+      if (terminalError) break
       const idx = cursor++
       if (idx >= tasks.length) break
       await runTask(tasks[idx])
     }
   })
   await Promise.all(workers)
+
+  // 终态错误：不写该章的无效结果，直接以非零码退出，让调用方看到真实原因。
+  // 已完成的章保持落盘，续跑时自动跳过。
+  if (terminalError) {
+    save()
+    console.error(`FATAL: 不可重试的错误，已中止。${terminalError}`)
+    console.error('已完成的章保留在产物中；修复模型/凭据后重跑会自动续跑。')
+    try { unlinkSync(LOCK) } catch { /* 锁已不存在 */ }
+    process.exit(2)
+  }
 
   for (const dim of DIMS) {
     const arr = (collected.get(dim as string) ?? []).slice().sort((a, b) => a.s - b.s)
