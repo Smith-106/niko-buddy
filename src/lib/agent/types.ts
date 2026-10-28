@@ -2,6 +2,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import type { ChatMessage, RequestOverrides } from "../llm-providers"
 import type { LlmUsage } from "../llm-usage"
 import type { LlmRequestCacheTrace } from "../llm-request-trace"
+import type { AnthropicThinkingBlock } from "../llm-stream-parsers"
 
 export interface ToolParameter {
   type: "string" | "number" | "boolean" | "object" | "array" | "integer"
@@ -187,6 +188,13 @@ export interface AgentMessage {
   tool_call_id?: string
   name?: string
   reasoning_content?: string
+  /**
+   * Anthropic 思考块（含 signature），仅用于下一轮原样回放。
+   *
+   * 开了 thinking 的请求，带 tool_use 的 assistant 回合必须带回产生它的思考块，
+   * 否则下一次请求 400。非 Anthropic 通道不回填这个字段。
+   */
+  thinking_blocks?: AnthropicThinkingBlock[]
 }
 
 export interface AgentRunRecord {

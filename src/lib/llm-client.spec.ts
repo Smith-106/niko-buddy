@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
+import { getProviderConfig } from "./llm-providers"
 
 // ── mocks ────────────────────────────────────────────────────────────────
 const mocks = vi.hoisted(() => {
@@ -1824,5 +1825,148 @@ describe("prompt 缓存诊断接线", () => {
     // 第二次应算出与第一次的间隔
     expect(second.cache?.idleGapMs).toBeGreaterThanOrEqual(0)
     expect(second.cache?.startGapMs).toBeGreaterThanOrEqual(0)
+  })
+})
+
+/**
+ * 端到端：开 thinking + 用工具 → 下一次请求能原样回放思考块。
+ *
+ * 走的是真实链路，两端都是生产代码：
+ *   Anthropic SSE → providerConfig.parseThinkingDelta → callbacks.onThinkingDelta
+ *   → 按 index 累积（与 runner 同逻辑）→ getProviderConfig().buildBody
+ *
+ * 这条链路此前完全断裂：signature / redacted_thinking 全仓零处理，
+ * 第二轮请求必然被 Anthropic 拒（400）。
+ */
+describe("thinking 块端到端回放（真实 SSE → 真实 body）", () => {
+  const sse = (obj: unknown) => `data: ${JSON.stringify(obj)}`
+
+  // 与 runner.ts 的 onThinkingDelta 累积逻辑一致
+  const accumulate = (blocks: Array<Record<string, unknown>>) => (delta: never) => {
+    const d = delta as unknown as
+      | { kind: "block_start"; index: number; block: Record<string, unknown> }
+      | { kind: "text"; index: number; text: string }
+      | { kind: "signature"; index: number; signature: string }
+    if (d.kind === "block_start") {
+      blocks[d.index] = { ...d.block }
+      return
+    }
+    const existing = blocks[d.index]
+    if (!existing) return
+    if (d.kind === "text") {
+      existing.thinking = `${(existing.thinking as string) ?? ""}${d.text}`
+      return
+    }
+    existing.signature = `${(existing.signature as string) ?? ""}${d.signature}`
+  }
+
+  const thinkingSse = () =>
+    sseLines(
+      sse({ type: "message_start", message: { usage: { input_tokens: 10, output_tokens: 0 } } }),
+      sse({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } }),
+      sse({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "先读第 3 章，" } }),
+      sse({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "再判断伏笔。" } }),
+      sse({ type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "SIG-PART-1" } }),
+      sse({ type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "SIG-PART-2" } }),
+      sse({ type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "tu_1", name: "read_chapter" } }),
+      sse({ type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"n":3}' } }),
+      sse({ type: "message_delta", usage: { input_tokens: 10, output_tokens: 20 } }),
+      "data: [DONE]",
+    )
+
+  const anthropicConfig = (mode: "auto" | "medium") =>
+    llmConfig({
+      provider: "custom",
+      apiMode: "anthropic_messages",
+      customEndpoint: "https://example.test/anthropic",
+      model: "MiniMax-M3",
+      reasoning: { mode },
+    })
+
+  it("签名分片被拼完整，并与思考文本一起可用于回放", async () => {
+    setupHttpFetch(
+      (() => Promise.resolve(streamResponse(thinkingSse()))) as typeof fetch,
+    )
+    const blocks: Array<Record<string, unknown>> = []
+    const toolDeltas: unknown[] = []
+    await streamChat(
+      anthropicConfig("medium"),
+      [{ role: "user", content: "读第 3 章" }] as never,
+      {
+        ...makeCallbacks(),
+        onThinkingDelta: accumulate(blocks) as never,
+        onToolCallDelta: (d: unknown) => toolDeltas.push(d),
+      } as never,
+    )
+
+    // signature 分两片到达，必须拼成 SIG-PART-1SIG-PART-2 才能回放
+    expect(blocks[0]).toEqual({
+      type: "thinking",
+      thinking: "先读第 3 章，再判断伏笔。",
+      signature: "SIG-PART-1SIG-PART-2",
+    })
+    // 顺带确认工具增量也解析到了（custom+anthropic_messages 此前连这个都没有）
+    expect(toolDeltas.length).toBeGreaterThan(0)
+  })
+
+  it("累积出的思考块喂进 buildBody 后出现在 assistant 回合首位", async () => {
+    setupHttpFetch(
+      (() => Promise.resolve(streamResponse(thinkingSse()))) as typeof fetch,
+    )
+    const blocks: Array<Record<string, unknown>> = []
+    await streamChat(
+      anthropicConfig("medium"),
+      [{ role: "user", content: "读第 3 章" }] as never,
+      { ...makeCallbacks(), onThinkingDelta: accumulate(blocks) as never } as never,
+    )
+
+    // 模拟 runner 组装 assistant 回合并进入下一轮
+    const body = getProviderConfig(anthropicConfig("medium")).buildBody([
+      { role: "user", content: "读第 3 章" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "tu_1", type: "function", function: { name: "read_chapter", arguments: '{"n":3}' } }],
+        thinking_blocks: [blocks[0] as never],
+      },
+      { role: "tool", tool_call_id: "tu_1", content: "第 3 章正文" },
+    ]) as { messages: Array<{ role: string; content: unknown }> }
+
+    const assistant = body.messages.find((m) => m.role === "assistant")!
+    const content = assistant.content as Array<{ type: string; signature?: string }>
+    expect(content[0]).toEqual({
+      type: "thinking",
+      thinking: "先读第 3 章，再判断伏笔。",
+      signature: "SIG-PART-1SIG-PART-2",
+    })
+    expect(content.some((b) => b.type === "tool_use")).toBe(true)
+  })
+
+  it("未开 thinking 时不产生思考块（auto 模式）", async () => {
+    setupHttpFetch(
+      (() => Promise.resolve(streamResponse(thinkingSse()))) as typeof fetch,
+    )
+    const blocks: Array<Record<string, unknown>> = []
+    await streamChat(
+      anthropicConfig("auto"),
+      [{ role: "user", content: "读第 3 章" }] as never,
+      { ...makeCallbacks(), onThinkingDelta: accumulate(blocks) as never } as never,
+    )
+    // 解析层照常上报（协议里有就报），是否回放由 buildBody 按 reasoning 决定
+    expect(blocks[0]).toBeDefined()
+
+    const body = getProviderConfig(anthropicConfig("auto")).buildBody([
+      { role: "user", content: "读第 3 章" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "tu_1", type: "function", function: { name: "read_chapter", arguments: "{}" } }],
+        thinking_blocks: [blocks[0] as never],
+      },
+      { role: "tool", tool_call_id: "tu_1", content: "正文" },
+    ]) as { thinking?: unknown; messages: Array<{ role: string; content: unknown }> }
+    expect(body.thinking).toBeUndefined()
+    const content = body.messages.find((m) => m.role === "assistant")!.content as Array<{ type: string }>
+    expect(content.some((b) => b.type === "thinking")).toBe(false)
   })
 })

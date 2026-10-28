@@ -459,3 +459,85 @@ export function parseGoogleToolDelta(line: string): StreamToolCallDelta[] | null
     return null
   }
 }
+
+/**
+ * Anthropic 扩展思考块（含回放凭证）。
+ *
+ * 为什么必须原样保留 `signature`：开了 `thinking` 的请求，Anthropic 要求后续
+ * 请求中带 `tool_use` 的 assistant 回合必须同时带上产生它的 `thinking` 块，
+ * 且 `signature` 一字不能改。缺了或改了 → 400。
+ *
+ * `redacted_thinking` 没有明文，只有加密的 `data`，同样必须原样回传。
+ */
+export interface AnthropicThinkingBlock {
+  type: "thinking" | "redacted_thinking"
+  /** `thinking` 块的明文思考内容（流式累积）。 */
+  thinking?: string
+  /** `thinking` 块的回放凭证，服务端签发，不可修改。 */
+  signature?: string
+  /** `redacted_thinking` 块的加密载荷。 */
+  data?: string
+}
+
+/** 思考块的流式增量。 */
+export type StreamThinkingDelta =
+  | { kind: "block_start"; index: number; block: AnthropicThinkingBlock }
+  | { kind: "text"; index: number; text: string }
+  | { kind: "signature"; index: number; signature: string }
+
+/**
+ * Anthropic Messages 流式思考块增量解析。
+ *
+ * 协议（SSE）：
+ *   content_block_start  { index, content_block: { type: "thinking", thinking: "" } }
+ *   content_block_delta  { index, delta: { type: "thinking_delta",   thinking:  "..." } }
+ *   content_block_delta  { index, delta: { type: "signature_delta",  signature: "..." } }
+ *   content_block_start  { index, content_block: { type: "redacted_thinking", data: "..." } }
+ *
+ * 与工具块同构：用 content block 的 `index` 定位，文本与签名分片到达，
+ * 拼接由上层负责。这里只把每个 SSE 行翻译成增量。
+ */
+export function parseAnthropicThinkingDelta(line: string): StreamThinkingDelta[] | null {
+  if (!line.startsWith("data: ")) return null
+  const data = line.slice(6).trim()
+  try {
+    const parsed = JSON.parse(data) as {
+      type?: string
+      index?: number
+      content_block?: {
+        type?: string
+        thinking?: string
+        signature?: string
+        data?: string
+      }
+      delta?: { type?: string; thinking?: string; signature?: string }
+    }
+    const index = typeof parsed.index === "number" ? parsed.index : 0
+
+    if (parsed.type === "content_block_start") {
+      const block = parsed.content_block
+      if (block?.type === "thinking") {
+        return [{ kind: "block_start", index, block: { type: "thinking", thinking: block.thinking ?? "" } }]
+      }
+      if (block?.type === "redacted_thinking") {
+        // redacted 块的 data 在 start 里一次给全，没有后续 delta
+        return [{ kind: "block_start", index, block: { type: "redacted_thinking", data: block.data ?? "" } }]
+      }
+      return null
+    }
+
+    if (parsed.type === "content_block_delta") {
+      if (parsed.delta?.type === "thinking_delta" && typeof parsed.delta.thinking === "string") {
+        return [{ kind: "text", index, text: parsed.delta.thinking }]
+      }
+      if (parsed.delta?.type === "signature_delta" && typeof parsed.delta.signature === "string") {
+        return [{ kind: "signature", index, signature: parsed.delta.signature }]
+      }
+      return null
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}

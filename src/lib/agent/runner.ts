@@ -1,5 +1,6 @@
 import { isOutputTruncatedError, streamChat } from "../llm-client"
 import type { StreamCallbacks } from "../llm-client"
+import type { AnthropicThinkingBlock } from "../llm-stream-parsers"
 import { isFunctionCallingEnabled, providerUsesTextToolCalls } from "./config"
 import { accumulateToolCalls, parseTextToolCalls } from "./tool-call-parser"
 import { toOpenAITools } from "./tools-schema"
@@ -45,6 +46,29 @@ function messageContentText(content: AgentMessage["content"]): string {
   return content
     .map((block) => (block.type === "text" ? block.text : ""))
     .join("")
+}
+
+/**
+ * 取出本轮可回放的思考块（按 index 顺序，滤掉稀疏空洞与不完整的块）。
+ *
+ * 两条丢弃规则：
+ *  - `roundThinkingBlocks` 按 content block 的 index 存放，中间夹着 text /
+ *    tool_use 块，所以一定有空洞。
+ *  - `thinking` 块没有 `signature` 就不能回放：signature 是服务端签发的凭证，
+ *    缺了它回传反而会被拒。`redacted_thinking` 靠 `data` 回放。
+ */
+function collectThinkingBlocks(blocks: AnthropicThinkingBlock[]): AnthropicThinkingBlock[] {
+  const result: AnthropicThinkingBlock[] = []
+  for (const block of blocks) {
+    if (!block) continue
+    if (block.type === "redacted_thinking") {
+      if (block.data) result.push({ type: "redacted_thinking", data: block.data })
+      continue
+    }
+    if (!block.signature) continue
+    result.push({ type: "thinking", thinking: block.thinking ?? "", signature: block.signature })
+  }
+  return result
 }
 
 export class AgentRunner {
@@ -219,6 +243,7 @@ export class AgentRunner {
       }
 
       const toolCallDeltas: ToolCallDelta[] = []
+      const roundThinkingBlocks: AnthropicThinkingBlock[] = []
       let roundText = ""
       let roundReasoningContent = ""
       let streamError: Error | undefined
@@ -249,6 +274,21 @@ export class AgentRunner {
               })
             }
           }
+        },
+        // 思考块按 content block 的 index 累积：start 建块，text/signature 追加。
+        // signature 可能分多片到达，必须拼完整才能回放。
+        onThinkingDelta: (delta) => {
+          const existing = roundThinkingBlocks[delta.index]
+          if (delta.kind === "block_start") {
+            roundThinkingBlocks[delta.index] = { ...delta.block }
+            return
+          }
+          if (!existing) return
+          if (delta.kind === "text") {
+            existing.thinking = (existing.thinking ?? "") + delta.text
+            return
+          }
+          existing.signature = (existing.signature ?? "") + delta.signature
         },
         onFinishReason: (reason: string) => {
           const finishReasons = record.requiredToolDiagnostics?.finishReasons
@@ -332,6 +372,7 @@ export class AgentRunner {
         openaiTools = undefined
         roundText = ""
         roundReasoningContent = ""
+        roundThinkingBlocks.length = 0
         toolCallDeltas.length = 0
         streamError = undefined
         roundUsage = undefined
@@ -437,11 +478,13 @@ export class AgentRunner {
         if (missingRequired.length > 0) {
           const fallbackOutcome = await attemptRequiredToolFallback()
           if (fallbackOutcome === "success" || fallbackOutcome === "error") return record
-          if (roundText.trim() || roundReasoningContent.trim()) {
+          const nudgeThinking = collectThinkingBlocks(roundThinkingBlocks)
+          if (roundText.trim() || roundReasoningContent.trim() || nudgeThinking.length > 0) {
             workingMessages.push({
               role: "assistant",
               content: roundText || "",
               ...(roundReasoningContent.trim() ? { reasoning_content: roundReasoningContent } : {}),
+              ...(nudgeThinking.length > 0 ? { thinking_blocks: nudgeThinking } : {}),
             })
           }
           workingMessages.push({
@@ -472,6 +515,9 @@ export class AgentRunner {
         content: roundText || "",
         tool_calls: toolCalls.map((c) => ({ id: c.id ?? `tc-${Date.now()}-${c.function.name}`, type: "function" as const, function: c.function })),
         ...(roundReasoningContent.trim() ? { reasoning_content: roundReasoningContent } : {}),
+        ...(collectThinkingBlocks(roundThinkingBlocks).length > 0
+          ? { thinking_blocks: collectThinkingBlocks(roundThinkingBlocks) }
+          : {}),
       }
       logReasoningReplay("agent.round.tool_assistant", {
         round: round + 1,

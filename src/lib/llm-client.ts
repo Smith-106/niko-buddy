@@ -3,6 +3,7 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { isAzureOpenAiEndpoint } from "@/lib/azure-openai"
 import { type RequestOverrides } from "./llm-providers"
+import type { StreamThinkingDelta } from "./llm-stream-parsers"
 import { defaultRegistry } from "./llm/provider-registry"
 import { getHttpFetch, isFetchNetworkError } from "./tauri-fetch"
 import { probeEndpointReachability } from "./endpoint-probe"
@@ -39,6 +40,13 @@ export interface StreamCallbacks {
   onError: (error: Error) => void
   /** Optional agent extensions (port of v3 agent chain). */
   onToolCallDelta?: (delta: { index: number; type?: string; id?: string; name?: string; arguments?: string }) => void
+  /**
+   * Anthropic 思考块增量（含 signature）。
+   *
+   * 开 thinking 后带 tool_use 的回合必须原样回传思考块，否则下一次请求 400。
+   * 不接这个回调 = 拿不到 signature = 无法回放。
+   */
+  onThinkingDelta?: (delta: StreamThinkingDelta) => void
   onFinishReason?: (reason: string) => void
   onUsage?: (usage: { input: number; output: number; cachedInput?: number; cacheWriteInput?: number }) => void
   onUserMemoryDecision?: (decision: { memoryKey: string; action: "accept" | "reject" }) => void
@@ -919,6 +927,12 @@ async function streamChatHeld(
       if (!deltas || deltas.length === 0) return
       for (const delta of deltas) callbacks.onToolCallDelta?.(delta)
     }
+    // 思考块增量：signature 是下一轮回放的凭证，丢了就会 400
+    const recordThinkingDeltas = (line: string) => {
+      const deltas = providerConfig.parseThinkingDelta?.(line)
+      if (!deltas || deltas.length === 0) return
+      for (const delta of deltas) callbacks.onThinkingDelta?.(delta)
+    }
 
     try {
       while (true) {
@@ -934,6 +948,7 @@ async function streamChatHeld(
             if (token !== null) recordToken(token)
             recordUsage(trimmed)
             recordToolDeltas(trimmed)
+            recordThinkingDeltas(trimmed)
           }
           break
         }
@@ -950,6 +965,7 @@ async function streamChatHeld(
           if (token !== null) recordToken(token)
           recordUsage(trimmed)
           recordToolDeltas(trimmed)
+          recordThinkingDeltas(trimmed)
         }
       }
 

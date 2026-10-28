@@ -1294,3 +1294,76 @@ describe("第二轮审查修复：前缀 added / 匿名槽位 / 乱序终稿 / �
     expect(blocks.some((b) => b.type === "tool_result")).toBe(true)
   })
 })
+
+/**
+ * 开 thinking + 用工具 → 400 的回放链路。
+ *
+ * 这是「工具通道打通」带出来的新边界：Anthropic 要求开了 thinking 后，
+ * 带 tool_use 的 assistant 回合必须原样带回产生它的 thinking 块（含
+ * signature），且块顺序必须在 text / tool_use 之前。此前 signature /
+ * redacted_thinking 全仓零处理，第二轮请求必然被拒。
+ */
+describe("anthropic thinking 块回放", () => {
+  const thinking = { type: "thinking" as const, thinking: "先看设定", signature: "SIG-1" }
+  const toolTurn = (blocks?: Array<typeof thinking>) => [
+    { role: "user" as const, content: "读第 3 章" },
+    {
+      role: "assistant" as const,
+      content: "",
+      tool_calls: [{ id: "tu_1", type: "function" as const, function: { name: "read_chapter", arguments: "{}" } }],
+      ...(blocks ? { thinking_blocks: blocks } : {}),
+    },
+    { role: "tool" as const, tool_call_id: "tu_1", content: "章节正文" },
+  ]
+
+  const bodyWith = (reasoning: ReasoningMode, messages: ReturnType<typeof toolTurn>) =>
+    getProviderConfig({
+      ...customConfig({ apiMode: "anthropic_messages" }),
+      reasoning: { mode: reasoning },
+    }).buildBody(messages) as {
+      thinking?: unknown
+      messages: Array<{ role: string; content: unknown }>
+    }
+
+  it("开 thinking 时，带 tool_use 的 assistant 回合前置 thinking 块", () => {
+    const body = bodyWith("medium", toolTurn([thinking]))
+    expect(body.thinking).toMatchObject({ type: "enabled" })
+
+    const assistant = body.messages.find((m) => m.role === "assistant")!
+    const blocks = assistant.content as Array<{ type: string; signature?: string }>
+    expect(blocks[0]).toEqual({ type: "thinking", thinking: "先看设定", signature: "SIG-1" })
+    // thinking 必须在 tool_use 之前，否则 Anthropic 同样拒
+    expect(blocks.some((b) => b.type === "tool_use")).toBe(true)
+    expect(blocks.findIndex((b) => b.type === "tool_use")).toBeGreaterThan(0)
+  })
+
+  it("thinking 文本与 tool_use 并存时顺序为 thinking → tool_use", () => {
+    const messages = toolTurn([thinking])
+    messages[1]!.content = "我来读一下" as never
+    const body = bodyWith("high", messages)
+    const blocks = body.messages.find((m) => m.role === "assistant")!.content as Array<{ type: string }>
+    expect(blocks.map((b) => b.type)).toEqual(["thinking", "text", "tool_use"])
+  })
+
+  it("redacted_thinking 靠 data 回放", () => {
+    const body = bodyWith("medium", toolTurn([{ type: "redacted_thinking", data: "ENC" } as never]))
+    const blocks = body.messages.find((m) => m.role === "assistant")!.content as Array<{ type: string; data?: string }>
+    expect(blocks[0]).toEqual({ type: "redacted_thinking", data: "ENC" })
+  })
+
+  it("未开 thinking（auto / off）时不回放思考块", () => {
+    for (const mode of ["auto", "off"] as ReasoningMode[]) {
+      const body = bodyWith(mode, toolTurn([thinking]))
+      expect(body.thinking).toBeUndefined()
+      const blocks = body.messages.find((m) => m.role === "assistant")!.content as Array<{ type: string }>
+      expect(blocks.some((b) => b.type === "thinking")).toBe(false)
+    }
+  })
+
+  it("没有 thinking_blocks 的历史消息不会凭空产生思考块", () => {
+    const body = bodyWith("medium", toolTurn(undefined))
+    const blocks = body.messages.find((m) => m.role === "assistant")!.content as Array<{ type: string }>
+    expect(blocks.some((b) => b.type === "thinking")).toBe(false)
+    expect(body.thinking).toMatchObject({ type: "enabled" })
+  })
+})

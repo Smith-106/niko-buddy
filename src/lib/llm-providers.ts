@@ -14,13 +14,24 @@ import {
   extractOpenAiUsage,
   extractResponsesUsage,
   parseAnthropicLine,
+  parseAnthropicThinkingDelta,
   parseAnthropicToolDelta,
   parseGoogleToolDelta,
   parseOpenAiLine,
   parseOpenAiToolDelta,
 } from "@/lib/llm-stream-parsers"
-import type { StreamToolCallDelta, StreamUsage } from "@/lib/llm-stream-parsers"
-export type { StreamToolCallDelta, StreamUsage } from "@/lib/llm-stream-parsers"
+import type {
+  AnthropicThinkingBlock,
+  StreamThinkingDelta,
+  StreamToolCallDelta,
+  StreamUsage,
+} from "@/lib/llm-stream-parsers"
+export type {
+  AnthropicThinkingBlock,
+  StreamThinkingDelta,
+  StreamToolCallDelta,
+  StreamUsage,
+} from "@/lib/llm-stream-parsers"
 
 export type ContentBlock =
   | { type: "text"; text: string; cacheControl?: boolean }
@@ -39,6 +50,13 @@ export interface ChatMessage {
   tool_call_id?: string
   name?: string
   reasoning_content?: string
+  /**
+   * Anthropic 思考块（含 signature），仅用于回放。
+   *
+   * 开了 thinking 的请求，带 tool_use 的 assistant 回合必须原样带回产生它的
+   * 思考块，否则下一次请求 400。非 Anthropic 通道不填这个字段。
+   */
+  thinking_blocks?: AnthropicThinkingBlock[]
 }
 
 export interface RequestOverrides {
@@ -66,6 +84,11 @@ interface ProviderConfig {
    * 不实现则 agent 的按流式工具循环永远收不到工具意图（正文为空即一轮空转）。
    */
   parseToolDelta?: (line: string) => StreamToolCallDelta[] | null
+  /**
+   * 解析流式行里的思考块增量（仅 Anthropic 系）。缺省 = 该 provider 不回思考块。
+   * 不实现则开 thinking 后带 tool_use 的回合拿不到 signature，下一轮请求 400。
+   */
+  parseThinkingDelta?: (line: string) => StreamThinkingDelta[] | null
 }
 
 const JSON_CONTENT_TYPE = "application/json"
@@ -567,6 +590,7 @@ function toAnthropicToolResultBlock(message: ChatMessage): Record<string, unknow
 function buildAnthropicBody(
   messages: ChatMessage[],
   overrides?: RequestOverrides,
+  options?: { includeThinking?: boolean },
 ): Record<string, unknown> {
   const systemMessages = messages.filter((m) => m.role === "system")
   const anthropicTools = overrides?.tools?.length ? toAnthropicTools(overrides.tools) : []
@@ -607,13 +631,25 @@ function buildAnthropicBody(
         : []
 
     const hasContent = !(content === "" || (Array.isArray(content) && content.length === 0))
-    if (!hasContent && toolUseBlocks.length === 0) continue
 
     const role = message.role === "assistant" ? "assistant" : "user"
-    // assistant 带 tool_use 时必须是块数组（text + tool_use 可共存）
+    // 开了 thinking 的请求，带 tool_use 的 assistant 回合必须原样带回思考块
+    // （含 signature），否则下一次请求 400。思考块必须排在 text / tool_use 之前。
+    const thinkingBlocks =
+      message.role === "assistant" && options?.includeThinking && message.thinking_blocks?.length
+        ? message.thinking_blocks.map((block) =>
+            block.type === "redacted_thinking"
+              ? { type: "redacted_thinking", data: block.data ?? "" }
+              : { type: "thinking", thinking: block.thinking ?? "", signature: block.signature ?? "" },
+          )
+        : []
+    if (!hasContent && toolUseBlocks.length === 0 && thinkingBlocks.length === 0) continue
+
+    // assistant 带 tool_use 时必须是块数组（thinking + text + tool_use 可共存）
     const merged: unknown =
-      toolUseBlocks.length > 0
+      thinkingBlocks.length > 0
         ? [
+            ...thinkingBlocks,
             ...(hasContent
               ? Array.isArray(content)
                 ? content
@@ -621,7 +657,16 @@ function buildAnthropicBody(
               : []),
             ...toolUseBlocks,
           ]
-        : content
+        : toolUseBlocks.length > 0
+          ? [
+              ...(hasContent
+                ? Array.isArray(content)
+                  ? content
+                  : [{ type: "text", text: content }]
+                : []),
+              ...toolUseBlocks,
+            ]
+          : content
 
     const previous = conversationMessages[conversationMessages.length - 1]
     // 保持 user/assistant 交替：同角色相邻回合必须合并
@@ -666,9 +711,12 @@ function buildAnthropicBodyWithReasoning(
   messages: ChatMessage[],
   overrides?: RequestOverrides,
 ): Record<string, unknown> {
-  const body = buildAnthropicBody(messages, overrides)
   const reasoning = effectiveReasoning(config, overrides)
-  if (reasoning.mode === "auto" || reasoning.mode === "off") return body
+  const thinkingEnabled = reasoning.mode !== "auto" && reasoning.mode !== "off"
+  // 回放思考块必须与「本次真的开 thinking」一致：没开 thinking 却带思考块，
+  // 反而会被 Anthropic 拒。
+  const body = buildAnthropicBody(messages, overrides, { includeThinking: thinkingEnabled })
+  if (!thinkingEnabled) return body
 
   const budget =
     reasoning.mode === "custom" && reasoning.budgetTokens !== undefined
@@ -904,6 +952,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         parseStream: parseAnthropicLine,
         extractUsage: extractAnthropicUsage,
         parseToolDelta: parseAnthropicToolDelta,
+        parseThinkingDelta: parseAnthropicThinkingDelta,
       }
     }
 
@@ -979,6 +1028,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         parseStream: parseAnthropicLine,
         extractUsage: extractAnthropicUsage,
         parseToolDelta: parseAnthropicToolDelta,
+        parseThinkingDelta: parseAnthropicThinkingDelta,
       }
     }
 
@@ -1026,6 +1076,10 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           }),
           parseStream: parseAnthropicLine,
           extractUsage: extractAnthropicUsage,
+          // 此前漏了这两个：MiniMax 预设走的就是这条分支，
+          // 工具注册了却解析不回 tool_use，正是「静默零工具调用」。
+          parseToolDelta: parseAnthropicToolDelta,
+          parseThinkingDelta: parseAnthropicThinkingDelta,
         }
       }
       if (mode === "responses") {
