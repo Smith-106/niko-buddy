@@ -6,7 +6,10 @@
 // - muse-spark = Oct-10 基线同一口径（U2 跨口径差天然消除）；
 //   deepseek 池 429 配额冷却中（见 blocker doc §十三），待恢复后可选跑对照。
 // - 原中转端点曾全线 503，已于 2026-10-28 弃用，不再作为口径候选。
-// 断点续跑：每章完成后落盘，重启自动跳过已有 overall 的章。约 4860 calls / 60h+ 后台。
+// 断点续跑：每章完成后落盘，重启自动跳过已有 overall 的章。
+// 并发：维度 × 采样池化执行（6 × 5 = 30 任务，12 路池）。实测 16 路全 200。
+// 单章 440s（纯串行）→ 约 90-130s。章与章之间仍串行（每章要重新 buildContextPack）。
+// 预计：4860 calls / 约 4-6 小时（原串行版约 40 小时）。
 // 运行: npx tsx --import ./scripts/node-fs-register.mjs scripts/quality-gate-97-l9-m-full.mts
 // 产物: ../.workflow/harvest-staging/quality-gate-97-l9-m-full.json
 import { readFileSync, writeFileSync, existsSync, unlinkSync, statSync } from "node:fs"
@@ -126,67 +129,98 @@ for (const ch of CHAPTERS) {
   })
   const dimMedians: Record<string, number | null> = {}
   const dimResults: Record<string, unknown> = {}
-  for (const dim of SIX_REVIEW_DIMENSION_ORDER as (keyof typeof SIX_REVIEW_DIMENSIONS)[]) {
+
+  // 并发池：维度 × 采样 = 6 × 5 = 30 个任务，用 CONCURRENCY 路池化执行。
+  // 实测 16 路全 200（墙钟 17.7s）；取 12 路留限流余量。
+  // 单章串行版 440s → 池化版约 90-130s。
+  const CONCURRENCY = 12
+  const DIMS = SIX_REVIEW_DIMENSION_ORDER as (keyof typeof SIX_REVIEW_DIMENSIONS)[]
+  const BACKOFF = [5000, 10000, 20000, 40000, 60000]
+
+  type Task = { dim: string; s: number }
+  const tasks: Task[] = []
+  for (const dim of DIMS) for (let s = 0; s < SAMPLES; s++) tasks.push({ dim: dim as string, s })
+
+  const prompts = new Map<string, string>()
+  const fingerprints = new Map<string, string>()
+  for (const dim of DIMS) {
     const prompt = buildDimensionReviewPrompt(pack, chapterText, SIX_REVIEW_DIMENSIONS[dim])
+    prompts.set(dim as string, prompt)
     const protocol = createLiteraryExperimentProtocol({
       model: llmConfig.model || "unknown",
       samples: SAMPLES,
       label: `gate97-l9-m-ch${ch}-${dim}`,
       notes: ["Track L9 M-full; muse-spark caliber; N=5"],
     })
-    const fingerprint = buildMeasurementFingerprint({
+    fingerprints.set(dim as string, buildMeasurementFingerprint({
       protocol, pack, chapterText, packKind: "app-runtime-six-dimension",
-    })
-    const scores: (number | null)[] = []
-    const errors: string[] = []
-    for (let s = 0; s < SAMPLES; s++) {
-      let value: number | null = null
-      let lastErr = ""
-      // CPA injector 阵发 502（upstream connection refused）：6 次指数退避
-      // （5/10/20/40/60s），穿过风暴而非在风暴里烧掉样本。
-      const BACKOFF = [5000, 10000, 20000, 40000, 60000]
-      for (let attempt = 1; attempt <= 6 && value === null; attempt++) {
-        let content = ""
-        try {
-          let streamError: Error | null = null
-          await new Promise<void>((resolve) => {
-            void streamChat(
-              llmConfig,
-              [{ role: "user", content: `${prompt}\n\n只输出最终 JSON 对象（含 score、status、summary、issues），不要输出解释。` }] as any,
-              {
-                onToken: (t: string) => { content += t },
-                onDone: () => resolve(),
-                onError: (e: Error) => { streamError = e; resolve() },
-              } as any,
-              AbortSignal.timeout(300000),
-              // max_tokens 16000（canary 9 实证）：thinking 常输出 3k~7k 字符，
-              // 2000/4000 预算会被思考吃光导致零正文；16k 让「思考 + 正文」共存。
-              // 残余失败模式是传输 stall（300s 超时），由外层 6 次退避吸收。
-              { temperature: 0.4, max_tokens: 16000 } as any,
-            )
-          })
-          if (streamError) throw streamError
-          const rawScore = extractScore(content)
-          if (rawScore !== null && !Number.isNaN(rawScore)) value = rawScore > 10.5 ? rawScore / 10 : rawScore
-          else lastErr = `无score(${content.length}ch): ${content.slice(0, 120).replace(/\n/g, " ")}`
-        } catch (e) { lastErr = e instanceof Error ? `${e.name}: ${e.message}`.slice(0, 160) : String(e).slice(0, 160) }
-        if (value === null && attempt <= BACKOFF.length) {
-          console.log(`[ch${ch}/${dim}/s${s}] attempt${attempt} 失败，${BACKOFF[attempt - 1] / 1000}s 后重试：${lastErr.slice(0, 100)}`)
-          await new Promise((r) => setTimeout(r, BACKOFF[attempt - 1]))
-        }
+    }))
+  }
+
+  const collected = new Map<string, { s: number; value: number | null; lastErr: string }[]>()
+
+  async function runTask(task: Task): Promise<void> {
+    const { dim, s } = task
+    const prompt = prompts.get(dim)!
+    let value: number | null = null
+    let lastErr = ""
+    for (let attempt = 1; attempt <= 6 && value === null; attempt++) {
+      let content = ""
+      try {
+        let streamError: Error | null = null
+        await new Promise<void>((resolve) => {
+          void streamChat(
+            llmConfig,
+            [{ role: "user", content: `${prompt}
+
+只输出最终 JSON 对象（含 score、status、summary、issues），不要输出解释。` }] as any,
+            {
+              onToken: (t: string) => { content += t },
+              onDone: () => resolve(),
+              onError: (e: Error) => { streamError = e; resolve() },
+            } as any,
+            AbortSignal.timeout(300000),
+            { temperature: 0.4, max_tokens: 16000 } as any,
+          )
+        })
+        if (streamError) throw streamError
+        const rawScore = extractScore(content)
+        if (rawScore !== null && !Number.isNaN(rawScore)) value = rawScore > 10.5 ? rawScore / 10 : rawScore
+        else lastErr = `no score(${content.length}ch): ${content.slice(0, 120).replace(/\n/g, " ")}`
+      } catch (e) { lastErr = e instanceof Error ? `${e.name}: ${e.message}`.slice(0, 160) : String(e).slice(0, 160) }
+      if (value === null && attempt <= BACKOFF.length) {
+        console.log(`[ch${ch}/${dim}/s${s}] attempt${attempt} failed, retry in ${BACKOFF[attempt - 1] / 1000}s: ${lastErr.slice(0, 100)}`)
+        await new Promise((r) => setTimeout(r, BACKOFF[attempt - 1]))
       }
-      // 样本间 3s 间隔，避免 плотный hammer 触发网关限流。
-      await new Promise((r) => setTimeout(r, 3000))
-      scores.push(value)
-      doneCalls++
-      if (value === null) errors.push(`[ch${ch}/${dim}/s${s}] no score after retries: ${lastErr}`)
-      console.log(`[ch${ch}/${dim}/s${s}] score=${value}${value === null ? ` ERR:${lastErr}` : ""} (累计 ${doneCalls}/4860)`)
     }
+    const arr = collected.get(dim) ?? []
+    arr.push({ s, value, lastErr })
+    collected.set(dim, arr)
+    doneCalls++
+    console.log(`[ch${ch}/${dim}/s${s}] score=${value}${value === null ? ` ERR:${lastErr}` : ""} (累计 ${doneCalls}/4860)`)
+  }
+
+  // 池化执行
+  let cursor = 0
+  const workers = Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, async () => {
+    while (true) {
+      const idx = cursor++
+      if (idx >= tasks.length) break
+      await runTask(tasks[idx])
+    }
+  })
+  await Promise.all(workers)
+
+  for (const dim of DIMS) {
+    const arr = (collected.get(dim as string) ?? []).slice().sort((a, b) => a.s - b.s)
+    const scores: (number | null)[] = arr.map((x) => x.value)
+    const errors: string[] = arr.filter((x) => x.value === null).map((x) => `[ch${ch}/${dim}/s${x.s}] no score after retries: ${x.lastErr}`)
     const valid = scores.filter((v): v is number => v !== null)
     const med = valid.length ? median(valid) : null
     dimMedians[dim as string] = med
-    dimResults[dim as string] = { scores, median: med, measurementFingerprint: fingerprint, errors }
+    dimResults[dim as string] = { scores, median: med, measurementFingerprint: fingerprints.get(dim as string), errors }
   }
+
   const medVals = Object.values(dimMedians).filter((v): v is number => v !== null)
   const overall = medVals.length === 6 ? median(medVals) : null
   results[`ch${ch}`] = {
