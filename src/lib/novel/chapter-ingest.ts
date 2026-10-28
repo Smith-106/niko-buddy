@@ -1,4 +1,4 @@
-﻿import { readFile, writeFileAtomic, fileExists, createDirectory, deleteFile } from "@/commands/fs"
+﻿import { readFile, writeFileAtomic, fileExists, deleteFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
@@ -63,7 +63,6 @@ export {
 import {
   cleanupSupersededEntityFiles,
   rebuildDerivedMemoryFromSnapshots,
-  rebuildRegistryProjections,
   registryAliasMaps,
   selfHealFailedProjections,
   storeEntry,
@@ -80,6 +79,20 @@ export {
   selfHealFailedProjections,
   type ProjectionSelfHealResult,
 } from "./chapter-ingest-fold-registry"
+// W4（chapter-ingest 拆分第 8 步）：真相折叠漂移比对/告警/自动修复已拆至
+// ./chapter-ingest-drift。本地 import 供内部调用点使用，并 re-export 保面。
+import {
+  autoRepairTruthFoldDrift,
+  sampleUnfoldedMemoryDriftSuspected,
+} from "./chapter-ingest-drift"
+export {
+  autoRepairTruthFoldDrift,
+  computeTruthFoldDrift,
+  emitTruthFoldDriftAlarm,
+  sampleTruthFoldDrift,
+  type DriftAutoRepairResult,
+  type TruthFoldDrift,
+} from "./chapter-ingest-drift"
 import { resolveNovelModel } from "./model-resolver"
 // S5 首拆切片 #2（chapter-ingest 拆分第 2 步）：快照预览纯函数簇已拆至 ./snapshot-preview。
 // 本地 import 供内部调用点使用，并 re-export 保持既有 import 面不变。
@@ -104,7 +117,6 @@ import { createEmptyResourceLedgerStore, loadResourceLedger, saveResourceLedger 
 import { loadEncounterMatrix, saveEncounterMatrix, appendMeetingEdge, foldMeetingEdges, createEmptyEncounterMatrixStore } from "./encounter-matrix"
 import { loadChapterSummaries, saveChapterSummaries, upsertChapterSummary, foldChapterSummary, createEmptyChapterSummariesStore } from "./chapter-summaries"
 import { loadParticleLedger, saveParticleLedger, appendParticleEntry, foldParticleEntries, createEmptyParticleLedgerStore } from "./particle-ledger"
-import { truthStoreHash } from "./projection-store"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { shouldRebuildCommunitySummaries, generateCommunitySummaries } from "./community-summary"
 import { createChapterPipeline } from "./chapter-pipeline"
@@ -139,7 +151,6 @@ import {
 // mayEnterFoldReplay(projection, isRebuildable)：isSelfHealSkipClass 命中 →
 // false（禁入自愈重算）；其余交由 isAutoRebuildableProjection 既有门槛。
 import { computeCheckpointDigestOf } from "./checkpoint-digest"
-import { decideDriftAlarmAfterRepair } from "./kb-observability"
 import type { CanonDualWriteDeps, CanonDualWriteOp } from "./canon-dual-write"
 import { shadowWriteCanon, replayPendingQueue } from "./canon-dual-write"
 import { runTruthAuthorityCheck } from "./truth-authority-adapter"
@@ -1301,20 +1312,6 @@ export async function exportStructuredMemoryToWiki(projectPath: string, snapshot
 
 /** P2-IMP-14：sync 路径不 fold 的 drift 文件集合由注册表派生（全部 store 文件 − sync 直写 3 类）。 */
 
-async function sampleUnfoldedMemoryDriftSuspected(projectPath: string): Promise<string[]> {
-  try {
-    const results = await computeTruthFoldDrift(projectPath, "")
-    const unfolded = unfoldedDriftClasses()
-    return results
-      .filter((r) => r.drifted && unfolded.has(r.file))
-      .map((r) => r.file)
-  } catch (err) {
-    logger.warn("Chapter Ingest", "syncSnapshotToMemory 6 类 drift 采样失败（债务记 trace，不阻断）", {
-      error: toErrorMessage(err),
-    })
-    return []
-  }
-}
 
 export interface SyncSnapshotToMemoryResult {
   writtenEntityPaths: string[]
@@ -1654,12 +1651,6 @@ registerProjections({
  * (lastUpdated / fileVersion / At$ 墙钟字段), 认识论字段 validAt/invalidAt/
  * revealedAt 是数据不剔除 (GLM D-GLM2 裁决)。
  */
-export interface TruthFoldDrift {
-  file: string
-  liveHash: string
-  replayHash: string
-  drifted: boolean
-}
 
 /**
  * E-03 (C-8): 逐类比对 live 盘上 store vs 从 committed snapshot 序列重放的
@@ -1671,81 +1662,18 @@ export interface TruthFoldDrift {
  *
  * @param now 重放时注入的显式时间戳 (缺省 "" — 重放不产生新时间戳, 纯性优先)。
  */
-export async function computeTruthFoldDrift(
-  projectPath: string,
-  now = "",
-): Promise<TruthFoldDrift[]> {
-  const snapshots = await loadValidMemorySnapshots(projectPath)
-  const foldCtx: ProjectionFoldContext = { now }
-  const results: TruthFoldDrift[] = []
-
-  const compare = async (file: string, live: unknown, replay: unknown): Promise<void> => {
-    const [liveHash, replayHash] = await Promise.all([truthStoreHash(live), truthStoreHash(replay)])
-    results.push({ file, liveHash, replayHash, drifted: liveHash !== replayHash })
-  }
-
-  // P2-IMP-14: drift 重放路径经注册表同源遍历——live = entry.load（盘上原值，
-  // 含 cognition 缺文件 null 语义），replay = entry.foldFromSnapshot（与
-  // rebuild/ingest 同一 fold）。比对文件集合 = 注册表带 file 的 store 条目集
-  // （9 类），与写盘路径结构上同源（原 9 段硬编码收敛于此）。
-  for (const [, entry] of Object.entries(PROJECTION_REGISTRY)) {
-    if (!entry.file || !entry.load || !entry.foldFromSnapshot) continue
-    const live = await entry.load(projectPath)
-    const replay = entry.foldFromSnapshot(snapshots, foldCtx)
-    await compare(entry.file, live, replay)
-  }
-
-  return results
-}
 
 /**
  * P2-IMP-06：sampleTruthFoldDrift — computeTruthFoldDrift 的安全采样包装。
  * 失败债务记 trace 不阻断（restore/delete 尾部调用，不应因 drift 采样失败而回滚重建）。
  * 返回 drifted 文件数（0=健康）；不可采集/异常 → null（N/A，不告警）。
  */
-export async function sampleTruthFoldDrift(
-  projectPath: string,
-  now = "",
-): Promise<{ driftCount: number; driftedFiles: string[] } | null> {
-  try {
-    const results = await computeTruthFoldDrift(projectPath, now)
-    const driftedFiles = results.filter((r) => r.drifted).map((r) => r.file)
-    return { driftCount: driftedFiles.length, driftedFiles }
-  } catch (err) {
-    logger.warn("Chapter Ingest", "sampleTruthFoldDrift 采样失败（债务记 trace，不阻断）", {
-      error: toErrorMessage(err),
-    })
-    return null
-  }
-}
 
 /**
  * P2-IMP-06：drift 告警真实触发——drift>0 时 logger.warn + 写 .novel/telemetry/
  * drift-<ts>.jsonl（GOV-OBS-01 不静默降级）。drift=0/N-A 零告警。阻断逻辑不写
  * （留 arch 产品裁决）。返回是否告警。
  */
-export async function emitTruthFoldDriftAlarm(
-  projectPath: string,
-  sample: { driftCount: number; driftedFiles: string[] } | null,
-): Promise<boolean> {
-  if (!sample || sample.driftCount === 0) return false
-  const detail = `truth_fold_drift=${sample.driftCount}（漂移文件：${sample.driftedFiles.join(", ")}）`
-  logger.warn("Chapter Ingest", `记忆漂移告警：${detail}（建议重建过程库）`)
-  try {
-    const ts = new Date().toISOString().replace(/[:.]/g, "-")
-    const telemetryDir = `${projectPath}/.novel/telemetry`
-    await createDirectory(telemetryDir)
-    await writeFileAtomic(
-      `${telemetryDir}/drift-${ts}.jsonl`,
-      JSON.stringify({ ts: new Date().toISOString(), driftCount: sample.driftCount, driftedFiles: sample.driftedFiles }) + "\n",
-    )
-  } catch (err) {
-    logger.warn("Chapter Ingest", "drift telemetry 写入失败（债务记 trace，不阻断）", {
-      error: toErrorMessage(err),
-    })
-  }
-  return true
-}
 
 // ============================================================================
 // P2-IMP-15: drift 自动修复（启动/restore/delete/sync 后自愈闭环）。
@@ -1753,39 +1681,8 @@ export async function emitTruthFoldDriftAlarm(
 // 不自动）→ 复测仍>0 才告警升级（IMP-06 通道）；自愈事件写 telemetry。
 // ============================================================================
 
-export interface DriftAutoRepairResult {
-  /** 是否实际尝试了修复（drift=0 / 采样 N-A → false，误报护栏零动作）。 */
-  attempted: boolean
-  /** 修复前漂移类数；null = 采样不可用（N/A，不伪造）。 */
-  driftBefore: number | null
-  /** 复测漂移类数；null = 复测不可用（按升级告警处理）。 */
-  driftAfter: number | null
-  /** 修复后不再漂移的文件。 */
-  repairedFiles: string[]
-  /** 复测仍漂移的文件（告警升级对象）。 */
-  stillDriftedFiles: string[]
-  /** 复测仍>0 → 已告警升级（emitTruthFoldDriftAlarm 内部已触发）。 */
-  escalated: boolean
-  /** 重建失败时的错误信息。 */
-  error?: string
-}
 
 /** 自愈事件 telemetry（.novel/telemetry/selfheal-<ts>.jsonl；GOV-OBS-01 可审计）。 */
-async function writeDriftSelfHealTelemetry(
-  projectPath: string,
-  event: Record<string, unknown>,
-): Promise<void> {
-  try {
-    const ts = new Date().toISOString().replace(/[:.]/g, "-")
-    const telemetryDir = `${projectPath}/.novel/telemetry`
-    await createDirectory(telemetryDir)
-    await writeFileAtomic(`${telemetryDir}/selfheal-${ts}.jsonl`, JSON.stringify(event) + "\n")
-  } catch (err) {
-    logger.warn("Chapter Ingest", "selfheal telemetry 写入失败（债务记 trace，不阻断）", {
-      error: toErrorMessage(err),
-    })
-  }
-}
 
 /**
  * drift 自动修复主入口（P2-IMP-15）：
@@ -1796,72 +1693,6 @@ async function writeDriftSelfHealTelemetry(
  *   4. 复测：仍>0 → emitTruthFoldDriftAlarm 告警升级；=0 → 记自愈成功日志；
  *   5. 自愈事件（含升级/失败）一律写 selfheal telemetry。
  */
-export async function autoRepairTruthFoldDrift(
-  projectPath: string,
-  options: { now?: string; trigger?: string } = {},
-): Promise<DriftAutoRepairResult> {
-  const pp = normalizePath(projectPath)
-  const now = options.now ?? ""
-  const trigger = options.trigger ?? "unknown"
-  const before = await sampleTruthFoldDrift(pp, now)
-  if (!before) {
-    return { attempted: false, driftBefore: null, driftAfter: null, repairedFiles: [], stillDriftedFiles: [], escalated: false }
-  }
-  if (before.driftCount === 0) {
-    return { attempted: false, driftBefore: 0, driftAfter: 0, repairedFiles: [], stillDriftedFiles: [], escalated: false }
-  }
-  // 漂移文件 → 注册表确定性 fold 投影（仅 rebuildable 条目；非确定性投影不自动）。
-  const fileToProjection = new Map<string, string>()
-  for (const [id, entry] of Object.entries(PROJECTION_REGISTRY)) {
-    if (entry.file !== null && entry.rebuildable) fileToProjection.set(entry.file, id)
-  }
-  const driftedIds = new Set<string>()
-  for (const file of before.driftedFiles) {
-    const id = fileToProjection.get(file)
-    if (id) driftedIds.add(id)
-  }
-  let error: string | undefined
-  if (driftedIds.size > 0) {
-    try {
-      const snapshots = await loadValidMemorySnapshots(pp)
-      await rebuildRegistryProjections(pp, snapshots, { now }, driftedIds)
-    } catch (err) {
-      error = toErrorMessage(err)
-      logger.warn("Chapter Ingest", "drift 自动修复重建失败（转告警升级）", { error })
-    }
-  }
-  const after = await sampleTruthFoldDrift(pp, now)
-  const driftAfter = after ? after.driftCount : before.driftCount
-  const stillDriftedFiles = after ? after.driftedFiles : before.driftedFiles
-  const repairedFiles = before.driftedFiles.filter((f) => !stillDriftedFiles.includes(f))
-  const decision = decideDriftAlarmAfterRepair({ driftBefore: before.driftCount, driftAfter, repairedFiles })
-  const escalated = decision.alarm
-  await writeDriftSelfHealTelemetry(pp, {
-    ts: new Date().toISOString(),
-    trigger,
-    driftBefore: before.driftCount,
-    driftedFiles: before.driftedFiles,
-    repairedFiles,
-    driftAfter,
-    escalated,
-    ...(error !== undefined ? { error } : {}),
-  })
-  if (escalated) {
-    // 复测仍>0 才告警升级（IMP-06 通道：logger.warn + drift-<ts>.jsonl）。
-    await emitTruthFoldDriftAlarm(pp, { driftCount: driftAfter ?? before.driftCount, driftedFiles: stillDriftedFiles })
-  } else {
-    logger.info("Chapter Ingest", `drift 自动修复成功：${decision.detail}（trigger=${trigger}）`)
-  }
-  return {
-    attempted: true,
-    driftBefore: before.driftCount,
-    driftAfter,
-    repairedFiles,
-    stillDriftedFiles,
-    escalated,
-    ...(error !== undefined ? { error } : {}),
-  }
-}
 
 
 /**

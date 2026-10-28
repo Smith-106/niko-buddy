@@ -17,14 +17,14 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 const NOVEL_DIR = resolve(__dirname)
-// W3 拆分后 fold 注册表实现分居两文件：源码扫描型守护必须聚合两处，
+// W3/W4 拆分后 fold 注册表与 drift 实现分居三文件：源码扫描型守护必须聚合，
 // 否则「硬编码 9 段已收敛」等结构性断言会因搬家而假红（不变量本身未变）。
-const FOLD_REGISTRY_FILE = "chapter-ingest-fold-registry.ts"
+const FOLD_REGISTRY_FILES = ["chapter-ingest-fold-registry.ts", "chapter-ingest-drift.ts"]
 function readSource(): string {
   return [
     readFileSync(resolve(NOVEL_DIR, "chapter-ingest.ts"), "utf-8"),
-    readFileSync(resolve(NOVEL_DIR, FOLD_REGISTRY_FILE), "utf-8"),
-  ].join("\\n")
+    ...FOLD_REGISTRY_FILES.map((f) => readFileSync(resolve(NOVEL_DIR, f), "utf-8")),
+  ].join("\n")
 }
 
 const fsMocks = vi.hoisted(() => ({
