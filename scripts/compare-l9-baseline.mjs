@@ -428,7 +428,8 @@ function markdown(r) {
     L.push(`| 章 | overall | ${dims.join(" | ")} |`)
     L.push(`|---|---|${dims.map(() => "---").join("|")}|`)
     for (const c of sj.chapters) {
-      L.push(`| ${c.chapter} | ${c.overall} | ${dims.map((d) => c.dimensionMedians?.[d] ?? "-").join(" | ")} |`)
+      const r2 = (v) => (typeof v === "number" ? Math.round(v * 100) / 100 : "-")
+      L.push(`| ${c.chapter} | ${r2(c.overall)} | ${dims.map((d) => r2(c.dimensionMedians?.[d])).join(" | ")} |`)
     }
     L.push("")
   }
