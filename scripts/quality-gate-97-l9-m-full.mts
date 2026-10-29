@@ -43,7 +43,8 @@ const CHAPTERS = Array.from({ length: 162 }, (_, i) => i + 1)
 const SAMPLES = 5
 const MODEL = process.env.L9_M_MODEL ?? "muse-spark-1.3-contributor"
 const isDeepSeek = /deepseek/i.test(MODEL)
-const OUT = "../.workflow/harvest-staging/quality-gate-97-l9-m-full.json"
+// 换模型必须换产物：同一份报告不能混模型。L9_M_OUT 缺省沿用原路径（零行为变更）。
+const OUT = process.env.L9_M_OUT ?? "../.workflow/harvest-staging/quality-gate-97-l9-m-full.json"
 
 const auth = JSON.parse(readFileSync(join(homedir(), ".pi", "agent", "auth.json"), "utf8"))
 const cpaKey: string = auth["cpa-responses"]?.key
@@ -95,6 +96,22 @@ function stripFrontmatter(t: string): string {
   return t.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
 }
 
+// 防污染：已有产物若出自别的模型，直接拒绝续跑。
+// 此前这里会把 j.model 悄悄改写成当前 MODEL——148 章 muse-spark 的分数就会被
+// 贴上另一个模型的标签，且这些章因「已有 overall」被跳过，等于把两个评分器混进一份报告。
+if (existsSync(OUT)) {
+  const prior = JSON.parse(readFileSync(OUT, "utf8"))
+  const hasScores = Object.values(prior.results ?? {}).some((r: any) => typeof r?.overall === "number")
+  if (hasScores && prior.model && prior.model !== MODEL) {
+    console.error(
+      `FATAL: ${OUT} 已有 ${prior.model} 的分数，当前 MODEL=${MODEL}。
+` +
+        `换模型必须换产物：请设置 L9_M_OUT 指向新文件，禁止混模型。`,
+    )
+    process.exit(2)
+  }
+}
+
 const out: Record<string, unknown> = existsSync(OUT)
   ? (() => { const j = JSON.parse(readFileSync(OUT, "utf8")); j.model = MODEL; j.purpose = `L9 M 档全书基线：162 章 × 全维 × N=5（${MODEL} 口径，与 2026-10-10 baseline 逐章可比）`; j.resumedAt = new Date().toISOString(); return j })()
   : {
@@ -116,7 +133,10 @@ function save() {
 }
 
 let doneCalls = 0
+// 冒烟用：L9_M_ONLY="2,36" 只跑指定章。缺省不过滤（零行为变更）。
+const ONLY = process.env.L9_M_ONLY ? new Set(process.env.L9_M_ONLY.split(",").map((x) => Number(x.trim()))) : null
 for (const ch of CHAPTERS) {
+  if (ONLY && !ONLY.has(ch)) continue
   if ((results[`ch${ch}`] as any)?.overall !== undefined && (results[`ch${ch}`] as any)?.overall !== null) {
     console.log(`[ch${ch}] 已有结果，跳过`)
     continue
@@ -133,7 +153,7 @@ for (const ch of CHAPTERS) {
   // 并发池：维度 × 采样 = 6 × 5 = 30 个任务，用 CONCURRENCY 路池化执行。
   // 实测 16 路全 200（墙钟 17.7s）；取 12 路留限流余量。
   // 单章串行版 440s → 池化版约 90-130s。
-  const CONCURRENCY = 12
+  const CONCURRENCY = Number(process.env.L9_M_CONCURRENCY ?? 12)
   const DIMS = SIX_REVIEW_DIMENSION_ORDER as (keyof typeof SIX_REVIEW_DIMENSIONS)[]
   const BACKOFF = [5000, 10000, 20000, 40000, 60000]
 
@@ -252,6 +272,7 @@ for (const ch of CHAPTERS) {
     dimensionMedians: dimMedians,
     overall,
     pass: overall !== null && overall >= 9.0,
+    judgeModel: MODEL,
   }
   save()
   console.log(`[ch${ch}] overall=${overall} pass=${overall !== null && overall >= 9.0} — 已落盘`)

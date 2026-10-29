@@ -35,6 +35,10 @@ const STAGING = join(HUB, ".workflow", "harvest-staging")
 
 const HIST_PATH = join(STAGING, "quality-gate-97-l9-baseline.json")
 const NEW_PATH = join(STAGING, "quality-gate-97-l9-m-full.json")
+// 第二评分器段（可选）：主产物评分器掉线后，用另一个模型补评的章。
+// 与主产物**不是同一把尺子**（实测 kiro-sonnet 对 muse 评 9.1+ 的章只给 6.6~6.9，
+// 均差 -2.37），所以只单列展示，绝不并入主产物，不参与交集/翻转/拖累维计算。
+const SECOND_JUDGE_PATH = join(STAGING, "quality-gate-97-l9-kiro-sonnet-partial.json")
 
 const EXPECTED_CHAPTERS = 162
 const PASS_LINE = 9.0
@@ -65,6 +69,15 @@ function load(path, label) {
 }
 
 const isNum = (v) => typeof v === "number" && Number.isFinite(v)
+
+/** 可选产物：不存在或损坏都返回 null，不影响主报告 */
+function loadOptional(path) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"))
+  } catch {
+    return null
+  }
+}
 
 /** 剥掉通道后缀（-free / -paid 等），只留基座模型名 */
 const baseModel = (id) => String(id ?? "").replace(/-(?:free|paid|trial)$/i, "")
@@ -135,8 +148,12 @@ if (selfCheckErrors.length > 0) {
 
 const cur = load(NEW_PATH, "新测量产物")
 const curValid = validChapters(cur)
-const curAllKeys = Object.keys(cur.results ?? {})
-const curNull = curAllKeys.filter((k) => !isNum(cur.results[k]?.overall))
+// 缺失 = 期望的 162 章里没有有效 overall 的：既含「键存在但 overall 为 null」，
+// 也含「键根本不存在」（评分器中途掉线后从未跑到的章）。
+// 之前只数前者，导致 148/162 时报「缺 0 章」。
+const curNull = Array.from({ length: EXPECTED_CHAPTERS }, (_, i) => `ch${i + 1}`).filter(
+  (k) => !isNum(cur.results?.[k]?.overall),
+)
 const complete = curValid.length === EXPECTED_CHAPTERS && curNull.length === 0
 
 // ── 3. 分析一：逐章 pass/fail 翻转 ─────────────────────────────────────────────
@@ -224,6 +241,29 @@ const verdict = {
 
 // ── 7. 输出 ────────────────────────────────────────────────────────────────────
 
+const secondRaw = loadOptional(SECOND_JUDGE_PATH)
+const secondJudge = (() => {
+  if (!secondRaw?.results) return null
+  const chapters = Object.keys(secondRaw.results)
+    .map((k) => ({ key: k, n: Number(k.replace(/^ch/, "")), r: secondRaw.results[k] }))
+    .filter((x) => isNum(x.r?.overall))
+    .sort((a, b) => a.n - b.n)
+  if (chapters.length === 0) return null
+  const mainScored = new Set(curValid)
+  return {
+    model: secondRaw.model,
+    chapterCount: chapters.length,
+    // 与主产物重叠的章（正常应为 0；非 0 说明有人把两把尺子混在了一起）
+    overlapWithMain: chapters.filter((x) => mainScored.has(x.key)).map((x) => x.key),
+    chapters: chapters.map((x) => ({
+      chapter: x.key,
+      overall: x.r.overall,
+      pass: x.r.pass === true,
+      dimensionMedians: x.r.dimensionMedians,
+    })),
+  }
+})()
+
 const report = {
   generatedAt: new Date().toISOString(),
   completeness: {
@@ -265,6 +305,7 @@ const report = {
     failToPass: flipFailToPass,
     passToFail: flipPassToFail,
   },
+  secondJudge,
   dimensionDistribution: curDist,
   dragRanking,
   nearMiss,
@@ -368,6 +409,27 @@ function markdown(r) {
   L.push("")
   if (!r.completeness.complete) {
     L.push("> 以上结论基于部分章节，仅作趋势参考，不可作为基线结论。")
+    L.push("")
+  }
+  const sj = r.secondJudge
+  if (sj) {
+    L.push("## 6. 第二评分器段（单列，不可与上文比较）")
+    L.push("")
+    L.push(`> ⚠️ 以下 ${sj.chapterCount} 章由 \`${sj.model}\` 评分，**不是**上文同一把尺子。`)
+    L.push("> 标定实测：同一批 muse 评 9.1 以上的章（ch36/ch100/ch145），该评分器只给 6.6~6.9，")
+    L.push("> 均差约 -2.37。所以这里的 overall 绝对值**不能**与上文的 9.0 线、pass/fail、翻转、")
+    L.push("> 拖累维排序直接比较，也不能据此判断这些章比前面的章差。")
+    L.push("")
+    if (sj.overlapWithMain.length > 0) {
+      L.push(`> ❌ 与主产物重叠章：${sj.overlapWithMain.join(", ")}——两把尺子被混在了一起，请排查。`)
+      L.push("")
+    }
+    const dims = ["thrill", "pacing", "pull", "consistency", "continuity", "character"]
+    L.push(`| 章 | overall | ${dims.join(" | ")} |`)
+    L.push(`|---|---|${dims.map(() => "---").join("|")}|`)
+    for (const c of sj.chapters) {
+      L.push(`| ${c.chapter} | ${c.overall} | ${dims.map((d) => c.dimensionMedians?.[d] ?? "-").join(" | ")} |`)
+    }
     L.push("")
   }
   return L.join("\n")
