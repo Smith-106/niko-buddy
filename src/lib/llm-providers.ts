@@ -399,6 +399,23 @@ function isGlmThinkingModel(model: string): boolean {
   return /glm[-_.]?\d/i.test(model)
 }
 
+/**
+ * muse-spark 系（经 cpa 桥接）：**请求里没有 thinking 字段就必然 502**。
+ *
+ * 实测 `https://cpa.nikoniko.tech/v1/chat/completions`，流式与非流式结论一致：
+ *   - 无 `thinking` 字段 → HTTP 500 `upstream 502 upstream_service_error`
+ *   - `thinking: { type: "disabled" }` → 200，无 reasoning 输出
+ *   - `thinking: { type: "enabled" }` → 200
+ *
+ * 所以这里必须**总是**下发 thinking。`auto` 也归到 disabled：一是
+ * 「不发字段」这个字面语义在本模型上等价于「请求必失败」，二是历史 L9
+ * 六维基线的口径就是 reasoning off（见 l9-distribution-musespark.md），
+ * 归到 disabled 才能让新旧数据可比。
+ */
+function isMuseSparkModel(model: string): boolean {
+  return /muse[-_.]?spark/i.test(model)
+}
+
 // GLM 系思考 tokens 不随流式 content 下发，小上限会被思考吃光：正文与结构化 JSON 一并被截断。
 // 实测（全文窗 prompt）：max_tokens=2000 → finish_reason=length 且流式 content 0 字节；
 // max_tokens=6000 → finish_reason=stop 且 score 可解析。
@@ -460,6 +477,18 @@ function buildOpenAiCompatibleBody(
       if (effort) {
         body.reasoning_effort = effort
       }
+    }
+    return body
+  }
+
+  if (isMuseSparkModel(config.model)) {
+    // 见 isMuseSparkModel：不发 thinking 必 502，所以 auto/off 都要显式 disabled。
+    if (reasoning.mode === "auto" || reasoning.mode === "off") {
+      body.thinking = { type: "disabled" }
+    } else {
+      body.thinking = { type: "enabled" }
+      const effort = reasoningEffort(reasoning)
+      if (effort) body.reasoning_effort = effort
     }
     return body
   }

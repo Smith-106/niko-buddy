@@ -415,6 +415,36 @@ describe("openai-compatible body adapters", () => {
     expect(endpointDeepseek.thinking).toEqual({ type: "disabled" })
   })
 
+  it("muse-spark: 总是下发 thinking（不发字段上游必 502）", () => {
+    // 实测 https://cpa.nikoniko.tech/v1：muse-spark 的请求里没有 thinking 字段
+    // 时上游直接 502 upstream_service_error，所以 auto/off 都必须显式 disabled。
+    const auto = buildFor("muse-spark-1.3-contributor", { reasoning: { mode: "auto" } })
+    expect(auto.thinking).toEqual({ type: "disabled" })
+
+    const off = buildFor("muse-spark-1.3-contributor", { reasoning: { mode: "off" } })
+    expect(off.thinking).toEqual({ type: "disabled" })
+
+    // auto 归到 disabled 是为了保住历史 L9 口径（reasoning off），
+    // 不能悄悄变成 enabled——那会让新旧基线不可比。
+    expect(auto).not.toHaveProperty("reasoning_effort")
+  })
+
+  it("muse-spark: 显式开启时才 enabled 并带 effort", () => {
+    expect(buildFor("muse-spark-1.3-contributor", { reasoning: { mode: "high" } })).toMatchObject({
+      thinking: { type: "enabled" },
+      reasoning_effort: "high",
+    })
+  })
+
+  it("muse-spark 判定不会误伤其它模型", () => {
+    // deepseek 的 auto 仍然不发 thinking（它的上游不需要这个字段）
+    const deepseekAuto = buildFor("deepseek-chat", { reasoning: { mode: "auto" } })
+    expect(deepseekAuto.thinking).toBeUndefined()
+    // 普通自定义模型也不该被塞 thinking
+    const plain = buildFor("some-other-model", { reasoning: { mode: "auto" } })
+    expect(plain.thinking).toBeUndefined()
+  })
+
   it("deepseek: enables thinking but skips effort when the mode maps to null", () => {
     // A mode outside the low/medium/high/max/custom set makes
     // reasoningEffort return null, so `if (effort)` takes its false path:
