@@ -51,6 +51,16 @@
         "weekly-stable",
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.22.2",
+      "reason": "用户于 2026-10-30 明确批准登记豁免：v2.22.2 为当前 Latest（v2.23.0 按 changelog 语义发为 prerelease），release:cadence 默认审 Latest 时因既有高频发布节奏 FAIL：ISO 周 2026-10-19 有 6 个 stable、发布前 30 天 stable 17 个（上限 4）。发版门禁当时全绿，超限不是跳过门禁。",
+      "approvedBy": "user",
+      "approvedAt": "2026-10-30",
+      "scope": [
+        "weekly-stable",
+        "thirty-day-stable"
+      ]
     }
   ]
 }

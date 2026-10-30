@@ -123,11 +123,15 @@ export function auditHistory(releases) {
   }
 }
 
-/** 资产完整性：latest.json + 安装包 exe 同名 sig（portable 按设计无 sig）。 */
-export function evaluateLatestAssets(latest, assetNames) {
+/**
+ * 资产完整性：latest.json + 安装包 exe 同名 sig（portable 按设计无 sig）。
+ * 审 Latest 时 prerelease 标记本身是问题（Latest 槽位不应指向内测版）；
+ * 用 --tag 显式审某个 prerelease 时传 allowPrerelease，只查资产与 draft。
+ */
+export function evaluateLatestAssets(latest, assetNames, { allowPrerelease = false } = {}) {
   const problems = []
   if (!latest) return ["找不到被审 release"]
-  if (latest.isPrerelease) problems.push("被审 release 标记为 prerelease")
+  if (latest.isPrerelease && !allowPrerelease) problems.push("被审 release 标记为 prerelease")
   if (latest.isDraft) problems.push("被审 release 是 draft")
   const names = assetNames ?? []
   if (!names.includes("latest.json")) problems.push("缺 latest.json")
@@ -177,7 +181,7 @@ export function main(argv = process.argv.slice(2)) {
   if (target) {
     try {
       const names = JSON.parse(sh("gh", ["release", "view", targetTag, "--repo", repo, "--json", "assets"])).assets.map((a) => a.name)
-      assetProblems = evaluateLatestAssets(target, names)
+      assetProblems = evaluateLatestAssets(target, names, { allowPrerelease: Boolean(tag) })
     } catch (err) {
       assetProblems = [`资产读取失败：${err.message}`]
     }

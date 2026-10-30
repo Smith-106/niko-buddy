@@ -99,4 +99,23 @@ describe("release cadence gate", () => {
       "被审 release 标记为 prerelease",
     )
   })
+
+  it("--tag 显式审 prerelease：不把 prerelease 标记当资产问题，资产与 draft 仍照查", () => {
+    const pre = rel("v2.23.0", "2026-10-30T15:00:00Z", { isPrerelease: true })
+    const assets = [
+      "latest.json",
+      "niko-buddy_2.23.0_windows_X64.exe",
+      "niko-buddy_2.23.0_windows_X64.exe.sig",
+      "niko-buddy_2.23.0_windows_X64_portable.exe",
+    ]
+    expect(evaluateLatestAssets(pre, assets, { allowPrerelease: true })).toEqual([])
+    expect(evaluateLatestAssets(pre, assets)).toEqual(["被审 release 标记为 prerelease"])
+    expect(evaluateLatestAssets(pre, ["niko-buddy_2.23.0_windows_X64.exe"], { allowPrerelease: true })).toEqual([
+      "缺 latest.json",
+      "缺 niko-buddy_2.23.0_windows_X64.exe.sig",
+    ])
+    expect(evaluateLatestAssets({ ...pre, isDraft: true }, assets, { allowPrerelease: true })).toEqual([
+      "被审 release 是 draft",
+    ])
+  })
 })
