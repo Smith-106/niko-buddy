@@ -95,6 +95,12 @@ export interface DimensionReviewResult {
   summary: string
   thinking: string
   issues: DimensionReviewIssue[]
+  /**
+   * 打这个分的评分模型（单模型为模型名；共识为 `consensus:` + 模型列表；机械短路为
+   * `mechanical`）。不同评分模型的分数排序可能差很多，混排前必须看这个字段。
+   * 可选：旧版本写入的历史结果没有该字段。
+   */
+  model?: string
 }
 
 export interface DimensionReviewCallbacks {
@@ -117,6 +123,41 @@ export const SIX_REVIEW_DIMENSION_ORDER: SixReviewDimensionKey[] = [
   "continuity",
   "pull",
 ]
+
+/** 机械短路（未调用 LLM）的维度在 `DimensionReviewResult.model` 上的标记。 */
+export const MECHANICAL_SCORER_LABEL = "mechanical"
+
+export interface ScoringModelSummary {
+  /** 参与打分的 LLM 评分模型（去重、按首次出现顺序；不含机械短路）。 */
+  models: string[]
+  /** 至少一个维度是旧版本结果、没有记录评分模型。 */
+  hasUnknown: boolean
+  /** 不同维度由不同模型打分（例如换模型后只重跑了部分维度），分数不可直接对比。 */
+  mixed: boolean
+}
+
+/**
+ * 汇总一组六维结果的评分模型。不同评分模型对同一章的排序可能差很多（实测两个模型在
+ * 71 章上的 Spearman 仅 0.38），所以 UI 必须在分数旁标明模型，并在混用时提示。
+ */
+export function summarizeScoringModels(
+  results: Partial<Record<SixReviewDimensionKey, Pick<DimensionReviewResult, "model">>> | undefined,
+): ScoringModelSummary {
+  const models: string[] = []
+  let hasUnknown = false
+  for (const key of SIX_REVIEW_DIMENSION_ORDER) {
+    const result = results?.[key]
+    if (!result) continue
+    const model = result.model?.trim()
+    if (!model) {
+      hasUnknown = true
+      continue
+    }
+    if (model === MECHANICAL_SCORER_LABEL) continue
+    if (!models.includes(model)) models.push(model)
+  }
+  return { models, hasUnknown, mixed: models.length > 1 || (hasUnknown && models.length > 0) }
+}
 
 /**
  * F-003 (ANL-010 C1): flatten the 6-dimension review result map into the
@@ -842,6 +883,7 @@ export async function runSixDimensionReview({
           summary: "机械连续性引擎已前置检测 (consistency_mechanical), LLM continuity 维度短路省 token; 机械覆盖外语义矛盾仍需人工复核",
           thinking: formatDimensionThinking(dimension, "机械短路: 引擎已检休眠/缺席/逾期/死亡活跃 subtype"),
           issues: [],
+          model: MECHANICAL_SCORER_LABEL,
         }
         callbacks.onDimensionResult?.(key, shortCircuitResult)
         callbacks.onDimensionThinking?.(key, shortCircuitResult.thinking)
@@ -869,7 +911,8 @@ export async function runSixDimensionReview({
             goldReadinessHint,
           })
           callbacks.onDimensionThinking?.(key, outcome.result.thinking)
-          return { key, result: outcome.result, error: null as Error | null }
+          const consensusLabel = `consensus:${consensusModels.map((m) => m.model || "unknown").join("+")}`
+          return { key, result: { ...outcome.result, model: consensusLabel }, error: null as Error | null }
         }
         const result = await reviewChapterDimension({
           llmConfig: llmConfigResolved,
@@ -886,7 +929,7 @@ export async function runSixDimensionReview({
             },
           },
         })
-        return { key, result, error: null as Error | null }
+        return { key, result: { ...result, model: llmConfigResolved.model || "unknown" }, error: null as Error | null }
       } catch (error) {
         // F-003 (ISS-20260705-020): distinguish a JSON parse failure
         // (DimParseError / SyntaxError — the model emitted malformed JSON)
@@ -904,12 +947,15 @@ export async function runSixDimensionReview({
     } else {
       const dimension = SIX_REVIEW_DIMENSIONS[key]
       const isParseFailure = error instanceof DimParseError || error instanceof SyntaxError
-      results[key] = buildFailedDimensionResult(
-        dimension,
-        isParseFailure
-          ? new Error(`${dimension.label}审查返回的 JSON 无法解析：${error?.message}`)
-          : (error ?? new Error("unknown error")),
-      )
+      results[key] = {
+        ...buildFailedDimensionResult(
+          dimension,
+          isParseFailure
+            ? new Error(`${dimension.label}审查返回的 JSON 无法解析：${error?.message}`)
+            : (error ?? new Error("unknown error")),
+        ),
+        model: llmConfigResolved.model || "unknown",
+      }
       callbacks.onDimensionResult?.(key, results[key]!)
       callbacks.onDimensionThinking?.(key, results[key]!.thinking)
     }

@@ -6,7 +6,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { ClipboardCheck, Sparkles, Users } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { listDirectory, readFile } from "@/commands/fs"
-import { flattenMdFiles, SIX_REVIEW_DIMENSIONS, SIX_REVIEW_DIMENSION_ORDER, formatMeasurementFingerprintSummary, getOutlineThrillSoftGateRuntimeStatus, isThrillSoftGateAcknowledged, thrilAckChapterKey, THRILL_CHECKPOINT_LABELS, THRILL_CHECKPOINT_ORDER } from "@/lib/novel"
+import { flattenMdFiles, SIX_REVIEW_DIMENSIONS, SIX_REVIEW_DIMENSION_ORDER, formatMeasurementFingerprintSummary, getOutlineThrillSoftGateRuntimeStatus, isThrillSoftGateAcknowledged, summarizeScoringModels, thrilAckChapterKey, THRILL_CHECKPOINT_LABELS, THRILL_CHECKPOINT_ORDER } from "@/lib/novel"
 import type { ThrillCheckStatus } from "@/lib/novel"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
@@ -179,6 +179,11 @@ export function ReviewCenterSidebarPanel() {
     }
     return counts
   }, [reviewRun?.dimensionResults])
+
+  const scoringModels = useMemo(
+    () => summarizeScoringModels(reviewRun?.dimensionResults),
+    [reviewRun?.dimensionResults],
+  )
 
   return (
     <div className="flex h-full flex-col">
@@ -376,6 +381,22 @@ export function ReviewCenterSidebarPanel() {
           <p className="px-1 mb-2 text-xs leading-4 text-muted-foreground">
             {t("reviewCenter.splitAcceptanceHint")}
           </p>
+          {scoringModels.models.length > 0 || scoringModels.hasUnknown ? (
+            <div className="px-1 mb-2 space-y-1" data-testid="review-scoring-models">
+              <p className="text-xs leading-4 text-muted-foreground">
+                {t("reviewCenter.scoringModel", {
+                  models: scoringModels.models.length > 0
+                    ? scoringModels.models.join(" / ")
+                    : t("reviewCenter.scoringModelUnknown"),
+                })}
+              </p>
+              {scoringModels.mixed ? (
+                <p className="text-xs leading-4 text-warning-foreground" role="status" data-testid="review-scoring-models-mixed">
+                  {t("reviewCenter.scoringModelMixed")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="mb-2">
             <div className="px-1 mb-1 flex items-center gap-1.5 text-xs font-medium text-success-foreground">
               <span className="rounded border border-success/40 px-1 py-0.5">{t("reviewCenter.trackABadge")}</span>

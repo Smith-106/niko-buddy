@@ -14,6 +14,8 @@ import {
   runSixDimensionReview,
   SIX_REVIEW_DIMENSION_ORDER,
   SIX_REVIEW_DIMENSIONS,
+  summarizeScoringModels,
+  MECHANICAL_SCORER_LABEL,
   minimalReworkSet,
   minimalReworkSetFromDimensionIssues,
   validateDimensionScoreBand,
@@ -425,6 +427,10 @@ describe("six-dimension review adapter", () => {
     expect(results.pacing?.issues[0].message).toContain("节奏张力审查失败")
     expect(results.pull?.summary).toBe("追读引力通过")
     expect(results.pull?.score).toBe(9)
+    // 每个维度（含失败维度）都记录打分模型，供 UI 标明分数来源。
+    for (const key of SIX_REVIEW_DIMENSION_ORDER) {
+      expect(results[key]?.model).toBe("test-review-model")
+    }
   })
 
   it("continuity mechanical short-circuit emits 10 on 0-10 scale (not 100)", async () => {
@@ -445,6 +451,7 @@ describe("six-dimension review adapter", () => {
 
     expect(results.continuity?.status).toBe("pass")
     expect(results.continuity?.score).toBe(10)
+    expect(results.continuity?.model).toBe(MECHANICAL_SCORER_LABEL)
     expect(streamChatMock).not.toHaveBeenCalled()
   })
 
@@ -1159,5 +1166,39 @@ describe("§GAP-90-08 minimalReworkSet 最小返工集 (ainovel AffectedChapters
       mk({ rewriteTarget: "定位片段", continuityMeta: { subtype: "x", ref: "r", chapter: 5 } }),
       mk({}),
     ])).toEqual([5, 8])
+  })
+})
+
+describe("summarizeScoringModels", () => {
+  it("空结果：无模型、不提示混用", () => {
+    expect(summarizeScoringModels(undefined)).toEqual({ models: [], hasUnknown: false, mixed: false })
+    expect(summarizeScoringModels({})).toEqual({ models: [], hasUnknown: false, mixed: false })
+  })
+
+  it("同一模型打的六维：去重为一个模型，不混用", () => {
+    const results = Object.fromEntries(SIX_REVIEW_DIMENSION_ORDER.map((k) => [k, { model: "kiro-sonnet" }]))
+    expect(summarizeScoringModels(results)).toEqual({ models: ["kiro-sonnet"], hasUnknown: false, mixed: false })
+  })
+
+  it("机械短路不算一个评分模型，不触发混用", () => {
+    expect(summarizeScoringModels({
+      thrill: { model: "kiro-sonnet" },
+      continuity: { model: MECHANICAL_SCORER_LABEL },
+    })).toEqual({ models: ["kiro-sonnet"], hasUnknown: false, mixed: false })
+  })
+
+  it("换模型后只重跑部分维度：按维度顺序列出两个模型并提示混用", () => {
+    expect(summarizeScoringModels({
+      pacing: { model: "muse-spark" },
+      thrill: { model: "kiro-sonnet" },
+      pull: { model: "kiro-sonnet" },
+    })).toEqual({ models: ["kiro-sonnet", "muse-spark"], hasUnknown: false, mixed: true })
+  })
+
+  it("旧版本结果没记录模型：全旧只标未知；新旧混合视为混用", () => {
+    expect(summarizeScoringModels({ thrill: {}, pacing: { model: "  " } }))
+      .toEqual({ models: [], hasUnknown: true, mixed: false })
+    expect(summarizeScoringModels({ thrill: { model: "kiro-sonnet" }, pacing: {} }))
+      .toEqual({ models: ["kiro-sonnet"], hasUnknown: true, mixed: true })
   })
 })

@@ -515,4 +515,37 @@ describe("ReviewCenterSidebarPanel", () => {
     render(<ReviewCenterSidebarPanel />)
     expect(screen.getByText("尚无测量指纹 — 跑一次六维审查后显示（model+packHash+正文Hash）")).toBeInTheDocument()
   })
+
+  it("评分模型：无结果时不显示；同一模型只标模型名；混用模型时提示不可直接对比", async () => {
+    mocks.state.reviewRun = null
+    const view = await renderPanel()
+    expect(screen.queryByTestId("review-scoring-models")).toBeNull()
+    view.unmount()
+
+    mocks.state.reviewRun = {
+      running: false,
+      dimensionResults: {
+        thrill: { issues: [], model: "kiro-sonnet" },
+        pacing: { issues: [], model: "kiro-sonnet" },
+        continuity: { issues: [], model: "mechanical" },
+      },
+    }
+    const single = await renderPanel()
+    const box = screen.getByTestId("review-scoring-models")
+    expect(box.textContent).toContain(`评分模型：{{models}}::${JSON.stringify({ models: "kiro-sonnet" })}`)
+    expect(screen.queryByTestId("review-scoring-models-mixed")).toBeNull()
+    single.unmount()
+
+    mocks.state.reviewRun = {
+      running: false,
+      dimensionResults: {
+        thrill: { issues: [], model: "kiro-sonnet" },
+        pacing: { issues: [], model: "muse-spark" },
+      },
+    }
+    await renderPanel()
+    expect(screen.getByTestId("review-scoring-models").textContent)
+      .toContain(JSON.stringify({ models: "kiro-sonnet / muse-spark" }))
+    expect(screen.getByTestId("review-scoring-models-mixed").textContent).toContain("不能直接对比")
+  })
 })
