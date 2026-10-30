@@ -35,6 +35,9 @@ describe("CliProbeStrip", () => {
     render(<CliProbeStrip />)
     expect(await screen.findByTestId("cli-probe-strip")).toBeInTheDocument()
     expect(mocks.invoke).not.toHaveBeenCalled()
+    // 内部错误码 desktopOnly 不再直接展示，而是走 i18n 键
+    expect(screen.getAllByText("settings.sections.llm.cliStatus.desktopOnly")).toHaveLength(4)
+    expect(screen.queryByText("desktopOnly")).not.toBeInTheDocument()
     await act(async () => {})
   })
   it("重检按钮可点", async () => {

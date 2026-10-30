@@ -26,7 +26,7 @@ function lookupZhLocale(key: string): string | undefined {
 }
 
 const mocks = vi.hoisted(() => ({
-  t: vi.fn((key: string) => lookupZhLocale(key) ?? key),
+  t: vi.fn((key: string, opts?: { defaultValue?: string }) => lookupZhLocale(key) ?? opts?.defaultValue ?? key),
 }))
 
 vi.mock("react-i18next", () => ({
@@ -118,5 +118,17 @@ describe("InterfaceSection", () => {
   it("renders the percentage scale from a custom uiFontSizeScale", () => {
     render(<ControlledSection initial={makeDraft({ uiFontSizeScale: 1.3 })} />)
     expect(screen.getByText("130%")).toBeInTheDocument()
+  })
+
+  it("A7: visible labels are linked to their controls; choice buttons expose aria-pressed", () => {
+    render(<ControlledSection />)
+    expect(screen.getByLabelText("界面字号")).toHaveAttribute("type", "range")
+    expect(screen.getByRole("group", { name: "UI 语言" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "中文" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("button", { name: "English" })).toHaveAttribute("aria-pressed", "false")
+    expect(screen.getByRole("button", { name: "默认" })).toHaveAttribute("aria-pressed", "true")
+    const orphans = Array.from(document.querySelectorAll("label")).filter((l) => !(l as HTMLLabelElement).control)
+    expect(orphans).toHaveLength(0)
+    expect(screen.getByText("调整整个应用的字号，保存后立即生效。")).toBeInTheDocument()
   })
 })

@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react"
-import { Plus, Trash2, Loader2 } from "lucide-react"
+import { useId, useMemo, useState } from "react"
+import { AlertTriangle, Plus, Trash2, Loader2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useWikiStore } from "@/stores/wiki-store"
 import { McpTransportSettings } from "@/components/settings/McpTransportSettings"
+import { SettingsSwitch } from "../settings-widgets"
 import {
   createSampleGraphMcpServer,
   normalizeMcpConfig,
@@ -27,6 +28,7 @@ interface TestState {
 
 export function McpSection() {
   const { t } = useTranslation()
+  const fieldIdBase = useId()
   const mcpConfig = useWikiStore((s) => s.mcpConfig ?? DEFAULT_MCP_CONFIG)
   const projectPath = useWikiStore((s) => s.project)?.path ?? ""
   const setMcpConfig = useWikiStore((s) => s.setMcpConfig)
@@ -211,7 +213,7 @@ export function McpSection() {
           tools: runtime.mcpTools.length,
           capabilities: runtime.mcpCapabilities.length,
         })}
-        {savedAt ? <span className="ml-2 text-success">{t("settings.sections.mcp.saved")}</span> : null}
+        {savedAt ? <span className="ml-2 text-success-foreground">{t("settings.sections.mcp.saved")}</span> : null}
         {saveError ? (
           <span data-testid="mcp-save-error" role="alert" className="ml-2 text-destructive">
             {saveError}
@@ -220,8 +222,15 @@ export function McpSection() {
       </div>
 
       {runtime.warnings.length > 0 ? (
-        <div className="space-y-1 rounded-md border border-warning/40 bg-warning p-3 text-xs text-warning dark:bg-warning/30 dark:text-warning">
-          <div className="font-medium">{t("settings.sections.mcp.warnings")}</div>
+        <div
+          role="note"
+          data-testid="mcp-runtime-warnings"
+          className="space-y-1 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-foreground"
+        >
+          <div className="flex items-center gap-1.5 font-medium">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning-foreground" aria-hidden="true" />
+            {t("settings.sections.mcp.warnings")}
+          </div>
           {runtime.warnings.map((warning) => (
             <div key={warning}>{warning}</div>
           ))}
@@ -234,25 +243,18 @@ export function McpSection() {
         </div>
       ) : (
         <div className="space-y-3">
-          {mcpConfig.servers.map((server: McpServerConfig) => (
+          {mcpConfig.servers.map((server: McpServerConfig, index: number) => {
+            // 服务 ID 可被用户编辑，不能直接拼进 DOM id；用 useId 前缀 + 行序号。
+            const fid = `${fieldIdBase}-${index}`
+            return (
             <div key={server.id} className="rounded-md border p-3">
               <div className="mb-3 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => updateServer(server.id, { enabled: !server.enabled })}
-                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
-                    server.enabled
-                      ? "border-primary bg-primary"
-                      : "border-muted-foreground/30 bg-muted-foreground/20 hover:bg-muted-foreground/30"
-                  }`}
-                  aria-label={server.enabled ? t("settings.sections.mcp.disable") : t("settings.sections.mcp.enable")}
-                >
-                  <span
-                    className={`inline-block h-3.5 w-3.5 rounded-full bg-white elevation-1 ring-1 ring-black/10 transition-transform ${
-                      server.enabled ? "translate-x-4" : "translate-x-0.5"
-                    }`}
-                  />
-                </button>
+                <SettingsSwitch
+                  checked={server.enabled}
+                  onCheckedChange={(next) => updateServer(server.id, { enabled: next })}
+                  label={t("settings.sections.mcp.enableServer", { name: server.name || server.id })}
+                  data-testid={`mcp-server-enabled-${index}`}
+                />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{server.name}</div>
                   <div className="truncate text-xs text-muted-foreground">{server.id}</div>
@@ -271,19 +273,21 @@ export function McpSection() {
 
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label>{t("settings.sections.mcp.serverId")}</Label>
-                  <Input value={server.id} onChange={(event) => updateServer(server.id, { id: event.target.value })} />
+                  <Label htmlFor={`${fid}-id`}>{t("settings.sections.mcp.serverId")}</Label>
+                  <Input id={`${fid}-id`} value={server.id} onChange={(event) => updateServer(server.id, { id: event.target.value })} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>{t("settings.sections.mcp.serverName")}</Label>
-                  <Input value={server.name} onChange={(event) => updateServer(server.id, { name: event.target.value })} />
+                  <Label htmlFor={`${fid}-name`}>{t("settings.sections.mcp.serverName")}</Label>
+                  <Input id={`${fid}-name`} value={server.name} onChange={(event) => updateServer(server.id, { name: event.target.value })} />
                 </div>
               </div>
 
               <div className="mt-3 space-y-1.5">
-                <Label>{t("settings.sections.mcp.transport")}</Label>
+                <Label htmlFor={`${fid}-transport`}>{t("settings.sections.mcp.transport")}</Label>
                 <select
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  id={`${fid}-transport`}
+                  aria-describedby={`${fid}-transport-hint`}
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   value={server.transport}
                   onChange={(event) =>
                     updateServer(server.id, { transport: event.target.value as "stdio" | "sse" })
@@ -294,22 +298,25 @@ export function McpSection() {
                     {t("settings.sections.mcp.transportSse")}（{t("settings.sections.mcp.transportReserved")}）
                   </option>
                 </select>
-                <p className="text-xs text-muted-foreground">{t("settings.sections.mcp.transportHint")}</p>
+                <p id={`${fid}-transport-hint`} className="text-xs text-muted-foreground">{t("settings.sections.mcp.transportHint")}</p>
               </div>
 
               <div className="mt-3 space-y-1.5">
-                <Label>{t("settings.sections.mcp.startup")}</Label>
+                <Label htmlFor={`${fid}-command`}>{t("settings.sections.mcp.startup")}</Label>
                 <Input
+                  id={`${fid}-command`}
+                  aria-describedby={`${fid}-command-hint`}
                   value={server.command ?? ""}
                   onChange={(event) => updateServer(server.id, { command: event.target.value || undefined })}
                   placeholder={t("settings.sections.mcp.startupPlaceholder")}
                 />
-                <p className="text-xs text-muted-foreground">{t("settings.sections.mcp.startupHint")}</p>
+                <p id={`${fid}-command-hint`} className="text-xs text-muted-foreground">{t("settings.sections.mcp.startupHint")}</p>
               </div>
 
               <div className="mt-3 space-y-1.5">
-                <Label>{t("settings.sections.mcp.startupArgs")}</Label>
+                <Label htmlFor={`${fid}-args`}>{t("settings.sections.mcp.startupArgs")}</Label>
                 <Input
+                  id={`${fid}-args`}
                   value={(server.args ?? []).join(" ")}
                   onChange={(event) => {
                     const args = event.target.value.trim() ? event.target.value.trim().split(/\s+/) : undefined
@@ -336,7 +343,7 @@ export function McpSection() {
                     : t("settings.sections.mcp.testConnection")}
                 </Button>
                 {testStates[server.id]?.status === "ok" ? (
-                  <span className="text-xs text-success">{testStates[server.id]?.message}</span>
+                  <span className="text-xs text-success-foreground">{testStates[server.id]?.message}</span>
                 ) : null}
                 {testStates[server.id]?.status === "error" ? (
                   <span className="text-xs text-destructive">
@@ -346,11 +353,12 @@ export function McpSection() {
               </div>
 
               <div className="mt-3 space-y-1.5">
-                <Label>{t("settings.sections.mcp.toolsJson")}</Label>
+                <Label htmlFor={`${fid}-tools`}>{t("settings.sections.mcp.toolsJson")}</Label>
                 <textarea
+                  id={`${fid}-tools`}
                   value={toolJsonDrafts[server.id] ?? JSON.stringify(server.tools, null, 2)}
                   onChange={(event) => updateToolsFromJson(server, event.target.value)}
-                  className="min-h-44 w-full resize-y rounded-md border bg-background px-3 py-2 font-mono text-xs outline-none focus:ring-2 focus:ring-ring"
+                  className="min-h-44 w-full resize-y rounded-md border bg-background px-3 py-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   spellCheck={false}
                 />
                 {jsonErrors[server.id] ? (
@@ -360,7 +368,8 @@ export function McpSection() {
                 )}
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 

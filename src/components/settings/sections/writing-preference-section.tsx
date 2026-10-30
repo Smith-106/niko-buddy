@@ -94,9 +94,9 @@ export function WritingPreferenceSection() {
   return (
     <div className="space-y-2">
       <div>
-        <Label>
+        <h3 className="text-sm leading-none font-medium">
           {t("settings.sections.novel.writingPreference.title", { defaultValue: "写作偏好" })}
-        </Label>
+        </h3>
         <p className="text-xs text-muted-foreground">
           {t("settings.sections.novel.writingPreference.description", {
             defaultValue: "个性化审查打分与去 AI 味规则（v2.5.0 手动录入版，自动提炼将在 v2.6 提供）。",
@@ -130,7 +130,11 @@ export function WritingPreferenceSection() {
               id="writing-preference-value"
               value={value}
               onChange={(e) => setValue(e.target.value)}
-              placeholder={preset.category === "review" ? "0.3" : "仿佛、不禁"}
+              placeholder={
+                preset.category === "review"
+                  ? "0.3"
+                  : t("settings.sections.novel.writingPreference.wordsPlaceholder", { defaultValue: "仿佛、不禁" })
+              }
             />
           </div>
           <Button type="button" size="sm" onClick={() => void handleAdd()} disabled={busy || !value.trim()}>

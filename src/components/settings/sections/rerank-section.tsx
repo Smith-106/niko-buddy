@@ -1,7 +1,7 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useId, useMemo, useState } from "react"
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -13,6 +13,7 @@ import { testSettingsRerankModel } from "@/lib/settings-model-test"
 import { normalizeEndpoint } from "@/lib/endpoint-normalizer"
 import { ModelSelectInput } from "../model-select-input"
 import { ResourceLink } from "../resource-link"
+import { CommitNumberInput, SettingsSwitch } from "../settings-widgets"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import type { CustomApiMode, LlmConfig, RerankConfig } from "@/stores/wiki-store"
 import { toErrorMessage } from "@/lib/utils"
@@ -43,51 +44,17 @@ const PROVIDER_OPTIONS: Array<{ value: LlmConfig["provider"]; label: string }> =
   { value: "anthropic", label: "Anthropic" },
   { value: "google", label: "Google" },
   { value: "ollama", label: "Ollama" },
-  { value: "custom", label: "\u81ea\u5b9a\u4e49" },
+  // 展示文案在渲染时走 i18n（settings.sections.rerank.providerCustom）
+  { value: "custom", label: "custom" },
   { value: "minimax", label: "MiniMax" },
   { value: "claude-code", label: "Claude Code CLI" },
   { value: "codex-cli", label: "Codex CLI" },
 ]
 
-/** Toggle switch for settings rows. */
-function SettingsToggle({
-  checked,
-  onChange,
-  titleOff,
-  titleOn,
-  labelOff,
-  labelOn,
-}: {
-  checked: boolean
-  onChange: () => void
-  titleOff?: string
-  titleOn?: string
-  labelOff?: string
-  labelOn?: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onChange}
-      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
-        checked
-          ? "border-primary bg-primary"
-          : "border-muted-foreground/30 bg-muted-foreground/20 hover:bg-muted-foreground/30"
-      }`}
-      title={checked ? titleOn : titleOff}
-      aria-label={checked ? labelOn : labelOff}
-    >
-      <span
-        className={`inline-block h-3.5 w-3.5 rounded-full bg-white elevation-1 ring-1 ring-black/10 transition-transform ${
-          checked ? "translate-x-4" : "translate-x-0.5"
-        }`}
-      />
-    </button>
-  )
-}
-
 export function RerankSection({ draft, setDraft }: Props) {
   const { t } = useTranslation()
+  const ids = useId()
+  const panelId = `${ids}-panel`
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const config = draft.rerankConfig
   const [expanded, setExpanded] = useState(false)
@@ -197,25 +164,24 @@ export function RerankSection({ draft, setDraft }: Props) {
         }`}
       >
         <div className="flex items-center gap-3 px-3 py-2.5">
-          <button
-            type="button"
-            onClick={() => setExpanded((prev) => !prev)}
-            className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent"
-            title={expanded ? t("settings.sections.llm.collapse") : t("settings.sections.llm.expand")}
-          >
-            {expanded ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronRight className="h-4 w-4" />
-            )}
-          </button>
-
+          {/* 单一展开按钮：chevron 只是装饰图标，不再单独占一个 Tab 停靠点 */}
           <button
             type="button"
             onClick={handleOpenPanel}
-            className="min-w-0 flex-1 text-left"
+            aria-expanded={expanded}
+            aria-controls={panelId}
+            title={expanded ? t("settings.sections.llm.collapse") : t("settings.sections.llm.expand")}
+            className="flex min-w-0 flex-1 items-start gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <div className="flex items-center gap-2">
+            <span className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground" aria-hidden="true">
+              {expanded ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </span>
+            <span className="block min-w-0 flex-1">
+            <span className="flex items-center gap-2">
               <span className="truncate text-sm font-medium">{t("settings.sections.rerank.enableLabel")}</span>
               {hasConfig && !config.enabled && (
                 <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
@@ -227,61 +193,56 @@ export function RerankSection({ draft, setDraft }: Props) {
                   {t("settings.sections.llm.activeBadge")}
                 </span>
               )}
-            </div>
-            <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            </span>
+            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
               {t("settings.sections.rerank.enableHint")}
-            </div>
+            </span>
+            </span>
           </button>
 
-          <SettingsToggle
+          <SettingsSwitch
             checked={config.enabled}
-            onChange={() => {
-              updateRerankConfig({ enabled: !config.enabled })
-              if (!config.enabled) setExpanded(true)
+            onCheckedChange={(next) => {
+              updateRerankConfig({ enabled: next })
+              if (next) setExpanded(true)
             }}
-            titleOff={t("settings.sections.llm.toggleOn")}
-            titleOn={t("settings.sections.llm.toggleOff")}
-            labelOff={t("settings.sections.llm.activate")}
-            labelOn={t("settings.sections.llm.deactivate")}
+            label={t("settings.sections.rerank.enableLabel")}
           />
         </div>
 
         {expanded && (
-          <div className="space-y-4 border-t bg-background/50 px-4 py-3">
+          <div id={panelId} className="space-y-4 border-t bg-background/50 px-4 py-3">
             <p className="text-xs text-muted-foreground">
               {t("settings.sections.rerank.description")}
             </p>
 
             <div className="flex items-center justify-between gap-3 rounded-md border p-3">
               <div>
-                <Label>{t("settings.sections.rerank.useMainLlm")}</Label>
-                <p className="text-xs text-muted-foreground">
+                <Label id={`${ids}-use-main`}>{t("settings.sections.rerank.useMainLlm")}</Label>
+                <p id={`${ids}-use-main-hint`} className="text-xs text-muted-foreground">
                   {t("settings.sections.rerank.useMainLlmHint")}
                 </p>
               </div>
-              <SettingsToggle
+              <SettingsSwitch
                 checked={config.useMainLlm}
-                onChange={() => updateRerankConfig({ useMainLlm: !config.useMainLlm })}
-                titleOff={t("settings.sections.llm.toggleOn")}
-                titleOn={t("settings.sections.llm.toggleOff")}
-                labelOff={t("settings.sections.llm.activate")}
-                labelOn={t("settings.sections.llm.deactivate")}
+                onCheckedChange={(next) => updateRerankConfig({ useMainLlm: next })}
+                labelledBy={`${ids}-use-main`}
+                describedBy={`${ids}-use-main-hint`}
               />
             </div>
 
             <div className="space-y-2">
-              <Label>{t("settings.sections.rerank.maxCandidates")}</Label>
-              <Input
-                type="number"
+              <Label htmlFor={`${ids}-max`}>{t("settings.sections.rerank.maxCandidates")}</Label>
+              <CommitNumberInput
+                id={`${ids}-max`}
+                describedBy={`${ids}-max-hint`}
                 min={3}
                 max={30}
                 value={config.maxCandidates}
-                onChange={(e) => updateRerankConfig({
-                  maxCandidates: Math.max(3, Math.min(30, Number(e.target.value) || 3)),
-                })}
+                onCommit={(maxCandidates) => updateRerankConfig({ maxCandidates })}
                 className="w-24"
               />
-              <p className="text-xs text-muted-foreground">
+              <p id={`${ids}-max-hint`} className="text-xs text-muted-foreground">
                 {t("settings.sections.rerank.maxCandidatesHint")}
               </p>
             </div>
@@ -289,15 +250,16 @@ export function RerankSection({ draft, setDraft }: Props) {
             {!config.useMainLlm && (
               <>
                 <div className="space-y-2">
-                  <Label>{t("settings.sections.rerank.provider")}</Label>
+                  <Label htmlFor={`${ids}-provider`}>{t("settings.sections.rerank.provider")}</Label>
                   <select
+                    id={`${ids}-provider`}
                     value={config.provider}
                     onChange={(e) => updateRerankConfig({ provider: e.target.value as LlmConfig["provider"] })}
                     className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                   >
                     {PROVIDER_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
-                        {option.label}
+                        {option.value === "custom" ? t("settings.sections.rerank.providerCustom") : option.label}
                       </option>
                     ))}
                   </select>
@@ -319,6 +281,7 @@ export function RerankSection({ draft, setDraft }: Props) {
                             key={mode.value}
                             type="button"
                             onClick={() => updateRerankConfig({ apiMode: mode.value as CustomApiMode })}
+                            aria-pressed={active}
                             className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
                               active
                                 ? "border-primary bg-primary text-primary-foreground"
@@ -344,8 +307,9 @@ export function RerankSection({ draft, setDraft }: Props) {
 
                 {config.provider === "ollama" && (
                   <div className="space-y-2">
-                    <Label>{t("settings.sections.rerank.endpoint")}</Label>
+                    <Label htmlFor={`${ids}-ollama`}>{t("settings.sections.rerank.endpoint")}</Label>
                     <Input
+                      id={`${ids}-ollama`}
                       value={config.ollamaUrl}
                       onChange={(e) => updateRerankConfig({ ollamaUrl: e.target.value })}
                       placeholder="http://127.0.0.1:11434"
@@ -355,8 +319,9 @@ export function RerankSection({ draft, setDraft }: Props) {
 
                 {needsApiKey && (
                   <div className="space-y-2">
-                    <Label>{t("settings.sections.rerank.apiKey")}</Label>
+                    <Label htmlFor={`${ids}-key`}>{t("settings.sections.rerank.apiKey")}</Label>
                     <Input
+                      id={`${ids}-key`}
                       type="password"
                       value={config.apiKey}
                       onChange={(e) => updateRerankConfig({ apiKey: e.target.value })}
@@ -378,20 +343,21 @@ export function RerankSection({ draft, setDraft }: Props) {
                       : t("settings.sections.shared.testModel")}
                   </Button>
                   {testState?.message ? (
-                    <p className={`text-xs ${testState.success ? "text-success" : "text-destructive"}`}>
+                    <p className={`text-xs ${testState.success ? "text-success-foreground" : "text-destructive"}`}>
                       {testState.message}
                     </p>
                   ) : null}
                   {modelListState?.message ? (
-                    <p className={`text-xs ${modelListState.success ? "text-success" : "text-destructive"}`}>
+                    <p className={`text-xs ${modelListState.success ? "text-success-foreground" : "text-destructive"}`}>
                       {modelListState.message}
                     </p>
                   ) : null}
                 </div>
 
                 <div className="space-y-2">
-                  <Label>{t("settings.sections.rerank.model")}</Label>
+                  <Label htmlFor={`${ids}-model`}>{t("settings.sections.rerank.model")}</Label>
                   <ModelSelectInput
+                    id={`${ids}-model`}
                     value={config.model}
                     options={modelOptions}
                     onChange={(value) => updateRerankConfig({ model: value })}
@@ -419,12 +385,12 @@ export function RerankSection({ draft, setDraft }: Props) {
                     : t("settings.sections.shared.testModel")}
                 </Button>
                 {testState?.message ? (
-                  <p className={`text-xs ${testState.success ? "text-success" : "text-destructive"}`}>
+                  <p className={`text-xs ${testState.success ? "text-success-foreground" : "text-destructive"}`}>
                     {testState.message}
                   </p>
                 ) : null}
                 {modelListState?.message ? (
-                  <p className={`text-xs ${modelListState.success ? "text-success" : "text-destructive"}`}>
+                  <p className={`text-xs ${modelListState.success ? "text-success-foreground" : "text-destructive"}`}>
                     {modelListState.message}
                   </p>
                 ) : null}
@@ -449,6 +415,7 @@ function RerankEndpointField({
   onChange: (value: string) => void
 }) {
   const { t } = useTranslation()
+  const inputId = useId()
   const preview = useMemo(() => normalizeRerankEndpoint(value, mode), [mode, value])
 
   function handleBlur() {
@@ -462,15 +429,17 @@ function RerankEndpointField({
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-2">
-        <Label>{t("settings.sections.rerank.endpoint")}</Label>
+        <Label htmlFor={inputId}>{t("settings.sections.rerank.endpoint")}</Label>
         <ResourceLink
           href={SILICONFLOW_RESOURCE_URL}
           title={t("settings.sections.rerank.siliconHint")}
         >
-          硅基流动重排模型
+          {t("settings.sections.rerank.siliconLink")}
         </ResourceLink>
       </div>
       <Input
+        id={inputId}
+        aria-describedby={showHint ? `${inputId}-hint` : undefined}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         onBlur={handleBlur}
@@ -478,16 +447,17 @@ function RerankEndpointField({
       />
       {showHint ? (
         <div
+          id={`${inputId}-hint`}
           className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
             preview.changed
-              ? "border-warning/40 bg-warning/5 text-warning"
+              ? "border-warning/40 bg-warning/5 text-warning-foreground"
               : "border-info/40 bg-info/5 text-info"
           }`}
         >
           {preview.changed ? (
-            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           ) : (
-            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           )}
           <div className="min-w-0 flex-1 space-y-0.5">
             {preview.changed ? (

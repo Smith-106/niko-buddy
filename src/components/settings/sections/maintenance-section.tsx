@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useId, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Wrench,
@@ -17,7 +17,6 @@ import {
   Lightbulb,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
 import { WebhookSection } from "./webhook-section"
 import { VectorHealthCard } from "./vector-health-card"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -288,14 +287,14 @@ export function MaintenanceSection() {
         <DivergenceTraceViewer />
 
         {!projectReady && (
-          <p className="text-xs text-warning">
+          <p className="text-xs text-warning-foreground">
             {t("settings.sections.maintenance.noProject", {
               defaultValue: "请先打开一个项目。",
             })}
           </p>
         )}
         {projectReady && !llmReady && (
-          <p className="text-xs text-warning">
+          <p className="text-xs text-warning-foreground">
             {t("settings.sections.maintenance.noLlm", {
               defaultValue: "请先配置大模型提供方。",
             })}
@@ -328,7 +327,7 @@ export function MaintenanceSection() {
         )}
 
         {scanCompleted && groups.length === 0 && !scanError && (
-          <div className="flex items-start gap-1.5 rounded border border-success/40 bg-success/5 px-2 py-1.5 text-xs text-success">
+          <div className="flex items-start gap-1.5 rounded border border-success/40 bg-success/5 px-2 py-1.5 text-xs text-success-foreground">
             <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <div>
               {t("settings.sections.maintenance.dedup.noneFound", {
@@ -484,7 +483,7 @@ function TaskStatusChip({ task, pendingPosition }: ChipProps) {
   const { t } = useTranslation()
   if (task.status === "processing") {
     return (
-      <span className="inline-flex items-center gap-1 rounded bg-warning/15 px-1.5 py-0.5 text-xs font-semibold uppercase text-warning">
+      <span className="inline-flex items-center gap-1 rounded bg-warning/15 px-1.5 py-0.5 text-xs font-semibold uppercase text-warning-foreground">
         <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
         {t("settings.sections.maintenance.dedup.merging", {
           defaultValue: "合并中...",
@@ -549,6 +548,7 @@ function DuplicateGroupCard({
   onNotDuplicate,
 }: CardProps) {
   const { t } = useTranslation()
+  const canonicalLabelId = useId()
   const { group, canonicalSlug, skipped } = entry
 
   const inFlight = !!task && (task.status === "pending" || task.status === "processing")
@@ -557,9 +557,9 @@ function DuplicateGroupCard({
 
   const confidenceClass =
     group.confidence === "high"
-      ? "bg-success/15 text-success"
+      ? "bg-success/15 text-success-foreground"
       : group.confidence === "medium"
-        ? "bg-warning/15 text-warning"
+        ? "bg-warning/15 text-warning-foreground"
         : "bg-muted text-muted-foreground"
 
   return (
@@ -579,7 +579,7 @@ function DuplicateGroupCard({
           })}
         </span>
         {merged && (
-          <span className="ml-auto inline-flex items-center gap-1 text-xs text-success">
+          <span className="ml-auto inline-flex items-center gap-1 text-xs text-success-foreground">
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
             {t("settings.sections.maintenance.dedup.merged", { defaultValue: "已合并" })}
           </span>
@@ -602,16 +602,16 @@ function DuplicateGroupCard({
 
       {!finished && (
         <>
-          <div className="space-y-1.5">
-            <Label className="text-xs">
+          <div role="radiogroup" aria-labelledby={canonicalLabelId} className="space-y-1.5">
+            <span id={canonicalLabelId} className="block text-xs leading-none font-medium">
               {t("settings.sections.maintenance.dedup.canonicalLabel", {
                 defaultValue: "保留以下 slug 作为主条目：",
               })}
-            </Label>
+            </span>
             {group.slugs.map((slug) => (
               <label
                 key={slug}
-                className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-accent"
+                className="flex min-h-6 cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-accent"
               >
                 <input
                   type="radio"
@@ -709,6 +709,7 @@ function DivergenceTraceViewer() {
       <button
         type="button"
         onClick={handleToggle}
+        aria-expanded={open}
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
       >
         <Clock className="h-3.5 w-3.5 shrink-0" />
@@ -755,6 +756,7 @@ function NovelScenarioHelp() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
       >
         <HelpCircle className="h-3.5 w-3.5 shrink-0" />

@@ -132,6 +132,8 @@
     --color-destructive: var(--destructive);
     --color-warning: var(--warning);
     --color-success: var(--success);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-success-foreground: var(--success-foreground);
     --color-info: var(--info);
     /* 分类色板（非语义）：kind/type 标签与阶段标识使用，避免散落裸色阶 */
     --color-kind-purple: var(--kind-purple);
@@ -182,6 +184,9 @@
     --destructive: oklch(0.577 0.245 27.325);
     --success: oklch(0.62 0.17 145);
     --warning: oklch(0.72 0.16 75);
+    /* 状态色用作小字时的深色版本：白底对比度 >=4.5:1（WCAG AA）。 */
+    --success-foreground: oklch(0.45 0.13 145);
+    --warning-foreground: oklch(0.47 0.12 65);
     --info: oklch(0.62 0.19 250);
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
@@ -227,6 +232,8 @@
     --destructive: oklch(0.704 0.191 22.216);
     --success: oklch(0.7 0.15 145);
     --warning: oklch(0.78 0.14 75);
+    --success-foreground: var(--success);
+    --warning-foreground: var(--warning);
     --info: oklch(0.7 0.17 250);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
@@ -272,6 +279,8 @@
     --destructive: oklch(0.65 0.2 20);
     --success: oklch(0.68 0.14 150);
     --warning: oklch(0.75 0.13 75);
+    --success-foreground: var(--success);
+    --warning-foreground: var(--warning);
     --info: oklch(0.68 0.15 248);
     --border: oklch(0.35 0.06 235);
     --input: oklch(0.32 0.07 233);
@@ -317,6 +326,8 @@
     --destructive: oklch(0.55 0.20 28);
     --success: oklch(0.58 0.14 150);
     --warning: oklch(0.68 0.14 80);
+    --success-foreground: oklch(0.43 0.12 150);
+    --warning-foreground: oklch(0.45 0.11 65);
     --info: oklch(0.55 0.12 240);
     --border: oklch(0.86 0.02 85);
     --input: oklch(0.86 0.02 85);

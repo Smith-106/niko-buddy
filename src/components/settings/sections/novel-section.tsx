@@ -1,7 +1,7 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
@@ -14,11 +14,15 @@ import { testNovelModel, applyAntiAiTelemetryConsentOnProjectOpen, loadAntiAiTel
 import type { TestableNovelModelTask } from "@/lib/novel"
 import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 import { WritingPreferenceSection } from "./writing-preference-section"
-import { NovelBaseSettingsSection, NovelSettingTooltip, NovelToggle } from "./novel-base-settings-section"
+import { NovelBaseSettingsSection } from "./novel-base-settings-section"
+import { NovelSettingTooltip, NovelSwitchRow } from "./novel-section-panels"
+import { NOVEL_GROUP_HEADING_CLASS } from "./novel-section-style"
+import { CommitNumberInput } from "../settings-widgets"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import type { NovelConfig } from "@/stores/wiki-store"
 import { TASK_PROMPT_KEYS } from "@/stores/wiki-store"
 import { toErrorMessage } from "@/lib/utils"
+import { toast } from "@/lib/toast"
 
 interface Props {
   draft: SettingsDraft
@@ -42,11 +46,30 @@ export function NovelSection({ draft, setDraft }: Props) {
     extract: undefined,
   })
 
+  const ids = useId()
+  // 最新草稿：落盘失败回滚时以它为底，只撤销本次 patch 的键
+  const latestNovelConfigRef = useRef(draft.novelConfig)
+  useEffect(() => {
+    latestNovelConfigRef.current = draft.novelConfig
+  }, [draft.novelConfig])
   const updateNovelConfig = async (patch: Partial<NovelConfig>) => {
-    const newConfig = { ...draft.novelConfig, ...patch }
+    const prevConfig = draft.novelConfig
+    const newConfig = { ...prevConfig, ...patch }
     setDraft("novelConfig", newConfig)
     setNovelConfigStore(patch)
-    await saveNovelConfig(newConfig, project?.id, project?.path)
+    try {
+      await saveNovelConfig(newConfig, project?.id, project?.path)
+    } catch (err) {
+      // 落盘失败：只回滚本次 patch 的键（draft 与 store 一致），
+      // 期间其它项的改动（可能已落盘）不被冲掉
+      const rollback: Partial<NovelConfig> = {}
+      for (const key of Object.keys(patch) as (keyof NovelConfig)[]) {
+        ;(rollback as Record<string, unknown>)[key] = prevConfig[key]
+      }
+      setDraft("novelConfig", { ...latestNovelConfigRef.current, ...rollback })
+      setNovelConfigStore(rollback)
+      toast.error(toErrorMessage(err))
+    }
   }
 
   // F-34: 反 AI 遥测同意（app 级 store，不走 draft.novelConfig；null = 加载中）
@@ -191,7 +214,7 @@ export function NovelSection({ draft, setDraft }: Props) {
       </div>
 
       <div className="space-y-2">
-        <Label>{t("novel.settings.title")}</Label>
+        <h3 className={NOVEL_GROUP_HEADING_CLASS}>{t("novel.settings.title")}</h3>
         <div className="grid gap-4 rounded-lg border p-4">
           <NovelBaseSettingsSection draft={draft} setDraft={setDraft} updateNovelConfig={updateNovelConfig} />
 
@@ -201,15 +224,23 @@ export function NovelSection({ draft, setDraft }: Props) {
             const isFollowingChat = !modelValue
             const displayValue = isFollowingChat ? "" : modelValue
 
+            const modelLabelId = `${ids}-${item.field}`
             return (
-              <div key={item.task} className={item.wrapperClassName}>
+              <div
+                key={item.task}
+                role="group"
+                aria-labelledby={modelLabelId}
+                className={item.wrapperClassName}
+              >
                 <div className="flex items-center gap-1.5">
-                  <Label>{t(`novel.settings.${item.field}`)}</Label>
+                  <span id={modelLabelId} className="text-sm leading-none font-medium">
+                    {t(`novel.settings.${item.field}`)}
+                  </span>
                   {settingTooltip(`${item.field}Hint`)}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="flex items-center gap-2">
-                    <label className="flex items-center gap-2">
+                    <label className="flex min-h-6 cursor-pointer items-center gap-2">
                       <input
                         type="checkbox"
                         checked={isFollowingChat}
@@ -254,7 +285,7 @@ export function NovelSection({ draft, setDraft }: Props) {
                   </p>
                 ) : null}
                 {state?.message ? (
-                  <p className={`text-xs ${state.success ? "text-success" : "text-destructive"}`}>
+                  <p className={`text-xs ${state.success ? "text-success-foreground" : "text-destructive"}`}>
                     {state.message}
                   </p>
                 ) : null}
@@ -267,10 +298,10 @@ export function NovelSection({ draft, setDraft }: Props) {
       {/* 多模型共识（consensus feature）：关闭时零行为变更 */}
       <div className="space-y-3 rounded-lg border p-4">
         <div className="flex items-center gap-1.5">
-          <Label>{t("novel.settings.consensusTitle")}</Label>
+          <h3 className={NOVEL_GROUP_HEADING_CLASS}>{t("novel.settings.consensusTitle")}</h3>
           {settingTooltip("consensusHelp")}
         </div>
-        <label className="flex items-center gap-2">
+        <label className="flex min-h-6 cursor-pointer items-center gap-2">
           <input
             type="checkbox"
             className="h-4 w-4"
@@ -282,8 +313,9 @@ export function NovelSection({ draft, setDraft }: Props) {
         {draft.novelConfig.consensusEnabled ? (
           <>
             <div className="space-y-2">
-              <Label className="text-sm">{t("novel.settings.consensusWritingModels")}</Label>
+              <Label htmlFor={`${ids}-consensus-writing`} className="text-sm">{t("novel.settings.consensusWritingModels")}</Label>
               <input
+                id={`${ids}-consensus-writing`}
                 type="text"
                 className="w-full rounded-md border bg-transparent px-3 py-2 text-sm"
                 placeholder="providerId/modelId, providerId/modelId"
@@ -297,28 +329,31 @@ export function NovelSection({ draft, setDraft }: Props) {
               <p className="text-xs leading-5 text-muted-foreground">{t("novel.settings.consensusWritingModelsHint")}</p>
             </div>
             <div className="space-y-2">
-              <Label className="text-sm">{t("novel.settings.consensusDebateRounds")}</Label>
-              <input
-                type="number"
+              <Label htmlFor={`${ids}-consensus-rounds`} className="text-sm">{t("novel.settings.consensusDebateRounds")}</Label>
+              <CommitNumberInput
+                id={`${ids}-consensus-rounds`}
                 min={1}
                 max={5}
                 value={draft.novelConfig.consensusDebateRounds}
-                onChange={(e) =>
-                  updateNovelConfig({
-                    consensusDebateRounds: Math.max(1, Math.min(5, Number(e.target.value) || 1)),
-                  })
-                }
+                onCommit={(n) => updateNovelConfig({ consensusDebateRounds: n })}
                 className="w-24"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-sm">{t("novel.settings.consensusReviewModels")}</Label>
+            <div role="group" aria-labelledby={`${ids}-consensus-review`} className="space-y-2">
+              <span id={`${ids}-consensus-review`} className="block text-sm leading-none font-medium">
+                {t("novel.settings.consensusReviewModels")}
+              </span>
               {consensusDimensionKeys.map((key) => (
                 <div key={key} className="flex items-center gap-2">
-                  <span className="w-16 shrink-0 truncate text-xs text-muted-foreground" title={t(`reviewCenter.dimension.${key}`)}>
+                  <Label
+                    htmlFor={`${ids}-consensus-review-${key}`}
+                    className="w-16 shrink-0 truncate text-xs font-normal text-muted-foreground"
+                    title={t(`reviewCenter.dimension.${key}`)}
+                  >
                     {t(`reviewCenter.dimension.${key}`)}
-                  </span>
+                  </Label>
                   <input
+                    id={`${ids}-consensus-review-${key}`}
                     type="text"
                     className="w-full rounded-md border bg-transparent px-3 py-2 text-sm"
                     placeholder="providerId/modelId, ..."
@@ -343,13 +378,16 @@ export function NovelSection({ draft, setDraft }: Props) {
       {/* 任务提示词与技能（task customization）：默认空=行为与现状一致 */}
       <div className="space-y-3 rounded-lg border p-4">
         <div className="flex items-center gap-1.5">
-          <Label>{t("novel.settings.taskCustomTitle")}</Label>
+          <h3 className={NOVEL_GROUP_HEADING_CLASS}>{t("novel.settings.taskCustomTitle")}</h3>
           {settingTooltip("taskCustomHelp")}
         </div>
         {TASK_PROMPT_KEYS.map((key) => (
           <div key={key} className="space-y-1.5 rounded-md border p-3">
-            <Label className="text-sm">{t(`novel.settings.taskCustom_${key}`)}</Label>
+            <Label htmlFor={`${ids}-task-skill-${key}`} className="text-sm">
+              {t(`novel.settings.taskCustom_${key}`)}
+            </Label>
             <input
+              id={`${ids}-task-skill-${key}`}
               type="text"
               className="w-full rounded-md border bg-transparent px-3 py-2 text-sm"
               placeholder={t("novel.settings.taskCustomSkillPlaceholder")}
@@ -365,6 +403,10 @@ export function NovelSection({ draft, setDraft }: Props) {
             />
             <textarea
               rows={2}
+              aria-label={t("novel.settings.taskCustomPromptAria", {
+                task: t(`novel.settings.taskCustom_${key}`),
+                defaultValue: "{{task}} 附加提示词",
+              })}
               className="w-full rounded-md border bg-transparent px-3 py-2 text-sm"
               placeholder={t("novel.settings.taskCustomPromptPlaceholder")}
               value={draft.novelConfig.taskPrompts?.[key]?.extra ?? ""}
@@ -382,32 +424,34 @@ export function NovelSection({ draft, setDraft }: Props) {
       </div>
 
       <div className="space-y-2">
-        <Label>
+        <h3 className={NOVEL_GROUP_HEADING_CLASS}>
           {t("settings.sections.novel.feedbackWindow.title", {
             defaultValue: "修改反馈窗口",
           })}
-        </Label>
+        </h3>
         <div className="grid gap-4 rounded-lg border p-4">
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
-              <Label>
+              <Label htmlFor={`${ids}-lookback`}>
                 {t("settings.sections.novel.feedbackWindow.lookbackChapterCount", {
                   defaultValue: "回溯章节数量",
                 })}
               </Label>
               {settingTooltip("feedbackWindowLookbackChapterCountHelp")}
             </div>
-            <input
-              type="number"
+            <CommitNumberInput
+              id={`${ids}-lookback`}
               min={0}
+              max={Number.MAX_SAFE_INTEGER}
               value={draft.revisionFeedbackWindowConfig.lookbackChapterCount}
-              onChange={(event) => setDraft("revisionFeedbackWindowConfig", {
+              describedBy={`${ids}-lookback-hint`}
+              onCommit={(n) => setDraft("revisionFeedbackWindowConfig", {
                 ...draft.revisionFeedbackWindowConfig,
-                lookbackChapterCount: Math.max(0, Number(event.target.value) || 0),
+                lookbackChapterCount: n,
               })}
-              className="w-24 rounded-md border bg-background px-3 py-1.5 text-sm"
+              className="w-24"
             />
-            <p className="text-xs text-muted-foreground">
+            <p id={`${ids}-lookback-hint`} className="text-xs text-muted-foreground">
               {t("settings.sections.novel.feedbackWindow.lookbackChapterCountHint", {
                 defaultValue:
                   "将多少章前序章节折叠回当前写作上下文。",
@@ -415,96 +459,54 @@ export function NovelSection({ draft, setDraft }: Props) {
             </p>
           </div>
 
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-1.5">
-                <Label>
-                  {t("settings.sections.novel.feedbackWindow.currentChapterIncludeShouldImprove", {
-                    defaultValue: "包含当前章节改进建议",
-                  })}
-                </Label>
-                {settingTooltip("feedbackWindowCurrentChapterIncludeShouldImproveHelp")}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {t("settings.sections.novel.feedbackWindow.currentChapterIncludeShouldImproveHint", {
-                  defaultValue:
-                    "关闭后，当前章节仅贡献必须修复项和延续指示。",
-                })}
-              </p>
-            </div>
-            <NovelToggle
-              label={t('settings.sections.novel.feedbackWindow.currentChapterIncludeShouldImproveHint')}
-              checked={draft.revisionFeedbackWindowConfig.currentChapterIncludeShouldImprove}
-              onChange={() => setDraft("revisionFeedbackWindowConfig", {
-                ...draft.revisionFeedbackWindowConfig,
-                currentChapterIncludeShouldImprove: !draft.revisionFeedbackWindowConfig.currentChapterIncludeShouldImprove,
-              })}
-            />
-          </div>
+          <NovelSwitchRow
+            label={t("settings.sections.novel.feedbackWindow.currentChapterIncludeShouldImprove", { defaultValue: "包含当前章节改进建议" })}
+            tipKey="feedbackWindowCurrentChapterIncludeShouldImproveHelp"
+            hint={t("settings.sections.novel.feedbackWindow.currentChapterIncludeShouldImproveHint", {
+              defaultValue: "关闭后，当前章节仅贡献必须修复项和延续指示。",
+            })}
+            checked={draft.revisionFeedbackWindowConfig.currentChapterIncludeShouldImprove}
+            onChange={() => setDraft("revisionFeedbackWindowConfig", {
+              ...draft.revisionFeedbackWindowConfig,
+              currentChapterIncludeShouldImprove: !draft.revisionFeedbackWindowConfig.currentChapterIncludeShouldImprove,
+            })}
+          />
 
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-1.5">
-                <Label>
-                  {t("settings.sections.novel.feedbackWindow.previousChapterCarryEnabled", {
-                    defaultValue: "读取上一章延续事项",
-                  })}
-                </Label>
-                {settingTooltip("feedbackWindowPreviousChapterCarryEnabledHelp")}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {t("settings.sections.novel.feedbackWindow.previousChapterCarryEnabledHint", {
-                  defaultValue:
-                    "关闭后，上一章的延续事项不会注入当前上下文。",
-                })}
-              </p>
-            </div>
-            <NovelToggle
-              label={t('settings.sections.novel.feedbackWindow.previousChapterCarryEnabledHint')}
-              checked={draft.revisionFeedbackWindowConfig.previousChapterCarryEnabled}
-              onChange={() => setDraft("revisionFeedbackWindowConfig", {
-                ...draft.revisionFeedbackWindowConfig,
-                previousChapterCarryEnabled: !draft.revisionFeedbackWindowConfig.previousChapterCarryEnabled,
-              })}
-            />
-          </div>
+          <NovelSwitchRow
+            label={t("settings.sections.novel.feedbackWindow.previousChapterCarryEnabled", { defaultValue: "读取上一章延续事项" })}
+            tipKey="feedbackWindowPreviousChapterCarryEnabledHelp"
+            hint={t("settings.sections.novel.feedbackWindow.previousChapterCarryEnabledHint", {
+              defaultValue: "关闭后，上一章的延续事项不会注入当前上下文。",
+            })}
+            checked={draft.revisionFeedbackWindowConfig.previousChapterCarryEnabled}
+            onChange={() => setDraft("revisionFeedbackWindowConfig", {
+              ...draft.revisionFeedbackWindowConfig,
+              previousChapterCarryEnabled: !draft.revisionFeedbackWindowConfig.previousChapterCarryEnabled,
+            })}
+          />
 
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-1.5">
-                <Label>
-                  {t("settings.sections.novel.feedbackWindow.lookbackIncludeMustFixOnly", {
-                    defaultValue: "回溯章节仅保留必须修复项",
-                  })}
-                </Label>
-                {settingTooltip("feedbackWindowLookbackIncludeMustFixOnlyHelp")}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {t("settings.sections.novel.feedbackWindow.lookbackIncludeMustFixOnlyHint", {
-                  defaultValue:
-                    "关闭后，回溯章节也贡献改进建议。",
-                })}
-              </p>
-            </div>
-            <NovelToggle
-              label={t('settings.sections.novel.feedbackWindow.lookbackIncludeMustFixOnlyHint')}
-              checked={draft.revisionFeedbackWindowConfig.lookbackIncludeMustFixOnly}
-              onChange={() => setDraft("revisionFeedbackWindowConfig", {
-                ...draft.revisionFeedbackWindowConfig,
-                lookbackIncludeMustFixOnly: !draft.revisionFeedbackWindowConfig.lookbackIncludeMustFixOnly,
-              })}
-            />
-          </div>
+          <NovelSwitchRow
+            label={t("settings.sections.novel.feedbackWindow.lookbackIncludeMustFixOnly", { defaultValue: "回溯章节仅保留必须修复项" })}
+            tipKey="feedbackWindowLookbackIncludeMustFixOnlyHelp"
+            hint={t("settings.sections.novel.feedbackWindow.lookbackIncludeMustFixOnlyHint", {
+              defaultValue: "关闭后，回溯章节也贡献改进建议。",
+            })}
+            checked={draft.revisionFeedbackWindowConfig.lookbackIncludeMustFixOnly}
+            onChange={() => setDraft("revisionFeedbackWindowConfig", {
+              ...draft.revisionFeedbackWindowConfig,
+              lookbackIncludeMustFixOnly: !draft.revisionFeedbackWindowConfig.lookbackIncludeMustFixOnly,
+            })}
+          />
         </div>
       </div>
 
       {/* F-011: Voice Preservation 第一层 — spelling convention 全局拼写约定 */}
       <div className="space-y-2">
-        <Label>
+        <h3 className={NOVEL_GROUP_HEADING_CLASS}>
           {t("settings.sections.novel.spellingConvention.title", {
             defaultValue: "拼写约定（Voice Preservation）",
           })}
-        </Label>
+        </h3>
         <p className="text-xs text-muted-foreground">
           {t("settings.sections.novel.spellingConvention.description", {
             defaultValue: "全局拼写约定，作为 Voice Preservation 三层映射的第一层。",
@@ -513,7 +515,7 @@ export function NovelSection({ draft, setDraft }: Props) {
         <div className="grid gap-4 rounded-lg border p-4">
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
-              <Label>
+              <Label htmlFor={`${ids}-spelling-dialoguePunctuationStyle`}>
                 {t("settings.sections.novel.spellingConvention.dialoguePunctuationStyle", {
                   defaultValue: "对话标点风格",
                 })}
@@ -521,6 +523,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               {settingTooltip("spellingConventionDialoguePunctuationStyleHint")}
             </div>
             <Input
+              id={`${ids}-spelling-dialoguePunctuationStyle`}
               value={draft.novelConfig.dialoguePunctuationStyle}
               onChange={(e) => updateNovelConfig({ dialoguePunctuationStyle: e.target.value })}
               placeholder={t("settings.sections.novel.spellingConvention.dialoguePunctuationPlaceholder", {
@@ -531,7 +534,7 @@ export function NovelSection({ draft, setDraft }: Props) {
           </div>
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
-              <Label>
+              <Label htmlFor={`${ids}-spelling-paragraphIndent`}>
                 {t("settings.sections.novel.spellingConvention.paragraphIndent", {
                   defaultValue: "段落缩进",
                 })}
@@ -539,6 +542,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               {settingTooltip("spellingConventionParagraphIndentHint")}
             </div>
             <Input
+              id={`${ids}-spelling-paragraphIndent`}
               value={draft.novelConfig.paragraphIndent}
               onChange={(e) => updateNovelConfig({ paragraphIndent: e.target.value })}
               placeholder={t("settings.sections.novel.spellingConvention.paragraphIndentPlaceholder", {
@@ -549,7 +553,7 @@ export function NovelSection({ draft, setDraft }: Props) {
           </div>
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
-              <Label>
+              <Label htmlFor={`${ids}-spelling-quoteConvention`}>
                 {t("settings.sections.novel.spellingConvention.quoteConvention", {
                   defaultValue: "引号规范",
                 })}
@@ -557,6 +561,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               {settingTooltip("spellingConventionQuoteConventionHint")}
             </div>
             <Input
+              id={`${ids}-spelling-quoteConvention`}
               value={draft.novelConfig.quoteConvention}
               onChange={(e) => updateNovelConfig({ quoteConvention: e.target.value })}
               placeholder={t("settings.sections.novel.spellingConvention.quoteConventionPlaceholder", {
@@ -570,28 +575,23 @@ export function NovelSection({ draft, setDraft }: Props) {
 
       {/* F-34: 反 AI 遥测显式同意（app 级 store，不走 draft.novelConfig） */}
       <div className="space-y-2">
-        <Label>
+        <h3 className={NOVEL_GROUP_HEADING_CLASS}>
           {t("settings.sections.novel.antiAiTelemetry.title", {
             defaultValue: "反 AI 遥测诊断",
           })}
-        </Label>
+        </h3>
         <p className="text-xs text-muted-foreground">
           {t("settings.sections.novel.antiAiTelemetry.description", {
             defaultValue: "应用级设置：仅控制本机匿名诊断遥测，与项目级小说设置相互独立。",
           })}
         </p>
         <div className="grid gap-4 rounded-lg border p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5">
-              <Label>{t("novel.settings.antiAiTelemetryConsent")}</Label>
-              {settingTooltip("antiAiTelemetryConsentHint")}
-            </div>
-            <NovelToggle
-              label={t('novel.settings.antiAiTelemetryConsent')}
-              checked={antiAiTelemetryConsent === true}
-              onChange={() => { void toggleAntiAiTelemetryConsent() }}
-            />
-          </div>
+          <NovelSwitchRow
+            label={t("novel.settings.antiAiTelemetryConsent")}
+            tipKey="antiAiTelemetryConsentHint"
+            checked={antiAiTelemetryConsent === true}
+            onChange={() => { void toggleAntiAiTelemetryConsent() }}
+          />
           {consentError ? (
             <p className="text-xs text-destructive">
               {t("novel.settings.antiAiTelemetryConsentError", { message: consentError })}
@@ -599,7 +599,7 @@ export function NovelSection({ draft, setDraft }: Props) {
           ) : null}
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
-              <Label>{t("novel.settings.kbShadowCollectionSection")}</Label>
+              <h4 className="text-sm leading-none font-medium">{t("novel.settings.kbShadowCollectionSection")}</h4>
               {settingTooltip("kbShadowCollectionHint")}
             </div>
             <div className="flex flex-wrap items-center gap-2">

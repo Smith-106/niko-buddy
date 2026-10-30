@@ -1,7 +1,7 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useId } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Download,
@@ -184,9 +184,16 @@ export function DataManagementSection() {
 
   async function handleImport() {
     // B 波二次确认：完全覆盖会清除当前所有数据，global-only 只换全局配置；先确认再执行。
-    const strategyLabel = importStrategy === "full" ? "完全覆盖（清除当前所有数据）" : "仅导入全局配置"
-    if (!window.confirm(`导入备份（${strategyLabel}）将改写现有数据，继续吗？`)) return
-    if (importStrategy === "full" && !window.confirm("再次确认：完全覆盖不可恢复，确定继续导入吗？")) return
+    const strategyLabel = importStrategy === "full"
+      ? t("settings.sections.dataManagement.importStrategyFullShort", { defaultValue: "完全覆盖（清除当前所有数据）" })
+      : t("settings.sections.dataManagement.importStrategyGlobalOnlyShort", { defaultValue: "仅导入全局配置" })
+    if (!window.confirm(t("settings.sections.dataManagement.importConfirm", {
+      defaultValue: "导入备份（{{strategy}}）将改写现有数据，继续吗？",
+      strategy: strategyLabel,
+    }))) return
+    if (importStrategy === "full" && !window.confirm(t("settings.sections.dataManagement.importConfirmFull2", {
+      defaultValue: "再次确认：完全覆盖不可恢复，确定继续导入吗？",
+    }))) return
     setIsImporting(true)
     setImportResult(null)
     setProgress(null)
@@ -278,6 +285,7 @@ export function DataManagementSection() {
   }
 
   const isBusy = isExporting || isImporting || isBackfillingCanon
+  const importStrategyLabelId = `${useId()}-import-strategy`
 
   return (
     <div className="space-y-6">
@@ -345,7 +353,7 @@ export function DataManagementSection() {
         {exportResult && (
           <div className="text-sm space-y-1">
             {exportResult.success ? (
-              <div className="flex items-start gap-2 text-success">
+              <div className="flex items-start gap-2 text-success-foreground">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
                 <div>
                   <p>{t("settings.sections.dataManagement.exportSuccess", { defaultValue: "导出成功" })}</p>
@@ -365,7 +373,7 @@ export function DataManagementSection() {
               </div>
             )}
             {exportResult.warnings.length > 0 && (
-              <div className="text-warning text-xs space-y-1">
+              <div className="text-warning-foreground text-xs space-y-1">
                 {exportResult.warnings.map((w, i) => (
                   <p key={`export-warn-${w.slice(0, 32)}-${i}`}>⚠ {w}</p>
                 ))}
@@ -431,7 +439,7 @@ export function DataManagementSection() {
         {docxResult && (
           <div className="text-sm space-y-1">
             {docxResult.success ? (
-              <div className="flex items-start gap-2 text-success">
+              <div className="flex items-start gap-2 text-success-foreground">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div>
                   <p>{t("settings.sections.dataManagement.docxExportSuccess", { defaultValue: "导出成功" })}</p>
@@ -519,7 +527,7 @@ export function DataManagementSection() {
         {epubResult && (
           <div className="text-sm space-y-1">
             {epubResult.success ? (
-              <div className="flex items-start gap-2 text-success">
+              <div className="flex items-start gap-2 text-success-foreground">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
                 <div>
                   <p>{t("settings.sections.dataManagement.epubExportSuccess", { defaultValue: "导出成功" })}</p>
@@ -606,7 +614,7 @@ export function DataManagementSection() {
                 unreadable: canonBackfillReport.perChapter.filter((chapter) => chapter.status === "snapshot-unreadable").length,
               })}
             </p>
-            <p className={canonBackfillReport.consistent ? "text-success" : "text-warning"}>
+            <p className={canonBackfillReport.consistent ? "text-success-foreground" : "text-warning-foreground"}>
               {canonBackfillReport.consistent
                 ? t("settings.sections.dataManagement.canonBackfillConsistent", { defaultValue: "对账一致。" })
                 : t("settings.sections.dataManagement.canonBackfillDivergent", {
@@ -706,15 +714,15 @@ export function DataManagementSection() {
 
         {/* Import strategy radio */}
         <div className="space-y-2">
-          <label className="text-sm font-medium">
+          <span id={importStrategyLabelId} className="block text-sm font-medium">
             {t("settings.sections.dataManagement.importStrategy", { defaultValue: "导入方式" })}
-          </label>
-          <div className="space-y-1">
+          </span>
+          <div role="radiogroup" aria-labelledby={importStrategyLabelId} className="space-y-1">
             {([
-              { value: "full" as const, label: "完全覆盖（清除当前所有数据）" },
-              { value: "global-only" as const, label: "仅导入全局配置（模型、UI偏好）" },
+              { value: "full" as const, label: t("settings.sections.dataManagement.importStrategyFull", { defaultValue: "完全覆盖（清除当前所有数据）" }) },
+              { value: "global-only" as const, label: t("settings.sections.dataManagement.importStrategyGlobalOnly", { defaultValue: "仅导入全局配置（模型、UI偏好）" }) },
             ]).map((opt) => (
-              <label key={opt.value} className="flex items-center gap-2 text-sm cursor-pointer">
+              <label key={opt.value} className="flex min-h-6 items-center gap-2 text-sm cursor-pointer">
                 <input
                   type="radio"
                   name="import-strategy"
@@ -746,7 +754,7 @@ export function DataManagementSection() {
         {importResult && (
           <div className="text-sm space-y-1">
             {importResult.success ? (
-              <div className="flex items-start gap-2 text-success">
+              <div className="flex items-start gap-2 text-success-foreground">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
                 <div>
                   <p>{t("settings.sections.dataManagement.importSuccess", { defaultValue: "导入成功，项目数据已自动刷新，部分全局配置可能需要重启生效" })}</p>
@@ -767,7 +775,7 @@ export function DataManagementSection() {
               </div>
             )}
             {importResult.warnings?.length > 0 && (
-              <div className="text-warning text-xs space-y-1">
+              <div className="text-warning-foreground text-xs space-y-1">
                 {importResult.warnings.map((w, i) => (
                   <p key={`import-warn-${w.slice(0, 32)}-${i}`}>⚠ {w}</p>
                 ))}
@@ -785,7 +793,7 @@ export function DataManagementSection() {
       </div>
 
       {/* Security warning */}
-      <div className="rounded-lg border border-warning bg-warning p-3 text-sm text-warning dark:border-warning dark:bg-warning/30 dark:text-warning">
+      <div role="note" className="rounded-lg border border-warning/60 bg-warning/10 p-3 text-sm text-warning-foreground">
         <div className="flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
           <p>

@@ -986,7 +986,7 @@ describe("SettingsView 渲染覆盖", () => {
     expect(mocks.saveNovelConfig).toHaveBeenCalledWith(mocks.wikiState.novelConfig, undefined, undefined)
   })
 
-  it("handleSave 存储域隔离：novel 域保存不串写界面域", async () => {
+  it("handleSave 存储域隔离：novel 域保存不串写界面域；对话历史长度随存储域落盘", async () => {
     mocks.wikiState.project = PROJECT
     render(<SettingsView />)
     await flushAsync()
@@ -994,8 +994,136 @@ describe("SettingsView 渲染覆盖", () => {
     clickSave()
     await waitFor(() => expect(mocks.saveNovelConfig).toHaveBeenCalled())
     expect(mocks.saveOutputLanguage).not.toHaveBeenCalled()
-    expect(mocks.saveMaxHistoryMessages).not.toHaveBeenCalled()
     expect(mocks.saveUiFontSizeScale).not.toHaveBeenCalled()
     expect(mocks.saveLanguage).not.toHaveBeenCalled()
+    // 对话历史长度在小说页编辑，之前归界面域导致小说页保存不落盘
+    await waitFor(() =>
+      expect(mocks.saveMaxHistoryMessages).toHaveBeenCalledWith(mocks.chatState.maxHistoryMessages, PROJECT.id, PROJECT.path),
+    )
+    expect(mocks.chatState.setMaxHistoryMessages).toHaveBeenCalledWith(mocks.chatState.maxHistoryMessages)
+  })
+
+  it("界面域保存不再写对话历史长度", async () => {
+    render(<SettingsView />)
+    await flushAsync()
+    clickNav("interface")
+    clickSave()
+    await waitFor(() => expect(mocks.saveUiFontSizeScale).toHaveBeenCalled())
+    expect(mocks.saveMaxHistoryMessages).not.toHaveBeenCalled()
+  })
+
+  it("同项目内 store 变化只合并未改动字段：其它页未保存的草稿保留", async () => {
+    const { rerender } = render(<SettingsView />)
+    await flushAsync()
+    clickNav("rerank")
+    await clickAndFlush("set-max-50")
+    expect(screen.getByTestId("draft-max")).toHaveTextContent("50")
+
+    // 模拟 llm 页某开关自动保存：store 的 llmConfig 变了
+    mocks.wikiState.llmConfig = { ...mocks.wikiState.llmConfig, provider: "ollama" }
+    rerender(<SettingsView />)
+    await flushAsync()
+    expect(screen.getByTestId("draft-provider")).toHaveTextContent("ollama")
+    expect(screen.getByTestId("draft-max")).toHaveTextContent("50")
+  })
+
+  it("切换项目时整份重建草稿，丢弃上个项目未保存的改动", async () => {
+    mocks.wikiState.project = PROJECT
+    const { rerender } = render(<SettingsView />)
+    await flushAsync()
+    clickNav("rerank")
+    await clickAndFlush("set-max-50")
+    mocks.wikiState.project = { id: "p2", name: "Q", path: "/p/y" }
+    rerender(<SettingsView />)
+    await flushAsync()
+    expect(screen.getByTestId("draft-max")).toHaveTextContent(String(mocks.wikiState.rerankConfig.maxCandidates))
+  })
+
+  it("未保存提示：改动后显示 unsavedHint，跨域改动在其它页提示；保存后复位", async () => {
+    render(<SettingsView />)
+    await flushAsync()
+    clickNav("rerank")
+    expect(screen.queryByText("settings.unsavedHint", { exact: false })).toBeNull()
+    await clickAndFlush("set-max-50")
+    expect(screen.getByText("settings.unsavedHint", { exact: false })).toBeTruthy()
+    expect(screen.getByText("settings.saveScope.model", { exact: false })).toBeTruthy()
+
+    clickNav("interface")
+    expect(screen.queryByText("settings.unsavedHint", { exact: false })).toBeNull()
+    expect(screen.getByTestId("settings-other-dirty")).toBeTruthy()
+    expect(mocks.t).toHaveBeenCalledWith("settings.otherDomainsDirty", { domains: "settings.domainName.model" })
+
+    clickNav("rerank")
+    clickSave()
+    await waitFor(() => expect(mocks.saveRerankConfig).toHaveBeenCalled())
+    await flushAsync()
+    clickNav("interface")
+    expect(screen.queryByTestId("settings-other-dirty")).toBeNull()
+  })
+
+  it("保存失败：toast 提示错误、不显示已保存、按钮可再次点击", async () => {
+    const toastModule = await import("@/lib/toast")
+    const errorSpy = vi.spyOn(toastModule.toast, "error").mockImplementation(() => undefined as never)
+    mocks.saveUiFontSizeScale.mockRejectedValueOnce(new Error("disk full"))
+    render(<SettingsView />)
+    await flushAsync()
+    clickNav("interface")
+    clickSave()
+    await waitFor(() => expect(errorSpy).toHaveBeenCalled())
+    expect(mocks.t).toHaveBeenCalledWith("settings.saveFailed", { error: "disk full" })
+    expect(screen.queryByText("settings.savedTick", { exact: false })).toBeNull()
+    clickSave()
+    await waitFor(() => expect(mocks.saveUiFontSizeScale).toHaveBeenCalledTimes(2))
+    errorSpy.mockRestore()
+  })
+
+  it("保存失败：落盘失败的子配置不写 store，保存栏仍显示未保存", async () => {
+    const toastModule = await import("@/lib/toast")
+    const errorSpy = vi.spyOn(toastModule.toast, "error").mockImplementation(() => undefined as never)
+    // setter 真实写入 mock store，才能暴露"先写 store 再落盘"导致基线等于草稿、误判已保存
+    mocks.wikiState.setRerankConfig.mockImplementation((c: unknown) => {
+      mocks.wikiState.rerankConfig = c as typeof mocks.wikiState.rerankConfig
+    })
+    mocks.saveRerankConfig.mockRejectedValueOnce(new Error("disk full"))
+    try {
+      const { rerender } = render(<SettingsView />)
+      await flushAsync()
+      clickNav("rerank")
+      await clickAndFlush("set-max-50")
+      clickSave()
+      await waitFor(() => expect(errorSpy).toHaveBeenCalled())
+      expect(mocks.wikiState.setRerankConfig).not.toHaveBeenCalled()
+      rerender(<SettingsView />)
+      await flushAsync()
+      expect(screen.getByText("settings.unsavedHint", { exact: false })).toBeTruthy()
+      expect(screen.getByTestId("draft-max")).toHaveTextContent("50")
+    } finally {
+      mocks.wikiState.setRerankConfig.mockReset()
+      errorSpy.mockRestore()
+    }
+  })
+
+  it("保存栏按分类显示：无设置页隐藏，草稿页显示保存按钮", async () => {
+    render(<SettingsView />)
+    await flushAsync()
+    for (const id of ["usage-guide", "maintenance", "data-management", "feedback", "contact-support", "changelog"]) {
+      clickNav(id)
+      expect(screen.queryByTestId("settings-save-domain"), id).toBeNull()
+    }
+    for (const id of ["llm", "rerank", "embedding", "network", "interface", "novel"]) {
+      clickNav(id)
+      expect(screen.getByTestId("settings-save-domain"), id).toBeTruthy()
+    }
+  })
+
+  it("侧栏按分组显示标题，每个分类按钮带 data-settings-category", async () => {
+    render(<SettingsView />)
+    await flushAsync()
+    for (const key of ["models", "writing", "app", "data", "help"]) {
+      expect(screen.getByText(`settings.navGroups.${key}`)).toBeTruthy()
+    }
+    for (const c of CATEGORIES) {
+      expect(document.querySelector(`[data-settings-category="${c.id}"]`), c.id).toBeTruthy()
+    }
   })
 })

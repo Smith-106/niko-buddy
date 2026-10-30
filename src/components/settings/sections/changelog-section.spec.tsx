@@ -45,7 +45,9 @@ const mocks = vi.hoisted(() => {
   const langState = { language: "zh" }
   return {
     langState,
-    t: vi.fn((key: string) => lookupZhLocale(key) ?? key),
+    t: vi.fn((key: string, params?: Record<string, unknown>) =>
+      (lookupZhLocale(key) ?? key).replace(/\{\{(\w+)\}\}/g, (m, k: string) => (params && k in params ? String(params[k]) : m)),
+    ),
     allChangelog: vi.fn<() => ChangelogEntry[]>(() => []),
     isTauri: vi.fn(() => false),
     formatUpdateErrorMessage: vi.fn((_err: unknown) => "formatted-update-error"),
@@ -122,17 +124,20 @@ describe("ChangelogSection", () => {
   it("zh 语言：当前版本徽标 + 收起/展开长条目", () => {
     render(<ChangelogSection />)
     expect(screen.getByText((_, el) => el?.tagName === "SPAN" && el.textContent === `v${__APP_VERSION__}`)).toBeInTheDocument()
-    expect(screen.getByText("\\u2190 当前版本")).toBeInTheDocument()
+    expect(screen.getByText("← 当前版本")).toBeInTheDocument()
     expect(screen.getByText((_, el) => el?.tagName === "SPAN" && el.textContent === "v2.4.0")).toBeInTheDocument()
     // 长条目：默认只显示前 5 条 + 查看更多按钮
     expect(screen.getByText("zh line 1")).toBeInTheDocument()
     expect(screen.queryByText("zh line 6")).not.toBeInTheDocument()
     expect(screen.getByText("查看更多 2 条")).toBeInTheDocument()
+    expect(screen.getByText("查看更多 2 条")).toHaveAttribute("aria-expanded", "false")
+    expect(screen.getByText("查看更多 2 条").className).toContain("min-h-6")
 
     fireEvent.click(screen.getByText("查看更多 2 条"))
     expect(screen.getByText("zh line 6")).toBeInTheDocument()
     expect(screen.getByText("zh line 7")).toBeInTheDocument()
     expect(screen.getByText("收起")).toBeInTheDocument()
+    expect(screen.getByText("收起")).toHaveAttribute("aria-expanded", "true")
 
     fireEvent.click(screen.getByText("收起"))
     expect(screen.queryByText("zh line 6")).not.toBeInTheDocument()
@@ -255,7 +260,7 @@ describe("ChangelogSection", () => {
 
     resolveDownload?.()
     await waitFor(() => {
-      expect(screen.getByText("✅ 更新已下载完成！安装时会关闭当前软件，请确保已保存编辑内容。")).toBeInTheDocument()
+      expect(screen.getByText("更新已下载完成！安装时会关闭当前软件，请确保已保存编辑内容。")).toBeInTheDocument()
     })
     expect(screen.getByText("立即安装")).toBeInTheDocument()
   })

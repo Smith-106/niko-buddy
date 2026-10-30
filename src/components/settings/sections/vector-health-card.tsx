@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
 import {
@@ -9,7 +10,10 @@ import {
 } from "@/lib/embedding"
 import { toErrorMessage } from "@/lib/utils"
 
+const K = "settings.sections.maintenance.vectorHealth"
+
 export function VectorHealthCard() {
+  const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const [chunks, setChunks] = useState<number | null>(null)
   const [legacy, setLegacy] = useState<number | null>(null)
@@ -38,15 +42,34 @@ export function VectorHealthCard() {
   const run = useCallback(
     async (kind: "reconcile" | "compaction" | "drop") => {
       if (!project || busy) return
+      // 删除 legacy 表不可恢复：沿用数据管理页的二次确认（两次 confirm 都通过才执行）
+      if (kind === "drop") {
+        const first = window.confirm(
+          t("settings.sections.dataManagement.vectorCleanConfirm", {
+            defaultValue: "确定清理遗留（legacy）向量表？此操作不可恢复。",
+          }),
+        )
+        if (!first) return
+        const second = window.confirm(
+          t("settings.sections.dataManagement.vectorCleanConfirm2", {
+            defaultValue: "再次确认：将删除 legacy 向量行并触发重建，继续吗？",
+          }),
+        )
+        if (!second) return
+      }
       setBusy(kind)
       setNote(null)
       try {
         if (kind === "compaction") {
           const r = await triggerIdleCompaction(project.path)
-          setNote(r ? `compaction ok chunks=${r.chunks_compacted}` : "compaction ok")
+          setNote(
+            r
+              ? t(`${K}.compactionDoneCount`, { defaultValue: "压缩完成，已合并 {{count}} 个 chunk", count: r.chunks_compacted })
+              : t(`${K}.compactionDone`, { defaultValue: "压缩完成" }),
+          )
         } else if (kind === "drop") {
           await dropLegacyVectorTable(project.path)
-          setNote("drop legacy ok")
+          setNote(t(`${K}.dropDone`, { defaultValue: "旧版残留已清理" }))
         } else {
           const { invoke } = await import("@tauri-apps/api/core")
           const report = await invoke<{ skipped?: boolean; deleted_pages?: string[] }>(
@@ -55,8 +78,8 @@ export function VectorHealthCard() {
           )
           setNote(
             report?.skipped === true
-              ? "已跳过（无预置索引清单，请先触发索引构建）"
-              : "reconcile ok",
+              ? t(`${K}.reconcileSkipped`, { defaultValue: "已跳过（无预置索引清单，请先触发索引构建）" })
+              : t(`${K}.reconcileDone`, { defaultValue: "对账完成" }),
           )
         }
         await refresh()
@@ -66,30 +89,46 @@ export function VectorHealthCard() {
         setBusy(null)
       }
     },
-    [project, busy, refresh],
+    [project, busy, refresh, t],
   )
 
   return (
     <div className="space-y-2 rounded-lg border border-border/60 bg-muted/20 p-4" data-testid="vector-health-card">
-      <div className="text-sm font-semibold">向量库健康</div>
+      <h3 className="text-sm font-semibold">{t(`${K}.title`, { defaultValue: "向量库健康" })}</h3>
       <p className="text-xs text-muted-foreground">
-        Chunk总数 {chunks ?? "—"} · 旧表残留 {legacy ?? "—"}
+        {t(`${K}.summary`, {
+          defaultValue: "Chunk总数 {{chunks}} · 旧表残留 {{legacy}}",
+          chunks: chunks ?? "—",
+          legacy: legacy ?? "—",
+        })}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="outline" disabled={!project || busy !== null} onClick={() => void run("compaction")}>
-          {busy === "compaction" ? "压缩中…" : "立即压缩"}
+          {busy === "compaction"
+            ? t(`${K}.compacting`, { defaultValue: "压缩中…" })
+            : t(`${K}.compact`, { defaultValue: "立即压缩" })}
         </Button>
         <Button size="sm" variant="outline" disabled={!project || busy !== null} onClick={() => void run("reconcile")}>
-          {busy === "reconcile" ? "对账中…" : "对账校验"}
+          {busy === "reconcile"
+            ? t(`${K}.reconciling`, { defaultValue: "对账中…" })
+            : t(`${K}.reconcile`, { defaultValue: "对账校验" })}
         </Button>
-        <Button size="sm" variant="outline" disabled={!project || busy !== null} onClick={() => void run("drop")}>
-          {busy === "drop" ? "清理中…" : "清理旧版残留"}
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={!project || busy !== null}
+          onClick={() => void run("drop")}
+          data-testid="vector-health-drop-legacy"
+        >
+          {busy === "drop"
+            ? t(`${K}.dropping`, { defaultValue: "清理中…" })
+            : t(`${K}.drop`, { defaultValue: "清理旧版残留" })}
         </Button>
         <Button size="sm" variant="ghost" disabled={!project || busy !== null} onClick={() => void refresh()}>
-          刷新
+          {t(`${K}.refresh`, { defaultValue: "刷新" })}
         </Button>
       </div>
-      {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
+      {note ? <p role="status" className="text-xs text-muted-foreground">{note}</p> : null}
     </div>
   )
 }

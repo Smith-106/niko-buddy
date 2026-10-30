@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react"
+import { useState, useMemo, useEffect, useId, useRef } from "react"
 import { DEFAULT_MAX_CONTEXT_TOKENS } from "@/lib/llm-context-limits"
 import { Plus, Trash2, ChevronDown, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,7 @@ import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { useTranslation } from "react-i18next"
 import { HttpTimeoutControls, ReasoningControls } from "./llm-provider-section"
 import { toErrorMessage } from "@/lib/utils"
+import { SettingsSwitch } from "../settings-widgets"
 
 interface CustomProviderCard {
   id: string
@@ -30,10 +31,10 @@ interface CustomProviderCard {
   savedModels: SavedModel[]
 }
 
-const API_MODE_OPTIONS: { value: CustomProviderCard["apiMode"]; label: string }[] = [
-  { value: "chat_completions", label: "OpenAI 兼容" },
-  { value: "responses", label: "Responses API" },
-  { value: "anthropic_messages", label: "Anthropic 兼容" },
+const API_MODE_OPTIONS: { value: CustomProviderCard["apiMode"]; labelKey: string }[] = [
+  { value: "chat_completions", labelKey: "settings.sections.llm.wireOpenAi" },
+  { value: "responses", labelKey: "settings.sections.llm.wireResponses" },
+  { value: "anthropic_messages", labelKey: "settings.sections.llm.wireAnthropic" },
 ]
 
 export function CustomProviderCards() {
@@ -50,7 +51,7 @@ export function CustomProviderCards() {
       const config = providerConfigs[key]
       return {
         id: key,
-        label: config.label || "自定义模型",
+        label: config.label || t("settings.sections.shared.defaultCustomLabel"),
         apiMode: config.apiMode || "chat_completions",
         baseUrl: config.baseUrl || "",
         apiKey: config.apiKey || "",
@@ -70,7 +71,7 @@ export function CustomProviderCards() {
     const newId = `custom-${Date.now()}`
     const newCard: CustomProviderCard = {
       id: newId,
-      label: "自定义模型",
+      label: t("settings.sections.shared.defaultCustomLabel"),
       apiMode: "chat_completions",
       baseUrl: "",
       apiKey: "",
@@ -128,7 +129,7 @@ export function CustomProviderCards() {
   }
 
   function deleteCard(id: string) {
-    if (!confirm("确定删除此配置吗？")) return
+    if (!confirm(t("settings.sections.shared.confirmDeleteConfig"))) return
 
     setCards(cards.filter((c) => c.id !== id))
 
@@ -168,14 +169,14 @@ export function CustomProviderCards() {
       <div className="flex items-center justify-between">
         <h3 className="text-base font-medium">{t("settings.sections.shared.customModel")}</h3>
         <Button type="button" variant="outline" size="sm" onClick={addCard}>
-          <Plus className="mr-1.5 h-4 w-4" />
-          添加模型
+          <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />
+          {t("settings.sections.llm.savedModels.addModel")}
         </Button>
       </div>
 
       {cards.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-          暂未添加任何模型配置
+          {t("settings.sections.shared.emptyCustomConfigs")}
         </div>
       ) : (
         <div className="space-y-2">
@@ -211,6 +212,9 @@ function CustomProviderCardItem({
   onToggleEnabled,
 }: CustomProviderCardItemProps) {
   const { t } = useTranslation()
+  const ids = useId()
+  const panelId = `${ids}-panel`
+  const fetchedPanelId = `${ids}-fetched`
   const [modelOptions, setModelOptions] = useState<string[]>([])
   const [isExpanded, setIsExpanded] = useState(false)
   const [isCardExpanded, setIsCardExpanded] = useState(false)
@@ -278,7 +282,7 @@ function CustomProviderCardItem({
       setModelListState({
         loading: false,
         success: true,
-        message: `已拉取 ${result.models.length} 个模型`,
+        message: t("settings.sections.llm.fetchedModelsCount", { count: result.models.length }),
       })
     } catch (error) {
       setModelListState({
@@ -363,14 +367,14 @@ function CustomProviderCardItem({
 
   // 从 baseUrl 中提取 host 用于 hint 提示，例如 "https://api.openai.com/v1" → "api.openai.com"
   const baseUrlHint = useMemo(() => {
-    if (!card.baseUrl) return "未配置"
+    if (!card.baseUrl) return t("settings.sections.shared.notConfigured")
     try {
       const url = new URL(card.baseUrl)
       return url.host || card.baseUrl
     } catch {
       return card.baseUrl
     }
-  }, [card.baseUrl])
+  }, [card.baseUrl, t])
 
   return (
     <div
@@ -380,13 +384,18 @@ function CustomProviderCardItem({
     >
       {/* Header — 与 PresetRow 完全一致的结构（label + hint 两行） */}
       <div className="flex items-center gap-3 px-3 py-2.5">
+        {/* 名称区是"点击编辑名称"按钮，因此展开控件必须独立可聚焦（不能并入名称按钮） */}
         <button
           type="button"
           onClick={() => setIsCardExpanded(!isCardExpanded)}
-          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent"
-          title={isCardExpanded ? "收起" : "展开"}
+          aria-expanded={isCardExpanded}
+          aria-controls={panelId}
+          aria-label={`${isCardExpanded ? t("settings.sections.llm.collapse") : t("settings.sections.llm.expand")} ${card.label || t("settings.sections.shared.configName")}`}
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          title={isCardExpanded ? t("settings.sections.llm.collapse") : t("settings.sections.llm.expand")}
         >
           <ChevronDown
+            aria-hidden="true"
             className={`h-4 w-4 transition-transform ${isCardExpanded ? "" : "-rotate-90"}`}
           />
         </button>
@@ -403,7 +412,8 @@ function CustomProviderCardItem({
                     setIsEditingLabel(false)
                   }
                 }}
-                className="min-w-0 flex-1 border-0 shadow-none focus-visible:ring-0 text-sm h-auto px-1 py-0"
+                aria-label={t("settings.sections.shared.configName")}
+                className="min-w-0 flex-1 border-0 shadow-none focus-visible:ring-2 focus-visible:ring-ring text-sm h-auto px-1 py-0"
                 placeholder={t("settings.sections.shared.configName")}
               />
             </div>
@@ -411,11 +421,11 @@ function CustomProviderCardItem({
             <button
               type="button"
               onClick={() => setIsEditingLabel(true)}
-              className="block w-full text-left"
+              className="block w-full rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <div className="flex items-center gap-2">
                 <span className="truncate text-sm font-medium hover:text-primary">
-                  {card.label || "配置名称"}
+                  {card.label || t("settings.sections.shared.configName")}
                 </span>
               </div>
             </button>
@@ -425,44 +435,35 @@ function CustomProviderCardItem({
           </div>
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          <button
-            type="button"
-            onClick={onToggleEnabled}
-            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
-              isEnabled
-                ? "border-primary bg-primary"
-                : "border-muted-foreground/30 bg-muted-foreground/20 hover:bg-muted-foreground/30"
-            }`}
-            title={isEnabled ? "停用" : "启用"}
-          >
-            <span
-              className={`inline-block h-3.5 w-3.5 rounded-full bg-white elevation-1 ring-1 ring-black/10 transition-transform ${
-                isEnabled ? "translate-x-4" : "translate-x-0.5"
-              }`}
-            />
-          </button>
+          <SettingsSwitch
+            checked={isEnabled}
+            onCheckedChange={() => onToggleEnabled()}
+            label={t("settings.sections.llm.enableProvider", { name: card.label || t("settings.sections.shared.configName") })}
+            title={isEnabled ? t("settings.sections.llm.deactivate") : t("settings.sections.llm.activate")}
+          />
         </div>
       </div>
 
       {/* Card Content - Collapsible */}
       {isCardExpanded && (
-        <div className="space-y-4 border-t bg-background/50 px-4 py-3">
+        <div id={panelId} className="space-y-4 border-t bg-background/50 px-4 py-3">
           {/* API Mode */}
           <div className="space-y-2">
-            <Label className="text-xs">API 模式</Label>
+            <Label className="text-xs">{t("settings.sections.llm.apiMode")}</Label>
             <div className="flex flex-wrap gap-2">
               {API_MODE_OPTIONS.map((mode) => (
                 <button
                   key={mode.value}
                   type="button"
                   onClick={() => onUpdate({ apiMode: mode.value })}
+                  aria-pressed={card.apiMode === mode.value}
                   className={`rounded-md border px-3 py-1.5 text-xs transition-colors ${
                     card.apiMode === mode.value
                       ? "border-primary bg-primary text-primary-foreground"
                       : "border-border bg-background hover:bg-accent"
                   }`}
                 >
-                  {mode.label}
+                  {t(mode.labelKey)}
                 </button>
               ))}
             </div>
@@ -471,7 +472,7 @@ function CustomProviderCardItem({
           {/* Base URL */}
           <div className="space-y-2">
             <Label htmlFor={`${card.id}-url`} className="text-xs">
-              接口地址
+              {t("settings.sections.llm.endpoint")}
             </Label>
             <Input
               id={`${card.id}-url`}
@@ -485,7 +486,7 @@ function CustomProviderCardItem({
           {/* API Key */}
           <div className="space-y-2">
             <Label htmlFor={`${card.id}-key`} className="text-xs">
-              API 密钥
+              {t("settings.sections.llm.apiKey")}
             </Label>
             <Input
               id={`${card.id}-key`}
@@ -504,18 +505,20 @@ function CustomProviderCardItem({
                 <button
                   type="button"
                   onClick={() => setIsExpanded(!isExpanded)}
-                  className="flex items-center gap-2 text-xs font-medium hover:text-primary"
+                  aria-expanded={isExpanded}
+                  aria-controls={fetchedPanelId}
+                  className="flex min-h-6 items-center gap-2 rounded text-xs font-medium hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <span>已拉取 {modelOptions.length} 个模型</span>
-                  <span className="text-muted-foreground">已选择 {card.savedModels.length} 个</span>
+                  <span>{t("settings.sections.llm.fetchedModelsCount", { count: modelOptions.length })}</span>
+                  <span className="text-muted-foreground">{t("settings.sections.llm.selectedModelsCount", { count: card.savedModels.length })}</span>
                 </button>
               </div>
 
               {isExpanded && (
-                <>
+                <div id={fetchedPanelId} className="space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="text-xs text-muted-foreground">
-                      点击模型标签选择/取消，未选择时默认全部可用
+                      {t("settings.sections.shared.modelChipHint")}
                     </div>
                     <div className="flex gap-2">
                       <button
@@ -538,9 +541,9 @@ function CustomProviderCardItem({
                             model: newModels[0].model,
                           })
                         }}
-                        className="rounded-md border px-2 py-0.5 text-xs hover:bg-accent"
+                        className="min-h-6 rounded-md border px-2 py-0.5 text-xs hover:bg-accent"
                       >
-                        全选
+                        {t("settings.sections.shared.selectAll")}
                       </button>
                       <button
                         type="button"
@@ -548,9 +551,9 @@ function CustomProviderCardItem({
                           if (card.savedModels.length === 0) return
                           onUpdate({ savedModels: [], model: "" })
                         }}
-                        className="rounded-md border px-2 py-0.5 text-xs hover:bg-accent"
+                        className="min-h-6 rounded-md border px-2 py-0.5 text-xs hover:bg-accent"
                       >
-                        清空
+                        {t("common.clear")}
                       </button>
                     </div>
                   </div>
@@ -563,7 +566,8 @@ function CustomProviderCardItem({
                           key={modelId}
                           type="button"
                           onClick={() => toggleModelSelection(modelId)}
-                          className={`rounded-md border px-2 py-1 text-xs transition-colors ${
+                          aria-pressed={isSelected}
+                          className={`min-h-6 rounded-md border px-2 py-1 text-xs transition-colors ${
                             isSelected
                               ? "border-primary bg-primary text-primary-foreground"
                               : "border-border bg-background hover:bg-accent"
@@ -574,7 +578,7 @@ function CustomProviderCardItem({
                       )
                     })}
                   </div>
-                </>
+                </div>
               )}
             </div>
           )}
@@ -582,10 +586,10 @@ function CustomProviderCardItem({
           {/* Model - Tag input + selected models display */}
           <div className="space-y-2">
             <Label htmlFor={`${card.id}-model`} className="text-xs">
-              模型
+              {t("settings.sections.llm.model")}
             </Label>
             <div className="flex gap-2">
-              <div className="flex min-h-[2.25rem] flex-1 flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1.5 focus-within:ring-1 focus-within:ring-ring">
+              <div className="flex min-h-[2.25rem] flex-1 flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1.5 focus-within:ring-2 focus-within:ring-ring">
                 {card.savedModels.map((savedModel) => {
                   const isFailed = modelTestState.failedModels?.includes(savedModel.model)
                   return (
@@ -601,10 +605,11 @@ function CustomProviderCardItem({
                       <button
                         type="button"
                         onClick={() => removeSavedModel(savedModel.model)}
-                        className={`rounded-full p-0.5 ${isFailed ? "hover:bg-destructive/20" : "hover:bg-primary/20"}`}
-                        title="移除"
+                        aria-label={t("settings.sections.shared.removeModel", { name: savedModel.model })}
+                        className={`inline-flex size-6 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${isFailed ? "hover:bg-destructive/20" : "hover:bg-primary/20"}`}
+                        title={t("settings.sections.shared.removeModel", { name: savedModel.model })}
                       >
-                        <X className="h-3 w-3" />
+                        <X className="h-3 w-3" aria-hidden="true" />
                       </button>
                     </span>
                   )
@@ -626,10 +631,11 @@ function CustomProviderCardItem({
                   }}
                   placeholder={
                     card.savedModels.length > 0
-                      ? "输入模型名称按回车添加"
-                      : "输入模型名称或拉取后选择"
+                      ? t("settings.sections.shared.modelInputAddPlaceholder")
+                      : t("settings.sections.shared.modelInputPlaceholder")
                   }
-                  className="min-w-[8rem] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                  // 焦点指示由外层容器 focus-within:ring-2 承担（chip + 输入框是一个复合输入框）
+                  className="min-w-[8rem] flex-1 bg-transparent text-sm focus-visible:outline-none placeholder:text-muted-foreground"
                 />
               </div>
               <button
@@ -643,10 +649,10 @@ function CustomProviderCardItem({
                     .filter(Boolean)
                     .every((m) => card.savedModels.some((saved) => saved.model === m))
                 }
-                className="shrink-0 rounded-md border px-2 py-1 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-h-6 shrink-0 rounded-md border px-2 py-1 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                 title={t("settings.sections.shared.addModelHint")}
               >
-                添加
+                {t("settings.sections.shared.add")}
               </button>
             </div>
           </div>
@@ -682,13 +688,13 @@ function CustomProviderCardItem({
               </button>
             </div>
             {modelListState?.message ? (
-              <p className={`text-xs ${modelListState.success ? "text-success" : "text-destructive"}`}>
+              <p className={`text-xs ${modelListState.success ? "text-success-foreground" : "text-destructive"}`}>
                 {modelListState.message}
               </p>
             ) : null}
             {modelTestState?.message ? (
               <div className="space-y-1.5">
-                <p className={`text-xs ${modelTestState.success ? "text-success" : "text-destructive"}`}>
+                <p className={`text-xs ${modelTestState.success ? "text-success-foreground" : "text-destructive"}`}>
                   {modelTestState.message}
                 </p>
                 {modelTestState.failedModels && modelTestState.failedModels.length > 0 && (
@@ -706,9 +712,9 @@ function CustomProviderCardItem({
                       type="button"
                       onClick={() => void retryFailed((modelId) => ({ ...resolvedConfig, model: modelId }))}
                       disabled={modelTestState.loading}
-                      className="rounded-md border border-destructive/30 px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="min-h-6 rounded-md border border-destructive/30 px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      重试失败模型
+                      {t("settings.sections.shared.retryFailedModels")}
                     </button>
                   </div>
                 )}
@@ -718,8 +724,9 @@ function CustomProviderCardItem({
 
           {/* Context Size */}
           <div className="space-y-2">
-            <Label className="text-xs">{t("settings.sections.llm.contextWindow")}</Label>
+            <Label htmlFor={`${ids}-context`} className="text-xs">{t("settings.sections.llm.contextWindow")}</Label>
             <ContextSizeSelector
+              id={`${ids}-context`}
               value={card.maxContextSize ?? DEFAULT_MAX_CONTEXT_TOKENS}
               onChange={(v) => onUpdate({ maxContextSize: v })}
             />
@@ -750,8 +757,8 @@ function CustomProviderCardItem({
               onClick={onDelete}
               className="text-destructive hover:bg-destructive/10 hover:text-destructive"
             >
-              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-              删除此配置
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+              {t("settings.sections.shared.deleteConfig")}
             </Button>
           </div>
         </div>

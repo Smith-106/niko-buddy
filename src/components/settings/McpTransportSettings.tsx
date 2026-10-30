@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { toErrorMessage } from "@/lib/utils";
+
 import {
   DEFAULT_TRANSPORT_MODE,
   TRANSPORT_MODES,
@@ -82,7 +84,7 @@ export function McpTransportSettings({ projectPath }: McpTransportSettingsProps)
         }),
       });
     } catch (error) {
-      setStatus({ kind: "error", text: String(error) });
+      setStatus({ kind: "error", text: toErrorMessage(error) });
     }
   };
 
@@ -102,7 +104,7 @@ export function McpTransportSettings({ projectPath }: McpTransportSettingsProps)
       });
     } catch (error) {
       setPhase("failed");
-      setStatus({ kind: "error", text: String(error) });
+      setStatus({ kind: "error", text: toErrorMessage(error) });
     }
   };
 
@@ -117,7 +119,7 @@ export function McpTransportSettings({ projectPath }: McpTransportSettingsProps)
       });
     } catch (error) {
       setPhase("failed");
-      setStatus({ kind: "error", text: String(error) });
+      setStatus({ kind: "error", text: toErrorMessage(error) });
     }
   };
 
@@ -133,7 +135,7 @@ export function McpTransportSettings({ projectPath }: McpTransportSettingsProps)
     } catch (error) {
       setStatus({
         kind: isAuditBlocked(error) ? "blocked" : "error",
-        text: isAuditBlocked(error) ? t("mcp.remote.audit.blocked") : String(error),
+        text: isAuditBlocked(error) ? t("mcp.remote.audit.blocked") : toErrorMessage(error),
       });
     }
   };
@@ -200,7 +202,7 @@ export function McpTransportSettings({ projectPath }: McpTransportSettingsProps)
       </label>
 
       {optInRequired ? (
-        <p role="alert" data-testid="mcp-transport-optin-required" className="text-xs text-warning">
+        <p role="alert" data-testid="mcp-transport-optin-required" className="text-xs text-warning-foreground">
           {t("mcp.transport.optin.required")}
         </p>
       ) : null}
@@ -228,6 +230,7 @@ export function McpTransportSettings({ projectPath }: McpTransportSettingsProps)
       <input
         className="rounded border px-2 py-1 text-sm"
         data-testid="mcp-server-id"
+        aria-label={t("mcp.transport.serverId")}
         placeholder={t("mcp.transport.serverId")}
         value={serverId}
         onChange={(e) => setServerId(e.target.value)}

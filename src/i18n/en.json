@@ -1419,7 +1419,19 @@
         "failedModel": "Failed model:",
         "customModel": "Custom model config",
         "configName": "Config name",
-        "addModelHint": "Add the current model input to the selected list, comma-separated for multiples"
+        "addModelHint": "Add the current model input to the selected list, comma-separated for multiples",
+        "retryFailedModels": "Retry failed models",
+        "removeModel": "Remove {{name}}",
+        "defaultCustomLabel": "Custom model",
+        "emptyCustomConfigs": "No model configurations yet",
+        "confirmDeleteConfig": "Delete this configuration?",
+        "deleteConfig": "Delete configuration",
+        "notConfigured": "Not configured",
+        "modelChipHint": "Click a model tag to select or deselect it. If none are selected, all models are available.",
+        "selectAll": "Select all",
+        "modelInputAddPlaceholder": "Type a model name and press Enter to add",
+        "modelInputPlaceholder": "Type a model name, or fetch models and pick one",
+        "add": "Add"
       },
       "usageGuide": {
         "title": "Usage Guide",
@@ -1499,7 +1511,8 @@
         "endpointPreviewWillUse": "Will use",
         "endpointPreviewAutoApply": "(auto-applies on blur)",
         "cliStrip": {
-          "title": "Local CLI probes"
+          "title": "Local CLI probes",
+          "unavailable": "Unavailable"
         },
         "cliStatus": {
           "title": "CLI Status",
@@ -1545,9 +1558,9 @@
         "azureModelFamilyGpt5": "GPT-5 / o-series",
         "azureModelFamilyHint": "Azure deployment names are arbitrary. Pick GPT-5 / o-series when that deployment needs strict completion parameters.",
         "localCliIsolation": "Isolate local CLI config",
-        "localCliIsolationHint": "When enabled, Claude/Codex CLI will try to ignore user rules and local config for more predictable tests and generation.",
-        "localCliIsolationOn": "Isolation enabled: local rules and user config will be ignored where supported.",
-        "localCliIsolationOff": "Isolation disabled: current CLI login and local config are used.",
+        "localCliIsolationHint": "When on, Claude Code runs without built-in tools, MCP servers, or slash commands and saves no session; Codex skips your config.toml and execpolicy rules and drops API key/base URL env vars. Your CLI login still applies, and Claude Code still reads ~/.claude/settings.json and CLAUDE.md.",
+        "localCliIsolationOn": "Isolation enabled (partial): your CLI login still applies; Claude Code still reads user settings and CLAUDE.md.",
+        "localCliIsolationOff": "Isolation disabled: your CLI login and all local config are used.",
         "codexCliTimeout": "Codex CLI timeout",
         "codexCliTimeoutUnit": "minutes",
         "codexCliTimeoutHint": "Overall subprocess timeout for longer generations, from 1 to 240 minutes.",
@@ -1590,7 +1603,9 @@
           "stopping": "Stopping...",
           "title": "Cursor Proxy Status",
           "unavailable": "Proxy unavailable"
-        }
+        },
+        "enableProvider": "Enable {{name}}",
+        "httpTimeoutDefault": "Default"
       },
       "embedding": {
         "title": "Vector Search / Embedding Model",
@@ -1627,7 +1642,8 @@
         "reconcileSkipped": "Index check skipped: {{count}} page(s) failed to read/index, so the inventory was incomplete (old data kept this run).",
         "reconcileSkippedEmpty": "Vector reconcile skipped: no inventory to reconcile.",
         "testSuccessWithDimensions": "Embedding model test passed: {{model}} ({{dimensions}} dims)",
-        "siliconHint": "Why SiliconFlow: stable access in China with common embedding models like BGE, suits knowledge-base search."
+        "siliconHint": "Why SiliconFlow: stable access in China with common embedding models like BGE, suits knowledge-base search.",
+        "siliconLink": "SiliconFlow embedding models"
       },
       "rerank": {
         "title": "Rerank / Reranker Model",
@@ -1650,7 +1666,9 @@
         "modelPlaceholder": "Enter rerank model ID",
         "modelHint": "A smaller fast model is fine here as long as it follows instructions and returns JSON reliably.",
         "testSuccessUsingMainModel": "Rerank test passed via main model: {{model}}",
-        "siliconHint": "Why SiliconFlow: stable access in China with a full model list, suits lightweight rerankers at lower cost."
+        "siliconHint": "Why SiliconFlow: stable access in China with a full model list, suits lightweight rerankers at lower cost.",
+        "siliconLink": "SiliconFlow rerank models",
+        "providerCustom": "Custom"
       },
       "multimodal": {
         "title": "Image Captions",
@@ -1719,7 +1737,15 @@
         "description": "Interface language and visual presentation settings.",
         "uiLanguage": "UI language",
         "uiLanguageHint": "Only affects menus, labels, and other interface text. AI output language is configured separately under Output.",
-        "fontSize": "UI font size"
+        "fontSize": "UI font size",
+        "fontSizePresets": "Font size presets",
+        "fontPresets": {
+          "small": "Small",
+          "default": "Default",
+          "large": "Large",
+          "extraLarge": "Extra large"
+        },
+        "fontSizeHint": "Adjusts the font size of the whole app. Takes effect immediately after saving."
       },
       "dataManagement": {
         "vectorCleanFailed": "Failed to clean the legacy vector table",
@@ -1776,14 +1802,32 @@
         "vectorLoading": "Loading...",
         "vectorNoProject": "Open a project first",
         "vectorRefresh": "Refresh",
-        "vectorTitle": "Vector Store"
+        "vectorTitle": "Vector Store",
+        "importStrategyFull": "Full overwrite (clears all current data)",
+        "importStrategyGlobalOnly": "Global settings only (models, UI preferences)",
+        "importStrategyFullShort": "full overwrite, clears all current data",
+        "importStrategyGlobalOnlyShort": "global settings only",
+        "importConfirm": "Importing the backup ({{strategy}}) will overwrite existing data. Continue?",
+        "importConfirmFull2": "Confirm again: a full overwrite cannot be undone. Continue importing?"
       },
       "changelog": {
         "title": "Release Notes",
         "description": "Highlights worth noticing in the current version.",
         "downloading": "Downloading update...",
         "history": "Version history",
-        "current": "← Current version"
+        "current": "← Current version",
+        "desktopOnly": "Automatic update checks are only available in the desktop app",
+        "currentVersion": "Current version: v{{version}}",
+        "checking": "Checking...",
+        "checkUpdate": "Check for updates",
+        "upToDate": "You are on the latest version",
+        "checkFailed": "Update check failed",
+        "updateAvailable": "New version available: v{{version}}",
+        "download": "Download update",
+        "readyToInstall": "Update downloaded. Installing closes the app, so save your work first.",
+        "installNow": "Install now",
+        "collapse": "Show less",
+        "showMore": "Show {{hidden}} more"
       },
       "about": {
         "title": "About",
@@ -1882,7 +1926,8 @@
             "boostHint": ">1 boosts, <1 weakens",
             "avoidWords": "Avoid words",
             "avoidWordsHint": "Comma-separated; disabled at generation"
-          }
+          },
+          "wordsPlaceholder": "e.g. seemingly, could not help but"
         }
       },
       "maintenance": {
@@ -1924,7 +1969,23 @@
           "novelHelpTitle": "What Is This Feature For If You Write Novels?"
         },
         "divergenceTraceTitle": "Dual-write divergence trace",
-        "divergenceTraceEmpty": "No divergence trace yet (no dual-write mismatch recorded, or not generated)."
+        "divergenceTraceEmpty": "No divergence trace yet (no dual-write mismatch recorded, or not generated).",
+        "vectorHealth": {
+          "title": "Vector store health",
+          "summary": "Chunks: {{chunks}} · Legacy rows: {{legacy}}",
+          "compact": "Compact now",
+          "compacting": "Compacting…",
+          "compactionDone": "Compaction complete",
+          "compactionDoneCount": "Compaction complete, {{count}} chunks merged",
+          "reconcile": "Reconcile",
+          "reconciling": "Reconciling…",
+          "reconcileDone": "Reconcile complete",
+          "reconcileSkipped": "Skipped (no index manifest yet; build the index first)",
+          "drop": "Remove legacy data",
+          "dropping": "Removing…",
+          "dropDone": "Legacy data removed",
+          "refresh": "Refresh"
+        }
       },
       "scheduledImport": {
         "title": "Scheduled Import",
@@ -1980,7 +2041,8 @@
         "testOk": "Connected, found {{count}} available tools.",
         "testFail": "Connection failed",
         "testNeedCommand": "Please fill in the startup command first",
-        "testNotAllowed": "Please enable this MCP server first"
+        "testNotAllowed": "Please enable this MCP server first",
+        "enableServer": "Enable {{name}}"
       }
     },
     "feedback": {
@@ -1991,7 +2053,37 @@
       "content": "Feedback details",
       "contentPlaceholder": "Describe the issue, the expected result, or the use case.",
       "contact": "Contact (optional)",
-      "contactPlaceholder": "Email, WeChat, or other contact"
+      "contactPlaceholder": "Email, WeChat, or other contact",
+      "submitting": "Submitting...",
+      "submit": "Submit feedback"
+    },
+    "saving": "Saving…",
+    "unsavedHint": "You have unsaved changes.",
+    "saveFailed": "Save failed: {{error}}",
+    "autoSaveHint": "Changes on this page are saved automatically.",
+    "listSeparator": ", ",
+    "otherDomainsDirty": "Unsaved changes elsewhere: {{domains}}. Save them on their pages.",
+    "saveScope": {
+      "model": " Saves model and retrieval settings.",
+      "storage": " Saves network and writing settings.",
+      "interface": " Saves interface settings."
+    },
+    "domainName": {
+      "model": "Models & retrieval",
+      "storage": "Network & writing",
+      "interface": "Interface"
+    },
+    "navGroups": {
+      "models": "Models & tools",
+      "writing": "Writing",
+      "app": "App",
+      "data": "Data",
+      "help": "Help & support"
+    },
+    "proxyToast": {
+      "emptyUrl": "Proxy is on but the address is empty, so it was not applied. Enter a proxy address or turn the proxy off.",
+      "notApplied": "Proxy not applied: {{summary}}",
+      "applyFailed": "Could not apply proxy settings now (they take effect after restart): {{error}}"
     }
   },
   "preview": {
@@ -2370,7 +2462,10 @@
       "taskCustom_outline": "Outline generation",
       "taskCustom_review": "Six-dimension review",
       "taskCustom_summary": "Chapter summary",
-      "taskCustom_extract": "Setting extraction"
+      "taskCustom_extract": "Setting extraction",
+      "experimentalOptions": "Experimental options",
+      "experimentalOptionsHint": "Defaults keep behavior unchanged; read each description before changing",
+      "taskCustomPromptAria": "{{task}} extra prompt"
     },
     "soul": {
       "projectSoul": "Project Soul",
@@ -3148,7 +3243,9 @@
       "sigOk": "Signature OK (sha256 match)",
       "sigBad": "Signature mismatch",
       "urlPh": "https://example.com/hook",
-      "secretPh": "HMAC secret"
+      "secretPh": "HMAC secret",
+      "urlLabel": "Webhook callback URL",
+      "secretLabel": "HMAC signing secret"
     },
     "doctor": {
       "title": "Project Doctor",

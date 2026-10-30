@@ -105,7 +105,7 @@ export function FeedbackSection() {
           </p>
           <Button type="button" onClick={() => void handleSubmit()} disabled={!canSubmit} className="gap-2">
             <Send className="h-4 w-4" />
-            {submitting ? "提交中..." : "提交反馈"}
+            {submitting ? t("settings.feedback.submitting") : t("settings.feedback.submit")}
           </Button>
         </div>
       </div>

@@ -1,7 +1,7 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { DEFAULT_MAX_CONTEXT_TOKENS } from "@/lib/llm-context-limits"
 import {
   Bot,
@@ -15,7 +15,10 @@ import {
   HelpCircle,
   MessageCircle,
   HeartHandshake,
-  Archive,    Plug} from "lucide-react"
+  Archive,
+  Plug,
+  Loader2,
+} from "lucide-react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n"
 import { Button } from "@/components/ui/button"
@@ -23,10 +26,18 @@ import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import { useWikiStore } from "@/stores/wiki-store"
 import { isTauri } from "@/lib/platform"
 import { toast } from "@/lib/toast"
+import { toErrorMessage } from "@/lib/utils"
 import { useChatStore } from "@/stores/chat-store"
 import { loadSourceWatchConfig, loadNovelConfig, loadRerankConfig } from "@/lib/project-store"
 import type { SettingsDraft, DraftSetter } from "./settings-types"
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
+import {
+  SETTINGS_DOMAIN_DRAFT_KEYS,
+  SETTINGS_NAV_GROUPS,
+  SETTINGS_SAVE_MODE,
+  type SettingsDomain,
+} from "./settings-nav-config"
+import { dirtySettingsDomains, mergeResyncedDraft } from "./settings-view-helpers"
 // B7 挂载覆盖门：sections/ 下每个非 spec 模块必须在这里（含传递 import）挂载，
 // 或列入 settings-sections-mount-coverage.spec.ts 的显式 legacy 清单（含原因/恢复条件）。
 // 新增孤立 section 会被该 spec 拦红；历史隐藏区（source watch / scheduled import 等）
@@ -62,8 +73,7 @@ type CategoryId =
   | "skill-library"
   | "mcp"
 
-/** B 波三域分存：每个设置分类恰属一域，保存按域隔离。 */
-export type SettingsDomain = "model" | "storage" | "interface"
+export type { SettingsDomain } from "./settings-nav-config"
 
 export const SETTINGS_DOMAIN_OF: Record<CategoryId, SettingsDomain> = {
   llm: "model",
@@ -211,8 +221,35 @@ export function SettingsView() {
 
   const [active, setActive] = useState<CategoryId>("llm")
   const [saved, setSaved] = useState(false)
-  const [draft, setDraftState] = useState<SettingsDraft>(() =>
-    initialDraft(
+  const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 保存进行中及刚结束时的本域草稿键：其基线变化时直接采用新基线（见 mergeResyncedDraft）。
+  const adoptKeysRef = useRef<ReadonlySet<keyof SettingsDraft> | null>(null)
+  useEffect(() => () => {
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+  }, [])
+  const uiLanguageNow = i18n.language
+  // store 当前值折算成的草稿基线：未改动的字段应等于它。
+  const base = useMemo(
+    () =>
+      initialDraft(
+        llmConfig,
+        embeddingConfig,
+        rerankConfig,
+        multimodalConfig,
+        outputLanguage,
+        proxyConfig,
+        scheduledImportConfig,
+        sourceWatchConfig,
+        revisionFeedbackWindowConfig,
+        novelConfig,
+        maxHistoryMessages,
+        uiLanguageNow,
+        uiFontSizeScale,
+        project?.path,
+      ),
+    [
       llmConfig,
       embeddingConfig,
       rerankConfig,
@@ -224,11 +261,14 @@ export function SettingsView() {
       revisionFeedbackWindowConfig,
       novelConfig,
       maxHistoryMessages,
-      i18n.language,
+      uiLanguageNow,
       uiFontSizeScale,
       project?.path,
-    ),
+    ],
   )
+  const [draft, setDraftState] = useState<SettingsDraft>(base)
+  // 用户经 setDraft 改过的键；保存成功后按域清除。
+  const [touched, setTouched] = useState<ReadonlySet<keyof SettingsDraft>>(() => new Set())
 
   // Sync active category from store (e.g. deep-link navigation)
   useEffect(() => {
@@ -282,49 +322,39 @@ export function SettingsView() {
     }
   }, [project?.id, project?.path, setRerankConfig])
 
-  // Resync draft when stores change (e.g. project switch). Keep the
-  // current draft.uiLanguage to avoid clobbering pending language picks.
+  // store 变化时重同步草稿。
+  // - 切换项目：整份按新基线重建（保留待定的界面语言），清空改动标记。
+  // - 同一项目内（如某个开关自动保存）：只更新用户没改过的字段，
+  //   其它页尚未保存的改动保留，不再被整份重建冲掉。
+  const baseRef = useRef(base)
+  const projectKey = `${project?.id ?? ""}\u0000${project?.path ?? ""}`
+  const projectKeyRef = useRef(projectKey)
   useEffect(() => {
-    setDraftState((prev) =>
-      initialDraft(
-        llmConfig,
-        embeddingConfig,
-        rerankConfig,
-        multimodalConfig,
-        outputLanguage,
-        proxyConfig,
-        scheduledImportConfig,
-        sourceWatchConfig,
-        revisionFeedbackWindowConfig,
-        novelConfig,
-        maxHistoryMessages,
-        prev.uiLanguage,
-        uiFontSizeScale,
-        project?.path,
-      ),
-    )
-  }, [
-    llmConfig,
-    embeddingConfig,
-    rerankConfig,
-    multimodalConfig,
-    outputLanguage,
-    proxyConfig,
-    scheduledImportConfig,
-    sourceWatchConfig,
-    revisionFeedbackWindowConfig,
-    novelConfig,
-    maxHistoryMessages,
-    uiFontSizeScale,
-    project,
-  ])
+    const prevBase = baseRef.current
+    const projectChanged = projectKeyRef.current !== projectKey
+    baseRef.current = base
+    projectKeyRef.current = projectKey
+    if (prevBase === base && !projectChanged) return
+    if (projectChanged) {
+      setDraftState((prev) => ({ ...base, uiLanguage: prev.uiLanguage }))
+      setTouched(new Set())
+      return
+    }
+    const adoptKeys = adoptKeysRef.current ?? undefined
+    setDraftState((prev) => ({ ...mergeResyncedDraft(prev, prevBase, base, adoptKeys), uiLanguage: prev.uiLanguage }))
+  }, [base, projectKey])
 
   const setDraft: DraftSetter = useCallback((key, value) => {
     setDraftState((prev) => ({ ...prev, [key]: value }))
+    setTouched((prev) => (prev.has(key) ? prev : new Set(prev).add(key)))
   }, [])
+
+  const dirtyDomains = useMemo(() => dirtySettingsDomains(draft, base, touched), [draft, base, touched])
 
   // B 波三域分存：每个持久化助手只读写自己域的 store + 落盘键。
   // active 域变更时只存该域；其它域的 draft 照常保留在内存，不丢失、不串写。
+  // 每个子配置先落盘、成功后再写 store：落盘失败时 store 仍是旧值，
+  // 该字段保持"未保存"，不会出现界面显示已保存而磁盘没写入。
   const persistModelDomain = useCallback(async () => {
     const {
       saveLlmConfig,
@@ -374,14 +404,14 @@ export function SettingsView() {
       concurrency: Math.max(1, Math.min(16, draft.multimodalConcurrency || 4)),
     }
 
-    setLlmConfig(newLlm)
     await saveLlmConfig(newLlm)
-    setEmbeddingConfig(newEmbed)
+    setLlmConfig(newLlm)
     await saveEmbeddingConfig(newEmbed)
-    setRerankConfig(newRerank)
+    setEmbeddingConfig(newEmbed)
     await saveRerankConfig(newRerank, project?.id, project?.path)
-    setMultimodalConfig(newMultimodal)
+    setRerankConfig(newRerank)
     await saveMultimodalConfig(newMultimodal)
+    setMultimodalConfig(newMultimodal)
   }, [
     draft,
     project,
@@ -405,11 +435,11 @@ export function SettingsView() {
       url: draft.proxyUrl.trim(),
       bypassLocal: draft.proxyBypassLocal,
     }
-    setProxyConfig(newProxy)
     await saveProxyConfig(newProxy)
+    setProxyConfig(newProxy)
     const newSourceWatch = normalizeSourceWatchConfig(draft.sourceWatchConfig)
-    setSourceWatchConfig(newSourceWatch)
     await saveSourceWatchConfig(newSourceWatch, project?.id, project?.path)
+    setSourceWatchConfig(newSourceWatch)
     if (project) {
       const { startProjectFileSync, stopProjectFileSync } = await import("@/lib/project-file-sync")
       if (newSourceWatch.enabled) {
@@ -427,14 +457,13 @@ export function SettingsView() {
         const summary = await invoke<string>("set_proxy_env", { config: newProxy })
         if (typeof summary === "string" && summary.startsWith("disabled (")) {
           toast.error(summary === "disabled (empty url)"
-            ? "代理已开启但地址为空，本次未生效。请填写代理地址，或关闭代理。"
-            : `代理未生效：${summary}`)
+            ? t("settings.proxyToast.emptyUrl")
+            : t("settings.proxyToast.notApplied", { summary }))
         }
       }
     } catch (err) {
       console.warn("[settings] live network update failed; restart will still apply:", err)
-      const message = err instanceof Error ? err.message : "代理环境变量应用失败"
-      toast.error(message)
+      toast.error(t("settings.proxyToast.applyFailed", { error: toErrorMessage(err) }))
     }
 
     const newScheduledImport = {
@@ -443,9 +472,11 @@ export function SettingsView() {
       interval: Math.max(1, Math.min(1440, draft.scheduledImportInterval || 60)),
       lastScan: scheduledImportConfig.lastScan,
     }
-    setScheduledImportConfig(newScheduledImport)
     if (project) {
       await saveScheduledImportConfig(project.path, newScheduledImport)
+    }
+    setScheduledImportConfig(newScheduledImport)
+    if (project) {
       const { startScheduledImport, stopScheduledImport } = await import("@/lib/scheduled-import")
       if (
         newScheduledImport.enabled &&
@@ -458,11 +489,17 @@ export function SettingsView() {
       }
     }
 
-    setRevisionFeedbackWindowConfig(draft.revisionFeedbackWindowConfig)
     await saveRevisionFeedbackWindowConfig(draft.revisionFeedbackWindowConfig, project?.id, project?.path)
+    setRevisionFeedbackWindowConfig(draft.revisionFeedbackWindowConfig)
 
-    setNovelConfig(draft.novelConfig)
     await saveNovelConfig(draft.novelConfig, project?.id, project?.path)
+    setNovelConfig(draft.novelConfig)
+
+    // 对话历史长度在"小说"页编辑，按项目落盘，归存储域；
+    // 之前归界面域，导致在小说页点保存不会写入。
+    const { saveMaxHistoryMessages } = await import("@/lib/project-store")
+    await saveMaxHistoryMessages(draft.maxHistoryMessages, project?.id, project?.path)
+    setMaxHistoryMessages(draft.maxHistoryMessages)
   }, [
     draft,
     project,
@@ -471,23 +508,21 @@ export function SettingsView() {
     setSourceWatchConfig,
     setRevisionFeedbackWindowConfig,
     setNovelConfig,
+    setMaxHistoryMessages,
     scheduledImportConfig,
   ])
 
   const persistInterfaceDomain = useCallback(async () => {
     const {
       saveOutputLanguage,
-      saveMaxHistoryMessages,
       saveUiFontSizeScale,
       saveLanguage,
     } = await import("@/lib/project-store")
 
-    setOutputLanguage(draft.outputLanguage)
     await saveOutputLanguage(draft.outputLanguage, project?.id)
-    setMaxHistoryMessages(draft.maxHistoryMessages)
-    await saveMaxHistoryMessages(draft.maxHistoryMessages, project?.id, project?.path)
-    setUiFontSizeScale(draft.uiFontSizeScale)
+    setOutputLanguage(draft.outputLanguage)
     await saveUiFontSizeScale(draft.uiFontSizeScale, project?.id, project?.path)
+    setUiFontSizeScale(draft.uiFontSizeScale)
 
     if (draft.uiLanguage !== i18n.language) {
       await i18n.changeLanguage(draft.uiLanguage)
@@ -497,21 +532,45 @@ export function SettingsView() {
     draft,
     project,
     setOutputLanguage,
-    setMaxHistoryMessages,
-    outputLanguage,
     setUiFontSizeScale,
   ])
 
   // 按当前分类所属域只存该域：模型域 / 存储域 / 界面域互不串写。
+  // 进行中再次点击直接忽略；失败时提示错误并保留草稿与改动标记。
+  // 保存期间（及结束后一拍）本域基线变化的字段直接采用新基线，草稿显示实际存下的值。
   const handleSave = useCallback(async () => {
+    if (savingRef.current) return
+    savingRef.current = true
+    setSaving(true)
     const domain = settingsDomainOf(active)
-    if (domain === "model") await persistModelDomain()
-    else if (domain === "storage") await persistStorageDomain()
-    else await persistInterfaceDomain()
+    adoptKeysRef.current = new Set(SETTINGS_DOMAIN_DRAFT_KEYS[domain])
+    try {
+      if (domain === "model") await persistModelDomain()
+      else if (domain === "storage") await persistStorageDomain()
+      else await persistInterfaceDomain()
 
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
-  }, [active, persistModelDomain, persistStorageDomain, persistInterfaceDomain])
+      const savedKeys = new Set<keyof SettingsDraft>(SETTINGS_DOMAIN_DRAFT_KEYS[domain])
+      setTouched((prev) => new Set([...prev].filter((k) => !savedKeys.has(k))))
+      setSaved(true)
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+      savedTimerRef.current = setTimeout(() => setSaved(false), 2000)
+    } catch (err) {
+      console.error("[settings] save failed:", err)
+      toast.error(t("settings.saveFailed", { error: toErrorMessage(err) }))
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+      // 让保存触发的 store 更新先完成重同步，再停止采用
+      setTimeout(() => {
+        if (!savingRef.current) adoptKeysRef.current = null
+      }, 0)
+    }
+  }, [active, persistModelDomain, persistStorageDomain, persistInterfaceDomain, t])
+
+  const saveMode = SETTINGS_SAVE_MODE[active]
+  const activeDomain: SettingsDomain = settingsDomainOf(active)
+  const activeDirty = dirtyDomains.has(activeDomain)
+  const otherDirty = [...dirtyDomains].filter((d) => d !== activeDomain)
 
   const body = useMemo(() => {
     switch (active) {
@@ -556,30 +615,47 @@ export function SettingsView() {
             className="cursor-pointer text-muted-foreground transition-colors hover:text-primary"
           />
         </div>
-        <nav className="flex-1 overflow-y-auto px-2 pb-3">
-          {CATEGORIES.map((c) => {
-            const Icon = c.icon
-            const isActive = c.id === active
-
+        <nav aria-label={t("settings.title")} className="flex-1 overflow-y-auto px-2 pb-3">
+          {SETTINGS_NAV_GROUPS.map((group) => {
+            const headingId = `settings-nav-group-${group.id}`
             return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setActive(c.id)}
-                aria-current={isActive ? "page" : undefined}
-                className={`group mb-0.5 flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
-                  isActive
-                    ? "bg-foreground/[0.08] font-medium text-foreground ring-1 ring-border/70"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
-                }`}
-              >
-                <Icon
-                  className={`h-4 w-4 shrink-0 transition-colors ${
-                    isActive ? "text-primary" : "text-muted-foreground group-hover:text-accent-foreground"
-                  }`}
-                />
-                <span className="truncate">{t(c.labelKey)}</span>
-              </button>
+              <div key={group.id} role="group" aria-labelledby={headingId} className="mb-2 last:mb-0">
+                <div
+                  id={headingId}
+                  className="px-2.5 pb-1 pt-2 text-xs font-medium text-muted-foreground"
+                >
+                  {t(group.labelKey)}
+                </div>
+                {group.categories.map((id) => {
+                  const c = CATEGORIES.find((category) => category.id === id)
+                  if (!c) return null
+                  const Icon = c.icon
+                  const isActive = c.id === active
+
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      data-settings-category={c.id}
+                      onClick={() => setActive(c.id)}
+                      aria-current={isActive ? "page" : undefined}
+                      className={`group mb-0.5 flex min-h-8 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                        isActive
+                          ? "bg-foreground/[0.08] font-medium text-foreground ring-1 ring-border/70"
+                          : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+                      }`}
+                    >
+                      <Icon
+                        aria-hidden="true"
+                        className={`h-4 w-4 shrink-0 transition-colors ${
+                          isActive ? "text-primary" : "text-muted-foreground group-hover:text-accent-foreground"
+                        }`}
+                      />
+                      <span className="truncate" title={t(c.labelKey)}>{t(c.labelKey)}</span>
+                    </button>
+                  )
+                })}
+              </div>
             )
           })}
         </nav>
@@ -590,17 +666,47 @@ export function SettingsView() {
           <div className="w-full min-w-0">{body}</div>
         </div>
 
-        <div className="shrink-0 border-t bg-background/80 backdrop-blur px-8 py-3">
-          <div className="flex w-full min-w-0 items-center justify-between gap-4">
-            <p className="text-xs text-muted-foreground">
-              {saved ? t("settings.savedTick") : t("settings.changeHint")}
-              {`（${settingsDomainOf(active) === "model" ? "模型域" : settingsDomainOf(active) === "storage" ? "存储域" : "界面域"} · 仅保存本域）`}
+        {saveMode === "auto" ? (
+          <div className="shrink-0 border-t bg-background/80 backdrop-blur px-8 py-3">
+            <p className="text-xs text-muted-foreground" data-testid="settings-autosave-hint">
+              {t("settings.autoSaveHint")}
             </p>
-            <Button onClick={handleSave} data-testid="settings-save-domain">
-              {saved ? t("settings.saved") : t("settings.save")}
-            </Button>
           </div>
-        </div>
+        ) : saveMode === "draft" ? (
+          <div className="shrink-0 border-t bg-background/80 backdrop-blur px-8 py-3">
+            <div className="flex w-full min-w-0 items-center justify-between gap-4">
+              <div className="min-w-0 space-y-0.5" role="status" aria-live="polite">
+                <p className={`text-xs ${activeDirty && !saved ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+                  {saved
+                    ? t("settings.savedTick")
+                    : saving
+                      ? t("settings.saving")
+                      : activeDirty
+                        ? t("settings.unsavedHint")
+                        : t("settings.changeHint")}
+                  {t(`settings.saveScope.${activeDomain}`)}
+                </p>
+                {otherDirty.length > 0 && (
+                  <p className="text-xs text-warning-foreground" data-testid="settings-other-dirty">
+                    {t("settings.otherDomainsDirty", {
+                      domains: otherDirty.map((d) => t(`settings.domainName.${d}`)).join(t("settings.listSeparator")),
+                    })}
+                  </p>
+                )}
+              </div>
+              <Button
+                onClick={handleSave}
+                data-testid="settings-save-domain"
+                aria-disabled={saving || undefined}
+                aria-busy={saving || undefined}
+                variant={activeDirty ? "default" : "outline"}
+              >
+                {saving && <Loader2 aria-hidden="true" className="mr-1.5 h-4 w-4 animate-spin" />}
+                {saved ? t("settings.saved") : t("settings.save")}
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )

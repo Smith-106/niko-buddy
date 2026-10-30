@@ -49,8 +49,13 @@ const mocks = vi.hoisted(() => {
       { caseId: "GOLDEN-01", query: "q1", obligationCoverage: null, scaleViolation: false, minHits: 1 },
     ]),
     goldenCoverageOf: vi.fn(() => 1),
+    toastError: vi.fn(),
   }
 })
+
+vi.mock("@/lib/toast", () => ({
+  toast: { success: vi.fn(), error: mocks.toastError, info: vi.fn() },
+}))
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
@@ -265,6 +270,12 @@ function modelRow(labelText: string): HTMLElement {
   return node
 }
 
+/** CommitNumberInput：输入后失焦才提交 */
+function commitValue(input: HTMLElement, value: string): void {
+  fireEvent.change(input, { target: { value } })
+  fireEvent.blur(input)
+}
+
 async function clickToggle(labelText: string): Promise<void> {
   const before = mocks.saveNovelConfig.mock.calls.length
   const btn = toggleButtonFor(labelText)
@@ -342,64 +353,79 @@ describe("NovelSection", () => {
     expect(screen.getByText("novel.settings.kbShadowRunButton")).toBeInTheDocument()
   })
 
-  it("recentSummaryWindow 输入：上限钳制与 || 1 回退", async () => {
+  it("recentSummaryWindow 输入：失焦提交，上下限钳制", async () => {
     const { rerender } = renderSection()
     let input = screen.getByDisplayValue("8")
-    fireEvent.change(input, { target: { value: "50" } })
+    commitValue(input, "50")
     await waitFor(() => expect(currentDraft.novelConfig.recentSummaryWindow).toBe(30))
     expect(mocks.wikiState.setNovelConfig).toHaveBeenCalledWith({ recentSummaryWindow: 30 })
     expect(mocks.saveNovelConfig).toHaveBeenCalledWith(currentDraft.novelConfig, "p1", "/p1")
 
     rerender()
     input = screen.getByDisplayValue("30")
-    fireEvent.change(input, { target: { value: "0" } })
+    commitValue(input, "0")
     await waitFor(() => expect(currentDraft.novelConfig.recentSummaryWindow).toBe(1))
   })
 
-  it("searchTopK 输入：上限钳制与 || 1 回退", async () => {
+  it("searchTopK 输入：上限钳制；清空后失焦还原原值且不写盘", async () => {
     const { rerender } = renderSection()
     let input = screen.getByDisplayValue("5")
-    fireEvent.change(input, { target: { value: "100" } })
+    commitValue(input, "100")
     await waitFor(() => expect(currentDraft.novelConfig.searchTopK).toBe(20))
 
     rerender()
+    const saves = mocks.saveNovelConfig.mock.calls.length
     input = screen.getByDisplayValue("20")
-    fireEvent.change(input, { target: { value: "" } })
-    await waitFor(() => expect(currentDraft.novelConfig.searchTopK).toBe(1))
+    commitValue(input, "")
+    expect(currentDraft.novelConfig.searchTopK).toBe(20)
+    expect(screen.getByDisplayValue("20")).toBeInTheDocument()
+    expect(mocks.saveNovelConfig.mock.calls.length).toBe(saves)
   })
 
-  it("contextTokenBudget 输入：上下限钳制与 || 0 回退", async () => {
+  it("A10 数字框：逐键输入不写盘，失焦才提交一次", async () => {
+    renderSection()
+    const input = screen.getByDisplayValue("8")
+    fireEvent.change(input, { target: { value: "1" } })
+    fireEvent.change(input, { target: { value: "12" } })
+    expect(mocks.saveNovelConfig).not.toHaveBeenCalled()
+    expect(mocks.wikiState.setNovelConfig).not.toHaveBeenCalled()
+    fireEvent.blur(input)
+    await waitFor(() => expect(mocks.saveNovelConfig).toHaveBeenCalledTimes(1))
+    expect(mocks.wikiState.setNovelConfig).toHaveBeenCalledWith({ recentSummaryWindow: 12 })
+  })
+
+  it("contextTokenBudget 输入：上下限钳制，清空还原", async () => {
     const { rerender } = renderSection()
     let input = screen.getByDisplayValue("4000")
-    fireEvent.change(input, { target: { value: "-5" } })
+    commitValue(input, "-5")
     await waitFor(() => expect(currentDraft.novelConfig.contextTokenBudget).toBe(0))
 
     rerender()
     input = screen.getByDisplayValue("0")
-    fireEvent.change(input, { target: { value: "999999" } })
+    commitValue(input, "999999")
     await waitFor(() => expect(currentDraft.novelConfig.contextTokenBudget).toBe(200000))
 
     rerender()
     input = screen.getByDisplayValue("200000")
-    fireEvent.change(input, { target: { value: "" } })
-    await waitFor(() => expect(currentDraft.novelConfig.contextTokenBudget).toBe(0))
+    commitValue(input, "")
+    expect(currentDraft.novelConfig.contextTokenBudget).toBe(200000)
   })
 
-  it("chapterTargetChars 输入：上下限钳制与 || 3000 回退", async () => {
+  it("chapterTargetChars 输入：上下限钳制，清空还原", async () => {
     const { rerender } = renderSection()
     let input = screen.getByDisplayValue("3000")
-    fireEvent.change(input, { target: { value: "100" } })
+    commitValue(input, "100")
     await waitFor(() => expect(currentDraft.novelConfig.chapterTargetChars).toBe(500))
 
     rerender()
     input = screen.getByDisplayValue("500")
-    fireEvent.change(input, { target: { value: "25000" } })
+    commitValue(input, "25000")
     await waitFor(() => expect(currentDraft.novelConfig.chapterTargetChars).toBe(20000))
 
     rerender()
     input = screen.getByDisplayValue("20000")
-    fireEvent.change(input, { target: { value: "" } })
-    await waitFor(() => expect(currentDraft.novelConfig.chapterTargetChars).toBe(3000))
+    commitValue(input, "")
+    expect(currentDraft.novelConfig.chapterTargetChars).toBe(20000)
   })
 
   it("maxHistoryMessages 按钮：切换 draft 值", () => {
@@ -468,15 +494,17 @@ describe("NovelSection", () => {
     }
   })
 
-  it("回溯章节数量输入：max(0, || 0)", async () => {
+  it("回溯章节数量输入：下限 0，清空还原", async () => {
     const { rerender } = renderSection()
     let input = screen.getByDisplayValue("3")
     fireEvent.change(input, { target: { value: "-3" } })
+    expect(currentDraft.revisionFeedbackWindowConfig.lookbackChapterCount).toBe(3)
+    fireEvent.blur(input)
     expect(currentDraft.revisionFeedbackWindowConfig.lookbackChapterCount).toBe(0)
 
     rerender()
     input = screen.getByDisplayValue("0")
-    fireEvent.change(input, { target: { value: "" } })
+    commitValue(input, "")
     expect(currentDraft.revisionFeedbackWindowConfig.lookbackChapterCount).toBe(0)
   })
 
@@ -484,12 +512,12 @@ describe("NovelSection", () => {
     const { rerender } = renderSection()
     // 默认 communitySummaryEnabled=true → 条件块可见
     let input = screen.getByDisplayValue("7")
-    fireEvent.change(input, { target: { value: "0" } })
+    commitValue(input, "0")
     await waitFor(() => expect(currentDraft.novelConfig.communitySummaryInterval).toBe(1))
 
     rerender()
     input = screen.getByDisplayValue("1")
-    fireEvent.change(input, { target: { value: "100" } })
+    commitValue(input, "100")
     await waitFor(() => expect(currentDraft.novelConfig.communitySummaryInterval).toBe(50))
 
     await clickToggle("novel.settings.communitySummaryAsync")
@@ -617,6 +645,75 @@ describe("NovelSection", () => {
     await waitFor(() => {
       expect(mocks.saveNovelConfig).toHaveBeenCalledWith(currentDraft.novelConfig, undefined, undefined)
     })
+  })
+
+  it("A11 落盘失败：draft 与 store 回滚到原值，并 toast 错误", async () => {
+    mocks.saveNovelConfig.mockRejectedValueOnce(new Error("disk-full"))
+    renderSection()
+    const before = currentDraft.novelConfig
+    expect(before.autoIngestOnSave).toBe(true)
+    fireEvent.click(toggleButtonFor("novel.settings.autoIngestOnSave"))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("disk-full"))
+    expect(currentDraft.novelConfig).toEqual(before)
+    expect(currentDraft.novelConfig.autoIngestOnSave).toBe(true)
+    expect(mocks.wikiState.setNovelConfig).toHaveBeenNthCalledWith(1, { autoIngestOnSave: false })
+    expect(mocks.wikiState.setNovelConfig).toHaveBeenLastCalledWith({ autoIngestOnSave: true })
+  })
+
+  it("A11 落盘失败只回滚本次改动的键：期间改的其它项保留", async () => {
+    let rejectFirst: (e: Error) => void = () => {}
+    mocks.saveNovelConfig.mockImplementationOnce(() => new Promise((_, rej) => { rejectFirst = rej }))
+    const view = renderSection()
+    const otherBefore = currentDraft.novelConfig.communitySummaryEnabled
+    fireEvent.click(toggleButtonFor("novel.settings.autoIngestOnSave"))
+    view.rerender()
+    await clickToggle("novel.settings.communitySummaryEnabled")
+    view.rerender()
+    expect(currentDraft.novelConfig.communitySummaryEnabled).toBe(!otherBefore)
+    rejectFirst(new Error("disk-full"))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("disk-full"))
+    expect(currentDraft.novelConfig.autoIngestOnSave).toBe(true)
+    expect(currentDraft.novelConfig.communitySummaryEnabled).toBe(!otherBefore)
+  })
+
+  it("A11 落盘成功：不回滚、不 toast", async () => {
+    renderSection()
+    await clickToggle("novel.settings.autoIngestOnSave")
+    expect(currentDraft.novelConfig.autoIngestOnSave).toBe(false)
+    expect(mocks.wikiState.setNovelConfig).toHaveBeenCalledTimes(1)
+    expect(mocks.toastError).not.toHaveBeenCalled()
+  })
+
+  it("A12 实验性开关收进默认折叠的 <details>，summary 可见", () => {
+    renderSection()
+    const details = screen.getByTestId("novel-experimental-details") as HTMLDetailsElement
+    expect(details.tagName).toBe("DETAILS")
+    expect(details.open).toBe(false)
+    expect(within(details).getByText("实验性选项").closest("summary")).not.toBeNull()
+    expect(within(details).getByText("novel.settings.dualKbRoutingEnabled")).toBeInTheDocument()
+    expect(within(details).getByText("novel.settings.contentAssemblySection")).toBeInTheDocument()
+    // 常用开关不在折叠区
+    expect(within(details).queryByText("novel.settings.autoIngestOnSave")).not.toBeInTheDocument()
+  })
+
+  it("A12 组标题为 h3（非孤立 label）", () => {
+    renderSection()
+    expect(screen.getByText("novel.settings.title").tagName).toBe("H3")
+    expect(screen.getByText("修改反馈窗口").tagName).toBe("H3")
+  })
+
+  it("A7 可见标签关联控件：开关 / 数字框可按标签名查询", () => {
+    renderSection()
+    expect(screen.getByRole("switch", { name: "novel.settings.autoIngestOnSave" })).toBeInTheDocument()
+    expect(screen.getByRole("switch", { name: "包含当前章节改进建议" })).toBeInTheDocument()
+    expect(screen.getByRole("switch", { name: "novel.settings.inspectorEnabled" })).toBeInTheDocument()
+    expect(screen.getByLabelText("novel.settings.recentSummaryWindow")).toHaveValue(8)
+    expect(screen.getByLabelText("回溯章节数量")).toHaveValue(3)
+    // 所有可见 <label> 都关联到控件（无孤立 label）
+    const orphans = Array.from(document.querySelectorAll("label")).filter(
+      (l) => !(l as HTMLLabelElement).control,
+    )
+    expect(orphans.map((l) => l.textContent)).toEqual([])
   })
 
   describe("F-34 反 AI 遥测同意开关", () => {

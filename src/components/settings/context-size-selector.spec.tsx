@@ -60,3 +60,21 @@ describe("ContextSizeSelector", () => {
     expect(onChange).toHaveBeenCalledWith(1000000)
   })
 })
+
+describe("ContextSizeSelector a11y", () => {
+  it("滑块可经 id 关联外部 label，预设按钮暴露 aria-pressed 且最小 24px", () => {
+    render(
+      <>
+        <label htmlFor="ctx">上下文窗口</label>
+        <ContextSizeSelector id="ctx" value={204800} onChange={vi.fn()} />
+      </>,
+    )
+    const slider = screen.getByLabelText("上下文窗口")
+    expect(slider).toHaveAttribute("type", "range")
+    expect(slider).toHaveAttribute("aria-valuetext", "205K tokens")
+    const active = screen.getByRole("button", { name: "200K" })
+    expect(active).toHaveAttribute("aria-pressed", "true")
+    expect(active.className).toContain("min-h-6")
+    expect(screen.getByRole("button", { name: "4K" })).toHaveAttribute("aria-pressed", "false")
+  })
+})

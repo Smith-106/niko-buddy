@@ -10,6 +10,9 @@ interface ProbeState {
   error: string | null
 }
 
+/** 非桌面端占位错误码：渲染时翻译，不直接把内部码暴露给用户。 */
+const DESKTOP_ONLY = "desktopOnly"
+
 const PROBES = [
   { key: "claude", command: "claude_cli_detect" },
   { key: "codex", command: "codex_cli_detect" },
@@ -29,7 +32,7 @@ export function CliProbeStrip() {
 
   const run = useCallback(async () => {
     if (!isTauri()) {
-      const err = { status: "err", version: null, error: "desktopOnly" } as ProbeState
+      const err = { status: "err", version: null, error: DESKTOP_ONLY } as ProbeState
       setStates({ claude: err, codex: err, cursor: err, antigravity: err })
       return
     }
@@ -55,19 +58,19 @@ export function CliProbeStrip() {
   return (
     <div className="rounded-lg border border-border/60 bg-muted/20 p-3" data-testid="cli-probe-strip">
       <div className="flex items-center gap-2">
-        <h3 className="text-sm font-semibold">{t("settings.sections.llm.cliStrip.title", "本地 CLI 探针")}</h3>
+        <h3 className="text-sm font-semibold">{t("settings.sections.llm.cliStrip.title")}</h3>
         <button
           type="button"
           onClick={() => void run()}
           disabled={refreshing}
-          className="ml-auto rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          className="ml-auto inline-flex min-h-6 items-center rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
         >
           {refreshing
-            ? t("settings.sections.llm.cliStatus.checking", "检测中…")
-            : t("settings.sections.llm.cliStatus.recheck", "重新检测")}
+            ? t("settings.sections.llm.cliStatus.checking")
+            : t("settings.sections.llm.cliStatus.recheck")}
         </button>
       </div>
-      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4" aria-live="polite">
         {PROBES.map((p) => {
           const s = states[p.key]
           const dot = !s || s.status === "loading" ? "bg-muted-foreground" : s.status === "ok" ? "bg-success" : "bg-destructive"
@@ -78,7 +81,13 @@ export function CliProbeStrip() {
                 {p.key}
               </div>
               <div className="mt-0.5 truncate text-muted-foreground">
-                {!s ? "…" : s.status === "ok" ? (s.version ?? "ok") : (s.error ?? "unavailable")}
+                {!s
+                  ? "…"
+                  : s.status === "ok"
+                    ? (s.version ?? "ok")
+                    : s.error === DESKTOP_ONLY
+                      ? t("settings.sections.llm.cliStatus.desktopOnly")
+                      : (s.error ?? t("settings.sections.llm.cliStrip.unavailable"))}
               </div>
             </div>
           )

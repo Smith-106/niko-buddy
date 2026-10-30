@@ -17,6 +17,11 @@ import {
 import { CustomProviderCards } from "./custom-provider-cards"
 import zhLocale from "@/i18n/zh.json"
 
+function interpolate(template: string, params?: Record<string, unknown>): string {
+  if (!params) return template
+  return template.replace(/\{\{(\w+)\}\}/g, (m, k: string) => (k in params ? String(params[k]) : m))
+}
+
 function lookupZhLocale(key: string): string | undefined {
   let o: unknown = zhLocale
   for (const p of key.split(".")) {
@@ -69,8 +74,10 @@ const mocks = vi.hoisted(() => {
   return {
     state,
     store,
-    t: vi.fn((key: string, params?: { message?: unknown }) =>
-      params && typeof params.message === "string" ? params.message : (lookupZhLocale(key) ?? key),
+    t: vi.fn((key: string, params?: Record<string, unknown>) =>
+      params && typeof params.message === "string"
+        ? params.message
+        : interpolate(lookupZhLocale(key) ?? key, params),
     ),
     fetchLlmModelList: vi.fn(async () => ({ models: ["model-alpha", "model-beta"] })),
     batch: {
@@ -179,7 +186,7 @@ const TEST_BTN = "测试模型"
 const TESTING_LABEL = "测试中..."
 
 function expandCard(container: HTMLElement) {
-  fireEvent.click(within(container).getByTitle("展开"))
+  fireEvent.click(within(container).getByTitle("展开配置"))
 }
 
 /** Find the card container for the given label text. */
@@ -344,9 +351,12 @@ describe("CustomProviderCards", () => {
     }
     const { rerender } = render(<CustomProviderCards />)
     const card = cardByLabel("C1")
+    const sw = within(card).getByRole("switch", { name: "启用 C1" })
+    expect(sw).toHaveAttribute("aria-checked", "true")
     fireEvent.click(within(card).getByTitle("停用"))
     expect(mocks.state.providerConfigs["custom-1"].enabled).toBe(false)
     rerender(<CustomProviderCards />)
+    expect(within(card).getByRole("switch", { name: "启用 C1" })).toHaveAttribute("aria-checked", "false")
     fireEvent.click(within(card).getByTitle("启用"))
     expect(mocks.state.providerConfigs["custom-1"].enabled).toBe(true)
   })
@@ -436,7 +446,7 @@ describe("CustomProviderCards", () => {
 
     // remove "other" via its chip X button
     const otherChip = within(card).getByText("other").closest("span") as HTMLElement
-    fireEvent.click(within(otherChip).getByTitle("移除"))
+    fireEvent.click(within(otherChip).getByRole("button", { name: "移除 other" }))
     expect(mocks.state.providerConfigs["custom-1"].savedModels.map((m: any) => m.model)).toEqual([
       "model-alpha",
     ])
@@ -782,7 +792,7 @@ describe("CustomProviderCards", () => {
     const card = cardByLabel("C1")
     expandCard(card)
     const chip = within(card).getByText("only").closest("span") as HTMLElement
-    fireEvent.click(within(chip).getByTitle("移除"))
+    fireEvent.click(within(chip).getByRole("button", { name: "移除 only" }))
     expect(mocks.state.providerConfigs["custom-1"].savedModels).toEqual([])
     expect(mocks.state.providerConfigs["custom-1"].model).toBe("gpt-4o")
   })
@@ -825,9 +835,9 @@ describe("CustomProviderCards", () => {
     expandCard(card)
     // the saved-model chip wraps its own 移除 button — disambiguate from the
     // failed-models list chip (which has no 移除 button)
-    const chip = within(card).getByTitle("移除").closest("span") as HTMLElement
+    const removeBtn = within(card).getByRole("button", { name: /^移除 / })
+    const chip = removeBtn.closest("span") as HTMLElement
     expect(chip.className).toContain("bg-destructive/15")
-    const removeBtn = within(card).getByTitle("移除")
     expect(removeBtn.className).toContain("hover:bg-destructive/20")
   })
 
@@ -895,5 +905,37 @@ describe("CustomProviderCards", () => {
     await waitFor(() => {
       expect(mocks.batch.retryFailed).toHaveBeenCalledWith(expect.any(Function))
     })
+  })
+})
+
+describe("CustomProviderCards a11y", () => {
+  it("展开按钮带 aria-expanded/aria-controls，chip 移除按钮有含名称的可访问名，焦点环不被吞掉", async () => {
+    mocks.state.providerConfigs = {
+      "custom-1": {
+        label: "C1",
+        enabled: true,
+        baseUrl: "https://api.example.com/v1",
+        apiKey: "sk-x",
+        savedModels: [{ id: "s1", name: "alpha", model: "alpha", createdAt: 1 }],
+      },
+    }
+    render(<CustomProviderCards />)
+    const card = cardByLabel("C1")
+    const toggle = within(card).getByTitle("展开配置")
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    expect(toggle).toHaveAccessibleName("展开配置 C1")
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    expect(document.getElementById(toggle.getAttribute("aria-controls")!)).toBeInTheDocument()
+    const remove = within(card).getByRole("button", { name: "移除 alpha" })
+    expect(remove.className).toContain("size-6")
+    expect(remove.className).toContain("focus-visible:ring-2")
+    // 名称编辑输入框：不再 ring-0 吞焦点
+    fireEvent.click(within(card).getByText("C1"))
+    const nameInput = within(card).getByRole("textbox", { name: "配置名称" })
+    expect(nameInput.className).not.toContain("focus-visible:ring-0")
+    expect(nameInput.className).toContain("focus-visible:ring-2")
+    // API 模式按钮暴露选中态
+    expect(within(card).getByRole("button", { name: "OpenAI 兼容" })).toHaveAttribute("aria-pressed", "true")
   })
 })

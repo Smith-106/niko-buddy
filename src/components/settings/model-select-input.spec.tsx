@@ -115,3 +115,23 @@ describe("ModelSelectInput", () => {
     expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("__empty__")
   })
 })
+
+describe("ModelSelectInput a11y", () => {
+  it("输入框接受外部 id（label 关联），select 以占位文案为可访问名", () => {
+    render(
+      <>
+        <label htmlFor="m">模型</label>
+        <ModelSelectInput
+          id="m"
+          value=""
+          options={["a"]}
+          selectPlaceholder="select…"
+          inputPlaceholder="type…"
+          onChange={vi.fn()}
+        />
+      </>,
+    )
+    expect(screen.getByLabelText("模型")).toHaveAttribute("placeholder", "type…")
+    expect(screen.getByRole("combobox", { name: "select…" })).toBeInTheDocument()
+  })
+})

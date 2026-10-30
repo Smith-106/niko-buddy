@@ -1,7 +1,7 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useId, useState } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -21,6 +21,7 @@ import { fetchEmbeddingModelList } from "@/lib/settings-model-list"
 import { testSettingsEmbeddingModel } from "@/lib/settings-model-test"
 import { ModelSelectInput } from "../model-select-input"
 import { ResourceLink } from "../resource-link"
+import { SettingsSwitch } from "../settings-widgets"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import { toErrorMessage } from "@/lib/utils"
 
@@ -46,6 +47,8 @@ function parsePositiveInteger(value: string): number | undefined {
 
 export function EmbeddingSection({ draft, setDraft }: Props) {
   const { t } = useTranslation()
+  const ids = useId()
+  const panelId = `${ids}-panel`
   const project = useWikiStore((s) => s.project)
   const embeddingConfig = useWikiStore((s) => s.embeddingConfig)
   const offlineMode = useWikiStore((s) => s.offlineMode)
@@ -227,26 +230,16 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
       <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
         <div className="flex flex-col gap-0.5">
           <span className="text-sm font-medium">{t("settings.sections.embedding.offlineMode")}</span>
-          <span className="text-xs text-muted-foreground">
+          <span id={`${ids}-offline-hint`} className="text-xs text-muted-foreground">
             {t("settings.sections.embedding.offlineModeHint")}
           </span>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={offlineMode}
-          aria-label={t("settings.sections.embedding.offlineMode")}
-          onClick={() => setOfflineMode(!offlineMode)}
-          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-            offlineMode ? "bg-primary" : "bg-input"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 h-5 w-5 rounded-full bg-background transition-transform ${
-              offlineMode ? "translate-x-5" : "translate-x-0.5"
-            }`}
-          />
-        </button>
+        <SettingsSwitch
+          checked={offlineMode}
+          onCheckedChange={(next) => setOfflineMode(next)}
+          label={t("settings.sections.embedding.offlineMode")}
+          describedBy={`${ids}-offline-hint`}
+        />
       </div>
 
       <div
@@ -255,25 +248,24 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
         }`}
       >
         <div className="flex items-center gap-3 px-3 py-2.5">
-          <button
-            type="button"
-            onClick={() => setExpanded((prev) => !prev)}
-            className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent"
-            title={expanded ? t("settings.sections.llm.collapse") : t("settings.sections.llm.expand")}
-          >
-            {expanded ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronRight className="h-4 w-4" />
-            )}
-          </button>
-
+          {/* 单一展开按钮：chevron 只是装饰图标，不再单独占一个 Tab 停靠点 */}
           <button
             type="button"
             onClick={handleOpenPanel}
-            className="min-w-0 flex-1 text-left"
+            aria-expanded={expanded}
+            aria-controls={panelId}
+            title={expanded ? t("settings.sections.llm.collapse") : t("settings.sections.llm.expand")}
+            className="flex min-w-0 flex-1 items-start gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <div className="flex items-center gap-2">
+            <span className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground" aria-hidden="true">
+              {expanded ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </span>
+            <span className="block min-w-0 flex-1">
+            <span className="flex items-center gap-2">
               <span className="truncate text-sm font-medium">{t("settings.sections.embedding.enableLabel")}</span>
               {hasConfig && !draft.embeddingEnabled && (
                 <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
@@ -285,59 +277,51 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
                   {t("settings.sections.llm.activeBadge")}
                 </span>
               )}
-            </div>
-            <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            </span>
+            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
               {t("settings.sections.embedding.enableHint")}
-            </div>
+            </span>
+            </span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setDraft("embeddingEnabled", !draft.embeddingEnabled)
-              if (!draft.embeddingEnabled) setExpanded(true)
+          <SettingsSwitch
+            checked={draft.embeddingEnabled}
+            onCheckedChange={(next) => {
+              setDraft("embeddingEnabled", next)
+              if (next) setExpanded(true)
             }}
-            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
-              draft.embeddingEnabled
-                ? "border-primary bg-primary"
-                : "border-muted-foreground/30 bg-muted-foreground/20 hover:bg-muted-foreground/30"
-            }`}
-            title={draft.embeddingEnabled ? t("settings.sections.llm.toggleOff") : t("settings.sections.llm.toggleOn")}
-            aria-label={draft.embeddingEnabled ? t("settings.sections.llm.deactivate") : t("settings.sections.llm.activate")}
-          >
-            <span
-              className={`inline-block h-3.5 w-3.5 rounded-full bg-white elevation-1 ring-1 ring-black/10 transition-transform ${
-                draft.embeddingEnabled ? "translate-x-4" : "translate-x-0.5"
-              }`}
-            />
-          </button>
+            label={t("settings.sections.embedding.enableLabel")}
+          />
         </div>
 
         {expanded && (
-          <div className="space-y-4 border-t bg-background/50 px-4 py-3">
+          <div id={panelId} className="space-y-4 border-t bg-background/50 px-4 py-3">
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <Label>{t("settings.sections.embedding.endpoint")}</Label>
+                <Label htmlFor={`${ids}-endpoint`}>{t("settings.sections.embedding.endpoint")}</Label>
                 <ResourceLink
                   href={SILICONFLOW_RESOURCE_URL}
                   title={t("settings.sections.embedding.siliconHint")}
                 >
-                  硅基流动向量模型
+                  {t("settings.sections.embedding.siliconLink")}
                 </ResourceLink>
               </div>
               <Input
+                id={`${ids}-endpoint`}
+                aria-describedby={`${ids}-endpoint-hint`}
                 value={draft.embeddingEndpoint}
                 onChange={(e) => setDraft("embeddingEndpoint", e.target.value)}
                 placeholder="http://127.0.0.1:1234/v1/embeddings"
               />
-              <p className="text-xs text-muted-foreground">
+              <p id={`${ids}-endpoint-hint`} className="text-xs text-muted-foreground">
                 {t("settings.sections.embedding.endpointHint")}
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label>{t("settings.sections.embedding.apiKey")}</Label>
+              <Label htmlFor={`${ids}-key`}>{t("settings.sections.embedding.apiKey")}</Label>
               <Input
+                id={`${ids}-key`}
                 type="password"
                 value={draft.embeddingApiKey}
                 onChange={(e) => setDraft("embeddingApiKey", e.target.value)}
@@ -358,20 +342,21 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
                   : t("settings.sections.shared.testModel")}
               </Button>
               {testState?.message ? (
-                <p className={`text-xs ${testState.success ? "text-success" : "text-destructive"}`}>
+                <p className={`text-xs ${testState.success ? "text-success-foreground" : "text-destructive"}`}>
                   {testState.message}
                 </p>
               ) : null}
               {modelListState?.message ? (
-                <p className={`text-xs ${modelListState.success ? "text-success" : "text-destructive"}`}>
+                <p className={`text-xs ${modelListState.success ? "text-success-foreground" : "text-destructive"}`}>
                   {modelListState.message}
                 </p>
               ) : null}
             </div>
 
             <div className="space-y-2">
-              <Label>{t("settings.sections.embedding.model")}</Label>
+              <Label htmlFor={`${ids}-model`}>{t("settings.sections.embedding.model")}</Label>
               <ModelSelectInput
+                id={`${ids}-model`}
                 value={draft.embeddingModel}
                 options={modelOptions}
                 onChange={(value) => setDraft("embeddingModel", value)}
@@ -381,8 +366,10 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
             </div>
 
             <div className="space-y-2">
-              <Label>{t("settings.sections.embedding.outputDimensionality")}</Label>
+              <Label htmlFor={`${ids}-dims`}>{t("settings.sections.embedding.outputDimensionality")}</Label>
               <Input
+                id={`${ids}-dims`}
+                aria-describedby={`${ids}-dims-hint`}
                 type="number"
                 min={1}
                 step={1}
@@ -392,7 +379,7 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
                 }}
                 placeholder="768"
               />
-              <p className="text-xs text-muted-foreground">
+              <p id={`${ids}-dims-hint`} className="text-xs text-muted-foreground">
                 {t("settings.sections.embedding.outputDimensionalityHint")}
               </p>
             </div>
@@ -403,8 +390,10 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
               </div>
 
               <div className="space-y-2">
-                <Label>{t("settings.sections.embedding.maxChunkChars")}</Label>
+                <Label htmlFor={`${ids}-chunk`}>{t("settings.sections.embedding.maxChunkChars")}</Label>
                 <Input
+                  id={`${ids}-chunk`}
+                  aria-describedby={`${ids}-chunk-hint`}
                   type="number"
                   min={200}
                   step={100}
@@ -418,14 +407,16 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
                   }}
                   placeholder="1000"
                 />
-                <p className="text-xs text-muted-foreground">
+                <p id={`${ids}-chunk-hint`} className="text-xs text-muted-foreground">
                   {t("settings.sections.embedding.maxChunkCharsHint")}
                 </p>
               </div>
 
               <div className="space-y-2">
-                <Label>{t("settings.sections.embedding.overlapChunkChars")}</Label>
+                <Label htmlFor={`${ids}-overlap`}>{t("settings.sections.embedding.overlapChunkChars")}</Label>
                 <Input
+                  id={`${ids}-overlap`}
+                  aria-describedby={`${ids}-overlap-hint`}
                   type="number"
                   min={0}
                   step={50}
@@ -439,7 +430,7 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
                   }}
                   placeholder="200"
                 />
-                <p className="text-xs text-muted-foreground">
+                <p id={`${ids}-overlap-hint`} className="text-xs text-muted-foreground">
                   {t("settings.sections.embedding.overlapChunkCharsHint")}
                 </p>
               </div>

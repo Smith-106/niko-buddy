@@ -183,16 +183,36 @@ describe("RerankSection", () => {
     const draft = renderSection({ useMainLlm: true })
     // 关闭态：useMainLlm=true 视为已有配置 → configuredBadge（源码 hasConfig 分支）
     expect(screen.getByText("settings.sections.llm.configuredBadge")).toBeInTheDocument()
-    fireEvent.click(screen.getByLabelText("settings.sections.llm.activate"))
+    const enableSwitch = screen.getByRole("switch", { name: "settings.sections.rerank.enableLabel" })
+    expect(enableSwitch).toHaveAttribute("aria-checked", "false")
+    fireEvent.click(enableSwitch)
     expect(draft.rerankConfig.enabled).toBe(true)
+    expect(enableSwitch).toHaveAttribute("aria-checked", "true")
     // 开启 → activeBadge，configuredBadge 消失（enabled 分支优先）
     expect(screen.getByText("settings.sections.llm.activeBadge")).toBeInTheDocument()
     expect(screen.queryByText("settings.sections.llm.configuredBadge")).not.toBeInTheDocument()
     // 再关 → configuredBadge（hasConfig=useMainLlm=true 且 enabled=false）
-    // 展开后有两个 deactivate toggle（启用 + useMainLlm），[0] 为头部启用 toggle
-    fireEvent.click(screen.getAllByLabelText("settings.sections.llm.deactivate")[0])
+    // 开关可访问名固定，状态只由 aria-checked 表达
+    fireEvent.click(screen.getByRole("switch", { name: "settings.sections.rerank.enableLabel" }))
     expect(draft.rerankConfig.enabled).toBe(false)
     expect(screen.getByText("settings.sections.llm.configuredBadge")).toBeInTheDocument()
+  })
+
+  it("a11y：展开按钮单一 Tab 停靠点，aria-expanded/aria-controls 指向面板；字段 label 关联输入", () => {
+    renderSection({ useMainLlm: false, provider: "openai" })
+    const toggle = screen.getByTitle("settings.sections.llm.expand")
+    expect(toggle.tagName).toBe("BUTTON")
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    // chevron 不再是独立按钮：头部只剩 展开按钮 + 启用 switch
+    expect(toggle.querySelector("svg")?.closest("[aria-hidden='true']")).not.toBeNull()
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    const panelId = toggle.getAttribute("aria-controls")
+    expect(panelId).toBeTruthy()
+    expect(document.getElementById(panelId!)).toBeInTheDocument()
+    expect(screen.getByLabelText("settings.sections.rerank.maxCandidates")).toHaveAttribute("type", "number")
+    expect(screen.getByLabelText("settings.sections.rerank.provider").tagName).toBe("SELECT")
+    expect(screen.getByLabelText("settings.sections.rerank.apiKey")).toHaveAttribute("type", "password")
   })
 
   it("点击面板标题区域 → handleOpenPanel 展开/收起（与 chevron 等价）", () => {
@@ -215,25 +235,33 @@ describe("RerankSection", () => {
   it("useMainLlm toggle 与 maxCandidates 边界", () => {
     const draft = renderSection()
     expand()
-    // 展开后：启用 toggle 未开（activate），useMainLlm toggle 开（deactivate）
-    // 先开启用（getAllByLabelText("activate") 仅头部一个）
-    fireEvent.click(screen.getAllByLabelText("settings.sections.llm.activate")[0])
+    // 展开后：启用 switch 未开，useMainLlm switch 开（名称经 aria-labelledby 指向可见标签）
+    fireEvent.click(screen.getByRole("switch", { name: "settings.sections.rerank.enableLabel" }))
     expect(draft.rerankConfig.enabled).toBe(true)
-    // useMainLlm toggle：deactivate 列表 [0]=启用 [1]=useMainLlm
-    fireEvent.click(screen.getAllByLabelText("settings.sections.llm.deactivate")[1])
+    const useMain = screen.getByRole("switch", { name: "settings.sections.rerank.useMainLlm" })
+    expect(useMain).toHaveAttribute("aria-checked", "true")
+    expect(useMain).toHaveAccessibleDescription("settings.sections.rerank.useMainLlmHint")
+    fireEvent.click(useMain)
     expect(draft.rerankConfig.useMainLlm).toBe(false)
 
+    // 失焦才提交：输入过程中不夹值，"1" 再 "2" 能得到 12
     const candidates = screen.getByRole("spinbutton") as HTMLInputElement
+    fireEvent.change(candidates, { target: { value: "1" } })
+    expect(draft.rerankConfig.maxCandidates).toBe(12)
+    fireEvent.change(candidates, { target: { value: "18" } })
+    fireEvent.blur(candidates)
+    expect(draft.rerankConfig.maxCandidates).toBe(18)
     fireEvent.change(candidates, { target: { value: "50" } })
+    fireEvent.blur(candidates)
     expect(draft.rerankConfig.maxCandidates).toBe(30)
     fireEvent.change(candidates, { target: { value: "2" } })
+    fireEvent.keyDown(candidates, { key: "Enter" })
     expect(draft.rerankConfig.maxCandidates).toBe(3)
-    fireEvent.change(candidates, { target: { value: "10" } })
-    expect(draft.rerankConfig.maxCandidates).toBe(10)
+    // 清空或非法值失焦：还原为当前值，不写入
     fireEvent.change(candidates, { target: { value: "" } })
-    expect(draft.rerankConfig.maxCandidates).toBe(3) // Number("")||3
-    fireEvent.change(candidates, { target: { value: "abc" } })
-    expect(draft.rerankConfig.maxCandidates).toBe(3) // Number("abc")||3
+    fireEvent.blur(candidates)
+    expect(draft.rerankConfig.maxCandidates).toBe(3)
+    expect(candidates.value).toBe("3")
   })
 
   it("useMainLlm=false：provider 列表 + apiKey/ollamaUrl 分支", () => {

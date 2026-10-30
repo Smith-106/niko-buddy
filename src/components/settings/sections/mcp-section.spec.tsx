@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => {
   const setMcpConfig = vi.fn()
   return {
     t: vi.fn((key: string, _options?: Record<string, unknown>) => key),
+    runtimeWarnings: null as string[] | null,
     setMcpConfig,
     saveMcpConfig: vi.fn(async () => {}),
     testConnection: vi.fn(),
@@ -37,6 +38,17 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
     ...actual,
       useWikiStore: (selector: (s: typeof mocks.state) => unknown) => selector(mocks.state),
     
+  }
+})
+
+vi.mock("@/lib/mcp/runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/mcp/runtime")>()
+  return {
+    ...actual,
+    buildMcpRuntime: (...args: Parameters<typeof actual.buildMcpRuntime>) => {
+      const real = actual.buildMcpRuntime(...args)
+      return mocks.runtimeWarnings ? { ...real, warnings: mocks.runtimeWarnings } : real
+    },
   }
 })
 
@@ -77,6 +89,7 @@ beforeEach(() => {
   mocks.testConnection.mockClear()
   mocks.closeAll.mockClear()
   mocks.state.mcpConfig = { servers: [{ ...SERVER }] }
+  mocks.runtimeWarnings = null
 })
 
 afterEach(() => {
@@ -139,5 +152,36 @@ describe("远程传输接线（F-005）", () => {
     ])
     expect(new Set(labels).size).toBe(4)
     expect(labels).not.toContain("mcp.transport.mode")
+  })
+})
+
+describe("McpSection a11y", () => {
+  it("运行时警告框 role=note、前景色可读（不再 text-warning 叠 bg-warning）", () => {
+    mocks.runtimeWarnings = ["warn-1"]
+    render(<McpSection />)
+    const box = screen.getByRole("note")
+    expect(box).toHaveAttribute("data-testid", "mcp-runtime-warnings")
+    expect(box.className).toContain("text-foreground")
+    expect(box.className).not.toMatch(/(^|\s)text-warning(\s|$)/)
+    expect(box).toHaveTextContent("warn-1")
+  })
+
+  it("服务启用开关是 role=switch，名称固定、状态走 aria-checked", async () => {
+    render(<McpSection />)
+    const sw = screen.getByRole("switch", { name: "settings.sections.mcp.enableServer" })
+    expect(sw).toHaveAttribute("aria-checked", "true")
+    expect(mocks.t).toHaveBeenCalledWith("settings.sections.mcp.enableServer", { name: "Graph" })
+    fireEvent.click(sw)
+    await waitFor(() => {
+      expect(mocks.setMcpConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ servers: [expect.objectContaining({ enabled: false })] }),
+      )
+    })
+  })
+
+  it("服务字段 label 通过 htmlFor 关联", () => {
+    render(<McpSection />)
+    expect(screen.getByLabelText("settings.sections.mcp.startup")).toBeInTheDocument()
+    expect(screen.getByLabelText("settings.sections.mcp.serverId")).toBeInTheDocument()
   })
 })

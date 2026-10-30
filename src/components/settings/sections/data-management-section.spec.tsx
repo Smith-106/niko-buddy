@@ -156,7 +156,7 @@ describe("DataManagementSection", () => {
     expect(screen.getByText("settings.sections.dataManagement.exportTitle")).toBeInTheDocument()
     expect(screen.getByText("settings.sections.dataManagement.importTitle")).toBeInTheDocument()
     expect(screen.getByText("settings.sections.dataManagement.securityWarning")).toBeInTheDocument()
-    const fullRadio = screen.getByRole("radio", { name: "完全覆盖（清除当前所有数据）" }) as HTMLInputElement
+    const fullRadio = screen.getByRole("radio", { name: "settings.sections.dataManagement.importStrategyFull" }) as HTMLInputElement
     expect(fullRadio.checked).toBe(true)
     expect(screen.getByText("settings.sections.dataManagement.exportButton")).toBeInTheDocument()
     expect(screen.getByText("settings.sections.dataManagement.importButton")).toBeInTheDocument()
@@ -377,6 +377,11 @@ describe("DataManagementSection", () => {
     await flushAsync()
     expect(mocks.importBackup).not.toHaveBeenCalled()
     expect(confirmMock).toHaveBeenCalledTimes(1)
+    expect(confirmMock).toHaveBeenCalledWith("settings.sections.dataManagement.importConfirm")
+    expect(mocks.t).toHaveBeenCalledWith(
+      "settings.sections.dataManagement.importConfirm",
+      expect.objectContaining({ strategy: "settings.sections.dataManagement.importStrategyFullShort" }),
+    )
     cleanup()
 
     // full 策略：两次确认都通过 → 执行。
@@ -391,7 +396,7 @@ describe("DataManagementSection", () => {
     // global-only：一次确认 → 执行。
     confirmMock.mockClear()
     render(<DataManagementSection />)
-    fireEvent.click(screen.getByRole("radio", { name: "仅导入全局配置（模型、UI偏好）" }))
+    fireEvent.click(screen.getByRole("radio", { name: "settings.sections.dataManagement.importStrategyGlobalOnly" }))
     fireEvent.click(screen.getByText("settings.sections.dataManagement.importButton"))
     await waitFor(() => expect(mocks.importBackup).toHaveBeenCalledWith(
       "global-only",
@@ -502,7 +507,7 @@ describe("DataManagementSection", () => {
 
   it("switching strategy to global-only passes it to importBackup", async () => {
     render(<DataManagementSection />)
-    const globalOnly = screen.getByRole("radio", { name: "仅导入全局配置（模型、UI偏好）" })
+    const globalOnly = screen.getByRole("radio", { name: "settings.sections.dataManagement.importStrategyGlobalOnly" })
     fireEvent.click(globalOnly)
     expect((globalOnly as HTMLInputElement).checked).toBe(true)
 
@@ -923,5 +928,12 @@ describe("DataManagementSection", () => {
     expect(screen.getByText("settings.sections.dataManagement.canonBackfillButton")).toBeDisabled()
     expect(screen.getByText("settings.sections.dataManagement.canonBackfillNoProject")).toBeInTheDocument()
     mocks.project.path = "E:/Novel"
+  })
+
+  it("A7 导入方式：radiogroup 由可见标题命名，页面无孤立 label", () => {
+    render(<DataManagementSection />)
+    expect(screen.getByRole("radiogroup", { name: "settings.sections.dataManagement.importStrategy" })).toBeInTheDocument()
+    const orphans = Array.from(document.querySelectorAll("label")).filter((l) => !(l as HTMLLabelElement).control)
+    expect(orphans).toHaveLength(0)
   })
 })

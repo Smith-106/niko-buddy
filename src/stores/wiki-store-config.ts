@@ -32,6 +32,8 @@ export type SettingsCategoryId =
   | "feedback"
   | "contact-support"
   | "changelog"
+  | "skill-library"
+  | "mcp"
 
 // ── localStorage reader helpers ────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from "react"
+import { useEffect, useId, useMemo, useState, useRef } from "react"
 import { DEFAULT_MAX_CONTEXT_TOKENS } from "@/lib/llm-context-limits"
 import { ChevronDown, ChevronRight, AlertCircle, CheckCircle2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -14,6 +14,7 @@ import { fetchLlmModelList } from "@/lib/settings-model-list"
 import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { ModelSelectInput } from "../model-select-input"
 import { SavedModelsManager } from "./saved-models-manager"
+import { CommitNumberInput, SettingsSwitch } from "../settings-widgets"
 import { toErrorMessage } from "@/lib/utils"
 import {
   AntigravityCliStatusPill,
@@ -61,6 +62,9 @@ export function PresetRow({
   onChange,
 }: PresetRowProps) {
   const { t } = useTranslation()
+  const ids = useId()
+  const panelId = `${ids}-panel`
+  const fetchedPanelId = `${ids}-fetched`
   const ov = override ?? {}
   const model = ov.model?.trim() || preset.defaultModel || ""
   const apiKey = ov.apiKey ?? ""
@@ -73,6 +77,9 @@ export function PresetRow({
   const localCliIsolation = ov.localCliIsolation === true
   const codexCliTimeoutMinutes = Math.max(1, Math.min(240, ov.codexCliTimeoutMinutes ?? 10))
   const isLocalCliProvider = preset.provider === "claude-code" || preset.provider === "codex-cli" || preset.provider === "antigravity-cli"
+  // Only the Claude Code and Codex CLI launches have isolation flags; the antigravity/Gemini
+  // spawn ignores localCliIsolation, so the toggle is not offered there.
+  const supportsLocalCliIsolation = preset.provider === "claude-code" || preset.provider === "codex-cli"
   const [modelOptions, setModelOptions] = useState<string[]>([])
   const [modelListState, setModelListState] = useState<ModelActionState>(null)
   const [isModelSelectionExpanded, setIsModelSelectionExpanded] = useState(false)
@@ -168,25 +175,24 @@ export function PresetRow({
     >
       {/* Outer row — always visible */}
       <div className="flex items-center gap-3 px-3 py-2.5">
+        {/* 单一展开按钮：chevron 只是装饰图标，不再单独占一个 Tab 停靠点 */}
         <button
           type="button"
           onClick={onToggleExpand}
-          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent"
+          aria-expanded={isExpanded}
+          aria-controls={panelId}
           title={isExpanded ? t("settings.sections.llm.collapse") : t("settings.sections.llm.expand")}
+          className="flex min-w-0 flex-1 items-start gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {isExpanded ? (
-            <ChevronDown className="h-4 w-4 shrink-0" />
-          ) : (
-            <ChevronRight className="h-4 w-4 shrink-0" />
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={onToggleExpand}
-          className="min-w-0 flex-1 text-left"
-        >
-          <div className="flex items-center gap-2 min-w-0">
+          <span className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground" aria-hidden="true">
+            {isExpanded ? (
+              <ChevronDown className="h-4 w-4 shrink-0" />
+            ) : (
+              <ChevronRight className="h-4 w-4 shrink-0" />
+            )}
+          </span>
+          <span className="block min-w-0 flex-1">
+          <span className="flex items-center gap-2 min-w-0">
             <span className="truncate text-sm font-medium min-w-0">{preset.label}</span>
             {hasConfig && !isEnabled && (
               <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
@@ -201,39 +207,29 @@ export function PresetRow({
               </span>
             )}
             {savedHere && (
-              <span className="shrink-0 text-xs text-success">{t("settings.sections.llm.savedBadge")}</span>
+              <span className="shrink-0 text-xs text-success-foreground">{t("settings.sections.llm.savedBadge")}</span>
             )}
-          </div>
+          </span>
           {preset.hint && (
-            <div className="mt-0.5 truncate text-xs text-muted-foreground min-w-0">
+            <span className="mt-0.5 block truncate text-xs text-muted-foreground min-w-0">
               {preset.hint}
-            </div>
+            </span>
           )}
+          </span>
         </button>
 
-        {/* Toggle switch — 启用/停用 */}
-        <button
-          type="button"
-          onClick={onToggleEnabled}
-          className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
-            isEnabled
-              ? "border-primary bg-primary"
-              : "border-muted-foreground/30 bg-muted-foreground/20 hover:bg-muted-foreground/30"
-          }`}
+        {/* 启用/停用：可访问名固定（"启用 {provider}"），状态由 aria-checked 表达；title 仅作悬停提示 */}
+        <SettingsSwitch
+          checked={isEnabled}
+          onCheckedChange={() => onToggleEnabled()}
+          label={t("settings.sections.llm.enableProvider", { name: preset.label })}
           title={isEnabled ? t("settings.sections.llm.toggleOff") : t("settings.sections.llm.toggleOn")}
-          aria-label={isEnabled ? t("settings.sections.llm.deactivate") : t("settings.sections.llm.activate")}
-        >
-          <span
-            className={`inline-block h-3.5 w-3.5 rounded-full bg-white elevation-1 ring-1 ring-black/10 transition-transform ${
-              isEnabled ? "translate-x-4" : "translate-x-0.5"
-            }`}
-          />
-        </button>
+        />
       </div>
 
       {/* Expanded config panel */}
       {isExpanded && (
-        <div className="space-y-4 border-t bg-background/50 px-4 py-3">
+        <div id={panelId} className="space-y-4 border-t bg-background/50 px-4 py-3">
           {preset.provider === "custom" && (
             <div className="space-y-2">
               <Label>{t("settings.sections.llm.apiMode")}</Label>
@@ -262,6 +258,7 @@ export function PresetRow({
                         onChange(patch)
                       }}
                       aria-label={t(m.labelKey)}
+                      aria-pressed={active}
                       className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
                         active
                           ? "border-primary bg-primary text-primary-foreground"
@@ -288,27 +285,31 @@ export function PresetRow({
           {preset.provider === "azure" && (
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>{t("settings.sections.llm.azureApiVersion")}</Label>
+                <Label htmlFor={`${ids}-azure-version`}>{t("settings.sections.llm.azureApiVersion")}</Label>
                 <Input
+                  id={`${ids}-azure-version`}
+                  aria-describedby={`${ids}-azure-version-hint`}
                   value={azureApiVersion}
                   onChange={(e) => onChange({ azureApiVersion: e.target.value })}
                   placeholder="2024-10-21"
                 />
-                <p className="text-xs text-muted-foreground">
+                <p id={`${ids}-azure-version-hint`} className="text-xs text-muted-foreground">
                   {t("settings.sections.llm.azureApiVersionHint")}
                 </p>
               </div>
               <div className="space-y-2">
-                <Label>{t("settings.sections.llm.azureModelFamily")}</Label>
+                <Label htmlFor={`${ids}-azure-family`}>{t("settings.sections.llm.azureModelFamily")}</Label>
                 <select
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  id={`${ids}-azure-family`}
+                  aria-describedby={`${ids}-azure-family-hint`}
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   value={azureModelFamily}
                   onChange={(e) => onChange({ azureModelFamily: e.target.value as typeof azureModelFamily })}
                 >
                   <option value="auto">{t("settings.sections.llm.azureModelFamilyAuto")}</option>
                   <option value="gpt5">{t("settings.sections.llm.azureModelFamilyGpt5")}</option>
                 </select>
-                <p className="text-xs text-muted-foreground">
+                <p id={`${ids}-azure-family-hint`} className="text-xs text-muted-foreground">
                   {t("settings.sections.llm.azureModelFamilyHint")}
                 </p>
               </div>
@@ -320,38 +321,28 @@ export function PresetRow({
           {preset.provider === "antigravity-cli" && <AntigravityCliStatusPill />}
           {preset.provider === "cursor-cli" && <CursorProxyStatusBadge />}
 
-          {isLocalCliProvider && (
+          {supportsLocalCliIsolation && (
             <div className="space-y-2 rounded-md border p-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-medium">
                     {t("settings.sections.llm.localCliIsolation")}
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  <p id={`${ids}-isolation-hint`} className="mt-1 text-xs text-muted-foreground">
                     {t("settings.sections.llm.localCliIsolationHint")}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onChange({ localCliIsolation: !localCliIsolation })}
-                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
-                    localCliIsolation
-                      ? "border-primary bg-primary"
-                      : "border-muted-foreground/30 bg-muted-foreground/20 hover:bg-muted-foreground/30"
-                  }`}
+                <SettingsSwitch
+                  checked={localCliIsolation}
+                  onCheckedChange={(next) => onChange({ localCliIsolation: next })}
+                  label={t("settings.sections.llm.localCliIsolation")}
+                  describedBy={`${ids}-isolation-hint`}
                   title={
                     localCliIsolation
                       ? t("settings.sections.llm.localCliIsolationOn")
                       : t("settings.sections.llm.localCliIsolationOff")
                   }
-                  aria-label={t("settings.sections.llm.localCliIsolation")}
-                >
-                  <span
-                    className={`inline-block h-3.5 w-3.5 rounded-full bg-white elevation-1 ring-1 ring-black/10 transition-transform ${
-                      localCliIsolation ? "translate-x-4" : "translate-x-0.5"
-                    }`}
-                  />
-                </button>
+                />
               </div>
               <div className="rounded-md bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground">
                 {localCliIsolation
@@ -363,28 +354,22 @@ export function PresetRow({
 
           {preset.provider === "codex-cli" && (
             <div className="space-y-2 rounded-md border p-3">
-              <Label>{t("settings.sections.llm.codexCliTimeout")}</Label>
+              <Label htmlFor={`${ids}-codex-timeout`}>{t("settings.sections.llm.codexCliTimeout")}</Label>
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
+                <CommitNumberInput
+                  id={`${ids}-codex-timeout`}
+                  describedBy={`${ids}-codex-timeout-hint`}
                   min={1}
                   max={240}
                   className="w-28"
                   value={codexCliTimeoutMinutes}
-                  onChange={(e) => {
-                    const n = Number(e.target.value)
-                    /* v8 ignore next -- number input 值恒有限，falsy 不可达 */
-                    const timeout = Number.isFinite(n)
-                      ? Math.max(1, Math.min(240, Math.floor(n)))
-                      : undefined
-                    onChange({ codexCliTimeoutMinutes: timeout })
-                  }}
+                  onCommit={(codexCliTimeoutMinutes) => onChange({ codexCliTimeoutMinutes })}
                 />
                 <span className="text-xs text-muted-foreground">
                   {t("settings.sections.llm.codexCliTimeoutUnit")}
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p id={`${ids}-codex-timeout-hint`} className="text-xs text-muted-foreground">
                 {t("settings.sections.llm.codexCliTimeoutHint")}
               </p>
             </div>
@@ -392,8 +377,9 @@ export function PresetRow({
 
           {needsApiKey && (
             <div className="space-y-2">
-              <Label>{t("settings.sections.llm.apiKey")}</Label>
+              <Label htmlFor={`${ids}-key`}>{t("settings.sections.llm.apiKey")}</Label>
               <Input
+                id={`${ids}-key`}
                 type="password"
                 value={apiKey}
                 onChange={(e) => onChange({ apiKey: e.target.value })}
@@ -407,12 +393,13 @@ export function PresetRow({
           )}
 
           <div className="space-y-2">
-            <Label>
+            <Label htmlFor={`${ids}-model`}>
               {preset.provider === "azure"
-                ? t("settings.sections.llm.deploymentName", "Deployment name")
+                ? t("settings.sections.llm.deploymentName")
                 : t("settings.sections.llm.model")}
             </Label>
             <ModelPicker
+              id={`${ids}-model`}
               value={model}
               suggestions={preset.suggestedModels ?? []}
               fetchedModels={modelOptions}
@@ -430,8 +417,10 @@ export function PresetRow({
                 <button
                   type="button"
                   onClick={() => setIsModelSelectionExpanded(!isModelSelectionExpanded)}
+                  aria-expanded={isModelSelectionExpanded}
+                  aria-controls={fetchedPanelId}
                   aria-label={`${t("settings.sections.llm.fetchedModelsCount", { count: modelOptions.length })} ${t("settings.sections.llm.selectedModelsCount", { count: (ov.savedModels ?? []).length })}`}
-                  className="flex items-center gap-2 text-xs font-medium hover:text-primary"
+                  className="flex min-h-6 items-center gap-2 rounded text-xs font-medium hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span>{t("settings.sections.llm.fetchedModelsCount", { count: modelOptions.length })}</span>
                   <span className="text-muted-foreground">{t("settings.sections.llm.selectedModelsCount", { count: (ov.savedModels ?? []).length })}</span>
@@ -439,7 +428,7 @@ export function PresetRow({
               </div>
 
               {isModelSelectionExpanded && (
-                <>
+                <div id={fetchedPanelId} className="space-y-2">
                   <div className="text-xs text-muted-foreground">
                     {t("settings.sections.llm.toggleModelHint")}
                   </div>
@@ -452,7 +441,8 @@ export function PresetRow({
                           key={modelId}
                           type="button"
                           onClick={() => toggleModelSelection(modelId)}
-                          className={`rounded-md border px-2 py-1 text-xs transition-colors ${
+                          aria-pressed={isSelected}
+                          className={`min-h-6 rounded-md border px-2 py-1 text-xs transition-colors ${
                             isSelected
                               ? "border-primary bg-primary text-primary-foreground"
                               : "border-border bg-background hover:bg-accent"
@@ -463,7 +453,7 @@ export function PresetRow({
                       )
                     })}
                   </div>
-                </>
+                </div>
               )}
             </div>
           )}
@@ -518,13 +508,13 @@ export function PresetRow({
               </button>
             </div>
             {modelListState?.message ? (
-              <p className={`text-xs ${modelListState.success ? "text-success" : "text-destructive"}`}>
+              <p className={`text-xs ${modelListState.success ? "text-success-foreground" : "text-destructive"}`}>
                 {modelListState.message}
               </p>
             ) : null}
             {modelTestState?.message ? (
               <div className="space-y-1.5">
-                <p className={`text-xs ${modelTestState.success ? "text-success" : "text-destructive"}`}>
+                <p className={`text-xs ${modelTestState.success ? "text-success-foreground" : "text-destructive"}`}>
                   {modelTestState.message}
                 </p>
                 {modelTestState.failedModels && modelTestState.failedModels.length > 0 && (
@@ -542,9 +532,9 @@ export function PresetRow({
                       type="button"
                       onClick={() => void retryFailed((modelId) => ({ ...resolvedConfig, model: modelId }))}
                       disabled={modelTestState.loading}
-                      className="rounded-md border border-destructive/30 px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="min-h-6 rounded-md border border-destructive/30 px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      重试失败模型
+                      {t("settings.sections.shared.retryFailedModels")}
                     </button>
                   </div>
                 )}
@@ -553,27 +543,28 @@ export function PresetRow({
           </div>
 
           <div className="space-y-2">
-            <Label>{t("settings.sections.llm.contextWindow")}</Label>
+            <Label htmlFor={`${ids}-context`}>{t("settings.sections.llm.contextWindow")}</Label>
             <ContextSizeSelector
+              id={`${ids}-context`}
               value={context}
               onChange={(v) => onChange({ maxContextSize: v })}
             />
           </div>
 
           <div className="space-y-2">
-            <Label>{t("settings.sections.llm.maxOutputTokens")}</Label>
-            <Input
-              type="number"
+            <Label htmlFor={`${ids}-max-output`}>{t("settings.sections.llm.maxOutputTokens")}</Label>
+            <CommitNumberInput
+              id={`${ids}-max-output`}
+              describedBy={`${ids}-max-output-hint`}
               min={256}
+              max={Number.MAX_SAFE_INTEGER}
               step={256}
               placeholder="4096"
-              value={ov.maxOutputTokens ?? ""}
-              onChange={(e) => {
-                const raw = e.target.value.trim()
-                onChange({ maxOutputTokens: raw === "" ? undefined : Math.max(256, Number(raw) || 4096) })
-              }}
+              value={ov.maxOutputTokens}
+              onCommit={(maxOutputTokens) => onChange({ maxOutputTokens })}
+              onClear={() => onChange({ maxOutputTokens: undefined })}
             />
-            <p className="text-xs text-muted-foreground">
+            <p id={`${ids}-max-output-hint`} className="text-xs text-muted-foreground">
               {t("settings.sections.llm.maxOutputTokensHint")}
             </p>
           </div>
@@ -620,6 +611,7 @@ export interface EndpointFieldProps {
  */
 export function EndpointField({ value, mode, placeholder, onChange }: EndpointFieldProps) {
   const { t } = useTranslation()
+  const inputId = useId()
   const preview = useMemo(() => normalizeEndpoint(value, mode), [value, mode])
 
   function handleBlur() {
@@ -632,8 +624,10 @@ export function EndpointField({ value, mode, placeholder, onChange }: EndpointFi
 
   return (
     <div className="space-y-1.5">
-      <Label>{t("settings.sections.llm.endpoint")}</Label>
+      <Label htmlFor={inputId}>{t("settings.sections.llm.endpoint")}</Label>
       <Input
+        id={inputId}
+        aria-describedby={showHint ? `${inputId}-hint` : undefined}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onBlur={handleBlur}
@@ -641,23 +635,24 @@ export function EndpointField({ value, mode, placeholder, onChange }: EndpointFi
       />
       {showHint && (
         <div
+          id={`${inputId}-hint`}
           className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
             preview.changed
-              ? "border-warning/40 bg-warning/5 text-warning"
+              ? "border-warning/40 bg-warning/5 text-warning-foreground"
               : "border-info/40 bg-info/5 text-info"
           }`}
         >
           {preview.changed ? (
-            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           ) : (
-            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           )}
           <div className="min-w-0 flex-1 space-y-0.5">
             {preview.changed && (
               <div>
                 {t("settings.sections.llm.endpointPreviewWillUse")}{" "}
                 <code className="break-all rounded bg-background/60 px-1 py-0.5 font-mono">
-                  {preview.normalized || "(empty)"}
+                  {preview.normalized || t("settings.sections.llm.emptyValue")}
                 </code>
                 <span className="ml-1 text-muted-foreground">
                   {t("settings.sections.llm.endpointPreviewAutoApply")}
@@ -680,6 +675,8 @@ export interface ModelPickerProps {
   selectPlaceholder: string
   inputPlaceholder: string
   onChange: (value: string) => void
+  /** 手动输入框 id，供外部 <Label htmlFor> 关联。 */
+  id?: string
 }
 
 /**
@@ -700,6 +697,7 @@ export function ModelPicker({
   selectPlaceholder,
   inputPlaceholder,
   onChange,
+  id,
 }: ModelPickerProps) {
   const { t } = useTranslation()
   const hasSuggestions = suggestions.length > 0
@@ -720,7 +718,8 @@ export function ModelPicker({
                 key={m}
                 type="button"
                 onClick={() => onChange(m)}
-                className={`rounded-md border px-2 py-0.5 text-xs font-mono transition-colors ${
+                aria-pressed={active}
+                className={`min-h-6 rounded-md border px-2 py-0.5 text-xs font-mono transition-colors ${
                   active
                     ? "border-primary bg-primary text-primary-foreground"
                     : "border-border bg-background hover:bg-accent hover:text-accent-foreground"
@@ -734,7 +733,8 @@ export function ModelPicker({
           <button
             type="button"
             onClick={() => onChange("")}
-            className={`rounded-md border px-2 py-0.5 text-xs transition-colors ${
+            aria-pressed={isCustom}
+            className={`min-h-6 rounded-md border px-2 py-0.5 text-xs transition-colors ${
               isCustom
                 ? "border-primary/60 bg-primary/10 text-primary"
                 : "border-dashed border-muted-foreground/40 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -748,6 +748,7 @@ export function ModelPicker({
         </div>
       )}
       <ModelSelectInput
+        id={id}
         value={value}
         options={mergedOptions}
         onChange={onChange}
@@ -774,6 +775,7 @@ export function HttpTimeoutControls({
   }) => void
 }) {
   const { t } = useTranslation()
+  const ids = useId()
   const editTimeout = (
     key: "httpConnectTimeoutMs" | "httpHeaderTimeoutMs" | "httpStreamIdleMs",
     raw: string,
@@ -791,13 +793,15 @@ export function HttpTimeoutControls({
     ms: number | undefined,
   ) => (
     <div key={key} className="flex items-center gap-2">
-      <span className="w-16 text-xs text-muted-foreground">{label}</span>
+      <label htmlFor={`${ids}-${key}`} className="w-16 text-xs text-muted-foreground">{label}</label>
       <Input
+        id={`${ids}-${key}`}
+        aria-describedby={`${ids}-hint`}
         type="number"
         min={min}
         max={max}
         className="w-28"
-        placeholder="默认"
+        placeholder={t("settings.sections.llm.httpTimeoutDefault")}
         value={ms == null ? "" : Math.round(ms / 1000)}
         onChange={(e) => editTimeout(key, e.target.value)}
       />
@@ -810,7 +814,7 @@ export function HttpTimeoutControls({
       {row("httpConnectTimeoutMs", t("settings.sections.llm.httpConnectTimeout"), 5, 300, value.httpConnectTimeoutMs)}
       {row("httpHeaderTimeoutMs", t("settings.sections.llm.httpHeaderTimeout"), 5, 300, value.httpHeaderTimeoutMs)}
       {row("httpStreamIdleMs", t("settings.sections.llm.httpStreamIdleMs"), 30, 600, value.httpStreamIdleMs)}
-      <p className="text-xs text-muted-foreground">
+      <p id={`${ids}-hint`} className="text-xs text-muted-foreground">
         {t("settings.sections.llm.httpTimeoutsHint")}
       </p>
     </div>
@@ -825,6 +829,7 @@ export function ReasoningControls({
   onChange: (value: ReasoningConfig) => void
 }) {
   const { t } = useTranslation()
+  const budgetId = useId()
   const modes: { value: ReasoningMode; label: string }[] = [
     { value: "auto", label: t("settings.sections.llm.reasoning.auto") },
     { value: "off", label: t("settings.sections.llm.reasoning.off") },
@@ -846,7 +851,8 @@ export function ReasoningControls({
               key={m.value}
               type="button"
               onClick={() => onChange({ ...value, mode: m.value })}
-              className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+              aria-pressed={active}
+              className={`min-h-6 rounded-md border px-2.5 py-1 text-xs transition-colors ${
                 active
                   ? "border-primary bg-primary text-primary-foreground"
                   : "border-border hover:bg-accent"
@@ -860,6 +866,7 @@ export function ReasoningControls({
       {value.mode === "custom" && (
         <div className="flex items-center gap-2">
           <Input
+            id={budgetId}
             type="number"
             min={0}
             className="w-28"
@@ -874,9 +881,9 @@ export function ReasoningControls({
             }}
             placeholder="1024"
           />
-          <span className="text-xs text-muted-foreground">
+          <label htmlFor={budgetId} className="text-xs text-muted-foreground">
             {t("settings.sections.llm.reasoning.budgetTokens")}
-          </span>
+          </label>
         </div>
       )}
       <p className="text-xs text-muted-foreground">

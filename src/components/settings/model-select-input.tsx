@@ -10,6 +10,8 @@ interface ModelSelectInputProps {
   selectPlaceholder: string
   inputPlaceholder: string
   onChange: (value: string) => void
+  /** 手动输入框的 id，供外部 <Label htmlFor> 关联可访问名。 */
+  id?: string
 }
 
 interface ModelSelectOption {
@@ -46,6 +48,7 @@ export function ModelSelectInput({
   selectPlaceholder,
   inputPlaceholder,
   onChange,
+  id,
 }: ModelSelectInputProps) {
   const selectOptions = useMemo(
     () => buildModelSelectOptions(value, options),
@@ -57,6 +60,7 @@ export function ModelSelectInput({
   return (
     <div className="flex flex-col gap-2">
       <Input
+        id={id}
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
         placeholder={inputPlaceholder}
@@ -71,7 +75,8 @@ export function ModelSelectInput({
               onChange(selected)
             }
           }}
-          className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+          aria-label={selectPlaceholder}
+          className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <option value="__empty__">{selectPlaceholder}</option>
           {selectOptions.map((option) => (

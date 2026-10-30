@@ -21,6 +21,10 @@ import { LlmProviderSection, ReasoningControls } from "./llm-provider-section"
 import type { LlmPreset } from "@/lib/llm-config/llm-presets"
 import zhLocale from "@/i18n/zh.json"
 
+function lookupZhOrPending(key: string): string {
+  return lookupZhLocale(key) ?? key
+}
+
 function lookupZhLocale(key: string): string | undefined {
   let o: unknown = zhLocale
   for (const p of key.split(".")) {
@@ -73,10 +77,12 @@ const mocks = vi.hoisted(() => {
     state,
     store,
     t: vi.fn((key: string, params?: Record<string, unknown>) => {
+      const base = lookupZhOrPending(key)
       // keep interpolations visible for {model}/{message} labels
-      if (params && typeof params.model === "string") return `${lookupZhLocale(key) ?? key}:${params.model}`
+      if (params && typeof params.model === "string") return `${base}:${params.model}`
       if (params && typeof params.message === "string") return params.message
-      return lookupZhLocale(key) ?? key
+      if (params && typeof params.name === "string") return base.replace("{{name}}", params.name)
+      return base
     }),
     LLM_PRESETS: [] as LlmPreset[],
     resolveConfig: vi.fn(() => ({
@@ -527,9 +533,10 @@ describe("LlmProviderSection — section shell & row header", () => {
   it("ModelSelectInput falls back to the model placeholder when inputPlaceholder is empty", () => {
     mocks.t.mockImplementation((key: string, params?: Record<string, unknown>) => {
       if (key === "settings.sections.shared.modelManualPlaceholder") return ""
-      if (params && typeof params.model === "string") return `${lookupZhLocale(key) ?? key}:${params.model}`
+      if (params && typeof params.model === "string") return `${lookupZhOrPending(key)}:${params.model}`
       if (params && typeof params.message === "string") return params.message
-      return lookupZhLocale(key) ?? key
+      const base = lookupZhOrPending(key)
+      return params && typeof params.name === "string" ? base.replace("{{name}}", params.name) : base
     })
     render(<LlmProviderSection />)
     const card = cardByLabel("OpenAI")
@@ -607,7 +614,7 @@ describe("LlmProviderSection — custom provider panel (apiMode / endpoint / mod
     expect(within(card).queryByText("将使用")).not.toBeInTheDocument()
   })
 
-  it("endpoint hint shows (empty) fallback when normalized value is empty", () => {
+  it("endpoint hint shows the emptyValue fallback when normalized value is empty", () => {
     mocks.normalizeEndpoint.mockImplementation(() => ({
       normalized: "",
       changed: true,
@@ -618,7 +625,7 @@ describe("LlmProviderSection — custom provider panel (apiMode / endpoint / mod
     expandCard(card)
     const input = within(card).getByPlaceholderText("https://api.example.com/v1")
     fireEvent.change(input, { target: { value: "https://x.example.com" } })
-    expect(within(card).getByText("(empty)")).toBeInTheDocument()
+    expect(within(card).getByText("未填写")).toBeInTheDocument()
     expect(within(card).getByText("warn-empty")).toBeInTheDocument()
   })
 
@@ -796,13 +803,26 @@ describe("LlmProviderSection — local CLI pills", () => {
     const { rerender } = render(<LlmProviderSection />)
     const card = cardByLabel("ClaudeCli")
     expandCard(card)
-    expect(within(card).getByText("未隔离，将继承本机 CLI 登录状态。")).toBeInTheDocument()
+    expect(within(card).getByText("未隔离：使用本机 CLI 登录状态与全部本地配置。")).toBeInTheDocument()
     fireEvent.click(within(card).getByLabelText("隔离本地 CLI 配置"))
     expect(mocks.state.providerConfigs["claude-cli"].localCliIsolation).toBe(true)
     rerender(<LlmProviderSection />)
-    expect(within(card).getByText("已隔离，不会使用全局 CLI 配置。")).toBeInTheDocument()
+    expect(within(card).getByText("已隔离（部分）：本机 CLI 登录仍生效，Claude Code 仍读取用户设置与 CLAUDE.md。")).toBeInTheDocument()
     fireEvent.click(within(card).getByLabelText("隔离本地 CLI 配置"))
     expect(mocks.state.providerConfigs["claude-cli"].localCliIsolation).toBe(false)
+  })
+
+  it("localCliIsolation toggle is offered for Claude/Codex only, not the antigravity/Gemini card", () => {
+    mocks.LLM_PRESETS.push({ id: "antigravity-cli", label: "AntigravityCli", provider: "antigravity-cli" })
+    render(<LlmProviderSection />)
+    const codex = cardByLabel("CodexCli")
+    expandCard(codex)
+    expect(within(codex).getByLabelText("隔离本地 CLI 配置")).toBeInTheDocument()
+    const antigravity = cardByLabel("AntigravityCli")
+    expandCard(antigravity)
+    // the antigravity status pill proves the card body is expanded
+    expect(within(antigravity).getByText("CLI 状态")).toBeInTheDocument()
+    expect(within(antigravity).queryByLabelText("隔离本地 CLI 配置")).not.toBeInTheDocument()
   })
 
   it("codex-cli timeout input: numeric clamp, NaN → undefined, out-of-range clamp", () => {
@@ -810,16 +830,20 @@ describe("LlmProviderSection — local CLI pills", () => {
     const card = cardByLabel("CodexCli")
     expandCard(card)
     const timeoutInput = within(card).getByDisplayValue("10")
+    // 失焦才提交：输入中途不夹值
     fireEvent.change(timeoutInput, { target: { value: "30" } })
+    expect(mocks.state.providerConfigs["codex-cli"]?.codexCliTimeoutMinutes).toBeUndefined()
+    fireEvent.blur(timeoutInput)
     expect(mocks.state.providerConfigs["codex-cli"].codexCliTimeoutMinutes).toBe(30)
-    // a non-numeric value in a number input sanitizes to "" → 0 → clamp 1.
-    // The `Number.isFinite(n) ? … : undefined` else-branch is unreachable via
-    // the number input (see unreachable list).
+    // 非数字在 number 输入里被清成 ""：失焦还原，不写入
     fireEvent.change(timeoutInput, { target: { value: "abc" } })
-    expect(mocks.state.providerConfigs["codex-cli"].codexCliTimeoutMinutes).toBe(1)
+    fireEvent.blur(timeoutInput)
+    expect(mocks.state.providerConfigs["codex-cli"].codexCliTimeoutMinutes).toBe(30)
     fireEvent.change(timeoutInput, { target: { value: "500" } })
+    fireEvent.blur(timeoutInput)
     expect(mocks.state.providerConfigs["codex-cli"].codexCliTimeoutMinutes).toBe(240)
     fireEvent.change(timeoutInput, { target: { value: "0" } })
+    fireEvent.keyDown(timeoutInput, { key: "Enter" })
     expect(mocks.state.providerConfigs["codex-cli"].codexCliTimeoutMinutes).toBe(1)
     // override present → derived value uses it
     mocks.state.providerConfigs["codex-cli"].codexCliTimeoutMinutes = 42
@@ -884,19 +908,27 @@ describe("LlmProviderSection — api key, model picker, context & reasoning", ()
     // 初始：无配置 → 空
     expect(input.value).toBe("")
     // 输入合法值 → 写入 override
+    // 失焦才提交：敲 "4" 时不会被抬到 256
+    fireEvent.change(input, { target: { value: "4" } })
+    expect(mocks.state.providerConfigs["openai-main"]?.maxOutputTokens).toBeUndefined()
     fireEvent.change(input, { target: { value: "8192" } })
+    fireEvent.blur(input)
     expect(mocks.state.providerConfigs["openai-main"].maxOutputTokens).toBe(8192)
     // 重渲染回读
     rerender(<LlmProviderSection />)
     expect((within(card).getByPlaceholderText("4096") as HTMLInputElement).value).toBe("8192")
-    // 低于下限 → 抬到 256
-    fireEvent.change(within(card).getByPlaceholderText("4096"), { target: { value: "100" } })
+    // 低于下限 → 提交时抬到 256
+    const field = () => within(card).getByPlaceholderText("4096")
+    fireEvent.change(field(), { target: { value: "100" } })
+    fireEvent.blur(field())
     expect(mocks.state.providerConfigs["openai-main"].maxOutputTokens).toBe(256)
-    // number 输入对非法字符在浏览器层过滤（abc → ""）→ undefined（零行为变更）
-    fireEvent.change(within(card).getByPlaceholderText("4096"), { target: { value: "abc" } })
+    // number 输入对非法字符在浏览器层过滤（abc → ""）→ 清空 → undefined（回到默认）
+    fireEvent.change(field(), { target: { value: "abc" } })
+    fireEvent.blur(field())
     expect(mocks.state.providerConfigs["openai-main"].maxOutputTokens).toBeUndefined()
-    // 清空 → undefined
-    fireEvent.change(within(card).getByPlaceholderText("4096"), { target: { value: "" } })
+    // 已为空时再清空：不写入
+    fireEvent.change(field(), { target: { value: "" } })
+    fireEvent.blur(field())
     expect(mocks.state.providerConfigs["openai-main"].maxOutputTokens).toBeUndefined()
   })
 
@@ -1153,3 +1185,19 @@ describe("cursor proxy status badge (audit ①-2 / ③-13)", () => {
     })
   })
 
+describe("LlmProviderSection a11y", () => {
+  it("PresetRow：单一展开按钮 + 固定名称 switch（状态走 aria-checked）", () => {
+    mocks.state.providerConfigs = {}
+    render(<LlmProviderSection />)
+    const card = cardByLabel("OpenAI")
+    const sw = within(card).getByRole("switch", { name: "启用 OpenAI" })
+    expect(sw).toHaveAttribute("aria-checked", "false")
+    const toggle = within(card).getByTitle("展开配置")
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    expect(document.getElementById(toggle.getAttribute("aria-controls")!)).toBeInTheDocument()
+    // 字段 label 通过 htmlFor 关联
+    expect(within(card).getByLabelText("API 密钥")).toHaveAttribute("type", "password")
+  })
+})

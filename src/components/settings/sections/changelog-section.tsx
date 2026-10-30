@@ -32,7 +32,7 @@ export function ChangelogSection() {
   async function handleCheckUpdate() {
     if (!isTauri()) {
       setUpdateStatus("error")
-      setErrorMessage("仅桌面版支持自动更新检测")
+      setErrorMessage(t("settings.sections.changelog.desktopOnly"))
       return
     }
     setUpdateStatus("checking")
@@ -112,7 +112,7 @@ export function ChangelogSection() {
           {t("settings.sections.changelog.title", { defaultValue: "软件更新日志" })}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          当前版本：v{__APP_VERSION__}
+          {t("settings.sections.changelog.currentVersion", { version: __APP_VERSION__ })}
         </p>
       </div>
 
@@ -126,21 +126,21 @@ export function ChangelogSection() {
             className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <RefreshCw className={`h-4 w-4 ${updateStatus === "checking" ? "animate-spin" : ""}`} />
-            {updateStatus === "checking" ? "正在检查..." : "检查更新"}
+            {updateStatus === "checking" ? t("settings.sections.changelog.checking") : t("settings.sections.changelog.checkUpdate")}
           </button>
 
           {updateStatus === "up-to-date" && (
-            <span className="inline-flex items-center gap-1.5 text-sm text-success">
-              <CheckCircle className="h-4 w-4" />
-              当前已是最新版本
+            <span role="status" className="inline-flex items-center gap-1.5 text-sm text-success-foreground">
+              <CheckCircle className="h-4 w-4" aria-hidden="true" />
+              {t("settings.sections.changelog.upToDate")}
             </span>
           )}
 
           {updateStatus === "error" && (
             /* v8 ignore start */
-            <span className="inline-flex items-center gap-1.5 text-sm text-destructive">
-              <AlertCircle className="h-4 w-4" />
-              {errorMessage || "检查更新失败"}
+            <span role="alert" className="inline-flex items-center gap-1.5 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4" aria-hidden="true" />
+              {errorMessage || t("settings.sections.changelog.checkFailed")}
             </span>
             /* v8 ignore stop */
           )}
@@ -148,23 +148,23 @@ export function ChangelogSection() {
 
         {/* Update available banner */}
         {updateStatus === "available" && (
-          <div className="mt-3 rounded-md border border-warning bg-warning p-3 dark:border-warning/60 dark:bg-warning/40">
-            <div className="flex items-center justify-between">
+          <div role="status" className="mt-3 rounded-md border border-warning/60 bg-warning/10 p-3">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-medium text-warning">
-                  发现新版本：v{latestVersion}
+                <p className="text-sm font-medium text-foreground">
+                  {t("settings.sections.changelog.updateAvailable", { version: latestVersion })}
                 </p>
                 {updateNotes && (
-                  <p className="mt-1 text-xs text-warning">{updateNotes}</p>
+                  <p className="mt-1 whitespace-pre-line text-xs text-muted-foreground">{updateNotes}</p>
                 )}
               </div>
               <button
                 type="button"
                 onClick={() => void handleDownloadUpdate()}
-                className="inline-flex items-center gap-1.5 rounded-md bg-warning px-3 py-1.5 text-xs font-medium text-white hover:bg-warning"
+                className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <Download className="h-3.5 w-3.5" />
-                下载更新
+                <Download className="h-4 w-4" aria-hidden="true" />
+                {t("settings.sections.changelog.download")}
               </button>
             </div>
           </div>
@@ -188,17 +188,18 @@ export function ChangelogSection() {
 
         {/* Ready to install banner */}
         {updateStatus === "ready" && (
-          <div className="mt-3 rounded-md border border-success bg-success p-3 dark:border-success/60 dark:bg-success/40">
-            <p className="text-sm font-medium text-success">
-              ✅ 更新已下载完成！安装时会关闭当前软件，请确保已保存编辑内容。
+          <div role="status" className="mt-3 rounded-md border border-success/60 bg-success/10 p-3">
+            <p className="flex items-start gap-1.5 text-sm font-medium text-foreground">
+              <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-success-foreground" aria-hidden="true" />
+              <span>{t("settings.sections.changelog.readyToInstall")}</span>
             </p>
             <button
               type="button"
               onClick={() => void handleInstallNow()}
-              className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-success px-4 py-2 text-sm font-medium text-white hover:bg-success"
+              className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <Download className="h-4 w-4" />
-              立即安装
+              <Download className="h-4 w-4" aria-hidden="true" />
+              {t("settings.sections.changelog.installNow")}
             </button>
           </div>
         )}
@@ -228,7 +229,7 @@ export function ChangelogSection() {
                 </span>
                 <span className="text-xs text-muted-foreground">{entry.date}</span>
                 {entry.version === __APP_VERSION__ && (
-                  <span className="text-xs text-success">{t("settings.sections.changelog.current")}</span>
+                  <span className="text-xs text-success-foreground">{t("settings.sections.changelog.current")}</span>
                 )}
               </div>
               <ul className="mt-3 space-y-2 text-sm leading-relaxed text-foreground/90">
@@ -253,9 +254,10 @@ export function ChangelogSection() {
                       return next
                     })
                   }}
-                  className="mt-3 text-xs font-medium text-primary hover:underline"
+                  aria-expanded={isExpanded}
+                  className="mt-3 inline-flex min-h-6 items-center rounded-sm text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  {isExpanded ? "收起" : `查看更多 ${hiddenCount} 条`}
+                  {isExpanded ? t("settings.sections.changelog.collapse") : t("settings.sections.changelog.showMore", { hidden: hiddenCount })}
                 </button>
               )}
             </div>

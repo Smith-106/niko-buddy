@@ -82,12 +82,14 @@ export function WebhookSection() {
         {notice && <p className="text-xs text-muted-foreground">{notice}</p>}
         <div className="flex flex-wrap gap-2">
           <Input
+            aria-label={t("novel.webhook.urlLabel")}
             placeholder={t("novel.webhook.urlPh") ?? "https://example.com/hook"}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             className="max-w-[240px]"
           />
           <Input
+            aria-label={t("novel.webhook.secretLabel")}
             placeholder={t("novel.webhook.secretPh") ?? "HMAC 密钥"}
             value={secret}
             onChange={(e) => setSecret(e.target.value)}

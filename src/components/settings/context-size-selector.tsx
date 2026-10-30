@@ -35,9 +35,12 @@ function formatSize(tokens: number): string {
 export function ContextSizeSelector({
   value,
   onChange,
+  id,
 }: {
   value: number
   onChange: (v: number) => void
+  /** 滑块 id，供外部 <Label htmlFor> 关联可访问名。 */
+  id?: string
 }) {
   const closestIndex = CONTEXT_PRESETS.reduce((best, preset, i) => {
     return Math.abs(preset.value - value) < Math.abs(CONTEXT_PRESETS[best].value - value)
@@ -55,7 +58,9 @@ export function ContextSizeSelector({
         </span>
       </div>
       <input
+        id={id}
         type="range"
+        aria-valuetext={formatSize(value)}
         min={0}
         max={CONTEXT_PRESETS.length - 1}
         step={1}
@@ -72,7 +77,8 @@ export function ContextSizeSelector({
             key={preset.value}
             type="button"
             onClick={() => onChange(preset.value)}
-            className={`text-xs px-0.5 ${
+            aria-pressed={i === closestIndex}
+            className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs px-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
               i === closestIndex ? "text-primary font-bold" : "text-muted-foreground"
             }`}
           >

@@ -202,15 +202,22 @@ describe("EmbeddingSection", () => {
 
   it("toggle 从关闭切到开启：写回 store 并自动展开", () => {
     render(<EmbeddingSection draft={makeDraft()} setDraft={mocks.setDraft} />)
-    expect(screen.getByTitle("settings.sections.llm.expand")).toBeTruthy()
-    fireEvent.click(screen.getByLabelText("settings.sections.llm.activate"))
+    const toggle = screen.getByTitle("settings.sections.llm.expand")
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    const enableSwitch = screen.getByRole("switch", { name: "settings.sections.embedding.enableLabel" })
+    expect(enableSwitch).toHaveAttribute("aria-checked", "false")
+    fireEvent.click(enableSwitch)
     expect(mocks.setDraft).toHaveBeenCalledWith("embeddingEnabled", true)
     expect(screen.getByTitle("settings.sections.llm.collapse")).toBeTruthy()
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    expect(document.getElementById(toggle.getAttribute("aria-controls")!)).toBeInTheDocument()
   })
 
   it("toggle 从开启切到关闭：写回 store", () => {
     render(<EmbeddingSection draft={makeDraft({ embeddingEnabled: true })} setDraft={mocks.setDraft} />)
-    fireEvent.click(screen.getByLabelText("settings.sections.llm.deactivate"))
+    const enableSwitch = screen.getByRole("switch", { name: "settings.sections.embedding.enableLabel" })
+    expect(enableSwitch).toHaveAttribute("aria-checked", "true")
+    fireEvent.click(enableSwitch)
     expect(mocks.setDraft).toHaveBeenCalledWith("embeddingEnabled", false)
   })
 

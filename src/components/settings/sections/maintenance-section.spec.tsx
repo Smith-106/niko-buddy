@@ -234,6 +234,12 @@ describe("MaintenanceSection — 扫描流程", () => {
     // 切换 canonical → 合并按钮文案使用新 slug
     fireEvent.click(screen.getByLabelText("张先生"))
     expect((screen.getByLabelText("张先生") as HTMLInputElement).checked).toBe(true)
+    // A7：单选组由可见说明文字命名，不再是孤立 <Label>
+    const groups = screen.getAllByRole("radiogroup", { name: "settings.sections.maintenance.dedup.canonicalLabel" })
+    expect(groups.length).toBeGreaterThan(1)
+    expect(groups[0]).toContainElement(firstRadio)
+    const orphans = Array.from(document.querySelectorAll("label")).filter((l) => !(l as HTMLLabelElement).control)
+    expect(orphans).toHaveLength(0)
   })
 
   it("扫描完成且无分组 → noneFound 提示", async () => {

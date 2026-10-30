@@ -800,7 +800,19 @@
         "failedModel": "失败模型：",
         "customModel": "自定义模型配置",
         "configName": "配置名称",
-        "addModelHint": "将当前输入的模型添加到已选列表，多个用逗号分隔"
+        "addModelHint": "将当前输入的模型添加到已选列表，多个用逗号分隔",
+        "retryFailedModels": "重试失败模型",
+        "removeModel": "移除 {{name}}",
+        "defaultCustomLabel": "自定义模型",
+        "emptyCustomConfigs": "暂未添加任何模型配置",
+        "confirmDeleteConfig": "确定删除此配置吗？",
+        "deleteConfig": "删除此配置",
+        "notConfigured": "未配置",
+        "modelChipHint": "点击模型标签选择/取消，未选择时默认全部可用",
+        "selectAll": "全选",
+        "modelInputAddPlaceholder": "输入模型名称按回车添加",
+        "modelInputPlaceholder": "输入模型名称或拉取后选择",
+        "add": "添加"
       },
       "usageGuide": {
         "title": "软件使用说明",
@@ -881,7 +893,8 @@
         "endpointPreviewWillUse": "将使用",
         "endpointPreviewAutoApply": "，失焦后自动应用",
         "cliStrip": {
-          "title": "本地 CLI 探针"
+          "title": "本地 CLI 探针",
+          "unavailable": "不可用"
         },
         "cliStatus": {
           "title": "CLI 状态",
@@ -927,9 +940,9 @@
         "azureModelFamilyGpt5": "GPT-5 / o 系列",
         "azureModelFamilyHint": "Azure 部署名可自定义，必要时手动声明 GPT-5 或 o 系列行为。",
         "localCliIsolation": "隔离本地 CLI 配置",
-        "localCliIsolationHint": "为 Claude/Codex CLI 使用隔离配置目录，避免读写用户全局 CLI 配置。",
-        "localCliIsolationOn": "已隔离，不会使用全局 CLI 配置。",
-        "localCliIsolationOff": "未隔离，将继承本机 CLI 登录状态。",
+        "localCliIsolationHint": "开启后：Claude Code 不启用内置工具、MCP 服务器与斜杠命令，不保存会话；Codex 跳过用户 config.toml 与执行策略规则，并移除 API Key/Base URL 环境变量。本机 CLI 登录仍生效，Claude Code 仍读取 ~/.claude/settings.json 与 CLAUDE.md。",
+        "localCliIsolationOn": "已隔离（部分）：本机 CLI 登录仍生效，Claude Code 仍读取用户设置与 CLAUDE.md。",
+        "localCliIsolationOff": "未隔离：使用本机 CLI 登录状态与全部本地配置。",
         "codexCliTimeout": "Codex CLI 超时",
         "codexCliTimeoutUnit": "分钟",
         "codexCliTimeoutHint": "长文本生成的子进程总超时时间，可设置 1-240 分钟。",
@@ -971,7 +984,9 @@
           "stopping": "停止中…",
           "title": "Cursor 代理状态",
           "unavailable": "代理不可用"
-        }
+        },
+        "enableProvider": "启用 {{name}}",
+        "httpTimeoutDefault": "默认"
       },
       "embedding": {
         "title": "向量检索/Embedding模型",
@@ -1008,7 +1023,8 @@
         "reconcileSkipped": "索引检查已跳过：{{count}} 个页面读取/生成索引失败，清单不完整（本次不清理旧数据）。",
         "reconcileSkippedEmpty": "索引对账已跳过：没有可对账的清单。",
         "testSuccessWithDimensions": "嵌入模型测试成功：{{model}}（{{dimensions}}维）",
-        "siliconHint": "为什么选择硅基流动：国内访问稳定，提供 BGE 等常用向量模型，适合资料库语义搜索。"
+        "siliconHint": "为什么选择硅基流动：国内访问稳定，提供 BGE 等常用向量模型，适合资料库语义搜索。",
+        "siliconLink": "硅基流动向量模型"
       },
       "rerank": {
         "title": "重排/Reranker模型",
@@ -1031,7 +1047,9 @@
         "modelPlaceholder": "输入重排模型 ID",
         "modelHint": "这里可以用更便宜、更快的模型，只要它能稳定遵循指令并返回 JSON。",
         "testSuccessUsingMainModel": "已通过主模型完成重排测试：{{model}}",
-        "siliconHint": "为什么选择硅基流动：国内访问稳定，模型列表完整，适合配置轻量重排模型降低成本。"
+        "siliconHint": "为什么选择硅基流动：国内访问稳定，模型列表完整，适合配置轻量重排模型降低成本。",
+        "siliconLink": "硅基流动重排模型",
+        "providerCustom": "自定义"
       },
       "multimodal": {
         "title": "图片描述",
@@ -1150,7 +1168,15 @@
         "description": "界面语言和外观样式。切换后立即生效并持久化。",
         "uiLanguage": "UI 语言",
         "uiLanguageHint": "只影响按钮、标签这些 UI 文案,不影响 AI 输出语言(那个在\"输出偏好\"里单独设置)。",
-        "fontSize": "界面字号"
+        "fontSize": "界面字号",
+        "fontSizePresets": "字号预设",
+        "fontPresets": {
+          "small": "小",
+          "default": "默认",
+          "large": "大",
+          "extraLarge": "特大"
+        },
+        "fontSizeHint": "调整整个应用的字号，保存后立即生效。"
       },
       "novel": {
         "title": "小说",
@@ -1212,7 +1238,8 @@
             "boostHint": ">1 加强，<1 减弱",
             "avoidWords": "避用词",
             "avoidWordsHint": "逗号分隔，生成时禁用"
-          }
+          },
+          "wordsPlaceholder": "仿佛、不禁"
         }
       },
       "maintenance": {
@@ -1254,7 +1281,23 @@
           "novelHelpTitle": "写小说的话，这个功能有什么用？"
         },
         "divergenceTraceTitle": "双写一致性差异留痕 (divergence trace)",
-        "divergenceTraceEmpty": "暂无差异留痕（未发生过双写不一致，或尚未生成）。"
+        "divergenceTraceEmpty": "暂无差异留痕（未发生过双写不一致，或尚未生成）。",
+        "vectorHealth": {
+          "title": "向量库健康",
+          "summary": "Chunk总数 {{chunks}} · 旧表残留 {{legacy}}",
+          "compact": "立即压缩",
+          "compacting": "压缩中…",
+          "compactionDone": "压缩完成",
+          "compactionDoneCount": "压缩完成，已合并 {{count}} 个 chunk",
+          "reconcile": "对账校验",
+          "reconciling": "对账中…",
+          "reconcileDone": "对账完成",
+          "reconcileSkipped": "已跳过（无预置索引清单，请先触发索引构建）",
+          "drop": "清理旧版残留",
+          "dropping": "清理中…",
+          "dropDone": "旧版残留已清理",
+          "refresh": "刷新"
+        }
       },
       "dataManagement": {
         "vectorCleanFailed": "清理遗留向量表失败",
@@ -1311,14 +1354,32 @@
         "vectorLoading": "加载中…",
         "vectorNoProject": "请先打开项目",
         "vectorRefresh": "刷新",
-        "vectorTitle": "向量库"
+        "vectorTitle": "向量库",
+        "importStrategyFull": "完全覆盖（清除当前所有数据）",
+        "importStrategyGlobalOnly": "仅导入全局配置（模型、UI偏好）",
+        "importStrategyFullShort": "完全覆盖（清除当前所有数据）",
+        "importStrategyGlobalOnlyShort": "仅导入全局配置",
+        "importConfirm": "导入备份（{{strategy}}）将改写现有数据，继续吗？",
+        "importConfirmFull2": "再次确认：完全覆盖不可恢复，确定继续导入吗？"
       },
       "changelog": {
         "title": "版本更新",
         "description": "这里展示当前版本值得关注的变化。",
         "downloading": "正在下载更新...",
         "history": "版本历史",
-        "current": "\\u2190 当前版本"
+        "current": "← 当前版本",
+        "desktopOnly": "仅桌面版支持自动更新检测",
+        "currentVersion": "当前版本：v{{version}}",
+        "checking": "正在检查...",
+        "checkUpdate": "检查更新",
+        "upToDate": "当前已是最新版本",
+        "checkFailed": "检查更新失败",
+        "updateAvailable": "发现新版本：v{{version}}",
+        "download": "下载更新",
+        "readyToInstall": "更新已下载完成！安装时会关闭当前软件，请确保已保存编辑内容。",
+        "installNow": "立即安装",
+        "collapse": "收起",
+        "showMore": "查看更多 {{hidden}} 条"
       },
       "about": {
         "title": "关于",
@@ -1361,7 +1422,8 @@
         "testOk": "连接成功，发现 {{count}} 个可用工具。",
         "testFail": "连接失败",
         "testNeedCommand": "请先填写启动命令",
-        "testNotAllowed": "请先启用该 MCP 服务"
+        "testNotAllowed": "请先启用该 MCP 服务",
+        "enableServer": "启用 {{name}}"
       }
     },
     "llm": "模型",
@@ -1390,7 +1452,37 @@
       "content": "反馈内容",
       "contentPlaceholder": "请尽量描述你遇到的问题、期望的效果，或者建议的使用场景。",
       "contact": "联系方式（选填）",
-      "contactPlaceholder": "邮箱、微信或其他联系方式"
+      "contactPlaceholder": "邮箱、微信或其他联系方式",
+      "submitting": "提交中...",
+      "submit": "提交反馈"
+    },
+    "saving": "正在保存…",
+    "unsavedHint": "有未保存的改动。",
+    "saveFailed": "保存失败：{{error}}",
+    "autoSaveHint": "本页的改动会立即自动保存。",
+    "listSeparator": "、",
+    "otherDomainsDirty": "另有未保存的改动：{{domains}}。请到对应页面保存。",
+    "saveScope": {
+      "model": "保存范围：模型与检索设置。",
+      "storage": "保存范围：网络与写作设置。",
+      "interface": "保存范围：界面设置。"
+    },
+    "domainName": {
+      "model": "模型与检索",
+      "storage": "网络与写作",
+      "interface": "界面"
+    },
+    "navGroups": {
+      "models": "模型与工具",
+      "writing": "写作",
+      "app": "应用",
+      "data": "数据",
+      "help": "帮助与支持"
+    },
+    "proxyToast": {
+      "emptyUrl": "代理已开启但地址为空，本次未生效。请填写代理地址，或关闭代理。",
+      "notApplied": "代理未生效：{{summary}}",
+      "applyFailed": "代理设置应用失败（重启后仍会生效）：{{error}}"
     }
   },
   "preview": {
@@ -1978,7 +2070,10 @@
       "taskCustom_outline": "大纲生成",
       "taskCustom_review": "六维审查",
       "taskCustom_summary": "章节摘要",
-      "taskCustom_extract": "设定提取"
+      "taskCustom_extract": "设定提取",
+      "experimentalOptions": "实验性选项",
+      "experimentalOptionsHint": "默认值保持零行为变更，改动前请先阅读各项说明",
+      "taskCustomPromptAria": "{{task}} 附加提示词"
     },
     "soul": {
       "projectSoul": "项目灵魂",
@@ -2767,7 +2862,9 @@
       "sigOk": "验签通过（sha256 一致）",
       "sigBad": "验签失败",
       "urlPh": "https://example.com/hook",
-      "secretPh": "HMAC 密钥"
+      "secretPh": "HMAC 密钥",
+      "urlLabel": "Webhook 回调 URL",
+      "secretLabel": "HMAC 签名密钥"
     },
     "doctor": {
       "title": "项目医生",
