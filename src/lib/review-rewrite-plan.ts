@@ -77,7 +77,7 @@ export function parseReviewRewritePlan(raw: string): ReviewRewriteEdit[] {
     .trim()
   if (!cleaned) return []
 
-  const jsonText = extractJsonArray(cleaned)
+  const jsonText = extractReviewRewriteJsonArray(cleaned)
   if (!jsonText) return []
 
   try {
@@ -162,7 +162,15 @@ export function applyReviewRewriteEditsToMarkdown(markdown: string, edits: Revie
   return { ok: true, markdown: currentMarkdown, applied }
 }
 
-function extractJsonArray(text: string): string | null {
+/**
+ * 从 LLM 原始输出中截出 JSON 数组文本（首个 `[` 到最后一个 `]`）。
+ *
+ * 公开导出的原因：`parseReviewRewritePlan` 的契约是「解析失败 → 空数组」，
+ * 调用方无法区分「输出里根本没有 JSON」与「JSON 合法但 0 条修改」。
+ * 需要区分两者的调用方（如 de-ai 原位编辑）用本 helper 自行判定，
+ * 从而在不改动既有解析契约的前提下补齐失败态。
+ */
+export function extractReviewRewriteJsonArray(text: string): string | null {
   const start = text.indexOf("[")
   const end = text.lastIndexOf("]")
   if (start < 0 || end <= start) return null

@@ -83,7 +83,9 @@ export {
   loadSmartDeAiSkill,
   runDeAiDetection,
   parseDeAiEditPlan,
+  parseDeAiEditPlanChecked,
   applyDeAiSpanEdits,
+  extractDeAiChapterBody,
   DEFAULT_DE_AI_MODE,
 } from "./de-ai-adapter"
 export type {
@@ -92,6 +94,8 @@ export type {
   DeAiDetectResult,
   DeAiSpanEdit,
   DeAiSpanApplyResult,
+  DeAiEditPlanParseResult,
+  DeAiEditError,
 } from "./de-ai-adapter"
 export { acceptAllDeAiBatchDrafts, acceptDeAiBatchDraft, loadDeAiBatchState, rejectDeAiBatchDraft, runDeAiBatch } from "./de-ai-batch"
 export type { DeAiBatchOptions, DeAiBatchProgress, DeAiBatchSummary } from "./de-ai-batch"

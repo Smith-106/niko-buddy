@@ -134,7 +134,11 @@ const mocks = vi.hoisted(() => {
     rebuildChapterBody: vi.fn((h: string, b: string) => (h ? `# ${h}\n\n${b}` : b)),
     replaceChapterBodySelection: vi.fn<(currentBody: string, selection: ChapterBodySelection, replacement: string) => { ok: true; body: string } | { ok: false; reason: "changed" | "empty" }>(() => ({ ok: true as const, body: "new-body" })),
     replaceWholeChapterBody: vi.fn((_c: string, r: string) => r),
-    splitChapterHeading: vi.fn((b: string) => ({ heading: "第一章", body: b })),
+    splitChapterHeading: vi.fn((b: string) => {
+      const match = b.match(/^#\s+(.+)$/m)
+      if (!match) return { heading: "第一章", body: b }
+      return { heading: match[1], body: b.replace(/^#\s+.+$(\r?\n)?/m, "").replace(/^\n+/, "") }
+    }),
     shouldUseCompactChapterToolbar: vi.fn(() => compactToolbar.value),
     getPreviewContentContainerClass: vi.fn(() => "container-class"),
   }
@@ -366,13 +370,21 @@ vi.mock("@/components/novel/de-ai-preview-dialog", () => ({
       data-open={String(props.open)}
       data-mode={props.mode}
       data-has-failed={String(Boolean(props.editResult && !props.editResult.ok))}
+      data-processing={String(Boolean(props.processing))}
+      data-edit-error={props.editError ?? ""}
+      data-candidate={props.candidateContent}
+      data-applied={props.editResult && props.editResult.ok ? String(props.editResult.applied.length) : ""}
     >
-      <button data-testid="de-ai-switch-detect" onClick={() => props.onModeChange?.("detect")}>detect</button>
-      <button data-testid="de-ai-switch-rewrite" onClick={() => props.onModeChange?.("rewrite")}>rewrite</button>
-      <button data-testid="de-ai-switch-edit" onClick={() => props.onModeChange?.("edit")}>edit</button>
-      <button data-testid="de-ai-apply" onClick={props.onApply}>apply</button>
-      <button data-testid="de-ai-save-draft" onClick={props.onSaveDraft}>draft</button>
-      <button data-testid="de-ai-close" onClick={props.onClose}>close</button>
+      {props.open && (
+        <>
+          <button data-testid="de-ai-switch-detect" onClick={() => props.onModeChange?.("detect")}>detect</button>
+          <button data-testid="de-ai-switch-rewrite" onClick={() => props.onModeChange?.("rewrite")}>rewrite</button>
+          <button data-testid="de-ai-switch-edit" onClick={() => props.onModeChange?.("edit")}>edit</button>
+          <button data-testid="de-ai-apply" onClick={props.onApply}>apply</button>
+          <button data-testid="de-ai-save-draft" onClick={props.onSaveDraft}>draft</button>
+          <button data-testid="de-ai-close" onClick={props.onClose}>close</button>
+        </>
+      )}
     </div>
   ),
 }))
@@ -1395,11 +1407,22 @@ describe("PreviewPanel 一键排版与去AI味", () => {
     cleanup()
   })
 
-  it("去AI味三模式：edit 模式正常应用 LLM 片段修改并允许写回正文", async () => {
+  it("去AI味三模式：edit 模式正常应用 LLM 片段修改并允许写回正文（RV-008 真实 applier 断言）", async () => {
     chapterSetup()
-    // 预置可唯一匹配的章节正文
-    mocks.state.fileContent = "# 第一章 测试\n\n院子里落满了枯叶。显而易见的事实摆在眼前。天色渐暗。"
-    mocks.readFile.mockResolvedValue("# 第一章 测试\n\n院子里落满了枯叶。显而易见的事实摆在眼前。天色渐暗。")
+    // 预置可唯一匹配的章节正文（带 frontmatter + 一级标题，验证回写保留）
+    const chapterMarkdown = [
+      "---",
+      'title: "第一章 测试"',
+      "chapter_number: 1",
+      "---",
+      "",
+      "# 第一章 测试",
+      "",
+      "院子里落满了枯叶。显而易见的事实摆在眼前。天色渐暗。",
+      "",
+    ].join("\n")
+    mocks.state.fileContent = chapterMarkdown
+    mocks.readFile.mockResolvedValue(chapterMarkdown)
 
     // 首轮 rewrite
     mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: any) => {
@@ -1425,14 +1448,39 @@ describe("PreviewPanel 一键排版与去AI味", () => {
       return Promise.resolve()
     })
 
-    fireEvent.click(screen.getByTestId("de-ai-switch-edit"))
-    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.mode).toBe("edit"))
-    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.hasFailed).toBe("false"))
+    // RV-008: 局部启用真实替换逻辑，断言「真正替换后的正文」落入候选正文与写盘内容
+    const origReplace = mocks.replaceChapterBodySelection.getMockImplementation()
+    mocks.replaceChapterBodySelection.mockImplementation((currentBody, selection, replacement) => ({
+      ok: true as const,
+      body: currentBody.replace(selection.text, replacement),
+    }))
 
-    // 应用并保存
-    fireEvent.click(screen.getByTestId("de-ai-apply"))
-    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
-    expect(mocks.writeFileAtomic.mock.calls[0][1]).toContain("new-body")
+    try {
+      fireEvent.click(screen.getByTestId("de-ai-switch-edit"))
+      await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.mode).toBe("edit"))
+      await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.hasFailed).toBe("false"))
+      await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.applied).toBe("1"))
+
+      // RV-006: edit 请求只带章节正文（frontmatter 与 H1 不进入 LLM 输入）
+      const editMessages = mocks.streamChat.mock.calls[1][1] as Array<{ role: string; content: string }>
+      expect(editMessages[1].content).not.toContain("chapter_number")
+      expect(editMessages[1].content).not.toContain("# 第一章 测试")
+      expect(editMessages[1].content).toContain("显而易见的事实摆在眼前")
+
+      fireEvent.click(screen.getByTestId("de-ai-apply"))
+      await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+      const written = String(mocks.writeFileAtomic.mock.calls[0][1])
+      expect(written).toContain("真相就在眼前")
+      expect(written).not.toContain("显而易见的事实摆在眼前")
+      expect(written).toContain("院子里落满了枯叶。")
+      // RV-006: apply 经 replaceWholeChapterBody 写回，首参为保留 frontmatter/标题的原全文
+      expect(mocks.replaceWholeChapterBody).toHaveBeenCalledWith(
+        chapterMarkdown,
+        expect.stringContaining("真相就在眼前"),
+      )
+    } finally {
+      if (origReplace) mocks.replaceChapterBodySelection.mockImplementation(origReplace)
+    }
     cleanup()
   })
 
@@ -1469,6 +1517,187 @@ describe("PreviewPanel 一键排版与去AI味", () => {
 
     mocks.writeFileAtomic.mockClear()
     // 点击 apply 与 save draft 被拦截，不发起写盘
+    fireEvent.click(screen.getByTestId("de-ai-apply"))
+    fireEvent.click(screen.getByTestId("de-ai-save-draft"))
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    cleanup()
+  })
+
+  // ── ISS-20260802-003 correction round 1: RV-001 / RV-002 / RV-004 ────────
+  it("RV-001: 切模式后流未落定时禁用写回，且旧模式候选被清空（apply 不会写回别的模式的内容）", async () => {
+    chapterSetup()
+    const pending: Array<{ onToken: (token: string) => void; onDone: () => void }> = []
+    // 首轮 rewrite 立即完成（对话框打开，candidate=旧模式内容）
+    mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: any) => {
+      cb.onToken("旧模式的改写正文")
+      cb.onDone()
+      return Promise.resolve()
+    })
+    // 切 edit 后的流挂起，由用例手动落定
+    mocks.streamChat.mockImplementation((_c: unknown, _m: unknown, cb: any) => {
+      pending.push(cb)
+      return Promise.resolve()
+    })
+
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("去AI味"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
+    expect(screen.getByTestId("de-ai-dialog").dataset.candidate).toContain("旧模式的改写正文")
+
+    fireEvent.click(screen.getByTestId("de-ai-switch-edit"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.processing).toBe("true"))
+
+    // 处理中：旧模式候选已清空，apply / save-draft 不得写盘
+    expect(screen.getByTestId("de-ai-dialog").dataset.candidate).toBe("")
+    mocks.writeFileAtomic.mockClear()
+    fireEvent.click(screen.getByTestId("de-ai-apply"))
+    fireEvent.click(screen.getByTestId("de-ai-save-draft"))
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+
+    // 流落定后 edit 结果才能被应用
+    await act(async () => {
+      pending[0].onToken(JSON.stringify([
+        { original_text: "正文第一段。", replacement_text: "改过的正文第一段。" },
+      ]))
+      pending[0].onDone()
+    })
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.processing).toBe("false"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.mode).toBe("edit"))
+    expect(screen.getByTestId("de-ai-dialog").dataset.applied).toBe("1")
+    expect(screen.getByTestId("de-ai-dialog").dataset.candidate).toContain("new-body")
+
+    fireEvent.click(screen.getByTestId("de-ai-apply"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+    expect(String(mocks.writeFileAtomic.mock.calls[0][1])).toContain("new-body")
+    cleanup()
+  })
+
+  it("RV-001: 被取代的流（切到 detect 后落定）不得覆写模式或候选", async () => {
+    chapterSetup()
+    const pending: Array<{ onToken: (token: string) => void; onDone: () => void }> = []
+    mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: any) => {
+      cb.onToken("初始改写")
+      cb.onDone()
+      return Promise.resolve()
+    })
+    mocks.streamChat.mockImplementation((_c: unknown, _m: unknown, cb: any) => {
+      pending.push(cb)
+      return Promise.resolve()
+    })
+
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("去AI味"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
+
+    // edit 流在途 → 切回 detect（作废代际）
+    fireEvent.click(screen.getByTestId("de-ai-switch-edit"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.processing).toBe("true"))
+    fireEvent.click(screen.getByTestId("de-ai-switch-detect"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.mode).toBe("detect"))
+
+    // 过期的 edit 流此时才落定：不得把模式改回 edit、不得写入候选
+    await act(async () => {
+      pending[0].onToken(JSON.stringify([
+        { original_text: "正文第一段。", replacement_text: "过期替换。" },
+      ]))
+      pending[0].onDone()
+    })
+    await flushAsync(20)
+    expect(screen.getByTestId("de-ai-dialog").dataset.mode).toBe("detect")
+    expect(screen.getByTestId("de-ai-dialog").dataset.applied).toBe("")
+    expect(screen.getByTestId("de-ai-dialog").dataset.candidate).not.toContain("过期替换。")
+    cleanup()
+  })
+
+  it("RV-004: 关闭对话框作废在途流，onDone 不再重开对话框", async () => {
+    chapterSetup()
+    const pending: Array<{ onToken: (token: string) => void; onDone: () => void }> = []
+    mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: any) => {
+      cb.onToken("初始改写")
+      cb.onDone()
+      return Promise.resolve()
+    })
+    mocks.streamChat.mockImplementation((_c: unknown, _m: unknown, cb: any) => {
+      pending.push(cb)
+      return Promise.resolve()
+    })
+
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("去AI味"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
+
+    fireEvent.click(screen.getByTestId("de-ai-switch-edit"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.processing).toBe("true"))
+
+    fireEvent.click(screen.getByTestId("de-ai-close"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("false"))
+
+    await act(async () => {
+      pending[0].onToken(JSON.stringify([
+        { original_text: "正文第一段。", replacement_text: "关闭后的替换。" },
+      ]))
+      pending[0].onDone()
+    })
+    await flushAsync(20)
+    expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("false")
+    expect(screen.getByTestId("de-ai-dialog").dataset.processing).toBe("false")
+    cleanup()
+  })
+
+  it("RV-002: edit 输出不可解析 → 错误态且禁止写回正文/草稿", async () => {
+    chapterSetup()
+    mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: any) => {
+      cb.onToken("初始改写")
+      cb.onDone()
+      return Promise.resolve()
+    })
+    mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: any) => {
+      cb.onToken("我把这句话改得更自然了一些。")
+      cb.onDone()
+      return Promise.resolve()
+    })
+
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("去AI味"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
+
+    fireEvent.click(screen.getByTestId("de-ai-switch-edit"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.editError).toBe("unparseable"))
+    expect(screen.getByTestId("de-ai-dialog").dataset.candidate).toBe("")
+    expect(screen.getByTestId("de-ai-dialog").dataset.hasFailed).toBe("false")
+
+    mocks.writeFileAtomic.mockClear()
+    fireEvent.click(screen.getByTestId("de-ai-apply"))
+    fireEvent.click(screen.getByTestId("de-ai-save-draft"))
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    cleanup()
+  })
+
+  it("RV-002: edit 合法但 0 处修改（[]）→ 无可应用内容，禁止写回", async () => {
+    chapterSetup()
+    mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: any) => {
+      cb.onToken("初始改写")
+      cb.onDone()
+      return Promise.resolve()
+    })
+    mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: any) => {
+      cb.onToken("[]")
+      cb.onDone()
+      return Promise.resolve()
+    })
+
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("去AI味"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
+
+    fireEvent.click(screen.getByTestId("de-ai-switch-edit"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.applied).toBe("0"))
+    expect(screen.getByTestId("de-ai-dialog").dataset.editError).toBe("")
+
+    mocks.writeFileAtomic.mockClear()
     fireEvent.click(screen.getByTestId("de-ai-apply"))
     fireEvent.click(screen.getByTestId("de-ai-save-draft"))
     await flushAsync(20)

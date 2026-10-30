@@ -2,12 +2,15 @@ import type { ChatMessage } from "@/lib/llm-providers"
 import { readFileSync } from "node:fs"
 import { readFile } from "@/commands/fs"
 import { join, resourceDir } from "@tauri-apps/api/path"
+import { parseFrontmatter } from "@/lib/frontmatter"
+import { splitChapterHeading } from "@/lib/chapter-selection"
 import { HUMANIZER_CAVITY_GUARD } from "./de-ai-rules"
 import { detectTieredDeAi } from "./de-ai-tiered-table"
 import { slopScore, classifySlop } from "./mechanical-slop-detector"
 import {
   parseReviewRewritePlan,
   applyReviewRewriteEditsToMarkdown,
+  extractReviewRewriteJsonArray,
   type ReviewRewriteEdit,
   type ReviewRewriteApplyResult,
 } from "@/lib/review-rewrite-plan"
@@ -161,8 +164,69 @@ export type DeAiSpanEdit = ReviewRewriteEdit
 /** 原位替换校验与执行结果 */
 export type DeAiSpanApplyResult = ReviewRewriteApplyResult
 
+/** 机械层（tier1/tier2 词库 + tier3 正则）命中项在 UI 上的通用分类/建议 id（ASCII）。 */
+export const DE_AI_SLOP_CATEGORY = "机械词"
+export const DE_AI_SLOP_SUGGESTION = "建议删除或替换为具体生动的描写"
+
+/** 单个正则命中区间（tier3 用正则自身定位，索引指向被展示的原文）。 */
+interface RegexSpan {
+  readonly term: string
+  readonly startIndex: number
+  readonly endIndex: number
+}
+
+/**
+ * 取出章节**正文**（去 YAML frontmatter + 去一级标题），供 detect / edit 模式使用。
+ *
+ * 原因（RV-006）：整篇 fileContent 含 frontmatter 与 `# 章标题`：
+ *  - detect 会把 frontmatter 字段值当成 AI 痕迹列出来（噪声）；
+ *  - edit 模式下 LLM 返回的 `original_text` 若指向 frontmatter，
+ *    `findUniqueExactReviewRewriteAnchor` 只在正文里找，永远定位不到 → 整批 ok:false。
+ *
+ * 复用既有正文切分链：`parseFrontmatter` → `splitChapterHeading`（与
+ * replaceWholeChapterBody / review-rewrite-plan 完全一致）。回写仍走
+ * `replaceWholeChapterBody`，因此 frontmatter 与标题原样保留。
+ */
+export function extractDeAiChapterBody(markdown: string): string {
+  if (!markdown) return ""
+  const { body } = parseFrontmatter(markdown)
+  return splitChapterHeading(body).body
+}
+
+/**
+ * 用正则自身在文本中定位全部非空命中。
+ *
+ * 必要性：`SlopHit.kw` 对 tier3 是**正则 source**（如 `既[^，。]{1,8}又[^，。]{1,8}`），
+ * 用 `text.indexOf(kw)` 永远找不到（实测 65 条 tier3 模式中 33 条含元字符）。
+ * 这里用 `matchAll` + `g` 旗标取回真实匹配文本与偏移。
+ */
+function matchRegexSpans(text: string, source: string): RegexSpan[] {
+  const spans: RegexSpan[] = []
+  if (!source) return spans
+  let re: RegExp
+  try {
+    re = new RegExp(source, "g")
+  } catch {
+    // 词库正则均为模块级常量（构造期已验证）；单条非法 source 跳过，不让整个检测失败。
+    return spans
+  }
+  for (const match of text.matchAll(re)) {
+    const term = match[0]
+    const startIndex = match.index
+    if (!term || startIndex === undefined) continue
+    spans.push({ term, startIndex, endIndex: startIndex + term.length })
+  }
+  return spans
+}
+
 /**
  * 纯静态检测正文中 AI 味与机械腔（零 LLM，零写盘）
+ *
+ * 偏移语义（RV-003）：所有 `startIndex/endIndex` 都相对**传入的原文**（= 对话框实际
+ * 展示的文本）计算，不经过归一化副本。机械层分数 `slopScore` 内部会做 NFKC + 零宽
+ * 剥离 + 同形字还原后再统计，因此「只在归一化后才命中」的样本（如 `显\u200b而易见`）
+ * 会进入分数但不会产出可定位命中项——这是有意取舍：宁可少标注，也不把偏移指向
+ * 错位的字符。不在此处重建 normalizer（避免两套归一化漂移）。
  */
 export function runDeAiDetection(text: string): DeAiDetectResult {
   if (!text || !text.trim()) {
@@ -187,10 +251,12 @@ export function runDeAiDetection(text: string): DeAiDetectResult {
     suggestion: string
   }> = []
 
-  // 1. Tiered table hits (112 词分级表)
+  // 1. Tiered table hits (112 词分级表，字面词条 → indexOf 定位)
   const tiered = detectTieredDeAi(text)
   for (const item of tiered) {
     const { entry } = item
+    // 空词条守卫：indexOf("") 恒为 0 且 pos 不前进 → 无限 push（RV-007）
+    if (!entry.term) continue
     let pos = text.indexOf(entry.term)
     while (pos !== -1) {
       rawHits.push({
@@ -205,10 +271,11 @@ export function runDeAiDetection(text: string): DeAiDetectResult {
     }
   }
 
-  // 2. SlopReport hits (机械层正则与词库命中项补充)
   const seenSpans = new Set(rawHits.map((h) => `${h.startIndex}:${h.endIndex}`))
-  const allSlopHits = [...report.tier1Hits, ...report.tier2Hits, ...report.tier3Hits]
-  for (const slop of allSlopHits) {
+
+  // 2. 机械层字面词库命中（tier1/tier2：kw 是字面词，indexOf 可定位）
+  for (const slop of [...report.tier1Hits, ...report.tier2Hits]) {
+    if (!slop.kw) continue
     let pos = text.indexOf(slop.kw)
     while (pos !== -1) {
       const spanKey = `${pos}:${pos + slop.kw.length}`
@@ -216,14 +283,31 @@ export function runDeAiDetection(text: string): DeAiDetectResult {
         seenSpans.add(spanKey)
         rawHits.push({
           term: slop.kw,
-          category: "机械词",
+          category: DE_AI_SLOP_CATEGORY,
           tier: "slop",
           startIndex: pos,
           endIndex: pos + slop.kw.length,
-          suggestion: "建议删除或替换为具体生动的描写",
+          suggestion: DE_AI_SLOP_SUGGESTION,
         })
       }
       pos = text.indexOf(slop.kw, pos + slop.kw.length)
+    }
+  }
+
+  // 3. 机械层正则命中（tier3：kw 是正则 source → 必须用正则自身定位，见 matchRegexSpans）
+  for (const slop of report.tier3Hits) {
+    for (const span of matchRegexSpans(text, slop.kw)) {
+      const spanKey = `${span.startIndex}:${span.endIndex}`
+      if (seenSpans.has(spanKey)) continue
+      seenSpans.add(spanKey)
+      rawHits.push({
+        term: span.term,
+        category: DE_AI_SLOP_CATEGORY,
+        tier: "slop",
+        startIndex: span.startIndex,
+        endIndex: span.endIndex,
+        suggestion: DE_AI_SLOP_SUGGESTION,
+      })
     }
   }
 
@@ -287,9 +371,49 @@ export function buildDeAiEditMessages(
 /**
  * 解析原位编辑 LLM 输出的 JSON 片段改写数组
  * 复用 review-rewrite-plan 中的 parseReviewRewritePlan
+ *
+ * 注意：契约保持「解析不出 → []」（其它调用方依赖）。需要区分「输出不可解析」与
+ * 「解析成功但 0 条修改」的调用方用 `parseDeAiEditPlanChecked`。
  */
 export function parseDeAiEditPlan(raw: string): DeAiSpanEdit[] {
   return parseReviewRewritePlan(raw)
+}
+
+/** edit 模式解析结果：区分「输出不可解析」与「可解析但 0 条修改」 */
+export type DeAiEditPlanParseResult =
+  | { readonly ok: true; readonly edits: readonly DeAiSpanEdit[] }
+  | { readonly ok: false; readonly reason: "unparseable" }
+
+/** edit 模式失败态（供 UI 展示 / 禁用写回）：模型输出不可解析 */
+export type DeAiEditError = "unparseable"
+
+/**
+ * 严格版解析：LLM 输出里根本没有可解析的 JSON 数组 → ok:false。
+ *
+ * 不改 `parseReviewRewritePlan` 契约（它把「无 JSON / 截断 / 非数组」统一压成 []），
+ * 本包装先跑它，再在结果为 0 条时用 `extractReviewRewriteJsonArray` 判断
+ * 「输出里是否存在合法 JSON 数组」：
+ *  - 有数组（含 `[]`、或元素缺 original/replacement 被过滤）→ ok:true, edits=[]（= 无可应用修改）
+ *  - 无数组 / JSON 语法错误 / 非数组 → ok:false（= 模型输出不可解析，必须报错且禁止写回）
+ */
+export function parseDeAiEditPlanChecked(raw: string): DeAiEditPlanParseResult {
+  const edits = parseReviewRewritePlan(raw)
+  if (edits.length > 0) return { ok: true, edits }
+
+  const cleaned = raw
+    .trim()
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim()
+  const jsonText = extractReviewRewriteJsonArray(cleaned)
+  if (!jsonText) return { ok: false, reason: "unparseable" }
+  try {
+    const parsed: unknown = JSON.parse(jsonText)
+    if (!Array.isArray(parsed)) return { ok: false, reason: "unparseable" }
+    return { ok: true, edits: [] }
+  } catch {
+    return { ok: false, reason: "unparseable" }
+  }
 }
 
 /**

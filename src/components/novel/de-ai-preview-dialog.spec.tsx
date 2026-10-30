@@ -329,4 +329,149 @@ describe("DeAiPreviewDialog (RPC-2 / TASK-005)", () => {
     expect(screen.getByTestId("de-ai-mode-rewrite")).toBeDisabled()
     expect(screen.getByTestId("de-ai-mode-edit")).toBeDisabled()
   })
+
+  it("RV-001: 处理中（processing）即使已有候选正文也禁用替换正文与另存草稿", () => {
+    const onApply = vi.fn()
+    const onSaveDraft = vi.fn()
+
+    render(
+      <DeAiPreviewDialog
+        open
+        sourceContent="原文"
+        candidateContent="上一轮生成但已过期的候选正文"
+        mode="rewrite"
+        processing={true}
+        onModeChange={() => {}}
+        onApply={onApply}
+        onSaveDraft={onSaveDraft}
+        onClose={() => {}}
+      />,
+    )
+
+    const applyBtn = screen.getByTestId("de-ai-apply")
+    const saveDraftBtn = screen.getByTestId("de-ai-save-draft")
+    expect(applyBtn).toBeDisabled()
+    expect(saveDraftBtn).toBeDisabled()
+
+    fireEvent.click(applyBtn)
+    fireEvent.click(saveDraftBtn)
+    expect(onApply).not.toHaveBeenCalled()
+    expect(onSaveDraft).not.toHaveBeenCalled()
+  })
+
+  it("RV-002: edit 模式解析失败（editError=unparseable）→ 错误提示 + 禁用写回", () => {
+    const onApply = vi.fn()
+    const onSaveDraft = vi.fn()
+
+    render(
+      <DeAiPreviewDialog
+        open
+        sourceContent="原文"
+        candidateContent=""
+        mode="edit"
+        editResult={null}
+        editError="unparseable"
+        onModeChange={() => {}}
+        onApply={onApply}
+        onSaveDraft={onSaveDraft}
+        onClose={() => {}}
+      />,
+    )
+
+    expect(screen.getByTestId("de-ai-apply")).toBeDisabled()
+    expect(screen.getByTestId("de-ai-save-draft")).toBeDisabled()
+
+    const statusBanner = screen.getByTestId("de-ai-edit-status")
+    expect(statusBanner).toHaveTextContent("无法解析")
+    expect(statusBanner.className).toContain("rose")
+  })
+
+  it("RV-002: edit 模式 0 处应用 → 无可应用提示 + 禁用写回", () => {
+    const onApply = vi.fn()
+
+    render(
+      <DeAiPreviewDialog
+        open
+        sourceContent="原文"
+        candidateContent="原文"
+        mode="edit"
+        editResult={{ ok: true as const, markdown: "原文", applied: [] }}
+        onModeChange={() => {}}
+        onApply={onApply}
+        onSaveDraft={() => {}}
+        onClose={() => {}}
+      />,
+    )
+
+    expect(screen.getByTestId("de-ai-apply")).toBeDisabled()
+    expect(screen.getByTestId("de-ai-save-draft")).toBeDisabled()
+    expect(screen.getByTestId("de-ai-edit-status")).toHaveTextContent("无可替换内容")
+
+    fireEvent.click(screen.getByTestId("de-ai-apply"))
+    expect(onApply).not.toHaveBeenCalled()
+  })
+
+  it("RV-005: 命中词条的 category / tier / suggestion 经 i18n 渲染（无硬编码中文 span）", () => {
+    const detectResult = {
+      hits: [
+        {
+          id: "hit-1",
+          term: "既紧张又兴奋",
+          category: "机械词",
+          tier: "slop" as const,
+          startIndex: 1,
+          endIndex: 7,
+          suggestion: "建议删除或替换为具体生动的描写",
+        },
+      ],
+      slopPenalty: 4,
+      slopClass: "warn" as const,
+      markedText: "他【既紧张又兴奋】。",
+    }
+
+    render(
+      <DeAiPreviewDialog
+        open
+        sourceContent="他既紧张又兴奋。"
+        candidateContent=""
+        mode="detect"
+        detectResult={detectResult}
+        onModeChange={() => {}}
+        onApply={() => {}}
+        onSaveDraft={() => {}}
+        onClose={() => {}}
+      />,
+    )
+
+    // 机械层 tier 徽标走 i18n key（zh: 机械层），不是原始 tier 值 "slop"
+    expect(screen.getByText("机械层")).toBeInTheDocument()
+    expect(screen.queryByText("Tier slop")).toBeNull()
+    // slopClass 徽标同样走 i18n
+    expect(screen.getByText("需注意")).toBeInTheDocument()
+  })
+
+  it("RV-005: 锚点冲突只由 i18n 文案表达，不再有硬编码「处冲突」span", () => {
+    render(
+      <DeAiPreviewDialog
+        open
+        sourceContent="原文"
+        candidateContent="改文"
+        mode="edit"
+        editResult={{
+          ok: false as const,
+          markdown: "改文",
+          applied: [],
+          failed: [{ id: "edit-1", originalText: "甲", replacementText: "乙" }],
+        }}
+        onModeChange={() => {}}
+        onApply={() => {}}
+        onSaveDraft={() => {}}
+        onClose={() => {}}
+      />,
+    )
+
+    const statusBanner = screen.getByTestId("de-ai-edit-status")
+    expect(statusBanner).toHaveTextContent("存在 1 处锚点定位冲突")
+    expect(statusBanner).not.toHaveTextContent("(1 处冲突)")
+  })
 })

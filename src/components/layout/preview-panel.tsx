@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next"
 import { Check } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel, isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus, resolveReviewModel, buildDeAiRewriteMessages, acceptAllDeAiBatchDrafts, acceptDeAiBatchDraft, loadDeAiBatchState, rejectDeAiBatchDraft, runDeAiBatch, startOutlineIngestTask, DEFAULT_DE_AI_MODE } from "@/lib/novel"
-import type { DeAiBatchProgress, DeAiBatchSummary, DeAiMode, DeAiDetectResult, DeAiSpanApplyResult } from "@/lib/novel"
+import type { DeAiBatchProgress, DeAiBatchSummary, DeAiMode, DeAiDetectResult, DeAiSpanApplyResult, DeAiEditError } from "@/lib/novel"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { deleteFile, fileExists, readFile, writeFileAtomic, listDirectory } from "@/commands/fs"
@@ -91,6 +91,12 @@ export function PreviewPanel() {
   const [deAiMode, setDeAiMode] = useState<DeAiMode>(DEFAULT_DE_AI_MODE)
   const [deAiDetectResult, setDeAiDetectResult] = useState<DeAiDetectResult | null>(null)
   const [deAiEditResult, setDeAiEditResult] = useState<DeAiSpanApplyResult | null>(null)
+  // RV-002: edit 模式的「输出不可解析」失败态（区别于锚点冲突 / 0 处修改）
+  const [deAiEditError, setDeAiEditError] = useState<DeAiEditError | null>(null)
+  // RV-001/RV-004: 单章去AI味流的请求代际 + 取消控制器（对齐 batchAbortRef 模式）。
+  // 切模式 / 关对话框 / 切章都会 +1 并 abort，过期的 onDone/onError 一律丢弃。
+  const deAiGenerationRef = useRef(0)
+  const deAiAbortRef = useRef<AbortController | null>(null)
   // 选中文本去AI味/AI润色入口：防重入护栏 + deadline 控制器 + 取消（perf-fix-ds 前端侧）
   const [selectionActionPending, setSelectionActionPending] = useState(false)
   const selectionActionInFlightRef = useRef(false)
@@ -209,6 +215,11 @@ export function PreviewPanel() {
     selectedFileRef.current = selectedFile
     setSelectionTransformOpen(false)
     setDeAiPreviewOpen(false)
+    // RV-004: 切章同样作废在途单章流（否则旧章的流落定后会重开对话框/覆写候选）
+    deAiGenerationRef.current += 1
+    deAiAbortRef.current?.abort()
+    deAiAbortRef.current = null
+    setDeAiProcessing(false)
     setLoadedFilePath(null)
 
     if (!selectedFile) {
@@ -758,20 +769,43 @@ export function PreviewPanel() {
     startOutlineIngestTask(project.path, selectedFile)
   }, [canIngestOutline, isOutlineIngesting, project, selectedFile])
 
+  /** RV-001/RV-004: 作废在途的单章去AI味流（切模式 / 关对话框 / 切章调用） */
+  const cancelDeAiStream = useCallback(() => {
+    deAiGenerationRef.current += 1
+    deAiAbortRef.current?.abort()
+    deAiAbortRef.current = null
+    setDeAiProcessing(false)
+  }, [])
+
+  /** 清空上一模式产出的候选正文与校验结果（RV-001：apply 永不可能写回别的模式的内容） */
+  const clearDeAiOutput = useCallback(() => {
+    setDeAiCandidateContent("")
+    setDeAiEditResult(null)
+    setDeAiEditError(null)
+    setDeAiDetectResult(null)
+  }, [])
+
   const handleDeAiProcess = useCallback(async (targetMode: DeAiMode = DEFAULT_DE_AI_MODE) => {
     if (!fileContent.trim()) return
     const source = fileContent
     const sourceFile = selectedFileRef.current
+    // 请求代际：切模式 / 关对话框 / 切章都 +1；过期流的 onDone/onError 一律丢弃。
+    const generation = deAiGenerationRef.current + 1
+    deAiGenerationRef.current = generation
+    const isStale = () => deAiGenerationRef.current !== generation
+    clearDeAiOutput()
 
     if (targetMode === "detect") {
       setDeAiProcessing(false)
-      const { runDeAiDetection } = await import("@/lib/novel/de-ai-adapter")
-      const detectResult = runDeAiDetection(source)
+      const { runDeAiDetection, extractDeAiChapterBody } = await import("@/lib/novel/de-ai-adapter")
+      if (isStale()) return
+      // RV-006: 只看章节正文（frontmatter + 一级标题不计入检测）
+      const body = extractDeAiChapterBody(source)
+      const detectResult = runDeAiDetection(body)
       setDeAiMode("detect")
-      setDeAiSourceContent(source)
-      setDeAiCandidateContent(source)
+      setDeAiSourceContent(body)
+      setDeAiCandidateContent(body)
       setDeAiDetectResult(detectResult)
-      setDeAiEditResult(null)
       setDeAiPreviewOpen(true)
       return
     }
@@ -782,22 +816,28 @@ export function PreviewPanel() {
       setDeAiProcessing(false)
       return
     }
-    const { loadSmartDeAiSkill, buildDeAiEditMessages, parseDeAiEditPlan, applyDeAiSpanEdits } = await import("@/lib/novel/de-ai-adapter")
+    const { loadSmartDeAiSkill, buildDeAiEditMessages, parseDeAiEditPlanChecked, applyDeAiSpanEdits, extractDeAiChapterBody } = await import("@/lib/novel/de-ai-adapter")
     let customDeAiSkill: string | null = null
     try {
       customDeAiSkill = await loadSmartDeAiSkill(project?.path ?? null, "去AI味润色", undefined)
     } catch (err) {
       // R4 共识（deepseek+glm high）: 原 await 在 try 外 ⇒ 失败后 deAiProcessing 永久为 true
       //（按钮卡在“处理中”）且形成未处理 rejection。
+      if (isStale()) return
       setSaveStatus(formatOperationError(t, err))
       setDeAiProcessing(false)
       return
     }
+    if (isStale()) return
 
+    // RV-006: edit 模式只对章节正文发请求（frontmatter/H1 排除）；rewrite 模式保持全量内容不变。
+    const chapterBody = extractDeAiChapterBody(source)
     const messages = targetMode === "edit"
-      ? buildDeAiEditMessages(source, customDeAiSkill || undefined)
+      ? buildDeAiEditMessages(chapterBody, customDeAiSkill || undefined)
       : buildDeAiRewriteMessages(source, customDeAiSkill || undefined)
 
+    const controller = new AbortController()
+    deAiAbortRef.current = controller
     let result = ""
     try {
       await streamChat(
@@ -808,18 +848,28 @@ export function PreviewPanel() {
             result += token
           },
           onDone: () => {
+            // RV-001/RV-004: 被切模式/关对话框作废的流不得再改任何状态
+            if (isStale()) return
             // R4 共识（deepseek+qwen high）: 缺文件切换守卫 ⇒ 切章后旧流仍会打开预览对话框。
             if (selectedFileRef.current !== sourceFile) {
               setDeAiProcessing(false)
               return
             }
+            deAiAbortRef.current = null
             setDeAiMode(targetMode)
-            setDeAiSourceContent(source)
+            setDeAiSourceContent(targetMode === "edit" ? chapterBody : source)
             if (targetMode === "edit") {
-              const edits = parseDeAiEditPlan(result)
-              const editRes = applyDeAiSpanEdits(source, edits)
-              setDeAiEditResult(editRes)
-              setDeAiCandidateContent(editRes.markdown)
+              const plan = parseDeAiEditPlanChecked(result)
+              if (!plan.ok) {
+                // RV-002: 不可解析 ⇒ 错误态 + 禁用写回（绝不把空/垃圾当成 0 处修改）
+                setDeAiEditError(plan.reason)
+                setDeAiEditResult(null)
+                setDeAiCandidateContent("")
+              } else {
+                const editRes = applyDeAiSpanEdits(chapterBody, [...plan.edits])
+                setDeAiEditResult(editRes)
+                setDeAiCandidateContent(editRes.markdown)
+              }
             } else {
               setDeAiEditResult(null)
               setDeAiCandidateContent(result)
@@ -828,30 +878,39 @@ export function PreviewPanel() {
             setDeAiProcessing(false)
           },
           onError: (error) => {
+            if (isStale()) return
+            deAiAbortRef.current = null
             console.error("去AI味处理失败:", toErrorMessage(error))
             setDeAiProcessing(false)
           },
         },
+        controller.signal,
       )
     } catch (err) {
+      if (isStale()) return
+      deAiAbortRef.current = null
       console.error("去AI味处理失败:", toErrorMessage(err))
       setDeAiProcessing(false)
     }
-  }, [fileContent, project, t])
+  }, [fileContent, project, t, clearDeAiOutput])
 
   const handleDeAiModeChange = useCallback(async (newMode: DeAiMode) => {
     if (newMode === deAiMode) return
     if (newMode === "detect") {
+      // RV-001: 切模式先作废在途流，并清空上一模式候选/校验结果
+      cancelDeAiStream()
+      clearDeAiOutput()
+      const { runDeAiDetection, extractDeAiChapterBody } = await import("@/lib/novel/de-ai-adapter")
+      const body = extractDeAiChapterBody(deAiSourceContent || fileContent)
       setDeAiMode("detect")
-      const { runDeAiDetection } = await import("@/lib/novel/de-ai-adapter")
-      const source = deAiSourceContent || fileContent
-      const detectResult = runDeAiDetection(source)
-      setDeAiDetectResult(detectResult)
-      setDeAiEditResult(null)
+      setDeAiSourceContent(body)
+      setDeAiCandidateContent(body)
+      setDeAiDetectResult(runDeAiDetection(body))
       return
     }
+    // rewrite/edit：由 handleDeAiProcess 统一代际自增 + 清空旧产出
     await handleDeAiProcess(newMode)
-  }, [deAiMode, deAiSourceContent, fileContent, handleDeAiProcess])
+  }, [deAiMode, deAiSourceContent, fileContent, handleDeAiProcess, cancelDeAiStream, clearDeAiOutput])
 
   // Wave 4 (v2.5.0): 批量去AI味 — 一键全书 + 进度 + 结果回填（lib API 纯薄壳）
   const refreshBatchChapters = useCallback(async () => {
@@ -940,16 +999,29 @@ export function PreviewPanel() {
     setBatchDialogOpen(false)
   }, [])
 
+  /**
+   * 写回前置条件（RV-001/RV-002）：
+   * - 处理中（流未落定）/ 无候选正文 → 一律禁止
+   * - detect 模式 → 永不写盘
+   * - edit 模式：解析失败 / 锚点冲突 / 0 处应用 → 禁止
+   */
+  const deAiWriteBlocked = useMemo(() => {
+    if (deAiMode === "detect") return true
+    if (deAiProcessing) return true
+    if (!deAiCandidateContent.trim()) return true
+    if (deAiMode !== "edit") return false
+    if (deAiEditError) return true
+    return !deAiEditResult || !deAiEditResult.ok || deAiEditResult.applied.length === 0
+  }, [deAiCandidateContent, deAiEditError, deAiEditResult, deAiMode, deAiProcessing])
+
   const handleDeAiApply = useCallback(() => {
-    if (deAiMode === "detect") return
-    if (deAiMode === "edit" && deAiEditResult && !deAiEditResult.ok) return
+    if (deAiWriteBlocked) return
     setDeAiPreviewOpen(false)
     handleSave(replaceWholeChapterBody(fileContent, deAiCandidateContent))
-  }, [deAiCandidateContent, deAiEditResult, deAiMode, fileContent, handleSave])
+  }, [deAiCandidateContent, deAiWriteBlocked, fileContent, handleSave])
 
   const handleDeAiSaveDraft = useCallback(async () => {
-    if (deAiMode === "detect") return
-    if (deAiMode === "edit" && deAiEditResult && !deAiEditResult.ok) return
+    if (deAiWriteBlocked) return
     if (!selectedFile || !project) return
     const normalizedPath = selectedFile.replace(/\\/g, "/")
     const dir = normalizedPath.substring(0, normalizedPath.lastIndexOf("/") + 1)
@@ -965,11 +1037,13 @@ export function PreviewPanel() {
     } catch (err) {
       console.error("另存去AI味草稿失败:", err)
     }
-  }, [deAiMode, deAiEditResult, selectedFile, project, deAiCandidateContent, setFileTree, bumpDataVersion])
+  }, [deAiWriteBlocked, selectedFile, project, deAiCandidateContent, setFileTree, bumpDataVersion])
 
   const handleDeAiClose = useCallback(() => {
+    // RV-004: 关闭对话框即取消/作废在途单章流，onDone 不得再打开对话框或覆写状态
+    cancelDeAiStream()
     setDeAiPreviewOpen(false)
-  }, [])
+  }, [cancelDeAiStream])
 
   const handleSelectionActionCancel = useCallback(() => {
     selectionActionAbortRef.current?.abort()
@@ -1312,6 +1386,7 @@ export function PreviewPanel() {
         mode={deAiMode}
         detectResult={deAiDetectResult}
         editResult={deAiEditResult}
+        editError={deAiEditError}
         processing={deAiProcessing}
         onModeChange={(mode) => void handleDeAiModeChange(mode)}
         onApply={handleDeAiApply}

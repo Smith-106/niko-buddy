@@ -46,7 +46,9 @@ import {
   runDeAiDetection,
   buildDeAiEditMessages,
   parseDeAiEditPlan,
+  parseDeAiEditPlanChecked,
   applyDeAiSpanEdits,
+  extractDeAiChapterBody,
 } from "./de-ai-adapter"
 
 beforeEach(() => {
@@ -539,5 +541,117 @@ tags: [test]
       expect(result.applied).toHaveLength(1)
       expect(result.applied[0].edit.id).toBe("edit-pass")
     }
+  })
+})
+
+// ── ISS-20260802-003 correction round 1 ───────────────────────────────────────
+describe("RV-003: tier3 机械层正则命中必须用正则自身定位", () => {
+  it("probe 句：既…又… / 不禁感到 / 嘴角勾起一丝 三个正则命中都能定位到原文", () => {
+    const probe = "他既紧张又兴奋，不禁感到一丝慌乱，嘴角勾起一丝笑。"
+    const result = runDeAiDetection(probe)
+    const slopTerms = result.hits.filter((h) => h.tier === "slop").map((h) => h.term)
+    expect(slopTerms).toContain("既紧张又兴奋")
+    expect(slopTerms).toContain("不禁感到")
+    expect(slopTerms).toContain("嘴角勾起一丝")
+
+    // 偏移必须指向原文中真实存在的片段（而不是正则 source）
+    for (const hit of result.hits) {
+      expect(probe.slice(hit.startIndex, hit.endIndex)).toBe(hit.term)
+    }
+    expect(result.markedText).toBe("他【既紧张又兴奋】，【不禁感到】一丝慌乱，【嘴角勾起一丝】笑。")
+  })
+
+  it("正则命中项的 term 是匹配文本而非正则 source", () => {
+    const result = runDeAiDetection("空气中弥漫着一股焦糊味。")
+    const hit = result.hits.find((h) => h.term === "空气中弥漫着")
+    expect(hit).toBeDefined()
+    expect(hit?.tier).toBe("slop")
+    expect(result.hits.some((h) => h.term.includes("["))).toBe(false)
+  })
+
+  it("字面词库命中（tier1/tier2）仍按字面定位，不被正则分支影响", () => {
+    const content = "显而易见，他推开门走了出去。"
+    const result = runDeAiDetection(content)
+    const hit = result.hits.find((h) => h.term === "显而易见")
+    expect(hit?.tier).toBe("1A")
+    expect(hit?.startIndex).toBe(0)
+    expect(hit?.endIndex).toBe(4)
+  })
+})
+
+describe("RV-002: parseDeAiEditPlanChecked 区分「不可解析」与「0 处修改」", () => {
+  it("纯文本（无 JSON 数组）→ unparseable", () => {
+    expect(parseDeAiEditPlanChecked("我把这句话改得更自然了一些。")).toEqual({
+      ok: false,
+      reason: "unparseable",
+    })
+    expect(parseDeAiEditPlanChecked("")).toEqual({ ok: false, reason: "unparseable" })
+    expect(parseDeAiEditPlanChecked("   \n  ")).toEqual({ ok: false, reason: "unparseable" })
+  })
+
+  it("截断/非法 JSON → unparseable", () => {
+    expect(parseDeAiEditPlanChecked('[{"original_text":"甲","replacement_text":"乙"')).toEqual({
+      ok: false,
+      reason: "unparseable",
+    })
+    expect(parseDeAiEditPlanChecked('[{"original_text": }]')).toEqual({
+      ok: false,
+      reason: "unparseable",
+    })
+  })
+
+  it("合法空数组 / 元素缺字段 → ok:true 但 0 处修改", () => {
+    expect(parseDeAiEditPlanChecked("[]")).toEqual({ ok: true, edits: [] })
+    expect(parseDeAiEditPlanChecked('[{"note":"只有说明没有原文"}]')).toEqual({ ok: true, edits: [] })
+    expect(parseDeAiEditPlanChecked('```json\n[]\n```')).toEqual({ ok: true, edits: [] })
+  })
+
+  it("合法数组 → 透传解析结果（与 parseDeAiEditPlan 一致）", () => {
+    const raw = '```json\n[{"original_text":"显而易见的事实","replacement_text":"真相"}]\n```'
+    const checked = parseDeAiEditPlanChecked(raw)
+    expect(checked.ok).toBe(true)
+    if (checked.ok) {
+      expect(checked.edits).toEqual(parseDeAiEditPlan(raw))
+      expect(checked.edits).toHaveLength(1)
+      expect(checked.edits[0].originalText).toBe("显而易见的事实")
+    }
+  })
+
+  it("parseDeAiEditPlan 既有契约不变（不可解析仍返回 []）", () => {
+    expect(parseDeAiEditPlan("完全不是 JSON")).toEqual([])
+    expect(parseDeAiEditPlan("[]")).toEqual([])
+  })
+})
+
+describe("RV-006: extractDeAiChapterBody 只取章节正文", () => {
+  it("剔除 YAML frontmatter 与一级标题，正文逐字保留", () => {
+    const md = [
+      "---",
+      'title: "第一章 出发"',
+      "chapter_number: 1",
+      "---",
+      "",
+      "# 第一章 出发",
+      "",
+      "院子里落满了枯叶。显而易见的事实摆在眼前。",
+      "",
+    ].join("\n")
+    const body = extractDeAiChapterBody(md)
+    expect(body).not.toContain("chapter_number")
+    expect(body).not.toContain("第一章 出发")
+    expect(body).toContain("院子里落满了枯叶。显而易见的事实摆在眼前。")
+  })
+
+  it("无 frontmatter / 无标题时原样返回", () => {
+    expect(extractDeAiChapterBody("正文第一段。\n\n正文第二段。")).toBe("正文第一段。\n\n正文第二段。")
+    expect(extractDeAiChapterBody("")).toBe("")
+  })
+
+  it("CRLF frontmatter 同样被剔除", () => {
+    const md = "---\r\ntitle: 甲\r\n---\r\n\r\n# 标题\r\n\r\n正文。"
+    const body = extractDeAiChapterBody(md)
+    expect(body).not.toContain("title")
+    expect(body).not.toContain("# 标题")
+    expect(body.trim()).toBe("正文。")
   })
 })

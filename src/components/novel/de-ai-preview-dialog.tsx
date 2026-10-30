@@ -9,8 +9,15 @@ import { Button } from "@/components/ui/button"
 import { MonacoDiffEditor } from "./monaco-diff-editor"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import type { DeAiMode, DeAiDetectResult, DeAiSpanApplyResult } from "@/lib/novel/de-ai-adapter"
+import type { DeAiMode, DeAiDetectResult, DeAiSpanApplyResult, DeAiEditError } from "@/lib/novel/de-ai-adapter"
 import { DEFAULT_DE_AI_MODE } from "@/lib/novel/de-ai-adapter"
+import {
+  DE_AI_HIT_CATEGORY_KEYS,
+  DE_AI_HIT_SUGGESTION_KEYS,
+  DE_AI_SLOP_CLASS_KEYS,
+  DE_AI_TIER_LABEL_KEY,
+  DE_AI_TIER_MECHANICAL_KEY,
+} from "./de-ai-hit-labels"
 
 export interface DeAiPreviewDialogProps {
   open: boolean
@@ -19,6 +26,8 @@ export interface DeAiPreviewDialogProps {
   mode?: DeAiMode
   detectResult?: DeAiDetectResult | null
   editResult?: DeAiSpanApplyResult | null
+  /** edit 模式失败态（RV-002）：模型输出不可解析 → 错误条 + 禁用写回 */
+  editError?: DeAiEditError | null
   processing?: boolean
   onModeChange?: (mode: DeAiMode) => void
   onApply: () => void
@@ -33,6 +42,7 @@ export function DeAiPreviewDialog({
   mode,
   detectResult,
   editResult,
+  editError,
   processing = false,
   onModeChange,
   onApply,
@@ -44,11 +54,20 @@ export function DeAiPreviewDialog({
 
   const hasFailed = Boolean(editResult && !editResult.ok)
   const failedCount = editResult && !editResult.ok ? editResult.failed.length : 0
-  const appliedCount = editResult ? editResult.applied.length : 0
+  const appliedCount = editResult && editResult.ok ? editResult.applied.length : 0
+  const hasParseError = editError === "unparseable"
+  // RV-002: 「无可应用修改」= 没有解析失败、没有锚点冲突，但 0 处实际应用
+  const nothingToApply = !hasParseError && !hasFailed && appliedCount === 0
+  // RV-001/RV-002: 处理中 / 无候选正文 / edit 侧任何失败态 → 禁止替换正文与另存草稿
+  const writeBlocked =
+    processing ||
+    candidateContent.trim().length === 0 ||
+    (currentMode === "edit" && (hasFailed || hasParseError || nothingToApply))
 
   const hitsCount = detectResult?.hits?.length ?? 0
   const slopPenalty = detectResult?.slopPenalty ?? 0
   const slopClass = detectResult?.slopClass ?? "clean"
+  const slopClassKey = DE_AI_SLOP_CLASS_KEYS[slopClass]
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
@@ -133,7 +152,7 @@ export function DeAiPreviewDialog({
                   slopClass === "block" && "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300",
                 )}
               >
-                {slopClass}
+                {slopClassKey ? t(slopClassKey) : slopClass}
               </span>
             </div>
 
@@ -143,16 +162,28 @@ export function DeAiPreviewDialog({
                   {t("novel.deai.detectHitsTitle")} ({hitsCount})
                 </div>
                 <div className="max-h-36 overflow-y-auto rounded-md border divide-y text-xs">
-                  {detectResult!.hits.map((hit) => (
-                    <div key={hit.id} className="flex items-center justify-between px-2.5 py-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-rose-600 dark:text-rose-400">「{hit.term}」</span>
-                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{hit.category}</span>
-                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">Tier {hit.tier}</span>
+                  {detectResult!.hits.map((hit) => {
+                    const categoryKey = DE_AI_HIT_CATEGORY_KEYS[hit.category]
+                    const suggestionKey = DE_AI_HIT_SUGGESTION_KEYS[hit.suggestion]
+                    return (
+                      <div key={hit.id} className="flex items-center justify-between px-2.5 py-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-rose-600 dark:text-rose-400">「{hit.term}」</span>
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            {categoryKey ? t(categoryKey) : hit.category}
+                          </span>
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            {hit.tier === "slop"
+                              ? t(DE_AI_TIER_MECHANICAL_KEY)
+                              : t(DE_AI_TIER_LABEL_KEY, { tier: hit.tier })}
+                          </span>
+                        </div>
+                        <span className="text-muted-foreground text-[11px]">
+                          {suggestionKey ? t(suggestionKey) : hit.suggestion}
+                        </span>
                       </div>
-                      <span className="text-muted-foreground text-[11px]">{hit.suggestion}</span>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )}
@@ -171,32 +202,31 @@ export function DeAiPreviewDialog({
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {currentMode === "edit" && editResult && (
+            {currentMode === "edit" && (editResult || hasParseError) && (
               <div
                 data-testid="de-ai-edit-status"
                 className={cn(
                   "flex items-center justify-between rounded-lg border px-3 py-2 text-xs",
-                  hasFailed
+                  hasFailed || hasParseError
                     ? "border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300"
                     : "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300",
                 )}
               >
                 <span className="font-medium">
-                  {hasFailed
-                    ? t("novel.deai.editConflictNotice", { failed: failedCount })
-                    : t("novel.deai.editsSummary", { applied: appliedCount, failed: 0 })}
+                  {hasParseError
+                    ? t("novel.deai.editParseError")
+                    : hasFailed
+                      ? t("novel.deai.editConflictNotice", { failed: failedCount })
+                      : appliedCount > 0
+                        ? t("novel.deai.editsSummary", { applied: appliedCount, failed: 0 })
+                        : t("novel.deai.editNoChanges")}
                 </span>
-                {hasFailed && (
-                  <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">
-                    ({failedCount} 处冲突)
-                  </span>
-                )}
               </div>
             )}
             <MonacoDiffEditor
               original={sourceContent}
               modified={candidateContent}
-              height={currentMode === "edit" && editResult ? 440 : 480}
+              height={currentMode === "edit" && (editResult || hasParseError) ? 440 : 480}
             />
           </div>
         )}
@@ -217,14 +247,14 @@ export function DeAiPreviewDialog({
             </Button>
             <Button
               variant="outline"
-              disabled={currentMode === "edit" && hasFailed}
+              disabled={writeBlocked}
               onClick={onSaveDraft}
               data-testid="de-ai-save-draft"
             >
               {t("novel.deai.saveDraft")}
             </Button>
             <Button
-              disabled={currentMode === "edit" && hasFailed}
+              disabled={writeBlocked}
               onClick={onApply}
               data-testid="de-ai-apply"
             >
