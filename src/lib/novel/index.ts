@@ -278,8 +278,8 @@ export type {
   StoryCompass,
 } from "./story-compass"
 // §GAP-89-01 收官卷自动完结判定（volume.ts 配套 story-compass）
-export { checkFinaleAutoComplete } from "./volume"
-export type { FinaleAutoCompleteInput } from "./volume"
+export { checkFinaleAutoComplete, parseVolumeMeta } from "./volume"
+export type { FinaleAutoCompleteInput, VolumeMeta } from "./volume"
 // §GAP-89-02 四级上下文压缩 + 恢复包 + 熔断器（ainovel ctxpack 模式吸收）
 export {
   allowHalfOpenProbe,

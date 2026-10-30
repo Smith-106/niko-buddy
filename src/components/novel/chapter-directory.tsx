@@ -9,10 +9,11 @@ import {
   isRichChapterTitle,
   listSnapshots,
   loadSnapshot,
+  parseVolumeMeta,
   resolveChapterTitle,
   type ChapterSnapshot,
+  type VolumeMeta,
 } from "@/lib/novel"
-import { parseVolumeMeta, type VolumeMeta } from "@/lib/novel/volume"
 import { searchWiki } from "@/lib/search"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { useWikiStore } from "@/stores/wiki-store"
