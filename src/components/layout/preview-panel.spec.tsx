@@ -1484,7 +1484,7 @@ describe("PreviewPanel 一键排版与去AI味", () => {
     cleanup()
   })
 
-  it("去AI味三模式：edit 模式另存草稿保留原章 frontmatter 与标题", async () => {
+  it("去AI味三模式：edit 模式另存草稿保留原章标题，不带 frontmatter（避免被当成同号正式章节）", async () => {
     chapterSetup()
     const chapterMarkdown = [
       "---",
@@ -1531,9 +1531,9 @@ describe("PreviewPanel 一键排版与去AI味", () => {
       await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
       const [draftPath, draft] = mocks.writeFileAtomic.mock.calls[0] as [string, string]
       expect(draftPath).toContain("去AI味稿.md")
-      expect(draft.startsWith("---\n")).toBe(true)
-      expect(draft).toContain("chapter_number: 1")
-      expect(draft).toContain("# 第一章 测试")
+      expect(draft.startsWith("# 第一章 测试\n")).toBe(true)
+      expect(draft).not.toContain("chapter_number")
+      expect(draft).not.toContain("---")
       expect(draft).toContain("真相就在眼前")
       expect(draft).not.toContain("显而易见的事实摆在眼前")
       cleanup()

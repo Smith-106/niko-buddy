@@ -1029,9 +1029,11 @@ export function PreviewPanel() {
     const baseName = fileName.replace(/\.md$/, "")
     const draftPath = normalizePath(`${dir}${baseName}-去AI味稿.md`)
     try {
-      // 与「替换正文」同一合成方式：保留原章 frontmatter 与标题。edit/detect 候选只有正文，
-      // rewrite 候选若自带 frontmatter/标题会被 replaceWholeChapterBody 剥掉后再套原章的。
-      await writeFileAtomic(draftPath, replaceWholeChapterBody(fileContent, deAiCandidateContent))
+      // 草稿带原章一级标题，但不带 frontmatter：同目录的 -去AI味稿.md 若带 chapter_number /
+      // chapter_status，会被章节索引（findChapterFileByNumber）与导出（loadFinalChapters）
+      // 当作同号正式章节。replaceWholeChapterBody 剥掉候选自带的 frontmatter/标题后套原章标题。
+      const { body: bodyWithHeading } = parseFrontmatter(replaceWholeChapterBody(fileContent, deAiCandidateContent))
+      await writeFileAtomic(draftPath, bodyWithHeading)
       const tree = await listDirectory(normalizePath(project.path))
       setFileTree(tree)
       bumpDataVersion()
