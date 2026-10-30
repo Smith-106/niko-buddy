@@ -16,11 +16,11 @@ import { PlanningPanel } from "./planning-panel"
 import { ChatModelSelector } from "./chat-model-selector"
 import { useChatStore, chatMessagesToLLM, type DisplayMessage } from "@/stores/chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { chapterMarkdownHasBody, resolveChapterLengthSpec, routeTask, buildTaskDirective, detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat, buildQmQuaiSystemPrompt, injectDeAiDirective, cleanGeneratedChapterContentWithTitle, resolveNovelModel, resolveReviewModel, buildGoldenThreeChapterDirective, detectGoldenThreeChapterRequest, isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEditResult, backupChapterFile, appendChapterWorkspaceSnapshot, updateChapterStatus, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber, normalizeChapterEditFile, commitAcceptedDeepChapterDraft, blockDeepChapterSession, completeDeepChapterSession, createNovelSessionId, loadNovelSessionStatus, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, startDeepChapterSession, subscribeStatusJson, buildStageJournalRuntime } from "@/lib/novel"
+import { chapterMarkdownHasBody, resolveChapterLengthSpec, routeTask, buildTaskDirective, detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat, buildQmQuaiSystemPrompt, injectDeAiDirective, cleanGeneratedChapterContentWithTitle, resolveNovelModel, resolveReviewModel, buildGoldenThreeChapterDirective, detectGoldenThreeChapterRequest, isChatEditRequest, updateChapterStatus, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber, commitAcceptedDeepChapterDraft, blockDeepChapterSession, completeDeepChapterSession, createNovelSessionId, loadNovelSessionStatus, novelSessionStatusPath, pauseDeepChapterSession, persistDeepChapterCheckpoint, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, startDeepChapterSession, subscribeStatusJson, buildStageJournalRuntime } from "@/lib/novel"
 import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
 import { activeRustStreamIds } from "@/lib/claude-cli-transport"
 import { executeIngestWrites } from "@/lib/ingest"
-import { readFile, writeFileAtomic, createDirectory, fileExists } from "@/commands/fs"
+import { readFile, createDirectory, fileExists } from "@/commands/fs"
 // C4 覆盖守卫：目标章节 Markdown 是否有正文的纯函数（chapter-save-strategy 模块）。
 import { searchWiki, tokenizeQuery } from "@/lib/search"
 import { normalizePath, getFileName, getRelativePath } from "@/lib/path-utils"
@@ -38,6 +38,7 @@ import { useChatAutoScroll } from "./use-chat-scroll"
 import { resolveEffectiveChatLlmConfig } from "./chat-panel-llm-config"
 import { useChatPlanning } from "./use-chat-planning"
 import { useChatConfirmDialogs } from "./use-chat-confirm-dialogs"
+import { runChatEditMode } from "./chat-panel-edit-mode"
 import {
   appendContinueUnfinishedDeepChapterContext,
   buildInterruptedResumeContextPayload,
@@ -535,152 +536,19 @@ export function ChatPanel() {
         ? await loadEnabledDismantlingDirective(pp).catch(() => "")
         : ""
       if (shouldUseEditMode) {
-        const resolvedTarget = resolveChatEditTarget({
-          userRequest: text,
-          selectedChapterNumber: await readSelectedChapterNumberForFile(selectedFile) ?? null,
-        })
-        if (!resolvedTarget.ok) {
-          finalizeStream(resolvedTarget.message, [], capturedConvId)
-          delete activeStreamSessionsRef.current[capturedConvId]
-          return
-        }
-
-        const chapterPayloads = await Promise.all(
-          resolvedTarget.target.chapterNumbers.map(async (chapterNumber) => {
-            const chapterPath = await findChapterFileByNumber(pp, chapterNumber)
-            if (!chapterPath) {
-              return { chapterNumber, chapterPath: null, content: "" }
-            }
-            const original = await readFile(chapterPath).catch(() => "")
-            return { chapterNumber, chapterPath, content: original }
-          }),
-        )
-
-        if (chapterPayloads.some((item) => !item.chapterPath)) {
-          const missing = chapterPayloads.filter((item) => !item.chapterPath).map((item) => item.chapterNumber).join("、")
-          finalizeStream(`未找到以下章节，暂时无法执行修改：第${missing}章`, [], capturedConvId)
-          delete activeStreamSessionsRef.current[capturedConvId]
-          return
-        }
-
-        const editPrompt = [
-          "你正在执行小说章节修改任务。",
-          "请严格按照用户要求修改指定章节内容。",
-          "如果是多章修改，必须逐章返回完整修改稿。",
-          "输出格式必须严格如下：",
-          "【第11章】",
-          "修改后的完整正文",
-          "",
-          "【第12章】",
-          "修改后的完整正文",
-          "",
-          "不要解释，不要补充说明。",
-          "",
-          `用户要求：${text}`,
-          "",
-          "待修改章节如下：",
-          ...chapterPayloads.map((item) => `【第${item.chapterNumber}章原文】\n${item.content}`),
-        ].join("\n")
-
-        const controller = new AbortController()
-        abortControllersRef.current[capturedConvId] = controller
-        let editResult = ""
-        let editError: Error | null = null
-
-        await streamChat(
-          effectiveChatLlmConfig,
-          [{ role: "user", content: editPrompt }],
-          {
-            onToken: (token) => {
-              if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
-              editResult += token
-              appendStreamToken(token, capturedConvId)
-            },
-            onDone: () => {},
-            onError: (error) => {
-              editError = error
-            },
-          },
-          controller.signal,
-          { reasoning: resolveUserVisibleReasoning(effectiveChatLlmConfig.reasoning) },
-        )
-
-        if (editError) {
-          const editErrorMessage = String(editError)
-          finalizeStream(`修改失败：${editErrorMessage}`, [], capturedConvId)
-          delete activeStreamSessionsRef.current[capturedConvId]
-          delete abortControllersRef.current[capturedConvId]
-          return
-        }
-
-        const validatedEdits = resolvedTarget.target.mode === "single"
-          ? {
-            ok: true as const,
-            files: [{
-              chapterNumber: resolvedTarget.target.chapterNumbers[0],
-              content: editResult,
-            }],
-          }
-          : validateStructuredChapterEditResult({
-            content: editResult,
-            targetChapterNumbers: resolvedTarget.target.chapterNumbers,
-          })
-
-        if (!validatedEdits.ok) {
-          finalizeStream(validatedEdits.message, [], capturedConvId)
-          delete activeStreamSessionsRef.current[capturedConvId]
-          delete abortControllersRef.current[capturedConvId]
-          return
-        }
-
-        for (const chapter of chapterPayloads) {
-          /* v8 ignore next */
-          if (!chapter.chapterPath) continue
-          const rawResult = validatedEdits.files.find((item) => item.chapterNumber === chapter.chapterNumber)?.content
-          if (!rawResult) {
-            finalizeStream(`第${chapter.chapterNumber}章缺少修改结果，已停止写回。`, [], capturedConvId)
-            delete activeStreamSessionsRef.current[capturedConvId]
-            delete abortControllersRef.current[capturedConvId]
-            return
-          }
-          const normalizedResult = normalizeChapterEditFile({
-            targetChapterNumber: chapter.chapterNumber,
-            content: rawResult,
-            originalContent: chapter.content,
-          })
-          if (!normalizedResult.ok) {
-            finalizeStream(normalizedResult.message, [], capturedConvId)
-            delete activeStreamSessionsRef.current[capturedConvId]
-            delete abortControllersRef.current[capturedConvId]
-            return
-          }
-          await backupChapterFile({
-            projectPath: pp,
-            chapterPath: chapter.chapterPath,
-            chapterNumber: chapter.chapterNumber,
-            content: chapter.content,
-            source: "manual",
-          })
-          // 64 号实施接线（chapter-workspace 消费）：保存后追加快照（静默失败）
-          await appendChapterWorkspaceSnapshot(pp, chapter.chapterNumber, normalizedResult.content)
-          await writeFileAtomic(chapter.chapterPath, normalizedResult.content)
-        }
-        invalidateChapterCache(pp)
-
-        await refreshProjectState(pp)
-        /* v8 ignore next */
-        if (chapterPayloads[0]?.chapterPath) {
-          useWikiStore.getState().setSelectedFile(chapterPayloads[0].chapterPath)
-        }
-        finalizeStream(
-          resolvedTarget.target.mode === "single"
-            ? `已完成第${resolvedTarget.target.chapterNumbers[0]}章修改，并已自动备份原内容。`
-            : `已完成 ${resolvedTarget.target.chapterNumbers.length} 个章节的批量修改，并已分别备份原内容。`,
-          [],
+        await runChatEditMode({
+          text,
           capturedConvId,
-        )
-        delete activeStreamSessionsRef.current[capturedConvId]
-        delete abortControllersRef.current[capturedConvId]
+          sessionId,
+          pp,
+          selectedFile,
+          effectiveChatLlmConfig,
+          finalizeStream,
+          appendStreamToken,
+          abortControllersRef,
+          activeStreamSessionsRef,
+          streamSessionGuardRef,
+        })
         return
       }
       const deepChapterEnabledNow = sharedDeepChapterEnabledRef.current
