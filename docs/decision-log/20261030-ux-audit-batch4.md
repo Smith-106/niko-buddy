@@ -45,5 +45,5 @@
 - `collapsible-a11y-batch1.seq45.spec.tsx` 去掉 file-tree 用例（组件已删）。
 - `docs/unreachable-branch-ledger.md` 的 file-tree 行标注已删除；`story-simulation-store.ts` 注释同步。
 - `lib/novel/dismantling.ts` 数据层不动。
-- 已知未同步：`docs/consensus/coverage-mapping.md:28` 仍写 book-analysis-book-list「首页/列表接线」，清单当时已判为文档漂移，治理文档本批不改；`scripts/*-recheck.json` 是审计快照，由各自 recheck 脚本重跑生成，不手改。
+- 后续同步（同日）：`docs/consensus/coverage-mapping.md:28` 去掉 book-analysis-book-list 的「列表接线」说法并加注，L13–L17 的历史测试计数保留原样加注；`scripts/unguarded-map-recheck.json` 与 `button-a11y-recheck.json` 用各自 recheck 脚本重跑生成（未手改）。被删组件的条目全部落入 STALE（21 / 6 条）；其余计数变化来自 10-26 以来其他提交带来的行号漂移，button-a11y TRUE-POSITIVE 6→0。
 - 删除可经 git 恢复。atlas 重新生成单独提交（P16）。

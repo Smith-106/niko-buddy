@@ -18,6 +18,7 @@
 > （勘误：此前卷宗所记“基线 12,833 / 净增 186”有误——12,833 为波1实施前基线；
 > fedc2370 实测 12,886 passed；正确口径为 **12,886 → 13,019（+133）**，
 > 与 diff 级逐行计数完全对齐。）
+> （2026-10-30 注：上文 `book-analysis-book-list.spec.tsx` 是当时的测试计数记录，保留原样；该组件与 spec 已随 UX 审计批次四删除。）
 
 | # | 对标模块 | niko-buddy 对应物（文件:行，机械口） | 超越点 |
 |---|---|---|---|
@@ -25,7 +26,7 @@
 | 2 | 拆书/Aura | `book-analysis-*` + `book-analysis-evolution.ts:86` evolutionToAuraSeeds（单向闭环+守恒） | 拆书→aura 种子单向闭环可审计 |
 | 3 | 三门机械门控 | `rule-stack.ts` + `audit-taxonomy.ts`（门序 P0>P1>P2 不可逆） | ADR-19 机械层：纯函数、零时钟、零模型 |
 | 4 | 检索留痕 | `retrieval-trace.ts` + `search-adapter.ts` trace 透传；e2e:161 queryHash/modelId/corpusFilter/落选原因可点开 | 对标无强制留痕 |
-| 5 | 证据链 | `run-event-ledger.ts`（append-only）+ `evidence-snapshot.ts:82` + `evidence-gate-card.tsx` + `dashboard-evidence.ts` + 首页/列表接线（`director-view.tsx` / `book-analysis-book-list.tsx`） | R-04 三态强制（未落=未发生永不显示通过） |
+| 5 | 证据链 | `run-event-ledger.ts`（append-only）+ `evidence-snapshot.ts:82` + `evidence-gate-card.tsx` + `dashboard-evidence.ts` + 首页接线（`director-view.tsx`）。注：原文所列 `book-analysis-book-list.tsx` 实测从未接入生产（module-consolidation T3），已于 2026-10-30 删除，见 `docs/decision-log/20261030-ux-audit-batch4.md` | R-04 三态强制（未落=未发生永不显示通过） |
 | 6 | 导演跟进 | `director-followup.ts:50` buildBlockingQueue（P0→P1→P2 队列+blockedBy 传染）+ `director-view.tsx`/`director-panel.tsx` | 阻塞传染+重跑成本不臆造 |
 | 7 | 标题工坊 | `title-forge.ts:105` forgeTitles（候选×种子逐条对账裁定+落账） | 逐条 hit/miss 机械锚点 |
 | 8 | 反 AI 修正闭环 | `repair-loop.ts:82`（闭环率+FP 账本聚合）+ `gate-retry-diff.ts:70`（同门两 run 差分+换模型轨迹） | 对标无闭环率/FP 量化 |
