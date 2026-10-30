@@ -213,6 +213,20 @@ describe("ChatPanel — 深度章节生成 (deep chapter)", () => {
     mocks.resolveTargetChapterNumberForChat.mockImplementation(async () => 3)
   }
 
+  it("设置变更后重渲染：深度生成用的是新的 novelConfig（不得是旧闭包）", async () => {
+    setupDeepBase()
+    setConversation("conv-1")
+    renderPanel()
+    setDeepMode(true)
+    // 模拟用户在设置里改了题材：store 给出新的 novelConfig 对象，其余依赖不变。
+    mocks.wikiState.novelConfig = { ...mocks.wikiState.novelConfig, genre: "xianxia" }
+    rerenderPanel()
+    await sendText("深度写第3章")
+    const genInput = mocks.runDeepChapterGeneration.mock.calls[0][0]
+    expect(genInput.genre).toBe("xianxia")
+    expect(genInput.novelConfig.genre).toBe("xianxia")
+  })
+
   it("深度生成成功：complete 落盘 + ready marker（residual 字段展开）", async () => {
     setupDeepBase()
     mocks.wikiState.novelConfig.residualCampaignEnabled = true

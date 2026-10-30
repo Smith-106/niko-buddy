@@ -112,6 +112,24 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
     expect(mocks.chatState.finalizeStream).not.toHaveBeenCalled()
   })
 
+  it("切换项目后重渲染：继续未完成读取的是新项目的会话状态（project 不得是旧闭包）", async () => {
+    mocks.wikiState.project = PROJECT
+    mocks.loadNovelSessionStatus.mockImplementation(async () => null)
+    setConversation("conv-1")
+    setMessages([
+      msg({ id: "u1", role: "user", content: "问题" }),
+      msg({ id: "a1", role: "assistant", content: "x" }),
+    ])
+    renderPanel()
+    // 只换项目；其余依赖（isStreaming / llmConfig / 会话动作等）全部不变。
+    mocks.wikiState.project = { id: "p2", name: "OtherBook", path: "/p/otherbook" }
+    rerenderPanel()
+    fireEvent.click(screen.getByTestId("continue-unfinished"))
+    await flushAsync()
+    expect(mocks.loadNovelSessionStatus).toHaveBeenCalledWith("/p/otherbook")
+    expect(mocks.loadNovelSessionStatus).not.toHaveBeenCalledWith(PROJECT.path)
+  })
+
   it("statusResume payload 优先提供 originalRequest/checkpoint", async () => {
     mocks.wikiState.project = PROJECT
     mocks.loadNovelSessionStatus.mockImplementation(async () =>
