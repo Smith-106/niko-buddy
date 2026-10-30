@@ -17,6 +17,7 @@ import type { NovelSearchResult } from "./search-adapter"
 import { SEARCH_RECIPE_IDS, isSearchRecipeId } from "@/stores/wiki-store"
 import type { SearchRecipeId } from "@/stores/wiki-store"
 import { logger } from "@/lib/utils"
+import { parseChapterOrdinal } from "./chapter-typography"
 export { SEARCH_RECIPE_IDS, isSearchRecipeId }
 export type { SearchRecipeId }
 
@@ -784,6 +785,16 @@ function buildGraphIndex(graph: unknown): GraphIndex | null {
       }
     }
 
+    // 2a. 任务中的「第N章」按序号解析到该章节点（RV-103）。只认唯一命中，避免多书/重名歧义。
+    const taskOrdinal = rawTask ? parseChapterOrdinal(rawTask) : null
+    if (taskOrdinal !== null) {
+      const hits = nodes.filter((node) => chapterOrdinalOf(node) === taskOrdinal)
+      if (hits.length === 1 && !resolvedSet.has(hits[0].id)) {
+        resolvedSet.add(hits[0].id)
+        if (resolvedSet.size >= maxAnchors) return Array.from(resolvedSet)
+      }
+    }
+
     // 2. 原始任务/剧情描述扫描：包含长度>=2 的图谱节点/词干即为锚点 (RV-001)
     if (rawTask.length >= 2) {
       const taskMatches: Array<{ id: string; pos: number; len: number }> = []
@@ -838,8 +849,8 @@ function buildGraphIndex(graph: unknown): GraphIndex | null {
         for (const node of nodes) {
           if (resolvedSet.has(node.id)) continue
           // RV-009：章节节点不走包含匹配。「写第三章」的 第三/三章 二字片段会命中
-          // 所有含该序号的章节标题，挤占锚点名额。章节被任务原文点名时由第 2 步解析。
-          if (isChapterLikeNode(node)) continue
+          // 所有含该序号的章节标题，挤占锚点名额。被点名的章节由第 2 步解析。
+          if (chapterOrdinalOf(node) !== null) continue
 
           const targets: string[] = []
           if (node.stem.length >= 2) targets.push(node.stem)
@@ -884,14 +895,24 @@ function buildGraphIndex(graph: unknown): GraphIndex | null {
   return { resolveNodeId, getNeighbors, resolveAnchors }
 }
 
-const CHAPTER_NODE_RE = /^(chapter[-_]?d+|第[0-9零一二三四五六七八九十百千]+章)/i
+const ASCII_CHAPTER_STEM_RE = /^chapter[-_]?(\d+)$/i
 
-function isChapterLikeNode(node: { id: string; stem: string; title?: string }): boolean {
-  return (
-    CHAPTER_NODE_RE.test(node.stem) ||
-    CHAPTER_NODE_RE.test(node.id) ||
-    (!!node.title && CHAPTER_NODE_RE.test(node.title))
-  )
+/**
+ * 章节节点的序号；非章节节点返回 null。
+ * 识别 `chapter-NNN` 文件名（本应用的章节文件规范），以及标题/词干中的
+ * `第N章`（复用 chapter-typography 的规范解析，覆盖中文数字与空格写法）。
+ */
+function chapterOrdinalOf(node: { id: string; stem: string; title?: string }): number | null {
+  for (const key of [node.stem, node.id]) {
+    const m = ASCII_CHAPTER_STEM_RE.exec(key)
+    if (m) return Number.parseInt(m[1], 10)
+  }
+  for (const key of [node.title, node.stem]) {
+    if (!key) continue
+    const ordinal = parseChapterOrdinal(key)
+    if (ordinal !== null) return ordinal
+  }
+  return null
 }
 
 /**

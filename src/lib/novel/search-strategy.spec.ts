@@ -376,6 +376,36 @@ describe("applySearchRecipe", () => {
     expect(run("续写第三十三章-夜袭的余波")).toEqual(["魔门宗主", "林晚秋"])
   })
 
+  it("RV-009/RV-103: chapter-NNN 文件名与仅章名标题同样排除；「第N章」按序号只锚定该章", () => {
+    // chapter-170 的标题只有章名「夜袭」；chapter-017 用来检验 17/70 等数字片段不会误中。
+    const graph = {
+      nodes: new Map([
+        ["林晚秋", { id: "林晚秋", title: "林晚秋", path: "wiki/entities/林晚秋.md", outLinks: new Set([]), inLinks: new Set([]), relationEdges: [] }],
+        ["魔门宗主", { id: "魔门宗主", title: "魔门宗主", path: "wiki/entities/魔门宗主.md", outLinks: new Set([]), inLinks: new Set(["chapter-017"]), relationEdges: [] }],
+        ["云州客栈", { id: "云州客栈", title: "云州客栈", path: "wiki/entities/云州客栈.md", outLinks: new Set([]), inLinks: new Set(["chapter-170"]), relationEdges: [] }],
+        ["chapter-017", { id: "chapter-017", title: "夜袭", path: "wiki/chapters/chapter-017.md", outLinks: new Set(["魔门宗主"]), inLinks: new Set([]), relationEdges: [] }],
+        ["chapter-170", { id: "chapter-170", title: "新灵气契约", path: "wiki/chapters/chapter-170.md", outLinks: new Set(["云州客栈"]), inLinks: new Set([]), relationEdges: [] }],
+      ]),
+    }
+    const candidates = [
+      { id: "c1", title: "魔门宗主", path: "wiki/entities/魔门宗主.md", relevance: 0.95 },
+      { id: "c2", title: "云州客栈", path: "wiki/entities/云州客栈.md", relevance: 0.9 },
+      { id: "c3", title: "林晚秋", path: "wiki/entities/林晚秋.md", relevance: 0.7 },
+    ]
+    const run = (task: string) =>
+      nodeDistanceRerank(candidates, {
+        anchors: tokenizeQuery(task).filter((x) => x.length >= 2).slice(0, 5),
+        task,
+        graph,
+      }).map((c) => c.title)
+
+    // 第170章 只锚定 chapter-170（序号）与林晚秋（点名）：云州客栈 1 跳靠前，
+    // 只在 chapter-017 出现的魔门宗主不可达，排最后。
+    expect(run("写第170章：林晚秋拔剑")).toEqual(["云州客栈", "林晚秋", "魔门宗主"])
+    // 中文序号同样解析到 chapter-017。
+    expect(run("续写第十七章：林晚秋拔剑")).toEqual(["魔门宗主", "林晚秋", "云州客栈"])
+  })
+
   it("RV-001: 锚点无法解析为图谱节点时发射信号且保持原始顺序返回", () => {
     const candidates = [
       { id: "c1", title: "无关条目A", relevance: 0.9 },
