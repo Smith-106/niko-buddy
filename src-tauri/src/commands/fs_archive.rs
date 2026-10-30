@@ -31,7 +31,9 @@ pub(crate) fn decode_xml_entities(text: &str) -> String {
 }
 
 /// Extract DOCX to Markdown preserving headings, paragraphs, lists, tables, bold/italic.
-pub(crate) fn extract_docx_markdown(archive: &mut zip::ZipArchive<fs::File>) -> Result<String, String> {
+pub(crate) fn extract_docx_markdown(
+    archive: &mut zip::ZipArchive<fs::File>,
+) -> Result<String, String> {
     let xml = read_zip_file(archive, "word/document.xml")
         .ok_or_else(|| "No document.xml found".to_string())?;
 
@@ -216,7 +218,9 @@ pub(crate) fn extract_docx_markdown(archive: &mut zip::ZipArchive<fs::File>) -> 
 }
 
 /// Extract PPTX to Markdown with slide numbers and structure.
-pub(crate) fn extract_pptx_markdown(archive: &mut zip::ZipArchive<fs::File>) -> Result<String, String> {
+pub(crate) fn extract_pptx_markdown(
+    archive: &mut zip::ZipArchive<fs::File>,
+) -> Result<String, String> {
     let mut slide_names: Vec<String> = (0..archive.len())
         .filter_map(|i| archive.by_index(i).ok().map(|f| f.name().to_string()))
         .filter(|n| n.starts_with("ppt/slides/slide") && n.ends_with(".xml"))

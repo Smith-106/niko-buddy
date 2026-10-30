@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::canon::write_authority::{may_write, WriteDecision, WriteSource};
 
 use super::sync_target::{
-    REMOTE_REVISION_PREFIX, SYNC_JOURNAL_FILE, conflict_file_name, journal_line,
+    conflict_file_name, journal_line, REMOTE_REVISION_PREFIX, SYNC_JOURNAL_FILE,
 };
 
 /// 远端对象键中**禁止**出现的路径段（远端不得镜像本地真值面）。
@@ -168,7 +168,6 @@ pub enum PullDecision {
     KeepBoth { conflict_name: String },
 }
 
-
 /// 拉取裁决（纯函数）。
 ///
 /// - 远端更旧 → `RefuseStale`（**绝不静默覆盖**本地新态）。
@@ -212,7 +211,6 @@ pub struct SyncJournalEntry {
     #[serde(default)]
     pub content_hash: String,
 }
-
 
 fn journal_path(project_path: &Path) -> PathBuf {
     project_path.join(SYNC_JOURNAL_FILE)

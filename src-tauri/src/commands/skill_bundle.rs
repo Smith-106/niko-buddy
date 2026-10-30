@@ -47,11 +47,11 @@ use crate::canon::write_authority::{may_write, WriteDecision, WriteSource};
 
 // M9-1：格式契约 + 校验纯函数层已剥离至 `skill_bundle_manifest.rs`——file_sync_watch 模式：新文件 + 原文件 re-export，外部 import 面零变化。
 pub use super::skill_bundle_manifest::{
-    BundleFileRef, SkillBundleAllowlist, SkillBundleExportResult, SkillBundleImportResult,
-    SkillBundleManifest, SkillBundleVerifyResult, MAX_BYTES, MAX_ENTRIES,
-    SKILL_BUNDLE_MANIFEST_FILE, SKILL_BUNDLE_SCHEMA, SKILL_BUNDLE_SCHEMA_VERSION,
-    SKILL_BUNDLE_SKILLS_DIR, SKILL_BUNDLE_TRUST_UNTRUSTED, is_allowed_name,
-    is_executable_name, validate_entry_name, validate_manifest,
+    is_allowed_name, is_executable_name, validate_entry_name, validate_manifest, BundleFileRef,
+    SkillBundleAllowlist, SkillBundleExportResult, SkillBundleImportResult, SkillBundleManifest,
+    SkillBundleVerifyResult, MAX_BYTES, MAX_ENTRIES, SKILL_BUNDLE_MANIFEST_FILE,
+    SKILL_BUNDLE_SCHEMA, SKILL_BUNDLE_SCHEMA_VERSION, SKILL_BUNDLE_SKILLS_DIR,
+    SKILL_BUNDLE_TRUST_UNTRUSTED,
 };
 pub(crate) use super::skill_bundle_manifest::{manifest_sha256_of, version_at_least};
 

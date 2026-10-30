@@ -306,10 +306,6 @@ pub(crate) fn extract_docx_with_library(path: &str) -> Result<String, String> {
     }
 }
 
-
-
-
-
 /// Extract spreadsheet to Markdown using calamine (supports xlsx, xls, ods).
 pub(crate) fn extract_spreadsheet(path: &str) -> Result<String, String> {
     let mut workbook = open_workbook_auto(path)
@@ -391,10 +387,8 @@ pub(crate) fn extract_spreadsheet(path: &str) -> Result<String, String> {
     }
 }
 
-
 // HTML extraction helpers (`extract_html_file` / `strip_html_script_style`)
 // now live in `fs_archive.rs` (re-exported above for path compatibility).
-
 
 // ── EPUB extraction ──────────────────────────────────────────────────────
 //

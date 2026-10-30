@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Niko Buddy Contributors
 
 //! skill-bundle 格式契约纯函数层——M9-1 自 `skill_bundle.rs` 增量剥离（S4 单轮收敛，file_sync_watch 模式）。
-//! 
+//!
 //! 收容：包格式常量（`SKILL_BUNDLE_*` / `MAX_*`）、清单与 IPC 结果类型
 //! （[`BundleFileRef`] / [`SkillBundleAllowlist`] / [`SkillBundleManifest`] /
 //! [`SkillBundleExportResult`] / [`SkillBundleVerifyResult`] / [`SkillBundleImportResult`]）、
@@ -11,7 +11,7 @@
 //! （`manifest_sha256_of` / `looks_like_sha256_hex` / `version_at_least`）——全部确定性、零 IO、零 Tauri。
 //! `skill_bundle.rs` 经 `pub` / `pub(crate) use` 回引，外部 import 面零变化
 //! （外部引用留守原文件：3 个 Tauri 命令）。
-//! 
+//!
 //! M9-1 可见性调整（最小化）：`manifest_sha256_of` / `version_at_least` /
 //! `looks_like_sha256_hex` 提为 `pub(crate)`供原文件 impl 与单测复用；
 //! `SkillBundleVerifyResult::schema_version` 由私有改为 `pub(crate)`供 `verify_impl`

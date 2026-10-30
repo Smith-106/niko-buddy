@@ -277,19 +277,27 @@ pub struct MigrationReport {
 impl MigrationReport {
     /// 实际发生 rename 的步骤。
     pub fn migrated(&self) -> Vec<&MigrationStep> {
-        self.steps.iter().filter(|s| s.action == MigrationAction::Migrated).collect()
+        self.steps
+            .iter()
+            .filter(|s| s.action == MigrationAction::Migrated)
+            .collect()
     }
 
     /// G4 发生逐文件合并的步骤。
     pub fn merged(&self) -> Vec<&MigrationStep> {
-        self.steps.iter().filter(|s| s.action == MigrationAction::Merged).collect()
+        self.steps
+            .iter()
+            .filter(|s| s.action == MigrationAction::Merged)
+            .collect()
     }
 
     /// 被跳过的步骤（源缺失或目标无法合并）。
     pub fn skipped(&self) -> Vec<&MigrationStep> {
         self.steps
             .iter()
-            .filter(|s| s.action != MigrationAction::Migrated && s.action != MigrationAction::Merged)
+            .filter(|s| {
+                s.action != MigrationAction::Migrated && s.action != MigrationAction::Merged
+            })
             .collect()
     }
 
@@ -322,7 +330,11 @@ pub fn migrate_project_dirs(root: &Path) -> Result<MigrationReport, String> {
                     MigrationAction::Merged => merges.push(record),
                     _ => {}
                 }
-                steps.push(MigrationStep { from: step.from, to: step.to, action });
+                steps.push(MigrationStep {
+                    from: step.from,
+                    to: step.to,
+                    action,
+                });
             }
             Err(err) => {
                 // 合并中途失败时 record 里已记录完成的文件搬动，一并回滚。
@@ -410,7 +422,12 @@ fn merge_legacy_into_target(
         if !dst.exists() {
             ensure_parent_dir(&dst)?;
             fs::rename(&src, &dst).map_err(|e| {
-                format!("合并搬入 '{}' 到 '{}' 失败：{}", src.display(), dst.display(), e)
+                format!(
+                    "合并搬入 '{}' 到 '{}' 失败：{}",
+                    src.display(),
+                    dst.display(),
+                    e
+                )
             })?;
             record.moved_in.push((src, dst));
         } else if dst.is_file() && files_identical(&src, &dst)? {
@@ -626,7 +643,8 @@ pub fn migrate_project_dirs_conflicts(root: &Path) -> Result<Vec<MigrationConfli
 
 /// 递归收集 `dir` 下所有普通文件相对 `base` 的路径（`/` 分隔）。符号链接不跟随、不收集。
 fn collect_relative_files(base: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
-    let entries = fs::read_dir(dir).map_err(|e| format!("读取目录 '{}' 失败：{}", dir.display(), e))?;
+    let entries =
+        fs::read_dir(dir).map_err(|e| format!("读取目录 '{}' 失败：{}", dir.display(), e))?;
     for entry in entries {
         let entry = entry.map_err(|e| format!("读取目录项失败（{}）：{}", dir.display(), e))?;
         let path = entry.path();
@@ -647,8 +665,12 @@ fn collect_relative_files(base: &Path, dir: &Path, out: &mut Vec<String>) -> Res
 
 /// 先比长度再比字节，判断两个文件内容是否一致。
 fn files_identical(a: &Path, b: &Path) -> Result<bool, String> {
-    let len_a = fs::metadata(a).map_err(|e| format!("读取元数据 '{}' 失败：{}", a.display(), e))?.len();
-    let len_b = fs::metadata(b).map_err(|e| format!("读取元数据 '{}' 失败：{}", b.display(), e))?.len();
+    let len_a = fs::metadata(a)
+        .map_err(|e| format!("读取元数据 '{}' 失败：{}", a.display(), e))?
+        .len();
+    let len_b = fs::metadata(b)
+        .map_err(|e| format!("读取元数据 '{}' 失败：{}", b.display(), e))?
+        .len();
     if len_a != len_b {
         return Ok(false);
     }
@@ -996,14 +1018,24 @@ mod migration_tests {
         assert_eq!(root.marker(META_DIR), "current", "不得覆盖既有新目录");
         assert_eq!(root.marker(KNOWLEDGE_DIR), "current-knowledge");
         assert_eq!(
-            fs::read_to_string(root.path().join(LEGACY_CONFLICTS_DIR).join(LEGACY_META_DIR).join("marker.txt"))
-                .unwrap(),
+            fs::read_to_string(
+                root.path()
+                    .join(LEGACY_CONFLICTS_DIR)
+                    .join(LEGACY_META_DIR)
+                    .join("marker.txt")
+            )
+            .unwrap(),
             "legacy",
             "同名冲突的旧副本应备份到 legacy-conflicts，不丢数据"
         );
         assert_eq!(
-            fs::read_to_string(root.path().join(LEGACY_CONFLICTS_DIR).join(LEGACY_KNOWLEDGE_DIR).join("marker.txt"))
-                .unwrap(),
+            fs::read_to_string(
+                root.path()
+                    .join(LEGACY_CONFLICTS_DIR)
+                    .join(LEGACY_KNOWLEDGE_DIR)
+                    .join("marker.txt")
+            )
+            .unwrap(),
             "legacy-knowledge"
         );
         assert!(!root.has(LEGACY_META_DIR), "合并后旧目录空壳应被清掉");
@@ -1038,8 +1070,13 @@ mod migration_tests {
         assert_eq!(root.marker(META_DIR), "llm-wiki", "先到先得");
         assert!(!root.has(LEGACY_QMAI_DIR), "合并后旧目录空壳应被清掉");
         assert_eq!(
-            fs::read_to_string(root.path().join(LEGACY_CONFLICTS_DIR).join(LEGACY_QMAI_DIR).join("marker.txt"))
-                .unwrap(),
+            fs::read_to_string(
+                root.path()
+                    .join(LEGACY_CONFLICTS_DIR)
+                    .join(LEGACY_QMAI_DIR)
+                    .join("marker.txt")
+            )
+            .unwrap(),
             "qmai",
             "后到旧目录的冲突文件应备份而非丢弃"
         );
@@ -1085,7 +1122,10 @@ mod migration_tests {
         assert_eq!(report.steps.len(), 3);
         assert_eq!(report.steps[0].action, MigrationAction::Migrated);
         // .qmai 不存在 → 源缺失跳过。
-        assert_eq!(report.steps[1].action, MigrationAction::SkippedSourceMissing);
+        assert_eq!(
+            report.steps[1].action,
+            MigrationAction::SkippedSourceMissing
+        );
         assert_eq!(report.steps[2].action, MigrationAction::Migrated);
         assert_eq!(report.migrated().len(), 2);
         assert_eq!(report.skipped().len(), 1);
@@ -1118,9 +1158,15 @@ mod migration_tests {
         assert!(root.has(LEGACY_QMAI_DIR), "dry-run 不得改动文件系统");
         assert!(!root.has(META_DIR));
         // 预测：.llm-wiki 缺失跳过，.qmai 将迁移，wiki 缺失跳过。
-        assert_eq!(predicted.steps[0].action, MigrationAction::SkippedSourceMissing);
+        assert_eq!(
+            predicted.steps[0].action,
+            MigrationAction::SkippedSourceMissing
+        );
         assert_eq!(predicted.steps[1].action, MigrationAction::Migrated);
-        assert_eq!(predicted.steps[2].action, MigrationAction::SkippedSourceMissing);
+        assert_eq!(
+            predicted.steps[2].action,
+            MigrationAction::SkippedSourceMissing
+        );
         // 实跑结论应与预测一致。
         let actual = migrate_project_dirs(root.path()).unwrap();
         assert_eq!(actual, predicted);
@@ -1134,8 +1180,10 @@ mod migration_tests {
         // 模拟「前两步已迁移完成」：旧名消失、新名就位。
         root.seed(META_DIR, "meta-moved");
         root.seed(KNOWLEDGE_DIR, "knowledge-moved");
-        let completed: Vec<(&'static str, &'static str)> =
-            vec![(LEGACY_META_DIR, META_DIR), (LEGACY_KNOWLEDGE_DIR, KNOWLEDGE_DIR)];
+        let completed: Vec<(&'static str, &'static str)> = vec![
+            (LEGACY_META_DIR, META_DIR),
+            (LEGACY_KNOWLEDGE_DIR, KNOWLEDGE_DIR),
+        ];
 
         let rolled_back = rollback_renames(root.path(), &completed);
 
@@ -1160,7 +1208,11 @@ mod migration_tests {
         let rolled_back = rollback_renames(root.path(), &completed);
 
         assert_eq!(rolled_back, 0, "目标旧名已存在时不得覆盖");
-        assert_eq!(root.marker(LEGACY_META_DIR), "recreated", "外部新建内容应保留");
+        assert_eq!(
+            root.marker(LEGACY_META_DIR),
+            "recreated",
+            "外部新建内容应保留"
+        );
         assert_eq!(root.marker(META_DIR), "moved", "已迁移目录应原地不动");
     }
 
@@ -1262,12 +1314,19 @@ mod migration_tests {
     #[test]
     fn conflicts_report_empty_when_no_coexisting_dirs() {
         let empty = TempRoot::new("g4-empty");
-        assert!(migrate_project_dirs_conflicts(empty.path()).unwrap().is_empty());
+        assert!(migrate_project_dirs_conflicts(empty.path())
+            .unwrap()
+            .is_empty());
 
         let renamable = TempRoot::new("g4-renamable");
         renamable.seed(LEGACY_KNOWLEDGE_DIR, "k");
-        assert!(migrate_project_dirs_conflicts(renamable.path()).unwrap().is_empty());
-        assert!(renamable.has(LEGACY_KNOWLEDGE_DIR), "报告阶段不得执行 rename");
+        assert!(migrate_project_dirs_conflicts(renamable.path())
+            .unwrap()
+            .is_empty());
+        assert!(
+            renamable.has(LEGACY_KNOWLEDGE_DIR),
+            "报告阶段不得执行 rename"
+        );
     }
 
     /// G4：全部同名文件一致时无需规则裁决（has_conflicts=false）。
@@ -1327,12 +1386,23 @@ mod migration_tests {
 
         assert_eq!(report.steps[0].action, MigrationAction::Merged);
         // 仅旧侧文件已搬入新目录（父目录自动建）。
-        assert_eq!(fs::read_to_string(current.join("sub").join("old.md")).unwrap(), "old");
-        // 同名冲突：新目录版本胜出，旧版本备份在 legacy-conflicts/<旧目录名>/ 下。
-        assert_eq!(fs::read_to_string(current.join("diff.json")).unwrap(), "current-version");
         assert_eq!(
-            fs::read_to_string(root.path().join(LEGACY_CONFLICTS_DIR).join(LEGACY_META_DIR).join("diff.json"))
-                .unwrap(),
+            fs::read_to_string(current.join("sub").join("old.md")).unwrap(),
+            "old"
+        );
+        // 同名冲突：新目录版本胜出，旧版本备份在 legacy-conflicts/<旧目录名>/ 下。
+        assert_eq!(
+            fs::read_to_string(current.join("diff.json")).unwrap(),
+            "current-version"
+        );
+        assert_eq!(
+            fs::read_to_string(
+                root.path()
+                    .join(LEGACY_CONFLICTS_DIR)
+                    .join(LEGACY_META_DIR)
+                    .join("diff.json")
+            )
+            .unwrap(),
             "legacy-version"
         );
         // 同名一致：旧副本已丢弃（内容仍在新目录）。
@@ -1354,7 +1424,10 @@ mod migration_tests {
         migrate_project_dirs(root.path()).unwrap();
         let second = migrate_project_dirs(root.path()).unwrap();
 
-        assert_eq!(fs::read_to_string(current.join("new-only.md")).unwrap(), "new");
+        assert_eq!(
+            fs::read_to_string(current.join("new-only.md")).unwrap(),
+            "new"
+        );
         assert!(second.is_noop(), "第二次应零动作");
         assert_eq!(root.marker(META_DIR), "current");
     }
@@ -1374,16 +1447,32 @@ mod migration_tests {
 
         let mut record = MergeRecord::default();
         merge_legacy_into_target(root.path(), LEGACY_META_DIR, META_DIR, &mut record).unwrap();
-        assert!(!legacy.join("sub").join("old.md").exists(), "合并后旧侧文件应已搬走");
+        assert!(
+            !legacy.join("sub").join("old.md").exists(),
+            "合并后旧侧文件应已搬走"
+        );
 
         let rolled_back = rollback_merges(&[record]);
 
         // 搬入 1 个（sub/old.md）+ 备份 2 个（marker.txt、diff.json）均应撤回。
         assert_eq!(rolled_back, 3);
-        assert_eq!(fs::read_to_string(legacy.join("sub").join("old.md")).unwrap(), "old");
-        assert_eq!(fs::read_to_string(legacy.join("diff.json")).unwrap(), "legacy-version");
+        assert_eq!(
+            fs::read_to_string(legacy.join("sub").join("old.md")).unwrap(),
+            "old"
+        );
+        assert_eq!(
+            fs::read_to_string(legacy.join("diff.json")).unwrap(),
+            "legacy-version"
+        );
         assert_eq!(root.marker(LEGACY_META_DIR), "legacy");
-        assert!(!current.join("sub").join("old.md").exists(), "回滚后新目录不得残留搬入文件");
-        assert_eq!(fs::read_to_string(current.join("diff.json")).unwrap(), "current-version", "新目录版本不受影响");
+        assert!(
+            !current.join("sub").join("old.md").exists(),
+            "回滚后新目录不得残留搬入文件"
+        );
+        assert_eq!(
+            fs::read_to_string(current.join("diff.json")).unwrap(),
+            "current-version",
+            "新目录版本不受影响"
+        );
     }
 }

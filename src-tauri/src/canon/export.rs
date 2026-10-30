@@ -65,10 +65,10 @@ use crate::panic_guard::run_guarded;
 
 // M4-1：文件底层原语已剥离至 `export_fs.rs`——fs_archive 模式：新文件 + 原文件 re-export，外部 import 面零变化。
 pub(crate) use super::export_fs::{
-    ComponentRoots, base_opts, compute_content_digest_from_disk, copy_and_hash,
-    enumerate_entries, err_ctx, hex, normalize_pass, now_stamp, read_entry_bytes,
-    safe_staging_target, sanitize_reason, sidecar_path, staged_roots, stream_file_sha256,
-    unique_suffix, DRAFTS_REL, LANCEDB_REL, STATUS_REL,
+    base_opts, compute_content_digest_from_disk, copy_and_hash, enumerate_entries, err_ctx, hex,
+    normalize_pass, now_stamp, read_entry_bytes, safe_staging_target, sanitize_reason,
+    sidecar_path, staged_roots, stream_file_sha256, unique_suffix, ComponentRoots, DRAFTS_REL,
+    LANCEDB_REL, STATUS_REL,
 };
 
 // ──────────────────────────────────────────────────────────────────────────

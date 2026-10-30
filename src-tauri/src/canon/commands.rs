@@ -54,11 +54,11 @@ use crate::canon::types::{CanonEdgeFilter, CanonEpisode, SupersedeRequest};
 // M9-3: 响应 DTO + `*_impl` 已剥离至 `commands_core.rs`
 // (fs_archive: 新文件 + 回引，外部 import 面零变化)。
 pub(crate) use super::commands_core::{
+    canon_facts_known_by_impl, canon_get_revision_impl, canon_ingest_episode_impl,
+    canon_load_divergence_trace_impl, canon_query_batch_impl, canon_query_episodes_impl,
+    canon_query_impl, canon_save_divergence_trace_impl, canon_supersede_edges_impl,
     CanonFactsKnownByResponse, CanonQueryBatchResponse, CanonQueryEpisodesResponse,
-    CanonQueryResponse, CanonSupersedeResponse, CanonWriteResponse, canon_facts_known_by_impl,
-    canon_get_revision_impl, canon_ingest_episode_impl, canon_load_divergence_trace_impl,
-    canon_query_batch_impl, canon_query_episodes_impl, canon_query_impl,
-    canon_save_divergence_trace_impl, canon_supersede_edges_impl,
+    CanonQueryResponse, CanonSupersedeResponse, CanonWriteResponse,
 };
 
 // ──────────────────────────────────────────────────────────────────────────

@@ -7,24 +7,21 @@ use std::path::Path;
 use std::thread;
 use std::time::Duration;
 
-
 use crate::commands::file_sync;
 use crate::panic_guard::run_guarded;
 use crate::types::wiki::FileNode;
 
 use super::fs_archive::extract_html_file;
 
-use super::fs_office::{
-    extract_epub_text, extract_legacy_doc_text, extract_office_text,
-};
+use super::fs_office::{extract_epub_text, extract_legacy_doc_text, extract_office_text};
 
 // PDF 域（PDFium 绑定 / 动态库解析 / PDF 文本提取）已 verbatim 下沉至
 // `fs_pdf.rs`（S5 拆分）。此处重导出保持既有调用路径不变。
 // `pdfium_dynamic_library_present` 仅被 `pdf_export.rs` 的测试引用（生产零调用），
 // 重导出本身在非测试构建下无人使用，故显式抑制该导入告警（函数侧已带 allow(dead_code)）。
+pub(crate) use super::fs_pdf::{extract_pdf_text, lock_pdfium, pdfium, RESOURCE_DIR_HINT};
 #[allow(unused_imports)]
 pub use super::fs_pdf::{pdfium_dynamic_library_present, set_resource_dir_hint};
-pub(crate) use super::fs_pdf::{extract_pdf_text, lock_pdfium, pdfium, RESOURCE_DIR_HINT};
 
 /// Known binary formats that need special extraction
 const OFFICE_EXTS: &[&str] = &["docx", "pptx", "xlsx", "odt", "ods", "odp"];
@@ -44,7 +41,6 @@ pub(crate) const KNOWLEDGE_DIR: &str = "QM";
 /// bump makes every pre-existing cache entry naturally miss and forces
 /// re-extraction — no manual cache invalidation needed.
 const EXTRACTOR_VERSION: u32 = 1;
-
 
 const LEGACY_KNOWLEDGE_DIR: &str = "wiki";
 const META_DIR: &str = ".niko-buddy";
@@ -360,8 +356,6 @@ fn write_cache(original: &Path, text: &str) -> Result<(), String> {
     crate::commands::file_sync::mark_app_write_path(&cache_path);
     fs::write(&cache_path, text).map_err(|e| format!("Failed to write cache: {}", e))
 }
-
-
 
 pub fn do_write_file(path: &str, contents: &str) -> Result<(), String> {
     run_guarded("write_file", || {
@@ -2035,7 +2029,6 @@ mod tests {
         assert!(out.contains("Second  para"), "{out}");
     }
 
-
     #[test]
     fn epub_falls_back_to_sorted_content_when_spine_empty() {
         // OPF exists but has no <spine>/<itemref> → fallback to sorted
@@ -2100,8 +2093,6 @@ mod tests {
 
     // ---- HTML extraction (A10) ------------------------------------------------
 
-
-
     #[test]
     fn html_dispatch_handles_htm_via_do_read_file_route() {
         // `.htm` must be routed through `extract_html_file` (not the raw
@@ -2121,8 +2112,6 @@ mod tests {
         assert!(!out.contains("&amp;"), "{out}");
         assert!(!out.contains("secret()"), "{out}");
     }
-
-
 
     // ===== 58 号 P0-B2：write_file_atomic 冒烟（IPC 命令层关键路径） =====
 

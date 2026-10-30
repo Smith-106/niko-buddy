@@ -277,13 +277,13 @@ pub async fn adaptive_idle_compaction(
 // M2-2：startup-reconcile 纯支撑层已剥离至 `vectorstore_reconcile.rs`——file_sync_watch 模式：新文件 + 原文件 re-export，外部 import 面零变化。
 // 留守原文件：8 个 Tauri 命令（vector_*）、`run_startup_reconcile`（lib.rs 外引）、
 // `scan_actual_chunks` 等 LanceDB IO 执行层（避碰私有 TABLE_V2 / db_path）。
-pub use super::vectorstore_reconcile::{
-    ActualChunk, ExpectedChunk, ExpectedChunkInput, ReconcilePendingEntry, ReconcilePlan,
-    ReconcileReport, reconcile_chunks,
-};
 pub(crate) use super::vectorstore_reconcile::{
     append_reconcile_pending, chunk_input_to_upsert, chunk_set_digest, read_reconcile_pending,
     write_reconcile_pending,
+};
+pub use super::vectorstore_reconcile::{
+    reconcile_chunks, ActualChunk, ExpectedChunk, ExpectedChunkInput, ReconcilePendingEntry,
+    ReconcilePlan, ReconcileReport,
 };
 
 /// Scan the current v2 table and return the actual chunk identities
@@ -743,7 +743,10 @@ static SEARCH_GUARD: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(SEARC
 /// Acquire one search-guard slot, bounding queue wait. Split out (rather
 /// than inlined) so tests exercise the real production path hermetically
 /// with a local saturated semaphore and a short timeout.
-async fn acquire_search_permit(sem: &Semaphore, timeout: Duration) -> Result<SemaphorePermit<'_>, String> {
+async fn acquire_search_permit(
+    sem: &Semaphore,
+    timeout: Duration,
+) -> Result<SemaphorePermit<'_>, String> {
     tokio::time::timeout(timeout, sem.acquire())
         .await
         .map_err(|_| "Search queue timeout: too many concurrent searches, retry later".to_string())?

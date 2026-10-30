@@ -62,7 +62,7 @@ use crate::canon::types::{CanonEdge, CanonEdgeFilter};
 
 // M1-2: retrieval scoring pure layer moved to `search_scoring.rs` (fs_archive: new file + re-export, external imports unchanged).
 pub use super::search_scoring::{
-    FusedResult, RecallItem, RecallSource, SearchConfig, decay, rrf_fuse, window_decay,
+    decay, rrf_fuse, window_decay, FusedResult, RecallItem, RecallSource, SearchConfig,
 };
 
 // ──────────────────────────────────────────────────────────────────────────

@@ -48,7 +48,8 @@ pub(crate) fn lock_pdfium() -> std::sync::MutexGuard<'static, ()> {
 /// once the AppHandle is available. Lets the pdfium resolver find the
 /// bundled dylib without re-implementing Tauri's platform-specific
 /// resource-dir logic.
-pub(crate) static RESOURCE_DIR_HINT: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+pub(crate) static RESOURCE_DIR_HINT: std::sync::OnceLock<std::path::PathBuf> =
+    std::sync::OnceLock::new();
 
 /// Called from Tauri's setup() with the resolved resource directory.
 /// No-op if already set.

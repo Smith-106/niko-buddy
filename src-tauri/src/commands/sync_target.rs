@@ -261,10 +261,10 @@ impl SyncTarget for WebDavTarget {
 // 留守原文件：6 个 Tauri 命令（sync_configure/sync_test/sync_status/sync_push/sync_pull/sync_conflicts）、
 // `status_impl` / `push_impl` / `pull_impl` / `conflicts_impl` 等 IO 执行层与 `WebDavTarget` 传输实现。
 pub use super::sync_target_decision::{
-    PullDecision, RevisionState, SyncConfig, SyncConflict, SyncJournalEntry, SyncPullResult,
-    SyncPushResult, SyncStatus, SyncTestResult, append_journal, assert_local_target_allowed,
-    assert_no_secret_plaintext, assert_remote_key_allowed, decide_pull, local_revision,
-    local_state, parse_remote_revision, read_journal, remote_revision_dir, validate_config,
+    append_journal, assert_local_target_allowed, assert_no_secret_plaintext,
+    assert_remote_key_allowed, decide_pull, local_revision, local_state, parse_remote_revision,
+    read_journal, remote_revision_dir, validate_config, PullDecision, RevisionState, SyncConfig,
+    SyncConflict, SyncJournalEntry, SyncPullResult, SyncPushResult, SyncStatus, SyncTestResult,
 };
 
 // M3-3 注：`conflict_file_name` / `journal_line` 留守本文件（未随块迁移）：

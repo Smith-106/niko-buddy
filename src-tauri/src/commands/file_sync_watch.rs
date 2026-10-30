@@ -78,7 +78,9 @@ fn default_source_watch_max_file_size_mb() -> u64 {
     default_source_watch_config().max_file_size_mb
 }
 
-pub(crate) fn normalize_source_watch_config(config: Option<SourceWatchConfig>) -> SourceWatchConfig {
+pub(crate) fn normalize_source_watch_config(
+    config: Option<SourceWatchConfig>,
+) -> SourceWatchConfig {
     let mut config = config.unwrap_or_default();
     config.include_extensions = normalize_ext_list(config.include_extensions);
     config.exclude_extensions = normalize_ext_list(config.exclude_extensions);

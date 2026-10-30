@@ -30,11 +30,11 @@ const QUEUE_EMIT_EVERY: usize = 25;
 const LINUX_RESCAN_INTERVAL_MS: i64 = 10_000;
 
 // M2-1：watch-filter 纯函数层已剥离至 `file_sync_watch.rs`——fs_archive 模式：新文件 + 原文件 re-export，外部 import 面零变化。
-pub use super::file_sync_watch::{FileChangeKind, SourceWatchConfig};
 pub(crate) use super::file_sync_watch::{
     merge_kind, normalize_key, normalize_path_key, normalize_rel_path,
     normalize_source_watch_config, should_watch_rel, stable_path_hash, SourceWatchRules,
 };
+pub use super::file_sync_watch::{FileChangeKind, SourceWatchConfig};
 
 static QUEUE_LOCKS: OnceLock<Mutex<BTreeMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
 static APP_WRITE_IGNORES: OnceLock<Mutex<BTreeMap<String, i64>>> = OnceLock::new();
