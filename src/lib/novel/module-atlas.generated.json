@@ -90,8 +90,8 @@
   "orphan": 282,
   "specOnly": 270,
   "barrelOnly": 2,
-  "edges": 4488,
-  "loc": 274799
+  "edges": 4493,
+  "loc": 275237
  },
  "modules": [
   {
@@ -1992,7 +1992,7 @@
   {
    "p": "src/components/layout/preview-panel.tsx",
    "s": 16,
-   "l": 1294,
+   "l": 1348,
    "r": true,
    "o": false,
    "x": false,
@@ -3130,7 +3130,7 @@
   {
    "p": "src/components/novel/de-ai-preview-dialog.tsx",
    "s": 16,
-   "l": 52,
+   "l": 239,
    "r": true,
    "o": false,
    "x": false,
@@ -3138,7 +3138,9 @@
    "i": [
     174,
     292,
-    293
+    293,
+    655,
+    1134
    ],
    "e": [
     "react-i18next"
@@ -11388,7 +11390,7 @@
   {
    "p": "src/lib/novel/de-ai-adapter.ts",
    "s": 18,
-   "l": 256,
+   "l": 436,
    "r": true,
    "o": false,
    "x": false,
@@ -11397,7 +11399,10 @@
     4,
     454,
     628,
-    666
+    666,
+    669,
+    777,
+    1089
    ],
    "e": [
     "@tauri-apps/api",
@@ -12869,7 +12874,7 @@
   {
    "p": "src/lib/novel/index.ts",
    "s": 18,
-   "l": 1465,
+   "l": 1482,
    "r": true,
    "o": false,
    "x": false,
