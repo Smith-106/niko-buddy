@@ -3,6 +3,14 @@ import { readFileSync } from "node:fs"
 import { readFile } from "@/commands/fs"
 import { join, resourceDir } from "@tauri-apps/api/path"
 import { HUMANIZER_CAVITY_GUARD } from "./de-ai-rules"
+import { detectTieredDeAi } from "./de-ai-tiered-table"
+import { slopScore, classifySlop } from "./mechanical-slop-detector"
+import {
+  parseReviewRewritePlan,
+  applyReviewRewriteEditsToMarkdown,
+  type ReviewRewriteEdit,
+  type ReviewRewriteApplyResult,
+} from "@/lib/review-rewrite-plan"
 
 function loadBundledDeAiSkill(): string {
   // NOTE: `import.meta.glob` must be called unconditionally (no typeof guard).
@@ -121,6 +129,178 @@ export function buildDeAiRewriteMessages(
   extra?: { userPrompt?: string; dualPassFragment?: string; cavityGuard?: boolean; preserveDirective?: string },
 ): ChatMessage[] {
   return buildQmQuaiRewriteMessages(content, customSkill, extra)
+}
+
+/** 去 AI 味工作模式 */
+export type DeAiMode = "detect" | "rewrite" | "edit"
+
+export const DEFAULT_DE_AI_MODE: DeAiMode = "rewrite"
+
+/** 单个 AI 味检测命中项 */
+export interface DeAiDetectionHit {
+  readonly id: string
+  readonly term: string
+  readonly category: string
+  readonly tier: "1A" | "1B" | "3" | "slop"
+  readonly startIndex: number
+  readonly endIndex: number
+  readonly suggestion: string
+}
+
+/** 静态检测汇总报告 (zero LLM) */
+export interface DeAiDetectResult {
+  readonly hits: readonly DeAiDetectionHit[]
+  readonly slopPenalty: number
+  readonly slopClass: "clean" | "warn" | "block"
+  readonly markedText: string
+}
+
+/** 原位定点替换单项 */
+export type DeAiSpanEdit = ReviewRewriteEdit
+
+/** 原位替换校验与执行结果 */
+export type DeAiSpanApplyResult = ReviewRewriteApplyResult
+
+/**
+ * 纯静态检测正文中 AI 味与机械腔（零 LLM，零写盘）
+ */
+export function runDeAiDetection(text: string): DeAiDetectResult {
+  if (!text || !text.trim()) {
+    return {
+      hits: [],
+      slopPenalty: 0,
+      slopClass: "clean",
+      markedText: text || "",
+    }
+  }
+
+  const report = slopScore(text)
+  const slopClass = classifySlop(report)
+  const slopPenalty = report.slopPenalty
+
+  const rawHits: Array<{
+    term: string
+    category: string
+    tier: "1A" | "1B" | "3" | "slop"
+    startIndex: number
+    endIndex: number
+    suggestion: string
+  }> = []
+
+  // 1. Tiered table hits (112 词分级表)
+  const tiered = detectTieredDeAi(text)
+  for (const item of tiered) {
+    const { entry } = item
+    let pos = text.indexOf(entry.term)
+    while (pos !== -1) {
+      rawHits.push({
+        term: entry.term,
+        category: entry.category,
+        tier: entry.tier,
+        startIndex: pos,
+        endIndex: pos + entry.term.length,
+        suggestion: entry.suggestion,
+      })
+      pos = text.indexOf(entry.term, pos + entry.term.length)
+    }
+  }
+
+  // 2. SlopReport hits (机械层正则与词库命中项补充)
+  const seenSpans = new Set(rawHits.map((h) => `${h.startIndex}:${h.endIndex}`))
+  const allSlopHits = [...report.tier1Hits, ...report.tier2Hits, ...report.tier3Hits]
+  for (const slop of allSlopHits) {
+    let pos = text.indexOf(slop.kw)
+    while (pos !== -1) {
+      const spanKey = `${pos}:${pos + slop.kw.length}`
+      if (!seenSpans.has(spanKey)) {
+        seenSpans.add(spanKey)
+        rawHits.push({
+          term: slop.kw,
+          category: "机械词",
+          tier: "slop",
+          startIndex: pos,
+          endIndex: pos + slop.kw.length,
+          suggestion: "建议删除或替换为具体生动的描写",
+        })
+      }
+      pos = text.indexOf(slop.kw, pos + slop.kw.length)
+    }
+  }
+
+  // 按起始位置递增排序，同一起始按长度降序
+  rawHits.sort((a, b) => a.startIndex - b.startIndex || b.term.length - a.term.length)
+
+  const hits: DeAiDetectionHit[] = rawHits.map((h, i) => ({
+    id: `hit-${i + 1}`,
+    ...h,
+  }))
+
+  // 生成展示标记文本（非重叠区间插入【...】）
+  let markedText = ""
+  let lastIndex = 0
+  for (const h of rawHits) {
+    if (h.startIndex >= lastIndex) {
+      markedText += text.slice(lastIndex, h.startIndex) + `【${h.term}】`
+      lastIndex = h.endIndex
+    }
+  }
+  if (lastIndex < text.length) {
+    markedText += text.slice(lastIndex)
+  }
+
+  return {
+    hits,
+    slopPenalty,
+    slopClass,
+    markedText,
+  }
+}
+
+/**
+ * 构造原位编辑（edit 模式）LLM Prompt 消息
+ * 强约束返回 JSON 数组，复用 review-rewrite-plan 的 [{"original_text", "replacement_text", "note"}] 契约
+ */
+export function buildDeAiEditMessages(
+  content: string,
+  customSkill?: string,
+): ChatMessage[] {
+  if (!content.trim()) throw new Error("去AI味内容为空，无法处理")
+  return [
+    {
+      role: "system",
+      content: [
+        buildQmQuaiSystemPrompt(customSkill),
+        "【执行模式：原位定点修改（edit）】",
+        "你必须找出正文中需要消除 AI 味的具体片段，为每个片段给出替换后的文本。",
+        "严禁整篇重写！严禁改动没有 AI 味的正常文字！未标记修改的句子必须保持一个字都不变。",
+        "只返回 JSON 数组，严禁附带 Markdown 代码块标记（```json），严禁输出任何分析解释。",
+        '数组格式：[{"original_text":"必须在正文中严格存在的唯一原文片段","replacement_text":"替换后的自然正文","note":"修改理由"}]',
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: `正文如下：\n\n${content}`,
+    },
+  ]
+}
+
+/**
+ * 解析原位编辑 LLM 输出的 JSON 片段改写数组
+ * 复用 review-rewrite-plan 中的 parseReviewRewritePlan
+ */
+export function parseDeAiEditPlan(raw: string): DeAiSpanEdit[] {
+  return parseReviewRewritePlan(raw)
+}
+
+/**
+ * 执行原位定点片段替换
+ * 严格复用 review-rewrite-plan 的 applyReviewRewriteEditsToMarkdown（含唯一锚点校验）
+ */
+export function applyDeAiSpanEdits(
+  content: string,
+  edits: DeAiSpanEdit[],
+): DeAiSpanApplyResult {
+  return applyReviewRewriteEditsToMarkdown(content, edits)
 }
 
 const DIRECTIVE_PREFIX = [

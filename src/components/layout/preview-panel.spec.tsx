@@ -361,7 +361,15 @@ vi.mock("@/components/novel/persona-critique-panel", () => ({
 
 vi.mock("@/components/novel/de-ai-preview-dialog", () => ({
   DeAiPreviewDialog: (props: Record<string, any>) => (
-    <div data-testid="de-ai-dialog" data-open={String(props.open)}>
+    <div
+      data-testid="de-ai-dialog"
+      data-open={String(props.open)}
+      data-mode={props.mode}
+      data-has-failed={String(Boolean(props.editResult && !props.editResult.ok))}
+    >
+      <button data-testid="de-ai-switch-detect" onClick={() => props.onModeChange?.("detect")}>detect</button>
+      <button data-testid="de-ai-switch-rewrite" onClick={() => props.onModeChange?.("rewrite")}>rewrite</button>
+      <button data-testid="de-ai-switch-edit" onClick={() => props.onModeChange?.("edit")}>edit</button>
       <button data-testid="de-ai-apply" onClick={props.onApply}>apply</button>
       <button data-testid="de-ai-save-draft" onClick={props.onSaveDraft}>draft</button>
       <button data-testid="de-ai-close" onClick={props.onClose}>close</button>
@@ -1338,6 +1346,133 @@ describe("PreviewPanel 一键排版与去AI味", () => {
     fireEvent.click(screen.getByText("去AI味"))
     await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
     expect(mocks.loadSmartDeAiSkill).toHaveBeenCalledWith(null, "去AI味润色", undefined)
+    cleanup()
+  })
+
+  // ── ISS-20260802-003: 去AI味三模式 (detect / rewrite / edit) ──────────────
+  it("去AI味三模式：默认模式为 rewrite，透传到对话框", async () => {
+    chapterSetup()
+    mocks.streamChat.mockImplementation((_c: unknown, _m: unknown, cb: any) => {
+      cb.onToken("重写正文")
+      cb.onDone()
+      return Promise.resolve()
+    })
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("去AI味"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
+    expect(screen.getByTestId("de-ai-dialog").dataset.mode).toBe("rewrite")
+    expect(mocks.buildDeAiRewriteMessages).toHaveBeenCalled()
+    cleanup()
+  })
+
+  it("去AI味三模式：切换 detect 模式为零 LLM，不调用 streamChat，且禁止写回正文与草稿", async () => {
+    chapterSetup()
+    mocks.streamChat.mockImplementation((_c: unknown, _m: unknown, cb: any) => {
+      cb.onToken("初始重写")
+      cb.onDone()
+      return Promise.resolve()
+    })
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("去AI味"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
+
+    // 清除打开时的 streamChat 调用记录
+    mocks.streamChat.mockClear()
+    mocks.writeFileAtomic.mockClear()
+
+    // 切换至 detect 模式
+    fireEvent.click(screen.getByTestId("de-ai-switch-detect"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.mode).toBe("detect"))
+
+    // 零 LLM 断言：切换 detect 模式绝不发起 streamChat
+    expect(mocks.streamChat).not.toHaveBeenCalled()
+
+    // detect 模式下点击 apply 或 draft 不执行写盘
+    fireEvent.click(screen.getByTestId("de-ai-apply"))
+    fireEvent.click(screen.getByTestId("de-ai-save-draft"))
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    cleanup()
+  })
+
+  it("去AI味三模式：edit 模式正常应用 LLM 片段修改并允许写回正文", async () => {
+    chapterSetup()
+    // 预置可唯一匹配的章节正文
+    mocks.state.fileContent = "# 第一章 测试\n\n院子里落满了枯叶。显而易见的事实摆在眼前。天色渐暗。"
+    mocks.readFile.mockResolvedValue("# 第一章 测试\n\n院子里落满了枯叶。显而易见的事实摆在眼前。天色渐暗。")
+
+    // 首轮 rewrite
+    mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: any) => {
+      cb.onToken("初始")
+      cb.onDone()
+      return Promise.resolve()
+    })
+
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("去AI味"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
+
+    // 切换到 edit 模式：LLM 返回有效 JSON 片段
+    mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: any) => {
+      cb.onToken(JSON.stringify([
+        {
+          original_text: "显而易见的事实摆在眼前",
+          replacement_text: "真相就在眼前",
+          note: "消去AI味",
+        },
+      ]))
+      cb.onDone()
+      return Promise.resolve()
+    })
+
+    fireEvent.click(screen.getByTestId("de-ai-switch-edit"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.mode).toBe("edit"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.hasFailed).toBe("false"))
+
+    // 应用并保存
+    fireEvent.click(screen.getByTestId("de-ai-apply"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+    expect(mocks.writeFileAtomic.mock.calls[0][1]).toContain("new-body")
+    cleanup()
+  })
+
+  it("去AI味三模式：edit 模式锚点定位失败（ok: false）时禁止写回正文与草稿", async () => {
+    chapterSetup()
+    mocks.state.fileContent = "# 第一章 测试\n\n正文内容。"
+    mocks.readFile.mockResolvedValue("# 第一章 测试\n\n正文内容。")
+
+    mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: any) => {
+      cb.onToken("初始")
+      cb.onDone()
+      return Promise.resolve()
+    })
+
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("去AI味"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
+
+    // edit 模式返回不存在的原文锚点
+    mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: any) => {
+      cb.onToken(JSON.stringify([
+        {
+          original_text: "正文中根本不存在的文本",
+          replacement_text: "新文本",
+        },
+      ]))
+      cb.onDone()
+      return Promise.resolve()
+    })
+
+    fireEvent.click(screen.getByTestId("de-ai-switch-edit"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.mode).toBe("edit"))
+    await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.hasFailed).toBe("true"))
+
+    mocks.writeFileAtomic.mockClear()
+    // 点击 apply 与 save draft 被拦截，不发起写盘
+    fireEvent.click(screen.getByTestId("de-ai-apply"))
+    fireEvent.click(screen.getByTestId("de-ai-save-draft"))
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     cleanup()
   })
 

@@ -42,6 +42,11 @@ import {
   loadSmartDeAiSkill,
   extractSkillVersion,
   BUILTIN_DE_AI_SKILL_VERSION,
+  DEFAULT_DE_AI_MODE,
+  runDeAiDetection,
+  buildDeAiEditMessages,
+  parseDeAiEditPlan,
+  applyDeAiSpanEdits,
 } from "./de-ai-adapter"
 
 beforeEach(() => {
@@ -315,5 +320,224 @@ describe("loadSmartDeAiSkill (场景自动选择)", () => {
     mocks.readFile.mockRejectedValueOnce(new Error("no custom"))
     mocks.readFile.mockRejectedValueOnce(new Error("bundle missing"))
     await expect(loadSmartDeAiSkill("E:/Novel", "写一章正文")).resolves.toBeNull()
+  })
+})
+
+describe("DEFAULT_DE_AI_MODE & runDeAiDetection (detect 模式: 零 LLM 纯静态检测)", () => {
+  it("DEFAULT_DE_AI_MODE 默认为 rewrite（保障既有兼容）", () => {
+    expect(DEFAULT_DE_AI_MODE).toBe("rewrite")
+  })
+
+  it("空文本/纯空白早退返回空结果", () => {
+    const empty = runDeAiDetection("")
+    expect(empty.hits).toHaveLength(0)
+    expect(empty.slopPenalty).toBe(0)
+    expect(empty.slopClass).toBe("clean")
+    expect(empty.markedText).toBe("")
+
+    const blank = runDeAiDetection("   \n\t  ")
+    expect(blank.hits).toHaveLength(0)
+    expect(blank.slopPenalty).toBe(0)
+    expect(blank.slopClass).toBe("clean")
+  })
+
+  it("干净文本无命中且为 clean 档", () => {
+    const cleanText = "阿青挑着水桶走过石阶，水面晃出两只麻雀的倒影。院门虚掩着，风吹起一地干枯的槐树叶。"
+    const result = runDeAiDetection(cleanText)
+    expect(result.hits).toHaveLength(0)
+    expect(result.slopClass).toBe("clean")
+    expect(result.markedText).toBe(cleanText)
+  })
+
+  it("准确定位分级表与机械词（startIndex/endIndex/suggestion/markedText）", () => {
+    const content = "显而易见，换句话说，他推开门走了出去。"
+    const result = runDeAiDetection(content)
+    expect(result.hits.length).toBeGreaterThanOrEqual(2)
+
+    const hit1 = result.hits.find((h) => h.term === "显而易见")
+    expect(hit1).toBeDefined()
+    expect(hit1?.startIndex).toBe(0)
+    expect(hit1?.endIndex).toBe(4)
+    expect(hit1?.tier).toBe("1A")
+    expect(hit1?.suggestion).toContain("删掉")
+
+    const hit2 = result.hits.find((h) => h.term === "换句话说")
+    expect(hit2).toBeDefined()
+    expect(hit2?.startIndex).toBe(5)
+    expect(hit2?.endIndex).toBe(9)
+    expect(hit2?.tier).toBe("1A")
+
+    expect(result.markedText).toContain("【显而易见】")
+    expect(result.markedText).toContain("【换句话说】")
+    expect(result.markedText).toContain("，他推开门走了出去。")
+  })
+
+  it("同一词多次出现时分别准确定位每个区间", () => {
+    const content = "显然他在笑，显然他并不在意。"
+    const result = runDeAiDetection(content)
+    const hits = result.hits.filter((h) => h.term === "显然")
+    expect(hits).toHaveLength(2)
+    expect(hits[0].startIndex).toBe(0)
+    expect(hits[0].endIndex).toBe(2)
+    expect(hits[1].startIndex).toBe(6)
+    expect(hits[1].endIndex).toBe(8)
+  })
+
+  it("纯同步运行，绝不调用任何异步/模型接口", () => {
+    const fn = () => runDeAiDetection("显而易见，这毫无疑问。")
+    // 返回值非 Promise
+    const res = fn()
+    expect(res).not.toBeInstanceOf(Promise)
+    expect(res.hits.length).toBeGreaterThan(0)
+  })
+})
+
+describe("buildDeAiEditMessages (edit 模式 Prompt 建造器)", () => {
+  it("内容为空时抛错", () => {
+    expect(() => buildDeAiEditMessages("")).toThrow(/去AI味内容为空/)
+    expect(() => buildDeAiEditMessages("   \n  ")).toThrow(/去AI味内容为空/)
+  })
+
+  it("生成符合 review-rewrite-plan JSON 格式指示的消息契约", () => {
+    const messages = buildDeAiEditMessages("正文片段", "自定义skill")
+    expect(messages).toHaveLength(2)
+    expect(messages[0].role).toBe("system")
+    expect(messages[0].content).toContain("原位定点修改（edit）")
+    expect(messages[0].content).toContain("只返回 JSON 数组")
+    expect(messages[0].content).toContain("original_text")
+    expect(messages[0].content).toContain("replacement_text")
+    expect(messages[0].content).toContain("自定义skill")
+
+    expect(messages[1].role).toBe("user")
+    expect(messages[1].content).toContain("正文如下：")
+    expect(messages[1].content).toContain("正文片段")
+  })
+})
+
+describe("parseDeAiEditPlan & applyDeAiSpanEdits (原位片段编辑与唯一锚点校验)", () => {
+  it("解析标准 JSON 数组及 Markdown 代码块包装", () => {
+    const rawJson = `\`\`\`json
+[
+  {
+    "original_text": "显而易见的事实",
+    "replacement_text": "真相",
+    "note": "去掉AI腔"
+  }
+]
+\`\`\``
+    const edits = parseDeAiEditPlan(rawJson)
+    expect(edits).toHaveLength(1)
+    expect(edits[0].originalText).toBe("显而易见的事实")
+    expect(edits[0].replacementText).toBe("真相")
+    expect(edits[0].note).toBe("去掉AI腔")
+  })
+
+  it("成功应用唯一锚点修改，未修改区域保持字节级一致且保留 frontmatter 与标题", () => {
+    const md = `---
+title: 第1章
+tags: [test]
+---
+# 第一章 出发
+
+院子里的树叶落了一地。显而易见的事实摆在眼前，他不得不承认。
+
+天色渐晚。`
+
+    const edits = [
+      {
+        id: "edit-1",
+        originalText: "显而易见的事实摆在眼前",
+        replacementText: "真相就在眼前",
+      },
+    ]
+
+    const result = applyDeAiSpanEdits(md, edits)
+    expect(result.ok).toBe(true)
+    expect(result.applied).toHaveLength(1)
+    expect(result.markdown).toContain("---")
+    expect(result.markdown).toContain("# 第一章 出发")
+    expect(result.markdown).toContain("真相就在眼前，他不得不承认。")
+    expect(result.markdown).toContain("院子里的树叶落了一地。")
+    expect(result.markdown).toContain("天色渐晚。")
+
+    // 未编辑部分一致性校验
+    const prefix = "院子里的树叶落了一地。"
+    const suffix = "，他不得不承认。\n\n天色渐晚。"
+    expect(result.markdown).toContain(prefix)
+    expect(result.markdown).toContain(suffix)
+  })
+
+  it("原串在正文中不存在（missing）时校验失败并记录 failed", () => {
+    const md = `# 第1章\n\n正文内容在这里。`
+    const edits = [
+      {
+        id: "edit-missing",
+        originalText: "正文中根本不存在的一句话",
+        replacementText: "替换文字",
+      },
+    ]
+    const result = applyDeAiSpanEdits(md, edits)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.failed).toHaveLength(1)
+      expect(result.failed[0].id).toBe("edit-missing")
+    }
+  })
+
+  it("原串在正文中出现多次（duplicate / 非唯一）时校验失败并拒绝修改", () => {
+    const md = `# 第1章\n\n显然，他走了。过了一会儿，显然他又回来了。`
+    const edits = [
+      {
+        id: "edit-dup",
+        originalText: "显然",
+        replacementText: "其实",
+      },
+    ]
+    const result = applyDeAiSpanEdits(md, edits)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.failed).toHaveLength(1)
+      expect(result.failed[0].id).toBe("edit-dup")
+    }
+  })
+
+  it("原串为空白时拒绝修改", () => {
+    const md = `# 第1章\n\n正常文字。`
+    const edits = [
+      {
+        id: "edit-empty",
+        originalText: "   ",
+        replacementText: "新文字",
+      },
+    ]
+    const result = applyDeAiSpanEdits(md, edits)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.failed).toHaveLength(1)
+    }
+  })
+
+  it("多项修改中有一处锚点失败时，整体 ok=false 且标明失败项", () => {
+    const md = `# 第1章\n\n阿青站起身来。桌上的茶杯已经凉了。`
+    const edits = [
+      {
+        id: "edit-pass",
+        originalText: "阿青站起身来",
+        replacementText: "阿青推开门",
+      },
+      {
+        id: "edit-fail",
+        originalText: "不存在的碗筷",
+        replacementText: "新碗筷",
+      },
+    ]
+    const result = applyDeAiSpanEdits(md, edits)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.failed).toHaveLength(1)
+      expect(result.failed[0].id).toBe("edit-fail")
+      expect(result.applied).toHaveLength(1)
+      expect(result.applied[0].edit.id).toBe("edit-pass")
+    }
   })
 })

@@ -75,7 +75,24 @@ export { DATA_DOMAINS, domainRequiresTypedConfirm } from "./data-domain-registry
 export type { DataDomain } from "./data-domain-registry"
 export { listTrash, moveAllToTrash, moveDomainToTrash, purgeTrashStamp, restoreDomainFromTrash, statAllDomains } from "./data-manager"
 export type { DomainStat, TrashEntry } from "./data-manager"
-export { buildDeAiRewriteMessages, buildQmQuaiSystemPrompt, injectDeAiDirective, loadSmartDeAiSkill } from "./de-ai-adapter"
+export {
+  buildDeAiRewriteMessages,
+  buildDeAiEditMessages,
+  buildQmQuaiSystemPrompt,
+  injectDeAiDirective,
+  loadSmartDeAiSkill,
+  runDeAiDetection,
+  parseDeAiEditPlan,
+  applyDeAiSpanEdits,
+  DEFAULT_DE_AI_MODE,
+} from "./de-ai-adapter"
+export type {
+  DeAiMode,
+  DeAiDetectionHit,
+  DeAiDetectResult,
+  DeAiSpanEdit,
+  DeAiSpanApplyResult,
+} from "./de-ai-adapter"
 export { acceptAllDeAiBatchDrafts, acceptDeAiBatchDraft, loadDeAiBatchState, rejectDeAiBatchDraft, runDeAiBatch } from "./de-ai-batch"
 export type { DeAiBatchOptions, DeAiBatchProgress, DeAiBatchSummary } from "./de-ai-batch"
 export { DE_AI_STRUCTURED_RULES, filterRulesBySeverity } from "./de-ai-rules"

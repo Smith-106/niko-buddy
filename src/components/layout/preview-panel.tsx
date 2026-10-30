@@ -2,8 +2,8 @@ import { Suspense, lazy, useEffect, useCallback, useRef, useMemo, useState, useL
 import { useTranslation } from "react-i18next"
 import { Check } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { resolveDefaultModel, isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus, resolveReviewModel, buildDeAiRewriteMessages, acceptAllDeAiBatchDrafts, acceptDeAiBatchDraft, loadDeAiBatchState, rejectDeAiBatchDraft, runDeAiBatch, startOutlineIngestTask } from "@/lib/novel"
-import type { DeAiBatchProgress, DeAiBatchSummary } from "@/lib/novel"
+import { resolveDefaultModel, isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus, resolveReviewModel, buildDeAiRewriteMessages, acceptAllDeAiBatchDrafts, acceptDeAiBatchDraft, loadDeAiBatchState, rejectDeAiBatchDraft, runDeAiBatch, startOutlineIngestTask, DEFAULT_DE_AI_MODE } from "@/lib/novel"
+import type { DeAiBatchProgress, DeAiBatchSummary, DeAiMode, DeAiDetectResult, DeAiSpanApplyResult } from "@/lib/novel"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { deleteFile, fileExists, readFile, writeFileAtomic, listDirectory } from "@/commands/fs"
@@ -88,6 +88,9 @@ export function PreviewPanel() {
   const [showPersona, setShowPersona] = useState(false)
   const [deAiProcessing, setDeAiProcessing] = useState(false)
   const [deAiPreviewOpen, setDeAiPreviewOpen] = useState(false)
+  const [deAiMode, setDeAiMode] = useState<DeAiMode>(DEFAULT_DE_AI_MODE)
+  const [deAiDetectResult, setDeAiDetectResult] = useState<DeAiDetectResult | null>(null)
+  const [deAiEditResult, setDeAiEditResult] = useState<DeAiSpanApplyResult | null>(null)
   // 选中文本去AI味/AI润色入口：防重入护栏 + deadline 控制器 + 取消（perf-fix-ds 前端侧）
   const [selectionActionPending, setSelectionActionPending] = useState(false)
   const selectionActionInFlightRef = useRef(false)
@@ -755,15 +758,31 @@ export function PreviewPanel() {
     startOutlineIngestTask(project.path, selectedFile)
   }, [canIngestOutline, isOutlineIngesting, project, selectedFile])
 
-  const handleDeAiProcess = useCallback(async () => {
+  const handleDeAiProcess = useCallback(async (targetMode: DeAiMode = DEFAULT_DE_AI_MODE) => {
     if (!fileContent.trim()) return
+    const source = fileContent
+    const sourceFile = selectedFileRef.current
+
+    if (targetMode === "detect") {
+      setDeAiProcessing(false)
+      const { runDeAiDetection } = await import("@/lib/novel/de-ai-adapter")
+      const detectResult = runDeAiDetection(source)
+      setDeAiMode("detect")
+      setDeAiSourceContent(source)
+      setDeAiCandidateContent(source)
+      setDeAiDetectResult(detectResult)
+      setDeAiEditResult(null)
+      setDeAiPreviewOpen(true)
+      return
+    }
+
     setDeAiProcessing(true)
     const llmConfig = resolveDefaultModel(useWikiStore.getState().llmConfig)
     if (!hasUsableLlm(llmConfig)) {
       setDeAiProcessing(false)
       return
     }
-    const { loadSmartDeAiSkill } = await import("@/lib/novel/de-ai-adapter")
+    const { loadSmartDeAiSkill, buildDeAiEditMessages, parseDeAiEditPlan, applyDeAiSpanEdits } = await import("@/lib/novel/de-ai-adapter")
     let customDeAiSkill: string | null = null
     try {
       customDeAiSkill = await loadSmartDeAiSkill(project?.path ?? null, "去AI味润色", undefined)
@@ -774,13 +793,16 @@ export function PreviewPanel() {
       setDeAiProcessing(false)
       return
     }
-    const source = fileContent
-    const sourceFile = selectedFileRef.current
+
+    const messages = targetMode === "edit"
+      ? buildDeAiEditMessages(source, customDeAiSkill || undefined)
+      : buildDeAiRewriteMessages(source, customDeAiSkill || undefined)
+
     let result = ""
     try {
       await streamChat(
         llmConfig,
-        buildDeAiRewriteMessages(source, customDeAiSkill || undefined),
+        messages,
         {
           onToken: (token) => {
             result += token
@@ -791,8 +813,17 @@ export function PreviewPanel() {
               setDeAiProcessing(false)
               return
             }
+            setDeAiMode(targetMode)
             setDeAiSourceContent(source)
-            setDeAiCandidateContent(result)
+            if (targetMode === "edit") {
+              const edits = parseDeAiEditPlan(result)
+              const editRes = applyDeAiSpanEdits(source, edits)
+              setDeAiEditResult(editRes)
+              setDeAiCandidateContent(editRes.markdown)
+            } else {
+              setDeAiEditResult(null)
+              setDeAiCandidateContent(result)
+            }
             setDeAiPreviewOpen(true)
             setDeAiProcessing(false)
           },
@@ -806,7 +837,21 @@ export function PreviewPanel() {
       console.error("去AI味处理失败:", toErrorMessage(err))
       setDeAiProcessing(false)
     }
-  }, [fileContent])
+  }, [fileContent, project, t])
+
+  const handleDeAiModeChange = useCallback(async (newMode: DeAiMode) => {
+    if (newMode === deAiMode) return
+    if (newMode === "detect") {
+      setDeAiMode("detect")
+      const { runDeAiDetection } = await import("@/lib/novel/de-ai-adapter")
+      const source = deAiSourceContent || fileContent
+      const detectResult = runDeAiDetection(source)
+      setDeAiDetectResult(detectResult)
+      setDeAiEditResult(null)
+      return
+    }
+    await handleDeAiProcess(newMode)
+  }, [deAiMode, deAiSourceContent, fileContent, handleDeAiProcess])
 
   // Wave 4 (v2.5.0): 批量去AI味 — 一键全书 + 进度 + 结果回填（lib API 纯薄壳）
   const refreshBatchChapters = useCallback(async () => {
@@ -896,11 +941,15 @@ export function PreviewPanel() {
   }, [])
 
   const handleDeAiApply = useCallback(() => {
+    if (deAiMode === "detect") return
+    if (deAiMode === "edit" && deAiEditResult && !deAiEditResult.ok) return
     setDeAiPreviewOpen(false)
     handleSave(replaceWholeChapterBody(fileContent, deAiCandidateContent))
-  }, [deAiCandidateContent, fileContent, handleSave])
+  }, [deAiCandidateContent, deAiEditResult, deAiMode, fileContent, handleSave])
 
   const handleDeAiSaveDraft = useCallback(async () => {
+    if (deAiMode === "detect") return
+    if (deAiMode === "edit" && deAiEditResult && !deAiEditResult.ok) return
     if (!selectedFile || !project) return
     const normalizedPath = selectedFile.replace(/\\/g, "/")
     const dir = normalizedPath.substring(0, normalizedPath.lastIndexOf("/") + 1)
@@ -916,7 +965,7 @@ export function PreviewPanel() {
     } catch (err) {
       console.error("另存去AI味草稿失败:", err)
     }
-  }, [selectedFile, project, deAiCandidateContent, setFileTree, bumpDataVersion])
+  }, [deAiMode, deAiEditResult, selectedFile, project, deAiCandidateContent, setFileTree, bumpDataVersion])
 
   const handleDeAiClose = useCallback(() => {
     setDeAiPreviewOpen(false)
@@ -1260,6 +1309,11 @@ export function PreviewPanel() {
         open={deAiPreviewOpen}
         sourceContent={deAiSourceContent}
         candidateContent={deAiCandidateContent}
+        mode={deAiMode}
+        detectResult={deAiDetectResult}
+        editResult={deAiEditResult}
+        processing={deAiProcessing}
+        onModeChange={(mode) => void handleDeAiModeChange(mode)}
         onApply={handleDeAiApply}
         onSaveDraft={() => void handleDeAiSaveDraft()}
         onClose={handleDeAiClose}
