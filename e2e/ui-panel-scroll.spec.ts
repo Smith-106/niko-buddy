@@ -2,6 +2,12 @@ import { test, expect, type Page } from "@playwright/test"
 import { expandNavGroups } from "./nav"
 import { MOCK_INIT } from "./tauri-mock"
 
+// 批次二·8：低频工具收进「更多工具」，点击前先展开（已展开则不动）。
+async function openMoreTools(page: import("@playwright/test").Page) {
+  const more = page.locator('[data-testid="workspace-more-tools"]')
+  if ((await more.getAttribute("open")) === null) await more.locator("summary").click()
+}
+
 /**
  * 面板「滚动 / 重叠 / 泄露 / 状态显示」的回归断言。
  *
@@ -193,6 +199,7 @@ test.describe("面板滚动与布局回归", () => {
   test("批量替换面板：空态给操作引导，结论行全中文", async ({ page }) => {
     await boot(page)
     await page.waitForSelector('[data-testid="workspace-tools-bar"]', { timeout: 30000 })
+    await openMoreTools(page)
     await page.click('[data-testid="workspace-tools-toggle-batch"]')
     const panel = page.locator('[data-testid="batch-replace-panel"]')
     await expect(panel).toBeVisible()

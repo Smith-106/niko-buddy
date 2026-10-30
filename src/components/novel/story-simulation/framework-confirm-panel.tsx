@@ -72,6 +72,8 @@ export function FrameworkConfirmPanel({
 
   if (!currentFramework) return null;
 
+  const frameworkEmpty = currentFramework.nodes.length === 0;
+
   // 节点按 index 排序后的引用，供渲染与拖拽复用
   const sortedNodes = currentFramework.nodes
     .slice()
@@ -225,7 +227,8 @@ export function FrameworkConfirmPanel({
             <Button variant="outline" onClick={onViewHistory}>
               {t("storySimulation.viewHistory")}
             </Button>
-            <Button variant="outline" onClick={onRegenerate}>
+            {/* 批次二·9：空框架（生成失败回退）时主按钮换成「重新生成」，不让人确认一个空框架。 */}
+            <Button variant={frameworkEmpty ? "default" : "outline"} onClick={onRegenerate}>
               {t("storySimulation.regenerateFramework")}
             </Button>
             {onSave && (
@@ -240,12 +243,22 @@ export function FrameworkConfirmPanel({
                 )}
               </Button>
             )}
-            <Button onClick={onConfirm}>
+            <Button
+              variant={frameworkEmpty ? "outline" : "default"}
+              onClick={onConfirm}
+              disabled={frameworkEmpty}
+              title={frameworkEmpty ? t("storySimulation.emptyFrameworkHint", { defaultValue: "框架没有任何节点，请先重新生成" }) : undefined}
+            >
               {t("storySimulation.confirmFramework")}
             </Button>
           </div>
         )}
       </div>
+      {frameworkEmpty ? (
+        <p className="text-xs text-warning-foreground" data-testid="framework-empty-hint" role="status">
+          {t("storySimulation.emptyFrameworkHint", { defaultValue: "框架没有任何节点，请先重新生成" })}
+        </p>
+      ) : null}
 
       {/* 前提区 - 支持编辑 */}
       <div className="rounded-lg bg-muted p-4">

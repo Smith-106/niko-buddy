@@ -15,6 +15,8 @@ describe("workspace layout", () => {
   it("uses the compact chapter toolbar when the preview header is narrow", () => {
     expect(shouldUseCompactChapterToolbar(640)).toBe(true)
     expect(shouldUseCompactChapterToolbar(560)).toBe(true)
+    // 1024 px window minus the sidebar
+    expect(shouldUseCompactChapterToolbar(780)).toBe(true)
   })
 
   it("shows the full chapter toolbar when there is enough room", () => {

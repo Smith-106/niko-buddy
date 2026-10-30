@@ -20,6 +20,10 @@ export interface ChapterDraftDockProps {
    * null/undefined 或两项均 0 时不渲染告警条（fail-open，不伪造告警）。
    */
   readonly alerts?: { critical: number; warning: number } | null
+  /** 空态「去主控生成」：只跳转并预填目标，不直接调模型。缺省不渲染按钮。 */
+  readonly onGenerateDraft?: () => void
+  /** 采纳成功后「查看记忆更新」：跳到记忆中心。缺省不渲染链接。 */
+  readonly onOpenMemory?: () => void
 }
 
 interface PendingAdopt {
@@ -33,6 +37,8 @@ export function ChapterDraftDock({
   selectedFile,
   onAdopted,
   alerts,
+  onGenerateDraft,
+  onOpenMemory,
   listDrafts = listChapterDrafts,
   acceptDraft = acceptChapterDraft,
   pathExists = fileExists,
@@ -112,7 +118,22 @@ export function ChapterDraftDock({
         </p>
       ) : null}
       <p className="font-medium">本章草稿</p>
-      {drafts.length === 0 ? <p className="text-muted-foreground">没有待采纳的章节草稿。</p> : null}
+      {drafts.length === 0 ? (
+        <div className="space-y-1.5 rounded border border-dashed px-2 py-2 text-muted-foreground" data-testid="chapter-draft-empty">
+          <p>没有待采纳的章节草稿。</p>
+          <p>AI 写的章节会先放在这里，你点「采纳」后才写入正文并更新记忆。可以在主控或 AI 会话里让它写一章。</p>
+          {onGenerateDraft ? (
+            <button
+              type="button"
+              className="rounded bg-primary px-2 py-1 font-medium text-primary-foreground hover:bg-primary/90"
+              data-testid="chapter-draft-empty-generate"
+              onClick={onGenerateDraft}
+            >
+              去主控生成
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <ul className="space-y-1.5">
         {drafts.map((draft) => (
           <li key={draft.id} className="rounded border px-2 py-1.5" data-testid={`chapter-draft-${draft.id}`}>
@@ -170,6 +191,16 @@ export function ChapterDraftDock({
           >
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>{note}</span>
+            {onOpenMemory ? (
+              <button
+                type="button"
+                className="ml-auto shrink-0 underline underline-offset-2 hover:no-underline"
+                data-testid="chapter-draft-open-memory"
+                onClick={onOpenMemory}
+              >
+                查看记忆更新
+              </button>
+            ) : null}
           </p>
         ) : (
           <p data-testid="chapter-draft-note">{note}</p>

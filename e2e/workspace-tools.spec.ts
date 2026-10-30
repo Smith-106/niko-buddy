@@ -1,6 +1,12 @@
 import { test, expect, type Page } from "@playwright/test"
 import { MOCK_INIT } from "./tauri-mock"
 
+// 批次二·8：低频工具收进「更多工具」，点击前先展开（已展开则不动）。
+async function openMoreTools(page: import("@playwright/test").Page) {
+  const more = page.locator('[data-testid="workspace-more-tools"]')
+  if ((await more.getAttribute("open")) === null) await more.locator("summary").click()
+}
+
 /**
  * 写作工作区工具抽屉的 e2e（T5 接线验收）。
  *
@@ -47,18 +53,21 @@ test.describe("写作工具抽屉 / 壳层可达性", () => {
     })
 
     // 展开 PDF 导出
+    await openMoreTools(page)
     await page.click('[data-testid="workspace-tools-toggle-pdf"]')
     await expect(page.locator('[data-testid="pdf-export-dialog"]')).toBeVisible()
     await expect(page.locator('[data-testid="pdfexport-submit"]')).toBeVisible()
     await expect(page.locator('[data-testid="pdfexport-target"]')).toBeVisible()
 
     // 切到批量替换：PDF 面板收起，替换面板出现（入口互斥、不叠加）
+    await openMoreTools(page)
     await page.click('[data-testid="workspace-tools-toggle-batch"]')
     await expect(page.locator('[data-testid="batch-replace-panel"]')).toBeVisible()
     await expect(page.locator('[data-testid="batchreplace-preview"]')).toBeVisible()
     await expect(page.locator('[data-testid="pdf-export-dialog"]')).toHaveCount(0)
 
     // 再点一次收起
+    await openMoreTools(page)
     await page.click('[data-testid="workspace-tools-toggle-batch"]')
     await expect(page.locator('[data-testid="batch-replace-panel"]')).toHaveCount(0)
 

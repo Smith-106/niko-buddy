@@ -12,6 +12,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { assessLlmHealth } from "@/lib/llm-health"
 import { writeFileAtomic, createDirectory, fileExists } from "@/commands/fs"
 import { Play, Rocket, PenLine, Settings as SettingsIcon } from "lucide-react"
+import { missingIdeaFields } from "./director-view-helpers"
 
 export interface DirectorViewProps {
   projectId: string
@@ -117,6 +118,19 @@ export function DirectorView({ projectId }: DirectorViewProps) {
 
   const handleAdvance = useCallback(async () => {
     if (!persisted) return
+    // 批次二·9：立意阶段必填项缺失时直接告诉作者缺什么，不去跑管线换回「未检测到项目实体」这类误导报错。
+    if (persisted.state.currentPhase === "idea") {
+      const missing = missingIdeaFields(persisted.ideaInput, t)
+      if (missing.length > 0) {
+        const msg = t("directorPanel.ideaMissing", {
+          defaultValue: "请先填写：{{fields}}",
+          fields: missing.join("、"),
+        })
+        appendLog("info", msg)
+        setGap(msg)
+        return
+      }
+    }
     const ctl = new AbortController()
     setAdvanceCtl(ctl)
     setBusy(true)

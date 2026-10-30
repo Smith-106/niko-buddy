@@ -34,6 +34,9 @@ function lookupZhLocale(key: string): string | undefined {
 
 interface ReviewRunLike {
   running?: boolean
+  error?: string
+  results?: unknown[]
+  dimensionProgress?: string
 }
 
 const mocks = vi.hoisted(() => {
@@ -340,6 +343,29 @@ describe("ReviewStartButton — 启动审查", () => {
     fireEvent.click(btn)
     await act(async () => {})
     expect(mocks.readFile).not.toHaveBeenCalled()
+  })
+
+  it("批次二·9：审查中显示进度状态行", () => {
+    mocks.state.reviewRun = { running: true, dimensionProgress: "2/6" }
+    renderDashboard()
+    render(<ReviewCenterView />)
+    expect(screen.getByTestId("review-run-status").textContent).toContain("2/6")
+  })
+
+  it("批次二·9：审查失败（reviewRun.error）可见并提示重试", () => {
+    mocks.state.reviewRun = { running: false, error: "llm-down", results: [] }
+    renderDashboard()
+    render(<ReviewCenterView />)
+    const alert = screen.getByTestId("review-start-error")
+    expect(alert.textContent).toContain("llm-down")
+    expect(alert.textContent).toContain("重试")
+  })
+
+  it("批次二·9：未选章节时给出可见提示", () => {
+    mocks.state.selectedReviewFilePath = ""
+    renderDashboard()
+    render(<ReviewCenterView />)
+    expect(screen.getByTestId("review-start-hint").textContent).toContain("请先在左侧选择审查章节")
   })
 })
 

@@ -26,9 +26,13 @@ export function clampChatWidth(width: number): number {
   return Math.max(280, Math.min(520, width))
 }
 
-/** Switch to the compact chapter toolbar when the viewport is narrower than 720 px. */
+/**
+ * Switch to the compact chapter toolbar (low-frequency actions move into "more") when the
+ * preview header is narrower than 900 px. A 1024 px window with the sidebar open leaves
+ * roughly 760–780 px, where the full button row no longer fits (UX audit batch 2, item 9).
+ */
 export function shouldUseCompactChapterToolbar(width: number): boolean {
-  return width < 720
+  return width < 900
 }
 
 /**

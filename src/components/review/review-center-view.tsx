@@ -302,12 +302,16 @@ function ReviewStartButton() {
   const canReview = Boolean(project?.path && selectedReviewFilePath) && !isReviewing
   /** 开始审查的前置读取失败（旧实现只 console.error，界面点下去没任何反应）。 */
   const [reviewError, setReviewError] = useState("")
+  // 批次二·9：点下到 reviewRun.running 之间的空窗也要有反馈（读章节 + 装配六维审查）。
+  const [starting, setStarting] = useState(false)
 
   const handleStartReview = useCallback(() => {
     setReviewError("")
     /* v8 ignore next */
     if (!project?.path || !selectedReviewFilePath || isReviewing) return
+    setStarting(true)
     void readFile(selectedReviewFilePath)
+      .finally(() => setStarting(false))
       .then((content) => startSixDimensionReviewRun({
         fileContent: content,
         projectPath: project.path,
@@ -329,16 +333,26 @@ function ReviewStartButton() {
 
   if (isReviewing) {
     return (
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={cancelReviewRun}
-        title={t("reviewCenter.cancelReview")}
-      >
-        {t("reviewCenter.cancelReview")}
-      </Button>
+      <div className="flex flex-col items-start gap-1">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={cancelReviewRun}
+          title={t("reviewCenter.cancelReview")}
+        >
+          {t("reviewCenter.cancelReview")}
+        </Button>
+        <p data-testid="review-run-status" role="status" aria-live="polite" className="text-xs text-muted-foreground">
+          {reviewRun?.dimensionProgress
+            ? `${t("reviewCenter.reviewingAction")} ${reviewRun.dimensionProgress}`
+            : t("reviewCenter.reviewingAction")}
+        </p>
+      </div>
     )
   }
+
+  const runError = reviewError || reviewRun?.error || ""
+  const finishedCount = !runError && reviewRun && !reviewRun.running ? reviewRun.results?.length ?? 0 : 0
 
   return (
     <div className="flex flex-col items-start gap-1">
@@ -346,15 +360,32 @@ function ReviewStartButton() {
         variant="outline"
         size="sm"
         onClick={handleStartReview}
-        disabled={!canReview}
+        disabled={!canReview || starting}
+        aria-busy={starting || undefined}
         // F11-3：同文件硬编码收敛（editor/user-r11）：title 走 i18n 键。
         title={selectedReviewFilePath ? undefined : t("reviewCenter.selectChapterFirst")}
       >
-        {isReviewing ? t("reviewCenter.reviewingAction") : t("reviewCenter.startReview")}
+        {t("reviewCenter.startReview")}
       </Button>
-      {reviewError ? (
+      {starting ? (
+        <p data-testid="review-run-status" role="status" aria-live="polite" className="text-xs text-muted-foreground">
+          {t("reviewCenter.preparingReview", { defaultValue: "正在读取章节并准备审稿…" })}
+        </p>
+      ) : null}
+      {!selectedReviewFilePath && project?.path ? (
+        <p data-testid="review-start-hint" className="text-xs text-muted-foreground">
+          {t("reviewCenter.selectChapterFirst")}
+        </p>
+      ) : null}
+      {runError ? (
         <p data-testid="review-start-error" role="alert" className="text-xs text-destructive">
-          {reviewError}
+          {runError}
+          {canReview ? `（${t("reviewCenter.retryHint", { defaultValue: "可再次点「开始审稿」重试" })}）` : null}
+        </p>
+      ) : null}
+      {finishedCount > 0 ? (
+        <p data-testid="review-run-done" role="status" className="text-xs text-success-foreground">
+          {t("reviewCenter.reviewDone", { defaultValue: "审稿完成，共 {{count}} 条结果，见下方列表", count: finishedCount })}
         </p>
       ) : null}
     </div>

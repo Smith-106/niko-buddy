@@ -16,6 +16,8 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { shouldShowRightDockChat, shouldShowWritingChat } from "./chat-layout"
 import { Flame } from "lucide-react"
 import { CampaignDashboardDialog } from "@/components/novel/campaign-dashboard-dialog"
+import { buildChapterDraftGoal, setMainControlGoalHandoff } from "@/components/novel/main-control-handoff"
+import { DraftsToggleButton, GenerateDraftButton, WorkspaceMoreTools, usePendingDraftCount } from "./writing-workspace-widgets"
 
 const ExportCenterView = lazy(async () => {
   const mod = await import("@/components/novel/export-center-view")
@@ -136,6 +138,13 @@ export function WritingWorkspace() {
       cancelled = true
     }
   }, [selectedFile])
+  // 草稿状态徽标（批次二·6）：待采纳数随 dataVersion 与采纳动作刷新。
+  const [draftReloadKey, setDraftReloadKey] = useState(0)
+  const pendingDraftCount = usePendingDraftCount(projectPath, `${dataVersion}:${draftReloadKey}`)
+  const openMainControlForDraft = useCallback(() => {
+    setMainControlGoalHandoff(buildChapterDraftGoal(selectedFile ? chapterTitle : ""))
+    setActiveView("mainControl")
+  }, [chapterTitle, selectedFile, setActiveView])
   const saveLabel = matchedSave?.saving
     ? t("novel.chapter.savingAsFinal")
     : matchedSave?.phase === "saved" || matchedSave?.phase === "ingested"
@@ -234,42 +243,12 @@ export function WritingWorkspace() {
         >
           {focusMode ? t("layout.focusMode.exit", { defaultValue: "退出专注" }) : t("layout.focusMode.enter", { defaultValue: "专注" })}
         </button>
-        {!focusMode && <><button
-          type="button"
-          data-testid="workspace-tools-toggle-pdf"
-          aria-pressed={toolsPanel === "pdf"}
-          className="rounded border px-2 py-1 text-xs hover:bg-accent/50"
-          onClick={() => setToolsPanel((current) => (current === "pdf" ? null : "pdf"))}
-        >
-          {t("workspace.tools.exportPdf")}
-        </button>
-        <button
-          type="button"
-          data-testid="workspace-tools-toggle-batch"
-          aria-pressed={toolsPanel === "batch"}
-          className="rounded border px-2 py-1 text-xs hover:bg-accent/50"
-          onClick={() => setToolsPanel((current) => (current === "batch" ? null : "batch"))}
-        >
-          {t("workspace.tools.batchReplace")}
-        </button>
-        <button
-          type="button"
-          data-testid="workspace-tools-toggle-campaign"
-          className="inline-flex items-center gap-1.5 rounded border border-kind-orange/30 bg-kind-orange/10 px-2 py-1 text-xs font-medium text-kind-orange hover:bg-kind-orange/20"
-          onClick={() => setCampaignOpen(true)}
-        >
-          <Flame className="h-3 w-3 text-kind-orange" />
-          <span>长程战役调度</span>
-        </button>
-        <button
-          type="button"
-          data-testid="workspace-tools-toggle-manuscript"
-          aria-pressed={toolsPanel === "manuscript"}
-          className="rounded border px-2 py-1 text-xs hover:bg-accent/50"
-          onClick={() => setToolsPanel((current) => (current === "manuscript" ? null : "manuscript"))}
-        >
-          导出书稿
-        </button>
+        {!focusMode && <><GenerateDraftButton onClick={openMainControlForDraft} />
+        <DraftsToggleButton
+          pressed={deskTab === "drafts"}
+          pendingCount={pendingDraftCount}
+          onClick={() => setDeskTab((current) => (current === "drafts" ? null : "drafts"))}
+        />
         <button
           type="button"
           data-testid="workspace-desk-outline"
@@ -297,15 +276,44 @@ export function WritingWorkspace() {
         >
           本章伏笔
         </button>
+        <WorkspaceMoreTools active={toolsPanel !== null}>
         <button
           type="button"
-          data-testid="workspace-desk-drafts"
-          aria-pressed={deskTab === "drafts"}
+          data-testid="workspace-tools-toggle-pdf"
+          aria-pressed={toolsPanel === "pdf"}
           className="rounded border px-2 py-1 text-xs hover:bg-accent/50"
-          onClick={() => setDeskTab((current) => (current === "drafts" ? null : "drafts"))}
+          onClick={() => setToolsPanel((current) => (current === "pdf" ? null : "pdf"))}
         >
-          本章草稿
-        </button></>}
+          {t("workspace.tools.exportPdf")}
+        </button>
+        <button
+          type="button"
+          data-testid="workspace-tools-toggle-batch"
+          aria-pressed={toolsPanel === "batch"}
+          className="rounded border px-2 py-1 text-xs hover:bg-accent/50"
+          onClick={() => setToolsPanel((current) => (current === "batch" ? null : "batch"))}
+        >
+          {t("workspace.tools.batchReplace")}
+        </button>
+        <button
+          type="button"
+          data-testid="workspace-tools-toggle-manuscript"
+          aria-pressed={toolsPanel === "manuscript"}
+          className="rounded border px-2 py-1 text-xs hover:bg-accent/50"
+          onClick={() => setToolsPanel((current) => (current === "manuscript" ? null : "manuscript"))}
+        >
+          导出书稿
+        </button>
+        <button
+          type="button"
+          data-testid="workspace-tools-toggle-campaign"
+          className="inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs hover:bg-accent/50"
+          onClick={() => setCampaignOpen(true)}
+        >
+          <Flame className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+          <span>长程战役调度</span>
+        </button>
+        </WorkspaceMoreTools></>}
         <span className="truncate text-xs text-muted-foreground" data-testid="workspace-tools-target">
           {selectedFile
             ? `${chapterTitle} · ${fileName}${chapterHeader ? ` · ${chapterHeader.wordCountLabel}` : ""}${saveLabel ? ` · ${saveLabel}` : ""}${snapshotMtime ? ` · 本地快照 ${new Date(snapshotMtime).toLocaleString()}` : ""}`
@@ -390,9 +398,12 @@ export function WritingWorkspace() {
             selectedFile={selectedFile}
             alerts={foreshadowOverdue}
             onAdopted={(path) => {
+              setDraftReloadKey((key) => key + 1)
               setSelectedFile(path)
               setActiveView("wiki")
             }}
+            onGenerateDraft={openMainControlForDraft}
+            onOpenMemory={() => setActiveView("lint")}
           />
         ) : null}
       </Suspense>

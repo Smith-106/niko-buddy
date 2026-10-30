@@ -23,6 +23,7 @@ import { ChapterDirectory } from "./chapter-directory"
 import { PipelineMotionView } from "./pipeline-motion-view"
 import { ForeshadowingPanel } from "./foreshadowing-panel"
 import { WorkHeatmapPanel } from "./work-heatmap-panel"
+import { clearMainControlGoalHandoff, peekMainControlGoalHandoff } from "./main-control-handoff"
 
 export interface MainControlViewProps {
   /** 项目 id（与其它视图签名一致；路径取 store 里的 project.path）。 */
@@ -52,7 +53,11 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   // 工作流模式目前没有全局设置项，深章工具注册用默认档（与 resolveAiWorkflowMode 一致）。
   const aiWorkflowMode = DEFAULT_AI_WORKFLOW_MODE
   const setActiveView = useWikiStore((s) => s.setActiveView)
-  const [goal, setGoal] = useState("")
+  // 章节页「生成本章草稿」交接的目标只预填，不自动执行（批次二·8）。
+  const [goal, setGoal] = useState(() => peekMainControlGoalHandoff() ?? "")
+  useEffect(() => {
+    clearMainControlGoalHandoff()
+  }, [])
   const [steps, setSteps] = useState<MainControlStep[]>([])
   const [result, setResult] = useState<MainControlResult | null>(null)
   const [running, setRunning] = useState(false)

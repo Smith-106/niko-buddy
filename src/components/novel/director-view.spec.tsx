@@ -157,6 +157,9 @@ describe("DirectorView（60 号设计：开书导演主视图）", () => {
     await waitFor(() => expect(screen.getByTestId("director-advance")).toBeInTheDocument())
     fireEvent.click(screen.getByTestId("director-advance"))
     await waitFor(() => expect(screen.getByTestId("director-gap")).toBeInTheDocument())
+    // 批次二·9：必填项为空时不跑管线，直接告诉作者缺哪几项。
+    expect(screen.getByTestId("director-gap").textContent).toContain("directorPanel.ideaMissing")
+    expect(advanceMock.fn).not.toHaveBeenCalled()
   })
 
   it("填立意后推进 idea → 走自动生成链路，状态前移 world running 且展示产物摘要", async () => {

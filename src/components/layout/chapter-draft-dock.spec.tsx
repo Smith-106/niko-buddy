@@ -102,4 +102,37 @@ describe("ChapterDraftDock", () => {
     await screen.findByTestId("chapter-draft-dock")
     expect(screen.queryByTestId("chapter-draft-continuity-alert")).toBeNull()
   })
+it("批次二·7：空态说明草稿从哪来，并提供「去主控生成」", async () => {
+    const onGenerateDraft = vi.fn()
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile={null}
+        listDrafts={async () => []}
+        onGenerateDraft={onGenerateDraft}
+      />,
+    )
+    const empty = await screen.findByTestId("chapter-draft-empty")
+    expect(empty.textContent).toContain("点「采纳」后才写入正文")
+    fireEvent.click(screen.getByTestId("chapter-draft-empty-generate"))
+    expect(onGenerateDraft).toHaveBeenCalledTimes(1)
+  })
+
+  it("批次二·7：采纳成功提示带「查看记忆更新」入口", async () => {
+    const onOpenMemory = vi.fn()
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => [draft]}
+        acceptDraft={async () => ({ formalChapterPath: "C:/book/正文/第01章.md" }) as never}
+        pathExists={async () => false}
+        onOpenMemory={onOpenMemory}
+      />,
+    )
+    fireEvent.click(await screen.findByTestId("chapter-draft-adopt-d1"))
+    fireEvent.click(await screen.findByTestId("chapter-draft-confirm-accept"))
+    fireEvent.click(await screen.findByTestId("chapter-draft-open-memory"))
+    expect(onOpenMemory).toHaveBeenCalledTimes(1)
+  })
 })
