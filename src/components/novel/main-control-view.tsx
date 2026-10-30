@@ -60,7 +60,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const [cancelledAt, setCancelledAt] = useState<number | null>(null)
   // 页内分层（IA：跑流程 / 收草稿 / 本章上下文分开，不再上下堆一屏；只切换展示，不碰执行语义）。
   const [tab, setTab] = useState<"run" | "drafts" | "context">("run")
-  // 管線動態：默認展開實況拓撲，開始運行自動展開，無需等磁盤輪詢。
+  // 管线动态：默认展开实况拓扑，开始运行自动展开，无需等磁盘轮询。
   const [motionOpen, setMotionOpen] = useState(true)
   // PAT-U5（ISS-20260712-006 batch-2）：折叠触发点补 aria-controls + region。
   const motionPanelId = useId()
@@ -188,7 +188,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4" data-testid="main-control-view">
       <div className="flex items-center gap-2">
-        <Sparkles className="h-5 w-5 text-accent" />
+        <Sparkles className="h-5 w-5 text-primary" />
         <h2 className="text-base font-semibold">{t("mainControl.title")}</h2>
         <span className="text-xs text-muted-foreground">{t("mainControl.subtitle")}</span>
       </div>
@@ -210,7 +210,9 @@ export function MainControlView(_props: MainControlViewProps = {}) {
             onClick={() => setTab(item.key)}
             className={cn(
               "h-7 rounded-md border px-2 text-xs",
-              tab === item.key ? "text-accent" : "text-muted-foreground",
+              tab === item.key
+                ? "border-primary bg-primary font-medium text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
             )}
           >
             {t(item.labelKey)}
@@ -250,7 +252,9 @@ export function MainControlView(_props: MainControlViewProps = {}) {
               data-testid="main-control-run"
               className={cn(
                 "flex h-7 items-center gap-1 rounded-md border px-2 text-xs",
-                goal.trim() ? "text-accent" : "text-muted-foreground",
+                goal.trim()
+                  ? "border-primary bg-primary font-medium text-primary-foreground hover:bg-primary/90"
+                  : "text-muted-foreground",
               )}
             >
               <Play className="h-3 w-3" />
@@ -287,7 +291,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           </p>
         ) : null}
         {!running && cancelledAt && !error ? (
-          <p className="flex items-center gap-1 text-xs text-warning" data-testid="main-control-cancelled">
+          <p className="flex items-center gap-1 text-xs text-warning-foreground" data-testid="main-control-cancelled">
             <Square className="h-3 w-3" />
             {t("mainControl.cancelled", {
               time: new Date(cancelledAt).toLocaleTimeString("zh-CN", { hour12: false }),
@@ -295,7 +299,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           </p>
         ) : null}
         {stuckStep ? (
-          <p className="flex items-center gap-1 text-xs text-warning" data-testid="main-control-stuck">
+          <p className="flex items-center gap-1 text-xs text-warning-foreground" data-testid="main-control-stuck">
             <CircleAlert className="h-3 w-3" />
             {stuckTimeout
               ? t("mainControl.timeoutHint", { step: stuckStep.name })
@@ -318,7 +322,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
               <li key={step.callId} className="flex flex-col gap-0.5" data-testid={`main-control-step-${step.name}`}>
                 <span className="flex items-center gap-1 text-xs">
                   {step.status === "running" ? (
-                    <Loader2 className="h-3 w-3 animate-spin text-accent" />
+                    <Loader2 className="h-3 w-3 animate-spin text-primary" />
                   ) : step.status === "error" ? (
                     <CircleAlert className="h-3 w-3 text-destructive" />
                   ) : (
@@ -352,10 +356,10 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           className="flex w-full items-center gap-2 text-left text-xs font-semibold"
         >
           <span>{motionOpen ? "▾" : "▸"}</span>
-          {t("mainControl.motionTitle", "管線動態（實況拓撲）")}
+          {t("mainControl.motionTitle", "管线动态（实况拓扑）")}
         </button>
         {motionOpen && projectPath ? (
-          <div id={motionPanelId} role="region" aria-label={t("mainControl.motionTitle", "管線動態（實況拓撲）")} className="mt-2">
+          <div id={motionPanelId} role="region" aria-label={t("mainControl.motionTitle", "管线动态（实况拓扑）")} className="mt-2">
             <PipelineMotionView
               projectPath={projectPath}
               traceEntries={(steps.length > 0 ? liveTrace : trace).length > 0 ? (steps.length > 0 ? liveTrace : trace) : undefined}
@@ -402,7 +406,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
                     {entry.status === "error" ? (
                       <CircleAlert className="h-3 w-3 text-destructive" />
                     ) : entry.status === "running" ? (
-                      <Loader2 className="h-3 w-3 animate-spin text-accent" />
+                      <Loader2 className="h-3 w-3 animate-spin text-primary" />
                     ) : (
                       <CheckCircle2 className="h-3 w-3 text-success" />
                     )}
@@ -413,7 +417,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
                         {t("mainControl.traceDuration", { ms: entry.durationMs })}
                       </span>
                     ) : null}
-                    <span className="ml-auto text-xs text-accent">
+                    <span className="ml-auto text-xs text-primary">
                       {open ? t("mainControl.traceHideRaw") : t("mainControl.traceShowRaw")}
                     </span>
                   </button>
@@ -460,7 +464,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           <ul className="flex flex-col gap-0.5">
             {result.drafts.map((draft) => (
               <li key={draft.id} className="flex items-center gap-2 text-xs">
-                <span className="text-accent">{draft.chapterName || draft.id}</span>
+                <span className="text-primary">{draft.chapterName || draft.id}</span>
                 {draft.words ? (
                   <span className="text-muted-foreground">
                     {t("mainControl.draftWords", { count: draft.words })}

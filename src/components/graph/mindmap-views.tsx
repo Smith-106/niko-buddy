@@ -176,6 +176,8 @@ export function ZoomControls() {
         variant="outline"
         size="icon"
         className="h-7 w-7 bg-background/80 backdrop-blur-sm"
+        title="放大"
+        aria-label="放大"
         onClick={() => {
           const camera = sigma.getCamera()
           camera.animatedZoom({ duration: 200 })
@@ -187,6 +189,8 @@ export function ZoomControls() {
         variant="outline"
         size="icon"
         className="h-7 w-7 bg-background/80 backdrop-blur-sm"
+        title="缩小"
+        aria-label="缩小"
         onClick={() => {
           const camera = sigma.getCamera()
           camera.animatedUnzoom({ duration: 200 })
@@ -198,6 +202,8 @@ export function ZoomControls() {
         variant="outline"
         size="icon"
         className="h-7 w-7 bg-background/80 backdrop-blur-sm"
+        title="重置视图"
+        aria-label="重置视图"
         onClick={() => {
           const camera = sigma.getCamera()
           camera.animatedReset({ duration: 300 })

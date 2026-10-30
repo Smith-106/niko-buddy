@@ -1917,6 +1917,16 @@ describe("SidebarPanel 创建流程", () => {
     expect(screen.getByTestId("kt-filter")).toHaveTextContent("chapter")
   })
 
+  it("模式推断：从大纲页切到无专属面板的视图时回到章节树，不残留大纲面板", () => {
+    const { setState } = renderSidebar({ activeView: "sources", selectedFile: null })
+    expect(screen.getByTestId("kt-filter")).toHaveTextContent("outline")
+    setState({ activeView: "canonEditor", selectedFile: null })
+    expect(screen.getByTestId("kt-filter")).toHaveTextContent("chapter")
+    setState({ activeView: "sources", selectedFile: "/p/mybook/wiki/outlines/a.md" })
+    setState({ activeView: "exportCenter", selectedFile: "/p/mybook/wiki/outlines/a.md" })
+    expect(screen.getByTestId("kt-filter")).toHaveTextContent("chapter")
+  })
+
   it("移除 pending 页面回调", async () => {
     renderSidebar()
     await flushAsync()

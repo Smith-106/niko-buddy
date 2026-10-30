@@ -95,7 +95,7 @@ describe("LiveExecutionView", () => {
     expect(screen.getByTestId("live-trace").textContent).toContain("boom")
     expect(screen.queryByTestId("live-view-loading")).toBeNull()
     expect(screen.queryByTestId("live-empty")).toBeNull()
-    // 頂部掛載管線動態拓撲（注入賬本 → 渲染圖）。
+    // 顶部挂载管线动态拓扑（注入账本 → 渲染图）。
     expect(screen.getByTestId("pipeline-motion-panel")).toBeTruthy()
     expect(screen.getByTestId("motion-diagram")).toBeTruthy()
   })

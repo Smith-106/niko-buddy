@@ -85,8 +85,8 @@
   },
   "dashboard": {
     "title": "项目仪表盘",
-    "noIssues": "未发现任何问题",
-    "noIssuesHint": "项目质量良好，可以放心继续创作",
+    "noIssues": "审稿与检查未发现问题",
+    "noIssuesHint": "运行环境的状态请看下方「项目医生」",
     "evidenceToggle": "证据与建议",
     "rewriteAlertPrefix": "AI修改暂时无法继续",
     "severity": {
@@ -267,9 +267,9 @@
     "openProject": "小说目录",
     "recentProjects": "小说书架",
     "quickStart": "快速上手",
-    "quickStart1": "新建项目——创建工作区（小说模式默认开启：wiki + .novel 记忆）",
-    "quickStart2": "配模型 —— 点这里打开新建，模型服务区点立即配置，跳设置填 key（支持代理）",
-    "quickStart3": "开始写作——章节生成走 Draft-first：AI 草稿 accept 后才写正式，安全可靠",
+    "quickStart1": "新建小说：选一个文件夹存放书稿和记忆",
+    "quickStart2": "配置 AI 模型：在新建窗口的「模型服务」点「立即配置」，填入 API Key（支持代理）",
+    "quickStart3": "开始写作：AI 写的内容先放进草稿，你点「采纳」后才写入正文和记忆",
     "quickStart1Action": "新建项目，开始快速上手第一步",
     "restoreBackup": "恢复先前数据",
     "restoreConfirmTitle": "恢复先前数据？",
@@ -1496,7 +1496,11 @@
       "noChapterHint": "还没有章节：用左侧「章节」面板右上角的 + 新建第一章。",
       "commandHint": "快捷键：Ctrl/⌘+K 搜索章节与功能",
       "viewGraph": "去看看图谱",
-      "noProjectHint": "还没有打开项目，可以先看看图谱了解结构"
+      "noProjectHint": "还没有打开项目，可以先看看图谱了解结构",
+      "outlineTitle": "还没有打开大纲",
+      "outlineHint": "在左侧「大纲」面板点一份大纲查看；也可以点上方「生成大纲」让 AI 起草。",
+      "trashTitle": "还没有选中回收站里的内容",
+      "trashHint": "在左侧回收站列表点一项即可预览，确认后再恢复或彻底删除。"
     },
     "chatSession": "AI会话",
     "openChatSession": "打开会话栏",

@@ -17,7 +17,7 @@ import {
   Users,
   Wand2,
 } from "lucide-react"
-import { countMemoryFileEntries, getExistingChapterTitles, getUniqueWikiPagePath, inferModeFromPath, MEMORY_LABEL_KEYS, type PendingPageInfo } from "./sidebar-helpers"
+import { countMemoryFileEntries, getExistingChapterTitles, getUniqueWikiPagePath, MEMORY_LABEL_KEYS, resolveSidebarMode, type PendingPageInfo } from "./sidebar-helpers"
 import { MemoryCenterListButton, SearchHistoryPanel } from "./sidebar-panels"
 import { KnowledgeTree, RawSourcesSection, type KnowledgeCreateRequest } from "./knowledge-tree"
 import { TrashPanel } from "./trash-panel"
@@ -97,16 +97,8 @@ export function SidebarPanel() {
   }
 
   useEffect(() => {
-    if (activeView === "wiki") {
-      setMode("knowledge")
-      return
-    }
-    if (activeView === "sources") {
-      setMode("files")
-      return
-    }
-    if (!selectedFile) return
-    setMode(inferModeFromPath(selectedFile))
+    const next = resolveSidebarMode(activeView, selectedFile)
+    if (next) setMode(next)
   }, [activeView, selectedFile])
 
   const isChapter = mode === "knowledge"

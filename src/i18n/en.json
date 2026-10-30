@@ -197,8 +197,8 @@
   },
   "dashboard": {
     "title": "Project Dashboard",
-    "noIssues": "No issues found",
-    "noIssuesHint": "Project quality is good, continue writing with confidence",
+    "noIssues": "Review and checks found no issues",
+    "noIssuesHint": "See Project Doctor below for environment status",
     "evidenceToggle": "Evidence and suggestion",
     "rewriteAlertPrefix": "AI rewrite cannot continue",
     "severity": {
@@ -730,7 +730,7 @@
     "recentProjects": "Novel Shelf",
     "quickStart": "Quick Start",
     "quickStart1": "New project — create a workspace (novel writing mode is on by default: wiki + .novel memory)",
-    "quickStart2": "Set up the model — click here to open creation, hit Configure now in the model section, fill the key in settings (proxy supported)",
+    "quickStart2": "Set up an AI model: in the New Project dialog, click Configure now under Model service and enter your API key (proxy supported)",
     "quickStart3": "Start writing — chapter generation is Draft-first: AI draft writes to canon only after accept",
     "quickStart1Action": "Create a project, start quick-start step 1",
     "restoreBackup": "Restore previous data",
@@ -2095,7 +2095,11 @@
       "noChapterHint": "No chapters yet: use the + button in the “Chapters” panel to create the first one.",
       "commandHint": "Shortcut: Ctrl/⌘+K to search chapters and features",
       "viewGraph": "View the graph",
-      "noProjectHint": "No project open yet. Explore the graph to understand the structure."
+      "noProjectHint": "No project open yet. Explore the graph to understand the structure.",
+      "outlineTitle": "No outline open",
+      "outlineHint": "Pick an outline in the Outline panel on the left, or click Generate outline above to let AI draft one.",
+      "trashTitle": "Nothing selected in the trash",
+      "trashHint": "Pick an item in the trash list on the left to preview it before restoring or deleting it for good."
     },
     "chatSession": "AI Session",
     "openChatSession": "Open session panel",

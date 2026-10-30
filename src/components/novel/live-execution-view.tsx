@@ -150,7 +150,7 @@ export function LiveExecutionView({
       title="AI 实况"
       description="只读显示运行中的活动、最近事件和轨迹。没有这些记录时保持空态，不编造运行状态。"
     >
-      {/* 管線動態拓撲（只讀投影，零事件時顯示空態） */}
+      {/* 管线动态拓扑（只读投影，零事件时显示空态） */}
       <PipelineMotionPanel input={{ events: loadedEvents, traceEntries: loadedEntries }} />
       {loadError ? (
         <ReportCallout testId="live-load-error" tone="error">

@@ -3,14 +3,14 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * pipeline-motion-panel.tsx — 「管線動態」面板（只讀，深色终端拓扑大屏）。
+ * pipeline-motion-panel.tsx — 「管线动态」面板（只读，深色终端拓扑大屏）。
  *
- * 回答「工作正跑到哪一步」：把 projectPipelineMotion 的投影畫成深色
- * 工業駕駛艙風格的正交拓撲（目標 → 定稿 → 回流），藍色當前路徑只跟真實事件。
+ * 回答「工作正跑到哪一步」：把 projectPipelineMotion 的投影画成深色
+ * 工业驾驶舱风格的正交拓扑（目标 → 定稿 → 回流），蓝色当前路径只跟真实事件。
  *
- * 誠實口徑（死守契约）：零事件且未開回放/演示時顯示空態（不畫一條灰管線
- * 假裝有跑）；返工計數為 0 的邊畫灰色虛線，不畫紅；統計條全部來自事件計數。
- * 既有 data-testid / data-state / data-hot / data-active 全部保留，單測照舊。
+ * 诚实口径（死守契约）：零事件且未开回放/演示时显示空态（不画一条灰管线
+ * 假装有跑）；返工计数为 0 的边画灰色虚线，不画红；统计条全部来自事件计数。
+ * 既有 data-testid / data-state / data-hot / data-active 全部保留，单测照旧。
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -25,19 +25,19 @@ import {
 } from "@/lib/novel"
 
 export interface PipelineMotionPanelProps {
-  /** 注入投影結果（測試可替換）。 */
+  /** 注入投影结果（测试可替换）。 */
   readonly projection?: PipelineMotionProjection
-  /** 注入輸入（未給 projection 時用於計算）。 */
+  /** 注入输入（未给 projection 时用于计算）。 */
   readonly input?: PipelineMotionInput
 }
 
 const EMPTY_INPUT: PipelineMotionInput = { events: [], traceEntries: [] }
 
-// ── 自上而下分層正交拓撲：7 層縱向主幹 + 左右外掛 + 右側雙回路 ───────────────
-// L1 goal→evidence · L2 outline→chapter-plan（左掛 knowledge-base）·
-// L3 draft（左/右掛 model-router）· L4 self-gate→review · L5 審查維度芯片條 ·
-// L6 review-gate→ingest（右側紅色返工走廊）· L7 ingest→deliver→reflow→retrospective。
-// 外部依賴掛左右琥珀列。固定座標，節點數固定=15，不隨數據變化。
+// ── 自上而下分层正交拓扑：7 层纵向主干 + 左右外挂 + 右侧双回路 ───────────────
+// L1 goal→evidence · L2 outline→chapter-plan（左挂 knowledge-base）·
+// L3 draft（左/右挂 model-router）· L4 self-gate→review · L5 审查维度芯片条 ·
+// L6 review-gate→ingest（右侧红色返工走廊）· L7 ingest→deliver→reflow→retrospective。
+// 外部依赖挂左右琥珀列。固定座标，节点数固定=15，不随数据变化。
 
 const NODE_W = 120
 const NODE_H = 30
@@ -64,7 +64,7 @@ function nodeXY(id: string): { x: number; y: number } {
   return NODE_XY[id] ?? { x: 500, y: 60 }
 }
 
-/** 主幹正交邊：同列縱連畫豎線，異列畫自上而下的 L 形（上出下入）。 */
+/** 主干正交边：同列纵连画竖线，异列画自上而下的 L 形（上出下入）。 */
 function trunkPath(a: { x: number; y: number }, b: { x: number; y: number }): string {
   if (a.x === b.x) {
     return `M ${a.x} ${a.y + NODE_H / 2} V ${b.y - NODE_H / 2}`
@@ -93,15 +93,15 @@ const STATE_FILL: Record<string, string> = {
   idle: "#0b1220",
 }
 
-/** 狀態字形雙編碼：色盲用戶不靠顏色也能區分（▶ 進行中 / ● 已走過 / ○ 未到）。 */
+/** 状态字形双编码：色盲用户不靠颜色也能区分（▶ 进行中 / ● 已走过 / ○ 未到）。 */
 function stateGlyph(state: MotionNodeProjection["state"]): string {
   return state === "current" ? "▶" : state === "visited" ? "●" : "○"
 }
 
-// ── 審查維度芯片條（review / self-gate 區域下方，靜態裝飾不碰契约） ──────────
-const REVIEW_DIMS = ["爽感", "自洽", "節奏", "人設", "銜接", "追讀", "認知", "Canon", "AI味"]
+// ── 审查维度芯片条（review / self-gate 区域下方，静态装饰不碰契约） ──────────
+const REVIEW_DIMS = ["爽感", "自洽", "节奏", "人设", "衔接", "追读", "认知", "Canon", "AI味"]
 
-// ── 示例演示事件流（取證→生成→審稿門觸發返修→v2通過→記憶入庫→回流） ─────────
+// ── 示例演示事件流（取证→生成→审稿门触发返修→v2通过→记忆入库→回流） ─────────
 const DEMO_TS = "2026-10-19T00:00:00.000Z"
 function demoEvents(): RunEvent[] {
   let seq = 0
@@ -119,7 +119,7 @@ function demoEvents(): RunEvent[] {
   ]
 }
 
-// ── KPI 卡片（底部彩色進度細條） ─────────────────────────────────────────────
+// ── KPI 卡片（底部彩色进度细条） ─────────────────────────────────────────────
 function KpiCard({ label, value, tone, max }: { label: string; value: number; tone: string; max: number }) {
   const ratio = max > 0 ? Math.min(1, value / max) : 0
   return (
@@ -136,7 +136,7 @@ function KpiCard({ label, value, tone, max }: { label: string; value: number; to
 function ReworkPath({ from, to, active, lane }: { from: string; to: string; active: boolean; lane: number }): React.ReactElement {
   const a = nodeXY(from)
   const b = nodeXY(to)
-  // 右側正交返工環：從起點右出 → 返工專用通道 x → 終點右入。
+  // 右侧正交返工环：从起点右出 → 返工专用通道 x → 终点右入。
   const x = Math.max(a.x, b.x) + NODE_W / 2 + lane
   const color = active ? "#f85149" : "#334155"
   const d = `M ${a.x + NODE_W / 2} ${a.y} H ${x} V ${b.y} H ${b.x + NODE_W / 2}`
@@ -246,28 +246,28 @@ function ExternalNode({ node, tos }: { node: MotionNodeProjection; tos: readonly
   )
 }
 
-// ── log 行：時間戳 + 彩色階段標籤 + 摘要 + 右側階段分組 ──────────────────────
+// ── log 行：时间戳 + 彩色阶段标签 + 摘要 + 右侧阶段分组 ──────────────────────
 function logToneColor(tone: string): string {
   return tone === "error" ? "#f87171" : tone === "rework" ? "#f59e0b" : tone === "pass" ? "#34d399" : "#94a3b8"
 }
 
 function phaseGroup(label: string): string {
-  if (/retriev|evidence|取證|goal|目標/.test(label)) return "開場"
-  if (/generat|draft|outline|plan|正文|大綱|章綱|生成/.test(label)) return "派活"
-  if (/gate|review|critic|revise|返修|審/.test(label)) return "審校"
-  return "完結"
+  if (/retriev|evidence|取证|goal|目标/.test(label)) return "开场"
+  if (/generat|draft|outline|plan|正文|大纲|章纲|生成/.test(label)) return "派活"
+  if (/gate|review|critic|revise|返修|审/.test(label)) return "审校"
+  return "完结"
 }
 
 const STAGE_CAPSULES: ReadonlyArray<{ id: string; label: string }> = [
-  { id: "goal", label: "目標" },
-  { id: "evidence", label: "取證" },
-  { id: "outline", label: "大綱" },
-  { id: "chapter-plan", label: "章綱" },
+  { id: "goal", label: "目标" },
+  { id: "evidence", label: "取证" },
+  { id: "outline", label: "大纲" },
+  { id: "chapter-plan", label: "章纲" },
   { id: "draft", label: "正文" },
-  { id: "self-gate", label: "自檢門" },
-  { id: "review", label: "審稿" },
+  { id: "self-gate", label: "自检门" },
+  { id: "review", label: "审稿" },
   { id: "revise", label: "返修" },
-  { id: "ingest", label: "入庫" },
+  { id: "ingest", label: "入库" },
   { id: "reflow", label: "回流" },
 ]
 
@@ -289,7 +289,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
     return []
   }, [input, projection])
   const demoEvts = useMemo(() => demoEvents(), [])
-  // activeEvents：回放用賬本前 frame+1 條；演示用 demo 流；靜態用全量。
+  // activeEvents：回放用账本前 frame+1 条；演示用 demo 流；静态用全量。
   const activeEvents = useMemo(() => {
     if (replaying && !demoMode) return sourceEvents.slice(0, frame + 1)
     if (replaying && demoMode) return demoEvts.slice(0, frame + 1)
@@ -343,7 +343,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
   }, [replaying, sourceEvents, demoEvts, stopReplay])
 
   const showingDemo = replaying && demoMode
-  // 空態口徑：零事件且未開回放/演示 → 空態（演示開即有圖，不算空）。
+  // 空态口径：零事件且未开回放/演示 → 空态（演示开即有图，不算空）。
   const isEmpty = !resolved.checked && !replaying
 
   const { counts, hotEdge } = resolved
@@ -355,7 +355,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
   const isHotEdge = (from: string, to: string): boolean =>
     !!hotEdge && hotEdge.from === from && hotEdge.to === to
 
-  // 主線正交邊（自上而下 7 層縱向主幹，自顯式序列；主幹自上而下折向，hot 邊發光）。
+  // 主线正交边（自上而下 7 层纵向主干，自显式序列；主干自上而下折向，hot 边发光）。
   const TRUNK_ORDER: ReadonlyArray<readonly [string, string]> = [
     ["goal", "evidence"],
     ["outline", "chapter-plan"],
@@ -384,7 +384,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
       <header className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-center text-sm font-semibold tracking-widest text-foreground">
-            NIKO-BUDDY · 完整寫作管線 · 目標 → 定稿 → 回流
+            NIKO-BUDDY · 完整写作管线 · 目标 → 定稿 → 回流
           </h3>
           <button
             type="button"
@@ -392,51 +392,51 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
             onClick={toggleReplay}
             className="ml-auto rounded border border-kind-slate px-2 py-0.5 text-xs text-kind-slate hover:bg-muted"
           >
-            {finished ? "↻ 重新回放 / 退出" : replaying ? "■ 停止回放" : "▶ 流程回放 / 步進演示"}
+            {finished ? "↻ 重新回放 / 退出" : replaying ? "■ 停止回放" : "▶ 流程回放 / 步进演示"}
           </button>
         </div>
         {showingDemo ? (
-          <p data-testid="motion-demo-note" className="text-center text-xs text-warning">
-            演示模式：內置示例事件流（取證→生成→審稿門返修→v2通過→入庫→回流），退出恢復原狀
+          <p data-testid="motion-demo-note" className="text-center text-xs text-warning-foreground">
+            演示模式：内置示例事件流（取证→生成→审稿门返修→v2通过→入库→回流），退出恢复原状
           </p>
         ) : null}
         <div
           data-testid="motion-legend"
           className="flex flex-wrap items-center justify-center gap-3 text-xs text-muted-foreground"
         >
-          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#38bdf8]" />當前路徑</span>
-          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#f59e0b]" />外部依賴</span>
-          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#f87171]" />↩ 返工循環</span>
-          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#34d399]" />記憶回流</span>
-          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#475569]" />○ 其餘環節（● 已走過）</span>
+          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#38bdf8]" />当前路径</span>
+          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#f59e0b]" />外部依赖</span>
+          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#f87171]" />↩ 返工循环</span>
+          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#34d399]" />记忆回流</span>
+          <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#475569]" />○ 其余环节（● 已走过）</span>
         </div>
-        {/* KPI 數字卡片矩陣（帶底部彩色進度細條） */}
+        {/* KPI 数字卡片矩阵（带底部彩色进度细条） */}
         <div data-testid="motion-kpis" className="grid grid-cols-4 gap-1.5 sm:grid-cols-7">
           <KpiCard label="事件" value={counts.events} tone="#38bdf8" max={maxCount} />
-          <KpiCard label="取證" value={counts.evidence} tone="#38bdf8" max={maxCount} />
+          <KpiCard label="取证" value={counts.evidence} tone="#38bdf8" max={maxCount} />
           <KpiCard label="生成" value={counts.generated} tone="#38bdf8" max={maxCount} />
-          <KpiCard label="門禁" value={counts.gates} tone="#a78bfa" max={maxCount} />
-          <KpiCard label="通過" value={counts.passed} tone="#34d399" max={maxCount} />
+          <KpiCard label="门禁" value={counts.gates} tone="#a78bfa" max={maxCount} />
+          <KpiCard label="通过" value={counts.passed} tone="#34d399" max={maxCount} />
           <KpiCard label="返工" value={counts.reworks} tone="#f87171" max={maxCount} />
-          <KpiCard label="入庫章節" value={counts.chapters} tone="#34d399" max={maxCount} />
+          <KpiCard label="入库章节" value={counts.chapters} tone="#34d399" max={maxCount} />
         </div>
-        {/* 契约統計條：完整文本保留，兼容既有單測配對 */}
+        {/* 契约统计条：完整文本保留，兼容既有单测配对 */}
         <p data-testid="motion-stats" className="text-center text-xs text-muted-foreground">
           事件 <b className="text-foreground">{counts.events}</b>
-          {" · "}取證 <b className="text-foreground">{counts.evidence}</b>
+          {" · "}取证 <b className="text-foreground">{counts.evidence}</b>
           {" · "}生成 <b className="text-foreground">{counts.generated}</b>
-          {" · "}門運行 <b className="text-foreground">{counts.gates}</b>
-          {" · "}通過 <b className="text-foreground">{counts.passed}</b>
+          {" · "}门运行 <b className="text-foreground">{counts.gates}</b>
+          {" · "}通过 <b className="text-foreground">{counts.passed}</b>
           {" · "}返工 <b className="text-destructive">{counts.reworks}</b>
           {" · "}接收 <b className="text-foreground">{counts.accepts}</b>
-          {" · "}錯誤 <b className="text-destructive">{counts.errors}</b>
-          {" · "}章節 <b className="text-foreground">{counts.chapters}</b>
+          {" · "}错误 <b className="text-destructive">{counts.errors}</b>
+          {" · "}章节 <b className="text-foreground">{counts.chapters}</b>
         </p>
       </header>
 
       {isEmpty ? (
         <p data-testid="motion-empty" className="py-8 text-center text-xs text-muted-foreground">
-          尚無運行事件：主控跑過一次章節工作流，藍色當前路徑才會亮起（不播演示動畫）。
+          尚无运行事件：主控跑过一次章节工作流，蓝色当前路径才会亮起（不播演示动画）。
         </p>
       ) : (
         <svg
@@ -444,7 +444,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
           viewBox="0 0 1100 680"
           className="mx-auto block w-full min-w-[640px]"
           role="img"
-          aria-label="寫作管線動態圖"
+          aria-label="写作管线动态图"
         >
           {trunkEdges.map((edge) => (
             <g key={edge.key}>
@@ -473,7 +473,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
               lane={edge.from === "self-gate" ? 96 : 56}
             />
           ))}
-          {/* 返工次數角標 */}
+          {/* 返工次数角标 */}
           {REWORK_EDGES.map((edge) => {
             const n = resolved.reworkCounts[`${edge.from}->${edge.to}`] ?? 0
             if (n <= 0) return null
@@ -498,7 +498,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
               tos={node.id === "knowledge-base" ? ["evidence", "chapter-plan"] : ["draft"]}
             />
           ))}
-          {/* 審查維度芯片條：review 下方居中 9 維；自檢/審稿活躍時青藍點亮 */}
+          {/* 审查维度芯片条：review 下方居中 9 维；自检/审稿活跃时青蓝点亮 */}
           {(() => {
             const lit = ["self-gate", "review", "review-gate"].some(
               (id) => resolved.nodes.find((n) => n.id === id)?.state !== "idle",
@@ -526,7 +526,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
               </g>
             )
           })()}
-          {/* 記憶回流閉環：reflow/retrospective 沿右側大環回到頂部 goal（青綠色） */}
+          {/* 记忆回流闭环：reflow/retrospective 沿右侧大环回到顶部 goal（青绿色） */}
           {(() => {
             const lit = ["reflow", "retrospective"].some(
               (id) => resolved.nodes.find((n) => n.id === id)?.state !== "idle",
@@ -549,7 +549,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
                   </circle>
                 ) : null}
                 <text x={1052} y={330} fontSize="11" fill={stroke} transform="rotate(90 1052,330)" textAnchor="middle">
-                  記憶回流
+                  记忆回流
                 </text>
               </g>
             )
@@ -582,12 +582,12 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
             ))}
           </ul>
         )}
-        {/* CLI 命令狀態欄：提示符 + 階段膠囊條 */}
+        {/* CLI 命令状态栏：提示符 + 阶段胶囊条 */}
         <div data-testid="motion-status" className="mt-1 flex flex-wrap items-center gap-1.5 rounded bg-black/40 px-2 py-1.5 text-xs text-muted-foreground">
-          <span className="text-success">$</span>
+          <span className="text-success-foreground">$</span>
           <span className="text-kind-slate">niko-buddy pipeline --live</span>
           <span className="text-kind-slate">|</span>
-          <span className="text-muted-foreground">階段</span>
+          <span className="text-muted-foreground">阶段</span>
           {STAGE_CAPSULES.map((cap) => {
             const active = currentNode?.id === cap.id
             return (
@@ -602,7 +602,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
             )
           })}
           <span className="ml-auto text-muted-foreground">
-            {currentNode ? <>當前路徑 [{currentNode.label}]{lastLog ? ` · ${lastLog.label}` : ""}</> : <>未在運行{lastLog ? ` · 上次：${lastLog.label}` : ""}</>}
+            {currentNode ? <>当前路径 [{currentNode.label}]{lastLog ? ` · ${lastLog.label}` : ""}</> : <>未在运行{lastLog ? ` · 上次：${lastLog.label}` : ""}</>}
           </span>
         </div>
       </div>

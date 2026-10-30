@@ -8,6 +8,20 @@ export function inferModeFromPath(path: string): "knowledge" | "files" {
   return "knowledge"
 }
 
+/**
+ * 次级侧栏模式：wiki=章节树，sources=大纲树；
+ * 只有 lint（非小说模式的通用页面视图）依据当前文件推断；
+ * 其余视图没有专属面板时一律回到章节树，避免沿用上一次的大纲面板。
+ */
+export function resolveSidebarMode(
+  activeView: string,
+  selectedFile: string | null,
+): "knowledge" | "files" | null {
+  if (activeView === "sources") return "files"
+  if (activeView === "lint") return selectedFile ? inferModeFromPath(selectedFile) : null
+  return "knowledge"
+}
+
 export interface PendingPageInfo {
   path: string
   title: string

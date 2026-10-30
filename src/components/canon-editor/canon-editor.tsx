@@ -476,7 +476,8 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
           <header className="rounded-lg border bg-card p-5 elevation-1">
             <div className="flex items-center justify-between gap-3">
               <h1 className="text-xl font-semibold" data-testid="canon-editor-title">
-                设定校正（只读）
+                设定校正
+                <span className="ml-2 text-sm font-normal text-muted-foreground">浏览</span>
                 <span className="sr-only">Canon</span>
               </h1>
               <button
@@ -489,7 +490,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
               </button>
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              项目 {projectId} · 下方是本项目的事实列表，可按知晓角色、有效章节、关系类型筛选。点「校正」可修正某条事实的知晓范围与揭晓章节。
+              <span title={projectId}>下方是本项目的事实列表，可按知晓角色、有效章节、关系类型筛选。浏览不会改动任何数据；点「校正」可修正某条事实的知晓范围与揭晓章节。</span>
             </p>
           </header>
 
@@ -578,7 +579,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
             </div>
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
-            项目 {projectId} · 选择一条事实，校正它的知晓角色（白名单）与揭晓章节；保存时旧版本封顶留痕并写入新版本。
+            <span title={projectId}>选择一条事实，校正它的知晓角色（白名单）与揭晓章节；保存时旧版本封顶留痕并写入新版本。</span>
           </p>
         </header>
 
@@ -816,7 +817,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
 
         {lastSave && (
           <div
-            className="rounded-md border border-success bg-success/10 px-4 py-3 text-sm text-success dark:border-success dark:text-success"
+            className="rounded-md border border-success bg-success/10 px-4 py-3 text-sm text-success-foreground dark:border-success dark:text-success-foreground"
             role="status"
             data-testid="correction-saved"
           >

@@ -34,7 +34,20 @@ export function ChapterEmptyState({ recentChapters, onSelectChapter }: ChapterEm
   // 无项目时新建链路静默无操作（sidebar 守卫 + App 层 WelcomeScreen 拦截），此时只给图谱跳转。
   const project = useWikiStore((s) => s.project)
   const setActiveView = useWikiStore((s) => s.setActiveView)
+  const activeView = useWikiStore((s) => s.activeView)
   const hasRecent = recentChapters.length > 0
+  // 大纲库 / 回收站复用同一预览区：空态文案按所在视图说清「这里该点什么」，不再一律提示章节。
+  const variant = activeView === "sources" ? "outline" : activeView === "trash" ? "trash" : "chapter"
+  const title = variant === "outline"
+    ? t("preview.emptyState.outlineTitle", { defaultValue: "还没有打开大纲" })
+    : variant === "trash"
+      ? t("preview.emptyState.trashTitle", { defaultValue: "还没有选中回收站里的内容" })
+      : t("preview.emptyState.title")
+  const hint = variant === "outline"
+    ? t("preview.emptyState.outlineHint", { defaultValue: "在左侧「大纲」面板点一份大纲查看；也可以点上方「生成大纲」让 AI 起草。" })
+    : variant === "trash"
+      ? t("preview.emptyState.trashHint", { defaultValue: "在左侧回收站列表点一项即可预览，确认后再恢复或彻底删除。" })
+      : t("preview.emptyState.hint")
 
   return (
     <div
@@ -47,14 +60,14 @@ export function ChapterEmptyState({ recentChapters, onSelectChapter }: ChapterEm
         </div>
         <div className="space-y-1.5">
           <h2 className="text-base font-semibold text-foreground">
-            {t("preview.emptyState.title")}
+            {title}
           </h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            {t("preview.emptyState.hint")}
+            {hint}
           </p>
         </div>
 
-        {hasRecent ? (
+        {hasRecent && variant === "chapter" ? (
           <div className="w-full space-y-2" data-testid="preview-empty-recent">
             <div className="text-xs font-medium text-muted-foreground">
               {t("preview.emptyState.recentTitle")}
@@ -76,7 +89,7 @@ export function ChapterEmptyState({ recentChapters, onSelectChapter }: ChapterEm
           </div>
         ) : null}
         <div className="flex flex-wrap items-center justify-center gap-2">
-          {project ? (
+          {project && variant === "chapter" ? (
             <button
               type="button"
               onClick={requestChapterCreate}

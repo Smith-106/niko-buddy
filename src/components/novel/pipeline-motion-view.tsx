@@ -3,13 +3,13 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * pipeline-motion-view.tsx — 「管線動態」視圖（只讀接線層）。
+ * pipeline-motion-view.tsx — 「管线动态」视图（只读接线层）。
  *
- * 只做一件事：只讀裝載運行事件賬本（run-events.jsonl）與主控軌跡快照，
- * 交給 PipelineMotionPanel 做純投影渲染。本視圖不寫任何文件。
+ * 只做一件事：只读装载运行事件账本（run-events.jsonl）与主控轨迹快照，
+ * 交给 PipelineMotionPanel 做纯投影渲染。本视图不写任何文件。
  *
- * 失敗口徑：裝載失敗保留舊數據並顯式報錯（不彈空、不重試刷屏）；
- * 輪詢間隔 10 秒，讀到新事件才重渲染（投影層是純函數，同輸入同輸出）。
+ * 失败口径：装载失败保留旧数据并显式报错（不弹空、不重试刷屏）；
+ * 轮询间隔 10 秒，读到新事件才重渲染（投影层是纯函数，同输入同输出）。
  */
 
 import { useEffect, useRef, useState } from "react"
@@ -27,15 +27,15 @@ import { PipelineMotionPanel } from "./pipeline-motion-panel"
 import { toErrorMessage } from "@/lib/utils"
 
 export interface PipelineMotionViewProps {
-  /** 項目磁盤路徑（content-area 傳 project.path，不是 UUID；UUID 讀不到賬本）。 */
+  /** 项目磁盘路径（content-area 传 project.path，不是 UUID；UUID 读不到账本）。 */
   readonly projectPath: string
-  /** 顯式注入賬本（測試；優先於磁盤裝載）。 */
+  /** 显式注入账本（测试；优先于磁盘装载）。 */
   readonly ledgerEvents?: readonly RunEvent[] | null
-  /** 顯式注入軌跡條目（測試；優先於磁盤裝載）。 */
+  /** 显式注入轨迹条目（测试；优先于磁盘装载）。 */
   readonly traceEntries?: readonly TraceEntry[] | null
-  /** deps 注入（jsdom 測試；缺省生產 deps）。 */
+  /** deps 注入（jsdom 测试；缺省生产 deps）。 */
   readonly deps?: RunEventLedgerStoreDeps
-  /** 輪詢間隔毫秒（測試可調小；預設 10 秒）。 */
+  /** 轮询间隔毫秒（测试可调小；预设 10 秒）。 */
   readonly pollMs?: number
 }
 
@@ -52,23 +52,23 @@ export function PipelineMotionView({
   const [entries, setEntries] = useState<readonly TraceEntry[] | null>(traceEntries ?? null)
   const [ready, setReady] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
-  // 有無成功寫入過數據 / 連續失敗輪數（跨輪詢累積，切項目重置）。
-  // ready 的誠實規則：只在「成功寫入」或「失敗已成定局」（首輪失敗、
-  // 連敗且無數據）時離開 loading。輪詢是串行的（上一輪結算才排下一輪），
-  // 從構造上杜絕重疊請求——沒有 stale 響應，就沒有「丟棄誰/提前報誰」的
-  // 一整類誠實性問題；世代號不需要。
+  // 有无成功写入过数据 / 连续失败轮数（跨轮询累积，切项目重置）。
+  // ready 的诚实规则：只在「成功写入」或「失败已成定局」（首轮失败、
+  // 连败且无数据）时离开 loading。轮询是串行的（上一轮结算才排下一轮），
+  // 从构造上杜绝重叠请求——没有 stale 响应，就没有「丢弃谁/提前报谁」的
+  // 一整类诚实性问题；世代号不需要。
   const hasDataRef = useRef(false)
   const failStreakRef = useRef(0)
 
   useEffect(() => {
     if (ledgerEvents !== undefined || traceEntries !== undefined) {
-      // 測試注入路徑：prop 變更即同步，不走磁盤。
+      // 测试注入路径：prop 变更即同步，不走磁盘。
       if (ledgerEvents !== undefined) setEvents(ledgerEvents)
       if (traceEntries !== undefined) setEntries(traceEntries)
       setReady(true)
       return
     }
-    // 切項目即重置：舊項目的管線不許殘留，新一輪裝載前回到 loading。
+    // 切项目即重置：旧项目的管线不许残留，新一轮装载前回到 loading。
     setEvents(null)
     setEntries(null)
     setLoadError(null)
@@ -78,8 +78,8 @@ export function PipelineMotionView({
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
     const storeDeps = deps ?? createFsRunEventLedgerStoreDeps()
-    // 串行輪詢：結算後才排下一輪，請求永不重疊（慢讀只會推遲下一輪，
-    // 不會被超車作廢——每輪成功都寫入，不存在永久 loading）。
+    // 串行轮询：结算后才排下一轮，请求永不重叠（慢读只会推迟下一轮，
+    // 不会被超车作废——每轮成功都写入，不存在永久 loading）。
     const tick = async (first: boolean): Promise<void> => {
       if (cancelled) return
       try {
@@ -98,10 +98,10 @@ export function PipelineMotionView({
         if (cancelled) return
         failStreakRef.current += 1
         const streak = failStreakRef.current
-        // 錯誤文案只在失敗已成定局時出現：首輪失敗立刻報（空態＋錯
-        // 誤同現）；有舊數據時後續失敗只添錯誤條、不清空管線；首輪懸掛
-        // 時無任何失敗可報（串行鏈下後輪尚未開火），保持 loading。
-        // 無重疊請求，error 與 loading 不可能並存，也不會有過期錯誤覆蓋新數據。
+        // 错误文案只在失败已成定局时出现：首轮失败立刻报（空态＋错
+        // 误同现）；有旧数据时后续失败只添错误条、不清空管线；首轮悬挂
+        // 时无任何失败可报（串行链下后轮尚未开火），保持 loading。
+        // 无重叠请求，error 与 loading 不可能并存，也不会有过期错误覆盖新数据。
         if (first || hasDataRef.current || streak >= 2) {
           setLoadError(toErrorMessage(error))
           setReady(true)
@@ -123,12 +123,12 @@ export function PipelineMotionView({
     <div data-testid="pipeline-motion-view" className="space-y-2">
       {loadError ? (
         <p data-testid="motion-load-error" className="text-xs text-destructive">
-          事件裝載失敗（保留上次數據）：{loadError}
+          事件装载失败（保留上次数据）：{loadError}
         </p>
       ) : null}
       {!ready ? (
         <p data-testid="motion-view-loading" className="text-xs text-muted-foreground">
-          管線事件裝載中…
+          管线事件装载中…
         </p>
       ) : (
         <PipelineMotionPanel

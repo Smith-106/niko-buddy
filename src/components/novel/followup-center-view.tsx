@@ -206,7 +206,7 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
               {snapshot !== null && snapshot.blocked
                 ? "先处理被挡住的门，再看返修。"
                 : isEmpty
-                  ? "现在没有要跟进的。"
+                  ? "现在没有要跟进的，可以继续写下一章。"
                   : "先完成下面待处理的返修。"}
             </p>
           </ReportSection>
@@ -222,7 +222,7 @@ export function FollowupCenterView({ projectPath, ledger, deps }: FollowupCenter
           ) : null}
           {isEmpty ? (
             <p className="text-xs text-muted-foreground" data-testid="followup-empty">
-              暂无跟进任务：返修清单为空，阻塞队列为空
+              暂无跟进任务：返修清单和阻塞队列都是空的。审稿发现问题后，返修任务会出现在这里。
             </p>
           ) : null}
           {hasReview ? (

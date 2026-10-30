@@ -114,7 +114,7 @@ export function WelcomeScreen({
                 >
                   {t("welcome.quickStart1", {
                     defaultValue: novelMode
-                      ? "新建项目 —— 创建工作区（小说模式默认开启：wiki + .novel 记忆）"
+                      ? "新建小说：选一个文件夹存放书稿和记忆"
                       : "新建项目 —— 选择目录，创建 wiki 知识库工作区",
                   })}
                 </button>
@@ -127,7 +127,7 @@ export function WelcomeScreen({
                   className="text-left underline decoration-dotted underline-offset-2 hover:text-foreground"
                 >
                 {t("welcome.quickStart2", {
-                  defaultValue: "配模型 —— 点这里打开新建，模型服务区点立即配置，跳设置填 key",
+                  defaultValue: "配置 AI 模型：在新建窗口的「模型服务」点「立即配置」，填入 API Key",
                 })}
                 </button>
               </li>
@@ -135,7 +135,7 @@ export function WelcomeScreen({
                 <span className="font-medium text-foreground">3.</span>
                 {t("welcome.quickStart3", {
                   defaultValue: novelMode
-                    ? "开始写作 —— 章节生成走 Draft-first：AI 草稿 accept 后才写正式，安全可靠"
+                    ? "开始写作：AI 写的内容先放进草稿，你点「采纳」后才写入正文和记忆"
                     : "使用功能 —— 搜索/图谱/导入导出在顶部工具栏",
                 })}
               </li>
