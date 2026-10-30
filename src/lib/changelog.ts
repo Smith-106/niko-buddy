@@ -15,6 +15,35 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.23.0 prerelease（2026-10-30）：v2.22.2 之后 222 个提交，含 24 个 feat，按语义化版本升次版本号。
+    version: "2.23.0",
+    date: "2026-10-30",
+    highlights: {
+      en: [
+        "Added: six-dimension review results now record the scoring model; mixing models on one chapter shows a warning that scores are not directly comparable and suggests rerunning with one model.",
+        "Fixed: with Anthropic extended thinking on, the thinking budget no longer eats the answer budget (max_tokens = answer + thinking, capped at 64000); long chapters are no longer truncated into an extra expansion pass.",
+        "Fixed: after switching projects, Continue Unfinished reads and writes the new project's session; settings changes such as genre take effect in deep generation immediately.",
+        "Added: when legacy and new project directories coexist they are merged with the new directory winning; conflicting legacy files are backed up to legacy-conflicts/ and any failure rolls back; migration is reversible.",
+        "Added: one-click restore from the backup history list; autosave flushes immediately when the window closes.",
+        "Improved: outline-level thrill audit shares one definition with generation prompts and can audit a whole outline; keyword hits no longer count as a traceable payoff chain.",
+        "Improved: independent snapshot, vector and file I/O now run in parallel for faster cold context builds; token accounting is calibrated and cache hits are shown.",
+        "Improved: settings page, draft loop and long-task status feedback, navigation, and form accessibility (labels bound to inputs, dialog width on narrow windows).",
+        "Release semantics: prerelease; does not become Latest.",
+      ],
+      zh: [
+        "新增：六维评分结果标明评分模型；同一章节混用不同模型的结果时提示「分数不可直接对比」，建议用同一模型重跑六维。",
+        "修复：Anthropic 开思考时，思考预算不再挤占正文预算（max_tokens = 正文 + 思考，上限 64000）；长章不再被截断后触发扩写补足。",
+        "修复：切换项目后「继续未完成」按新项目读写会话；在设置里改题材等配置后，深度生成立即用新配置。",
+        "新增：旧版项目目录与新目录并存时自动合并，以新目录为准，同名冲突的旧文件备份到 legacy-conflicts/，失败整体回滚；迁移可回滚。",
+        "新增：历史备份列表一键恢复；关闭窗口时自动保存立即落盘。",
+        "改进：大纲层 thrill 审计与生成提示统一口径，可整本审计；关键词命中不再等同于可指认的爽点链条。",
+        "改进：快照、向量、写盘等多处独立读写并行化，冷启动构建上下文更快；token 计量校准并显示缓存命中。",
+        "改进：设置页、草稿闭环与长任务状态反馈、导航与表单可访问性（Label 关联、窄窗口对话框宽度）。",
+        "发布语义：prerelease，不进 Latest。",
+      ],
+    },
+  },
+  {
     // S-release-v222 授权发版（2026-10-24）：v2.22.2 prerelease。同日已有 v2.22.1 prerelease（tag 不可变），不进 Latest。
     version: "2.22.2",
     date: "2026-10-24",
