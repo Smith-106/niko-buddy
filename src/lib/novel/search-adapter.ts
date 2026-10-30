@@ -262,7 +262,7 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
   })
   let truncated: NovelSearchResult[]
   const recipe = params.recipe ?? "default"
-  if (recipe === "default" || !Object.hasOwn(SEARCH_RECIPES, recipe)) {
+  if (recipe === "default" || !Object.prototype.hasOwnProperty.call(SEARCH_RECIPES, recipe)) {
     truncated = filtered.slice(0, topK)
   } else {
     let graph: unknown = params.graph

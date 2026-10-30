@@ -349,6 +349,33 @@ describe("applySearchRecipe", () => {
     expect(localOrderNoTask).toEqual(["客栈掌柜", "云州客栈", "遥远边荒"])
   })
 
+  it("RV-009: 章节序号二字片段（第三/三章）不把章节节点变成锚点", () => {
+    // 「写第三章」的 第三/三章 被 第三十三章-夜袭 包含。若该章节成为锚点，
+    // 只在该章被提到的魔门宗主（1 跳）会被拉到被点名的林晚秋前面。
+    const graph = {
+      nodes: new Map([
+        ["林晚秋", { id: "林晚秋", title: "林晚秋", path: "wiki/entities/林晚秋.md", outLinks: new Set([]), inLinks: new Set([]), relationEdges: [] }],
+        ["魔门宗主", { id: "魔门宗主", title: "魔门宗主", path: "wiki/entities/魔门宗主.md", outLinks: new Set([]), inLinks: new Set(["第三十三章-夜袭"]), relationEdges: [] }],
+        ["第三十三章-夜袭", { id: "第三十三章-夜袭", title: "第三十三章-夜袭", path: "wiki/chapters/第三十三章-夜袭.md", outLinks: new Set(["魔门宗主"]), inLinks: new Set([]), relationEdges: [] }],
+      ]),
+    }
+    const candidates = [
+      { id: "c1", title: "魔门宗主", path: "wiki/entities/魔门宗主.md", relevance: 0.95 },
+      { id: "c2", title: "林晚秋", path: "wiki/entities/林晚秋.md", relevance: 0.7 },
+    ]
+    const run = (task: string) =>
+      nodeDistanceRerank(candidates, {
+        anchors: tokenizeQuery(task).filter((x) => x.length >= 2).slice(0, 5),
+        task,
+        graph,
+      }).map((c) => c.title)
+
+    // 锚点只有林晚秋：魔门宗主不可达（0.95×0.4096≈0.39）排在林晚秋（0.7）之后。
+    expect(run("写第三章：林晚秋拔剑")).toEqual(["林晚秋", "魔门宗主"])
+    // 章节被任务原文完整点名时仍是锚点（任务扫描），其邻居魔门宗主随之靠前。
+    expect(run("续写第三十三章-夜袭的余波")).toEqual(["魔门宗主", "林晚秋"])
+  })
+
   it("RV-001: 锚点无法解析为图谱节点时发射信号且保持原始顺序返回", () => {
     const candidates = [
       { id: "c1", title: "无关条目A", relevance: 0.9 },

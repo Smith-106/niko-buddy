@@ -20,12 +20,6 @@ import { logger } from "@/lib/utils"
 export { SEARCH_RECIPE_IDS, isSearchRecipeId }
 export type { SearchRecipeId }
 
-declare global {
-  interface ObjectConstructor {
-    hasOwn(o: object, v: PropertyKey): boolean
-  }
-}
-
 // ============================================================================
 // 权威 / 历史投影谓词（源自 search-adapter E-02 前置谓词）
 // ============================================================================
@@ -843,6 +837,9 @@ function buildGraphIndex(graph: unknown): GraphIndex | null {
 
         for (const node of nodes) {
           if (resolvedSet.has(node.id)) continue
+          // RV-009：章节节点不走包含匹配。「写第三章」的 第三/三章 二字片段会命中
+          // 所有含该序号的章节标题，挤占锚点名额。章节被任务原文点名时由第 2 步解析。
+          if (isChapterLikeNode(node)) continue
 
           const targets: string[] = []
           if (node.stem.length >= 2) targets.push(node.stem)
@@ -885,6 +882,16 @@ function buildGraphIndex(graph: unknown): GraphIndex | null {
   }
 
   return { resolveNodeId, getNeighbors, resolveAnchors }
+}
+
+const CHAPTER_NODE_RE = /^(chapter[-_]?d+|第[0-9零一二三四五六七八九十百千]+章)/i
+
+function isChapterLikeNode(node: { id: string; stem: string; title?: string }): boolean {
+  return (
+    CHAPTER_NODE_RE.test(node.stem) ||
+    CHAPTER_NODE_RE.test(node.id) ||
+    (!!node.title && CHAPTER_NODE_RE.test(node.title))
+  )
 }
 
 /**
@@ -933,14 +940,6 @@ export function nodeDistanceRerank<T>(
       distanceMap.set(anchorId, 0)
       queue.push({ id: anchorId, depth: 0 })
     }
-  }
-
-  if (queue.length === 0) {
-    logger.warn("Novel Search", "[nodeDistanceRerank] Anchors resolved to zero graph nodes", {
-      anchors: options.anchors,
-      task: options.task,
-    })
-    return [...candidates]
   }
 
   while (queue.length > 0) {
@@ -1025,7 +1024,7 @@ export function applySearchRecipe<T>(
   options: ApplyRecipeOptions<T>,
 ): T[] {
   const recipeId = options.recipe ?? "default"
-  if (recipeId === "default" || !Object.hasOwn(SEARCH_RECIPES, recipeId)) {
+  if (recipeId === "default" || !Object.prototype.hasOwnProperty.call(SEARCH_RECIPES, recipeId)) {
     return candidates.slice(0, options.topK)
   }
 

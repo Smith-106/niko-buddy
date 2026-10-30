@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useWikiStore } from "@/stores/wiki-store"
+import { useWikiStore, SEARCH_RECIPE_IDS, isSearchRecipeId } from "@/stores/wiki-store"
 import { fetchRerankModelList } from "@/lib/settings-model-list"
 import { testSettingsRerankModel } from "@/lib/settings-model-test"
 import { normalizeEndpoint } from "@/lib/endpoint-normalizer"
@@ -50,6 +50,13 @@ const PROVIDER_OPTIONS: Array<{ value: LlmConfig["provider"]; label: string }> =
   { value: "claude-code", label: "Claude Code CLI" },
   { value: "codex-cli", label: "Codex CLI" },
 ]
+
+const RECIPE_LABEL_KEYS: Record<SearchRecipeId, string> = {
+  default: "settings.sections.rerank.recipeDefault",
+  diverse: "settings.sections.rerank.recipeDiverse",
+  local: "settings.sections.rerank.recipeLocal",
+  balanced: "settings.sections.rerank.recipeBalanced",
+}
 
 export function RerankSection({ draft, setDraft }: Props) {
   const { t } = useTranslation()
@@ -253,13 +260,16 @@ export function RerankSection({ draft, setDraft }: Props) {
                 id={`${ids}-recipe`}
                 aria-describedby={`${ids}-recipe-hint`}
                 value={config.recipe ?? "default"}
-                onChange={(e) => updateRerankConfig({ recipe: e.target.value as SearchRecipeId })}
+                onChange={(e) => {
+                  if (isSearchRecipeId(e.target.value)) updateRerankConfig({ recipe: e.target.value })
+                }}
                 className="w-full rounded-md border bg-background px-3 py-2 text-sm"
               >
-                <option value="default">{t("settings.sections.rerank.recipeDefault")}</option>
-                <option value="diverse">{t("settings.sections.rerank.recipeDiverse")}</option>
-                <option value="local">{t("settings.sections.rerank.recipeLocal")}</option>
-                <option value="balanced">{t("settings.sections.rerank.recipeBalanced")}</option>
+                {SEARCH_RECIPE_IDS.map((id) => (
+                  <option key={id} value={id}>
+                    {t(RECIPE_LABEL_KEYS[id])}
+                  </option>
+                ))}
               </select>
               <p id={`${ids}-recipe-hint`} className="text-xs text-muted-foreground">
                 {t("settings.sections.rerank.recipeHint")}
