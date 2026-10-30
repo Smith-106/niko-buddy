@@ -1029,7 +1029,9 @@ export function PreviewPanel() {
     const baseName = fileName.replace(/\.md$/, "")
     const draftPath = normalizePath(`${dir}${baseName}-去AI味稿.md`)
     try {
-      await writeFileAtomic(draftPath, deAiCandidateContent)
+      // 与「替换正文」同一合成方式：保留原章 frontmatter 与标题。edit/detect 候选只有正文，
+      // rewrite 候选若自带 frontmatter/标题会被 replaceWholeChapterBody 剥掉后再套原章的。
+      await writeFileAtomic(draftPath, replaceWholeChapterBody(fileContent, deAiCandidateContent))
       const tree = await listDirectory(normalizePath(project.path))
       setFileTree(tree)
       bumpDataVersion()
@@ -1037,7 +1039,7 @@ export function PreviewPanel() {
     } catch (err) {
       console.error("另存去AI味草稿失败:", err)
     }
-  }, [deAiWriteBlocked, selectedFile, project, deAiCandidateContent, setFileTree, bumpDataVersion])
+  }, [deAiWriteBlocked, selectedFile, project, fileContent, deAiCandidateContent, setFileTree, bumpDataVersion])
 
   const handleDeAiClose = useCallback(() => {
     // RV-004: 关闭对话框即取消/作废在途单章流，onDone 不得再打开对话框或覆写状态

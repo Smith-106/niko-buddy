@@ -1484,6 +1484,65 @@ describe("PreviewPanel 一键排版与去AI味", () => {
     cleanup()
   })
 
+  it("去AI味三模式：edit 模式另存草稿保留原章 frontmatter 与标题", async () => {
+    chapterSetup()
+    const chapterMarkdown = [
+      "---",
+      'title: "第一章 测试"',
+      "chapter_number: 1",
+      "---",
+      "",
+      "# 第一章 测试",
+      "",
+      "院子里落满了枯叶。显而易见的事实摆在眼前。天色渐暗。",
+      "",
+    ].join("\n")
+    mocks.state.fileContent = chapterMarkdown
+    mocks.readFile.mockResolvedValue(chapterMarkdown)
+
+    const origWhole = mocks.replaceWholeChapterBody.getMockImplementation()
+    const origReplace = mocks.replaceChapterBodySelection.getMockImplementation()
+    const actual = await vi.importActual<typeof import("@/lib/chapter-selection")>("@/lib/chapter-selection")
+    mocks.replaceWholeChapterBody.mockImplementation(actual.replaceWholeChapterBody)
+    mocks.replaceChapterBodySelection.mockImplementation((currentBody, selection, replacement) => ({
+      ok: true as const,
+      body: currentBody.replace(selection.text, replacement),
+    }))
+
+    try {
+      mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: any) => {
+        cb.onToken("初始")
+        cb.onDone()
+        return Promise.resolve()
+      })
+      const { cleanup } = await renderPanel()
+      fireEvent.click(screen.getByText("去AI味"))
+      await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
+
+      mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: any) => {
+        cb.onToken(JSON.stringify([{ original_text: "显而易见的事实摆在眼前", replacement_text: "真相就在眼前", note: "" }]))
+        cb.onDone()
+        return Promise.resolve()
+      })
+      fireEvent.click(screen.getByTestId("de-ai-switch-edit"))
+      await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.applied).toBe("1"))
+
+      fireEvent.click(screen.getByTestId("de-ai-save-draft"))
+      await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+      const [draftPath, draft] = mocks.writeFileAtomic.mock.calls[0] as [string, string]
+      expect(draftPath).toContain("去AI味稿.md")
+      expect(draft.startsWith("---\n")).toBe(true)
+      expect(draft).toContain("chapter_number: 1")
+      expect(draft).toContain("# 第一章 测试")
+      expect(draft).toContain("真相就在眼前")
+      expect(draft).not.toContain("显而易见的事实摆在眼前")
+      cleanup()
+    } finally {
+      if (origWhole) mocks.replaceWholeChapterBody.mockImplementation(origWhole)
+      if (origReplace) mocks.replaceChapterBodySelection.mockImplementation(origReplace)
+    }
+  })
+
   it("去AI味三模式：edit 模式锚点定位失败（ok: false）时禁止写回正文与草稿", async () => {
     chapterSetup()
     mocks.state.fileContent = "# 第一章 测试\n\n正文内容。"
