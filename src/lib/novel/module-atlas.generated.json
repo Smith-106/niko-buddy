@@ -90,8 +90,8 @@
   "orphan": 282,
   "specOnly": 270,
   "barrelOnly": 2,
-  "edges": 4476,
-  "loc": 274547
+  "edges": 4475,
+  "loc": 274548
  },
  "modules": [
   {
@@ -2733,7 +2733,7 @@
   {
    "p": "src/components/novel/chapter-directory.tsx",
    "s": 16,
-   "l": 335,
+   "l": 336,
    "r": true,
    "o": false,
    "x": false,
@@ -2743,7 +2743,6 @@
     381,
     421,
     748,
-    983,
     999,
     1092,
     1133,
