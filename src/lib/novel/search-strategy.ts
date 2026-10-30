@@ -17,7 +17,7 @@ import type { NovelSearchResult } from "./search-adapter"
 import { SEARCH_RECIPE_IDS, isSearchRecipeId } from "@/stores/wiki-store"
 import type { SearchRecipeId } from "@/stores/wiki-store"
 import { logger } from "@/lib/utils"
-import { parseChapterOrdinal } from "./chapter-typography"
+import { isBareChapterLabel, isRichChapterTitle, parseChapterOrdinal } from "./chapter-typography"
 export { SEARCH_RECIPE_IDS, isSearchRecipeId }
 export type { SearchRecipeId }
 
@@ -786,7 +786,7 @@ function buildGraphIndex(graph: unknown): GraphIndex | null {
     }
 
     // 2a. 任务中的「第N章」按序号解析到该章节点（RV-103）。只认唯一命中，避免多书/重名歧义。
-    const taskOrdinal = rawTask ? parseChapterOrdinal(rawTask) : null
+    const taskOrdinal = rawTask ? chapterOrdinalInText(rawTask) : null
     if (taskOrdinal !== null) {
       const hits = nodes.filter((node) => chapterOrdinalOf(node) === taskOrdinal)
       if (hits.length === 1 && !resolvedSet.has(hits[0].id)) {
@@ -898,9 +898,22 @@ function buildGraphIndex(graph: unknown): GraphIndex | null {
 const ASCII_CHAPTER_STEM_RE = /^chapter[-_]?(\d+)$/i
 
 /**
+ * 「第N章 / 第N回」里的序号单位。卷、节与章不同序，不当作章节序号；
+ * 「回合」不是章回。数字写法沿用 parseChapterOrdinal 的规范语法。
+ */
+const CHAPTER_UNIT_RE = /第\s*[0-9零〇一二两三四五六七八九十百千]+\s*([章节卷回])(合?)/
+
+function chapterOrdinalInText(text: string): number | null {
+  const unit = CHAPTER_UNIT_RE.exec(text)
+  if (!unit || (unit[1] !== "章" && unit[1] !== "回") || unit[2] === "合") return null
+  return parseChapterOrdinal(text)
+}
+
+/**
  * 章节节点的序号；非章节节点返回 null。
- * 识别 `chapter-NNN` 文件名（本应用的章节文件规范），以及标题/词干中的
- * `第N章`（复用 chapter-typography 的规范解析，覆盖中文数字与空格写法）。
+ * 识别 `chapter-NNN` 文件名（本应用的章节文件规范），以及以「第N章 / 第N回」开头的
+ * 章节标签或章节标题（isBareChapterLabel / isRichChapterTitle）。「第三回合」「某人第三章」
+ * 这类只是包含序号写法的实体名不算章节（RV-106）。
  */
 function chapterOrdinalOf(node: { id: string; stem: string; title?: string }): number | null {
   for (const key of [node.stem, node.id]) {
@@ -909,7 +922,8 @@ function chapterOrdinalOf(node: { id: string; stem: string; title?: string }): n
   }
   for (const key of [node.title, node.stem]) {
     if (!key) continue
-    const ordinal = parseChapterOrdinal(key)
+    if (!isBareChapterLabel(key) && !isRichChapterTitle(key)) continue
+    const ordinal = chapterOrdinalInText(key)
     if (ordinal !== null) return ordinal
   }
   return null

@@ -406,6 +406,35 @@ describe("applySearchRecipe", () => {
     expect(run("续写第十七章：林晚秋拔剑")).toEqual(["魔门宗主", "林晚秋", "云州客栈"])
   })
 
+  it("RV-106: 「第三回合」「第二卷」等实体不算章节，不挤掉同序号章节的唯一命中", () => {
+    // 若「第三回合」被当成第 3 章，序号 3 会有两个命中，第 2a 步的唯一命中规则就放弃锚定 chapter-003。
+    const graph = {
+      nodes: new Map([
+        ["林晚秋", { id: "林晚秋", title: "林晚秋", path: "wiki/entities/林晚秋.md", outLinks: new Set([]), inLinks: new Set([]), relationEdges: [] }],
+        ["魔门宗主", { id: "魔门宗主", title: "魔门宗主", path: "wiki/entities/魔门宗主.md", outLinks: new Set([]), inLinks: new Set(["chapter-003"]), relationEdges: [] }],
+        ["第三回合", { id: "第三回合", title: "第三回合", path: "wiki/concepts/第三回合.md", outLinks: new Set([]), inLinks: new Set([]), relationEdges: [] }],
+        ["第三卷", { id: "第三卷", title: "第三卷 风起", path: "wiki/concepts/第三卷.md", outLinks: new Set([]), inLinks: new Set([]), relationEdges: [] }],
+        ["chapter-003", { id: "chapter-003", title: "夜袭", path: "wiki/chapters/chapter-003.md", outLinks: new Set(["魔门宗主"]), inLinks: new Set([]), relationEdges: [] }],
+      ]),
+    }
+    const candidates = [
+      { id: "c1", title: "林晚秋", path: "wiki/entities/林晚秋.md", relevance: 0.9 },
+      { id: "c2", title: "魔门宗主", path: "wiki/entities/魔门宗主.md", relevance: 0.8 },
+    ]
+    const run = (task: string) =>
+      nodeDistanceRerank(candidates, {
+        anchors: tokenizeQuery(task).filter((x) => x.length >= 2).slice(0, 5),
+        task,
+        graph,
+      }).map((c) => c.title)
+
+    // 第三章 唯一锚定 chapter-003：魔门宗主 1 跳（0.8×0.8=0.64）> 林晚秋不可达（0.9×0.4096≈0.37）。
+    expect(run("续写第三章的余波")).toEqual(["魔门宗主", "林晚秋"])
+    // 任务里的「第三卷」「第三回合」不是章节序号，不锚定 chapter-003。
+    expect(run("续写第三卷的余波")).toEqual(["林晚秋", "魔门宗主"])
+    expect(run("写一场第三回合的对决")).toEqual(["林晚秋", "魔门宗主"])
+  })
+
   it("RV-001: 锚点无法解析为图谱节点时发射信号且保持原始顺序返回", () => {
     const candidates = [
       { id: "c1", title: "无关条目A", relevance: 0.9 },
