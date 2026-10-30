@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  allowsPrerelease,
   auditHistory,
   evaluateLatestAssets,
   evaluateTarget,
@@ -117,5 +118,17 @@ describe("release cadence gate", () => {
     expect(evaluateLatestAssets({ ...pre, isDraft: true }, assets, { allowPrerelease: true })).toEqual([
       "被审 release 是 draft",
     ])
+  })
+
+  it("allowsPrerelease：只有被审 tag 不是 Latest 时才放行 prerelease 标记", () => {
+    const releases = [
+      rel("v2.22.2", "2026-10-25T00:00:00Z", { isLatest: true }),
+      rel("v2.23.0", "2026-10-30T00:00:00Z", { isPrerelease: true }),
+    ]
+    expect(allowsPrerelease(releases, "v2.23.0")).toBe(true)
+    expect(allowsPrerelease(releases, "v2.22.2")).toBe(false)
+    // Latest 被误标 prerelease 时，即使用 --tag 显式指定也不放行
+    const misMarked = [rel("v2.23.0", "2026-10-30T00:00:00Z", { isPrerelease: true, isLatest: true })]
+    expect(allowsPrerelease(misMarked, "v2.23.0")).toBe(false)
   })
 })

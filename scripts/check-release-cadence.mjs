@@ -143,6 +143,11 @@ export function evaluateLatestAssets(latest, assetNames, { allowPrerelease = fal
   return problems
 }
 
+/** 被审 tag 不占 Latest 槽位时，prerelease 标记不算资产问题。 */
+export function allowsPrerelease(releases, targetTag) {
+  return releases.find((r) => r.isLatest)?.tagName !== targetTag
+}
+
 function sh(cmd, args) {
   return execFileSync(cmd, args, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
 }
@@ -181,7 +186,7 @@ export function main(argv = process.argv.slice(2)) {
   if (target) {
     try {
       const names = JSON.parse(sh("gh", ["release", "view", targetTag, "--repo", repo, "--json", "assets"])).assets.map((a) => a.name)
-      assetProblems = evaluateLatestAssets(target, names, { allowPrerelease: Boolean(tag) })
+      assetProblems = evaluateLatestAssets(target, names, { allowPrerelease: allowsPrerelease(releases, targetTag) })
     } catch (err) {
       assetProblems = [`资产读取失败：${err.message}`]
     }
