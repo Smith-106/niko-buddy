@@ -432,6 +432,17 @@ fn merge_legacy_into_target(
         }
     }
     prune_empty_dirs(&legacy)?;
+    // 同名冲突时保留的是新目录版本；旧版本只在备份里。必须留一条可见记录，
+    // 否则用户无从得知「有旧内容被换下来、放在哪里」。
+    if !record.backed_up.is_empty() {
+        log::warn!(
+            "[migrate] '{}' → '{}' 合并时有 {} 个同名文件内容不同，已保留新目录版本，旧版本备份在 '{}'",
+            from,
+            to,
+            record.backed_up.len(),
+            backup_root.display()
+        );
+    }
     Ok(())
 }
 
