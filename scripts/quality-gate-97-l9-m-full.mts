@@ -41,10 +41,11 @@ const PROJECT = "C:/QM-BOOK/身体都是租的，你让我修仙？"
 const PROJECT_ID = "508dafa6-8006-4f6a-9219-10a58fb5e14c"
 const CHAPTERS = Array.from({ length: 162 }, (_, i) => i + 1)
 const SAMPLES = 5
-const MODEL = process.env.L9_M_MODEL ?? "muse-spark-1.3-contributor"
+// L9 评分器（2026-10-30 掌舵人决定）：kiro-sonnet-5.5。muse-spark 结果仅作历史参照。
+const MODEL = process.env.L9_M_MODEL ?? "kiro-sonnet-5.5"
 const isDeepSeek = /deepseek/i.test(MODEL)
 // 换模型必须换产物：同一份报告不能混模型。L9_M_OUT 缺省沿用原路径（零行为变更）。
-const OUT = process.env.L9_M_OUT ?? "../.workflow/harvest-staging/quality-gate-97-l9-m-full.json"
+const OUT = process.env.L9_M_OUT ?? "../.workflow/harvest-staging/quality-gate-97-l9-kiro-full.json"
 
 const auth = JSON.parse(readFileSync(join(homedir(), ".pi", "agent", "auth.json"), "utf8"))
 const cpaKey: string = auth["cpa-responses"]?.key
@@ -113,10 +114,10 @@ if (existsSync(OUT)) {
 }
 
 const out: Record<string, unknown> = existsSync(OUT)
-  ? (() => { const j = JSON.parse(readFileSync(OUT, "utf8")); j.model = MODEL; j.purpose = `L9 M 档全书基线：162 章 × 全维 × N=5（${MODEL} 口径，与 2026-10-10 baseline 逐章可比）`; j.resumedAt = new Date().toISOString(); return j })()
+  ? (() => { const j = JSON.parse(readFileSync(OUT, "utf8")); j.model = MODEL; j.purpose = `L9 M 档全书基线：162 章 × 全维 × N=5（${MODEL} 口径；与 2026-10-10 muse baseline 不同评分器，不可逐章比较）`; j.resumedAt = new Date().toISOString(); return j })()
   : {
       generatedAt: new Date().toISOString(),
-      purpose: `L9 M 档全书基线：162 章 × 全维 × N=5（${MODEL} 口径，与 2026-10-10 baseline 逐章可比）`,
+      purpose: `L9 M 档全书基线：162 章 × 全维 × N=5（${MODEL} 口径；与 2026-10-10 muse baseline 不同评分器，不可逐章比较）`,
       model: llmConfig.model,
       channel: "cpa",
       samples: SAMPLES,
@@ -153,7 +154,8 @@ for (const ch of CHAPTERS) {
   // 并发池：维度 × 采样 = 6 × 5 = 30 个任务，用 CONCURRENCY 路池化执行。
   // 实测 16 路全 200（墙钟 17.7s）；取 12 路留限流余量。
   // 单章串行版 440s → 池化版约 90-130s。
-  const CONCURRENCY = Number(process.env.L9_M_CONCURRENCY ?? 12)
+  // kiro 上游限流：12 路 15 分钟仅 2 章（303 次 429），2 路实测约 2.5 次/分。
+  const CONCURRENCY = Number(process.env.L9_M_CONCURRENCY ?? 2)
   const DIMS = SIX_REVIEW_DIMENSION_ORDER as (keyof typeof SIX_REVIEW_DIMENSIONS)[]
   const BACKOFF = [5000, 10000, 20000, 40000, 60000]
 
