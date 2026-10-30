@@ -22,10 +22,17 @@ async function expandChat(page: import("@playwright/test").Page) {
   await chapterNode.click()
   // 预览面板出现章节正文
   await expect(page.getByText("夜色沉静", { exact: false }).first()).toBeVisible({ timeout: 30000 })
-  // 工具栏 AI会话 按钮 → 展开对话面板
+  // 章节头宽度 < 900px 时工具栏收进「更多功能」（UX 审计批次二·9），
+  // 宽工具栏直接点「AI会话」，紧凑工具栏走「更多功能 → 打开会话栏」。
   const chatBtn = page.getByRole("button", { name: "AI会话" })
-  await expect(chatBtn).toBeVisible({ timeout: 30000 })
-  await chatBtn.click()
+  const moreBtn = page.getByRole("button", { name: "更多功能" })
+  await expect(chatBtn.or(moreBtn)).toBeVisible({ timeout: 30000 })
+  if (await chatBtn.isVisible()) {
+    await chatBtn.click()
+  } else {
+    await moreBtn.click()
+    await page.getByRole("menu").getByRole("button", { name: "打开会话栏" }).click()
+  }
 }
 
 test("备份导出：backupExport 视图 → 导出备份包 → 成功反馈", async ({ page }) => {

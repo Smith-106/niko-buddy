@@ -137,13 +137,12 @@ test.describe("界面文本完整性（i18n 与机器码不外泄）", () => {
     // 面板属于工作区工具条，先开工具条再开面板。
     await page.click('[data-view="wiki"]')
     const tools = page.locator('[data-testid="workspace-tools-bar"]')
-    if (await tools.count()) {
-      const toggle = tools.locator("button", { hasText: "批量替换" }).first()
-      if (await toggle.count()) {
-        await toggle.click()
-        await page.waitForTimeout(400)
-      }
-    }
+    // 批次二·8：批量替换收进「更多工具」，先展开（已展开则不动）。
+    const more = tools.locator('[data-testid="workspace-more-tools"]')
+    if ((await more.getAttribute("open")) === null) await more.locator("summary").click()
+    await tools.locator("button", { hasText: "批量替换" }).first().click()
+    // 面板确实打开后再扫，避免扫到的是没有面板的页面
+    await expect(page.locator('[data-testid="batch-replace-panel"]')).toBeVisible({ timeout: 10000 })
     expectClean(await scan(page), "批量替换面板")
   })
 })
