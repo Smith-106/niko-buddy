@@ -4,7 +4,7 @@ import type { EmbeddingConfig } from "@/stores/wiki-store"
 const mocks = vi.hoisted(() => ({
   searchWiki: vi.fn(),
   readFile: vi.fn(),
-  logger: { error: vi.fn() },
+  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
   rerankCandidates: vi.fn(),
   useWikiStoreGetState: vi.fn(),
   loadSnapshot: vi.fn(),
@@ -1235,11 +1235,20 @@ describe("P1-IMP-17 kbReferences 通道 B 双源（关键词/域匹配零 LLM）
         includeRecentChapters: false,
         includeCanon: false,
       })
-      // 同一候选池：两者均为 3 条，且均以最高 RRF 候选开头；MMR 不新增/丢失结果。
-      expect(base).toHaveLength(3)
-      expect(diverse).toHaveLength(3)
-      expect(diverse[0]!.path).toBe(base[0]!.path)
-      expect(diverse.map((r) => r.path).sort()).toEqual(base.map((r) => r.path).sort())
+      // 关键断言（RV-004）：base 走默认 slice(0, 3) 保持原始排序 [1.md, 2.md, 3.md]；
+      // 而 diverse 经 MMR 惩罚 2.md 与 1.md 的同质冗余相似度，使得低相关但低相似的 3.md（灵兽丹）
+      // 逆袭超越 2.md（青锋剑）进至第二位，产生 [1.md, 3.md, 2.md]。
+      // 若 diverse 被退化为普通 slice，此断言必失败。
+      expect(base.map((r) => r.path)).toEqual([
+        `${pp}/wiki/entities/1.md`,
+        `${pp}/wiki/entities/2.md`,
+        `${pp}/wiki/entities/3.md`,
+      ])
+      expect(diverse.map((r) => r.path)).toEqual([
+        `${pp}/wiki/entities/1.md`,
+        `${pp}/wiki/entities/3.md`,
+        `${pp}/wiki/entities/2.md`,
+      ])
     })
 
     it("recipe 为 local 且提供 anchors 时构建检索图并执行距离排序", async () => {
@@ -1290,6 +1299,43 @@ describe("P1-IMP-17 kbReferences 通道 B 双源（关键词/域匹配零 LLM）
         includeCanon: false,
       })
       expect(res.map((r) => r.title)).toEqual(["A", "B"])
+      expect(mocks.logger.warn).toHaveBeenCalledWith(
+        "Novel Search",
+        expect.stringContaining("Failed to build retrieval graph"),
+        expect.anything(),
+      )
+    })
+
+    it("RV-002: recipe 为 balanced 且 buildRetrievalGraph 抛错时全量降级为 default slice（而非 diverse）", async () => {
+      mocks.searchWiki.mockResolvedValue([
+        keywordItem({ path: `${pp}/wiki/entities/1.md`, title: "青锋剑", snippet: "青锋剑乃绝世神兵", score: 0.9 }),
+        keywordItem({ path: `${pp}/wiki/entities/2.md`, title: "青锋剑", snippet: "青锋剑乃绝世青锋神兵", score: 0.88 }),
+        keywordItem({ path: `${pp}/wiki/entities/3.md`, title: "灵兽丹", snippet: "喂养灵兽专用的珍稀丹药", score: 0.7 }),
+      ])
+      mocks.buildRetrievalGraph.mockRejectedValueOnce(new Error("graph build error"))
+
+      const res = await novelMixedSearch({
+        projectPath: pp,
+        query: "test",
+        recipe: "balanced",
+        anchors: ["青锋剑"],
+        topK: 2,
+        includeVector: false,
+        includeGraph: false,
+        includeRecentChapters: false,
+        includeCanon: false,
+      })
+
+      // 必须全量降级为 default slice [1.md, 2.md]，不能仅跳过 NodeDistance 仍跑 MMR 产生 [1.md, 3.md]
+      expect(res.map((r) => r.path)).toEqual([
+        `${pp}/wiki/entities/1.md`,
+        `${pp}/wiki/entities/2.md`,
+      ])
+      expect(mocks.logger.warn).toHaveBeenCalledWith(
+        "Novel Search",
+        expect.stringContaining("Failed to build retrieval graph"),
+        expect.anything(),
+      )
     })
   })
 })

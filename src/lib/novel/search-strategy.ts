@@ -14,8 +14,17 @@ import {
   toPublicResult,
 } from "./retrieval-source-pipeline"
 import type { NovelSearchResult } from "./search-adapter"
+import { SEARCH_RECIPE_IDS, isSearchRecipeId } from "@/stores/wiki-store"
 import type { SearchRecipeId } from "@/stores/wiki-store"
+import { logger } from "@/lib/utils"
+export { SEARCH_RECIPE_IDS, isSearchRecipeId }
 export type { SearchRecipeId }
+
+declare global {
+  interface ObjectConstructor {
+    hasOwn(o: object, v: PropertyKey): boolean
+  }
+}
 
 // ============================================================================
 // 权威 / 历史投影谓词（源自 search-adapter E-02 前置谓词）
@@ -344,7 +353,6 @@ export function fuseAcrossQueries(
 export interface SearchRecipeConfig {
   id: SearchRecipeId
   nameKey: string
-  descKey: string
   useMmr: boolean
   useNodeDistance: boolean
   mmrLambda: number
@@ -356,7 +364,6 @@ export const SEARCH_RECIPES: Record<SearchRecipeId, SearchRecipeConfig> = {
   default: {
     id: "default",
     nameKey: "settings.sections.rerank.recipeDefault",
-    descKey: "settings.sections.rerank.recipeDefaultDesc",
     useMmr: false,
     useNodeDistance: false,
     mmrLambda: 1.0,
@@ -366,7 +373,6 @@ export const SEARCH_RECIPES: Record<SearchRecipeId, SearchRecipeConfig> = {
   diverse: {
     id: "diverse",
     nameKey: "settings.sections.rerank.recipeDiverse",
-    descKey: "settings.sections.rerank.recipeDiverseDesc",
     useMmr: true,
     useNodeDistance: false,
     mmrLambda: 0.7,
@@ -376,7 +382,6 @@ export const SEARCH_RECIPES: Record<SearchRecipeId, SearchRecipeConfig> = {
   local: {
     id: "local",
     nameKey: "settings.sections.rerank.recipeLocal",
-    descKey: "settings.sections.rerank.recipeLocalDesc",
     useMmr: false,
     useNodeDistance: true,
     mmrLambda: 1.0,
@@ -386,13 +391,41 @@ export const SEARCH_RECIPES: Record<SearchRecipeId, SearchRecipeConfig> = {
   balanced: {
     id: "balanced",
     nameKey: "settings.sections.rerank.recipeBalanced",
-    descKey: "settings.sections.rerank.recipeBalancedDesc",
     useMmr: true,
     useNodeDistance: true,
     mmrLambda: 0.75,
     distanceDecay: 0.85,
     maxGraphHops: 3,
   },
+}
+
+/**
+ * 获取字符 n-gram (默认 2-gram / bi-shingle) 集合。
+ */
+export function getCharShingles(
+  text: string,
+  shingleSize: number = 2,
+): Set<string> {
+  const t = text.trim()
+  const k = Math.max(1, Math.floor(shingleSize))
+  const shingles = new Set<string>()
+  for (let i = 0; i <= t.length - k; i++) {
+    shingles.add(t.slice(i, i + k))
+  }
+  return shingles
+}
+
+function shingleSetJaccard(setA: Set<string>, setB: Set<string>): number {
+  if (setA.size === 0 && setB.size === 0) return 1.0
+  let intersection = 0
+  const [smaller, larger] = setA.size <= setB.size ? [setA, setB] : [setB, setA]
+  for (const item of smaller) {
+    if (larger.has(item)) {
+      intersection++
+    }
+  }
+  const union = setA.size + setB.size - intersection
+  return union === 0 ? 0 : intersection / union
 }
 
 /**
@@ -409,30 +442,14 @@ export function charShingleJaccard(
   const b = textB.trim()
   if (a === b) return 1.0
 
-  const k = Math.max(1, Math.floor(shingleSize))
-  const setA = new Set<string>()
-  const setB = new Set<string>()
-
-  for (let i = 0; i <= a.length - k; i++) {
-    setA.add(a.slice(i, i + k))
-  }
-  for (let i = 0; i <= b.length - k; i++) {
-    setB.add(b.slice(i, i + k))
-  }
+  const setA = getCharShingles(a, shingleSize)
+  const setB = getCharShingles(b, shingleSize)
 
   if (setA.size === 0 && setB.size === 0) {
     return a === b ? 1.0 : 0.0
   }
 
-  let intersection = 0
-  for (const item of setA) {
-    if (setB.has(item)) {
-      intersection++
-    }
-  }
-
-  const union = setA.size + setB.size - intersection
-  return union === 0 ? 0 : intersection / union
+  return shingleSetJaccard(setA, setB)
 }
 
 export interface MmrOptions<T = unknown> {
@@ -446,6 +463,7 @@ export interface MmrOptions<T = unknown> {
  * Maximal Marginal Relevance (MMR) 纯函数重排。
  * 在 relevance 分数与已选集最大相似度之间权衡，减少同质冗余。
  * 确定性 tie-break：原始分数高者优先，同分时原始较小索引优先。
+ * RV-003: 维护运行期 maxSim 数组更新 + 候选 shingle 集合缓存，复杂度降至 O(k·n)。
  */
 export function mmrRerank<T>(candidates: T[], options: MmrOptions<T>): T[] {
   const targetK = Math.min(Math.max(0, options.k), candidates.length)
@@ -465,8 +483,28 @@ export function mmrRerank<T>(candidates: T[], options: MmrOptions<T>): T[] {
     return String(item ?? "")
   }
   const textFn = options.textOf ?? defaultTextOf
-  const simFn = options.similarity ?? ((a: T, b: T) => charShingleJaccard(textFn(a), textFn(b)))
   const lambda = typeof options.lambda === "number" ? Math.max(0, Math.min(1, options.lambda)) : 0.7
+
+  // 缓存候选文本及 2-gram 集合（缺省相似度时避免重复分块与 Set 分配）
+  const cachedTexts = candidates.map((item) => textFn(item))
+  const cachedShingles = options.similarity
+    ? null
+    : cachedTexts.map((txt) => getCharShingles(txt, 2))
+
+  const simBetween = (i: number, j: number): number => {
+    if (options.similarity) {
+      return options.similarity(candidates[i], candidates[j])
+    }
+    const a = cachedTexts[i]
+    const b = cachedTexts[j]
+    if (a === b) return 1.0
+    const setA = cachedShingles![i]
+    const setB = cachedShingles![j]
+    if (setA.size === 0 && setB.size === 0) {
+      return a.trim() === b.trim() ? 1.0 : 0.0
+    }
+    return shingleSetJaccard(setA, setB)
+  }
 
   const getRelevance = (item: T): number => {
     if (item && typeof item === "object") {
@@ -488,6 +526,7 @@ export function mmrRerank<T>(candidates: T[], options: MmrOptions<T>): T[] {
 
   const unselected = new Set<number>(candidates.map((_, i) => i))
   const selected: number[] = []
+  const maxSimToSelected = new Float64Array(candidates.length)
 
   // Step 1: select highest relevance
   let firstIdx = 0
@@ -501,18 +540,18 @@ export function mmrRerank<T>(candidates: T[], options: MmrOptions<T>): T[] {
   selected.push(firstIdx)
   unselected.delete(firstIdx)
 
-  // Step 2 to targetK
+  // 初始化对首个已选候选的相似度
+  for (const u of unselected) {
+    maxSimToSelected[u] = simBetween(u, firstIdx)
+  }
+
+  // Step 2 to targetK: 运行期 O(k·n)，每轮只对比最新被选候选
   while (selected.length < targetK && unselected.size > 0) {
     let bestIdx = -1
     let bestMmrScore = -Infinity
 
     for (const u of unselected) {
-      let maxSim = 0
-      for (const s of selected) {
-        const sim = simFn(candidates[u], candidates[s])
-        if (sim > maxSim) maxSim = sim
-      }
-
+      const maxSim = maxSimToSelected[u]
       const mmrScore = lambda * normRelevance[u] - (1 - lambda) * maxSim
 
       if (bestIdx === -1) {
@@ -536,6 +575,14 @@ export function mmrRerank<T>(candidates: T[], options: MmrOptions<T>): T[] {
     if (bestIdx !== -1) {
       selected.push(bestIdx)
       unselected.delete(bestIdx)
+
+      // 仅更新剩余未选候选与当前最新加入候选的相似度
+      for (const u of unselected) {
+        const sim = simBetween(u, bestIdx)
+        if (sim > maxSimToSelected[u]) {
+          maxSimToSelected[u] = sim
+        }
+      }
     } else {
       break
     }
@@ -545,11 +592,13 @@ export function mmrRerank<T>(candidates: T[], options: MmrOptions<T>): T[] {
 }
 
 export interface NodeDistanceOptions {
-  anchors: readonly string[]
+  anchors?: readonly string[]
+  task?: string
   graph?: unknown
   decay?: number // default 0.8
   maxDepth?: number // default 3
   unreachableDecay?: number // default decay ** (maxDepth + 1)
+  maxAnchors?: number
 }
 
 function extractNodeStem(str: string): string {
@@ -557,9 +606,20 @@ function extractNodeStem(str: string): string {
   return base.replace(/\.md$/i, "").trim()
 }
 
+interface CanonicalNodeMeta {
+  id: string
+  stem: string
+  title?: string
+}
+
 interface GraphIndex {
   resolveNodeId: (identifier: string) => string | undefined
   getNeighbors: (nodeId: string) => string[]
+  resolveAnchors: (options: {
+    anchors?: readonly string[]
+    task?: string
+    maxAnchors?: number
+  }) => string[]
 }
 
 function buildGraphIndex(graph: unknown): GraphIndex | null {
@@ -567,6 +627,22 @@ function buildGraphIndex(graph: unknown): GraphIndex | null {
 
   const aliasToId = new Map<string, string>()
   const adjacency = new Map<string, Set<string>>()
+  const canonicalMap = new Map<string, CanonicalNodeMeta>()
+
+  const registerNode = (id: string, title?: string) => {
+    const trimmedId = id.trim()
+    if (!trimmedId) return
+    const stem = extractNodeStem(trimmedId) || trimmedId
+    if (!canonicalMap.has(trimmedId)) {
+      canonicalMap.set(trimmedId, {
+        id: trimmedId,
+        stem,
+        title: title?.trim() || undefined,
+      })
+    } else if (title && !canonicalMap.get(trimmedId)!.title) {
+      canonicalMap.get(trimmedId)!.title = title.trim()
+    }
+  }
 
   const registerAlias = (alias: string, id: string) => {
     const trimmed = alias.trim()
@@ -592,8 +668,10 @@ function buildGraphIndex(graph: unknown): GraphIndex | null {
     for (const [id, node] of gRec.nodes.entries()) {
       const n = node as Record<string, unknown>
       const nodeId = String(n.id ?? id)
+      const title = typeof n.title === "string" ? n.title : undefined
       registerAlias(nodeId, nodeId)
-      if (typeof n.title === "string") registerAlias(n.title, nodeId)
+      registerNode(nodeId, title)
+      if (title) registerAlias(title, nodeId)
       if (typeof n.path === "string") registerAlias(n.path, nodeId)
 
       if (n.outLinks instanceof Set || Array.isArray(n.outLinks)) {
@@ -616,12 +694,16 @@ function buildGraphIndex(graph: unknown): GraphIndex | null {
       for (const node of gRec.nodes) {
         if (typeof node === "string") {
           registerAlias(node, node)
+          registerNode(node)
         } else if (node && typeof node === "object") {
           const id = String((node as Record<string, unknown>).id ?? "")
           if (id) {
+            const title = typeof (node as Record<string, unknown>).title === "string"
+              ? ((node as Record<string, unknown>).title as string)
+              : undefined
             registerAlias(id, id)
-            const title = (node as Record<string, unknown>).title
-            if (typeof title === "string") registerAlias(title, id)
+            registerNode(id, title)
+            if (title) registerAlias(title, id)
           }
         }
       }
@@ -634,6 +716,8 @@ function buildGraphIndex(graph: unknown): GraphIndex | null {
         if (u && v) {
           registerAlias(u, u)
           registerAlias(v, v)
+          registerNode(u)
+          registerNode(v)
           addEdge(u, v)
         }
       }
@@ -642,10 +726,12 @@ function buildGraphIndex(graph: unknown): GraphIndex | null {
     for (const [key, neighbors] of graph.entries()) {
       const id = String(key)
       registerAlias(id, id)
+      registerNode(id)
       if (neighbors instanceof Set || Array.isArray(neighbors)) {
         for (const n of neighbors) {
           const nId = String(n)
           registerAlias(nId, nId)
+          registerNode(nId)
           addEdge(id, nId)
         }
       }
@@ -654,10 +740,12 @@ function buildGraphIndex(graph: unknown): GraphIndex | null {
     for (const [key, neighbors] of Object.entries(gRec)) {
       const id = String(key)
       registerAlias(id, id)
+      registerNode(id)
       if (neighbors instanceof Set || Array.isArray(neighbors)) {
         for (const n of neighbors) {
           const nId = String(n)
           registerAlias(nId, nId)
+          registerNode(nId)
           addEdge(id, nId)
         }
       }
@@ -681,7 +769,122 @@ function buildGraphIndex(graph: unknown): GraphIndex | null {
     return Array.from(set)
   }
 
-  return { resolveNodeId, getNeighbors }
+  const resolveAnchors = (opts: {
+    anchors?: readonly string[]
+    task?: string
+    maxAnchors?: number
+  }): string[] => {
+    const rawAnchors = opts.anchors ?? []
+    const rawTask = opts.task?.trim() ?? ""
+    const maxAnchors = Math.max(1, Math.floor(opts.maxAnchors ?? 10))
+
+    const resolvedSet = new Set<string>()
+    const nodes = Array.from(canonicalMap.values())
+
+    // 1. 显式锚点精确别名解析
+    for (const anchor of rawAnchors) {
+      const resolved = resolveNodeId(anchor)
+      if (resolved) {
+        resolvedSet.add(resolved)
+        if (resolvedSet.size >= maxAnchors) return Array.from(resolvedSet)
+      }
+    }
+
+    // 2. 原始任务/剧情描述扫描：包含长度>=2 的图谱节点/词干即为锚点 (RV-001)
+    if (rawTask.length >= 2) {
+      const taskMatches: Array<{ id: string; pos: number; len: number }> = []
+      for (const node of nodes) {
+        if (resolvedSet.has(node.id)) continue
+
+        const keysToTest: string[] = []
+        if (node.stem.length >= 2) keysToTest.push(node.stem)
+        if (node.id.length >= 2 && node.id !== node.stem) keysToTest.push(node.id)
+        if (node.title && node.title.length >= 2 && node.title !== node.stem && node.title !== node.id) {
+          keysToTest.push(node.title)
+        }
+
+        let bestPos = -1
+        let bestLen = 0
+        for (const key of keysToTest) {
+          const pos = rawTask.indexOf(key)
+          if (pos !== -1) {
+            if (bestPos === -1 || pos < bestPos || (pos === bestPos && key.length > bestLen)) {
+              bestPos = pos
+              bestLen = key.length
+            }
+          }
+        }
+
+        if (bestPos !== -1) {
+          taskMatches.push({ id: node.id, pos: bestPos, len: bestLen })
+        }
+      }
+
+      // 确定性排序：文本中出现次序优先，同位置更长实体优先，再按字母序
+      taskMatches.sort((a, b) => {
+        if (a.pos !== b.pos) return a.pos - b.pos
+        if (b.len !== a.len) return b.len - a.len
+        return a.id.localeCompare(b.id)
+      })
+
+      for (const m of taskMatches) {
+        resolvedSet.add(m.id)
+        if (resolvedSet.size >= maxAnchors) return Array.from(resolvedSet)
+      }
+    }
+
+    // 3. 锚点与图谱节点双向包含解析 (RV-001)
+    if (rawAnchors.length > 0) {
+      const containmentMatches: Array<{ id: string; matchLen: number }> = []
+
+      for (const anchor of rawAnchors) {
+        const a = anchor.trim()
+        if (a.length < 2) continue
+
+        for (const node of nodes) {
+          if (resolvedSet.has(node.id)) continue
+
+          const targets: string[] = []
+          if (node.stem.length >= 2) targets.push(node.stem)
+          if (node.id.length >= 2 && node.id !== node.stem) targets.push(node.id)
+          if (node.title && node.title.length >= 2 && !targets.includes(node.title)) {
+            targets.push(node.title)
+          }
+
+          let matchedLen = 0
+          for (const target of targets) {
+            // 方向一：anchor 包含节点 stem (如 "林晚秋拔剑" 包含 "林晚秋")
+            if (a.includes(target)) {
+              matchedLen = Math.max(matchedLen, target.length)
+            }
+            // 方向二：节点 stem 包含 anchor (如 "林晚秋" 包含 "林晚" / "晚秋")
+            if (target.includes(a)) {
+              matchedLen = Math.max(matchedLen, a.length)
+            }
+          }
+
+          if (matchedLen > 0) {
+            containmentMatches.push({ id: node.id, matchLen: matchedLen })
+          }
+        }
+      }
+
+      // 确定性排序：重合匹配长度降序，再按字母序
+      containmentMatches.sort((a, b) => {
+        if (b.matchLen !== a.matchLen) return b.matchLen - a.matchLen
+        return a.id.localeCompare(b.id)
+      })
+
+      for (const m of containmentMatches) {
+        resolvedSet.add(m.id)
+        if (resolvedSet.size >= maxAnchors) return Array.from(resolvedSet)
+      }
+    }
+
+    return Array.from(resolvedSet)
+  }
+
+  return { resolveNodeId, getNeighbors, resolveAnchors }
 }
 
 /**
@@ -692,7 +895,10 @@ export function nodeDistanceRerank<T>(
   candidates: T[],
   options: NodeDistanceOptions,
 ): T[] {
-  if (candidates.length === 0 || !options.anchors || options.anchors.length === 0 || !options.graph) {
+  const hasAnchorsOrTask =
+    (options.anchors && options.anchors.length > 0) ||
+    Boolean(options.task?.trim())
+  if (candidates.length === 0 || !hasAnchorsOrTask || !options.graph) {
     return [...candidates]
   }
 
@@ -705,18 +911,35 @@ export function nodeDistanceRerank<T>(
     ? options.unreachableDecay
     : Math.pow(decay, maxDepth + 1)
 
+  const resolvedAnchors = index.resolveAnchors({
+    anchors: options.anchors,
+    task: options.task,
+    maxAnchors: options.maxAnchors,
+  })
+
+  if (resolvedAnchors.length === 0) {
+    logger.warn("Novel Search", "[nodeDistanceRerank] Anchors resolved to zero graph nodes", {
+      anchors: options.anchors,
+      task: options.task,
+    })
+    return [...candidates]
+  }
+
   const distanceMap = new Map<string, number>()
   const queue: { id: string; depth: number }[] = []
 
-  for (const anchor of options.anchors) {
-    const resolved = index.resolveNodeId(anchor)
-    if (resolved && !distanceMap.has(resolved)) {
-      distanceMap.set(resolved, 0)
-      queue.push({ id: resolved, depth: 0 })
+  for (const anchorId of resolvedAnchors) {
+    if (!distanceMap.has(anchorId)) {
+      distanceMap.set(anchorId, 0)
+      queue.push({ id: anchorId, depth: 0 })
     }
   }
 
   if (queue.length === 0) {
+    logger.warn("Novel Search", "[nodeDistanceRerank] Anchors resolved to zero graph nodes", {
+      anchors: options.anchors,
+      task: options.task,
+    })
     return [...candidates]
   }
 
@@ -787,6 +1010,7 @@ export interface ApplyRecipeOptions<T = unknown> {
   recipe?: SearchRecipeId
   topK: number
   anchors?: readonly string[]
+  task?: string
   graph?: unknown
   similarity?: (a: T, b: T) => number
   textOf?: (item: T) => string
@@ -801,16 +1025,21 @@ export function applySearchRecipe<T>(
   options: ApplyRecipeOptions<T>,
 ): T[] {
   const recipeId = options.recipe ?? "default"
-  if (recipeId === "default" || !(recipeId in SEARCH_RECIPES)) {
+  if (recipeId === "default" || !Object.hasOwn(SEARCH_RECIPES, recipeId)) {
     return candidates.slice(0, options.topK)
   }
 
   const recipe = SEARCH_RECIPES[recipeId]
   let pool = [...candidates]
 
-  if (recipe.useNodeDistance && options.anchors && options.anchors.length > 0 && options.graph) {
+  const hasAnchorsOrTask =
+    (options.anchors && options.anchors.length > 0) ||
+    Boolean(options.task?.trim())
+
+  if (recipe.useNodeDistance && hasAnchorsOrTask && options.graph) {
     pool = nodeDistanceRerank(pool, {
       anchors: options.anchors,
+      task: options.task,
       graph: options.graph,
       decay: recipe.distanceDecay,
       maxDepth: recipe.maxGraphHops,

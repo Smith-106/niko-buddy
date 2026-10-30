@@ -56,7 +56,10 @@ export {
   tokensForKbMatch,
   applySearchRecipe,
   SEARCH_RECIPES,
+  SEARCH_RECIPE_IDS,
+  isSearchRecipeId,
   charShingleJaccard,
+  getCharShingles,
   mmrRerank,
   nodeDistanceRerank,
 } from "./search-strategy"
@@ -106,6 +109,8 @@ export interface NovelSearchParams {
   recipe?: import("./search-strategy").SearchRecipeId
   /** ISS-20260802-004: 空间距离重排锚点实体名称/路径列表。 */
   anchors?: readonly string[]
+  /** ISS-20260802-004: 原始任务/剧情描述字符串（用于图谱节点提取与锚点对齐）。 */
+  task?: string
   /** ISS-20260802-004: 检索图谱（测试注入或按需加载）。 */
   graph?: unknown
 }
@@ -257,33 +262,53 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
   })
   let truncated: NovelSearchResult[]
   const recipe = params.recipe ?? "default"
-  if (recipe === "default" || !(recipe in SEARCH_RECIPES)) {
+  if (recipe === "default" || !Object.hasOwn(SEARCH_RECIPES, recipe)) {
     truncated = filtered.slice(0, topK)
   } else {
     let graph: unknown = params.graph
+    let graphBuildFailed = false
+    const hasAnchorsOrTask =
+      (params.anchors && params.anchors.length > 0) ||
+      (typeof params.task === "string" && params.task.trim().length > 0)
+
     if (
       !graph &&
       (recipe === "local" || recipe === "balanced") &&
-      params.anchors &&
-      params.anchors.length > 0
+      hasAnchorsOrTask
     ) {
       try {
         const { buildRetrievalGraph } = await import("@/lib/graph-relevance")
         graph = await buildRetrievalGraph(pp)
       } catch (err) {
-        console.warn("[novelMixedSearch] Failed to build retrieval graph for recipe, falling back to default slice:", err)
+        logger.warn(
+          "Novel Search",
+          "[novelMixedSearch] Failed to build retrieval graph for recipe, falling back to default slice",
+          { error: toErrorMessage(err) },
+        )
+        graphBuildFailed = true
       }
     }
-    try {
-      truncated = applySearchRecipe(filtered, {
-        recipe,
-        topK,
-        anchors: params.anchors,
-        graph,
-      })
-    } catch (err) {
-      console.warn("[novelMixedSearch] Recipe execution failed, falling back to default slice:", err)
+
+    if (graphBuildFailed) {
+      // RV-002: on graph-build failure, degrade whole recipe to default slice
       truncated = filtered.slice(0, topK)
+    } else {
+      try {
+        truncated = applySearchRecipe(filtered, {
+          recipe,
+          topK,
+          anchors: params.anchors,
+          task: params.task,
+          graph,
+        })
+      } catch (err) {
+        logger.warn(
+          "Novel Search",
+          "[novelMixedSearch] Recipe execution failed, falling back to default slice",
+          { error: toErrorMessage(err) },
+        )
+        truncated = filtered.slice(0, topK)
+      }
     }
   }
 

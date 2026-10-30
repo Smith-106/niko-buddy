@@ -178,6 +178,7 @@ export async function searchRelevantContentUnified(
       return novelMixedSearch({
         projectPath: pp,
         query,
+        task,
         chapterNumber,
         topK: Math.max(limit * 2, 6),
         authoritativeOnly: true,

@@ -1,10 +1,14 @@
 import { describe, it, expect } from "vitest"
+import { tokenizeQuery } from "@/lib/search"
 import {
   charShingleJaccard,
+  getCharShingles,
   mmrRerank,
   nodeDistanceRerank,
   applySearchRecipe,
   SEARCH_RECIPES,
+  SEARCH_RECIPE_IDS,
+  isSearchRecipeId,
 } from "./search-strategy"
 
 describe("charShingleJaccard", () => {
@@ -13,6 +17,11 @@ describe("charShingleJaccard", () => {
     expect(charShingleJaccard("  云州客栈  ", "云州客栈")).toBe(1.0)
     expect(charShingleJaccard("", "")).toBe(1.0)
     expect(charShingleJaccard("玄阴谷", "魔门宗主")).toBe(0.0)
+  })
+
+  it("getCharShingles 生成预期 2-gram 集合", () => {
+    const s = getCharShingles("林晚秋")
+    expect(Array.from(s)).toEqual(["林晚", "晚秋"])
   })
 
   it("中文 2-gram (bi-shingle) 准确计算交并比", () => {
@@ -246,5 +255,117 @@ describe("applySearchRecipe", () => {
 
   it("SEARCH_RECIPES 包含 4 种预设", () => {
     expect(Object.keys(SEARCH_RECIPES)).toEqual(["default", "diverse", "local", "balanced"])
+    expect(SEARCH_RECIPE_IDS).toEqual(["default", "diverse", "local", "balanced"])
+    expect(isSearchRecipeId("diverse")).toBe(true)
+    expect(isSearchRecipeId("invalid")).toBe(false)
+  })
+
+  it("RV-001: real tokenizeQuery + stem-id graph 成功解析并重排 (写第三章：林晚秋在云州客栈与陆青重逢)", () => {
+    const task = "写第三章：林晚秋在云州客栈与陆青重逢"
+    const tokens = tokenizeQuery(task)
+    const entityHints = tokens.filter((t) => t.length >= 2).slice(0, 5)
+    // 真实 context-retrieval 生产链路 anchors 生成逻辑（纯 bigrams: 写第、第三、三章、写第三章、林晚）
+    const anchors = [...entityHints]
+
+    // stem-id 图谱（真实 RetrievalGraph 形态）
+    const graph = {
+      nodes: new Map([
+        ["林晚秋", { id: "林晚秋", title: "林晚秋", path: "wiki/entities/林晚秋.md", outLinks: new Set(["云州客栈"]), inLinks: new Set(), relationEdges: [] }],
+        ["云州客栈", { id: "云州客栈", title: "云州客栈", path: "wiki/entities/云州客栈.md", outLinks: new Set(), inLinks: new Set(["林晚秋"]), relationEdges: [] }],
+        ["陆青", { id: "陆青", title: "陆青", path: "wiki/entities/陆青.md", outLinks: new Set(), inLinks: new Set(), relationEdges: [] }],
+        ["天剑门", { id: "天剑门", title: "天剑门", path: "wiki/entities/天剑门.md", outLinks: new Set(), inLinks: new Set(["林晚秋"]), relationEdges: [] }],
+        ["魔门秘境", { id: "魔门秘境", title: "魔门秘境", path: "wiki/entities/魔门秘境.md", outLinks: new Set(), inLinks: new Set(), relationEdges: [] }],
+      ]),
+    }
+
+    const candidates = [
+      { id: "c1", title: "魔门秘境", path: "wiki/entities/魔门秘境.md", relevance: 0.95 },
+      { id: "c2", title: "林晚秋", path: "wiki/entities/林晚秋.md", relevance: 0.8 },
+      { id: "c3", title: "天剑门", path: "wiki/entities/天剑门.md", relevance: 0.75 },
+    ]
+
+    // 默认切片保持原排序：c1(魔门秘境 0.95) > c2(林晚秋 0.8) > c3(天剑门 0.75)
+    const defaultOrder = applySearchRecipe(candidates, { recipe: "default", topK: 3 }).map((c) => c.title)
+    expect(defaultOrder).toEqual(["魔门秘境", "林晚秋", "天剑门"])
+
+    // local 配方应用：
+    // 虽然 anchors 仅包含 bigram 切片（无全称 '林晚秋'），
+    // 但经任务文本扫描及双向包含对齐成功命中 '林晚秋'/'云州客栈'/'陆青'，
+    // 林晚秋(0跳 0.8)与天剑门(1跳 0.75*0.8=0.6)分数显著超越不可达的魔门秘境(0.95*0.4096=0.389)，
+    // 证明 local 现在发生确定性重排！
+    const localOrder = applySearchRecipe(candidates, {
+      recipe: "local",
+      topK: 3,
+      anchors,
+      task,
+      graph,
+    }).map((c) => c.title)
+
+    expect(localOrder).toEqual(["林晚秋", "天剑门", "魔门秘境"])
+  })
+
+  it("RV-001: real tokenizeQuery + stem-id graph 成功解析并重排 (续写云州客栈的冲突场面)", () => {
+    const task = "续写云州客栈的冲突场面"
+    const tokens = tokenizeQuery(task)
+    const entityHints = tokens.filter((t) => t.length >= 2).slice(0, 5)
+    // 真实 bigram 列表: ["续写", "写云", "云州", "州客", "客栈"]
+    const anchors = [...entityHints]
+
+    const graph = {
+      nodes: new Map([
+        ["云州客栈", { id: "云州客栈", title: "云州客栈", path: "wiki/entities/云州客栈.md", outLinks: new Set(["客栈掌柜"]), inLinks: new Set(), relationEdges: [] }],
+        ["客栈掌柜", { id: "客栈掌柜", title: "客栈掌柜", path: "wiki/entities/客栈掌柜.md", outLinks: new Set(), inLinks: new Set(["云州客栈"]), relationEdges: [] }],
+        ["遥远边荒", { id: "遥远边荒", title: "遥远边荒", path: "wiki/entities/遥远边荒.md", outLinks: new Set(), inLinks: new Set(), relationEdges: [] }],
+      ]),
+    }
+
+    const candidates = [
+      { id: "c1", title: "遥远边荒", path: "wiki/entities/遥远边荒.md", relevance: 0.95 },
+      { id: "c2", title: "客栈掌柜", path: "wiki/entities/客栈掌柜.md", relevance: 0.8 },
+      { id: "c3", title: "云州客栈", path: "wiki/entities/云州客栈.md", relevance: 0.75 },
+    ]
+
+    const defaultOrder = applySearchRecipe(candidates, { recipe: "default", topK: 3 }).map((c) => c.title)
+    expect(defaultOrder).toEqual(["遥远边荒", "客栈掌柜", "云州客栈"])
+
+    const localOrder = applySearchRecipe(candidates, {
+      recipe: "local",
+      topK: 3,
+      anchors,
+      task,
+      graph,
+    }).map((c) => c.title)
+
+    // 锚点对齐到客栈相关实体，两者均超越遥远边荒(0.95*0.4096=0.389)
+    expect(localOrder).toEqual(["客栈掌柜", "云州客栈", "遥远边荒"])
+
+    // 额外验证：即使未显式传 task，仅凭 bigram 锚点双向包含（'云州'与'客栈'均被'云州客栈'包含），依然能完成对齐与重排
+    const localOrderNoTask = applySearchRecipe(candidates, {
+      recipe: "local",
+      topK: 3,
+      anchors,
+      graph,
+    }).map((c) => c.title)
+    expect(localOrderNoTask).toEqual(["客栈掌柜", "云州客栈", "遥远边荒"])
+  })
+
+  it("RV-001: 锚点无法解析为图谱节点时发射信号且保持原始顺序返回", () => {
+    const candidates = [
+      { id: "c1", title: "无关条目A", relevance: 0.9 },
+      { id: "c2", title: "无关条目B", relevance: 0.8 },
+    ]
+    const graph = {
+      nodes: new Map([
+        ["林晚秋", { id: "林晚秋", title: "林晚秋", path: "", outLinks: new Set(), inLinks: new Set(), relationEdges: [] }],
+      ]),
+    }
+    const res = applySearchRecipe(candidates, {
+      recipe: "local",
+      topK: 2,
+      anchors: ["今天天气不错"],
+      task: "今天天气不错",
+      graph,
+    })
+    expect(res.map((c) => c.id)).toEqual(["c1", "c2"])
   })
 })

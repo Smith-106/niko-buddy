@@ -218,7 +218,11 @@ export interface EmbeddingConfig {
   overlapChunkChars?: number
 }
 
-export type SearchRecipeId = "default" | "diverse" | "local" | "balanced"
+export const SEARCH_RECIPE_IDS = ["default", "diverse", "local", "balanced"] as const
+export type SearchRecipeId = (typeof SEARCH_RECIPE_IDS)[number]
+
+export const isSearchRecipeId = (val: unknown): val is SearchRecipeId =>
+  typeof val === "string" && (SEARCH_RECIPE_IDS as readonly string[]).includes(val)
 
 export interface RerankConfig {
   enabled: boolean

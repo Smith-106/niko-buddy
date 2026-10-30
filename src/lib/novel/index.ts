@@ -267,7 +267,10 @@ export {
   searchPlot,
   applySearchRecipe,
   SEARCH_RECIPES,
+  SEARCH_RECIPE_IDS,
+  isSearchRecipeId,
   charShingleJaccard,
+  getCharShingles,
   mmrRerank,
   nodeDistanceRerank,
 } from "./search-adapter"

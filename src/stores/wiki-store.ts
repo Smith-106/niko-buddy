@@ -34,6 +34,7 @@ export type {
 } from "./wiki-store-config"
 export {
   DEFAULT_RERANK_CONFIG, TASK_PROMPT_KEYS, DEFAULT_NOVEL_CONFIG, confirmDiscardSkillLibraryDraft,
+  SEARCH_RECIPE_IDS, isSearchRecipeId,
 } from "./wiki-store-config"
 
 

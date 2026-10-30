@@ -1,7 +1,7 @@
 import { getStore } from "@/lib/web-store"
 import type { WikiProject } from "@/types/wiki"
-import type { LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProviderConfigs, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, NovelConfig, RerankConfig, SearchRecipeId } from "@/stores/wiki-store"
-import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG } from "@/stores/wiki-store"
+import type { LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProviderConfigs, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, NovelConfig, RerankConfig } from "@/stores/wiki-store"
+import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG, isSearchRecipeId } from "@/stores/wiki-store"
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
 import { normalizeMcpConfig, type McpConfig } from "@/lib/mcp/config"
 import { normalizePath } from "@/lib/path-utils"
@@ -741,8 +741,6 @@ function normalizeNovelConfig(
   }
 }
 
-const VALID_SEARCH_RECIPES = new Set<SearchRecipeId>(["default", "diverse", "local", "balanced"])
-
 function normalizeRerankConfig(
   config?: Partial<RerankConfig> | null,
 ): RerankConfig | null {
@@ -757,7 +755,7 @@ function normalizeRerankConfig(
     customEndpoint: config.customEndpoint ?? DEFAULT_RERANK_CONFIG.customEndpoint,
     apiMode: config.apiMode ?? DEFAULT_RERANK_CONFIG.apiMode,
     maxCandidates: Math.max(3, Math.min(30, config.maxCandidates ?? DEFAULT_RERANK_CONFIG.maxCandidates)),
-    recipe: (config.recipe && VALID_SEARCH_RECIPES.has(config.recipe)) ? config.recipe : "default",
+    recipe: (config.recipe && isSearchRecipeId(config.recipe)) ? config.recipe : "default",
   }
 }
 
