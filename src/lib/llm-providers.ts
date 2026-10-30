@@ -736,6 +736,12 @@ function buildAnthropicBody(
   }
 }
 
+/**
+ * 开思考时 max_tokens 的上限（思考 + 正文）。取 Sonnet 级别当前公开的输出上限 64000，
+ * 超出会被 Anthropic 以 400 拒绝。
+ */
+const ANTHROPIC_MAX_TOKENS_CEILING = 64_000
+
 function buildAnthropicBodyWithReasoning(
   config: LlmConfig,
   messages: ChatMessage[],
@@ -757,9 +763,12 @@ function buildAnthropicBodyWithReasoning(
           ? 4096
         : 8192
   const budgetTokens = Math.max(1024, budget)
-  if ((body.max_tokens as number) <= budgetTokens) {
-    body.max_tokens = budgetTokens + 1
-  }
+  // Anthropic 的 max_tokens 是「思考 + 正文」总上限，budget_tokens 从中扣。调用方传的 max_tokens
+  // 表达的是正文预算（如深度章节 12000），所以开思考时把思考预算叠加上去；否则 high 档
+  // 8192 思考会把 12000 正文预算压到 ~3800，长文每次被截断、触发扩写补足循环。
+  // 此前「不够就抬到 budget+1」只给正文留 1 个 token。
+  const answerTokens = body.max_tokens as number
+  body.max_tokens = Math.min(ANTHROPIC_MAX_TOKENS_CEILING, answerTokens + budgetTokens)
   body.thinking = { type: "enabled", budget_tokens: budgetTokens }
   delete body.temperature
   delete body.top_p

@@ -575,9 +575,26 @@ describe("anthropic body builders", () => {
     expect(tinyBudget.thinking).toEqual({ type: "enabled", budget_tokens: 1024 })
   })
 
-  it("raises max_tokens when the thinking budget would exceed it", () => {
-    const body = anthropicBody({ reasoning: { mode: "low" } }, { max_tokens: 512 })
-    expect(body.max_tokens).toBe(1025)
+  it("开思考时 max_tokens = 正文预算 + 思考预算（调用方的 max_tokens 是正文预算）", () => {
+    // 预算小于思考预算：此前只抬到 budget+1，正文只剩 1 个 token。
+    const small = anthropicBody({ reasoning: { mode: "low" } }, { max_tokens: 512 })
+    expect(small.max_tokens).toBe(512 + 1024)
+    // 深度章节 12000 正文预算 + high 档 8192 思考：正文仍有完整 12000，不被思考挤压。
+    const chapter = anthropicBody({ reasoning: { mode: "high" } }, { max_tokens: 12000 })
+    expect(chapter.max_tokens).toBe(12000 + 8192)
+    expect(chapter.thinking).toEqual({ type: "enabled", budget_tokens: 8192 })
+    // 未显式传 max_tokens：默认 4096 正文 + 思考预算。
+    expect(anthropicBody({ reasoning: { mode: "medium" } }).max_tokens).toBe(4096 + 4096)
+  })
+
+  it("开思考时 max_tokens 不超过上限 64000", () => {
+    const body = anthropicBody({ reasoning: { mode: "custom", budgetTokens: 60000 } }, { max_tokens: 12000 })
+    expect(body.max_tokens).toBe(64000)
+  })
+
+  it("不开思考时 max_tokens 原样透传", () => {
+    expect(anthropicBody({ reasoning: { mode: "off" } }, { max_tokens: 12000 }).max_tokens).toBe(12000)
+    expect(anthropicBody({ reasoning: { mode: "auto" } }, { max_tokens: 12000 }).max_tokens).toBe(12000)
   })
 })
 
