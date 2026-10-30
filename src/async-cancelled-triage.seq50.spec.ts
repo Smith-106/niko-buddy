@@ -7,7 +7,9 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-const root = process.cwd().endsWith("QMAI") ? process.cwd() : join(process.cwd(), "QMAI")
+// 按本文件位置定位仓库根（本文件在 src/ 下）。不依赖 cwd 或检出目录名：
+// CI 检出目录叫 niko-buddy，按「cwd 是否以 QMAI 结尾」判断会找不到文件。
+const root = join(__dirname, "..")
 
 function src(rel: string): string {
   return readFileSync(join(root, rel), "utf-8")
