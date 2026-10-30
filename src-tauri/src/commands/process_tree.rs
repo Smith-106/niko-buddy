@@ -17,17 +17,15 @@
 //!   因为进程树清理是加固而非主链前置条件。
 //! - `Drop` 只关闭句柄（触发 KILL_ON_JOB_CLOSE），不阻塞、不 panic。
 
-
+#[cfg(windows)]
 mod imp {
     use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
-        JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
-    use windows::Win32::System::Threading::{
-        OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
-    };
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
 
     /// 持有 JobObject 句柄；drop 时关闭句柄即触发 KILL_ON_JOB_CLOSE。
     pub struct ProcessTree {
@@ -93,8 +91,6 @@ mod imp {
 
 #[cfg(not(windows))]
 mod imp {
-    use std::process::Child;
-
     /// 非 Windows：无 JobObject 等价物，保持既有“仅直接子进程”语义。
     pub struct ProcessTree;
 
@@ -117,7 +113,6 @@ pub fn attach_pid(pid: u32) -> Option<ProcessTree> {
     ProcessTree::attach_pid(pid)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,7 +131,10 @@ mod tests {
         tree.terminate();
         let _ = child.kill();
         let _ = child.wait();
-        assert!(child.try_wait().expect("try_wait").is_some(), "子进程应已终止");
+        assert!(
+            child.try_wait().expect("try_wait").is_some(),
+            "子进程应已终止"
+        );
     }
 
     #[cfg(windows)]
