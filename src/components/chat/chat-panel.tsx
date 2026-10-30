@@ -31,12 +31,11 @@ import { computeContextBudget } from "@/lib/context-budget"
 import { resolveUserVisibleReasoning } from "@/lib/user-visible-reasoning"
 import { createDeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import { resolveConfig } from "@/lib/llm-config/preset-resolver"
-import { LLM_PRESETS } from "@/lib/llm-config/llm-presets"
 import { saveAiChatModel } from "@/lib/project-store"
 import { isTauri } from "@/lib/platform"
 import { createStreamSessionGuard } from "./stream-session"
 import { useChatAutoScroll } from "./use-chat-scroll"
+import { resolveEffectiveChatLlmConfig } from "./chat-panel-llm-config"
 import {
   appendContinueUnfinishedDeepChapterContext,
   buildInterruptedResumeContextPayload,
@@ -570,57 +569,7 @@ export function ChatPanel() {
       if (effectiveTaskRoute?.chapterNumber !== undefined) {
         planningChapterRef.current = effectiveTaskRoute.chapterNumber
       }
-      // AI 会话选中的 model 名（如 "deepseek-v3"）需要找到它所属的 provider
-      // 重新计算 baseUrl/apiKey/apiMode，否则会沿用 activePresetId 的配置
-      // 导致跨 provider 调用失败
-      let effectiveChatLlmConfig = llmConfig
-      if (aiChatModel.trim()) {
-        const targetModel = aiChatModel.trim()
-        // 优先按 "providerId/modelId" 格式精确匹配
-        const slashIdx = targetModel.indexOf("/")
-        if (slashIdx > 0) {
-          const providerId = targetModel.slice(0, slashIdx)
-          const modelId = targetModel.slice(slashIdx + 1)
-          const override = providerConfigs[providerId]
-          if (override?.savedModels?.some((m) => m.model === modelId)) {
-            const template =
-              LLM_PRESETS.find((p) => p.id === providerId) ??
-              LLM_PRESETS.find((p) => p.id === "custom")
-            /* v8 ignore next */
-            if (template) {
-              effectiveChatLlmConfig = {
-                ...resolveConfig(template, override, llmConfig),
-                model: modelId,
-              }
-            }
-          } else {
-            effectiveChatLlmConfig = { ...llmConfig, model: modelId }
-          }
-        } else {
-          // 回退：按纯模型名匹配（兼容旧数据）
-          let matched = false
-          for (const [providerId, override] of Object.entries(providerConfigs)) {
-            /* v8 ignore next */
-            if (override.savedModels?.some((m) => m.model === targetModel)) {
-              const template =
-                LLM_PRESETS.find((p) => p.id === providerId) ??
-                LLM_PRESETS.find((p) => p.id === "custom")
-              /* v8 ignore next */
-              if (template) {
-                effectiveChatLlmConfig = {
-                  ...resolveConfig(template, override, llmConfig),
-                  model: targetModel,
-                }
-              }
-              matched = true
-              break
-            }
-          }
-          if (!matched) {
-            effectiveChatLlmConfig = { ...llmConfig, model: targetModel }
-          }
-        }
-      }
+      const effectiveChatLlmConfig = resolveEffectiveChatLlmConfig({ aiChatModel, llmConfig, providerConfigs })
       const shouldUseEditMode = novelMode && chatEditModeEnabled && isChatEditRequest(text)
       const goldenThreeChapter = novelMode
         ? detectGoldenThreeChapterRequest(text, effectiveTaskRoute?.chapterNumber)
@@ -1632,57 +1581,7 @@ export function ChatPanel() {
   const handleContinueUnfinished = useCallback(async (assistantMessage: DisplayMessage) => {
     if (isStreaming) return
 
-    // AI 会话选中的 model 名（如 "deepseek-v3"）需要找到它所属的 provider
-    // 重新计算 baseUrl/apiKey/apiMode，否则会沿用 activePresetId 的配置
-    // 导致跨 provider 调用失败
-    let effectiveChatLlmConfig = llmConfig
-    if (aiChatModel.trim()) {
-      const targetModel = aiChatModel.trim()
-      // 优先按 "providerId/modelId" 格式精确匹配
-      const slashIdx = targetModel.indexOf("/")
-      if (slashIdx > 0) {
-        const providerId = targetModel.slice(0, slashIdx)
-        const modelId = targetModel.slice(slashIdx + 1)
-        const override = providerConfigs[providerId]
-        if (override?.savedModels?.some((m) => m.model === modelId)) {
-          const template =
-            LLM_PRESETS.find((p) => p.id === providerId) ??
-            LLM_PRESETS.find((p) => p.id === "custom")
-          /* v8 ignore next */
-          if (template) {
-            effectiveChatLlmConfig = {
-              ...resolveConfig(template, override, llmConfig),
-              model: modelId,
-            }
-          }
-        } else {
-          effectiveChatLlmConfig = { ...llmConfig, model: modelId }
-        }
-      } else {
-        // 回退：按纯模型名匹配（兼容旧数据）
-        let matched = false
-        for (const [providerId, override] of Object.entries(providerConfigs)) {
-          /* v8 ignore next */
-          if (override.savedModels?.some((m) => m.model === targetModel)) {
-            const template =
-              LLM_PRESETS.find((p) => p.id === providerId) ??
-              LLM_PRESETS.find((p) => p.id === "custom")
-            /* v8 ignore next */
-            if (template) {
-              effectiveChatLlmConfig = {
-                ...resolveConfig(template, override, llmConfig),
-                model: targetModel,
-              }
-            }
-            matched = true
-            break
-          }
-        }
-        if (!matched) {
-          effectiveChatLlmConfig = { ...llmConfig, model: targetModel }
-        }
-      }
-    }
+    const effectiveChatLlmConfig = resolveEffectiveChatLlmConfig({ aiChatModel, llmConfig, providerConfigs })
 
     const storeState = useChatStore.getState()
     let convId = assistantMessage.conversationId?.trim()
