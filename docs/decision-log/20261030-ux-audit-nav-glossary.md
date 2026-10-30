@@ -7,7 +7,7 @@
 | date | 2026-10-30 |
 | task_id | UX 审计批次三·10 / 11 / 12 / 13 |
 | decision_type | U-xx 定稿 |
-| value | 侧栏导航由四组改为六组，顺序按作者工作流：开书 si → 写作 ma → 审改 review → 设定资料 shen → 创作工具 tools → 维护 maint。旧「设置」组（14 项）拆成「创作工具」与「维护」，组名改「维护」，不再与设置页「模型与写作设置」撞名。组 id 沿用 si/ma/shen/maint，新增 review/tools，用户存过的折叠偏好继续有效；有书时默认展开写作、审改。总量 31、primary/secondary 16/15 不变。 |
+| value | 侧栏导航由四组改为六组，顺序按作者工作流：开书 si → 写作 ma → 审改 review → 设定资料 shen → 创作工具 tools → 维护 maint。旧「设置」组（14 项）拆成「创作工具」与「维护」，组名改「维护」，不再与设置页「模型与写作设置」撞名。组 id 沿用 si/ma/shen/maint，新增 review/tools，用户存过的折叠偏好继续有效；有书时默认展开写作、审改。总量 30（primary 16 / secondary 14）：分组本身不增减条目，批次三·12 把 AI 实况并入主控后由 31 减为 30，见第四节。 |
 | evidence_ref | `src/components/layout/nav-items.ts` NAV_ITEMS / NAV_GROUP_ORDER / DEFAULT_COLLAPSED_GROUPS；`nav-items.spec.ts`「nav 六组」；`icon-sidebar.spec.tsx`「六组分组展示」 |
 
 ## 二、界面用语表（一个功能一个名字）

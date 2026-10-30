@@ -74,26 +74,42 @@ export async function saveNovelProjectMeta(
   await writeFile(filePath, JSON.stringify(updated, null, 2))
 }
 
+/** 元数据文件状态：不存在 / 存在但读不出或解析失败 / 正常。 */
+export type NovelProjectMetaState =
+  | { readonly status: "missing" }
+  | { readonly status: "corrupt" }
+  | { readonly status: "ok"; readonly meta: NovelProjectMeta }
+
+/**
+ * 检查 Novel 项目元数据文件。与 loadNovelProjectMeta 的区别：把「文件存在但损坏」
+ * 单独报出来，供写入方判断能否用默认值初始化（损坏文件不得被覆盖）。
+ * fileExists 抛错时向上抛，不当作 missing。
+ */
+export async function inspectNovelProjectMeta(projectPath: string): Promise<NovelProjectMetaState> {
+  const pp = normalizePath(projectPath)
+  const filePath = `${pp}/${NOVEL_META_DIR}/${NOVEL_META_FILE}`
+  const exists = await fileExists(filePath)
+  if (!exists) return { status: "missing" }
+  try {
+    const raw = await readFile(filePath)
+    return { status: "ok", meta: JSON.parse(raw) as NovelProjectMeta }
+  } catch {
+    return { status: "corrupt" }
+  }
+}
+
 /**
  * 加载 Novel 项目元数据。
  * MIT licensed implementation.
  *
  * @param projectPath - 项目根路径
- * @returns NovelProjectMeta 或 null（不存在时）
+ * @returns NovelProjectMeta 或 null（不存在或损坏时；需要区分两者用 inspectNovelProjectMeta）
  */
 export async function loadNovelProjectMeta(
   projectPath: string,
 ): Promise<NovelProjectMeta | null> {
-  const pp = normalizePath(projectPath)
-  const filePath = `${pp}/${NOVEL_META_DIR}/${NOVEL_META_FILE}`
-  const exists = await fileExists(filePath)
-  if (!exists) return null
-  try {
-    const raw = await readFile(filePath)
-    return JSON.parse(raw) as NovelProjectMeta
-  } catch {
-    return null
-  }
+  const state = await inspectNovelProjectMeta(projectPath)
+  return state.status === "ok" ? state.meta : null
 }
 
 /**

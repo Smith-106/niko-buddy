@@ -21,6 +21,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 
 import {
   createDefaultNovelProjectMeta,
+  inspectNovelProjectMeta,
   loadNovelProjectMeta,
   saveNovelProjectMeta,
   updateNovelProjectStats,
@@ -91,6 +92,19 @@ describe("project-meta", () => {
     fsMocks.readFile.mockResolvedValue("{broken json")
     const meta = await loadNovelProjectMeta("C:/novel")
     expect(meta).toBeNull()
+  })
+
+  it("inspectNovelProjectMeta distinguishes missing / corrupt / ok", async () => {
+    fsMocks.fileExists.mockResolvedValue(false)
+    expect(await inspectNovelProjectMeta("C:/novel")).toEqual({ status: "missing" })
+    fsMocks.fileExists.mockResolvedValue(true)
+    fsMocks.readFile.mockResolvedValue("{broken json")
+    expect(await inspectNovelProjectMeta("C:/novel")).toEqual({ status: "corrupt" })
+    fsMocks.readFile.mockRejectedValue(new Error("EACCES"))
+    expect(await inspectNovelProjectMeta("C:/novel")).toEqual({ status: "corrupt" })
+    fsMocks.readFile.mockResolvedValue(JSON.stringify(baseMeta()))
+    const ok = await inspectNovelProjectMeta("C:/novel")
+    expect(ok.status === "ok" && ok.meta.title).toBe("测试小说")
   })
 
   it("updateNovelProjectStats is a no-op when meta missing", async () => {

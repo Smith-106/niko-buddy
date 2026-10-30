@@ -8,7 +8,7 @@
  *   - 零数据时诚实空态（不虚构进度、不写盘、不修复）。
  *
  * 数据源（全部经 `@/lib/novel` barrel，不 deep import 内部模块）：
- *   - loadNovelProjectMeta(projectPath)（null = 未初始化）；
+ *   - inspectNovelProjectMeta(projectPath)（missing = 未初始化；corrupt = 文件损坏，不提供一键补全）；
  *   - runProjectDoctor(projectPath)（verdict healthy/degraded/critical＋findings）；
  *   - buildDashboardEvidenceSnapshot(ledger)（blocked/blockingGate），账本经
  *     loadRunEventLedgerStore(createFsRunEventLedgerStoreDeps(), projectPath) 装载。
@@ -24,13 +24,14 @@ import {
   buildDashboardEvidenceSnapshot,
   createDefaultNovelProjectMeta,
   createFsRunEventLedgerStoreDeps,
-  loadNovelProjectMeta,
+  inspectNovelProjectMeta,
   loadRunEventLedgerStore,
   runProjectDoctor,
   saveNovelProjectMeta,
   type DoctorReport,
   type EvidenceSnapshot,
   type NovelProjectMeta,
+  type NovelProjectMetaState,
 } from "@/lib/novel"
 import { cn, toErrorMessage } from "@/lib/utils"
 import { ReportCallout, ReportPage, ReportSection, reportToneClass, type ReportTone } from "./report-page"
@@ -95,12 +96,14 @@ const FINDING_PLAIN: Record<string, { readonly title: string; readonly body: str
 /**
  * 下一步建议纯函数（零 IO，确定性同输入同输出）。
  * 优先级：blockingGate 存在 → 先修该门；verdict critical → 先恢复健康；
- * meta null → 先初始化项目；否则继续当前任务。
+ * meta null → 先初始化项目（metaCorrupt 时改为先修复资料文件）；否则继续当前任务。
  */
 export function deriveCreativeNext(input: {
   readonly meta: NovelMeta
   readonly verdict: DoctorVerdict
   readonly blockingGate: BlockingGate
+  /** project-meta.json 存在但读不出；缺省 false。 */
+  readonly metaCorrupt?: boolean
 }): readonly CreativeNextItem[] {
   const items: CreativeNextItem[] = []
   if (input.blockingGate !== null) {
@@ -118,7 +121,13 @@ export function deriveCreativeNext(input: {
       code: "verdict=critical",
     })
   }
-  if (input.meta === null) {
+  if (input.meta === null && input.metaCorrupt === true) {
+    items.push({
+      text: "检查项目资料文件：.novel/project-meta.json 读不出来",
+      reason: "依据：资料文件存在但内容损坏（不影响写作）。",
+      code: "meta=corrupt",
+    })
+  } else if (input.meta === null) {
     items.push({
       text: "补全项目资料：书名、题材等元数据还没填",
       reason: "依据：项目元数据缺失（不影响写作）。",
@@ -142,15 +151,28 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [fillingMeta, setFillingMeta] = useState(false)
   const [fillError, setFillError] = useState<string | null>(null)
+  const [metaCorrupt, setMetaCorrupt] = useState(false)
+
+  const applyMetaState = (state: NovelProjectMetaState) => {
+    setMeta(state.status === "ok" ? state.meta : null)
+    setMetaCorrupt(state.status === "corrupt")
+  }
 
   // 批次三·13：元数据缺失时一键补默认值（书名取文件夹名），写完重读；只写 .novel/project-meta.json。
+  // 写入前再查一次：文件已存在（损坏或别处刚建好）就不覆盖，只刷新显示。
   const fillMeta = async () => {
     setFillingMeta(true)
     setFillError(null)
     try {
+      const before = await inspectNovelProjectMeta(projectPath)
+      if (before.status !== "missing") {
+        applyMetaState(before)
+        if (before.status === "corrupt") setFillError("资料文件已存在但读不出来，为避免覆盖原内容，没有写入")
+        return
+      }
       const folder = projectPath.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "未命名作品"
       await saveNovelProjectMeta(projectPath, createDefaultNovelProjectMeta(folder))
-      setMeta(await loadNovelProjectMeta(projectPath))
+      applyMetaState(await inspectNovelProjectMeta(projectPath))
     } catch (err) {
       setFillError(toErrorMessage(err))
     } finally {
@@ -168,12 +190,12 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
     void (async () => {
       try {
         // 串行一次装载（只读，不写盘；无需轮询）。
-        const loadedMeta = await loadNovelProjectMeta(projectPath)
+        const loadedMeta = await inspectNovelProjectMeta(projectPath)
         const loadedReport = await runProjectDoctor(projectPath)
         const ledger = await loadRunEventLedgerStore(createFsRunEventLedgerStoreDeps(), projectPath)
         const loadedSnapshot = buildDashboardEvidenceSnapshot(ledger)
         if (cancelled) return
-        setMeta(loadedMeta)
+        applyMetaState(loadedMeta)
         setReport(loadedReport)
         setSnapshot(loadedSnapshot)
       } catch (err) {
@@ -189,10 +211,10 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
   const ready = meta !== undefined && report !== null && snapshot !== null
   const next: readonly CreativeNextItem[] =
     ready && report !== null && snapshot !== null
-      ? deriveCreativeNext({ meta, verdict: report.verdict, blockingGate: snapshot.blockingGate })
+      ? deriveCreativeNext({ meta, metaCorrupt, verdict: report.verdict, blockingGate: snapshot.blockingGate })
       : []
   const hasGateEvents = snapshot !== null && snapshot.cards.some((card) => card.hasEvent)
-  const isZeroData = ready && meta === null && !hasGateEvents
+  const isZeroData = ready && meta === null && !metaCorrupt && !hasGateEvents
   const problems =
     report === null ? [] : report.findings.filter((finding) => finding.severity === "error" || finding.severity === "warn")
   const okCount = report === null ? 0 : report.findings.length - problems.length
@@ -268,6 +290,13 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
                     第 {meta.currentChapter} 章 / 共 {meta.totalChapters} 章（{meta.totalWords} 字）
                   </dd>
                 </dl>
+              ) : metaCorrupt ? (
+                <div className="space-y-2" data-testid="creative-meta-corrupt">
+                  <ReportCallout tone="warn">
+                    项目资料文件 .novel/project-meta.json 已存在，但内容读不出来（可能被手动改坏）。请先打开该文件修好或备份后删除；本页不会用默认值覆盖它。
+                  </ReportCallout>
+                  {fillError ? <p className="text-sm text-destructive">{fillError}</p> : null}
+                </div>
               ) : (
                 <div className="space-y-2">
                   <ReportCallout tone="warn">项目元数据缺失（不影响写作），尚未初始化书名、题材等资料。</ReportCallout>

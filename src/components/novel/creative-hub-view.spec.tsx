@@ -110,6 +110,43 @@ describe("CreativeHubView", () => {
     expect(JSON.parse(body).title).toBe("book")
   })
 
+  it("复核 A3：project-meta.json 存在但损坏 → 不显示补全按钮、不写盘，提示先修文件", async () => {
+    mocks.writeFile.mockClear()
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockImplementation(async (path: string) => {
+      if (path.endsWith("project-meta.json")) return "{broken json"
+      if (path.endsWith("status.json")) return "{}"
+      if (path.endsWith("run-events.jsonl")) return ""
+      throw new Error(`unexpected read: ${path}`)
+    })
+    mocks.listDirectory.mockResolvedValue([])
+    render(<CreativeHubView projectPath={PROJECT} />)
+    const corrupt = await screen.findByTestId("creative-meta-corrupt")
+    expect(corrupt.textContent).toContain("读不出来")
+    expect(screen.queryByTestId("creative-fill-meta")).toBeNull()
+    expect(screen.queryByTestId("creative-empty")).toBeNull()
+    const next = await screen.findAllByTestId("creative-next")
+    expect(next.some((el) => el.textContent?.includes("meta=corrupt"))).toBe(true)
+    expect(next.some((el) => el.textContent?.includes("补全项目资料"))).toBe(false)
+    expect(mocks.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("复核 A3：点补全时文件已被别处建好 → 不覆盖，只刷新显示", async () => {
+    mocks.writeFile.mockClear()
+    mocks.fileExists.mockResolvedValueOnce(false).mockResolvedValue(true)
+    mocks.readFile.mockImplementation(async (path: string) => {
+      if (path.endsWith("project-meta.json")) return metaJson()
+      if (path.endsWith("status.json")) return "{}"
+      if (path.endsWith("run-events.jsonl")) return ""
+      throw new Error(`unexpected read: ${path}`)
+    })
+    mocks.listDirectory.mockResolvedValue([])
+    render(<CreativeHubView projectPath={PROJECT} />)
+    fireEvent.click(await screen.findByTestId("creative-fill-meta"))
+    await waitFor(() => expect(screen.getByTestId("creative-binding").textContent).toContain("测试之书"))
+    expect(mocks.writeFile).not.toHaveBeenCalled()
+  })
+
   it("有绑定项目 → 标题＋诊断 verdict＋继续当前任务（无零数据空态）", async () => {
     routeFiles({ meta: true, status: true })
     render(<CreativeHubView projectPath={PROJECT} />)
@@ -176,6 +213,11 @@ describe("CreativeHubView", () => {
 })
 
 describe("deriveCreativeNext（纯函数优先级）", () => {
+  it("metaCorrupt → 建议先检查资料文件，不建议一键补全", () => {
+    const items = deriveCreativeNext({ meta: null, metaCorrupt: true, verdict: "healthy", blockingGate: null })
+    expect(items.map((i) => i.code)).toEqual(["meta=corrupt"])
+  })
+
   it("blockingGate 优先于 critical 与 meta 缺失", () => {
     const items = deriveCreativeNext({ meta: null, verdict: "critical", blockingGate: "quality" })
     expect(items[0]?.text).toContain("先修复被阻塞的门")

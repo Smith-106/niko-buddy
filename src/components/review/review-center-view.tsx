@@ -21,6 +21,7 @@ import { readFile } from "@/commands/fs"
 import { startSixDimensionReviewRun, SIX_REVIEW_DIMENSION_ORDER } from "@/lib/novel"
 import type { SixReviewDimensionKey } from "@/lib/novel"
 import { toErrorMessage } from "@/lib/utils"
+import { summarizeReviewRunDone } from "./review-center-helpers"
 
 function isSixReviewDimensionKey(value: string | null): value is SixReviewDimensionKey {
   return SIX_REVIEW_DIMENSION_ORDER.includes(value as SixReviewDimensionKey)
@@ -352,7 +353,7 @@ function ReviewStartButton() {
   }
 
   const runError = reviewError || reviewRun?.error || ""
-  const finishedCount = !runError && reviewRun && !reviewRun.running ? reviewRun.results?.length ?? 0 : 0
+  const done = summarizeReviewRunDone(reviewRun, runError)
 
   return (
     <div className="flex flex-col items-start gap-1">
@@ -380,12 +381,16 @@ function ReviewStartButton() {
       {runError ? (
         <p data-testid="review-start-error" role="alert" className="text-xs text-destructive">
           {runError}
-          {canReview ? `（${t("reviewCenter.retryHint", { defaultValue: "可再次点「开始审稿」重试" })}）` : null}
+          {canReview ? (
+            <span className="block">{t("reviewCenter.retryHint", { defaultValue: "可再次点「开始审稿」重试" })}</span>
+          ) : null}
         </p>
       ) : null}
-      {finishedCount > 0 ? (
+      {done !== null ? (
         <p data-testid="review-run-done" role="status" className="text-xs text-success-foreground">
-          {t("reviewCenter.reviewDone", { defaultValue: "审稿完成，共 {{count}} 条结果，见下方列表", count: finishedCount })}
+          {done.count > 0
+            ? t("reviewCenter.reviewDone", { defaultValue: "审稿完成，共 {{count}} 条结果，见下方列表", count: done.count })
+            : t("reviewCenter.reviewDoneEmpty", { defaultValue: "审稿完成，没有发现需要处理的问题" })}
         </p>
       ) : null}
     </div>

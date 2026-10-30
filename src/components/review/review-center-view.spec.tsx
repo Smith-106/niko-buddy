@@ -37,6 +37,7 @@ interface ReviewRunLike {
   error?: string
   results?: unknown[]
   dimensionProgress?: string
+  dimensionResults?: Record<string, { issues: unknown[] }>
 }
 
 const mocks = vi.hoisted(() => {
@@ -359,6 +360,25 @@ describe("ReviewStartButton — 启动审查", () => {
     const alert = screen.getByTestId("review-start-error")
     expect(alert.textContent).toContain("llm-down")
     expect(alert.textContent).toContain("重试")
+  })
+
+  it("复核 B2：六维审稿完成（results 为空、dimensionResults 有问题）显示条数", () => {
+    mocks.state.reviewRun = {
+      running: false,
+      results: [],
+      dimensionResults: { consistency: { issues: [{}, {}] }, pacing: { issues: [] } },
+    }
+    renderDashboard()
+    render(<ReviewCenterView />)
+    expect(screen.getByTestId("review-run-done").textContent).toContain("审稿完成")
+    expect(mocks.t).toHaveBeenCalledWith("reviewCenter.reviewDone", expect.objectContaining({ count: 2 }))
+  })
+
+  it("复核 B2：六维审稿完成且没有问题 → 显示「没有发现需要处理的问题」", () => {
+    mocks.state.reviewRun = { running: false, results: [], dimensionResults: { consistency: { issues: [] } } }
+    renderDashboard()
+    render(<ReviewCenterView />)
+    expect(screen.getByTestId("review-run-done").textContent).toContain("没有发现需要处理的问题")
   })
 
   it("批次二·9：未选章节时给出可见提示", () => {
