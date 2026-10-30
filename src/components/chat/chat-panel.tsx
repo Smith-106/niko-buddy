@@ -36,6 +36,7 @@ import { isTauri } from "@/lib/platform"
 import { createStreamSessionGuard } from "./stream-session"
 import { useChatAutoScroll } from "./use-chat-scroll"
 import { resolveEffectiveChatLlmConfig } from "./chat-panel-llm-config"
+import { useChatPlanning } from "./use-chat-planning"
 import {
   appendContinueUnfinishedDeepChapterContext,
   buildInterruptedResumeContextPayload,
@@ -185,32 +186,16 @@ export function ChatPanel() {
     setDeepChapterEnabledState(resolvedValue)
   }, [])
   // Wave 3 (v2.5.0): 计划模式状态（面板开合 + 数据 + one-shot 附加）
-  const [planningOpen, setPlanningOpen] = useState(false)
-  const [planningPlan, setPlanningPlan] = useState<import("@/lib/novel/planning").ChapterPlanView | null>(null)
-  const [planningLoading, setPlanningLoading] = useState(false)
-  const [planningError, setPlanningError] = useState<string | null>(null)
+  // chat-panel 拆分 T2：整块迁至 use-chat-planning（状态/ref/两个回调）。
+  const {
+    planningOpen, setPlanningOpen,
+    planningPlan, setPlanningPlan,
+    planningLoading, planningError,
+    planningChapterRef, loadPlanning, openPlanning,
+  } = useChatPlanning({ project })
   // R4 共识（deepseek+glm）: 「写入 Wiki」失败原先只 console.error，用户无任何失败反馈。
   const [writeWikiError, setWriteWikiError] = useState<string | null>(null)
   const [writeWikiOk, setWriteWikiOk] = useState(false)
-  const planningChapterRef = useRef<number | undefined>(undefined)
-  const loadPlanning = useCallback(async (chapterNumber?: number) => {
-    if (!project) return
-    setPlanningLoading(true)
-    setPlanningError(null)
-    try {
-      const { buildChapterPlan } = await import("@/lib/novel/planning")
-      const plan = await buildChapterPlan(normalizePath(project.path), chapterNumber ?? 0)
-      setPlanningPlan(plan)
-    } catch (error) {
-      setPlanningError(toErrorMessage(error))
-    } finally {
-      setPlanningLoading(false)
-    }
-  }, [project])
-  const openPlanning = useCallback(() => {
-    setPlanningOpen(true)
-    void loadPlanning(planningChapterRef.current)
-  }, [loadPlanning])
   const closeSoulDialog = useCallback((confirmed: boolean) => {
     const resolver = soulDialogResolverRef.current
     soulDialogResolverRef.current = null
