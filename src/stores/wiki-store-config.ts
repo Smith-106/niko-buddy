@@ -34,6 +34,9 @@ export type SettingsCategoryId =
   | "changelog"
   | "skill-library"
   | "mcp"
+  | "multimodal"
+  | "web-search"
+  | "output"
 
 // ── localStorage reader helpers ────────────────────────────────────────────────
 

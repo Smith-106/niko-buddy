@@ -28,6 +28,9 @@ export const SETTINGS_SAVE_MODE: Record<SettingsCategoryId, SettingsSaveMode> = 
   novel: "draft",
   mcp: "auto",
   "skill-library": "none",
+  multimodal: "draft",
+  "web-search": "auto",
+  output: "draft",
   "usage-guide": "none",
   maintenance: "none",
   "data-management": "none",
@@ -44,8 +47,8 @@ export interface SettingsNavGroup {
 
 /** 侧栏分组顺序。每个分类恰好出现一次（settings-nav-config.spec 校验）。 */
 export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
-  { id: "models", labelKey: "settings.navGroups.models", categories: ["llm", "rerank", "embedding", "mcp"] },
-  { id: "writing", labelKey: "settings.navGroups.writing", categories: ["novel", "skill-library"] },
+  { id: "models", labelKey: "settings.navGroups.models", categories: ["llm", "rerank", "embedding", "multimodal", "web-search", "mcp"] },
+  { id: "writing", labelKey: "settings.navGroups.writing", categories: ["novel", "output", "skill-library"] },
   { id: "app", labelKey: "settings.navGroups.app", categories: ["interface", "network"] },
   { id: "data", labelKey: "settings.navGroups.data", categories: ["data-management", "maintenance"] },
   { id: "help", labelKey: "settings.navGroups.help", categories: ["usage-guide", "feedback", "contact-support", "changelog"] },

@@ -781,7 +781,7 @@
       "network": "网络",
       "sourceWatch": "资料文件夹监控",
       "scheduledImport": "定时导入",
-      "output": "输出偏好",
+      "output": "AI 回复语言",
       "interface": "界面",
       "novel": "小说",
       "usageGuide": "软件使用说明",
@@ -1169,7 +1169,7 @@
         "never": "从未"
       },
       "output": {
-        "title": "输出偏好",
+        "title": "AI 回复语言",
         "description": "影响生成内容的语言、对话历史长度等参数。",
         "aiLanguage": "AI 输出语言",
         "aiLanguageHint": "强制 AI 生成内容（chat 回复、wiki 页面、research 结果、lint 报告）使用指定语言。选 \"Auto\" 让 AI 跟随用户输入或源文档的语言。",

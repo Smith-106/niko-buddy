@@ -380,6 +380,20 @@ vi.mock("./sections/contact-support-section", () => ({
   ContactSupportSection: () => <div data-testid="section-contact-support">contact</div>,
 }))
 
+vi.mock("./sections/multimodal-section", () => ({
+  MultimodalSection: () => <div data-testid="section-multimodal">multimodal</div>,
+}))
+
+vi.mock("./sections/web-search-section", () => ({
+  WebSearchSection: () => <div data-testid="section-web-search">web-search</div>,
+}))
+
+vi.mock("./sections/output-section", () => ({
+  OutputSection: (props: { showHistory?: boolean }) => (
+    <div data-testid="section-output" data-show-history={String(props.showHistory)}>output</div>
+  ),
+}))
+
 vi.mock("./sections/changelog-section", () => ({
   ChangelogSection: () => <div data-testid="section-changelog">changelog</div>,
 }))
@@ -399,6 +413,9 @@ const CATEGORIES: Array<{ id: string; label: string }> = [
   { id: "feedback", label: "settings.categories.feedback" },
   { id: "contact-support", label: "settings.categories.contactSupport" },
   { id: "changelog", label: "settings.categories.changelog" },
+  { id: "multimodal", label: "settings.categories.multimodal" },
+  { id: "web-search", label: "settings.categories.webSearch" },
+  { id: "output", label: "settings.categories.output" },
 ]
 
 async function flushAsync(): Promise<void> {
@@ -1110,10 +1127,24 @@ describe("SettingsView 渲染覆盖", () => {
       clickNav(id)
       expect(screen.queryByTestId("settings-save-domain"), id).toBeNull()
     }
-    for (const id of ["llm", "rerank", "embedding", "network", "interface", "novel"]) {
+    for (const id of ["llm", "rerank", "embedding", "network", "interface", "novel", "multimodal", "output"]) {
       clickNav(id)
       expect(screen.getByTestId("settings-save-domain"), id).toBeTruthy()
     }
+  })
+
+  it("UX 审计批次四：图片描述 / 网页搜索 / AI 回复语言 三个分区可从侧栏进入", async () => {
+    render(<SettingsView />)
+    await flushAsync()
+    clickNav("multimodal")
+    expect(screen.getByTestId("section-multimodal")).toBeTruthy()
+    clickNav("web-search")
+    expect(screen.getByTestId("section-web-search")).toBeTruthy()
+    // 网页搜索是即时保存，不显示草稿保存栏
+    expect(screen.queryByTestId("settings-save-domain")).toBeNull()
+    clickNav("output")
+    // 历史消息数已在小说页编辑，这里隐藏
+    expect(screen.getByTestId("section-output").getAttribute("data-show-history")).toBe("false")
   })
 
   it("侧栏按分组显示标题，每个分类按钮带 data-settings-category", async () => {

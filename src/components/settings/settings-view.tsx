@@ -18,6 +18,9 @@ import {
   Archive,
   Plug,
   Loader2,
+  Image as ImageIcon,
+  Globe,
+  Languages,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n"
@@ -56,6 +59,9 @@ import { SkillLibrarySection } from "./sections/skill-library-section"
 import { McpSection } from "./sections/mcp-section"
 import { ContactSupportSection } from "./sections/contact-support-section"
 import { DataManagementSection } from "./sections/data-management-section"
+import { MultimodalSection } from "./sections/multimodal-section"
+import { WebSearchSection } from "./sections/web-search-section"
+import { OutputSection } from "./sections/output-section"
 
 type CategoryId =
   | "llm"
@@ -72,6 +78,9 @@ type CategoryId =
   | "changelog"
   | "skill-library"
   | "mcp"
+  | "multimodal"
+  | "web-search"
+  | "output"
 
 export type { SettingsDomain } from "./settings-nav-config"
 
@@ -81,11 +90,14 @@ export const SETTINGS_DOMAIN_OF: Record<CategoryId, SettingsDomain> = {
   embedding: "model",
   mcp: "model",
   "skill-library": "model",
+  multimodal: "model",
+  "web-search": "model",
   network: "storage",
   novel: "storage",
   maintenance: "storage",
   "data-management": "storage",
   interface: "interface",
+  output: "interface",
   "usage-guide": "interface",
   feedback: "interface",
   "contact-support": "interface",
@@ -112,6 +124,9 @@ const CATEGORIES: Category[] = [
   { id: "usage-guide", labelKey: "settings.categories.usageGuide", icon: HelpCircle },
   { id: "skill-library", labelKey: "settings.categories.skillLibrary", icon: BookOpen },
   { id: "mcp", labelKey: "settings.categories.mcp", icon: Plug },
+  { id: "multimodal", labelKey: "settings.categories.multimodal", icon: ImageIcon },
+  { id: "web-search", labelKey: "settings.categories.webSearch", icon: Globe },
+  { id: "output", labelKey: "settings.categories.output", icon: Languages },
   { id: "maintenance", labelKey: "settings.categories.maintenance", icon: Wrench },
   { id: "data-management", labelKey: "settings.categories.dataManagement", icon: Archive },
   { id: "feedback", labelKey: "settings.categories.feedback", icon: MessageCircle },
@@ -592,6 +607,13 @@ export function SettingsView() {
         return <SkillLibrarySection />
       case "mcp":
         return <McpSection />
+      case "multimodal":
+        return <MultimodalSection draft={draft} setDraft={setDraft} />
+      case "web-search":
+        return <WebSearchSection />
+      case "output":
+        // 历史消息数已在「小说」页（novel-base-settings-section）编辑，这里只留 AI 回复语言，避免两处入口
+        return <OutputSection draft={draft} setDraft={setDraft} showHistory={false} />
       case "maintenance":
         return <MaintenanceSection />
       case "data-management":

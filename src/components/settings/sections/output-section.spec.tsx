@@ -94,3 +94,12 @@ describe("OutputSection", () => {
     expect(call?.[1]).toEqual({ count: 8, turns: 4 })
   })
 })
+
+describe("OutputSection showHistory", () => {
+  afterEach(() => cleanup())
+  it("showHistory=false 只显示 AI 回复语言，不显示历史消息数", () => {
+    render(<OutputSection draft={makeDraft()} setDraft={vi.fn()} showHistory={false} />)
+    expect(screen.getByText("settings.sections.output.aiLanguage")).toBeTruthy()
+    expect(screen.queryByText("settings.sections.output.historyLength")).toBeNull()
+  })
+})

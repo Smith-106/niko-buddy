@@ -1401,7 +1401,7 @@
       "network": "Network",
       "sourceWatch": "Source Watch",
       "scheduledImport": "Scheduled Import",
-      "output": "Output",
+      "output": "AI reply language",
       "interface": "Interface",
       "novel": "Novel",
       "usageGuide": "Usage Guide",
@@ -1739,7 +1739,7 @@
         "bypassLocalHelp": "Requests to localhost, 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, and *.local do not go through the proxy."
       },
       "output": {
-        "title": "Output Preferences",
+        "title": "AI reply language",
         "description": "Controls generation language, chat history length, and related output behavior.",
         "aiLanguage": "AI Output Language",
         "aiLanguageHint": "Force AI-generated content to use a specific language. Choose Auto to let the model follow user input or source material.",

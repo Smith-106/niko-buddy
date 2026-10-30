@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 // SEQ-45 batch-1: custom collapsible a11y (PAT-U5).
-// Covers 4 representative triggers (single-round convergence; full 14-file
+// Covers 3 representative triggers (file-tree removed with T4, UX audit batch 4) (single-round convergence; full 14-file
 // sweep deferred, see deviations):
-// - file-tree TreeNode folder toggle
 // - book-analysis-style-card expanded toggle
 // - diagnostics-center HealthItemRow + HistoryViewSection toggles
 // - activity-panel main toggle
@@ -25,27 +24,6 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe("SEQ-45 collapsible a11y batch-1 (PAT-U5)", () => {
-  it("file-tree folder toggle exposes aria-expanded and region", async () => {
-    const { FileTree } = await import("@/components/layout/file-tree")
-    const { useWikiStore } = await import("@/stores/wiki-store")
-    useWikiStore.setState({
-      project: { id: "p1", name: "Novel", path: "E:/Novel" },
-      fileTree: [{ path: "E:/Novel/wiki/a.md", name: "dir", is_dir: true, children: [{ path: "E:/Novel/wiki/a.md/b.md", name: "b.md", is_dir: false }] }],
-      selectedFile: null,
-    } as never)
-    render(<FileTree />)
-    const toggle = screen.getByRole("button", { name: "dir" })
-    expect(toggle).toHaveAttribute("aria-expanded", "true")
-    const controls = toggle.getAttribute("aria-controls")
-    expect(controls).toBeTruthy()
-    const region = document.getElementById(controls as string)
-    expect(region).not.toBeNull()
-    expect(region as HTMLElement | null).not.toBeNull()
-    expect((region as HTMLElement).getAttribute("role")).toBe("region")
-    fireEvent.click(toggle)
-    expect(toggle).toHaveAttribute("aria-expanded", "false")
-  })
-
   it("book-analysis-style-card toggle exposes aria-expanded and region", async () => {
     const { BookAnalysisStyleCard } = await import("@/components/novel/book-analysis-style-card")
     const book = {

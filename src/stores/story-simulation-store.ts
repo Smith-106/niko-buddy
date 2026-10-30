@@ -62,7 +62,7 @@ interface StorySimulationState {
   activeChatAgent: { id: string; name: string } | null;
   /** 采访对话消息 */
   agentChatMessages: AgentChatMessage[];
-  /** 列表刷新计数（用于触发 framework-list 重新加载） */
+  /** 列表刷新计数（框架列表重新加载用；原 framework-list 组件已于 2026-10-30 退役） */
   listRefreshKey: number;
   /** 当前框架下已保存的推演结果 */
   savedResults: SavedSimulationResult[];

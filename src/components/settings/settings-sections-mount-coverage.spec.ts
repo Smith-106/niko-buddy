@@ -41,18 +41,6 @@ const LEGACY_UNMOUNTED_SECTIONS: readonly LegacyUnmountedSection[] = [
     recovery: "在 settings-view.tsx 注册类目/渲染，或确认无独立价值后删除组件与其 spec。",
   },
   {
-    file: "multimodal-section.tsx",
-    reason:
-      "图片 caption（多模态）配置 UI 未挂载：SettingsView 的 initialDraft/handleSave 仍读写 multimodalConfig，但没有可编辑入口。",
-    recovery: "挂到 llm 类目的模型能力子块（或单独类目），并同步补 settings-view 挂载断言。",
-  },
-  {
-    file: "output-section.tsx",
-    reason:
-      "AI 输出语言/历史消息数旧 UI 未挂载：maxHistoryMessages 已有新入口（novel-section），outputLanguage 暂无 UI 编辑入口。",
-    recovery: "将 outputLanguage 并入 interface-section（或 novel-section），随后删除本组件或保留并挂载。",
-  },
-  {
     file: "scheduled-import-section.tsx",
     reason:
       "有意隐藏的历史类目（settings-hidden-legacy-sections.spec.ts 负断言）：定时导入配置仍被 SettingsView 读取/保存，但不在设置导航暴露。",
@@ -65,12 +53,6 @@ const LEGACY_UNMOUNTED_SECTIONS: readonly LegacyUnmountedSection[] = [
       "有意隐藏的历史类目（settings-hidden-legacy-sections.spec.ts 负断言）：目录监视配置仍被 SettingsView 读取/保存，但不在设置导航暴露。",
     recovery:
       "产品决定重新暴露时：在 settings-view.tsx 增加类目，并同步移除 settings-hidden-legacy-sections.spec.ts 对应负断言与本清单条目。",
-  },
-  {
-    file: "web-search-section.tsx",
-    reason:
-      "搜索 provider 配置 section 未挂载：searchApiConfig 的消费/写入散落在拆文、大纲聊天等视图的内联设置中，该集中式组件无入口。",
-    recovery: "挂到 network 或 mcp 类目（外部服务配置），或先收敛内联入口后再挂载并补挂载断言。",
   },
 ]
 

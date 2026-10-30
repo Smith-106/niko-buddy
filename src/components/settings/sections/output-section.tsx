@@ -10,6 +10,8 @@ import { OUTPUT_LANGUAGE_OPTIONS as LANGUAGE_OPTIONS } from "@/lib/output-langua
 interface Props {
   draft: SettingsDraft
   setDraft: DraftSetter
+  /** 是否显示历史消息数选择器；设置页挂载时传 false（该项已在小说页编辑）。默认 true。 */
+  showHistory?: boolean
 }
 
 /** Available history message count presets. */
@@ -18,7 +20,7 @@ const HISTORY_OPTIONS = [2, 4, 6, 8, 10, 20]
 /**
  * Output preferences section: AI response language and conversation history length.
  */
-export function OutputSection({ draft, setDraft }: Props) {
+export function OutputSection({ draft, setDraft, showHistory = true }: Props) {
   const { t } = useTranslation()
 
   return (
@@ -51,6 +53,7 @@ export function OutputSection({ draft, setDraft }: Props) {
       </div>
 
       {/* History message count picker */}
+      {showHistory ? (
       <div className="space-y-2">
         <Label>{t("settings.sections.output.historyLength")}</Label>
         <p className="text-xs text-muted-foreground">
@@ -82,6 +85,7 @@ export function OutputSection({ draft, setDraft }: Props) {
           })}
         </p>
       </div>
+      ) : null}
     </div>
   )
 }

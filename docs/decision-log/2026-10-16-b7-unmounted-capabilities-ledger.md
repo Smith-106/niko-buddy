@@ -79,11 +79,11 @@ settings/sections 挂载覆盖门。本文件是这两处「未挂载/legacy」�
   | 文件 | 一句话原因 |
   |------|-----------|
   | `about-section.tsx` | 版本信息重复入口（changelog-section 已显示当前版本），无导航类目 |
-  | `multimodal-section.tsx` | 图片 caption 配置 UI 未挂载；配置仍被 SettingsView 读写 |
-  | `output-section.tsx` | 旧输出偏好 UI 未挂载；maxHistoryMessages 已有新入口，outputLanguage 无 UI |
+  | `multimodal-section.tsx` | ~~图片 caption 配置 UI 未挂载~~ 2026-10-30 UX 审计批次四已挂载：设置 → 模型与工具 → 图片描述 |
+  | `output-section.tsx` | ~~outputLanguage 无 UI~~ 2026-10-30 UX 审计批次四已挂载：设置 → 写作 → AI 回复语言（showHistory=false，历史消息数仍只在小说页编辑） |
   | `scheduled-import-section.tsx` | 有意隐藏的历史类目（settings-hidden-legacy-sections.spec.ts 负断言） |
   | `source-watch-section.tsx` | 有意隐藏的历史类目（settings-hidden-legacy-sections.spec.ts 负断言） |
-  | `web-search-section.tsx` | 集中式搜索 provider 配置无入口；消费方用内联设置 |
+  | `web-search-section.tsx` | ~~集中式搜索 provider 配置无入口~~ 2026-10-30 UX 审计批次四已挂载：设置 → 模型与工具 → 网页搜索（即时保存）；拆文、大纲聊天的内联入口保留 |
 
 - **恢复条件**：逐条见 spec 清单的 `recovery` 字段；重新暴露历史隐藏类目须同步
   修订 `settings-hidden-legacy-sections.spec.ts` 的负断言，避免两套断言互相矛盾。
