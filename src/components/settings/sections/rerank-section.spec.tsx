@@ -267,7 +267,7 @@ describe("RerankSection", () => {
   it("useMainLlm=false：provider 列表 + apiKey/ollamaUrl 分支", () => {
     const draft = renderSection({ useMainLlm: false, provider: "openai" })
     expand()
-    const providerSelect = screen.getByRole("combobox") as HTMLSelectElement
+    const providerSelect = screen.getByRole("combobox", { name: "settings.sections.rerank.provider" }) as HTMLSelectElement
     expect(providerSelect.querySelectorAll("option").length).toBe(8)
     // openai → 需要 apiKey
     expect(screen.getByText("settings.sections.rerank.apiKey")).toBeInTheDocument()
@@ -484,5 +484,22 @@ describe("RerankSection", () => {
     await waitFor(() => {
       expect(screen.getByText("settings.sections.shared.modelListSuccess")).toBeInTheDocument()
     })
+  })
+
+  it("ISS-20260802-004: 检索编排配方下拉选单渲染与 draft 状态更新", () => {
+    const draft = renderSection()
+    expand()
+    const recipeSelect = screen.getByRole("combobox", { name: "settings.sections.rerank.recipe" }) as HTMLSelectElement
+    expect(recipeSelect).toBeInTheDocument()
+    expect(recipeSelect.value).toBe("default")
+
+    const options = Array.from(recipeSelect.querySelectorAll("option")).map((o) => o.value)
+    expect(options).toEqual(["default", "diverse", "local", "balanced"])
+
+    fireEvent.change(recipeSelect, { target: { value: "diverse" } })
+    expect(draft.rerankConfig.recipe).toBe("diverse")
+
+    fireEvent.change(recipeSelect, { target: { value: "balanced" } })
+    expect(draft.rerankConfig.recipe).toBe("balanced")
   })
 })

@@ -11,7 +11,7 @@
 // （spec 与 context-data-sources / retrieval / prompt 等消费方不动）。
 // 本文件仅 `import type`（编译期擦除，零运行时依赖、无环）；禁加运行时 import（M5 纪律）。
 
-import type { LlmConfig, NovelConfig, EmbeddingConfig, RevisionFeedbackWindowConfig } from "@/stores/wiki-store"
+import type { LlmConfig, NovelConfig, EmbeddingConfig, RevisionFeedbackWindowConfig, RerankConfig } from "@/stores/wiki-store"
 import type { ChapterSnapshot } from "./chapter-ingest"
 import type { TemporalFact } from "./temporal-memory"
 import type { HardInjectItem, KbGap, DualTrackResult } from "./search-adapter"
@@ -258,6 +258,8 @@ export interface BuildContextOptions {
    * 探针 sink 断言样本内容而不触文件。
    */
   telemetrySink?: RoutingTelemetrySink
+  /** ISS-20260802-004: 重排与配方配置（缺省回退 useWikiStore.getState().rerankConfig）。 */
+  rerankConfig?: RerankConfig
 }
 
 /** 快照视图（ContextRawData.snapshots 非空收窄结果）。 */

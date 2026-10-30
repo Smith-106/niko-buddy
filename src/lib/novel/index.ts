@@ -262,7 +262,22 @@ export { resolveReviewModel } from "./review-model"
 export { CALIBRATED_DIMENSION_WEIGHTS, CALIBRATED_SEVERITY_DEDUCTION, scoreReviewResults } from "./review-scoring"
 export type { ReviewScoringOptions } from "./review-scoring"
 export { persistRevisionFeedbackForChapter, pickRevisionFeedbackFromLintResults } from "./revision-feedback"
-export { novelMixedSearch, searchPlot } from "./search-adapter"
+export {
+  novelMixedSearch,
+  searchPlot,
+  applySearchRecipe,
+  SEARCH_RECIPES,
+  charShingleJaccard,
+  mmrRerank,
+  nodeDistanceRerank,
+} from "./search-adapter"
+export type {
+  SearchRecipeId,
+  SearchRecipeConfig,
+  MmrOptions,
+  NodeDistanceOptions,
+  ApplyRecipeOptions,
+} from "./search-adapter"
 export { buildDeAiSnapshot, buildWritingSnapshot, loadFavorites, saveFavorites } from "./skill-favorite"
 export type { FavoriteSkillConfig, FavoriteSkillEntry, FavoriteSkillLibrary, FavoriteSkillSnapshot, FavoriteSkillSource } from "./skill-favorite"
 export { DEFAULT_SKILL_PRIORITY, SKILL_KIND_LABELS, SKILL_MODE_LABELS, SKILL_STAGE_LABELS, normalizeUserSkill } from "./skill-library"

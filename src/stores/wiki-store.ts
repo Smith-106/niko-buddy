@@ -26,7 +26,7 @@ import {
 } from "./wiki-store-config"
 export type {
   ChatDockPosition, SettingsCategoryId, CustomApiMode, AzureModelFamily, ReasoningMode, ReasoningConfig,
-  SearchProvider, SerpApiEngine, SearXngCategory, SearchProviderOverride, SearchProviderConfigs, RerankConfig,
+  SearchProvider, SerpApiEngine, SearXngCategory, SearchProviderOverride, SearchProviderConfigs, RerankConfig, SearchRecipeId,
   TaskPromptKey, NovelConfig, RevisionFeedbackWindowConfig, SavedModel, ProviderOverride, ProviderConfigs,
   FinalChapterSavePhase, FinalChapterSaveState, LintRunState, ReviewRunState, PendingEditorHighlight,
   LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProxyConfig,

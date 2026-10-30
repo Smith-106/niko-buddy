@@ -15,7 +15,7 @@ import { ModelSelectInput } from "../model-select-input"
 import { ResourceLink } from "../resource-link"
 import { CommitNumberInput, SettingsSwitch } from "../settings-widgets"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
-import type { CustomApiMode, LlmConfig, RerankConfig } from "@/stores/wiki-store"
+import type { CustomApiMode, LlmConfig, RerankConfig, SearchRecipeId } from "@/stores/wiki-store"
 import { toErrorMessage } from "@/lib/utils"
 
 const SILICONFLOW_RESOURCE_URL = "https://cloud.siliconflow.cn/i/1lKTd7hi"
@@ -244,6 +244,25 @@ export function RerankSection({ draft, setDraft }: Props) {
               />
               <p id={`${ids}-max-hint`} className="text-xs text-muted-foreground">
                 {t("settings.sections.rerank.maxCandidatesHint")}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor={`${ids}-recipe`}>{t("settings.sections.rerank.recipe")}</Label>
+              <select
+                id={`${ids}-recipe`}
+                aria-describedby={`${ids}-recipe-hint`}
+                value={config.recipe ?? "default"}
+                onChange={(e) => updateRerankConfig({ recipe: e.target.value as SearchRecipeId })}
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+              >
+                <option value="default">{t("settings.sections.rerank.recipeDefault")}</option>
+                <option value="diverse">{t("settings.sections.rerank.recipeDiverse")}</option>
+                <option value="local">{t("settings.sections.rerank.recipeLocal")}</option>
+                <option value="balanced">{t("settings.sections.rerank.recipeBalanced")}</option>
+              </select>
+              <p id={`${ids}-recipe-hint`} className="text-xs text-muted-foreground">
+                {t("settings.sections.rerank.recipeHint")}
               </p>
             </div>
 

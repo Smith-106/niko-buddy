@@ -218,6 +218,8 @@ export interface EmbeddingConfig {
   overlapChunkChars?: number
 }
 
+export type SearchRecipeId = "default" | "diverse" | "local" | "balanced"
+
 export interface RerankConfig {
   enabled: boolean
   useMainLlm: boolean
@@ -228,6 +230,7 @@ export interface RerankConfig {
   customEndpoint: string
   apiMode?: CustomApiMode
   maxCandidates: number
+  recipe?: SearchRecipeId
 }
 
 export const DEFAULT_RERANK_CONFIG: RerankConfig = {
@@ -240,6 +243,7 @@ export const DEFAULT_RERANK_CONFIG: RerankConfig = {
   customEndpoint: "",
   apiMode: "chat_completions",
   maxCandidates: 12,
+  recipe: "default",
 }
 
 // ── Multimodal / image captioning ───────────────────────────────────────────────

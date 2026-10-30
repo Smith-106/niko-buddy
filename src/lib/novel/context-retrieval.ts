@@ -155,6 +155,12 @@ export async function searchRelevantContentUnified(
 
   // E-02 (C-3/C-10): 双轨编排 flag 前置读取（同步 store 读，无行为变更）。
   const novelConfig = options.novelConfig ?? useWikiStore.getState().novelConfig
+  const rerankConfig = options.rerankConfig ?? useWikiStore.getState().rerankConfig
+  const recipe = rerankConfig?.recipe
+  const anchors = [
+    ...(options.entityNames ?? []),
+    ...entityHints,
+  ]
   const [semanticResults, indexResults, vectorResults] = await Promise.all([
     (async (): Promise<NovelSearchResult[]> => {
       if (novelConfig.dualKbRoutingEnabled) {
@@ -180,6 +186,8 @@ export async function searchRelevantContentUnified(
         includeGraph: true,
         includeRecentChapters: true,
         includeCanon: true,
+        recipe,
+        anchors,
       }).catch(() => [])
     })(),
     searchWiki(pp, `关键词索引 向量索引 ${task}`, {

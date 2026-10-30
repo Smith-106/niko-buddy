@@ -36,6 +36,8 @@ import {
   kbRoutingView,
   routeByQueryIntent,
   tokensForKbMatch,
+  applySearchRecipe,
+  SEARCH_RECIPES,
 } from "./search-strategy"
 import type { KbGap } from "./search-strategy"
 export {
@@ -52,6 +54,11 @@ export {
   reorderByUsefulness,
   routeByQueryIntent,
   tokensForKbMatch,
+  applySearchRecipe,
+  SEARCH_RECIPES,
+  charShingleJaccard,
+  mmrRerank,
+  nodeDistanceRerank,
 } from "./search-strategy"
 export type {
   KbGap,
@@ -59,6 +66,11 @@ export type {
   MultiQueryOptions,
   UsefulnessCandidate,
   UsefulnessContext,
+  SearchRecipeId,
+  SearchRecipeConfig,
+  MmrOptions,
+  NodeDistanceOptions,
+  ApplyRecipeOptions,
 } from "./search-strategy"
 
 export interface NovelSearchParams {
@@ -90,6 +102,12 @@ export interface NovelSearchParams {
    *  分片键（none/type/collection）+ 片内上限（perShardTopK）+ 归并策略（shard-major/score-major）。
    *  片内排序仅在给出 perShardTopK 时发生；RRF 融合、权威过滤次序与 span 契约序均不变。 */
   shards?: ShardRecallSpec
+  /** ISS-20260802-004: 检索编排配方 (default/diverse/local/balanced)。缺省为 "default"。 */
+  recipe?: import("./search-strategy").SearchRecipeId
+  /** ISS-20260802-004: 空间距离重排锚点实体名称/路径列表。 */
+  anchors?: readonly string[]
+  /** ISS-20260802-004: 检索图谱（测试注入或按需加载）。 */
+  graph?: unknown
 }
 
 export interface NovelSearchResult {
@@ -237,7 +255,37 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
     tier2: Math.max(0, Math.min(20, filtered.length) - 3),
     tier3: Math.max(0, filtered.length - 20),
   })
-  const truncated = filtered.slice(0, topK)
+  let truncated: NovelSearchResult[]
+  const recipe = params.recipe ?? "default"
+  if (recipe === "default" || !(recipe in SEARCH_RECIPES)) {
+    truncated = filtered.slice(0, topK)
+  } else {
+    let graph: unknown = params.graph
+    if (
+      !graph &&
+      (recipe === "local" || recipe === "balanced") &&
+      params.anchors &&
+      params.anchors.length > 0
+    ) {
+      try {
+        const { buildRetrievalGraph } = await import("@/lib/graph-relevance")
+        graph = await buildRetrievalGraph(pp)
+      } catch (err) {
+        console.warn("[novelMixedSearch] Failed to build retrieval graph for recipe, falling back to default slice:", err)
+      }
+    }
+    try {
+      truncated = applySearchRecipe(filtered, {
+        recipe,
+        topK,
+        anchors: params.anchors,
+        graph,
+      })
+    } catch (err) {
+      console.warn("[novelMixedSearch] Recipe execution failed, falling back to default slice:", err)
+      truncated = filtered.slice(0, topK)
+    }
+  }
 
   // R0-c：rerank 触发-or-跳过 span（候选≤1 时下游 rerankCandidates 即短路跳过）。
   params.spans?.span("rerank_trigger", {

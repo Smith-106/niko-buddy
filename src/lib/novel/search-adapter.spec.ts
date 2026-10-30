@@ -1185,4 +1185,111 @@ describe("P1-IMP-17 kbReferences 通道 B 双源（关键词/域匹配零 LLM）
     // 投影修复后 purpose 入包 → 命中条目应携带 summary 指针（title-only 退化已消除）
     expect(withSummary.length).toBeGreaterThan(0)
   })
+
+  describe("ISS-20260802-004: search recipes in novelMixedSearch", () => {
+    it("recipe 缺省或为 default 时严格走原有切片逻辑，不调用 buildRetrievalGraph", async () => {
+      mocks.searchWiki.mockResolvedValue([
+        keywordItem({ path: `${pp}/wiki/entities/a.md`, title: "A", snippet: "AAA", score: 0.9 }),
+        keywordItem({ path: `${pp}/wiki/entities/b.md`, title: "B", snippet: "BBB", score: 0.8 }),
+      ])
+      mocks.buildRetrievalGraph.mockClear()
+
+      const resDefault = await novelMixedSearch({
+        projectPath: pp,
+        query: "test",
+        recipe: "default",
+        topK: 2,
+        includeVector: false,
+        includeGraph: false,
+        includeRecentChapters: false,
+        includeCanon: false,
+      })
+      expect(resDefault.map((r) => r.title)).toEqual(["A", "B"])
+      expect(mocks.buildRetrievalGraph).not.toHaveBeenCalled()
+    })
+
+    it("recipe 为 diverse 时执行 MMR 重排（同分池下保留首位，第二位置按相似度重排）", async () => {
+      mocks.searchWiki.mockResolvedValue([
+        keywordItem({ path: `${pp}/wiki/entities/1.md`, title: "青锋剑", snippet: "青锋剑乃绝世神兵", score: 0.9 }),
+        keywordItem({ path: `${pp}/wiki/entities/2.md`, title: "青锋剑", snippet: "青锋剑乃绝世青锋神兵", score: 0.88 }),
+        keywordItem({ path: `${pp}/wiki/entities/3.md`, title: "灵兽丹", snippet: "喂养灵兽专用的珍稀丹药", score: 0.7 }),
+      ])
+
+      const base = await novelMixedSearch({
+        projectPath: pp,
+        query: "test",
+        recipe: "default",
+        topK: 3,
+        includeVector: false,
+        includeGraph: false,
+        includeRecentChapters: false,
+        includeCanon: false,
+      })
+      const diverse = await novelMixedSearch({
+        projectPath: pp,
+        query: "test",
+        recipe: "diverse",
+        topK: 3,
+        includeVector: false,
+        includeGraph: false,
+        includeRecentChapters: false,
+        includeCanon: false,
+      })
+      // 同一候选池：两者均为 3 条，且均以最高 RRF 候选开头；MMR 不新增/丢失结果。
+      expect(base).toHaveLength(3)
+      expect(diverse).toHaveLength(3)
+      expect(diverse[0]!.path).toBe(base[0]!.path)
+      expect(diverse.map((r) => r.path).sort()).toEqual(base.map((r) => r.path).sort())
+    })
+
+    it("recipe 为 local 且提供 anchors 时构建检索图并执行距离排序", async () => {
+      mocks.searchWiki.mockResolvedValue([
+        keywordItem({ path: `${pp}/wiki/entities/1.md`, title: "远方宗门", snippet: "远方宗门秘辛", score: 0.9 }),
+        keywordItem({ path: `${pp}/wiki/entities/2.md`, title: "林晚秋", snippet: "林晚秋其人", score: 0.88 }),
+      ])
+      mocks.buildRetrievalGraph.mockReset()
+      mocks.buildRetrievalGraph.mockResolvedValue({
+        nodes: new Map([
+          ["陆青", { id: "陆青", title: "陆青", path: "", outLinks: new Set(["林晚秋"]), inLinks: new Set(), relationEdges: [] }],
+          ["林晚秋", { id: "林晚秋", title: "林晚秋", path: "", outLinks: new Set(), inLinks: new Set(["陆青"]), relationEdges: [] }],
+        ]),
+        dataVersion: 1,
+      })
+
+      const res = await novelMixedSearch({
+        projectPath: pp,
+        query: "test",
+        recipe: "local",
+        anchors: ["陆青"],
+        topK: 2,
+        includeVector: false,
+        includeGraph: false,
+        includeRecentChapters: false,
+        includeCanon: false,
+      })
+      expect(mocks.buildRetrievalGraph).toHaveBeenCalledWith(pp)
+      expect(res.map((r) => r.title)).toEqual(["林晚秋", "远方宗门"])
+    })
+
+    it("recipe 为 local 且 buildRetrievalGraph 抛错时优雅降级为默认切片并警告", async () => {
+      mocks.searchWiki.mockResolvedValue([
+        keywordItem({ path: `${pp}/wiki/entities/a.md`, title: "A", snippet: "AAA", score: 0.9 }),
+        keywordItem({ path: `${pp}/wiki/entities/b.md`, title: "B", snippet: "BBB", score: 0.8 }),
+      ])
+      mocks.buildRetrievalGraph.mockRejectedValueOnce(new Error("graph failure"))
+
+      const res = await novelMixedSearch({
+        projectPath: pp,
+        query: "test",
+        recipe: "local",
+        anchors: ["A"],
+        topK: 2,
+        includeVector: false,
+        includeGraph: false,
+        includeRecentChapters: false,
+        includeCanon: false,
+      })
+      expect(res.map((r) => r.title)).toEqual(["A", "B"])
+    })
+  })
 })
