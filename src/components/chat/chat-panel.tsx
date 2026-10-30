@@ -1,5 +1,5 @@
 // Copyright (c) 2024 Niko-hub contributors. MIT License.
-import { useRef, useEffect, useCallback, useState } from "react"
+import { useEffect, useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { formatOperationError } from "@/lib/format-operation-error"
 import { logger, toErrorMessage, todayStamp } from "@/lib/utils"
@@ -37,6 +37,7 @@ import { createStreamSessionGuard } from "./stream-session"
 import { useChatAutoScroll } from "./use-chat-scroll"
 import { resolveEffectiveChatLlmConfig } from "./chat-panel-llm-config"
 import { useChatPlanning } from "./use-chat-planning"
+import { useChatConfirmDialogs } from "./use-chat-confirm-dialogs"
 import {
   appendContinueUnfinishedDeepChapterContext,
   buildInterruptedResumeContextPayload,
@@ -132,7 +133,6 @@ export function ChatPanel() {
   const streamSessionGuardRef = sharedStreamSessionGuardRef
   const activeStreamSessionsRef = sharedActiveStreamSessionsRef
   const novelManagedStopRef = sharedNovelManagedStopRef
-  const soulDialogResolverRef = useRef<((confirmed: boolean) => void) | null>(null)
   // POLISH-02 (odyssey-ui): scroll-to-bottom FAB visibility + auto-scroll lock
   // 由 useChatAutoScroll 统一管理（单一状态机真源；内联副本已删除）。
   const { scrollContainerRef, bottomRef, showScrollToBottom, scrollToBottom } = useChatAutoScroll({
@@ -160,10 +160,11 @@ export function ChatPanel() {
     status: string
     isSaving: boolean
   } | null>(null)
-  const [pendingSoulDialog, setPendingSoulDialog] = useState({ open: false, summary: "" })
-  // C4 覆盖守卫（CORR-012 落地，方案 a）：保存目标章节已有正文时，覆盖前必须显式确认。
-  const chapterOverwriteResolverRef = useRef<((confirmed: boolean) => void) | null>(null)
-  const [pendingChapterOverwrite, setPendingChapterOverwrite] = useState({ open: false, chapterNumber: 0 })
+  // C4 覆盖守卫 + Soul 注入确认弹窗（chat-panel 拆分 T3：收敛至 use-chat-confirm-dialogs）。
+  const {
+    pendingSoulDialog, closeSoulDialog, requestSoulDialog,
+    pendingChapterOverwrite, closeChapterOverwriteDialog, requestChapterOverwriteConfirm,
+  } = useChatConfirmDialogs()
   // EPIC-001 / TASK-005 / ADR-29: exemplar 标记 UI 状态（M1-3 切片：内聚块迁至 use-exemplar-state + chat-exemplar-dialog）。
   // C-001 Draft-first 例外 — 用户主动标记非 AI 产出，直写正式层。
   const {
@@ -196,35 +197,6 @@ export function ChatPanel() {
   // R4 共识（deepseek+glm）: 「写入 Wiki」失败原先只 console.error，用户无任何失败反馈。
   const [writeWikiError, setWriteWikiError] = useState<string | null>(null)
   const [writeWikiOk, setWriteWikiOk] = useState(false)
-  const closeSoulDialog = useCallback((confirmed: boolean) => {
-    const resolver = soulDialogResolverRef.current
-    soulDialogResolverRef.current = null
-    setPendingSoulDialog({ open: false, summary: "" })
-    resolver?.(confirmed)
-  }, [])
-
-  const requestSoulDialog = useCallback((summary: string) => {
-    setPendingSoulDialog({ open: true, summary })
-    return new Promise<boolean>((resolve) => {
-      soulDialogResolverRef.current = resolve
-    })
-  }, [])
-
-  const closeChapterOverwriteDialog = useCallback((confirmed: boolean) => {
-    const resolver = chapterOverwriteResolverRef.current
-    chapterOverwriteResolverRef.current = null
-    setPendingChapterOverwrite({ open: false, chapterNumber: 0 })
-    resolver?.(confirmed)
-  }, [])
-
-  const requestChapterOverwriteConfirm = useCallback((chapterNumber: number) => {
-    // 并发保存请求防御：旧确认按取消处理，避免 resolver 槽被覆盖后旧流程挂起。
-    chapterOverwriteResolverRef.current?.(false)
-    setPendingChapterOverwrite({ open: true, chapterNumber })
-    return new Promise<boolean>((resolve) => {
-      chapterOverwriteResolverRef.current = resolve
-    })
-  }, [])
 
   const getLatestAssistantDraftContext = useCallback(() => {
     /* v8 ignore next */
