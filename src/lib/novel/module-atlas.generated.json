@@ -91,7 +91,7 @@
   "specOnly": 261,
   "barrelOnly": 2,
   "edges": 4476,
-  "loc": 275536
+  "loc": 275540
  },
  "modules": [
   {
@@ -1953,7 +1953,7 @@
   {
    "p": "src/components/layout/preview-panel.tsx",
    "s": 16,
-   "l": 1425,
+   "l": 1427,
    "r": true,
    "o": false,
    "x": false,
@@ -15122,7 +15122,7 @@
   {
    "p": "src/lib/novel/search-strategy.ts",
    "s": 13,
-   "l": 1095,
+   "l": 1097,
    "r": true,
    "o": false,
    "x": false,
