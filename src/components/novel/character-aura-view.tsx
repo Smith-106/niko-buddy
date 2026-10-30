@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle, Link2, Plus, Sparkles, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -20,6 +20,7 @@ import {
 
 export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boolean }) {
   const { t } = useTranslation()
+  const fieldIdPrefix = useId()
   const project = useWikiStore((s) => s.project)
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const novelConfig = useWikiStore((s) => s.novelConfig)
@@ -508,8 +509,9 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
               </Button>
             </div>
             <div className="mt-3">
-              <Label>{t("novel.soul.aliasLabel")}</Label>
+              <Label htmlFor={`${fieldIdPrefix}-alias`}>{t("novel.soul.aliasLabel")}</Label>
               <input
+                id={`${fieldIdPrefix}-alias`}
                 type="text"
                 className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                 value={characterAliases}
@@ -575,8 +577,9 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
           <div className="rounded-lg border bg-card p-4">
             <h3 className="mb-2 font-semibold">{t("novel.soul.injectPreview")}</h3>
             <p className="mb-3 text-sm text-muted-foreground">{t("novel.soul.previewHint")}</p>
-            <Label>{t("novel.soul.taskLabel")}</Label>
+            <Label htmlFor={`${fieldIdPrefix}-task`}>{t("novel.soul.taskLabel")}</Label>
             <textarea
+              id={`${fieldIdPrefix}-task`}
               className="mt-1 min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               value={auraPreviewTask}
               onChange={(event) => setAuraPreviewTask(event.target.value)}

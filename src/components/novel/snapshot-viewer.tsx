@@ -446,7 +446,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
           ;(event.currentTarget as HTMLElement | null)?.focus()
         }}
       >
-      <div className="flex max-h-[80vh] w-[720px] flex-col rounded-lg border border-border bg-background elevation-3 outline-none" tabIndex={-1}>
+      <div className="flex max-h-[80vh] w-[min(720px,calc(100vw-2rem))] flex-col rounded-lg border border-border bg-background elevation-3 outline-none" tabIndex={-1}>
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div className="min-w-0">
             <DialogTitle asChild>

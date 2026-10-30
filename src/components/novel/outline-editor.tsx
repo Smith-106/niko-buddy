@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { FilePlus, Loader2, Sparkles } from "lucide-react"
 import {
@@ -35,6 +35,7 @@ export function OutlineCreatorDialog({
   onOpenChange,
 }: OutlineCreatorDialogProps) {
   const { t } = useTranslation()
+  const fieldIdPrefix = useId()
   const project = useWikiStore((s) => s.project)
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const setFileTree = useWikiStore((s) => s.setFileTree)
@@ -180,8 +181,9 @@ export function OutlineCreatorDialog({
           <>
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <Label>{t("novel.outline.type.label")}</Label>
+                <Label htmlFor={`${fieldIdPrefix}-type`}>{t("novel.outline.type.label")}</Label>
                 <select
+                  id={`${fieldIdPrefix}-type`}
                   value={outlineType}
                   onChange={(e) => setOutlineType(e.target.value as OutlineType)}
                   disabled={generating}
@@ -196,8 +198,9 @@ export function OutlineCreatorDialog({
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <Label>{t("novel.outline.title")}</Label>
+                <Label htmlFor={`${fieldIdPrefix}-title`}>{t("novel.outline.title")}</Label>
                 <input
+                  id={`${fieldIdPrefix}-title`}
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
@@ -209,8 +212,9 @@ export function OutlineCreatorDialog({
 
               {outlineType === "volume-outline" && (
                 <div className="flex flex-col gap-1.5">
-                  <Label>{t("novel.outline.volumeNumber")}</Label>
+                  <Label htmlFor={`${fieldIdPrefix}-volume`}>{t("novel.outline.volumeNumber")}</Label>
                   <input
+                    id={`${fieldIdPrefix}-volume`}
                     type="number"
                     value={volumeNumber}
                     onChange={(e) => setVolumeNumber(e.target.value)}
@@ -224,8 +228,9 @@ export function OutlineCreatorDialog({
 
               {outlineType === "chapter-outline" && (
                 <div className="flex flex-col gap-1.5">
-                  <Label>{t("novel.outline.chapterNumber")}</Label>
+                  <Label htmlFor={`${fieldIdPrefix}-chapter`}>{t("novel.outline.chapterNumber")}</Label>
                   <input
+                    id={`${fieldIdPrefix}-chapter`}
                     type="number"
                     value={chapterNumber}
                     onChange={(e) => setChapterNumber(e.target.value)}
@@ -253,8 +258,9 @@ export function OutlineCreatorDialog({
 
               {useAi && (
                 <div className="flex flex-col gap-1.5">
-                  <Label>{t("novel.outline.premise")}</Label>
+                  <Label htmlFor={`${fieldIdPrefix}-premise`}>{t("novel.outline.premise")}</Label>
                   <textarea
+                    id={`${fieldIdPrefix}-premise`}
                     value={premise}
                     onChange={(e) => setPremise(e.target.value)}
                     placeholder={t("novel.outline.premisePlaceholder")}

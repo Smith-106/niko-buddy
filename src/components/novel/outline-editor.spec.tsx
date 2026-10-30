@@ -173,6 +173,14 @@ beforeEach(() => {
 })
 
 describe("OutlineCreatorDialog", () => {
+  it("字段 Label 与输入控件关联（点 Label 文本可定位到控件，读屏可读出字段名）", () => {
+    render(<OutlineCreatorDialog open onOpenChange={vi.fn()} />)
+    expect(screen.getByLabelText("novel.outline.type.label").tagName).toBe("SELECT")
+    expect(screen.getByLabelText("novel.outline.title")).toBe(titleInput())
+    fireEvent.click(screen.getByLabelText("novel.outline.useAi"))
+    expect(screen.getByLabelText("novel.outline.premise").tagName).toBe("TEXTAREA")
+  })
+
   it("无项目时 handleCreate 直接返回（不写文件不报错）", () => {
     mocks.state.project = null
     render(<OutlineCreatorDialog open onOpenChange={vi.fn()} />)

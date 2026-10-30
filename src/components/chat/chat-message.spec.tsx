@@ -295,6 +295,7 @@ describe("deep chapter unfinished continuation action", () => {
 
   it("wires the continuation action through chat panel without rerunning regenerate", () => {
     const source = readFileSync(resolve(__dirname, "chat-panel.tsx"), "utf8")
+      + readFileSync(resolve(__dirname, "chat-panel-continue-unfinished.ts"), "utf8")
 
     expect(source).toContain("handleContinueUnfinished")
     expect(source).toContain("buildContinueUnfinishedDeepChapterPrompt")
@@ -308,6 +309,7 @@ describe("deep chapter unfinished continuation action", () => {
 
   it("binds continue-unfinished to the assistant message conversation instead of the active tab", () => {
     const source = readFileSync(resolve(__dirname, "chat-panel.tsx"), "utf8")
+      + readFileSync(resolve(__dirname, "chat-panel-continue-unfinished.ts"), "utf8")
     const start = source.indexOf("const handleContinueUnfinished = useCallback(async (assistantMessage: DisplayMessage) => {")
     const end = source.indexOf("let continuationSystemPrompt =", start)
     const snippet = source.slice(start, end)
@@ -340,6 +342,7 @@ describe("deep chapter unfinished continuation action", () => {
 describe("deep chapter session persistence wiring", () => {
   it("persists deep chapter generation progress into novel-session-status during runtime", () => {
     const source = readFileSync(resolve(__dirname, "chat-panel.tsx"), "utf8")
+      + readFileSync(resolve(__dirname, "chat-panel-continue-unfinished.ts"), "utf8")
 
     expect(source).toContain("startDeepChapterSession({")
     expect(source).toContain("persistDeepChapterCheckpoint({")
@@ -350,6 +353,7 @@ describe("deep chapter session persistence wiring", () => {
 
   it("allows continue-unfinished to fall back to status.json when chat message context is incomplete", () => {
     const source = readFileSync(resolve(__dirname, "chat-panel.tsx"), "utf8")
+      + readFileSync(resolve(__dirname, "chat-panel-continue-unfinished.ts"), "utf8")
 
     expect(source).toContain("loadNovelSessionStatus(")
     expect(source).toContain("buildInterruptedResumeContextPayload(statusResume, convId)")
