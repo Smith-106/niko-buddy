@@ -763,7 +763,7 @@ function SourceTree({
             <Button
               variant="ghost"
               size="icon"
-              className={`h-7 w-7 shrink-0 ${isExtracted ? "text-success hover:text-success" : ""}`}
+              className={`h-7 w-7 shrink-0 ${isExtracted ? "text-success-foreground hover:text-success-foreground" : ""}`}
               title={t("novel.outlineGenerator.ingest")}
               disabled={isExtracting}
               onClick={() => onIngest(node)}

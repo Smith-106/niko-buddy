@@ -436,7 +436,7 @@ export function DocumentGraphView({
                           <h3 className="break-words text-base font-semibold">{activeGroupIndex + 1}.{documentNodePage * DOCUMENT_NODES_PAGE_SIZE + nodeIndex + 1} {node.label}</h3>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             <span>{getGraphNodeTypeLabel(node.type)} · {t("graph.contextNodeLinks", { count: node.linkCount })}</span>
-                            {riskLabel && <span className="rounded border border-warning bg-warning/10 px-1.5 py-0.5 text-xs text-warning dark:border-warning dark:text-warning">{riskLabel}</span>}
+                            {riskLabel && <span className="rounded border border-warning bg-warning/10 px-1.5 py-0.5 text-xs text-warning-foreground dark:border-warning dark:text-warning-foreground">{riskLabel}</span>}
                           </div>
                         </div>
                         <span className="shrink-0 rounded-md border px-2 py-1 text-xs text-muted-foreground">{isExpanded ? t("chat.collapse", { defaultValue: "收起" }) : t("chat.expand", { defaultValue: "展开" })}</span>

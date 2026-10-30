@@ -311,7 +311,7 @@ export function LintView() {
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold">{t(novelMode ? "novel.lint.title" : "lint.title")}</h2>
           {hasRun && results.length > 0 && (
-            <span className="rounded-full bg-warning/20 px-2 py-0.5 text-xs font-medium text-warning">
+            <span className="rounded-full bg-warning/20 px-2 py-0.5 text-xs font-medium text-warning-foreground">
               {results.length === 1 ? t("lint.issues", { count: results.length }) : t("lint.issues_plural", { count: results.length })}
             </span>
           )}
@@ -353,7 +353,7 @@ export function LintView() {
         ) : results.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground">
             <CheckCircle2 className="h-8 w-8 text-success/60" />
-            <p className="text-success font-medium">{t(novelMode ? "novel.lint.allClear" : "lint.allClear")}</p>
+            <p className="text-success-foreground font-medium">{t(novelMode ? "novel.lint.allClear" : "lint.allClear")}</p>
             <p className="text-xs">{t("lint.noIssues")}</p>
           </div>
         ) : (
@@ -372,7 +372,7 @@ export function LintView() {
               })}
             </div>
             {warnings.length > 0 && (
-              <SectionHeader icon={AlertTriangle} label={t("lint.warnings")} count={warnings.length} color="text-warning" t={t} />
+              <SectionHeader icon={AlertTriangle} label={t("lint.warnings")} count={warnings.length} color="text-warning-foreground" t={t} />
             )}
             {warnings.map((result, i) => (
               <LintCard
@@ -514,7 +514,7 @@ function LintCard({
       <div className="mb-1.5 flex items-start gap-2">
         <Icon
           className={`mt-0.5 h-4 w-4 shrink-0 ${
-            result.severity === "warning" ? "text-warning" : "text-info"
+            result.severity === "warning" ? "text-warning-foreground" : "text-info"
           }`}
         />
         <div className="flex-1 min-w-0">

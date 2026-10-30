@@ -529,9 +529,9 @@ export function ProcessDebugPanel({
         </div>
 
         {latestTrace.blackboard.allAgentCount === 0 && (
-          <div className="mb-3 rounded-md border border-warning bg-warning p-3 text-xs text-warning">
+          <div className="mb-3 rounded-md border border-warning bg-warning p-3 text-xs text-warning-foreground">
             <div className="mb-1 font-medium">{t("storySimulation.noAgentsWarnTitle")}</div>
-            <div className="text-warning">
+            <div className="text-warning-foreground">
               {t("storySimulation.noAgentsWarnBody")}
             </div>
           </div>

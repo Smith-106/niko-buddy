@@ -259,7 +259,7 @@ export function AutonomousIncubatorDialog({
                         key={st.key}
                         className={`flex items-center gap-2 p-1.5 rounded text-xs border ${
                           isDone
-                            ? "bg-success/10 text-success border-success/40"
+                            ? "bg-success/10 text-success-foreground border-success/40"
                             : isCurrent
                               ? "bg-kind-purple/10 text-kind-purple dark:text-kind-purple border-kind-purple/30 animate-pulse"
                               : "bg-muted/30 text-muted-foreground border-border/40"
@@ -281,7 +281,7 @@ export function AutonomousIncubatorDialog({
         ) : (
           /* 孵化成果报告卡片 */
           <div className="flex flex-col gap-3 py-2 overflow-y-auto text-xs">
-            <div className="flex items-center gap-2 p-3 bg-success/10 text-success rounded border border-success/40">
+            <div className="flex items-center gap-2 p-3 bg-success/10 text-success-foreground rounded border border-success/40">
               <CheckCircle2 className="h-5 w-5 text-success shrink-0" />
               <div>
                 <p className="font-semibold text-sm">《{result.incubation.title}》全自动孵化大获成功！</p>

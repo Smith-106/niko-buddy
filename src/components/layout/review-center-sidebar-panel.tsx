@@ -263,7 +263,7 @@ export function ReviewCenterSidebarPanel() {
                   </span>
                 )}
                 {thrilLiveStatus.allStructuralOk && !thrilLiveStatus.fix1Blocked && (
-                  <span className="rounded border border-success/30 px-1.5 py-0.5 text-success">
+                  <span className="rounded border border-success/30 px-1.5 py-0.5 text-success-foreground">
                     {t("novel.settings.outlineThrillAllOk")}
                   </span>
                 )}
@@ -281,7 +281,7 @@ export function ReviewCenterSidebarPanel() {
                     <span
                       className={`shrink-0 font-mono ${
                         row.status === "pass"
-                          ? "text-success"
+                          ? "text-success-foreground"
                           : row.status === "fail"
                             ? "text-destructive"
                             : "text-muted-foreground"
@@ -309,7 +309,7 @@ export function ReviewCenterSidebarPanel() {
               onClick={() => setThrillSoftGateAcknowledged(selectedChapterNumber, !thrilAcknowledged)}
               className={`w-full rounded-md border px-3 py-2 text-left text-xs transition-colors ${
                 thrilAcknowledged
-                  ? "border-success/40 bg-success/10 text-success"
+                  ? "border-success/40 bg-success/10 text-success-foreground"
                   : "border-input bg-background text-muted-foreground qm-hover"
               }`}
               aria-pressed={thrilAcknowledged}
@@ -377,7 +377,7 @@ export function ReviewCenterSidebarPanel() {
             {t("reviewCenter.splitAcceptanceHint")}
           </p>
           <div className="mb-2">
-            <div className="px-1 mb-1 flex items-center gap-1.5 text-xs font-medium text-success">
+            <div className="px-1 mb-1 flex items-center gap-1.5 text-xs font-medium text-success-foreground">
               <span className="rounded border border-success/40 px-1 py-0.5">{t("reviewCenter.trackABadge")}</span>
               <span className="text-muted-foreground font-normal">{t("reviewCenter.trackAHint")}</span>
             </div>

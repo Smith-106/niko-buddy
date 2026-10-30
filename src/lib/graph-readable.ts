@@ -227,7 +227,7 @@ export function getGraphRiskSummaryItemColor(item: GraphRiskSummaryItem): GraphR
   if (item.key === "canon-rule-conflict" || item.key === "timeline-conflict") {
     return { bg: "bg-destructive/10", border: "border-destructive/40", text: "text-destructive dark:text-destructive", dotBg: "bg-destructive" }
   }
-  return { bg: "bg-warning/10", border: "border-warning/40", text: "text-warning dark:text-warning", dotBg: "bg-warning" }
+  return { bg: "bg-warning/10", border: "border-warning/40", text: "text-warning-foreground dark:text-warning-foreground", dotBg: "bg-warning" }
 }
 
 export function getGraphNodeRiskStateLabelColor(state: string): GraphRiskSummaryItemColor {
@@ -235,9 +235,9 @@ export function getGraphNodeRiskStateLabelColor(state: string): GraphRiskSummary
     return { bg: "bg-destructive/10", border: "border-destructive/40", text: "text-destructive dark:text-destructive", dotBg: "bg-destructive" }
   }
   if (state === "未回收" || state === "推进中" || state === "未揭露" || state === "部分揭露" || state === "待推进") {
-    return { bg: "bg-warning/10", border: "border-warning/40", text: "text-warning dark:text-warning", dotBg: "bg-warning" }
+    return { bg: "bg-warning/10", border: "border-warning/40", text: "text-warning-foreground dark:text-warning-foreground", dotBg: "bg-warning" }
   }
-  return { bg: "bg-success/10", border: "border-success/40", text: "text-success dark:text-success", dotBg: "bg-success" }
+  return { bg: "bg-success/10", border: "border-success/40", text: "text-success-foreground dark:text-success-foreground", dotBg: "bg-success" }
 }
 
 export function getGraphRiskSummaryTotal(items: GraphRiskSummaryItem[]): number {

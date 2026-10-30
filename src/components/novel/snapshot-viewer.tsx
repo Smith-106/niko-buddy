@@ -526,7 +526,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
             <p className="text-sm text-muted-foreground">{t("novel.snapshot.noSnapshot")}</p>
           ) : (
             <>
-              <div className="mb-4 rounded-md border border-warning bg-warning px-3 py-2 text-sm text-warning dark:border-warning/60 dark:bg-warning/40 dark:text-warning">
+              <div className="mb-4 rounded-md border border-warning bg-warning px-3 py-2 text-sm text-warning-foreground dark:border-warning/60 dark:bg-warning/40 dark:text-warning-foreground">
                 这些内容会加入小说记忆与后续上下文。AI 生成新章节时会依托这些摘要、人物状态、角色认知、伏笔和时间线进行续写。如果这里有错误，可能会影响后续剧情连贯性，请在保存前检查并修正。保存后会影响后续上下文中读取的快照内容，但不会自动重建实体页、角色认知、伏笔追踪等衍生记忆。
               </div>
               {showHistory ? (

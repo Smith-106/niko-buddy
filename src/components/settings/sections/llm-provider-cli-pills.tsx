@@ -73,7 +73,7 @@ export function ClaudeCliStatusPill() {
       <div
         className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
           state === "ok"
-            ? "border-success/40 bg-success/5 text-success"
+            ? "border-success/40 bg-success/5 text-success-foreground"
             : state === "err"
               ? "border-destructive/40 bg-destructive/5 text-destructive"
               : "border-border bg-background/50 text-muted-foreground"
@@ -181,7 +181,7 @@ export function CodexCliStatusPill() {
       <div
         className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
           state === "ok"
-            ? "border-success/40 bg-success/5 text-success"
+            ? "border-success/40 bg-success/5 text-success-foreground"
             : state === "err"
               ? "border-destructive/40 bg-destructive/5 text-destructive"
               : "border-border bg-background/50 text-muted-foreground"
@@ -284,7 +284,7 @@ export function AntigravityCliStatusPill() {
       <div
         className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
           state === "ok"
-            ? "border-success/40 bg-success/5 text-success"
+            ? "border-success/40 bg-success/5 text-success-foreground"
             : state === "err"
               ? "border-destructive/40 bg-destructive/5 text-destructive"
               : "border-border bg-background/50 text-muted-foreground"
@@ -411,7 +411,7 @@ export function CursorProxyStatusBadge() {
       <div
         className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
           state === "ok"
-            ? "border-success/40 bg-success/5 text-success"
+            ? "border-success/40 bg-success/5 text-success-foreground"
             : state === "err"
               ? "border-destructive/40 bg-destructive/5 text-destructive"
               : "border-border bg-background/50 text-muted-foreground"

@@ -25,11 +25,11 @@ import type {
 } from "@/lib/review-rewrite-plan"
 
 export const typeConfig: Record<ReviewItem["type"], { icon: typeof AlertTriangle; labelKey: string; novelLabelKey: string; color: string }> = {
-  contradiction: { icon: AlertTriangle, labelKey: "review.typeLabels.contradiction", novelLabelKey: "novel.review.typeLabels.contradiction", color: "text-warning" },
+  contradiction: { icon: AlertTriangle, labelKey: "review.typeLabels.contradiction", novelLabelKey: "novel.review.typeLabels.contradiction", color: "text-warning-foreground" },
   duplicate: { icon: Copy, labelKey: "review.typeLabels.duplicate", novelLabelKey: "novel.review.typeLabels.duplicate", color: "text-chart-3" },
   "missing-page": { icon: FileQuestion, labelKey: "review.typeLabels.missingPage", novelLabelKey: "novel.review.typeLabels.missingPage", color: "text-chart-1" },
   confirm: { icon: MessageSquare, labelKey: "review.typeLabels.confirm", novelLabelKey: "novel.review.typeLabels.confirm", color: "text-foreground" },
-  suggestion: { icon: Lightbulb, labelKey: "review.typeLabels.suggestion", novelLabelKey: "novel.review.typeLabels.suggestion", color: "text-success" },
+  suggestion: { icon: Lightbulb, labelKey: "review.typeLabels.suggestion", novelLabelKey: "novel.review.typeLabels.suggestion", color: "text-success-foreground" },
 }
 
 export interface ReviewRewriteEditState extends ReviewRewriteEdit {
@@ -64,8 +64,8 @@ export function BreakerStatusBadge({ status }: { status: { status: "tripped" | "
   const label = i18n.exists(labelKey) ? i18n.t(labelKey) : status.status
   const colorMap: Record<string, string> = {
     tripped: "bg-destructive/20 text-destructive border-destructive/40 dark:bg-destructive/30 dark:text-destructive",
-    armed: "bg-warning/20 text-warning border-warning/40 dark:bg-warning/30 dark:text-warning",
-    open: "bg-success/20 text-success border-success/40 dark:bg-success/30 dark:text-success",
+    armed: "bg-warning/20 text-warning-foreground border-warning/40 dark:bg-warning/30 dark:text-warning-foreground",
+    open: "bg-success/20 text-success-foreground border-success/40 dark:bg-success/30 dark:text-success-foreground",
   }
   return (
     <span
@@ -139,7 +139,7 @@ export function ReviewCard({
           ))}
         </div>
       ) : (
-        <div className="flex items-center gap-1 text-xs text-success">
+        <div className="flex items-center gap-1 text-xs text-success-foreground">
           <Check className="h-3 w-3" aria-hidden="true" />
           {item.resolvedAction}
         </div>
@@ -258,7 +258,7 @@ export function ReviewRewritePreviewDialog({
                     value={edit.replacementText}
                     onChange={(event) => onReplacementChange(edit.id, event.target.value)}
                     disabled={busy || ignored}
-                    className="min-h-32 rounded-md border bg-success/70 p-3 text-sm leading-6 text-success outline-none focus:border-ring disabled:opacity-70 dark:bg-success/25 dark:text-success"
+                    className="min-h-32 rounded-md border bg-success/70 p-3 text-sm leading-6 text-success-foreground outline-none focus:border-ring disabled:opacity-70 dark:bg-success/25 dark:text-success-foreground"
                   />
                 </div>
               </div>

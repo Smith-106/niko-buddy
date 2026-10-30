@@ -107,7 +107,7 @@ function EntryRow({ entry }: { readonly entry: WorkflowTemplateEntry }) {
           ))
         : null}
       {entry.missingRequiredFieldNames !== null && entry.missingRequiredFieldNames.length > 0 ? (
-        <p data-testid={`workflow-template-${entry.id}-missing`} className="text-warning">
+        <p data-testid={`workflow-template-${entry.id}-missing`} className="text-warning-foreground">
           {"渲染正文里未出现这些必填字段名："}
           <BadgeFlow items={entry.missingRequiredFieldNames} />
           {"（如实列出，不补内容）"}

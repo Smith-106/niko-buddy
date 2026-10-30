@@ -228,7 +228,7 @@ export function WorldLibraryView({
               {t("novel.worldLibrary.layerCount", { filled: filledLayers, total: WORLD_LAYERS.length })}
             </span>
             <span
-              className={snapshot.validation.verdict === "complete" ? "text-success" : "text-warning"}
+              className={snapshot.validation.verdict === "complete" ? "text-success-foreground" : "text-warning-foreground"}
               data-testid="world-library-verdict"
             >
               {snapshot.validation.verdict === "complete"
@@ -312,7 +312,7 @@ export function WorldLibraryView({
                 {snapshot.validation.findings.map((finding, index) => (
                   <li
                     key={`${finding.code}-${finding.layer ?? "any"}-${index}`}
-                    className={finding.severity === "error" ? "text-destructive" : "text-warning"}
+                    className={finding.severity === "error" ? "text-destructive" : "text-warning-foreground"}
                     data-testid={`world-library-finding-${index}`}
                   >
                     {finding.message}

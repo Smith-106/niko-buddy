@@ -167,7 +167,7 @@ export function OutlineCreatorDialog({
 
         {done ? (
           <div className="flex flex-col gap-4">
-            <div className="rounded-md border border-success bg-success px-3 py-2 text-sm text-success dark:border-success dark:bg-success/30 dark:text-success">
+            <div className="rounded-md border border-success bg-success px-3 py-2 text-sm text-success-foreground dark:border-success dark:bg-success/30 dark:text-success-foreground">
               {t("novel.outline.created")}
             </div>
             <DialogFooter>

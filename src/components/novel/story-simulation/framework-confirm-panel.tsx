@@ -36,9 +36,9 @@ interface FrameworkConfirmPanelProps {
 
 // 起/承/转/合 阶段对应的标签配色
 const PHASE_STYLES: Record<StoryNode["phase"], string> = {
-  起: "bg-success/15 text-success",
+  起: "bg-success/15 text-success-foreground",
   承: "bg-info/15 text-info",
-  转: "bg-warning/15 text-warning",
+  转: "bg-warning/15 text-warning-foreground",
   合: "bg-kind-purple/15 text-kind-purple dark:text-kind-purple",
 };
 

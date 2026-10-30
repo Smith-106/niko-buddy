@@ -362,7 +362,7 @@ export function ChapterSelectionPanel({
               <span className="font-medium text-foreground">{t("novel.extractDone")}</span>
             </div>
             {extractionProgress.error && (
-              <div className="text-xs text-warning">{extractionProgress.error}</div>
+              <div className="text-xs text-warning-foreground">{extractionProgress.error}</div>
             )}
             <div className="flex justify-end">
               <Button size="sm" onClick={onCancel}>

@@ -190,7 +190,7 @@ export function PersonaCritiquePanel({ projectPath, onClose, draftId: draftIdPro
                   <span
                     className={`text-xs ${
                       r.status === "ok"
-                        ? "text-success"
+                        ? "text-success-foreground"
                         : r.status === "error"
                           ? "text-destructive"
                           : "text-muted-foreground"

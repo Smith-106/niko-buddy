@@ -20,7 +20,7 @@ const SEVERITY_LABEL: Record<string, string> = {
 
 const SEVERITY_CLASS: Record<string, string> = {
   critical: "bg-destructive/10 text-destructive",
-  high: "bg-warning/15 text-warning",
+  high: "bg-warning/15 text-warning-foreground",
   medium: "bg-muted text-foreground",
   low: "bg-muted text-muted-foreground",
 }

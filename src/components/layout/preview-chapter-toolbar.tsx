@@ -389,7 +389,7 @@ export function ChapterToolbarHeader({
               disabled={isOutlineIngesting}
               className={`shrink-0 rounded border px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50 ${
                 outlineIngested
-                  ? "border-success/50 text-success hover:bg-success dark:text-success dark:hover:bg-success/30"
+                  ? "border-success/50 text-success-foreground hover:bg-success dark:text-success-foreground dark:hover:bg-success/30"
                   : "border-border text-foreground hover:bg-accent"
               }`}
               title={outlineIngested ? t("preview.reingestTitleTip") : t("novel.outlineGenerator.ingest")}

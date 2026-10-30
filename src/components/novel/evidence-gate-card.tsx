@@ -16,7 +16,7 @@ import type { EvidenceSnapshot } from "@/lib/novel"
 import { useTranslation } from "react-i18next"
 
 const DISPLAY_STYLES: Record<string, { dot: string; text: string }> = {
-  pass: { dot: "bg-success", text: "text-success" },
+  pass: { dot: "bg-success", text: "text-success-foreground" },
   fail: { dot: "bg-destructive", text: "text-destructive" },
   not_evaluated: { dot: "bg-muted-foreground", text: "text-muted-foreground dark:text-muted-foreground" },
 }

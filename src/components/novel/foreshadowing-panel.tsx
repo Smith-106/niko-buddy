@@ -13,9 +13,9 @@ const STATUS_LABEL_KEY: Record<string, string> = {
 
 // PAT-U4: 状态语义色走 oklch token (planted=warning 未推进, advanced=accent 推进中, resolved=success 已回收)
 const STATUS_BADGE: Record<string, string> = {
-  planted: "bg-warning/15 text-warning",
+  planted: "bg-warning/15 text-warning-foreground",
   advanced: "bg-accent text-accent-foreground",
-  resolved: "bg-success/15 text-success",
+  resolved: "bg-success/15 text-success-foreground",
 }
 
 // Lightbulb fill 态隐喻伏笔点亮程度: planted 仅描边(未亮), advanced 半亮(推进中), resolved 全亮(已回收)
@@ -245,7 +245,7 @@ export function ForeshadowingPanel() {
             })()}
             {unresolved.length > 0 && (
               <div>
-                <h3 className="mb-2 text-xs font-semibold text-warning">
+                <h3 className="mb-2 text-xs font-semibold text-warning-foreground">
                   {t("novel.foreshadowing.unresolved")} ({unresolved.length})
                 </h3>
                 <div className="space-y-3">
@@ -293,7 +293,7 @@ export function ForeshadowingPanel() {
             )}
             {resolved.length > 0 && (
               <div>
-                <h3 className="mb-2 text-xs font-semibold text-success">
+                <h3 className="mb-2 text-xs font-semibold text-success-foreground">
                   {t("novel.foreshadowing.resolved")} ({resolved.length})
                 </h3>
                 <div className="space-y-3">
@@ -312,7 +312,7 @@ export function ForeshadowingPanel() {
                           <div className="flex flex-wrap items-center gap-2">
                             <Lightbulb className="h-3.5 w-3.5 shrink-0 text-success fill-success/40" aria-hidden="true" />
                             <span className="min-w-0 font-medium line-through break-words">{f.name}</span>
-                            <span className="shrink-0 rounded bg-success/15 px-1.5 py-0.5 text-xs text-success">
+                            <span className="shrink-0 rounded bg-success/15 px-1.5 py-0.5 text-xs text-success-foreground">
                               {t(/* v8 ignore next -- resolved is filtered to the only status with a guaranteed label. */ STATUS_LABEL_KEY[f.status] ?? "novel.foreshadowing.unresolved")}
                             </span>
                           </div>

@@ -238,7 +238,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
   if (!started || !persisted) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-8">
-        <Rocket className="h-10 w-10 text-accent" />
+        <Rocket className="h-10 w-10 text-primary" />
         <h2 className="text-lg font-semibold">{t("directorPanel.heroTitle")}</h2>
         <p className="max-w-md text-center text-sm text-muted-foreground">
           {t("directorPanel.heroDesc")}
@@ -246,7 +246,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
         {/* J05-04/F-010：LLM 不可用时，开书管线 CTA 禁用 + 本地写作分流 */}
         {llmBlocked ? (
           <div className="flex max-w-md flex-col items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4" data-testid="director-llm-blocked">
-            <p className="text-sm font-medium text-warning">
+            <p className="text-sm font-medium text-warning-foreground">
               {llmHealth.label}
             </p>
             <p className="text-center text-xs text-muted-foreground">
@@ -293,7 +293,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
       {llmBlocked && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3" data-testid="director-llm-blocked-banner">
           <div className="flex items-center gap-2 text-sm">
-            <span className="text-warning">●</span>
+            <span className="text-warning-foreground">●</span>
             <span className="font-medium">{llmHealth.label}</span>
             <span className="text-xs text-muted-foreground">
               {t("directorPanel.llmBlockedBanner", { defaultValue: "AI 开书与章节生成受限，本地写作仍可用" })}
@@ -348,7 +348,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
             rows={3}
           />
           {!ideaComplete ? (
-            <p className="text-xs text-warning" data-testid="director-idea-hint">
+            <p className="text-xs text-warning-foreground" data-testid="director-idea-hint">
               {t("directorPanel.ideaHint")}
             </p>
           ) : null}
@@ -379,7 +379,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
             const ok = snapshot ? Boolean(snapshot[key]) : false
             return (
               <div key={key} className="flex items-center gap-2 text-sm" data-testid={`director-auto-${key}`}>
-                <span className={ok ? "text-success" : "text-muted-foreground"}>{ok ? "✓" : "○"}</span>
+                <span className={ok ? "text-success-foreground" : "text-muted-foreground"}>{ok ? "✓" : "○"}</span>
                 {t(labelKey)}
               </div>
             )
@@ -442,7 +442,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
                 className="flex items-center gap-2 text-xs"
               >
                 <span className="text-muted-foreground">[{new Date(entry.t).toLocaleTimeString()}]</span>
-                <span className={entry.level === "error" ? "text-destructive" : entry.level === "success" ? "text-success" : "text-foreground"}>{entry.text}</span>
+                <span className={entry.level === "error" ? "text-destructive" : entry.level === "success" ? "text-success-foreground" : "text-foreground"}>{entry.text}</span>
               </li>
             ))}
           </ol>

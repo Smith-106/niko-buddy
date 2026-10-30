@@ -167,7 +167,7 @@ export function StoryModeLibraryView({ projectPath }: StoryModeLibraryViewProps)
               已生成 {snapshot.entryCount} 个模式
             </span>
             {snapshot.conserved ? (
-              <span className="flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-success">
+              <span className="flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-success-foreground">
                 <CheckCircle2 className="h-3 w-3" />
                 守恒校验通过
               </span>

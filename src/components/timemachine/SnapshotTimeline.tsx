@@ -246,7 +246,7 @@ export function SnapshotTimeline({ projectPath, onRestored }: SnapshotTimelinePr
         >
           <p>{t("timemachine.restore.confirm", { id: pendingConfirm.id })}</p>
           {diff && touchesTruthSurface(diff) ? (
-            <p className="text-xs text-warning" data-testid="snapshot-truth-surface-warning">
+            <p className="text-xs text-warning-foreground" data-testid="snapshot-truth-surface-warning">
               {t("timemachine.restore.truthSurface")}
             </p>
           ) : null}

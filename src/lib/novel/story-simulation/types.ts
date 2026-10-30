@@ -616,7 +616,7 @@ export const MODE_VISUAL_INFO: Record<SimulationMode, ModeVisualInfo> = {
     roundsLabel: "标准 (1.0x)",
     randomnessLabel: "中 (15%)",
     freedomLabel: "中",
-    color: "bg-warning/15 text-warning dark:bg-warning/20 dark:text-warning",
+    color: "bg-warning/15 text-warning-foreground dark:bg-warning/20 dark:text-warning-foreground",
     icon: "🌳",
   },
   hybrid: {
@@ -632,7 +632,7 @@ export const MODE_VISUAL_INFO: Record<SimulationMode, ModeVisualInfo> = {
     roundsLabel: "较多 (1.2x)",
     randomnessLabel: "中 (20%)",
     freedomLabel: "中高",
-    color: "bg-success/15 text-success dark:bg-success/20 dark:text-success",
+    color: "bg-success/15 text-success-foreground dark:bg-success/20 dark:text-success-foreground",
     icon: "⚖️",
   },
 }

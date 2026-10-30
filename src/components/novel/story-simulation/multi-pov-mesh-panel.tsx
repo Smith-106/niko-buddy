@@ -212,7 +212,7 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
 
               {/* 认知盲区提示 */}
               <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs space-y-1.5">
-                <div className="flex items-center gap-1.5 font-semibold text-warning">
+                <div className="flex items-center gap-1.5 font-semibold text-warning-foreground">
                   <ShieldAlert className="h-4 w-4" />
                   防穿帮铁律 (Epistemic Constraints)
                 </div>
@@ -263,7 +263,7 @@ export function MultiPovMeshPanel({ agents, events, className = "" }: MultiPovMe
                   <div
                     className={`rounded p-2 text-xs ${
                       slmResult.passed
-                        ? "bg-success/10 text-success border border-success/40"
+                        ? "bg-success/10 text-success-foreground border border-success/40"
                         : "bg-destructive/10 text-destructive border border-destructive/20"
                     }`}
                   >

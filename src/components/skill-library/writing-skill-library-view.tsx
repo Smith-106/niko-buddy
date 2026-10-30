@@ -545,7 +545,7 @@ export function WritingSkillLibraryView() {
               {message ? (
                 <span className="text-sm text-muted-foreground">{message}</span>
               ) : draftDirty ? (
-                <span className="text-sm text-warning">{t("skillLibrary.unsaved")}</span>
+                <span className="text-sm text-warning-foreground">{t("skillLibrary.unsaved")}</span>
               ) : null}
             </div>
           </div>

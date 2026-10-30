@@ -240,7 +240,7 @@ export function GraphLegend({
                 </span>
                 <span className="text-muted-foreground ml-auto shrink-0">{c.nodeCount}</span>
                 {c.cohesion < 0.15 && c.nodeCount >= 3 && (
-                  <span className="text-warning shrink-0" role="img" aria-label={t("graph.lowCohesion", { value: c.cohesion.toFixed(2) })} title={t("graph.lowCohesion", { value: c.cohesion.toFixed(2) })}>!</span>
+                  <span className="text-warning-foreground shrink-0" role="img" aria-label={t("graph.lowCohesion", { value: c.cohesion.toFixed(2) })} title={t("graph.lowCohesion", { value: c.cohesion.toFixed(2) })}>!</span>
                 )}
               </button>
               )

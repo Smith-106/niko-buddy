@@ -62,9 +62,9 @@ const MARK_CLASS: Record<PlotlineCellMark, string> = {
 }
 
 const STATUS_BADGE: Record<string, string> = {
-  planted: "bg-warning/15 text-warning",
+  planted: "bg-warning/15 text-warning-foreground",
   advanced: "bg-accent text-accent-foreground",
-  resolved: "bg-success/15 text-success",
+  resolved: "bg-success/15 text-success-foreground",
 }
 
 export function PlotgridView() {

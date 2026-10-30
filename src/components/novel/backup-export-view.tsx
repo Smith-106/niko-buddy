@@ -169,7 +169,7 @@ function formatSize(bytes: number): string {
 function Warnings({ items }: { items: string[] }) {
   if (items.length === 0) return null
   return (
-    <div className="text-warning text-xs space-y-1">
+    <div className="text-warning-foreground text-xs space-y-1">
       {items.map((w, i) => (
         <p key={`warning-${w.slice(0, 32)}-${i}`}>⚠ {w}</p>
       ))}
@@ -622,7 +622,7 @@ export function BackupExportView() {
         {exportResult && (
           <div className="text-sm space-y-1">
             {exportResult.success ? (
-              <div className="flex items-start gap-2 text-success">
+              <div className="flex items-start gap-2 text-success-foreground">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
                 <div className="space-y-1">
                   <p>
@@ -685,7 +685,7 @@ export function BackupExportView() {
         {verifyResult && (
           <div className="text-sm space-y-1">
             {verifyResult.success ? (
-              <div className="flex items-start gap-2 text-success">
+              <div className="flex items-start gap-2 text-success-foreground">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div className="space-y-1">
                   <p>
@@ -700,7 +700,7 @@ export function BackupExportView() {
                     </p>
                   )}
                   {verifyResult.containerChecksumMatches === null && (
-                    <p className="text-xs text-warning">
+                    <p className="text-xs text-warning-foreground">
                       {tOr(
                         "novel.backupExport.verifyShaMissing",
                         "没有找到旁边的校验文件：这次只检查包里的内容是否完整。建议重新导出，才能做完整校验。",
@@ -752,7 +752,7 @@ export function BackupExportView() {
         {restoreResult && (
           <div className="text-sm space-y-1">
             {restoreResult.success ? (
-              <div className="flex items-start gap-2 text-success">
+              <div className="flex items-start gap-2 text-success-foreground">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
                 <div className="space-y-1">
                   <p>
@@ -811,7 +811,7 @@ export function BackupExportView() {
         {autoResult && (
           <div className="text-sm space-y-1">
             {autoResult.success ? (
-              <div className="flex items-start gap-2 text-success">
+              <div className="flex items-start gap-2 text-success-foreground">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
                 <div className="space-y-1">
                   <p>{tOr("novel.backupExport.autoSuccess", "自动备份完成")}</p>

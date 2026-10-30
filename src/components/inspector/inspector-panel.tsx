@@ -82,11 +82,11 @@ function StatusBadge({ status }: { status: string }) {
   // 此前只映射 passed/failed/warning，error→muted 把阻断项降级为中性灰。
   const tone =
     status === "pass" || status === "passed"
-      ? "text-success"
+      ? "text-success-foreground"
       : status === "fail" || status === "failed" || status === "error" || status === "high"
         ? "text-destructive"
         : status === "warning" || status === "medium" || status === "manual_review"
-          ? "text-warning"
+          ? "text-warning-foreground"
           : "text-muted-foreground" // pending / low / unknown → 中性
   return <span className={`font-mono ${tone}`}>{status}</span>
 }
@@ -200,7 +200,7 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
         <div
           role="status"
           aria-live="polite"
-          className="mb-2 flex items-center gap-1 rounded bg-warning/10 px-2 py-1 text-xs text-warning"
+          className="mb-2 flex items-center gap-1 rounded bg-warning/10 px-2 py-1 text-xs text-warning-foreground"
         >
           <Wrench className="h-3 w-3" />
           <span>{t("novel.inspector.staleHint", "草稿已变更，审查缓存可能过期")}</span>
@@ -256,7 +256,7 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
                 {snapshot.cognitionState.characters.map((c) => (
                   <li key={c.name}>
                     <span className="font-medium">{c.name}</span>
-                    {c.knows.length > 0 && <div className="pl-2 text-success">{t("novel.inspector.knows", "知道：")}{c.knows?.map((item, i) => (
+                    {c.knows.length > 0 && <div className="pl-2 text-success-foreground">{t("novel.inspector.knows", "知道：")}{c.knows?.map((item, i) => (
                       <span key={`${item}-${i}`} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground mr-1 mb-1">{item}</span>
                     ))}</div>}
                     {c.doesNotKnow.length > 0 && <div className="pl-2 text-destructive">{t("novel.inspector.doesNotKnow", "不知道：")}{c.doesNotKnow?.map((item, i) => (
@@ -371,7 +371,7 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
                 </ul>
               </div>
             ) : (
-              <div className="mt-1 text-success">{t("novel.inspector.noSlop", "无静态 slop 命中")}</div>
+              <div className="mt-1 text-success-foreground">{t("novel.inspector.noSlop", "无静态 slop 命中")}</div>
             )}
           </Section>
 

@@ -63,9 +63,9 @@ function camelDomainKey(id: string): string {
 }
 
 const RISK_BADGE: Record<DataDomain["risk"], string> = {
-  cache: "bg-success/15 text-success",
+  cache: "bg-success/15 text-success-foreground",
   generated: "bg-info/15 text-info",
-  user: "bg-warning/15 text-warning",
+  user: "bg-warning/15 text-warning-foreground",
 }
 
 export function DataManagerView() {

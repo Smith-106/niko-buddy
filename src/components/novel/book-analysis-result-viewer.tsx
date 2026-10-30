@@ -462,7 +462,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     const colors: Record<string, string> = {
       protagonist: "bg-info/10 text-info border-info/20",
       antagonist: "bg-destructive/10 text-destructive border-destructive/20",
-      supporting: "bg-success/10 text-success border-success/20",
+      supporting: "bg-success/10 text-success-foreground border-success/20",
       minor: "bg-muted text-muted-foreground border-border",
     }
     return colors[category] || "bg-muted text-muted-foreground border-border"

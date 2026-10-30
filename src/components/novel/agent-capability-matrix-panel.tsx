@@ -122,7 +122,7 @@ export function AgentCapabilityMatrixPanel({
               className={
                 !resolved.skillsLoaded || row.matchedSkills.length > 0
                   ? "rounded border border-border p-1.5 text-xs"
-                  : "rounded border border-warning/40 bg-warning/5 p-1.5 text-xs text-warning"
+                  : "rounded border border-warning/40 bg-warning/5 p-1.5 text-xs text-warning-foreground"
               }
             >
               <b>{row.label}</b>
@@ -142,7 +142,7 @@ export function AgentCapabilityMatrixPanel({
               </div>
               {row.missingCapabilities.length > 0 ? (
                 <div
-                  className="text-xs text-warning"
+                  className="text-xs text-warning-foreground"
                   data-testid={`agent-capability-missing-${row.roleId}`}
                 >
                   缺口：
@@ -150,7 +150,7 @@ export function AgentCapabilityMatrixPanel({
                     {row.missingCapabilities?.map((m, i) => (
                       <span
                         key={`${m}-${i}`}
-                        className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs text-warning"
+                        className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs text-warning-foreground"
                       >
                         {m}
                       </span>
@@ -165,7 +165,7 @@ export function AgentCapabilityMatrixPanel({
 
       {resolved.missingCapabilities.length > 0 ? (
         <p
-          className="text-xs text-warning"
+          className="text-xs text-warning-foreground"
           data-testid="agent-capability-global-missing"
         >
           全角色合起来仍无人覆盖：
@@ -173,7 +173,7 @@ export function AgentCapabilityMatrixPanel({
             {resolved.missingCapabilities?.map((m, i) => (
               <span
                 key={`${m}-${i}`}
-                className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs text-warning"
+                className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs text-warning-foreground"
               >
                 {m}
               </span>

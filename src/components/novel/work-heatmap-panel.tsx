@@ -221,7 +221,7 @@ export function WorkHeatmapPanel({
       </div>
 
       {error ? (
-        <p className="text-xs text-warning" data-testid="work-heatmap-error">
+        <p className="text-xs text-warning-foreground" data-testid="work-heatmap-error">
           {error}
           {error.startsWith("读不到写作状态") ? <span className="sr-only">.novel/status.json</span> : null}
         </p>
@@ -306,7 +306,7 @@ export function WorkHeatmapPanel({
       </ul>
 
       {resolved.missingSources.length > 0 ? (
-        <ul className="space-y-0.5 text-xs text-warning" data-testid="work-heatmap-missing">
+        <ul className="space-y-0.5 text-xs text-warning-foreground" data-testid="work-heatmap-missing">
           {resolved.missingSources.map((line) => (
             <li key={line}>
               {missingPlain(line)}

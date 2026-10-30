@@ -508,7 +508,7 @@ export function UnifiedSkillLibrarySidebarPanel() {
                 type="button"
                 className={`absolute top-2 right-2 shrink-0 rounded p-0.5 transition-colors ${
                   isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId)
-                    ? "text-warning hover:text-warning"
+                    ? "text-warning-foreground hover:text-warning-foreground"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
                 aria-label={isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId) ? "取消收藏" : "收藏"}

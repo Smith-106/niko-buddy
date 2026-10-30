@@ -104,7 +104,7 @@ export function ChapterDraftDock({
           className={
             alerts.critical > 0
               ? "rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-destructive"
-              : "rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning"
+              : "rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning-foreground"
           }
           data-testid="chapter-draft-continuity-alert"
         >
@@ -166,7 +166,7 @@ export function ChapterDraftDock({
             data-testid="chapter-draft-note"
             role="status"
             aria-live="polite"
-            className="draft-celebrate flex items-center gap-1.5 rounded border border-success/40 bg-success/10 px-2 py-1.5 text-success"
+            className="draft-celebrate flex items-center gap-1.5 rounded border border-success/40 bg-success/10 px-2 py-1.5 text-success-foreground"
           >
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>{note}</span>

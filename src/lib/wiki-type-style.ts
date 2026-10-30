@@ -38,13 +38,13 @@ export const WIKI_TYPE_STYLES: Record<string, WikiTypeStyle> = {
   concept: {
     label: "Concept",
     icon: Lightbulb,
-    chipClass: "bg-success/15 text-success dark:text-success",
+    chipClass: "bg-success/15 text-success-foreground dark:text-success-foreground",
     dotClass: "bg-success",
   },
   query: {
     label: "Query",
     icon: HelpCircle,
-    chipClass: "bg-warning/15 text-warning dark:text-warning",
+    chipClass: "bg-warning/15 text-warning-foreground dark:text-warning-foreground",
     dotClass: "bg-warning",
   },
   source: {

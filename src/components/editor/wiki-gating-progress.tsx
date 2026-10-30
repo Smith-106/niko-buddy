@@ -92,7 +92,7 @@ export function ChapterGatingProgress({ totalChapters, acknowledgedChapters }: C
             key={g.key}
             className={
               g.on
-                ? "rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success"
+                ? "rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success-foreground"
                 : "rounded-full bg-muted-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
             }
             data-testid={`wiki-gating-gate-${g.key}`}

@@ -273,7 +273,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                 {chapter.content}
               </p>
               {chapter.rawContent && chapter.rawContent !== chapter.content && (
-                <div className="mt-2 rounded bg-warning px-2 py-1 text-xs text-warning dark:bg-warning/30 dark:text-warning">
+                <div className="mt-2 rounded bg-warning px-2 py-1 text-xs text-warning-foreground dark:bg-warning/30 dark:text-warning-foreground">
                   {t("storySimulation.editedBadge")}
                 </div>
               )}
@@ -301,7 +301,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
 
           {importResult ? (
             <div className="space-y-3 py-2">
-              <div className="rounded-lg bg-success p-3 text-sm text-success dark:bg-success dark:text-success">
+              <div className="rounded-lg bg-success p-3 text-sm text-success-foreground dark:bg-success dark:text-success-foreground">
                 <div className="font-medium">{t("storySimulation.importSuccessCount", { count: importResult.count })}</div>
                 <div className="mt-1 text-xs opacity-80">
                   {t("storySimulation.chapterRange", {
@@ -414,12 +414,12 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
                   </span>
                 </label>
                 {overwrite && (
-                  <p className="pl-6 text-xs text-success">
+                  <p className="pl-6 text-xs text-success-foreground">
                     {t("storySimulation.overwriteBackupHint")}
                   </p>
                 )}
                 {!overwrite && (
-                  <p className="pl-6 text-xs text-warning">
+                  <p className="pl-6 text-xs text-warning-foreground">
                     {t("storySimulation.overwriteWarnHint")}
                   </p>
                 )}

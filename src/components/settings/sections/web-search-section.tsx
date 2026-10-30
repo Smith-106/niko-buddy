@@ -132,7 +132,7 @@ export function WebSearchSection() {
                       </span>
                     )}
                     {savedId === provider.id && (
-                      <span className="shrink-0 text-xs text-success">
+                      <span className="shrink-0 text-xs text-success-foreground">
                         {t("settings.sections.webSearch.savedBadge")}
                       </span>
                     )}

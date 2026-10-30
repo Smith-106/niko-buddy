@@ -256,7 +256,7 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
       )}
 
       {previewed && !safety.ok ? (
-        <ul data-testid="batchreplace-safety" className="text-xs text-warning">
+        <ul data-testid="batchreplace-safety" className="text-xs text-warning-foreground">
           {safety.issues.map((issue) => (
             <li key={`${issue.code}:${issue.detail ?? ""}`}>{formatReason(issue)}</li>
           ))}
@@ -279,7 +279,7 @@ export function BatchReplacePanel({ projectPath, targets }: BatchReplacePanelPro
       ) : null}
 
       {canonGate && canonGate.state !== "PASS" ? (
-        <ul data-testid="batchreplace-canon-gate" className="text-xs text-warning">
+        <ul data-testid="batchreplace-canon-gate" className="text-xs text-warning-foreground">
           {canonGate.conflicts.map((conflict) => (
             <li key={`${conflict.newEdgeId}-${conflict.code}`} title={conflict.reason}>
               {t(CANON_GATE_LABEL_KEY[conflict.code])}

@@ -152,7 +152,7 @@ export function DeAiSkillEditor() {
           自定义去AI味规则，将应用到全局所有去AI味功能（章节去AI味、选中文本去AI味、AI会话深度思考阶段6）
         </p>
         {isDefault && activeTab === "free-text" && (
-          <p className="text-xs text-warning mt-2">
+          <p className="text-xs text-warning-foreground mt-2">
             当前使用系统默认skill（de-AI-writing - 12项硬门槛 + 24项AI痕迹检测）。保存后将创建项目自定义规则文件，优先级最高。
           </p>
         )}
@@ -182,7 +182,7 @@ export function DeAiSkillEditor() {
         >
           结构化分级
           {dirtyCount > 0 && (
-            <span className="ml-2 text-xs text-warning">({dirtyCount}改)</span>
+            <span className="ml-2 text-xs text-warning-foreground">({dirtyCount}改)</span>
           )}
         </button>
       </div>
@@ -226,7 +226,7 @@ export function DeAiSkillEditor() {
             <span>1B 低 {stats.tierCounts["1B"]}</span>
             <span>3 弱 {stats.tierCounts["3"]}</span>
             <span>权重范围 {stats.weightRange.min}-{stats.weightRange.max}</span>
-            <span className="text-warning">{t("novel.deai.signalWarning")}</span>
+            <span className="text-warning-foreground">{t("novel.deai.signalWarning")}</span>
           </div>
 
           {/* 过滤器 */}
@@ -279,7 +279,7 @@ export function DeAiSkillEditor() {
                           entry.tier === "1A"
                             ? "text-destructive"
                             : entry.tier === "1B"
-                              ? "text-warning"
+                              ? "text-warning-foreground"
                               : "text-info"
                         }`}
                         value={entry.tier}
@@ -332,12 +332,12 @@ export function DeAiSkillEditor() {
                 <span className="text-destructive font-medium">{t("novel.deai.grade1A")}</span> — 强 AI 信号（总结腔/解释腔/模板句首/机械公式），共 {stats.tierCounts["1A"]} 词
               </li>
               <li>
-                <span className="text-warning font-medium">{t("novel.deai.grade1B")}</span> — 弱 AI 信号（装饰副词/模糊限制/机械过渡），仅轻提示不升压，共 {stats.tierCounts["1B"]} 词
+                <span className="text-warning-foreground font-medium">{t("novel.deai.grade1B")}</span> — 弱 AI 信号（装饰副词/模糊限制/机械过渡），仅轻提示不升压，共 {stats.tierCounts["1B"]} 词
               </li>
               <li>
                 <span className="text-info font-medium">{t("novel.deai.grade3")}</span> — 边缘信号（轻度 AI 腔/弱解释），仅参考不断，共 {stats.tierCounts["3"]} 词
               </li>
-              <li className="text-warning">
+              <li className="text-warning-foreground">
                 保持「信号非证据」立场，误报率 &gt;60%，1B 不升级为 Anti-AI(P1) 硬门控
               </li>
               <li>{t("novel.deai.fallbackNote")}</li>

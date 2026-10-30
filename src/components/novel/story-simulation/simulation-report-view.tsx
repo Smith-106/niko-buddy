@@ -11,8 +11,8 @@ import { cn } from "@/lib/utils"
 import { formatOperationError } from "@/lib/format-operation-error"
 
 const PROBABILITY_COLORS: Record<string, string> = {
-  high: "bg-success/15 text-success dark:bg-success/20 dark:text-success",
-  medium: "bg-warning/15 text-warning dark:bg-warning/20 dark:text-warning",
+  high: "bg-success/15 text-success-foreground dark:bg-success/20 dark:text-success-foreground",
+  medium: "bg-warning/15 text-warning-foreground dark:bg-warning/20 dark:text-warning-foreground",
   low: "bg-destructive/15 text-destructive dark:bg-destructive/20 dark:text-destructive",
 }
 
@@ -326,7 +326,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                       <span className="rounded px-1.5 py-0.5 text-xs bg-info/15 text-info dark:bg-info/20 dark:text-info">
                         {t("storySimulation.consistency", { score: char.consistencyScore })}
                         {characterDiff?.scoreDiff.has(char.name) && (
-                          <span className="ml-1 text-warning">
+                          <span className="ml-1 text-warning-foreground">
                             (B: {characterDiff.scoreDiff.get(char.name)!.b})
                           </span>
                         )}
@@ -400,7 +400,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                     <div className="mt-2 grid gap-2 sm:grid-cols-2">
                       {branch.pros && (
                         <div className="rounded-md bg-success p-2 text-sm dark:bg-success/30">
-                          <span className="font-medium text-success">{t("storySimulation.pros")}</span>
+                          <span className="font-medium text-success-foreground">{t("storySimulation.pros")}</span>
                           {branch.pros}
                         </div>
                       )}
@@ -437,7 +437,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                   <Sparkles className="h-3.5 w-3.5 shrink-0" />
                   {t("storySimulation.overallRecommendation")}
                   {recommendationDiff && (
-                    <span className="ml-auto text-xs font-normal text-warning">{t("storySimulation.hasDiff")}</span>
+                    <span className="ml-auto text-xs font-normal text-warning-foreground">{t("storySimulation.hasDiff")}</span>
                   )}
                 </h3>
                 {recommendationItems ? (

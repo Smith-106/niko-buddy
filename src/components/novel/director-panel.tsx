@@ -86,7 +86,7 @@ export function DirectorPanel({ state, gap, busy = false, progress, onAdvance, o
                 <CircleX className="h-4 w-4 text-destructive" data-testid={`phase-icon-${phase}`} />
               ) : status === "running" ? (
                 <Loader2
-                  className="h-4 w-4 animate-spin text-accent"
+                  className="h-4 w-4 animate-spin text-primary"
                   data-testid={`phase-icon-${phase}`}
                 />
               ) : (
@@ -143,14 +143,14 @@ export function DirectorPanel({ state, gap, busy = false, progress, onAdvance, o
           ))
         )}
         {(progress?.drafts ?? []).map((draft) => (
-          <span key={draft.id} className="text-xs text-accent" data-testid="director-draft-receipt">
+          <span key={draft.id} className="text-xs text-primary" data-testid="director-draft-receipt">
             {t("directorPanel.draftReceipt", { id: draft.id, chars: draft.chars })}
           </span>
         ))}
       </div>
 
       {gap ? (
-        <p className="text-xs text-warning" data-testid="director-gap">
+        <p className="text-xs text-warning-foreground" data-testid="director-gap">
           {gap}
         </p>
       ) : null}

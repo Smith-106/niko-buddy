@@ -865,7 +865,7 @@ export function ReviewView({
               <span className={`rounded px-2 py-0.5 text-xs ${
                 dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull"
                   ? "border border-kind-violet/40 text-kind-violet dark:text-kind-violet"
-                  : "border border-success/40 text-success"
+                  : "border border-success/40 text-success-foreground"
               }`}>
                 {dimensionKey === "thrill" || dimensionKey === "pacing" || dimensionKey === "pull"
                   ? t("reviewCenter.trackBDimBadge")
@@ -906,7 +906,7 @@ export function ReviewView({
           </div>
         )}
         {pending.length === 0 && resolved.length === 0 && novelReviewActionItems.length === 0 && !showReviewHistory ? (
-          <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-sm text-success">
+          <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-sm text-success-foreground">
             <CheckCircle2 className="h-8 w-8 animate-pulse text-success" style={{ animationDuration: "1.5s" }} aria-hidden="true" />
             <p>{emptyMessage || t(novelMode ? "novel.review.allClear" : "review.allClear")}</p>
             <p className="text-xs italic text-muted-foreground">{t(novelMode ? "novel.review.allClearHint" : "review.allClearHint")}</p>
@@ -1025,7 +1025,7 @@ export function ReviewView({
                         <p className="mt-1 line-clamp-1 text-left text-xs text-muted-foreground italic">「{item.evidence}」</p>
                       )}
                       {item.suggestion && (
-                        <p className="mt-1 line-clamp-1 text-left text-xs text-success">
+                        <p className="mt-1 line-clamp-1 text-left text-xs text-success-foreground">
                           💡 {item.suggestion}
                         </p>
                       )}
@@ -1080,7 +1080,7 @@ export function ReviewView({
                               <div key={`${entry.id}-${result.type}-${index}`} className="rounded bg-muted/50 p-2">
                                 <div className="font-medium">{i18n.exists(`review.results.dimension.${result.type}`) ? i18n.t(`review.results.dimension.${result.type}`) : result.type}</div>
                                 <div className="text-muted-foreground">{result.message}</div>
-                                {result.suggestion && <div className="mt-1 text-success">{result.suggestion}</div>}
+                                {result.suggestion && <div className="mt-1 text-success-foreground">{result.suggestion}</div>}
                               </div>
                             ))}
                             <Pagination

@@ -462,7 +462,7 @@ export function MemoryCenterView() {
           </div>
         ) : null}
         {statusMessage ? (
-          <div className="mb-4 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+          <div className="mb-4 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success-foreground">
             {statusMessage}
           </div>
         ) : null}

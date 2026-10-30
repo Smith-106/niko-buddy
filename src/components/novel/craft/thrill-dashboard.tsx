@@ -86,15 +86,15 @@ function TensionRelaxRatio({ hits }: TensionRelaxRatioProps) {
         <div className="text-xs text-muted-foreground">{t("craft.thrillDashboard.totalPayoffs")}</div>
       </div>
       <div className="text-center" title="开放 = 延宕未疏解的爽点">
-        <div className="text-xl font-extrabold tabular-nums text-warning">{stats.open}</div>
+        <div className="text-xl font-extrabold tabular-nums text-warning-foreground">{stats.open}</div>
         <div className="text-xs text-muted-foreground">{t("craft.thrillDashboard.open")}</div>
       </div>
       <div className="text-center" title="已闭环 = 已疏解的爽点">
-        <div className="text-xl font-extrabold tabular-nums text-success">{stats.closed}</div>
+        <div className="text-xl font-extrabold tabular-nums text-success-foreground">{stats.closed}</div>
         <div className="text-xs text-muted-foreground">{t("craft.thrillDashboard.closed")}</div>
       </div>
       <div className="text-center" title="张弛比 = 开放 / 已闭环；>3 偏紧，>1.5 偏悬念，≤1.5 偏舒缓">
-        <div className={`text-xl font-extrabold tabular-nums ${stats.ratio > 3 ? "text-destructive" : stats.ratio > 1.5 ? "text-warning" : "text-success"}`}>
+        <div className={`text-xl font-extrabold tabular-nums ${stats.ratio > 3 ? "text-destructive" : stats.ratio > 1.5 ? "text-warning-foreground" : "text-success-foreground"}`}>
           {stats.ratio === Infinity ? "∞" : stats.ratio.toFixed(2)}
         </div>
         <div className="text-xs text-muted-foreground">{t("craft.thrillDashboard.tensionRatio")}</div>
@@ -145,7 +145,7 @@ function HitsTable({ hits }: HitsTableProps) {
                 <span className="text-xs text-muted-foreground">{h.rawIntensity.toFixed(3)}</span>
               </td>
               <td className="px-2.5 py-1.5">
-                <span className={`text-xs font-medium ${h.weightedIntensity > 1 ? "text-warning" : "text-foreground"}`}>
+                <span className={`text-xs font-medium ${h.weightedIntensity > 1 ? "text-warning-foreground" : "text-foreground"}`}>
                   {h.weightedIntensity.toFixed(3)}
                 </span>
               </td>
@@ -155,8 +155,8 @@ function HitsTable({ hits }: HitsTableProps) {
               <td className="px-2.5 py-1.5">
                 <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${
                   h.closureState === "closed"
-                    ? "bg-success/10 text-success"
-                    : "bg-warning/10 text-warning"
+                    ? "bg-success/10 text-success-foreground"
+                    : "bg-warning/10 text-warning-foreground"
                 }`}>
                   {h.closureState === "closed" ? "已闭环" : "开放"}
                 </span>

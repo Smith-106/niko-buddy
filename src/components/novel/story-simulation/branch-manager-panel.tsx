@@ -166,7 +166,7 @@ export function BranchManagerPanel({
         </div>
 
         {isMaxBranches && (
-          <div className="flex items-center gap-2 rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-xs text-warning">
+          <div className="flex items-center gap-2 rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-xs text-warning-foreground">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
             <span>{t("storySimulation.branchLimitReached")}</span>
           </div>
@@ -345,7 +345,7 @@ export function BranchManagerPanel({
             </div>
           )}
           {compareBranchIds.length > 3 && (
-            <div className="mt-1.5 text-center text-xs text-warning">
+            <div className="mt-1.5 text-center text-xs text-warning-foreground">
               {t("storySimulation.maxBranchesForCompare")}
             </div>
           )}

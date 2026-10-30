@@ -50,11 +50,11 @@ export function DirectorSidebarPanel() {
               <span
                 className={
                   statuses[phase] === "done"
-                    ? "text-success"
+                    ? "text-success-foreground"
                     : statuses[phase] === "failed"
                       ? "text-destructive"
                       : statuses[phase] === "running"
-                        ? "text-accent"
+                        ? "text-primary"
                         : "text-muted-foreground"
                 }
               >

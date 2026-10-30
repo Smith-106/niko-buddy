@@ -99,7 +99,7 @@ export function StyleRadarPanel({ projection, input, loader }: StyleRadarPanelPr
       </header>
 
       {error ? (
-        <p className="text-xs text-warning" data-testid="style-radar-error">
+        <p className="text-xs text-warning-foreground" data-testid="style-radar-error">
           {error}
         </p>
       ) : null}
@@ -220,7 +220,7 @@ export function StyleRadarPanel({ projection, input, loader }: StyleRadarPanelPr
       </ul>
 
       {resolved.missingSources.length > 0 ? (
-        <ul className="space-y-0.5 text-xs text-warning" data-testid="style-radar-missing">
+        <ul className="space-y-0.5 text-xs text-warning-foreground" data-testid="style-radar-missing">
           {resolved.missingSources.map((line) => (
             <li key={line}>{line}</li>
           ))}

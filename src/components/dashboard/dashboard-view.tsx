@@ -40,8 +40,8 @@ import { toErrorMessage } from "@/lib/utils"
 
 const SEVERITY_CONFIG: Record<DashSeverity, { icon: typeof AlertTriangle; labelKey: string; color: string; bgColor: string; dotClass: string }> = {
   blocking: { icon: AlertOctagon, labelKey: "dashboard.severity.blocking", color: "text-destructive", bgColor: "border-destructive/30 bg-destructive/5", dotClass: "bg-destructive" },
-  high: { icon: ShieldAlert, labelKey: "dashboard.severity.high", color: "text-warning", bgColor: "border-warning/30 bg-warning/5", dotClass: "bg-warning" },
-  medium: { icon: AlertTriangle, labelKey: "dashboard.severity.medium", color: "text-warning", bgColor: "border-warning/20 bg-warning/5", dotClass: "bg-warning" },
+  high: { icon: ShieldAlert, labelKey: "dashboard.severity.high", color: "text-warning-foreground", bgColor: "border-warning/30 bg-warning/5", dotClass: "bg-warning" },
+  medium: { icon: AlertTriangle, labelKey: "dashboard.severity.medium", color: "text-warning-foreground", bgColor: "border-warning/20 bg-warning/5", dotClass: "bg-warning" },
   low: { icon: Info, labelKey: "dashboard.severity.low", color: "text-muted-foreground", bgColor: "border-border bg-muted/30", dotClass: "bg-muted-foreground" },
 }
 
@@ -732,7 +732,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
             </p>
           )}
           {item.suggestion && (
-            <p className="mt-1 text-xs text-success">{item.suggestion}</p>
+            <p className="mt-1 text-xs text-success-foreground">{item.suggestion}</p>
           )}
         </details>
       )}
@@ -836,12 +836,12 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
             </div>
             <div className="mb-2 flex gap-2 text-xs">
               <span className="flex items-center gap-1 text-destructive"><span className="inline-block h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />{debtReport.criticalCount} {t(DEBT_LEVEL_LABEL_KEYS.critical)}</span>
-              <span className="flex items-center gap-1 text-warning"><span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true" />{debtReport.warningCount} {t(DEBT_LEVEL_LABEL_KEYS.warning)}</span>
+              <span className="flex items-center gap-1 text-warning-foreground"><span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true" />{debtReport.warningCount} {t(DEBT_LEVEL_LABEL_KEYS.warning)}</span>
             </div>
             {debtReport.items.filter((item) => item.debtLevel !== "normal").map((item) => (
               <div key={item.name} className="mb-1 rounded-md border bg-muted/30 p-2 text-xs">
                 <div className="flex items-center gap-2">
-                  <span className={item.debtLevel === "critical" ? "text-destructive" : "text-warning"}>
+                  <span className={item.debtLevel === "critical" ? "text-destructive" : "text-warning-foreground"}>
                     [{item.debtLevel === "critical" ? t(DEBT_LEVEL_LABEL_KEYS.critical) : t(DEBT_LEVEL_LABEL_KEYS.warning)}]
                   </span>
                   <span>{item.name}</span>

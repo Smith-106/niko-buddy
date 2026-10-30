@@ -287,7 +287,7 @@ export function AssetLibraryView({ projectPath, snapshots, deps, migrateRelation
                     {present && conserved ? (
                       <span
                         data-testid={`asset-library-conserved-${libraryId}`}
-                        className="flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-success"
+                        className="flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-success-foreground"
                       >
                         <CheckCircle2 className="h-3 w-3" />
                         守恒校验通过
@@ -316,7 +316,7 @@ export function AssetLibraryView({ projectPath, snapshots, deps, migrateRelation
                 {violationList.length > 0 ? (
                   <ul
                     data-testid={`asset-library-violations-${libraryId}`}
-                    className="mt-1 list-disc pl-5 text-xs text-warning"
+                    className="mt-1 list-disc pl-5 text-xs text-warning-foreground"
                   >
                     {violationList.map((violation) => (
                       <li key={violation}>{violation}</li>

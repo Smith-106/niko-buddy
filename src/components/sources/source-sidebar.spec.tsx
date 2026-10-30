@@ -560,7 +560,7 @@ describe("SourceSidebar — 摄取队列", () => {
     })
     await act(async () => {})
         expect(row.querySelector(".lucide-check")).toBeTruthy()
-    expect(row.querySelector(".text-success")).toBeTruthy()
+    expect(row.querySelector(".text-success-foreground")).toBeTruthy()
     expect(row.querySelector(".lucide-book-open")).toBeNull()
   })
 
@@ -579,7 +579,7 @@ describe("SourceSidebar — 摄取队列", () => {
       vi.advanceTimersByTime(1000)
     })
     await act(async () => {})
-    expect(row.querySelector(".text-success")).toBeNull()
+    expect(row.querySelector(".text-success-foreground")).toBeNull()
   })
 
   it("任务仍在 pending 时保持提取中（Loader2 旋转）", async () => {

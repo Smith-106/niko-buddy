@@ -139,7 +139,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
           aria-hidden
           className={cn(
             "flex flex-col items-center",
-            flowing ? "text-accent" : "text-muted-foreground",
+            flowing ? "text-primary" : "text-muted-foreground",
           )}
         >
           <span className="h-2.5 w-px bg-current opacity-60" />
@@ -244,7 +244,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
         data-active={isActive ? "true" : "false"}
       >
         <div className="flex w-28 shrink-0 flex-col justify-center gap-1 border-r pr-2">
-          <span className={cn("text-xs font-semibold", isActive ? "text-accent" : "text-foreground")}>
+          <span className={cn("text-xs font-semibold", isActive ? "text-primary" : "text-foreground")}>
             {stage.label}
           </span>
           <span className="text-xs text-muted-foreground">
@@ -311,7 +311,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4" data-testid="module-heatmap-view">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Flame className="h-5 w-5 text-accent" />
+          <Flame className="h-5 w-5 text-primary" />
           <h2 className="text-base font-semibold">{t("heatmap.title")}</h2>
           <span className="text-xs text-muted-foreground">{t("heatmap.subtitle")}</span>
         </div>
@@ -435,7 +435,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
                   <span>{t("heatmap.loc", { count: selectedEntry.l })}</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <span className={selectedHeat ? "text-accent" : "text-muted-foreground"}>
+                  <span className={selectedHeat ? "text-primary" : "text-muted-foreground"}>
                     {selectedHeat
                       ? t("heatmap.calls", { count: selectedHeat.count })
                       : t("heatmap.never")}
@@ -454,7 +454,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
                 {selectedHeat?.lastDetail ? (
                   <p className="text-muted-foreground">{selectedHeat.lastDetail}</p>
                 ) : null}
-                <span className={selectedEntry.x || selectedEntry.o ? "text-warning" : "text-success"}>
+                <span className={selectedEntry.x || selectedEntry.o ? "text-warning-foreground" : "text-success-foreground"}>
                   {selectedEntry.x || selectedEntry.o ? t("heatmap.unwiredFlag") : t("heatmap.wiredFlag")}
                 </span>
                 {selectedLog.length > 0 ? (
@@ -484,7 +484,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
                       className="flex w-full items-center justify-between gap-2 rounded px-1 text-left text-xs hover:bg-muted"
                     >
                       <span className="truncate text-muted-foreground">{moduleLabel(row.path)}</span>
-                      <span className="shrink-0 text-xs text-warning">
+                      <span className="shrink-0 text-xs text-warning-foreground">
                         {row.reason === "specOnly"
                           ? t("heatmap.unwiredReasonSpec")
                           : row.reason === "orphan"
@@ -552,7 +552,7 @@ function Stat({
       <Icon
         className={cn(
           "h-3.5 w-3.5",
-          tone === "warning" ? "text-warning" : tone === "destructive" ? "text-destructive" : "text-accent",
+          tone === "warning" ? "text-warning-foreground" : tone === "destructive" ? "text-destructive" : "text-primary",
         )}
       />
       <div className="flex flex-col leading-tight">

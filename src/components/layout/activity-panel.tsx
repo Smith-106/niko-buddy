@@ -463,7 +463,7 @@ function FileSyncRow({ task, onRetry, onIgnore }: { task: FileChangeTask; onRetr
             <div className="mt-0.5 truncate text-xs text-destructive">{mapFileSyncError(task.error)}</div>
           )}
           {isConflict && (
-            <div className="mt-0.5 text-xs text-warning">
+            <div className="mt-0.5 text-xs text-warning-foreground">
               {task.status === "superseded"
                 ? t("activity.fileSyncSuperseded", "文件在同步期间被外部修改，此任务已被新变更取代")
                 : t("activity.fileSyncConflict", "文件在同步期间被外部修改，将自动重新同步")}

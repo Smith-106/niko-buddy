@@ -183,7 +183,7 @@ export function HistoryResultsModal({
                         </span>
                       )}
                       {(result.status === "partial" || result.status === "cancelled") && (
-                        <span className="shrink-0 rounded bg-warning/10 px-1.5 py-0.5 text-xs text-warning">
+                        <span className="shrink-0 rounded bg-warning/10 px-1.5 py-0.5 text-xs text-warning-foreground">
                           {t("storySimulation.badgePartial")}
                         </span>
                       )}

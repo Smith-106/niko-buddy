@@ -271,7 +271,7 @@ export function DebtBoardView({
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />
               {debtReport.criticalCount} {t("dashboard.debtLevel.critical")}
             </span>
-            <span className="flex items-center gap-1 text-warning">
+            <span className="flex items-center gap-1 text-warning-foreground">
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true" />
               {debtReport.warningCount} {t("dashboard.debtLevel.warning")}
             </span>

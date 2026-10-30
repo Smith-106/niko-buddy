@@ -14,8 +14,8 @@ export type ReportTone = "error" | "warn" | "ok" | "neutral"
 
 const TONE_CLASS: Record<ReportTone, string> = {
   error: "border-destructive/30 bg-destructive/10 text-destructive",
-  warn: "border-warning/30 bg-warning/10 text-warning",
-  ok: "border-success/40 bg-success/10 text-success",
+  warn: "border-warning/30 bg-warning/10 text-warning-foreground",
+  ok: "border-success/40 bg-success/10 text-success-foreground",
   neutral: "border-border bg-muted/40 text-foreground",
 }
 

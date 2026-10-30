@@ -431,7 +431,7 @@ export function PreviewPanel() {
   const chapterStatusMeta = chapterHeader ? (
     chapterHeader.status === "final" ? (
       <span
-        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-success/35 bg-success/10 px-2 py-0.5 text-xs font-medium leading-5 text-success"
+        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-success/35 bg-success/10 px-2 py-0.5 text-xs font-medium leading-5 text-success-foreground"
         title={chapterStatusTitle}
       >
         <Check className="h-3 w-3 shrink-0" />

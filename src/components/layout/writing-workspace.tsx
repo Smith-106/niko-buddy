@@ -317,7 +317,7 @@ export function WritingWorkspace() {
             data-testid="workspace-foreshadow-alert"
             title="打开伏笔面板查看逾期明细"
             onClick={() => setDeskTab("foreshadow")}
-            className="shrink-0 rounded border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs text-warning hover:bg-warning/20"
+            className="shrink-0 rounded border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs text-warning-foreground hover:bg-warning/20"
           >
             {`伏笔逾期 ${foreshadowOverdue.critical + foreshadowOverdue.warning}（严重${foreshadowOverdue.critical}）`}
           </button>

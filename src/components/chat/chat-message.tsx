@@ -260,10 +260,10 @@ const REF_TYPE_CONFIG: Record<string, { icon: typeof FileText; color: string }> 
   entity: { icon: Users, color: "text-info" },
   concept: { icon: Lightbulb, color: "text-kind-purple" },
   source: { icon: BookOpen, color: "text-kind-orange" },
-  query: { icon: HelpCircle, color: "text-success" },
+  query: { icon: HelpCircle, color: "text-success-foreground" },
   synthesis: { icon: GitMerge, color: "text-destructive" },
   comparison: { icon: BarChart3, color: "text-kind-teal" },
-  overview: { icon: Layout, color: "text-warning" },
+  overview: { icon: Layout, color: "text-warning-foreground" },
   clip: { icon: Globe, color: "text-info" },
 }
 

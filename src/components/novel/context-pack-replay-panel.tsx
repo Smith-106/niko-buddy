@@ -158,7 +158,7 @@ export function ContextPackReplayPanel({ pack, title = "这次写作用了哪些
               <summary className="flex cursor-pointer list-none items-center justify-between gap-2" data-testid={`source-toggle-${s.key}`}>
                 <span className="flex min-w-0 items-center gap-2">
                   <span
-                    className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ${s.selected ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"}`}
+                    className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ${s.selected ? "bg-success/15 text-success-foreground" : "bg-muted text-muted-foreground"}`}
                     data-source-status={s.key}
                   >
                     {s.selected ? "入选" : "未入选"}
@@ -186,7 +186,7 @@ export function ContextPackReplayPanel({ pack, title = "这次写作用了哪些
               </div>
               <span
                 data-testid={`gate-${g.key}`}
-                className={`shrink-0 rounded px-2 py-0.5 font-semibold ${g.status === "PASS" ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}
+                className={`shrink-0 rounded px-2 py-0.5 font-semibold ${g.status === "PASS" ? "bg-success/15 text-success-foreground" : "bg-warning/15 text-warning-foreground"}`}
               >
                 {g.status === "PASS" ? "通过" : "注意"}
                 <span className="sr-only">{g.status}</span>

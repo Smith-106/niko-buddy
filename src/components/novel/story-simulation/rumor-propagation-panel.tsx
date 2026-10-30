@@ -133,9 +133,9 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
                   <span
                     className={`rounded px-1.5 py-0.5 text-xs font-medium ${
                       rumor.distortion < 0.3
-                        ? "bg-success/15 text-success dark:bg-success/20 dark:text-success"
+                        ? "bg-success/15 text-success-foreground dark:bg-success/20 dark:text-success-foreground"
                         : rumor.distortion < 0.6
-                          ? "bg-warning/15 text-warning dark:bg-warning/20 dark:text-warning"
+                          ? "bg-warning/15 text-warning-foreground dark:bg-warning/20 dark:text-warning-foreground"
                           : "bg-destructive/15 text-destructive dark:bg-destructive/20 dark:text-destructive"
                     }`}
                   >
@@ -205,9 +205,9 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
                 <div
                   className={`text-lg font-semibold ${
                     selectedRumor.distortion < 0.3
-                      ? "text-success"
+                      ? "text-success-foreground"
                       : selectedRumor.distortion < 0.6
-                        ? "text-warning"
+                        ? "text-warning-foreground"
                         : "text-destructive"
                   }`}
                 >
@@ -294,9 +294,9 @@ function RumorTreeNodeView({
                 <span
                   className={`rounded px-1.5 py-0.5 text-xs font-medium ${
                     rumor.distortion < 0.3
-                      ? "bg-success/15 text-success dark:bg-success/20 dark:text-success"
+                      ? "bg-success/15 text-success-foreground dark:bg-success/20 dark:text-success-foreground"
                       : rumor.distortion < 0.6
-                        ? "bg-warning/15 text-warning dark:bg-warning/20 dark:text-warning"
+                        ? "bg-warning/15 text-warning-foreground dark:bg-warning/20 dark:text-warning-foreground"
                         : "bg-destructive/15 text-destructive dark:bg-destructive/20 dark:text-destructive"
                   }`}
                 >

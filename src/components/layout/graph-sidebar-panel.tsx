@@ -176,7 +176,7 @@ export function GraphSidebarPanel() {
           <span className="rounded bg-muted px-1.5 py-0.5">{graphStats.filteredNodeCount}/{graphStats.nodeCount} {t("graph.pages", { count: graphStats.nodeCount })}</span>
           <span className="rounded bg-muted px-1.5 py-0.5">{graphStats.filteredEdgeCount}/{graphStats.edgeCount} {t("graph.links", { count: graphStats.edgeCount })}</span>
           {graphStats.hiddenCount > 0 && (
-            <span className="rounded bg-warning/10 px-1.5 py-0.5 text-warning">
+            <span className="rounded bg-warning/10 px-1.5 py-0.5 text-warning-foreground">
               {graphStats.hiddenCount} {t("graph.hidden")}
             </span>
           )}

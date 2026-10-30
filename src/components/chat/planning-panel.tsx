@@ -25,16 +25,16 @@ export interface PlanningPanelProps {
 
 const DEBT_LEVEL_STYLES: Record<string, string> = {
   critical: "bg-destructive/10 text-destructive",
-  warning: "bg-warning/10 text-warning",
+  warning: "bg-warning/10 text-warning-foreground",
   normal: "bg-muted text-muted-foreground",
 }
 
 const ARC_STATE_STYLES: Record<string, string> = {
-  Falling: "bg-warning/10 text-warning",
-  Climax: "bg-accent/10 text-accent",
-  Rising: "bg-accent/10 text-accent",
+  Falling: "bg-warning/10 text-warning-foreground",
+  Climax: "bg-accent/10 text-primary",
+  Rising: "bg-accent/10 text-primary",
   Setup: "bg-muted text-muted-foreground",
-  Resolved: "bg-success/10 text-success",
+  Resolved: "bg-success/10 text-success-foreground",
   Unresolved: "bg-kind-purple/10 text-kind-purple dark:text-kind-purple",
 }
 
@@ -66,7 +66,7 @@ function DimensionSection<TItem>({
     <section>
       <h4 className="mb-1 text-xs font-medium text-muted-foreground">{title}</h4>
       {slice.status === "degraded" ? (
-        <p className="text-xs text-warning">
+        <p className="text-xs text-warning-foreground">
           {t("novel.planning.degraded", { defaultValue: "数据源不可用" })}
           {slice.reason ? `（${slice.reason}）` : ""}
         </p>
@@ -138,7 +138,7 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
               {t("novel.planning.foreshadowing", { defaultValue: "伏笔债务" })}
             </h4>
             {plan.foreshadowing.status === "degraded" ? (
-              <p className="text-xs text-warning">{t("novel.planning.degraded", { defaultValue: "数据源不可用" })}</p>
+              <p className="text-xs text-warning-foreground">{t("novel.planning.degraded", { defaultValue: "数据源不可用" })}</p>
             ) : plan.foreshadowing.report && plan.foreshadowing.report.items.length > 0 ? (
               <ul className="space-y-1">
                 {plan.foreshadowing.report.items.slice(0, 5).map((item) => (
@@ -164,14 +164,14 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
               {t("novel.planning.characters", { defaultValue: "角色出场" })}
             </h4>
             {plan.characters.status === "degraded" ? (
-              <p className="text-xs text-warning">{t("novel.planning.degraded", { defaultValue: "数据源不可用" })}</p>
+              <p className="text-xs text-warning-foreground">{t("novel.planning.degraded", { defaultValue: "数据源不可用" })}</p>
             ) : plan.characters.items.length > 0 ? (
               <ul className="space-y-1">
                 {plan.characters.items.slice(0, 6).map((c) => (
                   <li key={c.name} className="flex items-center gap-2 min-w-0">
                     <span className="min-w-0 truncate">{c.name}</span>
                     {c.inCurrentOutline && (
-                      <span className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 text-xs text-accent">
+                      <span className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 text-xs text-primary">
                         {t("novel.planning.inOutline", { defaultValue: "本章出场" })}
                       </span>
                     )}
@@ -181,7 +181,7 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
                       </span>
                     )}
                     {c.chaptersSinceSeen !== undefined && c.chaptersSinceSeen >= 10 && !c.inCurrentOutline && (
-                      <span className="shrink-0 rounded bg-warning/10 px-1.5 py-0.5 text-xs text-warning">
+                      <span className="shrink-0 rounded bg-warning/10 px-1.5 py-0.5 text-xs text-warning-foreground">
                         {t("novel.planning.dormant", { defaultValue: "已 {{n}} 章未出场", n: c.chaptersSinceSeen })}
                       </span>
                     )}
@@ -199,7 +199,7 @@ export function PlanningPanel({ plan, loading, error, onRefresh, onStartWriting,
               {t("novel.planning.threads", { defaultValue: "支线推进" })}
             </h4>
             {plan.threads.status === "degraded" ? (
-              <p className="text-xs text-warning">{t("novel.planning.degraded", { defaultValue: "数据源不可用" })}</p>
+              <p className="text-xs text-warning-foreground">{t("novel.planning.degraded", { defaultValue: "数据源不可用" })}</p>
             ) : plan.threads.items.length > 0 ? (
               <ul className="space-y-1">
                 {plan.threads.items.slice(0, 5).map((thread) => (

@@ -112,14 +112,14 @@ export function PdfExportDialog({ projectPath, title, paragraphs, chapterPath }:
       </label>
 
       {targetIssue !== null ? (
-        <p role="alert" data-testid="pdfexport-target-warning" className="text-xs text-warning">
+        <p role="alert" data-testid="pdfexport-target-warning" className="text-xs text-warning-foreground">
           {t(targetIssue)}
         </p>
       ) : null}
 
       {/* 禁用态必须自述原因：正文为空时按钮从外观上和其它禁用原因一模一样。 */}
       {paragraphs.length === 0 ? (
-        <p role="status" data-testid="pdfexport-empty-hint" className="text-xs text-warning">
+        <p role="status" data-testid="pdfexport-empty-hint" className="text-xs text-warning-foreground">
           {t("pdfexport.empty.body")}
         </p>
       ) : null}

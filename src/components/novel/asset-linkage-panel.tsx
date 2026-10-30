@@ -79,7 +79,7 @@ export function AssetLinkagePanel({ result, input }: AssetLinkagePanelProps) {
           角色状态尚未装载：比对面整段不适用，不能当成「暂无不一致」。
         </p>
       ) : conflictCount === 0 ? (
-        <p className="text-xs text-success" data-testid="asset-linkage-clean">
+        <p className="text-xs text-success-foreground" data-testid="asset-linkage-clean">
           暂未发现联动不一致（缺失面见下方不适用说明，不要当成「全部一致」）。
         </p>
       ) : (
@@ -88,7 +88,7 @@ export function AssetLinkagePanel({ result, input }: AssetLinkagePanelProps) {
             <li
               key={`${conflict.code}-${index}`}
               data-testid={`asset-linkage-conflict-${conflict.code}-${index}`}
-              className="rounded border border-warning/40 bg-warning/5 p-1.5 text-xs text-warning"
+              className="rounded border border-warning/40 bg-warning/5 p-1.5 text-xs text-warning-foreground"
             >
               <b>{conflict.code}</b> · {conflict.left}
               {conflict.right ? ` → ${conflict.right}` : ""}

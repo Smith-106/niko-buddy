@@ -133,7 +133,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
     if (type === "event") {
       return { label: t("storySimulation.eventType"), icon: Zap, color: "text-info bg-info dark:bg-info/40 dark:text-info" }
     }
-    return { label: t("storySimulation.rumor"), icon: MessageSquare, color: "text-warning bg-warning dark:bg-warning/40 dark:text-warning" }
+    return { label: t("storySimulation.rumor"), icon: MessageSquare, color: "text-warning-foreground bg-warning dark:bg-warning/40 dark:text-warning-foreground" }
   }
 
   if (clues.length === 0) {
@@ -262,7 +262,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                             {t("storySimulation.roundLabel", { round: clue.round + 1 })}
                           </span>
                           {clue.isSecret && (
-                            <span className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-xs font-medium text-warning">
+                            <span className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-xs font-medium text-warning-foreground">
                               <EyeOff className="h-2.5 w-2.5 shrink-0" />
                               {t("storySimulation.secret")}
                             </span>
@@ -286,12 +286,12 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                             {clue.knowAgents.length === 0 ? (
                               <span className="text-xs text-muted-foreground">{t("storySimulation.knownByNone")}</span>
                             ) : clue.knowAgents.length === agentList.length ? (
-                              <span className="text-xs text-success">{t("storySimulation.knownByAll")}</span>
+                              <span className="text-xs text-success-foreground">{t("storySimulation.knownByAll")}</span>
                             ) : (
                               clue.knowAgents.map((id) => (
                                 <span
                                   key={id}
-                                  className="rounded bg-success/10 px-1.5 py-0.5 text-xs text-success"
+                                  className="rounded bg-success/10 px-1.5 py-0.5 text-xs text-success-foreground"
                                 >
                                   {getAgentName(id)}
                                 </span>

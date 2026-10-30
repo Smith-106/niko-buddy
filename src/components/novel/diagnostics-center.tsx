@@ -69,9 +69,9 @@ const HISTORY_STATUS_ZH: Record<ExportHistoryViewEntry["status"], string> = {
 function statusBadgeClass(status: HealthStatus): string {
   switch (status) {
     case "healthy":
-      return "bg-success/10 text-success"
+      return "bg-success/10 text-success-foreground"
     case "degraded":
-      return "bg-warning/10 text-warning"
+      return "bg-warning/10 text-warning-foreground"
     case "attention_required":
       return "bg-destructive/10 text-destructive"
     case "unavailable":

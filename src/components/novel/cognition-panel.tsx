@@ -214,7 +214,7 @@ export function CognitionPanel({ projectPath, onClose }: Props) {
                 {(char.knows.length > 0 || char.doesNotKnow.length > 0) && (
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     <div className="rounded-md border-l-2 border-success/50 bg-success/5 p-2">
-                      <span className="text-xs font-medium text-success">
+                      <span className="text-xs font-medium text-success-foreground">
                         {t("novel.cognition.knows")}
                       </span>
                       {char.knows.length > 0 ? (
