@@ -90,8 +90,8 @@
   "orphan": 282,
   "specOnly": 270,
   "barrelOnly": 2,
-  "edges": 4496,
-  "loc": 275616
+  "edges": 4499,
+  "loc": 276501
  },
  "modules": [
   {
@@ -5348,7 +5348,7 @@
   {
    "p": "src/components/settings/sections/rerank-section.tsx",
    "s": 16,
-   "l": 477,
+   "l": 506,
    "r": true,
    "o": false,
    "x": false,
@@ -10980,7 +10980,7 @@
   {
    "p": "src/lib/novel/context-engine-types.ts",
    "s": 5,
-   "l": 326,
+   "l": 328,
    "r": true,
    "o": false,
    "x": false,
@@ -11085,7 +11085,7 @@
   {
    "p": "src/lib/novel/context-retrieval.ts",
    "s": 5,
-   "l": 445,
+   "l": 454,
    "r": true,
    "o": false,
    "x": false,
@@ -12887,7 +12887,7 @@
   {
    "p": "src/lib/novel/index.ts",
    "s": 18,
-   "l": 1486,
+   "l": 1504,
    "r": true,
    "o": false,
    "x": false,
@@ -15166,7 +15166,7 @@
   {
    "p": "src/lib/novel/search-adapter.ts",
    "s": 13,
-   "l": 740,
+   "l": 813,
    "r": true,
    "o": false,
    "x": false,
@@ -15197,15 +15197,18 @@
   {
    "p": "src/lib/novel/search-strategy.ts",
    "s": 13,
-   "l": 337,
+   "l": 1081,
    "r": true,
    "o": false,
    "x": false,
    "b": false,
    "i": [
     508,
+    584,
     872,
-    894
+    894,
+    1135,
+    1163
    ],
    "e": [
     "zod"
@@ -16772,7 +16775,7 @@
   {
    "p": "src/lib/project-store.ts",
    "s": 18,
-   "l": 772,
+   "l": 773,
    "r": true,
    "o": false,
    "x": false,
@@ -18651,7 +18654,7 @@
   {
    "p": "src/stores/wiki-store-config.ts",
    "s": 17,
-   "l": 666,
+   "l": 674,
    "r": true,
    "o": false,
    "x": false,
@@ -18664,7 +18667,7 @@
   {
    "p": "src/stores/wiki-store.ts",
    "s": 17,
-   "l": 485,
+   "l": 486,
    "r": true,
    "o": false,
    "x": false,
