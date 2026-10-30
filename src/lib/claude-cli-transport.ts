@@ -368,6 +368,8 @@ type SpawnPayload = Record<string, unknown> & {
   messages: ChatMessage[]
   isolateLocalConfig: boolean
   jsonSchema?: Record<string, unknown>
+  /** 传输层自动重试序号（0 = 首次）；Rust 门控把它计入熔断键，避免自动重试本身触发熔断。 */
+  retryAttempt: number
 }
 
 export async function streamClaudeCodeCli(
@@ -635,6 +637,7 @@ export async function streamClaudeCodeCli(
               messages,
               isolateLocalConfig,
               jsonSchema: overrides?.jsonSchema,
+              retryAttempt: transportRetryAttempt,
             }
             await invoke("claude_cli_spawn", payload)
 

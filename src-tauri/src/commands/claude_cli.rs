@@ -38,9 +38,9 @@ use tokio::sync::Mutex;
 
 use super::cli_emit::EmitBatcher;
 use super::cli_resolver::find_cli_command;
-use super::local_cli_config::apply_local_cli_environment;
 #[cfg(test)]
 use super::local_cli_config::LocalCliConfigInfo;
+use super::local_cli_config::{apply_local_cli_environment, cli_gate_target};
 
 // M7-2: launch纯层已剥离至 `claude_cli_launch.rs`—file_sync_watch 模式：新文件 + 原文件回引，外部 import 面零变化。
 pub(crate) use super::claude_cli_launch::{
@@ -259,6 +259,41 @@ pub async fn claude_cli_detect() -> Result<DetectResult, String> {
     do_claude_cli_detect().await
 }
 
+/// Highest transport retry index that gets its own gate key. Mirrors
+/// `CLAUDE_CLI_RETRY_DELAYS_MS.length` in `src/lib/claude-cli-transport.ts`.
+const CLAUDE_GATE_MAX_RETRY_ATTEMPT: u32 = 3;
+
+/// Gate target for one Claude spawn (see [`cli_gate_target`]): digests every
+/// message (role + content blocks, images included), the isolation flag, the
+/// JSON schema and the transport retry index, so only an identical request
+/// counts toward the loop breaker.
+///
+/// The frontend transport retries a fast-failing request (e.g. 429) after 5s and
+/// 15s with the same payload; without the retry index those automatic retries
+/// alone tripped the 3-in-60s breaker. The index is clamped, so a caller that
+/// keeps sending a high index still collapses to one key and still halts.
+fn claude_gate_target(
+    model: &str,
+    messages: &[ClaudeMessage],
+    isolate_local_config: bool,
+    json_schema: Option<&serde_json::Value>,
+    retry_attempt: u32,
+) -> String {
+    let mut parts: Vec<String> = Vec::with_capacity(messages.len() * 2 + 2);
+    for msg in messages {
+        parts.push(msg.role.clone());
+        parts.push(serde_json::to_string(&claude_content_blocks(&msg.content)).unwrap_or_default());
+    }
+    parts.push(format!("isolate={isolate_local_config}"));
+    parts.push(json_schema.map(|s| s.to_string()).unwrap_or_default());
+    parts.push(format!(
+        "retry={}",
+        retry_attempt.min(CLAUDE_GATE_MAX_RETRY_ATTEMPT)
+    ));
+    let refs: Vec<&[u8]> = parts.iter().map(|s| s.as_bytes()).collect();
+    cli_gate_target("claude", model, &refs)
+}
+
 /// Spawn `claude -p --output-format stream-json --verbose --model <model>`
 /// and pipe either `text` or `stream-json` input via stdin, depending on the
 /// conversation shape. Emits a final done event with `{ code }` when the
@@ -273,12 +308,20 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
     messages: Vec<ClaudeMessage>,
     isolate_local_config: bool,
     json_schema: Option<serde_json::Value>,
+    retry_attempt: u32,
 ) -> Result<(), String> {
     // F-001：CLI 是外部进程，其逐次写入不在本进程可见范围内；可强制的人工边界是
     // 不得被指向受保护区，且重复执行触发循环熔断。
-    let cli_target = std::env::current_dir()
-        .map(|d| d.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "cli".to_string());
+    // 门控目标 = spawn 的专用工作目录 + 本次请求摘要（cli_gate_target）：
+    // 只有完全相同的请求重复触发才计入循环熔断，不同请求互不累计。
+    let working_dir = resolve_claude_cli_working_dir()?;
+    let cli_target = claude_gate_target(
+        &model,
+        &messages,
+        isolate_local_config,
+        json_schema.as_ref(),
+        retry_attempt,
+    );
     let gate = crate::agent_gate::gate_authorize(
         "runCommand",
         &cli_target,
@@ -334,21 +377,18 @@ pub async fn do_claude_cli_spawn<E: CliEmitter>(
         &input_mode,
     )?;
     let local_config = read_current_claude_local_config();
-    let working_dir = resolve_claude_cli_working_dir();
     let launch_debug = format_launch_debug_context(
         &claude,
         &launch_config.args,
         &input_mode,
         isolate_local_config,
-        working_dir.as_deref(),
+        Some(working_dir.as_path()),
         &local_config,
     );
     let mut cmd = Command::new(&claude);
     suppress_windows_console(&mut cmd);
     apply_local_cli_environment(&mut cmd);
-    if let Some(dir) = working_dir.as_deref() {
-        cmd.current_dir(dir);
-    }
+    cmd.current_dir(&working_dir);
     cmd.args(&launch_config.args);
 
     cmd.stdin(Stdio::piped())
@@ -603,6 +643,7 @@ pub async fn claude_cli_spawn(
     messages: Vec<ClaudeMessage>,
     isolate_local_config: bool,
     json_schema: Option<serde_json::Value>,
+    retry_attempt: Option<u32>,
 ) -> Result<(), String> {
     let emitter = TauriCliEmitter::new(app);
     do_claude_cli_spawn(
@@ -613,6 +654,7 @@ pub async fn claude_cli_spawn(
         messages,
         isolate_local_config,
         json_schema,
+        retry_attempt.unwrap_or(0),
     )
     .await
 }
@@ -1087,5 +1129,79 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("niko-buddy-claude-cli-test-{stamp}"));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn claude_gate_target_covers_messages_isolation_and_schema() {
+        // ISS-20261029-005：调用点摘要必须覆盖整个请求，否则不同请求会撞同一熔断键。
+        let msgs = |v: serde_json::Value| -> Vec<ClaudeMessage> {
+            serde_json::from_value(v).expect("messages")
+        };
+        let img = |data: &str| {
+            msgs(serde_json::json!([{ "role": "user", "content": [
+                { "type": "text", "text": "describe" },
+                { "type": "image", "mediaType": "image/png", "dataBase64": data }
+            ] }]))
+        };
+        let plain = msgs(serde_json::json!([{ "role": "user", "content": "hi" }]));
+        let base = claude_gate_target("m", &plain, false, None, 0);
+        assert!(base.contains("#req="), "{base}");
+
+        // 纯字符串与等价的单 text 块是同一请求。
+        let as_block = msgs(serde_json::json!([
+            { "role": "user", "content": [{ "type": "text", "text": "hi" }] }
+        ]));
+        assert_eq!(claude_gate_target("m", &as_block, false, None, 0), base);
+        assert_eq!(
+            claude_gate_target("m", &img("abc"), false, None, 0),
+            claude_gate_target("m", &img("abc"), false, None, 0)
+        );
+
+        let schema = serde_json::json!({ "type": "object" });
+        for other in [
+            claude_gate_target("m2", &plain, false, None, 0),
+            claude_gate_target("m", &plain, true, None, 0),
+            claude_gate_target("m", &plain, false, Some(&schema), 0),
+            claude_gate_target(
+                "m",
+                &msgs(serde_json::json!([{ "role": "user", "content": "hi!" }])),
+                false,
+                None,
+                0,
+            ),
+            claude_gate_target(
+                "m",
+                &msgs(serde_json::json!([{ "role": "system", "content": "hi" }])),
+                false,
+                None,
+                0,
+            ),
+            claude_gate_target(
+                "m",
+                &msgs(serde_json::json!([
+                    { "role": "user", "content": "hi" },
+                    { "role": "assistant", "content": "ok" }
+                ])),
+                false,
+                None,
+                0,
+            ),
+        ] {
+            assert_ne!(other, base);
+        }
+        assert_ne!(
+            claude_gate_target("m", &img("abc"), false, None, 0),
+            claude_gate_target("m", &img("abd"), false, None, 0),
+            "image bytes must be part of the digest"
+        );
+
+        // 传输层自动重试各占一个键；超过上限的索引收敛到同一个键。
+        let retry1 = claude_gate_target("m", &plain, false, None, 1);
+        assert_ne!(retry1, base);
+        assert_ne!(retry1, claude_gate_target("m", &plain, false, None, 2));
+        assert_eq!(
+            claude_gate_target("m", &plain, false, None, CLAUDE_GATE_MAX_RETRY_ATTEMPT),
+            claude_gate_target("m", &plain, false, None, u32::MAX)
+        );
     }
 }

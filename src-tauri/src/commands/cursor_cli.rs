@@ -17,12 +17,33 @@ use super::process_tree::{self, ProcessTree};
 use tokio::sync::Mutex;
 
 use super::cli_resolver::{child_path_env, find_cli_command};
-use super::local_cli_config::{apply_local_cli_environment, resolve_home_dir};
+use super::local_cli_config::{
+    apply_local_cli_environment, ensure_cli_workspace_dir, resolve_home_dir,
+};
 
 const PREFERRED_PROXY_PORT: u16 = 8765;
 const DEFAULT_PROXY_BASE: &str = "http://127.0.0.1:8765";
 const PROXY_START_TIMEOUT_MS: u64 = 15_000;
 const PROXY_POLL_MS: u64 = 200;
+
+/// npx fallback is pinned to an exact, reviewed release: an unpinned
+/// `npx --yes cursor-api-proxy` silently runs whatever `latest` is at spawn
+/// time (supply chain + default drift). Bump only after re-reading that
+/// release's README for the `CURSOR_BRIDGE_*` names and defaults used below.
+const CURSOR_PROXY_NPX_SPEC: &str = "cursor-api-proxy@1.7.0";
+
+/// The app only uses the proxy as an OpenAI-compatible chat endpoint. Pin the
+/// safety-relevant switches explicitly (values = cursor-api-proxy 1.7.0
+/// defaults) so a user-level `CURSOR_BRIDGE_*` export inherited by the app
+/// cannot turn the app's proxy into a workspace-writing agent. A per-request
+/// `mode` / `X-Cursor-Mode` would still take precedence.
+const CURSOR_PROXY_CHAT_ONLY_ENV: [(&str, &str); 5] = [
+    ("CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE", "true"),
+    ("CURSOR_BRIDGE_MODE", "ask"),
+    ("CURSOR_BRIDGE_FORCE", "false"),
+    ("CURSOR_BRIDGE_APPROVE_MCPS", "false"),
+    ("CURSOR_BRIDGE_DSH_AUTO_MODE", "false"),
+];
 
 #[derive(Default)]
 struct ManagedProxy {
@@ -71,25 +92,131 @@ async fn find_agent_command() -> Result<std::path::PathBuf, String> {
 }
 
 async fn find_proxy_launcher() -> Result<(std::path::PathBuf, Vec<String>), String> {
-    if let Ok(bin) = find_cli_command(
+    let path_bin = find_cli_command(
         "cursor-api-proxy",
         &["cursor-api-proxy.cmd", "cursor-api-proxy.exe"],
     )
     .await
-    {
-        return Ok((bin, vec![]));
-    }
+    .ok();
+    let npx = find_cli_command("npx", &["npx.cmd", "npx.exe"]).await.ok();
+    choose_proxy_launcher(path_bin, npx)
+}
 
-    let npx = find_cli_command("npx", &["npx.cmd", "npx.exe"])
-        .await
-        .map_err(|_| {
-            "`cursor-api-proxy` and `npx` not found on PATH. Install Node.js 18+ and `npm i -g cursor-api-proxy`, or ensure `npx` works."
-                .to_string()
-        })?;
-    Ok((
-        npx,
-        vec!["--yes".to_string(), "cursor-api-proxy".to_string()],
-    ))
+/// The pinned version, i.e. the part of [`CURSOR_PROXY_NPX_SPEC`] after `@`.
+fn pinned_proxy_version() -> &'static str {
+    CURSOR_PROXY_NPX_SPEC
+        .rsplit_once('@')
+        .map(|(_, v)| v)
+        .unwrap_or_default()
+}
+
+/// Version of an npm-global `cursor-api-proxy` install, read from its
+/// `package.json` next to the PATH shim (never by executing it). Windows npm
+/// puts shims in `<prefix>/` and packages in `<prefix>/node_modules`; Unix
+/// puts shims in `<prefix>/bin` and packages in `<prefix>/lib/node_modules`.
+/// `None` when the layout is unknown (custom shim, other package manager).
+fn installed_proxy_version(bin: &std::path::Path) -> Option<String> {
+    let real = std::fs::canonicalize(bin).unwrap_or_else(|_| bin.to_path_buf());
+    let shim_dir = bin.parent()?;
+    let mut candidates = vec![
+        shim_dir.join("node_modules/cursor-api-proxy/package.json"),
+        shim_dir.join("../lib/node_modules/cursor-api-proxy/package.json"),
+    ];
+    // Unix shim is a symlink into <pkg>/dist/...; walk up from the real path.
+    candidates.extend(
+        real.ancestors()
+            .skip(1)
+            .take(4)
+            .map(|d| d.join("package.json")),
+    );
+    candidates.into_iter().find_map(|path| {
+        let text = std::fs::read_to_string(path).ok()?;
+        let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+        if json.get("name")?.as_str()? != "cursor-api-proxy" {
+            return None;
+        }
+        Some(json.get("version")?.as_str()?.to_string())
+    })
+}
+
+/// Pick the proxy launcher. A PATH install is used only when it is exactly the
+/// pinned version: `CURSOR_PROXY_CHAT_ONLY_ENV` was reviewed against that
+/// release, and another version may rename or re-default those switches.
+/// Otherwise the pinned npx spec runs; with no npx, fail closed with a fix hint.
+fn choose_proxy_launcher(
+    path_bin: Option<std::path::PathBuf>,
+    npx: Option<std::path::PathBuf>,
+) -> Result<(std::path::PathBuf, Vec<String>), String> {
+    let pinned = pinned_proxy_version();
+    let path_version = path_bin.as_deref().and_then(installed_proxy_version);
+    if let Some(bin) = &path_bin {
+        if path_version.as_deref() == Some(pinned) {
+            return Ok((bin.clone(), vec![]));
+        }
+    }
+    if let Some(npx) = npx {
+        if let Some(bin) = &path_bin {
+            log::warn!(
+                "cursor-api-proxy on PATH ({}) is version {}, not the pinned {pinned}; using npx {CURSOR_PROXY_NPX_SPEC} instead",
+                bin.display(),
+                path_version.as_deref().unwrap_or("unknown"),
+            );
+        }
+        return Ok((npx, cursor_proxy_npx_args()));
+    }
+    Err(match (path_bin, path_version) {
+        (Some(bin), found) => format!(
+            "`cursor-api-proxy` on PATH ({}) is version {}, but the app only runs the reviewed {pinned}. Run `npm i -g {CURSOR_PROXY_NPX_SPEC}`, or install Node.js so `npx` can fetch the pinned version.",
+            bin.display(),
+            found.as_deref().unwrap_or("unknown"),
+        ),
+        (None, _) => format!(
+            "`cursor-api-proxy` and `npx` not found on PATH. Install Node.js 18+ and `npm i -g {CURSOR_PROXY_NPX_SPEC}`, or ensure `npx` works."
+        ),
+    })
+}
+
+/// npx fallback arguments: exact-version pin (see [`CURSOR_PROXY_NPX_SPEC`]).
+fn cursor_proxy_npx_args() -> Vec<String> {
+    vec!["--yes".to_string(), CURSOR_PROXY_NPX_SPEC.to_string()]
+}
+
+/// Force the app-managed proxy into chat-only mode (see [`CURSOR_PROXY_CHAT_ONLY_ENV`]).
+fn apply_cursor_proxy_chat_only_env(cmd: &mut Command) {
+    for (key, value) in CURSOR_PROXY_CHAT_ONLY_ENV {
+        cmd.env(key, value);
+    }
+}
+
+/// Unix launch line for `$SHELL -l -c`. A login shell sources the user's
+/// profile *after* `cmd.env` is applied, so a profile `export CURSOR_BRIDGE_MODE=agent`
+/// (or a `cd`) would win. Re-assert host/port, the chat-only env and the cwd
+/// inside the command itself, after profile sourcing.
+#[cfg_attr(not(unix), allow(dead_code))]
+fn unix_proxy_cmdline(
+    launcher: &str,
+    extra_args: &[String],
+    port: u16,
+    workspace: Option<&std::path::Path>,
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(dir) = workspace {
+        parts.push(format!(
+            "cd {} 2>/dev/null;",
+            shell_quote(&dir.to_string_lossy())
+        ));
+    }
+    parts.push("exec env".to_string());
+    parts.push(shell_quote("CURSOR_BRIDGE_HOST=127.0.0.1"));
+    parts.push(shell_quote(&format!("CURSOR_BRIDGE_PORT={port}")));
+    for (key, value) in CURSOR_PROXY_CHAT_ONLY_ENV {
+        parts.push(shell_quote(&format!("{key}={value}")));
+    }
+    parts.push(shell_quote(launcher));
+    for arg in extra_args {
+        parts.push(shell_quote(arg));
+    }
+    parts.join(" ")
 }
 
 fn normalize_proxy_base(base_url: Option<String>) -> String {
@@ -467,16 +594,20 @@ fn shell_quote(value: &str) -> String {
 async fn spawn_proxy_process(port: u16) -> Result<Child, String> {
     let (launcher, extra_args) = find_proxy_launcher().await?;
     let path_env = child_path_env().await;
+    // The proxy's cwd is its default `CURSOR_BRIDGE_WORKSPACE`: use the dedicated
+    // app-owned directory, not the app's inherited cwd. Best effort, because
+    // chat-only mode already runs the Cursor agent in its own temp dir.
+    let workspace = ensure_cli_workspace_dir().ok();
 
     #[cfg(unix)]
     {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-        let mut parts = Vec::with_capacity(1 + extra_args.len());
-        parts.push(shell_quote(&launcher.to_string_lossy()));
-        for arg in &extra_args {
-            parts.push(shell_quote(arg));
-        }
-        let cmdline = format!("exec {}", parts.join(" "));
+        let cmdline = unix_proxy_cmdline(
+            &launcher.to_string_lossy(),
+            &extra_args,
+            port,
+            workspace.as_deref(),
+        );
 
         let mut cmd = Command::new(&shell);
         suppress_windows_console(&mut cmd);
@@ -487,6 +618,10 @@ async fn spawn_proxy_process(port: u16) -> Result<Child, String> {
         apply_cursor_auth_env(&mut cmd);
         cmd.env("CURSOR_BRIDGE_HOST", "127.0.0.1");
         cmd.env("CURSOR_BRIDGE_PORT", port.to_string());
+        apply_cursor_proxy_chat_only_env(&mut cmd);
+        if let Some(dir) = workspace.as_deref() {
+            cmd.current_dir(dir);
+        }
         cmd.args(["-l", "-c", &cmdline]);
         cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -509,6 +644,10 @@ async fn spawn_proxy_process(port: u16) -> Result<Child, String> {
         apply_cursor_auth_env(&mut cmd);
         cmd.env("CURSOR_BRIDGE_HOST", "127.0.0.1");
         cmd.env("CURSOR_BRIDGE_PORT", port.to_string());
+        apply_cursor_proxy_chat_only_env(&mut cmd);
+        if let Some(dir) = workspace.as_deref() {
+            cmd.current_dir(dir);
+        }
         cmd.args(&extra_args);
         cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -702,5 +841,144 @@ mod tests {
             Some("file")
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn npx_fallback_pins_exact_proxy_version() {
+        // D4：npx 兜底必须钉死精确版本，不得随 latest 漂移。
+        let args = cursor_proxy_npx_args();
+        assert_eq!(args.first().map(String::as_str), Some("--yes"));
+        let spec = args.last().unwrap();
+        let (name, version) = spec.rsplit_once('@').expect("versioned npx spec");
+        assert_eq!(name, "cursor-api-proxy");
+        let parts: Vec<&str> = version.split('.').collect();
+        assert_eq!(parts.len(), 3, "exact x.y.z, got {version}");
+        assert!(parts
+            .iter()
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())));
+    }
+
+    #[test]
+    fn managed_proxy_env_forces_chat_only() {
+        let mut cmd = Command::new("cursor-api-proxy");
+        apply_cursor_proxy_chat_only_env(&mut cmd);
+        let envs: std::collections::HashMap<String, String> = cmd
+            .as_std()
+            .get_envs()
+            .filter_map(|(k, v)| {
+                Some((
+                    k.to_string_lossy().into_owned(),
+                    v?.to_string_lossy().into_owned(),
+                ))
+            })
+            .collect();
+        for (key, expected) in [
+            ("CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE", "true"),
+            ("CURSOR_BRIDGE_MODE", "ask"),
+            ("CURSOR_BRIDGE_FORCE", "false"),
+            ("CURSOR_BRIDGE_APPROVE_MCPS", "false"),
+            ("CURSOR_BRIDGE_DSH_AUTO_MODE", "false"),
+        ] {
+            assert_eq!(envs.get(key).map(String::as_str), Some(expected), "{key}");
+        }
+    }
+
+    #[test]
+    fn unix_proxy_cmdline_reasserts_env_after_profile() {
+        // D4：login shell 会在 cmd.env 之后读 profile，强制值必须写进 -c 命令串本身。
+        let ws = std::path::Path::new("/home/u/it's cache/cli-workspace");
+        let line = unix_proxy_cmdline("/usr/bin/npx", &cursor_proxy_npx_args(), 8765, Some(ws));
+        assert!(
+            line.starts_with("cd '/home/u/it'\"'\"'s cache/cli-workspace' 2>/dev/null; exec env "),
+            "{line}"
+        );
+        let env_at = line.find("exec env ").unwrap();
+        let launcher_at = line.find("'/usr/bin/npx'").unwrap();
+        let mut expected = vec![
+            "CURSOR_BRIDGE_HOST=127.0.0.1".to_string(),
+            "CURSOR_BRIDGE_PORT=8765".to_string(),
+        ];
+        expected.extend(
+            CURSOR_PROXY_CHAT_ONLY_ENV
+                .iter()
+                .map(|(k, v)| format!("{k}={v}")),
+        );
+        for pair in expected {
+            let at = line
+                .find(&shell_quote(&pair))
+                .unwrap_or_else(|| panic!("{pair} missing"));
+            assert!(
+                env_at < at && at < launcher_at,
+                "{pair} must sit between env and launcher"
+            );
+        }
+        assert!(
+            line.ends_with("'/usr/bin/npx' '--yes' 'cursor-api-proxy@1.7.0'"),
+            "{line}"
+        );
+        assert!(!unix_proxy_cmdline("p", &[], 1, None).starts_with("cd "));
+    }
+
+    fn proxy_fixture(layout: &str, version: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("niko-proxy-pin-{layout}-{nanos}"));
+        let (shim, pkg) = match layout {
+            "win" => (
+                root.join("cursor-api-proxy.cmd"),
+                root.join("node_modules/cursor-api-proxy"),
+            ),
+            _ => (
+                root.join("bin/cursor-api-proxy"),
+                root.join("lib/node_modules/cursor-api-proxy"),
+            ),
+        };
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::create_dir_all(shim.parent().unwrap()).unwrap();
+        std::fs::write(&shim, b"shim").unwrap();
+        std::fs::write(
+            pkg.join("package.json"),
+            format!(r#"{{"name":"cursor-api-proxy","version":"{version}"}}"#),
+        )
+        .unwrap();
+        (root, shim)
+    }
+
+    #[test]
+    fn path_proxy_is_used_only_at_the_pinned_version() {
+        // DEBT-20261029-02：PATH 上的全局安装也必须是审过的版本，否则改走钉版本的 npx。
+        let pinned = pinned_proxy_version();
+        assert_eq!(pinned, "1.7.0");
+        let npx = Some(std::path::PathBuf::from("/usr/bin/npx"));
+        for layout in ["win", "unix"] {
+            let (root, shim) = proxy_fixture(layout, pinned);
+            assert_eq!(installed_proxy_version(&shim).as_deref(), Some(pinned));
+            let (bin, args) = choose_proxy_launcher(Some(shim.clone()), npx.clone()).unwrap();
+            assert_eq!((bin, args), (shim, vec![]));
+            let _ = std::fs::remove_dir_all(&root);
+
+            let (root, shim) = proxy_fixture(layout, "9.9.9");
+            let (bin, args) = choose_proxy_launcher(Some(shim.clone()), npx.clone()).unwrap();
+            assert_eq!((bin, args), (npx.clone().unwrap(), cursor_proxy_npx_args()));
+            let err = choose_proxy_launcher(Some(shim), None).unwrap_err();
+            assert!(
+                err.contains("9.9.9") && err.contains(CURSOR_PROXY_NPX_SPEC),
+                "{err}"
+            );
+            let _ = std::fs::remove_dir_all(&root);
+        }
+        // 版本无法确认（非 npm 布局）按不符处理。
+        let bare = std::env::temp_dir().join("niko-proxy-pin-bare-cursor-api-proxy");
+        assert_eq!(installed_proxy_version(&bare), None);
+        let (bin, _) = choose_proxy_launcher(Some(bare.clone()), npx.clone()).unwrap();
+        assert_eq!(bin, npx.clone().unwrap());
+        assert!(choose_proxy_launcher(Some(bare), None)
+            .unwrap_err()
+            .contains("unknown"));
+        assert!(choose_proxy_launcher(None, None)
+            .unwrap_err()
+            .contains("not found on PATH"));
     }
 }

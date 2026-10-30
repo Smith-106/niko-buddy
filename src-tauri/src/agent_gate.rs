@@ -12,12 +12,12 @@ use std::sync::{Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 
 // M9-2：目标策略纯层已剥离至 `agent_gate_policy.rs`——file_sync_watch 模式：新文件 + 原文件回引，外部 import 面零变化。
-pub use crate::agent_gate_policy::{
-    classify_rebuild_class, hit_criteria, is_destructive_op, is_protected_target, now_ms,
-};
 pub(crate) use crate::agent_gate_policy::{
     append_audit, effective_decision, fingerprint, halt_path, normalize_target, outcome,
     protected_prefix, relative_to_root,
+};
+pub use crate::agent_gate_policy::{
+    classify_rebuild_class, hit_criteria, is_destructive_op, is_protected_target, now_ms,
 };
 
 /// 单个确认请求的人工响应窗口；到期未响应即视为拒绝，且不重试。
@@ -1044,5 +1044,55 @@ mod tests {
         let retry = gate_authorize("deleteFile", target, GateActor::Agent);
         assert_eq!(retry.decision, Decision::Allowed);
         assert!(retry.reason.contains("grant"));
+    }
+
+    /// ISS-20261029-005：本地 CLI 的门控键按请求区分。连续的不同请求不得触发熔断，
+    /// 也不得连带拒绝无关写入；完全相同的请求重复仍按原阈值熔断。
+    #[test]
+    fn distinct_cli_requests_do_not_trip_loop_breaker() {
+        use crate::commands::local_cli_config::cli_gate_target;
+        let _serial = serial();
+        let _t = use_tree("cli-req");
+        // 目标是固定标签，不含带用户名的绝对路径，不会命中受保护区子串判定。
+        let probe = cli_gate_target("claude", "m", &[b"x"]);
+        assert!(!protected_prefix(&probe), "{probe}");
+        assert!(!is_protected_target(&probe), "{probe}");
+
+        for i in 0..(LOOP_THRESHOLD * 2) {
+            let prompt = format!("chapter review dimension {i}");
+            let target = cli_gate_target("claude", "m", &[prompt.as_bytes()]);
+            let out = gate_authorize("runCommand", &target, GateActor::Cli);
+            assert!(
+                out.may_proceed(),
+                "distinct request {i} must proceed: {}",
+                out.reason
+            );
+        }
+        let write = gate_authorize("writeFile", "book/chapter-9.md", GateActor::User);
+        assert!(
+            write.may_proceed(),
+            "unrelated user write must stay allowed"
+        );
+
+        let same = cli_gate_target("claude", "m", &[b"same prompt"]);
+        for _ in 0..(LOOP_THRESHOLD - 1) {
+            assert!(gate_authorize("runCommand", &same, GateActor::Cli).may_proceed());
+        }
+        let halting = gate_authorize("runCommand", &same, GateActor::Cli);
+        assert_eq!(halting.decision, Decision::Denied);
+        assert!(
+            halting.reason.contains("loop threshold"),
+            "{}",
+            halting.reason
+        );
+
+        // 熔断态是进程级全局状态；不清理会让同进程后续用例（batch_replace、
+        // snapshot_timemachine、mcp_remote 等）随执行顺序偶发失败。
+        let halt_id = loop_state_impl().halt_request_id.expect("halt id");
+        resolve_impl(&halt_id, Decision::ResumeAfterHalt, "test cleanup").expect("resume");
+        assert!(
+            !loop_state_impl().halted,
+            "本用例必须清理熔断态，避免污染同进程其他用例"
+        );
     }
 }

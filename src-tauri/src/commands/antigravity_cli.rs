@@ -26,7 +26,9 @@ use tokio::sync::Mutex;
 
 use super::cli_emit::EmitBatcher;
 use super::cli_resolver::{child_path_env, find_cli_command};
-use super::local_cli_config::apply_local_cli_environment;
+use super::local_cli_config::{
+    apply_local_cli_environment, cli_gate_target, ensure_cli_workspace_dir,
+};
 
 const VERSION_TIMEOUT_SECS: u64 = 5;
 const DEFAULT_SPAWN_TIMEOUT_MINUTES: u64 = 10;
@@ -222,16 +224,16 @@ pub async fn antigravity_cli_detect() -> Result<DetectResult, String> {
     do_antigravity_cli_detect().await
 }
 
-/// spawn 参数：antigravity 用 `agent --print`；gemini fallback 用
-/// `-p <prompt> --output-format stream-json`（prompt 经 stdin 更稳，故仍传 "-" 占位）。
+/// spawn 参数：两条分支都经 stdin 传 prompt（末尾 "-" 占位）并输出 stream-json。
+///
+/// Gemini fallback 不得带 `--yolo` / `--approval-mode yolo`：headless 模式下 Gemini CLI
+/// 的 Policy Engine 会把需要确认的工具调用（shell、写文件、编辑）直接判为拒绝，
+/// 纯文本生成用不到这些工具；`--yolo` 会把它们全部自动放行。
+/// antigravity 分支的参数未经独立核实，保持原样。
 fn build_spawn_args(model: &str, is_gemini_fallback: bool) -> Vec<String> {
     if is_gemini_fallback {
-        // Gemini CLI headless：stdin prompt + stream-json 输出。
-        let mut a = vec![
-            "--output-format".to_string(),
-            "stream-json".to_string(),
-            "--yolo".to_string(), // 非交互，跳过确认
-        ];
+        // Gemini CLI headless：stdin prompt + stream-json 输出，不自动批准任何工具。
+        let mut a = vec!["--output-format".to_string(), "stream-json".to_string()];
         if !model.trim().is_empty() {
             a.extend(["--model".to_string(), model.to_string()]);
         }
@@ -252,6 +254,11 @@ fn build_spawn_args(model: &str, is_gemini_fallback: bool) -> Vec<String> {
     }
 }
 
+/// Gate target for one antigravity / gemini spawn (see [`cli_gate_target`]).
+fn antigravity_gate_target(model: &str, prompt: &str) -> String {
+    cli_gate_target("antigravity", model, &[prompt.as_bytes()])
+}
+
 fn spawn_timeout_minutes(value: Option<u64>) -> u64 {
     value
         .unwrap_or(DEFAULT_SPAWN_TIMEOUT_MINUTES)
@@ -268,9 +275,9 @@ pub async fn do_antigravity_cli_spawn<E: AntigravityEmitter>(
     prompt: String,
     timeout_minutes: Option<u64>,
 ) -> Result<(), String> {
-    let cli_target = std::env::current_dir()
-        .map(|d| d.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "cli".to_string());
+    // F-001：与 claude/codex CLI 同一条外部进程边界；门控目标 = 专用工作目录 + 本次请求摘要。
+    let working_dir = ensure_cli_workspace_dir()?;
+    let cli_target = antigravity_gate_target(&model, &prompt);
     let gate = crate::agent_gate::gate_authorize(
         "runCommand",
         &cli_target,
@@ -287,6 +294,9 @@ pub async fn do_antigravity_cli_spawn<E: AntigravityEmitter>(
     let mut cmd = Command::new(&bin);
     suppress_windows_console(&mut cmd);
     apply_local_cli_environment(&mut cmd);
+    // Dedicated app-owned cwd instead of the app's inherited one (install dir, `/`,
+    // or the repo in dev), which the CLI would otherwise treat as its workspace.
+    cmd.current_dir(&working_dir);
     if let Some(path_env) = child_path_env().await {
         cmd.env("PATH", path_env);
     }
@@ -460,4 +470,59 @@ pub async fn antigravity_cli_kill(
     stream_id: String,
 ) -> Result<(), String> {
     do_antigravity_cli_kill(&state, &stream_id).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gemini_fallback_never_auto_approves_tools() {
+        // D3：headless 下不带 --yolo，需确认的工具调用（shell/写文件）由 Policy Engine 拒绝。
+        for model in ["", "gemini-2.5-pro"] {
+            let args = build_spawn_args(model, true);
+            assert!(
+                !args
+                    .iter()
+                    .any(|a| a == "--yolo" || a == "-y" || a.starts_with("--approval-mode")),
+                "gemini fallback must not auto-approve tools: {args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn gemini_fallback_streams_json_from_stdin() {
+        assert_eq!(
+            build_spawn_args("", true),
+            ["--output-format", "stream-json", "-"]
+        );
+        assert_eq!(
+            build_spawn_args("gemini-2.5-pro", true),
+            [
+                "--output-format",
+                "stream-json",
+                "--model",
+                "gemini-2.5-pro",
+                "-"
+            ]
+        );
+    }
+
+    #[test]
+    fn antigravity_branch_args_unchanged() {
+        assert_eq!(
+            build_spawn_args("", false),
+            ["agent", "--output-format", "stream-json", "-"]
+        );
+    }
+
+    #[test]
+    fn antigravity_gate_target_covers_prompt_and_model() {
+        // ISS-20261029-005
+        let base = antigravity_gate_target("m", "p");
+        assert!(base.contains("#req="), "{base}");
+        assert_eq!(antigravity_gate_target("m", "p"), base);
+        assert_ne!(antigravity_gate_target("m", "p2"), base);
+        assert_ne!(antigravity_gate_target("m2", "p"), base);
+    }
 }

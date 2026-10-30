@@ -118,6 +118,106 @@ fn nonempty_env_path(key: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+// ── Dedicated CLI working directory ─────────────────────────────────────────
+
+/// Path segments of the dedicated CLI working directory under the per-user
+/// cache base; mirrors Tauri's `app_cache_dir()` layout (`<cache>/<identifier>`).
+const CLI_WORKSPACE_SUBDIR: [&str; 2] = ["com.niko-buddy.app", "cli-workspace"];
+
+/// Per-user cache base: `%LOCALAPPDATA%` on Windows, `~/Library/Caches` on
+/// macOS, `$XDG_CACHE_HOME` or `~/.cache` elsewhere.
+///
+/// Deliberately never the shared system temp dir: a fixed, predictable name in
+/// a world-writable `/tmp` could be pre-seeded by another local user with
+/// project-level CLI config (for example `.claude/settings.json` hooks).
+#[cfg(windows)]
+fn cli_workspace_base() -> Option<PathBuf> {
+    nonempty_env_path("LOCALAPPDATA")
+        .or_else(|| resolve_home_dir().map(|home| home.join("AppData").join("Local")))
+}
+
+#[cfg(target_os = "macos")]
+fn cli_workspace_base() -> Option<PathBuf> {
+    resolve_home_dir().map(|home| home.join("Library").join("Caches"))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn cli_workspace_base() -> Option<PathBuf> {
+    nonempty_env_path("XDG_CACHE_HOME")
+        .filter(|path| path.is_absolute())
+        .or_else(|| resolve_home_dir().map(|home| home.join(".cache")))
+}
+
+/// Dedicated CLI working directory under `base`.
+fn cli_workspace_dir_under(base: &Path) -> PathBuf {
+    CLI_WORKSPACE_SUBDIR
+        .iter()
+        .fold(base.to_path_buf(), |dir, part| dir.join(part))
+}
+
+/// Create (if needed) and return the dedicated CLI working directory under
+/// `base`; split from [`ensure_cli_workspace_dir`] so tests can use a temp base.
+fn ensure_cli_workspace_dir_in(base: &Path) -> Result<PathBuf, String> {
+    let dir = cli_workspace_dir_under(base);
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        format!(
+            "Failed to create local CLI working directory {}: {e}",
+            dir.display()
+        )
+    })?;
+    Ok(dir)
+}
+
+/// Working directory for every spawned local CLI (claude / codex / gemini /
+/// antigravity / cursor-api-proxy): one fixed, app-owned directory that holds
+/// no user files.
+///
+/// Claude Code auto-approves read-only tools inside its working directory, so
+/// spawning from `$HOME` exposed the whole home tree without approval; the
+/// other CLIs resolve relative paths and project-level config from their cwd,
+/// which used to be whatever the app inherited (install dir, `/`, or the repo
+/// in dev). Fails closed: callers must not fall back to `$HOME` or the
+/// inherited cwd.
+pub fn ensure_cli_workspace_dir() -> Result<PathBuf, String> {
+    ensure_cli_workspace_dir_from(cli_workspace_base())
+}
+
+/// Fail-closed core of [`ensure_cli_workspace_dir`]: no base or a relative
+/// base (which would resolve against the inherited cwd) is an error.
+fn ensure_cli_workspace_dir_from(base: Option<PathBuf>) -> Result<PathBuf, String> {
+    let base = base.filter(|base| base.is_absolute()).ok_or_else(|| {
+        "Cannot resolve a per-user cache directory for the local CLI working directory".to_string()
+    })?;
+    ensure_cli_workspace_dir_in(&base)
+}
+
+/// Gate target for one local CLI spawn: `cli-workspace/<provider>#req=<sha256 prefix>`.
+///
+/// The loop breaker in `agent_gate` halts on the same (op, target) 3 times in
+/// 60s. A per-machine constant target halted every gated op after three
+/// ordinary model calls; with the request digest only identical requests (same
+/// provider, model and payload) count toward the threshold. Parts are
+/// length-prefixed so ("ab","c") and ("a","bc") differ.
+///
+/// The target is a fixed label, not the absolute workspace path: the spawn cwd
+/// is always the app-owned [`ensure_cli_workspace_dir`], and its absolute path
+/// embeds the OS user name, so a user named `QM` or `canon` would hit the
+/// gate's protected-path substring checks and hard-deny every CLI call.
+pub fn cli_gate_target(provider: &str, model: &str, payload: &[&[u8]]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for part in [provider.as_bytes(), model.as_bytes()]
+        .into_iter()
+        .chain(payload.iter().copied())
+    {
+        hasher.update((part.len() as u64).to_le_bytes());
+        hasher.update(part);
+    }
+    let digest = hasher.finalize();
+    let hex: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    format!("cli-workspace/{provider}#req={hex}")
+}
+
 // ── Config file readers ─────────────────────────────────────────────────────
 
 /// Read `~/.claude/settings.json` and extract the `model` field.
@@ -230,6 +330,56 @@ mod tests {
         assert_eq!(info.no_proxy.as_deref(), Some("localhost,127.0.0.1"));
     }
 
+    #[test]
+    fn cli_workspace_dir_is_a_fixed_dedicated_subdir() {
+        let base = create_temp_dir("niko-buddy-cli-workspace-test");
+        let dir = ensure_cli_workspace_dir_in(&base).unwrap();
+        assert!(dir.is_dir());
+        assert_eq!(
+            dir.strip_prefix(&base).unwrap(),
+            Path::new("com.niko-buddy.app").join("cli-workspace")
+        );
+        // Same path every time: spawns reuse one directory instead of piling
+        // up per-cwd CLI state (e.g. ~/.claude/projects/<cwd>).
+        assert_eq!(ensure_cli_workspace_dir_in(&base).unwrap(), dir);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn cli_gate_target_keys_on_request_not_machine() {
+        let base = cli_gate_target("claude", "m", &[b"hello"]);
+        let (label, req) = base.split_once("#req=").expect("digest suffix");
+        assert_eq!(label, "cli-workspace/claude");
+        assert_eq!(req.len(), 16);
+        assert!(req
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        // Stable for the identical request.
+        assert_eq!(cli_gate_target("claude", "m", &[b"hello"]), base);
+        // Any change in provider, model or payload is a different key.
+        for other in [
+            cli_gate_target("codex", "m", &[b"hello"]),
+            cli_gate_target("claude", "m2", &[b"hello"]),
+            cli_gate_target("claude", "m", &[b"hello!"]),
+            cli_gate_target("claude", "m", &[b"hel", b"lo"]),
+        ] {
+            assert_ne!(other, base);
+        }
+        assert_ne!(
+            cli_gate_target("p", "m", &[b"ab", b"c"]),
+            cli_gate_target("p", "m", &[b"a", b"bc"])
+        );
+    }
+
+    #[test]
+    fn cli_workspace_is_never_under_shared_temp() {
+        let _guard = env_mutex_lock();
+        if let Some(base) = cli_workspace_base() {
+            let dir = cli_workspace_dir_under(&base);
+            assert!(!dir.starts_with(std::env::temp_dir()), "{}", dir.display());
+        }
+    }
+
     // ── Test helpers ────────────────────────────────────────────────────────
 
     fn create_temp_dir(prefix: &str) -> PathBuf {
@@ -263,5 +413,22 @@ mod tests {
                 std::env::remove_var(lower);
             }
         }
+    }
+
+    #[test]
+    fn cli_workspace_resolution_fails_closed() {
+        // 无缓存根、相对路径根、根下无法建目录：一律报错，不得回退到 $HOME 或继承的 cwd。
+        let err = ensure_cli_workspace_dir_from(None).unwrap_err();
+        assert!(err.contains("Cannot resolve"), "{err}");
+        let err = ensure_cli_workspace_dir_from(Some(PathBuf::from("relative/cache"))).unwrap_err();
+        assert!(err.contains("Cannot resolve"), "{err}");
+        assert!(!Path::new("relative").exists());
+
+        let base = create_temp_dir("niko-buddy-cli-workspace-failclosed");
+        let file_base = base.join("not-a-dir");
+        std::fs::write(&file_base, b"x").unwrap();
+        let err = ensure_cli_workspace_dir_from(Some(file_base)).unwrap_err();
+        assert!(err.contains("Failed to create"), "{err}");
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

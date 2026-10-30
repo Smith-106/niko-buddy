@@ -23,7 +23,8 @@ use tokio::sync::Mutex;
 use super::cli_emit::EmitBatcher;
 use super::cli_resolver::{child_path_env, find_cli_command};
 use super::local_cli_config::{
-    apply_local_cli_environment, read_codex_local_config, resolve_home_dir, LocalCliConfigInfo,
+    apply_local_cli_environment, cli_gate_target, ensure_cli_workspace_dir,
+    read_codex_local_config, resolve_home_dir, LocalCliConfigInfo,
 };
 
 // ── Event emitter abstraction ─────────────────────────────────────
@@ -228,9 +229,9 @@ pub async fn do_codex_cli_spawn<E: CodexEmitter>(
     timeout_minutes: Option<u64>,
 ) -> Result<(), String> {
     // F-001：与 claude CLI 同一条外部进程边界。
-    let cli_target = std::env::current_dir()
-        .map(|d| d.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "cli".to_string());
+    // 门控目标 = spawn 的专用工作目录 + 本次请求摘要（cli_gate_target），见 claude_cli。
+    let working_dir = ensure_cli_workspace_dir()?;
+    let cli_target = codex_gate_target(&model, &prompt, isolate_local_config);
     let gate = crate::agent_gate::gate_authorize(
         "runCommand",
         &cli_target,
@@ -247,6 +248,9 @@ pub async fn do_codex_cli_spawn<E: CodexEmitter>(
     let mut cmd = Command::new(&codex);
     suppress_windows_console(&mut cmd);
     apply_local_cli_environment(&mut cmd);
+    // Dedicated app-owned cwd instead of the app's inherited one (install dir, `/`,
+    // or the repo in dev), which the CLI would otherwise treat as its workspace.
+    cmd.current_dir(&working_dir);
     if let Some(path_env) = child_path_env().await {
         cmd.env("PATH", path_env);
     }
@@ -415,6 +419,12 @@ pub async fn codex_cli_spawn(
     .await
 }
 
+/// Gate target for one Codex spawn (see [`cli_gate_target`]): prompt + isolation flag.
+fn codex_gate_target(model: &str, prompt: &str, isolate_local_config: bool) -> String {
+    let isolate = format!("isolate={isolate_local_config}");
+    cli_gate_target("codex", model, &[prompt.as_bytes(), isolate.as_bytes()])
+}
+
 fn codex_spawn_timeout_minutes(value: Option<u64>) -> u64 {
     value.unwrap_or(DEFAULT_CODEX_SPAWN_TIMEOUT_MINUTES).clamp(
         MIN_CODEX_SPAWN_TIMEOUT_MINUTES,
@@ -562,5 +572,20 @@ mod tests {
         let args = build_codex_cli_args("", false);
         assert!(!args.contains(&"--model".to_string()));
         assert_eq!(args.last().map(String::as_str), Some("-"));
+    }
+
+    #[test]
+    fn codex_gate_target_covers_prompt_model_and_isolation() {
+        // ISS-20261029-005
+        let base = codex_gate_target("m", "p", false);
+        assert!(base.contains("#req="), "{base}");
+        assert_eq!(codex_gate_target("m", "p", false), base);
+        for other in [
+            codex_gate_target("m", "p2", false),
+            codex_gate_target("m2", "p", false),
+            codex_gate_target("m", "p", true),
+        ] {
+            assert_ne!(other, base);
+        }
     }
 }

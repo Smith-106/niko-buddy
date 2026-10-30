@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { readFileSync } from "node:fs"
+import { resolve as resolvePath } from "node:path"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
@@ -289,9 +291,12 @@ describe("streamClaudeCodeCli", () => {
     })
 
     let spawnAttempts = 0
-    vi.mocked(invoke).mockImplementation(async (command) => {
+    const retryAttempts: unknown[] = []
+    vi.mocked(invoke).mockImplementation(async (command, payload) => {
       if (command === "claude_cli_spawn") {
         spawnAttempts += 1
+        const p = payload as { retryAttempt?: unknown; isolateLocalConfig?: unknown } | undefined
+        retryAttempts.push([p?.retryAttempt, p?.isolateLocalConfig])
         if (spawnAttempts === 1) {
           throw new Error("Failed to flush claude stdin: 管道已结束。 (os error 109)")
         }
@@ -321,6 +326,9 @@ describe("streamClaudeCodeCli", () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(spawnAttempts).toBe(2)
+    // 隔离关闭时 pipe-closed 走隔离回退：重试序号不变，isolate 变为 true，
+    // Rust 门控摘要含 isolate，两次调用仍落在不同熔断键上。
+    expect(retryAttempts).toEqual([[0, false], [0, true]])
 
     const eventNames = [...listeners.keys()]
     const dataEventName = [...eventNames].reverse().find((name) =>
@@ -590,6 +598,17 @@ describe("streamClaudeCodeCli", () => {
     // the full retry chain: 3×(delay + 90s timeout).
     await vi.advanceTimersByTimeAsync((5_000 + 90_000) + (15_000 + 90_000) + (30_000 + 90_000) + 1_000)
     await expect(streamPromise).resolves.toBeUndefined()
+
+    // 退避重试带递增序号，Rust 门控据此给每次重试独立的熔断键（ISS-20261029-007）。
+    const spawnRetryAttempts = vi.mocked(invoke).mock.calls
+      .filter(([command]) => command === "claude_cli_spawn")
+      .map(([, payload]) => (payload as { retryAttempt?: unknown }).retryAttempt)
+    expect(spawnRetryAttempts).toEqual([0, 1, 2, 3])
+    // Rust 端 CLAUDE_GATE_MAX_RETRY_ATTEMPT 必须等于退避重试次数（这里实测的最大序号），
+    // 否则末尾几次重试共用一个熔断键，可能误熔断。两侧手工对齐，由此断言兜底。
+    const rustSrc = readFileSync(resolvePath(__dirname, "../../src-tauri/src/commands/claude_cli.rs"), "utf8")
+    const rustCap = Number(rustSrc.match(/const CLAUDE_GATE_MAX_RETRY_ATTEMPT: u32 = (\d+);/)?.[1])
+    expect(rustCap).toBe(Math.max(...(spawnRetryAttempts as number[])))
 
     expect(callbacks.onToken).not.toHaveBeenCalled()
     expect(callbacks.onDone).not.toHaveBeenCalled()

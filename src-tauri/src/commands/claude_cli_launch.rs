@@ -20,7 +20,7 @@ use serde::Deserialize;
 use tokio::process::Command;
 
 use super::local_cli_config::{
-    read_claude_local_config, resolve_home_dir, LocalCliConfigInfo,
+    ensure_cli_workspace_dir, read_claude_local_config, resolve_home_dir, LocalCliConfigInfo,
 };
 
 /// C-101 (GRL-008): Rust-side startup watchdog. Fires if the CLI produces
@@ -99,8 +99,13 @@ pub(crate) fn input_mode_label(input_mode: &ClaudeCliInputMode) -> &'static str 
     }
 }
 
-pub(crate) fn resolve_claude_cli_working_dir() -> Option<PathBuf> {
-    resolve_home_dir().or_else(|| std::env::current_dir().ok())
+/// Claude CLI working directory: the dedicated app-owned workspace, never
+/// `$HOME`. Claude Code auto-approves read-only tools (file reads, Grep) inside
+/// its working directory, so the old `$HOME` cwd let a prompt-injected model
+/// read the whole home tree (SSH keys, cloud credentials) without approval.
+/// Fails closed instead of falling back to `$HOME` or the inherited cwd.
+pub(crate) fn resolve_claude_cli_working_dir() -> Result<PathBuf, String> {
+    ensure_cli_workspace_dir()
 }
 
 pub(crate) fn format_launch_debug_context(
@@ -276,7 +281,9 @@ pub(crate) fn prefer_direct_claude_exe(path: std::path::PathBuf) -> std::path::P
     }
 }
 
-pub(crate) fn select_claude_cli_input_mode(turns: &[(String, Vec<serde_json::Value>)]) -> ClaudeCliInputMode {
+pub(crate) fn select_claude_cli_input_mode(
+    turns: &[(String, Vec<serde_json::Value>)],
+) -> ClaudeCliInputMode {
     if cfg!(windows) {
         return ClaudeCliInputMode::StreamJson;
     }
