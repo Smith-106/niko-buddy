@@ -49,9 +49,14 @@ function orderedHitCriteria(hits: readonly string[]): string[] {
  * 写入确认门对话框：展示 op / target / 三分类 / 四判据命中 / diff 摘要，
  * 提供 [确认] [拒绝]；窗口到期自动关闭并按拒绝处理（与 Rust 侧同义）。
  */
+// 默认时钟必须是稳定引用：clock 是倒计时 effect 的依赖，若每次渲染新建函数，
+// effect 会每次重跑并 setRemaining(新的 Date.now 差值) → 再渲染 → 死循环
+// （Maximum update depth exceeded，全量并发负载下稳定复现）。
+const defaultClock = (): number => Date.now();
+
 export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDialogProps) {
   const { t } = useTranslation();
-  const clock = nowMs ?? (() => Date.now());
+  const clock = nowMs ?? defaultClock;
   const [busy, setBusy] = useState(false);
   const [remaining, setRemaining] = useState(0);
   // C3：裁决 IPC 失败必须给可修复反馈（错误态 + 重试），不允许静默无响应。

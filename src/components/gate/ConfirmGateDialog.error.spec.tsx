@@ -221,4 +221,25 @@ describe("ConfirmGateDialog — C3 错误态与重试", () => {
       vi.useRealTimers()
     }
   })
+
+  it("不传 nowMs 时默认时钟引用稳定：Date.now 每次前进也不会触发渲染死循环", async () => {
+    // 回归：默认时钟曾每次渲染新建函数，作为倒计时 effect 依赖导致 effect 每次重跑并
+    // setRemaining(新值) → Maximum update depth exceeded。高负载下 Date.now 在两次渲染间前进，
+    // 这里用递增的 Date.now 确定性地复现该条件。
+    let t = 1_000_000
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => (t += 7))
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      render(<ConfirmGateDialog pending={pendingGate({ created_at_ms: t, deadline_ms: t + 120_000 })} />)
+      await act(async () => {
+        await Promise.resolve()
+      })
+      const loopErrors = errSpy.mock.calls.filter((args) => String(args[0]).includes("Maximum update depth"))
+      expect(loopErrors).toHaveLength(0)
+      expect(screen.getByTestId("confirm-gate-accept")).toBeTruthy()
+    } finally {
+      nowSpy.mockRestore()
+      errSpy.mockRestore()
+    }
+  })
 })
