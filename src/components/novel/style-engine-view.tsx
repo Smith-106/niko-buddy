@@ -148,7 +148,7 @@ export function StyleEngineView({ projectPath }: StyleEngineViewProps) {
       <div className="shrink-0 border-b p-4">
         <div className="text-lg font-semibold">写法引擎 · 风格预设</div>
         <p className="mt-1 text-base font-medium">
-          {loading ? "下一步：正在查看风格预设。" : presets.length === 0 ? "下一步：去拆书分析提取文风。" : "下一步：点一份预设，再启用或关闭。"}
+          {loading ? "下一步：正在查看风格预设。" : presets.length === 0 ? "下一步：去拆文库提取文风。" : "下一步：点一份预设，再启用或关闭。"}
         </p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
           从拆书提取的文风预设：启用后写入生成上下文；同一时间只启用一份。共 {presets.length} 份预设，
@@ -171,14 +171,14 @@ export function StyleEngineView({ projectPath }: StyleEngineViewProps) {
         <div className="p-6 text-sm text-muted-foreground">正在加载风格预设…</div>
       ) : presets.length === 0 ? (
         <div data-testid="style-empty" className="m-6 rounded-lg border border-dashed p-6 text-sm leading-6 text-muted-foreground">
-          <p>暂无风格预设。先在拆书分析中提取文风，预设会保存在这里，之后可在这里启用并预览。</p>
+          <p>暂无风格预设。先在拆文库中提取文风，预设会保存在这里，之后可在这里启用并预览。</p>
           <span className="sr-only">writing-style.json</span>
           <button
             type="button"
             className="mt-3 rounded border border-border px-2 py-1 text-xs text-foreground"
             onClick={() => setActiveView("bookAnalysis")}
           >
-            去拆书分析提取文风
+            去拆文库提取文风
           </button>
         </div>
       ) : (

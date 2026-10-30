@@ -140,10 +140,10 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
           className="h-6 px-2 text-xs"
           onClick={() => setCollapsed(false)}
           aria-expanded={false}
-          aria-label={t("novel.inspector.expand", "展开 Inspector")}
+          aria-label={t("novel.inspector.expand", "展开本章体检")}
         >
           <PanelRightOpen className="h-3 w-3 mr-1" />
-          {t("novel.inspector.title", "Inspector")}
+          {t("novel.inspector.title", "本章体检")}
         </Button>
       </div>
     )
@@ -167,10 +167,10 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
           className="h-6 px-2 text-xs font-medium"
           onClick={() => setCollapsed(true)}
           aria-expanded={true}
-          aria-label={t("novel.inspector.collapse", "收起 Inspector")}
+          aria-label={t("novel.inspector.collapse", "收起本章体检")}
         >
           <PanelRightOpen className="h-3 w-3 mr-1 rotate-180" />
-          {t("novel.inspector.title", "Inspector")}
+          {t("novel.inspector.title", "本章体检")}
         </Button>
         <Button
           variant="ghost"
@@ -230,7 +230,7 @@ export function InspectorPanel({ projectPath, chapterId, refreshKey }: Inspector
 
       {!snapshot && !loading && !error && (
         <div className="text-xs text-muted-foreground py-2">
-          {t("novel.inspector.noData", "暂无 Inspector 数据")}
+          {t("novel.inspector.noData", "本章还没有体检数据")}
         </div>
       )}
 

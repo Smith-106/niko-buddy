@@ -490,7 +490,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
               </button>
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              <span title={projectId}>下方是本项目的事实列表，可按知晓角色、有效章节、关系类型筛选。浏览不会改动任何数据；点「校正」可修正某条事实的知晓范围与揭晓章节。</span>
+              <span>下方是本项目的事实列表，可按知晓角色、有效章节、关系类型筛选。浏览不会改动任何数据；点「校正」可修正某条事实的知晓范围与揭晓章节。</span>
             </p>
           </header>
 
@@ -579,7 +579,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
             </div>
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
-            <span title={projectId}>选择一条事实，校正它的知晓角色（白名单）与揭晓章节；保存时旧版本封顶留痕并写入新版本。</span>
+            <span>选择一条事实，校正它的知晓角色（白名单）与揭晓章节；保存时旧版本封顶留痕并写入新版本。</span>
           </p>
         </header>
 

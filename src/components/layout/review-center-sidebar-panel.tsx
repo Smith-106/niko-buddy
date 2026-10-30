@@ -255,13 +255,10 @@ export function ReviewCenterSidebarPanel() {
             {t("novel.settings.outlineThrillLiveStatusHint")}
           </p>
           {!outlineThrillSoftGateEnabled ? (
-            <p className="px-1 text-xs text-muted-foreground">{t("novel.settings.outlineThrillSoftGateEnabled")}: off</p>
+            <p className="px-1 text-xs text-muted-foreground">{t("novel.settings.outlineThrillSoftGateEnabled")}：{t("common.off")}</p>
           ) : (
             <>
               <div className="mb-1 flex flex-wrap gap-1 px-1 text-xs">
-                <span className="rounded border border-kind-violet/30 px-1.5 py-0.5 text-kind-violet dark:text-kind-violet">
-                  Track B · soft
-                </span>
                 {thrilLiveStatus.fix1Blocked && (
                   <span className="rounded border border-destructive/40 px-1.5 py-0.5 text-destructive">
                     {t("novel.settings.outlineThrillFix1Blocked")}
@@ -297,10 +294,12 @@ export function ReviewCenterSidebarPanel() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="text-foreground/90">{row.label}</span>
+                      {/* 判定依据是英文启发式标签，作者用不上，收进技术详情（批次三·13） */}
                       {"evidence" in row && (row as { evidence?: string }).evidence ? (
-                        <span className="mt-0.5 block text-xs text-muted-foreground">
-                          {(row as { evidence?: string }).evidence}
-                        </span>
+                        <details className="mt-0.5 text-xs text-muted-foreground">
+                          <summary className="cursor-pointer">{t("common.techDetails")}</summary>
+                          <span className="block font-mono">{(row as { evidence?: string }).evidence}</span>
+                        </details>
                       ) : null}
                     </span>
                   </li>

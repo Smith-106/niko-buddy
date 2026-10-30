@@ -109,7 +109,7 @@ function openSection(name: string): void {
 async function expandAndFetch(snapshot: InspectorSnapshot | null): Promise<void> {
   queryMocks.queryInspectorState.mockResolvedValue(snapshot)
   render(<InspectorPanel projectPath="/P" chapterId="chapter-1" />)
-  fireEvent.click(screen.getByRole("button", { name: "展开 Inspector" }))
+  fireEvent.click(screen.getByRole("button", { name: "展开本章体检" }))
   await waitFor(() => expect(queryMocks.queryInspectorState).toHaveBeenCalledWith("/P", "chapter-1"))
 }
 
@@ -141,7 +141,7 @@ describe("InspectorPanel — 启用/收起/展开", () => {
 
   it("默认收起：只渲染展开按钮，不触发查询", () => {
     render(<InspectorPanel projectPath="/P" chapterId="c1" />)
-    const btn = screen.getByRole("button", { name: "展开 Inspector" })
+    const btn = screen.getByRole("button", { name: "展开本章体检" })
     expect(btn.getAttribute("aria-expanded")).toBe("false")
     expect(queryMocks.queryInspectorState).not.toHaveBeenCalled()
   })
@@ -149,20 +149,20 @@ describe("InspectorPanel — 启用/收起/展开", () => {
   it("点击展开 → 收起按钮 + 防抖后触发查询", async () => {
     queryMocks.queryInspectorState.mockResolvedValue(fullSnapshot())
     render(<InspectorPanel projectPath="/P" chapterId="c1" />)
-    fireEvent.click(screen.getByRole("button", { name: "展开 Inspector" }))
+    fireEvent.click(screen.getByRole("button", { name: "展开本章体检" }))
     // 防抖未到期前不查询
     expect(queryMocks.queryInspectorState).not.toHaveBeenCalled()
     await waitFor(() => expect(queryMocks.queryInspectorState).toHaveBeenCalledWith("/P", "c1"))
-    expect(screen.getByRole("button", { name: "收起 Inspector" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "收起本章体检" })).toBeTruthy()
   })
 
   it("展开后点击收起 → 回到收起视图且不再查询", async () => {
     queryMocks.queryInspectorState.mockResolvedValue(fullSnapshot())
     render(<InspectorPanel projectPath="/P" chapterId="c1" />)
-    fireEvent.click(screen.getByRole("button", { name: "展开 Inspector" }))
+    fireEvent.click(screen.getByRole("button", { name: "展开本章体检" }))
     await waitFor(() => expect(queryMocks.queryInspectorState).toHaveBeenCalled())
-    fireEvent.click(screen.getByRole("button", { name: "收起 Inspector" }))
-    expect(screen.getByRole("button", { name: "展开 Inspector" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "收起本章体检" }))
+    expect(screen.getByRole("button", { name: "展开本章体检" })).toBeTruthy()
     const calls = queryMocks.queryInspectorState.mock.calls.length
     await act(async () => { await new Promise((r) => setTimeout(r, 600)) })
     expect(queryMocks.queryInspectorState.mock.calls.length).toBe(calls)
@@ -170,10 +170,10 @@ describe("InspectorPanel — 启用/收起/展开", () => {
 
   it("projectPath 为空时 fetchSnapshot 直接返回（不查询不 loading）", async () => {
     render(<InspectorPanel projectPath="" chapterId="c1" />)
-    fireEvent.click(screen.getByRole("button", { name: "展开 Inspector" }))
+    fireEvent.click(screen.getByRole("button", { name: "展开本章体检" }))
     await act(async () => { await new Promise((r) => setTimeout(r, 600)) })
     expect(queryMocks.queryInspectorState).not.toHaveBeenCalled()
-    expect(screen.getByText("暂无 Inspector 数据")).toBeTruthy()
+    expect(screen.getByText("本章还没有体检数据")).toBeTruthy()
   })
 })
 
@@ -182,7 +182,7 @@ describe("InspectorPanel — 防抖（PAT-DC2）", () => {
     vi.useFakeTimers()
     queryMocks.queryInspectorState.mockResolvedValue(fullSnapshot())
     const { rerender } = render(<InspectorPanel projectPath="/P" chapterId="c1" refreshKey={0} />)
-    fireEvent.click(screen.getByRole("button", { name: "展开 Inspector" }))
+    fireEvent.click(screen.getByRole("button", { name: "展开本章体检" }))
     // 300ms 处 refreshKey 变化 → 旧 timer 被清，重新调度
     act(() => { vi.advanceTimersByTime(300) })
     rerender(<InspectorPanel projectPath="/P" chapterId="c1" refreshKey={1} />)
@@ -196,7 +196,7 @@ describe("InspectorPanel — 防抖（PAT-DC2）", () => {
   it("挂载卸载时清理未决防抖 timer", async () => {
     vi.useFakeTimers()
     const { unmount } = render(<InspectorPanel projectPath="/P" chapterId="c1" />)
-    fireEvent.click(screen.getByRole("button", { name: "展开 Inspector" }))
+    fireEvent.click(screen.getByRole("button", { name: "展开本章体检" }))
     unmount()
     act(() => { vi.advanceTimersByTime(1000) })
     expect(queryMocks.queryInspectorState).not.toHaveBeenCalled()
@@ -211,7 +211,7 @@ describe("InspectorPanel — 数据状态（加载/错误/空）", () => {
       () => new Promise<InspectorSnapshot>((resolve) => { resolveQuery = resolve }),
     )
     render(<InspectorPanel projectPath="/P" chapterId="c1" />)
-    fireEvent.click(screen.getByRole("button", { name: "展开 Inspector" }))
+    fireEvent.click(screen.getByRole("button", { name: "展开本章体检" }))
     await waitFor(() => expect(queryMocks.queryInspectorState).toHaveBeenCalled())
     expect(screen.getByText("加载中…")).toBeTruthy()
     expect(document.querySelectorAll(".animate-pulse")).toHaveLength(3)
@@ -221,13 +221,13 @@ describe("InspectorPanel — 数据状态（加载/错误/空）", () => {
 
   it("查询成功（null snapshot）→ 显示暂无数据", async () => {
     await expandAndFetch(null)
-    expect(screen.getByText("暂无 Inspector 数据")).toBeTruthy()
+    expect(screen.getByText("本章还没有体检数据")).toBeTruthy()
   })
 
   it("查询抛 Error → 显示「本地化引导：err.message」 + 重试按钮", async () => {
     queryMocks.queryInspectorState.mockRejectedValue(new Error("query-boom"))
     render(<InspectorPanel projectPath="/P" chapterId="c1" />)
-    fireEvent.click(screen.getByRole("button", { name: "展开 Inspector" }))
+    fireEvent.click(screen.getByRole("button", { name: "展开本章体检" }))
     // 错误面约定：本地化引导 + 原始诊断（t mock 返回 fallback）
     await waitFor(() => expect(screen.getByText("操作失败：query-boom")).toBeTruthy())
     expect(screen.getByRole("alert")).toBeTruthy()
@@ -237,7 +237,7 @@ describe("InspectorPanel — 数据状态（加载/错误/空）", () => {
   it("查询抛非 Error → String(err) 仍作为原始诊断保留", async () => {
     queryMocks.queryInspectorState.mockRejectedValue("plain")
     render(<InspectorPanel projectPath="/P" chapterId="c1" />)
-    fireEvent.click(screen.getByRole("button", { name: "展开 Inspector" }))
+    fireEvent.click(screen.getByRole("button", { name: "展开本章体检" }))
     await waitFor(() => expect(screen.getByText("操作失败：plain")).toBeTruthy())
   })
 
@@ -249,7 +249,7 @@ describe("InspectorPanel — 数据状态（加载/错误/空）", () => {
         resolveRefresh = resolve
       }))
     render(<InspectorPanel projectPath="/P" chapterId="c1" />)
-    fireEvent.click(screen.getByRole("button", { name: "展开 Inspector" }))
+    fireEvent.click(screen.getByRole("button", { name: "展开本章体检" }))
     await waitFor(() => expect(queryMocks.queryInspectorState).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole("button", { name: "刷新" }))
     const refreshButton = screen.getByRole("button", { name: "刷新" })
@@ -263,7 +263,7 @@ describe("InspectorPanel — 数据状态（加载/错误/空）", () => {
       .mockRejectedValueOnce(new Error("once"))
       .mockResolvedValueOnce(fullSnapshot())
     render(<InspectorPanel projectPath="/P" chapterId="c1" />)
-    fireEvent.click(screen.getByRole("button", { name: "展开 Inspector" }))
+    fireEvent.click(screen.getByRole("button", { name: "展开本章体检" }))
     await waitFor(() => expect(screen.getByText(/once/)).toBeTruthy())
     fireEvent.click(screen.getByRole("button", { name: "重试" }))
     await waitFor(() => expect(screen.queryByText(/once/)).toBeNull())
@@ -273,7 +273,7 @@ describe("InspectorPanel — 数据状态（加载/错误/空）", () => {
   it("刷新按钮直接重新查询", async () => {
     queryMocks.queryInspectorState.mockResolvedValue(fullSnapshot())
     render(<InspectorPanel projectPath="/P" chapterId="c1" />)
-    fireEvent.click(screen.getByRole("button", { name: "展开 Inspector" }))
+    fireEvent.click(screen.getByRole("button", { name: "展开本章体检" }))
     await waitFor(() => expect(queryMocks.queryInspectorState).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole("button", { name: "刷新" }))
     await waitFor(() => expect(queryMocks.queryInspectorState).toHaveBeenCalledTimes(2))

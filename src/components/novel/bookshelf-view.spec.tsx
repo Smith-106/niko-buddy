@@ -66,7 +66,7 @@ describe("BookshelfView", () => {
     render(<BookshelfView projectPath="E:/Novel" />)
     expect(screen.getByTestId("bookshelf-view")).toBeTruthy()
     await waitFor(() => expect(screen.getByTestId("bookshelf-empty")).toBeTruthy())
-    expect(screen.getByTestId("bookshelf-empty").textContent).toContain("暂无拆书作品")
+    expect(screen.getByTestId("bookshelf-empty").textContent).toContain("暂无拆文作品")
     expect(screen.queryByTestId("bookshelf-list")).toBeNull()
     expect(mockedReadFile).toHaveBeenCalledTimes(1)
     expect(String(mockedReadFile.mock.calls[0][0])).toContain("book-analysis/library.json")

@@ -4,7 +4,7 @@
  *
  * 覆盖：
  *   1. 有绑定项目 → creative-binding 显示标题，诊断 verdict 渲染，建议为继续当前任务；
- *   2. 未初始化零数据 → creative-empty 诚实空态，建议含先初始化项目；
+ *   2. 未初始化零数据 → creative-empty 诚实空态，建议含补全项目资料；
  *   3. blockingGate 存在 → 首条建议先修该门；
  *   4. verdict critical → 建议含先恢复健康；
  *   5. 装载失败 → creative-load-error（不伪装成空态）。
@@ -13,13 +13,15 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { CreativeHubView, deriveCreativeNext } from "./creative-hub-view"
 
 const mocks = vi.hoisted(() => ({
   fileExists: vi.fn(),
   readFile: vi.fn(),
   listDirectory: vi.fn(),
+  writeFile: vi.fn(),
+  createDirectory: vi.fn(),
 }))
 
 vi.mock("@/commands/fs", async (importOriginal) => {
@@ -29,6 +31,8 @@ vi.mock("@/commands/fs", async (importOriginal) => {
     fileExists: mocks.fileExists,
     readFile: mocks.readFile,
     listDirectory: mocks.listDirectory,
+    writeFile: mocks.writeFile,
+    createDirectory: mocks.createDirectory,
   }
 })
 
@@ -90,6 +94,22 @@ function routeFiles(opts: { meta: boolean; status: boolean; ledger?: string }): 
 }
 
 describe("CreativeHubView", () => {
+  it("批次三·13：元数据缺失 → 说明不影响写作 + 补全按钮写 project-meta（书名取文件夹名）", async () => {
+    mocks.fileExists.mockResolvedValue(false)
+    mocks.readFile.mockRejectedValue(new Error("not found"))
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.createDirectory.mockResolvedValue(undefined)
+    mocks.writeFile.mockResolvedValue(undefined)
+    render(<CreativeHubView projectPath={PROJECT} />)
+    const binding = await screen.findByTestId("creative-binding")
+    expect(binding.textContent).toContain("不影响写作")
+    fireEvent.click(screen.getByTestId("creative-fill-meta"))
+    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    const [path, body] = mocks.writeFile.mock.calls[0] as [string, string]
+    expect(path.endsWith(".novel/project-meta.json")).toBe(true)
+    expect(JSON.parse(body).title).toBe("book")
+  })
+
   it("有绑定项目 → 标题＋诊断 verdict＋继续当前任务（无零数据空态）", async () => {
     routeFiles({ meta: true, status: true })
     render(<CreativeHubView projectPath={PROJECT} />)
@@ -106,7 +126,7 @@ describe("CreativeHubView", () => {
     expect(screen.getByTestId("creative-hub-view")).toBeTruthy()
   })
 
-  it("未初始化零数据 → 诚实空态＋先初始化项目建议", async () => {
+  it("未初始化零数据 → 诚实空态＋补全项目资料建议", async () => {
     mocks.fileExists.mockResolvedValue(false)
     mocks.readFile.mockRejectedValue(new Error("not found"))
     mocks.listDirectory.mockResolvedValue([])
@@ -116,7 +136,7 @@ describe("CreativeHubView", () => {
     const empty = await screen.findByTestId("creative-empty")
     expect(empty.textContent).toContain("暂无项目数据")
     const next = await screen.findAllByTestId("creative-next")
-    expect(next.some((el) => el.textContent?.includes("先初始化项目"))).toBe(true)
+    expect(next.some((el) => el.textContent?.includes("补全项目资料"))).toBe(true)
     expect(next.every((el) => el.textContent?.includes("依据"))).toBe(true)
   })
 
@@ -161,7 +181,7 @@ describe("deriveCreativeNext（纯函数优先级）", () => {
     expect(items[0]?.text).toContain("先修复被阻塞的门")
     expect(items[0]?.text).toContain("质量门")
     expect(items[1]?.text).toContain("先恢复项目健康")
-    expect(items[2]?.text).toContain("先初始化项目")
+    expect(items[2]?.text).toContain("补全项目资料")
   })
 
   it("健康已初始化无阻断 → 继续当前任务（含章节号）", () => {

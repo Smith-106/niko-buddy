@@ -23,6 +23,7 @@ import { ChapterDirectory } from "./chapter-directory"
 import { PipelineMotionView } from "./pipeline-motion-view"
 import { ForeshadowingPanel } from "./foreshadowing-panel"
 import { WorkHeatmapPanel } from "./work-heatmap-panel"
+import { LiveExecutionView } from "./live-execution-view"
 import { clearMainControlGoalHandoff, peekMainControlGoalHandoff } from "./main-control-handoff"
 
 export interface MainControlViewProps {
@@ -64,7 +65,8 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const [error, setError] = useState<string | null>(null)
   const [cancelledAt, setCancelledAt] = useState<number | null>(null)
   // 页内分层（IA：跑流程 / 收草稿 / 本章上下文分开，不再上下堆一屏；只切换展示，不碰执行语义）。
-  const [tab, setTab] = useState<"run" | "drafts" | "context">("run")
+  // 批次三·12：AI 实况并入主控，作为第四个页签（独立页路由保留给旧深链）。
+  const [tab, setTab] = useState<"run" | "drafts" | "context" | "live">("run")
   // 管线动态：默认展开实况拓扑，开始运行自动展开，无需等磁盘轮询。
   const [motionOpen, setMotionOpen] = useState(true)
   // PAT-U5（ISS-20260712-006 batch-2）：折叠触发点补 aria-controls + region。
@@ -204,6 +206,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
             { key: "run", labelKey: "mainControl.tabRun" },
             { key: "drafts", labelKey: "mainControl.tabDrafts" },
             { key: "context", labelKey: "mainControl.tabContext" },
+            { key: "live", labelKey: "mainControl.tabLive" },
           ] as const
         ).map((item) => (
           <button
@@ -504,6 +507,12 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         <WorkHeatmapPanel />
       </div>
       )}
+
+      {tab === "live" && projectPath ? (
+        <div className="rounded-lg border p-2" data-testid="main-control-live">
+          <LiveExecutionView projectPath={projectPath} />
+        </div>
+      ) : null}
 
       {tab === "run" && result?.finalText ? (
       <div className="rounded-lg border p-2" data-testid="main-control-final">

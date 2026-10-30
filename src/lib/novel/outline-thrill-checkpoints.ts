@@ -43,7 +43,7 @@ export const THRILL_CHECKPOINT_LABELS: Record<ThrillCheckpointId, string> = {
   pressure_release: "压抑→释放是否至少一条可指认链条？",
   protagonist_agency: "主角能动选择是否推动局面（非纯旁观）？",
   chapter_end_hook: "章末钩是否给出下一阶段具体期待（不提前揭 Offer/机制名）？",
-  fix1_no_conflict: "是否与 FIX-1 延迟揭露冲突？",
+  fix1_no_conflict: "是否提前剧透了应延后揭晓的信息（关键机制、最终结局、真相）？",
 }
 
 /** Patterns that suggest early mechanism/Offer spoilers (FIX-1 conflict). */

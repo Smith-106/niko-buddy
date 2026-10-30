@@ -199,7 +199,7 @@ describe("G3-F5 章节目录错误态重试", () => {
 })
 
 describe("G3-F6 书架空态直达入口", () => {
-  it("空书架出现去拆书分析按钮，点击跳转 bookAnalysis", async () => {
+  it("空书架出现去拆文库按钮，点击跳转 bookAnalysis", async () => {
     const before = useWikiStore.getState().activeView
     render(<BookshelfView projectPath="/tmp/uxg3-no-such-project" />)
     try {

@@ -22,10 +22,12 @@
 import { useEffect, useState } from "react"
 import {
   buildDashboardEvidenceSnapshot,
+  createDefaultNovelProjectMeta,
   createFsRunEventLedgerStoreDeps,
   loadNovelProjectMeta,
   loadRunEventLedgerStore,
   runProjectDoctor,
+  saveNovelProjectMeta,
   type DoctorReport,
   type EvidenceSnapshot,
   type NovelProjectMeta,
@@ -118,8 +120,8 @@ export function deriveCreativeNext(input: {
   }
   if (input.meta === null) {
     items.push({
-      text: "先初始化项目：先建立项目资料和当前会话",
-      reason: "依据：还没有项目资料。",
+      text: "补全项目资料：书名、题材等元数据还没填",
+      reason: "依据：项目元数据缺失（不影响写作）。",
       code: "meta=null",
     })
   }
@@ -138,6 +140,23 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
   const [report, setReport] = useState<DoctorReport | null>(null)
   const [snapshot, setSnapshot] = useState<EvidenceSnapshot | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [fillingMeta, setFillingMeta] = useState(false)
+  const [fillError, setFillError] = useState<string | null>(null)
+
+  // 批次三·13：元数据缺失时一键补默认值（书名取文件夹名），写完重读；只写 .novel/project-meta.json。
+  const fillMeta = async () => {
+    setFillingMeta(true)
+    setFillError(null)
+    try {
+      const folder = projectPath.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "未命名作品"
+      await saveNovelProjectMeta(projectPath, createDefaultNovelProjectMeta(folder))
+      setMeta(await loadNovelProjectMeta(projectPath))
+    } catch (err) {
+      setFillError(toErrorMessage(err))
+    } finally {
+      setFillingMeta(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -182,7 +201,7 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
     <ReportPage
       testId="creative-hub-view"
       title="创作中枢"
-      description="只读查看项目元数据、诊断和门控。本页不写盘，也不把缺文件说成正文不存在。"
+      description="查看项目资料、诊断和检查结果。本页只在你点「补全项目资料」时写入元数据，不改正文。"
     >
       {loadError !== null ? (
         <ReportCallout testId="creative-load-error" tone="error">
@@ -216,7 +235,7 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
           </ReportSection>
           {isZeroData ? (
             <ReportCallout testId="creative-empty" tone="neutral">
-              暂无项目数据：尚未初始化，且暂无门控运行事件（诚实空态，不虚构进度）
+              暂无项目数据：项目资料未填写，也还没跑过检查。
             </ReportCallout>
           ) : null}
           <div className="grid gap-3 md:grid-cols-2">
@@ -250,7 +269,19 @@ export function CreativeHubView({ projectPath }: CreativeHubViewProps) {
                   </dd>
                 </dl>
               ) : (
-                <ReportCallout tone="warn">项目尚未初始化：未找到 project-meta</ReportCallout>
+                <div className="space-y-2">
+                  <ReportCallout tone="warn">项目元数据缺失（不影响写作），尚未初始化书名、题材等资料。</ReportCallout>
+                  <button
+                    type="button"
+                    data-testid="creative-fill-meta"
+                    disabled={fillingMeta}
+                    onClick={() => void fillMeta()}
+                    className="rounded-md border px-3 py-1 text-sm hover:bg-accent disabled:opacity-50"
+                  >
+                    {fillingMeta ? "写入中…" : "补全项目资料"}
+                  </button>
+                  {fillError ? <p className="text-sm text-destructive">补全失败：{fillError}</p> : null}
+                </div>
               )}
             </ReportSection>
           </div>

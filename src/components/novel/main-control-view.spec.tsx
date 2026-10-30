@@ -232,6 +232,21 @@ describe("MainControlView 运行轨迹与证据", () => {
   })
 })
 
+vi.mock("./live-execution-view", () => ({
+  LiveExecutionView: ({ projectPath }: { projectPath: string }) => <div data-testid="live-execution-stub">{projectPath}</div>,
+}))
+
+describe("批次三·12：AI 实况并入主控", () => {
+  it("第四个页签「AI 实况」挂载实况视图，传项目磁盘路径", () => {
+    render(<MainControlView />)
+    expect(screen.queryByTestId("main-control-live")).toBeNull()
+    fireEvent.click(screen.getByTestId("main-control-tab-live"))
+    expect(screen.getByTestId("main-control-tab-live").getAttribute("aria-selected")).toBe("true")
+    expect(screen.getByTestId("live-execution-stub").textContent).toBeTruthy()
+    expect(screen.queryByTestId("main-control-goal")).toBeNull()
+  })
+})
+
 describe("主控面板挂载：章节目录 + 伏笔看板（grok 计划审查要求：新断言，不复用旧 spec）", () => {
   it("两个区块都挂载在 main-control-view 内，且无项目时不静默消失", async () => {
     render(<MainControlView />)

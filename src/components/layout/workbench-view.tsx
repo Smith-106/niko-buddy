@@ -7,9 +7,11 @@
  * 需求：所有功能经 UI 点击可达；UX 友好；资产/工作监控高效可视化。
  * 设计：模块卡片网格（点击切到对应 activeView）+ 顶部项目/生产状态条。
  * 复用：卡片→setActiveView 跳现有视图；后续新模块注册进 MODULE_CARDS 即可上卡。
+ * 批次三·12：顶部先给「下一步推荐 + 最近使用」；AI 实况并入主控（主控页「AI 实况」页签）；
+ * 模块接线 / 管线动态是开发用视图，收进底部默认折叠的「开发者视图」。
  */
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Activity,
@@ -35,6 +37,8 @@ import {
 } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { isPlannedView } from "./planned-views"
+import { readRecentViews } from "./workbench-helpers"
+import { WorkbenchNextSteps, WorkbenchRecentViews } from "./workbench-widgets"
 import type { WikiState } from "@/stores/wiki-store"
 
 type NavView = WikiState["activeView"]
@@ -45,11 +49,11 @@ interface ModuleCard {
   icon: LucideIcon
   labelKey: string
   descKey: string
-  /** 分组：production 生产链 / assets 资产库 / config 配置 / data 数据。 */
-  group: "production" | "assets" | "config" | "data"
+  /** 分组：production 生产链 / assets 资产库 / config 配置 / data 数据 / dev 开发者视图（默认折叠）。 */
+  group: "production" | "assets" | "config" | "data" | "dev"
 }
 
-const GROUP_ORDER: ModuleCard["group"][] = ["production", "assets", "config", "data"]
+const GROUP_ORDER: ModuleCard["group"][] = ["production", "assets", "config", "data", "dev"]
 
 const MODULE_CARDS: ModuleCard[] = [
   // 生产链
@@ -57,12 +61,9 @@ const MODULE_CARDS: ModuleCard[] = [
   { view: "bookAnalysis", icon: BookOpen, labelKey: "wb.card.dismantling", descKey: "wb.card.dismantlingDesc", group: "production" },
   { view: "reviewCenter", icon: LayoutDashboard, labelKey: "wb.card.reviewCenter", descKey: "wb.card.reviewCenterDesc", group: "production" },
   { view: "graph", icon: Network, labelKey: "wb.card.graph", descKey: "wb.card.graphDesc", group: "production" },
-  { view: "moduleHeatmap", icon: Flame, labelKey: "wb.card.heatmap", descKey: "wb.card.heatmapDesc", group: "production" },
-  { view: "pipelineMotion", icon: Activity, labelKey: "wb.card.pipelineMotion", descKey: "wb.card.pipelineMotionDesc", group: "production" },
   { view: "mainControl", icon: Sparkles, labelKey: "wb.card.mainControl", descKey: "wb.card.mainControlDesc", group: "production" },
   { view: "storySimulation", icon: Sparkles, labelKey: "wb.card.simulation", descKey: "wb.card.simulationDesc", group: "production" },
   { view: "followUpCenter", icon: ListChecks, labelKey: "wb.card.followUp", descKey: "wb.card.followUpDesc", group: "production" },
-  { view: "liveExecution", icon: Radar, labelKey: "wb.card.live", descKey: "wb.card.liveDesc", group: "production" },
   { view: "bookshelf", icon: BookMarked, labelKey: "wb.card.bookshelf", descKey: "wb.card.bookshelfDesc", group: "production" },
   { view: "creativeHub", icon: PenTool, labelKey: "wb.card.creativeHub", descKey: "wb.card.creativeHubDesc", group: "production" },
   // 资产库
@@ -87,6 +88,9 @@ const MODULE_CARDS: ModuleCard[] = [
   { view: "backupExport", icon: ArchiveRestore, labelKey: "wb.card.backup", descKey: "wb.card.backupDesc", group: "data" },
   { view: "dataManager", icon: Database, labelKey: "wb.card.dataManager", descKey: "wb.card.dataManagerDesc", group: "data" },
   { view: "exportCenter", icon: ArchiveRestore, labelKey: "wb.card.exportCenter", descKey: "wb.card.exportCenterDesc", group: "data" },
+  // 开发者视图（折叠）
+  { view: "moduleHeatmap", icon: Flame, labelKey: "wb.card.heatmap", descKey: "wb.card.heatmapDesc", group: "dev" },
+  { view: "pipelineMotion", icon: Activity, labelKey: "wb.card.pipelineMotion", descKey: "wb.card.pipelineMotionDesc", group: "dev" },
 ]
 
 export function WorkbenchView() {
@@ -94,6 +98,8 @@ export function WorkbenchView() {
   const project = useWikiStore((s) => s.project)
   const novelMode = useWikiStore((s) => s.novelMode)
   const setActiveView = useWikiStore((s) => s.setActiveView)
+  // 首屏读一次即可：离开工作台再回来会重新挂载
+  const [recentViews] = useState(readRecentViews)
 
   const groups = useMemo(
     () =>
@@ -118,12 +124,12 @@ export function WorkbenchView() {
         <LayoutDashboard className="h-6 w-6 text-muted-foreground" />
       </div>
 
+      <WorkbenchNextSteps hasProject={Boolean(project)} onOpen={setActiveView} />
+      <WorkbenchRecentViews views={recentViews} onOpen={setActiveView} />
+
       {/* 分组模块卡片 */}
-      {groups.map(({ group, cards }) => (
-        <section key={group} className="mb-6">
-          <h2 className="mb-2 text-sm font-semibold text-muted-foreground">
-            {t(`wb.group.${group}`)}
-          </h2>
+      {groups.map(({ group, cards }) => {
+        const grid = (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {cards.map((card) => {
               const Icon = card.icon
@@ -159,8 +165,24 @@ export function WorkbenchView() {
               )
             })}
           </div>
-        </section>
-      ))}
+        )
+        if (group === "dev") {
+          return (
+            <details key={group} className="mb-6" data-testid="workbench-dev-views">
+              <summary className="mb-2 cursor-pointer text-sm font-semibold text-muted-foreground">
+                {t("wb.group.dev")}
+              </summary>
+              {grid}
+            </details>
+          )
+        }
+        return (
+          <section key={group} className="mb-6">
+            <h2 className="mb-2 text-sm font-semibold text-muted-foreground">{t(`wb.group.${group}`)}</h2>
+            {grid}
+          </section>
+        )
+      })}
     </div>
   )
 }

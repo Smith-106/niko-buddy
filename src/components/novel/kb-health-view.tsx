@@ -92,8 +92,12 @@ export function KbHealthView({ metrics, onRebuild, rebuilding = false, selfHeale
                   {row.label}
                   {row.target ? <span className="ml-1 text-xs text-muted-foreground">（{row.target}）</span> : null}
                 </div>
+                {/* 缺源原因是开发口径（seed-missing 等），作者只需知道「暂无数据」；原文收进技术详情（批次三·13） */}
                 {isNa && sample.unavailableReason ? (
-                  <div className="text-xs text-muted-foreground">{sample.unavailableReason}</div>
+                  <details className="text-xs text-muted-foreground">
+                    <summary className="cursor-pointer">{t("novel.kbMetricNoData")}</summary>
+                    <span className="font-mono">{sample.unavailableReason}</span>
+                  </details>
                 ) : null}
               </div>
               {isNa ? (
@@ -118,7 +122,8 @@ export function KbHealthView({ metrics, onRebuild, rebuilding = false, selfHeale
           className="mt-2 flex items-center justify-between gap-2 rounded-md border border-warning bg-warning px-3 py-2 dark:border-warning/60 dark:bg-warning/40"
         >
           <p className="text-sm text-warning-foreground">
-            记忆漂移：truth_fold_drift={drift.value} &gt; 0，真相文件与快照重放不一致，建议执行全量重建。
+            {t("novel.kbDriftAlarm", { count: drift.value ?? 0 })}
+            <span className="sr-only">truth_fold_drift={drift.value}</span>
           </p>
           <button
             type="button"

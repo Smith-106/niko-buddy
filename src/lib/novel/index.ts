@@ -246,7 +246,7 @@ export { buildChapterPlan } from "./planning"
 export type { ChapterPlanView, ParticlePlanItem, PlanDimensionSlice, StateDeltaPlanItem } from "./planning"
 export { createPlayState, renderPlayFrame, replayPlay, stepPlay } from "./play-runtime"
 export type { PlayState } from "./play-runtime"
-export { loadNovelProjectMeta, saveNovelProjectMeta } from "./project-meta"
+export { createDefaultNovelProjectMeta, loadNovelProjectMeta, saveNovelProjectMeta } from "./project-meta"
 export type { NovelProjectMeta } from "./project-meta"
 export { PROMPTS } from "./prompt-templates"
 // §GAP-90-07 配角 recent_cast（related-chapters additive 导出）

@@ -643,7 +643,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                   {sortedCharacters.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
                       <div>暂无角色数据</div>
-                      <div className="mt-2 text-xs">完成拆书分析后，提取到的角色会显示在这里。</div>
+                      <div className="mt-2 text-xs">拆文完成后，提取到的角色会显示在这里。</div>
                     </div>
                   ) : (
                     <>

@@ -59,6 +59,36 @@ describe("WorkbenchView 工作台总览", () => {
     expect(card.disabled).toBe(false)
   })
 
+  it("批次三·12：顶部下一步推荐，有书时首推继续写", () => {
+    render(<WorkbenchView />)
+    const next = screen.getByTestId("workbench-next-steps")
+    const first = next.querySelector("[data-next-step]") as HTMLButtonElement
+    expect(first.getAttribute("data-next-step")).toBe("wiki")
+    fireEvent.click(first)
+    expect(setActiveView).toHaveBeenCalledWith("wiki")
+  })
+
+  it("批次三·12：最近使用按存储顺序列出，空时不渲染", () => {
+    localStorage.removeItem("niko-buddy-recent-views")
+    const { unmount } = render(<WorkbenchView />)
+    expect(screen.queryByTestId("workbench-recent")).toBeNull()
+    unmount()
+    localStorage.setItem("niko-buddy-recent-views", JSON.stringify(["reviewCenter", "wiki"]))
+    render(<WorkbenchView />)
+    const chips = [...screen.getByTestId("workbench-recent").querySelectorAll("[data-recent-view]")].map((el) => el.getAttribute("data-recent-view"))
+    expect(chips).toEqual(["reviewCenter", "wiki"])
+    localStorage.removeItem("niko-buddy-recent-views")
+  })
+
+  it("批次三·12：开发视图收进折叠区，AI 实况卡片不再单列", () => {
+    render(<WorkbenchView />)
+    const dev = screen.getByTestId("workbench-dev-views")
+    expect(dev.tagName).toBe("DETAILS")
+    expect(dev.querySelector('[data-workbench-card="moduleHeatmap"]')).toBeTruthy()
+    expect(dev.querySelector('[data-workbench-card="pipelineMotion"]')).toBeTruthy()
+    expect(document.querySelector('[data-workbench-card="liveExecution"]')).toBeNull()
+  })
+
   it("无项目时显示提示", () => {
     mockProject = null
     render(<WorkbenchView />)

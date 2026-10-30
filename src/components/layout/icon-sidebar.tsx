@@ -52,7 +52,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
   const [coverWorkbenchOpen, setCoverWorkbenchOpen] = useState(false)
   const [translationViewOpen, setTranslationViewOpen] = useState(false)
   const [fanficMergeOpen, setFanficMergeOpen] = useState(false)
-  // 有书时只展开写和审。没有书时开书组展开。用户点过后以存储为准。
+  // 有书时只展开写作和审改。没有书时开书组展开。用户点过后以存储为准。
   const [collapsedGroups, setCollapsedGroups] = useState<NavModeGroup[]>(() =>
     initialCollapsedGroups(useWikiStore.getState().project === null),
   )

@@ -223,7 +223,7 @@ describe("ReviewCenterSidebarPanel", () => {
 
     expect(screen.getByText("审查中心")).toBeInTheDocument()
     expect(screen.getByText("暂无可审查章节")).toBeInTheDocument()
-    expect(screen.getByText(/大纲 thril 软门/)).toBeInTheDocument()
+    expect(screen.getByText("开写前爽点结构检查：已关闭")).toBeInTheDocument()
     expect(mocks.state.setSelectedReviewFilePath).toHaveBeenCalledWith("")
   })
 
@@ -442,13 +442,13 @@ describe("ReviewCenterSidebarPanel", () => {
     mocks.state.selectedReviewFilePath = "/proj/wiki/chapters/3/outline.md"
     await renderPanel()
 
-    expect(screen.getByText("FIX-1 冲突线索 — 不可 thril 确认绕过")).toBeInTheDocument()
-    expect(screen.queryByText("结构点均过（软）")).not.toBeInTheDocument()
+    expect(screen.getByText("大纲可能提前剧透，需先改大纲")).toBeInTheDocument()
+    expect(screen.queryByText("五个结构点都满足")).not.toBeInTheDocument()
     expect(screen.getAllByText("✓")).toHaveLength(2)
     expect(screen.getAllByText("!")).toHaveLength(2)
     expect(screen.getAllByText("?")).toHaveLength(1)
     expect(screen.getByText("有危机")).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: /确认 thril 软门/ }))
+    fireEvent.click(screen.getByRole("button", { name: /我已看过/ }))
     expect(mocks.state.setThrillSoftGateAcknowledged).toHaveBeenCalledWith(3, true)
   })
 
@@ -458,9 +458,9 @@ describe("ReviewCenterSidebarPanel", () => {
     )
     mocks.state.thrilSoftGateAcknowledgedByChapter = { "3": true }
     await renderPanel()
-    expect(screen.getByText("结构点均过（软）")).toBeInTheDocument()
-    expect(screen.queryByText("FIX-1 冲突线索 — 不可 thril 确认绕过")).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /已确认 thril 软门/ })).toBeInTheDocument()
+    expect(screen.getByText("五个结构点都满足")).toBeInTheDocument()
+    expect(screen.queryByText("大纲可能提前剧透，需先改大纲")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /已确认第 .* 章的结构提醒/ })).toBeInTheDocument()
   })
 
   it("thril 门：章节号解析 branch-2（Chapter-3）与 outline 预览候选文件读取", async () => {

@@ -14,6 +14,7 @@ import { openGeneratedOutline, runOutlineIngestTask } from "@/lib/novel"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { clampSidebarWidth } from "@/lib/workspace-layout"
+import { recordRecentView } from "./workbench-helpers"
 import { TitleBar } from "./title-bar"
 import { CommandPalette } from "./command-palette"
 import { useTranslation } from "react-i18next"
@@ -29,6 +30,10 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const activeView = useWikiStore((s) => s.activeView)
+  // 工作台「最近使用」：只记视图 id 到 localStorage（批次三·12）
+  useEffect(() => {
+    recordRecentView(activeView)
+  }, [activeView])
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const setActiveSettingsCategory = useWikiStore((s) => s.setActiveSettingsCategory)
   const setFileTree = useWikiStore((s) => s.setFileTree)
