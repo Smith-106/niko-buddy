@@ -901,12 +901,14 @@ const ASCII_CHAPTER_STEM_RE = /^chapter[-_]?(\d+)$/i
  * 「第N章 / 第N回」里的序号单位。卷、节与章不同序，不当作章节序号；
  * 「回合」不是章回。数字写法沿用 parseChapterOrdinal 的规范语法。
  */
-const CHAPTER_UNIT_RE = /第\s*[0-9零〇一二两三四五六七八九十百千]+\s*([章节卷回])(合?)/
+const CHAPTER_UNIT_RE = /第\s*[0-9零〇一二两三四五六七八九十百千]+\s*([章节卷回])(合?)/g
 
 function chapterOrdinalInText(text: string): number | null {
-  const unit = CHAPTER_UNIT_RE.exec(text)
-  if (!unit || (unit[1] !== "章" && unit[1] !== "回") || unit[2] === "合") return null
-  return parseChapterOrdinal(text)
+  // 「续写第三卷第五章」取第五章：跳过卷/节/回合，取第一个真正的章回序号。
+  for (const unit of text.matchAll(CHAPTER_UNIT_RE)) {
+    if ((unit[1] === "章" || unit[1] === "回") && unit[2] !== "合") return parseChapterOrdinal(unit[0])
+  }
+  return null
 }
 
 /**
