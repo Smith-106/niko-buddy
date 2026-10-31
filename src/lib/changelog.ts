@@ -15,7 +15,7 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
-    // 2.23.1 prerelease（2026-10-31）：草稿索引隔离、无分隔符章标题解析放宽、13 个既有 E2E 失败彻底清零。
+    // 2.23.1 stable（2026-10-31）：用户批准提升为 Latest 稳定版；草稿索引隔离、无分隔符章标题解析放宽、13 个既有 E2E 失败彻底清零。
     version: "2.23.1",
     date: "2026-10-31",
     highlights: {
@@ -24,14 +24,14 @@ export const ENTRIES: ChangelogEntry[] = [
         "Fixed: chapter titles without punctuation separators (e.g. 第一章测试) now parse chapter numbers correctly while preserving RV-106 entity guards.",
         "Fixed: 13 long-standing E2E failures eliminated across Windows and Ubuntu; expandNavGroups helper now expands secondary navigation tier.",
         "Improved: updater verification path validated via Windows native UI automation (check update -> available version -> download action).",
-        "Release semantics: prerelease; does not become Latest.",
+        "Release semantics: stable (elevated to Latest on 2026-10-31 per user approval to enable in-app auto-update from v2.22.2).",
       ],
       zh: [
         "修复：De-AI 另存草稿的文件名不再被当成正规章号；草稿判定下沉到 flattenMdFilesBase 单入口，章节索引、章节号提取、导出与全文索引不再把草稿混为同号正式章节；反推大纲采样同步排除草稿。",
         "修复：无分隔符的章标题（「第一章测试」「第10章初见」等）也能解析出序号，同时保留 RV-106 实体名守卫（「第三回合」「第二卷」等非章节不回退）。",
         "修复：13 个长期存在的 E2E 失败彻底清零；修复导航展开助手 expandNavGroups 未展开二级「更多」按钮的缺陷，CI 上 Windows 与 Ubuntu 双平台 E2E 测试均 100% 通过。",
         "改进：更新器实测链路通过原生 UI 自动化验证，成功拉取新版本并呈现下载入口。",
-        "发布语义：prerelease，不进 Latest；安装包沿用 v2.23.0，直到本 tag 的构建附上资产。",
+        "发布语义：stable（2026-10-31 用户批准由 prerelease 提升为 Latest 稳定版，使已装 2.22.2 用户可直接自动更新；同周 stable ≤1；30 天节奏豁免已登记；安装包由 tag Release 构建附上）。",
       ],
     },
   },

@@ -61,6 +61,15 @@
         "weekly-stable",
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.23.1",
+      "reason": "用户于 2026-10-31 明确批准将 v2.23.1 由 prerelease 提升为 Latest 稳定版，使已装 2.22.2 的用户与作者能够通过内置更新器自动升级到包含 5 项遗留清理与 13 项 E2E 归零成果的版本。本周仅本版一个 stable（weekly-stable 满足）；发布前 30 天内 stable 计数 17 个超过历史上限 4 个，属历史连续高频发布所致，非跳过工程门禁；CI 41185560960 与 Release CI 41197993635 双全绿。",
+      "approvedBy": "user",
+      "approvedAt": "2026-10-31",
+      "scope": [
+        "thirty-day-stable"
+      ]
     }
   ]
 }

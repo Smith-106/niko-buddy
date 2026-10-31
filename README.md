@@ -50,9 +50,9 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 <img width="1239" height="883" alt="image" src="https://github.com/user-attachments/assets/076740be-85ef-4503-842d-565c367aebdc" />
 <img width="1201" height="832" alt="image" src="https://github.com/user-attachments/assets/57936132-45b2-4fed-8c80-2c9282fedbf5" />
 
-## v2.23.1 修复（草稿索引隔离、无分隔符标题与既有 E2E 清零，prerelease）
+## v2.23.1 修复（草稿索引隔离、无分隔符标题与既有 E2E 清零，stable）
 
-内测候选版（不进 Latest，Latest 保持 v2.22.2）：
+正式稳定版（已占 Latest 槽位，支持应用内自动更新）：
 
 - **草稿索引隔离**：De-AI 另存草稿改用统一常量 `DRAFT_FILENAME_SUFFIX`（`-去AI味稿.md` / `.draft.md` / `.tmp`），判定下沉至 `flattenMdFilesBase` 单入口；章节索引、章节号提取、导出与全文索引不再把草稿混为同号正式章节；反推大纲采样同步排除草稿。
 - **标题解析放宽**：无分隔符的章标题（「第一章测试」「第10章初见」「第十七回大闹天空」）可正确解析出章节序号；保留 `(?![章节卷回合])` 负向环视，RV-106 实体名守卫（「第三回合」「第二卷」等非章节）不回退。

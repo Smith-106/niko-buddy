@@ -7,17 +7,17 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.22.2**（2026-10-24 发布：故事推演穿帮修复与好感度实名 — stable）
+**v2.23.1**（2026-10-31 发布：草稿文件不进章节索引、无分隔符标题解析、E2E 13 项失败历史性归零 — stable Latest）
 
-源码 tip **v2.23.1** 是 prerelease 内测版：De-AI 草稿不进章节索引、无分隔符章标题序号解析放宽、CI Windows 与 Ubuntu 双平台 E2E 测试 100% 通过（13 项既有失败全部清零）。它不替换下面的 stable 安装包，也不进 Latest。
+用户于 2026-10-31 批准将 v2.23.1 提升为 Latest 稳定版，已装 v2.22.2 的用户可直接通过应用内更新器自动检查并升级。
 
-### v2.23.1 更新亮点（2026-10-31，prerelease）
+### v2.23.1 更新亮点（2026-10-31，stable）
 
 - **草稿索引隔离**：De-AI 另存草稿改用统一常量 `DRAFT_FILENAME_SUFFIX`（`-去AI味稿.md` / `.draft.md` / `.tmp`），判定下沉至 `flattenMdFilesBase` 单入口；章节索引、章节号提取、导出与全文索引不再把草稿混为同号正式章节；反推大纲采样同步排除草稿。
 - **标题解析放宽**：无分隔符的章标题（「第一章测试」「第10章初见」「第十七回大闹天空」）可正确解析出章节序号；保留 `(?![章节卷回合])` 负向环视，RV-106 实体名守卫（「第三回合」「第二卷」等非章节）不回退。
 - **13 个既有 E2E 失败清零**：修复六组导航下 `expandNavGroups` 未展开二级「更多 (N)」的共享 helper 缺陷，补齐缺失调用，对齐汉化命名与熔断横幅文案；CI 上 Windows 与 Ubuntu 双平台 E2E 测试全部 100% 通过（既有 13 项失败彻底清零）。
 - **更新器实测**：通过原生 UI 自动化实测从「设置 → 更新日志 → 检查更新」拉取新版本呈现下载入口。
-- 发布语义：**prerelease**（不进 Latest；安装包沿用 v2.22.2，直到本 tag 的构建附上资产）。
+- 发布语义：**stable**（已进 Latest；安装包由 tag Release 构建附上，Windows 安装包与便携版均可直接下载）。
 
 ### v2.23.0 更新亮点（2026-10-30，prerelease）
 
@@ -372,13 +372,13 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## Windows 安装包
 
-当前 stable 是 **v2.22.2**。源码 tip v2.23.1 是 prerelease，没有替换下面的安装包。
+当前 stable 是 **v2.23.1**。
 
-下载 [`niko-buddy_2.22.2_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.22.2/niko-buddy_2.22.2_windows_X64.exe)，双击运行 NSIS 安装程序即可。
+下载 [`niko-buddy_2.23.1_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.23.1/niko-buddy_2.23.1_windows_X64.exe)，双击运行 NSIS 安装程序即可。
 
 ## 便携版
 
-下载 [`niko-buddy_2.22.2_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.22.2/niko-buddy_2.22.2_windows_X64_portable.exe)（单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
+下载 [`niko-buddy_2.23.1_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.23.1/niko-buddy_2.23.1_windows_X64_portable.exe)（单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
 
 ## 系统要求
 
