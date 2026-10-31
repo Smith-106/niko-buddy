@@ -74,11 +74,11 @@ export const readStoredGraphEdgeColorHex = (): string => {
   return saved && /^#[0-9a-fA-F]{6}$/.test(saved) ? saved : "#7f8ea3"
 }
 
-/** Reads the persisted graph edge strength percent, clamping to [100, 260]. */
+/** Reads the persisted graph edge strength percent, clamping to [40, 200]. */
 export const readStoredGraphEdgeStrengthPercent = (): number => {
-  if (typeof localStorage === "undefined") return 180
-  const saved = Number(localStorage.getItem(GRAPH_EDGE_STRENGTH_KEY) ?? "180")
-  return Number.isFinite(saved) ? Math.max(100, Math.min(260, saved)) : 180
+  if (typeof localStorage === "undefined") return 100
+  const saved = Number(localStorage.getItem(GRAPH_EDGE_STRENGTH_KEY) ?? "100")
+  return Number.isFinite(saved) ? Math.max(40, Math.min(200, saved)) : 100
 }
 
 /** Reads the persisted graph edge style, defaulting to "curve". */

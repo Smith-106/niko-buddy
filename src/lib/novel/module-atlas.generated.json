@@ -91,7 +91,7 @@
   "specOnly": 261,
   "barrelOnly": 2,
   "edges": 4482,
-  "loc": 276315
+  "loc": 276320
  },
  "modules": [
   {
@@ -1349,7 +1349,7 @@
   {
    "p": "src/components/graph/graph-view.tsx",
    "s": 16,
-   "l": 1363,
+   "l": 1366,
    "r": true,
    "o": false,
    "x": false,
@@ -7994,7 +7994,7 @@
   {
    "p": "src/lib/graph-layout.ts",
    "s": 18,
-   "l": 97,
+   "l": 99,
    "r": true,
    "o": false,
    "x": false,

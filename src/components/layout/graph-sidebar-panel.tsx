@@ -160,8 +160,8 @@ export function GraphSidebarPanel() {
               <span className="text-muted-foreground whitespace-nowrap">{t("graph.edgeStrength")}</span>
               <input
                 type="range"
-                min={100}
-                max={260}
+                min={40}
+                max={200}
                 step={10}
                 value={edgeStrengthPercent}
                 onChange={(e) => setEdgeStrengthPercent(Number(e.target.value))}

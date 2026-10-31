@@ -223,6 +223,11 @@ describe("GraphSidebarPanel", () => {
     const range = document.querySelector('input[type="range"]') as HTMLInputElement
     fireEvent.change(range, { target: { value: "200" } })
     expect(mocks.state.setGraphEdgeStrengthPercent).toHaveBeenCalledWith(200)
+
+    // 可视性回归：强度滑块必须能调到 100% 以下（历史上 min=100 只能调粗不能调细），
+    // 且上限不再允许把边放大到盖住节点。
+    expect(range.min).toBe("40")
+    expect(range.max).toBe("200")
   })
 
   it("hiddenCount > 0 时渲染琥珀徽标", () => {

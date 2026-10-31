@@ -46,8 +46,8 @@ function readStoredGraphEdgeColorHex() {
   return saved && /^#[0-9a-fA-F]{6}$/.test(saved) ? saved : "#7f8ea3"
 }
 function readStoredGraphEdgeStrengthPercent() {
-  const saved = Number((globalThis.localStorage as any).getItem("lk-graph-edge-strength") ?? "180")
-  return Number.isFinite(saved) ? Math.max(100, Math.min(260, saved)) : 180
+  const saved = Number((globalThis.localStorage as any).getItem("lk-graph-edge-strength") ?? "100")
+  return Number.isFinite(saved) ? Math.max(40, Math.min(200, saved)) : 100
 }
 function readStoredGraphEdgeLabelsAlways() {
   return (globalThis.localStorage as any).getItem("lk-graph-edge-labels-always") === "true"
@@ -639,7 +639,7 @@ describe("localStorage 不可用时的降级行为（typeof guard）", () => {
       expect(store.uiFontSizeScale).toBe(1)
       expect(store.graphLabelDisplayMode).toBe("all")
       expect(store.graphEdgeColorHex).toBe("#7f8ea3")
-      expect(store.graphEdgeStrengthPercent).toBe(180)
+      expect(store.graphEdgeStrengthPercent).toBe(100)
       expect(store.graphEdgeStyle).toBe("curve")
       expect(store.graphEdgeLabelsAlwaysVisible).toBe(false)
       // setter 在无 localStorage 时跳过写入但仍更新 state
@@ -669,7 +669,7 @@ describe("readStored* 预置值解析", () => {
     _localStorageMock["niko-buddy-ui-font-size-scale"] = "1.25"
     _localStorageMock["lk-graph-label-display-mode"] = "auto"
     _localStorageMock["lk-graph-edge-style"] = "arrow"
-    _localStorageMock["lk-graph-edge-strength"] = "250"
+    _localStorageMock["lk-graph-edge-strength"] = "180"
     _localStorageMock["lk-graph-edge-labels-always"] = "true"
     _localStorageMock["lk-graph-edge-color"] = "#ff8800"
     vi.resetModules()
@@ -679,7 +679,7 @@ describe("readStored* 预置值解析", () => {
     expect(s.uiFontSizeScale).toBeCloseTo(1.25)
     expect(s.graphLabelDisplayMode).toBe("auto")
     expect(s.graphEdgeStyle).toBe("arrow")
-    expect(s.graphEdgeStrengthPercent).toBe(250)
+    expect(s.graphEdgeStrengthPercent).toBe(180)
     expect(s.graphEdgeLabelsAlwaysVisible).toBe(true)
     expect(s.graphEdgeColorHex).toBe("#ff8800")
   })
@@ -699,7 +699,7 @@ describe("readStored* 预置值解析", () => {
     expect(s.uiFontSizeScale).toBeCloseTo(0.85) // 低于下限夹取
     expect(s.graphLabelDisplayMode).toBe("all")
     expect(s.graphEdgeStyle).toBe("curve")
-    expect(s.graphEdgeStrengthPercent).toBe(260) // 高于上限夹取
+    expect(s.graphEdgeStrengthPercent).toBe(200) // 高于上限夹取
     expect(s.graphEdgeLabelsAlwaysVisible).toBe(false)
     expect(s.graphEdgeColorHex).toBe("#7f8ea3")
   })
@@ -711,7 +711,7 @@ describe("readStored* 预置值解析", () => {
     const mod = await import("../wiki-store")
     const s = mod.useWikiStore.getState()
     expect(s.uiFontSizeScale).toBe(1)
-    expect(s.graphEdgeStrengthPercent).toBe(180)
+    expect(s.graphEdgeStrengthPercent).toBe(100)
   })
 
   it("localStorage 存在但键缺失时 ?? 兜底默认值", async () => {
@@ -721,7 +721,7 @@ describe("readStored* 预置值解析", () => {
     const s = mod.useWikiStore.getState()
     expect(s.chatDockPosition).toBe("bottom")
     expect(s.uiFontSizeScale).toBe(1)
-    expect(s.graphEdgeStrengthPercent).toBe(180)
+    expect(s.graphEdgeStrengthPercent).toBe(100)
     expect(s.graphLabelDisplayMode).toBe("all")
   })
 })

@@ -14,10 +14,10 @@ describe("graph-layout constants", () => {
     expect(GRAPH_VISUAL_SETTINGS).toEqual({
       baseNodeSize: 6,
       maxNodeSize: 20,
-      minEdgeSize: 0.35,
-      maxEdgeSize: 2,
+      minEdgeSize: 0.22,
+      maxEdgeSize: 1.2,
       minEdgeAlpha: 0.12,
-      maxEdgeAlpha: 0.42,
+      maxEdgeAlpha: 0.32,
     })
   })
 
@@ -61,30 +61,41 @@ describe("graph-layout constants", () => {
 describe("getGraphVisualSettings", () => {
   it("applies the large-graph tier at 500+ nodes", () => {
     const s = getGraphVisualSettings(500)
-    expect(s.baseNodeSize).toBe(4)
-    expect(s.maxNodeSize).toBe(14)
-    expect(s.minEdgeSize).toBe(0.2)
-    expect(s.maxEdgeSize).toBe(1.2)
-    expect(s.minEdgeAlpha).toBe(0.06)
-    expect(s.maxEdgeAlpha).toBe(0.25)
+    expect(s.baseNodeSize).toBe(5)
+    expect(s.maxNodeSize).toBe(15)
+    expect(s.minEdgeSize).toBe(0.12)
+    expect(s.maxEdgeSize).toBe(0.75)
+    expect(s.minEdgeAlpha).toBe(0.08)
+    expect(s.maxEdgeAlpha).toBe(0.2)
   })
 
   it("applies the large-graph tier well above the threshold", () => {
-    expect(getGraphVisualSettings(5000).baseNodeSize).toBe(4)
+    expect(getGraphVisualSettings(5000).baseNodeSize).toBe(5)
   })
 
   it("applies the medium tier at 100-499 nodes", () => {
     const s = getGraphVisualSettings(100)
-    expect(s.baseNodeSize).toBe(5)
-    expect(s.maxNodeSize).toBe(17)
-    expect(s.minEdgeSize).toBe(0.28)
-    expect(s.maxEdgeSize).toBe(1.6)
-    expect(s.minEdgeAlpha).toBe(0.09)
-    expect(s.maxEdgeAlpha).toBe(0.34)
+    expect(s.baseNodeSize).toBe(6)
+    expect(s.maxNodeSize).toBe(18)
+    expect(s.minEdgeSize).toBe(0.16)
+    expect(s.maxEdgeSize).toBe(1)
+    expect(s.minEdgeAlpha).toBe(0.1)
+    expect(s.maxEdgeAlpha).toBe(0.26)
   })
 
   it("applies the medium tier at the upper boundary", () => {
-    expect(getGraphVisualSettings(499).baseNodeSize).toBe(5)
+    expect(getGraphVisualSettings(499).baseNodeSize).toBe(6)
+  })
+
+  it("keeps every tier edge width below its node size so edges stay background", () => {
+    // 可视性契约：边是背景信息，任何密度档下边宽都不得达到节点基准尺寸，
+    // 否则密集图上数百条边会盖住节点颜色与标签（实测 500+ 节点、962 条边时糊成黑网）。
+    for (const count of [0, 99, 100, 499, 500, 5000]) {
+      const tier = getGraphVisualSettings(count)
+      expect(tier.maxEdgeSize).toBeLessThan(tier.baseNodeSize)
+      expect(tier.maxEdgeAlpha).toBeLessThan(0.4)
+      expect(tier.minEdgeSize).toBeLessThan(tier.maxEdgeSize)
+    }
   })
 
   it("falls back to defaults below 100 nodes", () => {

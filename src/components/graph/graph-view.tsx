@@ -627,6 +627,8 @@ export function GraphView() {
     edgeLabelWeight: "600",
     edgeLabelColor: { color: themeColorsRef.current.edgeLabel },
     labelDensity: labelDisplayMode === "all" ? 1 : labelDisplayMode === "focused" ? 0.25 : 0.4,
+    // 网格单元越大允许同时绘制的标签越少；密集区不再把文字叠成一团（节点仍可 hover 看名称）。
+    labelGridCellSize: labelDisplayMode === "all" ? 40 : labelDisplayMode === "focused" ? 110 : 90,
     labelRenderedSizeThreshold: labelDisplayMode === "all" ? 0 : labelDisplayMode === "focused" ? 8 : 6,
     stagePadding: 30,
     nodeReducer: (_node, attrs) => {
@@ -657,7 +659,8 @@ export function GraphView() {
       const result = { ...attrs }
       if (attrs.dimmed) {
         result.color = mixColor(edgeColorHex, themeColorsRef.current.dimMix, 0.75)
-        result.size = 0.3
+        // 置灰边必须比常态边更细（原固定 0.3 在细线基准下反而更粗，会盖过正常关系）。
+        result.size = Math.max(0.06, (attrs.size ?? 0.3) * 0.5)
       }
       if (attrs.highlighted) {
         result.color = themeColorsRef.current.edgeHighlight

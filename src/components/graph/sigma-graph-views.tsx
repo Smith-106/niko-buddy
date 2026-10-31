@@ -165,7 +165,7 @@ export function GraphLoader({
       const strengthScale = edgeStrengthPercent / 100
       const size = (visualSettings.minEdgeSize + normalizedWeight * (visualSettings.maxEdgeSize - visualSettings.minEdgeSize)) * strengthScale
       const baseAlpha = visualSettings.minEdgeAlpha + normalizedWeight * (visualSettings.maxEdgeAlpha - visualSettings.minEdgeAlpha)
-      const alpha = Math.max(0.14, Math.min(0.95, baseAlpha * strengthScale))
+      const alpha = Math.max(0.08, Math.min(0.85, baseAlpha * strengthScale))
       const color = hexToRgba(edgeColorHex, alpha)
       const relationLabel = edgeLabelsAlwaysVisible && novelMode && edge.relation
         ? NOVEL_RELATION_LABELS[edge.relation as keyof typeof NOVEL_RELATION_LABELS] ?? edge.relation

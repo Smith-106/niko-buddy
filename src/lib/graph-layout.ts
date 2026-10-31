@@ -3,10 +3,10 @@ import type { ForceAtlas2Settings } from "graphology-layout-forceatlas2"
 export const GRAPH_VISUAL_SETTINGS = {
   baseNodeSize: 6,
   maxNodeSize: 20,
-  minEdgeSize: 0.35,
-  maxEdgeSize: 2,
+  minEdgeSize: 0.22,
+  maxEdgeSize: 1.2,
   minEdgeAlpha: 0.12,
-  maxEdgeAlpha: 0.42,
+  maxEdgeAlpha: 0.32,
 } as const
 
 export const GRAPH_LAYOUT_SETTINGS = {
@@ -64,24 +64,26 @@ export interface GraphVisualTier {
 }
 
 export function getGraphVisualSettings(nodeCount: number): GraphVisualTier {
+  // 边宽与透明度按密度分档：大图上数百条边叠在一起时，粗边+高透明度会糊成黑网，
+  // 压住节点颜色与标签。这里把边压到「可见但退居背景」，节点尺寸相应上调。
   if (nodeCount >= 500) {
     return {
-      baseNodeSize: 4,
-      maxNodeSize: 14,
-      minEdgeSize: 0.2,
-      maxEdgeSize: 1.2,
-      minEdgeAlpha: 0.06,
-      maxEdgeAlpha: 0.25,
+      baseNodeSize: 5,
+      maxNodeSize: 15,
+      minEdgeSize: 0.12,
+      maxEdgeSize: 0.75,
+      minEdgeAlpha: 0.08,
+      maxEdgeAlpha: 0.2,
     }
   }
   if (nodeCount >= 100) {
     return {
-      baseNodeSize: 5,
-      maxNodeSize: 17,
-      minEdgeSize: 0.28,
-      maxEdgeSize: 1.6,
-      minEdgeAlpha: 0.09,
-      maxEdgeAlpha: 0.34,
+      baseNodeSize: 6,
+      maxNodeSize: 18,
+      minEdgeSize: 0.16,
+      maxEdgeSize: 1,
+      minEdgeAlpha: 0.1,
+      maxEdgeAlpha: 0.26,
     }
   }
   return {

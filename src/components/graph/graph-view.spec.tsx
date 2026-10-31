@@ -1908,7 +1908,9 @@ describe("GraphView — 覆盖补充：Sigma 配置与边界分支", () => {
     expect(dimmedNode.color).toMatch(/^#|^rgba?\(/)
 
     const dimmedEdge = settings.edgeReducer("n1->n2", { size: 4, color: "#123456", dimmed: true })
-    expect(dimmedEdge).toMatchObject({ size: 0.3 })
+    // 置灰边按常态边减半：细线基准下不得比正常关系更粗
+    expect(dimmedEdge).toMatchObject({ size: 2 })
+    expect(settings.edgeReducer("n1->n2", { size: 0.2, dimmed: true })).toMatchObject({ size: 0.1 })
     expect(settings.edgeReducer("n1->n2", { size: 1, highlighted: true, relation: "APPEARS_IN" })).toMatchObject({
       color: "#1e293b",
       size: 2,
