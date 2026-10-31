@@ -10,6 +10,7 @@ description: 下载 Niko Buddy 最新版本安装包
 **v2.23.1**（2026-10-31 发布：草稿文件不进章节索引、无分隔符标题解析、E2E 13 项失败历史性归零 — stable Latest）
 
 用户于 2026-10-31 批准将 v2.23.1 提升为 Latest 稳定版，已装 v2.22.2 的用户可直接通过应用内更新器自动检查并升级。
+> **候选版 v2.24.0（2026-11-01，prerelease）**：图谱知识地图化 MVP 三项（节点关系抽屉、选中态 1 度高亮置灰、图内搜索飞入）。候选渠道，暂不占 Latest 槽位，内置更新器不会自动提示；如需尝鲜请从 [v2.24.0 Release](https://github.com/Smith-106/niko-buddy/releases/tag/v2.24.0) 手动下载 `niko-buddy_2.24.0_windows_X64.exe`。
 
 ### v2.23.1 更新亮点（2026-10-31，stable）
 

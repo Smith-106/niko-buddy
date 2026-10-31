@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.23.1-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.24.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -50,6 +50,14 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 <img width="1239" height="883" alt="image" src="https://github.com/user-attachments/assets/076740be-85ef-4503-842d-565c367aebdc" />
 <img width="1201" height="832" alt="image" src="https://github.com/user-attachments/assets/57936132-45b2-4fed-8c80-2c9282fedbf5" />
 
+## v2.24.0 新增（图谱知识地图化 MVP 三项，prerelease）
+
+候选版（prelease 渠道，暂不占 Latest 槽位；稳定版仍为 v2.23.1）：
+
+- **节点关系抽屉**：点击图谱任一节点，右侧列出该节点信息与全部直接关联关系（入边/出边分组，含关系名与对端类型）；点关系项即选中并飞入对端节点。数据源取全量图，与头部连接数口径一致。
+- **选中态高亮与置灰**：选中节点与其 1 度邻居高亮、其余节点与无关边置灰，点击画布空白取消；悬停时预览悬停节点的完整 1 度邻域；选中与图例批量高亮互斥。
+- **图内搜索飞入**：模糊匹配按相关性分档（全等 > 前缀 > 子串 > 仅类型，同级按连接数排序），支持键盘上下选择；选中结果后镜头平滑飞入，并在布局落定后自动校正居中。
+- **修复与改进**：抽屉不再遮挡缩放控件；对端被筛选隐藏的关系项标注「已过滤」；抽屉支持 Escape 关闭并移入焦点；搜索框补齐 combobox 语义。
 ## v2.23.1 修复（草稿索引隔离、无分隔符标题与既有 E2E 清零，stable）
 
 正式稳定版（已占 Latest 槽位，支持应用内自动更新）：
