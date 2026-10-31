@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { detectLastGeneratedChapterNumber, ensureString, extractChapterNumber, findChapterFileByNumber, flattenMdFiles, flattenMdFilesBase, formatStageThinking, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat } from "./chapter-utils"
+import { DRAFT_FILENAME_SUFFIX, DRAFT_FILENAME_SUFFIXES, detectLastGeneratedChapterNumber, ensureString, extractChapterNumber, findChapterFileByNumber, flattenMdFiles, flattenMdFilesBase, formatStageThinking, getNextChapterNumber, invalidateChapterCache, isDraftChapterFile, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat } from "./chapter-utils"
 
 const fsMocks = vi.hoisted(() => ({
   listDirectory: vi.fn(),
@@ -337,6 +337,32 @@ describe("extractChapterNumber / flattenMdFiles", () => {
     expect(extractChapterNumber("chapter 5")).toBe(5)
     expect(extractChapterNumber("abc")).toBeNull()
     expect(extractChapterNumber("")).toBeNull()
+  })
+
+  it("flattenMdFilesBase 过滤草稿文件（-去AI味稿.md、.draft.md、.tmp），避免被章节索引/导出消费", () => {
+    const nodes = [
+      { name: "chapter-001.md", path: "/a/chapter-001.md", is_dir: false },
+      { name: "chapter-001-去AI味稿.md", path: "/a/chapter-001-去AI味稿.md", is_dir: false },
+      { name: "chapter-002.draft.md", path: "/a/chapter-002.draft.md", is_dir: false },
+      { name: "chapter-003.tmp.md", path: "/a/chapter-003.tmp.md", is_dir: false },
+      { name: "chapter-003.tmp", path: "/a/chapter-003.tmp", is_dir: false },
+      { name: "sub", path: "/a/sub", is_dir: true, children: [
+        { name: "chapter-004.md", path: "/a/sub/chapter-004.md", is_dir: false },
+        { name: "chapter-004-去AI味稿.MD", path: "/a/sub/chapter-004-去AI味稿.MD", is_dir: false },
+      ] },
+    ]
+    expect(flattenMdFilesBase(nodes as never)).toEqual([
+      { name: "chapter-001.md", path: "/a/chapter-001.md" },
+      { name: "chapter-003.tmp.md", path: "/a/chapter-003.tmp.md" },
+      { name: "chapter-004.md", path: "/a/sub/chapter-004.md" },
+    ])
+    expect(isDraftChapterFile("chapter-001-去AI味稿.md")).toBe(true)
+    expect(isDraftChapterFile("chapter-001-去AI味稿.MD")).toBe(true)
+    expect(isDraftChapterFile("chapter-002.draft.md")).toBe(true)
+    expect(isDraftChapterFile("chapter-003.tmp")).toBe(true)
+    expect(isDraftChapterFile("chapter-001.md")).toBe(false)
+    expect(DRAFT_FILENAME_SUFFIX).toBe("-去AI味稿.md")
+    expect(DRAFT_FILENAME_SUFFIXES).toContain("-去AI味稿.md")
   })
 
   it("flattenMdFilesBase recurses into dirs, skips dirs without children and non-md files", () => {

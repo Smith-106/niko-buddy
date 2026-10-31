@@ -2,7 +2,7 @@ import { Suspense, lazy, useEffect, useCallback, useRef, useMemo, useState, useL
 import { useTranslation } from "react-i18next"
 import { Check } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { resolveDefaultModel, isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus, resolveReviewModel, buildDeAiRewriteMessages, acceptAllDeAiBatchDrafts, acceptDeAiBatchDraft, loadDeAiBatchState, rejectDeAiBatchDraft, runDeAiBatch, startOutlineIngestTask, DEFAULT_DE_AI_MODE } from "@/lib/novel"
+import { resolveDefaultModel, isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus, resolveReviewModel, buildDeAiRewriteMessages, acceptAllDeAiBatchDrafts, acceptDeAiBatchDraft, loadDeAiBatchState, rejectDeAiBatchDraft, runDeAiBatch, startOutlineIngestTask, DRAFT_FILENAME_SUFFIX, DEFAULT_DE_AI_MODE } from "@/lib/novel"
 import type { DeAiBatchProgress, DeAiBatchSummary, DeAiMode, DeAiDetectResult, DeAiSpanApplyResult, DeAiEditError } from "@/lib/novel"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
@@ -1027,11 +1027,13 @@ export function PreviewPanel() {
     const dir = normalizedPath.substring(0, normalizedPath.lastIndexOf("/") + 1)
     const fileName = normalizedPath.split("/").pop() || "file" /* v8 ignore start */ /* v8 ignore stop */
     const baseName = fileName.replace(/\.md$/, "")
-    const draftPath = normalizePath(`${dir}${baseName}-去AI味稿.md`)
+    const draftPath = normalizePath(`${dir}${baseName}${DRAFT_FILENAME_SUFFIX}`)
     try {
-      // 草稿带原章一级标题，但不带 frontmatter：同目录的 -去AI味稿.md 若带 chapter_number /
+      // 草稿带原章一级标题，但不带 frontmatter：同目录的草稿若带 chapter_number /
       // chapter_status，会被章节索引（findChapterFileByNumber）与导出（loadFinalChapters）
       // 当作同号正式章节。replaceWholeChapterBody 剥掉候选自带的 frontmatter/标题后套原章标题。
+      // 草稿文件名里的章号也会被 extractChapterNumber 取到，故由 chapter-utils 的
+      // isDraftChapterFile 统一排除（DRAFT_FILENAME_SUFFIX 与过滤口径同源）。
       const { body: bodyWithHeading } = parseFrontmatter(replaceWholeChapterBody(fileContent, deAiCandidateContent))
       await writeFileAtomic(draftPath, bodyWithHeading)
       const tree = await listDirectory(normalizePath(project.path))

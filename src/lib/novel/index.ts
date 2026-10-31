@@ -50,7 +50,7 @@ export { chapterMarkdownHasBody, decideChapterSaveStrategy, detectGeneratedTarge
 export type { ChapterSaveStrategy } from "./chapter-save-strategy"
 export { extractH1Headings, isBareChapterLabel, isRichChapterTitle, normalizeChapterDocument, parseChapterOrdinal, readFrontmatterTitle, resolveChapterTitle } from "./chapter-typography"
 export type { NormalizeChapterOptions, NormalizeChapterResult } from "./chapter-typography"
-export { detectLastGeneratedChapterNumber, extractChapterNumber, findChapterFileByNumber, flattenMdFiles, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat } from "./chapter-utils"
+export { DRAFT_FILENAME_SUFFIX, DRAFT_FILENAME_SUFFIXES, detectLastGeneratedChapterNumber, extractChapterNumber, findChapterFileByNumber, flattenMdFiles, getNextChapterNumber, invalidateChapterCache, isDraftChapterFile, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat } from "./chapter-utils"
 export type { ResolveTargetChapterNumberForChatInput } from "./chapter-utils"
 export { appendChapterWorkspaceSnapshot } from "./chapter-workspace"
 export { BUILT_IN_CHARACTER_AURAS, CHARACTER_AURA_RESEARCH_FILES, bindCharacterAura, buildCharacterAuraContext, createCustomCharacterAuraSkill, deleteCustomCharacterAura, getCharacterAuraBindings, listBindableNovelCharacters, listCharacterAuras, loadCharacterAuraResearchDocument, loadCharacterAuraSkillDocument, unbindCharacterAura, updateCustomCharacterAura } from "./character-aura"

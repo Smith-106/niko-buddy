@@ -58,6 +58,30 @@ export function formatStageThinking(title: string, content: string): string {
 }
 
 /**
+ * 草稿文件名后缀（大小写不敏感）。
+ *
+ * 草稿与正式章节同目录存放，文件名里带正文章号（如 `chapter-001-去AI味稿.md`），
+ * 而 `extractChapterNumber` 在「第N章」不匹配时会回退取文件名里的第一串数字，
+ * 于是草稿会被当成同号正式章节（ISS-20260802-003 复核 RV-006）。草稿判定收敛到
+ * 这一处常量，命名与过滤共用，避免两处字面量各自漂移。
+ */
+export const DRAFT_FILENAME_SUFFIXES = ["-去AI味稿.md", ".draft.md", ".tmp"] as const
+
+/** 草稿文件的主后缀（新草稿命名用，与过滤口径同源）。 */
+export const DRAFT_FILENAME_SUFFIX = DRAFT_FILENAME_SUFFIXES[0]
+
+/**
+ * 是否为草稿文件（不参与章节索引、排序与导出）。
+ *
+ * @param name - 文件名（含扩展名）
+ * @returns 草稿返回 true
+ */
+export function isDraftChapterFile(name: string): boolean {
+  const lower = name.toLowerCase()
+  return DRAFT_FILENAME_SUFFIXES.some((suffix) => lower.endsWith(suffix.toLowerCase()))
+}
+
+/**
  * 递归平铺文件树为 .md 文件列表（不排序）。
  * MIT licensed implementation.
  *
@@ -65,6 +89,7 @@ export function formatStageThinking(title: string, content: string): string {
  * export.ts / rebuild.ts (which want raw traversal order) and by
  * `flattenMdFiles` below (which adds chapter-number sort). Hoisting the base
  * keeps the two callers from re-implementing the recursion a third/fourth time.
+ * 草稿文件在此处统一排除，故 export/rebuild/fts-index 等全部消费方自动受益。
  *
  * @param nodes - 文件树节点数组
  * @returns 平铺后的 .md 文件列表
@@ -78,7 +103,7 @@ export function flattenMdFilesBase(
       if (node.children) out.push(...flattenMdFilesBase(node.children))
       continue
     }
-    if (node.name.endsWith(".md")) {
+    if (node.name.endsWith(".md") && !isDraftChapterFile(node.name)) {
       out.push({ name: node.name, path: node.path })
     }
   }
