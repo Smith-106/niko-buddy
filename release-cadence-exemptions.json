@@ -70,6 +70,16 @@
       "scope": [
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.24.0",
+      "reason": "用户于 2026-11-01 明确批准将 v2.24.0 由 prerelease 提升为 Latest 稳定版（图谱知识地图化 MVP 三项 + 4 项残留修复），使已装用户可经内置更新器自动升级。weekly-stable：v2.24.0 的 publishedAt 为 2026-11-01，与 v2.23.1（2026-10-31）同属 ISO 周 2026-10-26，故该周 stable 计数为 2；thirty-day-stable：发布前 30 天 stable 17 个，属历史连续高频发布所致，非跳过工程门禁。发版与提升时四道硬门全绿（typecheck 0 / lint eslint 0 + boundaries 5/5 / gen:check 6/6 / consistency 14/14），全量单测 16187 项、graph-view 专项 100 项、覆盖图谱视图的 E2E 27 项，独立复核 approve（high/84）；Release CI 41224998281 与 CI 41225010889 双 success。",
+      "approvedBy": "user",
+      "approvedAt": "2026-11-01",
+      "scope": [
+        "weekly-stable",
+        "thirty-day-stable"
+      ]
     }
   ]
 }

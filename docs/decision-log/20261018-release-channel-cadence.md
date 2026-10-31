@@ -55,6 +55,7 @@
 | v2.19.0 | `weekly-stable`、`thirty-day-stable`、`same-day-duplicate` | 用户明确批准（2026-10-19 会话，在本地真机安装 2.19.0 并运行后两次确认繼續）：15 灰卡转正功能版（WaveA/B/C 只读真实视图）+ 对抗审查修复。typecheck/lint/consistency/mocks/gen:check 全绿，Release CI success，Windows 三资产齐。tag 曾因 atlas 生成物漏 regen 导致门禁 failure，按纪律删除零资产旧 tag/release 后重打（未重打任何已发布带资产 tag），重打后 CI success 才重建 release。（批准于 2026-10-19） |
 | v2.21.0 | `weekly-stable`、`thirty-day-stable` | 用户于 2026-10-22 明确要求把 v2.21.0 由 prerelease 提升为正式版。原 tag 停在门禁失败、零资产的 a0431b43；修复已在 smith/master 且 CI 39731981080 全绿。零资产 tag 改指到该提交后由 Release 构建附上 Windows 安装包。同周已有 v2.20.0 stable，近 30 天 stable 亦超过上限。（批准于 2026-10-22） |
 | v2.22.2 | `weekly-stable`、`thirty-day-stable` | 用户于 2026-10-30 明确批准登记豁免：v2.22.2 为当前 Latest（v2.23.0 按 changelog 语义发为 prerelease），release:cadence 默认审 Latest 时因既有高频发布节奏 FAIL：ISO 周 2026-10-19 有 6 个 stable、发布前 30 天 stable 17 个（上限 4）。发版门禁当时全绿，超限不是跳过门禁。（批准于 2026-10-30） |
+| v2.24.0 | `weekly-stable`、`thirty-day-stable` | 用户于 2026-11-01 明确批准将 v2.24.0 由 prerelease 提升为 Latest。v2.24.0 的 publishedAt 为 2026-11-01，与 v2.23.1（2026-10-31）同属 ISO 周 2026-10-26，该周 stable 计数为 2；近 30 天 stable 17 个属历史高频节奏。提升时四道硬门全绿、全量 16187 项单测与 E2E 27 项通过、独立复核 approve，Release CI 41224998281 与 CI 41225010889 双 success。（批准于 2026-11-01） |
 
 > v2.17.1 与 v2.17.0 同 ISO 周（2026-10-12 → 10-18），属真实节奏超限，此处按 fix-forward 豁免登记，
 > 而不是回改历史或把已发布版本降级为 prerelease（后者会让已升级用户收到降级提示）。

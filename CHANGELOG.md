@@ -25,7 +25,7 @@
 
 - 改进：抽屉支持 Escape 关闭并把焦点移入面板；搜索框补齐 combobox 语义（aria-expanded / aria-controls / aria-activedescendant），读屏可感知当前活动项。
 - 改进：思维导图三个重渲染用例显式放宽超时，消除 CPU 高负载下的已知假红（断言强度不变）。
-- 发布语义：**prerelease**（候选渠道）。同一 ISO 周已有 v2.23.1 stable，按发布节奏硬检（每周 stable ≤1）本版不提升为 Latest；验证通过后再行提升。
+- 发布语义：**stable**（2026-11-01 用户批准由候选版提升为 Latest 稳定版）。v2.24.0 与 v2.23.1 同属 ISO 周 2026-10-26，按发布节奏硬检（每周 stable ≤1）与近 30 天 stable 上限，两项豁免已登记于 `release-cadence-exemptions.json`（scope 逐条列出规则键）；提升后 `release:cadence` 审 Latest PASS。
 
 ## [2.23.1] - 2026-10-31
 

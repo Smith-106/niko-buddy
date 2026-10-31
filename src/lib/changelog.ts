@@ -25,7 +25,7 @@ export const ENTRIES: ChangelogEntry[] = [
         "Added: in-graph node search with fuzzy matching (exact > prefix > substring > type, then by link count) and keyboard navigation; picking a result flies the camera to the node and re-centers after the layout settles.",
         "Fixed: the relation drawer no longer covers the zoom controls, and relation items whose peer is hidden by the current filter are marked Filtered instead of failing silently.",
         "Improved: the drawer closes on Escape and moves focus into the panel; the search box exposes combobox semantics for screen readers.",
-        "Release semantics: prerelease (candidate channel); does not become Latest.",
+        "Release semantics: stable (promoted to Latest on 2026-11-01 per user approval).",
       ],
       zh: [
         "新增：点击图谱任一节点，右侧抽屉列出该节点信息与全部直接关联关系（入边/出边分组，含关系名与对端类型）；点关系项即选中并飞入对端节点。",
@@ -33,7 +33,7 @@ export const ENTRIES: ChangelogEntry[] = [
         "新增：图内节点搜索支持模糊匹配（全等 > 前缀 > 子串 > 类型，同级按连接数排序）与键盘上下选择；选中结果后镜头平滑飞入，并在布局落定后自动校正居中。",
         "修复：关系抽屉不再遮挡缩放控件；对端被当前筛选隐藏的关系项标注「已过滤」，不再点击后无任何反应。",
         "改进：抽屉支持 Escape 关闭并把焦点移入面板；搜索框补齐 combobox 语义，读屏可感知当前活动项。",
-        "发布语义：prerelease（候选渠道），不提升为 Latest。",
+        "发布语义：stable（2026-11-01 用户批准由候选版提升为 Latest 稳定版）。",
       ],
     },
   },
