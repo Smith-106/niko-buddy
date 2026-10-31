@@ -91,7 +91,7 @@
   "specOnly": 261,
   "barrelOnly": 2,
   "edges": 4476,
-  "loc": 275540
+  "loc": 275573
  },
  "modules": [
   {
@@ -1953,7 +1953,7 @@
   {
    "p": "src/components/layout/preview-panel.tsx",
    "s": 16,
-   "l": 1427,
+   "l": 1429,
    "r": true,
    "o": false,
    "x": false,
@@ -10223,7 +10223,7 @@
   {
    "p": "src/lib/novel/chapter-typography.ts",
    "s": 6,
-   "l": 275,
+   "l": 281,
    "r": true,
    "o": false,
    "x": false,
@@ -10235,7 +10235,7 @@
   {
    "p": "src/lib/novel/chapter-utils.ts",
    "s": 18,
-   "l": 425,
+   "l": 450,
    "r": true,
    "o": false,
    "x": false,
