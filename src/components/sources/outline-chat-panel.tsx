@@ -7,7 +7,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
 import { readFile, writeFileAtomic, listDirectory, createDirectory, fileExists } from "@/commands/fs"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
-import { finalizeStructuredMarkdownMessage, repairMarkdownFormatWithAi, OUTLINE_SECTION_GENERATION_CONFIGS, runDeepOutlineGeneration, resolveNovelModel } from "@/lib/novel"
+import { finalizeStructuredMarkdownMessage, isDraftChapterFile, repairMarkdownFormatWithAi, OUTLINE_SECTION_GENERATION_CONFIGS, runDeepOutlineGeneration, resolveNovelModel } from "@/lib/novel"
 import { toast } from "@/lib/toast"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import ReactMarkdown from "react-markdown"
@@ -59,7 +59,7 @@ async function loadOutlineContext(projectPath: string): Promise<{ context: strin
   try {
     const chaptersDir = `${pp}/wiki/chapters`
     const tree = await listDirectory(chaptersDir)
-    const chapterFiles = tree.filter(f => f.name.endsWith(".md")).slice(-5)
+    const chapterFiles = tree.filter(f => f.name.endsWith(".md") && !isDraftChapterFile(f.name)).slice(-5)
     // PAT-IM: 独立项并行 —— 并发 readFile（Promise.all 保序回填），再按原序串行组装。
     const chapterContents = await Promise.all(
       chapterFiles.map((file) => readFile(`${chaptersDir}/${file.name}`).then(

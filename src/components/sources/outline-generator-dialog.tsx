@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import { addOutlineTaskToSourceList, buildOutlineGenerationPrompt, hasOutlineForRefinement, openGeneratedOutline, OUTLINE_SECTION_GENERATION_CONFIGS, runOutlineGenerationTask, runOutlineRefinementTask, runOutlineIngestTask } from "@/lib/novel"
+import { addOutlineTaskToSourceList, buildOutlineGenerationPrompt, hasOutlineForRefinement, isDraftChapterFile, openGeneratedOutline, OUTLINE_SECTION_GENERATION_CONFIGS, runOutlineGenerationTask, runOutlineRefinementTask, runOutlineIngestTask } from "@/lib/novel"
 import type { OutlineRefinementWriteMode, OutlineSectionGenerationKey } from "@/lib/novel"
 import { useOutlineGenerationStore, type OutlineGenerationState, type OutlineGenerationTask } from "@/stores/outline-generation-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -68,7 +68,7 @@ async function loadChapterList(projectPath: string): Promise<OutlineFileEntry[]>
       const files: typeof tree = []
       for (const node of nodes) {
         if (node.is_dir && node.children) files.push(...flattenFiles(node.children))
-        else if (!node.is_dir && node.name.endsWith(".md")) files.push(node)
+        else if (!node.is_dir && node.name.endsWith(".md") && !isDraftChapterFile(node.name)) files.push(node)
       }
       return files
     }
