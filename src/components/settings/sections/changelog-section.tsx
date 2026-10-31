@@ -150,7 +150,7 @@ export function ChangelogSection() {
         {updateStatus === "available" && (
           <div role="status" className="mt-3 rounded-md border border-warning/60 bg-warning/10 p-3">
             <div className="flex items-center justify-between gap-3">
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-foreground">
                   {t("settings.sections.changelog.updateAvailable", { version: latestVersion })}
                 </p>
