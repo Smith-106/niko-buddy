@@ -15,6 +15,29 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.24.0 prerelease（2026-11-01）：图谱知识地图化 MVP 三项（节点关系抽屉、选中态高亮置灰、图内搜索飞入）。
+    version: "2.24.0",
+    date: "2026-11-01",
+    highlights: {
+      en: [
+        "Added: click any graph node to open a relation drawer listing the node info and every direct relation (incoming and outgoing, with relation name and peer type); click a relation to select and fly to the peer node.",
+        "Added: selecting a node highlights it with its one-hop neighbors and dims everything else; clicking empty canvas clears the selection. Hovering previews the hovered node full one-hop neighborhood.",
+        "Added: in-graph node search with fuzzy matching (exact > prefix > substring > type, then by link count) and keyboard navigation; picking a result flies the camera to the node and re-centers after the layout settles.",
+        "Fixed: the relation drawer no longer covers the zoom controls, and relation items whose peer is hidden by the current filter are marked Filtered instead of failing silently.",
+        "Improved: the drawer closes on Escape and moves focus into the panel; the search box exposes combobox semantics for screen readers.",
+        "Release semantics: prerelease (candidate channel); does not become Latest.",
+      ],
+      zh: [
+        "新增：点击图谱任一节点，右侧抽屉列出该节点信息与全部直接关联关系（入边/出边分组，含关系名与对端类型）；点关系项即选中并飞入对端节点。",
+        "新增：选中节点后其 1 度邻居高亮、其余节点与无关边置灰，点击画布空白取消选中；悬停时预览悬停节点的完整 1 度邻域。",
+        "新增：图内节点搜索支持模糊匹配（全等 > 前缀 > 子串 > 类型，同级按连接数排序）与键盘上下选择；选中结果后镜头平滑飞入，并在布局落定后自动校正居中。",
+        "修复：关系抽屉不再遮挡缩放控件；对端被当前筛选隐藏的关系项标注「已过滤」，不再点击后无任何反应。",
+        "改进：抽屉支持 Escape 关闭并把焦点移入面板；搜索框补齐 combobox 语义，读屏可感知当前活动项。",
+        "发布语义：prerelease（候选渠道），不提升为 Latest。",
+      ],
+    },
+  },
+  {
     // 2.23.1 stable（2026-10-31）：用户批准提升为 Latest 稳定版；草稿索引隔离、无分隔符章标题解析放宽、13 个既有 E2E 失败彻底清零。
     version: "2.23.1",
     date: "2026-10-31",
