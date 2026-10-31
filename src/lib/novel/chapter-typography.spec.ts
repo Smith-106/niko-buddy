@@ -40,11 +40,17 @@ describe("isBareChapterLabel / isRichChapterTitle", () => {
     expect(isBareChapterLabel("")).toBe(false)
   })
 
-  it("富标题要求章节名非空，且与裸标签互斥", () => {
+  it("富标题要求章节名非空，且与裸标签互斥；支持无分隔符章名，排除回合同名实体", () => {
     expect(isRichChapterTitle("第5章 律师说没漏洞")).toBe(true)
     expect(isRichChapterTitle("第5章：律师说没漏洞")).toBe(true)
+    expect(isRichChapterTitle("第一章测试")).toBe(true)
+    expect(isRichChapterTitle("第10章初见")).toBe(true)
+    expect(isRichChapterTitle("第十七回大闹天空")).toBe(true)
     expect(isRichChapterTitle("第5章")).toBe(false)
     expect(isRichChapterTitle("序章")).toBe(false)
+    // RV-106 实体名：第三回合不是章节
+    expect(isRichChapterTitle("第三回合")).toBe(false)
+    expect(isBareChapterLabel("第一章测试")).toBe(false)
   })
 })
 

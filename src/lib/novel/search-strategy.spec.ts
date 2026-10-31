@@ -435,6 +435,22 @@ describe("applySearchRecipe", () => {
     expect(run("写一场第三回合的对决")).toEqual(["林晚秋", "魔门宗主"])
     // 先出现的「第一卷」不挡住后面的「第三章」。
     expect(run("续写第一卷第三章的余波")).toEqual(["魔门宗主", "林晚秋"])
+
+    // 无分隔符章标题节点（如「第三章决战」）也能被识别为第 3 章并锚定
+    const graphWithUnseparated = {
+      nodes: new Map([
+        ["林晚秋", { id: "林晚秋", title: "林晚秋", path: "wiki/entities/林晚秋.md", outLinks: new Set([]), inLinks: new Set([]), relationEdges: [] }],
+        ["魔门宗主", { id: "魔门宗主", title: "魔门宗主", path: "wiki/entities/魔门宗主.md", outLinks: new Set([]), inLinks: new Set(["node-03"]), relationEdges: [] }],
+        ["node-03", { id: "node-03", title: "第三章决战", path: "wiki/chapters/node-03.md", outLinks: new Set(["魔门宗主"]), inLinks: new Set([]), relationEdges: [] }],
+      ]),
+    }
+    expect(
+      nodeDistanceRerank(candidates, {
+        anchors: ["续写", "第三章"],
+        task: "续写第三章",
+        graph: graphWithUnseparated,
+      }).map((c) => c.title),
+    ).toEqual(["魔门宗主", "林晚秋"])
   })
 
   it("RV-001: 锚点无法解析为图谱节点时发射信号且保持原始顺序返回", () => {
