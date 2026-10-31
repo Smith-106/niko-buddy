@@ -42,7 +42,7 @@ type GraphDisplayMode = "graph" | "document" | "mindmap"
 
 const GRAPH_LABEL_MODE_KEY = "lk-graph-label-display-mode"
 const GRAPH_EDGE_COLOR_KEY = "lk-graph-edge-color"
-const GRAPH_EDGE_STRENGTH_KEY = "lk-graph-edge-strength"
+const GRAPH_EDGE_STRENGTH_KEY = "lk-graph-edge-strength-v2"
 const GRAPH_EDGE_STYLE_KEY = "lk-graph-edge-style"
 /** 焦点邻域模式自动开启的节点数阈值：小图保持全图，大图默认只看焦点邻域 */
 const FOCUS_AUTO_THRESHOLD = 120

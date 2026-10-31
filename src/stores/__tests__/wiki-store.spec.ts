@@ -46,7 +46,7 @@ function readStoredGraphEdgeColorHex() {
   return saved && /^#[0-9a-fA-F]{6}$/.test(saved) ? saved : "#7f8ea3"
 }
 function readStoredGraphEdgeStrengthPercent() {
-  const saved = Number((globalThis.localStorage as any).getItem("lk-graph-edge-strength") ?? "100")
+  const saved = Number((globalThis.localStorage as any).getItem("lk-graph-edge-strength-v2") ?? "100")
   return Number.isFinite(saved) ? Math.max(40, Math.min(200, saved)) : 100
 }
 function readStoredGraphEdgeLabelsAlways() {
@@ -669,7 +669,7 @@ describe("readStored* 预置值解析", () => {
     _localStorageMock["niko-buddy-ui-font-size-scale"] = "1.25"
     _localStorageMock["lk-graph-label-display-mode"] = "auto"
     _localStorageMock["lk-graph-edge-style"] = "arrow"
-    _localStorageMock["lk-graph-edge-strength"] = "180"
+    _localStorageMock["lk-graph-edge-strength-v2"] = "180"
     _localStorageMock["lk-graph-edge-labels-always"] = "true"
     _localStorageMock["lk-graph-edge-color"] = "#ff8800"
     vi.resetModules()
@@ -689,7 +689,7 @@ describe("readStored* 预置值解析", () => {
     _localStorageMock["niko-buddy-ui-font-size-scale"] = "0.5"
     _localStorageMock["lk-graph-label-display-mode"] = "bogus"
     _localStorageMock["lk-graph-edge-style"] = "dotted"
-    _localStorageMock["lk-graph-edge-strength"] = "300"
+    _localStorageMock["lk-graph-edge-strength-v2"] = "300"
     _localStorageMock["lk-graph-edge-labels-always"] = "false"
     _localStorageMock["lk-graph-edge-color"] = "#12"
     vi.resetModules()
@@ -706,7 +706,7 @@ describe("readStored* 预置值解析", () => {
 
   it("非数字字体缩放 / 强度回退默认", async () => {
     _localStorageMock["niko-buddy-ui-font-size-scale"] = "abc"
-    _localStorageMock["lk-graph-edge-strength"] = "nan"
+    _localStorageMock["lk-graph-edge-strength-v2"] = "nan"
     vi.resetModules()
     const mod = await import("../wiki-store")
     const s = mod.useWikiStore.getState()

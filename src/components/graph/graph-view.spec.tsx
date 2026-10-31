@@ -625,7 +625,7 @@ describe("GraphView — 图谱加载与 Sigma 生命周期", () => {
     })
     expect(localStorage.getItem("lk-graph-label-display-mode")).toBe("focused")
     expect(localStorage.getItem("lk-graph-edge-color")).toBe("#123456")
-    expect(localStorage.getItem("lk-graph-edge-strength")).toBe("200")
+    expect(localStorage.getItem("lk-graph-edge-strength-v2")).toBe("200")
     expect(localStorage.getItem("lk-graph-edge-style")).toBe("arrow")
   })
 

@@ -9,7 +9,10 @@ export const FOCUS_MODE_KEY = "niko-buddy-focus-mode"
 
 const GRAPH_LABEL_MODE_KEY = "lk-graph-label-display-mode"
 const GRAPH_EDGE_COLOR_KEY = "lk-graph-edge-color"
-const GRAPH_EDGE_STRENGTH_KEY = "lk-graph-edge-strength"
+// v2：边宽基准整体下调（大图 0.36~2.16px → 0.12~0.75px），旧键里的数值是
+// 按旧基准调出来的，沿用会让存量用户永远停在旧观感上。换键后统一落到新默认，
+// 需要更粗的用户在「线条设置」里重调即可。
+const GRAPH_EDGE_STRENGTH_KEY = "lk-graph-edge-strength-v2"
 const GRAPH_EDGE_STYLE_KEY = "lk-graph-edge-style"
 const GRAPH_EDGE_LABELS_ALWAYS_KEY = "lk-graph-edge-labels-always"
 

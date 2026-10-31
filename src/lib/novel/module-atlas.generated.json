@@ -91,7 +91,7 @@
   "specOnly": 261,
   "barrelOnly": 2,
   "edges": 4482,
-  "loc": 276320
+  "loc": 276323
  },
  "modules": [
   {
@@ -18617,7 +18617,7 @@
   {
    "p": "src/stores/wiki-store-config.ts",
    "s": 17,
-   "l": 677,
+   "l": 680,
    "r": true,
    "o": false,
    "x": false,
