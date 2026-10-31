@@ -7,9 +7,25 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.21.0**（2026-10-22 发布：状态条与第一小时写作 — stable；用户批准由 prerelease 提升，同周已有 v2.20.0，节奏豁免已登记）
+**v2.22.2**（2026-10-24 发布：故事推演穿帮修复与好感度实名 — stable）
 
-源码 tip **v2.21.1** 是同日 prerelease：首屏内部英文码改成中文，Canon 回填覆盖已发现的章节快照，巡航接受失败不再直写正文。它不替换下面的 stable 安装包，也不进 Latest。
+源码 tip **v2.23.1** 是 prerelease 内测版：De-AI 草稿不进章节索引、无分隔符章标题序号解析放宽、CI Windows 与 Ubuntu 双平台 E2E 测试 100% 通过（13 项既有失败全部清零）。它不替换下面的 stable 安装包，也不进 Latest。
+
+### v2.23.1 更新亮点（2026-10-31，prerelease）
+
+- **草稿索引隔离**：De-AI 另存草稿改用统一常量 `DRAFT_FILENAME_SUFFIX`（`-去AI味稿.md` / `.draft.md` / `.tmp`），判定下沉至 `flattenMdFilesBase` 单入口；章节索引、章节号提取、导出与全文索引不再把草稿混为同号正式章节；反推大纲采样同步排除草稿。
+- **标题解析放宽**：无分隔符的章标题（「第一章测试」「第10章初见」「第十七回大闹天空」）可正确解析出章节序号；保留 `(?![章节卷回合])` 负向环视，RV-106 实体名守卫（「第三回合」「第二卷」等非章节）不回退。
+- **13 个既有 E2E 失败清零**：修复六组导航下 `expandNavGroups` 未展开二级「更多 (N)」的共享 helper 缺陷，补齐缺失调用，对齐汉化命名与熔断横幅文案；CI 上 Windows 与 Ubuntu 双平台 E2E 测试全部 100% 通过（既有 13 项失败彻底清零）。
+- **更新器实测**：通过原生 UI 自动化实测从「设置 → 更新日志 → 检查更新」拉取新版本呈现下载入口。
+- 发布语义：**prerelease**（不进 Latest；安装包沿用 v2.22.2，直到本 tag 的构建附上资产）。
+
+### v2.23.0 更新亮点（2026-10-30，prerelease）
+
+- **六维评分**：结果标明评分模型，同一章节混用不同模型的结果时提示不可直接对比。
+- **目录迁移与冲突备份**：旧版项目目录并存时自动合并，以新目录为准，同名冲突备份至 `legacy-conflicts/`，支持整体回滚。
+- **历史备份与自动保存**：备份列表一键恢复，关闭窗口立即落盘。
+- **长章预算**：Anthropic 思考预算不再挤占正文预算（max_tokens = 正文 + 思考），长章不再截断。
+- 发布语义：**prerelease**（不进 Latest）。
 
 ### v2.22.2 更新亮点（2026-10-24，prerelease）
 
@@ -356,13 +372,13 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## Windows 安装包
 
-当前 stable 是 **v2.21.0**。同日源码 tip v2.21.1 是 prerelease，没有替换下面的安装包。
+当前 stable 是 **v2.22.2**。源码 tip v2.23.1 是 prerelease，没有替换下面的安装包。
 
-下载 [`niko-buddy_2.21.0_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.21.0/niko-buddy_2.21.0_windows_X64.exe)，双击运行 NSIS 安装程序即可。
+下载 [`niko-buddy_2.22.2_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.22.2/niko-buddy_2.22.2_windows_X64.exe)，双击运行 NSIS 安装程序即可。
 
 ## 便携版
 
-下载 [`niko-buddy_2.21.0_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.21.0/niko-buddy_2.21.0_windows_X64_portable.exe)（单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
+下载 [`niko-buddy_2.22.2_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.22.2/niko-buddy_2.22.2_windows_X64_portable.exe)（单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
 
 ## 系统要求
 

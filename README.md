@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.22.2-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.23.1-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -49,6 +49,23 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 ---
 <img width="1239" height="883" alt="image" src="https://github.com/user-attachments/assets/076740be-85ef-4503-842d-565c367aebdc" />
 <img width="1201" height="832" alt="image" src="https://github.com/user-attachments/assets/57936132-45b2-4fed-8c80-2c9282fedbf5" />
+
+## v2.23.1 修复（草稿索引隔离、无分隔符标题与既有 E2E 清零，prerelease）
+
+内测候选版（不进 Latest，Latest 保持 v2.22.2）：
+
+- **草稿索引隔离**：De-AI 另存草稿改用统一常量 `DRAFT_FILENAME_SUFFIX`（`-去AI味稿.md` / `.draft.md` / `.tmp`），判定下沉至 `flattenMdFilesBase` 单入口；章节索引、章节号提取、导出与全文索引不再把草稿混为同号正式章节；反推大纲采样同步排除草稿。
+- **标题解析放宽**：无分隔符的章标题（「第一章测试」「第10章初见」「第十七回大闹天空」）可正确解析出章节序号；保留 `(?![章节卷回合])` 负向环视，RV-106 实体名守卫（「第三回合」「第二卷」等非章节）不回退。
+- **13 个既有 E2E 失败清零**：修复六组导航下 `expandNavGroups` 未展开二级「更多 (N)」的共享 helper 缺陷，补齐缺失调用，对齐汉化命名与熔断横幅文案；CI 上 Windows 与 Ubuntu 双平台 E2E 测试全部 100% 通过（既有 13 项失败彻底清零）。
+- **更新器实测**：通过原生 UI 自动化实测从「设置 → 更新日志 → 检查更新」拉取新版本呈现下载入口。
+
+## v2.23.0 增强（六维评分标明模型、目录平滑迁移与思考预算，prerelease）
+
+内测候选版（不进 Latest）：
+
+- **六维评分标明模型**：结果标明评分模型，同一章节混用不同模型的结果时提示不可直接对比。
+- **目录平滑迁移**：旧版项目目录并存时自动合并，以新目录为准，同名冲突备份至 `legacy-conflicts/`，支持整体回滚。
+- **长章预算与自动保存**：Anthropic 思考预算不再挤占正文预算（max_tokens = 正文 + 思考）；关闭窗口立即保存。
 
 ## v2.22.2 修复（故事推演穿帮封堵与导航提权，prerelease）
 
