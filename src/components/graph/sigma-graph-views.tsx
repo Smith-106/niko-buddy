@@ -35,6 +35,11 @@ const FORESHADOWING_STATUS_FILL: Record<string, string> = {
 
 // Cache computed node positions so re-renders don't re-layout
 const positionCache = new Map<string, { x: number; y: number }>()
+
+const EMPTY_HIGHLIGHT: Set<string> = new Set()
+
+/** sigma 底层 graphology 图实例的类型别名（高亮工具函数与事件处理器共用）。 */
+type GraphLike = ReturnType<ReturnType<typeof useSigma>["getGraph"]>
 let lastLayoutDataKey = ""
 // 用户已拖拽节点：布局 Worker 回填时跳过，避免覆盖手工排布；Tween 动画中途被拖拽也立即停靠。
 const draggedNodeIds = new Set<string>()
@@ -97,6 +102,7 @@ export function GraphLoader({
   visualSettings,
   foreshadowingStatusMap,
   layoutPreset,
+  onLayoutSettled,
 }: {
   nodes: GraphNode[]
   edges: GraphEdge[]
@@ -110,6 +116,8 @@ export function GraphLoader({
   visualSettings: GraphVisualTier
   foreshadowingStatusMap: Map<string, string>
   layoutPreset: GraphLayoutPresetKey
+  /** 布局 tween 完全落定后回调（CameraFocusController 据此按最终坐标校正镜头）。 */
+  onLayoutSettled?: () => void
 }) {
   const loadGraph = useLoadGraph()
   const { computeLayout } = useGraphLayoutWorker()
@@ -208,6 +216,7 @@ export function GraphLoader({
         })
         if (start.size === 0) {
           try { sigma.refresh() } catch { /* 未就绪跳过 */ }
+          onLayoutSettled?.()
           return
         }
         // Tween 缓动：Worker 坐标分 350ms easeOutCubic 渐入，避免整图瞬间跳变。
@@ -245,6 +254,8 @@ export function GraphLoader({
               } catch { /* 节点已卸载时跳过 */ }
             })
             try { sigma.refresh() } catch { /* 未就绪跳过 */ }
+            // tween 结束：此刻节点坐标才是最终值，通知相机做一次校正。
+            onLayoutSettled?.()
           }
         }
         rafFn(step)
@@ -252,12 +263,77 @@ export function GraphLoader({
     }
 
     loadGraph(graph)
-  }, [loadGraph, computeLayout, sigma, nodes, edges, colorMode, novelMode, graphMode, labelDisplayMode, edgeColorHex, edgeStrengthPercent, edgeLabelsAlwaysVisible, visualSettings, foreshadowingStatusMap, layoutPreset])
+  }, [loadGraph, computeLayout, sigma, nodes, edges, colorMode, novelMode, graphMode, labelDisplayMode, edgeColorHex, edgeStrengthPercent, edgeLabelsAlwaysVisible, visualSettings, foreshadowingStatusMap, layoutPreset, onLayoutSettled])
 
   return null
 }
 
-export function HighlightManager({ highlightedNodes }: { highlightedNodes: Set<string> }) {
+/**
+ * 计算高亮基准集合：选中节点 + 其 1 度邻居优先；否则回落到批量高亮集合。
+ * 纯函数，供 HighlightManager（effect）与 EventHandler（hover 恢复）共用，避免两处逻辑漂移。
+ */
+function resolveHighlightSet(
+  graph: GraphLike,
+  highlightedNodes: Set<string>,
+  selectedNodeId?: string | null,
+): Set<string> {
+  if (selectedNodeId && graph.hasNode(selectedNodeId)) {
+    const selectionSet = new Set<string>([selectedNodeId])
+    try {
+      for (const neighbor of graph.neighbors(selectedNodeId)) selectionSet.add(neighbor)
+    } catch {
+      // 孤立节点无邻居：仅高亮自身。
+    }
+    return selectionSet
+  }
+  return highlightedNodes instanceof Set ? highlightedNodes : new Set<string>()
+}
+
+/**
+ * 把高亮基准态写入 graphology 属性。hover 结束时 EventHandler 会同步重放本函数，
+ * 因此这里必须是纯属性写入（不依赖 React state，不触发重渲染）。
+ */
+function applyHighlightState(graph: GraphLike, highlighted: Set<string>): void {
+  if (highlighted.size === 0) {
+    graph.forEachNode((n) => {
+      if (!graph.hasNode(n)) return
+      graph.removeNodeAttribute(n, "insightHighlight")
+      graph.removeNodeAttribute(n, "dimmed")
+    })
+    graph.forEachEdge((e) => {
+      if (!graph.hasEdge(e)) return
+      graph.removeEdgeAttribute(e, "dimmed")
+      graph.removeEdgeAttribute(e, "highlighted")
+    })
+    return
+  }
+  const visibleHighlighted = new Set<string>()
+  graph.forEachNode((n) => {
+    if (highlighted.has(n)) visibleHighlighted.add(n)
+  })
+  graph.forEachNode((n) => {
+    if (!graph.hasNode(n)) return
+    if (visibleHighlighted.has(n)) {
+      graph.setNodeAttribute(n, "insightHighlight", true)
+      graph.removeNodeAttribute(n, "dimmed")
+    } else {
+      graph.setNodeAttribute(n, "dimmed", true)
+      graph.removeNodeAttribute(n, "insightHighlight")
+    }
+  })
+  graph.forEachEdge((e, _attrs, source, target) => {
+    if (!graph.hasEdge(e)) return
+    if (visibleHighlighted.has(source) && visibleHighlighted.has(target)) {
+      graph.setEdgeAttribute(e, "highlighted", true)
+      graph.removeEdgeAttribute(e, "dimmed")
+    } else {
+      graph.setEdgeAttribute(e, "dimmed", true)
+      graph.removeEdgeAttribute(e, "highlighted")
+    }
+  })
+}
+
+export function HighlightManager({ highlightedNodes, selectedNodeId }: { highlightedNodes: Set<string>; selectedNodeId?: string | null }) {
   const sigma = useSigma()
   // P0-1 三重加固：mounted 守卫 + 世代令牌（stale 闭包 refresh 直接丢弃，fail-closed）。
   const mountedRef = useRef(true)
@@ -266,7 +342,7 @@ export function HighlightManager({ highlightedNodes }: { highlightedNodes: Set<s
   useEffect(() => {
     mountedRef.current = true
     const gen = ++genRef.current
-    let graph: ReturnType<typeof sigma.getGraph>
+    let graph: GraphLike
     try {
       graph = sigma.getGraph()
     } catch {
@@ -275,47 +351,7 @@ export function HighlightManager({ highlightedNodes }: { highlightedNodes: Set<s
     }
     // 空图守卫：无节点时高亮 mutation 与 refresh 均为无用功，直接返回。
     if (graph.order === 0) return
-    const highlighted = highlightedNodes instanceof Set ? highlightedNodes : new Set<string>()
-    /* v8 ignore next */
-    if (highlighted.size === 0) {
-      graph.forEachNode((n) => {
-        if (!graph.hasNode(n)) return
-        graph.removeNodeAttribute(n, "insightHighlight")
-        graph.removeNodeAttribute(n, "dimmed")
-      })
-      graph.forEachEdge((e) => {
-        if (!graph.hasEdge(e)) return
-        graph.removeEdgeAttribute(e, "dimmed")
-        graph.removeEdgeAttribute(e, "highlighted")
-      })
-    } else {
-      /* v8 ignore start */
-      const visibleHighlighted = new Set<string>()
-      graph.forEachNode((n) => {
-        if (highlighted.has(n)) visibleHighlighted.add(n)
-      })
-      graph.forEachNode((n) => {
-        if (!graph.hasNode(n)) return
-        if (visibleHighlighted.has(n)) {
-          graph.setNodeAttribute(n, "insightHighlight", true)
-          graph.removeNodeAttribute(n, "dimmed")
-        } else {
-          graph.setNodeAttribute(n, "dimmed", true)
-          graph.removeNodeAttribute(n, "insightHighlight")
-        }
-      })
-      graph.forEachEdge((e, _attrs, source, target) => {
-        if (!graph.hasEdge(e)) return
-        if (visibleHighlighted.has(source) && visibleHighlighted.has(target)) {
-          graph.setEdgeAttribute(e, "highlighted", true)
-          graph.removeEdgeAttribute(e, "dimmed")
-        } else {
-          graph.setEdgeAttribute(e, "dimmed", true)
-          graph.removeEdgeAttribute(e, "highlighted")
-        }
-      })
-      /* v8 ignore stop */
-    }
+    applyHighlightState(graph, resolveHighlightSet(graph, highlightedNodes, selectedNodeId))
     // 世代令牌 + unmount 双检：任一失配说明本闭包已过期，丢弃 refresh（#37 根因：kill 后 stale 刷）。
     if (!mountedRef.current || gen !== genRef.current) return
     try {
@@ -326,7 +362,62 @@ export function HighlightManager({ highlightedNodes }: { highlightedNodes: Set<s
     return () => {
       mountedRef.current = false
     }
-  }, [sigma, highlightedNodes])
+  }, [sigma, highlightedNodes, selectedNodeId])
+
+  return null
+}
+
+/**
+ * 摄像机飞入控制器：targetNodeId 变化时平滑定位到该节点并适度缩放。
+ * 仅由搜索定位与关系跳转驱动（普通画布点击不应移动镜头）。
+ *
+ * 焦点模式/首次装载时节点先用 initialGraphPosition 占位，布局 worker 会在 tween 期间
+ * 改写真实坐标，因此这里在动画后再校正一次，避免“飞到旧坐标、节点随后跑开”。
+ */
+export function CameraFocusController({
+  targetNodeId,
+  nonce,
+  ratio = 0.25,
+  layoutSignal = 0,
+}: {
+  targetNodeId: string | null
+  nonce: number
+  ratio?: number
+  /** GraphLoader 布局 tween 落定后递增；变化时按最终坐标校正一次。 */
+  layoutSignal?: number
+}) {
+  const sigma = useSigma()
+  const lastNonceRef = useRef<number | null>(null)
+  const lastAnimatedRef = useRef<{ x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    if (!targetNodeId) return
+    let graph: GraphLike
+    try {
+      graph = sigma.getGraph()
+    } catch {
+      // 容器重建瞬间未就绪：跳过本次飞入。
+      return
+    }
+    if (!graph.hasNode(targetNodeId)) return
+    const attrs = graph.getNodeAttributes(targetNodeId) as { x?: number; y?: number }
+    if (typeof attrs.x !== "number" || typeof attrs.y !== "number") return
+    const position = { x: attrs.x, y: attrs.y }
+
+    // 新一次飞入请求（nonce 变化）必定执行；仅布局信号变化时，坐标没动就不必重飞。
+    const isNewRequest = lastNonceRef.current !== nonce
+    const last = lastAnimatedRef.current
+    const moved = !last || Math.abs(position.x - last.x) > 1e-3 || Math.abs(position.y - last.y) > 1e-3
+    if (!isNewRequest && !moved) return
+
+    lastNonceRef.current = nonce
+    lastAnimatedRef.current = position
+    try {
+      sigma.getCamera().animate({ x: position.x, y: position.y, ratio }, { duration: isNewRequest ? 400 : 250 })
+    } catch {
+      // 动画期间容器被销毁：忽略。
+    }
+  }, [sigma, targetNodeId, nonce, ratio, layoutSignal])
 
   return null
 }
@@ -335,15 +426,25 @@ export function EventHandler({
   onNodeClick,
   onNodeDoubleClick,
   onNodeContextMenu,
+  onStageClick,
+  highlightedNodes,
+  selectedNodeId,
 }: {
   onNodeClick: (nodeId: string) => void
   onNodeDoubleClick: (nodeId: string) => void
   onNodeContextMenu: (nodeId: string, x: number, y: number) => void
+  onStageClick?: () => void
+  /** 批量高亮集合（图例社区/孤立节点）：hover 结束时用于同步恢复基准态。 */
+  highlightedNodes?: Set<string>
+  /** 当前选中节点：非空时 hover 结束恢复到“选中 + 1 度邻居”基准态。 */
+  selectedNodeId?: string | null
 }) {
   const registerEvents = useRegisterEvents()
   const sigma = useSigma()
   const draggedNodeRef = useRef<string | null>(null)
   const draggedMovedRef = useRef(false)
+  // 空 Set 兜底：保证 leaveNode 里的恢复调用有稳定输入。
+  const baseHighlight = highlightedNodes instanceof Set ? highlightedNodes : EMPTY_HIGHLIGHT
 
   const moveDraggedNode = useCallback((coordinates: MouseCoords | { x: number; y: number }) => {
     const node = draggedNodeRef.current
@@ -369,6 +470,9 @@ export function EventHandler({
       graph.removeNodeAttribute(node, "dragging")
     }
     draggedNodeRef.current = null
+    // sigma 在真实拖拽后不派发 click（draggedEvents 超容差），
+    // 因此必须在此复位，否则下一次空白点击会被误吞。
+    draggedMovedRef.current = false
     sigma.setSetting("enableCameraPanning", true)
     sigma.getContainer().style.cursor = "default"
     sigma.refresh()
@@ -416,6 +520,13 @@ export function EventHandler({
         onNodeContextMenu(nodeIdFromPayload(payload), point.x, point.y)
       },
       rightClickStage: () => onNodeContextMenu("", 0, 0),
+      clickStage: () => {
+        if (draggedMovedRef.current) {
+          draggedMovedRef.current = false
+          return
+        }
+        onStageClick?.()
+      },
       enterNode: ({ node }) => {
         const container = sigma.getContainer()
         container.style.cursor = "pointer"
@@ -442,16 +553,15 @@ export function EventHandler({
         const graph = sigma.getGraph()
         graph.forEachNode((n) => {
           graph.removeNodeAttribute(n, "hovering")
-          graph.removeNodeAttribute(n, "dimmed")
         })
-        graph.forEachEdge((e) => {
-          graph.removeEdgeAttribute(e, "dimmed")
-          graph.removeEdgeAttribute(e, "highlighted")
-        })
+        // 同步恢复基准高亮（选中/批量），而不是清空：
+        // sigma 在同一次 mousemove 内先发 leaveNode 再发 enterNode，
+        // 若这里走异步 state 重放，必然晚于 enterNode 的 hover 置灰并把它抹掉。
+        applyHighlightState(graph, resolveHighlightSet(graph, baseHighlight, selectedNodeId))
         sigma.refresh()
       },
     })
-  }, [registerEvents, sigma, onNodeClick, onNodeContextMenu, moveDraggedNode, releaseDraggedNode])
+  }, [registerEvents, sigma, onNodeClick, onNodeDoubleClick, onNodeContextMenu, moveDraggedNode, releaseDraggedNode, onStageClick, baseHighlight, selectedNodeId])
 
   return null
 }

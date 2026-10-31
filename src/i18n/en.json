@@ -1097,7 +1097,20 @@
     "lineStyle": "Line style",
     "curveAvoid": "Curved avoidance",
     "arrow": "Arrow",
-    "lineAvoid": "Straight avoidance"
+    "lineAvoid": "Straight avoidance",
+    "inspectorTitle": "Node Inspector & Relations",
+    "inspectorNodeName": "Entity name",
+    "nodeTypeDefault": "Unknown type",
+    "inspectorRelations": "Direct Relations",
+    "inspectorIncoming": "Incoming Relations",
+    "inspectorOutgoing": "Outgoing Relations",
+    "inspectorNoRelations": "No direct relations found",
+    "inspectorOpenWiki": "Open Wiki Document",
+    "inspectorLinks": "Total links",
+    "inspectorClose": "Close Inspector",
+    "searchNoResults": "No matching nodes found",
+    "nodeSearchPlaceholder": "Search nodes in graph...",
+    "searchClear": "Clear search"
   },
   "lint": {
     "title": "Check",

@@ -29,10 +29,12 @@ import { formatOperationError } from "@/lib/format-operation-error"
 import { NODE_TYPE_COLORS, edgeTypeForStyle, getSigmaThemeColors, hexToRgba, mixColor, shouldRenderEdgeLabels, type GraphEdgeStyle, type GraphLabelDisplayMode, type SigmaThemeColors } from "@/lib/graph-style"
 import { toErrorMessage } from "@/lib/utils"
 import { isSystemDark } from "@/lib/theme-utils"
-import { EventHandler, GraphLoader, HighlightManager, SigmaResizeRefresher, type ColorMode } from "./sigma-graph-views"
+import { EventHandler, GraphLoader, HighlightManager, SigmaResizeRefresher, CameraFocusController, type ColorMode } from "./sigma-graph-views"
 import { GraphLegend } from "./graph-legend"
 import { DocumentGraphView } from "./document-graph-view"
 import { MindMapGraphView, ZoomControls } from "./mindmap-views"
+import { NodeInspectorDrawer } from "./node-inspector-drawer"
+import { GraphNodeSearch } from "./graph-node-search"
 import { toast } from "@/lib/toast"
 
 
@@ -139,7 +141,28 @@ export function GraphView() {
   const setGraphStats = useWikiStore((s) => s.setGraphStats)
   const setRefreshGraph = useWikiStore((s) => s.setRefreshGraph)
   const [showInsights, setShowInsights] = useState(false)
-  const [highlightedNodes, setHighlightedNodes] = useState<Set<string>>(new Set())
+  // 节点详情与关系抽屉：非空即选中态，画布维持 1 度高亮、其余置灰。
+  const [inspectorNodeId, setInspectorNodeId] = useState<string | null>(null)
+  // 镜头飞入请求（关系跳转 / 搜索定位）：nonce 保证同一节点可重复触发。
+  const [cameraFocus, setCameraFocus] = useState<{ nodeId: string; nonce: number } | null>(null)
+  // 飞入令牌：同一节点连续触发也必须产生新 nonce，Date.now() 同毫秒会重复。
+  const cameraNonceRef = useRef(0)
+  const focusCamera = useCallback((nodeId: string) => {
+    cameraNonceRef.current += 1
+    setCameraFocus({ nodeId, nonce: cameraNonceRef.current })
+  }, [])
+  // 布局落定信号：GraphLoader 的 tween 结束后递增，驱动相机按最终坐标校正。
+  const [layoutSignal, setLayoutSignal] = useState(0)
+  const handleLayoutSettled = useCallback(() => {
+    setLayoutSignal((prev) => prev + 1)
+  }, [])
+  const [highlightedNodes, setHighlightedNodesState] = useState<Set<string>>(new Set())
+  // 批量高亮（图例社区/孤立节点）与单节点选中互斥：应用批量高亮时清掉选中，
+  // 避免抽屉的 selectedNodeId 优先级静默吞掉图例操作。
+  const setHighlightedNodes = useCallback((next: Set<string>) => {
+    setHighlightedNodesState(next)
+    if (next.size > 0) setInspectorNodeId(null)
+  }, [])
   // 第8块：孤立节点高亮开关（全图 linkCount<=1）：辅助发现未织入主线的废设定/断头伏笔。
   const [orphanHighlight, setOrphanHighlight] = useState(false)
   const [dismissedInsights, setDismissedInsights] = useState<Set<string>>(new Set())
@@ -305,13 +328,51 @@ export function GraphView() {
       if (!node) return
       // 焦点模式下点节点即把焦点切过去（同时照常打开档案页）
       setFocusNodeId(nodeId)
+      // 同时打开详情抽屉并锁定选中态（1 度邻居高亮、其余置灰）
+      setInspectorNodeId(nodeId)
+      // 单节点选中与批量高亮互斥：清掉图例高亮，避免两套 dimmed 叠加
+      setHighlightedNodes(new Set())
+      // 图例的孤立高亮开关同样要关：否则按钮仍显示“开启”，再点变成关闭而非开启
+      setOrphanHighlight(false)
       try {
         await openNodeFile(node)
       } catch (err) {
         console.error("Failed to open wiki page:", err)
       }
     },
-    [nodes, openNodeFile],
+    [nodes, openNodeFile, setHighlightedNodes],
+  )
+
+  // 抽屉内点击关联实体：镜头与选中态切到对端节点，实现链式探图。
+  const handleInspectorSelectNode = useCallback(
+    (nodeId: string) => {
+      focusCamera(nodeId)
+      void handleNodeClick(nodeId)
+    },
+    [handleNodeClick],
+  )
+
+  // 点击画布空白处取消选中，恢复全局视图。
+  const handleStageClick = useCallback(() => {
+    setInspectorNodeId(null)
+  }, [])
+
+  // 搜索定位：镜头飞入居中 + 打开抽屉。焦点模式（大图自动开启）下目标节点可能
+  // 不在当前 displayNodes 内，必须同步切焦点，否则飞入会静默失效。
+  const handleSearchSelectNode = useCallback(
+    (nodeId: string) => {
+      const node = nodes.find((n) => n.id === nodeId)
+      if (!node) return
+      setFocusNodeId(nodeId)
+      focusCamera(nodeId)
+      setInspectorNodeId(nodeId)
+      setHighlightedNodes(new Set())
+      setOrphanHighlight(false)
+      void openNodeFile(node).catch((err) => {
+        console.error("Failed to open wiki page:", err)
+      })
+    },
+    [nodes, openNodeFile, setHighlightedNodes],
   )
 
   const handleNodeDoubleClick = useCallback(
@@ -319,6 +380,9 @@ export function GraphView() {
       const node = nodes.find((n) => n.id === nodeId)
       if (!node) return
       setFocusNodeId(nodeId)
+      // 双击 = clickNode + doubleClickNode，抽屉已被单击打开；跳正文后清掉，
+      // 否则返回图谱时抽屉与选中高亮会自动恢复。
+      setInspectorNodeId(null)
       try {
         await openNodeFile(node)
         setActiveView("wiki")
@@ -529,6 +593,14 @@ export function GraphView() {
   const displayNodes = neighborhood?.nodes ?? timelineGraph.nodes
   const displayEdges = neighborhood?.edges ?? timelineGraph.edges
   const focusNode = effectiveFocusId ? timelineGraph.nodes.find((n) => n.id === effectiveFocusId) ?? null : null
+  // 抽屉展示的节点与关系：一律以全量图（nodes/edges）为准，不受类型过滤、权重阈值、
+  // 章节时间轴与焦点邻域影响，才能满足「展示全部直接关联关系」并与 node.linkCount 口径一致。
+  // 搜索框与过滤器面板共享的可见性判定（避免面板留下 3.5rem 空洞）。
+  const searchVisible = displayMode === "graph" && !loading && !error && nodes.length > 0
+  const inspectorNode = useMemo(
+    () => (inspectorNodeId ? nodes.find((n) => n.id === inspectorNodeId) ?? null : null),
+    [inspectorNodeId, nodes],
+  )
   const visualSettings = useMemo(() => getGraphVisualSettings(nodes.length), [nodes.length])
   // #39 根因A修复:settings 身份稳定 —— 内联字面量每 render 新身份会触发 react-sigma
   // isEqual 判异 → kill + 重建风暴;useMemo 限定仅视觉旋钮变化时才更新。
@@ -754,13 +826,41 @@ export function GraphView() {
                   edgeLabelsAlwaysVisible={edgeLabelsAlwaysVisible}
                   visualSettings={visualSettings}
                   foreshadowingStatusMap={foreshadowingStatusMap}
+                  onLayoutSettled={handleLayoutSettled}
                 />
-                <EventHandler onNodeClick={handleNodeClick} onNodeDoubleClick={handleNodeDoubleClick} onNodeContextMenu={handleNodeContextMenu} />
-                <HighlightManager highlightedNodes={highlightedNodes} />
+                <EventHandler onNodeClick={handleNodeClick} onNodeDoubleClick={handleNodeDoubleClick} onNodeContextMenu={handleNodeContextMenu} onStageClick={handleStageClick} highlightedNodes={highlightedNodes} selectedNodeId={inspectorNodeId} />
+                <HighlightManager highlightedNodes={highlightedNodes} selectedNodeId={inspectorNodeId} />
+                <CameraFocusController targetNodeId={cameraFocus?.nodeId ?? null} nonce={cameraFocus?.nonce ?? 0} layoutSignal={layoutSignal} />
                 <SigmaResizeRefresher />
                 <ZoomControls />
               </SigmaContainer>
             </ErrorBoundary>
+          )}
+
+          {displayMode === "graph" && inspectorNode && (
+            <NodeInspectorDrawer
+              node={inspectorNode}
+              nodes={nodes}
+              edges={edges}
+              onSelectNode={handleInspectorSelectNode}
+              onOpenWiki={(path) => {
+                const target = timelineGraph.nodes.find((n) => n.path === path)
+                if (!target) return
+                void openNodeFile(target)
+                  .then(() => setActiveView("wiki"))
+                  .catch((err) => {
+                    console.error("Failed to open wiki page:", err)
+                  })
+              }}
+              onClose={() => setInspectorNodeId(null)}
+              nodeTypeLabels={nodeTypeLabels}
+            />
+          )}
+
+          {!loading && !error && nodes.length > 0 && displayMode === "graph" && (
+            <div className="absolute top-3 left-3 z-20">
+              <GraphNodeSearch nodes={timelineGraph.nodes} onSelectNode={handleSearchSelectNode} />
+            </div>
           )}
 
           {!loading && !error && nodes.length > 0 && displayMode === "graph" && (!focusActive || (neighborhood && focusNode)) && (
@@ -845,7 +945,8 @@ export function GraphView() {
           )}
 
           {showFilters && (
-            <div className="absolute top-3 left-3 w-72 rounded-lg border bg-background/95 p-3 text-xs elevation-3 backdrop-blur-sm">
+            // 搜索框只在 graph 模式且有节点时渲染，此时才需要下移让位，否则保持 top-3。
+            <div className={`absolute ${searchVisible ? "top-14" : "top-3"} left-3 w-72 rounded-lg border bg-background/95 p-3 text-xs elevation-3 backdrop-blur-sm`}>
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-1.5 font-semibold text-foreground">
                   <Filter className="h-3.5 w-3.5 shrink-0" />

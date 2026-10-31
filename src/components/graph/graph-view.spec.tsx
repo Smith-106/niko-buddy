@@ -187,7 +187,7 @@ vi.mock("@sigma/edge-curve", () => ({
 
 const sigma = vi.hoisted(() => {
   const events: Record<string, (...args: unknown[]) => void> = {}
-  const camera = { animatedZoom: vi.fn(), animatedUnzoom: vi.fn(), animatedReset: vi.fn() }
+  const camera = { animatedZoom: vi.fn(), animatedUnzoom: vi.fn(), animatedReset: vi.fn(), animate: vi.fn() }
   const container = { style: {} as Record<string, string> }
   let graph: unknown = null
   let settings: unknown = null
@@ -372,6 +372,7 @@ function resetBaseline(): void {
   sigma.camera.animatedZoom.mockClear()
   sigma.camera.animatedUnzoom.mockClear()
   sigma.camera.animatedReset.mockClear()
+  sigma.camera.animate.mockClear()
   sigma.container.style.cursor = ""
   mocks.state.project = null
   mocks.state.dataVersion = 0
@@ -778,6 +779,138 @@ describe("GraphView — Sigma 事件与交互", () => {
     })
     // A：单击不切视图
     expect(mocks.state.setActiveView).not.toHaveBeenCalled()
+  })
+
+  it("点击节点打开关系抽屉，点击空白关闭（选中态高亮与置灰）", async () => {
+    mocks.readFile.mockResolvedValue("file content")
+    await renderLoadedGraph()
+    expect(screen.queryByTestId("node-inspector-drawer")).toBeNull()
+
+    fireSigmaEvent("clickNode", { node: "n1" })
+    await waitFor(() => {
+      expect(screen.getByTestId("node-inspector-drawer")).toBeTruthy()
+    })
+    expect(screen.getByTestId("inspector-node-label").textContent).toContain("Alpha")
+
+    // 选中态：1 度邻居 n2 高亮、无关节点置灰
+    const graph = sigma.getGraph() as {
+      getNodeAttribute: (id: string, key: string) => unknown
+    }
+    await waitFor(() => {
+      expect(graph.getNodeAttribute("n1", "insightHighlight")).toBe(true)
+    })
+    expect(graph.getNodeAttribute("n2", "insightHighlight")).toBe(true)
+    expect(graph.getNodeAttribute("x:y:z", "dimmed")).toBe(true)
+
+    fireSigmaEvent("clickStage", {})
+    await waitFor(() => {
+      expect(screen.queryByTestId("node-inspector-drawer")).toBeNull()
+    })
+  })
+
+  it("hover 离开后选中态置灰不被抹掉（leaveNode 同步恢复基准态）", async () => {
+    mocks.readFile.mockResolvedValue("file content")
+    await renderLoadedGraph()
+    fireSigmaEvent("clickNode", { node: "n1" })
+    await waitFor(() => {
+      expect(screen.getByTestId("node-inspector-drawer")).toBeTruthy()
+    })
+    const graph = sigma.getGraph() as {
+      getNodeAttribute: (id: string, key: string) => unknown
+    }
+    await waitFor(() => {
+      expect(graph.getNodeAttribute("x:y:z", "dimmed")).toBe(true)
+    })
+
+    // 节点间 hover 迁移：sigma 同帧先 leaveNode 再 enterNode（选中 n1，悬停选区外的 x:y:z）。
+    fireSigmaEvent("enterNode", { node: "n1" })
+    fireSigmaEvent("leaveNode", {})
+    fireSigmaEvent("enterNode", { node: "x:y:z" })
+
+    // hover 预览必须存活：x:y:z 的 1 度邻居是 n2，n1 属非邻居 → 置灰。
+    // 旧实现（异步 onHoverEnd 重放）会在此处把 n1 的 dimmed 抹掉，本断言即区分点。
+    expect(graph.getNodeAttribute("n1", "dimmed")).toBe(true)
+    expect(graph.getNodeAttribute("n2", "dimmed")).toBeUndefined()
+
+    // 离开 hover 后恢复选中基准态：n1 高亮、x:y:z 置灰。
+    fireSigmaEvent("leaveNode", {})
+    expect(graph.getNodeAttribute("n1", "insightHighlight")).toBe(true)
+    expect(graph.getNodeAttribute("n1", "dimmed")).toBeUndefined()
+    expect(graph.getNodeAttribute("x:y:z", "dimmed")).toBe(true)
+  })
+
+  it("点击图例批量高亮会清掉单节点选中（互斥，不允许任一静默失效）", async () => {
+    mocks.readFile.mockResolvedValue("file content")
+    await renderLoadedGraph()
+    fireSigmaEvent("clickNode", { node: "n1" })
+    await waitFor(() => {
+      expect(screen.getByTestId("node-inspector-drawer")).toBeTruthy()
+    })
+
+    // 触发孤立节点批量高亮（图例按钮，data-testid 稳定）
+    const orphanButton = screen.getByTestId("graph-orphan-filter-toggle")
+    fireEvent.click(orphanButton)
+    await waitFor(() => {
+      expect(screen.queryByTestId("node-inspector-drawer")).toBeNull()
+    })
+  })
+
+  it("图谱内搜索框存在并可搜索节点", async () => {
+    await renderLoadedGraph()
+    const searchInput = screen.getByLabelText(/在图谱中搜索节点/) as HTMLInputElement
+    expect(searchInput).toBeTruthy()
+
+    fireEvent.change(searchInput, { target: { value: "Alpha" } })
+    await waitFor(() => {
+      expect(screen.getAllByRole("option").length).toBeGreaterThan(0)
+    })
+  })
+
+  it("点击关系项选中对端节点并飞入（需求1 的关键接线）", async () => {
+    mocks.readFile.mockResolvedValue("file content")
+    await renderLoadedGraph()
+    fireSigmaEvent("clickNode", { node: "n1" })
+    await waitFor(() => {
+      expect(screen.getByTestId("inspector-node-label")).toHaveTextContent("Alpha")
+    })
+
+    // n1 -> n2 (APPEARS_IN)：点击关系项后抽屉应切到对端，且相机飞入被调用。
+    const drawer = screen.getByTestId("node-inspector-drawer")
+    // 抽屉用全量 edges：n1→n2 与 n2→n1 各一条 APPEARS_IN，分别落在出边/入边分组。
+    const relationButtons = within(drawer).getAllByText("APPEARS_IN")
+    expect(relationButtons.length).toBeGreaterThanOrEqual(2)
+    const relationButton = relationButtons[0].closest("button") as HTMLButtonElement
+    expect(relationButton).not.toBeNull()
+    fireEvent.click(relationButton)
+
+    await waitFor(() => {
+      expect(screen.getByTestId("inspector-node-label")).not.toHaveTextContent("Alpha")
+    })
+    await waitFor(() => {
+      expect(sigma.camera.animate).toHaveBeenCalled()
+    })
+    const calls = sigma.camera.animate.mock.calls
+    const animateArgs = calls[calls.length - 1]
+    expect(animateArgs?.[1]).toEqual({ duration: 400 })
+  })
+
+  it("搜索选中后切焦点并飞入（需求3 的关键接线）", async () => {
+    await renderLoadedGraph()
+    const searchInput = screen.getByLabelText(/在图谱中搜索节点/) as HTMLInputElement
+    fireEvent.change(searchInput, { target: { value: "Alpha" } })
+    await waitFor(() => {
+      expect(screen.getAllByRole("option").length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getAllByRole("option")[0])
+
+    await waitFor(() => {
+      expect(screen.getByTestId("node-inspector-drawer")).toBeTruthy()
+    })
+    await waitFor(() => {
+      expect(sigma.camera.animate).toHaveBeenCalled()
+    })
+    expect(screen.getByTestId("inspector-node-label")).toHaveTextContent("Alpha")
   })
 
   it("双击节点切回正文视图并定位（A 双击跳正文）", async () => {

@@ -1806,7 +1806,20 @@
     "lineStyle": "线型",
     "curveAvoid": "曲线避让",
     "arrow": "箭头",
-    "lineAvoid": "直线避让"
+    "lineAvoid": "直线避让",
+    "inspectorTitle": "节点关系与信息",
+    "inspectorNodeName": "实体名称",
+    "nodeTypeDefault": "未知类型",
+    "inspectorRelations": "直接关联",
+    "inspectorIncoming": "指入关系 (In)",
+    "inspectorOutgoing": "指向关系 (Out)",
+    "inspectorNoRelations": "暂无直接关联",
+    "inspectorOpenWiki": "打开完整 Wiki 档案",
+    "inspectorLinks": "总连接度",
+    "inspectorClose": "关闭详情面板",
+    "searchNoResults": "未匹配到相关节点",
+    "nodeSearchPlaceholder": "在图谱中搜索节点...",
+    "searchClear": "清空搜索"
   },
   "time": {
     "justNow": "刚刚",
