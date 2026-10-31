@@ -58,7 +58,7 @@ test("skillLibrary 页内 tab（去AI味技能/写作 Skill/收藏）可切换",
   // 页内 tab 按钮（aria-pressed 限定，避免与技能条目的收藏按钮同名歧义）
   const tabBtns = page.locator("button[aria-pressed]")
   const deAiTab = tabBtns.filter({ hasText: "去AI味技能" })
-  const writingTab = tabBtns.filter({ hasText: "写作 Skill" })
+  const writingTab = tabBtns.filter({ hasText: "写作技能" })
   const favTab = tabBtns.filter({ hasText: "收藏" })
   await expect(deAiTab).toBeVisible()
   await expect(writingTab).toBeVisible()

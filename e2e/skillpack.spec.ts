@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs"
 import { resolve } from "node:path"
 import { test, expect, type Page } from "@playwright/test"
+import { expandNavGroups } from "./nav"
 import { MOCK_INIT } from "./tauri-mock"
 
 /**
@@ -93,11 +94,12 @@ test.describe("F-006 技能包交换 / 壳层可达性", () => {
     await boot(page)
     await page.getByRole("button", { name: "小说目录" }).click()
     await page.waitForSelector('[data-view="wiki"]', { timeout: 10000 })
+    await expandNavGroups(page)
 
     await page.click('[data-view="skillLibrary"]')
     await page.waitForSelector('[data-testid="unified-skill-library-view"]', { timeout: 10000 })
     // 切到写作 Skill 分页（技能包面向 user-skill-store 的技能集合）
-    await page.getByRole("button", { name: "写作 Skill", exact: true }).click()
+    await page.getByRole("button", { name: "写作技能", exact: true }).click()
 
     await page.waitForSelector('[data-testid="skill-pack-section"]', { timeout: 10000 })
     await expect(page.locator('[data-testid="skill-pack-panel"]')).toBeVisible()

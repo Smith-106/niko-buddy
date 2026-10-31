@@ -112,7 +112,8 @@ test.describe("门与锁的壳层宿主", () => {
 
     const banner = page.getByTestId("gate-halt-banner")
     await expect(banner).toBeVisible({ timeout: 15_000 })
-    await expect(banner).toContainText("不会自行恢复")
+    // 文案源自 zh.json:4410 loop.banner
+    await expect(banner).toContainText("循环熔断已触发，需人工解除后才能继续")
 
     await page.getByTestId("gate-halt-resume").click()
     const resolved = await page.evaluate(

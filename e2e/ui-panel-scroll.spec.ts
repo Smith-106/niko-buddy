@@ -55,7 +55,7 @@ const SIDEBAR_VIEWS = [
 async function openWritingSkillLibrary(page: Page): Promise<void> {
   await page.click('[data-view="skillLibrary"]')
   await page.waitForSelector('[data-testid="unified-skill-library-view"]', { timeout: 10000 })
-  await page.getByRole("button", { name: "写作 Skill", exact: true }).click()
+  await page.getByRole("button", { name: "写作技能", exact: true }).click()
   await page.waitForSelector('[data-testid="skill-pack-section"]', { timeout: 10000 })
 }
 

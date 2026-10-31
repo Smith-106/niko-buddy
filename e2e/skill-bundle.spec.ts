@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test"
+import { expandNavGroups } from "./nav"
 import { MOCK_INIT, collectErrors } from "./tauri-mock"
 
 /**
@@ -119,10 +120,11 @@ test.describe("技能包离线导入 / 壳层可达性", () => {
     await page.waitForSelector("#root", { state: "attached" })
     await page.getByRole("button", { name: "小说目录" }).click()
     await page.waitForSelector('[data-view="wiki"]', { timeout: 10000 })
+    await expandNavGroups(page)
 
     await page.click('[data-view="skillLibrary"]')
     await page.waitForSelector('[data-testid="unified-skill-library-view"]', { timeout: 10000 })
-    await page.getByRole("button", { name: "写作 Skill", exact: true }).click()
+    await page.getByRole("button", { name: "写作技能", exact: true }).click()
 
     const entry = page.locator('[data-testid="skill-bundle-import-open"]')
     await expect(entry).toBeVisible({ timeout: 10000 })

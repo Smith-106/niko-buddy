@@ -127,7 +127,7 @@ test.describe("界面文本完整性（i18n 与机器码不外泄）", () => {
     await boot(page)
     await page.click('[data-view="skillLibrary"]')
     await page.waitForSelector('[data-testid="unified-skill-library-view"]', { timeout: 10000 })
-    await page.getByRole("button", { name: "写作 Skill", exact: true }).click()
+    await page.getByRole("button", { name: "写作技能", exact: true }).click()
     await page.waitForSelector('[data-testid="skill-pack-panel"]', { timeout: 10000 })
     expectClean(await scan(page), "技能包面板")
   })
