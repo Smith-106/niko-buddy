@@ -535,7 +535,13 @@ export function EventHandler({
         const neighbors = new Set(graph.neighbors(node))
         neighbors.add(node)
         graph.forEachNode((n) => {
-          if (!neighbors.has(n)) graph.setNodeAttribute(n, "dimmed", true)
+          if (neighbors.has(n)) {
+            // 悬停集合内必须撤销基准态的置灰，否则 hover 预览会与选中集取交集，
+            // 看起来“悬停无反应”（选区外的节点永远亮不起来）。
+            graph.removeNodeAttribute(n, "dimmed")
+          } else {
+            graph.setNodeAttribute(n, "dimmed", true)
+          }
         })
         graph.forEachEdge((e, _attrs, source, target) => {
           if (source !== node && target !== node) {

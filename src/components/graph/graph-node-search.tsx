@@ -1,7 +1,7 @@
 // Copyright © Niko Buddy
 // SPDX-License-Identifier: MIT
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Search, X, Crosshair } from "lucide-react"
 import type { GraphNode } from "@/lib/wiki-graph"
@@ -22,6 +22,8 @@ export function GraphNodeSearch({ nodes, onSelectNode, maxResults = 8 }: GraphNo
   const [open, setOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const listboxId = useId()
+  const optionId = (index: number) => `${listboxId}-opt-${index}`
 
   const results = useMemo(() => {
     const keyword = query.trim().toLowerCase()
@@ -108,6 +110,11 @@ export function GraphNodeSearch({ nodes, onSelectNode, maxResults = 8 }: GraphNo
           onKeyDown={handleKeyDown}
           placeholder={t("graph.nodeSearchPlaceholder", { defaultValue: "在图谱中搜索节点..." })}
           aria-label={t("graph.nodeSearchPlaceholder", { defaultValue: "在图谱中搜索节点..." })}
+          role="combobox"
+          aria-expanded={showDropdown}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={showDropdown && results.length > 0 ? optionId(activeIndex) : undefined}
           className="w-40 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
         />
         {query && (
@@ -128,6 +135,7 @@ export function GraphNodeSearch({ nodes, onSelectNode, maxResults = 8 }: GraphNo
       {showDropdown && (
         <div
           role="listbox"
+          id={listboxId}
           className="absolute top-full left-0 z-30 mt-1.5 max-h-64 w-64 overflow-y-auto rounded-lg border bg-popover/95 p-1 text-xs shadow-lg backdrop-blur-sm"
         >
           {results.length === 0 ? (
@@ -138,6 +146,7 @@ export function GraphNodeSearch({ nodes, onSelectNode, maxResults = 8 }: GraphNo
             results.map((node, index) => (
               <button
                 key={node.id}
+                id={optionId(index)}
                 type="button"
                 role="option"
                 aria-selected={index === activeIndex}

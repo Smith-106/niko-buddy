@@ -191,3 +191,71 @@ describe("NodeInspectorDrawer", () => {
     expect(screen.getByText(/暂无直接关联/i)).toBeInTheDocument()
   })
 })
+
+describe("NodeInspectorDrawer — a11y 与筛选提示", () => {
+  const nodes: GraphNode[] = [
+    { id: "node-1", label: "林动", type: "character", path: "characters/lin-dong.md", linkCount: 2, community: 1 },
+    { id: "node-2", label: "绫清竹", type: "character", path: "characters/ling-qingzhu.md", linkCount: 1, community: 1 },
+    { id: "node-3", label: "天妖貂", type: "beast", path: "beasts/diao.md", linkCount: 1, community: 2 },
+  ]
+  const edges: GraphEdge[] = [
+    { source: "node-1", target: "node-2", weight: 0.9, relation: "道侣" },
+    { source: "node-3", target: "node-1", weight: 0.8, relation: "生死相随" },
+  ]
+
+  beforeEach(() => {
+    setupDomGlobals()
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it("closes on Escape", () => {
+    const onClose = vi.fn()
+    render(
+      <NodeInspectorDrawer node={nodes[0]} nodes={nodes} edges={edges} onSelectNode={vi.fn()} onClose={onClose} />,
+    )
+    fireEvent.keyDown(document, { key: "Escape" })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it("moves focus into the panel when opened", () => {
+    render(
+      <NodeInspectorDrawer node={nodes[0]} nodes={nodes} edges={edges} onSelectNode={vi.fn()} onClose={vi.fn()} />,
+    )
+    expect(document.activeElement).toBe(screen.getByTestId("node-inspector-drawer"))
+  })
+
+  it("marks relation items whose peer is hidden by the current view filter", () => {
+    render(
+      <NodeInspectorDrawer
+        node={nodes[0]}
+        nodes={nodes}
+        edges={edges}
+        visibleNodeIds={new Set(["node-1", "node-2"])}
+        onSelectNode={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+    // node-3 被筛选隐藏 → 入边项带「已过滤」标注；node-2 在视图内 → 不标注
+    const hints = screen.getAllByTestId("inspector-relation-filtered")
+    expect(hints).toHaveLength(1)
+    expect(hints[0]).toHaveTextContent("已过滤")
+    expect(hints[0].closest("button")).toHaveTextContent("天妖貂")
+  })
+
+  it("does not mark anything when the whole graph is visible", () => {
+    render(
+      <NodeInspectorDrawer
+        node={nodes[0]}
+        nodes={nodes}
+        edges={edges}
+        visibleNodeIds={new Set(["node-1", "node-2", "node-3"])}
+        onSelectNode={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.queryAllByTestId("inspector-relation-filtered")).toHaveLength(0)
+  })
+})

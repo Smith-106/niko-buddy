@@ -595,6 +595,8 @@ export function GraphView() {
   const focusNode = effectiveFocusId ? timelineGraph.nodes.find((n) => n.id === effectiveFocusId) ?? null : null
   // 抽屉展示的节点与关系：一律以全量图（nodes/edges）为准，不受类型过滤、权重阈值、
   // 章节时间轴与焦点邻域影响，才能满足「展示全部直接关联关系」并与 node.linkCount 口径一致。
+  // 当前视图实际渲染的节点集合：抽屉用它标注“对端被筛选隐藏”的关系项。
+  const displayNodeIdSet = useMemo(() => new Set(displayNodes.map((n) => n.id)), [displayNodes])
   // 搜索框与过滤器面板共享的可见性判定（避免面板留下 3.5rem 空洞）。
   const searchVisible = displayMode === "graph" && !loading && !error && nodes.length > 0
   const inspectorNode = useMemo(
@@ -854,6 +856,7 @@ export function GraphView() {
               }}
               onClose={() => setInspectorNodeId(null)}
               nodeTypeLabels={nodeTypeLabels}
+              visibleNodeIds={displayNodeIdSet}
             />
           )}
 

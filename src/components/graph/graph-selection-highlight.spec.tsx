@@ -316,6 +316,38 @@ describe("EventHandler 选中态与拖拽交互", () => {
     expect(graph.nodeAttrs.get("a")?.hovering).toBeUndefined()
   })
 
+  it("shows the full hover neighborhood even when a selection baseline dims it", () => {
+    const graph = new FakeGraph(["a", "b", "c", "d"], [["a", "b"], ["c", "d"]])
+    setGraph(graph)
+    renderHandler({ selectedNodeId: "a" })
+
+    // 基准态：选中 a → a/b 高亮、c/d 置灰
+    act(() => {
+      mocks.events.enterNode?.({ node: "a" })
+    })
+    act(() => {
+      mocks.events.leaveNode?.({})
+    })
+    expect(graph.nodeAttrs.get("c")?.dimmed).toBe(true)
+
+    // 悬停选区外的 c：c 与它的邻居 d 必须亮起来（hover 预览完整，不与选中集取交集）
+    act(() => {
+      mocks.events.enterNode?.({ node: "c" })
+    })
+    expect(graph.nodeAttrs.get("c")?.dimmed).toBeUndefined()
+    expect(graph.nodeAttrs.get("d")?.dimmed).toBeUndefined()
+    expect(graph.nodeAttrs.get("a")?.dimmed).toBe(true)
+    expect(graph.nodeAttrs.get("b")?.dimmed).toBe(true)
+
+    // 离开后恢复选中基准态
+    act(() => {
+      mocks.events.leaveNode?.({})
+    })
+    expect(graph.nodeAttrs.get("a")?.insightHighlight).toBe(true)
+    expect(graph.nodeAttrs.get("c")?.dimmed).toBe(true)
+    expect(graph.nodeAttrs.get("d")?.dimmed).toBe(true)
+  })
+
   it("clears highlight attributes on leaveNode when there is no selection or bulk highlight", () => {
     const graph = new FakeGraph(["a", "b"], [["a", "b"]])
     setGraph(graph)

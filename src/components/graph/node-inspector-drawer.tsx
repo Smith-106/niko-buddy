@@ -1,7 +1,7 @@
 // Copyright © Niko Buddy
 // SPDX-License-Identifier: MIT
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { X, ArrowRight, ArrowLeft, ExternalLink, Network, FileText, Tag, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,8 @@ export interface NodeInspectorDrawerProps {
   edges: GraphEdge[]
   /** 节点类型显示名映射（与图例共用），缺省回落到原始 type 键。 */
   nodeTypeLabels?: Record<string, string>
+  /** 当前视图实际渲染的节点 id 集合；用于标注“对端被过滤隐藏、点击不会飞入”。 */
+  visibleNodeIds?: Set<string>
   onSelectNode: (nodeId: string) => void
   onOpenWiki?: (path: string) => void
   onClose: () => void
@@ -32,11 +34,27 @@ export function NodeInspectorDrawer({
   nodes,
   edges,
   nodeTypeLabels,
+  visibleNodeIds,
   onSelectNode,
   onOpenWiki,
   onClose,
 }: NodeInspectorDrawerProps) {
   const { t } = useTranslation()
+  const panelRef = useRef<HTMLDivElement | null>(null)
+
+  // 打开抽屉时把焦点移入面板（键盘用户可直接 Tab 到关系项），Escape 关闭。
+  useEffect(() => {
+    if (!node) return
+    panelRef.current?.focus()
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation()
+        onClose()
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [node, onClose])
 
   const nodeMap = useMemo(() => {
     const map = new Map<string, GraphNode>()
@@ -89,6 +107,8 @@ export function NodeInspectorDrawer({
     <div
       role="region"
       aria-label={t("graph.inspectorTitle", { defaultValue: "节点关系与信息" })}
+      ref={panelRef}
+      tabIndex={-1}
       data-testid="node-inspector-drawer"
       className="absolute top-3 right-14 bottom-3 z-20 flex w-80 max-w-[calc(100%-4rem)] flex-col rounded-xl border bg-background/95 shadow-2xl backdrop-blur-md animate-in slide-in-from-right-4 duration-200"
     >
@@ -191,6 +211,17 @@ export function NodeInspectorDrawer({
                             <span className="text-[10px] text-muted-foreground px-1.5 py-[1px] rounded bg-muted shrink-0">
                               {nodeTypeLabels?.[rel.targetType] ?? rel.targetType}
                             </span>
+                            {visibleNodeIds && !visibleNodeIds.has(rel.targetNodeId) && (
+                              <span
+                                data-testid="inspector-relation-filtered"
+                                className="text-[10px] text-muted-foreground/80 px-1.5 py-[1px] rounded border border-dashed shrink-0"
+                                title={t("graph.inspectorFilteredHint", {
+                                  defaultValue: "该节点被当前筛选隐藏，点击后需调整筛选才能在图谱中看到",
+                                })}
+                              >
+                                {t("graph.inspectorFiltered", { defaultValue: "已过滤" })}
+                              </span>
+                            )}
                           </div>
                           <div className="text-[11px] text-muted-foreground truncate mt-0.5">
                             {rel.relation}
@@ -227,6 +258,17 @@ export function NodeInspectorDrawer({
                             <span className="text-[10px] text-muted-foreground px-1.5 py-[1px] rounded bg-muted shrink-0">
                               {nodeTypeLabels?.[rel.targetType] ?? rel.targetType}
                             </span>
+                            {visibleNodeIds && !visibleNodeIds.has(rel.targetNodeId) && (
+                              <span
+                                data-testid="inspector-relation-filtered"
+                                className="text-[10px] text-muted-foreground/80 px-1.5 py-[1px] rounded border border-dashed shrink-0"
+                                title={t("graph.inspectorFilteredHint", {
+                                  defaultValue: "该节点被当前筛选隐藏，点击后需调整筛选才能在图谱中看到",
+                                })}
+                              >
+                                {t("graph.inspectorFiltered", { defaultValue: "已过滤" })}
+                              </span>
+                            )}
                           </div>
                           <div className="text-[11px] text-muted-foreground truncate mt-0.5">
                             {rel.relation}

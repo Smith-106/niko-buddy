@@ -9,6 +9,7 @@ import {
   render,
   screen,
   setupDomGlobals,
+  waitFor,
 } from "@/test-helpers/component-test-utils"
 import { GraphNodeSearch } from "./graph-node-search"
 import type { GraphNode } from "@/lib/wiki-graph"
@@ -115,5 +116,40 @@ describe("GraphNodeSearch", () => {
     fireEvent.change(screen.getByLabelText(/在图谱中搜索节点/), { target: { value: "节点" } })
 
     expect(screen.getAllByRole("option")).toHaveLength(3)
+  })
+})
+
+describe("GraphNodeSearch — combobox 语义", () => {
+  const nodes = [
+    { id: "a", label: "林动", type: "character", path: "/a.md", linkCount: 3, community: 0 },
+    { id: "b", label: "绫清竹", type: "character", path: "/b.md", linkCount: 1, community: 0 },
+  ]
+
+  beforeEach(() => {
+    setupDomGlobals()
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it("exposes combobox wiring and active descendant", async () => {
+    render(<GraphNodeSearch nodes={nodes} onSelectNode={vi.fn()} />)
+    const input = screen.getByRole("combobox") as HTMLInputElement
+    expect(input.getAttribute("aria-expanded")).toBe("false")
+    expect(input.getAttribute("aria-autocomplete")).toBe("list")
+
+    fireEvent.change(input, { target: { value: "林" } })
+    await waitFor(() => {
+      expect(input.getAttribute("aria-expanded")).toBe("true")
+    })
+    const listboxId = input.getAttribute("aria-controls")
+    expect(listboxId).toBeTruthy()
+    expect(document.getElementById(listboxId as string)).toBeTruthy()
+
+    const activeId = input.getAttribute("aria-activedescendant")
+    expect(activeId).toBeTruthy()
+    expect(document.getElementById(activeId as string)).toBeTruthy()
+    expect(document.getElementById(activeId as string)?.textContent).toContain("林动")
   })
 })

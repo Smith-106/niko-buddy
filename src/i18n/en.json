@@ -1100,6 +1100,8 @@
     "lineAvoid": "Straight avoidance",
     "inspectorTitle": "Node Inspector & Relations",
     "inspectorNodeName": "Entity name",
+    "inspectorFiltered": "Filtered",
+    "inspectorFilteredHint": "This node is hidden by the current filter; adjust filters to see it in the graph",
     "nodeTypeDefault": "Unknown type",
     "inspectorRelations": "Direct Relations",
     "inspectorIncoming": "Incoming Relations",

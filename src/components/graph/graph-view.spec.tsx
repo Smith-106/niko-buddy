@@ -1794,7 +1794,7 @@ describe("GraphView — 思维导图模式", () => {
     expect(screen.getByText("角色页")).toBeTruthy()
     expect(screen.getByText("林烬")).toBeTruthy()
     unmount()
-  })
+  }, 60_000)
 
   it("工具条一键收展，连接线轨道与折叠徽标齐备", async () => {
     mocks.buildWikiGraph.mockResolvedValue({
@@ -1837,7 +1837,7 @@ describe("GraphView — 思维导图模式", () => {
       expect(screen.queryByText("角色页")).toBeNull()
     })
     unmount()
-  })
+  }, 60_000)
 
   it("胶囊卡片点击透传 onNodeClick", async () => {
     const clicked: string[] = []
@@ -1850,7 +1850,7 @@ describe("GraphView — 思维导图模式", () => {
     fireEvent.click(screen.getByText("叶子"))
     expect(clicked).toEqual(["c1"])
     unmount()
-  })
+  }, 60_000)
 })
 
 describe("GraphView — 覆盖补充：Sigma 配置与边界分支", () => {

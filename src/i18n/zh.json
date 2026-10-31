@@ -1809,6 +1809,8 @@
     "lineAvoid": "直线避让",
     "inspectorTitle": "节点关系与信息",
     "inspectorNodeName": "实体名称",
+    "inspectorFiltered": "已过滤",
+    "inspectorFilteredHint": "该节点被当前筛选隐藏，点击后需调整筛选才能在图谱中看到",
     "nodeTypeDefault": "未知类型",
     "inspectorRelations": "直接关联",
     "inspectorIncoming": "指入关系 (In)",

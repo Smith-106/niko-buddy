@@ -91,7 +91,7 @@
   "specOnly": 261,
   "barrelOnly": 2,
   "edges": 4482,
-  "loc": 276232
+  "loc": 276292
  },
  "modules": [
   {
@@ -1332,7 +1332,7 @@
   {
    "p": "src/components/graph/graph-node-search.tsx",
    "s": 16,
-   "l": 163,
+   "l": 172,
    "r": true,
    "o": false,
    "x": false,
@@ -1349,7 +1349,7 @@
   {
    "p": "src/components/graph/graph-view.tsx",
    "s": 16,
-   "l": 1360,
+   "l": 1363,
    "r": true,
    "o": false,
    "x": false,
@@ -1419,7 +1419,7 @@
   {
    "p": "src/components/graph/node-inspector-drawer.tsx",
    "s": 16,
-   "l": 264,
+   "l": 306,
    "r": true,
    "o": false,
    "x": false,
@@ -1438,7 +1438,7 @@
   {
    "p": "src/components/graph/sigma-graph-views.tsx",
    "s": 16,
-   "l": 578,
+   "l": 584,
    "r": true,
    "o": false,
    "x": false,
