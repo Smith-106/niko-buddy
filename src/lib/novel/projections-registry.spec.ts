@@ -52,4 +52,13 @@ describe("projections-registry（MIG-002 .novel 投影治理目录）", () => {
     expect(main.size + orph.size).toBe(PROJECTIONS_REGISTRY.length)
     for (const f of orph) expect(main.has(f)).toBe(false)
   })
+
+  it("outline-model.json 已登记为主链投影", () => {
+    const entry = PROJECTIONS_REGISTRY.find((e) => e.file === "outline-model.json")
+    expect(entry).toBeDefined()
+    expect(entry!.consumer).toBe("context-pack")
+    expect(entry!.orphan).toBe(false)
+    expect(entry!.readers).toContain("context-engine")
+    expect(entry!.writer).toBe("outline-model-store")
+  })
 })

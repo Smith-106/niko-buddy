@@ -236,6 +236,8 @@ export { OUTLINE_IMPORT_EXTENSIONS, collectOutlineImportCandidatesFromFolder, im
 export type { OutlineImportCandidate } from "./outline-import"
 export { CHANNELS, getMainGenreLabel } from "./outline-genres"
 export type { ChannelGenre, MainGenre, SubGenre } from "./outline-genres"
+export { OUTLINE_MODEL_FILENAME, OutlineModelStoreError, loadOutlineModel, outlineModelFilePath, saveOutlineModel } from "./outline-model-store"
+export type { OutlineModelLoadResult, OutlineModelMigration, OutlineModelStoreDeps } from "./outline-model-store"
 export { checkFinaleVolumeDiscipline, isLikelyChapterOutline, summarizeChapterOutlineQuality } from "./outline-quality-check"
 export { THRILL_CHECKPOINT_LABELS, THRILL_CHECKPOINT_ORDER, getOutlineThrillSoftGateRuntimeStatus, isThrillSoftGateAcknowledged, thrilAckChapterKey } from "./outline-thrill-checkpoints"
 export type { ThrillCheckStatus } from "./outline-thrill-checkpoints"

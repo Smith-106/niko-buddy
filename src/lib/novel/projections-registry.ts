@@ -56,6 +56,14 @@ export const PROJECTIONS_REGISTRY: ProjectionEntry[] = [
     note: "章节事实/人物状态——context-engine L1424/1462 直读",
   },
   {
+    file: "outline-model.json",
+    writer: "outline-model-store",
+    readers: ["context-engine"],
+    consumer: "context-pack",
+    orphan: false,
+    note: "大纲结构化真源 sidecar（schemaVersion=2；v1→v2 迁移在 outline-model-store）——context-engine selectActiveEntities 字段寻址，替代 outline 文本 substring 猜测",
+  },
+  {
     file: "emotional-arcs.json",
     writer: "character-state",
     readers: ["context-engine"],

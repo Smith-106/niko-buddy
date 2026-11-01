@@ -25,6 +25,7 @@ export interface RenderOutlineModelOptions {
 }
 
 const SECTION_ARC = "弧线"
+const SECTION_POV = "视角"
 const SECTION_GOAL = "本章目标"
 const SECTION_SCENES = "场景"
 const SECTION_EMOTION = "情绪"
@@ -49,6 +50,9 @@ function renderChapterSections(chapter: OutlineModelChapter): string[] {
 
   if (chapter.arc.trim()) {
     out.push(`### ${SECTION_ARC}`, "", chapter.arc.trim(), "")
+  }
+  if (chapter.pov.trim()) {
+    out.push(`### ${SECTION_POV}`, "", chapter.pov.trim(), "")
   }
   if (chapter.prose.goal.trim()) {
     out.push(`### ${SECTION_GOAL}`, "", chapter.prose.goal.trim(), "")
@@ -133,6 +137,7 @@ export function renderOutlineChapterToMarkdown(
     `chapter: ${chapter.chapter}`,
     `title: ${JSON.stringify(chapter.title)}`,
   ]
+  if (chapter.pov.trim()) pairs.push(`pov: ${JSON.stringify(chapter.pov)}`)
   if (chapter.arc.trim()) pairs.push(`arc: ${JSON.stringify(chapter.arc)}`)
   if (volume && volume.title) pairs.push(`volume_title: ${JSON.stringify(volume.title)}`)
   if (chapter.entities.length > 0) pairs.push(`entities: ${JSON.stringify(chapter.entities)}`)

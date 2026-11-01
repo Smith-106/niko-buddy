@@ -193,6 +193,54 @@ describe("EPIC-003 / ADR-32 / TASK-006: conditional entity-tags routing", () => 
     expect(result[0].tags).toEqual([])
   })
 
+  it("sidecar 存在时源 A 走字段匹配", async () => {
+    fsMocks.listDirectory.mockResolvedValue([
+      fileNode("alice.md", "/P/wiki/entities/alice.md"),
+      fileNode("bob.md", "/P/wiki/entities/bob.md"),
+    ])
+    const sidecar = JSON.stringify({
+      schemaVersion: 2,
+      updatedAt: "2026-11-01",
+      volumes: [
+        {
+          number: 1,
+          title: "第1卷",
+          arc: "",
+          chapters: [
+            {
+              id: "v01c001",
+              volume: 1,
+              chapter: 1,
+              title: "断桥",
+              pov: "",
+              arc: "",
+              entities: ["Alice"],
+              foreshadow: { plant: [], payoff: [] },
+              constraints: [],
+              prose: { goal: "", scenes: [], emotion: "" },
+              updatedAt: "2026-11-01",
+            },
+          ],
+        },
+      ],
+    })
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path === "/P/.novel/outline-model.json") return sidecar
+      if (path.endsWith("alice.md")) return entityPage("Alice", "character", [])
+      if (path.endsWith("bob.md")) return entityPage("Bob", "character", [])
+      return ""
+    })
+
+    // outline 文本提到 Bob，但 sidecar 的 chapter.entities 只有 Alice → Bob 不再因文本命中。
+    const result = await selectActiveEntities("/P", {
+      chapterNumber: 1,
+      outline: "Bob 出现在大纲",
+      sceneCharacters: "",
+    })
+
+    expect(result.map((e) => e.name)).toEqual(["Alice"])
+  })
+
   it("HARD-1 守恒：selectActiveEntities 函数体不写 status.json", async () => {
     // 静态检查：源码不含 writeStatus/saveStatus/persistCheckpoint 调用。
     // entity 路由仅读 entity-page frontmatter，MUST NOT 写 status.json。

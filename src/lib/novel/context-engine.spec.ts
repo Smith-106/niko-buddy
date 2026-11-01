@@ -1403,6 +1403,163 @@ describe("selectActiveEntities", () => {
     expect(entities[0].tags).toEqual([])
     expect(entities[0].type).toBe("entity")
   })
+
+  // ── G2（D1/BG-1）：sidecar 字段寻址 ────────────────────────────────
+  /** 造一份合法 v2 侧车 JSON（validateOutlineModel 能过，否则会退文本路径）。 */
+  function sidecarJson(
+    entries: Array<{ chapter: number; entities: string[]; volume?: number }>,
+  ): string {
+    const byVolume = new Map<number, Array<{ chapter: number; entities: string[] }>>()
+    for (const entry of entries) {
+      const volume = entry.volume ?? 1
+      const list = byVolume.get(volume) ?? []
+      list.push({ chapter: entry.chapter, entities: entry.entities })
+      byVolume.set(volume, list)
+    }
+    const volumes = [...byVolume.entries()].map(([number, list]) => ({
+      number,
+      title: `第${number}卷`,
+      arc: "",
+      chapters: list.map((chapter) => ({
+        id: `v${String(number).padStart(2, "0")}c${String(chapter.chapter).padStart(3, "0")}`,
+        volume: number,
+        chapter: chapter.chapter,
+        title: `第${chapter.chapter}章`,
+        pov: "",
+        arc: "",
+        entities: chapter.entities,
+        foreshadow: { plant: [], payoff: [] },
+        constraints: [],
+        prose: { goal: "", scenes: [], emotion: "" },
+        updatedAt: "2026-11-01",
+      })),
+    }))
+    return JSON.stringify({ schemaVersion: 2, updatedAt: "2026-11-01", volumes })
+  }
+
+  function mockEntityPages(names: string[]): void {
+    hoisted.listDirectory.mockResolvedValue(
+      names.map((name) => ({
+        name: `${name}.md`,
+        path: `/p/wiki/entities/${name}.md`,
+        is_dir: false,
+      })),
+    )
+  }
+
+  it("sidecar 唯一命中：源 A 改走 chapter.entities 字段寻址", async () => {
+    mockEntityPages(["甲", "乙"])
+    hoisted.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("outline-model.json")) return sidecarJson([{ chapter: 3, entities: ["甲"] }])
+      if (p.endsWith("甲.md")) return "---\ntitle: 甲\ntype: character\n---\n"
+      if (p.endsWith("乙.md")) return "---\ntitle: 乙\ntype: character\n---\n"
+      return ""
+    })
+    const entities = await selectActiveEntities("/p", {
+      chapterNumber: 3,
+      outline: "甲和乙都在大纲里",
+      sceneCharacters: "",
+    })
+    // 乙被 outline 文本提到，但不在 chapter.entities 里 → 不注入。
+    expect(entities.map((e) => e.name)).toEqual(["甲"])
+  })
+
+  it("sidecar 章号 0 命中 → 回退文本路径", async () => {
+    mockEntityPages(["甲", "乙"])
+    hoisted.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("outline-model.json")) return sidecarJson([{ chapter: 2, entities: ["乙"] }])
+      if (p.endsWith("甲.md")) return "---\ntitle: 甲\ntype: character\n---\n"
+      if (p.endsWith("乙.md")) return "---\ntitle: 乙\ntype: character\n---\n"
+      return ""
+    })
+    const entities = await selectActiveEntities("/p", {
+      chapterNumber: 3,
+      outline: "甲登场",
+      sceneCharacters: "",
+    })
+    expect(entities.map((e) => e.name)).toEqual(["甲"])
+  })
+
+  it("sidecar ≥2 命中（多卷同章号）→ 回退文本路径", async () => {
+    mockEntityPages(["甲", "乙"])
+    hoisted.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("outline-model.json")) {
+        return sidecarJson([
+          { chapter: 3, entities: ["甲"], volume: 1 },
+          { chapter: 3, entities: ["乙"], volume: 2 },
+        ])
+      }
+      if (p.endsWith("甲.md")) return "---\ntitle: 甲\ntype: character\n---\n"
+      if (p.endsWith("乙.md")) return "---\ntitle: 乙\ntype: character\n---\n"
+      return ""
+    })
+    const entities = await selectActiveEntities("/p", {
+      chapterNumber: 3,
+      outline: "甲登场",
+      sceneCharacters: "",
+    })
+    // 歧义 → 回退 outline 文本：只有甲被提到。
+    expect(entities.map((e) => e.name)).toEqual(["甲"])
+  })
+
+  it("sidecar 内容是 markdown → JSON 解析失败被吞，回退文本路径且不抛错", async () => {
+    mockEntityPages(["甲"])
+    hoisted.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("outline-model.json")) return "---\ntitle: 甲\n---\n"
+      if (p.endsWith("甲.md")) return "---\ntitle: 甲\ntype: character\n---\n"
+      return ""
+    })
+    const entities = await selectActiveEntities("/p", {
+      chapterNumber: 3,
+      outline: "甲登场",
+      sceneCharacters: "",
+    })
+    expect(entities.map((e) => e.name)).toEqual(["甲"])
+  })
+
+  it("sidecar 返回 undefined（模拟 conditional-routing 的 mockReset）→ 不抛 TypeError，回退文本路径", async () => {
+    mockEntityPages(["甲"])
+    hoisted.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("outline-model.json")) return undefined as unknown as string
+      if (p.endsWith("甲.md")) return "---\ntitle: 甲\ntype: character\n---\n"
+      return ""
+    })
+    const entities = await selectActiveEntities("/p", {
+      chapterNumber: 3,
+      outline: "甲登场",
+      sceneCharacters: "",
+    })
+    expect(entities.map((e) => e.name)).toEqual(["甲"])
+  })
+
+  it("chapterNumber 缺省 → 完全不读 sidecar（走旧路径）", async () => {
+    mockEntityPages(["甲"])
+    hoisted.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("outline-model.json")) return sidecarJson([{ chapter: 3, entities: [] }])
+      if (p.endsWith("甲.md")) return "---\ntitle: 甲\ntype: character\n---\n"
+      return ""
+    })
+    const entities = await selectActiveEntities("/p", { outline: "甲登场", sceneCharacters: "" })
+    expect(entities.map((e) => e.name)).toEqual(["甲"])
+    const calledPaths = hoisted.readFile.mock.calls.map((call) => String(call[0]))
+    expect(calledPaths.some((p) => p.endsWith("outline-model.json"))).toBe(false)
+  })
+
+  it("sidecar 命中时源 B（scene characters）仍生效", async () => {
+    mockEntityPages(["甲", "乙"])
+    hoisted.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("outline-model.json")) return sidecarJson([{ chapter: 3, entities: ["甲"] }])
+      if (p.endsWith("甲.md")) return "---\ntitle: 甲\ntype: character\n---\n"
+      if (p.endsWith("乙.md")) return "---\ntitle: 乙\ntype: character\n---\n"
+      return ""
+    })
+    const entities = await selectActiveEntities("/p", {
+      chapterNumber: 3,
+      outline: "",
+      sceneCharacters: "乙 在场",
+    })
+    expect(entities.map((e) => e.name).sort()).toEqual(["乙", "甲"].sort())
+  })
 })
 
 describe("computeIrrelevantRatio", () => {

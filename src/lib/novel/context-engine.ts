@@ -1,5 +1,10 @@
 import { readFile, } from "@/commands/fs"
 import { listEntityFiles } from "./entity-subdir-resolver"
+// G2（D1/BG-1）：条件路由源 A 改读 outline-model sidecar 的 chapter.entities 字段。
+// 只走 loadOutlineModel（内部 readFile + typeof/JSON.parse 双守卫）；不得改用存在性探测
+//（conditional-routing.spec.ts 未 mock 该 API，会走真实 Tauri invoke 在 node 抛错）。
+import { loadOutlineModel } from "./outline-model-store"
+import { flattenOutlineChapters } from "./outline-model"
 import { } from "@/lib/search"
 import { normalizePath } from "@/lib/path-utils"
 import { logger } from "@/lib/utils"
@@ -1007,6 +1012,15 @@ export {
  *
  * 导出用于 conditional-routing.spec.ts 直接测试（entity 匹配双源 + 零 entity 降级）。
  */
+
+/**
+ * 实体名归一（sidecar 字段寻址专用）：NFKC + trim。
+ * 全角/半角与首尾空白会造成假不匹配；不改 ContextEntity.entityId 形状，也不参与 rank 计算。
+ */
+function normalizeEntityName(value: string): string {
+  return value.normalize("NFKC").trim()
+}
+
 export async function selectActiveEntities(
   pp: string,
   hints: { chapterNumber?: number; outline: string; sceneCharacters: string },
@@ -1040,12 +1054,43 @@ export async function selectActiveEntities(
   // 双源匹配文本：chapter outline mentions + scene characters。
   const outlineText = hints.outline ?? ""
   const sceneCharactersText = hints.sceneCharacters ?? ""
+  // 源 A 升级（D1/BG-1）：从 outline 文本 substring 猜测 → sidecar 的 chapter.entities 字段寻址。
+  // 章定位用 flattenOutlineChapters 后按 `chapter`（= 全局章号）单值匹配：恰 1 命中才采信，
+  // 0 或 ≥2 命中一律回退旧文本路径（hints 里没有 volume，findOutlineChapter 需卷号，用不了）。
+  // sidecar 不可读/损坏/章号缺省 → chapterEntities 保持 null，行为与改前逐字节等价。
+  let chapterEntities: string[] | null = null
+  if (typeof chapterN === "number" && Number.isFinite(chapterN)) {
+    try {
+      const loaded = await loadOutlineModel(pp)
+      const model = loaded.model
+      if (model) {
+        const hits = flattenOutlineChapters(model).filter((chapter) => chapter.chapter === chapterN)
+        if (hits.length === 1) {
+          chapterEntities = hits[0].entities
+        } else if (hits.length > 1) {
+          // 卷内章号重启导致多卷都有同一章号：无法判定归属，退回文本匹配并记账。
+          logger.warn("ContextEngine", "outline-model 章号歧义，回退文本匹配", {
+            chapterNumber: chapterN,
+            hits: hits.length,
+          })
+        }
+      }
+    } catch {
+      // sidecar 读取/解析异常不得抛到 buildContextPack（也不能新增 status.json 写路径）。
+      chapterEntities = null
+    }
+  }
   const matchSource = (entityName: string): boolean => {
     /* v8 ignore next */
     if (!entityName || entityName.length < 1) return false
-    // chapter outline mentions（源 A）：entity name 出现在 outline 文本中。
-    if (outlineText.includes(entityName)) return true
-    // scene characters（源 B）：entity name 出现在 characterStates 文本中。
+    // 源 A：有 sidecar 章节实体时走字段寻址（精确匹配），否则回退 outline 文本 mentions。
+    if (chapterEntities) {
+      const target = normalizeEntityName(entityName)
+      if (chapterEntities.some((name) => normalizeEntityName(name) === target)) return true
+    } else if (outlineText.includes(entityName)) {
+      return true
+    }
+    // 源 B（scene characters）：entity name 出现在 characterStates 文本中。
     if (sceneCharactersText.includes(entityName)) return true
     return false
   }

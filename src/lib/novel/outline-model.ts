@@ -15,7 +15,7 @@ import { computeCheckpointDigestOf } from "./checkpoint-digest"
  * 本文件零 IO、零 LLM，可被单测直接覆盖。
  */
 
-export const OUTLINE_MODEL_SCHEMA_VERSION = 1
+export const OUTLINE_MODEL_SCHEMA_VERSION = 2
 
 /** 本章散文部分：人类作者的自由文本，渲染回人读版时可编辑。 */
 export interface OutlineModelProse {
@@ -41,6 +41,12 @@ export interface OutlineModelChapter {
   volume: number
   chapter: number
   title: string
+  /**
+   * 计划期 POV（写作前意图，人名）。
+   * 边界（BG-2）：实际 POV 仍以 `.novel/snapshots/*.snapshot.json` 的 `povCharacter` 为准
+   * （resolveChapterPovCharacter）；本字段禁止被当作「实际 POV」消费，也禁止新增第三套 POV 解析路径。
+   */
+  pov: string
   /** 所属弧线 / 小高潮名，可空。 */
   arc: string
   /** 显式登场实体名。替代 `outlineText.includes(entityName)` 的猜测。 */
@@ -174,6 +180,7 @@ export function outlineModelContentKey(model: OutlineModel): string {
       chapters: volume.chapters.map((chapter) => ({
         id: chapter.id,
         title: chapter.title,
+        pov: chapter.pov ?? "",
         arc: chapter.arc,
         entities: chapter.entities,
         foreshadow: chapter.foreshadow,
