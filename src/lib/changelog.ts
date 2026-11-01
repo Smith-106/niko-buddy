@@ -15,6 +15,25 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.25.1 prerelease（2026-11-01）：统一状态仪表盘 + 主控大屏 P1 转译拓扑。
+    version: "2.25.1",
+    date: "2026-11-01",
+    highlights: {
+      en: [
+        "Added: unified status dashboard (statusDashboard view) aggregating five novel dimensions read-only - relations, scenes, character states, foreshadowing, canon - with full-count primary line, view-filtered secondary line, canon degraded-empty, 60-row cap and empty states.",
+        "Added: graph sidebar dimension switch group driving the canvas hiddenTypes (single-writer, mode presets keep allowedNodeTypes), plus left-nav entry and zh/en i18n keys.",
+        "Added: main-control phase-1 remap toward the 10-layer video blueprint - explicit-reference threshold (exemplar ID/report only, otherwise direct A route), A/B/C/D route stubs, four morph branches, 12+8 lane capability pool matrix, 15 pipelineMotion i18n keys, read-only console.",
+        "Release semantics: prerelease.",
+      ],
+      zh: [
+        "新增：统一状态总览页（statusDashboard 视图），五维只读聚合（人物关系/场景/人物状态/伏笔/正史），全量口径主行 + 视图过滤次行，canon 非 Tauri 降级为空，60 行截断与空态。",
+        "新增：图谱侧边栏维度开关组，直驱画布显隐（单写者 hiddenTypes，mode preset 保持 allowedNodeTypes 权威），左侧导航入口与中英 i18n 键齐备。",
+        "新增：主控大屏 P1 转译拓扑（视频 10 层蓝图阶段一）——有参考阈值（仅显式范文 ID/拆书报告走 B 路，其余直写 A 路）、A/B/C/D 路线桩、四形态分支、12+8 泳道能力池矩阵、15 个 pipelineMotion 中英键，控制台保持只读。",
+        "发布语义：prerelease。",
+      ],
+    },
+  },
+  {
     // 2.25.0 prerelease（2026-11-01）：结构化大纲侧车存储与上下文工程双轨接线。
     version: "2.25.0",
     date: "2026-11-01",
