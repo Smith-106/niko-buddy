@@ -42,6 +42,7 @@
 | 章节摄取/快照 | `src/lib/novel/chapter-ingest-output.ts` + `chapter-snapshot-normalize.ts`（ARCH-1 拆分） |
 | 深章 task-brief | `src/lib/novel/deep-chapter-task-brief.ts`（ARCH-1 从 `deep-chapter-generation` 拆出） |
 | 大纲多智能体编排 | `src/lib/novel/outline-multi-agent-orchestrator.ts` + `outline-dynamic-agent-planner.ts` + `outline-result-protocol.ts` + `outline-agent-context.ts` + `outline-workflow-state.ts`（纯逻辑，自 v3 提取模式）+ `outline-multi-agent-adapter.ts`（v2 接线：streamChat + deep-outline 降级） |
+| 大纲结构化真源（P0） | `src/lib/novel/outline-model.ts` + `outline-model-parse.ts` + `outline-model-render.ts`（P0 登记：类型/校验/digest；md→model 三级识别解析；model→md 确定性幂等渲染。sidecar JSON 为真源，md 为投影；命名避让 `src-tauri/src/canon/*` 三表） |
 | UI 闭环 | `src/components/chat/chat-panel.tsx` + `chat-message.tsx` + `chat-resume.ts` |
 
 完整映射见 `@../docs/niko-buddy-codex-delivery/10-file-mapping.md`。
