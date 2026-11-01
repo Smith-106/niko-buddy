@@ -15,6 +15,27 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.25.0 prerelease（2026-11-01）：结构化大纲侧车存储与上下文工程双轨接线。
+    version: "2.25.0",
+    date: "2026-11-01",
+    highlights: {
+      en: [
+        "Added: structured outline sidecar store in outline-model-store.ts (.novel/outline-model.json) with three root shape defense gates, refusing corrupt/invalid JSON without silent fallback to empty outline.",
+        "Added: schema migration framework with real v1->v2 migration (adding chapter-level pov field) executed prior to model validation.",
+        "Added: dual-track active entity resolution in context-engine.ts selectActiveEntities reading outline-model chapter.entities directly with graceful fallback to legacy text scanning.",
+        "Added: outline-model-parse.ts enhancements supporting special chapters (prologue, wedge, intro, epilogue, extra), inline bold field labels, non-merging chapter number clamping, and realistic confidence scoring with mutation-verified falsifiable tests.",
+        "Release semantics: prerelease.",
+      ],
+      zh: [
+        "新增：结构化大纲侧车存储 outline-model-store.ts（.novel/outline-model.json）与三道根形状防御闸，损坏或异常文件恒报错绝不降级空大纲。",
+        "新增：Schema 迁移机制与首个真实 v1→v2 迁移（补齐章级 pov 字段），校验前自动升级历史大纲。",
+        "新增：上下文工程双轨接线（源 A 字段寻址），selectActiveEntities 优先读大纲模型 chapter.entities 字段，单值匹配直接命中，0 或 ≥2 歧义及空数组安全回退旧文本路径。",
+        "新增：解析器增强与置信度真实化，支持特殊章识别（序章/楔子/引子/终章/番外）、行内粗体标签、章号夹取不复用合并，且单测经变异测试具备可证伪性。",
+        "发布语义：prerelease。",
+      ],
+    },
+  },
+  {
     // 2.24.1 stable（2026-11-01）：图谱边线变细与可视性优化（边宽基准下调、强度滑块可调细、置灰边减半、标签网格限流）。
     version: "2.24.1",
     date: "2026-11-01",
