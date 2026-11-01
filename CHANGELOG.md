@@ -7,6 +7,20 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.25.0] - 2026-11-01
+
+### Added
+
+- 新增：结构化大纲侧车存储 `outline-model-store.ts`。提供 `.novel/outline-model.json` 单文件读写与注入式依赖；内置三道根形状防御闸（拒绝无 schemaVersion、无 volumes、无关 JSON 等损坏形态），损坏侧车恒返回 `{ model: null, error }`，绝不回退空大纲覆盖坏数据；保存前强制执行 `validateOutlineModel` 闸；严格采用无尾随换行格式保证 digest 稳定一致。
+- 新增：大纲 Schema 迁移机制 `OUTLINE_MODEL_MIGRATIONS`。包含首个真实 v1→v2 迁移（补齐章级 pov 字段），执行在模型校验之前，确保老版本历史大纲无缝平滑升级。
+- 新增：上下文工程消费者双轨接线（源 A 字段寻址）。`context-engine.ts` 的 `selectActiveEntities` 优先通过 `flattenOutlineChapters` 寻址大纲侧车的 `chapter.entities` 字段；恰好 1 命中且 entities 非空时直接采信，0 命中、≥2 歧义或 entities 为空数组时安全回退至旧文本扫描路径，同时保持 `pack.outline` 长文本喂入 prompt 兜底。
+- 新增：解析器增强与置信度真实化（`outline-model-parse.ts`）。支持四类前缀识别、序章/楔子/引子/终章/番外等特殊章识别、粗体行内字段标签识别；章号夹取不复用合并既有章（修复第零章与第一章正文吞噬问题）；置信度分档扩充为 high/medium/low 三档 + `confidenceScore` (0..1) + `signals` 细粒度指标；分母改用真实章数；断言通过变异测试具备可证伪性。
+- 新增：治理登记与架构规范。`projections-registry.ts` 登记 `outline-model.json`，根据读侧已接/写侧未接现状如实标记为 `orphan: true, consumer: "internal"`；模块索引 atlas 校验通过；决策日志沉淀 OL-P1-1..7 及挂起债务清单。
+
+### Changed
+
+- 发布语义：**prerelease**（内测渠道先行，同日遵守 weekly ≤ 1 / same-day duplicate = 0 节奏硬检）。
+
 ## [2.24.1] - 2026-11-01
 
 ### Added

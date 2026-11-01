@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.24.1-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.25.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -49,6 +49,15 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 ---
 <img width="1239" height="883" alt="image" src="https://github.com/user-attachments/assets/076740be-85ef-4503-842d-565c367aebdc" />
 <img width="1201" height="832" alt="image" src="https://github.com/user-attachments/assets/57936132-45b2-4fed-8c80-2c9282fedbf5" />
+
+## v2.25.0 架构升级（结构化大纲侧车存储与上下文工程双轨接线，prerelease）
+
+内测候选版（不进 Latest，当前 Latest 仍为 v2.24.1）：
+
+- **结构化大纲侧车存储**：引入 `.novel/outline-model.json` 作为大纲的结构化真源，由 `outline-model-store.ts` 统一管理；内置三道根形状防御闸（拒绝无 schemaVersion、无 volumes、无关 JSON 等损坏形态），损坏文件恒返回 `{ model: null, error }`，绝不回退空大纲覆盖坏数据；保存前强制执行 `validateOutlineModel` 校验闸；严格采用无尾随换行格式保证 digest 稳定一致。
+- **Schema 迁移机制**：建立首个 v1→v2 迁移（补齐章级 pov 视角字段），并在模型校验前执行，确保历史大纲向下兼容平滑升级。
+- **上下文工程双轨接线**：`selectActiveEntities`（源 A）优先通过大纲模型 `chapter.entities` 字段精确定位实体；单值匹配直接命中，0 或 ≥2 歧义及空实体数组安全回退至旧版大纲文本扫描；保留全文长文本注入保证底线兜底。
+- **解析器增强与置信度真实化**：支持四类前缀、序章/楔子/引子/终章/番外等特殊章节识别及行内粗体标签解析；章号夹取不复用合并既有章（彻底修复第零章与第一章正文吞噬缺陷）；置信度分档扩充为三档 + 分数 + 信号量，且用例经变异测试具备严格可证伪性。
 
 ## v2.24.1 修复（图谱边线变细与可视性优化，stable）
 
