@@ -85,13 +85,13 @@
  ],
  "stats": {
   "modules": 1170,
-  "reachable": 978,
-  "unwired": 192,
+  "reachable": 980,
+  "unwired": 190,
   "orphan": 275,
   "specOnly": 263,
   "barrelOnly": 2,
-  "edges": 4493,
-  "loc": 277627
+  "edges": 4496,
+  "loc": 277940
  },
  "modules": [
   {
@@ -10966,7 +10966,7 @@
   {
    "p": "src/lib/novel/context-engine.ts",
    "s": 5,
-   "l": 1401,
+   "l": 1413,
    "r": true,
    "o": false,
    "x": false,
@@ -12852,7 +12852,7 @@
   {
    "p": "src/lib/novel/index.ts",
    "s": 18,
-   "l": 1506,
+   "l": 1513,
    "r": true,
    "o": false,
    "x": false,
@@ -13014,7 +13014,10 @@
     808,
     809,
     810,
+    812,
+    813,
     814,
+    815,
     819,
     823,
     825,
@@ -13983,8 +13986,8 @@
   {
    "p": "src/lib/novel/outline-model-parse.ts",
    "s": 4,
-   "l": 635,
-   "r": false,
+   "l": 768,
+   "r": true,
    "o": true,
    "x": true,
    "b": false,
@@ -13997,8 +14000,8 @@
   {
    "p": "src/lib/novel/outline-model-render.ts",
    "s": 4,
-   "l": 170,
-   "r": false,
+   "l": 175,
+   "r": true,
    "o": true,
    "x": true,
    "b": false,
@@ -14009,7 +14012,7 @@
   {
    "p": "src/lib/novel/outline-model-store.ts",
    "s": 4,
-   "l": 219,
+   "l": 263,
    "r": true,
    "o": false,
    "x": false,
@@ -14023,7 +14026,7 @@
   {
    "p": "src/lib/novel/outline-model.ts",
    "s": 4,
-   "l": 198,
+   "l": 308,
    "r": true,
    "o": false,
    "x": false,
@@ -14562,7 +14565,7 @@
   {
    "p": "src/lib/novel/projections-registry.ts",
    "s": 9,
-   "l": 269,
+   "l": 271,
    "r": true,
    "o": true,
    "x": true,

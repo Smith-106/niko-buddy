@@ -1,4 +1,4 @@
-<!-- source: src/lib/novel/outline-model-parse.ts:46-61 -->
+<!-- source: src/lib/novel/outline-model-parse.ts LABEL_BLACKLIST / GOAL_KEYS..CONSTRAINT_KEYS 键表（implementation-derived，行号随实现漂移，故只记符号） -->
 # 第1卷 启程
 
 ### 本卷目标

@@ -3,6 +3,8 @@ import { parseChineseInteger } from "./chapter-import"
 import {
   OUTLINE_MODEL_SCHEMA_VERSION,
   flattenOutlineChapters,
+  normalizeOutlineModel,
+  normalizeOutlinePov,
   outlineChapterId,
   type OutlineModel,
   type OutlineModelChapter,
@@ -32,6 +34,12 @@ export type OutlineModelParseSource = "frontmatter" | "heading"
 export interface OutlineModelParseSignals {
   volumeHeadings: number
   chapterHeadings: number
+  /**
+   * 真实章数（`flattenOutlineChapters(model).length`）—— titleRate / fillRate 的分母。
+   * R-07/R-21：分母必须是真实章数，不能用 heading 出现次数（结构化复用不自增 heading，
+   * 重复章号会让 heading 数 ≠ 章数，两种情形都会把分数算错）。
+   */
+  chapterCount: number
   nonEmptyTitles: number
   filledSections: number
   warnings: number
@@ -66,6 +74,13 @@ const CHAPTER_TEXT_RE =
   /^(?:第\s*([0-9零〇一二两三四五六七八九十百千万]+)\s*[章回]|Chapter\s*(\d+))[:：\s]*(.*)$/i
 /** 粗体行内标签：`**本章目标**：内容`（孵化器 prompt 常见的紧凑写法）。 */
 const INLINE_SECTION_RE = /^\*\*(.+?)\*\*\s*[:：]\s*(.*)$/
+
+/**
+ * 无编号章标题（R-10）：序章/序幕/榉子/引子/终章/尾声/番外。
+ * 这类章没有可解析的章号 → 只做合成编号，绝不夺走显式「第N章」的 N（BG-1）。
+ */
+const SPECIAL_CHAPTER_RE = /^#{1,6}\s*(序章|序幕|榉子|引子|终章|尾声|番外)(?:[:：\s]+(.*))?$/
+const SPECIAL_CHAPTER_TEXT_RE = /^(序章|序幕|榉子|引子|终章|尾声|番外)(?:[:：\s]+(.*))?$/
 
 /**
  * 小节标签黑名单：这些标签语义上**不是**大纲字段，必须整体丢弃。
@@ -219,7 +234,7 @@ function readStructuredChapter(
   if (volume === null || chapter === null) return null
   const built = createChapter(volume, chapter, readString(fm.title) || fallbackTitle, updatedAt)
   built.arc = readString(fm.arc)
-  built.pov = readString(fm.pov)
+  built.pov = normalizeOutlinePov(readString(fm.pov))
   built.entities = readStringArray(fm.entities)
   built.constraints = readStringArray(fm.constraints)
   built.foreshadow = {
@@ -244,33 +259,49 @@ function appendText(existing: string, next: string): string {
   return `${current}\n${next}`
 }
 
+/**
+ * 列表类字段合并去重（R-08）：别名同时命中时不得互相覆盖，也不得重复堆同一项。
+ * 保序：先既有项、后新项，首个出现的顺序即最终顺序。
+ */
+function mergeList(existing: string[], next: string[]): string[] {
+  const merged: string[] = []
+  for (const item of [...existing, ...next]) {
+    const trimmed = item.trim()
+    if (!trimmed) continue
+    if (merged.includes(trimmed)) continue
+    merged.push(trimmed)
+  }
+  return merged
+}
+
 function applySection(chapter: OutlineModelChapter, label: string, body: string[]): void {
   if (matchKey(label, ARC_KEYS)) {
     chapter.arc = appendText(chapter.arc, sectionText(body))
     return
   }
   if (matchKey(label, POV_KEYS)) {
-    chapter.pov = sectionText(body)
+    // R-08：别名（视角 / POV / 叙事视角）同时命中时不得互相覆盖。
+    chapter.pov = appendText(chapter.pov, sectionText(body))
     return
   }
   if (matchKey(label, GOAL_KEYS)) {
-    chapter.prose.goal = sectionText(body)
+    chapter.prose.goal = appendText(chapter.prose.goal, sectionText(body))
     return
   }
   if (matchKey(label, SCENE_KEYS)) {
-    chapter.prose.scenes = collectListItems(body)
+    chapter.prose.scenes = mergeList(chapter.prose.scenes, collectListItems(body))
     return
   }
   if (matchKey(label, EMOTION_KEYS)) {
-    chapter.prose.emotion = sectionText(body)
+    chapter.prose.emotion = appendText(chapter.prose.emotion, sectionText(body))
     return
   }
   if (matchKey(label, ENTITY_KEYS)) {
-    chapter.entities = collectListItems(body)
+    chapter.entities = mergeList(chapter.entities, collectListItems(body))
     return
   }
   if (matchKey(label, CONSTRAINT_KEYS)) {
-    chapter.constraints = collectListItems(body)
+    chapter.constraints = mergeList(chapter.constraints, collectListItems(body))
     return
   }
   if (matchKey(label, FORESHADOW_KEYS)) {
@@ -292,10 +323,14 @@ function applySection(chapter: OutlineModelChapter, label: string, body: string[
   }
 }
 
-/** 字段填充计数：七类结构字段里非空的项数（foreshadow 任一方向即算填充）。 */
+/**
+ * 字段填充计数：八类结构字段（含 pov）里非空的项数（foreshadow 任一方向即算填充）。
+ * R-20：pov 是一等结构字段，不计数会让「只填了 POV」的章拿到假低置信。
+ */
 function countFilledSections(chapter: OutlineModelChapter): number {
   let filled = 0
   if (chapter.arc.trim()) filled += 1
+  if (chapter.pov.trim()) filled += 1
   if (chapter.prose.goal.trim()) filled += 1
   if (chapter.prose.scenes.length > 0) filled += 1
   if (chapter.prose.emotion.trim()) filled += 1
@@ -313,6 +348,7 @@ function buildSignals(
   return {
     volumeHeadings: input.volumeHeadings,
     chapterHeadings: input.chapterHeadings,
+    chapterCount: chapters.length,
     nonEmptyTitles: chapters.filter((chapter) => chapter.title.trim().length > 0).length,
     filledSections: chapters.reduce((sum, chapter) => sum + countFilledSections(chapter), 0),
     warnings: input.warnings,
@@ -329,13 +365,18 @@ function clamp01(value: number): number {
 /**
  * 量化打分（权重固定、可复算）：基线 0.2 + 有章标题 0.25 + 有卷标题 0.2 +
  * 标题非空率 0.2 + 字段填充率 0.25 - 每条 warning 0.05。
+ *
+ * R-07/R-21：titleRate/fillRate 的分母用**真实章数** chapterCount（不是 heading 出现次数），
+ * 两个比率显式 clamp01 —— 旧写法用「heading 数 × 7」做分母，且分母下限取 1，
+ * 零 heading 时分母饱和，两个字段就能拿满分（假 high）。
  */
 function scoreConfidence(signals: OutlineModelParseSignals): number {
-  const titleRate = signals.nonEmptyTitles / Math.max(signals.chapterHeadings, 1)
-  const fillRate = signals.filledSections / Math.max(signals.chapterHeadings * 7, 1)
+  const chapterCount = Math.max(signals.chapterCount, 1)
+  const titleRate = clamp01(signals.nonEmptyTitles / chapterCount)
+  const fillRate = clamp01(signals.filledSections / (chapterCount * 8))
   const raw =
     0.2 +
-    0.25 * (signals.chapterHeadings > 0 ? 1 : 0) +
+    0.25 * (signals.chapterCount > 0 ? 1 : 0) +
     0.2 * (signals.volumeHeadings > 0 ? 1 : 0) +
     0.2 * titleRate +
     0.25 * fillRate -
@@ -404,6 +445,8 @@ export function parseOutlineMarkdownToModel(
   const pendingTitle: { volume: OutlineModelVolume | null } = { volume: null }
   let volumeHeadings = 0
   let chapterHeadings = 0
+  /** 合成编号章（无编号/非法编号）：被显式「第N章」夺回号时让位重编号（R-02/BG-1）。 */
+  const syntheticChapters = new Set<OutlineModelChapter>()
 
   const flushSection = (): void => {
     if (currentSection) {
@@ -437,6 +480,14 @@ export function parseOutlineMarkdownToModel(
     return raw
   }
 
+  /** R-24：同一卷标题缺陷只扣一次 0.05（openChapter 与末尾分支共用一条文案）。 */
+  const volumeFallback = { warned: false }
+  const warnVolumeFallback = (): void => {
+    if (volumeFallback.warned) return
+    volumeFallback.warned = true
+    warnings.push("未识别到卷标题，全部章节归入第 1 卷")
+  }
+
   const openVolume = (numberRaw: number | null, rawTitle: string): void => {
     flushSection()
     pendingTitle.volume = null
@@ -449,37 +500,96 @@ export function parseOutlineMarkdownToModel(
     volumeHeadings += 1
   }
 
-  const openChapter = (numberRaw: number | null, rawTitle: string): void => {
+  /**
+   * 开章（R-02 + R-10 + BG-1）：显式编号与合成编号两态。
+   *
+   * 「第N章」的字面 N 永远拿 N（显式号）；无编号（序章/榉子…）与非法编号（0 / >999）
+   * 只拿合成号。合成章被后续显式编号夺回时自动让位重编号，不再静默合并同号章。
+   */
+  const openChapter = (
+    numberRaw: number | null,
+    rawTitle: string,
+    options: { special?: string } = {},
+  ): void => {
     flushSection()
     pendingTitle.volume = null
     const title = rawTitle.trim()
     if (!currentVolume) {
       currentVolume = ensureVolume(1, "第1卷")
-      warnings.push("未识别到卷标题，已归入第 1 卷")
+      warnVolumeFallback()
     }
-    const number = clampNumber(numberRaw, currentVolume.chapters.length + 1, "章号")
-    chapterHeadings += 1
-    const existing = currentVolume.chapters.find((item) => item.chapter === number)
-    if (existing) {
-      // 单章文件既有 frontmatter 卷章字段又有「第N章」标题时，复用已挂载的章，
-      // 避免同一章被解析成两份（也顺带收掉旧文本里的重复章号）。
-      currentChapter = existing
-      if (title && !existing.title.trim()) existing.title = title
+    const volume = currentVolume
+    const maxChapter = volume.chapters.reduce((max, item) => Math.max(max, item.chapter), 0)
+    const explicit =
+      numberRaw !== null && Number.isInteger(numberRaw) && numberRaw > 0 && numberRaw <= 999
+
+    if (!explicit) {
+      const number = maxChapter + 1
+      warnings.push(
+        options.special
+          ? `未识别到章号：${options.special}，已按顺序编号为 ${number}`
+          : `章号非法：${String(numberRaw)}，已按顺序编号为 ${number}`,
+      )
+      const created = createChapter(volume.number, number, title, updatedAt)
+      syntheticChapters.add(created)
+      volume.chapters.push(created)
+      currentChapter = created
+      chapterHeadings += 1
       return
     }
-    currentChapter = createChapter(currentVolume.number, number, title, updatedAt)
-    currentVolume.chapters.push(currentChapter)
+
+    const sameNumber = volume.chapters.find((item) => item.chapter === numberRaw)
+    if (sameNumber && sameNumber === structured) {
+      // 单章文件既有 frontmatter 卷章字段又有「第N章」标题：复用已挂载的章，
+      // 避免同一章被解析成两份。**不增 chapterHeadings**（R-09：结构化复用不是新 heading）。
+      // 只对 structured 成立：正文里重复出现的同号章属于 (c) 重复，必须重编号而不是合并。
+      currentChapter = sameNumber
+      if (title && !sameNumber.title.trim()) sameNumber.title = title
+      return
+    }
+
+    if (sameNumber && syntheticChapters.has(sameNumber)) {
+      // 合成章占了显式号 → 合成章让位重编号（BG-1：第N章 ⇒ chapter === N 永不被合成章夺走）。
+      const renumber = volume.chapters.reduce((max, item) => Math.max(max, item.chapter), 0) + 1
+      sameNumber.chapter = renumber
+      sameNumber.id = outlineChapterId(volume.number, renumber)
+      syntheticChapters.delete(sameNumber)
+      warnings.push(`章号冲突：合成章已重编号为 ${sameNumber.id}（${numberRaw} 归显式章）`)
+    }
+
+    const duplicated = volume.chapters.find((item) => item.chapter === numberRaw)
+    if (duplicated) {
+      // 显式号重复：后一章让位到 max+1，不再与同号章合并（R-02：静默合并会销毁正文）。
+      const renumber = volume.chapters.reduce((max, item) => Math.max(max, item.chapter), 0) + 1
+      warnings.push(`章号重复：第${numberRaw}章 重复出现，后一章重编号为 ${renumber}`)
+      const created = createChapter(volume.number, renumber, title, updatedAt)
+      volume.chapters.push(created)
+      currentChapter = created
+      chapterHeadings += 1
+      return
+    }
+
+    const created = createChapter(volume.number, numberRaw, title, updatedAt)
+    volume.chapters.push(created)
+    currentChapter = created
+    chapterHeadings += 1
   }
 
-  /** 卷标题续行判定：短、不成句、不是 heading / 卷章标题 / 小节标签。 */
+  /** 卷标题续行判定：短、不成句、不是 heading / 卷章标题 / 小节标签 / 台词 / 引用。 */
   const isVolumeTitleContinuation = (line: string): boolean => {
     if (line.length > 30) return false
     if (line.endsWith("。") || line.endsWith("；")) return false
     if (VOLUME_HEADING_RE.test(line) || CHAPTER_HEADING_RE.test(line)) return false
     if (SECTION_HEADING_RE.test(line)) return false
+    // R-12：不得把粗体台词 / 引用块 / 表格 / 列表条目 / 行内标签写进 volumes[].title。
+    if (/^\*\*.+\*\*\s*[:：]/.test(line)) return false
+    if (/^[>|]/.test(line)) return false
+    if (/^[-*+]\s+/.test(line) || /^\d+[.、)]\s+/.test(line)) return false
+    if (INLINE_SECTION_RE.test(line)) return false
     const stripped = stripLineMarkup(line)
     if (VOLUME_TEXT_RE.test(stripped.text) || CHAPTER_TEXT_RE.test(stripped.text)) return false
     if (isSectionLabel(stripped.text)) return false
+    if (/[：:]/.test(stripped.text)) return false
     return true
   }
 
@@ -514,6 +624,15 @@ export function parseOutlineMarkdownToModel(
       continue
     }
 
+    // ①' 无编号章标题（序章/榉子…）：合成编号，不夺走显式「第N章」的 N（R-10）。
+    const specialChapterMatched = SPECIAL_CHAPTER_RE.exec(trimmed)
+    if (specialChapterMatched) {
+      openChapter(null, specialChapterMatched[2] ?? specialChapterMatched[1], {
+        special: specialChapterMatched[1],
+      })
+      continue
+    }
+
     // 卷标题续行：只在卷标题为空时生效，取首个合格行，不合格就放弃（不向后漂）。
     if (pendingTitle.volume) {
       const target = pendingTitle.volume
@@ -544,6 +663,13 @@ export function parseOutlineMarkdownToModel(
         openChapter(numberFromLabel(chapterText[1] ?? chapterText[2]), chapterText[3] ?? "")
         continue
       }
+      const specialChapterText = SPECIAL_CHAPTER_TEXT_RE.exec(strippedLine.text)
+      if (specialChapterText) {
+        openChapter(null, specialChapterText[2] ?? specialChapterText[1], {
+          special: specialChapterText[1],
+        })
+        continue
+      }
     }
 
     // ④ 小节（`### 本章目标` 等）
@@ -563,6 +689,13 @@ export function parseOutlineMarkdownToModel(
       continue
     }
 
+    // ④'' 章标题后的无键摘要（R-10）：孵化器真实形态是「### 第N章 标题」下一行直接写剧情摘要，
+    // 没有字段标签。不接住就等于每章字段全丢（filledSections 恒为 0）。
+    if (currentChapter && !currentSection && !strippedLine.prefixed && strippedLine.text) {
+      currentChapter.prose.goal = appendText(currentChapter.prose.goal, strippedLine.text)
+      continue
+    }
+
     if (currentSection) currentSection.body.push(line)
   }
   flushSection()
@@ -571,15 +704,15 @@ export function parseOutlineMarkdownToModel(
     warnings.push("未识别到任何章标题，模型为空")
   }
 
-  if (volumeHeadings === 0 && chapterHeadings > 0) {
-    warnings.push("正文未识别到卷标题，全部章节归入第 1 卷")
+  if (!structured && volumeHeadings === 0 && chapterHeadings > 0) {
+    warnVolumeFallback()
   }
 
-  const model: OutlineModel = {
+  const model = normalizeOutlineModel({
     schemaVersion: OUTLINE_MODEL_SCHEMA_VERSION,
     volumes: volumes.sort((a, b) => a.number - b.number),
     updatedAt,
-  }
+  })
 
   const signals = buildSignals(model, {
     volumeHeadings,
@@ -602,7 +735,7 @@ function readModelObject(raw: Record<string, unknown>, updatedAt: string): Outli
       const chapterNumber = readNumber(chapter.chapter) ?? 1
       const built = createChapter(number, chapterNumber, readString(chapter.title), updatedAt)
       built.arc = readString(chapter.arc)
-      built.pov = readString(chapter.pov)
+      built.pov = normalizeOutlinePov(readString(chapter.pov))
       built.entities = readStringArray(chapter.entities)
       built.constraints = readStringArray(chapter.constraints)
       const foreshadow = (chapter.foreshadow ?? {}) as Record<string, unknown>

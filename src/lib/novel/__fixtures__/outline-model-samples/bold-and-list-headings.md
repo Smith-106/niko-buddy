@@ -1,4 +1,4 @@
-<!-- source: src/lib/novel/outline-chapter-unpack.ts:84-100 -->
+<!-- source: src/lib/novel/outline-chapter-unpack.ts 裸文本护栏（超 50 字 / 句末标点不切章）；outline-model-parse.ts CHAPTER_TEXT_RE（implementation-derived，只记符号不记行号） -->
 # 第1卷 启程
 
 第3章的内容非常精彩，值得反复阅读，我读了很久很久才放下，心里想着后面还会发生什么。

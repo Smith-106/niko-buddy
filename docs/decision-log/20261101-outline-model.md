@@ -1,4 +1,4 @@
-# 20261101 大纲结构化真源（outline-model）P0
+# 20261101 大纲结构化真源（outline-model）P0/P1
 
 > 范围：`src/lib/novel/outline-model.ts` + `outline-model-parse.ts` + `outline-model-render.ts` + `outline-model.spec.ts`（P0 纯函数层，未接消费者、未 commit 前的登记）。
 > 授权：掌舵人 2026-11-01 定「sidecar JSON 为真源」。
@@ -17,12 +17,14 @@
 | 2026-11-01 | OL-P0-7 | 手设参数 | 渲染（model→md）必须**确定性 + 幂等**：不写时间戳、不用随机；整本 frontmatter 带 `type/outline_type/schema_version/outline_model_digest/outline_updated_at`，正文按卷→章固定小节顺序（弧线/本章目标/场景/情绪/登场/伏笔/约束）。渲染器同步，digest 由调用方异步算好传入（避免渲染层引入异步 IO） | `src/lib/novel/outline-model-render.ts` `renderOutlineModelToMarkdown` |
 | 2026-11-01 | OL-P0-8 | 手设参数 | 复用既有工具，不新写平行实现：`parseFrontmatter`（`src/lib/frontmatter.ts`）、`parseChineseInteger`（`chapter-import.ts`）、`computeCheckpointDigestOf`（`checkpoint-digest.ts`） | 三处 import |
 | 2026-11-01 | OL-P1-1 | 手设参数 | `schemaVersion 1→2` + 章级 `pov`：`pov` = **计划期 POV**（写作前意图，人名，可空串）；实际 POV 仍走 `.novel/snapshots/*.snapshot.json` 的 `povCharacter`（`resolveChapterPovCharacter`），禁止当作「实际 POV」消费，也禁止新增第三套 POV 解析路径。`pov` 参与 `outlineModelContentKey`（否则改 POV 不触发 digest 漂移） | `src/lib/novel/outline-model.ts` `pov: string` JSDoc；`outline-model-render.ts` `SECTION_POV` |
-| 2026-11-01 | OL-P1-2 | 裁决人 | D1 章定位键：`chapter` 语义 = **全局章号**（运行时 `chapter_number` 全局单增 = 解析器写入的 第N章 字面 N = spec 的 `v02c003` 全局编号）。G2 用 `flattenOutlineChapters` 后按 `chapter` 单值匹配，**恰 1 命中**才采信该章 `entities`；0 或 ≥2 命中一律回退旧文本路径（≥2 记 warning）。不改 `hints` 签名、不要求调用方传 volume、不用 `findOutlineChapter` | `src/lib/novel/outline-model.ts:109` `flattenOutlineChapters`；`context-engine.ts` `selectActiveEntities` |
+| 2026-11-01 | OL-P1-2 | 裁决人 | D1 章定位键：`chapter` 语义 = **全局章号**（运行时 `chapter_number` 全局单增 = 解析器写入的 第N章 字面 N = spec 的 `v02c003` 全局编号）。G2 用 `flattenOutlineChapters` 后按 `chapter` 单值匹配，**恰 1 命中**才采信该章 `entities`；0 或 ≥2 命中一律回退旧文本路径（≥2 记 warning）。不改 `hints` 签名、不要求调用方传 volume、不用 `findOutlineChapter` | `src/lib/novel/outline-model.ts` `flattenOutlineChapters`；`context-engine.ts` `selectActiveEntities` |
 | 2026-11-01 | OL-P1-3 | 手设参数 | D2 confidence 契约：`high/medium/low` 三档 + `confidenceScore`(0..1) + `signals` 明细（volumeHeadings/chapterHeadings/nonEmptyTitles/filledSections/warnings）。硬不变量「最高档 ⇒ warnings 为空且 filledSections > 0」——只凭「看到了卷/章标题」判 high 会让「标题全对、字段全丢」拿到假高置信 | `src/lib/novel/outline-model-parse.ts` `ParsedOutlineModel` / `gradeConfidence` |
 | 2026-11-01 | OL-P1-4 | 手设参数 | D3 存储范式：自建注入式 deps（`readText/writeText/ensureDir` 可选 + `createFsDeps` 默认实现），迁移步形状照 `SchemaMigrationStep` 的 `from/to/forward`（P1 不提供 inverse，因无回滚入口），**不复用** `createAtomicJsonStore` 工厂（其 migrations 生产零调用、`arrayFieldCaps` 会静默截断大纲数组） | `src/lib/novel/outline-model-store.ts`；`projection-store.ts:56-63` |
 | 2026-11-01 | OL-P1-5 | 裁决人 | D4 损坏 JSON 处置：load 返回 `{ model: null, migratedFrom: null, error }`（缺失无 error；损坏含「JSON 解析失败」；版本更高含「高于支持版本」；校验失败含 issues），**绝不降级为空模型再 save**，不做 `.corrupt` 备份。消费方以 `model === null` 作为回退旧文本路径的判据 | `src/lib/novel/outline-model-store.ts` `loadOutlineModel` |
 | 2026-11-01 | OL-P1-6 | 手设参数 | D5 序列化：`JSON.stringify(model, null, 2)` 且**无尾随换行**（与 `projection-store.ts:133` / `facts-store.ts:100` 主流一致），spec 固化字节形态（`text === JSON.stringify(model, null, 2)` 且 `endsWith("\n") === false`） | `src/lib/novel/outline-model-store.ts` `saveOutlineModel`；`outline-model-store.spec.ts` |
 | 2026-11-01 | OL-P1-7 | 裁决人 | BG-1 章号约定：运行时 `chapterNumber` 全局单增 = 解析器把 第N章 的字面 N 写入 `chapter` = P0 spec 的 `v02c003` 全局编号。三处代码证据一致，因此不新增「稳定全局章序号」字段（那会超出「只加 pov」并把 scope 升为 large） | `context-engine-outline-helpers.ts:26-30`；`outline-model-parse.ts` `numberFromLabel`；`outline-model.spec.ts` `buildModel` |
+
+> **行号引用已全部改为符号引用**（P1 复核轮，2026-11-01，session `20261101-ralph-outline-p1` / review run `run-d9b13fa173f0`）：行号随实现漂移会让 grep 式复核空转（R-26）。引用代码位置请只写符号名（函数/常量），不写行号。
 
 ## 二、字段所有权（双轨）
 
@@ -32,6 +34,7 @@
 | `volumes[].number` / `.title` / `.arc` | 结构 | AI/编排层产出，人可读不手改 | 卷级弧线单独成节 |
 | `chapters[].id` / `.volume` / `.chapter` | 结构 | 派生（`outlineChapterId`），禁止手写 | 校验强制一致 |
 | `chapters[].title` | 结构 | AI 产出，人可改文字 | 不得为空 |
+| `chapters[].pov` | 结构 | AI 产出（计划期 POV，人名，可空串） | 计划期意图；实际 POV 仍走 snapshots 的 `povCharacter`（BG-2），禁止当作实际 POV 消费 |
 | `chapters[].arc` | 结构 | AI 产出 | 章所属弧线/小高潮名，可空 |
 | `chapters[].entities` | 结构 | AI 产出（显式登场名单） | 替代 `outlineText.includes(name)` 猜测 |
 | `chapters[].foreshadow.plant` / `.payoff` | 结构 | AI 产出，埋设/回收分列 | 供台账对账；按关键词「埋设/回收」解析并去重 |
@@ -42,9 +45,10 @@
 
 | 债 ID | 描述 | 偿还触发 | 到期阶段 | 状态 |
 |-------|------|----------|----------|------|
-| DEBT-20261101-01 | 消费者未接线：`context-engine` 仍读 outline 长文本字符串，未改为字段寻址的 `OutlineModel`；`OutlineModel` 尚无读写 sidecar JSON 的 IO 层（读/写/迁移） | 下一任务把 `context-engine-outline` 切到模型读取，或任一功能需要 sidecar 落盘 | P1 收口 | 已偿还（OL-P1-4 / TASK-001：`outline-model-store.ts` + TASK-003：`selectActiveEntities` 字段寻址） |
+| DEBT-20261101-01 | 消费者接线：**读侧已接** —— `context-engine` 的 `selectActiveEntities` 已改字段寻址（sidecar `chapter.entities`，0/≥2 命中回退旧文本）；**写侧未接** —— `saveOutlineModel` 无生产调用方，`outline-model.json` 在生产环境不会产生 | 读侧：已偿还；写侧：见 DEBT-20261101-05 | P1 收口 / P2 写侧 | 部分偿还（读侧已接、写侧未接） |
 | DEBT-20261101-02 | 尚无 schema 迁移器：`OUTLINE_MODEL_SCHEMA_VERSION = 1` 只做「不支持即拦」，未实现 v1→vN 迁移 | 首次需要改结构字段时 | 第二次 schema 变更前 | 已偿还（OL-P1-1 / TASK-001：`schemaVersion 1→2` + `OUTLINE_MODEL_MIGRATIONS`，迁移在校验之前） |
-| DEBT-20261101-03 | 解析器 heading 回退为启发式（中文章号 + 七类小节名），未覆盖自由格式大纲；confidence 只有 `high`/`low` 两档粗分，无量化阈值 | 出现解析失败的实际大纲样本，或接入真实用户稿 | P1 收口 | 已偿还（OL-P1-3 / TASK-002：heading/粗体/列表/裸文本四类前缀 + 别名与黑名单 + 章号夹取；confidence **现为 high/medium/low 三档 + `confidenceScore`(0..1) + `signals`**） |
+| DEBT-20261101-03 | 解析器 heading 回退为启发式（中文章号 + 七类小节名），未覆盖自由格式大纲；confidence 只有 `high`/`low` 两档粗分，无量化阈值 | 出现解析失败的实际大纲样本，或接入真实用户稿 | P1 收口 | 已偿还（OL-P1-3 / TASK-002：heading/粗体/列表/裸文本四类前缀 + 别名与黑名单 + 章号夹取；confidence 现为 high/medium/low 三档 + `confidenceScore`(0..1) + `signals`）。**证据形态已升级为变异验证过的断言清单**（R-07 两条子句 / R-11 两条子句 / R-02 / R-08 / R-09 / R-10 / R-12 / R-24 各自一条可命中输入），见 `outputs/plan.json` 的 `finding_map` 与各 task 的 `mutation_proof` |
+| DEBT-20261101-05 | sidecar 生产者缺失：`saveOutlineModel` 全仓零生产调用（仅 barrel 与 spec），读侧字段寻址 100% 走旧文本回退；registry 已按「声明的合法孤岛」登记（orphan=true / consumer=internal） | P2 大纲生成/导入流程落地写入方（`saveOutlineModel` 出现生产调用点）时，registry 条目须同步改回 orphan=false / consumer=context-pack | P2 | 未偿还（DEBT-20261101-05） |
 | DEBT-20261101-04 | 渲染产物未纳入 `gen:atlas` / 一致性脚本的校验范围（新文件使 atlas 模块数 1166→1169，需 regen 后提交） | 本次提交时执行 `npm run gen:atlas` + `npm run gen:check` | 本次提交 | 已偿还（TASK-004：`npm run gen:atlas` 后 `node scripts/check-generated.mjs` 6/6 PASS，modules 1169→1170） |
 
 ## 四、P1 收口记录
@@ -73,3 +77,10 @@
 - `selectActiveEntities` 仍在 `context-engine.ts`，函数体内无 `writeStatus`/`saveStatus`/`persistCheckpoint`，且不新增 `fileExists` 使用。
 - rank 公式三处同构未改（`context-engine.ts` / `temporal-memory.ts` / `context-entity-budget.ts`），`ContextEntity.entityId` 形状未改。
 - `chapter-import.ts` 未在改动清单内（`parseChineseInteger` 未触碰）。
+
+### P1 复核轮结论（2026-11-01，review run `run-d9b13fa173f0`）
+
+- **verdict = block 的原因**：1 条 critical（R-01：`{}` / 无关 JSON / 空 volumes 被降级为可用空模型，违反 locked D4）+ 12 条 major（R-02..R-13），修复前 `load` 会把损坏 JSON 变成「看起来正常」的模型。
+- **修复范围**：29 条 finding → 必修 19（R-01..R-13 + R-19/R-20/R-21/R-23/R-24/R-26）、顺手 4（R-17/R-25/R-28/R-29）、deferred 6（R-14/R-15/R-16/R-18/R-22/R-27，另 3 条 parent deferred 顺延）。
+- **confidence 硬不变量已变成可证伪断言**（R-11）：两条子句各自配一条「可命中输入」，删掉任一子句对应断言即转红；「vitest 全绿」不再作为有效性证据。
+- **治理面如实化**（R-06）：写侧零生产者期间 registry 登记为 `orphan=true` / `consumer=internal`，并由双向可证伪断言守住（生产者数 0 ⇒ orphan 必须 true；出现生产调用点 ⇒ 必须 false）。

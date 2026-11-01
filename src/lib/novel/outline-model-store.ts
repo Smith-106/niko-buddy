@@ -133,8 +133,9 @@ export async function loadOutlineModel(
   const path = outlineModelFilePath(projectPath)
 
   const raw = await io.readText(path)
-  // 必须用 typeof 守卫：conditional-routing.spec.ts:47-50 的 mockReset 会返回 undefined，
-  // 空串守卫挡不住 undefined（`undefined.trim()` 会抛 TypeError）。
+  // 必须用 typeof 守卫：deps 注入方可能返回 undefined（见 outline-model-store.spec.ts 的
+  // readDeps(undefined) 与 context-engine.spec.ts 的显式 return undefined）。vitest 4 的
+  // mockReset 恢复原实现（返回原 stub 的 ""），不是 undefined。
   if (typeof raw !== "string" || raw.trim() === "") {
     return { model: null, migratedFrom: null }
   }
@@ -143,7 +144,14 @@ export async function loadOutlineModel(
   try {
     parsed = JSON.parse(raw)
   } catch (error) {
-    return { model: null, migratedFrom: null, error: `JSON 解析失败：${toErrorMessage(error)}` }
+    // R-28：只保留位置/语法类型，不拼接 JSON.parse 原文片段（Node 20+ 的报错会内嵌输入片段，
+    // 大纲原文会被写进日志/错误串）。
+    const position = /position\s+(\d+)/i.exec(toErrorMessage(error))?.[1]
+    return {
+      model: null,
+      migratedFrom: null,
+      error: position ? `JSON 解析失败（位置 ${position}）` : "JSON 解析失败（语法错误）",
+    }
   }
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -151,7 +159,33 @@ export async function loadOutlineModel(
   }
 
   let record = parsed as Record<string, unknown>
-  const declared = typeof record.schemaVersion === "number" ? record.schemaVersion : 1
+
+  // ── 根形状闸（R-01 critical）：`{}` / 无关 JSON / `{"volumes":[]}` 一律 model:null。
+  // 不得把「无 schemaVersion」当 v1 后凭空造 volumes:[]（D-08：缺键不回落 v1）。
+  if (!Object.prototype.hasOwnProperty.call(record, "schemaVersion")) {
+    return {
+      model: null,
+      migratedFrom: null,
+      error: "根形状非法：缺少 schemaVersion 字段（拒绝降级为 v1 空模型）",
+    }
+  }
+  if (typeof record.schemaVersion !== "number" || !Number.isInteger(record.schemaVersion)) {
+    // R-04：类型误写（"3" / 1.5 / null）不得回落 v1，否则绕过未来版本闸。
+    return {
+      model: null,
+      migratedFrom: null,
+      error: `schemaVersion 类型非法：${JSON.stringify(record.schemaVersion)}（期望整数）`,
+    }
+  }
+  if (!Array.isArray(record.volumes)) {
+    return {
+      model: null,
+      migratedFrom: null,
+      error: "根形状非法：volumes 不是数组（拒绝降级为空大纲）",
+    }
+  }
+
+  const declared = record.schemaVersion
   let migratedFrom: number | null = null
 
   if (declared > OUTLINE_MODEL_SCHEMA_VERSION) {
@@ -164,9 +198,13 @@ export async function loadOutlineModel(
   }
 
   if (declared < OUTLINE_MODEL_SCHEMA_VERSION) {
+    // R-29：按 record 当前版本推进（不是按声明的起始版本全量套用）。升序/无跳步由
+    // outline-model-store.spec.ts 的迁移链断言保证，不做运行时 assert（避免把库加载变成抛错源）。
+    let currentVersion = declared
     for (const step of OUTLINE_MODEL_MIGRATIONS) {
-      if (step.from >= declared && step.to <= OUTLINE_MODEL_SCHEMA_VERSION && step.from < step.to) {
+      if (step.from === currentVersion && step.to > step.from && step.to <= OUTLINE_MODEL_SCHEMA_VERSION) {
         record = step.forward(record)
+        currentVersion = step.to
         if (migratedFrom === null) migratedFrom = declared
       }
     }
@@ -175,7 +213,13 @@ export async function loadOutlineModel(
   // 迁移之后才校验：validateOutlineModel 对 schemaVersion !== 常量直接报错，
   // 先校验会把刚迁移到 v2 的记录当非法。
   const model = record as unknown as OutlineModel
-  const validation = validateOutlineModel(model)
+  let validation: ReturnType<typeof validateOutlineModel>
+  try {
+    validation = validateOutlineModel(model)
+  } catch (error) {
+    // R-03 兜底：形状闸之后理论上不可达，但「绝不抛异常」契约的最后一道网必须存在。
+    return { model: null, migratedFrom, error: `模型校验抛错：${toErrorMessage(error)}` }
+  }
   if (!validation.ok) {
     return {
       model: null,

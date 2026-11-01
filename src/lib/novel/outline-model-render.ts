@@ -1,6 +1,7 @@
 import {
   flattenOutlineChapters,
   findOutlineChapter,
+  normalizeOutlinePov,
   type OutlineModel,
   type OutlineModelChapter,
   type OutlineModelVolume,
@@ -14,6 +15,8 @@ import {
  *   - **幂等**：render(parse(render(m))) 与 render(m) 相等。
  *   - **可回读**：输出格式必须能被 outline-model-parse 解析回等价模型（往返不丢
  *     volume/chapter/title/arc/entities/foreshadow/constraints/prose 八类字段）。
+ *     `pov` 经 `normalizeOutlinePov` 规范化后写出（trim + 折行折叠为「 / 」）：
+ *     否则多行 pov 会注入新的 `### 场景` 小节，把内容搬到错误字段上（R-23）。
  *
  * 人读版是**投影**：结构字段由模型决定，人不在此改结构；只有 prose 三字段
  * （本章目标/场景/情绪）是作者的自由文本，回写时按字段边界处理。
@@ -52,7 +55,7 @@ function renderChapterSections(chapter: OutlineModelChapter): string[] {
     out.push(`### ${SECTION_ARC}`, "", chapter.arc.trim(), "")
   }
   if (chapter.pov.trim()) {
-    out.push(`### ${SECTION_POV}`, "", chapter.pov.trim(), "")
+    out.push(`### ${SECTION_POV}`, "", normalizeOutlinePov(chapter.pov), "")
   }
   if (chapter.prose.goal.trim()) {
     out.push(`### ${SECTION_GOAL}`, "", chapter.prose.goal.trim(), "")
@@ -137,7 +140,7 @@ export function renderOutlineChapterToMarkdown(
     `chapter: ${chapter.chapter}`,
     `title: ${JSON.stringify(chapter.title)}`,
   ]
-  if (chapter.pov.trim()) pairs.push(`pov: ${JSON.stringify(chapter.pov)}`)
+  if (chapter.pov.trim()) pairs.push(`pov: ${JSON.stringify(normalizeOutlinePov(chapter.pov))}`)
   if (chapter.arc.trim()) pairs.push(`arc: ${JSON.stringify(chapter.arc)}`)
   if (volume && volume.title) pairs.push(`volume_title: ${JSON.stringify(volume.title)}`)
   if (chapter.entities.length > 0) pairs.push(`entities: ${JSON.stringify(chapter.entities)}`)
@@ -151,7 +154,9 @@ export function renderOutlineChapterToMarkdown(
   if (options.digest) pairs.push(`outline_model_digest: ${options.digest}`)
   if (chapter.updatedAt) pairs.push(`outline_updated_at: ${chapter.updatedAt}`)
 
-  const body = renderChapterSections({ ...chapter, arc: "" })
+  // pov / arc 已在 frontmatter（结构化字段），正文不再重复一份：否则回读时
+  // 「frontmatter + ### 视角」双源会被 appendText 合并成「李慕白 / 李慕白」。
+  const body = renderChapterSections({ ...chapter, arc: "", pov: "" })
   const heading = `# 第${chapter.chapter}章 ${chapter.title}`.trim()
   return `${renderFrontmatter(pairs)}\n${[heading, "", ...body].join("\n")}`.trimEnd() + "\n"
 }

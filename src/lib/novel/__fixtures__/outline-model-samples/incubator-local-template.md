@@ -1,4 +1,4 @@
-<!-- source: src/lib/novel/autonomous-incubator.ts:331-347 -->
+<!-- source: src/lib/novel/autonomous-incubator.ts 本地模板拼装（implementation-derived，只记符号不记行号） -->
 # 《长夜将明》全书总纲与分卷计划
 
 > **题材定位**：玄幻 | **篇幅设计**：12 章基础体量

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, beforeAll } from "vitest"
 import { DEFAULT_MAX_CONTEXT_TOKENS } from "@/lib/llm-context-limits"
+import { logger } from "@/lib/utils"
 import {
   contextPackToPrompt,
   truncateActiveEntitiesByBudget,
@@ -1407,9 +1408,9 @@ describe("selectActiveEntities", () => {
   // ── G2（D1/BG-1）：sidecar 字段寻址 ────────────────────────────────
   /** 造一份合法 v2 侧车 JSON（validateOutlineModel 能过，否则会退文本路径）。 */
   function sidecarJson(
-    entries: Array<{ chapter: number; entities: string[]; volume?: number }>,
+    entries: Array<{ chapter: number; entities: unknown; volume?: number }>,
   ): string {
-    const byVolume = new Map<number, Array<{ chapter: number; entities: string[] }>>()
+    const byVolume = new Map<number, Array<{ chapter: number; entities: unknown }>>()
     for (const entry of entries) {
       const volume = entry.volume ?? 1
       const list = byVolume.get(volume) ?? []
@@ -1480,25 +1481,101 @@ describe("selectActiveEntities", () => {
     expect(entities.map((e) => e.name)).toEqual(["甲"])
   })
 
-  it("sidecar ≥2 命中（多卷同章号）→ 回退文本路径", async () => {
-    mockEntityPages(["甲", "乙"])
+  it("sidecar ≥2 命中（多卷同章号）→ 回退文本路径且只记一条章号歧义 warning（R-11）", async () => {
+    // D-09：两个卷的 entities 都是 outline 文本未提到的名字，使「采信首个」与「正确回退」
+    // 的结果不同（旧写法 volume2=["乙"] 时两者都得 ["甲"]，断言不可证伪）。
+    mockEntityPages(["甲", "乙", "丙", "丁"])
     hoisted.readFile.mockImplementation(async (p: string) => {
       if (p.endsWith("outline-model.json")) {
         return sidecarJson([
-          { chapter: 3, entities: ["甲"], volume: 1 },
-          { chapter: 3, entities: ["乙"], volume: 2 },
+          { chapter: 3, entities: ["丙"], volume: 1 },
+          { chapter: 3, entities: ["丁"], volume: 2 },
         ])
+      }
+      if (p.endsWith("甲.md")) return "---\ntitle: 甲\ntype: character\n---\n"
+      if (p.endsWith("乙.md")) return "---\ntitle: 乙\ntype: character\n---\n"
+      if (p.endsWith("丙.md")) return "---\ntitle: 丙\ntype: character\n---\n"
+      if (p.endsWith("丁.md")) return "---\ntitle: 丁\ntype: character\n---\n"
+      return ""
+    })
+    const warnSpy = vi.spyOn(logger, "warn")
+    try {
+      const entities = await selectActiveEntities("/p", {
+        chapterNumber: 3,
+        outline: "甲登场",
+        sceneCharacters: "",
+      })
+      const names = entities.map((e) => e.name)
+      // 歧义 → 回退 outline 文本：只有甲被提到；丙/丁 若被采信即说明断言失效。
+      expect(names).toEqual(["甲"])
+      expect(names).not.toContain("丙")
+      expect(names).not.toContain("丁")
+      const ambiguityCalls = warnSpy.mock.calls.filter((call) => String(call[1]).includes("章号歧义"))
+      expect(ambiguityCalls).toHaveLength(1)
+      expect((ambiguityCalls[0][2] as { hits?: number } | undefined)?.hits).toBe(2)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it("sidecar 单命中但该章 entities 为空数组 → 回退文本匹配（R-05）", async () => {
+    mockEntityPages(["甲", "乙"])
+    hoisted.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("outline-model.json")) return sidecarJson([{ chapter: 3, entities: [] }])
+      if (p.endsWith("甲.md")) return "---\ntitle: 甲\ntype: character\n---\n"
+      if (p.endsWith("乙.md")) return "---\ntitle: 乙\ntype: character\n---\n"
+      return ""
+    })
+    const warnSpy = vi.spyOn(logger, "warn")
+    try {
+      const entities = await selectActiveEntities("/p", {
+        chapterNumber: 3,
+        outline: "甲登场",
+        sceneCharacters: "",
+      })
+      // 旧写法（`if (chapterEntities)`）会把回退整段跳过 → 零命中 → 回退全量 ["甲","乙"]。
+      expect(entities.map((e) => e.name)).toEqual(["甲"])
+      expect(warnSpy.mock.calls.some((call) => String(call[1]).includes("未列 entities"))).toBe(true)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it("sidecar 的 entities 非 string[] → 不抛错且回退文本（R-13）", async () => {
+    mockEntityPages(["甲", "乙"])
+    hoisted.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("outline-model.json")) return sidecarJson([{ chapter: 3, entities: "张三" }])
+      if (p.endsWith("甲.md")) return "---\ntitle: 甲\ntype: character\n---\n"
+      if (p.endsWith("乙.md")) return "---\ntitle: 乙\ntype: character\n---\n"
+      return ""
+    })
+    const pending = selectActiveEntities("/p", {
+      chapterNumber: 3,
+      outline: "甲登场",
+      sceneCharacters: "",
+    })
+    await expect(pending).resolves.toBeTruthy()
+    const entities = await pending
+    expect(entities.map((e) => e.name)).toEqual(["甲"])
+  })
+
+  it("sidecar 的 entities 混入非 string 元素 → 不抛错，只按字符串元素匹配（R-13）", async () => {
+    mockEntityPages(["甲", "乙"])
+    hoisted.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("outline-model.json")) {
+        return sidecarJson([{ chapter: 3, entities: ["甲", 42, null] }])
       }
       if (p.endsWith("甲.md")) return "---\ntitle: 甲\ntype: character\n---\n"
       if (p.endsWith("乙.md")) return "---\ntitle: 乙\ntype: character\n---\n"
       return ""
     })
-    const entities = await selectActiveEntities("/p", {
+    const pending = selectActiveEntities("/p", {
       chapterNumber: 3,
       outline: "甲登场",
       sceneCharacters: "",
     })
-    // 歧义 → 回退 outline 文本：只有甲被提到。
+    await expect(pending).resolves.toBeTruthy()
+    const entities = await pending
     expect(entities.map((e) => e.name)).toEqual(["甲"])
   })
 

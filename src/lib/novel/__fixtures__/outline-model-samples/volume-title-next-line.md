@@ -1,4 +1,4 @@
-<!-- source: src/lib/novel/autonomous-incubator.ts:331-347 -->
+<!-- source: src/lib/novel/outline-model-render.ts renderVolume 的 `# 第N卷 标题` 一行式形态；「标题在下一行」形态当前无生产者，为未来兼容（兼容分支，无对应需求文档） -->
 # 第1卷
 启程
 
@@ -18,3 +18,11 @@
 
 ### 弧线
 从试探到摊牌。
+
+# 第2卷
+
+**林默**：你以为呢？
+
+# 第3卷
+
+> **题材定位**：玄幻

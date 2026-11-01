@@ -56,14 +56,6 @@ export const PROJECTIONS_REGISTRY: ProjectionEntry[] = [
     note: "章节事实/人物状态——context-engine L1424/1462 直读",
   },
   {
-    file: "outline-model.json",
-    writer: "outline-model-store",
-    readers: ["context-engine"],
-    consumer: "context-pack",
-    orphan: false,
-    note: "大纲结构化真源 sidecar（schemaVersion=2；v1→v2 迁移在 outline-model-store）——context-engine selectActiveEntities 字段寻址，替代 outline 文本 substring 猜测",
-  },
-  {
     file: "emotional-arcs.json",
     writer: "character-state",
     readers: ["context-engine"],
@@ -142,6 +134,16 @@ export const PROJECTIONS_REGISTRY: ProjectionEntry[] = [
     note: "开书导演状态机——orchestrator 消费（不直接进 context，属管线状态）",
   },
   // ── 声明的内部状态投影（合法孤岛——生命周期独立不喂 context）───
+  {
+    // R-06：写侧未接前不得登记为主链投影。`saveOutlineModel` 全仓零生产调用（仅 barrel 与 spec），
+    // 文件在生产环境不会产生；把它标成 context-pack 主链会让 registry 失真。
+    file: "outline-model.json",
+    writer: "outline-model-store",
+    readers: ["context-engine"],
+    consumer: "internal",
+    orphan: true,
+    note: "大纲结构化真源 sidecar（schemaVersion=2；v1→v2 迁移在 outline-model-store）。读侧已接：context-engine selectActiveEntities 字段寻址；写侧未接：saveOutlineModel 无生产调用方，文件当前不会产生（DEBT-20261101-05）",
+  },
   {
     file: "narrative-state.json",
     writer: "narrative-state",

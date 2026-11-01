@@ -1066,7 +1066,18 @@ export async function selectActiveEntities(
       if (model) {
         const hits = flattenOutlineChapters(model).filter((chapter) => chapter.chapter === chapterN)
         if (hits.length === 1) {
-          chapterEntities = hits[0].entities
+          // R-13 防御层：entities 非 string[]（如 "张三"）不得交给 `.some` 抛 TypeError；
+          // 非数组置 null 走文本回退，元素级非 string 一律过滤。
+          const rawEntities: unknown = hits[0].entities
+          chapterEntities = Array.isArray(rawEntities)
+            ? rawEntities.filter((name): name is string => typeof name === "string")
+            : null
+          // R-05 记账：空数组与 null 同路回退（孵化器真实形态章 entities 恒为 []）。
+          if (chapterEntities && chapterEntities.length === 0) {
+            logger.warn("ContextEngine", "outline-model 该章未列 entities，回退 outline 文本匹配", {
+              chapterNumber: chapterN,
+            })
+          }
         } else if (hits.length > 1) {
           // 卷内章号重启导致多卷都有同一章号：无法判定归属，退回文本匹配并记账。
           logger.warn("ContextEngine", "outline-model 章号歧义，回退文本匹配", {
@@ -1084,7 +1095,8 @@ export async function selectActiveEntities(
     /* v8 ignore next */
     if (!entityName || entityName.length < 1) return false
     // 源 A：有 sidecar 章节实体时走字段寻址（精确匹配），否则回退 outline 文本 mentions。
-    if (chapterEntities) {
+    // R-05：空数组必须与 null 同路回退（`[]` 对 `if` 是 truthy，旧写法会把回退整段跳过）。
+    if (chapterEntities && chapterEntities.length > 0) {
       const target = normalizeEntityName(entityName)
       if (chapterEntities.some((name) => normalizeEntityName(name) === target)) return true
     } else if (outlineText.includes(entityName)) {

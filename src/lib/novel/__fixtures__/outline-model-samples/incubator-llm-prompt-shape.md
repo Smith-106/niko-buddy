@@ -1,4 +1,4 @@
-<!-- source: src/lib/novel/autonomous-incubator.ts:302-306 -->
+<!-- source: src/lib/novel/autonomous-incubator.ts LLM 输出形状（implementation-derived，只记符号不记行号） -->
 ### 第1章 异变初显
 风暴来临的前夕，主角林玄在看似平静的日常中发现了关键异常，宿命齿轮开始转动。
 

@@ -6,6 +6,7 @@ import {
   computeOutlineModelDigest,
   findOutlineChapter,
   flattenOutlineChapters,
+  normalizeOutlineModel,
   outlineChapterId,
   outlineModelContentKey,
   parseOutlineChapterId,
@@ -353,5 +354,239 @@ describe("outline-model 真实样本回退解析", () => {
     const chapters = flattenOutlineChapters(parsed.model)
     expect(chapters.every((chapter) => chapter.chapter !== 0)).toBe(true)
     expect(parsed.warnings.some((warning) => warning.includes("章号非法：0"))).toBe(true)
+  })
+})
+
+/**
+ * P1 复核修复轮（R-02 / R-09 / R-10 / R-12 / R-24）。
+ *
+ * 判定标准不是「测试存在」，而是「把被守护的守卫改坏后本组指定 it 必须转红」——
+ * 上一轮 review 证明「vitest 全绿」不等于断言有效。
+ */
+describe("outline-model 解析器权威内容保全（R-02 / R-09 / R-10 / R-12 / R-24）", () => {
+  it("第零章与第一章都存活：标题与目标不得被合并销毁（R-02）", () => {
+    const legacy = [
+      "# 第1卷 启程",
+      "## 第零章 引子",
+      "### 本章目标",
+      "开场",
+      "## 第一章 开端",
+      "### 本章目标",
+      "正式开始",
+    ].join("\n")
+
+    const parsed = parseOutlineMarkdownToModel(legacy)
+    const chapters = flattenOutlineChapters(parsed.model)
+    expect(chapters).toHaveLength(2)
+    expect(chapters.map((chapter) => chapter.title).sort()).toEqual(["引子", "开端"].sort())
+    const goals = chapters.map((chapter) => chapter.prose.goal).join("|")
+    expect(goals).toContain("开场")
+    expect(goals).toContain("正式开始")
+    // BG-1：显式「第一章」永远拿 1，合成章让位重编号。
+    expect(chapters.find((chapter) => chapter.title === "开端")!.chapter).toBe(1)
+    expect(parsed.warnings.some((warning) => warning.includes("章号非法：0"))).toBe(true)
+  })
+
+  it("序章不整章丢弃，且不夺走第一章的章号（R-10）", () => {
+    const legacy = [
+      "# 第1卷 启程",
+      "## 序章",
+      "### 本章目标",
+      "开场",
+      "## 第1章 开端",
+      "### 本章目标",
+      "正式开始",
+    ].join("\n")
+
+    const parsed = parseOutlineMarkdownToModel(legacy)
+    const chapters = flattenOutlineChapters(parsed.model)
+    expect(chapters).toHaveLength(2)
+    const goals = chapters.map((chapter) => chapter.prose.goal).join("|")
+    expect(goals).toContain("开场")
+    expect(goals).toContain("正式开始")
+    expect(chapters.find((chapter) => chapter.title === "开端")!.chapter).toBe(1)
+    expect(parsed.warnings.some((warning) => warning.includes("序章"))).toBe(true)
+  })
+
+  it("孵化器真实样本每章字段不得全丢（R-10）", () => {
+    for (const name of ["incubator-local-template.md", "incubator-llm-prompt-shape.md"]) {
+      const parsed = parseOutlineMarkdownToModel(readFixture(name))
+      expect(parsed.signals.filledSections).toBeGreaterThan(0)
+      const chapters = flattenOutlineChapters(parsed.model)
+      expect(chapters.every((chapter) => chapter.prose.goal.trim().length > 0)).toBe(true)
+    }
+  })
+
+  it("结构化单章往返无假 warning 且可达 high（R-09）", () => {
+    const markdown = renderOutlineChapterToMarkdown(buildModel(), "v01c001")
+    const parsed = parseOutlineMarkdownToModel(markdown)
+    expect(parsed.warnings).toEqual([])
+    expect(parsed.confidence).toBe("high")
+    expect(parsed.signals.volumeHeadings).toBe(0)
+    // structured 复用已挂载的章，不算新 heading。
+    expect(parsed.signals.chapterHeadings).toBe(0)
+  })
+
+  it("卷标题续行不吞台词与引用块（R-12）", () => {
+    const parsed = parseOutlineMarkdownToModel(readFixture("volume-title-next-line.md"))
+    expect(parsed.model.volumes.map((volume) => volume.title)).toEqual(["启程", "第2卷", "第3卷"])
+    expect(parsed.model.volumes[1].title).not.toContain("林默")
+    expect(parsed.model.volumes[2].title).not.toContain("题材定位")
+  })
+
+  it("同一卷标题缺陷只记一条 warning（R-24）", () => {
+    const parsed = parseOutlineMarkdownToModel(readFixture("incubator-local-template.md"))
+    expect(parsed.warnings.filter((warning) => warning.includes("未识别到卷标题"))).toHaveLength(1)
+    expect(parsed.signals.warnings).toBe(parsed.warnings.length)
+  })
+})
+
+/**
+ * P1 复核修复轮（R-07 / R-08 / R-11 / R-20 / R-21 / R-23）。
+ *
+ * 硬不变量两条子句各自配一条「可命中输入」：旧实现下两条子句结构上够不到，
+ * 断言形同虚设（review R-11 的核心结论）。
+ */
+describe("outline-model 字段归并与置信度真实化（R-07 / R-08 / R-11 / R-20 / R-21 / R-23）", () => {
+  it("零 heading 时 fillRate 不饱和：2 个字段不得成 high（R-07）", () => {
+    const structured = [
+      "---",
+      "volume: 1",
+      "chapter: 1",
+      'title: "断桥"',
+      'arc: "相遇"',
+      "---",
+      "### 本章目标",
+      "照面。",
+    ].join("\n")
+    const parsed = parseOutlineMarkdownToModel(structured)
+    expect(parsed.signals.filledSections).toBe(2)
+    expect(parsed.signals.chapterCount).toBe(1)
+    expect(parsed.confidenceScore).toBeLessThan(0.8)
+    expect(parsed.confidence).not.toBe("high")
+  })
+
+  it("硬不变量子句一：filledSections === 0 时不得 high（R-11）", () => {
+    const parsed = parseOutlineMarkdownToModel("# 第1卷 启程\n## 第1章 断桥")
+    expect(parsed.signals.filledSections).toBe(0)
+    // 手算：0.2 + 0.25(有章) + 0.2(有卷) + 0.2*(1/1) + 0.25*(0/8) = 0.85
+    expect(parsed.confidenceScore).toBeGreaterThanOrEqual(0.8)
+    expect(parsed.confidence).not.toBe("high")
+  })
+
+  it("硬不变量子句二：warnings 非空时不得 high（R-11）", () => {
+    const legacy = [
+      "## 第1章 断桥",
+      "### 弧线",
+      "相遇",
+      "### 本章目标",
+      "照面",
+      "### 场景",
+      "- 桥上",
+      "### 情绪",
+      "紧张",
+      "### 登场",
+      "- 甲",
+      "### 伏笔",
+      "- 埋设：FS-001",
+      "### 约束",
+      "- 乙不出场",
+    ].join("\n")
+    const parsed = parseOutlineMarkdownToModel(legacy)
+    expect(parsed.signals.warnings).toBeGreaterThan(0)
+    expect(parsed.signals.filledSections).toBe(7)
+    // 手算：0.2 + 0.25 + 0(无卷) + 0.2*(1/1) + 0.25*(7/8) - 0.05*1 = 0.819
+    expect(parsed.confidenceScore).toBeGreaterThanOrEqual(0.8)
+    expect(parsed.confidence).not.toBe("high")
+  })
+
+  it("别名同时命中时不得互相覆盖（R-08）", () => {
+    const parsed = parseOutlineMarkdownToModel(readFixture("decoy-labels.md"))
+    const chapter = flattenOutlineChapters(parsed.model)[0]
+    // 章节定位 + 核心事件 两个别名都指向 prose.goal，覆盖会丢前者。
+    expect(chapter.prose.goal).toContain("全书第一个转折点")
+    expect(chapter.prose.goal).toContain("两人在断桥上第一次交手")
+    expect(chapter.prose.emotion).toContain("警惕")
+    expect(chapter.prose.emotion).toContain("惊怒")
+    // 合并去重后不得重复堆同一项。
+    expect(chapter.prose.scenes).toEqual(["雨夜逼近", "桥心对峙"])
+  })
+
+  it("pov 计入 filledSections 且分母为 8 类（R-20）", () => {
+    const povOnly = [
+      "---",
+      "volume: 1",
+      "chapter: 1",
+      'title: "断桥"',
+      'pov: "李慕白"',
+      "---",
+    ].join("\n")
+    expect(parseOutlineMarkdownToModel(povOnly).signals.filledSections).toBe(1)
+
+    const three = [
+      "---",
+      "volume: 1",
+      "chapter: 1",
+      'title: "断桥"',
+      'pov: "李慕白"',
+      'arc: "相遇"',
+      "---",
+      "### 本章目标",
+      "照面。",
+    ].join("\n")
+    expect(parseOutlineMarkdownToModel(three).signals.filledSections).toBe(3)
+  })
+
+  it("重复章号不因输入写法降低分数（R-21）", () => {
+    // 结构化单章：heading 数 0、真实章数 1 —— 分母必须取真实章数。
+    const structured = [
+      "---",
+      "volume: 1",
+      "chapter: 1",
+      'title: "断桥"',
+      'arc: "相遇"',
+      "---",
+      "### 本章目标",
+      "照面。",
+    ].join("\n")
+    const single = parseOutlineMarkdownToModel(structured)
+    expect(single.signals.chapterCount).toBe(flattenOutlineChapters(single.model).length)
+    expect(single.signals.chapterHeadings).toBe(0)
+    // 手算：0.2 + 0.25(有章) + 0(无卷) + 0.2*(1/1) + 0.25*(2/8) = 0.7125 → 0.713
+    expect(single.confidenceScore).toBeCloseTo(0.713, 3)
+
+    const duplicated = [
+      "# 第1卷 启程",
+      "## 第1章 断桥",
+      "### 本章目标",
+      "照面",
+      "## 第1章 断桥",
+      "### 本章目标",
+      "再照面",
+    ].join("\n")
+    const twice = parseOutlineMarkdownToModel(duplicated)
+    expect(twice.signals.chapterCount).toBe(flattenOutlineChapters(twice.model).length)
+    expect(twice.signals.chapterCount).toBe(2)
+  })
+
+  it("pov 未规范化值往返后 contentKey 等值（R-23）", () => {
+    for (const value of [" 李慕白 ", "李慕白\n", "李慕白\n\n苏七"]) {
+      const base = buildModel()
+      base.volumes[0].chapters[0].pov = value
+      const parsed = parseOutlineMarkdownToModel(renderOutlineModelToMarkdown(base))
+      expect(outlineModelContentKey(parsed.model)).toBe(
+        outlineModelContentKey(normalizeOutlineModel(base)),
+      )
+    }
+  })
+
+  it("多行 pov 不注入新小节（R-23）", () => {
+    const base = buildModel()
+    base.volumes[0].chapters[0].pov = "李慕白\n### 场景\n- 被吞掉的场景"
+    base.volumes[0].chapters[0].prose.scenes = []
+    const parsed = parseOutlineMarkdownToModel(renderOutlineModelToMarkdown(base))
+    const chapter = flattenOutlineChapters(parsed.model).find((item) => item.id === "v01c001")!
+    expect(chapter.prose.scenes).toEqual([])
+    expect(chapter.pov).toContain("场景")
   })
 })
