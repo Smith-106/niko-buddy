@@ -121,3 +121,75 @@ describe("projections-registry（MIG-002 .novel 投影治理目录）", () => {
     }
   })
 })
+
+/**
+ * s5-autotest 补测试轮：R-06 的 partially_fixed 剩余面 —— registry 的 orphan / 主链语义。
+ *
+ * R-06 已修的数值污染（outline-model.json 不再出现在 mainChainProjections）由既有 it 守护；
+ * 本轮补的是「主链/孤岛两个集合各自的语义自洽性」与「读侧诚实性」——任何一条把
+ * 治理面写反（主链投影无读者、主链消费面被标成孤岛、孤岛不给理由）都会转红。
+ *
+ * N-11 指出的方向反转（orphan=true 实际表达「写侧未接」而非「不喂 context」）需要新增
+ * 独立维度（writerWired / lifecycle）才能机器可读地修，属产品语义选择，记入 report concerns；
+ * 这里先钉住当前可保证的下界：孤岛必须带人类可读理由（note），主链必须真有读者。
+ */
+describe("projections-registry 主链 / 孤岛语义（R-06 剩余面）", () => {
+  it("mainChain 投影不得以 consumer=internal 出现（orphan=false 与 internal 互斥）", () => {
+    for (const entry of mainChainProjections()) {
+      expect(entry.consumer, `${entry.file} 是主链投影却标 consumer=internal`).not.toBe("internal")
+      expect(entry.orphan).toBe(false)
+    }
+  })
+
+  it("mainChain 投影必须声明非空 readers（无读者的主链投影 = 治理面失真）", () => {
+    for (const entry of mainChainProjections()) {
+      expect(entry.readers.length, `${entry.file} 声明进主链却没有读者`).toBeGreaterThan(0)
+      for (const reader of entry.readers) {
+        expect(reader.trim().length).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it("consumer 属主链（context-pack / graph / canon）的条目必须 orphan=false 且在 mainChainProjections 中", () => {
+    const mainFiles = new Set(mainChainProjections().map((entry) => entry.file))
+    for (const entry of PROJECTIONS_REGISTRY) {
+      if (entry.consumer === "context-pack" || entry.consumer === "graph" || entry.consumer === "canon") {
+        expect(entry.orphan, `${entry.file} 被主链消费却标成孤岛`).toBe(false)
+        expect(mainFiles.has(entry.file)).toBe(true)
+      }
+    }
+  })
+
+  it("orphan 条目必须带人类可读 note（孤岛理由的唯一真值载体，N-11）", () => {
+    for (const entry of orphanProjections()) {
+      expect(entry.note, `${entry.file} 标了孤岛却没写理由`).toBeTruthy()
+      expect(entry.note!.trim().length, `${entry.file} 的孤岛理由过短`).toBeGreaterThan(4)
+    }
+  })
+
+  it("mainChainProjections() / orphanProjections() 返回快照：外部改写不污染注册表", () => {
+    const total = PROJECTIONS_REGISTRY.length
+    const mainSnapshot = mainChainProjections()
+    const orphanSnapshot = orphanProjections()
+    mainSnapshot.push(orphanSnapshot[0])
+    orphanSnapshot.length = 0
+
+    expect(PROJECTIONS_REGISTRY.length).toBe(total)
+    expect(mainChainProjections().length).toBe(total - orphanProjections().length)
+  })
+
+  it("注册表 file 唯一：同一投影不得重复登记（重复会让主链/孤岛统计翻倍）", () => {
+    const files = PROJECTIONS_REGISTRY.map((entry) => entry.file)
+    expect(new Set(files).size).toBe(files.length)
+  })
+
+  it("读侧诚实性：outline-model.json 声明 readers 含 context-engine，且该读调用点真实存在", () => {
+    const entry = PROJECTIONS_REGISTRY.find((candidate) => candidate.file === "outline-model.json")!
+    expect(entry.readers).toContain("context-engine")
+
+    const readerCallSites = productionCallSites("loadOutlineModel")
+    expect(readerCallSites.length, "registry 声明读侧已接，但没有任何生产调用点").toBeGreaterThan(0)
+    // 路径分隔符随平台不同（Windows 反斜杠），按文件名判定而非前缀判定。
+    expect(readerCallSites.some((site) => /context-engine\.ts:\d+$/.test(site))).toBe(true)
+  })
+})

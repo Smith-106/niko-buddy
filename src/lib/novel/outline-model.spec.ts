@@ -713,3 +713,226 @@ describe("outline-model 解析器微修（N-01 / N-02 / N-03 / N-04）", () => {
     expect(chapters.map((chapter) => chapter.title)).toEqual(["断桥", "旧账"])
   })
 })
+
+/**
+ * s5-autotest 补测试轮：R-02 的 partially_fixed 剩余面 —— 章号语义边界。
+ *
+ * R-02 已修的是「第零章正文被静默销毁 + 静默合并」；本轮补的是**边界值语义**：
+ * 第零章 / 超大章号 / 负章号 / 卷号越界各自走哪条路（显式编号 vs 合成编号 vs 不识别），
+ * 以及夹取后的 id / volume 归属 / validate 结果是否自洽。错误实现会红。
+ */
+describe("outline-model 章号语义边界矩阵（R-02 剩余面：第零章 / 负章号 / 超大章号 / 卷号越界）", () => {
+  it("第零章 + 第1章 + 第2章：显式章各拿自己的号，合成章让位到 3，三章内容全存活", () => {
+    const legacy = [
+      "# 第1卷 启程",
+      "## 第零章 引子",
+      "引子摘要。",
+      "## 第1章 开端",
+      "开端摘要。",
+      "## 第2章 发展",
+      "发展摘要。",
+    ].join("\n")
+
+    const parsed = parseOutlineMarkdownToModel(legacy)
+    const chapters = flattenOutlineChapters(parsed.model)
+
+    expect(chapters).toHaveLength(3)
+    // 显式号永不被合成章夺走（BG-1），合成章只能取 max+1。
+    expect(chapters.map((chapter) => chapter.chapter)).toEqual([1, 2, 3])
+    expect(chapters.map((chapter) => chapter.title)).toEqual(["开端", "发展", "引子"])
+    // 三章正文各自存活：任何一章被合并/销毁都会让这条断言丢内容。
+    expect(chapters.map((chapter) => chapter.prose.goal)).toEqual([
+      "开端摘要。",
+      "发展摘要。",
+      "引子摘要。",
+    ])
+    // 夹取后模型仍自洽：章号不撞号、id 与章号一致。
+    expect(validateOutlineModel(parsed.model).ok).toBe(true)
+    expect(chapters[2].id).toBe(outlineChapterId(1, 3))
+    // 第零章记「非法」，两次让位各记一条（不静默）。
+    expect(parsed.warnings.some((warning) => warning.includes("章号非法：0"))).toBe(true)
+    expect(parsed.warnings.filter((warning) => warning.includes("章号冲突"))).toHaveLength(2)
+  })
+
+  it("超大章号 1000（heading）：不产出 chapter 1000，改合成编号且记 warning", () => {
+    const legacy = [
+      "# 第1卷 启程",
+      "## 第1000章 巨章",
+      "巨章摘要。",
+      "## 第1章 开端",
+      "开端摘要。",
+    ].join("\n")
+
+    const parsed = parseOutlineMarkdownToModel(legacy)
+    const chapters = flattenOutlineChapters(parsed.model)
+
+    expect(chapters.some((chapter) => chapter.chapter === 1000)).toBe(false)
+    expect(chapters.map((chapter) => chapter.chapter)).toEqual([1, 2])
+    expect(chapters.map((chapter) => chapter.title)).toEqual(["开端", "巨章"])
+    expect(parsed.warnings.some((warning) => warning.includes("章号非法：1000"))).toBe(true)
+    expect(validateOutlineModel(parsed.model).ok).toBe(true)
+  })
+
+  it("边界 999：仍在显式区间内，chapter 与 id 原样保留（夹取上限不越界）", () => {
+    const parsed = parseOutlineMarkdownToModel(["# 第1卷 启程", "## 第999章 边缘", "正文。"].join("\n"))
+    const chapters = flattenOutlineChapters(parsed.model)
+
+    expect(chapters).toHaveLength(1)
+    expect(chapters[0].chapter).toBe(999)
+    expect(chapters[0].id).toBe("v01c999")
+    expect(parseOutlineChapterId(chapters[0].id)).toEqual({ volume: 1, chapter: 999 })
+    expect(parsed.warnings.some((warning) => warning.includes("章号非法"))).toBe(false)
+    expect(validateOutlineModel(parsed.model).ok).toBe(true)
+  })
+
+  it("负章号（heading 形态）不产出任何章，也不静默变成第 1 章", () => {
+    const legacy = [
+      "# 第1卷 启程",
+      "## 第-1章 负章",
+      "负章摘要。",
+      "## 第1章 开端",
+      "开端摘要。",
+    ].join("\n")
+
+    const parsed = parseOutlineMarkdownToModel(legacy)
+    const chapters = flattenOutlineChapters(parsed.model)
+
+    // 正则只认正数字面：负号不构成章号 ⇒ 不识别为章标题，也不会被夹取成 1。
+    expect(chapters).toHaveLength(1)
+    expect(chapters[0].chapter).toBe(1)
+    expect(chapters[0].title).toBe("开端")
+    expect(chapters.every((chapter) => chapter.chapter > 0)).toBe(true)
+    expect(parsed.warnings.every((warning) => !warning.includes("-1"))).toBe(true)
+    expect(validateOutlineModel(parsed.model).ok).toBe(true)
+  })
+
+  it("卷号越界（0 / 1000）：回落为 1，且章归属与 id 同步（validate ok）", () => {
+    for (const [heading, raw, expectedTitle] of [
+      ["## 第0卷 零卷", "0", "零卷"],
+      ["## 第1000卷 巨卷", "1000", "巨卷"],
+    ] as const) {
+      const parsed = parseOutlineMarkdownToModel([heading, "### 第1章 开端", "开端摘要。"].join("\n"))
+      const volume = parsed.model.volumes[0]
+      expect(parsed.model.volumes).toHaveLength(1)
+      expect(volume.number).toBe(1)
+      expect(volume.title).toBe(expectedTitle)
+      expect(volume.chapters[0].volume).toBe(1)
+      expect(volume.chapters[0].id).toBe(outlineChapterId(1, 1))
+      expect(parsed.warnings.some((warning) => warning.includes(`卷号非法：${raw}`))).toBe(true)
+      expect(validateOutlineModel(parsed.model).ok).toBe(true)
+    }
+  })
+
+  it("负卷号不伪造第 0 卷：回落第 1 卷 + 卷标题缺陷 warning", () => {
+    const parsed = parseOutlineMarkdownToModel(["## 第-1卷 负卷", "### 第1章 开端", "开端摘要。"].join("\n"))
+
+    expect(parsed.model.volumes).toHaveLength(1)
+    expect(parsed.model.volumes[0].number).toBe(1)
+    expect(parsed.model.volumes.every((volume) => volume.number > 0)).toBe(true)
+    expect(parsed.warnings.some((warning) => warning.includes("未识别到卷标题"))).toBe(true)
+    expect(validateOutlineModel(parsed.model).ok).toBe(true)
+  })
+
+  it("结构化 frontmatter 负章号：不把 -1 静默改写成第 1 章", () => {
+    const legacy = ["---", "volume: 1", "chapter: -1", 'title: "倒叙"', "---", "", "# 倒叙", ""].join("\n")
+
+    const parsed = parseOutlineMarkdownToModel(legacy)
+    const chapters = flattenOutlineChapters(parsed.model)
+
+    expect(chapters).toHaveLength(0)
+    expect(parsed.warnings.some((warning) => warning.includes("未识别到任何章标题"))).toBe(true)
+    // 空模型是合法模型：不得为了「看起来成功」造一个 chapter 1 出来。
+    expect(validateOutlineModel(parsed.model).ok).toBe(true)
+  })
+})
+
+/**
+ * s5-autotest 补测试轮：R-10 的 partially_fixed 剩余面 —— 章标题变体矩阵。
+ *
+ * R-10 已修的是「序章整章丢弃 + 假 high」；本轮把「无编号章标题词 × 书写形态」的
+ * 笛卡尔积逐格钉死：8 个词 × 4 种形态（heading / 粗体 / 列表 / 裸文本）都必须成章、
+ * 必须保住摘要、必须不夺走显式「第1章」的号。任一格回退到「整章丢弃」即转红。
+ */
+const SPECIAL_CHAPTER_WORDS = ["序章", "序幕", "楔子", "楔", "引子", "终章", "尾声", "番外"] as const
+
+const SPECIAL_CHAPTER_FORMS: Array<{ form: string; line: (word: string) => string }> = [
+  { form: "heading", line: (word) => `## ${word}` },
+  { form: "bold", line: (word) => `**${word}**` },
+  { form: "list", line: (word) => `- ${word}` },
+  { form: "bare", line: (word) => word },
+]
+
+describe("outline-model 章标题变体矩阵（R-10 剩余面：8 词 × 4 形态）", () => {
+  it.each(
+    SPECIAL_CHAPTER_WORDS.flatMap((word) =>
+      SPECIAL_CHAPTER_FORMS.map(({ form, line }) => ({ word, form, line })),
+    ),
+  )("$word（$form）：成章、保住摘要、不夺走第1章的号", ({ word, form, line }) => {
+    const legacy = ["# 第1卷 启程", line(word), `${word}摘要。`, "## 第1章 开端", "开端摘要。"].join("\n")
+
+    const parsed = parseOutlineMarkdownToModel(legacy)
+    const chapters = flattenOutlineChapters(parsed.model)
+
+    // 旧实现：这些词一个都认不出 ⇒ 章数 1、摘要整段丢弃。
+    expect(chapters).toHaveLength(2)
+    const special = chapters.find((chapter) => chapter.title === word)
+    expect(special, `${form} 形态的「${word}」没有成章`).toBeDefined()
+    expect(special!.prose.goal).toContain(`${word}摘要`)
+    // BG-1：显式「第1章」永远拿 1，无编号词只能拿合成号。
+    expect(chapters.find((chapter) => chapter.title === "开端")!.chapter).toBe(1)
+    expect(special!.chapter).not.toBe(1)
+    expect(parsed.warnings.some((warning) => warning.includes(`未识别到章号：${word}`))).toBe(true)
+    expect(validateOutlineModel(parsed.model).ok).toBe(true)
+  })
+
+  it("变体矩阵：冒号/空格分隔的副标题写进 title，标签词本身不污染 title", () => {
+    const colon = parseOutlineMarkdownToModel(["# 第1卷 启程", "## 序章：血月", "序章摘要。"].join("\n"))
+    const colonChapter = flattenOutlineChapters(colon.model)[0]
+    expect(colonChapter.title).toBe("血月")
+    expect(colonChapter.prose.goal).toBe("序章摘要。")
+
+    const space = parseOutlineMarkdownToModel(["# 第1卷 启程", "## 楔子 血月", "楔子摘要。"].join("\n"))
+    const spaceChapter = flattenOutlineChapters(space.model)[0]
+    expect(spaceChapter.title).toBe("血月")
+    expect(spaceChapter.prose.goal).toBe("楔子摘要。")
+  })
+})
+
+/**
+ * s5-autotest 补测试轮：N-05 的「可保部分」。
+ *
+ * N-05 的实质缺陷（high 档实际只由 filledSections>0 决定、5/8 与 8/8 同分）需要改分档
+ * 公式才能断言，会直接转红，故记入 report concerns。这里只钉住当前**成立且应当成立**
+ * 的两条性质：取值范围 [0,1] 与「多填一个字段不得降分」。
+ */
+describe("outline-model 置信度取值范围与单调性（N-05 可保部分）", () => {
+  const SECTION_BLOCKS = [
+    ["本章目标", "照面。"],
+    ["弧线", "相遇"],
+    ["视角", "李慕白"],
+    ["场景", "- 雨中破桥对峙"],
+    ["情绪", "紧张"],
+    ["登场", "- 李慕白"],
+    ["伏笔", "埋设 FS-001"],
+    ["约束", "- 苏七本章不出场"],
+  ] as const
+
+  it("confidenceScore 恒在 [0,1]，且填充字段递增时不得降分", () => {
+    const scores: number[] = []
+    for (let count = 0; count <= SECTION_BLOCKS.length; count += 1) {
+      const body = SECTION_BLOCKS.slice(0, count).flatMap(([label, text]) => [`### ${label}`, text])
+      const markdown = ["# 第1卷 启程", "## 第1章 断桥", ...body].join("\n")
+      scores.push(parseOutlineMarkdownToModel(markdown).confidenceScore)
+    }
+
+    for (const score of scores) {
+      expect(score).toBeGreaterThanOrEqual(0)
+      expect(score).toBeLessThanOrEqual(1)
+    }
+    for (let index = 1; index < scores.length; index += 1) {
+      expect(scores[index]).toBeGreaterThanOrEqual(scores[index - 1])
+    }
+    // 全空不得与全满同分（否则量化信号彻底失效）。
+    expect(scores[scores.length - 1]).toBeGreaterThan(scores[0])
+  })
+})

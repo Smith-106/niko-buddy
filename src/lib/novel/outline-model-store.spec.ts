@@ -303,3 +303,175 @@ describe("outline-model-store 根形状与类型闸（R-01 / R-03 / R-04 / R-13 
     expect(last.to).toBe(OUTLINE_MODEL_SCHEMA_VERSION)
   })
 })
+
+/**
+ * s5-autotest 补测试轮：store 迁移矩阵（任务缺口 2）。
+ *
+ * 已有 ⑥/⑦/⑫/⑬ 覆盖「完整 v1 迁移」「已是 v2」「save 双闸（schemaVersion / id 不一致）」；
+ * 本轮补的是矩阵里缺的格子：
+ *   - v1→v2→save→load **完整往返**（迁移结果能落盘且回读等值）；
+ *   - v1 **逐章**补 pov（已有值保留、缺失补空串）；
+ *   - **残缺 v1**（缺 volume.arc / chapter.arc / prose / foreshadow / entities）的判定语义；
+ *   - **迁移后校验失败**（迁移先跑、校验后拒，且绝不落盘）；
+ *   - schemaVersion 0（低于支持版本且无迁移步）；
+ *   - save 侧新闸（pov 类型）也必须在 ensureDir 之前拦住。
+ */
+const V1_CHAPTER_BASE: Record<string, unknown> = {
+  id: "v01c001",
+  volume: 1,
+  chapter: 1,
+  title: "断桥",
+  arc: "相遇",
+  entities: ["李慕白"],
+  foreshadow: { plant: ["FS-001"], payoff: [] },
+  constraints: [],
+  prose: { goal: "第一次照面", scenes: [], emotion: "紧张" },
+  updatedAt: "2026-10-01",
+}
+
+const V1_VOLUME_BASE: Record<string, unknown> = {
+  number: 1,
+  title: "启程",
+  arc: "少年出山",
+}
+
+/** 构造 v1 侧车；`overrides.chapter` / `overrides.volume` 里值为 undefined 的键会被 JSON 丢掉。 */
+function buildV1Raw(overrides: {
+  volume?: Record<string, unknown>
+  chapters?: Array<Record<string, unknown>>
+} = {}): string {
+  return JSON.stringify({
+    schemaVersion: 1,
+    updatedAt: "2026-10-01",
+    volumes: [
+      {
+        ...V1_VOLUME_BASE,
+        ...(overrides.volume ?? {}),
+        chapters: overrides.chapters ?? [{ ...V1_CHAPTER_BASE }],
+      },
+    ],
+  })
+}
+
+/** 内存 deps：一次都不碰真实磁盘。 */
+function memoryDeps(initial: string): {
+  deps: OutlineModelStoreDeps
+  current: () => string
+} {
+  let stored = initial
+  return {
+    current: () => stored,
+    deps: {
+      readText: async () => stored,
+      writeText: async (_path, text) => {
+        stored = text
+      },
+      ensureDir: async () => {},
+    },
+  }
+}
+
+describe("outline-model-store 迁移矩阵（v1→v2 完整往返 / 残缺 v1 / 迁移后校验失败）", () => {
+  it("v1→v2→save→load 完整往返：contentKey 等值，二次读取 migratedFrom 归零（幂等）", async () => {
+    const memory = memoryDeps(buildV1Raw())
+
+    const migrated = await loadOutlineModel("/P", memory.deps)
+    expect(migrated.migratedFrom).toBe(1)
+    expect(migrated.model).not.toBeNull()
+
+    const { path } = await saveOutlineModel("/P", migrated.model!, memory.deps)
+    expect(path).toBe("/P/.novel/outline-model.json")
+    // 落盘的是 v2：磁盘上不得留下 schemaVersion=1。
+    expect(JSON.parse(memory.current()).schemaVersion).toBe(OUTLINE_MODEL_SCHEMA_VERSION)
+
+    const reloaded = await loadOutlineModel("/P", memory.deps)
+    expect(reloaded.migratedFrom).toBeNull()
+    expect(reloaded.error).toBeUndefined()
+    expect(outlineModelContentKey(reloaded.model!)).toBe(outlineModelContentKey(migrated.model!))
+  })
+
+  it("v1 逐章补 pov：已有 pov 保留、缺失补空串（迁移不覆盖作者值）", async () => {
+    const raw = buildV1Raw({
+      chapters: [
+        { ...V1_CHAPTER_BASE },
+        { ...V1_CHAPTER_BASE, id: "v01c002", chapter: 2, title: "旧账", pov: "苏七" },
+        { ...V1_CHAPTER_BASE, id: "v01c003", chapter: 3, title: "夜行" },
+      ],
+    })
+
+    const result = await loadOutlineModel("/P", readDeps(raw))
+    expect(result.migratedFrom).toBe(1)
+    const chapters = result.model!.volumes[0].chapters
+    expect(chapters.map((chapter) => chapter.pov)).toEqual(["", "苏七", ""])
+  })
+
+  it.each([
+    ["缺 volume.arc", { volume: { arc: undefined } }, "卷 1 的 arc"],
+    ["缺 chapter.arc", { chapters: [{ ...V1_CHAPTER_BASE, arc: undefined }] }, "v1c1 的 arc"],
+    ["缺 prose", { chapters: [{ ...V1_CHAPTER_BASE, prose: undefined }] }, "prose 必须是对象"],
+    ["缺 foreshadow", { chapters: [{ ...V1_CHAPTER_BASE, foreshadow: undefined }] }, "foreshadow 必须是对象"],
+    ["缺 entities", { chapters: [{ ...V1_CHAPTER_BASE, entities: undefined }] }, "entities 必须是 string[]"],
+  ])("残缺 v1（%s）一律 fail-loud：model 为 null、error 点名字段、且不回写", async (_label, overrides, expected) => {
+    const writeText = vi.fn(async (_path: string, _text: string) => {})
+    const result = await loadOutlineModel("/P", {
+      readText: async () => buildV1Raw(overrides as Parameters<typeof buildV1Raw>[0]),
+      writeText,
+      ensureDir: async () => {},
+    })
+
+    // N-07 的语义选择在本轮被锁死：残缺 v1 = 损坏（拒绝读取），不是「迁移顺手补全」。
+    expect(result.model).toBeNull()
+    expect(result.error).toContain(expected)
+    expect(writeText).not.toHaveBeenCalled()
+  })
+
+  it("迁移后校验失败：重复章号 → model 为 null，但 migratedFrom 仍记 1（迁移先跑、校验后拒）", async () => {
+    const raw = buildV1Raw({
+      chapters: [
+        { ...V1_CHAPTER_BASE },
+        { ...V1_CHAPTER_BASE, title: "乙" },
+      ],
+    })
+
+    const result = await loadOutlineModel("/P", readDeps(raw))
+    expect(result.model).toBeNull()
+    expect(result.migratedFrom).toBe(1)
+    expect(result.error).toContain("章号重复")
+  })
+
+  it("load 全程零写入：即使发生了迁移也不回写（回写由调用方决定）", async () => {
+    const writeText = vi.fn(async (_path: string, _text: string) => {})
+    const ensureDir = vi.fn(async (_dir: string) => {})
+
+    const migrated = await loadOutlineModel("/P", {
+      readText: async () => buildV1Raw(),
+      writeText,
+      ensureDir,
+    })
+    expect(migrated.model).not.toBeNull()
+    expect(writeText).not.toHaveBeenCalled()
+    expect(ensureDir).not.toHaveBeenCalled()
+  })
+
+  it("schemaVersion 0：低于支持版本但无迁移步 → 校验拒绝，不静默当成 v1", async () => {
+    const raw = JSON.stringify({ ...JSON.parse(buildV1Raw()), schemaVersion: 0 })
+    const result = await loadOutlineModel("/P", readDeps(raw))
+
+    expect(result.model).toBeNull()
+    expect(result.migratedFrom).toBeNull()
+    expect(result.error).toContain("schemaVersion 不支持：0")
+  })
+
+  it("save 双闸：pov 类型非法 → 抛错且 ensureDir / writeText 都不调用（校验先于建目录）", async () => {
+    const model = buildV2Model()
+    model.volumes[0].chapters[0].pov = 42 as unknown as string
+    const writeText = vi.fn(async (_path: string, _text: string) => {})
+    const ensureDir = vi.fn(async (_dir: string) => {})
+
+    await expect(saveOutlineModel("/P", model, { writeText, ensureDir })).rejects.toBeInstanceOf(
+      OutlineModelStoreError,
+    )
+    expect(writeText).not.toHaveBeenCalled()
+    expect(ensureDir).not.toHaveBeenCalled()
+  })
+})
