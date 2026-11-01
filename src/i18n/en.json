@@ -2217,6 +2217,7 @@
       "sources": "Outline",
       "search": "Plot Search",
       "graph": "Novel Graph",
+      "statusDashboard": "Status Dashboard",
       "chat": "Chat",
       "lint": "Memory Center",
       "soul": "Soul",
@@ -2870,6 +2871,35 @@
       "displayModeDocument": "Document",
       "displayModeMindmap": "Mind Map",
       "modeControlHint": "Current mode: {{mode}}"
+    },
+    "statusDashboard": {
+      "title": "Status Dashboard",
+      "caliber": {
+        "fullGraph": "Full graph",
+        "viewFiltered": "Current view (secondary)"
+      },
+      "degraded": {
+        "canonNonTauri": "Canon graph is available in the desktop app; showing degraded empty state."
+      },
+      "dims": {
+        "relations": "Relations",
+        "scenes": "Scenes",
+        "characters": "Characters",
+        "foreshadowing": "Foreshadowing",
+        "canon": "Canon"
+      },
+      "empty": "No data yet.",
+      "noProject": "No project open.",
+      "loading": "Loading...",
+      "timeAnchor": "Chapter anchor: {{chapter}}",
+      "timeAnchorUnknown": "Chapter anchor: —",
+      "toggles": {
+        "dimensions": "Dimension visibility"
+      },
+      "foreshadowingMore": "…{{count}} more",
+      "canonTruncated": "Showing first {{shown}} (truncated, cap {{cap}})",
+      "charactersUnmodeled": "{{count}} unmodeled",
+      "pendingVerification": "Pending verification"
     },
     "chapter": {
       "status": {

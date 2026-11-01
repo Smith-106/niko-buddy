@@ -2894,3 +2894,61 @@ describe("GraphView — 第8块：孤立高亮与社区图例", () => {
     unmount()
   })
 })
+
+describe("GraphView — T2 repair：dashboard 维度开关驱动画布", () => {
+  const DASH_KEY = "niko.statusDashboard.hiddenTypes.v1"
+  const DASH_EVENT = "niko:dashboard-filters-changed"
+
+  beforeEach(() => {
+    resetBaseline()
+    setupDomGlobals()
+    localStorage.clear()
+    if (typeof Element !== "undefined" && typeof Element.prototype.scrollIntoView !== "function") {
+      Element.prototype.scrollIntoView = vi.fn() as never
+    }
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+  })
+
+  function lastStats(): { filteredNodeCount: number; nodeCount: number } {
+    const calls = (mocks.state.setGraphStats as unknown as ReturnType<typeof vi.fn>).mock.calls
+    return calls[calls.length - 1]?.[0] as { filteredNodeCount: number; nodeCount: number }
+  }
+
+  it("预设 dashboard 私有键 character → 画布过滤掉 character（只写 hiddenTypes）", async () => {
+    localStorage.setItem(DASH_KEY, JSON.stringify(["character"]))
+    const { unmount } = await renderLoadedGraph()
+    await waitFor(() => {
+      expect(lastStats().nodeCount).toBe(4)
+      expect(lastStats().filteredNodeCount).toBe(2)
+    })
+    unmount()
+  })
+
+  it("同 tab CustomEvent 即时同步：event 隐藏后画布 3→2", async () => {
+    const { unmount } = await renderLoadedGraph()
+    await waitFor(() => {
+      expect(lastStats().filteredNodeCount).toBe(3)
+    })
+    localStorage.setItem(DASH_KEY, JSON.stringify(["event"]))
+    window.dispatchEvent(new CustomEvent(DASH_EVENT))
+    await waitFor(() => {
+      expect(lastStats().filteredNodeCount).toBe(2)
+    })
+    unmount()
+  })
+
+  it("mode preset 保持权威：allowedNodeTypes 仍过滤 custom-type（与 dashboard 隐藏正交）", async () => {
+    localStorage.setItem(DASH_KEY, JSON.stringify([]))
+    const { unmount } = await renderLoadedGraph()
+    await waitFor(() => {
+      // custom-type 被 overview preset 的 allowedNodeTypes 过滤，与 dashboard 空集正交
+      expect(lastStats().nodeCount).toBe(4)
+      expect(lastStats().filteredNodeCount).toBe(3)
+    })
+    unmount()
+  })
+})

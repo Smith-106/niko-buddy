@@ -238,8 +238,12 @@ describe("GraphSidebarPanel", () => {
 
   it("GRAPH_MODE_LABELS 全部模式都有对应 option", () => {
     render(<GraphSidebarPanel />)
+    // D1 收敛：维度复选框复用 nodeTypeLabels 文案（人物/章节/伏笔）与 mode option 同字，
+    // 单数 getByText 会命中多节点；改断言“每个模式文案至少有一个 OPTION 载体”，
+    // 既锁定 option 存在，又不受复选框 span 增减影响（测试域收敛，零源码改动）。
     for (const label of ["总览", "人物", "章节", "故事线", "伏笔"]) {
-      expect(screen.getByText(label)).toBeInTheDocument()
+      const nodes = screen.getAllByText(label)
+      expect(nodes.some((n) => n.tagName === "OPTION"), label).toBe(true)
     }
   })
 })

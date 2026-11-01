@@ -392,19 +392,19 @@ describe("IconSidebar", () => {
       expect(html.indexOf(groupKeys[i - 1])).toBeLessThan(html.indexOf(groupKeys[i]))
     }
     // 分层收纳：primary 首刷即见，secondary 需展开 More 后可达。
-    const primaryViews = ["workbench", "wiki", "director", "storySimulation", "sources", "graph", "soul", "bookAnalysis", "canonEditor", "reviewCenter", "followUpCenter", "mainControl", "creativeHub", "bookshelf", "backupExport"]
+    const primaryViews = ["workbench", "wiki", "director", "storySimulation", "sources", "graph", "statusDashboard", "soul", "bookAnalysis", "canonEditor", "reviewCenter", "followUpCenter", "mainControl", "creativeHub", "bookshelf", "backupExport"]
     for (const v of primaryViews) {
       expect(document.querySelector(`[data-view="${v}"]`), v).toBeTruthy()
     }
     // secondary 首刷收起（More 未展开时不可见）
     expect(document.querySelector('[data-view="marketRadar"]')).toBeNull()
     expect(document.querySelector('[data-view="lint"]')).toBeNull()
-    // 展开各组 More 后 30 个 data-view 无缺失（AI 实况已并入主控）
+    // 展开各组 More 后 31 个 data-view 无缺失（AI 实况已并入主控 + 状态总览入口 D2）
     for (const g of ["si", "ma", "review", "shen", "tools", "maint"]) {
       const moreBtn = document.querySelector(`[data-testid="nav-more-${g}"]`) as HTMLButtonElement | null
       if (moreBtn) fireEvent.click(moreBtn)
     }
-    const views = ["workbench", "wiki", "director", "sources", "graph", "lint", "soul", "skillLibrary", "storySimulation", "bookAnalysis", "canonEditor", "backupExport", "diagnosticsCenter", "reviewCenter", "dataManager", "followUpCenter", "mainControl", "creativeHub", "bookshelf", "genreLibrary", "storyModeLibrary", "titleStudio", "styleEngine", "antiAiRules", "workflowEditor", "marketRadar", "modelRoutes", "mcpManager", "exportCenter", "help"]
+    const views = ["workbench", "wiki", "director", "sources", "graph", "statusDashboard", "lint", "soul", "skillLibrary", "storySimulation", "bookAnalysis", "canonEditor", "backupExport", "diagnosticsCenter", "reviewCenter", "dataManager", "followUpCenter", "mainControl", "creativeHub", "bookshelf", "genreLibrary", "storyModeLibrary", "titleStudio", "styleEngine", "antiAiRules", "workflowEditor", "marketRadar", "modelRoutes", "mcpManager", "exportCenter", "help"]
     for (const v of views) {
       expect(document.querySelector(`[data-view="${v}"]`), v).toBeTruthy()
     }

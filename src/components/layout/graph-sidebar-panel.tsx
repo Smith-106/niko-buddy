@@ -1,12 +1,19 @@
 // Copyright © Niko Buddy
 // SPDX-License-Identifier: MIT
 
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
 import { Filter, SlidersHorizontal, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { GRAPH_MODE_LABELS, type GraphMode } from "@/lib/graph-mode"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
+import {
+  DASHBOARD_DIM_TYPES,
+  loadDashboardHiddenTypes,
+  saveDashboardHiddenTypes,
+  toggleDashboardHiddenType,
+} from "@/components/novel/status-dashboard-view"
 
 type ColorMode = "type" | "community"
 type GraphDisplayMode = "graph" | "document" | "mindmap"
@@ -35,6 +42,9 @@ export function GraphSidebarPanel() {
   const setEdgeStrengthPercent = useWikiStore((s) => s.setGraphEdgeStrengthPercent)
   const graphStats = useWikiStore((s) => s.graphStats)
   const refreshGraph = useWikiStore((s) => s.refreshGraph)
+  // 维度显隐（Q3 ruling：只写 dashboard 私有 hiddenTypes，additive；
+  // 永不写 mode preset 侧的任何过滤字段）。
+  const [dimHiddenTypes, setDimHiddenTypes] = useState<Set<string>>(() => loadDashboardHiddenTypes())
 
   return (
     <div className="flex h-full flex-col">
@@ -181,6 +191,36 @@ export function GraphSidebarPanel() {
             </span>
           )}
         </div>
+
+        <fieldset data-testid="dashboard-dimension-toggles" className="rounded-md border bg-card p-2">
+          <legend className="px-1 text-xs text-muted-foreground">
+            {t("novel.statusDashboard.toggles.dimensions", { defaultValue: "维度显隐" })}
+          </legend>
+          <div className="grid grid-cols-2 gap-1">
+            {DASHBOARD_DIM_TYPES.map((type) => {
+              const label = t(`novel.graph.nodeTypeLabels.${type}`, { defaultValue: type })
+              const checkboxId = `dashboard-dim-${type}`
+              return (
+                <label key={type} htmlFor={checkboxId} className="flex cursor-pointer items-center gap-1.5 text-xs">
+                  <input
+                    id={checkboxId}
+                    type="checkbox"
+                    checked={!dimHiddenTypes.has(type)}
+                    onChange={() => {
+                      setDimHiddenTypes((prev) => {
+                        const next = toggleDashboardHiddenType(prev, type)
+                        saveDashboardHiddenTypes(next)
+                        return next
+                      })
+                    }}
+                    className="h-3.5 w-3.5 accent-primary"
+                  />
+                  <span>{label}</span>
+                </label>
+              )
+            })}
+          </div>
+        </fieldset>
       </div>
     </div>
   )

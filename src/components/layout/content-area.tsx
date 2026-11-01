@@ -39,6 +39,11 @@ const GraphView = lazy(async () => {
   return { default: mod.GraphView }
 })
 
+const StatusDashboardView = lazy(async () => {
+  const mod = await import("@/components/novel/status-dashboard-view")
+  return { default: mod.StatusDashboardView }
+})
+
 const StorySimulationView = lazy(() => import("@/components/novel/story-simulation/story-simulation-view").then((m) => ({ default: m.StorySimulationView })))
 const UnifiedSkillLibraryView = lazy(() => import("@/components/skill-library/unified-skill-library-view").then((m) => ({ default: m.UnifiedSkillLibraryView })))
 const DataManagerView = lazy(() => import("@/components/novel/data-manager-view").then((m) => ({ default: m.DataManagerView })))
@@ -247,6 +252,13 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <GraphView />
+          </Suspense>
+        )
+        break
+      case "statusDashboard":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <StatusDashboardView />
           </Suspense>
         )
         break

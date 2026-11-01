@@ -1835,6 +1835,7 @@
       "sources": "大纲",
       "search": "剧情搜索",
       "graph": "小说图谱",
+      "statusDashboard": "状态总览",
       "lint": "记忆中心",
       "soul": "灵魂",
       "skillLibrary": "技能库",
@@ -2477,6 +2478,35 @@
       "displayModeDocument": "文档",
       "displayModeMindmap": "脑图",
       "modeControlHint": "当前模式：{{mode}}"
+    },
+    "statusDashboard": {
+      "title": "状态总览",
+      "caliber": {
+        "fullGraph": "全图口径",
+        "viewFiltered": "当前视图（次行）"
+      },
+      "degraded": {
+        "canonNonTauri": "正史图谱仅桌面端可用；当前为降级空态。"
+      },
+      "dims": {
+        "relations": "关系",
+        "scenes": "场景",
+        "characters": "人物状态",
+        "foreshadowing": "伏笔",
+        "canon": "正史"
+      },
+      "empty": "暂无数据。",
+      "noProject": "未打开项目。",
+      "loading": "加载中...",
+      "timeAnchor": "时间锚：第 {{chapter}} 章",
+      "timeAnchorUnknown": "时间锚：—",
+      "toggles": {
+        "dimensions": "维度显隐"
+      },
+      "foreshadowingMore": "…还有{{count}}条",
+      "canonTruncated": "仅展示前 {{shown}} 条（已截断，上限 {{cap}} 条）",
+      "charactersUnmodeled": "未建模 {{count}} 人",
+      "pendingVerification": "待验证"
     },
     "chapter": {
       "status": {

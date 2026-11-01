@@ -57,11 +57,11 @@ describe("nav 六组（批次三·10）", () => {
 })
 
 describe("nav tier 分层", () => {
-  it("30 项总量（批次三·12 AI 实况并入主控），主次分层 16/14", () => {
-    expect(NAV_ITEMS).toHaveLength(30)
+  it("31 项总量（批次三·12 AI 实况并入主控 + 状态总览入口 D2），主次分层 17/14", () => {
+    expect(NAV_ITEMS).toHaveLength(31)
     const primary = NAV_ITEMS.filter(isNavPrimaryTier)
     const secondary = NAV_ITEMS.filter((i) => !isNavPrimaryTier(i))
-    expect(primary).toHaveLength(16)
+    expect(primary).toHaveLength(17)
     expect(secondary).toHaveLength(14)
     expect(NAV_ITEMS.some((i) => i.view === "liveExecution")).toBe(false)
   })

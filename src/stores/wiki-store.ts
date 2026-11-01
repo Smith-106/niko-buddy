@@ -56,7 +56,7 @@ export interface WikiState {
   searchPanelOpen: boolean
   /** 写作专注模式（additive）：开时隐藏图标侧边栏与侧边面板，编辑区全宽。默认 false。 */
   focusMode: boolean
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "storySimulation" | "backupExport" | "diagnosticsCenter" | "canonEditor" | "director" | "moduleHeatmap" | "pipelineMotion" | "mainControl" | "dataManager" | "workbench" | "followUpCenter" | "liveExecution" | "bookshelf" | "creativeHub" | "knowledgeLibrary" | "worldLibrary" | "genreLibrary" | "storyModeLibrary" | "titleStudio" | "styleEngine" | "antiAiRules" | "modelRoutes" | "mcpManager" | "workflowEditor" | "marketRadar" | "help" | "exportCenter"
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "storySimulation" | "backupExport" | "diagnosticsCenter" | "canonEditor" | "director" | "moduleHeatmap" | "pipelineMotion" | "mainControl" | "dataManager" | "workbench" | "followUpCenter" | "liveExecution" | "bookshelf" | "creativeHub" | "knowledgeLibrary" | "worldLibrary" | "genreLibrary" | "storyModeLibrary" | "titleStudio" | "styleEngine" | "antiAiRules" | "modelRoutes" | "mcpManager" | "workflowEditor" | "marketRadar" | "help" | "exportCenter" | "statusDashboard"
   activeSettingsCategory: SettingsCategoryId | null
   selectedSoulId: string | null
   selectedSoulTab: "project" | "character"

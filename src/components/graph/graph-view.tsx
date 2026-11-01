@@ -18,6 +18,10 @@ import { buildEditableGraphNodePage } from "@/lib/graph-node-page"
 import { findSurprisingConnections, detectKnowledgeGaps, type SurprisingConnection, type KnowledgeGap } from "@/lib/graph-insights"
 import { normalizePath } from "@/lib/path-utils"
 import { applyGraphFilters, DEFAULT_GRAPH_FILTERS, type GraphFilterState } from "@/lib/graph-filters"
+import {
+  DASHBOARD_FILTERS_EVENT,
+  loadDashboardHiddenTypes,
+} from "@/components/novel/status-dashboard-view"
 import { buildGraphMindMap } from "@/lib/graph-readable"
 import { NOVEL_NODE_TYPE_LABELS, NOVEL_RELATION_LABELS, loadForeshadowingTracker } from "@/lib/novel"
 import type { ForeshadowingStore } from "@/lib/novel"
@@ -173,6 +177,31 @@ export function GraphView() {
     hiddenTypes: new Set(),
     hiddenNodeIds: new Set(),
   }))
+  // T2 repair(B)：订阅 dashboard 维度开关私有键（sidebar 唯一写者，additive），
+  // 合并入 effectiveFilters.hiddenTypes；mode preset 仍只管 allowedNodeTypes，零触碰。
+  // 空集时零行为变化（既有 100+ spec 默认绿）；跨 tab 经 storage 事件同步。
+  const [dashboardHiddenTypes, setDashboardHiddenTypes] = useState<ReadonlySet<string>>(() => {
+    try {
+      return loadDashboardHiddenTypes()
+    } catch {
+      return new Set<string>()
+    }
+  })
+  useEffect(() => {
+    const syncDashboardHidden = () => {
+      try {
+        setDashboardHiddenTypes(loadDashboardHiddenTypes())
+      } catch {
+        // localStorage 不可用时保持当前值：画布維持上次可見性，不崩潰。
+      }
+    }
+    window.addEventListener(DASHBOARD_FILTERS_EVENT, syncDashboardHidden)
+    window.addEventListener("storage", syncDashboardHidden)
+    return () => {
+      window.removeEventListener(DASHBOARD_FILTERS_EVENT, syncDashboardHidden)
+      window.removeEventListener("storage", syncDashboardHidden)
+    }
+  }, [])
   const [nodeMenu, setNodeMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null)
   const [layoutPreset, setLayoutPreset] = useState<GraphLayoutPresetKey>(DEFAULT_LAYOUT_PRESET)
@@ -525,6 +554,9 @@ export function GraphView() {
   const effectiveFilters = useMemo<GraphFilterState>(() => {
     const modePreset = GRAPH_MODE_PRESETS[graphMode]
     const combinedHiddenTypes = new Set(filters.hiddenTypes)
+    for (const t of dashboardHiddenTypes) {
+      combinedHiddenTypes.add(t)
+    }
     /* v8 ignore next */
     if (modePreset.hiddenNodeTypes) {
       for (const t of modePreset.hiddenNodeTypes) {
@@ -539,7 +571,7 @@ export function GraphView() {
       allowedNodeTypes: modePreset.allowedNodeTypes,
       minimumEdgeWeight: modePreset.minimumEdgeWeight,
     }
-  }, [filters, graphMode])
+  }, [filters, graphMode, dashboardHiddenTypes])
 
   const filteredGraph = useMemo(
     () => applyGraphFilters(nodes, edges, effectiveFilters),
