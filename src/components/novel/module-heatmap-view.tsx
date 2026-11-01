@@ -16,8 +16,8 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { cn, pad } from "@/lib/utils"
 import { Activity, CircleDot, ExternalLink, Flame, Layers, RefreshCw, Unplug } from "lucide-react"
 
-/** 主链泳道（按写作流程顺序）。 */
-const MAIN_LANES = [
+/** 主链泳道（按写作流程顺序）。P1 pipeline-remap：12 主泳道为能力池一半（D4 替代，不硬凑 17 库）。 */
+export const MAIN_LANES = [
   "bootstrap",
   "director",
   "incubate",
@@ -32,8 +32,8 @@ const MAIN_LANES = [
   "deliver",
 ] as const
 
-/** 支撑泳道（默认折叠）。 */
-const SUPPORT_LANES = [
+/** 支撑泳道（默认折叠）。P1 pipeline-remap：8 支撑泳道为能力池另一半。 */
+export const SUPPORT_LANES = [
   "agent",
   "knowledge",
   "simulation",

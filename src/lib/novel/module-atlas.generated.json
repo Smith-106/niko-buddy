@@ -91,7 +91,7 @@
   "specOnly": 263,
   "barrelOnly": 2,
   "edges": 4504,
-  "loc": 278644
+  "loc": 278805
  },
  "modules": [
   {
@@ -3745,7 +3745,7 @@
   {
    "p": "src/components/novel/pipeline-motion-panel.tsx",
    "s": 16,
-   "l": 612,
+   "l": 741,
    "r": true,
    "o": false,
    "x": false,
@@ -3754,7 +3754,8 @@
     751
    ],
    "e": [
-    "react"
+    "react",
+    "react-i18next"
    ]
   },
   {
@@ -14317,7 +14318,7 @@
   {
    "p": "src/lib/novel/pipeline-motion-projection.ts",
    "s": 9,
-   "l": 353,
+   "l": 358,
    "r": true,
    "o": true,
    "x": true,
@@ -15470,7 +15471,7 @@
   {
    "p": "src/lib/novel/skill-route-registry.ts",
    "s": 13,
-   "l": 322,
+   "l": 349,
    "r": true,
    "o": false,
    "x": false,

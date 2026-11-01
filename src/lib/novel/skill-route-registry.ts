@@ -31,7 +31,7 @@ interface SkillRouteDefinition {
   missingPolicy: SkillRouteMissingPolicy
 }
 
-const CHAPTER_OUTLINE_SUPPORT_SKILLS = [
+export const CHAPTER_OUTLINE_SUPPORT_SKILLS = [
   "chapter-attribute-positioning",
   "chapter-keyword-conditions",
   "chapter-four-beat-flow",
@@ -41,7 +41,7 @@ const CHAPTER_OUTLINE_SUPPORT_SKILLS = [
   "chapter-outline-assembler",
 ]
 
-const SKILL_ROUTE_DEFINITIONS: readonly SkillRouteDefinition[] = [
+export const SKILL_ROUTE_DEFINITIONS: readonly SkillRouteDefinition[] = [
   {
     task: "chapter_outline",
     aliases: ["章节细纲", "章纲", "章纲完善"],
@@ -132,7 +132,7 @@ const SKILL_ROUTE_DEFINITIONS: readonly SkillRouteDefinition[] = [
   },
   {
     task: "long_form_drafting",
-    aliases: ["编写章节", "续写章节", "长篇正文"],
+    aliases: ["编写章节", "续写章节", "长篇正文", "范文仿写", "拆书报告仿写"],
     primarySkills: ["long-form-drafting"],
     supportingSkills: [],
     stage: "drafting",
@@ -174,6 +174,33 @@ const SKILL_ROUTE_DEFINITIONS: readonly SkillRouteDefinition[] = [
 
 export function getSkillRouteSkillNames(definition: SkillRouteDefinition): string[] {
   return [...definition.primarySkills, ...definition.supportingSkills]
+}
+
+// ── D1 有参考阈值（locked，P1 pipeline-remap）：显式范文ID/拆书报告ID才算 ──────
+// 仅显式 ID 触发 B 路（范文/拆书参考链）；其余一律直写 A 路。
+// 链接猜测/模糊提及（裸「范文」「拆书」「http…」）一律不算：无 ID 即无参考。
+/** 显式参考 ID 的严格模式：每条都要求「ID 名 + 可辨识的 ID 值」。 */
+const EXPLICIT_REFERENCE_PATTERNS: readonly RegExp[] = [
+  /范文\s*ID\s*[:：#]?\s*[A-Za-z0-9_\-]{1,64}/,
+  /拆书报告\s*(ID)?\s*[:：#]\s*\S+/, 
+  /exemplar\s*[-_]?id\s*[:：#=]?\s*\S+/i,
+  /拆书\s*[-_]?id\s*[:：#=]?\s*\S+/i,
+]
+
+/**
+ * 是否携带显式参考 ID（D1 阈值判定，纯函数）。
+ * true → B 路（参考仿写）；false → A 路（大纲直写回落）。
+ */
+export function hasExplicitReferenceId(text: string): boolean {
+  if (!text) return false
+  return EXPLICIT_REFERENCE_PATTERNS.some((pattern) => pattern.test(text))
+}
+
+/** 起草路由：B 仅显式 ID，其余一律回落 A（D1 locked，P1 不做装配闭环）。 */
+export type DraftRoute = "route-a-direct" | "route-b-reference"
+
+export function resolveDraftRoute(requestText: string): DraftRoute {
+  return hasExplicitReferenceId(requestText) ? "route-b-reference" : "route-a-direct"
 }
 
 function findSkillRouteByTask(task: SkillRouteTask): SkillRouteDefinition | undefined {

@@ -4263,6 +4263,23 @@
     "lightUp": "Run once from Main Control to light it up",
     "logEmpty": "No calls yet — run an incubation, cruise, or stage advance"
   },
+  "pipelineMotion": {
+    "routeLegend": "Writing routes",
+    "routeA": "A · Direct outline (default trunk)",
+    "routeB": "B · Reference emulation (exemplar/report ID required)",
+    "routeC": "C · Fragment assembly (entry only)",
+    "routeD": "D · Scene staging (branch stub)",
+    "routeADefault": "Default to route A: without an explicit exemplar/report ID everything goes direct",
+    "hasReferenceHint": "Route B only with an explicit exemplar/report ID; everything else falls back to A",
+    "exemplarLinkHint": "Route B needs an exemplar ID or teardown-report ID; link guessing never triggers it",
+    "branchStubHint": "P1 branch stubs only: B/C/D fall back to trunk, full assembly lands in P2",
+    "morphLegend": "Delivery morphs",
+    "morphChapter": "Chapter text",
+    "morphVolume": "Volume collection",
+    "morphSetting": "Setting book",
+    "morphExport": "Publishing export",
+    "capabilityPoolTitle": "Capability pool: 12 main lanes + 8 support lanes + 6 libraries + full skill set"
+  },
   "mainControl": {
     "title": "Main Control",
     "subtitle": "One-sentence goal → read-only evidence → draft output",

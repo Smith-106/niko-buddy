@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
 
 import {
   REWORK_EDGES,
@@ -100,6 +101,30 @@ function stateGlyph(state: MotionNodeProjection["state"]): string {
 
 // ── 审查维度芯片条（review / self-gate 区域下方，静态装饰不碰契约） ──────────
 const REVIEW_DIMS = ["爽感", "自洽", "节奏", "人设", "衔接", "追读", "认知", "Canon", "AI味"]
+
+// ── V3 条件分支点（D1 locked）：evidence->outline ────────────────────────────
+// 仅显式范文ID/拆书报告ID走 B 桩（参考仿写）；其余一律回落 A（大纲直写）。
+// 映射不上不落节点（只进计数与 log），无参考不画假分支。
+const REFERENCE_BRANCH_POINT = "evidence->outline" as const
+
+// ── V6 A/B/C/D 路由桩（P1 仅桩+回落逻辑，不做装配闭环） ──────────────────────
+// A=大纲直写默认主路（热边点亮即 A 路）；B=参考仿写桩（有参考走 exemplar/拆书→draft，
+// 无参考回落 A）；C=碎片拼装入口桩（灵感/素材碎片→outline-assembler→draft，P1 仅入口）；
+// D=场景分镜桩（combat_scene/dialogue_scene 分发→draft→review，P1 分支桩，P2 闭环）。
+type PipelineRouteId = "A" | "B" | "C" | "D"
+const PIPELINE_ROUTE_IDS: readonly PipelineRouteId[] = ["A", "B", "C", "D"]
+/** B/C/D 路由桩标识（TRUNK_ORDER 11 条主干边之外，虚线桩只标分支存在）。 */
+const ROUTE_STUB_IDS = ["motion-route-stub-b", "motion-route-stub-c", "motion-route-stub-d"] as const
+
+// ── V8 四形态分支（D3 locked）：只展示，不新增真源 ────────────────────────────
+// 章回正文/卷纲合集/设定集/出版导出包；实体导出走 backupExport/exportCenter/dataManager 只读展示。
+type MorphBranchId = "morph-chapter" | "morph-volume" | "morph-setting" | "morph-export"
+const MORPH_BRANCHES: ReadonlyArray<{ id: MorphBranchId; i18nKey: string }> = [
+  { id: "morph-chapter", i18nKey: "pipelineMotion.morphChapter" },
+  { id: "morph-volume", i18nKey: "pipelineMotion.morphVolume" },
+  { id: "morph-setting", i18nKey: "pipelineMotion.morphSetting" },
+  { id: "morph-export", i18nKey: "pipelineMotion.morphExport" },
+]
 
 // ── 示例演示事件流（取证→生成→审稿门触发返修→v2通过→记忆入库→回流） ─────────
 const DEMO_TS = "2026-10-19T00:00:00.000Z"
@@ -272,6 +297,10 @@ const STAGE_CAPSULES: ReadonlyArray<{ id: string; label: string }> = [
 ]
 
 export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelProps) {
+  const { t } = useTranslation()
+  // V6 路线 / V8 形态选择器状态（P1 桩：只读展示，默认 A；B 需显式 ID，见 D1）。
+  const [route, setRoute] = useState<PipelineRouteId>("A")
+  const [morph, setMorph] = useState<MorphBranchId>("morph-chapter")
   const baseResolved = useMemo<PipelineMotionProjection>(
     () => projection ?? projectPipelineMotion(input ?? EMPTY_INPUT),
     [input, projection],
@@ -434,6 +463,55 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
         </p>
       </header>
 
+      {/* V6 路线桩 + V8 形态分支选择器（P1 桩：只读展示，默认 A 回落主路；fieldset+legend 分组，原生 button 全键盘可达） */}
+      <div className="flex flex-wrap gap-3">
+        <fieldset data-testid="motion-route-fieldset" className="rounded border border-border px-2 py-1.5">
+          <legend className="px-1 text-xs text-muted-foreground">{t("pipelineMotion.routeLegend")}</legend>
+          <div className="flex flex-wrap gap-1.5">
+            {PIPELINE_ROUTE_IDS.map((id) => (
+              <button
+                key={id}
+                type="button"
+                data-testid={`motion-route-${id.toLowerCase()}`}
+                aria-pressed={route === id ? "true" : "false"}
+                onClick={() => setRoute(id)}
+                className={route === id ? "rounded border border-info/60 bg-info/10 px-2 py-0.5 text-xs text-info" : "rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted"}
+              >
+                {t(`pipelineMotion.route${id}`)}
+              </button>
+            ))}
+          </div>
+          <p data-testid="motion-route-hint" className="mt-1 text-xs text-muted-foreground">
+            {route === "A" ? t("pipelineMotion.routeADefault") : t("pipelineMotion.branchStubHint")}
+          </p>
+          {route === "B" ? (
+            <p data-testid="motion-route-b-note" className="mt-0.5 text-xs text-warning-foreground">
+              {t("pipelineMotion.exemplarLinkHint")}
+            </p>
+          ) : null}
+        </fieldset>
+        <fieldset data-testid="motion-morph-fieldset" className="rounded border border-border px-2 py-1.5">
+          <legend className="px-1 text-xs text-muted-foreground">{t("pipelineMotion.morphLegend")}</legend>
+          <div className="flex flex-wrap gap-1.5">
+            {MORPH_BRANCHES.map((branch) => (
+              <button
+                key={branch.id}
+                type="button"
+                data-testid={`motion-${branch.id}`}
+                aria-pressed={morph === branch.id ? "true" : "false"}
+                onClick={() => setMorph(branch.id)}
+                className={morph === branch.id ? "rounded border border-info/60 bg-info/10 px-2 py-0.5 text-xs text-info" : "rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted"}
+              >
+                {t(branch.i18nKey)}
+              </button>
+            ))}
+          </div>
+          <p data-testid="motion-capability-note" className="mt-1 text-xs text-muted-foreground">
+            {t("pipelineMotion.capabilityPoolTitle")}
+          </p>
+        </fieldset>
+      </div>
+
       {isEmpty ? (
         <p data-testid="motion-empty" className="py-8 text-center text-xs text-muted-foreground">
           尚无运行事件：主控跑过一次章节工作流，蓝色当前路径才会亮起（不播演示动画）。
@@ -497,6 +575,57 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
               node={node}
               tos={node.id === "knowledge-base" ? ["evidence", "chapter-plan"] : ["draft"]}
             />
+          ))}
+          {/* V3 条件分支桩：evidence->outline（REFERENCE_BRANCH_POINT），B 桩虚线（仅显式 ID 走 B） */}
+          <g data-testid={ROUTE_STUB_IDS[0]} data-branch={REFERENCE_BRANCH_POINT}>
+            <path
+              d="M 680 75 V 102.5 H 400 V 130"
+              fill="none"
+              stroke="#f59e0b"
+              strokeWidth={1.5}
+              strokeDasharray="5 4"
+              opacity={0.7}
+            />
+            <text x={540} y={96} textAnchor="middle" fontSize="11" fill="#f59e0b">
+              B桩·参考仿写（显式ID才走）
+            </text>
+          </g>
+          {/* V6 C 桩：碎片拼装入口（outline→chapter-plan 下方，P1 仅入口） */}
+          <g data-testid={ROUTE_STUB_IDS[1]}>
+            <path
+              d="M 400 168 H 600"
+              fill="none"
+              stroke="#f59e0b"
+              strokeWidth={1.5}
+              strokeDasharray="5 4"
+              opacity={0.7}
+            />
+            <text x={500} y={184} textAnchor="middle" fontSize="11" fill="#f59e0b">
+              C桩·碎片拼装入口
+            </text>
+          </g>
+          {/* V6 D 桩：场景分镜（draft 左侧，combat_scene/dialogue_scene 分发→draft→review，P1 分支桩） */}
+          <g data-testid={ROUTE_STUB_IDS[2]}>
+            <path
+              d="M 300 230 H 428"
+              fill="none"
+              stroke="#f59e0b"
+              strokeWidth={1.5}
+              strokeDasharray="5 4"
+              opacity={0.7}
+            />
+            <text x={364} y={222} textAnchor="middle" fontSize="11" fill="#f59e0b">
+              D桩·场景分镜
+            </text>
+          </g>
+          {/* V8 四形态分支徽：deliver/reflow/retrospective 下方展示位（只展示，不新增真源） */}
+          {MORPH_BRANCHES.map((branch, i) => (
+            <g key={branch.id} data-testid={`motion-branch-${branch.id}`}>
+              <rect x={262 + i * 130} y={652} width={120} height={20} rx={10} fill="#0f172a" stroke="#334155" strokeWidth={1} />
+              <text x={322 + i * 130} y={666} textAnchor="middle" fontSize="11" fill="#94a3b8">
+                {t(branch.i18nKey)}
+              </text>
+            </g>
           ))}
           {/* 审查维度芯片条：review 下方居中 9 维；自检/审稿活跃时青蓝点亮 */}
           {(() => {

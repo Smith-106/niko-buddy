@@ -134,7 +134,12 @@ const TOOL_TO_STAGE: Readonly<Record<string, string>> = {
   run_chapter_workflow: "draft",
 }
 
-/** 运行事件 → 管线阶段（`null` = 映射不上，只进计数与 log）。 */
+/**
+ * 运行事件 → 管线阶段（`null` = 映射不上，只进计数与 log，不落节点）。
+ * D1 有参考阈值（locked）：仅显式范文ID/拆书报告ID触发 B 路（参考链由调用方
+ * 按 hasExplicitReferenceId 判定后显式传入 exemplar/拆书事件）；其余一律直写 A 路。
+ * 本函数不做任何文本猜测：映射不上（`null`）只进计数与 log，不落节点。
+ */
 function eventToStage(event: Pick<RunEvent, "kind" | "actor">): string | null {
   switch (event.kind) {
     case "retrieval":

@@ -4263,6 +4263,23 @@
     "lightUp": "去主控跑一次点亮这张图",
     "logEmpty": "尚无调用记录——跑一次孵化、巡航或推进阶段即可点亮"
   },
+  "pipelineMotion": {
+    "routeLegend": "写作路线",
+    "routeA": "A · 大纲直写（默认主路）",
+    "routeB": "B · 参考仿写（需范文ID/拆书报告ID）",
+    "routeC": "C · 碎片拼装（入口）",
+    "routeD": "D · 场景分镜（分支桩）",
+    "routeADefault": "默认走 A 路：无显式范文ID/拆书报告ID一律直写",
+    "hasReferenceHint": "有显式范文ID/拆书报告ID才走 B 路，其余回落 A 路",
+    "exemplarLinkHint": "B 路需填写范文ID或拆书报告ID；链接猜测不触发",
+    "branchStubHint": "P1 仅分支桩：B/C/D 回落主路，装配闭环进 P2",
+    "morphLegend": "交付形态",
+    "morphChapter": "章回正文",
+    "morphVolume": "卷纲合集",
+    "morphSetting": "设定集",
+    "morphExport": "出版导出包",
+    "capabilityPoolTitle": "能力池：12 主泳道 + 8 支撑泳道 + 6 库 + skill 全集"
+  },
   "mainControl": {
     "title": "主控",
     "subtitle": "一句话目标 → 只读取证 → 产出草稿",
