@@ -15,6 +15,33 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.24.1 stable（2026-11-01）：图谱边线变细与可视性优化（边宽基准下调、强度滑块可调细、置灰边减半、标签网格限流）。
+    version: "2.24.1",
+    date: "2026-11-01",
+    highlights: {
+      en: [
+        "Fixed: graph edges no longer stack into a black mesh in dense graphs. Large-graph edge width drops from 0.2-1.2px to 0.12-0.75px at the new default 100% strength (previously 0.36-2.16px at 180%); mid-graph 0.16-1.0px and small-graph 0.22-1.2px follow the same ratio, while node base sizes are raised (large 4->5, mid 5->6; caps 14->15 and 17->18) so nodes and labels regain the visual lead.",
+        "Fixed: the edge strength slider can now thin as well as thicken. Range 100-260 becomes 40-200 with default 100; stored 180% values remain inside the new range and keep working.",
+        "Fixed: dimmed edges are no longer thicker than normal ones; dimmed size is now half of the normal edge with a 0.06 floor instead of a fixed 0.3.",
+        "Fixed: the edge strength storage key is rebased to lk-graph-edge-strength-v2, so installed users actually land on the new baseline instead of reading back a stale 180% written at mount time.",
+        "Improved: edge alpha ceilings lowered per density tier (large 0.25->0.20, mid 0.34->0.26, small 0.42->0.32) and the alpha floor 0.14->0.08, so weak relations stop reading as solid lines and dense areas no longer darken from stacking.",
+        "Added: labelGridCellSize (90 default, 110 when focused, 40 for the full graph) caps how many labels share one grid cell, easing center-area text overlap; hover and selection still force labels on.",
+        "Added: regression contracts - maxEdgeSize must stay below baseNodeSize and maxEdgeAlpha below 0.4 at every density tier; the slider bounds are asserted at 40/200 and dimmed edges at half normal size.",
+        "Release semantics: stable.",
+      ],
+      zh: [
+        "修复：密集图谱里边线不再叠成黑网。大图档边宽由 0.2~1.2px 降到 0.12~0.75px（默认强度改为 100%，此前 180% 实际为 0.36~2.16px），中图 0.16~1.0px、小图 0.22~1.2px 同比收窄；节点基准同步上调（大图 4→5、中图 5→6，上限 14→15 / 17→18），重建「节点为主体、边为背景」的层级。",
+        "修复：强度滑块既能调粗也能调细。区间由 100~260 改为 40~200（默认 100），存量用户的 180% 仍在新区间内继续生效。",
+        "修复：置灰边不再比常态边更粗。dimmed 尺寸由固定 0.3 改为按常态边减半并带 0.06 下限，细线基准下不会盖过正常关系。",
+        "修复：边宽存储键重基为 lk-graph-edge-strength-v2。旧实现把默认强度 180% 在组件挂载时就写进 localStorage，仅改基准尺寸对已安装用户无效；换键后统一落到新默认 100%。",
+        "改进：边透明度上限按密度档下调（大图 0.25→0.20、中图 0.34→0.26、小图 0.42→0.32），下限 0.14→0.08，弱关系不再被叠成实线，密集区也不再因叠加而发黑。",
+        "新增：labelGridCellSize（默认 90、聚焦 110、全部 40）限制同一网格内的标签数量，缓解中心区文字重叠；悬停与选中仍强制显示标签。",
+        "新增：回归契约——任何密度档下 maxEdgeSize 必须小于 baseNodeSize、maxEdgeAlpha 小于 0.4；滑块上下限断言 40/200，置灰边尺寸断言为常态减半。",
+        "发布语义：stable。",
+      ],
+    },
+  },
+  {
     // 2.24.0 prerelease（2026-11-01）：图谱知识地图化 MVP 三项（节点关系抽屉、选中态高亮置灰、图内搜索飞入）。
     version: "2.24.0",
     date: "2026-11-01",
