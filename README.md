@@ -15,7 +15,7 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.24.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.24.1-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
@@ -50,9 +50,18 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 <img width="1239" height="883" alt="image" src="https://github.com/user-attachments/assets/076740be-85ef-4503-842d-565c367aebdc" />
 <img width="1201" height="832" alt="image" src="https://github.com/user-attachments/assets/57936132-45b2-4fed-8c80-2c9282fedbf5" />
 
-## v2.24.0 新增（图谱知识地图化 MVP 三项，stable）
+## v2.24.1 修复（图谱边线变细与可视性优化，stable）
 
 正式稳定版（已占 Latest 槽位，支持应用内自动更新）：
+
+- **边线变细、节点回到主体**：大图档边宽由 0.2~1.2px 降到 0.12~0.75px（默认强度 100%，此前 180% 实际为 0.36~2.16px），中图 0.16~1.0px、小图 0.22~1.2px 同比收窄；节点基准同步上调（大图 4→5、中图 5→6，上限 14→15 / 17→18），密集区不再叠成黑网压住节点颜色与标签。
+- **强度滑块可调细**：区间由 100~260 改为 40~200（默认 100），存量用户的 180% 仍在新区间内生效；置灰边由固定 0.3 改为按常态边减半（带 0.06 下限），不再比正常关系更粗。
+- **透明度与标签限流**：边透明度上限按密度档下调（大图 0.25→0.20、中图 0.34→0.26、小图 0.42→0.32），下限 0.14→0.08；新增 `labelGridCellSize`（默认 90、聚焦 110、全部 40）限制同一网格内的标签数量，缓解中心区文字重叠，悬停与选中仍强制显示标签。
+- **存储键重基**：边宽存储键改为 `lk-graph-edge-strength-v2`，已安装用户不会再读回旧默认 180%，统一落到新基准 100%。
+
+## v2.24.0 新增（图谱知识地图化 MVP 三项，前稳定版）
+
+正式稳定版（2026-11-01 由候选版提升为 Latest，v2.24.1 已接任；安装包由 tag Release 构建附上）：
 
 - **节点关系抽屉**：点击图谱任一节点，右侧列出该节点信息与全部直接关联关系（入边/出边分组，含关系名与对端类型）；点关系项即选中并飞入对端节点。数据源取全量图，与头部连接数口径一致。
 - **选中态高亮与置灰**：选中节点与其 1 度邻居高亮、其余节点与无关边置灰，点击画布空白取消；悬停时预览悬停节点的完整 1 度邻域；选中与图例批量高亮互斥。
