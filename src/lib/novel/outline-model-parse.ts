@@ -76,11 +76,15 @@ const CHAPTER_TEXT_RE =
 const INLINE_SECTION_RE = /^\*\*(.+?)\*\*\s*[:：]\s*(.*)$/
 
 /**
- * 无编号章标题（R-10）：序章/序幕/榉子/引子/终章/尾声/番外。
+ * 无编号章标题（R-10 / N-01）：序章/序幕/楔子/引子/终章/尾声/番外。
  * 这类章没有可解析的章号 → 只做合成编号，绝不夺走显式「第N章」的 N（BG-1）。
+ *
+ * N-01：旧写法把「楔子」写成「榉子」（U+6989 ≠ U+6954），最常用的序章别名整章静默
+ * 丢失。此处同时接受单字「楔」（`楔子` 必须排在 `楔` 之前，否则 `$` 锚点会因余下「子」失败）。
  */
-const SPECIAL_CHAPTER_RE = /^#{1,6}\s*(序章|序幕|榉子|引子|终章|尾声|番外)(?:[:：\s]+(.*))?$/
-const SPECIAL_CHAPTER_TEXT_RE = /^(序章|序幕|榉子|引子|终章|尾声|番外)(?:[:：\s]+(.*))?$/
+const SPECIAL_CHAPTER_RE =
+  /^#{1,6}\s*(序章|序幕|楔子|楔|引子|终章|尾声|番外)(?:[:：\s]+(.*))?$/
+const SPECIAL_CHAPTER_TEXT_RE = /^(序章|序幕|楔子|楔|引子|终章|尾声|番外)(?:[:：\s]+(.*))?$/
 
 /**
  * 小节标签黑名单：这些标签语义上**不是**大纲字段，必须整体丢弃。
@@ -152,6 +156,23 @@ function stripLineMarkup(line: string): { text: string; prefixed: boolean } {
     return { text: trimmed.replace(/^\d+[.、)]\s+/, "").trim(), prefixed: true }
   }
   return { text: trimmed, prefixed: false }
+}
+
+/**
+ * 章后裸摘要行判定（N-02）：④'' 只接「章标题后紧邻的第一个非空行」，且该行必须是散文。
+ * 表格行 / 代码围栏 / 分隔线 / 单级 `#` 标题 / 引用块都不是散文 —— 台词、表格、引用、
+ * 结构标记一旦被吸进 prose.goal，既污染字段又把 confidence 抬成假 high。
+ */
+function isBareSummaryLine(text: string): boolean {
+  if (/^\|/.test(text)) return false
+  if (/^(?:`{3,}|~{3,})/.test(text)) return false
+  if (/^(?:-{3,}|\*{3,}|_{3,})$/.test(text)) return false
+  if (/^#(?!#)/.test(text)) return false
+  if (/^>/.test(text)) return false
+  // 行内粗体台词（`**苏七**：你真的要走？`）：整行不是粗体，stripLineMarkup 判不出
+  // prefixed，必须在这里拦 —— 否则台词会被写成章节目标。
+  if (/^\*\*.+\*\*\s*[:：]/.test(text)) return false
+  return true
 }
 
 function numberFromLabel(raw: string | undefined): number | null {
@@ -447,6 +468,11 @@ export function parseOutlineMarkdownToModel(
   let chapterHeadings = 0
   /** 合成编号章（无编号/非法编号）：被显式「第N章」夺回号时让位重编号（R-02/BG-1）。 */
   const syntheticChapters = new Set<OutlineModelChapter>()
+  /**
+   * 章后裸摘要槽（N-02 / N-04）：只对「章标题后紧邻的第一个非空行」开放，
+   * 任何非空行都会先用掉它（无论最终落进 goal、小节还是被丢弃）。
+   */
+  const summarySlot = { open: false }
 
   const flushSection = (): void => {
     if (currentSection) {
@@ -503,7 +529,7 @@ export function parseOutlineMarkdownToModel(
   /**
    * 开章（R-02 + R-10 + BG-1）：显式编号与合成编号两态。
    *
-   * 「第N章」的字面 N 永远拿 N（显式号）；无编号（序章/榉子…）与非法编号（0 / >999）
+   * 「第N章」的字面 N 永远拿 N（显式号）；无编号（序章/楔子…）与非法编号（0 / >999）
    * 只拿合成号。合成章被后续显式编号夺回时自动让位重编号，不再静默合并同号章。
    */
   const openChapter = (
@@ -550,10 +576,11 @@ export function parseOutlineMarkdownToModel(
 
     if (sameNumber && syntheticChapters.has(sameNumber)) {
       // 合成章占了显式号 → 合成章让位重编号（BG-1：第N章 ⇒ chapter === N 永不被合成章夺走）。
+      // N-03：让位后**保留** synthetic 身份。旧写法在这里 delete，合成章就只让位一次：
+      // 其后的显式章把它当成普通同号章，走「重复」分支逐章 +1 位移（第2章→3、第3章→4）。
       const renumber = volume.chapters.reduce((max, item) => Math.max(max, item.chapter), 0) + 1
       sameNumber.chapter = renumber
       sameNumber.id = outlineChapterId(volume.number, renumber)
-      syntheticChapters.delete(sameNumber)
       warnings.push(`章号冲突：合成章已重编号为 ${sameNumber.id}（${numberRaw} 归显式章）`)
     }
 
@@ -599,6 +626,7 @@ export function parseOutlineMarkdownToModel(
     currentVolume = ensureVolume(structured.volume, volumeTitle)
     currentVolume.chapters.push(structured)
     currentChapter = structured
+    summarySlot.open = true
   }
 
   for (const line of lines) {
@@ -607,6 +635,9 @@ export function parseOutlineMarkdownToModel(
       if (currentSection) currentSection.body.push("")
       continue
     }
+    // 槽只对「紧邻章标题的第一个非空行」开放：先取快照再用掉（N-02）。
+    const summarySlotWasOpen = summarySlot.open
+    summarySlot.open = false
 
     // ① heading 优先（`# 第N卷` / `# 第N章`）
     const volumeMatched = VOLUME_HEADING_RE.exec(trimmed)
@@ -621,15 +652,17 @@ export function parseOutlineMarkdownToModel(
     const chapterMatched = CHAPTER_HEADING_RE.exec(trimmed)
     if (chapterMatched) {
       openChapter(numberFromLabel(chapterMatched[1] ?? chapterMatched[2]), chapterMatched[3] ?? "")
+      summarySlot.open = true
       continue
     }
 
-    // ①' 无编号章标题（序章/榉子…）：合成编号，不夺走显式「第N章」的 N（R-10）。
+    // ①' 无编号章标题（序章/楔子…）：合成编号，不夺走显式「第N章」的 N（R-10 / N-01）。
     const specialChapterMatched = SPECIAL_CHAPTER_RE.exec(trimmed)
     if (specialChapterMatched) {
       openChapter(null, specialChapterMatched[2] ?? specialChapterMatched[1], {
         special: specialChapterMatched[1],
       })
+      summarySlot.open = true
       continue
     }
 
@@ -661,13 +694,17 @@ export function parseOutlineMarkdownToModel(
       const chapterText = CHAPTER_TEXT_RE.exec(strippedLine.text)
       if (chapterText) {
         openChapter(numberFromLabel(chapterText[1] ?? chapterText[2]), chapterText[3] ?? "")
+        summarySlot.open = true
         continue
       }
       const specialChapterText = SPECIAL_CHAPTER_TEXT_RE.exec(strippedLine.text)
-      if (specialChapterText) {
+      // N-04：裸文本（无粗体/列表前缀）的「引子/番外/楔子」只有站在结构位（尚无章，
+      // 或它就是章标题后首个非空行）时才当章 —— 否则正文里单独成段的一行会截断当前小节。
+      if (specialChapterText && (currentChapter === null || summarySlotWasOpen)) {
         openChapter(null, specialChapterText[2] ?? specialChapterText[1], {
           special: specialChapterText[1],
         })
+        summarySlot.open = true
         continue
       }
     }
@@ -689,9 +726,18 @@ export function parseOutlineMarkdownToModel(
       continue
     }
 
-    // ④'' 章标题后的无键摘要（R-10）：孵化器真实形态是「### 第N章 标题」下一行直接写剧情摘要，
-    // 没有字段标签。不接住就等于每章字段全丢（filledSections 恒为 0）。
-    if (currentChapter && !currentSection && !strippedLine.prefixed && strippedLine.text) {
+    // ④'' 章标题后的无键摘要（R-10 + N-02）：孵化器真实形态是「### 第N章 标题」下一行直接写
+    // 剧情摘要，没有字段标签。只消费「紧邻章标题的第一个非空行」，并排除表格行/代码围栏/
+    // 分隔线/单级标题/引用块 —— 不设界就会把台词、引用、多行正文全吸进 prose.goal，
+    // 顺带把 confidence 抬成假 high。
+    if (
+      summarySlotWasOpen &&
+      currentChapter &&
+      !currentSection &&
+      !strippedLine.prefixed &&
+      strippedLine.text &&
+      isBareSummaryLine(trimmed)
+    ) {
       currentChapter.prose.goal = appendText(currentChapter.prose.goal, strippedLine.text)
       continue
     }

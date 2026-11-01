@@ -590,3 +590,126 @@ describe("outline-model 字段归并与置信度真实化（R-07 / R-08 / R-11 /
     expect(chapter.pov).toContain("场景")
   })
 })
+
+/**
+ * 第二轮复核微修（N-01 / N-02 / N-03 / N-04）。
+ *
+ * 判定标准同前轮：每条用例必须「把被守护的守卫改回错误实现后转红」——
+ * 变异自检记录在 run 的 outputs/self-check.json。
+ */
+describe("outline-model 解析器微修（N-01 / N-02 / N-03 / N-04）", () => {
+  it("「楔子」是序章别名：标题与目标都存活，且不夺走第1章的号（N-01）", () => {
+    const legacy = [
+      "# 第1卷 启程",
+      "### 楔子",
+      "夜雨，断桥。",
+      "## 第1章 开端",
+      "### 本章目标",
+      "正式开始",
+    ].join("\n")
+
+    const parsed = parseOutlineMarkdownToModel(legacy)
+    const chapters = flattenOutlineChapters(parsed.model)
+    // 旧实现把「楔子」写成「榉子」（U+6989 ≠ U+6954），整章静默丢失只剩 1 章。
+    expect(chapters).toHaveLength(2)
+    const prologue = chapters.find((chapter) => chapter.title === "楔子")!
+    expect(prologue).toBeDefined()
+    expect(prologue.prose.goal).toBe("夜雨，断桥。")
+    expect(parsed.warnings.some((warning) => warning.includes("楔子"))).toBe(true)
+    // BG-1：显式「第1章」拿 1，合成章让位。
+    expect(chapters.find((chapter) => chapter.title === "开端")!.chapter).toBe(1)
+    // 文档序（= 数组序 = 渲染序）：序章在首位。
+    expect(parsed.model.volumes[0].chapters[0].title).toBe("楔子")
+    // 单字「楔」也接受（旧实现两处正则都只认错字）。
+    const single = parseOutlineMarkdownToModel("# 第1卷 启程\n### 楔\n夜雨。\n## 第1章 开端")
+    expect(flattenOutlineChapters(single.model).map((chapter) => chapter.title)).toContain("楔")
+  })
+
+  it("章后摘要只吃紧邻首个散文行：台词/引用/表格/围栏/分隔线/单级标题都不进 goal（N-02）", () => {
+    const legacy = [
+      "# 第1卷 启程",
+      "## 第1章 台词",
+      "**苏七**：你真的要走？",
+      "## 第2章 引用",
+      "> 引用块",
+      "## 第3章 表格",
+      "| 列 | 值 |",
+      "## 第4章 围栏",
+      "```ts",
+      "const x = 1",
+      "```",
+      "## 第5章 分隔线",
+      "---",
+      "## 第6章 单级标题",
+      "# 卷外附录",
+      "## 第7章 多行散文",
+      "第一段摘要。",
+      "第二段不该被吸进目标。",
+    ].join("\n")
+
+    const parsed = parseOutlineMarkdownToModel(legacy)
+    const chapters = flattenOutlineChapters(parsed.model)
+    expect(chapters).toHaveLength(7)
+    const byTitle = new Map(chapters.map((chapter) => [chapter.title, chapter]))
+    for (const title of ["台词", "引用", "表格", "围栏", "分隔线", "单级标题"]) {
+      expect(byTitle.get(title)!.prose.goal).toBe("")
+    }
+    // 只吃第一个非空行：第二段散文不得被追加进 goal。
+    expect(byTitle.get("多行散文")!.prose.goal).toBe("第一段摘要。")
+    // 结构标记不是字段填充：不得因此抬高 filledSections（旧实现这里是 7）。
+    expect(parsed.signals.filledSections).toBe(1)
+    // 分档区分力（fillRate 入 high 判定）属 N-05，本轮 deferred —— 此处只断言字段不被污染。
+  })
+
+  it("序章 + 第1..3章：每个显式章拿自己的号，合成章不再连锁位移（N-03）", () => {
+    const legacy = [
+      "# 第1卷 启程",
+      "## 序章",
+      "### 本章目标",
+      "开场",
+      "## 第1章 开端",
+      "### 本章目标",
+      "正式开始",
+      "## 第2章 旧账",
+      "### 本章目标",
+      "清算旧账",
+      "## 第3章 城门",
+      "### 本章目标",
+      "进城",
+    ].join("\n")
+
+    const parsed = parseOutlineMarkdownToModel(legacy)
+    const chapters = flattenOutlineChapters(parsed.model)
+    expect(chapters).toHaveLength(4)
+    const byTitle = new Map(chapters.map((chapter) => [chapter.title, chapter]))
+    // 旧实现：序章让位后丢掉 synthetic 身份 → 第2章→3、第3章→4 连锁位移。
+    expect(byTitle.get("开端")!.chapter).toBe(1)
+    expect(byTitle.get("旧账")!.chapter).toBe(2)
+    expect(byTitle.get("城门")!.chapter).toBe(3)
+    expect(byTitle.get("序章")!.prose.goal).toBe("开场")
+    // 文档序（= 数组序 = 渲染序）首位是序章；章号不撞号（validate 无 issue）。
+    // 注：flatten 按章号升序排序，而 validate 只接受正整数章号（chapter 0 非法），
+    // 合成章让位后只能取 >3 的号，因此 flatten 序必然是显式章在前。
+    expect(parsed.model.volumes[0].chapters[0].title).toBe("序章")
+    expect(new Set(chapters.map((chapter) => chapter.chapter)).size).toBe(4)
+    expect(validateOutlineModel(parsed.model).ok).toBe(true)
+  })
+
+  it("正文里单独成段的「引子」「番外」不成章（N-04）", () => {
+    const legacy = [
+      "# 第1卷 启程",
+      "## 第1章 断桥",
+      "两人第一次照面。",
+      "## 第2章 旧账",
+      "清算旧账。",
+      "引子",
+      "番外",
+    ].join("\n")
+
+    const parsed = parseOutlineMarkdownToModel(legacy)
+    const chapters = flattenOutlineChapters(parsed.model)
+    // 旧实现：正文段落里的「引子」「番外」被无条件提升为章标题（章数变 4）。
+    expect(chapters).toHaveLength(2)
+    expect(chapters.map((chapter) => chapter.title)).toEqual(["断桥", "旧账"])
+  })
+})

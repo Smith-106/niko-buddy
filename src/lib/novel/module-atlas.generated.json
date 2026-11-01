@@ -91,7 +91,7 @@
   "specOnly": 263,
   "barrelOnly": 2,
   "edges": 4496,
-  "loc": 277940
+  "loc": 277986
  },
  "modules": [
   {
@@ -13986,7 +13986,7 @@
   {
    "p": "src/lib/novel/outline-model-parse.ts",
    "s": 4,
-   "l": 768,
+   "l": 814,
    "r": true,
    "o": true,
    "x": true,
