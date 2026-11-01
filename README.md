@@ -15,7 +15,15 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.25.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.25.1-blue?style=flat-square" alt="Version" />
+
+## v2.25.1 新增（统一状态仪表盘 + 主控大屏 P1 转译拓扑，prerelease）
+
+内测候选版（不进 Latest，当前 Latest 仍为 v2.24.1）：
+
+- **统一状态总览页**：新增 `statusDashboard` 视图，五维只读聚合（人物关系/场景/人物状态/伏笔/正史），全量口径主行 + 视图过滤次行，canon 非 Tauri 降级为空，伏笔行 60 行封顶。
+- **图谱维度开关**：侧边栏 10 维开关直驱画布显隐（单写者 hiddenTypes），左侧导航新入口，中英键齐备。
+- **主控 P1 拓扑**：有参考阈值 + A/B/C/D 路线桩 + 四形态分支 + 能力池矩阵，控制台只读。
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
