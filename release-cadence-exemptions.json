@@ -80,6 +80,17 @@
         "weekly-stable",
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.24.1",
+      "reason": "用户于 2026-11-01 明确批准 v2.24.1 以 stable 渠道发布并登记三项节奏豁免（weekly-stable / same-day-duplicate / thirty-day-stable）。版本内容为图谱边线变细与可视性优化（提交 caf2b37b 边宽基准下调与强度滑块放宽、d15aaead 存储键重基）。规则事实：weekly-stable —— v2.24.1 发布于 2026-11-01，与 v2.24.0（2026-11-01）、v2.23.1（2026-10-31）同属 ISO 周 2026-10-26，该周 stable 计数为 3；same-day-duplicate —— 2026-11-01 当日 stable 计数为 2（v2.24.0 与 v2.24.1，均为不同 tag 的先后发布，未重打任何已发布 tag）；thirty-day-stable —— 发布前 30 天 stable 18 个（上限 4），属历史连续高频发布所致，非跳过工程门禁。发版门禁：typecheck 0、changelog 双守卫 42/42，全量门禁与 CI 证据于发版后记录（见 tag v2.24.1 的 Release CI 与终局校验报告）。",
+      "approvedBy": "user",
+      "approvedAt": "2026-11-01",
+      "scope": [
+        "weekly-stable",
+        "same-day-duplicate",
+        "thirty-day-stable"
+      ]
     }
   ]
 }
