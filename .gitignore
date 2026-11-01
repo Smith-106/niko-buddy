@@ -51,6 +51,8 @@ src/test-helpers/*
 !/docs/decision-log/
 # ADR 统一索引（架构决策真源，P1 巨文件拆分同期治理产物）
 !/docs/arch-decisions.md
+# 2026-10-27 全局只读诊断报告（原在仓库根，2026-11-01 归档入 docs/）
+!/docs/REFACTOR_AUDIT.md
 !/docs/README.md
 !/docs/p2/
 !/docs/p5/
