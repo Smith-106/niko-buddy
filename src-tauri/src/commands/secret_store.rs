@@ -547,7 +547,10 @@ fn github_domain_is_namespaced_and_guarded() {
     assert!(is_github_credential_ref(&reference));
 
     // 读回：值与写入一致；service 名恰好是 nb:github。
-    assert_eq!(get_with(&backend, "ignored", &reference).expect("get"), token);
+    assert_eq!(
+        get_with(&backend, "ignored", &reference).expect("get"),
+        token
+    );
     let target = resolve_target("ignored", &reference).expect("resolve");
     assert_eq!(target.service, "nb:github");
     assert_eq!(target.logical_account, "niko");
@@ -580,7 +583,10 @@ fn github_domain_is_namespaced_and_guarded() {
 #[test]
 fn github_store_probe_degrades_without_bare_error() {
     // 可用后端 → Available。
-    assert_eq!(probe_with(&MemoryBackend::new()), CredentialProbe::Available);
+    assert_eq!(
+        probe_with(&MemoryBackend::new()),
+        CredentialProbe::Available
+    );
 
     // 不可用后端 → Degraded(可读文案)：不抛裸错、明说禁止明文回退。
     let CredentialProbe::Degraded(message) = probe_with(&UnavailableBackend) else {

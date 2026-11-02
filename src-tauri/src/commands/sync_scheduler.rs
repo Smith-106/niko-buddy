@@ -35,9 +35,7 @@ use super::sync_target::{
     push_configured, SyncConfigFile,
 };
 
-pub use super::sync_target::{
-    SCHEDULE_DEFAULT_INTERVAL_MINUTES, SCHEDULE_INTERVAL_MINUTES,
-};
+pub use super::sync_target::{SCHEDULE_DEFAULT_INTERVAL_MINUTES, SCHEDULE_INTERVAL_MINUTES};
 
 /// 自动备份落点（既有约定；后台触发从这里取唯一同步对象）。
 pub const AUTO_BACKUP_DIR: &str = "backups/auto";
@@ -205,9 +203,9 @@ pub fn network_reachable(endpoint: &str) -> bool {
         return false;
     };
     let timeout = Duration::from_millis(NETWORK_PROBE_TIMEOUT_MS);
-    addresses.into_iter().any(|address| {
-        std::net::TcpStream::connect_timeout(&address, timeout).is_ok()
-    })
+    addresses
+        .into_iter()
+        .any(|address| std::net::TcpStream::connect_timeout(&address, timeout).is_ok())
 }
 
 /// 间隔归一化：不在三档之内一律回落到默认档（调度器不因非法档位空转）。
@@ -337,7 +335,10 @@ pub async fn run_cycle(
     // 否则会把「远端有新内容」误报成「什么都没发生」。
     if pushed.unchanged && pulled.decision == "unchanged" {
         append_skip_journal(project_path, SkipReason::Unchanged)?;
-        return Ok(SyncTickResult::unchanged(pushed.manifest_id, pushed.revision));
+        return Ok(SyncTickResult::unchanged(
+            pushed.manifest_id,
+            pushed.revision,
+        ));
     }
     Ok(SyncTickResult {
         ran: true,
@@ -489,11 +490,10 @@ async fn scheduler_loop(
             .map(|file| file.transport_config().endpoint)
             .unwrap_or_default();
         let probe_endpoint = endpoint.clone();
-        let online = tauri::async_runtime::spawn_blocking(move || {
-            network_reachable(&probe_endpoint)
-        })
-        .await
-        .unwrap_or(true);
+        let online =
+            tauri::async_runtime::spawn_blocking(move || network_reachable(&probe_endpoint))
+                .await
+                .unwrap_or(true);
 
         let environment = SyncEnvironment {
             enabled,
@@ -578,12 +578,7 @@ pub async fn sync_scheduler_start(
 
     let task_state = state.clone_handle();
     tauri::async_runtime::spawn(scheduler_loop(
-        app,
-        task_state,
-        project,
-        device_id,
-        interval,
-        generation,
+        app, task_state, project, device_id, interval, generation,
     ));
 
     let inner = state.lock();
@@ -917,7 +912,10 @@ mod tests {
         let second = run_cycle(&project.root, "device-a", "20260912151500")
             .await
             .expect("second cycle");
-        assert!(!second.ran, "unchanged content must not run a transfer: {second:?}");
+        assert!(
+            !second.ran,
+            "unchanged content must not run a transfer: {second:?}"
+        );
         assert_eq!(second.skip_reason.as_deref(), Some("unchanged"));
         assert_eq!(second.decision, "unchanged");
         assert_eq!(second.revision, 1, "no new revision for identical content");
@@ -933,7 +931,11 @@ mod tests {
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.file_name().to_string_lossy().to_string())
             .collect();
-        assert_eq!(snapshots.len(), 1, "exactly one snapshot expected: {snapshots:?}");
+        assert_eq!(
+            snapshots.len(),
+            1,
+            "exactly one snapshot expected: {snapshots:?}"
+        );
         let journal =
             fs::read_to_string(project.root.join(".novel/sync-journal.jsonl")).expect("journal");
         assert!(journal.contains("scheduler:unchanged"));

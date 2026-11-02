@@ -291,7 +291,9 @@ fn direction_carries_state(direction: &str) -> bool {
 pub fn local_state(project_path: &Path, manifest_id: &str) -> RevisionState {
     read_journal(project_path)
         .into_iter()
-        .filter(|entry| entry.manifest_id == manifest_id && direction_carries_state(&entry.direction))
+        .filter(|entry| {
+            entry.manifest_id == manifest_id && direction_carries_state(&entry.direction)
+        })
         .max_by_key(|entry| entry.revision)
         .map(|entry| RevisionState {
             revision: entry.revision,
@@ -725,7 +727,12 @@ fn legacy_batch_id(manifest_id: &str, ts: &str) -> String {
 ///
 /// 旧记录的键里没有方向，但它自己的 `direction` 字段有——所以老记录只在
 /// 「方向也相同」时才算匹配，避免同 ts 的 push / pull 两条批次都抢同一批老记录。
-fn record_belongs_to_batch(record: &SyncItemRecord, manifest_id: &str, ts: &str, direction: &str) -> bool {
+fn record_belongs_to_batch(
+    record: &SyncItemRecord,
+    manifest_id: &str,
+    ts: &str,
+    direction: &str,
+) -> bool {
     record.batch_id == batch_id_of(manifest_id, ts, direction)
         || (record.batch_id == legacy_batch_id(manifest_id, ts) && record.direction == direction)
 }
@@ -886,8 +893,7 @@ fn batch_status(entry: &SyncJournalEntry, items: &[SyncBatchItem]) -> String {
         return "partial".to_string();
     }
     if items.iter().any(|item| {
-        item.decision.as_deref() == Some(PICK_MINE)
-            || item.decision.as_deref() == Some(PICK_THEIRS)
+        item.decision.as_deref() == Some(PICK_MINE) || item.decision.as_deref() == Some(PICK_THEIRS)
     }) {
         return "resolved".to_string();
     }
@@ -988,12 +994,7 @@ pub fn batches_impl(project_path: &Path, limit: usize) -> Result<Vec<SyncBatch>,
         let batch_records: Vec<SyncItemRecord> = records
             .iter()
             .filter(|record| {
-                record_belongs_to_batch(
-                    record,
-                    &entry.manifest_id,
-                    &entry.ts,
-                    &entry.direction,
-                )
+                record_belongs_to_batch(record, &entry.manifest_id, &entry.ts, &entry.direction)
             })
             .cloned()
             .collect();
@@ -1261,7 +1262,12 @@ mod g2b_tests {
         base
     }
 
-    fn journal_entry(manifest_id: &str, revision: u64, direction: &str, ts: &str) -> SyncJournalEntry {
+    fn journal_entry(
+        manifest_id: &str,
+        revision: u64,
+        direction: &str,
+        ts: &str,
+    ) -> SyncJournalEntry {
         SyncJournalEntry {
             manifest_id: manifest_id.to_string(),
             revision,
@@ -1392,7 +1398,11 @@ mod g2b_tests {
         let ts = "20261102120000";
         fs::create_dir_all(root.join(".novel/snapshots/remote-demo-rev-2")).expect("dir");
         fs::create_dir_all(root.join(".novel/.conflict-device-b-20261102120000")).expect("dir");
-        fs::write(root.join(".novel/snapshots/remote-demo-rev-2/a.md"), b"mine").expect("w");
+        fs::write(
+            root.join(".novel/snapshots/remote-demo-rev-2/a.md"),
+            b"mine",
+        )
+        .expect("w");
         fs::write(
             root.join(".novel/.conflict-device-b-20261102120000/a.md"),
             b"theirs",
@@ -1452,7 +1462,11 @@ mod g2b_tests {
         fs::create_dir_all(root.join(".novel/snapshots/remote-demo-rev-1")).expect("base dir");
         fs::create_dir_all(root.join(".novel/snapshots/remote-demo-rev-2")).expect("dir");
         fs::create_dir_all(root.join(".novel/.conflict-device-b-20261102130000")).expect("dir");
-        fs::write(root.join(".novel/snapshots/remote-demo-rev-2/a.md"), b"mine").expect("w");
+        fs::write(
+            root.join(".novel/snapshots/remote-demo-rev-2/a.md"),
+            b"mine",
+        )
+        .expect("w");
         fs::write(
             root.join(".novel/.conflict-device-b-20261102130000/a.md"),
             b"theirs",
@@ -1552,7 +1566,8 @@ mod g2b_tests {
         assert_eq!(batches[0].items[0].path, "backup.zip");
         assert_eq!(batches[0].items[0].duration_ms, 12);
         // 老批次（无 base 字段）→ 无 base，不迁移、不重写。
-        append_journal(&root, &journal_entry("demo", 4, "push", "20261102150000")).expect("journal");
+        append_journal(&root, &journal_entry("demo", 4, "push", "20261102150000"))
+            .expect("journal");
         let batches = batches_impl(&root, 10).expect("batches");
         assert_eq!(batches.len(), 2);
         assert!(!batches[1].base_available);
@@ -1603,8 +1618,14 @@ mod g2b_tests {
         let batches = batches_impl(&root, 10).expect("batches");
         assert_eq!(batches.len(), 2);
         assert_ne!(batches[0].batch_id, batches[1].batch_id);
-        let push_batch = batches.iter().find(|b| b.direction == "push").expect("push batch");
-        let pull_batch = batches.iter().find(|b| b.direction == "pull").expect("pull batch");
+        let push_batch = batches
+            .iter()
+            .find(|b| b.direction == "push")
+            .expect("push batch");
+        let pull_batch = batches
+            .iter()
+            .find(|b| b.direction == "pull")
+            .expect("pull batch");
         assert_eq!(push_batch.items.len(), 1);
         assert_eq!(push_batch.items[0].path, "backup.zip");
         assert_eq!(pull_batch.items.len(), 1);
@@ -1618,7 +1639,11 @@ mod g2b_tests {
         let mut unique = keys.clone();
         unique.sort();
         unique.dedup();
-        assert_eq!(unique.len(), keys.len(), "batch keys must be unique: {keys:?}");
+        assert_eq!(
+            unique.len(),
+            keys.len(),
+            "batch keys must be unique: {keys:?}"
+        );
         fs::remove_dir_all(&root).ok();
     }
 
@@ -1664,8 +1689,13 @@ mod g2b_tests {
         let root = temp_dir("base-dir-missing");
         let ts = "20261102163000";
         fs::create_dir_all(root.join(".novel/snapshots/remote-demo-rev-3")).expect("mine dir");
-        fs::create_dir_all(root.join(".novel/.conflict-device-b-20261102163000")).expect("theirs dir");
-        fs::write(root.join(".novel/snapshots/remote-demo-rev-3/a.md"), b"mine").expect("w");
+        fs::create_dir_all(root.join(".novel/.conflict-device-b-20261102163000"))
+            .expect("theirs dir");
+        fs::write(
+            root.join(".novel/snapshots/remote-demo-rev-3/a.md"),
+            b"mine",
+        )
+        .expect("w");
         fs::write(
             root.join(".novel/.conflict-device-b-20261102163000/a.md"),
             b"theirs",
@@ -1702,7 +1732,11 @@ mod g2b_tests {
         .expect("apply");
         assert_eq!(results[0].status, ITEM_STATUS_ERROR);
         assert!(results[0].output_path.is_none());
-        assert!(!root.join(".novel/resolutions").join(sanitize_batch_token(&batch_id_of("demo", ts, "conflict"))).join("a.md").exists());
+        assert!(!root
+            .join(".novel/resolutions")
+            .join(sanitize_batch_token(&batch_id_of("demo", ts, "conflict")))
+            .join("a.md")
+            .exists());
         fs::remove_dir_all(&root).ok();
     }
 }

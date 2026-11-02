@@ -52,9 +52,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 
 use crate::canon::archive;
-use crate::commands::secret_store::{
-    self, is_available_sync, read_secret_sync, store_status_sync,
-};
+use crate::commands::secret_store::{self, is_available_sync, read_secret_sync, store_status_sync};
 
 /// 传输配置文件名（与项目内既有配置同族）。
 pub const SYNC_CONFIG_FILE: &str = ".niko-buddy/sync-config.json";
@@ -1013,9 +1011,12 @@ impl SyncTarget for GitHubTarget {
         }
         // 超过 CONTENTS_API_MAX_BYTES（R1 同一分界点）时 contents API 不返回内容
         // （`encoding: "none"`）→ 用 blob sha 走 Git Data API 取原始字节。
-        let sha = value.get("sha").and_then(|value| value.as_str()).ok_or_else(|| {
-            format!("[sync_target] github get {path} returned neither content nor sha")
-        })?;
+        let sha = value
+            .get("sha")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| {
+                format!("[sync_target] github get {path} returned neither content nor sha")
+            })?;
         self.get_blob(sha).await
     }
 
@@ -1169,8 +1170,12 @@ impl SyncTarget for LocalFolderTarget {
     async fn put(&self, path: &str, bytes: &[u8]) -> Result<(), String> {
         let destination = self.resolve(path)?;
         if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("[sync_target] local create {} failed: {e}", parent.display()))?;
+            fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "[sync_target] local create {} failed: {e}",
+                    parent.display()
+                )
+            })?;
         }
         fs::write(&destination, bytes).map_err(|e| {
             format!(
@@ -1227,7 +1232,10 @@ impl SyncTarget for ConfiguredTarget {
 }
 
 /// 按 `endpoint` 构造传输目标（配置期校验已在 [`load_config_file`] 内完成）。
-pub fn build_target(file: &SyncConfigFile, project_path: &Path) -> Result<ConfiguredTarget, String> {
+pub fn build_target(
+    file: &SyncConfigFile,
+    project_path: &Path,
+) -> Result<ConfiguredTarget, String> {
     if file.is_local() {
         let local = file.local.as_ref().ok_or_else(|| {
             "[sync_target] endpoint=local requires a local block {localPath}".to_string()
@@ -1238,9 +1246,10 @@ pub fn build_target(file: &SyncConfigFile, project_path: &Path) -> Result<Config
         )?));
     }
     if file.is_github() {
-        let github = file.github.as_ref().ok_or_else(|| {
-            "[sync_target] endpoint=github requires a github block".to_string()
-        })?;
+        let github = file
+            .github
+            .as_ref()
+            .ok_or_else(|| "[sync_target] endpoint=github requires a github block".to_string())?;
         return Ok(ConfiguredTarget::GitHub(
             GitHubTarget::new(github, &file.credential_ref)?.with_journal_root(project_path),
         ));
@@ -1286,11 +1295,10 @@ pub use super::sync_target_decision::{
     append_item_journal, append_journal, apply_item_decisions_impl, assert_local_target_allowed,
     assert_no_secret_plaintext, assert_remote_key_allowed, base_state_before, batch_id_of,
     batches_impl, decide_pull, local_revision, local_state, parse_remote_revision, read_journal,
-    remote_revision_dir, validate_config, PullDecision,
-    RevisionState, SyncBatch, SyncConfig, SyncConflict, SyncItemDecisionRequest,
-    SyncItemDecisionResult, SyncItemRecord, SyncJournalEntry, SyncPullResult, SyncPushResult,
-    SyncStatus, SyncTestResult, ITEM_STATUS_APPLIED, ITEM_STATUS_KEEP_BOTH,
-    ITEM_STATUS_REFUSED,
+    remote_revision_dir, validate_config, PullDecision, RevisionState, SyncBatch, SyncConfig,
+    SyncConflict, SyncItemDecisionRequest, SyncItemDecisionResult, SyncItemRecord,
+    SyncJournalEntry, SyncPullResult, SyncPushResult, SyncStatus, SyncTestResult,
+    ITEM_STATUS_APPLIED, ITEM_STATUS_KEEP_BOTH, ITEM_STATUS_REFUSED,
 };
 
 // M3-3 注：`conflict_file_name` / `journal_line` 留守本文件（未随块迁移）：
@@ -1647,15 +1655,17 @@ pub async fn sync_test(project_path: String) -> Result<SyncTestResult, String> {
     // 凭据库探针（G1）：`secret_available` / `store_status` 门禁先行。
     let credential_available = store_status_sync() && is_available_sync();
     if file.is_local() {
-        let local = file.local.as_ref().ok_or_else(|| {
-            "[sync_target] endpoint=local requires a local block".to_string()
-        })?;
+        let local = file
+            .local
+            .as_ref()
+            .ok_or_else(|| "[sync_target] endpoint=local requires a local block".to_string())?;
         return local_test(local, &file.credential_ref).await;
     }
     if file.is_github() {
-        let github = file.github.as_ref().ok_or_else(|| {
-            "[sync_target] endpoint=github requires a github block".to_string()
-        })?;
+        let github = file
+            .github
+            .as_ref()
+            .ok_or_else(|| "[sync_target] endpoint=github requires a github block".to_string())?;
         return github_test(project, github, &file.credential_ref, credential_available).await;
     }
     let config = file.transport_config();
@@ -1745,7 +1755,11 @@ async fn local_test(
     let exists = root.is_dir();
     let creatable = root.parent().map(|parent| parent.is_dir()).unwrap_or(false);
     let object_count = if exists {
-        target.list("").await.map(|objects| objects.len()).unwrap_or(0)
+        target
+            .list("")
+            .await
+            .map(|objects| objects.len())
+            .unwrap_or(0)
     } else {
         0
     };
@@ -1912,7 +1926,10 @@ async fn push_staged<T: SyncTarget>(
     // 本地 snapshots 目录按周期线性增长（一天 96 个完整副本 + 96 次 GitHub commit）。
     // 判据用 manifest 的内容指纹（= 块内容聚合），不是 zip 字节（zip 带时间戳，
     // 字节变了不代表内容变了）。此时还没写过任何远端对象，直接返回是安全的。
-    if base.revision > 0 && !base.content_hash.is_empty() && base.content_hash == manifest.content_digest {
+    if base.revision > 0
+        && !base.content_hash.is_empty()
+        && base.content_hash == manifest.content_digest
+    {
         return Ok(SyncPushResult {
             manifest_id: manifest_id.to_string(),
             revision: base.revision,
@@ -2298,11 +2315,7 @@ fn record_pull_items(
     };
     record(REMOTE_MANIFEST_FILE.to_string(), status, duration_ms)?;
     for block in &manifest.blocks {
-        record(
-            format!("{REMOTE_BLOCKS_DIR}/{}", block.hash),
-            status,
-            0,
-        )?;
+        record(format!("{REMOTE_BLOCKS_DIR}/{}", block.hash), status, 0)?;
     }
     Ok(())
 }
@@ -2925,7 +2938,10 @@ mod tests {
             )
             .await
             .expect("push again");
-            assert!(again.unchanged, "identical content must not create a new revision");
+            assert!(
+                again.unchanged,
+                "identical content must not create a new revision"
+            );
             assert_eq!(again.revision, 1);
             assert_eq!(again.total_bytes, 0, "unchanged push must upload nothing");
 
@@ -2944,7 +2960,10 @@ mod tests {
             .await
             .expect("push v2");
             assert!(!bumped.unchanged);
-            assert_eq!(bumped.revision, 2, "revision must be monotonic on content change");
+            assert_eq!(
+                bumped.revision, 2,
+                "revision must be monotonic on content change"
+            );
             assert!(read_journal(&project.root)
                 .iter()
                 .all(|entry| entry.direction == "push"));
@@ -3029,7 +3048,6 @@ mod tests {
         }
     }
 
-
     // ── G1 真机验收：真实私有仓三原语往返 ──────────────────────────────────
     //
     // 目的：证明 GitHubTarget 的 contents API（≤1MiB）与 Git Data API（>1MiB）
@@ -3045,8 +3063,10 @@ mod tests {
     async fn github_live_push_pull_roundtrip() {
         let token = std::env::var("NIKO_GITHUB_LIVE_TOKEN")
             .expect("NIKO_GITHUB_LIVE_TOKEN must be set for the live test");
-        let owner = std::env::var("NIKO_GITHUB_LIVE_OWNER").unwrap_or_else(|_| "Smith-106".to_string());
-        let repo = std::env::var("NIKO_GITHUB_LIVE_REPO").unwrap_or_else(|_| "niko-sync-probe".to_string());
+        let owner =
+            std::env::var("NIKO_GITHUB_LIVE_OWNER").unwrap_or_else(|_| "Smith-106".to_string());
+        let repo = std::env::var("NIKO_GITHUB_LIVE_REPO")
+            .unwrap_or_else(|_| "niko-sync-probe".to_string());
 
         // 凭据写入应用真实读取的域：service=nb:github，account 已绑定本机设备指纹
         // （`<device_binding_prefix>:<logical>`，见 secret_store::bind_account）。
@@ -3056,7 +3076,9 @@ mod tests {
             owner
         );
         let entry = keyring::Entry::new("nb:github", &bound_account).expect("keyring entry");
-        entry.set_password(&token).expect("store live token in keyring");
+        entry
+            .set_password(&token)
+            .expect("store live token in keyring");
 
         let credential_ref = format!("nb:github:{owner}");
         let config = GitHubConfig {
@@ -3075,7 +3097,10 @@ mod tests {
             .await
             .expect("put small (contents API)");
         let got_small = target.get("small.json").await.expect("get small");
-        assert_eq!(got_small, small, "small file roundtrip must be byte-identical");
+        assert_eq!(
+            got_small, small,
+            "small file roundtrip must be byte-identical"
+        );
 
         // ② >1MiB：Git Data API（blob → tree → commit → ref）
         let big = vec![b'x'; 1_200_000];
@@ -3089,12 +3114,23 @@ mod tests {
 
         // ③ list：两个对象都在
         let keys = target.list("").await.expect("list");
-        assert!(keys.iter().any(|k| k.ends_with("small.json")), "list must contain small.json: {keys:?}");
-        assert!(keys.iter().any(|k| k.ends_with("big.bin")), "list must contain big.bin: {keys:?}");
+        assert!(
+            keys.iter().any(|k| k.ends_with("small.json")),
+            "list must contain small.json: {keys:?}"
+        );
+        assert!(
+            keys.iter().any(|k| k.ends_with("big.bin")),
+            "list must contain big.bin: {keys:?}"
+        );
 
         // 清理钥匙串条目
         let _ = entry.delete_credential();
-        println!("G1 live roundtrip OK: {} object(s) in {}/{}", keys.len(), owner, repo);
+        println!(
+            "G1 live roundtrip OK: {} object(s) in {}/{}",
+            keys.len(),
+            owner,
+            repo
+        );
     }
 
     #[test]
@@ -3157,7 +3193,10 @@ mod tests {
             TransferPath::GitDataApi
         );
         // 备份 zip 级别的体积必须走 Git Data API。
-        assert_eq!(choose_transfer_path(8 * 1024 * 1024), TransferPath::GitDataApi);
+        assert_eq!(
+            choose_transfer_path(8 * 1024 * 1024),
+            TransferPath::GitDataApi
+        );
     }
 
     #[test]
@@ -3206,15 +3245,21 @@ mod tests {
         assert!(missing.message.contains("owner/repo"));
 
         // 并发冲突 / 非快进 / 5xx → 可重试。
-        assert!(classify_status(409, None, None, "", "ctx")
-            .expect_err("409")
-            .retryable);
-        assert!(classify_status(422, None, None, "", "ctx")
-            .expect_err("422")
-            .retryable);
-        assert!(classify_status(503, None, None, "", "ctx")
-            .expect_err("503")
-            .retryable);
+        assert!(
+            classify_status(409, None, None, "", "ctx")
+                .expect_err("409")
+                .retryable
+        );
+        assert!(
+            classify_status(422, None, None, "", "ctx")
+                .expect_err("422")
+                .retryable
+        );
+        assert!(
+            classify_status(503, None, None, "", "ctx")
+                .expect_err("503")
+                .retryable
+        );
 
         // token 永不进错误文案（分类只吃状态码 / 限流头 / 上下文）。
         let secret = "ghp_must_not_leak";
@@ -3334,7 +3379,10 @@ mod tests {
         save_config_file(&project.root, &file).expect("save github config");
         let raw = fs::read_to_string(project.root.join(SYNC_CONFIG_FILE)).expect("read");
         // 线上字段是 camelCase（与前端 `GitHubConfig` 同构）。
-        assert!(raw.contains("\"pathPrefix\""), "camelCase on the wire: {raw}");
+        assert!(
+            raw.contains("\"pathPrefix\""),
+            "camelCase on the wire: {raw}"
+        );
         assert!(raw.contains("nb:github:niko"));
         assert!(!raw.contains("ghp_"));
         assert_eq!(
@@ -3416,14 +3464,22 @@ mod tests {
         save_config_file(&project.root, &file).expect("save local config");
         let raw = fs::read_to_string(project.root.join(SYNC_CONFIG_FILE)).expect("read");
         // 线上字段 camelCase（与前端 `LocalFolderConfig` / `SyncSchedule` 同构）。
-        assert!(raw.contains("\"localPath\""), "camelCase on the wire: {raw}");
-        assert!(raw.contains("\"intervalMinutes\": 30"), "camelCase on the wire: {raw}");
+        assert!(
+            raw.contains("\"localPath\""),
+            "camelCase on the wire: {raw}"
+        );
+        assert!(
+            raw.contains("\"intervalMinutes\": 30"),
+            "camelCase on the wire: {raw}"
+        );
         assert_eq!(
             load_config_file(&project.root).expect("load file"),
             Some(file.clone())
         );
         // 状态出口：本地目标的 `root` 报 localPath（UI 看到有效目标）。
-        let transport = load_config(&project.root).expect("load").expect("configured");
+        let transport = load_config(&project.root)
+            .expect("load")
+            .expect("configured");
         assert_eq!(transport.endpoint, "local");
         assert_eq!(
             transport.root,
@@ -3583,7 +3639,10 @@ mod tests {
 
         let first = try_acquire_sync_run(&project.root).expect("first acquire");
         let busy = try_acquire_sync_run(&project.root);
-        assert!(busy.is_err(), "second acquire on the same project must fail");
+        assert!(
+            busy.is_err(),
+            "second acquire on the same project must fail"
+        );
         assert!(
             busy.err().unwrap().contains("already running"),
             "busy error must be readable"
@@ -3615,7 +3674,10 @@ mod tests {
                 "20260912170000",
             )
             .await;
-            assert!(blocked_push.is_err(), "push must not run while the lock is held");
+            assert!(
+                blocked_push.is_err(),
+                "push must not run while the lock is held"
+            );
             let blocked_pull = pull_impl(
                 &target,
                 &project.root,
@@ -3624,7 +3686,10 @@ mod tests {
                 "20260912170000",
             )
             .await;
-            assert!(blocked_pull.is_err(), "pull must not run while the lock is held");
+            assert!(
+                blocked_pull.is_err(),
+                "pull must not run while the lock is held"
+            );
             drop(guard);
 
             // 锁释放后同一操作可正常执行（忙返回不是永久阻塞）。
