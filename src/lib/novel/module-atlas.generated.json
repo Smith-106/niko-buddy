@@ -91,7 +91,7 @@
   "specOnly": 264,
   "barrelOnly": 2,
   "edges": 4545,
-  "loc": 283941
+  "loc": 283962
  },
  "modules": [
   {
@@ -8722,7 +8722,7 @@
   {
    "p": "src/lib/mcp/state-bridge.ts",
    "s": 18,
-   "l": 315,
+   "l": 336,
    "r": true,
    "o": false,
    "x": false,
