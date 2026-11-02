@@ -6,6 +6,8 @@ mod canon;
 mod commands;
 pub mod credential_vault;
 pub mod mcp_remote;
+// 对外 MCP 控制面（方案 d23eb1df）：仅回环监听、bearer token、P0 零写入。
+pub mod mcp_server;
 pub mod mcp_transport;
 mod panic_guard;
 pub mod pdf_export;
@@ -161,6 +163,8 @@ pub fn run() {
             app.manage(commands::sync_scheduler::SyncSchedulerState::default());
             // 架构-1：{project}/.novel/status.json 独立监听器（novel-status-changed 事件）。
             app.manage(status_watcher::StatusWatcherState::default());
+            // 对外 MCP 控制面句柄：默认未启动，由设置页「外部控制」开关显式开启。
+            app.manage(mcp_server::McpServerHandle::default());
             // P1-IMP-10：启动向量对账在后台执行，绝不阻塞窗口创建（tokio::spawn
             // 同一运行时；setup 完成后即返回）。setup 阶段 Rust 侧没有任何项目
             // 清单 —— 项目路径与 expected chunk 清单均由前端驱动 —— 因此后台
@@ -195,6 +199,11 @@ pub fn run() {
             app_lock::api::app_lock_verify,
             app_lock::api::app_lock_state,
             credential_vault::api::vault_put_secret,
+            mcp_server::mcp_server_start,
+            mcp_server::mcp_server_stop,
+            mcp_server::mcp_server_status,
+            mcp_server::mcp_server_token,
+            mcp_server::mcp_server_rotate_token,
             batch_replace::api::batch_replace_preview,
             pdf_export::api::export_pdf,
             batch_replace::api::batch_replace_apply,

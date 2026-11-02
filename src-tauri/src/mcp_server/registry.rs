@@ -1,0 +1,177 @@
+//! MCP 工具注册表。
+//!
+//! 设计取向：工具是**编译期注册的静态集合**，不是运行时从外部加载的插件——
+//! 这条是硬否决「不引入可执行脚本通道」的直接落实：外部 Agent 只能调用这里
+//! 显式 `register` 过的类型化工具，没有任何路径能让它塞进来新代码。
+//!
+//! 每个工具自带 JSON Schema（`input_schema`），客户端据此生成调用参数；
+//! 服务端仍要自己校验（客户端不可信），校验失败的报 `INVALID_PARAMS`。
+
+use std::sync::Arc;
+
+use serde_json::{json, Value};
+
+use super::protocol::INVALID_PARAMS;
+
+/// 工具执行错误。
+///
+/// `code` 沿用 JSON-RPC 错误码语义：参数问题用 `INVALID_PARAMS`，
+/// 其余用 `INTERNAL_ERROR`。业务失败（如"章节不存在"）**不应**用这个类型，
+/// 而应返回 `Ok(tool_error(..))`——那是成功的调用、失败的业务。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolError {
+    pub code: i64,
+    pub message: String,
+}
+
+impl ToolError {
+    pub fn invalid_params(message: impl Into<String>) -> Self {
+        ToolError {
+            code: INVALID_PARAMS,
+            message: message.into(),
+        }
+    }
+}
+
+/// 一个可被外部 Agent 调用的工具。
+pub trait McpTool: Send + Sync {
+    /// 工具名（对客户端可见，稳定不可改名）。
+    fn name(&self) -> &'static str;
+    /// 一句话说明（对客户端可见）。
+    fn description(&self) -> &'static str;
+    /// 入参 JSON Schema。
+    fn input_schema(&self) -> Value;
+    /// 执行。实现方不得 panic；不得静默吞错误。
+    fn call(&self, args: &Value) -> Result<Value, ToolError>;
+}
+
+/// 工具注册表。
+///
+/// 注册顺序即 `tools/list` 的顺序，保持稳定输出便于客户端 diff。
+#[derive(Default)]
+pub struct ToolRegistry {
+    tools: Vec<Arc<dyn McpTool>>,
+}
+
+impl ToolRegistry {
+    pub fn new() -> Self {
+        Self { tools: Vec::new() }
+    }
+
+    /// 注册一个工具。重名直接 panic——这是编程错误，不是运行时状况。
+    pub fn register(&mut self, tool: Arc<dyn McpTool>) {
+        let name = tool.name();
+        assert!(
+            !self.tools.iter().any(|t| t.name() == name),
+            "duplicate MCP tool name: {name}"
+        );
+        self.tools.push(tool);
+    }
+
+    /// `tools/list` 的 result 体。
+    pub fn list(&self) -> Value {
+        let tools: Vec<Value> = self
+            .tools
+            .iter()
+            .map(|t| {
+                json!({
+                    "name": t.name(),
+                    "description": t.description(),
+                    "inputSchema": t.input_schema(),
+                })
+            })
+            .collect();
+        json!({ "tools": tools })
+    }
+
+    /// 按名调用。未知工具返回 `None`，由调用方决定报 `METHOD_NOT_FOUND`。
+    pub fn call(&self, name: &str, args: &Value) -> Option<Result<Value, ToolError>> {
+        self.tools
+            .iter()
+            .find(|t| t.name() == name)
+            .map(|t| t.call(args))
+    }
+
+    /// 已注册工具名（测试与内省用）。
+    pub fn names(&self) -> Vec<&'static str> {
+        self.tools.iter().map(|t| t.name()).collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.tools.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.tools.is_empty()
+    }
+}
+
+/// `app.ping` 占位工具：只证明链路通，不读不写任何状态。
+pub struct PingTool;
+
+impl McpTool for PingTool {
+    fn name(&self) -> &'static str {
+        "app.ping"
+    }
+
+    fn description(&self) -> &'static str {
+        "Liveness probe. Returns pong plus server version. Reads and writes nothing."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({ "type": "object", "properties": {}, "additionalProperties": false })
+    }
+
+    fn call(&self, _args: &Value) -> Result<Value, ToolError> {
+        Ok(json!({
+            "pong": true,
+            "server": super::protocol::SERVER_NAME,
+            "version": super::protocol::SERVER_VERSION,
+        }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn registry() -> ToolRegistry {
+        let mut r = ToolRegistry::new();
+        r.register(Arc::new(PingTool));
+        r
+    }
+
+    #[test]
+    fn lists_registered_tool_with_schema() {
+        let list = registry().list();
+        let tools = list["tools"].as_array().expect("tools array");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["name"], "app.ping");
+        assert_eq!(tools[0]["inputSchema"]["type"], "object");
+    }
+
+    #[test]
+    fn call_known_tool_succeeds() {
+        let out = registry().call("app.ping", &json!({})).expect("found").expect("ok");
+        assert_eq!(out["pong"], true);
+    }
+
+    #[test]
+    fn call_unknown_tool_returns_none() {
+        // None 让上层报 METHOD_NOT_FOUND，而不是伪造一个成功响应。
+        assert!(registry().call("nope.nope", &json!({})).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate MCP tool name")]
+    fn duplicate_registration_panics() {
+        let mut r = ToolRegistry::new();
+        r.register(Arc::new(PingTool));
+        r.register(Arc::new(PingTool));
+    }
+
+    #[test]
+    fn names_preserve_registration_order() {
+        assert_eq!(registry().names(), vec!["app.ping"]);
+    }
+}
