@@ -91,7 +91,7 @@
   "specOnly": 264,
   "barrelOnly": 2,
   "edges": 4558,
-  "loc": 284783
+  "loc": 284793
  },
  "modules": [
   {
@@ -8664,7 +8664,7 @@
   {
    "p": "src/lib/mcp/draft-actions.ts",
    "s": 18,
-   "l": 120,
+   "l": 129,
    "r": true,
    "o": false,
    "x": false,
@@ -13022,7 +13022,7 @@
   {
    "p": "src/lib/novel/index.ts",
    "s": 18,
-   "l": 1529,
+   "l": 1530,
    "r": true,
    "o": false,
    "x": false,
