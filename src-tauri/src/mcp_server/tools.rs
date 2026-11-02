@@ -844,7 +844,10 @@ impl super::registry::McpTool for ChapterWriteTool {
     }
 }
 
-/// `memory.write` —— 写记忆草稿（Draft-first，绝不直写正式记忆）。
+/// `memory.write` —— 当前**明确拒绝**（应用没有记忆草稿审阅入口）。
+///
+/// 保留注册是为了给调用方一个说清原因的答复，而不是让它对着 "unknown tool" 猜。
+/// 详见 `src/lib/mcp/draft-actions.ts` 文件头的推导。
 pub struct MemoryWriteTool;
 
 impl super::registry::McpTool for MemoryWriteTool {
@@ -853,7 +856,7 @@ impl super::registry::McpTool for MemoryWriteTool {
     }
 
     fn description(&self) -> &'static str {
-        "Write a memory draft into .novel/drafts/memory with status=draft. Never writes formal memory (QM/memory): the user must accept it in the app first."
+        "Currently refused. The app has no memory draft review surface, so writing would either touch formal memory (breaking Draft-first) or land somewhere no UI reads (silent data loss). Ask the user to write memory in the app instead."
     }
 
     fn input_schema(&self) -> Value {

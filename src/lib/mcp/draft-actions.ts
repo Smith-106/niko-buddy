@@ -9,26 +9,27 @@
  *
  * 因此：
  * - `chapter.write` → 复用既有 `writeDraft`（与主控 Agent 的 `write_chapter`
- *   draftMode 同一入口），落在 `.novel/drafts/`。
- * - `memory.write` → 落在 `.novel/drafts/memory/`，frontmatter `status: draft`
- *   与正式 `QM/memory/*.md` 物理隔离。**不**复用 `write_memory` 工具——那个
- *   直接写正式记忆，靠 UI 的 confirm 兜底，MCP 没有这层。
+ *   draftMode 同一入口），落在 `.qm-drafts/`，由 `chapter-draft-dock` 呈现并可
+ *   accept。这条路是通的。
+ * - `memory.write` → **当前明确拒绝**，理由见下。
+ *
+ * ## 为什么 memory.write 拒绝而不是"写到一个草稿目录"
+ *
+ * 第一版把记忆草稿写进 `.novel/drafts/memory/`，看着符合 Draft-first。但真机验收
+ * 追查「产物可在应用界面看到」时发现：应用里**没有任何界面读那个目录**——
+ * `list_memories` 只列 `QM/memory/*.md`，也没有全局待确认队列。也就是说写进去的
+ * 东西用户永远看不到、也无法 accept。
+ *
+ * 一个没人能审阅的"草稿"不是草稿，是静默丢弃。宁可拒绝并说清原因，也不要产出
+ * 看不见的数据——后者会让调用方以为交付了记忆。
+ *
+ * 启用条件（任一满足即可放开）：应用出现记忆草稿收件箱；或写入权威矩阵放宽为
+ * 「Draft-first 是默认、带强制审计可写正式记忆」（见 `#272`）。
  */
 
-import { createDirectory, fileExists, writeFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { DRAFTS_DIR, writeDraft } from "@/lib/novel"
 import type { ChapterDraft } from "@/lib/novel"
-
-/**
- * 记忆草稿目录（项目相对）。与正式记忆 `QM/memory/` 分开，误认不了。
- *
- * 为什么章节草稿与记忆草稿不在同一个根下：章节草稿复用应用既有的 `writeDraft`，
- * 落在它自己的 `DRAFTS_DIR`（`.qm-drafts`）——那个目录被 accept 流程扫描，不能
- * 往里塞非章节文件。记忆草稿没有既有落点，放在 `.novel/`（机读运行态根）下。
- * 两处都是草稿，都不会被当成正式数据。
- */
-const MEMORY_DRAFTS_DIR = ".novel/drafts/memory"
 
 export interface ChapterDraftResult {
   draftId: string
@@ -46,6 +47,11 @@ export interface MemoryDraftResult {
   chars: number
   note: string
 }
+
+/** 记忆写入被拒的统一原因（前端与工具描述共用同一套说法）。 */
+export const MEMORY_WRITE_REFUSAL =
+  "记忆写入暂不支持：应用里没有记忆草稿的审阅/确认入口，MCP 写入要么直接改正式记忆（违反 Draft-first），要么落在一个没人看得到的目录（等于静默丢弃）。请让用户在应用界面里写入记忆。启用条件见方案 #272。";
+
 
 function requireText(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim() === "") {
@@ -87,42 +93,14 @@ export async function writeChapterDraft(
 }
 
 /**
- * 写一条记忆草稿。
+ * 记忆写入：当前**明确拒绝**（原因见文件头与 [`MEMORY_WRITE_REFUSAL`]）。
  *
- * frontmatter 带 `status: draft` 与 `source: mcp-external-agent`，正式记忆读取路径
- * 不会把它当成正式条目；同时留下来源，便于事后追溯是谁写的。
+ * 保留函数与工具注册是为了给调用方一个说清原因的答复，而不是让它对着
+ * "unknown tool" 猜。启用条件满足后在这里换成真实实现即可，工具契约不变。
  */
 export async function writeMemoryDraft(
-  projectPath: string,
-  params: { name?: unknown; content?: unknown },
+  _projectPath: string,
+  _params: { name?: unknown; content?: unknown },
 ): Promise<MemoryDraftResult> {
-  const name = sanitizeName(requireText(params.name, "name"))
-  const content = requireText(params.content, "content")
-
-  const dir = `${normalizePath(projectPath)}/${MEMORY_DRAFTS_DIR}`
-  if (!(await fileExists(dir))) {
-    await createDirectory(dir)
-  }
-
-  const createdAt = Date.now()
-  const body = [
-    "---",
-    `name: ${name}`,
-    "status: draft",
-    "source: mcp-external-agent",
-    `created_at: ${createdAt}`,
-    "---",
-    "",
-    content,
-  ].join("\n")
-
-  const path = `${dir}/${name}.md`
-  await writeFile(path, body)
-
-  return {
-    name,
-    path,
-    chars: content.length,
-    note: "已写入记忆草稿区（.novel/drafts/memory），未进入正式记忆。需在应用内确认。",
-  }
+  throw new Error(MEMORY_WRITE_REFUSAL)
 }

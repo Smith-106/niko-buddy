@@ -68,43 +68,16 @@ describe("writeChapterDraft", () => {
   })
 })
 
-describe("writeMemoryDraft", () => {
-  it("落在 .novel/drafts/memory 且带 status: draft 与来源", async () => {
-    const res = await writeMemoryDraft("/proj", { name: "设定", content: "内容" })
-    expect(res.path).toBe("/proj/.novel/drafts/memory/设定.md")
-    const written = fsMocks.writeFile.mock.calls[0] as unknown as [string, string]
-    expect(written[0]).toBe("/proj/.novel/drafts/memory/设定.md")
-    expect(written[1]).toContain("status: draft")
-    expect(written[1]).toContain("source: mcp-external-agent")
-    expect(written[1]).toContain("内容")
+describe("writeMemoryDraft（当前明确拒绝）", () => {
+  it("拒绝并说明原因：没有界面能审阅记忆草稿", async () => {
+    await expect(writeMemoryDraft("/proj", { name: "设定", content: "内容" })).rejects.toThrow(
+      /没有记忆草稿的审阅/,
+    )
   })
 
-  it("明确告知未进入正式记忆", async () => {
-    const res = await writeMemoryDraft("/proj", { name: "设定", content: "内容" })
-    expect(res.note).toContain("正式记忆")
-  })
-
-  it("目录不存在时先创建", async () => {
-    fsMocks.fileExists.mockResolvedValueOnce(false)
-    await writeMemoryDraft("/proj", { name: "设定", content: "内容" })
-    expect(fsMocks.createDirectory).toHaveBeenCalledWith("/proj/.novel/drafts/memory")
-  })
-
-  it("名称里的路径分隔符被清洗，路径不会逃出草稿目录", async () => {
-    // 真正要守的性质是「路径仍在草稿目录内」——`../逃逸` 会被清洗成 `.._逃逸`，
-    // 文件名里带两个点无害，能让路径逃出去的是分隔符。
-    for (const name of ["../逃逸", "..\逃逸", "a/b/c", ".."]) {
-      const res = await writeMemoryDraft("/proj", { name, content: "内容" })
-      expect(res.name).not.toContain("/")
-      expect(res.name).not.toContain("\\")
-      expect(res.path.startsWith("/proj/.novel/drafts/memory/")).toBe(true)
-      expect(res.path).not.toContain("/../")
-    }
-  })
-
-  it("缺 name 或 content 直接拒绝", async () => {
-    await expect(writeMemoryDraft("/proj", { content: "内容" })).rejects.toThrow(/name/)
-    await expect(writeMemoryDraft("/proj", { name: "设定" })).rejects.toThrow(/content/)
+  it("拒绝时不留任何文件（不静默丢弃）", async () => {
+    await expect(writeMemoryDraft("/proj", { name: "设定", content: "内容" })).rejects.toThrow()
     expect(fsMocks.writeFile).not.toHaveBeenCalled()
+    expect(fsMocks.createDirectory).not.toHaveBeenCalled()
   })
 })
