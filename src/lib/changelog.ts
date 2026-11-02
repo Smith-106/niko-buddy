@@ -15,6 +15,25 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.25.2 prerelease（2026-11-02）：同步备份 GitHub 私有仓 + 跨章缓存命中。
+    version: "2.25.2",
+    date: "2026-11-02",
+    highlights: {
+      en: [
+        "Added: GitHub private-repo sync backup with all three primitives verified against a real repository - single contents-API PUT for <=1 MiB (sha-protected), Git Data API blob->tree->commit->ref for >1 MiB, and list. Credentials live in the OS keyring bound to the device fingerprint; the token only travels in the Authorization header.",
+        "Added: per-item conflict resolution. The terminal default is always keep_both; pick_mine/pick_theirs require an explicit user action; when no base exists only keep_both is offered and the other options are disabled. Base availability is reported truthfully.",
+        "Added: cross-chapter cache hit. ContextPack gains canonRulesBase so the stable cached segment carries the project-level rules baseline while the dynamic segment carries only the chapter-scoped temporal delta - the stable prefix is now byte-identical across chapters, which is what upstream prefix caching requires.",
+        "Added: three separated cache-hit accounting layers - theoretical (byte-level longest common prefix), simulated (explicitly simulated: true) and live-measured (produced only from a real upstream usage read; left empty when unmeasured, never backfilled with derived values).",
+      ],
+      zh: [
+        "新增：GitHub 私有仓同步备份三原语真机验收 —— ≤1 MiB 走 contents API 单 PUT（带 sha 并发保护），>1 MiB 走 Git Data API（blob → tree → commit → ref），以及 list 列举。凭据存系统钥匙串并按设备指纹绑定，token 只进 Authorization 头。",
+        "新增：冲突逐项决策 —— 默认终态恒为 keep_both，pick_mine / pick_theirs 需显式用户动作，无基线时只允许 keep_both（其余选项禁用），基线可得性如实上报。",
+        "新增：跨章缓存命中 —— ContextPack 新增 canonRulesBase，稳定缓存段放项目级规则基线、动态段只放本章时效增量，使稳定前缀跨章字节一致，上游前缀缓存才真正命中。",
+        "新增：缓存命中口径三层分离 —— 理论层（字节级最长公共前缀）/ 模拟层（显式 simulated: true）/ 线上实测层（只由真读上游 usage 产生，未测即为空，绝不用推演值顶替）。",
+      ],
+    },
+  },
+  {
     // 2.25.1 prerelease（2026-11-01）：统一状态仪表盘 + 主控大屏 P1 转译拓扑。
     version: "2.25.1",
     date: "2026-11-01",
