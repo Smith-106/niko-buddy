@@ -91,7 +91,7 @@
   "specOnly": 264,
   "barrelOnly": 2,
   "edges": 4557,
-  "loc": 284771
+  "loc": 284846
  },
  "modules": [
   {
@@ -5038,7 +5038,7 @@
   {
    "p": "src/components/settings/sections/external-control-section.tsx",
    "s": 16,
-   "l": 432,
+   "l": 497,
    "r": true,
    "o": false,
    "x": false,
@@ -8664,7 +8664,7 @@
   {
    "p": "src/lib/mcp/draft-actions.ts",
    "s": 18,
-   "l": 107,
+   "l": 108,
    "r": true,
    "o": false,
    "x": false,
@@ -8764,7 +8764,7 @@
   {
    "p": "src/lib/mcp/state-bridge.ts",
    "s": 18,
-   "l": 461,
+   "l": 470,
    "r": true,
    "o": false,
    "x": false,
