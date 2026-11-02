@@ -2101,7 +2101,11 @@
         "scopeSettings": "Read + settings",
         "scopeSettingsHint": "Also allows settings.set. Every write is appended to the project audit log and cannot be turned off.",
         "scopeProject": "Read + project actions",
-        "scopeProjectHint": "Also allows chapter.write, memory.write, pipeline.run_chapter and gate.run. Output only ever lands in the draft area."
+        "scopeProjectHint": "Also allows chapter.write, memory.write, pipeline.run_chapter and gate.run. Output only ever lands in the draft area.",
+        "grantFull": "Grant full write",
+        "revokeFull": "Revoke full write",
+        "fullGranted": "Full write",
+        "fullNote": "Full write (direct edits to formal chapters and memory) is never granted at startup. Grant it per session below, and revoke it any time."
       }
     },
     "feedback": {

@@ -37,7 +37,7 @@
  * P2 的四个 op 分两类，都只是**转发**：
  * - `pipeline-start` / `pipeline-status`：长任务登记（`pipeline-tasks.ts`）。前者立刻
  *   返回 taskId 不等待——深章管线跑几分钟，同步等必然撞上 15s 超时。
- * - `draft-write` / `memory-draft-write`：写草稿（`draft-actions.ts`）。正式正文与
+ * - `draft-write`：写章节草稿（`draft-actions.ts`）。正式正文与
  *   正式记忆一律不在此落盘，Draft-first 边界不因调用方是外部 Agent 而放松。
  */
 
@@ -56,7 +56,7 @@ import {
   isBridgeAllowedKey,
 } from "./settings-catalog"
 import { SettingsValidationError, getWriter, validateValue } from "./settings-writers"
-import { writeChapterDraft, writeMemoryDraft } from "./draft-actions"
+import { resolveFormalPath, writeChapterDraft } from "./draft-actions"
 import { getPipelineTask, startPipelineTask } from "./pipeline-tasks"
 
 /** Rust → WebView 的请求事件名（与 Rust 侧 `state_bridge::REQUEST_EVENT` 必须一致）。 */
@@ -77,7 +77,7 @@ export type StateOp =
   | "pipeline-start"
   | "pipeline-status"
   | "draft-write"
-  | "memory-draft-write"
+  | "formal-path"
 
 export interface StateRequestPayload {
   id: string
@@ -129,8 +129,14 @@ export interface StateBridgeDeps {
   readPipeline: (taskId: string) => unknown
   /** 写章节草稿（Draft-first）。 */
   writeChapterDraft: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
-  /** 写记忆草稿（Draft-first）。 */
-  writeMemoryDraft: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  /**
+   * 把「章节名 / 记忆名」解析成正式文件的**虚拟路径**。
+   *
+   * 只解析路径，不写文件：P3 的直写由 Rust 侧统一做（快照 → 写 → 审计），但
+   * 「正式章节落在哪」这个知识只能有一份，它在前端（`formalChapterPathForDraft`
+   * 与 `wiki/memory`）。Rust 再把它映射成物理路径，映射规则也只有一份。
+   */
+  resolveFormalPath: (projectPath: string, params: Record<string, unknown>) => unknown
 }
 
 const defaultDeps: StateBridgeDeps = {
@@ -147,7 +153,7 @@ const defaultDeps: StateBridgeDeps = {
   startPipeline: (params) => startPipelineTask(params),
   readPipeline: (taskId) => getPipelineTask(taskId),
   writeChapterDraft: (projectPath, params) => writeChapterDraft(projectPath, params),
-  writeMemoryDraft: (projectPath, params) => writeMemoryDraft(projectPath, params),
+  resolveFormalPath: (projectPath, params) => resolveFormalPath(projectPath, params),
   writeSetting: (key, value) => {
     const writer = getWriter(key)
     if (!writer) {
@@ -419,10 +425,13 @@ export async function handleStateRequest(
         return { ok: true, value: result }
       }
 
-      case "memory-draft-write": {
+      case "formal-path": {
         const projectPath = requireProjectPath(deps)
-        const result = await deps.writeMemoryDraft(projectPath, payload.params ?? {})
-        return { ok: true, value: result }
+        const kind = payload.params?.kind
+        if (kind !== "chapter" && kind !== "memory") {
+          return { ok: false, error: "op=formal-path 需要 params.kind = chapter | memory" }
+        }
+        return { ok: true, value: deps.resolveFormalPath(projectPath, payload.params ?? {}) }
       }
 
       default:

@@ -1,34 +1,27 @@
 /**
- * MCP 草稿写入动作（方案 `d23eb1df` P2）。
+ * MCP 写入动作：章节草稿（P2）+ 正式路径解析（P3）。
  *
- * ## 为什么两个写动作都只写草稿
+ * ## 分工
  *
- * 硬边界「Draft-first」：AI 输出先进草稿，accept 后才回填正式正文与正式记忆。
- * MCP 这条路上没有"用户点确认"的时机，所以**只能**产出草稿——把确认权留给应用
- * 界面。任何在这里直接写正式章节/正式记忆的实现都是越界，无论调用方多想要。
+ * - **章节**：`chapter.write` 写草稿（复用既有 `writeDraft`，落 `.qm-drafts/`，
+ *   由 `chapter-draft-dock` 呈现并可 accept）；`chapter.write_direct` 直写正式正文。
+ * - **记忆**：`memory.write` 直写正式记忆。
+ * - **本文件只负责"草稿怎么写"与"正式文件落在哪"**；直写本身由 Rust 侧统一执行
+ *   （快照 → 写 → 审计 → 可回滚），因为只有那一层能保证三者成对出现。
  *
- * 因此：
- * - `chapter.write` → 复用既有 `writeDraft`（与主控 Agent 的 `write_chapter`
- *   draftMode 同一入口），落在 `.qm-drafts/`，由 `chapter-draft-dock` 呈现并可
- *   accept。这条路是通的。
- * - `memory.write` → **当前明确拒绝**，理由见下。
+ * ## 为什么直写不违反 Draft-first
  *
- * ## 为什么 memory.write 拒绝而不是"写到一个草稿目录"
+ * 硬边界原文是「AI 输出先进草稿，accept 后才回填正式正文与正式记忆」。P3 按批准
+ * 方案把它修订为「外部直写必须**留痕且可回滚**」：Draft-first 从强制拦截降级为
+ * **默认模式**，直写需要用户逐会话授予 `full` 权限，代价是每次直写都留快照与审计。
+ * 也就是说这里不再有"没有确认入口就无处安放"的问题——直写本身就是被批准的那条路。
  *
- * 第一版把记忆草稿写进 `.novel/drafts/memory/`，看着符合 Draft-first。但真机验收
- * 追查「产物可在应用界面看到」时发现：应用里**没有任何界面读那个目录**——
- * `list_memories` 只列 `QM/memory/*.md`，也没有全局待确认队列。也就是说写进去的
- * 东西用户永远看不到、也无法 accept。
- *
- * 一个没人能审阅的"草稿"不是草稿，是静默丢弃。宁可拒绝并说清原因，也不要产出
- * 看不见的数据——后者会让调用方以为交付了记忆。
- *
- * 启用条件（任一满足即可放开）：应用出现记忆草稿收件箱；或写入权威矩阵放宽为
- * 「Draft-first 是默认、带强制审计可写正式记忆」（见 `#272`）。
+ * 参考：`src-tauri/src/canon/write_authority.rs` 的 C-002 修订与
+ * `src-tauri/src/mcp_server/writes.rs` 的快照实现。
  */
 
 import { normalizePath } from "@/lib/path-utils"
-import { DRAFTS_DIR, writeDraft } from "@/lib/novel"
+import { DRAFTS_DIR, formalChapterPathForDraft, writeDraft } from "@/lib/novel"
 import type { ChapterDraft } from "@/lib/novel"
 
 export interface ChapterDraftResult {
@@ -40,18 +33,6 @@ export interface ChapterDraftResult {
   /** 落盘位置说明，让调用方明白这不是正式章节。 */
   note: string
 }
-
-export interface MemoryDraftResult {
-  name: string
-  path: string
-  chars: number
-  note: string
-}
-
-/** 记忆写入被拒的统一原因（前端与工具描述共用同一套说法）。 */
-export const MEMORY_WRITE_REFUSAL =
-  "记忆写入暂不支持：应用里没有记忆草稿的审阅/确认入口，MCP 写入要么直接改正式记忆（违反 Draft-first），要么落在一个没人看得到的目录（等于静默丢弃）。请让用户在应用界面里写入记忆。启用条件见方案 #272。";
-
 
 function requireText(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim() === "") {
@@ -93,14 +74,34 @@ export async function writeChapterDraft(
 }
 
 /**
- * 记忆写入：当前**明确拒绝**（原因见文件头与 [`MEMORY_WRITE_REFUSAL`]）。
+ * 解析「章节名 / 记忆名」对应的正式文件虚拟路径。
  *
- * 保留函数与工具注册是为了给调用方一个说清原因的答复，而不是让它对着
- * "unknown tool" 猜。启用条件满足后在这里换成真实实现即可，工具契约不变。
+ * 只解析、不写入。两件事必须分开：路径知识只有一份（在前端），写入纪律只有一份
+ * （在 Rust 的 `direct_write`）。把两者塞进一处，就会有一边悄悄漂移——P2 已经踩过
+ * 一次（手拼 `.novel/drafts/` 而实际落 `.qm-drafts/`，调用方拿到不存在的路径）。
+ *
+ * 返回的是**虚拟路径**（`wiki/...`），由 Rust 的 `resolve_project_storage_path`
+ * 映射成物理路径（`QM/...`）。前端不在这里做映射，Rust 不在这里做命名。
  */
-export async function writeMemoryDraft(
-  _projectPath: string,
-  _params: { name?: unknown; content?: unknown },
-): Promise<MemoryDraftResult> {
-  throw new Error(MEMORY_WRITE_REFUSAL)
+export function resolveFormalPath(
+  projectPath: string,
+  params: { kind?: unknown; name?: unknown },
+): { kind: string; path: string } {
+  const kind = requireText(params.kind, "kind")
+  const name = requireText(params.name, "name")
+
+  if (kind === "chapter") {
+    // 复用既有的正式章路径规则（与草稿 accept 同一条），不另写一份命名逻辑。
+    return {
+      kind,
+      path: formalChapterPathForDraft(projectPath, sanitizeName(name), null),
+    }
+  }
+  if (kind === "memory") {
+    return {
+      kind,
+      path: `${normalizePath(projectPath)}/wiki/memory/${sanitizeName(name)}.md`,
+    }
+  }
+  throw new Error(`formal-path: kind 只接受 chapter | memory，收到 ${kind}`)
 }

@@ -7,6 +7,7 @@
  * 2. token 默认掩码，点「显示」才展开；停服后不再展示旧 token
  * 3. 无会话时给空态文案，不是空白
  * 4. 写权限默认关闭，打开时必须带 `scope: "settings"` 重启（不能只改界面）
+ * 5. `full` 不能在启动时授予；逐会话授权/吊销必须真的调后端命令（P3）
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
@@ -175,6 +176,107 @@ describe("ExternalControlSection", () => {
     render(<ExternalControlSection />)
     await waitFor(() => {
       expect(screen.getByTestId("external-control-error")).toHaveTextContent("boom")
+    })
+  })
+
+  it("启动档位里没有 full，并明确说明 full 要逐会话授权", async () => {
+    invokeMock.mockResolvedValue(RUNNING_STATUS)
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-full-note")).toBeInTheDocument()
+    })
+    // 三档按钮仍只有 read / settings / project —— full 不是可选的启动档。
+    expect(screen.getByTestId("external-control-scope-read")).toBeInTheDocument()
+    expect(screen.getByTestId("external-control-scope-settings")).toBeInTheDocument()
+    expect(screen.getByTestId("external-control-scope-project")).toBeInTheDocument()
+    expect(screen.queryByTestId("external-control-scope-full")).toBeNull()
+  })
+
+  it("逐会话授予完整写入：调 grant 命令并刷新，不重启服务", async () => {
+    const withSession = {
+      ...RUNNING_STATUS,
+      sessions: [
+        {
+          id: "11112222-3333-4444-5555-666677778888",
+          scope: "project",
+          connected_at: 1,
+          last_call_at: 2,
+          calls: 3,
+          full_granted: false,
+        },
+      ],
+    }
+    invokeMock.mockResolvedValueOnce(withSession) // 首次 status
+    invokeMock.mockResolvedValueOnce(undefined) // grant
+    invokeMock.mockResolvedValueOnce(withSession) // refresh
+    render(<ExternalControlSection />)
+
+    const toggle = await screen.findByTestId("external-control-session-full-toggle")
+    expect(toggle).toHaveAttribute("aria-pressed", "false")
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("mcp_session_grant_full", {
+        sessionId: "11112222-3333-4444-5555-666677778888",
+      })
+    })
+    // 授权是会话级动作，不得因此重启监听（重启会踢掉正在工作的客户端）。
+    expect(invokeMock).not.toHaveBeenCalledWith("mcp_server_start", expect.anything())
+    expect(invokeMock).not.toHaveBeenCalledWith("mcp_server_stop")
+  })
+
+  it("已授权的会话显示徽标，按钮改为吊销并调 revoke 命令", async () => {
+    const granted = {
+      ...RUNNING_STATUS,
+      sessions: [
+        {
+          id: "aaaabbbb-cccc-dddd-eeee-ffff00001111",
+          scope: "project",
+          connected_at: 1,
+          last_call_at: 2,
+          calls: 1,
+          full_granted: true,
+        },
+      ],
+    }
+    invokeMock.mockResolvedValueOnce(granted)
+    invokeMock.mockResolvedValueOnce(undefined)
+    invokeMock.mockResolvedValueOnce(granted)
+    render(<ExternalControlSection />)
+
+    await screen.findByTestId("external-control-session-full-badge")
+    const toggle = screen.getByTestId("external-control-session-full-toggle")
+    expect(toggle).toHaveAttribute("aria-pressed", "true")
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("mcp_session_revoke_full", {
+        sessionId: "aaaabbbb-cccc-dddd-eeee-ffff00001111",
+      })
+    })
+  })
+
+  it("授权失败时把错误显示出来，不静默", async () => {
+    const withSession = {
+      ...RUNNING_STATUS,
+      sessions: [
+        {
+          id: "dead0000-0000-0000-0000-000000000000",
+          scope: "project",
+          connected_at: 1,
+          last_call_at: 2,
+          calls: 0,
+          full_granted: false,
+        },
+      ],
+    }
+    invokeMock.mockResolvedValueOnce(withSession)
+    invokeMock.mockRejectedValueOnce(new Error("没有这个会话"))
+    render(<ExternalControlSection />)
+
+    fireEvent.click(await screen.findByTestId("external-control-session-full-toggle"))
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-error")).toHaveTextContent("没有这个会话")
     })
   })
 })

@@ -22,11 +22,14 @@ vi.mock("@/lib/novel", () => ({
   writeDraft,
   // 故意给一个和 `.novel/drafts` 不同的值：如果实现里手拼路径，下面就会挂。
   DRAFTS_DIR: ".qm-drafts",
+  // 这里只验"是否委托给了应用自己的正式章路径规则"，规则本身由
+  // draft-manager 的 spec 负责。所以 mock 出一个能区分委托与否的实现即可。
+  formalChapterPathForDraft: (pp: string, name: string) => `${pp}/wiki/chapters/${name}.md`,
 }))
 
 vi.mock("@/commands/fs", () => fsMocks)
 
-import { writeChapterDraft, writeMemoryDraft } from "./draft-actions"
+import { resolveFormalPath, writeChapterDraft } from "./draft-actions"
 
 beforeEach(() => {
   writeDraft.mockReset()
@@ -68,16 +71,32 @@ describe("writeChapterDraft", () => {
   })
 })
 
-describe("writeMemoryDraft（当前明确拒绝）", () => {
-  it("拒绝并说明原因：没有界面能审阅记忆草稿", async () => {
-    await expect(writeMemoryDraft("/proj", { name: "设定", content: "内容" })).rejects.toThrow(
-      /没有记忆草稿的审阅/,
-    )
+describe("resolveFormalPath", () => {
+  it("章节走既有正式章路径规则，记忆落 wiki/memory", () => {
+    expect(resolveFormalPath("/proj", { kind: "chapter", name: "第一章" })).toEqual({
+      kind: "chapter",
+      path: "/proj/wiki/chapters/第一章.md",
+    })
+    expect(resolveFormalPath("/proj", { kind: "memory", name: "设定" })).toEqual({
+      kind: "memory",
+      path: "/proj/wiki/memory/设定.md",
+    })
   })
 
-  it("拒绝时不留任何文件（不静默丢弃）", async () => {
-    await expect(writeMemoryDraft("/proj", { name: "设定", content: "内容" })).rejects.toThrow()
-    expect(fsMocks.writeFile).not.toHaveBeenCalled()
-    expect(fsMocks.createDirectory).not.toHaveBeenCalled()
+  it("未知 kind 直接拒绝，不猜成章节", () => {
+    expect(() => resolveFormalPath("/proj", { kind: "outline", name: "x" })).toThrow(/kind/)
+    expect(() => resolveFormalPath("/proj", { name: "x" })).toThrow(/kind/)
+  })
+
+  it("缺名字拒绝", () => {
+    expect(() => resolveFormalPath("/proj", { kind: "chapter" })).toThrow(/name/)
+  })
+
+  it("名字里的路径分隔符被清洗，路径不逃出正式目录", () => {
+    for (const name of ["../逃逸", "a/b", "..\\\\x"]) {
+      const out = resolveFormalPath("/proj", { kind: "memory", name })
+      expect(out.path.startsWith("/proj/wiki/memory/")).toBe(true)
+      expect(out.path).not.toContain("/../")
+    }
   })
 })

@@ -16,6 +16,8 @@ interface McpSession {
   connected_at: number
   last_call_at: number
   calls: number
+  /** 是否被用户逐会话授予了完整写入（full）。 */
+  full_granted: boolean
 }
 
 /**
@@ -47,7 +49,7 @@ const SCOPES: { value: McpScope; labelKey: string; fallback: string; hintKey: st
     fallback: "Read + project actions",
     hintKey: "settings.sections.externalControl.scopeProjectHint",
     hintFallback:
-      "Also allows chapter.write, memory.write, pipeline.run_chapter and gate.run. Output only ever lands in the draft area.",
+      "Also allows chapter.write, pipeline.run_chapter and gate.run. Output only ever lands in the draft area.",
   },
 ]
 
@@ -99,6 +101,31 @@ export function ExternalControlSection() {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  /**
+   * 逐会话授予 / 吊销完整写入（`full`）。
+   *
+   * 授权落在**会话**上而不是服务端：用户点这一下时心里想的是"让屏幕上这个客户端
+   * 能写"，不是"给未来所有连上来的客户端开门"。所以界面上每个会话各有一个按钮。
+   */
+  const toggleFull = useCallback(
+    async (sessionId: string, grant: boolean) => {
+      setBusy(true)
+      setError(null)
+      try {
+        await invoke(
+          grant ? "mcp_session_grant_full" : "mcp_session_revoke_full",
+          { sessionId },
+        )
+        await refresh()
+      } catch (e) {
+        setError(toErrorMessage(e))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [refresh],
+  )
 
   const toggle = useCallback(
     async (next: boolean) => {
@@ -279,6 +306,15 @@ export function ExternalControlSection() {
             )
           })}
         </div>
+        <p
+          className="text-xs text-muted-foreground"
+          data-testid="external-control-full-note"
+        >
+          {t("settings.sections.externalControl.fullNote", {
+            defaultValue:
+              "Full write (direct edits to formal chapters and memory) is never granted at startup. Grant it per session below, and revoke it any time.",
+          })}
+        </p>
       </div>
 
       {error ? (
@@ -407,11 +443,21 @@ export function ExternalControlSection() {
             {sessions.map((session) => (
               <li
                 key={session.id}
-                className="flex items-center justify-between gap-3 px-3 py-2 text-xs"
+                className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-xs"
                 data-testid="external-control-session-row"
               >
                 <code className="truncate font-mono">{session.id.slice(0, 8)}</code>
                 <span className="text-muted-foreground">{session.scope}</span>
+                {session.full_granted ? (
+                  <span
+                    className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-400"
+                    data-testid="external-control-session-full-badge"
+                  >
+                    {t("settings.sections.externalControl.fullGranted", {
+                      defaultValue: "Full write",
+                    })}
+                  </span>
+                ) : null}
                 <span className="text-muted-foreground">
                   {new Date(session.connected_at).toLocaleTimeString()}
                 </span>
@@ -421,6 +467,25 @@ export function ExternalControlSection() {
                     count: session.calls,
                   })}
                 </span>
+                <Button
+                  variant={session.full_granted ? "outline" : "secondary"}
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  data-testid="external-control-session-full-toggle"
+                  aria-pressed={session.full_granted}
+                  disabled={busy}
+                  onClick={() =>
+                    void toggleFull(session.id, !session.full_granted)
+                  }
+                >
+                  {session.full_granted
+                    ? t("settings.sections.externalControl.revokeFull", {
+                        defaultValue: "Revoke full write",
+                      })
+                    : t("settings.sections.externalControl.grantFull", {
+                        defaultValue: "Grant full write",
+                      })}
+                </Button>
               </li>
             ))}
           </ul>

@@ -1466,7 +1466,11 @@
         "scopeSettings": "只读 + 改设置",
         "scopeSettingsHint": "额外允许 settings.set。每次写入都会追加到项目审计日志，不可关闭。",
         "scopeProject": "只读 + 项目动作",
-        "scopeProjectHint": "额外允许 chapter.write / memory.write / pipeline.run_chapter / gate.run。产出只会进草稿区，不会直接改正式正文或正式记忆。"
+        "scopeProjectHint": "额外允许 chapter.write / memory.write / pipeline.run_chapter / gate.run。产出只会进草稿区，不会直接改正式正文或正式记忆。",
+        "grantFull": "授予完整写入",
+        "revokeFull": "吊销完整写入",
+        "fullGranted": "完整写入",
+        "fullNote": "完整写入（直改正式正文与正式记忆）不会在启动时授予。请在下方对具体会话单独授权，随时可吊销。"
       }
     },
     "llm": "模型",

@@ -65,7 +65,7 @@ function deps(overrides: Partial<StateBridgeDeps> = {}): StateBridgeDeps {
     startPipeline: () => ({ ok: false, error: "测试未注入 startPipeline" }),
     readPipeline: () => null,
     writeChapterDraft: async () => ({ draftId: "draft_test", chapterName: "x", path: "/proj/d.md", chars: 1 }),
-    writeMemoryDraft: async () => ({ name: "m", path: "/proj/m.md", chars: 1 }),
+    resolveFormalPath: () => ({ kind: "chapter", path: "/proj/wiki/chapters/x.md" }),
     ...overrides,
   }
 }
@@ -353,20 +353,32 @@ describe("handleStateRequest — 项目动作（P2）", () => {
     })
   })
 
-  it("memory-draft-write 同样要求项目并转发", async () => {
+  it("formal-path 要求项目，并把 kind 与名字原样转给解析器", async () => {
     const missing = await handleStateRequest(
-      request({ op: "memory-draft-write", params: { name: "设定", content: "内容" } }),
+      request({ op: "formal-path", params: { kind: "chapter", name: "第一章" } }),
       deps({ readProjectPath: () => "" }),
     )
     expect(missing.ok).toBe(false)
 
-    const writeMemoryDraft = vi.fn(async () => ({ name: "设定", path: "/proj/m.md" }))
+    const resolveFormalPath = vi.fn(() => ({ kind: "chapter", path: "/proj/wiki/chapters/第一章.md" }))
     const res = await handleStateRequest(
-      request({ op: "memory-draft-write", params: { name: "设定", content: "内容" } }),
-      deps({ writeMemoryDraft }),
+      request({ op: "formal-path", params: { kind: "chapter", name: "第一章" } }),
+      deps({ resolveFormalPath }),
     )
     expect(res.ok).toBe(true)
-    expect(writeMemoryDraft).toHaveBeenCalledWith("/proj", { name: "设定", content: "内容" })
+    expect(resolveFormalPath).toHaveBeenCalledWith("/proj", { kind: "chapter", name: "第一章" })
+  })
+
+  it("formal-path 拒绝未知 kind（不猜成章节）", async () => {
+    const resolveFormalPath = vi.fn()
+    for (const kind of ["", "outline", "memory2", 1]) {
+      const res = await handleStateRequest(
+        request({ op: "formal-path", params: { kind, name: "x" } }),
+        deps({ resolveFormalPath }),
+      )
+      expect(res.ok).toBe(false)
+    }
+    expect(resolveFormalPath).not.toHaveBeenCalled()
   })
 
   it("草稿写入器抛错时转成 error 响应，不伪装成成功", async () => {
