@@ -4342,7 +4342,11 @@
     "nowStepSupport": "Now {{stage}} (support lane) · {{calls}} calls this step · previous: {{prev}}",
     "nowStepOrigin": "start",
     "lightUp": "Run once from Main Control to light it up",
-    "logEmpty": "No calls yet — run an incubation, cruise, or stage advance"
+    "logEmpty": "No calls yet — run an incubation, cruise, or stage advance",
+    "legendUnwired": "Dashed = unwired",
+    "legendErrorDot": "Red dot = call failed",
+    "laneHidden": "+{{count}} more hidden",
+    "laneHiddenHint": "{{count}} modules in this lane are not shown (raise the limit or search to locate them)"
   },
   "pipelineMotion": {
     "routeLegend": "Writing routes",

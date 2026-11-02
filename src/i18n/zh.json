@@ -4342,7 +4342,11 @@
     "nowStepSupport": "当前 {{stage}}（支撑泳道）· 本步调用 {{calls}} 次 · 上一步 {{prev}}",
     "nowStepOrigin": "起点",
     "lightUp": "去主控跑一次点亮这张图",
-    "logEmpty": "尚无调用记录——跑一次孵化、巡航或推进阶段即可点亮"
+    "logEmpty": "尚无调用记录——跑一次孵化、巡航或推进阶段即可点亮",
+    "legendUnwired": "虚线=未接线",
+    "legendErrorDot": "红点=调用出错",
+    "laneHidden": "另有 {{count}} 个未显示",
+    "laneHiddenHint": "本泳道共 {{count}} 个模块未在当前列表显示（提高模块上限或搜索定位）"
   },
   "pipelineMotion": {
     "routeLegend": "写作路线",

@@ -520,7 +520,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
         <svg
           data-testid="motion-diagram"
           viewBox="0 0 1100 680"
-          className="mx-auto block w-full min-w-[640px]"
+          className="mx-auto block w-full min-w-[1000px] max-w-[1100px]"
           role="img"
           aria-label="写作管线动态图"
         >
@@ -560,7 +560,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
             return (
               <g key={`badge-${edge.from}-${edge.to}`}>
                 <circle cx={x} cy={(a.y + nodeXY(edge.to).y) / 2} r="9" fill="#7f1d1d" stroke="#f87171" strokeWidth="1" />
-                <text x={x} y={(a.y + nodeXY(edge.to).y) / 2 + 4} textAnchor="middle" fontSize="11" fill="#fecaca">
+                <text x={x} y={(a.y + nodeXY(edge.to).y) / 2 + 4} textAnchor="middle" fontSize="12" fill="#fecaca">
                   {n}
                 </text>
               </g>
@@ -586,7 +586,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
               strokeDasharray="5 4"
               opacity={0.7}
             />
-            <text x={540} y={96} textAnchor="middle" fontSize="11" fill="#f59e0b">
+            <text x={540} y={96} textAnchor="middle" fontSize="12" fill="#f59e0b">
               B桩·参考仿写（显式ID才走）
             </text>
           </g>
@@ -600,7 +600,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
               strokeDasharray="5 4"
               opacity={0.7}
             />
-            <text x={500} y={184} textAnchor="middle" fontSize="11" fill="#f59e0b">
+            <text x={500} y={184} textAnchor="middle" fontSize="12" fill="#f59e0b">
               C桩·碎片拼装入口
             </text>
           </g>
@@ -614,7 +614,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
               strokeDasharray="5 4"
               opacity={0.7}
             />
-            <text x={364} y={222} textAnchor="middle" fontSize="11" fill="#f59e0b">
+            <text x={364} y={222} textAnchor="middle" fontSize="12" fill="#f59e0b">
               D桩·场景分镜
             </text>
           </g>
@@ -622,7 +622,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
           {MORPH_BRANCHES.map((branch, i) => (
             <g key={branch.id} data-testid={`motion-branch-${branch.id}`}>
               <rect x={262 + i * 130} y={652} width={120} height={20} rx={10} fill="#0f172a" stroke="#334155" strokeWidth={1} />
-              <text x={322 + i * 130} y={666} textAnchor="middle" fontSize="11" fill="#94a3b8">
+              <text x={322 + i * 130} y={666} textAnchor="middle" fontSize="12" fill="#94a3b8">
                 {t(branch.i18nKey)}
               </text>
             </g>
@@ -647,7 +647,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
                 {REVIEW_DIMS.map((dim, i) => (
                   <g key={dim}>
                     <rect x={221 + i * 62} y={371} width={56} height={20} rx={10} fill="#0f172a" stroke={stroke} strokeWidth={1} />
-                    <text x={249 + i * 62} y={385} textAnchor="middle" fontSize="11" fill={fill}>
+                    <text x={249 + i * 62} y={385} textAnchor="middle" fontSize="12" fill={fill}>
                       {dim}
                     </text>
                   </g>
@@ -677,7 +677,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
                     <animateMotion dur="1.6s" repeatCount="indefinite" path={d} />
                   </circle>
                 ) : null}
-                <text x={1052} y={330} fontSize="11" fill={stroke} transform="rotate(90 1052,330)" textAnchor="middle">
+                <text x={1052} y={330} fontSize="12" fill={stroke} transform="rotate(90 1052,330)" textAnchor="middle">
                   记忆回流
                 </text>
               </g>

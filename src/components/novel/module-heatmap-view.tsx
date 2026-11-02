@@ -212,9 +212,9 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
   }, [])
 
   const filter = query.trim().toLowerCase()
-  const nodesOf = (stageId: string): ModuleAtlasEntry[] => {
-    const limit = showSupport ? EXPANDED_NODE_LIMIT : MAIN_NODE_LIMIT
-    return (modulesByLane.get(stageId) ?? [])
+  /** 泳道内全量候选（已过滤 + 按热度/体量排序，未截断）。 */
+  const laneModules = (stageId: string): ModuleAtlasEntry[] =>
+    (modulesByLane.get(stageId) ?? [])
       .filter((entry) => (filter ? entry.p.toLowerCase().includes(filter) : true))
       .sort((a, b) => {
         const ah = heat.get(a.p)?.count ?? 0
@@ -222,8 +222,8 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
         if (ah !== bh) return bh - ah
         return b.l - a.l
       })
-      .slice(0, limit)
-  }
+  const nodeLimit = showSupport ? EXPANDED_NODE_LIMIT : MAIN_NODE_LIMIT
+  const nodesOf = (stageId: string): ModuleAtlasEntry[] => laneModules(stageId).slice(0, nodeLimit)
 
   const renderLane = (stageId: string) => {
     const stage = MODULE_ATLAS.stages.find((s) => s.id === stageId)
@@ -233,6 +233,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
     if (nodes.length === 0) return null
     const isActive = activeLanes.has(stageId)
     const rework = REWORK_PAIRS.some(([from]) => from === stageId)
+    const hiddenCount = Math.max(0, laneModules(stageId).length - nodes.length)
     return (
       <div
         key={stageId}
@@ -244,7 +245,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
         data-active={isActive ? "true" : "false"}
       >
         <div className="flex w-28 shrink-0 flex-col justify-center gap-1 border-r pr-2">
-          <span className={cn("text-xs font-semibold", isActive ? "text-primary" : "text-foreground")}>
+          <span className={cn("text-sm font-semibold", isActive ? "text-primary" : "text-foreground")}>
             {stage.label}
           </span>
           <span className="text-xs text-muted-foreground">
@@ -257,6 +258,15 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
           {rework ? (
             <span className="text-xs text-destructive" data-testid={`heatmap-rework-${stageId}`}>
               {t("heatmap.reworkMark")}
+            </span>
+          ) : null}
+          {hiddenCount > 0 ? (
+            <span
+              className="text-xs text-muted-foreground"
+              data-testid={`heatmap-hidden-${stageId}`}
+              title={t("heatmap.laneHiddenHint", { count: hiddenCount })}
+            >
+              {t("heatmap.laneHidden", { count: hiddenCount })}
             </span>
           ) : null}
         </div>
@@ -274,7 +284,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
                 data-testid={`heatmap-node-${moduleLabel(entry.p)}`}
                 data-unwired={unwiredFlag ? "true" : "false"}
                 className={cn(
-                  "flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs transition-colors",
+                  "flex max-w-[240px] items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs transition-colors",
                   unwiredFlag ? "border-dashed border-muted-foreground/40 text-muted-foreground" : "border-border",
                   moduleHeat ? "text-foreground" : "text-muted-foreground",
                   selected === entry.p ? "ring-1 ring-accent" : "",
@@ -288,7 +298,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
                 {moduleHeat && moduleHeat.errors > 0 ? (
                   <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
                 ) : null}
-                <span>{moduleLabel(entry.p)}</span>
+                <span className="max-w-[180px] truncate">{moduleLabel(entry.p)}</span>
                 {moduleHeat ? (
                   <span className="text-xs text-muted-foreground">{moduleHeat.count}</span>
                 ) : null}
@@ -327,6 +337,13 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
           </span>
           <span className="flex items-center gap-1">
             <span className="h-2 w-2 rounded-sm bg-muted-foreground/40" /> {t("heatmap.legendIdle")}
+          </span>
+          <span className="flex items-center gap-1" data-testid="heatmap-legend-unwired">
+            <span className="h-2 w-2 rounded-sm border border-dashed border-muted-foreground/60" />{" "}
+            {t("heatmap.legendUnwired")}
+          </span>
+          <span className="flex items-center gap-1" data-testid="heatmap-legend-error">
+            <span className="h-1.5 w-1.5 rounded-full bg-destructive" /> {t("heatmap.legendErrorDot")}
           </span>
         </div>
       </div>

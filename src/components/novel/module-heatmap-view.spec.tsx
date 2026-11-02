@@ -45,6 +45,21 @@ describe("ModuleHeatmapView", () => {
     expect(screen.getByTestId("heatmap-rework-gate")).toBeTruthy()
   })
 
+  it("芯片状态图例齐备：虚线=未接线、红点=调用出错", () => {
+    render(<ModuleHeatmapView />)
+    expect(screen.getByTestId("heatmap-legend-unwired").textContent).toContain("未接线")
+    expect(screen.getByTestId("heatmap-legend-error").textContent).toContain("出错")
+  })
+
+  it("泳道被截断时显式告知隐藏数量（不静默丢模块）", () => {
+    render(<ModuleHeatmapView />)
+    // 主链泳道单条上限 MAIN_NODE_LIMIT=12，真实 atlas 下必有泳道超出；
+    // 无此提示时用户会误以为模块就这么少。
+    const hidden = document.querySelectorAll('[data-testid^="heatmap-hidden-"]')
+    expect(hidden.length).toBeGreaterThan(0)
+    expect(hidden[0].textContent).toMatch(/\d+/)
+  })
+
   it("支撑泳道默认折叠，点击后展开", () => {
     render(<ModuleHeatmapView />)
     expect(screen.queryByTestId("heatmap-support-lanes")).toBeNull()
