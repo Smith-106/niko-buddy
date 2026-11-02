@@ -151,7 +151,7 @@ async fn handle_tools_call(
             return ok_response(
                 id,
                 tool_error(&format!(
-                    "权限不足：{name} 需要 scope=\"{}\"，当前会话是 scope=\"{}\"。                     请在设置页「外部控制」里打开写入授权并重新连接客户端。",
+                    "权限不足：{name} 需要 scope=\"{}\"，当前会话是 scope=\"{}\"。请在设置页「外部控制」里打开写入授权并重新连接客户端。",
                     required.as_str(),
                     caller.as_str()
                 )),
