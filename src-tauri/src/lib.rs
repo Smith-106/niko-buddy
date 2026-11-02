@@ -165,6 +165,8 @@ pub fn run() {
             app.manage(status_watcher::StatusWatcherState::default());
             // 对外 MCP 控制面句柄：默认未启动，由设置页「外部控制」开关显式开启。
             app.manage(mcp_server::McpServerHandle::default());
+            // MCP 控制面的 Rust⇄WebView 状态桥（待决请求表）。
+            app.manage(mcp_server::state_bridge::StateBridgeState::new());
             // P1-IMP-10：启动向量对账在后台执行，绝不阻塞窗口创建（tokio::spawn
             // 同一运行时；setup 完成后即返回）。setup 阶段 Rust 侧没有任何项目
             // 清单 —— 项目路径与 expected chunk 清单均由前端驱动 —— 因此后台
@@ -204,6 +206,7 @@ pub fn run() {
             mcp_server::mcp_server_status,
             mcp_server::mcp_server_token,
             mcp_server::mcp_server_rotate_token,
+            mcp_server::state_bridge::mcp_state_respond,
             batch_replace::api::batch_replace_preview,
             pdf_export::api::export_pdf,
             batch_replace::api::batch_replace_apply,
