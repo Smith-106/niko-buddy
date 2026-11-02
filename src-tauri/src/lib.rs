@@ -157,6 +157,8 @@ pub fn run() {
             app.manage(commands::mcp_stdio::McpStdioState::default());
             app.manage(commands::cursor_cli::CursorProxyState::default());
             app.manage(commands::file_sync::FileSyncState::default());
+            // G2a：手动 / 后台调度器状态（间隔触发 push/pull；全局开关关闭即停机）。
+            app.manage(commands::sync_scheduler::SyncSchedulerState::default());
             // 架构-1：{project}/.novel/status.json 独立监听器（novel-status-changed 事件）。
             app.manage(status_watcher::StatusWatcherState::default());
             // P1-IMP-10：启动向量对账在后台执行，绝不阻塞窗口创建（tokio::spawn
@@ -233,11 +235,19 @@ pub fn run() {
             commands::skill_bundle::skill_bundle_verify,
             commands::skill_bundle::skill_bundle_import,
             commands::sync_target::sync_configure,
+            commands::sync_target::sync_config_read,
             commands::sync_target::sync_test,
             commands::sync_target::sync_status,
             commands::sync_target::sync_push,
             commands::sync_target::sync_pull,
             commands::sync_target::sync_conflicts,
+            // G2b：批次明细 + 双改逐项 pick-and-apply（含 base 语义）。
+            commands::sync_target::sync_batches,
+            commands::sync_target::sync_apply_per_item_decision,
+            commands::sync_scheduler::sync_scheduler_start,
+            commands::sync_scheduler::sync_scheduler_stop,
+            commands::sync_scheduler::sync_scheduler_status,
+            commands::sync_scheduler::sync_now,
             commands::project::create_project,
             commands::project::open_project,
             commands::project::open_project_folder,

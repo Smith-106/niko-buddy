@@ -313,7 +313,24 @@ describe("response wire→domain mapping", () => {
       blockCount: 5,
       totalBytes: 8192,
       remotePrefix: "demo/rev-8",
+      // 老后端不返回 unchanged → 一律 false（不把「不知道」当成「没变」）。
+      unchanged: false,
     })
+  })
+
+  it("sync_push：unchanged=true 时原样映射（内容未变 → 未产生新版本）", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      manifest_id: "m-2",
+      revision: 8,
+      content_hash: "a".repeat(64),
+      block_count: 5,
+      total_bytes: 0,
+      remote_prefix: "demo/rev-8",
+      unchanged: true,
+    })
+    const result = await pushCloudBackup("C:/proj", "C:/proj/out.zip", "dev-1")
+    expect(result.unchanged).toBe(true)
+    expect(result.revision).toBe(8)
   })
 
   it("sync_pull：remote_revision/snapshot_dir/conflict_path 映射（含可选字段）", async () => {

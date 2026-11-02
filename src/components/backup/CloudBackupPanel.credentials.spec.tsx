@@ -109,6 +109,42 @@ describe("CloudBackupPanel 凭据链（B3）", () => {
     expect(screen.getByText("backup.cloud.credentialClear")).toBeTruthy()
   })
 
+  it("GitHub 目标首次配置：凭据写入固定 github 域（不是 webdav 回落）", async () => {
+    // F-001 回归：GitHub 目标 credentialRef 为空时，旧实现会回落到 nb:webdav:<account>，
+    // 随后被 Rust 配置期硬门拒收（github credentialRef must start with nb:github:）。
+    mocks.cloudBackupStatus.mockResolvedValue({ ...STATUS, endpoint: "github", credentialRef: "" })
+    mocks.secretPut.mockResolvedValue("nb:github:mybook")
+    renderPanel()
+    await flushAsync()
+
+    const secretInput = screen.getByPlaceholderText("user:password") as HTMLInputElement
+    fireEvent.change(secretInput, { target: { value: "ghp_not-a-real-token" } })
+    fireEvent.click(screen.getByText("backup.cloud.credentialSave"))
+    await flushAsync()
+
+    expect(mocks.secretPut).toHaveBeenCalledWith("github", "mybook", "ghp_not-a-real-token")
+    const refInput = screen.getByPlaceholderText("nb:github:account") as HTMLInputElement
+    expect(refInput.value).toBe("nb:github:mybook")
+  })
+
+  it("GitHub 目标轮换凭据：复用 nb:github 引用里的 account", async () => {
+    mocks.cloudBackupStatus.mockResolvedValue({
+      ...STATUS,
+      endpoint: "github",
+      credentialRef: "nb:github:proj-42",
+    })
+    mocks.secretPut.mockResolvedValue("nb:github:proj-42")
+    renderPanel()
+    await flushAsync()
+
+    const secretInput = screen.getByPlaceholderText("user:password") as HTMLInputElement
+    fireEvent.change(secretInput, { target: { value: "rotate-token" } })
+    fireEvent.click(screen.getByText("backup.cloud.credentialSave"))
+    await flushAsync()
+
+    expect(mocks.secretPut).toHaveBeenCalledWith("github", "proj-42", "rotate-token")
+  })
+
   it("已有引用时轮换凭据：复用引用中的 domain/account", async () => {
     mocks.cloudBackupStatus.mockResolvedValue({ ...STATUS, credentialRef: "nb:webdav:proj-42" })
     renderPanel()

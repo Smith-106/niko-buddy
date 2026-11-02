@@ -1,9 +1,9 @@
 # Tauri 命令参考（自动生成）
 
-> 生成时间：2026-10-24（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
-> 注册数：**116**（`generate_handler!` 块）；未注册声明（死命令）：**0**
+> 生成时间：2026-11-01（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
+> 注册数：**123**（`generate_handler!` 块）；未注册声明（死命令）：**0**
 
-## 注册命令（116）
+## 注册命令（123）
 
 | 命令 | 模块 | 注册 |
 |------|------|------|
@@ -109,6 +109,13 @@
 | `snapshot_list_chain` | snapshot_timemachine | ✓ |
 | `snapshot_preview_point` | snapshot_timemachine | ✓ |
 | `snapshot_restore_atomic` | snapshot_timemachine | ✓ |
+| `sync_now` | sync_scheduler | ✓ |
+| `sync_scheduler_start` | sync_scheduler | ✓ |
+| `sync_scheduler_status` | sync_scheduler | ✓ |
+| `sync_scheduler_stop` | sync_scheduler | ✓ |
+| `sync_apply_per_item_decision` | sync_target | ✓ |
+| `sync_batches` | sync_target | ✓ |
+| `sync_config_read` | sync_target | ✓ |
 | `sync_configure` | sync_target | ✓ |
 | `sync_conflicts` | sync_target | ✓ |
 | `sync_pull` | sync_target | ✓ |

@@ -25,6 +25,15 @@ export const CREDENTIAL_REF_PREFIX = "nb:"
 /** 云端备份默认逻辑域（与面板占位 `nb:webdav:<account>` 一致）。 */
 export const DEFAULT_SECRET_DOMAIN = "webdav"
 
+/**
+ * GitHub 私有仓传输的逻辑域（G1）：键形 `nb:github:<account>`。
+ * 与 Rust `secret_store::GITHUB_SECRET_DOMAIN` 同值，两侧必须同步演进。
+ */
+export const GITHUB_SECRET_DOMAIN = "github"
+
+/** GitHub 凭据引用前缀（配置期硬门，与 Rust `GITHUB_CREDENTIAL_REF_PREFIX` 同判）。 */
+export const GITHUB_CREDENTIAL_REF_PREFIX = "nb:github:"
+
 /** 域名字符集（与 Rust `normalize_service` 同判，大小写归一为小写）。 */
 const DOMAIN_RE = /^[a-z0-9_-]+$/
 
@@ -79,6 +88,28 @@ export function resolveCredentialTarget(
   )
 }
 
+/**
+ * 按**传输目标域**解析写入目标（跨域旧引用绝不复用）。
+ *
+ * 为什么需要它：`resolveCredentialTarget` 会无条件复用已有引用的 domain。目标切换
+ * 后（例如从 WebDAV 切到 GitHub），旧引用 `nb:webdav:<account>` 会把新凭据写进
+ * 错误域，返回的 ref 随后被 Rust 配置期硬门拒收（GitHub 要求 `nb:github:`），
+ * 用户卡在「凭据已保存但配置永远存不下去」。
+ *
+ * 判定规则（两条都是硬规则，不允许「猜一个域」）：
+ *   - 已有引用且 domain == `domain` → 复用其 domain/account（轮换凭据引用不变）；
+ *   - 否则（无引用 / 跨域引用）→ `domain` + 项目名派生账户（首次写入）。
+ */
+export function resolveCredentialTargetForDomain(
+  domain: string,
+  credentialRef: string,
+  projectPath: string,
+): ParsedCredentialRef {
+  const parsed = parseCredentialRef(credentialRef)
+  if (parsed !== null && parsed.domain === domain) return parsed
+  return { domain, account: defaultCredentialAccount(projectPath) }
+}
+
 /** OS 凭据库是否可用；false 时调用方 MUST 关闭该传输目标（禁止明文回退）。 */
 export async function secretAvailable(): Promise<boolean> {
   return await invoke<boolean>("secret_available")
@@ -98,4 +129,37 @@ export async function secretPut(domain: string, account: string, secret: string)
  */
 export async function secretDelete(domain: string, account: string): Promise<boolean> {
   return await invoke<boolean>("secret_delete", { service: domain, account })
+}
+
+// ── G1：`nb:github` 域的写入 / 删除封装 ─────────────────────────────────────
+//
+// **刻意不提供 get**：与 `secret_get` 同一纪律（见模块头）——GitHub token 的唯一读取
+// 面是 Rust 传输层（`sync_target.rs` 的 `GitHubTarget::token` 即时消费）。前端一旦有
+// 读取面，明文 token 就会流经 webview，攻击面凭空扩大。
+
+/** 该引用是否属于 `nb:github:` 域（纯字符串判定，不做 I/O）。 */
+export function isGitHubCredentialRef(credentialRef: string): boolean {
+  return credentialRef.trim().startsWith(GITHUB_CREDENTIAL_REF_PREFIX)
+}
+
+/** 构造 `nb:github:<account>` 引用（不写入、不读取）。 */
+export function githubCredentialRef(account: string): string {
+  return `${GITHUB_CREDENTIAL_REF_PREFIX}${account.trim()}`
+}
+
+/**
+ * 写入（或轮换）GitHub token，返回 `credential_ref`（`nb:github:<account>`）。
+ * **返回值不含 token**（Rust 契约）；token 只作为本次调用实参，不缓存、不记录。
+ * 调用方 MUST 先确认 `secretAvailable()`，不可用时关闭 GitHub 传输目标（禁止明文回退）。
+ */
+export async function githubSecretPut(account: string, token: string): Promise<string> {
+  return await secretPut(GITHUB_SECRET_DOMAIN, account, token)
+}
+
+/**
+ * 删除本机 GitHub token；返回是否确实删除了既有条目。
+ * 只删除 OS 凭据库条目，不改动项目配置里的 `credential_ref`。
+ */
+export async function githubSecretDelete(account: string): Promise<boolean> {
+  return await secretDelete(GITHUB_SECRET_DOMAIN, account)
 }

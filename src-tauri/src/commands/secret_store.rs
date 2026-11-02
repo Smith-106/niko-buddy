@@ -268,6 +268,100 @@ pub(crate) fn is_available_sync() -> bool {
     available_with(&default_backend())
 }
 
+// ── `nb:github` 域（G1：GitHub 私有仓传输目标）───────────────────────────────
+//
+// 与 `nb:webdav` 同一套后端与命名规则，**不新增任何读取面**：GitHub token 的取值
+// 路径仍是传输层 `read_secret_sync`（同步推送/拉取时即时消费），前端零调用。
+//
+// journal 纪律：本文件**不含任何输出语句**（见模块头）——凭据库不可用的降级事实由
+// 调用方（`sync_target.rs` 的 GitHub 传输前置探针）写进传输 journal，本模块只提供
+// **可读降级文案**与探针结论，不裸抛平台错误。
+
+/// GitHub 传输的逻辑域：service = `nb:github`。
+pub const GITHUB_SECRET_DOMAIN: &str = "github";
+
+/// GitHub 凭据引用的前缀（配置期硬门：`credential_ref` 必须以此开头）。
+pub const GITHUB_CREDENTIAL_REF_PREFIX: &str = "nb:github:";
+
+/// 构造 GitHub 凭据引用：`nb:github:<account>`。
+///
+/// account 是逻辑账户（跨设备可移植的句柄），实际存储条目名仍经 [`bind_account`]
+/// 绑定本机设备指纹——两者混用会让 ref 变得不可移植。
+pub fn github_credential_ref(account: &str) -> Result<String, String> {
+    build_credential_ref(GITHUB_SECRET_DOMAIN, account)
+}
+
+/// 判定是否为 GitHub 域引用（纯字符串判定，不做 I/O）。
+pub fn is_github_credential_ref(credential_ref: &str) -> bool {
+    credential_ref
+        .trim()
+        .starts_with(GITHUB_CREDENTIAL_REF_PREFIX)
+}
+
+/// 解析 GitHub 域引用；**非 `nb:github:` 域一律拒绝**（配置期门禁）。
+///
+/// 这是「GitHub 传输目标只能用 GitHub 凭据」的唯一判据：把 WebDAV 口令或任意
+/// 其他域的 ref 配给 GitHub 目标，会在配置期就失败，而不是等到推送时才 401。
+pub fn require_github_credential_ref(credential_ref: &str) -> Result<(String, String), String> {
+    let raw = credential_ref.trim();
+    if !is_github_credential_ref(raw) {
+        return Err(format!(
+            "[secret_store] github credential_ref must start with {GITHUB_CREDENTIAL_REF_PREFIX} (a different credential domain cannot be reused)"
+        ));
+    }
+    let (domain, account) = resolve_credential_ref(raw)?;
+    if domain != GITHUB_SECRET_DOMAIN {
+        return Err(format!(
+            "[secret_store] github credential_ref must use the {GITHUB_SECRET_DOMAIN} domain, got '{domain}'"
+        ));
+    }
+    Ok((domain, account))
+}
+
+/// OS 凭据库探针（复用 `keyring::Entry::store_status` 门禁，与 [`credential_vault`] 同判）。
+///
+/// 与 [`is_available_sync`] 的区别：本函数是**同步可调用**的探针，供同步层在构造
+/// GitHub 传输目标前一次性判定，避免每次请求都重新初始化凭据库。
+pub fn store_status_sync() -> bool {
+    keyring::Entry::store_status().is_ok()
+}
+
+/// 凭据库探针结论。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CredentialProbe {
+    /// 后端可用，可以写入/读取凭据。
+    Available,
+    /// 后端不可用；携带**可读降级文案**（调用方据此关闭目标并记 journal）。
+    Degraded(String),
+}
+
+/// 凭据库不可用时的降级文案（G1）。
+///
+/// Linux 上 `keyring` 走 Secret Service（gnome-keyring / KWallet）：无 provider 或
+/// provider 未解锁时 `store_status()` 失败。此处返回可读文案而非把平台错误裸抛，
+/// 且文案里明说「禁止明文回退」——这是 C-011 的降级契约。
+pub fn github_store_degraded_message() -> String {
+    if cfg!(target_os = "linux") {
+        "[secret_store] Linux Secret Service (gnome-keyring / KWallet) is unavailable, so the nb:github credential cannot be stored; install or unlock a Secret Service provider and retry — falling back to plaintext is forbidden"
+            .to_string()
+    } else {
+        unavailable_error()
+    }
+}
+
+/// GitHub 域探针（真实 OS 凭据库）。
+pub fn github_store_probe() -> CredentialProbe {
+    probe_with(&default_backend())
+}
+
+fn probe_with(backend: &dyn SecretBackend) -> CredentialProbe {
+    if backend.available() {
+        CredentialProbe::Available
+    } else {
+        CredentialProbe::Degraded(github_store_degraded_message())
+    }
+}
+
 // ── Tauri commands ─────────────────────────────────────────────────────────
 
 /// 写入凭据。**返回 `credential_ref`，绝不返回 secret 值。**
@@ -438,6 +532,81 @@ fn roundtrip() {
         build_credential_ref("webdav", "  ").is_err(),
         "blank account is rejected"
     );
+}
+
+#[cfg(test)]
+#[test]
+fn github_domain_is_namespaced_and_guarded() {
+    let backend = MemoryBackend::new();
+    let token = "ghp_never_echoed";
+
+    // 写入：键形 nb:github:<account>，返回值只含引用。
+    let reference = put_with(&backend, GITHUB_SECRET_DOMAIN, "niko", token).expect("put github");
+    assert_eq!(reference, "nb:github:niko");
+    assert!(!reference.contains(token), "ref must never echo the token");
+    assert!(is_github_credential_ref(&reference));
+
+    // 读回：值与写入一致；service 名恰好是 nb:github。
+    assert_eq!(get_with(&backend, "ignored", &reference).expect("get"), token);
+    let target = resolve_target("ignored", &reference).expect("resolve");
+    assert_eq!(target.service, "nb:github");
+    assert_eq!(target.logical_account, "niko");
+
+    // 构造与解析：纯函数面与 Rust 命名规则一致。
+    assert_eq!(
+        github_credential_ref("niko").expect("ref"),
+        "nb:github:niko"
+    );
+    assert_eq!(
+        require_github_credential_ref("nb:github:niko").expect("require"),
+        ("github".to_string(), "niko".to_string())
+    );
+    // 跨域复用被拒：WebDAV 口令不能配给 GitHub 目标（配置期硬门）。
+    for other in ["nb:webdav:niko", "nb:githubx:niko", "github:niko", ""] {
+        assert!(
+            require_github_credential_ref(other).is_err(),
+            "non-github ref must be rejected: {other}"
+        );
+    }
+    assert!(!is_github_credential_ref("nb:webdav:niko"));
+
+    // 删除语义：存在 → true；再次 → false（复用既有 keyring delete 路径）。
+    assert!(delete_with(&backend, GITHUB_SECRET_DOMAIN, "niko").expect("delete"));
+    assert!(!delete_with(&backend, GITHUB_SECRET_DOMAIN, "niko").expect("delete again"));
+    assert!(get_with(&backend, "ignored", &reference).is_err());
+}
+
+#[cfg(test)]
+#[test]
+fn github_store_probe_degrades_without_bare_error() {
+    // 可用后端 → Available。
+    assert_eq!(probe_with(&MemoryBackend::new()), CredentialProbe::Available);
+
+    // 不可用后端 → Degraded(可读文案)：不抛裸错、明说禁止明文回退。
+    let CredentialProbe::Degraded(message) = probe_with(&UnavailableBackend) else {
+        panic!("unavailable backend must degrade, not report available");
+    };
+    assert!(
+        message.contains("unavailable"),
+        "degradation message must say unavailable: {message}"
+    );
+    assert!(
+        message.contains("plaintext"),
+        "degradation contract must forbid plaintext fallback: {message}"
+    );
+    assert!(
+        !message.contains("s3cr3t"),
+        "degradation message must stay opaque: {message}"
+    );
+    if cfg!(target_os = "linux") {
+        assert!(
+            message.contains("Secret Service"),
+            "Linux degradation must name the missing Secret Service: {message}"
+        );
+    }
+
+    // store_status 探针存在且与可用性同源（真实后端：本机可能有/无凭据库，只断言可调用）。
+    let _ = store_status_sync();
 }
 
 #[cfg(test)]
