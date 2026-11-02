@@ -50,6 +50,21 @@ describe("PipelineMotionView", () => {
     expect(screen.queryByTestId("motion-view-loading")).toBeNull()
   })
 
+  it("视图自带纵向滚动容器（内容区祖先是 overflow-hidden，缺了会裁掉下半部分）", () => {
+    render(
+      <PipelineMotionView
+        projectPath="/fake"
+        ledgerEvents={eventsOf([{ seq: 0, eventId: "e:0", ts: TS, kind: "retrieval", actor: "system" }])}
+        traceEntries={[]}
+      />,
+    )
+    const root = screen.getByTestId("pipeline-motion-view")
+    // 宽窗口下 SVG 高度按宽度等比放大，必须能滚到日志列表；
+    // 祖先链 app-layout > overflow-hidden 不会给本视图滚动能力。
+    expect(root.className).toContain("overflow-y-auto")
+    expect(root.className).toContain("h-full")
+  })
+
   it("磁盘装载中显示 loading（deps 悬挂不决议）", () => {
     render(<PipelineMotionView projectPath="/fake" deps={{ readText: () => new Promise(() => {}), appendText: () => Promise.resolve() }} />)
     expect(screen.getByTestId("motion-view-loading")).toBeTruthy()

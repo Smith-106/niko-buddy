@@ -119,8 +119,13 @@ export function PipelineMotionView({
     }
   }, [projectPath, ledgerEvents, traceEntries, deps, pollMs])
 
+  // 内容区祖先（app-layout）是 overflow-hidden，本视图必须自带纵向滚动，
+  // 否则宽窗口下 SVG 高度按宽度等比放大，下半部分（含日志列表）被裁掉且无法滚动。
   return (
-    <div data-testid="pipeline-motion-view" className="space-y-2">
+    <div
+      data-testid="pipeline-motion-view"
+      className="h-full w-full min-w-0 space-y-2 overflow-y-auto"
+    >
       {loadError ? (
         <p data-testid="motion-load-error" className="text-xs text-destructive">
           事件装载失败（保留上次数据）：{loadError}
