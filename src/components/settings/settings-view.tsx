@@ -21,6 +21,7 @@ import {
   Image as ImageIcon,
   Globe,
   Languages,
+  Radio,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n"
@@ -57,6 +58,7 @@ import { FeedbackSection } from "./sections/feedback-section"
 import { UsageGuideSection } from "./sections/usage-guide-section"
 import { SkillLibrarySection } from "./sections/skill-library-section"
 import { McpSection } from "./sections/mcp-section"
+import { ExternalControlSection } from "./sections/external-control-section"
 import { ContactSupportSection } from "./sections/contact-support-section"
 import { DataManagementSection } from "./sections/data-management-section"
 import { SyncSettingsSection } from "./sync-settings"
@@ -79,6 +81,7 @@ type CategoryId =
   | "changelog"
   | "skill-library"
   | "mcp"
+  | "external-control"
   | "multimodal"
   | "web-search"
   | "output"
@@ -90,6 +93,7 @@ export const SETTINGS_DOMAIN_OF: Record<CategoryId, SettingsDomain> = {
   rerank: "model",
   embedding: "model",
   mcp: "model",
+  "external-control": "model",
   "skill-library": "model",
   multimodal: "model",
   "web-search": "model",
@@ -125,6 +129,7 @@ const CATEGORIES: Category[] = [
   { id: "usage-guide", labelKey: "settings.categories.usageGuide", icon: HelpCircle },
   { id: "skill-library", labelKey: "settings.categories.skillLibrary", icon: BookOpen },
   { id: "mcp", labelKey: "settings.categories.mcp", icon: Plug },
+  { id: "external-control", labelKey: "settings.categories.externalControl", icon: Radio },
   { id: "multimodal", labelKey: "settings.categories.multimodal", icon: ImageIcon },
   { id: "web-search", labelKey: "settings.categories.webSearch", icon: Globe },
   { id: "output", labelKey: "settings.categories.output", icon: Languages },
@@ -608,6 +613,9 @@ export function SettingsView() {
         return <SkillLibrarySection />
       case "mcp":
         return <McpSection />
+      case "external-control":
+        // 与上面方向相反：mcp 是「本应用连出去」，这里是「外部连进来」。
+        return <ExternalControlSection />
       case "multimodal":
         return <MultimodalSection draft={draft} setDraft={setDraft} />
       case "web-search":

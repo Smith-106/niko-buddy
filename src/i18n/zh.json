@@ -793,7 +793,8 @@
       "changelog": "更新日志",
       "dataManagement": "数据管理",
       "about": "关于",
-      "mcp": "MCP 工具"
+      "mcp": "MCP 工具",
+      "externalControl": "外部控制"
     },
     "sections": {
       "shared": {
@@ -1439,6 +1440,25 @@
         "testNeedCommand": "请先填写启动命令",
         "testNotAllowed": "请先启用该 MCP 服务",
         "enableServer": "启用 {{name}}"
+      },
+      "externalControl": {
+        "title": "外部控制",
+        "description": "允许外部 Agent（Claude Code / PI）通过仅回环地址的 MCP 端点连入本应用。当前阶段为只读；应用必须保持运行。",
+        "enable": "允许外部控制",
+        "enableHint": "关闭后立即停止监听、释放端口，并断开所有已连接会话。",
+        "endpoint": "连接地址",
+        "endpointHint": "仅监听 127.0.0.1，外部 Agent 必须与本应用同机运行。",
+        "copy": "复制",
+        "copied": "已复制",
+        "token": "Bearer token",
+        "show": "显示",
+        "hide": "隐藏",
+        "regenerate": "重新生成",
+        "tokenHint": "存放在系统凭据库，不落明文配置。重新生成会立即吊销所有已连客户端。",
+        "sessions": "已连接会话",
+        "sessionsEmpty": "暂无外部 Agent 连入。",
+        "toolCount": "{{count}} 个只读工具",
+        "calls": "{{count}} 次调用"
       }
     },
     "llm": "模型",

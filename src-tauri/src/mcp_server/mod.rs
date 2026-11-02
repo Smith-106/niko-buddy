@@ -21,6 +21,7 @@
 pub mod auth;
 pub mod protocol;
 pub mod registry;
+pub mod session;
 pub mod state_bridge;
 pub mod tools;
 
@@ -53,6 +54,8 @@ pub struct ServerState {
     pub registry: Arc<ToolRegistry>,
     /// 工具执行上下文（状态桥句柄 + 可选 AppHandle）。
     pub ctx: Arc<ToolContext>,
+    /// 活跃会话表（设置页的「已连接会话」与可掐断依据）。
+    pub sessions: Arc<session::SessionRegistry>,
 }
 
 /// 一次运行中的服务端句柄。
@@ -62,11 +65,20 @@ pub struct ServerState {
 pub struct RunningServer {
     pub port: u16,
     abort: tokio::task::AbortHandle,
+    /// 保留状态句柄，让 `mcp_server_status` 能读到会话表。
+    state: Arc<ServerState>,
 }
 
 impl RunningServer {
     pub fn stop(&self) {
         self.abort.abort();
+        // 监听一停，已握手会话就不该继续显示为「连着」。
+        self.state.sessions.clear();
+    }
+
+    /// 当前会话快照。
+    pub fn sessions(&self) -> Vec<session::SessionInfo> {
+        self.state.sessions.list()
     }
 }
 
@@ -170,10 +182,31 @@ async fn handle_mcp(
             .into_response();
     }
 
-    match dispatch(&state, &req).await {
+    // 会话：`initialize` 新建（并用 Mcp-Session-Id 头下发），其余请求按头更新活跃时间。
+    // P0 不靠会话做鉴权——鉴权是 bearer token 的事，两者不混。
+    let session_id = if req.method == "initialize" {
+        Some(state.sessions.create())
+    } else {
+        if let Some(sid) = headers
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+        {
+            state.sessions.touch(sid);
+        }
+        None
+    };
+
+    let mut resp = match dispatch(&state, &req).await {
         None => StatusCode::ACCEPTED.into_response(),
         Some(value) => (StatusCode::OK, axum::Json(value)).into_response(),
+    };
+    if let Some(sid) = session_id {
+        if let Ok(value) = axum::http::HeaderValue::from_str(&sid) {
+            resp.headers_mut()
+                .insert(axum::http::HeaderName::from_static("mcp-session-id"), value);
+        }
     }
+    resp
 }
 
 /// 构造 router。单独抽出来便于在测试里直接驱动。
@@ -194,8 +227,11 @@ async fn serve(state: ServerState, port: u16) -> Result<RunningServer, String> {
         .map_err(|e| format!("[mcp_server] local_addr failed: {e}"))?
         .port();
 
-    let state = Arc::new(ServerState { port: bound, ..state });
-    let app = router(state);
+    let state = Arc::new(ServerState {
+        port: bound,
+        ..state
+    });
+    let app = router(Arc::clone(&state));
 
     let handle = tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
@@ -206,6 +242,7 @@ async fn serve(state: ServerState, port: u16) -> Result<RunningServer, String> {
     Ok(RunningServer {
         port: bound,
         abort: handle.abort_handle(),
+        state,
     })
 }
 
@@ -225,6 +262,7 @@ pub async fn start(
             bridge,
             port,
         }),
+        sessions: Arc::new(session::SessionRegistry::new()),
     };
     serve(state, port).await
 }
@@ -271,6 +309,18 @@ impl McpServerHandle {
             .and_then(|g| g.as_ref().map(|s| s.port))
     }
 
+    /// 当前会话快照（未运行则为空）。
+    pub fn sessions(&self) -> Vec<session::SessionInfo> {
+        match self.inner.lock() {
+            Ok(g) => g.as_ref().map(|s| s.sessions()).unwrap_or_default(),
+            Err(poisoned) => poisoned
+                .into_inner()
+                .as_ref()
+                .map(|s| s.sessions())
+                .unwrap_or_default(),
+        }
+    }
+
     fn replace(&self, next: Option<RunningServer>) {
         let mut guard = match self.inner.lock() {
             Ok(g) => g,
@@ -290,6 +340,10 @@ pub struct McpServerStatus {
     pub port: Option<u16>,
     pub tool_count: usize,
     pub tools: Vec<&'static str>,
+    /// 已连接会话（未运行时为空）。
+    pub sessions: Vec<session::SessionInfo>,
+    /// 连接地址（未运行时仍给出，供用户提前配置客户端）。
+    pub endpoint: String,
 }
 
 /// 启动对外控制面。已在运行时幂等返回当前端口。
@@ -330,6 +384,8 @@ pub async fn mcp_server_status(
         port,
         tool_count: registry.len(),
         tools: registry.names(),
+        sessions: handle.sessions(),
+        endpoint: format!("http://127.0.0.1:{}/mcp", port.unwrap_or(DEFAULT_PORT)),
     })
 }
 
@@ -364,6 +420,7 @@ mod tests {
             port: 0,
             registry: Arc::new(tools::build_registry()),
             ctx: Arc::new(ToolContext::for_test()),
+            sessions: Arc::new(session::SessionRegistry::new()),
         })
     }
 
@@ -516,6 +573,7 @@ mod tests {
             port: 0,
             registry: Arc::new(tools::build_registry()),
             ctx: Arc::new(ToolContext::for_test()),
+            sessions: Arc::new(session::SessionRegistry::new()),
         };
         serve(state, 0).await.expect("start")
     }
@@ -579,6 +637,48 @@ mod tests {
             .expect("request");
         assert_eq!(resp.status(), 202);
         server.stop();
+    }
+
+    #[tokio::test]
+    async fn initialize_issues_session_header_and_registers_session() {
+        let server = start_test_server().await;
+        let url = format!("http://127.0.0.1:{}/mcp", server.port);
+        let resp = reqwest::Client::new()
+            .post(&url)
+            .bearer_auth("secret-token")
+            .body(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#)
+            .send()
+            .await
+            .expect("request");
+        assert_eq!(resp.status(), 200);
+        let sid = resp
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+            .expect("initialize 必须下发 Mcp-Session-Id")
+            .to_string();
+        let sessions = server.sessions();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, sid);
+        assert_eq!(sessions[0].scope, "read");
+        server.stop();
+    }
+
+    #[tokio::test]
+    async fn stop_clears_sessions() {
+        let server = start_test_server().await;
+        let url = format!("http://127.0.0.1:{}/mcp", server.port);
+        reqwest::Client::new()
+            .post(&url)
+            .bearer_auth("secret-token")
+            .body(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#)
+            .send()
+            .await
+            .expect("request");
+        assert_eq!(server.sessions().len(), 1);
+        server.stop();
+        // 监听一停，已握手会话就不该继续显示为「连着」。
+        assert_eq!(server.sessions().len(), 0);
     }
 
     #[tokio::test]

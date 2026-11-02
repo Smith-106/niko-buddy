@@ -27,6 +27,8 @@ export const SETTINGS_SAVE_MODE: Record<SettingsCategoryId, SettingsSaveMode> = 
   interface: "draft",
   novel: "draft",
   mcp: "auto",
+  // 外部控制没有 draft：开关直接改服务端运行态，token 存凭据库，不存在「待保存草稿」。
+  "external-control": "none",
   "skill-library": "none",
   multimodal: "draft",
   "web-search": "auto",
@@ -47,7 +49,7 @@ export interface SettingsNavGroup {
 
 /** 侧栏分组顺序。每个分类恰好出现一次（settings-nav-config.spec 校验）。 */
 export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
-  { id: "models", labelKey: "settings.navGroups.models", categories: ["llm", "rerank", "embedding", "multimodal", "web-search", "mcp"] },
+  { id: "models", labelKey: "settings.navGroups.models", categories: ["llm", "rerank", "embedding", "multimodal", "web-search", "mcp", "external-control"] },
   { id: "writing", labelKey: "settings.navGroups.writing", categories: ["novel", "output", "skill-library"] },
   { id: "app", labelKey: "settings.navGroups.app", categories: ["interface", "network"] },
   { id: "data", labelKey: "settings.navGroups.data", categories: ["data-management", "maintenance"] },

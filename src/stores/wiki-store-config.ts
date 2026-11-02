@@ -37,6 +37,7 @@ export type SettingsCategoryId =
   | "changelog"
   | "skill-library"
   | "mcp"
+  | "external-control"
   | "multimodal"
   | "web-search"
   | "output"

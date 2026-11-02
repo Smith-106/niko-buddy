@@ -1428,7 +1428,8 @@
       "changelog": "Changelog",
       "dataManagement": "Data Management",
       "about": "About",
-      "mcp": "MCP Tools"
+      "mcp": "MCP Tools",
+      "externalControl": "External Control"
     },
     "sections": {
       "shared": {
@@ -2074,6 +2075,25 @@
         "testNeedCommand": "Please fill in the startup command first",
         "testNotAllowed": "Please enable this MCP server first",
         "enableServer": "Enable {{name}}"
+      },
+      "externalControl": {
+        "title": "External Control",
+        "description": "Let an external agent (Claude Code, PI) connect to this app over a loopback-only MCP endpoint. Read-only in this phase; the app must stay running.",
+        "enable": "Allow external control",
+        "enableHint": "Turning this off stops the listener immediately, releases the port, and drops every connected session.",
+        "endpoint": "Connection address",
+        "endpointHint": "Loopback only (127.0.0.1). The external agent must run on this machine.",
+        "copy": "Copy",
+        "copied": "Copied",
+        "token": "Bearer token",
+        "show": "Show",
+        "hide": "Hide",
+        "regenerate": "Regenerate",
+        "tokenHint": "Stored in the OS credential vault, never in plain app state. Regenerating revokes every existing client.",
+        "sessions": "Connected sessions",
+        "sessionsEmpty": "No external agent connected.",
+        "toolCount": "{{count}} read-only tools",
+        "calls": "{{count}} calls"
       }
     },
     "feedback": {
