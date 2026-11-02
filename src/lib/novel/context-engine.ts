@@ -907,6 +907,8 @@ async function buildContextPackFromRawData(
     timeline,
     relatedSettings: rawStrField(rawData.relatedSettings),
     canonRules,
+    // G6：项目级不变基线，供稳定缓存段使用（见 ContextPack.canonRulesBase 注释）。
+    canonRulesBase: baseCanonRules,
     writingStyle: rawStrField(rawData.writingStyle),
     voiceStyleGuide: rawStrField(rawData.voiceStyleGuide) || undefined,
     searchResults: rawStrField(rawData.searchResults),
@@ -1201,7 +1203,7 @@ import {
 } from "./context-engine-temporal"
 import { loadAllSnapshots } from "./context-engine-temporal"
 export type { LayeredRecallMode, ContextPackToPromptOptions } from "./context-engine-prompt"
-export { contextPackToPrompt } from "./context-engine-prompt"
+export { contextPackToPrompt, canonRulesDelta, splitCanonRules, renderCanonRulesBaseForStablePrefix } from "./context-engine-prompt"
 export {
   loadTemporalFactsCached,
   clearTemporalFactsCache,

@@ -44,6 +44,19 @@ export interface ContextPack {
   timeline: string
   relatedSettings: string
   canonRules: string
+  /**
+   * G6：**项目级不变**的世界规则基线（未经 temporal facts 叠加）。
+   *
+   * 与 [`canonRules`] 的关系：`canonRules = joinNonEmpty([canonRulesBase, temporalBlock], "\n\n")`
+   * —— base 恒为前缀，temporal 增量恒为后缀。
+   *
+   * 为什么要单独存：稳定缓存段只能放**跨章字节一致**的内容。canonRules 含随
+   * targetChapter 变化的 temporal 块，放进缓存段永远不命中；本字段才是可缓存的。
+   *
+   * Optional for backward compatibility：旧调用点（含测试夹具、`emptyPack`、
+   * `.catch` 回退）不传时按空串处理，此时稳定段不启用、canonRules 整块走动态段。
+   */
+  canonRulesBase?: string
   writingStyle: string
   searchResults: string
   graphSearchResults: string

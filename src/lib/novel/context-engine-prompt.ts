@@ -17,6 +17,14 @@ export type LayeredRecallMode = "default" | "full" | "scenario_persona"
 
 export interface ContextPackToPromptOptions {
   excludeOutline?: boolean
+  /**
+   * G6：canonRules 段只渲染 **temporal 增量**（base 已进稳定缓存段）。
+   *
+   * 置 true 时 canonRules 段输出 `full` 去掉 `base` 前缀后的后缀；若 base 不是
+   * full 的前缀（上游 join 语义变化等异常），退化为完整 canonRules —— 宁可失去
+   * 缓存收益，也不丢规则。与 `renderCanonRulesBaseForStablePrefix` 成对使用。
+   */
+  excludeCanonRulesBase?: boolean
   temporalFactsEnabled?: boolean
   /**
    * E-02 (C-10): 硬注入段渲染开关（默认 false）。false 时完全跳过该段，
@@ -193,6 +201,54 @@ const FIELD_CONFIGS: FieldConfig[] = [
 
 
 
+/**
+ * G6：把 `canonRules` 拆成「稳定段（base）」与「动态段（temporal 增量）」。
+ *
+ * **单一真源**：稳定段与动态段必须从同一个函数取值，否则两侧归一化不一致时
+ * 会出现「base 既在稳定段又在动态段」的重复渲染。
+ *
+ * 归一化：上游 `joinNonEmpty` 对每个 part 做 `.trim()`，所以 base 实际以
+ * `base.trim()` 的形式出现在 `canonRules` 头部；两侧都用 trim 后的 base。
+ *
+ * 退化：base 为空、或 `full` 不以 base 开头（上游语义变化、CRLF、行尾空格等
+ * 导致 startsWith 不成立）时，**清空稳定段**并让完整 canonRules 走动态段。
+ * 宁可零缓存收益，也绝不重复渲染规则（重复会把「降费」变成「增费」）。
+ */
+export function splitCanonRules(pack: ContextPack): { stable: string; delta: string } {
+  const base = (pack.canonRulesBase ?? "").trim()
+  const full = pack.canonRules ?? ""
+  if (!base || !full.startsWith(base)) return { stable: "", delta: full }
+  return { stable: base, delta: full.slice(base.length).replace(/^\n+/, "") }
+}
+
+/**
+ * G6：canonRules 去掉项目级 base 前缀后的 **temporal 增量**（内容级等价）。
+ *
+ * 退化时返回完整 canonRules。调用方若要**同时**渲染稳定段，必须用
+ * [`splitCanonRules`]（它在退化时同时清空稳定段），否则会重复渲染 base。
+ */
+export function canonRulesDelta(full: string, base: string): string {
+  const normalized = (base ?? "").trim()
+  if (!normalized) return full
+  if (!full.startsWith(normalized)) return full
+  return full.slice(normalized.length).replace(/^\n+/, "")
+}
+
+/**
+ * G6：把 `canonRulesBase` 渲染成**稳定缓存段**用的文本（标题 + 基线内容）。
+ *
+ * 与 `contextPackToPrompt` 的 canonRules 段同源渲染，保证两段拼起来恰好等于
+ * 原 canonRules，不重复、不丢失。空串不进稳定段（避免无意义的前缀抖动）。
+ */
+export function renderCanonRulesBaseForStablePrefix(pack: ContextPack): string {
+  const config = FIELD_CONFIGS.find((c) => c.fieldKey === "canonRules")
+  if (!config) return ""
+  // 单一真源：与动态段同源切分，退化时稳定段为空（绝不重复渲染）。
+  const { stable } = splitCanonRules(pack)
+  if (!stable) return ""
+  return [i18n.t(config.titleKey), stable].join("\n")
+}
+
 export function contextPackToPrompt(
   pack: ContextPack,
   tokenBudget?: number,
@@ -222,12 +278,24 @@ export function contextPackToPrompt(
     }
     if (config.renderIf && !config.renderIf(pack, flags)) continue
 
-    const raw = pack[config.fieldKey] as string | string[]
+    let raw = pack[config.fieldKey] as string | string[]
+    // G6：动态段只放 temporal 增量。退化（base 不是前缀）时 splitCanonRules
+    // 返回完整 canonRules 且稳定段为空，不会出现两段都含 base 的重复渲染。
+    let titleSuffix = ""
+    if (options?.excludeCanonRulesBase && config.fieldKey === "canonRules") {
+      const split = splitCanonRules(pack)
+      raw = split.delta
+      // 稳定段已占用了同名标题；增量段加后缀区分，避免 prompt 里出现两个
+      // 完全相同的「## 禁止违背」，同时保留该段的可识别性。
+      // 注意口径变化（MINOR-2）：sectionCharBudget 现在只作用在 delta 上，
+      // 所以该段上限 = base(≤2000，走稳定段) + sectionCharBudget。
+      if (split.stable) titleSuffix = i18n.t("novel.contextPack.canonRulesTemporalSuffix")
+    }
     let content = config.serialize ? config.serialize(raw, pack, flags) : raw
     content = applySectionCharBudget(content, options?.sectionCharBudget)
     const hasContent = Array.isArray(content) ? content.length > 0 : Boolean(content)
     if (!hasContent) continue
-    fieldSections.push({ title: i18n.t(config.titleKey), content })
+    fieldSections.push({ title: i18n.t(config.titleKey) + titleSuffix, content })
   }
 
   fieldSections.sort((a, b) => {

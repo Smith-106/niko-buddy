@@ -1,3 +1,4 @@
+import { RESERVED_CANON_RULES_CHARS } from "@/lib/context-budget"
 import { createWatchdog, feedToken, pollWatchdog, type WatchdogState } from "./watchdog"
 
 /**
@@ -25,6 +26,9 @@ import { createWatchdog, feedToken, pollWatchdog, type WatchdogState } from "./w
  * ## P0 硬护栏
  *   1. **protected 段永不压缩**：canonRules / hardInject / task / outline /
  *      mustAvoid 只截断为最后手段（budget_exceeded gap），绝不经摘要替换。
+ *      **G5 例外升级**：canonRules 连最后手段也不截断（零截断，独立预留槽），
+ *      超预算时以 budget_exceeded 告警记账（trace + journal 双记缺口字符数），
+ *      缓解 R5（正史规则被截断 → 写作越权）。
  *   2. **IC-02**：每次压缩/丢弃显式记 gap（type="compressed"，reason=
  *      "tier_compressible"），绝不静默。
  *   3. **机械层零 LLM**：摘要替换只用 pack 内已有摘要/快照文本，不调模型。
@@ -132,6 +136,11 @@ export interface CompactResult {
   /** 熔断跳过（连续失败达阈值）：未压缩，原样返回 + 显式 reason。 */
   skipped: boolean
   skipReason: string
+  /**
+   * G5: canonRules 超出独立预留槽的容量告警（非截断记录）；未超出为 null。
+   * 供 UI degraded 横幅（messageKey ∈ rules.*）与 trace/journal 消费。
+   */
+  budgetExceeded: BudgetExceededRecord | null
 }
 
 /** 熔断器状态（纯数据，可序列化；now 全部调用方注入）。 */
@@ -201,6 +210,99 @@ export function allowHalfOpenProbe(breaker: CompactBreakerState): boolean {
 }
 
 // ============================================================================
+// G5 (R5 缓解): canonRules 独立预留槽 + L4 零截断 + 超预算告警
+// ============================================================================
+
+/**
+ * canonRules 超参考线告警文案键（UI degraded 横幅；`rules.*` 命名空间）。
+ * UI 层以 `t(CANON_RULES_BUDGET_EXCEEDED_KEY, { defaultValue: ...TEXT })` 消费。
+ */
+export const CANON_RULES_BUDGET_EXCEEDED_KEY = "rules.canonRules.reserveExceeded"
+
+/** 默认文案（i18n 缺失时的 defaultValue 兜底，与上面的 key 同源）。 */
+export const CANON_RULES_BUDGET_EXCEEDED_TEXT =
+  "正史规则超出体量参考线：已全文保留（未截断），建议拆分或精简规则条目"
+
+/**
+ * budget_exceeded 结构化告警记录（G5）。
+ *
+ * 语义：canonRules 体量超出参考线（computeContextBudget().canonRulesReserve）
+ * 时的容量告警——**不是截断记录**（truncated 恒为 false，canonRules 零截断），
+ * 也**不意味着任何额度被扣除**：参考线只用于判定是否告警。
+ */
+export interface BudgetExceededRecord {
+  type: "budget_exceeded"
+  /** 固定 canonRules（唯一享独立参考线的段）。 */
+  ref: "canonRules"
+  /** 参考线字符数（来自 computeContextBudget().canonRulesReserve.reservedChars）。 */
+  reservedChars: number
+  /** canonRules 实际字符数。 */
+  canonRulesChars: number
+  /** 缺口字符数 = max(0, canonRulesChars − reservedChars)。 */
+  gapChars: number
+  /** UI degraded 横幅文案键（rules.* 命名空间）。 */
+  messageKey: string
+  /** 是否发生截断（G5 恒为 false：canonRules 零截断）。 */
+  truncated: false
+}
+
+/**
+ * budget_exceeded 双记出口（G5）：trace（审计留痕）+ journal（可重放流水）。
+ * 两者均由调用方注入，本模块保持零 IO / 零 LLM 纯函数语义。
+ */
+export interface BudgetExceededSinks {
+  trace?: (record: BudgetExceededRecord) => void
+  journal?: (record: BudgetExceededRecord) => void
+}
+
+/**
+ * buildCanonRulesBudgetExceeded：canonRules 是否超出独立预留槽。
+ * 未超出（或 canonRules 为空）返回 null（不告警、不记账）。
+ */
+export function buildCanonRulesBudgetExceeded(input: {
+  canonRulesChars: number
+  reservedChars?: number
+}): BudgetExceededRecord | null {
+  const reservedChars =
+    typeof input.reservedChars === "number" && Number.isFinite(input.reservedChars) && input.reservedChars >= 0
+      ? Math.floor(input.reservedChars)
+      : RESERVED_CANON_RULES_CHARS
+  const canonRulesChars = Math.max(0, Math.floor(input.canonRulesChars))
+  if (canonRulesChars <= 0 || canonRulesChars <= reservedChars) return null
+  return {
+    type: "budget_exceeded",
+    ref: "canonRules",
+    reservedChars,
+    canonRulesChars,
+    gapChars: canonRulesChars - reservedChars,
+    messageKey: CANON_RULES_BUDGET_EXCEEDED_KEY,
+    truncated: false,
+  }
+}
+
+/**
+ * emitBudgetExceeded：trace + journal 双记（各写一次）。
+ * 返回值显式报告两侧是否落账——任一侧缺 sink 即未双记，调用方可据此告警，
+ * 避免「只记一处」被误认为已留痕（IC-02：绝不静默）。
+ */
+export function emitBudgetExceeded(
+  record: BudgetExceededRecord,
+  sinks: BudgetExceededSinks,
+): { trace: boolean; journal: boolean } {
+  let traced = false
+  let journaled = false
+  if (sinks.trace) {
+    sinks.trace(record)
+    traced = true
+  }
+  if (sinks.journal) {
+    sinks.journal(record)
+    journaled = true
+  }
+  return { trace: traced, journal: journaled }
+}
+
+// ============================================================================
 // 恢复包（WriterRestorePack 语义：任务 + 大纲锚点 + 角色快照首行）
 // ============================================================================
 
@@ -251,6 +353,17 @@ export interface CompactOptions {
   breaker?: CompactBreakerState
   /** restore 包输入（不传则从 sections 自动提取 task/outline/快照）。 */
   restore?: RestorePackInput
+  /**
+   * G5: canonRules 告警参考线字符数（来自
+   * computeContextBudget().canonRulesReserve.reservedChars）。
+   * 不传则退化为标准参考线 RESERVED_CANON_RULES_CHARS。
+   *
+   * 注意口径：它只用于「是否超线」的告警判定，**不参与压缩预算分配**
+   * （不会从 tokenBudget 里扣除，也不会让其它段让位）。
+   */
+  canonRulesReserveChars?: number
+  /** G5: budget_exceeded 双记出口（trace + journal，由调用方注入）。 */
+  budgetExceededSinks?: BudgetExceededSinks
 }
 
 function sectionText(value: unknown): string {
@@ -299,6 +412,16 @@ export function compactContextSections(
   const gaps: CompactGap[] = []
   const budget = options.tokenBudget
 
+  // G5 (R5 缓解): canonRules 体量超参考线的告警 —— 与压缩级别无关（超线即
+  // 告警），trace + journal 双记（含缺口字符数），且绝不因此截断规则正文。
+  const budgetExceeded = buildCanonRulesBudgetExceeded({
+    canonRulesChars: sections.canonRules?.length ?? 0,
+    reservedChars: options.canonRulesReserveChars,
+  })
+  if (budgetExceeded && options.budgetExceededSinks) {
+    emitBudgetExceeded(budgetExceeded, options.budgetExceededSinks)
+  }
+
   const finish = (
     level: CompactLevel,
     skipped: boolean,
@@ -312,6 +435,7 @@ export function compactContextSections(
     tokensAfter: totalTokens(sections),
     skipped,
     skipReason,
+    budgetExceeded,
   })
 
   if (!(budget > 0) || tokensBefore <= budget) {
@@ -380,14 +504,20 @@ export function compactContextSections(
     return finish("storeSummary", false, "")
   }
 
-  // L4 fullSummary：整包折叠为摘要行（protected 段截断为最后手段，记 budget_exceeded）。
+  // L4 fullSummary：整包折叠为摘要行（mustAvoid / outline 截断为最后手段，记 budget_exceeded）。
   for (const key of Object.keys(sections)) {
     if (PROTECTED_COMPACT_FIELDS.has(key)) continue
     const text = sections[key]
     gaps.push({ type: "compressed", ref: key, reason: "tier_compressible", originalLength: text.length, retainedLength: 0 })
     delete sections[key]
   }
-  for (const key of ["mustAvoid", "outline", "canonRules"]) {
+  // G5 (R5 缓解): L4 裁剪跳过 canonRules —— canonRules **零截断**。
+  // 「零截断」是本机制对 canonRules 的**唯一保证**：它由这里「L4 循环显式不碰该段」
+  // 直接兑现，不依赖 computeContextBudget().canonRulesReserve（那个数字只是告警线，
+  // 不从任何段的额度里扣除，也不会让其它段让位）。时序合并链路
+  // (applyTemporalFactsToCanonRules) 与取值侧一概不动。规则体量超参考线时已由
+  // budgetExceeded 告警记账（缺口字符数），不靠裁字止损。
+  for (const key of ["mustAvoid", "outline"]) {
     const text = sections[key]
     if (text && totalTokens(sections) > budget) {
       const keepLen = Math.max(500, Math.floor(text.length / 2))
@@ -395,7 +525,7 @@ export function compactContextSections(
       sections[key] = text.slice(0, keepLen) + "…"
     }
   }
-  // task / hardInject 永不截断（最后手段也不动）。
+  // task / hardInject / canonRules 永不截断（最后手段也不动；canonRules 见 G5）。
 
   if (options.breaker) {
     if (totalTokens(sections) <= budget) {

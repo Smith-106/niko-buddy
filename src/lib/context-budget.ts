@@ -4,10 +4,22 @@
  * Given an LLM's `maxContextSize` (a **token** window), computes per-section
  * **character** budgets used by the chat panel when packing the prompt:
  *
- * 为什么由 token 数直接派生字符预算不危险：CJK 约 1.5 字符/token（见
- * `CJK_CHARS_PER_TOKEN`），所以 `pageBudget = maxCtx × 0.5` 得到的字符数
- * 只相当于窗口的约 1/3 token。**这个方向的误差是安全的**——少花上下文
- * 只是浪费容量，多花则直接撞上游 400。
+ * ## G4b：换算分支化（旧「安全方向」注释已修正）
+ *
+ * 旧注释说「CJK 约 1.5 字符/token，所以 pageBudget = maxCtx × 0.5 只相当于窗口
+ * 的约 1/3 token，误差方向安全」——**这句是错的，两个方向都错**：
+ *
+ *   - CJK 实测约 **1 字符/token**（见 token-estimator.ts 的校准口径：汉字
+ *     1.0 token/字符），所以 `0.5 × maxCtx` 字符 ≈ `0.5 × maxCtx` token，
+ *     不是 1/3 —— 比旧注释说的近 1.5 倍，属于**偏危险**方向；
+ *   - 非 CJK（英文散文）约 4 字符/token，一律按 1.5 换算等于只用掉一半容量，
+ *     属于**白浪费**方向。
+ *
+ * 所以换算按脚本分支：CJK 段保留 1.5（见 `CJK_CHARS_PER_TOKEN`，与硬注入 /
+ * canonRules 的既有口径同源，数值不动），非 CJK 段走 1.0
+ * （`NON_CJK_CHARS_PER_TOKEN`，保守下界：一个字符当一 token 花，只会少填不会超窗）。
+ * 本节下方的配比常量与 adaptiveScale 曲线**一个数字都没改**——分支只作用在
+ * 「token 预算 → 字符预算」这一层（见 `tokenBudgetToCharBudget`）。
  *
  *   ┌─────────────────────────────────────────────────────┐
  *   │              maxCtx (100%)                          │
@@ -15,6 +27,22 @@
  *   │ idx  │   pages       │  history + sys   │  resp     │
  *   │  5%  │    50%        │    ~30%          │   15%     │
  *   └──────┴───────────────┴──────────────────┴───────────┘
+ *
+ * ## G5 (R5 缓解): canonRules 预留槽的真实语义 —— **告警阈值，不是额度扣减**
+ *
+ * `RESERVED_CANON_RULES_CHARS` 只作为「canonRules 是否超体量」的判据
+ * (`buildCanonRulesBudgetExceeded` → trace + journal 双记)，**不参与任何额度分配**：
+ * 本模块不把 `reservedChars` 从 maxCtx 里减掉，history / sys / index / page / resp
+ * 的任何预算数值都不受它影响，也没有任何装配点拿它去限制其它段。
+ *
+ * 为什么不做「真扣」：本仓不存在「history/sys 额度」这条分配路径 —— 聊天装配
+ * (`chat-panel-context-assembly.ts`) 只取 indexBudget / pageBudget / maxPageSize，
+ * 压缩链 (`context-compact.ts`) 的 `tokenBudget` 由调用方另行给定。凭空造一条
+ * 预留扣减路径，等于在既有三项配额之外新增一套无人校验的配额，风险大于收益。
+ *
+ * **因此 G5 落地的唯一保证机制是「L4 零截断」**：压缩到 L4 (fullSummary) 时
+ * canonRules 段不被裁剪 (见 `context-compact.ts` 的 L4 循环显式跳过该段)。
+ * 「其它段让位给预留槽」这件事**没有发生，也不在本模块承诺范围内**。
  *
  * MIT License — independently implemented.
  */
@@ -91,6 +119,43 @@ export interface ContextBudget {
    * 硬注入 MUST 优先占满, 软语料 (pageBudget 内) MUST 截断 (CAP-RET-08)。
    */
   hardInjectionBudget: HardInjectionBudget
+  /**
+   * G5 (R5 缓解): canonRules 预留槽（**告警阈值口径，不扣减任何额度**）。
+   *
+   * 这是「canonRules 体量参考线」而不是配额：本模块**不会**把它从 maxCtx 里减去，
+   * 也没有任何装配点拿它去限制 history / sys / index / page。既有三项配比
+   * (index 5% / page 50% / resp 15%) 与旧版逐字节相同，这一点不是靠「预留槽先扣、
+   * 其它段让位」实现的，而是因为预留槽压根不参与分配。
+   *
+   * G5 对 canonRules 的**唯一保证机制是 L4 零截断**（见 `context-compact.ts` 的
+   * L4 fullSummary 循环显式跳过 canonRules）；本字段的用途只有两个：
+   *   1. `buildCanonRulesBudgetExceeded` 的判据（超线 → trace + journal 告警）；
+   *   2. UI 展示「参考线 / 缺口」时的数字来源。
+   *
+   * 注：`computeContextBudget` 恒填充该字段（不是可选行为）；声明为可选仅为
+   * 向后兼容仓内既有 `ContextBudget` 字面量 fixtures（组件测试的桩预算表，
+   * 不在本任务改动范围）——消费方若持有 computeContextBudget 的返回值可直接取值。
+   */
+  canonRulesReserve?: CanonRulesReserve
+}
+
+/**
+ * G5 (R5 缓解): canonRules 预留槽（chars）—— **告警阈值，不是配额**。
+ *
+ * 该结构不参与任何额度分配；字段仅供告警判据与展示使用（见
+ * `ContextBudget.canonRulesReserve` 的说明）。
+ */
+export interface CanonRulesReserve {
+  /**
+   * 参考字符数 = min(RESERVED_CANON_RULES_CHARS, maxCtx − (resp+index+page))。
+   *
+   * 只是「这条配置下 canonRules 有多少余量」的告警线；**不从任何段的预算里扣除**。
+   */
+  reservedChars: number
+  /** 标准参考额度 (RESERVED_CANON_RULES_CHARS)；reservedChars 小于它即参考线被压缩。 */
+  standardChars: number
+  /** 剩余未分配额度不足以满足标准参考线 (true = 该配置下 canonRules 无余量，需告警)。 */
+  clamped: boolean
 }
 
 /**
@@ -108,8 +173,86 @@ export interface HardInjectionBudget {
 export const HARD_INJECT_TOKEN_CAP = 2048
 /** E-02 (C-4): CJK 字符/token 换算 (与 context-engine CJK 口径同源)。 */
 export const CJK_CHARS_PER_TOKEN = 1.5
+/**
+ * G4b: 非 CJK 字符/token 换算（保守下界 1.0 chars/token）。
+ *
+ * 为什么不是英文实际值 ≈4：字符预算的用途是「按字符往上下文里填」，系数越大 =
+ * 允许填越多字符 = 越容易撞上游窗口。4 chars/token 只对纯 ASCII 散文成立；
+ * 代码、URL、base64、混排 emoji 会掉到 1–2 chars/token。取 1.0 意味着
+ * 「一个字符当一 token 花」——只会少填，不会超窗（误差方向单向可控）。
+ */
+export const NON_CJK_CHARS_PER_TOKEN = 1.0
+
+/**
+ * CJK 码点判定（与 token-estimator.ts 的 isCjkCodePoint 同范围）。
+ *
+ * 刻意在本文件重写而不 import：token-estimator 没有导出该判定，而本任务的
+ * 改动边界不含 token-estimator。范围若变动，两处必须同步（各自有 spec 兜底）。
+ */
+function isCjkChar(char: string): boolean {
+  const cp = char.codePointAt(0) ?? 0
+  return (
+    (cp >= 0x3400 && cp <= 0x4dbf) ||
+    (cp >= 0x4e00 && cp <= 0x9fff) ||
+    (cp >= 0xf900 && cp <= 0xfaff) ||
+    (cp >= 0x3040 && cp <= 0x30ff) ||
+    (cp >= 0xac00 && cp <= 0xd7af) ||
+    (cp >= 0x1100 && cp <= 0x11ff) ||
+    (cp >= 0x3000 && cp <= 0x303f) ||
+    (cp >= 0xff00 && cp <= 0xffef)
+  )
+}
+
+/**
+ * G4b: 按脚本分支的 chars/token 系数。
+ *
+ * 纯 CJK 文本 → 1.5；纯非 CJK → 1.0；混排按各自的 token 消耗加权
+ * （totalChars / (cjk/1.5 + nonCjk/1.0)），与 context-engine-prompt 的
+ * 混排口径同形。空文本沿用旧口径 1.5（没有样本可分类，不能凭空改历史数值）。
+ */
+export function charsPerTokenForText(text: string): number {
+  if (!text) return CJK_CHARS_PER_TOKEN
+  let cjk = 0
+  let nonCjk = 0
+  for (const char of text) {
+    if (isCjkChar(char)) cjk += 1
+    else nonCjk += 1
+  }
+  const total = cjk + nonCjk
+  if (total === 0) return CJK_CHARS_PER_TOKEN
+  const tokens = cjk / CJK_CHARS_PER_TOKEN + nonCjk / NON_CJK_CHARS_PER_TOKEN
+  return total / tokens
+}
+
+/**
+ * G4b: token 预算 → 字符预算（分支换算的唯一入口）。
+ *
+ * CJK 段 1.5 chars/token、非 CJK 段 1.0 chars/token；不传样本文本时沿用
+ * 旧口径（1.5），保证既有调用点的数值不变。
+ */
+export function tokenBudgetToCharBudget(tokenBudget: number, sampleText?: string): number {
+  if (!Number.isFinite(tokenBudget) || tokenBudget <= 0) return 0
+  const charsPerToken = sampleText === undefined
+    ? CJK_CHARS_PER_TOKEN
+    : charsPerTokenForText(sampleText)
+  return Math.max(0, Math.floor(tokenBudget * charsPerToken))
+}
 /** E-02 (C-4): 硬注入占 maxCtx 比例上限。 */
 export const HARD_INJECT_CTX_FRAC = 0.3
+
+/**
+ * G5 (R5 缓解): canonRules 预留槽参考额度 (chars)。
+ *
+ * 测算依据 (写死口径防验收不可复现)：
+ *   - 典型 canonRules 体量：长篇项目正史规则 40–60 条 × 平均 ≈55 字符/条
+ *     ≈ 2.2K–3.3K 字符；取上界 3_200 chars 作为「典型体量」；
+ *   - +20% 裕量：3_200 × 1.2 = **3_840 chars** (吸收时序事实合并链路
+ *     applyTemporalFactsToCanonRules 追加条目带来的增量)。
+ *
+ * **该常量只做告警阈值**：不从任何段的预算里扣除（见 computeContextBudget 注释）。
+ * canonRules 不被 L4 截断是压缩链的行为（零截断），不是这个数字撑住的。
+ */
+export const RESERVED_CANON_RULES_CHARS = 3_840
 
 /**
  * E-02 (C-4): 硬注入 cap 纯函数 — min(2048×1.5, floor(maxCtx×0.3)) chars。
@@ -178,6 +321,17 @@ export function computeContextBudget(
     Math.max(PER_PAGE_FLOOR, Math.floor(pageBudget * PER_PAGE_FRAC)),
   )
 
+  // G5 (R5 缓解): canonRules 预留槽 = **告警阈值**（不扣减、不占位）。
+  // 既有三项配额 (resp/index/page) 的配比常量与算式一字未改，数值与旧版相同；
+  // 本字段只回答「这条配置下 canonRules 还剩多少余量」给告警判据用：
+  // 它**没有**被从 maxCtx 里减掉，history / sys / index / page 的可用额度
+  // 不因它变化，也没有任何装配点读它去限制其它段。
+  // canonRules 不被 L4 截断的保证来自压缩链的零截断行为，不来自这个数字。
+  const canonRulesReservedChars = Math.min(
+    RESERVED_CANON_RULES_CHARS,
+    Math.max(0, maxCtx - (responseReserve + indexBudget + pageBudget)),
+  )
+
   // Active entities budget (compressible tier with floor).
   const entityFrac = 0.02
   const rank0Floor = Math.max(ENTITY_FLOOR, Math.floor(maxCtx * entityFrac * scale))
@@ -196,6 +350,12 @@ export function computeContextBudget(
     hardInjectionBudget: {
       baselineChars: Math.floor(HARD_INJECT_TOKEN_CAP * CJK_CHARS_PER_TOKEN),
       capChars: hardInjectionCapChars(maxCtx),
+    },
+    // G5 (R5 缓解): canonRules 独立预留槽 — 恒算 (同 Fixed 轴, 不放宽)。
+    canonRulesReserve: {
+      reservedChars: canonRulesReservedChars,
+      standardChars: RESERVED_CANON_RULES_CHARS,
+      clamped: canonRulesReservedChars < RESERVED_CANON_RULES_CHARS,
     },
   }
 }

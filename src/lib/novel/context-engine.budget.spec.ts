@@ -28,7 +28,7 @@ import { describe, expect, it } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { pickChapterOutlineByNumber } from "./context-engine"
-import { computeContextBudget } from "@/lib/context-budget"
+import { RESERVED_CANON_RULES_CHARS, computeContextBudget } from "@/lib/context-budget"
 
 const NOVEL_DIR = resolve(__dirname)
 
@@ -150,5 +150,86 @@ describe("TASK-007 PERF-011 computeContextBudget wiring on the read path", () =>
     // so maxPageSize = 30K for a 200K config — generous, as intended for
     // protected-tier canon).
     expect(budget.maxPageSize).toBeGreaterThanOrEqual(5_000)
+  })
+})
+
+// ============================================================================
+// G5: canonRules 独立预留槽 + L4 零截断 + 超预算告警
+// ============================================================================
+
+describe("G5 canonRules 独立预留槽 (RESERVED_CANON_RULES_CHARS)", () => {
+  it("标准额度写死 3840 chars（典型 canonRules 3200 + 20% 裕量）", () => {
+    expect(RESERVED_CANON_RULES_CHARS).toBe(3_840)
+    // 典型体量 3_200 × 1.2 = 3_840（口径写死防验收不可复现）
+    expect(RESERVED_CANON_RULES_CHARS).toBe(Math.round(3_200 * 1.2))
+  })
+
+  it("computeContextBudget 暴露 canonRulesReserve（正常窗口足额）", () => {
+    const b = computeContextBudget(204_800, 5)
+    const reserve = b.canonRulesReserve
+    expect(reserve).toBeDefined()
+    expect(reserve!.standardChars).toBe(RESERVED_CANON_RULES_CHARS)
+    expect(reserve!.reservedChars).toBe(RESERVED_CANON_RULES_CHARS)
+    expect(reserve!.clamped).toBe(false)
+    // 默认窗口（32K tokens）同样足额
+    expect(computeContextBudget(undefined).canonRulesReserve!.clamped).toBe(false)
+  })
+
+  it("既有配比数值一字未改（预留槽在配比之外优先扣除）", () => {
+    const b = computeContextBudget(204_800, 5)
+    // 旧口径逐字保留：resp 15% / index 5% / page 50%
+    expect(b.responseReserve).toBe(Math.floor(204_800 * 0.15))
+    expect(b.indexBudget).toBe(Math.floor(204_800 * 0.05))
+    expect(b.pageBudget).toBe(Math.floor(204_800 * 0.5))
+    // 预留槽只从「剩余未分配额度」划出，不挤占三项既有配额
+    const slack = 204_800 - (b.responseReserve + b.indexBudget + b.pageBudget)
+    expect(b.canonRulesReserve!.reservedChars).toBeLessThanOrEqual(slack)
+  })
+
+  it("小窗口剩余额度不足 → clamped 显式标出（不反向挤占既有配额）", () => {
+    const tiny = computeContextBudget(10_000)
+    const slack = 10_000 - (tiny.responseReserve + tiny.indexBudget + tiny.pageBudget)
+    expect(tiny.canonRulesReserve!.reservedChars).toBe(Math.max(0, Math.min(RESERVED_CANON_RULES_CHARS, slack)))
+    expect(tiny.canonRulesReserve!.clamped).toBe(
+      tiny.canonRulesReserve!.reservedChars < RESERVED_CANON_RULES_CHARS,
+    )
+    // 既有配额仍与旧口径一致（小窗口下预留槽只拿剩余，不改配比）
+    expect(tiny.pageBudget).toBe(Math.floor(10_000 * 0.5))
+  })
+
+  it("source: context-budget.ts 多次引用 RESERVED_CANON_RULES_CHARS（定义 + 使用）", () => {
+    const src = readFileSync(new URL("../context-budget.ts", import.meta.url), "utf-8")
+    const hits = src.split("\n").filter((line) => line.includes("RESERVED_CANON_RULES"))
+    expect(hits.length).toBeGreaterThanOrEqual(2)
+    expect(src).toContain("export const RESERVED_CANON_RULES_CHARS")
+  })
+
+  it("source: context-compact.ts 引用预留槽 + L4 截断表已剔除 canonRules + budget_exceeded", () => {
+    const src = readSource("context-compact.ts")
+    // 判据 2：引用 RESERVED_CANON_RULES 或 canonRules
+    expect(src).toMatch(/RESERVED_CANON_RULES_CHARS/)
+    expect(src).toMatch(/canonRules/)
+    // 判据 3：budget_exceeded 记账仍在
+    expect(src).toMatch(/budget_exceeded/)
+    // G2：L4 最后手段截断表不再包含 canonRules（零截断）
+    expect(src).not.toMatch(/for \(const key of \["mustAvoid", "outline", "canonRules"\]\)/)
+    expect(src).toMatch(/for \(const key of \["mustAvoid", "outline"\]\)/)
+  })
+
+  it("source: G4 只读护栏 —— PROTECTED_COMPACT_FIELDS 与 hardInject 独立块未被改动", () => {
+    const compact = readSource("context-compact.ts")
+    // 判据 4：PROTECTED_COMPACT_FIELDS 声明仍在，且 canonRules / hardInject 仍在集合内
+    expect(compact).toMatch(/export const PROTECTED_COMPACT_FIELDS: ReadonlySet<string> = new Set\(\[/)
+    const protectedBlock = compact.match(/export const PROTECTED_COMPACT_FIELDS[\s\S]*?\]\)/)
+    expect(protectedBlock).not.toBeNull()
+    expect(protectedBlock![0]).toContain('"canonRules"')
+    expect(protectedBlock![0]).toContain('"hardInject"')
+    // 判据 5：context-engine-prompt.ts 的 hardInject 独立块仍在
+    const prompt = readSource("context-engine-prompt.ts")
+    expect(prompt).toMatch(/fieldKey: "hardInject"/)
+    expect(prompt).toMatch(/hardInjectEnabled === true/)
+    // 时序合并链路（取值侧）未动：仍由 applyTemporalFactsToCanonRules 产出 canonRules
+    const engine = readSource("context-engine.ts")
+    expect(engine).toMatch(/const canonRules = applyTemporalFactsToCanonRules\(/)
   })
 })

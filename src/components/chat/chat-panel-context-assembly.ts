@@ -12,6 +12,10 @@ import { normalizePath, getFileName, getRelativePath } from "@/lib/path-utils"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import { isGreeting } from "@/lib/greeting-detector"
 import { computeContextBudget } from "@/lib/context-budget"
+import {
+  buildChatStablePrefix,
+  composeStableSystemBlocks,
+} from "@/lib/stable-prefix"
 import { logger, toErrorMessage } from "@/lib/utils"
 import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
 import type { ChatMessage as LLMMessage } from "@/lib/llm-client"
@@ -48,7 +52,8 @@ export interface AssembleChatContextParams {
  *
  * 包含：打招呼短路、资料库检索与预算裁剪（indexBudget / pageBudget / tryAddPage）、
  * 知识图谱 1-level 扩展、小说上下文包装配（buildContextPack、Soul 对话框确认、
- * contextPackToPrompt）、Prompt 缓存控制断点（stablePrefixParts cacheControl + dynamicParts）、
+ * contextPackToPrompt）、Prompt 缓存控制断点（@/lib/stable-prefix 的版本化稳定段
+ * cacheControl + dynamicParts 动态段）、
  * 语言强制提醒（buildLanguageReminder）、Agent 章节修改定位增强（detectEditIntent）。
  *
  * 返回 `{ cancelled: true, message }` 时，由调用方在会话守卫内执行
@@ -225,11 +230,13 @@ if (project && greetingOnly) {
   const outLang = getOutputLanguage(text)
 
   let novelContextPreamble = ""
+  // G6：世界规则的项目级基线，进稳定缓存段（跨章字节一致才可能命中）。
+  let stableCanonRulesBase = ""
   if (novelMode && project && effectiveTaskRoute) {
     try {
       const taskDirective = buildTaskDirective(effectiveTaskRoute)
       const goldenDirective = buildGoldenThreeChapterDirective(goldenThreeChapter)
-      const { buildContextPack, contextPackToPrompt } = await import("@/lib/novel/context-engine")
+      const { buildContextPack, contextPackToPrompt, renderCanonRulesBaseForStablePrefix } = await import("@/lib/novel/context-engine")
       const contextPack = await buildContextPack(pp, text, effectiveTaskRoute.chapterNumber).catch(() => ({
         task: text,
         chapterGoal: "",
@@ -265,10 +272,13 @@ if (project && greetingOnly) {
       }
       const novelConfig = useWikiStore.getState().novelConfig
       const budget = novelConfig.contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined
+      // G6：base 进稳定缓存段，动态段只放 temporal 增量（否则跨章前缀不一致，永不命中）。
+      stableCanonRulesBase = renderCanonRulesBaseForStablePrefix(contextPack)
       novelContextPreamble = contextPackToPrompt(contextPack, budget, {
         layeredRecall: "default",
         sectionCharBudget: 4000,
         hardInjectEnabled: novelConfig.hardInjectEnabled,
+        excludeCanonRulesBase: stableCanonRulesBase.length > 0,
       })
       if (goldenDirective) {
         novelContextPreamble = goldenDirective + "\n" + novelContextPreamble
@@ -285,44 +295,14 @@ if (project && greetingOnly) {
     }
   }
 
-  // 固定前缀：技能、角色定位、章节输出规则、规则、Markdown 格式要求。
-  // 这部分在一次会话/配置下稳定，打 cacheControl 让 Anthropic 跨会话命中
-  // prompt cache；OpenAI/Google 等其他 provider 会自动折叠成字符串，不受影响。
-  const stablePrefixParts = [
-    qmQuaiSystemPrompt ? `## QM-QUAI 技能\n${qmQuaiSystemPrompt}` : "",
-    novelMode
-      ? "你是一个专业的小说写作助手。请根据提供的小说上下文包和章节内容，协助用户进行小说创作。"
-      : "你是一个专业的资料库问答助手。请基于下方提供的资料内容回答问题。",
-    "",
-    novelMode
-      ? [
-          "## 小说章节输出规则",
-          "- 如果用户要求生成、续写或改写章节，只输出可直接放入章节库的小说正文。",
-          "- 正文第一行必须是章节标题，格式为：# 第X章 标题名（标题4-12字，概括本章核心内容）。",
-          "- 不要输出资料说明、创作说明、免责声明、后续建议、引用列表或隐藏 cited 注释。",
-          "- 不要在小说正文里写 [[资料名]]、[1]、[2] 这类资料引用标记。",
-          "- 资料只作为内部参考，不能把资料库缺失、基于现有资料等元信息写进章节。",
-        ].filter(Boolean).join("\n")
-      : "",
-    "",
-    novelMode
-      ? [
-          "## 规则",
-          "- 只能基于下方小说资料、上下文包和用户要求创作，不要编写解释性回答。",
-          "- 如果资料不足，也要根据已有小说上下文自然续写，不要把“资料不足”写进正文。",
-        ].join("\n")
-      : [
-          "## 规则",
-          "- 只能基于下方编号资料页面回答。",
-          "- 如果资料不足，请直接说明资料不足。",
-          "- 引用资料页面时使用 [[页面名]] 格式。",
-          "- 引用具体信息时使用页码标记，例如 [1]、[2]。",
-          "- 回复末尾必须添加隐藏注释，列出你使用过的资料页码：",
-          "  <!-- cited: 1, 3, 5 -->",
-        ].join("\n"),
-    "",
-    "请使用清晰的 Markdown 格式。",
-  ].filter(Boolean)
+  // 稳定前缀（G4a）：技能、角色定位、章节输出规则、规则、Markdown 格式要求。
+  // 字段白名单、版本号、哈希全部在 @/lib/stable-prefix —— 这里只提供字段值，
+  // 不再自己拼数组：拼法一旦分散，动态内容就可能漏进 cacheControl 段。
+  const stablePrefix = buildChatStablePrefix({
+    novelMode,
+    skillPrompt: qmQuaiSystemPrompt,
+    canonRulesBase: stableCanonRulesBase,
+  })
 
   // 动态部分：资料库目标、索引、页面、上下文包、语言规则。
   // 每次检索结果不同，不缓存。
@@ -345,14 +325,9 @@ if (project && greetingOnly) {
     "不要使用任何其他语言。本规则优先于其他所有指令。",
   ].filter(Boolean)
 
-  const systemBlocks: { type: "text"; text: string; cacheControl?: boolean }[] = []
-  if (stablePrefixParts.length > 0) {
-    systemBlocks.push({ type: "text", text: stablePrefixParts.join("\n"), cacheControl: true })
-  }
-  /* v8 ignore next */
-  if (dynamicParts.length > 0) {
-    systemBlocks.push({ type: "text", text: dynamicParts.join("\n") })
-  }
+  // 稳定段带 cacheControl（Anthropic 显式 ephemeral 断点；OpenAI/Google 等无
+  // cache_control 的通道靠同一份字节序命中上游隐式前缀缓存），动态段永不进缓存。
+  const systemBlocks = composeStableSystemBlocks(stablePrefix, dynamicParts)
 
   systemMessages.push({
     role: "system",

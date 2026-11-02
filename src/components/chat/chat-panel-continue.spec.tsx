@@ -4,6 +4,20 @@ import { fireEvent, screen, within, waitFor } from "@/test-helpers/component-tes
 import { getChatPanelMocks, deepGenResult, reviewResult, sessionStatus, PROJECT, setConversation, setMessages, msg, renderPanel, rerenderPanel, flushAsync, lastStreamChatCall, lastFinalize } from "./chat-panel-test-setup"
 
 const mocks = getChatPanelMocks()
+
+/**
+ * system 消息内容可能是块数组（G4a：稳定段带 cacheControl + 动态段），断言前先压平成文本。
+ * 拼接方式与 llm-providers 的 toOpenAiContent / flattenAnthropicSystem 一致（块间无分隔符）。
+ */
+function contentText(content: unknown): string {
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return ""
+  return content
+    .map((block) => (block && typeof block === "object" && "text" in block
+      ? String((block as { text: unknown }).text)
+      : ""))
+    .join("")
+}
 describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
   it("流式进行中 → 早退", async () => {
     setConversation("conv-1")
@@ -193,7 +207,7 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
     expect(mocks.streamChat).toHaveBeenCalled()
     const [, msgs] = lastStreamChatCall()
     expect(msgs[0].role).toBe("system")
-    expect(msgs[0].content).toContain("CONTEXT_PACK_PROMPT")
+    expect(contentText(msgs[0].content)).toContain("CONTEXT_PACK_PROMPT")
     expect(lastFinalize()[0]).toContain("## 继续未完成")
   })
 
@@ -209,7 +223,7 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
     await flushAsync()
     expect(mocks.streamChat).toHaveBeenCalled()
     const [, msgs] = lastStreamChatCall()
-    expect(msgs[0].content).toContain("专业小说写作助手")
+    expect(contentText(msgs[0].content)).toContain("专业小说写作助手")
     expect(mocks.buildContextPack).not.toHaveBeenCalled()
   })
 

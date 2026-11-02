@@ -25,6 +25,10 @@ import {
 } from "@/lib/chat/resume"
 import { createDeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
 import { streamChat } from "@/lib/llm-client"
+import {
+  buildContinueUnfinishedStablePrefix,
+  composeStableSystemBlocks,
+} from "@/lib/stable-prefix"
 import { normalizePath } from "@/lib/path-utils"
 import { toErrorMessage } from "@/lib/utils"
 import { resolveUserVisibleReasoning } from "@/lib/user-visible-reasoning"
@@ -340,11 +344,11 @@ export async function runContinueUnfinished(ctx: ChatContinueUnfinishedContext):
       return
     }
 
-    let continuationSystemPrompt = [
-      "你是专业小说写作助手。用户正在继续一次已中断的深度章节生成，请严格基于已有思考和阶段内容往后完成，不要从头重跑已完成阶段。",
-      "如果上方恢复上下文里没有正文草稿，就从正文生成阶段继续；如果已经有正文草稿，就继续审查、返修、简单审查、去AI味或补全正文。",
-      "不要把“继续未完成”当作原始章节需求；原始章节需求必须以恢复上下文中的原始用户请求为准。",
-    ].join("\n")
+    // 稳定段字段（角色定位）与 chat 主组装点同源同版本（@/lib/stable-prefix），
+    // 不另起一套提示词拼装 —— 否则就是双轨：两个组装点各自漂移，版本号失去意义。
+    // 断点续写语义不变：文本仍为原先那三行，只是被归入 cacheControl 段。
+    let continueStablePrefix = buildContinueUnfinishedStablePrefix({ skillPrompt: "" })
+    let continueDynamicParts: string[] = []
     // Wave 5 (v2.5.0): continue-unfinished 路径无 generationResult，用量快照
     // 从本路径自建的 contextPack 承接（additive，构建失败时 undefined 不渲染）。
     let continueContextUsage: import("@/lib/context-usage").ContextUsage | undefined
@@ -385,14 +389,13 @@ export async function runContinueUnfinished(ctx: ChatContinueUnfinishedContext):
          const budget = novelConfig.contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined
          const dismantlingDirective = await loadEnabledDismantlingDirective(pp).catch(() => "")
          continueContextUsage = contextPack.contextUsage
-         continuationSystemPrompt = [
-           continuationSystemPrompt,
-           "",
-          "## QM-QUAI 技能",
-          buildQmQuaiSystemPrompt(),
-          "",
-          taskDirective,
-          goldenDirective,
+         // 稳定段 = 技能 + 角色定位（顺序：角色在前，见 CONTINUE_UNFINISHED_FIELD_ORDER）；
+         // 其余（任务/黄金三章指令、上下文包、拆解指令）随请求变化，一律进动态段。
+         // 先在局部量里算完再一起赋值：与拆分前「末尾一次性赋值」的 all-or-nothing
+         // 语义一致 —— 中途抛错就只留基础角色定位，不会半套上下文混进去。
+         const nextDynamicParts = [
+           taskDirective,
+           goldenDirective,
            "",
            "## 原始深度章节上下文包",
            contextPackToPrompt(contextPack, budget, {
@@ -401,7 +404,12 @@ export async function runContinueUnfinished(ctx: ChatContinueUnfinishedContext):
              hardInjectEnabled: novelConfig.hardInjectEnabled,
            }),
            dismantlingDirective,
-         ].filter(Boolean).join("\n")
+         ]
+         const nextStablePrefix = buildContinueUnfinishedStablePrefix({
+           skillPrompt: buildQmQuaiSystemPrompt(),
+         })
+         continueDynamicParts = nextDynamicParts
+         continueStablePrefix = nextStablePrefix
       } catch (err) {
         console.warn("构建继续未完成上下文包失败:", err)
       }
@@ -409,12 +417,18 @@ export async function runContinueUnfinished(ctx: ChatContinueUnfinishedContext):
 
     let streamError: Error | null = null
 
+    // 稳定段带 cacheControl、动态段不缓存；两段拼起来与拆分前 join("\n") 逐字节等价。
+    const continuationSystemContent = composeStableSystemBlocks(
+      continueStablePrefix,
+      continueDynamicParts,
+    )
+
     await streamChat(
       writingConfig,
       [
         {
           role: "system",
-          content: continuationSystemPrompt,
+          content: continuationSystemContent,
         },
         { role: "user", content: prompt },
       ],

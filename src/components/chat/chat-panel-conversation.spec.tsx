@@ -631,10 +631,16 @@ describe("ChatPanel — handleSend 主链路", () => {
     renderPanel()
     await sendText("写第3章")
     expect(mocks.buildContextPack).toHaveBeenCalledWith("/p/mybook", "写第3章", 5)
-    expect(mocks.contextPackToPrompt).toHaveBeenCalledWith(expect.anything(), 4000, {
-      layeredRecall: "default",
-      sectionCharBudget: 4000,
-    })
+    // G6：base 进稳定缓存段后，装配点额外传 excludeCanonRulesBase（动态段只放增量）。
+    expect(mocks.contextPackToPrompt).toHaveBeenCalledWith(
+      expect.anything(),
+      4000,
+      expect.objectContaining({
+        layeredRecall: "default",
+        sectionCharBudget: 4000,
+        excludeCanonRulesBase: expect.any(Boolean),
+      }),
+    )
     const [, llmMessages] = lastStreamChatCall()
     const sys = llmMessages[0]?.content as { text: string }[]
     const joined = sys.map((b) => b.text).join("\n")

@@ -1,18 +1,23 @@
 import { describe, expect, it } from "vitest"
+import { RESERVED_CANON_RULES_CHARS } from "@/lib/context-budget"
 import {
+  CANON_RULES_BUDGET_EXCEEDED_KEY,
   CONTEXT_DROP_ORDER,
   PROTECTED_COMPACT_FIELDS,
   RESTORE_PACK_BUDGET_CHARS,
   allowHalfOpenProbe,
+  buildCanonRulesBudgetExceeded,
   buildRestorePack,
   compactContextSections,
   createCompactBreaker,
   createCompactWatchdog,
+  emitBudgetExceeded,
   estimateCompactTokens,
   feedCompactHeartbeat,
   pollCompactWatchdog,
   recordCompactFailure,
   recordCompactSuccess,
+  type BudgetExceededRecord,
 } from "./context-compact"
 
 // §GAP-103(f) RV-004/RV-014 漂移护栏：trim fields 表键快照（27 键，与 CONTEXT_DROP_ORDER 同源）。
@@ -136,6 +141,83 @@ describe("compactContextSections 四级压缩", () => {
     const sortedVals = [...orderVals].sort((a, b) => a - b)
     expect(orderVals).toEqual(sortedVals)
     expect(new Set(orderVals).size).toBe(orderVals.length)
+  })
+})
+
+// ============================================================================
+// G5 (R5 缓解): canonRules 独立预留槽 + L4 零截断 + 超预算告警
+// ============================================================================
+
+describe("G5 canonRules 独立预留槽 + L4 零截断 + 超预算告警", () => {
+  it("canonRules 零截断：超预算输入仍保留规则全文（L4 跳过预留槽，缓解 R5）", () => {
+    const canonRules = "正史规则：宗门不得越级收徒；血脉不可外传。".repeat(300) // 6300 chars ≫ 预留槽
+    const r = compactContextSections({ ...bigSections(), canonRules }, { tokenBudget: 100 })
+    expect(r.level).toBe("fullSummary")
+    // 规则全文保留：逐字相等（无省略号、无半裁）
+    expect(r.sections.canonRules).toBe(canonRules)
+    // canonRules 永不出现在压缩记账里（无论是 tier_compressible 还是 budget_exceeded 裁字）
+    expect(r.gaps.some((g) => g.ref === "canonRules")).toBe(false)
+    // 其他 protected 段仍走最后手段截断（零截断只限 canonRules）
+    expect(r.sections.task).toBe("写第 10 章")
+  })
+
+  it("预留槽不足 → budget_exceeded 双记（trace + journal，含缺口字符数）+ rules.* 文案键", () => {
+    const canonRules = "正史规则".repeat(1200) // 4800 chars > 3840 预留槽
+    const trace: BudgetExceededRecord[] = []
+    const journal: BudgetExceededRecord[] = []
+    const r = compactContextSections(
+      { ...bigSections(), canonRules },
+      {
+        tokenBudget: 100,
+        canonRulesReserveChars: RESERVED_CANON_RULES_CHARS,
+        budgetExceededSinks: { trace: (rec) => trace.push(rec), journal: (rec) => journal.push(rec) },
+      },
+    )
+    expect(r.budgetExceeded).not.toBeNull()
+    expect(r.budgetExceeded!.type).toBe("budget_exceeded")
+    expect(r.budgetExceeded!.ref).toBe("canonRules")
+    expect(r.budgetExceeded!.reservedChars).toBe(RESERVED_CANON_RULES_CHARS)
+    expect(r.budgetExceeded!.canonRulesChars).toBe(canonRules.length)
+    // 缺口字符数显式记账
+    expect(r.budgetExceeded!.gapChars).toBe(canonRules.length - RESERVED_CANON_RULES_CHARS)
+    // UI degraded 横幅文案键归 rules.* 命名空间
+    expect(r.budgetExceeded!.messageKey).toBe(CANON_RULES_BUDGET_EXCEEDED_KEY)
+    expect(r.budgetExceeded!.messageKey.startsWith("rules.")).toBe(true)
+    // 告警不等于截断
+    expect(r.budgetExceeded!.truncated).toBe(false)
+    // trace + journal 各写一次（双记），且内容一致
+    expect(trace).toHaveLength(1)
+    expect(journal).toHaveLength(1)
+    expect(trace[0]).toEqual(journal[0])
+    expect(trace[0].gapChars).toBe(journal[0].gapChars)
+    // 告警不换来裁字：规则仍全文保留
+    expect(r.sections.canonRules).toBe(canonRules)
+  })
+
+  it("canonRules 在预留槽内 → 不告警、不记账（null）", () => {
+    const trace: BudgetExceededRecord[] = []
+    const r = compactContextSections(bigSections(), {
+      tokenBudget: 1_000_000,
+      budgetExceededSinks: { trace: (rec) => trace.push(rec) },
+    })
+    expect(r.level).toBe("none")
+    expect(r.budgetExceeded).toBeNull()
+    expect(trace).toHaveLength(0)
+  })
+
+  it("单侧 sink 缺失 → 显式报告未双记（不静默吞掉）", () => {
+    const rec = buildCanonRulesBudgetExceeded({ canonRulesChars: 5_000 })
+    expect(rec).not.toBeNull()
+    expect(rec!.gapChars).toBe(5_000 - RESERVED_CANON_RULES_CHARS)
+    const journalOnly: BudgetExceededRecord[] = []
+    expect(emitBudgetExceeded(rec!, { journal: (r) => journalOnly.push(r) })).toEqual({
+      trace: false,
+      journal: true,
+    })
+    expect(journalOnly).toHaveLength(1)
+    // 槽内 / 空规则不告警
+    expect(buildCanonRulesBudgetExceeded({ canonRulesChars: 100 })).toBeNull()
+    expect(buildCanonRulesBudgetExceeded({ canonRulesChars: 0 })).toBeNull()
   })
 })
 

@@ -14,7 +14,21 @@
  *       sits below the scaled value, so the budget is unchanged by the floor.
  */
 import { describe, expect, it } from "vitest"
-import { computeContextBudget, selectContextStrategy } from "./context-budget"
+import {
+  CJK_CHARS_PER_TOKEN,
+  NON_CJK_CHARS_PER_TOKEN,
+  charsPerTokenForText,
+  computeContextBudget,
+  hardInjectionCapChars,
+  selectContextStrategy,
+  tokenBudgetToCharBudget,
+} from "./context-budget"
+import {
+  estimateChatMessagesTokens,
+  trimChatMessagesToBudget,
+  trimChatMessagesToTokenBudget,
+} from "./chat-request-budget"
+import type { ChatMessage } from "./llm-providers"
 
 describe("TASK-007 PERF-011 adaptive scaling on the read path", () => {
   it("(a) chapter 500 returns smaller indexBudget + pageBudget than chapter 5", () => {
@@ -168,5 +182,165 @@ describe("F-008 ContextStrategy 三态策略枚举", () => {
     // strategy 反映不同态
     expect(ch5.strategy).toBe("full")
     expect(ch500.strategy).toBe("summary")
+  })
+})
+
+/**
+ * G4b (TASK-006) F3: 换算分支化 —— CJK 段保留 1.5，非 CJK 段走 1.0。
+ *
+ * 旧实现一律 1.5 chars/token，并在文件头声称「误差方向安全」。实测口径
+ * （token-estimator：汉字 1.0 token/字符）下这句是错的：CJK 上 1.5 会高估
+ * 可填字符（偏危险方向），非 CJK（≈4 chars/token）上 1.5 又少用一半容量。
+ * 分支后：CJK 数值不动，非 CJK 走保守下界 1.0。
+ */
+describe("G4b 换算分支化：CJK 1.5 / 非 CJK 1.0", () => {
+  it("纯 CJK 文本沿用 1.5 chars/token", () => {
+    const cjk = "第一章城门铜钥匙旧城墙".repeat(10)
+    expect(charsPerTokenForText(cjk)).toBeCloseTo(CJK_CHARS_PER_TOKEN, 6)
+    expect(CJK_CHARS_PER_TOKEN).toBe(1.5)
+  })
+
+  it("纯非 CJK 文本走 1.0 chars/token（不再套 1.5）", () => {
+    const ascii = "the old bronze key hangs by the city gate ".repeat(10)
+    expect(charsPerTokenForText(ascii)).toBeCloseTo(NON_CJK_CHARS_PER_TOKEN, 6)
+    expect(NON_CJK_CHARS_PER_TOKEN).toBe(1.0)
+    // 关键回归：非 CJK 不再被 1.5 放大
+    expect(charsPerTokenForText(ascii)).toBeLessThan(CJK_CHARS_PER_TOKEN)
+  })
+
+  it("混排文本落在 1.0–1.5 之间（按各自 token 消耗加权）", () => {
+    const mixed = "第一章 城门 the old bronze key 旧铜钥匙 hang by the gate"
+    const factor = charsPerTokenForText(mixed)
+    expect(factor).toBeGreaterThan(NON_CJK_CHARS_PER_TOKEN)
+    expect(factor).toBeLessThan(CJK_CHARS_PER_TOKEN)
+  })
+
+  it("空样本沿用旧口径 1.5（无样本可分类，不凭空改历史数值）", () => {
+    expect(charsPerTokenForText("")).toBe(CJK_CHARS_PER_TOKEN)
+  })
+
+  it("tokenBudgetToCharBudget 分支换算，非正预算归零", () => {
+    // 2048 tokens（硬注入基线）：CJK 3072 chars，非 CJK 2048 chars
+    expect(tokenBudgetToCharBudget(2048, "旧铜钥匙")).toBe(3072)
+    expect(tokenBudgetToCharBudget(2048, "bronze key")).toBe(2048)
+    // 不传样本 = 沿用旧口径（既有调用点数值不变）
+    expect(tokenBudgetToCharBudget(2048)).toBe(3072)
+    expect(tokenBudgetToCharBudget(0, "旧铜钥匙")).toBe(0)
+    expect(tokenBudgetToCharBudget(-1, "旧铜钥匙")).toBe(0)
+    expect(tokenBudgetToCharBudget(Number.NaN, "旧铜钥匙")).toBe(0)
+  })
+
+  it("配比与 adaptiveScale 数值一字未改（分支只作用在换算层）", () => {
+    const early = computeContextBudget(204_800, 5)
+    // 既有配比常量：resp 15% / index 5%（floor 2000）/ page 50% / per-page 30%
+    expect(early.responseReserve).toBe(Math.floor(204_800 * 0.15))
+    expect(early.indexBudget).toBe(Math.max(2_000, Math.floor(204_800 * 0.05)))
+    expect(early.pageBudget).toBe(Math.floor(204_800 * 0.5))
+    expect(early.maxPageSize).toBe(
+      Math.min(early.pageBudget, Math.max(5_000, Math.floor(early.pageBudget * 0.3))),
+    )
+    // 硬注入基线口径不动（2048 tokens × 1.5 = 3072 chars）
+    expect(early.hardInjectionBudget.baselineChars).toBe(3_072)
+    expect(early.hardInjectionBudget.capChars).toBe(hardInjectionCapChars(204_800))
+    // G5 canonRules 参考线不动
+    expect(early.canonRulesReserve?.standardChars).toBe(3_840)
+    expect(early.canonRulesReserve?.reservedChars).toBe(3_840)
+
+    // F-006 回归：canonRulesReserve 是**告警阈值，不是额度扣减** ——
+    // 三项既有配额之和不受它影响（没有「先扣预留、其它段让位」这条机制）。
+    const sum = early.responseReserve + early.indexBudget + early.pageBudget
+    expect(sum).toBe(
+      Math.floor(204_800 * 0.15)
+        + Math.max(2_000, Math.floor(204_800 * 0.05))
+        + Math.floor(204_800 * 0.5),
+    )
+    // 参考线只按「未分配余量」取值：min(3840, maxCtx − 三项之和)，不从三项里扣。
+    expect(early.canonRulesReserve!.reservedChars).toBe(
+      Math.min(3_840, Math.max(0, 204_800 - sum)),
+    )
+
+    // adaptiveScale 曲线不动：chapter 500 → 0.6 + 0.4 / log10(500)
+    const scale = 0.6 + 0.4 / Math.log10(500)
+    const late = computeContextBudget(204_800, 500)
+    expect(late.indexBudget).toBe(Math.floor(204_800 * 0.05 * scale))
+    expect(late.pageBudget).toBe(Math.floor(204_800 * 0.5 * scale))
+    expect(late.responseReserve).toBe(early.responseReserve)
+  })
+})
+
+/** 边界回归网用的固定消息组（字符 1800 / token 466）。 */
+function boundaryMessages(): ChatMessage[] {
+  return [
+    { role: "system", content: "s".repeat(400) },
+    { role: "user", content: "u".repeat(300) },
+    { role: "assistant", content: "a".repeat(900) },
+    { role: "user", content: "b".repeat(200) },
+  ]
+}
+
+function totalTextLength(messages: ChatMessage[]): number {
+  return messages.reduce((sum, message) => {
+    if (typeof message.content === "string") return sum + message.content.length
+    return sum + message.content.reduce(
+      (inner, block) => inner + (block.type === "text" ? block.text.length : 0),
+      0,
+    )
+  }, 0)
+}
+
+/**
+ * G4b (TASK-006) F4: trim 预算边界回归网。
+ *
+ * 三档边界 × 两个入口：空预算（含负数 / NaN）、恰好满（必须原样返回同一个
+ * 数组引用，不复制）、超一 token（必须真的裁，且裁后落在预算内）。
+ *
+ * 这里**只加断言，不改实现**：trimChatMessagesToBudget 的三 pass 语义与
+ * runner/llm-client 的调用侧参数一字未动。
+ */
+describe("G4b trim 预算边界回归（空预算 / 恰好满 / 超一 token）", () => {
+  it("空预算：字符入口原样返回（0 / 负数 / NaN）", () => {
+    const messages = boundaryMessages()
+    expect(trimChatMessagesToBudget(messages, 0)).toBe(messages)
+    expect(trimChatMessagesToBudget(messages, -1)).toBe(messages)
+    expect(trimChatMessagesToBudget(messages, Number.NaN)).toBe(messages)
+  })
+
+  it("空预算：token 入口原样返回（0 / 负数 / NaN）", () => {
+    const messages = boundaryMessages()
+    expect(trimChatMessagesToTokenBudget(messages, 0)).toBe(messages)
+    expect(trimChatMessagesToTokenBudget(messages, -1)).toBe(messages)
+    expect(trimChatMessagesToTokenBudget(messages, Number.NaN)).toBe(messages)
+  })
+
+  it("恰好满：字符预算 = 实际字符数时原样返回同一引用", () => {
+    const messages = boundaryMessages()
+    const budget = totalTextLength(messages)
+    expect(trimChatMessagesToBudget(messages, budget)).toBe(messages)
+  })
+
+  it("恰好满：token 预算 = 实际 token 数时原样返回同一引用", () => {
+    const messages = boundaryMessages()
+    const budget = estimateChatMessagesTokens(messages)
+    expect(trimChatMessagesToTokenBudget(messages, budget)).toBe(messages)
+  })
+
+  it("超一 token（字符入口）：预算少 1 字符就真的裁，且裁后不超预算", () => {
+    const messages = boundaryMessages()
+    const budget = totalTextLength(messages) - 1
+    const trimmed = trimChatMessagesToBudget(messages, budget)
+    expect(trimmed).not.toBe(messages)
+    expect(totalTextLength(trimmed)).toBeLessThanOrEqual(budget)
+    // 最后一条（当前意图）永不丢弃
+    expect(trimmed[trimmed.length - 1]).toBe(messages[messages.length - 1])
+  })
+
+  it("超一 token（token 入口）：预算少 1 token 就真的裁，且裁后落在预算内", () => {
+    const messages = boundaryMessages()
+    const fullTokens = estimateChatMessagesTokens(messages)
+    const trimmed = trimChatMessagesToTokenBudget(messages, fullTokens - 1)
+    expect(trimmed).not.toBe(messages)
+    expect(estimateChatMessagesTokens(trimmed)).toBeLessThan(fullTokens)
+    expect(estimateChatMessagesTokens(trimmed)).toBeLessThanOrEqual(fullTokens - 1)
+    expect(trimmed[trimmed.length - 1]).toBe(messages[messages.length - 1])
   })
 })

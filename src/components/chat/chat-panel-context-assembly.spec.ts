@@ -12,6 +12,9 @@ const mocks = vi.hoisted(() => ({
   readFile: vi.fn(),
   buildContextPack: vi.fn(),
   contextPackToPrompt: vi.fn(() => "mock-preamble"),
+  // G6：base 渲染成稳定缓存段——spec 里按「无世界规则」返回空串，
+  // 既有断言（动态段内容、systemMessages 结构）不受影响。
+  renderCanonRulesBaseForStablePrefix: vi.fn(() => ""),
   buildRetrievalGraph: vi.fn(),
   getRelatedNodes: vi.fn(() => []),
   setLastQueryPages: vi.fn(),
@@ -38,6 +41,7 @@ vi.mock("@/lib/graph-relevance", () => ({
 vi.mock("@/lib/novel/context-engine", () => ({
   buildContextPack: mocks.buildContextPack,
   contextPackToPrompt: mocks.contextPackToPrompt,
+  renderCanonRulesBaseForStablePrefix: mocks.renderCanonRulesBaseForStablePrefix,
 }))
 
 vi.mock("./chat-shared", () => ({

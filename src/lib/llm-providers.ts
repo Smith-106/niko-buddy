@@ -74,6 +74,58 @@ export interface RequestOverrides {
 }
 
 
+export type PromptCacheStrategy = "explicit" | "implicit" | "none"
+
+/**
+ * 跨 provider 的 prompt 缓存策略（唯一真源）。
+ *
+ * - "explicit"：Anthropic / MiniMax / custom+anthropic_messages。cacheControl 断点落成
+ *   `cache_control: { type: "ephemeral" }`，system 段也按块下发（见 toAnthropicSystem），
+ *   缓存边界由我们决定。
+ * - "implicit"：OpenAI / Azure / Google / cursor 代理。没有 cache_control 字段，靠上游
+ *   自动前缀缓存；命中条件是**前缀字节完全一致**，所以稳定前缀的字段顺序必须锁死
+ *   （见 @/lib/stable-prefix 的 STABLE_PREFIX_FIELD_ORDER / CONTINUE_UNFINISHED_FIELD_ORDER），
+ *   不得按对象字面量顺序拼。
+ * - "none"：Ollama / 本地端点 / CLI 子进程，没有跨请求前缀缓存。
+ */
+export function resolvePromptCacheStrategy(
+  config: Pick<LlmConfig, "provider" | "apiMode">,
+): PromptCacheStrategy {
+  switch (config.provider) {
+    case "anthropic":
+    case "minimax":
+      return "explicit"
+    case "custom":
+      return config.apiMode === "anthropic_messages" ? "explicit" : "implicit"
+    case "openai":
+    case "azure":
+    case "google":
+    case "cursor-cli":
+      return "implicit"
+    case "ollama":
+    case "claude-code":
+    case "codex-cli":
+    case "antigravity-cli":
+      return "none"
+    default:
+      return "none"
+  }
+}
+
+/**
+ * trace 侧的 provider 标签：`<provider>:<strategy>`。
+ *
+ * 只用 llm-request-trace 的**既有**字段（provider / apiMode）就能反推出这个标签，
+ * 因此不新增 trace 结构（trace 结构归 TASK-006）；这里提供唯一映射，
+ * 避免各处自己拼字符串拼岔。
+ */
+export function promptCacheTraceLabel(
+  config: Pick<LlmConfig, "provider" | "apiMode">,
+  strategy: PromptCacheStrategy = resolvePromptCacheStrategy(config),
+): string {
+  return `${config.provider}:${strategy}`
+}
+
 interface ProviderConfig {
   url: string
   headers: Record<string, string>
@@ -551,6 +603,59 @@ function flattenAnthropicSystem(content: string | ContentBlock[]): string {
 }
 
 /**
+ * system 段的线格式。
+ *
+ * 没有 cacheControl 断点时仍是纯字符串（与旧行为逐字节一致）；一旦某个 text 块带了
+ * cacheControl，就升级成 content block 数组并落 `cache_control: { type: "ephemeral" }`。
+ * 不升级的话，断点会被 flatten 抹成普通文本 —— 上游根本收不到 prompt cache 标记，
+ * 稳定前缀就算做了版本化也命中不了缓存。
+ *
+ * 拼接语义保持不变：消息内部块之间不插分隔符，消息之间仍以 `\n` 连接。
+ */
+function toAnthropicSystem(
+  systemMessages: ChatMessage[],
+): string | Array<Record<string, unknown>> | undefined {
+  if (systemMessages.length === 0) return undefined
+
+  type Segment = { text: string; cacheControl: boolean }
+  const segments: Segment[] = []
+  for (const message of systemMessages) {
+    const pieces: Segment[] = typeof message.content === "string"
+      ? [{ text: message.content, cacheControl: false }]
+      : message.content.flatMap((block) =>
+          block.type === "text"
+            ? [{ text: block.text, cacheControl: Boolean(block.cacheControl) }]
+            : [],
+        )
+    if (pieces.length === 0) continue
+    // 消息之间仍以 "\n" 连接（旧口径：每条 flatten 后 join("\n")）
+    const separator = segments.length > 0 ? "\n" : ""
+    segments.push({ ...pieces[0], text: `${separator}${pieces[0].text}` }, ...pieces.slice(1))
+  }
+  if (segments.length === 0) return undefined
+
+  const flattened = segments.map((segment) => segment.text).join("")
+  if (!flattened) return undefined
+  if (!segments.some((segment) => segment.cacheControl)) return flattened
+
+  // 相邻且 cacheControl 标志相同的段合并成一个块：块边界就是缓存断点，不能多也不能少。
+  const blocks: Array<Record<string, unknown>> = []
+  for (const segment of segments) {
+    const last = blocks[blocks.length - 1] as { text?: string; cache_control?: unknown } | undefined
+    if (last && Boolean(last.cache_control) === segment.cacheControl) {
+      last.text = `${last.text ?? ""}${segment.text}`
+      continue
+    }
+    blocks.push({
+      type: "text",
+      text: segment.text,
+      ...(segment.cacheControl ? { cache_control: { type: "ephemeral" } } : {}),
+    })
+  }
+  return blocks
+}
+
+/**
  * 合并相邻同角色回合。Anthropic 要求严格交替，块数组不能被当作「已合并」。
  * 两边都是字符串时保持字符串（最紧凑）；否则提升成 text block 再拼。
  */
@@ -717,9 +822,7 @@ function buildAnthropicBody(
     }
   }
 
-  const system =
-    systemMessages.map((m) => flattenAnthropicSystem(m.content)).join("\n") ||
-    undefined
+  const system = toAnthropicSystem(systemMessages)
 
   return {
     messages: conversationMessages,

@@ -134,17 +134,29 @@ describe("trimChatMessagesToBudget — full-coverage extensions", () => {
     expect(totalTextLength(trimmed)).toBeLessThanOrEqual(3_000)
   })
 
-  it("trims leading system messages in the final pass when nothing else can be dropped", () => {
+  it("never trims the cacheControl-bearing system block (G7 world-rules zero-truncation)", () => {
+    // 生产形态：稳定前缀（含 canonRules）以 cacheControl 块投递，动态段是第二个块。
+    const stable = text(5_000, "s")
     const messages: ChatMessage[] = [
-      { role: "system", content: text(5_000, "s") },
+      {
+        role: "system",
+        content: [
+          { type: "text", text: stable, cacheControl: true },
+          { type: "text", text: text(4_000, "d") },
+        ],
+      },
       { role: "user", content: text(10_000) },
     ]
 
     const trimmed = trimChatMessagesToBudget(messages, 3_000)
 
-    // The most recent user message is always preserved, even over budget.
-    expect(trimmed).toHaveLength(2)
-    expect(String(trimmed[0]?.content)).toBe("")
+    // G7：缓存块（稳定前缀 + canonRules）逐字保留；可压缩的是非缓存动态块。
+    // 历史行为是 Pass 3 整体裁掉 system（等价于规则被静默丢弃），已废弃。
+    const blocks = trimmed[0]?.content as { text: string; cacheControl?: boolean }[]
+    expect(blocks[0]?.text).toBe(stable)
+    expect(blocks[0]?.cacheControl).toBe(true)
+    // 动态块可被压到空（超额 11000 > 其自身 4000），但绝不反过来动缓存块。
+    expect(blocks.length === 1 || (blocks[1]!.text.length ?? 0) < 4_000).toBe(true)
     expect(String(trimmed[1]?.content)).toHaveLength(10_000)
   })
 
@@ -157,6 +169,7 @@ describe("trimChatMessagesToBudget — full-coverage extensions", () => {
 
     const trimmed = trimChatMessagesToBudget(messages, 50)
 
+    // 字符串形态 system 无 cacheControl 标记 → 不承载受保护缓存前缀，沿用通用裁剪。
     expect(trimmed[1]?.content).toEqual([])
     expect(String(trimmed[0]?.content)).toHaveLength(46)
   })
@@ -249,6 +262,25 @@ describe("trimChatMessagesToTokenBudget：token 语义（P0 回归）", () => {
     expect(estimateMessagesTokens(trimmed)).toBeLessThanOrEqual(500)
     // 旧实现把 500 当字符预算（约 125 token），新实现应用满预算
     expect(estimateMessagesTokens(trimmed)).toBeGreaterThan(200)
+  })
+
+  it("【G7 零截断】超额只能由 system 段承担时，system 内容也绝不被 Pass 3 兜底裁剪", () => {
+    // 构造：system 段承载 canonRules 远超预算，其余消息全可丢。
+    // 旧实现 Pass 3 无 system 守卫 → 会把 canonRules 裁成空串；
+    // 修复后 system 段逐字保留，超额交给上游/runner 报错。
+    const canonRules = ["## 硬性世界规则", "规则条目：不可违背的世界设定。".repeat(50)].join(String.fromCharCode(10))
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: [{ type: "text", text: canonRules, cacheControl: true }],
+      },
+      { role: "user", content: "写第三章" },
+    ]
+    const trimmed = trimChatMessagesToBudget(messages, 200)
+    const sys = trimmed.find((m) => m.role === "system")
+    const blocks = sys?.content as { text: string; cacheControl?: boolean }[]
+    // 缓存块零截断：规则一字不少（超额交给上游/runner 报可读错误）。
+    expect(blocks[0]?.text).toBe(canonRules)
   })
 
   it("【设计约束】最后一条消息永不裁剪——保住用户当前意图，超限由 runner 报可读错误", async () => {
