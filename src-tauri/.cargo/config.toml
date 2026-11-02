@@ -1,0 +1,17 @@
+# Windows 测试 exe 的 comctl32 激活上下文。
+#
+# 背景：tauri 的 muda / rfd 会导入 comctl32 的 TaskDialogIndirect，该符号只存在于
+# comctl32 v6 旁加载程序集里。正式 app exe 由 tauri-build 嵌入的 manifest 声明了 v6
+# 依赖，但 cargo 产出的**测试** exe 没有 manifest，加载器于是绑定到 system32 的
+# comctl32 v5（它不导出 TaskDialogIndirect），测试进程启动即
+# STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139)，表现为 cargo test 报「test failed」而
+# 一个测试都没跑。
+#
+# 这里给链接补上同一条 manifest 依赖，让测试 exe 与正式 exe 的激活上下文一致。
+# 注意：必须写成 config 数组里的**单个元素**——若放进 RUSTFLAGS 环境变量，cargo 会
+# 按空格把它拆成多个参数，link.exe 就会把 `name='...'` 当成输入文件而报 LNK1181。
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+  "-C",
+  "link-arg=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'",
+]

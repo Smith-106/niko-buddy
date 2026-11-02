@@ -11,7 +11,8 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use super::protocol::INVALID_PARAMS;
+use super::protocol::{INTERNAL_ERROR, INVALID_PARAMS};
+use super::tools::{ToolContext, ToolFuture};
 
 /// 工具执行错误。
 ///
@@ -31,6 +32,14 @@ impl ToolError {
             message: message.into(),
         }
     }
+
+    /// 服务端内部失败（状态桥超时、IO 错误等）。
+    pub fn internal(message: impl Into<String>) -> Self {
+        ToolError {
+            code: INTERNAL_ERROR,
+            message: message.into(),
+        }
+    }
 }
 
 /// 一个可被外部 Agent 调用的工具。
@@ -42,7 +51,11 @@ pub trait McpTool: Send + Sync {
     /// 入参 JSON Schema。
     fn input_schema(&self) -> Value;
     /// 执行。实现方不得 panic；不得静默吞错误。
-    fn call(&self, args: &Value) -> Result<Value, ToolError>;
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>>;
 }
 
 /// 工具注册表。
@@ -85,11 +98,14 @@ impl ToolRegistry {
     }
 
     /// 按名调用。未知工具返回 `None`，由调用方决定报 `METHOD_NOT_FOUND`。
-    pub fn call(&self, name: &str, args: &Value) -> Option<Result<Value, ToolError>> {
-        self.tools
-            .iter()
-            .find(|t| t.name() == name)
-            .map(|t| t.call(args))
+    pub async fn call(
+        &self,
+        ctx: &ToolContext,
+        name: &str,
+        args: &Value,
+    ) -> Option<Result<Value, ToolError>> {
+        let tool = self.tools.iter().find(|t| t.name() == name)?;
+        Some(tool.call(ctx, args).await)
     }
 
     /// 已注册工具名（测试与内省用）。
@@ -122,12 +138,18 @@ impl McpTool for PingTool {
         json!({ "type": "object", "properties": {}, "additionalProperties": false })
     }
 
-    fn call(&self, _args: &Value) -> Result<Value, ToolError> {
-        Ok(json!({
-            "pong": true,
-            "server": super::protocol::SERVER_NAME,
-            "version": super::protocol::SERVER_VERSION,
-        }))
+    fn call<'a>(
+        &'a self,
+        _ctx: &'a ToolContext,
+        _args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            Ok(json!({
+                "pong": true,
+                "server": super::protocol::SERVER_NAME,
+                "version": super::protocol::SERVER_VERSION,
+            }))
+        })
     }
 }
 
@@ -150,16 +172,22 @@ mod tests {
         assert_eq!(tools[0]["inputSchema"]["type"], "object");
     }
 
-    #[test]
-    fn call_known_tool_succeeds() {
-        let out = registry().call("app.ping", &json!({})).expect("found").expect("ok");
+    #[tokio::test]
+    async fn call_known_tool_succeeds() {
+        let ctx = ToolContext::for_test();
+        let out = registry()
+            .call(&ctx, "app.ping", &json!({}))
+            .await
+            .expect("found")
+            .expect("ok");
         assert_eq!(out["pong"], true);
     }
 
-    #[test]
-    fn call_unknown_tool_returns_none() {
+    #[tokio::test]
+    async fn call_unknown_tool_returns_none() {
         // None 让上层报 METHOD_NOT_FOUND，而不是伪造一个成功响应。
-        assert!(registry().call("nope.nope", &json!({})).is_none());
+        let ctx = ToolContext::for_test();
+        assert!(registry().call(&ctx, "nope.nope", &json!({})).await.is_none());
     }
 
     #[test]

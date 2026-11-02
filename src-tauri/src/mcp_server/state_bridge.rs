@@ -17,7 +17,7 @@
 //! 会让上层（以及最终的外部 Agent）得出错误结论。
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -61,9 +61,13 @@ impl BridgeOutcome {
 }
 
 /// 待决请求表：`id → oneshot 发送端`。
-#[derive(Default)]
+///
+/// 内部用 `Arc` 包裹：`ToolContext` 需要把桥句柄带进每个工具，克隆必须是
+/// **共享同一张表**而不是复制一张——否则工具 resolve 的是另一份表，响应永远
+/// 落不到等待者手里。
+#[derive(Clone, Default)]
 pub struct StateBridgeState {
-    pending: Mutex<HashMap<String, tokio::sync::oneshot::Sender<BridgeOutcome>>>,
+    pending: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<BridgeOutcome>>>>,
     /// 超时可覆盖（测试用短超时，生产用 [`DEFAULT_TIMEOUT`]）。
     timeout: Option<Duration>,
 }
@@ -77,7 +81,7 @@ impl StateBridgeState {
     /// 指定超时（仅测试使用）。
     pub fn with_timeout(timeout: Duration) -> Self {
         Self {
-            pending: Mutex::new(HashMap::new()),
+            pending: Arc::new(Mutex::new(HashMap::new())),
             timeout: Some(timeout),
         }
     }
