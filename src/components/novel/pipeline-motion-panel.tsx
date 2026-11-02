@@ -520,7 +520,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
         <svg
           data-testid="motion-diagram"
           viewBox="0 0 1100 680"
-          className="mx-auto block w-full min-w-[1000px] max-w-[1100px]"
+          className="mx-auto block w-full min-w-[1000px]"
           role="img"
           aria-label="写作管线动态图"
         >
