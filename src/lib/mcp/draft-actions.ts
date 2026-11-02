@@ -17,10 +17,17 @@
 
 import { createDirectory, fileExists, writeFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
-import { writeDraft } from "@/lib/novel"
+import { DRAFTS_DIR, writeDraft } from "@/lib/novel"
 import type { ChapterDraft } from "@/lib/novel"
 
-/** 记忆草稿目录（项目相对）。与正式记忆 `QM/memory/` 分开，误认不了。 */
+/**
+ * 记忆草稿目录（项目相对）。与正式记忆 `QM/memory/` 分开，误认不了。
+ *
+ * 为什么章节草稿与记忆草稿不在同一个根下：章节草稿复用应用既有的 `writeDraft`，
+ * 落在它自己的 `DRAFTS_DIR`（`.qm-drafts`）——那个目录被 accept 流程扫描，不能
+ * 往里塞非章节文件。记忆草稿没有既有落点，放在 `.novel/`（机读运行态根）下。
+ * 两处都是草稿，都不会被当成正式数据。
+ */
 const MEMORY_DRAFTS_DIR = ".novel/drafts/memory"
 
 export interface ChapterDraftResult {
@@ -71,7 +78,9 @@ export async function writeChapterDraft(
   return {
     draftId: draft.id,
     chapterName: draft.chapterName,
-    path: `${normalizePath(projectPath)}/.novel/drafts/${draft.id}.md`,
+    // 路径必须与写入器同一个常量：手拼字符串会和真实落点漂移（`.qm-drafts` vs
+    // `.novel/drafts`），调用方拿到一个不存在的路径却以为写成功了。
+    path: `${normalizePath(projectPath)}/${DRAFTS_DIR}/${draft.id}.md`,
     chars: content.length,
     note: "已写入草稿区，尚未进入正式章节。需在应用内确认后才会回填正式正文。",
   }

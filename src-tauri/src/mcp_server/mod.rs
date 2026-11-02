@@ -257,9 +257,36 @@ async fn serve(state: ServerState, port: u16) -> Result<RunningServer, String> {
     if state.token.is_empty() {
         return Err("[mcp_server] refusing to start without a bearer token".to_string());
     }
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
-        .await
-        .map_err(|e| format!("[mcp_server] bind 127.0.0.1:{port} failed: {e}"))?;
+    // 换 scope / 轮换 token 都是「先停旧监听再起新监听」。旧监听是 `abort` 掉的，
+    // 内核释放端口比 abort 返回稍晚，紧接着重绑会撞 `10048 端口占用`。
+    // 这里做有界重试：端口最终一定会释放，但第一次 bind 常常抢不过内核。
+    // 重试是兜底而不是延迟预算——正常情况下第一次就成功。
+    let mut listener = None;
+    let mut last_err = None;
+    for attempt in 0..20u32 {
+        match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(l) => {
+                listener = Some(l);
+                break;
+            }
+            Err(e) => {
+                last_err = Some(e);
+                if attempt == 0 {
+                    // 只在第一次留痕，避免正常重启刷出 20 行日志。
+                    log::debug!("[mcp_server] bind 127.0.0.1:{port} 暂不可用，重试中");
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+    }
+    let listener = listener.ok_or_else(|| {
+        format!(
+            "[mcp_server] bind 127.0.0.1:{port} failed after retries: {}",
+            last_err
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "unknown".to_string())
+        )
+    })?;
     let bound = listener
         .local_addr()
         .map_err(|e| format!("[mcp_server] local_addr failed: {e}"))?
