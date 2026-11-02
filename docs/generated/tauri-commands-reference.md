@@ -1,9 +1,9 @@
 # Tauri 命令参考（自动生成）
 
-> 生成时间：2026-11-01（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
-> 注册数：**123**（`generate_handler!` 块）；未注册声明（死命令）：**0**
+> 生成时间：2026-11-02（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
+> 注册数：**129**（`generate_handler!` 块）；未注册声明（死命令）：**0**
 
-## 注册命令（123）
+## 注册命令（129）
 
 | 命令 | 模块 | 注册 |
 |------|------|------|
@@ -88,6 +88,12 @@
 | `mcp_remote_connect` | mcp_remote::api | ✓ |
 | `mcp_remote_request` | mcp_remote::api | ✓ |
 | `mcp_transport_set_mode` | mcp_remote::api | ✓ |
+| `mcp_server_rotate_token` | mcp_server | ✓ |
+| `mcp_server_start` | mcp_server | ✓ |
+| `mcp_server_status` | mcp_server | ✓ |
+| `mcp_server_stop` | mcp_server | ✓ |
+| `mcp_server_token` | mcp_server | ✓ |
+| `mcp_state_respond` | mcp_server::state_bridge | ✓ |
 | `mcp_stdio_kill` | mcp_stdio | ✓ |
 | `mcp_stdio_read` | mcp_stdio | ✓ |
 | `mcp_stdio_spawn` | mcp_stdio | ✓ |
