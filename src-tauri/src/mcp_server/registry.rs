@@ -12,6 +12,7 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 
 use super::protocol::{INTERNAL_ERROR, INVALID_PARAMS};
+use super::session::SessionScope;
 use super::tools::{ToolContext, ToolFuture};
 
 /// 工具执行错误。
@@ -56,6 +57,14 @@ pub trait McpTool: Send + Sync {
         ctx: &'a ToolContext,
         args: &'a Value,
     ) -> ToolFuture<'a, Result<Value, ToolError>>;
+
+    /// 调用该工具所需的会话权限域。默认只读——写工具必须显式覆盖。
+    ///
+    /// 放在 trait 上而不是在调度器里按名字硬编码，是为了让「新增一个写工具却忘了
+    /// 声明权限」变成必须主动写一行的事，而不是默认放行。
+    fn required_scope(&self) -> SessionScope {
+        SessionScope::Read
+    }
 }
 
 /// 工具注册表。
@@ -106,6 +115,23 @@ impl ToolRegistry {
     ) -> Option<Result<Value, ToolError>> {
         let tool = self.tools.iter().find(|t| t.name() == name)?;
         Some(tool.call(ctx, args).await)
+    }
+
+    /// 某工具所需的权限域。未知工具返回 `None`。
+    pub fn required_scope(&self, name: &str) -> Option<SessionScope> {
+        self.tools
+            .iter()
+            .find(|t| t.name() == name)
+            .map(|t| t.required_scope())
+    }
+
+    /// 需要写权限的工具名（安全断言用）。
+    pub fn write_scope_tools(&self) -> Vec<&'static str> {
+        self.tools
+            .iter()
+            .filter(|t| t.required_scope() > SessionScope::Read)
+            .map(|t| t.name())
+            .collect()
     }
 
     /// 已注册工具名（测试与内省用）。

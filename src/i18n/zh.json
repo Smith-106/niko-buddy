@@ -1458,7 +1458,9 @@
         "sessions": "已连接会话",
         "sessionsEmpty": "暂无外部 Agent 连入。",
         "toolCount": "{{count}} 个只读工具",
-        "calls": "{{count}} 次调用"
+        "calls": "{{count}} 次调用",
+        "writeScope": "允许外部 Agent 修改设置",
+        "writeScopeHint": "默认关闭。打开会重启监听并断开当前已连接的客户端。每次写入都会追加到 .novel/audit/external-writes.jsonl，审计不可关闭。"
       }
     },
     "llm": "模型",

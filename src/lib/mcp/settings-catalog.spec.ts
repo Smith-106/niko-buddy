@@ -78,8 +78,23 @@ describe("settings catalog 覆盖性", () => {
 })
 
 describe("settings catalog 条目自洽", () => {
-  it("P0 全部为只读", () => {
-    expect(SETTINGS_CATALOG.every((e) => e.scope === "read")).toBe(true)
+  it("scope 只有 read/write 两种，且 write 键必须有写入器能保证即时生效", () => {
+    // P0 时全部为 read；P1 把**能保证界面即时刷新**的键升为 write。
+    // 这里不断言「全只读」（那是 P0 的事），而是断言 scope 取值合法、
+    // 且 write 集合非空且被显式列出，防止后来者随手把某个键改成 write。
+    const writable = SETTINGS_CATALOG.filter((e) => e.scope === "write").map((e) => e.key)
+    expect(SETTINGS_CATALOG.every((e) => e.scope === "read" || e.scope === "write")).toBe(true)
+    expect(writable.sort()).toEqual(
+      [
+        "aiChatModel",
+        "defaultLlmModel",
+        "niko-buddy-chat-dock-position",
+        "niko-buddy-focus-mode",
+        "niko-buddy-offline-mode",
+        "niko-buddy-ui-font-size-scale",
+        "theme",
+      ].sort(),
+    )
   })
 
   it("每项都有非空 label 与 verifiedAt", () => {
@@ -113,8 +128,14 @@ describe("settings catalog 条目自洽", () => {
     }
   })
 
-  it("P0 只登记 localStorage（appState/secretRef 的键无固定 schema）", () => {
-    expect(SETTINGS_CATALOG.every((e) => e.storage === "localStorage")).toBe(true)
+  it("storage 只允许 localStorage / appState（secretRef 不列入 catalog）", () => {
+    // appState 是 tauri-plugin-store 的自由键值库，只登记已核实的具体键
+    // （theme / defaultLlmModel / aiChatModel），不再声称「无固定 schema 故不列」。
+    expect(
+      SETTINGS_CATALOG.every((e) => e.storage === "localStorage" || e.storage === "appState"),
+    ).toBe(true)
+    // 凭据类永不进 catalog 的可枚举清单——它们只在 SECRET_REF_CATEGORIES 里按类别登记。
+    expect(SETTINGS_CATALOG.some((e) => e.storage === "secretRef")).toBe(false)
   })
 })
 

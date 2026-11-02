@@ -1,5 +1,5 @@
 /**
- * Rust ⇄ WebView 状态桥（方案 d23eb1df P0，只读方向）。
+ * Rust ⇄ WebView 状态桥（方案 d23eb1df P0 只读 / P1 增加单键写入）。
  *
  * ## 为什么需要桥
  *
@@ -23,11 +23,13 @@
  *
  * ## 三类硬约束
  *
- * 1. **键白名单**。`get`/`list` 只放行 `settings-catalog.ts` 登记过的键。不做前缀
- *    匹配——前缀匹配会让桥变成「任意 localStorage 读写通道」。
+ * 1. **键白名单**。`get`/`list`/`set` 只放行 `settings-catalog.ts` 登记过的键。
+ *    不做前缀匹配——前缀匹配会让桥变成「任意 localStorage 读写通道」。
  * 2. **异常必须回 error**。前端任何一步抛错都要回 `ok:false` + 错误信息，
- *    绝不静默丢弃——静默会让 Rust 侧只能靠 5s 超时兜底，把真实原因丢掉。
- * 3. **P0 只读**。本模块不提供任何写操作（`set`/`remove`）。写入是后续阶段的事。
+ *    绝不静默丢弃——静默会让 Rust 侧只能靠超时兜底，把真实原因丢掉。
+ * 3. **写入只对 `scope: "write"` 的键开放**，且必须经 `settings-writers.ts`
+ *    注册的写入器（复用应用自己的 setter，保证界面即时刷新）。
+ *    P0 的只读态可由服务端 scope 关掉整个 `settings.set` 工具恢复。
  *
  * 注意 `project` / `project-state` / `chapter-*` 是**不同形状**的请求（不是键值对），
  * 它们不参与键白名单；白名单语义只约束 `get`/`list`。
@@ -41,18 +43,25 @@ import { listScopeFiles } from "@/lib/novel/agent-tools"
 import { loadNovelSessionStatus } from "@/lib/novel/novel-session-status"
 import { useWikiStore } from "@/stores/wiki-store"
 
-import { SETTINGS_BY_KEY, SETTINGS_CATALOG, isBridgeAllowedKey } from "./settings-catalog"
+import {
+  SECRET_REF_CATEGORIES,
+  SETTINGS_BY_KEY,
+  SETTINGS_CATALOG,
+  isBridgeAllowedKey,
+} from "./settings-catalog"
+import { SettingsValidationError, getWriter, validateValue } from "./settings-writers"
 
 /** Rust → WebView 的请求事件名（与 Rust 侧 `state_bridge::REQUEST_EVENT` 必须一致）。 */
 export const STATE_REQUEST_EVENT = "mcp:state-request"
 /** WebView → Rust 的回传命令名（与 Rust 侧 `mcp_state_respond` 必须一致）。 */
 export const STATE_RESPOND_COMMAND = "mcp_state_respond"
 
-/** 桥支持的只读操作。 */
+/** 桥支持的操作。`set` 是 P1 新增的唯一写入操作。 */
 export type StateOp =
   | "get"
   | "list"
   | "schema"
+  | "set"
   | "project"
   | "project-state"
   | "chapter-list"
@@ -69,6 +78,8 @@ export interface StateRequestPayload {
   offset?: number
   /** `chapter-read` 用：最多返回行数。 */
   limit?: number
+  /** `set` 用：待写入的值（已由 Rust 侧透传的 JSON）。 */
+  value?: unknown
 }
 
 export interface StateResponse {
@@ -94,6 +105,10 @@ export interface StateBridgeDeps {
   loadStatus: (projectPath: string) => Promise<unknown>
   listChapters: (projectPath: string) => Promise<{ name: string; path: string }[]>
   readFileText: (path: string) => Promise<string>
+  /** 读一个设置项的当前值（可写键走 store，其余走原始存储）。 */
+  readSetting: (key: string) => unknown
+  /** 写入一个设置项，返回落盘后的实际值（可能与传入不同，如钳制）。 */
+  writeSetting: (key: string, value: unknown) => Promise<unknown>
 }
 
 const defaultDeps: StateBridgeDeps = {
@@ -101,6 +116,20 @@ const defaultDeps: StateBridgeDeps = {
   loadStatus: (projectPath) => loadNovelSessionStatus(projectPath),
   listChapters: (projectPath) => listScopeFiles(projectPath, "chapters"),
   readFileText: (path) => readFile(path),
+  readSetting: (key) => {
+    const writer = getWriter(key)
+    if (writer) return writer.read()
+    const entry = SETTINGS_BY_KEY.get(key)
+    return entry?.storage === "localStorage" ? readLocalStorage(key) : null
+  },
+  writeSetting: (key, value) => {
+    const writer = getWriter(key)
+    if (!writer) {
+      // catalog 标了 write 却没有写入器就是登记错误（settings-writers 加载时已自检）。
+      throw new Error(`${key} 没有注册写入器，拒绝写入`)
+    }
+    return writer.write(value)
+  },
 }
 
 /** 读取单个 localStorage 键的原始值（不存在返回 null）。 */
@@ -213,9 +242,46 @@ export async function handleStateRequest(
           key: entry.key,
           storage: entry.storage,
           scope: entry.scope,
-          value: entry.storage === "localStorage" ? readLocalStorage(entry.key) : null,
+          value: deps.readSetting(entry.key),
         }))
         return { ok: true, value: entries }
+      }
+
+      case "set": {
+        const key = payload.key
+        if (!key) {
+          return { ok: false, error: "op=set 需要 key" }
+        }
+        // 凭据类永不经桥写入（C-009）。它们本来就不在 catalog 里，这里单独拦一道
+        // 是为了给出**说清原因**的错误，而不是笼统的「键未登记」。
+        if (SECRET_REF_CATEGORIES.some((c) => c.key === key)) {
+          return {
+            ok: false,
+            error: `凭据类设置不允许外部写入（C-009）：${key}。请在应用界面内修改。`,
+          }
+        }
+        const entry = SETTINGS_BY_KEY.get(key)
+        if (!entry) {
+          return { ok: false, error: `键未登记，拒绝访问: ${key}` }
+        }
+        if (entry.scope !== "write") {
+          return { ok: false, error: `${key} 是只读键，不允许写入` }
+        }
+        if (payload.value === undefined) {
+          return { ok: false, error: "op=set 需要 value" }
+        }
+        try {
+          validateValue(entry, payload.value)
+        } catch (e) {
+          // 校验失败是**调用方错误**，不是内部异常：原样把原因回上去。
+          if (e instanceof SettingsValidationError) {
+            return { ok: false, error: e.message }
+          }
+          throw e
+        }
+        const before = deps.readSetting(key)
+        const after = await deps.writeSetting(key, payload.value)
+        return { ok: true, value: { key, storage: entry.storage, before, after } }
       }
 
       case "get": {
@@ -237,7 +303,7 @@ export async function handleStateRequest(
             key: entry.key,
             storage: entry.storage,
             scope: entry.scope,
-            value: entry.storage === "localStorage" ? readLocalStorage(entry.key) : null,
+            value: deps.readSetting(entry.key),
           },
         }
       }

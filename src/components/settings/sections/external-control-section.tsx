@@ -18,6 +18,9 @@ interface McpSession {
   calls: number
 }
 
+/** 服务端授予外部 Agent 的权限域。`read` < `settings`。 */
+type McpScope = "read" | "settings"
+
 interface McpServerStatus {
   running: boolean
   port: number | null
@@ -25,6 +28,7 @@ interface McpServerStatus {
   tools: string[]
   sessions: McpSession[]
   endpoint: string
+  scope: McpScope
 }
 
 /**
@@ -44,11 +48,16 @@ export function ExternalControlSection() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  // 停止状态下先记住用户想要的写权限，下次启动时带上去。
+  const [wantWrite, setWantWrite] = useState(false)
+
+  const running = status?.running ?? false
 
   const refresh = useCallback(async () => {
     try {
       const next = await invoke<McpServerStatus>("mcp_server_status")
       setStatus(next)
+      if (next.running) setWantWrite(next.scope === "settings")
       setError(null)
     } catch (e) {
       setError(toErrorMessage(e))
@@ -65,7 +74,9 @@ export function ExternalControlSection() {
       setError(null)
       try {
         if (next) {
-          await invoke<number>("mcp_server_start")
+          await invoke<number>("mcp_server_start", {
+            scope: wantWrite ? "settings" : "read",
+          })
         } else {
           await invoke("mcp_server_stop")
           // 停服后旧 token 不再展示，避免用户以为它还生效。
@@ -81,7 +92,32 @@ export function ExternalControlSection() {
         setBusy(false)
       }
     },
-    [refresh],
+    [refresh, wantWrite],
+  )
+
+  /**
+   * 切换写权限。
+   *
+   * 服务端在跑时**立即重启**（scope 变了旧会话就不该继续带着旧权限），因此这会
+   * 断开已连接的客户端——文案里明说了，不偷偷做。没在跑时只记住意图。
+   */
+  const toggleWriteScope = useCallback(
+    async (next: boolean) => {
+      setWantWrite(next)
+      if (!running) return
+      setBusy(true)
+      setError(null)
+      try {
+        await invoke<number>("mcp_server_start", { scope: next ? "settings" : "read" })
+        await refresh()
+      } catch (e) {
+        setError(toErrorMessage(e))
+        await refresh()
+      } finally {
+        setBusy(false)
+      }
+    },
+    [refresh, running],
   )
 
   const revealToken = useCallback(async () => {
@@ -124,7 +160,6 @@ export function ExternalControlSection() {
     }
   }, [status])
 
-  const running = status?.running ?? false
   const sessions = status?.sessions ?? []
 
   return (
@@ -138,7 +173,7 @@ export function ExternalControlSection() {
         <p className="mt-1 text-sm text-muted-foreground">
           {t("settings.sections.externalControl.description", {
             defaultValue:
-              "Let an external agent (Claude Code, PI) connect to this app over a loopback-only MCP endpoint. Read-only in this phase; the app must stay running.",
+              "Let an external agent (Claude Code, PI) connect to this app over a loopback-only MCP endpoint. Read-only unless you explicitly grant settings write access; the app must stay running.",
           })}
         </p>
       </div>
@@ -165,6 +200,31 @@ export function ExternalControlSection() {
             defaultValue: "Allow external control",
           })}
           data-testid="external-control-toggle"
+        />
+      </div>
+
+      <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 p-4">
+        <div>
+          <div className="text-sm font-medium">
+            {t("settings.sections.externalControl.writeScope", {
+              defaultValue: "Allow external agents to change settings",
+            })}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t("settings.sections.externalControl.writeScopeHint", {
+              defaultValue:
+                "Off by default. Enabling it restarts the listener and disconnects current clients. Every write is appended to .novel/audit/external-writes.jsonl and cannot be turned off.",
+            })}
+          </p>
+        </div>
+        <SettingsSwitch
+          checked={running ? (status?.scope === "settings") : wantWrite}
+          onCheckedChange={(next) => void toggleWriteScope(next)}
+          disabled={busy}
+          label={t("settings.sections.externalControl.writeScope", {
+            defaultValue: "Allow external agents to change settings",
+          })}
+          data-testid="external-control-write-scope"
         />
       </div>
 

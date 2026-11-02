@@ -206,6 +206,156 @@ impl super::registry::McpTool for SettingsGetTool {
 }
 
 /// `project.state` —— 当前项目与 `.novel/status.json` 的只读投影。
+/// `settings.set` —— 修改一个已登记设置项（P1 唯一的写工具）。
+///
+/// ## 为什么审计写在 Rust 而不是前端
+///
+/// 审计的用途是「事后能查外部 Agent 改过什么」。如果由前端写，前端崩了/被绕过就
+/// 没有痕迹，而 Rust 这一层是每次调用必经之路。审计**没有开关**：不是配置项，
+/// 没有「关闭审计」的分支——这是设计约束，不是遗漏。
+///
+/// ## 为什么先开文件再写入
+///
+/// 顺序是「先确保审计可落盘 → 再改设置 → 再写审计行」。反过来（先改再写审计）
+/// 一旦落盘失败就会出现「改了但没有痕迹」的状态。先开文件把这种情况挡在前面。
+///
+/// ## 为什么没有项目就拒绝
+///
+/// 审计路径是项目相对的 `.novel/audit/external-writes.jsonl`。没有项目就没有
+/// 审计落点；此时放行等于允许一次无痕写入，所以直接拒绝并说明原因。
+pub struct SettingsSetTool;
+
+/// 一条外部写入审计记录（append-only JSONL 的一行）。
+#[derive(Debug, serde::Serialize)]
+struct ExternalWriteAudit<'a> {
+    ts: String,
+    source: &'a str,
+    tool: &'a str,
+    key: &'a str,
+    before_hash: String,
+    after_hash: String,
+}
+
+/// 值 → 稳定字符串 → sha256 十六进制。
+///
+/// 用 JSON 序列化而不是 `Debug`：前者对同一值稳定，且能区分 `"1"` 与 `1`。
+fn value_hash(value: &Value) -> String {
+    use sha2::{Digest, Sha256};
+    let text = serde_json::to_string(value).unwrap_or_else(|_| "null".to_string());
+    let mut hasher = Sha256::new();
+    hasher.update(text.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+impl super::registry::McpTool for SettingsSetTool {
+    fn name(&self) -> &'static str {
+        "settings.set"
+    }
+
+    fn description(&self) -> &'static str {
+        "Change one registered setting. Takes effect immediately in the UI and persists across restart. Every write is appended to .novel/audit/external-writes.jsonl. Secret values cannot be written."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "key": { "type": "string", "description": "Registered setting key, e.g. theme or niko-buddy-ui-font-size-scale" },
+                "value": {
+                    "description": "New value. Type must match the schema: number for numeric keys, boolean for switches, string for enums/models. Out-of-range values are rejected, never clamped."
+                }
+            },
+            "required": ["key", "value"],
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        // 唯一的写工具：权限闸门在 mod.rs 的请求管线里统一比对。
+        super::session::SessionScope::Settings
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let key = args
+                .get("key")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::invalid_params("settings.set requires string argument `key`"))?;
+            if key.trim().is_empty() {
+                return Err(ToolError::invalid_params("`key` must not be empty"));
+            }
+            // `value` 必须显式给出：`null` 是合法值（清除模型选择），缺字段不是。
+            let value = args
+                .get("value")
+                .ok_or_else(|| ToolError::invalid_params("settings.set requires argument `value`"))?;
+
+            // 审计落点先就位，避免"改了但没有痕迹"。
+            let project_path = ctx.project_path().await?;
+            let audit_dir = std::path::Path::new(&project_path).join(".novel").join("audit");
+            std::fs::create_dir_all(&audit_dir).map_err(|e| {
+                ToolError::internal(format!(
+                    "无法创建审计目录 {}: {e}；为安全起见本次写入未执行",
+                    audit_dir.display()
+                ))
+            })?;
+            let audit_path = audit_dir.join("external-writes.jsonl");
+            let mut audit_file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&audit_path)
+                .map_err(|e| {
+                    ToolError::internal(format!(
+                        "审计文件不可写 {}: {e}；为安全起见本次写入未执行",
+                        audit_path.display()
+                    ))
+                })?;
+
+            let outcome = ctx
+                .bridge_query(
+                    StateQuery::with_key("set", key).with_value(value.clone()),
+                )
+                .await?;
+
+            let before_hash = value_hash(outcome.get("before").unwrap_or(&Value::Null));
+            let after_hash = value_hash(outcome.get("after").unwrap_or(&Value::Null));
+            let record = ExternalWriteAudit {
+                ts: chrono::Utc::now().to_rfc3339(),
+                source: "external_agent",
+                tool: "settings.set",
+                key,
+                before_hash: before_hash.clone(),
+                after_hash: after_hash.clone(),
+            };
+            let line = serde_json::to_string(&record)
+                .map_err(|e| ToolError::internal(format!("审计记录序列化失败: {e}")))?;
+            use std::io::Write;
+            if let Err(e) = writeln!(audit_file, "{line}") {
+                // 写入已生效、审计没落盘：必须显式报出来，不能让调用方以为没发生。
+                return Err(ToolError::internal(format!(
+                    "设置已修改（{key}），但审计落盘失败: {e}。请检查 {} 的可写性。",
+                    audit_path.display()
+                )));
+            }
+
+            Ok(json!({
+                "key": key,
+                "storage": outcome.get("storage").cloned().unwrap_or(Value::Null),
+                "before": outcome.get("before").cloned().unwrap_or(Value::Null),
+                "after": outcome.get("after").cloned().unwrap_or(Value::Null),
+                "audit": {
+                    "path": audit_path.display().to_string(),
+                    "beforeHash": before_hash,
+                    "afterHash": after_hash,
+                }
+            }))
+        })
+    }
+}
+
 pub struct ProjectStateTool;
 
 impl super::registry::McpTool for ProjectStateTool {
@@ -399,15 +549,20 @@ pub fn build_registry() -> super::registry::ToolRegistry {
     r.register(Arc::new(SettingsSchemaTool));
     r.register(Arc::new(SettingsListTool));
     r.register(Arc::new(SettingsGetTool));
+    r.register(Arc::new(SettingsSetTool));
     r.register(Arc::new(ProjectStateTool));
     r.register(Arc::new(ChapterListTool));
     r.register(Arc::new(ChapterReadTool));
     r.register(Arc::new(CanonQueryTool));
-    // 编译期自检：注册表里不得出现写类工具。
-    debug_assert!(
-        super::contains_write_like_tool(&r).is_none(),
-        "P0 registry must stay read-only"
+    // 编译期自检：唯一的写类工具必须是 settings.set，且它必须声明写权限。
+    // 名字像写但 required_scope 仍是 Read 是最危险的组合——客户端以为被拦住了，
+    // 实际没有；反过来也需要一条断言把「新增写工具忘了声明」挡住。
+    debug_assert_eq!(
+        super::contains_write_like_tool(&r),
+        Some("settings.set"),
+        "只有 settings.set 允许是写类工具"
     );
+    debug_assert_eq!(r.write_scope_tools(), vec!["settings.set"]);
     r
 }
 
@@ -419,7 +574,7 @@ mod tests {
     use crate::mcp_server::registry::McpTool;
 
     #[test]
-    fn p0_registry_contains_expected_read_only_tools() {
+    fn registry_contains_expected_tools() {
         let r = build_registry();
         assert_eq!(
             r.names(),
@@ -429,6 +584,7 @@ mod tests {
                 "settings.schema",
                 "settings.list",
                 "settings.get",
+                "settings.set",
                 "project.state",
                 "chapter.list",
                 "chapter.read",
@@ -470,8 +626,32 @@ mod tests {
     }
 
     #[test]
-    fn no_write_like_tool_registered() {
+    fn only_settings_set_is_write_like_and_it_declares_write_scope() {
+        // 名字像写 + 声明写权限 = 一致；名字像写但 scope 仍是 Read 才是最危险的组合。
         let r = build_registry();
-        assert_eq!(crate::mcp_server::contains_write_like_tool(&r), None);
+        assert_eq!(crate::mcp_server::contains_write_like_tool(&r), Some("settings.set"));
+        assert_eq!(r.write_scope_tools(), vec!["settings.set"]);
+        assert_eq!(
+            r.required_scope("settings.set"),
+            Some(crate::mcp_server::session::SessionScope::Settings)
+        );
+        assert_eq!(
+            r.required_scope("settings.get"),
+            Some(crate::mcp_server::session::SessionScope::Read)
+        );
+        assert_eq!(r.required_scope("no.such.tool"), None);
+    }
+
+    #[test]
+    fn settings_set_requires_key_and_value_in_schema() {
+        let tool = SettingsSetTool;
+        assert_eq!(tool.input_schema()["required"], json!(["key", "value"]));
+    }
+
+    #[test]
+    fn value_hash_is_stable_and_distinguishes_types() {
+        assert_eq!(value_hash(&json!("1")), value_hash(&json!("1")));
+        assert_ne!(value_hash(&json!("1")), value_hash(&json!(1)));
+        assert_ne!(value_hash(&json!(null)), value_hash(&json!(false)));
     }
 }

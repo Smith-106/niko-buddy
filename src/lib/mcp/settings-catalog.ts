@@ -1,5 +1,5 @@
 /**
- * 设置目录 catalog —— 「所有选项和设置」的可枚举真源（方案 d23eb1df P0）。
+ * 设置目录 catalog —— 「所有选项和设置」的可枚举真源（方案 d23eb1df P0/P1）。
  *
  * ## 为什么需要它
  *
@@ -9,7 +9,8 @@
  * - Rust 凭据库：API key 等，设备绑定加密
  *
  * 没有目录就既没法对外暴露，也没法保证「状态桥不变成任意 localStorage 读写通道」。
- * 因此本文件是**白名单的唯一真源**：`state-bridge.ts` 只放行这里登记过的键。
+ * 因此本文件是**白名单的唯一真源**：`state-bridge.ts` 只放行这里登记过的键，
+ * 且只有 `scope: "write"` 的键允许经 `settings.set` 写入。
  *
  * ## 为什么 label 是普通字符串而不是 i18n key
  *
@@ -38,8 +39,11 @@ export type SettingsStorage = "localStorage" | "appState" | "secretRef"
 export type SettingsValueKind = "string" | "number" | "boolean" | "json" | "enum"
 
 /**
- * 权限域。P0 全部为 `read`——只读投影锁定
- * （`architecture-constraints-400`：控制台=只读投影，不改账本写入与 status 真源）。
+ * 权限域。P0 全部为 `read`；P1 对**能保证即时生效**的键升为 `write`。
+ *
+ * 为什么不是把 15 个 localStorage 键全部开写：只改 `localStorage` 而不改内存
+ * store，界面不会刷新（本轮验收的硬要求就是「界面即时反映」）。因此 `write`
+ * 只给那些有真实 store setter / 副作用路径的键，其余维持 `read`——宁少不错。
  */
 export type SettingsScope = "read" | "write"
 
@@ -53,6 +57,9 @@ export interface SettingsEntry {
   defaultValue: string | number | boolean | null
   /** `kind === "enum"` 时的合法取值。 */
   enumValues?: readonly string[]
+  /** `kind === "number"` 时的闭区间。越界一律**拒绝**，不静默钳制。 */
+  min?: number
+  max?: number
   /** 面向外部 Agent 的一句话说明。 */
   label: string
   /** 该键类型/默认值的代码出处（便于复核，不参与运行）。 */
@@ -60,25 +67,32 @@ export interface SettingsEntry {
 }
 
 /**
- * 全部已登记的 `localStorage` 设置键（15 个）。
+ * 全部已登记设置键（15 个 localStorage + 3 个 appState）。
  *
  * 分组只为可读性；顺序不影响行为（白名单按 key 精确匹配）。
+ *
+ * 3 个 appState 键（`theme` / `defaultLlmModel` / `aiChatModel`）是 P1 新增的：
+ * 验收要求「改字号/主题/模型选择」，而后两者本来就只存在 `app-state.json`
+ * （`project-store.ts` 的 THEME_KEY / DEFAULT_LLM_MODEL_KEY / AI_CHAT_MODEL_KEY）。
  */
 export const SETTINGS_CATALOG: readonly SettingsEntry[] = [
   // ── 界面与布局 ──────────────────────────────────────────────────────────
   {
     key: "niko-buddy-ui-font-size-scale",
     storage: "localStorage",
-    scope: "read",
+    scope: "write",
     kind: "number",
     defaultValue: 1,
-    label: "界面字号缩放倍数，读取时钳制在 0.85–1.3",
-    verifiedAt: "wiki-store-config.ts readStoredUiFontSizeScale",
+    min: 0.85,
+    max: 1.3,
+    // 写入时会同时更新 app-state 的 uiFontSizeScale 镜像，与设置页的保存路径一致。
+    label: "界面字号缩放倍数（0.85–1.3），越界拒绝；写入后立即应用到界面",
+    verifiedAt: "wiki-store-config.ts readStoredUiFontSizeScale / wiki-store.ts setUiFontSizeScale",
   },
   {
     key: "niko-buddy-focus-mode",
     storage: "localStorage",
-    scope: "read",
+    scope: "write",
     kind: "boolean",
     defaultValue: false,
     label: "写作专注模式，落盘为 \"1\"/\"0\"",
@@ -87,7 +101,7 @@ export const SETTINGS_CATALOG: readonly SettingsEntry[] = [
   {
     key: "niko-buddy-chat-dock-position",
     storage: "localStorage",
-    scope: "read",
+    scope: "write",
     kind: "enum",
     defaultValue: "bottom",
     enumValues: ["bottom", "right"],
@@ -193,7 +207,7 @@ export const SETTINGS_CATALOG: readonly SettingsEntry[] = [
   {
     key: "niko-buddy-offline-mode",
     storage: "localStorage",
-    scope: "read",
+    scope: "write",
     kind: "boolean",
     defaultValue: false,
     label: "离线模式，落盘为 \"1\"/\"0\"",
@@ -207,6 +221,36 @@ export const SETTINGS_CATALOG: readonly SettingsEntry[] = [
     defaultValue: false,
     label: "使用引导提示是否已被关闭，落盘为 \"1\"",
     verifiedAt: "usage-guide 组件 getItem === \"1\"",
+  },
+
+  // ── 外观与模型（app-state.json，tauri-plugin-store） ────────────────────
+  {
+    key: "theme",
+    storage: "appState",
+    scope: "write",
+    kind: "enum",
+    defaultValue: "system",
+    enumValues: ["light", "dark", "deep-blue", "eye-care", "system"],
+    label: "界面主题；写入后立即应用到当前窗口",
+    verifiedAt: "project-store.ts THEME_KEY / composition-root.ts applyTheme",
+  },
+  {
+    key: "defaultLlmModel",
+    storage: "appState",
+    scope: "write",
+    kind: "string",
+    defaultValue: null,
+    label: "默认 LLM 模型 id（模型选择）；空字符串视为清除选择",
+    verifiedAt: "project-store.ts DEFAULT_LLM_MODEL_KEY",
+  },
+  {
+    key: "aiChatModel",
+    storage: "appState",
+    scope: "write",
+    kind: "string",
+    defaultValue: null,
+    label: "侧栏 AI 对话使用的模型 id",
+    verifiedAt: "project-store.ts AI_CHAT_MODEL_KEY",
   },
 ]
 

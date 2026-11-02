@@ -54,6 +54,12 @@ function deps(overrides: Partial<StateBridgeDeps> = {}): StateBridgeDeps {
       { name: "chapter-001.md", path: "/proj/wiki/chapters/chapter-001.md" },
     ],
     readFileText: async () => "line1\nline2\nline3\nline4\nline5",
+    // 默认读/写都走同一个内存 Map，这样 list/get/set 的断言能互相对上。
+    readSetting: (key) => (store.has(key) ? store.get(key) : null),
+    writeSetting: async (key, value) => {
+      store.set(key, value as string)
+      return value
+    },
     ...overrides,
   }
 }
@@ -68,8 +74,13 @@ describe("settings catalog", () => {
     expect(SETTINGS_BY_KEY.size).toBe(SETTINGS_CATALOG.length)
   })
 
-  it("P0 全部为只读", () => {
-    expect(SETTINGS_CATALOG.every((e) => e.scope === "read")).toBe(true)
+  it("P1 可写键是显式白名单，其余保持只读", () => {
+    const writable = SETTINGS_CATALOG.filter((e) => e.scope === "write").map((e) => e.key)
+    expect(writable.length).toBeGreaterThan(0)
+    expect(writable).toContain("theme")
+    expect(writable).toContain("niko-buddy-ui-font-size-scale")
+    // 只改 localStorage 不改内存态的键不得开写（界面不会刷新）。
+    expect(writable).not.toContain("lk-graph-edge-style")
   })
 
   it("白名单按精确键名判定，不做前缀放行", () => {
@@ -89,18 +100,18 @@ describe("handleStateRequest — 设置", () => {
   })
 
   it("op=list 返回每项的当前值", async () => {
-    store.set("niko-buddy-focus-mode", "1")
-    const res = await handleStateRequest(request({ op: "list" }))
+    store.set("lk-chat-height", "300")
+    const res = await handleStateRequest(request({ op: "list" }), deps())
     expect(res.ok).toBe(true)
     const entries = res.value as Array<{ key: string; value: string | null }>
-    expect(entries.find((e) => e.key === "niko-buddy-focus-mode")?.value).toBe("1")
+    expect(entries.find((e) => e.key === "lk-chat-height")?.value).toBe("300")
     // 未设置的键如实返回 null（"未设置"不等于"读不到"）。
-    expect(entries.find((e) => e.key === "lk-chat-height")?.value).toBeNull()
+    expect(entries.find((e) => e.key === "lk-graph-edge-style")?.value).toBeNull()
   })
 
   it("op=get 返回已登记键的值", async () => {
     store.set("lk-sidebar-collapsed", "true")
-    const res = await handleStateRequest(request({ key: "lk-sidebar-collapsed" }))
+    const res = await handleStateRequest(request({ key: "lk-sidebar-collapsed" }), deps())
     expect(res.ok).toBe(true)
     expect((res.value as { value: string }).value).toBe("true")
   })
@@ -124,7 +135,7 @@ describe("handleStateRequest — 设置", () => {
   })
 
   it("不支持的 op 明确报错而非静默成功", async () => {
-    const res = await handleStateRequest({ id: "x", op: "set" as never })
+    const res = await handleStateRequest({ id: "x", op: "remove" as never })
     expect(res.ok).toBe(false)
     expect(res.error).toContain("不支持的 op")
   })
@@ -137,7 +148,8 @@ describe("handleStateRequest — 设置", () => {
         },
       },
     })
-    const res = await handleStateRequest(request({ key: "niko-buddy-focus-mode" }))
+    // 不注入 deps：要验的就是默认路径（只读 localStorage 键直接读原始存储）。
+    const res = await handleStateRequest(request({ key: "lk-sidebar-collapsed" }))
     expect(res.ok).toBe(false)
     expect(res.error).toBeTruthy()
   })
@@ -146,6 +158,123 @@ describe("handleStateRequest — 设置", () => {
     const mod = await import("./state-bridge")
     const exported = Object.keys(mod)
     expect(exported.filter((name) => /^(set|write|remove|delete|update)/i.test(name))).toEqual([])
+  })
+})
+
+describe("handleStateRequest — 写入（P1）", () => {
+  it("op=set 写入可写键并返回 before/after", async () => {
+    store.set("theme", "light")
+    const res = await handleStateRequest(
+      request({ op: "set", key: "theme", value: "dark" }),
+      deps(),
+    )
+    expect(res.ok).toBe(true)
+    expect(res.value).toMatchObject({ key: "theme", before: "light", after: "dark" })
+    expect(store.get("theme")).toBe("dark")
+  })
+
+  it("op=set 拒绝只读键", async () => {
+    const res = await handleStateRequest(
+      request({ op: "set", key: "lk-graph-edge-style", value: "curve" }),
+      deps(),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("只读键")
+  })
+
+  it("op=set 拒绝凭据类键并说明原因（C-009）", async () => {
+    const res = await handleStateRequest(
+      request({ op: "set", key: "mcp-server:bearer-token", value: "x" }),
+      deps(),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("凭据类")
+    expect(res.error).toContain("C-009")
+  })
+
+  it("op=set 拒绝未登记键", async () => {
+    const res = await handleStateRequest(
+      request({ op: "set", key: "niko-buddy-not-real", value: "x" }),
+      deps(),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("未登记")
+  })
+
+  it("op=set 拒绝缺少 key / value", async () => {
+    const noKey = await handleStateRequest(request({ op: "set", value: 1 }), deps())
+    expect(noKey.ok).toBe(false)
+    expect(noKey.error).toContain("需要 key")
+
+    const noValue = await handleStateRequest(request({ op: "set", key: "theme" }), deps())
+    expect(noValue.ok).toBe(false)
+    expect(noValue.error).toContain("需要 value")
+  })
+
+  it("op=set 类型不符时拒绝且不落盘", async () => {
+    const res = await handleStateRequest(
+      request({ op: "set", key: "theme", value: 123 }),
+      deps(),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("只接受")
+    expect(store.has("theme")).toBe(false)
+  })
+
+  it("op=set 枚举越界时拒绝", async () => {
+    const res = await handleStateRequest(
+      request({ op: "set", key: "theme", value: "midnight" }),
+      deps(),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("midnight")
+  })
+
+  it("op=set 数值越界时拒绝而不是静默钳制", async () => {
+    const high = await handleStateRequest(
+      request({ op: "set", key: "niko-buddy-ui-font-size-scale", value: 5 }),
+      deps(),
+    )
+    expect(high.ok).toBe(false)
+    expect(high.error).toContain("不得大于")
+
+    const low = await handleStateRequest(
+      request({ op: "set", key: "niko-buddy-ui-font-size-scale", value: 0.1 }),
+      deps(),
+    )
+    expect(low.ok).toBe(false)
+    expect(low.error).toContain("不得小于")
+  })
+
+  it("op=set 数字类型必须是有限数", async () => {
+    const res = await handleStateRequest(
+      request({ op: "set", key: "niko-buddy-ui-font-size-scale", value: "1.2" }),
+      deps(),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("有限数字")
+  })
+
+  it("op=set 布尔键拒绝字符串", async () => {
+    const res = await handleStateRequest(
+      request({ op: "set", key: "niko-buddy-focus-mode", value: "1" }),
+      deps(),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("布尔值")
+  })
+
+  it("op=set 写入器抛错时回 error（不静默）", async () => {
+    const res = await handleStateRequest(
+      request({ op: "set", key: "theme", value: "dark" }),
+      deps({
+        writeSetting: async () => {
+          throw new Error("app-state 写入失败")
+        },
+      }),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("app-state 写入失败")
   })
 })
 

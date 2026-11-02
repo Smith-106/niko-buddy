@@ -56,6 +56,8 @@ pub struct ServerState {
     pub ctx: Arc<ToolContext>,
     /// 活跃会话表（设置页的「已连接会话」与可掐断依据）。
     pub sessions: Arc<session::SessionRegistry>,
+    /// 服务端授予的权限域。新会话在 `initialize` 时继承它，之后不随服务端变化。
+    pub granted_scope: session::SessionScope,
 }
 
 /// 一次运行中的服务端句柄。
@@ -86,6 +88,16 @@ impl RunningServer {
 ///
 /// 返回 `None` 表示这是通知（无 `id`），按 MCP 规范不得回响应体。
 pub async fn dispatch(state: &ServerState, req: &JsonRpcRequest) -> Option<Value> {
+    // 默认按**最小权限**分发：调用方没声明身份时不得获得写权限。
+    dispatch_as(state, req, session::SessionScope::Read).await
+}
+
+/// 按调用方权限域分发。
+pub async fn dispatch_as(
+    state: &ServerState,
+    req: &JsonRpcRequest,
+    caller: session::SessionScope,
+) -> Option<Value> {
     if req.is_notification() {
         // 通知一律不回响应；`notifications/initialized` 就是唯一会来的那种。
         return None;
@@ -103,7 +115,7 @@ pub async fn dispatch(state: &ServerState, req: &JsonRpcRequest) -> Option<Value
         }
         "ping" => Some(ok_response(id, json!({}))),
         "tools/list" => Some(ok_response(id, state.registry.list())),
-        "tools/call" => Some(handle_tools_call(state, id, req.params.as_ref()).await),
+        "tools/call" => Some(handle_tools_call(state, id, req.params.as_ref(), caller).await),
         other => Some(error_response(
             Some(id),
             METHOD_NOT_FOUND,
@@ -117,7 +129,12 @@ pub async fn dispatch(state: &ServerState, req: &JsonRpcRequest) -> Option<Value
 /// 区分两类失败，这个区分是 MCP 规范要求的、也是客户端重试逻辑的依据：
 /// * **协议层**失败（参数缺失/工具不存在）→ JSON-RPC `error`
 /// * **业务层**失败（工具跑了但没成）→ HTTP 200 + `isError: true`
-async fn handle_tools_call(state: &ServerState, id: Value, params: Option<&Value>) -> Value {
+async fn handle_tools_call(
+    state: &ServerState,
+    id: Value,
+    params: Option<&Value>,
+    caller: session::SessionScope,
+) -> Value {
     let Some(params) = params else {
         return error_response(Some(id), INVALID_REQUEST, "tools/call requires params");
     };
@@ -126,6 +143,21 @@ async fn handle_tools_call(state: &ServerState, id: Value, params: Option<&Value
     };
     let empty = json!({});
     let args = params.get("arguments").unwrap_or(&empty);
+
+    // 权限闸门放在请求管线里而不是工具实现里：授权是请求上下文的事，
+    // 让每个工具自己判断会被漏掉一个。工具声明所需 scope，这里统一比对。
+    if let Some(required) = state.registry.required_scope(name) {
+        if caller < required {
+            return ok_response(
+                id,
+                tool_error(&format!(
+                    "权限不足：{name} 需要 scope=\"{}\"，当前会话是 scope=\"{}\"。                     请在设置页「外部控制」里打开写入授权并重新连接客户端。",
+                    required.as_str(),
+                    caller.as_str()
+                )),
+            );
+        }
+    }
 
     match state.registry.call(&state.ctx, name, args).await {
         None => error_response(Some(id), METHOD_NOT_FOUND, &format!("unknown tool: {name}")),
@@ -184,19 +216,25 @@ async fn handle_mcp(
 
     // 会话：`initialize` 新建（并用 Mcp-Session-Id 头下发），其余请求按头更新活跃时间。
     // P0 不靠会话做鉴权——鉴权是 bearer token 的事，两者不混。
-    let session_id = if req.method == "initialize" {
-        Some(state.sessions.create())
+    // 调用方权限域：`initialize` 时按服务端授予值新建会话；其余请求按会话 id 查表，
+    // 未知/缺失 id 一律降到最小权限 `Read`（不隐式创建、不默认放行）。
+    let (session_id, caller_scope) = if req.method == "initialize" {
+        (Some(state.sessions.create(state.granted_scope)), state.granted_scope)
     } else {
-        if let Some(sid) = headers
+        let sid = headers
             .get("mcp-session-id")
-            .and_then(|v| v.to_str().ok())
-        {
-            state.sessions.touch(sid);
-        }
-        None
+            .and_then(|v| v.to_str().ok());
+        let scope = match sid {
+            Some(id) => {
+                state.sessions.touch(id);
+                state.sessions.scope_of(id).unwrap_or(session::SessionScope::Read)
+            }
+            None => session::SessionScope::Read,
+        };
+        (None, scope)
     };
 
-    let mut resp = match dispatch(&state, &req).await {
+    let mut resp = match dispatch_as(&state, &req, caller_scope).await {
         None => StatusCode::ACCEPTED.into_response(),
         Some(value) => (StatusCode::OK, axum::Json(value)).into_response(),
     };
@@ -252,6 +290,7 @@ pub async fn start(
     bridge: state_bridge::StateBridgeState,
     port: u16,
     token: String,
+    granted_scope: session::SessionScope,
 ) -> Result<RunningServer, String> {
     let state = ServerState {
         token,
@@ -263,13 +302,18 @@ pub async fn start(
             port,
         }),
         sessions: Arc::new(session::SessionRegistry::new()),
+        granted_scope,
     };
     serve(state, port).await
 }
 
-/// 注册表里是否存在疑似写入类工具（P0/P1 安全断言用）。
+/// 注册表里是否有**名字像写**的工具（安全断言用）。
 ///
 /// 判据是**名字前缀/动词**，不是 schema 分析——故意做得保守：宁可误报也不要漏报。
+/// P1 起 `settings.set` 是唯一允许的例外（它也确实需要 `Settings` scope，
+/// 见 [`ToolRegistry::write_scope_tools`]）；两者要一起看：
+/// * 名字像写但 `required_scope() == Read` → 危险（名字在撒谎，权限没拦住）
+/// * 需要写 scope 但名字不像写 → 可疑（客户端难以从名字判断副作用）
 pub fn contains_write_like_tool(registry: &ToolRegistry) -> Option<&'static str> {
     const WRITE_HINTS: [&str; 8] = [
         "set", "write", "update", "delete", "remove", "create", "save", "accept",
@@ -309,6 +353,14 @@ impl McpServerHandle {
             .and_then(|g| g.as_ref().map(|s| s.port))
     }
 
+    /// 当前授予的权限域（未运行为 `None`）。
+    pub fn scope(&self) -> Option<session::SessionScope> {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().map(|s| s.state.granted_scope))
+    }
+
     /// 当前会话快照（未运行则为空）。
     pub fn sessions(&self) -> Vec<session::SessionInfo> {
         match self.inner.lock() {
@@ -340,6 +392,8 @@ pub struct McpServerStatus {
     pub port: Option<u16>,
     pub tool_count: usize,
     pub tools: Vec<&'static str>,
+    /// 当前授予外部 Agent 的权限域（未运行时给出「将会授予」的值，便于界面回显）。
+    pub scope: session::SessionScope,
     /// 已连接会话（未运行时为空）。
     pub sessions: Vec<session::SessionInfo>,
     /// 连接地址（未运行时仍给出，供用户提前配置客户端）。
@@ -352,16 +406,31 @@ pub async fn mcp_server_start(
     app: tauri::AppHandle,
     handle: tauri::State<'_, McpServerHandle>,
     bridge: tauri::State<'_, state_bridge::StateBridgeState>,
+    scope: Option<String>,
 ) -> Result<u16, String> {
+    // 缺省 = 只读：不传 scope 的老调用方（含测试）不会因为这次改动凭空拿到写权限。
+    let granted = match scope.as_deref() {
+        None => session::SessionScope::Read,
+        Some(raw) => session::SessionScope::parse(raw)
+            .ok_or_else(|| format!("未知 scope: {raw}（只接受 read / settings）"))?,
+    };
+
     if let Some(port) = handle.port() {
-        return Ok(port);
+        // 已在运行：scope 未变则幂等返回；变了就按新 scope 重启。
+        // 静默忽略 scope 变化会让界面上的开关看起来生效了、实际没生效。
+        if handle.scope() == Some(granted) {
+            return Ok(port);
+        }
+        handle.replace(None);
+        log::info!("[mcp_server] scope changed to {granted:?}, restarting");
     }
+
     let token = auth::ensure_token()?;
     // `StateBridgeState` 内部持 `Arc`，克隆即共享同一张待决表。
-    let server = start(app, bridge.inner().clone(), DEFAULT_PORT, token).await?;
+    let server = start(app, bridge.inner().clone(), DEFAULT_PORT, token, granted).await?;
     let port = server.port;
     handle.replace(Some(server));
-    log::info!("[mcp_server] listening on 127.0.0.1:{port}");
+    log::info!("[mcp_server] listening on 127.0.0.1:{port} (scope={granted:?})");
     Ok(port)
 }
 
@@ -384,6 +453,7 @@ pub async fn mcp_server_status(
         port,
         tool_count: registry.len(),
         tools: registry.names(),
+        scope: handle.scope().unwrap_or(session::SessionScope::Read),
         sessions: handle.sessions(),
         endpoint: format!("http://127.0.0.1:{}/mcp", port.unwrap_or(DEFAULT_PORT)),
     })
@@ -404,7 +474,10 @@ pub async fn mcp_server_rotate_token(
 ) -> Result<String, String> {
     let token = auth::rotate_token()?;
     if handle.port().is_some() {
-        let server = start(app, bridge.inner().clone(), DEFAULT_PORT, token.clone()).await?;
+        // 轮换 token 不该顺手改权限域：沿用当前授予值。
+        let granted = handle.scope().unwrap_or(session::SessionScope::Read);
+        let server =
+            start(app, bridge.inner().clone(), DEFAULT_PORT, token.clone(), granted).await?;
         handle.replace(Some(server));
     }
     Ok(token)
@@ -421,6 +494,7 @@ mod tests {
             registry: Arc::new(tools::build_registry()),
             ctx: Arc::new(ToolContext::for_test()),
             sessions: Arc::new(session::SessionRegistry::new()),
+            granted_scope: session::SessionScope::Read,
         })
     }
 
@@ -559,10 +633,65 @@ mod tests {
     }
 
     #[test]
-    fn p0_registry_has_no_write_like_tool() {
-        // 只读投影锁定的机械断言：P0 注册表不得出现写类工具。
+    fn only_settings_set_carries_write_scope() {
+        // P0 只读态由 scope 闸门保证，而不是靠"注册表里没有写工具"：
+        // 唯一的写类工具必须声明 Settings scope，其余一律 Read。
         let reg = tools::build_registry();
-        assert_eq!(contains_write_like_tool(&reg), None);
+        assert_eq!(contains_write_like_tool(&reg), Some("settings.set"));
+        assert_eq!(reg.write_scope_tools(), vec!["settings.set"]);
+    }
+
+    #[tokio::test]
+    async fn settings_set_is_rejected_for_read_scope_sessions() {
+        // 最小权限：dispatch（默认 Read）调写工具必须被拒，且错误要说清怎么开权限。
+        let out = dispatch(
+            &state("t"),
+            &req(
+                "tools/call",
+                Some(json!({"name": "settings.set", "arguments": {"key": "theme", "value": "dark"}})),
+            ),
+        )
+        .await
+        .expect("has response");
+        let result = &out["result"];
+        assert_eq!(result["isError"], json!(true));
+        let text = result["content"][0]["text"].as_str().unwrap_or_default();
+        assert!(text.contains("权限不足"), "实际: {text}");
+        assert!(text.contains("settings"), "实际: {text}");
+    }
+
+    #[tokio::test]
+    async fn settings_set_passes_the_gate_with_settings_scope() {
+        // 有权限时不再被闸门拦，而是走到工具实现（此处无 AppHandle → 桥不可用）。
+        let out = dispatch_as(
+            &state("t"),
+            &req(
+                "tools/call",
+                Some(json!({"name": "settings.set", "arguments": {"key": "theme", "value": "dark"}})),
+            ),
+            session::SessionScope::Settings,
+        )
+        .await
+        .expect("has response");
+        let text = out["result"]["content"][0]["text"].as_str().unwrap_or_default();
+        assert!(!text.contains("权限不足"), "不应被权限闸门拦截: {text}");
+        assert!(text.contains("状态桥"), "应因缺少 AppHandle 失败: {text}");
+    }
+
+    #[tokio::test]
+    async fn read_tools_are_not_gated_by_scope() {
+        // 闸门只拦写工具：只读会话调只读工具照常工作。
+        let out = dispatch(&state("t"), &req("tools/list", None))
+            .await
+            .expect("has response");
+        let names: Vec<&str> = out["result"]["tools"]
+            .as_array()
+            .expect("array")
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        assert!(names.contains(&"settings.get"));
+        assert!(names.contains(&"settings.set"));
     }
 
     // ── 端到端：真起监听、真发 HTTP ────────────────────────────────────────
@@ -574,6 +703,7 @@ mod tests {
             registry: Arc::new(tools::build_registry()),
             ctx: Arc::new(ToolContext::for_test()),
             sessions: Arc::new(session::SessionRegistry::new()),
+            granted_scope: session::SessionScope::Read,
         };
         serve(state, 0).await.expect("start")
     }
@@ -660,7 +790,7 @@ mod tests {
         let sessions = server.sessions();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].id, sid);
-        assert_eq!(sessions[0].scope, "read");
+        assert_eq!(sessions[0].scope, session::SessionScope::Read);
         server.stop();
     }
 

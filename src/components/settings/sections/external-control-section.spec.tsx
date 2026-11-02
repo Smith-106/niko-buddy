@@ -6,6 +6,7 @@
  * 1. 开关关闭必须真的调 `mcp_server_stop`（不是只改前端状态）
  * 2. token 默认掩码，点「显示」才展开；停服后不再展示旧 token
  * 3. 无会话时给空态文案，不是空白
+ * 4. 写权限默认关闭，打开时必须带 `scope: "settings"` 重启（不能只改界面）
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
@@ -23,6 +24,7 @@ const RUNNING_STATUS = {
   tools: ["app.ping", "app.status", "settings.schema", "settings.list", "settings.get"],
   sessions: [],
   endpoint: "http://127.0.0.1:45871/mcp",
+  scope: "read",
 }
 
 const STOPPED_STATUS = {
@@ -50,6 +52,47 @@ describe("ExternalControlSection", () => {
       )
     })
     expect(screen.getByTestId("external-control-tool-count")).toHaveTextContent("5")
+  })
+
+  it("写权限开关默认关闭，且启动时带 read scope", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_server_start") return Promise.resolve(45871)
+      return Promise.resolve(STOPPED_STATUS)
+    })
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-toggle")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("external-control-toggle"))
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("mcp_server_start", { scope: "read" })
+    })
+  })
+
+  it("打开写权限时带 settings scope 重启", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_server_start") return Promise.resolve(45871)
+      return Promise.resolve(RUNNING_STATUS)
+    })
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-write-scope")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("external-control-write-scope"))
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("mcp_server_start", { scope: "settings" })
+    })
+  })
+
+  it("服务端已授予 settings 时开关显示为开", async () => {
+    invokeMock.mockResolvedValue({ ...RUNNING_STATUS, scope: "settings" })
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-write-scope")).toHaveAttribute(
+        "aria-checked",
+        "true",
+      )
+    })
   })
 
   it("无会话时展示空态", async () => {

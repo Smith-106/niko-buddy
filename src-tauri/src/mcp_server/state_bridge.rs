@@ -52,6 +52,9 @@ pub struct StateRequestPayload {
     pub offset: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u64>,
+    /// `set` 用：待写入的值（任意 JSON）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<Value>,
 }
 
 /// 一次桥查询的参数。
@@ -65,6 +68,7 @@ pub struct StateQuery {
     pub path: Option<String>,
     pub offset: Option<u64>,
     pub limit: Option<u64>,
+    pub value: Option<Value>,
 }
 
 impl StateQuery {
@@ -94,6 +98,12 @@ impl StateQuery {
     pub fn with_window(mut self, offset: Option<u64>, limit: Option<u64>) -> Self {
         self.offset = offset;
         self.limit = limit;
+        self
+    }
+
+    /// `set` 查询：带待写入的值。
+    pub fn with_value(mut self, value: Value) -> Self {
+        self.value = Some(value);
         self
     }
 }
@@ -190,6 +200,7 @@ impl StateBridgeState {
             path: query.path,
             offset: query.offset,
             limit: query.limit,
+            value: query.value,
         });
 
         let timeout = self.timeout();
