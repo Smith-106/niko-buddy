@@ -7,6 +7,31 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.25.2] - 2026-11-02
+
+### Added
+
+- 新增：GitHub 私有仓同步备份三原语真机验收。`GitHubTarget` 覆盖 ≤1MiB 单 PUT（contents API）、>1MiB 分片（Git Data API blob→tree→commit→ref）、列举三路径；新增 env-gated 真机往返测试 `github_live_push_pull_roundtrip`（默认 `#[ignore]`，CI 不联网不执行），已用一次性私有仓验证两个对象真实落库并回读一致。
+- 新增：同步冲突逐项决策链（`sync_apply_per_item_decision` + `sync_target_decision.rs`）。默认终态恒为 `keep_both`；`pick_mine`/`pick_theirs` 需显式用户动作；无 base 时仅允许 `keep_both`（UI 禁用其余选项）。`base_available` 如实反映基线可得性，方向记为 `refused` 而非静默降级。
+- 新增：`snapshot-scanner.ts` 批次范围快照。以 `missing_optional_field` / `missingOptionalField` 表达「字段缺失」语义，不再用 revision 冒充字段版本。
+- 新增：缓存命中 harness（`cache-hit-harness.ts`）三层口径分离。理论层（字节级最长公共前缀）、模拟层（`simulated: true`，显式声明不是线上口径）、线上实测层（`liveMeasured`，仅由真读上游 `usage` 产生；`runCacheHitHarness()` 恒为 `null`，未测时不产出任何数字）。
+- 新增：同步备份功能文档（`docs-site/src/content/docs/features/sync-backup.md`）与两份决策日志（`20261102-ralph-sync-cache.md`、`20261102-sync-conflict-semantics.md`）。
+
+### Changed
+
+- 变更：G6 跨章稳定前缀缓存。`ContextPack` 新增 `canonRulesBase`（可选，项目级不变基线）；稳定缓存段放 base、动态段只放 temporal 增量，使同一项目跨章节的稳定前缀字节一致、上游前缀缓存可真正命中。切分收敛为 `splitCanonRules()` 单一真源，两侧共用同一 `trim` 归一化；base 不是前缀时**清空稳定段**（宁可零缓存收益，绝不重复渲染规则）。`STABLE_PREFIX_VERSION` 1→2。
+- 变更：`RESERVED_CANON_RULES_CHARS` 改口径为参考阈值。模块不再从 `maxCtx` 扣减该值，注释与文档同步说明；既有 5%/50%/15% 配额未动。
+- 变更：发布语义 **prerelease**（内测渠道先行，Latest 稳定版仍为 v2.24.1）。
+
+### Fixed
+
+- 修复：G7 缓存块零截断。`trimSystemMessagePreservingCachedBlocks` 保留带 `cacheControl` 的缓存块（稳定前缀含世界规则 base）零截断，只压缩非缓存动态块；字符串形态 system 消息仍走通用裁剪，避免破坏 400 超额重试路径。
+- 修复：`check-consistency` 的 IPC 命令解析对 CRLF 不宽容。命令属性与 `fn` 之间存在其它属性（如 `#[allow(clippy::too_many_arguments)]`）且文件为 CRLF 换行时，`#[tauri::command]` 后接 `
+` 的匹配失败，导致命令被误判「无定义」；改为 `?
+` 后 14/14 通过（是修复漏检，不是放宽门禁）。
+- 修复：同步配置校验（B1）。`validateSyncConfig` 的 github 分支改用 `GITHUB_CREDENTIAL_REF_PREFIX` / `isGitHubCredentialRef`，杜绝把非 GitHub 凭据引用误当合法配置。
+- 修复：凭据目标解析（F-001/F-005）。`CloudBackupPanel` 走 `resolveCredentialTargetForDomain(GITHUB_SECRET_DOMAIN, …)`；冲突选项渲染如实反映可选性。
+
 ## [2.25.1] - 2026-11-01
 
 ### Added

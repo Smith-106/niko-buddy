@@ -15,7 +15,21 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.25.1-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.25.2-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
+  <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
+  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
+</p>
+
+## v2.25.2 新增（同步备份 GitHub 私有仓 + 跨章缓存命中，prerelease）
+
+内测候选版（不进 Latest，当前 Latest 仍为 v2.24.1）：
+
+- **同步备份 GitHub 私有仓**：`GitHubTarget` 三原语已真机验收——≤1MiB 走 contents API 单 PUT、>1MiB 走 Git Data API（blob→tree→commit→ref）、`list` 列举；凭据入系统钥匙串（设备指纹绑定），token 只进 Authorization 头，不落盘不进日志。
+- **冲突逐项决策**：默认终态恒为 `keep_both`；`pick_mine`/`pick_theirs` 需显式动作；无基线时仅允许 `keep_both`（UI 禁用其余项），基线可得性如实上报。
+- **跨章缓存命中（G6）**：`ContextPack` 新增 `canonRulesBase`，稳定缓存段放项目级规则基线、动态段只放本章时效增量——同一项目跨章节的稳定前缀字节一致，上游前缀缓存才真正命中。切分收敛为单一函数，基线不是前缀时清空稳定段（宁可零缓存，绝不重复渲染规则）。
+- **缓存命中口径三层分离**：理论层（字节级最长公共前缀）/ 模拟层（显式 `simulated: true`）/ 线上实测层（只由真读上游 `usage` 产生，未测即为空，绝不拿推演值顶替）。
+- **缓存块零截断**：上下文预算裁剪保留带 `cacheControl` 的缓存块，只压每次请求都变的动态段，世界规则基线不会被预算挤掉。
 
 ## v2.25.1 新增（统一状态仪表盘 + 主控大屏 P1 转译拓扑，prerelease）
 
@@ -24,10 +38,6 @@
 - **统一状态总览页**：新增 `statusDashboard` 视图，五维只读聚合（人物关系/场景/人物状态/伏笔/正史），全量口径主行 + 视图过滤次行，canon 非 Tauri 降级为空，伏笔行 60 行封顶。
 - **图谱维度开关**：侧边栏 10 维开关直驱画布显隐（单写者 hiddenTypes），左侧导航新入口，中英键齐备。
 - **主控 P1 拓扑**：有参考阈值 + A/B/C/D 路线桩 + 四形态分支 + 能力池矩阵，控制台只读。
-  <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
-  <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
-  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
-</p>
 
 <p align="center">
   <a href="https://smith-106.github.io/niko-buddy/">📖 文档站</a> ·

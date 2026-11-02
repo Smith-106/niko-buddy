@@ -45,6 +45,7 @@ export default defineConfig({
             { label: '能力指挥', link: '/features/capability-commander/' },
             { label: '故事推演', link: '/features/story-simulation/' },
             { label: '备份与导出', link: '/features/backup-export/' },
+            { label: '同步与备份目标', link: '/features/sync-backup/' },
             { label: 'Canon 编辑器', link: '/features/canon-editor/' },
             { label: '互动影游', link: '/features/interactive-film/' },
             { label: '同人模式', link: '/features/fanfic-mode/' },
