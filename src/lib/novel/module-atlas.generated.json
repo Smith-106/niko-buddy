@@ -91,7 +91,7 @@
   "specOnly": 264,
   "barrelOnly": 2,
   "edges": 4535,
-  "loc": 282993
+  "loc": 282998
  },
  "modules": [
   {
@@ -3772,7 +3772,7 @@
   {
    "p": "src/components/novel/pipeline-motion-view.tsx",
    "s": 16,
-   "l": 141,
+   "l": 146,
    "r": true,
    "o": false,
    "x": false,
