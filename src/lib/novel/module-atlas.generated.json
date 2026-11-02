@@ -90,8 +90,8 @@
   "orphan": 276,
   "specOnly": 264,
   "barrelOnly": 2,
-  "edges": 4541,
-  "loc": 283771
+  "edges": 4545,
+  "loc": 283941
  },
  "modules": [
   {
@@ -8722,13 +8722,17 @@
   {
    "p": "src/lib/mcp/state-bridge.ts",
    "s": 18,
-   "l": 145,
+   "l": 315,
    "r": true,
    "o": false,
    "x": false,
    "b": false,
    "i": [
-    474
+    4,
+    474,
+    490,
+    803,
+    1175
    ],
    "e": [
     "@tauri-apps/api"

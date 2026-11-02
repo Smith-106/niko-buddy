@@ -36,6 +36,56 @@ pub struct StateRequestPayload {
     pub op: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u64>,
+}
+
+/// 一次桥查询的参数。
+///
+/// 用结构体而不是一串可选参数：`project-state` / `chapter-*` 是**不同形状**的请求
+/// （不是键值对），继续加位置参数会让调用点变成一串 `None, None, Some(..)`。
+#[derive(Debug, Clone, Default)]
+pub struct StateQuery {
+    pub op: String,
+    pub key: Option<String>,
+    pub path: Option<String>,
+    pub offset: Option<u64>,
+    pub limit: Option<u64>,
+}
+
+impl StateQuery {
+    pub fn new(op: &str) -> Self {
+        Self {
+            op: op.to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// `get` 类查询：带一个键。
+    pub fn with_key(op: &str, key: &str) -> Self {
+        Self {
+            key: Some(key.to_string()),
+            ..Self::new(op)
+        }
+    }
+
+    /// `chapter-read` 类查询：带章节选择器。
+    pub fn with_path(op: &str, path: &str) -> Self {
+        Self {
+            path: Some(path.to_string()),
+            ..Self::new(op)
+        }
+    }
+
+    pub fn with_window(mut self, offset: Option<u64>, limit: Option<u64>) -> Self {
+        self.offset = offset;
+        self.limit = limit;
+        self
+    }
 }
 
 /// 前端回传的结果。
@@ -108,12 +158,7 @@ impl StateBridgeState {
     /// 发起一次请求并等待响应。
     ///
     /// `emit` 抽成闭包是为了可测：测试里直接用闭包模拟前端回传，不需要真实 AppHandle。
-    pub async fn request_with<F>(
-        &self,
-        emit: F,
-        op: &str,
-        key: Option<&str>,
-    ) -> Result<Value, String>
+    pub async fn request_with<F>(&self, emit: F, query: StateQuery) -> Result<Value, String>
     where
         F: FnOnce(StateRequestPayload),
     {
@@ -127,10 +172,14 @@ impl StateBridgeState {
             guard.insert(id.clone(), tx);
         }
 
+        let op = query.op.clone();
         emit(StateRequestPayload {
             id: id.clone(),
-            op: op.to_string(),
-            key: key.map(|k| k.to_string()),
+            op: query.op,
+            key: query.key,
+            path: query.path,
+            offset: query.offset,
+            limit: query.limit,
         });
 
         let timeout = self.timeout();
@@ -173,8 +222,7 @@ impl StateBridgeState {
 pub async fn request(
     app: &AppHandle,
     bridge: &StateBridgeState,
-    op: &str,
-    key: Option<&str>,
+    query: StateQuery,
 ) -> Result<Value, String> {
     let app = app.clone();
     bridge
@@ -186,8 +234,7 @@ pub async fn request(
                     log::warn!("[mcp_server] emit {REQUEST_EVENT} failed: {e}");
                 }
             },
-            op,
-            key,
+            query,
         )
         .await
 }
@@ -238,8 +285,7 @@ mod tests {
                             );
                         });
                     },
-                    "get",
-                    Some("k"),
+                    StateQuery::with_key("get", "k"),
                 )
                 .await
         });
@@ -252,7 +298,7 @@ mod tests {
         // 前端从不回传：必须返回 Err，而不是 Ok(None)。
         let bridge = StateBridgeState::with_timeout(Duration::from_millis(50));
         let err = bridge
-            .request_with(|_payload| {}, "get", Some("k"))
+            .request_with(|_payload| {}, StateQuery::with_key("get", "k"))
             .await
             .expect_err("must time out");
         assert!(err.contains("超时"), "错误信息要能指向真实原因: {err}");
@@ -291,8 +337,7 @@ mod tests {
                         );
                     });
                 },
-                "get",
-                Some("x"),
+                StateQuery::with_key("get", "x"),
             )
             .await;
         assert_eq!(out.expect_err("must be err"), "键未登记，拒绝访问: x");
@@ -323,8 +368,7 @@ mod tests {
                             );
                         });
                     },
-                    "get",
-                    None,
+                    StateQuery::new("get"),
                 )
                 .await
             }));
