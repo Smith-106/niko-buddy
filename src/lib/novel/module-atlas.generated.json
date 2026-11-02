@@ -90,8 +90,8 @@
   "orphan": 276,
   "specOnly": 264,
   "barrelOnly": 2,
-  "edges": 4558,
-  "loc": 284793
+  "edges": 4557,
+  "loc": 284771
  },
  "modules": [
   {
@@ -8664,13 +8664,12 @@
   {
    "p": "src/lib/mcp/draft-actions.ts",
    "s": 18,
-   "l": 129,
+   "l": 107,
    "r": true,
    "o": false,
    "x": false,
    "b": false,
    "i": [
-    4,
     759,
     1015
    ]
