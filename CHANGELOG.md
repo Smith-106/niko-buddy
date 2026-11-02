@@ -21,7 +21,7 @@
 
 - 变更：G6 跨章稳定前缀缓存。`ContextPack` 新增 `canonRulesBase`（可选，项目级不变基线）；稳定缓存段放 base、动态段只放 temporal 增量，使同一项目跨章节的稳定前缀字节一致、上游前缀缓存可真正命中。切分收敛为 `splitCanonRules()` 单一真源，两侧共用同一 `trim` 归一化；base 不是前缀时**清空稳定段**（宁可零缓存收益，绝不重复渲染规则）。`STABLE_PREFIX_VERSION` 1→2。
 - 变更：`RESERVED_CANON_RULES_CHARS` 改口径为参考阈值。模块不再从 `maxCtx` 扣减该值，注释与文档同步说明；既有 5%/50%/15% 配额未动。
-- 变更：发布语义 **prerelease**（内测渠道先行，Latest 稳定版仍为 v2.24.1）。
+- 变更：发布语义 **stable**。v2.25.2 先以 prerelease 发布，2026-11-02 经用户批准提升为 Latest 稳定版（登记 thirty-day-stable 节奏豁免），使已装 v2.24.1 的用户可通过应用内更新器自动升级。
 
 ### Fixed
 

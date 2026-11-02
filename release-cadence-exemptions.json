@@ -91,6 +91,16 @@
         "same-day-duplicate",
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.25.2",
+      "reason": "用户于 2026-11-02 明确批准将 v2.25.2 由 prerelease 提升为 Latest 稳定版，目的是让已装 2.24.1 的用户能通过应用内更新器自动升级到该版本（同步备份 GitHub 私有仓三原语真机验收 + 冲突逐项决策 + 跨章稳定前缀缓存命中 + 缓存命中三层口径）。实际触发的硬检项为 thirty-day-stable（发布前 30 天 stable 数量超限，系历史连续高频发布所致，非跳过工程门禁）。weekly-stable 未触发：2026-11-02 为周一，属 ISO W45，该周仅此一个 stable；same-day-duplicate 未触发：2026-11-02 当日无其它 stable 发布。scope 仍保守登记 weekly-stable 以覆盖时区/周边界差异。发版门禁：typecheck 0、gen:check 6/6、consistency 14/14、CI 41424017897 全 6 job success、Release 41426695191 全 3 job success。",
+      "approvedBy": "user",
+      "approvedAt": "2026-11-02",
+      "scope": [
+        "weekly-stable",
+        "thirty-day-stable"
+      ]
     }
   ]
 }

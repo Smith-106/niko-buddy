@@ -21,9 +21,9 @@
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
 
-## v2.25.2 新增（同步备份 GitHub 私有仓 + 跨章缓存命中，prerelease）
+## v2.25.2 新增（同步备份 GitHub 私有仓 + 跨章缓存命中，stable）
 
-内测候选版（不进 Latest，当前 Latest 仍为 v2.24.1）：
+正式稳定版（2026-11-02 由内测候选提升为 Latest，已装 v2.24.1 的用户可通过应用内更新器自动升级）：
 
 - **同步备份 GitHub 私有仓**：`GitHubTarget` 三原语已真机验收——≤1MiB 走 contents API 单 PUT、>1MiB 走 Git Data API（blob→tree→commit→ref）、`list` 列举；凭据入系统钥匙串（设备指纹绑定），token 只进 Authorization 头，不落盘不进日志。
 - **冲突逐项决策**：默认终态恒为 `keep_both`；`pick_mine`/`pick_theirs` 需显式动作；无基线时仅允许 `keep_both`（UI 禁用其余项），基线可得性如实上报。
@@ -33,7 +33,7 @@
 
 ## v2.25.1 新增（统一状态仪表盘 + 主控大屏 P1 转译拓扑，prerelease）
 
-内测候选版（不进 Latest，当前 Latest 仍为 v2.24.1）：
+内测候选版（当时未进 Latest；现已被 v2.25.2 接任）：
 
 - **统一状态总览页**：新增 `statusDashboard` 视图，五维只读聚合（人物关系/场景/人物状态/伏笔/正史），全量口径主行 + 视图过滤次行，canon 非 Tauri 降级为空，伏笔行 60 行封顶。
 - **图谱维度开关**：侧边栏 10 维开关直驱画布显隐（单写者 hiddenTypes），左侧导航新入口，中英键齐备。
@@ -70,7 +70,7 @@ Niko Buddy 不是普通的 AI 聊天写作工具。它是一套**长篇小说记
 
 ## v2.25.0 架构升级（结构化大纲侧车存储与上下文工程双轨接线，prerelease）
 
-内测候选版（不进 Latest，当前 Latest 仍为 v2.24.1）：
+内测候选版（当时未进 Latest；现已被 v2.25.2 接任）：
 
 - **结构化大纲侧车存储**：引入 `.novel/outline-model.json` 作为大纲的结构化真源，由 `outline-model-store.ts` 统一管理；内置三道根形状防御闸（拒绝无 schemaVersion、无 volumes、无关 JSON 等损坏形态），损坏文件恒返回 `{ model: null, error }`，绝不回退空大纲覆盖坏数据；保存前强制执行 `validateOutlineModel` 校验闸；严格采用无尾随换行格式保证 digest 稳定一致。
 - **Schema 迁移机制**：建立首个 v1→v2 迁移（补齐章级 pov 视角字段），并在模型校验前执行，确保历史大纲向下兼容平滑升级。
