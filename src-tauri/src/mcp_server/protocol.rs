@@ -28,6 +28,13 @@ pub const METHOD_NOT_FOUND: i64 = -32601;
 pub const INVALID_PARAMS: i64 = -32602;
 pub const INTERNAL_ERROR: i64 = -32603;
 
+/// 权限 / 策略拒绝（写入权威矩阵判定不通过、scope 不足等）。
+///
+/// 属于 JSON-RPC 服务端错误区间（-32000..=-32099），与 `INVALID_PARAMS` 分开：
+/// 参数错是调用方写错了，权限拒绝是调用方写得对但没被允许——两者对客户端该做的事
+/// 完全不同（改参数 vs 找用户要授权）。
+pub const PERMISSION_DENIED: i64 = -32003;
+
 /// 入站 JSON-RPC 请求。
 ///
 /// `id` 为 `Option`：通知（notification）没有 `id`，按规范不得回响应。

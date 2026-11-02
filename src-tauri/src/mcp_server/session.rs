@@ -31,6 +31,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// [`SessionScope::satisfies`]，按「该 scope 是否满足该项要求」逐项回答。
 ///
 /// 同时具备两类写权限的组合 scope 留给 P3 的 `full`（需要在设置页显式授权）。
+///
+/// ## `full`（P3）为什么不能像其他三档那样在连接时授予
+///
+/// `read` / `settings` / `project` 三档的风险是「多了一项能力」，而 `full` 的风险
+/// 是「能改正文且事后才能发现」——它的安全网是审计与快照（C-008 / C-002 修订），
+/// 不是事前拦截。这种能力不应该在握手时随手发出：客户端只要带着 token 重新
+/// `initialize` 就能拿到，而用户根本不知道发过。
+///
+/// 所以 `full` 是**逐会话**的：会话先用普通 scope 连上，用户在设置页看到它、
+/// 明确点「授予完整写入」，它才拿到；随时可以单独吊销。见
+/// [`SessionRegistry::grant_full`] / [`SessionRegistry::revoke_full`]。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SessionScope {
@@ -38,17 +49,24 @@ pub enum SessionScope {
     Read,
     /// 额外允许 `settings.set`。
     Settings,
-    /// 额外允许项目动作（`chapter.write` / `pipeline.*` / `gate.run` / `memory.write`）。
+    /// 额外允许项目动作（`chapter.write` / `pipeline.*` / `gate.run`）。
     Project,
+    /// 完整写入：额外允许直写正文 / 正式记忆与 `undo_last`。
+    /// 只能逐会话授权，不能在 `mcp_server_start` 时授予。
+    Full,
 }
 
 impl SessionScope {
     /// 解析外部传入的 scope 名。未知值返回 `None`（调用方按参数错误处理，不猜）。
+    ///
+    /// 注意：能解析出 `Full` 不等于允许在连接时使用它——那是
+    /// [`super::mcp_server_start`] 的判断，与本函数无关。
     pub fn parse(raw: &str) -> Option<Self> {
         match raw {
             "read" => Some(Self::Read),
             "settings" => Some(Self::Settings),
             "project" => Some(Self::Project),
+            "full" => Some(Self::Full),
             _ => None,
         }
     }
@@ -58,16 +76,21 @@ impl SessionScope {
             Self::Read => "read",
             Self::Settings => "settings",
             Self::Project => "project",
+            Self::Full => "full",
         }
     }
 
     /// 本 scope 是否满足 `required`。
     ///
     /// 只读要求任何 scope 都满足（只读永远可做）；写要求必须**同项**授权。
+    /// `Full` 是四档里唯一的超集：它同时满足三类写要求。除此之外仍无全序——
+    /// `Project` 不蕴含 `Settings`，反之亦然。
     pub fn satisfies(self, required: Self) -> bool {
         match required {
             Self::Read => true,
-            other => self == other,
+            Self::Full => self == Self::Full,
+            Self::Settings => matches!(self, Self::Settings | Self::Full),
+            Self::Project => matches!(self, Self::Project | Self::Full),
         }
     }
 }
@@ -84,6 +107,11 @@ pub struct SessionInfo {
     pub last_call_at: u64,
     /// 累计请求数。
     pub calls: u64,
+    /// 是否被用户**逐会话**授予了完整写入（`full`）。
+    ///
+    /// 与 `scope` 分开存：`scope` 是连接时继承的上限，本字段是用户事后单独加的
+    /// 一次性授权，两者叠加才是有效权限（见 [`SessionRegistry::effective_scope`]）。
+    pub full_granted: bool,
 }
 
 /// 会话表。
@@ -110,6 +138,7 @@ impl SessionRegistry {
                 connected_at: now,
                 last_call_at: now,
                 calls: 0,
+                full_granted: false,
             },
         );
         id
@@ -132,6 +161,52 @@ impl SessionRegistry {
     /// 取某会话的权限域。未知 id 返回 `None`（调用方按**最小权限**处理，不隐式创建）。
     pub fn scope_of(&self, id: &str) -> Option<SessionScope> {
         self.lock().get(id).map(|s| s.scope)
+    }
+
+    /// 某会话**实际生效**的权限域：普通 scope 叠加逐会话 `full` 授权。
+    ///
+    /// 这是唯一应该用来做权限闸门的入口。直接读 `scope_of` 会漏掉 `full` 授权，
+    /// 而两处各读一半是权限系统最经典的漏法。
+    pub fn effective_scope(&self, id: &str) -> Option<SessionScope> {
+        let guard = self.lock();
+        let session = guard.get(id)?;
+        Some(if session.full_granted {
+            SessionScope::Full
+        } else {
+            session.scope
+        })
+    }
+
+    /// 授予某会话完整写入。未知 id 返回 `false`（不隐式创建会话）。
+    pub fn grant_full(&self, id: &str) -> bool {
+        let mut guard = self.lock();
+        match guard.get_mut(id) {
+            Some(session) => {
+                session.full_granted = true;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// 吊销某会话的完整写入（不影响它原有的 scope）。未知 id 返回 `false`。
+    pub fn revoke_full(&self, id: &str) -> bool {
+        let mut guard = self.lock();
+        match guard.get_mut(id) {
+            Some(session) => {
+                session.full_granted = false;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// 某会话是否被授予了完整写入。
+    pub fn has_full(&self, id: &str) -> bool {
+        self.lock()
+            .get(id)
+            .map(|s| s.full_granted)
+            .unwrap_or(false)
     }
 
     /// 当前会话快照，按连接时间升序（稳定顺序，避免界面列表跳动）。
@@ -235,14 +310,19 @@ mod tests {
         assert_eq!(SessionScope::parse("read"), Some(SessionScope::Read));
         assert_eq!(SessionScope::parse("settings"), Some(SessionScope::Settings));
         assert_eq!(SessionScope::parse("project"), Some(SessionScope::Project));
+        assert_eq!(SessionScope::parse("full"), Some(SessionScope::Full));
         assert_eq!(SessionScope::parse("admin"), None);
-        assert_eq!(SessionScope::parse("full"), None, "full 留给 P3，此处必须拒绝");
         assert_eq!(SessionScope::parse(""), None);
     }
 
     #[test]
     fn scope_satisfies_does_not_leak_across_kinds() {
-        for s in [SessionScope::Read, SessionScope::Settings, SessionScope::Project] {
+        for s in [
+            SessionScope::Read,
+            SessionScope::Settings,
+            SessionScope::Project,
+            SessionScope::Full,
+        ] {
             assert!(s.satisfies(SessionScope::Read), "{s:?} 应满足 Read");
         }
         assert!(SessionScope::Settings.satisfies(SessionScope::Settings));
@@ -257,6 +337,60 @@ mod tests {
         );
         assert!(!SessionScope::Read.satisfies(SessionScope::Settings));
         assert!(!SessionScope::Read.satisfies(SessionScope::Project));
+        // Full 是唯一的超集；但它只能被显式授予，不能从连接时的 scope 得到。
+        assert!(SessionScope::Full.satisfies(SessionScope::Settings));
+        assert!(SessionScope::Full.satisfies(SessionScope::Project));
+        assert!(SessionScope::Full.satisfies(SessionScope::Full));
+        for s in [
+            SessionScope::Read,
+            SessionScope::Settings,
+            SessionScope::Project,
+        ] {
+            assert!(
+                !s.satisfies(SessionScope::Full),
+                "{s:?} 不得顺带拿到完整写入"
+            );
+        }
+    }
+
+    #[test]
+    fn full_is_per_session_and_revocable() {
+        let reg = SessionRegistry::new();
+        let a = reg.create(SessionScope::Project);
+        let b = reg.create(SessionScope::Project);
+        assert!(!reg.has_full(&a), "新建会话不得自带完整写入");
+        assert_eq!(reg.effective_scope(&a), Some(SessionScope::Project));
+
+        assert!(reg.grant_full(&a));
+        assert!(reg.has_full(&a));
+        // 逐会话：授予 a 不得连带 b。
+        assert!(!reg.has_full(&b));
+        assert_eq!(reg.effective_scope(&a), Some(SessionScope::Full));
+        assert_eq!(reg.effective_scope(&b), Some(SessionScope::Project));
+        // 基础 scope 不被改写：吊销后回到 Project，不是回到 Read。
+        assert_eq!(reg.scope_of(&a), Some(SessionScope::Project));
+
+        assert!(reg.revoke_full(&a));
+        assert!(!reg.has_full(&a));
+        assert_eq!(reg.effective_scope(&a), Some(SessionScope::Project));
+
+        // 未知会话不隐式创建、不报错。
+        assert!(!reg.grant_full("never-created"));
+        assert!(!reg.revoke_full("never-created"));
+        assert!(!reg.has_full("never-created"));
+        assert_eq!(reg.effective_scope("never-created"), None);
+        assert_eq!(reg.len(), 2);
+    }
+
+    #[test]
+    fn clear_drops_full_grants_too() {
+        // 监听一停会话就清空，重连是新会话，不能继承上一次的完整写入授权。
+        let reg = SessionRegistry::new();
+        let id = reg.create(SessionScope::Read);
+        reg.grant_full(&id);
+        reg.clear();
+        assert!(!reg.has_full(&id));
+        assert_eq!(reg.effective_scope(&id), None);
     }
 
     #[test]

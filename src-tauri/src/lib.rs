@@ -205,6 +205,8 @@ pub fn run() {
             mcp_server::mcp_server_stop,
             mcp_server::mcp_server_status,
             mcp_server::mcp_server_token,
+            mcp_server::mcp_session_grant_full,
+            mcp_server::mcp_session_revoke_full,
             mcp_server::mcp_server_rotate_token,
             mcp_server::state_bridge::mcp_state_respond,
             batch_replace::api::batch_replace_preview,

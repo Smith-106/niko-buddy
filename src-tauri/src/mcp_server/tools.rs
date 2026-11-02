@@ -848,6 +848,286 @@ impl super::registry::McpTool for ChapterWriteTool {
 ///
 /// 保留注册是为了给调用方一个说清原因的答复，而不是让它对着 "unknown tool" 猜。
 /// 详见 `src/lib/mcp/draft-actions.ts` 文件头的推导。
+
+// ───────────────────────── P3：直写 + 快照 + 回滚 ─────────────────────────
+
+/// 一次外部直写的审计记录（append-only JSONL 的一行）。
+///
+/// 与 `settings.set` 那条共用同一个文件、同一套 hash 口径，靠 `kind` 区分：
+/// `direct_write` / `undo`。没有 `kind` 的是 P1 的设置写入（历史条目，不回溯改）。
+#[derive(Debug, serde::Serialize)]
+struct DirectWriteAudit<'a> {
+    ts: String,
+    source: &'a str,
+    tool: &'a str,
+    kind: &'a str,
+    path: &'a str,
+    before_hash: String,
+    after_hash: String,
+    /// 回滚所需的快照 id；`null` 表示该目标按矩阵不需要快照（草稿 / 缓存）。
+    snapshot_ref: Option<String>,
+}
+
+/// 打开审计文件（fail-closed：拿不到审计落点就不许写）。
+fn open_audit_log(project_path: &str) -> Result<(std::fs::File, std::path::PathBuf), ToolError> {
+    let audit_dir = std::path::Path::new(project_path).join(".novel").join("audit");
+    std::fs::create_dir_all(&audit_dir).map_err(|e| {
+        ToolError::internal(format!(
+            "无法创建审计目录 {}: {e}；为安全起见本次写入未执行",
+            audit_dir.display()
+        ))
+    })?;
+    let audit_path = audit_dir.join("external-writes.jsonl");
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&audit_path)
+        .map_err(|e| {
+            ToolError::internal(format!(
+                "审计文件不可写 {}: {e}；为安全起见本次写入未执行",
+                audit_path.display()
+            ))
+        })?;
+    Ok((file, audit_path))
+}
+
+fn append_audit_line(
+    file: &mut std::fs::File,
+    record: &DirectWriteAudit<'_>,
+) -> Result<(), String> {
+    let line = serde_json::to_string(record).map_err(|e| format!("审计记录序列化失败: {e}"))?;
+    use std::io::Write;
+    writeln!(file, "{line}").map_err(|e| format!("审计落盘失败: {e}"))
+}
+
+/// 已存在文件的 hash；文件不存在返回 `None`（而不是空串——两者语义不同）。
+fn file_hash(path: &std::path::Path) -> Result<Option<String>, String> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(super::writes::sha256_hex(&bytes))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("无法读取 {} 以计算 hash: {e}", path.display())),
+    }
+}
+
+/// 把审计行里的 `direct_write` 条目读出来（回滚用）。
+fn read_direct_writes(project_path: &str) -> Result<Vec<serde_json::Value>, ToolError> {
+    let audit_path = std::path::Path::new(project_path)
+        .join(".novel")
+        .join("audit")
+        .join("external-writes.jsonl");
+    let text = match std::fs::read_to_string(&audit_path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(ToolError::internal(
+                "还没有任何外部直写记录（审计文件不存在），没有可回滚的内容".to_string(),
+            ))
+        }
+        Err(e) => {
+            return Err(ToolError::internal(format!(
+                "审计文件不可读 {}: {e}",
+                audit_path.display()
+            )))
+        }
+    };
+    let mut direct = Vec::new();
+    // 已经回滚过的快照 id。用它把「已被撤销的直写」从栈里摘掉——否则连调两次
+    // `undo_last(1)` 会重复还原同一条：用户以为退了两步，实际只退了一步。
+    let mut undone: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            // 坏行跳过而不是整体失败：审计是 append-only 的历史，一行损坏不该让
+            // 全部回滚能力失效。坏行也不会造成错误回滚（它没有可用的 snapshot_ref）。
+            continue;
+        };
+        match value.get("kind").and_then(|v| v.as_str()) {
+            Some("direct_write") => direct.push(value),
+            Some("undo") => {
+                if let Some(reference) = value.get("snapshot_ref").and_then(|v| v.as_str()) {
+                    undone.insert(reference.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    // 保持写入顺序，只留下还没被撤销的。
+    Ok(direct
+        .into_iter()
+        .filter(|entry| {
+            entry
+                .get("snapshot_ref")
+                .and_then(|v| v.as_str())
+                .map(|reference| !undone.contains(reference))
+                .unwrap_or(true)
+        })
+        .collect())
+}
+
+/// 外部直写的统一入口：**快照 → 写 → 审计**，任一环失败就明确报错。
+///
+/// ## 为什么审计文件必须在动目标之前打开
+///
+/// 顺序反过来（先写再开审计）一旦落盘失败，就会出现「正文已改、但没有任何痕迹」
+/// 的状态——这正是 C-008 要防的那一种。先开文件把这种情况挡在写入之前。
+///
+/// ## 为什么写走 `do_write_file_atomic`
+///
+/// 那条路会做虚拟路径映射（`wiki/` → `QM/`）、临时文件 + fsync + rename 的原子替换，
+/// 并给文件监听打标记。自己 `fs::write` 会漏掉映射（写到一个不存在的 `wiki/` 目录），
+/// 也会让界面看不到变化。
+fn direct_write(
+    project_path: &str,
+    tool: &'static str,
+    virtual_path: &str,
+    contents: &str,
+) -> Result<Value, ToolError> {
+    use crate::canon::write_authority::{
+        classify_target, may_write, requires_snapshot, WriteDecision, WriteSource,
+    };
+
+    let physical = crate::commands::fs::resolve_project_storage_path(virtual_path)
+        .map_err(|e| ToolError::internal(format!("目标路径不合法（{virtual_path}）: {e}")))?;
+    let physical_path = std::path::Path::new(&physical);
+
+    // 矩阵判定：只有 Allow 才继续。RequireGate 的落点（用户资产引用 / 任意路径桶）
+    // 不给外部 Agent 开口子，Deny 更不用说——两者都要说清是矩阵拒绝，不是 bug。
+    match may_write(WriteSource::ExternalAgent, physical_path) {
+        WriteDecision::Allow => {}
+        other => {
+            return Err(ToolError::permission(format!(
+                "写入被写入权威矩阵拒绝：external_agent 对 {} 的判定是 {}（只允许 allow）。目标：{physical}",
+                classify_target(physical_path).as_str(),
+                other.as_str()
+            )))
+        }
+    }
+
+    let (mut audit_file, audit_path) = open_audit_log(project_path)?;
+
+    let before = file_hash(physical_path)
+        .map_err(|e| ToolError::internal(format!("{e}；为安全起见本次写入未执行")))?;
+
+    // 快照：矩阵说需要才做（真源面），草稿与缓存不做。
+    let snapshot_ref =
+        if requires_snapshot(WriteSource::ExternalAgent, classify_target(physical_path)) {
+            let snap =
+                super::writes::create_snapshot(std::path::Path::new(project_path), physical_path)
+                    .map_err(|e| ToolError::internal(format!("{e}；为安全起见本次写入未执行")))?;
+            Some(snap.id)
+        } else {
+            None
+        };
+
+    crate::commands::fs::do_write_file_atomic(virtual_path, contents)
+        .map_err(|e| ToolError::internal(format!("写入失败（目标未改动）: {e}")))?;
+
+    let after = file_hash(physical_path)
+        .map_err(|e| ToolError::internal(format!("写入已发生但无法回读校验: {e}")))?;
+
+    // 保留策略：裁旧快照。裁剪失败不影响本次写入的正确性，但要报出来。
+    let pruned =
+        super::writes::prune_snapshots(std::path::Path::new(project_path), super::writes::now_ms())
+            .map_err(|e| {
+                ToolError::internal(format!(
+                    "写入已完成，但快照裁剪失败: {e}（不影响本次写入，仅影响旧快照清理）"
+                ))
+            })?;
+
+    let record = DirectWriteAudit {
+        ts: chrono::Utc::now().to_rfc3339(),
+        source: "external_agent",
+        tool,
+        kind: "direct_write",
+        path: &physical,
+        before_hash: before.clone().unwrap_or_else(|| "absent".to_string()),
+        after_hash: after.clone().unwrap_or_else(|| "absent".to_string()),
+        snapshot_ref: snapshot_ref.clone(),
+    };
+    if let Err(e) = append_audit_line(&mut audit_file, &record) {
+        return Err(ToolError::internal(format!(
+            "写入已生效，但审计落盘失败: {e}。请检查 {} 的可写性。快照: {}",
+            audit_path.display(),
+            snapshot_ref.as_deref().unwrap_or("（本目标不需要快照）")
+        )));
+    }
+
+    Ok(json!({
+        "path": physical,
+        "virtualPath": virtual_path,
+        "chars": contents.chars().count(),
+        "beforeHash": before,
+        "afterHash": after,
+        "snapshotRef": snapshot_ref,
+        "prunedSnapshots": pruned,
+        "audit": { "path": audit_path.display().to_string() },
+        "note": "已直接写入正式文件（未经草稿确认）。可用 undo_last 回滚。",
+    }))
+}
+
+/// `chapter.write_direct` —— 直写正式章节正文（P3，需 full scope）。
+///
+/// 与 `chapter.write` 的区别：那个写草稿区（默认模式，需用户 accept），这个直接改
+/// 正式正文。C-002 修订后这条路是允许的，代价是必须留审计与快照。
+pub struct ChapterWriteDirectTool;
+
+impl super::registry::McpTool for ChapterWriteDirectTool {
+    fn name(&self) -> &'static str {
+        "chapter.write_direct"
+    }
+
+    fn description(&self) -> &'static str {
+        "Write a chapter's formal text directly (no draft, no user confirmation). Requires full scope, which must be granted per-session in Settings > External Control. Every write snapshots the previous content and appends to .novel/audit/external-writes.jsonl; undo_last can roll it back. Prefer chapter.write (draft) unless the user explicitly asked for direct writes."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "chapterName": { "type": "string", "description": "Chapter name; becomes <project>/wiki/chapters/<chapterName>.md" },
+                "content": { "type": "string", "description": "Full chapter text (replaces the file, does not append)" }
+            },
+            "required": ["chapterName", "content"],
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Full
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let chapter_name = require_str(args, "chapter.write_direct", "chapterName")?;
+            let content = require_str(args, "chapter.write_direct", "content")?;
+            let resolved = ctx
+                .bridge_query(StateQuery::new("formal-path").with_params(json!({
+                    "kind": "chapter",
+                    "name": chapter_name,
+                })))
+                .await?;
+            let path = resolved
+                .get("path")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::internal("状态桥没有返回正式章节路径"))?
+                .to_string();
+            let project_path = ctx.project_path().await?;
+            direct_write(&project_path, "chapter.write_direct", &path, content)
+        })
+    }
+}
+
+/// `memory.write` —— 直写正式记忆（P3，需 full scope）。
+///
+/// P2 阶段这里是「明确拒绝」，因为当时没有记忆草稿的审阅入口，写进任何草稿目录都
+/// 没人看得到。C-002 修订后有了另一条正路：带审计与快照的**直写**——它不再依赖
+/// 草稿收件箱，代价是必须可回滚。于是这里从"拒绝"改成"需要 full scope 的直写"。
 pub struct MemoryWriteTool;
 
 impl super::registry::McpTool for MemoryWriteTool {
@@ -856,15 +1136,15 @@ impl super::registry::McpTool for MemoryWriteTool {
     }
 
     fn description(&self) -> &'static str {
-        "Currently refused. The app has no memory draft review surface, so writing would either touch formal memory (breaking Draft-first) or land somewhere no UI reads (silent data loss). Ask the user to write memory in the app instead."
+        "Write one formal memory entry directly. Requires full scope, which must be granted per-session in Settings > External Control. Every write snapshots the previous content and appends to .novel/audit/external-writes.jsonl; undo_last can roll it back."
     }
 
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "name": { "type": "string", "description": "Memory entry name" },
-                "content": { "type": "string", "description": "Memory entry body" }
+                "name": { "type": "string", "description": "Memory entry name; becomes <project>/wiki/memory/<name>.md" },
+                "content": { "type": "string", "description": "Memory entry body (replaces the file)" }
             },
             "required": ["name", "content"],
             "additionalProperties": false
@@ -872,7 +1152,7 @@ impl super::registry::McpTool for MemoryWriteTool {
     }
 
     fn required_scope(&self) -> super::session::SessionScope {
-        super::session::SessionScope::Project
+        super::session::SessionScope::Full
     }
 
     fn call<'a>(
@@ -883,13 +1163,173 @@ impl super::registry::McpTool for MemoryWriteTool {
         Box::pin(async move {
             let name = require_str(args, "memory.write", "name")?;
             let content = require_str(args, "memory.write", "content")?;
-            let result = ctx
-                .bridge_query(StateQuery::new("memory-draft-write").with_params(json!({
+            let resolved = ctx
+                .bridge_query(StateQuery::new("formal-path").with_params(json!({
+                    "kind": "memory",
                     "name": name,
-                    "content": content,
                 })))
                 .await?;
-            Ok(result)
+            let path = resolved
+                .get("path")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ToolError::internal("状态桥没有返回正式记忆路径"))?
+                .to_string();
+            let project_path = ctx.project_path().await?;
+            direct_write(&project_path, "memory.write", &path, content)
+        })
+    }
+}
+
+/// `undo_last` —— 回滚最近 n 次外部直写（P3，需 full scope）。
+///
+/// ## 语义：这是一个栈，不是「最后 N 条直写」
+///
+/// 已经回滚过的直写会从候选里摘掉（按审计里的 `kind=undo` 条目判定）。否则连调
+/// 两次 `undo_last(1)` 会重复还原同一条——用户以为退了两步，实际只退了一步，
+/// 而第二次调用还"成功"返回了。真机验收就是靠这一条发现该问题的。
+///
+/// ## 为什么回滚也要记审计
+///
+/// 回滚本身是一次写入，而且是最容易出问题的一次（它会把用户没看过的旧内容盖回
+/// 正式文件）。不记下来，"为什么这章突然变回三天前"就无从回答。
+///
+/// ## 为什么失败必须整体报出来
+///
+/// 回滚中途失败时，前面几个文件已经还原、后面几个没有。这时候回一个「成功」是
+/// 最坏的结果——用户以为都退回去了。所以逐条汇报，并明确列出失败项。
+pub struct UndoLastTool;
+
+impl super::registry::McpTool for UndoLastTool {
+    fn name(&self) -> &'static str {
+        "undo_last"
+    }
+
+    fn description(&self) -> &'static str {
+        "Roll back the most recent N direct writes (newest first) using their snapshots. Requires full scope. Each rollback is verified byte-for-byte against the snapshot hash and is itself recorded in the audit log. If any rollback fails, the call reports which ones succeeded and which failed — it never claims success."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "n": { "type": "integer", "minimum": 1, "maximum": 20, "description": "How many of the most recent direct writes to roll back (default 1)" }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Full
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let n = match args.get("n") {
+                None | Some(Value::Null) => 1usize,
+                Some(value) => {
+                    let raw = value.as_u64().ok_or_else(|| {
+                        ToolError::invalid_params("undo_last: `n` must be a positive integer")
+                    })?;
+                    if raw == 0 || raw > 20 {
+                        return Err(ToolError::invalid_params(
+                            "undo_last: `n` must be between 1 and 20",
+                        ));
+                    }
+                    raw as usize
+                }
+            };
+
+            let project_path = ctx.project_path().await?;
+            let writes = read_direct_writes(&project_path)?;
+            if writes.is_empty() {
+                return Err(ToolError::internal(
+                    "没有可回滚的外部直写记录（审计里没有 kind=direct_write 的条目）".to_string(),
+                ));
+            }
+            let take = n.min(writes.len());
+            let selected: Vec<serde_json::Value> =
+                writes[writes.len() - take..].iter().cloned().collect();
+
+            let (mut audit_file, audit_path) = open_audit_log(&project_path)?;
+            let mut restored = Vec::new();
+            let mut failures = Vec::new();
+
+            // 从最新往回退：先退最后一次写入，才能保证多次写入同一文件时逐层还原。
+            for entry in selected.iter().rev() {
+                let target = entry
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let snapshot_ref = entry
+                    .get("snapshot_ref")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string());
+                let Some(snapshot_ref) = snapshot_ref else {
+                    failures.push(json!({
+                        "path": target,
+                        "reason": "该条目没有 snapshot_ref（按矩阵不需要快照的落点），无法回滚",
+                    }));
+                    continue;
+                };
+
+                let before = file_hash(std::path::Path::new(&target)).ok().flatten();
+                match super::writes::restore_snapshot(
+                    std::path::Path::new(&project_path),
+                    &snapshot_ref,
+                ) {
+                    Ok(result) => {
+                        let record = DirectWriteAudit {
+                            ts: chrono::Utc::now().to_rfc3339(),
+                            source: "external_agent",
+                            tool: "undo_last",
+                            kind: "undo",
+                            path: &target,
+                            before_hash: before.unwrap_or_else(|| "absent".to_string()),
+                            after_hash: result.hash.clone(),
+                            snapshot_ref: Some(snapshot_ref.clone()),
+                        };
+                        if let Err(e) = append_audit_line(&mut audit_file, &record) {
+                            failures.push(json!({
+                                "path": target,
+                                "reason": format!("已还原但审计落盘失败: {e}"),
+                            }));
+                            continue;
+                        }
+                        restored.push(json!({
+                            "path": target,
+                            "snapshotRef": snapshot_ref,
+                            "restoredTo": if result.existed { "content" } else { "absent" },
+                            "hash": result.hash,
+                            "bytes": result.bytes,
+                            "undoneTs": entry.get("ts").cloned().unwrap_or(Value::Null),
+                        }));
+                    }
+                    Err(e) => failures.push(json!({ "path": target, "reason": e })),
+                }
+            }
+
+            if !failures.is_empty() {
+                // 部分成功必须逐条报出来，不能只说"失败"或只说"成功"。
+                return Err(ToolError::internal(format!(
+                    "回滚未全部成功：{} 项已还原，{} 项失败。失败项：{}。审计：{}",
+                    restored.len(),
+                    failures.len(),
+                    serde_json::to_string(&failures).unwrap_or_else(|_| "[]".to_string()),
+                    audit_path.display()
+                )));
+            }
+
+            Ok(json!({
+                "requested": n,
+                "rolledBack": restored.len(),
+                "items": restored,
+                "audit": { "path": audit_path.display().to_string() },
+            }))
         })
     }
 }
@@ -911,6 +1351,8 @@ pub fn build_registry() -> super::registry::ToolRegistry {
     r.register(Arc::new(GateRunTool));
     r.register(Arc::new(ChapterWriteTool));
     r.register(Arc::new(MemoryWriteTool));
+    r.register(Arc::new(ChapterWriteDirectTool));
+    r.register(Arc::new(UndoLastTool));
     // 编译期自检（两条，缺一不可）：
     // 1. 名字像写的工具**必须**声明高于只读的权限——名字像写但 scope 仍是 Read 是
     //    最危险的组合：客户端以为被拦住了，实际没有。
@@ -933,6 +1375,8 @@ pub fn build_registry() -> super::registry::ToolRegistry {
             "gate.run",
             "chapter.write",
             "memory.write",
+            "chapter.write_direct",
+            "undo_last",
         ],
         "需要权限的工具集合变了：确认新工具确实需要 Project/Settings，再改这行"
     );
@@ -967,6 +1411,8 @@ mod tests {
                 "gate.run",
                 "chapter.write",
                 "memory.write",
+                "chapter.write_direct",
+                "undo_last",
             ]
         );
     }
@@ -1022,6 +1468,8 @@ mod tests {
                 "gate.run",
                 "chapter.write",
                 "memory.write",
+                "chapter.write_direct",
+                "undo_last",
             ]
         );
         assert_eq!(
@@ -1033,6 +1481,164 @@ mod tests {
             Some(crate::mcp_server::session::SessionScope::Read)
         );
         assert_eq!(r.required_scope("no.such.tool"), None);
+    }
+
+    // ── P3：直写审计与回滚的纯 fs 部分 ──────────────────────────────────
+
+    struct TempProject(std::path::PathBuf);
+
+    impl TempProject {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "nb-direct-{tag}-{}-{}",
+                std::process::id(),
+                uuid::Uuid::new_v4().simple()
+            ));
+            std::fs::create_dir_all(&dir).expect("temp project");
+            Self(dir)
+        }
+        fn path_str(&self) -> String {
+            self.0.to_string_lossy().to_string()
+        }
+    }
+
+    impl Drop for TempProject {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn append_test_write(project: &TempProject, target: &str, snapshot: Option<&str>) {
+        let (mut file, _path) = open_audit_log(&project.path_str()).expect("audit");
+        let record = DirectWriteAudit {
+            ts: chrono::Utc::now().to_rfc3339(),
+            source: "external_agent",
+            tool: "chapter.write_direct",
+            kind: "direct_write",
+            path: target,
+            before_hash: "before".to_string(),
+            after_hash: "after".to_string(),
+            snapshot_ref: snapshot.map(|s| s.to_string()),
+        };
+        append_audit_line(&mut file, &record).expect("append");
+    }
+
+    #[test]
+    fn audit_log_creates_dir_and_appends_one_line_per_write() {
+        let project = TempProject::new("audit");
+        append_test_write(&project, "/p/canon/a.md", Some("snap_1"));
+        append_test_write(&project, "/p/canon/b.md", None);
+        let audit = project
+            .0
+            .join(".novel")
+            .join("audit")
+            .join("external-writes.jsonl");
+        let text = std::fs::read_to_string(&audit).expect("audit readable");
+        assert_eq!(text.lines().count(), 2, "每次写入一行，append-only");
+        assert!(text.contains("\"snapshot_ref\":\"snap_1\""));
+        assert!(text.contains("\"snapshot_ref\":null"), "无快照要显式写 null");
+    }
+
+    #[test]
+    fn read_direct_writes_ignores_settings_entries_and_keeps_order() {
+        let project = TempProject::new("readaudit");
+        // 混入一条 P1 的设置写入（没有 kind 字段）与一条坏行。
+        let audit_dir = project.0.join(".novel").join("audit");
+        std::fs::create_dir_all(&audit_dir).unwrap();
+        let audit = audit_dir.join("external-writes.jsonl");
+        std::fs::write(
+            &audit,
+            "{\"ts\":\"t0\",\"source\":\"external_agent\",\"tool\":\"settings.set\",\"key\":\"theme\",\"before_hash\":\"a\",\"after_hash\":\"b\"}
+{ not json
+",
+        )
+        .unwrap();
+        append_test_write(&project, "/p/canon/a.md", Some("snap_a"));
+        append_test_write(&project, "/p/canon/b.md", Some("snap_b"));
+
+        let writes = read_direct_writes(&project.path_str()).expect("read");
+        assert_eq!(writes.len(), 2, "设置条目与坏行都不算直写");
+        assert_eq!(writes[0]["path"], "/p/canon/a.md");
+        assert_eq!(writes[1]["path"], "/p/canon/b.md", "顺序必须保持写入顺序");
+    }
+
+    #[test]
+    fn read_direct_writes_skips_already_undone_entries() {
+        // 回滚是栈：已撤销的直写不能再被 undo_last 选中，否则连调两次会重复还原
+        // 同一条（用户以为退了两步，实际只退了一步）。
+        let project = TempProject::new("undostack");
+        append_test_write(&project, "/p/canon/a.md", Some("snap_a"));
+        append_test_write(&project, "/p/canon/b.md", Some("snap_b"));
+
+        // 模拟 b 被回滚过：追加一条 kind=undo 的审计。
+        let (mut file, _path) = open_audit_log(&project.path_str()).expect("audit");
+        let record = DirectWriteAudit {
+            ts: chrono::Utc::now().to_rfc3339(),
+            source: "external_agent",
+            tool: "undo_last",
+            kind: "undo",
+            path: "/p/canon/b.md",
+            before_hash: "x".to_string(),
+            after_hash: "y".to_string(),
+            snapshot_ref: Some("snap_b".to_string()),
+        };
+        append_audit_line(&mut file, &record).expect("append undo");
+
+        let writes = read_direct_writes(&project.path_str()).expect("read");
+        assert_eq!(writes.len(), 1, "已撤销的那条必须从栈里摘掉");
+        assert_eq!(writes[0]["path"], "/p/canon/a.md");
+        assert_eq!(writes[0]["snapshot_ref"], "snap_a");
+    }
+
+    #[test]
+    fn read_direct_writes_without_audit_file_says_so() {
+        let project = TempProject::new("noaudit");
+        let err = read_direct_writes(&project.path_str()).unwrap_err();
+        assert!(
+            err.message.contains("没有可回滚的内容"),
+            "错误要说清是没记录: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn file_hash_distinguishes_absent_from_empty() {
+        let project = TempProject::new("hash");
+        let missing = project.0.join("nope.md");
+        assert_eq!(file_hash(&missing).unwrap(), None, "不存在 ≠ 空文件");
+        let empty = project.0.join("empty.md");
+        std::fs::write(&empty, b"").unwrap();
+        assert!(file_hash(&empty).unwrap().is_some(), "空文件也有 hash");
+    }
+
+    #[test]
+    fn direct_write_audit_serializes_all_required_fields() {
+        // 验收要求：直写条目必须含 before_hash / after_hash / snapshot_ref。
+        let record = DirectWriteAudit {
+            ts: "t".to_string(),
+            source: "external_agent",
+            tool: "chapter.write_direct",
+            kind: "direct_write",
+            path: "/p/canon/a.md",
+            before_hash: "b".to_string(),
+            after_hash: "a".to_string(),
+            snapshot_ref: Some("snap_x".to_string()),
+        };
+        let json = serde_json::to_value(&record).expect("serialize");
+        for field in [
+            "ts",
+            "source",
+            "tool",
+            "kind",
+            "path",
+            "before_hash",
+            "after_hash",
+            "snapshot_ref",
+        ] {
+            assert!(json.get(field).is_some(), "审计缺字段 {field}: {json}");
+        }
+        assert_eq!(json["source"], "external_agent");
+        assert_eq!(json["kind"], "direct_write");
     }
 
     #[test]

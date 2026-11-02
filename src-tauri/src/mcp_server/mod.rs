@@ -24,6 +24,7 @@ pub mod registry;
 pub mod session;
 pub mod state_bridge;
 pub mod tools;
+pub mod writes;
 
 use std::sync::Arc;
 
@@ -227,7 +228,13 @@ async fn handle_mcp(
         let scope = match sid {
             Some(id) => {
                 state.sessions.touch(id);
-                state.sessions.scope_of(id).unwrap_or(session::SessionScope::Read)
+                // 必须走 `effective_scope`（scope 叠加逐会话 full 授权）。
+                // 直接读 `scope_of` 会让 full 授权形同虚设，而两处各读一半是权限
+                // 系统最经典的漏法。
+                state
+                    .sessions
+                    .effective_scope(id)
+                    .unwrap_or(session::SessionScope::Read)
             }
             None => session::SessionScope::Read,
         };
@@ -404,6 +411,18 @@ impl McpServerHandle {
         }
     }
 
+    /// 在运行中服务端的状态上执行一段闭包；未运行返回 `None`。
+    ///
+    /// 给 `mcp_session_grant_full` / `revoke_full` 用：它们要改的是会话表本体，
+    /// 而不是快照。
+    fn with_state<R>(&self, f: impl FnOnce(&ServerState) -> R) -> Option<R> {
+        let guard = match self.inner.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.as_ref().map(|running| f(&running.state))
+    }
+
     fn replace(&self, next: Option<RunningServer>) {
         let mut guard = match self.inner.lock() {
             Ok(g) => g,
@@ -443,8 +462,15 @@ pub async fn mcp_server_start(
     let granted = match scope.as_deref() {
         None => session::SessionScope::Read,
         Some(raw) => session::SessionScope::parse(raw)
-            .ok_or_else(|| format!("未知 scope: {raw}（只接受 read / settings）"))?,
+            .ok_or_else(|| format!("未知 scope: {raw}（只接受 read / settings / project）"))?,
     };
+    // `full` 不能在这里授予：客户端带着 token 重新 initialize 就能拿到，而用户
+    // 根本不知道发过。它只能逐会话授权（见 `mcp_session_grant_full`）。
+    if granted == session::SessionScope::Full {
+        return Err(
+            "full 不能在启动时授予。请先用 read / settings / project 启动，再到设置页「外部控制」里对具体会话点「授予完整写入」。".to_string(),
+        );
+    }
 
     if let Some(port) = handle.port() {
         // 已在运行：scope 未变则幂等返回；变了就按新 scope 重启。
@@ -463,6 +489,50 @@ pub async fn mcp_server_start(
     handle.replace(Some(server));
     log::info!("[mcp_server] listening on 127.0.0.1:{port} (scope={granted:?})");
     Ok(port)
+}
+
+/// 对**具体会话**授予完整写入（`full`）。
+///
+/// ## 为什么不给「整个服务端」开一个 full 档
+///
+/// 服务端级 full 等于「从现在起连上来的任何人都能直写正文」。用户点这一下时心里
+/// 想的是「让屏幕上这个客户端能写」，不是「给未来所有客户端开门」。所以授权落在
+/// 会话上：用户看到的是哪个会话，授权的就是哪个。
+#[tauri::command]
+pub async fn mcp_session_grant_full(
+    handle: tauri::State<'_, McpServerHandle>,
+    session_id: String,
+) -> Result<(), String> {
+    let granted = handle
+        .with_state(|state| state.sessions.grant_full(&session_id))
+        .ok_or_else(|| "服务未运行，没有可授权的会话".to_string())?;
+    if granted {
+        log::info!("[mcp_server] full write granted to session {session_id}");
+        Ok(())
+    } else {
+        Err(format!(
+            "没有这个会话：{session_id}（可能已断开，请刷新会话列表）"
+        ))
+    }
+}
+
+/// 吊销某会话的完整写入。不影响它原有的 scope。
+#[tauri::command]
+pub async fn mcp_session_revoke_full(
+    handle: tauri::State<'_, McpServerHandle>,
+    session_id: String,
+) -> Result<(), String> {
+    let revoked = handle
+        .with_state(|state| state.sessions.revoke_full(&session_id))
+        .ok_or_else(|| "服务未运行，没有可吊销的会话".to_string())?;
+    if revoked {
+        log::info!("[mcp_server] full write revoked for session {session_id}");
+        Ok(())
+    } else {
+        Err(format!(
+            "没有这个会话：{session_id}（可能已断开，请刷新会话列表）"
+        ))
+    }
 }
 
 /// 停止对外控制面；端口真正释放。未运行时为空操作。
@@ -718,12 +788,11 @@ mod tests {
     /// P2：五个项目动作工具在 Read / Settings 下必须全部被拒。
     #[tokio::test]
     async fn project_tools_are_rejected_below_project_scope() {
-        let project_tools: [(&str, Value); 5] = [
+        let project_tools: [(&str, Value); 4] = [
             ("pipeline.run_chapter", json!({"userRequest": "写一章"})),
             ("pipeline.status", json!({"taskId": "ptask_x"})),
             ("gate.run", json!({"taskId": "ptask_x"})),
             ("chapter.write", json!({"chapterName": "第一章", "content": "正文"})),
-            ("memory.write", json!({"name": "设定", "content": "内容"})),
         ];
         for caller in [session::SessionScope::Read, session::SessionScope::Settings] {
             for (name, args) in project_tools.clone() {
@@ -821,16 +890,25 @@ mod tests {
 
     #[tokio::test]
     async fn draft_write_tools_require_both_fields() {
-        let cases: [(&str, Value); 3] = [
-            ("chapter.write", json!({"content": "正文"})),
-            ("chapter.write", json!({"chapterName": "第一章"})),
-            ("memory.write", json!({"name": "设定"})),
+        let cases: [(&str, Value, session::SessionScope); 4] = [
+            ("chapter.write", json!({"content": "正文"}), session::SessionScope::Project),
+            (
+                "chapter.write",
+                json!({"chapterName": "第一章"}),
+                session::SessionScope::Project,
+            ),
+            ("memory.write", json!({"name": "设定"}), session::SessionScope::Full),
+            (
+                "chapter.write_direct",
+                json!({"chapterName": "第一章"}),
+                session::SessionScope::Full,
+            ),
         ];
-        for (name, args) in cases {
+        for (name, args, caller) in cases {
             let out = dispatch_as(
                 &state("t"),
                 &req("tools/call", Some(json!({"name": name, "arguments": args}))),
-                session::SessionScope::Project,
+                caller,
             )
             .await
             .expect("has response");
@@ -840,6 +918,61 @@ mod tests {
                 "{name} 缺参数应报错，实际: {text}"
             );
         }
+    }
+
+    /// P3：直写与回滚工具在 full 以下必须全部被拒，且错误点出需要 full。
+    #[tokio::test]
+    async fn full_write_tools_are_rejected_below_full_scope() {
+        let full_tools: [(&str, Value); 3] = [
+            (
+                "chapter.write_direct",
+                json!({"chapterName": "第一章", "content": "正文"}),
+            ),
+            ("memory.write", json!({"name": "设定", "content": "内容"})),
+            ("undo_last", json!({"n": 1})),
+        ];
+        for caller in [
+            session::SessionScope::Read,
+            session::SessionScope::Settings,
+            session::SessionScope::Project,
+        ] {
+            for (name, args) in full_tools.clone() {
+                let out = dispatch_as(
+                    &state("t"),
+                    &req("tools/call", Some(json!({"name": name, "arguments": args}))),
+                    caller,
+                )
+                .await
+                .expect("has response");
+                let text = out["result"]["content"][0]["text"].as_str().unwrap_or_default();
+                assert!(
+                    text.contains("权限不足"),
+                    "{name} 在 {caller:?} 下应被拒，实际: {text}"
+                );
+                assert!(
+                    text.contains("full"),
+                    "{name} 的拒绝信息应点出需要 full，实际: {text}"
+                );
+            }
+        }
+    }
+
+    /// P3：full 会话不被闸门拦（会因缺少 AppHandle 在桥这一层失败，说明已过闸门）。
+    #[tokio::test]
+    async fn full_scope_passes_the_gate() {
+        let out = dispatch_as(
+            &state("t"),
+            &req(
+                "tools/call",
+                Some(json!({"name": "undo_last", "arguments": {"n": 1}})),
+            ),
+            session::SessionScope::Full,
+        )
+        .await
+        .expect("has response");
+        let text = out["result"]["content"][0]["text"].as_str().unwrap_or_default();
+        assert!(!text.contains("权限不足"), "不应被权限闸门拦截: {text}");
+        assert!(text.contains("状态桥"), "应因缺少 AppHandle 失败: {text}");
     }
 
     #[tokio::test]

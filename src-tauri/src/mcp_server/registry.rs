@@ -41,6 +41,17 @@ impl ToolError {
             message: message.into(),
         }
     }
+
+    /// 策略 / 权限拒绝（写入权威矩阵不通过、scope 不足）。
+    ///
+    /// 与 [`ToolError::internal`] 分开：内部错误意味着「该重试或报 bug」，权限拒绝
+    /// 意味着「去做授权或换一个目标」，客户端该做的事完全不同。
+    pub fn permission(message: impl Into<String>) -> Self {
+        ToolError {
+            code: super::protocol::PERMISSION_DENIED,
+            message: message.into(),
+        }
+    }
 }
 
 /// 一个可被外部 Agent 调用的工具。
