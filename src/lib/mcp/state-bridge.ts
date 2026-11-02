@@ -61,8 +61,6 @@ import { getPipelineTask, startPipelineTask } from "./pipeline-tasks"
 
 /** Rust → WebView 的请求事件名（与 Rust 侧 `state_bridge::REQUEST_EVENT` 必须一致）。 */
 export const STATE_REQUEST_EVENT = "mcp:state-request"
-/** WebView → Rust 的回传命令名（与 Rust 侧 `mcp_state_respond` 必须一致）。 */
-export const STATE_RESPOND_COMMAND = "mcp_state_respond"
 
 /** 桥支持的操作。P0 只读 / P1 增单键写入 / P2 增项目动作。 */
 export type StateOp =
@@ -454,7 +452,11 @@ export async function installStateBridge(): Promise<UnlistenFn> {
     const payload = event.payload
     const response = await handleStateRequest(payload)
     try {
-      await invoke(STATE_RESPOND_COMMAND, {
+      // 命令名写成字面量，不抽常量：`ipc-surface-contract.spec.ts` 的注册面/调用面
+      // 对账只认调用点的字面量，抽成常量会让 `mcp_state_respond` 看起来"注册了
+      // 但没人调用"（纯攻击面），并把这个文件变成对账盲区。与 Rust 侧
+      // `mcp_server::mcp_state_respond` 必须一致。
+      await invoke("mcp_state_respond", {
         id: payload?.id ?? "",
         ok: response.ok,
         value: response.value ?? null,
