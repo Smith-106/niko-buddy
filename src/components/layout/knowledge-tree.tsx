@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: MIT
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, ChevronDown, ChevronRight, Folder, FolderInput, FolderOpen, Loader2, Pencil, Plus, Trash2, Check, X } from "lucide-react"
+import { BookOpen, ChevronDown, ChevronRight, Folder, FolderInput, FolderOpen, Loader2, Pencil, Plus, Sparkles, Trash2, Check, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
 import { deleteFile, fileExists, listDirectory, readFile, writeFileAtomic, openFileLocation, copyFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { toErrorMessage } from "@/lib/utils"
 import { moveFileToTrash } from "@/lib/trash"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
 import {
@@ -54,6 +55,8 @@ export function KnowledgeTree({
   const [renameValue, setRenameValue] = useState("")
   const [renamingBusy, setRenamingBusy] = useState(false)
   const [moveMenuTarget, setMoveMenuTarget] = useState<string | null>(null)
+  // G3（TASK-004 D3）：知识树右键「批量提取记忆」→ 先弹范围选择（D2）再进队列。
+  const [batchScope, setBatchScope] = useState<{ chapter: number | null } | null>(null)
   const [dragSource, setDragSource] = useState<string | null>(null)
   const [dragInsertIndex, setDragInsertIndex] = useState<number | null>(null)
   const [isDragging, setIsDragging] = useState(false)
@@ -822,6 +825,20 @@ ${frontmatterBody}
                 {filterType === "chapter" ? t("knowledgeTree.deleteVolume") : t("knowledgeTree.deleteFolder")}
               </button>
             ) : null}
+            {filterType === "chapter" && (
+              <button
+                type="button"
+                data-testid="knowledge-tree-batch-extract"
+                className="flex w-full items-center gap-2 border-t px-3 py-2 text-left hover:bg-accent"
+                onClick={() => {
+                  setBatchScope({ chapter: null })
+                  setCreateMenu(null)
+                }}
+              >
+                <Sparkles className="h-3.5 w-3.5 shrink-0" />
+                {t("extract.batchEntry")}
+              </button>
+            )}
           </div>
         )}
 
@@ -872,6 +889,22 @@ ${frontmatterBody}
               <Pencil className="h-3.5 w-3.5 shrink-0" />
               {t("knowledgeTree.rename")}
             </button>
+            {/* G3（TASK-004 D3）：单章重提语义不变（本项只是新增入口，不改既有项）。 */}
+            {filterType === "chapter" && (
+              <button
+                type="button"
+                data-testid="knowledge-tree-batch-extract"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+                onClick={() => {
+                  const target = pageInfoByPath.get(pageMenu.path)
+                  setBatchScope({ chapter: target?.chapterNumber ?? null })
+                  setPageMenu(null)
+                }}
+              >
+                <Sparkles className="h-3.5 w-3.5 shrink-0" />
+                {t("extract.batchEntry")}
+              </button>
+            )}
             {filterType === "chapter" && volumeFolders.length > 0 && (
               <div>
                 <button
@@ -923,8 +956,264 @@ ${frontmatterBody}
             </button>
           </div>
         )}
+
+        {/* G3（TASK-004 D2/D3）：右键 → 先弹范围选择，确认后才进批量队列。 */}
+        {batchScope && project && (
+          <BatchExtractScopeDialog
+            open
+            projectPath={normalizePath(project.path)}
+            seedChapter={batchScope.chapter}
+            onClose={() => setBatchScope(null)}
+          />
+        )}
       </div>
     </ScrollArea>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// G3（TASK-004 D2/D4/D5）：批量提取范围选择弹层
+// ──────────────────────────────────────────────────────────────────────────
+
+type SnapshotScannerModule = typeof import("@/lib/novel/snapshot-scanner")
+type SnapshotScanResult = import("@/lib/novel/snapshot-scanner").SnapshotScanResult
+type BatchExtractScopeMode = import("@/lib/novel/snapshot-scanner").BatchExtractScopeMode
+type BatchExtractBudgetPlan = import("@/lib/novel/snapshot-scanner").BatchExtractBudgetPlan
+type BatchBudgetLedger = import("@/lib/novel/snapshot-scanner").BatchBudgetLedger
+type BatchExtractDraft = import("@/lib/novel/snapshot-scanner").BatchExtractDraft
+
+export interface BatchExtractScopeDialogProps {
+  open: boolean
+  projectPath: string
+  /** 右键命中的章号（仅作提示，不改变范围语义）。 */
+  seedChapter?: number | null
+  onClose: () => void
+}
+
+/**
+ * 范围选择弹层（默认「仅未提取」）：全部 vs 仅未提取 + skipExisting/force 开关
+ * + LLM 预算上限（默认值取自 snapshot-scanner 常量，与 G4 harness 同口径）。
+ *
+ * Draft-first：本弹层只建队列、显示 pending/ready 草稿与 accept 入口；
+ * 正式记忆回填只能经 accept（acceptBatchExtractionDrafts → syncSnapshotToMemory）。
+ */
+export function BatchExtractScopeDialog({
+  open,
+  projectPath,
+  seedChapter,
+  onClose,
+}: BatchExtractScopeDialogProps) {
+  const { t } = useTranslation()
+  const scannerRef = useRef<SnapshotScannerModule | null>(null)
+  const [scan, setScan] = useState<SnapshotScanResult | null>(null)
+  const [mode, setMode] = useState<BatchExtractScopeMode | null>(null)
+  const [skipExisting, setSkipExisting] = useState(true)
+  const [force, setForce] = useState(false)
+  const [budget, setBudget] = useState(0)
+  const [budgetMax, setBudgetMax] = useState(0)
+  const [scanning, setScanning] = useState(false)
+  const [running, setRunning] = useState(false)
+  const [drafts, setDrafts] = useState<BatchExtractDraft[]>([])
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setScanning(true)
+    void (async () => {
+      try {
+        const scanner = await import("@/lib/novel/snapshot-scanner")
+        /* v8 ignore next */
+        if (cancelled) return
+        scannerRef.current = scanner
+        setMode(scanner.DEFAULT_BATCH_EXTRACT_SCOPE)
+        setSkipExisting(scanner.DEFAULT_BATCH_SKIP_EXISTING)
+        setForce(scanner.DEFAULT_BATCH_FORCE)
+        setBudget(scanner.BATCH_EXTRACT_BUDGET_DEFAULT)
+        setBudgetMax(scanner.BATCH_EXTRACT_BUDGET_MAX)
+        const result = await scanner.scanSnapshotBackfill(projectPath)
+        /* v8 ignore next */
+        if (cancelled) return
+        setScan(result)
+        const { getBatchExtractQueue } = await import("./sidebar-panel-import")
+        /* v8 ignore next */
+        if (cancelled) return
+        setDrafts(getBatchExtractQueue(projectPath)?.drafts ?? [])
+      } catch (err) {
+        console.error("[batch-extract] scan failed:", err)
+      } finally {
+        /* v8 ignore next */
+        if (!cancelled) setScanning(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, projectPath])
+
+  const preview = useMemo<{ plan: BatchExtractBudgetPlan; ledger: BatchBudgetLedger; total: number } | null>(() => {
+    const scanner = scannerRef.current
+    if (!scanner || !scan || mode === null) return null
+    const selection = scanner.resolveBatchExtractScope(scan, { mode, skipExisting, force })
+    const plan = scanner.applyBatchExtractBudget(selection.chapters, budget)
+    return { plan, ledger: scanner.buildBatchBudgetLedger(plan), total: selection.chapters.length }
+  }, [scan, mode, skipExisting, force, budget])
+
+  const readyCount = drafts.filter((draft) => draft.status === "ready").length
+
+  if (!open) return null
+
+  const handleStart = async () => {
+    if (!preview || running || preview.plan.admitted.length === 0) return
+    setRunning(true)
+    try {
+      const { runBatchMemoryExtraction } = await import("./sidebar-panel-import")
+      const result = await runBatchMemoryExtraction({
+        projectPath,
+        chapters: preview.plan.admitted,
+        budget,
+      })
+      setDrafts(result.drafts)
+      if (result.cancelled) {
+        toast.info(t("extract.batchCancelled", { completed: result.completed, total: result.admitted.length }))
+      } else {
+        toast.success(t("extract.batchDone", { completed: result.completed, failed: result.failed }))
+      }
+    } catch (err) {
+      toast.error(t("extract.batchFailed", { message: toErrorMessage(err) }))
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  const handleAccept = async () => {
+    if (readyCount === 0) return
+    setRunning(true)
+    try {
+      const { acceptBatchExtractionDrafts, getBatchExtractQueue } = await import("./sidebar-panel-import")
+      const result = await acceptBatchExtractionDrafts({ projectPath })
+      setDrafts(getBatchExtractQueue(projectPath)?.drafts ?? [])
+      toast.success(t("extract.batchAccepted", { count: result.accepted.length }))
+    } catch (err) {
+      toast.error(t("extract.batchFailed", { message: toErrorMessage(err) }))
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        data-testid="batch-extract-scope-dialog"
+        className="w-[26rem] rounded-lg border bg-background p-4 text-sm elevation-3"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <span className="font-medium">{t("extract.batchTitle")}</span>
+          <button type="button" aria-label={t("common.close")} onClick={onClose}>
+            <X className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </button>
+        </div>
+
+        {scanning || !preview ? (
+          <div className="flex items-center gap-2 py-6 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t("extract.batchScanning")}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="text-xs text-muted-foreground">
+              {t("extract.batchPendingCount", { count: scan?.pending.length ?? 0 })}
+              {typeof seedChapter === "number" ? ` · ${t("extract.batchSeedHint", { chapter: seedChapter })}` : null}
+            </div>
+
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="batch-extract-scope"
+                checked={mode === "missing"}
+                onChange={() => setMode("missing")}
+              />
+              {t("extract.batchScopeMissing")}
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="batch-extract-scope"
+                checked={mode === "all"}
+                onChange={() => setMode("all")}
+              />
+              {t("extract.batchScopeAll")}
+            </label>
+
+            <label className={`flex items-center gap-2 ${mode === "missing" ? "opacity-50" : ""}`}>
+              <input
+                type="checkbox"
+                checked={skipExisting}
+                disabled={mode === "missing"}
+                onChange={(event) => setSkipExisting(event.target.checked)}
+              />
+              {t("extract.batchSkipExisting")}
+            </label>
+            <label className={`flex items-center gap-2 ${mode === "missing" ? "opacity-50" : ""}`}>
+              <input
+                type="checkbox"
+                checked={force}
+                disabled={mode === "missing"}
+                onChange={(event) => setForce(event.target.checked)}
+              />
+              {t("extract.batchForce")}
+            </label>
+
+            <label className="flex items-center gap-2">
+              {t("extract.batchBudget")}
+              <input
+                type="number"
+                className="w-20 rounded border bg-background px-2 py-1 text-xs"
+                min={1}
+                max={budgetMax}
+                value={budget}
+                onChange={(event) => setBudget(Number(event.target.value))}
+              />
+            </label>
+
+            <div className="rounded bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">
+              {t("extract.batchSummary", {
+                count: preview.plan.admitted.length,
+                skipped: preview.ledger.skipped,
+              })}
+              {preview.ledger.exhausted ? ` · ${t("extract.batchBudgetExceeded", { budget: preview.ledger.budget })}` : null}
+            </div>
+
+            {scan && scan.errors.length > 0 ? (
+              <div className="text-xs text-destructive">{scan.errors[0]}</div>
+            ) : null}
+
+            {readyCount > 0 ? (
+              <div className="flex items-center justify-between rounded border border-dashed px-2 py-1.5 text-xs">
+                <span>{t("extract.batchDraftPending", { count: readyCount })}</span>
+                <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={running} onClick={() => void handleAccept()}>
+                  {t("extract.batchAccept")}
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <Button type="button" size="sm" variant="ghost" onClick={onClose}>
+            {t("extract.batchCancel")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={running || scanning || !preview || preview.plan.admitted.length === 0}
+            onClick={() => void handleStart()}
+          >
+            {running ? t("extract.batchRunningShort") : t("extract.batchStart")}
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }
 

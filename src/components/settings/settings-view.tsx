@@ -59,6 +59,7 @@ import { SkillLibrarySection } from "./sections/skill-library-section"
 import { McpSection } from "./sections/mcp-section"
 import { ContactSupportSection } from "./sections/contact-support-section"
 import { DataManagementSection } from "./sections/data-management-section"
+import { SyncSettingsSection } from "./sync-settings"
 import { MultimodalSection } from "./sections/multimodal-section"
 import { WebSearchSection } from "./sections/web-search-section"
 import { OutputSection } from "./sections/output-section"
@@ -617,7 +618,13 @@ export function SettingsView() {
       case "maintenance":
         return <MaintenanceSection />
       case "data-management":
-        return <DataManagementSection />
+        // G2a（B5）：同步设置区（全局开关 + 间隔三档 + 手动同步）与备份导入导出同页。
+        return (
+          <div className="flex flex-col gap-8">
+            <DataManagementSection />
+            <SyncSettingsSection />
+          </div>
+        )
       case "feedback":
         return <FeedbackSection />
       case "contact-support":

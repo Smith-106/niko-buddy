@@ -55,6 +55,18 @@ describe("i18n key coverage (regression guard)", () => {
     ).toEqual([])
   })
 
+  it("sync.resolve.* covers every pick-choice wire value (no raw key on screen)", () => {
+    // F-005 回归：组件渲染 `t(`sync.resolve.${choice}`)`，而 choice 的取值域来自 Rust
+    // `PickChoice::as_str()`（pick_mine / pick_theirs / keep_both）。前缀存在不等于
+    // 取值域齐备——缺一个就会在逐项裁决下拉框里显示原始字面量。
+    const pickChoiceWireValues = ["pick_mine", "pick_theirs", "keep_both"]
+    const missing = pickChoiceWireValues.flatMap((choice) => {
+      const key = `sync.resolve.${choice}`
+      return zhKeys.has(key) && enKeys.has(key) ? [] : [key]
+    })
+    expect(missing, `missing sync.resolve.* keys: ${missing.join(", ")}`).toEqual([])
+  })
+
   it("every template-literal t(`prefix.${x}`) has a real container key in both locales", () => {
     const srcDir = join(root, "src")
     const files = walk(srcDir).filter((f) => !f.includes(".spec."))

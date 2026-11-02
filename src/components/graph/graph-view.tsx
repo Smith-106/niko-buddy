@@ -39,6 +39,8 @@ import { DocumentGraphView } from "./document-graph-view"
 import { MindMapGraphView, ZoomControls } from "./mindmap-views"
 import { NodeInspectorDrawer } from "./node-inspector-drawer"
 import { GraphNodeSearch } from "./graph-node-search"
+// G3（TASK-004 D3）：批量提取范围选择弹层（与知识树右键共用同一入口组件）。
+import { BatchExtractScopeDialog } from "@/components/layout/knowledge-tree"
 import { toast } from "@/lib/toast"
 
 
@@ -203,6 +205,8 @@ export function GraphView() {
     }
   }, [])
   const [nodeMenu, setNodeMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
+  // G3（TASK-004 D3）：图谱右键「批量提取记忆」→ 先弹范围选择再进队列。
+  const [batchScope, setBatchScope] = useState<{ chapter: number | null } | null>(null)
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null)
   const [layoutPreset, setLayoutPreset] = useState<GraphLayoutPresetKey>(DEFAULT_LAYOUT_PRESET)
   const [focusDepth, setFocusDepth] = useState<1 | 2>(1)
@@ -1230,6 +1234,19 @@ export function GraphView() {
               </button>
               <button
                 type="button"
+                data-testid="graph-batch-extract"
+                className="flex w-full items-center gap-2 border-t px-3 py-2 text-left hover:bg-accent"
+                title={t("extract.batchEntry")}
+                onClick={() => {
+                  setBatchScope({ chapter: parseChapterNumber(contextNode) })
+                  setNodeMenu(null)
+                }}
+              >
+                <Network className="h-3.5 w-3.5 shrink-0" />
+                {t("extract.batchEntry")}
+              </button>
+              <button
+                type="button"
                 className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
                 onClick={() => {
                   setFilters((prev) => ({
@@ -1243,6 +1260,16 @@ export function GraphView() {
                 {t("graph.hideThisNode")}
               </button>
             </div>
+          )}
+
+          {/* G3（TASK-004 D2/D3）：右键 → 先弹范围选择，确认后才进批量队列。 */}
+          {batchScope && project && (
+            <BatchExtractScopeDialog
+              open
+              projectPath={normalizePath(project.path)}
+              seedChapter={batchScope.chapter}
+              onClose={() => setBatchScope(null)}
+            />
           )}
 
           <GraphLegend

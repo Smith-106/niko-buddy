@@ -140,6 +140,10 @@ export default tseslint.config(
             'src/lib/novel/residual-campaign.ts',
             'src/lib/novel/review-adapter.ts',
             'src/lib/novel/search-adapter.ts',
+            // G3（TASK-004）：批量提取扫库/范围选择/队列。UI（知识树 / 图谱右键）与
+            // sidebar-panel-import 的批量通道一律 `await import()` 按需加载——走 barrel
+            // 会把整张 novel 模块图拖进延迟路径（见上方 T18 决策）。故登记为受控延迟叶子。
+            'src/lib/novel/snapshot-scanner.ts',
             'src/lib/novel/book-analysis/analysis-engine.ts',
             'src/lib/novel/book-analysis/character-disk-store.ts',
             'src/lib/novel/book-analysis/character-extraction-engine.ts',

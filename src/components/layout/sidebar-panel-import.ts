@@ -14,10 +14,26 @@ import {
   importOutlineFiles,
   CHAPTER_IMPORT_EXTENSIONS,
   collectChapterImportCandidatesFromFolder,
+  findChapterFileByNumber,
   importChapterFiles,
+  parseChapterMeta,
   runImportedChapterMemoryExtraction,
+  resolveNovelModel,
 } from "@/lib/novel"
 import type { ImportedChapter } from "@/lib/novel"
+// G3（TASK-004）：快照扫库/范围选择/队列的类型只做**类型位**引用（import(...) 类型查询，
+// 编译期擦除，不产生静态依赖边）；运行时一律走动态 import（boundaries 门禁：app 层
+// 不得静态深导入 novel 内部模块）。
+export type BatchExtractDraft = import("@/lib/novel/snapshot-scanner").BatchExtractDraft
+export type BatchExtractQueueState = import("@/lib/novel/snapshot-scanner").BatchExtractQueueState
+export type BatchBudgetLedger = import("@/lib/novel/snapshot-scanner").BatchBudgetLedger
+export type BatchExtractScopeMode = import("@/lib/novel/snapshot-scanner").BatchExtractScopeMode
+export type BatchExtractScopeOptions = import("@/lib/novel/snapshot-scanner").BatchExtractScopeOptions
+export type BatchExtractScopeSelection = import("@/lib/novel/snapshot-scanner").BatchExtractScopeSelection
+export type BatchExtractBudgetPlan = import("@/lib/novel/snapshot-scanner").BatchExtractBudgetPlan
+export type SnapshotScanResult = import("@/lib/novel/snapshot-scanner").SnapshotScanResult
+import { readFile } from "@/commands/fs"
+import { parseFrontmatter } from "@/lib/frontmatter"
 import { toErrorMessage } from "@/lib/utils"
 import { toast } from "@/lib/toast"
 import { useImportProgressStore } from "@/stores/import-progress-store"
@@ -132,6 +148,8 @@ export function useSidebarImport({ refreshTree }: SidebarImportDeps): SidebarImp
     if (taskId) useImportProgressStore.getState().markCancelling(taskId)
     outlineImportCancelledRef.current = true
     chapterImportAbortRef.current?.abort()
+    // G3：批量提取复用同一 abort 通道（停止按钮 / 进度面板取消 → 同一出口）。
+    cancelBatchMemoryExtraction()
   }
 
   async function extractImportedChapterMemories(projectPath: string, importedChapters: ImportedChapter[]) {
@@ -409,4 +427,295 @@ export function useSidebarImport({ refreshTree }: SidebarImportDeps): SidebarImp
     handleImportOutlineFiles,
     handleImportOutlineFolder,
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// G3（TASK-004）：批量提取队列 —— 复用本文件 confirm/extract/abort/进度通道范式
+// ──────────────────────────────────────────────────────────────────────────
+//
+// 与 confirmImportMemoryExtraction / handleCancelImportMemoryExtraction /
+// extractImportedChapterMemories 同一套范式（本文件上方三个函数）：
+//   确认（范围选择弹层）→ 建进度任务（startTask + abortController）→ 逐章提取并
+//   updateTask 进度 → finishTask 收尾；取消走既有 abort（进度面板「停止」按钮
+//   → useImportProgressStore.cancelTask → abortController.abort → 本模块 signal 短路）。
+//
+// Draft-first 硬边界（D5）：
+//   * 提取阶段只调 `extractSnapshotWithLLM`（纯抽取，零正式写入），结果落在
+//     `BatchExtractDraft` 草稿账本里，状态 pending → ready。
+//   * **不**调 ingestChapter（引擎不动），**不**写 wiki/正式记忆。
+//   * 只有 acceptBatchExtractionDrafts（人工 accept）才调 `syncSnapshotToMemory`
+//     回填正式记忆 —— 与 snapshot-viewer 的「草稿快照 → accept 同步记忆」同一出口。
+
+/** 批量提取在途 abort 控制器（模块级：弹层关闭后进度面板仍能取消）。 */
+let activeBatchAbortController: AbortController | null = null
+
+/** 批量提取草稿账本（按项目路径；accept 前只存在于内存，不进正式记忆）。 */
+const batchDraftLedgers = new Map<string, BatchExtractQueueState>()
+
+/** 批量提取进度回调载荷。 */
+export interface BatchExtractionProgress {
+  completed: number
+  total: number
+  currentChapter: number | null
+  message?: string
+}
+
+/** 批量提取入参。 */
+export interface BatchExtractionRunInput {
+  projectPath: string
+  chapters: readonly number[]
+  /** LLM 预算上限（章）；缺省 = BATCH_EXTRACT_BUDGET_DEFAULT，超硬顶截断。 */
+  budget?: number | null
+  signal?: AbortSignal
+  onProgress?: (progress: BatchExtractionProgress) => void
+}
+
+/** 批量提取结果。 */
+export interface BatchExtractionRunResult {
+  taskId: string
+  admitted: number[]
+  skippedByBudget: number[]
+  ledger: BatchBudgetLedger
+  /** pending/ready 草稿（accept 前不落正式记忆）。 */
+  drafts: BatchExtractDraft[]
+  completed: number
+  failed: number
+  cancelled: boolean
+  errors: string[]
+}
+
+/** 范围预览（弹层用：扫库 → 范围选择 → 预算裁决）。 */
+export interface BatchExtractionPreview {
+  scan: SnapshotScanResult
+  selection: BatchExtractScopeSelection
+  plan: BatchExtractBudgetPlan
+  ledger: BatchBudgetLedger
+}
+
+/** 批量提取默认口径（常量来自 snapshot-scanner，禁止在 UI 侧写副本）。 */
+export interface BatchExtractDefaults {
+  scope: BatchExtractScopeMode
+  skipExisting: boolean
+  force: boolean
+  budget: number
+  budgetMax: number
+}
+
+/** 读取批量提取默认口径（单真源 = snapshot-scanner 常量）。 */
+export async function loadBatchExtractDefaults(): Promise<BatchExtractDefaults> {
+  const scanner = await import("@/lib/novel/snapshot-scanner")
+  return {
+    scope: scanner.DEFAULT_BATCH_EXTRACT_SCOPE,
+    skipExisting: scanner.DEFAULT_BATCH_SKIP_EXISTING,
+    force: scanner.DEFAULT_BATCH_FORCE,
+    budget: scanner.BATCH_EXTRACT_BUDGET_DEFAULT,
+    budgetMax: scanner.BATCH_EXTRACT_BUDGET_MAX,
+  }
+}
+
+/** 扫库 + 范围选择 + 预算裁决（弹层预览，只读）。 */
+export async function previewBatchExtraction(
+  projectPath: string,
+  options: BatchExtractScopeOptions & { budget?: number | null } = {},
+): Promise<BatchExtractionPreview> {
+  const scanner = await import("@/lib/novel/snapshot-scanner")
+  const scan = await scanner.scanSnapshotBackfill(normalizePath(projectPath))
+  const selection = scanner.resolveBatchExtractScope(scan, options)
+  const plan = scanner.applyBatchExtractBudget(selection.chapters, options.budget)
+  return { scan, selection, plan, ledger: scanner.buildBatchBudgetLedger(plan) }
+}
+
+/** 当前项目的批量提取草稿账本（无则 null）。 */
+export function getBatchExtractQueue(projectPath: string): BatchExtractQueueState | null {
+  return batchDraftLedgers.get(normalizePath(projectPath)) ?? null
+}
+
+/** 取消在途批量提取（走既有 abort 通道；已 ready 草稿保留可 accept）。 */
+export function cancelBatchMemoryExtraction(): void {
+  activeBatchAbortController?.abort()
+  activeBatchAbortController = null
+}
+
+/**
+ * 批量提取（阶段 1：extract → 草稿）。
+ *
+ * 逐章：定位章节文件 → extractSnapshotWithLLM（纯抽取）→ 草稿置 ready。
+ * 超预算章号只记账（skippedByBudget），不发任何 LLM 请求。
+ */
+export async function runBatchMemoryExtraction(
+  input: BatchExtractionRunInput,
+): Promise<BatchExtractionRunResult> {
+  const projectPath = normalizePath(input.projectPath)
+  const scanner = await import("@/lib/novel/snapshot-scanner")
+  const plan = scanner.applyBatchExtractBudget(input.chapters, input.budget)
+  const ledger = scanner.buildBatchBudgetLedger(plan)
+  let queue = scanner.createBatchExtractQueue({ projectPath, plan })
+  batchDraftLedgers.set(projectPath, queue)
+
+  const abortController = new AbortController()
+  activeBatchAbortController = abortController
+  if (input.signal) {
+    if (input.signal.aborted) abortController.abort()
+    else input.signal.addEventListener("abort", () => abortController.abort(), { once: true })
+  }
+
+  const total = plan.admitted.length
+  const taskId = useImportProgressStore.getState().startTask({
+    projectPath,
+    kind: "chapter",
+    total,
+    currentTitle: "",
+    message: ledger.exhausted
+      ? `正在批量提取章节记忆（预算 ${ledger.budget} 章，超限 ${ledger.skipped} 章已记账跳过）`
+      : "正在批量提取章节记忆",
+    abortController,
+  })
+
+  const errors: string[] = []
+  let completed = 0
+  let failed = 0
+  let cancelled = false
+
+  const publish = (currentChapter: number | null, message?: string) => {
+    useImportProgressStore.getState().updateTask(taskId, {
+      completed: completed + failed,
+      total,
+      currentTitle: currentChapter === null ? "" : `第 ${currentChapter} 章`,
+      message,
+    })
+    input.onProgress?.({ completed: completed + failed, total, currentChapter, message })
+  }
+
+  try {
+    // 纯抽取（零正式写入）：只经受控延迟叶子 chapter-ingest 取 extractSnapshotWithLLM；
+    // resolveNovelModel 走 barrel 静态公开面（已静态导入）。
+    const { extractSnapshotWithLLM } = await import("@/lib/novel/chapter-ingest")
+    const store = useWikiStore.getState()
+    const llmConfig = resolveNovelModel(store.llmConfig, store.novelConfig, "extract")
+
+    for (const chapter of plan.admitted) {
+      if (abortController.signal.aborted) {
+        cancelled = true
+        break
+      }
+      publish(chapter)
+      queue = scanner.startBatchChapter(queue, chapter)
+      try {
+        const chapterPath = await findChapterFileByNumber(projectPath, chapter)
+        if (!chapterPath) {
+          failed += 1
+          errors.push(`第 ${chapter} 章：未找到章节文件`)
+          queue = scanner.failBatchChapter(queue, chapter, "chapter_file_missing")
+          continue
+        }
+        const content = await readFile(chapterPath)
+        const { frontmatter, body } = parseFrontmatter(content)
+        const chapterNumber = parseChapterMeta(frontmatter ?? {})?.chapterNumber ?? chapter
+        if (!body.trim()) {
+          failed += 1
+          errors.push(`第 ${chapter} 章：正文为空`)
+          queue = scanner.failBatchChapter(queue, chapter, "empty_chapter_body")
+          continue
+        }
+        const snapshot = await extractSnapshotWithLLM(
+          chapterNumber,
+          body,
+          llmConfig,
+          abortController.signal,
+        )
+        if (!snapshot) {
+          failed += 1
+          errors.push(`第 ${chapter} 章：提取失败`)
+          queue = scanner.failBatchChapter(queue, chapter, "extract_failed")
+          continue
+        }
+        completed += 1
+        // Draft-first：只落 ready 草稿，accept 才回填正式记忆。
+        queue = scanner.completeBatchChapter(queue, chapter, snapshot)
+        publish(chapter)
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          cancelled = true
+          queue = scanner.cancelBatchExtractQueue(queue)
+          break
+        }
+        failed += 1
+        errors.push(`第 ${chapter} 章：${toErrorMessage(error)}`)
+        queue = scanner.failBatchChapter(queue, chapter, toErrorMessage(error))
+      }
+    }
+  } catch (error) {
+    errors.push(toErrorMessage(error))
+  } finally {
+    if (abortController.signal.aborted) cancelled = true
+    queue = cancelled ? scanner.cancelBatchExtractQueue(queue) : scanner.finishBatchExtractQueue(queue)
+    batchDraftLedgers.set(projectPath, queue)
+    activeBatchAbortController = null
+  }
+
+  const doneMessage = cancelled
+    ? `已取消批量提取，已完成 ${completed}/${total} 章（草稿待 accept）。`
+    : ledger.exhausted
+      ? `批量提取完成：成功 ${completed} 章，失败 ${failed} 章；预算 ${ledger.budget} 章，超限 ${ledger.skipped} 章已记账跳过。`
+      : `批量提取完成：成功 ${completed} 章，失败 ${failed} 章（草稿待 accept）。`
+  useImportProgressStore.getState().finishTask(taskId, cancelled ? "cancelled" : failed > 0 ? "error" : "done", {
+    completed: completed + failed,
+    total,
+    currentTitle: "",
+    message: doneMessage,
+  })
+  input.onProgress?.({ completed: completed + failed, total, currentChapter: null, message: doneMessage })
+
+  return {
+    taskId,
+    admitted: plan.admitted,
+    skippedByBudget: plan.skippedByBudget,
+    ledger,
+    drafts: queue.drafts,
+    completed,
+    failed,
+    cancelled,
+    errors,
+  }
+}
+
+/**
+ * accept 回填（阶段 2：草稿 → 正式记忆）。
+ *
+ * 只处理 `ready` 草稿；逐章 `syncSnapshotToMemory`（正式回填出口，引擎既有函数），
+ * 成功后才把草稿记账为 `accepted`。失败保留 ready 以便重试。
+ */
+export async function acceptBatchExtractionDrafts(input: {
+  projectPath: string
+  chapters?: readonly number[]
+}): Promise<{ accepted: number[]; failed: Array<{ chapter: number; error: string }> }> {
+  const projectPath = normalizePath(input.projectPath)
+  const scanner = await import("@/lib/novel/snapshot-scanner")
+  let queue = batchDraftLedgers.get(projectPath)
+  if (!queue) return { accepted: [], failed: [] }
+
+  const targets = input.chapters
+    ? queue.drafts.filter((draft) => input.chapters?.includes(draft.chapter))
+    : queue.drafts
+  const ready = targets.filter((draft) => draft.status === "ready" && draft.snapshot)
+  if (ready.length === 0) return { accepted: [], failed: [] }
+
+  const { syncSnapshotToMemory } = await import("@/lib/novel/chapter-ingest")
+  const accepted: number[] = []
+  const failed: Array<{ chapter: number; error: string }> = []
+
+  for (const draft of ready) {
+    /* v8 ignore next -- ready 过滤已保证 snapshot 非空 */
+    if (!draft.snapshot) continue
+    try {
+      await syncSnapshotToMemory(projectPath, draft.snapshot)
+      queue = scanner.acceptBatchDraft(queue, draft.chapter)
+      accepted.push(draft.chapter)
+    } catch (error) {
+      failed.push({ chapter: draft.chapter, error: toErrorMessage(error) })
+    }
+  }
+
+  batchDraftLedgers.set(projectPath, queue)
+  return { accepted, failed }
 }

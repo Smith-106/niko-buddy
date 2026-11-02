@@ -60,7 +60,7 @@ function parseCommandSignatures() {
     const code = readFileSync(file, "utf8")
     for (const attr of code.matchAll(/#\[tauri::command[^\]]*\]/g)) {
       const rest = code.slice(attr.index + attr[0].length)
-      const fn = rest.match(/^((?:\s*(?:\/\/[^\n]*|\/\/![^\n]*|#\[[^\]]*\])\n|\s)*)\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)\s*(?:<[^>]*>)?\s*\(/)
+      const fn = rest.match(/^((?:\s*(?:\/\/[^\n]*|\/\/![^\n]*|#\[[^\]]*\])\r?\n|\s)*)\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)\s*(?:<[^>]*>)?\s*\(/)
       if (!fn) continue
       const open = fn[0].length - 1 + fn.index
       let depth = 0
