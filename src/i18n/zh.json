@@ -1459,8 +1459,14 @@
         "sessionsEmpty": "暂无外部 Agent 连入。",
         "toolCount": "{{count}} 个只读工具",
         "calls": "{{count}} 次调用",
-        "writeScope": "允许外部 Agent 修改设置",
-        "writeScopeHint": "默认关闭。打开会重启监听并断开当前已连接的客户端。每次写入都会追加到 .novel/audit/external-writes.jsonl，审计不可关闭。"
+        "scope": "外部 Agent 可以做什么",
+        "scopeHint": "监听运行中切换会重启并断开当前客户端。会话保留连接时被授予的权限域，所以改权限要等客户端重连才生效。",
+        "scopeRead": "只读",
+        "scopeReadHint": "只能查询。项目内容与设置都不会被改动。",
+        "scopeSettings": "只读 + 改设置",
+        "scopeSettingsHint": "额外允许 settings.set。每次写入都会追加到项目审计日志，不可关闭。",
+        "scopeProject": "只读 + 项目动作",
+        "scopeProjectHint": "额外允许 chapter.write / memory.write / pipeline.run_chapter / gate.run。产出只会进草稿区，不会直接改正式正文或正式记忆。"
       }
     },
     "llm": "模型",

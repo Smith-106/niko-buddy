@@ -69,30 +69,48 @@ describe("ExternalControlSection", () => {
     })
   })
 
-  it("打开写权限时带 settings scope 重启", async () => {
+  it("选择 settings 权限域时带 scope 重启", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "mcp_server_start") return Promise.resolve(45871)
       return Promise.resolve(RUNNING_STATUS)
     })
     render(<ExternalControlSection />)
     await waitFor(() => {
-      expect(screen.getByTestId("external-control-write-scope")).toBeInTheDocument()
+      expect(screen.getByTestId("external-control-scope-settings")).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByTestId("external-control-write-scope"))
+    fireEvent.click(screen.getByTestId("external-control-scope-settings"))
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith("mcp_server_start", { scope: "settings" })
     })
   })
 
-  it("服务端已授予 settings 时开关显示为开", async () => {
-    invokeMock.mockResolvedValue({ ...RUNNING_STATUS, scope: "settings" })
+  it("选择 project 权限域时带 scope 重启", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_server_start") return Promise.resolve(45871)
+      return Promise.resolve(RUNNING_STATUS)
+    })
     render(<ExternalControlSection />)
     await waitFor(() => {
-      expect(screen.getByTestId("external-control-write-scope")).toHaveAttribute(
-        "aria-checked",
+      expect(screen.getByTestId("external-control-scope-project")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("external-control-scope-project"))
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("mcp_server_start", { scope: "project" })
+    })
+  })
+
+  it("服务端已授予 project 时对应项显示为选中，且不重复重启", async () => {
+    invokeMock.mockResolvedValue({ ...RUNNING_STATUS, scope: "project" })
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-scope-project")).toHaveAttribute(
+        "aria-pressed",
         "true",
       )
     })
+    // 点已选中项不应再发启动请求
+    fireEvent.click(screen.getByTestId("external-control-scope-project"))
+    expect(invokeMock).not.toHaveBeenCalledWith("mcp_server_start", { scope: "project" })
   })
 
   it("无会话时展示空态", async () => {

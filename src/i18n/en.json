@@ -2094,8 +2094,14 @@
         "sessionsEmpty": "No external agent connected.",
         "toolCount": "{{count}} read-only tools",
         "calls": "{{count}} calls",
-        "writeScope": "Allow external agents to change settings",
-        "writeScopeHint": "Off by default. Enabling it restarts the listener and disconnects current clients. Every write is appended to .novel/audit/external-writes.jsonl and cannot be turned off."
+        "scope": "What external agents may do",
+        "scopeHint": "Changing this while the listener is running restarts it and disconnects current clients. Sessions keep the scope they connected with, so a permission change only takes effect after the client reconnects.",
+        "scopeRead": "Read only",
+        "scopeReadHint": "Query tools only. Nothing in the project or the settings can be changed.",
+        "scopeSettings": "Read + settings",
+        "scopeSettingsHint": "Also allows settings.set. Every write is appended to the project audit log and cannot be turned off.",
+        "scopeProject": "Read + project actions",
+        "scopeProjectHint": "Also allows chapter.write, memory.write, pipeline.run_chapter and gate.run. Output only ever lands in the draft area."
       }
     },
     "feedback": {

@@ -542,6 +542,355 @@ impl super::registry::McpTool for CanonQueryTool {
 }
 
 /// 构造 P0 只读注册表。
+// ── P2：项目动作（全部转发既有管线/命令，不新造写路径）─────────────────────
+
+/// 取必填字符串参数。缺失/类型不符一律 `INVALID_PARAMS`（协议层错误）。
+fn require_str<'a>(args: &'a Value, tool: &str, field: &str) -> Result<&'a str, ToolError> {
+    match args.get(field).and_then(|v| v.as_str()) {
+        Some(v) if !v.trim().is_empty() => Ok(v),
+        Some(_) => Err(ToolError::invalid_params(format!("{tool}: `{field}` 不能为空"))),
+        None => Err(ToolError::invalid_params(format!(
+            "{tool}: 缺少字符串参数 `{field}`"
+        ))),
+    }
+}
+
+/// 取可选正整数参数。给了就必须是正整数——静默忽略非法值会让调用方以为生效了。
+fn optional_positive_int(
+    args: &Value,
+    tool: &str,
+    field: &str,
+) -> Result<Option<u64>, ToolError> {
+    match args.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => match v.as_u64() {
+            Some(n) if n > 0 => Ok(Some(n)),
+            _ => Err(ToolError::invalid_params(format!(
+                "{tool}: `{field}` 必须是正整数，收到 {v}"
+            ))),
+        },
+    }
+}
+
+/// `pipeline.run_chapter` —— 起一章深章生成，**立刻**返回 taskId。
+///
+/// 不等待结果：深章管线跑几分钟，同步等必然撞上状态桥 15s 超时，超时后前端还在跑
+/// 而调用方以为失败——最糟的一种不一致。结果靠 `pipeline.status` 轮询。
+pub struct PipelineRunChapterTool;
+
+impl super::registry::McpTool for PipelineRunChapterTool {
+    fn name(&self) -> &'static str {
+        "pipeline.run_chapter"
+    }
+
+    fn description(&self) -> &'static str {
+        "Start generating one chapter through the existing deep-chapter pipeline and return a taskId immediately. Poll pipeline.status for progress and gates. Generation takes minutes, so this never blocks. Output stays in the draft area; the user must accept it in the app."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "userRequest": { "type": "string", "description": "What this chapter should accomplish, in natural language" },
+                "chapterNumber": { "type": "integer", "minimum": 1, "description": "Target chapter number (optional)" },
+                "workflowMode": { "type": "string", "enum": ["fast", "standard", "strict"], "description": "Pipeline depth (optional, defaults to the app setting)" }
+            },
+            "required": ["userRequest"],
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let user_request = require_str(args, "pipeline.run_chapter", "userRequest")?;
+            let chapter_number = optional_positive_int(args, "pipeline.run_chapter", "chapterNumber")?;
+            if let Some(mode) = args.get("workflowMode").and_then(|v| v.as_str()) {
+                if !matches!(mode, "fast" | "standard" | "strict") {
+                    return Err(ToolError::invalid_params(format!(
+                        "pipeline.run_chapter: `workflowMode` 只接受 fast / standard / strict，收到 {mode}"
+                    )));
+                }
+            }
+            let mut params = json!({ "userRequest": user_request });
+            if let Some(n) = chapter_number {
+                params["chapterNumber"] = json!(n);
+            }
+            if let Some(mode) = args.get("workflowMode") {
+                params["workflowMode"] = mode.clone();
+            }
+
+            let started = ctx
+                .bridge_query(StateQuery::new("pipeline-start").with_params(params))
+                .await?;
+            Ok(json!({
+                "taskId": started.get("taskId").cloned().unwrap_or(Value::Null),
+                "stage": started.get("stage").cloned().unwrap_or(Value::Null),
+                "note": "任务已起，用 pipeline.status 轮询。正文不会直接落到正式章节：管线产出草稿，需用户在应用内确认。",
+            }))
+        })
+    }
+}
+
+/// `pipeline.status` —— 长任务快照。
+pub struct PipelineStatusTool;
+
+impl super::registry::McpTool for PipelineStatusTool {
+    fn name(&self) -> &'static str {
+        "pipeline.status"
+    }
+
+    fn description(&self) -> &'static str {
+        "Poll a pipeline task started by pipeline.run_chapter. Returns status, current stage, timings, the overall gate verdict, and any error. Never returns chapter text — read that through chapter.read after the user accepts the draft."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "taskId": { "type": "string", "description": "Task id returned by pipeline.run_chapter" }
+            },
+            "required": ["taskId"],
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let task_id = require_str(args, "pipeline.status", "taskId")?;
+            let snapshot = ctx
+                .bridge_query(
+                    StateQuery::new("pipeline-status").with_params(json!({ "taskId": task_id })),
+                )
+                .await?;
+            Ok(json!({
+                "taskId": snapshot.get("taskId").cloned().unwrap_or(json!(task_id)),
+                "status": snapshot.get("status").cloned().unwrap_or(Value::Null),
+                "stage": snapshot.get("stage").cloned().unwrap_or(Value::Null),
+                "startedAt": snapshot.get("startedAt").cloned().unwrap_or(Value::Null),
+                "finishedAt": snapshot.get("finishedAt").cloned().unwrap_or(Value::Null),
+                "error": snapshot.get("error").cloned().unwrap_or(Value::Null),
+                "overallVerdict": snapshot
+                    .get("gates")
+                    .and_then(|g| g.get("overall"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                "manualReviewRequired": snapshot
+                    .get("manualReviewRequired")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                "partial": snapshot.get("partial").cloned().unwrap_or(Value::Null),
+                "contentChars": snapshot.get("contentChars").cloned().unwrap_or(Value::Null),
+            }))
+        })
+    }
+}
+
+/// `gate.run` —— 取某次生成的门控结论。
+///
+/// 门控**不是**独立跑的：结论由深章管线产出（`decisionGates`），这里只做读取与
+/// 整形。另起一套门控判定等于第二套真源，两边给出不同结论时无从判断谁对。
+pub struct GateRunTool;
+
+impl super::registry::McpTool for GateRunTool {
+    fn name(&self) -> &'static str {
+        "gate.run"
+    }
+
+    fn description(&self) -> &'static str {
+        "Read the gate verdict for a pipeline task: consistency, anti-AI, and quality gates plus the overall verdict and repair suggestions. Fails clearly while the task is still running. Gates come from the pipeline itself, not a second engine."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "taskId": { "type": "string", "description": "Task id returned by pipeline.run_chapter" }
+            },
+            "required": ["taskId"],
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let task_id = require_str(args, "gate.run", "taskId")?;
+            let snapshot = ctx
+                .bridge_query(
+                    StateQuery::new("pipeline-status").with_params(json!({ "taskId": task_id })),
+                )
+                .await?;
+
+            let status = snapshot.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            if status == "failed" {
+                let err = snapshot
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("未知原因");
+                return Err(ToolError::internal(format!(
+                    "任务 {task_id} 生成失败，没有门控结论：{err}"
+                )));
+            }
+            let gates = snapshot.get("gates").filter(|g| !g.is_null());
+            let Some(gates) = gates else {
+                // 运行中/未完成：明确说清现在没有结论，而不是回一个空对象让调用方猜。
+                let stage = snapshot.get("stage").and_then(|v| v.as_str()).unwrap_or("未知");
+                return Err(ToolError::internal(format!(
+                    "任务 {task_id} 尚未产出门控结论（status={status}, stage={stage}）。请用 pipeline.status 继续轮询。"
+                )));
+            };
+
+            let summarize = |key: &str| {
+                let gate = gates.get(key);
+                json!({
+                    "verdict": gate.and_then(|g| g.get("verdict")).cloned().unwrap_or(Value::Null),
+                    "status": gate.and_then(|g| g.get("status")).cloned().unwrap_or(Value::Null),
+                    "findingCount": gate
+                        .and_then(|g| g.get("findings"))
+                        .and_then(|f| f.as_array())
+                        .map(|a| a.len())
+                        .unwrap_or(0),
+                    "repairSuggestions": gate
+                        .and_then(|g| g.get("repair_suggestions"))
+                        .cloned()
+                        .unwrap_or_else(|| json!([])),
+                })
+            };
+
+            Ok(json!({
+                "taskId": task_id,
+                "overall": gates.get("overall").cloned().unwrap_or(Value::Null),
+                "consistency": summarize("consistency"),
+                "anti_ai": summarize("anti_ai"),
+                "quality": summarize("quality"),
+                "manualReviewRequired": snapshot
+                    .get("manualReviewRequired")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                "partial": snapshot.get("partial").cloned().unwrap_or(Value::Null),
+                "note": "门控优先级固定 Consistency(P0) > Anti-AI(P1) > Quality(P2)；Quality 不得覆盖 Consistency 的失败。",
+            }))
+        })
+    }
+}
+
+/// `chapter.write` —— 写章节草稿（Draft-first，绝不直写正式章节）。
+pub struct ChapterWriteTool;
+
+impl super::registry::McpTool for ChapterWriteTool {
+    fn name(&self) -> &'static str {
+        "chapter.write"
+    }
+
+    fn description(&self) -> &'static str {
+        "Write a chapter draft into the project draft area (.novel/drafts). Never writes a formal chapter: the user must accept the draft in the app first. Returns the draft id and path."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "chapterName": { "type": "string", "description": "Chapter name, e.g. 第171章-破局" },
+                "content": { "type": "string", "description": "Full chapter draft text" }
+            },
+            "required": ["chapterName", "content"],
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let chapter_name = require_str(args, "chapter.write", "chapterName")?;
+            let content = require_str(args, "chapter.write", "content")?;
+            let result = ctx
+                .bridge_query(StateQuery::new("draft-write").with_params(json!({
+                    "chapterName": chapter_name,
+                    "content": content,
+                })))
+                .await?;
+            Ok(result)
+        })
+    }
+}
+
+/// `memory.write` —— 写记忆草稿（Draft-first，绝不直写正式记忆）。
+pub struct MemoryWriteTool;
+
+impl super::registry::McpTool for MemoryWriteTool {
+    fn name(&self) -> &'static str {
+        "memory.write"
+    }
+
+    fn description(&self) -> &'static str {
+        "Write a memory draft into .novel/drafts/memory with status=draft. Never writes formal memory (QM/memory): the user must accept it in the app first."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Memory entry name" },
+                "content": { "type": "string", "description": "Memory entry body" }
+            },
+            "required": ["name", "content"],
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let name = require_str(args, "memory.write", "name")?;
+            let content = require_str(args, "memory.write", "content")?;
+            let result = ctx
+                .bridge_query(StateQuery::new("memory-draft-write").with_params(json!({
+                    "name": name,
+                    "content": content,
+                })))
+                .await?;
+            Ok(result)
+        })
+    }
+}
+
 pub fn build_registry() -> super::registry::ToolRegistry {
     let mut r = super::registry::ToolRegistry::new();
     r.register(Arc::new(super::registry::PingTool));
@@ -554,15 +903,36 @@ pub fn build_registry() -> super::registry::ToolRegistry {
     r.register(Arc::new(ChapterListTool));
     r.register(Arc::new(ChapterReadTool));
     r.register(Arc::new(CanonQueryTool));
-    // 编译期自检：唯一的写类工具必须是 settings.set，且它必须声明写权限。
-    // 名字像写但 required_scope 仍是 Read 是最危险的组合——客户端以为被拦住了，
-    // 实际没有；反过来也需要一条断言把「新增写工具忘了声明」挡住。
+    r.register(Arc::new(PipelineRunChapterTool));
+    r.register(Arc::new(PipelineStatusTool));
+    r.register(Arc::new(GateRunTool));
+    r.register(Arc::new(ChapterWriteTool));
+    r.register(Arc::new(MemoryWriteTool));
+    // 编译期自检（两条，缺一不可）：
+    // 1. 名字像写的工具**必须**声明高于只读的权限——名字像写但 scope 仍是 Read 是
+    //    最危险的组合：客户端以为被拦住了，实际没有。
+    // 2. 需要权限的工具集合必须与下面这行完全一致——新增一个能改东西的工具就必须
+    //    主动改这里，不能靠"名字不像写"蒙过去。
+    let write_like = super::contains_write_like_tool(&r);
+    let privileged = r.privileged_tools();
+    for name in &write_like {
+        debug_assert!(
+            privileged.contains(name),
+            "{name} 名字像写工具却没声明写权限"
+        );
+    }
     debug_assert_eq!(
-        super::contains_write_like_tool(&r),
-        Some("settings.set"),
-        "只有 settings.set 允许是写类工具"
+        privileged,
+        vec![
+            "settings.set",
+            "pipeline.run_chapter",
+            "pipeline.status",
+            "gate.run",
+            "chapter.write",
+            "memory.write",
+        ],
+        "需要权限的工具集合变了：确认新工具确实需要 Project/Settings，再改这行"
     );
-    debug_assert_eq!(r.write_scope_tools(), vec!["settings.set"]);
     r
 }
 
@@ -589,6 +959,11 @@ mod tests {
                 "chapter.list",
                 "chapter.read",
                 "canon.query",
+                "pipeline.run_chapter",
+                "pipeline.status",
+                "gate.run",
+                "chapter.write",
+                "memory.write",
             ]
         );
     }
@@ -629,8 +1004,23 @@ mod tests {
     fn only_settings_set_is_write_like_and_it_declares_write_scope() {
         // 名字像写 + 声明写权限 = 一致；名字像写但 scope 仍是 Read 才是最危险的组合。
         let r = build_registry();
-        assert_eq!(crate::mcp_server::contains_write_like_tool(&r), Some("settings.set"));
-        assert_eq!(r.write_scope_tools(), vec!["settings.set"]);
+        let write_like = crate::mcp_server::contains_write_like_tool(&r);
+        let privileged = r.privileged_tools();
+        // 名字像写的必须都被授权（不能出现"名字像写但 scope=Read"）
+        for name in &write_like {
+            assert!(privileged.contains(name), "{name} 名字像写却没声明权限");
+        }
+        assert_eq!(
+            privileged,
+            vec![
+                "settings.set",
+                "pipeline.run_chapter",
+                "pipeline.status",
+                "gate.run",
+                "chapter.write",
+                "memory.write",
+            ]
+        );
         assert_eq!(
             r.required_scope("settings.set"),
             Some(crate::mcp_server::session::SessionScope::Settings)

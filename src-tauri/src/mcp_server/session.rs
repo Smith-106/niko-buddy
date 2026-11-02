@@ -23,15 +23,23 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// 会话权限域。有序：`Read < Settings`。
+/// 会话权限域。
 ///
-/// `Settings` 只解锁 `settings.set`，不是「全都能写」——写入权威矩阵（`#272`）
-/// 尚未扩展到项目正文，那个边界不由 scope 决定。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+/// **刻意不做全序**：`Project` 不蕴含 `Settings`，`Settings` 也不蕴含 `Project`。
+/// 用全序（`Read < Settings < Project`）会让「授予项目动作」顺带授予设置写入——
+/// 一次授权换来两处能力，是最容易被忽略的权限泄漏。所以判定走
+/// [`SessionScope::satisfies`]，按「该 scope 是否满足该项要求」逐项回答。
+///
+/// 同时具备两类写权限的组合 scope 留给 P3 的 `full`（需要在设置页显式授权）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SessionScope {
+    /// 只读：P0 的全部查询工具。
     Read,
+    /// 额外允许 `settings.set`。
     Settings,
+    /// 额外允许项目动作（`chapter.write` / `pipeline.*` / `gate.run` / `memory.write`）。
+    Project,
 }
 
 impl SessionScope {
@@ -40,6 +48,7 @@ impl SessionScope {
         match raw {
             "read" => Some(Self::Read),
             "settings" => Some(Self::Settings),
+            "project" => Some(Self::Project),
             _ => None,
         }
     }
@@ -48,6 +57,17 @@ impl SessionScope {
         match self {
             Self::Read => "read",
             Self::Settings => "settings",
+            Self::Project => "project",
+        }
+    }
+
+    /// 本 scope 是否满足 `required`。
+    ///
+    /// 只读要求任何 scope 都满足（只读永远可做）；写要求必须**同项**授权。
+    pub fn satisfies(self, required: Self) -> bool {
+        match required {
+            Self::Read => true,
+            other => self == other,
         }
     }
 }
@@ -211,12 +231,32 @@ mod tests {
     }
 
     #[test]
-    fn scope_parse_rejects_unknown_and_orders_read_below_settings() {
+    fn scope_parse_rejects_unknown() {
         assert_eq!(SessionScope::parse("read"), Some(SessionScope::Read));
         assert_eq!(SessionScope::parse("settings"), Some(SessionScope::Settings));
+        assert_eq!(SessionScope::parse("project"), Some(SessionScope::Project));
         assert_eq!(SessionScope::parse("admin"), None);
+        assert_eq!(SessionScope::parse("full"), None, "full 留给 P3，此处必须拒绝");
         assert_eq!(SessionScope::parse(""), None);
-        assert!(SessionScope::Read < SessionScope::Settings);
+    }
+
+    #[test]
+    fn scope_satisfies_does_not_leak_across_kinds() {
+        for s in [SessionScope::Read, SessionScope::Settings, SessionScope::Project] {
+            assert!(s.satisfies(SessionScope::Read), "{s:?} 应满足 Read");
+        }
+        assert!(SessionScope::Settings.satisfies(SessionScope::Settings));
+        assert!(
+            !SessionScope::Project.satisfies(SessionScope::Settings),
+            "Project 不得顺带拿到设置写权限"
+        );
+        assert!(SessionScope::Project.satisfies(SessionScope::Project));
+        assert!(
+            !SessionScope::Settings.satisfies(SessionScope::Project),
+            "Settings 不得顺带拿到项目动作权限"
+        );
+        assert!(!SessionScope::Read.satisfies(SessionScope::Settings));
+        assert!(!SessionScope::Read.satisfies(SessionScope::Project));
     }
 
     #[test]

@@ -147,7 +147,7 @@ async fn handle_tools_call(
     // 权限闸门放在请求管线里而不是工具实现里：授权是请求上下文的事，
     // 让每个工具自己判断会被漏掉一个。工具声明所需 scope，这里统一比对。
     if let Some(required) = state.registry.required_scope(name) {
-        if caller < required {
+        if !caller.satisfies(required) {
             return ok_response(
                 id,
                 tool_error(&format!(
@@ -314,14 +314,18 @@ pub async fn start(
 /// 见 [`ToolRegistry::write_scope_tools`]）；两者要一起看：
 /// * 名字像写但 `required_scope() == Read` → 危险（名字在撒谎，权限没拦住）
 /// * 需要写 scope 但名字不像写 → 可疑（客户端难以从名字判断副作用）
-pub fn contains_write_like_tool(registry: &ToolRegistry) -> Option<&'static str> {
+pub fn contains_write_like_tool(registry: &ToolRegistry) -> Vec<&'static str> {
     const WRITE_HINTS: [&str; 8] = [
         "set", "write", "update", "delete", "remove", "create", "save", "accept",
     ];
-    registry.names().into_iter().find(|name| {
-        let tail = name.rsplit('.').next().unwrap_or(name);
-        WRITE_HINTS.iter().any(|h| tail.starts_with(h))
-    })
+    registry
+        .names()
+        .into_iter()
+        .filter(|name| {
+            let tail = name.rsplit('.').next().unwrap_or(name);
+            WRITE_HINTS.iter().any(|h| tail.starts_with(h))
+        })
+        .collect()
 }
 
 /// 构造内部错误（供工具实现使用）。
@@ -637,8 +641,14 @@ mod tests {
         // P0 只读态由 scope 闸门保证，而不是靠"注册表里没有写工具"：
         // 唯一的写类工具必须声明 Settings scope，其余一律 Read。
         let reg = tools::build_registry();
-        assert_eq!(contains_write_like_tool(&reg), Some("settings.set"));
-        assert_eq!(reg.write_scope_tools(), vec!["settings.set"]);
+        let write_like = contains_write_like_tool(&reg);
+        assert!(write_like.contains(&"settings.set"), "实际: {write_like:?}");
+        assert!(write_like.contains(&"chapter.write"), "实际: {write_like:?}");
+        assert!(write_like.contains(&"memory.write"), "实际: {write_like:?}");
+        let privileged = reg.privileged_tools();
+        for name in &write_like {
+            assert!(privileged.contains(name), "{name} 名字像写却没声明权限");
+        }
     }
 
     #[tokio::test]
@@ -676,6 +686,133 @@ mod tests {
         let text = out["result"]["content"][0]["text"].as_str().unwrap_or_default();
         assert!(!text.contains("权限不足"), "不应被权限闸门拦截: {text}");
         assert!(text.contains("状态桥"), "应因缺少 AppHandle 失败: {text}");
+    }
+
+    /// P2：五个项目动作工具在 Read / Settings 下必须全部被拒。
+    #[tokio::test]
+    async fn project_tools_are_rejected_below_project_scope() {
+        let project_tools: [(&str, Value); 5] = [
+            ("pipeline.run_chapter", json!({"userRequest": "写一章"})),
+            ("pipeline.status", json!({"taskId": "ptask_x"})),
+            ("gate.run", json!({"taskId": "ptask_x"})),
+            ("chapter.write", json!({"chapterName": "第一章", "content": "正文"})),
+            ("memory.write", json!({"name": "设定", "content": "内容"})),
+        ];
+        for caller in [session::SessionScope::Read, session::SessionScope::Settings] {
+            for (name, args) in project_tools.clone() {
+                let out = dispatch_as(
+                    &state("t"),
+                    &req("tools/call", Some(json!({"name": name, "arguments": args}))),
+                    caller,
+                )
+                .await
+                .expect("has response");
+                let text = out["result"]["content"][0]["text"].as_str().unwrap_or_default();
+                assert!(
+                    text.contains("权限不足"),
+                    "{name} 在 {caller:?} 下应被拒，实际: {text}"
+                );
+                assert!(
+                    text.contains("project"),
+                    "{name} 的拒绝信息应点出需要的 scope，实际: {text}"
+                );
+            }
+        }
+    }
+
+    /// 只读会话不得因为新增项目工具而顺带拿到设置写权限，反之亦然。
+    #[tokio::test]
+    async fn settings_set_still_works_under_settings_scope_with_project_tools_present() {
+        let out = dispatch_as(
+            &state("t"),
+            &req(
+                "tools/call",
+                Some(json!({"name": "settings.set", "arguments": {"key": "theme", "value": "dark"}})),
+            ),
+            session::SessionScope::Settings,
+        )
+        .await
+        .expect("has response");
+        let text = out["result"]["content"][0]["text"].as_str().unwrap_or_default();
+        assert!(!text.contains("权限不足"), "Settings 应能调 settings.set: {text}");
+        // 而 Project scope 不得顺带拿到设置写权限
+        let out2 = dispatch_as(
+            &state("t"),
+            &req(
+                "tools/call",
+                Some(json!({"name": "settings.set", "arguments": {"key": "theme", "value": "dark"}})),
+            ),
+            session::SessionScope::Project,
+        )
+        .await
+        .expect("has response");
+        let text2 = out2["result"]["content"][0]["text"].as_str().unwrap_or_default();
+        assert!(text2.contains("权限不足"), "Project 不应顺带写设置: {text2}");
+    }
+
+    /// 非法参数必须在**起任务之前**被拒：留一个注定失败的任务会误导调用方。
+    #[tokio::test]
+    async fn pipeline_run_chapter_rejects_invalid_arguments_before_starting() {
+        let cases = [
+            (json!({}), "userRequest"),
+            (json!({"userRequest": ""}), "userRequest"),
+            (json!({"userRequest": "x", "chapterNumber": 0}), "正整数"),
+            (json!({"userRequest": "x", "chapterNumber": -3}), "正整数"),
+            (json!({"userRequest": "x", "workflowMode": "turbo"}), "fast / standard / strict"),
+        ];
+        for (args, needle) in cases {
+            let out = dispatch_as(
+                &state("t"),
+                &req(
+                    "tools/call",
+                    Some(json!({"name": "pipeline.run_chapter", "arguments": args})),
+                ),
+                session::SessionScope::Project,
+            )
+            .await
+            .expect("has response");
+            // 参数缺失/非法是**协议层**错误：走 JSON-RPC error，不是 200+isError。
+            let text = out["error"]["message"].as_str().unwrap_or_default();
+            assert!(text.contains(needle), "期望错误含 {needle}，实际: {text}");
+        }
+    }
+
+    #[tokio::test]
+    async fn pipeline_status_and_gate_run_require_task_id() {
+        for name in ["pipeline.status", "gate.run"] {
+            let out = dispatch_as(
+                &state("t"),
+                &req("tools/call", Some(json!({"name": name, "arguments": {}}))),
+                session::SessionScope::Project,
+            )
+            .await
+            .expect("has response");
+            let text = out["error"]["message"].as_str().unwrap_or_default();
+            assert!(text.contains("taskId"), "{name} 应要求 taskId，实际: {text}");
+        }
+    }
+
+    #[tokio::test]
+    async fn draft_write_tools_require_both_fields() {
+        let cases: [(&str, Value); 3] = [
+            ("chapter.write", json!({"content": "正文"})),
+            ("chapter.write", json!({"chapterName": "第一章"})),
+            ("memory.write", json!({"name": "设定"})),
+        ];
+        for (name, args) in cases {
+            let out = dispatch_as(
+                &state("t"),
+                &req("tools/call", Some(json!({"name": name, "arguments": args}))),
+                session::SessionScope::Project,
+            )
+            .await
+            .expect("has response");
+            let text = out["error"]["message"].as_str().unwrap_or_default();
+            assert!(
+                text.contains("缺少") || text.contains("不能为空"),
+                "{name} 缺参数应报错，实际: {text}"
+            );
+        }
     }
 
     #[tokio::test]

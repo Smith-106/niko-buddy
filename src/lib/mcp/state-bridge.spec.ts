@@ -60,6 +60,12 @@ function deps(overrides: Partial<StateBridgeDeps> = {}): StateBridgeDeps {
       store.set(key, value as string)
       return value
     },
+    // 项目动作：默认给出"未实现"的失败，让各用例显式覆盖自己要验的分支，
+    // 避免某个用例因为默认实现而"假通过"。
+    startPipeline: () => ({ ok: false, error: "测试未注入 startPipeline" }),
+    readPipeline: () => null,
+    writeChapterDraft: async () => ({ draftId: "draft_test", chapterName: "x", path: "/proj/d.md", chars: 1 }),
+    writeMemoryDraft: async () => ({ name: "m", path: "/proj/m.md", chars: 1 }),
     ...overrides,
   }
 }
@@ -275,6 +281,105 @@ describe("handleStateRequest — 写入（P1）", () => {
     )
     expect(res.ok).toBe(false)
     expect(res.error).toContain("app-state 写入失败")
+  })
+})
+
+describe("handleStateRequest — 项目动作（P2）", () => {
+  it("pipeline-start 转发参数并回 taskId", async () => {
+    const startPipeline = vi.fn(() => ({ ok: true as const, taskId: "ptask_1", stage: "queued" }))
+    const res = await handleStateRequest(
+      request({ op: "pipeline-start", params: { userRequest: "写一章", chapterNumber: 171 } }),
+      deps({ startPipeline }),
+    )
+    expect(res.ok).toBe(true)
+    expect(res.value).toMatchObject({ taskId: "ptask_1", stage: "queued" })
+    expect(startPipeline).toHaveBeenCalledWith({ userRequest: "写一章", chapterNumber: 171 })
+  })
+
+  it("pipeline-start 的参数错误原样回传（不在桥里改写原因）", async () => {
+    const res = await handleStateRequest(
+      request({ op: "pipeline-start", params: {} }),
+      deps({ startPipeline: () => ({ ok: false as const, error: "需要非空字符串参数 userRequest" }) }),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("userRequest")
+  })
+
+  it("pipeline-status 缺 taskId 时报错", async () => {
+    const res = await handleStateRequest(request({ op: "pipeline-status" }), deps())
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("taskId")
+  })
+
+  it("pipeline-status 未知 taskId 明确报未知，而不是回空对象", async () => {
+    const res = await handleStateRequest(
+      request({ op: "pipeline-status", params: { taskId: "ptask_nope" } }),
+      deps({ readPipeline: () => null }),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("未知 taskId")
+  })
+
+  it("pipeline-status 回快照", async () => {
+    const snapshot = { taskId: "ptask_1", status: "running", stage: "after_draft", startedAt: 1 }
+    const res = await handleStateRequest(
+      request({ op: "pipeline-status", params: { taskId: "ptask_1" } }),
+      deps({ readPipeline: () => snapshot }),
+    )
+    expect(res.ok).toBe(true)
+    expect(res.value).toEqual(snapshot)
+  })
+
+  it("draft-write 未打开项目时拒绝", async () => {
+    const res = await handleStateRequest(
+      request({ op: "draft-write", params: { chapterName: "第一章", content: "正文" } }),
+      deps({ readProjectPath: () => "" }),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("未打开项目")
+  })
+
+  it("draft-write 带项目路径转发给草稿写入器", async () => {
+    const writeChapterDraft = vi.fn(async () => ({ draftId: "draft_9", chapterName: "第一章" }))
+    const res = await handleStateRequest(
+      request({ op: "draft-write", params: { chapterName: "第一章", content: "正文" } }),
+      deps({ writeChapterDraft }),
+    )
+    expect(res.ok).toBe(true)
+    expect(res.value).toMatchObject({ draftId: "draft_9" })
+    expect(writeChapterDraft).toHaveBeenCalledWith("/proj", {
+      chapterName: "第一章",
+      content: "正文",
+    })
+  })
+
+  it("memory-draft-write 同样要求项目并转发", async () => {
+    const missing = await handleStateRequest(
+      request({ op: "memory-draft-write", params: { name: "设定", content: "内容" } }),
+      deps({ readProjectPath: () => "" }),
+    )
+    expect(missing.ok).toBe(false)
+
+    const writeMemoryDraft = vi.fn(async () => ({ name: "设定", path: "/proj/m.md" }))
+    const res = await handleStateRequest(
+      request({ op: "memory-draft-write", params: { name: "设定", content: "内容" } }),
+      deps({ writeMemoryDraft }),
+    )
+    expect(res.ok).toBe(true)
+    expect(writeMemoryDraft).toHaveBeenCalledWith("/proj", { name: "设定", content: "内容" })
+  })
+
+  it("草稿写入器抛错时转成 error 响应，不伪装成成功", async () => {
+    const res = await handleStateRequest(
+      request({ op: "draft-write", params: { chapterName: "第一章", content: "正文" } }),
+      deps({
+        writeChapterDraft: async () => {
+          throw new Error("磁盘只读")
+        },
+      }),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("磁盘只读")
   })
 })
 

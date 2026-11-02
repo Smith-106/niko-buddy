@@ -33,6 +33,12 @@
  *
  * 注意 `project` / `project-state` / `chapter-*` 是**不同形状**的请求（不是键值对），
  * 它们不参与键白名单；白名单语义只约束 `get`/`list`。
+ *
+ * P2 的四个 op 分两类，都只是**转发**：
+ * - `pipeline-start` / `pipeline-status`：长任务登记（`pipeline-tasks.ts`）。前者立刻
+ *   返回 taskId 不等待——深章管线跑几分钟，同步等必然撞上 15s 超时。
+ * - `draft-write` / `memory-draft-write`：写草稿（`draft-actions.ts`）。正式正文与
+ *   正式记忆一律不在此落盘，Draft-first 边界不因调用方是外部 Agent 而放松。
  */
 
 import { invoke } from "@tauri-apps/api/core"
@@ -50,13 +56,15 @@ import {
   isBridgeAllowedKey,
 } from "./settings-catalog"
 import { SettingsValidationError, getWriter, validateValue } from "./settings-writers"
+import { writeChapterDraft, writeMemoryDraft } from "./draft-actions"
+import { getPipelineTask, startPipelineTask } from "./pipeline-tasks"
 
 /** Rust → WebView 的请求事件名（与 Rust 侧 `state_bridge::REQUEST_EVENT` 必须一致）。 */
 export const STATE_REQUEST_EVENT = "mcp:state-request"
 /** WebView → Rust 的回传命令名（与 Rust 侧 `mcp_state_respond` 必须一致）。 */
 export const STATE_RESPOND_COMMAND = "mcp_state_respond"
 
-/** 桥支持的操作。`set` 是 P1 新增的唯一写入操作。 */
+/** 桥支持的操作。P0 只读 / P1 增单键写入 / P2 增项目动作。 */
 export type StateOp =
   | "get"
   | "list"
@@ -66,6 +74,10 @@ export type StateOp =
   | "project-state"
   | "chapter-list"
   | "chapter-read"
+  | "pipeline-start"
+  | "pipeline-status"
+  | "draft-write"
+  | "memory-draft-write"
 
 export interface StateRequestPayload {
   id: string
@@ -80,6 +92,8 @@ export interface StateRequestPayload {
   limit?: number
   /** `set` 用：待写入的值（已由 Rust 侧透传的 JSON）。 */
   value?: unknown
+  /** 项目动作用：原样透传的参数对象（各 op 自行校验，桥不解释）。 */
+  params?: Record<string, unknown>
 }
 
 export interface StateResponse {
@@ -109,6 +123,14 @@ export interface StateBridgeDeps {
   readSetting: (key: string) => unknown
   /** 写入一个设置项，返回落盘后的实际值（可能与传入不同，如钳制）。 */
   writeSetting: (key: string, value: unknown) => Promise<unknown>
+  /** 起一个深章生成长任务，立刻返回 taskId。 */
+  startPipeline: (params: Record<string, unknown>) => unknown
+  /** 查长任务快照；未知 id 返回 `null`。 */
+  readPipeline: (taskId: string) => unknown
+  /** 写章节草稿（Draft-first）。 */
+  writeChapterDraft: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
+  /** 写记忆草稿（Draft-first）。 */
+  writeMemoryDraft: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
 }
 
 const defaultDeps: StateBridgeDeps = {
@@ -122,6 +144,10 @@ const defaultDeps: StateBridgeDeps = {
     const entry = SETTINGS_BY_KEY.get(key)
     return entry?.storage === "localStorage" ? readLocalStorage(key) : null
   },
+  startPipeline: (params) => startPipelineTask(params),
+  readPipeline: (taskId) => getPipelineTask(taskId),
+  writeChapterDraft: (projectPath, params) => writeChapterDraft(projectPath, params),
+  writeMemoryDraft: (projectPath, params) => writeMemoryDraft(projectPath, params),
   writeSetting: (key, value) => {
     const writer = getWriter(key)
     if (!writer) {
@@ -364,6 +390,39 @@ export async function handleStateRequest(
             content: sliced.text,
           },
         }
+      }
+
+      case "pipeline-start": {
+        // 不 requireProjectPath：起任务前要给出的错误比"未打开项目"更具体
+        // （缺 userRequest / 缺模型配置），让 startPipeline 自己判。
+        const params = payload.params ?? {}
+        const started = deps.startPipeline(params) as
+          | { ok: true; taskId: string; stage: string }
+          | { ok: false; error: string }
+        if (!started.ok) return { ok: false, error: started.error }
+        return { ok: true, value: started }
+      }
+
+      case "pipeline-status": {
+        const taskId = typeof payload.params?.taskId === "string" ? payload.params.taskId : ""
+        if (!taskId) return { ok: false, error: "op=pipeline-status 需要 params.taskId" }
+        const snapshot = deps.readPipeline(taskId)
+        if (!snapshot) {
+          return { ok: false, error: `未知 taskId: ${taskId}（任务不存在或已被清理）` }
+        }
+        return { ok: true, value: snapshot }
+      }
+
+      case "draft-write": {
+        const projectPath = requireProjectPath(deps)
+        const result = await deps.writeChapterDraft(projectPath, payload.params ?? {})
+        return { ok: true, value: result }
+      }
+
+      case "memory-draft-write": {
+        const projectPath = requireProjectPath(deps)
+        const result = await deps.writeMemoryDraft(projectPath, payload.params ?? {})
+        return { ok: true, value: result }
       }
 
       default:

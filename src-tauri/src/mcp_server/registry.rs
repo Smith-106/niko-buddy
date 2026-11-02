@@ -125,11 +125,23 @@ impl ToolRegistry {
             .map(|t| t.required_scope())
     }
 
-    /// 需要写权限的工具名（安全断言用）。
-    pub fn write_scope_tools(&self) -> Vec<&'static str> {
+    /// 需要**高于只读**权限的工具名（安全断言用）。
+    ///
+    /// 名字叫 privileged 而不是 write：`pipeline.status` / `gate.run` 不改任何东西，
+    /// 但它们暴露生成中/已生成的正文与门控结论，仍按项目级授权收口。
+    pub fn privileged_tools(&self) -> Vec<&'static str> {
         self.tools
             .iter()
-            .filter(|t| t.required_scope() > SessionScope::Read)
+            .filter(|t| t.required_scope() != SessionScope::Read)
+            .map(|t| t.name())
+            .collect()
+    }
+
+    /// 某权限域下可调用的工具名（设置页展示用：用户能看清授权换来了什么）。
+    pub fn names_visible_to(&self, scope: SessionScope) -> Vec<&'static str> {
+        self.tools
+            .iter()
+            .filter(|t| scope.satisfies(t.required_scope()))
             .map(|t| t.name())
             .collect()
     }
