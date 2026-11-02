@@ -210,6 +210,85 @@ describe("handleStateRequest — 章节", () => {
     expect(value.chapters.map((c) => c.index)).toEqual([1, 2])
   })
 
+  it("op=chapter-list 对中文数字混排按数值排序（第2章 < 第10章）", async () => {
+    // 纯字典序会把「第170章」排到「第1章」前面（`7` 的码位小于 `章`），
+    // 于是 chapter.read(1) 读到的是第 170 章。真实项目上实测踩到过。
+    const res = await handleStateRequest(
+      request({ op: "chapter-list" }),
+      deps({
+        listChapters: async () => [
+          { name: "第170章-新灵气契约-2.md", path: "/p/第170章-新灵气契约-2.md" },
+          { name: "第2章-租赁.md", path: "/p/第2章-租赁.md" },
+          { name: "第10章-天枢.md", path: "/p/第10章-天枢.md" },
+          { name: "第1章-赎回.md", path: "/p/第1章-赎回.md" },
+        ],
+      }),
+    )
+    expect(res.ok).toBe(true)
+    const names = (res.value as { chapters: { name: string }[] }).chapters.map((c) => c.name)
+    expect(names).toEqual([
+      "第1章-赎回.md",
+      "第2章-租赁.md",
+      "第10章-天枢.md",
+      "第170章-新灵气契约-2.md",
+    ])
+  })
+
+  it("op=chapter-read 序号取的是数值序的第 n 章，不是字典序", async () => {
+    const res = await handleStateRequest(
+      request({ op: "chapter-read", path: "1" }),
+      deps({
+        listChapters: async () => [
+          { name: "第170章-新灵气契约-2.md", path: "/p/第170章-新灵气契约-2.md" },
+          { name: "第2章-租赁.md", path: "/p/第2章-租赁.md" },
+          { name: "第1章-赎回.md", path: "/p/第1章-赎回.md" },
+        ],
+      }),
+    )
+    expect(res.ok).toBe(true)
+    expect((res.value as { name: string }).name).toBe("第1章-赎回.md")
+  })
+
+  it("op=chapter-list 混用命名时按文件名里的章号排序（真实项目回归）", async () => {
+    // 真实项目（172 章）既有 chapter-NNN.md 又有 第170章-*.md。WebView2 的默认
+    // locale 把「第170章」排在 `chapter-001.md` 前面（数字序和普通序都一样），
+    // 只靠 localeCompare 不够，必须提取章号。
+    const res = await handleStateRequest(
+      request({ op: "chapter-list" }),
+      deps({
+        listChapters: async () => [
+          { name: "第170章-新灵气契约-2.md", path: "/p/第170章-新灵气契约-2.md" },
+          { name: "chapter-002.md", path: "/p/chapter-002.md" },
+          { name: "第170章-新灵气契约.md", path: "/p/第170章-新灵气契约.md" },
+          { name: "chapter-001.md", path: "/p/chapter-001.md" },
+        ],
+      }),
+    )
+    expect(res.ok).toBe(true)
+    const names = (res.value as { chapters: { name: string }[] }).chapters.map((c) => c.name)
+    expect(names).toEqual([
+      "chapter-001.md",
+      "chapter-002.md",
+      "第170章-新灵气契约-2.md",
+      "第170章-新灵气契约.md",
+    ])
+  })
+
+  it("op=chapter-list 无章号的文件排在最后", async () => {
+    const res = await handleStateRequest(
+      request({ op: "chapter-list" }),
+      deps({
+        listChapters: async () => [
+          { name: "appendix.md", path: "/p/appendix.md" },
+          { name: "chapter-003.md", path: "/p/chapter-003.md" },
+        ],
+      }),
+    )
+    expect(res.ok).toBe(true)
+    const names = (res.value as { chapters: { name: string }[] }).chapters.map((c) => c.name)
+    expect(names).toEqual(["chapter-003.md", "appendix.md"])
+  })
+
   it("op=chapter-read 支持按序号读", async () => {
     const res = await handleStateRequest(
       request({ op: "chapter-read", path: "2" }),

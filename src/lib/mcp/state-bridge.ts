@@ -123,6 +123,27 @@ function requireProjectPath(deps: StateBridgeDeps): string {
 }
 
 /**
+ * 从文件名提取章号：`chapter-001.md` → 1，`第170章-新灵气契约.md` → 170。
+ *
+ * 真实项目（172 章）混用两套命名：既有一百多个 `chapter-NNN.md`，又有
+ * `第170章-*.md`。单纯调 `localeCompare` 不够——实测 WebView2 的默认 locale
+ * 把「第170章」排在 `chapter-001.md` **前面**（数字序和普通序都一样），
+ * 于是 `chapter.read(1)` 读到的不是第 1 章。按文件名里的数字排才对得上
+ * 界面上「第1章…第2章…」的顺序。
+ */
+function chapterOrderKey(name: string): number {
+  const match = /(\d+)/.exec(name)
+  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER
+}
+
+/** 章节名排序：先按文件名里的章号，同号再按名称。 */
+function compareChapterName(a: string, b: string): number {
+  const diff = chapterOrderKey(a) - chapterOrderKey(b)
+  if (diff !== 0) return diff
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
+}
+
+/**
  * 把章节标识解析成文件。
  *
  * 支持两种写法：1 起的序号（`chapter.read(3)`）与文件名（`chapter-003.md`）。
@@ -136,7 +157,7 @@ function resolveChapter(
   if (trimmed === "") {
     throw new Error("chapter.read 需要章节序号或文件名")
   }
-  const sorted = [...chapters].sort((a, b) => a.name.localeCompare(b.name))
+  const sorted = [...chapters].sort((a, b) => compareChapterName(a.name, b.name))
   if (/^\d+$/.test(trimmed)) {
     const index = Number(trimmed)
     if (index < 1 || index > sorted.length) {
@@ -237,7 +258,7 @@ export async function handleStateRequest(
       case "chapter-list": {
         const projectPath = requireProjectPath(deps)
         const chapters = await deps.listChapters(projectPath)
-        const sorted = [...chapters].sort((a, b) => a.name.localeCompare(b.name))
+        const sorted = [...chapters].sort((a, b) => compareChapterName(a.name, b.name))
         return {
           ok: true,
           value: {

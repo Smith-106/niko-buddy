@@ -27,7 +27,17 @@ use tauri::{AppHandle, Emitter};
 /// Rust → WebView 的请求事件名（与 `src/lib/mcp/state-bridge.ts` 必须一致）。
 pub const REQUEST_EVENT: &str = "mcp:state-request";
 /// 默认超时。前端已挂载时正常往返在毫秒级，5 秒是"明显异常"的判定线。
-pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+/// 桥请求默认超时。
+///
+/// 这个超时不是延迟预算，而是"前端卡死时请求不能永远挂着"的兜底。
+///
+/// 取 15s 而不是随手定的 5s：前端在主线程繁忙时（应用刚启动正在打开项目、
+/// 大章节读写）响应会被推迟，而 MCP 调用方多等 10s 的代价远小于一次假失败。
+///
+/// 已知局限：如果前端在请求待决期间整页重载，这次请求会直接丢失，
+/// 无论超时多长都只能等到超时。这是设计上的已知代价（重载即重建监听器），
+/// 不在超时值上调优就能解决的范围内。
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// 桥请求（发往前端的载荷）。
 #[derive(Debug, Clone, Serialize)]
@@ -193,7 +203,8 @@ impl StateBridgeState {
             Err(_) => {
                 self.forget(&id);
                 Err(format!(
-                    "状态桥超时（{}s，op={op}）：前端可能未挂载或未安装监听器",
+                    "状态桥超时（{}s，op={op}）：前端未响应。常见原因：应用刚启动主线程繁忙、\
+                     前端未挂载，或状态桥监听器未安装（非 Tauri 环境）",
                     timeout.as_secs()
                 ))
             }
