@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   CHAPTER_WINDOW_OMISSION_MARK,
   DEFAULT_REVIEW_CHAPTER_MAX_CHARS,
@@ -7,6 +7,20 @@ import {
 } from "./chapter-window"
 
 describe("chapter-window (expand-measure-window)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  // 回归：WebView 里没有 `process` 全局。裸 `process.env` 作默认参数会在调用时抛
+  // `ReferenceError: process is not defined`，而深章管线的评审阶段正是无参调用这两个
+  // 函数——真机 e2e 就是这么把整条管线打挂在 after_task_brief 之后的。
+  it("无 process 全局时（WebView）两个函数仍可无参调用", () => {
+    vi.stubGlobal("process", undefined)
+    expect(() => sliceChapterForReview("abc")).not.toThrow()
+    expect(sliceChapterForReview("abc")).toBe("abc")
+    expect(resolveReviewChapterMaxChars()).toBe(DEFAULT_REVIEW_CHAPTER_MAX_CHARS)
+  })
+
   it("returns short content unchanged", () => {
     expect(sliceChapterForReview("abc", 100)).toBe("abc")
   })

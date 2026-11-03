@@ -15,6 +15,20 @@ export const CHAPTER_WINDOW_OMISSION_MARK =
   "\n\n…[中间正文已省略，保留章首与章末供审查]…\n\n"
 
 /**
+ * Browser-safe default env.
+ *
+ * 写成裸 `process.env` 作默认参数会在 WebView 里直接抛
+ * `ReferenceError: process is not defined`——默认参数在**调用时**求值，而应用里没有
+ * `process` 全局。深章管线的评审阶段正是无参调用这两个函数，于是整条管线在
+ * `after_task_brief` 之后崩掉（真机 e2e 实测报错原文就是 `process is not defined`）。
+ *
+ * 所以默认值必须自己先探存在性；Node（测试/脚本）仍拿到真实 env，行为不变。
+ */
+function defaultEnv(): NodeJS.ProcessEnv {
+  return typeof process !== "undefined" && process.env ? process.env : ({} as NodeJS.ProcessEnv)
+}
+
+/**
  * Resolve max chars for review windows.
  * - env `REVIEW_CHAPTER_MAX_CHARS` if valid positive int
  * - else DEFAULT_REVIEW_CHAPTER_MAX_CHARS
@@ -22,7 +36,7 @@ export const CHAPTER_WINDOW_OMISSION_MARK =
  */
 export function resolveReviewChapterMaxChars(
   override?: number,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = defaultEnv(),
 ): number {
   // Explicit override: allow small values for unit tests; only clamp upper bound.
   if (typeof override === "number" && Number.isFinite(override) && override > 0) {
@@ -48,7 +62,7 @@ export function resolveReviewChapterMaxChars(
 export function sliceChapterForReview(
   content: string,
   maxChars?: number,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = defaultEnv(),
 ): string {
   const max = resolveReviewChapterMaxChars(maxChars, env)
   if (content.length <= max) return content
