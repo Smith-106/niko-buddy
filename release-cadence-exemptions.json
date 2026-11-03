@@ -101,6 +101,16 @@
         "weekly-stable",
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.26.0",
+      "reason": "用户于 2026-11-03 明确批准将 v2.26.0 由 prerelease 提升为 Latest 稳定版，目的是让已装 2.25.2 的用户能通过应用内更新器自动升级到应用内 MCP 控制面 P0–P3 全量交付（17 个工具 / 会话分档与逐会话「完整写入」授权 / 直写审计与快照回滚）。规则事实：weekly-stable —— v2.25.2 发布于 2026-11-02、v2.26.0 发布于 2026-11-03，同属 ISO 周 2026-11-02，该周 stable 计数为 2；thirty-day-stable —— 发布前 30 天 stable 18 个（上限 4），属历史连续高频发布所致，非跳过工程门禁。发版门禁：typecheck 0、eslint 0 problem、boundaries 5/5、gen:check 6/6、consistency 14/14、release-notes 正常产出 9 条；Release CI 41592018442 全 3 job success（node-gates / analytics-worker / Build Windows x64），Windows 四资产齐（安装包 + .sig + 便携版 + latest.json）。",
+      "approvedBy": "user",
+      "approvedAt": "2026-11-03",
+      "scope": [
+        "weekly-stable",
+        "thirty-day-stable"
+      ]
     }
   ]
 }

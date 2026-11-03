@@ -21,9 +21,9 @@
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
 
-## v2.26.0 新增（应用内 MCP 控制面 P0–P3，prerelease）
+## v2.26.0 新增（应用内 MCP 控制面 P0–P3，正式稳定版）
 
-内测候选版（2026-11-03，**未进 Latest**；Latest 仍是 v2.25.2）。这是把 Niko Buddy 变成**可被外部 Agent 驱动**的写作引擎的第一版：
+正式稳定版（2026-11-03 由内测候选提升为 Latest，已装 v2.25.2 的用户可通过应用内更新器自动升级）。这是把 Niko Buddy 变成**可被外部 Agent 驱动**的写作引擎的第一版：
 
 - **应用内 MCP 服务器**：axum 0.8 回环监听 + `Authorization: Bearer` + MCP `2025-06-18`，**默认不启动**，由设置页「外部控制」显式开启；工具注册表编译期静态登记，不运行时反射。
 - **17 个工具**：`ping`、`app.status`、`settings.schema|list|get|set`、`project.state`、`chapter.list|read|write|write_direct`、`canon.query`、`memory.write`、`pipeline.run_chapter|status`、`gate.run`、`undo_last`。写工具一律受写入权威矩阵管辖。

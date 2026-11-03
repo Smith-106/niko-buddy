@@ -15,7 +15,7 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
-    // 2.26.0 prerelease（2026-11-03）：应用内 MCP 控制面 P0-P3 全量交付。
+    // 2.26.0（2026-11-03）：应用内 MCP 控制面 P0-P3 全量交付。先发 prerelease，经用户批准后提升为 Latest。
     version: "2.26.0",
     date: "2026-11-03",
     highlights: {
