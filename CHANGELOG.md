@@ -7,6 +7,17 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.26.3] - 2026-11-04
+
+### Changed
+
+- 变更：去掉应用名重复。无边框改造后顶栏（TitleBar）是唯一窗口外框、已显示「Niko Buddy · 项目名」，侧栏顶部的品牌块不再重复「Niko Buddy」文字；该按钮保留 logo 作为「章节列表」折叠开关，并补 `aria-label` 让无可见文字时仍可被读屏识别。
+- 变更：「总字数」显示加清晰。由 12px 低对比灰字改为独立数据块 —— 13px、`font-medium`、`tabular-nums`、`text-foreground/80`，并加 `bg-muted` 内边距底色；标题行对齐由 `items-baseline` 改为 `items-center` 以适配该块。字数统计口径与文案（`总字数：N字`）未变，`buildChapterTotalWordCountLabel` 契约保持不变。
+
+### 发布语义
+
+- 变更：发布语义 **stable**。2026-11-04 由用户批准（登记 `weekly-stable` / `same-day-duplicate` / `thirty-day-stable` 三项节奏豁免）。
+
 ## [2.26.2] - 2026-11-04
 
 ### Fixed

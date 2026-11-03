@@ -15,6 +15,21 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.26.3（2026-11-04）：去掉侧栏重复的应用名，并把「总字数」显示做得更清晰。
+    version: "2.26.3",
+    date: "2026-11-04",
+    highlights: {
+      en: [
+        "Changed: the app name is no longer duplicated. With the frameless window the TitleBar is the only window frame and already shows the app name plus the project name, so the sidebar brand block no longer repeats Niko Buddy. The button keeps the logo as the chapter-list collapse toggle and gained an aria-label so it stays identifiable without visible text.",
+        "Changed: the total word count is easier to read. It went from 12px low-contrast grey text to a distinct stat block - 13px, font-medium, tabular-nums, text-foreground/80 with a bg-muted background - and the header row now aligns with items-center to fit it. The counting logic and the 总字数:N字 label are unchanged.",
+      ],
+      zh: [
+        "变更：去掉应用名重复。无边框改造后顶栏是唯一窗口外框、已显示「Niko Buddy · 项目名」，侧栏顶部的品牌块不再重复该文字；按钮保留 logo 作为「章节列表」折叠开关，并补 aria-label 让无可见文字时仍可被读屏识别。",
+        "变更：「总字数」显示加清晰。由 12px 低对比灰字改为独立数据块 —— 13px、font-medium、tabular-nums、text-foreground/80，并加 bg-muted 内边距底色；标题行对齐改为 items-center 以适配该块。统计口径与文案未变。",
+      ],
+    },
+  },
+  {
     // 2.26.2（2026-11-04）：修复无边框窗口真机未生效 —— window-state 插件恢复 decorated 覆盖了配置。
     version: "2.26.2",
     date: "2026-11-04",

@@ -15,11 +15,15 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.26.2-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.26.3-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
+
+## v2.26.3 修复（应用名重复 + 总字数显示，正式稳定版）
+
+无边框改造后顶栏成为唯一的窗口外框，两处观感问题随之一并处理：侧栏顶部不再重复「Niko Buddy」文字（只保留 logo 作为章节列表折叠开关），「总字数」由 12px 低对比灰字改为独立数据块（13px / `font-medium` / `tabular-nums` / `text-foreground/80` + `bg-muted` 底）。
 
 ## v2.26.2 修复（无边框窗口真机未生效，正式稳定版）
 

@@ -158,15 +158,17 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
         <button
           type="button"
           onClick={onToggleSidebar}
+          aria-label={t("iconSidebar.toggleSidebar")}
           className="soft-button mx-2 mb-2 flex items-center gap-2 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-accent/50"
           title={t("iconSidebar.toggleSidebar")}
         >
+          {/* 品牌名只在顶栏 TitleBar 出现一次（无边框窗口下那里是唯一窗口外框）。
+              这里保留 logo 作为「章节列表」折叠开关，不再重复「Niko Buddy」文字。 */}
           <img
             src={logoImg}
             alt={t("iconSidebar.logoAlt")}
             className="h-6 w-6 shrink-0 rounded-[28%]"
           />
-          <span className="truncate text-sm font-semibold">Niko Buddy</span>
         </button>
         {/* Top: main nav items —— 本栏唯一可滚动组。14 个导航项在 720px 视口下就已
             超出 w-12 窄栏高度，而 flex 项的 min-height:auto 会阻止收缩，溢出将逃出

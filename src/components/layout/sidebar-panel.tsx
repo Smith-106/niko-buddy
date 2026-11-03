@@ -469,7 +469,7 @@ export function SidebarPanel() {
           布局，左栏默认宽 220px 时容不下（标题「章节」竖排换行、总字数逐字折行）。
           改为两行：第一行标题+字数（标题 truncate、字数 nowrap），第二行动作右对齐可换行。 */}
       <div className="flex shrink-0 flex-col border-b px-3 py-2">
-        <div className="flex min-w-0 items-baseline gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <div className="flex min-w-0 items-center gap-1.5 text-sm font-semibold whitespace-nowrap">
             <PanelHeaderWithHelp
               title={isChapter ? t("sidebar.knowledge") : t("sidebar.files")}
@@ -478,9 +478,9 @@ export function SidebarPanel() {
             />
           </div>
           {isChapter && sidebarTotalWordCount !== null ? (
-            <div className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+            <div className="shrink-0 whitespace-nowrap rounded-md bg-muted px-1.5 py-0.5 text-[13px] font-medium tabular-nums text-foreground/80">
               {buildChapterTotalWordCountLabel(sidebarTotalWordCount)}
-              {sidebarWordCountFailed > 0 ? <span role="note">（{sidebarWordCountFailed}章读取失败，未计入）</span> : null}
+              {sidebarWordCountFailed > 0 ? <span role="note" className="text-xs font-normal text-muted-foreground">（{sidebarWordCountFailed}章读取失败，未计入）</span> : null}
             </div>
           ) : null}
         </div>
