@@ -236,7 +236,10 @@ mod tests {
     async fn call_unknown_tool_returns_none() {
         // None 让上层报 METHOD_NOT_FOUND，而不是伪造一个成功响应。
         let ctx = ToolContext::for_test();
-        assert!(registry().call(&ctx, "nope.nope", &json!({})).await.is_none());
+        assert!(registry()
+            .call(&ctx, "nope.nope", &json!({}))
+            .await
+            .is_none());
     }
 
     #[test]

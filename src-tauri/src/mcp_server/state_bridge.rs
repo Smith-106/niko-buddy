@@ -281,14 +281,7 @@ pub async fn mcp_state_respond(
     value: Option<Value>,
     error: Option<String>,
 ) -> Result<bool, String> {
-    Ok(bridge.resolve(
-        &id,
-        BridgeOutcome {
-            ok,
-            value,
-            error,
-        },
-    ))
+    Ok(bridge.resolve(&id, BridgeOutcome { ok, value, error }))
 }
 
 #[cfg(test)]
@@ -335,7 +328,11 @@ mod tests {
             .await
             .expect_err("must time out");
         assert!(err.contains("超时"), "错误信息要能指向真实原因: {err}");
-        assert_eq!(bridge.pending_count(), 0, "超时后必须清理待决表，避免 id 泄漏");
+        assert_eq!(
+            bridge.pending_count(),
+            0,
+            "超时后必须清理待决表，避免 id 泄漏"
+        );
     }
 
     #[tokio::test]

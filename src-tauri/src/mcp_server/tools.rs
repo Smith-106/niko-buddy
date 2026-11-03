@@ -193,10 +193,9 @@ impl super::registry::McpTool for SettingsGetTool {
         args: &'a Value,
     ) -> ToolFuture<'a, Result<Value, ToolError>> {
         Box::pin(async move {
-            let key = args
-                .get("key")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| ToolError::invalid_params("settings.get requires string argument `key`"))?;
+            let key = args.get("key").and_then(|v| v.as_str()).ok_or_else(|| {
+                ToolError::invalid_params("settings.get requires string argument `key`")
+            })?;
             if key.trim().is_empty() {
                 return Err(ToolError::invalid_params("`key` must not be empty"));
             }
@@ -281,21 +280,22 @@ impl super::registry::McpTool for SettingsSetTool {
         args: &'a Value,
     ) -> ToolFuture<'a, Result<Value, ToolError>> {
         Box::pin(async move {
-            let key = args
-                .get("key")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| ToolError::invalid_params("settings.set requires string argument `key`"))?;
+            let key = args.get("key").and_then(|v| v.as_str()).ok_or_else(|| {
+                ToolError::invalid_params("settings.set requires string argument `key`")
+            })?;
             if key.trim().is_empty() {
                 return Err(ToolError::invalid_params("`key` must not be empty"));
             }
             // `value` 必须显式给出：`null` 是合法值（清除模型选择），缺字段不是。
-            let value = args
-                .get("value")
-                .ok_or_else(|| ToolError::invalid_params("settings.set requires argument `value`"))?;
+            let value = args.get("value").ok_or_else(|| {
+                ToolError::invalid_params("settings.set requires argument `value`")
+            })?;
 
             // 审计落点先就位，避免"改了但没有痕迹"。
             let project_path = ctx.project_path().await?;
-            let audit_dir = std::path::Path::new(&project_path).join(".novel").join("audit");
+            let audit_dir = std::path::Path::new(&project_path)
+                .join(".novel")
+                .join("audit");
             std::fs::create_dir_all(&audit_dir).map_err(|e| {
                 ToolError::internal(format!(
                     "无法创建审计目录 {}: {e}；为安全起见本次写入未执行",
@@ -315,9 +315,7 @@ impl super::registry::McpTool for SettingsSetTool {
                 })?;
 
             let outcome = ctx
-                .bridge_query(
-                    StateQuery::with_key("set", key).with_value(value.clone()),
-                )
+                .bridge_query(StateQuery::with_key("set", key).with_value(value.clone()))
                 .await?;
 
             let before_hash = value_hash(outcome.get("before").unwrap_or(&Value::Null));
@@ -405,9 +403,7 @@ impl super::registry::McpTool for ChapterListTool {
         ctx: &'a ToolContext,
         _args: &'a Value,
     ) -> ToolFuture<'a, Result<Value, ToolError>> {
-        Box::pin(async move {
-            ctx.bridge_query(StateQuery::new("chapter-list")).await
-        })
+        Box::pin(async move { ctx.bridge_query(StateQuery::new("chapter-list")).await })
     }
 }
 
@@ -548,7 +544,9 @@ impl super::registry::McpTool for CanonQueryTool {
 fn require_str<'a>(args: &'a Value, tool: &str, field: &str) -> Result<&'a str, ToolError> {
     match args.get(field).and_then(|v| v.as_str()) {
         Some(v) if !v.trim().is_empty() => Ok(v),
-        Some(_) => Err(ToolError::invalid_params(format!("{tool}: `{field}` 不能为空"))),
+        Some(_) => Err(ToolError::invalid_params(format!(
+            "{tool}: `{field}` 不能为空"
+        ))),
         None => Err(ToolError::invalid_params(format!(
             "{tool}: 缺少字符串参数 `{field}`"
         ))),
@@ -556,11 +554,7 @@ fn require_str<'a>(args: &'a Value, tool: &str, field: &str) -> Result<&'a str, 
 }
 
 /// 取可选正整数参数。给了就必须是正整数——静默忽略非法值会让调用方以为生效了。
-fn optional_positive_int(
-    args: &Value,
-    tool: &str,
-    field: &str,
-) -> Result<Option<u64>, ToolError> {
+fn optional_positive_int(args: &Value, tool: &str, field: &str) -> Result<Option<u64>, ToolError> {
     match args.get(field) {
         None | Some(Value::Null) => Ok(None),
         Some(v) => match v.as_u64() {
@@ -611,7 +605,8 @@ impl super::registry::McpTool for PipelineRunChapterTool {
     ) -> ToolFuture<'a, Result<Value, ToolError>> {
         Box::pin(async move {
             let user_request = require_str(args, "pipeline.run_chapter", "userRequest")?;
-            let chapter_number = optional_positive_int(args, "pipeline.run_chapter", "chapterNumber")?;
+            let chapter_number =
+                optional_positive_int(args, "pipeline.run_chapter", "chapterNumber")?;
             if let Some(mode) = args.get("workflowMode").and_then(|v| v.as_str()) {
                 if !matches!(mode, "fast" | "standard" | "strict") {
                     return Err(ToolError::invalid_params(format!(
@@ -744,7 +739,10 @@ impl super::registry::McpTool for GateRunTool {
                 )
                 .await?;
 
-            let status = snapshot.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            let status = snapshot
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if status == "failed" {
                 let err = snapshot
                     .get("error")
@@ -757,7 +755,10 @@ impl super::registry::McpTool for GateRunTool {
             let gates = snapshot.get("gates").filter(|g| !g.is_null());
             let Some(gates) = gates else {
                 // 运行中/未完成：明确说清现在没有结论，而不是回一个空对象让调用方猜。
-                let stage = snapshot.get("stage").and_then(|v| v.as_str()).unwrap_or("未知");
+                let stage = snapshot
+                    .get("stage")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("未知");
                 return Err(ToolError::internal(format!(
                     "任务 {task_id} 尚未产出门控结论（status={status}, stage={stage}）。请用 pipeline.status 继续轮询。"
                 )));
@@ -870,7 +871,9 @@ struct DirectWriteAudit<'a> {
 
 /// 打开审计文件（fail-closed：拿不到审计落点就不许写）。
 fn open_audit_log(project_path: &str) -> Result<(std::fs::File, std::path::PathBuf), ToolError> {
-    let audit_dir = std::path::Path::new(project_path).join(".novel").join("audit");
+    let audit_dir = std::path::Path::new(project_path)
+        .join(".novel")
+        .join("audit");
     std::fs::create_dir_all(&audit_dir).map_err(|e| {
         ToolError::internal(format!(
             "无法创建审计目录 {}: {e}；为安全起见本次写入未执行",
@@ -1429,7 +1432,10 @@ mod tests {
                 tool["name"]
             );
             assert!(
-                tool["description"].as_str().map(|d| !d.trim().is_empty()).unwrap_or(false),
+                tool["description"]
+                    .as_str()
+                    .map(|d| !d.trim().is_empty())
+                    .unwrap_or(false),
                 "tool {} must have a description",
                 tool["name"]
             );
@@ -1536,7 +1542,10 @@ mod tests {
         let text = std::fs::read_to_string(&audit).expect("audit readable");
         assert_eq!(text.lines().count(), 2, "每次写入一行，append-only");
         assert!(text.contains("\"snapshot_ref\":\"snap_1\""));
-        assert!(text.contains("\"snapshot_ref\":null"), "无快照要显式写 null");
+        assert!(
+            text.contains("\"snapshot_ref\":null"),
+            "无快照要显式写 null"
+        );
     }
 
     #[test]

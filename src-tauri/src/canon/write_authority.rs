@@ -410,7 +410,7 @@ pub fn assert_hard_rules() -> Result<(), String> {
     }
     if decision_for(WriteSource::ExternalAgent, WriteTarget::UserAssetBody) != WriteDecision::Deny {
         return Err(
-            "hard rule 4 violated (C-007): external_agent must Deny user_asset_body".to_string()
+            "hard rule 4 violated (C-007): external_agent must Deny user_asset_body".to_string(),
         );
     }
 
@@ -421,10 +421,7 @@ pub fn assert_hard_rules() -> Result<(), String> {
     for source in ALL_WRITE_SOURCES {
         for target in ALL_WRITE_TARGETS {
             let decision = decision_for(source, target);
-            if source.is_external()
-                && decision.is_permitted()
-                && !requires_audit(source, target)
-            {
+            if source.is_external() && decision.is_permitted() && !requires_audit(source, target) {
                 return Err(format!(
                     "hard rule 5 violated (C-008): {} may write {} without audit",
                     source.as_str(),
@@ -455,8 +452,7 @@ pub fn assert_hard_rules() -> Result<(), String> {
         );
     }
     for source in ALL_WRITE_SOURCES {
-        if source.is_external()
-            && decision_for(source, WriteTarget::Other) == WriteDecision::Allow
+        if source.is_external() && decision_for(source, WriteTarget::Other) == WriteDecision::Allow
         {
             return Err(format!(
                 "hard rule 6 violated (C-009): {} must not Allow arbitrary paths (other)",
@@ -833,7 +829,10 @@ mod tests {
             WriteTarget::MarketCache
         ));
         // 非外部来源不需要快照（它们要么是用户自己，要么本就不许直写真源）。
-        assert!(!requires_snapshot(WriteSource::UserEdit, WriteTarget::Canon));
+        assert!(!requires_snapshot(
+            WriteSource::UserEdit,
+            WriteTarget::Canon
+        ));
         assert!(!requires_snapshot(
             WriteSource::AiSuggestion,
             WriteTarget::Canon

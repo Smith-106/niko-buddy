@@ -122,8 +122,8 @@ pub fn create_snapshot(project: &Path, target: &Path) -> Result<SnapshotRef, Str
         "ts_ms": now,
         "ts": chrono::Utc::now().to_rfc3339(),
     });
-    let meta_text = serde_json::to_string_pretty(&meta)
-        .map_err(|e| format!("快照元数据序列化失败: {e}"))?;
+    let meta_text =
+        serde_json::to_string_pretty(&meta).map_err(|e| format!("快照元数据序列化失败: {e}"))?;
     std::fs::write(meta_path(&dir, &id), meta_text)
         .map_err(|e| format!("快照元数据写入失败 {}: {e}", meta_path(&dir, &id).display()))?;
 
@@ -143,15 +143,10 @@ pub fn create_snapshot(project: &Path, target: &Path) -> Result<SnapshotRef, Str
 pub fn restore_snapshot(project: &Path, snapshot_id: &str) -> Result<RestoredSnapshot, String> {
     let dir = snapshots_dir(project);
     let meta_file = meta_path(&dir, snapshot_id);
-    let meta_text = std::fs::read_to_string(&meta_file).map_err(|e| {
-        format!(
-            "找不到快照 {}（{}）: {e}",
-            snapshot_id,
-            meta_file.display()
-        )
-    })?;
-    let meta: serde_json::Value =
-        serde_json::from_str(&meta_text).map_err(|e| format!("快照元数据损坏 {snapshot_id}: {e}"))?;
+    let meta_text = std::fs::read_to_string(&meta_file)
+        .map_err(|e| format!("找不到快照 {}（{}）: {e}", snapshot_id, meta_file.display()))?;
+    let meta: serde_json::Value = serde_json::from_str(&meta_text)
+        .map_err(|e| format!("快照元数据损坏 {snapshot_id}: {e}"))?;
 
     let target_raw = meta
         .get("target")
@@ -406,7 +401,11 @@ mod tests {
         std::fs::write(body_path(&dir, &snap.id), b"tampered").unwrap();
         let err = restore_snapshot(project.path(), &snap.id).unwrap_err();
         assert!(err.contains("自身已损坏"), "错误要说清是快照坏了: {err}");
-        assert_eq!(std::fs::read(&target).unwrap(), b"v1", "拒绝回滚时不得动目标");
+        assert_eq!(
+            std::fs::read(&target).unwrap(),
+            b"v1",
+            "拒绝回滚时不得动目标"
+        );
     }
 
     #[test]
@@ -454,7 +453,9 @@ mod tests {
     fn prune_on_missing_dir_is_not_an_error() {
         let project = TempProject::new("nodir");
         assert!(list_snapshots(project.path()).unwrap().is_empty());
-        assert!(prune_snapshots(project.path(), now_ms()).unwrap().is_empty());
+        assert!(prune_snapshots(project.path(), now_ms())
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -466,6 +467,9 @@ mod tests {
         let snap = create_snapshot(project.path(), &target).unwrap();
         assert_eq!(snap.audit_ref(), snap.id);
         assert!(snap.id.starts_with("snap_"));
-        assert_eq!(snap.target.replace('\\', "/"), target.to_string_lossy().replace('\\', "/"));
+        assert_eq!(
+            snap.target.replace('\\', "/"),
+            target.to_string_lossy().replace('\\', "/")
+        );
     }
 }

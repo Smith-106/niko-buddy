@@ -203,10 +203,7 @@ impl SessionRegistry {
 
     /// 某会话是否被授予了完整写入。
     pub fn has_full(&self, id: &str) -> bool {
-        self.lock()
-            .get(id)
-            .map(|s| s.full_granted)
-            .unwrap_or(false)
+        self.lock().get(id).map(|s| s.full_granted).unwrap_or(false)
     }
 
     /// 当前会话快照，按连接时间升序（稳定顺序，避免界面列表跳动）。
@@ -308,7 +305,10 @@ mod tests {
     #[test]
     fn scope_parse_rejects_unknown() {
         assert_eq!(SessionScope::parse("read"), Some(SessionScope::Read));
-        assert_eq!(SessionScope::parse("settings"), Some(SessionScope::Settings));
+        assert_eq!(
+            SessionScope::parse("settings"),
+            Some(SessionScope::Settings)
+        );
         assert_eq!(SessionScope::parse("project"), Some(SessionScope::Project));
         assert_eq!(SessionScope::parse("full"), Some(SessionScope::Full));
         assert_eq!(SessionScope::parse("admin"), None);

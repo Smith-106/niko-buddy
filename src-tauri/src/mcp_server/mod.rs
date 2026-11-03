@@ -196,7 +196,11 @@ async fn handle_mcp(
         Err(e) => {
             return (
                 StatusCode::OK,
-                axum::Json(error_response(None, PARSE_ERROR, &format!("invalid JSON: {e}"))),
+                axum::Json(error_response(
+                    None,
+                    PARSE_ERROR,
+                    &format!("invalid JSON: {e}"),
+                )),
             )
                 .into_response()
         }
@@ -220,11 +224,12 @@ async fn handle_mcp(
     // 调用方权限域：`initialize` 时按服务端授予值新建会话；其余请求按会话 id 查表，
     // 未知/缺失 id 一律降到最小权限 `Read`（不隐式创建、不默认放行）。
     let (session_id, caller_scope) = if req.method == "initialize" {
-        (Some(state.sessions.create(state.granted_scope)), state.granted_scope)
+        (
+            Some(state.sessions.create(state.granted_scope)),
+            state.granted_scope,
+        )
     } else {
-        let sid = headers
-            .get("mcp-session-id")
-            .and_then(|v| v.to_str().ok());
+        let sid = headers.get("mcp-session-id").and_then(|v| v.to_str().ok());
         let scope = match sid {
             Some(id) => {
                 state.sessions.touch(id);
@@ -256,7 +261,9 @@ async fn handle_mcp(
 
 /// 构造 router。单独抽出来便于在测试里直接驱动。
 pub fn router(state: Arc<ServerState>) -> Router {
-    Router::new().route("/mcp", post(handle_mcp)).with_state(state)
+    Router::new()
+        .route("/mcp", post(handle_mcp))
+        .with_state(state)
 }
 
 /// 绑定端口并启动监听（不持有 AppHandle，供测试与生产共用）。
@@ -577,8 +584,14 @@ pub async fn mcp_server_rotate_token(
     if handle.port().is_some() {
         // 轮换 token 不该顺手改权限域：沿用当前授予值。
         let granted = handle.scope().unwrap_or(session::SessionScope::Read);
-        let server =
-            start(app, bridge.inner().clone(), DEFAULT_PORT, token.clone(), granted).await?;
+        let server = start(
+            app,
+            bridge.inner().clone(),
+            DEFAULT_PORT,
+            token.clone(),
+            granted,
+        )
+        .await?;
         handle.replace(Some(server));
     }
     Ok(token)
@@ -651,7 +664,10 @@ mod tests {
     async fn tools_call_ping_returns_content_block() {
         let out = dispatch(
             &state("t"),
-            &req("tools/call", Some(json!({"name": "app.ping", "arguments": {}}))),
+            &req(
+                "tools/call",
+                Some(json!({"name": "app.ping", "arguments": {}})),
+            ),
         )
         .await
         .expect("has response");
@@ -740,7 +756,10 @@ mod tests {
         let reg = tools::build_registry();
         let write_like = contains_write_like_tool(&reg);
         assert!(write_like.contains(&"settings.set"), "实际: {write_like:?}");
-        assert!(write_like.contains(&"chapter.write"), "实际: {write_like:?}");
+        assert!(
+            write_like.contains(&"chapter.write"),
+            "实际: {write_like:?}"
+        );
         assert!(write_like.contains(&"memory.write"), "实际: {write_like:?}");
         let privileged = reg.privileged_tools();
         for name in &write_like {
@@ -755,7 +774,9 @@ mod tests {
             &state("t"),
             &req(
                 "tools/call",
-                Some(json!({"name": "settings.set", "arguments": {"key": "theme", "value": "dark"}})),
+                Some(
+                    json!({"name": "settings.set", "arguments": {"key": "theme", "value": "dark"}}),
+                ),
             ),
         )
         .await
@@ -774,13 +795,17 @@ mod tests {
             &state("t"),
             &req(
                 "tools/call",
-                Some(json!({"name": "settings.set", "arguments": {"key": "theme", "value": "dark"}})),
+                Some(
+                    json!({"name": "settings.set", "arguments": {"key": "theme", "value": "dark"}}),
+                ),
             ),
             session::SessionScope::Settings,
         )
         .await
         .expect("has response");
-        let text = out["result"]["content"][0]["text"].as_str().unwrap_or_default();
+        let text = out["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default();
         assert!(!text.contains("权限不足"), "不应被权限闸门拦截: {text}");
         assert!(text.contains("状态桥"), "应因缺少 AppHandle 失败: {text}");
     }
@@ -792,7 +817,10 @@ mod tests {
             ("pipeline.run_chapter", json!({"userRequest": "写一章"})),
             ("pipeline.status", json!({"taskId": "ptask_x"})),
             ("gate.run", json!({"taskId": "ptask_x"})),
-            ("chapter.write", json!({"chapterName": "第一章", "content": "正文"})),
+            (
+                "chapter.write",
+                json!({"chapterName": "第一章", "content": "正文"}),
+            ),
         ];
         for caller in [session::SessionScope::Read, session::SessionScope::Settings] {
             for (name, args) in project_tools.clone() {
@@ -803,7 +831,9 @@ mod tests {
                 )
                 .await
                 .expect("has response");
-                let text = out["result"]["content"][0]["text"].as_str().unwrap_or_default();
+                let text = out["result"]["content"][0]["text"]
+                    .as_str()
+                    .unwrap_or_default();
                 assert!(
                     text.contains("权限不足"),
                     "{name} 在 {caller:?} 下应被拒，实际: {text}"
@@ -823,27 +853,41 @@ mod tests {
             &state("t"),
             &req(
                 "tools/call",
-                Some(json!({"name": "settings.set", "arguments": {"key": "theme", "value": "dark"}})),
+                Some(
+                    json!({"name": "settings.set", "arguments": {"key": "theme", "value": "dark"}}),
+                ),
             ),
             session::SessionScope::Settings,
         )
         .await
         .expect("has response");
-        let text = out["result"]["content"][0]["text"].as_str().unwrap_or_default();
-        assert!(!text.contains("权限不足"), "Settings 应能调 settings.set: {text}");
+        let text = out["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(
+            !text.contains("权限不足"),
+            "Settings 应能调 settings.set: {text}"
+        );
         // 而 Project scope 不得顺带拿到设置写权限
         let out2 = dispatch_as(
             &state("t"),
             &req(
                 "tools/call",
-                Some(json!({"name": "settings.set", "arguments": {"key": "theme", "value": "dark"}})),
+                Some(
+                    json!({"name": "settings.set", "arguments": {"key": "theme", "value": "dark"}}),
+                ),
             ),
             session::SessionScope::Project,
         )
         .await
         .expect("has response");
-        let text2 = out2["result"]["content"][0]["text"].as_str().unwrap_or_default();
-        assert!(text2.contains("权限不足"), "Project 不应顺带写设置: {text2}");
+        let text2 = out2["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(
+            text2.contains("权限不足"),
+            "Project 不应顺带写设置: {text2}"
+        );
     }
 
     /// 非法参数必须在**起任务之前**被拒：留一个注定失败的任务会误导调用方。
@@ -854,7 +898,10 @@ mod tests {
             (json!({"userRequest": ""}), "userRequest"),
             (json!({"userRequest": "x", "chapterNumber": 0}), "正整数"),
             (json!({"userRequest": "x", "chapterNumber": -3}), "正整数"),
-            (json!({"userRequest": "x", "workflowMode": "turbo"}), "fast / standard / strict"),
+            (
+                json!({"userRequest": "x", "workflowMode": "turbo"}),
+                "fast / standard / strict",
+            ),
         ];
         for (args, needle) in cases {
             let out = dispatch_as(
@@ -884,20 +931,31 @@ mod tests {
             .await
             .expect("has response");
             let text = out["error"]["message"].as_str().unwrap_or_default();
-            assert!(text.contains("taskId"), "{name} 应要求 taskId，实际: {text}");
+            assert!(
+                text.contains("taskId"),
+                "{name} 应要求 taskId，实际: {text}"
+            );
         }
     }
 
     #[tokio::test]
     async fn draft_write_tools_require_both_fields() {
         let cases: [(&str, Value, session::SessionScope); 4] = [
-            ("chapter.write", json!({"content": "正文"}), session::SessionScope::Project),
+            (
+                "chapter.write",
+                json!({"content": "正文"}),
+                session::SessionScope::Project,
+            ),
             (
                 "chapter.write",
                 json!({"chapterName": "第一章"}),
                 session::SessionScope::Project,
             ),
-            ("memory.write", json!({"name": "设定"}), session::SessionScope::Full),
+            (
+                "memory.write",
+                json!({"name": "设定"}),
+                session::SessionScope::Full,
+            ),
             (
                 "chapter.write_direct",
                 json!({"chapterName": "第一章"}),
@@ -944,7 +1002,9 @@ mod tests {
                 )
                 .await
                 .expect("has response");
-                let text = out["result"]["content"][0]["text"].as_str().unwrap_or_default();
+                let text = out["result"]["content"][0]["text"]
+                    .as_str()
+                    .unwrap_or_default();
                 assert!(
                     text.contains("权限不足"),
                     "{name} 在 {caller:?} 下应被拒，实际: {text}"
@@ -970,7 +1030,9 @@ mod tests {
         )
         .await
         .expect("has response");
-        let text = out["result"]["content"][0]["text"].as_str().unwrap_or_default();
+        let text = out["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default();
         assert!(!text.contains("权限不足"), "不应被权限闸门拦截: {text}");
         assert!(text.contains("状态桥"), "应因缺少 AppHandle 失败: {text}");
     }
