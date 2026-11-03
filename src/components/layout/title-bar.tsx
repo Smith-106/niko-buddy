@@ -65,6 +65,11 @@ export function TitleBar({ onOpenCommandPalette }: { onOpenCommandPalette?: () =
   return (
     <header
       data-testid="title-bar"
+      // 无边框窗口（tauri.conf.json decorations:false）下，整条顶栏是拖拽区：
+      // Tauri 的 drag.js 只对 data-tauri-drag-region 生效，bare 值仅自身可拖，
+      // "deep" 让整个子树可拖；BUTTON/A/INPUT 等可点元素会自动阻断拖拽，
+      // 双击该区域由 Tauri 内置处理为最大化/还原。
+      data-tauri-drag-region="deep"
       className="flex h-10 shrink-0 items-center gap-2 border-b bg-muted/40 px-3"
     >
       {/* 左：应用名 + 项目名 */}

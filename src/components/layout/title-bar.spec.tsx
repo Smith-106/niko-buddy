@@ -120,4 +120,11 @@ describe("TitleBar", () => {
     render(<TitleBar />)
     expect(screen.queryByLabelText("最小化")).not.toBeInTheDocument()
   })
+
+  // 无边框窗口（tauri.conf.json decorations:false）下，顶栏是唯一的窗口外框，
+  // 所以它必须同时是拖拽区，否则窗口无法移动。这条钉住那个约定。
+  it("顶栏根元素声明为 deep 拖拽区（无边框窗口下靠它移动窗口）", () => {
+    render(<TitleBar />)
+    expect(screen.getByTestId("title-bar")).toHaveAttribute("data-tauri-drag-region", "deep")
+  })
 })
