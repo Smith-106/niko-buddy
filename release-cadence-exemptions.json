@@ -133,6 +133,17 @@
         "same-day-duplicate",
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.26.3",
+      "reason": "用户于 2026-11-04 批准直接发 v2.26.3 稳定版：无边框改造后顶栏成为唯一窗口外框，侧栏顶部重复显示「Niko Buddy」需去掉；同时「总字数：N字」为 12px 低对比灰字、紧贴加粗标题导致读数不清，改为独立数据块（13px / font-medium / tabular-nums / text-foreground/80 + bg-muted 底）。规则事实（按本机时区 +0900 的本地日期计）：weekly-stable —— ISO 周 2026-11-02 有 5 个 stable（v2.25.2 本地 11-02 / v2.26.0 本地 11-03 / v2.26.1、v2.26.2、v2.26.3 本地 11-04）；same-day-duplicate —— 2026-11-04 当日 stable 计数 3（v2.26.1 / v2.26.2 / v2.26.3，均为不同 tag 先后发布，未重打任何已发布 tag）；thirty-day-stable —— 发布前 30 天 stable 21 个（上限 4），属历史连续高频发布所致，非跳过工程门禁。发版门禁：typecheck 0、eslint 0 problem、vitest layout+changelog+chapter-display 33 files 716 passed、boundaries 5/5、gen:check 6/6、consistency 14/14、cargo fmt --check PASS。",
+      "approvedBy": "user",
+      "approvedAt": "2026-11-04",
+      "scope": [
+        "weekly-stable",
+        "same-day-duplicate",
+        "thirty-day-stable"
+      ]
     }
   ]
 }
