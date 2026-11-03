@@ -15,11 +15,21 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.25.2-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.26.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
+
+## v2.26.0 新增（应用内 MCP 控制面 P0–P3，prerelease）
+
+内测候选版（2026-11-03，**未进 Latest**；Latest 仍是 v2.25.2）。这是把 Niko Buddy 变成**可被外部 Agent 驱动**的写作引擎的第一版：
+
+- **应用内 MCP 服务器**：axum 0.8 回环监听 + `Authorization: Bearer` + MCP `2025-06-18`，**默认不启动**，由设置页「外部控制」显式开启；工具注册表编译期静态登记，不运行时反射。
+- **17 个工具**：`ping`、`app.status`、`settings.schema|list|get|set`、`project.state`、`chapter.list|read|write|write_direct`、`canon.query`、`memory.write`、`pipeline.run_chapter|status`、`gate.run`、`undo_last`。写工具一律受写入权威矩阵管辖。
+- **会话分档与逐会话授权**：`read` / `settings` / `project` / `full` 四档，`full`（含直写与回滚）只能**逐会话**显式授权、可随时吊销，**不能**在服务启动时授予；`effective_scope(id)` 是唯一权限闸门。
+- **直写审计与快照回滚**：`chapter.write_direct` / `undo_last` 走固定顺序「矩阵判定 → 开审计 → before hash → 快照 → 原子写 → after hash → 裁剪 → 审计行」；快照存原始字节 + meta，上限 50 份 / 7 天、索引 0 永不裁剪，`existed=false` 的回滚语义是删除目标，还原前后双校验。
+- **修掉一个真实崩溃**：`chapter-window` 的默认参数裸用 `process.env`，而 WebView 没有 `process` 全局 —— 深章管线走到**评审阶段**必抛 `ReferenceError`。此前真机跑深章都在更早的 provider 401 处失败、从未走到评审，所以一直潜伏。已加 WebView 回归用例。
 
 ## v2.25.2 新增（同步备份 GitHub 私有仓 + 跨章缓存命中，stable）
 

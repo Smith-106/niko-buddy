@@ -15,6 +15,35 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.26.0 prerelease（2026-11-03）：应用内 MCP 控制面 P0-P3 全量交付。
+    version: "2.26.0",
+    date: "2026-11-03",
+    highlights: {
+      en: [
+        "Added: full in-app MCP control plane (P0-P3). Loopback listener on axum 0.8 with bearer auth and MCP 2025-06-18, off by default, static compile-time tool registry. 17 tools: ping, app.status, settings.schema|list|get|set, project.state, chapter.list|read|write|write_direct, canon.query, memory.write, pipeline.run_chapter|status, gate.run, undo_last.",
+        "Added: tiered session scope (read / settings / project / full). Full write access can only be granted per session, can be revoked at any time, and cannot be granted at server start; effective_scope(id) is the single permission gate.",
+        "Added: direct writes go through a fixed order - authority-matrix verdict, open audit, before hash, snapshot, atomic write, after hash, prune, audit line. Snapshots keep raw bytes plus meta, cap at 50 entries / 7 days, never prune index 0, and treat existed=false as delete-on-restore with double verification.",
+        "Added: External Control settings section with a master switch, per-session visibility, and a per-session full-write grant badge and revoke button that never restarts the listener.",
+        "Added: ExternalAgent write-authority source with C-008 / C-009 constraints; audit can never be disabled, and snapshots are mandatory only for ExternalAgent writes to Canon or Reference targets.",
+        "Changed: chapter list sorts by the chapter number parsed from the file name instead of lexicographically, so chapter 10 no longer sorts before chapter 2. Status-bridge timeout raised to 15s and port rebind retries are bounded at 20x100ms.",
+        "Changed: memory.write now refuses in the project tier (the app has no memory-draft review surface) and only writes directly in the full tier. Draft paths reuse the DRAFTS_DIR constant instead of ad-hoc string joins.",
+        "Fixed: chapter-window default parameters used a bare process.env. Default parameters evaluate at call time and the WebView has no process global, so the deep-chapter review stage threw ReferenceError: process is not defined. Earlier real-device runs always failed at the provider 401 before reaching review, so the crash stayed latent. A WebView regression test now pins it.",
+        "Fixed: trailing whitespace in the permission-denied message, and the two long-red IPC surface reconciliation assertions (the state bridge response command name is a literal again).",
+      ],
+      zh: [
+        "新增：应用内 MCP 控制面 P0-P3 全量交付。axum 0.8 回环监听 + Bearer 鉴权 + MCP 2025-06-18，默认不启动、工具注册表编译期静态登记。共 17 个工具：ping、app.status、settings.schema|list|get|set、project.state、chapter.list|read|write|write_direct、canon.query、memory.write、pipeline.run_chapter|status、gate.run、undo_last。",
+        "新增：会话分档（read / settings / project / full）。完整写入只能逐会话显式授权、可随时吊销，且不能在服务启动时授予；effective_scope(id) 是唯一权限闸门入口。",
+        "新增：直写走固定顺序 —— 权威矩阵判定、开审计、before hash、快照、原子写、after hash、裁剪、写审计行。快照存原始字节加 meta，上限 50 份 / 7 天，索引 0 永不裁剪，existed=false 的回滚语义是删除目标，还原前后双校验。",
+        "新增：设置页「外部控制」—— 总开关、会话可见性列表、逐会话「完整写入」授权徽标与吊销按钮，授权与吊销都不重启监听。",
+        "新增：写入权威矩阵 ExternalAgent 来源与 C-008 / C-009 约束；审计永不可关，快照仅对 ExternalAgent 的 Canon / Reference 目标强制。",
+        "变更：章节列表按文件名解析出的章号排序（不再字典序，第 10 章不会排到第 2 章前面）。状态桥超时放宽到 15s，端口重绑改为 20×100ms 有界重试。",
+        "变更：memory.write 在 project 档改为明确拒绝（应用没有记忆草稿审阅入口），只有 full 档才直写。草稿路径统一复用 DRAFTS_DIR 常量。",
+        "修复：chapter-window 的默认参数裸用 process.env。默认参数在调用时求值，而 WebView 没有 process 全局，深章管线走到评审阶段必抛 ReferenceError: process is not defined。此前真机跑深章都在更早的 provider 401 处失败，从未走到评审，崩溃一直潜伏。已加 WebView 回归用例钉住。",
+        "修复：权限不足错误文案的尾部空白，以及长期红的 2 条 IPC 注册面 / 调用面对账断言（状态桥回传命令名改回字面量）。",
+      ],
+    },
+  },
+  {
     // 2.25.2 prerelease（2026-11-02）：同步备份 GitHub 私有仓 + 跨章缓存命中。
     version: "2.25.2",
     date: "2026-11-02",

@@ -7,6 +7,31 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.26.0] - 2026-11-03
+
+### Added
+
+- 新增：应用内 MCP 控制面 P0–P3 全量交付。axum 0.8 回环监听 + `Authorization: Bearer` 鉴权 + MCP `2025-06-18`，**默认不启动**、工具注册表编译期静态登记。共 17 个工具：`ping`、`app.status`、`settings.schema|list|get|set`、`project.state`、`chapter.list|read|write|write_direct`、`canon.query`、`memory.write`、`pipeline.run_chapter|status`、`gate.run`、`undo_last`。
+- 新增：会话分档 `SessionScope`（read / settings / project / full）。`full` 只能**逐会话**显式授权、可随时吊销，且**不能**在 `mcp_server_start` 授予；`effective_scope(id)` 是唯一权限闸门入口。
+- 新增：`settings.set` 写入 + append-only 审计日志；`chapter.write_direct` / `undo_last` 直写走 `direct_write`，顺序固定为「权威矩阵判定 → 开审计 → before hash → 快照 → 原子写 → after hash → 裁剪 → 写审计行」。
+- 新增：直写快照与回滚。`.novel/snapshots` 存「原始字节 + meta」双文件，保留上限 50 份 / 7 天，索引 0 永不裁剪；`existed=false` 的回滚语义是删除目标；还原前后双校验。
+- 新增：设置页「外部控制」——总开关、会话可见性列表、逐会话「完整写入」授权徽标与吊销按钮（授权/吊销不重启监听）。
+- 新增：写入权威矩阵 `ExternalAgent` 来源与 C-008 / C-009 约束；`AUDIT_CAN_BE_DISABLED=false`，快照仅对 `ExternalAgent` 的 Canon / Reference 目标强制。
+
+### Changed
+
+- 章节列表改为按文件名中的章号排序（此前按字典序，第 10 章会排在第 2 章前面）。
+- 状态桥响应超时放宽到 15s；切换 scope 触发的端口重绑改为 20×100ms 有界重试，避免 `10048`。
+- `memory.write` 在 P2 档改为**明确拒绝**（应用没有记忆草稿审阅入口），P3 `full` 档才允许直写。
+- 草稿路径统一复用写入器常量 `DRAFTS_DIR`，不再各自拼字符串。
+- 管线动态视图不再压缩宽度，改为纵向滚动；限制放大层级、隐藏数量可见。
+
+### Fixed
+
+- 修复：`chapter-window.ts` 的 `env` 默认参数裸用 `process.env`，而 WebView 没有 `process` 全局、默认参数在调用时求值，导致深章管线走到评审阶段必抛 `ReferenceError: process is not defined`。此前每次真机跑深章都在更早的 provider 401 处失败，从未走到评审，该崩溃一直潜伏。新增 WebView 回归用例。
+- 修复：权限不足的错误文案尾部多余空白。
+- 修复：IPC 注册面 / 调用面对账长期红 2 条——状态桥回传命令名改回字面量，`STATE_RESPOND_COMMAND` 常量删除。
+
 ## [2.25.2] - 2026-11-02
 
 ### Added

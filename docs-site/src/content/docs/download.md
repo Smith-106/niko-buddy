@@ -7,10 +7,21 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.25.2**（2026-11-02 发布：同步备份 GitHub 私有仓 + 冲突逐项决策 + 跨章缓存命中 — stable Latest）
+**v2.25.2**（2026-11-02 发布：同步备份 GitHub 私有仓 + 冲突逐项决策 + 跨章缓存命中 — **stable Latest**）
 
-v2.25.2 于 2026-11-02 发布并接任 Latest 稳定版，已装旧版本的用户可直接通过应用内更新器自动检查并升级。
+v2.25.2 为当前 Latest 稳定版，已装旧版本的用户可直接通过应用内更新器自动检查并升级。
 > **v2.25.2 更新亮点**：GitHub 私有仓同步备份三原语真机验收、双改逐项裁决（默认 keep_both）、跨章稳定前缀缓存命中与缓存命中口径三层分离。详见下方「v2.25.2 更新亮点」。
+
+> **v2.26.0 内测候选（prerelease，2026-11-03）**：应用内 MCP 控制面 P0–P3 全量交付 —— 17 个工具、会话分档与逐会话「完整写入」授权、直写审计与快照回滚。**未进 Latest**，需要尝鲜请到 Releases 页取 `v2.26.0` 预发布资产；稳定用户请继续用 v2.25.2。
+
+### v2.26.0 更新亮点（2026-11-03，prerelease）
+
+- **应用内 MCP 服务器**：axum 0.8 回环监听 + `Authorization: Bearer` + MCP `2025-06-18`；**默认不启动**，由设置页「外部控制」显式开启；工具注册表编译期静态登记。
+- **17 个工具**：`ping`、`app.status`、`settings.schema|list|get|set`、`project.state`、`chapter.list|read|write|write_direct`、`canon.query`、`memory.write`、`pipeline.run_chapter|status`、`gate.run`、`undo_last`。写工具一律受写入权威矩阵管辖。
+- **会话分档与逐会话授权**：`read` / `settings` / `project` / `full` 四档；`full` 只能逐会话显式授权、可随时吊销，且不能在服务启动时授予；`effective_scope(id)` 是唯一权限闸门。
+- **直写审计与快照回滚**：固定顺序「矩阵判定 → 开审计 → before hash → 快照 → 原子写 → after hash → 裁剪 → 审计行」；快照存原始字节 + meta，上限 50 份 / 7 天、索引 0 永不裁剪，`existed=false` 的回滚语义是删除目标，还原前后双校验。
+- **修掉一个真实崩溃**：`chapter-window` 默认参数裸用 `process.env`，WebView 无 `process` 全局 → 深章管线走到评审阶段必抛 `ReferenceError`；已加 WebView 回归用例。
+- 发布语义：**prerelease**（内测候选版，未进 Latest）。
 
 > **v2.25.1 内测候选（prerelease）**：统一状态总览页（五维只读聚合）+ 图谱侧边栏维度开关（直驱画布显隐）+ 主控大屏 P1 转译拓扑（有参考阈值/A/B/C/D 路线桩/四形态分支/能力池矩阵，控制台只读）。已被 v2.25.2 接任。
 
