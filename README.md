@@ -15,11 +15,17 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.26.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.26.1-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
+
+## v2.26.1 修复（重复标题栏，正式稳定版）
+
+修复 Windows 上**两条标题栏叠在一起**：主窗口 `decorations` 从未在 `tauri.conf.json` 里设置（默认 `true`），而应用内 `TitleBar` 自带最小化/最大化/关闭按钮、本就按无边框窗口设计，于是系统又画了一层原生栏 —— 应用名、项目名与三个窗口按钮各重复一次。同时补回此前缺失的四个窗口权限：应用内那三个按钮其实一直是死的，外层 `try/catch` 把权限拒绝静默吞掉了。本版窗口改为无边框，顶栏用 `data-tauri-drag-region="deep"` 承担拖拽与双击最大化；边缘拖拽缩放不受影响。
+
+代价（已知情接受）：失去 Win11 悬停最大化的 Snap Layouts 与标题栏右键系统菜单，无边框窗口为直角、无系统投影。
 
 ## v2.26.0 新增（应用内 MCP 控制面 P0–P3，正式稳定版）
 

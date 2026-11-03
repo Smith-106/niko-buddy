@@ -7,6 +7,20 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.26.1] - 2026-11-03
+
+### Fixed
+
+- 修复：主窗口的 `decorations` 从未在 `tauri.conf.json` 中设置（默认 `true`），而应用内 `TitleBar` 自带最小化/最大化/关闭按钮、本就按无边框窗口设计 —— Windows 因此又绘制了一层原生标题栏，应用名、项目名与三个窗口按钮各重复一次。
+- 修复：应用内顶栏的最小化/最大化/关闭按钮此前**完全无响应**。`core:window:default` 只放行读取类命令，`minimize` / `toggle_maximize` / `close` / `start_dragging` 都不在默认集，而 `capabilities/default.json` 只显式给了 `allow-set-title`；`win()` 外层的 `try/catch` 把权限拒绝静默吞掉了。
+
+### Changed
+
+- 变更：主窗口改为无边框（`"decorations": false`），顶栏根元素声明 `data-tauri-drag-region="deep"` 承担拖拽与双击最大化/还原；边缘拖拽缩放不受影响（tao 在 `RESIZABLE` 时始终保留 `WS_SIZEBOX`，`WM_NCHITTEST` 分支专为无边框窗口给出边缘/角落缩放光标）。
+- 变更：`capabilities/default.json` 补 `core:window:allow-start-dragging` / `allow-minimize` / `allow-toggle-maximize` / `allow-close` 四个权限。
+- 变更：代价已知情接受 —— 失去 Win11 悬停最大化的 Snap Layouts 与标题栏右键系统菜单；无边框窗口在 Win11 下为直角且无系统投影。
+- 变更：发布语义 **stable**。2026-11-03 由用户批准直接发稳定版（登记 `weekly-stable` / `same-day-duplicate` / `thirty-day-stable` 三项节奏豁免），使已装 v2.26.0 的用户可通过应用内更新器自动升级。
+
 ## [2.26.0] - 2026-11-03
 
 ### Added

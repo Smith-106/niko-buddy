@@ -15,6 +15,25 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.26.1（2026-11-03）：修复重复标题栏 —— 窗口改无边框，并补回缺失的四个窗口权限。
+    version: "2.26.1",
+    date: "2026-11-03",
+    highlights: {
+      en: [
+        "Fixed: the main window never set decorations in tauri.conf.json (default true) while the in-app TitleBar ships its own minimize/maximize/close buttons and is designed for a frameless window, so Windows drew a native title bar on top of it - the app name, project name and all three window buttons appeared twice.",
+        "Fixed: the in-app minimize/maximize/close buttons were completely dead. core:window:default only allows read-only commands, so minimize, toggle_maximize, close and start_dragging were never granted, and the try/catch around them swallowed the permission denial silently.",
+        "Changed: the main window is now frameless and the title bar declares data-tauri-drag-region=deep for dragging and double-click maximize. Edge resizing still works because tao keeps WS_SIZEBOX for resizable windows and its WM_NCHITTEST branch handles undecorated resize cursors.",
+        "Changed: trade-off accepted - Windows 11 Snap Layouts on hover-maximize and the title-bar system menu are gone, and a frameless window has square corners and no system shadow.",
+      ],
+      zh: [
+        "修复：主窗口从未在 tauri.conf.json 里设置 decorations（默认 true），而应用内 TitleBar 自带最小化/最大化/关闭按钮、本就按无边框窗口设计，于是 Windows 又画了一层原生标题栏 —— 应用名、项目名与三个窗口按钮各重复一次。",
+        "修复：应用内顶栏的最小化/最大化/关闭按钮此前完全无响应。core:window:default 只放行读取类命令，minimize、toggle_maximize、close、start_dragging 都没被授予，外层 try/catch 又把权限拒绝静默吞掉。",
+        "变更：主窗口改为无边框，顶栏声明 data-tauri-drag-region=deep 承担拖拽与双击最大化。边缘拖拽缩放不受影响（tao 对可缩放窗口始终保留 WS_SIZEBOX，WM_NCHITTEST 分支专为无边框窗口给出缩放光标）。",
+        "变更：代价已知情接受 —— 失去 Win11 悬停最大化的 Snap Layouts 与标题栏右键系统菜单，无边框窗口为直角且无系统投影。",
+      ],
+    },
+  },
+  {
     // 2.26.0（2026-11-03）：应用内 MCP 控制面 P0-P3 全量交付。先发 prerelease，经用户批准后提升为 Latest。
     version: "2.26.0",
     date: "2026-11-03",
