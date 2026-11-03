@@ -102,9 +102,21 @@ pub fn run() {
         // T34 sentinel hardening (TASK-P6-34), additive wiring only:
         //   - log: leveled structured logging (Rust-side; println sweep in
         //     command modules is deferred — this task touches lib.rs only)
-        //   - window-state: remember main window size/position across restarts
+        //   - window-state: remember main window size/position across restarts.
+        //     DECORATIONS 必须从恢复集里排除：插件默认 StateFlags::all() 包含它，
+        //     启动时会用持久化的 decorated 值调 set_decorations()，把
+        //     tauri.conf.json 的 decorations:false 覆盖回 true —— 老用户的状态文件
+        //     里存的就是 decorated:true，无边框因此永远不生效。窗口装饰属于静态
+        //     配置，不应被运行时状态恢复。
         .plugin(tauri_plugin_log::Builder::new().build())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        .difference(tauri_plugin_window_state::StateFlags::DECORATIONS),
+                )
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         // Rust-backed fetch so third-party LLM APIs that reject

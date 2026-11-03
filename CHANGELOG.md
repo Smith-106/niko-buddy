@@ -7,6 +7,16 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.26.2] - 2026-11-04
+
+### Fixed
+
+- 修复：v2.26.1 的无边框窗口在真机上不生效，仍显示两条标题栏。根因是 `tauri-plugin-window-state` 默认 `StateFlags::all()` 包含 `DECORATIONS`，启动时用持久化的 `decorated` 值调用 `set_decorations()`（插件 `lib.rs:185`），把 `tauri.conf.json` 的 `decorations: false` 覆盖回 `true`；老用户的状态文件（`<config-dir>/.window-state.json`）里存的正是 `decorated: true`，所以配置改对了、真机仍是有边框。现在把 `DECORATIONS` 从恢复集里排除 —— 窗口装饰属静态配置，不该被运行时状态恢复。
+
+### Changed
+
+- 变更：发布语义 **stable**。2026-11-04 由用户批准（登记 `weekly-stable` / `same-day-duplicate` / `thirty-day-stable` 三项节奏豁免），使已装 v2.26.1 的用户可通过应用内更新器自动升级。
+
 ## [2.26.1] - 2026-11-03
 
 ### Fixed

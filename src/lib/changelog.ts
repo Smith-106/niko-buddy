@@ -15,6 +15,21 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.26.2（2026-11-04）：修复无边框窗口真机未生效 —— window-state 插件恢复 decorated 覆盖了配置。
+    version: "2.26.2",
+    date: "2026-11-04",
+    highlights: {
+      en: [
+        "Fixed: the frameless window from 2.26.1 did not take effect on real machines, which still showed two title bars. tauri-plugin-window-state defaults to StateFlags::all(), which includes DECORATIONS, so on startup it called set_decorations() with the persisted decorated value and turned the tauri.conf.json decorations:false back into true. Existing users' state files hold decorated:true, so the config was right while the running app stayed decorated.",
+        "Changed: DECORATIONS is now excluded from the restored state flags - window decoration is static configuration and must not be restored from runtime state.",
+      ],
+      zh: [
+        "修复：v2.26.1 的无边框窗口在真机上不生效，仍显示两条标题栏。tauri-plugin-window-state 默认 StateFlags::all() 含 DECORATIONS，启动时用持久化的 decorated 值调用 set_decorations()，把 tauri.conf.json 的 decorations:false 覆盖回 true；老用户状态文件里存的正是 decorated:true，所以配置改对了、真机仍是有边框。",
+        "变更：把 DECORATIONS 从恢复的状态标志里排除 —— 窗口装饰属静态配置，不该被运行时状态恢复。",
+      ],
+    },
+  },
+  {
     // 2.26.1（2026-11-03）：修复重复标题栏 —— 窗口改无边框，并补回缺失的四个窗口权限。
     version: "2.26.1",
     date: "2026-11-03",

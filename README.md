@@ -15,11 +15,15 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.26.1-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.26.2-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
+
+## v2.26.2 修复（无边框窗口真机未生效，正式稳定版）
+
+v2.26.1 把窗口改成无边框后，真机仍显示两条标题栏 —— 原因是 `tauri-plugin-window-state` 默认 `StateFlags::all()` 包含 `DECORATIONS`，启动时用持久化的 `decorated` 值调用 `set_decorations()`，把 `tauri.conf.json` 的 `decorations: false` 又覆盖回 `true`；老用户的状态文件里存的正是 `decorated: true`。本版把 `DECORATIONS` 从恢复集里排除（窗口装饰属静态配置，不该被运行时状态恢复）。
 
 ## v2.26.1 修复（重复标题栏，正式稳定版）
 
