@@ -111,6 +111,17 @@
         "weekly-stable",
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.26.1",
+      "reason": "用户于 2026-11-03 明确批准直接发 v2.26.1 稳定版，修复 Windows 上两条标题栏叠在一起（主窗口 decorations 从未设置，默认 true，与应用内 TitleBar 的无边框设计冲突），并补回此前缺失的四个窗口权限（应用内最小化/最大化/关闭按钮一直是死的，try/catch 静默吞掉权限拒绝）。规则事实：weekly-stable —— v2.25.2（2026-11-02）、v2.26.0（2026-11-03）、v2.26.1（2026-11-03）同属 ISO 周 2026-11-02，该周 stable 计数为 3；same-day-duplicate —— v2.26.0 与 v2.26.1 同为 2026-11-03，同日 stable 计数为 2；thirty-day-stable —— 发布前 30 天 stable 19 个（上限 4），属历史连续高频发布所致，非跳过工程门禁。发版门禁：typecheck 0、eslint 0 problem、vitest changelog 38 passed、boundaries 5/5、gen:check 6/6、consistency 14/14、cargo fmt --check PASS。",
+      "approvedBy": "user",
+      "approvedAt": "2026-11-03",
+      "scope": [
+        "weekly-stable",
+        "same-day-duplicate",
+        "thirty-day-stable"
+      ]
     }
   ]
 }
