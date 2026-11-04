@@ -144,6 +144,17 @@
         "same-day-duplicate",
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.26.4",
+      "reason": "用户于 2026-11-04 明确要求发 v2.26.4 稳定版：主控三档权能补全（主控 run 页签内可配置写作设置与 aiWorkflowMode、drafts 页签可采纳草稿、live 页签可重跑门控、深章阶段产出/共识写作/标题生成/记忆回填四项接进 trace 与 live、autoGenerateChapterTitle 从恒真变为真开关），把上一版遗留的「主控内只有只读视图」补齐为可配/可触发/可观测。规则事实（按本机时区 +0900 的本地日期计）：weekly-stable —— ISO 周 2026-11-02 有 6 个 stable（v2.25.2 本地 11-02 / v2.26.0 本地 11-03 / v2.26.1、v2.26.2、v2.26.3、v2.26.4 本地 11-04）；same-day-duplicate —— 2026-11-04 当日 stable 计数 4（v2.26.1 / v2.26.2 / v2.26.3 / v2.26.4，均为不同 tag 先后发布，未重打任何已发布 tag）；thirty-day-stable —— 发布前 30 天 stable 22 个（上限 4），属历史连续高频发布所致，非跳过工程门禁。发版门禁：见本次发版门禁实测输出（typecheck / eslint / vitest 全量 / boundaries / gen:check / consistency / cargo fmt --check）。",
+      "approvedBy": "user",
+      "approvedAt": "2026-11-04",
+      "scope": [
+        "weekly-stable",
+        "same-day-duplicate",
+        "thirty-day-stable"
+      ]
     }
   ]
 }
