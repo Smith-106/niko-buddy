@@ -4476,6 +4476,8 @@
     "settingsReviewModel": "审查模型",
     "settingsFollowChatModel": "跟随会话模型",
     "settingsWritingModelRemoved": "写作模型已移除：正文始终使用 AI 会话当前模型。",
+    "settingsWritingModelDiscardedTitle": "写作模型配置已移除",
+    "settingsWritingModelDiscardedBody": "旧配置里的写作模型「{{value}}」已被丢弃，正文现在始终使用 AI 会话当前模型。如果你希望继续用原来的模型写作，请在会话里切换到该模型。",
     "settingsAiWorkflowMode": "工作流强度",
     "settingsAiWorkflowModeHint": "决定计划协议强度、技能裁剪与深章工具注册。",
     "settingsSaveFailed": "配置落盘失败：{{message}}",

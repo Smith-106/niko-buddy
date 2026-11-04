@@ -57,13 +57,34 @@ export async function saveHeatSnapshot(
   }
 }
 
+/**
+ * 单条命中是否可用。
+ *
+ * 必要性（A-04）：快照是**用户磁盘状态**，可能因历史版本、手工编辑、部分写或
+ * 磁盘异常而含非法元素。只校验容器（`Array.isArray(hits)`）时，一条非 `ModuleHit`
+ * 记录会经 `hydrate` 并入 store，渲染时 `moduleLabel(undefined).replace` 抛 TypeError
+ * 被 ErrorBoundary 接住 —— 热力图视图从此渲染不出来且不自愈，用户也不知道该删哪个文件。
+ * 故在读盘侧逐条过滤，坏条目丢弃而非让整份快照失效。
+ */
+function isUsableHit(value: unknown): value is ModuleHit {
+  if (!value || typeof value !== "object") return false
+  const hit = value as Partial<ModuleHit>
+  return (
+    typeof hit.path === "string" &&
+    hit.path.length > 0 &&
+    typeof hit.at === "number" &&
+    Number.isFinite(hit.at)
+  )
+}
+
 /** 读取快照；缺失/损坏一律返回空窗口。 */
 export async function loadHeatSnapshot(projectPath: string): Promise<ModuleHeatSnapshot | null> {
   try {
     const raw = await readFile(heatSnapshotPath(projectPath))
     const parsed = JSON.parse(raw) as ModuleHeatSnapshot
     if (!parsed || parsed.fileVersion !== 1 || !Array.isArray(parsed.hits)) return null
-    return parsed
+    // 逐条过滤（A-04）：合法条目原样保留，坏条目丢弃，不因个别坏数据整份失效。
+    return { ...parsed, hits: parsed.hits.filter(isUsableHit) }
   } catch {
     return null
   }

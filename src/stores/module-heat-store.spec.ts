@@ -16,9 +16,8 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 
 const { useModuleHeatStore, shouldFlushHeat, startModuleHeatFlushLoop, FLUSH_TICK_MS } =
   await import("./module-heat-store")
-const { recordModuleHit, setModuleHeatSink, heatTotals, MODULE_ATLAS } = await import(
-  "@/lib/novel"
-)
+const { recordModuleHit, setModuleHeatSink, heatTotals, MODULE_ATLAS, toHeatLog, moduleLabel } =
+  await import("@/lib/novel")
 
 /** 手工放行的 promise 闸门：用来把「回填读盘」「写盘」卡在中间，观察中途状态。 */
 function deferred<T>() {
@@ -128,6 +127,46 @@ describe("module-heat-store", () => {
     mocks.readFile.mockResolvedValueOnce('{"fileVersion":9}')
     await useModuleHeatStore.getState().hydrate("/proj")
     expect(useModuleHeatStore.getState().hits).toEqual([])
+  })
+
+  // A-04 回归：快照是用户磁盘状态，可能含历史版本/手工编辑/部分写留下的非法元素。
+  // 只校验容器时，一条非 ModuleHit 会经 hydrate 进 live store，渲染 toHeatLog →
+  // moduleLabel(undefined).replace 抛 TypeError 被 ErrorBoundary 接住 —— 热力图视图
+  // 从此渲染不出来且不自愈。此处断言读盘侧逐条过滤：坏条目丢弃，好条目保留。
+  it("A-04：hydrate 逐条过滤非法命中，坏数据不让整份快照失效", async () => {
+    const dirty = [
+      "chapter.write",
+      null,
+      42,
+      { at: 1, ok: true },
+      { path: "", at: 2, ok: true },
+      { path: "no-at.ts", ok: true },
+      { path: "nan-at.ts", at: Number.NaN, ok: true },
+      { path: "inf-at.ts", at: Number.POSITIVE_INFINITY, ok: true },
+      { path: "good-a.ts", at: 10, ok: true },
+      { path: "good-b.ts", at: 11, ok: false, ms: 3, detail: "d" },
+    ]
+    mocks.readFile.mockResolvedValueOnce(
+      JSON.stringify({ fileVersion: 1, sessionStartedAt: 1, savedAt: 2, hits: dirty }),
+    )
+    await useModuleHeatStore.getState().hydrate("/proj")
+    expect(useModuleHeatStore.getState().hits.map((h) => h.path)).toEqual([
+      "good-a.ts",
+      "good-b.ts",
+    ])
+  })
+
+  it("A-04：过滤后仍能正常出日志（不抛 moduleLabel 的 undefined.replace）", async () => {
+    mocks.readFile.mockResolvedValueOnce(
+      JSON.stringify({
+        fileVersion: 1,
+        sessionStartedAt: 1,
+        savedAt: 2,
+        hits: ["bogus", { path: "src/lib/novel/module-heat.ts", at: 5, ok: true }],
+      }),
+    )
+    await useModuleHeatStore.getState().hydrate("/proj")
+    expect(() => toHeatLog(useModuleHeatStore.getState().hits, moduleLabel)).not.toThrow()
   })
 
   it("hydrate 合并后仍受环形缓冲上限约束", async () => {

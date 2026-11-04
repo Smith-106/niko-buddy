@@ -71,3 +71,108 @@
 - **未跑**：全量真机 Tauri IPC UAT（DEBT-20261104-residual-02）。
 - **未测**：真实上游多模型成本测量——`REQUIRED_TOOL_NUDGE_MAX = 2` 是按「每次 nudge 都是一次整章级调用」的调用次数推算出来的上界，没有做线上成本实测。
 - 补录说明：本文件是本次改动的**唯一权威留痕**。`src/lib/changelog.ts` 的条目**有意不在这里写**：该文件与版本四源同步属发版步骤（`PARALLEL-PACT` P16 单写者红线 + `scripts/bump-version.mjs` 的既定顺序：目标版本先登记在 `ENTRIES`，再同步版本源），而本次并未发版（`package.json` 仍为 `2.26.4`）。补录时曾尝试直接加一条 `2.26.5` 条目，但造成两处不一致——`changelog.spec.ts` 硬编码的头部发布链（期望以 `2.26.4` 开头）变红、`npm run consistency` 的 `version/single-source` 报「changelog 到 2.26.5 而 package 仍 2.26.4」——且本质上是**编造一个不存在的发布版本**。已整体回退，`changelog.spec.ts` 恢复 38/38。发版时必须把本文件的六条 DEC 与 BREAKING CHANGE 落成对应 `ENTRIES` 条目。
+
+---
+
+## 七、遗留台账清偿（20261104-ralph-residual-debt）
+
+本节清偿上一 Session 的 4 项遗留。全部结论以真机或机械门禁为证，未测项照旧记「未测」。
+
+### 7.1 DEBT-20261104-residual-02 —— 真机 UAT 已可做，且已通过
+
+**原结论被推翻。** 上一轮判定「computer-use 不可用 ⇒ 5 条交互路径无法验证」，这是错的。可靠通道是：
+
+1. 应用没有 React Router，视图切换走 zustand 的 `useWikiStore.setActiveView`；
+2. **Vite dev 的 ESM 模块图与页面共享** —— `import("/src/stores/wiki-store.ts")` 拿到的就是页面正在用的那个实例。
+
+于是可以 `setActiveView("mainControl")` 直接切视图、`import("/src/lib/novel/module-heat.ts").recordModuleHit(hit)` 直接打埋点，完全绕开「无 `data-testid` + 折叠分组」的侧边栏。通道为 WebView2 远程调试（`--remote-debugging-port=9222`）+ Playwright `connectOverCDP`，真机身份实测 `isTauri === true`、`hasInvoke === true`。
+
+真机已通过：
+
+| 路径 | 证据 |
+|---|---|
+| F12 热力图全链 | `recordModuleHit ok` → `hitsAfterEmit=2` → `flush ok` → 盘上 `.novel/telemetry/module-heat.json` 出现合法 `ModuleHit`；`hydratedFor` 为正确项目路径，证明 per-project 生效 |
+| TASK-001 路由 | 6/6 符合预期，含问句→`general_chat`、陈述→`write_chapter`、`生成大纲草稿`→`outline`、中文数字章号 |
+| 主控视图 | `setActiveView('mainControl')` 后 `[data-testid^="main-control"]` 命中 28 个节点 |
+
+**仍记为未测**：主控门控重跑回读（F14/B9）与首页证据看板防污染（B3）需先有一份 `main-control-rerun` 账本记录，本轮没有构造，不做推测性声称。
+
+### 7.2 新发现并修复：A-04 读盘侧不校验命中条目
+
+`module-heat-persist.ts` 的 `loadHeatSnapshot` 原本只校验容器（`fileVersion === 1` 与 `Array.isArray(hits)`），不校验元素。后果链：
+
+```
+盘上一条非 ModuleHit 记录 → hydrate 并入 live store → 渲染 toHeatLog
+→ moduleLabel(undefined).replace → TypeError → ErrorBoundary → 热力图视图渲染不出来且不自愈
+```
+
+`module-heat.json` 是**用户磁盘状态**，可能因历史版本、手工编辑、部分写或磁盘异常而污染，而用户没有任何线索知道该删哪个文件。
+
+修法：读盘侧逐条过滤，仅保留 `path` 为非空 string 且 `at` 为有限 number 的记录；坏条目丢弃而非让整份快照失效。不移动 `fileVersion` 契约。回归见 `module-heat-store.spec.ts` 的两条 `A-04` 用例。
+
+> 诚实说明：该崩溃是测试时误传字符串 `hit` 才暴露的（`record` 收的是 `ModuleHit` 对象）。所以**崩溃本身不是产品缺陷**，但**读盘侧缺校验是真问题**。被污染的用户真实项目文件已按创建时间核对（测试期间生成）并删除，恢复原状。
+
+### 7.3 DEBT-20261104-residual-04 —— 用户拍板：接受切换，留痕 + 告知
+
+真实项目 `C:/QM-BOOK/身体都是租的，你让我修仙？` 的 `novelConfig` 里该键为**非空真值** `deepseek/muse-spark-1.3-contributor-free`。用户选择：保留 DEC-R2=A 的真删除，但**留痕 + 告知**。
+
+| 动作 | 落点 |
+|---|---|
+| 留痕 | `project-store.ts` 新增 `DiscardedWritingConfigNotice` 登记表（进程内 Map，key 为作用域），在 `warnDeprecatedWritingModel` 里记录被丢弃的原始值；`listDiscardedWritingConfigs()` 供诊断 |
+| 告知 | 设置页新增 `DiscardedWritingConfigNoticeBanner`（`data-testid="novel-writing-model-discarded-notice"`），当作用域有非空丢弃值时显示原值并说明「正文现在始终使用 AI 会话当前模型」，可关闭；关闭态存 localStorage，不新增配置项 |
+| 不做的 | 不重新引入可配置写作模型（不推翻 DEC-R2=A）；不为一次性提示新增 schema 字段 |
+
+已观察到的真实丢弃值（备查）：`deepseek/muse-spark-1.3-contributor-free`（项目 `C:/QM-BOOK/身体都是租的，你让我修仙？`）。
+
+i18n 键成对落地：`mainControl.settingsWritingModelDiscardedTitle` / `mainControl.settingsWritingModelDiscardedBody`（zh + en，`{{value}}` 插值）。
+
+### 7.4 RVF-12 —— 消息形态不变量已约束，真实 provider 接受度仍未验证
+
+**必须先说清边界**：真实 provider 凭据在本环境实测 `401`（同一配置在应用内手动生成同样失败），因此**没有**、也不得声称做过「真调一次」的验证。
+
+本轮做的是可主动约束的部分 —— 把协议级不变量固化成测试（`runner.spec.ts` 的 `RVF-12` 两条用例）：
+
+- `nudge` 的 `system` 消息内容非空（空 content 会被多家 provider 直接 400）；
+- 相邻消息**不得同角色**（`system` 相邻、`user` 相邻、`assistant` 相邻都算违规）。
+
+同时读码确认适配层已把 `role: "system"` 从会话中摘出：`llm-providers.ts` 的 `buildAnthropicBody` 走顶层 `system`（`toAnthropicSystem`）、`buildGoogleBody` 走 `systemInstruction`、OpenAI 系原位保留。**这是读码确认，不是运行时验证。**
+
+> 上一轮曾担心「`role:"system"` 在 Anthropic 的 messages 数组里非法」——该风险在适配层已被消解。但「某家 provider 的真实服务端是否接受 nudge 这组具体措辞与轮次」仍属未验证，灰度时观察 400/协议错误。
+
+### 7.5 changelog 条目 —— 内容已备好，插入必须随发版
+
+**修正上一轮的一个过严判断**，同时修正本轮 analyze 的一个不可行计划：
+
+- 本轮 analyze 原计划「用 Unreleased 段落落地」**不可行**：`changelog.spec.ts` 对 `ENTRIES[].version` 做 semver 硬校验（`split(".").map(Number)`），无版本号的条目会产出 `NaN` 比较；仓库也没有任何 draft/unreleased 机制。
+- 上一轮的「整体回退」判断在方向上仍然正确：`ENTRIES` 头部与 `package.json` 属版本四源同步，由 `scripts/bump-version.mjs` 按既定顺序写入（`PARALLEL-PACT` P16 单写者红线）。
+
+因此本轮**不修改** `src/lib/changelog.ts`，而是把**可直接粘贴的条目**备在这里，发版时按 `bump-version.mjs` 的顺序插入：
+
+```ts
+// 2.26.5（发版时填日期）：主控路由/兜底顺序/计划持久化/热力落盘/门控账本收口；BREAKING：写作模型不再可配置。
+{
+  version: "2.26.5",
+  date: "<发版日 YYYY-MM-DD>",
+  highlights: {
+    en: [
+      "Breaking: the writing model is no longer configurable. The writingModel field was removed from NovelConfig — body text always uses the current AI chat model. Projects whose saved config still carried a non-empty value will see that value discarded; the settings page now shows the discarded value once with a dismissible notice, and existing configs are never blocked from loading. Use reviewModel to pin a model for review.",
+      "Fixed: task routing no longer drops the chapter number on the general-chat early exit, and the handoff template pattern is anchored at the end so questions such as 「为「第12章 旧梦」生成本章草稿吗？」 stay general chat. Chinese numerals are recognised when extracting chapter numbers.",
+      "Changed: required-tool enforcement nudges the model first and only falls back to the deterministic path when the nudge budget (2) or the last round is exhausted, so a model that complies on the second attempt produces its own text instead of a silently substituted chapter.",
+      "New: chapter plans are persisted to .novel/plans/chapter-<N>.md and read back on the next run; the plan source (user-supplied vs model-drafted) drives the wording of the constraint.",
+      "Fixed: module heat is installed at app start and flushed by an app-level loop, so campaign-runner / incubator / director hits are no longer dropped when the heatmap view is closed. Snapshots are written atomically, hydrated per project before any overwrite, and read-side filtering now drops malformed entries instead of letting them crash the heatmap view.",
+      "Fixed: gate-run conclusions are now recorded to the ledger and read back in main control. A single authority filter (isAuthoritativeGateRun) is shared by every reader, so draft runs can no longer pollute coverage, lineage or repair-cost figures, and the rerun block distinguishes this run from history.",
+      "Fixed: the review radar chart is fed real six-dimension scores instead of rendering an unreachable empty branch.",
+    ],
+    zh: [
+      "破坏性变更：写作模型不再可配置。writingModel 字段已从 NovelConfig 删除，正文始终使用 AI 会话当前模型。旧配置里仍带非空值的项目会看到该值被丢弃；设置页现在会显示一次被丢弃的原值并提供可关闭的通知，配置载入从不因此被阻断。若需为审稿指定模型，请用 reviewModel。",
+      "修复：任务路由不再在通用对话早退时丢掉章号，交接模板正则补了尾部锚定，像「为「第12章 旧梦」生成本章草稿吗？」这样的问句仍归通用对话；提取章号时也识别中文数字。",
+      "变更：必调工具门控改为先 nudge 模型，只有在 nudge 预算（2 次）用尽或已到末轮时才走确定性兜底，因此第二次就配合的模型会产出自己的正文，而不是被静默替换。",
+      "新增：章节计划持久化到 .novel/plans/chapter-<N>.md，并在下次运行时读回；计划来源（用户给定 vs 模型自拟）决定约束措辞的强弱。",
+      "修复：模块热力在应用启动时即安装、由应用级循环落盘，热力图视图关闭时 campaign-runner / incubator / director 的埋点不再丢失；快照改为原子写、按项目先回填再覆盖写，读盘侧新增逐条过滤，坏条目不再让热力图视图崩溃。",
+      "修复：门控运行结论现在落账并在主控回读。所有读端共用同一个权威过滤器（isAuthoritativeGateRun），草稿运行不再污染覆盖率、血缘率与重跑成本，重跑块也区分本次与历史。",
+      "修复：审查雷达图接入真实六维分数，不再渲染一条永远走不到的空分支。",
+    ],
+  },
+},
+```
+

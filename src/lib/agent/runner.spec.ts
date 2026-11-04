@@ -29,7 +29,11 @@ vi.mock("../llm-client", async (importOriginal) => {
 import type { StreamCallbacks } from "../llm-client"
 import { AgentRunner, ModelDoesNotSupportToolsError, REQUIRED_TOOL_NUDGE_MAX } from "./runner"
 import { ToolRegistry } from "./registry"
-import { RequiredToolFallbackError, RequiredToolsNotCalledError } from "./required-tools-gate"
+import {
+  buildRequiredToolNudgeMessage,
+  RequiredToolFallbackError,
+  RequiredToolsNotCalledError,
+} from "./required-tools-gate"
 import type {
   AgentConfig,
   AgentMessage,
@@ -336,6 +340,53 @@ describe("必调工具门控：工具未调用 + 重试耗尽 → 明确诊断",
     expect(diagnostics.provider).toBe("openai")
     expect(diagnostics.model).toBe("gpt-4o-mini")
     expect(diagnostics.observedToolCalls).toEqual([])
+  })
+
+  // ── RVF-12：nudge 注入后的消息形态不变量 ──
+  //
+  // 背景：nudge 的形态是「（可选的）assistant 散文 + 紧随的 role:system」。旧实现基本走不到
+  // 这条路径，现在它是所有必调工具运行的主路径。真实 provider 是否接受这个形态无法在本仓
+  // 内用单测证明（需真凭据），但属于**我们可以主动约束**的部分能做到：
+  //   - system 消息内容非空（空 content 会被多家 provider 直接 400）；
+  //   - 不出现连续两条 system（部分 provider 要求 system 必须单条）；
+  //   - user/assistant 不出现连续同角色（Anthropic 交替约束）。
+  // 断言的是「我们不主动构造非法形态」，不是「provider 一定接受」——两者不得混为一谈。
+  it("RVF-12：nudge 注入后的消息形态满足协议级不变量", async () => {
+    const sentMessages = scriptStream([
+      { text: "第一轮散文，不调工具" },
+      { text: "第二轮仍然不调工具" },
+    ])
+    const tool = createWorkflowTool()
+    await runAgent(
+      createConfig([tool], { requiredToolsOnce: [WORKFLOW_TOOL], maxRounds: 2 }),
+      [tool],
+    )
+
+    // 真发生了 nudge：第 2 轮请求里带着它
+    expect(nudgeInjected(sentMessages[1])).toBe(true)
+
+    for (const messages of sentMessages) {
+      for (const message of messages) {
+        if (message.role !== "system") continue
+        expect(typeof message.content).toBe("string")
+        expect((message.content as string).trim().length).toBeGreaterThan(0)
+      }
+
+      // 真正的协议约束是「不得相邻同角色」，不是「system 至多一条」：
+      // 第 2 轮合法地同时存在「调用方的 systemPrompt」与「nudge」，
+      // 而 llm-providers 会把所有 system 上提/合并（Anthropic 顶层 system、
+      // Google systemInstruction、OpenAI 原位保留），所以条数不是问题，相邻才是。
+      for (let i = 1; i < messages.length; i += 1) {
+        expect(messages[i].role).not.toBe(messages[i - 1].role)
+      }
+    }
+  })
+
+  it("RVF-12：nudge 内容本身非空且点名缺失工具", async () => {
+    const message = buildRequiredToolNudgeMessage([WORKFLOW_TOOL])
+    expect(typeof message).toBe("string")
+    expect(message.trim().length).toBeGreaterThan(0)
+    expect(message).toContain(WORKFLOW_TOOL)
   })
 
   it("模型始终不调工具、兜底入口存在但执行失败 → RequiredToolFallbackError，诊断记录兜底失败原因", async () => {

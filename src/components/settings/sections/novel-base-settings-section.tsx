@@ -1,11 +1,12 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
-import { useId } from "react"
+import { useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Label } from "@/components/ui/label"
 import { OUTLINE_GENRE_CODES, sanitizeJournalTtlMs } from "@/lib/novel"
-import type { NovelConfig } from "@/stores/wiki-store"
+import { getDiscardedWritingConfig } from "@/lib/discarded-writing-config-notice"
+import { useWikiStore, type NovelConfig } from "@/stores/wiki-store"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import {
   NovelDecimalField,
@@ -26,6 +27,54 @@ export { NovelSettingTooltip, NovelToggle } from "./novel-section-panels"
  */
 const JOURNAL_TTL_MIN_MS = 60_000
 const JOURNAL_TTL_MAX_MS = 7 * 24 * 60 * 60 * 1000
+
+/** 一次性告知横幅的关闭状态（只存浏览器侧，不新增配置项）。 */
+const DISMISSED_NOTICE_STORAGE_KEY = "niko-buddy.discarded-writing-config-notice.dismissed"
+
+/**
+ * DEBT-residual-04「告知」：旧写作模型配置被丢弃时，设置页用可关闭横幅显示**原值**。
+ *
+ * 为什么需要（用户已拍板「接受切换，但留痕 + 告知」）：字段真删除后写作改走 AI 会话当前模型，
+ * 已有非空配置的项目会发生行为变化。只打 console 用户看不到，因此在这里显式告知并留下原值，
+ * 便于用户自行决定是否在别处重新配置等价模型。字段不复活（DEC-R2=A 不变）。
+ */
+function DiscardedWritingConfigNoticeBanner(): React.ReactElement | null {
+  const { t } = useTranslation()
+  const projectPath = useWikiStore((s) => s.project?.path ?? null)
+  const [dismissed, setDismissed] = useState(
+    () => typeof localStorage !== "undefined" && localStorage.getItem(DISMISSED_NOTICE_STORAGE_KEY) === "1",
+  )
+  const notice = getDiscardedWritingConfig(projectPath ?? "全局")
+  if (dismissed || !notice || notice.value === "") return null
+  return (
+    <div
+      data-testid="novel-writing-model-discarded-notice"
+      className="flex items-start gap-3 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-xs"
+    >
+      <div className="flex-1 space-y-1">
+        <p className="font-medium text-foreground">{t("mainControl.settingsWritingModelDiscardedTitle")}</p>
+        <p className="text-muted-foreground">
+          {t("mainControl.settingsWritingModelDiscardedBody", { value: notice.value ?? "" })}
+        </p>
+      </div>
+      <button
+        type="button"
+        data-testid="novel-writing-model-discarded-notice-dismiss"
+        className="shrink-0 rounded px-2 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        onClick={() => {
+          setDismissed(true)
+          try {
+            localStorage.setItem(DISMISSED_NOTICE_STORAGE_KEY, "1")
+          } catch {
+            // 隐私模式/存储禁用：关掉本次即可，不阻断设置页
+          }
+        }}
+      >
+        {t("common.close")}
+      </button>
+    </div>
+  )
+}
 
 interface NovelBaseSettingsSectionProps {
   draft: SettingsDraft
@@ -241,6 +290,8 @@ export function NovelBaseSettingsSection({ draft, setDraft, updateNovelConfig }:
             </div>
             <p className="text-xs text-muted-foreground">{t("mainControl.settingsAiWorkflowModeHint")}</p>
           </div>
+
+          <DiscardedWritingConfigNoticeBanner />
 
           {/* D2=C（TASK-009 已落地）：`writingModel` 字段已从 NovelConfig 删除，写作固定走 AI 会话当前模型，
               故这里只保留「已移除」只读说明，不加（也不可能再加）可编辑控件。 */}

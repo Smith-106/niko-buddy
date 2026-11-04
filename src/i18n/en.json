@@ -4476,6 +4476,8 @@
     "settingsReviewModel": "Review model",
     "settingsFollowChatModel": "Follow chat model",
     "settingsWritingModelRemoved": "Writing model removed: body text always uses the current AI chat model.",
+    "settingsWritingModelDiscardedTitle": "Writing model setting removed",
+    "settingsWritingModelDiscardedBody": "The writing model from your old configuration (“{{value}}”) has been discarded; body text now always uses the current AI chat model. To keep writing with that model, switch the chat to it.",
     "settingsAiWorkflowMode": "Workflow intensity",
     "settingsAiWorkflowModeHint": "Controls plan-protocol strength, skill trimming, and deep-chapter tool registration.",
     "settingsSaveFailed": "Failed to save config: {{message}}",

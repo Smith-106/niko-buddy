@@ -1,4 +1,5 @@
 import { getStore } from "@/lib/web-store"
+import { noteDiscardedWritingConfig } from "@/lib/discarded-writing-config-notice"
 import type { WikiProject } from "@/types/wiki"
 import type { LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProviderConfigs, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, NovelConfig, RerankConfig } from "@/stores/wiki-store"
 import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG, isSearchRecipeId } from "@/stores/wiki-store"
@@ -724,6 +725,9 @@ function warnDeprecatedWritingModel(
   warnedDeprecatedWritingModelScopes.add(scope)
 
   const discarded = (config as unknown as Record<string, unknown>)[DEPRECATED_NOVEL_CONFIG_KEY]
+  // DEBT-residual-04：先把「丢弃了什么」留痕（供设置页告知），再决定是否刷 console。
+  // 放在去重闸之前：去重只想控制日志刷屏，不应让留痕也只在第一个作用域生效一次。
+  noteDiscardedWritingConfig(scope, discarded)
   console.warn(
     `[project-store] ${scope} 的 novelConfig 已含废弃字段 writingModel（值 ${JSON.stringify(discarded)}），`
       + "该值已被丢弃。写作模型不再可配置：TASK-009 已从 NovelConfig 删除该字段，"
