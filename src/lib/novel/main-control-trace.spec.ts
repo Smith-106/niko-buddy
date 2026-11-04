@@ -94,9 +94,15 @@ describe("快照持久化", () => {
     const snapshot = buildTraceSnapshot({
       goal: "给第 5 章写开头",
       ok: true,
+      // TASK-014：写侧本来就落这 9 个字段，丢字段的是读回端（面板）。这里把
+      // 9 个字段全部钉住，防止以后有人「为了修复回放」去改写入形状。
+      stopReason: "达到最大轮次",
       roundsUsed: 2,
       finalText: "完成",
       steps: [step({ callId: "c1", name: "read_chapter", result: "正文", at: 1, finishedAt: 3 })],
+      activities: [
+        { id: "a1", stageId: "s1", kind: "stage_output", title: "阶段产出", content: "片段", timestamp: 7 },
+      ],
       now: 99,
     })
     await expect(saveTraceSnapshot("/proj", snapshot)).resolves.toBe(true)
@@ -105,11 +111,82 @@ describe("快照持久化", () => {
     expect(path).toBe(`/proj/${MAIN_CONTROL_TRACE}`)
     const parsed = JSON.parse(payload)
     expect(parsed.entries[0]).toMatchObject({ name: "read_chapter", result: "正文", durationMs: 2 })
+    // 9 个字段一个不少（fileVersion / goal / savedAt / ok / stopReason / roundsUsed / finalText / entries / activities）
+    expect(Object.keys(parsed).sort()).toEqual(
+      ["activities", "entries", "fileVersion", "finalText", "goal", "ok", "roundsUsed", "savedAt", "stopReason"],
+    )
 
     mocks.readFile.mockResolvedValueOnce(payload)
     const loaded = await loadTraceSnapshot("/proj")
     expect(loaded?.goal).toBe("给第 5 章写开头")
     expect(loaded?.entries).toHaveLength(1)
+    // 读回不丢字段：ok / stopReason / roundsUsed / finalText / activities 全在
+    expect(loaded).toMatchObject({ ok: true, stopReason: "达到最大轮次", roundsUsed: 2, finalText: "完成" })
+    expect(loaded?.activities).toEqual([{ kind: "stage_output", title: "阶段产出", summary: "片段", at: 7 }])
+  })
+
+  it("TASK-015：写入侧全字段快照 → 读回端 6 项逐字段比对（丢任一项即失败）", async () => {
+    // 写侧造一份含全部 6 项的快照（activities / finalText / goal / ok / stopReason / roundsUsed），
+    // 值一律取「非默认值」：读回端若把某项丢了（undefined / 0 / "" / 缺数组），下面的逐字段断言必红。
+    const snapshot = buildTraceSnapshot({
+      goal: "回放目标：第 9 章结尾",
+      ok: false,
+      stopReason: "工具调用轮次超限",
+      roundsUsed: 3,
+      finalText: "回放终稿正文",
+      steps: [step({ callId: "c1", name: "read_chapter", result: "正文", at: 1, finishedAt: 3 })],
+      activities: [
+        { id: "a1", stageId: "s1", kind: "stage_output", title: "阶段产出", content: "片段", timestamp: 7 },
+        { id: "a2", stageId: "s1", kind: "analysis", title: "共识写作", content: "席位: 3", timestamp: 8 },
+      ],
+      now: 123,
+    })
+    await expect(saveTraceSnapshot("/proj", snapshot)).resolves.toBe(true)
+    const [, payload] = mocks.writeFile.mock.calls[0] as unknown as [string, string]
+
+    mocks.readFile.mockResolvedValueOnce(payload)
+    const loaded = await loadTraceSnapshot("/proj")
+    expect(loaded).not.toBeNull()
+
+    // ① goal —— 逐字段：断言的是这一项的值本身，不是「对象非空」。
+    expect(loaded?.goal).toBe("回放目标：第 9 章结尾")
+    // ② ok（注意 false 也是有效值：丢了会变 undefined，不会碰巧通过）
+    expect(loaded?.ok).toBe(false)
+    // ③ stopReason
+    expect(loaded?.stopReason).toBe("工具调用轮次超限")
+    // ④ roundsUsed
+    expect(loaded?.roundsUsed).toBe(3)
+    // ⑤ finalText
+    expect(loaded?.finalText).toBe("回放终稿正文")
+    // ⑥ activities —— 不只断言长度，逐项逐字段比对
+    expect(loaded?.activities).toHaveLength(2)
+    expect(loaded?.activities?.[0]).toEqual({
+      kind: "stage_output",
+      title: "阶段产出",
+      summary: "片段",
+      at: 7,
+    })
+    expect(loaded?.activities?.[1]).toEqual({
+      kind: "analysis",
+      title: "共识写作",
+      summary: "席位: 3",
+      at: 8,
+    })
+
+    // 6 项键一个不少：读回端若被改成「挑几个字段构造新对象」（R07 的原始 bug），这里直接红。
+    expect(Object.keys(loaded ?? {}).sort()).toEqual(
+      [
+        "activities",
+        "entries",
+        "fileVersion",
+        "finalText",
+        "goal",
+        "ok",
+        "roundsUsed",
+        "savedAt",
+        "stopReason",
+      ],
+    )
   })
 
   it("读损坏或缺字段的快照返回 null", async () => {

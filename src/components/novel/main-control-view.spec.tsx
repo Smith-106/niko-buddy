@@ -24,6 +24,8 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 })
 
 const saveTraceSnapshot = vi.fn(async (_projectPath: string, _snapshot: unknown) => true)
+// TASK-014：回放读回端（磁盘快照 → 面板）。默认「没有快照」，与旧行为（真实实现读不到文件返回 null）一致。
+const loadTraceSnapshot = vi.fn(async (_projectPath: string): Promise<unknown | null> => null)
 
 vi.mock("@/lib/novel", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel")>()
@@ -36,6 +38,7 @@ vi.mock("@/lib/novel", async (importOriginal) => {
     adoptMainControlDraft,
     rerunMainControlGates,
     saveTraceSnapshot,
+    loadTraceSnapshot,
   }
 })
 
@@ -103,6 +106,8 @@ afterEach(() => {
   rerunMainControlGates.mockReset()
   saveTraceSnapshot.mockReset()
   saveTraceSnapshot.mockResolvedValue(true)
+  loadTraceSnapshot.mockReset()
+  loadTraceSnapshot.mockResolvedValue(null)
 })
 
 describe("MainControlView 管线动态挂载", () => {
@@ -837,5 +842,179 @@ describe("R03=a 显式「跑深章」入口", () => {
     expect(screen.getByTestId("main-control-error").textContent).toContain("深章生成失败")
     expect(screen.getByTestId("main-control-error").textContent).toContain("模型不可用")
     expect(screen.queryByTestId("main-control-deep-output")).toBeNull()
+  })
+})
+
+/**
+ * TASK-014（F10 + F11 + NF-05）：轨迹快照读回端。
+ *
+ * 快照共 9 个字段，旧实现只恢复 entries / savedAt，activities / finalText / goal /
+ * ok / stopReason / roundsUsed 六项全被丢弃 → 回放面板显示「假空态」（明明有阶段事件，
+ * 却说本次运行没有）。本组断言逐项钉住这 6 个字段「读回后可观测」，
+ * 以及空态文案必须区分「没有快照」与「快照存在但那次没有阶段事件」。
+ */
+describe("TASK-014 回放：快照 6 个字段全部读回（不再假空态）", () => {
+  const snapshot = {
+    fileVersion: 2 as const,
+    goal: "上次的目标：给第12章写开头",
+    savedAt: 1_700_000_000_000,
+    ok: false,
+    stopReason: "模型不支持工具调用",
+    roundsUsed: 4,
+    finalText: "上次运行的终稿正文",
+    entries: [
+      {
+        callId: "c1",
+        name: "read_chapter",
+        input: '{"name":"第12章"}',
+        result: "正文",
+        status: "done" as const,
+        startedAt: 1,
+        finishedAt: 421,
+        durationMs: 420,
+        title: "读取章节",
+        summary: "读了第12章",
+        details: [],
+      },
+    ],
+    activities: [
+      { kind: "stage_output" as const, title: "深章阶段产出", summary: "快照里的阶段产出片段", at: 11 },
+      { kind: "analysis" as const, title: "共识写作", summary: "席位: 3", at: 12 },
+    ],
+  }
+
+  it("activities / finalText / goal / ok / stopReason / roundsUsed 六项读回后都可观测", async () => {
+    loadTraceSnapshot.mockResolvedValue(snapshot)
+    render(<MainControlView />)
+
+    // ③ goal：回放把上次目标填回输入框（空目标时才填）
+    await waitFor(() =>
+      expect((screen.getByTestId("main-control-goal") as HTMLTextAreaElement).value).toBe(snapshot.goal),
+    )
+
+    // ① activities：快照投影进同一条阶段观测通道，而不是「本次运行没有阶段事件」
+    await waitFor(() => expect(screen.getByTestId("main-control-activity-stage_output")).toBeTruthy())
+    expect(screen.getByTestId("main-control-activity-analysis").textContent).toContain("共识写作")
+    expect(screen.getByTestId("main-control-activities").textContent).toContain("快照里的阶段产出片段")
+    expect(screen.getByTestId("main-control-activities-replay")).toBeTruthy()
+    expect(screen.getByTestId("main-control-activities").textContent).not.toContain("本次运行没有阶段事件")
+
+    // ② finalText + ⑥ roundsUsed：结论块读回上次运行的终稿与轮数
+    const finalBlock = screen.getByTestId("main-control-final")
+    expect(finalBlock.textContent).toContain("上次运行的终稿正文")
+    expect(finalBlock.textContent).toContain("4 轮")
+    expect(screen.getByTestId("main-control-final-replay")).toBeTruthy()
+
+    // ④ ok + ⑤ stopReason：结论里能看出上次没成功、以及中断原因
+    expect(screen.getByTestId("main-control-replay-verdict").textContent).toContain("上次运行未成功")
+    expect(screen.getByTestId("main-control-replay-stop-reason").textContent).toContain("模型不支持工具调用")
+
+    // 原有 2 项不得回退：entries / savedAt
+    expect(screen.getByTestId("main-control-trace-entry-read_chapter")).toBeTruthy()
+    expect(screen.getByTestId("main-control-trace-replay")).toBeTruthy()
+  })
+
+  it("快照 ok=true 时结论标为成功，且不渲染中断原因", async () => {
+    loadTraceSnapshot.mockResolvedValue({ ...snapshot, ok: true, stopReason: undefined, finalText: "完成" })
+    render(<MainControlView />)
+    await waitFor(() => expect(screen.getByTestId("main-control-replay-verdict")).toBeTruthy())
+    expect(screen.getByTestId("main-control-replay-verdict").textContent).toContain("上次运行成功")
+    expect(screen.queryByTestId("main-control-replay-stop-reason")).toBeNull()
+    expect(screen.getByTestId("main-control-final").textContent).toContain("完成")
+  })
+
+  it("快照存在但没有 activities：空态说「快照里没有阶段事件」，不冒充本次运行空", async () => {
+    loadTraceSnapshot.mockResolvedValue({ ...snapshot, activities: undefined })
+    render(<MainControlView />)
+    await waitFor(() =>
+      expect(screen.getByTestId("main-control-activities-empty").textContent).toContain(
+        "上次运行的快照里没有阶段事件",
+      ),
+    )
+    expect(screen.getByTestId("main-control-activities-empty").textContent).not.toContain(
+      "本次运行没有阶段事件",
+    )
+    // 快照在：回放标识仍在（证明这是「快照空」而不是「没有快照」）
+    expect(screen.getByTestId("main-control-activities-replay")).toBeTruthy()
+  })
+
+  it("没有快照：空态说「本次运行没有阶段事件」，不得冒充快照空", async () => {
+    loadTraceSnapshot.mockResolvedValue(null)
+    render(<MainControlView />)
+    await waitFor(() => expect(loadTraceSnapshot).toHaveBeenCalledWith("/proj"))
+    const empty = screen.getByTestId("main-control-activities-empty").textContent ?? ""
+    expect(empty).toContain("本次运行没有阶段事件")
+    expect(empty).not.toContain("上次运行的快照里没有阶段事件")
+    expect(screen.queryByTestId("main-control-activities-replay")).toBeNull()
+    expect(screen.queryByTestId("main-control-trace-replay")).toBeNull()
+  })
+
+  it("TASK-015：两种空态渲染不同文案 —— 快照不存在 vs 快照存在但无 activities", async () => {
+    // ① 「快照不存在」：读回端返回 null
+    loadTraceSnapshot.mockResolvedValue(null)
+    render(<MainControlView />)
+    await waitFor(() => expect(loadTraceSnapshot).toHaveBeenCalledWith("/proj"))
+    const noSnapshotActivitiesEmpty = screen.getByTestId("main-control-activities-empty").textContent ?? ""
+    const noSnapshotTraceEmpty = screen.getByTestId("main-control-trace-empty").textContent ?? ""
+    cleanup()
+
+    // ② 「快照存在但那次没有 activities」：快照在（回放标识出现），只是字段为空
+    loadTraceSnapshot.mockResolvedValue({ ...snapshot, entries: [], activities: undefined })
+    render(<MainControlView />)
+    await waitFor(() => expect(screen.getByTestId("main-control-trace-replay")).toBeTruthy())
+    const snapshotActivitiesEmpty = screen.getByTestId("main-control-activities-empty").textContent ?? ""
+    const snapshotTraceEmpty = screen.getByTestId("main-control-trace-empty").textContent ?? ""
+
+    // 两段文案必须「真的不一样」——同一句话就是假空态回归（本次要防的那件事）
+    expect(noSnapshotActivitiesEmpty.length).toBeGreaterThan(0)
+    expect(snapshotActivitiesEmpty.length).toBeGreaterThan(0)
+    expect(snapshotActivitiesEmpty).not.toBe(noSnapshotActivitiesEmpty)
+    // 且各自指向正确的那件事
+    expect(noSnapshotActivitiesEmpty).toContain("本次运行没有阶段事件")
+    expect(noSnapshotActivitiesEmpty).not.toContain("上次运行的快照里没有阶段事件")
+    expect(snapshotActivitiesEmpty).toContain("上次运行的快照里没有阶段事件")
+    expect(snapshotActivitiesEmpty).not.toContain("本次运行没有阶段事件")
+
+    // 轨迹空态同样区分两种「空」
+    expect(snapshotTraceEmpty).not.toBe(noSnapshotTraceEmpty)
+    expect(noSnapshotTraceEmpty).toContain("还没有轨迹")
+    expect(snapshotTraceEmpty).toContain("上次运行的快照里没有工具调用记录")
+  })
+
+  it("章节页交接的目标不被回放覆盖（回放只填空目标）", async () => {
+    const handoff = await import("./main-control-handoff")
+    handoff.setMainControlGoalHandoff("为「第7章」生成本章草稿")
+    try {
+      loadTraceSnapshot.mockResolvedValue(snapshot)
+      render(<MainControlView />)
+      await waitFor(() => expect(screen.getByTestId("main-control-trace-replay")).toBeTruthy())
+      expect((screen.getByTestId("main-control-goal") as HTMLTextAreaElement).value).toBe(
+        "为「第7章」生成本章草稿",
+      )
+    } finally {
+      handoff.clearMainControlGoalHandoff()
+    }
+  })
+
+  it("本次运行开始后旧快照不再冒充当前状态（回放标识消失）", async () => {
+    loadTraceSnapshot.mockResolvedValue(snapshot)
+    runMainControlAgent.mockResolvedValue({
+      ok: true,
+      finalText: "本次终稿",
+      roundsUsed: 1,
+      steps: [],
+      drafts: [],
+      activities: [{ id: "a1", stageId: "s1", kind: "stage_output", title: "本次产出", content: "本次片段", timestamp: 1 }],
+    })
+    render(<MainControlView />)
+    await waitFor(() => expect(screen.getByTestId("main-control-trace-replay")).toBeTruthy())
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "本次目标" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-final")).toBeTruthy())
+    expect(screen.getByTestId("main-control-final").textContent).toContain("本次终稿")
+    expect(screen.queryByTestId("main-control-final-replay")).toBeNull()
+    expect(screen.queryByTestId("main-control-replay-verdict")).toBeNull()
+    expect(screen.getByTestId("main-control-activities").textContent).toContain("本次片段")
+    expect(screen.queryByTestId("main-control-activities-replay")).toBeNull()
   })
 })

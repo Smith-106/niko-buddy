@@ -17,6 +17,8 @@ import {
   type DeepChapterGenerationResult,
   type MainControlResult,
   type MainControlStep,
+  type MainControlTraceActivity,
+  type MainControlTraceSnapshot,
   type TraceEntry,
 } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -36,6 +38,30 @@ import { clearMainControlGoalHandoff, peekMainControlGoalHandoff } from "./main-
 export interface MainControlViewProps {
   /** 项目 id（与其它视图签名一致；路径取 store 里的 project.path）。 */
   projectId?: string
+}
+
+/**
+ * 回放态（TASK-014 / F10 + F11 + NF-05）：轨迹快照读回端的唯一真源。
+ *
+ * 为什么是三态而不是「null / 对象」二态：空态文案必须能区分「磁盘上没有快照」与
+ * 「快照存在、但那一次运行没有阶段事件」。二态下这两种情况渲染同一句话，
+ * 读回失败（或字段被丢）就会伪装成「真的没事件」——正是本次要修的假空态。
+ *
+ * - idle：还没读完（首次挂载），或本次运行已接管、旧快照不再参与展示
+ * - missing：没有可用快照（缺失 / 损坏 / 版本不认识）
+ * - ready：快照存在，字段原样保留（entries / savedAt + 曾被丢弃的 6 项）
+ */
+type TraceReplay =
+  | { status: "idle" }
+  | { status: "missing" }
+  | { status: "ready"; snapshot: MainControlTraceSnapshot }
+
+/** 阶段事件的展示形态：本次运行（AgentActivityEvent）与快照投影（MainControlTraceActivity）合一。 */
+interface DisplayActivity {
+  key: string
+  kind: AgentActivityKind
+  title: string
+  content: string
 }
 
 function upsertStep(prev: MainControlStep[], next: MainControlStep): MainControlStep[] {
@@ -138,7 +164,8 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   }, [running])
   const [trace, setTrace] = useState<TraceEntry[]>([])
   const [expanded, setExpanded] = useState<string[]>([])
-  const [replaySavedAt, setReplaySavedAt] = useState<number | null>(null)
+  // 回放：上次运行的轨迹快照（读回端唯一真源，字段见 TraceReplay）。
+  const [replay, setReplay] = useState<TraceReplay>({ status: "idle" })
   // RV-002 ②：运行结束后才发生的观测（记忆回填）也要进同一个 activities 列表。
   const [extraActivities, setExtraActivities] = useState<AgentActivityEvent[]>([])
   const abortRef = useRef<AbortController | null>(null)
@@ -160,10 +187,38 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   // D5=A：阶段过程事件独立通道（缺失即空数组，不伪造）。
   const runActivities = useMemo(() => result?.activities ?? [], [result])
   // 同一条通道的两个来源：本次运行（stage_output / consensus） + 采纳后回填（ingest）。
-  const activities = useMemo(
+  const liveActivities = useMemo(
     () => (extraActivities.length > 0 ? [...runActivities, ...extraActivities] : runActivities),
     [runActivities, extraActivities],
   )
+  /**
+   * 回放快照（展示用）。
+   *
+   * 本次运行一旦开始/已有结果，回放就完全不参与展示：旧快照绝不能冒充当前状态
+   * （否则读回反而制造新的误导）。运行中也不参与（防磁盘读回在运行窗口内晚到）。
+   */
+  const replaySnapshot = !result && !running && replay.status === "ready" ? replay.snapshot : null
+  // 本次运行优先；没有本次运行时才回落到快照投影（不再丢弃 activities 字段）。
+  const displayActivities = useMemo<DisplayActivity[]>(() => {
+    if (liveActivities.length > 0) {
+      return liveActivities.map((activity) => ({
+        key: activity.id,
+        kind: activity.kind,
+        title: activity.title,
+        content: activity.content,
+      }))
+    }
+    return (replaySnapshot?.activities ?? []).map((activity: MainControlTraceActivity, index: number) => ({
+      key: `replay:${index}`,
+      kind: activity.kind,
+      title: activity.title,
+      // 快照只存 240 字摘要（R-08 体积纪律），回放里就只展示摘要，不假装是全文。
+      content: activity.summary,
+    }))
+  }, [liveActivities, replaySnapshot])
+  // 结论块：本次运行优先，其次读回的快照（ok / stopReason / roundsUsed / finalText 都可观测）。
+  const finalText = result?.finalText || replaySnapshot?.finalText || ""
+  const finalRoundsUsed = result?.roundsUsed ?? replaySnapshot?.roundsUsed ?? 0
 
   /** 落轨迹快照（单一出口）：activities 由调用方给，保证本次运行与采纳后回填同源。 */
   const persistSnapshot = useCallback(
@@ -204,17 +259,30 @@ export function MainControlView(_props: MainControlViewProps = {}) {
       roundsUsed: result.roundsUsed,
       finalText: result.finalText,
       steps: result.steps,
-      activities,
+      activities: liveActivities,
     })
-  }, [activities, extraActivities, goal, persistSnapshot, result])
-  // 回放：进面板时载入上一次运行的轨迹快照（缺失即空）。
+  }, [liveActivities, extraActivities, goal, persistSnapshot, result])
+  // 回放：进面板时载入上一次运行的轨迹快照（缺失即显式空态）。
+  // TASK-014：读回端一次补齐 6 项——activities / finalText / goal / ok / stopReason / roundsUsed，
+  // 不再只取 entries + savedAt（旧实现把其余字段全部丢弃，回放面板因此显示假空态）。
   useEffect(() => {
     if (!projectPath) return
     let cancelled = false
     void loadTraceSnapshot(projectPath).then((snapshot) => {
-      if (cancelled || !snapshot) return
+      if (cancelled) return
+      if (!snapshot) {
+        setReplay({ status: "missing" })
+        return
+      }
+      setReplay({ status: "ready", snapshot })
+      // entries 走原有 state（trace）；savedAt 留在 replay.snapshot 上（回放标识用）。
       setTrace(snapshot.entries)
-      setReplaySavedAt(snapshot.savedAt)
+      // activities / finalText / ok / stopReason / roundsUsed 不另开 state：
+      // 快照对象整体存在 replay 里，由 displayActivities / finalText / finalRoundsUsed /
+      // 结论块的 verdict 直接派生——同一份快照只有一个真源，不会出现两份互相打架的副本。
+      //
+      // goal：只填空的目标——章节页交接/用户已输入的目标优先，回放不得覆盖新意图。
+      setGoal((prev) => (prev.trim() ? prev : snapshot.goal))
     })
     return () => {
       cancelled = true
@@ -232,7 +300,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
     setResult(null)
     setSteps([])
     setTrace([])
-    setReplaySavedAt(null)
+    setReplay({ status: "idle" })
     setExtraActivities([])
     setMotionOpen(true)
     setRunStartAt(Date.now())
@@ -269,7 +337,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
       setSteps(out.steps)
       setResult(out)
       setTrace(buildTraceEntries(out.steps))
-      setReplaySavedAt(null)
+      setReplay({ status: "idle" })
       // RV-002：快照消费同一条 activities 通道（本次运行的 stage_output/consensus；
       // 运行后才发生的 ingest 由下方 effect 追加并重落）。
       persistSnapshot({
@@ -668,20 +736,32 @@ export function MainControlView(_props: MainControlViewProps = {}) {
 
       {tab === "run" && (
       <div className="rounded-lg border p-2" data-testid="main-control-activities">
-        <h3 className="mb-1 text-xs font-semibold">
-          {t("mainControl.activitiesTitle", { count: activities.length })}
+        <h3 className="mb-1 flex flex-wrap items-center gap-2 text-xs font-semibold">
+          {t("mainControl.activitiesTitle", { count: displayActivities.length })}
+          {replaySnapshot ? (
+            <span className="text-xs font-normal text-muted-foreground" data-testid="main-control-activities-replay">
+              {t("mainControl.traceReplay")}
+            </span>
+          ) : null}
         </h3>
         {novelConfig.stageJournalEnabled === false ? (
           <p className="text-xs text-muted-foreground" data-testid="main-control-stage-journal-off">
             {t("mainControl.stageJournalOff")}
           </p>
         ) : null}
-        {activities.length === 0 ? (
-          <p className="text-xs text-muted-foreground">{t("mainControl.activitiesEmpty")}</p>
+        {displayActivities.length === 0 ? (
+          // TASK-014：两种「空」必须说成两件事——快照不存在 vs 快照存在但那次没有阶段事件。
+          <p className="text-xs text-muted-foreground" data-testid="main-control-activities-empty">
+            {t(
+              replaySnapshot
+                ? "mainControl.activitiesEmptySnapshot"
+                : "mainControl.activitiesEmpty",
+            )}
+          </p>
         ) : (
           <ul className="flex flex-col gap-0.5">
-            {activities.map((activity) => (
-              <li key={activity.id} className="text-xs" data-testid={`main-control-activity-${activity.kind}`}>
+            {displayActivities.map((activity) => (
+              <li key={activity.key} className="text-xs" data-testid={`main-control-activity-${activity.kind}`}>
                 <span className="mr-1 font-medium">
                   {ACTIVITY_KIND_LABEL_KEYS[activity.kind]
                     ? t(ACTIVITY_KIND_LABEL_KEYS[activity.kind] as string)
@@ -704,14 +784,16 @@ export function MainControlView(_props: MainControlViewProps = {}) {
       <div className="rounded-lg border p-2" data-testid="main-control-trace">
         <h3 className="mb-1 flex items-center gap-2 text-xs font-semibold">
           {t("mainControl.traceTitle", { count: trace.length })}
-          {replaySavedAt ? (
+          {replaySnapshot ? (
             <span className="text-xs font-normal text-muted-foreground" data-testid="main-control-trace-replay">
               {t("mainControl.traceReplay")}
             </span>
           ) : null}
         </h3>
         {trace.length === 0 ? (
-          <p className="text-xs text-muted-foreground">{t("mainControl.traceEmpty")}</p>
+          <p className="text-xs text-muted-foreground" data-testid="main-control-trace-empty">
+            {t(replaySnapshot ? "mainControl.traceEmptySnapshot" : "mainControl.traceEmpty")}
+          </p>
         ) : (
           <ul className="flex flex-col gap-1.5">
             {trace.map((entry) => {
@@ -850,13 +932,39 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         </div>
       ) : null}
 
-      {tab === "run" && result?.finalText ? (
+      {tab === "run" && (result?.finalText || replaySnapshot) ? (
       <div className="rounded-lg border p-2" data-testid="main-control-final">
-          <h3 className="mb-1 text-xs font-semibold">{t("mainControl.finalTitle")}</h3>
-          <WikiReader body={result.finalText} />
+          <h3 className="mb-1 flex flex-wrap items-center gap-2 text-xs font-semibold">
+            {t("mainControl.finalTitle")}
+            {!result && replaySnapshot ? (
+              <span className="text-xs font-normal text-muted-foreground" data-testid="main-control-final-replay">
+                {t("mainControl.traceReplay")}
+              </span>
+            ) : null}
+          </h3>
+          {finalText ? (
+            <WikiReader body={finalText} />
+          ) : (
+            <p className="text-xs text-muted-foreground" data-testid="main-control-final-empty">
+              {t("mainControl.traceNoResult")}
+            </p>
+          )}
           <p className="mt-1 text-xs text-muted-foreground">
-            {t("mainControl.roundsUsed", { count: result.roundsUsed })}
+            {t("mainControl.roundsUsed", { count: finalRoundsUsed })}
           </p>
+          {/* 回放：ok / stopReason 也在结论里可观测（不只看得到终稿）。 */}
+          {replaySnapshot ? (
+            <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs" data-testid="main-control-replay-verdict">
+              <span className={replaySnapshot.ok ? "text-success" : "text-warning-foreground"}>
+                {t(replaySnapshot.ok ? "mainControl.replayOk" : "mainControl.replayFailed")}
+              </span>
+              {replaySnapshot.stopReason ? (
+                <span className="text-muted-foreground" data-testid="main-control-replay-stop-reason">
+                  {t("mainControl.replayStopReason", { reason: replaySnapshot.stopReason })}
+                </span>
+              ) : null}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </div>

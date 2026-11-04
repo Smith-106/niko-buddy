@@ -1379,7 +1379,7 @@ export {
   toWorkflowToolCalls,
   traceSnapshotPath,
 } from "./main-control-trace"
-export type { MainControlTraceSnapshot, TraceEntry } from "./main-control-trace"
+export type { MainControlTraceActivity, MainControlTraceSnapshot, TraceEntry } from "./main-control-trace"
 
 export {
   EXTERNAL_NODES,
