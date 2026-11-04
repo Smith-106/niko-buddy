@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { CheckCircle2, CircleAlert, Flame, Loader2, Play, Square, Sparkles } from "lucide-react"
+import { CheckCircle2, CircleAlert, Flame, Loader2, Play, Square, Sparkles, Wand2 } from "lucide-react"
 import { fileExists } from "@/commands/fs"
 import { WikiReader } from "@/components/editor/wiki-reader"
 import {
@@ -13,6 +13,8 @@ import {
   resolveWikiPath,
   runMainControlAgent,
   saveTraceSnapshot,
+  type DeepChapterGateVerdict,
+  type DeepChapterGenerationResult,
   type MainControlResult,
   type MainControlStep,
   type TraceEntry,
@@ -42,6 +44,34 @@ function upsertStep(prev: MainControlStep[], next: MainControlStep): MainControl
   const copy = [...prev]
   copy[index] = { ...copy[index], ...next }
   return copy
+}
+
+/**
+ * 「第N章」严格解析（只认带「第…章/节/回」的写法）。
+ *
+ * 不复用 `extractChapterNumber`：它兜底取文本里任意数字，会把「目标 3000 字」
+ * 解析成第 3000 章。章号进生成链是硬输入，宁可认不出（undefined）也不能认错。
+ */
+function parseChapterNumber(text: string | null | undefined): number | undefined {
+  if (!text) return undefined
+  const match = text.match(/第\s*(\d+)\s*[章节回]/)
+  if (!match?.[1]) return undefined
+  const value = Number.parseInt(match[1], 10)
+  return Number.isFinite(value) && value > 0 ? value : undefined
+}
+
+/**
+ * 深章门控总体结论 → 文案键。
+ *
+ * 复用门控重跑块同一组 verdict 措辞（不另造第二套「通过/警告/…」说法）；
+ * 结论本身来自 `buildDecisionGates`（门控单一真源），这里只搬运展示。
+ */
+const DEEP_GATE_VERDICT_KEYS: Record<DeepChapterGateVerdict, string> = {
+  pass: "mainControl.draftGatePass",
+  warning: "mainControl.draftGateWarning",
+  fail: "mainControl.draftGateFail",
+  manual_review: "mainControl.draftGateManual",
+  pending: "mainControl.draftGatePending",
 }
 
 /**
@@ -86,6 +116,9 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cancelledAt, setCancelledAt] = useState<number | null>(null)
+  // R03=a（TASK-008）：显式「跑深章」入口的独立运行态与产出（与主控 Agent 运行互不覆盖）。
+  const [deepRunning, setDeepRunning] = useState(false)
+  const [deepOutput, setDeepOutput] = useState<DeepChapterGenerationResult | null>(null)
   // 页内分层（IA：跑流程 / 收草稿 / 本章上下文分开，不再上下堆一屏；只切换展示，不碰执行语义）。
   // 批次三·12：AI 实况并入主控，作为第四个页签（独立页路由保留给旧深链）。
   const [tab, setTab] = useState<"run" | "drafts" | "context" | "live">("run")
@@ -109,6 +142,18 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   // RV-002 ②：运行结束后才发生的观测（记忆回填）也要进同一个 activities 列表。
   const [extraActivities, setExtraActivities] = useState<AgentActivityEvent[]>([])
   const abortRef = useRef<AbortController | null>(null)
+  // 深章入口自己的中止句柄（与主控 Agent 的 abortRef 分开，两条运行互不顶掉）。
+  const deepAbortRef = useRef<AbortController | null>(null)
+
+  /**
+   * 当前章节：优先「已打开的文件」（与采纳块同一数据源 selectedFile），
+   * 否则从目标文本里认「第N章」。认不出就不传（章号是可选输入，不猜）。
+   */
+  const currentChapterNumber = useMemo(
+    () =>
+      parseChapterNumber(selectedFile?.split(/[\\/]/).pop() ?? "") ?? parseChapterNumber(goal),
+    [selectedFile, goal],
+  )
 
   // 运行中实况轨迹：steps 派生（无需等磁盘轮询）；空闲时沿用磁盘快照。
   const liveTrace = useMemo(() => buildTraceEntries(steps), [steps])
@@ -178,7 +223,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
 
   const start = async () => {
     const trimmed = goal.trim()
-    if (!trimmed || running) return
+    if (!trimmed || running || deepRunning) return
     if (!projectPath) {
       setError(t("mainControl.noProject"))
       return
@@ -259,8 +304,114 @@ export function MainControlView(_props: MainControlViewProps = {}) {
 
   const stop = () => {
     abortRef.current?.abort()
+    // 深章入口与主控 Agent 共用同一个「中止」出口（两条都在跑时一起停）。
+    deepAbortRef.current?.abort()
     setRunning(false)
+    setDeepRunning(false)
     setCancelledAt(Date.now())
+  }
+
+  /**
+   * R03=a（TASK-008）：显式「跑深章」入口。
+   *
+   * 为什么不是「拼一句目标再跑 Agent」：主控里的 `run_chapter_workflow` 是模型自觉调用的工具，
+   * 没有任何确定性保证（F23：正文生成无独立入口）。这里直接走 `start()` 用的同一条两步路径——
+   * `resolveDeepChapterRunner(novelConfig)` → `runDeepChapterGeneration`——把「跑不跑深章」
+   * 从模型判断变成用户点击；共识/单模型入口选择仍归 `resolveDeepChapterRunner`，
+   * 门控仍归 `buildDecisionGates`（不另开生成路径、不另立门控）。
+   *
+   * 硬边界：产物只进面板展示，**点击路径零写盘**（无 writeFile/writeDraft/accept 调用）；
+   * 采纳仍是草稿区的两步确认，`draft-manager` 的 `if (!input.confirmed) throw` 原样生效。
+   */
+  const startDeepChapter = async () => {
+    // 防重入：状态位 + 按钮 disabled 双保险（深章跑一次可能几十分钟，重入会双跑同一章）。
+    if (deepRunning || running) return
+    if (!projectPath) {
+      setError(t("mainControl.noProject"))
+      return
+    }
+    // 目标空也允许跑：以「当前章节 + 当前目标字数」为输入，userRequest 用中性兜底文案。
+    const userRequest = goal.trim() || t("mainControl.deepChapterGoalFallback")
+    setError(null)
+    setCancelledAt(null)
+    setDeepOutput(null)
+    setDeepRunning(true)
+    const controller = new AbortController()
+    deepAbortRef.current = controller
+    try {
+      // 与 start() 同一行代码语义：按开关取入口（共识版/单模型版），再跑深章流水线。
+      const runDeepChapterGeneration = await resolveDeepChapterRunner(novelConfig)
+      // G3：阶段日志装配与主控 Agent 共用同一 helper（同一开关与 TTL 语义）。
+      const stageJournal = buildStageJournalRuntime(
+        projectPath,
+        novelConfig.stageJournalEnabled,
+        novelConfig.journalTtlMs,
+      )
+      const out = await runDeepChapterGeneration(
+        {
+          projectPath,
+          userRequest,
+          chapterNumber: currentChapterNumber,
+          llmConfig,
+          novelConfig,
+          // 54⑧ 题材透传（undefined → 生成链零行为变更，与 run_chapter_workflow 同口径）。
+          genre: novelConfig.genre,
+          ...(stageJournal ? { stageJournal } : {}),
+        },
+        {
+          // 阶段产出进主控同一条 activities 通道（与 run_chapter_workflow 的 onThinking 同口径）。
+          onThinking: (content) => {
+            const body = content.trim()
+            if (!body) return
+            const timestamp = Date.now()
+            setExtraActivities((prev) => [
+              ...prev,
+              {
+                id: `main_control_deep_chapter:thinking:${timestamp}`,
+                stageId: "main_control_deep_chapter",
+                kind: "stage_output",
+                title: t("mainControl.deepChapterActivityTitle"),
+                content: body.length > 240 ? `${body.slice(0, 240)}…` : body,
+                timestamp,
+              },
+            ])
+          },
+        },
+        undefined,
+        controller.signal,
+        // 共识轨迹同一条通道（单模型 runner 忽略第 5 参，与工具路径一致）。
+        (trace) => {
+          const timestamp = Date.now()
+          const parts = [
+            `${t("mainControl.consensusSeatCount")}: ${trace.seatCount}`,
+            `${t("mainControl.consensusDebateRounds")}: ${trace.debateRounds}`,
+            `${t("mainControl.consensusWinner")}: ${trace.winner}`,
+          ]
+          setExtraActivities((prev) => [
+            ...prev,
+            {
+              id: `consensus_writing:${timestamp}`,
+              stageId: "consensus_writing",
+              kind: "analysis",
+              title: t("mainControl.consensusTitle"),
+              content: parts.join(" · "),
+              timestamp,
+            },
+          ])
+        },
+      )
+      setDeepOutput(out)
+    } catch (err) {
+      // 用户亲手中止不算失败（与主控 Agent 同一判定：以 signal 为准）。
+      if (controller.signal.aborted) {
+        setCancelledAt(Date.now())
+      } else {
+        setError(t("mainControl.deepChapterFailed", { message: toErrorMessage(err) }))
+      }
+    } finally {
+      setDeepRunning(false)
+      deepAbortRef.current = null
+    }
   }
 
   // 卡住/超时：正在跑的那一步 90 秒无返回提示卡住5 分钟建议中止（只读判断不动执行）。
@@ -326,7 +477,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           className="resize-y rounded-md border bg-transparent px-2 py-1 text-sm"
         />
         <div className="flex items-center gap-2">
-          {running ? (
+          {running || deepRunning ? (
             <button
               type="button"
               onClick={stop}
@@ -352,6 +503,25 @@ export function MainControlView(_props: MainControlViewProps = {}) {
               {t("mainControl.run")}
             </button>
           )}
+          {/* R03=a（TASK-008）：显式「跑深章」入口。主控管跑（DEC-01=A），不依赖模型自觉调用工具。 */}
+          {novelMode ? (
+            <button
+              type="button"
+              onClick={() => void startDeepChapter()}
+              disabled={deepRunning || running}
+              title={t("mainControl.deepChapterHint", { chars: novelConfig.chapterTargetChars })}
+              data-testid="main-control-deep-run"
+              className={cn(
+                "flex h-7 items-center gap-1 rounded-md border px-2 text-xs",
+                deepRunning || running
+                  ? "text-muted-foreground opacity-60 disabled:cursor-not-allowed"
+                  : "border-primary/60 text-primary hover:bg-accent",
+              )}
+            >
+              {deepRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+              {deepRunning ? t("mainControl.deepChapterRunning") : t("mainControl.deepChapterRun")}
+            </button>
+          ) : null}
           {running ? (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -401,6 +571,40 @@ export function MainControlView(_props: MainControlViewProps = {}) {
       )}
 
       {tab === "run" && <MainControlSettingsBlock />}
+
+      {/* R03=a：深章产出只在这里展示——不写盘、不进草稿区，采纳仍需草稿区的两步确认。 */}
+      {tab === "run" && deepOutput ? (
+        <div className="rounded-lg border p-2" data-testid="main-control-deep-output">
+          <h3 className="mb-1 flex flex-wrap items-center gap-2 text-xs font-semibold">
+            {t("mainControl.deepChapterOutputTitle")}
+            <span
+              className="rounded border px-1 text-xs font-normal text-muted-foreground"
+              data-testid="main-control-deep-verdict"
+            >
+              {t(DEEP_GATE_VERDICT_KEYS[deepOutput.decisionGates.overall])}
+            </span>
+            {currentChapterNumber ? (
+              <span className="text-xs font-normal text-muted-foreground" data-testid="main-control-deep-chapter">
+                {t("mainControl.deepChapterChapterLabel", { chapter: currentChapterNumber })}
+              </span>
+            ) : null}
+          </h3>
+          {deepOutput.partial ? (
+            <p className="text-xs text-warning-foreground" data-testid="main-control-deep-partial">
+              {t("mainControl.deepChapterPartial", { reason: deepOutput.partialReason ?? "" })}
+            </p>
+          ) : null}
+          {deepOutput.manualReviewRequired ? (
+            <p className="text-xs text-warning-foreground" data-testid="main-control-deep-manual-review">
+              {t("mainControl.deepChapterManualReview")}
+            </p>
+          ) : null}
+          <WikiReader body={deepOutput.finalContent} />
+          <p className="mt-1 text-xs text-muted-foreground" data-testid="main-control-deep-output-hint">
+            {t("mainControl.deepChapterOutputHint")}
+          </p>
+        </div>
+      ) : null}
 
       {tab === "run" && (
       <div className="rounded-lg border p-2" data-testid="main-control-steps">

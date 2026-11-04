@@ -9,6 +9,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 
 const runMainControlAgent = vi.fn()
 const resolveWikiPath = vi.fn(async () => "/proj/wiki")
+// R03=a：深章入口的两步路径（resolveDeepChapterRunner → runDeepChapterGeneration）全程 mock，
+// 不碰真实 LLM / 文件系统。默认：resolve 返回同一个 runner（与生产的两步形态一致）。
+const runDeepChapterGeneration = vi.fn()
+const resolveDeepChapterRunner = vi.fn(async () => runDeepChapterGeneration)
 const setActiveView = vi.fn()
 const listChapterDrafts = vi.fn(async (): Promise<unknown[]> => [])
 const adoptMainControlDraft = vi.fn()
@@ -27,6 +31,7 @@ vi.mock("@/lib/novel", async (importOriginal) => {
     ...actual,
     runMainControlAgent,
     resolveWikiPath,
+    resolveDeepChapterRunner,
     listChapterDrafts,
     adoptMainControlDraft,
     rerunMainControlGates,
@@ -88,6 +93,9 @@ const { MainControlView } = await import("./main-control-view")
 afterEach(() => {
   cleanup()
   runMainControlAgent.mockReset()
+  resolveDeepChapterRunner.mockReset()
+  resolveDeepChapterRunner.mockResolvedValue(runDeepChapterGeneration)
+  runDeepChapterGeneration.mockReset()
   setActiveView.mockReset()
   listChapterDrafts.mockReset()
   listChapterDrafts.mockResolvedValue([])
@@ -718,5 +726,116 @@ describe("前端验收：重跑门控结果呈现边界", () => {
     fireEvent.click(screen.getByTestId("main-control-tab-live"))
     await waitFor(() => expect(screen.getByTestId("main-control-gate-rerun-empty")).toBeTruthy())
     expect(screen.getByTestId("main-control-gate-rerun")).toBeTruthy()
+  })
+})
+
+/**
+ * R03=a（TASK-008）：显式「跑深章」入口。
+ *
+ * 验收（task.test.unit）：
+ * - 按钮可渲染；
+ * - 点击后真的走 `resolveDeepChapterRunner(novelConfig)` → `runDeepChapterGeneration`，
+ *   输入带当前章号 + 当前 novelConfig（目标字数就在 novelConfig 里）；
+ * - 深章运行中按钮 loading + disabled（防重入）；
+ * - 点击路径零写盘：不碰采纳通道（draft-manager 的 `!confirmed` 护栏原样保留）。
+ */
+describe("R03=a 显式「跑深章」入口", () => {
+  const passGate = { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 }
+  const deepResult = {
+    finalContent: "深章正文片段",
+    taskBrief: "任务书",
+    draftContent: "草稿正文",
+    reviewResults: [],
+    revised: false,
+    decisionGates: { consistency: passGate, anti_ai: passGate, quality: passGate, overall: "pass" },
+    manualReviewRequired: false,
+    retryCount: 0,
+    partial: false,
+    partialReason: null,
+  }
+
+  it("跑流程 Tab 渲染「跑深章」按钮（小说模式）", () => {
+    render(<MainControlView />)
+    expect(screen.getByTestId("main-control-deep-run").textContent).toContain("跑深章")
+  })
+
+  it("点击后走 resolveDeepChapterRunner + runDeepChapterGeneration，输入带章号与 novelConfig", async () => {
+    runDeepChapterGeneration.mockImplementation(async (_input: unknown, callbacks?: { onThinking?: (s: string) => void }) => {
+      callbacks?.onThinking?.("深章阶段产出片段")
+      return deepResult
+    })
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "给第12章写开头" } })
+    fireEvent.click(screen.getByTestId("main-control-deep-run"))
+
+    await waitFor(() => expect(runDeepChapterGeneration).toHaveBeenCalledTimes(1))
+    // 第一步：入口按开关解析（与 start() 同一 helper，不另开生成路径）
+    expect(resolveDeepChapterRunner).toHaveBeenCalledWith(
+      expect.objectContaining({ chapterTargetChars: 3000 }),
+    )
+    const [input] = runDeepChapterGeneration.mock.calls[0]
+    expect(input).toEqual(
+      expect.objectContaining({
+        projectPath: "/proj",
+        userRequest: "给第12章写开头",
+        chapterNumber: 12,
+        novelConfig: expect.objectContaining({ chapterTargetChars: 3000 }),
+      }),
+    )
+    // 这条入口不是「拼目标再跑模型」：主控 Agent 零调用（不依赖模型自觉）
+    expect(runMainControlAgent).not.toHaveBeenCalled()
+
+    await waitFor(() => expect(screen.getByTestId("main-control-deep-output")).toBeTruthy())
+    expect(screen.getByTestId("main-control-deep-output").textContent).toContain("深章正文片段")
+    expect(screen.getByTestId("main-control-deep-verdict").textContent).toContain("通过")
+    expect(screen.getByTestId("main-control-deep-chapter").textContent).toContain("12")
+    // 产出只展示不写盘（文案与行为一致）
+    expect(screen.getByTestId("main-control-deep-output-hint").textContent).toContain("未写入任何文件")
+    // 深章阶段产出进主控同一条 activities 通道
+    expect(screen.getByTestId("main-control-activity-stage_output").textContent).toContain("深章阶段产出片段")
+  })
+
+  it("深章运行中按钮 loading + disabled（防重入：再点也只跑一次）", async () => {
+    runDeepChapterGeneration.mockImplementation(() => new Promise(() => {}))
+    render(<MainControlView />)
+    fireEvent.click(screen.getByTestId("main-control-deep-run"))
+    await waitFor(() =>
+      expect(screen.getByTestId("main-control-deep-run").textContent).toContain("深章生成中"),
+    )
+    const button = screen.getByTestId("main-control-deep-run") as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    fireEvent.click(button)
+    fireEvent.click(button)
+    expect(runDeepChapterGeneration).toHaveBeenCalledTimes(1)
+    // 长跑必须有中止出口（与主控 Agent 共用「中止」按钮）
+    expect(screen.getByTestId("main-control-stop")).toBeTruthy()
+  })
+
+  it("空目标也能跑：用兜底请求，且不把「3000 字」误当章号", async () => {
+    runDeepChapterGeneration.mockResolvedValue(deepResult)
+    render(<MainControlView />)
+    fireEvent.click(screen.getByTestId("main-control-deep-run"))
+    await waitFor(() => expect(runDeepChapterGeneration).toHaveBeenCalledTimes(1))
+    const [input] = runDeepChapterGeneration.mock.calls[0]
+    expect(input.userRequest).toBe("续写下一章，按当前设置的目标字数写完整一章")
+    expect(input.chapterNumber).toBeUndefined()
+  })
+
+  it("点击路径零写盘：不调用采纳通道（!confirmed 护栏原样保留）", async () => {
+    runDeepChapterGeneration.mockResolvedValue(deepResult)
+    render(<MainControlView />)
+    fireEvent.click(screen.getByTestId("main-control-deep-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-deep-output")).toBeTruthy())
+    expect(adoptMainControlDraft).not.toHaveBeenCalled()
+  })
+
+  it("深章失败时显示失败原因，且不渲染产出块", async () => {
+    runDeepChapterGeneration.mockRejectedValue(new Error("模型不可用"))
+    render(<MainControlView />)
+    fireEvent.click(screen.getByTestId("main-control-deep-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-error")).toBeTruthy())
+    expect(screen.getByTestId("main-control-error").textContent).toContain("深章生成失败")
+    expect(screen.getByTestId("main-control-error").textContent).toContain("模型不可用")
+    expect(screen.queryByTestId("main-control-deep-output")).toBeNull()
   })
 })

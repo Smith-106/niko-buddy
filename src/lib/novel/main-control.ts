@@ -11,6 +11,7 @@
  */
 import { buildAgentConfig } from "@/lib/agent/config"
 import { ToolRegistry } from "@/lib/agent/registry"
+import { resolveRequiredToolsOnce } from "@/lib/agent/required-tools-gate"
 import { AgentRunner } from "@/lib/agent/runner"
 import type { AgentActivityEvent, AgentMessage, AgentRunCallbacks, AgentRunRecord } from "@/lib/agent/types"
 import type { QualityToolDeps } from "@/lib/agent/tools/score-chapter"
@@ -20,8 +21,9 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import type { StageJournalRuntime } from "./stage-output-journal"
 import { recordModuleHit } from "./module-heat"
 import { routeTask } from "./task-router"
-import type { TaskRouteResult } from "./task-router"
+import type { NovelTaskIntent, TaskRouteResult } from "./task-router"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
+import { useWikiStore } from "@/stores/wiki-store"
 import { toErrorMessage } from "@/lib/utils"
 
 /** 质量闭环工具（仅在调用方注入 scoreChapter/reviseChapter 时才注册）。 */
@@ -189,6 +191,71 @@ function buildMainControlTaskRoute(goal: string): TaskRouteResult {
     : routed
 }
 
+/**
+ * 草稿生成动词：`生成/写/撰写/起草/产出/输出` 之后 0~12 个非句读字符内出现「草稿」。
+ *
+ * 只认「动词在前、名词在后」的顺序：`把草稿区清空`、`本章草稿在哪` 这类
+ * 名词在前的提及不命中（动词不作用于草稿）。
+ */
+const DRAFT_GENERATION_RE = /(生成|写|撰写|起草|产出|输出)[^。！？；!?;\n]{0,12}?草稿/
+
+/**
+ * 无章号时的章节指代：章节页交接文案在章节文件名没有「第N章」前缀时正是这种形态
+ * （`buildChapterDraftGoal("旧梦")` → `为「旧梦」生成本章草稿`，routeTask 拿不到章号）。
+ */
+const CHAPTER_REFERENCE_RE = /本章|这一?章|当前章|该章/
+
+/** 否定前缀：`不要生成本章草稿` 不算生成请求（与 task-router 的逐处否定守卫同向）。 */
+const DRAFT_NEGATION_RE = /(不要|不用|不必|无需|别|甭|暂不|先别)[^。！？；!?;\n]{0,4}$/
+
+/**
+ * 是否为「给指定章节生成草稿」类目标（结构判定，只用于门控武装）。
+ *
+ * 两半都必须成立：**草稿生成动词** + **章节引用**（路由出的章号，或「本章」类指代）。
+ * 缺任一半即不成立——这正是「读第 3 章」「第 12 章的大纲是什么」这类只有章号、
+ * 没有生成动词的目标不会误武装的原因。
+ */
+function isChapterDraftGoal(goal: string, taskRoute: TaskRouteResult): boolean {
+  const text = goal.replace(/\s+/g, " ")
+  const match = DRAFT_GENERATION_RE.exec(text)
+  if (!match) return false
+  // 动词被否定（`不要生成…草稿`）：不当生成请求。
+  if (match.index > 0 && DRAFT_NEGATION_RE.test(text.slice(0, match.index))) return false
+  const chapterNumber =
+    taskRoute.chapterNumber ?? Number.parseInt(taskRoute.extractedParams.chapterNumber ?? "", 10)
+  if (Number.isFinite(chapterNumber) && chapterNumber > 0) return true
+  return CHAPTER_REFERENCE_RE.test(text)
+}
+
+/**
+ * 门控武装用的意图（NF-01 补口）：**仅**用于 `resolveRequiredToolsOnce` 的 intent 入参，
+ * 不改 `taskRoute.intent` 本身。
+ *
+ * 为什么需要这一层：章节页「生成本章草稿」交接的目标文案
+ * （`为「第N章 X」生成本章草稿`，见 `buildChapterDraftGoal`）不含 `write_chapter` 的
+ * 触发式（`^(写|生成)\s*第N章` 要求动词在前、章号在后），`routeTask` 因此走 early return
+ * 判成 `general_chat`，门控 `resolveRequiredToolsOnce` 直接返回 undefined —— 最典型的真实
+ * 写作场景反而不武装（R03：8 个组件无确定性触发的主战场）。
+ *
+ * 为什么不从 handoff 取结构化意图：交接对象是**纯字符串**（`main-control-handoff.ts` 的
+ * `pendingGoal: string | null`），且 `MainControlView` 挂载时就 `clearMainControlGoalHandoff()`，
+ * 用户点「开始执行」时早已清空；唯一能带上结构化意图的入口是 `main-control-view.tsx`，
+ * 本轮禁止改它。因此只能在装配层用 goal 文本 + 已算出的路由结果做**结构判定**
+ * （动词 + 章节引用两半，见 `isChapterDraftGoal`），而不是自由的文本启发式。
+ *
+ * 收窄边界（只放大到 `general_chat → write_chapter` 一条边）：
+ * - 已有意图一律原样返回——`review_chapter`（检查第 3 章有没有矛盾）、`polish_chapter`、
+ *   `continue_chapter` 等既有判定不受影响，`routeTask` 的权重体系不被这一层改写。
+ * - 只覆盖「草稿生成动词 + 章节引用」，因此「读第 3 章」「第12章 旧梦」「把第12章翻译成英文」
+ *   「本章草稿在哪」都不命中。
+ * 已知局限（有意不处理）：`生成本章草稿的步骤是什么` 这种把生成当名词的提问也会命中——
+ * 装配层没有句法分析，主控侧代价只是「要求先跑一次工作流」，不伪造结论。
+ */
+export function resolveMainControlGateIntent(goal: string, taskRoute: TaskRouteResult): NovelTaskIntent {
+  if (taskRoute.intent !== "general_chat") return taskRoute.intent
+  return isChapterDraftGoal(goal, taskRoute) ? "write_chapter" : taskRoute.intent
+}
+
 /** 项目 wiki 根：优先 `<project>/wiki`，否则退回项目根（单目录布局）。 */
 export function resolveWikiPath(
   projectPath: string,
@@ -275,6 +342,32 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
   // 因此 Draft-first 边界不会被这个参数放宽。目标写入体较小时能显著降低上下文压力。
   const requested = options.enabledToolNames?.filter((name) => allowed.has(name))
   const enabledToolNames = requested && requested.length > 0 ? requested : [...allowed]
+  // NF-01：武装确定性门控。runner 侧四道接线（nudge / 拒绝终稿 / 兜底重试 / 诊断记录）
+  // 早已就绪，缺的一直是这里的输入——`config.requiredToolsOnce` 此前全仓无赋值点。
+  //
+  // 必须走 `resolveRequiredToolsOnce()` 而不是硬编码 ["run_chapter_workflow"]：
+  // 该函数负责 intent（只认 OUTLINE_FIND_CHAPTER_INTENTS 四类章节写作意图）/ mode
+  // （fast 不要求）/ enabledToolNames（工具没注册就不要求）/ novelMode / 计划阶段
+  // 的折算，硬编码会把「审稿」「读第 3 章」这类非写作目标也一并拦住。
+  //
+  // 入参来源（全部就地取，不新增 prop 链，理由同 buildMainControlTaskRoute）：
+  // - intent：`resolveMainControlGateIntent(goal, taskRoute)`——taskRoute.intent 的**门控专用**
+  //   归一化（把「草稿生成动词 + 章节引用」的 general_chat 视为 write_chapter）。注入
+  //   virtualToolContext 的 taskRoute 保持路由原值，只有这一处入参被归一化。
+  // - mode：调用方传入的 aiWorkflowMode（main-control-view 传 resolveAiWorkflowMode）。
+  // - enabledToolNames：上面算出的白名单；未注入 runDeepChapterGeneration 时它不含
+  //   run_chapter_workflow，折算结果为 undefined，门控自然不武装。
+  // - novelMode：wiki store 的同一份状态——main-control-view 正是用它决定是否注入深章
+  //   流水线（主控 props 只有 projectId，没有第二条链路可传）。
+  // - planExecuteActive：本路径没有计划确认阶段（主控是执行侧，计划阶段禁止调用该工具，
+  //   主控不在该阶段），恒为 false。
+  const requiredToolsOnce = resolveRequiredToolsOnce({
+    novelMode: useWikiStore.getState().novelMode,
+    intent: resolveMainControlGateIntent(goal, taskRoute),
+    mode: options.aiWorkflowMode ?? null,
+    planExecuteActive: false,
+    enabledToolNames,
+  })
   // 走既有 agent 配置装配：清空并注册内置工具（尊重 function-calling 开关与 provider 差异），
   // 主控阶段只用 enabledToolNames 白名单里的只读工具 + 草稿写入（+ 不落盘的生成/评分工具）。
   const config = buildAgentConfig(
@@ -302,6 +395,7 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
   )
   config.maxRounds = options.maxRounds ?? 8
   config.taskGoal = goal
+  config.requiredToolsOnce = requiredToolsOnce
 
   const messages: AgentMessage[] = [
     { role: "system", content: MAIN_CONTROL_SYSTEM_PROMPT },

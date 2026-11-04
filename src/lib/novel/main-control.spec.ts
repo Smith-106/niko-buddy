@@ -1,16 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ToolRegistry } from "@/lib/agent/registry"
-import type { AgentRunCallbacks, AgentRunRecord } from "@/lib/agent/types"
-import type { LlmConfig } from "@/stores/wiki-store"
+import { missingRequiredToolsOnce } from "@/lib/agent/required-tools-gate"
+import type { AgentConfig, AgentMessage, AgentRunCallbacks, AgentRunRecord } from "@/lib/agent/types"
+import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { listDirectory, readFile } from "@/commands/fs"
 import {
   MAIN_CONTROL_TOOLS,
   loadOutlineConversations,
   parseDraftReceipts,
+  resolveMainControlGateIntent,
   resolveWikiPath,
   runMainControlAgent,
 } from "./main-control"
+import { routeTask } from "./task-router"
+// 真实交接文案的生产者（纯字符串函数，无 React 依赖）：用例锁「生产者 → 门控」整条链。
+import { buildChapterDraftGoal } from "@/components/novel/main-control-handoff"
 import { setModuleHeatSink } from "./module-heat"
 
 // F04 断言需要真实大纲目录内容（list_outlines 的默认章号只在非空清单里输出）；
@@ -525,5 +530,281 @@ describe("质量闭环工具注入", () => {
     const reviseTool = registry.get("revise_chapter")
     await expect(reviseTool!.execute({ content: "正文", brief: "提升 pacing" })).resolves.toContain("提升 pacing")
     await expect(reviseTool!.execute({ content: "正文", brief: "" })).resolves.toContain("错误")
+  })
+})
+
+/**
+ * NF-01：确定性门控的**武装点**。
+ *
+ * 这组用例锁的是「装配层把 resolveRequiredToolsOnce 的结果真的写进 config」——
+ * 门控函数本身（required-tools-gate.spec）与 runner 四道接线都不在这里重复验证。
+ * 关键点：断言的是**折算后**的 armed 值，而不是硬编码数组的复制；因此每一条
+ * 「不武装」的分支（fast / 未注入深章 / 非章节意图 / 白名单收窄 / 非小说模式）
+ * 都能反过来证明赋值确实走了 resolveRequiredToolsOnce，而非写死。
+ */
+describe("NF-01 门控武装：config.requiredToolsOnce", () => {
+  /** 捕获装配层交给 runner 的 config（fakeRunner 的 config 形参是 unknown，读不到字段）。 */
+  function captureRunner() {
+    const captured: { config?: AgentConfig } = {}
+    const runner = {
+      async run(
+        config: AgentConfig,
+        _registry: ToolRegistry,
+        _messages: AgentMessage[],
+        callbacks: AgentRunCallbacks,
+      ): Promise<AgentRunRecord> {
+        captured.config = config
+        callbacks.onText("已完成。")
+        callbacks.onDone()
+        return { toolCalls: [], roundsUsed: 1, finalText: "已完成。" }
+      },
+    }
+    return { captured, runner }
+  }
+
+  /** 深章流水线注入桩：只有注入它，run_chapter_workflow 才会注册。 */
+  const deepRunner = () => vi.fn(async () => ({ ok: true })) as never
+
+  it("章节写作意图 + 深章注入 + standard：requiredToolsOnce 武装为 run_chapter_workflow", async () => {
+    const { captured, runner } = captureRunner()
+    const registry = new ToolRegistry()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "写第 3 章",
+      llmConfig: LLM,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration: deepRunner(),
+      deps: { runner, registry },
+    })
+    expect(captured.config?.requiredToolsOnce).toEqual(["run_chapter_workflow"])
+    // 武装的名字必须落在**真的注册了**的工具上：否则 missingRequiredToolsOnce 会把
+    // 不可用项过滤掉，门控永远放行（等于没武装）。
+    expect(captured.config?.tools.map((tool) => tool.name)).toContain("run_chapter_workflow")
+  })
+
+  it("装配 → 门控闭环：未调用该工具时 missingRequiredToolsOnce 非空", async () => {
+    const { captured, runner } = captureRunner()
+    const registry = new ToolRegistry()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "续写第 3 章",
+      llmConfig: LLM,
+      aiWorkflowMode: "strict",
+      runDeepChapterGeneration: deepRunner(),
+      deps: { runner, registry },
+    })
+    const availableToolNames = captured.config?.tools.map((tool) => tool.name) ?? []
+    const gateInput = {
+      requiredToolsOnce: captured.config?.requiredToolsOnce,
+      availableToolNames,
+      toolsEnabled: true,
+    }
+    // 一次都没调用 → 拒绝无 tool 终稿
+    expect(missingRequiredToolsOnce({ ...gateInput, calledToolNames: [] })).toEqual(["run_chapter_workflow"])
+    // 调用过 → 放行
+    expect(missingRequiredToolsOnce({ ...gateInput, calledToolNames: ["run_chapter_workflow"] })).toEqual([])
+  })
+
+  it("fast 模式不武装（快速模式允许主 Agent 直接出稿）", async () => {
+    const { captured, runner } = captureRunner()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "写第 3 章",
+      llmConfig: LLM,
+      aiWorkflowMode: "fast",
+      runDeepChapterGeneration: deepRunner(),
+      deps: { runner, registry: new ToolRegistry() },
+    })
+    expect(captured.config?.requiredToolsOnce).toBeUndefined()
+  })
+
+  it("未注入深章流水线不武装（工具没注册就不要求）", async () => {
+    const { captured, runner } = captureRunner()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "写第 3 章",
+      llmConfig: LLM,
+      aiWorkflowMode: "standard",
+      deps: { runner, registry: new ToolRegistry() },
+    })
+    expect(captured.config?.requiredToolsOnce).toBeUndefined()
+    expect(captured.config?.tools.map((tool) => tool.name)).not.toContain("run_chapter_workflow")
+  })
+
+  it("非章节写作意图不武装（审稿/读取不该被要求走章节工作流）", async () => {
+    const { captured, runner } = captureRunner()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "检查第 3 章有没有矛盾",
+      llmConfig: LLM,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration: deepRunner(),
+      deps: { runner, registry: new ToolRegistry() },
+    })
+    expect(captured.config?.requiredToolsOnce).toBeUndefined()
+  })
+
+  it("白名单收窄掉 run_chapter_workflow 后不武装", async () => {
+    const { captured, runner } = captureRunner()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "写第 3 章",
+      llmConfig: LLM,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration: deepRunner(),
+      enabledToolNames: ["read_chapter", "write_chapter"],
+      deps: { runner, registry: new ToolRegistry() },
+    })
+    expect(captured.config?.requiredToolsOnce).toBeUndefined()
+  })
+
+  it("非小说模式不武装（novelMode 关闭时章节工作流不注册，也不该被要求）", async () => {
+    const previous = useWikiStore.getState().novelMode
+    useWikiStore.setState({ novelMode: false })
+    try {
+      const { captured, runner } = captureRunner()
+      await runMainControlAgent({
+        projectPath: "/proj",
+        wikiPath: "/proj/wiki",
+        goal: "写第 3 章",
+        llmConfig: LLM,
+        aiWorkflowMode: "standard",
+        runDeepChapterGeneration: deepRunner(),
+        deps: { runner, registry: new ToolRegistry() },
+      })
+      expect(captured.config?.requiredToolsOnce).toBeUndefined()
+    } finally {
+      useWikiStore.setState({ novelMode: previous })
+    }
+  })
+})
+
+/**
+ * NF-01 补口：真实交接目标的门控武装（`resolveMainControlGateIntent`）。
+ *
+ * TASK-007 实测缺口：章节页「生成草稿」交接的目标文案
+ * （`buildChapterDraftGoal` → `为「第N章 X」生成本章草稿`）被 `routeTask` 判成
+ * `general_chat`（`write_chapter` 的触发式要求「动词在前、章号在后」），于是
+ * `resolveRequiredToolsOnce` 直接返回 undefined —— 最典型的真实写作场景反而不武装。
+ *
+ * 这组用例锁两件事：
+ * 1. 真实交接文案（含无「第N章」前缀的章节名）现在会武装，且武装名字真的在注册表里；
+ * 2. 纯聊天/检索/提及类目标**不**被误武装（门控只放大 `general_chat → write_chapter`
+ *    一条边，`taskRoute.intent` 本身不被改写）。
+ */
+describe("NF-01 补口：真实交接目标武装（草稿生成意图归一化）", () => {
+  function captureArmedRunner() {
+    const captured: { config?: AgentConfig } = {}
+    const runner = {
+      async run(
+        config: AgentConfig,
+        _registry: ToolRegistry,
+        _messages: AgentMessage[],
+        callbacks: AgentRunCallbacks,
+      ): Promise<AgentRunRecord> {
+        captured.config = config
+        callbacks.onText("已完成。")
+        callbacks.onDone()
+        return { toolCalls: [], roundsUsed: 1, finalText: "已完成。" }
+      },
+    }
+    return { captured, runner }
+  }
+
+  const deepRunner = () => vi.fn(async () => ({ ok: true })) as never
+
+  /** 走真实装配（`runMainControlAgent`），返回门控武装值与注册的工具名。 */
+  async function armFor(goal: string) {
+    const { captured, runner } = captureArmedRunner()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal,
+      llmConfig: LLM,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration: deepRunner(),
+      deps: { runner, registry: new ToolRegistry() },
+    })
+    return {
+      requiredToolsOnce: captured.config?.requiredToolsOnce,
+      toolNames: captured.config?.tools.map((tool) => tool.name) ?? [],
+    }
+  }
+
+  it("章节页真实交接目标「为「第12章 旧梦」生成本章草稿」现在武装", async () => {
+    // 用真实生产者（buildChapterDraftGoal）而不是手抄文案：文案若改，本用例立刻失败。
+    const goal = buildChapterDraftGoal("第12章 旧梦")
+    expect(goal).toBe("为「第12章 旧梦」生成本章草稿")
+    const { requiredToolsOnce, toolNames } = await armFor(goal)
+    expect(requiredToolsOnce).toEqual(["run_chapter_workflow"])
+    // 武装的名字必须真的注册了，否则 missingRequiredToolsOnce 会把不可用项过滤掉。
+    expect(toolNames).toContain("run_chapter_workflow")
+  })
+
+  it("章节名无「第N章」前缀的交接目标（为「旧梦」生成本章草稿）同样武装", async () => {
+    const goal = buildChapterDraftGoal("旧梦")
+    expect(goal).toBe("为「旧梦」生成本章草稿")
+    const { requiredToolsOnce } = await armFor(goal)
+    expect(requiredToolsOnce).toEqual(["run_chapter_workflow"])
+  })
+
+  it("归一化只喂门控：底层 routeTask 仍是 general_chat，taskRoute.intent 不被改写", () => {
+    const goal = buildChapterDraftGoal("第12章 旧梦")
+    const routed = routeTask(goal)
+    expect(routed.intent).toBe("general_chat")
+    const before = JSON.stringify(routed)
+    expect(resolveMainControlGateIntent(goal, routed)).toBe("write_chapter")
+    // 纯函数：入参对象未被就地改写（注入 virtualToolContext 的仍是路由原值）。
+    expect(JSON.stringify(routed)).toBe(before)
+    expect(routed.intent).toBe("general_chat")
+  })
+
+  it("纯聊天/检索/提及类目标不被误武装（章号存在也不够）", () => {
+    const cases = [
+      "读第 3 章",
+      "第12章 旧梦",
+      "第 12 章的大纲是什么",
+      "把第12章翻译成英文",
+      "列出第 3 章的所有人物",
+      "帮我看看第12章写得怎么样",
+      "本章草稿在哪",
+      "把草稿区清空",
+      "不要生成本章草稿",
+      "写一份草稿给编辑",
+    ]
+    for (const goal of cases) {
+      const routed = routeTask(goal)
+      expect(routed.intent, goal).toBe("general_chat")
+      expect(resolveMainControlGateIntent(goal, routed), goal).toBe("general_chat")
+    }
+  })
+
+  it("已有非 general_chat 意图原样返回（审稿/润色/续写不被这一层改写）", () => {
+    const cases: Array<[string, string]> = [
+      ["检查第 3 章有没有矛盾", "review_chapter"],
+      ["润色第 3 章", "polish_chapter"],
+      // 「生成大纲草稿」路由到 generate_outline：不在四类章节写作意图里，归一化也不动它。
+      ["生成大纲草稿", "generate_outline"],
+      ["续写第 3 章", "write_chapter"],
+      ["写第 3 章", "write_chapter"],
+    ]
+    for (const [goal, intent] of cases) {
+      const routed = routeTask(goal)
+      expect(routed.intent, goal).toBe(intent)
+      expect(resolveMainControlGateIntent(goal, routed), goal).toBe(intent)
+    }
+  })
+
+  it("装配层反例：纯聊天目标「读第 3 章」在 standard + 深章注入下仍不武装", async () => {
+    const { requiredToolsOnce, toolNames } = await armFor("读第 3 章")
+    expect(requiredToolsOnce).toBeUndefined()
+    // 反证：工具确实注册了，不武装是判定结果而非工具缺失。
+    expect(toolNames).toContain("run_chapter_workflow")
   })
 })
