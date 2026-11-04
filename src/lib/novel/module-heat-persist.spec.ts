@@ -10,13 +10,14 @@ const mocks = vi.hoisted(() => ({
   readFile: vi.fn(),
 }))
 
+// mock 的键必须与 module-heat-persist.ts 的真实导入名一致（RV2-005）：
+// 上一版写的是 createDir / renameFile / removeFile —— 这三个在 @/commands/fs 里根本不存在，
+// 而实际导入的 createDirectory / writeFileAtomic 反倒漏了。当前不红只因 loadHeatSnapshot
+// 只碰 readFile；将来在此加一条 saveHeatSnapshot 用例就会得到"writeFileAtomic is not a function"。
 vi.mock("@/commands/fs", () => ({
   readFile: mocks.readFile,
-  writeFile: vi.fn(),
-  fileExists: vi.fn(),
-  createDir: vi.fn(),
-  renameFile: vi.fn(),
-  removeFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
+  createDirectory: vi.fn(),
 }))
 
 import { loadHeatSnapshot } from "./module-heat-persist"
@@ -75,18 +76,29 @@ describe("loadHeatSnapshot 读盘侧过滤（A-04）", () => {
     expect(loaded?.fileVersion).toBe(1)
   })
 
-  it("RV-003：detail 为对象 / ms 非数值的条目被丢弃（否则渲染时抛 Objects are not valid as a React child）", async () => {
+  // RV2-006：detail 与 ms 各自独立成条，任一守卫被删都能精确指向自己的用例。
+  it("RV-003：detail 非字符串（对象 / 数组）的条目被丢弃 —— 否则渲染时抛 Objects are not valid as a React child", async () => {
     mocks.readFile.mockResolvedValue(
       snapshot([
         { path: "a.ts", at: 1, ok: true, detail: { nested: 1 } },
-        { path: "b.ts", at: 2, ok: true, ms: { nested: 1 } },
-        { path: "c.ts", at: 3, ok: true, ms: Number.POSITIVE_INFINITY },
         { path: "d.ts", at: 4, ok: true, detail: ["x"] },
-        { path: "ok.ts", at: 5, ok: true, ms: 7, detail: "fine" },
+        { path: "ok.ts", at: 5, ok: true, detail: "fine" },
       ]),
     )
     const loaded = await loadHeatSnapshot(PROJECT)
-    expect(loaded?.hits).toEqual([{ path: "ok.ts", at: 5, ok: true, ms: 7, detail: "fine" }])
+    expect(loaded?.hits).toEqual([{ path: "ok.ts", at: 5, ok: true, detail: "fine" }])
+  })
+
+  it("RV-003：ms 非有限数值（对象 / Infinity）的条目被丢弃 —— 否则 totalMs 变 NaN，且 {row.ms}ms 同为 React child", async () => {
+    mocks.readFile.mockResolvedValue(
+      snapshot([
+        { path: "b.ts", at: 2, ok: true, ms: { nested: 1 } },
+        { path: "c.ts", at: 3, ok: true, ms: Number.POSITIVE_INFINITY },
+        { path: "ok.ts", at: 5, ok: true, ms: 7 },
+      ]),
+    )
+    const loaded = await loadHeatSnapshot(PROJECT)
+    expect(loaded?.hits).toEqual([{ path: "ok.ts", at: 5, ok: true, ms: 7 }])
   })
 
   it("ok 非布尔也丢弃（aggregateHeat 用它分支统计）", async () => {

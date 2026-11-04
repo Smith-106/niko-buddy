@@ -954,3 +954,41 @@ describe("DEBT-residual-04：留痕的写读 key 契约", () => {
     warn.mockRestore()
   })
 })
+
+// RV2-001（第二轮独立复核 high）：上面 5 条只钉住了**文件分支**。
+// 变异实验证明：让项目 store 分支或全局回退分支漏传 projectPath，整套 spec 依然全绿。
+// 而全局回退分支恰恰是**最常见的生产路径**（项目从未落过 novel 配置文件时走它），
+// 一旦漏传，留痕落到 __global__ 哨兵、横幅用真实项目路径查 → 永不渲染，
+// 与 RV-002 完全同一个 failure mode。下面两条各自钉一个变异点。
+describe("DEBT-residual-04：另两个写侧分支也必须按项目留痕（RV2-001）", () => {
+  it("项目 store 分支（projectNovelConfigs[projectId] 命中）→ 登在项目 key 下，不是全局哨兵", async () => {
+    __resetWritingModelDeprecationWarningsForTest()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    mocks.fileExists.mockResolvedValue(false) // 没有 novel 配置文件 → 走 store 分支
+    await mocks.store.set("projectNovelConfigs", {
+      "store-proj": { searchTopK: 5, writingModel: "store-branch-model" },
+    })
+
+    await loadNovelConfig("store-proj", "C:/store-proj")
+
+    expect(getDiscardedWritingConfig("C:/store-proj")?.value).toBe("store-branch-model")
+    // 关键：不能落到全局哨兵（漏传 projectPath 时就会）
+    expect(getDiscardedWritingConfig(undefined)).toBeNull()
+    warn.mockRestore()
+  })
+
+  it("全局回退分支（项目无自有配置，只有全局 old key）→ 仍登在该项目 key 下", async () => {
+    __resetWritingModelDeprecationWarningsForTest()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    mocks.fileExists.mockResolvedValue(false)
+    // 没有 projectNovelConfigs 条目 → 回退到全局配置，这里带旧键
+    await mocks.store.set("novelConfig", { searchTopK: 9, writingModel: "global-fallback-model" })
+
+    await loadNovelConfig("fallback-proj", "C:/fallback-proj")
+
+    // 最重要的生产路径：留痕必须挂在**该项目**下，横幅才查得到
+    expect(getDiscardedWritingConfig("C:/fallback-proj")?.value).toBe("global-fallback-model")
+    expect(getDiscardedWritingConfig(undefined)).toBeNull()
+    warn.mockRestore()
+  })
+})

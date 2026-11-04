@@ -424,6 +424,34 @@ describe("必调工具门控：工具未调用 + 重试耗尽 → 明确诊断",
     assertNudgeShapeInvariants(sentMessages)
   })
 
+  it("RV2-002：模型连续返回空输出、连续两次 nudge → 不得产生相邻 system（nudge 并入尾部 system）", async () => {
+    // 第二轮复核实测出的反例：assistant 的 push 是有条件的（本轮有文本/推理/思考块才 push），
+    // 而 nudge 原本无条件 push。两轮都空输出时就会「…, system, system」。
+    // 修法是让 nudge 并入尾部已有 system；不变量必须真的成立，否则断言比不写更糟。
+    const sentMessages = scriptStream([{}, {}, {}])
+    const tool = createWorkflowTool()
+    await runAgent(
+      createConfig([tool], { requiredToolsOnce: [WORKFLOW_TOOL], maxRounds: 3 }),
+      [tool],
+    )
+
+    // 前提成立：真的注入了两次 nudge（否则这条用例又在测空气）
+    const nudgeCount = sentMessages.filter((messages) => nudgeInjected(messages)).length
+    expect(nudgeCount).toBeGreaterThanOrEqual(2)
+
+    assertNudgeShapeInvariants(sentMessages)
+
+    // 且并入后内容没丢：带 nudge 标记的 system 只有**一条**（两次 nudge 已合并进同一条），
+    // 且它就是最后一条消息 —— 证明合并没有把指令挤到中间去。
+    const lastRound = sentMessages[sentMessages.length - 1]
+    const nudgeSystems = lastRound.filter(
+      (m) => m.role === "system" && String(m.content).includes(NUDGE_MARKER),
+    )
+    expect(nudgeSystems).toHaveLength(1)
+    expect(lastRound[lastRound.length - 1].role).toBe("system")
+    expect(String(lastRound[lastRound.length - 1].content)).toContain(NUDGE_MARKER)
+  })
+
   it("RVF-12：nudge 内容本身非空且点名缺失工具", async () => {
     const message = buildRequiredToolNudgeMessage([WORKFLOW_TOOL])
     expect(typeof message).toBe("string")

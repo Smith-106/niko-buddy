@@ -65,17 +65,28 @@ function emit(): void {
   for (const listener of listeners) listener()
 }
 
-/** 记录一次丢弃（同一 key 保留首次观察，不刷屏）。 */
-export function noteDiscardedWritingConfig(
-  projectPath: string | null | undefined,
-  raw: unknown,
-  label = "未知作用域",
-): void {
-  const key = noticeKeyForProject(projectPath)
+/**
+ * 记录一次丢弃（同一 key 保留首次观察，不刷屏）。
+ *
+ * 刻意用**具名对象**而不是位置参数：上一版签名是 `(projectPath, raw, label)`，
+ * 第一参与第三参同为 `string`，把 `(projectPath, discarded, scope)` 误写成
+ * `(scope, discarded, scope)` 时 TypeScript 完全不报错，运行时静默退化成全局哨兵 ——
+ * 正是那个「告知横幅永不渲染」的缺陷本身。改成具名后这种误传无法通过类型检查。
+ */
+export function noteDiscardedWritingConfig(input: {
+  /** 项目文件路径；缺省/空则登在全局哨兵下。 */
+  projectPath: string | null | undefined
+  /** 旧配置里该键的原始值。 */
+  raw: unknown
+  /** 人类可读作用域，仅用于诊断展示。 */
+  label?: string
+}): void {
+  const key = noticeKeyForProject(input.projectPath)
   if (notices.has(key)) return
+  const raw = input.raw
   const value =
     typeof raw === "string" ? raw : raw === undefined || raw === null ? null : JSON.stringify(raw)
-  notices.set(key, { key, label, value, discardedAt: Date.now() })
+  notices.set(key, { key, label: input.label ?? "未知作用域", value, discardedAt: Date.now() })
   emit()
 }
 

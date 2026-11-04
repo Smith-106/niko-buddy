@@ -736,7 +736,7 @@ function warnDeprecatedWritingModel(
   // DEBT-residual-04：先留痕（供设置页告知），再做日志去重判定。
   // 两件事的粒度不同：日志按 scope 去重防刷屏，留痕按归一化路径自身 first-wins。
   // 放在闸前是为了让留痕不受「日志已告警过」这个状态影响，而不是为了改变结果。
-  noteDiscardedWritingConfig(projectPath, discarded, scope)
+  noteDiscardedWritingConfig({ projectPath, raw: discarded, label: scope })
 
   if (warnedDeprecatedWritingModelScopes.has(scope)) return
   warnedDeprecatedWritingModelScopes.add(scope)

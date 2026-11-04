@@ -533,10 +533,20 @@ export class AgentRunner {
               ...(nudgeThinking.length > 0 ? { thinking_blocks: nudgeThinking } : {}),
             })
           }
-          workingMessages.push({
-            role: "system",
-            content: buildRequiredToolNudgeMessage(missingRequired),
-          })
+          // nudge 尽量**并入**尾部已有的 system，而不是无条件再 push 一条。
+          //
+          // 必要性：上面的 assistant push 是有条件的（本轮有文本 / 推理 / 思考块才 push），
+          // 但 nudge 原本无条件 push。模型连续两轮返回空文本且零工具调用时，就会产生
+          // 「…, system, system」。真实 provider 目前不会因此报错（适配层会上提/合并 system），
+          // 但我们保证的协议级不变量「system 不紧跟 system」必须真的成立——
+          // 断言一条会被自己实现打破的不变量，比不写更糟。
+          const nudgeContent = buildRequiredToolNudgeMessage(missingRequired)
+          const lastMessage = workingMessages[workingMessages.length - 1]
+          if (lastMessage && lastMessage.role === "system" && typeof lastMessage.content === "string") {
+            lastMessage.content = `${lastMessage.content}\n\n${nudgeContent}`
+          } else {
+            workingMessages.push({ role: "system", content: nudgeContent })
+          }
           requiredToolNudgesUsed += 1
           continue
         }

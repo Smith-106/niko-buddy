@@ -91,7 +91,7 @@
   "specOnly": 267,
   "barrelOnly": 1,
   "edges": 4648,
-  "loc": 289698
+  "loc": 289719
  },
  "modules": [
   {
@@ -6705,7 +6705,7 @@
   {
    "p": "src/lib/agent/runner.ts",
    "s": 12,
-   "l": 679,
+   "l": 689,
    "r": true,
    "o": false,
    "x": false,
@@ -7873,7 +7873,7 @@
   {
    "p": "src/lib/discarded-writing-config-notice.ts",
    "s": 18,
-   "l": 110,
+   "l": 121,
    "r": true,
    "o": false,
    "x": false,

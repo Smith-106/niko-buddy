@@ -191,6 +191,19 @@ i18n 键成对落地：`mainControl.settingsWritingModelDiscardedTitle` / `mainC
 | RV-006 | 横幅读非响应式 Map，靠挂载顺序侥幸成立；关闭态单 key 跨项目共享 | 登记表加版本号 + `subscribe`，UI 用 `useSyncExternalStore`；关闭 key 改为 `<prefix>.<noticeKey>`；新增两条用例（A 项目关闭不影响 B、留痕晚于首渲染写入仍出现） |
 | RV-007 | 7.5 的 changelog 备文写「设置页现在会显示被丢弃的原值」，受 RV-002 影响实际不会显示；7.3 把登记表说成 `project-store.ts` 新增 | 本节已改：文案与已实现行为一致（并补上「按项目隔离」），7.3 补 key 契约 |
 | RV-008 | 声称「测的是接线本身」的 spec 根本没 import `project-store`，写侧 0 覆盖 | 见 RV-002：补 `project-store.spec.ts` 的跨模块用例，覆盖写读 key 对齐 |
-| RV-009 | 提交正文报 `it.skip` 为 8 未写口径 | 口径固定：**纯 `it.skip` = 8（与 base 相同）**；`it.skip + describe.skip` = 22 |
+| RV-009 | 提交正文报 `it.skip` 为 8 未写口径 | 口径固定（实测，两棵树一致）：**纯 `it.skip(` = 5、`describe.skip(` = 0，均与 base 相同**；另有 `it.skipIf(` = 3（条件跳过，不是新增跳过）；文本含 `it.skip` / `describe.skip` 的子串匹配总数 = 22。第一版把 8（= 5 纯 + 3 条件）标成「纯 it.skip」是标签错误 |
 | RV-010 | `loadHeatSnapshot` 无直测，容器字段透传契约无断言 | 新增 `src/lib/novel/module-heat-persist.spec.ts`（8 条） |
 | RV-011 | `listDiscardedWritingConfigs` 零调用方而 doc 有承诺 | 删除该函数与对应承诺，不留未接线的「供诊断」入口 |
+
+### 7.7 第二轮独立复核后的修正（RV2-001 … RV2-006）
+
+第二轮 reviewer 对 `01284a7d` 判 `approve_with_concerns`，确认两条 blocking 真修（并做了 8 组变异实验证明新用例不是自证），同时指出**修复的持久性仍有缺口**。本轮已修：
+
+| 项 | 缺陷 | 修法 |
+|---|---|---|
+| RV2-001（high） | 3 个写侧调用点只有**文件分支**被测试钉住；变异实验证明让「项目 store 分支」或「全局回退分支」漏传 `projectPath`，整套 spec 依然全绿。而全局回退恰是**最常见生产路径**（项目从未落过 novel 配置文件时走它），一旦漏传，留痕落到 `__global__` 哨兵、横幅用真实项目路径查 ⇒ **永不渲染**，与 RV-002 同一 failure mode 且测试全绿 | 补 2 条用例各钉一个分支；并自行做变异实验验证：让 `:536` 或 `:543` 漏传，**各精确红 1 条** |
+| RV2-002（medium） | 收窄后的不变量「system 不紧跟 system」**被 `runner.ts` 的真实路径打破**（reviewer 用临时探针实测复现）：assistant 的 push 是有条件的（有文本/推理/思考块才 push），而 nudge 原本无条件 push，两轮空输出就产生相邻 system | 生产代码改为 **nudge 并入尾部已有 system**（`runner.ts` 的注入点），并补一条「连续空输出、两次 nudge」用例；变异验证：把 merge 改回无条件 push，该用例**精确红** |
+| RV2-003（medium） | 7.6 里 `it.skip` 口径数字标签不准 | 见上表 RV-009 行，已用实测口径重写（纯 5 / 条件 3 / 子串 22） |
+| RV2-004（medium） | `noteDiscardedWritingConfig(projectPath, raw, label)` 第一与第三参同为 string，把 `(path, discarded, scope)` 误写成 `(scope, discarded, scope)` 时**类型检查不拦**、运行时静默退化成全局哨兵 —— 正是那个 blocking 缺陷本身 | 签名改为**具名对象** `{ projectPath, raw, label? }`，误传在类型上不可表达；生产点与全部 spec 调用点同步更新 |
+| RV2-005（low） | 新 spec 的 mock 工厂键与真实导入名不符（写的是 `createDir`/`renameFile`/`removeFile`，实际导入 `createDirectory`/`writeFileAtomic`） | 对齐为 `readFile` / `writeFileAtomic` / `createDirectory` |
+| RV2-006（low） | `detail` 与 `ms` 两个守卫共用同一条杀手用例 | 拆成两条独立用例，任一守卫被删都精确指向自己 |

@@ -66,7 +66,7 @@ afterEach(() => {
 describe("DiscardedWritingConfigNoticeBanner", () => {
   it("有非空丢弃值时显示横幅，且带上原值", () => {
     setProject(PROJECT_PATH)
-    noteDiscardedWritingConfig(PROJECT_PATH, "deepseek/muse-spark-1.3-contributor-free")
+    noteDiscardedWritingConfig({ projectPath: PROJECT_PATH, raw: "deepseek/muse-spark-1.3-contributor-free" })
     renderSection()
     const banner = screen.queryByTestId(BANNER)
     expect(banner).not.toBeNull()
@@ -81,21 +81,21 @@ describe("DiscardedWritingConfigNoticeBanner", () => {
 
   it("丢弃值为空串（旧版本主动落盘的空值）时不显示，避免无意义提示", () => {
     setProject(PROJECT_PATH)
-    noteDiscardedWritingConfig(PROJECT_PATH, "")
+    noteDiscardedWritingConfig({ projectPath: PROJECT_PATH, raw: "" })
     renderSection()
     expect(screen.queryByTestId(BANNER)).toBeNull()
   })
 
   it("留痕作用域与当前项目不匹配时不显示（不会串项目）", () => {
     setProject(PROJECT_PATH)
-    noteDiscardedWritingConfig("/another-project", "some-model")
+    noteDiscardedWritingConfig({ projectPath: "/another-project", raw: "some-model" })
     renderSection()
     expect(screen.queryByTestId(BANNER)).toBeNull()
   })
 
   it("关闭后不再显示，并把关闭态落到 localStorage", () => {
     setProject(PROJECT_PATH)
-    noteDiscardedWritingConfig(PROJECT_PATH, "some-model")
+    noteDiscardedWritingConfig({ projectPath: PROJECT_PATH, raw: "some-model" })
     renderSection()
     fireEvent.click(screen.getByTestId(DISMISS))
     expect(screen.queryByTestId(BANNER)).toBeNull()
@@ -104,7 +104,7 @@ describe("DiscardedWritingConfigNoticeBanner", () => {
 
   it("已关闭过的用户再进来不再看到横幅", () => {
     setProject(PROJECT_PATH)
-    noteDiscardedWritingConfig(PROJECT_PATH, "some-model")
+    noteDiscardedWritingConfig({ projectPath: PROJECT_PATH, raw: "some-model" })
     localStorage.setItem(DISMISSED_KEY, "1")
     renderSection()
     expect(screen.queryByTestId(BANNER)).toBeNull()
@@ -112,8 +112,8 @@ describe("DiscardedWritingConfigNoticeBanner", () => {
 
   it("RV-006：在 A 项目关掉不影响 B 项目的告知（关闭态按作用域隔离）", () => {
     setProject(PROJECT_PATH)
-    noteDiscardedWritingConfig(PROJECT_PATH, "proj-a-model")
-    noteDiscardedWritingConfig("/proj-b", "proj-b-model")
+    noteDiscardedWritingConfig({ projectPath: PROJECT_PATH, raw: "proj-a-model" })
+    noteDiscardedWritingConfig({ projectPath: "/proj-b", raw: "proj-b-model" })
     localStorage.setItem(DISMISSED_KEY, "1")
 
     renderSection()
@@ -133,7 +133,7 @@ describe("DiscardedWritingConfigNoticeBanner", () => {
     expect(screen.queryByTestId(BANNER)).toBeNull()
     // 首次渲染之后才写留痕：上一版直接读 Map，不会重渲染，横幅永远不出现
     act(() => {
-      noteDiscardedWritingConfig(PROJECT_PATH, "late-model")
+      noteDiscardedWritingConfig({ projectPath: PROJECT_PATH, raw: "late-model" })
     })
     expect(screen.queryByTestId(BANNER)).not.toBeNull()
   })
