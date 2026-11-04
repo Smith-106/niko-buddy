@@ -15,11 +15,22 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.26.3-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.26.4-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
+
+## v2.26.4 新增（主控三档权能补全，正式稳定版）
+
+把「目标 → 成稿」链上的组件真正交到主控手里，按三档权能（配置 / 触发 / 观测）逐项补齐：
+
+- **主控内可配置写作设置**：run 页签新增设置块 —— 章节目标字数、写前门控模式、审稿模型、场景切分开关、门控后文学打磨，并新增项目级 `aiWorkflowMode`（快速 / 标准 / 严格）。与设置页共用同一个 `novelConfig` 落盘入口，两处不会各说一套。`writingModel` 不暴露为控件（写作始终用 AI 会话当前模型）。
+- **主控内采纳草稿**：drafts 页签的「采纳」走与章节草稿坞同一个 `acceptChapterDraft`，保留两步确认（第一步只解析目标并探占用，零写盘），采纳后可记忆回填并回报结构化 ingest 结果。
+- **主控内重跑门控**：live 页签的「重跑门控」调用深章门控评估，按门渲染通过 / 失败 / 跳过；判定仍归 `buildDecisionGates` 唯一真源，不复制任何规则，未评估的维度如实报「跳过」而不是假通过。
+- **四项观测接进轨迹**：深章阶段产出、共识写作（席位 / 互评轮次 / 胜出稿 / 失败席位）、章节标题生成、采纳后的记忆回填，全部落到主控 `activities` 通道并投影进 trace 快照（`fileVersion: 2`，v1 旧快照仍可读）。
+- **标题生成开关真正生效**：`autoGenerateChapterTitle` 从「恒真」变成真开关 —— 仅在开关打开且正文无富标题时生成，失败降级为朴素「第N章」不阻断正文，提示词侧的标题要求跟随同一开关。
+- **decision-log**：新增 `docs/decision-log/20261104-mainctl-3tier-powers.md`，记录本轮决策与不变量。
 
 ## v2.26.3 修复（应用名重复 + 总字数显示，正式稳定版）
 

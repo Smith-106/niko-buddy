@@ -16,7 +16,7 @@ import { PlanningPanel } from "./planning-panel"
 import { ChatModelSelector } from "./chat-model-selector"
 import { useChatStore, chatMessagesToLLM, type DisplayMessage } from "@/stores/chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { chapterMarkdownHasBody, resolveChapterLengthSpec, routeTask, detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat, injectDeAiDirective, cleanGeneratedChapterContentWithTitle, resolveNovelModel, resolveReviewModel, detectGoldenThreeChapterRequest, isChatEditRequest, updateChapterStatus, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber, commitAcceptedDeepChapterDraft, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, loadNovelSessionStatus, subscribeStatusJson } from "@/lib/novel"
+import { chapterMarkdownHasBody, resolveChapterLengthSpec, routeTask, detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat, injectDeAiDirective, cleanGeneratedChapterContentWithTitle, acceptDraftAndIngest, detectGoldenThreeChapterRequest, isChatEditRequest, updateChapterStatus, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber, commitAcceptedDeepChapterDraft, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, loadNovelSessionStatus, subscribeStatusJson } from "@/lib/novel"
 import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
 import { activeRustStreamIds } from "@/lib/claude-cli-transport"
 import { executeIngestWrites } from "@/lib/ingest"
@@ -278,45 +278,43 @@ export function ChatPanel() {
         buildDraftContent(targetChapterNumber, chapterTitle, cleanedContent),
         "final",
       )
-      await commitAcceptedDeepChapterDraft({
+      // 采纳 + 记忆回填组合收敛到共享函数（G2）：采纳实现仍由本文件注入（accept seam），
+      // 顺序、降级分类与 store 回滚语义都在 lib 内单一实现；三句状态文案逐字保留（R-04）。
+      const ingestOutcome = await acceptDraftAndIngest({
         projectPath: pp,
-        conversationId: latestDraftContext.conversationId,
-        userRequest: latestDraftContext.userRequest || cleanedContent.slice(0, 80),
-        chapterNumber: targetChapterNumber,
-        chapterPath,
-        finalChapterContent,
+        formalChapterPath: chapterPath,
+        novelConfig,
+        llmConfig: useWikiStore.getState().llmConfig,
+        accept: async () => {
+          await commitAcceptedDeepChapterDraft({
+            projectPath: pp,
+            conversationId: latestDraftContext.conversationId,
+            userRequest: latestDraftContext.userRequest || cleanedContent.slice(0, 80),
+            chapterNumber: targetChapterNumber,
+            chapterPath,
+            finalChapterContent,
+          })
+          invalidateChapterCache(pp)
+          useChatStore.getState().setMessages(
+            useChatStore.getState().messages.map((message) =>
+              message.id !== latestDraftContext.assistantMessage.id
+                ? message
+                : {
+                    ...message,
+                    content: replaceManagedDeepChapterDraftMarker(message.content, {
+                      conversationId: latestDraftContext.conversationId,
+                      draftStatus: "accepted",
+                    }),
+                  }),
+          )
+        },
       })
-      invalidateChapterCache(pp)
-      useChatStore.getState().setMessages(
-        useChatStore.getState().messages.map((message) =>
-          message.id !== latestDraftContext.assistantMessage.id
-            ? message
-            : {
-                ...message,
-                content: replaceManagedDeepChapterDraftMarker(message.content, {
-                  conversationId: latestDraftContext.conversationId,
-                  draftStatus: "accepted",
-                }),
-              }),
-      )
 
       let nextStatus = `已接受草稿并保存为 ${chapterTitle}`
-      if (novelConfig.autoIngestOnSave) {
-        const runtimeLlmConfig = resolveNovelModel(useWikiStore.getState().llmConfig, novelConfig, "extract")
-        if (hasUsableLlm(runtimeLlmConfig)) {
-          const [{ ingestChapter }, { defaultCanonDualWriteDeps }] = await Promise.all([
-            import("@/lib/novel/chapter-ingest"),
-            import("@/lib/novel/canon-dual-write"),
-          ])
-          const ingestResult = await ingestChapter(project.path, chapterPath, resolveReviewModel(), undefined, {
-            canonDualWriteDeps: defaultCanonDualWriteDeps(),
-          })
-          if (!ingestResult.snapshot) {
-            nextStatus = `已接受草稿并保存为 ${chapterTitle}，但章节摄取未完成`
-          }
-        } else {
-          nextStatus = `已接受草稿并保存为 ${chapterTitle}，但未配置可用 AI 模型`
-        }
+      if (ingestOutcome.ingest === "failed") {
+        nextStatus = `已接受草稿并保存为 ${chapterTitle}，但章节摄取未完成`
+      } else if (ingestOutcome.ingest === "skipped-no-model") {
+        nextStatus = `已接受草稿并保存为 ${chapterTitle}，但未配置可用 AI 模型`
       }
       setChapterSaveState({
         conversationId: latestDraftContext.conversationId,

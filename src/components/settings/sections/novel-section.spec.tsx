@@ -459,6 +459,8 @@ describe("NovelSection", () => {
       ["novel.settings.deepPreviousChaptersAnalysis", () => currentDraft.novelConfig.deepPreviousChaptersAnalysis],
       ["novel.settings.deepChapterReview", () => currentDraft.novelConfig.deepChapterReview],
       ["novel.settings.literaryPolishAfterGate", () => !!currentDraft.novelConfig.literaryPolishAfterGate],
+      // 组件 12：autoGenerateChapterTitle 曾是死字段（UI 无处可改），现已由 ensureChapterTitle 消费，此断言防止控件回退。
+      ["novel.settings.autoGenerateChapterTitle", () => !!currentDraft.novelConfig.autoGenerateChapterTitle],
       ["novel.settings.residualCampaignEnabled", () => !!currentDraft.novelConfig.residualCampaignEnabled],
       // R9（Round-9 用户可感知开关）：stageJournalEnabled 默认开，用 !== false 读值（与 novel-section.tsx 一致）。
       ["novel.settings.stageJournalEnabled", () => currentDraft.novelConfig.stageJournalEnabled !== false],

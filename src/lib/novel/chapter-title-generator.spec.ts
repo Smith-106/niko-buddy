@@ -13,7 +13,7 @@ vi.mock("@/lib/llm-client", async (importOriginal) => {
   }
 })
 
-import { generateChapterTitle } from "./chapter-title-generator"
+import { generateChapterTitle, ensureChapterTitle } from "./chapter-title-generator"
 
 function runStream(chunks: string[]) {
   streamChatMock.mockImplementationOnce(async (_cfg: unknown, _msgs: unknown, callbacks: { onToken: (t: string) => void; onDone: () => void }) => {
@@ -95,5 +95,99 @@ describe("chapter-title-generator generateChapterTitle", () => {
       controller.signal,
       expect.any(AbortSignal),
     )
+  })
+})
+
+describe("chapter-title-generator ensureChapterTitle（RV-001 无标题路径）", () => {
+  const llmConfig = { apiKey: "k", model: "m", baseUrl: "http://x" } as never
+
+  it("开关为假时零 LLM 调用，正文原样返回", async () => {
+    const generateTitle = vi.fn()
+    const out = await ensureChapterTitle("正文内容", {
+      chapterNumber: 7,
+      llmConfig,
+      autoGenerateChapterTitle: false,
+      generateTitle,
+    })
+    expect(generateTitle).not.toHaveBeenCalled()
+    expect(out).toEqual({ content: "正文内容", title: "", source: "disabled" })
+  })
+
+  it("没有章号时不猜章号，也不调用模型", async () => {
+    const generateTitle = vi.fn()
+    const out = await ensureChapterTitle("正文内容", {
+      llmConfig,
+      autoGenerateChapterTitle: true,
+      generateTitle,
+    })
+    expect(generateTitle).not.toHaveBeenCalled()
+    expect(out.source).toBe("disabled")
+  })
+
+  it("正文已带富标题时不再多跑一次模型", async () => {
+    const generateTitle = vi.fn()
+    const content = "# 第7章 夜雨\n\n正文内容"
+    const out = await ensureChapterTitle(content, {
+      chapterNumber: 7,
+      llmConfig,
+      autoGenerateChapterTitle: true,
+      generateTitle,
+    })
+    expect(generateTitle).not.toHaveBeenCalled()
+    expect(out).toEqual({ content, title: "第7章 夜雨", source: "content" })
+  })
+
+  it("无标题时调用 generateChapterTitle 并补 H1", async () => {
+    const generateTitle = vi.fn(async () => "第7章 夜雨")
+    const out = await ensureChapterTitle("正文内容", {
+      chapterNumber: 7,
+      llmConfig,
+      autoGenerateChapterTitle: true,
+      generateTitle,
+    })
+    expect(generateTitle).toHaveBeenCalledOnce()
+    expect(out.source).toBe("generated")
+    expect(out.title).toBe("第7章 夜雨")
+    expect(out.content).toBe("# 第7章 夜雨\n\n正文内容")
+  })
+
+  it("裸 H1 先摘掉再补，不出现两个标题行", async () => {
+    const generateTitle = vi.fn(async () => "第7章 夜雨")
+    const out = await ensureChapterTitle("# 第7章\n\n正文内容", {
+      chapterNumber: 7,
+      llmConfig,
+      autoGenerateChapterTitle: true,
+      generateTitle,
+    })
+    expect(out.content).toBe("# 第7章 夜雨\n\n正文内容")
+    expect(out.content.match(/^# /gm)).toHaveLength(1)
+  })
+
+  it("生成失败降级「第N章」且绝不丢正文（不抛）", async () => {
+    const generateTitle = vi.fn(async () => {
+      throw new Error("upstream 500")
+    })
+    const out = await ensureChapterTitle("正文内容", {
+      chapterNumber: 7,
+      llmConfig,
+      autoGenerateChapterTitle: true,
+      generateTitle,
+    })
+    expect(out.source).toBe("fallback")
+    expect(out.title).toBe("第7章")
+    expect(out.content).toBe("# 第7章\n\n正文内容")
+    expect(out.error).toContain("upstream 500")
+  })
+
+  it("模型返回空串也走降级，不留下空标题行", async () => {
+    const generateTitle = vi.fn(async () => "   ")
+    const out = await ensureChapterTitle("正文内容", {
+      chapterNumber: 3,
+      llmConfig,
+      autoGenerateChapterTitle: true,
+      generateTitle,
+    })
+    expect(out.source).toBe("fallback")
+    expect(out.content).toBe("# 第3章\n\n正文内容")
   })
 })

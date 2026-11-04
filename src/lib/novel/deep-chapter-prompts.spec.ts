@@ -61,19 +61,43 @@ describe("chapter prompts honor the configured length spec", () => {
   })
 })
 
+describe("autoGenerateChapterTitle 开关（RV-001：恒 true → novelConfig 真值）", () => {
+  it("四个生产阶段提示词都按开关切换标题要求", () => {
+    const draftOff = buildDeepChapterDraftPrompt("o", "ctx", "brief", "user", 3, undefined, undefined, undefined, false)
+    expect(draftOff).toContain("2. 不要输出章节标题。")
+    expect(draftOff).not.toContain("正文第一行必须是章节标题")
+
+    const revisionOff = buildDeepChapterRevisionPrompt("o", "ctx", "brief", "草稿", [], "user", 3, undefined, undefined, false)
+    expect(revisionOff).toContain("2. 不要输出章节标题。")
+
+    const expansionOff = buildDeepChapterExpansionPrompt("o", "ctx", "brief", "过短", "user", 3, undefined, undefined, undefined, false)
+    expect(expansionOff).toContain("2. 不要输出章节标题。")
+
+    const polishOff = buildDeepChapterFinalPolishPrompt("o", "ctx", "brief", "正文", "user", 3, undefined, undefined, undefined, undefined, undefined, false)
+    expect(polishOff).toContain("6. 不要输出章节标题。")
+  })
+
+  it("开关缺省时保持原有标题要求（向后兼容）", () => {
+    const draft = buildDeepChapterDraftPrompt("o", "ctx", "brief", "user", 3)
+    expect(draft).toContain("2. 正文第一行必须是章节标题")
+    const polish = buildDeepChapterFinalPolishPrompt("o", "ctx", "brief", "正文", "user", 3)
+    expect(polish).toContain("6. 正文第一行必须是章节标题")
+  })
+})
+
 describe("prompt builders fallback branches (w3nb 补齐)", () => {
-  it("length-rewrite prompt honors autoGenerateTitle true/false and chapter number", () => {
+  it("length-rewrite prompt honors autoGenerateChapterTitle true/false and chapter number", () => {
     const withTitle = buildDeepChapterLengthRewritePrompt("ctx", "brief", "正文", "user", 7, undefined, {
-      autoGenerateTitle: true,
+      autoGenerateChapterTitle: true,
     })
     expect(withTitle).toContain("2. 正文第一行必须是章节标题")
 
     const noTitle = buildDeepChapterLengthRewritePrompt("ctx", "brief", "正文", "user", 7, undefined, {
-      autoGenerateTitle: false,
+      autoGenerateChapterTitle: false,
     })
     expect(noTitle).toContain("2. 不要输出章节标题。")
 
-    // 缺省 options → autoGenerateTitle 默认 true
+    // 缺省 options → autoGenerateChapterTitle 默认 true
     const defaulted = buildDeepChapterLengthRewritePrompt("ctx", "brief", "正文", "user", 7)
     expect(defaulted).toContain("2. 正文第一行必须是章节标题")
 

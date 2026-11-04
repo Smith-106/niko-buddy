@@ -121,6 +121,7 @@ export function buildDeepChapterDraftPrompt(
   goldenThreeChapter?: GoldenThreeChapterRequest,
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
   extraInstructions?: string,
+  autoGenerateChapterTitle = true,
 ): string {
   return appendTaskExtraSection([
     buildStableContextPrefix(outline, contextPrompt),
@@ -131,7 +132,7 @@ export function buildDeepChapterDraftPrompt(
     "",
     "输出要求：",
     "1. 只输出可直接保存到章节库的小说正文。",
-    `2. ${chapterTitleRequirement()}`,
+    `2. ${chapterTitleLine(autoGenerateChapterTitle)}`,
     "3. 不要输出分析、任务书、审稿说明、引用来源或后续建议。",
     "4. 严格承接上一章结尾，遵守大纲、记忆、人设、伏笔和时间线。",
     "5. 结尾必须留下适合下一章继续推进的钩子。",
@@ -159,6 +160,7 @@ export function buildDeepChapterRevisionPrompt(
   chapterNumber?: number,
   goldenThreeChapter?: GoldenThreeChapterRequest,
   extraInstructions?: string,
+  autoGenerateChapterTitle = true,
 ): string {
   return appendTaskExtraSection([
     buildStableContextPrefix(outline, contextPrompt),
@@ -169,7 +171,7 @@ export function buildDeepChapterRevisionPrompt(
     "",
     "硬性要求：",
     "1. 只输出返修后的小说正文。",
-    `2. ${chapterTitleRequirement()}`,
+    `2. ${chapterTitleLine(autoGenerateChapterTitle)}`,
     "3. 不要输出解释、审稿说明、修改清单或后续建议。",
     "4. 优先修复审稿指出的问题，不要无关改写。",
     "5. 必须继续遵守写作任务书和上下文。",
@@ -202,6 +204,7 @@ export function buildDeepChapterExpansionPrompt(
   goldenThreeChapter?: GoldenThreeChapterRequest,
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
   extraInstructions?: string,
+  autoGenerateChapterTitle = true,
 ): string {
   return appendTaskExtraSection([
     buildStableContextPrefix(outline, contextPrompt),
@@ -212,7 +215,7 @@ export function buildDeepChapterExpansionPrompt(
     "",
     "硬性要求：",
     "1. 只输出扩写补足后的完整小说正文。",
-    `2. ${chapterTitleRequirement()}`,
+    `2. ${chapterTitleLine(autoGenerateChapterTitle)}`,
     "3. 必须保留并自然融合原有正文的有效内容，不要输出解释、分析或修改说明。",
     `4. ${chapterLengthBoundary(lengthSpec)}`,
     "5. 扩写时补足场景铺陈、动作细节、对话交锋、心理变化、冲突升级和结尾钩子。",
@@ -244,6 +247,7 @@ export function buildDeepChapterFinalPolishPrompt(
   userMemoryStore?: UserMemoryStore,
   genre?: string,
   extraInstructions?: string,
+  autoGenerateChapterTitle = true,
 ): string {
   const deAiRules = customDeAiSkill && customDeAiSkill.trim()
     ? customDeAiSkill.trim()
@@ -269,7 +273,7 @@ export function buildDeepChapterFinalPolishPrompt(
     "3. 保留原有剧情事实、人物关系、时间线、伏笔和章节结尾钩子，不要另起新剧情。",
     "4. 只做必要的自然化、顺滑化和轻量修补，不要大幅重写。",
     "5. 不再强制压缩到固定字数区间；只做必要的自然化、顺滑化和轻量修补，禁止为了凑字数复读。",
-    `6. ${chapterTitleRequirement()}`,
+    `6. ${chapterTitleLine(autoGenerateChapterTitle)}`,
     "7. 只输出最终可保存的小说正文，不要输出审查报告、解释或修改说明。",
     "",
     deAiRules,
@@ -295,10 +299,12 @@ export function buildDeepChapterLengthRewritePrompt(
   userRequest: string,
   chapterNumber?: number,
   goldenThreeChapter?: GoldenThreeChapterRequest,
-  options?: { autoGenerateTitle?: boolean },
+  options?: { autoGenerateChapterTitle?: boolean },
   extraInstructions?: string,
 ): string {
-  const autoTitle = options?.autoGenerateTitle !== false
+  // 与其它阶段同一开关名：真值只能来自 `novelConfig.autoGenerateChapterTitle`，
+  // 不在这里默认成 true（旧缺口 RV-001：恒真 = 用户关不掉）。
+  const autoTitle = options?.autoGenerateChapterTitle !== false
   return appendTaskExtraSection([
     "你是小说正文轻量整理助手。",
     "请基于阶段3正文草稿做必要整理，在不影响剧情主线、人物行动、关键冲突和结尾钩子的前提下，酌情删减明显重复、循环输出和无效解释。",
@@ -332,9 +338,18 @@ function goldenThreeChapterSection(goldenThreeChapter?: GoldenThreeChapterReques
   return buildGoldenThreeChapterDirective(goldenThreeChapter)
 }
 
-/** 章节标题输出要求（当 autoGenerateTitle 为 true 时使用）。 */
+/** 章节标题输出要求（当 autoGenerateChapterTitle 为 true 时使用）。 */
 function chapterTitleRequirement(): string {
   return "正文第一行必须是章节标题，格式为：# 第X章 标题名（标题4-12字，概括本章核心内容）。"
+}
+
+/**
+ * 标题行（RV-001）：开关来自 `novelConfig.autoGenerateChapterTitle` 真值。
+ *
+ * 关闭时明确要求「不要输出章节标题」，否则模型仍会自带 H1，让「关掉自动标题」变成假开关。
+ */
+function chapterTitleLine(autoGenerateChapterTitle: boolean): string {
+  return autoGenerateChapterTitle ? chapterTitleRequirement() : "不要输出章节标题。"
 }
 
 function formatReviewIssues(reviewResults: NovelReviewResult[]): string {

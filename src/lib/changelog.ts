@@ -15,6 +15,27 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.26.4（2026-11-04）：主控内补齐三档权能 —— 写作设置与工作流强度可配、草稿可采纳、门控可重跑、四项观测接进轨迹。
+    version: "2.26.4",
+    date: "2026-11-04",
+    highlights: {
+      en: [
+        "New: writing settings are configurable inside main control. A settings block on the main-control run tab exposes chapter target length, pre-write gate mode, review model, scene breakdown and post-gate literary polish, plus a new project-level aiWorkflowMode (fast / standard / strict). It writes through the same novelConfig persistence entry as the settings page, so the two surfaces can never disagree.",
+        "New: drafts can be adopted and gates re-run inside main control. The drafts tab gained an adopt action that goes through the same acceptChapterDraft implementation as the chapter draft dock, keeping the two-step confirmation (the first click only resolves the target and probes occupancy, zero disk writes). The live tab gained a gate re-run action that calls the deep-chapter gate evaluation and renders pass / fail / skipped per gate without duplicating any verdict rule; unassessed dimensions report skipped, never a false pass.",
+        "New: four observation blind spots now reach trace and the live tab. Deep-chapter stage output, consensus writing (seats, cross-review rounds, winning draft, failed seats), chapter title generation and memory ingest after adoption are all emitted onto the main-control activities channel and projected into the trace snapshot (fileVersion 2, v1 snapshots still readable).",
+        "Fixed: the auto chapter title setting was always on. generateChapterTitle had no production caller and autoGenerateChapterTitle had no consumer, so the prompts always demanded a title. Title generation now runs only when the switch is on and the body has no rich title, degrades to a plain chapter heading on any failure, and the prompt-side title requirement follows the same switch.",
+        "New: a decision log records the three-tier power decisions (config / trigger / observe) for the main-control chain, including why writingModel stays unexposed and why pre-write gate enforcement stays at the real-library write boundary.",
+      ],
+      zh: [
+        "新增：写作设置可在主控内配置。主控 run 页签新增设置块，暴露章节目标字数、写前门控模式、审稿模型、场景切分开关与门控后文学打磨，并新增项目级 aiWorkflowMode（快速 / 标准 / 严格）。写入走与设置页同一个 novelConfig 落盘入口，两处不会各说一套。",
+        "新增：主控内可采纳草稿、可重跑门控。drafts 页签新增「采纳」，走与章节草稿坞同一个 acceptChapterDraft 实现，保留两步确认（第一步只解析目标并探占用，零写盘）。live 页签新增「重跑门控」，调用深章门控评估并按门渲染通过 / 失败 / 跳过，不复制任何判定规则；未评估的维度如实报「跳过」，不出假通过。",
+        "新增：四项观测黑洞接进轨迹与 live 页签。深章阶段产出、共识写作（席位 / 互评轮次 / 胜出稿 / 失败席位）、章节标题生成，以及采纳后的记忆回填，全部落到主控 activities 通道并投影进轨迹快照（fileVersion 2，v1 旧快照仍可读）。",
+        "修复：自动章节标题设置一直是恒真的。generateChapterTitle 无生产调用方、autoGenerateChapterTitle 无消费者，提示词里的标题要求因此恒开。现在仅在开关打开且正文没有富标题时才生成标题，任何失败降级为朴素章标题，提示词侧的标题要求也跟随同一开关。",
+        "新增：decision-log 记录主控链三档权能（配置 / 触发 / 观测）的决策，含 writingModel 为何不暴露为控件、写前门控为何仍只在正式库写入处执法。",
+      ],
+    },
+  },
+  {
     // 2.26.3（2026-11-04）：去掉侧栏重复的应用名，并把「总字数」显示做得更清晰。
     version: "2.26.3",
     date: "2026-11-04",

@@ -105,8 +105,8 @@ export { BUILT_IN_DE_AI_SKILLS, createBlankProjectDeAiSkill, deAiSkillToUserSkil
 export type { DeAiSkill, DeAiSkillConfig } from "./de-ai-skill-library"
 export { TIERED_DEAI_TABLE, computeTieredDeAiStats } from "./de-ai-tiered-table"
 export type { TieredDeAiEntry, TieredDeAiTier } from "./de-ai-tiered-table"
-export { runDeepChapterGeneration } from "./deep-chapter-generation"
-export type { DeepChapterDecisionGates, DeepChapterGenerationCallbacks, DeepChapterGenerationDeps, DeepChapterGenerationInput, DeepChapterGenerationResult, DeepChapterGenerationResumeCheckpoint } from "./deep-chapter-generation"
+export { DEFAULT_DEEP_CHAPTER_DEPS, runDeepChapterGeneration } from "./deep-chapter-generation"
+export type { DeepChapterDecisionGateKey, DeepChapterGateVerdict, DeepChapterDecisionGates, DeepChapterGenerationCallbacks, DeepChapterGenerationDeps, DeepChapterGenerationInput, DeepChapterGenerationResult, DeepChapterGenerationResumeCheckpoint } from "./deep-chapter-generation"
 export { resolveChapterLengthSpec } from "./deep-chapter-prompts"
 export type { ChapterLengthSpec } from "./deep-chapter-prompts"
 export { runDeepOutlineGeneration } from "./deep-outline-generation"
@@ -1527,3 +1527,38 @@ export type {
   LinkageConflictCode,
   LinkageSnapshotRelationLine,
 } from "./asset-linkage-audit"
+
+// ── 小说配置共享落盘（设置页与主控共用，逐键回滚）──
+export { persistNovelConfigPatch, NovelConfigPersistError } from "./novel-config-persist"
+export type { PersistNovelConfigPatchInput } from "./novel-config-persist"
+
+// ── 主控运行设置视图模型（W2）──
+export { projectMainControlSettings, clampChapterTargetChars, MAIN_CONTROL_CHAPTER_TARGET_MIN, MAIN_CONTROL_CHAPTER_TARGET_MAX, MAIN_CONTROL_CHAPTER_TARGET_FALLBACK } from "./main-control-settings"
+export type { MainControlSettingsView, MainControlPreWriteGateMode } from "./main-control-settings"
+
+// ── 采纳+记忆回填组合（chat 与主控草稿面板共用）──
+export { acceptDraftAndIngest, buildIngestActivity } from "./accept-draft-with-ingest"
+export type { AcceptDraftAndIngestInput, AcceptDraftAndIngestResult, AcceptDraftIngestStatus } from "./accept-draft-with-ingest"
+
+// ── 章节门控重跑（薄编排，三门判定仍归 buildDecisionGates）──
+export { evaluateChapterGates, UNASSESSED_DIMENSION_AI_REVIEW, UNASSESSED_DIMENSION_CHAPTER_CONTRACT } from "./chapter-gate-evaluation"
+export type { EvaluateChapterGatesInput, EvaluateChapterGatesResult } from "./chapter-gate-evaluation"
+
+// ── 主控 drafts 页签动作：采纳（F1a）与门控重跑（F1b）──
+export {
+  adoptMainControlDraft,
+  createMainControlAcceptSeam,
+  resolveMainControlDraftTarget,
+} from "./main-control-draft-actions"
+export type {
+  MainControlAdoptDraftDeps,
+  MainControlAdoptDraftInput,
+} from "./main-control-draft-actions"
+export { buildMainControlGateRows, rerunMainControlGates } from "./main-control-gate-rerun"
+export type {
+  MainControlGateRow,
+  RerunMainControlGatesDeps,
+  RerunMainControlGatesInput,
+  RerunMainControlGatesResult,
+} from "./main-control-gate-rerun"
+export type { ConsensusTrace, ConsensusTraceListener } from "./consensus-writing"

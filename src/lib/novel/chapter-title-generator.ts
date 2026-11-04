@@ -1,5 +1,7 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat, combineAbortSignals, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type ChatMessage } from "@/lib/llm-client"
+import { isRichChapterTitle, resolveChapterTitle } from "./chapter-typography"
+import { toErrorMessage } from "@/lib/utils"
 
 /**
  * 使用 LLM 为章节生成标题。
@@ -85,4 +87,84 @@ ${contentPreview}
   }
 
   return title
+}
+
+/**
+ * 标题来源（RV-001）：内容自带 / 模型生成 / 回退「第N章」/ 未启用。
+ *
+ * 「未启用」= novelConfig.autoGenerateChapterTitle 为假或没有章号——此时零额外 LLM 调用。
+ */
+export type ChapterTitleSource = "content" | "generated" | "fallback" | "disabled"
+
+export interface EnsureChapterTitleOptions {
+  /** 章节号；缺失时无法拼「第N章」，按 disabled 处理（不猜章号）。 */
+  chapterNumber?: number
+  llmConfig: LlmConfig
+  /**
+   * `novelConfig.autoGenerateChapterTitle` 真值。
+   *
+   * 必填且不在此处兜默认：本函数是配置的唯一消费者，再默认成 `true` 就会把
+   * 「用户关了标题生成」重新变成恒真（旧缺口 RV-001）。
+   */
+  autoGenerateChapterTitle: boolean
+  signal?: AbortSignal
+  /** 测试注入；缺省走真实 `generateChapterTitle`。 */
+  generateTitle?: typeof generateChapterTitle
+}
+
+export interface EnsureChapterTitleResult {
+  /** 交付正文：无标题路径已补 `# 标题`，其余原样。 */
+  content: string
+  /** 解析/生成的标题；`disabled` 时为空串。 */
+  title: string
+  source: ChapterTitleSource
+  /** `fallback` 时的失败原因（供调用方提示，不上抛）。 */
+  error?: string
+}
+
+/** 正文开头的 H1 行（含其后换行），补标题前先摘掉，避免出现两个 H1。 */
+const LEADING_H1_RE = /^\s*#[ \t]+[^\n]*(?:\r?\n)+/
+
+function withTitleHeading(content: string, title: string): string {
+  const body = content.replace(LEADING_H1_RE, "").trimStart()
+  return body ? `# ${title}\n\n${body}` : `# ${title}`
+}
+
+/**
+ * 无标题路径补标题（RV-001 真接线）。
+ *
+ * 纪律：
+ * - 只在 `autoGenerateChapterTitle` 为真、有章号、且正文里没有「富标题」时才多跑一次 LLM；
+ * - **任何失败都降级到「第N章」并原样交付正文**——标题是附加信息，绝不阻断正文生成；
+ * - 纯包装：真正的 LLM 调用与清理逻辑仍在 `generateChapterTitle`，本函数不复制提示词。
+ */
+export async function ensureChapterTitle(
+  content: string,
+  options: EnsureChapterTitleOptions,
+): Promise<EnsureChapterTitleResult> {
+  const chapterNumber = options.chapterNumber
+  if (!options.autoGenerateChapterTitle || !chapterNumber || chapterNumber <= 0) {
+    return { content, title: "", source: "disabled" }
+  }
+
+  const existing = resolveChapterTitle(content)
+  if (existing && isRichChapterTitle(existing)) {
+    return { content, title: existing, source: "content" }
+  }
+
+  const generate = options.generateTitle ?? generateChapterTitle
+  try {
+    const generated = (await generate(content, chapterNumber, options.llmConfig, options.signal)).trim()
+    if (!generated) throw new Error("标题生成返回空串")
+    return { content: withTitleHeading(content, generated), title: generated, source: "generated" }
+  } catch (error) {
+    // 额外一次 LLM 调用失败（超时/中断/上游报错）→ 降级「第N章」，正文照常交付。
+    const fallback = `第${chapterNumber}章`
+    return {
+      content: withTitleHeading(content, fallback),
+      title: fallback,
+      source: "fallback",
+      error: toErrorMessage(error),
+    }
+  }
 }

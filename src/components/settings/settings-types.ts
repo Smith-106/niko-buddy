@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import type { CustomApiMode } from "@/lib/llm-config/llm-presets"
+import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type {
   AzureModelFamily,
   ReasoningConfig,
@@ -86,6 +87,8 @@ export interface SettingsDraft {
 
   // ── Novel config ──
   novelConfig: NovelConfig
+  /** D1=A：工作流强度（应用级偏好，全局单键落盘，不随项目覆盖） */
+  aiWorkflowMode: AiWorkflowMode
 
   // ── Retrieval rerank config ──
   rerankConfig: RerankConfig

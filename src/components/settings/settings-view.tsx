@@ -151,6 +151,7 @@ function initialDraft(
   sourceWatch: ReturnType<typeof useWikiStore.getState>["sourceWatchConfig"],
   revisionFeedbackWindowConfig: ReturnType<typeof useWikiStore.getState>["revisionFeedbackWindowConfig"],
   novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
+  aiWorkflowMode: ReturnType<typeof useWikiStore.getState>["aiWorkflowMode"],
   maxHistoryMessages: number,
   uiLanguage: string,
   uiFontSizeScale: number,
@@ -205,6 +206,7 @@ function initialDraft(
     sourceWatchConfig: normalizeSourceWatchConfig(sourceWatch),
     revisionFeedbackWindowConfig,
     novelConfig,
+    aiWorkflowMode,
     uiLanguage,
     uiFontSizeScale,
   }
@@ -235,6 +237,8 @@ export function SettingsView() {
   const setRevisionFeedbackWindowConfig = useWikiStore((s) => s.setRevisionFeedbackWindowConfig)
   const novelConfig = useWikiStore((s) => s.novelConfig)
   const setNovelConfig = useWikiStore((s) => s.setNovelConfig)
+  const aiWorkflowMode = useWikiStore((s) => s.aiWorkflowMode)
+  const setAiWorkflowMode = useWikiStore((s) => s.setAiWorkflowMode)
   const maxHistoryMessages = useChatStore((s) => s.maxHistoryMessages)
   const setMaxHistoryMessages = useChatStore((s) => s.setMaxHistoryMessages)
   const uiFontSizeScale = useWikiStore((s) => s.uiFontSizeScale)
@@ -265,6 +269,7 @@ export function SettingsView() {
         sourceWatchConfig,
         revisionFeedbackWindowConfig,
         novelConfig,
+        aiWorkflowMode,
         maxHistoryMessages,
         uiLanguageNow,
         uiFontSizeScale,
@@ -281,6 +286,7 @@ export function SettingsView() {
       sourceWatchConfig,
       revisionFeedbackWindowConfig,
       novelConfig,
+      aiWorkflowMode,
       maxHistoryMessages,
       uiLanguageNow,
       uiFontSizeScale,
@@ -449,6 +455,7 @@ export function SettingsView() {
       saveSourceWatchConfig,
       saveRevisionFeedbackWindowConfig,
       saveNovelConfig,
+      saveAiWorkflowMode,
     } = await import("@/lib/project-store")
 
     const newProxy = {
@@ -516,6 +523,10 @@ export function SettingsView() {
     await saveNovelConfig(draft.novelConfig, project?.id, project?.path)
     setNovelConfig(draft.novelConfig)
 
+    // D1=A：工作流强度走全局单键（不随项目覆盖），与项目级 novelConfig 分开落盘。
+    await saveAiWorkflowMode(draft.aiWorkflowMode)
+    setAiWorkflowMode(draft.aiWorkflowMode)
+
     // 对话历史长度在"小说"页编辑，按项目落盘，归存储域；
     // 之前归界面域，导致在小说页点保存不会写入。
     const { saveMaxHistoryMessages } = await import("@/lib/project-store")
@@ -529,6 +540,7 @@ export function SettingsView() {
     setSourceWatchConfig,
     setRevisionFeedbackWindowConfig,
     setNovelConfig,
+    setAiWorkflowMode,
     setMaxHistoryMessages,
     scheduledImportConfig,
   ])

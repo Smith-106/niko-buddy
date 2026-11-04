@@ -10,6 +10,7 @@
 import { createDirectory, readFile, writeFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { buildAgentWorkflowSteps, type WorkflowToolCall } from "@/lib/agent/workflow-trace"
+import type { AgentActivityEvent, AgentActivityKind } from "@/lib/agent/types"
 import type { MainControlStep } from "./main-control"
 
 /** 轨迹快照相对路径（项目根下）。 */
@@ -35,7 +36,8 @@ export interface TraceEntry {
 }
 
 export interface MainControlTraceSnapshot {
-  fileVersion: 1
+  /** 1 = 仅有工具步骤（旧快照）；2 = 增 activities 投影。读取端两者均接受。 */
+  fileVersion: 1 | 2
   goal: string
   savedAt: number
   ok: boolean
@@ -43,6 +45,16 @@ export interface MainControlTraceSnapshot {
   roundsUsed: number
   finalText: string
   entries: TraceEntry[]
+  /** 阶段事件投影（只留 kind/title/summary/at，content 截断 240 字，R-08 体积纪律）。 */
+  activities?: MainControlTraceActivity[]
+}
+
+/** 快照里的阶段事件投影（不存 content 全文，需全文查 status.json / stage journal）。 */
+export interface MainControlTraceActivity {
+  kind: AgentActivityKind
+  title: string
+  summary: string
+  at: number
 }
 
 export function traceSnapshotPath(projectPath: string): string {
@@ -91,11 +103,24 @@ export function buildTraceEntries(steps: readonly MainControlStep[]): TraceEntry
   })
 }
 
+function truncate240(text: string): string {
+  return text.length > 240 ? `${text.slice(0, 240)}…` : text
+}
+
 function summarizeParams(params: Record<string, unknown>): string {
   const keys = Object.keys(params)
   if (keys.length === 0) return "（无参数）"
-  const text = JSON.stringify(params)
-  return text.length > 240 ? `${text.slice(0, 240)}…` : text
+  return truncate240(JSON.stringify(params))
+}
+
+/** 阶段事件 → 快照投影（summary 复用 240 字口径）。 */
+function projectActivity(event: AgentActivityEvent): MainControlTraceActivity {
+  return {
+    kind: event.kind,
+    title: event.title,
+    summary: truncate240(event.content),
+    at: event.timestamp,
+  }
 }
 
 export function buildTraceSnapshot(input: {
@@ -105,10 +130,12 @@ export function buildTraceSnapshot(input: {
   roundsUsed: number
   finalText: string
   steps: readonly MainControlStep[]
+  /** D5=A：阶段过程事件（可选；不传则快照不带 activities 键，与旧快照形态一致）。 */
+  activities?: readonly AgentActivityEvent[]
   now: number
 }): MainControlTraceSnapshot {
   return {
-    fileVersion: 1,
+    fileVersion: 2,
     goal: input.goal,
     savedAt: input.now,
     ok: input.ok,
@@ -116,6 +143,7 @@ export function buildTraceSnapshot(input: {
     roundsUsed: input.roundsUsed,
     finalText: input.finalText,
     entries: buildTraceEntries(input.steps),
+    ...(input.activities?.length ? { activities: input.activities.map(projectActivity) } : {}),
   }
 }
 
@@ -142,7 +170,8 @@ export async function loadTraceSnapshot(
   try {
     const raw = await readFile(traceSnapshotPath(projectPath))
     const parsed = JSON.parse(raw) as MainControlTraceSnapshot
-    if (!parsed || parsed.fileVersion !== 1 || !Array.isArray(parsed.entries)) return null
+    // v1 旧快照必须仍可回放（升级后第一次回放不得显示空轨迹）。
+    if (!parsed || (parsed.fileVersion !== 1 && parsed.fileVersion !== 2) || !Array.isArray(parsed.entries)) return null
     return parsed
   } catch {
     return null

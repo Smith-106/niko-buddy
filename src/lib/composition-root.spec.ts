@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => {
     setProject: vi.fn(),
     clearTransientTaskState: vi.fn(),
     setNovelConfig: vi.fn(),
+    setAiWorkflowMode: vi.fn(),
     setSelectedFile: vi.fn(),
     setActiveView: vi.fn(),
     bumpDataVersion: vi.fn(),
@@ -69,6 +70,7 @@ const mocks = vi.hoisted(() => {
     getLastProject: vi.fn(),
     saveLastProject: vi.fn(),
     loadNovelConfig: vi.fn(),
+    loadAiWorkflowMode: vi.fn(),
     loadScheduledImportConfig: vi.fn(),
     loadSourceWatchConfig: vi.fn(),
     saveLlmConfig: vi.fn(),
@@ -147,6 +149,7 @@ vi.mock("@/lib/project-store", () => ({
   loadSourceWatchConfig: mocks.loadSourceWatchConfig,
   loadNovelMode: mocks.loadNovelMode,
   loadNovelConfig: mocks.loadNovelConfig,
+  loadAiWorkflowMode: mocks.loadAiWorkflowMode,
   loadRevisionFeedbackWindowConfig: mocks.loadRevisionFeedbackWindowConfig,
   loadTheme: mocks.loadTheme,
   loadMaxHistoryMessages: mocks.loadMaxHistoryMessages,
@@ -537,6 +540,36 @@ describe("hydrateProjectOnOpen", () => {
     expect(mocks.setMetricsFilePath).toHaveBeenCalledWith(
       `C:/projects/test/.novel/metrics/llm-metrics-${new Date().toISOString().slice(0, 10)}.jsonl`,
     )
+  })
+
+  it("载入全局 aiWorkflowMode：strict 原样生效，缺失与非法值回落 standard", async () => {
+    mocks.resetProjectState.mockResolvedValue(undefined)
+    mocks.loadNovelConfig.mockResolvedValue(null)
+    mocks.loadRevisionFeedbackWindowConfig.mockResolvedValue(null)
+    mocks.saveLastProject.mockResolvedValue(undefined)
+    mocks.loadScheduledImportConfig.mockResolvedValue(null)
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.loadReviewItems.mockResolvedValue([])
+    mocks.loadChatHistory.mockResolvedValue({ conversations: [], messages: [] })
+    mocks.loadNovelSessionStatus.mockResolvedValue(null)
+    mocks.hydrateChat.mockReturnValue({ conversations: [], messages: [], focusConversationId: null })
+
+    mocks.loadAiWorkflowMode.mockResolvedValue("strict")
+    await hydrateProjectOnOpen(proj)
+    expect(mocks.loadAiWorkflowMode).toHaveBeenCalledTimes(1)
+    expect(mocks.wikiState.setAiWorkflowMode).toHaveBeenCalledWith("strict")
+
+    // 未设置 → 归一为 standard（「未设置」与「standard」的区别由 load 保留，消费端归一）
+    ;(mocks.wikiState.setAiWorkflowMode as ReturnType<typeof vi.fn>).mockClear()
+    mocks.loadAiWorkflowMode.mockResolvedValue(null)
+    await hydrateProjectOnOpen(proj)
+    expect(mocks.wikiState.setAiWorkflowMode).toHaveBeenCalledWith("standard")
+
+    // 非法持久值 → 同样回落 standard
+    ;(mocks.wikiState.setAiWorkflowMode as ReturnType<typeof vi.fn>).mockClear()
+    mocks.loadAiWorkflowMode.mockResolvedValue("bogus")
+    await hydrateProjectOnOpen(proj)
+    expect(mocks.wikiState.setAiWorkflowMode).toHaveBeenCalledWith("standard")
   })
 
   it("resets state, loads project config and restores all Tauri queues", async () => {

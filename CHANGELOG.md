@@ -7,6 +7,20 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.26.4] - 2026-11-04
+
+### Added
+
+- 新增：主控 run 页签内的写作设置块 —— 章节目标字数、写前门控模式、审稿模型、场景切分开关、门控后文学打磨，以及新的项目级 `aiWorkflowMode`（快速 / 标准 / 严格）。写入走与设置页同一个 `novelConfig` 落盘入口（`persistNovelConfigPatch`），不存在第二套真源。`writingModel` 按决策不暴露为控件（写作始终用 AI 会话当前模型），只在块内显示一行说明。
+- 新增：主控 drafts 页签的「采纳」动作 —— 走与章节草稿坞同一个 `acceptChapterDraft` 实现，保留两步确认（第一步只解析目标并探占用，零写盘），采纳后可选记忆回填并回报结构化 ingest 结果。
+- 新增：主控 live 页签的「重跑门控」动作 —— 调用深章门控评估（判定仍归 `buildDecisionGates` 唯一真源），按门渲染通过 / 失败 / 跳过；未评估的维度与门如实落「跳过」，不出假通过。
+- 新增：主控 activities 观测通道与轨迹投影 —— 深章阶段产出、共识写作（席位 / 互评轮次 / 胜出稿 / 失败席位）、章节标题生成、采纳后的记忆回填四项接进 trace 与 live 页签。快照升 `fileVersion: 2`，v1 旧快照仍可读。
+- 新增：`docs/decision-log/20261104-mainctl-3tier-powers.md` 记录本轮三档权能（配置 / 触发 / 观测）的决策与不变量。
+
+### Fixed
+
+- 修复：`autoGenerateChapterTitle` 从「恒真」变为真开关。此前 `generateChapterTitle` 零生产调用方、`autoGenerateChapterTitle` 零消费者，提示词里的标题要求恒开。现在仅在开关打开且正文没有富标题时才生成标题，任何异常降级为朴素「第N章」且不阻断正文，提示词侧的标题要求跟随同一开关。
+
 ## [2.26.3] - 2026-11-04
 
 ### Changed

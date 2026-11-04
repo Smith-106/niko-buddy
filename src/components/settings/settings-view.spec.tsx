@@ -40,6 +40,7 @@ type SettingsWikiState = {
   sourceWatchConfig: SourceWatchConfig
   revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig
   novelConfig: Partial<NovelConfig>
+  aiWorkflowMode: "fast" | "standard" | "strict"
   uiFontSizeScale: number
   setActiveSettingsCategory: ReturnType<typeof vi.fn>
   setLlmConfig: ReturnType<typeof vi.fn>
@@ -52,6 +53,7 @@ type SettingsWikiState = {
   setSourceWatchConfig: ReturnType<typeof vi.fn>
   setRevisionFeedbackWindowConfig: ReturnType<typeof vi.fn>
   setNovelConfig: ReturnType<typeof vi.fn>
+  setAiWorkflowMode: ReturnType<typeof vi.fn>
   setUiFontSizeScale: ReturnType<typeof vi.fn>
 }
 
@@ -111,6 +113,7 @@ const mocks = vi.hoisted(() => {
     sourceWatchConfig: { enabled: false, autoIngest: false, includeExtensions: [], excludeExtensions: [], excludeDirs: [], excludeGlobs: [], maxFileSizeMb: 10 },
     revisionFeedbackWindowConfig: { currentChapterIncludeShouldImprove: true, previousChapterCarryEnabled: false, lookbackChapterCount: 1, lookbackIncludeMustFixOnly: true },
     novelConfig: { contextTokenBudget: 50000, recentSummaryWindow: 8, searchTopK: 5, chapterTargetChars: 3000, autoIngestOnSave: false, autoExtractOnImport: true, reviewBeforeSave: true, deepPreviousChaptersAnalysis: false, deepChapterReview: true },
+    aiWorkflowMode: "standard",
     uiFontSizeScale: 1,
     setActiveSettingsCategory: vi.fn(),
     setLlmConfig: vi.fn(),
@@ -123,6 +126,7 @@ const mocks = vi.hoisted(() => {
     setSourceWatchConfig: vi.fn(),
     setRevisionFeedbackWindowConfig: vi.fn(),
     setNovelConfig: vi.fn(),
+    setAiWorkflowMode: vi.fn(),
     setUiFontSizeScale: vi.fn(),
   }
 
@@ -145,6 +149,7 @@ const mocks = vi.hoisted(() => {
   const saveSourceWatchConfig = vi.fn<(config: SourceWatchConfig, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
   const saveRevisionFeedbackWindowConfig = vi.fn<(config: RevisionFeedbackWindowConfig, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
   const saveNovelConfig = vi.fn<(config: NovelConfig, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
+  const saveAiWorkflowMode = vi.fn<(mode: string) => Promise<void>>(async () => {})
   const saveOutputLanguage = vi.fn<(lang: string, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
   const saveMaxHistoryMessages = vi.fn<(value: number, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
   const saveUiFontSizeScale = vi.fn<(value: number, projectId?: string, projectPath?: string) => Promise<void>>(async () => {})
@@ -175,6 +180,7 @@ const mocks = vi.hoisted(() => {
     saveSourceWatchConfig,
     saveRevisionFeedbackWindowConfig,
     saveNovelConfig,
+    saveAiWorkflowMode,
     saveOutputLanguage,
     saveMaxHistoryMessages,
     saveUiFontSizeScale,
@@ -246,6 +252,7 @@ vi.mock("@/lib/project-store", () => ({
   saveSourceWatchConfig: mocks.saveSourceWatchConfig,
   saveRevisionFeedbackWindowConfig: mocks.saveRevisionFeedbackWindowConfig,
   saveNovelConfig: mocks.saveNovelConfig,
+  saveAiWorkflowMode: mocks.saveAiWorkflowMode,
   saveOutputLanguage: mocks.saveOutputLanguage,
   saveMaxHistoryMessages: mocks.saveMaxHistoryMessages,
   saveUiFontSizeScale: mocks.saveUiFontSizeScale,
@@ -356,6 +363,7 @@ vi.mock("./sections/novel-section", () => ({
       <button data-testid="source-watch-on" onClick={() => props.setDraft("sourceWatchConfig", { ...(props.draft.sourceWatchConfig as object), enabled: true })}>sw-on</button>
       <button data-testid="source-watch-off" onClick={() => props.setDraft("sourceWatchConfig", { ...(props.draft.sourceWatchConfig as object), enabled: false })}>sw-off</button>
       <button data-testid="novel-budget" onClick={() => props.setDraft("novelConfig", { ...(props.draft.novelConfig as object), contextTokenBudget: 999 })}>budget</button>
+      <button data-testid="ai-workflow-strict" onClick={() => props.setDraft("aiWorkflowMode", "strict")}>wf-strict</button>
     </div>
   ),
 }))
@@ -1018,6 +1026,16 @@ describe("SettingsView 渲染覆盖", () => {
       expect(mocks.saveMaxHistoryMessages).toHaveBeenCalledWith(mocks.chatState.maxHistoryMessages, PROJECT.id, PROJECT.path),
     )
     expect(mocks.chatState.setMaxHistoryMessages).toHaveBeenCalledWith(mocks.chatState.maxHistoryMessages)
+  })
+
+  it("aiWorkflowMode 走存储域：切到 strict 后保存，saveAiWorkflowMode 与 setAiWorkflowMode 均收到 strict", async () => {
+    render(<SettingsView />)
+    await flushAsync()
+    clickNav("novel")
+    await clickAndFlush("ai-workflow-strict")
+    clickSave()
+    await waitFor(() => expect(mocks.saveAiWorkflowMode).toHaveBeenCalledWith("strict"))
+    expect(mocks.wikiState.setAiWorkflowMode).toHaveBeenCalledWith("strict")
   })
 
   it("界面域保存不再写对话历史长度", async () => {

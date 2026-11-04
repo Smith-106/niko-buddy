@@ -103,6 +103,7 @@ export const SETTINGS_DOMAIN_DRAFT_KEYS: Record<SettingsDomain, readonly (keyof 
     "scheduledImportInterval",
     "revisionFeedbackWindowConfig",
     "novelConfig",
+    "aiWorkflowMode",
     "maxHistoryMessages",
   ],
   interface: ["outputLanguage", "uiLanguage", "uiFontSizeScale"],

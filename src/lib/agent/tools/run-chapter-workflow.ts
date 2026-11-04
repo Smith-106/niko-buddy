@@ -1,6 +1,8 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
-import type { DeepChapterGenerationCallbacks, DeepChapterGenerationDeps, DeepChapterGenerationInput, DeepChapterGenerationResult } from "@/lib/novel"
+import type { DeepChapterGenerationCallbacks, DeepChapterGenerationDeps, DeepChapterGenerationInput, DeepChapterGenerationResult, StageJournalRuntime } from "@/lib/novel"
+import type { ConsensusTrace } from "@/lib/novel"
+import i18n from "@/i18n"
 import type { AgentActivityEvent, AgentToolEvent, Tool, ToolExecutionContext } from "../types"
 
 export type RunDeepChapterGeneration = (
@@ -8,6 +10,11 @@ export type RunDeepChapterGeneration = (
   callbacks?: DeepChapterGenerationCallbacks,
   deps?: DeepChapterGenerationDeps,
   signal?: AbortSignal,
+  /**
+   * 共识写作轨迹回调（RV-002 ①）。仅共识版 runner 会真的调用它；
+   * 单模型版 runner 忽略第 5 参（签名兼容，行为零变更）。
+   */
+  onConsensusTrace?: (trace: ConsensusTrace) => void,
 ) => Promise<DeepChapterGenerationResult>
 
 interface RunChapterWorkflowToolOptions {
@@ -17,6 +24,10 @@ interface RunChapterWorkflowToolOptions {
   runDeepChapterGeneration: RunDeepChapterGeneration
   onToolEvent?: (event: AgentToolEvent) => void
   onActivityEvent?: (event: AgentActivityEvent) => void
+  /**
+   * 阶段工件缓存运行时（G3）。缺省 undefined = 不写缓存，chat 路径行为逐字节不变（R-07）。
+   */
+  stageJournal?: StageJournalRuntime
   /**
    * 当 AI 未在工具调用参数中携带 planBlueprint 时，从这里兜底取已确认的章节计划。
    * 保证用户确认的计划为强制约束，不依赖模型是否遵守自然语言提示。
@@ -60,6 +71,32 @@ function normalizeParams(params: Record<string, unknown>): RunChapterWorkflowPar
         ? params.workflowMode
         : undefined,
     planBlueprint: typeof params.planBlueprint === "string" ? params.planBlueprint : undefined,
+  }
+}
+
+/**
+ * 共识轨迹 → 阶段事件（RV-002 ①）。
+ *
+ * 与深章阶段产出（stage_output）走同一个 `onActivityEvent` 通道；标题与字段名全走
+ * i18n 键。不重算胜者/分数：胜者由 consensus-aggregate 定，本函数只搬运。
+ */
+function buildConsensusActivity(trace: ConsensusTrace): AgentActivityEvent {
+  const timestamp = Date.now()
+  const parts = [
+    `${i18n.t("mainControl.consensusSeatCount")}: ${trace.seatCount}`,
+    `${i18n.t("mainControl.consensusDebateRounds")}: ${trace.debateRounds}`,
+    `${i18n.t("mainControl.consensusWinner")}: ${trace.winner}`,
+  ]
+  if (trace.failedSeats.length > 0) {
+    parts.push(`${i18n.t("mainControl.consensusFailedSeats")}: ${trace.failedSeats.join(", ")}`)
+  }
+  return {
+    id: `consensus_writing:${timestamp}`,
+    stageId: "consensus_writing",
+    kind: "analysis",
+    title: i18n.t("mainControl.consensusTitle"),
+    content: parts.join(" · "),
+    timestamp,
   }
 }
 
@@ -130,6 +167,8 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
           novelConfig,
           // 55 号设计 W1-1 (54⑧ 收尾): 题材透传 (undefined → 生成链零行为变更)。
           genre: novelConfig.genre,
+          // G3：阶段日志条件展开（缺省不含该键 → chat 路径行为逐字节不变，R-07）。
+          ...(options.stageJournal ? { stageJournal: options.stageJournal } : {}),
         },
         {
           // 终稿直接交付给会话，避免外层模型再复述一遍正文。
@@ -138,9 +177,28 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
             const body = content.trim()
             if (body) context?.onFinalContent?.(body)
           },
+          // G3：深章阶段产出进主控阶段观测（content 截断 240 字，与 trace 同口径，R-08）。
+          // 未注入 onActivityEvent 时 optional chaining 直接跳过，零副作用。
+          onThinking: (content) => {
+            const body = content.trim()
+            if (!body) return
+            const timestamp = Date.now()
+            options.onActivityEvent?.({
+              id: `run_chapter_workflow:thinking:${timestamp}`,
+              stageId: "run_chapter_workflow",
+              kind: "stage_output",
+              title: "深章阶段产出",
+              content: body.length > 240 ? `${body.slice(0, 240)}…` : body,
+              timestamp,
+            })
+          },
         },
         undefined,
         signal,
+        // RV-002 ①：共识轨迹也进同一 activities 通道（单模型 runner 忽略此参）。
+        (trace) => {
+          options.onActivityEvent?.(buildConsensusActivity(trace))
+        },
       )
 
       return [

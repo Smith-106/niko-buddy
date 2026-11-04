@@ -8,9 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useWikiStore } from "@/stores/wiki-store"
-import { saveNovelConfig } from "@/lib/project-store"
 
-import { testNovelModel, applyAntiAiTelemetryConsentOnProjectOpen, loadAntiAiTelemetryConsent, saveAntiAiTelemetryConsent, goldenCoverageOf, goldenKbShadowCases, runKbShadowArmsIfConsented } from "@/lib/novel"
+import { testNovelModel, applyAntiAiTelemetryConsentOnProjectOpen, loadAntiAiTelemetryConsent, saveAntiAiTelemetryConsent, goldenCoverageOf, goldenKbShadowCases, runKbShadowArmsIfConsented, persistNovelConfigPatch, NovelConfigPersistError } from "@/lib/novel"
 import type { TestableNovelModelTask } from "@/lib/novel"
 import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 import { WritingPreferenceSection } from "./writing-preference-section"
@@ -56,18 +55,19 @@ export function NovelSection({ draft, setDraft }: Props) {
     const prevConfig = draft.novelConfig
     const newConfig = { ...prevConfig, ...patch }
     setDraft("novelConfig", newConfig)
-    setNovelConfigStore(patch)
     try {
-      await saveNovelConfig(newConfig, project?.id, project?.path)
+      // store 内存态与落盘统一由共享函数负责（逐键回滚语义唯一实现）
+      await persistNovelConfigPatch({
+        patch,
+        prev: prevConfig,
+        projectId: project?.id,
+        projectPath: project?.path,
+        apply: setNovelConfigStore,
+      })
     } catch (err) {
-      // 落盘失败：只回滚本次 patch 的键（draft 与 store 一致），
-      // 期间其它项的改动（可能已落盘）不被冲掉
-      const rollback: Partial<NovelConfig> = {}
-      for (const key of Object.keys(patch) as (keyof NovelConfig)[]) {
-        ;(rollback as Record<string, unknown>)[key] = prevConfig[key]
-      }
+      // 落盘失败：共享函数已按 patch 键集回滚 store，这里只同步 draft（UI 状态）
+      const rollback = err instanceof NovelConfigPersistError ? err.rollback : {}
       setDraft("novelConfig", { ...latestNovelConfigRef.current, ...rollback })
-      setNovelConfigStore(rollback)
       toast.error(toErrorMessage(err))
     }
   }

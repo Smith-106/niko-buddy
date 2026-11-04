@@ -6,7 +6,8 @@ import { useChatStore } from "@/stores/chat-store"
 import { listDirectory, openProject, createDirectory } from "@/commands/fs"
 import { normalizePath, joinPath } from "@/lib/path-utils"
 import { setMetricsFilePath, flushMetrics } from "@/lib/llm-client"
-import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, loadSourceWatchConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, saveLlmConfig, saveProviderConfigs, saveActivePresetId, migratePlaintextApiKeys } from "@/lib/project-store"
+import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, loadSourceWatchConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, saveLlmConfig, saveProviderConfigs, saveActivePresetId, migratePlaintextApiKeys, loadAiWorkflowMode } from "@/lib/project-store"
+import { resolveAiWorkflowMode } from "@/lib/agent/workflow-mode"
 import { loadReviewItems, loadChatHistory } from "@/lib/persist"
 import { loadTaskSummaries, attachTaskPersistence, loadNovelSessionStatus, applyAntiAiTelemetryConsentOnProjectOpen, shutdownAntiAiTelemetrySink } from "@/lib/novel"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
@@ -179,6 +180,10 @@ export async function hydrateProjectOnOpen(
   if (projectNovelConfig) {
     useWikiStore.getState().setNovelConfig(projectNovelConfig)
   }
+  // D1=A：工作流强度是全局单键（不随项目覆盖），每次打开项目都重新载入全局值；
+  // 缺失/非法值由 resolveAiWorkflowMode 归一为 "standard"。
+  const savedAiWorkflowMode = await loadAiWorkflowMode()
+  useWikiStore.getState().setAiWorkflowMode(resolveAiWorkflowMode(savedAiWorkflowMode))
   const projectRevisionFeedbackWindowConfig = await loadRevisionFeedbackWindowConfig(proj.id, proj.path)
   useWikiStore.getState().setRevisionFeedbackWindowConfig(projectRevisionFeedbackWindowConfig)
   useWikiStore.getState().setSelectedFile(null)

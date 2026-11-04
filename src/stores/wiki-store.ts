@@ -9,6 +9,7 @@ import { DEFAULT_SOURCE_WATCH_CONFIG } from "@/lib/source-watch-config"
 import { DEFAULT_MAX_CONTEXT_TOKENS } from "@/lib/llm-context-limits"
 import type { TrashItem } from "@/lib/trash"
 import { CHAT_DOCK_POSITION_KEY, FOCUS_MODE_KEY, OFFLINE_MODE_KEY, UI_FONT_SIZE_SCALE_KEY } from "./wiki-store-config"
+import { DEFAULT_AI_WORKFLOW_MODE, type AiWorkflowMode } from "@/lib/agent/workflow-mode"
 
 import type {
   ChatDockPosition, SettingsCategoryId,
@@ -90,6 +91,8 @@ export interface WikiState {
   rerankConfig: RerankConfig
   multimodalConfig: MultimodalConfig
   outputLanguage: OutputLanguage
+  /** D1=A：工作流强度（应用级偏好，全局单键落盘，不随项目覆盖） */
+  aiWorkflowMode: AiWorkflowMode
   proxyConfig: ProxyConfig
   scheduledImportConfig: ScheduledImportConfig
   sourceWatchConfig: SourceWatchConfig
@@ -167,6 +170,7 @@ export interface WikiState {
   setRerankConfig: (config: Partial<RerankConfig>) => void
   setMultimodalConfig: (config: MultimodalConfig) => void
   setOutputLanguage: (lang: OutputLanguage) => void
+  setAiWorkflowMode: (mode: AiWorkflowMode) => void
   setProxyConfig: (config: ProxyConfig) => void
   setScheduledImportConfig: (config: ScheduledImportConfig) => void
   setSourceWatchConfig: (sourceWatchConfig: SourceWatchConfig) => void
@@ -298,6 +302,7 @@ export const useWikiStore = create<WikiState>((set) => ({
     concurrency: 4,
   },
   outputLanguage: "Chinese",
+  aiWorkflowMode: DEFAULT_AI_WORKFLOW_MODE,
 
   // ── Proxy / import / source-watch ──────────────────────────────────────────────
   proxyConfig: { enabled: false, url: "", bypassLocal: true },
@@ -441,6 +446,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   setNovelMode: (novelMode) => set({ novelMode }),
   setChatEditModeEnabled: (chatEditModeEnabled) => set({ chatEditModeEnabled }),
   setNovelConfig: (config) => set((prev) => ({ novelConfig: { ...prev.novelConfig, ...config } })),
+  setAiWorkflowMode: (aiWorkflowMode) => set({ aiWorkflowMode }),
   setCommunitySummaryError: (communitySummaryError) => set({ communitySummaryError }),
   setSearchHistory: (searchHistory) => set({ searchHistory }),
   setSearchTrigger: (searchTrigger) => set({ searchTrigger }),

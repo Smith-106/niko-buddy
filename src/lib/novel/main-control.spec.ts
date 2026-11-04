@@ -172,9 +172,83 @@ describe("runMainControlAgent", () => {
     })
     expect(seen).toEqual(["read_chapter:running", "read_chapter:done"])
   })
+
+  it("D5=A：onActivityEvent 进 activities 通道，不污染 steps/toolCalls", async () => {
+    const baseRunner = fakeRunner([{ id: "c1", name: "read_chapter" }])
+    const withActivity = {
+      async run(config: unknown, reg: unknown, msgs: unknown, callbacks: AgentRunCallbacks) {
+        callbacks.onActivityEvent?.({
+          id: "a1",
+          stageId: "s1",
+          kind: "stage_started",
+          title: "阶段开始",
+          content: "go",
+          timestamp: 5,
+        })
+        return baseRunner.run(config, reg, msgs, callbacks)
+      },
+    }
+    const options = {
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "读第 2 章",
+      llmConfig: LLM,
+    } as const
+
+    const withEvent = await runMainControlAgent({ ...options, deps: { runner: withActivity } })
+    expect(withEvent.activities).toHaveLength(1)
+    expect(withEvent.activities?.[0].kind).toBe("stage_started")
+
+    // steps 与不触发活动时逐字相同（activities 未进 steps；时间戳不可比，故剔去）
+    const withoutEvent = await runMainControlAgent({ ...options, deps: { runner: fakeRunner([{ id: "c1", name: "read_chapter" }]) } })
+    const stripTimes = (steps: typeof withEvent.steps) =>
+      steps.map(({ at: _at, finishedAt: _finishedAt, ...rest }) => rest)
+    expect(stripTimes(withEvent.steps)).toEqual(stripTimes(withoutEvent.steps))
+    // 负例：没收到活动时结果对象不带 activities 键（不伪造空数组）
+    expect("activities" in withoutEvent).toBe(false)
+  })
 })
 
 describe("深章流水线工具注入", () => {
+  it("G3：stageJournal 与 onActivityEvent 一路透传到 run_chapter_workflow，活动进 activities 通道", async () => {
+    const registry = new ToolRegistry()
+    const stageJournal = { projectId: "p1", deps: {} as never, ttlMs: 1000 }
+    const runDeepChapterGeneration = vi.fn()
+    // fakeRunner 内部触发一次阶段活动：证明主控收集器被工具层共用（同一函数引用）
+    const runner = {
+      async run(_config: unknown, _registry: unknown, _messages: unknown, callbacks: AgentRunCallbacks) {
+        callbacks.onActivityEvent?.({
+          id: "a1",
+          stageId: "run_chapter_workflow",
+          kind: "stage_output",
+          title: "深章阶段产出",
+          content: "任务书片段",
+          timestamp: 7,
+        })
+        callbacks.onText("完成")
+        callbacks.onDone()
+        return { toolCalls: [], roundsUsed: 1, finalText: "完成" } as AgentRunRecord
+      },
+    }
+
+    const out = await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "写第 3 章",
+      llmConfig: LLM,
+      runDeepChapterGeneration,
+      stageJournal,
+      aiWorkflowMode: "standard",
+      deps: { runner, registry },
+    })
+
+    // 工具确实注册（说明 aiWorkflowMode + runDeepChapterGeneration 组合生效）
+    expect(registry.list().some((tool) => tool.name === "run_chapter_workflow")).toBe(true)
+    // 活动经同一收集器回到主控通道
+    expect(out.activities).toHaveLength(1)
+    expect(out.activities?.[0].kind).toBe("stage_output")
+  })
+
   it("未注入 runDeepChapterGeneration 时不注册 run_chapter_workflow", async () => {
     const registry = new ToolRegistry()
     await runMainControlAgent({

@@ -12,11 +12,12 @@
 import { buildAgentConfig } from "@/lib/agent/config"
 import { ToolRegistry } from "@/lib/agent/registry"
 import { AgentRunner } from "@/lib/agent/runner"
-import type { AgentMessage, AgentRunCallbacks, AgentRunRecord } from "@/lib/agent/types"
+import type { AgentActivityEvent, AgentMessage, AgentRunCallbacks, AgentRunRecord } from "@/lib/agent/types"
 import type { QualityToolDeps } from "@/lib/agent/tools/score-chapter"
 import type { RunDeepChapterGeneration } from "@/lib/agent/tools/run-chapter-workflow"
 import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type { LlmConfig } from "@/stores/wiki-store"
+import type { StageJournalRuntime } from "./stage-output-journal"
 import { recordModuleHit } from "./module-heat"
 import { toErrorMessage } from "@/lib/utils"
 
@@ -76,6 +77,11 @@ export interface MainControlResult {
   drafts: MainControlDraft[]
   roundsUsed: number
   error?: string
+  /**
+   * D5=A：阶段过程事件独立通道（不伪造 MainControlStep，不污染 steps/toolCalls 语义）。
+   * 仅在本次运行确实收到 onActivityEvent 时出现；缺失时调用方应显示「无阶段事件」而非伪造。
+   */
+  activities?: AgentActivityEvent[]
 }
 
 export interface MainControlDeps {
@@ -106,6 +112,11 @@ export interface RunMainControlOptions {
   maxRounds?: number
   signal?: AbortSignal
   onStep?: (step: MainControlStep) => void
+  /**
+   * 阶段工件缓存运行时（G3）。缺省 undefined 时深章阶段不写工件缓存，
+   * 行为与未接入前一致（R-07：可选注入，chat 路径零变更）。
+   */
+  stageJournal?: StageJournalRuntime
   deps?: MainControlDeps
 }
 
@@ -140,6 +151,7 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
   const now = options.deps?.now ?? Date.now
   const steps: MainControlStep[] = []
   const running = new Map<string, MainControlStep>()
+  const activities: AgentActivityEvent[] = []
 
   const emit = (step: MainControlStep) => {
     options.onStep?.({ ...step })
@@ -181,6 +193,10 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
       step.finishedAt = now()
       emit(step)
     },
+    // D5=A：阶段事件只收集，不转成 step（toolCalls 语义与热力图统计不得被污染）。
+    onActivityEvent: (event) => {
+      activities.push(event)
+    },
     onDone: () => {},
     onError: (error) => {
       runError = error.message
@@ -212,6 +228,9 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
       aiWorkflowMode: options.aiWorkflowMode,
       chapterWritingLlmConfig: options.chapterWritingLlmConfig ?? options.llmConfig,
       enabledToolNames,
+      // G3：深章工具与主控共用同一个 activities 收集器（callbacks 早于本处定义）。
+      onActivityEvent: callbacks.onActivityEvent,
+      stageJournal: options.stageJournal,
       llmConfig: options.llmConfig,
       getSkillConfig: () => null,
       getChatConversations: () => [],
@@ -264,5 +283,6 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
     drafts,
     roundsUsed: record?.roundsUsed ?? 0,
     error: runError,
+    ...(activities.length > 0 ? { activities } : {}),
   }
 }

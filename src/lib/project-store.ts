@@ -5,6 +5,7 @@ import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG, isSearchRecipeId } from "@
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
 import { normalizeMcpConfig, type McpConfig } from "@/lib/mcp/config"
 import { normalizePath } from "@/lib/path-utils"
+import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 // Leaf import on purpose: this module is loaded through a deferred
 // `await import("@/lib/project-store")` from UI, so routing it through the
 // @/lib/novel barrel would pull the whole 145-module surface into that path.
@@ -248,6 +249,21 @@ export async function loadOutputLanguage(projectId?: string): Promise<OutputLang
     return projectLanguages?.[projectId] ?? null
   }
   return (await store.get<OutputLanguage>(OUTPUT_LANGUAGE_KEY)) ?? null
+}
+
+// D1=A：工作流强度是应用级偏好（非项目级配置），全局单键落盘，范式 saveOutputLanguage。
+const AI_WORKFLOW_MODE_KEY = "aiWorkflowMode"
+
+export async function saveAiWorkflowMode(mode: AiWorkflowMode): Promise<void> {
+  const store = await getStore()
+  await store.set(AI_WORKFLOW_MODE_KEY, mode)
+}
+
+/** 返回原始值或 null（不在此归一化，保留「未设置」与「standard」的区别，归一化交给 resolveAiWorkflowMode）。 */
+export async function loadAiWorkflowMode(): Promise<AiWorkflowMode | null> {
+  const store = await getStore()
+  const raw = await store.get<AiWorkflowMode>(AI_WORKFLOW_MODE_KEY)
+  return raw ?? null
 }
 
 export async function saveProjectFileSyncEnabled(enabled: boolean, projectId?: string): Promise<void> {

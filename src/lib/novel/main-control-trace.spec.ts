@@ -115,8 +115,42 @@ describe("快照持久化", () => {
   it("读损坏或缺字段的快照返回 null", async () => {
     mocks.readFile.mockResolvedValueOnce("{bad json")
     await expect(loadTraceSnapshot("/proj")).resolves.toBeNull()
-    mocks.readFile.mockResolvedValueOnce(JSON.stringify({ fileVersion: 2, entries: [] }))
+    // fileVersion 3 是不认识的未来版本（1|2 才接受）
+    mocks.readFile.mockResolvedValueOnce(JSON.stringify({ fileVersion: 3, entries: [] }))
     await expect(loadTraceSnapshot("/proj")).resolves.toBeNull()
+  })
+
+  it("v1 老快照仍可读（升级后第一次回放不得显示空轨迹）", async () => {
+    mocks.readFile.mockResolvedValueOnce(
+      JSON.stringify({ fileVersion: 1, goal: "旧目标", savedAt: 1, ok: true, roundsUsed: 0, finalText: "", entries: [] }),
+    )
+    const loaded = await loadTraceSnapshot("/proj")
+    expect(loaded).not.toBeNull()
+    expect(loaded?.fileVersion).toBe(1)
+    expect(loaded?.goal).toBe("旧目标")
+    expect(loaded?.activities).toBeUndefined()
+  })
+
+  it("v2 快照带 activities 投影：content 截断 240 字 + '…'，全文不入快照", async () => {
+    const longContent = "x".repeat(300)
+    const snapshot = buildTraceSnapshot({
+      goal: "g",
+      ok: true,
+      roundsUsed: 1,
+      finalText: "done",
+      steps: [],
+      activities: [
+        { id: "a1", stageId: "s1", kind: "stage_output", title: "阶段产出", content: longContent, timestamp: 1234 },
+      ],
+      now: 99,
+    })
+    expect(snapshot.fileVersion).toBe(2)
+    expect(snapshot.activities).toHaveLength(1)
+    expect(snapshot.activities?.[0]).toMatchObject({ kind: "stage_output", title: "阶段产出", at: 1234 })
+    expect(snapshot.activities?.[0].summary).toHaveLength(241)
+    expect(snapshot.activities?.[0].summary.endsWith("…")).toBe(true)
+    // R-08 体积纪律：全文绝不进快照
+    expect(JSON.stringify(snapshot)).not.toContain(longContent)
   })
 
   it("写盘失败不抛（遥测不得阻断主流程）", async () => {

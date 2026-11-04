@@ -81,6 +81,8 @@ describe("createRunChapterWorkflowTool", () => {
       expect.any(Object),
       undefined,
       undefined,
+      // RV-002 ①：第 5 参是共识轨迹回调（单模型 runner 忽略，但调用形状固定）。
+      expect.any(Function),
     )
     expect(result).toContain("最终正文")
     expect(result).toContain("任务书")
@@ -555,5 +557,161 @@ describe("createRunChapterWorkflowTool", () => {
       "去AI味后的正文",
       "履约修复后的正文",
     ])
+  })
+
+  it("G3 负例：不传 stageJournal 时深章输入不含该键（chat 路径零变更）", async () => {
+    const runDeepChapterGeneration = vi.fn(async (input) => {
+      expect("stageJournal" in input).toBe(false)
+      return {
+        finalContent: "正文",
+        taskBrief: "任务书",
+        draftContent: "初稿",
+        reviewResults: [],
+        decisionGates: {} as import("@/lib/novel/deep-chapter-generation").DeepChapterDecisionGates,
+        manualReviewRequired: false,
+        retryCount: 0,
+        partial: false,
+        partialReason: null,
+        status: "passed",
+        verdict: "pass",
+        findings: [],
+        revised: false,
+      }
+    })
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+    })
+    await tool.execute({ userRequest: "写第3章" })
+    expect(runDeepChapterGeneration).toHaveBeenCalledTimes(1)
+  })
+
+  it("G3 正例：stageJournal 同引用透传给深章输入", async () => {
+    const stageJournal = { projectId: "p1", deps: {} as never, ttlMs: 1000 }
+    const runDeepChapterGeneration = vi.fn(async (input) => {
+      expect(input.stageJournal).toBe(stageJournal)
+      return {
+        finalContent: "正文",
+        taskBrief: "任务书",
+        draftContent: "初稿",
+        reviewResults: [],
+        decisionGates: {} as import("@/lib/novel/deep-chapter-generation").DeepChapterDecisionGates,
+        manualReviewRequired: false,
+        retryCount: 0,
+        partial: false,
+        partialReason: null,
+        status: "passed",
+        verdict: "pass",
+        findings: [],
+        revised: false,
+      }
+    })
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+      stageJournal,
+    })
+    await tool.execute({ userRequest: "写第3章" })
+    expect(runDeepChapterGeneration).toHaveBeenCalledTimes(1)
+  })
+
+  it("G3：onThinking 产出 kind=stage_output 活动事件，content 截断 240 字", async () => {
+    const onActivityEvent = vi.fn()
+    const runDeepChapterGeneration = vi.fn(async (_input, callbacks) => {
+      callbacks?.onThinking?.("任务书片段")
+      callbacks?.onThinking?.("   ")
+      callbacks?.onThinking?.("x".repeat(300))
+      return {
+        finalContent: "正文",
+        taskBrief: "任务书",
+        draftContent: "初稿",
+        reviewResults: [],
+        decisionGates: {} as import("@/lib/novel/deep-chapter-generation").DeepChapterDecisionGates,
+        manualReviewRequired: false,
+        retryCount: 0,
+        partial: false,
+        partialReason: null,
+        status: "passed",
+        verdict: "pass",
+        findings: [],
+        revised: false,
+      }
+    })
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+      onActivityEvent,
+    })
+    await tool.execute({ userRequest: "写第3章" })
+
+    // 空白思考被跳过，只产生两条
+    expect(onActivityEvent).toHaveBeenCalledTimes(2)
+    const first = onActivityEvent.mock.calls[0][0] as { kind: string; content: string; stageId: string }
+    expect(first.kind).toBe("stage_output")
+    expect(first.stageId).toBe("run_chapter_workflow")
+    expect(first.content.startsWith("任务书片段")).toBe(true)
+    const second = onActivityEvent.mock.calls[1][0] as { content: string }
+    expect(second.content).toHaveLength(241)
+    expect(second.content.endsWith("…")).toBe(true)
+  })
+
+  it("共识轨迹经第 5 参回流成一条 activities 事件（RV-002 ①）", async () => {
+    const onActivityEvent = vi.fn()
+    const runDeepChapterGeneration = vi.fn(
+      async (
+        _input: unknown,
+        _callbacks: unknown,
+        _deps: unknown,
+        _signal: unknown,
+        onConsensusTrace?: (trace: unknown) => void,
+      ) => {
+        onConsensusTrace?.({
+          seatCount: 3,
+          debateRounds: 2,
+          averageScores: [{ candidate: "seat-1", average: 8.5 }],
+          winner: "seat-1",
+          rationaleDigest: "digest",
+          failedSeats: ["seat-3"],
+        })
+        return {
+          finalContent: "正文",
+          taskBrief: "任务书",
+          draftContent: "草稿",
+          reviewResults: [],
+          decisionGates: {} as import("@/lib/novel/deep-chapter-generation").DeepChapterDecisionGates,
+          manualReviewRequired: false,
+          retryCount: 0,
+          partial: false,
+          partialReason: null,
+          status: "passed",
+          verdict: "pass",
+          findings: [],
+          revised: false,
+        }
+      },
+    )
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration: runDeepChapterGeneration as never,
+      onActivityEvent,
+    })
+
+    await tool.execute({ userRequest: "生成第3章", chapterNumber: 3 })
+
+    expect(onActivityEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ stageId: "consensus_writing", kind: "analysis" }),
+    )
+    const consensus = onActivityEvent.mock.calls[0][0] as { title: string; content: string }
+    expect(consensus.title.length).toBeGreaterThan(0)
+    expect(consensus.content).toContain("seat-1")
+    expect(consensus.content).toContain("seat-3")
   })
 })

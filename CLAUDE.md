@@ -44,6 +44,11 @@
 | 大纲多智能体编排 | `src/lib/novel/outline-multi-agent-orchestrator.ts` + `outline-dynamic-agent-planner.ts` + `outline-result-protocol.ts` + `outline-agent-context.ts` + `outline-workflow-state.ts`（纯逻辑，自 v3 提取模式）+ `outline-multi-agent-adapter.ts`（v2 接线：streamChat + deep-outline 降级） |
 | 大纲结构化真源（P0） | `src/lib/novel/outline-model.ts` + `outline-model-parse.ts` + `outline-model-render.ts`（P0 登记：类型/校验/digest；md→model 三级识别解析；model→md 确定性幂等渲染。sidecar JSON 为真源，md 为投影；命名避让 `src-tauri/src/canon/*` 三表） |
 | UI 闭环 | `src/components/chat/chat-panel.tsx` + `chat-message.tsx` + `chat-resume.ts` |
+| 主控·配置视图（G1） | `src/lib/novel/main-control-settings.ts`（登记：`MainControlSettingsView` / `projectMainControlSettings` / `clampChapterTargetChars` / `MAIN_CONTROL_CHAPTER_TARGET_{MIN,MAX,FALLBACK}`；`writingModel` 不在此视图内 —— D2=C 死字段） |
+| 主控·配置落盘（G1） | `src/lib/novel/novel-config-persist.ts`（登记：`persistNovelConfigPatch` 唯一写入口；设置页与主控设置块共用，内存态 `setNovelConfig` 不算真源） |
+| 主控·采纳+记忆回填（G2） | `src/lib/novel/accept-draft-with-ingest.ts`（登记：`acceptDraftAndIngest` 顺序=先 accept 后 ingest，失败分类 `AcceptDraftIngestStatus` 四值；`buildIngestActivity` 把结果转 `AgentActivityEvent`）+ `main-control-draft-actions.ts`（登记：`createMainControlAcceptSeam` / `resolveMainControlDraftTarget` / `adoptMainControlDraft`，accept seam 复用 `draft-manager.acceptChapterDraft`） |
+| 主控·门控重跑（G2） | `src/lib/novel/chapter-gate-evaluation.ts`（登记：`evaluateChapterGates` 薄编排 + `UNASSESSED_DIMENSION_{CHAPTER_CONTRACT,AI_REVIEW}`；判定仍归 `deep-chapter-decision-gates.ts` `buildDecisionGates`）+ `main-control-gate-rerun.ts`（登记：`rerunMainControlGates` / `buildMainControlGateRows`，未评估落 skipped 不落 pass） |
+| 主控·观测通道（G3） | `src/lib/novel/main-control.ts` `MainControlResult.activities` + `main-control-trace.ts` `buildTraceSnapshot`（fileVersion 2 投影）+ `src/lib/agent/tools/run-chapter-workflow.ts`（`stage_output` / 共识轨迹发射点）+ `chapter-title-generator.ts` `ensureChapterTitle`（`autoGenerateChapterTitle` 真开关，失败降级「第N章」） |
 
 完整映射见 `@../docs/niko-buddy-codex-delivery/10-file-mapping.md`。
 

@@ -43,6 +43,7 @@ export function NovelBaseSettingsSection({ draft, setDraft, updateNovelConfig }:
   const baseId = useId()
   const chatHistoryLabelId = `${baseId}-chat-history`
   const reasoningLabelId = `${baseId}-reasoning`
+  const aiWorkflowLabelId = `${baseId}-ai-workflow-mode`
   const genreSelectId = `${baseId}-genre`
   const settingTooltip = (key: string) => <NovelSettingTooltip tipKey={key} />
   return (
@@ -181,6 +182,52 @@ export function NovelBaseSettingsSection({ draft, setDraft, updateNovelConfig }:
             checked={!!draft.novelConfig.literaryPolishAfterGate}
             onChange={() => updateNovelConfig({ literaryPolishAfterGate: !draft.novelConfig.literaryPolishAfterGate })}
           />
+
+          {/* 组件 12 章节标题：autoGenerateChapterTitle 此前是死字段（恒 true），现已由
+              deep-chapter-prompts 与 ensureChapterTitle 真实消费，故在此暴露开关。 */}
+          <NovelSwitchRow
+            label={t("novel.settings.autoGenerateChapterTitle")}
+            tipKey="autoGenerateChapterTitleHint"
+            checked={!!draft.novelConfig.autoGenerateChapterTitle}
+            onChange={() => updateNovelConfig({ autoGenerateChapterTitle: !draft.novelConfig.autoGenerateChapterTitle })}
+          />
+
+          {/* D1=A：工作流强度是应用级偏好（全局单键落盘），设置页是草稿-保存模型，
+              因此只改 draft，点“保存”才经 saveAiWorkflowMode 落盘。 */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <span id={aiWorkflowLabelId} className="text-sm leading-none font-medium">
+                {t("mainControl.settingsAiWorkflowMode")}
+              </span>
+            </div>
+            <div role="group" aria-labelledby={aiWorkflowLabelId} className="flex flex-wrap gap-2">
+              {([
+                ["fast", "mainControl.workflowModeFast"],
+                ["standard", "mainControl.workflowModeStandard"],
+                ["strict", "mainControl.workflowModeStrict"],
+              ] as const).map(([mode, labelKey]) => {
+                const active = draft.aiWorkflowMode === mode
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    data-testid={`novel-ai-workflow-mode-${mode}`}
+                    aria-pressed={active}
+                    onClick={() => setDraft("aiWorkflowMode", mode)}
+                    className={choiceClass(active, "md")}
+                  >
+                    {t(labelKey)}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">{t("mainControl.settingsAiWorkflowModeHint")}</p>
+          </div>
+
+          {/* D2=C：writingModel 是死字段（model-resolver 已移除写作角色），只做只读说明，不加可编辑控件。 */}
+          <p data-testid="novel-writing-model-removed" className="text-xs text-muted-foreground">
+            {t("mainControl.settingsWritingModelRemoved")}
+          </p>
 
           <NovelSwitchRow
             label={t("novel.settings.residualCampaignEnabled")}

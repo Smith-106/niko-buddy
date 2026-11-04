@@ -1,9 +1,10 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { CheckCircle2, CircleAlert, Flame, Loader2, Play, Square, Sparkles } from "lucide-react"
 import { fileExists } from "@/commands/fs"
 import { WikiReader } from "@/components/editor/wiki-reader"
 import {
+  buildStageJournalRuntime,
   buildTraceEntries,
   buildTraceSnapshot,
   createMainControlQualityDeps,
@@ -17,9 +18,13 @@ import {
   type TraceEntry,
 } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
-import { DEFAULT_AI_WORKFLOW_MODE } from "@/lib/agent/workflow-mode"
+import { resolveAiWorkflowMode } from "@/lib/agent/workflow-mode"
+import type { AgentActivityEvent, AgentActivityKind } from "@/lib/agent/types"
 import { cn, toErrorMessage } from "@/lib/utils"
 import { ChapterDirectory } from "./chapter-directory"
+import { MainControlDraftAdoptBlock } from "./main-control-draft-adopt-block"
+import { MainControlGateRerunBlock } from "./main-control-gate-rerun-block"
+import { MainControlSettingsBlock } from "./main-control-settings-block"
 import { PipelineMotionView } from "./pipeline-motion-view"
 import { ForeshadowingPanel } from "./foreshadowing-panel"
 import { WorkHeatmapPanel } from "./work-heatmap-panel"
@@ -40,6 +45,19 @@ function upsertStep(prev: MainControlStep[], next: MainControlStep): MainControl
 }
 
 /**
+ * 阶段事件类别 → 文案键（固定映射表）。
+ * 不用模板字面量拼 key（避免把 kind 插进 key 里）：未命中的 kind 会渲染出原始 key，
+ * 且 i18n 前缀校验无法覆盖。
+ */
+const ACTIVITY_KIND_LABEL_KEYS: Partial<Record<AgentActivityKind, string>> = {
+  stage_started: "mainControl.activityKindStageStarted",
+  stage_output: "mainControl.activityKindStageOutput",
+  analysis: "mainControl.activityKindAnalysis",
+  extract_result: "mainControl.activityKindExtractResult",
+  error: "mainControl.activityKindError",
+}
+
+/**
  * 主控 Agent 面板（阶段 1）：一句话目标 → 只读工具收集上下文 → 产出草稿。
  *
  * 正式正文不会被直写：写工具走 draftMode，草稿仍需在草稿区确认后才进正式库。
@@ -51,8 +69,9 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const novelConfig = useWikiStore((s) => s.novelConfig)
   const novelMode = useWikiStore((s) => s.novelMode)
-  // 工作流模式目前没有全局设置项，深章工具注册用默认档（与 resolveAiWorkflowMode 一致）。
-  const aiWorkflowMode = DEFAULT_AI_WORKFLOW_MODE
+  // 工作流强度：全局单键（D1=A），由 composition-root 在打开项目时载入 store；
+  // R-02：绝不硬编码默认档，否则设置改了主控仍跑 standard。
+  const aiWorkflowMode = useWikiStore((s) => s.aiWorkflowMode)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   // 章节页「生成本章草稿」交接的目标只预填，不自动执行（批次二·8）。
   const [goal, setGoal] = useState(() => peekMainControlGoalHandoff() ?? "")
@@ -84,10 +103,62 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const [trace, setTrace] = useState<TraceEntry[]>([])
   const [expanded, setExpanded] = useState<string[]>([])
   const [replaySavedAt, setReplaySavedAt] = useState<number | null>(null)
+  // RV-002 ②：运行结束后才发生的观测（记忆回填）也要进同一个 activities 列表。
+  const [extraActivities, setExtraActivities] = useState<AgentActivityEvent[]>([])
   const abortRef = useRef<AbortController | null>(null)
 
   // 运行中实况轨迹：steps 派生（无需等磁盘轮询）；空闲时沿用磁盘快照。
   const liveTrace = useMemo(() => buildTraceEntries(steps), [steps])
+  // D5=A：阶段过程事件独立通道（缺失即空数组，不伪造）。
+  const runActivities = useMemo(() => result?.activities ?? [], [result])
+  // 同一条通道的两个来源：本次运行（stage_output / consensus） + 采纳后回填（ingest）。
+  const activities = useMemo(
+    () => (extraActivities.length > 0 ? [...runActivities, ...extraActivities] : runActivities),
+    [runActivities, extraActivities],
+  )
+
+  /** 落轨迹快照（单一出口）：activities 由调用方给，保证本次运行与采纳后回填同源。 */
+  const persistSnapshot = useCallback(
+    (input: {
+      goal: string
+      ok: boolean
+      stopReason?: string
+      roundsUsed: number
+      finalText: string
+      steps: readonly MainControlStep[]
+      activities: readonly AgentActivityEvent[]
+    }) => {
+      if (!projectPath) return
+      void saveTraceSnapshot(
+        projectPath,
+        buildTraceSnapshot({
+          goal: input.goal,
+          ok: input.ok,
+          stopReason: input.stopReason,
+          roundsUsed: input.roundsUsed,
+          finalText: input.finalText,
+          steps: input.steps,
+          activities: input.activities,
+          now: Date.now(),
+        }),
+      )
+    },
+    [projectPath],
+  )
+
+  // RV-002 ②：运行结束后才发生的观测（记忆回填）也要重落快照，否则回放里看不到。
+  useEffect(() => {
+    if (!result || extraActivities.length === 0) return
+    persistSnapshot({
+      goal,
+      ok: result.ok,
+      stopReason: result.error,
+      roundsUsed: result.roundsUsed,
+      finalText: result.finalText,
+      steps: result.steps,
+      activities,
+    })
+  }, [activities, extraActivities, goal, persistSnapshot, result])
   // 回放：进面板时载入上一次运行的轨迹快照（缺失即空）。
   useEffect(() => {
     if (!projectPath) return
@@ -114,6 +185,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
     setSteps([])
     setTrace([])
     setReplaySavedAt(null)
+    setExtraActivities([])
     setMotionOpen(true)
     setRunStartAt(Date.now())
     setRunning(true)
@@ -128,6 +200,12 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         signal: controller.signal,
       })
       const runDeepChapterGeneration = novelMode ? await resolveDeepChapterRunner(novelConfig) : undefined
+      // G3：阶段日志装配收敛到共享 helper（与 chat 侧同一语义；关闭时返回 undefined）。
+      const stageJournal = buildStageJournalRuntime(
+        projectPath,
+        novelConfig.stageJournalEnabled,
+        novelConfig.journalTtlMs,
+      )
       const out = await runMainControlAgent({
         projectPath,
         wikiPath,
@@ -135,7 +213,8 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         llmConfig,
         quality,
         runDeepChapterGeneration,
-        aiWorkflowMode,
+        aiWorkflowMode: resolveAiWorkflowMode(aiWorkflowMode),
+        stageJournal,
         signal: controller.signal,
         onStep: (step) => setSteps((prev) => upsertStep(prev, step)),
       })
@@ -143,16 +222,17 @@ export function MainControlView(_props: MainControlViewProps = {}) {
       setResult(out)
       setTrace(buildTraceEntries(out.steps))
       setReplaySavedAt(null)
-      const snapshot = buildTraceSnapshot({
+      // RV-002：快照消费同一条 activities 通道（本次运行的 stage_output/consensus；
+      // 运行后才发生的 ingest 由下方 effect 追加并重落）。
+      persistSnapshot({
         goal: trimmed,
         ok: out.ok,
         stopReason: out.error,
         roundsUsed: out.roundsUsed,
         finalText: out.finalText,
         steps: out.steps,
-        now: Date.now(),
+        activities: out.activities ?? [],
       })
-      void saveTraceSnapshot(projectPath, snapshot)
       if (out.error) {
         // 用户亲手点的中止走成功分支回来（runner resolve + error)：以 signal 为准判取消，不进红字失败。
         if (controller.signal.aborted) {
@@ -317,6 +397,8 @@ export function MainControlView(_props: MainControlViewProps = {}) {
       </div>
       )}
 
+      {tab === "run" && <MainControlSettingsBlock />}
+
       {tab === "run" && (
       <div className="rounded-lg border p-2" data-testid="main-control-steps">
         <h3 className="mb-1 text-xs font-semibold">
@@ -374,6 +456,40 @@ export function MainControlView(_props: MainControlViewProps = {}) {
             />
           </div>
         ) : null}
+      </div>
+      )}
+
+      {tab === "run" && (
+      <div className="rounded-lg border p-2" data-testid="main-control-activities">
+        <h3 className="mb-1 text-xs font-semibold">
+          {t("mainControl.activitiesTitle", { count: activities.length })}
+        </h3>
+        {novelConfig.stageJournalEnabled === false ? (
+          <p className="text-xs text-muted-foreground" data-testid="main-control-stage-journal-off">
+            {t("mainControl.stageJournalOff")}
+          </p>
+        ) : null}
+        {activities.length === 0 ? (
+          <p className="text-xs text-muted-foreground">{t("mainControl.activitiesEmpty")}</p>
+        ) : (
+          <ul className="flex flex-col gap-0.5">
+            {activities.map((activity) => (
+              <li key={activity.id} className="text-xs" data-testid={`main-control-activity-${activity.kind}`}>
+                <span className="mr-1 font-medium">
+                  {ACTIVITY_KIND_LABEL_KEYS[activity.kind]
+                    ? t(ACTIVITY_KIND_LABEL_KEYS[activity.kind] as string)
+                    : activity.kind}
+                </span>
+                <span className="text-muted-foreground">{activity.title}</span>
+                {activity.content ? (
+                  <span className="ml-1 text-muted-foreground">
+                    {activity.content.length > 240 ? `${activity.content.slice(0, 240)}…` : activity.content}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       )}
 
@@ -486,6 +602,14 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         <p className="mt-1 text-xs text-muted-foreground" data-testid="main-control-draft-hint">
           {t("mainControl.draftAcceptHint")}
         </p>
+        {/* F1a：采纳不再只是提示——走 adoptMainControlDraft（accept seam = acceptChapterDraft），
+            两步确认原样保留：先展开确认面板，第二步才写盘。 */}
+        {projectPath ? (
+          <MainControlDraftAdoptBlock
+            projectPath={projectPath}
+            onActivityEvent={(event) => setExtraActivities((prev) => [...prev, event])}
+          />
+        ) : null}
       </div>
       )}
 
@@ -509,8 +633,12 @@ export function MainControlView(_props: MainControlViewProps = {}) {
       )}
 
       {tab === "live" && projectPath ? (
-        <div className="rounded-lg border p-2" data-testid="main-control-live">
-          <LiveExecutionView projectPath={projectPath} />
+        <div className="flex flex-col gap-2">
+          {/* F1b：门控重跑（判定唯一真源 buildDecisionGates；未评估落 skipped 不落 pass）。 */}
+          <MainControlGateRerunBlock projectPath={projectPath} />
+          <div className="rounded-lg border p-2" data-testid="main-control-live">
+            <LiveExecutionView projectPath={projectPath} />
+          </div>
         </div>
       ) : null}
 

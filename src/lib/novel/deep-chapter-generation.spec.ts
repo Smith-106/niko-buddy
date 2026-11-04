@@ -1,4 +1,25 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+// RV-001：标题生成走的是 chapter-title-generator 里的真实 streamChat（不经 deps 注入）。
+// 要测「标题路径真的被调到 / 失败降级」，只能在模块边界上接管：
+// 默认直通真实实现（其余 160 个用例零影响），用例需要时才装假实现。
+const titleGeneratorStub = vi.hoisted(() => ({
+  impl: undefined as undefined | ((content: string, chapterNumber: number) => Promise<string>),
+  calls: 0,
+}))
+
+vi.mock("./chapter-title-generator", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./chapter-title-generator")>()
+  return {
+    ...actual,
+    generateChapterTitle: async (content: string, chapterNumber: number, cfg: LlmConfig, signal?: AbortSignal) => {
+      titleGeneratorStub.calls += 1
+      if (titleGeneratorStub.impl) return titleGeneratorStub.impl(content, chapterNumber)
+      return actual.generateChapterTitle(content, chapterNumber, cfg, signal)
+    },
+  }
+})
+
 
 // C1 真接线 (ISS-20260719-002) 后 runFullReviewWithSixDim 无条件真实执行
 // runContinuityMechanicalPreflight；node 测试环境无 tauri invoke，loader 的
@@ -139,7 +160,9 @@ const llmConfig = {
 
 // ISS-20260709-042: novelConfig now injected via DeepChapterGenerationInput
 // (no longer read from useWikiStore inside the generator).
-const novelConfig = { ...DEFAULT_NOVEL_CONFIG } satisfies NovelConfig
+// RV-001：本基线显式关掉自动标题——这些用例锁的是「正文逐字节」与阶段调用顺序，
+// 开关开着会多一次标题 LLM 调用并在正文前加 H1（标题路径另有用例覆盖）。
+const novelConfig = { ...DEFAULT_NOVEL_CONFIG, autoGenerateChapterTitle: false } satisfies NovelConfig
 
 const contextPack: ContextPack = {
   task: "生成第3章",
@@ -4417,5 +4440,76 @@ describe("A6 stageShortLabelForDisplay（UI 阶段短标签统一出口）", () 
     expect(stageShortLabelForDisplay("bogus-stage")).toContain("未知阶段")
     expect(stageShortLabelForDisplay(null)).toBe("上下文")
     expect(stageShortLabelForDisplay(undefined)).toBe("上下文")
+  })
+})
+
+describe("RV-001 标题生成真接线（autoGenerateChapterTitle 真值驱动）", () => {
+  beforeEach(() => {
+    titleGeneratorStub.impl = undefined
+    titleGeneratorStub.calls = 0
+  })
+
+  it("开关开 + 正文无标题 → 调标题模型并补 H1", async () => {
+    titleGeneratorStub.impl = async () => "第3章 雨夜旧屋"
+    const thinking: string[] = []
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        novelConfig: { ...DEFAULT_NOVEL_CONFIG, autoGenerateChapterTitle: true },
+      },
+      { onThinking: (content) => thinking.push(content) },
+      createDeps(),
+    )
+
+    expect(titleGeneratorStub.calls).toBe(1)
+    expect(result.finalContent.startsWith("# 第3章 雨夜旧屋")).toBe(true)
+    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(thinking.join("\n")).toContain("阶段7.5：章节标题")
+  })
+
+  it("标题模型失败 → 降级「第N章」，正文照常交付（绝不阻断）", async () => {
+    titleGeneratorStub.impl = async () => {
+      throw new Error("标题上游 500")
+    }
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        novelConfig: { ...DEFAULT_NOVEL_CONFIG, autoGenerateChapterTitle: true },
+      },
+      {},
+      createDeps(),
+    )
+
+    expect(titleGeneratorStub.calls).toBe(1)
+    expect(result.finalContent.startsWith("# 第3章")).toBe(true)
+    expect(result.finalContent).toContain("最终去AI味正文")
+  })
+
+  it("开关关 → 不多跑标题模型，正文不含 H1", async () => {
+    titleGeneratorStub.impl = async () => "不该出现的标题"
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        novelConfig: { ...DEFAULT_NOVEL_CONFIG, autoGenerateChapterTitle: false },
+      },
+      {},
+      createDeps(),
+    )
+
+    expect(titleGeneratorStub.calls).toBe(0)
+    expect(result.finalContent.startsWith("# ")).toBe(false)
+    expect(result.finalContent).toContain("最终去AI味正文")
   })
 })

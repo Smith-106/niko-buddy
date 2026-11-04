@@ -1,5 +1,5 @@
 import type { ToolRegistry } from "../registry"
-import type { AgentToolEvent, Tool } from "../types"
+import type { AgentActivityEvent, AgentToolEvent, Tool } from "../types"
 import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import { createReadChapterTool } from "./read-chapter"
 import { createReadOutlineTool } from "./read-outline"
@@ -24,7 +24,7 @@ import { createLoadContextTool } from "./load-context"
 import { createTrimContextTool } from "./trim-context"
 import { createRunChapterWorkflowTool, type RunDeepChapterGeneration } from "./run-chapter-workflow"
 import { createReviseChapterTool, createScoreChapterTool, type QualityToolDeps } from "./score-chapter"
-import type { DeAiSkillConfig, UserSkill, TaskRouteResult, ContextPack } from "@/lib/novel"
+import type { DeAiSkillConfig, UserSkill, TaskRouteResult, ContextPack, StageJournalRuntime } from "@/lib/novel"
 import type { LlmConfig, SearchApiConfig } from "@/stores/wiki-store"
 import { resolveContextPackTokenBudget } from "@/lib/context-budget"
 
@@ -64,6 +64,10 @@ export interface ToolFactoryOptions {
   /** 质量闭环注入：提供后注册 score_chapter / revise_chapter（否则不注册）。 */
   qualityIteration?: QualityToolDeps
   onToolEvent?: (event: AgentToolEvent) => void
+  /** 阶段过程事件（D5=A 通道）：透传给 run_chapter_workflow，缺省不产生任何事件。 */
+  onActivityEvent?: (event: AgentActivityEvent) => void
+  /** 阶段工件缓存运行时（G3）：缺省 undefined 时不写缓存，chat 路径行为逐字节不变。 */
+  stageJournal?: StageJournalRuntime
   getPlanBlueprint?: () => string | undefined
   getSelectedSkillsPrompt?: () => string | undefined
   readTextFile?: (path: string) => Promise<string>
@@ -124,6 +128,8 @@ export function registerAllBuiltInTools(registry: ToolRegistry, options: ToolFac
       aiWorkflowMode: options.aiWorkflowMode,
       runDeepChapterGeneration: options.runDeepChapterGeneration,
       onToolEvent: options.onToolEvent,
+      onActivityEvent: options.onActivityEvent,
+      stageJournal: options.stageJournal,
       getPlanBlueprint: options.getPlanBlueprint,
       getSelectedSkillsPrompt: options.getSelectedSkillsPrompt,
     }))

@@ -14,6 +14,8 @@ import {
 } from "./dimension-review-adapter"
 import {  } from "./novel-skill-hooks"
 import { formatStageThinking } from "./chapter-utils"
+import { ensureChapterTitle, generateChapterTitle, type ChapterTitleSource } from "./chapter-title-generator"
+import i18n from "@/i18n"
 import { recordChapterGateEvidence, type ChapterGateEvidenceDeps } from "./deep-chapter-gate-evidence"
 import { formatNormalize } from "./format-normalizer"
 import { resolveDeAiGenre } from "./genre-codes"
@@ -244,7 +246,18 @@ export interface DeepChapterGenerationDeps {
   gateEvidence?: ChapterGateEvidenceDeps
 }
 
-const defaultDeps: DeepChapterGenerationDeps = {
+/**
+ * RV-001：标题来源 → i18n 键（固定映射，不用模板字面量拼 key）。
+ *
+ * `disabled` 不发提示（开关关掉时静默，不算异常），故不在此表内。
+ */
+const TITLE_SOURCE_KEYS: Record<Exclude<ChapterTitleSource, "disabled">, string> = {
+  content: "mainControl.draftTitleSourceModel",
+  generated: "mainControl.draftTitleSourceGenerated",
+  fallback: "mainControl.draftTitleSourceFallback",
+}
+
+export const DEFAULT_DEEP_CHAPTER_DEPS: DeepChapterGenerationDeps = {
   buildContextPack,
   contextPackToPrompt,
   reviewChapter,
@@ -362,7 +375,7 @@ import { runReviewAndRepair } from "./deep-chapter-review-repair"
 export async function runDeepChapterGeneration(
   input: DeepChapterGenerationInput,
   callbacks: DeepChapterGenerationCallbacks = {},
-  deps: DeepChapterGenerationDeps = defaultDeps,
+  deps: DeepChapterGenerationDeps = DEFAULT_DEEP_CHAPTER_DEPS,
   signal?: AbortSignal,
 ): Promise<DeepChapterGenerationResult> {
   assertNotAborted(signal, USER_ABORT_MESSAGE)
@@ -662,13 +675,42 @@ export async function runDeepChapterGeneration(
   // 此处补一次幂等 normalize, 保证审计对象 = 最终交付物 (顺序不可颠倒)。
   // 纯函数零 LLM; 空内容/无替换 → 零开销路径。
   const finalNormalized = formatNormalize(finalContent)
-  const finalContentNorm = finalNormalized.text
+  const normalizedContent = finalNormalized.text
   if (finalNormalized.changed) {
     callbacks.onThinking?.(formatStageThinking(
       "阶段7：终稿规范化",
       `终稿回流规范化: 替换 ${finalNormalized.replacementCount} 处, 删除 ${finalNormalized.deleteCount} 处`,
     ))
   }
+  // RV-001：标题生成真接线（唯一开关 = `novelConfig.autoGenerateChapterTitle` 真值）。
+  // 只在「有章号 + 开关开 + 正文里没有富标题」时多跑一次 LLM；任何失败降级「第N章」，
+  // 绝不阻断正文（ensureChapterTitle 内部 try/catch，本段不抛）。
+  const titleOutcome = await ensureChapterTitle(normalizedContent, {
+    chapterNumber: input.chapterNumber,
+    llmConfig: writingConfig,
+    autoGenerateChapterTitle: novelConfig.autoGenerateChapterTitle,
+    signal,
+    // 显式绑定生产 LLM 入口（便于审计「谁真的在调 generateChapterTitle」）。
+    generateTitle: generateChapterTitle,
+  })
+  if (titleOutcome.source === "generated" || titleOutcome.source === "content") {
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段7.5：章节标题",
+      i18n.t("mainControl.draftTitleDone", {
+        title: titleOutcome.title,
+        source: i18n.t(TITLE_SOURCE_KEYS[titleOutcome.source]),
+      }),
+    ))
+  } else if (titleOutcome.source === "fallback") {
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段7.5：章节标题",
+      i18n.t("mainControl.draftTitleFailed", {
+        n: input.chapterNumber ?? 0,
+        message: titleOutcome.error ?? "",
+      }),
+    ))
+  }
+  const finalContentNorm = titleOutcome.content
   callbacks.onFinalContent?.(finalContentNorm)
   // 54 号设计 ⑨: avoid-ai 审计 (51 type 目录吸收, 审计型只读)。
   // final 产出后跑声纹审计, 结果经 onThinking 提示 + 日志留痕;
@@ -1004,6 +1046,7 @@ async function finalPolishChapter(
         // 55 号设计 W1-1: 入口统一解析 (英文码 → 中文流派名; undefined/未知码 → 默认基线)。
         resolveDeAiGenre(input.genre),
         writingTaskExtra,
+        input.novelConfig.autoGenerateChapterTitle,
       ),
     }],
     deps,
