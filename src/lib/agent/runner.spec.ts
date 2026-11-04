@@ -27,7 +27,7 @@ vi.mock("../llm-client", async (importOriginal) => {
 })
 
 import type { StreamCallbacks } from "../llm-client"
-import { AgentRunner, ModelDoesNotSupportToolsError } from "./runner"
+import { AgentRunner, ModelDoesNotSupportToolsError, REQUIRED_TOOL_NUDGE_MAX } from "./runner"
 import { ToolRegistry } from "./registry"
 import { RequiredToolFallbackError, RequiredToolsNotCalledError } from "./required-tools-gate"
 import type {
@@ -558,5 +558,57 @@ describe("必调工具门控：nudge 先、兜底后", () => {
     expect(diagnostics.satisfiedTools).toEqual([WORKFLOW_TOOL])
     expect(diagnostics.missingTools).toEqual([])
     expect(diagnostics.roundsUsed).toBe(2)
+  })
+
+  // RVF-02 成本回归：nudge 没有预算时，「必调工具永不调用」的失败模式从「1 轮 + 兜底」
+  // 放大成「maxRounds 轮完整生成 + 兜底」——每轮都是整章级正文（run_chapter_workflow
+  // 的 executeTimeoutMs: 0，无轮内截止）。本条用例把上界钉死在 1 + REQUIRED_TOOL_NUDGE_MAX，
+  // 而不是 maxRounds。
+  it("maxRounds=8 且模型始终零工具调用 → nudge 预算封顶，只请求 1 + REQUIRED_TOOL_NUDGE_MAX 次模型，随后确定性兜底交付", async () => {
+    const sentMessages = scriptStream([{ text: "我打算直接给你正文（每一轮都这么说）" }])
+
+    const tool = createWorkflowTool({
+      finalizesRun: true,
+      buildRequiredToolFallbackParams: ({ taskGoal }) => ({ userRequest: taskGoal }),
+      async execute(_params, _signal, context) {
+        context?.onFinalContent?.("第一章 落雪（预算用尽后的确定性兜底）")
+        return "工作流已交付第一章正文"
+      },
+    })
+
+    const { record, errors, texts, doneCount } = await runAgent(
+      createConfig([tool], { requiredToolsOnce: [WORKFLOW_TOOL], maxRounds: 8 }),
+      [tool],
+    )
+
+    // 预算常量本身的取值被钉住（预算为 0 就退回「不 nudge」的旧 bug）
+    expect(REQUIRED_TOOL_NUDGE_MAX).toBe(2)
+    // 成本上界：8 轮 maxRounds 只用掉 1 + 2 = 3 次模型调用，而不是 8 次
+    expect(mocks.streamChat).toHaveBeenCalledTimes(1 + REQUIRED_TOOL_NUDGE_MAX)
+    expect(mocks.streamChat.mock.calls.length).toBeLessThan(8)
+    expect(record.roundsUsed).toBe(1 + REQUIRED_TOOL_NUDGE_MAX)
+
+    // 两次 nudge 真的注入了：第 2、3 次请求里都带 nudge（「先 nudge」没被删）
+    expect(sentMessages).toHaveLength(1 + REQUIRED_TOOL_NUDGE_MAX)
+    expect(nudgeInjected(sentMessages[1])).toBe(true)
+    expect(nudgeInjected(sentMessages[2])).toBe(true)
+
+    // 预算用尽仍无 toolCalls → 确定性兜底仍然存在，并且交付终稿
+    expect(record.finalText).toBe("第一章 落雪（预算用尽后的确定性兜底）")
+    expect(texts).toEqual([])
+    expect(doneCount()).toBe(1)
+    expect(errors).toEqual([])
+    expect(record.toolCalls.map((call) => [call.name, call.status])).toEqual([
+      [WORKFLOW_TOOL, "done"],
+    ])
+    expect(record.toolCalls[0].id.startsWith("required_fallback:")).toBe(true)
+
+    const diagnostics = diagnosticsOf(record)
+    expect(diagnostics.fallbackAttempted).toBe(true)
+    expect(diagnostics.fallbackTool).toBe(WORKFLOW_TOOL)
+    expect(diagnostics.fallbackStatus).toBe("success")
+    expect(diagnostics.satisfiedTools).toEqual([WORKFLOW_TOOL])
+    expect(diagnostics.missingTools).toEqual([])
+    expect(diagnostics.roundsUsed).toBe(1 + REQUIRED_TOOL_NUDGE_MAX)
   })
 })

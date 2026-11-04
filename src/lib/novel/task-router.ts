@@ -87,7 +87,19 @@ const INTENT_PATTERNS: IntentPattern[] = [
       // 「生成本章草稿的验收标准有哪些？」「他说「生成本章草稿」是什么意思」等提及/否定句。
       // 代词限定 本章|该章|这章（不含「大纲」），「生成大纲草稿」仍归 generate_outline。
       // N 的字符类复用 CHAPTER_NUMBER_PATTERNS 的中文数字集合（含 千/〇/零/两）。
-      /^[为给]\s*[「“"]\s*第\s*[\d一二三四五六七八九十百千〇零两]+\s*章[^」”"]*[」”"]\s*生成\s*(本章|该章|这章)\s*草稿/,
+      //
+      // B4（复核阻断）：尾端必须 `$` 全锚定。此前只锚 `^` 不锚 `$`，于是任何以该模板
+      // 开头、后面拖了问题/统计/释义尾巴的句子都整条命中：
+      //   「为「第12章 旧梦」生成本章草稿吗？」
+      //   「为「第12章 旧梦」生成本章草稿的验收标准有哪些？」
+      //   「为「第12章 旧梦」生成本章草稿的字数统计」
+      //   「为「第12章 旧梦」生成本章草稿是什么意思」
+      // 而路由判 write_chapter 会在 main-control 装配层武装 run_chapter_workflow
+      // （resolveRequiredToolsOnce），误命中即跑完整条深章流水线（数分钟 + LLM 成本）
+      // 并把正文当答案交付——正是 RV-01 要消灭的代价。
+      // 尾锚只放行句末标点（。！!），不允许 `？`/后缀从句：带问号的是提问，不是指令。
+      // 不得为了好写而放宽成不锚定（放宽即复活上述四类误命中）。
+      /^[为给]\s*[「“"]\s*第\s*[\d一二三四五六七八九十百千〇零两]+\s*章[^」”"]*[」”"]\s*生成\s*(本章|该章|这章)\s*草稿\s*[。！!]?\s*$/,
     ],
     keywords: ["写章节", "生成章节", "创作章节", "新章节", "写第", "章纲生成正文"],
     weight: 10,
@@ -430,10 +442,26 @@ function hasNextChapterContinuationWording(text: string): boolean {
 
 // 全文出现明确的“第N章”（N>3）时，说明用户的目标章节并非开篇章节，
 // 文本里顺带提到的“开篇/第一章”只是写作要求或剧情引用。
-function hasExplicitLaterChapterNumber(text: string): boolean {
+//
+// RVF-06：章节号字符类补齐中文数字（与 CHAPTER_NUMBER_PATTERNS 同集合
+// `[\d一二三四五六七八九十百千〇零两]`）。旧版 `/第(\d+)章/` 只认阿拉伯数字，
+// 于是「为「第十二章 首章」生成本章草稿」判不出“目标章 >3”，落到下面的“首章”分支被取成 1。
+//
+// `includeChinese=false` 只给 isOpeningChapterRequest 的**意图门**用（原因写在该调用点）：
+// 取号要认中文数字；但意图门认了中文数字会把「生成/创作 + 第N章」这类写章请求从
+// write_chapter 翻成 general_chat（实测 16 条，因为通用写章意图正则只覆盖阿拉伯数字），
+// 以及把「写首章，第五章再回收伏笔」翻成 foreshadowing_query。取号与意图门在此分开，
+// 保证本函数的中文数字扩展只影响“取哪个章号”，不影响“判哪个意图”。
+function hasExplicitLaterChapterNumber(text: string, includeChinese = true): boolean {
   const compact = text.replace(/\s+/g, "")
-  const explicit = compact.match(/第(\d+)章/)
-  return Boolean(explicit?.[1] && Number(explicit[1]) > 3)
+  const explicit = compact.match(
+    includeChinese ? /第([\d一二三四五六七八九十百千〇零两]+)章/ : /第(\d+)章/,
+  )
+  const raw = explicit?.[1]
+  if (!raw) return false
+  // 字符类内全为阿拉伯/中文数字与十百千乘数，parseChineseChapterNumber 不会返回 NaN。
+  const num = /^\d+$/.test(raw) ? Number(raw) : parseChineseChapterNumber(raw)
+  return num > 3
 }
 
 // “开篇/开局/首章/开头”这类弱关键词：仅当紧跟写作动词，或请求本身
@@ -447,7 +475,11 @@ function isAmbientOpeningKeywordRequest(text: string): boolean {
 
 function isOpeningChapterRequest(text: string): boolean {
   if (hasNextChapterContinuationWording(text)) return false
-  if (hasExplicitLaterChapterNumber(text)) return false
+  // RVF-06：意图门只认阿拉伯数字（includeChinese=false）。中文数字的识别限定在
+  // 取号（extractOpeningChapterNumber）——意图门一旦认中文数字，「生成第四章，开篇要有钩子」
+  // 这类写章请求会因为通用写章正则只覆盖阿拉伯数字而被翻成 general_chat（已实测），
+  // 即为了修章号而弄丢意图。取号归取号，意图归意图。
+  if (hasExplicitLaterChapterNumber(text, false)) return false
   // CORR-005 (odyssey): guard against negative directives. Bare `/第一章/` and
   // `/开篇章节/` patterns match any mention, so "不要写第一章" (don't write
   // chapter 1) was misclassified as write_chapter intent=1. If the opening
@@ -479,11 +511,20 @@ function isOpeningChapterRequest(text: string): boolean {
 function extractOpeningChapterNumber(text: string): number | undefined {
   /* v8 ignore next */
   if (hasNextChapterContinuationWording(text)) return undefined
-  if (hasExplicitLaterChapterNumber(text)) return undefined
+  // RVF-06：显式“第N章”（N>3，含中文数字）说明目标章不是开篇章——不得把“首章/开篇”
+  // 这类弱关键词读成第 1 章（「为「第十二章 首章」生成本章草稿」→ 12）。
+  // 取号沿用否定守卫（与 extractChapterNumber 的章号兜底同源）：“不要写第5章”仍不取 5。
+  // 守卫命中但无可取章号时仍返回 undefined，与非开篇路径的既有行为一致。
+  if (hasExplicitLaterChapterNumber(text)) return firstUnnegatedChapterNumber(text)
   // ISS-20260709-007：逐处否定守卫——“别写第2章，写第3章”不得取被否定的第2章。
-  for (const match of text.matchAll(/第\s*([123])\s*章/g)) {
+  // RVF-06：字符类补齐中文数字（一/二/三/两），与 CHAPTER_NUMBER_PATTERNS 同集合。
+  // 旧版只认阿拉伯 1/2/3，于是「为「第二章 首章」生成本章草稿」跳过这个显式章号循环，
+  // 落到下面的“首章”分支被取成 1（应为 2）——「首章」二字只是书名/章节标题的一部分。
+  // 本循环在“首章/第一章”分支之前，显式「第N章」优先于标题里的弱关键词。
+  for (const match of text.matchAll(/第\s*([123一二三两])\s*章/g)) {
     if (match.index !== undefined && isNegatedBefore(text, match.index)) continue
-    return Number(match[1])
+    const raw = match[1]
+    return /^\d+$/.test(raw) ? Number(raw) : parseChineseChapterNumber(raw)
   }
   if (hasUnnegatedPatternMatch(text, /首章|第一章|第\s*1\s*章|开篇章节|小说开头|生成前三章|写前三章|黄金三章/)) {
     return 1

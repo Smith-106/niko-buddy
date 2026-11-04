@@ -5,10 +5,12 @@
  */
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 const mocks = vi.hoisted(() => ({
   writeFile: vi.fn(async () => undefined),
+  // B8：快照盘写走原子命令（temp+fsync+rename），视图侧同样不能触达非原子 writeFile。
+  writeFileAtomic: vi.fn(async () => undefined),
   readFile: vi.fn(async () => ""),
   createDirectory: vi.fn(async () => undefined),
 }))
@@ -29,6 +31,7 @@ beforeEach(() => {
   useModuleHeatStore.setState({ installed: false })
   mocks.readFile.mockClear()
   mocks.writeFile.mockClear()
+  mocks.writeFileAtomic.mockClear()
   mocks.createDirectory.mockClear()
 })
 
@@ -169,6 +172,76 @@ describe("ModuleHeatmapView", () => {
       })
       expect(mocks.readFile).toHaveBeenCalledWith("/proj/.novel/telemetry/module-heat.json")
       expect(screen.getByTestId("heatmap-session-log").textContent).toContain("campaign-runner")
+    } finally {
+      useWikiStore.setState({ project: null })
+    }
+  })
+
+  // B6：hydratedFor 是 per-project —— 切项目后视图必须重新回填，且不显示上一项目的命中。
+  it("切项目后重新回填新项目快照，旧项目命中不残留", async () => {
+    const { useWikiStore } = await import("@/stores/wiki-store")
+    useWikiStore.setState({ project: { id: "p1", name: "projA", path: "/projA" } })
+    mocks.readFile.mockResolvedValueOnce(
+      JSON.stringify({
+        fileVersion: 1,
+        sessionStartedAt: 1,
+        savedAt: 2,
+        hits: [{ path: "src/lib/novel/campaign-runner.ts", at: Date.now(), ok: true, ms: 3 }],
+      }),
+    )
+    try {
+      render(<ModuleHeatmapView />)
+      await waitFor(() => {
+        expect(mocks.readFile).toHaveBeenCalledWith("/projA/.novel/telemetry/module-heat.json")
+      })
+      await waitFor(() => {
+        expect(screen.getByTestId("heatmap-session-log").textContent).toContain("campaign-runner")
+      })
+
+      mocks.readFile.mockResolvedValueOnce(
+        JSON.stringify({
+          fileVersion: 1,
+          sessionStartedAt: 1,
+          savedAt: 2,
+          hits: [{ path: "src/lib/novel/autonomous-incubator.ts", at: Date.now(), ok: true, ms: 4 }],
+        }),
+      )
+      act(() => {
+        useWikiStore.setState({ project: { id: "p2", name: "projB", path: "/projB" } })
+      })
+      await waitFor(() => {
+        expect(mocks.readFile).toHaveBeenCalledWith("/projB/.novel/telemetry/module-heat.json")
+      })
+      await waitFor(() => {
+        expect(screen.getByTestId("heatmap-session-log").textContent).toContain("incubator")
+      })
+      // A 项目的命中窗口不得残留在 B 项目里
+      expect(screen.getByTestId("heatmap-session-log").textContent).not.toContain("campaign-runner")
+    } finally {
+      useWikiStore.setState({ project: null })
+    }
+  })
+
+  // B8/B14：手动「立即落盘」与 app 轮询共用 store.flush —— 原子写、先回填、单飞。
+  it("手动「立即落盘」走原子写并回显落盘时间", async () => {
+    const { useWikiStore } = await import("@/stores/wiki-store")
+    useWikiStore.setState({ project: { id: "p1", name: "proj", path: "/proj" } })
+    try {
+      const store = useModuleHeatStore.getState()
+      store.install()
+      recordModuleHit({ path: "src/lib/novel/campaign-runner.ts", at: Date.now(), ok: true })
+      render(<ModuleHeatmapView />)
+      await waitFor(() => {
+        expect(mocks.readFile).toHaveBeenCalledWith("/proj/.novel/telemetry/module-heat.json")
+      })
+      fireEvent.click(screen.getByTestId("heatmap-flush"))
+      await waitFor(() => {
+        expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+      })
+      expect(mocks.writeFile).not.toHaveBeenCalled()
+      await waitFor(() => {
+        expect(screen.getByTestId("heatmap-flushed")).toBeTruthy()
+      })
     } finally {
       useWikiStore.setState({ project: null })
     }

@@ -791,18 +791,6 @@ describe("RV-01 门控武装：结构化 gateIntent，无文本推断", () => {
     ]
     for (const goal of misfires) {
       const { requiredToolsOnce, toolNames } = await armFor(goal)
-      // TEMP-EVIDENCE
-      // eslint-disable-next-line no-console
-      console.log(
-        "[EVIDENCE]",
-        JSON.stringify({
-          goal,
-          intent: routeTask(goal).intent,
-          chapterNumber: routeTask(goal).chapterNumber,
-          armed: requiredToolsOnce,
-          toolRegistered: toolNames.includes("run_chapter_workflow"),
-        }),
-      )
       expect(requiredToolsOnce, goal).toBeUndefined()
       // 反证：工具在，判定为「不武装」而非「工具缺失」。
       expect(toolNames, goal).toContain("run_chapter_workflow")

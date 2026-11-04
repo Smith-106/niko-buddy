@@ -12,15 +12,11 @@
 import { describe, expect, it, vi } from "vitest"
 import type { DeepChapterDecisionGates, DeepChapterDecisionGate } from "./deep-chapter-decision-gates"
 import {
-  MAIN_CONTROL_RERUN_INTENT,
   buildChapterGateRunEvents,
-  isAuthoritativeGateRun,
   mapDecisionGateToRunStatus,
-  readGateRunIntent,
-  readLatestGateRunGroup,
   recordChapterGateEvidence,
 } from "./deep-chapter-gate-evidence"
-import { appendRunEvent, createRunEventLedger, type RunEventLedger } from "./run-event-ledger"
+import { appendRunEvent, createRunEventLedger } from "./run-event-ledger"
 import { deriveEvidenceGateStatuses } from "./dashboard-evidence"
 import type { NovelReviewResult } from "./review-adapter"
 

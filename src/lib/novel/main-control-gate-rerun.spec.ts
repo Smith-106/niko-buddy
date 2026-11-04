@@ -164,7 +164,7 @@ describe("rerunMainControlGates", () => {
     )
 
     expect(recordEvidence).toHaveBeenCalledTimes(1)
-    const evidenceInput = recordEvidence.mock.calls[0]?.[0] as Record<string, unknown>
+    const evidenceInput = recordEvidence.mock.calls[0]?.[0] as unknown as Record<string, unknown>
     expect(evidenceInput.projectPath).toBe("/proj")
     expect(evidenceInput.intent).toBe("main-control-rerun")
     expect(evidenceInput.chapterNumber).toBe(3)

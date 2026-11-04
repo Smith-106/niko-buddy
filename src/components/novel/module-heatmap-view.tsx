@@ -88,13 +88,15 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
     install()
   }, [install])
 
-  // 快照回填：把上一次会话的命中窗口读回来，冷启动打开视图不再是空图（幂等、best-effort）。
+  // 快照回填：把上一次会话的命中窗口读回来，冷启动打开视图不再是空图。
+  // 回填是 per-project 的（store.hydratedFor）：切项目后自动重新回填并丢弃上一项目窗口。
   useEffect(() => {
     void hydrate(projectPath)
   }, [hydrate, projectPath])
 
   // 落盘不在这里：app 级轮询（startModuleHeatFlushLoop）已在 main.tsx 启动，
   // 视图不挂载时同样按时节流写盘；此处只保留手动「立即落盘」按钮。
+  // 「立即落盘」与轮询共用 store.flush 的在飞守卫与「先回填再写」序列，不会并发覆盖写。
 
   const heat = heatMap()
   const totals = useMemo(() => heatTotals(MODULE_ATLAS, heat), [heat])

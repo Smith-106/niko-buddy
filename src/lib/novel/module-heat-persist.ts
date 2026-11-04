@@ -4,12 +4,15 @@
  * 纪律：
  * - 遥测是过程产物，不是真源：任何读写失败都不得阻断写作主流程（best-effort，不抛）；
  * - 只落「最近一次会话的命中窗口」，不建第二份状态真源（`status.json` 仍是唯一会话真源）；
- * - 覆盖写单文件而非 append，避免 `@/commands/fs` 无 append 原语带来的读-改-写放大。
+ * - 覆盖写单文件而非 append，避免 `@/commands/fs` 无 append 原语带来的读-改-写放大；
+ * - **原子写**（B8）：走 `writeFileAtomic`（Rust `write_file_atomic` = 同目录 temp + fsync + rename），
+ *   进程被杀/断电时要么是旧的完整快照、要么是新的完整快照，绝不留下半写文件
+ *   （半写文件会被 `loadHeatSnapshot` 判为损坏 → 上一次会话窗口静默丢失）。
  *
  * @license MIT © Niko Buddy
  */
 
-import { createDirectory, readFile, writeFile } from "@/commands/fs"
+import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import type { ModuleHit } from "./module-heat"
 
@@ -45,7 +48,9 @@ export async function saveHeatSnapshot(
   try {
     const dir = path.slice(0, path.lastIndexOf("/"))
     await createDirectory(dir)
-    await writeFile(path, JSON.stringify(snapshot))
+    // 原子写（B8）：temp + rename 由 Rust 侧 `write_file_atomic` 保证（含 fsync）。
+    // 不用 `writeFile`：直接覆盖会在进程被杀时留下截断的 JSON，下次启动整窗口丢失。
+    await writeFileAtomic(path, JSON.stringify(snapshot))
     return true
   } catch {
     return false

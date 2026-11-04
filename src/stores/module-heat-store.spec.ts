@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   writeFile: vi.fn(async () => undefined),
+  // B8：快照盘写必须走原子命令（Rust temp+fsync+rename），不走非原子的 writeFile。
+  // 显式声明入参，否则 vi.fn 推导出空元组，`mock.calls[0][0]` 在类型层不可访问。
+  writeFileAtomic: vi.fn(async (_path: string, _contents: string) => undefined),
   readFile: vi.fn(async () => ""),
   createDirectory: vi.fn(async () => undefined),
 }))
@@ -17,13 +20,26 @@ const { recordModuleHit, setModuleHeatSink, heatTotals, MODULE_ATLAS } = await i
   "@/lib/novel"
 )
 
+/** 手工放行的 promise 闸门：用来把「回填读盘」「写盘」卡在中间，观察中途状态。 */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((r) => {
+    resolve = r
+  })
+  return { promise, resolve }
+}
+
 beforeEach(() => {
   setModuleHeatSink(null)
   useModuleHeatStore.getState().reset()
   useModuleHeatStore.setState({ installed: false })
   mocks.writeFile.mockClear()
+  mocks.writeFileAtomic.mockClear()
+  mocks.writeFileAtomic.mockImplementation(async () => undefined)
+  mocks.writeFile.mockImplementation(async () => undefined)
+  mocks.readFile.mockReset()
+  mocks.readFile.mockImplementation(async () => "")
   mocks.createDirectory.mockClear()
-  mocks.readFile.mockClear()
 })
 
 describe("module-heat-store", () => {
@@ -72,7 +88,8 @@ describe("module-heat-store", () => {
     await useModuleHeatStore.getState().hydrate("/proj")
     expect(mocks.readFile).toHaveBeenCalledWith("/proj/.novel/telemetry/module-heat.json")
     const state = useModuleHeatStore.getState()
-    expect(state.hydrated).toBe(true)
+    // B6：回填标记是 per-project 的项目路径，不再是全局布年。
+    expect(state.hydratedFor).toBe("/proj")
     expect(state.hits.map((hit) => hit.path)).toEqual([
       "src/lib/novel/campaign-runner.ts",
       "src/lib/novel/autonomous-incubator.ts",
@@ -101,7 +118,7 @@ describe("module-heat-store", () => {
     await useModuleHeatStore.getState().hydrate(null)
     expect(mocks.readFile).not.toHaveBeenCalled()
     // 路径未知时保持「未回填」，等路径就绪再读
-    expect(useModuleHeatStore.getState().hydrated).toBe(false)
+    expect(useModuleHeatStore.getState().hydratedFor).toBeNull()
 
     mocks.readFile.mockResolvedValueOnce("")
     await useModuleHeatStore.getState().hydrate("/proj")
@@ -131,6 +148,7 @@ describe("module-heat-store", () => {
 
   it("flush 在无新命中时跳过写盘", async () => {
     await useModuleHeatStore.getState().flush("/proj")
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     expect(mocks.writeFile).not.toHaveBeenCalled()
   })
 
@@ -140,15 +158,30 @@ describe("module-heat-store", () => {
     recordModuleHit({ path: "a.ts", at: 1, ok: true })
     await useModuleHeatStore.getState().flush("/proj")
     expect(mocks.createDirectory).toHaveBeenCalledWith("/proj/.novel/telemetry")
-    expect(mocks.writeFile).toHaveBeenCalledTimes(1)
-    const [path, payload] = mocks.writeFile.mock.calls[0] as unknown as [string, string]
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    const [path, payload] = mocks.writeFileAtomic.mock.calls[0] as unknown as [string, string]
     expect(path).toBe("/proj/.novel/telemetry/module-heat.json")
     expect(JSON.parse(payload).hits).toHaveLength(1)
     expect(useModuleHeatStore.getState().pendingSinceFlush).toBe(0)
   })
 
+  // B8：写盘必须原子 —— 非原子 writeFile 直接覆盖，进程被杀会留半写 JSON
+  // （下次 loadHeatSnapshot 判为损坏 → 上一次会话窗口静默丢失）。
+  it("写盘走原子命令（temp+rename），不用非原子 writeFile", async () => {
+    const store = useModuleHeatStore.getState()
+    store.install()
+    recordModuleHit({ path: "a.ts", at: 1, ok: true })
+    await useModuleHeatStore.getState().flush("/proj")
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    expect(mocks.writeFile).not.toHaveBeenCalled()
+    // 写入目标就是最终路径（temp 文件名由 Rust 侧生成，TS 层不直接写快照路径）
+    expect(mocks.writeFileAtomic.mock.calls[0][0]).toBe("/proj/.novel/telemetry/module-heat.json")
+    // 半写防护：写入内容必须是一次完整的 JSON，可被 loadHeatSnapshot 直接解析
+    expect(() => JSON.parse(mocks.writeFileAtomic.mock.calls[0][1] as string)).not.toThrow()
+  })
+
   it("写盘失败不影响窗口（best-effort）", async () => {
-    mocks.writeFile.mockRejectedValueOnce(new Error("disk"))
+    mocks.writeFileAtomic.mockRejectedValueOnce(new Error("disk"))
     const store = useModuleHeatStore.getState()
     store.install()
     recordModuleHit({ path: "a.ts", at: 1, ok: true })
@@ -181,17 +214,17 @@ describe("module-heat-store", () => {
       recordModuleHit({ path: "a.ts", at: 1, ok: true })
       // 节流窗口（15s）未到 → 心跳再多次也不写盘
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(mocks.writeFile).not.toHaveBeenCalled()
+      expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
       // 越过窗口 → 写一次
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(mocks.writeFile).toHaveBeenCalledTimes(1)
+      expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
       // 无新命中 → 后续心跳不再重复覆盖写
       await vi.advanceTimersByTimeAsync(120_000)
-      expect(mocks.writeFile).toHaveBeenCalledTimes(1)
+      expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
       // 新命中再次触发
       recordModuleHit({ path: "b.ts", at: 2, ok: true })
       await vi.advanceTimersByTimeAsync(20_000)
-      expect(mocks.writeFile).toHaveBeenCalledTimes(2)
+      expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2)
     } finally {
       stop()
       vi.useRealTimers()
@@ -206,10 +239,10 @@ describe("module-heat-store", () => {
       useModuleHeatStore.getState().install()
       recordModuleHit({ path: "a.ts", at: 1, ok: true })
       await vi.advanceTimersByTimeAsync(20_000)
-      expect(mocks.writeFile).not.toHaveBeenCalled()
+      expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
       projectPath = "/proj"
       await vi.advanceTimersByTimeAsync(2_000)
-      expect(mocks.writeFile).toHaveBeenCalledTimes(1)
+      expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
     } finally {
       stop()
       vi.useRealTimers()
@@ -224,15 +257,206 @@ describe("module-heat-store", () => {
       useModuleHeatStore.getState().install()
       recordModuleHit({ path: "a.ts", at: 1, ok: true })
       await vi.advanceTimersByTimeAsync(20_000)
-      expect(mocks.writeFile).toHaveBeenCalledTimes(1)
+      expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
       stopSecond()
       stopFirst()
       recordModuleHit({ path: "b.ts", at: 2, ok: true })
       await vi.advanceTimersByTimeAsync(60_000)
-      expect(mocks.writeFile).toHaveBeenCalledTimes(1)
+      expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
     } finally {
       stopFirst()
       stopSecond()
+      vi.useRealTimers()
+    }
+  })
+
+  // ── B5：整文件覆盖写前必须先回填 ────────────────────────────────────────────
+  // 回归场景：冷启动未开热力图页 → 做过写作 → 第一次 flush 用本次会话窗口整文件覆盖，
+  // 上一次会话的快照被抹掉（使 loadHeatSnapshot 回填的价值归零）。
+  it("B5：tick 先回填再落盘——回填完成前绝不做整文件覆盖写", async () => {
+    vi.useFakeTimers()
+    const gate = deferred<string>()
+    mocks.readFile.mockImplementationOnce(() => gate.promise)
+    const stop = startModuleHeatFlushLoop(() => "/proj", { tickMs: 1000 })
+    try {
+      useModuleHeatStore.getState().install()
+      recordModuleHit({ path: "new.ts", at: 20, ok: true })
+      // 越过 15s 节流窗口：tick 已醒来，但快照还挂在读盘上
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(mocks.readFile).toHaveBeenCalledTimes(1)
+      // 关键断言：回填未完成 ⇒ 一次覆盖写都不许发生（否则上次会话快照被抹）
+      expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+      // 放行回填：上一次会话的窗口在盘上
+      gate.resolve(
+        JSON.stringify({
+          fileVersion: 1,
+          sessionStartedAt: 1,
+          savedAt: 2,
+          hits: [{ path: "prior.ts", at: 5, ok: true }],
+        }),
+      )
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+      const payload = JSON.parse(mocks.writeFileAtomic.mock.calls[0][1] as string) as {
+        hits: Array<{ path: string }>
+      }
+      // 上一次会话窗口仍在 ⇒ 这次写盘没有抹掉旧快照
+      expect(payload.hits.map((hit) => hit.path)).toEqual(["prior.ts", "new.ts"])
+    } finally {
+      stop()
+      vi.useRealTimers()
+    }
+  })
+
+  it("B5：直接调用 flush 同样先回填，回填挂起期间不写盘", async () => {
+    const gate = deferred<string>()
+    mocks.readFile.mockImplementationOnce(() => gate.promise)
+    const store = useModuleHeatStore.getState()
+    store.install()
+    recordModuleHit({ path: "new.ts", at: 20, ok: true })
+    const flushing = useModuleHeatStore.getState().flush("/proj")
+    expect(mocks.readFile).toHaveBeenCalledTimes(1)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    gate.resolve(
+      JSON.stringify({
+        fileVersion: 1,
+        sessionStartedAt: 1,
+        savedAt: 2,
+        hits: [{ path: "prior.ts", at: 5, ok: true }],
+      }),
+    )
+    await flushing
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    const payload = JSON.parse(mocks.writeFileAtomic.mock.calls[0][1] as string) as {
+      hits: Array<{ path: string }>
+    }
+    expect(payload.hits.map((hit) => hit.path)).toEqual(["prior.ts", "new.ts"])
+    expect(useModuleHeatStore.getState().hydratedFor).toBe("/proj")
+  })
+
+  // ── B6：hydratedFor 是 per-project 而不是全局布尔 ───────────────────────────
+  it("B6：切项目重新回填，且丢弃上一项目的命中窗口", async () => {
+    mocks.readFile.mockResolvedValueOnce(
+      JSON.stringify({
+        fileVersion: 1,
+        sessionStartedAt: 1,
+        savedAt: 2,
+        hits: [{ path: "a-snapshot.ts", at: 10, ok: true }],
+      }),
+    )
+    mocks.readFile.mockResolvedValueOnce(
+      JSON.stringify({
+        fileVersion: 1,
+        sessionStartedAt: 1,
+        savedAt: 3,
+        hits: [{ path: "b-snapshot.ts", at: 11, ok: true }],
+      }),
+    )
+    const store = useModuleHeatStore.getState()
+    store.install()
+    recordModuleHit({ path: "a-live.ts", at: 20, ok: true })
+    await useModuleHeatStore.getState().hydrate("/projA")
+    expect(useModuleHeatStore.getState().hydratedFor).toBe("/projA")
+    expect(useModuleHeatStore.getState().hits.map((hit) => hit.path)).toEqual([
+      "a-snapshot.ts",
+      "a-live.ts",
+    ])
+
+    // 同一项目再问一次：不重复读盘
+    await useModuleHeatStore.getState().hydrate("/projA")
+    expect(mocks.readFile).toHaveBeenCalledTimes(1)
+
+    // 切到项目 B：必须重新回填（旧实现这里是全局布尔，直接早退 → B 永远空窗口）
+    await useModuleHeatStore.getState().hydrate("/projB")
+    expect(mocks.readFile).toHaveBeenCalledTimes(2)
+    expect(mocks.readFile).toHaveBeenLastCalledWith("/projB/.novel/telemetry/module-heat.json")
+    expect(useModuleHeatStore.getState().hydratedFor).toBe("/projB")
+    // A 的命中窗口不得带进 B（否则会把 A 的旧窗口写进 B 的快照文件）
+    expect(useModuleHeatStore.getState().hits.map((hit) => hit.path)).toEqual(["b-snapshot.ts"])
+    expect(useModuleHeatStore.getState().pendingSinceFlush).toBe(0)
+
+    // B 的落盘内容里不能出现 A 的命中
+    recordModuleHit({ path: "b-live.ts", at: 30, ok: true })
+    await useModuleHeatStore.getState().flush("/projB")
+    const payload = JSON.parse(mocks.writeFileAtomic.mock.calls[0][1] as string) as {
+      hits: Array<{ path: string }>
+    }
+    expect(payload.hits.map((hit) => hit.path)).toEqual(["b-snapshot.ts", "b-live.ts"])
+  })
+
+  it("B6：回填在飞时项目被切走，旧项目的快照结果作废（不写 hydratedFor）", async () => {
+    const gateA = deferred<string>()
+    mocks.readFile.mockImplementationOnce(() => gateA.promise)
+    mocks.readFile.mockResolvedValueOnce(
+      JSON.stringify({
+        fileVersion: 1,
+        sessionStartedAt: 1,
+        savedAt: 2,
+        hits: [{ path: "b-snapshot.ts", at: 10, ok: true }],
+      }),
+    )
+    useModuleHeatStore.getState().install()
+    const hydrationA = useModuleHeatStore.getState().hydrate("/projA")
+    // 首轮回填还在飞时先写一条「属于 A 项目」的实时命中
+    recordModuleHit({ path: "a-live.ts", at: 30, ok: true })
+    await useModuleHeatStore.getState().hydrate("/projB")
+    expect(useModuleHeatStore.getState().hydratedFor).toBe("/projB")
+    gateA.resolve(
+      JSON.stringify({
+        fileVersion: 1,
+        sessionStartedAt: 1,
+        savedAt: 2,
+        hits: [{ path: "a-snapshot.ts", at: 10, ok: true }],
+      }),
+    )
+    await hydrationA
+    // A 的迟到结果不得覆盖当前项目标记，也不得把 A 的 hits（快照或实时命中）混进窗口
+    expect(useModuleHeatStore.getState().hydratedFor).toBe("/projB")
+    expect(useModuleHeatStore.getState().hits.map((hit) => hit.path)).toEqual(["b-snapshot.ts"])
+    expect(useModuleHeatStore.getState().pendingSinceFlush).toBe(0)
+  })
+
+  // ── B14：在飞守卫下沉进 store.flush ──────────────────────────────────────
+  it("B14：并发 flush 只真正写一次（视图按钮与轮询共用同一份在飞任务）", async () => {
+    const gate = deferred<void>()
+    mocks.writeFileAtomic.mockImplementationOnce(async () => {
+      await gate.promise
+    })
+    const store = useModuleHeatStore.getState()
+    store.install()
+    recordModuleHit({ path: "a.ts", at: 1, ok: true })
+    const first = useModuleHeatStore.getState().flush("/proj")
+    const second = useModuleHeatStore.getState().flush("/proj")
+    const third = useModuleHeatStore.getState().flush("/proj")
+    gate.resolve()
+    await Promise.all([first, second, third])
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    // 三个入口都观察到完成：待写计数已清零
+    expect(useModuleHeatStore.getState().pendingSinceFlush).toBe(0)
+  })
+
+  it("B14：轮询与视图手动落盘并发时也只写一次", async () => {
+    vi.useFakeTimers()
+    const gate = deferred<void>()
+    mocks.writeFileAtomic.mockImplementationOnce(async () => {
+      await gate.promise
+    })
+    const stop = startModuleHeatFlushLoop(() => "/proj", { tickMs: 1000 })
+    try {
+      useModuleHeatStore.getState().install()
+      recordModuleHit({ path: "a.ts", at: 1, ok: true })
+      // 越过节流窗口 → tick 进入落盘并卡在写盘上
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+      // 此时用户点「立即落盘」→ 复用同一份在飞写盘，不叠加第二次覆盖写
+      const manual = useModuleHeatStore.getState().flush("/proj")
+      expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+      gate.resolve()
+      await manual
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    } finally {
+      stop()
       vi.useRealTimers()
     }
   })

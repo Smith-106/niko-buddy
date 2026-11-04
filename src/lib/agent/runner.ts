@@ -41,6 +41,26 @@ export class ModelDoesNotSupportToolsError extends Error {
   }
 }
 
+/**
+ * 必调工具 nudge 的预算上限（RVF-02）。
+ *
+ * 「先 nudge」必须保留 —— 模型要有机会看到 nudge 后自己补上必调工具，否则退回
+ * 「静默代跑」。但 nudge 的代价是一整轮完整生成：章节写作的 run_chapter_workflow 是
+ * `executeTimeoutMs: 0`（无轮内截止），每轮都是整章级正文。不设上限时，弱模型或走
+ * 文本式 tool_call 的模型会连打 maxRounds 次全量正文（chat 默认 15 轮、main-control
+ * 默认 8 轮），把「必调工具永不调用」的失败成本从「1 轮 + 兜底」放大到
+ * 「maxRounds 轮 + 兜底」。
+ *
+ * 取 2 的理由：一次 nudge 足以纠正「忘了调」，第二次覆盖「格式抖动 / tool_call 解析
+ * 失败 / 上下文被裁剪后重来」这类一次性的非确定性失败；再往上第三、第四次对确定性
+ * 失败模式的边际收益接近 0，而每次仍然是整章级开销。因此预算用尽仍未调工具就立刻
+ * 交给确定性兜底，让最坏情况固定为 1 + 2 = 3 次模型调用，与 maxRounds 无关。
+ *
+ * 注意：`nudgesUsed` 诊断字段需要扩展 types.ts 的 `RequiredToolRunDiagnostics`，本轮
+ * 文件所有权只覆盖 runner.ts / runner.spec.ts，故留待后续单独补。
+ */
+export const REQUIRED_TOOL_NUDGE_MAX = 2
+
 function messageContentText(content: AgentMessage["content"]): string {
   if (typeof content === "string") return content
   return content
@@ -102,6 +122,8 @@ export class AgentRunner {
     const requiredTools = [...new Set((config.requiredToolsOnce ?? []).filter((name) => name.trim()))]
     const satisfiedRequiredTools = new Set<string>()
     let fallbackConvergenceChecked = false
+    /** 已注入的必调工具 nudge 次数；受 REQUIRED_TOOL_NUDGE_MAX 约束。 */
+    let requiredToolNudgesUsed = 0
     if (requiredTools.length > 0) {
       record.requiredToolDiagnostics = {
         requiredTools,
@@ -476,17 +498,26 @@ export class AgentRunner {
         })
         refreshRequiredToolDiagnostics()
         if (missingRequired.length > 0) {
-          // DEC-R1=A：nudge 先、兜底后。
+          // DEC-R1=A + RVF-02：nudge 先、兜底后，但 nudge 有预算上限。
           //
-          // 还有下一轮可用时，先把模型这一轮的散文交回对话并注入 nudge，让它在下一轮
-          // 自己补上必调工具；确定性兜底不在这一轮抢先执行 —— 否则模型那句散文只进
-          // workingMessages、从不 onText，用户看到的就是「静默代跑」。
+          // 还有 nudge 预算、且还有下一轮可用时，先把模型这一轮的散文交回对话并注入
+          // nudge，让它在下一轮自己补上必调工具；确定性兜底不在这一轮抢先执行 —— 否则
+          // 模型那句散文只进 workingMessages、从不 onText，用户看到的就是「静默代跑」。
           //
-          // 只有确实没有下一轮可用时（isLastRound），才把终稿交给确定性兜底：兜底路径
-          // 一条都没删，只是从「每轮零调用都先兜底」挪到「最后一轮仍不调用才兜底」。
-          // 轮数语义不变：nudge 走的是 continue，仍受 maxRounds 约束，不会多跑一轮。
+          // 预算用尽（requiredToolNudgesUsed >= REQUIRED_TOOL_NUDGE_MAX）或确实没有
+          // 下一轮可用（isLastRound）时，才把终稿交给确定性兜底：兜底路径一条都没删，
+          // 只是从「每轮零调用都先兜底」收紧到「预算内先 nudge、预算用尽 / 末轮兜底」。
+          //
+          // 为什么必须封顶：nudge 的下一轮是整章级生成（run_chapter_workflow 的
+          // executeTimeoutMs: 0，无轮内截止）。不封顶时，一个始终零工具调用的模型会白跑
+          // maxRounds 次全量正文（chat 15 轮 / main-control 8 轮），把失败成本从
+          // 「1 轮 + 兜底」放大到「maxRounds 轮 + 兜底」。
+          //
+          // 轮数语义不变：nudge 走的是 continue，仍受 maxRounds 约束，不会多跑一轮；
+          // 兜底也仍然存在，只是提前发生。
           const isLastRound = round >= maxRounds - 1
-          if (isLastRound) {
+          const nudgeBudgetExhausted = requiredToolNudgesUsed >= REQUIRED_TOOL_NUDGE_MAX
+          if (isLastRound || nudgeBudgetExhausted) {
             const fallbackOutcome = await attemptRequiredToolFallback()
             if (fallbackOutcome === "success" || fallbackOutcome === "error") return record
             await clearPersistedBreakpoint()
@@ -506,6 +537,7 @@ export class AgentRunner {
             role: "system",
             content: buildRequiredToolNudgeMessage(missingRequired),
           })
+          requiredToolNudgesUsed += 1
           continue
         }
 
