@@ -17,6 +17,44 @@ export type RunDeepChapterGeneration = (
   onConsensusTrace?: (trace: ConsensusTrace) => void,
 ) => Promise<DeepChapterGenerationResult>
 
+/**
+ * 兜底参数的结构化来源（RV-02）。
+ *
+ * 必调工具兜底（`executeRequiredToolFallback`）此前只传 `{ userRequest: taskGoal }`，
+ * `chapterNumber` 与 `planBlueprint` 双双丢失：下游 `input.chapterNumber ?? 0` 让前情分析 /
+ * 上下文包锚点失效，确定性路径会跑错章。这里把两者作为**结构化字段**显式带上，
+ * 来源只有调用方注入的 getter，不做任何文本推断。
+ */
+export interface RunChapterWorkflowFallbackContext {
+  chapterNumber?: number
+  planBlueprint?: string
+}
+
+/** 计划文本可信上限（字符）。超过即视为不可信（可能是模型复述被截断的产物）。 */
+export const PLAN_BLUEPRINT_MAX_CHARS = 20000
+
+/**
+ * 超长计划的显式标记：截断后**必须**让下游知道这不是可「原样执行」的权威计划，
+ * 否则截断片段会被当成完整计划硬套（比不传更糟）。
+ */
+const PLAN_BLUEPRINT_TRUNCATION_MARKER =
+  "\n\n[计划原文超长，已截断：以上内容不完整，不得作为「必须原样执行」的权威计划；请以任务书为准并自行补全。]"
+
+/**
+ * 计划文本来源校验（RV-03）：不超过 20000 字符原样返回；超长则截断至 20000 字符
+ * （含显式标记）后返回。
+ *
+ * 为什么需要：`getPlanBlueprint` / 模型参数 / 兜底 getter 三条来源都可能拿到模型复述的
+ * 计划，超长基本等价于「被截断的复述」，其内容不可信；直接透传会让下游把残缺文本
+ * 标成「必须原样执行」。校验放在**消费点**，三条来源一次覆盖。
+ */
+export function normalizePlanBlueprint(raw: string | undefined): string | undefined {
+  if (typeof raw !== "string") return undefined
+  if (raw.length <= PLAN_BLUEPRINT_MAX_CHARS) return raw
+  const keep = PLAN_BLUEPRINT_MAX_CHARS - PLAN_BLUEPRINT_TRUNCATION_MARKER.length
+  return `${raw.slice(0, keep)}${PLAN_BLUEPRINT_TRUNCATION_MARKER}`
+}
+
 interface RunChapterWorkflowToolOptions {
   projectPath: string
   llmConfig: LlmConfig
@@ -33,6 +71,12 @@ interface RunChapterWorkflowToolOptions {
    * 保证用户确认的计划为强制约束，不依赖模型是否遵守自然语言提示。
    */
   getPlanBlueprint?: () => string | undefined
+  /**
+   * 必调工具兜底参数的结构化来源（RV-02）：章节号 + 已确认计划。
+   * 缺省时兜底参数只含 `userRequest`（与旧行为一致）；提供时必须真的带进参数，
+   * 不得只加形参不填值。
+   */
+  getFallbackParams?: () => RunChapterWorkflowFallbackContext
   /**
    * 本轮已选定的写作 Skill 提示。不作为工具参数，避免模型漏传。
    */
@@ -113,9 +157,21 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
     permission: "auto",
     executeTimeoutMs: 0,
     finalizesRun: true,
-    buildRequiredToolFallbackParams: ({ taskGoal }) => ({
-      userRequest: taskGoal,
-    }),
+    // RV-02：第二参是结构化兜底上下文（章节号 + 已确认计划）。
+    // 缺省来源是 `options.getFallbackParams`；装配层也可以显式传入（见 main-control 的接线），
+    // 两条路都不做文本推断。缺上下文时形状与旧行为逐字段相同（只有 userRequest）。
+    buildRequiredToolFallbackParams: (
+      { taskGoal },
+      fallbackContext?: RunChapterWorkflowFallbackContext,
+    ) => {
+      const context = fallbackContext ?? options.getFallbackParams?.()
+      const params: Record<string, unknown> = { userRequest: taskGoal }
+      const chapterNumber = toNumber(context?.chapterNumber)
+      if (chapterNumber !== undefined && chapterNumber > 0) params.chapterNumber = chapterNumber
+      const planBlueprint = normalizePlanBlueprint(context?.planBlueprint)
+      if (planBlueprint) params.planBlueprint = planBlueprint
+      return params
+    },
     parameters: {
       intent: {
         type: "string",
@@ -152,8 +208,11 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
 
       // F07（R04=a）：用户确认的章节计划必须进入生成链，优先级：
       //   显式工具参数 params.planBlueprint > options.getPlanBlueprint?.()（会话层兜底）。
-      // 两者都缺 → undefined（生成链零行为变更）；原样透传，不 trim/不截断/不改写。
-      const planBlueprint = params.planBlueprint ?? options.getPlanBlueprint?.()
+      // 两者都缺 → undefined（生成链零行为变更）；不 trim、不改写。
+      // RV-03：唯一的「改写」是来源校验——超过 PLAN_BLUEPRINT_MAX_CHARS 视为不可信，
+      // 截断并加显式标记，保证传给生成链（deep-chapter-prompts 的 planBlueprintSection）
+      // 的计划永不超长，也不会被标成「必须原样执行」的残缺权威文本。
+      const planBlueprint = normalizePlanBlueprint(params.planBlueprint ?? options.getPlanBlueprint?.())
       // 本轮未接线（无消费点，保持现状，避免造第二个静默丢弃）：
       //   - params.intent / params.workflowMode 仍只被 normalizeParams 解析、不传入生成链。
       //     DeepChapterGenerationInput 无对应字段，也没有任何阶段读它们；

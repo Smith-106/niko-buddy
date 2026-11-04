@@ -24,6 +24,8 @@ import {
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveAiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type { AgentActivityEvent, AgentActivityKind } from "@/lib/agent/types"
+// RV-06：读回结果的判别式类型。只取类型（运行时仍走 `@/lib/novel` 桶，测试注入点在那里）。
+import type { TraceSnapshotIssue, TraceSnapshotLoad } from "@/lib/novel/main-control-trace"
 import { cn, toErrorMessage } from "@/lib/utils"
 import { ChapterDirectory } from "./chapter-directory"
 import { MainControlDraftAdoptBlock } from "./main-control-draft-adopt-block"
@@ -41,20 +43,52 @@ export interface MainControlViewProps {
 }
 
 /**
- * 回放态（TASK-014 / F10 + F11 + NF-05）：轨迹快照读回端的唯一真源。
+ * 回放态（TASK-014 / F10 + F11 + NF-05；RV-06 加第四态）：轨迹快照读回端的唯一真源。
  *
- * 为什么是三态而不是「null / 对象」二态：空态文案必须能区分「磁盘上没有快照」与
- * 「快照存在、但那一次运行没有阶段事件」。二态下这两种情况渲染同一句话，
- * 读回失败（或字段被丢）就会伪装成「真的没事件」——正是本次要修的假空态。
+ * 为什么是多态而不是「null / 对象」二态：空态文案必须能区分
+ * 「磁盘上没有快照」与「快照存在、但那一次运行没有阶段事件」。二态下这两种情况渲染
+ * 同一句话，读回失败（或字段被丢）就会伪装成「真的没事件」——正是本次要修的假空态。
+ * RV-06 再把「读坏了」从「没有」里拆出来：corrupt 不是 missing，前者要说原因。
  *
  * - idle：还没读完（首次挂载），或本次运行已接管、旧快照不再参与展示
- * - missing：没有可用快照（缺失 / 损坏 / 版本不认识）
+ * - missing：磁盘上没有快照（文件不存在）
+ * - corrupt：快照存在但读不出来（读失败 / JSON 损坏 / 版本不认识 / entries 非数组）
  * - ready：快照存在，字段原样保留（entries / savedAt + 曾被丢弃的 6 项）
  */
 type TraceReplay =
   | { status: "idle" }
   | { status: "missing" }
+  | { status: "corrupt"; reason: TraceSnapshotIssue }
   | { status: "ready"; snapshot: MainControlTraceSnapshot }
+
+/** 读回原因码 → 文案键（固定映射，不用模板字面量拼 key）。 */
+const TRACE_SNAPSHOT_ISSUE_KEYS: Record<TraceSnapshotIssue, string> = {
+  not_found: "mainControl.traceIssueNotFound",
+  read_failed: "mainControl.traceIssueReadFailed",
+  invalid_json: "mainControl.traceIssueInvalidJson",
+  unknown_version: "mainControl.traceIssueUnknownVersion",
+  invalid_entries: "mainControl.traceIssueInvalidEntries",
+}
+
+/**
+ * 读回结果归一化（RV-06 的兼容口）。
+ *
+ * 判别式 `{ status, reason?, snapshot? }` 是新契约；但历史调用点/测试注入仍可能直接给
+ * 裸快照或 null（旧签名 `MainControlTraceSnapshot | null`）。两者都接受，且绝不把
+ * 「坏了」说成「没有」：裸快照只意味着「有」，null 只意味着「没有」。
+ */
+function normalizeTraceReplay(loaded: unknown): TraceReplay {
+  if (loaded === null || loaded === undefined) return { status: "missing" }
+  if (typeof loaded === "object" && "status" in loaded) {
+    const result = loaded as TraceSnapshotLoad
+    if (result.status === "ready" && result.snapshot) {
+      return { status: "ready", snapshot: result.snapshot }
+    }
+    if (result.status === "corrupt") return { status: "corrupt", reason: result.reason ?? "read_failed" }
+    return { status: "missing" }
+  }
+  return { status: "ready", snapshot: loaded as MainControlTraceSnapshot }
+}
 
 /** 阶段事件的展示形态：本次运行（AgentActivityEvent）与快照投影（MainControlTraceActivity）合一。 */
 interface DisplayActivity {
@@ -134,6 +168,26 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const setActiveView = useWikiStore((s) => s.setActiveView)
   // 章节页「生成本章草稿」交接的目标只预填，不自动执行（批次二·8）。
   const [goal, setGoal] = useState(() => peekMainControlGoalHandoff() ?? "")
+  /**
+   * 目标来源（结构化信号，RV-10 装配用；RV-12 的可识别性靠它）。
+   *
+   * 只认「交接那一刻的客观事实」：挂载时 `peekMainControlGoalHandoff()` 有值 = 章节页草稿
+   * 交接；其余（含用户手输、回放回填）= user-input。绝不用文本正则推断意图。
+   */
+  const [goalSource, setGoalSource] = useState<"chapter-draft-handoff" | "user-input">(() =>
+    peekMainControlGoalHandoff() ? "chapter-draft-handoff" : "user-input",
+  )
+  // RV-12：目标是从「上次运行快照」回填的（不是用户这次输入的）。
+  const [goalFromReplay, setGoalFromReplay] = useState(false)
+  // RV-12：以回填目标执行必须二次确认（误点「开始执行」= 重跑旧目标）。
+  const [confirmReplayGoal, setConfirmReplayGoal] = useState(false)
+  // 目标最新值的 ref：回放 effect 是挂载时的一次性异步回调，不能靠闭包里的 goal 判断
+  // 「用户这会儿到底输了没有」（否则要么漏判、要么把 goal 塞进 deps 导致每敲一个字重读磁盘）。
+  const goalRef = useRef(goal)
+  const applyGoal = useCallback((value: string) => {
+    goalRef.current = value
+    setGoal(value)
+  }, [])
   useEffect(() => {
     clearMainControlGoalHandoff()
   }, [])
@@ -145,6 +199,8 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   // R03=a（TASK-008）：显式「跑深章」入口的独立运行态与产出（与主控 Agent 运行互不覆盖）。
   const [deepRunning, setDeepRunning] = useState(false)
   const [deepOutput, setDeepOutput] = useState<DeepChapterGenerationResult | null>(null)
+  // RV-13：深章入口自己的运行起点（卡住判定以「最近一次进展」为基准，起点是第一个进展）。
+  const [deepStartAt, setDeepStartAt] = useState<number | null>(null)
   // 页内分层（IA：跑流程 / 收草稿 / 本章上下文分开，不再上下堆一屏；只切换展示，不碰执行语义）。
   // 批次三·12：AI 实况并入主控，作为第四个页签（独立页路由保留给旧深链）。
   const [tab, setTab] = useState<"run" | "drafts" | "context" | "live">("run")
@@ -158,10 +214,11 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const [tick, setTick] = useState(0)
 
   useEffect(() => {
-    if (!running) return
+    // RV-13：深章也要心跳——跑几十分钟期间必须有「慢 vs 死了」的可观测判定。
+    if (!running && !deepRunning) return
     const timer = setInterval(() => setTick((v) => v + 1), 10_000)
     return () => clearInterval(timer)
-  }, [running])
+  }, [running, deepRunning])
   const [trace, setTrace] = useState<TraceEntry[]>([])
   const [expanded, setExpanded] = useState<string[]>([])
   // 回放：上次运行的轨迹快照（读回端唯一真源，字段见 TraceReplay）。
@@ -219,6 +276,37 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   // 结论块：本次运行优先，其次读回的快照（ok / stopReason / roundsUsed / finalText 都可观测）。
   const finalText = result?.finalText || replaySnapshot?.finalText || ""
   const finalRoundsUsed = result?.roundsUsed ?? replaySnapshot?.roundsUsed ?? 0
+  /**
+   * 空态文案键：四种「空」各说各的（RV-06）。
+   * 没有快照 / 快照损坏 / 快照在但那次没有事件 / 本次运行没有事件——同一句话就是假空态。
+   */
+  const activitiesEmptyKey = replaySnapshot
+    ? "mainControl.activitiesEmptySnapshot"
+    : replay.status === "corrupt"
+      ? "mainControl.activitiesCorruptEmpty"
+      : "mainControl.activitiesEmpty"
+  const traceEmptyKey = replaySnapshot
+    ? "mainControl.traceEmptySnapshot"
+    : replay.status === "corrupt"
+      ? "mainControl.traceCorruptEmpty"
+      : "mainControl.traceEmpty"
+  /**
+   * RV-06：ok 三态渲染——true 成功 / false 未成功 / undefined 未知。
+   * 不得对 undefined 取假值渲染成「上次运行未成功」：那是把「没记录」说成「失败」。
+   */
+  const replayVerdictKey = replaySnapshot
+    ? replaySnapshot.ok === true
+      ? "mainControl.replayOk"
+      : replaySnapshot.ok === false
+        ? "mainControl.replayFailed"
+        : "mainControl.replayOkUnknown"
+    : null
+  const replayVerdictTone =
+    replaySnapshot?.ok === true
+      ? "text-success"
+      : replaySnapshot?.ok === false
+        ? "text-warning-foreground"
+        : "text-muted-foreground"
 
   /** 落轨迹快照（单一出口）：activities 由调用方给，保证本次运行与采纳后回填同源。 */
   const persistSnapshot = useCallback(
@@ -262,36 +350,54 @@ export function MainControlView(_props: MainControlViewProps = {}) {
       activities: liveActivities,
     })
   }, [liveActivities, extraActivities, goal, persistSnapshot, result])
-  // 回放：进面板时载入上一次运行的轨迹快照（缺失即显式空态）。
+  // 回放：进面板时载入上一次运行的轨迹快照（缺失 / 损坏 / 可用 三态各自成态）。
   // TASK-014：读回端一次补齐 6 项——activities / finalText / goal / ok / stopReason / roundsUsed，
   // 不再只取 entries + savedAt（旧实现把其余字段全部丢弃，回放面板因此显示假空态）。
+  // RV-06：读回结果是判别式（missing / corrupt / ready）——「读坏了」不再伪装成「没跑过」。
   useEffect(() => {
     if (!projectPath) return
     let cancelled = false
-    void loadTraceSnapshot(projectPath).then((snapshot) => {
+    void loadTraceSnapshot(projectPath).then((loaded) => {
       if (cancelled) return
-      if (!snapshot) {
-        setReplay({ status: "missing" })
+      const next = normalizeTraceReplay(loaded)
+      if (next.status !== "ready") {
+        // missing / corrupt 都不回填 goal、不冒充轨迹；corrupt 额外带原因供文案使用。
+        setReplay(next)
         return
       }
-      setReplay({ status: "ready", snapshot })
+      setReplay({ status: "ready", snapshot: next.snapshot })
       // entries 走原有 state（trace）；savedAt 留在 replay.snapshot 上（回放标识用）。
-      setTrace(snapshot.entries)
+      setTrace(next.snapshot.entries)
       // activities / finalText / ok / stopReason / roundsUsed 不另开 state：
       // 快照对象整体存在 replay 里，由 displayActivities / finalText / finalRoundsUsed /
       // 结论块的 verdict 直接派生——同一份快照只有一个真源，不会出现两份互相打架的副本。
       //
       // goal：只填空的目标——章节页交接/用户已输入的目标优先，回放不得覆盖新意图。
-      setGoal((prev) => (prev.trim() ? prev : snapshot.goal))
+      // RV-12：回填必须可识别（标记 + 执行前二次确认），否则误点「开始执行」= 重跑旧目标。
+      if (!goalRef.current.trim() && next.snapshot.goal) {
+        applyGoal(next.snapshot.goal)
+        setGoalFromReplay(true)
+      }
     })
     return () => {
       cancelled = true
     }
-  }, [projectPath])
+  }, [applyGoal, projectPath])
 
-  const start = async () => {
+  /**
+   * 开始执行（RV-12：以回填目标执行必须二次确认）。
+   *
+   * `confirmedReplayGoal` 只能由确认按钮传入——输入框里的目标若来自上次运行的回填，
+   * 直接点「开始执行」只会展开确认面板，不调模型。写章目标现在会被门控武装，
+   * 一次误点就是整章生成，因此这道确认不能省。
+   */
+  const start = async (options: { confirmedReplayGoal?: boolean } = {}) => {
     const trimmed = goal.trim()
     if (!trimmed || running || deepRunning) return
+    if (goalFromReplay && !options.confirmedReplayGoal) {
+      setConfirmReplayGoal(true)
+      return
+    }
     if (!projectPath) {
       setError(t("mainControl.noProject"))
       return
@@ -305,6 +411,9 @@ export function MainControlView(_props: MainControlViewProps = {}) {
     setMotionOpen(true)
     setRunStartAt(Date.now())
     setRunning(true)
+    // 已确认过回填目标：标记与确认面板一并收掉（这一次运行的目标已由用户明示认可）。
+    setGoalFromReplay(false)
+    setConfirmReplayGoal(false)
     const controller = new AbortController()
     abortRef.current = controller
     try {
@@ -333,6 +442,22 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         stageJournal,
         signal: controller.signal,
         onStep: (step) => setSteps((prev) => upsertStep(prev, step)),
+        // 装配接口（RV-01/02/03/07/08 四个选项；接口已在 main-control.ts 落地）：
+        // - gateIntent：**结构化信号**，绝不用文本正则推断——只有目标确实来自
+        //   章节页「生成本章草稿」交接（goalSource）时才要求写章工具，其余不传（undefined）。
+        // - novelMode：本组件同一份 store 选择器（也是决定是否注入深章流水线的那个开关），
+        //   让「是否注册深章工具」与「门控是否武装」同源。
+        // - planExecuteActive：主控无计划确认阶段（计划阶段禁止调该工具），显式给 false。
+        // - getPlanBlueprint：主控侧没有「已确认的计划」状态（组件里无此真源）→ 返回 undefined，
+        //   不伪造一份空计划；用户真确认过的计划只在计划面板那条链路里。
+        // - getFallbackParams：拿不到就省略对应键（章号只从结构化来源解析，不猜）。
+        gateIntent: goalSource === "chapter-draft-handoff" ? "write_chapter" : undefined,
+        novelMode,
+        planExecuteActive: false,
+        getPlanBlueprint: () => undefined,
+        getFallbackParams: () => ({
+          ...(currentChapterNumber !== undefined ? { chapterNumber: currentChapterNumber } : {}),
+        }),
       })
       setSteps(out.steps)
       setResult(out)
@@ -404,6 +529,8 @@ export function MainControlView(_props: MainControlViewProps = {}) {
     setCancelledAt(null)
     setDeepOutput(null)
     setDeepRunning(true)
+    // RV-13：深章的卡住判定需要「最近一次进展」的时间基准，起点就是第一个进展。
+    setDeepStartAt(Date.now())
     const controller = new AbortController()
     deepAbortRef.current = controller
     try {
@@ -488,11 +615,36 @@ export function MainControlView(_props: MainControlViewProps = {}) {
     ? steps.find((s) => s.status === "running" && Date.now() - s.at > 90_000)
     : undefined
   const stuckSecs = stuckStep ? Math.floor((Date.now() - stuckStep.at) / 1000) : 0
-  const stuckTimeout = stuckSecs >= 300
+  /**
+   * RV-13：深章入口的「最近一次进展」时间戳。
+   *
+   * 深章跑一次可能几十分钟，期间只有按钮 spinner——用户无法分辨「慢」与「死了」。
+   * 深章没有 MainControlStep（不走工具循环），它唯一的进展信号是 activities 通道
+   * （onThinking / 共识轨迹），因此以「起点与最近一条 activity 时间戳的最大值」为基准，
+   * 沿用门控路径同一套 90s / 5min 阈值，不另立第二套判定。
+   */
+  const deepLastProgressAt = useMemo(() => {
+    if (!deepRunning) return null
+    let latest = deepStartAt
+    for (const activity of liveActivities) {
+      if (latest === null || activity.timestamp > latest) latest = activity.timestamp
+    }
+    return latest
+  }, [deepRunning, deepStartAt, liveActivities])
+  const deepStuckSecs =
+    deepLastProgressAt !== null ? Math.max(Math.floor((Date.now() - deepLastProgressAt) / 1000), 0) : 0
+  const deepStuck = deepRunning && deepLastProgressAt !== null && deepStuckSecs > 90
+  // 两种卡住共用一条提示（同一阈值、同一措辞）；区别只在「在等哪个东西」。
+  const stuckLabel = stuckStep ? stuckStep.name : t("mainControl.deepChapterStepLabel")
+  const stuck = stuckStep !== undefined || deepStuck
+  const stuckSeconds = stuckStep ? stuckSecs : deepStuckSecs
+  const stuckTimeout = stuckSeconds >= 300
   // 运行摘要（诚实反馈：已运行秒 + 当前步骤 + 完成计数，无百分比假进度）。
   const runningStep = running ? [...steps].reverse().find((s) => s.status === "running") : undefined
   const doneCount = steps.filter((s) => s.status !== "running").length
-  const elapsedSecs = running && runStartAt ? Math.max(Math.floor((Date.now() - runStartAt) / 1000), 0) : 0
+  // RV-13：深章也算「在跑」——已运行秒数同样要有（否则几十分钟里只有 spinner）。
+  const activeStartAt = running ? runStartAt : deepRunning ? deepStartAt : null
+  const elapsedSecs = activeStartAt ? Math.max(Math.floor((Date.now() - activeStartAt) / 1000), 0) : 0
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4" data-testid="main-control-view">
@@ -538,12 +690,66 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         <textarea
           id="main-control-goal"
           value={goal}
-          onChange={(e) => setGoal(e.target.value)}
+          onChange={(e) => {
+            applyGoal(e.target.value)
+            // RV-12：用户亲手改过——来源立刻变回 user-input，回填标记与二次确认一起失效。
+            setGoalSource("user-input")
+            setGoalFromReplay(false)
+            setConfirmReplayGoal(false)
+          }}
           placeholder={t("mainControl.goalPlaceholder")}
           data-testid="main-control-goal"
           rows={3}
           className="resize-y rounded-md border bg-transparent px-2 py-1 text-sm"
         />
+        {/* RV-12：回填进可执行输入框的旧目标必须可识别（否则误点「开始执行」= 重跑旧目标，
+            而写章目标现在会被门控武装 → 直接触发整章生成）。 */}
+        {goalFromReplay ? (
+          <div
+            className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-xs"
+            data-testid="main-control-goal-replay"
+          >
+            <span className="font-medium text-warning-foreground">{t("mainControl.goalReplayBadge")}</span>
+            <span className="text-muted-foreground">{t("mainControl.goalReplayHint")}</span>
+            <button
+              type="button"
+              onClick={() => {
+                applyGoal("")
+                setGoalFromReplay(false)
+                setConfirmReplayGoal(false)
+              }}
+              data-testid="main-control-goal-replay-clear"
+              className="ml-auto flex h-6 items-center rounded-md border px-2 text-xs"
+            >
+              {t("mainControl.goalReplayClear")}
+            </button>
+          </div>
+        ) : null}
+        {/* RV-12：以回填目标执行需要二次确认（确认按钮是唯一入口，不是重试同一个按钮）。 */}
+        {confirmReplayGoal ? (
+          <div
+            className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-xs"
+            data-testid="main-control-goal-replay-confirm"
+          >
+            <span className="font-medium text-warning-foreground">{t("mainControl.goalReplayConfirmHint")}</span>
+            <button
+              type="button"
+              onClick={() => void start({ confirmedReplayGoal: true })}
+              data-testid="main-control-goal-replay-confirm-run"
+              className="flex h-6 items-center rounded-md border border-primary bg-primary px-2 text-xs font-medium text-primary-foreground"
+            >
+              {t("mainControl.goalReplayConfirmRun")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmReplayGoal(false)}
+              data-testid="main-control-goal-replay-confirm-cancel"
+              className="flex h-6 items-center rounded-md border px-2 text-xs"
+            >
+              {t("mainControl.goalReplayConfirmCancel")}
+            </button>
+          </div>
+        ) : null}
         <div className="flex items-center gap-2">
           {running || deepRunning ? (
             <button
@@ -596,7 +802,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
               {t("mainControl.running")}
             </span>
           ) : null}
-          {running && runStartAt ? (
+          {activeStartAt ? (
             <span className="text-xs text-muted-foreground tabular-nums" data-testid="main-control-elapsed">
               {t("mainControl.elapsed", { secs: elapsedSecs })}
               {runningStep ? ` · ${runningStep.name}` : ""}
@@ -627,12 +833,19 @@ export function MainControlView(_props: MainControlViewProps = {}) {
             })}
           </p>
         ) : null}
-        {stuckStep ? (
+        {stuck ? (
           <p className="flex items-center gap-1 text-xs text-warning-foreground" data-testid="main-control-stuck">
             <CircleAlert className="h-3 w-3" />
             {stuckTimeout
-              ? t("mainControl.timeoutHint", { step: stuckStep.name })
-              : t("mainControl.stuckHint", { step: stuckStep.name, secs: stuckSecs })}
+              ? t("mainControl.timeoutHint", { step: stuckLabel })
+              : t("mainControl.stuckHint", { step: stuckLabel, secs: stuckSeconds })}
+          </p>
+        ) : null}
+        {/* RV-06：快照读坏了就说读坏了（带原因）——不得落成「还没跑过」。 */}
+        {replay.status === "corrupt" ? (
+          <p className="flex items-center gap-1 text-xs text-destructive" data-testid="main-control-trace-corrupt">
+            <CircleAlert className="h-3 w-3" />
+            {t("mainControl.traceCorrupt", { reason: t(TRACE_SNAPSHOT_ISSUE_KEYS[replay.reason]) })}
           </p>
         ) : null}
       </div>
@@ -750,13 +963,10 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           </p>
         ) : null}
         {displayActivities.length === 0 ? (
-          // TASK-014：两种「空」必须说成两件事——快照不存在 vs 快照存在但那次没有阶段事件。
+          // TASK-014 / RV-06：四种「空」必须说成四件事——快照不存在 / 快照损坏 /
+          // 快照存在但那次没有阶段事件 / 本次运行没有阶段事件。
           <p className="text-xs text-muted-foreground" data-testid="main-control-activities-empty">
-            {t(
-              replaySnapshot
-                ? "mainControl.activitiesEmptySnapshot"
-                : "mainControl.activitiesEmpty",
-            )}
+            {t(activitiesEmptyKey)}
           </p>
         ) : (
           <ul className="flex flex-col gap-0.5">
@@ -792,7 +1002,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         </h3>
         {trace.length === 0 ? (
           <p className="text-xs text-muted-foreground" data-testid="main-control-trace-empty">
-            {t(replaySnapshot ? "mainControl.traceEmptySnapshot" : "mainControl.traceEmpty")}
+            {t(traceEmptyKey)}
           </p>
         ) : (
           <ul className="flex flex-col gap-1.5">
@@ -953,11 +1163,9 @@ export function MainControlView(_props: MainControlViewProps = {}) {
             {t("mainControl.roundsUsed", { count: finalRoundsUsed })}
           </p>
           {/* 回放：ok / stopReason 也在结论里可观测（不只看得到终稿）。 */}
-          {replaySnapshot ? (
+          {replaySnapshot && replayVerdictKey ? (
             <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs" data-testid="main-control-replay-verdict">
-              <span className={replaySnapshot.ok ? "text-success" : "text-warning-foreground"}>
-                {t(replaySnapshot.ok ? "mainControl.replayOk" : "mainControl.replayFailed")}
-              </span>
+              <span className={replayVerdictTone}>{t(replayVerdictKey)}</span>
               {replaySnapshot.stopReason ? (
                 <span className="text-muted-foreground" data-testid="main-control-replay-stop-reason">
                   {t("mainControl.replayStopReason", { reason: replaySnapshot.stopReason })}

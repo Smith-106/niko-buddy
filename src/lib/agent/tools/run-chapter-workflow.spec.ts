@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
-import { createRunChapterWorkflowTool } from "./run-chapter-workflow"
+import {
+  PLAN_BLUEPRINT_MAX_CHARS,
+  createRunChapterWorkflowTool,
+  normalizePlanBlueprint,
+} from "./run-chapter-workflow"
 
 const llmConfig: LlmConfig = {
   provider: "custom",
@@ -711,5 +715,108 @@ describe("createRunChapterWorkflowTool", () => {
     expect(consensus.title.length).toBeGreaterThan(0)
     expect(consensus.content).toContain("seat-1")
     expect(consensus.content).toContain("seat-3")
+  })
+
+  it("RV-02：兜底参数缺上下文时形状与旧行为逐字段相同（只有 userRequest）", () => {
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration: vi.fn(),
+    })
+    expect(tool.buildRequiredToolFallbackParams!({ taskGoal: "生成第3章" })).toEqual({
+      userRequest: "生成第3章",
+    })
+  })
+
+  it("RV-02：兜底参数携带章节号与计划（第二参显式传入）", () => {
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration: vi.fn(),
+    })
+    const build = tool.buildRequiredToolFallbackParams as (
+      input: { taskGoal: string },
+      context?: { chapterNumber?: number; planBlueprint?: string },
+    ) => Record<string, unknown>
+    expect(build({ taskGoal: "生成第3章" }, { chapterNumber: 3, planBlueprint: "计划A" })).toEqual({
+      userRequest: "生成第3章",
+      chapterNumber: 3,
+      planBlueprint: "计划A",
+    })
+    // 缺值不得假填（undefined / 0 / 空串都不进参数）：下游 `chapterNumber ?? 0` 会跑错章。
+    expect(build({ taskGoal: "生成草稿" }, { chapterNumber: 0, planBlueprint: "" })).toEqual({
+      userRequest: "生成草稿",
+    })
+  })
+
+  it("RV-02：兜底参数也能从 options.getFallbackParams 取值（未显式传第二参时）", () => {
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration: vi.fn(),
+      getFallbackParams: () => ({ chapterNumber: 7, planBlueprint: "计划B" }),
+    })
+    expect(tool.buildRequiredToolFallbackParams!({ taskGoal: "生成第7章" })).toEqual({
+      userRequest: "生成第7章",
+      chapterNumber: 7,
+      planBlueprint: "计划B",
+    })
+  })
+
+  it("RV-03：计划文本不超过上限时原样透传", () => {
+    expect(normalizePlanBlueprint(undefined)).toBeUndefined()
+    expect(normalizePlanBlueprint("")).toBe("")
+    const exact = "字".repeat(PLAN_BLUEPRINT_MAX_CHARS)
+    expect(normalizePlanBlueprint(exact)).toBe(exact)
+  })
+
+  it("RV-03：超长计划截断至上限并加显式标记（不得当权威计划原样执行）", () => {
+    const overlong = "字".repeat(PLAN_BLUEPRINT_MAX_CHARS + 5000)
+    const normalized = normalizePlanBlueprint(overlong)!
+    expect(normalized.length).toBe(PLAN_BLUEPRINT_MAX_CHARS)
+    expect(normalized).toContain("已截断")
+    expect(normalized).toContain("不得作为「必须原样执行」的权威计划")
+    expect(normalized.startsWith("字")).toBe(true)
+  })
+
+  it("RV-03：超长计划经 execute 传给生成链时已被截断（模型参数与 getter 两条来源）", async () => {
+    const runDeepChapterGeneration = vi.fn(async (_input: { planBlueprint?: string }) => ({
+      finalContent: "正文",
+      taskBrief: "任务书",
+      draftContent: "初稿",
+      reviewResults: [],
+      decisionGates: {} as import("@/lib/novel/deep-chapter-generation").DeepChapterDecisionGates,
+      manualReviewRequired: false,
+      retryCount: 0,
+      partial: false,
+      partialReason: null,
+      status: "passed",
+      verdict: "pass",
+      findings: [],
+      revised: false,
+    }))
+    const overlong = "计".repeat(PLAN_BLUEPRINT_MAX_CHARS + 1)
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+      getPlanBlueprint: () => overlong,
+    })
+
+    // 来源一：会话层 getter
+    await tool.execute({ userRequest: "写第3章" })
+    const fromGetter = runDeepChapterGeneration.mock.calls[0][0]
+    expect(fromGetter.planBlueprint?.length).toBe(PLAN_BLUEPRINT_MAX_CHARS)
+    expect(fromGetter.planBlueprint).toContain("已截断")
+
+    // 来源二：模型自己传的参数（更长，同样被截断）
+    await tool.execute({ userRequest: "写第3章", planBlueprint: "计".repeat(PLAN_BLUEPRINT_MAX_CHARS * 2) })
+    const fromParams = runDeepChapterGeneration.mock.calls[1][0]
+    expect(fromParams.planBlueprint?.length).toBe(PLAN_BLUEPRINT_MAX_CHARS)
+    expect(fromParams.planBlueprint).toContain("已截断")
   })
 })

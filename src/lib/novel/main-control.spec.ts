@@ -5,14 +5,15 @@ import type { AgentConfig, AgentMessage, AgentRunCallbacks, AgentRunRecord } fro
 import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { listDirectory, readFile } from "@/commands/fs"
+import * as mainControl from "./main-control"
 import {
   MAIN_CONTROL_TOOLS,
   loadOutlineConversations,
   parseDraftReceipts,
-  resolveMainControlGateIntent,
   resolveWikiPath,
   runMainControlAgent,
 } from "./main-control"
+import type { RunMainControlOptions } from "./main-control"
 import { routeTask } from "./task-router"
 // 真实交接文案的生产者（纯字符串函数，无 React 依赖）：用例锁「生产者 → 门控」整条链。
 import { buildChapterDraftGoal } from "@/components/novel/main-control-handoff"
@@ -74,7 +75,12 @@ function fakeRunner(
 
 beforeEach(() => {
   setModuleHeatSink(null)
-  vi.clearAllMocks()
+  // RV-11：`clearAllMocks` 只清调用记录、不清实现，某个用例的 `mockResolvedValue` 会泄漏到
+  // 后续用例（fs mock 与各用例自建的 vi.fn 都受影响）。`resetAllMocks` 连实现一起重置，
+  // 再在这里重设 fs 的两个安全默认值（空目录 / 空文本），每个用例从同一个干净起点开始。
+  vi.resetAllMocks()
+  vi.mocked(listDirectory).mockResolvedValue([])
+  vi.mocked(readFile).mockResolvedValue("")
   // F08 数据源隔离：store 是全局单例，逐个用例重置，避免串味。
   useOutlineChatStore.setState({ conversations: [], activeConversationId: null, loaded: false })
 })
@@ -345,9 +351,11 @@ describe("工具白名单收窄", () => {
     const names = registry.list().map((tool) => tool.name)
     expect(names).not.toContain("route_task")
     expect(names).not.toContain("trim_context")
+    // RV-10：钉死字面量。旧写法 `toHaveLength(MAIN_CONTROL_TOOLS.length)` 两边同源，
+    // 白名单增长时断言自动跟着长，测不出边界被放大。
     // 白名单条目 13 → 12（移除 route_task），实际注册数 12 → 12：
     // 移除 route_task（−1）与 load_context 真正注册（+1）相抵，边界没有放大。
-    expect(names).toHaveLength(MAIN_CONTROL_TOOLS.length)
+    expect(names).toHaveLength(12)
   })
 
   it("显式点名工具后只注册这些（含依赖工具）", async () => {
@@ -664,41 +672,33 @@ describe("NF-01 门控武装：config.requiredToolsOnce", () => {
     expect(captured.config?.requiredToolsOnce).toBeUndefined()
   })
 
-  it("非小说模式不武装（novelMode 关闭时章节工作流不注册，也不该被要求）", async () => {
-    const previous = useWikiStore.getState().novelMode
-    useWikiStore.setState({ novelMode: false })
-    try {
-      const { captured, runner } = captureRunner()
-      await runMainControlAgent({
-        projectPath: "/proj",
-        wikiPath: "/proj/wiki",
-        goal: "写第 3 章",
-        llmConfig: LLM,
-        aiWorkflowMode: "standard",
-        runDeepChapterGeneration: deepRunner(),
-        deps: { runner, registry: new ToolRegistry() },
-      })
-      expect(captured.config?.requiredToolsOnce).toBeUndefined()
-    } finally {
-      useWikiStore.setState({ novelMode: previous })
-    }
+  it("非小说模式不武装（novelMode 显式关闭时不要求章节工作流）", async () => {
+    const { captured, runner } = captureRunner()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "写第 3 章",
+      llmConfig: LLM,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration: deepRunner(),
+      // RV-08：novelMode 已是显式入参，不再读全局 wiki store（store 侧状态与本用例无关）。
+      novelMode: false,
+      deps: { runner, registry: new ToolRegistry() },
+    })
+    expect(captured.config?.requiredToolsOnce).toBeUndefined()
   })
 })
 
 /**
- * NF-01 补口：真实交接目标的门控武装（`resolveMainControlGateIntent`）。
+ * RV-01：门控武装只认**结构化意图**（`gateIntent`），装配层不做任何文本推断。
  *
- * TASK-007 实测缺口：章节页「生成草稿」交接的目标文案
- * （`buildChapterDraftGoal` → `为「第N章 X」生成本章草稿`）被 `routeTask` 判成
- * `general_chat`（`write_chapter` 的触发式要求「动词在前、章号在后」），于是
- * `resolveRequiredToolsOnce` 直接返回 undefined —— 最典型的真实写作场景反而不武装。
- *
- * 这组用例锁两件事：
- * 1. 真实交接文案（含无「第N章」前缀的章节名）现在会武装，且武装名字真的在注册表里；
- * 2. 纯聊天/检索/提及类目标**不**被误武装（门控只放大 `general_chat → write_chapter`
- *    一条边，`taskRoute.intent` 本身不被改写）。
+ * 旧实现在装配层用三个正则（草稿生成动词 / 章节引用 / 否定前缀）猜自由文本，
+ * 复核实测 30 条反例中 13 条误命中；误武装的代价是兜底真的跑完整条深章流水线
+ * （数分钟 + LLM 成本）并把正文当答案交付给提问者。现在：
+ * - 不传 `gateIntent` → 只认 `routeTask` 的结构化路由结果（`taskRoute.intent`）；
+ * - 要武装路由判不出的交接文案 → 调用方显式给 `gateIntent: "write_chapter"`。
  */
-describe("NF-01 补口：真实交接目标武装（草稿生成意图归一化）", () => {
+describe("RV-01 门控武装：结构化 gateIntent，无文本推断", () => {
   function captureArmedRunner() {
     const captured: { config?: AgentConfig } = {}
     const runner = {
@@ -720,8 +720,9 @@ describe("NF-01 补口：真实交接目标武装（草稿生成意图归一化�
   const deepRunner = () => vi.fn(async () => ({ ok: true })) as never
 
   /** 走真实装配（`runMainControlAgent`），返回门控武装值与注册的工具名。 */
-  async function armFor(goal: string) {
+  async function armFor(goal: string, extra: Partial<RunMainControlOptions> = {}) {
     const { captured, runner } = captureArmedRunner()
+    const registry = new ToolRegistry()
     await runMainControlAgent({
       projectPath: "/proj",
       wikiPath: "/proj/wiki",
@@ -729,44 +730,67 @@ describe("NF-01 补口：真实交接目标武装（草稿生成意图归一化�
       llmConfig: LLM,
       aiWorkflowMode: "standard",
       runDeepChapterGeneration: deepRunner(),
-      deps: { runner, registry: new ToolRegistry() },
+      ...extra,
+      deps: { runner, registry },
     })
     return {
       requiredToolsOnce: captured.config?.requiredToolsOnce,
       toolNames: captured.config?.tools.map((tool) => tool.name) ?? [],
+      registry,
+      config: captured.config,
     }
   }
 
-  it("章节页真实交接目标「为「第12章 旧梦」生成本章草稿」现在武装", async () => {
+  it("装配层不再导出任何意图推断函数（回归锁：正则归一化不得复活）", () => {
+    expect("resolveMainControlGateIntent" in mainControl).toBe(false)
+    expect("isChapterDraftGoal" in mainControl).toBe(false)
+  })
+
+  it("章节页交接文案：调用方显式给 gateIntent 才武装（真实生产者文案）", async () => {
     // 用真实生产者（buildChapterDraftGoal）而不是手抄文案：文案若改，本用例立刻失败。
     const goal = buildChapterDraftGoal("第12章 旧梦")
     expect(goal).toBe("为「第12章 旧梦」生成本章草稿")
-    const { requiredToolsOnce, toolNames } = await armFor(goal)
+    const { requiredToolsOnce, toolNames } = await armFor(goal, { gateIntent: "write_chapter" })
     expect(requiredToolsOnce).toEqual(["run_chapter_workflow"])
     // 武装的名字必须真的注册了，否则 missingRequiredToolsOnce 会把不可用项过滤掉。
     expect(toolNames).toContain("run_chapter_workflow")
   })
 
-  it("章节名无「第N章」前缀的交接目标（为「旧梦」生成本章草稿）同样武装", async () => {
-    const goal = buildChapterDraftGoal("旧梦")
-    expect(goal).toBe("为「旧梦」生成本章草稿")
-    const { requiredToolsOnce } = await armFor(goal)
+  it("同一交接文案不给 gateIntent 就不武装（路由仍是 general_chat，不再被猜测放大）", async () => {
+    const goal = buildChapterDraftGoal("第12章 旧梦")
+    // 路由侧确实是 general_chat：装配层拿不到结构化写作意图。
+    expect(routeTask(goal).intent).toBe("general_chat")
+    const { requiredToolsOnce, toolNames } = await armFor(goal)
+    expect(requiredToolsOnce).toBeUndefined()
+    // 反证：工具确实注册了，不武装是判定结果而非工具缺失。
+    expect(toolNames).toContain("run_chapter_workflow")
+  })
+
+  it("路由本身判得出写作意图时仍武装（结构化回落，不需要调用方补 gateIntent）", async () => {
+    const { requiredToolsOnce } = await armFor("写第 3 章")
     expect(requiredToolsOnce).toEqual(["run_chapter_workflow"])
   })
 
-  it("归一化只喂门控：底层 routeTask 仍是 general_chat，taskRoute.intent 不被改写", () => {
-    const goal = buildChapterDraftGoal("第12章 旧梦")
-    const routed = routeTask(goal)
-    expect(routed.intent).toBe("general_chat")
-    const before = JSON.stringify(routed)
-    expect(resolveMainControlGateIntent(goal, routed)).toBe("write_chapter")
-    // 纯函数：入参对象未被就地改写（注入 virtualToolContext 的仍是路由原值）。
-    expect(JSON.stringify(routed)).toBe(before)
-    expect(routed.intent).toBe("general_chat")
+  it("复核的 7 条误命中目标：不传 gateIntent 全部不武装", async () => {
+    const misfires = [
+      "不需要生成本章草稿",
+      "请勿生成第7章草稿",
+      "暂停生成本章草稿",
+      "为什么要生成本章草稿？",
+      "生成本章草稿的验收标准有哪些？",
+      "输出第8章草稿的字数统计",
+      "他说「生成本章草稿」是什么意思",
+    ]
+    for (const goal of misfires) {
+      const { requiredToolsOnce, toolNames } = await armFor(goal)
+      expect(requiredToolsOnce, goal).toBeUndefined()
+      // 反证：工具在，判定为「不武装」而非「工具缺失」。
+      expect(toolNames, goal).toContain("run_chapter_workflow")
+    }
   })
 
-  it("纯聊天/检索/提及类目标不被误武装（章号存在也不够）", () => {
-    const cases = [
+  it("检索/提及类目标不被误武装（旧反例清单全量回归，无 gateIntent）", async () => {
+    const nonArming = [
       "读第 3 章",
       "第12章 旧梦",
       "第 12 章的大纲是什么",
@@ -775,36 +799,111 @@ describe("NF-01 补口：真实交接目标武装（草稿生成意图归一化�
       "帮我看看第12章写得怎么样",
       "本章草稿在哪",
       "把草稿区清空",
-      "不要生成本章草稿",
       "写一份草稿给编辑",
     ]
-    for (const goal of cases) {
-      const routed = routeTask(goal)
-      expect(routed.intent, goal).toBe("general_chat")
-      expect(resolveMainControlGateIntent(goal, routed), goal).toBe("general_chat")
+    for (const goal of nonArming) {
+      const { requiredToolsOnce } = await armFor(goal)
+      expect(requiredToolsOnce, goal).toBeUndefined()
     }
   })
 
-  it("已有非 general_chat 意图原样返回（审稿/润色/续写不被这一层改写）", () => {
-    const cases: Array<[string, string]> = [
-      ["检查第 3 章有没有矛盾", "review_chapter"],
-      ["润色第 3 章", "polish_chapter"],
-      // 「生成大纲草稿」路由到 generate_outline：不在四类章节写作意图里，归一化也不动它。
-      ["生成大纲草稿", "generate_outline"],
-      ["续写第 3 章", "write_chapter"],
-      ["写第 3 章", "write_chapter"],
+  it("意图类别回归：门控直接吃 taskRoute.intent（审稿/大纲不武装，四类写作意图武装）", async () => {
+    const cases: Array<[string, string, boolean]> = [
+      ["检查第 3 章有没有矛盾", "review_chapter", false],
+      // 四类章节写作意图（write/continue/rewrite/polish）都会武装，这是门控既有语义，
+      // RV-01 只删了「自由文本 → 意图」的猜测层，不改 `resolveRequiredToolsOnce` 的意图集。
+      ["润色第 3 章", "polish_chapter", true],
+      // 「生成大纲草稿」路由到 generate_outline：不在四类章节写作意图里，不武装。
+      ["生成大纲草稿", "generate_outline", false],
+      ["续写第 3 章", "write_chapter", true],
+      ["写第 3 章", "write_chapter", true],
     ]
-    for (const [goal, intent] of cases) {
-      const routed = routeTask(goal)
-      expect(routed.intent, goal).toBe(intent)
-      expect(resolveMainControlGateIntent(goal, routed), goal).toBe(intent)
+    for (const [goal, intent, shouldArm] of cases) {
+      expect(routeTask(goal).intent, goal).toBe(intent)
+      const { requiredToolsOnce } = await armFor(goal)
+      expect(requiredToolsOnce, goal).toEqual(shouldArm ? ["run_chapter_workflow"] : undefined)
     }
   })
 
-  it("装配层反例：纯聊天目标「读第 3 章」在 standard + 深章注入下仍不武装", async () => {
-    const { requiredToolsOnce, toolNames } = await armFor("读第 3 章")
+  it("RV-07：planExecuteActive 透传——计划收集阶段不武装", async () => {
+    const goal = buildChapterDraftGoal("第12章 旧梦")
+    const { requiredToolsOnce } = await armFor(goal, {
+      gateIntent: "write_chapter",
+      planExecuteActive: true,
+    })
     expect(requiredToolsOnce).toBeUndefined()
-    // 反证：工具确实注册了，不武装是判定结果而非工具缺失。
-    expect(toolNames).toContain("run_chapter_workflow")
+  })
+
+  it("RV-08：novelMode 是显式入参，不再另读全局 store（store 关闭但入参开启 → 仍武装）", async () => {
+    const previous = useWikiStore.getState().novelMode
+    useWikiStore.setState({ novelMode: false })
+    try {
+      const { requiredToolsOnce } = await armFor("写第 3 章", { novelMode: true })
+      expect(requiredToolsOnce).toEqual(["run_chapter_workflow"])
+    } finally {
+      useWikiStore.setState({ novelMode: previous })
+    }
+  })
+
+  it("RV-08：novelMode: false 显式关闭时不武装（与工具注册同源）", async () => {
+    const { requiredToolsOnce } = await armFor("写第 3 章", { novelMode: false })
+    expect(requiredToolsOnce).toBeUndefined()
+  })
+
+  it("RV-03：getPlanBlueprint 接通到已注册的 run_chapter_workflow（不再是死代码）", async () => {
+    const deepRunnerWithInput = vi.fn(async () => ({
+      finalContent: "正文",
+      taskBrief: "任务书",
+      draftContent: "初稿",
+      reviewResults: [],
+      decisionGates: {},
+      manualReviewRequired: false,
+      retryCount: 0,
+      partial: false,
+      partialReason: null,
+      status: "passed",
+      verdict: "pass",
+      findings: [],
+      revised: false,
+    })) as never
+    const { registry } = await armFor("写第 3 章", {
+      runDeepChapterGeneration: deepRunnerWithInput,
+      getPlanBlueprint: () => "会话层已确认计划：场景序列 1→2→3",
+    })
+    const tool = registry.get("run_chapter_workflow")
+    expect(tool).toBeDefined()
+    await tool!.execute({ userRequest: "写第 3 章", chapterNumber: 3 })
+    expect(deepRunnerWithInput).toHaveBeenCalledWith(
+      expect.objectContaining({ planBlueprint: "会话层已确认计划：场景序列 1→2→3" }),
+      expect.any(Object),
+      undefined,
+      undefined,
+      expect.any(Function),
+    )
+  })
+
+  it("RV-02：兜底参数携带章节号与计划（getFallbackParams 优先）", async () => {
+    const { registry } = await armFor("写第 3 章", {
+      getFallbackParams: () => ({ chapterNumber: 7, planBlueprint: "已确认计划：七章" }),
+    })
+    const tool = registry.get("run_chapter_workflow")
+    expect(tool?.buildRequiredToolFallbackParams).toBeDefined()
+    expect(tool!.buildRequiredToolFallbackParams!({ taskGoal: "写第 3 章" })).toEqual({
+      userRequest: "写第 3 章",
+      chapterNumber: 7,
+      planBlueprint: "已确认计划：七章",
+    })
+  })
+
+  it("RV-02：未给 getFallbackParams 时章号回落到 taskRoute，计划回落到 getPlanBlueprint", async () => {
+    const { registry } = await armFor("写第 12 章", {
+      getPlanBlueprint: () => "会话层计划",
+    })
+    const tool = registry.get("run_chapter_workflow")
+    expect(tool!.buildRequiredToolFallbackParams!({ taskGoal: "写第 12 章" })).toEqual({
+      userRequest: "写第 12 章",
+      chapterNumber: 12,
+      planBlueprint: "会话层计划",
+    })
   })
 })

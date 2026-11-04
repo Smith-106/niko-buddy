@@ -118,11 +118,16 @@ describe("快照持久化", () => {
 
     mocks.readFile.mockResolvedValueOnce(payload)
     const loaded = await loadTraceSnapshot("/proj")
-    expect(loaded?.goal).toBe("给第 5 章写开头")
-    expect(loaded?.entries).toHaveLength(1)
+    // RV-06：读回是判别式结果——先钉住「这一份确实是 ready 且带快照」，再逐字段断言。
+    expect(loaded.status).toBe("ready")
+    expect(loaded.reason).toBeUndefined()
+    expect(loaded.snapshot?.goal).toBe("给第 5 章写开头")
+    expect(loaded.snapshot?.entries).toHaveLength(1)
     // 读回不丢字段：ok / stopReason / roundsUsed / finalText / activities 全在
-    expect(loaded).toMatchObject({ ok: true, stopReason: "达到最大轮次", roundsUsed: 2, finalText: "完成" })
-    expect(loaded?.activities).toEqual([{ kind: "stage_output", title: "阶段产出", summary: "片段", at: 7 }])
+    expect(loaded.snapshot).toMatchObject({ ok: true, stopReason: "达到最大轮次", roundsUsed: 2, finalText: "完成" })
+    expect(loaded.snapshot?.activities).toEqual([
+      { kind: "stage_output", title: "阶段产出", summary: "片段", at: 7 },
+    ])
   })
 
   it("TASK-015：写入侧全字段快照 → 读回端 6 项逐字段比对（丢任一项即失败）", async () => {
@@ -146,27 +151,29 @@ describe("快照持久化", () => {
 
     mocks.readFile.mockResolvedValueOnce(payload)
     const loaded = await loadTraceSnapshot("/proj")
-    expect(loaded).not.toBeNull()
+    expect(loaded.status).toBe("ready")
+    const loadedSnapshot = loaded.snapshot
+    expect(loadedSnapshot).not.toBeUndefined()
 
     // ① goal —— 逐字段：断言的是这一项的值本身，不是「对象非空」。
-    expect(loaded?.goal).toBe("回放目标：第 9 章结尾")
+    expect(loadedSnapshot?.goal).toBe("回放目标：第 9 章结尾")
     // ② ok（注意 false 也是有效值：丢了会变 undefined，不会碰巧通过）
-    expect(loaded?.ok).toBe(false)
+    expect(loadedSnapshot?.ok).toBe(false)
     // ③ stopReason
-    expect(loaded?.stopReason).toBe("工具调用轮次超限")
+    expect(loadedSnapshot?.stopReason).toBe("工具调用轮次超限")
     // ④ roundsUsed
-    expect(loaded?.roundsUsed).toBe(3)
+    expect(loadedSnapshot?.roundsUsed).toBe(3)
     // ⑤ finalText
-    expect(loaded?.finalText).toBe("回放终稿正文")
+    expect(loadedSnapshot?.finalText).toBe("回放终稿正文")
     // ⑥ activities —— 不只断言长度，逐项逐字段比对
-    expect(loaded?.activities).toHaveLength(2)
-    expect(loaded?.activities?.[0]).toEqual({
+    expect(loadedSnapshot?.activities).toHaveLength(2)
+    expect(loadedSnapshot?.activities?.[0]).toEqual({
       kind: "stage_output",
       title: "阶段产出",
       summary: "片段",
       at: 7,
     })
-    expect(loaded?.activities?.[1]).toEqual({
+    expect(loadedSnapshot?.activities?.[1]).toEqual({
       kind: "analysis",
       title: "共识写作",
       summary: "席位: 3",
@@ -174,7 +181,7 @@ describe("快照持久化", () => {
     })
 
     // 6 项键一个不少：读回端若被改成「挑几个字段构造新对象」（R07 的原始 bug），这里直接红。
-    expect(Object.keys(loaded ?? {}).sort()).toEqual(
+    expect(Object.keys(loadedSnapshot ?? {}).sort()).toEqual(
       [
         "activities",
         "entries",
@@ -189,12 +196,39 @@ describe("快照持久化", () => {
     )
   })
 
-  it("读损坏或缺字段的快照返回 null", async () => {
+  it("RV-06：读坏了 ≠ 没跑过 —— 缺失 / 读失败 / JSON 损坏 / 版本不认识 / entries 非数组 各自成态", async () => {
+    // ① 文件不存在 → missing：这是唯一「真的没跑过」的形态。
+    mocks.readFile.mockRejectedValueOnce(new Error("read_file: No such file or directory (os error 2)"))
+    await expect(loadTraceSnapshot("/proj")).resolves.toEqual({ status: "missing", reason: "not_found" })
+
+    // ② 读盘失败但不是「不存在」→ corrupt：读不出来不等于没有过。
+    mocks.readFile.mockRejectedValueOnce(new Error("EACCES: permission denied"))
+    await expect(loadTraceSnapshot("/proj")).resolves.toEqual({ status: "corrupt", reason: "read_failed" })
+
+    // ③ JSON 损坏 → corrupt（原因必须点明是解析失败，而不是「没有快照」）
     mocks.readFile.mockResolvedValueOnce("{bad json")
-    await expect(loadTraceSnapshot("/proj")).resolves.toBeNull()
-    // fileVersion 3 是不认识的未来版本（1|2 才接受）
+    await expect(loadTraceSnapshot("/proj")).resolves.toEqual({ status: "corrupt", reason: "invalid_json" })
+
+    // ④ fileVersion 3 是不认识的未来版本（1|2 才接受）
     mocks.readFile.mockResolvedValueOnce(JSON.stringify({ fileVersion: 3, entries: [] }))
-    await expect(loadTraceSnapshot("/proj")).resolves.toBeNull()
+    await expect(loadTraceSnapshot("/proj")).resolves.toEqual({
+      status: "corrupt",
+      reason: "unknown_version",
+    })
+
+    // ⑤ entries 不是数组（字段在但形状坏）
+    mocks.readFile.mockResolvedValueOnce(JSON.stringify({ fileVersion: 2, entries: {} }))
+    await expect(loadTraceSnapshot("/proj")).resolves.toEqual({
+      status: "corrupt",
+      reason: "invalid_entries",
+    })
+
+    // ⑥ 文件内容就是 null → 也不是「没有快照」，是坏文件。
+    mocks.readFile.mockResolvedValueOnce("null")
+    await expect(loadTraceSnapshot("/proj")).resolves.toEqual({
+      status: "corrupt",
+      reason: "unknown_version",
+    })
   })
 
   it("v1 老快照仍可读（升级后第一次回放不得显示空轨迹）", async () => {
@@ -202,10 +236,10 @@ describe("快照持久化", () => {
       JSON.stringify({ fileVersion: 1, goal: "旧目标", savedAt: 1, ok: true, roundsUsed: 0, finalText: "", entries: [] }),
     )
     const loaded = await loadTraceSnapshot("/proj")
-    expect(loaded).not.toBeNull()
-    expect(loaded?.fileVersion).toBe(1)
-    expect(loaded?.goal).toBe("旧目标")
-    expect(loaded?.activities).toBeUndefined()
+    expect(loaded.status).toBe("ready")
+    expect(loaded.snapshot?.fileVersion).toBe(1)
+    expect(loaded.snapshot?.goal).toBe("旧目标")
+    expect(loaded.snapshot?.activities).toBeUndefined()
   })
 
   it("v2 快照带 activities 投影：content 截断 240 字 + '…'，全文不入快照", async () => {

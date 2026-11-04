@@ -23,6 +23,7 @@ import {
   buildDeepChapterDraftPrompt,
   buildDeepChapterExpansionPrompt,
   buildStableContextPrefix,
+  fitStagePromptToWindow,
 } from "./deep-chapter-prompts"
 import type {
   ChapterLengthSpec,
@@ -108,6 +109,76 @@ interface AssembledContext {
   communitySummaryInjection: string
   contextPrompt: string
   cachePrefix: string
+}
+
+/**
+ * 阶段2（任务书）的输出预留 token：任务书是短工件（几百到一两千字），
+ * 按 4k 预留已足够，且不超过单章输出上限（取二者较小值）。
+ */
+const TASK_BRIEF_RESERVED_OUTPUT_TOKENS = 4096
+
+/** 阶段入口预算预估的结果：直接可喂给 prompt builder 与 collectModelText。 */
+interface StagePromptBudget {
+  contextPrompt: string
+  planBlueprint?: string
+  planMaxChars: number
+  cachePrefix: string | undefined
+}
+
+/**
+ * RV-04：阶段入口前置预算预估（阶段2 / 阶段3 共用）。
+ *
+ * 为什么必须在阶段入口做：`llm-client` 的 input-limit 重试对深章**无效** ——
+ * 每阶段是单条 user 消息，`trimChatMessagesToBudget` 的 Pass1/2/3 全部跳过
+ * 最后一条（`canDrop` 排除 last）→ 裁剪是 no-op → body 相同 → `onError`；
+ * 而阶段2/3 无 try/catch → 整次生成硬失败、无 partial 降级。
+ * 所以只能在这里先把输入压到窗口内，顺序固定：先 contextPrompt、再计划。
+ *
+ * 未超窗时 `outcome.contextPrompt` / `planBlueprint` 与入参逐字节相同，
+ * `planMaxChars` 仍为 20000 上限（零行为变更）。
+ */
+function applyStagePromptBudget(params: {
+  stageLabel: string
+  llmConfig: LlmConfig
+  outlinePrompt: string
+  contextPrompt: string
+  planBlueprint?: string
+  taskBrief?: string
+  reservedOutputTokens?: number
+  cachePrefix: string | undefined
+  callbacks: DeepChapterGenerationCallbacks
+}): StagePromptBudget {
+  const windowTokens =
+    typeof params.llmConfig?.maxContextSize === "number"
+    && Number.isFinite(params.llmConfig.maxContextSize)
+    && params.llmConfig.maxContextSize > 0
+      ? params.llmConfig.maxContextSize
+      : 0
+  const outcome = fitStagePromptToWindow({
+    windowTokens,
+    reservedOutputTokens: params.reservedOutputTokens,
+    outlinePrompt: params.outlinePrompt,
+    contextPrompt: params.contextPrompt,
+    planBlueprint: params.planBlueprint,
+    taskBrief: params.taskBrief,
+  })
+  // 被压掉了什么必须让人看得见（onThinking 即活动事件）：不能默默降级。
+  if (outcome.notes.length > 0) {
+    params.callbacks.onThinking?.(formatStageThinking(params.stageLabel, outcome.notes.join("\n")))
+  }
+  // 压缩后旧 cachePrefix 已不是提示词的真实前缀（`applyCachePrefix` 的 startsWith
+  // 不匹配会静默跳过，不会把错块标成缓存块）。这里按压缩后的真实前缀重建，保证
+  // 缓存断点落在实际前缀上；未压缩时 `buildStableContextPrefix(outline, context)`
+  // 与入参 cachePrefix 逐字节相同，等价于原样透传。
+  const cachePrefix = outcome.contextCompressed
+    ? buildStableContextPrefix(params.outlinePrompt, outcome.contextPrompt)
+    : params.cachePrefix
+  return {
+    contextPrompt: outcome.contextPrompt,
+    planBlueprint: outcome.planBlueprint,
+    planMaxChars: outcome.planMaxChars,
+    cachePrefix,
+  }
 }
 
 export async function assembleContext(
@@ -366,6 +437,21 @@ export async function generateTaskBrief(
 ): Promise<string> {
   const writingTaskExtra = resolveTaskExtraPrompt(input.novelConfig, "writing")
   let taskBrief = hasCheckpointTaskBrief(resumeCheckpoint) ? resumeCheckpoint.taskBrief.trim() : ""
+  // RV-04：阶段入口前置预估（先压 contextPrompt、再压计划）。未超窗时
+  // contextPrompt / planBlueprint 与入参逐字节相同，行为零变更。
+  const stageBudget = applyStagePromptBudget({
+    stageLabel: "阶段2：写作任务书",
+    llmConfig: writingConfig,
+    outlinePrompt,
+    contextPrompt,
+    planBlueprint: input.planBlueprint,
+    // 阶段2 的任务书是产出（尚不存在）：按输出预留估算，不当作输入。
+    reservedOutputTokens: Math.min(TASK_BRIEF_RESERVED_OUTPUT_TOKENS, lengthSpec.maxOutputTokens),
+    cachePrefix,
+    callbacks,
+  })
+  const stageContextPrompt = stageBudget.contextPrompt
+  const stagePlanBlueprint = stageBudget.planBlueprint
   // F8 journal 接线（默认关闭 → 与改前字节级一致）：stageJournal 缺席时走直调；
   // 传入时经 digest-keyed 缓存：同 digest 崩溃重入即命中跳过 LLM。digest 输入与 briefMessages
   // 实际语义输入对齐（含 goldenThreeChapter；prompt 文本 + 章号 + 长度规格 + 写作附加），
@@ -375,14 +461,16 @@ export async function generateTaskBrief(
     role: "user" as const,
     content: buildDeepChapterBriefPrompt(
       outlinePrompt,
-      contextPrompt,
+      stageContextPrompt,
       input.userRequest,
       input.chapterNumber,
       input.goldenThreeChapter,
       lengthSpec,
       extra,
       // F07: 用户确认的章节计划原文（缺省 undefined → prompt 逐字节不变）。
-      input.planBlueprint,
+      stagePlanBlueprint,
+      // RV-04: 超窗时计划可能被二次压缩（标记口径与实际保留量一致）。
+      stageBudget.planMaxChars,
     ),
   }]
   if (!taskBrief) {
@@ -394,7 +482,7 @@ export async function generateTaskBrief(
         signal,
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", partial)),
         undefined,
-        cachePrefix,
+        stageBudget.cachePrefix,
         undefined,
         undefined,
         watchdog,
@@ -405,17 +493,23 @@ export async function generateTaskBrief(
       // F10-1（Round-10 写作维度整改）：digest 必须与 briefMessages 实际语义输入对齐——
       // briefMessages 经 buildDeepChapterBriefPrompt 消费 input.goldenThreeChapter（金三章指令段），
       // 故 digest 补 goldenThreeChapter（undefined 缺席=稳定 null 语义；stableStringify 键序无关）。
-      // 既有缓存行 digest 变更=自然失效重建（TTL 窗内旧行读不到=视同未命中，无脏读）。
       // F07: briefMessages 同样消费 input.planBlueprint，故 digest 必须包含它；
       // 否则“带计划的旧行”会被“不带计划的同章请求”命中，形成新的静默丢弃。
+      //
+      // RV-05：planBlueprint 必须**条件展开**。`computeCheckpointDigestOf` 对
+      // `stableStringify` 整体哈希，而键集是全量参与哈希的——写死一个恒为 null 的键
+      // 会让**所有既有** task_brief journal 行的 digest 全部变更 → 全量失效重建
+      // （重建成本 = 每章一次 LLM 调用）。条件展开后：空值 → 键集与既有行完全一致
+      // → 既有行 digest 不变；带计划 → 自然分离为不同 digest。
       const digest = await computeInstructionDigest({
         stage: "task_brief",
         outlinePrompt,
-        contextPrompt,
+        // 与 briefMessages 实际消费的上下文一致（超窗压缩后的文本）。
+        contextPrompt: stageContextPrompt,
         userRequest: input.userRequest,
         chapterNumber: input.chapterNumber,
         goldenThreeChapter: input.goldenThreeChapter ?? null,
-        planBlueprint: input.planBlueprint ?? null,
+        ...(stagePlanBlueprint ? { planBlueprint: stagePlanBlueprint } : {}),
         lengthSpec,
         writingTaskExtra,
       })
@@ -431,7 +525,7 @@ export async function generateTaskBrief(
           signal,
           (partial) => callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", partial)),
           undefined,
-          cachePrefix,
+          stageBudget.cachePrefix,
           undefined,
           undefined,
           watchdog,
@@ -491,7 +585,7 @@ export async function generateTaskBrief(
           role: "user",
           content: buildTaskBriefRepairPrompt(
             outlinePrompt,
-            contextPrompt,
+            stageContextPrompt,
             taskBrief,
             input.userRequest,
             input.chapterNumber,
@@ -502,7 +596,7 @@ export async function generateTaskBrief(
         signal,
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段2.5：任务书纠偏", partial)),
         undefined,
-        cachePrefix,
+        stageBudget.cachePrefix,
         undefined,
         undefined,
         watchdog,
@@ -584,6 +678,22 @@ export async function generateDraft(
   planBlueprint?: string,
 ): Promise<string> {
   const writingTaskExtra = resolveTaskExtraPrompt(input.novelConfig, "writing")
+  // RV-04：阶段3 入口前置预估（先压 contextPrompt、再压计划）。未超窗时
+  // contextPrompt / planBlueprint 与入参逐字节相同，行为零变更。
+  // 输出预留取本阶段的 max_tokens（正文是本次请求里最贵的输出）。
+  const stageBudget = applyStagePromptBudget({
+    stageLabel: "阶段3：正文初稿",
+    llmConfig: writingConfig,
+    outlinePrompt,
+    contextPrompt,
+    planBlueprint,
+    taskBrief,
+    reservedOutputTokens: lengthSpec.maxOutputTokens,
+    cachePrefix,
+    callbacks,
+  })
+  const stageContextPrompt = stageBudget.contextPrompt
+  const stageCachePrefix = stageBudget.cachePrefix
   let draftContent = hasCheckpointDraft(resumeCheckpoint) ? resumeCheckpoint.draftContent.trim() : ""
   if (!draftContent) {
     draftContent = await collectModelText(
@@ -592,7 +702,7 @@ export async function generateDraft(
         role: "user",
         content: buildDeepChapterDraftPrompt(
           outlinePrompt,
-          contextPrompt,
+          stageContextPrompt,
           taskBrief,
           input.userRequest,
           input.chapterNumber,
@@ -601,14 +711,16 @@ export async function generateDraft(
           writingTaskExtra,
           input.novelConfig.autoGenerateChapterTitle,
           // F07: 计划原文进入阶段3提示词（拼在稳定上下文前缀之后、写作任务书之前）。
-          planBlueprint,
+          stageBudget.planBlueprint,
+          // RV-04: 超窗时计划可能被二次压缩（标记口径与实际保留量一致）。
+          stageBudget.planMaxChars,
         ),
       }],
       deps,
       signal,
       (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：正文初稿", partial)),
       { max_tokens: lengthSpec.maxOutputTokens },
-      cachePrefix,
+      stageCachePrefix,
       notePartial,
       // CORR-107: 初稿完整成功（无 partial-preserve）时清除早期 partial（first-wins + 成功清除；
       // 仅完整成功清，降级/兜底不在此；partial-preserve 时 collectModelText 内部 tookPartialPreserve 守卫不调 clear）。
@@ -623,7 +735,7 @@ export async function generateDraft(
           role: "user",
           content: buildDeepChapterExpansionPrompt(
             outlinePrompt,
-            contextPrompt,
+            stageContextPrompt,
             taskBrief,
             draftContent,
             input.userRequest,
@@ -638,7 +750,7 @@ export async function generateDraft(
         signal,
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：正文扩写补足", partial)),
         { max_tokens: lengthSpec.maxOutputTokens },
-        cachePrefix,
+        stageCachePrefix,
         notePartial,
         clearPartial,
         watchdog,
@@ -664,7 +776,7 @@ export async function generateDraft(
         role: "user",
         content: buildDraftRecoveryPrompt(
           outlinePrompt,
-          contextPrompt,
+          stageContextPrompt,
           taskBrief,
           draftContent,
           input.userRequest,
@@ -676,7 +788,7 @@ export async function generateDraft(
       signal,
       (partial) => callbacks.onThinking?.(formatStageThinking("阶段3.5：草稿纠偏", partial)),
       { max_tokens: lengthSpec.maxOutputTokens },
-      cachePrefix,
+      stageCachePrefix,
       notePartial,
       // CORR-107: 纠偏重写完整成功时清除早期 partial（同上；兜底 fallback/空回退不调 clear）。
       clearPartial,
@@ -690,7 +802,7 @@ export async function generateDraft(
           role: "user",
           content: buildDeepChapterExpansionPrompt(
             outlinePrompt,
-            contextPrompt,
+            stageContextPrompt,
             taskBrief,
             draftContent,
             input.userRequest,
@@ -705,7 +817,7 @@ export async function generateDraft(
         signal,
         (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：正文扩写补足", partial)),
         { max_tokens: lengthSpec.maxOutputTokens },
-        cachePrefix,
+        stageCachePrefix,
         notePartial,
         clearPartial,
         watchdog,

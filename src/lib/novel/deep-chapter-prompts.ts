@@ -1,4 +1,5 @@
 import type { NovelReviewResult } from "./review-adapter"
+import { PER_MESSAGE_TOKEN_OVERHEAD, estimateTokens } from "@/lib/token-estimator"
 import { buildGoldenThreeChapterDirective, type GoldenThreeChapterRequest } from "./golden-three-chapters"
 import { CHINESE_NOVEL_DE_AI_RULES, buildStructuredDeAiRules } from "./de-ai-rules"
 import { buildUserAwareDeAiPrompt, hasUserDeAiWeights } from "@/lib/user-memory/rules-weight"
@@ -8,6 +9,37 @@ export const DEEP_CHAPTER_TARGET_CHARS = 3000
 export const DEEP_CHAPTER_MIN_CHARS = 2200
 export const DEEP_CHAPTER_DRAFT_MAX_CHARS = 3500
 export const DEEP_CHAPTER_MAX_OUTPUT_TOKENS = 12000
+
+/**
+ * RV-04：章节计划原文的字符上限（按 Unicode **码点** 计，emoji 记 1 字）。
+ *
+ * 与 `run-chapter-workflow.ts` 的来源校验共用同一上限（20000）——来源侧与
+ * 消费侧不能各说一套，否则一边截断、另一边仍把超长文本原样塞进提示词。
+ *
+ * 为什么必须有上限：阶段2/阶段3 都是**单条 user 消息**，`llm-client` 的
+ * input-limit 重试靠 `trimChatMessagesToBudget` 裁剪，而该裁剪器 Pass1/2/3
+ * 一律跳过最后一条消息（`canDrop` 排除 last）→ 对单条消息提示词是 no-op，
+ * body 不变即 `onError`。阶段2/3 没有 try/catch，于是整次生成硬失败、无降级。
+ * 所以计划必须在进入提示词之前就有界。
+ */
+export const PLAN_BLUEPRINT_MAX_CHARS = 20_000
+
+/** 阶段提示词前置预估的安全比例（与 llm-client input-limit 重试的 0.85 同口径）。 */
+export const STAGE_PROMPT_SAFETY_RATIO = 0.85
+
+/**
+ * 阶段提示词固定脚手架（阶段标记 + 硬性要求 + 输出协议等）的 token 估算。
+ *
+ * 这些文本不在 `fitStagePromptToWindow` 的入参里（它们在 builder 内部），但确实进
+ * 请求体；不估就会系统性低估约 1500–2000 中文 token。
+ */
+export const STAGE_PROMPT_SCAFFOLD_TOKENS = 2000
+
+/** 上下文压缩标记的字符预留（标记本身也占 token，不能算漏）。 */
+const CONTEXT_COMPRESSION_MARKER_RESERVE_CHARS = 80
+
+/** 计划截断标记的字符预留（标题行 + 完整性声明）。 */
+const PLAN_TRUNCATION_MARKER_RESERVE_CHARS = 160
 
 /** 章节生成字数规格：由设置中的“单章目标字数”推算（issue #8）。 */
 export interface ChapterLengthSpec {
@@ -81,25 +113,287 @@ export function appendTaskExtraSection(prompt: string, extraInstructions?: strin
 }
 
 /**
- * F07（R04=a）：用户已确认的章节计划原文段。
+ * Unicode 码点计数（代理对记 1 个字）。
  *
- * 计划是用户在会话层确认过的强制约束，**必须原样透传**：本函数只做空值守卫，
- * 不做 trim/截断/改写（仅用 trim 判定“是否为空”），输出内嵌原文逐字节不变。
+ * 「N 字」对外必须按用户眼里的字计：一个 emoji 是 1 字，不是 2 个 UTF-16 码元。
+ */
+export function countCodePoints(text: string): number {
+  if (!text) return 0
+  let count = 0
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index)
+    // 低代理：与前一位高代理合成一个码点，不重复计数。
+    if (code >= 0xdc00 && code <= 0xdfff && index > 0) {
+      const prev = text.charCodeAt(index - 1)
+      if (prev >= 0xd800 && prev <= 0xdbff) continue
+    }
+    count += 1
+  }
+  return count
+}
+
+/**
+ * 按码点安全截断：**绝不切坏代理对**（emoji 等补充平面字符）。
+ *
+ * 朴素的 `text.slice(0, n)` 可能把 U+1F600（`\uD83D\uDE00`）切成孤立高代理，
+ * 这类字符串进 JSON/SSE 后是非法码点序列，上游可能直接 400，或在下游渲染成乱码。
+ * 因此截断点落在代理对中间时整体丢弃该字符（宁可少 1 字，不产出半个字符）。
+ */
+export function truncateToCodePoints(text: string, maxCodePoints: number): string {
+  if (!text) return ""
+  if (!Number.isFinite(maxCodePoints)) return text
+  const limit = Math.floor(maxCodePoints)
+  if (limit <= 0) return ""
+  // 快路径：码点数 ≤ UTF-16 长度，长度已不超限时必然无需截断。
+  if (text.length <= limit) return text
+  let index = 0
+  let count = 0
+  while (index < text.length && count < limit) {
+    const code = text.charCodeAt(index)
+    const isHighSurrogate = code >= 0xd800 && code <= 0xdbff
+    const nextCode = index + 1 < text.length ? text.charCodeAt(index + 1) : 0
+    const isSurrogatePair = isHighSurrogate && nextCode >= 0xdc00 && nextCode <= 0xdfff
+    index += isSurrogatePair ? 2 : 1
+    count += 1
+  }
+  return text.slice(0, index)
+}
+
+/**
+ * F07（R04=a）+ RV-04：用户已确认的章节计划原文段。
+ *
+ * 计划是用户在会话层确认过的强制约束，**未超限时必须原样透传**：不做 trim/改写
+ * （仅用 trim 判定“是否为空”），输出内嵌原文逐字节不变。
+ *
+ * RV-04 截断语义分层（这是本函数的核心）：
+ *   - 未截断 → 保留原有的「必须原样执行，不得改写、合并或省略」强约束口径；
+ *   - 已截断 → 标题行改为「已截断：原文 N 字，此处保留前 M 字；完整计划请查看计划面板」，
+ *     并追加【计划完整性声明】把权威口径降级为「以下为计划前段，其余部分未包含；
+ *     请勿据此推断未给出的内容」。
+ * 绝不能让残缺文本继续挂着「必须原样执行」的权威口径——那会让模型把 2 万字之后的
+ * 节拍当作「不存在」，或反过来自行脑补后当成已确认计划执行。
  *
  * 位置约束：调用方必须把它拼在 `buildStableContextPrefix` 之后 —— 计划逐章变化，
  * 若插到稳定前缀之前会截断各阶段共享的缓存前缀（见 buildStableContextPrefix 注释）。
  * 缺省/空白 → 返回 ""，由调用方的 filter(Boolean) 剔除（字节级零行为变更）。
+ *
+ * @param maxChars 保留的计划字符上限（码点计）。缺省 `PLAN_BLUEPRINT_MAX_CHARS`；
+ *   阶段入口前置预估（`fitStagePromptToWindow`）超窗时会传更小的值二次压缩。
  */
-export function planBlueprintSection(planBlueprint?: string): string {
+export function planBlueprintSection(
+  planBlueprint?: string,
+  maxChars: number = PLAN_BLUEPRINT_MAX_CHARS,
+): string {
   if (!planBlueprint || !planBlueprint.trim()) return ""
+  // 显式 0 = 整段省略（窗口连计划都装不下）；非数字/负数/NaN 才回退到上限默认值。
+  const limit = typeof maxChars === "number" && Number.isFinite(maxChars) && maxChars >= 0
+    ? Math.floor(maxChars)
+    : PLAN_BLUEPRINT_MAX_CHARS
+  if (limit === 0) return ""
+  const originalChars = countCodePoints(planBlueprint)
+  if (originalChars <= limit) {
+    // 未截断：逐字节保留既有强约束口径（F07 原行为不变）。
+    return [
+      "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+      "# 【章节计划原文】（用户已确认的强制约束；必须原样执行，不得改写、合并或省略）",
+      "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+      "",
+      planBlueprint,
+      "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    ].join("\n")
+  }
+  // 已截断：标题行给出可核对的截断事实 + 指向完整计划，正文前降级权威口径。
+  const keptBody = truncateToCodePoints(planBlueprint, limit)
   return [
     "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-    "# 【章节计划原文】（用户已确认的强制约束；必须原样执行，不得改写、合并或省略）",
+    `# 【章节计划原文】（已截断：原文 ${originalChars} 字，此处保留前 ${limit} 字；完整计划请查看计划面板）`,
     "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     "",
-    planBlueprint,
+    "# 【计划完整性声明】以下为计划前段，其余部分未包含；请勿据此推断未给出的内容，也不要自行补写计划未覆盖的节拍。",
+    "",
+    keptBody,
     "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
   ].join("\n")
+}
+
+/** `fitStagePromptToWindow` 的输入。 */
+export interface StagePromptBudgetInput {
+  /** 模型上下文窗口（token）。缺省/非正数 → 不预估（零行为变更）。 */
+  windowTokens?: number
+  /** 输出预留 token（阶段 max_tokens / 阶段输出预算）。 */
+  reservedOutputTokens?: number
+  /** 稳定前缀里的大纲段（硬约束，**不压缩**，但计入估算）。 */
+  outlinePrompt: string
+  /** 可再生的检索上下文（超窗时**第一个**被压）。 */
+  contextPrompt: string
+  /** 用户确认的章节计划原文（超窗时**第二个**被压）。 */
+  planBlueprint?: string
+  /** 已产出的任务书（阶段3 才有；计入估算，不压缩——它是本阶段要执行的工件）。 */
+  taskBrief?: string
+  /** 计划字符上限覆盖（缺省 `PLAN_BLUEPRINT_MAX_CHARS`）。 */
+  planMaxChars?: number
+  /** 安全比例覆盖（缺省 `STAGE_PROMPT_SAFETY_RATIO`）。 */
+  safetyRatio?: number
+}
+
+/** `fitStagePromptToWindow` 的输出：可直接喂给各阶段 prompt builder。 */
+export interface StagePromptBudgetOutcome {
+  /** 实际应使用的上下文（未压缩时与入参逐字节相同）。 */
+  contextPrompt: string
+  /** 计划原文（**不在这里截断**：截断与标记统一由 `planBlueprintSection` 按 `planMaxChars` 做）。 */
+  planBlueprint?: string
+  /** 计划的实际字符上限（预算二次压缩后可能小于 `PLAN_BLUEPRINT_MAX_CHARS`）。 */
+  planMaxChars: number
+  /** 压缩后的输入 token 估算。 */
+  estimatedTokens: number
+  /** 允许的输入 token 预算（窗口 × 安全比例 − 输出预留）。 */
+  budgetTokens: number
+  contextCompressed: boolean
+  planCompressed: boolean
+  /** contextPrompt 被压掉的字符数（码点）。 */
+  droppedContextChars: number
+  /** 计划被压掉的字符数（码点，含 20000 上限截断）。 */
+  droppedPlanChars: number
+  /** 给 onThinking / 活动事件的人话说明（未压缩时为空数组）。 */
+  notes: string[]
+}
+
+/**
+ * RV-04：阶段入口的前置预算预估。
+ *
+ * 为什么需要前置：`llm-client` 的 input-limit 重试对**单条 user 消息**无效
+ * （`trimChatMessagesToBudget` 永不裁最后一条），重试 body 与首次相同 → 直接
+ * `onError`；阶段2/3 无 try/catch → 整次生成硬失败。所以必须在**发请求之前**
+ * 把输入压到窗口内，且压缩顺序固定：
+ *   ① 先压 `contextPrompt`（检索上下文可再生，压掉只损失召回）；
+ *   ② 再压 `planBlueprint`（用户确认的约束，压掉会损失权威性 → 必须降级口径）；
+ *   ③ 大纲与任务书不压（硬约束 / 已产出工件），仍超窗则如实上报。
+ *
+ * 纯函数：不读 store、不发请求、不写日志；压缩量由文本自身的 tokens/char 比率
+ * 推导（CJK ≈ 1 token/字，英文 ≈ 0.25），不用固定常量猜。
+ * 未超窗时返回逐字节相同的入参（零行为变更）。
+ */
+export function fitStagePromptToWindow(input: StagePromptBudgetInput): StagePromptBudgetOutcome {
+  const planMaxCharsDefault = typeof input.planMaxChars === "number" && Number.isFinite(input.planMaxChars) && input.planMaxChars > 0
+    ? Math.floor(input.planMaxChars)
+    : PLAN_BLUEPRINT_MAX_CHARS
+  const rawPlan = input.planBlueprint && input.planBlueprint.trim() ? input.planBlueprint : undefined
+  let planMaxChars = planMaxCharsDefault
+  // 估算口径用「已按上限截断后的计划」：否则 25000 字的计划会被按 25000 字估窗，
+  // 白白触发一次 contextPrompt 压缩，而实际发出去的只有前 20000 字。
+  let planForEstimate = rawPlan ? truncateToCodePoints(rawPlan, planMaxChars) : undefined
+
+  let nextContext = input.contextPrompt ?? ""
+  const outlinePrompt = input.outlinePrompt ?? ""
+  const taskBrief = input.taskBrief ?? ""
+  const totalTokensNow = (): number =>
+    estimateTokens(outlinePrompt)
+    + estimateTokens(nextContext)
+    + estimateTokens(planForEstimate ?? "")
+    + estimateTokens(taskBrief)
+    + STAGE_PROMPT_SCAFFOLD_TOKENS
+    + PER_MESSAGE_TOKEN_OVERHEAD
+
+  const estimatedTokens = totalTokensNow()
+  const notes: string[] = []
+  const rawPlanChars = rawPlan ? countCodePoints(rawPlan) : 0
+  // 20000 上限本身的截断也要如实上报（即使窗口完全够用）。
+  if (rawPlan && rawPlanChars > planMaxChars) {
+    notes.push(`章节计划原文 ${rawPlanChars} 字超过上限 ${planMaxChars} 字，已截断并降级为「计划前段」口径（完整计划请查看计划面板）。`)
+  }
+
+  const windowTokens = typeof input.windowTokens === "number" && Number.isFinite(input.windowTokens) && input.windowTokens > 0
+    ? input.windowTokens
+    : 0
+  const base = (): StagePromptBudgetOutcome => ({
+    contextPrompt: input.contextPrompt,
+    planBlueprint: rawPlan,
+    planMaxChars,
+    estimatedTokens,
+    budgetTokens: 0,
+    contextCompressed: false,
+    planCompressed: false,
+    droppedContextChars: 0,
+    droppedPlanChars: 0,
+    notes: [...notes],
+  })
+  // 无窗口信息（缺省 / 非正数）→ 不预估，行为与改前逐字节一致。
+  if (windowTokens === 0) return base()
+
+  const safetyRatio = typeof input.safetyRatio === "number" && input.safetyRatio > 0 && input.safetyRatio <= 1
+    ? input.safetyRatio
+    : STAGE_PROMPT_SAFETY_RATIO
+  const reservedOutputTokens = typeof input.reservedOutputTokens === "number" && Number.isFinite(input.reservedOutputTokens) && input.reservedOutputTokens > 0
+    ? Math.floor(input.reservedOutputTokens)
+    : 0
+  const budgetTokens = Math.floor(windowTokens * safetyRatio) - reservedOutputTokens
+  if (budgetTokens <= 0) {
+    // 窗口比输出预留还小：压到 0 字只会把提示词变成空串，那比上游报错更难诊断。
+    notes.push(`窗口 ${windowTokens} tok 扣掉输出预留 ${reservedOutputTokens} tok 后已无输入预算，未做压缩（交由上游报错，避免把提示词压成空串）。`)
+    return { ...base(), budgetTokens }
+  }
+  if (estimatedTokens <= budgetTokens) return { ...base(), budgetTokens }
+
+  let remaining = estimatedTokens - budgetTokens
+  let droppedContextChars = 0
+  let droppedPlanChars = 0
+
+  // ① 先压 contextPrompt。
+  if (remaining > 0 && nextContext.length > 0) {
+    const contextTokens = estimateTokens(nextContext)
+    if (contextTokens > 0) {
+      const charsPerToken = nextContext.length / contextTokens
+      const cutChars = Math.ceil(remaining * charsPerToken) + CONTEXT_COMPRESSION_MARKER_RESERVE_CHARS
+      const contextChars = countCodePoints(nextContext)
+      const kept = truncateToCodePoints(nextContext, contextChars - cutChars)
+      if (kept.length < nextContext.length) {
+        droppedContextChars = contextChars - countCodePoints(kept)
+        nextContext = `${kept}\n\n【上下文已按窗口预算压缩：省略后段 ${droppedContextChars} 字（原文 ${contextChars} 字）】`
+        remaining = totalTokensNow() - budgetTokens
+        notes.push(`上下文包超出窗口预算：已先压缩 contextPrompt，省略后段 ${droppedContextChars} 字（原文 ${contextChars} 字）。`)
+      }
+    }
+  }
+
+  // ② 再压计划（contextPrompt 已经压到 0 字还不够时才动计划）。
+  if (remaining > 0 && planForEstimate) {
+    const planTokens = estimateTokens(planForEstimate)
+    if (planTokens > 0) {
+      const charsPerToken = planForEstimate.length / planTokens
+      const cutChars = Math.ceil(remaining * charsPerToken) + PLAN_TRUNCATION_MARKER_RESERVE_CHARS
+      const planChars = countCodePoints(planForEstimate)
+      const kept = truncateToCodePoints(planForEstimate, planChars - cutChars)
+      if (kept.length < planForEstimate.length) {
+        // 相对**原文**计省略量（kept 永远是 rawPlan 的前缀；若 20000 上限已生效，
+        // 只看 planChars 会把上限那部分漏掉，导致对外数字偏小）。
+        droppedPlanChars = rawPlanChars - countCodePoints(kept)
+        planForEstimate = kept
+        planMaxChars = Math.min(planMaxChars, countCodePoints(kept))
+        remaining = totalTokensNow() - budgetTokens
+        notes.push(planMaxChars > 0
+          ? `压缩上下文后仍超窗：已再压缩章节计划，仅保留前 ${planMaxChars} 字（原文 ${rawPlanChars} 字，省略 ${droppedPlanChars} 字），口径已降级为「计划前段」。`
+          : `压缩上下文后仍超窗：章节计划已整段省略（原文 ${rawPlanChars} 字），本阶段不再携带计划原文。`)
+      }
+    }
+  }
+
+  // ③ 大纲/任务书不压：仍超窗就如实说明，不假装成功。
+  if (remaining > 0) {
+    notes.push(`压缩 contextPrompt 与计划后仍超窗约 ${remaining} tok（大纲与任务书不压缩）：已按最保守口径发送；若上游仍拒绝，请调大上下文窗口或降低单章目标字数。`)
+  }
+
+  return {
+    contextPrompt: nextContext,
+    planBlueprint: rawPlan,
+    planMaxChars,
+    estimatedTokens: totalTokensNow(),
+    budgetTokens,
+    contextCompressed: droppedContextChars > 0,
+    planCompressed: droppedPlanChars > 0,
+    droppedContextChars,
+    droppedPlanChars,
+    notes,
+  }
 }
 
 export function buildDeepChapterBriefPrompt(
@@ -115,6 +409,11 @@ export function buildDeepChapterBriefPrompt(
    * 任务书是“计划作为权威依据”的落地阶段，故计划原文同样进入阶段2提示词。
    */
   planBlueprint?: string,
+  /**
+   * RV-04: 计划字符上限（码点计）。缺省 `PLAN_BLUEPRINT_MAX_CHARS`；阶段入口前置预估
+   * 超窗时会传更小的值（`fitStagePromptToWindow().planMaxChars`）。
+   */
+  planMaxChars: number = PLAN_BLUEPRINT_MAX_CHARS,
 ): string {
   return appendTaskExtraSection([
     buildStableContextPrefix(outline, contextPrompt),
@@ -136,7 +435,7 @@ export function buildDeepChapterBriefPrompt(
     chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
-    planBlueprintSection(planBlueprint),
+    planBlueprintSection(planBlueprint, planMaxChars),
   ].filter(Boolean).join("\n"), extraInstructions)
 }
 
@@ -155,6 +454,8 @@ export function buildDeepChapterDraftPrompt(
    * 排在稳定上下文前缀之后、写作任务书之前：先给计划（权威约束），再给任务书（执行细则）。
    */
   planBlueprint?: string,
+  /** RV-04: 计划字符上限（码点计，缺省 `PLAN_BLUEPRINT_MAX_CHARS`）。 */
+  planMaxChars: number = PLAN_BLUEPRINT_MAX_CHARS,
 ): string {
   return appendTaskExtraSection([
     buildStableContextPrefix(outline, contextPrompt),
@@ -177,7 +478,7 @@ export function buildDeepChapterDraftPrompt(
     chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
-    planBlueprintSection(planBlueprint),
+    planBlueprintSection(planBlueprint, planMaxChars),
     "",
     "写作任务书：",
     taskBrief,

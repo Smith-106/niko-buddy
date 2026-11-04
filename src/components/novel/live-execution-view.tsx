@@ -107,7 +107,9 @@ export function LiveExecutionView({
         hasDataRef.current = true
         failStreakRef.current = 0
         setEvents(ledger.events)
-        setEntries(snapshot?.entries ?? [])
+        // RV-06：`loadTraceSnapshot` 现在返回判别式结果（missing / corrupt / ready），
+        // 轨迹条目在 `.snapshot.entries`；三种状态在这里都等价于「没有可回放条目」。
+        setEntries(snapshot?.snapshot?.entries ?? [])
         setLoadError(null)
         setReady(true)
       } catch (error) {
