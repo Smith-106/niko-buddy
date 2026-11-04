@@ -90,8 +90,8 @@
   "orphan": 278,
   "specOnly": 266,
   "barrelOnly": 2,
-  "edges": 4628,
-  "loc": 287332
+  "edges": 4630,
+  "loc": 288100
  },
  "modules": [
   {
@@ -3546,7 +3546,7 @@
   {
    "p": "src/components/novel/live-execution-view.tsx",
    "s": 16,
-   "l": 224,
+   "l": 226,
    "r": true,
    "o": false,
    "x": false,
@@ -3637,7 +3637,7 @@
   {
    "p": "src/components/novel/main-control-view.tsx",
    "s": 16,
-   "l": 973,
+   "l": 1181,
    "r": true,
    "o": false,
    "x": false,
@@ -3657,6 +3657,7 @@
     370,
     371,
     763,
+    785,
     1158,
     1186
    ],
@@ -3836,7 +3837,7 @@
   {
    "p": "src/components/novel/pipeline-motion-view.tsx",
    "s": 16,
-   "l": 146,
+   "l": 148,
    "r": true,
    "o": false,
    "x": false,
@@ -7083,7 +7084,7 @@
   {
    "p": "src/lib/agent/tools/run-chapter-workflow.ts",
    "s": 12,
-   "l": 229,
+   "l": 288,
    "r": true,
    "o": false,
    "x": false,
@@ -11851,7 +11852,7 @@
   {
    "p": "src/lib/novel/deep-chapter-context-assembly.ts",
    "s": 5,
-   "l": 724,
+   "l": 836,
    "r": true,
    "o": false,
    "x": false,
@@ -11993,7 +11994,7 @@
   {
    "p": "src/lib/novel/deep-chapter-prompts.ts",
    "s": 18,
-   "l": 400,
+   "l": 701,
    "r": true,
    "o": false,
    "x": false,
@@ -12002,6 +12003,7 @@
     680,
     758,
     896,
+    1134,
     1153,
     1156
    ]
@@ -13688,7 +13690,7 @@
   {
    "p": "src/lib/novel/main-control-trace.ts",
    "s": 18,
-   "l": 180,
+   "l": 246,
    "r": true,
    "o": false,
    "x": false,
@@ -13704,7 +13706,7 @@
   {
    "p": "src/lib/novel/main-control.ts",
    "s": 18,
-   "l": 445,
+   "l": 463,
    "r": true,
    "o": false,
    "x": false,
