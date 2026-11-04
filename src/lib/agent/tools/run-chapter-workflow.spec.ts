@@ -1,10 +1,30 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
 import {
   PLAN_BLUEPRINT_MAX_CHARS,
   createRunChapterWorkflowTool,
   normalizePlanBlueprint,
 } from "./run-chapter-workflow"
+
+/**
+ * 计划落盘被 mock：RVF-09 要断「落盘发生了 / 落盘失败不阻断」，不能真写盘。
+ * 生产侧导入的是模块路径本身（shared → novel 的深导入被 eslint 策略允许），
+ * 所以 mock 这条同名路径就能拦住。
+ */
+const planStoreMocks = vi.hoisted(() => ({
+  saveConfirmedPlan: vi.fn(
+    async (_projectPath: string, _chapterNumber: number, _plan: string): Promise<void> => undefined,
+  ),
+}))
+
+vi.mock("@/lib/novel/confirmed-plan-store", () => ({
+  saveConfirmedPlan: planStoreMocks.saveConfirmedPlan,
+}))
+
+beforeEach(() => {
+  planStoreMocks.saveConfirmedPlan.mockReset()
+  planStoreMocks.saveConfirmedPlan.mockResolvedValue(undefined)
+})
 
 const llmConfig: LlmConfig = {
   provider: "custom",
@@ -818,5 +838,110 @@ describe("createRunChapterWorkflowTool", () => {
     const fromParams = runDeepChapterGeneration.mock.calls[1][0]
     expect(fromParams.planBlueprint?.length).toBe(PLAN_BLUEPRINT_MAX_CHARS)
     expect(fromParams.planBlueprint).toContain("已截断")
+  })
+
+  /** 成功结果的最小形状（只测落盘与降级，不关心其余字段）。 */
+  const okResult = {
+    finalContent: "最终正文",
+    taskBrief: "任务书",
+    draftContent: "初稿",
+    reviewResults: [],
+    decisionGates: {} as import("@/lib/novel/deep-chapter-generation").DeepChapterDecisionGates,
+    manualReviewRequired: false,
+    retryCount: 0,
+    partial: false,
+    partialReason: null,
+    status: "passed",
+    verdict: "pass",
+    findings: [],
+    revised: false,
+  }
+
+  it("RVF-09：planBlueprint 有值且章号有效时落盘（断言落盘参数）", async () => {
+    const runDeepChapterGeneration = vi.fn(async () => okResult)
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+    })
+
+    await tool.execute({ userRequest: "写第3章", chapterNumber: 3, planBlueprint: "模型自拟计划A" })
+
+    // 生产侧只传三个参（source 缺省 "model"）：不得把模型文本标成用户确认。
+    expect(planStoreMocks.saveConfirmedPlan).toHaveBeenCalledTimes(1)
+    expect(planStoreMocks.saveConfirmedPlan).toHaveBeenCalledWith("E:/Novel", 3, "模型自拟计划A")
+  })
+
+  it("RVF-09：落盘失败不阻断生成（finalContent 照常交付）", async () => {
+    planStoreMocks.saveConfirmedPlan.mockRejectedValueOnce(new Error("磁盘只读"))
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const runDeepChapterGeneration = vi.fn(async () => okResult)
+      const tool = createRunChapterWorkflowTool({
+        projectPath: "E:/Novel",
+        llmConfig,
+        aiWorkflowMode: "standard",
+        runDeepChapterGeneration,
+      })
+
+      const result = await tool.execute({
+        userRequest: "写第3章",
+        chapterNumber: 3,
+        planBlueprint: "模型自拟计划A",
+      })
+
+      expect(planStoreMocks.saveConfirmedPlan).toHaveBeenCalledTimes(1)
+      expect(runDeepChapterGeneration).toHaveBeenCalledTimes(1)
+      expect(result).toContain("最终正文")
+      expect(warnSpy).toHaveBeenCalled()
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it("RVF-03：落盘章号优先取装配层结构化值（写键与读键同源）", async () => {
+    const runDeepChapterGeneration = vi.fn(async () => okResult)
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+      // 模型没传章号（schema 允许省略）→ 旧实现完全不落盘，回读恒 miss。
+      getFallbackParams: () => ({ chapterNumber: 12 }),
+    })
+
+    await tool.execute({ userRequest: "继续写", planBlueprint: "计划C" })
+
+    expect(planStoreMocks.saveConfirmedPlan).toHaveBeenCalledWith("E:/Novel", 12, "计划C")
+  })
+
+  it("RVF-03：模型参数与结构化值不一致时不落盘，并记诊断（写错章比不写更糟）", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const runDeepChapterGeneration = vi.fn(async () => okResult)
+      const tool = createRunChapterWorkflowTool({
+        projectPath: "E:/Novel",
+        llmConfig,
+        aiWorkflowMode: "standard",
+        runDeepChapterGeneration,
+        getFallbackParams: () => ({ chapterNumber: 12 }),
+      })
+
+      const result = await tool.execute({
+        userRequest: "写第3章",
+        chapterNumber: 3,
+        planBlueprint: "计划D",
+      })
+
+      expect(planStoreMocks.saveConfirmedPlan).not.toHaveBeenCalled()
+      const warned = warnSpy.mock.calls.map((call) => String(call[0])).join("\n")
+      expect(warned).toContain("章号不一致")
+      // 不落盘不等于不生成：本轮正文照常交付。
+      expect(runDeepChapterGeneration).toHaveBeenCalledTimes(1)
+      expect(result).toContain("最终正文")
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 })

@@ -8,11 +8,14 @@ import {
   buildTraceEntries,
   buildTraceSnapshot,
   createMainControlQualityDeps,
+  loadConfirmedPlanRecord,
   loadTraceSnapshot,
   resolveDeepChapterRunner,
   resolveWikiPath,
   runMainControlAgent,
   saveTraceSnapshot,
+  type ConfirmedPlanRecord,
+  type ConfirmedPlanSource,
   type DeepChapterGateVerdict,
   type DeepChapterGenerationResult,
   type MainControlResult,
@@ -20,15 +23,12 @@ import {
   type MainControlTraceActivity,
   type MainControlTraceSnapshot,
   type TraceEntry,
+  type TraceSnapshotIssue,
+  type TraceSnapshotLoad,
 } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
-// TASK-005：计划原文的真源（`.novel/plans/chapter-<N>.md`）。直接取模块而非 `@/lib/novel` 桶：
-// 桶里没有该导出，且测试注入点就是这条模块路径。
-import { loadConfirmedPlan } from "@/lib/novel/confirmed-plan-store"
 import { resolveAiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type { AgentActivityEvent, AgentActivityKind } from "@/lib/agent/types"
-// RV-06：读回结果的判别式类型。只取类型（运行时仍走 `@/lib/novel` 桶，测试注入点在那里）。
-import type { TraceSnapshotIssue, TraceSnapshotLoad } from "@/lib/novel/main-control-trace"
 import { cn, toErrorMessage } from "@/lib/utils"
 import { ChapterDirectory } from "./chapter-directory"
 import { MainControlDraftAdoptBlock } from "./main-control-draft-adopt-block"
@@ -64,6 +64,14 @@ type TraceReplay =
   | { status: "corrupt"; reason: TraceSnapshotIssue }
   | { status: "ready"; snapshot: MainControlTraceSnapshot }
 
+/** 本次运行「带了一份已保存计划」的事实（RVF-08）：章号 + 来源 + 保存时间。 */
+type PlanBlueprintNotice = {
+  chapter: number
+  source: ConfirmedPlanSource
+  /** 旧计划文件没有 savedAt 时为空串（未知，不伪造时间）。 */
+  savedAt: string
+}
+
 /** 读回原因码 → 文案键（固定映射，不用模板字面量拼 key）。 */
 const TRACE_SNAPSHOT_ISSUE_KEYS: Record<TraceSnapshotIssue, string> = {
   not_found: "mainControl.traceIssueNotFound",
@@ -71,6 +79,31 @@ const TRACE_SNAPSHOT_ISSUE_KEYS: Record<TraceSnapshotIssue, string> = {
   invalid_json: "mainControl.traceIssueInvalidJson",
   unknown_version: "mainControl.traceIssueUnknownVersion",
   invalid_entries: "mainControl.traceIssueInvalidEntries",
+}
+
+/**
+ * RVF-01/RVF-08：计划标识的文案键——**按来源分两套口径**，穷举映射（不用三元拼 key）。
+ *
+ * `model` 是「模型自拟、未经用户确认」，文案绝不说「已确认」；只有落盘记录真的是
+ * `source: "user"`（当前无生产写入点）才配说「用户已确认」。
+ */
+const PLAN_BLUEPRINT_NOTICE_KEYS: Record<ConfirmedPlanSource, string> = {
+  model: "mainControl.planBlueprintLoadedModel",
+  user: "mainControl.planBlueprintLoadedUser",
+}
+
+/**
+ * 计划保存时间 → 展示文本。
+ *
+ * 旧计划文件（没有 frontmatter）没有 savedAt：说「未知」而不是拿当前时间顶上——
+ * 时间戳一旦编造，用户就无法用「这份计划什么时候写的」判断它是否还配得上正文。
+ */
+function formatPlanSavedAt(savedAt: string, unknownText: string): string {
+  const value = savedAt.trim()
+  if (!value) return unknownText
+  const at = new Date(value)
+  if (Number.isNaN(at.getTime())) return unknownText
+  return at.toLocaleString("zh-CN", { hour12: false })
 }
 
 /**
@@ -227,12 +260,16 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   // 回放：上次运行的轨迹快照（读回端唯一真源，字段见 TraceReplay）。
   const [replay, setReplay] = useState<TraceReplay>({ status: "idle" })
   /**
-   * TASK-005：本次运行「本该带计划但没读到」的章号（非阻断提示用；null = 无需提示）。
+   * RVF-08 + RVF-01③：本次运行「带了计划吗」的中性标识（null = 不展示任何提示）。
    *
-   * 与 `error` 严格分开：读不到计划不是失败——运行照常进行，只是这一次不带计划。
-   * 因此这里既不进红字错误，也不阻断执行，只在按钮区下方留一行灰字说明。
+   * 旧实现把「有章号但没有计划文件」渲染成一条带警告图标的灰字——而任何一章**第一次**
+   * 运行必然没有计划文件，于是正常态被呈现成异常；反过来，计划真被注入时 UI 零提示。
+   * 现在按事实只保留一种展示：
+   *   - 没有历史计划 → 不提示（首跑是正常态，不是异常）；
+   *   - 读到计划 → 一条中性标识（`data-testid="main-control-plan-blueprint-notice"`），
+   *     措辞由记录里的 source 决定：model（模型自拟）绝不说「已确认」。
    */
-  const [planBlueprintMissingChapter, setPlanBlueprintMissingChapter] = useState<number | null>(null)
+  const [planBlueprintNotice, setPlanBlueprintNotice] = useState<PlanBlueprintNotice | null>(null)
   // RV-002 ②：运行结束后才发生的观测（记忆回填）也要进同一个 activities 列表。
   const [extraActivities, setExtraActivities] = useState<AgentActivityEvent[]>([])
   const abortRef = useRef<AbortController | null>(null)
@@ -413,8 +450,8 @@ export function MainControlView(_props: MainControlViewProps = {}) {
       return
     }
     setError(null)
-    // TASK-005：上一次运行的「无计划」提示不带进这一次（本次读盘结果重新决定）。
-    setPlanBlueprintMissingChapter(null)
+    // TASK-005/RVF-08：上一次运行的「带计划」标识不带进这一次（本次读盘结果重新决定）。
+    setPlanBlueprintNotice(null)
     setResult(null)
     setSteps([])
     setTrace([])
@@ -444,7 +481,8 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         novelConfig.journalTtlMs,
       )
       /**
-       * TASK-005：把 `.novel/plans/chapter-<N>.md` 里的计划原文读进闭包，再交给装配层。
+       * TASK-005 + RVF-01：把 `.novel/plans/chapter-<N>.md` 的计划记录（原文 + 来源）
+       * 读进闭包，再交给装配层。
        *
        * 为什么必须在这里 await：`getPlanBlueprint` 是**同步签名**（main-control.ts:148），
        * 选项一旦传入，装配层随时可能同步调用它（会话层兜底 + 必调工具兜底都会取），
@@ -459,22 +497,28 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         currentChapterNumber > 0
           ? currentChapterNumber
           : undefined
-      let planBlueprint: string | undefined
+      let planRecord: ConfirmedPlanRecord | undefined
       if (planChapterNumber !== undefined) {
         try {
-          planBlueprint = await loadConfirmedPlan(projectPath, planChapterNumber)
+          planRecord = await loadConfirmedPlanRecord(projectPath, planChapterNumber)
         } catch (err) {
           // 读盘失败不阻塞运行：记 warn + 降级为「本次不带计划」，绝不伪造一份计划顶上。
           console.warn(
             `[main-control-view] 读取第 ${planChapterNumber} 章已保存计划失败，本次不带计划继续`,
             err,
           )
-          planBlueprint = undefined
+          planRecord = undefined
         }
       }
-      // 非阻断提示：有章号却没有计划（文件不存在 / 读失败）→ 说清「本次不带计划」，不弹错误。
-      setPlanBlueprintMissingChapter(
-        planChapterNumber !== undefined && !planBlueprint ? planChapterNumber : null,
+      // RVF-01③：读到记录就带它的原文——但**不当强制约束**：
+      // 记录的 source 是 "model"（当前唯一可能值）时，提示词侧按中性口径呈现、UI 也只给
+      // 中性标识；这里不把「模型自拟」的任何展示写成用户确认。
+      const planBlueprint = planRecord?.plan
+      // RVF-08：只陈述事实——有计划就一条中性标识；没有就不提示（首跑是正常态）。
+      setPlanBlueprintNotice(
+        planRecord && planChapterNumber !== undefined
+          ? { chapter: planChapterNumber, source: planRecord.source, savedAt: planRecord.savedAt }
+          : null,
       )
       const out = await runMainControlAgent({
         projectPath,
@@ -494,9 +538,11 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         //   让「是否注册深章工具」与「门控是否武装」同源。
         // - planExecuteActive：主控无计划确认阶段（计划阶段禁止调该工具），显式给 false。
         // - getPlanBlueprint：从 `.novel/plans/chapter-<N>.md` 读回模型上次在 run_chapter_workflow
-        //   的 tool_call 里自带的那份计划原文（TASK-004 的持久化真源，`loadConfirmedPlan`）。
+        //   的 tool_call 里自带的那份计划原文（TASK-004 的持久化真源，`loadConfirmedPlanRecord`）。
         //   读不到（文件不存在 / 读失败 / 章号缺失）就不传，返回 undefined——不伪造一份空计划。
-        //   这里给的是**已读进闭包的值**（同步签名，见上方 planBlueprint 的读盘位置）。
+        //   这里给的是**已读进闭包的值**（同步签名，见上方 planRecord 的读盘位置）。
+        //   RVF-01：它的来源是 "model"（模型自拟），所以提示词侧不得标成「用户已确认」，
+        //   本面板也只给中性标识（见 planBlueprintNotice）。
         // - getFallbackParams：拿不到就省略对应键（章号只从结构化来源解析，不猜）；
         //   计划与 getPlanBlueprint 同源（同一份闭包值），有才带。
         gateIntent: goalSource === "chapter-draft-handoff" ? "write_chapter" : undefined,
@@ -874,14 +920,20 @@ export function MainControlView(_props: MainControlViewProps = {}) {
             {error}
           </p>
         ) : null}
-        {/* TASK-005：没有已保存计划不是错误——运行照常，只说明这一次不带计划（灰字、非阻断）。 */}
-        {planBlueprintMissingChapter !== null ? (
+        {/* RVF-08：有计划就中性标识一句；没有则不提示（首跑没计划是正常态，不是异常）。 */}
+        {planBlueprintNotice ? (
           <p
             className="flex items-center gap-1 text-xs text-muted-foreground"
-            data-testid="main-control-plan-blueprint-missing"
+            data-testid="main-control-plan-blueprint-notice"
           >
             <CircleAlert className="h-3 w-3" />
-            {t("mainControl.planBlueprintMissing", { chapter: planBlueprintMissingChapter })}
+            {t(PLAN_BLUEPRINT_NOTICE_KEYS[planBlueprintNotice.source], {
+              chapter: planBlueprintNotice.chapter,
+              time: formatPlanSavedAt(
+                planBlueprintNotice.savedAt,
+                t("mainControl.planBlueprintTimeUnknown"),
+              ),
+            })}
           </p>
         ) : null}
         {!running && cancelledAt && !error ? (

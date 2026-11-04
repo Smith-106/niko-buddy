@@ -1562,3 +1562,11 @@ export type {
   RerunMainControlGatesResult,
 } from "./main-control-gate-rerun"
 export type { ConsensusTrace, ConsensusTraceListener } from "./consensus-writing"
+
+// ── B2 修复：app 侧改走 barrel（已保存计划真源 + 轨迹快照判别式类型）──
+// RVF-01：计划记录必须带上来源（model / user），消费端才能按来源给口径；
+// 只导出记录读取口，不导出任何写入口给 UI（写入仍归 run_chapter_workflow 的受控例外）。
+export { loadConfirmedPlanRecord } from "./confirmed-plan-store"
+export type { ConfirmedPlanRecord, ConfirmedPlanSource } from "./confirmed-plan-store"
+// RV-06 的判别式读回类型：主控面板只用类型，但经 barrel 导出后不必再深导入。
+export type { TraceSnapshotIssue, TraceSnapshotLoad } from "./main-control-trace"

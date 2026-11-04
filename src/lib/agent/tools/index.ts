@@ -22,7 +22,7 @@ import { createApplySkillTool } from "./apply-skill"
 import { createRouteTaskTool } from "./route-task"
 import { createLoadContextTool } from "./load-context"
 import { createTrimContextTool } from "./trim-context"
-import { createRunChapterWorkflowTool, type RunDeepChapterGeneration } from "./run-chapter-workflow"
+import { createRunChapterWorkflowTool, type RunDeepChapterGeneration, type RunChapterWorkflowFallbackContext } from "./run-chapter-workflow"
 import { createReviseChapterTool, createScoreChapterTool, type QualityToolDeps } from "./score-chapter"
 import type { DeAiSkillConfig, UserSkill, TaskRouteResult, ContextPack, StageJournalRuntime } from "@/lib/novel"
 import type { LlmConfig, SearchApiConfig } from "@/stores/wiki-store"
@@ -69,6 +69,14 @@ export interface ToolFactoryOptions {
   /** 阶段工件缓存运行时（G3）：缺省 undefined 时不写缓存，chat 路径行为逐字节不变。 */
   stageJournal?: StageJournalRuntime
   getPlanBlueprint?: () => string | undefined
+  /**
+   * RVF-03：必调兜底与**计划落盘键**的结构化来源。
+   *
+   * 为什么不只用模型参数：模型 tool_call 的 `chapterNumber` 允许省略，而回读键来自
+   * UI 的 `currentChapterNumber`（selectedFile 文件名优先）。两者不一致时
+   * `chapter-12.md` 与 `chapter-3.md` 分叉，回读恒 miss 且用户无法诊断。
+   */
+  getFallbackParams?: () => RunChapterWorkflowFallbackContext
   getSelectedSkillsPrompt?: () => string | undefined
   readTextFile?: (path: string) => Promise<string>
 }
@@ -131,6 +139,7 @@ export function registerAllBuiltInTools(registry: ToolRegistry, options: ToolFac
       onActivityEvent: options.onActivityEvent,
       stageJournal: options.stageJournal,
       getPlanBlueprint: options.getPlanBlueprint,
+      getFallbackParams: options.getFallbackParams,
       getSelectedSkillsPrompt: options.getSelectedSkillsPrompt,
     }))
 

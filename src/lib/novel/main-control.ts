@@ -367,6 +367,11 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
       // `options.getPlanBlueprint?.()` 恒 undefined，兜底是死代码。长度来源校验在工具侧
       // `normalizePlanBlueprint`（>20000 字符截断 + 显式标记），三条来源一次覆盖。
       getPlanBlueprint: options.getPlanBlueprint,
+      // RVF-03：计划**落盘键**走装配层的结构化章号（`resolveFallbackContext` 已把
+      // 显式选项 > 路由结构化值兜好），而不是只信模型 tool_call 里的 chapterNumber。
+      // 否则写键（模型参数，可省略）与读键（UI 当前章）会分叉成两个文件，
+      // 表现为「写了永远读不回」且用户无法诊断。
+      getFallbackParams: resolveFallbackContext,
       llmConfig: options.llmConfig,
       getSkillConfig: () => null,
       getChatConversations: () => [],

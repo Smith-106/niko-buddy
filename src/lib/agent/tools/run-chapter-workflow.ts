@@ -68,14 +68,16 @@ interface RunChapterWorkflowToolOptions {
    */
   stageJournal?: StageJournalRuntime
   /**
-   * 当 AI 未在工具调用参数中携带 planBlueprint 时，从这里兜底取已确认的章节计划。
-   * 保证用户确认的计划为强制约束，不依赖模型是否遵守自然语言提示。
+   * 当 AI 未在工具调用参数中携带 planBlueprint 时，从这里兜底取已保存的章节计划原文
+   * （`.novel/plans/chapter-<N>.md`）。**它不是「用户确认的计划」**：真源是模型上一次
+   * 在 tool_call 里自带的散文（RVF-01），所以它只作为参考进入提示词，不得冒充强制约束。
    */
   getPlanBlueprint?: () => string | undefined
   /**
-   * 必调工具兜底参数的结构化来源（RV-02）：章节号 + 已确认计划。
+   * 必调工具兜底参数的结构化来源（RV-02）：章节号 + 已保存计划。
    * 缺省时兜底参数只含 `userRequest`（与旧行为一致）；提供时必须真的带进参数，
    * 不得只加形参不填值。
+   * RVF-03：其中的 `chapterNumber` 同时是计划**落盘**的优先章号（写键与读键同源）。
    */
   getFallbackParams?: () => RunChapterWorkflowFallbackContext
   /**
@@ -104,6 +106,38 @@ function toNumber(value: unknown): number | undefined {
     return Number.isFinite(parsed) ? parsed : undefined
   }
   return undefined
+}
+
+/** 落盘章号合法性：正整数（与 confirmed-plan-store 的守卫同口径）。 */
+function isValidPlanChapterNumber(value: number | undefined): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+}
+
+/**
+ * RVF-03：计划**落盘章号**的解析（写键必须与读键同源）。
+ *
+ * 问题：写键此前只看模型 tool_call 的 `chapterNumber`（schema 允许省略 → 省略即完全不落盘），
+ * 而读键是 UI 的 `currentChapterNumber`（`selectedFile` 文件名优先）经 `getFallbackParams`
+ * 结构化传下来的值。两者不同时 `chapter-12.md` 与 `chapter-3.md` 会分叉，**回读恒 miss**，
+ * 而 UI 只能说「本次不带计划」——用户无从诊断；更糟的是写错章会把另一章的旧计划顶成
+ * 该章的计划被读走。因此：
+ *   ① 装配层给的结构化值优先（它就是读键的来源，同一参数也传给 `buildRequiredToolFallbackParams`）；
+ *   ② 拿不到再用模型参数；
+ *   ③ 两者都在且不一致 → 不落盘并记诊断（写错章比不写更糟）。
+ */
+function resolvePlanChapterNumber(
+  modelChapterNumber: number | undefined,
+  structuredChapterNumber: number | undefined,
+): number | undefined {
+  const model = isValidPlanChapterNumber(modelChapterNumber) ? modelChapterNumber : undefined
+  const structured = isValidPlanChapterNumber(structuredChapterNumber) ? structuredChapterNumber : undefined
+  if (model !== undefined && structured !== undefined && model !== structured) {
+    console.warn(
+      `[run-chapter-workflow] 章号不一致：模型参数=${model}、装配层结构化值=${structured}，本次不落盘计划（避免写错章后回读恒 miss）。`,
+    )
+    return undefined
+  }
+  return structured ?? model
 }
 
 function normalizeParams(params: Record<string, unknown>): RunChapterWorkflowParams {
@@ -196,7 +230,7 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
       planBlueprint: {
         type: "string",
         description:
-          "用户在会话层已确认的章节计划原文。若存在，必须完整透传，作为写作任务书的权威依据；不得改写或省略。",
+          "本轮/上一轮的章节计划原文（模型自拟，未经用户确认）。若存在，可完整透传作为写作参考；它不是用户确认的强制约束，与正文或大纲冲突时以大纲与用户请求为准。",
       },
     },
     async execute(rawParams, signal, context?: ToolExecutionContext) {
@@ -207,23 +241,30 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
         return "错误：缺少 userRequest，无法运行章节工作流。"
       }
 
-      // F07（R04=a）：用户确认的章节计划必须进入生成链，优先级：
+      // F07（R04=a）+ RVF-01：章节计划原文进生成链，优先级：
       //   显式工具参数 params.planBlueprint > options.getPlanBlueprint?.()（会话层兜底）。
       // 两者都缺 → undefined（生成链零行为变更）；不 trim、不改写。
+      // 它是**模型自拟**的文本（未经用户确认）：提示词侧来源缺省也是 "model"，
+      // 因此它不会被标成「用户已确认的强制约束」（RVF-01）。
       // RV-03：唯一的「改写」是来源校验——超过 PLAN_BLUEPRINT_MAX_CHARS 视为不可信，
       // 截断并加显式标记，保证传给生成链（deep-chapter-prompts 的 planBlueprintSection）
       // 的计划永不超长，也不会被标成「必须原样执行」的残缺权威文本。
       const planBlueprint = normalizePlanBlueprint(params.planBlueprint ?? options.getPlanBlueprint?.())
       // TASK-004（DEC-R4=A）：把「模型这次带过来的计划」落一份供后续复用/审计。
-      // 这是「深章工具零写盘」边界里唯一一处**受控元数据写入例外**：只写计划原文，
-      // 不写任何运行状态（无 ok/status/rounds/时间戳/正文/审稿结论），也不参与本轮的
-      // 生成决策——写的是下面同一个 planBlueprint 值，写盘与否都不改变
-      // runDeepChapterGeneration 的入参。
+      // 这是「深章工具零写盘」边界里唯一一处**受控元数据写入例外**：只写计划原文
+      // （外加 source/savedAt 两个标记），不写任何运行状态（无 ok/status/rounds/正文/
+      // 审稿结论），也不参与本轮的生成决策——写的是下面同一个 planBlueprint 值，
+      // 写盘与否都不改变 runDeepChapterGeneration 的入参。
       // 降级：写盘失败**不致命**，只记 warn 后继续生成（计划持久化是旁路，不是前置条件）。
       if (planBlueprint) {
-        const planChapterNumber = toNumber(params.chapterNumber)
+        // RVF-03：写键优先取装配层结构化值（= 读键来源）；两值冲突则不落盘 + 记诊断。
+        const planChapterNumber = resolvePlanChapterNumber(
+          toNumber(params.chapterNumber),
+          toNumber(options.getFallbackParams?.().chapterNumber),
+        )
         if (planChapterNumber !== undefined) {
           try {
+            // source 缺省 "model"：本工具写入的永远是模型自拟文本，不得升格成用户确认。
             await saveConfirmedPlan(options.projectPath, planChapterNumber, planBlueprint)
           } catch (error) {
             console.warn("[run-chapter-workflow] 计划持久化失败（非致命，不阻断生成）:", error)
@@ -245,7 +286,8 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
           projectPath: options.projectPath,
           userRequest,
           chapterNumber: typeof rawChapterNumber === "number" ? rawChapterNumber : undefined,
-          // F07: 用户确认的章节计划（缺省 undefined → 生成链行为零变更）。
+          // F07: 已保存的章节计划原文（缺省 undefined → 生成链行为零变更；
+          // 它是模型自拟文本，提示词侧按中性口径呈现，不冒充用户确认约束）。
           planBlueprint,
           llmConfig: options.llmConfig,
           novelConfig,

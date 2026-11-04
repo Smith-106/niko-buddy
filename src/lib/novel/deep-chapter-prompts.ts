@@ -1,4 +1,6 @@
 import type { NovelReviewResult } from "./review-adapter"
+// RVF-01：计划来源类型与落盘真源共用一份定义（避免措辞与存储各自漂移）。仅类型导入，运行时零耦合。
+import type { ConfirmedPlanSource } from "./confirmed-plan-store"
 import { PER_MESSAGE_TOKEN_OVERHEAD, estimateTokens } from "@/lib/token-estimator"
 import { buildGoldenThreeChapterDirective, type GoldenThreeChapterRequest } from "./golden-three-chapters"
 import { CHINESE_NOVEL_DE_AI_RULES, buildStructuredDeAiRules } from "./de-ai-rules"
@@ -160,15 +162,25 @@ export function truncateToCodePoints(text: string, maxCodePoints: number): strin
 }
 
 /**
- * F07（R04=a）+ RV-04：用户已确认的章节计划原文段。
+ * F07（R04=a）+ RV-04 + RVF-01：章节计划原文段（**按来源分两套口径**）。
  *
- * 计划是用户在会话层确认过的强制约束，**未超限时必须原样透传**：不做 trim/改写
- * （仅用 trim 判定“是否为空”），输出内嵌原文逐字节不变。
+ * 为什么必须按来源分口径（RVF-01，本轮最严重的一条）：落盘真源是**模型自己在
+ * tool_call 里自带的散文**（confirmed-plan-store 的 `source: "model"`），全仓既没有
+ * 用户确认 UI，也没有任何失效/删除/过期路径。把这份文本一律标成「用户已确认的强制
+ * 约束；必须原样执行」= 伪造权威：一段从未被确认、可能已与上版正文无关的模型文本，
+ * 会在该章**每次**运行时把写作方向锁死。因此：
  *
- * RV-04 截断语义分层（这是本函数的核心）：
- *   - 未截断 → 保留原有的「必须原样执行，不得改写、合并或省略」强约束口径；
- *   - 已截断 → 标题行改为「已截断：原文 N 字，此处保留前 M 字；完整计划请查看计划面板」，
- *     并追加【计划完整性声明】把权威口径降级为「以下为计划前段，其余部分未包含；
+ *   source === "user"  → 才允许强口径：「用户已确认的强制约束；必须原样执行」
+ *   source === "model" → 中性口径：「上一轮模型自拟，未经用户确认；可作为参考，也可偏离」
+ *
+ * 缺省值是 `"model"`——最弱的权威。上游（deep-chapter-context-assembly /
+ * deep-chapter-generation）本轮尚未透传来源，缺省绝不能是 `"user"`：
+ * 「没传来源」必须被解释成「未经确认」，而不是反过来。
+ *
+ * RV-04 截断语义分层（与来源口径正交）：
+ *   - 未截断 → 保留该来源对应的完整口径；
+ *   - 已截断 → 标题行改为「已截断：原文 N 字，此处保留前 M 字」并追加
+ *     【计划完整性声明】，把权威口径降级为「以下为计划前段，其余部分未包含；
  *     请勿据此推断未给出的内容」。
  * 绝不能让残缺文本继续挂着「必须原样执行」的权威口径——那会让模型把 2 万字之后的
  * 节拍当作「不存在」，或反过来自行脑补后当成已确认计划执行。
@@ -179,10 +191,12 @@ export function truncateToCodePoints(text: string, maxCodePoints: number): strin
  *
  * @param maxChars 保留的计划字符上限（码点计）。缺省 `PLAN_BLUEPRINT_MAX_CHARS`；
  *   阶段入口前置预估（`fitStagePromptToWindow`）超窗时会传更小的值二次压缩。
+ * @param source 计划来源（缺省 `"model"` = 未经用户确认的中性口径，见上）。
  */
 export function planBlueprintSection(
   planBlueprint?: string,
   maxChars: number = PLAN_BLUEPRINT_MAX_CHARS,
+  source: ConfirmedPlanSource = "model",
 ): string {
   if (!planBlueprint || !planBlueprint.trim()) return ""
   // 显式 0 = 整段省略（窗口连计划都装不下）；非数字/负数/NaN 才回退到上限默认值。
@@ -191,22 +205,28 @@ export function planBlueprintSection(
     : PLAN_BLUEPRINT_MAX_CHARS
   if (limit === 0) return ""
   const originalChars = countCodePoints(planBlueprint)
+  // 强口径只归 "user"；其余（含 "model" / 任何未知值）一律中性措辞。
+  const userConfirmed = source === "user"
   if (originalChars <= limit) {
-    // 未截断：逐字节保留既有强约束口径（F07 原行为不变）。
+    // 未截断：口径按来源给（user 保留 F07 原文，model 用中性措辞，不冒充权威）。
     return [
       "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-      "# 【章节计划原文】（用户已确认的强制约束；必须原样执行，不得改写、合并或省略）",
+      userConfirmed
+        ? "# 【章节计划原文】（用户已确认的强制约束；必须原样执行，不得改写、合并或省略）"
+        : "# 【章节计划参考】（上一轮模型自拟，未经用户确认；可作为参考，也可偏离）",
       "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
       "",
       planBlueprint,
       "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     ].join("\n")
   }
-  // 已截断：标题行给出可核对的截断事实 + 指向完整计划，正文前降级权威口径。
+  // 已截断：标题行给出可核对的截断事实 + 按来源区分的口径，正文前降级权威口径。
   const keptBody = truncateToCodePoints(planBlueprint, limit)
   return [
     "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-    `# 【章节计划原文】（已截断：原文 ${originalChars} 字，此处保留前 ${limit} 字；完整计划请查看计划面板）`,
+    userConfirmed
+      ? `# 【章节计划原文】（已截断：原文 ${originalChars} 字，此处保留前 ${limit} 字；完整计划请查看计划面板）`
+      : `# 【章节计划参考】（已截断：原文 ${originalChars} 字，此处保留前 ${limit} 字；以下为模型自拟参考的前段，未经用户确认）`,
     "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     "",
     "# 【计划完整性声明】以下为计划前段，其余部分未包含；请勿据此推断未给出的内容，也不要自行补写计划未覆盖的节拍。",
@@ -226,7 +246,9 @@ export interface StagePromptBudgetInput {
   outlinePrompt: string
   /** 可再生的检索上下文（超窗时**第一个**被压）。 */
   contextPrompt: string
-  /** 用户确认的章节计划原文（超窗时**第二个**被压）。 */
+  /**
+   * 计划原文（目前：是模型自拟还是用户确认过，决定口径；超窗时**第二个**被压）。
+   */
   planBlueprint?: string
   /** 已产出的任务书（阶段3 才有；计入估算，不压缩——它是本阶段要执行的工件）。 */
   taskBrief?: string
@@ -266,7 +288,7 @@ export interface StagePromptBudgetOutcome {
  * `onError`；阶段2/3 无 try/catch → 整次生成硬失败。所以必须在**发请求之前**
  * 把输入压到窗口内，且压缩顺序固定：
  *   ① 先压 `contextPrompt`（检索上下文可再生，压掉只损失召回）；
- *   ② 再压 `planBlueprint`（用户确认的约束，压掉会损失权威性 → 必须降级口径）；
+ *   ② 再压 `planBlueprint`（计划约束，压掉会损失可参考信息 → 必须降级口径）；
  *   ③ 大纲与任务书不压（硬约束 / 已产出工件），仍超窗则如实上报。
  *
  * 纯函数：不读 store、不发请求、不写日志；压缩量由文本自身的 tokens/char 比率
@@ -405,7 +427,7 @@ export function buildDeepChapterBriefPrompt(
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
   extraInstructions?: string,
   /**
-   * F07: 用户已确认的章节计划原文（可选，additive）。缺省 undefined → prompt 逐字节不变。
+   * F07: 章节计划原文（可选，additive）。缺省 undefined → prompt 逐字节不变。
    * 任务书是“计划作为权威依据”的落地阶段，故计划原文同样进入阶段2提示词。
    */
   planBlueprint?: string,
@@ -414,6 +436,11 @@ export function buildDeepChapterBriefPrompt(
    * 超窗时会传更小的值（`fitStagePromptToWindow().planMaxChars`）。
    */
   planMaxChars: number = PLAN_BLUEPRINT_MAX_CHARS,
+  /**
+   * RVF-01: 计划来源（缺省 `"model"`）。只有 `"user"` 才配用「用户已确认的强制约束」；
+   * 缺省值必须是 `"model"`——上游没传来源时宁可口径弱，也不得伪造权威。
+   */
+  planSource: ConfirmedPlanSource = "model",
 ): string {
   return appendTaskExtraSection([
     buildStableContextPrefix(outline, contextPrompt),
@@ -435,7 +462,7 @@ export function buildDeepChapterBriefPrompt(
     chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
-    planBlueprintSection(planBlueprint, planMaxChars),
+    planBlueprintSection(planBlueprint, planMaxChars, planSource),
   ].filter(Boolean).join("\n"), extraInstructions)
 }
 
@@ -450,12 +477,15 @@ export function buildDeepChapterDraftPrompt(
   extraInstructions?: string,
   autoGenerateChapterTitle = true,
   /**
-   * F07: 用户已确认的章节计划原文（可选，additive）。缺省 undefined → prompt 逐字节不变。
-   * 排在稳定上下文前缀之后、写作任务书之前：先给计划（权威约束），再给任务书（执行细则）。
+   * F07: 章节计划原文（可选，additive）。缺省 undefined → prompt 逐字节不变。
+   * 排在稳定上下文前缀之后、写作任务书之前：先给计划（参考/约束，口径由 `planSource` 定），
+   * 再给任务书（执行细则）。
    */
   planBlueprint?: string,
   /** RV-04: 计划字符上限（码点计，缺省 `PLAN_BLUEPRINT_MAX_CHARS`）。 */
   planMaxChars: number = PLAN_BLUEPRINT_MAX_CHARS,
+  /** RVF-01: 计划来源（缺省 `"model"`，理由同 buildDeepChapterBriefPrompt）。 */
+  planSource: ConfirmedPlanSource = "model",
 ): string {
   return appendTaskExtraSection([
     buildStableContextPrefix(outline, contextPrompt),
@@ -478,7 +508,7 @@ export function buildDeepChapterDraftPrompt(
     chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
-    planBlueprintSection(planBlueprint, planMaxChars),
+    planBlueprintSection(planBlueprint, planMaxChars, planSource),
     "",
     "写作任务书：",
     taskBrief,
