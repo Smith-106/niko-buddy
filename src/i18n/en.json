@@ -2406,8 +2406,6 @@
       "reviewReasoningEffortHint": "Controls how deeply the AI review (including six-dimension review) reasons. Lower effort is cheaper and faster but weakens the continuity and canon-conflict gate. High by default.",
       "taskModelsTitle": "Task Model Routing",
       "taskModelsHint": "These are LLM models for writing, review, summary, and extraction, not vector embedding models. Empty fields use the current main model.",
-      "writingModel": "Writing Model (empty = use default)",
-      "writingModelHint": "Used for drafting, continuing, and rewriting prose. Defaults to the global LLM model; choose a model only when writing tasks should use a separate model.",
       "reviewModel": "Review Model (empty = use default)",
       "reviewModelHint": "Used for chapter review, continuity checks, and auto-review before save. Defaults to the global LLM model.",
       "summaryModel": "Summary Model (empty = use default)",

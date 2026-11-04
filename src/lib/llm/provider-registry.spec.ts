@@ -5,7 +5,8 @@
  *
  * 测试范围:
  *   1. ProviderRegistry: 注册/查询/防重复/降级 legacy
- *   2. resolveRoleModel: 纯函数属性测试
+ *   2. resolveRoleModel: 纯函数属性测试（`writingModel` 已删除后的新契约：
+ *      writer / reviser 无项目配置字段 → 空串，由调用方回退会话模型）
  *   3. buildRoleModelMap / buildDefaultRoleModelMap
  *   4. NovelError 三分类 (retryable/content/fatal)
  *   5. Fallback 链解析
@@ -195,9 +196,22 @@ describe("resolveRoleModel (纯函数)", () => {
     expect(resolveRoleModel("judge", empty)).toBe("")
   })
 
-  it("writer 使用 writingModel", () => {
-    const config: ProjectModelConfig = { writingModel: "gpt-4" }
-    expect(resolveRoleModel("writer", config)).toBe("gpt-4")
+  // TASK-009：`writingModel` 字段已从 NovelConfig / ProjectModelConfig 删除，
+  // writer / reviser 在角色注册表里映射为 null（无项目配置字段），
+  // resolveRoleModel 对这两个角色恒返回空串 —— 调用方据此回退到写作 / 会话模型。
+  it("writer 没有项目配置字段——恒返回空串（writingModel 已删除）", () => {
+    const config: ProjectModelConfig = { reviewModel: "claude-3" }
+    expect(resolveRoleModel("writer", config)).toBe("")
+  })
+
+  it("writer 不被历史 writingModel 键复活（旧键仅剩惰性数据，不进解析链）", () => {
+    // 旧配置可能仍带着 writingModel 键（老项目 JSON）。它不再是 ProjectModelConfig 的字段，
+    // 也不得再被 resolveRoleModel 读取 —— 这里钉死「传了也不生效」。
+    const legacy = { writingModel: "gpt-4", reviewModel: "claude-3" }
+    expect(resolveRoleModel("writer", legacy)).toBe("")
+    expect(resolveRoleModel("reviser", legacy)).toBe("")
+    // 仍然绑字段的角色不受影响
+    expect(resolveRoleModel("critic", legacy)).toBe("claude-3")
   })
 
   it("critic 使用 reviewModel", () => {
@@ -205,9 +219,9 @@ describe("resolveRoleModel (纯函数)", () => {
     expect(resolveRoleModel("critic", config)).toBe("claude-3")
   })
 
-  it("reviser 默认复用 writingModel", () => {
-    const config: ProjectModelConfig = { writingModel: "gpt-4" }
-    expect(resolveRoleModel("reviser", config)).toBe("gpt-4")
+  it("reviser 同样没有项目配置字段——恒返回空串，不再复用写作字段", () => {
+    const config: ProjectModelConfig = { reviewModel: "claude-3" }
+    expect(resolveRoleModel("reviser", config)).toBe("")
   })
 
   it("arbiter 使用 reviewModel", () => {
@@ -220,39 +234,48 @@ describe("resolveRoleModel (纯函数)", () => {
     expect(resolveRoleModel("judge", config)).toBe("claude-3")
   })
 
-  it("专用字段为空时降级 writingModel", () => {
+  it("专用字段为空时不再降级到任何写作字段（fallback 链已删除）", () => {
     const config: ProjectModelConfig = {
-      writingModel: "gpt-4",
       reviewModel: "",
     }
-    // critic 的 reviewModel 为空 → 降级 writingModel
-    expect(resolveRoleModel("critic", config)).toBe("gpt-4")
+    // critic 的 reviewModel 为空 → 空串（旧行为是降级 writingModel，该兜底已随字段一起删除）
+    expect(resolveRoleModel("critic", config)).toBe("")
+    expect(resolveRoleModel("arbiter", config)).toBe("")
+    expect(resolveRoleModel("judge", config)).toBe("")
   })
 
   it("纯函数属性：相同输入返回相同输出", () => {
     const config: ProjectModelConfig = {
-      writingModel: "gpt-4",
       reviewModel: "claude-3",
     }
-    const a = resolveRoleModel("writer", config)
-    const b = resolveRoleModel("writer", config)
+    const a = resolveRoleModel("critic", config)
+    const b = resolveRoleModel("critic", config)
     expect(a).toBe(b)
 
-    // 不同角色返回不同值
+    // 不同角色解析到不同结果：writer 无字段（空串）、critic 绑 reviewModel
     const writer = resolveRoleModel("writer", config)
     const critic = resolveRoleModel("critic", config)
-    expect(writer).toBe("gpt-4")
+    expect(writer).toBe("")
     expect(critic).toBe("claude-3")
+    // 纯函数：不写回输入（无缓存、无副作用）
+    expect(config).toEqual({ reviewModel: "claude-3" })
   })
 
-  it("默认全绑单模型——向后兼容", () => {
-    // 现状：所有角色使用同一个模型
-    const config: ProjectModelConfig = { writingModel: "same-model" }
-    expect(resolveRoleModel("writer", config)).toBe("same-model")
-    expect(resolveRoleModel("critic", config)).toBe("same-model")
-    expect(resolveRoleModel("reviser", config)).toBe("same-model")
-    expect(resolveRoleModel("arbiter", config)).toBe("same-model")
-    expect(resolveRoleModel("judge", config)).toBe("same-model")
+  it("默认态（未配置任何角色字段）全部解析为空串——由调用方回退会话模型", () => {
+    // TASK-009 之后「全角色单模型」不再是 resolveRoleModel 的职责：
+    // 所有角色解析为空串 = 「没有项目级覆盖」，调用方（deep-chapter-route-shell /
+    // premium-execution）各自回退到**同一个**会话 / 写作模型，故行为仍等价于旧的全绑单模型。
+    const config: ProjectModelConfig = {}
+    for (const role of ["writer", "critic", "reviser", "arbiter", "judge"] as const) {
+      expect(resolveRoleModel(role, config)).toBe("")
+    }
+    // 显式配置 reviewModel 时，只有绑该字段的三个角色被覆盖，写作侧保持「未配置」
+    const withReview: ProjectModelConfig = { reviewModel: "same-model" }
+    expect(resolveRoleModel("critic", withReview)).toBe("same-model")
+    expect(resolveRoleModel("arbiter", withReview)).toBe("same-model")
+    expect(resolveRoleModel("judge", withReview)).toBe("same-model")
+    expect(resolveRoleModel("writer", withReview)).toBe("")
+    expect(resolveRoleModel("reviser", withReview)).toBe("")
   })
 })
 
@@ -263,15 +286,18 @@ describe("resolveRoleModel (纯函数)", () => {
 describe("buildRoleModelMap", () => {
   it("从 config 构建完整映射", () => {
     const config: ProjectModelConfig = {
-      writingModel: "gpt-4",
       reviewModel: "claude-3",
     }
     const map = buildRoleModelMap(config)
-    expect(map.writer).toBe("gpt-4")
+    // 写作侧两个角色无项目配置字段 → 空串（调用方回退会话模型）
+    expect(map.writer).toBe("")
+    expect(map.reviser).toBe("")
+    // 审稿侧三个角色绑定 reviewModel
     expect(map.critic).toBe("claude-3")
-    expect(map.reviser).toBe("gpt-4")
     expect(map.arbiter).toBe("claude-3")
     expect(map.judge).toBe("claude-3")
+    // 映射键完整（RoleModelMap 全角色，无缺项）
+    expect(Object.keys(map).sort()).toEqual(["arbiter", "critic", "judge", "reviser", "writer"])
   })
 
   it("空配置返回空字符串映射", () => {

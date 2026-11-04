@@ -33,10 +33,12 @@ describe("T10 薄编排化：route() 接入 + T09 字段 + role→model 解析�
     expect(resolveRoleModel("reviewer", { writingConfig })).toBe(writingConfig)
     expect(resolveRoleModel(undefined, { writingConfig })).toBe(writingConfig)
     // 项目配置存在但角色模型字段全空：仍是写作模型本体
+    // （旧键 `writingModel` 一并留着：它已不是 NovelConfig 字段，传了也必须无效）
     const emptyNovelConfig = { writingModel: "", reviewModel: "", summaryModel: "", extractModel: "" } as any
     expect(resolveRoleModel("reviewer", { writingConfig, novelConfig: emptyNovelConfig })).toBe(writingConfig)
     expect(resolveRoleModel("judge", { writingConfig, novelConfig: emptyNovelConfig })).toBe(writingConfig)
-    // writingModel 显式等于会话模型：仍不新增对象
+    // TASK-009 回归锁：旧键 `writingModel` 传了也不得复活写作角色（字段已从 NovelConfig 删除），
+    // writer 仍返回会话模型本体，不新建对象。
     expect(resolveRoleModel("writer", { writingConfig, novelConfig: { writingModel: "m1" } as any })).toBe(writingConfig)
   })
 
@@ -51,7 +53,8 @@ describe("T10 薄编排化：route() 接入 + T09 字段 + role→model 解析�
       expect(resolved).toMatchObject({ model: "review-model" })
       expect(resolved).not.toBe(writingConfig)
     }
-    // writer/architect/editor 仍走写作侧（writingModel 未配置 → 会话模型）
+    // writer/architect/editor 仍走写作侧（无项目级角色字段 → 会话模型；
+    // novelConfig 里的旧键 `writingModel: ""` 已不是字段，不参与解析）
     expect(resolveRoleModel("writer", { writingConfig, novelConfig })).toBe(writingConfig)
     expect(resolveRoleModel("architect", { writingConfig, novelConfig })).toBe(writingConfig)
     expect(resolveRoleModel("editor", { writingConfig, novelConfig })).toBe(writingConfig)

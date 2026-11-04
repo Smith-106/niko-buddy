@@ -282,24 +282,6 @@ export const AGENT_STUDIO_SETTING_CATALOG: readonly AgentStudioCatalogEntry[] = 
     ],
   },
   {
-    id: "novel.writingModel",
-    // R11 / NF-04：`label` 是 UI 文案（agent-studio-panel.tsx 渲染），本任务只改注释不改文案。
-    // 准确表述：字段仍在 NovelConfig 中声明，writer/reviser 仍映射到它（src/lib/llm/model-resolver.ts:34/:36），
-    // premium-execution 等生产路径仍在消费；真正不可达的是 route 薄壳分支
-    // （deep-chapter-route-shell.ts:69 以 as 强转读 routeShellMode，生产无赋值方），与该字段本身无关。
-    label: "写作模型（已声明移除但仍接线）",
-    sourceFile: "src/stores/wiki-store.ts:321",
-    hasDefault: true,
-    defaultValue: '""',
-    duplicatedIn: [
-      "src/stores/wiki-store.ts:440",
-      "src/lib/project-store.ts:694",
-      "src/lib/llm/model-resolver.ts:34",
-      "src/lib/novel/deep-chapter-generation.ts:372",
-      "src/lib/novel/premium-execution.ts:463",
-    ],
-  },
-  {
     id: "novel.reviewModel",
     label: "审稿模型",
     sourceFile: "src/stores/wiki-store.ts:322",

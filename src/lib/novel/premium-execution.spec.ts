@@ -39,6 +39,7 @@ import {
   type PremiumExecutionInput,
 } from "./premium-execution"
 import type { ContextPack } from "./context-engine"
+import type { LlmConfig } from "@/stores/wiki-store"
 
 // ════════════════════════════════════════════════════════════════════════════
 // 测试辅助
@@ -58,10 +59,35 @@ const MINIMAL_CONTEXT_PACK: ContextPack = {
   wiki: "知识库",
 } as unknown as ContextPack
 
-/** 默认项目模型配置。 */
+/**
+ * 写作侧真实 `LlmConfig`（TASK-009 后的新入参形状）。
+ *
+ * TASK-009 之前 `premium-execution.ts` 把**模型名**塞进 `LlmConfig.provider`
+ * （`{ model, provider: writingModel } as LlmConfig`）——`provider` 是 provider 标识
+ * （"openai" | "anthropic" | …），`ModelPort.execute` 会把它交给 `streamChat`，
+ * 再按 `providerRegistry.getProviderConfig` 选 provider 实现；传模型名会直接选不到 provider。
+ * 现在写作侧改为展开调用方传入的真实 `LlmConfig`，provider / apiKey / 端点 / 上下文窗口
+ * 全部来自配置本体，只有 `model` 被角色解析结果覆盖。
+ */
+const WRITING_LLM_CONFIG: LlmConfig = {
+  provider: "anthropic",
+  apiKey: "test-api-key",
+  model: "claude-3-5-sonnet",
+  ollamaUrl: "",
+  customEndpoint: "",
+  maxContextSize: 200_000,
+}
+
+/** 默认项目模型配置。
+ *
+ * - 角色模型**名**：`reviewModel` 仍是活字段（critic / arbiter / judge 绑它）；
+ *   writer / reviser 已无项目配置字段（`writingModel` 已删除）→ 解析为空串，
+ *   回退到 `writingConfig.model`。
+ * - 传输参数：`writingConfig` 是写作侧真实 LlmConfig。
+ */
 const DEFAULT_PROJECT_CONFIG = {
-  writingModel: "gpt-4",
   reviewModel: "gpt-4-review",
+  writingConfig: WRITING_LLM_CONFIG,
 }
 
 /** 创建 ModelPort mock。 */
@@ -444,6 +470,88 @@ describe("GCR 循环 (runGcrLoop)", () => {
       premiumConfig: createPremiumEnabledConfig(),
     })
     await expect(runGcrLoop(input, controller.signal)).rejects.toThrow("已停止生成")
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// 写作侧传输参数（TASK-009 provider 修复锁）
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 锁死 TASK-009 对**写作侧**「模型名冒充 provider」缺陷的真实修复（不是机械替换）：
+ *
+ *   - 旧：`{ model, provider: input.projectConfig.writingModel } as LlmConfig`
+ *     —— `provider` 拿到的是**模型名**，且 `apiKey` / 端点 / 上下文窗口全丢；
+ *   - 新：`{ ...input.projectConfig.writingConfig, model }`
+ *     —— provider / apiKey / 端点 / 上下文窗口来自真实 LlmConfig，只有 model 被角色解析覆盖。
+ *
+ * ⚠️ 已知遗留（**不归本 spec 修**，源文件不属本任务所有权）：`premium-execution.ts`
+ * **review 侧**仍是旧形状——`critiqueProposal` / `runConsensusGate` / `runDualJudge` /
+ * `runDualProposal` 仲裁 / `runDualJudge` 融合共 7 处写成
+ * `config: { model, provider: input.projectConfig.reviewModel } as LlmConfig`，
+ * 即 critic / judge / arbiter / fusion 四个角色的调用仍把 reviewModel（模型名）当 provider。
+ * 这里**故意不断言**这些调用点的 provider 值，以免把缺陷钉成契约。
+ */
+describe("写作侧传输参数（TASK-009 provider 修复锁）", () => {
+  /** 取第 index 次 ModelPort.execute 的入参 config。 */
+  function callConfig(modelPort: ModelPort, index: number): LlmConfig {
+    const calls = (modelPort.execute as ReturnType<typeof vi.spyOn>).mock.calls
+    return (calls[index][0] as { config: LlmConfig }).config
+  }
+
+  it("GCR 的 generate / revise 携带真实 LlmConfig：provider 是 provider 标识，不是模型名", async () => {
+    const modelPort = createMockModelPort("mock response")
+    await runGcrLoop(createInput({ modelPort, premiumConfig: createPremiumEnabledConfig() }))
+
+    // 两轮 × (generate, critique, revise)：generate=0/3，revise=2/5（critique 属 review 侧，见上）
+    for (const index of [0, 2, 3, 5]) {
+      const config = callConfig(modelPort, index)
+      expect(config.provider).toBe("anthropic") // 真实 provider 标识（而非模型名）
+      expect(config.provider).not.toBe(config.model) // 模型名不得进 provider 位
+      expect(config.model).toBe(WRITING_LLM_CONFIG.model) // writer/reviser 无字段 → 回退写作配置本体模型
+      // TASK-009 之前这里只有 { model, provider }：apiKey / 端点 / 上下文窗口全部丢失
+      expect(config.apiKey).toBe("test-api-key")
+      expect(config.maxContextSize).toBe(200_000)
+      expect(config.ollamaUrl).toBe("")
+      expect(config.customEndpoint).toBe("")
+    }
+  })
+
+  it("双提案的两份并行草稿都走真实 provider（模型 A/B 只体现在 model 位）", async () => {
+    const modelPort = createSequentialMockModelPort([
+      "草稿A正文",
+      "草稿B正文",
+      '{"selected":"A","reasoning":"A更好"}',
+    ])
+    await runDualProposal(
+      createInput({ modelPort, premiumConfig: createPremiumEnabledConfig({ dualProposal: true }) }),
+    )
+
+    const configA = callConfig(modelPort, 0)
+    const configB = callConfig(modelPort, 1)
+    for (const config of [configA, configB]) {
+      expect(config.provider).toBe("anthropic")
+      // 旧实现的错值：provider 被写成模型名（writingModel / reviewModel）
+      expect(config.provider).not.toBe(WRITING_LLM_CONFIG.model)
+      expect(config.provider).not.toBe(DEFAULT_PROJECT_CONFIG.reviewModel)
+      expect(config.apiKey).toBe("test-api-key")
+    }
+    // 双 writer 在模型名上仍然分离（fallbackChains.writer 缺省 → B 回落 A）
+    expect(configA.model).toBe(WRITING_LLM_CONFIG.model)
+    expect(configB.model).toBe(WRITING_LLM_CONFIG.model)
+  })
+
+  it("展开而非改写：调用后不污染调用方传入的 LlmConfig", async () => {
+    const before = JSON.stringify(WRITING_LLM_CONFIG)
+    const modelPort = createMockModelPort("mock response")
+    await runGcrLoop(createInput({ modelPort, premiumConfig: createPremiumEnabledConfig() }))
+    await runDualProposal(
+      createInput({ modelPort, premiumConfig: createPremiumEnabledConfig({ dualProposal: true }) }),
+    )
+    // 每次调用只覆盖 model，写回真实 config 的 model 会是一个真回归
+    expect(JSON.stringify(WRITING_LLM_CONFIG)).toBe(before)
+    expect(WRITING_LLM_CONFIG.model).toBe("claude-3-5-sonnet")
+    expect(WRITING_LLM_CONFIG.provider).toBe("anthropic")
   })
 })
 

@@ -518,7 +518,7 @@ export async function loadNovelConfig(projectId?: string, projectPath?: string):
       if (await fileExists(filePath)) {
         const raw = await readFile(filePath)
         const config = JSON.parse(raw)
-        return normalizeNovelConfig(config)
+        return normalizeNovelConfig(config, `项目文件 ${filePath}`)
       }
     } catch {
       // fall through to global store
@@ -529,11 +529,14 @@ export async function loadNovelConfig(projectId?: string, projectPath?: string):
   if (projectId) {
     const projectConfigs = await store.get<Record<string, NovelConfig>>(PROJECT_NOVEL_CONFIG_KEY)
     if (projectConfigs && projectConfigs[projectId]) {
-      config = normalizeNovelConfig(projectConfigs[projectId])
+      config = normalizeNovelConfig(projectConfigs[projectId], `项目 ${projectId}`)
     }
   }
   if (!config) {
-    config = normalizeNovelConfig(await store.get<NovelConfig>(NOVEL_CONFIG_KEY))
+    config = normalizeNovelConfig(
+      await store.get<NovelConfig>(NOVEL_CONFIG_KEY),
+      projectId ? `项目 ${projectId}（回退全局配置）` : "全局配置",
+    )
   }
   if (config && projectPath) {
     try {
@@ -679,12 +682,66 @@ export async function loadMaxHistoryMessages(_projectId?: string, _projectPath?:
 // 本地 re-export 保留既有导入面零破坏（project-store.spec 既有引用不改）。
 export { sanitizeJournalTtlMs } from "@/lib/novel/stage-output-journal"
 
+/**
+ * 已发出过 `writingModel` 废弃提示的作用域集合（进程内去重）。
+ *
+ * 为什么要去重：旧配置的 `writingModel` 键可能长期残留在 global store 里
+ * （`loadNovelConfig` 只回写项目文件，不重写 store），若不去重则每次载入都刷屏。
+ * 粒度取「作用域字符串」（项目文件路径 / 项目 ID / 全局），即每个来源只提醒一次。
+ */
+const warnedDeprecatedWritingModelScopes = new Set<string>()
+
+/**
+ * 废弃键名常量：旧版本落盘的 `writingModel`。
+ *
+ * 只允许以**字符串**形式出现在本文件（`agent-studio-projection.spec.ts` 的反向漂移闸
+ * 会把任何代码位的 `writingModel` 标识符判红——这正是我们想要的：字段不得复活，
+ * 仅允许“按名字比对旧键”的迁移逻辑）。
+ */
+const DEPRECATED_NOVEL_CONFIG_KEY = "writingModel"
+
+/** 仅供测试：清空去重集合（不在生产路径上使用）。 */
+export function __resetWritingModelDeprecationWarningsForTest(): void {
+  warnedDeprecatedWritingModelScopes.clear()
+}
+
+/**
+ * DEC-R5=A 迁移日志：`writingModel` 已废弃（TASK-009 已从 `NovelConfig` 真删除）。
+ *
+ * 契约：
+ *   - **检测**：原始配置对象上是否**存在该键**（`hasOwnProperty`），不看值——即使写的是空串
+ *     也算旧数据，因为旧版本会主动落盘 `writingModel: ""`；
+ *   - **只告警不阻断**：不 throw、不改返回值、不改载入流程（白名单重建本就会丢掉该键）；
+ *   - **不刷屏**：同一作用域（项目文件 / 项目 ID / 全局）进程内只告警一次。
+ */
+function warnDeprecatedWritingModel(
+  config: Partial<NovelConfig> | null | undefined,
+  scope: string,
+): void {
+  if (!config || typeof config !== "object") return
+  if (!Object.prototype.hasOwnProperty.call(config, DEPRECATED_NOVEL_CONFIG_KEY)) return
+  if (warnedDeprecatedWritingModelScopes.has(scope)) return
+  warnedDeprecatedWritingModelScopes.add(scope)
+
+  const discarded = (config as unknown as Record<string, unknown>)[DEPRECATED_NOVEL_CONFIG_KEY]
+  console.warn(
+    `[project-store] ${scope} 的 novelConfig 已含废弃字段 writingModel（值 ${JSON.stringify(discarded)}），`
+      + "该值已被丢弃。写作模型不再可配置：TASK-009 已从 NovelConfig 删除该字段，"
+      + "正文始终使用 AI 会话当前模型。如需为审稿指定模型，请用 reviewModel。",
+  )
+}
+
 function normalizeNovelConfig(
   config?: Partial<NovelConfig> | null,
+  /** 迁移日志用的项目标识（项目文件路径 / 项目 ID / 全局），缺省即「未知项目」。 */
+  scope = "未知项目",
 ): NovelConfig | null {
   if (!config) return null
   // P1-IMP-01: 三安全不变量运行时强制（GOV-OBS-05）——任何试图关闭不变量的配置 → fail-loud。
+  // 放在迁移告警之前：不变量不合法的配置直接 throw，不应先打一条「writingModel 已丢弃」的日志。
   assertInvariantsNotDisabled(pickInvariantOverrides(config))
+  // DEC-R5=A：旧配置里的 writingModel 键——只告警、不阻断，值由下方白名单重建自然丢弃。
+  warnDeprecatedWritingModel(config, scope)
   return {
     contextTokenBudget: Math.max(0, config.contextTokenBudget ?? DEFAULT_NOVEL_CONFIG.contextTokenBudget),
     recentSummaryWindow: Math.max(1, Math.min(30, config.recentSummaryWindow ?? DEFAULT_NOVEL_CONFIG.recentSummaryWindow)),
@@ -707,7 +764,6 @@ function normalizeNovelConfig(
     // sanitize：仅接受有限正数，其余一律视为缺席（回退全局），避免脏值污染装配。
     journalTtlMs: sanitizeJournalTtlMs(config.journalTtlMs),
     reviewReasoningEffort: config.reviewReasoningEffort ?? DEFAULT_NOVEL_CONFIG.reviewReasoningEffort,
-    writingModel: config.writingModel ?? DEFAULT_NOVEL_CONFIG.writingModel,
     reviewModel: config.reviewModel ?? DEFAULT_NOVEL_CONFIG.reviewModel,
     summaryModel: config.summaryModel ?? DEFAULT_NOVEL_CONFIG.summaryModel,
     extractModel: config.extractModel ?? DEFAULT_NOVEL_CONFIG.extractModel,

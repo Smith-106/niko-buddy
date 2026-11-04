@@ -56,10 +56,11 @@ export async function testNovelModel(
     throw new Error("模型已连接，但没有返回可用内容。")
   }
 
-  const modelKey = `${taskType}Model` as const
-
-  // writing 任务不走 novelConfig.writingModel 判定（该字段虽未移除，但本流程无读取点），始终视为回退到 AI 会话模型
-  const usedFallbackModel = taskType === "writing" ? true : !novelConfig[modelKey].trim()
+  // writing 任务没有独立模型字段（`writingModel` 已从 NovelConfig 删除），始终视为回退到 AI 会话模型；
+  // 其余任务类型按 `<taskType>Model` 字段是否配置判定。
+  const usedFallbackModel = taskType === "writing"
+    ? true
+    : !novelConfig[`${taskType}Model`].trim()
 
   return {
     model,

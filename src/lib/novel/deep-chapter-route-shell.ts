@@ -71,8 +71,8 @@ export function resolveRouteShellMode(
   //     routeShellMode 字段，下一行的 `as { routeShellMode?: RouteShellMode }` 是绕过类型的
   //     强转读取，运行时同样恒为 undefined（没有任何写入方）；
   //   - 故 `raw` 生产恒为 "legacy"，route 分支在生产不可达，仅测试可激活；
-  //   - 这与 writingModel 无关：该字段与 writer/reviser 映射仍在
-  //     （见 src/lib/llm/model-resolver.ts 中 ROLE_TO_CONFIG_FIELD 的注释）。
+  //   - 这个不可达结论与具体模型字段无关（`writingModel` 已在 TASK-009 删除，
+  //     writer/reviser 不再绑定任何配置字段，见 src/lib/llm/model-resolver.ts 顶部注记）。
   const fromInput = input.routeShellMode
   const fromConfig = novelConfig
     ? (novelConfig as { routeShellMode?: RouteShellMode }).routeShellMode
@@ -125,25 +125,23 @@ type RoleProjectConfig = {
   writingConfig: LlmConfig
   novelConfig?: Pick<
     ReturnType<typeof useWikiStore.getState>["novelConfig"],
-    "writingModel" | "reviewModel" | "summaryModel" | "extractModel"
+    "reviewModel" | "summaryModel" | "extractModel"
   > | null
   /** 测试/后台任务可注入 provider 配置表；缺省读 store（与 review-adapter 同构）。 */
   providerConfigs?: ReturnType<typeof useWikiStore.getState>["providerConfigs"]
 }
 
 /**
- * 从项目配置拼出 T33 注册表的入参。
+ * 从项目配置拼出 T33 注册表的入参（只带**真实存在**的角色模型字段，不伪造）。
  *
- * writingModel 缺省回退当前会话模型——这正是历史的「全角色单模型」语义，
- * 但 reviewModel 等角色字段**不再**用 writingModel 冒充：未配置就是未配置，
- * 由 resolveRoleModelName 走回退，从而保证默认态与旧行为位级等价。
+ * writer / reviser 没有独立字段（`writingModel` 已删除）：它们解析为空串，
+ * 由 `resolveRoleModel` 直接返回 `writingConfig` 本体——这正是历史的「全角色单模型」语义，
+ * 从而保证默认态与旧行为位级等价。
  */
 function toProjectModelConfig(projectConfig: RoleProjectConfig): ProjectModelConfig {
   const novelConfig = projectConfig.novelConfig
-  const configuredWriting = (novelConfig?.writingModel ?? "").trim()
   const configuredReview = (novelConfig?.reviewModel ?? "").trim()
   return {
-    writingModel: configuredWriting || projectConfig.writingConfig.model,
     ...(configuredReview ? { reviewModel: configuredReview } : {}),
     ...(novelConfig?.summaryModel?.trim() ? { summaryModel: novelConfig.summaryModel.trim() } : {}),
     ...(novelConfig?.extractModel?.trim() ? { extractModel: novelConfig.extractModel.trim() } : {}),
@@ -153,7 +151,7 @@ function toProjectModelConfig(projectConfig: RoleProjectConfig): ProjectModelCon
 /**
  * T10 / T33：stage executor 的 role→model 解析点。
  *
- * 输入是**真实项目配置**（novelConfig 的 writing/review/summary/extract 模型字段），
+ * 输入是**真实项目配置**（novelConfig 的 review/summary/extract 模型字段），
  * 经 `@/lib/llm/model-resolver` 的角色注册表解出角色应使用的模型名，再用
  * `@/lib/novel/model-resolver` 的模型名解析把 "providerId/modelId" 换成完整 LlmConfig。
  *

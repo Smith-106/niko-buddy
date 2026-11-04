@@ -47,6 +47,7 @@ import {
   saveTheme,
   saveUiFontSizeScale,
   migratePlaintextApiKeys,
+  __resetWritingModelDeprecationWarningsForTest,
 } from "./project-store"
 import type { WikiProject } from "@/types/wiki"
 
@@ -619,6 +620,109 @@ describe("novel config", () => {
     expect((await loadNovelConfig())?.journalTtlMs).toBeUndefined()
     await saveNovelConfig({ journalTtlMs: -5 } as never)
     expect((await loadNovelConfig())?.journalTtlMs).toBeUndefined()
+  })
+
+  // ── DEC-R5=A：writingModel 废弃迁移日志。
+  //   契约：只告警不阻断、不改返回结构、命中才 warn、同作用域进程内只 warn 一次。
+  it("含旧键 writingModel → warn 一条中文迁移提示，且不阻断载入、不带回该键", async () => {
+    __resetWritingModelDeprecationWarningsForTest()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    // 旧版本落盘的原样配置（字段与值都在）—— 绕过 saveNovelConfig 直接进 store
+    await mocks.store.set("projectNovelConfigs", {
+      "legacy-project": { searchTopK: 4, writingModel: "gpt-4-legacy" },
+    })
+
+    const loaded = await loadNovelConfig("legacy-project")
+
+    // 不阻断：仍返回完整配置，业务键照常生效
+    expect(loaded?.searchTopK).toBe(4)
+    expect(loaded?.chapterTargetChars).toBeGreaterThan(0)
+    // 值被丢弃：白名单重建不把旧键带回来
+    expect(loaded && Object.prototype.hasOwnProperty.call(loaded, "writingModel")).toBe(false)
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    const message = String(warn.mock.calls[0][0])
+    expect(message).toContain("writingModel")
+    expect(message).toContain("废弃")
+    expect(message).toContain("丢弃")
+    expect(message).toContain("legacy-project") // 带项目标识
+    warn.mockRestore()
+  })
+
+  it("不含旧键 → 静默（不 warn），避免每次载入刷屏", async () => {
+    __resetWritingModelDeprecationWarningsForTest()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await mocks.store.set("projectNovelConfigs", { "clean-project": { searchTopK: 5 } })
+
+    const loaded = await loadNovelConfig("clean-project")
+
+    expect(loaded?.searchTopK).toBe(5)
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it("旧键值为空串也算旧数据：仍告警（旧版本会主动落盘 writingModel: \"\"）", async () => {
+    __resetWritingModelDeprecationWarningsForTest()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await mocks.store.set("projectNovelConfigs", {
+      "empty-legacy-project": { searchTopK: 6, writingModel: "" },
+    })
+
+    expect((await loadNovelConfig("empty-legacy-project"))?.searchTopK).toBe(6)
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0][0])).toContain('""') // 值被原样带入提示
+    warn.mockRestore()
+  })
+
+  it("同一项目重复载入只 warn 一次（进程内按作用域去重）", async () => {
+    __resetWritingModelDeprecationWarningsForTest()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await mocks.store.set("projectNovelConfigs", {
+      "repeat-project": { searchTopK: 7, writingModel: "gpt-4" },
+    })
+
+    await loadNovelConfig("repeat-project")
+    await loadNovelConfig("repeat-project")
+    await loadNovelConfig("repeat-project")
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+
+  it("去重粒度是项目而非进程：不同项目各自告警一次", async () => {
+    __resetWritingModelDeprecationWarningsForTest()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await mocks.store.set("projectNovelConfigs", {
+      "proj-a": { writingModel: "gpt-4" },
+      "proj-b": { writingModel: "claude-legacy" },
+    })
+
+    await loadNovelConfig("proj-a")
+    await loadNovelConfig("proj-a")
+    await loadNovelConfig("proj-b")
+
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(String(warn.mock.calls[0][0])).toContain("proj-a")
+    expect(String(warn.mock.calls[1][0])).toContain("proj-b")
+    warn.mockRestore()
+  })
+
+  it("项目文件（.niko-buddy/novel-config.json）里的旧键也告警，标识带文件路径", async () => {
+    __resetWritingModelDeprecationWarningsForTest()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(
+      JSON.stringify({ searchTopK: 2, writingModel: "claude-legacy" }),
+    )
+
+    const loaded = await loadNovelConfig("file-project", "C:/legacy-proj")
+
+    expect(loaded?.searchTopK).toBe(2)
+    expect(loaded && Object.prototype.hasOwnProperty.call(loaded, "writingModel")).toBe(false)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0][0])).toContain("C:/legacy-proj")
+    warn.mockRestore()
   })
 
   it("tolerates failed file reads and writes", async () => {

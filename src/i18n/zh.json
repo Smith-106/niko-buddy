@@ -2017,8 +2017,6 @@
       "reviewReasoningEffortHint": "控制 AI 审稿（含六维审查）的思考深度。档位越低越省 Token、越快，但连贯性与设定冲突的把关会变弱。默认「高」。",
       "taskModelsTitle": "任务模型路由",
       "taskModelsHint": "下面都是 LLM 写作、审稿、摘要和提取模型，不是向量嵌入模型。留空时使用当前主模型。",
-      "writingModel": "写作模型（留空使用默认）",
-      "writingModelHint": "用于生成、续写和改写正文。默认使用上方全局 LLM 模型；只有想让写作任务单独使用另一个模型时才需要选择。",
       "reviewModel": "审稿模型",
       "reviewModelHint": "用于章节审稿、连贯性检查和保存前自动审稿。留空则跟随 AI 会话当前选中的模型。",
       "summaryModel": "摘要模型",

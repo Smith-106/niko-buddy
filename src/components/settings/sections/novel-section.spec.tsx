@@ -209,7 +209,8 @@ function buildDraft(): SettingsDraft {
       stageJournalEnabled: true,
       autoPlanningEnabled: true,
       reviewReasoningEffort: "high",
-      writingModel: "",
+      // TASK-009：`writingModel` 已从 NovelConfig 删除，此夹具不再保留该键
+      // （旧键残留会在 typecheck 时因为 NovelConfig 无此字段而红）。
       reviewModel: "",
       summaryModel: "",
       extractModel: "",

@@ -344,7 +344,6 @@ export interface NovelConfig {
   journalTtlMs?: number
   /** Reasoning effort tier for review calls (default high). */
   reviewReasoningEffort: "low" | "medium" | "high"
-  writingModel: string
   reviewModel: string
   summaryModel: string
   extractModel: string
@@ -454,7 +453,6 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   residualCampaignIncludeFreezeChapters: false,
   stageJournalEnabled: true,
   reviewReasoningEffort: "high",
-  writingModel: "",
   reviewModel: "",
   summaryModel: "",
   extractModel: "",

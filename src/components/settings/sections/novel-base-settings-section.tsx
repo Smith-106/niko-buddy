@@ -242,7 +242,8 @@ export function NovelBaseSettingsSection({ draft, setDraft, updateNovelConfig }:
             <p className="text-xs text-muted-foreground">{t("mainControl.settingsAiWorkflowModeHint")}</p>
           </div>
 
-          {/* D2=C：writingModel 是死字段（model-resolver 已移除写作角色），只做只读说明，不加可编辑控件。 */}
+          {/* D2=C（TASK-009 已落地）：`writingModel` 字段已从 NovelConfig 删除，写作固定走 AI 会话当前模型，
+              故这里只保留「已移除」只读说明，不加（也不可能再加）可编辑控件。 */}
           <p data-testid="novel-writing-model-removed" className="text-xs text-muted-foreground">
             {t("mainControl.settingsWritingModelRemoved")}
           </p>

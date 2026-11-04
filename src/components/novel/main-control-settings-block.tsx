@@ -9,7 +9,7 @@
  * - novelConfig 写入一律经 persistNovelConfigPatch（逐键回滚唯一实现），patch 只放本次改动的一个键；
  * - aiWorkflowMode 是全局单键（D1=A），走 saveAiWorkflowMode 落盘成功后再更新 store；
  * - preWriteGateMode 旁必须显示生效位置说明（D3=A）：生效于正式库写入，主控草稿阶段不拦；
- * - writingModel 是死字段（D2=C）：只显示「已移除」说明，不提供可编辑控件。
+ * - writingModel 已删除（D2=C 已落地）：只显示「已移除」说明，不提供可编辑控件。
  */
 
 import { useState } from "react"
@@ -190,7 +190,7 @@ export function MainControlSettingsBlock() {
         </div>
         <p className="text-xs text-muted-foreground">{t("mainControl.settingsAiWorkflowModeHint")}</p>
 
-        {/* D2=C：写作模型已移除（只读说明，无可编辑控件） */}
+        {/* D2=C（TASK-009 已落地）：writingModel 字段已删除，仅保留只读说明，无可编辑控件 */}
         <p className="text-xs text-muted-foreground">{t("mainControl.settingsWritingModelRemoved")}</p>
       </div>
     </div>

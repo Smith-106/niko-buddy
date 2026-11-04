@@ -22,6 +22,7 @@ import {
   resolveRoleModel,
   resolveJudgePool,
   resolveJudgePair,
+  type ProjectModelConfig,
 } from "@/lib/llm/model-resolver"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { PremiumConfig } from "./premium-config"
@@ -78,6 +79,22 @@ export interface PremiumModelConfig {
   provider?: string
 }
 
+/**
+ * 精品执行的项目模型配置。
+ *
+ * 两个来源分开，各自只做自己那件事：
+ *   - 角色模型**名**来自 T33 角色注册表（`resolveRoleModel`，`extends ProjectModelConfig`）；
+ *   - provider / apiKey / 端点等传输参数来自调用方的真实 `LlmConfig`。
+ *
+ * 为什么不能把模型名塞进 `provider` 位：`LlmConfig.provider` 是 provider **标识**
+ * （"openai" | "anthropic" | …），`ModelPort.execute` 把它原样交给 `streamChat`，
+ * 再由 `providerRegistry.getProviderConfig` 选 provider 实现；传模型名会直接选不到 provider。
+ */
+export interface PremiumProjectConfig extends ProjectModelConfig {
+  /** 写作侧 LlmConfig（writer / reviser 的 provider / apiKey / 端点来源）。 */
+  writingConfig: LlmConfig
+}
+
 /** 精品执行输入。 */
 export interface PremiumExecutionInput {
   /** 当前章节正文。 */
@@ -91,8 +108,8 @@ export interface PremiumExecutionInput {
   hardInjectEnabled?: boolean
   /** 精品模式配置。 */
   premiumConfig: PremiumConfig
-  /** 项目模型配置（writingModel/reviewModel 字段）。 */
-  projectConfig: { writingModel: string; reviewModel: string }
+  /** 项目模型配置（角色模型名 + 写作侧真实 LlmConfig）。 */
+  projectConfig: PremiumProjectConfig
   /** ModelPort 实例（测试时可注入 mock）。 */
   modelPort: ModelPort
   /** 可选：章节号。 */
@@ -128,6 +145,17 @@ const CONSENSUS_DIMENSIONS: readonly ConsensusJudgmentType[] = [
   "foreshadowing_conflict",
   "pov_risk",
 ] as const
+
+/**
+ * 解析写作侧模型名（writer / reviser 共用）。
+ *
+ * `writingModel` 字段已从 NovelConfig 删除（TASK-009），writer/reviser 不再绑定任何
+ * 项目配置字段，`resolveRoleModel` 返回空串 —— 此时回退到调用方传入写作配置本体的模型，
+ * 与 deep-chapter-route-shell 的 toProjectModelConfig 回退口径一致（未配置即会话模型）。
+ */
+function resolveWriterModel(input: PremiumExecutionInput): string {
+  return resolveRoleModel("writer", input.projectConfig) || input.projectConfig.writingConfig.model
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // Prompt 构建（纯函数）
@@ -397,7 +425,7 @@ export async function runGcrLoop(
   if (signal?.aborted) throw new Error("已停止生成")
 
   const rounds: GcrRound[] = []
-  const writerModel = resolveRoleModel("writer", input.projectConfig)
+  const writerModel = resolveWriterModel(input)
   const criticModel = input.premiumConfig.fallbackChains.critic?.primary || writerModel
 
   for (let roundIndex = 0; roundIndex < MAX_GCR_ROUNDS; roundIndex++) {
@@ -460,7 +488,7 @@ async function generateProposal(
     : buildGeneratePrompt(input.contextPack, input.hardInjectEnabled)
 
   return input.modelPort.execute({
-    config: { model, provider: input.projectConfig.writingModel } as LlmConfig,
+    config: { ...input.projectConfig.writingConfig, model },
     messages: [{ role: "user", content: prompt }],
     signal,
   })
@@ -512,7 +540,7 @@ async function reviseProposal(
 ): Promise<string> {
   const prompt = buildRevisePrompt(input.contextPack, critique, currentText, input.hardInjectEnabled)
   return input.modelPort.execute({
-    config: { model, provider: input.projectConfig.writingModel } as LlmConfig,
+    config: { ...input.projectConfig.writingConfig, model },
     messages: [{ role: "user", content: prompt }],
     signal,
   })
@@ -608,7 +636,7 @@ export async function runDualProposal(
 ): Promise<string> {
   if (signal?.aborted) throw new Error("已停止生成")
 
-  const modelA = resolveRoleModel("writer", input.projectConfig)
+  const modelA = resolveWriterModel(input)
   const modelB = input.premiumConfig.fallbackChains.writer?.primary || modelA
 
   const prompt = buildGeneratePrompt(input.contextPack, input.hardInjectEnabled)
@@ -616,12 +644,12 @@ export async function runDualProposal(
   // 双 writer 并行独立生成
   const [proposalA, proposalB] = await Promise.all([
     input.modelPort.execute({
-      config: { model: modelA, provider: input.projectConfig.writingModel } as LlmConfig,
+      config: { ...input.projectConfig.writingConfig, model: modelA },
       messages: [{ role: "user", content: prompt }],
       signal,
     }),
     input.modelPort.execute({
-      config: { model: modelB, provider: input.projectConfig.writingModel } as LlmConfig,
+      config: { ...input.projectConfig.writingConfig, model: modelB },
       messages: [{ role: "user", content: prompt }],
       signal,
     }),

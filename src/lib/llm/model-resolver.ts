@@ -29,21 +29,24 @@ export const ALL_WRITING_ROLES: readonly WritingRole[] = [
   "judge",
 ] as const
 
-// R11 / NF-04 事实修正（DEC-03：只修注释，字段与映射一律不动）：
-//   - `writingModel` **没有被移除**。writer / reviser 两个角色仍然映射到它（下方 writer / reviser
-//     两行即活映射），
-//     字段本身也仍在 NovelConfig（src/stores/wiki-store-config.ts:347）与 ProjectModelConfig 中声明；
-//   - premium-execution 等生产路径仍调用 resolveRoleModel("writer")，因此这条映射是活代码，
-//     不能按「已移除」的口径删除或摘除；
-//   - 本仓里真正「不可达」的是 route 薄壳分支，而不是该字段本身
-//     （见 src/lib/novel/deep-chapter-route-shell.ts 中 resolveRouteShellMode 的 routeShellMode 说明）；
-//   - 另注：reviser 那一行的行内注释「可独立覆盖」并不准确 —— ProjectModelConfig 没有
-//     reviserModel 字段，reviser 实际恒等于 writingModel，无法独立覆盖。
-/** 角色→模型字段映射（用于从 NovelConfig 读取）。 */
-const ROLE_TO_CONFIG_FIELD: Record<WritingRole, string> = {
-  writer: "writingModel",
+// TASK-009：`writingModel` 已从 NovelConfig（src/stores/wiki-store-config.ts）与
+// ProjectModelConfig 中删除，不再是活字段。
+//   - 删除前的证据链：该字段在生产链路上**没有任何写入方**（设置面板早已撤掉控件，
+//     只留一行「已移除」只读说明），线上行为一直是「正文始终使用 AI 会话当前模型」；
+//     唯一的读取点是 route 薄壳分支，而 resolveRouteShellMode 生产恒返回 "legacy"
+//     （deep-chapter-route-shell.ts），该分支不可达。故字段删除对线上行为零变化。
+//   - 删除后 writer / reviser **不绑定任何项目配置字段**（下方映射显式为 null），
+//     resolveRoleModel 对这两个角色返回空串，调用方据此回退到写作/会话模型 ——
+//     与删除前的线上行为一致（默认「全角色单模型」）。
+//   - 仍绑定字段的三个角色（critic / arbiter / judge）继续读 `reviewModel`。
+//   - 历史注记：本仓曾有一条「writingModel 没有被移除 / writer-reviser 映射是活代码」的
+//     事实修正（R11 / NF-04，DEC-03）；该口径随本任务作废，字段与映射均已删除。
+/** 角色→模型字段映射（用于从 NovelConfig 读取）。
+ *  `null` = 该角色没有独立的项目配置字段，解析结果为空串，由调用方回退到会话模型。 */
+const ROLE_TO_CONFIG_FIELD: Record<WritingRole, keyof ProjectModelConfig | null> = {
+  writer: null,
   critic: "reviewModel",
-  reviser: "writingModel",   // 默认复用 writingModel，可独立覆盖
+  reviser: null,
   arbiter: "reviewModel",
   judge: "reviewModel",
 }
@@ -61,7 +64,6 @@ export interface RoleModelMap {
 
 /** 项目配置模型字段子集（resolveRoleModel 的输入契约）。 */
 export interface ProjectModelConfig {
-  writingModel?: string
   reviewModel?: string
   summaryModel?: string
   extractModel?: string
@@ -74,21 +76,23 @@ export interface ProjectModelConfig {
  * 纯函数：给定相同 (role, config) 总是返回相同结果。
  *
  * 解析优先级:
- *   1. 角色专属字段（如 writer→writingModel, critic→reviewModel）
- *   2. writingModel 作为兜底
- *   3. 空字符串（无配置时）
+ *   1. 角色专属字段（critic / arbiter / judge → reviewModel）
+ *   2. 空字符串——writer / reviser 没有独立字段（`writingModel` 已删除，见上方注记），
+ *      由调用方回退到写作 / 会话模型
+ *   3. 空字符串（字段未配置时）
  *
- * 向后兼容: 所有角色全绑 writingModel 时行为与现状一致。
+ * 向后兼容: 默认态（项目未配置任何角色模型）所有角色解析为空串，调用方回退到会话模型，
+ * 与旧的「全角色单模型」行为位级等价。
  */
 export function resolveRoleModel(
   role: WritingRole,
   config: ProjectModelConfig,
 ): string {
-  const field = ROLE_TO_CONFIG_FIELD[role] as keyof ProjectModelConfig
+  const field = ROLE_TO_CONFIG_FIELD[role]
+  // writer / reviser 没有项目配置字段 → 空串（调用方回退会话模型）
+  if (!field) return ""
   // judgePool 为 string[] 字段，与角色→模型单字段语义无关，需收窄为 string
-  // R11：末尾的 writingModel 兜底同样是活逻辑（字段未移除、writer/reviser 映射未摘），
-  // 不要依据「已移除」的旧口径删掉这条回退链。
-  return (config[field] as string | undefined) || config.writingModel || ""
+  return (config[field] as string | undefined) || ""
 }
 
 /**
