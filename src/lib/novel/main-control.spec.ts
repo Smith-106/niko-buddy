@@ -2,13 +2,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ToolRegistry } from "@/lib/agent/registry"
 import type { AgentRunCallbacks, AgentRunRecord } from "@/lib/agent/types"
 import type { LlmConfig } from "@/stores/wiki-store"
+import { useOutlineChatStore } from "@/stores/outline-chat-store"
+import { listDirectory, readFile } from "@/commands/fs"
 import {
   MAIN_CONTROL_TOOLS,
+  loadOutlineConversations,
   parseDraftReceipts,
   resolveWikiPath,
   runMainControlAgent,
 } from "./main-control"
 import { setModuleHeatSink } from "./module-heat"
+
+// F04 断言需要真实大纲目录内容（list_outlines 的默认章号只在非空清单里输出）；
+// 其余文件命令保留原实现，工具注册路径不触碰 fs。
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+    listDirectory: vi.fn(),
+    readFile: vi.fn(),
+  }
+})
 
 const LLM = { provider: "openai", model: "gpt-test", apiKey: "k", baseUrl: "" } as unknown as LlmConfig
 
@@ -55,6 +69,9 @@ function fakeRunner(
 
 beforeEach(() => {
   setModuleHeatSink(null)
+  vi.clearAllMocks()
+  // F08 数据源隔离：store 是全局单例，逐个用例重置，避免串味。
+  useOutlineChatStore.setState({ conversations: [], activeConversationId: null, loaded: false })
 })
 
 describe("parseDraftReceipts", () => {
@@ -305,6 +322,29 @@ describe("深章流水线工具注入", () => {
 })
 
 describe("工具白名单收窄", () => {
+  it("F05：白名单只收窄不放大——不含 route_task / trim_context，保留 load_context", () => {
+    expect(MAIN_CONTROL_TOOLS).toContain("load_context")
+    expect(MAIN_CONTROL_TOOLS).not.toContain("route_task")
+    expect(MAIN_CONTROL_TOOLS).not.toContain("trim_context")
+  })
+
+  it("F05：主控内 route_task 不再注册（结果零消费者），白名单总数不增长", async () => {
+    const registry = new ToolRegistry()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "写第 12 章",
+      llmConfig: LLM,
+      deps: { runner: fakeRunner([]), registry },
+    })
+    const names = registry.list().map((tool) => tool.name)
+    expect(names).not.toContain("route_task")
+    expect(names).not.toContain("trim_context")
+    // 白名单条目 13 → 12（移除 route_task），实际注册数 12 → 12：
+    // 移除 route_task（−1）与 load_context 真正注册（+1）相抵，边界没有放大。
+    expect(names).toHaveLength(MAIN_CONTROL_TOOLS.length)
+  })
+
   it("显式点名工具后只注册这些（含依赖工具）", async () => {
     const registry = new ToolRegistry()
     await runMainControlAgent({
@@ -349,6 +389,96 @@ describe("工具白名单收窄", () => {
     const names = registry.list().map((tool) => tool.name)
     expect(names).toContain("list_chapters")
     expect(names).toContain("write_chapter")
+  })
+})
+
+describe("装配层：taskRoute 注入（F04）与大纲历史数据源（F08）", () => {
+  it("F04：taskRoute 注入后 load_context 真正注册（注册条件就是 vtc.taskRoute 存在），轮次预算不变", async () => {
+    const registry = new ToolRegistry()
+    const base = fakeRunner([])
+    let maxRounds: number | undefined
+    const capturingRunner = {
+      async run(config: unknown, reg: unknown, msgs: unknown, callbacks: AgentRunCallbacks) {
+        maxRounds = (config as { maxRounds?: number }).maxRounds
+        return base.run(config, reg, msgs, callbacks)
+      },
+    }
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "写第 12 章",
+      llmConfig: LLM,
+      deps: { runner: capturingRunner, registry },
+    })
+    expect(registry.list().map((tool) => tool.name)).toContain("load_context")
+    // 多一个可用工具不得放宽轮次预算（load_context 只是「一轮里的一个调用」）
+    expect(maxRounds).toBe(8)
+  })
+
+  it("F04：list_outlines 的默认章号来自装配层注入的 taskRoute", async () => {
+    vi.mocked(listDirectory).mockResolvedValue([
+      { name: "章纲-第12章.md", path: "/proj/wiki/outlines/章纲-第12章.md", is_dir: false },
+    ])
+    vi.mocked(readFile).mockResolvedValue("---\ntype: 章纲\n---\n# 第12章 旧梦\n")
+    const registry = new ToolRegistry()
+    // 章节页交接的真实目标文案（buildChapterDraftGoal 同一句式）
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "为「第12章 旧梦」生成本章草稿",
+      llmConfig: LLM,
+      deps: { runner: fakeRunner([]), registry },
+    })
+    const tool = registry.get("list_outlines")
+    expect(tool).toBeDefined()
+    const out = await tool!.execute({})
+    expect(out).toContain("章纲-第12章.md")
+    expect(out).toContain("本次目标章号：第 12 章")
+  })
+
+  it("F08：read_outline_history 读真实大纲会话（outline-chat-store），不再恒返回空", async () => {
+    useOutlineChatStore.setState({
+      conversations: [
+        {
+          id: "oc1",
+          title: "大纲对话 10:00",
+          createdAt: 1,
+          messages: [
+            { id: "m1", role: "user", content: "帮我排第 3 章大纲" },
+            { id: "m2", role: "assistant", content: "第 3 章：旧梦重临，转折点放在结尾。" },
+          ],
+        },
+      ],
+      activeConversationId: "oc1",
+      loaded: true,
+    })
+    const registry = new ToolRegistry()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "读第 3 章大纲历史",
+      llmConfig: LLM,
+      deps: { runner: fakeRunner([]), registry },
+    })
+    const tool = registry.get("read_outline_history")
+    expect(tool).toBeDefined()
+    const out = await tool!.execute({ conversationId: "oc1" })
+    expect(out).toContain("第 3 章：旧梦重临")
+    expect(out).toContain("[用户]: 帮我排第 3 章大纲")
+  })
+
+  it("F08：无大纲会话时如实返回未找到（不伪造）", async () => {
+    await expect(loadOutlineConversations()).resolves.toEqual([])
+    const registry = new ToolRegistry()
+    await runMainControlAgent({
+      projectPath: "/proj",
+      wikiPath: "/proj/wiki",
+      goal: "读第 1 章大纲历史",
+      llmConfig: LLM,
+      deps: { runner: fakeRunner([]), registry },
+    })
+    const tool = registry.get("read_outline_history")
+    await expect(tool!.execute({ conversationId: "missing" })).resolves.toContain("未找到大纲会话")
   })
 })
 

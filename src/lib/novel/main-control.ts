@@ -19,6 +19,9 @@ import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { StageJournalRuntime } from "./stage-output-journal"
 import { recordModuleHit } from "./module-heat"
+import { routeTask } from "./task-router"
+import type { TaskRouteResult } from "./task-router"
+import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { toErrorMessage } from "@/lib/utils"
 
 /** 质量闭环工具（仅在调用方注入 scoreChapter/reviseChapter 时才注册）。 */
@@ -27,6 +30,16 @@ export const MAIN_CONTROL_QUALITY_TOOLS = ["score_chapter", "revise_chapter"] as
 /** 深章流水线工具（仅在调用方注入 runDeepChapterGeneration 时才注册）。 */
 export const MAIN_CONTROL_DEEP_TOOLS = ["run_chapter_workflow"] as const
 
+/**
+ * 主控工具白名单（只收窄不放大）。
+ *
+ * - `load_context` 保留：装配层已注入 `virtualToolContext.taskRoute`，它现在会真正注册
+ *   （`registerAllBuiltInTools` 要求 `vtc.taskRoute` 存在），不再是一个永不出现的名字。
+ * - `route_task` 已移出：主控内它的返回结果零消费者（模型自己调一次路由没有下游），
+ *   意图路由由装配层直接算出并注入 `taskRoute`，不需要再让模型自己问一遍。
+ * - `trim_context` 从未在此名单内：它要求 `vtc.contextPack`，而主控不构建 contextPack，
+ *   注册条件永远不成立；因此「从白名单移除」对它而言是空操作（现状即不含）。
+ */
 export const MAIN_CONTROL_TOOLS = [
   "read_chapter",
   "list_chapters",
@@ -39,7 +52,6 @@ export const MAIN_CONTROL_TOOLS = [
   "list_outlines",
   "read_outline_history",
   "load_context",
-  "route_task",
   "write_chapter",
 ] as const
 
@@ -133,6 +145,50 @@ export function parseDraftReceipts(texts: readonly string[]): MainControlDraft[]
   return drafts
 }
 
+/**
+ * F08：`read_outline_history` 的真实数据源——大纲对话 store
+ * （`outline-chat-panel` 同一份状态，落盘在 `<project>/.niko-buddy/outline-chats.json`）。
+ *
+ * 存储路径由 store 自己从「当前打开的项目」解析（与应用内其它调用方同源），因此这里不另收
+ * projectPath 参数，避免造一个「传了也没用」的形参。面板未打开过时 store 还没 hydrate
+ * （`loaded === false`），这里补一次读盘：语义与面板挂载时的 `loadFromDisk` 完全一致
+ * （无项目 / 文件缺失 / JSON 损坏一律留空，不伪造会话）。
+ */
+export async function loadOutlineConversations(): Promise<
+  { id: string; title: string; messages: { role: string; content: string }[] }[]
+> {
+  if (!useOutlineChatStore.getState().loaded) {
+    await useOutlineChatStore.getState().loadFromDisk()
+  }
+  return useOutlineChatStore.getState().conversations.map((conv) => ({
+    id: conv.id,
+    title: conv.title,
+    messages: conv.messages.map((message) => ({ role: message.role, content: message.content })),
+  }))
+}
+
+/**
+ * 装配层就地推导主控的 `taskRoute`（F04）。
+ *
+ * 为什么不是从 chat 侧传：chat 的 `effectiveTaskRoute` 是 `handleSend` 里的局部常量，
+ * 没有任何 prop 链路能到达主控入口（`MainControlView` 只收 projectId），而两边共用同一个
+ * 纯函数 `routeTask`，就地推导等价且不另立第二套判定。
+ *
+ * 归一化（实测缺口）：`routeTask` 在无意图命中时走 early return，会把已提取的章号丢掉——
+ * 只留在 `extractedParams.chapterNumber`，`chapterNumber` 字段为 undefined。章节页交接的真实
+ * 文案「为「第12章 旧梦」生成本章草稿」正好落在这条分支（intent=general_chat）。
+ * 装配层补回该字段，否则 `load_context` / `list_outlines` 拿到的章号仍是空，F04 的预期收益
+ * 对主入口不成立。不改 `task-router.ts`：chat 侧共用它，改路由契约是独立决策。
+ */
+function buildMainControlTaskRoute(goal: string): TaskRouteResult {
+  const routed = routeTask(goal)
+  if (routed.chapterNumber !== undefined) return routed
+  const fromParams = Number.parseInt(routed.extractedParams.chapterNumber ?? "", 10)
+  return Number.isFinite(fromParams) && fromParams > 0
+    ? { ...routed, chapterNumber: fromParams }
+    : routed
+}
+
 /** 项目 wiki 根：优先 `<project>/wiki`，否则退回项目根（单目录布局）。 */
 export function resolveWikiPath(
   projectPath: string,
@@ -149,6 +205,12 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
     return { ok: false, finalText: "", steps: [], drafts: [], roundsUsed: 0, error: "目标为空" }
   }
   const now = options.deps?.now ?? Date.now
+  // F04：主控入口与 chat 侧之间没有 prop 链路（见 buildMainControlTaskRoute 注释），
+  // 用与 chat 同一个纯函数就地推导，并补回路由 early return 丢掉的章号。
+  // 后果（预期收益）：`load_context` 真正注册（依赖 `vtc.taskRoute`），`list_outlines` 的
+  // `getDefaultChapterNumber` 也复活（读 `vtc.taskRoute.chapterNumber`）。
+  const taskRoute = buildMainControlTaskRoute(goal)
+  const outlineConversations = await loadOutlineConversations()
   const steps: MainControlStep[] = []
   const running = new Map<string, MainControlStep>()
   const activities: AgentActivityEvent[] = []
@@ -234,8 +296,8 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
       llmConfig: options.llmConfig,
       getSkillConfig: () => null,
       getChatConversations: () => [],
-      getOutlineConversations: () => [],
-      virtualToolContext: { userMessage: goal, projectPath: options.projectPath },
+      getOutlineConversations: () => outlineConversations,
+      virtualToolContext: { userMessage: goal, projectPath: options.projectPath, taskRoute },
     },
   )
   config.maxRounds = options.maxRounds ?? 8
