@@ -207,3 +207,90 @@ i18n 键成对落地：`mainControl.settingsWritingModelDiscardedTitle` / `mainC
 | RV2-004（medium） | `noteDiscardedWritingConfig(projectPath, raw, label)` 第一与第三参同为 string，把 `(path, discarded, scope)` 误写成 `(scope, discarded, scope)` 时**类型检查不拦**、运行时静默退化成全局哨兵 —— 正是那个 blocking 缺陷本身 | 签名改为**具名对象** `{ projectPath, raw, label? }`，误传在类型上不可表达；生产点与全部 spec 调用点同步更新 |
 | RV2-005（low） | 新 spec 的 mock 工厂键与真实导入名不符（写的是 `createDir`/`renameFile`/`removeFile`，实际导入 `createDirectory`/`writeFileAtomic`） | 对齐为 `readFile` / `writeFileAtomic` / `createDirectory` |
 | RV2-006（low） | `detail` 与 `ms` 两个守卫共用同一条杀手用例 | 拆成两条独立用例，任一守卫被删都精确指向自己 |
+
+## 八、三项「未测」的收口（Session `20261105-ralph-untested-closeout`）
+
+第七节留下三件未测。这一轮做完：两项真转 pass，一项被自己的对照实验推翻后如实降级。记录在此，避免下一个人重蹈。
+
+### 8.1 F14/B9 主控门控重跑回读 + B3 证据看板防污染 —— 转 pass
+
+先读码而不是猜。机制其实是一个常量同时管两面：
+
+| 要素 | 事实 |
+|---|---|
+| 账本 | `{projectPath}/.novel/run-events.jsonl`（`run-event-ledger-store.ts:41`） |
+| 重跑标记 | `MAIN_CONTROL_RERUN_INTENT = "main-control-rerun"`（`gate-run-authority.ts:44`） |
+| 防污染 | 登记在 `NON_AUTHORITATIVE_GATE_RUN_INTENTS`（`:50`），`selectAuthoritativeEvents` 剔除 |
+| 回读 | `readLatestGateRunGroup(ledger, { intent })`（`deep-chapter-gate-evidence.ts:186`） |
+
+于是「能回读」与「不污染看板」是**同一个 gate-run 事件**的属性差异，不是两套逻辑。
+
+真机（WebView2 CDP）实测：`isTauri=true`、账本 0→3→6、`READBACK_with_intent=FOUND`（keys=`ts/intent/chapterId/bookId/rows`）、`B3_dash_unchanged=true`、`B3_authoritative_gate_runs=0`。
+
+**判别性断言是这两条**，缺了它们「通过」是无效的：
+
+1. `READBACK_no_filter=FOUND` —— 对象真在账本里，不是被我过滤掉才看不见
+2. `NEG_control_dash_changed=true` —— 再写一条**无 intent** 的权威 gate-run，看板确实变化 ⇒「没变」是真过滤，不是看板读坏了
+
+用生产写入器 `recordChapterGateEvidence` 以真实 intent 落账，未手写账本文件。`decisionGates` 是构造输入，但账本由生产写入器生成。未驱动整条 `rerunMainControlGates`（它需要真实 LLM 门控评估与完整项目状态，属另一特性）。
+
+### 8.2 真实 provider 对 nudge 形态的接受度 —— 接受度 pass，有效性 null
+
+**先纠正第七节的一个错误归因**：那里写「凭据实测 HTTP 401」是错的。真实端点是 `.env.test.local` 的 `https://cpa.nikoniko.tech/v1`，`/models` 返回 **200**；当时的 500 `empty response content` 只是 `max_tokens` 太小加该模型带推理。逐模型：`deepseek-v4.1-flash` 200、`muse-spark-1.3-contributor` 200、`GLM-5.2` 429（套餐未开通，非密钥问题）。该 base 正是 `llm-providers.ts:457` 注释里记录的真实实测端点，用户项目配置也正是 `deepseek/deepseek-v4.1-flash` —— 即这也是应用的真实生产 provider 路径。
+
+用 `buildRequiredToolNudgeMessage` 的逐字文案 + `runner.ts` 的逐字形状，带 tools 声明实发，**5/5 全部 HTTP 200**：
+
+| 形态 | 结果 |
+|---|---|
+| A 基线 `system+user` | 200 |
+| B 修后形状 `system+user+assistant(散文)+system(nudge)` | 200，返回 `tool_calls` |
+| C **修复前的相邻双 system** | **200** |
+| D `assistant content=""` + nudge（合并路径可达） | 200 |
+| E 带 `reasoning_content` 的 assistant + nudge | 200 |
+
+**C 的 200 必须写清**：当初改生产代码让 nudge 并入尾部 system 的理由是「那条不变量断言会被自己的实现打破」，**不是「服务端会拒」**。把改动理由说反会误导后来的判断。
+
+**然后是我自己的过度声称被推翻**。先据 B 的 `tool_calls=true` 说「nudge 真的起作用」，但补对照实验后：
+
+| 设计 | 对照（无 nudge） | 实验（有 nudge） |
+|---|---|---|
+| system prompt 强制工具 | 调了工具 | 调了工具 |
+| system prompt 中立 | 调了工具 | 调了工具 |
+| 反向对照（尾部换无关 system） | — | **不调工具** |
+
+该模型在「有 tools + 写第一章」时本来就调工具，**nudge 无边际贡献**；尾部 system 内容确实影响行为，但不能归因于这段文案。记为 null result。
+
+**这不是代码缺陷**：nudge 是尽力而为的护栏，真风险是「服务端拒绝该形态导致整轮请求失败」，该风险已被 5/5 接受度排除。
+
+**仍未验证**：Anthropic（顶层 system 上提，`llm-providers.ts:825`）与 Google（`systemInstruction`，`:989-1027`）两种形状的 provider 层接受度 —— 本环境只有 OpenAI 兼容网关，仅读码确认。
+
+### 8.3 真实行覆盖率 —— 补齐
+
+`@vitest/coverage-v8 ^4.1.10` 已在 devDependencies，用仓内官方脚本 `npm run test:coverage`：
+
+| 维度 | 实测 | 阈值（`vite.config.ts:206-209`） |
+|---|---|---|
+| Statements | **86.66%** (64525/74456) | 80 |
+| Branches | **81.52%** (42371/51971) | 75 |
+| Functions | **86.63%** (14496/16732) | 80 |
+| Lines | **87.66%** (56835/64834) | 80 |
+
+改动文件定向：
+
+| 文件 | Lines | Branch |
+|---|---|---|
+| `discarded-writing-config-notice.ts`（新建） | 100% | **62.5%**（10/16，真实缺口） |
+| `module-heat-persist.ts` | 100% | 96.66% |
+| `project-store.ts` | 97.32% | 97.66% |
+| `novel-base-settings-section.tsx` | 88.88% | 77.41% |
+| `agent/runner.ts` | 63.88%（**既有状态**，非本次引入） | 49.35% |
+
+**口径差异必须并列**：官方脚本显式排除 `**/*.real-llm.{spec,test}.ts`，本次不含那两个真 LLM spec，与「全量 `npx vitest run`（1312 files）」**不是同一轴**，不可混用。
+
+未做增量覆盖率：仓内无 diff-cover 类工具，未擅自加依赖，**不冒充「新增代码覆盖率」**。
+
+### 8.4 教训
+
+- **「没变」和「读坏了」在断言层长得一模一样**。B3 如果不做负对照，`dash_unchanged=true` 是零判别力的。凡断言「某物不受影响」，必须同时证明「该物本来是会受影响的」。
+- **一个成功样本不足以证明有效性**。`tool_calls=true` 看着像 nudge 生效，其实是模型本来就会调工具。要证因果，必须有对照；我第一版「强制工具」的对照设计本身也没隔离干净，第二版把 system prompt 中立化才干净。
+- **错误归因会沿链条传下去**。第七节把「max_tokens 太小导致空响应」写成「凭据 401」，直接导致上一轮把这条判成不可验证并降级处理。下次遇到鉴权类结论，先把 `/models` 这类无副作用端点单独探一次。
