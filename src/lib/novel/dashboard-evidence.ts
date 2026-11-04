@@ -9,7 +9,9 @@
  *
  * 机械口径：
  *   - deriveEvidenceGateStatuses：账本中每门最近一条 gate-run 事件 → 三态
- *     （账本天然全序，倒序扫描取最近）；
+ *     （账本天然全序，倒序扫描取最近）；只统计**权威**正式章运行
+ *     （`isAuthoritativeGateRun`：排除 `intent:main-control-rerun` 等草稿复核意图），
+ *     否则未采纳草稿的重跑结论会覆盖首页三门——把「结论丢失」换成「结论污染」；
  *   - buildDashboardEvidenceSnapshot：compose 派生门状态 + buildEvidenceSnapshot
  *     ——真实 UI 的唯一数据源入口（与 buildEvidenceSnapshot 正交，不改其 API）；
  *   - deriveBookHealthSummaries：列表健康列（per-bookId）：按事件 bookId 过滤
@@ -24,6 +26,7 @@
 
 import { GATE_PRIORITY_ORDER, type GateKey } from "./audit-taxonomy"
 import type { LibraryHealthReport } from "./asset-library"
+import { isAuthoritativeGateRun, NON_AUTHORITATIVE_GATE_RUN_INTENTS } from "./deep-chapter-gate-evidence"
 import { buildEvidenceSnapshot, type EvidenceSnapshot } from "./evidence-snapshot"
 import { readGateRunPayload, type RunEvent, type RunEventLedger } from "./run-event-ledger"
 import type { GateRunStatus } from "./rule-stack"
@@ -32,11 +35,27 @@ import type { GateRunStatus } from "./rule-stack"
 // 门状态派生（只读）
 // ============================================================================
 
+/** 权威口径派生选项。 */
+export interface EvidenceGateStatusOptions {
+  /**
+   * 额外排除的 gate-run 意图（默认 = `NON_AUTHORITATIVE_GATE_RUN_INTENTS`）。
+   * 传入时**替换**默认表（而非叠加），便于诊断/特殊视图显式收窄。
+   */
+  readonly excludeIntents?: readonly string[]
+}
+
 /**
  * 从账本派生三门最新状态（R-04：未落事件 → undefined → NOT_EVALUATED）。
- * 纯函数：倒序扫描账本（天然全序），每门取最近一条 gate-run。
+ * 纯函数：倒序扫描账本（天然全序），每门取最近一条**权威** gate-run。
+ *
+ * 防污染：非正式章运行（如主控重跑门控 `intent:main-control-rerun`）写入的
+ * gate-run 不参与派生——它们仍留在账本（可审计），但不得翻转首页三门结论。
  */
-export function deriveEvidenceGateStatuses(ledger: RunEventLedger): Readonly<Record<GateKey, GateRunStatus | undefined>> {
+export function deriveEvidenceGateStatuses(
+  ledger: RunEventLedger,
+  options: EvidenceGateStatusOptions = {},
+): Readonly<Record<GateKey, GateRunStatus | undefined>> {
+  const excludedIntents = options.excludeIntents ?? NON_AUTHORITATIVE_GATE_RUN_INTENTS
   const statuses: Record<GateKey, GateRunStatus | undefined> = {
     consistency: undefined,
     anti_ai: undefined,
@@ -46,6 +65,7 @@ export function deriveEvidenceGateStatuses(ledger: RunEventLedger): Readonly<Rec
     const event = ledger.events[i] as RunEvent
     const payload = readGateRunPayload(event)
     if (!payload) continue
+    if (!isAuthoritativeGateRun(event, excludedIntents)) continue
     if (statuses[payload.gate] === undefined) statuses[payload.gate] = payload.status
   }
   return statuses
@@ -161,16 +181,22 @@ export interface BookHealthSummary {
 /**
  * 列表健康列派生（per-bookId）：账本 gate-run 事件按 bookId 过滤，每门取
  * 最近一条 → 三态摘要。无事件的书 → not_evaluated / 不阻塞（R-04 诚实面）。
+ *
+ * 与 `deriveEvidenceGateStatuses` 同口径：非权威意图（草稿复核）不参与派生，
+ * 否则草稿重跑会把列表健康列刷成与正式正文无关的结论。
  */
 export function deriveBookHealthSummaries(
   ledger: RunEventLedger,
   bookIds: readonly string[],
+  options: EvidenceGateStatusOptions = {},
 ): Readonly<Record<string, BookHealthSummary>> {
+  const excludedIntents = options.excludeIntents ?? NON_AUTHORITATIVE_GATE_RUN_INTENTS
   // 按 bookId 收集事件（账本全序保持）
   const byBook = new Map<string, { gate: GateKey; status: GateRunStatus }[]>()
   for (const event of ledger.events) {
     const payload = readGateRunPayload(event)
     if (!payload || event.bookId === undefined) continue
+    if (!isAuthoritativeGateRun(event, excludedIntents)) continue
     const list = byBook.get(event.bookId)
     if (list) list.push({ gate: payload.gate, status: payload.status })
     else byBook.set(event.bookId, [{ gate: payload.gate, status: payload.status }])

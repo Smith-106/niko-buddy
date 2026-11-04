@@ -428,13 +428,15 @@ describe("装配层：taskRoute 注入（F04）与大纲历史数据源（F08）
     expect(maxRounds).toBe(8)
   })
 
-  it("F04：list_outlines 的默认章号来自装配层注入的 taskRoute", async () => {
+  it("F04：list_outlines 的默认章号来自 routeTask 的顶层 chapterNumber（装配层无补丁）", async () => {
     vi.mocked(listDirectory).mockResolvedValue([
       { name: "章纲-第12章.md", path: "/proj/wiki/outlines/章纲-第12章.md", is_dir: false },
     ])
     vi.mocked(readFile).mockResolvedValue("---\ntype: 章纲\n---\n# 第12章 旧梦\n")
     const registry = new ToolRegistry()
-    // 章节页交接的真实目标文案（buildChapterDraftGoal 同一句式）
+    // 章节页交接的真实目标文案（buildChapterDraftGoal 同一句式）。TASK-002 前该文案落在
+    // `routeTask` 的 general_chat 早退分支、顶层章号为空，靠装配层 `buildMainControlTaskRoute`
+    // 补回；TASK-001 让早退分支同样带顶层 `chapterNumber`，TASK-002 删掉补丁后本断言仍成立。
     await runMainControlAgent({
       projectPath: "/proj",
       wikiPath: "/proj/wiki",
@@ -690,13 +692,15 @@ describe("NF-01 门控武装：config.requiredToolsOnce", () => {
 })
 
 /**
- * RV-01：门控武装只认**结构化意图**（`gateIntent`），装配层不做任何文本推断。
+ * RV-01：门控武装只认**结构化意图**（`options.gateIntent ?? taskRoute.intent`），装配层不做任何文本推断。
  *
  * 旧实现在装配层用三个正则（草稿生成动词 / 章节引用 / 否定前缀）猜自由文本，
  * 复核实测 30 条反例中 13 条误命中；误武装的代价是兜底真的跑完整条深章流水线
  * （数分钟 + LLM 成本）并把正文当答案交付给提问者。现在：
  * - 不传 `gateIntent` → 只认 `routeTask` 的结构化路由结果（`taskRoute.intent`）；
- * - 要武装路由判不出的交接文案 → 调用方显式给 `gateIntent: "write_chapter"`。
+ * - 交接模板「为「第N章 X」生成本章草稿」自 TASK-001 起由路由本体识别（锚定模板形状的正则），
+ *   因此不需要 `gateIntent` 也武装——这是路由判定，不是文本猜测；
+ * - `gateIntent` 保留给「路由本体判不出、调用方却确知意图」的场景，仍然不给就不武装。
  */
 describe("RV-01 门控武装：结构化 gateIntent，无文本推断", () => {
   function captureArmedRunner() {
@@ -746,23 +750,27 @@ describe("RV-01 门控武装：结构化 gateIntent，无文本推断", () => {
     expect("isChapterDraftGoal" in mainControl).toBe(false)
   })
 
-  it("章节页交接文案：调用方显式给 gateIntent 才武装（真实生产者文案）", async () => {
+  it("章节页交接文案：显式 gateIntent 仍然可用（真实生产者文案）", async () => {
     // 用真实生产者（buildChapterDraftGoal）而不是手抄文案：文案若改，本用例立刻失败。
     const goal = buildChapterDraftGoal("第12章 旧梦")
     expect(goal).toBe("为「第12章 旧梦」生成本章草稿")
+    // TASK-002：路由本体已能识别该模板（见下一条用例），但调用方显式给 gateIntent 的通道
+    // 必须继续有效——它服务于「路由判不出、调用方却确知意图」的场景。
     const { requiredToolsOnce, toolNames } = await armFor(goal, { gateIntent: "write_chapter" })
     expect(requiredToolsOnce).toEqual(["run_chapter_workflow"])
     // 武装的名字必须真的注册了，否则 missingRequiredToolsOnce 会把不可用项过滤掉。
     expect(toolNames).toContain("run_chapter_workflow")
   })
 
-  it("同一交接文案不给 gateIntent 就不武装（路由仍是 general_chat，不再被猜测放大）", async () => {
+  it("交接模板由路由本体识别：不给 gateIntent 也武装（路由判定，不是文本猜测）", async () => {
     const goal = buildChapterDraftGoal("第12章 旧梦")
-    // 路由侧确实是 general_chat：装配层拿不到结构化写作意图。
-    expect(routeTask(goal).intent).toBe("general_chat")
+    // TASK-001：路由本体已能判出这条交接文案（锚定模板形状的正则），且顶层章号不再是空。
+    expect(routeTask(goal).intent).toBe("write_chapter")
+    expect(routeTask(goal).chapterNumber).toBe(12)
+    // 因此不靠 `gateIntent` 也武装——原因是路由本体识别，而不是装配层对文本做猜测放大。
     const { requiredToolsOnce, toolNames } = await armFor(goal)
-    expect(requiredToolsOnce).toBeUndefined()
-    // 反证：工具确实注册了，不武装是判定结果而非工具缺失。
+    expect(requiredToolsOnce).toEqual(["run_chapter_workflow"])
+    // 反证：工具确实注册了，武装是判定结果而非工具缺失。
     expect(toolNames).toContain("run_chapter_workflow")
   })
 
@@ -783,6 +791,18 @@ describe("RV-01 门控武装：结构化 gateIntent，无文本推断", () => {
     ]
     for (const goal of misfires) {
       const { requiredToolsOnce, toolNames } = await armFor(goal)
+      // TEMP-EVIDENCE
+      // eslint-disable-next-line no-console
+      console.log(
+        "[EVIDENCE]",
+        JSON.stringify({
+          goal,
+          intent: routeTask(goal).intent,
+          chapterNumber: routeTask(goal).chapterNumber,
+          armed: requiredToolsOnce,
+          toolRegistered: toolNames.includes("run_chapter_workflow"),
+        }),
+      )
       expect(requiredToolsOnce, goal).toBeUndefined()
       // 反证：工具在，判定为「不武装」而非「工具缺失」。
       expect(toolNames, goal).toContain("run_chapter_workflow")

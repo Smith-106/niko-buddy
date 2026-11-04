@@ -19,6 +19,13 @@
  * 主控没有阶段 2 的任务书；空串会让契约核对整段短路，用户就会看到「门控通过」而
  * 实际少了契约维度（假通过）。`buildFallbackTaskBrief` 是深章流水线自己用的确定性
  * 兜底（deep-chapter-context-assembly.ts:452），此处复用同一函数，不另写一份任务书。
+ *
+ * ## 结论落账（F1b 收口）
+ * 重跑结论不能只活在组件 useState（页签一切就蒸发），必须与深章 gate evidence
+ * 同一本账：本模块在算完 `decisionGates` 后调 `recordChapterGateEvidence`（带
+ * `intent:main-control-rerun`）。写入是**非致命**的（证据可重放，不阻断复核）。
+ * 但草稿复核不得污染首页三门权威口径——消费方（`deriveEvidenceGateStatuses`）
+ * 经 `isAuthoritativeGateRun` 排除该意图（见 deep-chapter-gate-evidence.ts）。
  */
 
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
@@ -26,7 +33,11 @@ import { buildContextPack, type ContextPack } from "./context-engine"
 import { extractChapterNumber } from "./chapter-utils"
 import { resolveChapterLengthSpec } from "./deep-chapter-prompts"
 import { buildFallbackTaskBrief } from "./deep-chapter-task-brief"
-import { mapDecisionGateToRunStatus } from "./deep-chapter-gate-evidence"
+import {
+  MAIN_CONTROL_RERUN_INTENT,
+  mapDecisionGateToRunStatus,
+  recordChapterGateEvidence,
+} from "./deep-chapter-gate-evidence"
 import type { DeepChapterDecisionGateKey, DeepChapterGateVerdict } from "./deep-chapter-decision-gates"
 import type { GateRunStatus } from "./rule-stack"
 import { listChapterDrafts } from "./draft-manager"
@@ -69,6 +80,10 @@ export interface RerunMainControlGatesResult {
   llmMediated: boolean
   reviewParseFailed?: boolean
   unassessedDimensions: string[]
+  /** 已落账的门（非致命：失败时仍返回结论，只是不可回读）。 */
+  evidenceRecorded?: readonly DeepChapterDecisionGateKey[]
+  /** 落账失败原因（非致命；undefined = 成功）。 */
+  evidenceError?: string
 }
 
 export interface RerunMainControlGatesDeps {
@@ -80,6 +95,8 @@ export interface RerunMainControlGatesDeps {
   buildPack?: typeof buildContextPack
   /** 测试注入点；生产恒为 `buildFallbackTaskBrief`。 */
   buildTaskBrief?: typeof buildFallbackTaskBrief
+  /** 测试注入点；生产恒为 `recordChapterGateEvidence`（结论落账，防「页签一切就蒸发」）。 */
+  recordEvidence?: typeof recordChapterGateEvidence
 }
 
 /** 把门控结果翻译成渲染行（pending → skipped，与 gate-run 证据同一映射）。 */
@@ -110,6 +127,7 @@ export async function rerunMainControlGates(
   const evaluateGates = deps.evaluateGates ?? evaluateChapterGates
   const buildPack = deps.buildPack ?? buildContextPack
   const buildTaskBrief = deps.buildTaskBrief ?? buildFallbackTaskBrief
+  const recordEvidence = deps.recordEvidence ?? recordChapterGateEvidence
 
   const drafts = await listDrafts(input.projectPath)
   const draft = drafts.find((item) => item.id === input.draftId)
@@ -145,15 +163,29 @@ export async function rerunMainControlGates(
     signal: input.signal,
   }
   const evaluation = await evaluateGates(evaluationInput)
+  const rows = buildMainControlGateRows(evaluation)
+
+  // 结论落账：与深章 gate-run 同一账本，带 `intent:main-control-rerun` 标记。
+  // 非致命：落账失败不影响复核结论（正文与判定都不依赖账本）。
+  const evidence = await recordEvidence({
+    projectPath: input.projectPath,
+    decisionGates: evaluation.decisionGates,
+    chapterNumber,
+    llmMediated: evaluation.llmMediated,
+    retryCount: 0,
+    intent: MAIN_CONTROL_RERUN_INTENT,
+  })
 
   return {
     draftId: input.draftId,
     chapterNumber,
-    rows: buildMainControlGateRows(evaluation),
+    rows,
     overall: evaluation.decisionGates.overall,
     contractEvaluated: evaluation.contractEvaluated,
     llmMediated: evaluation.llmMediated,
     reviewParseFailed: evaluation.reviewParseFailed,
     unassessedDimensions: evaluation.unassessedDimensions,
+    evidenceRecorded: evidence.recorded,
+    evidenceError: evidence.error,
   }
 }

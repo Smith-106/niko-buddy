@@ -37,7 +37,7 @@ interface ReviewRunLike {
   error?: string
   results?: unknown[]
   dimensionProgress?: string
-  dimensionResults?: Record<string, { issues: unknown[] }>
+  dimensionResults?: Record<string, { score?: number; issues: unknown[] }>
 }
 
 const mocks = vi.hoisted(() => {
@@ -136,7 +136,13 @@ vi.mock("@/components/novel/craft/arc-workbench", () => ({
   ArcWorkbench: () => <div data-craft-placeholder="arc-workbench" />,
 }))
 vi.mock("@/components/novel/craft/thrill-dashboard", () => ({
-  ThrillDashboard: () => <div data-craft-placeholder="thrill-dashboard" />,
+  // TASK-008：记录传入的 sixDimScores，供「分数透传」断言（旧版忽略 props，第三处零消费不可见）
+  ThrillDashboard: (props: { sixDimScores?: Record<string, number> }) => (
+    <div
+      data-craft-placeholder="thrill-dashboard"
+      data-six-dim={props.sixDimScores ? JSON.stringify(props.sixDimScores) : ""}
+    />
+  ),
 }))
 vi.mock("@/components/novel/craft/technique-panel", () => ({
   TechniquePanel: () => <div data-craft-placeholder="technique-panel" />,
@@ -151,6 +157,13 @@ vi.mock("@/components/canon-editor/canon-editor-client", async (importOriginal) 
     queryCanonBatch: vi.fn(async () => ({ results: [[]], max_revision: 0 })),
   }
 })
+
+// TASK-008：六维雷达走 thrill-echarts 的懒加载导出（测试里换成占位，断言分数逐维透传）
+vi.mock("@/components/novel/craft/thrill-echarts", () => ({
+  SixDimRadarChart: (props: { scores: Record<string, number> }) => (
+    <div data-radar-chart="true" data-radar-scores={JSON.stringify(props.scores)} />
+  ),
+}))
 
 function resetState(): void {
   mocks.state.selectedReviewDimension = "thrill"

@@ -2,6 +2,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type { DeepChapterGenerationCallbacks, DeepChapterGenerationDeps, DeepChapterGenerationInput, DeepChapterGenerationResult, StageJournalRuntime } from "@/lib/novel"
 import type { ConsensusTrace } from "@/lib/novel"
+import { saveConfirmedPlan } from "@/lib/novel/confirmed-plan-store"
 import i18n from "@/i18n"
 import type { AgentActivityEvent, AgentToolEvent, Tool, ToolExecutionContext } from "../types"
 
@@ -213,6 +214,22 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
       // 截断并加显式标记，保证传给生成链（deep-chapter-prompts 的 planBlueprintSection）
       // 的计划永不超长，也不会被标成「必须原样执行」的残缺权威文本。
       const planBlueprint = normalizePlanBlueprint(params.planBlueprint ?? options.getPlanBlueprint?.())
+      // TASK-004（DEC-R4=A）：把「模型这次带过来的计划」落一份供后续复用/审计。
+      // 这是「深章工具零写盘」边界里唯一一处**受控元数据写入例外**：只写计划原文，
+      // 不写任何运行状态（无 ok/status/rounds/时间戳/正文/审稿结论），也不参与本轮的
+      // 生成决策——写的是下面同一个 planBlueprint 值，写盘与否都不改变
+      // runDeepChapterGeneration 的入参。
+      // 降级：写盘失败**不致命**，只记 warn 后继续生成（计划持久化是旁路，不是前置条件）。
+      if (planBlueprint) {
+        const planChapterNumber = toNumber(params.chapterNumber)
+        if (planChapterNumber !== undefined) {
+          try {
+            await saveConfirmedPlan(options.projectPath, planChapterNumber, planBlueprint)
+          } catch (error) {
+            console.warn("[run-chapter-workflow] 计划持久化失败（非致命，不阻断生成）:", error)
+          }
+        }
+      }
       // 本轮未接线（无消费点，保持现状，避免造第二个静默丢弃）：
       //   - params.intent / params.workflowMode 仍只被 normalizeParams 解析、不传入生成链。
       //     DeepChapterGenerationInput 无对应字段，也没有任何阶段读它们；

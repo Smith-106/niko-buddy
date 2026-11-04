@@ -77,7 +77,12 @@ describe("routeTask fallbacks / openings / chapter extraction", () => {
     // 完全被否定的写章触发词不再计分，整句不再误路由为 write_chapter。
     const route = routeTask("不要写第一章")
     expect(route.intent).toBe("general_chat")
-    expect(route.chapterNumber).toBeUndefined()
+    // TASK-001：general_chat 早退改为与正常返回同形（顶层 chapterNumber 与
+    // extractedParams 对齐）。extractChapterNumber 最后一道 CHAPTER_NUMBER_PATTERNS
+    // 兜底不受否定守卫约束（ISS-20260709-007 已登记为独立技术债，本任务不得改），
+    // 因此这里接受 chapterNumber=1 而不是给兜底补否定守卫。
+    expect(route.chapterNumber).toBe(1)
+    expect(route.extractedParams.chapterNumber).toBe("1")
   })
 
   it("keeps the unnegated chapter when a negated one is mentioned first (ISS-20260709-007)", () => {
@@ -103,8 +108,12 @@ describe("routeTask fallbacks / openings / chapter extraction", () => {
 
   it("extracts Chinese chapter numbers with multipliers and digits", () => {
     expect(routeTask("写第两千三百四十五章").chapterNumber).toBe(2345)
-    // general_chat 路径：章节号只进 extractedParams
-    expect(routeTask("请帮我看看第十章的内容").extractedParams.chapterNumber).toBe("10")
+    // TASK-001：general_chat 路径不再只把章节号放进 extractedParams，
+    // 顶层 chapterNumber 与正常返回同形（此前恒为 undefined）。
+    const incidental = routeTask("请帮我看看第十章的内容")
+    expect(incidental.intent).toBe("general_chat")
+    expect(incidental.extractedParams.chapterNumber).toBe("10")
+    expect(incidental.chapterNumber).toBe(10)
     expect(routeTask("第一百章讲了什么").extractedParams.chapterNumber).toBe("100")
     expect(routeTask("第千章").extractedParams.chapterNumber).toBe("1000")
     // 百 前无系数（current=0）→ (0 || 1) * 100
@@ -119,10 +128,12 @@ describe("routeTask fallbacks / openings / chapter extraction", () => {
     expect(route.chapterNumber).toBeUndefined()
   })
 
-  it("puts incidental Chinese chapter numbers into extractedParams", () => {
+  it("puts incidental Chinese chapter numbers into extractedParams and chapterNumber", () => {
     const route = routeTask("请修改第二章的剧情")
+    expect(route.intent).toBe("general_chat")
     expect(route.extractedParams.chapterNumber).toBe("2")
-    expect(route.chapterNumber).toBeUndefined()
+    // TASK-001：顶层 chapterNumber 与 extractedParams 同形对齐（此前为 undefined）。
+    expect(route.chapterNumber).toBe(2)
   })
 })
 
@@ -159,5 +170,51 @@ describe("P1-IMP-07 KbIntent 穷举映射", () => {
     expect(toKbIntent(writeRes.intent)).toBe("draft")
     const lookupRes = routeTask("查一下前面埋的伏笔")
     expect(toKbIntent(lookupRes.intent)).toBe("lookup")
+  })
+})
+
+describe("TASK-001 章节页交接模板路由（write_chapter 第 9 条 pattern）", () => {
+  // 真实生产者：src/components/novel/main-control-handoff.ts buildChapterDraftGoal
+  // 产出「为「第12章 旧梦」生成本章草稿」。此处手抄同形文案，锁正则形状；
+  // 生产者的逐字断言在 main-control.spec.ts（另一 agent 负责）。
+  it("routes the handoff template into write_chapter with the chapter number", () => {
+    const route = routeTask("为「第12章 旧梦」生成本章草稿")
+    expect(route.intent).toBe("write_chapter")
+    expect(route.chapterNumber).toBe(12)
+    expect(route.extractedParams.chapterNumber).toBe("12")
+  })
+
+  it("accepts the 给 preposition and 该章/这章 pronouns", () => {
+    expect(routeTask("给「第7章 夜行」生成该章草稿").intent).toBe("write_chapter")
+    expect(routeTask("为「第九章 归途」生成这章草稿").chapterNumber).toBe(9)
+  })
+
+  // 7 条误命中反例（main-control.spec.ts 复核清单）：必须仍不被判 write_chapter。
+  it("does not misfire on mention / negation / question forms", () => {
+    const misfires = [
+      "不需要生成本章草稿",
+      "请勿生成第7章草稿",
+      "暂停生成本章草稿",
+      "为什么要生成本章草稿？",
+      "生成本章草稿的验收标准有哪些？",
+      "输出第8章草稿的字数统计",
+      "他说「生成本章草稿」是什么意思",
+    ]
+    for (const goal of misfires) {
+      expect(routeTask(goal).intent, goal).not.toBe("write_chapter")
+    }
+  })
+
+  // 检索/提及类反例：同样不得被判 write_chapter。
+  it("does not misfire on retrieval / mention goals", () => {
+    for (const goal of ["第12章 旧梦", "本章草稿在哪", "写一份草稿给编辑"]) {
+      expect(routeTask(goal).intent, goal).not.toBe("write_chapter")
+    }
+  })
+
+  // 代词限定 本章|该章|这章（不含「大纲」）：「生成大纲草稿」仍归 generate_outline。
+  it("keeps 生成大纲草稿 on generate_outline", () => {
+    const route = routeTask("生成大纲草稿")
+    expect(route.intent).toBe("generate_outline")
   })
 })

@@ -476,8 +476,23 @@ export class AgentRunner {
         })
         refreshRequiredToolDiagnostics()
         if (missingRequired.length > 0) {
-          const fallbackOutcome = await attemptRequiredToolFallback()
-          if (fallbackOutcome === "success" || fallbackOutcome === "error") return record
+          // DEC-R1=A：nudge 先、兜底后。
+          //
+          // 还有下一轮可用时，先把模型这一轮的散文交回对话并注入 nudge，让它在下一轮
+          // 自己补上必调工具；确定性兜底不在这一轮抢先执行 —— 否则模型那句散文只进
+          // workingMessages、从不 onText，用户看到的就是「静默代跑」。
+          //
+          // 只有确实没有下一轮可用时（isLastRound），才把终稿交给确定性兜底：兜底路径
+          // 一条都没删，只是从「每轮零调用都先兜底」挪到「最后一轮仍不调用才兜底」。
+          // 轮数语义不变：nudge 走的是 continue，仍受 maxRounds 约束，不会多跑一轮。
+          const isLastRound = round >= maxRounds - 1
+          if (isLastRound) {
+            const fallbackOutcome = await attemptRequiredToolFallback()
+            if (fallbackOutcome === "success" || fallbackOutcome === "error") return record
+            await clearPersistedBreakpoint()
+            callbacks.onError(new RequiredToolsNotCalledError(missingRequired))
+            return record
+          }
           const nudgeThinking = collectThinkingBlocks(roundThinkingBlocks)
           if (roundText.trim() || roundReasoningContent.trim() || nudgeThinking.length > 0) {
             workingMessages.push({
@@ -491,12 +506,6 @@ export class AgentRunner {
             role: "system",
             content: buildRequiredToolNudgeMessage(missingRequired),
           })
-          const isLastRound = round >= maxRounds - 1
-          if (isLastRound) {
-            await clearPersistedBreakpoint()
-            callbacks.onError(new RequiredToolsNotCalledError(missingRequired))
-            return record
-          }
           continue
         }
 

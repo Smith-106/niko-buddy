@@ -11,7 +11,7 @@ import {
   toHeatLog,
   type ModuleAtlasEntry,
 } from "@/lib/novel"
-import { shouldFlushHeat, useModuleHeatStore } from "@/stores/module-heat-store"
+import { useModuleHeatStore } from "@/stores/module-heat-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { cn, pad } from "@/lib/utils"
 import { Activity, CircleDot, ExternalLink, Flame, Layers, RefreshCw, Unplug } from "lucide-react"
@@ -73,6 +73,7 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const install = useModuleHeatStore((s) => s.install)
+  const hydrate = useModuleHeatStore((s) => s.hydrate)
   const hits = useModuleHeatStore((s) => s.hits)
   const flush = useModuleHeatStore((s) => s.flush)
   const heatMap = useModuleHeatStore((s) => s.heatMap)
@@ -81,22 +82,19 @@ export function ModuleHeatmapView(_props: ModuleHeatmapViewProps = {}) {
   const [query, setQuery] = useState("")
   const [flushedAt, setFlushedAt] = useState<number | null>(null)
 
+  const projectPath = project?.path ?? null
+
   useEffect(() => {
     install()
   }, [install])
 
-  const projectPath = project?.path ?? null
-
-  // 节流落盘：命中密集时不打断交互，窗口/批量阈值由纯函数判定。
+  // 快照回填：把上一次会话的命中窗口读回来，冷启动打开视图不再是空图（幂等、best-effort）。
   useEffect(() => {
-    const timer = setInterval(() => {
-      const state = useModuleHeatStore.getState()
-      if (!projectPath) return
-      if (!shouldFlushHeat(state, Date.now())) return
-      void state.flush(projectPath).then(() => setFlushedAt(Date.now()))
-    }, 5000)
-    return () => clearInterval(timer)
-  }, [projectPath])
+    void hydrate(projectPath)
+  }, [hydrate, projectPath])
+
+  // 落盘不在这里：app 级轮询（startModuleHeatFlushLoop）已在 main.tsx 启动，
+  // 视图不挂载时同样按时节流写盘；此处只保留手动「立即落盘」按钮。
 
   const heat = heatMap()
   const totals = useMemo(() => heatTotals(MODULE_ATLAS, heat), [heat])

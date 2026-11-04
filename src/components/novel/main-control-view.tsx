@@ -22,6 +22,9 @@ import {
   type TraceEntry,
 } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
+// TASK-005：计划原文的真源（`.novel/plans/chapter-<N>.md`）。直接取模块而非 `@/lib/novel` 桶：
+// 桶里没有该导出，且测试注入点就是这条模块路径。
+import { loadConfirmedPlan } from "@/lib/novel/confirmed-plan-store"
 import { resolveAiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type { AgentActivityEvent, AgentActivityKind } from "@/lib/agent/types"
 // RV-06：读回结果的判别式类型。只取类型（运行时仍走 `@/lib/novel` 桶，测试注入点在那里）。
@@ -223,6 +226,13 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const [expanded, setExpanded] = useState<string[]>([])
   // 回放：上次运行的轨迹快照（读回端唯一真源，字段见 TraceReplay）。
   const [replay, setReplay] = useState<TraceReplay>({ status: "idle" })
+  /**
+   * TASK-005：本次运行「本该带计划但没读到」的章号（非阻断提示用；null = 无需提示）。
+   *
+   * 与 `error` 严格分开：读不到计划不是失败——运行照常进行，只是这一次不带计划。
+   * 因此这里既不进红字错误，也不阻断执行，只在按钮区下方留一行灰字说明。
+   */
+  const [planBlueprintMissingChapter, setPlanBlueprintMissingChapter] = useState<number | null>(null)
   // RV-002 ②：运行结束后才发生的观测（记忆回填）也要进同一个 activities 列表。
   const [extraActivities, setExtraActivities] = useState<AgentActivityEvent[]>([])
   const abortRef = useRef<AbortController | null>(null)
@@ -403,6 +413,8 @@ export function MainControlView(_props: MainControlViewProps = {}) {
       return
     }
     setError(null)
+    // TASK-005：上一次运行的「无计划」提示不带进这一次（本次读盘结果重新决定）。
+    setPlanBlueprintMissingChapter(null)
     setResult(null)
     setSteps([])
     setTrace([])
@@ -431,6 +443,39 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         novelConfig.stageJournalEnabled,
         novelConfig.journalTtlMs,
       )
+      /**
+       * TASK-005：把 `.novel/plans/chapter-<N>.md` 里的计划原文读进闭包，再交给装配层。
+       *
+       * 为什么必须在这里 await：`getPlanBlueprint` 是**同步签名**（main-control.ts:148），
+       * 选项一旦传入，装配层随时可能同步调用它（会话层兜底 + 必调工具兜底都会取），
+       * 所以读盘只能发生在 `runMainControlAgent` 之前，选项里给的是已经拿到的值。
+       *
+       * 章号缺失/非正 → 不读盘：那只会拼出 `chapter-undefined.md` 这类无意义路径，
+       * 且读回任何东西都会成为「猜章」的伪造。
+       */
+      const planChapterNumber =
+        typeof currentChapterNumber === "number" &&
+        Number.isInteger(currentChapterNumber) &&
+        currentChapterNumber > 0
+          ? currentChapterNumber
+          : undefined
+      let planBlueprint: string | undefined
+      if (planChapterNumber !== undefined) {
+        try {
+          planBlueprint = await loadConfirmedPlan(projectPath, planChapterNumber)
+        } catch (err) {
+          // 读盘失败不阻塞运行：记 warn + 降级为「本次不带计划」，绝不伪造一份计划顶上。
+          console.warn(
+            `[main-control-view] 读取第 ${planChapterNumber} 章已保存计划失败，本次不带计划继续`,
+            err,
+          )
+          planBlueprint = undefined
+        }
+      }
+      // 非阻断提示：有章号却没有计划（文件不存在 / 读失败）→ 说清「本次不带计划」，不弹错误。
+      setPlanBlueprintMissingChapter(
+        planChapterNumber !== undefined && !planBlueprint ? planChapterNumber : null,
+      )
       const out = await runMainControlAgent({
         projectPath,
         wikiPath,
@@ -448,15 +493,19 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         // - novelMode：本组件同一份 store 选择器（也是决定是否注入深章流水线的那个开关），
         //   让「是否注册深章工具」与「门控是否武装」同源。
         // - planExecuteActive：主控无计划确认阶段（计划阶段禁止调该工具），显式给 false。
-        // - getPlanBlueprint：主控侧没有「已确认的计划」状态（组件里无此真源）→ 返回 undefined，
-        //   不伪造一份空计划；用户真确认过的计划只在计划面板那条链路里。
-        // - getFallbackParams：拿不到就省略对应键（章号只从结构化来源解析，不猜）。
+        // - getPlanBlueprint：从 `.novel/plans/chapter-<N>.md` 读回模型上次在 run_chapter_workflow
+        //   的 tool_call 里自带的那份计划原文（TASK-004 的持久化真源，`loadConfirmedPlan`）。
+        //   读不到（文件不存在 / 读失败 / 章号缺失）就不传，返回 undefined——不伪造一份空计划。
+        //   这里给的是**已读进闭包的值**（同步签名，见上方 planBlueprint 的读盘位置）。
+        // - getFallbackParams：拿不到就省略对应键（章号只从结构化来源解析，不猜）；
+        //   计划与 getPlanBlueprint 同源（同一份闭包值），有才带。
         gateIntent: goalSource === "chapter-draft-handoff" ? "write_chapter" : undefined,
         novelMode,
         planExecuteActive: false,
-        getPlanBlueprint: () => undefined,
+        getPlanBlueprint: () => planBlueprint,
         getFallbackParams: () => ({
-          ...(currentChapterNumber !== undefined ? { chapterNumber: currentChapterNumber } : {}),
+          ...(planChapterNumber !== undefined ? { chapterNumber: planChapterNumber } : {}),
+          ...(planBlueprint ? { planBlueprint } : {}),
         }),
       })
       setSteps(out.steps)
@@ -823,6 +872,16 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           <p className="flex items-center gap-1 text-xs text-destructive" data-testid="main-control-error">
             <CircleAlert className="h-3 w-3" />
             {error}
+          </p>
+        ) : null}
+        {/* TASK-005：没有已保存计划不是错误——运行照常，只说明这一次不带计划（灰字、非阻断）。 */}
+        {planBlueprintMissingChapter !== null ? (
+          <p
+            className="flex items-center gap-1 text-xs text-muted-foreground"
+            data-testid="main-control-plan-blueprint-missing"
+          >
+            <CircleAlert className="h-3 w-3" />
+            {t("mainControl.planBlueprintMissing", { chapter: planBlueprintMissingChapter })}
           </p>
         ) : null}
         {!running && cancelledAt && !error ? (

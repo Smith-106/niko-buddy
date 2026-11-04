@@ -455,3 +455,108 @@ describe("必调工具门控：工具未调用 + 重试耗尽 → 明确诊断",
     expect(diagnostics.missingTools).toEqual([])
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 断言 3：nudge 先、兜底后（DEC-R1=A）
+//
+// 旧顺序是「本轮零工具调用 → 立刻确定性兜底 → 兜底成功就 return」，模型那句散文只进
+// workingMessages、从不 onText，用户看到的是静默代跑。新顺序要求：模型先看到 nudge、
+// 有机会自己调工具；确实没有下一轮可用时，才轮到确定性兜底。
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("必调工具门控：nudge 先、兜底后", () => {
+  it("第 1 轮零工具调用 → 先 nudge；第 2 轮模型自己调了必调工具 → 不再走确定性兜底，finalText 来自模型", async () => {
+    const sentMessages = scriptStream([
+      { text: "我先说明一下打算怎么写，但这一轮没调工作流。" },
+      { toolCalls: [toolCallDelta(WORKFLOW_TOOL, { userRequest: "写第一章" }, "call_wf_self")] },
+      { text: "第一章 落雪\n\n模型在拿到工作流结果后自己写出的正文。" },
+    ])
+
+    // 兜底入口是「可用」的（buildRequiredToolFallbackParams 存在），所以「没有走兜底」
+    // 不是因为没有兜底可走，而是因为模型自己补上了工具调用。
+    const tool = createWorkflowTool({
+      buildRequiredToolFallbackParams: ({ taskGoal }) => ({ userRequest: taskGoal }),
+      async execute() {
+        return "章节工作流已完成：大纲 + 场景表 + 文风约束"
+      },
+    })
+
+    const { record, errors, texts, doneCount } = await runAgent(
+      createConfig([tool], { requiredToolsOnce: [WORKFLOW_TOOL], maxRounds: 4 }),
+      [tool],
+    )
+
+    // 三轮：第 1 轮被 nudge、第 2 轮模型调工具、第 3 轮模型出终稿
+    expect(mocks.streamChat).toHaveBeenCalledTimes(3)
+    expect(record.roundsUsed).toBe(3)
+    // 第 1 轮之后注入过 nudge（说明「先 nudge」这一步真的发生了）
+    expect(nudgeInjected(sentMessages[1])).toBe(true)
+
+    // 终稿来自模型，而不是兜底
+    expect(record.finalText).toBe("第一章 落雪\n\n模型在拿到工作流结果后自己写出的正文。")
+    expect(texts).toEqual([record.finalText])
+    expect(doneCount()).toBe(1)
+    expect(errors).toEqual([])
+
+    // 唯一那次工具调用是模型发起的（id 原样来自 tool_call），没有 required_fallback: 前缀
+    expect(record.toolCalls.map((call) => [call.name, call.status, call.id])).toEqual([
+      [WORKFLOW_TOOL, "done", "call_wf_self"],
+    ])
+    expect(record.toolCalls.some((call) => call.id.startsWith("required_fallback:"))).toBe(false)
+
+    // 诊断出口：兜底全程没有被尝试过
+    const diagnostics = diagnosticsOf(record)
+    expect(diagnostics.fallbackAttempted).toBe(false)
+    expect(diagnostics.fallbackStatus).toBeUndefined()
+    expect(diagnostics.fallbackTool).toBeUndefined()
+    expect(diagnostics.satisfiedTools).toEqual([WORKFLOW_TOOL])
+    expect(diagnostics.missingTools).toEqual([])
+  })
+
+  it("两轮都零工具调用 → nudge 用尽后，最后一轮仍执行确定性兜底并交付终稿", async () => {
+    const sentMessages = scriptStream([
+      { text: "第一轮：我打算直接给你正文" },
+      { text: "第二轮：我还是直接给你正文" },
+    ])
+
+    const tool = createWorkflowTool({
+      finalizesRun: true,
+      buildRequiredToolFallbackParams: ({ taskGoal }) => ({ userRequest: taskGoal }),
+      async execute(_params, _signal, context) {
+        context?.onFinalContent?.("第一章 落雪（确定性兜底交付）")
+        return "工作流已交付第一章正文"
+      },
+    })
+
+    const { record, errors, texts, doneCount } = await runAgent(
+      createConfig([tool], { requiredToolsOnce: [WORKFLOW_TOOL], maxRounds: 2 }),
+      [tool],
+    )
+
+    // 轮数语义未变：nudge 只是 continue，仍然只用掉 maxRounds=2 轮，没有多跑
+    expect(mocks.streamChat).toHaveBeenCalledTimes(2)
+    expect(record.roundsUsed).toBe(2)
+    // 第 1 轮之后确实注入过 nudge（nudge 先）
+    expect(nudgeInjected(sentMessages[1])).toBe(true)
+
+    // 兜底后（第 2 轮仍不调工具）仍然交付终稿：兜底路径完整保留
+    expect(record.finalText).toBe("第一章 落雪（确定性兜底交付）")
+    expect(texts).toEqual([])
+    expect(doneCount()).toBe(1)
+    expect(errors).toEqual([])
+
+    // 交付来自确定性兜底，而不是模型：id 是 required_fallback: 前缀
+    expect(record.toolCalls.map((call) => [call.name, call.status])).toEqual([
+      [WORKFLOW_TOOL, "done"],
+    ])
+    expect(record.toolCalls[0].id.startsWith("required_fallback:")).toBe(true)
+
+    const diagnostics = diagnosticsOf(record)
+    expect(diagnostics.fallbackAttempted).toBe(true)
+    expect(diagnostics.fallbackTool).toBe(WORKFLOW_TOOL)
+    expect(diagnostics.fallbackStatus).toBe("success")
+    expect(diagnostics.satisfiedTools).toEqual([WORKFLOW_TOOL])
+    expect(diagnostics.missingTools).toEqual([])
+    expect(diagnostics.roundsUsed).toBe(2)
+  })
+})

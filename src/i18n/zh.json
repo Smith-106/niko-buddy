@@ -4446,6 +4446,7 @@
     "traceIssueInvalidJson": "快照不是合法 JSON",
     "traceIssueUnknownVersion": "快照版本不认识",
     "traceIssueInvalidEntries": "快照里的轨迹条目不是数组",
+    "planBlueprintMissing": "未找到第 {{chapter}} 章的已保存计划，本次将不带计划运行（不会伪造一份计划）。",
     "traceDuration": "{{ms}}ms",
     "traceInput": "输入：{{input}}",
     "traceFailure": "失败原因：{{reason}}",

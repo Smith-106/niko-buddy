@@ -4446,6 +4446,7 @@
     "traceIssueInvalidJson": "snapshot is not valid JSON",
     "traceIssueUnknownVersion": "unrecognized snapshot version",
     "traceIssueInvalidEntries": "snapshot trace entries are not an array",
+    "planBlueprintMissing": "No saved plan found for chapter {{chapter}}; this run continues without a plan (no plan is fabricated).",
     "traceDuration": "{{ms}}ms",
     "traceInput": "input: {{input}}",
     "traceFailure": "failure: {{reason}}",

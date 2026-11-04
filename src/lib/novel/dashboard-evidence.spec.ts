@@ -5,8 +5,11 @@
  * 优先级 / 全评估 pass / 部分评估 not_evaluated / 无事件书 / bookId 隔离）。
  */
 import { describe, expect, it } from "vitest"
-import { appendRunEvents, createRunEventLedger, type RunEventInput } from "./run-event-ledger"
+import { appendRunEvent, appendRunEvents, createRunEventLedger, type RunEventInput } from "./run-event-ledger"
 import { buildCorrectionLoopStats } from "./repair-loop"
+import { buildChapterGateRunEvents, MAIN_CONTROL_RERUN_INTENT } from "./deep-chapter-gate-evidence"
+import type { DeepChapterDecisionGates, DeepChapterDecisionGate } from "./deep-chapter-decision-gates"
+import type { NovelReviewResult } from "./review-adapter"
 import {
   buildDashboardEvidenceSnapshot,
   deriveBookHealthSummaries,
@@ -108,6 +111,113 @@ describe("deriveBookHealthSummaries（列表健康列）", () => {
     // book-a：consistency 最近=fail → 阻塞；book-b 只评估了 consistency=pass 但未全评估 → not_evaluated
     expect(health["book-a"]).toMatchObject({ display: "fail", blocked: true, blockingGate: "consistency" })
     expect(health["book-b"]).toMatchObject({ display: "not_evaluated", blocked: false, evaluatedGates: 1 })
+  })
+})
+
+describe("污染回归（F1b：草稿复核 gate-run 不得覆盖正式章权威口径）", () => {
+  function finding(severity: "error" | "warning", type = "consistency"): NovelReviewResult {
+    return { type, severity, description: `${type}-${severity}`, suggestion: "s" } as unknown as NovelReviewResult
+  }
+
+  function gate(status: "pending" | "passed" | "failed", findings: NovelReviewResult[] = []): DeepChapterDecisionGate {
+    return {
+      status,
+      verdict: status === "failed" ? "fail" : status === "passed" ? "pass" : "pending",
+      findings,
+      repair_suggestions: [],
+      retry_count: 0,
+      updated_at: TS,
+    } as DeepChapterDecisionGate
+  }
+
+  function decisionGates(
+    statuses: { consistency: "pending" | "passed" | "failed"; anti_ai: "pending" | "passed" | "failed"; quality: "pending" | "passed" | "failed" },
+    findings: NovelReviewResult[] = [],
+  ): DeepChapterDecisionGates {
+    return {
+      consistency: gate(statuses.consistency, findings),
+      anti_ai: gate(statuses.anti_ai, findings),
+      quality: gate(statuses.quality, findings),
+      overall: "pending",
+    } as unknown as DeepChapterDecisionGates
+  }
+
+  /** 把一组 gate-run 事件按真实写入路径落账（同一次写入共享同一 ts）。 */
+  function appendGroup(
+    ledger: ReturnType<typeof createRunEventLedger>,
+    events: ReturnType<typeof buildChapterGateRunEvents>,
+    ts: string,
+  ) {
+    let next = ledger
+    for (const event of events) {
+      const seq = next.events.length
+      next = appendRunEvent(next, { ...event, ts, seq, eventId: `gate-run:${seq}:${seq}` })
+    }
+    return next
+  }
+
+  it("正式章先写、main-control-rerun 后写：门状态/快照仍为正式章结论（不被重跑覆盖）", () => {
+    const formal = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: decisionGates({ consistency: "passed", anti_ai: "passed", quality: "passed" }),
+      chapterNumber: 3,
+    })
+    // 未采纳草稿的重跑：三门全部翻转（若不过滤就会覆盖首页三门）
+    const rerun = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: decisionGates(
+        { consistency: "failed", anti_ai: "pending", quality: "pending" },
+        [finding("error")],
+      ),
+      chapterNumber: 3,
+      intent: MAIN_CONTROL_RERUN_INTENT,
+    })
+    const ledger = appendGroup(
+      appendGroup(createRunEventLedger(), formal, "2026-10-18T00:00:00.000Z"),
+      rerun,
+      "2026-10-18T00:10:00.000Z",
+    )
+    // 前提：重跑确实已落账（可审计，非静默丢弃）
+    expect(ledger.events).toHaveLength(6)
+    expect(ledger.events[5]?.evidenceRefs).toContain(`intent:${MAIN_CONTROL_RERUN_INTENT}`)
+
+    // 回归断言：仍返回**正式章**结论
+    const statuses = deriveEvidenceGateStatuses(ledger)
+    expect(statuses).toEqual({ consistency: "pass", anti_ai: "pass", quality: "pass" })
+    const snapshot = buildDashboardEvidenceSnapshot(ledger)
+    expect(snapshot.blocked).toBe(false)
+    expect(snapshot.cards.every((card) => card.display === "pass")).toBe(true)
+
+    // 反证：若显式清空排除表（旧行为），重跑确实会翻转——证明拦截来自 intent 过滤
+    const unfiltered = deriveEvidenceGateStatuses(ledger, { excludeIntents: [] })
+    expect(unfiltered).toEqual({ consistency: "fail", anti_ai: "skipped", quality: "skipped" })
+  })
+
+  it("列表健康列同口径：重跑 fail 不把本书刷成 blocked", () => {
+    const formal = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: decisionGates({ consistency: "passed", anti_ai: "passed", quality: "passed" }),
+      chapterNumber: 3,
+      bookId: "book-a",
+    })
+    const rerun = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: decisionGates({ consistency: "failed", anti_ai: "failed", quality: "failed" }, [finding("error")]),
+      chapterNumber: 3,
+      bookId: "book-a",
+      intent: MAIN_CONTROL_RERUN_INTENT,
+    })
+    const ledger = appendGroup(
+      appendGroup(createRunEventLedger(), formal, "2026-10-18T00:00:00.000Z"),
+      rerun,
+      "2026-10-18T00:10:00.000Z",
+    )
+    expect(deriveBookHealthSummaries(ledger, ["book-a"])["book-a"]).toMatchObject({
+      display: "pass",
+      blocked: false,
+      blockingGate: null,
+      evaluatedGates: 3,
+    })
   })
 })
 

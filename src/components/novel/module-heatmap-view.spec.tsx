@@ -5,7 +5,7 @@
  */
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 const mocks = vi.hoisted(() => ({
   writeFile: vi.fn(async () => undefined),
@@ -27,6 +27,9 @@ beforeEach(() => {
   setModuleHeatSink(null)
   useModuleHeatStore.getState().reset()
   useModuleHeatStore.setState({ installed: false })
+  mocks.readFile.mockClear()
+  mocks.writeFile.mockClear()
+  mocks.createDirectory.mockClear()
 })
 
 afterEach(() => cleanup())
@@ -143,5 +146,36 @@ describe("ModuleHeatmapView", () => {
     fireEvent.change(screen.getByTestId("heatmap-search"), { target: { value: "campaign-runner" } })
     expect(screen.getByTestId("heatmap-node-campaign-runner")).toBeTruthy()
     expect(screen.queryByTestId("heatmap-node-incubator")).toBeNull()
+  })
+
+  // TASK-006：快照此前只写不读（loadHeatSnapshot 零调用方）。视图挂载时必须回填。
+  it("挂载时回填磁盘快照：冷启动不再空图", async () => {
+    const { useWikiStore } = await import("@/stores/wiki-store")
+    useWikiStore.setState({ project: { id: "p1", name: "proj", path: "/proj" } })
+    mocks.readFile.mockResolvedValueOnce(
+      JSON.stringify({
+        fileVersion: 1,
+        sessionStartedAt: 1,
+        savedAt: 2,
+        hits: [
+          { path: "src/lib/novel/campaign-runner.ts", at: Date.now(), ok: true, ms: 7 },
+        ],
+      }),
+    )
+    try {
+      render(<ModuleHeatmapView />)
+      await waitFor(() => {
+        expect(screen.getByTestId("heatmap-node-campaign-runner").textContent).toContain("1")
+      })
+      expect(mocks.readFile).toHaveBeenCalledWith("/proj/.novel/telemetry/module-heat.json")
+      expect(screen.getByTestId("heatmap-session-log").textContent).toContain("campaign-runner")
+    } finally {
+      useWikiStore.setState({ project: null })
+    }
+  })
+
+  it("无项目路径时视图不读盘（不造假数据）", () => {
+    render(<ModuleHeatmapView />)
+    expect(mocks.readFile).not.toHaveBeenCalled()
   })
 })

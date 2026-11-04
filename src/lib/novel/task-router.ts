@@ -79,6 +79,15 @@ const INTENT_PATTERNS: IntentPattern[] = [
       /^(write|generate|create)\s*(a\s*)?(new|next)\s*chapter\b/i,
       /(根据|按照).*(第\s*[\d一二三四五六七八九十百〇零两]+\s*章).*(章纲|大纲|细纲).*(生成|写|创作|撰写).*(正文|章节)?/,
       /(根据|按照).*(章纲|大纲|细纲).*(生成|写|创作|撰写).*(正文|章节)/,
+      // TASK-001：章节页交接模板（main-control-handoff.ts:26-29 buildChapterDraftGoal
+      // → `为「第12章 旧梦」生成本章草稿`）。上面全部以写/生成/创作/撰写动词锚定 `^`，
+      // 而交接文案以「为」开头，全部失配。此条只锚定该模板形状：
+      // 介词（为/给）+ 引号包裹的「第N章 + 标题」+ 生成(本章|该章|这章)草稿。
+      // 必须保持全锚定——裸 /生成本章草稿/ 会误命中「为什么要生成本章草稿？」
+      // 「生成本章草稿的验收标准有哪些？」「他说「生成本章草稿」是什么意思」等提及/否定句。
+      // 代词限定 本章|该章|这章（不含「大纲」），「生成大纲草稿」仍归 generate_outline。
+      // N 的字符类复用 CHAPTER_NUMBER_PATTERNS 的中文数字集合（含 千/〇/零/两）。
+      /^[为给]\s*[「“"]\s*第\s*[\d一二三四五六七八九十百千〇零两]+\s*章[^」”"]*[」”"]\s*生成\s*(本章|该章|这章)\s*草稿/,
     ],
     keywords: ["写章节", "生成章节", "创作章节", "新章节", "写第", "章纲生成正文"],
     weight: 10,
@@ -361,7 +370,10 @@ export function routeTask(userInput: string): TaskRouteResult {
   }
 
   if (scores.length === 0) {
-    return { intent: "general_chat", confidence: 0.5, extractedParams }
+    // TASK-001：与下方正常返回同形——把 :357 已算出的章节号同时给顶层
+    // chapterNumber。此前 general_chat 路径的章节号只存在于 extractedParams，
+    // 调用方读 route.chapterNumber 恒为 undefined（「请帮我看看第十章的内容」）。
+    return { intent: "general_chat", confidence: 0.5, chapterNumber, extractedParams }
   }
 
   scores.sort((a, b) => b.score - a.score)

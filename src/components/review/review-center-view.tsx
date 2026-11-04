@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { Clapperboard, X, Wrench } from "lucide-react"
 import { ReviewView } from "./review-view"
 import { DashboardView } from "@/components/dashboard/dashboard-view"
@@ -19,7 +19,7 @@ import { queryCanonBatch } from "@/components/canon-editor/canon-editor-client"
 import { isArcStage } from "@/lib/novel"
 import { readFile } from "@/commands/fs"
 import { startSixDimensionReviewRun, SIX_REVIEW_DIMENSION_ORDER } from "@/lib/novel"
-import type { SixReviewDimensionKey } from "@/lib/novel"
+import type { DimensionReviewResult, SixReviewDimensionKey } from "@/lib/novel"
 import { toErrorMessage } from "@/lib/utils"
 import { summarizeReviewRunDone } from "./review-center-helpers"
 
@@ -57,6 +57,66 @@ export interface WishDriveEdgeProjection {
 }
 
 /**
+ * TASK-008：reviewRun.dimensionResults（DEC-R6=A，结构不动）→ 六维雷达图入参。
+ *
+ * 只搬真实分数：缺维度 / 非有限数（NaN、Infinity）一律跳过，不补 0 —— 雷达图内部用 0
+ * 表示「该维缺席」，伪造 0 会把「这一维没跑」画成「跑出来 0 分」。一条有效分数都没有时
+ * 返回 undefined，调用方据此继续走「暂无爽点量化数据」空态（不渲染空雷达）。
+ */
+export function deriveSixDimScores(
+  dimensionResults: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> | null | undefined,
+): Partial<Record<SixReviewDimensionKey, number>> | undefined {
+  if (!dimensionResults) return undefined
+  const scores: Partial<Record<SixReviewDimensionKey, number>> = {}
+  let valid = 0
+  for (const key of SIX_REVIEW_DIMENSION_ORDER) {
+    const raw = dimensionResults[key]?.score
+    if (typeof raw !== "number" || !Number.isFinite(raw)) continue
+    scores[key] = raw
+    valid += 1
+  }
+  return valid > 0 ? scores : undefined
+}
+
+/**
+ * 六维雷达块（TASK-008）。
+ *
+ * 复用 thrill-dashboard 同一条懒加载路径（`thrill-echarts` 内 echarts bundle 不进主包）。
+ * 这里单独渲染的理由：`ThrillDashboard` 在 `result` 为空时直接 return 空态，它内部的
+ * 雷达块（thrill-dashboard.tsx 懒加载包装内）需要 `result` 非空才可达；而 reviewCenter
+ * 没有任何 thrill-quantifier 结果可传（全仓无 producer）。为不伪造 `ThrillQuantifierResult`
+ * 也不改 thrill-dashboard.tsx，只在本组件内把「真实存在的六维分数」画出来。
+ */
+const SixDimRadar = lazy(() =>
+  import("@/components/novel/craft/thrill-echarts").then((m) => ({ default: m.SixDimRadarChart })),
+)
+
+function SixDimRadarBlock({ scores }: { scores: Partial<Record<SixReviewDimensionKey, number>> }) {
+  return (
+    <div
+      className="rounded-lg border bg-card p-2"
+      data-testid="review-center-six-dim-radar"
+      data-six-dim-scores={JSON.stringify(scores)}
+    >
+      <div className="mb-1 px-1 text-sm font-semibold text-foreground" title="六维评分 0–10 分，越高越好">
+        六维雷达（0–10 分，越高越好）
+      </div>
+      <div className="mx-auto max-w-sm">
+        <Suspense
+          fallback={
+            <div className="flex h-52 items-center justify-center text-xs text-muted-foreground">
+              图表加载中…
+            </div>
+          }
+        >
+          <SixDimRadar scores={scores} />
+        </Suspense>
+      </div>
+    </div>
+  )
+}
+
+/**
  * F8 wish-drive 数据源投影：canon motivation/arc 边 → WishDriveProfile（只读映射，fail-open）。
  * 边缺字段/空集 → 返回 null（WishDrive 空态，不拦其余 tab）。wish 取 motivation 边 predicate 首句；
  * motive 取 motivation 边 target_id 非空去重；wmaAction 暂无专列边→空（A-22.6 自洽第3条仅在承诺后段要求行动证据，
@@ -90,6 +150,12 @@ export function ReviewCenterView() {
   // 失败→空数组→WishDrive 空态，不拦面板与其余 tab；projectId 口径与 CanonEditor 一致用 project.id）。
   const wishProjectId = useWikiStore((s) => s.project?.id ?? "")
   const radarProjectPath = useWikiStore((s) => s.project?.path ?? "")
+  // TASK-008：把本次六维审稿的真实分数喂给爽点仪表盘的六维雷达（无分数 → undefined → 空态）。
+  const reviewRun = useWikiStore((s) => s.reviewRun)
+  const sixDimScores = useMemo(
+    () => deriveSixDimScores(reviewRun?.dimensionResults),
+    [reviewRun?.dimensionResults],
+  )
   const [wishEdges, setWishEdges] = useState<WishDriveEdgeProjection[] | null>(null)
   useEffect(() => {
     if (!craftOpen || craftTab !== "wish-drive" || wishEdges !== null || !wishProjectId) return
@@ -278,7 +344,18 @@ export function ReviewCenterView() {
           </div>
           <div className="min-h-0 flex-1">
             {craftTab === "arc-workbench" && <ArcWorkbench />}
-            {craftTab === "thrill-dashboard" && <ThrillDashboard />}
+            {craftTab === "thrill-dashboard" && (
+              <div className="flex h-full min-h-0 flex-col overflow-y-auto">
+                {sixDimScores ? (
+                  <div className="shrink-0 p-4 pb-0">
+                    <SixDimRadarBlock scores={sixDimScores} />
+                  </div>
+                ) : null}
+                <div className="min-h-0 flex-1">
+                  <ThrillDashboard sixDimScores={sixDimScores} />
+                </div>
+              </div>
+            )}
             {craftTab === "technique-panel" && <TechniquePanel />}
             {craftTab === "wish-drive" && <WishDrive profile={wishProfile} />}
             {craftTab === "style-radar" && (

@@ -8,7 +8,9 @@
  * 未评估门落 skipped 不落 pass。
  *
  * 不 mock 备料函数（buildFallbackTaskBrief / resolveChapterLengthSpec 走真实实现），
- * 只 mock 编排入口 evaluateChapterGates 与 IO 依赖（草稿列表 / contextPack）。
+ * 只 mock 编排入口 evaluateChapterGates 与 IO 依赖（草稿列表 / contextPack / 证据落账）。
+ *
+ * F1b 收口：重跑结论必须落账（`intent:main-control-rerun`），且落账失败非致命。
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -16,6 +18,7 @@ import type { ContextPack } from "./context-engine"
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { buildDecisionGates, emptyDecisionGates } from "./deep-chapter-decision-gates"
+import type { ChapterGateEvidenceInput, ChapterGateEvidenceResult } from "./deep-chapter-gate-evidence"
 import type { ChapterDraft } from "./lifecycle-types"
 
 const mocks = vi.hoisted(() => ({ evaluateChapterGates: vi.fn() }))
@@ -49,11 +52,18 @@ const fakePack = { marker: "pack" } as unknown as ContextPack
 
 const listDrafts = vi.fn(async () => [draft()])
 const buildPack = vi.fn(async () => fakePack)
+const recordEvidence = vi.fn(
+  async (_input: ChapterGateEvidenceInput): Promise<ChapterGateEvidenceResult> => ({
+    recorded: ["consistency", "anti_ai", "quality"],
+  }),
+)
 
 beforeEach(() => {
   evaluateChapterGates.mockReset()
   listDrafts.mockReset()
   buildPack.mockReset()
+  recordEvidence.mockReset()
+  recordEvidence.mockResolvedValue({ recorded: ["consistency", "anti_ai", "quality"] })
   listDrafts.mockResolvedValue([draft()])
   buildPack.mockResolvedValue(fakePack)
   evaluateChapterGates.mockResolvedValue({
@@ -76,7 +86,7 @@ describe("rerunMainControlGates", () => {
         novelConfig: novelConfig(),
         llmConfig,
       },
-      { listDrafts, buildPack },
+      { listDrafts, buildPack, recordEvidence },
     )
 
     expect(evaluateChapterGates).toHaveBeenCalledTimes(1)
@@ -97,10 +107,11 @@ describe("rerunMainControlGates", () => {
     await expect(
       rerunMainControlGates(
         { projectPath: "/proj", draftId: "draft_missing", novelConfig: novelConfig(), llmConfig },
-        { listDrafts, buildPack },
+        { listDrafts, buildPack, recordEvidence },
       ),
     ).rejects.toThrow("找不到草稿")
     expect(evaluateChapterGates).not.toHaveBeenCalled()
+    expect(recordEvidence).not.toHaveBeenCalled()
   })
 
   it("草稿无正文时抛错，不调用门控", async () => {
@@ -108,10 +119,11 @@ describe("rerunMainControlGates", () => {
     await expect(
       rerunMainControlGates(
         { projectPath: "/proj", draftId: "draft_1_abc", novelConfig: novelConfig(), llmConfig },
-        { listDrafts, buildPack },
+        { listDrafts, buildPack, recordEvidence },
       ),
     ).rejects.toThrow("草稿没有正文")
     expect(evaluateChapterGates).not.toHaveBeenCalled()
+    expect(recordEvidence).not.toHaveBeenCalled()
   })
 
   it("未评估门落 skipped 不落 pass（AI 审稿关闭时三门全 skipped）", async () => {
@@ -126,13 +138,53 @@ describe("rerunMainControlGates", () => {
 
     const out = await rerunMainControlGates(
       { projectPath: "/proj", draftId: "draft_1_abc", novelConfig: novelConfig(), llmConfig },
-      { listDrafts, buildPack },
+      { listDrafts, buildPack, recordEvidence },
     )
 
     expect(out.rows.map((row) => row.status)).toEqual(["skipped", "skipped", "skipped"])
     expect(out.rows.some((row) => row.status === "pass")).toBe(false)
     expect(out.overall).toBe("pending")
     expect(out.llmMediated).toBe(false)
+  })
+
+  it("结论落账：带 intent=main-control-rerun，落账即三门 decisionGates（不是渲染行）", async () => {
+    const gates = buildDecisionGates([], 3)
+    evaluateChapterGates.mockResolvedValue({
+      reviewResults: [],
+      decisionGates: gates,
+      llmMediated: true,
+      contractEvaluated: true,
+      unassessedGates: [],
+      unassessedDimensions: [],
+    })
+
+    const out = await rerunMainControlGates(
+      { projectPath: "/proj", draftId: "draft_1_abc", novelConfig: novelConfig(), llmConfig },
+      { listDrafts, buildPack, recordEvidence },
+    )
+
+    expect(recordEvidence).toHaveBeenCalledTimes(1)
+    const evidenceInput = recordEvidence.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(evidenceInput.projectPath).toBe("/proj")
+    expect(evidenceInput.intent).toBe("main-control-rerun")
+    expect(evidenceInput.chapterNumber).toBe(3)
+    expect(evidenceInput.llmMediated).toBe(true)
+    // 落账内容 = 真实 decisionGates（不是渲染行），供 gate-run payload 同源映射
+    expect(evidenceInput.decisionGates).toBe(gates)
+    expect(out.evidenceRecorded).toEqual(["consistency", "anti_ai", "quality"])
+    expect(out.evidenceError).toBeUndefined()
+  })
+
+  it("落账失败非致命：结论照常返回，只回 evidenceError", async () => {
+    recordEvidence.mockResolvedValue({ recorded: ["consistency", "anti_ai", "quality"], error: "disk-full" })
+
+    const out = await rerunMainControlGates(
+      { projectPath: "/proj", draftId: "draft_1_abc", novelConfig: novelConfig(), llmConfig },
+      { listDrafts, buildPack, recordEvidence },
+    )
+
+    expect(out.evidenceError).toBe("disk-full")
+    expect(out.rows.map((row) => row.key)).toEqual(["consistency", "anti_ai", "quality"])
   })
 })
 

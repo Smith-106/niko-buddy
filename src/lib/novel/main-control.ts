@@ -21,7 +21,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import type { StageJournalRuntime } from "./stage-output-journal"
 import { recordModuleHit } from "./module-heat"
 import { routeTask } from "./task-router"
-import type { NovelTaskIntent, TaskRouteResult } from "./task-router"
+import type { NovelTaskIntent } from "./task-router"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { toErrorMessage } from "@/lib/utils"
 
@@ -135,9 +135,11 @@ export interface RunMainControlOptions {
    * 文本推断（旧的正则/否定词表/疑问句启发式已删除）。
    *
    * 缺省回落到 `taskRoute.intent`（`routeTask` 的结构化路由结果）。因此「写第 3 章」这类
-   * 路由本身能判出的写作意图仍会武装；而路由判成 `general_chat` 的自由文本
-   * （含章节页交接文案「为「第N章 X」生成本章草稿」）不再被猜测放大——
-   * 调用方要武装就显式给 `write_chapter`，不给就不武装。
+   * 路由本身能判出的写作意图会武装；章节页交接模板「为「第N章 X」生成本章草稿」自 TASK-001
+   * 起也由路由本体识别（锚定模板形状的正则），同样无需本字段。
+   *
+   * 本字段保留的意义：调用方**已经知道**写作意图、而路由本体判不出时（例如自由文本形态的
+   * 交接/编排指令），可以显式给出，仍然不做任何文本猜测——不给就不武装。
    */
   gateIntent?: NovelTaskIntent
   /**
@@ -202,28 +204,6 @@ export async function loadOutlineConversations(): Promise<
   }))
 }
 
-/**
- * 装配层就地推导主控的 `taskRoute`（F04）。
- *
- * 为什么不是从 chat 侧传：chat 的 `effectiveTaskRoute` 是 `handleSend` 里的局部常量，
- * 没有任何 prop 链路能到达主控入口（`MainControlView` 只收 projectId），而两边共用同一个
- * 纯函数 `routeTask`，就地推导等价且不另立第二套判定。
- *
- * 归一化（实测缺口）：`routeTask` 在无意图命中时走 early return，会把已提取的章号丢掉——
- * 只留在 `extractedParams.chapterNumber`，`chapterNumber` 字段为 undefined。章节页交接的真实
- * 文案「为「第12章 旧梦」生成本章草稿」正好落在这条分支（intent=general_chat）。
- * 装配层补回该字段，否则 `load_context` / `list_outlines` 拿到的章号仍是空，F04 的预期收益
- * 对主入口不成立。不改 `task-router.ts`：chat 侧共用它，改路由契约是独立决策。
- */
-function buildMainControlTaskRoute(goal: string): TaskRouteResult {
-  const routed = routeTask(goal)
-  if (routed.chapterNumber !== undefined) return routed
-  const fromParams = Number.parseInt(routed.extractedParams.chapterNumber ?? "", 10)
-  return Number.isFinite(fromParams) && fromParams > 0
-    ? { ...routed, chapterNumber: fromParams }
-    : routed
-}
-
 /** 项目 wiki 根：优先 `<project>/wiki`，否则退回项目根（单目录布局）。 */
 export function resolveWikiPath(
   projectPath: string,
@@ -240,11 +220,15 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
     return { ok: false, finalText: "", steps: [], drafts: [], roundsUsed: 0, error: "目标为空" }
   }
   const now = options.deps?.now ?? Date.now
-  // F04：主控入口与 chat 侧之间没有 prop 链路（见 buildMainControlTaskRoute 注释），
-  // 用与 chat 同一个纯函数就地推导，并补回路由 early return 丢掉的章号。
+  // F04：主控入口与 chat 侧之间没有 prop 链路——chat 的 `effectiveTaskRoute` 是 `handleSend`
+  // 里的局部常量，`MainControlView` 只收 projectId，没有任何 prop 能传到这里；而两边共用同一个
+  // 纯函数 `routeTask`，就地推导等价且不另立第二套判定。
+  // TASK-002：此前这里还套了一层 `buildMainControlTaskRoute`，用于补回 `routeTask` 早退分支
+  // 丢掉的顶层章号。TASK-001 已让 general_chat 早退同样带顶层 `chapterNumber`，该补丁成为
+  // no-op，已删除，装配层直接使用路由结果。
   // 后果（预期收益）：`load_context` 真正注册（依赖 `vtc.taskRoute`），`list_outlines` 的
   // `getDefaultChapterNumber` 也复活（读 `vtc.taskRoute.chapterNumber`）。
-  const taskRoute = buildMainControlTaskRoute(goal)
+  const taskRoute = routeTask(goal)
   const outlineConversations = await loadOutlineConversations()
   const steps: MainControlStep[] = []
   const running = new Map<string, MainControlStep>()
@@ -340,8 +324,10 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
   // RV-01：intent **只认结构化输入**——`options.gateIntent ?? taskRoute.intent`。
   // 旧实现在装配层用正则（草稿生成动词 + 章节引用 + 否定前缀）猜自由文本，实测 13/30 反例误命中
   // （「不需要生成本章草稿」「为什么要生成本章草稿？」等），一旦误武装，兜底会真的跑完整条
-  // 深章流水线并把正文当答案交付。本层不再做任何形式的文本意图推断（正则/关键词表/启发式均无）；
-  // 「为「第N章 X」生成本章草稿」这类路由判不出写作意图的交接文案，由调用方显式给 `gateIntent`。
+  // 深章流水线并把正文当答案交付。本层不再做任何形式的文本意图推断（正则/关键词表/启发式均无）。
+  // TASK-002：章节页交接模板「为「第N章 X」生成本章草稿」自 TASK-001 起由路由本体识别
+  // （`write_chapter.patterns` 里锚定模板形状的那条正则），不再需要调用方替路由补意图；
+  // `gateIntent` 仍然保留——路由判不出、而调用方确知意图时用它显式给，不改变「不做文本推断」。
   //
   // 入参来源：
   // - intent：`options.gateIntent ?? taskRoute.intent`（结构化；不改写 taskRoute 本身）。
