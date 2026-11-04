@@ -1,5 +1,8 @@
 import { getStore } from "@/lib/web-store"
-import { noteDiscardedWritingConfig } from "@/lib/discarded-writing-config-notice"
+import {
+  __resetDiscardedWritingConfigForTest,
+  noteDiscardedWritingConfig,
+} from "@/lib/discarded-writing-config-notice"
 import type { WikiProject } from "@/types/wiki"
 import type { LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProviderConfigs, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, NovelConfig, RerankConfig } from "@/stores/wiki-store"
 import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG, isSearchRecipeId } from "@/stores/wiki-store"
@@ -519,7 +522,7 @@ export async function loadNovelConfig(projectId?: string, projectPath?: string):
       if (await fileExists(filePath)) {
         const raw = await readFile(filePath)
         const config = JSON.parse(raw)
-        return normalizeNovelConfig(config, `项目文件 ${filePath}`)
+        return normalizeNovelConfig(config, `项目文件 ${filePath}`, projectPath)
       }
     } catch {
       // fall through to global store
@@ -530,13 +533,14 @@ export async function loadNovelConfig(projectId?: string, projectPath?: string):
   if (projectId) {
     const projectConfigs = await store.get<Record<string, NovelConfig>>(PROJECT_NOVEL_CONFIG_KEY)
     if (projectConfigs && projectConfigs[projectId]) {
-      config = normalizeNovelConfig(projectConfigs[projectId], `项目 ${projectId}`)
+      config = normalizeNovelConfig(projectConfigs[projectId], `项目 ${projectId}`, projectPath)
     }
   }
   if (!config) {
     config = normalizeNovelConfig(
       await store.get<NovelConfig>(NOVEL_CONFIG_KEY),
       projectId ? `项目 ${projectId}（回退全局配置）` : "全局配置",
+      projectPath,
     )
   }
   if (config && projectPath) {
@@ -701,9 +705,10 @@ const warnedDeprecatedWritingModelScopes = new Set<string>()
  */
 const DEPRECATED_NOVEL_CONFIG_KEY = "writingModel"
 
-/** 仅供测试：清空去重集合（不在生产路径上使用）。 */
+/** 仅供测试：清空去重集合与留痕（不在生产路径上使用）。 */
 export function __resetWritingModelDeprecationWarningsForTest(): void {
   warnedDeprecatedWritingModelScopes.clear()
+  __resetDiscardedWritingConfigForTest()
 }
 
 /**
@@ -714,20 +719,28 @@ export function __resetWritingModelDeprecationWarningsForTest(): void {
  *     也算旧数据，因为旧版本会主动落盘 `writingModel: ""`；
  *   - **只告警不阻断**：不 throw、不改返回值、不改载入流程（白名单重建本就会丢掉该键）；
  *   - **不刷屏**：同一作用域（项目文件 / 项目 ID / 全局）进程内只告警一次。
+ *
+ * @param projectPath 项目文件路径，用于留痕的 key（`noticeKeyForProject` 归一化）。
+ *   必须传**真实路径**而不是人类可读作用域串：留痕的读侧只能用同一个归一化函数算 key，
+ *   两者一旦分裂，设置页的告知横幅就永远查不到（上一版就是这样空转的）。
  */
 function warnDeprecatedWritingModel(
   config: Partial<NovelConfig> | null | undefined,
   scope: string,
+  projectPath?: string,
 ): void {
   if (!config || typeof config !== "object") return
   if (!Object.prototype.hasOwnProperty.call(config, DEPRECATED_NOVEL_CONFIG_KEY)) return
+
+  const discarded = (config as unknown as Record<string, unknown>)[DEPRECATED_NOVEL_CONFIG_KEY]
+  // DEBT-residual-04：先留痕（供设置页告知），再做日志去重判定。
+  // 两件事的粒度不同：日志按 scope 去重防刷屏，留痕按归一化路径自身 first-wins。
+  // 放在闸前是为了让留痕不受「日志已告警过」这个状态影响，而不是为了改变结果。
+  noteDiscardedWritingConfig(projectPath, discarded, scope)
+
   if (warnedDeprecatedWritingModelScopes.has(scope)) return
   warnedDeprecatedWritingModelScopes.add(scope)
 
-  const discarded = (config as unknown as Record<string, unknown>)[DEPRECATED_NOVEL_CONFIG_KEY]
-  // DEBT-residual-04：先把「丢弃了什么」留痕（供设置页告知），再决定是否刷 console。
-  // 放在去重闸之前：去重只想控制日志刷屏，不应让留痕也只在第一个作用域生效一次。
-  noteDiscardedWritingConfig(scope, discarded)
   console.warn(
     `[project-store] ${scope} 的 novelConfig 已含废弃字段 writingModel（值 ${JSON.stringify(discarded)}），`
       + "该值已被丢弃。写作模型不再可配置：TASK-009 已从 NovelConfig 删除该字段，"
@@ -739,13 +752,15 @@ function normalizeNovelConfig(
   config?: Partial<NovelConfig> | null,
   /** 迁移日志用的项目标识（项目文件路径 / 项目 ID / 全局），缺省即「未知项目」。 */
   scope = "未知项目",
+  /** 项目文件路径：留痕 key 的真源，缺省则不按项目归属登记（落到全局哨兵）。 */
+  projectPath?: string,
 ): NovelConfig | null {
   if (!config) return null
   // P1-IMP-01: 三安全不变量运行时强制（GOV-OBS-05）——任何试图关闭不变量的配置 → fail-loud。
   // 放在迁移告警之前：不变量不合法的配置直接 throw，不应先打一条「writingModel 已丢弃」的日志。
   assertInvariantsNotDisabled(pickInvariantOverrides(config))
   // DEC-R5=A：旧配置里的 writingModel 键——只告警、不阻断，值由下方白名单重建自然丢弃。
-  warnDeprecatedWritingModel(config, scope)
+  warnDeprecatedWritingModel(config, scope, projectPath)
   return {
     contextTokenBudget: Math.max(0, config.contextTokenBudget ?? DEFAULT_NOVEL_CONFIG.contextTokenBudget),
     recentSummaryWindow: Math.max(1, Math.min(30, config.recentSummaryWindow ?? DEFAULT_NOVEL_CONFIG.recentSummaryWindow)),

@@ -49,6 +49,7 @@ import {
   migratePlaintextApiKeys,
   __resetWritingModelDeprecationWarningsForTest,
 } from "./project-store"
+import { getDiscardedWritingConfig } from "./discarded-writing-config-notice"
 import type { WikiProject } from "@/types/wiki"
 
 const mocks = vi.hoisted(() => {
@@ -867,5 +868,89 @@ describe("empty-store fallbacks", () => {
 describe("getRecentProjects", () => {
   it("returns [] when absent", async () => {
     await expect(getRecentProjects()).resolves.toEqual([])
+  })
+})
+
+// ── DEBT-residual-04「留痕 + 告知」的 **跨模块** 契约（RV-002 / RV-008）。
+//
+// 上一版的缺陷正是这一段缺失造成的：写侧把人类可读作用域串（`项目文件 <path>`）当 key，
+// 读侧用裸项目路径查，两两不可能相等，`getDiscardedWritingConfig` 恒返回 null，
+// 设置页横幅在生产环境一次都不会渲染 —— 而组件 spec 自己构造 key，掩盖了它。
+//
+// 所以这里必须走 `loadNovelConfig`（真实写侧），再断言**读侧同一函数**能查到。
+describe("DEBT-residual-04：留痕的写读 key 契约", () => {
+  it("项目文件里的旧键 → 用同一项目路径能查到留痕（含原值与作用域标签）", async () => {
+    __resetWritingModelDeprecationWarningsForTest()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(
+      JSON.stringify({ searchTopK: 2, writingModel: "deepseek/muse-spark-1.3-contributor-free" }),
+    )
+
+    await loadNovelConfig("file-project-2", "C:/notice-proj")
+
+    const notice = getDiscardedWritingConfig("C:/notice-proj")
+    expect(notice).not.toBeNull()
+    expect(notice?.value).toBe("deepseek/muse-spark-1.3-contributor-free")
+    expect(notice?.label).toContain("项目文件") // 人类可读作用域降级为 label，只用于诊断
+    warn.mockRestore()
+  })
+
+  it("路径分隔符与尾斜杠归一化：反斜杠与尾斜杠等价于正斜杠", async () => {
+    __resetWritingModelDeprecationWarningsForTest()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    mocks.fileExists.mockResolvedValue(true)
+    // 用 charCode 拼反斜杠：避免源码里出现转义歧义
+    const BS = String.fromCharCode(92)
+    const winPath = `C:${BS}proj${BS}`
+    mocks.readFile.mockResolvedValue(JSON.stringify({ writingModel: "legacy-a" }))
+
+    await loadNovelConfig("norm-project", winPath)
+
+    expect(getDiscardedWritingConfig("C:/proj")?.value).toBe("legacy-a")
+    expect(getDiscardedWritingConfig("C:/proj/")?.value).toBe("legacy-a")
+    expect(getDiscardedWritingConfig(`C:${BS}proj`)?.value).toBe("legacy-a")
+    warn.mockRestore()
+  })
+
+  it("没有项目路径（纯 store 配置）→ 落到全局哨兵，能用空路径查到", async () => {
+    __resetWritingModelDeprecationWarningsForTest()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await mocks.store.set("projectNovelConfigs", {
+      "global-fallback": { writingModel: "gpt-4-global" },
+    })
+
+    await loadNovelConfig("global-fallback")
+
+    expect(getDiscardedWritingConfig(undefined)?.value).toBe("gpt-4-global")
+    expect(getDiscardedWritingConfig(null)?.value).toBe("gpt-4-global")
+    warn.mockRestore()
+  })
+
+  it("不同项目的留痕互不串台", async () => {
+    __resetWritingModelDeprecationWarningsForTest()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValueOnce(JSON.stringify({ writingModel: "proj-a-model" }))
+    await loadNovelConfig("iso-a", "C:/iso-a")
+    mocks.readFile.mockResolvedValueOnce(JSON.stringify({ writingModel: "proj-b-model" }))
+    await loadNovelConfig("iso-b", "C:/iso-b")
+
+    expect(getDiscardedWritingConfig("C:/iso-a")?.value).toBe("proj-a-model")
+    expect(getDiscardedWritingConfig("C:/iso-b")?.value).toBe("proj-b-model")
+    expect(getDiscardedWritingConfig("C:/iso-c")).toBeNull()
+    warn.mockRestore()
+  })
+
+  it("旧键值为空串时也留痕（value 为空串，供 UI 自行决定不展示）", async () => {
+    __resetWritingModelDeprecationWarningsForTest()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify({ writingModel: "" }))
+
+    await loadNovelConfig("empty-project", "C:/empty-proj")
+
+    expect(getDiscardedWritingConfig("C:/empty-proj")?.value).toBe("")
+    warn.mockRestore()
   })
 })

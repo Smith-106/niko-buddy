@@ -1,11 +1,15 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
-import { useId, useState } from "react"
+import { useEffect, useId, useMemo, useState, useSyncExternalStore } from "react"
 import { useTranslation } from "react-i18next"
 import { Label } from "@/components/ui/label"
 import { OUTLINE_GENRE_CODES, sanitizeJournalTtlMs } from "@/lib/novel"
-import { getDiscardedWritingConfig } from "@/lib/discarded-writing-config-notice"
+import {
+  getDiscardedWritingConfig,
+  getDiscardedWritingConfigRevision,
+  subscribeDiscardedWritingConfig,
+} from "@/lib/discarded-writing-config-notice"
 import { useWikiStore, type NovelConfig } from "@/stores/wiki-store"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import {
@@ -28,8 +32,14 @@ export { NovelSettingTooltip, NovelToggle } from "./novel-section-panels"
 const JOURNAL_TTL_MIN_MS = 60_000
 const JOURNAL_TTL_MAX_MS = 7 * 24 * 60 * 60 * 1000
 
-/** 一次性告知横幅的关闭状态（只存浏览器侧，不新增配置项）。 */
-const DISMISSED_NOTICE_STORAGE_KEY = "niko-buddy.discarded-writing-config-notice.dismissed"
+/**
+ * 一次性告知横幅的关闭状态（只存浏览器侧，不新增配置项）。
+ *
+ * key 带作用域后缀：关闭是「某个项目看过了」而不是「所有人所有项目都别再提示」。
+ * 上一版用单一全局 key，在 A 项目关掉后 B 项目的另一条不同原值永远不会被告知，
+ * 与「按作用域留痕」的粒度自相矛盾。
+ */
+const DISMISSED_NOTICE_STORAGE_KEY_PREFIX = "niko-buddy.discarded-writing-config-notice.dismissed"
 
 /**
  * DEBT-residual-04「告知」：旧写作模型配置被丢弃时，设置页用可关闭横幅显示**原值**。
@@ -41,10 +51,29 @@ const DISMISSED_NOTICE_STORAGE_KEY = "niko-buddy.discarded-writing-config-notice
 function DiscardedWritingConfigNoticeBanner(): React.ReactElement | null {
   const { t } = useTranslation()
   const projectPath = useWikiStore((s) => s.project?.path ?? null)
-  const [dismissed, setDismissed] = useState(
-    () => typeof localStorage !== "undefined" && localStorage.getItem(DISMISSED_NOTICE_STORAGE_KEY) === "1",
+  // 订阅留痕版本号：留痕若晚于首次渲染写入（或设置页被单独挂载），横幅也能出现，
+  // 不再靠父组件偶然重渲染。
+  const revision = useSyncExternalStore(
+    subscribeDiscardedWritingConfig,
+    getDiscardedWritingConfigRevision,
+    getDiscardedWritingConfigRevision,
   )
-  const notice = getDiscardedWritingConfig(projectPath ?? "全局")
+  const notice = useMemo(
+    () => (revision >= 0 ? getDiscardedWritingConfig(projectPath) : null),
+    [revision, projectPath],
+  )
+  const storageKey = useMemo(
+    () => `${DISMISSED_NOTICE_STORAGE_KEY_PREFIX}.${notice?.key ?? "none"}`,
+    [notice?.key],
+  )
+  const [dismissed, setDismissed] = useState(
+    () => typeof localStorage !== "undefined" && localStorage.getItem(storageKey) === "1",
+  )
+  useEffect(() => {
+    // 切换项目后关闭态要跟着换 key 重新读：上一个项目的关闭不该盖住这一个。
+    if (typeof localStorage === "undefined") return
+    setDismissed(localStorage.getItem(storageKey) === "1")
+  }, [storageKey])
   if (dismissed || !notice || notice.value === "") return null
   return (
     <div
@@ -64,7 +93,7 @@ function DiscardedWritingConfigNoticeBanner(): React.ReactElement | null {
         onClick={() => {
           setDismissed(true)
           try {
-            localStorage.setItem(DISMISSED_NOTICE_STORAGE_KEY, "1")
+            localStorage.setItem(storageKey, "1")
           } catch {
             // 隐私模式/存储禁用：关掉本次即可，不阻断设置页
           }

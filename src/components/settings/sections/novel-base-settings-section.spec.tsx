@@ -12,7 +12,7 @@
 // 真实实现，这样测的是接线本身，而不是我自己的桩。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent } from "@testing-library/react"
+import { act, cleanup, fireEvent } from "@testing-library/react"
 import { render, screen } from "@/test-helpers/component-test-utils"
 import {
   __resetDiscardedWritingConfigForTest,
@@ -32,8 +32,9 @@ vi.mock("react-i18next", () => ({
 
 const BANNER = "novel-writing-model-discarded-notice"
 const DISMISS = "novel-writing-model-discarded-notice-dismiss"
-const DISMISSED_KEY = "niko-buddy.discarded-writing-config-notice.dismissed"
 const PROJECT_PATH = "/proj"
+// 关闭态 key 带作用域后缀（RV-006）：关闭是「某个项目看过了」，不是「所有项目都别提示」。
+const DISMISSED_KEY = `niko-buddy.discarded-writing-config-notice.dismissed.${PROJECT_PATH}`
 
 function setProject(path: string | null) {
   useWikiStore.setState({ project: path === null ? null : ({ path } as never) })
@@ -107,5 +108,33 @@ describe("DiscardedWritingConfigNoticeBanner", () => {
     localStorage.setItem(DISMISSED_KEY, "1")
     renderSection()
     expect(screen.queryByTestId(BANNER)).toBeNull()
+  })
+
+  it("RV-006：在 A 项目关掉不影响 B 项目的告知（关闭态按作用域隔离）", () => {
+    setProject(PROJECT_PATH)
+    noteDiscardedWritingConfig(PROJECT_PATH, "proj-a-model")
+    noteDiscardedWritingConfig("/proj-b", "proj-b-model")
+    localStorage.setItem(DISMISSED_KEY, "1")
+
+    renderSection()
+    expect(screen.queryByTestId(BANNER)).toBeNull() // A 已关，静默
+
+    cleanup()
+    setProject("/proj-b")
+    renderSection()
+    const banner = screen.queryByTestId(BANNER)
+    expect(banner).not.toBeNull() // B 未关，仍告知
+    expect(banner!.textContent).toContain("proj-b-model")
+  })
+
+  it("RV-002：留痕晚于首次渲染写入时，横幅仍会出现（响应式订阅）", () => {
+    setProject(PROJECT_PATH)
+    renderSection()
+    expect(screen.queryByTestId(BANNER)).toBeNull()
+    // 首次渲染之后才写留痕：上一版直接读 Map，不会重渲染，横幅永远不出现
+    act(() => {
+      noteDiscardedWritingConfig(PROJECT_PATH, "late-model")
+    })
+    expect(screen.queryByTestId(BANNER)).not.toBeNull()
   })
 })

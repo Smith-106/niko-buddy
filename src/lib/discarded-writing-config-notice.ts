@@ -11,43 +11,99 @@
  * 写作会从原来的配置模型切到 AI 会话当前模型——这是对用户有意义的行为变化。
  * 字段本身不复活（DEC-R2=A 不变），只把「丢弃了什么」留住并告知。
  *
+ * **key 契约（曾在这里踩过坑，勿再分裂）**：登记的 key 与查询的 key 必须是同一个函数算出来的。
+ * 上一版写侧用「项目文件 <path>」这类人类可读作用域串做 key，读侧用裸项目路径查，两两不可能
+ * 相等，`getDiscardedWritingConfig` 恒返回 null，横幅在生产环境一次都不会渲染。
+ * 现在 key 一律由 `noticeKeyForProject()` 产出（归一化项目路径，或全局哨兵），
+ * 人类可读作用域串降级为登记里的 `label` 字段，仅用于诊断展示。
+ *
  * 存储只取进程内 Map：这是「告知」的展示来源，不是状态真源（`status.json` 仍是唯一会话真源），
- * 也不落盘，避免为一次性提示引入新配置项或 schema 字段。
+ * 也不落盘，避免为一次性提示引入新配置项或 schema 字段。Map 之上的版本号让 UI 能订阅变化，
+ * 而不是靠父组件偶然重渲染。
  *
  * @license MIT © Niko Buddy
  */
 
+/** 无项目路径时的归一化 key。 */
+export const GLOBAL_NOTICE_KEY = "__global__"
+
 /** 一次「旧写作模型配置被丢弃」的记录。 */
 export interface DiscardedWritingConfigNotice {
-  /** 作用域：项目文件路径 / 项目 ID / 全局。 */
-  scope: string
+  /** 归一化 key（与 `noticeKeyForProject` 同源）。 */
+  key: string
+  /** 人类可读作用域（项目文件路径 / 项目 ID / 全局），仅用于诊断展示。 */
+  label: string
   /** 旧配置里该键的原始值；`null` 表示值不是可展示的原始类型。 */
   value: string | null
   /** 首次观察到的时间戳。 */
   discardedAt: number
 }
 
-const notices = new Map<string, DiscardedWritingConfigNotice>()
+/**
+ * 把项目路径归一化成登记 key。
+ *
+ * 归一化只做与平台无关的等价化：反斜杠转正斜杠、折叠重复分隔符、去掉尾部斜杠、
+ * 去掉首尾空白。不做大小写折叠——Windows 上大小写不同可能是不同路径，
+ * 而误合并比漏合并更难查。
+ */
+export function noticeKeyForProject(projectPath: string | null | undefined): string {
+  if (typeof projectPath !== "string") return GLOBAL_NOTICE_KEY
+  const normalized = projectPath
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\/{2,}/g, "/")
+    .replace(/\/+$/, "")
+  return normalized.length > 0 ? normalized : GLOBAL_NOTICE_KEY
+}
 
-/** 记录一次丢弃（同一作用域保留首次观察，不刷屏）。 */
-export function noteDiscardedWritingConfig(scope: string, raw: unknown): void {
-  if (notices.has(scope)) return
+const notices = new Map<string, DiscardedWritingConfigNotice>()
+const listeners = new Set<() => void>()
+let revision = 0
+
+function emit(): void {
+  revision += 1
+  for (const listener of listeners) listener()
+}
+
+/** 记录一次丢弃（同一 key 保留首次观察，不刷屏）。 */
+export function noteDiscardedWritingConfig(
+  projectPath: string | null | undefined,
+  raw: unknown,
+  label = "未知作用域",
+): void {
+  const key = noticeKeyForProject(projectPath)
+  if (notices.has(key)) return
   const value =
     typeof raw === "string" ? raw : raw === undefined || raw === null ? null : JSON.stringify(raw)
-  notices.set(scope, { scope, value, discardedAt: Date.now() })
+  notices.set(key, { key, label, value, discardedAt: Date.now() })
+  emit()
 }
 
-/** 读取某作用域被丢弃的旧值；没有则 `null`。 */
-export function getDiscardedWritingConfig(scope: string): DiscardedWritingConfigNotice | null {
-  return notices.get(scope) ?? null
+/** 读取某项目被丢弃的旧值；没有则 `null`。 */
+export function getDiscardedWritingConfig(
+  projectPath: string | null | undefined,
+): DiscardedWritingConfigNotice | null {
+  return notices.get(noticeKeyForProject(projectPath)) ?? null
 }
 
-/** 全部留痕（诊断 / 用户支持用）。 */
-export function listDiscardedWritingConfigs(): DiscardedWritingConfigNotice[] {
-  return [...notices.values()]
+/**
+ * 订阅留痕变化。UI 用 `useSyncExternalStore` 接它，这样留痕晚于首次渲染写入时
+ * 横幅也能出现（上一版直接读 Map，靠父组件偶然重渲染生效）。
+ */
+export function subscribeDiscardedWritingConfig(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+/** 当前留痕版本号，配合 `subscribeDiscardedWritingConfig` 给 `useSyncExternalStore` 用。 */
+export function getDiscardedWritingConfigRevision(): number {
+  return revision
 }
 
 /** 仅供测试：清空留痕。 */
 export function __resetDiscardedWritingConfigForTest(): void {
   notices.clear()
+  emit()
 }

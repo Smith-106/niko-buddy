@@ -65,16 +65,22 @@ export async function saveHeatSnapshot(
  * 记录会经 `hydrate` 并入 store，渲染时 `moduleLabel(undefined).replace` 抛 TypeError
  * 被 ErrorBoundary 接住 —— 热力图视图从此渲染不出来且不自愈，用户也不知道该删哪个文件。
  * 故在读盘侧逐条过滤，坏条目丢弃而非让整份快照失效。
+ *
+ * 判据要**覆盖全部被当渲染值用的字段**，不能只看 `path`：视图里 `{row.detail ?? ""}`
+ * 与 `{row.ms}ms` 也是 React child，一条 `detail` 为对象的记录能通过只看 `path`/`at`
+ * 的校验，随后在渲染时抛 `Objects are not valid as a React child` —— 与 A-04 要修的
+ * failure mode 完全相同，只是入口换了。`ms` 为非数值虽不抛错，但会污染
+ * `aggregateHeat` 的 `totalMs` 使其变 NaN。
  */
 function isUsableHit(value: unknown): value is ModuleHit {
   if (!value || typeof value !== "object") return false
   const hit = value as Partial<ModuleHit>
-  return (
-    typeof hit.path === "string" &&
-    hit.path.length > 0 &&
-    typeof hit.at === "number" &&
-    Number.isFinite(hit.at)
-  )
+  if (typeof hit.path !== "string" || hit.path.length === 0) return false
+  if (typeof hit.at !== "number" || !Number.isFinite(hit.at)) return false
+  if (typeof hit.ok !== "boolean") return false
+  if (hit.ms !== undefined && (typeof hit.ms !== "number" || !Number.isFinite(hit.ms))) return false
+  if (hit.detail !== undefined && typeof hit.detail !== "string") return false
+  return true
 }
 
 /** 读取快照；缺失/损坏一律返回空窗口。 */

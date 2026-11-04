@@ -118,7 +118,7 @@
 
 | 动作 | 落点 |
 |---|---|
-| 留痕 | `project-store.ts` 新增 `DiscardedWritingConfigNotice` 登记表（进程内 Map，key 为作用域），在 `warnDeprecatedWritingModel` 里记录被丢弃的原始值；`listDiscardedWritingConfigs()` 供诊断 |
+| 留痕 | 新增叶模块 `src/lib/discarded-writing-config-notice.ts` 承载登记表（进程内 Map），`project-store.ts` 在 `warnDeprecatedWritingModel` 里记录被丢弃的原始值。**key 契约：一律由 `noticeKeyForProject(projectPath)` 产出（归一化项目路径，无路径时落全局哨兵 `__global__`），读侧必须用同一函数** —— 第一版写侧用「项目文件 <path>」这类人类可读串当 key、读侧用裸路径查，两两不可能相等，横幅在生产环境永不渲染；人类可读作用域已降级为登记里的 `label` 字段，只用于诊断 |
 | 告知 | 设置页新增 `DiscardedWritingConfigNoticeBanner`（`data-testid="novel-writing-model-discarded-notice"`），当作用域有非空丢弃值时显示原值并说明「正文现在始终使用 AI 会话当前模型」，可关闭；关闭态存 localStorage，不新增配置项 |
 | 不做的 | 不重新引入可配置写作模型（不推翻 DEC-R2=A）；不为一次性提示新增 schema 字段 |
 
@@ -155,7 +155,7 @@ i18n 键成对落地：`mainControl.settingsWritingModelDiscardedTitle` / `mainC
   date: "<发版日 YYYY-MM-DD>",
   highlights: {
     en: [
-      "Breaking: the writing model is no longer configurable. The writingModel field was removed from NovelConfig — body text always uses the current AI chat model. Projects whose saved config still carried a non-empty value will see that value discarded; the settings page now shows the discarded value once with a dismissible notice, and existing configs are never blocked from loading. Use reviewModel to pin a model for review.",
+      "Breaking: the writing model is no longer configurable. The writingModel field was removed from NovelConfig — body text always uses the current AI chat model. Projects whose saved config still carried a non-empty value will see that value discarded; the settings page shows the discarded value once with a dismissible per-project notice, and existing configs are never blocked from loading. Use reviewModel to pin a model for review.",
       "Fixed: task routing no longer drops the chapter number on the general-chat early exit, and the handoff template pattern is anchored at the end so questions such as 「为「第12章 旧梦」生成本章草稿吗？」 stay general chat. Chinese numerals are recognised when extracting chapter numbers.",
       "Changed: required-tool enforcement nudges the model first and only falls back to the deterministic path when the nudge budget (2) or the last round is exhausted, so a model that complies on the second attempt produces its own text instead of a silently substituted chapter.",
       "New: chapter plans are persisted to .novel/plans/chapter-<N>.md and read back on the next run; the plan source (user-supplied vs model-drafted) drives the wording of the constraint.",
@@ -164,7 +164,7 @@ i18n 键成对落地：`mainControl.settingsWritingModelDiscardedTitle` / `mainC
       "Fixed: the review radar chart is fed real six-dimension scores instead of rendering an unreachable empty branch.",
     ],
     zh: [
-      "破坏性变更：写作模型不再可配置。writingModel 字段已从 NovelConfig 删除，正文始终使用 AI 会话当前模型。旧配置里仍带非空值的项目会看到该值被丢弃；设置页现在会显示一次被丢弃的原值并提供可关闭的通知，配置载入从不因此被阻断。若需为审稿指定模型，请用 reviewModel。",
+      "破坏性变更：写作模型不再可配置。writingModel 字段已从 NovelConfig 删除，正文始终使用 AI 会话当前模型。旧配置里仍带非空值的项目会看到该值被丢弃；设置页会就该项目显示一次被丢弃的原值并提供可关闭的通知（关闭态按项目隔离），配置载入从不因此被阻断。若需为审稿指定模型，请用 reviewModel。",
       "修复：任务路由不再在通用对话早退时丢掉章号，交接模板正则补了尾部锚定，像「为「第12章 旧梦」生成本章草稿吗？」这样的问句仍归通用对话；提取章号时也识别中文数字。",
       "变更：必调工具门控改为先 nudge 模型，只有在 nudge 预算（2 次）用尽或已到末轮时才走确定性兜底，因此第二次就配合的模型会产出自己的正文，而不是被静默替换。",
       "新增：章节计划持久化到 .novel/plans/chapter-<N>.md，并在下次运行时读回；计划来源（用户给定 vs 模型自拟）决定约束措辞的强弱。",
@@ -176,3 +176,21 @@ i18n 键成对落地：`mainControl.settingsWritingModelDiscardedTitle` / `mainC
 },
 ```
 
+
+### 7.6 s3-review 复核后的修正（RV-001 … RV-011）
+
+独立 reviewer 对 `c1a360b0` 判 `reject_until_fixed`，本轮已修：
+
+| 项 | 缺陷 | 修法 |
+|---|---|---|
+| RV-001 | 新增 `src/lib/*` 模块却没跑 `gen:atlas`，`check-generated` 实测 5/6 FAIL，而提交正文写了「漂移闸全绿」 | 重新生成 `module-atlas.generated.json`，`gen:check` 恢复 6/6 PASS |
+| RV-002 | 留痕写侧 key 是「项目文件 <path>」等人类可读串，读侧用裸项目路径查，两两不可能相等 ⇒ 横幅在生产环境**永不渲染**，「留痕 + 告知」两条都是空转 | key 契约统一由 `noticeKeyForProject()` 产出；写侧传真实 `projectPath`；组件 spec 不再自造 key，并新增 `project-store.spec.ts` 里走 `loadNovelConfig` 的**跨模块**用例（含分隔符/尾斜杠归一化、全局哨兵、项目间隔离、空串值） |
+| RV-003 | `isUsableHit` 只校验 `path`/`at`，而视图把 `detail`/`ms` 也当 React child 渲染，一条 `detail` 为对象的记录同样把热力图打成永久崩溃 | 判据扩到 `ok` 为 boolean、`ms` 为有限 number、`detail` 为 string；新增 `module-heat-persist.spec.ts` 直测 8 条（含 `detail`/`ms` 为对象、`ok` 非布尔、容器字段原样透传） |
+| RV-004 | 「相邻不得同角色」是**错误**不变量：`runner.ts` 在 `for (const tc of …)` 里 push `role:"tool"`，一轮两个 tool call 就产生相邻 tool；上一版只因脚本不产 toolCalls 才恒真，对 nudge 零判别力 | 不变量收窄为「`system` 不紧跟 `system`」；新增一条**有并行工具调用**的用例，先断言消息流里真的出现相邻 `tool`，再跑不变量 |
+| RV-005 | 注释写「放在去重闸之前」实为闸之后，且两层 first-wins 叠加使该动机不成立；`__reset…` 只清 Set 不清 Map | 调用真正移到闸前并改注释说明真实理由（留痕按路径自身 first-wins，日志按 scope 去重，两件事粒度不同）；`__reset…` 同时清留痕 |
+| RV-006 | 横幅读非响应式 Map，靠挂载顺序侥幸成立；关闭态单 key 跨项目共享 | 登记表加版本号 + `subscribe`，UI 用 `useSyncExternalStore`；关闭 key 改为 `<prefix>.<noticeKey>`；新增两条用例（A 项目关闭不影响 B、留痕晚于首渲染写入仍出现） |
+| RV-007 | 7.5 的 changelog 备文写「设置页现在会显示被丢弃的原值」，受 RV-002 影响实际不会显示；7.3 把登记表说成 `project-store.ts` 新增 | 本节已改：文案与已实现行为一致（并补上「按项目隔离」），7.3 补 key 契约 |
+| RV-008 | 声称「测的是接线本身」的 spec 根本没 import `project-store`，写侧 0 覆盖 | 见 RV-002：补 `project-store.spec.ts` 的跨模块用例，覆盖写读 key 对齐 |
+| RV-009 | 提交正文报 `it.skip` 为 8 未写口径 | 口径固定：**纯 `it.skip` = 8（与 base 相同）**；`it.skip + describe.skip` = 22 |
+| RV-010 | `loadHeatSnapshot` 无直测，容器字段透传契约无断言 | 新增 `src/lib/novel/module-heat-persist.spec.ts`（8 条） |
+| RV-011 | `listDiscardedWritingConfigs` 零调用方而 doc 有承诺 | 删除该函数与对应承诺，不留未接线的「供诊断」入口 |
