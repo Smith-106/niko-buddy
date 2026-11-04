@@ -4,7 +4,7 @@
 import { useId } from "react"
 import { useTranslation } from "react-i18next"
 import { Label } from "@/components/ui/label"
-import { OUTLINE_GENRE_CODES } from "@/lib/novel"
+import { OUTLINE_GENRE_CODES, sanitizeJournalTtlMs } from "@/lib/novel"
 import type { NovelConfig } from "@/stores/wiki-store"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import {
@@ -17,6 +17,15 @@ import {
 
 // 兼容旧导入路径：NovelToggle / NovelSettingTooltip 现在实现于 novel-section-panels。
 export { NovelSettingTooltip, NovelToggle } from "./novel-section-panels"
+
+/**
+ * journalTtlMs 输入框边界（毫秒）。
+ * `sanitizeJournalTtlMs` 只保证「有限正数」，没有上限（premium 全局链同样无上限），
+ * 因此上限在 UI 侧收口：下限 1 分钟避免填出「立即过期」的极小值，
+ * 上限 7 天避免把任务书缓存配成事实上的「永不过期」。
+ */
+const JOURNAL_TTL_MIN_MS = 60_000
+const JOURNAL_TTL_MAX_MS = 7 * 24 * 60 * 60 * 1000
 
 interface NovelBaseSettingsSectionProps {
   draft: SettingsDraft
@@ -192,6 +201,15 @@ export function NovelBaseSettingsSection({ draft, setDraft, updateNovelConfig }:
             onChange={() => updateNovelConfig({ autoGenerateChapterTitle: !draft.novelConfig.autoGenerateChapterTitle })}
           />
 
+          {/* autoPlanningEnabled：深章生成的分章计划隐式聚合（消费点 deep-chapter-context-assembly.ts:540）。
+              读取语义是 `?? true`（fail-open），故控件用 `!== false` 判开。 */}
+          <NovelSwitchRow
+            label={t("novel.settings.autoPlanningEnabled")}
+            tipKey="autoPlanningEnabledHint"
+            checked={draft.novelConfig.autoPlanningEnabled !== false}
+            onChange={() => updateNovelConfig({ autoPlanningEnabled: !(draft.novelConfig.autoPlanningEnabled !== false) })}
+          />
+
           {/* D1=A：工作流强度是应用级偏好（全局单键落盘），设置页是草稿-保存模型，
               因此只改 draft，点“保存”才经 saveAiWorkflowMode 落盘。 */}
           <div className="space-y-2">
@@ -236,6 +254,19 @@ export function NovelBaseSettingsSection({ draft, setDraft, updateNovelConfig }:
             onChange={() => updateNovelConfig({ residualCampaignEnabled: !draft.novelConfig.residualCampaignEnabled })}
           />
 
+          {/* 封印解除开关（消费点 residual-campaign.ts:179-181，RESIDUAL_FREEZE_CHAPTERS = {4,6}）。
+              这是产品封印而非普通开关，故警告走始终可见的 hint 而不是折叠进 tooltip。 */}
+          <NovelSwitchRow
+            label={t("novel.settings.residualCampaignIncludeFreezeChapters")}
+            hint={t("novel.settings.residualCampaignIncludeFreezeChaptersHint")}
+            checked={draft.novelConfig.residualCampaignIncludeFreezeChapters === true}
+            onChange={() =>
+              updateNovelConfig({
+                residualCampaignIncludeFreezeChapters: !(draft.novelConfig.residualCampaignIncludeFreezeChapters === true),
+              })
+            }
+          />
+
           {/* R9（Round-9 用户可感知开关）：stage-output-journal 任务书缓存用户开关
               （user-r9“journal 零感知零开关”整改——此前 chat-panel 硬编码默认启用，设置面无入口）。
               关=每次直调 LLM；开=同 digest 重入命中跳过 LLM 并在 thinking 流提示。默认开。 */}
@@ -244,6 +275,22 @@ export function NovelBaseSettingsSection({ draft, setDraft, updateNovelConfig }:
             tipKey="stageJournalEnabledHint"
             checked={draft.novelConfig.stageJournalEnabled !== false}
             onChange={() => updateNovelConfig({ stageJournalEnabled: draft.novelConfig.stageJournalEnabled === false })}
+          />
+
+          {/* journalTtlMs（消费点 stage-output-journal.ts:178/182 → buildStageJournalRuntime 第三参）：
+              per-project TTL 覆写，默认 undefined = 走全局链（T+1h）。
+              留空 = 不写入该键（patch 写 undefined，JSON 落盘时该键消失 → 回读仍是 undefined），
+              绝不写 0 —— 0 会让 journal 立即过期。非正数/非法值由 sanitizeJournalTtlMs 归一为缺席。 */}
+          <NovelNumberField
+            label={t("novel.settings.journalTtlMs")}
+            hint={t("novel.settings.journalTtlMsHint")}
+            value={draft.novelConfig.journalTtlMs}
+            min={JOURNAL_TTL_MIN_MS}
+            max={JOURNAL_TTL_MAX_MS}
+            step={60_000}
+            onCommit={(n) => updateNovelConfig({ journalTtlMs: sanitizeJournalTtlMs(n) })}
+            onClear={() => updateNovelConfig({ journalTtlMs: undefined })}
+            className="w-32"
           />
 
           <div className="flex items-center justify-between gap-3">

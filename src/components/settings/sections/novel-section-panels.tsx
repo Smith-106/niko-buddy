@@ -112,7 +112,11 @@ export function NovelSwitchRow({
   )
 }
 
-/** 整数行：失焦/回车才提交（CommitNumberInput），保留原 min/max。 */
+/**
+ * 整数行：失焦/回车才提交（CommitNumberInput），保留原 min/max。
+ * `value` 为 undefined 时输入框显示为空（可选字段：留空 = 不写入该键）；
+ * 只有传了 `onClear` 才会把「清空」当成一次显式提交，否则清空仍还原原值。
+ */
 export function NovelNumberField({
   label,
   tipKey,
@@ -122,16 +126,18 @@ export function NovelNumberField({
   max,
   step,
   onCommit,
+  onClear,
   className = "w-24",
 }: {
   label: string
   tipKey?: string
   hint?: ReactNode
-  value: number
+  value?: number
   min: number
   max: number
   step?: number
   onCommit: (next: number) => void
+  onClear?: () => void
   className?: string
 }) {
   const baseId = useId()
@@ -151,6 +157,7 @@ export function NovelNumberField({
         step={step}
         describedBy={hintId}
         onCommit={onCommit}
+        onClear={onClear}
         className={className}
       />
       {hint ? <p id={hintId} className="text-xs text-muted-foreground">{hint}</p> : null}

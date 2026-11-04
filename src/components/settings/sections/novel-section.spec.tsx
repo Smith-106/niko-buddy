@@ -206,6 +206,8 @@ function buildDraft(): SettingsDraft {
       literaryPolishAfterGate: false,
       residualCampaignEnabled: false,
       residualCampaignIncludeFreezeChapters: false,
+      stageJournalEnabled: true,
+      autoPlanningEnabled: true,
       reviewReasoningEffort: "high",
       writingModel: "",
       reviewModel: "",
@@ -274,6 +276,17 @@ function modelRow(labelText: string): HTMLElement {
 function commitValue(input: HTMLElement, value: string): void {
   fireEvent.change(input, { target: { value } })
   fireEvent.blur(input)
+}
+
+/** 按 label 关联取数字输入（NovelNumberField 的 Label htmlFor ↔ input id）。 */
+function numberInputFor(labelText: string): HTMLInputElement {
+  return screen.getByLabelText(labelText) as HTMLInputElement
+}
+
+/** 最近一次落盘的完整 novelConfig（saveNovelConfig 第一参）。 */
+function lastSavedNovelConfig(): Record<string, unknown> {
+  const calls = mocks.saveNovelConfig.mock.calls as unknown as Array<[Record<string, unknown>]>
+  return calls[calls.length - 1][0]
 }
 
 async function clickToggle(labelText: string): Promise<void> {
@@ -497,6 +510,64 @@ describe("NovelSection", () => {
     fireEvent.click(onBtn)
     await waitFor(() => expect(currentDraft.novelConfig.trustFilterEnabled).toBe(false))
     expect(mocks.wikiState.setNovelConfig).toHaveBeenLastCalledWith({ trustFilterEnabled: false })
+  })
+
+  // TASK-004（G2 / F22）：三个「有活消费点却完全无控件」的字段补上控件；默认值全部不变。
+  it("TASK-004 autoPlanningEnabled：默认开（fail-open），点击写入 false 并落盘", async () => {
+    const { rerender } = renderSection()
+    expect(screen.getByText("novel.settings.autoPlanningEnabled")).toBeInTheDocument()
+    const btn = toggleButtonFor("novel.settings.autoPlanningEnabled")
+    expect(btn.getAttribute("aria-checked")).toBe("true")
+    fireEvent.click(btn)
+    await waitFor(() => expect(currentDraft.novelConfig.autoPlanningEnabled).toBe(false))
+    expect(mocks.wikiState.setNovelConfig).toHaveBeenCalledWith({ autoPlanningEnabled: false })
+    rerender()
+    expect(toggleButtonFor("novel.settings.autoPlanningEnabled").getAttribute("aria-checked")).toBe("false")
+  })
+
+  it("TASK-004 autoPlanningEnabled 缺省（undefined）按消费点的 ?? true 语义渲染为开", () => {
+    ;(currentDraft.novelConfig as { autoPlanningEnabled?: boolean }).autoPlanningEnabled = undefined
+    renderSection()
+    expect(toggleButtonFor("novel.settings.autoPlanningEnabled").getAttribute("aria-checked")).toBe("true")
+  })
+
+  it("TASK-004 residualCampaignIncludeFreezeChapters：默认关，封印章警告常驻可见", async () => {
+    const { rerender } = renderSection()
+    // 封印提示必须始终可见（不折进 tooltip）——这是产品封印而非普通开关
+    expect(screen.getByText("novel.settings.residualCampaignIncludeFreezeChaptersHint")).toBeInTheDocument()
+    const btn = toggleButtonFor("novel.settings.residualCampaignIncludeFreezeChapters")
+    expect(btn.getAttribute("aria-checked")).toBe("false")
+    fireEvent.click(btn)
+    await waitFor(() => expect(currentDraft.novelConfig.residualCampaignIncludeFreezeChapters).toBe(true))
+    expect(mocks.wikiState.setNovelConfig).toHaveBeenCalledWith({ residualCampaignIncludeFreezeChapters: true })
+
+    rerender()
+    fireEvent.click(toggleButtonFor("novel.settings.residualCampaignIncludeFreezeChapters"))
+    await waitFor(() => expect(currentDraft.novelConfig.residualCampaignIncludeFreezeChapters).toBe(false))
+    expect(mocks.wikiState.setNovelConfig).toHaveBeenLastCalledWith({ residualCampaignIncludeFreezeChapters: false })
+  })
+
+  it("TASK-004 journalTtlMs：默认留空不写键，填值写入，再清空回到「不写入」且绝不为 0", async () => {
+    const { rerender } = renderSection()
+    // 默认 undefined → 输入框为空（不显示 0）
+    expect(numberInputFor("novel.settings.journalTtlMs").value).toBe("")
+
+    commitValue(numberInputFor("novel.settings.journalTtlMs"), "7200000")
+    await waitFor(() => expect(currentDraft.novelConfig.journalTtlMs).toBe(7_200_000))
+    expect(mocks.wikiState.setNovelConfig).toHaveBeenCalledWith({ journalTtlMs: 7_200_000 })
+    const savedAfterSet = lastSavedNovelConfig()
+    expect(savedAfterSet.journalTtlMs).toBe(7_200_000)
+
+    rerender()
+    commitValue(numberInputFor("novel.settings.journalTtlMs"), "")
+    await waitFor(() => expect(currentDraft.novelConfig.journalTtlMs).toBeUndefined())
+    expect(mocks.wikiState.setNovelConfig).toHaveBeenLastCalledWith({ journalTtlMs: undefined })
+    const savedAfterClear = lastSavedNovelConfig()
+    expect(savedAfterClear.journalTtlMs).toBeUndefined()
+    // 关键回归：留空绝不写成 0（0 会让 journal 立即过期）
+    expect(savedAfterClear.journalTtlMs).not.toBe(0)
+    // 留空 = 不写入该键：JSON 落盘时 undefined 键消失，回读仍是缺席
+    expect(Object.prototype.hasOwnProperty.call(JSON.parse(JSON.stringify(savedAfterClear)), "journalTtlMs")).toBe(false)
   })
 
   it("反馈窗口 toggle 开关（直接 setDraft，不持久化）", async () => {
