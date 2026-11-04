@@ -1570,3 +1570,21 @@ export { loadConfirmedPlanRecord } from "./confirmed-plan-store"
 export type { ConfirmedPlanRecord, ConfirmedPlanSource } from "./confirmed-plan-store"
 // RV-06 的判别式读回类型：主控面板只用类型，但经 barrel 导出后不必再深导入。
 export type { TraceSnapshotIssue, TraceSnapshotLoad } from "./main-control-trace"
+
+// ── B3/B9 修复：账本权威口径过滤器 + gate-run 回读（追加，不改既有行）──
+// B3：`isAuthoritativeGateRun` / `toAuthoritativeLedger` 是账本层唯一权威过滤器
+// （实现见 gate-run-authority.ts，只依赖 run-event-ledger，无回边）。
+// B9：`readLatestGateRunGroup` 供 UI 挂载时回读上一次 `main-control-rerun` 的结论
+// ——落账的唯一实际效果就是「页签切回来结论还在」，必须真的被读。
+export {
+  GATE_RUN_INTENT_REF_PREFIX,
+  MAIN_CONTROL_RERUN_INTENT,
+  NON_AUTHORITATIVE_GATE_RUN_INTENTS,
+  isAuthoritativeGateRun,
+  readGateRunIntent,
+  selectAuthoritativeEvents,
+  toAuthoritativeLedger,
+} from "./gate-run-authority"
+export type { GateRunAuthorityOptions } from "./gate-run-authority"
+export { buildChapterGateRunEvents, readLatestGateRunGroup } from "./deep-chapter-gate-evidence"
+export type { GateRunEvidenceGroup, GateRunEvidenceRow } from "./deep-chapter-gate-evidence"

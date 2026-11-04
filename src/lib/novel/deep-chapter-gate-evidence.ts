@@ -22,9 +22,11 @@
  * ## 意图与权威口径（防污染）
  * 账本里的 `gate-run` 有两种来源：正式章运行与「草稿复核」类动作（主控重跑门控，
  * `intent:main-control-rerun`）。两者都落账本（可审计、可回读），但只有前者是
- * 首页证据看板的权威口径。权威判据统一在 `isAuthoritativeGateRun`
- * （意图解析 `readGateRunIntent` + 排除注册表 `NON_AUTHORITATIVE_GATE_RUN_INTENTS`），
- * 消费方不得自己写字符串比较。
+ * 权威口径。权威判据的唯一实现在 `gate-run-authority.ts`
+ * （意图解析 `readGateRunIntent` + 排除注册表 `NON_AUTHORITATIVE_GATE_RUN_INTENTS`
+ * + 判据 `isAuthoritativeGateRun` + 账本视图 `toAuthoritativeLedger`），
+ * **每一个**读账本算结论的消费方都必须经它过滤，不得自己写字符串比较。
+ * 本模块只转出这些符号，保持既有公开面不破。
  *
  * @license MIT © Niko Buddy
  */
@@ -38,7 +40,22 @@ import {
   type RunEventLedgerStoreDeps,
 } from "./run-event-ledger-store"
 import type { GateRunStatus } from "./rule-stack"
+import { GATE_RUN_INTENT_REF_PREFIX, readGateRunIntent } from "./gate-run-authority"
 import { toErrorMessage } from "@/lib/utils"
+
+// 权威判据的唯一实现在 gate-run-authority.ts（账本层，单向依赖 run-event-ledger）。
+// 此处转出以保证既有调用方（dashboard-evidence / main-control-gate-rerun / barrel）
+// 与既有 spec 无需改 import 路径，同时保证「只有一个过滤器」不会分叉。
+export {
+  GATE_RUN_INTENT_REF_PREFIX,
+  MAIN_CONTROL_RERUN_INTENT,
+  NON_AUTHORITATIVE_GATE_RUN_INTENTS,
+  isAuthoritativeGateRun,
+  readGateRunIntent,
+  selectAuthoritativeEvents,
+  toAuthoritativeLedger,
+} from "./gate-run-authority"
+export type { GateRunAuthorityOptions } from "./gate-run-authority"
 
 /** 三门顺序固定（Consistency P0 > Anti-AI P1 > Quality P2）。 */
 const GATE_ORDER: readonly DeepChapterDecisionGateKey[] = ["consistency", "anti_ai", "quality"]
@@ -71,6 +88,8 @@ export interface ChapterGateEvidenceResult {
   readonly recorded: readonly DeepChapterDecisionGateKey[]
   /** 落账失败原因（非致命；undefined = 成功或无事件）。 */
   readonly error?: string
+  /** 本次写入的 ts（同一批事件共享；undefined = 未落账）。供调用方回读对账「本次 vs 历史」。 */
+  readonly ts?: string
 }
 
 /** gate-status → gate-run status：pending 是「未评估」，落 skipped 而非 pass（R-04）。 */
@@ -80,62 +99,14 @@ export function mapDecisionGateToRunStatus(status: "pending" | "passed" | "faile
   return "skipped"
 }
 
-// ============================================================================
-// 意图（intent）与权威口径（防污染）
-// ============================================================================
-//
-// 账本里 gate-run 不止一种来源：正式章运行（写/续写/重写/润色/断点续写）与
-// 「草稿复核」类动作（主控重跑门控）。两者都落同一批 gate-run 事件（可审计、
-// 可回读），但只有前者是首页证据看板的**权威口径**——草稿复核若被当成最近一条，
-// 首页三门会被未采纳草稿的结论覆盖（「结论丢失」换成「结论污染」）。
-//
-// 因此意图不写成散落的字符串比较：一处解析（readGateRunIntent）、一份排除注册表
-// （NON_AUTHORITATIVE_GATE_RUN_INTENTS）、一个判据（isAuthoritativeGateRun）。
-// 新增「非正式章」运行意图只需登记进注册表，消费方无需改动。
-
-/** evidenceRefs 中的意图 ref 前缀（写入见 buildChapterGateRunEvents；`intent:<name>`）。 */
-export const GATE_RUN_INTENT_REF_PREFIX = "intent:"
-
-/** 主控「重跑门控」意图：草稿复核，不是正式章运行，不参与权威口径。 */
-export const MAIN_CONTROL_RERUN_INTENT = "main-control-rerun"
-
-/**
- * 非权威 gate-run 意图注册表（扩展点）：命中的事件仍留在账本（可审计/可回读），
- * 但不参与首页三门权威口径与列表健康列派生。
- */
-export const NON_AUTHORITATIVE_GATE_RUN_INTENTS: readonly string[] = [MAIN_CONTROL_RERUN_INTENT]
-
-/** 读事件 evidenceRefs 携带的意图（`intent:xxx` → "xxx"；无 → undefined）。 */
-export function readGateRunIntent(event: RunEvent): string | undefined {
-  for (const ref of event.evidenceRefs ?? []) {
-    if (!ref.startsWith(GATE_RUN_INTENT_REF_PREFIX)) continue
-    const intent = ref.slice(GATE_RUN_INTENT_REF_PREFIX.length).trim()
-    if (intent.length > 0) return intent
-  }
-  return undefined
-}
-
-/**
- * 该事件是否属于「权威」正式章门运行：
- *   - 非 gate-run → false（kind 谓词，stage 系事件结构性收容）；
- *   - 无 intent ref → true（正式章运行不带意图；历史账本兼容）；
- *   - 意图命中排除表（默认 NON_AUTHORITATIVE_GATE_RUN_INTENTS）→ false。
- */
-export function isAuthoritativeGateRun(
-  event: RunEvent,
-  excludedIntents: readonly string[] = NON_AUTHORITATIVE_GATE_RUN_INTENTS,
-): boolean {
-  if (event.kind !== "gate-run") return false
-  const intent = readGateRunIntent(event)
-  if (intent === undefined) return true
-  return !excludedIntents.includes(intent)
-}
+// 意图/权威口径的实现与注册表见 gate-run-authority.ts（本模块顶部已转出）。
+// 新增「非正式章」运行意图只需登记 NON_AUTHORITATIVE_GATE_RUN_INTENTS，消费方无需改动。
 
 /** 由三门结果构造 gate-run 事件输入（纯函数，无 IO；三门各一条，顺序固定）。 */
 export function buildChapterGateRunEvents(input: ChapterGateEvidenceInput): RunEventAppendInput[] {
   const evidenceRefs: string[] = []
   if (input.chapterNumber !== undefined) evidenceRefs.push(`chapter:${input.chapterNumber}`)
-  if (input.intent) evidenceRefs.push(`intent:${input.intent}`)
+  if (input.intent) evidenceRefs.push(`${GATE_RUN_INTENT_REF_PREFIX}${input.intent}`)
   if (input.retryCount !== undefined) evidenceRefs.push(`retry:${input.retryCount}`)
   return GATE_ORDER.map((gateKey) => {
     const gate = input.decisionGates[gateKey]
@@ -177,7 +148,7 @@ export async function recordChapterGateEvidence(
   const recorded = GATE_ORDER.filter((gateKey) => input.decisionGates[gateKey] !== undefined)
   try {
     await append(storeDeps, input.projectPath, events)
-    return { recorded }
+    return { recorded, ts }
   } catch (error) {
     return { recorded, error: toErrorMessage(error) }
   }

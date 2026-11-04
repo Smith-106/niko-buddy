@@ -12,8 +12,10 @@
 import { describe, expect, it, vi } from "vitest"
 import type { DeepChapterDecisionGates, DeepChapterDecisionGate } from "./deep-chapter-decision-gates"
 import {
+  MAIN_CONTROL_RERUN_INTENT,
   buildChapterGateRunEvents,
   mapDecisionGateToRunStatus,
+  readLatestGateRunGroup,
   recordChapterGateEvidence,
 } from "./deep-chapter-gate-evidence"
 import { appendRunEvent, createRunEventLedger } from "./run-event-ledger"
@@ -154,5 +156,79 @@ describe("recordChapterGateEvidence", () => {
     expect(statuses.consistency).toBe("pass")
     expect(statuses.anti_ai).toBe("fail")
     expect(statuses.quality).toBe("skipped")
+  })
+})
+
+describe("readLatestGateRunGroup（B9：回读上一次运行结论）", () => {
+  /** 按真实写入路径落账一组事件（同一批共享同一 ts）。 */
+  function appendGroup(
+    ledger: ReturnType<typeof createRunEventLedger>,
+    events: ReturnType<typeof buildChapterGateRunEvents>,
+    ts: string,
+  ) {
+    let next = ledger
+    for (const event of events) {
+      const seq = next.events.length
+      next = appendRunEvent(next, { ...event, ts, seq, eventId: `gate-run:${seq}:${next.events.length}` })
+    }
+    return next
+  }
+
+  it("按 intent 过滤回读：能取回上一次 main-control-rerun 的三门结论（含 ts/chapterId）", () => {
+    const rerun = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: gates({ consistency: gate("failed", [finding("error")]), anti_ai: gate("passed"), quality: gate("pending") }),
+      chapterNumber: 4,
+      bookId: "book-a",
+      intent: MAIN_CONTROL_RERUN_INTENT,
+    })
+    const ledger = appendGroup(createRunEventLedger(), rerun, "2026-10-18T00:10:00.000Z")
+
+    const group = readLatestGateRunGroup(ledger, { intent: MAIN_CONTROL_RERUN_INTENT })
+    expect(group).not.toBeNull()
+    expect(group?.ts).toBe("2026-10-18T00:10:00.000Z")
+    expect(group?.intent).toBe(MAIN_CONTROL_RERUN_INTENT)
+    expect(group?.chapterId).toBe(4)
+    expect(group?.bookId).toBe("book-a")
+    expect(group?.rows.map((row) => [row.gate, row.status])).toEqual([
+      ["consistency", "fail"],
+      ["anti_ai", "pass"],
+      ["quality", "skipped"],
+    ])
+  })
+
+  it("正式章事件随后写入也不影响带 intent 的回读（历史面稳定 = 页签切回来结论还在）", () => {
+    const rerun = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: gates({ consistency: gate("passed") }),
+      chapterNumber: 4,
+      intent: MAIN_CONTROL_RERUN_INTENT,
+    })
+    const formal = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: gates({ consistency: gate("failed", [finding("error")]) }),
+      chapterNumber: 4,
+    })
+    const ledger = appendGroup(
+      appendGroup(createRunEventLedger(), rerun, "2026-10-18T00:10:00.000Z"),
+      formal,
+      "2026-10-18T00:20:00.000Z",
+    )
+    const group = readLatestGateRunGroup(ledger, { intent: MAIN_CONTROL_RERUN_INTENT })
+    expect(group?.ts).toBe("2026-10-18T00:10:00.000Z")
+    expect(group?.rows.find((row) => row.gate === "consistency")?.status).toBe("pass")
+    // 不带过滤 → 取最近一次（正式章）
+    expect(readLatestGateRunGroup(ledger)?.ts).toBe("2026-10-18T00:20:00.000Z")
+  })
+
+  it("空账本 / 无匹配意图 → null（诚实缺失，不臆造历史）", () => {
+    expect(readLatestGateRunGroup(createRunEventLedger())).toBeNull()
+    expect(readLatestGateRunGroup(createRunEventLedger(), { intent: MAIN_CONTROL_RERUN_INTENT })).toBeNull()
+    const formalOnly = appendGroup(
+      createRunEventLedger(),
+      buildChapterGateRunEvents({ projectPath: "/p", decisionGates: gates(), chapterNumber: 1 }),
+      "2026-10-18T00:00:00.000Z",
+    )
+    expect(readLatestGateRunGroup(formalOnly, { intent: MAIN_CONTROL_RERUN_INTENT })).toBeNull()
   })
 })

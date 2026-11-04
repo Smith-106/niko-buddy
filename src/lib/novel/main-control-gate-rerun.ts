@@ -20,12 +20,15 @@
  * 实际少了契约维度（假通过）。`buildFallbackTaskBrief` 是深章流水线自己用的确定性
  * 兜底（deep-chapter-context-assembly.ts:452），此处复用同一函数，不另写一份任务书。
  *
- * ## 结论落账（F1b 收口）
+ * ## 结论落账（F1b 收口）+ 回读（B9）
  * 重跑结论不能只活在组件 useState（页签一切就蒸发），必须与深章 gate evidence
  * 同一本账：本模块在算完 `decisionGates` 后调 `recordChapterGateEvidence`（带
  * `intent:main-control-rerun`）。写入是**非致命**的（证据可重放，不阻断复核）。
- * 但草稿复核不得污染首页三门权威口径——消费方（`deriveEvidenceGateStatuses`）
- * 经 `isAuthoritativeGateRun` 排除该意图（见 deep-chapter-gate-evidence.ts）。
+ * 返回的 `evidenceRecorded` / `evidenceError` / `evidenceTs` 供渲染层报「已落账 /
+ * 落账失败」并区分「本次运行」与账本回读的「历史记录」；回读本身由组件挂载时调
+ * `readLatestGateRunGroup(ledger, { intent: MAIN_CONTROL_RERUN_INTENT })`（页签切回来仍有结论）。
+ * 但草稿复核不得污染首页三门权威口径——所有读账本算结论的消费方
+ * 经 `isAuthoritativeGateRun` 排除该意图（见 gate-run-authority.ts）。
  */
 
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
@@ -84,6 +87,8 @@ export interface RerunMainControlGatesResult {
   evidenceRecorded?: readonly DeepChapterDecisionGateKey[]
   /** 落账失败原因（非致命；undefined = 成功）。 */
   evidenceError?: string
+  /** 落账批次的 ts（与账本回读的 history.ts 对账即可判定「本次 vs 历史」）。 */
+  evidenceTs?: string
 }
 
 export interface RerunMainControlGatesDeps {
@@ -187,5 +192,6 @@ export async function rerunMainControlGates(
     unassessedDimensions: evaluation.unassessedDimensions,
     evidenceRecorded: evidence.recorded,
     evidenceError: evidence.error,
+    evidenceTs: evidence.ts,
   }
 }

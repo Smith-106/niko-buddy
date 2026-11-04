@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest"
 import { appendRunEvent, appendRunEvents, createRunEventLedger, type RunEventInput } from "./run-event-ledger"
 import { buildCorrectionLoopStats } from "./repair-loop"
+import { buildBlockingQueue } from "./director-followup"
 import { buildChapterGateRunEvents, MAIN_CONTROL_RERUN_INTENT } from "./deep-chapter-gate-evidence"
 import type { DeepChapterDecisionGates, DeepChapterDecisionGate } from "./deep-chapter-decision-gates"
 import type { NovelReviewResult } from "./review-adapter"
@@ -218,6 +219,82 @@ describe("污染回归（F1b：草稿复核 gate-run 不得覆盖正式章权威
       blockingGate: null,
       evaluatedGates: 3,
     })
+  })
+
+  it("阻塞队列同口径：账本里只有 main-control-rerun 的 fail 组 → 不得报三门阻塞（未采纳草稿不是本章阻塞项）", () => {
+    // 探针复现：正式章从未跑过，账本里仅有一条草稿重跑的三门 fail 组
+    const rerun = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: decisionGates(
+        { consistency: "failed", anti_ai: "failed", quality: "failed" },
+        [finding("error")],
+      ),
+      chapterNumber: 3,
+      bookId: "book-a",
+      intent: MAIN_CONTROL_RERUN_INTENT,
+    })
+    const ledger = appendGroup(createRunEventLedger(), rerun, "2026-10-18T00:10:00.000Z")
+    expect(ledger.events).toHaveLength(3)
+
+    // 回归断言：阻塞队列必须为空（followup-center-view 会直接拿它渲染 P0/P1/P2 横幅）
+    expect(buildBlockingQueue(ledger)).toHaveLength(0)
+    const snapshot = buildDashboardEvidenceSnapshot(ledger)
+    expect(snapshot.blocked).toBe(false)
+    expect(snapshot.cards.every((card) => card.display === "not_evaluated" && !card.hasEvent)).toBe(true)
+
+    // 反证：把 intent ref 抹掉（等价于旧行为 = 不过滤）→ 真的三门阻塞，证明拦截来自意图过滤
+    const unfiltered = appendRunEvents(
+      createRunEventLedger(),
+      rerun.map((event, index) => ({
+        ...event,
+        ts: "2026-10-18T00:10:00.000Z",
+        seq: index,
+        eventId: `gate-run:${index}:${index}`,
+        evidenceRefs: (event.evidenceRefs ?? []).filter((ref) => !ref.startsWith("intent:")),
+      })),
+    )
+    expect(buildBlockingQueue(unfiltered).map((item) => item.gate)).toEqual([
+      "consistency",
+      "anti_ai",
+      "quality",
+    ])
+  })
+
+  it("卡片归因同源：正式章 pass + 草稿重跑 fail → display 与 ts/replayId/modelId 全部来自正式章", () => {
+    const formalTs = "2026-10-18T00:00:00.000Z"
+    const draftTs = "2026-10-18T00:10:00.000Z"
+    const formal = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: decisionGates({ consistency: "passed", anti_ai: "passed", quality: "passed" }),
+      chapterNumber: 3,
+      retryCount: 0,
+    }).map((event) => ({ ...event, replayId: "rp-formal", modelId: "model-formal" }))
+    const rerun = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: decisionGates({ consistency: "failed", anti_ai: "pending", quality: "pending" }, [
+        finding("error"),
+      ]),
+      chapterNumber: 3,
+      retryCount: 0,
+      intent: MAIN_CONTROL_RERUN_INTENT,
+    }).map((event) => ({ ...event, replayId: "rp-draft", modelId: "model-draft" }))
+    const ledger = appendGroup(appendGroup(createRunEventLedger(), formal, formalTs), rerun, draftTs)
+
+    const snapshot = buildDashboardEvidenceSnapshot(ledger)
+    // 结论：三门全是正式章的 pass
+    expect(snapshot.cards.map((card) => card.display)).toEqual(["pass", "pass", "pass"])
+    for (const card of snapshot.cards) {
+      // 归因：时间戳/重放链/模型名必须与 display 属于**同一条**权威事件（草稿事件不得借位）
+      expect(card.ts).toBe(formalTs)
+      expect(card.replayId).toBe("rp-formal")
+      expect(card.modelId).toBe("model-formal")
+      expect(card.hasEvent).toBe(true)
+      // 权威证据数 = 正式章事件自身的 evidenceRefs（chapter:3 + retry:0）；草稿事件的 intent ref 不得混入
+      expect(card.evidenceCount).toBe(2)
+    }
+    // 反证：草稿事件确实多带一条 intent ref（旧代码把它算进了 evidenceCount/ts）
+    expect(rerun[0]?.evidenceRefs).toHaveLength(3)
+    expect(rerun[0]?.evidenceRefs).toContain(`intent:${MAIN_CONTROL_RERUN_INTENT}`)
   })
 })
 

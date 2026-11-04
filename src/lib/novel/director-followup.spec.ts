@@ -16,8 +16,31 @@ import {
   estimateRerunCost,
   propagateStaleness,
 } from "./director-followup"
+import { buildChapterGateRunEvents, MAIN_CONTROL_RERUN_INTENT } from "./deep-chapter-gate-evidence"
 
 const TS = "2026-09-16T00:00:00.000Z"
+
+/** 把一组 gate-run 输入按真实写入路径落账（同一次写入共享同一 ts；可补事件级字段）。 */
+function appendGroup(
+  events: ReturnType<typeof buildChapterGateRunEvents>,
+  ts: string,
+  extra?: (index: number) => Record<string, unknown>,
+) {
+  let ledger = createRunEventLedger()
+  events.forEach((event, index) => {
+    const seq = ledger.events.length
+    ledger = appendRunEvents(ledger, [
+      {
+        ...event,
+        ...(extra?.(index) ?? {}),
+        ts,
+        seq,
+        eventId: `gate-run:${seq}:${seq}`,
+      } as RunEventInput,
+    ])
+  })
+  return ledger
+}
 
 function gateEvent(seq: number, gate: string, status: "pass" | "fail" | "skipped", extra?: Partial<RunEventInput>): RunEventInput {
   return {
@@ -74,6 +97,65 @@ describe("buildBlockingQueue（P0→P1→P2 阻塞队列）", () => {
     expect(queue.map((i) => i.gate)).toEqual(["anti_ai"])
     expect(queue[0]?.blockedBy).toBeNull()
   })
+
+  it("防污染：账本里只有 main-control-rerun 的 fail 组 → 队列为空（未采纳草稿不是正式章阻塞项）", () => {
+    const ledger = appendGroup(
+      buildChapterGateRunEvents({
+        projectPath: "/p",
+        decisionGates: {
+          consistency: { status: "failed" },
+          anti_ai: { status: "failed" },
+          quality: { status: "failed" },
+          overall: "fail",
+        } as unknown as Parameters<typeof buildChapterGateRunEvents>[0]["decisionGates"],
+        chapterNumber: 1,
+        bookId: "book-a",
+        intent: MAIN_CONTROL_RERUN_INTENT,
+      }),
+      TS,
+    )
+    expect(ledger.events).toHaveLength(3)
+    expect(buildBlockingQueue(ledger)).toHaveLength(0)
+  })
+
+  it("防污染：正式章 pass + 草稿重跑 fail → 队列仍为空（草稿不得把队列刷成阻塞）", () => {
+    const formal = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: {
+        consistency: { status: "passed" },
+        anti_ai: { status: "passed" },
+        quality: { status: "passed" },
+        overall: "pass",
+      } as unknown as Parameters<typeof buildChapterGateRunEvents>[0]["decisionGates"],
+      chapterNumber: 1,
+      bookId: "book-a",
+    })
+    const rerun = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: {
+        consistency: { status: "failed" },
+        anti_ai: { status: "failed" },
+        quality: { status: "failed" },
+        overall: "fail",
+      } as unknown as Parameters<typeof buildChapterGateRunEvents>[0]["decisionGates"],
+      chapterNumber: 1,
+      bookId: "book-a",
+      intent: MAIN_CONTROL_RERUN_INTENT,
+    })
+    let ledger = appendRunEvents(
+      createRunEventLedger(),
+      formal.map((event, index) => ({ ...event, ts: TS, seq: index, eventId: `f:${index}` }) as RunEventInput),
+    )
+    ledger = appendRunEvents(
+      ledger,
+      rerun.map(
+        (event, index) =>
+          ({ ...event, ts: "2026-09-16T00:10:00.000Z", seq: index + 3, eventId: `d:${index}` }) as RunEventInput,
+      ),
+    )
+    expect(ledger.events).toHaveLength(6)
+    expect(buildBlockingQueue(ledger)).toHaveLength(0)
+  })
 })
 
 describe("propagateStaleness（传染闭包）", () => {
@@ -122,6 +204,45 @@ describe("estimateRerunCost（重跑成本预估）", () => {
       expect(c.calls).toBeNull()
       expect(c.eventsCounted).toBe(0)
     }
+  })
+
+  it("防污染：草稿复核事件不计入历史成本聚合（成本预估只服务正式章再跑一遍）", () => {
+    let ledger = appendRunEvents(createRunEventLedger(), [
+      gateEvent(0, "consistency", "pass", { budgetCost: { tokens: 100, wallclockMs: 1000, calls: 1 } }),
+    ])
+    ledger = appendRunEvents(ledger, [
+      gateEvent(1, "consistency", "fail", {
+        ts: "2026-09-16T00:10:00.000Z",
+        evidenceRefs: [`intent:${MAIN_CONTROL_RERUN_INTENT}`],
+        budgetCost: { tokens: 999, wallclockMs: 9999, calls: 9 },
+      }),
+    ])
+    expect(estimateRerunCost(ledger, ["consistency"])[0]).toMatchObject({
+      gate: "consistency",
+      tokens: 100,
+      wallclockMs: 1000,
+      calls: 1,
+      eventsCounted: 1,
+    })
+    // 反证：把 intent ref 抹掉（等价于旧行为 = 不过滤）→ 999 tokens 也会被算进历史
+    const unfiltered = appendRunEvents(
+      createRunEventLedger(),
+      ledger.events.map(
+        (event, index) =>
+          ({
+            ...event,
+            seq: index,
+            eventId: `u:${index}`,
+            evidenceRefs: event.evidenceRefs.filter((ref) => !ref.startsWith("intent:")),
+          }) as RunEventInput,
+      ),
+    )
+    expect(estimateRerunCost(unfiltered, ["consistency"])[0]).toMatchObject({
+      tokens: 1099,
+      wallclockMs: 10999,
+      calls: 10,
+      eventsCounted: 2,
+    })
   })
 })
 

@@ -10,13 +10,20 @@
  * 机械口径：
  *   - deriveEvidenceGateStatuses：账本中每门最近一条 gate-run 事件 → 三态
  *     （账本天然全序，倒序扫描取最近）；只统计**权威**正式章运行
- *     （`isAuthoritativeGateRun`：排除 `intent:main-control-rerun` 等草稿复核意图），
+ *     （`isAuthoritativeGateRun`，实现在账本层 `gate-run-authority.ts`），
  *     否则未采纳草稿的重跑结论会覆盖首页三门——把「结论丢失」换成「结论污染」；
  *   - buildDashboardEvidenceSnapshot：compose 派生门状态 + buildEvidenceSnapshot
  *     ——真实 UI 的唯一数据源入口（与 buildEvidenceSnapshot 正交，不改其 API）；
  *   - deriveBookHealthSummaries：列表健康列（per-bookId）：按事件 bookId 过滤
  *     派生每书门控摘要（任一 fail → blocked+blockingGate；三门全评估且无
  *     fail → pass；否则 not_evaluated）。
+ *
+ * 防污染边界（F1b/B3）：权威过滤器是**账本层唯一实现**（`gate-run-authority.ts`），
+ * 本模块的两个派生只是其中两个消费点。同一口径必须同样接在：
+ * evidence-snapshot（卡片归因）/ director-followup（阻塞队列、重跑成本）/
+ * repair-loop（修正闭环率与 FP）/ gate-retry-diff（自动重试差分）。
+ * 判定依据：该函数是否用账本事件得出一个「对这一章正文的结论」。
+ * 纯日志/流水类投影（pipeline-motion）不过滤——它们展示的是发生过的事件。
  *
  * 机械层（ADR-19）：纯函数，零 IO / 零时钟 / 零模型调用；磁盘读取由 UI 层
  * 经 run-event-ledger-store 完成后注入账本。
@@ -26,7 +33,7 @@
 
 import { GATE_PRIORITY_ORDER, type GateKey } from "./audit-taxonomy"
 import type { LibraryHealthReport } from "./asset-library"
-import { isAuthoritativeGateRun, NON_AUTHORITATIVE_GATE_RUN_INTENTS } from "./deep-chapter-gate-evidence"
+import { isAuthoritativeGateRun, NON_AUTHORITATIVE_GATE_RUN_INTENTS } from "./gate-run-authority"
 import { buildEvidenceSnapshot, type EvidenceSnapshot } from "./evidence-snapshot"
 import { readGateRunPayload, type RunEvent, type RunEventLedger } from "./run-event-ledger"
 import type { GateRunStatus } from "./rule-stack"
@@ -40,6 +47,7 @@ export interface EvidenceGateStatusOptions {
   /**
    * 额外排除的 gate-run 意图（默认 = `NON_AUTHORITATIVE_GATE_RUN_INTENTS`）。
    * 传入时**替换**默认表（而非叠加），便于诊断/特殊视图显式收窄。
+   * `[]` = 不过滤（仅用于反证「拦截确实来自 intent 过滤」）。
    */
   readonly excludeIntents?: readonly string[]
 }
@@ -50,6 +58,7 @@ export interface EvidenceGateStatusOptions {
  *
  * 防污染：非正式章运行（如主控重跑门控 `intent:main-control-rerun`）写入的
  * gate-run 不参与派生——它们仍留在账本（可审计），但不得翻转首页三门结论。
+ * 判据实现见 `gate-run-authority.ts`（账本层唯一过滤器）。
  */
 export function deriveEvidenceGateStatuses(
   ledger: RunEventLedger,

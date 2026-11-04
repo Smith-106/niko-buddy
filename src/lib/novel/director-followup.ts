@@ -11,6 +11,11 @@
  *        DS 验收「重跑成本（token/时间）在 UI 可点开依据」= 事件证据锚。
  *   - UI 卡片接线属波2-D（#367 首页仪表盘/列表健康列）；本模块交付纯数据面。
  *
+ * 防污染（B3）：阻塞队列与重跑成本都是「对本章正文的结论」，只算**权威**正式章
+ * gate-run（`isAuthoritativeGateRun`，账本层唯一过滤器 gate-run-authority.ts）。
+ * 否则未采纳草稿的重跑（`intent:main-control-rerun`）会让严格零阻塞的队列凭空
+ * 多出 P0/P1/P2 三条阻塞项（followup-center-view 直奔 P0/P1/P2 横幅）。
+ *
  * 机械层（ADR-19）：纯函数，零 IO / 零时钟 / 零模型调用；全部派生自
  * RunEventLedger（append-only 真源）——不写 status.json / 不写 kb 产物。
  *
@@ -18,6 +23,7 @@
  */
 
 import { GATE_PRIORITY_ORDER, type GateKey } from "./audit-taxonomy"
+import { isAuthoritativeGateRun } from "./gate-run-authority"
 import { readGateRunPayload, sliceRunEvents, type RunEvent, type RunEventLedger } from "./run-event-ledger"
 import { getGatePriority } from "./rule-stack"
 
@@ -42,16 +48,19 @@ export interface BlockingQueueItem {
 
 /**
  * 从账本推导阻塞队列（纯函数）：
- *   1. 每门取账本中**最近**一条 gate-run 事件（未落事件=未发生，不进队列）；
+ *   1. 每门取账本中**最近**一条**权威** gate-run 事件（未落事件=未发生，不进队列；
+ *      草稿复核事件不参与——否则未采纳草稿的 fail 会变成正式章阻塞项）；
  *   2. fail 门按优先级升序入队（P0→P1→P2）；
  *   3. 低优先级失败项被更高优先级失败项阻塞（blockedBy=首个更高优先级失败门）；
- *   4. 全 pass / 空账本 → 空队列。
+ *   4. 全 pass / 空账本 / 只有草稿复核事件 → 空队列。
  */
 export function buildBlockingQueue(ledger: RunEventLedger): readonly BlockingQueueItem[] {
   const latest = new Map<GateKey, RunEvent>()
   for (const event of ledger.events) {
     const payload = readGateRunPayload(event)
-    if (payload) latest.set(payload.gate, event)
+    if (!payload) continue
+    if (!isAuthoritativeGateRun(event)) continue
+    latest.set(payload.gate, event)
   }
   const failed: { gate: GateKey; event: RunEvent }[] = []
   for (const gate of GATE_PRIORITY_ORDER) {
@@ -136,9 +145,12 @@ export interface RerunCostEstimate {
 }
 
 /**
- * 重跑成本预估（纯函数）：指定门的全部历史 gate-run 事件 budgetCost 聚合
+ * 重跑成本预估（纯函数）：指定门的全部历史**权威** gate-run 事件 budgetCost 聚合
  * （全账本口径——重跑预计消耗与上次同级；换模型差分属波2-C gate-retry-diff）。
  * 无任何携带成本的历史 → tokens/wallclock/calls 全 null（不臆造数字）。
+ *
+ * 防污染：草稿复核事件不计入——重跑成本预估服务的是「正式章再跑一遍要多少」，
+ * 草稿复核的消耗不是同一件事。
  */
 export function estimateRerunCost(
   ledger: RunEventLedger,
@@ -146,6 +158,7 @@ export function estimateRerunCost(
 ): readonly RerunCostEstimate[] {
   const gateEvents = new Map<GateKey, RunEvent[]>()
   for (const event of sliceRunEvents(ledger, { kind: "gate-run" })) {
+    if (!isAuthoritativeGateRun(event)) continue
     const payload = readGateRunPayload(event)
     if (!payload) continue
     const list = gateEvents.get(payload.gate)

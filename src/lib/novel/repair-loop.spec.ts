@@ -121,6 +121,19 @@ describe("buildCorrectionLoopStats（闭环率 + FP 聚合）", () => {
     const stats = buildCorrectionLoopStats(ledger)
     expect(stats.gates.find((g) => g.gate === "anti_ai")?.corrections).toBe(1)
   })
+
+  it("防污染：未采纳草稿的重跑（main-control-rerun）不计入闭环率/FP 误报", () => {
+    // 正式章 fail（无后续正式章运行）+ 草稿重跑 fail→pass：若不过滤，后两句会被当成 FP 误报
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      gateRun(0, "consistency", "fail"),
+      gateRun(1, "consistency", "fail", { ts: "2026-09-16T00:10:00.000Z", evidenceRefs: ["intent:main-control-rerun"] }),
+      gateRun(2, "consistency", "pass", { ts: "2026-09-16T00:20:00.000Z", evidenceRefs: ["intent:main-control-rerun"] }),
+    ])
+    const stats = buildCorrectionLoopStats(ledger)
+    const consistency = stats.gates.find((g) => g.gate === "consistency")
+    // 只见正式章那一次 fail，且它没有后续正式章运行 → open（不得被草稿的 fail→pass 扭转成闭环/FP）
+    expect(consistency).toMatchObject({ failRuns: 1, corrections: 0, falsePositives: 0, openFailRuns: 1 })
+  })
 })
 
 describe("§GAP-91 三权分立单章编排（Architect→Writer→Editor 收缩态）", () => {

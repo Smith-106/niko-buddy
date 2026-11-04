@@ -7,6 +7,12 @@
  *   - R-04：门结果未落 gate-run 事件 = 未发生（hasEvent=false → NOT_EVALUATED）；
  *   - 卡片字段 = EB-1 契约 (gate, verdict, score, evidence_refs[], replay_id,
  *     model_id, promptArtifact@version 血缘, ts)；
+ *   - **权威口径（防污染）**：卡片是「结论 + 归因」的一个整体——`display` 来自门状态，
+ *     `ts/score/replayId/modelId/promptArtifact/evidenceCount/hasEvent` 来自账本事件，
+ *     二者必须同源。若事件选取不过滤，就会出现「结论是正式章的、时间戳是草稿复核的」
+ *     这种不可审计的拼接假面。因此本模块的账本扫描统一走 `toAuthoritativeLedger`
+ *     （唯一权威过滤器，见 gate-run-authority.ts）；成本归因例外——花钱是真花的，
+ *     不过滤（草稿复核也是真实算力消耗）；
  *   - 聚合面：门事件覆盖率（G1=1.0）/ 提示词血缘率（LLM 中介门 100%）/
  *     budgetCost 归因 / 库健康摘要——首页仪表盘与列表健康列共用此纯函数。
  *
@@ -28,6 +34,7 @@ import {
   type RunEventLedger,
 } from "./run-event-ledger"
 import { checkPromptLineageCoverage } from "./prompt-artifacts"
+import { toAuthoritativeLedger } from "./gate-run-authority"
 import type { GateRunStatus } from "./rule-stack"
 import type { LibraryHealthReport } from "./asset-library"
 
@@ -78,19 +85,25 @@ export interface EvidenceSnapshot {
 /**
  * 构建证据链快照（纯函数）：门显示三态 + 事件覆盖 + 血缘 + 成本 + 库健康。
  * DS 超越点：P0 失败时首页显示「被 P0 阻塞」而非高分高亮（blockingGate 语义）。
+ *
+ * 卡片三态取自**该门最近一条权威 gate-run 事件的 payload.status**（R-04：没有事件
+ * 就没有裁定，即使内存里有结论也不渲染通过）；`input.gateStatuses` 只用于覆盖率
+ * 分母（哪些门「有裁定、理应留证」）。这样 display 与 ts/replayId/modelId/score/
+ * evidenceCount 永远是同一条事件上的事实，审计可闭合。
  */
 export function buildEvidenceSnapshot(input: {
   readonly gateStatuses: Readonly<Record<GateKey, GateRunStatus | undefined>>
   readonly ledger: RunEventLedger
   readonly libraryReports?: readonly LibraryHealthReport[]
 }): EvidenceSnapshot {
+  // 权威账本视图（唯一过滤器）：卡片归因、覆盖率、血缘率同源；成本归因不过滤。
+  const authoritativeLedger = toAuthoritativeLedger(input.ledger)
   const cards: EvidenceGateCard[] = []
   for (const gate of GATE_PRIORITY_ORDER) {
-    const status = input.gateStatuses[gate]
-    // 账本中该门最近一条 gate-run 事件（证据落账事实）
+    // 账本中该门最近一条**权威** gate-run 事件（证据落账事实 + 归因单源）
     let latestEvent: RunEvent | null = null
-    for (let i = input.ledger.events.length - 1; i >= 0; i -= 1) {
-      const event = input.ledger.events[i]
+    for (let i = authoritativeLedger.events.length - 1; i >= 0; i -= 1) {
+      const event = authoritativeLedger.events[i] as RunEvent
       const payload = readGateRunPayload(event)
       if (payload && payload.gate === gate) {
         latestEvent = event
@@ -102,8 +115,11 @@ export function buildEvidenceSnapshot(input: {
       latestEvent?.promptArtifactId !== undefined && latestEvent?.promptArtifactVersion !== undefined
         ? `${latestEvent.promptArtifactId}@${latestEvent.promptArtifactVersion}`
         : null
-    // R-04 + 未落=未发生：display 以事件在账为准——内存裁定但未落事件 → NOT_EVALUATED
-    const display = gateDisplayStatus(latestEvent !== null ? status : undefined)
+    // R-04 + 未落=未发生：display 以事件在账为准——内存裁定但未落事件 → NOT_EVALUATED。
+    // 且 display 与 ts/score/replayId/evidenceCount 取**同一条权威事件**：若 display 走
+    // 外部门状态而归因走事件，一旦两者不同源（草稿复核未过滤），同一张卡就会变成
+    // 「结论是正式章的、证据时间戳是草稿的」这种不可审计的拼接假面。
+    const display = gateDisplayStatus(payload?.status)
     cards.push({
       gate,
       display,
@@ -118,13 +134,14 @@ export function buildEvidenceSnapshot(input: {
     })
   }
 
-  // 覆盖率只对「有裁定」的门计——空运行（无裁定无事件）平凡覆盖 = 1
+  // 覆盖率只对「有裁定」的门计——空运行（无裁定无事件）平凡覆盖 = 1；
+  // 口径：只算权威事件（草稿复核落的 gate-run 不算「本门已留证」）
   const evaluatedGates = GATE_PRIORITY_ORDER.filter((gate) => input.gateStatuses[gate] !== undefined)
   const coverage = checkGateEventCoverage(
     evaluatedGates.map((gate) => ({ gate })),
-    input.ledger,
+    authoritativeLedger,
   )
-  const lineage = checkPromptLineageCoverage(input.ledger)
+  const lineage = checkPromptLineageCoverage(authoritativeLedger)
   const failing = cards.find((card) => card.display === "fail")
 
   return {

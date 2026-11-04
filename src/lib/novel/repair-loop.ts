@@ -16,12 +16,17 @@
  *   - closureRate = corrections / failRuns；fpRate = falsePositives / failRuns；
  *     无 fail 运行 → 双率 null（无可闭环项，不臆造 100%）。
  *
+ * 防污染（B3）：闭环率/FP 是「检测器是否靠得住」的结论，只算**权威**正式章
+ * gate-run（`isAuthoritativeGateRun`，账本层唯一过滤器 gate-run-authority.ts）。
+ * 否则未采纳草稿的重跑会凭空造出 fail 运行，把草稿→草稿翻转变成「FP 误报」。
+ *
  * 机械层（ADR-19）：纯函数，零 IO / 零时钟 / 零模型调用。
  *
  * @license MIT © Niko Buddy
  */
 
 import { GATE_PRIORITY_ORDER, type GateKey } from "./audit-taxonomy"
+import { isAuthoritativeGateRun } from "./gate-run-authority"
 import { readGateRunPayload, sliceRunEvents, type RunEvent, type RunEventLedger } from "./run-event-ledger"
 import { checkChapterContract, parseChapterContractSection, type ChapterContractSection } from "./deep-chapter-task-brief"
 import {
@@ -86,6 +91,7 @@ function scopeKeyOf(event: RunEvent): string {
  *   2. 每个 fail 运行向后找同 scope 的下一条 gate-run：
  *      pass 且间隔内有 retry/generate → correction；pass 且无 → FP；
  *      fail / 无后续 → open（不计分子）；
+ *      只算权威运行（草稿复核不是正式章的检测→修正→复检链路）；
  *   3. 事件 payload.gate 与事件键以账本事实为准（readGateRunPayload 判读）。
  */
 export function buildCorrectionLoopStats(
@@ -93,7 +99,9 @@ export function buildCorrectionLoopStats(
   options?: { readonly gates?: readonly GateKey[] },
 ): CorrectionLoopStats {
   const gateFilter = options?.gates
-  const gateRuns = sliceRunEvents(ledger, { kind: "gate-run" })
+  const gateRuns = sliceRunEvents(ledger, { kind: "gate-run" }).filter((event) =>
+    isAuthoritativeGateRun(event),
+  )
   // 按 scope 分组（组内保持 seq 升序）
   const byScope = new Map<string, RunEvent[]>()
   for (const event of gateRuns) {

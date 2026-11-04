@@ -175,6 +175,19 @@ describe("rerunMainControlGates", () => {
     expect(out.evidenceError).toBeUndefined()
   })
 
+  it("落账返回带 evidenceTs（供 UI 对账「本次 vs 历史」）", async () => {
+    recordEvidence.mockResolvedValue({
+      recorded: ["consistency", "anti_ai", "quality"],
+      ts: "2026-10-18T01:02:03.000Z",
+    })
+    const out = await rerunMainControlGates(
+      { projectPath: "/proj", draftId: "draft_1_abc", novelConfig: novelConfig(), llmConfig },
+      { listDrafts, buildPack, recordEvidence },
+    )
+    expect(out.evidenceTs).toBe("2026-10-18T01:02:03.000Z")
+    expect(out.evidenceError).toBeUndefined()
+  })
+
   it("落账失败非致命：结论照常返回，只回 evidenceError", async () => {
     recordEvidence.mockResolvedValue({ recorded: ["consistency", "anti_ai", "quality"], error: "disk-full" })
 
@@ -184,6 +197,8 @@ describe("rerunMainControlGates", () => {
     )
 
     expect(out.evidenceError).toBe("disk-full")
+    // 落账失败 → 没有可对账的批次 ts（历史面诚实缺失，不伪造时间戳）
+    expect(out.evidenceTs).toBeUndefined()
     expect(out.rows.map((row) => row.key)).toEqual(["consistency", "anti_ai", "quality"])
   })
 })

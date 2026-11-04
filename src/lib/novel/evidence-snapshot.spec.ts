@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest"
 import { buildEvidenceSnapshot } from "./evidence-snapshot"
 import { createRunEventLedger, recordGateRunEvents, appendRunEvents, type RunEventInput } from "./run-event-ledger"
 import { buildLibraryArtifact, type LibraryHealthReport } from "./asset-library"
+import { buildChapterGateRunEvents, MAIN_CONTROL_RERUN_INTENT } from "./deep-chapter-gate-evidence"
 
 function stageEvent(seq: number): RunEventInput {
   return { seq, eventId: `e${seq}`, ts: "2026-09-12T00:00:00.000Z", kind: "stage", actor: "system" }
@@ -127,5 +128,108 @@ describe("buildEvidenceSnapshot（EB-1 数据层）", () => {
     expect(snapshot.blocked).toBe(false)
     expect(snapshot.blockingGate).toBeNull()
     expect(snapshot.gateEventCoverage).toBe(1)
+  })
+})
+
+describe("防污染（B3）：草稿复核 gate-run 不得成为卡片归因来源", () => {
+  const FORMAL_TS = "2026-10-18T00:00:00.000Z"
+  const DRAFT_TS = "2026-10-18T00:10:00.000Z"
+
+  function threeGates(status: "passed" | "failed"): Parameters<typeof buildChapterGateRunEvents>[0]["decisionGates"] {
+    return {
+      consistency: { status, verdict: status === "failed" ? "fail" : "pass", findings: [], repair_suggestions: [], retry_count: 0, updated_at: FORMAL_TS },
+      anti_ai: { status, verdict: status === "failed" ? "fail" : "pass", findings: [], repair_suggestions: [], retry_count: 0, updated_at: FORMAL_TS },
+      quality: { status, verdict: status === "failed" ? "fail" : "pass", findings: [], repair_suggestions: [], retry_count: 0, updated_at: FORMAL_TS },
+      overall: status === "failed" ? "fail" : "pass",
+    } as unknown as Parameters<typeof buildChapterGateRunEvents>[0]["decisionGates"]
+  }
+
+  /** 正式章 pass（t0）+ 未采纳草稿重跑 fail（t1）的账本。 */
+  function pollutedLedger() {
+    const formal = buildChapterGateRunEvents({ projectPath: "/p", decisionGates: threeGates("passed"), chapterNumber: 3 })
+    const rerun = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: threeGates("failed"),
+      chapterNumber: 3,
+      intent: MAIN_CONTROL_RERUN_INTENT,
+    })
+    let ledger = appendRunEvents(
+      createRunEventLedger(),
+      formal.map(
+        (event, index) =>
+          ({ ...event, ts: FORMAL_TS, seq: index, eventId: `formal:${index}`, replayId: "rp-formal", modelId: "model-formal" }) as RunEventInput,
+      ),
+    )
+    ledger = appendRunEvents(
+      ledger,
+      rerun.map(
+        (event, index) =>
+          ({
+            ...event,
+            ts: DRAFT_TS,
+            seq: index + 3,
+            eventId: `draft:${index}`,
+            replayId: "rp-draft",
+            modelId: "model-draft",
+          }) as RunEventInput,
+      ),
+    )
+    return ledger
+  }
+
+  it("display 与 ts/replayId/modelId/evidenceCount 同一条权威事件（不拼接草稿归因）", () => {
+    const snapshot = buildEvidenceSnapshot({
+      gateStatuses: { consistency: "pass", anti_ai: "pass", quality: "pass" },
+      ledger: pollutedLedger(),
+    })
+    for (const card of snapshot.cards) {
+      expect(card).toMatchObject({
+        display: "pass",
+        ts: FORMAL_TS,
+        replayId: "rp-formal",
+        modelId: "model-formal",
+        hasEvent: true,
+        // 正式章事件只带 chapter:3；草稿事件额外带 intent ref，不得混入权威证据数
+        evidenceCount: 1,
+      })
+    }
+    expect(snapshot.blocked).toBe(false)
+    expect(snapshot.blockingGate).toBeNull()
+  })
+
+  it("display 以账本权威事件为准（外部门状态与账本不一致时不给假结论）", () => {
+    // 只落了正式章 fail，调用方却声称三门全 pass（如自行派生且未过滤）
+    const ledger = appendRunEvents(
+      createRunEventLedger(),
+      [{ seq: 0, eventId: "g0", ts: FORMAL_TS, kind: "gate-run", actor: "system", payload: { gate: "consistency", status: "fail" } }],
+    )
+    const snapshot = buildEvidenceSnapshot({
+      gateStatuses: { consistency: "pass", anti_ai: "pass", quality: "pass" },
+      ledger,
+    })
+    expect(snapshot.cards[0]).toMatchObject({ gate: "consistency", display: "fail", ts: FORMAL_TS })
+    expect(snapshot.blocked).toBe(true)
+    expect(snapshot.blockingGate).toBe("consistency")
+  })
+
+  it("覆盖率/血缘率同源：草稿复核落的三门 gate-run 不算「本门已留证」", () => {
+    // 只有草稿复核落了事件（正式章未落）→ 三门仍未留证
+    const rerun = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: threeGates("passed"),
+      chapterNumber: 3,
+      intent: MAIN_CONTROL_RERUN_INTENT,
+    })
+    const ledger = appendRunEvents(
+      createRunEventLedger(),
+      rerun.map((event, index) => ({ ...event, ts: DRAFT_TS, seq: index, eventId: `d:${index}` }) as RunEventInput),
+    )
+    const snapshot = buildEvidenceSnapshot({
+      gateStatuses: { consistency: "pass", anti_ai: "pass", quality: "pass" },
+      ledger,
+    })
+    expect(snapshot.gateEventCoverage).toBe(0)
+    expect(snapshot.cards.every((card) => !card.hasEvent && card.display === "not_evaluated")).toBe(true)
+    expect(snapshot.blocked).toBe(false)
   })
 })

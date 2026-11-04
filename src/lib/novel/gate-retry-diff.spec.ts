@@ -106,4 +106,21 @@ describe("diffLatestGateRetries（自动取最近两 run）", () => {
     expect(diff?.after.replayId).toBe("replay-2")
     expect(diff?.modelSwapped).toBe(true)
   })
+
+  it("防污染：自动取对不把 main-control-rerun 当成「最近一次重试」", () => {
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      gateRun(0, "anti_ai", "fail", { modelId: "model-a" }),
+      gateRun(1, "anti_ai", "pass", { modelId: "model-b" }),
+      // 草稿复核（未采纳草稿）——不得占差分位，否则 verdictChanged/scoreDelta 是伪差分
+      gateRun(2, "anti_ai", "fail", {
+        ts: "2026-09-16T00:10:00.000Z",
+        modelId: "model-draft",
+        evidenceRefs: ["intent:main-control-rerun"],
+      }),
+    ])
+    const diff = diffLatestGateRetries(ledger, "anti_ai")
+    expect(diff?.before.replayId).toBe("replay-0")
+    expect(diff?.after.replayId).toBe("replay-1")
+    expect(diff?.modelTrajectory).toEqual(["model-a", "model-b"])
+  })
 })

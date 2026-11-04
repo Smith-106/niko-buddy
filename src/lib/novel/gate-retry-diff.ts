@@ -6,9 +6,14 @@
  *     差分（含换模型轨迹与 replayId）；
  *   - DS 验收：门重试差分按 verdict/score/evidence 并列展示并链 replayId。
  *
- * 机械口径：差分对象 = 账本中同门两次 gate-run 事件（显式事件对，或自动取
+ * 机械口径：差分对象 = 账本中同门两次**权威** gate-run 事件（显式事件对，或自动取
  * 最近两次）——verdict/score/evidence/modelId 逐项对照；modelTrajectory =
  * [before, after] 换模型轨迹（routing 证据，与 model-resolver 路由一致）。
+ *
+ * 防污染（B3）：自动取对只取正式章运行（`isAuthoritativeGateRun`）。若把未采纳草稿
+ * 的重跑（`intent:main-control-rerun`）当成「最近一次重试」，verdictChanged/scoreDelta
+ * 就成了「正式章 vs 无关草稿」的伪差分。显式事件对 `diffGateRunPair` 不过滤（调用方
+ * 自己选的两条就是两条）。
  *
  * 机械层（ADR-19）：纯函数，零 IO / 零时钟 / 零模型调用。
  *
@@ -16,6 +21,7 @@
  */
 
 import type { GateKey } from "./audit-taxonomy"
+import { isAuthoritativeGateRun } from "./gate-run-authority"
 import { readGateRunPayload, sliceRunEvents, type RunEvent, type RunEventLedger } from "./run-event-ledger"
 
 /** 单 run 对照面（EB-1 卡片可展示字段的最小集）。 */
@@ -94,7 +100,7 @@ export function diffGateRunPair(before: RunEvent, after: RunEvent): GateRetryDif
 }
 
 /**
- * 同门最近两 run 自动差分：取账本中该门（可选 scope 过滤）最近两条 gate-run
+ * 同门最近两 run 自动差分：取账本中该门（可选 scope 过滤）最近两条**权威** gate-run
  * 事件（seq 升序取末两条）；不足两条 → null（无可差分）。
  */
 export function diffLatestGateRetries(
@@ -103,6 +109,7 @@ export function diffLatestGateRetries(
   scope?: { readonly bookId?: string; readonly chapterId?: number },
 ): GateRetryDiff | null {
   const runs = sliceRunEvents(ledger, { kind: "gate-run", bookId: scope?.bookId, chapterId: scope?.chapterId })
+    .filter((event) => isAuthoritativeGateRun(event))
     .filter((event) => readGateRunPayload(event)?.gate === gate)
   if (runs.length < 2) return null
   const before = runs[runs.length - 2] as RunEvent
