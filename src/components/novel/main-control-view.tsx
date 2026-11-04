@@ -69,6 +69,9 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const novelConfig = useWikiStore((s) => s.novelConfig)
   const novelMode = useWikiStore((s) => s.novelMode)
+  // F16：采纳块要拿到「当前打开的文件」，否则「同书同名复用当前章」分支恒不可达
+  // （与 writing-workspace.tsx → chapter-draft-dock.tsx 同一数据源，语义对齐）。
+  const selectedFile = useWikiStore((s) => s.selectedFile)
   // 工作流强度：全局单键（D1=A），由 composition-root 在打开项目时载入 store；
   // R-02：绝不硬编码默认档，否则设置改了主控仍跑 standard。
   const aiWorkflowMode = useWikiStore((s) => s.aiWorkflowMode)
@@ -607,6 +610,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         {projectPath ? (
           <MainControlDraftAdoptBlock
             projectPath={projectPath}
+            selectedFile={selectedFile}
             onActivityEvent={(event) => setExtraActivities((prev) => [...prev, event])}
           />
         ) : null}

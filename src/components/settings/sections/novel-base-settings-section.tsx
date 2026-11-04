@@ -367,22 +367,14 @@ export function NovelBaseSettingsSection({ draft, setDraft, updateNovelConfig }:
                 <h4 className="text-sm font-medium">{t("novel.settings.governanceSection")}</h4>
                 {settingTooltip("governanceSectionHint")}
               </div>
-              {([
-                ["trustFilterEnabledReadonly", "trustFilterEnabledReadonlyHint"],
-                ["decayEnabledReadonly", "decayEnabledReadonlyHint"],
-                ["supersessionFilterEnabledReadonly", "supersessionFilterEnabledReadonlyHint"],
-              ] as const).map(([labelKey, hintKey]) => (
-                <div key={labelKey} className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-1.5">
-                    {/* 只读展示，无对应控件：用文本而非 <label>，避免孤立 label */}
-                    <span className="text-sm leading-none font-medium">{t(`novel.settings.${labelKey}`)}</span>
-                    {settingTooltip(hintKey)}
-                  </div>
-                  <span className="rounded border px-2 py-0.5 text-xs text-muted-foreground">
-                    {t("novel.settings.governanceBadgeNotWired")}
-                  </span>
-                </div>
-              ))}
+              {/* DEC-02: trustFilterEnabled 已接线（context-engine → search-adapter），改为真实开关；
+                  写入经 updateNovelConfig → persistNovelConfigPatch（逐键回滚），与其它开关同一条持久化路径。 */}
+              <NovelSwitchRow
+                label={t("novel.settings.trustFilterEnabled")}
+                tipKey="trustFilterEnabledHint"
+                checked={draft.novelConfig.trustFilterEnabled === true}
+                onChange={() => updateNovelConfig({ trustFilterEnabled: !(draft.novelConfig.trustFilterEnabled === true) })}
+              />
             </div>
           </NovelExperimentalDetails>
 

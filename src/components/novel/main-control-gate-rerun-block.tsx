@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { CircleAlert, Loader2 } from "lucide-react"
+import { CheckCircle2, CircleAlert, Loader2 } from "lucide-react"
 import {
   listChapterDrafts,
   rerunMainControlGates,
@@ -21,6 +21,11 @@ import { toErrorMessage } from "@/lib/utils"
  * 未评估一律呈现为「未评估」（`skipped`），绝不呈现为通过：
  * - 门 status=pending → skipped（`mapDecisionGateToRunStatus` 同源）；
  * - 契约维度缺席（taskBrief 无契约段）/ AI 审稿关闭 → 显式提示，不给绿色结论。
+ *
+ * F17：已落库（status=saved）的草稿不再提供重跑按钮——重跑只会产出与正式正文
+ * 不一致的判定。口径与采纳块（main-control-draft-adopt-block.tsx）一致：saved 只
+ * 渲染「已写入正式章」徽章。过滤只发生在渲染层，lib 侧 `rerunMainControlGates`
+ * 的草稿查表语义保持不变。
  */
 const GATE_LABEL_KEYS: Record<DeepChapterDecisionGateKey, string> = {
   consistency: "mainControl.draftGateConsistency",
@@ -103,18 +108,32 @@ export function MainControlGateRerunBlock({ projectPath }: MainControlGateRerunB
       ) : (
         <ul className="mt-1 flex flex-col gap-1">
           {drafts.map((draft) => (
-            <li key={draft.id} className="flex items-center gap-2 text-xs">
+            <li
+              key={draft.id}
+              className="flex items-center gap-2 text-xs"
+              data-testid={`main-control-gate-rerun-row-${draft.id}`}
+            >
               <span className="text-primary">{draft.chapterName}</span>
-              <button
-                type="button"
-                className="ml-auto flex h-7 items-center gap-1 rounded-md border px-2 text-xs disabled:opacity-40"
-                data-testid={`main-control-gate-rerun-${draft.id}`}
-                disabled={busyId !== null}
-                onClick={() => void rerun(draft)}
-              >
-                {busyId === draft.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                {t("mainControl.draftGateRerun")}
-              </button>
+              {draft.status === "saved" ? (
+                <span
+                  className="ml-auto flex items-center gap-1 text-success"
+                  data-testid={`main-control-gate-rerun-saved-${draft.id}`}
+                >
+                  <CheckCircle2 className="h-3 w-3" />
+                  {t("mainControl.draftSavedAlready")}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="ml-auto flex h-7 items-center gap-1 rounded-md border px-2 text-xs disabled:opacity-40"
+                  data-testid={`main-control-gate-rerun-${draft.id}`}
+                  disabled={busyId !== null}
+                  onClick={() => void rerun(draft)}
+                >
+                  {busyId === draft.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  {t("mainControl.draftGateRerun")}
+                </button>
+              )}
             </li>
           ))}
         </ul>

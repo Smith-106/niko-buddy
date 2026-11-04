@@ -736,10 +736,8 @@ function normalizeNovelConfig(
     stateDeltaLightCheckEnabled: config.stateDeltaLightCheckEnabled ?? DEFAULT_NOVEL_CONFIG.stateDeltaLightCheckEnabled,
     stateDeltaBlocksTrackA: config.stateDeltaBlocksTrackA ?? DEFAULT_NOVEL_CONFIG.stateDeltaBlocksTrackA,
     outlineThrillSoftGateEnabled: config.outlineThrillSoftGateEnabled ?? DEFAULT_NOVEL_CONFIG.outlineThrillSoftGateEnabled,
-    // E-06 (kb-governance): 三 flag 默认 false（校准/接线前零行为变更）
+    // E-06 (kb-governance): trustFilterEnabled 默认 false（接线完成，可逆上线）
     trustFilterEnabled: config.trustFilterEnabled ?? DEFAULT_NOVEL_CONFIG.trustFilterEnabled,
-    decayEnabled: config.decayEnabled ?? DEFAULT_NOVEL_CONFIG.decayEnabled,
-    supersessionFilterEnabled: config.supersessionFilterEnabled ?? DEFAULT_NOVEL_CONFIG.supersessionFilterEnabled,
     // E-02 (capability-kb-retrieval): 三 flag 默认 false（接线前零行为变更，可逆上线）
     dualKbRoutingEnabled: config.dualKbRoutingEnabled ?? DEFAULT_NOVEL_CONFIG.dualKbRoutingEnabled,
     hardInjectEnabled: config.hardInjectEnabled ?? DEFAULT_NOVEL_CONFIG.hardInjectEnabled,

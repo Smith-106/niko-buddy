@@ -395,19 +395,10 @@ export interface NovelConfig {
   /**
    * E-06 (run-execute-1, 双库架构蓝图 kb-governance): trust 过滤开关 (默认 false)。
    * 开启后检索侧剔除 blocked 条目 (GOV-TRUST-05); 关闭 = 字节级回退现状。
-   * [stage: awaiting-wiring-done] P1-IMP-15：接线完成后翻默认值。流程见 docs/kb-flag-promotion-flow.md
+   * 已接线: context-engine.ts → search-adapter.ts retrieveDualTrack。
+   * [stage: wired-default-off] P1-IMP-15：翻默认值流程见 docs/kb-flag-promotion-flow.md
    */
   trustFilterEnabled: boolean
-  /**
-   * E-06: 能力库衰减开关 (默认 false)。衰减参数 [需校准] (G-3), 校准前不生效。
-   * [stage: DEFERRED] P1-IMP-15：衰减校准未完成，暂不翻默认值。
-   */
-  decayEnabled: boolean
-  /**
-   * E-06: 过程库 supersession 过滤开关 (默认 false)。开启后 superseded 条目不装配。
-   * [stage: DEFERRED] P1-IMP-15：supersession 语义未产品拍板，暂不翻默认值。
-   */
-  supersessionFilterEnabled: boolean
   /**
    * E-02 (run-execute-1, 双库架构蓝图 capability-kb-retrieval): 双轨检索编排开关 (默认 false)。
    * 开启后写作路径 searchRelevantContentUnified 经 retrieveDualTrack 编排
@@ -491,10 +482,8 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   stateDeltaLightCheckEnabled: true,
   stateDeltaBlocksTrackA: false,
   outlineThrillSoftGateEnabled: true,
-  // E-06 (kb-governance): 三 flag 默认 false（校准/接线前零行为变更）
+  // E-06 (kb-governance): trustFilterEnabled 默认 false（接线完成，可逆上线）
   trustFilterEnabled: false,
-  decayEnabled: false,
-  supersessionFilterEnabled: false,
   // E-02 (capability-kb-retrieval): dualKbRouting/usefulnessRerank 默认 false（接线前零行为变更，可逆上线）
   dualKbRoutingEnabled: false,
   // #5 M3b 翻转（三模型共识 2026-09-07，等效证据替代）：hardInjectEnabled 默认 true。

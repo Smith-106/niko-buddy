@@ -344,10 +344,11 @@ describe("NovelSection", () => {
     expect(screen.getByText("novel.settings.inspectorEnabled")).toBeInTheDocument()
     expect(screen.getByText("novel.settings.stateDeltaBlocksTrackA")).toBeInTheDocument()
     expect(screen.getByText("novel.settings.governanceSection")).toBeInTheDocument()
-    expect(screen.getByText("novel.settings.trustFilterEnabledReadonly")).toBeInTheDocument()
-    expect(screen.getByText("novel.settings.decayEnabledReadonly")).toBeInTheDocument()
-    expect(screen.getByText("novel.settings.supersessionFilterEnabledReadonly")).toBeInTheDocument()
-    expect(screen.getAllByText("novel.settings.governanceBadgeNotWired").length).toBe(3)
+    // DEC-02: trustFilterEnabled 徽章改开关（不再只读）；decay/supersession 两个死字段已删
+    expect(screen.getByText("novel.settings.trustFilterEnabled")).toBeInTheDocument()
+    expect(screen.queryByText("novel.settings.decayEnabledReadonly")).not.toBeInTheDocument()
+    expect(screen.queryByText("novel.settings.supersessionFilterEnabledReadonly")).not.toBeInTheDocument()
+    expect(screen.queryByText("novel.settings.governanceBadgeNotWired")).not.toBeInTheDocument()
     // R5 影子采集区
     expect(screen.getByText("novel.settings.kbShadowCollectionSection")).toBeInTheDocument()
     expect(screen.getByText("novel.settings.kbShadowRunButton")).toBeInTheDocument()
@@ -478,6 +479,24 @@ describe("NovelSection", () => {
     // 验证确实写入 store（每个 toggle 至少一次 patch）
     expect(mocks.wikiState.setNovelConfig).toHaveBeenCalled()
     expect(mocks.saveNovelConfig).toHaveBeenCalled()
+  })
+
+  // DEC-02: trustFilterEnabled 从只读徽章改为真实开关；写入经 persistNovelConfigPatch（逐键 patch 落盘）。
+  it("DEC-02 trustFilterEnabled 开关：默认关，点击写入 trustFilterEnabled=true 并落盘", async () => {
+    const { rerender } = renderSection()
+    const btn = toggleButtonFor("novel.settings.trustFilterEnabled")
+    expect(btn.getAttribute("aria-checked")).toBe("false")
+    fireEvent.click(btn)
+    await waitFor(() => expect(currentDraft.novelConfig.trustFilterEnabled).toBe(true))
+    expect(mocks.wikiState.setNovelConfig).toHaveBeenCalledWith({ trustFilterEnabled: true })
+    expect(mocks.saveNovelConfig).toHaveBeenCalledWith(currentDraft.novelConfig, "p1", "/p1")
+
+    rerender()
+    const onBtn = toggleButtonFor("novel.settings.trustFilterEnabled")
+    expect(onBtn.getAttribute("aria-checked")).toBe("true")
+    fireEvent.click(onBtn)
+    await waitFor(() => expect(currentDraft.novelConfig.trustFilterEnabled).toBe(false))
+    expect(mocks.wikiState.setNovelConfig).toHaveBeenLastCalledWith({ trustFilterEnabled: false })
   })
 
   it("反馈窗口 toggle 开关（直接 setDraft，不持久化）", async () => {
