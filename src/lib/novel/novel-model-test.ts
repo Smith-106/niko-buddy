@@ -58,7 +58,7 @@ export async function testNovelModel(
 
   const modelKey = `${taskType}Model` as const
 
-  // writingModel 已移除，writing 任务始终视为回退到 AI 会话模型
+  // writing 任务不走 novelConfig.writingModel 判定（该字段虽未移除，但本流程无读取点），始终视为回退到 AI 会话模型
   const usedFallbackModel = taskType === "writing" ? true : !novelConfig[modelKey].trim()
 
   return {

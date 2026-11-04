@@ -29,6 +29,16 @@ export const ALL_WRITING_ROLES: readonly WritingRole[] = [
   "judge",
 ] as const
 
+// R11 / NF-04 事实修正（DEC-03：只修注释，字段与映射一律不动）：
+//   - `writingModel` **没有被移除**。writer / reviser 两个角色仍然映射到它（下方 writer / reviser
+//     两行即活映射），
+//     字段本身也仍在 NovelConfig（src/stores/wiki-store-config.ts:347）与 ProjectModelConfig 中声明；
+//   - premium-execution 等生产路径仍调用 resolveRoleModel("writer")，因此这条映射是活代码，
+//     不能按「已移除」的口径删除或摘除；
+//   - 本仓里真正「不可达」的是 route 薄壳分支，而不是该字段本身
+//     （见 src/lib/novel/deep-chapter-route-shell.ts 中 resolveRouteShellMode 的 routeShellMode 说明）；
+//   - 另注：reviser 那一行的行内注释「可独立覆盖」并不准确 —— ProjectModelConfig 没有
+//     reviserModel 字段，reviser 实际恒等于 writingModel，无法独立覆盖。
 /** 角色→模型字段映射（用于从 NovelConfig 读取）。 */
 const ROLE_TO_CONFIG_FIELD: Record<WritingRole, string> = {
   writer: "writingModel",
@@ -76,6 +86,8 @@ export function resolveRoleModel(
 ): string {
   const field = ROLE_TO_CONFIG_FIELD[role] as keyof ProjectModelConfig
   // judgePool 为 string[] 字段，与角色→模型单字段语义无关，需收窄为 string
+  // R11：末尾的 writingModel 兜底同样是活逻辑（字段未移除、writer/reviser 映射未摘），
+  // 不要依据「已移除」的旧口径删掉这条回退链。
   return (config[field] as string | undefined) || config.writingModel || ""
 }
 

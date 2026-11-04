@@ -143,18 +143,24 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
       },
     },
     async execute(rawParams, signal, context?: ToolExecutionContext) {
-      const params = normalizeParams(rawParams) as Record<string, unknown>
+      const params = normalizeParams(rawParams)
       const rawUserRequest = params.userRequest
       const userRequest = typeof rawUserRequest === "string" ? rawUserRequest.trim() : undefined
       if (!userRequest) {
         return "错误：缺少 userRequest，无法运行章节工作流。"
       }
 
-      // 兜底：AI 未在工具调用参数中携带 planBlueprint 时，从外部 getter 补上，
-      // 保证用户确认的计划一定进入章节生成链路，不依赖模型是否遵守自然语言提示。
+      // F07（R04=a）：用户确认的章节计划必须进入生成链，优先级：
+      //   显式工具参数 params.planBlueprint > options.getPlanBlueprint?.()（会话层兜底）。
+      // 两者都缺 → undefined（生成链零行为变更）；原样透传，不 trim/不截断/不改写。
+      const planBlueprint = params.planBlueprint ?? options.getPlanBlueprint?.()
+      // 本轮未接线（无消费点，保持现状，避免造第二个静默丢弃）：
+      //   - params.intent / params.workflowMode 仍只被 normalizeParams 解析、不传入生成链。
+      //     DeepChapterGenerationInput 无对应字段，也没有任何阶段读它们；
+      //     若将来接线，需同时提供消费点，不得只透传到结构体。
+      const rawChapterNumber = params.chapterNumber
       // ISS-20260709-033: novelConfig 注入优先（getNovelConfig），缺省回退原惰性
       // store 读取（向后兼容，行为等价）。
-      const rawChapterNumber = params.chapterNumber
       const novelConfig = options.getNovelConfig
         ? options.getNovelConfig()
         : (await import("@/stores/wiki-store")).useWikiStore.getState().novelConfig
@@ -163,6 +169,8 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
           projectPath: options.projectPath,
           userRequest,
           chapterNumber: typeof rawChapterNumber === "number" ? rawChapterNumber : undefined,
+          // F07: 用户确认的章节计划（缺省 undefined → 生成链行为零变更）。
+          planBlueprint,
           llmConfig: options.llmConfig,
           novelConfig,
           // 55 号设计 W1-1 (54⑧ 收尾): 题材透传 (undefined → 生成链零行为变更)。

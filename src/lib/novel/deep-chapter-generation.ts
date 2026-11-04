@@ -66,6 +66,14 @@ export interface DeepChapterGenerationInput {
   projectPath: string
   userRequest: string
   chapterNumber?: number
+  /**
+   * F07（R04=a）：用户在会话层已确认的章节计划原文。
+   *
+   * 原样透传：生成链只做空值守卫，**不得截断/改写/摘要**（用户确认过的文本即强制约束）。
+   * 消费点：阶段2任务书提示词与阶段3正文初稿提示词（均拼在稳定上下文前缀之后），
+   * 故缺省 undefined 时生成链行为逐字节不变。
+   */
+  planBlueprint?: string
   goldenThreeChapter?: GoldenThreeChapterRequest
   dismantlingReferenceDirective?: string
   /**
@@ -547,6 +555,8 @@ export async function runDeepChapterGeneration(
     input, writingConfig, deps, signal, callbacks,
     outlinePrompt, contextPrompt, taskBrief, lengthSpec, resumeCheckpoint, cachePrefix,
     draftNotePartial, clearPartial, watchdog,
+    // F07: 用户确认的章节计划原文（原样透传；缺省 undefined → 提示词逐字节不变）。
+    input.planBlueprint,
   )
   assertNotAborted(signal, USER_ABORT_MESSAGE)
   // 编排层成功点：draft 阶段零 partial + 内容完整 ⇒ 清除早期 partial（真正完整成功；降级/兜底不调）。

@@ -153,7 +153,7 @@ function buildChapterPlanProtocol(mode: AiWorkflowMode): string {
     "- 为每个风险给出兜底处理：正文写作时应该如何避免或如何轻量补救。",
     "- 写清章末必须出现的悬念、反转、未决动作或新威胁；钩子必须来自本章推进结果，不能凭空另起一条线。",
     "",
-    "确认后动作：用户点击确认后，把整份计划作为 run_chapter_workflow 的 planBlueprint 参数传入，再进入正文生成，不再重复输出计划。",
+    "确认后动作：用户点击确认后，调用 run_chapter_workflow 时必须把整份计划原文作为 planBlueprint 参数传入（完整透传，不得改写、截断或省略），再进入正文生成，不再重复输出计划。",
     "输出计划后暂停，等用户确认后再进入正文。",
   ].join("\n")
 }

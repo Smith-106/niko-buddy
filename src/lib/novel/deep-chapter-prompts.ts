@@ -80,6 +80,28 @@ export function appendTaskExtraSection(prompt: string, extraInstructions?: strin
   ].join("\n")
 }
 
+/**
+ * F07（R04=a）：用户已确认的章节计划原文段。
+ *
+ * 计划是用户在会话层确认过的强制约束，**必须原样透传**：本函数只做空值守卫，
+ * 不做 trim/截断/改写（仅用 trim 判定“是否为空”），输出内嵌原文逐字节不变。
+ *
+ * 位置约束：调用方必须把它拼在 `buildStableContextPrefix` 之后 —— 计划逐章变化，
+ * 若插到稳定前缀之前会截断各阶段共享的缓存前缀（见 buildStableContextPrefix 注释）。
+ * 缺省/空白 → 返回 ""，由调用方的 filter(Boolean) 剔除（字节级零行为变更）。
+ */
+export function planBlueprintSection(planBlueprint?: string): string {
+  if (!planBlueprint || !planBlueprint.trim()) return ""
+  return [
+    "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    "# 【章节计划原文】（用户已确认的强制约束；必须原样执行，不得改写、合并或省略）",
+    "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    "",
+    planBlueprint,
+    "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+  ].join("\n")
+}
+
 export function buildDeepChapterBriefPrompt(
   outline: string,
   contextPrompt: string,
@@ -88,6 +110,11 @@ export function buildDeepChapterBriefPrompt(
   goldenThreeChapter?: GoldenThreeChapterRequest,
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
   extraInstructions?: string,
+  /**
+   * F07: 用户已确认的章节计划原文（可选，additive）。缺省 undefined → prompt 逐字节不变。
+   * 任务书是“计划作为权威依据”的落地阶段，故计划原文同样进入阶段2提示词。
+   */
+  planBlueprint?: string,
 ): string {
   return appendTaskExtraSection([
     buildStableContextPrefix(outline, contextPrompt),
@@ -109,6 +136,7 @@ export function buildDeepChapterBriefPrompt(
     chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
+    planBlueprintSection(planBlueprint),
   ].filter(Boolean).join("\n"), extraInstructions)
 }
 
@@ -122,6 +150,11 @@ export function buildDeepChapterDraftPrompt(
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
   extraInstructions?: string,
   autoGenerateChapterTitle = true,
+  /**
+   * F07: 用户已确认的章节计划原文（可选，additive）。缺省 undefined → prompt 逐字节不变。
+   * 排在稳定上下文前缀之后、写作任务书之前：先给计划（权威约束），再给任务书（执行细则）。
+   */
+  planBlueprint?: string,
 ): string {
   return appendTaskExtraSection([
     buildStableContextPrefix(outline, contextPrompt),
@@ -144,6 +177,7 @@ export function buildDeepChapterDraftPrompt(
     chapterNumber ? `TARGET_CHAPTER_NUMBER: ${chapterNumber}` : "",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
+    planBlueprintSection(planBlueprint),
     "",
     "写作任务书：",
     taskBrief,

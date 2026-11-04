@@ -381,6 +381,8 @@ export async function generateTaskBrief(
       input.goldenThreeChapter,
       lengthSpec,
       extra,
+      // F07: 用户确认的章节计划原文（缺省 undefined → prompt 逐字节不变）。
+      input.planBlueprint,
     ),
   }]
   if (!taskBrief) {
@@ -404,6 +406,8 @@ export async function generateTaskBrief(
       // briefMessages 经 buildDeepChapterBriefPrompt 消费 input.goldenThreeChapter（金三章指令段），
       // 故 digest 补 goldenThreeChapter（undefined 缺席=稳定 null 语义；stableStringify 键序无关）。
       // 既有缓存行 digest 变更=自然失效重建（TTL 窗内旧行读不到=视同未命中，无脏读）。
+      // F07: briefMessages 同样消费 input.planBlueprint，故 digest 必须包含它；
+      // 否则“带计划的旧行”会被“不带计划的同章请求”命中，形成新的静默丢弃。
       const digest = await computeInstructionDigest({
         stage: "task_brief",
         outlinePrompt,
@@ -411,6 +415,7 @@ export async function generateTaskBrief(
         userRequest: input.userRequest,
         chapterNumber: input.chapterNumber,
         goldenThreeChapter: input.goldenThreeChapter ?? null,
+        planBlueprint: input.planBlueprint ?? null,
         lengthSpec,
         writingTaskExtra,
       })
@@ -571,6 +576,12 @@ export async function generateDraft(
   notePartial: (reason: string) => void,
   clearPartial: () => void,
   watchdog?: WatchdogState,
+  /**
+   * F07: 用户确认的章节计划原文（可选，additive；由编排层从 input.planBlueprint 显式传入，
+   * 与 watchdog 同构：input 已有该字段，显式参数让数据流可读可测）。
+   * 缺省 undefined → 阶段3提示词逐字节不变。
+   */
+  planBlueprint?: string,
 ): Promise<string> {
   const writingTaskExtra = resolveTaskExtraPrompt(input.novelConfig, "writing")
   let draftContent = hasCheckpointDraft(resumeCheckpoint) ? resumeCheckpoint.draftContent.trim() : ""
@@ -589,6 +600,8 @@ export async function generateDraft(
           lengthSpec,
           writingTaskExtra,
           input.novelConfig.autoGenerateChapterTitle,
+          // F07: 计划原文进入阶段3提示词（拼在稳定上下文前缀之后、写作任务书之前）。
+          planBlueprint,
         ),
       }],
       deps,

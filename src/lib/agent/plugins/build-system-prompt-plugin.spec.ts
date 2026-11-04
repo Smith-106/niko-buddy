@@ -107,6 +107,12 @@ describe("BuildSystemPromptPlugin selected skills", () => {
     expect(result.finalSystemPrompt).toContain("禁止违背")
     expect(result.finalSystemPrompt).toContain("可自由发挥")
     expect(result.finalSystemPrompt).toContain("planBlueprint")
+    // NF-02：planBlueprint 已接线，必须保留明确的「请传入」指令（含完整透传约束）。
+    expect(result.finalSystemPrompt).toContain("planBlueprint 参数传入")
+    expect(result.finalSystemPrompt).toContain("不得改写")
+    // NF-02：workflowMode / intent 本轮未接线，提示词不得承诺它们生效。
+    expect(result.finalSystemPrompt).not.toContain("workflowMode")
+    expect(result.finalSystemPrompt).not.toContain("intent")
     expect(result.finalSystemPrompt).toContain("大纲定位协议")
     expect(result.finalSystemPrompt).toContain("list_outlines")
     expect(result.finalSystemPrompt).toContain("按文件夹分流")

@@ -64,6 +64,15 @@ export function resolveRouteShellMode(
   input: DeepChapterGenerationInput,
   novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
 ): RouteShellMode {
+  // R11 / NF-04 事实说明（DEC-03：只改注释，下方 fromInput / fromConfig / raw 取值与回退逻辑一字未动）：
+  //   - `input.routeShellMode` 虽是 additive-optional 字段（deep-chapter-generation.ts:111），
+  //     但全仓零生产赋值方 —— 只有 *.spec.ts 传值，生产链路上恒为 undefined；
+  //   - `novelConfig` 的真类型 NovelConfig（src/stores/wiki-store-config.ts:296）**没有**
+  //     routeShellMode 字段，下一行的 `as { routeShellMode?: RouteShellMode }` 是绕过类型的
+  //     强转读取，运行时同样恒为 undefined（没有任何写入方）；
+  //   - 故 `raw` 生产恒为 "legacy"，route 分支在生产不可达，仅测试可激活；
+  //   - 这与 writingModel 无关：该字段与 writer/reviser 映射仍在
+  //     （见 src/lib/llm/model-resolver.ts 中 ROLE_TO_CONFIG_FIELD 的注释）。
   const fromInput = input.routeShellMode
   const fromConfig = novelConfig
     ? (novelConfig as { routeShellMode?: RouteShellMode }).routeShellMode

@@ -275,15 +275,8 @@ describe("createRunChapterWorkflowTool", () => {
     expect(onRequestTrace).toHaveBeenCalledWith(trace)
   })
 
-  it.skip("forwards the confirmed plan blueprint into deep chapter generation", async () => {
-    const runDeepChapterGeneration = vi.fn(async (_input, callbacks) => {
-      callbacks.onWorkflowEvent?.({
-        type: "started",
- id: "deep_chapter:chapter_context",
-        name: "chapter_context",
-        title: "读取上下文",
-        timestamp: 100,
-      })
+  it("forwards the confirmed plan blueprint into deep chapter generation", async () => {
+    const runDeepChapterGeneration = vi.fn(async () => {
       return {
         finalContent: "最终正文",
         taskBrief: "任务书",
@@ -320,15 +313,16 @@ describe("createRunChapterWorkflowTool", () => {
         projectPath: "E:/Novel",
         userRequest: "生成第3章",
         chapterNumber: 3,
-        aiWorkflowMode: "standard",
         planBlueprint: blueprint,
       }),
       expect.any(Object),
       undefined,
       undefined,
+      // RV-002 ①：第 5 参是共识轨迹回调（单模型 runner 忽略，但调用形状固定）。
+      expect.any(Function),
     )
   })
-  it.skip("falls back to getPlanBlueprint when AI omits planBlueprint from tool call params", async () => {
+  it("falls back to getPlanBlueprint when AI omits planBlueprint from tool call params", async () => {
     const runDeepChapterGeneration = vi.fn(async () => ({
       finalContent: "最终正文",
       taskBrief: "任务书",
@@ -366,10 +360,12 @@ describe("createRunChapterWorkflowTool", () => {
       expect.any(Object),
       undefined,
       undefined,
+      // RV-002 ①：第 5 参是共识轨迹回调（单模型 runner 忽略，但调用形状固定）。
+      expect.any(Function),
     )
   })
 
-  it.skip("prefers AI-provided planBlueprint over the getter fallback", async () => {
+  it("prefers AI-provided planBlueprint over the getter fallback", async () => {
     const runDeepChapterGeneration = vi.fn(async () => ({
       finalContent: "最终正文",
       taskBrief: "任务书",
@@ -406,6 +402,8 @@ describe("createRunChapterWorkflowTool", () => {
       expect.any(Object),
       undefined,
       undefined,
+      // RV-002 ①：第 5 参是共识轨迹回调（单模型 runner 忽略，但调用形状固定）。
+      expect.any(Function),
     )
   })
 
