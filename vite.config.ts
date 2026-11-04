@@ -202,7 +202,13 @@ export default defineConfig(async () => ({
         // → 分层阈值：全局基线 + 核心写作主链高保护
         // 注：vitest 支持对象 key 为 glob；此处保留全局四维基线，
         //     核心模块高保护在政策文档中以定向测量命令执行
-        statements: 80,
+        //
+        // 2026-11-05 覆盖率战役（Session 20261105-ralph-coverage-100）：statements 80 → 100（用户裁决）。
+        // 已知后果：在 statements 真正达到 100%（含尾段不可达分支全部入 unreachable-branch-ledger）之前，
+        //   `npm run test:coverage` 会因 statements < 100 而退出非零 —— 这是预期，不是失败。
+        //   战役期间该命令不作 PR 门禁，进度以报告的四维百分比为准。
+        //   其余三项（branches 75 / functions 80 / lines 80）维持不变，未做任何下调。
+        statements: 100,
         branches: 75,
         functions: 80,
         lines: 80,
