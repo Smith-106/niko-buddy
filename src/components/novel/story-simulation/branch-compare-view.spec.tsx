@@ -426,4 +426,34 @@ describe("BranchCompareView 关键差异", () => {
     fireEvent.click(screen.getByText(t.tabScoreCompare))
     expect(screen.getAllByText(t.dimensionTension).length).toBeGreaterThanOrEqual(2)
   })
+
+  it("卸载后迟到的拒绝被丢弃（catch 内 cancelled 护栏 line 380）", async () => {
+    // 与已有 resolve 护栏用例对称：reject 路径的 `if (cancelled) return` 需在卸载后拒绝时命中，
+    // 此时 console.error 不应被调用（提前返回），且无 React 状态更新。
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    let rejectDiff!: (e: unknown) => void
+    const gate = new Promise<unknown>((_, rej) => {
+      rejectDiff = rej
+    })
+    // 防止未处理的 rejection 导致测试失败：提前挂载 noop catch（原 promise 仍保持 pending 语义，
+    // 组件内 .catch 仍会按原逻辑执行，cancelled 分支可观测）
+    gate.catch(() => {})
+    vi.spyOn(workerMod, "useSimulationWorker").mockReturnValue({
+      calcBranchDiff: vi.fn().mockReturnValue(gate),
+    } as never)
+    const [a, b] = richBranches()
+    const { unmount } = render(
+      <BranchCompareView branches={[a, b]} compareBranchIds={["b-a", "b-b"]} onBack={vi.fn()} />,
+    )
+    fireEvent.click(screen.getByText(t.tabKeyDifferences))
+    expect(screen.getByText(t.analyzing)).toBeTruthy()
+    unmount()
+    await act(async () => {
+      rejectDiff(new Error("late worker boom"))
+      // 让组件内 .catch 微任务有机会执行（此时 cancelled=true 应提前返回）
+      await Promise.resolve()
+    })
+    expect(errSpy).not.toHaveBeenCalled()
+    expect(document.body.innerHTML).toBe("<div></div>")
+  })
 })

@@ -34,6 +34,62 @@ describe("SkillHub seed", () => {
   })
 })
 
+describe("SkillHub seed / frontmatter 防御分支", () => {
+  it("parseFrontmatter 返回 undefined 时全部文件被过滤为空（?? 回退 + !frontmatter）", async () => {
+    const { vi: v } = await import("vitest")
+    v.resetModules()
+    v.doMock("@/lib/frontmatter", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@/lib/frontmatter")>()
+      return { ...actual, parseFrontmatter: () => undefined }
+    })
+    v.doMock("./skill-route-registry", () => ({
+      validateSkillRouteRegistry: () => [],
+    }))
+    try {
+      const mod = await import("./skill-hub-seed")
+      // 防御链：?? { frontmatter: null } 右侧 → !frontmatter 真分支 → 75 个文件全被过滤
+      expect(mod.DEFAULT_SKILL_HUB_SKILLS).toEqual([])
+    } finally {
+      v.doUnmock("@/lib/frontmatter")
+      v.doUnmock("./skill-route-registry")
+      v.resetModules()
+    }
+  })
+
+  it("单个文件缺 description 时仅该文件被过滤，其余 74 条保留", async () => {
+    const { vi: v } = await import("vitest")
+    v.resetModules()
+    let calls = 0
+    v.doMock("@/lib/frontmatter", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@/lib/frontmatter")>()
+      return {
+        ...actual,
+        parseFrontmatter: (content: string) => {
+          calls += 1
+          if (calls === 1) return { frontmatter: { name: "broken-only" }, body: content, rawBlock: "" }
+          return actual.parseFrontmatter(content)
+        },
+      }
+    })
+    v.doMock("./skill-route-registry", () => ({
+      validateSkillRouteRegistry: () => [],
+    }))
+    const errSpy = v.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const mod = await import("./skill-hub-seed")
+      // !name || !description 真分支：首个文件（有 name 无 description）被过滤，其余走真实解析保留
+      expect(mod.DEFAULT_SKILL_HUB_SKILLS).toHaveLength(74)
+      expect(mod.DEFAULT_SKILL_HUB_SKILLS.some((s) => s.name === "broken-only")).toBe(false)
+      expect(errSpy).not.toHaveBeenCalled()
+    } finally {
+      errSpy.mockRestore()
+      v.doUnmock("@/lib/frontmatter")
+      v.doUnmock("./skill-route-registry")
+      v.resetModules()
+    }
+  })
+})
+
 describe("SkillHub seed / 注册表缺口告警", () => {
   it("logs a desensitized error when the route registry lists unknown SkillHub names", async () => {
     const { vi: v } = await import("vitest")

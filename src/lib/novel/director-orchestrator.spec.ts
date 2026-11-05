@@ -301,3 +301,46 @@ describe("director-orchestrator · 项目快照采集与异步推进（MIG-001 �
     expect(out.gap).toContain("世界蓝图校验")
   })
 })
+
+describe("director-orchestrator 收尾补齐（战役收尾轮）", () => {
+  const IDEA2 = { title: "雾都侦探", genre: "悬疑", coreConflict: "连环失踪案与旧案关联" }
+
+  it("phaseGapHint idea 三要素齐全仍在 idea 阶段 → 通用缺口文案", () => {
+    // 三个 trim 均非空时落到 line 176 通用分支（前三个 if 全 false）
+    expect(phaseGapHint("idea", FULL_SNAPSHOT)).toBe("开书立意信息不完整")
+  })
+
+  it("phaseGapHint outline 已选型未规划分卷 → 分卷缺口文案", () => {
+    // frameworkChosen=true 跳过 line 183 真分支，落到 line 184
+    expect(phaseGapHint("outline", FULL_SNAPSHOT)).toBe("分卷尚未规划")
+  })
+
+  it("loadDirectorState 磁盘存在合法 JSON → 直接复原（覆盖 line 200 成功分支）", async () => {
+    const fsMod = await import("@/commands/fs")
+    const mockRead = vi.mocked(fsMod.readFile)
+    const state = createDirectorPipeline()
+    const payload = JSON.stringify({ ...state, currentPhase: "world" })
+    mockRead.mockResolvedValueOnce(payload)
+    const loaded = await loadDirectorState("/proj")
+    expect(loaded.currentPhase).toBe("world")
+    // 可观测行为：复原的状态可继续推进（非全新管线）
+    expect(loaded.statuses).toBeDefined()
+  })
+
+  it("tryAdvanceDirectorFromProject 未传 blueprint 且磁盘加载失败 → catch 回退 null 继续推进", async () => {
+    // line 158 箭头 `() => null`：外层 loadWorldBlueprint reject 时经 catch 回退。
+    // 注意 tryAdvance 内部先调 collectProjectSnapshot（line 54 亦调 load），两次调用均需拒绝
+    // 才能命中外层 catch，故此处用 mockRejectedValue（非 Once）覆盖两次。
+    mockLoadWorldBlueprint.mockRejectedValue(new Error("ENOENT"))
+    mockListEntityFiles.mockResolvedValue([])
+    mockListDirectory.mockResolvedValue([])
+    mockListSnapshots.mockResolvedValue([])
+    const state = createDirectorPipeline()
+    const out = await tryAdvanceDirectorFromProject("/proj", state, IDEA2)
+    // 磁盘蓝图缺失 → snapshot.worldComplete=false，但 idea 阶段仍应推进（blueprint=null 不挡 idea）
+    expect(mockLoadWorldBlueprint).toHaveBeenCalledWith("/proj")
+    expect(out.state.currentPhase).toBe("world")
+    expect(out.advanced).toBe(true)
+    mockLoadWorldBlueprint.mockResolvedValue(null)
+  })
+})
