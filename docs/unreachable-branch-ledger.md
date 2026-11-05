@@ -40,6 +40,9 @@
 ### lib/agent/tools/write-outline-node.ts
 - **L63 `return String(value)`**（jsonObjectToMarkdown 尾部兜底）：函数按 `null/undefined`、`string`、`number/boolean`、`Array`、`object` 依次早退，剩下能落到该行的只有 `function` 与 `symbol`。而本函数的唯一入口是 `convertJsonToMarkdown` 里的 `JSON.parse`（write-outline-node.ts:14），JSON 值域不含 function/symbol → 从本模块入口不可达。防御性代码。
 
+### lib/agent/tool-call-parser.ts
+- **L168 `: ""` 分支**（parseTextToolCalls 的 residualText 三元式）：`candidate` 只可能来自 `extractJsonCandidates` 的三个来源——① `text.trim()`（本身就是 text 的子串）、② `text.slice(firstObj, lastObj + 1)`（显然是子串）、③ 代码块围栏内的捕获组 `.trim()`（trim 只削首尾空白，结果仍是 text 的子串）。三者都满足 `text.includes(candidate) === true`，故 else 分支不可达。防御性代码。
+
 ## components
 
 ### components/settings/sections/about-section.tsx
