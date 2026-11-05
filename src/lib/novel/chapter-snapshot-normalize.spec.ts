@@ -7,6 +7,7 @@ import {
   inferSnapshotSourceType,
   normalizeChapterSnapshot,
   normalizeEntityFlags,
+  normalizeModalityFacts,
   normalizePositiveInteger,
   normalizeSnapshotAliasRecord,
   normalizeSnapshotDetailRecord,
@@ -263,5 +264,43 @@ describe("identity helpers", () => {
     expect(preserved.revision).toBe(2)
     expect(preserved.supersedes).toBe("s")
     expect(preserved.isHistorical).toBe(true)
+  })
+})
+
+describe("W1 补强：normalizeModalityFacts 模态三元组清洗", () => {
+  it("非数组/空数组返回 undefined", () => {
+    expect(normalizeModalityFacts(undefined)).toBeUndefined()
+    expect(normalizeModalityFacts(null)).toBeUndefined()
+    expect(normalizeModalityFacts([])).toBeUndefined()
+    expect(normalizeModalityFacts("belief")).toBeUndefined()
+  })
+
+  it("清洗三元组：空 subject/object 丢弃，predicate 缺省回退“认为”", () => {
+    expect(
+      normalizeModalityFacts([
+        { subject: "林烬", predicate: "相信", object: "明早出发" },
+        { subject: "", predicate: "怀疑", object: "x" },
+        { subject: "苏遥", predicate: "", object: "无异常" },
+        { subject: "旁白", object: "" },
+        null,
+        "str",
+        42,
+        ["not", "object"],
+      ]),
+    ).toEqual([
+      { subject: "林烬", predicate: "相信", object: "明早出发" },
+      { subject: "苏遥", predicate: "认为", object: "无异常" },
+    ])
+  })
+
+  it("全部被丢弃时返回 undefined", () => {
+    expect(normalizeModalityFacts([{ subject: "", object: "" }])).toBeUndefined()
+    expect(normalizeModalityFacts([null])).toBeUndefined()
+  })
+
+  it("数字/布尔 subject 与 object 被字符串化后保留", () => {
+    expect(normalizeModalityFacts([{ subject: 42, predicate: "记得", object: true }])).toEqual([
+      { subject: "42", predicate: "记得", object: "true" },
+    ])
   })
 })

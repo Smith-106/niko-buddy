@@ -184,3 +184,44 @@ describe("outline-model-parse 覆盖增补：编号夹取与置信度极端", ()
     expect(res.model.volumes[0]!.chapters.length).toBe(26)
   })
 })
+
+describe("outline-model-parse 覆盖增补：collectListItems 空行跳过", () => {
+  it("小节内空行被跳过、两侧条目合并（collectListItems !trimmed 分支）", () => {
+    const res = parseOutlineMarkdownToModel(
+      ["# 第1卷", "## 第1章 开篇", "### 场景", "- 山洞", "", "- 河边", ""].join("\n"),
+      { updatedAt: UPDATED_AT },
+    )
+    expect(res.model.volumes[0]!.chapters[0]!.prose.scenes).toEqual(["山洞", "河边"])
+  })
+
+  it("实体小节内空行同样被跳过", () => {
+    const res = parseOutlineMarkdownToModel(
+      ["# 第1卷", "## 第1章 开篇", "### 登场角色", "- 苏七", "", "  ", "- 林晚", ""].join("\n"),
+      { updatedAt: UPDATED_AT },
+    )
+    expect(res.model.volumes[0]!.chapters[0]!.entities).toEqual(["苏七", "林晚"])
+  })
+})
+
+describe("outline-model-parse 行为锁定：YAML 映射形态 outline_model 同样走 heading", () => {
+  // 背景：normalize(stringifyScalar) 把 YAML 映射压成 JSON 字符串，
+  // 故即便手写映射形态，运行时仍是 string，frontmatter 对象分支不可达。
+  // 该用例把「映射形态不得干扰 heading 解析」钉死。
+  it("YAML 映射 outline_model 被压平忽略，走 heading 流程", () => {
+    const content = [
+      "---",
+      "outline_model:",
+      "  volumes: []",
+      "---",
+      "# 第1卷",
+      "## 第1章 开篇",
+      "### 本章目标",
+      "做X",
+      "",
+    ].join("\n")
+    const res = parseOutlineMarkdownToModel(content, { updatedAt: UPDATED_AT })
+    expect(res.source).toBe("heading")
+    expect(res.model.volumes).toHaveLength(1)
+    expect(res.model.volumes[0]!.chapters[0]!.prose.goal).toBe("做X")
+  })
+})

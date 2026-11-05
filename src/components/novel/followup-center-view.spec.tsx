@@ -270,3 +270,68 @@ describe("FollowupCenterView（跟进中心）", () => {
     expect(screen.getByTestId("followup-blocking-item-consistency")).toBeTruthy()
   })
 })
+
+describe("FollowupCenterView 覆盖补齐：quality 门/装载分支/回到正文兜底/忽略", () => {
+  it("quality 门失败 → 质量门中文 + 阻塞横幅（通过门不进队列）", () => {
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      gateRun(0, "consistency", "pass"),
+      gateRun(1, "anti_ai", "pass"),
+      gateRun(2, "quality", "fail"),
+    ])
+    render(<FollowupCenterView projectPath="test-proj" ledger={ledger} />)
+    expect(screen.getByTestId("followup-blocking-item-quality").textContent).toContain("质量门")
+    expect(screen.getByTestId("followup-blocking-item-quality").textContent).toContain("P2")
+    expect(screen.getByTestId("followup-blocked-banner").textContent).toContain("质量")
+    expect(screen.queryByTestId("followup-blocking-item-consistency")).toBeNull()
+  })
+
+  it("显式 ledger=null → 跳过磁盘装载（诚实未评估，仅本地返修）", () => {
+    render(<FollowupCenterView projectPath="test-proj" ledger={null} />)
+    expect(screen.queryByTestId("followup-loading")).toBeNull()
+    expect(screen.getByTestId("followup-empty")).toBeTruthy()
+    expect(screen.queryByTestId("followup-ledger-failed")).toBeNull()
+    expect(screen.queryByTestId("followup-blocking")).toBeNull()
+  })
+
+  it("账本装载抛错 → 门状态未知横幅，仅展示本地返修", async () => {
+    const deps: RunEventLedgerStoreDeps = {
+      readText: async () => { throw new Error("disk gone") },
+      appendText: async () => {},
+    }
+    useReviewStore.setState({ items: [makeItem("item-x", "本地返修", false)], novelReviewEntries: [] })
+    render(<FollowupCenterView projectPath="C:/proj/p-9" deps={deps} />)
+    expect(await screen.findByTestId("followup-ledger-failed")).toBeTruthy()
+    // 本地返修仍在（不因账本失败消失）
+    expect(screen.getByTestId("followup-item-item-x")).toBeTruthy()
+    expect(screen.queryByTestId("followup-blocking")).toBeNull()
+  })
+
+  it("无项目时回到正文 → 没有项目提示（不调装载）", async () => {
+    useReviewStore.setState({ novelReviewEntries: [makeEntry("entry-noproj", 3, false)] })
+    render(<FollowupCenterView projectPath="" ledger={createRunEventLedger()} />)
+    fireEvent.click(screen.getByTestId("followup-entry-open-entry-noproj"))
+    await waitFor(() => {
+      expect(screen.getByTestId("followup-open-note").textContent).toContain("没有项目，不能回到正文。")
+    })
+    expect(findChapterFileByNumber).not.toHaveBeenCalled()
+  })
+
+  it("章节文件读失败 → 章节打不开提示", async () => {
+    vi.mocked(findChapterFileByNumber).mockResolvedValue("C:/book/第3章.md")
+    vi.mocked(readFile).mockRejectedValue(new Error("read gone"))
+    useReviewStore.setState({ novelReviewEntries: [makeEntry("entry-badread", 3, false)] })
+    render(<FollowupCenterView projectPath="C:/book" ledger={createRunEventLedger()} />)
+    fireEvent.click(screen.getByTestId("followup-entry-open-entry-badread"))
+    await waitFor(() => {
+      expect(screen.getByTestId("followup-open-note").textContent).toContain("章节打不开，没有跳到句子。")
+    })
+  })
+
+  it("待处理忽略 → 该条从 store 移除", () => {
+    useReviewStore.setState({ items: [makeItem("item-todo", "待办", false)], novelReviewEntries: [] })
+    render(<FollowupCenterView projectPath="test-proj" ledger={createRunEventLedger()} />)
+    fireEvent.click(screen.getByTestId("followup-dismiss-item-todo"))
+    expect(useReviewStore.getState().items.some((i) => i.id === "item-todo")).toBe(false)
+    expect(screen.queryByTestId("followup-item-item-todo")).toBeNull()
+  })
+})

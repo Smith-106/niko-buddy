@@ -809,3 +809,229 @@ describe("与 T23 combinePacks 兼容", () => {
     expect(result.shortCircuited).toBe(false)
   })
 })
+
+// ============================================================================
+// W1 覆盖率补强：剩余规则分支（延宕比两极/低置信推进/未知钩子/泛化形容词/
+// 桥接口径提示/结局戒二/张力塌陷/悬空钩子/空 beat/八素质超限越界全零无效）
+// ============================================================================
+
+function w1Hit(beatType: string, positionRatio: number, closureState: "open" | "closed"): QuantifiedHit {
+  return { beatType, rawIntensity: 0.5, weightedIntensity: 0.5, positionRatio, closureState, arcId: null }
+}
+
+type W1Finding = { severity: string; message: string }
+
+function w1Run(pack: ReturnType<typeof createLiteraryCraftPack>, id: string): W1Finding[] {
+  const rule = pack.rules.find((r) => r.id === id)!
+  return (rule.run as (ctx: unknown) => readonly W1Finding[])({ isFinale: false }) as W1Finding[]
+}
+
+describe("W1 补强：literary-craft-pack 剩余分支", () => {
+  it("craft.delay-ratio 延宕比过高 → warning", () => {
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      thrillQuantifierResult: {
+        hits: [
+          w1Hit("catalyst", 0.05, "open"),
+          w1Hit("debate", 0.12, "open"),
+          w1Hit("break_into_two", 0.2, "open"),
+          w1Hit("b_story", 0.28, "open"),
+          w1Hit("midpoint", 0.35, "open"),
+          w1Hit("bad_guys_close_in", 0.42, "open"),
+          w1Hit("all_is_lost", 0.49, "open"),
+          w1Hit("finale", 0.8, "closed"),
+          w1Hit("final_image", 0.9, "closed"),
+        ],
+        tensionCurve: makeDefaultTensionCurve(),
+      },
+    })
+    const findings = w1Run(pack, "craft.delay-ratio")
+    expect(findings.some((f) => f.severity === "warning" && f.message.includes("延宕比过高"))).toBe(true)
+  })
+
+  it("craft.delay-ratio 延宕比过低 → info（压抑不足提示）", () => {
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      thrillQuantifierResult: {
+        hits: [
+          w1Hit("catalyst", 0.1, "open"),
+          w1Hit("midpoint", 0.5, "open"),
+          w1Hit("debate", 0.2, "closed"),
+          w1Hit("break_into_two", 0.3, "closed"),
+          w1Hit("fun_and_games", 0.4, "closed"),
+          w1Hit("finale", 0.8, "closed"),
+          w1Hit("final_image", 0.9, "closed"),
+        ],
+        tensionCurve: makeDefaultTensionCurve(),
+      },
+    })
+    const findings = w1Run(pack, "craft.delay-ratio")
+    expect(findings.some((f) => f.severity === "info" && f.message.includes("延宕比过低"))).toBe(true)
+  })
+
+  it("craft.arc-progression 低置信度推进 → info", () => {
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      arcProgressionResult: {
+        previousStage: "ghost_exposed",
+        currentStage: "commitment",
+        progressed: true,
+        confidence: 0.3,
+        reason: "证据不足",
+      },
+    })
+    const findings = w1Run(pack, "craft.arc-progression")
+    expect(findings.some((f) => f.severity === "info" && f.message.includes("置信度低"))).toBe(true)
+  })
+
+  it("craft.chapter-end-hook 未知钩子类型 → info（确认新注册类型）", () => {
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      episodeCraftFields: { ...makeDefaultTestInput().episodeCraftFields!, hook_type: "my_custom_hook" },
+    })
+    const findings = w1Run(pack, "craft.chapter-end-hook")
+    expect(findings.some((f) => f.severity === "info" && f.message.includes("不在维兰德十一型注册表中"))).toBe(true)
+  })
+
+  it("craft.significant-detail 泛化形容词 → warning", () => {
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      entityCraftFields: { ...makeDefaultTestInput().entityCraftFields!, significant_details: ["漂亮的脸蛋"] },
+    })
+    const findings = w1Run(pack, "craft.significant-detail")
+    expect(findings.some((f) => f.severity === "warning" && f.message.includes("泛化形容词"))).toBe(true)
+  })
+
+  it("craft.bridge-caliber 长篇铺垫加 edgerton → info（节奏提示）", () => {
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      episodeCraftFields: {
+        ...makeDefaultTestInput().episodeCraftFields!,
+        conflict_caliber: "edgerton",
+        narrative_mode: "longform_padding",
+      },
+    })
+    const findings = w1Run(pack, "craft.bridge-caliber")
+    expect(findings.some((f) => f.severity === "info" && f.message.includes("长篇铺垫"))).toBe(true)
+  })
+
+  it("craft.ending-three-precepts 八素质全低 → 戒二 warning", () => {
+    const low = {
+      willpower: 0.1, versatility: 0.1, underdog_position: 0.1, empathy_core: 0.1,
+      duplicity: 0.1, foreground_depth: 0.1, change_capacity: 0.1, epiphany_insight: 0.1,
+    }
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      entityCraftFields: { ...makeDefaultTestInput().entityCraftFields!, arc_stage: "commitment", arc_fundamentals: low },
+    })
+    const findings = w1Run(pack, "craft.ending-three-precepts")
+    expect(findings.some((f) => f.severity === "warning" && f.message.includes("戒二"))).toBe(true)
+  })
+
+  it("craft.tension-relax-alternation 连续下降超 6 点 → info（塌陷提示）", () => {
+    const samples: TensionSample[] = []
+    for (let i = 0; i < 10; i++) {
+      samples.push({ positionRatio: i / 10, raw: 0.1, smoothed: 0.9 - i * 0.08 })
+    }
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      thrillQuantifierResult: { hits: makeDefaultHits(), tensionCurve: samples },
+    })
+    const findings = w1Run(pack, "craft.tension-relax-alternation")
+    expect(findings.some((f) => f.severity === "info" && f.message.includes("张力连续下降"))).toBe(true)
+  })
+
+  it("craft.domino-closure-dangling-hooks 悬空超 3 章 → warning", () => {
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      edgeCraftFields: { ...makeDefaultTestInput().edgeCraftFields!, foreshadow_planted_at: 1, payoff_chapter: undefined },
+      chapterNumber: 6,
+    })
+    const findings = w1Run(pack, "craft.domino-closure-dangling-hooks")
+    expect(findings.some((f) => f.severity === "warning" && f.message.includes("悬空钩子"))).toBe(true)
+  })
+
+  it("craft.domino-closure-dangling-hooks 本章无 beat 记录 → info（连贯性提示）", () => {
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      episodeCraftFields: { ...makeDefaultTestInput().episodeCraftFields!, beat_hits: [] },
+      chapterNumber: 5,
+    })
+    const findings = w1Run(pack, "craft.domino-closure-dangling-hooks")
+    expect(findings.some((f) => f.severity === "info" && f.message.includes("多米诺连贯性"))).toBe(true)
+  })
+
+  it("craft.eight-fundamentals 槽位超限 → info", () => {
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      entityCraftFields: {
+        ...makeDefaultTestInput().entityCraftFields!,
+        arc_fundamentals: { ...makeDefaultTestInput().entityCraftFields!.arc_fundamentals!, extra_slot: 0.5 },
+      },
+    })
+    const findings = w1Run(pack, "craft.eight-fundamentals")
+    expect(findings.some((f) => f.severity === "info" && f.message.includes("超限"))).toBe(true)
+  })
+
+  it("craft.eight-fundamentals 值域越界 → warning", () => {
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      entityCraftFields: {
+        ...makeDefaultTestInput().entityCraftFields!,
+        arc_fundamentals: { ...makeDefaultTestInput().entityCraftFields!.arc_fundamentals!, willpower: 1.5 },
+      },
+    })
+    const findings = w1Run(pack, "craft.eight-fundamentals")
+    expect(findings.some((f) => f.severity === "warning" && f.message.includes("值域越界"))).toBe(true)
+  })
+
+  it("craft.eight-fundamentals 全零 → info（未评估提示）", () => {
+    const zero = {
+      willpower: 0, versatility: 0, underdog_position: 0, empathy_core: 0,
+      duplicity: 0, foreground_depth: 0, change_capacity: 0, epiphany_insight: 0,
+    }
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      entityCraftFields: { ...makeDefaultTestInput().entityCraftFields!, arc_fundamentals: zero },
+    })
+    const findings = w1Run(pack, "craft.eight-fundamentals")
+    expect(findings.some((f) => f.severity === "info" && f.message.includes("全部为 0"))).toBe(true)
+  })
+
+  it("craft.eight-fundamentals 无效条目 → warning", () => {
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      entityCraftFields: {
+        ...makeDefaultTestInput().entityCraftFields!,
+        arc_fundamentals: { ...makeDefaultTestInput().entityCraftFields!.arc_fundamentals!, willpower: Number.NaN },
+      },
+    })
+    const findings = w1Run(pack, "craft.eight-fundamentals")
+    expect(findings.some((f) => f.severity === "warning" && f.message.includes("无效条目"))).toBe(true)
+  })
+})
+
+
+describe("W1 补强二：literary-craft-pack 剩余两分支", () => {
+  it("craft.significant-detail 细节过多（多于 2 个）→ info", () => {
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      entityCraftFields: {
+        ...makeDefaultTestInput().entityCraftFields!,
+        significant_details: ["袖口磨白的旧怀表", "左手虎口的刀疤", "右眉一道浅疤"],
+      },
+    })
+    const findings = w1Run(pack, "craft.significant-detail")
+    expect(findings.some((f) => f.severity === "info" && f.message.includes("显著细节过多"))).toBe(true)
+  })
+
+  it("craft.domino 伏笔 3 章内待回收 → info", () => {
+    const pack = createLiteraryCraftPack({
+      ...makeDefaultTestInput(),
+      edgeCraftFields: { ...makeDefaultTestInput().edgeCraftFields!, foreshadow_planted_at: 5, payoff_chapter: undefined },
+      chapterNumber: 6,
+    })
+    const findings = w1Run(pack, "craft.domino-closure-dangling-hooks")
+    expect(findings.some((f) => f.severity === "info" && f.message.includes("伏笔待回收"))).toBe(true)
+  })
+})

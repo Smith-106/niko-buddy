@@ -5,7 +5,9 @@ import {
   getRecentProjects,
   loadAiChatModel,
   loadActivePresetId,
+  loadAiWorkflowMode,
   loadDefaultLlmModel,
+  loadMcpConfig,
   loadEmbeddingConfig,
   loadLanguage,
   loadLlmConfig,
@@ -26,7 +28,9 @@ import {
   removeFromRecentProjects,
   saveAiChatModel,
   saveActivePresetId,
+  saveAiWorkflowMode,
   saveDefaultLlmModel,
+  saveMcpConfig,
   saveEmbeddingConfig,
   saveLanguage,
   saveLastProject,
@@ -990,5 +994,46 @@ describe("DEBT-residual-04：另两个写侧分支也必须按项目留痕（RV2
     expect(getDiscardedWritingConfig("C:/fallback-proj")?.value).toBe("global-fallback-model")
     expect(getDiscardedWritingConfig(undefined)).toBeNull()
     warn.mockRestore()
+  })
+})
+
+describe("saveAiWorkflowMode / loadAiWorkflowMode（应用级单键偏好）", () => {
+  beforeEach(() => {
+    mocks.clearStore()
+  })
+
+  it("未设置时读出 null（归一化留给 resolveAiWorkflowMode）", async () => {
+    await expect(loadAiWorkflowMode()).resolves.toBeNull()
+  })
+
+  it("保存后原值读回", async () => {
+    await saveAiWorkflowMode("strict")
+    await expect(loadAiWorkflowMode()).resolves.toBe("strict")
+    await saveAiWorkflowMode("fast")
+    await expect(loadAiWorkflowMode()).resolves.toBe("fast")
+  })
+})
+
+describe("saveMcpConfig / loadMcpConfig（归一化落盘）", () => {
+  beforeEach(() => {
+    mocks.clearStore()
+  })
+
+  it("未设置时读出 null", async () => {
+    await expect(loadMcpConfig()).resolves.toBeNull()
+  })
+
+  it("非法输入归一为默认空配置后读回", async () => {
+    await saveMcpConfig({ servers: [{ id: "g", name: "图谱" }] } as never)
+    const loaded = await loadMcpConfig()
+    expect(loaded?.servers).toHaveLength(1)
+    expect(loaded?.servers[0].id).toBe("g")
+    expect(loaded?.servers[0].enabled).toBe(true)
+  })
+
+  it("缺 id/name 的 server 条目被过滤", async () => {
+    await saveMcpConfig({ servers: [{ id: "", name: "" }, { id: "ok", name: "可用" }] } as never)
+    const loaded = await loadMcpConfig()
+    expect(loaded?.servers.map((s) => s.id)).toEqual(["ok"])
   })
 })

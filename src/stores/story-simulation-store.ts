@@ -571,7 +571,7 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
     }),
 }));
 
-function calculateBranchScore(
+export function calculateBranchScore(
   directorEvaluations: DirectorEvaluation[],
   eventCount: number,
   activeAgentCount: number,

@@ -2,7 +2,24 @@ import { describe, expect, it, vi } from "vitest"
 import { createBuildContextPackPlugin } from "./build-context-pack-plugin"
 import { createSoulDialogPlugin } from "./soul-dialog-plugin"
 import { createPrePluginChain } from "../pipeline"
+import type { PrePluginInput } from "../pipeline"
+import type { AgentConfig } from "../types"
 import type { ContextPack } from "@/lib/novel"
+
+/** 真实 AgentConfig 最小可用形态（供 PrePluginInput.agentConfig 使用，避免类型绕过）。 */
+const mockAgentConfig: AgentConfig = {
+  maxRounds: 4,
+  tools: [],
+  systemPrompt: "测试 Agent",
+  llmConfig: {
+    provider: "openai",
+    apiKey: "",
+    model: "test-model",
+    ollamaUrl: "",
+    customEndpoint: "",
+    maxContextSize: 128000,
+  },
+}
 
 const mockContextPack: ContextPack = {
   task: "写第5章",
@@ -35,7 +52,7 @@ describe("BuildContextPackPlugin", () => {
     const result = await plugin.run({
       userMessage: "写第5章",
       projectPath: "/test-project",
-      agentConfig: {} as any,
+      agentConfig: mockAgentConfig,
       novelMode: true,
       taskRoute: { intent: "write_chapter", confidence: 0.9, chapterNumber: 5, extractedParams: {} },
     })
@@ -52,7 +69,7 @@ describe("BuildContextPackPlugin", () => {
     await plugin.run({
       userMessage: "写章节",
       projectPath: "/test-project",
-      agentConfig: {} as any,
+      agentConfig: mockAgentConfig,
       novelMode: true,
       taskRoute: { intent: "write_chapter", confidence: 0.9, extractedParams: {} },
       effectiveTaskRoute: { intent: "write_chapter", confidence: 0.9, chapterNumber: 7, extractedParams: { chapterNumber: "7" } },
@@ -68,7 +85,7 @@ describe("BuildContextPackPlugin", () => {
     const result = await plugin.run({
       userMessage: "写第5章",
       projectPath: "/test-project",
-      agentConfig: {} as any,
+      agentConfig: mockAgentConfig,
       novelMode: false,
     })
 
@@ -83,7 +100,7 @@ describe("BuildContextPackPlugin", () => {
     const result = await plugin.run({
       userMessage: "随便聊聊",
       projectPath: "/test-project",
-      agentConfig: {} as any,
+      agentConfig: mockAgentConfig,
       novelMode: true,
       taskRoute: null,
     })
@@ -100,7 +117,7 @@ describe("BuildContextPackPlugin", () => {
     const result = await plugin.run({
       userMessage: "写第5章",
       projectPath: "/test-project",
-      agentConfig: {} as any,
+      agentConfig: mockAgentConfig,
       novelMode: true,
       taskRoute: { intent: "write_chapter", confidence: 0.9, chapterNumber: 5, extractedParams: {} },
     })
@@ -139,7 +156,7 @@ describe("BuildContextPackPlugin", () => {
     const result = await plugin.run({
       userMessage: "生成大纲",
       projectPath: "/test-project",
-      agentConfig: {} as any,
+      agentConfig: mockAgentConfig,
       novelMode: true,
       taskRoute: { intent: "generate_outline", confidence: 0.9, extractedParams: {} },
     })
@@ -160,7 +177,7 @@ describe("SoulDialogPlugin", () => {
     const result = await plugin.run({
       userMessage: "写第5章",
       projectPath: "/test-project",
-      agentConfig: {} as any,
+      agentConfig: mockAgentConfig,
       novelMode: true,
       contextPack: { ...mockContextPack, characterAuras: "角色光环内容" },
     })
@@ -175,7 +192,7 @@ describe("SoulDialogPlugin", () => {
     const result = await plugin.run({
       userMessage: "写第5章",
       projectPath: "/test-project",
-      agentConfig: {} as any,
+      agentConfig: mockAgentConfig,
       novelMode: true,
       contextPack: { ...mockContextPack, characterAuras: "" },
     })
@@ -189,7 +206,7 @@ describe("SoulDialogPlugin", () => {
     const result = await plugin.run({
       userMessage: "写第5章",
       projectPath: "/test-project",
-      agentConfig: {} as any,
+      agentConfig: mockAgentConfig,
       novelMode: false,
       contextPack: { ...mockContextPack, characterAuras: "角色光环内容" },
     })
@@ -203,7 +220,7 @@ describe("SoulDialogPlugin", () => {
     const result = await plugin.run({
       userMessage: "写第5章",
       projectPath: "/test-project",
-      agentConfig: {} as any,
+      agentConfig: mockAgentConfig,
       novelMode: true,
     })
 
@@ -217,7 +234,7 @@ describe("SoulDialogPlugin", () => {
     const result = await plugin.run({
       userMessage: "写第5章",
       projectPath: "/test-project",
-      agentConfig: {} as any,
+      agentConfig: mockAgentConfig,
       novelMode: true,
       contextPack: mockContextPack,
     })
@@ -243,7 +260,7 @@ describe("Task3: Plugin Chain Integration", () => {
     const result = await chain.run({
       userMessage: "写第5章",
       projectPath: "/test-project",
-      agentConfig: {} as any,
+      agentConfig: mockAgentConfig,
       novelMode: true,
       taskRoute: { intent: "write_chapter", confidence: 0.9, chapterNumber: 5, extractedParams: {} },
     })
@@ -269,7 +286,7 @@ describe("Task3: Plugin Chain Integration", () => {
     const result = await chain.run({
       userMessage: "写第5章",
       projectPath: "/test-project",
-      agentConfig: {} as any,
+      agentConfig: mockAgentConfig,
       novelMode: true,
       taskRoute: { intent: "write_chapter", confidence: 0.9, chapterNumber: 5, extractedParams: {} },
     })
@@ -277,5 +294,137 @@ describe("Task3: Plugin Chain Integration", () => {
     expect(result.contextPack).toBeDefined()
     expect(result.shouldStop).toBeUndefined()
     expect(result.errors).toHaveLength(0)
+  })
+})
+
+describe("BuildContextPackPlugin / 覆盖补齐", () => {
+  function novelInput(overrides: Partial<PrePluginInput> = {}): PrePluginInput {
+    return {
+      userMessage: "写第5章",
+      projectPath: "/test-project",
+      agentConfig: mockAgentConfig,
+      novelMode: true,
+      taskRoute: { intent: "write_chapter", confidence: 0.9, chapterNumber: 5, extractedParams: {} },
+      ...overrides,
+    }
+  }
+
+  it("emits virtual-tool start/end around a successful build", async () => {
+    const events: Array<{ event: string; data: any }> = []
+    const mockBuild = vi.fn().mockResolvedValue(mockContextPack)
+    const plugin = createBuildContextPackPlugin({
+      buildContextPack: mockBuild,
+      onVirtualTool: (event, _name, data) => {
+        events.push({ event, data })
+      },
+    })
+
+    const result = await plugin.run(novelInput({}))
+
+    expect(result.contextPack).toBeDefined()
+    expect(events).toHaveLength(2)
+    expect(events[0].event).toBe("start")
+    expect(String(events[0].data.callId)).toMatch(/^build_context_pack_/)
+    expect(events[0].data.params).toMatchObject({
+      projectPath: "/test-project",
+      userMessage: "写第5章",
+      chapterNumber: 5,
+    })
+    expect(events[1].event).toBe("end")
+    expect(events[1].data.callId).toBe(events[0].data.callId)
+    expect(events[1].data.status).toBe("done")
+    const payload = JSON.parse(events[1].data.result)
+    expect(payload.blockedSources).toEqual([])
+    expect(payload.keptSources).toEqual([])
+  })
+
+  it("falls back to default routeSource when classification config loading fails", async () => {
+    const mockBuild = vi.fn().mockResolvedValue(mockContextPack)
+    const plugin = createBuildContextPackPlugin({
+      buildContextPack: mockBuild,
+      enableClassification: true,
+      loadClassificationConfig: vi.fn().mockRejectedValue(new Error("config io boom")),
+    })
+
+    const result = await plugin.run(novelInput({ userMessage: "生成大纲" }))
+
+    expect(result.routeSource).toBe("default")
+    expect(result.classificationFallbackReason).toContain("分类路由应用失败")
+    expect(result.contextPack).toBeDefined()
+    // build still runs without category restriction
+    expect(mockBuild).toHaveBeenCalledWith("/test-project", "生成大纲", 5)
+  })
+
+  it("falls back to default routeSource when applying route rules throws", async () => {
+    const mockBuild = vi.fn().mockResolvedValue(mockContextPack)
+    const plugin = createBuildContextPackPlugin({
+      buildContextPack: mockBuild,
+      enableClassification: true,
+      loadClassificationConfig: vi.fn().mockResolvedValue({
+        config: {
+          routes: [
+            {
+              intent: "write_chapter",
+              required: ["soul"],
+              optional: ["outline"],
+              forbidden: ["chapter_content"],
+            },
+          ],
+        },
+        source: "project",
+      }),
+      applyRouteRules: vi.fn().mockImplementation(() => {
+        throw new Error("apply boom")
+      }),
+    })
+
+    const result = await plugin.run(novelInput({}))
+
+    expect(result.routeSource).toBe("default")
+    expect(result.classificationFallbackReason).toContain("分类路由应用失败")
+    expect(result.contextPack).toBeDefined()
+  })
+
+  it("reports loaded/blocked sources via onContextInfoUpdate", async () => {
+    const onContextInfoUpdate = vi.fn()
+    const mockBuild = vi.fn().mockResolvedValue(mockContextPack)
+    const plugin = createBuildContextPackPlugin({
+      buildContextPack: mockBuild,
+      onContextInfoUpdate,
+    })
+
+    await plugin.run(novelInput({}))
+
+    expect(onContextInfoUpdate).toHaveBeenCalledTimes(1)
+    expect(onContextInfoUpdate).toHaveBeenCalledWith({
+      loadedSources: [],
+      blockedSources: [],
+      routeSource: undefined,
+      fallbackReason: undefined,
+      classificationVersion: undefined,
+    })
+  })
+
+  it("emits an error end event when the build throws and a virtual tool is attached", async () => {
+    const events: Array<{ event: string; data: any }> = []
+    const onError = vi.fn()
+    const plugin = createBuildContextPackPlugin({
+      buildContextPack: vi.fn().mockRejectedValue(new Error("build exploded")),
+      onError,
+      onVirtualTool: (event, _name, data) => {
+        events.push({ event, data })
+      },
+    })
+
+    const result = await plugin.run(novelInput({}))
+
+    expect(result).toEqual({})
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(events).toHaveLength(2)
+    expect(events[0].event).toBe("start")
+    expect(events[1].event).toBe("end")
+    expect(events[1].data.callId).toBe(events[0].data.callId)
+    expect(events[1].data.status).toBe("error")
+    expect(String(events[1].data.result)).toContain("build exploded")
   })
 })

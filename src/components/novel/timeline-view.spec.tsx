@@ -4,7 +4,7 @@
  * 覆盖：无项目、加载骨架、事件列表渲染、空事件、加载失败、dataVersion 重取、陈旧请求忽略。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup, within } from "@testing-library/react"
+import { cleanup, fireEvent, within } from "@testing-library/react"
 import { render, screen, waitFor } from "@/test-helpers/component-test-utils"
 import type { TimelineEntry } from "@/lib/novel"
 
@@ -18,7 +18,11 @@ vi.mock("react-i18next", () => ({
 }))
 
 const wiki = vi.hoisted(() => ({
-  state: { project: { id: "p1", name: "Novel", path: "E:/Novel" } as { id: string; name: string; path: string } | null, dataVersion: 0 },
+  state: {
+    project: { id: "p1", name: "Novel", path: "E:/Novel" } as { id: string; name: string; path: string } | null,
+    dataVersion: 0,
+    setSelectedFile: undefined as ((file: string | null) => void) | undefined,
+  },
 }))
 
 vi.mock("@/stores/wiki-store", async (importOriginal) => {
@@ -42,6 +46,17 @@ vi.mock("@/lib/novel/timeline", async (importOriginal) => {
     
   }
 })
+
+// 覆盖补齐：handleOpenChapter 经 barrel 注入（默认 null=找不到章节；既有用例行为不变）。
+vi.mock("@/lib/novel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel")>()
+  return {
+    ...actual,
+    findChapterFileByNumber: vi.fn(async () => null),
+  }
+})
+
+import { findChapterFileByNumber } from "@/lib/novel"
 
 import { TimelineView } from "./timeline-view"
 
@@ -126,5 +141,42 @@ describe("TimelineView", () => {
     resolveFirst([{ chapterNumber: 99, event: "陈旧事件" }])
     await waitFor(() => expect(timeline.getTimelineEvents).toHaveBeenCalledTimes(2))
     expect(screen.queryByText("陈旧事件")).not.toBeInTheDocument()
+  })
+})
+
+describe("TimelineView 覆盖补齐：范围过滤/打开章节", () => {
+  it("范围输入过滤事件（起/止双向）", async () => {
+    render(<TimelineView />)
+    await screen.findByTestId("timeline-list")
+    expect(within(screen.getByTestId("timeline-list")).getByText("辰时 入城")).toBeInTheDocument()
+    fireEvent.change(screen.getByPlaceholderText("1"), { target: { value: "4" } })
+    expect(within(screen.getByTestId("timeline-list")).queryByText("辰时 入城")).toBeNull()
+    expect(within(screen.getByTestId("timeline-list")).getByText("夜宴交锋")).toBeInTheDocument()
+    fireEvent.change(screen.getByPlaceholderText("∞"), { target: { value: "3" } })
+    expect(screen.queryByTestId("timeline-list")?.textContent).not.toContain("夜宴交锋")
+  })
+
+  it("点击事件行 → 打开对应章节文件（setSelectedFile 接线）", async () => {
+    const setSelectedFile = vi.fn<(file: string | null) => void>()
+    wiki.state.setSelectedFile = setSelectedFile
+    vi.mocked(findChapterFileByNumber).mockResolvedValue("E:/Novel/wiki/chapter-3.md")
+    render(<TimelineView />)
+    const list = await screen.findByTestId("timeline-list")
+    fireEvent.click(within(list).getByText("辰时 入城"))
+    await waitFor(() => expect(findChapterFileByNumber).toHaveBeenCalledWith("E:/Novel", 3))
+    expect(setSelectedFile).toHaveBeenCalledWith("E:/Novel/wiki/chapter-3.md")
+    delete (wiki.state as Record<string, unknown>).setSelectedFile
+  })
+
+  it("时间轴刻度点击 → 同一打开通道（TimelineBoard onOpenChapter）", async () => {
+    const setSelectedFile = vi.fn<(file: string | null) => void>()
+    wiki.state.setSelectedFile = setSelectedFile
+    vi.mocked(findChapterFileByNumber).mockResolvedValue("E:/Novel/wiki/chapter-4.md")
+    render(<TimelineView />)
+    await screen.findByTestId("timeline-list")
+    fireEvent.click(screen.getByTestId("timeline-board-tick-4"))
+    await waitFor(() => expect(findChapterFileByNumber).toHaveBeenCalledWith("E:/Novel", 4))
+    expect(setSelectedFile).toHaveBeenCalledWith("E:/Novel/wiki/chapter-4.md")
+    delete (wiki.state as Record<string, unknown>).setSelectedFile
   })
 })

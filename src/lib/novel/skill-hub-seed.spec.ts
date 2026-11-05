@@ -33,3 +33,27 @@ describe("SkillHub seed", () => {
       .toBe(SKILL_ROUTE_CATEGORY_IDS.outline)
   })
 })
+
+describe("SkillHub seed / 注册表缺口告警", () => {
+  it("logs a desensitized error when the route registry lists unknown SkillHub names", async () => {
+    const { vi: v } = await import("vitest")
+    v.resetModules()
+    v.doMock("./skill-route-registry", () => ({
+      validateSkillRouteRegistry: () => ["ghost-skill", "phantom-skill"],
+    }))
+    const errSpy = v.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const mod = await import("./skill-hub-seed")
+      // seed still loads with the real 75 SkillHub files
+      expect(mod.DEFAULT_SKILL_HUB_SKILLS.length).toBe(75)
+      expect(errSpy).toHaveBeenCalledTimes(1)
+      expect(errSpy.mock.calls[0][0]).toContain("Skill 路由注册表包含不存在的 SkillHub 名称")
+      // desensitized: count + name list string, no error object leak
+      expect(errSpy.mock.calls[0][1]).toBe("2 missing: ghost-skill, phantom-skill")
+    } finally {
+      errSpy.mockRestore()
+      v.doUnmock("./skill-route-registry")
+      v.resetModules()
+    }
+  })
+})

@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll } from "vitest"
+import { describe, expect, it, beforeAll, vi } from "vitest"
 import { resolve } from "node:path"
 import { existsSync } from "node:fs"
 import {
@@ -354,5 +354,63 @@ describe("TASK-P2-19 (T19) quickAntiAiAnalysis — 便捷函数", () => {
     const report = quickAntiAiAnalysis("雨停了，地铁口还在滴水。林晚把伞甩了两下。")
     expect(report.factors).toHaveLength(5)
     expect(report.calibrationSource).toBe("synthetic-degraded")
+  })
+})
+
+describe("W1 补强：内嵌种子为空时的 FS 回退与浏览器降级", () => {
+  it("种子为空时回退 FS 扫描（resolveDefaultCorpusRoot 真实路径）", async () => {
+    vi.resetModules()
+    vi.doMock("./anti-ai-seeds.generated.json", () => ({ default: { samples: [], batchIds: [] } }))
+    try {
+      const fresh = await import("./anti-ai-candidate-pool")
+      const pool = new fresh.AntiAiCandidatePool()
+      const res = await pool.loadCorpus()
+      expect(pool.loaded).toBe(true)
+      expect(res.source).toBe("synthetic-degraded")
+      expect(res.total).toBeGreaterThanOrEqual(0)
+    } finally {
+      vi.doUnmock("./anti-ai-seeds.generated.json")
+    }
+  })
+
+  it("种子为空且 FS 根不可用时回退空语料（非致命降级）", async () => {
+    vi.resetModules()
+    vi.doMock("./anti-ai-seeds.generated.json", () => ({ default: { samples: [], batchIds: [] } }))
+    vi.doMock("./anti-ai-corpus-fs", () => ({
+      resolveDefaultCorpusRoot: () => null,
+      loadCorpusLayer: () => [],
+    }))
+    try {
+      const fresh = await import("./anti-ai-candidate-pool")
+      const res = await new fresh.AntiAiCandidatePool().loadCorpus()
+      expect(res.total).toBe(0)
+      expect(res.human).toEqual([])
+    } finally {
+      vi.doUnmock("./anti-ai-seeds.generated.json")
+      vi.doUnmock("./anti-ai-corpus-fs")
+    }
+  })
+
+  it("非 Node 环境（process 不可用）降级空语料 browser-degraded", async () => {
+    const pool = new AntiAiCandidatePool("E:/Novel")
+    vi.stubGlobal("process", undefined)
+    try {
+      const res = await pool.loadCorpus()
+      expect(res).toEqual({ total: 0, human: [], ai: [], gold: [], source: "browser-degraded" })
+      expect(pool.loaded).toBe(true)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("未知 mutation 类型走 default 分支（文本不变，不区分）", async () => {
+    const pool = new AntiAiCandidatePool()
+    await pool.loadCorpus()
+    const text = "他推开门，院子里静悄悄的，只有风吹过竹叶的声音。他停下脚步，仔细听了听，什么也没有。"
+    const r = pool.mutateTest(text, "nonexistent_type_xyz")
+    expect(r.mutationType).toBe("nonexistent_type_xyz")
+    expect(r.mutatedText).toBe(text)
+    expect(r.originalReport.warningCount).toBe(r.mutatedReport.warningCount)
+    expect(r.discriminates).toBe(false)
   })
 })

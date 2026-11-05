@@ -13,7 +13,7 @@ import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import type { SimulationReport, StoryFramework, TimelineEvent } from "@/lib/novel"
 
 const wikiState = vi.hoisted(() => ({
-  project: { id: "p1", name: "proj", path: "C:/proj" },
+  project: null as { id: string; name: string; path: string } | null,
   llmConfig: null,
   dataVersion: 1,
   setSelectedFile: vi.fn(),
@@ -336,7 +336,7 @@ function resetViewStore() {
     dynamicEventPool: [],
     frameworks: [],
   })
-  wikiState.project = { id: "p1", name: "proj", path: "C:/proj" } as any
+  wikiState.project = { id: "p1", name: "proj", path: "C:/proj" }
   Object.values(novelMocks).forEach((fn: any) => fn.mockReset())
   novelMocks.resolveDefaultModel.mockReturnValue({ model: "mock" } as any)
   novelMocks.serializeSimulationState.mockReturnValue({ agents: [], state: { currentRound: 0 } } as any)
@@ -497,7 +497,7 @@ describe("StorySimulationView handleStart/handleSave", () => {
   afterEach(() => { cleanup(); resetViewStore() })
 
   it("无项目时开始提示打开项目", async () => {
-    wikiState.project = undefined as any
+    wikiState.project = null
     useStorySimulationStore.setState({ phase: "configuring" })
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.startExtract"))
@@ -599,7 +599,7 @@ describe("StorySimulationView handleConfirmFramework", () => {
   }
 
   it("缺项目或框架直接报错", async () => {
-    wikiState.project = undefined as any
+    wikiState.project = null
     useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: makeFrameworkWithNodes() })
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.confirmFramework"))
@@ -1208,7 +1208,7 @@ describe("StorySimulationView 中断与回调全覆盖", () => {
     const fw = makeFrameworkWithNodes()
     const report = makeReport()
     useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: fw, currentReport: report, timelineEvents: [makeEvent()], currentAgents: new Map() } as any)
-    wikiState.project = undefined as any
+    wikiState.project = null
     render(<StorySimulationView />)
     fireEvent.click(screen.getAllByText("storySimulation.generateDraft")[0])
     await waitFor(() => expect(useStorySimulationStore.getState().error).toBe("storySimulation.missingDraftInputs"))
@@ -1252,7 +1252,7 @@ describe("StorySimulationView 中断与回调全覆盖", () => {
   it("保存框架早退与历史早退分支", async () => {
     // 保存早退：无项目时点保存直接返回
     const fw = makeFrameworkWithNodes()
-    wikiState.project = undefined as any
+    wikiState.project = null
     useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw } as any)
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.saveFramework"))
@@ -1321,6 +1321,46 @@ describe("StorySimulationView 收尾覆盖", () => {
     render(<StorySimulationView />)
     // 消息为空时导出/保存按钮 disabled，点击不应调用
     expect(novelMocks.exportInterview).not.toHaveBeenCalled()
+    expect(novelMocks.saveInterview).not.toHaveBeenCalled()
+  })
+
+  it("导出无项目路径时早退（926 行守卫）", async () => {
+    const msgs = [{ id: "m1", role: "user" as const, content: "hi", timestamp: new Date().toISOString() }]
+    const agent = makeMockAgent()
+    useStorySimulationStore.setState({
+      phase: "report-viewing",
+      currentFramework: makeFrameworkWithNodes(),
+      currentReport: makeReport(),
+      timelineEvents: [makeEvent()],
+      currentAgents: new Map([[agent.characterId, agent]]),
+      activeChatAgent: { id: agent.characterId, name: agent.name },
+      agentChatMessages: msgs,
+    })
+    // 有消息 → 按钮可用；但项目路径缺失 → handleExportChat 首个守卫直接返回
+    wikiState.project = null
+    render(<StorySimulationView />)
+    fireEvent.click(screen.getByTitle("storySimulation.exportChatMd"))
+    await waitFor(() => expect(useStorySimulationStore.getState().infoMessage).toBeNull())
+    expect(novelMocks.exportInterview).not.toHaveBeenCalled()
+  })
+
+  it("保存无项目路径时早退（946 行守卫）", async () => {
+    const msgs = [{ id: "m1", role: "user" as const, content: "hi", timestamp: new Date().toISOString() }]
+    const agent = makeMockAgent()
+    useStorySimulationStore.setState({
+      phase: "report-viewing",
+      currentFramework: makeFrameworkWithNodes(),
+      currentReport: makeReport(),
+      timelineEvents: [makeEvent()],
+      currentAgents: new Map([[agent.characterId, agent]]),
+      activeChatAgent: { id: agent.characterId, name: agent.name },
+      agentChatMessages: msgs,
+    })
+    // 有消息 → 按钮可用；但项目路径缺失 → handleSaveChat 首个守卫直接返回
+    wikiState.project = null
+    render(<StorySimulationView />)
+    fireEvent.click(screen.getByTitle("storySimulation.saveInterviewTip"))
+    await waitFor(() => expect(useStorySimulationStore.getState().infoMessage).toBeNull())
     expect(novelMocks.saveInterview).not.toHaveBeenCalled()
   })
 

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   assembleChapterRequest,
   buildBaseRequest,
@@ -10,6 +10,23 @@ import {
   enrichWithEventPool,
   formatEventCandidate,
 } from "./chapter-request-builder"
+import { readSoulDoc } from "./soul-doc"
+import { loadWorldBlueprint } from "./world-blueprint"
+import {
+  generateDynamicEventPool,
+  pickStagedEvent,
+} from "./story-simulation/event-pool-generator"
+
+vi.mock("./soul-doc", () => ({ readSoulDoc: vi.fn() }))
+vi.mock("./world-blueprint", () => ({ loadWorldBlueprint: vi.fn() }))
+vi.mock("./story-simulation/event-pool-generator", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./story-simulation/event-pool-generator")>()
+  return {
+    ...actual,
+    generateDynamicEventPool: vi.fn(),
+    pickStagedEvent: vi.fn(),
+  }
+})
 
 describe("chapter-request-builder (S2 章节请求构建器)", () => {
   it("buildBaseRequest 返回标准基础指令", () => {
@@ -156,5 +173,78 @@ describe("chapter-request-builder (S2 章节请求构建器)", () => {
     ).toBe(
       "请撰写第 1 章正文。\n\n【出场人物约束】本章允许出场：沈知遥；其余人物不得擅自登场。\n\n【视点约束】本章视点人物：沈知遥。\n\n【人物访谈锚点】\n· 我亲眼看见灯灭了\n\n【节拍提示】本章处于「起」段：开端铺垫",
     )
+  })
+})
+
+
+describe("W1 补强：enrichWithEventPool 事件池注入路径", () => {
+  const base = {
+    request: "请撰写第 1 章正文。",
+    projectPath: "E:/Novel",
+    llmConfig: {
+      provider: "openai",
+      apiKey: "k",
+      model: "m",
+      ollamaUrl: "",
+      customEndpoint: "",
+      maxContextSize: 1000,
+    },
+    characters: ["沈知遥"],
+    chapterNumber: 3,
+    totalChapters: 10,
+  } as Parameters<typeof enrichWithEventPool>[0]
+
+  const poolOf = (events: { id: string; text: string }[]) => ({
+    byStage: {
+      setup: events.map((e) => ({ ...e, stage: "setup" as const })),
+      rising: [],
+      climax: [],
+      resolution: [],
+    },
+    all: events.map((e) => ({ ...e, stage: "setup" as const })),
+  })
+
+  beforeEach(() => {
+    vi.mocked(readSoulDoc).mockResolvedValue("世界观：修仙 （起承转合）。")
+    vi.mocked(loadWorldBlueprint).mockResolvedValue(
+      {} as Awaited<ReturnType<typeof loadWorldBlueprint>>,
+    )
+  })
+
+  it("世界观就绪时注入事件候选（成功路径）", async () => {
+    const pool = poolOf([{ id: "e1", text: "密室惊现血字" }])
+    vi.mocked(generateDynamicEventPool).mockResolvedValue(pool)
+    vi.mocked(pickStagedEvent).mockReturnValue({ id: "e1", text: "密室惊现血字", stage: "setup" })
+    const out = await enrichWithEventPool(base)
+    expect(out).toBe(
+      "请撰写第 1 章正文。\n\n【本章事件候选】密室惊现血字（可选用，不必强塞）。",
+    )
+    expect(generateDynamicEventPool).toHaveBeenCalledWith(
+      expect.objectContaining({ characters: ["沈知遥"] }),
+    )
+  })
+
+  it("无可用事件（pick 返回 null）时原串直通", async () => {
+    vi.mocked(generateDynamicEventPool).mockResolvedValue(poolOf([]))
+    vi.mocked(pickStagedEvent).mockReturnValue(null)
+    await expect(enrichWithEventPool(base)).resolves.toBe(base.request)
+  })
+
+  it("候选文本空白（format 后为空）时原串直通", async () => {
+    const pool = poolOf([{ id: "e2", text: "   " }])
+    vi.mocked(generateDynamicEventPool).mockResolvedValue(pool)
+    vi.mocked(pickStagedEvent).mockReturnValue({ id: "e2", text: "   ", stage: "setup" })
+    await expect(enrichWithEventPool(base)).resolves.toBe(base.request)
+  })
+
+  it("事件池抛错时原串直通（失败安全）", async () => {
+    vi.mocked(generateDynamicEventPool).mockRejectedValue(new Error("llm down"))
+    await expect(enrichWithEventPool(base)).resolves.toBe(base.request)
+  })
+
+  it("设定读取失败时内层降级为空世界观（原串直通）", async () => {
+    vi.mocked(readSoulDoc).mockRejectedValue(new Error("no soul"))
+    vi.mocked(loadWorldBlueprint).mockRejectedValue(new Error("no blueprint"))
+    await expect(enrichWithEventPool(base)).resolves.toBe(base.request)
   })
 })

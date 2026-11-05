@@ -6,12 +6,17 @@
  * 漂移在这里暴露，而不是在用户的项目里暴露。
  */
 
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }))
 
 import { invoke } from "@tauri-apps/api/core"
 import {
+  readCloudBackupConfig,
+  runSyncNow,
+  startSyncScheduler,
+  stopSyncScheduler,
+  readSyncSchedulerStatus,
   CONFLICT_DEFAULT_RESOLUTION,
   CONFLICT_PREFIX,
   SYNC_CONFIG_KEYS,
@@ -360,5 +365,278 @@ describe("response wire→domain mapping", () => {
     expect(conflicts).toHaveLength(1)
     expect(conflicts[0].defaultResolution).toBe("keep_both")
     expect(summarizeConflict(conflicts[0])).toBe(".conflict-dev-1-20260912130000 (4096 B)")
+  })
+})
+
+describe("validateSyncConfig 本地/GitHub/调度分支", () => {
+  const localBase: SyncConfig = {
+    endpoint: "local",
+    root: "",
+    credentialRef: "",
+    enabled: false,
+    localPath: "C:/backups/nb",
+  }
+
+  it("合法本地文件夹配置一次通过", () => {
+    expect(validateSyncConfig(localBase)).toEqual([])
+  })
+
+  it("本地路径缺失或空白逐条拒绝", () => {
+    expect(validateSyncConfig({ ...localBase, localPath: "" })).toContain(
+      "localPath must be an absolute directory path",
+    )
+    expect(validateSyncConfig({ ...localBase, localPath: "   " })).toContain(
+      "localPath must be an absolute directory path",
+    )
+  })
+
+  it("本地相对路径与含 .. 逐条拒绝", () => {
+    expect(validateSyncConfig({ ...localBase, localPath: "rel/dir" })).toContain(
+      "localPath must be an absolute path",
+    )
+    expect(validateSyncConfig({ ...localBase, localPath: "C:/a/../b" })).toContain(
+      "localPath must not contain '..'",
+    )
+  })
+
+  it("本地目标携带 credentialRef 即拒", () => {
+    expect(validateSyncConfig({ ...localBase, credentialRef: "nb:webdav:x" })).toContain(
+      "a local folder target must not carry a credentialRef",
+    )
+  })
+
+  it("UNC 与 POSIX 绝对路径被接受", () => {
+    expect(validateSyncConfig({ ...localBase, localPath: "\\\\nas\\nb" })).toEqual([])
+    expect(validateSyncConfig({ ...localBase, localPath: "/mnt/nb" })).toEqual([])
+  })
+
+  const githubBase: SyncConfig = {
+    endpoint: "github",
+    root: "",
+    credentialRef: "nb:github:octo",
+    enabled: true,
+    github: { owner: "octo", repo: "vault", branch: "main", pathPrefix: "nb" },
+  }
+
+  it("合法 GitHub 配置一次通过", () => {
+    expect(validateSyncConfig(githubBase)).toEqual([])
+  })
+
+  it("github 块缺失即拒", () => {
+    const { github: _drop, ...noBlock } = githubBase
+    void _drop
+    expect(validateSyncConfig(noBlock)).toContain(
+      "github block is required when endpoint is 'github'",
+    )
+  })
+
+  it("owner 与 repo 空值及非法字符逐条拒绝", () => {
+    expect(
+      validateSyncConfig({ ...githubBase, github: { ...githubBase.github!, owner: "  " } }),
+    ).toContain("github owner must not be empty")
+    expect(
+      validateSyncConfig({ ...githubBase, github: { ...githubBase.github!, repo: "a/b" } }),
+    ).toContain("github repo must match [A-Za-z0-9._-]: a/b")
+  })
+
+  it("branch 空与非法形态逐条拒绝", () => {
+    const bad = (branch: string) =>
+      validateSyncConfig({ ...githubBase, github: { ...githubBase.github!, branch } })
+    expect(bad("   ")).toContain("github branch must not be empty")
+    expect(bad("/main")).toContain("github branch must be a relative ref without '..': /main")
+    expect(bad("a/../b")).toContain("github branch must be a relative ref without '..': a/../b")
+    expect(bad("feat a")).toContain("github branch must match [A-Za-z0-9._/-]: feat a")
+    expect(bad("release/v1")).toEqual([])
+  })
+
+  it("pathPrefix 绝对路径与含 .. 或反斜杠即拒", () => {
+    const bad = (pathPrefix: string) =>
+      validateSyncConfig({ ...githubBase, github: { ...githubBase.github!, pathPrefix } })
+    expect(bad("/x")).toContain("github pathPrefix must be a relative POSIX prefix without '..': /x")
+    expect(bad("a/../b")).toContain("github pathPrefix must be a relative POSIX prefix without '..': a/../b")
+    expect(bad("a\\b")).toContain("github pathPrefix must be a relative POSIX prefix without '..': a\\b")
+  })
+
+  it("GitHub 目标凭据域错误即拒", () => {
+    expect(validateSyncConfig({ ...githubBase, credentialRef: "nb:webdav:x" })).toContain(
+      "github credentialRef must start with 'nb:github:'",
+    )
+  })
+
+  it("非法调度档位即拒，合法档位放行", () => {
+    expect(
+      validateSyncConfig({ ...validConfig, schedule: { intervalMinutes: 7 as never } }),
+    ).toContain("schedule.intervalMinutes must be one of 15 / 30 / 60")
+    expect(validateSyncConfig({ ...validConfig, schedule: { intervalMinutes: 30 } })).toEqual([])
+  })
+
+  it("endpoint 含空格即拒", () => {
+    expect(validateSyncConfig({ ...validConfig, endpoint: "https://a b.com" })).toContain(
+      "endpoint must not contain spaces",
+    )
+  })
+
+  it("疑似密钥明文的 credentialRef 被点名", () => {
+    const reasons = validateSyncConfig({ ...validConfig, credentialRef: "nb:token-abc" })
+    expect(reasons.some((r) => r.includes("credentialRef must be a reference"))).toBe(true)
+  })
+})
+
+describe("configureCloudBackup 传输块映射（toRaw）", () => {
+  beforeEach(() => {
+    vi.mocked(invoke).mockReset()
+  })
+
+  it("本地目标：凭据与 root 清空、local 块透传裁剪后路径", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(undefined)
+    await configureCloudBackup("C:/proj", {
+      endpoint: "local",
+      root: "should-be-cleared",
+      credentialRef: "",
+      enabled: true,
+      localPath: "  D:/nb  ",
+    })
+    expect(invoke).toHaveBeenCalledWith("sync_configure", {
+      projectPath: "C:/proj",
+      config: {
+        endpoint: "local",
+        root: "",
+        credential_ref: "",
+        enabled: true,
+        local: { localPath: "D:/nb" },
+      },
+    })
+  })
+
+  it("GitHub 目标：github 块透传", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(undefined)
+    const github = { owner: "o", repo: "r", branch: "main", pathPrefix: "" }
+    await configureCloudBackup("C:/proj", {
+      endpoint: "github",
+      root: "",
+      credentialRef: "nb:github:o",
+      enabled: true,
+      github,
+    })
+    expect(invoke).toHaveBeenCalledWith("sync_configure", {
+      projectPath: "C:/proj",
+      config: {
+        endpoint: "github",
+        root: "",
+        credential_ref: "nb:github:o",
+        enabled: true,
+        github,
+      },
+    })
+  })
+
+  it("调度块随配置透传", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(undefined)
+    await configureCloudBackup("C:/proj", {
+      ...validConfig,
+      schedule: { intervalMinutes: 60 },
+    })
+    expect(invoke).toHaveBeenLastCalledWith("sync_configure", {
+      projectPath: "C:/proj",
+      config: expect.objectContaining({ schedule: { intervalMinutes: 60 } }),
+    })
+  })
+})
+
+describe("G2a 调度与配置读回", () => {
+  beforeEach(() => {
+    vi.mocked(invoke).mockReset()
+  })
+
+  it("未配置读回 null", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(null)
+    await expect(readCloudBackupConfig("C:/proj")).resolves.toBeNull()
+    expect(invoke).toHaveBeenCalledWith("sync_config_read", { projectPath: "C:/proj" })
+  })
+
+  it("读回完整视图：local 与 github 透传，非法 schedule 档位丢弃", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      endpoint: "github",
+      root: "",
+      credential_ref: "nb:github:o",
+      enabled: true,
+      local: { localPath: "D:/nb" },
+      github: { owner: "o", repo: "r", branch: "main", pathPrefix: "" },
+      schedule: { intervalMinutes: 999 },
+    })
+    const cfg = await readCloudBackupConfig("C:/proj")
+    expect(cfg?.github?.repo).toBe("r")
+    expect(cfg?.localPath).toBe("D:/nb")
+    expect(cfg?.schedule).toBeUndefined()
+    expect(cfg?.enabled).toBe(true)
+  })
+
+  it("读回合规 schedule 档位保留", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      endpoint: "https://dav.example.com",
+      root: "r",
+      credential_ref: "nb:webdav:x",
+      enabled: false,
+      schedule: { intervalMinutes: 15 },
+    })
+    await expect(readCloudBackupConfig("C:/proj")).resolves.toMatchObject({
+      schedule: { intervalMinutes: 15 },
+    })
+  })
+
+  it("runSyncNow 与调度器启停查走各自命令并映射 snake_case", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "sync_now") {
+        return { ran: true, manifest_id: "m", revision: 3, decision: "apply", message: "ok" }
+      }
+      if (
+        cmd === "sync_scheduler_start" ||
+        cmd === "sync_scheduler_stop" ||
+        cmd === "sync_scheduler_status"
+      ) {
+        return {
+          running: true,
+          project_path: "C:/proj",
+          interval_minutes: 15,
+          sync_enabled: true,
+          last_outcome: "ok",
+        }
+      }
+      throw new Error(`unexpected ${cmd}`)
+    })
+    const tick = await runSyncNow("C:/proj", "dev-1")
+    expect(tick).toMatchObject({ ran: true, manifestId: "m", revision: 3, decision: "apply" })
+    expect(invoke).toHaveBeenCalledWith("sync_now", {
+      projectPath: "C:/proj",
+      deviceId: "dev-1",
+    })
+
+    const started = await startSyncScheduler("C:/proj", "dev-1", 30)
+    expect(started).toMatchObject({ running: true, intervalMinutes: 15, syncEnabled: true })
+    expect(invoke).toHaveBeenCalledWith("sync_scheduler_start", {
+      projectPath: "C:/proj",
+      deviceId: "dev-1",
+      intervalMinutes: 30,
+    })
+
+    const stopped = await stopSyncScheduler()
+    expect(stopped.running).toBe(true)
+    const status = await readSyncSchedulerStatus()
+    expect(status.lastOutcome).toBe("ok")
+  })
+
+  it("skip 原因透传（ran=false 时 skipReason 说明原因）", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      ran: false,
+      skip_reason: "disabled",
+      manifest_id: "",
+      revision: 0,
+      decision: "",
+      message: "off",
+    })
+    await expect(runSyncNow("C:/proj", "d")).resolves.toMatchObject({
+      ran: false,
+      skipReason: "disabled",
+    })
   })
 })

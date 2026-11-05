@@ -779,3 +779,38 @@ describe("分类拖拽排序", () => {
     unmountPanel(root, container)
   })
 })
+
+describe("分类拖拽手柄", () => {
+  it("拖拽手柄点击不冒泡、不触发选择", async () => {
+    const { container, root } = await renderPanel()
+    const row = categoryRow(container, "情节")
+    expect(row).not.toBeNull()
+    const dragButton = row!.querySelector<HTMLButtonElement>('button[aria-label="拖拽排序"]')
+    expect(dragButton).not.toBeNull()
+
+    // 探针挂在 body（React root container 之上）：stopPropagation 应阻断冒泡至此
+    const bubbled: string[] = []
+    const probe = () => bubbled.push("bubble")
+    document.body.addEventListener("click", probe)
+    try {
+      await click(dragButton)
+      // stopPropagation：body 收不到冒泡点击
+      expect(bubbled).toHaveLength(0)
+
+      // 对照：分类选择按钮的点击正常冒泡到 body
+      const selectButton = Array.from(row!.querySelectorAll<HTMLButtonElement>("button")).find((b) =>
+        b.textContent?.includes("情节"),
+      )
+      expect(selectButton).toBeTruthy()
+      await click(selectButton!)
+      expect(bubbled).toHaveLength(1)
+    } finally {
+      document.body.removeEventListener("click", probe)
+    }
+    // 未进入重命名编辑态，也未产生新的选中副作用
+    expect(container.querySelector('input[value="情节"]')).toBeNull()
+    expect(dndCapture.onDragEnd).not.toBeNull()
+
+    unmountPanel(root, container)
+  })
+})

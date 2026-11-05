@@ -337,6 +337,18 @@ describe("useSimulationWorker.calcBranchDiff", () => {
   })
 })
 
+describe("useSimulationWorker.calcBranchDiff 增补：最佳分支判定", () => {
+  it("后分支 overallScore 更高时最佳索引为 1", async () => {
+    const { result, unmount } = renderHook(() => useSimulationWorker())
+    const branchA = makeBranch({ id: "a", name: "甲分支", overallScore: 70 })
+    const branchB = makeBranch({ id: "b", name: "乙分支", overallScore: 95 })
+    const out = await result.current.calcBranchDiff(branchA, branchB)
+    // reduce 真分支：b.overallScore(95) > branches[0].overallScore(70) → 取 idx=1
+    expect(out.bestBranchIdx).toBe(1)
+    unmount()
+  })
+})
+
 describe("useSimulationWorker.terminate", () => {
   it("幂等：多次 terminate 后 calc 仍走 fallback 正常返回", async () => {
     const { result, unmount } = renderHook(() => useSimulationWorker())

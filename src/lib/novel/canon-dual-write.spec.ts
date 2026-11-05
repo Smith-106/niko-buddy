@@ -9,6 +9,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
 import { invoke } from "@tauri-apps/api/core"
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { useWikiStore } from "@/stores/wiki-store"
+import * as promotionBridge from "./promotion-bridge"
 import {
   BACKOFF_BASE_MS,
   BACKOFF_FACTOR,
@@ -27,6 +28,8 @@ import {
   mergePending,
   buildPendingRecord,
   reschedule,
+  getCanonRevision,
+  warmCanonCacheFromRevision,
   shadowWriteCanon,
   replayPendingQueue,
   retireAfterT5,
@@ -845,5 +848,173 @@ describe("53 P1-2 / B8: preWriteGateMode 真实配置读取（BLOCK 分支可达
     })
     const res = await canonStoreWriter("P", conflictingPayload)
     expect(res).toEqual({ ok: true, revision: 9, gate: "pre_write_warn" })
+  })
+})
+
+
+describe("W1 补强：canon revision 预热（getCanonRevision / warmCanonCacheFromRevision）", () => {
+  it("invoke 返回 max_revision → 透出；失败 → 0（新库/不可用）", async () => {
+    invokeMock.mockResolvedValue({ max_revision: 7 })
+    await expect(getCanonRevision("P")).resolves.toBe(7)
+    expect(invokeMock).toHaveBeenCalledWith("canon_get_revision", { projectId: "P" })
+    invokeMock.mockRejectedValue(new Error("db down"))
+    await expect(getCanonRevision("P")).resolves.toBe(0)
+  })
+
+  it("warm：rev>0 回调预热；rev=0 不回调（零写入记录）", async () => {
+    invokeMock.mockResolvedValue({ max_revision: 5 })
+    const cb = vi.fn()
+    await warmCanonCacheFromRevision("P", cb)
+    expect(cb).toHaveBeenCalledWith(5)
+    invokeMock.mockRejectedValue(new Error("db down"))
+    const cb2 = vi.fn()
+    await warmCanonCacheFromRevision("P", cb2)
+    expect(cb2).not.toHaveBeenCalled()
+  })
+})
+
+describe("W1 补强：resolvePreWriteGateMode store 异常回退", () => {
+  it("getState 抛错 → fail-safe 回退 warn（不阻断写可用性）", () => {
+    const spy = vi.spyOn(useWikiStore, "getState").mockImplementationOnce(() => {
+      throw new Error("store down")
+    })
+    try {
+      expect(resolvePreWriteGateMode()).toBe("warn")
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+
+describe("W1 补强：canonStoreWriter 剩余 IPC 分支", () => {
+  it("写前 gate 拉取失败 → 降级空边继续写（queryAllEdges catch）", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_query") throw new Error("query down")
+      if (cmd === "canon_supersede_edges") return { result: {}, max_revision: 3 }
+      return {}
+    })
+    const res = await canonStoreWriter("P", {
+      kind: "supersede",
+      request: {
+        old_edge_ids: [],
+        cap_chapter: 5,
+        new_edges: [{ id: "n1", source_id: "A", target_id: "B", predicate: "p", valid_at: 1 }],
+      },
+    })
+    expect(res).toEqual({ ok: true, revision: 3 })
+  })
+
+  it("digest 重复且区间重叠 → DUPLICATE 幂等跳过（不写库）", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_query") {
+        return {
+          edges: [
+            { id: "e1", source_id: "A", target_id: "B", predicate: "p", digest: "dup1", valid_at: 1, invalid_at: null },
+          ],
+        }
+      }
+      if (cmd === "canon_supersede_edges") return { result: {}, max_revision: 9 }
+      return {}
+    })
+    const res = await canonStoreWriter("P", {
+      kind: "supersede",
+      request: {
+        old_edge_ids: [],
+        cap_chapter: 5,
+        new_edges: [{ id: "n1", source_id: "A", target_id: "B", predicate: "p", digest: "dup1", valid_at: 2, invalid_at: null }],
+      },
+    })
+    expect(res).toEqual({ ok: true, gate: "pre_write_duplicate" })
+    expect(invokeMock).not.toHaveBeenCalledWith("canon_supersede_edges", expect.anything())
+  })
+
+  it("supersede_by_digest 无匹配旧边 → 幂等跳过 ok:true", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_query") return { edges: [] }
+      return {}
+    })
+    const res = await canonStoreWriter("P", {
+      kind: "supersede_by_digest",
+      request: { oldDigest: "d1", capChapter: 5, newDigest: "d2" },
+    })
+    expect(res).toEqual({ ok: true })
+    expect(invokeMock).not.toHaveBeenCalledWith("canon_supersede_edges", expect.anything())
+  })
+
+  it("未知 kind 兜底：直接下发 request → supersede", async () => {
+    invokeMock.mockResolvedValue({ result: {}, max_revision: 6 })
+    const res = await canonStoreWriter("P", {
+      request: { old_edge_ids: [], cap_chapter: 1 },
+    } as unknown as CanonCanonPayload)
+    expect(res).toEqual({ ok: true, revision: 6 })
+    expect(invokeMock).toHaveBeenCalledWith("canon_supersede_edges", {
+      projectId: "P",
+      request: { old_edge_ids: [], cap_chapter: 1 },
+    })
+  })
+})
+
+describe("W1 补强：shadowWriteCanon promoteChannel 晋升接线", () => {
+  it("一致 episode 逐个晋升：有效章晋升、无 entity_id 回填、非法章跳过、非 episode 跳过", async () => {
+    const promoteSpy = vi
+      .spyOn(promotionBridge, "promote")
+      .mockResolvedValue({ record: {} as never, replayed: false })
+    try {
+      const report = await shadowWriteCanon(
+        depsWith(okOutcome(), okOutcome()),
+        "P",
+        [
+          {
+            digest: "ok1",
+            legacyPayload: {},
+            canonPayload: { kind: "episode", episode: { chapter_number: 3, entity_id: "ch3", id: "e" } },
+          },
+          {
+            digest: "ok2",
+            legacyPayload: {},
+            canonPayload: { kind: "episode", episode: { chapter_number: 4, id: "e4" } },
+          },
+          {
+            digest: "bad",
+            legacyPayload: {},
+            canonPayload: { kind: "episode", episode: { chapter_number: 0, entity_id: "z" } },
+          },
+          { digest: "sup", legacyPayload: {}, canonPayload: supersedePayload() },
+        ],
+        1000,
+        "canon-dual-write",
+      )
+      expect(report.written).toBe(4)
+      expect(report.reconcile.consistent).toBe(true)
+      expect(promoteSpy).toHaveBeenCalledTimes(2)
+      expect(promoteSpy.mock.calls[0]![0]).toMatchObject({
+        channel: "canon-dual-write",
+        projectPath: "P",
+        chapterId: "ch3",
+        chapterNumber: 3,
+        revision: 1,
+      })
+      expect(promoteSpy.mock.calls[1]![0]).toMatchObject({ chapterId: "ch4", chapterNumber: 4 })
+    } finally {
+      promoteSpy.mockRestore()
+    }
+  })
+
+  it("promote 抛错 → warn 吞错，双写报告仍一致", async () => {
+    const promoteSpy = vi.spyOn(promotionBridge, "promote").mockRejectedValueOnce(new Error("promo down"))
+    try {
+      const report = await shadowWriteCanon(
+        depsWith(okOutcome(), okOutcome()),
+        "P",
+        [{ digest: "ok1", legacyPayload: {}, canonPayload: episodePayload() }],
+        1000,
+        "canon-dual-write",
+      )
+      expect(report.written).toBe(1)
+      expect(report.reconcile.consistent).toBe(true)
+      expect(promoteSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      promoteSpy.mockRestore()
+    }
   })
 })

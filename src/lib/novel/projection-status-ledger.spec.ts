@@ -1,15 +1,27 @@
 import { describe, expect, it, vi, beforeEach } from "vitest"
 import {
   AUDIT_TRAIL_MAX_ENTRIES,
+  EXTERNAL_DATA_CLASSES,
+  EXTERNAL_DATA_CLASS_ATTRIBUTES,
+  LEDGER_SAVE_MAX_RETRIES,
   PROJECTION_CATEGORIES,
   appendProjectionAuditEntry,
+  assertProjectionRegistryComplete,
   emptyLedger,
+  isAutoRebuildableProjection,
+  isExternalDataClass,
+  isFoldReplayExcluded,
   loadProjectionStatusLedger,
   recordProjectionAudit,
   recordProjectionStatus,
+  registerProjections,
+  resolveExternalDataClass,
   saveProjectionStatusLedger,
+  shouldRetryLedgerSave,
+  syncDirectWriteProjectionIds,
   trimAuditTrail,
   type ProjectionAuditEntry,
+  type ProjectionRegistryEntry,
   type ProjectionStatusLedger,
 } from "./projection-status-ledger"
 import { supersedeFact } from "./graph-adapter"
@@ -440,5 +452,82 @@ describe("F-002 graph mergeExistingPage supersession (no destructive overwrite)"
   it("supersedeFact leaves content without frontmatter unchanged (defensive)", () => {
     const noFm = "just body, no frontmatter here"
     expect(supersedeFact(noFm, "status", "x")).toBe(noFm)
+  })
+})
+
+describe("C-010 外部数据类正交轴", () => {
+  it("isExternalDataClass 只认两类字面量", () => {
+    expect(isExternalDataClass("external_refetchable")).toBe(true)
+    expect(isExternalDataClass("untrusted_input")).toBe(true)
+    expect(isExternalDataClass("fold_rebuildable")).toBe(false)
+    expect(isExternalDataClass(undefined)).toBe(false)
+    expect(isExternalDataClass(42)).toBe(false)
+  })
+
+  it("resolveExternalDataClass 优先级：非外部 → null，可执行 > 时间事实", () => {
+    expect(
+      resolveExternalDataClass({ externalOrigin: false, timeVarying: true, executable: true }),
+    ).toBeNull()
+    expect(
+      resolveExternalDataClass({ externalOrigin: true, timeVarying: true, executable: true }),
+    ).toBe("untrusted_input")
+    expect(
+      resolveExternalDataClass({ externalOrigin: true, timeVarying: true, executable: false }),
+    ).toBe("external_refetchable")
+    expect(
+      resolveExternalDataClass({ externalOrigin: true, timeVarying: false, executable: false }),
+    ).toBe("untrusted_input")
+  })
+
+  it("两类均禁入 fold 重算与 self-heal，且属性表一致", () => {
+    expect(isFoldReplayExcluded("external_refetchable")).toBe(true)
+    expect(isFoldReplayExcluded("untrusted_input")).toBe(true)
+    for (const cls of EXTERNAL_DATA_CLASSES) {
+      const attrs = EXTERNAL_DATA_CLASS_ATTRIBUTES[cls]
+      expect(attrs.foldRebuildable).toBe(false)
+      expect(attrs.entersSelfHeal).toBe(false)
+      expect(attrs.trustLevel).toBe("untrusted")
+      expect(attrs.provenanceRequired).toBe(true)
+    }
+  })
+})
+
+describe("assertProjectionRegistryComplete 三方等值门", () => {
+  it("注册表为空时 fail-loud 报缺键", () => {
+    expect(() => assertProjectionRegistryComplete()).toThrow(/key-set mismatch/)
+    expect(() => assertProjectionRegistryComplete()).toThrow(/missing from registry/)
+  })
+
+  it("按 PROJECTION_CATEGORIES 全量注册后通过", () => {
+    const entries: Record<string, ProjectionRegistryEntry> = {}
+    for (const [id, category] of Object.entries(PROJECTION_CATEGORIES)) {
+      entries[id] = { category, rebuildable: false, file: null }
+    }
+    registerProjections(entries)
+    expect(() => assertProjectionRegistryComplete()).not.toThrow()
+    expect(syncDirectWriteProjectionIds()).toEqual([])
+    expect(isAutoRebuildableProjection("vector")).toBe(false)
+  })
+})
+
+describe("loadProjectionStatusLedger 损坏保全失败路径", () => {
+  it("保全写失败 → 仍降级为空账本（best-effort 不打断 load）", async () => {
+    fsMocks.readFile.mockImplementation(async () => "{corrupt-json")
+    fsMocks.writeFileAtomic.mockRejectedValueOnce(new Error("disk full"))
+    const ledger = await loadProjectionStatusLedger("C:/proj")
+    expect(ledger.chapters).toEqual({})
+    expect(ledger.auditTrail).toEqual([])
+  })
+})
+
+describe("shouldRetryLedgerSave 重试谓词", () => {
+  it("仅 attempt=0 可重试（首次失败恰再试 1 次）", () => {
+    expect(shouldRetryLedgerSave(0)).toBe(true)
+    expect(shouldRetryLedgerSave(1)).toBe(false)
+    expect(shouldRetryLedgerSave(2)).toBe(false)
+    expect(shouldRetryLedgerSave(-1)).toBe(false)
+    expect(shouldRetryLedgerSave(0.5)).toBe(false)
+    expect(shouldRetryLedgerSave(Number.NaN)).toBe(false)
+    expect(LEDGER_SAVE_MAX_RETRIES).toBe(1)
   })
 })

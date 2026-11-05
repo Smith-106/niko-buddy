@@ -417,3 +417,75 @@ describe("fast-check 属性：增量≡全量", () => {
     )
   })
 })
+// ============================================================================
+// W1 覆盖率补强：startIndex 继承分支 / 增量匹配分支 / 校验器剩余分支
+// ============================================================================
+
+describe("W1 补强：computeTensionCurve startIndex 继承分支", () => {
+  it("startIndex>0 时前段按本地递推继承（与全量逐点一致）", () => {
+    const hits: QuantifiedHit[] = [
+      { beatType: "midpoint", rawIntensity: 0.9, weightedIntensity: 1.0, positionRatio: 0.5, closureState: "closed", arcId: null },
+    ]
+    const full = computeTensionCurve(hits, DEFAULT_THRILL_CONFIG)
+    const partial = computeTensionCurve(hits, DEFAULT_THRILL_CONFIG, 5)
+    expect(partial.length).toBe(full.length)
+    // seed 未提供时前段递推与全量完全一致（含 i<start 继承分支）
+    expect(partial).toEqual(full)
+  })
+
+  it("startIndex>0 且提供 seedSmoothed 时首点按 seed 公式计算", () => {
+    const hits: QuantifiedHit[] = [
+      { beatType: "midpoint", rawIntensity: 0.9, weightedIntensity: 1.0, positionRatio: 0.0, closureState: "closed", arcId: null },
+    ]
+    const seeded = computeTensionCurve(hits, DEFAULT_THRILL_CONFIG, 3, 0.5)
+    // smoothed[0] = alpha*raw + (1-alpha)*seed（raw[0]=1.0, alpha=0.3）
+    expect(seeded[0].smoothed).toBeCloseTo(0.3 * 1.0 + 0.7 * 0.5, 10)
+    expect(seeded.length).toBe(21)
+  })
+})
+
+describe("W1 补强：validateThrillConfig 剩余数值分支", () => {
+  it("defaultTypeWeight 非法（负数）报违规", () => {
+    const r = validateThrillConfig({ ...DEFAULT_THRILL_CONFIG, defaultTypeWeight: -1 })
+    expect(r.ok).toBe(false)
+    expect(r.violations.some((v) => v.path === "defaultTypeWeight")).toBe(true)
+  })
+
+  it("payoffMagnitude 非法（NaN）报违规", () => {
+    const r = validateThrillConfig({ ...DEFAULT_THRILL_CONFIG, payoffMagnitude: Number.NaN })
+    expect(r.ok).toBe(false)
+    expect(r.violations.some((v) => v.path === "payoffMagnitude")).toBe(true)
+  })
+})
+
+describe("W1 补强：incrementalQuantifyThrill 同 hits + 新 config 匹配分支", () => {
+  it("仅 config 变化时逐条更新加权值并重算窗口曲线（命中匹配分支）", () => {
+    const model = buildSampleModel()
+    const prev = quantifyThrill(model)
+    // hits 完全不变、仅 payoffMagnitude 变化 → prevResult 条目全部匹配
+    const inc = incrementalQuantifyThrill(prev, model, 2, { payoffMagnitude: 2.0 })
+    expect(inc.hits).toHaveLength(prev.hits.length)
+    // 增量语义：仅 changedHitIndex 对应条目用新 config 重算，其余原样保留
+    expect(inc.hits[2].weightedIntensity).toBeCloseTo(prev.hits[2].weightedIntensity * 2, 10)
+    for (const i of [0, 1, 3, 4]) {
+      expect(inc.hits[i].weightedIntensity).toBeCloseTo(prev.hits[i].weightedIntensity, 10)
+    }
+    expect(inc.tensionCurve).toHaveLength(prev.tensionCurve.length)
+    expect(inc.configVersion).toBe("1.0.0")
+    // 窗口起点前的采样点从 prevResult 原样继承
+    expect(inc.tensionCurve[0]).toEqual(prev.tensionCurve[0])
+  })
+
+  it("windowStart=0（首 hit 附近变化 + 小窗口）时 seed 为 undefined 仍一致推进", () => {
+    const model = buildSampleModel()
+    const prev = quantifyThrill(model)
+    const inc = incrementalQuantifyThrill(
+      prev,
+      model,
+      0,
+      { payoffMagnitude: 2.0, incrementalWindowSize: 50 },
+    )
+    expect(inc.hits[0].weightedIntensity).toBeCloseTo(prev.hits[0].weightedIntensity * 2, 10)
+    expect(inc.tensionCurve).toHaveLength(prev.tensionCurve.length)
+  })
+})

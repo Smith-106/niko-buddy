@@ -2491,3 +2491,262 @@ describe("markSessionInterrupted (J10-02 幽灵running降级)", () => {
     expect(marked).toBeNull()
   })
 })
+
+describe("commitDraftAndStatusBatch 写入回读三态（fail-loud）", () => {
+  beforeEach(() => {
+    // 本文件顶层 beforeEach 只 vi.clearAllMocks（不清实现）；先恢复内存盘默认实现再覆写
+    fsState.readFile.mockImplementation(async (path) => {
+      const content = fsState.fileMap.get(path)
+      if (content === undefined) throw new Error(`ENOENT: ${path}`)
+      return content
+    })
+  })
+  const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+    version: 1,
+    originalRequest: "generate chapter 3",
+    chapterNumber: 3,
+    stage: "after_draft",
+    taskBrief: "task brief",
+    draftContent: "draft body",
+  }
+
+  async function startSession() {
+    return startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+  }
+
+  function persistInput(sessionId: string) {
+    return {
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId,
+      checkpoint,
+    }
+  }
+
+  it("回读失败（草稿文件）→ 抛错且文案含路径", async () => {
+    const session = await startSession()
+    let calls = 0
+    fsState.readFile.mockImplementation(async (path) => {
+      calls += 1
+      if (calls === 1) throw new Error(`ENOENT: ${path}`)
+      throw new Error("disk gone")
+    })
+    await expect(persistDeepChapterCheckpoint(persistInput(session.session_id))).rejects.toThrow(
+      /写入后回读失败/,
+    )
+  })
+
+  it("回读非 JSON → 抛错", async () => {
+    const session = await startSession()
+    let calls = 0
+    fsState.readFile.mockImplementation(async (path) => {
+      calls += 1
+      if (calls === 1) throw new Error(`ENOENT: ${path}`)
+      return "not-json{{{"
+    })
+    await expect(persistDeepChapterCheckpoint(persistInput(session.session_id))).rejects.toThrow(
+      /不是有效 JSON/,
+    )
+  })
+
+  it("回读内容与写入不一致 → 校验失败抛错", async () => {
+    const session = await startSession()
+    let calls = 0
+    fsState.readFile.mockImplementation(async (path) => {
+      calls += 1
+      if (calls === 1) throw new Error(`ENOENT: ${path}`)
+      return JSON.stringify({ draft_id: "someone-else" })
+    })
+    await expect(persistDeepChapterCheckpoint(persistInput(session.session_id))).rejects.toThrow(
+      /写入回读校验失败/,
+    )
+  })
+})
+
+describe("prepareDraftWrites 异会话 supersede 审计拷贝", () => {
+  beforeEach(() => {
+    fsState.fileMap.clear()
+    fsState.createdDirs.clear()
+    fsState.readFile.mockImplementation(async (path) => {
+      const content = fsState.fileMap.get(path)
+      if (content === undefined) throw new Error(`ENOENT: ${path}`)
+      return content
+    })
+  })
+  it("不同 sessionId 复写同草稿 → 旧稿进 superseded 审计文件", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "generate chapter 3",
+      chapterNumber: 3,
+      stage: "after_draft",
+      taskBrief: "task brief",
+      draftContent: "first body",
+    }
+    await persistDeepChapterCheckpoint({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: session.session_id,
+      checkpoint,
+    })
+    // 异会话复写同一 conversation 草稿
+    await persistDeepChapterCheckpoint({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+      sessionId: "novel-20000101-000000",
+      checkpoint: { ...checkpoint, draftContent: "second body" },
+    })
+    const superseded = [...fsState.fileMap.keys()].filter((k) => k.includes(".superseded."))
+    expect(superseded).toHaveLength(1)
+    const kept = JSON.parse(fsState.fileMap.get(superseded[0]!) as string) as {
+      draft_status: string
+      content: string
+    }
+    expect(kept.draft_status).toBe("superseded")
+    expect(kept.content).toBe("first body")
+    const current = readJson(draftPath)
+    expect(current.content).toBe("second body")
+  })
+})
+
+describe("writeDraftArtifact 遗留草稿 supersede 审计拷贝（CORR-003）", () => {
+  beforeEach(() => {
+    fsState.fileMap.clear()
+    fsState.createdDirs.clear()
+    fsState.readFile.mockImplementation(async (path) => {
+      const content = fsState.fileMap.get(path)
+      if (content === undefined) throw new Error(`ENOENT: ${path}`)
+      return content
+    })
+  })
+
+  it("同 conversation 新会话带 checkpoint 启动 → 旧草稿进 superseded", async () => {
+    await registerManagedCampaignDraft({
+      projectPath,
+      conversationId: "camp-1",
+      userRequest: "campaign work",
+      chapterNumber: 1,
+      finalContent: "campaign body",
+    })
+    // sessionId 秒精度：同秒内两次新建会碰撞 → 直写旧 session 模拟异会话遗留草稿
+    const campDraftPath = novelDraftArtifactPath(projectPath, "camp-1")
+    const seeded = JSON.parse(fsState.fileMap.get(campDraftPath) as string) as {
+      session_id: string
+    }
+    expect(seeded.session_id).toMatch(/^novel-/)
+    seeded.session_id = "novel-20000101-000000"
+    fsState.fileMap.set(campDraftPath, JSON.stringify(seeded))
+    await startDeepChapterSession({
+      projectPath,
+      conversationId: "camp-1",
+      userRequest: "different work",
+      chapterNumber: 1,
+      resumeCheckpoint: {
+        version: 1,
+        originalRequest: "different work",
+        chapterNumber: 1,
+        stage: "after_draft",
+        taskBrief: "task brief",
+        draftContent: "new body",
+      },
+    })
+    const superseded = [...fsState.fileMap.keys()].filter((k) => k.includes(".superseded."))
+    expect(superseded).toHaveLength(1)
+    const kept = readJson(superseded[0]!) as { draft_status: string; content: string }
+    expect(kept.draft_status).toBe("superseded")
+    expect(kept.content).toBe("campaign body")
+  })
+})
+
+describe("zod 加载护栏独立拒绝（manual 之外）→ 损坏保全", () => {
+  beforeEach(() => {
+    fsState.fileMap.clear()
+    fsState.createdDirs.clear()
+    fsState.readFile.mockImplementation(async (path) => {
+      const content = fsState.fileMap.get(path)
+      if (content === undefined) throw new Error(`ENOENT: ${path}`)
+      return content
+    })
+  })
+  it("draft_auto_arm 非法但 manual 字段全合法 → null + corrupt 兄弟文件", async () => {
+    const session = await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    const raw = JSON.parse(fsState.fileMap.get(statusPath) as string) as Record<string, unknown>
+    raw.draft_auto_arm = { armed: true }
+    fsState.fileMap.set(statusPath, JSON.stringify(raw))
+    void session
+    const reloaded = await loadNovelSessionStatus(projectPath)
+    expect(reloaded).toBeNull()
+    const corruptKeys = [...fsState.fileMap.keys()].filter((k) => k.includes("status.corrupt-"))
+    expect(corruptKeys).toHaveLength(1)
+  })
+})
+
+describe("accept commit-discipline 缺章拒绝", () => {
+  beforeEach(() => {
+    fsState.fileMap.clear()
+    fsState.createdDirs.clear()
+    fsState.readFile.mockImplementation(async (path) => {
+      const content = fsState.fileMap.get(path)
+      if (content === undefined) throw new Error(`ENOENT: ${path}`)
+      return content
+    })
+  })
+  it("无章节声明的受管草稿 accept → fail-loud 拒绝", async () => {
+    await registerManagedCampaignDraft({
+      projectPath,
+      conversationId: "camp-1",
+      userRequest: "campaign work",
+      chapterNumber: undefined as unknown as number,
+      finalContent: "body",
+    })
+    await expect(
+      acceptDeepChapterDraft({ projectPath, conversationId: "camp-1", userRequest: "campaign work" }),
+    ).rejects.toThrow(/commit-discipline/)
+  })
+})
+
+describe("appendStageMetric 非致命降级", () => {
+  beforeEach(() => {
+    fsState.fileMap.clear()
+    fsState.createdDirs.clear()
+    fsState.readFile.mockImplementation(async (path) => {
+      const content = fsState.fileMap.get(path)
+      if (content === undefined) throw new Error(`ENOENT: ${path}`)
+      return content
+    })
+  })
+  it("写盘失败 → 不抛错（阶段指标不阻断主链）", async () => {
+    await startDeepChapterSession({
+      projectPath,
+      conversationId: "conv-1",
+      userRequest: "generate chapter 3",
+      chapterNumber: 3,
+    })
+    fsState.writeFileAtomic.mockRejectedValueOnce(new Error("disk full"))
+    const entry: StageMetricEntry = { stage: "write_llm", tokenCost: 10 }
+    await expect(appendStageMetric(projectPath, entry)).resolves.toBeUndefined()
+    const reloaded = await loadNovelSessionStatus(projectPath)
+    expect(reloaded?.stage_metrics ?? []).toEqual([])
+  })
+})

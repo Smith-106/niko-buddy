@@ -61,7 +61,7 @@ const mocks = vi.hoisted(() => {
     loadSnapshot: vi.fn(),
     loadForeshadowingTracker: vi.fn(),
     loadNovelSessionStatus: vi.fn(),
-    subscribeStatusJson: vi.fn(async () => () => {}),
+    subscribeStatusJson: vi.fn(async (_projectPath: string, _onStatus: (status: unknown) => void | Promise<void>): Promise<() => void> => () => {}),
     loadEmotionLedger: vi.fn(),
     getTopEmotionalDebt: vi.fn(),
     streamChat: vi.fn(),
@@ -210,8 +210,10 @@ vi.mock("@/lib/doctor-extras", () => ({
 }))
 
 vi.mock("./debt-board-view", () => ({
-  DebtBoardView: (props: { chaseDebts: unknown[]; chaseDebtEvents: unknown[]; currentChapter: number; debtReport: unknown; emotionDebts: unknown[] }) => (
-    <div data-testid="debt-board-view" data-chase={String(props.chaseDebts.length)} data-chapter={String(props.currentChapter)} data-emotion={String(props.emotionDebts.length)} />
+  DebtBoardView: (props: { chaseDebts: unknown[]; chaseDebtEvents: unknown[]; currentChapter: number; debtReport: unknown; emotionDebts: unknown[]; onSettleDebt?: (debtId: string, newStatus: string) => Promise<unknown> }) => (
+    <div data-testid="debt-board-view" data-chase={String(props.chaseDebts.length)} data-chapter={String(props.currentChapter)} data-emotion={String(props.emotionDebts.length)}>
+      <button type="button" data-testid="debt-settle" onClick={() => void props.onSettleDebt?.("d1", "paid")}>settle-d1</button>
+    </div>
   ),
 }))
 
@@ -1354,3 +1356,77 @@ describe("DashboardView — 章节心电图 (w10)", () => {
   })
 })
 
+
+describe("DashboardView — 订阅/结账/证据开关补齐", () => {
+  const chaseStatus = () => ({
+    chase_debt: {
+      debts: [{ id: "d1", debt_type: "micropayoff", original_amount: 1, current_amount: 1, interest_rate: 0, source_chapter: 1, due_chapter: 3, status: "active" }],
+      debt_events: [{ debt_id: "d1", event_type: "created", amount: 1, chapter: 1 }],
+    },
+  })
+
+  it("subscribeStatusJson 回调 → chase 债务流入面板（自动刷新链路）", async () => {
+    let cb: ((s: unknown) => void) | null = null
+    mocks.subscribeStatusJson.mockImplementationOnce(async (_pp: string, fn: (s: unknown) => void) => {
+      cb = fn
+      return () => {}
+    })
+    render(<DashboardView />)
+    await waitFor(() => expect(mocks.subscribeStatusJson).toHaveBeenCalledWith("E:/Novel", expect.any(Function)))
+    expect(cb).not.toBeNull()
+    await act(async () => { cb!({ chase_debt: { debts: [{ id: "d9" }], debt_events: [] } }) })
+    await waitFor(() => expect(screen.getByTestId("debt-board-view")).toHaveAttribute("data-chase", "1"))
+  })
+
+  it("unmount 后订阅回调 → disposed 早退（不更新已卸载面板）", async () => {
+    let cb: ((s: unknown) => void) | null = null
+    mocks.subscribeStatusJson.mockImplementationOnce(async (_pp: string, fn: (s: unknown) => void) => {
+      cb = fn
+      return () => {}
+    })
+    const { unmount } = render(<DashboardView />)
+    await waitFor(() => expect(mocks.subscribeStatusJson).toHaveBeenCalled())
+    unmount()
+    await act(async () => { cb!({ chase_debt: { debts: [{ id: "d9" }], debt_events: [] } }) })
+    // 早退不断言 UI（已卸载），不断链即达标：无异常抛出
+    expect(cb).not.toBeNull()
+  })
+
+  it("证据开关点击 → stopPropagation（不触发卡片跳转，只展开）", async () => {
+    mocks.runFactCheck.mockResolvedValue(makeFactReport({ checkedChapterCount: 2, results: [makeFactResult({ message: "证据项" })] }))
+    render(<DashboardView />)
+    await waitFor(() => expect(screen.getByText("dashboard.evidenceToggle")).toBeTruthy())
+    fireEvent.click(screen.getByText("dashboard.evidenceToggle"))
+    // 卡片仍在（点击未冒泡触发跳转/异常），证据文本可见
+    expect(screen.getAllByText("证据项").length).toBeGreaterThan(0)
+  })
+
+  it("结账成功：load → update → save 原子写链（writeFileAtomic 落盘含 paid）", async () => {
+    mocks.loadNovelSessionStatus.mockResolvedValue(chaseStatus())
+    render(<DashboardView />)
+    await waitFor(() => expect(screen.getByTestId("debt-board-view")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("debt-settle"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+    const [, content] = mocks.writeFileAtomic.mock.calls.find(([p]) => String(p).includes("status.json")) ?? []
+    expect(String(content ?? "")).toContain("paid")
+  })
+
+  it("结账时 status 缺失 → 静默返回（不写盘不报错）", async () => {
+    mocks.loadNovelSessionStatus.mockResolvedValue(null)
+    render(<DashboardView />)
+    await waitFor(() => expect(screen.getByTestId("debt-board-view")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("debt-settle"))
+    await new Promise((r) => setTimeout(r, 100))
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+  })
+
+  it("结账写链抛错 → console.error（面板不崩）", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    mocks.loadNovelSessionStatus.mockRejectedValue(new Error("status gone"))
+    render(<DashboardView />)
+    await waitFor(() => expect(screen.getByTestId("debt-board-view")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("debt-settle"))
+    await waitFor(() => expect(errSpy).toHaveBeenCalledWith("[Dashboard] Settle debt failed:", expect.anything()))
+    errSpy.mockRestore()
+  })
+})

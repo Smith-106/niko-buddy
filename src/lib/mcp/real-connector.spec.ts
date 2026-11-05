@@ -211,3 +211,205 @@ describe("RealMcpConnector", () => {
     expect(merged[0].inputSchema.required).toEqual(["q"])
   })
 })
+
+describe("RealMcpConnector 未覆盖分支补足", () => {
+  beforeEach(() => {
+    clientMocks.call.mockReset()
+    clientMocks.notify.mockReset()
+    clientMocks.close.mockReset()
+    clientMocks.JsonRpcClient.mockReset()
+    transportMocks.TauriStdioTransport.mockReset()
+    transportMocks.TauriStdioTransport.mockImplementation(function (this: { options: unknown }, options) {
+      this.options = options
+    })
+    clientMocks.JsonRpcClient.mockImplementation(function (this: { call: unknown; notify: unknown; close: unknown }) {
+      this.call = clientMocks.call
+      this.notify = clientMocks.notify
+      this.close = clientMocks.close
+    })
+    clientMocks.call.mockImplementation(async (method: string) => {
+      if (method === "initialize") return {}
+      if (method === "tools/list") return { tools: [] }
+      return {}
+    })
+  })
+
+  it("caller getter 返回绑定后的 call", async () => {
+    const connector = new RealMcpConnector(config)
+    const result = await connector.caller(
+      { serverId: "graph", serverName: "图谱 MCP", toolName: "query_graph", nikoBuddyToolName: "mcp_graph_query_graph" },
+      {},
+    )
+    expect(result.status).toBe("ok")
+  })
+
+  it("ensureConnected 未知服务 fail-loud", async () => {
+    const connector = new RealMcpConnector(config)
+    await expect(connector.ensureConnected("nope")).rejects.toThrow("未找到 MCP 服务：nope")
+  })
+
+  it("listRemoteTools 已缓存时直接返回，不再握手", async () => {
+    const connector = new RealMcpConnector(config)
+    const first = await connector.listRemoteTools("graph")
+    expect(first).toEqual([])
+    const callsAfterFirst = clientMocks.JsonRpcClient.mock.calls.length
+    const second = await connector.listRemoteTools("graph")
+    expect(second).toBe(first)
+    expect(clientMocks.JsonRpcClient.mock.calls.length).toBe(callsAfterFirst)
+  })
+
+  it("testConnection 未知服务返回中文错误（不抛）", async () => {
+    const connector = new RealMcpConnector(config)
+    const result = await connector.testConnection("nope")
+    expect(result.status).toBe("error")
+    expect(result.toolCount).toBe(0)
+    expect(result.message).toContain("未找到 MCP 服务")
+  })
+
+  it("mergeRemoteTools 无远端时原样返回本地；远端缺名时保留本地项", async () => {
+    const connector = new RealMcpConnector(config)
+    expect(connector.mergeRemoteTools("graph", config.servers[0].tools)).toBe(
+      config.servers[0].tools,
+    )
+    clientMocks.call.mockImplementation(async (method: string) => {
+      if (method === "initialize") return {}
+      if (method === "tools/list") return { tools: [{ name: "other", description: "其它" }] }
+      return {}
+    })
+    await connector.ensureConnected("graph")
+    const merged = connector.mergeRemoteTools("graph", config.servers[0].tools)
+    expect(merged[0].description).toBe("查询图谱")
+  })
+
+  it("closeAll 容忍单个关闭失败（allSettled 语义）", async () => {
+    clientMocks.close.mockRejectedValueOnce(new Error("boom"))
+    const connector = new RealMcpConnector(config)
+    await connector.ensureConnected("graph")
+    await expect(connector.closeAll()).resolves.toBeUndefined()
+  })
+
+  it("tools/list 失败不阻断握手（远端工具为空回退本地）", async () => {
+    clientMocks.call.mockImplementation(async (method: string) => {
+      if (method === "initialize") return {}
+      if (method === "tools/list") throw new Error("denied")
+      return {}
+    })
+    const connector = new RealMcpConnector(config)
+    await expect(connector.ensureConnected("graph")).resolves.toBeDefined()
+    expect(connector.mergeRemoteTools("graph", config.servers[0].tools)).toBe(
+      config.servers[0].tools,
+    )
+  })
+
+  it("extractMcpText 各形态：非 record/数组混合/纯文本字段/回退序列化", async () => {
+    clientMocks.call.mockImplementation(async (method: string) => {
+      if (method === "initialize") return {}
+      if (method === "tools/list") return { tools: [] }
+      return { content: [{ type: "text", text: "甲" }, { type: "image", text: "x" }, "raw", { type: "text", text: 1 }] }
+    })
+    const connector = new RealMcpConnector(config)
+    const mixed = await connector.call(
+      { serverId: "graph", serverName: "图谱 MCP", toolName: "query_graph", nikoBuddyToolName: "mcp_graph_query_graph" },
+      {},
+    )
+    expect(mixed.content).toBe("甲")
+
+    clientMocks.call.mockImplementation(async (method: string) => {
+      if (method === "initialize") return {}
+      if (method === "tools/list") return { tools: [] }
+      if (method === "tools/call") return "plain-string"
+      return {}
+    })
+    const connector2 = new RealMcpConnector(config)
+    const plain = await connector2.call(
+      { serverId: "graph", serverName: "图谱 MCP", toolName: "query_graph", nikoBuddyToolName: "mcp_graph_query_graph" },
+      {},
+    )
+    expect(plain.content).toBe("plain-string")
+
+    clientMocks.call.mockImplementation(async (method: string) => {
+      if (method === "initialize") return {}
+      if (method === "tools/list") return { tools: [] }
+      if (method === "tools/call") return { text: "快捷文本" }
+      return {}
+    })
+    const connector3 = new RealMcpConnector(config)
+    const shortcut = await connector3.call(
+      { serverId: "graph", serverName: "图谱 MCP", toolName: "query_graph", nikoBuddyToolName: "mcp_graph_query_graph" },
+      {},
+    )
+    expect(shortcut.content).toBe("快捷文本")
+  })
+
+  it("extractMcpText 空数组回退序列化；循环引用回退 String()", async () => {
+    clientMocks.call.mockImplementation(async (method: string) => {
+      if (method === "initialize") return {}
+      if (method === "tools/list") return { tools: [] }
+      if (method === "tools/call") return { content: [] }
+      return {}
+    })
+    const connector = new RealMcpConnector(config)
+    const empty = await connector.call(
+      { serverId: "graph", serverName: "图谱 MCP", toolName: "query_graph", nikoBuddyToolName: "mcp_graph_query_graph" },
+      {},
+    )
+    expect(empty.content).toBe("{\"content\":[]}")
+
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    clientMocks.call.mockImplementation(async (method: string) => {
+      if (method === "initialize") return {}
+      if (method === "tools/list") return { tools: [] }
+      if (method === "tools/call") return circular
+      return {}
+    })
+    const connector2 = new RealMcpConnector(config)
+    const circ = await connector2.call(
+      { serverId: "graph", serverName: "图谱 MCP", toolName: "query_graph", nikoBuddyToolName: "mcp_graph_query_graph" },
+      {},
+    )
+    expect(circ.content).toBe("[object Object]")
+  })
+
+  it("normalizeRemoteSchema 合规 properties/required 透传（含非字符串过滤）", async () => {
+    clientMocks.call.mockImplementation(async (method: string) => {
+      if (method === "initialize") return {}
+      if (method === "tools/list") {
+        return {
+          tools: [{
+            name: "query_graph",
+            description: "远端描述",
+            inputSchema: { type: "object", properties: { q: { type: "string" } }, required: ["q", 1] },
+          }],
+        }
+      }
+      return {}
+    })
+    const connector = new RealMcpConnector(config)
+    await connector.ensureConnected("graph")
+    const merged = connector.mergeRemoteTools("graph", config.servers[0].tools)
+    expect(merged[0].inputSchema).toEqual({
+      type: "object",
+      properties: { q: { type: "string" } },
+      required: ["q"],
+    })
+  })
+
+  it("normalizeRemoteSchema 非法 inputSchema 回退本地", async () => {
+    clientMocks.call.mockImplementation(async (method: string) => {
+      if (method === "initialize") return {}
+      if (method === "tools/list") {
+        return {
+          tools: [{ name: "query_graph", description: "   ", inputSchema: { title: "x" } }],
+        }
+      }
+      return {}
+    })
+    const connector = new RealMcpConnector(config)
+    await connector.ensureConnected("graph")
+    const merged = connector.mergeRemoteTools("graph", config.servers[0].tools)
+    // 空白远端描述回落本地；非法 schema（缺 type:object）回落本地
+    expect(merged[0].description).toBe("查询图谱")
+    expect(merged[0].inputSchema).toEqual({ type: "object" })
+  })
+})

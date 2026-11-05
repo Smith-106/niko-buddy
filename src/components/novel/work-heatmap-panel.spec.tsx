@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** 动态工作热力图面板：只读渲染 + 进度指针 + 空态/错误态 + 暂无声明三条。 */
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import { WorkHeatmapPanel } from "./work-heatmap-panel"
 import { projectWorkHeatmap } from "@/lib/novel"
@@ -98,5 +98,131 @@ describe("装载器：错误态不覆盖数据、null 给显式空态文案", ()
     await waitFor(() => {
       expect(screen.getByTestId("work-heatmap-error").textContent).toContain("读不到")
     })
+  })
+})
+
+describe("覆盖补齐：状态文案/兜底文案/色阶/装载路径", () => {
+  it("statusPlain 全映射：paused/failed/error/done/completed/未知", () => {
+    const cases: Array<[string | null, string]> = [
+      ["paused", "已暂停"],
+      ["failed", "失败"],
+      ["error", "失败"],
+      ["done", "完成"],
+      ["completed", "完成"],
+      ["weird-state", "已记录"],
+    ]
+    for (const [status, plain] of cases) {
+      const { unmount } = render(
+        <WorkHeatmapPanel
+          input={{ status, activeStepIndex: null, currentChapterNumber: null, updatedAt: null }}
+          refreshMs={0}
+        />,
+      )
+      expect(screen.getByTestId("work-heatmap-progress").textContent).toContain(plain)
+      unmount()
+      cleanup()
+    }
+  })
+
+  it("naPlain/missingPlain 兜底：未知 id → 不适用/缺资料", () => {
+    const base = projection()
+    render(
+      <WorkHeatmapPanel
+        projection={{
+          ...base,
+          notApplicable: [{ id: "mystery-dim", label: "神秘维度", reason: "r" }],
+          missingSources: ["some-other-source"],
+        }}
+        refreshMs={0}
+      />,
+    )
+    expect(screen.getByTestId("work-heatmap-na-mystery-dim").textContent).toContain("不适用")
+    expect(screen.getByTestId("work-heatmap-missing").textContent).toContain("缺资料")
+  })
+
+  it("色阶：0.25–0.5 → /45，<0.25 → /30", () => {
+    const base = projection()
+    const cell = (bucketIndex: number, count: number) => ({
+      stage: "write_llm",
+      bucketIndex,
+      count,
+      tokenCost: null as number | null,
+      latencyMs: null as number | null,
+      partialCount: 0,
+    })
+    render(
+      <WorkHeatmapPanel
+        projection={{
+          ...base,
+          maxCount: 100,
+          rows: [
+            {
+              stage: "write_llm",
+              cells: [cell(0, 30), cell(1, 10)],
+              count: 40,
+              tokenCost: null,
+              latencyMs: null,
+              partialCount: 0,
+            },
+          ],
+        }}
+        refreshMs={0}
+      />,
+    )
+    expect(screen.getByTestId("work-heatmap-cell-write_llm-0").className).toContain("bg-success/45")
+    expect(screen.getByTestId("work-heatmap-cell-write_llm-1").className).toContain("bg-success/30")
+  })
+
+  it("无时间戳条目 → undated 单列（不进时间轴）", () => {
+    const base = projection()
+    render(
+      <WorkHeatmapPanel projection={{ ...base, undated: [{ stage: "write_llm", count: 2 }] }} refreshMs={0} />,
+    )
+    expect(screen.getByTestId("work-heatmap-undated").textContent).toContain("2 条")
+  })
+
+  it("缺省装载器：经 projectPath 读 status（失败 → 显式读不到文案）", async () => {
+    // 不传 projection/input/loader：走 wiki-store project + 真实 loadNovelSessionStatus
+    render(<WorkHeatmapPanel refreshMs={0} />)
+    await waitFor(() => {
+      expect(screen.getByTestId("work-heatmap-error").textContent).toContain("读不到写作状态")
+    })
+  })
+
+  it("立即刷新按钮：点击触发重读", async () => {
+    const loader = vi.fn(async () => ({ status: "running" as const }))
+    render(<WorkHeatmapPanel loader={loader} refreshMs={0} />)
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByTestId("work-heatmap-refresh"))
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(2))
+  })
+
+  it("轮询：refreshMs>0 按周期重读，可见性变化即时刷新，卸载清定时器", async () => {
+    vi.useFakeTimers()
+    try {
+      const loader = vi.fn(async () => ({ status: "running" as const }))
+      const { unmount } = render(<WorkHeatmapPanel loader={loader} refreshMs={50} />)
+      expect(loader).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(120)
+      expect(loader.mock.calls.length).toBeGreaterThanOrEqual(3)
+      // 页面重新可见 → 立即刷新一次（onVisible 分支）
+      Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
+      document.dispatchEvent(new Event("visibilitychange"))
+      await vi.advanceTimersByTimeAsync(0)
+      const afterVisible = loader.mock.calls.length
+      expect(afterVisible).toBeGreaterThanOrEqual(4)
+      // 页面隐藏 → 周期 tick 跳过（hidden 早退分支）
+      Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
+      await vi.advanceTimersByTimeAsync(120)
+      expect(loader.mock.calls.length).toBe(afterVisible)
+      Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
+      const calls = loader.mock.calls.length
+      unmount()
+      await vi.advanceTimersByTimeAsync(200)
+      expect(loader.mock.calls.length).toBe(calls)
+    } finally {
+      vi.useRealTimers()
+    }
+    cleanup()
   })
 })

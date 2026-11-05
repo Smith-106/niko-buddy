@@ -4,6 +4,7 @@ import { resolve } from "node:path"
 import {
   OUTLINE_MODEL_SCHEMA_VERSION,
   computeOutlineModelDigest,
+  emptyOutlineModel,
   findOutlineChapter,
   flattenOutlineChapters,
   normalizeOutlineModel,
@@ -934,5 +935,117 @@ describe("outline-model 置信度取值范围与单调性（N-05 可保部分）
     }
     // 全空不得与全满同分（否则量化信号彻底失效）。
     expect(scores[scores.length - 1]).toBeGreaterThan(scores[0])
+  })
+})
+
+describe("outline-model 覆盖增补：parseOutlineChapterId 非有限数与空骨架", () => {
+  it("超大数字溢出 Infinity → null（Number.isFinite 守卫）", () => {
+    expect(parseOutlineChapterId(`v${"9".repeat(400)}c001`)).toBeNull()
+  })
+
+  it("非法锚点返回 null", () => {
+    expect(parseOutlineChapterId("nope")).toBeNull()
+    expect(parseOutlineChapterId("v1c001")).toBeNull()
+  })
+
+  it("emptyOutlineModel 返回带版本号的空骨架", () => {
+    const model = emptyOutlineModel("2026-11-01")
+    expect(model.schemaVersion).toBe(OUTLINE_MODEL_SCHEMA_VERSION)
+    expect(model.volumes).toEqual([])
+    expect(model.updatedAt).toBe("2026-11-01")
+    expect(validateOutlineModel(model).ok).toBe(true)
+  })
+})
+
+describe("outline-model 覆盖增补：validateOutlineModel 全坏模型一次收齐", () => {
+  it("根节点非对象直接拒收", () => {
+    for (const bad of [null, undefined, "oops", 42, []]) {
+      const res = validateOutlineModel(bad as unknown as OutlineModel)
+      expect(res.ok).toBe(false)
+      expect(res.issues).toEqual(["模型根节点不是对象"])
+    }
+  })
+
+  it("volumes 非数组早退（R-03 TypeError 源）", () => {
+    const res = validateOutlineModel({ schemaVersion: 2, volumes: "x", updatedAt: "t" } as unknown as OutlineModel)
+    expect(res.ok).toBe(false)
+    expect(res.issues).toContain("volumes 不是数组")
+  })
+
+  it("全坏模型收集全部问题而不抛异常", () => {
+    const bad = {
+      schemaVersion: "2",
+      volumes: [
+        null,
+        { number: 0, title: 123, arc: null, chapters: "x" },
+        {
+          number: 1,
+          title: "t",
+          arc: "a",
+          chapters: [
+            null,
+            {
+              id: "nope",
+              volume: 2,
+              chapter: 0,
+              title: 5,
+              entities: [1],
+              constraints: "x",
+              pov: 1,
+              arc: null,
+              prose: "oops",
+              foreshadow: 42,
+            },
+            {
+              id: "v01c002",
+              volume: 1,
+              chapter: 2,
+              title: "ok",
+              entities: [],
+              constraints: [],
+              pov: "",
+              arc: "",
+              prose: { goal: 1, scenes: [2], emotion: null },
+              foreshadow: { plant: [3], payoff: "p" },
+            },
+          ],
+        },
+        { number: 1, title: "dup", arc: "a", chapters: [] },
+      ],
+      updatedAt: "t",
+    } as unknown as OutlineModel
+    let res: ReturnType<typeof validateOutlineModel> | undefined
+    expect(() => {
+      res = validateOutlineModel(bad)
+    }).not.toThrow()
+    expect(res!.ok).toBe(false)
+    const joined = res!.issues.join("\n")
+    for (const needle of [
+      "schemaVersion 缺失或非数字",
+      "卷节点不是对象",
+      "卷号非法：0",
+      "卷 0 的 title 必须是字符串",
+      "卷 0 的 arc 必须是字符串",
+      "卷 0 的 chapters 不是数组",
+      "章节点不是对象",
+      "章号非法：v1c0",
+      "id 与卷章号不一致：nope",
+      "章归属卷号不一致：nope 声明 2，实际在 1",
+      "章标题类型非法：v1c0",
+      "v1c0 的 entities 必须是 string[]",
+      "v1c0 的 constraints 必须是 string[]",
+      "v1c0 的 pov 必须是字符串",
+      "v1c0 的 arc 必须是字符串",
+      "v1c0 的 prose 必须是对象",
+      "v1c0 的 foreshadow 必须是对象",
+      "v1c2 的 prose.goal 必须是字符串",
+      "v1c2 的 prose.scenes 必须是 string[]",
+      "v1c2 的 prose.emotion 必须是字符串",
+      "v1c2 的 foreshadow.plant 必须是 string[]",
+      "v1c2 的 foreshadow.payoff 必须是 string[]",
+      "卷号重复：1",
+    ]) {
+      expect(joined).toContain(needle)
+    }
   })
 })

@@ -445,6 +445,20 @@ describe("CameraFocusController — 覆盖补齐", () => {
     expect(animate).toHaveBeenCalledTimes(2)
     expect(animate).toHaveBeenLastCalledWith({ x: 99, y: 20, ratio: 0.25 }, { duration: 250 })
   })
+
+  it("容器重建瞬间 getGraph 抛错时跳过本次飞入不崩", () => {
+    animate = vi.fn()
+    sigmaState.sigmaImpl = {
+      getContainer: () => document.createElement("div"),
+      refresh: vi.fn(),
+      getGraph: () => {
+        throw new Error("remounting")
+      },
+      getCamera: () => ({ animate }),
+    }
+    expect(() => render(<CameraFocusController targetNodeId="a" nonce={1} />)).not.toThrow()
+    expect(animate).not.toHaveBeenCalled()
+  })
 })
 
 describe("HighlightManager — 覆盖补齐", () => {
@@ -543,6 +557,78 @@ describe("EventHandler — 覆盖补齐", () => {
     fireHandler("leaveNode", {})
     expect(graph.getNodeAttribute("a", "hovering")).toBeUndefined()
     expect(graph.getNodeAttribute("c", "dimmed")).toBeUndefined()
+  })
+
+  it("触摸拖拽移动节点；空触摸与回退触摸分支", () => {
+    const container = document.createElement("div")
+    const graph = new Graph()
+    graph.addNode("a", { x: 0, y: 0 })
+    const refresh = vi.fn()
+    sigmaState.sigmaImpl = {
+      getContainer: () => container,
+      refresh,
+      getGraph: () => graph,
+      getCamera: () => ({ animate: vi.fn() }),
+      viewportToGraph: (p: { x: number; y: number }) => ({ x: p.x, y: p.y }),
+      setSetting: vi.fn(),
+    }
+    render(<EventHandler onNodeClick={vi.fn()} onNodeDoubleClick={vi.fn()} onNodeContextMenu={vi.fn()} />)
+    fireHandler("downNode", {
+      node: "a",
+      event: { original: { button: 0, preventDefault: vi.fn() } },
+      preventSigmaDefault: vi.fn(),
+    })
+    // 主触摸点移动节点
+    fireHandler("touchmovebody", { touches: [{ x: 5, y: 6 }], previousTouches: [] })
+    expect(graph.getNodeAttribute("a", "x")).toBe(5)
+    expect(graph.getNodeAttribute("a", "y")).toBe(6)
+    // 主触摸缺席时回退 previousTouches
+    fireHandler("touchmovebody", { touches: [], previousTouches: [{ x: 7, y: 8 }] })
+    expect(graph.getNodeAttribute("a", "x")).toBe(7)
+    // 双空不移动也不崩
+    fireHandler("touchmovebody", { touches: [], previousTouches: [] })
+    expect(graph.getNodeAttribute("a", "x")).toBe(7)
+    fireHandler("touchup", {})
+    // 拖拽结束清除 dragging 标记并恢复画布指针
+    expect(graph.getNodeAttribute("a", "dragging")).toBeUndefined()
+    expect(container.style.cursor).toBe("default")
+  })
+
+  it("拖拽中点击画布空白被吞；结束后恢复直达", () => {
+    const container = document.createElement("div")
+    const graph = new Graph()
+    graph.addNode("a", { x: 0, y: 0 })
+    const refresh = vi.fn()
+    const onStageClick = vi.fn()
+    sigmaState.sigmaImpl = {
+      getContainer: () => container,
+      refresh,
+      getGraph: () => graph,
+      getCamera: () => ({ animate: vi.fn() }),
+      viewportToGraph: (p: { x: number; y: number }) => ({ x: p.x, y: p.y }),
+      setSetting: vi.fn(),
+    }
+    render(
+      <EventHandler
+        onNodeClick={vi.fn()}
+        onNodeDoubleClick={vi.fn()}
+        onNodeContextMenu={vi.fn()}
+        onStageClick={onStageClick}
+      />,
+    )
+    fireHandler("downNode", {
+      node: "a",
+      event: { original: { button: 0, preventDefault: vi.fn() } },
+      preventSigmaDefault: vi.fn(),
+    })
+    fireHandler("touchmovebody", { touches: [{ x: 3, y: 4 }], previousTouches: [] })
+    // 拖拽标记未清：空白点击被吞，不透出 onStageClick
+    fireHandler("clickStage", {})
+    expect(onStageClick).not.toHaveBeenCalled()
+    fireHandler("touchup", {})
+    // 标记已复位：空白点击直达
+    fireHandler("clickStage", {})
+    expect(onStageClick).toHaveBeenCalledTimes(1)
   })
 })
 

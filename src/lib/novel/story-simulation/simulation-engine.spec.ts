@@ -9,7 +9,10 @@ import type {
   TimelineEvent,
 } from "@/lib/novel/story-simulation/types"
 import type { SimulationCallbacks, SimulationTelemetry } from "@/lib/novel/story-simulation/simulation-engine"
+import type { StagedEventPool } from "@/lib/novel/story-simulation/event-pool-generator"
 import {
+  generateRandomEvent,
+  isNodeGoalReached,
   isNodeGoalReachedWithEmbedding,
   runSimulation,
 } from "@/lib/novel/story-simulation/simulation-engine"
@@ -2158,5 +2161,77 @@ describe("simulation-engine：第二轮增补（剩余可达分支）", () => {
     } finally {
       resetStreamToEmpty()
     }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 覆盖率战役增补（本轮）：generateRandomEvent 纯数组分支 + isNodeGoalReached
+// 最大轮次分支。只增补，不动原有用例。generateRandomEvent / isNodeGoalReached
+// 本轮新增具名导出（零语义变更，纯可测性导出）。
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("simulation-engine：generateRandomEvent 纯数组分支（增补）", () => {
+  it("单元素字符串池：命中唯一可用下标并返回 usedIndex", () => {
+    const out = generateRandomEvent(["唯一池事件"])
+    expect(out.usedIndex).toBe(0)
+    expect(out.usedEventId).toBeUndefined()
+    expect(out.event).not.toBeNull()
+    expect(out.event?.message).toContain("唯一池事件")
+  })
+
+  it("字符串池跳过已用下标（has 真分支）", () => {
+    const out = generateRandomEvent(["A事件", "B事件"], new Set([0]))
+    expect(out.usedIndex).toBe(1)
+    expect(out.event?.message).toContain("B事件")
+  })
+
+  it("字符串池耗尽（全部已用）→ 回退内置 RANDOM_EVENTS", () => {
+    const out = generateRandomEvent(["唯一事件"], new Set([0]))
+    expect(out.usedIndex).toBeUndefined()
+    expect(out.event?.message?.startsWith("【随机事件】")).toBe(true)
+    expect(out.event?.message).not.toContain("唯一事件")
+  })
+
+  it("空字符串池 → 回退内置 RANDOM_EVENTS", () => {
+    const out = generateRandomEvent([])
+    expect(out.usedIndex).toBeUndefined()
+    expect(out.event?.message?.startsWith("【随机事件】")).toBe(true)
+  })
+
+  it("分阶段池缺节点上下文 → 按 all 文本走纯数组分支", () => {
+    const staged = {
+      byStage: { setup: [], rising: [], climax: [], resolution: [] },
+      all: [{ id: "s1", text: "序幕异象", stage: "setup" }],
+    } as unknown as StagedEventPool
+    const out = generateRandomEvent(staged)
+    expect(out.usedIndex).toBe(0)
+    expect(out.event?.message).toContain("序幕异象")
+  })
+})
+
+describe("simulation-engine：isNodeGoalReached 启发式全分支（增补）", () => {
+  const node = makeNode(0, "开端", ["甲"])
+
+  it("达到最大轮次直接 true（454 行）", () => {
+    expect(isNodeGoalReached(node, [], 3, 2)).toBe(true)
+    expect(isNodeGoalReached(node, [], 5, 4)).toBe(true)
+    // 未达最大轮次且无事件 → false（守卫假分支）
+    expect(isNodeGoalReached(node, [], 5, 0)).toBe(false)
+  })
+
+  it("2 个 pushPlot 即 true", () => {
+    const events = [
+      makeTlEvent({ actionType: "pushPlot" }),
+      makeTlEvent({ actionType: "pushPlot" }),
+    ]
+    expect(isNodeGoalReached(node, events, 9, 0)).toBe(true)
+  })
+
+  it("6 事件即 true；1 事件则 false", () => {
+    const six = Array.from({ length: 6 }, (_, i) =>
+      makeTlEvent({ id: `g${i}`, content: `事件${i}` }),
+    )
+    expect(isNodeGoalReached(node, six, 9, 0)).toBe(true)
+    expect(isNodeGoalReached(node, [makeTlEvent()], 9, 0)).toBe(false)
   })
 })

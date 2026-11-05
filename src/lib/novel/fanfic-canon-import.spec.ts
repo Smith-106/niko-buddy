@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   bookRulesToPromptFragment,
   fanficPolicyFromRules,
@@ -6,8 +6,28 @@ import {
   bookRulesWithAuDeviations,
   type BookRules,
 } from "./book-rules"
-import { proposeCanonMerge } from "./fanfic-canon-import"
+import {
+  fanficMergePendingPath,
+  loadFanficMergeProposal,
+  proposeCanonMerge,
+  saveFanficMergeProposal,
+  type CanonMergeProposal,
+} from "./fanfic-canon-import"
 import type { BookAnalysisLibraryBook } from "./book-analysis/library-state"
+
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+    createDirectory: vi.fn(async () => undefined),
+    readFile: vi.fn(async () => {
+      throw new Error("ENOENT")
+    }),
+    writeFileAtomic: vi.fn(async () => undefined),
+  }
+})
+
+import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 
 function rules(overrides: Partial<BookRules> = {}): BookRules {
   return {
@@ -154,5 +174,102 @@ describe("fanfic-canon-import (64 号实施：P0-3 正典合并导入器)", () =
     const snapshot = JSON.stringify(book)
     proposeCanonMerge({ source: book, targetNames: ["李四"], rules: rules() })
     expect(JSON.stringify(book)).toBe(snapshot)
+  })
+})
+
+describe("fanfic-canon-import 覆盖补齐：cp 群像保护 + pending 工件 IO", () => {
+  function trioBook(): BookAnalysisLibraryBook {
+    const base = {
+      id: "book-3",
+      path: "/books/3",
+      metadata: {} as never,
+      skills: [],
+      styleStatus: "missing",
+      boundAurasCount: 0,
+      addedAuraCharacterIds: [],
+      recognizedCharacters: [],
+    }
+    const char = (id: string, name: string) => ({
+      id,
+      name,
+      aliases: [] as string[],
+      importance: 3,
+      category: "supporting",
+      firstAppearance: 1,
+      lastAppearance: 5,
+      appearanceCount: 4,
+      description: "",
+      personality: "",
+      speechStyle: "",
+      relationships: [],
+      keyEvents: [],
+    })
+    return { ...base, characters: [char("c1", "阿甲"), char("c2", "阿乙"), char("c3", "阿丙")] } as unknown as BookAnalysisLibraryBook
+  }
+
+  it("cp 模式 + 源书 3 名角色 → cp_third_wheel 冲突（warn，不单独 violate）", () => {
+    const proposal = proposeCanonMerge({ source: trioBook(), targetNames: [], rules: rules({ fanficMode: "cp" }) })
+    expect(proposal.mode).toBe("cp")
+    expect(proposal.conflicts.some((c) => c.code === "cp_third_wheel")).toBe(true)
+    expect(proposal.conflicts.find((c) => c.code === "cp_third_wheel")?.message).toContain("3 名角色")
+    // 三名互不重名 → 全部 create_new（无 skip 误杀）
+    expect(proposal.characters.every((c) => c.action === "create_new")).toBe(true)
+  })
+
+  it("cp 模式 + 仅 2 名角色 → 不报 third_wheel（群像阈值 3）", () => {
+    const book = trioBook()
+    book.characters = book.characters.slice(0, 2)
+    const proposal = proposeCanonMerge({ source: book, targetNames: [], rules: rules({ fanficMode: "cp" }) })
+    expect(proposal.conflicts.some((c) => c.code === "cp_third_wheel")).toBe(false)
+  })
+
+  it("非 cp 模式 + 3 名角色 → 不报 third_wheel（canon 不走配对判定）", () => {
+    const proposal = proposeCanonMerge({ source: trioBook(), targetNames: [], rules: rules({ fanficMode: "canon" }) })
+    expect(proposal.conflicts).toEqual([])
+  })
+
+  it("fanficMergePendingPath 落 .novel/fanfic-merge-pending.json", () => {
+    expect(fanficMergePendingPath("/p/book")).toBe("/p/book/.novel/fanfic-merge-pending.json")
+  })
+
+  it("save + load 往返：落盘内容可读回（目录创建 + 原子写）", async () => {
+    const store = new Map<string, string>()
+    vi.mocked(createDirectory).mockResolvedValueOnce(undefined)
+    vi.mocked(writeFileAtomic).mockImplementationOnce(async (p: string, c: string) => {
+      store.set(p, c)
+    })
+    vi.mocked(readFile).mockImplementationOnce(async (p: string) => {
+      const hit = store.get(p)
+      if (hit === undefined) throw new Error("ENOENT")
+      return hit
+    })
+    const proposal: CanonMergeProposal = {
+      sourceBookId: "book-9",
+      mode: "canon",
+      characters: [{ sourceId: "c1", canonicalName: "林晚", aliases: ["晚晚"], action: "bind_existing" }],
+      conflicts: [],
+    }
+    await saveFanficMergeProposal("/p/book", proposal)
+    expect(createDirectory).toHaveBeenCalledWith("/p/book/.novel")
+    expect(writeFileAtomic).toHaveBeenCalledWith("/p/book/.novel/fanfic-merge-pending.json", expect.stringContaining("book-9"))
+    const back = await loadFanficMergeProposal("/p/book")
+    expect(back).toEqual(proposal)
+  })
+
+  it("load 缺失 → null（不抛）", async () => {
+    vi.mocked(readFile).mockRejectedValueOnce(new Error("ENOENT"))
+    await expect(loadFanficMergeProposal("/p/book")).resolves.toBeNull()
+  })
+
+  it("load 损坏 JSON → null（不抛）", async () => {
+    vi.mocked(readFile).mockResolvedValueOnce("not-json{{{")
+    await expect(loadFanficMergeProposal("/p/book")).resolves.toBeNull()
+  })
+
+  it("load 形状非法（缺 sourceBookId/characters 非数组）→ null", async () => {
+    vi.mocked(readFile).mockResolvedValueOnce(JSON.stringify({ sourceBookId: "", characters: [] }))
+    await expect(loadFanficMergeProposal("/p/book")).resolves.toBeNull()
+    vi.mocked(readFile).mockResolvedValueOnce(JSON.stringify({ sourceBookId: "b", characters: {} }))
+    await expect(loadFanficMergeProposal("/p/book")).resolves.toBeNull()
   })
 })

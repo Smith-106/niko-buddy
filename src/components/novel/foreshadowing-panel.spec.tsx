@@ -7,7 +7,7 @@
 import { act } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
-import { render, screen, waitFor } from "@/test-helpers/component-test-utils"
+import { fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
 import type { ForeshadowingStore } from "@/lib/novel"
 
 const tMock = vi.hoisted(() => ({
@@ -234,5 +234,56 @@ describe("ForeshadowingPanel", () => {
     expect(badge.textContent).toContain("林逸")
     expect(badge.textContent).toContain("苏晓")
     expect(screen.queryByTestId("foreshadow-related-f2")).not.toBeInTheDocument()
+  })
+})
+
+
+describe("W1 补强：范围筛选与章节跳转", () => {
+  it("范围起输入过滤伏笔列表（planted/advanced/resolved 任一命中即保留）", async () => {
+    render(<ForeshadowingPanel />)
+    await screen.findByText("玉牌")
+    // 默认 store：玉牌 planted 2；旧友 planted 5/advanced 6；密信 planted 1/resolved 12
+    fireEvent.change(screen.getByPlaceholderText("1"), { target: { value: "6" } })
+    // 玉牌（仅 planted 2）被滤掉；旧友（advanced 6 命中）与密信（resolved 12 命中）保留
+    await waitFor(() => expect(screen.queryByText("玉牌")).not.toBeInTheDocument())
+    expect(screen.getByText("旧友")).toBeInTheDocument()
+    expect(screen.getByText("密信")).toBeInTheDocument()
+  })
+
+  it("范围止输入过滤（to 上限）", async () => {
+    render(<ForeshadowingPanel />)
+    await screen.findByText("玉牌")
+    fireEvent.change(screen.getByPlaceholderText("∞"), { target: { value: "2" } })
+    // 旧友（最小相关章 5）被滤掉；玉牌 planted 2 与密信 planted 1 保留
+    await waitFor(() => expect(screen.queryByText("旧友")).not.toBeInTheDocument())
+    expect(screen.getByText("玉牌")).toBeInTheDocument()
+    expect(screen.getByText("密信")).toBeInTheDocument()
+  })
+
+  it("点击 planted/resolved 章按钮 → 打开对应章节文件（setSelectedFile）", async () => {
+    const utils = await import("@/lib/novel/chapter-utils")
+    const spy = vi.spyOn(utils, "findChapterFileByNumber").mockResolvedValue("E:/Novel/ch02.md")
+    const setSelectedFile = vi.fn()
+    ;(wiki.state as unknown as Record<string, unknown>).setSelectedFile = setSelectedFile
+    try {
+      render(<ForeshadowingPanel />)
+      await screen.findByText("玉牌")
+      fireEvent.click(screen.getAllByText(/novel.foreshadowing.plantedAt/)[0])
+      await waitFor(() => expect(setSelectedFile).toHaveBeenCalledWith("E:/Novel/ch02.md"))
+      expect(spy).toHaveBeenCalledWith("E:/Novel", 2)
+      fireEvent.click(screen.getByText(/novel.foreshadowing.resolvedAt/))
+      await waitFor(() => expect(spy).toHaveBeenCalledWith("E:/Novel", 12))
+    } finally {
+      spy.mockRestore()
+      delete (wiki.state as unknown as Record<string, unknown>).setSelectedFile
+    }
+  })
+
+  it("章节文件不存在时点击不崩溃（path null → 静默跳过）", async () => {
+    // 真实 findChapterFileByNumber 在 E:/Novel 上返回 null（目录不存在）
+    render(<ForeshadowingPanel />)
+    await screen.findByText("玉牌")
+    fireEvent.click(screen.getAllByText(/novel.foreshadowing.plantedAt/)[0])
+    await waitFor(() => expect(screen.getByText("玉牌")).toBeInTheDocument())
   })
 })

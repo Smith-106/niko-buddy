@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest"
 import {
   bookRulesToPromptFragment,
+  bookRulesWithAuDeviations,
   EMPTY_BOOK_RULES,
   validateAgainstBookRules,
+  validateFanficChapter,
   type BookRules,
 } from "./book-rules"
 
@@ -88,5 +90,97 @@ describe("book-rules（吸收自 inkos models/book-rules 治理约束模式）",
     expect(frag).toContain("林澈 性格锁：外冷内热")
     expect(frag).toContain("时代约束")
     expect(bookRulesToPromptFragment(EMPTY_BOOK_RULES)).toBe("")
+  })
+})
+
+
+describe("W1 补强：validateFanficChapter 同人四模式", () => {
+  const base: BookRules = {
+    version: "1.0",
+    protagonist: {
+      name: "林澈",
+      personalityLock: ["外冷内热"],
+      behavioralConstraints: ["不杀降者"],
+    },
+    prohibitions: [],
+    allowedDeviations: [],
+  }
+
+  it("canon 模式：正典人设锁被否定改写 → fanfic_canon_lock error", () => {
+    const rules: BookRules = { ...base, fanficMode: "canon" }
+    const r = validateFanficChapter(rules, "林澈外冷内热的面具碎了，他不再外冷内热。", ["林澈"])
+    expect(r.verdict).toBe("violate")
+    expect(r.findings.some((f) => f.code === "fanfic_canon_lock" && f.severity === "error")).toBe(true)
+  })
+
+  it("canon 模式：无人设否定改写 → comply", () => {
+    const rules: BookRules = { ...base, fanficMode: "canon" }
+    const r = validateFanficChapter(rules, "林澈外冷内热，一言不发。", ["林澈"])
+    expect(r.verdict).toBe("comply")
+    expect(r.findings).toEqual([])
+  })
+
+  it("ooc 模式：命中性格锁且无标记 → error；有标记 → comply", () => {
+    const rules: BookRules = { ...base, fanficMode: "ooc" }
+    const bad = validateFanficChapter(rules, "林澈外冷内热。", ["林澈"])
+    expect(bad.verdict).toBe("violate")
+    expect(bad.findings.some((f) => f.code === "fanfic_ooc_unmarked")).toBe(true)
+    const ok = validateFanficChapter(rules, "（OOC）林澈外冷内热。", ["林澈"])
+    expect(ok.verdict).toBe("comply")
+    expect(ok.findings.some((f) => f.code === "fanfic_ooc_unmarked")).toBe(false)
+  })
+
+  it("cp 模式：未配置 pairing 时只跑词面基线（不抛错）", () => {
+    const rules: BookRules = { ...base, fanficMode: "cp" }
+    const r = validateFanficChapter(rules, "林澈与苏遥并肩而立。", ["林澈", "苏遥"])
+    expect(r.verdict).toBe("comply")
+  })
+
+  it("au 模式：词面基线不受影响", () => {
+    const rules: BookRules = { ...base, fanficMode: "au" }
+    const r = validateFanficChapter(rules, "林澈外冷内热。", ["林澈"])
+    expect(r.verdict).toBe("comply")
+  })
+
+  it("无 fanficMode 时等价词面基线（policy 默认 canon 但无 protagonist 断言）", () => {
+    const rules: BookRules = { ...base, fanficMode: undefined, prohibitions: ["主角死亡"] }
+    const r = validateFanficChapter(rules, "本章主角死亡。", ["林澈"])
+    expect(r.verdict).toBe("violate")
+    expect(r.findings.some((f) => f.code === "prohibition_hit")).toBe(true)
+  })
+})
+
+describe("W1 补强：bookRulesWithAuDeviations 白名单并入", () => {
+  it("非 au 模式原样返回同一引用", () => {
+    const rules: BookRules = { version: "1.0", prohibitions: [], allowedDeviations: [] }
+    expect(bookRulesWithAuDeviations(rules)).toBe(rules)
+  })
+
+  it("au 模式合并后返回新对象（不得修改入参）", () => {
+    const rules: BookRules = { version: "1.0", prohibitions: [], allowedDeviations: ["预言之梦"], fanficMode: "au" }
+    const merged = bookRulesWithAuDeviations(rules)
+    expect(merged).not.toBe(rules)
+    expect(merged.fanficMode).toBe("au")
+    expect(merged.allowedDeviations).toContain("预言之梦")
+    expect(rules.allowedDeviations).toEqual(["预言之梦"])
+  })
+})
+
+describe("W1 补强：bookRulesToPromptFragment 同人四模式渲染", () => {
+  const base: BookRules = { version: "1.0", prohibitions: [], allowedDeviations: [] }
+
+  it("canon/au/ooc/cp 各渲染对应段落", () => {
+    const canon = bookRulesToPromptFragment({ ...base, fanficMode: "canon" })
+    expect(canon).toContain("同人模式：canon")
+    expect(canon).toContain("正典名册锁")
+    expect(canon).toContain("全部既有角色")
+    const au = bookRulesToPromptFragment({ ...base, fanficMode: "au" })
+    expect(au).toContain("同人模式：au")
+    expect(au).toContain("AU 设定分叉")
+    const ooc = bookRulesToPromptFragment({ ...base, fanficMode: "ooc" })
+    expect(ooc).toContain("OOC 必须显式标注")
+    expect(ooc).toContain("(OOC)")
+    const cp = bookRulesToPromptFragment({ ...base, fanficMode: "cp" })
+    expect(cp).toContain("CP 配对双方须同时出现")
   })
 })

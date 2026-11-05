@@ -21,7 +21,18 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 })
 
 import { readFile } from "@/commands/fs"
-import { buildLibraryArtifact } from "@/lib/novel"
+import { buildLibraryArtifact, loadAssetLibrarySnapshot, CHANNELS } from "@/lib/novel"
+
+// 覆盖补齐：装载失败分支经 barrel 注入（默认透传真实实现，既有用例行为不变）。
+vi.mock("@/lib/novel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel")>()
+  return {
+    ...actual,
+    loadAssetLibrarySnapshot: vi.fn((...args: Parameters<typeof actual.loadAssetLibrarySnapshot>) =>
+      actual.loadAssetLibrarySnapshot(...args),
+    ),
+  }
+})
 import { GenreLibraryView } from "./genre-library-view"
 
 const readFileMock = vi.mocked(readFile)
@@ -127,5 +138,34 @@ describe("GenreLibraryView", () => {
     )
     expect(screen.getByTestId("genre-empty").textContent).toContain("未生成")
     expect(readFileMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("GenreLibraryView 覆盖补齐：空项目/装载抛错/兜底分支", () => {
+  it("projectPath 为空且无注入 → 诚实未生成（不读盘）", () => {
+    render(<GenreLibraryView projectPath="" />)
+    expect(screen.getByTestId("genre-empty")).toBeTruthy()
+    expect(readFileMock).not.toHaveBeenCalled()
+  })
+
+  it("快照装载抛错（非缺失，是装载器异常）→ 诚实未生成（不崩）", async () => {
+    vi.mocked(loadAssetLibrarySnapshot).mockRejectedValueOnce(new Error("store gone"))
+    render(<GenreLibraryView projectPath="C:/proj" />)
+    await waitFor(() => expect(screen.getByTestId("genre-empty")).toBeTruthy())
+    expect(screen.getByTestId("genre-empty").textContent).toContain("未生成")
+  })
+
+  it("CHANNELS 缺 male → 启动即抛 genre channels missing（静态数据漂移兜底）", () => {
+    const mutable = CHANNELS as unknown as unknown[]
+    const backup = [...mutable]
+    mutable.length = 0
+    try {
+      expect(() => render(<GenreLibraryView projectPath="C:/proj" snapshot={null} />)).toThrow(
+        "genre channels missing",
+      )
+    } finally {
+      mutable.push(...backup)
+    }
+    expect(CHANNELS.length).toBe(2)
   })
 })

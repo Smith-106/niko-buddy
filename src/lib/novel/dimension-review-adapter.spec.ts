@@ -22,6 +22,7 @@ import {
   verifyEvidenceCitations,
 } from "./dimension-review-adapter"
 import type { DimensionReviewResult, DimensionReviewStatus, SixReviewDimensionKey } from "./dimension-review-adapter"
+import type { DimensionConsensusOptions } from "./consensus-review"
 
 type UsableLlmConfig = Pick<LlmConfig, "provider" | "apiKey" | "model"> &
   Partial<Pick<LlmConfig, "customEndpoint" | "ollamaUrl">>
@@ -33,6 +34,19 @@ const mocks = vi.hoisted(() => ({
   novelModeValue: true,
   registerNovelSkillHookMock: vi.fn(),
   runNovelSkillHooksMock: vi.fn(),
+  resolveConsensusModelsMock: vi.fn<(models: string[]) => Array<{ model?: string }>>((models) =>
+    models.map((m) => ({ model: m })),
+  ),
+  runDimensionConsensusMock: vi.fn(async (_options: DimensionConsensusOptions) => ({
+    result: {
+      dimensionKey: "thrill",
+      score: 9,
+      status: "pass",
+      summary: "共识通过",
+      thinking: "共识思考",
+      issues: [],
+    },
+  })),
   loggerErrorMock: vi.fn(),
   loggerWarnMock: vi.fn(),
   llmConfig: {
@@ -124,6 +138,13 @@ vi.mock("@/lib/has-usable-llm", async (importOriginal) => {
 
 vi.mock("./model-resolver", () => ({
   resolveNovelModel: (config: LlmConfig) => config,
+  resolveConsensusModels: (...args: unknown[]) =>
+    (mocks.resolveConsensusModelsMock as (...a: unknown[]) => unknown)(...args),
+}))
+
+vi.mock("./consensus-review", () => ({
+  runDimensionConsensus: (...args: unknown[]) =>
+    (mocks.runDimensionConsensusMock as (...a: unknown[]) => unknown)(...args),
 }))
 
 vi.mock("@/lib/utils", async (importOriginal) => {
@@ -1200,5 +1221,265 @@ describe("summarizeScoringModels", () => {
       .toEqual({ models: [], hasUnknown: true, mixed: false })
     expect(summarizeScoringModels({ thrill: { model: "kiro-sonnet" }, pacing: {} }))
       .toEqual({ models: ["kiro-sonnet"], hasUnknown: true, mixed: true })
+  })
+})
+
+describe("dimensionResultsToReviewResults 举证扣减与档位下限", () => {
+  const issue = (over: Record<string, unknown> = {}) => ({
+    severity: "warning" as const,
+    type: "thrill",
+    dimensionKey: "thrill" as const,
+    message: "爽点不足",
+    evidence: "祠堂门缝里透出一线冷光",
+    relatedMemory: "",
+    suggestion: "补强释放",
+    impact: "",
+    rewriteTarget: "",
+    ...over,
+  })
+  const body = "雨夜。祠堂门缝里透出一线冷光，主角停下脚步。"
+
+  function dim(over: Record<string, unknown> = {}) {
+    return {
+      dimensionKey: "thrill" as const,
+      score: 4,
+      status: "medium" as const,
+      summary: "爽感不足",
+      thinking: "t",
+      issues: [issue()],
+      ...over,
+    }
+  }
+
+  it("举证通过但有效分落入硬伤档 → 该 issue 升 error（系统裁定）", () => {
+    const results = dimensionResultsToReviewResults({ thrill: dim() }, body)
+    expect(results).toHaveLength(1)
+    expect(results[0]!.severity).toBe("error")
+    // type 按门控分桶覆写（thrill → plot），可追溯维度见 message 前缀
+    expect(results[0]!.type).toBe("plot")
+  })
+
+  it("全部举证丢弃 + 评分档位不一致 → 补档位不一致 finding", () => {
+    const results = dimensionResultsToReviewResults(
+      { thrill: dim({ score: 9, status: "error" as const }) },
+      "毫不相关的正文",
+    )
+    const band = results.filter((r) => r.relatedMemory === "score-band")
+    expect(band).toHaveLength(1)
+    expect(band[0]!.severity).toBe("warning")
+    expect(band[0]!.message).toContain("评分与档位不一致")
+  })
+
+  it("零 issue 但有效分落入硬伤档 → 补 error 级 score-floor finding", () => {
+    const results = dimensionResultsToReviewResults({
+      thrill: dim({ score: 3, status: "error" as const, issues: [] }),
+    })
+    const floor = results.filter((r) => r.message.includes("落入硬伤档"))
+    expect(floor).toHaveLength(1)
+    expect(floor[0]!.severity).toBe("error")
+  })
+
+  it("全丢弃且空 summary → 回退 finding message 用维度 key", () => {
+    const results = dimensionResultsToReviewResults(
+      { thrill: dim({ score: 3, status: "error" as const, summary: "" }) },
+      "毫不相关的正文",
+    )
+    const floor = results.filter((r) => r.message.includes("落入硬伤档"))
+    expect(floor).toHaveLength(1)
+    expect(floor[0]!.message).toContain("[thrill]")
+  })
+
+  it("零 issue 空 summary → score-floor message 用维度 key", () => {
+    const results = dimensionResultsToReviewResults({
+      thrill: dim({ score: 3, status: "error" as const, issues: [], summary: "" }),
+    })
+    const floor = results.filter((r) => r.message.includes("落入硬伤档"))
+    expect(floor).toHaveLength(1)
+    expect(floor[0]!.message).toContain("[thrill]")
+  })
+
+  it("空 summary 时 message 回落到维度 key", () => {
+    const results = dimensionResultsToReviewResults({ thrill: dim({ summary: "" }) }, body)
+    expect(results).toHaveLength(1)
+    expect(results[0]!.severity).toBe("error")
+    expect(results[0]!.message).toContain("[thrill]")
+  })
+
+  it("高分仅扣 1 分举证 → 有效分仍 info，摘要 finding 为 info", () => {
+    const results = dimensionResultsToReviewResults(
+      { thrill: dim({ score: 10, status: "pass" as const, summary: "" }) },
+      "毫不相关的正文",
+    )
+    expect(results).toHaveLength(1)
+    expect(results[0]!.severity).toBe("info")
+  })
+
+  it("零 issue 高分但档位不一致 → 摘要 finding 后追加 band finding", () => {
+    const results = dimensionResultsToReviewResults({
+      thrill: dim({ score: 9, status: "error" as const, issues: [], summary: "尚可" }),
+    })
+    // 高分无 issue：摘要 finding 为 info（有效分 9 落 info 档），档位不一致 finding 追加其后
+    expect(results[0]!.severity).toBe("info")
+    expect(results.some((r) => r.relatedMemory === "score-band")).toBe(true)
+  })
+})
+
+describe("runSixDimensionReview 软链路降级（hook/指纹/共识）", () => {
+  beforeEach(() => {
+    mocks.resolveConsensusModelsMock.mockClear()
+    mocks.runDimensionConsensusMock.mockClear()
+    mocks.registerNovelSkillHookMock.mockReset()
+    mocks.runNovelSkillHooksMock.mockReset()
+    mocks.runNovelSkillHooksMock.mockResolvedValue({
+      projectPath: "E:/Novel",
+      chapterNumber: 8,
+      stage: "pre_six_dim_review",
+      bag: { promptFragments: [], notes: [] },
+    })
+    streamChatMock.mockImplementation(async (
+      _c: unknown,
+      messages: Array<{ role: string; content: string }>,
+      callbacks: { onToken: (t: string) => void; onDone: () => void },
+    ) => {
+      const prompt = messages.map((m) => m.content).join("\n")
+      if (!prompt.includes("最终 JSON")) {
+        callbacks.onToken("阶段分析完成")
+        callbacks.onDone()
+        return
+      }
+      callbacks.onToken(JSON.stringify({ score: 9.0, status: "pass", summary: "通过", issues: [] }))
+      callbacks.onDone()
+    })
+  })
+
+  it("hook 注册竞争与外层软失败均只记 warn、不阻断六维", async () => {
+    mocks.registerNovelSkillHookMock.mockImplementation(() => {
+      throw new Error("duplicate hook id")
+    })
+    mocks.runNovelSkillHooksMock.mockRejectedValueOnce(new Error("hook stage down"))
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["thrill"],
+    })
+    expect(results.thrill?.score).toBe(9)
+    const warned = mocks.loggerWarnMock.mock.calls.map((c) => String(c[1]))
+    for (const msg of [
+      "gold readiness hook register skipped (non-fatal)",
+      "avoid-ai slop hook register skipped (non-fatal)",
+      "ced soft hook register skipped (non-fatal)",
+      "de-ai dualpass hook register skipped (non-fatal)",
+      "statistical-ai-signature hook register skipped (non-fatal)",
+      "gold scale / skill hooks soft-failed",
+    ]) {
+      expect(warned.some((w) => w.includes(msg))).toBe(true)
+    }
+  })
+
+  it("共识旁路：配置共识模型组 → 走 runDimensionConsensus 并打 consensus 标签", async () => {
+    const onThinking: string[] = []
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["thrill"],
+      callbacks: { onDimensionThinking: (_k, t) => onThinking.push(t) },
+      novelConfig: {
+        consensusEnabled: true,
+        consensusReviewModels: { thrill: ["m1"] },
+        consensusDebateRounds: 0,
+      } as never,
+    })
+    expect(mocks.runDimensionConsensusMock).toHaveBeenCalledTimes(1)
+    expect(mocks.runDimensionConsensusMock.mock.calls[0][0]).toMatchObject({
+      debateRounds: 0,
+      chapterContent: "章节正文",
+    })
+    expect(results.thrill?.model).toBe("consensus:m1")
+    expect(results.thrill?.summary).toBe("共识通过")
+    // 共识旁路内触发一次 + settled 回填循环按序触发一次
+    expect(onThinking).toEqual(["共识思考", "共识思考"])
+    // 注：gold-scale 软链路（真实实现）可能附带 LLM 调用；共识旁路的断言以
+    // runDimensionConsensus 调用 + consensus 标签为准，不钉 streamChat 零调用
+  })
+
+  it("指纹回调抛错 → 只记 warn 不阻断六维", async () => {
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["thrill"],
+      callbacks: {
+        onMeasurementFingerprint: () => {
+          throw new Error("probe down")
+        },
+      },
+    })
+    expect(results.thrill?.score).toBe(9)
+    const warned = mocks.loggerWarnMock.mock.calls.map((c) => String(c[1]))
+    expect(warned.some((w) => w.includes("measurement fingerprint failed (non-fatal)"))).toBe(true)
+  })
+
+  it("共识模型缺名 → 标签回落 unknown", async () => {
+    mocks.resolveConsensusModelsMock.mockReturnValueOnce([{}])
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["thrill"],
+      novelConfig: {
+        consensusEnabled: true,
+        consensusReviewModels: { thrill: ["m1"] },
+        consensusDebateRounds: 0,
+      } as never,
+    })
+    expect(results.thrill?.model).toBe("consensus:unknown")
+  })
+
+  it("空模型名单模型/失败结果均回落 unknown", async () => {
+    const emptyModel = { ...llmConfig, model: "" }
+    streamChatMock.mockImplementation(async (
+      _c: unknown,
+      messages: Array<{ role: string; content: string }>,
+      callbacks: { onToken: (t: string) => void; onDone: () => void },
+    ) => {
+      const prompt = messages.map((m) => m.content).join("\n")
+      if (!prompt.includes("最终 JSON")) {
+        callbacks.onToken("t")
+        callbacks.onDone()
+        return
+      }
+      if (prompt.includes(SIX_REVIEW_DIMENSIONS.pacing.label)) throw new Error("down")
+      callbacks.onToken(JSON.stringify({ score: 9.0, status: "pass", summary: "通过", issues: [] }))
+      callbacks.onDone()
+    })
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["thrill", "pacing"],
+      llmConfig: emptyModel,
+    })
+    expect(results.thrill?.model).toBe("unknown")
+    expect(results.pacing?.model).toBe("unknown")
+    expect(results.pacing?.status).toBe("error")
+  })
+
+  it("共识仅对配置了模型组的维度生效，未配置维走单模型", async () => {
+    const results = await runSixDimensionReview({
+      projectPath: "E:/Novel",
+      chapterContent: "章节正文",
+      chapterNumber: 8,
+      dimensionKeys: ["thrill", "pull"],
+      novelConfig: {
+        consensusEnabled: true,
+        consensusReviewModels: { thrill: ["m1"] },
+        consensusDebateRounds: 0,
+      } as never,
+    })
+    expect(mocks.runDimensionConsensusMock).toHaveBeenCalledTimes(1)
+    expect(results.thrill?.model).toBe("consensus:m1")
+    expect(results.pull?.model).toBe("test-review-model")
   })
 })

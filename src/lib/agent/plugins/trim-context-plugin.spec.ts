@@ -340,3 +340,89 @@ describe("Task4: Plugin Chain Integration", () => {
     expect(result.errors).toHaveLength(0)
   })
 })
+
+describe("TrimContextPlugin — onVirtualTool 虚拟工具事件", () => {
+  function runInput(): Parameters<ReturnType<typeof createTrimContextPlugin>["run"]>[0] {
+    return {
+      userMessage: "写第5章",
+      projectPath: "/test-project",
+      agentConfig: {} as never,
+      novelMode: true,
+      contextPack: mockContextPack,
+    }
+  }
+
+  it("trim 站点：start/end 事件携带预算与裁剪统计", async () => {
+    const events: Array<{ kind: string; name: string; data: unknown }> = []
+    const mockTrim = vi.fn().mockReturnValue({
+      prompt: "裁剪后正文",
+      originalChars: 1000,
+      finalChars: 400,
+      trimmedChars: 600,
+      trimmedFields: ["recentSummaries"],
+    })
+    const plugin = createTrimContextPlugin({
+      trimContextPackFn: mockTrim,
+      onVirtualTool: (kind, name, data) => {
+        events.push({ kind, name, data })
+      },
+    })
+    const result = await plugin.run(runInput())
+    expect(result.novelSystemPrompt).toBe("裁剪后正文")
+    expect(events).toHaveLength(2)
+    expect(events[0].kind).toBe("start")
+    expect(events[0].name).toBe("trim_context")
+    const startParams = (events[0].data as { params: { tokenBudget: number } }).params
+    expect(typeof startParams.tokenBudget).toBe("number")
+    expect(startParams.tokenBudget).toBeGreaterThan(0)
+    expect(events[1].kind).toBe("end")
+    const endData = JSON.parse((events[1].data as { result: string }).result) as Record<string, unknown>
+    expect(endData).toMatchObject({
+      tokenBudget: startParams.tokenBudget,
+      promptLength: "裁剪后正文".length,
+      originalChars: 1000,
+      finalChars: 400,
+      trimmedChars: 600,
+      trimmedFields: ["recentSummaries"],
+    })
+    expect((events[1].data as { status: string }).status).toBe("done")
+  })
+
+  it("prompt 站点无 trim 统计时 end 事件仍带预算与长度", async () => {
+    const events: Array<{ kind: string; data: unknown }> = []
+    const plugin = createTrimContextPlugin({
+      contextPackToPromptFn: () => "直接正文",
+      tokenBudget: 2000,
+      onVirtualTool: (kind, _name, data) => {
+        events.push({ kind, data })
+      },
+    })
+    const result = await plugin.run(runInput())
+    expect(result.novelSystemPrompt).toBe("直接正文")
+    expect(events).toHaveLength(2)
+    const endData = JSON.parse((events[1].data as { result: string }).result) as Record<string, unknown>
+    expect(endData).toMatchObject({ tokenBudget: 2000, promptLength: 4 })
+    expect(endData).not.toHaveProperty("originalChars")
+  })
+
+  it("执行抛错时 end 事件上报 error 状态并透出 onError", async () => {
+    const events: Array<{ kind: string; data: unknown }> = []
+    const onError = vi.fn()
+    const plugin = createTrimContextPlugin({
+      contextPackToPromptFn: () => {
+        throw new Error("trim failed")
+      },
+      onVirtualTool: (kind, _name, data) => {
+        events.push({ kind, data })
+      },
+      onError,
+    })
+    const result = await plugin.run(runInput())
+    expect(result.novelSystemPrompt).toBeUndefined()
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "trim failed" }))
+    expect(events).toHaveLength(2)
+    expect(events[1].kind).toBe("end")
+    expect((events[1].data as { status: string }).status).toBe("error")
+    expect((events[1].data as { result: string }).result).toContain("trim failed")
+  })
+})

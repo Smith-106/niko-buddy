@@ -2,7 +2,10 @@
 // StorySimulation store 冒烟覆盖：初始契约 + append 语义 setter + 关键状态迁移
 // （M1 测试债第一块：唯一无 spec 的 store，improve-odyssey 20260914）
 import { beforeEach, describe, expect, it } from "vitest"
-import { useStorySimulationStore } from "./story-simulation-store"
+import {
+  calculateBranchScore,
+  useStorySimulationStore,
+} from "./story-simulation-store"
 
 const reset = () =>
   useStorySimulationStore.setState({
@@ -751,6 +754,30 @@ describe("story-simulation store — getDisplayAgents / reset / initWithPreset",
     st.setState({ savedResults: [] })
     st.getState().initWithPreset({ intent: "character_interview", userInput: "q3", hasFramework: true })
     expect(st.getState().phase).toBe("configuring")
+  })
+
+  it("calculateBranchScore 非空导演评分区取平均（591–592 行）", () => {
+    const zero = () => ({
+      tension: 0,
+      pace: 0,
+      characterUtilization: 0,
+      characterArc: 0,
+      infoDensity: 0,
+      emotionalResonance: 0,
+      logicConsistency: 0,
+    })
+    const evals = [
+      { scores: zero(), totalScore: 70, highlights: [], issues: [], suggestion: "", shouldInjectEvent: false },
+      { scores: zero(), totalScore: 80, highlights: [], issues: [], suggestion: "", shouldInjectEvent: false },
+    ]
+    const { overallScore, details } = calculateBranchScore(evals, 8, 2, 3)
+    // avgDirectorScore = (70 + 80) / 2 = 75 → directorScorePart = 75 * 0.5；总分保留一位小数
+    expect(details.avgDirectorScore).toBe(75)
+    expect(overallScore).toBe(
+      Math.round((75 * 0.5 + Math.min(5, 8 / 4) * 0.2 + ((2 / 3) * 5 * 0.15) + 0.6 * 5 * 0.15) * 10) / 10,
+    )
+    // 空评分区回退 3.0（原有行为不受影响）
+    expect(calculateBranchScore([], 0, 0, 3).details.avgDirectorScore).toBe(3)
   })
 
   it("initWithPreset 未知 intent 回退到 configuring", () => {

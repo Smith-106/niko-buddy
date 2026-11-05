@@ -713,3 +713,63 @@ describe("ChapterSelectionPanel", () => {
     cleanup()
   })
 })
+
+
+describe("W1 补强：工作台草稿恢复与 Esc 抑制", () => {
+  const doneProps = () => ({
+    recognitionStatus: "done" as const,
+    recognizedCharacters: CHARS,
+    onToggleCharacter: vi.fn(),
+    onSelectAllMain: vi.fn(),
+    onClearSelection: vi.fn(),
+    onDeepExtract: vi.fn(),
+    onSimpleExtract: vi.fn(),
+  })
+
+  beforeEach(() => {
+    setupDomGlobals()
+    vi.clearAllMocks()
+    mocks.pickerProps = null
+    mocks.workstationProps = null
+  })
+
+  it("工作台草稿恢复：localStorage 合法 JSON 按角色隔离恢复；非法 JSON 降级空对象", () => {
+    localStorage.setItem("niko-buddy.workstationDrafts.v1", JSON.stringify({ c1: "旧草稿" }))
+    const m1 = mount(doneProps())
+    act(() => findButton(m1.container, "进入角色工作台").click())
+    expect(mocks.workstationProps).toMatchObject({ initialDrafts: { c1: "旧草稿" } })
+    m1.cleanup()
+    localStorage.setItem("niko-buddy.workstationDrafts.v1", "{broken json")
+    const m2 = mount(doneProps())
+    act(() => findButton(m2.container, "进入角色工作台").click())
+    expect(mocks.workstationProps).toMatchObject({ initialDrafts: {} })
+    m2.cleanup()
+    localStorage.clear()
+  })
+
+  it("角色弹窗 Esc 免除后同次派发不级联关闭面板；抑制复位后 Esc 正常取消", async () => {
+    const onCancel = vi.fn()
+    const { container, cleanup } = mount({ ...doneProps(), onCancel })
+    // 角色弹窗打开中
+    expect(container.querySelector('[data-testid="character-picker"]')).toBeTruthy()
+    // 模拟弹窗因 Esc 免除：置位面板抑制并调度复位
+    const p = mocks.pickerProps as Record<string, (...args: unknown[]) => void>
+    act(() => p.onEscapedDismiss())
+    // 同一次派发中关闭弹窗：弹窗隐藏，面板仍挂载
+    act(() => p.onClose())
+    expect(container.querySelector('[data-testid="character-picker"]')).toBeNull()
+    // 抑制生效：Escape 不级联取消任务
+    act(() => {
+      fireEvent.keyDown(document, { key: "Escape" })
+    })
+    expect(onCancel).not.toHaveBeenCalled()
+    // 等待抑制复位（setTimeout(0)）
+    await new Promise((r) => setTimeout(r, 10))
+    // 抑制已复位：Escape 正常取消面板
+    act(() => {
+      fireEvent.keyDown(document, { key: "Escape" })
+    })
+    expect(onCancel).toHaveBeenCalledTimes(1)
+    cleanup()
+  })
+})

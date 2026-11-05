@@ -14,6 +14,18 @@ import { render, screen, fireEvent, waitFor, within, setupDomGlobals } from "@/t
 import { StyleEngineView } from "./style-engine-view"
 import type { BookStyleProfile, WritingStylePreset } from "@/lib/novel"
 
+// 覆盖补齐：load 失败分支经 barrel 注入（默认透传真实实现，既有用例行为不变）。
+vi.mock("@/lib/novel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel")>()
+  return {
+    ...actual,
+    loadWritingStyleStore: vi.fn((...args: [string]) => actual.loadWritingStyleStore(...args)),
+  }
+})
+
+import { loadWritingStyleStore } from "@/lib/novel"
+import { useWikiStore } from "@/stores/wiki-store"
+
 const fsMocks = vi.hoisted(() => ({
   readFile: vi.fn(),
   writeFileAtomic: vi.fn(),
@@ -237,5 +249,28 @@ describe("StyleEngineView", () => {
       expect(fsMocks.readFile).toHaveBeenCalledWith(expect.stringContaining("F:/Other"))
     })
     expect(await screen.findByTestId("style-list")).toHaveTextContent("边塞文风")
+  })
+})
+
+describe("StyleEngineView 覆盖补齐：空项目/装载失败/空态导航", () => {
+  it("projectPath 为空 → 清空预设并结束加载（不读盘）", async () => {
+    render(<StyleEngineView projectPath="" />)
+    expect(await screen.findByTestId("style-empty")).toBeInTheDocument()
+    expect(fsMocks.readFile).not.toHaveBeenCalled()
+  })
+
+  it("装载依赖抛错 → 显式报错（启用态保持原值，不静默空态）", async () => {
+    vi.mocked(loadWritingStyleStore).mockRejectedValueOnce(new Error("store gone"))
+    render(<StyleEngineView projectPath={PROJECT_PATH} />)
+    const alert = await screen.findByTestId("style-error")
+    expect(alert.textContent).toContain("store gone")
+    expect(screen.queryByTestId("style-list")).not.toBeInTheDocument()
+  })
+
+  it("空态按钮 → 跳转拆文库（setActiveView bookAnalysis）", async () => {
+    render(<StyleEngineView projectPath={PROJECT_PATH} />)
+    expect(await screen.findByTestId("style-empty")).toBeInTheDocument()
+    fireEvent.click(screen.getByText("去拆文库提取文风"))
+    expect(useWikiStore.getState().activeView).toBe("bookAnalysis")
   })
 })

@@ -370,7 +370,7 @@ const RANDOM_EVENTS = [
   "环境的微妙变化让角色们重新审视当前局势。",
 ]
 
-function generateRandomEvent(
+export function generateRandomEvent(
   dynamicPool?: string[] | StagedEventPool,
   usedIndices?: Set<number> | Set<string>,
   nodeIndex?: number,
@@ -443,7 +443,7 @@ function generateRandomEvent(
   }
 }
 
-function isNodeGoalReached(
+export function isNodeGoalReached(
   _node: StoryNode,
   nodeTimelineEvents: TimelineEvent[],
   maxRounds: number,

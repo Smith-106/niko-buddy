@@ -27,12 +27,21 @@ vi.mock("@/lib/novel", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel")>()
   return {
     ...actual,
-    loadAssetLibrarySnapshot: async () => ({ libraryId: "relationship_edge", present: false, entryCount: 0, contentHash: null, schemaVersion: null, conserved: false, health: null }),
-    loadAssetLibraryArtifact: async () => null,
+    loadAssetLibrarySnapshot: vi.fn(async () => ({ libraryId: "relationship_edge", present: false, entryCount: 0, contentHash: null, schemaVersion: null, conserved: false, health: null })),
+    loadAssetLibraryArtifact: vi.fn(async () => null),
+    loadWorldBlueprint: vi.fn(async () => null),
   }
 })
 
-const { WorldLibraryView } = await import("./world-library-view")
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return { ...actual, fileExists: vi.fn(async () => false) }
+})
+
+import { loadAssetLibraryArtifact, loadAssetLibrarySnapshot, loadWorldBlueprint } from "@/lib/novel"
+import { fileExists } from "@/commands/fs"
+
+const { WorldLibraryView, loadRelationshipLibrarySnapshot, loadWorldBlueprintSnapshot } = await import("./world-library-view")
 
 const emptySetting = { cast: [], edges: [], charactersWithoutRelations: 0 }
 
@@ -204,5 +213,80 @@ describe("结构化关系库回显（Wave 3B）", () => {
     await waitFor(() => expect(screen.getByTestId("world-library-layers")).toBeTruthy())
     expect(screen.queryByTestId("setting-center-structured")).toBeNull()
     expect(screen.getByTestId("setting-center-na-type")).toBeTruthy()
+  })
+})
+
+describe("WorldLibraryView 覆盖补齐：默认装载器 + 校验结论渲染", () => {
+  it("蓝图缺失且无文件 → loadWorldBlueprintSnapshot null（诚实空态上游）", async () => {
+    vi.mocked(loadWorldBlueprint).mockResolvedValue(null)
+    vi.mocked(fileExists).mockResolvedValue(false)
+    await expect(loadWorldBlueprintSnapshot("C:/proj")).resolves.toBeNull()
+  })
+
+  it("蓝图损坏（文件存在但解析不出）→ throw 明确错误（非空态）", async () => {
+    vi.mocked(loadWorldBlueprint).mockResolvedValue(null)
+    vi.mocked(fileExists).mockResolvedValue(true)
+    await expect(loadWorldBlueprintSnapshot("C:/proj")).rejects.toThrow("世界蓝图存在，但无法解析")
+  })
+
+  it("蓝图存在 → 返回 {blueprint, validation}（校验结论同源）", async () => {
+    vi.mocked(loadWorldBlueprint).mockResolvedValue(blueprint as never)
+    const snapshot = await loadWorldBlueprintSnapshot("C:/proj")
+    expect(snapshot?.blueprint).toBe(blueprint)
+    expect(snapshot?.validation.verdict).toMatch(/complete|incomplete/)
+  })
+
+  it("关系库 present + 产物齐全 → 结构化条目映射（from/to/kind/strength）", async () => {
+    vi.mocked(loadAssetLibrarySnapshot).mockResolvedValueOnce({
+      libraryId: "relationship_edge",
+      present: true,
+      entryCount: 1,
+      contentHash: "abc",
+      schemaVersion: 1,
+      conserved: true,
+      health: null,
+    } as never)
+    vi.mocked(loadAssetLibraryArtifact).mockResolvedValueOnce({
+      entries: [{ from: "林砚", to: "赵九", kind: "师徒", strength: 8, note: "n", entryId: "e1", name: "x", toneTags: [], forbidPatterns: [], plotBeats: [] }],
+    } as never)
+    const view = await loadRelationshipLibrarySnapshot("C:/proj")
+    expect(view?.entries).toEqual([{ from: "林砚", to: "赵九", kind: "师徒", strength: 8, note: "n" }])
+  })
+
+  it("关系库 present 但产物缺失 → null（按未迁移处理，不假装有类型）", async () => {
+    vi.mocked(loadAssetLibrarySnapshot).mockResolvedValueOnce({
+      libraryId: "relationship_edge",
+      present: true,
+      entryCount: 1,
+      contentHash: "abc",
+      schemaVersion: 1,
+      conserved: true,
+      health: null,
+    } as never)
+    vi.mocked(loadAssetLibraryArtifact).mockResolvedValueOnce(null)
+    await expect(loadRelationshipLibrarySnapshot("C:/proj")).resolves.toBeNull()
+  })
+
+  it("校验 findings 非空 → finding 行渲染（error 红/warn 黄文案同源）", async () => {
+    render(
+      <WorldLibraryView
+        loader={async () => ({
+          blueprint: blueprint as never,
+          validation: {
+            verdict: "incomplete",
+            findings: [
+              { code: "empty-layer", layer: "axioms", severity: "error", message: "公理层是空的" },
+              { code: "thin-geo", layer: "geography", severity: "warn", message: "地理过薄" },
+            ],
+          } as never,
+        })}
+        settingLoader={async () => emptySetting}
+      />,
+    )
+    await waitFor(() => expect(screen.getByTestId("world-library-finding-0")).toBeTruthy())
+    expect(screen.getByTestId("world-library-finding-0").textContent).toContain("公理层是空的")
+    expect(screen.getByTestId("world-library-finding-0").className).toContain("text-destructive")
+    expect(screen.getByTestId("world-library-finding-1").textContent).toContain("地理过薄")
+    expect(screen.getByTestId("world-library-finding-1").className).toContain("text-warning-foreground")
   })
 })

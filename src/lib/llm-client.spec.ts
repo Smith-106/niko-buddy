@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => {
   const isFetchNetworkError = vi.fn()
   const streamClaudeCodeCli = vi.fn()
   const streamCodexCli = vi.fn()
+  const streamAntigravityCli = vi.fn()
   const resolveRuntimeLocalCliConfig = vi.fn()
   const probeEndpointReachability = vi.fn()
   const detectLocalCliConfig = vi.fn()
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => {
     isFetchNetworkError,
     streamClaudeCodeCli,
     streamCodexCli,
+    streamAntigravityCli,
     resolveRuntimeLocalCliConfig,
     probeEndpointReachability,
     detectLocalCliConfig,
@@ -63,6 +65,28 @@ vi.mock("./codex-cli-transport", () => ({
   streamCodexCli: (...a: unknown[]) => mocks.streamCodexCli(...a),
 }))
 
+vi.mock("./antigravity-cli-transport", () => ({
+  streamAntigravityCli: (...a: unknown[]) => mocks.streamAntigravityCli(...a),
+}))
+
+// llm-request-trace 默认直通真实实现；单测按需让某一 builder 抛错，
+// 覆盖 llm-client 内「诊断失败不拖垮请求」的两个 catch（cachePrefix / cacheDiagnostics）。
+const traceFaults = vi.hoisted(() => ({ throwPrefix: false, throwTrace: false }))
+vi.mock("./llm-request-trace", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./llm-request-trace")>()
+  return {
+    ...actual,
+    buildLlmRequestPrefixDescriptor: (...a: never[]) => {
+      if (traceFaults.throwPrefix) throw new Error("prefix hash boom")
+      return (actual.buildLlmRequestPrefixDescriptor as (...a: never[]) => unknown)(...a)
+    },
+    buildLlmRequestCacheTrace: (...a: never[]) => {
+      if (traceFaults.throwTrace) throw new Error("trace boom")
+      return (actual.buildLlmRequestCacheTrace as (...a: never[]) => unknown)(...a)
+    },
+  }
+})
+
 vi.mock("./local-cli-config", () => ({
   resolveRuntimeLocalCliConfig: (c: LlmConfig) => mocks.resolveRuntimeLocalCliConfig(c),
   detectLocalCliConfig: (...a: unknown[]) => mocks.detectLocalCliConfig(...a),
@@ -85,6 +109,7 @@ import {
   extractJsonArraySpan,
   flushContinuityMetrics,
   flushMetrics,
+  isOutputTruncatedError,
   isRequestCancelledError,
   isTransportInactivityError,
   setContinuityMetricsFilePath,
@@ -215,6 +240,9 @@ beforeEach(() => {
   mocks.isFetchNetworkError.mockReset()
   mocks.streamClaudeCodeCli.mockReset()
   mocks.streamCodexCli.mockReset()
+  mocks.streamAntigravityCli.mockReset()
+  traceFaults.throwPrefix = false
+  traceFaults.throwTrace = false
   mocks.resolveRuntimeLocalCliConfig.mockReset()
   mocks.resolveRuntimeLocalCliConfig.mockImplementation(async (c: LlmConfig) => c)
   mocks.probeEndpointReachability.mockReset()
@@ -2041,5 +2069,208 @@ describe("超窗 400：多厂商格式识别 + 自动裁剪重试", () => {
     await streamChat(llmConfig(), [{ role: "user", content: "短" }], callbacks)
     expect(callbacks.onError).toHaveBeenCalledTimes(1)
     expect(callbacks.onError.mock.calls[0][0].message).not.toContain("输入内容过长")
+  })
+})
+
+/**
+ * 覆盖增补（2026-11-05）：基线 16 行未覆盖的定向用例。
+ * - isOutputTruncatedError / antigravity-cli 通道 / reasoning 重试第二程失败两路 /
+ *   failover 探测抛错与重试抛错 / 缓存诊断双 catch / cursor-cli 代理成功路。
+ * 823-824（sendRequest 内 30min 总预算）经论证不可达，见报告，不在此硬造。
+ */
+describe("llm-client 覆盖增补：截断识别与 antigravity 通道", () => {
+  it("isOutputTruncatedError 只认截断语义", () => {
+    expect(isOutputTruncatedError(new Error("Response truncated at max_tokens"))).toBe(true)
+    expect(isOutputTruncatedError(new Error("OUTPUT TOKEN LIMIT reached"))).toBe(true)
+    expect(isOutputTruncatedError(new Error("other failure"))).toBe(false)
+    expect(isOutputTruncatedError("truncated")).toBe(false)
+    expect(isOutputTruncatedError(null)).toBe(false)
+  })
+
+  it("routes antigravity-cli through streamAntigravityCli and records a success metric", async () => {
+    mocks.streamAntigravityCli.mockImplementation(async (_c, _m, cb: { onDone: () => void }) => {
+      cb.onDone()
+    })
+    const callbacks = makeCallbacks()
+    await streamChat(
+      llmConfig({ provider: "antigravity-cli", apiKey: "" }),
+      [{ role: "user", content: "hi" }],
+      callbacks,
+    )
+    expect(mocks.streamAntigravityCli).toHaveBeenCalledTimes(1)
+    const [runtimeConfig] = mocks.streamAntigravityCli.mock.calls[0] as [LlmConfig]
+    expect(runtimeConfig.provider).toBe("antigravity-cli")
+    expect(callbacks.onDone).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
+
+  it("antigravity-cli: a CLI-reported error is classified and routed through onError", async () => {
+    mocks.streamAntigravityCli.mockImplementation(async (_c, _m, cb: { onError: (e: Error) => void }) => {
+      cb.onError(new Error("timed out waiting for response"))
+    })
+    const callbacks = makeCallbacks()
+    await streamChat(
+      llmConfig({ provider: "antigravity-cli", apiKey: "" }),
+      [{ role: "user", content: "hi" }],
+      callbacks,
+    )
+    expect(callbacks.onError).toHaveBeenCalledWith(expect.objectContaining({ message: "timed out waiting for response" }))
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+  })
+})
+
+describe("llm-client 覆盖增补：reasoning 重试第二程失败两路", () => {
+  const bigReasoning = "r".repeat(250)
+
+  it("第二程 onError 回调失败 → 转发“已自动关闭思考重试一次仍失败”", async () => {
+    let callCount = 0
+    setupHttpFetch((async () => {
+      callCount += 1
+      if (callCount === 1) return streamResponse(sseLines(openAiReasoning(bigReasoning)))
+      return new Response("boom-500", { status: 500, statusText: "Server Error" })
+    }) as typeof fetch)
+    const callbacks = makeCallbacks()
+    await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+    expect(callCount).toBe(2)
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("已自动关闭思考重试一次仍失败")
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+  })
+
+  it("第二程直接抛错（reject）→ 同样转发重试失败结论", async () => {
+    // streamChatHeld 的 CLI 分支（try/finally 无 catch）会把传输抛错原样向上抛，
+    // 命中 streamChatWithReasoningFallback 的 catch（retryErrors.push 非 Error 分支）。
+    let callCount = 0
+    mocks.streamClaudeCodeCli.mockImplementation(async (_c, _m, cb: { onError: (e: Error) => void }) => {
+      callCount += 1
+      if (callCount === 1) {
+        cb.onError(new Error("模型只输出了 250 字符的思考内容，但没有输出正文。"))
+        return
+      }
+      throw new Error("socket hangup")
+    })
+    const callbacks = makeCallbacks()
+    await streamChat(
+      llmConfig({ provider: "claude-code", apiKey: "" }),
+      [{ role: "user", content: "hi" }],
+      callbacks,
+    )
+    expect(callCount).toBe(2)
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("已自动关闭思考重试一次仍失败")
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("socket hangup")
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+  })
+})
+
+describe("llm-client 覆盖增补：failover 探测抛错与重试抛错", () => {
+  const failoverConfig = () =>
+    llmConfig({ provider: "custom", customEndpoint: "https://integrate.api.nvidia.com/v1", apiKey: "" })
+
+  function setupUnreachableEndpoint(): void {
+    setupHttpFetch((async () => { throw netError("Failed to fetch") }) as typeof fetch)
+    mocks.probeEndpointReachability.mockResolvedValue({ reachable: false, latencyMs: 5, errorKind: "network" })
+  }
+
+  it("detectLocalCliConfig 抛错 → 视为未安装，给出 claude 命令行提示", async () => {
+    setupUnreachableEndpoint()
+    mocks.detectLocalCliConfig.mockRejectedValueOnce(new Error("spawn claude ENOENT"))
+    const callbacks = makeCallbacks()
+    await streamChatWithFailover(
+      failoverConfig(),
+      [{ role: "user", content: "hi" }],
+      callbacks,
+      undefined,
+      undefined,
+      { failoverEnabled: true },
+    )
+    expect(mocks.streamClaudeCodeCli).not.toHaveBeenCalled()
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    const message = callbacks.onError.mock.calls[0][0].message as string
+    expect(message).toContain("不可达")
+    expect(message).toContain("claude 命令行")
+  })
+
+  it("failover 重试直接抛错（reject）→ 附带切换上下文转发", async () => {
+    setupUnreachableEndpoint()
+    mocks.streamClaudeCodeCli.mockRejectedValueOnce(new Error("cli exploded hard"))
+    const callbacks = makeCallbacks()
+    await streamChatWithFailover(
+      failoverConfig(),
+      [{ role: "user", content: "hi" }],
+      callbacks,
+      undefined,
+      undefined,
+      { failoverEnabled: true },
+    )
+    expect(callbacks.onStatus).toHaveBeenCalledWith("主接口不可达，已自动切换到 Claude 主模型重试")
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    const message = callbacks.onError.mock.calls[0][0].message as string
+    expect(message).toContain("cli exploded hard")
+    expect(message).toContain("切换 Claude 主模型重试后的结果")
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+  })
+})
+
+describe("llm-client 覆盖增补：缓存诊断双 catch 不拖垮请求", () => {
+  it("前缀指纹计算抛错 → 请求照常成功", async () => {
+    traceFaults.throwPrefix = true
+    try {
+      setupHttpFetch(
+        (() => Promise.resolve(streamResponse(sseLines(openAiToken("hi"), "data: [DONE]")))) as typeof fetch,
+      )
+      const callbacks = makeCallbacks()
+      await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+      expect(callbacks.onToken).toHaveBeenCalledWith("hi")
+      expect(callbacks.onDone).toHaveBeenCalledTimes(1)
+      expect(callbacks.onError).not.toHaveBeenCalled()
+    } finally {
+      traceFaults.throwPrefix = false
+    }
+  })
+
+  it("trace 落盘计算抛错 → 请求照常成功", async () => {
+    traceFaults.throwTrace = true
+    try {
+      setupHttpFetch(
+        (() => Promise.resolve(streamResponse(sseLines(openAiToken("hi"), "data: [DONE]")))) as typeof fetch,
+      )
+      const callbacks = makeCallbacks()
+      await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+      expect(callbacks.onToken).toHaveBeenCalledWith("hi")
+      expect(callbacks.onDone).toHaveBeenCalledTimes(1)
+      expect(callbacks.onError).not.toHaveBeenCalled()
+    } finally {
+      traceFaults.throwTrace = false
+    }
+  })
+})
+
+describe("llm-client 覆盖增补：cursor-cli 代理成功路", () => {
+  it("proxy-ensure 成功后走代理端点完成 HTTP 请求", async () => {
+    mocks.ensureCursorProxyRunning.mockResolvedValue("http://127.0.0.1:18080/v1")
+    mocks.withCursorProxyEndpoint.mockImplementationOnce((c: LlmConfig) => ({
+      ...c,
+      customEndpoint: "http://127.0.0.1:18080/v1",
+      apiMode: "chat_completions",
+    }))
+    let fetchedUrl = ""
+    setupHttpFetch((async (url: unknown) => {
+      fetchedUrl = String(url)
+      return streamResponse(sseLines(openAiToken("via-proxy"), "data: [DONE]"))
+    }) as typeof fetch)
+    const callbacks = makeCallbacks()
+    await streamChat(
+      llmConfig({ provider: "cursor-cli", apiKey: "" }),
+      [{ role: "user", content: "hi" }],
+      callbacks,
+    )
+    // 两处调用：streamChatHeld 建代理端点 + 缓存诊断前缀描述（真实实现同样 ensure）。
+    expect(mocks.ensureCursorProxyRunning).toHaveBeenCalledTimes(2)
+    expect(mocks.withCursorProxyEndpoint).toHaveBeenCalledTimes(1)
+    expect(fetchedUrl).toContain("127.0.0.1:18080")
+    expect(callbacks.onToken).toHaveBeenCalledWith("via-proxy")
+    expect(callbacks.onDone).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError).not.toHaveBeenCalled()
   })
 })

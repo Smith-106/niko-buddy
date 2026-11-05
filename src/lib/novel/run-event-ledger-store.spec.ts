@@ -3,8 +3,26 @@
  * 覆盖：缺失文件 → 空账本 / append 往返相等 / seq 严格单调 / eventId 缺省
  * 派生唯一 / 损坏行 fail-loud 含行号 / 空行容忍 / store 落盘后门事件覆盖率。
  */
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { checkGateEventCoverage, recordGateRunEvents } from "./run-event-ledger"
+
+const fsHoisted = vi.hoisted(() => ({
+  readFile: vi.fn<(path: string) => Promise<string>>(async () => {
+    throw new Error("ENOENT")
+  }),
+  writeFileAtomic: vi.fn<(path: string, content: string) => Promise<void>>(async () => {}),
+  createDirectory: vi.fn<(dir: string) => Promise<void>>(async () => {}),
+}))
+const { readFile: fsReadFile, writeFileAtomic: fsWriteFileAtomic, createDirectory: fsCreateDirectory } = fsHoisted
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+    readFile: fsHoisted.readFile,
+    writeFileAtomic: fsHoisted.writeFileAtomic,
+    createDirectory: fsHoisted.createDirectory,
+  }
+})
 import {
   RUN_EVENTS_FILENAME,
   appendRunEventToStore,
@@ -12,6 +30,7 @@ import {
   createFsRunEventLedgerStoreDeps,
   loadRunEventLedgerStore,
   runEventsPath,
+  type RunEventAppendInput,
   type RunEventLedgerStoreDeps,
 } from "./run-event-ledger-store"
 
@@ -185,5 +204,137 @@ describe("并发写入回归（grok-4.7 BLOCK 修）：锁内分配 seq/eventId"
     expect(new Set(ledger.events.map((e) => e.seq)).size).toBe(2)
     expect(new Set(ledger.events.map((e) => e.eventId)).size).toBe(2)
     expect(ledger.events.map((e) => e.seq)).toEqual([0, 1])
+  })
+})
+
+describe("createFsRunEventLedgerStoreDeps（生产 Tauri deps）", () => {
+  beforeEach(() => {
+    vi.mocked(fsReadFile).mockReset()
+    vi.mocked(fsWriteFileAtomic).mockReset()
+    vi.mocked(fsCreateDirectory).mockReset()
+  })
+
+  function validEvent(ts: string, kind: "generate" | "gate-run" = "generate"): RunEventAppendInput {
+    return kind === "generate"
+      ? { ts, kind, actor: "writer" }
+      : { ts, kind, actor: "system", payload: { gate: "consistency", status: "fail" } };
+  }
+
+  it("readText 读到内容原样返回；缺失文件（抛错）→ null", async () => {
+    vi.mocked(fsReadFile).mockResolvedValueOnce("line1\n")
+    const deps = createFsRunEventLedgerStoreDeps()
+    await expect(deps.readText("p")).resolves.toBe("line1\n")
+    vi.mocked(fsReadFile).mockRejectedValueOnce(new Error("ENOENT"))
+    await expect(deps.readText("missing")).resolves.toBeNull()
+  })
+
+  it("appendText 缺失文件时建目录后写全量；已存在时读改写追加", async () => {
+    const written: string[] = []
+    vi.mocked(fsReadFile).mockRejectedValue(new Error("ENOENT"))
+    vi.mocked(fsWriteFileAtomic).mockImplementation(async (_p: string, c: string) => {
+      written.push(c)
+    })
+    const deps = createFsRunEventLedgerStoreDeps()
+    await deps.appendText("C:/proj/.novel/run-events.jsonl", "A\n")
+    expect(fsCreateDirectory).not.toHaveBeenCalled()
+    expect(written).toEqual(["A\n"])
+    // appendText 自身不建目录（建目录是 persistAppend 职责），第二段直接追加语义由上层保证
+    vi.mocked(fsReadFile).mockResolvedValue("A\n")
+    await deps.appendText("C:/proj/.novel/run-events.jsonl", "B\n")
+    expect(written).toEqual(["A\n", "A\nB\n"])
+  })
+
+  it("appendTextLocked 在锁内基于最新全文分配 seq（并发不重号）", async () => {
+    let stored = ""
+    vi.mocked(fsReadFile).mockImplementation(async () => stored)
+    vi.mocked(fsWriteFileAtomic).mockImplementation(async (_p: string, c: string) => {
+      stored = c
+    })
+    const deps = createFsRunEventLedgerStoreDeps()
+    const first = await appendRunEventsToStore(deps, PP, [validEvent(TS)])
+    expect(first.events[0]?.seq).toBe(0)
+    const second = await appendRunEventsToStore(deps, PP, [validEvent(TS)])
+    // 若锁外分配，两次都会拿到 seq=0 并在 load 时抛重复；锁内分配 → 1
+    expect(second.events).toHaveLength(2)
+    expect(second.events[1]?.seq).toBe(1)
+    expect(second.events[1]?.eventId).toBe("generate:1")
+  })
+
+  it("appendTextLocked 缺失文件时从空全文起算 seq=0", async () => {
+    let stored: string | null = null
+    vi.mocked(fsReadFile).mockImplementation(async () => {
+      if (stored === null) throw new Error("ENOENT")
+      return stored
+    })
+    vi.mocked(fsWriteFileAtomic).mockImplementation(async (_p: string, c: string) => {
+      stored = c
+    })
+    const deps = createFsRunEventLedgerStoreDeps()
+    const ledger = await appendRunEventsToStore(deps, PP, [validEvent(TS)])
+    expect(ledger.events[0]?.seq).toBe(0)
+    expect(stored).toContain("generate:0")
+  })
+
+  it("ensureDir 缺席时 persistAppend 跳过建目录直接追加", async () => {
+    const files = new Map<string, string>()
+    const deps: RunEventLedgerStoreDeps = {
+      readText: async (p) => files.get(p) ?? null,
+      appendText: async (p, t) => {
+        files.set(p, (files.get(p) ?? "") + t)
+      },
+    }
+    const ledger = await appendRunEventToStore(deps, PP, validEvent(TS))
+    expect(ledger.events).toHaveLength(1)
+  })
+})
+
+describe("appendRunEventsToStore 非锁路径 eventId 缺省与空批量", () => {
+  it("无 appendTextLocked 时批量缺省 eventId 按 kind:seq 派生", async () => {
+    const { deps, files } = memoryDeps()
+    const ledger = await appendRunEventsToStore(deps, PP, [
+      { ts: TS, kind: "generate", actor: "writer" },
+      { ts: TS, kind: "generate", actor: "writer" },
+    ])
+    expect(ledger.events.map((e) => e.eventId)).toEqual(["generate:0", "generate:1"])
+    expect(files.get(runEventsPath(PP))?.split("\n").filter(Boolean)).toHaveLength(2)
+  })
+
+  it("空批量不落盘（chunk 为空跳过 persistAppend）", async () => {
+    const { deps, files } = memoryDeps()
+    const ledger = await appendRunEventsToStore(deps, PP, [])
+    expect(ledger.events).toHaveLength(0)
+    expect(files.has(runEventsPath(PP))).toBe(false)
+  })
+
+  it("锁路径无 ensureDir 时跳过建目录直接锁内追加", async () => {
+    let stored = ""
+    const deps: RunEventLedgerStoreDeps = {
+      readText: async () => (stored.length === 0 ? null : stored),
+      appendText: async (_p, t) => {
+        stored += t
+      },
+      appendTextLocked: async (_p, build) => {
+        stored += build(stored)
+      },
+    }
+    const ledger = await appendRunEventsToStore(deps, PP, [
+      { ts: TS, kind: "generate", actor: "writer" },
+    ])
+    expect(ledger.events[0]?.eventId).toBe("generate:0")
+  })
+})
+
+describe("persistAppend 目录失败不假成功", () => {
+  it("ensureDir 抛错 → append 整体抛错（观测层不得假成功）", async () => {
+    const deps: RunEventLedgerStoreDeps = {
+      readText: async () => null,
+      appendText: async () => {},
+      ensureDir: async () => {
+        throw new Error("mkdir denied")
+      },
+    }
+    await expect(
+      appendRunEventToStore(deps, PP, { ts: TS, kind: "generate", actor: "writer" }),
+    ).rejects.toThrow("mkdir denied")
   })
 })

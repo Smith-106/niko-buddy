@@ -28,6 +28,16 @@ const mocks = vi.hoisted(() => ({
   registerManagedCampaignDraft: vi.fn(),
   ingestChapter: vi.fn(),
   defaultCanonDualWriteDeps: vi.fn(() => ({})),
+  // 覆盖率战役增补（本轮）：补齐未覆盖分支的可观测 mock，默认值与真实
+  // 防御语义一致（缺失→空/吞错→null），既有用例行为不变。
+  appendStageMetric: vi.fn(),
+  updateNovelSessionStatus: vi.fn(),
+  buildNextStatus: vi.fn(),
+  listBindableNovelCharacters: vi.fn(),
+  loadBinding: vi.fn(),
+  loadSegmentSummaries: vi.fn(),
+  getLatestSegmentSummaryText: vi.fn(),
+  enrichWithEventPool: vi.fn(),
 }))
 
 vi.mock("./deep-chapter-generation", () => ({
@@ -45,7 +55,33 @@ vi.mock("./formal-writeback", () => ({
 
 vi.mock("./novel-session-status", () => ({
   registerManagedCampaignDraft: mocks.registerManagedCampaignDraft,
+  appendStageMetric: mocks.appendStageMetric,
+  updateNovelSessionStatus: mocks.updateNovelSessionStatus,
+  buildNextStatus: mocks.buildNextStatus,
 }))
+
+// 覆盖率战役增补（本轮）：F2 零成本约束读取与事件池注入 milieu mock。
+// 默认值复刻真实防御语义：人物/绑定/段摘要缺失时分别得 [] / null / ""。
+vi.mock("./bindable-characters", () => ({
+  listBindableNovelCharacters: mocks.listBindableNovelCharacters,
+}))
+
+vi.mock("./story-simulation/framework-binding", () => ({
+  loadBinding: mocks.loadBinding,
+}))
+
+vi.mock("./segment-summary", () => ({
+  loadSegmentSummaries: mocks.loadSegmentSummaries,
+  getLatestSegmentSummaryText: mocks.getLatestSegmentSummaryText,
+}))
+
+vi.mock("./chapter-request-builder", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./chapter-request-builder")>()
+  return {
+    ...actual,
+    enrichWithEventPool: mocks.enrichWithEventPool,
+  }
+})
 
 vi.mock("./chapter-ingest", () => ({
   ingestChapter: mocks.ingestChapter,
@@ -67,6 +103,26 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
     mocks.commitAcceptedDeepChapterDraft.mockResolvedValue(undefined)
     mocks.registerManagedCampaignDraft.mockReset()
     mocks.registerManagedCampaignDraft.mockResolvedValue("draft://autonomous-campaign")
+    // 增补 mock 默认值（与真实防御语义一致，既有用例不受影响）
+    mocks.appendStageMetric.mockReset()
+    mocks.appendStageMetric.mockResolvedValue(undefined)
+    mocks.updateNovelSessionStatus.mockReset()
+    mocks.updateNovelSessionStatus.mockResolvedValue(undefined)
+    mocks.buildNextStatus.mockReset()
+    mocks.buildNextStatus.mockImplementation((base: unknown, overrides: unknown) => ({
+      ...((base ?? {}) as Record<string, unknown>),
+      ...((overrides ?? {}) as Record<string, unknown>),
+    }))
+    mocks.listBindableNovelCharacters.mockReset()
+    mocks.listBindableNovelCharacters.mockResolvedValue([])
+    mocks.loadBinding.mockReset()
+    mocks.loadBinding.mockResolvedValue(null)
+    mocks.loadSegmentSummaries.mockReset()
+    mocks.loadSegmentSummaries.mockResolvedValue({})
+    mocks.getLatestSegmentSummaryText.mockReset()
+    mocks.getLatestSegmentSummaryText.mockReturnValue("")
+    mocks.enrichWithEventPool.mockReset()
+    mocks.enrichWithEventPool.mockImplementation(async (input: { request: string }) => `${input.request}\n\n【mock事件池】`)
     mocks.ingestChapter.mockReset()
     mocks.ingestChapter.mockResolvedValue({ snapshot: { chapter: 1 } })
   })
@@ -1078,3 +1134,314 @@ describe("Autonomous Draft Campaign Runner (预演式批量战役调度器)", ()
   })
 })
 
+
+describe("campaign-runner 覆盖率增补：F2 零成本约束/R3 遥测/仲裁异常路径", () => {
+  // 自包含隔离：本块不依赖外层 describe 的 beforeEach，逐用例重置全部 mock
+  // （调用记录 + 实现），避免 Once 队列与调用下标串味。
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.runDeepChapterGeneration.mockReset()
+    mocks.createDirectory.mockReset()
+    mocks.createDirectory.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockReset()
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
+    mocks.commitAcceptedDeepChapterDraft.mockReset()
+    mocks.commitAcceptedDeepChapterDraft.mockResolvedValue(undefined)
+    mocks.registerManagedCampaignDraft.mockReset()
+    mocks.registerManagedCampaignDraft.mockResolvedValue("draft://autonomous-campaign")
+    mocks.ingestChapter.mockReset()
+    mocks.ingestChapter.mockResolvedValue({ snapshot: { chapter: 1 } })
+    mocks.appendStageMetric.mockReset()
+    mocks.appendStageMetric.mockResolvedValue(undefined)
+    mocks.updateNovelSessionStatus.mockReset()
+    mocks.updateNovelSessionStatus.mockResolvedValue(undefined)
+    mocks.buildNextStatus.mockReset()
+    mocks.buildNextStatus.mockImplementation((base: unknown, overrides: unknown) => ({
+      ...((base ?? {}) as Record<string, unknown>),
+      ...((overrides ?? {}) as Record<string, unknown>),
+    }))
+    mocks.listBindableNovelCharacters.mockReset()
+    mocks.listBindableNovelCharacters.mockResolvedValue([])
+    mocks.loadBinding.mockReset()
+    mocks.loadBinding.mockResolvedValue(null)
+    mocks.loadSegmentSummaries.mockReset()
+    mocks.loadSegmentSummaries.mockResolvedValue({})
+    mocks.getLatestSegmentSummaryText.mockReset()
+    mocks.getLatestSegmentSummaryText.mockReturnValue("")
+    mocks.enrichWithEventPool.mockReset()
+    mocks.enrichWithEventPool.mockImplementation(async (input: { request: string }) => `${input.request}\n\n【mock事件池】`)
+  })
+
+  function readyOnce(finalContent = "全绿正文内容，故事自然展开，情节完整。") {
+    mocks.runDeepChapterGeneration.mockResolvedValueOnce({
+      finalContent,
+      taskBrief: "brief-x",
+      draftContent: "draft-x",
+      reviewResults: [],
+      revised: false,
+      decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+      manualReviewRequired: false,
+      retryCount: 0,
+      partial: false,
+      partialReason: null,
+    })
+  }
+
+  function blockedOnce() {
+    mocks.runDeepChapterGeneration.mockResolvedValueOnce({
+      finalContent: "门控失败章节正文",
+      taskBrief: "brief-bad",
+      draftContent: "draft-bad",
+      reviewResults: [],
+      revised: false,
+      decisionGates: { consistency: "failed", antiAi: "passed", quality: "passed" },
+      manualReviewRequired: true,
+      retryCount: 3,
+      partial: false,
+      partialReason: null,
+    })
+  }
+
+  it("绑定含视点 + 可绑定人物 → 零成本注入 pov 约束（182-193/289 真分支）", async () => {
+    mocks.loadBinding.mockResolvedValue({ frameworkId: "fw", pov: "寨主" })
+    mocks.listBindableNovelCharacters.mockResolvedValue(["寨主", "军师"])
+    readyOnce()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 1,
+      llmConfig: mockLlmConfig,
+    })
+    expect(report.results).toHaveLength(1)
+    const input = mocks.runDeepChapterGeneration.mock.calls[0][0]
+    // pov 约束与人物约束都进入装配后的 userRequest；军师为非视点人物一并传入
+    expect(String(input.userRequest)).toContain("寨主")
+    expect(mocks.enrichWithEventPool).not.toHaveBeenCalled()
+  })
+
+  it("人物/绑定读取失败 → 降级空约束不断巡航（277/284 catch）", async () => {
+    mocks.listBindableNovelCharacters.mockRejectedValueOnce(new Error("entities down"))
+    mocks.loadBinding.mockRejectedValueOnce(new Error("binding down"))
+    readyOnce()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 1,
+      llmConfig: mockLlmConfig,
+    })
+    expect(report.results).toHaveLength(1)
+    expect(report.results[0].status).toBe("ready")
+  })
+
+  it("enableEventPool 開启 → 事件池注入装配 userRequest（299-307）", async () => {
+    readyOnce()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 1,
+      llmConfig: mockLlmConfig,
+      enableEventPool: true,
+    })
+    expect(report.results[0].status).toBe("ready")
+    expect(mocks.enrichWithEventPool).toHaveBeenCalledTimes(1)
+    expect(mocks.enrichWithEventPool.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ chapterNumber: 1, totalChapters: 1, characters: [] }),
+    )
+    const input = mocks.runDeepChapterGeneration.mock.calls[0][0]
+    expect(String(input.userRequest)).toContain("【mock事件池】")
+  })
+
+  it("墙钟回拨 → stageLatencyMs 钳 0（201 cond-expr 真分支）", async () => {
+    readyOnce()
+    const nowSpy = vi.spyOn(Date, "now")
+    // 严格递减时钟：任一 chapterT0 都大于其后所有读数 → d 恒负 → 必走钳制分支。
+    // 若实现去掉钳制，latencyMs 将为负数，断言即变红。
+    let t = 10 ** 12
+    nowSpy.mockImplementation(() => (t -= 1))
+    try {
+      const report = await runAutonomousDraftCampaign({
+        projectPath: "/mock/project",
+        startChapter: 1,
+        chapterCount: 1,
+        llmConfig: mockLlmConfig,
+      })
+      expect(report.results[0].status).toBe("ready")
+      expect(mocks.appendStageMetric).toHaveBeenCalledWith(
+        "/mock/project",
+        expect.objectContaining({ latencyMs: 0 }),
+      )
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  it("会话指针 mutator 见空会话 → 两处三元走 null 分支（246/646）", async () => {
+    readyOnce()
+    mocks.updateNovelSessionStatus.mockImplementation(
+      async (_pp: unknown, mutator: (s: unknown) => unknown) => {
+        mutator(null)
+        return undefined
+      },
+    )
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 1,
+      llmConfig: mockLlmConfig,
+    })
+    expect(report.results[0].status).toBe("ready")
+    expect(mocks.updateNovelSessionStatus).toHaveBeenCalledTimes(2)
+  })
+
+  it("仲裁 provider 抛错 → 警告后保持安全挂起（430-433 + 暂停尾）", async () => {
+    blockedOnce()
+    const onProgress = vi.fn()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 2,
+      llmConfig: mockLlmConfig,
+      cruiseMode: true,
+      arbitrationProvider: async () => {
+        throw new Error("arb down")
+      },
+      onProgress,
+    })
+    expect(report.results).toHaveLength(1)
+    expect(report.results[0].status).toBe("blocked")
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "cruise-paused" }),
+    )
+    // 暂停尾 R3 终局指标照写（appendStageMetric 已 mock 为函数）
+    expect(mocks.appendStageMetric).toHaveBeenCalledWith(
+      "/mock/project",
+      expect.objectContaining({ stage: "campaign:chapter" }),
+    )
+  })
+
+  it("仲裁指令非法（缺 revisedBrief）→ 警告后保持安全挂起（439-442）", async () => {
+    blockedOnce()
+    const onProgress = vi.fn()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 2,
+      llmConfig: mockLlmConfig,
+      cruiseMode: true,
+      arbitrationProvider: async () => ({ action: "retry-rebrief", reason: "放宽门限" }),
+      onProgress,
+    })
+    expect(report.results).toHaveLength(1)
+    expect(report.results[0].status).toBe("blocked")
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "cruise-paused" }),
+    )
+  })
+
+  it("自动晋升通道抛错 → 警告且本章 autoAccepted 为 false（388）", async () => {
+    readyOnce()
+    mocks.createDirectory.mockRejectedValueOnce(new Error("mkdir down"))
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 1,
+      llmConfig: mockLlmConfig,
+      cruiseMode: true,
+    })
+    expect(report.results).toHaveLength(1)
+    expect(report.results[0].status).toBe("ready")
+    expect(report.results[0].autoAccepted).toBe(false)
+  })
+
+  it("段摘要加载失败 → 前情承接降级空串不断巡航（585）", async () => {
+    mocks.loadSegmentSummaries.mockRejectedValueOnce(new Error("seg down"))
+    readyOnce()
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 1,
+      llmConfig: mockLlmConfig,
+    })
+    expect(report.results[0].status).toBe("ready")
+    expect(mocks.getLatestSegmentSummaryText).not.toHaveBeenCalled()
+  })
+
+  it("taskBrief 缺失 → 晋升请求回退默认文案（736-737）", async () => {
+    const res = await batchAcceptCampaignDrafts(
+      "/mock/project",
+      [
+        {
+          chapterNumber: 7,
+          title: "",
+          content: "正文内容足够长",
+          taskBrief: "",
+          draftContent: "d",
+          reviewResults: [],
+          revised: false,
+          wordCount: 7,
+          status: "ready",
+        },
+      ],
+      { autoIngest: false },
+    )
+    expect(res.acceptedCount).toBe(1)
+    expect(mocks.registerManagedCampaignDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ userRequest: "请撰写第 7 章正文。" }),
+    )
+  })
+})
+
+describe("campaign-runner 覆盖率增补第二轮：绑定无视点回退", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.runDeepChapterGeneration.mockReset()
+    mocks.createDirectory.mockReset()
+    mocks.createDirectory.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockReset()
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
+    mocks.commitAcceptedDeepChapterDraft.mockReset()
+    mocks.commitAcceptedDeepChapterDraft.mockResolvedValue(undefined)
+    mocks.registerManagedCampaignDraft.mockReset()
+    mocks.registerManagedCampaignDraft.mockResolvedValue("draft://autonomous-campaign")
+    mocks.ingestChapter.mockReset()
+    mocks.ingestChapter.mockResolvedValue({ snapshot: { chapter: 1 } })
+    mocks.appendStageMetric.mockReset()
+    mocks.appendStageMetric.mockResolvedValue(undefined)
+    mocks.updateNovelSessionStatus.mockReset()
+    mocks.updateNovelSessionStatus.mockResolvedValue(undefined)
+    mocks.buildNextStatus.mockReset()
+    mocks.listBindableNovelCharacters.mockReset()
+    mocks.listBindableNovelCharacters.mockResolvedValue([])
+    mocks.loadBinding.mockReset()
+    mocks.loadSegmentSummaries.mockReset()
+    mocks.loadSegmentSummaries.mockResolvedValue({})
+    mocks.getLatestSegmentSummaryText.mockReset()
+    mocks.getLatestSegmentSummaryText.mockReturnValue("")
+    mocks.enrichWithEventPool.mockReset()
+  })
+
+  it("绑定对象无有效视点字段 → extractBindingPovName 回退 null（193）", async () => {
+    mocks.loadBinding.mockResolvedValue({ frameworkId: "fw", pov: "   ", viewpoint: 123 })
+    mocks.runDeepChapterGeneration.mockResolvedValueOnce({
+      finalContent: "全绿正文内容，故事自然展开，情节完整。",
+      taskBrief: "brief-x",
+      draftContent: "draft-x",
+      reviewResults: [],
+      revised: false,
+      decisionGates: { consistency: "passed", antiAi: "passed", quality: "passed" },
+      manualReviewRequired: false,
+      retryCount: 0,
+      partial: false,
+      partialReason: null,
+    })
+    const report = await runAutonomousDraftCampaign({
+      projectPath: "/mock/project",
+      startChapter: 1,
+      chapterCount: 1,
+      llmConfig: mockLlmConfig,
+    })
+    expect(report.results[0].status).toBe("ready")
+    const input = mocks.runDeepChapterGeneration.mock.calls[0][0]
+    expect(String(input.userRequest)).not.toContain("寨主")
+  })
+})

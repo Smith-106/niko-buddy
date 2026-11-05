@@ -199,6 +199,21 @@ vi.mock("@/lib/composition-root", async (importOriginal) => {
   }
 })
 
+// W5 覆盖补齐：dashboard 隐藏键读取抛错分支（graph-view.tsx L189 降级空集）。
+// 默认直通真实实现，仅 flag 开启时抛错；既有 T2 用例行为不受影响。
+const dashFlags = vi.hoisted(() => ({ throwOnLoad: false }))
+
+vi.mock("@/components/novel/status-dashboard-view", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/novel/status-dashboard-view")>()
+  return {
+    ...actual,
+    loadDashboardHiddenTypes: (): Set<string> => {
+      if (dashFlags.throwOnLoad) throw new Error("storage denied")
+      return actual.loadDashboardHiddenTypes()
+    },
+  }
+})
+
 vi.mock("@/lib/toast", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/toast")>()
   return {
@@ -3219,5 +3234,251 @@ describe("GraphView — W3 覆盖补齐：并发与取消守卫", () => {
     await waitFor(() => {
       expect(mm).toHaveBeenCalledWith("(prefers-color-scheme: dark)")
     })
+  })
+})
+
+describe("GraphView — W5 覆盖补齐：剩余可达分支", () => {
+  const DASH_KEY = "niko.statusDashboard.hiddenTypes.v1"
+
+  function lastStats(): { filteredNodeCount: number; nodeCount: number } {
+    const calls = (mocks.state.setGraphStats as unknown as ReturnType<typeof vi.fn>).mock.calls
+    return calls[calls.length - 1]?.[0] as { filteredNodeCount: number; nodeCount: number }
+  }
+
+  function chapterNodes(): GraphNode[] {
+    return [
+      makeNode({ id: "ch:1", label: "第1章", type: "chapter", path: "/p/test/wiki/chapters/第1章.md", linkCount: 1, community: 0 }),
+      makeNode({ id: "ch:5", label: "第5章", type: "chapter", path: "/p/test/wiki/chapters/第5章.md", linkCount: 1, community: 0 }),
+    ]
+  }
+
+  async function renderChapterGraph() {
+    mocks.buildWikiGraph.mockResolvedValue({ nodes: chapterNodes(), edges: [], communities: [] })
+    mocks.loadForeshadowingTracker.mockResolvedValue({ items: [], lastUpdated: "" })
+    mocks.findSurprisingConnections.mockReturnValue([])
+    mocks.detectKnowledgeGaps.mockReturnValue([])
+    setState({ project: PROJECT })
+    const utils = render(<GraphView />)
+    await waitFor(() => {
+      expect(screen.getByTestId("sigma-container")).toBeTruthy()
+    })
+    await waitForGraph()
+    await waitFor(() => {
+      expect(screen.getByTestId("graph-chapter-timeline-slider")).toBeTruthy()
+    })
+    return utils
+  }
+
+  function rightClickNode(node: string) {
+    fireSigmaEvent("rightClickNode", {
+      node,
+      event: { original: new MouseEvent("contextmenu", { clientX: 10, clientY: 10 }) },
+      preventSigmaDefault: vi.fn(),
+    })
+  }
+
+  beforeEach(() => {
+    resetBaseline()
+    setupDomGlobals()
+    if (typeof Element !== "undefined" && typeof Element.prototype.scrollIntoView !== "function") {
+      Element.prototype.scrollIntoView = vi.fn() as never
+    }
+  })
+
+  afterEach(() => {
+    dashFlags.throwOnLoad = false
+    vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
+    document.body.dataset.panelResizing = ""
+    delete document.body.dataset.panelResizing
+  })
+
+  it("dashboard 隐藏键读取抛错时降级为空集（画布不过滤）", async () => {
+    localStorage.setItem(DASH_KEY, JSON.stringify(["character"]))
+    dashFlags.throwOnLoad = true
+    try {
+      const { unmount } = await renderLoadedGraph()
+      await waitFor(() => {
+        // 降级为空集：dashboard 的 character 隐藏失效，仅 overview 预设剔除 custom-type → 3
+        expect(lastStats().nodeCount).toBe(4)
+        expect(lastStats().filteredNodeCount).toBe(3)
+      })
+      unmount()
+    } finally {
+      dashFlags.throwOnLoad = false
+    }
+  })
+
+  it("双击节点档案读取失败走 console.error 且不切视图", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      mocks.readFile.mockRejectedValueOnce(new Error("disk gone"))
+      vi.mocked(mocks.state.setActiveView).mockClear()
+      await renderLoadedGraph()
+      fireSigmaEvent("doubleClickNode", { node: "n1" })
+      await waitFor(() => {
+        expect(errSpy).toHaveBeenCalledWith("Failed to open wiki page:", expect.anything())
+      })
+      expect(mocks.state.setActiveView).not.toHaveBeenCalledWith("wiki")
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+
+  it("空图谱点击去导入资料切到 sources", async () => {
+    mocks.buildWikiGraph.mockResolvedValue({ nodes: [], edges: [], communities: [] })
+    mocks.loadForeshadowingTracker.mockResolvedValue({ items: [], lastUpdated: "" })
+    vi.mocked(mocks.state.setActiveView).mockClear()
+    setState({ project: PROJECT, novelMode: true })
+    const { unmount } = render(<GraphView />)
+    await waitFor(() => {
+      expect(screen.getByText("去导入资料")).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText("去导入资料"))
+    expect(mocks.state.setActiveView).toHaveBeenCalledWith("sources")
+    unmount()
+  })
+
+  it("抽屉打开完整 Wiki 档案：读档成功后跳 wiki", async () => {
+    mocks.readFile.mockResolvedValue("# Alpha\n\n正文")
+    const { unmount } = await renderLoadedGraph()
+    fireSigmaEvent("clickNode", { node: "n1" })
+    await waitFor(() => {
+      expect(screen.getByTestId("node-inspector-drawer")).toBeTruthy()
+    })
+    mocks.readFile.mockClear()
+    vi.mocked(mocks.state.setActiveView).mockClear()
+    fireEvent.click(screen.getByText("打开完整 Wiki 档案"))
+    await waitFor(() => {
+      expect(mocks.readFile).toHaveBeenCalledWith("/p/test/wiki/chapters/alpha.md")
+    })
+    await waitFor(() => {
+      expect(mocks.state.setActiveView).toHaveBeenCalledWith("wiki")
+    })
+    unmount()
+  })
+
+  it("抽屉打开档案读失败走 console.error 且不切视图", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      mocks.readFile.mockResolvedValue("# Alpha\n\n正文")
+      const { unmount } = await renderLoadedGraph()
+      fireSigmaEvent("clickNode", { node: "n1" })
+      await waitFor(() => {
+        expect(screen.getByTestId("node-inspector-drawer")).toBeTruthy()
+      })
+      mocks.readFile.mockRejectedValueOnce(new Error("disk gone"))
+      vi.mocked(mocks.state.setActiveView).mockClear()
+      fireEvent.click(screen.getByText("打开完整 Wiki 档案"))
+      await waitFor(() => {
+        expect(errSpy).toHaveBeenCalledWith("Failed to open wiki page:", expect.anything())
+      })
+      expect(mocks.state.setActiveView).not.toHaveBeenCalledWith("wiki")
+      unmount()
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+
+  it("抽屉打开档案：目标被时间轴滤掉时直接返回", async () => {
+    mocks.readFile.mockResolvedValue("# 第5章\n\n正文")
+    const { unmount } = await renderChapterGraph()
+    fireSigmaEvent("clickNode", { node: "ch:5" })
+    await waitFor(() => {
+      expect(screen.getByTestId("node-inspector-drawer")).toBeTruthy()
+    })
+    mocks.readFile.mockClear()
+    vi.mocked(mocks.state.setActiveView).mockClear()
+    // 时间轴收到第 1 章：ch:5 被滤出 timelineGraph，但抽屉仍展示全量节点
+    fireEvent.change(screen.getByTestId("graph-chapter-timeline-slider"), { target: { value: "1" } })
+    await waitFor(() => {
+      expect(screen.getByTestId("graph-chapter-timeline-reset")).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText("打开完整 Wiki 档案"))
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 100))
+    })
+    expect(mocks.readFile).not.toHaveBeenCalled()
+    expect(mocks.state.setActiveView).not.toHaveBeenCalledWith("wiki")
+    unmount()
+  })
+
+  it("抽屉关闭按钮清空选中态", async () => {
+    mocks.readFile.mockResolvedValue("# Alpha\n\n正文")
+    const { unmount } = await renderLoadedGraph()
+    fireSigmaEvent("clickNode", { node: "n1" })
+    await waitFor(() => {
+      expect(screen.getByTestId("node-inspector-drawer")).toBeTruthy()
+    })
+    const drawer = screen.getByTestId("node-inspector-drawer")
+    fireEvent.click(within(drawer).getByRole("button", { name: "关闭详情面板" }))
+    await waitFor(() => {
+      expect(screen.queryByTestId("node-inspector-drawer")).toBeNull()
+    })
+    unmount()
+  })
+
+  it("焦点模式：深度切换 2 跳后再全图关闭", async () => {
+    const { unmount } = await renderLoadedGraph()
+    fireEvent.click(screen.getByText("聚焦模式"))
+    await waitFor(() => {
+      expect(screen.getByTestId("graph-focus-depth-2")).toBeTruthy()
+    })
+    fireEvent.click(screen.getByTestId("graph-focus-depth-2"))
+    // 2 跳激活态高亮
+    expect(screen.getByTestId("graph-focus-depth-2").className).toContain("bg-background")
+    fireEvent.click(screen.getByText("全图"))
+    await waitFor(() => {
+      expect(screen.getByText("聚焦模式")).toBeTruthy()
+    })
+    unmount()
+  })
+
+  it("章节时间轴：滑到第 1 章后重置回全量", async () => {
+    const { unmount } = await renderChapterGraph()
+    fireEvent.change(screen.getByTestId("graph-chapter-timeline-slider"), { target: { value: "1" } })
+    await waitFor(() => {
+      expect(screen.getByTestId("graph-chapter-timeline-reset")).toBeTruthy()
+    })
+    fireEvent.click(screen.getByTestId("graph-chapter-timeline-reset"))
+    await waitFor(() => {
+      expect(screen.queryByTestId("graph-chapter-timeline-reset")).toBeNull()
+    })
+    unmount()
+  })
+
+  it("节点菜单设为焦点：切焦点并关闭菜单", async () => {
+    const { unmount } = await renderLoadedGraph()
+    rightClickNode("n1")
+    await waitFor(() => expect(screen.getByText("设为焦点")).toBeTruthy())
+    fireEvent.click(screen.getByText("设为焦点"))
+    // 焦点覆盖开启 → 聚焦 pill 出现；菜单关闭
+    await waitFor(() => {
+      expect(screen.getByTestId("graph-focus-depth-1")).toBeTruthy()
+    })
+    expect(screen.queryByText("设为焦点")).toBeNull()
+    unmount()
+  })
+
+  it("节点菜单批量提取：打开范围弹层并可关闭", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const { unmount } = await renderLoadedGraph()
+      rightClickNode("n1")
+      await waitFor(() => expect(screen.getByTestId("graph-batch-extract")).toBeTruthy())
+      fireEvent.click(screen.getByTestId("graph-batch-extract"))
+      await waitFor(() => {
+        expect(screen.getByTestId("batch-extract-scope-dialog")).toBeTruthy()
+      })
+      const dialog = screen.getByTestId("batch-extract-scope-dialog")
+      fireEvent.click(within(dialog).getByLabelText("关闭"))
+      await waitFor(() => {
+        expect(screen.queryByTestId("batch-extract-scope-dialog")).toBeNull()
+      })
+      unmount()
+    } finally {
+      errSpy.mockRestore()
+    }
   })
 })

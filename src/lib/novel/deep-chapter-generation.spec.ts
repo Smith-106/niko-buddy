@@ -47,6 +47,36 @@ vi.mock("@/commands/fs", async () => {
 // 与真实模块在 ENOENT 空项目下一致），具体用例再用 vi.mocked(...) 覆写单次行为。
 // 全部经 importActual 保留其余 export，避免破坏依赖同一模块的其它调用点。
 // ─────────────────────────────────────────────────────────────────────────
+// avoid-ai-patterns 默认直通真实实现；单测按需让 analyze 抛错，
+// 覆盖深章终稿后外层 catch（审计整体跳过仍不阻断返回）。
+const avoidAiStub = vi.hoisted(() => ({ throwOnAnalyze: false, resultOverride: null as null | unknown }))
+vi.mock("./avoid-ai-patterns", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./avoid-ai-patterns")>()
+  return {
+    ...actual,
+    analyzeAvoidAiPatterns: (...a: never[]) => {
+      if (avoidAiStub.throwOnAnalyze) throw new Error("avoid-ai boom")
+      if (avoidAiStub.resultOverride !== null) return avoidAiStub.resultOverride
+      return (actual.analyzeAvoidAiPatterns as (...a: never[]) => unknown)(...a)
+    },
+  }
+})
+
+// novel-session-status 默认行为与 ENOENT 空项目一致：load → null（跳过持久化分支），
+// save 仅在用例显式给出 status 时才被调用到；默认 resolve 不影响既有用例。
+const sessionStatusMocks = vi.hoisted(() => ({
+  loadNovelSessionStatus: vi.fn<(projectPath: string) => Promise<import("./novel-session-status").NovelSessionStatus | null>>(async () => null),
+  saveNovelSessionStatus: vi.fn<(projectPath: string, status: import("./novel-session-status").NovelSessionStatus) => Promise<void>>(async () => {}),
+}))
+vi.mock("./novel-session-status", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./novel-session-status")>()
+  return {
+    ...actual,
+    loadNovelSessionStatus: (...a: [projectPath: string]) => sessionStatusMocks.loadNovelSessionStatus(...a),
+    saveNovelSessionStatus: (...a: [projectPath: string, status: import("./novel-session-status").NovelSessionStatus]) => sessionStatusMocks.saveNovelSessionStatus(...a),
+  }
+})
+
 vi.mock("./scene-breakdown", async () => {
   const actual = await vi.importActual<typeof import("./scene-breakdown")>("./scene-breakdown")
   return {
@@ -4511,5 +4541,128 @@ describe("RV-001 标题生成真接线（autoGenerateChapterTitle 真值驱动�
     expect(titleGeneratorStub.calls).toBe(0)
     expect(result.finalContent.startsWith("# ")).toBe(false)
     expect(result.finalContent).toContain("最终去AI味正文")
+  })
+})
+
+describe("覆盖增补：终稿后接线（avoid-ai 持久化 / 数值检查容错 / chase 记账）", () => {
+  beforeEach(() => {
+    sessionStatusMocks.loadNovelSessionStatus.mockReset()
+    sessionStatusMocks.loadNovelSessionStatus.mockResolvedValue(null)
+    sessionStatusMocks.saveNovelSessionStatus.mockReset()
+    sessionStatusMocks.saveNovelSessionStatus.mockResolvedValue(undefined)
+  })
+
+  const validStatus = () => ({
+    schema_version: "1",
+    session_id: "s1",
+    source: "deep_chapter_generation",
+    created_at: "2026-11-05T00:00:00.000Z",
+    updated_at: "2026-11-05T00:00:00.000Z",
+    status: "running",
+    active_step_index: null,
+    current_task: { task_id: "t", conversation_id: "c", user_request: "生成第3章", status: "running" },
+    draft: { draft_id: "d", file_path: "f", draft_status: "pending" },
+    evidence_refs: [],
+    chase_debt: { debts: [], debt_events: [], updated_at: "2026-11-05T00:00:00.000Z" },
+  })
+
+  function polishDeps(polish: string): DeepChapterGenerationDeps {
+    return {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: vi.fn(async () => []),
+      streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+          callbacks.onToken(polish)
+        } else if (prompt.includes("章节正文")) {
+          callbacks.onToken("[N]\n只给任务书，不写正文。")
+        } else {
+          callbacks.onToken("任务书正文")
+        }
+        callbacks.onDone()
+      }),
+    } as unknown as DeepChapterGenerationDeps
+  }
+
+  it("status 存在 → avoid-ai 摘要与 chase 债务落盘 status.json", async () => {
+    sessionStatusMocks.loadNovelSessionStatus.mockResolvedValue(validStatus() as never)
+    avoidAiStub.resultOverride = {
+      schemaVersion: 1,
+      score: 0.9,
+      label: "Suspicious",
+      issues: [{ type: "repetition" }, { type: "repetition" }],
+    }
+    const polish = `${"终稿正文句。".repeat(60)}他必须在三天后回来揭开真相。`
+    const thinking: string[] = []
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      { onThinking: (content) => thinking.push(content) },
+      polishDeps(polish),
+    )
+    avoidAiStub.resultOverride = null
+    expect(result.finalContent).toContain("揭开真相")
+    // avoid-ai 摘要持久化成功（无跳过提示）
+    expect(thinking.join("\n")).not.toContain("摘要写入跳过")
+    // 两次落盘：avoid-ai 摘要 + chase 债务（withDebt !== status 经 hook 承诺句触发）
+    expect(sessionStatusMocks.saveNovelSessionStatus).toHaveBeenCalledTimes(2)
+    const [firstPath, firstSaved] = sessionStatusMocks.saveNovelSessionStatus.mock.calls[0]
+    expect(firstPath).toBe("E:/Novel")
+    expect(firstSaved.avoid_ai_summary).toMatchObject({ label: expect.any(String) })
+    expect(firstSaved.avoid_ai_summary).toMatchObject({ issueTypes: ["repetition"], issueCount: 2 })
+    expect(typeof firstSaved.avoid_ai_summary?.issueCount).toBe("number")
+    const [, secondSaved] = sessionStatusMocks.saveNovelSessionStatus.mock.calls[1]
+    const debts = secondSaved.chase_debt?.debts ?? []
+    expect(debts.some((d) => d.source_chapter === 3)).toBe(true)
+  })
+
+  it("status 存在但保存失败 → onThinking 提示跳过，生成照常返回（内层 + chase 双 catch）", async () => {
+    sessionStatusMocks.loadNovelSessionStatus.mockResolvedValue(validStatus() as never)
+    sessionStatusMocks.saveNovelSessionStatus.mockRejectedValue(new Error("disk boom"))
+    const thinking: string[] = []
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+      { onThinking: (content) => thinking.push(content) },
+      polishDeps("终稿正文。他必须在三天后回来揭开真相。"),
+    )
+    expect(result.finalContent).toContain("揭开真相")
+    const joined = thinking.join("\n")
+    expect(joined).toContain("摘要写入跳过")
+    expect(joined).toContain("chase_debt 记账跳过")
+  })
+
+  it("avoid-ai 分析抛错 → 外层 catch 提示审计跳过，生成照常返回", async () => {
+    avoidAiStub.throwOnAnalyze = true
+    try {
+      const thinking: string[] = []
+      const result = await runDeepChapterGeneration(
+        { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+        { onThinking: (content) => thinking.push(content) },
+        polishDeps("终稿正文。"),
+      )
+      expect(result.finalContent).toContain("终稿正文")
+      expect(thinking.join("\n")).toContain("审计跳过")
+    } finally {
+      avoidAiStub.throwOnAnalyze = false
+    }
+  })
+
+  it("章节目录不可读 → 数值检查静默跳过，生成照常返回", async () => {
+    fsListMock.mockImplementation(async (...args: unknown[]) => {
+      if (String(args[0]).includes(".novel/chapters")) throw new Error("denied")
+      return []
+    })
+    try {
+      const thinking: string[] = []
+      const result = await runDeepChapterGeneration(
+        { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig, novelConfig },
+        { onThinking: (content) => thinking.push(content) },
+        polishDeps("终稿正文。他有三把剑。"),
+      )
+      expect(result.finalContent).toContain("终稿正文")
+      expect(thinking.join("\n")).not.toContain("数值一致性检查")
+    } finally {
+      fsListMock.mockImplementation(async () => [])
+    }
   })
 })

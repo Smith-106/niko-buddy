@@ -25,6 +25,20 @@ vi.mock("@/components/skills/SkillBundleImportDialog", () => ({
 const readFileMock = vi.hoisted(() => vi.fn())
 const writeFileAtomicMock = vi.hoisted(() => vi.fn())
 const joinMock = vi.hoisted(() => vi.fn(async (...parts: string[]) => parts.join("/")))
+const linkedContentControl = vi.hoisted(() => ({ failNext: false }))
+vi.mock("@/lib/novel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel")>()
+  return {
+    ...actual,
+    loadLinkedSkillContent: (...args: [Parameters<typeof actual.loadLinkedSkillContent>[0]]) => {
+      if (linkedContentControl.failNext) {
+        linkedContentControl.failNext = false
+        return Promise.reject(new Error("linked boom"))
+      }
+      return actual.loadLinkedSkillContent(...args)
+    },
+  }
+})
 let savedConfigContent = ""
 
 vi.mock("@/commands/fs", async (importOriginal) => {
@@ -609,6 +623,79 @@ describe("WritingSkillLibraryView 覆盖补齐（保存/导出/标签/分类未�
     expect(container.querySelector('[data-testid="bundle-dialog-open"]')).toBeNull()
 
     dialogOpenMock.mockReset()
+    cleanup(root, container)
+  })
+})
+
+describe("WritingSkillLibraryView 覆盖补齐（无项目持久化/外链重读）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedConfigContent = ""
+    readFileMock.mockImplementation(async () => {
+      if (savedConfigContent) return savedConfigContent
+      throw new Error("missing")
+    })
+    writeFileAtomicMock.mockImplementation(async (_path: string, content: string) => {
+      savedConfigContent = content
+    })
+    bundleDialogProps.length = 0
+    useWikiStore.getState().setProject({
+      id: "p1",
+      name: "测试项目",
+      path: "C:/project",
+    })
+    useWikiStore.getState().setWritingSkillLibraryDraftDirty(false)
+    useWikiStore.getState().setSelectedWritingSkillLibrarySkillId(null)
+  })
+
+  function seedSkill(overrides: Record<string, unknown> = {}) {
+    savedConfigContent = JSON.stringify({
+      version: 1,
+      selectedSkillId: "skill:one",
+      disabledSkillIds: [],
+      skills: [{
+        id: "skill:one",
+        name: "三翻四抖",
+        description: "三次转折",
+        content: "每章设置三次局势变化。",
+        kind: ["structure"],
+        stages: ["planning"],
+        modes: ["standard"],
+        priority: 50,
+        tags: [],
+        categoryId: "",
+        source: "uploaded",
+        createdAt: 1,
+        updatedAt: 1,
+        ...overrides,
+      }],
+      categories: [{ id: "cat-a", name: "通用" }],
+    })
+  }
+
+  it("surfaces a message when reloading linked skill content fails", async () => {
+    seedSkill({
+      id: "skill:linked",
+      name: "外链技能",
+      source: "linked",
+      linkedPath: "D:/ext/skill.md",
+    })
+    savedConfigContent = JSON.stringify({
+      ...JSON.parse(savedConfigContent),
+      selectedSkillId: "skill:linked",
+    })
+    const { container, root } = await renderLibrary()
+
+    const reloadButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.trim() === "重新读取")
+    expect(reloadButton).toBeTruthy()
+
+    // loadLinkedSkillContent 内部吞错返回 ""，用 mock 使其 reject 以进 catch
+    linkedContentControl.failNext = true
+    await click(reloadButton ?? null)
+
+    expect(container.textContent).toContain("读取内容失败")
+
     cleanup(root, container)
   })
 })

@@ -66,3 +66,92 @@ describe("doctor-extras", () => {
     expect(r.detail).not.toContain("deleted=")
   })
 })
+
+import { getCanonRevision } from "@/lib/novel/canon-dual-write"
+import { loadFtsIndex, rebuildWikiFtsIndex } from "@/lib/novel/fts-index"
+import { loadFanficMergeProposal } from "@/lib/novel/fanfic-canon-import"
+import { loadInteractiveGraph } from "@/lib/novel/interactive-io"
+import { validateInteractiveGraph } from "@/lib/novel/interactive-film-graph"
+import { loadNovelSessionStatus } from "@/lib/novel/novel-session-status"
+import { getChapterVolumes } from "@/lib/novel/volume"
+import { listDirectory } from "@/commands/fs"
+import { triggerIdleCompaction } from "@/lib/embedding"
+import { invoke } from "@tauri-apps/api/core"
+
+describe("doctor-extras 覆盖补齐：IO 兜底 + 自愈失败分支", () => {
+  it("全部 IO 失败 → 兜底默认值（canon 关/fts 未就绪/空台账/零草稿/零错误）", async () => {
+    vi.mocked(getCanonRevision).mockRejectedValueOnce(new Error("canon down"))
+    vi.mocked(loadFtsIndex).mockRejectedValueOnce(new Error("fts down"))
+    vi.mocked(loadNovelSessionStatus).mockRejectedValueOnce(new Error("status down"))
+    vi.mocked(loadFanficMergeProposal).mockRejectedValueOnce(new Error("pending down"))
+    vi.mocked(listDirectory).mockRejectedValueOnce(new Error("ls down"))
+    vi.mocked(loadInteractiveGraph).mockRejectedValueOnce(new Error("graph down"))
+    const e = await collectDoctorExtras("/p/book")
+    expect(e.canonDualWriteEnabled).toBe(false)
+    expect(e.ftsIndexReady).toBe(false)
+    expect(e.budgetTasks).toEqual([])
+    expect(e.budgetTotals).toEqual({ tokenCost: 0, latencyMs: 0, entries: 0 })
+    expect(e.volumeArc).toBeNull()
+    expect(e.fanficMergePending).toBeNull()
+    expect(e.translationDraftCount).toBe(0)
+    expect(e.playGraphErrors).toBe(0)
+  })
+
+  it("completed 会话 → budgetCompleted 记账；fanfic pending 非空 → 透出 source/mode", async () => {
+    vi.mocked(loadNovelSessionStatus).mockResolvedValueOnce({
+      current_task: { task_id: "t9", status: "completed", chapter_number: 2 },
+      stage_metrics: [],
+    } as never)
+    vi.mocked(loadFanficMergeProposal).mockResolvedValueOnce({ sourceBookId: "lib-1", mode: "au" } as never)
+    const e = await collectDoctorExtras("/p/book")
+    expect(e.budgetCompleted).toEqual(["t9"])
+    expect(e.fanficMergePending).toEqual({ sourceBookId: "lib-1", mode: "au" })
+  })
+
+  it("卷纲读取抛错 → volumeArc 置 null（不中断整单采集）", async () => {
+    vi.mocked(getChapterVolumes).mockRejectedValueOnce(new Error("volumes down"))
+    const e = await collectDoctorExtras("/p/book")
+    expect(e.volumeArc).toBeNull()
+    // 台账仍正常累计（默认 session：100+200 tokenCost，50+70 latencyMs，两条）
+    expect(e.budgetTotals).toEqual({ tokenCost: 300, latencyMs: 120, entries: 2 })
+  })
+
+  it("对局图含命中/非命中诊断 → 仅计 missing_start/dangling_edge/empty_choice", async () => {
+    vi.mocked(loadInteractiveGraph).mockResolvedValueOnce({ nodes: [] } as never)
+    vi.mocked(validateInteractiveGraph).mockReturnValueOnce([
+      { code: "missing_start" },
+      { code: "dangling_edge" },
+      { code: "unrelated_note" },
+    ] as never)
+    const e = await collectDoctorExtras("/p/book")
+    expect(e.playGraphErrors).toBe(2)
+  })
+
+  it("重建索引抛错 → indexed=0 + 错误信息（不抛）", async () => {
+    vi.mocked(rebuildWikiFtsIndex).mockRejectedValueOnce(new Error("rebuild down"))
+    const r = await safeRebuildFtsIndex("/p/book")
+    expect(r.indexed).toBe(0)
+    expect(r.errors.join("")).toContain("rebuild down")
+  })
+
+  it("向量压实抛错 → ok=false + 错误信息", async () => {
+    vi.mocked(triggerIdleCompaction).mockRejectedValueOnce(new Error("compact down"))
+    const r = await safeTriggerVectorCompaction("/p/book")
+    expect(r.ok).toBe(false)
+    expect(r.detail).toContain("compact down")
+  })
+
+  it("对账非跳过 → ok + deleted 计数", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({ skipped: false, deleted_pages: ["a", "b"], upserted_pages: [], failed_pages: [] })
+    const r = await safeRunVectorReconcile("/p/book")
+    expect(r.ok).toBe(true)
+    expect(r.detail).toBe("deleted=2")
+  })
+
+  it("对账抛错 → ok=false + 错误信息", async () => {
+    vi.mocked(invoke).mockRejectedValueOnce(new Error("invoke down"))
+    const r = await safeRunVectorReconcile("/p/book")
+    expect(r.ok).toBe(false)
+    expect(r.detail).toContain("invoke down")
+  })
+})
