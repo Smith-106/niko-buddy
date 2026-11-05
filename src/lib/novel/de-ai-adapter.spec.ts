@@ -655,3 +655,30 @@ describe("RV-006: extractDeAiChapterBody 只取章节正文", () => {
     expect(body.trim()).toBe("正文。")
   })
 })
+
+describe("W-增补: tier1/tier2 字面命中分支（de-ai-adapter.ts:283-284）", () => {
+  it("tier1/tier2 字面词命中走字面定位分支并产出 slop 命中", () => {
+    // 「赋能」在 TIER2_SUSPICIOUS 字面表但不在 112 词分级表：
+    // section-2 的 indexOf 能找到、且 span 未被 section-1 预占 → 执行 283-284。
+    const text = "新系统为写作赋能，效率提升明显。"
+    const result = runDeAiDetection(text)
+    const hit = result.hits.find((h) => h.term === "赋能")
+    expect(hit).toBeDefined()
+    expect(hit?.tier).toBe("slop")
+    expect(hit?.category).toBe("机械词")
+    const at = text.indexOf("赋能")
+    expect(hit?.startIndex).toBe(at)
+    expect(hit?.endIndex).toBe(at + 2)
+    // 偏移必须指向原文真实片段（与 RV-003 同一契约）
+    expect(text.slice(hit!.startIndex, hit!.endIndex)).toBe("赋能")
+    expect(result.markedText).toContain("【赋能】")
+  })
+
+  it("字面命中与正则命中可共存于同一文本", () => {
+    const text = "新系统为写作赋能。他既紧张又兴奋。"
+    const result = runDeAiDetection(text)
+    const terms = result.hits.map((h) => h.term)
+    expect(terms).toContain("赋能")
+    expect(terms).toContain("既紧张又兴奋")
+  })
+})

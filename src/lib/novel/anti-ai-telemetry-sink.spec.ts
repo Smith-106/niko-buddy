@@ -9,6 +9,7 @@ import { describe, expect, it, beforeEach, vi } from "vitest"
 import {
   TELEMETRY_SCHEMA_VERSION,
   TELEMETRY_FLUSH_BATCH,
+  TELEMETRY_FLUSH_INTERVAL_MS,
   TELEMETRY_RETENTION_DAYS,
   createAntiAiTelemetrySink,
   normalizeOrigin,
@@ -297,5 +298,82 @@ describe("生产接线 + F-34 同意门控 (anti-ai-telemetry-wiring)", () => {
     expect(sink).not.toBeNull()
     expect(getAntiAiTelemetrySink()).toBe(sink)
     return shutdownAntiAiTelemetrySink()
+  })
+})
+
+describe("W-增补: 默认 deps / batch / 轮转 / 定时 flush（sink.ts:229,282-295）", () => {
+  it("缺省 now 回退真实时钟：行 ts 为合法 ISO 时间且为当年", async () => {
+    const fs = memDeps()
+    // 只注入写盘相关 deps，now 走模块默认值 () => new Date()
+    const sink = createAntiAiTelemetrySink("/proj", "sess-nonow", {
+      writeFile: fs.deps.writeFile,
+      createDirectory: fs.deps.createDirectory,
+    })
+    sink.recordPoolReport(fakeReport(), { chapter: 1, text: "x", sessionId: "sess-nonow" })
+    await sink.flush()
+    const files = [...fs.files.keys()]
+    expect(files).toHaveLength(1)
+    const line = JSON.parse(fs.files.get(files[0]!)!.trim().split("\n")[0]!)
+    expect(typeof line.ts).toBe("string")
+    expect(Number.isNaN(Date.parse(line.ts))).toBe(false)
+    expect(new Date(line.ts).getFullYear()).toBe(new Date().getFullYear())
+    await sink.dispose()
+  })
+
+  it("满 32 条自动整段写出，无需手动 flush（batch 分支）", async () => {
+    const fs = memDeps()
+    const sink = createAntiAiTelemetrySink("/proj", "sess-batch32", fs.deps)
+    for (let i = 0; i < TELEMETRY_FLUSH_BATCH; i++) {
+      sink.recordPoolReport(fakeReport(), { chapter: i, text: "x", sessionId: "sess-batch32" })
+    }
+    // 只给微任务/macrotask 时间让 batch 的 .then 写盘，不调手动 flush
+    await new Promise((r) => setTimeout(r, 0))
+    const files = [...fs.files.keys()]
+    expect(files).toHaveLength(1)
+    expect(fs.files.get(files[0]!)!.trim().split("\n")).toHaveLength(TELEMETRY_FLUSH_BATCH)
+    await sink.dispose()
+  })
+
+  it("段超 1MB 自动轮转：旧段落盘后新段从空累积（rotation 分支）", async () => {
+    const fs = memDeps()
+    const sink = createAntiAiTelemetrySink("/proj", "sess-rot", fs.deps)
+    // 单行 >1MB：factors 白名单投影逐项序列化，行长随因子数线性增长
+    const factors = Array.from({ length: 20000 }, (_, i) => ({
+      factor: `f${i}`,
+      value: 0.5,
+      threshold: 0.3,
+      warn: false,
+    }))
+    sink.recordPoolReport(
+      fakeReport({ factors: factors as unknown as AntiAiAnalysisReport["factors"] }),
+      { chapter: 1, text: "x", sessionId: "sess-rot" },
+    )
+    await sink.flush()
+    const firstBody = fs.files.get([...fs.files.keys()][0]!)!
+    expect(firstBody.length).toBeGreaterThan(1_000_000)
+    // 等 rotation 的 .then 建好新段，再记一条并落盘：doFlush 全量重写，若未轮转文件应有 2 行
+    await new Promise((r) => setTimeout(r, 0))
+    sink.recordPoolReport(fakeReport(), { chapter: 2, text: "y", sessionId: "sess-rot" })
+    await sink.flush()
+    const secondBody = fs.files.get([...fs.files.keys()][0]!)!
+    expect(secondBody.trim().split("\n")).toHaveLength(1)
+    await sink.dispose()
+  })
+
+  it("60s 定时 flush 兜底写出缓冲（timer 分支）", async () => {
+    vi.useFakeTimers()
+    try {
+      const fs = memDeps()
+      const sink = createAntiAiTelemetrySink("/proj", "sess-timer", fs.deps)
+      sink.recordPoolReport(fakeReport(), { chapter: 1, text: "x", sessionId: "sess-timer" })
+      expect([...fs.files.keys()]).toHaveLength(0) // 未满 batch，不应提前落盘
+      await vi.advanceTimersByTimeAsync(TELEMETRY_FLUSH_INTERVAL_MS)
+      const files = [...fs.files.keys()]
+      expect(files).toHaveLength(1)
+      expect(fs.files.get(files[0]!)!.trim().split("\n")).toHaveLength(1)
+      await sink.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

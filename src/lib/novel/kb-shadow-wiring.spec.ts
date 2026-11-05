@@ -7,6 +7,7 @@ import {
   runKbShadowArmRetrieval,
   runKbShadowArmsIfConsented,
   defaultKbShadowDeps,
+  defaultKbShadowRetrieve,
   goldenKbShadowCases,
   goldenCoverageOf,
 } from "./kb-shadow-wiring"
@@ -249,5 +250,78 @@ describe("goldenKbShadowCases（F4 golden 34 → 影子案例集）", () => {
     expect(goldenCoverageOf({ minHits: 2 }, "experiment", ["a"])).toBe(0.5)
     expect(goldenCoverageOf({ minHits: 0 }, "baseline", [])).toBe(0)
     expect(goldenCoverageOf({ minHits: 0 }, "baseline", ["a"])).toBe(1)
+  })
+})
+
+const h2 = vi.hoisted(() => ({ novelMixedSearch: vi.fn() }))
+
+vi.mock("./search-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./search-adapter")>()
+  return { ...actual, novelMixedSearch: (...a: unknown[]) => h2.novelMixedSearch(...a) }
+})
+
+describe("覆盖战役补齐：defaultKbShadowDeps 真实委托", () => {
+  it("readFile/writeFile/createDirectory/listFiles/now 逐一委托 fs IPC", async () => {
+    const fs = await import("@/commands/fs")
+    vi.mocked(fs.readFile).mockResolvedValue("content")
+    vi.mocked(fs.writeFileAtomic).mockResolvedValue(undefined)
+    vi.mocked(fs.createDirectory).mockResolvedValue(undefined)
+    vi.mocked(fs.listDirectory).mockResolvedValue([{ name: "a.jsonl" }, { name: "b.jsonl" }] as never)
+    const deps = defaultKbShadowDeps()
+    await expect(deps.readFile("p")).resolves.toBe("content")
+    await deps.writeFile("p", "c")
+    await deps.createDirectory("d")
+    await expect(deps.listFiles("dir")).resolves.toEqual(["a.jsonl", "b.jsonl"])
+    expect(deps.now()).toBeInstanceOf(Date)
+    expect(fs.readFile).toHaveBeenCalledWith("p")
+    expect(fs.writeFileAtomic).toHaveBeenCalledWith("p", "c")
+    expect(fs.createDirectory).toHaveBeenCalledWith("d")
+    expect(fs.listDirectory).toHaveBeenCalledWith("dir")
+  })
+})
+
+describe("覆盖战役补齐：defaultKbShadowRetrieve", () => {
+  it("映射 novelMixedSearch 命中 path → hitIds（projectPath/query/topK 透传）", async () => {
+    h2.novelMixedSearch.mockResolvedValue([{ path: "wiki/a.md" }, { path: "wiki/b.md" }])
+    const retrieve = defaultKbShadowRetrieve("/proj")
+    await expect(
+      retrieve("主角目标", {
+        dualKbRoutingEnabled: true,
+        hardInjectEnabled: false,
+        usefulnessRerank: false,
+      }),
+    ).resolves.toEqual({ hitIds: ["wiki/a.md", "wiki/b.md"] })
+    expect(h2.novelMixedSearch).toHaveBeenCalledWith({ projectPath: "/proj", query: "主角目标", topK: 5 })
+  })
+})
+
+describe("覆盖战役补齐：fire-and-forget 兜底", () => {
+  it("cases 迭代抛错（输入损坏）→ 返回 zeros 且永不抛，队列自动恢复", async () => {
+    h.mockConsent.mockResolvedValue(true)
+    const poisoned = new Proxy([], {
+      get(t, p) {
+        if (p === Symbol.iterator) throw new Error("bad cases")
+        return Reflect.get(t as object, p)
+      },
+    })
+    const res = await runKbShadowArmsIfConsented(
+      "E:/Proj",
+      "TEST0000",
+      poisoned as never,
+      fakeDeps(),
+      h.mockRetrieve as never,
+    )
+    expect(res).toEqual({ written: 0, failed: 0, skipped: false })
+    expect(h.mockRetrieve).not.toHaveBeenCalled()
+    // 队列已恢复：后续正常调用不受影响
+    h.mockRetrieve.mockImplementation(async () => ({ hitIds: ["p"] }))
+    const ok = await runKbShadowArmsIfConsented(
+      "E:/Proj",
+      "TEST0000",
+      [{ caseId: "O-1", query: "q", obligationCoverage: 0.5, scaleViolation: false }],
+      fakeDeps(),
+      h.mockRetrieve as never,
+    )
+    expect(ok).toEqual({ written: 2, failed: 0, skipped: false })
   })
 })

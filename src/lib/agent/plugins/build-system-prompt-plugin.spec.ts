@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+import type { AgentConfig } from "@/lib/agent/types"
 import { createBuildSystemPromptPlugin } from "./build-system-prompt-plugin"
 import { normalizeUserSkill, buildOutlineFindProtocol } from "@/lib/novel"
 
@@ -215,4 +216,137 @@ describe("BuildSystemPromptPlugin selected skills", () => {
       expect(result.finalSystemPrompt).toContain("等待用户确认")
     },
   )
+})
+
+const mockAgentConfig: AgentConfig = {
+  maxRounds: 4,
+  tools: [],
+  // 本文件的用例都假定 agent 侧无自定义 systemPrompt（无任务指令时结果应为空串）
+  systemPrompt: "",
+  llmConfig: {
+    provider: "openai",
+    apiKey: "",
+    model: "test-model",
+    ollamaUrl: "",
+    customEndpoint: "",
+    maxContextSize: 128000,
+  },
+}
+
+describe("BuildSystemPromptPlugin 覆盖补齐（残留分支）", () => {
+  const baseInput = {
+    userMessage: "hi",
+    projectPath: "/project",
+    agentConfig: mockAgentConfig,
+  }
+
+  it("非 novel 模式直接返回空对象", async () => {
+    const plugin = createBuildSystemPromptPlugin({
+      baseSystemPrompt: "base prompt",
+      buildTaskDirectiveFn: () => "task directive",
+    })
+    await expect(plugin.run({ ...baseInput, novelMode: false })).resolves.toEqual({})
+  })
+
+  it("无 taskRoute 时跳过任务指令注入", async () => {
+    const plugin = createBuildSystemPromptPlugin({
+      buildTaskDirectiveFn: () => "task directive",
+    })
+    const result = await plugin.run({ ...baseInput, novelMode: true })
+    expect(result.finalSystemPrompt).toBe("")
+    expect(result.finalSystemRulesPrompt).toBe("")
+  })
+
+  it("空指令字符串不注入（非写作意图，无大纲协议干扰）", async () => {
+    const plugin = createBuildSystemPromptPlugin({
+      buildTaskDirectiveFn: () => "",
+    })
+    const result = await plugin.run({
+      ...baseInput,
+      novelMode: true,
+      taskRoute: { intent: "character_query", confidence: 0.9, extractedParams: {} },
+    })
+    expect(result.finalSystemPrompt).toBe("")
+  })
+
+  it("missingSkillNames 注入路由诊断并过滤非字符串", async () => {
+    const plugin = createBuildSystemPromptPlugin({
+      buildTaskDirectiveFn: () => "task directive",
+    })
+    const result = await plugin.run({
+      ...baseInput,
+      novelMode: true,
+      taskRoute: { intent: "write_chapter", confidence: 0.9, extractedParams: {} },
+      missingSkillNames: ["ghost-skill", 123 as never, null as never],
+    })
+    expect(result.finalSystemPrompt).toContain("Skill 路由诊断")
+    expect(result.finalSystemPrompt).toContain("ghost-skill")
+    expect(result.finalSystemPrompt).not.toContain("123")
+    expect(result.dynamicSystemRulesPrompt).toContain("ghost-skill")
+  })
+
+  it("空 missingSkillNames 不注入诊断", async () => {
+    const plugin = createBuildSystemPromptPlugin({
+      buildTaskDirectiveFn: () => "task directive",
+    })
+    const result = await plugin.run({
+      ...baseInput,
+      novelMode: true,
+      taskRoute: { intent: "write_chapter", confidence: 0.9, extractedParams: {} },
+      missingSkillNames: [],
+    })
+    expect(result.finalSystemPrompt).not.toContain("Skill 路由诊断")
+  })
+
+  it("指令构建抛错 → onError 收到 Error 并返回空对象", async () => {
+    const onError = vi.fn()
+    const plugin = createBuildSystemPromptPlugin({
+      buildTaskDirectiveFn: () => {
+        throw new Error("directive boom")
+      },
+      onError,
+    })
+    const result = await plugin.run({
+      ...baseInput,
+      novelMode: true,
+      taskRoute: { intent: "write_chapter", confidence: 0.9, extractedParams: {} },
+    })
+    expect(result).toEqual({})
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect((onError.mock.calls[0] as Error[])[0]).toBeInstanceOf(Error)
+  })
+
+  it("非 Error 抛错被包装为 Error 交给 onError", async () => {
+    const onError = vi.fn()
+    const plugin = createBuildSystemPromptPlugin({
+      buildTaskDirectiveFn: (() => {
+        throw "boom-string"
+      }) as never,
+      onError,
+    })
+    const result = await plugin.run({
+      ...baseInput,
+      novelMode: true,
+      taskRoute: { intent: "write_chapter", confidence: 0.9, extractedParams: {} },
+    })
+    expect(result).toEqual({})
+    expect(onError).toHaveBeenCalledTimes(1)
+    const err = (onError.mock.calls[0] as Error[])[0]
+    expect(err).toBeInstanceOf(Error)
+    expect(err.message).toBe("boom-string")
+  })
+
+  it("非 Error 抛错被包装后吞掉（无 onError 不崩）", async () => {
+    const plugin = createBuildSystemPromptPlugin({
+      buildTaskDirectiveFn: (() => {
+        throw "boom-string"
+      }) as never,
+    })
+    const result = await plugin.run({
+      ...baseInput,
+      novelMode: true,
+      taskRoute: { intent: "write_chapter", confidence: 0.9, extractedParams: {} },
+    })
+    expect(result).toEqual({})
+  })
 })

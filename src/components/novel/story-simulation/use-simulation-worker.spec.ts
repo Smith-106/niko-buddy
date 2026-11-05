@@ -5,7 +5,7 @@
  * 三个 calc* 方法全部走主线程同步 fallback 计算；本 spec 直接断言这些
  * fallback 的行为：返回值、排序、上限、边界与分支对比结果。
  */
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, renderHook } from "@testing-library/react"
 
 import { useSimulationWorker } from "./use-simulation-worker"
@@ -359,5 +359,32 @@ describe("useSimulationWorker.terminate", () => {
     ).resolves.toEqual({ pairs: [] })
     // 卸载走 effect 清理路径，不应抛错
     unmount()
+  })
+})
+
+describe("useSimulationWorker.v2 无 Worker 通道锁定", () => {
+  it("即使全局存在 Worker 构造器，也绝不建 Worker 并走主线程 fallback", async () => {
+    const constructed: unknown[][] = []
+    class FakeWorker {
+      constructor(...args: unknown[]) {
+        constructed.push(args)
+      }
+      postMessage(): void {}
+      terminate(): void {}
+    }
+    vi.stubGlobal("Worker", FakeWorker)
+    try {
+      const { result, unmount } = renderHook(() => useSimulationWorker())
+      const out = await result.current.calcClueRelations([
+        { id: "c1", content: "城堡谋杀案，管家嫌疑" },
+        { id: "c2", content: "花园茶会，玫瑰盛开" },
+      ])
+      // v2 适配：ensureWorker 硬编码返回 null，从不 new Worker
+      expect(constructed).toHaveLength(0)
+      expect(out).toEqual({ pairs: [] })
+      unmount()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

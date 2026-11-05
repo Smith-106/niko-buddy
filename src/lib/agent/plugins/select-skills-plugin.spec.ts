@@ -696,3 +696,26 @@ describe("SelectSkillsPlugin 覆盖加深（W-mode 补齐）", () => {
     expect(traceSpy).not.toHaveBeenCalled()
   })
 })
+
+describe("SelectSkillsPlugin 未知 mode 防御（select-skills-plugin.ts:228）", () => {
+  it("运行时出现未知 mode 时写作分支返回空、不抛错不误选", () => {
+    // 防御分支：类型上 mode 只能是 fast/standard/strict，但运行时（如脏数据/版本错配）
+    // 可能传入其它字符串；selectWritingSkills 末尾 return [] 必须兜住。
+    // 注意：故意绕过 normalizeUserSkill（它会过滤非法 mode），用原文直传。
+    const raw = {
+      id: "custom:draft-only",
+      name: "草稿技能",
+      description: "只在未知 mode 下可见",
+      kind: ["style"],
+      stages: ["drafting"],
+      modes: ["draft"],
+      content: "规则",
+      source: "project",
+      priority: 50,
+      tags: [],
+      categoryId: "",
+    } as unknown as UserSkill
+    const unknownMode = "draft" as never
+    expect(selectSkillsForRoute([raw], "write_chapter", unknownMode)).toEqual([])
+  })
+})

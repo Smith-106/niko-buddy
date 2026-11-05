@@ -772,3 +772,93 @@ describe("SearchView 输入与高亮", () => {
     expect(screen.getAllByText("总资").length).toBeGreaterThan(0)
   })
 })
+
+describe("SearchView 覆盖补齐（残留交互）", () => {
+  beforeEach(() => {
+    resetState()
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it("Escape 有查询时清空、无查询时 onClose", () => {
+    const onClose = vi.fn()
+    render(<SearchView onClose={onClose} />)
+    const input = screen.getByRole("textbox") as HTMLInputElement
+    fireEvent.change(input, { target: { value: "总资产" } })
+    expect(input.value).toBe("总资产")
+    fireEvent.keyDown(input, { key: "Escape" })
+    expect(input.value).toBe("")
+    fireEvent.keyDown(input, { key: "Escape" })
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it("清空按钮清除查询", () => {
+    render(<SearchView />)
+    const input = screen.getByRole("textbox") as HTMLInputElement
+    fireEvent.change(input, { target: { value: "abc" } })
+    const clearBtn = document.querySelector('button[aria-label="common.clear"]')
+    expect(clearBtn).not.toBeNull()
+    fireEvent.click(clearBtn!)
+    expect(input.value).toBe("")
+  })
+
+  it("分页前进/后退切换页面结果", async () => {
+    const results = Array.from({ length: 21 }, (_, i) =>
+      wikiResult({
+        path: `/p/mybook/wiki/entities/f${i}.md`,
+        title: `标题${i}`,
+        snippet: `摘要${i} needle`,
+      }),
+    )
+    mocks.searchWiki.mockResolvedValue(results)
+    render(<SearchView />)
+    typeAndSearch("needle")
+    await waitFor(() => expect(screen.getByTestId("pagination-next")).toBeInTheDocument())
+    expect(document.body.textContent).toContain("标题0")
+    expect(document.body.textContent).not.toContain("标题20")
+    fireEvent.click(screen.getByTestId("pagination-next"))
+    await waitFor(() => expect(document.body.textContent).toContain("标题20"))
+    fireEvent.click(screen.getByTestId("pagination-prev"))
+    await waitFor(() => expect(document.body.textContent).toContain("标题0"))
+  })
+
+  it("lightbox：点击 backdrop 关闭（target===currentTarget 才关）", async () => {
+    const onClose = vi.fn()
+    mocks.searchWiki.mockResolvedValue([
+      wikiResult({
+        images: [
+          { url: "media/foo/img-1.png", alt: "2023年总资产合计" },
+          { url: "media/foo/img-2.png", alt: "装饰图标" },
+        ],
+      }),
+    ])
+    render(<SearchView onClose={onClose} />)
+    typeAndSearch("总资产")
+    await waitFor(() => expect(bodyContains("search.imagesSection")).toBe(true))
+    fireEvent.click(screen.getByTitle("2023年总资产合计"))
+    const backdrop = document.querySelector('div[class*="bg-black"]') as HTMLElement
+    expect(backdrop).not.toBeNull()
+    fireEvent.pointerDown(backdrop)
+    await waitFor(() => expect(document.querySelector('div[class*="bg-black"]')).toBeNull())
+  })
+
+  it("lightbox：内容区 pointerDown 冒泡到 wrapper 不关闭", async () => {
+    mocks.searchWiki.mockResolvedValue([
+      wikiResult({
+        images: [{ url: "media/foo/img-1.png", alt: "2023年总资产合计" }],
+      }),
+    ])
+    render(<SearchView />)
+    typeAndSearch("总资产")
+    await waitFor(() => expect(bodyContains("search.imagesSection")).toBe(true))
+    fireEvent.click(screen.getByTitle("2023年总资产合计"))
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).not.toBeNull()
+    fireEvent.pointerDown(dialog)
+    // lightbox 仍开着
+    expect(document.querySelector('div[class*="bg-black"]')).not.toBeNull()
+  })
+})

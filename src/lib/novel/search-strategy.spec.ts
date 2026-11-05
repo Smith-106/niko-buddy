@@ -1355,3 +1355,21 @@ describe("applySearchRecipe 增补", () => {
     expect(res.map((c) => c.id)).toEqual(["c1", "c2"])
   })
 })
+
+describe("覆盖战役补齐：mmrRerank 精确平分决胜", () => {
+  it("MMR 分差 ≤1e-9 时取 relevance 更高者（而非先入选者）", () => {
+    const x = { id: "x", relevance: 1.0 }
+    const y = { id: "y", relevance: 0.6 }
+    const z = { id: "z", relevance: 0.8 }
+    // sim(y,x)=0.6、sim(z,x)=0.8：λ=0.5 下两者 MMR 均为 0，精确平分
+    const sim = (a: unknown, b: unknown): number => {
+      const pair = [(a as { id: string }).id, (b as { id: string }).id].sort().join("+")
+      if (pair === "x+y") return 0.6
+      if (pair === "x+z") return 0.8
+      return 0
+    }
+    const ranked = mmrRerank([x, y, z], { k: 3, lambda: 0.5, similarity: sim })
+    // 首轮 x（最高 relevance），次轮 z（平分但 relevance 高于 y），末轮 y
+    expect(ranked.map((c) => (c as { id: string }).id)).toEqual(["x", "z", "y"])
+  })
+})

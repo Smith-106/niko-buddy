@@ -652,3 +652,45 @@ describe("applyBulkDeleteAndAbandon 增补", () => {
     expect(store.items[0].notes).toBe("旧注；一键清理：标记为已放弃")
   })
 })
+describe("覆盖战役补齐：keepKeys 过滤与缺失 canonical", () => {
+  it("LLM 报出的 duplicate 命中 keepKeys → 被过滤；无 keepKeys 时保留（差分钉住过滤分支）", async () => {
+    const summaries = [
+      summary({ id: "F001", name: "铜钥匙" }),
+      summary({ id: "F002", name: "旧铜钥匙" }),
+    ]
+    const llmCall = async () =>
+      JSON.stringify({
+        issues: [
+          {
+            kind: "duplicate",
+            ids: ["F001", "F002"],
+            canonicalId: "F001",
+            reason: "同物异名",
+            confidence: "high",
+          },
+        ],
+      })
+    const kept = await detectCleanupIssues(summaries, 10, llmCall, {
+      keepKeys: [["F001", "F002"]],
+    })
+    expect(kept).toEqual([])
+    // 对照：同样的 LLM 输出、无 keepKeys 时 duplicate 保留——证明上式的 []
+    // 来自 keepKeys 过滤分支（validateAndFilterIssues 内），而非解析失败。
+    const unkept = await detectCleanupIssues(summaries, 10, llmCall, {})
+    expect(unkept).toHaveLength(1)
+    expect(unkept[0]).toMatchObject({ kind: "duplicate", ids: ["F001", "F002"] })
+  })
+
+  it("merge 的 canonicalId 不在 store → 抛错且不改动 store（不静默丢数据）", () => {
+    const store = createEmptyForeshadowingStore()
+    store.items = [item({ id: "F001", name: "铜钥匙" })]
+    expect(() =>
+      applyCleanupIssue(
+        store,
+        { kind: "duplicate", ids: ["F001", "GHOST"], reason: "r", confidence: "high" },
+        { canonicalId: "GHOST" },
+      ),
+    ).toThrow("Canonical foreshadowing GHOST not found")
+    expect(store.items.map((f) => f.id)).toEqual(["F001"])
+  })
+})

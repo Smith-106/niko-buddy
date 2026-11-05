@@ -1,13 +1,44 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   createEmptyWorldBlueprint,
+  deriveAndSaveWorldBlueprint,
+  deriveWorldBlueprint,
+  loadWorldBlueprint,
   REQUIRED_WORLD_LAYERS,
+  saveWorldBlueprint,
   validateWorldBlueprint,
   worldBlueprintToPromptFragment,
   WORLD_LAYERS,
   type WorldBlueprint,
 } from "./world-blueprint"
 import { SUBDIR_TO_LAYER_TEST_EXPORT } from "./world-blueprint"
+import { listEntityFiles } from "./entity-subdir-resolver"
+
+const mem = vi.hoisted(() => ({ files: new Map<string, string>() }))
+
+vi.mock("@/commands/fs", () => ({
+  fileExists: vi.fn(async (path: string) => mem.files.has(path)),
+  readFile: vi.fn(async (path: string) => {
+    const found = mem.files.get(path)
+    if (found === undefined) throw new Error(`ENOENT ${path}`)
+    return found
+  }),
+  writeFile: vi.fn(async (path: string, contents: string) => {
+    mem.files.set(path, contents)
+  }),
+  writeFileAtomic: vi.fn(async (path: string, contents: string) => {
+    mem.files.set(path, contents)
+  }),
+  createDirectory: vi.fn(async () => {}),
+  listDirectory: vi.fn(async () => []),
+}))
+
+vi.mock("./entity-subdir-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./entity-subdir-resolver")>()
+  return { ...actual, listEntityFiles: vi.fn(async () => []) }
+})
+
+const mockListEntityFiles = vi.mocked(listEntityFiles)
 
 function completeBlueprint(): WorldBlueprint {
   return {
@@ -84,5 +115,91 @@ describe("world-blueprint（吸收自 ANWA services/world 分层结构模式）"
     for (const layer of Object.values(SUBDIR_TO_LAYER_TEST_EXPORT)) {
       expect(WORLD_LAYERS).toContain(layer)
     }
+  })
+})
+
+describe("world-blueprint · 持久化与推导（MIG-001/MIG-002 增补）", () => {
+  beforeEach(() => {
+    mem.files.clear()
+    mockListEntityFiles.mockReset()
+    mockListEntityFiles.mockResolvedValue([])
+  })
+
+  it("save→load 往返一致（.novel 原子 store）", async () => {
+    const bp = completeBlueprint()
+    await saveWorldBlueprint("proj", bp)
+    const keys = [...mem.files.keys()].filter((k) => k.endsWith("world-blueprint.json"))
+    expect(keys).toHaveLength(1)
+    expect(keys[0]).toContain(".novel/")
+    const loaded = await loadWorldBlueprint("proj")
+    expect(loaded).toEqual(bp)
+  })
+
+  it("load 未写过 → null（缺失降级，不抛错）", async () => {
+    await expect(loadWorldBlueprint("empty-proj")).resolves.toBeNull()
+  })
+
+  it("load 损坏 JSON → null（截断/撕裂降级为空 store）", async () => {
+    mem.files.set("proj/.novel/world-blueprint.json", "{截断")
+    await expect(loadWorldBlueprint("proj")).resolves.toBeNull()
+  })
+
+  it("load 未知新版本 fail-loud → 捕获后返回 null", async () => {
+    mem.files.set("proj/.novel/world-blueprint.json", JSON.stringify({ fileVersion: 999, layers: {} }))
+    await expect(loadWorldBlueprint("proj")).resolves.toBeNull()
+  })
+
+  it("derive 按子目录聚类并排序；未知子目录/顶层散装跳过", async () => {
+    mockListEntityFiles.mockResolvedValue([
+      { name: "长安城", path: "wiki/entities/locations/长安城.md" },
+      { name: "边城", path: "wiki/entities/locations/边城.md" },
+      { name: "主角", path: "wiki/entities/characters/主角.md" },
+      { name: "大战", path: "wiki/entities/events/大战.md" },
+      { name: "散装", path: "wiki/entities/散装.md" },
+      { name: "禁咒", path: "wiki/entities/spells/禁咒.md" },
+    ])
+    const bp = await deriveWorldBlueprint("proj", "东方玄幻")
+    expect(bp.version).toBe("1.0")
+    expect(bp.worldType).toBe("东方玄幻")
+    // 同层多实体按名排序
+    expect(bp.layers.geography).toEqual(["边城", "长安城"])
+    expect(bp.layers.cultures).toEqual(["主角"])
+    expect(bp.layers.conflicts).toEqual(["大战"])
+    // 顶层散装与未映射子目录不产生层
+    expect(bp.layers.technology).toBeUndefined()
+    expect(mockListEntityFiles).toHaveBeenCalledWith("proj")
+  })
+
+  it("derive 缺省 worldType 为 fantasy；尾部分隔符被剥离", async () => {
+    const bp = await deriveWorldBlueprint("proj///")
+    expect(bp.worldType).toBe("fantasy")
+    expect(mockListEntityFiles).toHaveBeenCalledWith("proj")
+  })
+
+  it("derive 空实体 → 必填层置空数组优雅降级", async () => {
+    mockListEntityFiles.mockResolvedValue([])
+    const bp = await deriveWorldBlueprint("proj")
+    for (const layer of REQUIRED_WORLD_LAYERS) {
+      expect(bp.layers[layer]).toEqual([])
+    }
+    expect(validateWorldBlueprint(bp).verdict).toBe("incomplete")
+  })
+
+  it("derive 实体读取失败 → 空骨架不抛错", async () => {
+    mockListEntityFiles.mockRejectedValue(new Error("boom"))
+    const bp = await deriveWorldBlueprint("proj")
+    expect(bp.layers).toEqual(
+      Object.fromEntries(REQUIRED_WORLD_LAYERS.map((l) => [l, []])),
+    )
+  })
+
+  it("deriveAndSave 推导并落盘，返回同一骨架", async () => {
+    mockListEntityFiles.mockResolvedValue([
+      { name: "长安城", path: "wiki/entities/locations/长安城.md" },
+    ])
+    const bp = await deriveAndSaveWorldBlueprint("proj", "东方玄幻")
+    expect(bp.layers.geography).toEqual(["长安城"])
+    const loaded = await loadWorldBlueprint("proj")
+    expect(loaded).toEqual(bp)
   })
 })

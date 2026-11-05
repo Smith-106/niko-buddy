@@ -184,3 +184,11 @@ describe("W1 补强：bookRulesToPromptFragment 同人四模式渲染", () => {
     expect(cp).toContain("CP 配对双方须同时出现")
   })
 })
+
+describe("覆盖战役补齐：空串约束词", () => {
+  it("空串 prohibitions 永不命中（countOccurrences 空词守卫）", () => {
+    const rules: BookRules = { version: "1.0", prohibitions: [""], allowedDeviations: [] }
+    const result = validateAgainstBookRules(rules, "任意正文都不会被空串污染")
+    expect(result).toEqual({ findings: [], verdict: "comply" })
+  })
+})

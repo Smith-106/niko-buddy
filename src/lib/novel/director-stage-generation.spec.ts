@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { streamChat } from "@/lib/llm-client"
 import {
   buildStagePrompt,
   DirectorStageGenerationError,
@@ -10,6 +11,12 @@ import {
 } from "./director-stage-generation"
 import type { StageJournalDeps, StageJournalRuntime } from "./stage-output-journal"
 import type { LlmConfig } from "@/stores/wiki-store"
+
+vi.mock("@/lib/llm-client", () => ({
+  streamChat: vi.fn(),
+}))
+
+const mockStreamChat = vi.mocked(streamChat)
 
 const LLM = {
   provider: "custom",
@@ -257,5 +264,65 @@ describe("开书导演阶段生成器 · prompt 与串联", () => {
     const replay = await generateDirectorStages(["idea", "character", "outline", "chapters"] as const, instruction, deps(complete, journal.runtime))
     expect(replay.idea.cached && replay.character.cached && replay.outline.cached && replay.chapters.cached).toBe(true)
     expect(seen).toHaveLength(4)
+  })
+})
+
+describe("开书导演阶段生成器 · 默认 streamChat 链路（无 complete 注入）", () => {
+  const instruction = { idea: { title: "身体都是租的", genre: "都市异能", coreConflict: "活下去" } }
+
+  beforeEach(() => {
+    mockStreamChat.mockReset()
+  })
+
+  it("多 token 累积成完整 JSON 后解析校验（system+user 两条消息）", async () => {
+    mockStreamChat.mockImplementation(async (_config, _messages, callbacks) => {
+      const mid = Math.floor(IDEA_JSON.length / 2)
+      callbacks.onToken(IDEA_JSON.slice(0, mid))
+      callbacks.onToken(IDEA_JSON.slice(mid))
+      callbacks.onDone()
+    })
+    const result = await generateDirectorStage("idea", instruction, { llmConfig: LLM })
+    expect(result.cached).toBe(false)
+    expect(result.digest).toBe("")
+    expect(result.output.title).toBe("身体都是租的")
+    expect(result.output.hooks).toHaveLength(3)
+    expect(mockStreamChat).toHaveBeenCalledTimes(1)
+    const [config, messages, , signal] = mockStreamChat.mock.calls[0]
+    expect(config).toBe(LLM)
+    expect(messages).toHaveLength(2)
+    expect(messages[0].role).toBe("system")
+    expect(messages[1].role).toBe("user")
+    expect(messages[1].content).toContain("idea 阶段")
+    expect(signal).toBeUndefined()
+  })
+
+  it("streamChat onError → 原错上抛（不吞错、不伪造产物）", async () => {
+    const failure = new Error("net down")
+    mockStreamChat.mockImplementation(async (_config, _messages, callbacks) => {
+      callbacks.onToken('{"title": "x"')
+      callbacks.onError(failure)
+    })
+    await expect(generateDirectorStage("idea", instruction, { llmConfig: LLM })).rejects.toBe(failure)
+  })
+
+  it("signal 透传给 streamChat（可中断）", async () => {
+    const controller = new AbortController()
+    mockStreamChat.mockImplementation(async (_config, _messages, callbacks) => {
+      callbacks.onToken(IDEA_JSON)
+      callbacks.onDone()
+    })
+    const result = await generateDirectorStage("idea", instruction, { llmConfig: LLM, signal: controller.signal })
+    expect(result.output.title).toBe("身体都是租的")
+    expect(mockStreamChat.mock.calls[0][3]).toBe(controller.signal)
+  })
+
+  it("默认链路产出结构不合格 → 抛 DirectorStageGenerationError", async () => {
+    mockStreamChat.mockImplementation(async (_config, _messages, callbacks) => {
+      callbacks.onToken(JSON.stringify({ characters: [] }))
+      callbacks.onDone()
+    })
+    await expect(generateDirectorStage("character", instruction, { llmConfig: LLM })).rejects.toBeInstanceOf(
+      DirectorStageGenerationError,
+    )
   })
 })

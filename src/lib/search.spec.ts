@@ -409,3 +409,80 @@ describe("searchWiki — rerank", () => {
     expect(results2).toHaveLength(2)
   })
 })
+
+describe("searchWiki — 缓存命中与淘汰（残留行）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    defaultEmbeddingState(false)
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.readFile.mockResolvedValue("")
+    mocks.searchByEmbedding.mockResolvedValue([])
+    mocks.rerankCandidates.mockResolvedValue([])
+    invalidateWikiSearchCache()
+  })
+
+  it("命中 wiki 树缓存与内容缓存时不再碰 fs", async () => {
+    mocks.listDirectory.mockResolvedValue([mdFile(`${PP}/wiki/notes.md`, "notes.md")])
+    mocks.readFile.mockResolvedValue("needle 内容")
+    const first = await searchWiki(PP, "needle", { includeVector: false })
+    expect(first).toHaveLength(1)
+    const second = await searchWiki(PP, "needle", { includeVector: false })
+    expect(mocks.listDirectory).toHaveBeenCalledTimes(1)
+    expect(mocks.readFile).toHaveBeenCalledTimes(1)
+    expect(second).toEqual(first)
+  })
+
+  it("内容缓存满 2000 条时淘汰最旧条目（被淘汰文件下次重读）", async () => {
+    const files: FileNode[] = []
+    for (let i = 0; i < 2005; i++) {
+      files.push(mdFile(`${PP}/wiki/f${i}.md`, `f${i}.md`))
+    }
+    mocks.listDirectory.mockResolvedValue(files)
+    mocks.readFile.mockResolvedValue("无关内容")
+    await searchWiki(PP, "needle", { includeVector: false })
+    expect(mocks.readFile).toHaveBeenCalledTimes(2005)
+    // f0.md 是最早缓存的 5 个之一，已被淘汰；改写其内容后重搜应重新读取并命中
+    mocks.readFile.mockImplementation(async (p: string) =>
+      p.endsWith("f0.md") ? "needle 命中" : "无关内容",
+    )
+    const results = await searchWiki(PP, "needle", { includeVector: false })
+    expect(mocks.listDirectory).toHaveBeenCalledTimes(1)
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe(`${PP}/wiki/f0.md`)
+  }, 60000)
+})
+
+describe("searchWiki — 按项目失效缓存（残留行）", () => {
+  const PP2 = "C:/other"
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    defaultEmbeddingState(false)
+    mocks.searchByEmbedding.mockResolvedValue([])
+    mocks.rerankCandidates.mockResolvedValue([])
+    invalidateWikiSearchCache()
+    mocks.listDirectory.mockImplementation(async (dir: string) => {
+      const pp = String(dir).replace(/\/wiki$/, "")
+      return [mdFile(`${pp}/notes.md`, "notes.md")]
+    })
+    mocks.readFile.mockResolvedValue("needle 内容")
+  })
+
+  it("invalidateWikiSearchCache(pp) 只清该项目，他项目缓存保留", async () => {
+    await searchWiki(PP, "needle", { includeVector: false })
+    await searchWiki(PP2, "needle", { includeVector: false })
+    expect(mocks.listDirectory).toHaveBeenCalledTimes(2)
+    expect(mocks.readFile).toHaveBeenCalledTimes(2)
+
+    invalidateWikiSearchCache(PP)
+
+    await searchWiki(PP, "needle", { includeVector: false })
+    expect(mocks.listDirectory).toHaveBeenCalledTimes(3)
+    expect(mocks.readFile).toHaveBeenCalledTimes(3)
+
+    // PP2 的树与内容缓存未被波及
+    await searchWiki(PP2, "needle", { includeVector: false })
+    expect(mocks.listDirectory).toHaveBeenCalledTimes(3)
+    expect(mocks.readFile).toHaveBeenCalledTimes(3)
+  })
+})

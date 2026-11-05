@@ -1294,3 +1294,142 @@ describe("OutlineGeneratorDialog", () => {
     })
   })
 })
+
+const projectStoreMocks = vi.hoisted(() => ({
+  saveNovelConfig: vi.fn(async () => {}),
+}))
+
+vi.mock("@/lib/project-store", () => ({
+  saveNovelConfig: projectStoreMocks.saveNovelConfig,
+}))
+
+describe("OutlineGeneratorDialog 覆盖补齐（genre 固化 + multiAgent）", () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    mocks.seq.n = 0
+    mocks.wikiState.project = null
+    mocks.wikiState.llmConfig = mocks.llmConfig
+    mocks.wikiState.dataVersion = 0
+    mocks.wikiState.selectedFile = null
+    mocks.outlineState.tasks = []
+    mocks.wikiState.setNovelConfig = vi.fn()
+    mocks.wikiState.novelConfig = {}
+    setupDefaults()
+    setupDomGlobals()
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  function renderDialog(mode: OutlineGeneratorMode, open = true) {
+    const onOpenChange = vi.fn()
+    const utils = render(
+      <OutlineGeneratorDialog open={open} onOpenChange={onOpenChange} mode={mode} />,
+    )
+    return { ...utils, onOpenChange }
+  }
+
+  it("非 general 题材生成时固化 NovelConfig（genre 透传 + saveNovelConfig）", async () => {
+    mocks.wikiState.project = PROJECT
+    renderDialog("outline")
+    const [genre] = screen.getAllByRole("combobox")
+    await userEvent.selectOptions(genre, "xianxia")
+    await userEvent.type(
+      screen.getByPlaceholderText("novel.outlineGenerator.premisePlaceholder"),
+      "修仙故事",
+    )
+    await userEvent.click(screen.getByRole("button", { name: "novel.outlineGenerator.title" }))
+
+    expect(mocks.createTask).toHaveBeenCalledWith(
+      expect.objectContaining({ genre: "xianxia", scale: "medium", premise: "修仙故事" }),
+    )
+    expect(mocks.wikiState.setNovelConfig).toHaveBeenCalledWith({ genre: "xianxia" })
+    expect(projectStoreMocks.saveNovelConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ genre: "xianxia" }),
+      PROJECT.id,
+      PROJECT.path,
+    )
+    await waitFor(() =>
+      expect(screen.getByText("novel.outlineGenerator.ready")).toBeInTheDocument(),
+    )
+  })
+
+  it("general 题材不触碰 NovelConfig", async () => {
+    mocks.wikiState.project = PROJECT
+    renderDialog("outline")
+    await userEvent.type(
+      screen.getByPlaceholderText("novel.outlineGenerator.premisePlaceholder"),
+      "故事",
+    )
+    await userEvent.click(screen.getByRole("button", { name: "novel.outlineGenerator.title" }))
+    expect(mocks.wikiState.setNovelConfig).not.toHaveBeenCalled()
+    expect(projectStoreMocks.saveNovelConfig).not.toHaveBeenCalled()
+  })
+
+  it("multiAgent 复选框透传到生成任务", async () => {
+    mocks.wikiState.project = PROJECT
+    renderDialog("outline")
+    await userEvent.click(screen.getByRole("checkbox"))
+    await userEvent.type(
+      screen.getByPlaceholderText("novel.outlineGenerator.premisePlaceholder"),
+      "故事",
+    )
+    await userEvent.click(screen.getByRole("button", { name: "novel.outlineGenerator.title" }))
+    expect(mocks.runOutlineGenerationTask).toHaveBeenCalledWith(
+      expect.any(String),
+      mocks.llmConfig,
+      { multiAgent: true },
+    )
+    await waitFor(() =>
+      expect(screen.getByText("novel.outlineGenerator.ready")).toBeInTheDocument(),
+    )
+  })
+})
+
+describe("OutlineGeneratorDialog 覆盖补齐第二轮（497）", () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    mocks.seq.n = 0
+    mocks.wikiState.project = null
+    mocks.wikiState.llmConfig = mocks.llmConfig
+    mocks.wikiState.dataVersion = 0
+    mocks.wikiState.selectedFile = null
+    mocks.outlineState.tasks = []
+    setupDefaults()
+    setupDomGlobals()
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it("生成中且无消息时不渲染消息区", async () => {
+    mocks.wikiState.project = PROJECT
+    mocks.outlineState.tasks = [seedTask({ status: "generating", message: "" })]
+    const onOpenChange = vi.fn()
+    render(<OutlineGeneratorDialog open onOpenChange={onOpenChange} mode="outline" />)
+    // 生成中：表单禁用，就绪面板不出现
+    const [genre, scale] = screen.getAllByRole("combobox")
+    expect(genre).toBeDisabled()
+    expect(scale).toBeDisabled()
+    expect(screen.queryByText("novel.outlineGenerator.ready")).not.toBeInTheDocument()
+  })
+
+  it("就绪但消息为空时不渲染消息区（message 空分支）", async () => {
+    mocks.wikiState.project = PROJECT
+    mocks.outlineState.tasks = [
+      seedTask({
+        status: "generated",
+        outlinePath: "E:/Novel/wiki/outlines/总大纲.md",
+        message: "",
+      }),
+    ]
+    const onOpenChange = vi.fn()
+    const { container } = render(
+      <OutlineGeneratorDialog open onOpenChange={onOpenChange} mode="outline" />,
+    )
+    expect(screen.getByText("novel.outlineGenerator.ready")).toBeInTheDocument()
+    expect(container.querySelector(".whitespace-pre-wrap")).toBeNull()
+  })
+})

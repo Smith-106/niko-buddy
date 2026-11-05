@@ -27,13 +27,19 @@ import {
   embedAllPages,
   embedPage,
   fetchEmbedding,
+  getEmbeddingAdapter,
   getEmbeddingCount,
   getLastEmbeddingError,
+  getLastReconcileOutcome,
   legacyVectorRowCount,
   looksLikeOversizeError,
   removePageEmbedding,
   searchByEmbedding,
+  triggerIdleCompaction,
 } from "./embedding"
+import { chunkFingerprint } from "@/lib/chunk-fingerprint"
+import { chunkMarkdown } from "@/lib/text-chunker"
+import { useWikiStore } from "@/stores/wiki-store"
 
 function cfg(overrides: Partial<EmbeddingConfig> = {}): EmbeddingConfig {
   return {
@@ -544,5 +550,133 @@ describe("vector wrapper functions", () => {
     invokeMock.mockResolvedValueOnce(undefined)
     await dropLegacyVectorTable("/P")
     expect(invokeMock).toHaveBeenCalledWith("vector_drop_legacy", { projectPath: "/P" })
+  })
+})
+
+// ── 覆盖补齐：适配器分发 / 离线 / 压实 / 去重 / 对账 ───────────────────────────
+
+describe("getEmbeddingAdapter 覆盖补齐", () => {
+  it("按 Google → DashScope → 通用顺序分发", () => {
+    expect(getEmbeddingAdapter(cfg({ endpoint: "https://generativelanguage.googleapis.com/v1beta/models/x:embedContent" })).expectedShapeName).toBe("embedding.values")
+    expect(getEmbeddingAdapter(cfg({ endpoint: "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding" })).expectedShapeName).toBe("output.embeddings[0].embedding")
+    expect(getEmbeddingAdapter(cfg()).expectedShapeName).toBe("data[0].embedding")
+  })
+})
+
+describe("fetchEmbedding 覆盖补齐", () => {
+  it("中间路径为非对象时返回缺失形态错误", async () => {
+    fetchMock.mockResolvedValueOnce(okJsonResponse({ output: { embeddings: "nope" } }))
+    const dashCfg = cfg({ endpoint: "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding", model: "m" })
+    expect(await fetchEmbedding("hi", dashCfg)).toBeNull()
+    expect(getLastEmbeddingError()).toContain("output.embeddings[0].embedding")
+  })
+
+  it("离线模式短路且不上报全局错误", async () => {
+    useWikiStore.getState().setOfflineMode(true)
+    try {
+      const before = getLastEmbeddingError()
+      expect(await fetchEmbedding("hello", cfg())).toBeNull()
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(getLastEmbeddingError()).toBe(before)
+    } finally {
+      useWikiStore.getState().setOfflineMode(false)
+    }
+  })
+})
+
+describe("triggerIdleCompaction 覆盖补齐", () => {
+  it("透传后端的压实报告", async () => {
+    invokeMock.mockResolvedValueOnce({ chunks_compacted: 3, old_fragments_cleared: 1 })
+    await expect(triggerIdleCompaction("/P")).resolves.toEqual({ chunks_compacted: 3, old_fragments_cleared: 1 })
+    expect(invokeMock).toHaveBeenCalledWith("vector_trigger_idle_compaction", { projectPath: "/P" })
+  })
+
+  it("后端无压实任务时返回 null", async () => {
+    invokeMock.mockResolvedValueOnce(null)
+    await expect(triggerIdleCompaction("/P")).resolves.toBeNull()
+  })
+})
+
+describe("跨页去重与对账 覆盖补齐", () => {
+  function singleChunkContent(): string {
+    return `plain content without frontmatter or headings ${"x".repeat(50)}`
+  }
+
+  it("已被他页拥有的 chunk 跳过取数且不上报", async () => {
+    const content = singleChunkContent()
+    const chunks = chunkMarkdown(content, { targetChars: 1000, overlapChars: 200 })
+    expect(chunks.length).toBeGreaterThan(0)
+    const fingerprints: Record<string, string[]> = {}
+    for (const chunk of chunks) fingerprints[chunkFingerprint(chunk.text)] = ["other-page"]
+    fsState.readFile.mockResolvedValue(JSON.stringify({ version: 2, fingerprints }))
+
+    await embedPage("/P", "alpha", "Alpha", content, cfg())
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(invokeMock).not.toHaveBeenCalled()
+  })
+
+  it("部分 chunk 失败时对账跳过并记录失败页", async () => {
+    fsState.listDirectory.mockResolvedValue(wikiTree("/P"))
+    fsState.readFile.mockImplementation(async (path: string) =>
+      String(path).endsWith("alpha.md")
+        ? "---\ntitle: Alpha\n---\n\n# Alpha\n\ncontent ".repeat(50)
+        : "---\ntitle: Beta\n---\n\n# Beta\n\ncontent ".repeat(50),
+    )
+    fetchMock
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockImplementation(async () => okJsonResponse({ data: [{ embedding: [1] }] }))
+
+    const done = await embedAllPages("/P", cfg())
+
+    expect(done).toBe(2)
+    // alpha 至少一个 chunk 失败 → 失败页；beta 全部成功仍被写入
+    expect(getLastReconcileOutcome()).toEqual({ status: "skipped", failedPageIds: ["alpha"] })
+    const upserts = invokeMock.mock.calls.filter((c) => c[0] === "vector_upsert_chunks")
+    expect(upserts.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("整批失败导致行集为空时告警且不对账", async () => {
+    fsState.listDirectory.mockResolvedValue(wikiTree("/P"))
+    fsState.readFile.mockResolvedValue("content ".repeat(60))
+    fetchMock.mockResolvedValue(new Response("no", { status: 500 }))
+
+    const done = await embedAllPages("/P", cfg())
+
+    expect(done).toBe(2)
+    expect(invokeMock.mock.calls.filter((c) => c[0] === "vector_upsert_chunks")).toHaveLength(0)
+    expect(getLastReconcileOutcome()).toEqual({ status: "skipped", failedPageIds: ["alpha", "beta"] })
+  })
+
+  it("全部成功时对账执行并透传报告", async () => {
+    fsState.listDirectory.mockResolvedValue(wikiTree("/P"))
+    fsState.readFile.mockResolvedValue("content ".repeat(60))
+    fetchMock.mockImplementation(async () => okJsonResponse({ data: [{ embedding: [1] }] }))
+    const report = { upserted_pages: ["alpha", "beta"], deleted_pages: [], unchanged_pages: [], failed_pages: [], drifted: 0, pending_consumed: 0, skipped: false }
+    invokeMock.mockImplementation(async (cmd: string) =>
+      cmd === "vector_run_startup_reconcile" ? report : undefined,
+    )
+
+    await embedAllPages("/P", cfg())
+
+    expect(getLastReconcileOutcome()).toEqual({ status: "ran", report })
+  })
+
+  it("对账命令失败时记录 failed 而不静默", async () => {
+    fsState.listDirectory.mockResolvedValue(wikiTree("/P"))
+    fsState.readFile.mockResolvedValue("content ".repeat(60))
+    fetchMock.mockImplementation(async () => okJsonResponse({ data: [{ embedding: [1] }] }))
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "vector_run_startup_reconcile") throw new Error("reconcile-down-UNIQUE")
+      return undefined
+    })
+
+    await embedAllPages("/P", cfg())
+
+    const outcome = getLastReconcileOutcome()
+    expect(outcome?.status).toBe("failed")
+    if (outcome?.status === "failed") {
+      expect(outcome.error).toContain("reconcile-down-UNIQUE")
+    }
   })
 })

@@ -1,5 +1,38 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { FrontmatterParseResult, FrontmatterValue } from "@/lib/frontmatter"
 import { parseOutlineMarkdownToModel } from "./outline-model-parse"
+
+// R-补：frontmatter 对象分支（parse 内联 outline_model 为对象时）经真实
+// parseFrontmatter 不可达——normalize(stringifyScalar) 把一切嵌套对象压成
+// string（FrontmatterValue = string | string[]，类型级可证）。以下经依赖替换
+// 构造对象输入，锁定 readModelObject 的真实行为（若上游 normalize 放宽对象
+// 透传，此分支即激活；行为断言届时直接生效）。缺省透传真实实现，既有
+// 24 个用例零影响。
+const frontmatterObjectStub = vi.hoisted(() => ({
+  model: null as unknown,
+}))
+vi.mock("@/lib/frontmatter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/frontmatter")>()
+  return {
+    ...actual,
+    parseFrontmatter: (content: string): FrontmatterParseResult => {
+      if (frontmatterObjectStub.model !== null) {
+        return {
+          frontmatter: {
+            outline_model: frontmatterObjectStub.model,
+          } as unknown as Record<string, FrontmatterValue>,
+          body: content,
+          rawBlock: "",
+        }
+      }
+      return actual.parseFrontmatter(content)
+    },
+  }
+})
+
+beforeEach(() => {
+  frontmatterObjectStub.model = null
+})
 
 const UPDATED_AT = "2026-01-01"
 
@@ -223,5 +256,108 @@ describe("outline-model-parse 行为锁定：YAML 映射形态 outline_model 同
     expect(res.source).toBe("heading")
     expect(res.model.volumes).toHaveLength(1)
     expect(res.model.volumes[0]!.chapters[0]!.prose.goal).toBe("做X")
+  })
+})
+
+describe("outline-model-parse 覆盖增补：frontmatter 对象分支（依赖替换构造）", () => {
+  it("满字段对象模型 → frontmatter 源 + high/1 + 信号与回填断言", () => {
+    frontmatterObjectStub.model = {
+      schemaVersion: 3,
+      updatedAt: "2025-05-05",
+      volumes: [
+        {
+          number: 1,
+          title: "卷一",
+          arc: "卷弧",
+          chapters: [
+            {
+              chapter: 1,
+              title: "开篇",
+              arc: "章弧",
+              pov: "苏七",
+              entities: ["甲", 123, "  "],
+              constraints: "禁夜行、禁泄密",
+              foreshadow: { plant: "XX-1，YY-2", payoff: ["ZZ-3"] },
+              prose: { goal: "立冲突", scenes: "山洞、河边", emotion: "燃" },
+              updatedAt: "2025-01-01",
+            },
+          ],
+        },
+      ],
+    }
+    const res = parseOutlineMarkdownToModel("# 正文应被忽略\n", { updatedAt: UPDATED_AT })
+    expect(res.source).toBe("frontmatter")
+    expect(res.warnings).toEqual([])
+    expect(res.confidence).toBe("high")
+    expect(res.confidenceScore).toBe(1)
+    expect(res.signals.volumeHeadings).toBe(1)
+    expect(res.signals.chapterCount).toBe(1)
+    expect(res.signals.filledSections).toBeGreaterThan(0)
+    const ch = res.model.volumes[0]!.chapters[0]!
+    expect(ch.title).toBe("开篇")
+    expect(ch.arc).toBe("章弧")
+    expect(ch.pov).toBe("苏七")
+    expect(ch.entities).toEqual(["甲"])
+    expect(ch.constraints).toEqual(["禁夜行", "禁泄密"])
+    expect(ch.foreshadow).toEqual({ plant: ["XX-1", "YY-2"], payoff: ["ZZ-3"] })
+    expect(ch.prose).toEqual({ goal: "立冲突", scenes: ["山洞", "河边"], emotion: "燃" })
+    expect(ch.updatedAt).toBe("2025-01-01")
+    expect(res.model.volumes[0]!.arc).toBe("卷弧")
+    expect(res.model.updatedAt).toBe("2025-05-05")
+  })
+
+  it("空 volumes → 警告 + low/0.3", () => {
+    frontmatterObjectStub.model = { volumes: [] }
+    const res = parseOutlineMarkdownToModel("任意正文\n", { updatedAt: UPDATED_AT })
+    expect(res.source).toBe("frontmatter")
+    expect(res.warnings).toEqual(["frontmatter.outline_model 未包含任何卷"])
+    expect(res.confidence).toBe("low")
+    expect(res.confidenceScore).toBe(0.3)
+    expect(res.model.volumes).toEqual([])
+  })
+
+  it("volumes 非数组 → 空卷警告；updatedAt 回退 options", () => {
+    frontmatterObjectStub.model = { volumes: "不是数组", updatedAt: "" }
+    const res = parseOutlineMarkdownToModel("任意正文\n", { updatedAt: UPDATED_AT })
+    expect(res.source).toBe("frontmatter")
+    expect(res.warnings).toEqual(["frontmatter.outline_model 未包含任何卷"])
+    expect(res.confidence).toBe("low")
+    expect(res.model.updatedAt).toBe(UPDATED_AT)
+  })
+
+  it("卷/章缺省回退：号缺省→1、标题缺省→第N卷/空、时间回退 options", () => {
+    frontmatterObjectStub.model = {
+      volumes: [
+        {
+          chapters: [{}, { chapter: "2", title: "  有号章  " }],
+        },
+      ],
+    }
+    const res = parseOutlineMarkdownToModel("任意正文\n", { updatedAt: UPDATED_AT })
+    expect(res.source).toBe("frontmatter")
+    const vol = res.model.volumes[0]!
+    expect(vol.number).toBe(1)
+    expect(vol.title).toBe("第1卷")
+    expect(vol.arc).toBe("")
+    expect(vol.chapters).toHaveLength(2)
+    expect(vol.chapters[0]!.chapter).toBe(1)
+    expect(vol.chapters[0]!.title).toBe("")
+    expect(vol.chapters[0]!.updatedAt).toBe(UPDATED_AT)
+    expect(vol.chapters[0]!.foreshadow).toEqual({ plant: [], payoff: [] })
+    expect(vol.chapters[0]!.prose).toEqual({ goal: "", scenes: [], emotion: "" })
+    expect(vol.chapters[1]!.chapter).toBe(2)
+    expect(vol.chapters[1]!.title).toBe("有号章")
+    // 两章零填充 → filledSections=0 → 非 confident → low（0.3 固定分）
+    expect(res.confidence).toBe("low")
+    expect(res.confidenceScore).toBe(0.3)
+  })
+
+  it("多卷按号排序（sort 比较器执行）", () => {
+    frontmatterObjectStub.model = {
+      volumes: [{ number: 2, chapters: [] }, { number: 1, chapters: [] }],
+    }
+    const res = parseOutlineMarkdownToModel("任意正文\n", { updatedAt: UPDATED_AT })
+    expect(res.model.volumes.map((v) => v.number)).toEqual([1, 2])
+    expect(res.warnings).toEqual([])
   })
 })

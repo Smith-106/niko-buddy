@@ -9,6 +9,7 @@ import {
   loadTranslationGlossary,
   resetTranslationStatus,
   runTranslationProject,
+  saveTranslationDraft,
   runTranslationSegment,
   saveTranslationGlossary,
   translationProgressSummary,
@@ -245,5 +246,109 @@ describe("translation-runner (64 号实施：P0-4 LLM 翻译 runner)", () => {
     const result = await runTranslationProject(port, p, async () => "src", budget, controller.signal)
     expect(result.stopped).toBe("aborted")
     expect(result.artifacts).toHaveLength(0)
+  })
+})
+
+describe("translation-workbench 覆盖补齐（残留分支）", () => {
+  const mkProject = (overrides: Partial<TranslationProject> = {}): TranslationProject => ({
+    version: 1,
+    sourceLang: "中文",
+    targetLang: "英文",
+    chapterNumbers: [1, 2],
+    glossary: createEmptyTranslationGlossary(),
+    progress: createEmptyTranslationProgress(),
+    budgetRunId: "tr-1",
+    ...overrides,
+  })
+  beforeEach(() => {
+    fsMocks.createDirectory.mockReset()
+    fsMocks.writeFileAtomic.mockReset()
+    fsMocks.createDirectory.mockResolvedValue(undefined)
+    fsMocks.writeFileAtomic.mockResolvedValue(undefined)
+  })
+
+  it("checkGlossaryConsistency：空 source 术语被跳过", () => {
+    const g = createEmptyTranslationGlossary()
+    g.entries.push({ source: "", target: "空", kind: "term" })
+    expect(checkGlossaryConsistency(g, "任意文本")).toEqual([])
+  })
+
+  it("checkGlossaryConsistency：长词优先占用区间，短词重叠命中被跳过", () => {
+    let g = createEmptyTranslationGlossary()
+    g = upsertGlossaryEntry(g, { source: "北京", target: "Beijing", kind: "place" })
+    g = upsertGlossaryEntry(g, { source: "北京大学", target: "Peking University", kind: "place" })
+    const violations = checkGlossaryConsistency(g, "他去了北京大学。")
+    expect(violations).toHaveLength(1)
+    expect(violations[0]).toMatchObject({ source: "北京大学", expectedTarget: "Peking University", severity: "warn" })
+  })
+
+  it("runTranslationProject：预算已 suspended 入场 → 直接 suspended", async () => {
+    const port: TranslationLlmPort = { translate: async () => "OK." }
+    const p = mkProject()
+    const budget = { ...createBudgetRun("b1", [{ taskId: "translate-1", cost: 5 }], 100), status: "suspended" as const }
+    const result = await runTranslationProject(port, p, async () => "src", budget)
+    expect(result.stopped).toBe("suspended")
+    expect(result.artifacts).toHaveLength(0)
+  })
+
+  it("runTranslationProject：loadSource 抛错 → aborted 保留已完成", async () => {
+    const port: TranslationLlmPort = { translate: async () => "OK." }
+    const p = mkProject()
+    const budget = createBudgetRun("b1", [{ taskId: "translate-1", cost: 5 }], 100)
+    const result = await runTranslationProject(port, p, async () => { throw new Error("io") }, budget)
+    expect(result.stopped).toBe("aborted")
+    expect(result.artifacts).toHaveLength(0)
+  })
+
+  it("saveTranslationDraft：落盘到 .novel/translation-drafts/{chapter}.md", async () => {
+    await saveTranslationDraft("C:/proj", { chapter: 3, targetText: "译文正文", violations: [], status: "drafted" })
+    expect(fsMocks.createDirectory).toHaveBeenCalledWith(expect.stringContaining(".novel/translation-drafts"))
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledWith(
+      expect.stringMatching(/translation-drafts\/3\.md$/),
+      "译文正文",
+    )
+  })
+})
+
+describe("translation-workbench 覆盖补齐第二轮（67/326）", () => {
+  const mkProject = (overrides: Partial<TranslationProject> = {}): TranslationProject => ({
+    version: 1,
+    sourceLang: "中文",
+    targetLang: "英文",
+    chapterNumbers: [1],
+    glossary: createEmptyTranslationGlossary(),
+    progress: createEmptyTranslationProgress(),
+    budgetRunId: "tr-1",
+    ...overrides,
+  })
+
+  it("upsertGlossaryEntry：多条目更新保留他项", () => {
+    let g = createEmptyTranslationGlossary()
+    g = upsertGlossaryEntry(g, { source: "甲", target: "A", kind: "name" })
+    g = upsertGlossaryEntry(g, { source: "乙", target: "B", kind: "name" })
+    g = upsertGlossaryEntry(g, { source: "甲", target: "A2", kind: "name" })
+    expect(g.entries.map((e) => e.target)).toEqual(["A2", "B"])
+  })
+
+  it("runTranslationProject：已 finalized 章节保持进度（advance 失败回退）", async () => {
+    const port: TranslationLlmPort = { translate: async () => "OK." }
+    let progress = createEmptyTranslationProgress()
+    progress = advanceTranslationStatus(progress, 1, "finalized")!
+    const p = mkProject({ progress })
+    const budget = createBudgetRun("b1", [{ taskId: "translate-1", cost: 5 }], 100)
+    const result = await runTranslationProject(port, p, async () => "src", budget)
+    expect(result.stopped).toBe("done")
+    expect(result.artifacts).toHaveLength(1)
+    expect(result.project.progress.chapterStatuses[1]).toBe("finalized")
+  })
+})
+
+describe("translation-workbench 状态机边界钉住（变异自证用）", () => {
+  it("同级重推进不算前进 → null（<= 边界）", () => {
+    let p = createEmptyTranslationProgress()
+    p = advanceTranslationStatus(p, 1, "drafted")!
+    expect(advanceTranslationStatus(p, 1, "drafted")).toBeNull()
+    expect(advanceTranslationStatus(p, 1, "pending")).toBeNull()
+    expect(advanceTranslationStatus(p, 1, "reviewed")!.chapterStatuses[1]).toBe("reviewed")
   })
 })

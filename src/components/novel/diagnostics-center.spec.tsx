@@ -37,15 +37,6 @@ vi.mock("@/commands/fs", () => ({
   writeFile: vi.fn(),
 }))
 
-vi.mock("@/stores/wiki-store", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/stores/wiki-store")>()
-  return {
-    ...actual,
-    useWikiStore: (selector: (s: { project: null; llmConfig: null }) => unknown) =>
-      selector({ project: null, llmConfig: null }),
-  }
-})
-
 function makeReport(): HealthReport {
   return {
     checkedAt: "2026-09-23T00:00:00.000Z",
@@ -354,9 +345,9 @@ vi.mock("@/lib/novel", async (importOriginal) => {
   }
 })
 
-// 注意：本文件顶部已有 @/stores/wiki-store 的空壳 mock（project=null）。
-// 此处按同一默认行为重声明（末次 mock 生效），并追加 getState + 可写的
-// wikiState，使容器测试能注入项目路径；既有用例行为保持 project=null 不变。
+// 唯一的 @/stores/wiki-store mock（不得重复声明：两个 vi.mock 同一模块时谁生效
+// 取决于模块注册表状态，全量并发下曾导致容器用例拿到 project=null 而渲染空态）。
+// 默认 project=null 保持既有用例行为不变，wikiState 可写供容器用例注入项目。
 const wikiState = vi.hoisted(() => ({
   project: null as null | { id: string; name: string; path: string },
   llmConfig: null as null,

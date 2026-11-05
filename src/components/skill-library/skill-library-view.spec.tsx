@@ -802,4 +802,29 @@ describe("SkillLibraryView 覆盖补齐（去AI味详情/侧栏未覆盖行）",
 
     cleanup(root, container)
   })
+
+  it("null-project detail editor stays read-only after config reload (disabled persistence UX)", async () => {
+    // persist 内部的 !project 守卫（268-269）在 UI 上不可达：全部调用方或前置检查 project、
+    // 或位于 disabled={!project} 按钮之后（React 19 对禁用按钮连合成 click 也不派发 onClick，
+    // 实测 dispatchEvent 触发 0 次）。本用例锁定真正生效的拒绝机制：按钮禁用 + 不写盘 + 提示。
+    const { container, root } = await renderLibrary()
+    useWikiStore.getState().setProject(null)
+    await flushEffects()
+    await flushEffects()
+    // 前置条件：默认内置配置已按无项目路径重载（否则断言无意义）
+    expect(container.textContent).toContain("综合去AI味")
+    writeFileAtomicMock.mockClear()
+
+    const defaultButton = container.querySelector<HTMLButtonElement>('[data-testid="skill-default-button"]')
+    expect(defaultButton?.disabled).toBe(true)
+    // 合成 click 也到不了 handler（见上），此处只确认不写盘、无失败态
+    await dispatchClick(defaultButton)
+
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+    expect(writeFileMock).not.toHaveBeenCalled()
+    expect(container.textContent).toContain("请先打开项目")
+    expect(container.textContent).not.toContain("技能库保存失败")
+
+    cleanup(root, container)
+  })
 })

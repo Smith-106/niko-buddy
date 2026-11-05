@@ -580,3 +580,109 @@ describe("R24结构层三件套（RCP-20261014-1311）", () => {
     expect(detectSilentStretch("沈鸢在。", [])).toEqual([])
   })
 })
+
+describe("机械 slop 覆盖补齐（残留行）", () => {
+  it("overCorrectionReport：句长极不规则触发改写器腔 flag", () => {
+    const r = overCorrectionReport(
+      "好。来。去。看。他沿着那条蜿蜒曲折的山路一直往上走穿过茂密的树林越过湍急的溪流终于在天亮之前看到了远处村庄里星星点点的灯火。",
+    )
+    expect(r.flags.some((f) => f.includes("不规则"))).toBe(true)
+    expect(r.humanizerCavityScore).toBeGreaterThan(0)
+  })
+
+  it("detectChorusSing：无闭合引号的段落不算喊话", () => {
+    expect(detectChorusSing("“没有结尾的喊话\n\n普通段落。")).toEqual([])
+    expect(detectChorusSing("“这是一段超过二十四个字的很长很长的喊话内容啊”\n\n普通段落。")).toEqual([])
+  })
+
+  it("rollupStyleStats：术语命中聚合/排序截断/包含去重全覆盖", () => {
+    const chapters = [
+      "这一切显然发生了，事实上他说白了就是众所周知的事情。",
+      "与此同时他紧接着赶到显然有问题，就在这时赋能抓手底层逻辑出现了。",
+      "在某种程度上这很复杂，然而他但是觉得莫名地若有所思地离开。",
+      "多维度深层次彰显淋漓尽致，令人印象深刻至关重要。",
+      "他推开门走了出去，夜色很深。",
+    ]
+    const stats = rollupStyleStats(chapters)
+    expect(stats).not.toBeNull()
+    // 命中词远超上限 → 截断到 8（break 分支）
+    expect(stats!.topPatterns).toHaveLength(8)
+    // 同词跨章累计（?? 存量分支）
+    const xianran = stats!.topPatterns.find((p) => p.kw === "显然")
+    expect(xianran?.total).toBe(2)
+    // 被包含词去重（continue 分支）：“某种程度”被“在某种程度上”包含
+    expect(stats!.topPatterns.some((p) => p.kw === "某种程度")).toBe(false)
+    expect(stats!.degraded).toBe(true)
+    const text = bookStyleStatsToText(stats)
+    expect(text).toContain("全书高频短语")
+    expect(text).toContain("文体退化")
+  })
+
+  it("bookStyleStatsToText：手工统计覆盖高频短语与跨章重复句文本化", () => {
+    const text = bookStyleStatsToText({
+      chapters: 5,
+      avgPenalty: 8,
+      maxPenalty: 9,
+      degraded: true,
+      topPatterns: [{ kw: "显然", total: 4, perChapter: 0.8 }],
+      repeatedSentences: [{ text: "夜色很深远处传来了狗叫声", chapters: 3, count: 3 }],
+      shortEndingRatio: 0.2,
+    })
+    expect(text).toContain("显然×4（章均0.8）")
+    expect(text).toContain("跨章重复句（3 章×3 次）")
+    expect(text).toContain("章末短结尾占比 20%")
+  })
+})
+
+describe("机械 slop 覆盖补齐（静默短缺席不命中）", () => {
+  it("detectSilentStretch：缺席段不足 8 段 → 空", () => {
+    const t = ["沈鸢在。", "风声。", "雨声。", "沈鸢回来了。"].join("\n\n")
+    expect(detectSilentStretch(t, ["沈鸢"])).toEqual([])
+  })
+})
+
+describe("机械 slop 覆盖补齐第二轮（311/451/474）", () => {
+  it("overCorrectionReport：纯假口语填充、无句长 flag 时只加 0.3", () => {
+    const text = [
+      "呃，他推开门走了出去。",
+      "夜色很深，嗯，远处传来了几声断断续续的狗叫。",
+      "灯还亮着，风把那个落叶卷进院子。",
+      "她合上书站起身来，唔，窗外雨声渐密，檐下水珠连成了线。",
+      "老周点烟。",
+      "马蹄声由远及近，额，尘土飞扬中一骑黑马冲进了镇口。",
+    ].join("")
+    const r = overCorrectionReport(text)
+    expect(r.flags).toHaveLength(1)
+    expect(r.flags[0]).toContain("填充词")
+    expect(r.humanizerCavityScore).toBeCloseTo(0.3)
+  })
+
+  it("rollupStyleStats：包含去重在截断前命中 continue", () => {
+    const chapters = [
+      "在某种程度上很复杂。",
+      "某种程度的问题。",
+      "她合上书站起身来，窗外雨声渐密，檐下水珠连成了线。",
+      "老周点燃旱烟，火光照亮他布满皱纹的脸，沉默在屋里蔓延开来。",
+      "马蹄声由远及近，尘土飞扬中一骑黑马冲进了镇口。",
+    ]
+    const stats = rollupStyleStats(chapters)
+    expect(stats).not.toBeNull()
+    const kws = stats!.topPatterns.map((p) => p.kw)
+    // “某种程度”计数居首先入表，“在某种程度上”被包含去重
+    expect(kws).toContain("某种程度")
+    expect(kws).not.toContain("在某种程度上")
+  })
+
+  it("rollupStyleStats：空章节不计章末短结尾", () => {
+    const stats = rollupStyleStats([
+      "",
+      "她合上书站起身来，窗外雨声渐密，檐下水珠连成了线。",
+      "老周点燃旱烟，火光照亮他布满皱纹的脸，沉默在屋里蔓延开来。",
+      "马蹄声由远及近，尘土飞扬中一骑黑马冲进了镇口。",
+      "他把信折好塞进怀里，转身消失在人群之中，再也没有回头。",
+    ])
+    expect(stats).not.toBeNull()
+    expect(stats!.chapters).toBe(5)
+    expect(stats!.shortEndingRatio).toBe(0.8)
+  })
+})

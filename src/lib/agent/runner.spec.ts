@@ -1717,3 +1717,50 @@ describe("runner 覆盖增补：工具通道关闭与 nudge 形态", () => {
     expect(String(systems[2].content)).toContain(NUDGE_MARKER)
   })
 })
+
+describe("覆盖战役补齐：无签名思考块", () => {
+  it("provider 只给 thinking 文本不给 signature → 该块被丢弃且运行不受影响", async () => {
+    const sent: AgentMessage[][] = []
+    let n = 0
+    mocks.streamChat.mockImplementation(async (_llm: unknown, messages: unknown, cb: StreamCallbacks) => {
+      sent.push(JSON.parse(JSON.stringify(messages)) as AgentMessage[])
+      n += 1
+      if (n === 1) {
+        // block_start 无 signature、后续也无 signature 分片（部分 provider 的流式形状）
+        cb.onThinkingDelta?.({ kind: "block_start", index: 0, block: { type: "thinking" } })
+        cb.onThinkingDelta?.({ kind: "text", index: 0, text: "候选思路" })
+        cb.onToolCallDelta?.({ index: 0, id: "c1", name: "read_chapter", arguments: JSON.stringify({ chapter: 1 }) })
+      } else {
+        cb.onToken?.("终稿")
+      }
+      cb.onFinishReason?.("stop")
+      cb.onDone()
+    })
+    const readTool: Tool = {
+      name: "read_chapter",
+      description: "读取章节",
+      category: "read",
+      permission: "auto",
+      parameters: { chapter: { type: "integer", description: "章节号" } },
+      async execute() {
+        return "ok"
+      },
+    }
+    const recorder = createCallbacks()
+    const record = await new AgentRunner().run(
+      createConfig([readTool], { taskGoal: "t" }),
+      createRegistry([readTool]),
+      [{ role: "user", content: "hi" }],
+      recorder.callbacks,
+    )
+    expect(recorder.errors).toEqual([])
+    expect(record.toolCalls.map((call) => [call.name, call.status])).toEqual([["read_chapter", "done"]])
+    expect(record.finalText).toBe("终稿")
+    // 无签名 thinking 块不得回放：assistant 消息不带 thinking_blocks
+    const assistantWithTools = sent[1].find(
+      (message) => message.role === "assistant" && message.tool_calls?.length,
+    )
+    expect(assistantWithTools).toBeDefined()
+    expect("thinking_blocks" in (assistantWithTools as unknown as Record<string, unknown>)).toBe(false)
+  })
+})

@@ -210,3 +210,111 @@ describe("buildMarkdownFormatRepairMessages", () => {
     expect(messages[0]?.content.endsWith(body)).toBe(true)
   })
 })
+
+describe("finalizeStructuredMarkdownMessage 覆盖补齐", () => {
+  const validBody = "# 人物设定\n\n- 姓名：林川\n- 目标：复仇"
+
+  it("空字符串的 token 估算为 0", () => {
+    expect(estimateMarkdownRepairTokens("")).toBe(0)
+    expect(estimateMarkdownRepairTokens("   \n  ")).toBe(0)
+  })
+
+  it("非结构化普通问答启用时同样原样返回且不调用 AI", async () => {
+    const repairWithAi = vi.fn(async () => "不应调用")
+    const onFailure = vi.fn()
+    const source = "建议先确认人物动机，再决定后续情节。"
+
+    const finalMessage = await finalizeStructuredMarkdownMessage(source, {
+      enabled: true,
+      repairWithAi,
+      onFailure,
+    })
+
+    expect(finalMessage).toBe(source)
+    expect(repairWithAi).not.toHaveBeenCalled()
+    expect(onFailure).not.toHaveBeenCalled()
+  })
+
+  it("已经合法的结构化正文直接返回且不调用 AI", async () => {
+    const repairWithAi = vi.fn(async () => "不应调用")
+    const onFailure = vi.fn()
+
+    const finalMessage = await finalizeStructuredMarkdownMessage(validBody, {
+      enabled: true,
+      repairWithAi,
+      onFailure,
+    })
+
+    expect(finalMessage).toBe(validBody)
+    expect(repairWithAi).not.toHaveBeenCalled()
+    expect(onFailure).not.toHaveBeenCalled()
+  })
+
+  it("尾部非法 JSON 围栏不被当作保存协议剥离", async () => {
+    const repairWithAi = vi.fn(async () => "不应调用")
+    const source = `${validBody}\n\n\`\`\`json\n{oops\n\`\`\``
+
+    const finalMessage = await finalizeStructuredMarkdownMessage(source, {
+      enabled: true,
+      repairWithAi,
+      onFailure: vi.fn(),
+    })
+
+    expect(finalMessage).toContain("{oops")
+    expect(finalMessage).toContain("```json")
+    expect(repairWithAi).not.toHaveBeenCalled()
+  })
+
+  it("尾部合法 JSON 但无保存协议键时同样保留在正文", async () => {
+    const repairWithAi = vi.fn(async () => "不应调用")
+    const source = `${validBody}\n\n\`\`\`json\n{"foo": 1}\n\`\`\``
+
+    const finalMessage = await finalizeStructuredMarkdownMessage(source, {
+      enabled: true,
+      repairWithAi,
+      onFailure: vi.fn(),
+    })
+
+    expect(finalMessage).toContain('"foo"')
+    expect(repairWithAi).not.toHaveBeenCalled()
+  })
+
+  it("超预算时直接旁路并原样保留全文围栏", async () => {
+    const maxBodyTokens = MARKDOWN_AI_REPAIR_MAX_INPUT_TOKENS
+      - MARKDOWN_AI_REPAIR_PROMPT_TOKEN_OVERHEAD
+    const hugeTable = `| 人物 | 目标 |\n| --- | --- |\n| 林川 | ${"中".repeat(maxBodyTokens + 1)} |`
+    const source = `\`\`\`markdown\n${hugeTable}\n\`\`\``
+    const repairWithAi = vi.fn(async () => "不应调用")
+    const onFailure = vi.fn()
+
+    const finalMessage = await finalizeStructuredMarkdownMessage(source, {
+      enabled: true,
+      repairWithAi,
+      onFailure,
+    })
+
+    expect(repairWithAi).not.toHaveBeenCalled()
+    expect(onFailure).toHaveBeenCalledTimes(1)
+    expect(finalMessage).toBe(source)
+  })
+
+  it("AI 返回合法且内容不变时直接采用 AI 结果", async () => {
+    const source = "| 人物 | 目标 |\n| 林川 | 复仇 |"
+    // 标题文本 "****" 会被完整性归一化完全剥除，与原正文归一化结果一致。
+    const aiFixed = "# ****\n\n| 人物 | 目标 |\n| --- | --- |\n| 林川 | 复仇 |"
+    const repairWithAi = vi.fn(async () => aiFixed)
+    const onFailure = vi.fn()
+
+    const finalMessage = await finalizeStructuredMarkdownMessage(source, {
+      enabled: true,
+      repairWithAi,
+      onFailure,
+    })
+
+    expect(repairWithAi).toHaveBeenCalledTimes(1)
+    const repairArg = (repairWithAi.mock.calls[0] as unknown as [{ content: string }])[0]
+    expect(repairArg.content).toBe(source)
+    expect(finalMessage).toBe(aiFixed)
+    expect(onFailure).not.toHaveBeenCalled()
+  })
+})

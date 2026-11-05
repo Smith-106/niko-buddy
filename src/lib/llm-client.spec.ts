@@ -2274,3 +2274,27 @@ describe("llm-client 覆盖增补：cursor-cli 代理成功路", () => {
     expect(callbacks.onError).not.toHaveBeenCalled()
   })
 })
+
+describe("llm-client 覆盖增补：请求阶段总预算超时", () => {
+  it("端点挂起无响应 → 30 分钟总预算触发后 AbortError 报超时（非取消）", async () => {
+    vi.useFakeTimers()
+    // fetch 既不返回 headers 也不拒绝：header 截止只打断 signal，
+    // 30 分钟总预算触发后 mock 才以 AbortError 拒绝，正好命中
+    // sendRequest 外层 catch 的 timeoutFired 分支。
+    const mockFetch = (() =>
+      new Promise<Response>((_resolve, reject) => {
+        setTimeout(() => reject(new DOMException("The operation was aborted.", "AbortError")), 31 * 60 * 1000)
+      })) as typeof fetch
+    setupHttpFetch(mockFetch)
+    const callbacks = makeCallbacks()
+    const p = streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+    await vi.advanceTimersByTimeAsync(31 * 60 * 1000 + 1_000)
+    await p
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    const err = callbacks.onError.mock.calls[0][0] as Error
+    expect(err.message).toContain("Request timed out after 30 min")
+    expect(err.name).not.toBe("AbortError")
+    expect(isRequestCancelledError(err)).toBe(false)
+  })
+})

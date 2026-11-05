@@ -19,6 +19,7 @@ import {
   readOutlineContent,
   pickChapterOutlineByNumber,
   readChapterOutlineContent,
+  resolveDerivedStoreSections,
   selectActiveEntities,
   computeIrrelevantRatio,
   searchRelevantContent,
@@ -38,6 +39,8 @@ import { DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG } from "./revision-feedback"
 import { DEFAULT_NOVEL_CONFIG, useWikiStore, type LlmConfig, type NovelConfig, type EmbeddingConfig } from "@/stores/wiki-store"
 import i18n from "@/i18n"
 import type { ChapterSnapshot } from "./chapter-ingest"
+import type { ReferenceContextResult } from "@/lib/reference/search"
+import type { ReferenceContextOptions } from "@/lib/reference/types"
 
 // HARD-1/2/3 守恒断言 (TASK-006): Track B 纯 contextPack 内变换不得触达
 // wiki-store 的写入类 setter (status.json / chapter-save-strategy / decision_gates)。
@@ -276,11 +279,65 @@ vi.mock("./temporal-facts-audit", () => ({
 }))
 vi.mock("./projection-status-ledger", () => ({ loadProjectionStatusLedger: hoisted.loadProjectionStatusLedger }))
 vi.mock("./character-aura", () => ({ buildCharacterAuraContext: hoisted.buildCharacterAuraContext }))
+// retrieveDualTrack 缺省抛错桩（见下 mock 注释）；用例按需注入 DualTrackResult。
+const retrieveDualTrackStub = vi.hoisted(() => ({
+  impl: null as null | ((...args: unknown[]) => Promise<unknown>),
+}))
 vi.mock("./search-adapter", () => ({
   isAuthoritativeGenerationPath: hoisted.isAuthoritativeGenerationPath,
   isHistoricalProjectionSnippet: hoisted.isHistoricalProjectionSnippet,
   novelMixedSearch: hoisted.novelMixedSearch,
+  // retrieveDualTrack 真实现在单测 fs 桩下不可用（与既有行为一致：调用即抛 →
+  // context-engine 内层 catch 降级 null）。缺省保持抛错以字节级守恒既有用例；
+  // 用例按需覆写 retrieveDualTrackStub.impl 注入 DualTrackResult。
+  retrieveDualTrack: (...args: unknown[]) => {
+    if (retrieveDualTrackStub.impl) return retrieveDualTrackStub.impl(...args)
+    throw new Error("search-adapter KB retrieval unavailable in unit tests")
+  },
 }))
+
+// buildReferenceContext 真实现缺省透传（既有用例依赖其 no_refs/ok 真实输出）；
+// 用例按需覆写 buildReferenceContextStub.impl（抛错 / truncated / load_failed）。
+const buildReferenceContextStub = vi.hoisted(() => ({
+  impl: null as null | ((
+    projectPath: string,
+    task: string,
+    options?: ReferenceContextOptions,
+  ) => Promise<ReferenceContextResult>),
+}))
+vi.mock("@/lib/reference/search", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/reference/search")>()
+  return {
+    ...actual,
+    buildReferenceContext: (
+      projectPath: string,
+      task: string,
+      options?: ReferenceContextOptions,
+    ): Promise<ReferenceContextResult> => {
+      if (buildReferenceContextStub.impl) {
+        return buildReferenceContextStub.impl(projectPath, task, options)
+      }
+      return actual.buildReferenceContext(projectPath, task, options)
+    },
+  }
+})
+
+// loadOutlineModel 真实现缺省透传；用例按需令其抛错，覆盖 sidecar 异常兜底。
+const outlineModelStoreStub = vi.hoisted(() => ({
+  throwOnLoad: false,
+}))
+vi.mock("./outline-model-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./outline-model-store")>()
+  return {
+    ...actual,
+    loadOutlineModel: async (
+      ...args: Parameters<typeof actual.loadOutlineModel>
+    ): Promise<Awaited<ReturnType<typeof actual.loadOutlineModel>>> => {
+      if (outlineModelStoreStub.throwOnLoad) throw new Error("sidecar loader boom")
+      return actual.loadOutlineModel(...args)
+    },
+  }
+})
 vi.mock("./graph-adapter", () => ({ sanitizeEntitySlug: hoisted.sanitizeEntitySlug }))
 vi.mock("./context-data-source", () => ({ DataSourceRegistry: hoisted.MockDataSourceRegistry }))
 vi.mock("./context-data-sources", () => ({ getAllDataSources: hoisted.getAllDataSources }))
@@ -459,6 +516,9 @@ function resetHoistedDefaults(): void {
   hoisted.lastLoadContext = undefined
   // T25: canon 迁移门默认关闭（null → 默认折叠路径）；canon 查询默认空集；
   // 技法编译默认透传真实离线编译器。
+  retrieveDualTrackStub.impl = null
+  outlineModelStoreStub.throwOnLoad = false
+  buildReferenceContextStub.impl = null
   t25.loadNovelSessionStatus.mockReset().mockResolvedValue(null)
   t25.queryCanonEdges.mockReset().mockResolvedValue([])
   t25.compileFromCommittedSnapshot.mockReset().mockImplementation(
@@ -3255,5 +3315,188 @@ describe("T25 三源真并行 + canon 事实块注入", () => {
     // 其余两源不受影响：wiki 数据照常装配、计时探针三槽位齐全。
     expect(pack.chapterGoal).toBe("细纲：目标")
     expect(pack.sourceTimingsMs!.technique).toBeGreaterThanOrEqual(0)
+  })
+})
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// 第四轮补齐：联合覆盖剩余 18 行（r5）
+// 290-291 references 构建抛错降级 / 377 truncated 记账 / 386 load_failed 记账 /
+// 397-403 硬注入 gaps 双路归因 / 414-415 kbReferences 注入 / 429 绑定渲染抛错
+// 降级 / 829 世界骨架 then 回调抛错降级 / 834 叙事状态读失败降级 /
+// 1037 实体聚合抛错降级空 / 1093 sidecar 加载器抛错兜底回退文本匹配。
+// ════════════════════════════════════════════════════════════════════════════
+describe("第四轮补齐：references 源三态记账", () => {
+  it("buildReferenceContext 抛错 → catch 降级：references 空串且无 references 缺口", async () => {
+    buildReferenceContextStub.impl = async () => {
+      throw new Error("reference source down")
+    }
+    const pack = await buildContextPack("/p", "生成第3章正文 @白砚", 3, {
+      novelConfig: mkNovelConfig({ referenceEnabled: true }),
+    })
+    expect(pack.references).toBe("")
+    expect((pack.gaps ?? []).filter((g) => g.ref === "references")).toEqual([])
+  })
+
+  it("truncated=true → truncated 缺口记账（originalLength=文本长+1）", async () => {
+    buildReferenceContextStub.impl = async () => ({
+      text: "引用段文本",
+      truncated: true,
+      omittedSections: 2,
+      cause: "ok",
+    })
+    const pack = await buildContextPack("/p", "生成第3章正文 @白砚", 3, {
+      novelConfig: mkNovelConfig({ referenceEnabled: true }),
+    })
+    expect(pack.references).toBe("引用段文本")
+    expect(pack.gaps).toContainEqual({
+      type: "truncated",
+      ref: "references",
+      reason: "budget_exceeded",
+      originalLength: 6,
+      retainedLength: 5,
+    })
+  })
+
+  it("cause=load_failed → load_failed 缺口记账（防御未来产出方；真实产出仅 no_refs/ok）", async () => {
+    buildReferenceContextStub.impl = async () => ({
+      text: "",
+      truncated: false,
+      omittedSections: 0,
+      cause: "load_failed",
+    })
+    const pack = await buildContextPack("/p", "生成第3章正文 @白砚", 3, {
+      novelConfig: mkNovelConfig({ referenceEnabled: true }),
+    })
+    expect(pack.references).toBe("")
+    expect(pack.gaps).toContainEqual({
+      type: "load_failed",
+      ref: "references",
+      reason: "datasource_error",
+      originalLength: 0,
+      retainedLength: 0,
+    })
+  })
+})
+
+describe("第四轮补齐：硬注入 gaps 与 kbReferences 装配", () => {
+  const usage = { hardInjectChars: 6, capChars: 100, ratio: 0.06, truncatedCount: 0 }
+  const hardInject = [{ source: "canon", ref: "c1", text: "硬注入文本", origin: "o1" }]
+  const kbReferences = [
+    { collection: "kb", name: "心法", title: "心法总纲", summary: "摘要", path: "/p/wiki/kb/x.md" },
+  ]
+
+  it("gaps 三路归因 + kbReferences 注入 + 用量透传", async () => {
+    retrieveDualTrackStub.impl = async () => ({
+      hardInject,
+      ranked: [],
+      gaps: [
+        { collection: "kb-view", impactedIntents: ["draft"], message: "budget_exceeded: 通道A超cap" },
+        { collection: "hardInject", impactedIntents: ["draft"], message: "slow" },
+        { collection: "other", impactedIntents: ["draft"], message: "timeout" },
+      ],
+      kbReferences,
+      usage,
+    })
+    const pack = await buildContextPack("/p", "生成第3章正文", 3, {
+      novelConfig: mkNovelConfig({ hardInjectEnabled: true }),
+    })
+    expect(pack.hardInject).toEqual(hardInject)
+    expect(pack.hardInjectUsage).toEqual(usage)
+    expect(pack.kbRoutingGaps).toHaveLength(3)
+    // message 命中 budget_exceeded → truncated；collection 为 hardInject → truncated；其余 → load_failed
+    expect(pack.gaps).toContainEqual({
+      type: "truncated",
+      ref: "kb-view",
+      reason: "budget_exceeded",
+      originalLength: 0,
+      retainedLength: 0,
+    })
+    expect(pack.gaps).toContainEqual({
+      type: "truncated",
+      ref: "hardInject",
+      reason: "budget_exceeded",
+      originalLength: 0,
+      retainedLength: 0,
+    })
+    expect(pack.gaps).toContainEqual({
+      type: "load_failed",
+      ref: "other",
+      reason: "datasource_error",
+      originalLength: 0,
+      retainedLength: 0,
+    })
+    expect(pack.kbReferences).toEqual(kbReferences)
+  })
+
+  it("空硬注入 → undefined（零条目不渲染）+ 无缺口镜像", async () => {
+    retrieveDualTrackStub.impl = async () => ({
+      hardInject: [],
+      ranked: [],
+      gaps: [],
+      usage: { hardInjectChars: 0, capChars: 100, ratio: 0, truncatedCount: 0 },
+    })
+    const pack = await buildContextPack("/p", "生成第3章正文", 3, {
+      novelConfig: mkNovelConfig({ hardInjectEnabled: true }),
+    })
+    expect(pack.hardInject).toBeUndefined()
+    expect(pack.kbRoutingGaps).toBeUndefined()
+    expect(pack.kbReferences).toBeUndefined()
+  })
+})
+
+describe("第四轮补齐：绑定渲染失败降级", () => {
+  it("bindings store 缺 bindings 字段 → bindingsToContextText 抛错 → referenceBindings undefined", async () => {
+    hoisted.readFile.mockImplementation(async (p: string) =>
+      p.endsWith("reference-bindings.json") ? "{}" : "",
+    )
+    const pack = await buildContextPack("/p", "生成第3章正文", 3)
+    expect(pack.referenceBindings).toBeUndefined()
+    expect(pack.task).toBe("生成第3章正文")
+  })
+})
+
+describe("第四轮补齐：派生 stores 降级", () => {
+  it("世界骨架 then 回调抛错（有 worldType 无 layers）→ worldBlueprint undefined", async () => {
+    hoisted.readFile.mockImplementation(async (p: string) =>
+      p.endsWith("world-blueprint.json") ? '{"worldType":"test"}' : "",
+    )
+    const sections = await resolveDerivedStoreSections("/p")
+    expect(sections.worldBlueprint).toBeUndefined()
+    expect(sections.narrativeVisibility).toBeUndefined()
+  })
+
+  it("叙事状态读失败（未知 fileVersion fail-loud）→ narrativeVisibility undefined", async () => {
+    hoisted.readFile.mockImplementation(async (p: string) =>
+      p.endsWith("narrative-state.json") ? '{"fileVersion":999}' : "",
+    )
+    const sections = await resolveDerivedStoreSections("/p")
+    expect(sections.worldBlueprint).toBeUndefined()
+    expect(sections.narrativeVisibility).toBeUndefined()
+  })
+})
+
+describe("第四轮补齐：实体选择降级路径", () => {
+  it("listDirectory 返回非数组 → 聚合抛错 → 空数组优雅降级", async () => {
+    hoisted.listDirectory.mockResolvedValue(null)
+    await expect(
+      selectActiveEntities("/p", { outline: "x", sceneCharacters: "y" }),
+    ).resolves.toEqual([])
+  })
+
+  it("sidecar loader throws: catch nulls chapterEntities, text fallback, no rethrow", async () => {
+    outlineModelStoreStub.throwOnLoad = true
+    hoisted.listDirectory.mockResolvedValue([
+      { name: "a.md", path: "/p/wiki/entities/a.md", is_dir: false },
+    ])
+    hoisted.readFile.mockImplementation(async (f: string) =>
+      f.endsWith("a.md") ? "---\ntitle: 林晚秋\n---\n" : "",
+    )
+    const entities = await selectActiveEntities("/p", {
+      chapterNumber: 3,
+      outline: "林晚秋 出场",
+      sceneCharacters: "",
+    })
+    expect(entities.map((e) => e.name)).toEqual(["林晚秋"])
   })
 })

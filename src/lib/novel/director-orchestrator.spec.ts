@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import {
   tryAdvanceDirector,
+  tryAdvanceDirectorFromProject,
   collectPhaseGateInput,
+  collectProjectSnapshot,
   phaseGapHint,
   retryDirector,
   loadDirectorState,
@@ -11,7 +13,11 @@ import {
   type DirectorSnapshot,
 } from "./director-orchestrator"
 import { createDirectorPipeline } from "./director-pipeline"
-import { createEmptyWorldBlueprint } from "./world-blueprint"
+import { createEmptyWorldBlueprint, type WorldBlueprint } from "./world-blueprint"
+import { listEntityFiles } from "./entity-subdir-resolver"
+import { listSnapshots } from "./chapter-ingest"
+import { listDirectory } from "@/commands/fs"
+import { loadWorldBlueprint } from "./world-blueprint"
 
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
@@ -20,9 +26,29 @@ vi.mock("@/commands/fs", async (importOriginal) => {
       readFile: vi.fn(async () => {
         throw new Error("ENOENT")
       }),
-    
+      listDirectory: vi.fn(async () => []),
   }
 })
+
+vi.mock("./entity-subdir-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./entity-subdir-resolver")>()
+  return { ...actual, listEntityFiles: vi.fn(async () => []) }
+})
+
+vi.mock("./chapter-ingest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./chapter-ingest")>()
+  return { ...actual, listSnapshots: vi.fn(async () => []) }
+})
+
+vi.mock("./world-blueprint", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./world-blueprint")>()
+  return { ...actual, loadWorldBlueprint: vi.fn(async () => null) }
+})
+
+const mockListEntityFiles = vi.mocked(listEntityFiles)
+const mockListSnapshots = vi.mocked(listSnapshots)
+const mockListDirectory = vi.mocked(listDirectory)
+const mockLoadWorldBlueprint = vi.mocked(loadWorldBlueprint)
 
 const FULL_SNAPSHOT: DirectorSnapshot = {
   idea: { title: "雾都侦探", genre: "悬疑", coreConflict: "连环失踪案与旧案关联" },
@@ -139,5 +165,139 @@ describe("director-orchestrator（60 号设计：director-pipeline 接线编排�
     const bp = createEmptyWorldBlueprint("都市")
     const input = collectPhaseGateInput({ ...FULL_SNAPSHOT, worldComplete: false }, bp)
     expect(input.worldComplete).toBe(false)
+  })
+})
+
+describe("director-orchestrator · 项目快照采集与异步推进（MIG-001 增补）", () => {
+  const COMPLETE_BP: WorldBlueprint = {
+    version: "1.0",
+    worldType: "都市",
+    layers: {
+      axioms: ["a"],
+      background: ["b"],
+      geography: ["g"],
+      cultures: ["c"],
+      conflicts: ["f"],
+    },
+  }
+  const IDEA = { title: "雾都侦探", genre: "悬疑", coreConflict: "连环失踪案与旧案关联" }
+
+  beforeEach(() => {
+    mockListEntityFiles.mockReset()
+    mockListSnapshots.mockReset()
+    mockListDirectory.mockReset()
+    mockLoadWorldBlueprint.mockReset()
+    mockListEntityFiles.mockResolvedValue([])
+    mockListSnapshots.mockResolvedValue([])
+    mockListDirectory.mockResolvedValue([])
+    mockLoadWorldBlueprint.mockResolvedValue(null)
+  })
+
+  it("collectProjectSnapshot 全绿：角色/大纲/快照/world 逐项采真值", async () => {
+    mockLoadWorldBlueprint.mockResolvedValue(COMPLETE_BP)
+    mockListEntityFiles.mockResolvedValue([
+      { name: "主角", path: "wiki/entities/characters/主角.md" },
+      { name: "对手", path: "wiki/entities/characters/对手.md" },
+      { name: "路人", path: "wiki/entities/others/路人.md" },
+    ])
+    mockListDirectory.mockResolvedValue([
+      { name: "00-framework.md", path: "p/wiki/outlines/00-framework.md", is_dir: false },
+      { name: "01-卷一.md", path: "p/wiki/outlines/01-卷一.md", is_dir: false },
+      { name: "草稿", path: "p/wiki/outlines/草稿", is_dir: true },
+    ])
+    mockListSnapshots.mockResolvedValue([1, 2])
+    const snap = await collectProjectSnapshot("/proj", IDEA)
+    expect(snap.idea).toEqual(IDEA)
+    expect(snap.worldComplete).toBe(true)
+    expect(snap.protagonistNamed).toBe(true)
+    expect(snap.antagonistNamed).toBe(true)
+    expect(snap.frameworkChosen).toBe(true)
+    expect(snap.volumesPlanned).toBe(true)
+    expect(snap.firstChapterReady).toBe(true)
+  })
+
+  it("collectProjectSnapshot 数据源全挂 → 保守全 false（不伪报完备）", async () => {
+    mockLoadWorldBlueprint.mockRejectedValue(new Error("boom"))
+    mockListEntityFiles.mockRejectedValue(new Error("boom"))
+    mockListDirectory.mockRejectedValue(new Error("boom"))
+    mockListSnapshots.mockRejectedValue(new Error("boom"))
+    const snap = await collectProjectSnapshot("/proj", IDEA)
+    expect(snap.worldComplete).toBe(false)
+    expect(snap.protagonistNamed).toBe(false)
+    expect(snap.antagonistNamed).toBe(false)
+    expect(snap.frameworkChosen).toBe(false)
+    expect(snap.volumesPlanned).toBe(false)
+    expect(snap.firstChapterReady).toBe(false)
+  })
+
+  it("collectProjectSnapshot 防御分支：无 layers 蓝图/反斜杠路径/负号与零号快照", async () => {
+    mockLoadWorldBlueprint.mockResolvedValue({} as unknown as WorldBlueprint)
+    mockListEntityFiles.mockResolvedValue([{ name: "主角", path: "wiki\\entities\\characters\\主角.md" }])
+    mockListDirectory.mockResolvedValue([
+      { name: "a.md", path: "p/wiki/outlines/a.md", is_dir: false },
+      { name: "笔记.txt", path: "p/wiki/outlines/笔记.txt", is_dir: false },
+    ])
+    mockListSnapshots.mockResolvedValue([-1, 0])
+    const snap = await collectProjectSnapshot("/proj", IDEA)
+    expect(snap.worldComplete).toBe(false)
+    expect(snap.protagonistNamed).toBe(true)
+    expect(snap.antagonistNamed).toBe(false)
+    expect(snap.frameworkChosen).toBe(true)
+    expect(snap.volumesPlanned).toBe(false)
+    // 0 不是正章快照（大纲快照为负号），首章未就绪
+    expect(snap.firstChapterReady).toBe(false)
+  })
+
+  it("tryAdvanceDirectorFromProject 全绿 → 推进 idea 阶段", async () => {
+    mockLoadWorldBlueprint.mockResolvedValue(COMPLETE_BP)
+    mockListEntityFiles.mockResolvedValue([
+      { name: "主角", path: "wiki/entities/characters/主角.md" },
+      { name: "对手", path: "wiki/entities/characters/对手.md" },
+    ])
+    mockListDirectory.mockResolvedValue([
+      { name: "a.md", path: "p/wiki/outlines/a.md", is_dir: false },
+      { name: "b.md", path: "p/wiki/outlines/b.md", is_dir: false },
+    ])
+    mockListSnapshots.mockResolvedValue([1])
+    const state = createDirectorPipeline()
+    const out = await tryAdvanceDirectorFromProject("/proj", state, IDEA)
+    expect(out.advanced).toBe(true)
+    expect(out.completed).toBe(false)
+    expect(out.state.currentPhase).toBe("world")
+    expect(out.blockedReason).toBeUndefined()
+    expect(mockLoadWorldBlueprint).toHaveBeenCalledWith("/proj")
+  })
+
+  it("tryAdvanceDirectorFromProject 快照缺口 → 不推进 + gap", async () => {
+    const state = createDirectorPipeline()
+    const out = await tryAdvanceDirectorFromProject("/proj", state, { title: "", genre: "悬疑", coreConflict: "c" })
+    expect(out.advanced).toBe(false)
+    expect(out.gap).toBe("请先填写书名")
+    expect(out.state.statuses.idea).toBe("failed")
+  })
+
+  it("tryAdvanceDirectorFromProject 显式 blueprint 覆盖持久化（门控以显式值为准）", async () => {
+    // 磁盘蓝图完备，但显式传入空蓝图 → 门控仍按显式值判 world 未过门
+    mockLoadWorldBlueprint.mockResolvedValue(COMPLETE_BP)
+    mockListEntityFiles.mockResolvedValue([
+      { name: "主角", path: "wiki/entities/characters/主角.md" },
+      { name: "对手", path: "wiki/entities/characters/对手.md" },
+    ])
+    mockListDirectory.mockResolvedValue([
+      { name: "a.md", path: "p/wiki/outlines/a.md", is_dir: false },
+      { name: "b.md", path: "p/wiki/outlines/b.md", is_dir: false },
+    ])
+    mockListSnapshots.mockResolvedValue([1])
+    const state = createDirectorPipeline()
+    const emptyBp = createEmptyWorldBlueprint("都市")
+    // 第一步：idea 过门
+    const first = await tryAdvanceDirectorFromProject("/proj", state, IDEA, emptyBp)
+    expect(first.advanced).toBe(true)
+    expect(first.state.currentPhase).toBe("world")
+    // 第二步：world 被显式空蓝图挡住（磁盘完备也不顶替显式值）
+    const out = await tryAdvanceDirectorFromProject("/proj", first.state, IDEA, emptyBp)
+    expect(out.advanced).toBe(false)
+    expect(out.blockedReason).toContain("世界骨架未完备")
+    expect(out.gap).toContain("世界蓝图校验")
   })
 })
