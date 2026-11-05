@@ -12,7 +12,7 @@ import type {
   StoryFramework,
   TimelineEvent,
 } from "@/lib/novel"
-import type { AgentActionType, CharacterAnalysis } from "@/lib/novel/story-simulation/types"
+import type { AgentActionType, CharacterAnalysis } from "@/lib/novel"
 import zh from "@/i18n/zh.json"
 
 const t = zh.storySimulation as unknown as Record<string, string>

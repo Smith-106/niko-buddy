@@ -4,7 +4,7 @@ import { cleanup } from "@testing-library/react"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { FanficMergeDialog } from "./fanfic-merge-dialog"
 import type { BookAnalysisLibraryBook } from "@/lib/novel"
-import type { CanonMergeProposal } from "@/lib/novel/fanfic-canon-import"
+import type { CanonMergeProposal } from "@/lib/novel"
 
 const mocks = vi.hoisted(() => ({
   t: vi.fn((k: string) => k),

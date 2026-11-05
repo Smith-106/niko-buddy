@@ -5,7 +5,7 @@ import { DataManagerView } from "./data-manager-view"
 import { act, fireEvent, render, screen, waitFor, within } from "@/test-helpers/component-test-utils"
 import { cleanup } from "@testing-library/react"
 import type { ComponentType } from "react"
-import type { TrashEntry } from "@/lib/novel/data-manager"
+import type { TrashEntry } from "@/lib/novel"
 
 const mocks = vi.hoisted(() => ({
   project: { path: "/p/book", name: "book" },

@@ -442,7 +442,7 @@ export { generateStoryDraft } from "./story-simulation/story-draft-generator"
 export { extractStoryContent } from "./story-simulation/story-extractor"
 export { generateStoryFramework } from "./story-simulation/story-framework-generator"
 export { MODE_VISUAL_INFO, WORD_BUDGET_PRESETS } from "./story-simulation/types"
-export type { AgentChatMessage, AgentRelation, DirectorEvaluation, DirectorScore, ExtractionResult, FrameworkBinding, NovelAgent, RumorEvent, SimulationBranch, SimulationDebugTrace, SimulationHistoryEntry, SimulationMode, SimulationReport, SimulationResultStatus, SimulationResumePoint, SimulationState, StagedEventPool, StoryBranch, StoryDraft, StoryFramework, StoryNode, TimelineEvent } from "./story-simulation/types"
+export type { AgentActionType, AgentChatMessage, AgentRelation, CharacterAnalysis, DirectorEvaluation, DirectorScore, ExtractionResult, FrameworkBinding, NovelAgent, RumorEvent, SimulationBranch, SimulationDebugTrace, SimulationHistoryEntry, SimulationMode, SimulationReport, SimulationResultStatus, SimulationResumePoint, SimulationState, StagedEventPool, StoryBranch, StoryDraft, StoryFramework, StoryNode, TimelineEvent } from "./story-simulation/types"
 export {
   createMultiPovMesh,
   detectPovIntersections,

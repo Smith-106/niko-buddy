@@ -325,7 +325,7 @@ describe("ForeshadowingPanel", () => {
     expect(await screen.findByText(/novel.foreshadowing.plantedAt.*"\?"/)).toBeInTheDocument()
     expect(screen.getAllByText(/无章伏笔/).length).toBeGreaterThan(0)
     // 点击 "?" 分组按钮：守卫 else 面（不断言跳转，只断言不崩溃不跳转）
-    const utils = await import("@/lib/novel/chapter-utils")
+    const utils = await import("@/lib/novel")
     const spy = vi.spyOn(utils, "findChapterFileByNumber")
     try {
       fireEvent.click(screen.getByText(/novel.foreshadowing.plantedAt.*"\?"/))
@@ -351,7 +351,7 @@ describe("ForeshadowingPanel", () => {
     expect(screen.getByText("五章回收")).toBeInTheDocument()
     expect(screen.getByText(/novel.foreshadowing.resolvedAt.*"\?"/)).toBeInTheDocument()
     // 点击 "?" 回收分组按钮：守卫 else 面（不跳转不崩溃）
-    const utils = await import("@/lib/novel/chapter-utils")
+    const utils = await import("@/lib/novel")
     const spy = vi.spyOn(utils, "findChapterFileByNumber")
     try {
       fireEvent.click(screen.getByText(/novel.foreshadowing.resolvedAt.*"\?"/))
@@ -401,7 +401,7 @@ describe("W1 补强：范围筛选与章节跳转", () => {
   })
 
   it("点击 planted/resolved 章按钮 → 打开对应章节文件（setSelectedFile）", async () => {
-    const utils = await import("@/lib/novel/chapter-utils")
+    const utils = await import("@/lib/novel")
     const spy = vi.spyOn(utils, "findChapterFileByNumber").mockResolvedValue("E:/Novel/ch02.md")
     const setSelectedFile = vi.fn()
     ;(wiki.state as unknown as Record<string, unknown>).setSelectedFile = setSelectedFile

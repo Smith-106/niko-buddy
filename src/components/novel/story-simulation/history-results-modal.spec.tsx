@@ -4,7 +4,7 @@ import { cleanup } from "@testing-library/react"
 import { fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
 import { HistoryResultsModal } from "./history-results-modal"
 import { deleteSimulationResult, loadSimulationResults } from "@/lib/novel"
-import type { SimulationReport, StoryDraft } from "@/lib/novel/story-simulation/types"
+import type { SimulationReport, StoryDraft } from "@/lib/novel"
 
 vi.mock("@/lib/novel", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel")>()
