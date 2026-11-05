@@ -287,3 +287,139 @@ describe("CanonFactsKnownByPanel — POV 防泄密（不泄漏内部句柄）", 
     expect(container.textContent).not.toContain("digest")
   })
 })
+
+// ── 第十三批 statements 补测：分页回退 / 刷新按钮 / 章节截点回退 / 可选字段开关 ──
+describe("CanonFactsKnownByPanel — 刷新与分页回退（statements 补测）", () => {
+  it("先输入截点再清空 → 回退 atChapter undefined 并重查", async () => {
+    getFactsKnownByPagedMock.mockResolvedValue({ facts: [makeFact()], total: 1, maxRevision: 1 })
+    render(<CanonFactsKnownByPanel projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    fireEvent.change(screen.getByTestId("canon-facts-pov"), { target: { value: "pov:alpha" } })
+    await waitFor(() => expect(getFactsKnownByPagedMock).toHaveBeenCalledTimes(1))
+
+    fireEvent.change(screen.getByTestId("canon-facts-chapter"), { target: { value: "10" } })
+    await waitFor(() =>
+      expect(getFactsKnownByPagedMock).toHaveBeenLastCalledWith(
+        PROJECT_ID,
+        "pov:alpha",
+        10,
+        false,
+        { offset: 0, limit: 200 },
+      ),
+    )
+
+    // 从 "10" 清空才是真实 change（值为空串时 parseInt → NaN → 走 else 回退分支）
+    fireEvent.change(screen.getByTestId("canon-facts-chapter"), { target: { value: "" } })
+    await waitFor(() =>
+      expect(getFactsKnownByPagedMock).toHaveBeenLastCalledWith(
+        PROJECT_ID,
+        "pov:alpha",
+        undefined,
+        false,
+        { offset: 0, limit: 200 },
+      ),
+    )
+  })
+
+  it("截点数值未变（小数位不同）→ 不重查、不跳回第 1 页", async () => {
+    getFactsKnownByPagedMock.mockResolvedValue({ facts: [makeFact()], total: 250, maxRevision: 1 })
+    render(<CanonFactsKnownByPanel projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    fireEvent.change(screen.getByTestId("canon-facts-pov"), { target: { value: "pov:alpha" } })
+    await waitFor(() => expect(getFactsKnownByPagedMock).toHaveBeenCalledTimes(1))
+
+    fireEvent.change(screen.getByTestId("canon-facts-chapter"), { target: { value: "10" } })
+    await waitFor(() => expect(getFactsKnownByPagedMock).toHaveBeenCalledTimes(2))
+
+    // 先翻到第 2 页：若截点未变却仍重置页码，会掉回 offset 0（可观察的重查）
+    fireEvent.click(screen.getByTestId("canon-facts-page-next"))
+    await waitFor(() =>
+      expect(getFactsKnownByPagedMock).toHaveBeenLastCalledWith(
+        PROJECT_ID,
+        "pov:alpha",
+        10,
+        false,
+        { offset: 200, limit: 200 },
+      ),
+    )
+    expect(getFactsKnownByPagedMock).toHaveBeenCalledTimes(3)
+
+    // "10.5" 与已应用截点 10 解析结果相同 → 截点未变，不重查也不重置页码
+    fireEvent.change(screen.getByTestId("canon-facts-chapter"), { target: { value: "10.5" } })
+    await waitFor(() => expect(screen.getByTestId("canon-facts-chapter")).toHaveProperty("value", "10.5"))
+    expect(getFactsKnownByPagedMock).toHaveBeenCalledTimes(3)
+    expect(screen.getByTestId("canon-facts-page-prev")).not.toBeDisabled()
+  })
+
+  it("刷新按钮 → 以当前参数重查", async () => {
+    getFactsKnownByPagedMock.mockResolvedValue({ facts: [makeFact()], total: 1, maxRevision: 1 })
+    render(<CanonFactsKnownByPanel projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    fireEvent.change(screen.getByTestId("canon-facts-pov"), { target: { value: "pov:alpha" } })
+    await waitFor(() => expect(getFactsKnownByPagedMock).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByTestId("canon-facts-refresh"))
+    await waitFor(() => expect(getFactsKnownByPagedMock).toHaveBeenCalledTimes(2))
+    expect(getFactsKnownByPagedMock).toHaveBeenLastCalledWith(
+      PROJECT_ID,
+      "pov:alpha",
+      undefined,
+      false,
+      { offset: 0, limit: 200 },
+    )
+  })
+
+  it("第 2 页点上一页 → offset 回退到 0", async () => {
+    getFactsKnownByPagedMock.mockResolvedValue({
+      facts: [makeFact({ id: "p2" })],
+      total: 250,
+      maxRevision: 7,
+    })
+    render(<CanonFactsKnownByPanel projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    fireEvent.change(screen.getByTestId("canon-facts-pov"), { target: { value: "pov:alpha" } })
+    await waitFor(() => expect(getFactsKnownByPagedMock).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByTestId("canon-facts-page-next"))
+    await waitFor(() =>
+      expect(getFactsKnownByPagedMock).toHaveBeenLastCalledWith(
+        PROJECT_ID,
+        "pov:alpha",
+        undefined,
+        false,
+        { offset: 200, limit: 200 },
+      ),
+    )
+    expect(screen.getByTestId("canon-facts-page-prev")).not.toBeDisabled()
+
+    fireEvent.click(screen.getByTestId("canon-facts-page-prev"))
+    await waitFor(() =>
+      expect(getFactsKnownByPagedMock).toHaveBeenLastCalledWith(
+        PROJECT_ID,
+        "pov:alpha",
+        undefined,
+        false,
+        { offset: 0, limit: 200 },
+      ),
+    )
+    expect(screen.getByTestId("canon-facts-page-prev")).toBeDisabled()
+  })
+
+  it("可选字段 revealedAt / modality 缺省时不渲染对应行", async () => {
+    getFactsKnownByPagedMock.mockResolvedValue({
+      facts: [
+        makeFact({ id: "with", revealedAt: 5, modality: "belief" }),
+        makeFact({ id: "without", revealedAt: null, modality: null }),
+      ],
+      total: 2,
+      maxRevision: 7,
+    })
+    render(<CanonFactsKnownByPanel projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    fireEvent.change(screen.getByTestId("canon-facts-pov"), { target: { value: "pov:alpha" } })
+    await screen.findByTestId("canon-facts-row-with")
+
+    const withRow = screen.getByTestId("canon-facts-row-with").textContent ?? ""
+    expect(withRow).toContain("canon.factsPanel.revealedAt: 5")
+    expect(withRow).toContain("canon.factsPanel.modality: canon.factsPanel.modalityBelief")
+
+    const withoutRow = screen.getByTestId("canon-facts-row-without").textContent ?? ""
+    expect(withoutRow).not.toContain("canon.factsPanel.revealedAt")
+    expect(withoutRow).not.toContain("canon.factsPanel.modality")
+  })
+})

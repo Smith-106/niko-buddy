@@ -1,5 +1,24 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+// 覆盖增补：rebuildWikiFtsIndex 的 IO 层错误路径（wiki 目录不可读 / 单文件读失败 / 无标题回退）。
+// 只用依赖替换拦在 @/commands/fs 边界，被测模块本身与纯函数层不动。
+const fsMocks = vi.hoisted(() => ({
+  readFile: vi.fn(),
+  listDirectory: vi.fn(),
+  writeFileAtomic: vi.fn(),
+}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+    readFile: (...args: unknown[]) => fsMocks.readFile(...args),
+    listDirectory: (...args: unknown[]) => fsMocks.listDirectory(...args),
+    writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
+  }
+})
+
 import {
+  rebuildWikiFtsIndex,
   buildFtsIndex,
   FTS_INDEX_VERSION,
   searchFtsIndex,
@@ -90,5 +109,105 @@ describe("fts-index (64 号实施：可重建持久 FTS 索引)", () => {
     const meta = (idx as FtsIndex).docs["entities/张三"]
     expect(meta.length).toBeGreaterThan(0)
     expect(meta.path).toBe("entities/张三")
+  })
+})
+
+describe("fts-index 覆盖增补：损坏/不完整索引的查询降级", () => {
+  it("倒排指向未知 docId（索引与 docs 不同步）→ 跳过幽灵文档，不抛且不返回它", () => {
+    // 手工构造损坏索引：postings 里有 ghost，docs 里没有对应元数据。
+    // 消费方契约：检索绝不因索引损坏而抛（宁可少召回，不可挂死）。
+    const idx: FtsIndex = {
+      version: FTS_INDEX_VERSION,
+      docs: {
+        d1: { id: "d1", title: "真文档", path: "entities/d1", length: 3 },
+        d2: { id: "d2", title: "旁文档", path: "entities/d2", length: 3 },
+      },
+      postings: { zzz: ["ghost", "d1"] },
+      docFreq: { zzz: 2 },
+      builtAt: "T",
+    }
+    const hits = searchFtsIndex(idx, "zzz")
+    expect(hits.map((h) => h.id)).toEqual(["d1"])
+    expect(hits[0]!.title).toBe("真文档")
+    expect(hits[0]!.score).toBeGreaterThan(0)
+  })
+
+  it("docs 为空但倒排残留 → 零命中（avgLen 除零保护）", () => {
+    const idx: FtsIndex = {
+      version: FTS_INDEX_VERSION,
+      docs: {},
+      postings: { zzz: ["d1"] },
+      docFreq: { zzz: 1 },
+      builtAt: "T",
+    }
+    expect(searchFtsIndex(idx, "zzz")).toEqual([])
+  })
+
+  it("docFreq 缺项 + 部分查询词不在倒排 → 仍按命中词打分（n 缺省 0 / 无倒排词跳过）", () => {
+    const idx: FtsIndex = {
+      version: FTS_INDEX_VERSION,
+      docs: { d1: { id: "d1", title: "t", path: "p/d1", length: 4 } },
+      // 只有 zzz 有倒排；qqq 无倒排；docFreq 全缺项（旧版/残缺索引形态）
+      postings: { zzz: ["d1"] },
+      docFreq: {},
+      builtAt: "T",
+    }
+    const hits = searchFtsIndex(idx, "zzz qqq")
+    expect(hits).toHaveLength(1)
+    expect(hits[0]!.id).toBe("d1")
+    expect(Number.isFinite(hits[0]!.score)).toBe(true)
+    expect(hits[0]!.score).toBeGreaterThan(0)
+  })
+})
+
+describe("fts-index 覆盖增补：rebuildWikiFtsIndex 的可重建副作用与错误路径", () => {
+  beforeEach(() => {
+    fsMocks.readFile.mockReset()
+    fsMocks.listDirectory.mockReset()
+    fsMocks.writeFileAtomic.mockReset()
+  })
+
+  it("wiki 目录不可读 → indexed:0 + 显式 error（零写盘，不抛）", async () => {
+    fsMocks.listDirectory.mockRejectedValue(new Error("ENOENT: wiki"))
+    const result = await rebuildWikiFtsIndex("/proj")
+    expect(result).toEqual({ indexed: 0, errors: ["无法读取 wiki 目录"] })
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+  })
+
+  it("单文件读失败 → 该文件记 error，其余文件仍入索引并原子落盘（无标题则回退 pageId）", async () => {
+    fsMocks.listDirectory.mockResolvedValue([
+      { name: "good.md", path: "/proj/wiki/good.md", is_dir: false },
+      { name: "broken.md", path: "/proj/wiki/broken.md", is_dir: false },
+      { name: "untitled.md", path: "/proj/wiki/untitled.md", is_dir: false },
+    ])
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path.endsWith("broken.md")) throw new Error("EACCES: 权限不足")
+      if (path.endsWith("untitled.md")) return "正文没有一级标题，只有散文。"
+      return "# 张三\n\n张三是一名剑客。"
+    })
+    fsMocks.writeFileAtomic.mockResolvedValue(undefined)
+    const progress: Array<{ completed: number; total: number; current: string }> = []
+
+    const result = await rebuildWikiFtsIndex("/proj", (p) => progress.push({ ...p }))
+
+    expect(result.indexed).toBe(2)
+    expect(result.errors).toHaveLength(1)
+    expect(result.errors[0]).toContain("broken.md")
+    expect(result.errors[0]).toContain("权限不足")
+
+    // 落盘一次，且内容是可回读的倒排（good.md 标题进 docs，untitled 回退 pageId）。
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    const [writtenPath, writtenBody] = fsMocks.writeFileAtomic.mock.calls[0] as [string, string]
+    expect(writtenPath.endsWith("/.niko-buddy/fts-index.json")).toBe(true)
+    const written = JSON.parse(writtenBody) as FtsIndex
+    expect(Object.keys(written.docs).sort()).toEqual(["good", "untitled"])
+    expect(written.docs.good!.title).toBe("张三")
+    expect(written.docs.untitled!.title).toBe("untitled")
+    expect(written.postings.zzz).toBeUndefined()
+
+    // 进度回调：逐文件（completed = 当前下标）+ 末尾一条完成态。
+    expect(progress.map((p) => p.completed)).toEqual([0, 1, 2, 3])
+    expect(progress[progress.length - 1]!.current).toBe("完成")
+    expect(progress[progress.length - 1]!.total).toBe(3)
   })
 })

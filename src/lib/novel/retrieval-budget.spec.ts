@@ -19,7 +19,10 @@ import {
   RETRIEVAL_SOURCE_TIMEOUT_MS,
   RetrievalBudgetError,
   ZERO_LLM_DEFAULT_BUDGET_MS,
+  checkRetrievalBudget,
   createRetrievalBudgetLedger,
+  getRetrievalBudgetLedger,
+  resetRetrievalBudgetLedger,
 } from "./retrieval-budget"
 
 describe("R0-d 契约数值（迁移前后逐字对齐）", () => {
@@ -143,5 +146,46 @@ describe("R0-d λ（MMR 成本系数初值）", () => {
     expect(RETRIEVAL_LAMBDA_INITIAL.unit).toBe("ms_per_pp")
     expect(RETRIEVAL_LAMBDA_INITIAL.calibrated).toBe(false)
     expect(RETRIEVAL_LAMBDA_INITIAL.basis).toContain("待标定")
+  })
+})
+
+describe("R0-d 账本工厂契约（fail-loud 与快照）", () => {
+  it("非法预算契约 → fail-loud（空 entries 违反 min(1)，不静默接受）", () => {
+    const buildWithEmptyEntries = () =>
+      createRetrievalBudgetLedger({ ...DEFAULT_RETRIEVAL_BUDGET, entries: [] })
+    expect(buildWithEmptyEntries).toThrow(RetrievalBudgetError)
+    expect(buildWithEmptyEntries).toThrow(/预算契约非法/)
+  })
+
+  it("ensureRollback 为未知路径登记 → fail-loud（不得为未登记路径挂回退）", () => {
+    const ledger = createRetrievalBudgetLedger()
+    expect(() =>
+      ledger.ensureRollback<undefined, number[]>("source:unknown", () => []),
+    ).toThrow(/未登记路径/)
+    expect(ledger.rollbackPaths()).toEqual([])
+  })
+
+  it("budget 快照返回注入的合法契约（数值口径可读且不被改写）", () => {
+    const ledger = createRetrievalBudgetLedger()
+    expect(ledger.budget).toEqual(DEFAULT_RETRIEVAL_BUDGET)
+    expect(ledger.budget.sourceTimeoutMs).toBe(RETRIEVAL_SOURCE_TIMEOUT_MS)
+  })
+})
+
+describe("R0-d 进程级共享账本", () => {
+  it("共享账本单例：重复取用同一实例，裁决记账可见；重置后重建新实例", () => {
+    resetRetrievalBudgetLedger()
+    const first = getRetrievalBudgetLedger()
+    expect(getRetrievalBudgetLedger()).toBe(first)
+
+    const verdict = checkRetrievalBudget(RETRIEVAL_BUDGET_PATHS.searchBranch, 100)
+    expect(verdict.action).toBe("allow")
+    expect(first.verdicts).toEqual([verdict])
+
+    resetRetrievalBudgetLedger()
+    const second = getRetrievalBudgetLedger()
+    expect(second).not.toBe(first)
+    expect(second.verdicts).toEqual([])
+    resetRetrievalBudgetLedger()
   })
 })

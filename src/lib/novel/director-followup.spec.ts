@@ -275,3 +275,64 @@ describe("buildDirectorFollowupSnapshot（快照组合）", () => {
     expect(snapshot.queue[0]).toMatchObject({ gate: "consistency", replayId: "replay-x", priority: 0 })
   })
 })
+
+describe("director-followup 结构异常容错（分支补齐）", () => {
+  /** gate-run 事件但缺 payload：readGateRunPayload 应返回 null（结构性丢弃，不污染队列）。 */
+  function payloadlessGateEvent(seq: number): RunEventInput {
+    return {
+      seq,
+      eventId: `gate-run:${seq}:payloadless`,
+      ts: TS,
+      kind: "gate-run",
+      actor: "system",
+      replayId: `replay-${seq}`,
+      evidenceRefs: ["artifact:broken"],
+    }
+  }
+
+  it("阻塞队列丢弃无 payload 的 gate-run 事件（自检：只留可读门结论）", () => {
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      payloadlessGateEvent(0),
+      gateEvent(1, "consistency", "fail"),
+    ])
+    const queue = buildBlockingQueue(ledger)
+    expect(queue).toHaveLength(1)
+    expect(queue[0]).toMatchObject({ gate: "consistency", evidenceCount: 0, blockedBy: null })
+  })
+
+  it("重跑成本丢弃无 payload 的 gate-run 事件（eventsCounted 不虚增）", () => {
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      payloadlessGateEvent(0),
+      gateEvent(1, "consistency", "pass", { budgetCost: { tokens: 10, wallclockMs: 20, calls: 1 } }),
+    ])
+    const costs = estimateRerunCost(ledger, ["consistency"])
+    expect(costs[0]).toMatchObject({ gate: "consistency", tokens: 10, wallclockMs: 20, calls: 1, eventsCounted: 1 })
+  })
+
+  it("budgetCost 缺字段时按 0 累加（不臆造 token/墙钟，但有历史就不返回 null）", () => {
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      gateEvent(0, "quality", "fail", { budgetCost: { calls: 3 } }),
+      gateEvent(1, "quality", "fail", { budgetCost: { tokens: 5 } }),
+    ])
+    expect(estimateRerunCost(ledger, ["quality"])[0]).toMatchObject({
+      gate: "quality",
+      tokens: 5,
+      wallclockMs: 0,
+      calls: 3,
+      eventsCounted: 2,
+    })
+  })
+
+  it("菱形依赖只标一次（visited 收口：同一下游被两条上游指向）", () => {
+    const stale = propagateStaleness(
+      [
+        { upstream: "world_sample", downstream: "chapter_draft" },
+        { upstream: "world_sample", downstream: "aura_seeds" },
+        { upstream: "chapter_draft", downstream: "review_result" },
+        { upstream: "aura_seeds", downstream: "review_result" },
+      ],
+      ["world_sample"],
+    )
+    expect(stale).toEqual(["chapter_draft", "aura_seeds", "review_result"])
+  })
+})

@@ -107,6 +107,16 @@ describe("story-compass 完结清单 6 条", () => {
     expect(r.recommendation).toBe("complete_book")
   })
 
+  it("规模超出区间上限 → 证据项提示核对拖戏注水，仍不否决", () => {
+    const r = evaluateCompletionChecklist({ ...BASE_INPUT, completedChapters: 60 })
+    expect(r.items[0].passed).toBe(true)
+    expect(r.items[0].blocking).toBe(false)
+    expect(r.items[0].detail).toContain("超出区间上限 44")
+    expect(r.items[0].detail).toContain("拖戏注水")
+    expect(r.allPassed).toBe(true)
+    expect(r.recommendation).toBe("complete_book")
+  })
+
   it("规模区间未解析 → 证据记录不否决", () => {
     const r = evaluateCompletionChecklist({ ...BASE_INPUT, scaleRange: null })
     expect(r.items[0].passed).toBe(true)

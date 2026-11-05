@@ -389,3 +389,82 @@ describe("Autonomous Novel Incubator (全自动小说冷启动孵化器)", () =>
     )
   })
 })
+
+describe("Autonomous Novel Incubator（增补：补齐守卫与缺省章数）", () => {
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    mocks.createDirectory.mockResolvedValue(undefined)
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
+    mocks.writeSoulDoc.mockResolvedValue(undefined)
+    mocks.saveWorldBlueprint.mockResolvedValue(undefined)
+    mocks.saveBinding.mockResolvedValue({
+      frameworkId: "fw-test",
+      targetChapterCount: 5,
+      bindingVersion: "1.0",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      chapterAllocation: [],
+    })
+    mocks.unpackOutlineToChapterFiles.mockResolvedValue({
+      totalParsed: 5,
+      createdCount: 5,
+      skippedCount: 0,
+      createdFiles: [],
+      chapters: [],
+    })
+    mocks.runAutonomousDraftCampaign.mockResolvedValue({
+      projectPath: "/test/project",
+      startChapter: 1,
+      endChapter: 5,
+      totalChapters: 5,
+      completedChapters: 5,
+      totalWords: 15000,
+      startTime: "",
+      endTime: "",
+      results: [],
+      summary: { allPassed: true, readyCount: 5, failedCount: 0 },
+    })
+    const actual = await vi.importActual<typeof import("./world-blueprint")>("./world-blueprint")
+    mocks.validateWorldBlueprint.mockReset()
+    mocks.validateWorldBlueprint.mockImplementation(actual.validateWorldBlueprint)
+  })
+
+  it("蓝图判为不完备但分层已齐备 → 不覆盖既有分层（补齐守卫不误伤）", async () => {
+    mocks.validateWorldBlueprint.mockImplementationOnce(() => ({
+      verdict: "incomplete",
+      missingLayers: [],
+    }))
+
+    const res = await runAutonomousNovelIncubator({
+      projectPath: "/test/project",
+      idea: "赛博都市里的记忆修复师",
+      llmConfig: mockLlmConfig,
+    })
+
+    // 分层保留自动生成的三条公理，未被 ["基础公理"] 占位覆盖
+    expect(res.worldBlueprint.layers.axioms).toHaveLength(3)
+    expect(res.worldBlueprint.layers.axioms).not.toEqual(["基础公理"])
+    expect(res.worldBlueprint.layers.conflicts).not.toEqual(["核心冲突"])
+    expect(mocks.saveWorldBlueprint).toHaveBeenCalledWith(
+      "/test/project",
+      expect.objectContaining({ layers: expect.objectContaining({ axioms: expect.any(Array) }) }),
+    )
+  })
+
+  it("自动化巡航开启但未指定目标章数 → 巡航章数按缺省 10 章封顶", async () => {
+    const res = await runEndToEndAutonomousNovelProduction({
+      projectPath: "/test/project",
+      idea: "少年逆袭记",
+      targetChapters: undefined,
+      cruiseChapterCount: 5,
+      llmConfig: mockLlmConfig,
+      autoStartCruise: true,
+    })
+
+    expect(res.campaign).toBeDefined()
+    // min(5, 缺省 10) = 5
+    expect(mocks.runAutonomousDraftCampaign).toHaveBeenCalledWith(
+      expect.objectContaining({ chapterCount: 5, cruiseMode: true }),
+    )
+  })
+})

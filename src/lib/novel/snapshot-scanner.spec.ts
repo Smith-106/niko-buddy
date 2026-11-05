@@ -212,6 +212,15 @@ describe("D1 scanSnapshotBackfill（扫库 → 待补清单）", () => {
     expect(scan).toEqual({ total: 0, chapters: [], pending: [], errors: [] })
   })
 
+  it("列举快照目录的 IO 失败（非目录缺失）→ 空结果 + errors 记账，不谎报「暂无章节」", async () => {
+    mockListDirectory.mockRejectedValue(new Error("Permission denied"))
+    const scan = await scanSnapshotBackfill(PROJECT)
+    expect(scan.total).toBe(0)
+    expect(scan.chapters).toEqual([])
+    expect(scan.pending).toEqual([])
+    expect(scan.errors).toEqual(["Permission denied"])
+  })
+
   it("读不出的快照 → unreadable 计入待补 + errors 记账", async () => {
     mockListDirectory.mockResolvedValue([fileNode("001.snapshot.json")])
     mockReadFile.mockRejectedValue(new Error("permission denied"))
@@ -359,6 +368,14 @@ describe("D4/D5 队列状态机（Draft-first 硬边界）", () => {
     queue = completeBatchChapter(queue, 1, null, 1100)
     expect(queue.drafts.find((item) => item.chapter === 1)?.status).toBe("failed")
     expect(queue.failed).toBe(1)
+  })
+
+  it("completeBatchChapter 遇未知章号 → 原样返回（不伪造 completed 计数）", () => {
+    const queue = createBatchExtractQueue({ projectPath: PROJECT, plan, now: 1000 })
+    const next = completeBatchChapter(queue, 99, snapshot, 1100)
+    expect(next).toBe(queue)
+    expect(next.completed).toBe(0)
+    expect(next.drafts.map((draft) => draft.status)).toEqual(["pending", "pending"])
   })
 
   it("failBatchChapter 记录原因；未知章号不改变状态", () => {

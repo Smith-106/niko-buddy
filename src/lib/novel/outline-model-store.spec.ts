@@ -234,8 +234,24 @@ describe("outline-model-store 根形状与类型闸（R-01 / R-03 / R-04 / R-13 
     expect(result.error).toBeTruthy()
   })
 
-  it("⑮ R-01：无关 JSON（无 schemaVersion / 无 volumes）→ model 为 null 且 error 非空", async () => {
-    const result = await loadOutlineModel(
+  it("⑭b R-01：根节点是 JSON 数组 / null → model 为 null 且 error 点名「根节点不是对象」", async () => {
+    // `{}` 走的是「缺 schemaVersion」闸（⑭）；数组与 null 在更早的根节点类型闸停下。
+    const asArray = await loadOutlineModel("/P", readDeps("[]"))
+    expect(asArray.model).toBeNull()
+    expect(asArray.migratedFrom).toBeNull()
+    expect(asArray.error).toContain("根节点不是对象")
+
+    const asNull = await loadOutlineModel("/P", readDeps("null"))
+    expect(asNull.model).toBeNull()
+    expect(asNull.error).toContain("根节点不是对象")
+
+    // 字符串根（数字/布尔同理走同一闸）：不得被当成“无 schemaVersion 的 v1”。
+    const asString = await loadOutlineModel("/P", readDeps("\"chapter-1\""))
+    expect(asString.model).toBeNull()
+    expect(asString.error).toContain("根节点不是对象")
+  })
+
+  it("⑮ R-01：无关 JSON（无 schemaVersion / 无 volumes）→ model 为 null 且 error 非空", async () => {    const result = await loadOutlineModel(
       "/P",
       readDeps(JSON.stringify({ hello: "world", items: [1, 2, 3] })),
     )

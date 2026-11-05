@@ -184,6 +184,28 @@ describe("outline-model-parse 覆盖增补：卷标题续行护栏", () => {
     const res = parseOutlineMarkdownToModel(head + "卷首语\n## 第1章 开篇\n", { updatedAt: UPDATED_AT })
     expect(res.model.volumes[0]!.title).toBe("卷首语")
   })
+
+  // 覆盖增补：续行护栏里的「另一条 heading 紧跟空标题卷」形态。
+  // 若把 `# 第2卷` 当卷名续行，第 2 卷会被揉进第 1 卷的标题（结构丢失）；
+  // 必须归 false 后由 heading 分支重建新卷。
+  it("紧跟的卷 heading 不是续行（新卷不被当卷名取走）", () => {
+    const res = parseOutlineMarkdownToModel(head + "# 第2卷\n## 第1章 开篇\n", { updatedAt: UPDATED_AT })
+    expect(res.model.volumes).toHaveLength(2)
+    expect(res.model.volumes.map((v) => v.number)).toEqual([1, 2])
+    expect(res.model.volumes[0]!.title).toBe("第1卷")
+    expect(res.model.volumes[1]!.title).toBe("第2卷")
+    // 章落在第 2 卷（当前卷已切换到新卷）。
+    expect(res.model.volumes[1]!.chapters).toHaveLength(1)
+  })
+
+  it("紧跟的章 heading 不是续行（章不被当卷名取走）", () => {
+    const res = parseOutlineMarkdownToModel(head + "## 第3章 开局\n", { updatedAt: UPDATED_AT })
+    expect(res.model.volumes).toHaveLength(1)
+    expect(res.model.volumes[0]!.title).toBe("第1卷")
+    expect(res.model.volumes[0]!.chapters).toHaveLength(1)
+    expect(res.model.volumes[0]!.chapters[0]!.chapter).toBe(3)
+    expect(res.model.volumes[0]!.chapters[0]!.title).toBe("开局")
+  })
 })
 
 describe("outline-model-parse 覆盖增补：编号夹取与置信度极端", () => {

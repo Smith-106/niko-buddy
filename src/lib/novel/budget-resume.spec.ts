@@ -131,4 +131,34 @@ describe("budget-resume（吸收累积残余：拆书预算断点续跑模式）
     expect(a.state.remainingBudget).toBe(b.state.remainingBudget)
     expect(a.stoppedBy).toBe(b.stoppedBy)
   })
+
+  // 覆盖增补：resumeBudgetRun 的「非 suspended → 原样返回」守卫。
+  // 语义：恢复只对「预算耗尽挂起」的运行有意义；in_progress / done 注入预算必须零影响，
+  // 否则调用方会在正常运行时被凭空加预算（超预算执行）。
+  it("resumeBudgetRun：非 suspended（in_progress / done）原样返回，不注入预算", () => {
+    const running = createBudgetRun("r1", TASKS, 100)
+    const resumedRunning = resumeBudgetRun(running, 50)
+    expect(resumedRunning).toBe(running)
+    expect(resumedRunning.status).toBe("in_progress")
+    expect(resumedRunning.remainingBudget).toBe(100)
+    expect(resumedRunning.completedTaskIds).toEqual([])
+
+    const done = advanceBudgetBatch(createBudgetRun("r1", TASKS, 100), 3).state
+    expect(done.status).toBe("done")
+    const resumedDone = resumeBudgetRun(done, 50)
+    expect(resumedDone).toBe(done)
+    expect(resumedDone.status).toBe("done")
+    expect(resumedDone.remainingBudget).toBe(30)
+  })
+
+  // 覆盖增补：summary 的「无待办」渲染分支（全部完成时不得伪造下一个待办）。
+  it("budgetRunSummary：全部完成 → 渲染「无待办」而非下一个任务", () => {
+    const done = advanceBudgetBatch(createBudgetRun("r1", TASKS, 100), 3).state
+    const summary = budgetRunSummary(done)
+    expect(summary.split("\n")).toHaveLength(2)
+    expect(summary).toContain("3/3 完成")
+    expect(summary).toContain("状态 done")
+    expect(summary).toContain("无待办")
+    expect(summary).not.toContain("下一个待办")
+  })
 })

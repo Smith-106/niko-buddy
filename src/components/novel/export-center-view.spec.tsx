@@ -21,6 +21,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 })
 
 import { fileExists, listDirectory, readFile } from "@/commands/fs"
+import type { FileNode } from "@/types/wiki"
 import { ExportCenterView, loadExportCenterSnapshot } from "./export-center-view"
 
 const listDirectoryMock = vi.mocked(listDirectory)
@@ -286,6 +287,21 @@ describe("ExportCenterView", () => {
     expect(screen.getByTestId("export-center-empty")).toBeTruthy()
     await waitFor(() => expect(listDirectoryMock).toHaveBeenCalledTimes(1))
     // 旧请求已取消：空态保持，不冒出旧项目的计数。
+    expect(screen.getByTestId("export-center-empty")).toBeTruthy()
+    expect(screen.queryByTestId("export-center-count")).toBeNull()
+  })
+
+  it("加载中切换 projectPath 后旧请求才 resolve → 不写回旧快照", async () => {
+    let resolveList!: (value: FileNode[]) => void
+    listDirectoryMock.mockImplementationOnce(() => new Promise((res) => { resolveList = res }))
+    const { rerender } = render(<ExportCenterView projectPath="C:/proj" />)
+    expect(screen.getByTestId("export-center-loading")).toBeTruthy()
+    rerender(<ExportCenterView projectPath="" />)
+    expect(screen.getByTestId("export-center-empty")).toBeTruthy()
+    // 旧请求在卸载 effect 后 settle：计数已读到 1，但 cancelled 分支必须挡住写回。
+    readFileMock.mockResolvedValue(FINAL_CHAPTER_MD)
+    resolveList([{ name: "第1章.md", path: "C:/proj/wiki/chapters/第1章.md", is_dir: false }])
+    await waitFor(() => expect(readFileMock).toHaveBeenCalled())
     expect(screen.getByTestId("export-center-empty")).toBeTruthy()
     expect(screen.queryByTestId("export-center-count")).toBeNull()
   })

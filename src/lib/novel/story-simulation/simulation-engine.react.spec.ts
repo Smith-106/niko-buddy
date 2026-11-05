@@ -272,3 +272,75 @@ describe("agentDecideAndActWithReact", () => {
     expect(userMessage.content).toContain("主动出击")
   })
 })
+
+describe("agentDecideAndActWithReact（增补：非工具错误的抛出语义）", () => {
+  it("runner 抛普通错误且无文本输出 → 原样抛出，不产出幽灵事件", async () => {
+    const agentA = makeAgent("a", "甲")
+    const node = makeNode()
+    const state = makeState([agentA])
+    const blackboard = createSimulationBlackboard({ agents: [agentA] })
+    const boom = new Error("provider exploded")
+    mockRun = vi.fn().mockRejectedValue(boom)
+
+    await expect(
+      agentDecideAndActWithReact(agentA, node, state, {} as any, makeExtraction(), [], undefined, blackboard),
+    ).rejects.toBe(boom)
+
+    // 未产生任何时间线事件（失败不污染状态）
+    expect(state.timelineEvents).toHaveLength(0)
+  })
+
+  it("runner 先流式吐字再抛普通错误 → 保留文本并继续解析（不抛）", async () => {
+    const agentA = makeAgent("a", "甲")
+    const node = makeNode()
+    const state = makeState([agentA])
+    const blackboard = createSimulationBlackboard({ agents: [agentA] })
+    mockRun = vi.fn().mockImplementation(async (_cfg: unknown, _reg: unknown, _msgs: unknown, cbs: { onText: (c: string) => void }) => {
+      cbs.onText(JSON.stringify({ type: "evaluate", content: "半途而废但已有正文" }))
+      throw new Error("stream aborted midway")
+    })
+
+    const result = await agentDecideAndActWithReact(
+      agentA, node, state, {} as any, makeExtraction(), [], undefined, blackboard,
+    )
+
+    expect(result).not.toBeNull()
+    expect(result!.tlEvent.content).toBe("半途而废但已有正文")
+    expect(state.timelineEvents).toHaveLength(1)
+  })
+})
+
+describe("agentDecideAndActWithReact（增补：runner 生命周期回调）", () => {
+  it("工具调用/结果/错误/完成回调均被消费，不打断解析，onText 累积生效", async () => {
+    const agentA = makeAgent("a", "甲")
+    const node = makeNode()
+    const state = makeState([agentA])
+    const blackboard = createSimulationBlackboard({ agents: [agentA] })
+    const seen: string[] = []
+    mockRun = vi.fn().mockImplementation(async (_cfg: unknown, _reg: unknown, _msgs: unknown, cbs: {
+      onText: (chunk: string) => void
+      onToolCall: (name: string) => void
+      onToolResult: (name: string) => void
+      onToolError: (name: string) => void
+      onDone: () => void
+    }) => {
+      // 工具生命周期回调（本路径不消费，必须安全吞掉、不得影响正文累积）
+      cbs.onToolCall("remember_fact")
+      cbs.onToolResult("remember_fact")
+      cbs.onToolError("remember_fact")
+      cbs.onDone()
+      cbs.onText(JSON.stringify({ type: "speak", content: "工具之后仍能说", visibility: "all" }))
+      return { toolCalls: [], roundsUsed: 2, finalText: "" }
+    })
+
+    const result = await agentDecideAndActWithReact(
+      agentA, node, state, {} as any, makeExtraction(), [], undefined, blackboard,
+    )
+
+    seen.push(...state.timelineEvents.map((e) => e.content))
+    expect(result).not.toBeNull()
+    // finalText 为空 → 用 onText 累积的流式文本
+    expect(result!.tlEvent.content).toBe("工具之后仍能说")
+    expect(seen).toEqual(["工具之后仍能说"])
+  })
+})

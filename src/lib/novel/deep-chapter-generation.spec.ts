@@ -4666,3 +4666,91 @@ describe("覆盖增补：终稿后接线（avoid-ai 持久化 / 数值检查容�
     }
   })
 })
+
+describe("覆盖增补：route 壳与 snapshotWriter 注入", () => {
+  beforeEach(() => {
+    sessionStatusMocks.loadNovelSessionStatus.mockReset()
+    sessionStatusMocks.loadNovelSessionStatus.mockResolvedValue(null)
+    sessionStatusMocks.saveNovelSessionStatus.mockReset()
+    sessionStatusMocks.saveNovelSessionStatus.mockResolvedValue(undefined)
+  })
+
+  it("routeShellMode=route：route() 裁定摘要经 statusMerger 落盘（step_digest 可见）", async () => {
+    const snapshotWriter = vi.fn(async (_payload: string) => {})
+    const thinking: string[] = []
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第9章",
+        chapterNumber: 9,
+        llmConfig,
+        novelConfig,
+        routeShellMode: "route",
+        snapshotWriter,
+      },
+      { onThinking: (content) => thinking.push(content) },
+      createDeps([[], []]),
+    )
+
+    // route 阶段摘要写入（非关键调度 → 阶段边界 drain 落盘）
+    expect(snapshotWriter).toHaveBeenCalledTimes(1)
+    const payload = snapshotWriter.mock.calls[0][0]
+    expect(payload).toContain("step_digest")
+    expect(typeof JSON.parse(payload).step_digest).toBe("string")
+    // route 提示带裁定动作与模型
+    expect(thinking.join("\n")).toContain("阶段路由(route)")
+    expect(result.manualReviewRequired).toBe(false)
+    expect(result.finalContent).toContain("最终去AI味正文")
+  })
+
+  it("legacy 分支注入 snapshotWriter 但无调度：不落盘，正文行为不变", async () => {
+    const snapshotWriter = vi.fn(async (_payload: string) => {})
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        novelConfig,
+        snapshotWriter,
+      },
+      {},
+      createDeps([[], []]),
+    )
+
+    expect(snapshotWriter).not.toHaveBeenCalled()
+    expect(result.finalContent).toContain("最终去AI味正文")
+  })
+
+  it("人工复核交接 + snapshotWriter：handoff 前的 run-end flush 不阻断交接", async () => {
+    const blockingIssue: NovelReviewResult = {
+      severity: "error",
+      type: "character_consistency",
+      message: "主角知道了不该知道的信息。",
+      evidence: "主角直接说出了尚未揭晓的真相。",
+      relatedMemory: "主角尚未知晓幕后人身份",
+      suggestion: "删除越界信息，保留角色当前认知边界。",
+    }
+    const snapshotWriter = vi.fn(async (_payload: string) => {})
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        novelConfig,
+        snapshotWriter,
+      },
+      {},
+      createDeps([[blockingIssue], [blockingIssue], [blockingIssue], [blockingIssue]]),
+    )
+
+    expect(result.manualReviewRequired).toBe(true)
+    expect(result.decisionGates.overall).toBe("manual_review")
+    // 无调度 → flush 空转（不写盘），交接结果照常返回
+    expect(snapshotWriter).not.toHaveBeenCalled()
+  })
+})

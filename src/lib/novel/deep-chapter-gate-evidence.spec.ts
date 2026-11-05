@@ -10,6 +10,24 @@
  *   6. 端到端可读：落账事件经只读派生后能被首页证据看板读到真实值。
  */
 import { describe, expect, it, vi } from "vitest"
+
+// 覆盖增补：recordChapterGateEvidence 的「未注入 deps → 生产默认 store」分支需要落在
+// @/commands/fs 边界；这里只拦在 fs 上（默认 fs 依赖的读写行为），被测模块与账本逻辑不动。
+const fsMocks = vi.hoisted(() => ({
+  readFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
+  createDirectory: vi.fn(),
+}))
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+    readFile: (...args: unknown[]) => fsMocks.readFile(...args),
+    writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
+    createDirectory: (...args: unknown[]) => fsMocks.createDirectory(...args),
+  }
+})
+
 import type { DeepChapterDecisionGates, DeepChapterDecisionGate } from "./deep-chapter-decision-gates"
 import {
   MAIN_CONTROL_RERUN_INTENT,
@@ -18,7 +36,7 @@ import {
   readLatestGateRunGroup,
   recordChapterGateEvidence,
 } from "./deep-chapter-gate-evidence"
-import { appendRunEvent, createRunEventLedger } from "./run-event-ledger"
+import { appendRunEvent, createRunEventLedger, type RunEventKind } from "./run-event-ledger"
 import { deriveEvidenceGateStatuses } from "./dashboard-evidence"
 import type { NovelReviewResult } from "./review-adapter"
 
@@ -135,6 +153,36 @@ describe("recordChapterGateEvidence", () => {
     expect(appendEvents).not.toHaveBeenCalled()
   })
 
+  // 覆盖增补：未注入 appendEvents/storeDeps 时必须落到生产默认 store
+  //（createFsRunEventLedgerStoreDeps + appendRunEventsToStore），仍返回 recorded/ts。
+  it("未注入 deps → 走生产默认账本 store（写 .novel/run-events.jsonl，三门三行）", async () => {
+    fsMocks.readFile.mockRejectedValue(new Error("ENOENT: run-events"))
+    fsMocks.writeFileAtomic.mockResolvedValue(undefined)
+    fsMocks.createDirectory.mockResolvedValue(undefined)
+
+    const result = await recordChapterGateEvidence(
+      { projectPath: "/proj", decisionGates: gates(), chapterNumber: 9 },
+      { now: () => new Date("2026-10-18T02:00:00.000Z") },
+    )
+
+    expect(result.error).toBeUndefined()
+    expect(result.recorded).toEqual(["consistency", "anti_ai", "quality"])
+    expect(result.ts).toBe("2026-10-18T02:00:00.000Z")
+
+    const paths = fsMocks.writeFileAtomic.mock.calls.map((call) => String(call[0]))
+    expect(paths.some((p) => p.endsWith("/.novel/run-events.jsonl"))).toBe(true)
+    const lines = fsMocks.writeFileAtomic.mock.calls
+      .map((call) => String(call[1]))
+      .join("")
+      .split("\n")
+      .filter(Boolean)
+    expect(lines).toHaveLength(3)
+    const written = lines.map((line) => JSON.parse(line) as { kind: string; ts: string; payload: { gate: string } })
+    expect(written.map((e) => e.kind)).toEqual(["gate-run", "gate-run", "gate-run"])
+    expect(written.map((e) => e.payload.gate)).toEqual(["consistency", "anti_ai", "quality"])
+    expect(written.every((e) => e.ts === "2026-10-18T02:00:00.000Z")).toBe(true)
+  })
+
   it("端到端：落账事件经只读派生后，首页三门读到真实 status（不再恒未评估）", async () => {
     const ledger = (() => {
       let next = createRunEventLedger()
@@ -230,5 +278,134 @@ describe("readLatestGateRunGroup（B9：回读上一次运行结论）", () => {
       "2026-10-18T00:00:00.000Z",
     )
     expect(readLatestGateRunGroup(formalOnly, { intent: MAIN_CONTROL_RERUN_INTENT })).toBeNull()
+  })
+})
+
+// 覆盖增补：回读的「非 gate-run 夹层 / 同 ts 不同意图 / gate 越界 / 缺字段」降级路径。
+// 账本是 append-only 的共享文件（retrieval/stage 等异类事件与门控事件混写），
+// 回读必须只看 gate-run 且只认 anchor 的 (ts, intent) 组，否则「未评估」会被
+// 异类事件拉成假结论。
+describe("readLatestGateRunGroup 覆盖增补：混写账本的降级路径", () => {
+  type RawEvent = {
+    ts: string
+    kind: RunEventKind
+    chapterId?: number
+    bookId?: string
+    payload?: Record<string, unknown>
+  }
+
+  function appendRaw(ledger: ReturnType<typeof createRunEventLedger>, event: RawEvent) {
+    const seq = ledger.events.length
+    return appendRunEvent(ledger, {
+      seq,
+      eventId: `${event.kind}:${seq}`,
+      ts: event.ts,
+      kind: event.kind,
+      actor: "system",
+      chapterId: event.chapterId,
+      bookId: event.bookId,
+      evidenceRefs: [],
+      payload: event.payload,
+    })
+  }
+
+  function appendGateGroup(
+    ledger: ReturnType<typeof createRunEventLedger>,
+    events: ReturnType<typeof buildChapterGateRunEvents>,
+    ts: string,
+  ) {
+    let next = ledger
+    for (const event of events) {
+      const seq = next.events.length
+      next = appendRunEvent(next, { ...event, ts, seq, eventId: `gate-run:${seq}` })
+    }
+    return next
+  }
+
+  const TS = "2026-10-18T00:10:00.000Z"
+
+  it("异类事件夹在同一 ts 的组里：反向定锚与正向归组都跳过它", () => {
+    const group = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: gates({ consistency: gate("passed"), anti_ai: gate("failed", [finding("error")]) }),
+      chapterNumber: 5,
+    })
+    const ledger = appendRaw(appendGateGroup(createRunEventLedger(), group, TS), {
+      ts: TS,
+      kind: "stage",
+      chapterId: 5,
+      payload: { stage: "write" },
+    })
+
+    const read = readLatestGateRunGroup(ledger)
+    expect(read?.ts).toBe(TS)
+    // stage 事件既不能成为 anchor，也不能污染 rows / chapterId。
+    expect(read?.rows.map((row) => [row.gate, row.status])).toEqual([
+      ["consistency", "pass"],
+      ["anti_ai", "fail"],
+      ["quality", "skipped"],
+    ])
+    expect(read?.chapterId).toBe(5)
+    expect(read?.intent).toBeUndefined()
+  })
+
+  it("同 ts 但不同 intent：只归组 anchor 的 intent（另一意图的同刻事件不分串）", () => {
+    const formal = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: gates({ consistency: gate("passed") }),
+      chapterNumber: 1,
+    })
+    const rerun = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: gates({ consistency: gate("failed", [finding("error")]) }),
+      chapterNumber: 2,
+      intent: MAIN_CONTROL_RERUN_INTENT,
+    })
+    const ledger = appendGateGroup(appendGateGroup(createRunEventLedger(), formal, TS), rerun, TS)
+
+    const read = readLatestGateRunGroup(ledger)
+    expect(read?.intent).toBe(MAIN_CONTROL_RERUN_INTENT)
+    expect(read?.ts).toBe(TS)
+    // anchor = rerun（同刻后写），故结论取 rerun 的 fail/chapter 2，而不是正式章的 pass/chapter 1。
+    expect(read?.chapterId).toBe(2)
+    expect(read?.rows.find((row) => row.gate === "consistency")?.status).toBe("fail")
+    // 带 intent 过滤时读同一组；带错 intent 过滤则无锚 → null（不借用同刻别的意图）。
+    expect(readLatestGateRunGroup(ledger, { intent: MAIN_CONTROL_RERUN_INTENT })?.chapterId).toBe(2)
+    expect(readLatestGateRunGroup(ledger, { intent: "unknown-intent" })).toBeNull()
+  })
+
+  it("gate 不在三门之内 → 丢弃该行；缺 findingsCount / chapterId 时回退不缺字段的行", () => {
+    const group = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: gates({ consistency: gate("passed"), anti_ai: gate("passed"), quality: gate("passed") }),
+      chapterNumber: 6,
+      bookId: "book-z",
+    })
+    let ledger = appendGateGroup(createRunEventLedger(), group, TS)
+    // 越界 gate（注册表新增投影名混进 payload）：不得渲染为第四行。
+    ledger = appendRaw(ledger, { ts: TS, kind: "gate-run", chapterId: 6, payload: { gate: "graph_entity_pages", status: "pass" } })
+    // 合法 gate 但缺 findingsCount / chapterId：行可读（计数回退 0），章节号沿用组内已有值。
+    ledger = appendRaw(ledger, { ts: TS, kind: "gate-run", payload: { gate: "quality", status: "fail" } })
+
+    const read = readLatestGateRunGroup(ledger)
+    expect(read?.rows.map((row) => row.gate)).toEqual(["consistency", "anti_ai", "quality"])
+    const quality = read?.rows.find((row) => row.gate === "quality")
+    expect(quality?.status).toBe("fail")
+    expect(quality?.findingsCount).toBe(0)
+    expect(read?.chapterId).toBe(6)
+    expect(read?.bookId).toBe("book-z")
+  })
+})
+
+describe("buildChapterGateRunEvents 覆盖增补：gate 缺 findings 字段", () => {
+  it("findings 缺省 → findingsCount/escalatedCount 均为 0（不抛）", () => {
+    const withoutFindings = { ...gate("passed"), findings: undefined } as unknown as DeepChapterDecisionGate
+    const events = buildChapterGateRunEvents({
+      projectPath: "/p",
+      decisionGates: gates({ consistency: withoutFindings }),
+    })
+    const payload = events[0]?.payload as { findingsCount: number; escalatedCount: number }
+    expect(payload.findingsCount).toBe(0)
+    expect(payload.escalatedCount).toBe(0)
   })
 })

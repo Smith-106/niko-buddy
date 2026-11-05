@@ -2419,3 +2419,48 @@ describe("simulation-engine：分支覆盖补齐（20261105-ralph-coverage-100�
     expect(agentActions(collected).length).toBeGreaterThanOrEqual(4)
   })
 })
+
+// 覆盖率战役增补（本轮）：致命错误归一化与非 Error 抛出（1283 行右侧分支）。
+describe("simulation-engine：致命错误归一化（增补）", () => {
+  it("调用方回调抛非 Error（字符串）→ 归一化为 Error，已收事件仍随 onComplete 返回", async () => {
+    mockRandom(0.99)
+    mockRun = vi.fn().mockResolvedValue({
+      toolCalls: [],
+      roundsUsed: 1,
+      finalText: JSON.stringify({ type: "speak", content: "正常推进", visibility: "all" }),
+    })
+    const { callbacks, collected } = makeCollectors()
+    let thrown = false
+    callbacks.onProgress = () => {
+      // 只抛一次：避免错误分支内的 onComplete 再次触发
+      if (thrown) return
+      thrown = true
+      throw "progress-callback-boom"
+    }
+
+    const events = await runSimulation(
+      {
+        agents: [makeNamedAgent("a", "甲")],
+        framework: makeMultiNodeFramework(1),
+        mode: "event-driven",
+        wordBudget: 10000,
+        llmConfig: {},
+        maxRoundsPerNode: 1,
+      } as never,
+      makeExtraction(),
+      callbacks,
+    )
+
+    // 已推演内容不丢：错误事件追加在末尾
+    expect(events.length).toBeGreaterThan(0)
+    const last = events[events.length - 1]
+    expect(last.type).toBe("info")
+    expect(last.message).toContain("推演过程中遇到错误")
+    expect(last.message).toContain("progress-callback-boom")
+    // onError 收到的是 Error 实例（归一化），不是原始字符串
+    expect(collected.errors).toHaveLength(1)
+    expect(collected.errors[0]).toBeInstanceOf(Error)
+    expect(collected.errors[0].message).toBe("progress-callback-boom")
+    expect(collected.completed).toHaveLength(1)
+  })
+})

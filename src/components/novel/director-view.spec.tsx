@@ -658,3 +658,39 @@ describe("DirectorView 覆盖增补（W-未覆盖分支）", () => {
     expect(screen.getAllByTestId("director-runlog-item")).toHaveLength(2)
   })
 })
+
+describe("DirectorView statements 缺口补齐（第十五批）", () => {
+  beforeEach(() => {
+    resetMocks()
+    cleanup()
+    vi.clearAllMocks()
+    mocks.fileExists.mockResolvedValue(false)
+    mocks.readFile.mockRejectedValue(new Error("ENOENT: no such file"))
+  })
+
+  it("非立意阶段推进 → 不查立意必填项，直接跑管线", async () => {
+    const base = createDirectorPipeline()
+    const worldState: DirectorPipelineState = {
+      ...base,
+      currentPhase: "world",
+      statuses: { ...base.statuses, idea: "done" },
+    }
+    // 立意输入全空，但当前阶段是 world：必填校验只对 idea 阶段生效，不应拦下推进。
+    const file = makeFile({ state: worldState, ideaInput: { title: "", genre: "", coreConflict: "" } })
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(file))
+    advanceMock.fn.mockResolvedValue({
+      state: worldState,
+      advanced: true,
+      completed: false,
+      generated: true,
+      stage: "world",
+    })
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-advance")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-advance"))
+    await waitFor(() => expect(advanceMock.fn).toHaveBeenCalledTimes(1))
+    expect(screen.queryByTestId("director-gap")).not.toBeInTheDocument()
+    expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "advanced")
+  })
+})

@@ -128,3 +128,32 @@ describe("TitleBar", () => {
     expect(screen.getByTestId("title-bar")).toHaveAttribute("data-tauri-drag-region", "deep")
   })
 })
+
+// ── statements 补测：主题图标四态 + win() 的非 Tauri 早退守卫 ──────────
+describe("TitleBar — 主题图标与非 Tauri 守卫", () => {
+  const cases: Array<{ theme: string; icon: string }> = [
+    { theme: "dark", icon: "lucide-moon" },
+    { theme: "deep-blue", icon: "lucide-monitor" },
+    { theme: "eye-care", icon: "lucide-eye" },
+    { theme: "system", icon: "lucide-arrow-left-right" },
+  ]
+
+  for (const { theme, icon } of cases) {
+    it(`theme=${theme} 时主题按钮展示对应图标（${icon}）`, () => {
+      mocks.theme = theme
+      const { container } = render(<TitleBar />)
+      const button = screen.getByLabelText("theme.switch")
+      expect(button.querySelector(`svg.${icon}`)).not.toBeNull()
+      expect(container.querySelectorAll("header button svg").length).toBeGreaterThan(0)
+    })
+  }
+
+  it("渲染后环境变为非 Tauri：点窗口控制不再调用原生 API", () => {
+    render(<TitleBar />)
+    const minimize = screen.getByLabelText("最小化")
+    // 环境在渲染后降级（web 预览/测试环境）→ win() 的 isTauri 守卫必须早退
+    mocks.isTauri = false
+    fireEvent.click(minimize)
+    expect(mocks.win.minimize).not.toHaveBeenCalled()
+  })
+})

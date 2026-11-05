@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   APP_OWNER_ID,
   OWNER_STALE_MS,
   PROJECT_OWNER_FILE,
   claimProjectOwnership,
+  defaultOwnerDeps,
   parseOwnerRecord,
   releaseProjectOwnership,
   type ProjectOwnerRecord,
@@ -153,5 +154,89 @@ describe("project-owner（54 号设计隐患 1 防御）", () => {
 
   it("OWNER_STALE_MS 默认 15 分钟", () => {
     expect(OWNER_STALE_MS).toBe(15 * 60 * 1000)
+  })
+})
+
+describe("project-owner 默认依赖装配（生产接线路径）", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("defaultOwnerDeps: now 取当前时钟，randomToken 取 UUID", () => {
+    const deps = defaultOwnerDeps()
+    const before = Date.now()
+    const ts = deps.now!()
+    const after = Date.now()
+    expect(ts).toBeGreaterThanOrEqual(before)
+    expect(ts).toBeLessThanOrEqual(after)
+
+    const token = deps.randomToken!()
+    expect(token).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    expect(deps.randomToken!()).not.toBe(token)
+  })
+
+  it("defaultOwnerDeps: 无 crypto.randomUUID 时降级为 inst-<ts>-<rand> token", () => {
+    vi.stubGlobal("crypto", {})
+    const token = defaultOwnerDeps().randomToken!()
+    expect(token).toMatch(/^inst-\d+-[a-z0-9]+$/)
+  })
+
+  it("defaultOwnerDeps: 无 crypto 全局时同样降级（typeof 守卫不抛错）", () => {
+    vi.stubGlobal("crypto", undefined)
+    expect(() => defaultOwnerDeps().randomToken!()).not.toThrow()
+    expect(defaultOwnerDeps().randomToken!()).toMatch(/^inst-\d+-[a-z0-9]+$/)
+  })
+
+  it("claim: 未注入 randomToken 时用 inst-<now> 作为实例 token", async () => {
+    const written: string[] = []
+    const deps: OwnerDeps = {
+      readFile: async () => {
+        throw new Error("ENOENT")
+      },
+      writeFileAtomic: async (_p: string, content: string) => {
+        written.push(content)
+      },
+      now: () => 4242,
+    }
+    const claim = await claimProjectOwnership("P", deps)
+    expect(claim.ok).toBe(true)
+    const rec = parseOwnerRecord(written[0]!)
+    expect(rec!.instance).toBe("inst-4242")
+    expect(rec!.startedAt).toBe(4242)
+  })
+
+  it("claim: 未注入 now 时回落到 Date.now 时钟", async () => {
+    const written: string[] = []
+    const deps: OwnerDeps = {
+      readFile: async () => {
+        throw new Error("ENOENT")
+      },
+      writeFileAtomic: async (_p: string, content: string) => {
+        written.push(content)
+      },
+      randomToken: () => "inst-fixed",
+    }
+    const before = Date.now()
+    const claim = await claimProjectOwnership("P", deps)
+    const after = Date.now()
+    expect(claim.ok).toBe(true)
+    const rec = parseOwnerRecord(written[0]!)
+    expect(rec!.startedAt).toBeGreaterThanOrEqual(before)
+    expect(rec!.startedAt).toBeLessThanOrEqual(after)
+    expect(rec!.instance).toBe("inst-fixed")
+  })
+
+  it("release: 读锁文件失败（无记录）→ 静默返回且不写盘", async () => {
+    const writes: string[] = []
+    const deps: OwnerDeps = {
+      readFile: async () => {
+        throw new Error("ENOENT")
+      },
+      writeFileAtomic: async (_p: string, content: string) => {
+        writes.push(content)
+      },
+    }
+    await expect(releaseProjectOwnership("P", deps)).resolves.toBeUndefined()
+    expect(writes).toHaveLength(0)
   })
 })

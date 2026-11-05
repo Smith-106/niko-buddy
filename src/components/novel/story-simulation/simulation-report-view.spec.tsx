@@ -983,3 +983,32 @@ describe("SimulationReportView 分支覆盖补齐：对比清洗/历史查看/�
     expect(screen.getByText("前传")).toBeTruthy()
   })
 })
+
+describe("SimulationReportView statements 缺口论证（第十五批）", () => {
+  it("历史结果 createdAt 非法 → 展示 Invalid Date 且正文照常（formatDate catch 为防御守卫）", () => {
+    resetStores()
+    useStorySimulationStore.setState({
+      currentReport: makeReport(),
+      currentFramework: makeFramework(),
+      timelineEvents: [],
+      savedResults: [
+        {
+          id: "r-bad",
+          frameworkId: "fw1",
+          report: makeReport({ createdAt: "not-a-date" }),
+          timelineEvents: [],
+          createdAt: "not-a-date",
+        },
+      ],
+    })
+    render(<SimulationReportView {...baseProps()} />)
+    const historySelect = screen.getByText(t.latestResult).closest("select") as HTMLSelectElement
+    // 选项标签经 formatDate：非法时间串不会抛（Date#toLocaleString 对 Invalid Date 返回固定串）。
+    expect(historySelect.textContent).toContain("Invalid Date")
+    fireEvent.change(historySelect, { target: { value: "r-bad" } })
+    // 头部日期徽标同样渲染 "Invalid Date"，报告正文不受影响。
+    expect(screen.getByText("Invalid Date")).toBeTruthy()
+    expect(screen.getByText(t.reportTitle)).toBeTruthy()
+    expect(screen.getAllByText("主线推进").length).toBeGreaterThan(0)
+  })
+})

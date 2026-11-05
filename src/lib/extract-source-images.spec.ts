@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { SavedImage } from "./extract-source-images"
+import type { ExtractImagesProgress, SavedImage } from "./extract-source-images"
 
 const invokeMock = vi.hoisted(() => vi.fn())
 const isTauriMock = vi.hoisted(() => vi.fn())
+const listenMock = vi.hoisted(() => vi.fn())
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
+vi.mock("@tauri-apps/api/event", () => ({ listen: listenMock }))
 vi.mock("@/lib/platform", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/platform")>()
   return {
@@ -37,6 +39,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   invokeMock.mockReset().mockResolvedValue([])
   isTauriMock.mockReset().mockReturnValue(true)
+  listenMock.mockReset().mockResolvedValue(vi.fn())
   warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
 })
 
@@ -108,6 +111,47 @@ describe("extractAndSaveSourceImages", () => {
     invokeMock.mockRejectedValue("boom")
     await expect(extractAndSaveSourceImages("/P", "/P/raw/sources/deck.pdf")).resolves.toEqual([])
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("extraction failed"), "boom")
+  })
+
+  it("订阅提取进度、转发载荷，并在命令结束后退订", async () => {
+    let handler: ((event: { payload: ExtractImagesProgress }) => void) | undefined
+    const unlisten = vi.fn()
+    listenMock.mockImplementation(
+      async (
+        _event: string,
+        callback: (event: { payload: ExtractImagesProgress }) => void,
+      ) => {
+        handler = callback
+        return unlisten
+      },
+    )
+    invokeMock.mockResolvedValue([makeImage()])
+    const onProgress = vi.fn()
+
+    const images = await extractAndSaveSourceImages("/P", "/P/raw/sources/deck.pdf", { onProgress })
+
+    expect(listenMock).toHaveBeenCalledWith("extract-images-progress", expect.any(Function))
+    expect(handler).toBeTypeOf("function")
+    handler?.({ payload: { current: 1, total: 3, file: "deck.pdf" } })
+    expect(onProgress).toHaveBeenCalledWith({ current: 1, total: 3, file: "deck.pdf" })
+    expect(unlisten).toHaveBeenCalledTimes(1)
+    expect(images).toEqual([makeImage()])
+  })
+
+  it("进度事件通道不可用时降级为不订阅，提取主流程不受影响", async () => {
+    listenMock.mockRejectedValue(new Error("event system unavailable"))
+    invokeMock.mockResolvedValue([makeImage()])
+    const onProgress = vi.fn()
+
+    const images = await extractAndSaveSourceImages("/P", "/P/raw/sources/report.PDF", { onProgress })
+
+    expect(images).toEqual([makeImage()])
+    expect(onProgress).not.toHaveBeenCalled()
+    expect(invokeMock).toHaveBeenCalledWith("extract_and_save_pdf_images_cmd", {
+      sourcePath: "/P/raw/sources/report.PDF",
+      destDir: "/P/wiki/media/report",
+      relTo: "/P/wiki",
+    })
   })
 })
 

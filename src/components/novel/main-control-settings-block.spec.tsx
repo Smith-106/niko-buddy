@@ -235,3 +235,76 @@ describe("G1 设置块逐项渲染与写入（前端验收）", () => {
     }
   })
 })
+
+/**
+ * statements 缺口补齐（第十五批）：
+ * - writeAiWorkflowMode 的失败 toast（全局单键落盘失败不得静默、不得回写 store）；
+ * - 目标字数数字框的「未改动失焦」提前返回与「回车＝失焦」键盘等价路径；
+ * - 审查模型「跟随会话模型」勾选框的 checked=true 分支与 aiChatModel 为空时的占位分支。
+ */
+describe("MainControlSettingsBlock 交互边界", () => {
+  it("工作流强度落盘失败 → toast.error 显示原因，且不回写 store", async () => {
+    mocks.saveAiWorkflowMode.mockRejectedValueOnce(new Error("permission denied"))
+    render(<MainControlSettingsBlock />)
+    fireEvent.click(screen.getByTestId("main-control-ai-workflow-mode-fast"))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledTimes(1))
+    expect(mocks.t).toHaveBeenCalledWith("mainControl.settingsSaveFailed", { message: "permission denied" })
+    // 落盘失败即不更新全局态（避免内存/磁盘分叉）。
+    expect(mocks.setAiWorkflowMode).not.toHaveBeenCalled()
+  })
+
+  it("目标字数未改动直接失焦 → 不落盘", async () => {
+    render(<MainControlSettingsBlock />)
+    const input = screen.getByTestId("main-control-settings-chapter-target") as HTMLInputElement
+    fireEvent.blur(input)
+    await waitFor(() => expect(mocks.persistNovelConfigPatch).not.toHaveBeenCalled())
+    expect(input.value).toBe("3000")
+  })
+
+  it("目标字数输入回车 → 等价失焦并提交裁剪后的值", async () => {
+    render(<MainControlSettingsBlock />)
+    const input = screen.getByTestId("main-control-settings-chapter-target") as HTMLInputElement
+    input.focus()
+    fireEvent.change(input, { target: { value: "12000" } })
+    // 非回车键不触发失焦提交。
+    fireEvent.keyDown(input, { key: "a" })
+    expect(mocks.persistNovelConfigPatch).not.toHaveBeenCalled()
+    fireEvent.keyDown(input, { key: "Enter" })
+    await waitFor(() => expect(mocks.persistNovelConfigPatch).toHaveBeenCalledTimes(1))
+    expect(mocks.persistNovelConfigPatch.mock.calls[0][0].patch).toEqual({ chapterTargetChars: 12000 })
+    expect(document.activeElement).not.toBe(input)
+  })
+
+  it("勾选「跟随会话模型」（原为具体模型）→ reviewModel 落盘空串", async () => {
+    const prevConfig = wikiState.novelConfig
+    wikiState.novelConfig = { ...prevConfig, reviewModel: "openai/gpt-test" }
+    try {
+      render(<MainControlSettingsBlock />)
+      const follow = screen.getByTestId("main-control-settings-review-follow") as HTMLInputElement
+      expect(follow.checked).toBe(false)
+      fireEvent.click(follow)
+      await waitFor(() => expect(mocks.persistNovelConfigPatch).toHaveBeenCalledTimes(1))
+      expect(mocks.persistNovelConfigPatch.mock.calls[0][0].patch).toEqual({ reviewModel: "" })
+    } finally {
+      wikiState.novelConfig = prevConfig
+    }
+  })
+
+  it("取消跟随且会话模型为空 → reviewModel 落盘单空格占位（不再跟随）", async () => {
+    const prevConfig = wikiState.novelConfig
+    const prevModel = wikiState.aiChatModel
+    wikiState.novelConfig = { ...prevConfig, reviewModel: "" }
+    wikiState.aiChatModel = ""
+    try {
+      render(<MainControlSettingsBlock />)
+      const follow = screen.getByTestId("main-control-settings-review-follow") as HTMLInputElement
+      expect(follow.checked).toBe(true)
+      fireEvent.click(follow)
+      await waitFor(() => expect(mocks.persistNovelConfigPatch).toHaveBeenCalledTimes(1))
+      expect(mocks.persistNovelConfigPatch.mock.calls[0][0].patch).toEqual({ reviewModel: " " })
+    } finally {
+      wikiState.novelConfig = prevConfig
+      wikiState.aiChatModel = prevModel
+    }
+  })
+})

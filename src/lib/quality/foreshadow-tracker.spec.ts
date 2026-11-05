@@ -101,3 +101,31 @@ describe("D2 回扣质量二级校验（防偷懒回扣误判高质量）", () =
     expect(r.lazyCopy).toBe(false)
   })
 })
+
+describe("D2 伏笔追踪 — 未到期 / 空输入 / 无别名的边界路径", () => {
+  it("未命中且未超预期章 → 保持 planted（无漏收告警）", () => {
+    const f = registerForeshadow(base, "f7").foreshadow!
+    const r = resolveForeshadow(f, "她翻遍了房间", f.expectedPayoffChapter)
+    expect(r.status).toBe("planted")
+    expect(r.alert).toBeUndefined()
+  })
+
+  it("未登记在别名词典的 key → 仅用原 key 直接匹配", () => {
+    expect(matchForeshadowKey("他拔出了佩剑", "佩剑")).toBe(true)
+    expect(matchForeshadowKey("他拔出了佩剑", "长剑")).toBe(false)
+  })
+
+  it("payoffQuality: 任一输入为空 → 0（不除零）", () => {
+    expect(payoffQuality("", "她终于找到了那支玉簪")).toBe(0)
+    expect(payoffQuality("玉簪是母亲留下的遗物", "")).toBe(0)
+  })
+
+  it("payoffQualityV2: 任一输入为空 → quality 0 且 lazyCopy=false", () => {
+    expect(payoffQualityV2("", "她终于找到了那支玉簪")).toEqual({ quality: 0, lazyCopy: false })
+    expect(payoffQualityV2("玉簪是母亲留下的遗物", "")).toEqual({ quality: 0, lazyCopy: false })
+  })
+
+  it("closureRate: 零登记 → 回收率 1（无悬挂）", () => {
+    expect(closureRate([])).toEqual({ rate: 1, dangling: [] })
+  })
+})

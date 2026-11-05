@@ -74,6 +74,35 @@ describe("volume-arc (64 号实施：director volumeArc 卷弧滚动)", () => {
     expect(res.state.segment).toBe("合")
   })
 
+  it("advanceVolumeArc：allocations 为空 → 状态原样返回（不滚动、不判卷末）", () => {
+    const state = createVolumeArcState(1)
+    const res = advanceVolumeArc(state, [], { now: "T" })
+    expect(res.state).toEqual({ ...state, lastUpdated: "T" })
+    expect(res.rolled).toBe(false)
+    expect(res.volumeComplete).toBe(false)
+    expect(res.nextVolume).toBeUndefined()
+  })
+
+  it("advanceVolumeArc：段内未到段末 → 原地 completedInVolume+1", () => {
+    // 持久化状态可以落在段中（段比累计完成数长）：承段 3-8 共 6 章，完成 1 章。
+    const alloc = [
+      { segment: "起" as const, startChapter: 1, endChapter: 2 },
+      { segment: "承" as const, startChapter: 3, endChapter: 8 },
+      { segment: "转" as const, startChapter: 9, endChapter: 12 },
+      { segment: "合" as const, startChapter: 13, endChapter: 14 },
+    ]
+    const res = advanceVolumeArc(
+      { volumeNumber: 1, segment: "承", completedInVolume: 1, lastUpdated: "T0" },
+      alloc,
+      { now: "T1" },
+    )
+    expect(res.state.segment).toBe("承")
+    expect(res.state.completedInVolume).toBe(2)
+    expect(res.state.lastUpdated).toBe("T1")
+    expect(res.rolled).toBe(false)
+    expect(res.volumeComplete).toBe(false)
+  })
+
   it("advanceVolumeArc：确定性同输入同输出", () => {
     const alloc = allocateVolumeArc(1, 1, 10)
     const a = advanceVolumeArc(createVolumeArcState(1), alloc, { now: "T" })

@@ -33,7 +33,9 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   }
 })
 
-import { computeTruthFoldDrift, sampleTruthFoldDrift, emitTruthFoldDriftAlarm } from "./chapter-ingest"
+import { autoRepairTruthFoldDrift, computeTruthFoldDrift, sampleTruthFoldDrift, emitTruthFoldDriftAlarm } from "./chapter-ingest"
+// 未 fold 6 类采样未经 barrel 转出（仅 sync 内部调用）；直接引子模块做行为测试。
+import { sampleUnfoldedMemoryDriftSuspected } from "./chapter-ingest-drift"
 import {
   applyCharacterStateChangesToStore,
   applyForeshadowingChangesToStore,
@@ -256,5 +258,140 @@ describe("P2-IMP-06 sampleTruthFoldDrift + emitTruthFoldDriftAlarm", () => {
     expect(sample).toBeNull()
     const alarmed = await emitTruthFoldDriftAlarm("P", null)
     expect(alarmed).toBe(false)
+  })
+})
+
+// ============================================================================
+// 覆盖增补：未 fold 6 类定向采样 + telemetry 失败非致命 + 自愈全路径。
+// （P2-IMP-08 采样 / P2-IMP-06 告警落盘 / P2-IMP-15 自动修复）
+// ============================================================================
+
+/** sync 直写类（cognition/character/foreshadow）之外的 6 类未 fold 采样对象。 */
+function tamperChapterSummaries(liveStores: Record<string, unknown>): void {
+  const store = liveStores["chapter-summaries.json"] as {
+    entries: Array<{ summary: string }>
+    lastUpdated: string
+  }
+  expect(store.entries.length).toBeGreaterThan(0)
+  store.entries[0]!.summary = "被篡改的摘要（模拟 fold 漏写）"
+}
+
+function tamperCharacterStatesForRepair(liveStores: Record<string, unknown>): void {
+  const store = liveStores["character-states.json"] as { characters: unknown[] }
+  store.characters.push({
+    characterName: "丙", currentLocation: "", status: "新", equipment: [], abilities: [],
+    relationships: {}, lastUpdatedChapter: 1, lastSeenChapter: 1, lastUpdatedAt: "",
+  })
+}
+
+describe("P2-IMP-08 sampleUnfoldedMemoryDriftSuspected（只采未 fold 的 6 类）", () => {
+  beforeEach(() => {
+    fsMocks.readFile.mockReset()
+    fsMocks.writeFileAtomic.mockReset()
+    fsMocks.listDirectory.mockReset()
+  })
+
+  it("未 fold 类漂移 → 报该文件；sync 直写类漂移 → 不报（采样域边界）", async () => {
+    const stores = buildReplayStores()
+    tamperChapterSummaries(stores)
+    tamperCharacterStatesForRepair(stores)
+    installFs(makeFileMap(stores))
+
+    const suspected = await sampleUnfoldedMemoryDriftSuspected("P")
+
+    // chapter-summaries 未 fold → 报；character 是 sync 直写类 → 由 sync 路径自身兜底，不在此报。
+    expect(suspected).toEqual(["chapter-summaries.json"])
+  })
+
+  it("采样抛错 → 回 [] 且不阻断（债务记 trace）", async () => {
+    fsMocks.readFile.mockRejectedValue(new Error("boom"))
+    fsMocks.listDirectory.mockRejectedValue(new Error("boom"))
+    expect(await sampleUnfoldedMemoryDriftSuspected("P")).toEqual([])
+  })
+})
+
+describe("P2-IMP-06 emitTruthFoldDriftAlarm：telemetry 写失败非致命", () => {
+  beforeEach(() => {
+    fsMocks.readFile.mockReset()
+    fsMocks.writeFileAtomic.mockReset()
+    fsMocks.listDirectory.mockReset()
+  })
+
+  it("drift>0 且落盘失败 → 仍返 true（告警已发，不因 telemetry 失败反向吞掉告警）", async () => {
+    fsMocks.createDirectory.mockResolvedValue(undefined)
+    fsMocks.writeFileAtomic.mockRejectedValue(new Error("disk full"))
+    const alarmed = await emitTruthFoldDriftAlarm("P", {
+      driftCount: 1,
+      driftedFiles: ["character-states.json"],
+    })
+    expect(alarmed).toBe(true)
+    const wroteTelemetry = fsMocks.writeFileAtomic.mock.calls.some((call) =>
+      String(call[0]).includes("/.novel/telemetry/drift-"),
+    )
+    expect(wroteTelemetry).toBe(true)
+  })
+})
+
+describe("P2-IMP-15 autoRepairTruthFoldDrift 覆盖增补：自愈落盘失败 / 复测不可用", () => {
+  beforeEach(() => {
+    fsMocks.readFile.mockReset()
+    fsMocks.writeFileAtomic.mockReset()
+    fsMocks.listDirectory.mockReset()
+  })
+
+  it("自愈 telemetry 写失败 → 修复结论仍返回（非致命）；trigger 缺省记 unknown", async () => {
+    const stores = buildReplayStores()
+    tamperCharacterStatesForRepair(stores)
+    const files = makeFileMap(stores)
+    installFs(files)
+    const realWrite = fsMocks.writeFileAtomic.getMockImplementation()!
+    fsMocks.writeFileAtomic.mockImplementation(async (path: string, content: string) => {
+      if (String(path).includes("/.novel/telemetry/selfheal-")) throw new Error("telemetry boom")
+      return realWrite(path, content)
+    })
+
+    const result = await autoRepairTruthFoldDrift("P", { now: NOW })
+
+    expect(result.attempted).toBe(true)
+    expect(result.driftBefore).toBe(1)
+    expect(result.driftAfter).toBe(0)
+    expect(result.repairedFiles).toEqual(["character-states.json"])
+    expect(result.escalated).toBe(false)
+    // 重建确实落盘（telemetry 失败不影响修复本身）。
+    const rewrittenRaw = files.get("P/.novel/character-states.json")
+    expect(typeof rewrittenRaw).toBe("string")
+    const rewritten = JSON.parse(rewrittenRaw!) as { characters: unknown[] }
+    expect(rewritten.characters).toHaveLength(1)
+    // selfheal telemetry 被拒 → 无 selfheal 文件（也不抛）。
+    expect([...files.keys()].some((p) => p.includes("/.novel/telemetry/selfheal-"))).toBe(false)
+  })
+
+  it("复测不可用（第二次采样抛错）→ driftAfter 回退 repair 前计数并按升级告警", async () => {
+    const stores = buildReplayStores()
+    tamperCharacterStatesForRepair(stores)
+    const files = makeFileMap(stores)
+    installFs(files)
+    const realRead = fsMocks.readFile.getMockImplementation()!
+    let characterReads = 0
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (String(path).endsWith(".novel/character-states.json")) {
+        characterReads += 1
+        // 第 1 次 = 修复前采样（正常）；第 2 次 = 复测 → 磁盘损坏（fileVersion 越界 fail-loud）
+        if (characterReads >= 2) return JSON.stringify({ fileVersion: 999, characters: [] })
+      }
+      return realRead(path)
+    })
+
+    const result = await autoRepairTruthFoldDrift("P", { now: NOW, trigger: "restore" })
+
+    expect(result.attempted).toBe(true)
+    expect(result.driftBefore).toBe(1)
+    expect(result.driftAfter).toBe(1)
+    expect(result.repairedFiles).toEqual([])
+    expect(result.stillDriftedFiles).toEqual(["character-states.json"])
+    expect(result.error).toBeUndefined()
+    // 复测不可用 → 不假装自愈（按升级处理）。
+    expect(result.escalated).toBe(true)
+    expect([...files.keys()].some((p) => p.includes("/.novel/telemetry/drift-"))).toBe(true)
   })
 })

@@ -66,3 +66,36 @@ describe("D6 签字表 — 齐全校验", () => {
     expect(r.missing).toContain("缺 bottom10 签字")
   })
 })
+
+describe("D6 签字表 — 空输入 / 引用不足 / 无有效签字边界", () => {
+  const validBottom: SignOffEntry = {
+    ...validEntry,
+    sampleBand: "bottom10",
+    conclusion: "本章结尾处理略显仓促，建议补充过渡段落以平滑收束，同时注意与下一章开头的衔接是否自然流畅，并检查人物情绪铺垫是否足够支撑后续转折。",
+    evidenceQuote: "本章结尾略显仓促，过渡段落需补充，衔接需自然",
+  }
+
+  it("evidenceRelevance: 引用或结论为空 → false（不除零）", () => {
+    expect(evidenceRelevance("", validEntry.conclusion)).toBe(false)
+    expect(evidenceRelevance(validEntry.evidenceQuote, "")).toBe(false)
+  })
+
+  it("原文引用不足 10 字 → 拒绝并给出引用不足理由（不进入相关性判定）", () => {
+    const r = validateSignOff({ ...validEntry, evidenceQuote: "玉簪" })
+    expect(r.ok).toBe(false)
+    expect(r.reasons.join("; ")).toContain("原文引用不足 10 字")
+    expect(r.reasons.join("; ")).not.toContain("不相关")
+  })
+
+  it("零签字 → 列出无有效签字且 top/bottom 均缺", () => {
+    const r = verifySignOffTable([])
+    expect(r.complete).toBe(false)
+    expect(r.missing).toEqual(["无有效签字", "缺 top10 签字", "缺 bottom10 签字"])
+  })
+
+  it("仅有有效 bottom10 签字 → 只报缺 top10", () => {
+    const r = verifySignOffTable([validBottom])
+    expect(r.complete).toBe(false)
+    expect(r.missing).toEqual(["缺 top10 签字"])
+  })
+})
