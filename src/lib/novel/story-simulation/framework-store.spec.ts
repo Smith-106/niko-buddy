@@ -645,6 +645,27 @@ describe("loadSimulationResults", () => {
   it("结果目录不存在 → 空数组", async () => {
     expect(await loadSimulationResults(PROJECT, "fw-404")).toEqual([])
   })
+
+  it("缺字段 JSON 载荷 → 缺省字段归一化（timelineEvents / rumors / debugTraces / status 走 ?? 兜底）", async () => {
+    const report = makeReport()
+    // 手工构造最小载荷：只有 report，其余字段全部缺失（saveSimulationResult
+    // 总是显式写入这些字段，所以只有外部手写 JSON 能走到 ?? 右侧兜底分支）
+    fsState.files.set(`${RESULTS_DIR}/fw-1/minimal.json`, JSON.stringify({ report }))
+
+    const loaded = await loadSimulationResults(PROJECT, "fw-1")
+
+    expect(loaded).toHaveLength(1)
+    expect(loaded[0].id).toBe("minimal")
+    expect(loaded[0].report).toEqual(report)
+    expect(loaded[0].draft).toBeNull()
+    expect(loaded[0].timelineEvents).toEqual([])
+    expect(loaded[0].agentSnapshot).toBeNull()
+    expect(loaded[0].rumors).toEqual([])
+    expect(loaded[0].debugTraces).toEqual([])
+    expect(loaded[0].status).toBe("complete")
+    expect(loaded[0].partialReason).toBeNull()
+    expect(loaded[0].resume).toBeNull()
+  })
 })
 
 describe("deleteSimulationResult", () => {

@@ -206,6 +206,13 @@ describe("validateOutlineWriteTarget 各拒绝原因", () => {
   })
 })
 
+/** Tool.generatePreview 在类型上是可选的，这里收窄一次而不是在各用例里反复断言。 */
+function previewOf(tool: ReturnType<typeof createWriteOutlineNodeTool>) {
+  const fn = tool.generatePreview
+  if (!fn) throw new Error("write_outline_node 缺少 generatePreview")
+  return fn
+}
+
 describe("createWriteOutlineNodeTool：generatePreview", () => {
   beforeEach(() => {
     fsMocks.fileExists.mockReset().mockResolvedValue(false)
@@ -218,7 +225,7 @@ describe("createWriteOutlineNodeTool：generatePreview", () => {
   it("目标不合法时抛错并带上原因", async () => {
     const tool = createWriteOutlineNodeTool("/outlines")
     await expect(
-      tool.generatePreview({ outlineName: "", nodeTitle: "t", nodeContent: "c" }),
+      previewOf(tool)({ outlineName: "", nodeTitle: "t", nodeContent: "c" }),
     ).rejects.toThrow("无法写入大纲：大纲文件名称不能为空。")
   })
 
@@ -226,7 +233,7 @@ describe("createWriteOutlineNodeTool：generatePreview", () => {
     fsMocks.fileExists.mockResolvedValue(true)
     fsMocks.readFile.mockResolvedValue("## 已有节点\n\n正文")
     const tool = createWriteOutlineNodeTool("/outlines")
-    const preview = await tool.generatePreview({ outlineName: "卷纲", nodeTitle: "已有节点", nodeContent: "x" })
+    const preview = await previewOf(tool)({ outlineName: "卷纲", nodeTitle: "已有节点", nodeContent: "x" })
     expect(preview).toContain("不会直接覆盖")
     expect(preview).toContain("预览：")
   })
@@ -235,20 +242,20 @@ describe("createWriteOutlineNodeTool：generatePreview", () => {
     fsMocks.fileExists.mockResolvedValue(true)
     fsMocks.readFile.mockResolvedValue("## 别的节点\n\n正文")
     const tool = createWriteOutlineNodeTool("/outlines")
-    const preview = await tool.generatePreview({ outlineName: "卷纲", nodeTitle: "新节点", nodeContent: "x" })
+    const preview = await previewOf(tool)({ outlineName: "卷纲", nodeTitle: "新节点", nodeContent: "x" })
     expect(preview).toContain("不会直接追加")
   })
 
   it("存在性检查抛错时降级为「将写入」而不是崩掉", async () => {
     fsMocks.fileExists.mockRejectedValue(new Error("fs boom"))
     const tool = createWriteOutlineNodeTool("/outlines")
-    const preview = await tool.generatePreview({ outlineName: "卷纲", nodeTitle: "n", nodeContent: "x" })
+    const preview = await previewOf(tool)({ outlineName: "卷纲", nodeTitle: "n", nodeContent: "x" })
     expect(preview).toContain("将写入大纲「卷纲.md」")
   })
 
   it("文件不存在时给出「将写入」预览并含渲染后的节点内容", async () => {
     const tool = createWriteOutlineNodeTool("/outlines")
-    const preview = await tool.generatePreview({ outlineName: "卷纲", nodeTitle: "节点", nodeContent: "正文" })
+    const preview = await previewOf(tool)({ outlineName: "卷纲", nodeTitle: "节点", nodeContent: "正文" })
     expect(preview).toContain("将写入大纲「卷纲.md」")
     expect(preview).toContain("## 节点")
     expect(preview).toContain("正文")
@@ -258,7 +265,7 @@ describe("createWriteOutlineNodeTool：generatePreview", () => {
     novelMocks.isLikelyChapterOutline.mockReturnValue(true)
     novelMocks.summarizeChapterOutlineQuality.mockReturnValue({ valid: true, errors: [], warnings: [] })
     const tool = createWriteOutlineNodeTool("/outlines")
-    const preview = await tool.generatePreview({ outlineName: "章纲", nodeTitle: "n", nodeContent: "x" })
+    const preview = await previewOf(tool)({ outlineName: "章纲", nodeTitle: "n", nodeContent: "x" })
     expect(preview).toContain("章纲质量检查：通过。")
   })
 
@@ -270,7 +277,7 @@ describe("createWriteOutlineNodeTool：generatePreview", () => {
       warnings: ["节奏偏慢"],
     })
     const tool = createWriteOutlineNodeTool("/outlines")
-    const preview = await tool.generatePreview({ outlineName: "章纲", nodeTitle: "n", nodeContent: "x" })
+    const preview = await previewOf(tool)({ outlineName: "章纲", nodeTitle: "n", nodeContent: "x" })
     expect(preview).toContain("错误：")
     expect(preview).toContain("- 缺章节标题")
     expect(preview).toContain("警告：")
