@@ -41,6 +41,7 @@ import type {
   AgentRunRecord,
   RequiredToolRunDiagnostics,
   Tool,
+  ToolCall,
   ToolCallDelta,
 } from "./types"
 
@@ -1850,5 +1851,251 @@ describe("runner 分支覆盖补齐：缺省/兜底无终稿/非 Error 抛错/�
     expect(recorder.texts).toEqual([])
     expect(recorder.doneCount()).toBe(1)
     expect(recorder.errors).toEqual([])
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 覆盖增补：协作者「非终态」契约下的取消结算与必调判定
+//
+// 背景（为什么必须用替身）：runner.ts:252-254 与 :659-661 两处
+// `if (tc.status === "running")` 结算块，以及 :231
+// `missingRequiredTools().length === 0` 判定，只有在协作者交付非终态结果时才可达：
+//   - `executeAgentTool` 的每条返回路径都落终态（done / error / cancelled /
+//     approval_required），`record.toolCalls` 不可能残留 "running"；
+//   - `executeRequiredToolFallback` 的 `attempted: true` 且无 error 的返回一定带
+//     `finalContent`（见 required-tool-fallback.ts 的两个 return 点）。
+// 所以这里用协作者替身直接合成这两种状态，断言 runner 自己的兜底处理：
+// 把残留调用结算成 cancelled 并上报 cancelled 工具事件；以及兜底“报成功但没交终稿”
+// 时仍按缺失快照判定，不误报成功也不误报门控错误。
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("runner 覆盖增补：协作者非终态契约的兜底结算", () => {
+  function plainTool(): Tool {
+    return {
+      name: "read_chapter",
+      description: "读取章节",
+      category: "read",
+      permission: "auto",
+      parameters: { chapter: { type: "integer", description: "章节号" } },
+      async execute() {
+        return "ok"
+      },
+    }
+  }
+
+  function runningRecord(call: ToolCall): AgentRunRecord["toolCalls"][number] {
+    return {
+      id: call.id,
+      name: call.name,
+      params: call.arguments,
+      result: "协作者尚未结算",
+      status: "running",
+      startedAt: 1,
+      finishedAt: 1,
+    }
+  }
+
+  function eventRecorder() {
+    const errors: Error[] = []
+    const cancelled: Array<{ type: string; callId: string; name: string }> = []
+    let doneCount = 0
+    const callbacks: AgentRunCallbacks = {
+      onText: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onToolError: () => {},
+      onDone: () => {
+        doneCount += 1
+      },
+      onError: (error) => {
+        errors.push(error)
+      },
+      onToolEvent: (event) => {
+        if (event.type === "cancelled") {
+          cancelled.push({ type: event.type, callId: event.callId, name: event.name })
+        }
+      },
+    }
+    return { callbacks, errors, cancelled, doneCount: () => doneCount }
+  }
+
+  async function withExecutorStub<T>(body: (stub: ReturnType<typeof vi.fn>) => Promise<T>): Promise<T> {
+    const stub = vi.fn()
+    vi.resetModules()
+    vi.doMock("./tool-executor", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./tool-executor")>()
+      return { ...actual, executeAgentTool: stub }
+    })
+    try {
+      return await body(stub)
+    } finally {
+      vi.doUnmock("./tool-executor")
+      vi.resetModules()
+    }
+  }
+
+  it("本轮工具结果未结算且随即取消 → 本轮末尾把残留调用标记 cancelled 并上报事件", async () => {
+    await withExecutorStub(async (stub) => {
+      const { AgentRunner: FreshRunner } = await import("./runner")
+      const controller = new AbortController()
+      scriptStream([{ toolCalls: [toolCallDelta("read_chapter", { chapter: 1 }, "call_running")] }])
+      stub.mockImplementation(async (call: ToolCall) => {
+        controller.abort()
+        return { record: runningRecord(call), responseText: "尚未结算", success: true }
+      })
+      const tool = plainTool()
+      const recorder = eventRecorder()
+
+      const record = await new FreshRunner().run(
+        createConfig([tool], { taskGoal: "t" }),
+        createRegistry([tool]),
+        INITIAL_MESSAGES,
+        recorder.callbacks,
+        controller.signal,
+      )
+
+      expect(record.toolCalls.map((call) => call.status)).toEqual(["cancelled"])
+      expect(record.toolCalls[0].finishedAt).toBeGreaterThan(record.toolCalls[0].startedAt)
+      expect(recorder.cancelled).toEqual([
+        { type: "cancelled", callId: "call_running", name: "read_chapter" },
+      ])
+      expect(recorder.doneCount()).toBe(0)
+      expect(recorder.errors).toHaveLength(1)
+      expect(recorder.errors[0].message).toContain("操作已取消")
+    })
+  })
+
+  it("上一轮遗留未结算调用 + 下一轮入口已取消 → 入口处标记 cancelled 并 onError", async () => {
+    await withExecutorStub(async (stub) => {
+      const { AgentRunner: FreshRunner } = await import("./runner")
+      const controller = new AbortController()
+      let rounds = 0
+      mocks.streamChat.mockImplementation(
+        async (_llm: unknown, _messages: unknown, cb: StreamCallbacks) => {
+          rounds += 1
+          if (rounds === 1) {
+            cb.onToolCallDelta?.(toolCallDelta("read_chapter", { chapter: 1 }, "call_running"))
+          } else if (rounds === 2) {
+            // 第 2 轮流式中取消：本轮零工具调用走 nudge 续轮，第 3 轮入口才发现已取消
+            controller.abort()
+            cb.onToken?.("第二轮散文")
+          }
+          cb.onFinishReason?.("stop")
+          cb.onDone()
+        },
+      )
+      stub.mockImplementation(async (call: ToolCall) => ({
+        record: runningRecord(call),
+        responseText: "尚未结算",
+        success: true,
+      }))
+      const readChapter = plainTool()
+      const workflowTool = createWorkflowTool()
+      const recorder = eventRecorder()
+
+      const record = await new FreshRunner().run(
+        createConfig([readChapter, workflowTool], {
+          requiredToolsOnce: [WORKFLOW_TOOL],
+          maxRounds: 3,
+          taskGoal: "t",
+        }),
+        createRegistry([readChapter, workflowTool]),
+        INITIAL_MESSAGES,
+        recorder.callbacks,
+        controller.signal,
+      )
+
+      expect(rounds).toBe(2)
+      expect(record.roundsUsed).toBe(3)
+      expect(record.toolCalls.map((call) => call.status)).toEqual(["cancelled"])
+      expect(recorder.cancelled).toEqual([
+        { type: "cancelled", callId: "call_running", name: "read_chapter" },
+      ])
+      expect(recorder.doneCount()).toBe(0)
+      expect(recorder.errors).toHaveLength(1)
+      expect(recorder.errors[0].message).toContain("操作已取消")
+    })
+  })
+
+  it("兜底报告 attempted 但未交付终稿 → 按缺失快照判定 success 并直接返回", async () => {
+    const stub = vi.fn()
+    vi.resetModules()
+    vi.doMock("./required-tool-fallback", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./required-tool-fallback")>()
+      return { ...actual, executeRequiredToolFallback: stub }
+    })
+    try {
+      const { AgentRunner: FreshRunner } = await import("./runner")
+      scriptStream([{ text: "散文" }])
+      stub.mockResolvedValue({
+        attempted: true,
+        toolName: WORKFLOW_TOOL,
+        satisfiedTools: [WORKFLOW_TOOL],
+      })
+      const tool = createWorkflowTool()
+      const recorder = createCallbacks()
+
+      const record = await new FreshRunner().run(
+        createConfig([tool], {
+          requiredToolsOnce: [WORKFLOW_TOOL],
+          maxRounds: 1,
+          taskGoal: "t",
+        }),
+        createRegistry([tool]),
+        INITIAL_MESSAGES,
+        recorder.callbacks,
+      )
+
+      expect(stub).toHaveBeenCalledTimes(1)
+      // 兜底没交终稿：不 onDone、不报门控错，按缺失快照判定 success 后直接返回
+      expect(recorder.doneCount()).toBe(0)
+      expect(recorder.errors).toEqual([])
+      expect(record.finalText).toBe("")
+      expect(record.toolCalls).toEqual([])
+      const diagnostics = diagnosticsOf(record)
+      expect(diagnostics.fallbackAttempted).toBe(true)
+      expect(diagnostics.fallbackStatus).toBe("success")
+      expect(diagnostics.satisfiedTools).toEqual([WORKFLOW_TOOL])
+      expect(diagnostics.missingTools).toEqual([])
+    } finally {
+      vi.doUnmock("./required-tool-fallback")
+      vi.resetModules()
+    }
+  })
+
+  it("兜底报告 attempted 且未满足任何必调工具 → 按缺失快照判 unavailable 并仍拒稿", async () => {
+    const stub = vi.fn()
+    vi.resetModules()
+    vi.doMock("./required-tool-fallback", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./required-tool-fallback")>()
+      return { ...actual, executeRequiredToolFallback: stub }
+    })
+    try {
+      const { AgentRunner: FreshRunner } = await import("./runner")
+      scriptStream([{ text: "散文" }])
+      stub.mockResolvedValue({ attempted: false, satisfiedTools: [] })
+      const tool = createWorkflowTool()
+      const recorder = createCallbacks()
+
+      const record = await new FreshRunner().run(
+        createConfig([tool], {
+          requiredToolsOnce: [WORKFLOW_TOOL],
+          maxRounds: 1,
+          taskGoal: "t",
+        }),
+        createRegistry([tool]),
+        INITIAL_MESSAGES,
+        recorder.callbacks,
+      )
+
+      expect(recorder.doneCount()).toBe(0)
+      expect(recorder.errors).toHaveLength(1)
+      expect(recorder.errors[0].name).toBe("RequiredToolsNotCalledError")
+      expect(recorder.errors[0].message).toContain("必选工具")
+      expect(record.finalText).toBe("")
+    } finally {
+      vi.doUnmock("./required-tool-fallback")
+      vi.resetModules()
+    }
   })
 })

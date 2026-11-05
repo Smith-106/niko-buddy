@@ -56,6 +56,41 @@ describe("SkillHub seed / frontmatter 防御分支", () => {
     }
   })
 
+  it("单个文件缺 name 时仅该文件被过滤，其余 74 条保留", async () => {
+    const { vi: v } = await import("vitest")
+    v.resetModules()
+    let calls = 0
+    v.doMock("@/lib/frontmatter", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@/lib/frontmatter")>()
+      return {
+        ...actual,
+        parseFrontmatter: (content: string) => {
+          calls += 1
+          if (calls === 1) return { frontmatter: { description: "只有描述没有名字" }, body: content, rawBlock: "" }
+          return actual.parseFrontmatter(content)
+        },
+      }
+    })
+    v.doMock("./skill-route-registry", () => ({
+      validateSkillRouteRegistry: () => [],
+    }))
+    const errSpy = v.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const mod = await import("./skill-hub-seed")
+      // !name 短路：缺 name 的文件不能在种子里留下无名 skill（id 会退化成
+      // "skillhub:undefined"，路由与收藏都会撞车）
+      expect(mod.DEFAULT_SKILL_HUB_SKILLS).toHaveLength(74)
+      expect(mod.DEFAULT_SKILL_HUB_SKILLS.every((s) => s.name.trim().length > 0)).toBe(true)
+      expect(mod.DEFAULT_SKILL_HUB_SKILLS.some((s) => s.id === "skillhub:undefined")).toBe(false)
+      expect(errSpy).not.toHaveBeenCalled()
+    } finally {
+      errSpy.mockRestore()
+      v.doUnmock("@/lib/frontmatter")
+      v.doUnmock("./skill-route-registry")
+      v.resetModules()
+    }
+  })
+
   it("单个文件缺 description 时仅该文件被过滤，其余 74 条保留", async () => {
     const { vi: v } = await import("vitest")
     v.resetModules()

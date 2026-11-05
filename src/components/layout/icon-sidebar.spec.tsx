@@ -477,4 +477,90 @@ describe("IconSidebar", () => {
     expect(document.querySelector('[data-nav-group="tools"] [data-view="marketRadar"]')).toBeTruthy()
     mocks.wikiState.activeView = "wiki"
   })
+
+  it("reviewCenter 徽标：novelReviewEntries（保存前审稿）未解决也计入", () => {
+    mocks.reviewState.items = []
+    mocks.reviewState.novelReviewEntries = [{ resolved: false }, { resolved: true }, { resolved: false }]
+    renderSidebar()
+    expect(
+      buttonForTooltip("novel.nav.reviewCenter").querySelector('[data-testid="nav-badge"]')?.textContent,
+    ).toBe("2")
+  })
+
+  it("reviewCenter 徽标：六维 items 与 novelReviewEntries 两个来源相加", () => {
+    mocks.reviewState.items = [{ resolved: false }]
+    mocks.reviewState.novelReviewEntries = [{ resolved: false }]
+    renderSidebar()
+    expect(
+      buttonForTooltip("novel.nav.reviewCenter").querySelector('[data-testid="nav-badge"]')?.textContent,
+    ).toBe("2")
+  })
+
+  it("无折叠偏好时：首刷直接命中 secondary 会自动展开该组 More", () => {
+    window.localStorage.removeItem("niko-buddy-nav-collapsed-groups")
+    mocks.wikiState.activeView = "styleEngine"
+    const { rerender } = renderSidebar()
+    // 命中组（创作工具）的 secondary 自动展开，高亮项不会落在看不见的地方
+    expect(document.querySelector('[data-nav-group="tools"] [data-view="styleEngine"]')).toBeTruthy()
+    // 其它组的 secondary 仍保持收起
+    expect(document.querySelector('[data-view="dataManager"]')).toBeNull()
+
+    // 同一组内再命中另一个 secondary：该组已在展开态，不重复追加
+    mocks.wikiState.activeView = "skillLibrary"
+    rerender(
+      <IconSidebar
+        onToggleSidebar={mocks.onToggleSidebar}
+        onOpenSidebar={mocks.onOpenSidebar}
+        onSwitchProject={mocks.onSwitchProject}
+      />,
+    )
+    expect(document.querySelector('[data-nav-group="tools"] [data-view="skillLibrary"]')).toBeTruthy()
+    expect(document.querySelector('[data-nav-group="tools"] [data-view="styleEngine"]')).toBeTruthy()
+    mocks.wikiState.activeView = "wiki"
+    window.localStorage.removeItem("niko-buddy-nav-collapsed-groups")
+  })
+
+  it("有折叠偏好时：同组内连续命中两个 secondary 只展开一次 More（第二次走已有展开态）", () => {
+    window.localStorage.setItem("niko-buddy-nav-collapsed-groups", JSON.stringify([]))
+    mocks.wikiState.activeView = "styleEngine"
+    const { rerender } = renderSidebar()
+    expect(document.querySelector('[data-nav-group="tools"] [data-view="styleEngine"]')).toBeTruthy()
+
+    mocks.wikiState.activeView = "skillLibrary"
+    rerender(
+      <IconSidebar
+        onToggleSidebar={mocks.onToggleSidebar}
+        onOpenSidebar={mocks.onOpenSidebar}
+        onSwitchProject={mocks.onSwitchProject}
+      />,
+    )
+    expect(document.querySelector('[data-nav-group="tools"] [data-view="skillLibrary"]')).toBeTruthy()
+    expect(document.querySelector('[data-nav-group="tools"] [data-view="styleEngine"]')).toBeTruthy()
+    mocks.wikiState.activeView = "wiki"
+  })
+
+  it("底部工具入口：封面 Prompt 工作台弹窗可打开", async () => {
+    renderSidebar()
+    const entry = document.querySelector('[data-cover-workbench-entry="true"]') as HTMLButtonElement
+    expect(entry).toBeTruthy()
+    fireEvent.click(entry)
+    expect(await screen.findByText("novel.coverWorkbench.title")).toBeTruthy()
+  })
+
+  it("底部工具入口：翻译工作台弹窗可打开", async () => {
+    renderSidebar()
+    const entry = document.querySelector('[data-translation-workbench-entry="true"]') as HTMLButtonElement
+    expect(entry).toBeTruthy()
+    fireEvent.click(entry)
+    // 弹窗标题 + 工作台内标题各一处，共两处（证明 dialog 已打开且工作台已挂载）
+    expect((await screen.findAllByText("novel.translation.title")).length).toBe(2)
+  })
+
+  it("底部工具入口：同人正典合并弹窗可打开", async () => {
+    renderSidebar()
+    const entry = document.querySelector('[data-fanfic-merge-entry="true"]') as HTMLButtonElement
+    expect(entry).toBeTruthy()
+    fireEvent.click(entry)
+    expect(await screen.findByTestId("fanfic-merge-dialog")).toBeTruthy()
+  })
 })

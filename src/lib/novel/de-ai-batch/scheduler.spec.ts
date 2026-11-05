@@ -688,3 +688,165 @@ describe("34 号 de-AI 强化接线（P0-1/P0-2/P1-2/P1-3/P2-1）", () => {
     expect(Array.isArray(savedState!.de_ai_batch!.perChapter[1].preserveMissing)).toBe(true)
   })
 })
+
+// ============================================================================
+// statements 100% 专项（第十三批）：空避用词条目 / 跨模块兜底 / targetProfile
+// 声纹复测 / 跨章回纹窗口排序 / DI-2 章节读取失败。只增补用例，不改既有用例。
+// ============================================================================
+describe("de-ai-batch scheduler — 未覆盖路径补测", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fsMocks.createDirectory.mockResolvedValue(undefined)
+    fsMocks.writeFileAtomic.mockResolvedValue(undefined)
+    fsMocks.writeFile.mockResolvedValue(undefined)
+    fsMocks.fileExists.mockResolvedValue(true)
+    fsMocks.deleteFile.mockResolvedValue(undefined)
+    projectMetaMocks.loadNovelProjectMeta.mockResolvedValue({ genre: "玄幻" })
+    mockChapterFiles()
+    mockLlmOk()
+    mockStatusOk()
+    mockUserMemoryEmpty()
+  })
+
+  function draftArtifact(chapter: number): Record<string, unknown> {
+    const call = fsMocks.writeFileAtomic.mock.calls.find((c) =>
+      String(c[0]).endsWith(`/de-ai-batch-drafts/${chapter}.json`),
+    )
+    return JSON.parse(String(call?.[1] ?? "{}")) as Record<string, unknown>
+  }
+
+  it("避用词表含空串/纯空白条目 → 跳过空条目，真实避用词仍进改写提示", async () => {
+    await runDeAiBatch("/p", { llmConfig, avoidWords: ["", "   ", "不禁"] })
+    const messages = llmMocks.streamChat.mock.calls[0][1]
+    // 空条目若不被跳过会退化成 indexOf("") 死循环；此处能正常收尾即已是反证，
+    // 行为断言落在「真实避用词命中被写进 prompt」上。
+    expect(String(messages[1].content)).toContain("用户避用词（改写时禁止使用）：不禁")
+    const draft = draftArtifact(1)
+    const hits = draft.avoidWordsHits as Array<{ word: string; count: number }>
+    expect(hits).toEqual([{ word: "不禁", count: 2 }])
+  })
+
+  it("跨模块契约兜底：getAvoidWords 返回 undefined 时按空表处理，批次照常完成", async () => {
+    userMemoryMocks.getAvoidWords.mockReturnValue(undefined)
+    const summary = await runDeAiBatch("/p", { llmConfig })
+    expect(summary.phase).toBe("completed")
+    expect(summary.processed).toBe(2)
+    const messages = llmMocks.streamChat.mock.calls[0][1]
+    expect(String(messages[1].content)).not.toContain("用户避用词")
+    expect(draftArtifact(1).avoidWordsHits).toEqual([])
+  })
+
+  it("targetProfile 配置 → 欠靶恢复指令注入 prompt，工件带 recoveryDeltas", async () => {
+    // CHAPTER_1 无「——」→ dash_density 每千字 0，目标 2 每千字 ⇒ 必然欠靶
+    const targetProfile = { targets: { dash_density: 2 }, tolerance: 0.25, minSampleChars: 0 }
+    const summary = await runDeAiBatch("/p", { llmConfig, targetProfile })
+    expect(summary.processed).toBe(2)
+
+    const messages = llmMocks.streamChat.mock.calls[0][1]
+    expect(String(messages[1].content)).toContain("作者声纹恢复（目标画像）")
+    expect(String(messages[1].content)).toContain("破折号")
+
+    const deltas = draftArtifact(1).recoveryDeltas as Array<Record<string, unknown>>
+    expect(Array.isArray(deltas)).toBe(true)
+    expect(deltas).toHaveLength(1)
+    expect(deltas[0].metric).toBe("dash_density")
+    expect(deltas[0].beforePerK).toBe(0)
+    expect(typeof deltas[0].recovered).toBe("boolean")
+  })
+
+  it("未配置 targetProfile → 工件不带 recoveryDeltas（对照组）", async () => {
+    await runDeAiBatch("/p", { llmConfig })
+    expect(draftArtifact(1).recoveryDeltas).toBeUndefined()
+    expect(String(llmMocks.streamChat.mock.calls[0][1][1].content)).not.toContain("作者声纹恢复")
+  })
+
+  it("三章同构正文 → 窗口回显按章号倒序命中并写入 echoChapters", async () => {
+    fsMocks.listDirectory.mockResolvedValue([
+      { name: "第1章.md", path: "/p/wiki/chapters/第1章.md", is_dir: false },
+      { name: "第2章.md", path: "/p/wiki/chapters/第2章.md", is_dir: false },
+      { name: "第3章.md", path: "/p/wiki/chapters/第3章.md", is_dir: false },
+    ])
+    chapterUtilsMocks.findChapterFileByNumber.mockImplementation(
+      async (_p: string, n: number) => `/p/wiki/chapters/第${n}章.md`,
+    )
+    // 三章正文逐字相同（仅 frontmatter 章号不同）⇒ 结构签名同构。
+    const body = "他不禁深吸一口气，仿佛整个世界都安静了。仿佛时间都停止了，他不禁感到一阵恍惚。"
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      const n = path.match(/第(\d+)章/)?.[1]
+      return `---\nchapter_number: ${n}\ntitle: 第${n}章\n---\n\n${body}`
+    })
+
+    const summary = await runDeAiBatch("/p", { llmConfig, concurrency: 1 })
+    expect(summary.processed).toBe(3)
+
+    // 第 1 章无前序 → 无回纹；第 2 章命中 [1]；第 3 章命中 [2, 1]（倒序窗口）
+    expect(draftArtifact(1).echoChapters).toBeUndefined()
+    expect(draftArtifact(2).echoChapters).toEqual([1])
+    expect(draftArtifact(3).echoChapters).toEqual([2, 1])
+    // 回纹报告进改写提示
+    const thirdMessages = llmMocks.streamChat.mock.calls[2][1]
+    expect(String(thirdMessages[1].content)).toContain("跨章回纹")
+    expect(String(thirdMessages[1].content)).toContain("第 3 章与 [2, 1] 章结构同构")
+    expect(String(llmMocks.streamChat.mock.calls[0][1][1].content)).not.toContain("跨章回纹")
+  })
+})
+
+describe("de-ai-batch scheduler — DI-2 章节读取失败补测", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fsMocks.writeFile.mockResolvedValue(undefined)
+    fsMocks.writeFileAtomic.mockResolvedValue(undefined)
+    fsMocks.fileExists.mockResolvedValue(true)
+    fsMocks.deleteFile.mockResolvedValue(undefined)
+    mockStatusOk()
+    chapterUtilsMocks.findChapterFileByNumber.mockImplementation(async (_p: string, n: number) =>
+      n === 1 ? "/p/wiki/chapters/第1章.md" : null,
+    )
+  })
+
+  function readyState(): DeAiBatchState {
+    return {
+      schemaVersion: DE_AI_BATCH_SCHEMA,
+      batchId: "de-ai-1",
+      phase: "completed",
+      concurrency: 3,
+      startedAt: "2026-08-19T00:00:00.000Z",
+      updatedAt: "2026-08-19T00:00:00.000Z",
+      queue: [1, 2],
+      perChapter: {
+        1: { status: "ready", attempts: 1, draftPath: "/p/.novel/de-ai-batch-drafts/1.json" },
+        2: { status: "failed", attempts: 2, lastError: "boom" },
+      },
+    }
+  }
+
+  function draftJson(): string {
+    return JSON.stringify({
+      schemaVersion: DE_AI_BATCH_SCHEMA,
+      batchId: "de-ai-1",
+      chapterNumber: 1,
+      sourcePath: "/p/wiki/chapters/第1章.md",
+      originalContent: CHAPTER_1,
+      candidateContent: "改写后的正文。",
+      dualPassScore: 42,
+      avoidWordsHits: [],
+      createdAt: "2026-08-19T00:00:00.000Z",
+      updatedAt: "2026-08-19T00:00:00.000Z",
+    })
+  }
+
+  it("acceptAll：草稿工件可读但章节正文读取失败 → 保守 skip，不写盘", async () => {
+    statusMocks.loadNovelSessionStatus.mockResolvedValue({ status: "completed", de_ai_batch: readyState() })
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path.includes("de-ai-batch-drafts")) return draftJson()
+      throw new Error(`章节读取失败: ${path}`)
+    })
+    const result = await acceptAllDeAiBatchDrafts("/p")
+    expect(result).toEqual({ accepted: 0, skipped: 2, conflicts: [] })
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+    const calls = statusMocks.buildNextStatus.mock.calls
+    const savedState = calls[calls.length - 1][1].de_ai_batch as DeAiBatchState
+    // 读取失败不吞掉 ready 状态（用户可修好后重试）
+    expect(savedState.perChapter[1].status).toBe("ready")
+  })
+})

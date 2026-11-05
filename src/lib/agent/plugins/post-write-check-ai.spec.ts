@@ -184,3 +184,169 @@ describe("runPostWriteCheckAI", () => {
     expect(invalidResult.fallbackReason).toBe("AI 返回格式无法解析")
   })
 })
+
+// ============================================================================
+// statements 100% 专项（第十三批）：正文截断 / 响应校验拒绝 / streamError 路径
+// 说明：只增补用例，不改动上方既有用例；所有断言都指向可观察行为
+// （降级 source / fallbackReason / 规则兜底 items / 实际下发给模型的 prompt）。
+// ============================================================================
+describe("runPostWriteCheckAI 未覆盖路径补测", () => {
+  const CHECK_NAMES = [
+    "剧情承接",
+    "主线推进",
+    "人物动机",
+    "冲突强度",
+    "伏笔处理",
+    "节奏",
+    "风格一致性",
+  ] as const
+
+  const LONG_CHAPTER = "测试内容" + "字".repeat(300)
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  /** 7 维合法条目（parseAIResponse 的通过基线），供各用例定点污染。 */
+  function validItems(): Array<Record<string, unknown>> {
+    return CHECK_NAMES.map((name) => ({
+      name,
+      passed: true,
+      detail: "好",
+      severity: "info",
+      evidence: "证据",
+      suggestion: "建议",
+    }))
+  }
+
+  /** 让 mock 的 streamChat 一次性吐出给定原始文本，并捕获下发的 prompt。 */
+  function respondWith(raw: string, captured?: string[]): void {
+    vi.mocked(streamChat).mockImplementationOnce(async (_config, messages, callbacks) => {
+      captured?.push(String(messages[1]?.content ?? ""))
+      callbacks.onToken(raw)
+      callbacks.onDone()
+    })
+  }
+
+  async function runAndExpectRuleFallback(
+    items: unknown[],
+  ): Promise<{ fallbackReason?: string; itemCount: number; firstName: string }> {
+    respondWith(JSON.stringify({ items }))
+    const result = await runPostWriteCheckAI({ chapterContent: LONG_CHAPTER })
+    // 行为断言：未能采纳 AI 结果 → 必须降级为规则检查并给出 7 维规则条目
+    expect(result.source).toBe("rule")
+    expect(result.check.items).toHaveLength(CHECK_NAMES.length)
+    expect(result.check.items[0].name).toBe(CHECK_NAMES[0])
+    return {
+      fallbackReason: result.fallbackReason,
+      itemCount: result.check.items.length,
+      firstName: result.check.items[0].name || "",
+    }
+  }
+
+  it("正文超过 CHAPTER_BODY_EXCERPT_MAX_CHARS 时截断并标注 [正文已截断]", async () => {
+    const captured: string[] = []
+    respondWith(JSON.stringify({ items: validItems() }), captured)
+    const chapterContent = "字".repeat(12_001)
+    const result = await runPostWriteCheckAI({ chapterContent })
+
+    expect(result.source).toBe("ai")
+    const prompt = captured[0] ?? ""
+    expect(prompt).toContain("[正文已截断]")
+    // 截断后正文段长度必须严格小于原文，证明走了截断分支而非原样透传
+    expect(prompt).not.toContain("字".repeat(12_001))
+    expect(prompt).toContain("字".repeat(12_000))
+  })
+
+  it("正文未超长时不加截断标记（对照组，防止截断无条件生效）", async () => {
+    const captured: string[] = []
+    respondWith(JSON.stringify({ items: validItems() }), captured)
+    await runPostWriteCheckAI({ chapterContent: LONG_CHAPTER })
+    expect(captured[0] ?? "").not.toContain("[正文已截断]")
+  })
+
+  it("items 不是数组 → 拒绝采纳并降级", async () => {
+    respondWith(JSON.stringify({ items: { name: "剧情承接" } }))
+    const result = await runPostWriteCheckAI({ chapterContent: LONG_CHAPTER })
+    expect(result.source).toBe("rule")
+    expect(result.fallbackReason).toBe("AI 返回格式无法解析")
+    expect(result.check.items).toHaveLength(CHECK_NAMES.length)
+  })
+
+  it("items 数量不是 7 项 → 拒绝采纳并降级", async () => {
+    const shortItems = validItems().slice(0, 6)
+    const outcome = await runAndExpectRuleFallback(shortItems)
+    expect(outcome.fallbackReason).toBe("AI 返回格式无法解析")
+    expect(outcome.itemCount).toBe(7)
+  })
+
+  it("维度名称与约定不一致 → 拒绝采纳并降级", async () => {
+    const items = validItems()
+    items[0] = { ...items[0], name: "整体观感" }
+    const outcome = await runAndExpectRuleFallback(items)
+    expect(outcome.fallbackReason).toBe("AI 返回格式无法解析")
+    expect(outcome.firstName).toBe("剧情承接")
+  })
+
+  it("name 不是字符串 → 拒绝采纳并降级", async () => {
+    const items = validItems()
+    items[0] = { ...items[0], name: 42 }
+    const outcome = await runAndExpectRuleFallback(items)
+    expect(outcome.fallbackReason).toBe("AI 返回格式无法解析")
+  })
+
+  it("passed 不是布尔 → 拒绝采纳并降级", async () => {
+    const items = validItems()
+    items[0] = { ...items[0], passed: "true" }
+    const outcome = await runAndExpectRuleFallback(items)
+    expect(outcome.fallbackReason).toBe("AI 返回格式无法解析")
+  })
+
+  it("detail 不是字符串 → 拒绝采纳并降级", async () => {
+    const items = validItems()
+    items[0] = { ...items[0], detail: 5 }
+    const outcome = await runAndExpectRuleFallback(items)
+    expect(outcome.fallbackReason).toBe("AI 返回格式无法解析")
+  })
+
+  it("evidence 存在但不是字符串 → 拒绝采纳并降级", async () => {
+    const items = validItems()
+    items[0] = { ...items[0], evidence: { quote: "证据" } }
+    const outcome = await runAndExpectRuleFallback(items)
+    expect(outcome.fallbackReason).toBe("AI 返回格式无法解析")
+  })
+
+  it("suggestion 存在但不是字符串 → 拒绝采纳并降级", async () => {
+    const items = validItems()
+    items[0] = { ...items[0], suggestion: 42 }
+    const outcome = await runAndExpectRuleFallback(items)
+    expect(outcome.fallbackReason).toBe("AI 返回格式无法解析")
+  })
+
+  it("模型输出是坏 JSON（花括号在但语法错误）→ JSON.parse 抛错被吞并降级", async () => {
+    respondWith("{ items: [ 这不是合法 JSON }")
+    const result = await runPostWriteCheckAI({ chapterContent: LONG_CHAPTER })
+    expect(result.source).toBe("rule")
+    expect(result.fallbackReason).toBe("AI 返回格式无法解析")
+    expect(result.check.items).toHaveLength(CHECK_NAMES.length)
+  })
+
+  it("onError 回调收到流错误 → 抛出并以 AI 调用失败降级", async () => {
+    vi.mocked(streamChat).mockImplementationOnce(async (_config, _messages, callbacks) => {
+      callbacks.onError(new Error("stream boom"))
+    })
+    const result = await runPostWriteCheckAI({ chapterContent: LONG_CHAPTER })
+    expect(result.source).toBe("rule")
+    expect(result.fallbackReason).toBe("AI 调用失败：stream boom")
+    expect(result.check.items).toHaveLength(CHECK_NAMES.length)
+  })
+
+  it("抛出的错误信息含 timeout → 归类为 AI 推理超时", async () => {
+    vi.mocked(streamChat).mockImplementationOnce(async () => {
+      throw new Error("request timeout")
+    })
+    const result = await runPostWriteCheckAI({ chapterContent: LONG_CHAPTER })
+    expect(result.source).toBe("rule")
+    expect(result.fallbackReason).toBe("AI 推理超时")
+  })
+})

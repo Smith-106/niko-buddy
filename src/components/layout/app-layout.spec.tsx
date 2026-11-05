@@ -20,6 +20,9 @@ const mocks = vi.hoisted(() => {
       setActiveView: vi.fn(),
       setActiveSettingsCategory: vi.fn(),
       setFileTree: vi.fn(),
+      // 命令面板/专注模式热键（Ctrl/⌘+\）读写的 store 字段
+      focusMode: false as boolean,
+      setFocusMode: vi.fn(),
     },
     // ---- outline generation store ----
     outlineState: {
@@ -356,6 +359,18 @@ describe("AppLayout", () => {
     view.unmount()
   })
 
+  it("拆书通知：重试返回 ok:false 时不切换视图（只提示、留在原地）", () => {
+    mocks.bookState.tasks = [
+      bookTask({ status: "error", error: "应用重启，任务已中断", progress: { stage: "error", stageLabel: null, percentage: 0, currentItem: null } }),
+    ]
+    mocks.bookState.retryTask.mockReturnValueOnce({ ok: false, taskId: "" })
+    const view = render(<AppLayout onSwitchProject={() => {}} />)
+    fireEvent.click(screen.getByText("appLayout.bookAnalysis.retry"))
+    expect(mocks.bookState.retryTask).toHaveBeenCalledWith("b1")
+    expect(mocks.wikiState.setActiveView).not.toHaveBeenCalledWith("bookAnalysis")
+    view.unmount()
+  })
+
   it("拆书通知：普通 error（不含「应用重启」）不显示重试按钮", () => {
     mocks.bookState.tasks = [
       bookTask({ status: "error", error: "分析失败", progress: { stage: "error", stageLabel: null, percentage: 0, currentItem: null } }),
@@ -511,6 +526,52 @@ describe("AppLayout", () => {
     fireEvent.mouseDown(divider, { clientX: 0 })
     fireEvent.mouseMove(document, { clientX: 300 })
     fireEvent.mouseUp(document)
+    view.unmount()
+  })
+})
+
+describe("命令面板与专注模式热键", () => {
+  beforeEach(() => {
+    mocks.wikiState.focusMode = false
+    // 命令面板打开后会把激活项滚入视口；jsdom 未实现 scrollIntoView
+    if (typeof Element.prototype.scrollIntoView !== "function") {
+      Element.prototype.scrollIntoView = vi.fn() as never
+    }
+  })
+
+  it("标题栏命令面板入口：点击后打开面板", () => {
+    const view = render(<AppLayout onSwitchProject={() => {}} />)
+    expect(screen.queryByTestId("command-palette")).toBeNull()
+    fireEvent.click(screen.getByTestId("command-palette-trigger"))
+    expect(screen.getByTestId("command-palette")).toBeInTheDocument()
+    expect(screen.getByRole("combobox")).toBeInTheDocument()
+    view.unmount()
+  })
+
+  it("Ctrl+K 切换命令面板：按一次打开、再按一次关闭", () => {
+    const view = render(<AppLayout onSwitchProject={() => {}} />)
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true })
+    expect(screen.getByTestId("command-palette")).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: "K", metaKey: true })
+    expect(screen.queryByTestId("command-palette")).toBeNull()
+    view.unmount()
+  })
+
+  it("Ctrl+Alt+K 不抢面板（与系统/输入法快捷键共存）", () => {
+    const view = render(<AppLayout onSwitchProject={() => {}} />)
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true, altKey: true })
+    expect(screen.queryByTestId("command-palette")).toBeNull()
+    view.unmount()
+  })
+
+  it("Ctrl+\ 切换专注模式；带 Shift 或非反斜杠键不触发", () => {
+    const view = render(<AppLayout onSwitchProject={() => {}} />)
+    fireEvent.keyDown(window, { key: "\\", ctrlKey: true })
+    expect(mocks.wikiState.setFocusMode).toHaveBeenCalledWith(true)
+
+    fireEvent.keyDown(window, { key: "\\", ctrlKey: true, shiftKey: true })
+    fireEvent.keyDown(window, { key: "j", ctrlKey: true })
+    expect(mocks.wikiState.setFocusMode).toHaveBeenCalledTimes(1)
     view.unmount()
   })
 })

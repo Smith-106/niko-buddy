@@ -136,6 +136,47 @@ describe("user memory learning service", () => {
     expect(rules.find((rule) => rule.category === "writing_preference")).toMatchObject({ scope: "project", projectKey: "p1" })
     expect(rules.find((rule) => rule.category === "interaction_preference")).toMatchObject({ scope: "session", projectKey: "p1", sessionKey: "s1" })
   })
+
+  it("批量消息的项目键/会话键不一致时回退 global（不抬成单项目层）", async () => {
+    const result = await learnUserMemoryFromMessages([
+      { message: "以后回答时请先给结论。", llmConfig, projectKey: "p1", sessionKey: "s1" },
+      { message: "写作时一直保持幽默风格。", llmConfig, projectKey: "p2", sessionKey: "s2" },
+    ], {
+      storage,
+      runExtractor: async () => JSON.stringify({ memories: [{
+        rule: "回答时先给结论。", category: "interaction_preference", surfaces: ["ai-chat"], confidence: 0.9, evidence_summary: "跨项目批次",
+      }] }),
+    })
+
+    expect(result).toMatchObject({ status: "learned", added: 1 })
+    expect(loadGlobalUserMemoryConfig(storage).rules[0]).toMatchObject({ scope: "global", projectKey: null, sessionKey: null })
+  })
+
+  it("显式 scope=session 且各消息同一会话键 → 会话层（无需会话关键词）", async () => {
+    await learnUserMemoryFromMessage({
+      message: "回答时先给出结论。", llmConfig, projectKey: "p1", sessionKey: "s9", scope: "session",
+    }, {
+      storage,
+      runExtractor: async () => JSON.stringify({ memories: [{
+        rule: "回答时先给出结论。", category: "interaction_preference", surfaces: ["ai-chat"], confidence: 0.9, evidence_summary: "显式会话层级",
+      }] }),
+    })
+
+    expect(loadGlobalUserMemoryConfig(storage).rules[0]).toMatchObject({ scope: "session", projectKey: "p1", sessionKey: "s9" })
+  })
+
+  it("显式 scope=project 且各消息同一项目键 → 作品层且不携带会话键", async () => {
+    await learnUserMemoryFromMessage({
+      message: "回答时先给出结论。", llmConfig, projectKey: "p9", scope: "project",
+    }, {
+      storage,
+      runExtractor: async () => JSON.stringify({ memories: [{
+        rule: "回答时先给出结论。", category: "interaction_preference", surfaces: ["ai-chat"], confidence: 0.9, evidence_summary: "显式作品层级",
+      }] }),
+    })
+
+    expect(loadGlobalUserMemoryConfig(storage).rules[0]).toMatchObject({ scope: "project", projectKey: "p9", sessionKey: null })
+  })
 })
 
 describe("user memory learning service 增补：默认提取器与入队批量", () => {
@@ -220,19 +261,33 @@ describe("user memory learning service 增补：默认提取器与入队批量",
   })
 
   it("并发相同消息只调用一次提取器（inFlight 去重）", async () => {
-    // 真时钟：提取器让出多个事件循环轮次，保证后来者的 inFlight 命中先行者持有的操作。
+    // 用可控闸门而不是「让出 N 轮事件循环」：后者在 4-worker 争抢下轮数可能不够，
+    // 会退化成「先行者已结束、后来者重新提取」的假红。闸门保证断言时先行者必然在飞行中。
     vi.useRealTimers()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
     const runExtractor = vi.fn(async () => {
-      for (let index = 0; index < 50; index += 1) {
-        await new Promise<void>((resolve) => setImmediate(resolve))
-      }
+      await gate
       return memoryPayload("回答时先给结论。")
     })
 
     const first = learnUserMemoryFromMessage({ message: "以后回答时请先给结论。", llmConfig }, { storage, runExtractor })
     const second = learnUserMemoryFromMessage({ message: "以后回答时请先给结论。", llmConfig }, { storage, runExtractor })
-    const [firstResult, secondResult] = await Promise.all([first, second])
+    // 等先行者真正进入提取器（被闸门挡住，不会结束）。
+    // 多等一会儿只会让去重判定更严：先行者还在飞行中时，去重若失效就会多出一次调用。
+    // finally 释放闸门很关键——inFlight 是模块级状态，测试若中途失败而不释放，
+    // 后续用例会继承一条永不完成的 inFlight 记录。
+    try {
+      await vi.waitFor(() => expect(runExtractor).toHaveBeenCalledTimes(1))
+      await new Promise<void>((resolve) => setTimeout(resolve, 20))
+      expect(runExtractor).toHaveBeenCalledTimes(1)
+    } finally {
+      release()
+    }
 
+    const [firstResult, secondResult] = await Promise.all([first, second])
     expect(runExtractor).toHaveBeenCalledTimes(1)
     expect(firstResult.status).toBe("learned")
     expect(secondResult.status).toBe("learned")
@@ -242,6 +297,40 @@ describe("user memory learning service 增补：默认提取器与入队批量",
     enqueueUserMemoryLearning({ message: "好的", llmConfig })
 
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("无 window 环境（runtimeStorage 回退 null）时入队仍按默认配置建定时器", () => {
+    // 强制无 window：runtimeStorage 的 typeof window === "undefined" 分支回退 null，
+    // 存储不可用不应阻断入队（loadGlobalUserMemoryConfig(null) → 默认启用配置）。
+    delete (globalThis as { window?: unknown }).window
+    expect(typeof (globalThis as { window?: unknown }).window).toBe("undefined")
+
+    enqueueUserMemoryLearning({ message: "以后回答时请先给结论。", llmConfig })
+
+    expect(vi.getTimerCount()).toBe(1)
+  })
+
+  it("reset 清空待刷批次的定时器（不留悬挂 timer）", () => {
+    stubWindowStorage(storage)
+
+    enqueueUserMemoryLearning({ message: "以后回答时请先给结论。", llmConfig })
+    expect(vi.getTimerCount()).toBe(1)
+
+    resetUserMemoryLearningQueueForTests()
+
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("localStorage 访问抛错（隐私模式）时回退 null，入队不抛错", () => {
+    ;(globalThis as unknown as { window?: unknown }).window = {
+      get localStorage(): unknown {
+        throw new Error("storage disabled")
+      },
+    }
+
+    enqueueUserMemoryLearning({ message: "以后回答时请先给结论。", llmConfig })
+
+    expect(vi.getTimerCount()).toBe(1)
   })
 
   it("失能配置下入队直接返回且不建定时器", () => {

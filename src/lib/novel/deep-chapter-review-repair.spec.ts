@@ -236,6 +236,38 @@ describe("runReviewAndRepair revision resume 恢复", () => {
     expect(reviewChapter).toHaveBeenCalledTimes(1)
     expect(streamChat).toHaveBeenCalledTimes(1)
   })
+
+  it("after_revision 检查点且门控为 pending：门控先按 findings 重建，不再重复调用阶段5.5 复审", async () => {
+    // 行为锁：阶段5.5「返修后复审」要求 decisionGates.overall === "pending"，
+    // 但进入该守卫前 line 241 已用 buildDecisionGates 从检查点 findings 重建
+    // overall（pass/warning/fail/manual_review 之一），因此 pending 检查点恢复
+    // 走的是「重建门控 → 无阻断 → 直接收敛」，零 LLM 复审调用。
+    const draft = chapterText("初稿雨夜旧屋，")
+    const currentContent = chapterText("修订稿雨夜旧屋，", 6)
+    const resumeCheckpoint = {
+      version: 1,
+      originalRequest: "写第3章：雨夜旧屋",
+      chapterNumber: 3,
+      stage: "after_revision",
+      taskBrief: "任务书正文（无契约段）",
+      draftContent: draft,
+      reviewResults: [],
+      currentContent,
+      decisionGates: emptyDecisionGates(),
+      retryCount: 0,
+    } as unknown as DeepChapterGenerationResumeCheckpoint
+
+    const { result, reviewChapter, streamChat, thinking } = await runRepair({ resumeCheckpoint })
+
+    expect(result.revised).toBe(true)
+    expect(result.retryCount).toBe(0)
+    expect(result.manualHandoff).toBe(false)
+    expect(result.currentContent).toBe(currentContent.trim())
+    // 无 pending 门控 → 不进 stage-5.5，也不进 fix-loop（无阻断问题）
+    expect(reviewChapter).not.toHaveBeenCalled()
+    expect(streamChat).not.toHaveBeenCalled()
+    expect(thinking.join("\n")).not.toContain("阶段5.5")
+  })
 })
 
 describe("runReviewAndRepair 平台期早退", () => {

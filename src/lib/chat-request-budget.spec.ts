@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest"
 import type { ChatMessage } from "./llm-client"
 import type { ContentBlock } from "./llm-providers"
-import { trimChatMessagesToBudget, trimChatMessagesToTokenBudget } from "./chat-request-budget"
+import {
+  estimateChatMessagesTokens,
+  estimateRequestScaffoldTokens,
+  trimChatMessagesToBudget,
+  trimChatMessagesToTokenBudget,
+} from "./chat-request-budget"
+import { estimateMessagesTokens, estimateScaffoldTokens } from "./token-estimator"
 
 function text(length: number, char = "x"): string {
   return char.repeat(length)
@@ -172,6 +178,98 @@ describe("trimChatMessagesToBudget — full-coverage extensions", () => {
     // 字符串形态 system 无 cacheControl 标记 → 不承载受保护缓存前缀，沿用通用裁剪。
     expect(trimmed[1]?.content).toEqual([])
     expect(String(trimmed[0]?.content)).toHaveLength(46)
+  })
+
+  it("system 动态块字符总数为 0 时跳过该消息（无可压缩空间 → 原样保留）", () => {
+    // 可压缩集合非空（有一个动态块）但其字符数为 0 → 不能再压；该消息必须原样保留，
+    // 超额交给上游报错，而不是把承载规则的缓存块丢掉。
+    const stable = text(100, "s")
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: [
+          { type: "text", text: stable, cacheControl: true },
+          { type: "text", text: "" },
+        ],
+      },
+      { role: "user", content: text(1_000, "u") },
+    ]
+
+    const trimmed = trimChatMessagesToBudget(messages, 200)
+
+    expect(trimmed[0]).toBe(messages[0])
+    const blocks = trimmed[0]?.content as ContentBlock[]
+    expect(blocks).toHaveLength(2)
+    expect(blocks[0]).toMatchObject({ text: stable, cacheControl: true })
+    // 超额无法消除 → 绝不静默丢掉规则
+    expect(totalTextLength(trimmed)).toBe(1_100)
+  })
+
+  it("system 动态块为图片时按 dataBase64 计长度并整块丢弃（不按文本长度）", () => {
+    const stable = text(100, "s")
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: [
+          { type: "text", text: stable, cacheControl: true },
+          { type: "image", mediaType: "image/png", dataBase64: text(500, "i") },
+        ],
+      },
+      { role: "user", content: text(1_000, "u") },
+    ]
+
+    const trimmed = trimChatMessagesToBudget(messages, 200)
+
+    const blocks = trimmed[0]?.content as ContentBlock[]
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]).toMatchObject({ text: stable, cacheControl: true })
+    expect(blocks.some((block) => block.type !== "text")).toBe(false)
+  })
+
+  it("Pass 3 兜底续压：缓存块不可压时仍会清空后续普通历史消息", () => {
+    const stable = text(2_000, "s")
+    const messages: ChatMessage[] = [
+      { role: "system", content: [{ type: "text", text: stable, cacheControl: true }] },
+      { role: "assistant", content: text(500, "a") },
+      { role: "user", content: "继续" },
+    ]
+
+    const trimmed = trimChatMessagesToBudget(messages, 100)
+
+    // 缓存块（世界规则）零截断；可压的只有普通历史消息
+    const systemBlocks = trimmed[0]?.content as ContentBlock[]
+    expect(systemBlocks).toHaveLength(1)
+    expect(systemBlocks[0]).toMatchObject({ text: stable, cacheControl: true })
+    expect(trimmed[1]?.content).toBe("")
+    // 最后一条永不裁剪（保住当前意图）
+    expect(String(trimmed[trimmed.length - 1]?.content)).toBe("继续")
+  })
+})
+
+describe("estimate 转发器（v3 agent 兼容口径）", () => {
+  it("estimateChatMessagesTokens 与估算器同值", () => {
+    const messages: ChatMessage[] = [
+      { role: "system", content: "你是写作助手。" },
+      { role: "user", content: [
+        { type: "text", text: "请续写第三章" },
+        { type: "image", mediaType: "image/png", dataBase64: text(64, "i") },
+      ] },
+    ]
+
+    const viaWrapper = estimateChatMessagesTokens(messages)
+
+    expect(viaWrapper).toBe(estimateMessagesTokens(messages))
+    expect(viaWrapper).toBeGreaterThan(0)
+  })
+
+  it("estimateRequestScaffoldTokens 与估算器同值（含 0 / 空入参）", () => {
+    const tools = [{ type: "function", function: { name: "read_file", description: "读取文件", parameters: { type: "object" } } }]
+
+    const viaWrapper = estimateRequestScaffoldTokens(tools)
+
+    expect(viaWrapper).toBe(estimateScaffoldTokens(tools))
+    expect(viaWrapper).toBeGreaterThan(0)
+    expect(estimateRequestScaffoldTokens(undefined)).toBe(0)
   })
 })
 

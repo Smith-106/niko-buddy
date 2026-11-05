@@ -117,6 +117,7 @@ function getButton(container: HTMLElement, label: string): HTMLButtonElement | u
 describe("UnifiedSkillLibraryView 语句/分支收尾（20261105-ralph-coverage-100-2）", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    joinMock.mockImplementation(async (...parts: string[]) => parts.join("/"))
     localStorage.clear()
     readFileMock.mockImplementation(async (path: string) => {
       if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
@@ -341,5 +342,73 @@ describe("UnifiedSkillLibraryView 语句/分支收尾（20261105-ralph-coverage-
     expect(useWikiStore.getState().selectedSkillLibrarySkillId).toBeNull()
     expect(useWikiStore.getState().selectedWritingSkillLibrarySkillId).toBeNull()
     expect(writeFileAtomicMock).not.toHaveBeenCalled()
+  })
+
+  it("回退「未命名去AI味技能」当文件名去扩展名后为空（118 行第三段 ||）", async () => {
+    // 文件名以扩展名开头：stripSkillFileExtension(".md") 得到空串，且无 frontmatter name
+    openDialogMock.mockResolvedValue("C:/skills/.md")
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      if (path === "C:/skills/.md") return "纯正文规则"
+      throw new Error("missing")
+    })
+    const { container, root } = await renderLibrary()
+    writeFileAtomicMock.mockClear()
+
+    await clickButton(container, "导入")
+
+    expect(writeFileAtomicMock).toHaveBeenCalledWith(
+      "C:/project/.niko-buddy/de-ai-skills.json",
+      expect.stringContaining("未命名去AI味技能"),
+    )
+    const saved = JSON.parse(writeFileAtomicMock.mock.calls[0][1] as string)
+    expect(saved.projectSkills[0]).toMatchObject({
+      name: "未命名去AI味技能",
+      description: "",
+      templateId: "custom",
+      content: "纯正文规则",
+    })
+    cleanup(root, container)
+  })
+
+  it("旧加载批次在 dataVersion 变化后失败不影响新批次（364 行 cancelled 守卫）", async () => {
+    const pending: Array<{ path: string; resolve: (value: string) => void; reject: (reason: unknown) => void }> = []
+    joinMock.mockImplementation((...parts: string[]) => new Promise<string>((resolve, reject) => {
+      pending.push({ path: parts.join("/"), resolve, reject })
+    }))
+    const { container, root } = await renderLibrary()
+    await flushEffects()
+    const staleCount = pending.length
+    expect(staleCount).toBeGreaterThan(0)
+
+    // dataVersion 变化 → 旧 effect cleanup 把 cancelled 置真，并启动新一批加载
+    await act(async () => {
+      useWikiStore.getState().bumpDataVersion()
+    })
+    await flushEffects()
+    expect(pending.length).toBeGreaterThan(staleCount)
+
+    // 已废弃批次整批失败：cancelled 守卫直接返回，不得写入错误态
+    for (const entry of pending.slice(0, staleCount)) entry.reject(new Error("stale boom"))
+    await flushEffects()
+    expect(container.textContent).not.toContain("技能库加载失败")
+
+    // 新批次照常完成：条目列表可用（也证明旧批次的失败未污染共享加载状态）
+    let cursor = staleCount
+    for (let round = 0; round < 5 && cursor < pending.length; round += 1) {
+      const batch = pending.slice(cursor)
+      cursor = pending.length
+      for (const entry of batch) entry.resolve(entry.path)
+      await flushEffects()
+    }
+
+    const searchInput = container.querySelector<HTMLInputElement>('[data-testid="unified-skill-search-input"]')
+    expect(searchInput).not.toBeNull()
+    await setInputValue(searchInput!, "三翻")
+    expect(container.querySelector('[data-testid="unified-skill-entry-writing:skill:three"]')).not.toBeNull()
+    expect(container.textContent).not.toContain("技能库加载失败")
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+    cleanup(root, container)
   })
 })

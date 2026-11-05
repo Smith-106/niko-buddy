@@ -12,15 +12,22 @@
  */
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { RunEventInput, RunEventLedger, RunEventLedgerStoreDeps } from "@/lib/novel"
 
 const listChapterDrafts = vi.fn(async (): Promise<unknown[]> => [])
 const rerunMainControlGates = vi.fn()
+const readFile = vi.fn(async (_path: string): Promise<string | null> => null)
 
 vi.mock("@/lib/novel", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel")>()
   return { ...actual, listChapterDrafts, rerunMainControlGates }
+})
+
+// 缺省 deps（生产装载器）落盘读取边界：只替换 fs 原语，账本解析用真实现。
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return { ...actual, readFile }
 })
 
 const wikiState = vi.hoisted(() => ({
@@ -131,6 +138,8 @@ afterEach(() => {
   listChapterDrafts.mockReset()
   listChapterDrafts.mockResolvedValue([])
   rerunMainControlGates.mockReset()
+  readFile.mockReset()
+  readFile.mockResolvedValue(null)
 })
 
 describe("MainControlGateRerunBlock（F17：saved 草稿不可重跑）", () => {
@@ -288,5 +297,162 @@ describe("MainControlGateRerunBlock（B9：结论落账后可回读 / RVF-11：�
     render(<MainControlGateRerunBlock projectPath="/proj" deps={memoryDeps} />)
     await waitFor(() => expect(screen.getByTestId("main-control-gate-rerun-empty")).toBeTruthy())
     expect(screen.queryByTestId("main-control-gate-rerun-history")).toBeNull()
+  })
+})
+
+/**
+ * 错误面与竞态守卫（可达路径）：
+ * 无项目路径不读草稿/不读账本；列草稿失败要有人话文案；
+ * 换项目时旧请求（成功或失败）晚到都不得污染新项目的状态面。
+ */
+describe("MainControlGateRerunBlock 错误面与竞态守卫", () => {
+  it("没有项目路径：不列草稿也不读账本，呈现空态且历史面为空", async () => {
+    render(<MainControlGateRerunBlock projectPath="" />)
+    expect(await screen.findByTestId("main-control-gate-rerun-empty")).toBeTruthy()
+    expect(listChapterDrafts).not.toHaveBeenCalled()
+    // 无项目 = 不读磁盘：既不渲染历史块，也不报账本错误（不把「没读」说成「读坏」）
+    expect(screen.queryByTestId("main-control-gate-rerun-history")).toBeNull()
+    expect(screen.queryByTestId("main-control-gate-rerun-history-error")).toBeNull()
+  })
+
+  it("列草稿失败：把原因显示为状态文案（不静默吞错）", async () => {
+    listChapterDrafts.mockRejectedValue(new Error("drafts unreadable"))
+    render(<MainControlGateRerunBlock projectPath="/proj" ledger={null} />)
+
+    const note = await waitFor(() => screen.getByTestId("main-control-gate-rerun-note"))
+    expect(note.textContent).toContain("drafts unreadable")
+    expect(screen.queryByTestId("main-control-gate-rerun-draft_1_abc")).toBeNull()
+  })
+
+  it("换项目后旧项目的草稿成功晚到：不覆盖新项目的空列表（cancelled 守卫）", async () => {
+    let resolveOld!: (rows: unknown[]) => void
+    const oldPending = new Promise<unknown[]>((resolve) => {
+      resolveOld = resolve
+    })
+    listChapterDrafts.mockImplementationOnce(() => oldPending).mockResolvedValueOnce([])
+
+    const { rerender } = render(<MainControlGateRerunBlock projectPath="/proj-a" ledger={null} />)
+    await waitFor(() => expect(listChapterDrafts).toHaveBeenCalledTimes(1))
+
+    rerender(<MainControlGateRerunBlock projectPath="/proj-b" ledger={null} />)
+    await waitFor(() => expect(listChapterDrafts).toHaveBeenCalledTimes(2))
+    expect(screen.getByTestId("main-control-gate-rerun-empty")).toBeTruthy()
+
+    // 旧项目的草稿此刻才回来 → 必须丢弃，不能挂到新项目下面
+    resolveOld([PENDING_DRAFT])
+    await act(async () => {})
+    expect(screen.queryByTestId("main-control-gate-rerun-row-draft_1_abc")).toBeNull()
+    expect(screen.getByTestId("main-control-gate-rerun-empty")).toBeTruthy()
+  })
+
+  it("换项目后旧项目的草稿失败晚到：不覆盖新项目的状态面（cancelled 守卫）", async () => {
+    let rejectOld!: (error: unknown) => void
+    const oldPending = new Promise<unknown[]>((_, reject) => {
+      rejectOld = reject
+    })
+    listChapterDrafts.mockImplementationOnce(() => oldPending).mockResolvedValueOnce([])
+
+    const { rerender } = render(<MainControlGateRerunBlock projectPath="/proj-a" ledger={null} />)
+    await waitFor(() => expect(listChapterDrafts).toHaveBeenCalledTimes(1))
+
+    rerender(<MainControlGateRerunBlock projectPath="/proj-b" ledger={null} />)
+    await waitFor(() => expect(screen.getByTestId("main-control-gate-rerun-empty")).toBeTruthy())
+
+    rejectOld(new Error("旧项目草稿读取失败"))
+    await act(async () => {})
+    expect(screen.queryByTestId("main-control-gate-rerun-note")).toBeNull()
+  })
+
+  it("换项目后旧账本读取失败晚到：不污染新项目的历史面（cancelled 守卫）", async () => {
+    let rejectOld!: (error: unknown) => void
+    const firstRead = new Promise<string | null>((_, reject) => {
+      rejectOld = reject
+    })
+    const newLedger = toLedgerText(
+      rerunGroup("2026-10-18T00:10:00.000Z", { consistency: "pass", anti_ai: "pass", quality: "pass" }),
+    )
+    const reads: Array<Promise<string | null>> = [firstRead, Promise.resolve(newLedger)]
+    let readCalls = 0
+    const deps: RunEventLedgerStoreDeps = {
+      readText: () => {
+        const next = reads[readCalls] ?? Promise.resolve(null)
+        readCalls += 1
+        return next
+      },
+      appendText: async () => {},
+      ensureDir: async () => {},
+    }
+
+    const { rerender } = render(<MainControlGateRerunBlock projectPath="/proj-a" deps={deps} />)
+    await waitFor(() => expect(readCalls).toBe(1))
+
+    rerender(<MainControlGateRerunBlock projectPath="/proj-b" deps={deps} />)
+    await waitFor(() => expect(screen.getByTestId("main-control-gate-rerun-history")).toBeTruthy())
+    expect(screen.getByTestId("main-control-gate-rerun-history").textContent).toContain("2026-10-18 00:10:00Z")
+
+    // 旧项目的账本失败此刻才到达 → 必须丢弃：新项目的历史面不得被降级成错误态
+    rejectOld(new Error("旧项目账本损坏"))
+    await act(async () => {})
+    expect(screen.queryByTestId("main-control-gate-rerun-history-error")).toBeNull()
+    expect(screen.getByTestId("main-control-gate-rerun-history")).toBeTruthy()
+  })
+})
+
+describe("MainControlGateRerunBlock 重跑结果降级提示与默认 deps", () => {
+  it("重跑失败：文案带原因，且不渲染结果块（失败不假装有结论）", async () => {
+    listChapterDrafts.mockResolvedValue([PENDING_DRAFT])
+    rerunMainControlGates.mockRejectedValue(new Error("gate engine down"))
+    render(<MainControlGateRerunBlock projectPath="/proj" ledger={null} />)
+
+    await waitFor(() => expect(screen.getByTestId("main-control-gate-rerun-draft_1_abc")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("main-control-gate-rerun-draft_1_abc"))
+
+    const note = await waitFor(() => screen.getByTestId("main-control-gate-rerun-note"))
+    expect(note.textContent).toContain("门控重跑失败")
+    expect(note.textContent).toContain("gate engine down")
+    expect(screen.queryByTestId("main-control-gate-rerun-result")).toBeNull()
+    // 失败后可重试：按钮不再是 disabled
+    expect((screen.getByTestId("main-control-gate-rerun-draft_1_abc") as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it("失败门标破坏色；未开审稿与契约未评估各给显式提示（绝不渲染成通过）", async () => {
+    listChapterDrafts.mockResolvedValue([PENDING_DRAFT])
+    rerunMainControlGates.mockResolvedValue({
+      ...okResult(PENDING_DRAFT.id),
+      rows: [
+        { key: "consistency", status: "pass", verdict: "pass", findings: 0 },
+        { key: "anti_ai", status: "fail", verdict: "fail", findings: 2 },
+        { key: "quality", status: "skipped", verdict: "pending", findings: 0 },
+      ],
+      overall: "fail",
+      llmMediated: false,
+      contractEvaluated: false,
+    })
+    render(<MainControlGateRerunBlock projectPath="/proj" ledger={null} />)
+
+    await waitFor(() => expect(screen.getByTestId("main-control-gate-rerun-draft_1_abc")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("main-control-gate-rerun-draft_1_abc"))
+
+    const failRow = await waitFor(() => screen.getByTestId("main-control-gate-row-anti_ai"))
+    expect(failRow.textContent).toContain("未通过")
+    expect(failRow.querySelector(".text-destructive")).toBeTruthy()
+    // 通过门与未评估门各自的呈现不得互相污染
+    expect(screen.getByTestId("main-control-gate-row-consistency").querySelector(".text-success")).toBeTruthy()
+    expect(screen.getByTestId("main-control-gate-row-quality").textContent).toContain("未评估")
+    // 两个「未评估/未接入」的降级面必须显式出现
+    expect(screen.getByTestId("main-control-gate-rerun-no-review").textContent).toContain("关闭 AI 审稿")
+    expect(screen.getByTestId("main-control-gate-rerun-contract").textContent).toContain("契约维度未评估")
+  })
+
+  it("缺省 deps 走生产 fs 装载器：从项目 .novel/run-events.jsonl 回读历史", async () => {
+    readFile.mockResolvedValue(
+      toLedgerText(rerunGroup("2026-10-18T00:10:00.000Z", { consistency: "pass", anti_ai: "pass", quality: "fail" })),
+    )
+    render(<MainControlGateRerunBlock projectPath="/proj" />)
+
+    const history = await waitFor(() => screen.getByTestId("main-control-gate-rerun-history"))
+    expect(readFile).toHaveBeenCalledWith(expect.stringContaining(".novel/run-events.jsonl"))
+    expect(history.textContent).toContain("2026-10-18 00:10:00Z")
+    expect(screen.getByTestId("main-control-gate-history-row-quality").textContent).toContain("未通过")
   })
 })

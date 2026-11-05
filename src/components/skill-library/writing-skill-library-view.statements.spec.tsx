@@ -21,6 +21,22 @@ vi.mock("@/components/skills/SkillBundleImportDialog", () => ({
   },
 }))
 
+// 真实面板只会以 ok:true 回调 onImported，宿主的 `!result.ok` 守卫需要一条失败回执才能触达。
+// 包装式 mock：仍然渲染真实面板（既有用例不受影响），同时曝光当次 props 供失败回执注入。
+const packPanelProps = vi.hoisted(() => [] as Array<Record<string, unknown>>)
+
+vi.mock("@/components/skills/SkillPackPanel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/skills/SkillPackPanel")>()
+  return {
+    ...actual,
+    SkillPackPanel: (props: Parameters<typeof actual.SkillPackPanel>[0]) => {
+      packPanelProps.length = 0
+      packPanelProps.push(props as unknown as Record<string, unknown>)
+      return actual.SkillPackPanel(props)
+    },
+  }
+})
+
 const readFileMock = vi.hoisted(() => vi.fn())
 const writeFileAtomicMock = vi.hoisted(() => vi.fn())
 const joinMock = vi.hoisted(() => vi.fn(async (...parts: string[]) => parts.join("/")))
@@ -307,6 +323,61 @@ describe("WritingSkillLibraryView 语句/分支收尾（20261105-ralph-coverage-
     expect(writeFileAtomicMock).toHaveBeenCalled()
     expect(container.textContent).toContain("已保存")
     cleanup(root, container)
+  })
+
+  it("技能包回执为失败时不落盘、不抛未处理异常（160 行 !result.ok 守卫）", async () => {
+    seedSkill()
+    // 失败回执是 ImportFailure（无 skills 字段）：绕过守卫会崩在归一化阶段并留下未处理拒绝
+    const rejections: unknown[] = []
+    const onUnhandled = (reason: unknown) => { rejections.push(reason) }
+    process.on("unhandledRejection", onUnhandled)
+    let view: { container: HTMLElement; root: Root } | null = null
+    try {
+      view = await renderLibrary()
+      for (let i = 0; i < 20; i += 1) {
+        if (packPanelProps.length > 0) break
+        await flushEffects()
+      }
+      expect(packPanelProps.length).toBeGreaterThan(0)
+      writeFileAtomicMock.mockClear()
+      const contentBefore = savedConfigContent
+
+      // 失败回执由生产解析器真实产出：空对象不是合法技能包
+      const { buildPack, serializePack, importNbskillPack } = await import("@/lib/novel")
+      const failure = importNbskillPack({}, { categoryId: "cat-a" })
+      expect(failure.ok).toBe(false)
+      const onImported = packPanelProps[packPanelProps.length - 1].onImported as (result: unknown) => void
+      await act(async () => {
+        onImported(failure)
+      })
+      await flushEffects()
+      // 宏任务边界：潜在的未处理拒绝只有到这里才会被 Node 判为未处理
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+
+      // 守卫命中：整包拒绝不写盘、不伪造成功提示、也不把异常泄给调用方
+      expect(rejections).toEqual([])
+      expect(writeFileAtomicMock).not.toHaveBeenCalled()
+      expect(savedConfigContent).toBe(contentBefore)
+      expect(view.container.textContent).not.toContain("已保存")
+
+      // 同一回调通道的成功回执照常落盘：证明上面未写盘源于守卫，而非管线未接通
+      const successPack = JSON.parse(serializePack(buildPack([], { name: "niko-skills", version: "1.0.0" })))
+      const success = importNbskillPack(successPack, { categoryId: "cat-a" })
+      expect(success.ok).toBe(true)
+      await act(async () => {
+        onImported(success)
+      })
+      await flushEffects()
+      expect(writeFileAtomicMock).toHaveBeenCalledWith(
+        "C:/project/.niko-buddy/writing-skills.json",
+        expect.stringContaining("三翻四抖"),
+      )
+    } finally {
+      process.off("unhandledRejection", onUnhandled)
+      if (view) cleanup(view.root, view.container)
+    }
   })
 
   it("视图加载失败展示错误态（290 行 loadError 分支）", async () => {

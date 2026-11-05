@@ -6,7 +6,7 @@
  * 删掉 N/A 行即红；注入 loader → 行来自 loader 返回值（默认走真实 loader 的那条路）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 
 const wiki = vi.hoisted(() => ({
   state: {
@@ -23,7 +23,7 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
   }
 })
 
-import type { ClosureProjection } from "@/lib/novel"
+import type { ClosureProjection, ClosureRow } from "@/lib/novel"
 import { ClosurePanel } from "./closure-panel"
 
 const projectionWithRows: ClosureProjection = {
@@ -201,5 +201,144 @@ describe("ClosurePanel", () => {
     expect(screen.getByTestId("closure-panel-error").textContent).toContain("boom")
     expect(screen.getByTestId("closure-panel-scope").textContent).toContain("合计 0 行")
     expect(screen.getByTestId("closure-na-source-0").textContent).toContain("N/A")
+  })
+})
+
+/**
+ * 逐字段渲染的边角真源：模态四态、故事时间非 chN、涟漪无关联 id、缺真源理由是脏数据。
+ * 这些面都必须「照实渲染/照实回退」，不能因为样本少就一律走最常见的那一路。
+ */
+function closureRow(over: Partial<ClosureRow> & Pick<ClosureRow, "id" | "kind">): ClosureRow {
+  return {
+    source: ".novel/narrative-state.json",
+    label: over.id,
+    detail: "详情文本",
+    modality: null,
+    chapterNumber: null,
+    storyTime: null,
+    relatedIds: [],
+    knownCount: null,
+    unknownCount: null,
+    consequenceCount: null,
+    ...over,
+  }
+}
+
+const edgeProjection: ClosureProjection = {
+  infoGaps: [
+    closureRow({ id: "gap-fact", kind: "info-gap", modality: "fact", storyTime: "ch2", chapterNumber: 2 }),
+    closureRow({ id: "gap-belief", kind: "info-gap", modality: "belief", storyTime: "第四日", chapterNumber: 2 }),
+    closureRow({ id: "gap-hypo", kind: "info-gap", modality: "hypothesis", chapterNumber: 2 }),
+    closureRow({ id: "gap-unknown", kind: "info-gap", modality: "rumor", chapterNumber: 2 }),
+  ],
+  worldEvents: [
+    closureRow({ id: "event-plain", kind: "world-event", detail: null, source: ".novel/timeline.json" }),
+  ],
+  ripples: [
+    closureRow({
+      id: "ripple-no-related",
+      kind: "ripple",
+      relatedIds: [],
+      consequenceCount: 1,
+    }),
+  ],
+  missingSources: [
+    // 脏真源：理由以全角冒号开头 ⇒ 冒号前段为空，必须回退「缺资料」而不是渲染空串
+    "：理由缺失（脏真源）",
+    "涟漪：没有 causedBy 因果链",
+  ],
+}
+
+describe("ClosurePanel 逐字段边角真源", () => {
+  afterEach(cleanup)
+
+  it("模态四态各自成词，未识别的模态回退「已记录」（不冒充事实）", () => {
+    render(<ClosurePanel projection={edgeProjection} />)
+
+    expect(screen.getByTestId("closure-na-modality-gap-fact").textContent).toContain("模态 事实")
+    expect(screen.getByTestId("closure-na-modality-gap-belief").textContent).toContain("模态 看法")
+    expect(screen.getByTestId("closure-na-modality-gap-hypo").textContent).toContain("模态 猜想")
+    expect(screen.getByTestId("closure-na-modality-gap-unknown").textContent).toContain("模态 已记录")
+    // sr-only 保留原值，便于追溯真源原文
+    expect(screen.getByTestId("closure-na-modality-gap-unknown").textContent).toContain("模态 rumor")
+  })
+
+  it("故事时间 chN 转「第 N 章」，非 chN 回退「已记录」并保留原值", () => {
+    render(<ClosurePanel projection={edgeProjection} />)
+
+    expect(screen.getByTestId("closure-na-storytime-gap-fact").textContent).toContain("故事时间 第 2 章")
+    const belief = screen.getByTestId("closure-na-storytime-gap-belief")
+    expect(belief.textContent).toContain("故事时间 已记录")
+    // 原值不丢（sr-only）
+    expect(belief.textContent).toContain("故事时间 第四日")
+  })
+
+  it("涟漪无关联 id：只报下游数量，不渲染空的「：」分隔符", () => {
+    render(<ClosurePanel projection={edgeProjection} />)
+
+    const ripple = screen.getByTestId("closure-row-ripple-no-related")
+    expect(ripple.textContent).toContain("下游 1 个事件")
+    expect(ripple.textContent).not.toContain("个事件：")
+  })
+
+  it("缺真源理由是脏数据（冒号前为空）：回退「缺资料」，不渲染空理由", () => {
+    render(<ClosurePanel projection={edgeProjection} />)
+
+    const first = screen.getByTestId("closure-na-source-0")
+    expect(first.textContent).toContain("不适用：缺资料")
+    expect(first.textContent).not.toContain("不适用：。")
+    // 正常理由仍按冒号前段归类
+    expect(screen.getByTestId("closure-na-source-1").textContent).toContain("不适用：涟漪")
+  })
+})
+
+describe("ClosurePanel 换 loader 的竞态", () => {
+  afterEach(cleanup)
+
+  it("旧 loader 成功晚到：不覆盖新 loader 已渲染的行（cancelled 守卫）", async () => {
+    let resolveOld!: (next: ClosureProjection) => void
+    const oldLoader = vi.fn(
+      () =>
+        new Promise<ClosureProjection>((resolve) => {
+          resolveOld = resolve
+        }),
+    )
+    const newLoader = vi.fn(async () => projectionWithRows)
+
+    const { rerender } = render(<ClosurePanel loader={oldLoader} />)
+    await waitFor(() => expect(oldLoader).toHaveBeenCalledTimes(1))
+
+    rerender(<ClosurePanel loader={newLoader} />)
+    await waitFor(() => expect(screen.getByTestId("closure-row-d1")).toBeTruthy())
+
+    // 旧 loader 此刻才返回「空真源」→ 必须丢弃：新项目的 3 行不得被清空
+    resolveOld(emptyProjection)
+    await act(async () => {})
+    expect(screen.getByTestId("closure-panel-scope").textContent).toContain("合计 3 行")
+    expect(screen.getByTestId("closure-row-d1")).toBeTruthy()
+  })
+
+  it("旧 loader 失败晚到：不把新 loader 的成功面降级成错误态（cancelled 守卫）", async () => {
+    let rejectOld!: (error: unknown) => void
+    const oldLoader = vi.fn(
+      () =>
+        new Promise<ClosureProjection>((_, reject) => {
+          rejectOld = reject
+        }),
+    )
+    const newLoader = vi.fn(async () => projectionWithRows)
+
+    const { rerender } = render(<ClosurePanel loader={oldLoader} />)
+    await waitFor(() => expect(oldLoader).toHaveBeenCalledTimes(1))
+
+    rerender(<ClosurePanel loader={newLoader} />)
+    await waitFor(() => expect(screen.getByTestId("closure-row-d1")).toBeTruthy())
+
+    rejectOld(new Error("旧项目读取失败"))
+    await act(async () => {})
+    // 旧失败被丢弃：不出现错误文案，也不重新进入 loading 态
+    expect(screen.queryByTestId("closure-panel-error")).toBeNull()
+    expect(screen.queryByTestId("closure-panel-loading")).toBeNull()
+    expect(screen.getByTestId("closure-row-d1")).toBeTruthy()
   })
 })

@@ -406,6 +406,19 @@ vi.mock("./sections/changelog-section", () => ({
   ChangelogSection: () => <div data-testid="section-changelog">changelog</div>,
 }))
 
+// 三个此前未被导航用例覆盖的分类（技能库 / MCP / 外部控制）：挂载后断言可渲染。
+vi.mock("./sections/skill-library-section", () => ({
+  SkillLibrarySection: () => <div data-testid="section-skill-library">skill-library</div>,
+}))
+
+vi.mock("./sections/mcp-section", () => ({
+  McpSection: () => <div data-testid="section-mcp">mcp</div>,
+}))
+
+vi.mock("./sections/external-control-section", () => ({
+  ExternalControlSection: () => <div data-testid="section-external-control">external-control</div>,
+}))
+
 const PROJECT = { id: "p1", name: "P", path: "/p/x" }
 
 const CATEGORIES: Array<{ id: string; label: string }> = [
@@ -1174,5 +1187,92 @@ describe("SettingsView 渲染覆盖", () => {
     for (const c of CATEGORIES) {
       expect(document.querySelector(`[data-settings-category="${c.id}"]`), c.id).toBeTruthy()
     }
+  })
+
+  it("技能库 / MCP / 外部控制三个分类可从侧栏进入并渲染对应分区", async () => {
+    render(<SettingsView />)
+    await flushAsync()
+    const cases: Array<[string, string]> = [
+      ["skill-library", "section-skill-library"],
+      ["mcp", "section-mcp"],
+      ["external-control", "section-external-control"],
+    ]
+    for (const [category, testId] of cases) {
+      const navButton = document.querySelector(`[data-settings-category="${category}"]`) as HTMLButtonElement
+      expect(navButton, category).toBeTruthy()
+      fireEvent.click(navButton)
+      expect(screen.getByTestId(testId), category).toBeTruthy()
+      expect(navButton).toHaveAttribute("aria-current", "page")
+    }
+  })
+
+  it("代理环境变量未生效（空 url）：toast 提示先填地址", async () => {
+    const toastModule = await import("@/lib/toast")
+    const errorSpy = vi.spyOn(toastModule.toast, "error").mockImplementation(() => undefined as never)
+    mocks.isTauri.mockReturnValue(true)
+    mocks.invoke.mockResolvedValueOnce("disabled (empty url)" as never)
+    render(<SettingsView />)
+    await flushAsync()
+    clickNav("network")
+    clickSave()
+
+    await waitFor(() => expect(errorSpy).toHaveBeenCalled())
+    expect(mocks.invoke).toHaveBeenCalledWith(
+      "set_proxy_env",
+      expect.objectContaining({ config: expect.objectContaining({ url: "" }) }),
+    )
+    expect(mocks.t).toHaveBeenCalledWith("settings.proxyToast.emptyUrl")
+    expect(errorSpy).toHaveBeenCalledWith("settings.proxyToast.emptyUrl")
+    errorSpy.mockRestore()
+  })
+
+  it("代理环境变量部分生效：toast 携原始 summary 提示重启后生效", async () => {
+    const toastModule = await import("@/lib/toast")
+    const errorSpy = vi.spyOn(toastModule.toast, "error").mockImplementation(() => undefined as never)
+    mocks.isTauri.mockReturnValue(true)
+    mocks.invoke.mockResolvedValueOnce("disabled (no proxy for 127.0.0.1)" as never)
+    render(<SettingsView />)
+    await flushAsync()
+    clickNav("network")
+    clickSave()
+
+    await waitFor(() => expect(errorSpy).toHaveBeenCalled())
+    expect(mocks.t).toHaveBeenCalledWith("settings.proxyToast.notApplied", {
+      summary: "disabled (no proxy for 127.0.0.1)",
+    })
+    errorSpy.mockRestore()
+  })
+
+  it("同一字段连续两次改动：脏标记集合不重复膨胀，草稿保留最后一次的值", async () => {
+    render(<SettingsView />)
+    await flushAsync()
+    clickNav("rerank")
+    await clickAndFlush("set-max-1")
+    await clickAndFlush("set-max-50")
+    expect(screen.getByTestId("draft-max")).toHaveTextContent("50")
+    expect(screen.getByText("settings.unsavedHint", { exact: false })).toBeTruthy()
+  })
+
+  it("保存进行中重复点击：只跑一次落盘（重入守卫）", async () => {
+    let release: () => void = () => {}
+    mocks.saveUiFontSizeScale.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve
+        }),
+    )
+    render(<SettingsView />)
+    await flushAsync()
+    clickNav("interface")
+
+    clickSave()
+    clickSave()
+    await flushAsync()
+
+    expect(mocks.saveUiFontSizeScale).toHaveBeenCalledTimes(1)
+
+    release()
+    await flushAsync()
+    expect(screen.queryByTestId("settings-save-domain")).toBeTruthy()
   })
 })

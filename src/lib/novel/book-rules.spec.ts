@@ -234,4 +234,17 @@ describe("book-rules 分支覆盖补齐：空值回退与空集合渲染", () =>
     expect(frag).not.toContain("性格锁")
     expect(frag).toContain("林澈 行为约束：不杀降者")
   })
+
+  it("主角无行为约束 → behavioralConstraints if else（只渲染性格锁）", () => {
+    const rules: BookRules = {
+      version: "1.0",
+      prohibitions: [],
+      allowedDeviations: [],
+      protagonist: { name: "苏遥", personalityLock: ["寡言", "记仇"], behavioralConstraints: [] },
+    }
+    const frag = bookRulesToPromptFragment(rules)
+    expect(frag).toContain("苏遥 性格锁：寡言、记仇")
+    expect(frag).not.toContain("行为约束")
+    expect(frag.split("\n")).toHaveLength(2)
+  })
 })

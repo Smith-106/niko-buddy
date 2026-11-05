@@ -32,7 +32,9 @@ import {
   listTrash,
   moveAllToTrash,
   moveDomainToTrash,
+  purgeTrashStamp,
   restoreDomainFromTrash,
+  statAllDomains,
   statDomain,
 } from "./data-manager"
 
@@ -115,6 +117,115 @@ describe("data-manager", () => {
     const s = await statDomain(PP, domain)
     expect(s.presentPaths).toBe(1)
     expect(s.totalBytes).toBe(4096)
+  })
+
+  it("statAllDomains returns one stat per registered data domain", async () => {
+    mocks.fileExists.mockImplementation(async (p: string) =>
+      p === `${BASE}/lancedb` || p === `${BASE}/lancedb/t.lance`,
+    )
+    mocks.pathIsDirectory.mockImplementation(async (p: string) => p === `${BASE}/lancedb`)
+    mocks.listDirectory.mockImplementation(async (p: string) =>
+      p === `${BASE}/lancedb` ? [file(`${BASE}/lancedb/t.lance`)] : [],
+    )
+    mocks.getFileSize.mockImplementation(async (p: string) =>
+      p === `${BASE}/lancedb/t.lance` ? 1024 : 0,
+    )
+    const stats = await statAllDomains(PP)
+    // 每个注册域都必须出现在结果里（顺序与注册表一致，UI 依赖该顺序）
+    expect(stats.map((s) => s.domainId)).toEqual(DATA_DOMAINS.map((d) => d.id))
+    expect(stats.find((s) => s.domainId === "vector-index")).toEqual({
+      domainId: "vector-index",
+      presentPaths: 1,
+      totalBytes: 1024,
+    })
+    // 无内容的域如实报 0，不因「没有任何文件」而漏报这个域
+    expect(stats.find((s) => s.domainId === "caches")).toEqual({
+      domainId: "caches",
+      presentPaths: 0,
+      totalBytes: 0,
+    })
+  })
+
+  it("statDomain counts 0 bytes for a child that vanishes between listing and sizing (TOCTOU)", async () => {
+    // listDirectory 与 pathSize 之间文件被并发删除：不得抛错，按 0 字节计。
+    const domain = DATA_DOMAINS.find((d) => d.id === "vector-index")!
+    mocks.fileExists.mockImplementation(async (p: string) => p === `${BASE}/lancedb`)
+    mocks.pathIsDirectory.mockImplementation(async (p: string) => p === `${BASE}/lancedb`)
+    mocks.listDirectory.mockImplementation(async (p: string) =>
+      p === `${BASE}/lancedb` ? [file(`${BASE}/lancedb/gone.lance`)] : [],
+    )
+    const s = await statDomain(PP, domain)
+    expect(s.presentPaths).toBe(1)
+    expect(s.totalBytes).toBe(0)
+  })
+
+  it("statDomain treats an unlistable directory as empty instead of throwing", async () => {
+    const domain = DATA_DOMAINS.find((d) => d.id === "vector-index")!
+    mocks.fileExists.mockImplementation(async (p: string) => p === `${BASE}/lancedb`)
+    mocks.pathIsDirectory.mockImplementation(async (p: string) => p === `${BASE}/lancedb`)
+    mocks.listDirectory.mockRejectedValue(new Error("permission denied"))
+    const s = await statDomain(PP, domain)
+    expect(s.presentPaths).toBe(1)
+    expect(s.totalBytes).toBe(0)
+  })
+
+  it("statDomain treats a failed file-size probe as 0 bytes", async () => {
+    const domain = DATA_DOMAINS.find((d) => d.id === "vector-index")!
+    mocks.fileExists.mockImplementation(async (p: string) =>
+      p === `${BASE}/lancedb` || p === `${BASE}/lancedb/t.lance`,
+    )
+    mocks.pathIsDirectory.mockImplementation(async (p: string) => p === `${BASE}/lancedb`)
+    mocks.listDirectory.mockImplementation(async (p: string) =>
+      p === `${BASE}/lancedb` ? [file(`${BASE}/lancedb/t.lance`)] : [],
+    )
+    mocks.getFileSize.mockRejectedValue(new Error("io error"))
+    const s = await statDomain(PP, domain)
+    expect(s.presentPaths).toBe(1)
+    expect(s.totalBytes).toBe(0)
+  })
+
+  it("statDomain keeps the walk alive when a child probe throws (outer guard)", async () => {
+    // vector-index 有 4 个 relPath；其中一个子项探测抛错后，其余路径仍要照常计入。
+    const domain = DATA_DOMAINS.find((d) => d.id === "vector-index")!
+    mocks.fileExists.mockImplementation(async (p: string) => {
+      if (p === `${BASE}/lancedb`) return true
+      if (p === `${BASE}/lancedb/t.lance`) throw new Error("stat failed")
+      if (p === `${BASE}/ann`) return true
+      return false
+    })
+    mocks.pathIsDirectory.mockImplementation(async (p: string) => p === `${BASE}/lancedb`)
+    mocks.listDirectory.mockImplementation(async (p: string) =>
+      p === `${BASE}/lancedb` ? [file(`${BASE}/lancedb/t.lance`)] : [],
+    )
+    mocks.getFileSize.mockImplementation(async (p: string) => (p === `${BASE}/ann` ? 512 : 0))
+    const s = await statDomain(PP, domain)
+    // 抛错的子项记 0 字节，但不能连累兄弟路径
+    expect(s.presentPaths).toBe(2)
+    expect(s.totalBytes).toBe(512)
+  })
+
+  it("moveDomainToTrash falls back to a file copy when the directory probe fails", async () => {
+    // pathIsDirectory 探测失败时降级为「按文件处理」；copy-gate 仍然生效（先复制后删）。
+    const domain = {
+      id: "character-assets",
+      labelKey: "k",
+      descKey: "k",
+      relPaths: ["character-aura.json"],
+      risk: "user" as const,
+    }
+    mocks.fileExists.mockImplementation(async (p: string) => p === `${BASE}/character-aura.json`)
+    mocks.pathIsDirectory.mockRejectedValue(new Error("probe unavailable"))
+    const moved = await moveDomainToTrash(PP, domain, "s3")
+    expect(moved).toBe(true)
+    expect(mocks.copyDirectory).not.toHaveBeenCalled()
+    expect(mocks.copyFile).toHaveBeenCalledWith(
+      `${BASE}/character-aura.json`,
+      `${BASE}/.trash-bin/s3/character-assets/character-aura.json`,
+    )
+    expect(mocks.deleteFile).toHaveBeenCalledWith(`${BASE}/character-aura.json`)
+    expect(mocks.copyFile.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.deleteFile.mock.invocationCallOrder[0],
+    )
   })
 
   it("moveDomainToTrash copies then deletes existing paths", async () => {
@@ -283,5 +394,126 @@ describe("data-manager", () => {
     // 失败域的源绝不被删；其余域继续搬入回收站
     expect(mocks.deleteFile).not.toHaveBeenCalledWith(`${BASE}/chapter-backups`)
     expect(mocks.deleteFile).toHaveBeenCalledWith(`${BASE}/lancedb`)
+  })
+
+  it("listTrash returns no batches when the trash root is absent", async () => {
+    mocks.fileExists.mockResolvedValue(false)
+    await expect(listTrash(PP)).resolves.toEqual([])
+    expect(mocks.listDirectory).not.toHaveBeenCalled()
+  })
+
+  it("listTrash returns no batches when the trash root cannot be listed", async () => {
+    mocks.fileExists.mockImplementation(async (p: string) => p === `${BASE}/.trash-bin`)
+    mocks.listDirectory.mockRejectedValue(new Error("permission denied"))
+    await expect(listTrash(PP)).resolves.toEqual([])
+  })
+
+  it("listTrash skips entries that are not directories or carry no name", async () => {
+    mocks.fileExists.mockImplementation(async (p: string) => p === `${BASE}/.trash-bin`)
+    mocks.listDirectory.mockImplementation(async (p: string) => {
+      if (p === `${BASE}/.trash-bin`) {
+        return [
+          file(`${BASE}/.trash-bin/stray.txt`, "stray.txt"),
+          { name: "", path: `${BASE}/.trash-bin/blank`, is_dir: true },
+          dir(`${BASE}/.trash-bin/s1`, "s1"),
+        ]
+      }
+      if (p === `${BASE}/.trash-bin/s1`) return [dir(`${BASE}/.trash-bin/s1/caches`, "caches")]
+      return []
+    })
+    const trash = await listTrash(PP)
+    // 非目录 / 无名目录不是合法批次，不得出现在回收站列表里（UI 会拿它当可恢复项）
+    expect(trash).toEqual([{ stamp: "s1", domainIds: ["caches"] }])
+  })
+
+  it("listTrash reports a batch with no domain ids when that batch cannot be listed", async () => {
+    mocks.fileExists.mockImplementation(async (p: string) => p === `${BASE}/.trash-bin`)
+    mocks.listDirectory.mockImplementation(async (p: string) => {
+      if (p === `${BASE}/.trash-bin`) return [dir(`${BASE}/.trash-bin/s1`, "s1")]
+      throw new Error("permission denied")
+    })
+    const trash = await listTrash(PP)
+    expect(trash).toEqual([{ stamp: "s1", domainIds: [] }])
+  })
+
+  it("purgeTrashStamp deletes exactly the requested batch", async () => {
+    mocks.fileExists.mockImplementation(async (p: string) => p === `${BASE}/.trash-bin/s1`)
+    await purgeTrashStamp(PP, "s1")
+    expect(mocks.deleteFile).toHaveBeenCalledTimes(1)
+    expect(mocks.deleteFile).toHaveBeenCalledWith(`${BASE}/.trash-bin/s1`)
+  })
+
+  it("purgeTrashStamp is a no-op for an unknown batch", async () => {
+    mocks.fileExists.mockResolvedValue(false)
+    await purgeTrashStamp(PP, "ghost-batch")
+    expect(mocks.deleteFile).not.toHaveBeenCalled()
+  })
+
+  it("restoreDomainFromTrash does nothing when the batch has no entry for the domain", async () => {
+    const domain = DATA_DOMAINS.find((d) => d.id === "caches")!
+    mocks.fileExists.mockResolvedValue(false)
+    await restoreDomainFromTrash(PP, domain, "missing")
+    expect(mocks.copyDirectory).not.toHaveBeenCalled()
+    expect(mocks.copyFile).not.toHaveBeenCalled()
+    expect(mocks.deleteFile).not.toHaveBeenCalled()
+  })
+
+  it("restoreDomainFromTrash tolerates an unlistable batch entry", async () => {
+    const domain = DATA_DOMAINS.find((d) => d.id === "caches")!
+    mocks.fileExists.mockImplementation(async (p: string) => p === `${BASE}/.trash-bin/s1/caches`)
+    mocks.listDirectory.mockRejectedValue(new Error("permission denied"))
+    await restoreDomainFromTrash(PP, domain, "s1")
+    // 列不出内容就什么都不动，回收站里的数据原样保留可重试
+    expect(mocks.copyDirectory).not.toHaveBeenCalled()
+    expect(mocks.copyFile).not.toHaveBeenCalled()
+    expect(mocks.deleteFile).not.toHaveBeenCalled()
+  })
+
+  it("restoreDomainFromTrash skips batch children whose name is empty", async () => {
+    const domain = DATA_DOMAINS.find((d) => d.id === "caches")!
+    mocks.fileExists.mockImplementation(async (p: string) => p === `${BASE}/.trash-bin/s1/caches`)
+    mocks.pathIsDirectory.mockImplementation(
+      async (p: string) => p === `${BASE}/.trash-bin/s1/caches/ingest-cache`,
+    )
+    mocks.listDirectory.mockImplementation(async (p: string) =>
+      p === `${BASE}/.trash-bin/s1/caches`
+        ? [
+            { name: "", path: `${BASE}/.trash-bin/s1/caches/`, is_dir: true },
+            dir(`${BASE}/.trash-bin/s1/caches/ingest-cache`, "ingest-cache"),
+          ]
+        : [],
+    )
+    await restoreDomainFromTrash(PP, domain, "s1")
+    // 无名子项无法推出目标路径，只跳过它，不影响同一批次的具名子项
+    expect(mocks.copyDirectory).toHaveBeenCalledTimes(1)
+    expect(mocks.copyDirectory).toHaveBeenCalledWith(
+      `${BASE}/.trash-bin/s1/caches/ingest-cache`,
+      `${BASE}/ingest-cache`,
+    )
+  })
+
+  it("restoreDomainFromTrash replaces an existing destination before copying back", async () => {
+    const domain = DATA_DOMAINS.find((d) => d.id === "caches")!
+    mocks.fileExists.mockImplementation(async (p: string) =>
+      p === `${BASE}/.trash-bin/s1/caches` || p === `${BASE}/ingest-cache`,
+    )
+    mocks.pathIsDirectory.mockImplementation(
+      async (p: string) => p === `${BASE}/.trash-bin/s1/caches/ingest-cache`,
+    )
+    mocks.listDirectory.mockImplementation(async (p: string) =>
+      p === `${BASE}/.trash-bin/s1/caches`
+        ? [dir(`${BASE}/.trash-bin/s1/caches/ingest-cache`, "ingest-cache")]
+        : [],
+    )
+    await restoreDomainFromTrash(PP, domain, "s1")
+    // 旧目标必须先清掉，否则复制语义不确定（残留旧文件混入恢复结果）
+    expect(mocks.deleteFile).toHaveBeenCalledWith(`${BASE}/ingest-cache`)
+    expect(mocks.deleteFile.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.copyDirectory.mock.invocationCallOrder[0],
+    )
+    expect(mocks.copyDirectory).toHaveBeenCalledWith(
+      `${BASE}/.trash-bin/s1/caches/ingest-cache`,
+      `${BASE}/ingest-cache`,
+    )
   })
 })

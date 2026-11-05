@@ -194,6 +194,76 @@
   触发不可恢复的向量表删除，务必保留纵深。
   （本轮有一 agent 在此处加 `/* v8 ignore next */`，因未走台账流程已随该文件一并回退。）
 
+### 黑盒 UI 不可达：`disabled` 闸门对冲的 handler 首行守卫
+
+> **判例依据（实测）**：React 19.2.4 下，`disabled` 表单控件的
+> `element.click()` 与 `dispatchEvent(new MouseEvent("click"))` **都不触发合成 onClick**
+> （合成事件层在派发前就丢弃）；把 `disabled` 去掉后同一派发路径立刻命中。
+> 因此「JSX `disabled={X}` 与 handler 首行 `if (X) return` 条件等价」时，
+> 守卫的真分支在**纯黑盒 UI 测试**下不可达。
+> 注意这只说明「黑盒测不到」，不说明代码该删——它们是防重入/防无项目写盘的兜底，
+> 保留是刻意的（见本文件「保留不删的防御守卫」小节的原则）。
+
+#### components/skill-library/skill-library-view.tsx
+- **L116 / L287 / L307 / L316 / L323 / L334 / L343 / L361 各 `if (...) return` 真支**（12 语句 / 16 臂）：
+  闸门分别为 L145 `disabled={!config || !project || saving}`（与 L116 守卫逐项相同）、
+  L562 `disabled={!canSaveDraft}`（Ctrl+S 监听 L384 同样先判 `canSaveDraft`）、
+  L571 `disabled={!draftChanged || saving}`（`draftChanged` L241 在无选中时恒 false）、
+  L483 / L504 / L493 / L412 / L421。
+- **L97-100 / L266-270 两处 `persist` 内 `!project` 早退**：唯一调用链上游已同判
+  （L116 / L123 首行 `!project` 早退；详情侧 save 走 `canSaveDraft`(L245 含 `project`)、
+  setDefault/delete/reset 按钮 L483/L504/L493 的 `disabled` 均含 `!project`）。
+  同一闭包内 `project` 不可能两处取值不同，故第二道闸无消费者。
+- **纯回退臂** `B16:34`/`B16:54`：`config.defaultSkillId || allSkills[0]?.id || ""` ——
+  `normalizeDeAiSkillConfig`（de-ai-skill-library.ts:579-580）无条件把 `defaultSkillId`
+  归一为已知 id，`getAllDeAiSkills`(597-601) 恒含内置技能 ⇒ 前段恒真。
+  `B263:100`：`updateDraftDirty` 的 `: false`，三个调用点都在编辑器分支内的 onChange ⇒
+  `selectedSkill` 恒非 null。`B329:48`/`B329:81`：`deleteProjectDeAiSkill`(781-789) 归一后
+  `defaultSkillId` 恒非空。`B475:20`：该 JSX(439-475) 位于 L431 `) : (` 编辑器分支内，
+  `deAiSkillToUserSkill`(624) 返回非空 `UserSkill`。
+
+#### components/skill-library/writing-skill-library-view.tsx
+- **L39 `handleOpenBundleImport` 的 `!project` 早退**：触发按钮 L577-584 位于
+  L561 `{config && project ? ... : null}` 内，无项目时**按钮被卸载**（不是禁用）。
+- **L140-143 `persist` 的 `!project`**：三个调用点(173/203/210)首行已判 project；
+  唯一未判的 `handlePackImported`(160) 的触发器 `SkillPackPanel` 同在 L561 同一区块内。
+- **L173 / L210**：L540 `disabled={!canSaveDraft}` / L333 `disabled={!project || saving}`。
+- **L220 `handleExportSkill` 的 `!selectedSkill`**：触发按钮 L322-328 只在 L298 编辑器分支渲染。
+- **L241 `handleReloadLinkedContent`**：触发按钮 L496-502 只在 L492 `{isLinkedSkill ? ...}` 内 ⇒
+  三个臂（无选中 / 非外链 / 无 config）均无消费者。
+- **`B136:8`**、**`B589:75`**（`|| config.categories[0]?.id || ""` 第三段）：
+  `loadUserSkillConfig` → `ensureBuiltinSkills`(user-skill-store.ts:454-471) 合并
+  `DEFAULT_SKILL_ROUTE_CATEGORIES`（skill-route.ts:17，`skill-route.spec.ts:40` 断言行数=9）
+  ⇒ `categories` 恒非空。
+
+#### components/skill-library/unified-skill-library-view.tsx
+- **L171 / L187 / L203 / L211 / L237 / L244 六个 `if (!project || saving) return` 真支**：
+  四个 header 按钮 L286/L289/L295/L298 统一 `disabled={disabled}`，而 L280
+  `const disabled = !project || saving` —— 与守卫**条件完全相同**；两个 `persist*Config`
+  也只由这些已判调用方触发。
+- **`B138:101`**（`compact` 真段）：`SkillLibraryHeader`(L128) 未导出，唯一调用点
+  L313 `<SkillLibraryHeader />` 不传 `compact`。
+- **`B175:6`**（`if (nextSkillId)` 隐式 else）：`nextSkillId` 取自 `loadUserSkillConfig` →
+  `ensureBuiltinSkills` 恒注入内置写作技能 ⇒ `normalizeUserSkillConfig`(113-115) 的
+  `selectedSkillId` 恒非 null。
+- **`B500:87`**（`|| "未分类"`）：writing 条目 `kind` 经 `normalizeUserSkill` 的
+  `uniqueValid(value.kind, VALID_KINDS, ["style"])`(skill-library.ts:134) 恒非空；
+  de-ai 条目硬编码 `["rewrite","style"]`(L49)。
+
+### lib/novel/skill-hub-seed.ts（运行时分区代码）
+- **15 条语句**全部落在 `readdirSync` 的 `try` 成功路径与目录遍历分支上：
+  该模块在 **Node/tsx 启动脚本**里跑真实的 fs 遍历来播种技能中枢种子，
+  而 vitest 是 jsdom 环境、且该函数在 Tauri 侧走 `@tauri-apps/plugin-fs` 分支。
+  两套运行时互斥，jsdom 下无论怎么造都会走 catch/回退分支。
+  这是**运行时分区代码**（不是死代码），正确处置是记账而非强测或删除。
+
+### lib/novel/deep-chapter-review-repair.ts（结构性不可达）
+- **L253-275 stage-5.5 返修后复审块（7 语句）**：上层 L241 已用 `buildDecisionGates`
+  把 `overall` 从 `pending` 重写为具体判定，本块的前置条件（`overall === "pending"`）
+  在返修完成后的调用序中恒不成立。该块是「返修流程改造前的旧复审通道」的残留，
+  当前调用链已由 decision-gates 统一出口接管；保留是因为它与旁路的 gate 判定口径不同，
+  贸然删除会让「返修后若 gate 重新产生 pending」这一未来情形失去兜底。
+
 ### components/novel/story-simulation/branch-compare-view.tsx
 - **L44 `default: return String(key)`**（dimensionLabel）：参数类型为 `keyof DirectorScore`（7 键联合），`switch` 穷举 7 案；调用点 L154/249（`DIMENSION_KEYS` 字面量迭代）与 L401（`d.key as keyof DirectorScore`）全在类型内 → default 不可达（判例模式 8）。
 - **L363-365 `branches.length<2` 早退**（KeyDifferencesTab 内 effect）：外层 `BranchCompareView` 在 `compareBranches<2` 时提前返回 `selectAtLeastTwoBranches`（L525-536），`KeyDifferencesTab` 仅在 ≥2 时挂载（L592）；父级 `story-simulation-view` 传的是实时 branches，收缩时外层先卸载本 Tab、effect 不会带着新 props 重跑 → 内层重复守卫仅防挂载后收缩竞态，当前调用点无收缩。防御性代码。

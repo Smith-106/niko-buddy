@@ -519,4 +519,62 @@ describe("TrashPanel", () => {
     const row = screen.getByText("page.md").closest("div.group")
     expect(row?.className).toContain("border-primary")
   })
+
+  it("永久删除：确认框取消 → 不调用物理删除、列表不变", async () => {
+    mocks.state.project = DEFAULT_PROJECT
+    vi.spyOn(window, "confirm").mockReturnValue(false)
+    mocks.listTrashItems.mockResolvedValue([makeItem({ id: "i1", name: "page.md" })])
+    render(<TrashPanel />)
+    await flushAsync()
+
+    fireEvent.click(screen.getByTitle("永久删除"))
+    await flushAsync()
+
+    expect(window.confirm).toHaveBeenCalledTimes(1)
+    expect(mocks.permanentlyDeleteTrashItem).not.toHaveBeenCalled()
+    expect(screen.getByText("page.md")).toBeTruthy()
+  })
+
+  it("清空回收站：确认框取消 → 不批量删除、条目仍在", async () => {
+    mocks.state.project = DEFAULT_PROJECT
+    vi.spyOn(window, "confirm").mockReturnValue(false)
+    mocks.listTrashItems.mockResolvedValue([makeItem({ id: "i1", name: "page.md" })])
+    render(<TrashPanel />)
+    await flushAsync()
+
+    fireEvent.click(screen.getByText("清空回收站"))
+    await flushAsync()
+
+    expect(window.confirm).toHaveBeenCalledTimes(1)
+    expect(mocks.permanentlyDeleteAllTrashItems).not.toHaveBeenCalled()
+    expect(screen.getByText("page.md")).toBeTruthy()
+    expect(screen.getByText("清空回收站")).toBeTruthy()
+  })
+
+  it("分页：超过单页条数时只渲染本页，下一页/上一页切换切片", async () => {
+    mocks.state.project = DEFAULT_PROJECT
+    const items = Array.from({ length: 21 }, (_v, i) =>
+      makeItem({ id: `i${i + 1}`, name: `page-${i + 1}.md` }),
+    )
+    mocks.listTrashItems.mockResolvedValue(items)
+    render(<TrashPanel />)
+    await flushAsync()
+
+    // 首页：1..20，第 21 条不可见
+    expect(screen.getAllByText(/剩余/).length).toBe(20)
+    expect(screen.getByText("page-20.md")).toBeTruthy()
+    expect(screen.queryByText("page-21.md")).toBeNull()
+
+    fireEvent.click(screen.getByTestId("pagination-next"))
+    await flushAsync()
+    expect(screen.queryByText("page-1.md")).toBeNull()
+    expect(screen.getByText("page-21.md")).toBeTruthy()
+    expect(screen.getAllByText(/剩余/).length).toBe(1)
+
+    fireEvent.click(screen.getByTestId("pagination-prev"))
+    await flushAsync()
+    expect(screen.getByText("page-1.md")).toBeTruthy()
+    expect(screen.queryByText("page-21.md")).toBeNull()
+    expect(screen.getAllByText(/剩余/).length).toBe(20)
+  })
 })

@@ -682,3 +682,56 @@ describe("W-增补: tier1/tier2 字面命中分支（de-ai-adapter.ts:283-284）
     expect(terms).toContain("既紧张又兴奋")
   })
 })
+
+// ============================================================================
+// statements 100% 专项（第十三批）：preserveDirective 注入 / 跨层同区间去重 /
+// 命中恰好抵达正文末尾。只增补用例，不改既有用例。
+// ============================================================================
+describe("补测: preserveDirective 注入 (de-ai-adapter.ts:114)", () => {
+  it("preserveDirective 非空 → 追加到 system；空白 → 与不传等价", () => {
+    const withDirective = buildQmQuaiRewriteMessages("正文内容", "custom", {
+      preserveDirective: "  保留要求：数字/引号不得改动  ",
+    })
+    expect(withDirective[0].role).toBe("system")
+    expect(withDirective[0].content).toContain("保留要求：数字/引号不得改动")
+    // 与 userPrompt 共存时两者都在
+    const both = buildQmQuaiRewriteMessages("正文内容", "custom", {
+      preserveDirective: "保留要求A",
+      userPrompt: "个性化B",
+    })
+    const systemContent = String(both[0].content)
+    expect(systemContent).toContain("保留要求A")
+    expect(systemContent).toContain("个性化B")
+    expect(systemContent.indexOf("保留要求A")).toBeLessThan(systemContent.indexOf("个性化B"))
+
+    const baseline = buildQmQuaiRewriteMessages("正文内容", "custom")
+    const blank = buildQmQuaiRewriteMessages("正文内容", "custom", { preserveDirective: "   " })
+    expect(blank).toEqual(baseline)
+  })
+})
+
+describe("补测: 跨层同区间命中必须去重 (de-ai-adapter.ts:301)", () => {
+  it("「至关重要」同时命中 tier1 字面表与 tier3 正则 → 只产出 1 条同区间命中", () => {
+    const text = "这件事至关重要。"
+    const result = runDeAiDetection(text)
+    const spans = result.hits.filter((h) => h.term === "至关重要")
+    expect(spans).toHaveLength(1)
+    const at = text.indexOf("至关重要")
+    expect(spans[0].startIndex).toBe(at)
+    expect(spans[0].endIndex).toBe(at + 4)
+    expect(text.slice(spans[0].startIndex, spans[0].endIndex)).toBe("至关重要")
+    // 展示标记也只标一次
+    expect(result.markedText).toBe("这件事【至关重要】。")
+    expect(result.markedText.match(/【至关重要】/g)).toHaveLength(1)
+  })
+})
+
+describe("补测: 命中恰好抵达正文末尾 (de-ai-adapter.ts:331 假分支)", () => {
+  it("末位命中吞掉整段文本时 markedText 不再追加尾部残片", () => {
+    const text = "至关重要"
+    const result = runDeAiDetection(text)
+    expect(result.hits).toHaveLength(1)
+    expect(result.hits[0].endIndex).toBe(text.length)
+    expect(result.markedText).toBe("【至关重要】")
+  })
+})

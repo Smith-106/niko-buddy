@@ -2198,3 +2198,87 @@ describe("ReviewView — 严重度筛选与批量采纳（reviewCenter coreIssue
     }
   })
 })
+
+describe("ReviewView — 异步加载失败降级（情绪账本 / 审稿历史）", () => {
+  it("情绪账本读取失败 → 熔断徽标保持不渲染；读取成功则按三态渲染", async () => {
+    mocks.loadEmotionLedger.mockRejectedValueOnce(new Error("ledger boom"))
+    const failed = renderView()
+    await waitFor(() => expect(mocks.loadEmotionLedger).toHaveBeenCalledTimes(1))
+    // 失败不冒泡到 UI：徽标缺席，且不拿脏 store 去算熔断态
+    expect(screen.queryByText("review.breakerStatus.open")).not.toBeInTheDocument()
+    expect(mocks.getCircuitBreakerStatus).not.toHaveBeenCalled()
+    failed.unmount()
+
+    // 对照：读取成功 → 徽标渲染，title 取熔断原因，阈值同为 -0.6
+    mocks.loadEmotionLedger.mockResolvedValue({ entries: [] })
+    mocks.getCircuitBreakerStatus.mockReturnValue({ status: "open", reason: "net +1.2" })
+    renderView()
+    const badge = await screen.findByText("review.breakerStatus.open")
+    expect(badge).toHaveAttribute("title", "net +1.2")
+    expect(mocks.getCircuitBreakerStatus).toHaveBeenCalledWith({ entries: [] }, -0.6)
+  })
+
+  it("审稿历史重载失败 → 历史段清空（不保留陈旧列表）", async () => {
+    mocks.listGenerationHistory.mockResolvedValueOnce([makeHistoryEntry()])
+    renderView()
+    await waitFor(() => expect(screen.getByText("第8章审稿")).toBeInTheDocument())
+    expect(screen.getByText("novel.review.historyTitle")).toBeInTheDocument()
+
+    // 删除条目触发重载；第二次加载拒绝 → catch 清空历史
+    mocks.listGenerationHistory.mockRejectedValueOnce(new Error("history boom"))
+    fireEvent.click(screen.getByLabelText("novel.history.delete"))
+    await waitFor(() => expect(mocks.listGenerationHistory).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByText("第8章审稿")).not.toBeInTheDocument())
+    expect(screen.queryByText("novel.review.historyTitle")).not.toBeInTheDocument()
+  })
+})
+
+describe("ReviewView — 项目切换后的陈旧历史响应守卫", () => {
+  it("旧项目的历史成功返回被丢弃，不覆盖新项目列表", async () => {
+    const stale = deferred<GenerationHistoryEntry[]>()
+    mocks.listGenerationHistory.mockReturnValueOnce(stale.promise)
+    const view = renderView()
+    await waitFor(() => expect(mocks.listGenerationHistory).toHaveBeenCalledTimes(1))
+    expect(mocks.listGenerationHistory).toHaveBeenCalledWith("E:/Novel", "review")
+
+    // 切项目：ref 指向新路径，新请求立即返回；旧请求随后才返回
+    mocks.state.project = { path: "E:/Other" }
+    mocks.listGenerationHistory.mockResolvedValueOnce([makeHistoryEntry({ id: "new", title: "第9章审稿" })])
+    view.rerender(<ReviewView />)
+    await waitFor(() => expect(screen.getByText("第9章审稿")).toBeInTheDocument())
+
+    await act(async () => stale.resolve([makeHistoryEntry({ id: "stale", title: "第1章审稿" })]))
+    expect(screen.queryByText("第1章审稿")).not.toBeInTheDocument()
+    expect(screen.getByText("第9章审稿")).toBeInTheDocument()
+  })
+
+  it("旧项目的历史失败返回被丢弃，不清空新项目列表", async () => {
+    const stale = deferred<GenerationHistoryEntry[]>()
+    mocks.listGenerationHistory.mockReturnValueOnce(stale.promise)
+    const view = renderView()
+    await waitFor(() => expect(mocks.listGenerationHistory).toHaveBeenCalledTimes(1))
+
+    mocks.state.project = { path: "E:/Other" }
+    mocks.listGenerationHistory.mockResolvedValueOnce([makeHistoryEntry({ id: "new", title: "第9章审稿" })])
+    view.rerender(<ReviewView />)
+    await waitFor(() => expect(screen.getByText("第9章审稿")).toBeInTheDocument())
+
+    await act(async () => stale.reject(new Error("stale history boom")))
+    expect(screen.getByText("第9章审稿")).toBeInTheDocument()
+    expect(screen.getByText("novel.review.historyTitle")).toBeInTheDocument()
+  })
+})
+
+describe("ReviewView — 卸载后的迟到异步响应", () => {
+  it("情绪账本在卸载后拒绝 → 取消守卫跳过熔断状态计算", async () => {
+    const ledger = deferred<unknown>()
+    mocks.loadEmotionLedger.mockReturnValueOnce(ledger.promise)
+    const view = renderView()
+    view.unmount()
+
+    await act(async () => ledger.reject(new Error("late ledger")))
+    expect(mocks.loadEmotionLedger).toHaveBeenCalledTimes(1)
+    // 卸载后不重算熔断态（无 setState、无纯计算副作用）
+    expect(mocks.getCircuitBreakerStatus).not.toHaveBeenCalled()
+  })
+})
