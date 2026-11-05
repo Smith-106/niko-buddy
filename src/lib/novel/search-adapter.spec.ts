@@ -1545,3 +1545,158 @@ describe("coverage-100 增补：retrieveDualTrack 通道 A 硬注入 + trust 过
     expect(res.gaps.filter((g) => g.collection === "trust" && g.message.includes("trust_blocked"))).toHaveLength(0)
   })
 })
+
+describe("分支覆盖补齐 portals（20261105-ralph-coverage-100 / search-adapter）", () => {
+  it("keyword BM25 文本对缺 title 回退空串（150 行 title ?? 分支）", async () => {
+    mocks.searchWiki.mockResolvedValue([
+      { path: `${pp}/wiki/entities/缺题.md`, title: undefined, snippet: "剑的设定", score: 1.1 } as never,
+    ])
+    const results = await novelMixedSearch({ projectPath: pp, query: "剑" })
+    expect(results.length).toBeGreaterThan(0)
+    expect(results[0]!.path).toBe(`${pp}/wiki/entities/缺题.md`)
+    // title 缺失时 BM25 输入回退 ""，检索不崩且仍召回该条目
+    expect(results[0]!.snippet).toBe("剑的设定")
+  })
+
+  it("向量降级 BM25 对缺 title/snippet/score 均回退（177/187/188 行）", async () => {
+    mocks.useWikiStoreGetState.mockReturnValue({
+      embeddingConfig: { enabled: true, model: "bge" } as EmbeddingConfig,
+    })
+    mocks.searchByEmbedding.mockResolvedValue([])
+    mocks.searchWiki.mockResolvedValue([
+      { path: `${pp}/wiki/entities/全缺.md`, title: undefined, snippet: undefined, score: undefined } as never,
+    ])
+    const results = await novelMixedSearch({
+      projectPath: pp,
+      query: "全缺",
+      includeVector: true,
+      includeKeyword: false,
+      includeGraph: false,
+      includeRecentChapters: false,
+      includeCanon: false,
+    })
+    expect(results.length).toBeGreaterThan(0)
+    expect(results[0]!.type).toBe("keyword")
+    expect(results[0]!.snippet).toBe("")
+    // score 缺失回退 0，再经 RRF 融合为 1/61
+    expect(results[0]!.relevance).toBeCloseTo(1 / 61, 5)
+  })
+
+  it("recipe=local 仅靠 task 非空即建图（271-272 行 task 分支）", async () => {
+    mocks.searchWiki.mockResolvedValue([
+      keywordItem({ path: `${pp}/wiki/entities/1.md`, title: "远方宗门", snippet: "远方宗门秘辛", score: 0.9 }),
+      keywordItem({ path: `${pp}/wiki/entities/2.md`, title: "林晚秋", snippet: "林晚秋其人", score: 0.88 }),
+    ])
+    mocks.buildRetrievalGraph.mockReset()
+    mocks.buildRetrievalGraph.mockResolvedValue({
+      nodes: new Map([
+        ["陆青", { id: "陆青", title: "陆青", path: "", outLinks: new Set(["林晚秋"]), inLinks: new Set(), relationEdges: [] }],
+        ["林晚秋", { id: "林晚秋", title: "林晚秋", path: "", outLinks: new Set(), inLinks: new Set(["陆青"]), relationEdges: [] }],
+      ]),
+      dataVersion: 1,
+    })
+    const res = await novelMixedSearch({
+      projectPath: pp,
+      query: "test",
+      recipe: "local",
+      task: "寻找青锋剑的下落",
+      topK: 2,
+      includeVector: false,
+      includeGraph: false,
+      includeRecentChapters: false,
+      includeCanon: false,
+    })
+    expect(mocks.buildRetrievalGraph).toHaveBeenCalledWith(pp)
+    // task 与 mock 图节点无交集 → 距离排序保持原序（关键是 task 非空触发了建图分支）
+    expect(res.map((r) => r.title).sort()).toEqual(["林晚秋", "远方宗门"].sort())
+  })
+
+  it("trace 留痕对非数字 relevance 回退 0（357 行 typeof 守卫）", async () => {
+    mocks.searchWiki.mockResolvedValue([keywordItem()])
+    mocks.rerankCandidates.mockImplementationOnce(async (_query: string, candidates: unknown[]) => [
+      { ...(candidates[0] as Record<string, unknown>), relevance: "bad" },
+    ] as unknown[])
+    mocks.readFile.mockResolvedValue("")
+    const results = await novelMixedSearch({ projectPath: pp, query: "剑", traceChannel: "hybrid" })
+    expect(results.length).toBeGreaterThan(0)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    const [, content] = mocks.writeFileAtomic.mock.calls[0] as [string, string]
+    expect(content).toContain('"score":0')
+  })
+
+  it("canon 事实缺 id 时 ref/origin 双回退（680/682 行 ??）", async () => {
+    mocks.searchWiki.mockResolvedValue([keywordItem()])
+    mocks.getFactsKnownBy.mockResolvedValue([
+      { sourceId: "苏七", predicate: "持有", targetId: "青锋剑" },
+      { id: "f2", sourceId: "林晚", predicate: "位于", targetId: "青云门" },
+    ] as never)
+    mocks.visibleInfoFor.mockResolvedValue("")
+    const res = await retrieveDualTrack({ projectPath: pp, query: "剑", povCharacter: "苏七", chapterNumber: 1 })
+    expect(res.hardInject).toHaveLength(2)
+    expect(res.hardInject[0]).toMatchObject({
+      source: "canon",
+      ref: "canon:苏七:持有",
+      text: "苏七 持有 青锋剑",
+      origin: "canon-fact",
+    })
+    expect(res.hardInject[1]).toMatchObject({ ref: "canon:f2:位于", origin: "f2" })
+  })
+
+  it("trust 缺 grades 且无 intent 时 impactedIntents 回退 lookup（747 行 ??）", async () => {
+    mocks.searchWiki.mockResolvedValue([keywordItem()])
+    const res = await retrieveDualTrack({
+      projectPath: pp,
+      query: "剑",
+      chapterNumber: 1,
+      trustFilterEnabled: true,
+    })
+    const gap = res.gaps.find((g) => g.collection === "trust" && g.message.includes("trust_grades_missing"))
+    expect(gap).toBeTruthy()
+    expect(gap!.impactedIntents).toEqual(["lookup"])
+  })
+
+  it("hardInjectCapChars=0 时 ratio 回退 0（805 行三元）", async () => {
+    mocks.searchWiki.mockResolvedValue([keywordItem()])
+    mocks.getFactsKnownBy.mockResolvedValue([])
+    mocks.visibleInfoFor.mockResolvedValue("")
+    const res = await retrieveDualTrack({ projectPath: pp, query: "q", hardInjectCapChars: 0 })
+    expect(res.usage.capChars).toBe(0)
+    expect(res.usage.ratio).toBe(0)
+    expect(res.usage.hardInjectChars).toBe(0)
+  })
+
+  it("长多 token query 命中大量 KB 条目触发 referenceBudget 熔断（782 行 break）", async () => {
+    const strat = await import("./search-strategy")
+    const kbView = strat.kbRoutingView as { collections?: Record<string, Array<Record<string, unknown>>> }
+    const origCraft = kbView.collections?.["craft"]
+    const bigPurpose = "熔断".repeat(100) // 200 字，entryText 约 210 字，10 条即超 2048
+    const fakeCraft = Array.from({ length: 20 }, (_, i) => ({
+      collection: "craft",
+      name: `breaktest-${i}`,
+      title: `熔断测试标题-${i}`,
+      domain: ["breaktest"],
+      trust: "reference_only",
+      query_intent: ["draft"],
+      purpose: bigPurpose,
+    }))
+    try {
+      if (kbView.collections) kbView.collections["craft"] = fakeCraft
+      mocks.searchWiki.mockResolvedValue([keywordItem()])
+      mocks.getFactsKnownBy.mockResolvedValue([])
+      mocks.visibleInfoFor.mockResolvedValue("")
+      const res = await retrieveDualTrack({
+        projectPath: pp,
+        query: "breaktest 熔断测试",
+        intent: "draft",
+      })
+      expect(res.kbReferences!.length).toBeGreaterThan(0)
+      // 熔断生效：20 条候选不可能全装入 2048 预算
+      expect(res.kbReferences!.length).toBeLessThan(20)
+      const totalChars = res.kbReferences!.reduce((n, r) => n + r.title.length + (r.summary?.length ?? 0), 0)
+      expect(totalChars).toBeLessThanOrEqual(2048)
+    } finally {
+      if (kbView.collections && origCraft) kbView.collections["craft"] = origCraft
+    }
+  })
+})

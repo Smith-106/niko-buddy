@@ -1764,3 +1764,91 @@ describe("覆盖战役补齐：无签名思考块", () => {
     expect("thinking_blocks" in (assistantWithTools as unknown as Record<string, unknown>)).toBe(false)
   })
 })
+
+describe("runner 分支覆盖补齐：缺省/兜底无终稿/非 Error 抛错/空文本路径", () => {
+  it("缺省 maxRounds → 启用 DEFAULT_MAX_ROUNDS（|| 右侧）", async () => {
+    const sentMessages = scriptStream([{ text: "终稿正文" }])
+    const config = createConfig([], { taskGoal: "t" })
+    delete (config as Partial<AgentConfig>).maxRounds
+    const { record } = await runAgent(config, [], INITIAL_MESSAGES)
+    expect(record.finalText).toBe("终稿正文")
+    expect(record.roundsUsed).toBe(1)
+    expect(sentMessages).toHaveLength(1)
+  })
+
+  it("首轮 streamChat 抛非 Error → 包装为 Error 上报（414 else）", async () => {
+    mocks.streamChat.mockRejectedValueOnce("boom-string")
+    const { record, errors, doneCount } = await runAgent(createConfig([], { taskGoal: "t" }), [])
+    expect(record.roundsUsed).toBe(1)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(Error)
+    expect(errors[0].message).toBe("boom-string")
+    expect(doneCount()).toBe(0)
+  })
+
+  it("推理独占错误后重试又抛非 Error → 包装上报（445 else）", async () => {
+    let n = 0
+    mocks.streamChat.mockImplementation(async (_llm: unknown, _messages: unknown, cb: StreamCallbacks) => {
+      n += 1
+      if (n === 1) {
+        cb.onError?.(new Error("模型只输出了思考内容，没有输出正文"))
+        cb.onDone()
+        return
+      }
+      throw "retry-boom-string"
+    })
+    const { record, errors } = await runAgent(createConfig([], { taskGoal: "t" }), [])
+    expect(n).toBe(2)
+    expect(record.roundsUsed).toBe(1)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(Error)
+    expect(errors[0].message).toBe("retry-boom-string")
+  })
+
+  it("nudge 轮推理独占（roundText 空）→ assistant content 取 || 右侧空串", async () => {
+    const sentMessages: AgentMessage[][] = []
+    let n = 0
+    mocks.streamChat.mockImplementation(
+      async (_llm: unknown, messages: unknown, cb: StreamCallbacks) => {
+        sentMessages.push(JSON.parse(JSON.stringify(messages)) as AgentMessage[])
+        n += 1
+        if (n === 1) {
+          // 纯推理、无工具调用 → 触发 nudge，且 assistant 回填 content 为 ""
+          cb.onReasoningToken?.("reason-1")
+        } else if (n === 2) {
+          cb.onToolCallDelta?.(toolCallDelta(WORKFLOW_TOOL, { userRequest: "写第一章" }, "call_wf_1"))
+        } else {
+          cb.onToken?.("终稿正文")
+        }
+        cb.onFinishReason?.("stop")
+        cb.onDone()
+      },
+    )
+    const tool = createWorkflowTool()
+    const { record } = await runAgent(
+      createConfig([tool], { requiredToolsOnce: [WORKFLOW_TOOL], maxRounds: 4, taskGoal: "t" }),
+      [tool],
+    )
+    expect(record.finalText).toBe("终稿正文")
+    // 第 2 轮请求快照里含第 1 轮回填的 assistant 消息：content 为空串且带推理
+    const assistants = sentMessages[1].filter((m) => m.role === "assistant")
+    expect(assistants.some((m) => m.content === "")).toBe(true)
+    expect(nudgeInjected(sentMessages[1])).toBe(true)
+  })
+
+  it("空文本终稿 → 跳过 onText 直接 onDone（556 else）", async () => {
+    const sentMessages = scriptStream([{ text: "" }])
+    const recorder = createCallbacks()
+    const record = await new AgentRunner().run(
+      createConfig([], { taskGoal: "t" }),
+      createRegistry([]),
+      INITIAL_MESSAGES,
+      recorder.callbacks,
+    )
+    expect(sentMessages).toHaveLength(1)
+    expect(record.finalText).toBe("")
+    expect(recorder.texts).toEqual([])
+    expect(recorder.doneCount()).toBe(1)
+    expect(recorder.errors).toEqual([])
+  })
+})

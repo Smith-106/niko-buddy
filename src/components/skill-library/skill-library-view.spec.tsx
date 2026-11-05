@@ -803,6 +803,369 @@ describe("SkillLibraryView 覆盖补齐（去AI味详情/侧栏未覆盖行）",
     cleanup(root, container)
   })
 
+  it("join failure surfaces non-corrupt load error", async () => {
+    joinMock.mockRejectedValueOnce(new Error("path gone"))
+    const { container, root } = await renderView()
+
+    expect(container.textContent).toContain("技能库加载失败")
+    expect(container.querySelector('[data-testid="skill-restore-backup-button"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="skill-recreate-config-button"]')).not.toBeNull()
+
+    cleanup(root, container)
+  })
+
+  it("unmount during pending load skips the resolve path", async () => {
+    let resolveLoad!: (value: string) => void
+    readFileMock.mockImplementationOnce(() => new Promise<string>((resolve) => {
+      resolveLoad = resolve
+    }))
+    const { container, root } = await renderView()
+    cleanup(root, container)
+    resolveLoad(JSON.stringify({ version: 1, projectSkills: [] }))
+    await flushEffects()
+
+    expect(document.body.contains(container)).toBe(false)
+    expect(useWikiStore.getState().selectedSkillLibrarySkillId).toBeNull()
+    expect(savedConfigContent).toBe("")
+  })
+
+  it("unmount during pending load skips the reject path", async () => {
+    let resolveLoad!: (value: string) => void
+    readFileMock.mockImplementationOnce(() => new Promise<string>((resolve) => {
+      resolveLoad = resolve
+    }))
+    const { container, root } = await renderView()
+    cleanup(root, container)
+    // 损坏内容使 loadDeAiSkillConfig 拒因（非普通读失败不会拒因，只会回退默认配置）
+    resolveLoad("{bad json")
+    await flushEffects()
+
+    expect(document.body.contains(container)).toBe(false)
+    expect(useWikiStore.getState().selectedSkillLibrarySkillId).toBeNull()
+    expect(savedConfigContent).toBe("")
+  })
+
+  it("cancelling a dirty create keeps the draft", async () => {
+    const { container, root } = await renderLibrary()
+    const nameInput = container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')
+    expect(nameInput).not.toBeNull()
+
+    await setInputValue(nameInput!, "未保存的技能草稿")
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
+    const createButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.trim() === "新建技能")
+
+    await dispatchClick(createButton ?? null)
+
+    expect(savedConfigContent).toBe("")
+    expect(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')?.value).toBe("未保存的技能草稿")
+    expect(useWikiStore.getState().skillLibraryDraftDirty).toBe(true)
+
+    confirmSpy.mockRestore()
+    cleanup(root, container)
+  })
+
+  it("confirming a dirty create clears the draft and adds a skill", async () => {
+    const { container, root } = await renderLibrary()
+    const nameInput = container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')
+    expect(nameInput).not.toBeNull()
+
+    await setInputValue(nameInput!, "未保存的技能草稿")
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
+    const createButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.trim() === "新建技能")
+
+    await dispatchClick(createButton ?? null)
+
+    const saved = JSON.parse(savedConfigContent)
+    expect(saved.projectSkills).toHaveLength(1)
+    expect(useWikiStore.getState().skillLibraryDraftDirty).toBe(false)
+
+    confirmSpy.mockRestore()
+    cleanup(root, container)
+  })
+
+  it("confirming a dirty toggle persists and clears the draft", async () => {
+    const { container, root } = await renderLibrary()
+    const nameInput = container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')
+    expect(nameInput).not.toBeNull()
+
+    await setInputValue(nameInput!, "未保存的技能草稿")
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
+
+    await act(async () => {
+      container.querySelector<HTMLInputElement>('[data-skill-id="built-in:comprehensive"] input[type="checkbox"]')?.click()
+    })
+    await flushEffects()
+
+    const saved = JSON.parse(savedConfigContent)
+    expect(saved.disabledSkillIds).toEqual(["built-in:comprehensive"])
+    expect(useWikiStore.getState().skillLibraryDraftDirty).toBe(false)
+
+    confirmSpy.mockRestore()
+    cleanup(root, container)
+  })
+
+  it("toggles a skill while nothing is selected via the default fallback", async () => {
+    const { container, root } = await renderLibrary()
+    useWikiStore.getState().setSelectedSkillLibrarySkillId(null)
+    await flushEffects()
+
+    await act(async () => {
+      container.querySelector<HTMLInputElement>('[data-skill-id="built-in:reduce-explanation"] input[type="checkbox"]')?.click()
+    })
+    await flushEffects()
+
+    const saved = JSON.parse(savedConfigContent)
+    expect(saved.disabledSkillIds).toEqual(["built-in:reduce-explanation"])
+    expect(useWikiStore.getState().selectedSkillLibrarySkillId).toBe(saved.defaultSkillId)
+
+    cleanup(root, container)
+  })
+
+  it("saves while nothing is selected via the empty-selection fallback", async () => {
+    const { container, root } = await renderLibrary()
+    useWikiStore.getState().setSelectedSkillLibrarySkillId(null)
+    await flushEffects()
+
+    const nameInput = container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')
+    expect(nameInput).not.toBeNull()
+    await setInputValue(nameInput!, "综合去AI味-空选中保存")
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="skill-save-button"]')?.click()
+    })
+    await flushEffects()
+
+    const saved = JSON.parse(savedConfigContent)
+    expect(saved.builtInSkillOverrides[0]).toMatchObject({ name: "综合去AI味-空选中保存" })
+    // persist 曾以空选中回退（""）调用 setSelectedSkillId，随后的 dataVersion 重载按默认回正选中
+    expect(useWikiStore.getState().selectedSkillLibrarySkillId).toBe(saved.defaultSkillId)
+
+    cleanup(root, container)
+  })
+
+  it("cancelling a dirty set-default keeps the default", async () => {
+    const { container, root } = await renderLibrary()
+    await act(async () => {
+      container.querySelector<HTMLElement>('[data-skill-id="built-in:reduce-explanation"]')
+        ?.querySelector<HTMLButtonElement>("button")?.click()
+    })
+    await flushEffects()
+    await setInputValue(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')!, "脏草稿")
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="skill-default-button"]')?.click()
+    })
+    await flushEffects()
+
+    expect(confirmSpy).toHaveBeenCalledWith("当前技能还有未保存修改，确定放弃修改吗？")
+    expect(savedConfigContent).toBe("")
+    expect(useWikiStore.getState().skillLibraryDraftDirty).toBe(true)
+
+    confirmSpy.mockRestore()
+    cleanup(root, container)
+  })
+
+  it("confirming a dirty set-default persists and clears the draft", async () => {
+    const { container, root } = await renderLibrary()
+    await act(async () => {
+      container.querySelector<HTMLElement>('[data-skill-id="built-in:reduce-explanation"]')
+        ?.querySelector<HTMLButtonElement>("button")?.click()
+    })
+    await flushEffects()
+    await setInputValue(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')!, "脏草稿")
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="skill-default-button"]')?.click()
+    })
+    await flushEffects()
+
+    const saved = JSON.parse(savedConfigContent)
+    expect(saved.defaultSkillId).toBe("built-in:reduce-explanation")
+    expect(useWikiStore.getState().skillLibraryDraftDirty).toBe(false)
+
+    confirmSpy.mockRestore()
+    cleanup(root, container)
+  })
+
+  it("cancelling a dirty delete keeps the project skill", async () => {
+    savedConfigContent = JSON.stringify({
+      version: 1,
+      defaultSkillId: "project:custom",
+      disabledSkillIds: [],
+      projectSkills: [{
+        id: "project:custom",
+        name: "项目技能",
+        description: "待删除",
+        templateId: "custom",
+        content: "项目规则",
+        source: "project",
+        createdAt: 100,
+        updatedAt: 100,
+      }],
+      builtInSkillOverrides: [],
+    })
+    const { container, root } = await renderLibrary()
+    await setInputValue(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')!, "脏草稿")
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="skill-delete-button"]')?.click()
+    })
+    await flushEffects()
+
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+    expect(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')?.value).toBe("脏草稿")
+
+    confirmSpy.mockRestore()
+    cleanup(root, container)
+  })
+
+  it("confirming a dirty delete removes the project skill and clears the draft", async () => {
+    savedConfigContent = JSON.stringify({
+      version: 1,
+      defaultSkillId: "project:custom",
+      disabledSkillIds: [],
+      projectSkills: [{
+        id: "project:custom",
+        name: "项目技能",
+        description: "待删除",
+        templateId: "custom",
+        content: "项目规则",
+        source: "project",
+        createdAt: 100,
+        updatedAt: 100,
+      }],
+      builtInSkillOverrides: [],
+    })
+    const { container, root } = await renderLibrary()
+    await setInputValue(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')!, "脏草稿")
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="skill-delete-button"]')?.click()
+    })
+    await flushEffects()
+
+    const saved = JSON.parse(savedConfigContent)
+    expect(saved.projectSkills).toEqual([])
+    expect(useWikiStore.getState().skillLibraryDraftDirty).toBe(false)
+
+    confirmSpy.mockRestore()
+    cleanup(root, container)
+  })
+
+  it("cancelling a dirty built-in reset keeps the override", async () => {
+    const { container, root } = await renderView()
+    await setInputValue(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')!, "项目版")
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="skill-save-button"]')?.click()
+    })
+    await flushEffects()
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="skill-reset-default-button"]')?.disabled).toBe(false)
+
+    await setInputValue(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')!, "脏草稿")
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="skill-reset-default-button"]')?.click()
+    })
+    await flushEffects()
+
+    const saved = JSON.parse(savedConfigContent)
+    expect(saved.builtInSkillOverrides).toHaveLength(1)
+    expect(useWikiStore.getState().skillLibraryDraftDirty).toBe(true)
+
+    confirmSpy.mockRestore()
+    cleanup(root, container)
+  })
+
+  it("confirming the discard but cancelling the reset keeps the override and clears the draft", async () => {
+    const { container, root } = await renderView()
+    await setInputValue(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')!, "项目版")
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="skill-save-button"]')?.click()
+    })
+    await flushEffects()
+
+    await setInputValue(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')!, "脏草稿")
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(true).mockReturnValue(false)
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="skill-reset-default-button"]')?.click()
+    })
+    await flushEffects()
+
+    expect(confirmSpy).toHaveBeenCalledTimes(2)
+    const saved = JSON.parse(savedConfigContent)
+    expect(saved.builtInSkillOverrides).toHaveLength(1)
+    expect(useWikiStore.getState().skillLibraryDraftDirty).toBe(false)
+
+    confirmSpy.mockRestore()
+    cleanup(root, container)
+  })
+
+  it("cancelling the recreate confirm keeps the corrupt config", async () => {
+    readFileMock.mockResolvedValueOnce("{bad json")
+    const { container, root } = await renderView()
+    expect(container.textContent).toContain("技能库配置文件损坏")
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="skill-recreate-config-button"]')?.click()
+    })
+    await flushEffects()
+
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+    expect(container.textContent).toContain("技能库配置文件损坏")
+
+    confirmSpy.mockRestore()
+    cleanup(root, container)
+  })
+
+  it("ignores non-save shortcuts", async () => {
+    const { container, root } = await renderView()
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ctrlKey: true, key: "a" }))
+    })
+    await flushEffects()
+
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+    expect(writeFileMock).not.toHaveBeenCalled()
+
+    cleanup(root, container)
+  })
+
+  it("ignores Ctrl+S when there is nothing to save", async () => {
+    const { container, root } = await renderView()
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ctrlKey: true, key: "s" }))
+    })
+    await flushEffects()
+
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+    expect(writeFileMock).not.toHaveBeenCalled()
+
+    cleanup(root, container)
+  })
+
+  it("saves the skill with Cmd+S when the draft changed", async () => {
+    const { container, root } = await renderView()
+    const nameInput = container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')
+    expect(nameInput).not.toBeNull()
+
+    await setInputValue(nameInput!, "综合去AI味-Meta保存")
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, metaKey: true, key: "s" }))
+    })
+    await flushEffects()
+
+    const saved = JSON.parse(savedConfigContent)
+    expect(saved.builtInSkillOverrides[0]).toMatchObject({ name: "综合去AI味-Meta保存" })
+
+    cleanup(root, container)
+  })
+
   it("null-project detail editor stays read-only after config reload (disabled persistence UX)", async () => {
     // persist 内部的 !project 守卫（268-269）在 UI 上不可达：全部调用方或前置检查 project、
     // 或位于 disabled={!project} 按钮之后（React 19 对禁用按钮连合成 click 也不派发 onClick，

@@ -300,3 +300,157 @@ describe("⑤无副作用 + 永不误报的面", () => {
     expect(expected.every((e) => !("projectId" in e))).toBe(true)
   })
 })
+
+describe("⑥分支补齐：空名/空关系/脏描述的防御分支", () => {
+  it("整段描述原样等于整行时直接判覆盖（noteNorm === haystack 早退）", () => {
+    const result = auditAssetLinkage({
+      characters: [{ ...STUB, characterName: "张三", relationships: { 李四: "张三李四决裂" } }],
+      relationshipArtifact: null,
+      snapshotRelationLines: [{ chapterNumber: 1, text: "张三李四决裂" }],
+    })
+    // note 与整行完全一致 → 覆盖，不报缺口
+    expect(result.conflicts.filter((c) => c.code === "snapshot_relation_not_in_state")).toHaveLength(0)
+  })
+
+  it("空白快照行记 undecidable（空行不是关系事实）", () => {
+    const result = auditAssetLinkage({
+      characters: PEOPLE,
+      relationshipArtifact: null,
+      snapshotRelationLines: [{ chapterNumber: 2, text: "   " }],
+    })
+    expect(result.conflicts.filter((c) => c.code === "snapshot_relation_not_in_state")).toHaveLength(0)
+    expect(result.na.some((line) => line.includes("无法判定"))).toBe(true)
+  })
+
+  it("characterName 缺失（null/undefined）与 relationships 缺失的角色被跳过", () => {
+    const result = auditAssetLinkage({
+      characters: [
+        { ...STUB, characterName: null as never, relationships: {} },
+        { ...STUB, characterName: undefined as never, relationships: { 李四: "盟友共守北门" } },
+        ...PEOPLE,
+      ],
+      relationshipArtifact: null,
+      // 空快照行不驱动 judgeCoverage：给一行真实行，空名角色才走到防御分支
+      snapshotRelationLines: [COVERING_LINE],
+    })
+    // 空名角色不产生边、不抛错；派生边条数与有效角色一致
+    const expected = deriveRelationshipEntries({ characters: PEOPLE })
+    expect(result.derivedEdgeCount).toBe(expected.length)
+    expect(result.conflicts.filter((c) => c.code === "snapshot_relation_not_in_state")).toHaveLength(0)
+  })
+
+  it("relationships 为 null 的角色按空表处理", () => {
+    const result = auditAssetLinkage({
+      characters: [{ ...STUB, characterName: "甲", relationships: null as never }],
+      relationshipArtifact: null,
+      snapshotRelationLines: [COVERING_LINE],
+    })
+    // 空关系表覆盖不了快照行 → 报缺口（不断言崩溃，只断言缺口语义）
+    expect(result.conflicts.some((c) => c.code === "snapshot_relation_not_in_state")).toBe(true)
+  })
+
+  it("空白对端键与空/非字符串描述被跳过（不计决定性描述）", () => {
+    const result = auditAssetLinkage({
+      characters: [
+        {
+          ...STUB,
+          characterName: "张三",
+          relationships: {
+            "   ": "很长的关系描述文字内容",
+            李四: 42 as never,
+            王五: "",
+          },
+        },
+      ],
+      relationshipArtifact: null,
+      snapshotRelationLines: [{ chapterNumber: 3, text: "张三与李四决裂，王五旁观不语" }],
+    })
+    // 三条脏条目全被跳过 → 无决定性描述 → 判没回填
+    const hits = result.conflicts.filter((c) => c.code === "snapshot_relation_not_in_state")
+    expect(hits).toHaveLength(1)
+    expect(hits[0]!.left).toBe("第 3 章")
+  })
+})
+
+describe("⑥分支补齐：产物条数不一致与无箭头图谱键", () => {
+  it("产物条数也不同时漂移文案走「条数也不同」分支", () => {
+    const stale = artifactFor(PEOPLE)
+    const grown: Person[] = [
+      ...PEOPLE,
+      { ...STUB, characterName: "丙", relationships: { 甲: "旧识多年重逢" } },
+    ]
+    const result = auditAssetLinkage({
+      characters: grown,
+      relationshipArtifact: stale,
+      snapshotRelationLines: [],
+    })
+    const drift = result.conflicts.filter((c) => c.code === "relationship_edge_drift")
+    expect(drift).toHaveLength(1)
+    expect(drift[0]!.detail).toContain("条数也不同")
+    expect(drift[0]!.detail).not.toContain("内容字段不同")
+  })
+
+  it("图谱两面键集一致时两类边冲突都不出现", () => {
+    const result = auditAssetLinkage({
+      characters: PEOPLE,
+      relationshipArtifact: null,
+      snapshotRelationLines: [],
+      graphEdgeKeys: ["甲->乙"],
+      snapshotGraphEdgeKeys: ["甲->乙"],
+    })
+    expect(result.conflicts.some((c) => c.code.startsWith("graph_edge"))).toBe(false)
+    expect(result.na.some((line) => line.includes("图谱边"))).toBe(false)
+  })
+
+  it("恰好一个 -> 的图谱键按 from/to 拆段对账（缺/多两侧）", () => {
+    const arrowMissing = auditAssetLinkage({
+      characters: PEOPLE,
+      relationshipArtifact: null,
+      snapshotRelationLines: [],
+      graphEdgeKeys: ["甲->乙"],
+      snapshotGraphEdgeKeys: ["甲->乙", "丙->丁"],
+    })
+    const arrowMiss = arrowMissing.conflicts.filter((c) => c.code === "graph_edge_missing")
+    expect(arrowMiss).toHaveLength(1)
+    expect(arrowMiss[0]!.left).toBe("丙")
+    expect(arrowMiss[0]!.right).toBe("丁")
+
+    const arrowUnbacked = auditAssetLinkage({
+      characters: PEOPLE,
+      relationshipArtifact: null,
+      snapshotRelationLines: [],
+      graphEdgeKeys: ["甲->乙", "戊->己"],
+      snapshotGraphEdgeKeys: ["甲->乙"],
+    })
+    const arrowUn = arrowUnbacked.conflicts.filter((c) => c.code === "graph_edge_unbacked")
+    expect(arrowUn).toHaveLength(1)
+    expect(arrowUn[0]!.left).toBe("戊")
+    expect(arrowUn[0]!.right).toBe("己")
+  })
+
+  it("不带 -> 的图谱键按整键原样对账（缺/多两侧）", () => {
+    const missing = auditAssetLinkage({
+      characters: PEOPLE,
+      relationshipArtifact: null,
+      snapshotRelationLines: [],
+      graphEdgeKeys: [],
+      snapshotGraphEdgeKeys: ["lonely-key"],
+    })
+    const missHits = missing.conflicts.filter((c) => c.code === "graph_edge_missing")
+    expect(missHits).toHaveLength(1)
+    expect(missHits[0]!.left).toBe("lonely-key")
+    expect(missHits[0]!.right).toBe("lonely-key")
+
+    const unbacked = auditAssetLinkage({
+      characters: PEOPLE,
+      relationshipArtifact: null,
+      snapshotRelationLines: [],
+      graphEdgeKeys: ["solo-key"],
+      snapshotGraphEdgeKeys: [],
+    })
+    const unbackedHits = unbacked.conflicts.filter((c) => c.code === "graph_edge_unbacked")
+    expect(unbackedHits).toHaveLength(1)
+    expect(unbackedHits[0]!.left).toBe("solo-key")
+    expect(unbackedHits[0]!.right).toBe("solo-key")
+  })
+})

@@ -361,3 +361,73 @@ describe("outline-model-parse 覆盖增补：frontmatter 对象分支（依赖�
     expect(res.warnings).toEqual([])
   })
 })
+
+describe("outline-model-parse 分支覆盖补齐（R-26：分支 miss 清零）", () => {
+  it("伏笔小节：无 ID 行走 ?? []、有 ID 无埋收关键词行走 target null", () => {
+    const res = parseOutlineMarkdownToModel(
+      ["# 第1卷", "## 第1章 开篇", "### 伏笔", "本章埋了个钩子", "伏笔 AB-12 已经出现", ""].join(
+        "\n",
+      ),
+      { updatedAt: UPDATED_AT },
+    )
+    const ch = res.model.volumes[0]!.chapters[0]!
+    // 第一行无编号 → match 回 null 走 ?? []，target 落 plant 但无 ID 可记；
+    // 第二行有 ID 但既无埋/plant 也无收/payoff → target null，不污染双向。
+    expect(ch.foreshadow).toEqual({ plant: [], payoff: [] })
+  })
+
+  it("英文章标题 heading（Chapter N）走 [1] ?? [2] 右侧", () => {
+    const res = parseOutlineMarkdownToModel("# Chapter 5: Title\n", { updatedAt: UPDATED_AT })
+    const ch = res.model.volumes[0]!.chapters[0]!
+    expect(ch.chapter).toBe(5)
+    expect(ch.title).toBe("Title")
+  })
+
+  it("裸文本英文章标题（Chapter N）走 [1] ?? [2] 右侧", () => {
+    const res = parseOutlineMarkdownToModel("Chapter 5 Title\n## 第1章 开篇\n", {
+      updatedAt: UPDATED_AT,
+    })
+    expect(res.model.volumes[0]!.chapters.map((c) => c.chapter)).toEqual([5, 1])
+  })
+
+  it("裸文本卷形态「卷3」走 [1] ?? [2] 右侧", () => {
+    const res = parseOutlineMarkdownToModel("卷3 冒险\n## 第1章 开篇\n", { updatedAt: UPDATED_AT })
+    expect(res.model.volumes[0]!.number).toBe(3)
+    expect(res.model.volumes[0]!.title).toBe("冒险")
+  })
+
+  it("裸文本卷形态「Volume 3」走 [2] ?? [3] 右侧", () => {
+    const res = parseOutlineMarkdownToModel("Volume 3 Adventure\n## 第1章 开篇\n", {
+      updatedAt: UPDATED_AT,
+    })
+    expect(res.model.volumes[0]!.number).toBe(3)
+    expect(res.model.volumes[0]!.title).toBe("Adventure")
+  })
+
+  it("卷标题续行 strip 后为空 → 回退原文（|| trimmed 右侧）", () => {
+    const res = parseOutlineMarkdownToModel("# 第1卷\n** **\n", { updatedAt: UPDATED_AT })
+    expect(res.model.volumes[0]!.title).toBe("** **")
+  })
+
+  it("frontmatter volumes 含 null 项 → 空对象卷（?? {} + 非数组 chapters）", () => {
+    frontmatterObjectStub.model = { volumes: [null] }
+    const res = parseOutlineMarkdownToModel("任意正文\n", { updatedAt: UPDATED_AT })
+    expect(res.source).toBe("frontmatter")
+    expect(res.model.volumes).toHaveLength(1)
+    expect(res.model.volumes[0]!.number).toBe(1)
+    expect(res.model.volumes[0]!.title).toBe("第1卷")
+    expect(res.model.volumes[0]!.chapters).toEqual([])
+    expect(res.warnings).toEqual([])
+  })
+
+  it("frontmatter chapters 含 null 项 → 空对象章（?? {}）", () => {
+    frontmatterObjectStub.model = { volumes: [{ number: 2, chapters: [null] }] }
+    const res = parseOutlineMarkdownToModel("任意正文\n", { updatedAt: UPDATED_AT })
+    expect(res.source).toBe("frontmatter")
+    const ch = res.model.volumes[0]!.chapters[0]!
+    expect(ch.chapter).toBe(1)
+    expect(ch.title).toBe("")
+    expect(ch.updatedAt).toBe(UPDATED_AT)
+    expect(ch.foreshadow).toEqual({ plant: [], payoff: [] })
+  })
+})

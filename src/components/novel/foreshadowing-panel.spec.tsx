@@ -198,6 +198,26 @@ describe("ForeshadowingPanel", () => {
     expect(screen.queryByText("陈旧伏笔")).not.toBeInTheDocument()
   })
 
+  it("甘特 helpers：缺 advancedChapters/NaN 章节的防御回退", async () => {
+    const { getForeshadowingGanttWindow, getForeshadowingGanttBar } = await import("./foreshadowing-panel")
+    const sparse = {
+      id: "fx", name: "残缺", description: "", status: "planted",
+      plantedChapter: 2, relatedCharacters: [], relatedEvents: [], notes: "",
+    } as unknown as import("@/lib/novel").Foreshadowing
+    // advancedChapters 缺省 → ?? [] 右侧，窗口正常收敛
+    expect(getForeshadowingGanttWindow([sparse], 5)).toEqual({ min: 2, max: 5 })
+    // 损坏章节号 NaN → {1,1} 回退（Number.isFinite 守卫）
+    const nanItem = { ...sparse, plantedChapter: NaN }
+    expect(getForeshadowingGanttWindow([nanItem], 5)).toEqual({ min: 1, max: 1 })
+    // advanced 但推进记录字段缺失 → ?? [] 右侧 → last=undefined → normal（不标超期）
+    const { advancedChapters: _omit, ...advNoField } = { ...sparse, id: "fa", status: "advanced" as const, advancedChapters: [] as number[] }
+    expect(getForeshadowingGanttBar(advNoField as unknown as import("@/lib/novel").Foreshadowing, 20)).toEqual({ start: 2, end: 20, level: "normal" })
+    expect(_omit).toEqual([])
+    // advanced 上次推进超 10 章 → warning
+    const advStale = { ...sparse, id: "fw", status: "advanced" as const, advancedChapters: [3] }
+    expect(getForeshadowingGanttBar(advStale, 20)).toEqual({ start: 2, end: 20, level: "warning" })
+  })
+
   it("甘特 helpers：窗口/超期判定与默认 store 数据一致", async () => {
     const { getForeshadowingGanttWindow, getForeshadowingGanttBar } = await import("./foreshadowing-panel")
     const items = makeStore().items
@@ -220,6 +240,126 @@ describe("ForeshadowingPanel", () => {
     // f2 推进刻度：第 6 章圆点
     expect(screen.getByText("2→12")).toBeInTheDocument()
     expect(screen.getByText("1→12")).toBeInTheDocument()
+  })
+
+  it("稀疏条目（缺 advancedChapters）仍渲染且甘特行正常", async () => {
+    const sparse = {
+      id: "fx", name: "残缺伏笔", description: "", status: "planted",
+      plantedChapter: 2, relatedCharacters: [], relatedEvents: [], notes: "",
+    }
+    tracker.loadForeshadowingTracker.mockResolvedValue(
+      makeStore({ items: [sparse as unknown as import("@/lib/novel").Foreshadowing] }),
+    )
+    render(<ForeshadowingPanel />)
+    expect(await screen.findByText("残缺伏笔")).toBeInTheDocument()
+    // 缺 advancedChapters：touchesRange ?? 右侧 + 甘特刻度 ?? 右侧
+    expect(screen.getByTestId("foreshadowing-gantt-row-fx")).toBeInTheDocument()
+  })
+
+  it("同章双伏笔共用一组 plantedAt（groupByChapter bucket 命中）", async () => {
+    tracker.loadForeshadowingTracker.mockResolvedValue(makeStore({
+      items: [
+        { id: "fa", name: "甲伏笔", description: "", status: "planted", plantedChapter: 2, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+        { id: "fb", name: "乙伏笔", description: "", status: "planted", plantedChapter: 2, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+      ],
+    }))
+    render(<ForeshadowingPanel />)
+    expect(await screen.findByText("甲伏笔")).toBeInTheDocument()
+    expect(screen.getByText("乙伏笔")).toBeInTheDocument()
+    // 同章只渲染一个 plantedAt 分组头
+    expect(screen.getAllByText(/novel.foreshadowing.plantedAt/)).toHaveLength(1)
+  })
+
+  it("缺字段条目在范围外时仍求值 touchesRange（?? 右侧），仅被滤掉", async () => {
+    const sparse = {
+      id: "fx", name: "残缺伏笔", description: "", status: "planted",
+      plantedChapter: 2, relatedCharacters: [], relatedEvents: [], notes: "",
+    }
+    tracker.loadForeshadowingTracker.mockResolvedValue(
+      makeStore({ items: [sparse as unknown as import("@/lib/novel").Foreshadowing] }),
+    )
+    render(<ForeshadowingPanel />)
+    await screen.findByText("残缺伏笔")
+    // 收窄范围排除第 2 章：planted/resolved 均失配 → advanced ?? [] 求值后滤掉
+    fireEvent.change(screen.getByPlaceholderText("1"), { target: { value: "100" } })
+    await waitFor(() => expect(screen.queryByText("残缺伏笔")).not.toBeInTheDocument())
+  })
+
+  it("超期 warning 行渲染 warning 色并标 data-overdue", async () => {
+    tracker.loadForeshadowingTracker.mockResolvedValue(makeStore({
+      items: [
+        { id: "fw", name: "陈旧推进", description: "", status: "advanced", plantedChapter: 1, advancedChapters: [1], relatedCharacters: [], relatedEvents: [], notes: "" },
+        { id: "fn", name: "新线", description: "", status: "planted", plantedChapter: 15, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+      ],
+    }))
+    render(<ForeshadowingPanel />)
+    const row = await screen.findByTestId("foreshadowing-gantt-row-fw")
+    expect(row.getAttribute("data-overdue")).toBe("warning")
+    expect(row.innerHTML).toContain("bg-warning/80")
+  })
+
+  it("超 60 条截断并提示剩余条数", async () => {
+    const items = Array.from({ length: 61 }, (_, i) => ({
+      id: `f${i}`, name: `伏笔${i}`, description: "", status: "planted",
+      plantedChapter: i + 1, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "",
+    }))
+    tracker.loadForeshadowingTracker.mockResolvedValue(
+      makeStore({ items: items as unknown as import("@/lib/novel").Foreshadowing[] }),
+    )
+    render(<ForeshadowingPanel />)
+    expect(await screen.findByText(/还有1条/)).toBeInTheDocument()
+  })
+
+  it("未解决缺 plantedChapter 的分组走 ? 桶（按钮守卫 else 面）", async () => {
+    // 损坏数据：埋设章节缺失但有推进记录 → touchesRange 经 advanced 命中可见，
+    // 分组键回退 "?"（与未知 status 回退同属 store 无类型约束的防御面）。
+    const noChapter = {
+      id: "fq", name: "无章伏笔", description: "", status: "planted",
+      advancedChapters: [3], relatedCharacters: [], relatedEvents: [], notes: "",
+    }
+    tracker.loadForeshadowingTracker.mockResolvedValue(
+      makeStore({ items: [noChapter as unknown as import("@/lib/novel").Foreshadowing] }),
+    )
+    render(<ForeshadowingPanel />)
+    // 章节按钮标题回退 "?"，条目照常渲染不崩溃
+    expect(await screen.findByText(/novel.foreshadowing.plantedAt.*"\?"/)).toBeInTheDocument()
+    expect(screen.getAllByText(/无章伏笔/).length).toBeGreaterThan(0)
+    // 点击 "?" 分组按钮：守卫 else 面（不断言跳转，只断言不崩溃不跳转）
+    const utils = await import("@/lib/novel/chapter-utils")
+    const spy = vi.spyOn(utils, "findChapterFileByNumber")
+    try {
+      fireEvent.click(screen.getByText(/novel.foreshadowing.plantedAt.*"\?"/))
+      await waitFor(() => expect(screen.getAllByText(/无章伏笔/).length).toBeGreaterThan(0))
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it("已解决缺 resolvedChapter 的分组排序兜底（两序各渲染一次）", async () => {
+    const noResolved = { ...makeStore().items[2], id: "fr1", resolvedChapter: undefined }
+    const ch5 = { ...makeStore().items[2], id: "fr2", name: "五章回收", resolvedChapter: 5 }
+    tracker.loadForeshadowingTracker.mockResolvedValue(makeStore({ items: [noResolved, ch5] }))
+    const { unmount } = render(<ForeshadowingPanel />)
+    await screen.findByText("novel.foreshadowing.title")
+    expect(screen.getByText("五章回收")).toBeInTheDocument()
+    unmount()
+    cleanup()
+    tracker.loadForeshadowingTracker.mockResolvedValue(makeStore({ items: [ch5, noResolved] }))
+    render(<ForeshadowingPanel />)
+    await screen.findByText("novel.foreshadowing.title")
+    expect(screen.getByText("五章回收")).toBeInTheDocument()
+    expect(screen.getByText(/novel.foreshadowing.resolvedAt.*"\?"/)).toBeInTheDocument()
+    // 点击 "?" 回收分组按钮：守卫 else 面（不跳转不崩溃）
+    const utils = await import("@/lib/novel/chapter-utils")
+    const spy = vi.spyOn(utils, "findChapterFileByNumber")
+    try {
+      fireEvent.click(screen.getByText(/novel.foreshadowing.resolvedAt.*"\?"/))
+      await waitFor(() => expect(screen.getByText("五章回收")).toBeInTheDocument())
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it("Q14-C 关联角色徒标：有 relatedCharacters 时渲染，空数组不渲染", async () => {

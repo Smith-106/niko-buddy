@@ -252,3 +252,100 @@ describe("ModuleHeatmapView", () => {
     expect(mocks.readFile).not.toHaveBeenCalled()
   })
 })
+
+describe("ModuleHeatmapView 分支覆盖补齐", () => {
+  const heatStore = () => useModuleHeatStore.getState()
+
+  it("未知路径命中不崩：stageOf miss 与 activeLanes 跳过未知", () => {
+    heatStore().install()
+    recordModuleHit({ path: "src/unknown/fake-module.ts", at: Date.now(), ok: true })
+    render(<ModuleHeatmapView />)
+    expect(screen.getByTestId("module-heatmap-view")).toBeTruthy()
+    // 未知路径仍进会话日志（label 回退 basename），但不点亮任何泳道
+    expect(screen.getByTestId("heatmap-session-log").textContent).toContain("fake-module")
+    expect(screen.getByTestId("heatmap-lane-draft").getAttribute("data-active")).toBe("false")
+  })
+
+  it("跨泳道命中：prev 链与分步计数同时覆盖", () => {
+    heatStore().install()
+    recordModuleHit({ path: "src/lib/novel/campaign-runner.ts", at: Date.now() - 1000, ok: true })
+    recordModuleHit({ path: "src/lib/novel/chapter-pipeline.ts", at: Date.now(), ok: true })
+    render(<ModuleHeatmapView />)
+    // 最新命中在 plan（draft 为上一步），两条泳道都进入当前路径
+    expect(screen.getByTestId("heatmap-now")).toBeTruthy()
+    expect(screen.getByTestId("heatmap-flow-plan").getAttribute("data-flowing")).toBe("true")
+    expect(screen.getByTestId("heatmap-lane-plan").getAttribute("data-active")).toBe("true")
+    expect(screen.getByTestId("heatmap-lane-draft").getAttribute("data-active")).toBe("true")
+  })
+
+  it("全部未知命中时不渲染 nowStep", () => {
+    heatStore().install()
+    recordModuleHit({ path: "src/unknown/a.ts", at: Date.now() - 1000, ok: true })
+    recordModuleHit({ path: "src/unknown/b.ts", at: Date.now(), ok: true })
+    render(<ModuleHeatmapView />)
+    expect(screen.queryByTestId("heatmap-now")).toBeNull()
+    const logText = screen.getByTestId("heatmap-session-log").textContent ?? ""
+    expect(logText).toContain("✓")
+    expect(logText).toMatch(/[ab]/)
+  })
+
+  it("60 秒前命中不计入当前路径", () => {
+    heatStore().install()
+    recordModuleHit({ path: "src/lib/novel/campaign-runner.ts", at: Date.now() - 120_000, ok: true })
+    render(<ModuleHeatmapView />)
+    expect(screen.getByTestId("heatmap-lane-draft").getAttribute("data-active")).toBe("false")
+    expect(screen.getByTestId("heatmap-flow-plan").getAttribute("data-flowing")).toBe("false")
+    // 旧命中仍在日志里（只是不算当前路径）
+    expect(screen.getByTestId("heatmap-session-log").textContent).toContain("campaign-runner")
+  })
+
+  it("出错命中显示错误红点与失败符号", () => {
+    heatStore().install()
+    recordModuleHit({ path: "src/lib/novel/campaign-runner.ts", at: Date.now(), ok: false, ms: 5, detail: "boom" })
+    render(<ModuleHeatmapView />)
+    const log = screen.getByTestId("heatmap-session-log")
+    expect(log.textContent).toContain("✗")
+    expect(log.textContent).toContain("boom")
+    const node = screen.getByTestId("heatmap-node-campaign-runner")
+    expect(node.querySelector(".bg-destructive")).toBeTruthy()
+  })
+
+  it("支撑泳道命中走 nowStepSupport 分支", () => {
+    heatStore().install()
+    recordModuleHit({ path: "src/lib/agent/activity-trace.ts", at: Date.now(), ok: true })
+    render(<ModuleHeatmapView />)
+    expect(screen.getByTestId("heatmap-now")).toBeTruthy()
+    fireEvent.click(screen.getByTestId("heatmap-toggle-support"))
+    expect(screen.getByTestId("heatmap-lane-agent").getAttribute("data-active")).toBe("true")
+  })
+
+  it("无项目时点立即落盘不写盘", async () => {
+    const { useWikiStore } = await import("@/stores/wiki-store")
+    useWikiStore.setState({ project: null })
+    render(<ModuleHeatmapView />)
+    fireEvent.click(screen.getByTestId("heatmap-flush"))
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("heatmap-flushed")).toBeNull()
+  })
+
+  it("下钻无入边模块：零引用回退/未接线标记/混合日志符号", () => {
+    heatStore().install()
+    const target = "src/components/briefing/BriefingPanel.tsx"
+    recordModuleHit({ path: target, at: Date.now() - 1000, ok: true, ms: 3 })
+    recordModuleHit({ path: target, at: Date.now(), ok: false, detail: "err-detail" })
+    render(<ModuleHeatmapView />)
+    // BriefingPanel 在 ui 支撑泳道（默认折叠），先展开再下钻
+    fireEvent.click(screen.getByTestId("heatmap-toggle-support"))
+    fireEvent.click(screen.getByTestId(`heatmap-node-${moduleLabel(target)}`))
+    const drill = screen.getByTestId("heatmap-drill")
+    expect(drill.textContent).toContain(target)
+    expect(drill.textContent).toContain("err-detail")
+    // 无入边 -> importsIn 回退 0；未接线（x 标记）-> data-unwired true
+    expect(drill.textContent).toContain("0")
+    expect(screen.getByTestId(`heatmap-node-${moduleLabel(target)}`).getAttribute("data-unwired")).toBe("true")
+    const drillLog = screen.getByTestId("heatmap-drill-log")
+    expect(drillLog.textContent).toContain("✓")
+    expect(drillLog.textContent).toContain("✗")
+    expect(drillLog.textContent).toContain("err-detail")
+  })
+})

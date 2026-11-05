@@ -331,3 +331,81 @@ describe("§GAP-88-01 章节契约 machine-readable 段", () => {
     expect(n2.tradeOffs).toEqual([])
   })
 })
+
+describe("§GAP-88-01 分支覆盖补齐：parse 紧凑/空值/豁免变体", () => {
+  const WAIVER =
+    "方向提示不是机械打卡项：自然节奏与契约细项冲突时优先保证章节成立，并在返修说明中记录取舍。"
+
+  it("段内空行跳过 + 豁免复述变体截断（后续标签不再消费）", () => {
+    const parsed = parseChapterContractSection(
+      `【章节契约】\n必须节拍：A\n\n方向提示不是机械复述\n必须节拍：B\n${WAIVER}\n`,
+    )
+    expect(parsed).not.toBeNull()
+    expect(parsed!.requiredBeats).toEqual(["A"])
+  })
+
+  it("紧凑行全标签同构 + 未知段直通 else（无一命中）", () => {
+    const parsed = parseChapterContractSection(
+      `【章节契约】\n必须节拍：X‖禁区：Y‖连贯核对：Z‖情绪主色：燃‖兑现点：P‖钩子目标：H‖备注：忽略我\n${WAIVER}\n`,
+    )
+    expect(parsed).not.toBeNull()
+    expect(parsed!.requiredBeats).toEqual(["X"])
+    expect(parsed!.forbiddenMoves).toEqual(["Y"])
+    expect(parsed!.continuityChecks).toEqual(["Z"])
+    expect(parsed!.emotionTarget).toBe("燃")
+    expect(parsed!.payoffPoints).toEqual(["P"])
+    expect(parsed!.hookGoal).toBe("H")
+  })
+
+  it("紧凑行空情绪/空钩子 → || undefined 右侧（保持 undefined）", () => {
+    const parsed = parseChapterContractSection(
+      `【章节契约】\n必须节拍：X‖情绪主色：‖钩子目标：\n${WAIVER}\n`,
+    )
+    expect(parsed).not.toBeNull()
+    expect(parsed!.requiredBeats).toEqual(["X"])
+    expect(parsed!.emotionTarget).toBeUndefined()
+    expect(parsed!.hookGoal).toBeUndefined()
+  })
+
+  it("过渡章否 + 空情绪/空钩子非紧凑行（三个 || undefined 右侧与 else）", () => {
+    const parsed = parseChapterContractSection(
+      `【章节契约】\n过渡章：否\n情绪主色：\n钩子目标：\n必须节拍：A\n${WAIVER}\n`,
+    )
+    expect(parsed).not.toBeNull()
+    expect(parsed!.transitional).toBeUndefined()
+    expect(parsed!.emotionTarget).toBeUndefined()
+    expect(parsed!.hookGoal).toBeUndefined()
+    expect(parsed!.requiredBeats).toEqual(["A"])
+  })
+})
+
+describe("§GAP-88-01 分支覆盖补齐：check 命中/缺省路径", () => {
+  it("chapterBody 缺省 + 短节拍（anchor<4 直接命中，无 finding）", () => {
+    // 运行时容忍：类型上 chapterBody 必填，但 JS 调用方可传 undefined，
+    // ?? "" 兜底 + 短 anchor 直接命中，两处分支一次覆盖。
+    const check = checkChapterContract(
+      { requiredBeats: ["转"], forbiddenMoves: [], continuityChecks: [] },
+      undefined as unknown as string,
+    )
+    expect(check.passed).toBe(true)
+    expect(check.findings).toEqual([])
+  })
+
+  it("连贯核对正文命中 → 不出 warning（else 路径）", () => {
+    const check = checkChapterContract(
+      { requiredBeats: [], forbiddenMoves: [], continuityChecks: ["雨夜时间线连续"] },
+      "雨夜时间线连续前后呼应，认知未越界。",
+    )
+    expect(check.findings).toEqual([])
+    expect(check.passed).toBe(true)
+  })
+
+  it("方向提示正文命中 → 不出 finding 也不记 trade_off（else 路径）", () => {
+    const check = checkChapterContract(
+      { requiredBeats: [], forbiddenMoves: [], continuityChecks: [], emotionTarget: "悬疑克制" },
+      "本章悬疑克制，节奏缓慢。",
+    )
+    expect(check.findings).toEqual([])
+    expect(check.tradeOffs).toEqual([])
+  })
+})

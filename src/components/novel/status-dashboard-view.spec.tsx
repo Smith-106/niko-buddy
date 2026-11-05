@@ -190,6 +190,8 @@ const {
   truncateRows,
   toggleDashboardHiddenType,
   formatCharacterStateLine,
+  loadDashboardHiddenTypes,
+  saveDashboardHiddenTypes,
   DASHBOARD_FILTER_KEY,
   FORESHADOWING_LIST_LIMIT,
   CANON_QUERY_LIMIT,
@@ -382,5 +384,160 @@ describe("GraphSidebarPanel dimension toggles", () => {
     expect(JSON.parse(localStorage.getItem(DASHBOARD_FILTER_KEY) ?? "[]")).toEqual(["character"])
     fireEvent.click(screen.getByLabelText("character"))
     expect(JSON.parse(localStorage.getItem(DASHBOARD_FILTER_KEY) ?? "[]")).toEqual([])
+  })
+})
+
+describe("StatusDashboardView 分支覆盖补齐", () => {
+  it("脏 localStorage（非数组/非字符串项）回退过滤", () => {
+    localStorage.setItem(DASHBOARD_FILTER_KEY, JSON.stringify({ a: 1 }))
+    expect(loadDashboardHiddenTypes().size).toBe(0)
+    localStorage.setItem(DASHBOARD_FILTER_KEY, JSON.stringify(["a", 1, "b", null]))
+    expect([...loadDashboardHiddenTypes()]).toEqual(["a", "b"])
+    localStorage.clear()
+  })
+
+  it("无 localStorage 时读写静默回退（无 DOM 存储环境）", () => {
+    const saved = (globalThis as Record<string, unknown>)["localStorage"]
+    try {
+      vi.stubGlobal("localStorage", undefined)
+      expect(loadDashboardHiddenTypes().size).toBe(0)
+      expect(() => saveDashboardHiddenTypes(new Set(["character"]))).not.toThrow()
+    } finally {
+      if (saved === undefined) vi.unstubAllGlobals()
+      else vi.stubGlobal("localStorage", saved)
+    }
+    localStorage.clear()
+  })
+
+  it("无 window 事件总线时保存仍落盘（跳过派发）", () => {
+    const savedWindow = (globalThis as Record<string, unknown>)["window"]
+    try {
+      vi.stubGlobal("window", undefined)
+      saveDashboardHiddenTypes(new Set(["event"]))
+      expect(JSON.parse(localStorage.getItem(DASHBOARD_FILTER_KEY) ?? "[]")).toEqual(["event"])
+    } finally {
+      if (savedWindow === undefined) vi.unstubAllGlobals()
+      else vi.stubGlobal("window", savedWindow)
+    }
+    localStorage.clear()
+  })
+
+  it("文件名数字回退解析（无章节标记时取文件名前缀）", () => {
+    expect(parseDashboardChapterNumber({ label: "前言", path: "wiki/chapters/07-前言.md" })).toBe(7)
+  })
+
+  it("空章节时 canon 不带 validAtChapter 且伏笔用水位回退", async () => {
+    mocks.graphNodes = [
+      { id: "character:林砚", label: "林砚", type: "character", path: "wiki/characters/林砚.md", linkCount: 1, community: 1 },
+    ]
+    mocks.graphEdges = []
+    mocks.foreshadowingItems = [
+      { id: "f1", name: "黑剑", description: "d", status: "planted", plantedChapter: 4, advancedChapters: [] },
+    ]
+    render(<StatusDashboardView />)
+    await waitFor(() => expect(screen.getByTestId("dashboard-time-anchor")).toBeTruthy())
+    expect(screen.getByTestId("dashboard-time-anchor")).toHaveTextContent("时间锚：—")
+    await waitFor(() => expect(mocks.queryCalls.length).toBeGreaterThan(0))
+    // mock 的 buildCanonEdgeFilter 把 undefined 归一为 null：关键是 anchor 为 null 时走了回退分支
+    expect(mocks.queryCalls[0]).toMatchObject({ valid_at_chapter: null })
+  })
+
+  it("加载失败显示错误且不渲染空态数字", async () => {
+    render(<StatusDashboardView loaders={{ loadGraph: async () => { throw new Error("graph boom") } }} />)
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy())
+    expect(screen.getByRole("alert")).toHaveTextContent("graph boom")
+  })
+
+  it("非 Error 拒绝被字符串化展示", async () => {
+    render(<StatusDashboardView loaders={{ loadGraph: async () => { throw "plain-string-fail" } }} />)
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy())
+    expect(screen.getByRole("alert")).toHaveTextContent("plain-string-fail")
+  })
+
+  it("卸载后解决不再写状态（竞态守卫 finally 不二次 loading）", async () => {
+    let resolveGraph: (v: { nodes: never[]; edges: never[] }) => void = () => undefined
+    const { unmount, container } = render(
+      <StatusDashboardView loaders={{ loadGraph: () => new Promise((res) => { resolveGraph = res }) }} />,
+    )
+    unmount()
+    resolveGraph({ nodes: [], edges: [] })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(container.innerHTML).toBe("")
+  })
+
+  it("卸载后拒绝也不写错误态", async () => {
+    let rejectGraph: (e: unknown) => void = () => undefined
+    const { unmount, container } = render(
+      <StatusDashboardView loaders={{ loadGraph: () => new Promise((_res, rej) => { rejectGraph = rej }) }} />,
+    )
+    unmount()
+    rejectGraph(new Error("late boom"))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(container.innerHTML).toBe("")
+  })
+
+  it("正史/时间线节点计数（含 timeline 别名）", async () => {
+    mocks.graphNodes = [
+      ...mocks.graphNodes,
+      { id: "canon-rule:1", label: "规则一", type: "canon-rule", path: "wiki/canon.md", linkCount: 0, community: 0 },
+      { id: "timeline:1", label: "时间点一", type: "timeline-point", path: "wiki/tl.md", linkCount: 0, community: 0 },
+      { id: "timeline:2", label: "时间点二", type: "timeline", path: "wiki/tl2.md", linkCount: 0, community: 0 },
+    ]
+    render(<StatusDashboardView />)
+    await waitFor(() => expect(screen.getByTestId("dashboard-card-canon")).toBeTruthy())
+    expect(screen.getByTestId("dashboard-card-canon")).toHaveTextContent("canon-rule 节点：1")
+    expect(screen.getByTestId("dashboard-card-canon")).toHaveTextContent("timeline-point 节点：2")
+  })
+
+  it("未知 relation 回退原文", async () => {
+    mocks.graphEdges = [
+      { source: "character:林砚", target: "chapter:3", weight: 1, relation: "MYSTIC_X" },
+    ]
+    render(<StatusDashboardView />)
+    await waitFor(() => expect(screen.getByTestId("dashboard-card-relations")).toBeTruthy())
+    expect(screen.getByTestId("dashboard-card-relations")).toHaveTextContent("MYSTIC_X：1")
+  })
+
+  it("缺类型计数回退 0 且场景空态诚实", async () => {
+    mocks.graphNodes = [
+      { id: "event:大比", label: "大比", type: "event", path: "wiki/events.md", linkCount: 0, community: 0 },
+    ]
+    mocks.graphEdges = [
+      { source: "event:大比", target: "event:大比", weight: 1, relation: "KNOWS" },
+    ]
+    mocks.characters = []
+    mocks.foreshadowingItems = []
+    mocks.canonFacts = []
+    render(<StatusDashboardView />)
+    await waitFor(() => expect(screen.getByTestId("dashboard-card-relations")).toBeTruthy())
+    expect(screen.getByTestId("dashboard-card-relations")).toHaveTextContent("人物：0")
+    expect(screen.getByTestId("dashboard-card-scenes")).toHaveTextContent("地点：0")
+    expect(screen.getByTestId("dashboard-card-scenes")).toHaveTextContent("暂无数据")
+  })
+
+  it("关系卡无组织/事件类型时计数回退 0", async () => {
+    mocks.graphNodes = [
+      { id: "character:林砚", label: "林砚", type: "character", path: "wiki/characters/林砚.md", linkCount: 1, community: 1 },
+      { id: "character:苏晚", label: "苏晚", type: "character", path: "wiki/characters/苏晚.md", linkCount: 1, community: 1 },
+    ]
+    mocks.graphEdges = [
+      { source: "character:林砚", target: "character:苏晚", weight: 1, relation: "KNOWS" },
+    ]
+    render(<StatusDashboardView />)
+    await waitFor(() => expect(screen.getByTestId("dashboard-card-relations")).toBeTruthy())
+    expect(screen.getByTestId("dashboard-card-relations")).toHaveTextContent("人物：2")
+    expect(screen.getByTestId("dashboard-card-relations")).toHaveTextContent("组织：0")
+    expect(screen.getByTestId("dashboard-card-relations")).toHaveTextContent("事件：0")
+  })
+
+  it("伏笔无 planted 时已埋设回退 0", async () => {
+    mocks.foreshadowingItems = [
+      { id: "f1", name: "旧约", description: "d", status: "resolved", plantedChapter: 1, advancedChapters: [2], resolvedChapter: 3 },
+      { id: "f2", name: "新约", description: "d", status: "resolved", plantedChapter: 2, advancedChapters: [3], resolvedChapter: 4 },
+    ]
+    render(<StatusDashboardView />)
+    await waitFor(() => expect(screen.getByTestId("dashboard-card-foreshadowing")).toBeTruthy())
+    expect(screen.getByTestId("dashboard-card-foreshadowing")).toHaveTextContent("已埋设：0")
+    expect(screen.getByTestId("dashboard-card-foreshadowing")).toHaveTextContent("已回收：2")
   })
 })

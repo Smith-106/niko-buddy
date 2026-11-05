@@ -274,3 +274,121 @@ describe("StyleEngineView 覆盖补齐：空项目/装载失败/空态导航", (
     expect(useWikiStore.getState().activeView).toBe("bookAnalysis")
   })
 })
+
+describe("StyleEngineView 分支覆盖补齐：预览空段/幽灵启用/装载竞态/保存守卫", () => {
+  it("极简预设预览：空源书/空宪法/空维度/缺 samples → 各段全部隐藏", async () => {
+    const minimal = makePreset("sx", "极简文风", "", {
+      constitution: "",
+      narrativeVoice: "",
+      dialogueStyle: "",
+      sentenceStyle: "",
+    })
+    delete (minimal.profile as Partial<BookStyleProfile>).samples
+    fsMocks.readFile.mockResolvedValue(storeJson([minimal], null))
+    render(<StyleEngineView projectPath={PROJECT_PATH} />)
+
+    const preview = await screen.findByTestId("style-preview")
+    expect(preview).toHaveTextContent("预设：极简文风")
+    expect(preview).not.toHaveTextContent("源作品")
+    expect(preview).not.toHaveTextContent("风格宪法")
+    expect(preview).not.toHaveTextContent("关键维度")
+    expect(preview).not.toHaveTextContent("模仿锚点")
+  })
+
+  it("启用 ID 幽灵（不在 styles 中）→ findSelected 回退首项 + 显示未启用", async () => {
+    fsMocks.readFile.mockResolvedValue(storeJson([makePreset("s1", "沧海文风", "沧海卷")], "ghost"))
+    render(<StyleEngineView projectPath={PROJECT_PATH} />)
+
+    const preview = await screen.findByTestId("style-preview")
+    expect(preview).toHaveTextContent("预设：沧海文风")
+    expect(screen.getByText(/当前未启用任何风格预设/)).toBeInTheDocument()
+  })
+
+  it("切换项目后复选保持（store 仍含该项 → 复用 current）", async () => {
+    const presets = [makePreset("s1", "沧海文风", "沧海卷"), makePreset("s2", "市井文风", "市井篇")]
+    fsMocks.readFile.mockResolvedValue(storeJson(presets, null))
+    const { rerender } = render(<StyleEngineView projectPath={PROJECT_PATH} />)
+    const list = await screen.findByTestId("style-list")
+    fireEvent.click(within(list).getByRole("button", { name: /市井文风/ }))
+    await waitFor(() => {
+      expect(screen.getByTestId("style-preview")).toHaveTextContent("预设：市井文风")
+    })
+
+    fsMocks.readFile.mockResolvedValue(storeJson(presets, null))
+    rerender(<StyleEngineView projectPath="F:/Other" />)
+    await waitFor(() => {
+      expect(screen.getByTestId("style-preview")).toHaveTextContent("预设：市井文风")
+    })
+  })
+
+  it("装载飞行中卸载 → cancelled 直接返回且不关 loading（不报错）", async () => {
+    let resolveRead!: (value: string) => void
+    fsMocks.readFile.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        resolveRead = resolve
+      }),
+    )
+    const { unmount } = render(<StyleEngineView projectPath={PROJECT_PATH} />)
+    expect(fsMocks.readFile).toHaveBeenCalledTimes(1)
+    unmount()
+    resolveRead(storeJson([makePreset("s1", "沧海文风", "沧海卷")], null))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(screen.queryByTestId("style-engine-view")).toBeNull()
+    expect(screen.queryByTestId("style-list")).toBeNull()
+  })
+
+  it("装载抛非 Error → 默认加载失败文案", async () => {
+    vi.mocked(loadWritingStyleStore).mockRejectedValueOnce("string-fail")
+    render(<StyleEngineView projectPath={PROJECT_PATH} />)
+    const alert = await screen.findByTestId("style-error")
+    expect(alert.textContent).toContain("风格预设加载失败")
+  })
+
+  it("装载失败后才卸载 → 跳过 setError（无报错残留）", async () => {
+    // loadWritingStyleStore 真实实现吞掉读盘错（返回空 store），
+    // 112 的 catch 只能经模块 mock 抛错到达：延迟 reject + 先卸载。
+    let rejectLoad!: (reason: unknown) => void
+    vi.mocked(loadWritingStyleStore).mockReturnValueOnce(
+      new Promise<never>((_, reject) => {
+        rejectLoad = reject
+      }),
+    )
+    const { unmount } = render(<StyleEngineView projectPath={PROJECT_PATH} />)
+    unmount()
+    rejectLoad(new Error("late failure"))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(document.body.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  it("保存中重复切换 → 直接返回（写盘只调一次）", async () => {
+    fsMocks.readFile.mockResolvedValue(storeJson([makePreset("s1", "沧海文风", "沧海卷")], null))
+    let resolveWrite!: (value: void) => void
+    fsMocks.writeFileAtomic.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveWrite = resolve
+      }),
+    )
+    render(<StyleEngineView projectPath={PROJECT_PATH} />)
+    const list = await screen.findByTestId("style-list")
+    const toggle = within(list).getByRole("switch", { name: "启用风格预设「沧海文风」" })
+    fireEvent.click(toggle)
+    fireEvent.click(toggle)
+    resolveWrite(undefined)
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("已启用风格预设「沧海文风」")
+    })
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+  })
+
+  it("保存抛非 Error → 默认保存失败文案", async () => {
+    fsMocks.readFile.mockResolvedValue(storeJson([makePreset("s1", "沧海文风", "沧海卷")], null))
+    render(<StyleEngineView projectPath={PROJECT_PATH} />)
+    const list = await screen.findByTestId("style-list")
+    fsMocks.writeFileAtomic.mockRejectedValueOnce("disk-gone-string")
+    fireEvent.click(within(list).getByRole("switch", { name: "启用风格预设「沧海文风」" }))
+    const alert = await screen.findByRole("alert")
+    expect(alert.textContent).toContain("风格预设保存失败")
+  })
+})

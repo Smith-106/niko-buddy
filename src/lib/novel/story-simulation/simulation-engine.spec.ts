@@ -2235,3 +2235,187 @@ describe("simulation-engine：isNodeGoalReached 启发式全分支（增补）",
     expect(isNodeGoalReached(node, [makeTlEvent()], 9, 0)).toBe(false)
   })
 })
+
+describe("simulation-engine：分支覆盖补齐（20261105-ralph-coverage-100）", () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    resetStreamToEmpty()
+    mockRun = undefined
+  })
+
+  function speakRunner() {
+    mockRun = vi.fn().mockResolvedValue({
+      toolCalls: [],
+      roundsUsed: 1,
+      finalText: JSON.stringify({ type: "speak", content: "默认发言", visibility: "all" }),
+    })
+  }
+
+  it("fallback 缺 type/缺 content：双 ?? 回退（305/309 行）", async () => {
+    mockRandom(0.99)
+    rejectWithNoTools()
+    mockStreamChatImpl = async (_config, _messages, callbacks) => {
+      callbacks.onToken(JSON.stringify({ visibility: "all" }))
+      callbacks.onDone()
+    }
+    const { callbacks, collected } = makeCollectors()
+    await runSimulation(
+      {
+        agents: [makeNamedAgent("a", "甲"), makeNamedAgent("b", "乙")],
+        framework: makeMultiNodeFramework(1),
+        mode: "event-driven",
+        wordBudget: 10000,
+        llmConfig: {},
+        maxRoundsPerNode: 1,
+      } as never,
+      makeExtraction(),
+      callbacks,
+    )
+    const mains = agentActions(collected)
+    expect(mains.length).toBeGreaterThan(0)
+    // type 缺失 → observe；content 缺失 → 回退为原文截断（含 visibility 键）
+    expect(mains[0].action?.type).toBe("observe")
+    expect(mains[0].action?.content).toContain("visibility")
+  })
+
+  it("fallback 非法 visibility：conceal→self / investigate→all（319 行三元 + 319 行 || 第三项）", async () => {
+    mockRandom(0.99)
+    rejectWithNoTools()
+    const script = [
+      JSON.stringify({ type: "conceal", content: "藏起匕首", visibility: "bogus" }),
+      JSON.stringify({ type: "investigate", content: "查线索", visibility: "bogus" }),
+    ]
+    let call = 0
+    mockStreamChatImpl = async (_config, messages, callbacks) => {
+      const user = messages.find((m) => m.role === "user")?.content ?? ""
+      if (user.includes("【刚才发生的事情】")) {
+        callbacks.onToken(JSON.stringify({ type: "observe", content: "收到", visibility: "self" }))
+        callbacks.onDone()
+        return
+      }
+      callbacks.onToken(script[Math.min(call, script.length - 1)])
+      call += 1
+      callbacks.onDone()
+    }
+    const { callbacks, collected } = makeCollectors()
+    await runSimulation(
+      {
+        agents: [makeNamedAgent("a", "甲"), makeNamedAgent("b", "乙")],
+        framework: makeMultiNodeFramework(1),
+        mode: "event-driven",
+        wordBudget: 10000,
+        llmConfig: {},
+        maxRoundsPerNode: 1,
+      } as never,
+      makeExtraction(),
+      callbacks,
+    )
+    const mains = agentActions(collected).filter((e) => e.action?.type !== "react")
+    expect(mains).toHaveLength(2)
+    // conceal + 非法 visibility → self（仅自己可见），覆盖 || 第三项求值 + self 分支
+    expect(mains[0].timelineEvent?.observableBy).toEqual(["a"])
+    // investigate + 非法 visibility → all（全体可见），覆盖 :all 分支
+    // （注：pushPlot 经 toLowerCase 落为 observe，无法经 fallback 走 all；用 investigate 覆盖）
+    expect(mains[1].timelineEvent?.observableBy.sort()).toEqual(["a", "b"])
+  })
+
+  it("generateRandomEvent 分阶段池无 usedIndices：|| 右侧兜底（392 行）", () => {
+    const staged = {
+      byStage: { setup: [{ id: "s1", text: " staged  setup 事件" }] },
+      all: [{ id: "s1", text: "staged setup 事件" }],
+    } as unknown as StagedEventPool
+    const { event, usedEventId } = generateRandomEvent(staged, undefined, 0, 1)
+    expect(event).not.toBeNull()
+    expect(event?.message).toContain("【随机事件】")
+    // usedIndices 缺省时内部 new Set 兜底，仍能命中分阶段事件并返回 id
+    expect(usedEventId).toBe("s1")
+  })
+
+  it("mode 回退：input.mode 与 framework.simulationMode 双缺 → hybrid（869 行第三项）", async () => {
+    mockRandom(0.99)
+    speakRunner()
+    const fw = makeMultiNodeFramework(1) as unknown as Record<string, unknown>
+    delete fw["simulationMode"]
+    const { callbacks, collected } = makeCollectors()
+    const events = await runSimulation(
+      {
+        agents: [makeNamedAgent("a", "甲")],
+        framework: fw,
+        wordBudget: 10000,
+        llmConfig: {},
+        maxRoundsPerNode: 1,
+      } as never,
+      makeExtraction(),
+      callbacks,
+    )
+    expect(events.length).toBeGreaterThan(0)
+    expect(agentActions(collected).length).toBeGreaterThan(0)
+  })
+
+  it("ReAct onError 非工具错误不抛继续跑（799 行 else）", async () => {
+    mockRandom(0.99)
+    mockRun = vi.fn().mockImplementation(async (_cfg: unknown, _reg: unknown, _msgs: unknown, cbs: { onError: (e: Error) => void }) => {
+      cbs.onError(new Error("tool boom"))
+      return {
+        toolCalls: [],
+        roundsUsed: 1,
+        finalText: JSON.stringify({ type: "speak", content: "工具错后仍发言", visibility: "all" }),
+      }
+    })
+    const { callbacks, collected } = makeCollectors()
+    const events = await runSimulation(
+      {
+        agents: [makeNamedAgent("a", "甲")],
+        framework: makeMultiNodeFramework(1),
+        mode: "event-driven",
+        wordBudget: 10000,
+        llmConfig: {},
+        maxRoundsPerNode: 1,
+      } as never,
+      makeExtraction(),
+      callbacks,
+    )
+    expect(events.length).toBeGreaterThan(0)
+    expect(agentActions(collected)[0].action?.content).toContain("工具错后仍发言")
+  })
+
+  it("导演注入跨轮：次轮 injectionEvent 回退 undefined（1064 行 false）", async () => {
+    mockRandom(0.99)
+    rejectWithNoTools()
+    // 复用既有导演桩：streamChat 识别“小说导演”系统提示返回注入决策
+    const systemPayload = (shouldInject: boolean) => async (_config: unknown, messages: Array<{ role: string; content: string }>, callbacks: { onToken: (t: string) => void; onDone: () => void }) => {
+      const system = messages.find((m) => m.role === "system")?.content ?? ""
+      if (system.includes("小说导演")) {
+        callbacks.onToken(JSON.stringify({
+          scores: { a: 1 },
+          totalScore: 1,
+          highlights: ["亮点"],
+          issues: ["问题"],
+          suggestion: "加强冲突",
+          shouldInjectEvent: shouldInject,
+          injectEvent: "天外飞来陨石",
+        }))
+        callbacks.onDone()
+        return
+      }
+      callbacks.onToken(JSON.stringify({ type: "speak", content: "发言", visibility: "all" }))
+      callbacks.onDone()
+    }
+    mockStreamChatImpl = systemPayload(true)
+    const { callbacks, collected } = makeCollectors()
+    await runSimulation(
+      {
+        agents: [makeNamedAgent("a", "甲")],
+        framework: makeMultiNodeFramework(2),
+        mode: "event-driven",
+        wordBudget: 10000,
+        llmConfig: {},
+        maxRoundsPerNode: 2,
+      } as never,
+      makeExtraction(),
+      callbacks,
+    )
+    // 两节点 × 两轮 = 4 次 agent 决策；第二节点次轮走 round!==0 → undefined 分支
+    expect(agentActions(collected).length).toBeGreaterThanOrEqual(4)
+  })
+})

@@ -250,3 +250,130 @@ describe("deriveCreativeNext（纯函数优先级）", () => {
     expect(items[0]?.text).toContain("第 5 章")
   })
 })
+
+describe("deriveCreativeNext 分支覆盖补齐", () => {
+  const baseMeta = {
+    id: "n",
+    title: "t",
+    genre: "玄幻",
+    targetWords: 0,
+    novelMode: true,
+    createdAt: "x",
+    updatedAt: "x",
+    currentChapter: 5,
+    totalChapters: 10,
+    totalWords: 1,
+    volumes: 0,
+    description: "",
+  }
+
+  it("currentChapter 为 0 时用通用继续文案（无章节号）", () => {
+    const items = deriveCreativeNext({
+      meta: { ...baseMeta, currentChapter: 0 },
+      verdict: "healthy",
+      blockingGate: null,
+    })
+    expect(items).toHaveLength(1)
+    expect(items[0]?.text).toBe("继续当前任务")
+  })
+})
+
+describe("CreativeHubView 分支覆盖补齐", () => {
+  it("空项目路径直接装载失败（不读盘）", async () => {
+    render(<CreativeHubView projectPath="" />)
+    const err = await screen.findByTestId("creative-load-error")
+    expect(err.textContent).toContain("项目路径为空")
+  })
+
+  it("缺失转损坏竞态：点补全时文件已损坏则报错不覆盖", async () => {
+    mocks.fileExists.mockResolvedValue(false)
+    mocks.readFile.mockRejectedValue(new Error("not found"))
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.writeFile.mockClear()
+    mocks.writeFile.mockResolvedValue(undefined)
+    render(<CreativeHubView projectPath={PROJECT} />)
+    const btn = await screen.findByTestId("creative-fill-meta")
+    // 点击前文件被别处写坏：再次检查时已存在但损坏
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockImplementation(async (path: string) => {
+      if (path.endsWith("project-meta.json")) return "{broken json"
+      if (path.endsWith("status.json")) return "{}"
+      if (path.endsWith("run-events.jsonl")) return ""
+      throw new Error(`unexpected read: ${path}`)
+    })
+    fireEvent.click(btn)
+    const corrupt = await screen.findByTestId("creative-meta-corrupt")
+    expect(corrupt.textContent).toContain("读不出来")
+    expect(corrupt.textContent).toContain("没有写入")
+    expect(mocks.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("项目路径为根时补全用默认书名（空文件夹名回退）", async () => {
+    mocks.fileExists.mockResolvedValue(false)
+    mocks.readFile.mockRejectedValue(new Error("not found"))
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.createDirectory.mockResolvedValue(undefined)
+    mocks.writeFile.mockClear()
+    mocks.writeFile.mockResolvedValue(undefined)
+    render(<CreativeHubView projectPath="/" />)
+    fireEvent.click(await screen.findByTestId("creative-fill-meta"))
+    await waitFor(() => expect(mocks.writeFile).toHaveBeenCalled())
+    const [, body] = mocks.writeFile.mock.calls[0] as [string, string]
+    expect(JSON.parse(body).title).toBe("未命名作品")
+  })
+
+  it("补全写盘失败显示补全失败", async () => {
+    mocks.fileExists.mockResolvedValue(false)
+    mocks.readFile.mockRejectedValue(new Error("not found"))
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.writeFile.mockRejectedValue(new Error("disk full"))
+    render(<CreativeHubView projectPath={PROJECT} />)
+    fireEvent.click(await screen.findByTestId("creative-fill-meta"))
+    const fail = await screen.findByText(/补全失败/)
+    expect(fail.textContent).toContain("disk full")
+  })
+
+  it("题材为空显示未填写", async () => {
+    const noGenre = metaJson().replace('"玄幻"', '""')
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockImplementation(async (path: string) => {
+      if (path.endsWith("project-meta.json")) return noGenre
+      if (path.endsWith("status.json")) return "{}"
+      if (path.endsWith("run-events.jsonl")) return ""
+      throw new Error(`unexpected read: ${path}`)
+    })
+    mocks.listDirectory.mockResolvedValue([])
+    render(<CreativeHubView projectPath={PROJECT} />)
+    const binding = await screen.findByTestId("creative-binding")
+    expect(binding.textContent).toContain("未填写")
+  })
+
+  it("卸载后装载完成不再写状态（取消守卫）", async () => {
+    let resolveExists!: (v: boolean) => void
+    mocks.fileExists.mockImplementation(() => new Promise<boolean>((res) => { resolveExists = res }))
+    mocks.readFile.mockRejectedValue(new Error("not found"))
+    mocks.listDirectory.mockResolvedValue([])
+    const { unmount, container } = render(<CreativeHubView projectPath={PROJECT} />)
+    unmount()
+    resolveExists(false)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(container.innerHTML).toBe("")
+  })
+
+  it("卸载后账本损坏也不写错误态", async () => {
+    let resolveExists!: (v: boolean) => void
+    mocks.fileExists.mockImplementation(() => new Promise<boolean>((res) => { resolveExists = res }))
+    mocks.readFile.mockImplementation(async (path: string) => {
+      if (path.endsWith("project-meta.json")) return metaJson()
+      if (path.endsWith("status.json")) return "{}"
+      if (path.endsWith("run-events.jsonl")) return "{bad json\n"
+      throw new Error(`unexpected read: ${path}`)
+    })
+    mocks.listDirectory.mockResolvedValue([])
+    const { unmount, container } = render(<CreativeHubView projectPath={PROJECT} />)
+    unmount()
+    resolveExists(true)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(container.innerHTML).toBe("")
+  })
+})

@@ -273,4 +273,173 @@ describe("plot-framework 类型层", () => {
       expect(context).toContain("必须按该框架生成章节细纲")
     })
   })
+
+  describe("分支覆盖补齐（空输入/缺省回退/库去重/格式化缺省）", () => {
+    it("null/undefined 框架输入返回 null", () => {
+      expect(normalizePlotFramework(null)).toBeNull()
+      expect(normalizePlotFramework(undefined)).toBeNull()
+    })
+
+    it("缺 id/空白 id 回退 framework- 前缀，带空格 id 会 trim", () => {
+      const missing = normalizePlotFramework({ ...makeFramework(), id: undefined })
+      expect(missing!.id).toMatch(/^framework-\d+$/)
+      const blank = normalizePlotFramework({ ...makeFramework(), id: "   " })
+      expect(blank!.id).toMatch(/^framework-\d+$/)
+      const spaced = normalizePlotFramework({ ...makeFramework(), id: "  fw-x  " })
+      expect(spaced!.id).toBe("fw-x")
+    })
+
+    it("缺 title 回退空字符串并由未命名兜底", () => {
+      const fw = normalizePlotFramework({ ...makeFramework(), title: undefined })
+      expect(fw!.title).toBe("未命名剧情框架")
+    })
+
+    it("rangeChapterIds 缺失回退空数组", () => {
+      const fw = normalizePlotFramework({ ...makeFramework(), rangeChapterIds: undefined })
+      expect(fw!.rangeChapterIds).toEqual([])
+    })
+
+    it("foreshadowing 缺失回退空数组，脏条目被清洗", () => {
+      const missing = normalizePlotFramework({ ...makeFramework(), foreshadowing: undefined })
+      expect(missing!.foreshadowing).toEqual([])
+      const dirty = normalizePlotFramework({ ...makeFramework(), foreshadowing: [" 伏笔a ", "", "   ", "伏笔b"] })
+      expect(dirty!.foreshadowing).toEqual(["伏笔a", "伏笔b"])
+    })
+
+    it("reusableTemplate 缺失回退空字符串", () => {
+      const fw = normalizePlotFramework({ ...makeFramework(), reusableTemplate: undefined })
+      expect(fw!.reusableTemplate).toBe("")
+    })
+
+    it("来源/衔接字段 present 时保留并 trim，空白回退 undefined", () => {
+      const fw = normalizePlotFramework({
+        ...makeFramework(),
+        sourceDismantlingProjectId: "  src-1  ",
+        sourceDismantlingProjectTitle: "  参考书  ",
+        prevConnector: "  上承  ",
+        nextConnector: "  下启  ",
+      })
+      expect(fw!.sourceDismantlingProjectId).toBe("src-1")
+      expect(fw!.sourceDismantlingProjectTitle).toBe("参考书")
+      expect(fw!.prevConnector).toBe("上承")
+      expect(fw!.nextConnector).toBe("下启")
+      const blank = normalizePlotFramework({
+        ...makeFramework(),
+        sourceDismantlingProjectId: "   ",
+        sourceDismantlingProjectTitle: "   ",
+        prevConnector: "   ",
+        nextConnector: "   ",
+      })
+      expect(blank!.sourceDismantlingProjectId).toBeUndefined()
+      expect(blank!.sourceDismantlingProjectTitle).toBeUndefined()
+      expect(blank!.prevConnector).toBeUndefined()
+      expect(blank!.nextConnector).toBeUndefined()
+    })
+
+    it("createdAt/updatedAt 缺失或 0 回退 now", () => {
+      const before = Date.now()
+      const fw = normalizePlotFramework({ ...makeFramework(), createdAt: undefined, updatedAt: undefined })
+      expect(fw!.createdAt).toBeGreaterThanOrEqual(before)
+      expect(fw!.updatedAt).toBeGreaterThanOrEqual(before)
+      const zero = normalizePlotFramework({ ...makeFramework(), createdAt: 0, updatedAt: 0 })
+      expect(zero!.createdAt).toBeGreaterThan(0)
+      expect(zero!.updatedAt).toBeGreaterThan(0)
+    })
+
+    it("tags 去重/去空/trim，缺失回退空数组", () => {
+      const fw = normalizePlotFramework({
+        ...makeFramework(),
+        tags: ["复仇", "  ", "", "复仇", "爽文", " 爽文 "],
+      })
+      expect(fw!.tags).toEqual(["复仇", "爽文"])
+      expect(normalizePlotFramework({ ...makeFramework(), tags: undefined })!.tags).toEqual([])
+    })
+
+    it("characters 非数组回退空数组", () => {
+      expect(normalizePlotFramework({ ...makeFramework(), characters: undefined })!.characters).toEqual([])
+    })
+
+    it("characters 对象缺 name 跳过、空 role 保留为空字符串", () => {
+      const fw = normalizePlotFramework({
+        ...makeFramework(),
+        characters: [
+          { name: "男主", role: "主角" },
+          { name: "", role: "无名" },
+          { name: "  ", role: "空白" },
+          { name: "女主", role: "" },
+        ],
+      })
+      expect(fw!.characters).toEqual([
+        { name: "男主", role: "主角" },
+        { name: "女主", role: "" },
+      ])
+    })
+
+    it("beats 缺失时整个框架被丢弃", () => {
+      expect(normalizePlotFramework({ ...makeFramework(), beats: undefined })).toBeNull()
+    })
+
+    it("library null/undefined/空对象/缺 frameworks 返回空库", () => {
+      expect(normalizePlotFrameworkLibrary(null).frameworks).toEqual([])
+      expect(normalizePlotFrameworkLibrary(undefined).frameworks).toEqual([])
+      expect(normalizePlotFrameworkLibrary({}).frameworks).toEqual([])
+      expect(normalizePlotFrameworkLibrary({ frameworks: undefined }).frameworks).toEqual([])
+    })
+
+    it("library 同 id 保留 updatedAt 最新者（旧版后到被忽略）", () => {
+      const lib = normalizePlotFrameworkLibrary({
+        frameworks: [
+          makeFramework({ id: "fw-1", updatedAt: 2000, title: "新版" }),
+          makeFramework({ id: "fw-1", updatedAt: 1000, title: "旧版" }),
+        ],
+      })
+      expect(lib.frameworks).toHaveLength(1)
+      expect(lib.frameworks[0].title).toBe("新版")
+    })
+
+    it("library createdAt 相同时按 id 排序保证稳定", () => {
+      const lib = normalizePlotFrameworkLibrary({
+        frameworks: [
+          makeFramework({ id: "fw-b", createdAt: 1000 }),
+          makeFramework({ id: "fw-a", createdAt: 1000 }),
+        ],
+      })
+      expect(lib.frameworks.map((f) => f.id)).toEqual(["fw-a", "fw-b"])
+    })
+
+    it("isPlotFrameworkComplete 对空白段返回 false", () => {
+      const fw = makeFramework()
+      expect(isPlotFrameworkComplete(fw)).toBe(true)
+      expect(isPlotFrameworkComplete({ ...fw, beats: { ...fw.beats, hook: "  " } })).toBe(false)
+    })
+
+    it("格式化支线且缺省可选字段时不输出对应段落、手工留白回退默认文案", () => {
+      const context = formatPlotFrameworkForOutlinePrompt(makeFramework({
+        line: "sub",
+        sourceDismantlingProjectTitle: undefined,
+        reusableTemplate: "",
+        prevConnector: undefined,
+        nextConnector: undefined,
+        characters: [],
+        directionHints: "",
+        handcraftHints: "",
+      }))
+      expect(context).toContain("归属：支线")
+      expect(context).not.toContain("来源拆文")
+      expect(context).not.toContain("一句话可复用模板")
+      expect(context).not.toContain("与上一框架衔接")
+      expect(context).not.toContain("与下一框架衔接")
+      expect(context).not.toContain("## 涉及角色与作用")
+      expect(context).not.toContain("## 方向指引")
+      expect(context).toContain("必须明确标注哪些内容交给作者")
+    })
+
+    it("格式化角色无 role 时不带冒号", () => {
+      const context = formatPlotFrameworkForOutlinePrompt(makeFramework({
+        characters: [{ name: "路人", role: "" }],
+      }))
+      expect(context).toContain("- 路人")
+      expect(context).not.toContain("路人：")
+    })
+  })
 })

@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 /** WorldLibraryView：只读世界蓝图 + 设定中心（角色关系自由文本投影）+ 诚实空态/N/A。 */
-import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
+import type { SettingProjection } from "@/lib/novel"
+import type {
+  RelationshipLibrarySnapshotView,
+  WorldBlueprintSnapshot,
+} from "./world-library-view"
 
 const storeState = vi.hoisted(() => ({
   project: { id: "p1", name: "proj", path: "C:/proj" } as { id: string; name: string; path: string } | null,
@@ -288,5 +293,156 @@ describe("WorldLibraryView 覆盖补齐：默认装载器 + 校验结论渲染",
     expect(screen.getByTestId("world-library-finding-0").className).toContain("text-destructive")
     expect(screen.getByTestId("world-library-finding-1").textContent).toContain("地理过薄")
     expect(screen.getByTestId("world-library-finding-1").className).toContain("text-warning-foreground")
+  })
+})
+
+describe("WorldLibraryView · 分支补齐：取消守卫与空态变体", () => {
+  beforeEach(() => {
+    cleanup()
+  })
+  afterEach(cleanup)
+
+  it("卸载后迟到的三路装载结果被丢弃（取消守卫，不写已卸载状态）", async () => {
+    let resolveWorld: ((v: WorldBlueprintSnapshot | null) => void) | null = null
+    let resolveSetting: ((v: SettingProjection) => void) | null = null
+    let resolveRel: ((v: RelationshipLibrarySnapshotView | null) => void) | null = null
+    const { container, unmount } = render(
+      <WorldLibraryView
+        loader={() => new Promise<WorldBlueprintSnapshot | null>((res) => { resolveWorld = res })}
+        settingLoader={() => new Promise<SettingProjection>((res) => { resolveSetting = res })}
+        relationshipLoader={() =>
+          new Promise<RelationshipLibrarySnapshotView | null>((res) => { resolveRel = res })
+        }
+      />,
+    )
+    // 三路 effect 已触发（装载中），再卸载
+    expect(resolveWorld).not.toBeNull()
+    expect(resolveSetting).not.toBeNull()
+    expect(resolveRel).not.toBeNull()
+    unmount()
+    await act(async () => {
+      resolveWorld?.(null)
+      resolveSetting?.(emptySetting as SettingProjection)
+      resolveRel?.(null)
+    })
+    // 容器级断言：不受其它用例残留 DOM 干扰，只看本次渲染确已卸载
+    expect(container.querySelector('[data-testid="world-library-view"]')).toBeNull()
+  })
+
+  it("卸载后迟到的三路装载失败同样被丢弃", async () => {
+    let rejectWorld: ((e: unknown) => void) | null = null
+    let rejectSetting: ((e: unknown) => void) | null = null
+    let rejectRel: ((e: unknown) => void) | null = null
+    const { container, unmount } = render(
+      <WorldLibraryView
+        loader={() => new Promise<WorldBlueprintSnapshot | null>((_, rej) => { rejectWorld = rej })}
+        settingLoader={() => new Promise<SettingProjection>((_, rej) => { rejectSetting = rej })}
+        relationshipLoader={() =>
+          new Promise<RelationshipLibrarySnapshotView | null>((_, rej) => { rejectRel = rej })
+        }
+      />,
+    )
+    expect(rejectWorld).not.toBeNull()
+    unmount()
+    await act(async () => {
+      rejectWorld?.(new Error("late world"))
+      rejectSetting?.(new Error("late setting"))
+      rejectRel?.(new Error("late rel"))
+      await Promise.resolve()
+    })
+    expect(container.querySelector('[data-testid="world-library-view"]')).toBeNull()
+    expect(container.querySelector('[data-testid="world-library-error"]')).toBeNull()
+  })
+
+  it("蓝图存在但无法解析 → 错误态附带 world-blueprint.json 指引", async () => {
+    render(
+      <WorldLibraryView
+        loader={async () => {
+          throw new Error("世界蓝图存在，但无法解析")
+        }}
+        settingLoader={async () => emptySetting as SettingProjection}
+      />,
+    )
+    await waitFor(() => expect(screen.getByTestId("world-library-error")).toBeTruthy())
+    const err = screen.getByTestId("world-library-error")
+    expect(err.textContent).toContain("世界蓝图存在，但无法解析")
+    expect(err.textContent).toContain("world-blueprint.json")
+  })
+
+  it("世界类型缺失 → 类型徽标回退 N/A", async () => {
+    render(
+      <WorldLibraryView
+        loader={async () => ({
+          blueprint: { ...blueprint, worldType: "" } as never,
+          validation: { findings: [], verdict: "incomplete" },
+        })}
+        settingLoader={async () => emptySetting as SettingProjection}
+      />,
+    )
+    await waitFor(() => expect(screen.getByTestId("world-library-world-type")).toBeTruthy())
+    expect(screen.getByTestId("world-library-world-type").textContent).toContain(
+      "novel.worldLibrary.na",
+    )
+  })
+
+  it("无交叉引用 → 交叉引用空态（不渲染空列表）", async () => {
+    render(
+      <WorldLibraryView
+        loader={async () => ({
+          blueprint: { ...blueprint, crossRefs: [] } as never,
+          validation: { findings: [], verdict: "incomplete" },
+        })}
+        settingLoader={async () => emptySetting as SettingProjection}
+      />,
+    )
+    await waitFor(() => expect(screen.getByTestId("world-library-crossrefs-empty")).toBeTruthy())
+    expect(screen.queryByTestId("world-library-crossref-0")).toBeNull()
+  })
+
+  it("无层级的 finding 仍渲染（key 回退 any）", async () => {
+    render(
+      <WorldLibraryView
+        loader={async () => ({
+          blueprint: blueprint as never,
+          validation: {
+            verdict: "incomplete",
+            findings: [{ code: "lonely-finding", severity: "error", message: "孤立问题" }],
+          } as never,
+        })}
+        settingLoader={async () => emptySetting as SettingProjection}
+      />,
+    )
+    await waitFor(() => expect(screen.getByTestId("world-library-finding-0")).toBeTruthy())
+    expect(screen.getByTestId("world-library-finding-0").textContent).toContain("孤立问题")
+    expect(screen.getByTestId("world-library-finding-0").textContent).toContain("lonely-finding")
+  })
+
+  it("设定装载中 → 设定中心 loading 占位（世界蓝图区不受影响）", async () => {
+    render(
+      <WorldLibraryView
+        loader={async () => ({
+          blueprint: blueprint as never,
+          validation: { findings: [], verdict: "complete" } as never,
+        })}
+        settingLoader={() => new Promise<SettingProjection>(() => {})}
+      />,
+    )
+    await waitFor(() => expect(screen.getByTestId("setting-center-loading")).toBeTruthy())
+    expect(screen.getByTestId("world-library-layers")).toBeTruthy()
+  })
+
+  it("设定有角色但零关系边 → 关系空态", async () => {
+    render(
+      <WorldLibraryView
+        loader={async () => ({
+          blueprint: blueprint as never,
+          validation: { findings: [], verdict: "complete" } as never,
+        })}
+        settingLoader={async () => ({ ...settingWithCast, edges: [] }) as SettingProjection}
+      />,
+    )
+    await waitFor(() => expect(screen.getByTestId("setting-center-cast")).toBeTruthy())
+    expect(screen.getByTestId("setting-center-edges-empty")).toBeTruthy()
+    expect(screen.queryByTestId("setting-center-edge-0")).toBeNull()
   })
 })

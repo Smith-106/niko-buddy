@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 import type {
   ModeConfig,
   NovelAgent,
+  RumorEvent,
   SimulationState,
   StoryNode,
   TimelineEvent,
@@ -12,10 +13,16 @@ import type {
 import {
   createSimulationBlackboard,
   createBlackboardDebugTrace,
+  decideRumorTruth,
+  findMatchingRumor,
   getBlackboardVisibleEvents,
+  getBlackboardVisibleRumors,
   planMultiAgentRound,
   recordBlackboardEvent,
+  recordRumorEvent,
   selectNodeAgentCandidates,
+  spreadRumor,
+  verifyRumor,
 } from "@/lib/novel/story-simulation/multi-agent-orchestrator"
 
 function makeAgent(id: string, name: string): NovelAgent {
@@ -353,5 +360,131 @@ describe("simulation-engine integration", () => {
     expect(source).toContain("callbacks.onDebugTrace?.")
     expect(source).not.toContain("Math.random() - 0.5")
     expect(source).not.toContain("state.timelineEvents,\n    10,")
+  })
+})
+
+describe("multi-agent-orchestrator 分支覆盖补齐（R-26：分支 miss 清零）", () => {
+  function makeRumor(id: string, content: string, observableBy: string[]): RumorEvent {
+    return {
+      id,
+      round: 0,
+      nodeIndex: 0,
+      sourceId: null,
+      content,
+      distortion: 0.1,
+      observableBy,
+      believedBy: [],
+      verifiedBy: [],
+      timestamp: "2026-07-03T00:00:00.000Z",
+      generation: 0,
+    }
+  }
+
+  it("未知角色取可见事件/传闻 → ?? [] 右侧空数组", () => {
+    const blackboard = createSimulationBlackboard({ agents: [makeAgent("a", "甲")] })
+    expect(getBlackboardVisibleEvents(blackboard, "ghost")).toEqual([])
+    expect(getBlackboardVisibleRumors(blackboard, "ghost")).toEqual([])
+    expect(findMatchingRumor(blackboard, "ghost", "城西失火")).toBeNull()
+  })
+
+  it("调试轨迹：无可见事件的角色 → 可见数 0（?? [] 右侧）", () => {
+    const blackboard = createSimulationBlackboard({ agents: [makeAgent("a", "甲")] })
+    const trace = createBlackboardDebugTrace(blackboard, {
+      type: "round-plan",
+      node: makeNode(),
+      round: 0,
+    })
+    expect(trace.visibilityByAgent).toHaveLength(1)
+    expect(trace.visibilityByAgent[0]).toMatchObject({ agentId: "a", visibleEventCount: 0 })
+  })
+
+  it("空活跃集记录事件 → isPublicEvent 直接 false（不公开）", () => {
+    const blackboard = createSimulationBlackboard({ agents: [] })
+    const event = makeTimelineEvent("e1", [])
+    recordBlackboardEvent(blackboard, event)
+    expect(blackboard.events).toHaveLength(1)
+    expect(blackboard.publicEvents).toHaveLength(0)
+  })
+
+  it("关键词部分重叠 → 命中最匹配传闻（overlap/score/阈值 then）", () => {
+    const blackboard = createSimulationBlackboard({ agents: [makeAgent("a", "甲")] })
+    recordRumorEvent(blackboard, makeRumor("r1", "城西，市场开张", ["a"]))
+    const hit = findMatchingRumor(blackboard, "a", "城西，粮仓失火")
+    expect(hit?.id).toBe("r1")
+  })
+
+  it("双方关键词皆空 → 总数 0 走 else → 无匹配 null", () => {
+    const blackboard = createSimulationBlackboard({ agents: [makeAgent("a", "甲")] })
+    recordRumorEvent(blackboard, makeRumor("r1", "。", ["a"]))
+    expect(findMatchingRumor(blackboard, "a", "，")).toBeNull()
+  })
+
+  it("中等失真三段全覆盖：confirmed/partial/debunked（确定性随机）", () => {
+    for (const [randValue, expected] of [
+      [0.2, "confirmed"],
+      [0.5, "partial"],
+      [0.8, "debunked"],
+    ] as const) {
+      const rand = vi.spyOn(Math, "random").mockReturnValue(randValue)
+      try {
+        expect(decideRumorTruth(0.5)).toBe(expected)
+      } finally {
+        rand.mockRestore()
+      }
+    }
+  })
+
+  it("verifyRumor：传闻/角色缺失 → 明确错误串", () => {
+    const blackboard = createSimulationBlackboard({ agents: [makeAgent("a", "甲")] })
+    blackboard.rumors.push(makeRumor("r1", "听说城西失火", ["a"]))
+    expect(verifyRumor(blackboard, "a", "nope", "confirmed")).toContain("找不到指定的传闻")
+    expect(verifyRumor(blackboard, "ghost", "r1", "confirmed")).toContain("找不到指定的角色")
+  })
+
+  it("verifyRumor confirmed 幂等：重复验证不堆 verifiedBy/believedBy", () => {
+    const blackboard = createSimulationBlackboard({ agents: [makeAgent("a", "甲")] })
+    blackboard.rumors.push(makeRumor("r1", "听说城西失火", ["a"]))
+    const first = verifyRumor(blackboard, "a", "r1", "confirmed")
+    expect(first).toContain("确认属实")
+    const rumor = blackboard.rumors[0]!
+    expect(rumor.verifiedBy).toEqual(["a"])
+    expect(rumor.believedBy).toEqual(["a"])
+    verifyRumor(blackboard, "a", "r1", "confirmed")
+    expect(rumor.verifiedBy).toEqual(["a"])
+    expect(rumor.believedBy).toEqual(["a"])
+  })
+
+  it("verifyRumor debunked：角色无可见传闻映射 → 跳过摘除但记 observed", () => {
+    const blackboard = createSimulationBlackboard({ agents: [makeAgent("a", "甲")] })
+    blackboard.rumors.push(makeRumor("r1", "听说城西失火", ["a"]))
+    // 注意：未走 recordRumorEvent，可见映射缺失 → 395 else
+    const message = verifyRumor(blackboard, "a", "r1", "debunked")
+    expect(message).toContain("证实为假")
+    const agent = blackboard.allAgents.get("a")!
+    expect(agent.memory.observedEvents).toContain("r1")
+  })
+
+  it("verifyRumor debunked：传闻不在角色可见列 → 不摘除他人条目", () => {
+    const blackboard = createSimulationBlackboard({ agents: [makeAgent("a", "甲")] })
+    blackboard.rumors.push(makeRumor("r1", "听说城西失火", ["a"]))
+    blackboard.rumors.push(makeRumor("r2", "据说城东涨水", ["a"]))
+    recordRumorEvent(blackboard, blackboard.rumors[1]!)
+    const message = verifyRumor(blackboard, "a", "r1", "debunked")
+    expect(message).toContain("证实为假")
+    expect(blackboard.visibleRumorsByAgent.get("a")!.map((r) => r.id)).toEqual(["r2"])
+  })
+
+  it("spreadRumor：未知传播者 → null（守卫 then）", () => {
+    const blackboard = createSimulationBlackboard({ agents: [makeAgent("a", "甲"), makeAgent("b", "乙")] })
+    blackboard.rumors.push(makeRumor("r1", "听说城西失火", ["a", "b"]))
+    const result = spreadRumor(blackboard, "r1", "ghost", "b", "转述")
+    expect(result).toEqual({ newRumor: null, targetBelieved: false })
+  })
+
+  it("spreadRumor：传播者不可见源传闻 → null（?? [] 右侧）", () => {
+    const blackboard = createSimulationBlackboard({ agents: [makeAgent("a", "甲"), makeAgent("b", "乙")] })
+    blackboard.rumors.push(makeRumor("r1", "听说城西失火", ["b"]))
+    const result = spreadRumor(blackboard, "r1", "a", "b", "转述")
+    expect(result).toEqual({ newRumor: null, targetBelieved: false })
   })
 })

@@ -781,3 +781,52 @@ describe("UnifiedSkillLibraryView 覆盖补齐（头部动作/导入/侧栏未�
     cleanup(root, container)
   })
 })
+
+describe("UnifiedSkillLibraryView 分支覆盖补齐（20261105-ralph-coverage-100）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      throw new Error("missing")
+    })
+    writeFileMock.mockResolvedValue(undefined)
+    writeFileAtomicMock.mockResolvedValue(undefined)
+    openDialogMock.mockResolvedValue(null)
+    saveDialogMock.mockResolvedValue(null)
+    useWikiStore.getState().setProject({ id: "p1", name: "测试项目", path: "C:/project" })
+    useWikiStore.getState().setActiveView("skillLibrary" as never)
+  })
+
+  it("writingSkillLibrary 视图激活写作页签（133 行首分支）", async () => {
+    useWikiStore.getState().setActiveView("writingSkillLibrary" as never)
+    const { container, root } = await renderLibrary()
+    const writingTab = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((b) => b.textContent?.trim() === "写作技能")
+    expect(writingTab?.getAttribute("aria-pressed")).toBe("true")
+    cleanup(root, container)
+  })
+
+  it("skillFavorites 视图激活收藏页签（133-135 行第二分支）", async () => {
+    useWikiStore.getState().setActiveView("skillFavorites" as never)
+    const { container, root } = await renderLibrary()
+    const activeTab = container.querySelector('[aria-pressed="true"]')
+    expect(activeTab).not.toBeNull()
+    cleanup(root, container)
+  })
+
+  it("无项目时头部创建动作直接返回不写盘（171/187/203/211 行守卫）", async () => {
+    useWikiStore.getState().setProject(null as never)
+    const { container, root } = await renderLibrary()
+    writeFileAtomicMock.mockClear()
+    // 右头新建写作技能按钮仍渲染，点击后因缺项目直接返回
+    const createBtn = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((b) => b.textContent?.includes("新建"))
+    if (createBtn) {
+      await act(async () => { createBtn.dispatchEvent(new MouseEvent("click", { bubbles: true })) })
+      await flushEffects()
+    }
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+    cleanup(root, container)
+  })
+})

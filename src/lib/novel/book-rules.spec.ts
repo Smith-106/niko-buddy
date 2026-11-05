@@ -192,3 +192,46 @@ describe("覆盖战役补齐：空串约束词", () => {
     expect(result).toEqual({ findings: [], verdict: "comply" })
   })
 })
+
+describe("book-rules 分支覆盖补齐：空值回退与空集合渲染", () => {
+  it("时代约束无 period/region：命中消息用 未标注；片段渲染空回退", () => {
+    const rules: BookRules = {
+      version: "1.0",
+      prohibitions: [],
+      allowedDeviations: [],
+      eraConstraints: { enabled: true, anachronismTerms: ["电话"] },
+    }
+    const result = validateAgainstBookRules(rules, "他拿起电话拨号。")
+    const hit = result.findings.find((f) => f.code === "era_anachronism_hit")
+    expect(hit).toBeTruthy()
+    expect(hit!.severity).toBe("warn")
+    expect(hit!.message).toContain("未标注")
+    expect(result.verdict).toBe("comply")
+    const frag = bookRulesToPromptFragment(rules)
+    expect(frag).toContain("时代约束：；禁出现：电话")
+  })
+
+  it("题材锁 forbidden 为空 → 三元 else（无禁止元素段）", () => {
+    const rules: BookRules = {
+      version: "1.0",
+      prohibitions: [],
+      allowedDeviations: [],
+      genreLock: { primary: "都市刑侦", forbidden: [] },
+    }
+    const frag = bookRulesToPromptFragment(rules)
+    expect(frag).toContain("题材锁：都市刑侦")
+    expect(frag).not.toContain("禁止元素")
+  })
+
+  it("主角无性格锁 → personalityLock if else（只渲染行为约束）", () => {
+    const rules: BookRules = {
+      version: "1.0",
+      prohibitions: [],
+      allowedDeviations: [],
+      protagonist: { name: "林澈", personalityLock: [], behavioralConstraints: ["不杀降者"] },
+    }
+    const frag = bookRulesToPromptFragment(rules)
+    expect(frag).not.toContain("性格锁")
+    expect(frag).toContain("林澈 行为约束：不杀降者")
+  })
+})

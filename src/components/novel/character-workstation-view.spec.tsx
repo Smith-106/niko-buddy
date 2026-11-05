@@ -134,3 +134,87 @@ describe("CharacterWorkstationView · 角色信息区", () => {
     expect(screen.getByRole("heading", { name: /默角/ })).toBeInTheDocument()
   })
 })
+
+describe("CharacterWorkstationView · 分支补齐", () => {
+  it("无 category 时工位标签回退「角色」", () => {
+    render(<CharacterWorkstationView characters={[{ id: "x", name: "无名" }]} />)
+    expect(screen.getByText("角色 · 无名")).toBeInTheDocument()
+  })
+
+  it("受控 null 回退首个角色工位", () => {
+    render(<CharacterWorkstationView characters={characters} activeCharacterId={null} />)
+    expect(screen.getByTestId("station-draft-char-linjing")).toBeInTheDocument()
+  })
+
+  it("点击已激活工位不重复回调", () => {
+    const onActiveChange = vi.fn()
+    render(
+      <CharacterWorkstationView characters={characters} onActiveCharacterChange={onActiveChange} />,
+    )
+    fireEvent.click(screen.getByTestId("workstation-tab-char-linjing"))
+    expect(onActiveChange).not.toHaveBeenCalled()
+  })
+
+  it("受控模式输入草稿只上抛回调（不写内部草稿桶）", async () => {
+    const onDraft = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <CharacterWorkstationView
+        characters={characters}
+        activeCharacterId="char-su"
+        onBasicDraftChange={onDraft}
+      />,
+    )
+    await user.type(screen.getByTestId("station-draft-char-su"), "ab")
+    expect(onDraft).toHaveBeenCalled()
+    for (const call of onDraft.mock.calls) {
+      expect(call[0]).toBe("char-su")
+    }
+    expect(onDraft.mock.calls[onDraft.mock.calls.length - 1]?.[1]).toContain("b")
+  })
+
+  it("Home 回到首位，ArrowLeft/ArrowUp 反向移动", () => {
+    const onActiveChange = vi.fn()
+    render(
+      <CharacterWorkstationView characters={characters} onActiveCharacterChange={onActiveChange} />,
+    )
+    fireEvent.keyDown(screen.getByTestId("workstation-tab-char-linjing"), { key: "ArrowLeft" })
+    expect(onActiveChange).toHaveBeenLastCalledWith("char-gu")
+    fireEvent.keyDown(screen.getByTestId("workstation-tab-char-gu"), { key: "ArrowUp" })
+    expect(onActiveChange).toHaveBeenLastCalledWith("char-su")
+    fireEvent.keyDown(screen.getByTestId("workstation-tab-char-su"), { key: "Home" })
+    expect(onActiveChange).toHaveBeenLastCalledWith("char-linjing")
+  })
+
+  it("未知激活 id 回退首位，方向键按回退后的选中态循环", () => {
+    const onActiveChange = vi.fn()
+    render(
+      <CharacterWorkstationView
+        characters={characters}
+        activeCharacterId="ghost"
+        onActiveCharacterChange={onActiveChange}
+      />,
+    )
+    // 受控 ghost 不在表内 → 工位与切换条都回退首位
+    expect(screen.getByTestId("station-draft-char-linjing")).toBeInTheDocument()
+    expect(screen.getByTestId("workstation-tab-char-linjing")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    )
+    // 切换条收到的 activeId 已是回退后的首位：← 从首位环绕到末位
+    fireEvent.keyDown(screen.getByTestId("workstation-tab-char-linjing"), { key: "ArrowLeft" })
+    expect(onActiveChange).toHaveBeenLastCalledWith("char-gu")
+    // 选中态仍钉在回退首位：再按 →（目标即当前有效位）不重复回调
+    fireEvent.keyDown(screen.getByTestId("workstation-tab-char-gu"), { key: "ArrowRight" })
+    expect(onActiveChange).toHaveBeenCalledTimes(1)
+  })
+
+  it("非导航键不触发切换", () => {
+    const onActiveChange = vi.fn()
+    render(
+      <CharacterWorkstationView characters={characters} onActiveCharacterChange={onActiveChange} />,
+    )
+    fireEvent.keyDown(screen.getByTestId("workstation-tab-char-linjing"), { key: "Enter" })
+    expect(onActiveChange).not.toHaveBeenCalled()
+  })
+})

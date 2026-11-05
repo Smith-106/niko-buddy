@@ -816,3 +816,170 @@ describe("SimulationReportView 导出", () => {
     expect(useStorySimulationStore.getState().error).toBeNull()
   })
 })
+
+describe("SimulationReportView 分支覆盖补齐：对比清洗/历史查看/未知阶段", () => {
+  function setupTwoResults() {
+    resetStores()
+    useStorySimulationStore.setState({
+      currentReport: makeReport({ recommendation: "甲建议。" }),
+      timelineEvents: [makeEvent({ id: "cur1", content: "当前事件", actorName: "阿离", targetName: "神秘人" })],
+      currentFramework: makeFramework(),
+      savedResults: [
+        {
+          id: "r-b",
+          frameworkId: "fw1",
+          report: makeReport({ recommendation: "乙建议。" }),
+          timelineEvents: [makeEvent({ id: "b1", content: "B事件", actorName: "老陈", targetName: "神秘人" })],
+          createdAt: "2026-10-29T10:00:00.000Z",
+        },
+        {
+          id: "r-c",
+          frameworkId: "fw1",
+          report: makeReport({ recommendation: "丙建议。" }),
+          timelineEvents: [],
+          createdAt: "2026-10-28T10:00:00.000Z",
+        },
+      ],
+    })
+    const props = baseProps()
+    render(<SimulationReportView {...props} />)
+    return props
+  }
+
+  it("对比方数组 JSON 推荐 → endsWith ] 右侧 + B 列徽章渲染", () => {
+    resetStores()
+    useStorySimulationStore.setState({
+      currentReport: makeReport({ recommendation: "甲建议。" }),
+      timelineEvents: [],
+      currentFramework: makeFramework(),
+      savedResults: [
+        {
+          id: "r-arr",
+          frameworkId: "fw1",
+          report: makeReport({ recommendation: JSON.stringify(["乙方案一", "乙方案二"]) }),
+          timelineEvents: [],
+          createdAt: "2026-10-29T10:00:00.000Z",
+        },
+      ],
+    })
+    render(<SimulationReportView {...baseProps()} />)
+    fireEvent.click(screen.getByText(t.compareResults))
+    expect(screen.getByText(t.hasDiff)).toBeTruthy()
+    expect(screen.getByText("乙方案一")).toBeTruthy()
+    expect(screen.getByText("乙方案二")).toBeTruthy()
+  })
+
+  it("查看历史结果后对比：A 栏标题用结果 A 日期 + 采访/目标按钮全部隐藏", () => {
+    setupTwoResults()
+    const historySelect = screen.getByText(t.latestResult).closest("select") as HTMLSelectElement
+    fireEvent.change(historySelect, { target: { value: "r-b" } })
+    // 当前查看徽章出现（currentResult 已设置）
+    expect(screen.getByText(t.compareResults)).toBeTruthy()
+    fireEvent.click(screen.getByText(t.compareResults))
+    // A 栏标题不再是 latest，而是带日期的结果 A
+    expect(screen.queryByText(t.resultALatest)).toBeNull()
+    const aPrefix = (t.resultA as string).split("{{date}}")[0]
+    expect(
+      screen.getAllByText((_, el) => (el?.textContent ?? "").startsWith(aPrefix)).length,
+    ).toBeGreaterThan(0)
+    // onInterviewAgent/onGenerateDraft 传 undefined：无采访与草稿按钮
+    expect(screen.queryByText(withName(t.chatWith, "阿离"))).toBeNull()
+    expect(screen.queryByText(t.generateDraft)).toBeNull()
+    // A 栏目标名（无处理器）渲染为纯文本 span
+    const mystery = screen.getByText("神秘人")
+    expect(mystery.tagName).not.toBe("BUTTON")
+  })
+
+  it("查看中的历史结果被删除 → 回退最新报告（find undefined 取 null）", () => {
+    setupTwoResults()
+    const historySelect = screen.getByText(t.latestResult).closest("select") as HTMLSelectElement
+    fireEvent.change(historySelect, { target: { value: "r-b" } })
+    expect(historySelect.value).toBe("r-b")
+    act(() => {
+      useStorySimulationStore.setState({ savedResults: [] })
+    })
+    expect(screen.getByText(t.reportTitle)).toBeTruthy()
+    expect(screen.queryByText(t.latestResult)).toBeNull()
+  })
+
+  it("历史下拉切回最新 → viewingResultId 清空", () => {
+    setupTwoResults()
+    const historySelect = screen.getByText(t.latestResult).closest("select") as HTMLSelectElement
+    fireEvent.change(historySelect, { target: { value: "r-b" } })
+    expect(historySelect.value).toBe("r-b")
+    fireEvent.change(historySelect, { target: { value: "" } })
+    expect(historySelect.value).toBe("")
+    expect(screen.getByText(t.reportTitle)).toBeTruthy()
+  })
+
+  it("唯一历史结果正在查看 → 无可比项，对比按钮隐藏", () => {
+    resetStores()
+    useStorySimulationStore.setState({
+      currentReport: makeReport(),
+      timelineEvents: [],
+      currentFramework: makeFramework(),
+      savedResults: [
+        {
+          id: "r-only",
+          frameworkId: "fw1",
+          report: makeReport(),
+          timelineEvents: [],
+          createdAt: "2026-10-29T10:00:00.000Z",
+        },
+      ],
+    })
+    render(<SimulationReportView {...baseProps()} />)
+    const historySelect = screen.getByText(t.latestResult).closest("select") as HTMLSelectElement
+    fireEvent.change(historySelect, { target: { value: "r-only" } })
+    expect(screen.queryByText(t.compareResults)).toBeNull()
+    expect(screen.getByText(t.reportTitle)).toBeTruthy()
+  })
+
+  it("对比方缺 timelineEvents → 双栏照常渲染（两侧 ?? [] 右侧）", () => {
+    resetStores()
+    useStorySimulationStore.setState({
+      currentReport: makeReport({ recommendation: "甲建议。" }),
+      timelineEvents: [makeEvent({ id: "cur1", content: "当前事件" })],
+      currentFramework: makeFramework(),
+      savedResults: [
+        {
+          id: "r-nt",
+          frameworkId: "fw1",
+          report: makeReport({ recommendation: "乙建议。" }),
+          createdAt: "2026-10-29T10:00:00.000Z",
+        },
+      ],
+    })
+    render(<SimulationReportView {...baseProps()} />)
+    fireEvent.click(screen.getByText(t.compareResults))
+    expect(screen.getByText(t.resultALatest)).toBeTruthy()
+    const bPrefix = (t.resultB as string).split("{{date}}")[0]
+    expect(
+      screen.getAllByText((_, el) => (el?.textContent ?? "").startsWith(bPrefix)).length,
+    ).toBeGreaterThan(0)
+  })
+
+  it("未知阶段标签 → phaseLabel 回退原文", () => {
+    const framework = makeFramework({
+      nodes: [
+        {
+          index: 0,
+          phase: "前传" as unknown as "起",
+          title: "序幕",
+          coreConflict: "冲突",
+          involvedCharacters: [],
+          goal: "目标",
+          causeFromPrev: "承接",
+          expectedOutcome: "结局",
+        },
+      ],
+    })
+    useStorySimulationStore.setState({
+      currentReport: makeReport(),
+      timelineEvents: [makeEvent({ nodeIndex: 0 })],
+      currentFramework: framework,
+    })
+    render(<SimulationReportView {...baseProps()} />)
+    expect(screen.getByText("前传")).toBeTruthy()
+  })
+})

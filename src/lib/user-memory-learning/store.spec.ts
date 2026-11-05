@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  GLOBAL_USER_MEMORY_CHANGED_EVENT,
   GLOBAL_USER_MEMORY_STORAGE_KEY,
   addManualUserMemoryRule,
   deleteUserMemoryRule,
@@ -7,11 +8,14 @@ import {
   saveGlobalUserMemoryConfig,
   setUserMemoryRuleEnabled,
   upsertAutomaticUserMemoryRule,
+  updateGlobalUserMemorySettings,
+  updateUserMemoryRule,
   normalizeGlobalUserMemoryConfig,
   clearGlobalUserMemoryConfig,
   getGlobalUserMemoryStats,
 } from "./store"
 import { consumeUserMemoryLearningBudget, loadUserMemoryLearningBudget } from "./learning-budget"
+import type { UserMemoryRule } from "./types"
 
 class MemoryStorage implements Pick<Storage, "getItem" | "setItem"> {
   private values = new Map<string, string>()
@@ -232,5 +236,260 @@ describe("global user memory store", () => {
 
     expect(normalized.rules.some((rule) => rule.id === "manual")).toBe(true)
     expect(normalized.rules.length).toBeLessThan(9)
+  })
+})
+
+describe("global user memory store · 分支补齐", () => {
+  let storage: MemoryStorage
+
+  beforeEach(() => {
+    storage = new MemoryStorage()
+  })
+
+  it("默认存储缺席时回退默认配置且保存直接返回", () => {
+    expect(loadGlobalUserMemoryConfig()).toMatchObject({ version: 2, rules: [] })
+    expect(loadGlobalUserMemoryConfig(null)).toMatchObject({ version: 2, rules: [] })
+    expect(saveGlobalUserMemoryConfig(loadGlobalUserMemoryConfig(null))).toBeUndefined()
+  })
+
+  it("浏览器存储经 window.localStorage 读写并广播变更", () => {
+    const backing = new MemoryStorage()
+    const dispatched: string[] = []
+    vi.stubGlobal("window", {
+      localStorage: backing,
+      dispatchEvent: (event: Event) => {
+        dispatched.push(event.type)
+        return true
+      },
+    })
+    try {
+      const created = addManualUserMemoryRule(loadGlobalUserMemoryConfig(), {
+        rule: "浏览器记忆甲。",
+        category: "manual",
+        surfaces: ["all"],
+      }, 100)
+      saveGlobalUserMemoryConfig(created)
+
+      expect(dispatched).toEqual([GLOBAL_USER_MEMORY_CHANGED_EVENT])
+      const loaded = loadGlobalUserMemoryConfig()
+      expect(loaded.rules.map((rule) => rule.rule)).toEqual(["浏览器记忆甲。"])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("normalize 容忍非对象与脏规则并丢弃无效条目", () => {
+    expect(normalizeGlobalUserMemoryConfig(null)).toMatchObject({ version: 2, rules: [] })
+    expect(normalizeGlobalUserMemoryConfig({ rules: "not-an-array" }).rules).toEqual([])
+    const normalized = normalizeGlobalUserMemoryConfig({
+      rules: [null, { id: "no-rule-text" }, { id: "num-rule", rule: 123 }],
+    })
+    expect(normalized.rules).toEqual([])
+  })
+
+  it("非法置信度按来源回退默认值", () => {
+    const normalized = normalizeGlobalUserMemoryConfig({
+      rules: [
+        { id: "bad-auto", rule: "自动脏置信度。", source: "automatic", confidence: "bad" },
+        { id: "bad-manual", rule: "手动脏置信度。", source: "manual", confidence: Number.NaN },
+      ],
+    })
+
+    expect(normalized.rules[0]?.confidence).toBe(0.5)
+    expect(normalized.rules[1]?.confidence).toBe(1)
+  })
+
+  it("normalize 补齐缺失字段并保留有效值", () => {
+    const normalized = normalizeGlobalUserMemoryConfig({
+      rules: [
+        {
+          rule: "  有效规则甲  ",
+          category: "unknown-category",
+          createdAt: "bad",
+          confidence: 0.8,
+          surfaces: [],
+          projectKey: "p1",
+          sessionKey: "s1",
+          lastUsedAt: 500,
+          scope: "project",
+        },
+        { rule: "规则乙", lastUsedAt: Number.NaN },
+      ],
+    })
+
+    expect(normalized.rules).toHaveLength(2)
+    expect(normalized.rules[0]).toMatchObject({
+      rule: "有效规则甲",
+      category: "manual",
+      createdAt: 0,
+      confidence: 0.8,
+      surfaces: ["all"],
+      projectKey: "p1",
+      sessionKey: "s1",
+      lastUsedAt: 500,
+      updatedAt: 0,
+      scope: "project",
+    })
+    expect(normalized.rules[0]?.id).toMatch(/^memory:0:/)
+    expect(normalized.rules[1]?.lastUsedAt).toBeNull()
+  })
+
+  it("prune 并列时按更新时间取舍", () => {
+    const normalized = normalizeGlobalUserMemoryConfig({
+      maxRules: 2,
+      rules: [1, 2, 3, 4].map((index) => ({
+        id: `auto-${index}`,
+        rule: `自动规则${index}。`,
+        category: "manual",
+        source: "automatic",
+        surfaces: ["all"],
+        enabled: true,
+        status: "candidate",
+        confidence: 0.5,
+        usageCount: 0,
+        createdAt: index,
+        updatedAt: index,
+      })),
+    })
+
+    expect(normalized.rules.map((rule) => rule.id).sort()).toEqual(["auto-3", "auto-4"])
+  })
+
+  it("存储超限时移除一条即回落", () => {
+    const input = {
+      maxRules: 300,
+      rules: [
+        { id: "manual", rule: "手动。", category: "manual", source: "manual", surfaces: ["all"], enabled: true, createdAt: 1, updatedAt: 1 },
+        { id: "low", rule: `低价值${"内容".repeat(1000)}`, category: "manual", source: "automatic", surfaces: ["all"], enabled: true, status: "candidate", confidence: 0.1, createdAt: 2, updatedAt: 2 },
+        { id: "high", rule: `高价值${"内容".repeat(1000)}`, category: "manual", source: "automatic", surfaces: ["all"], enabled: true, status: "candidate", confidence: 0.9, createdAt: 3, updatedAt: 3 },
+      ],
+    }
+    const full = JSON.stringify(normalizeGlobalUserMemoryConfig({ ...input, maxStorageBytes: 10_000_000 })).length * 2
+    const normalized = normalizeGlobalUserMemoryConfig({ ...input, maxStorageBytes: full - 1500 })
+
+    expect(normalized.rules.some((rule) => rule.id === "manual")).toBe(true)
+    expect(normalized.rules.some((rule) => rule.id === "low")).toBe(false)
+    expect(normalized.rules.some((rule) => rule.id === "high")).toBe(true)
+  })
+
+  it("空规则与空来源哈希直接返回原配置", () => {
+    const base = loadGlobalUserMemoryConfig(storage)
+    expect(addManualUserMemoryRule(base, { rule: "   ", category: "manual", surfaces: ["all"] }, 100)).toBe(base)
+    expect(upsertAutomaticUserMemoryRule(base, {
+      rule: "   ", category: "manual", surfaces: ["all"], confidence: 0.5, evidenceSummary: "e", sourceHash: "h",
+    }, 100)).toBe(base)
+    expect(upsertAutomaticUserMemoryRule(base, {
+      rule: "有效规则。", category: "manual", surfaces: ["all"], confidence: 0.5, evidenceSummary: "e", sourceHash: "   ",
+    }, 100)).toBe(base)
+  })
+
+  it("crypto 缺席时回退随机 id", () => {
+    vi.stubGlobal("crypto", undefined)
+    try {
+      const created = addManualUserMemoryRule(loadGlobalUserMemoryConfig(storage), {
+        rule: "无 crypto 规则。",
+        category: "manual",
+        surfaces: ["all"],
+      }, 100)
+      expect(created.rules[0]?.id).toMatch(/^memory:100:[a-z0-9]+$/)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("同指纹更新保留其他规则并补齐缺失证据计数", () => {
+    const first = upsertAutomaticUserMemoryRule(loadGlobalUserMemoryConfig(storage), {
+      rule: "规则甲。", category: "interaction_preference", surfaces: ["all"],
+      confidence: 0.6, evidenceSummary: "甲证据", sourceHash: "h1",
+    }, 100)
+    const withPeer = upsertAutomaticUserMemoryRule(first, {
+      rule: "规则乙。", category: "format_preference", surfaces: ["all"],
+      confidence: 0.7, evidenceSummary: "乙证据", sourceHash: "h2",
+    }, 200)
+    const fingerprintA = withPeer.rules.find((rule) => rule.rule === "规则甲。")!.fingerprint
+    const stripped = {
+      ...withPeer,
+      rules: withPeer.rules.map((rule) => rule.fingerprint === fingerprintA ? { ...rule, evidenceCount: undefined } : rule),
+    }
+    const updated = upsertAutomaticUserMemoryRule(stripped, {
+      rule: "规则甲。", category: "interaction_preference", surfaces: ["all"],
+      confidence: 0.8, evidenceSummary: "甲新证据", sourceHash: "h3",
+    }, 300)
+
+    expect(updated.rules.find((rule) => rule.rule === "规则甲。")).toMatchObject({ evidenceCount: 2, confidence: 0.8 })
+    expect(updated.rules.find((rule) => rule.rule === "规则乙。")).toMatchObject({ evidenceSummary: "乙证据" })
+  })
+
+  it("session 域自动规则一天过期", () => {
+    const created = upsertAutomaticUserMemoryRule(loadGlobalUserMemoryConfig(storage), {
+      rule: "会话规则甲。",
+      category: "interaction_preference",
+      surfaces: ["all"],
+      confidence: 0.6,
+      evidenceSummary: "证据",
+      sourceHash: "session-hash",
+      scope: "session",
+    }, 1000)
+
+    expect(created.rules[0]?.expiresAt).toBe(1000 + 24 * 60 * 60 * 1000)
+  })
+
+  it("更新与删除的边界行为", () => {
+    const created = addManualUserMemoryRule(loadGlobalUserMemoryConfig(storage), {
+      rule: "边界规则甲。",
+      category: "manual",
+      surfaces: ["all"],
+    }, 100)
+    const id = created.rules[0]!.id
+
+    const untouched = updateUserMemoryRule(created, "missing-id", { rule: "新文本。" }, 200)
+    expect(untouched.rules).toEqual(created.rules)
+
+    const renamed = updateUserMemoryRule(created, id, { rule: "  重命名后  " }, 200)
+    expect(renamed.rules[0]).toMatchObject({ rule: "重命名后" })
+
+    const keptOnBlank = updateUserMemoryRule(created, id, { rule: "   " }, 300)
+    expect(keptOnBlank.rules[0]?.rule).toBe("边界规则甲。")
+
+    expect(deleteUserMemoryRule(created, "missing-id")).toBe(created)
+    const deletedManual = deleteUserMemoryRule(created, id, 400)
+    expect(deletedManual.rules).toEqual([])
+    expect(deletedManual.deletedFingerprints).toEqual([])
+  })
+
+  it("设置更新默认走当前时间", () => {
+    const base = loadGlobalUserMemoryConfig(storage)
+    const updated = updateGlobalUserMemorySettings(base, { enabled: false })
+
+    expect(updated.enabled).toBe(false)
+    expect(updated.updatedAt).toBeGreaterThan(0)
+  })
+
+  it("缺失状态按长期有效统计", () => {
+    const base = loadGlobalUserMemoryConfig(storage)
+    const full: UserMemoryRule = {
+      id: "nostatus",
+      rule: "无状态规则。",
+      category: "manual",
+      source: "manual",
+      surfaces: ["all"],
+      confidence: 1,
+      evidenceSummary: "",
+      sourceHash: null,
+      fingerprint: "manual:nostatus",
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+      scope: "global",
+      projectKey: null,
+      sessionKey: null,
+      status: "active",
+      expiresAt: null,
+    }
+    const { status: _dropped, ...rest } = full
+    void _dropped
+    const config = { ...base, rules: [rest as UserMemoryRule] }
+
+    expect(getGlobalUserMemoryStats(config).activeRules).toBe(1)
   })
 })

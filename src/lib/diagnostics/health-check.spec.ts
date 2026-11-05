@@ -75,6 +75,79 @@ describe("collectHealthReport 全健康基线", () => {
   })
 })
 
+describe("分支补齐：run/history/version 状态分岔（读成功路径）", () => {
+  it("未知会话状态 → run=unknown（map 缺省分支），影响面诚实为状态正常", async () => {
+    vi.mocked(loadNovelSessionStatus).mockResolvedValue({
+      status: "archived",
+      session_id: "s-arch",
+    } as never)
+    const report = await collectHealthReport({ projectPath: "/p/book", llmCfg: null })
+    const run = itemOf(report, "run")
+    expect(run.status).toBe("unknown")
+    expect(run.errorCode).toBeUndefined()
+    expect(run.userImpact).toContain("状态正常")
+    expect(run.suggestedAction).toBe("无需操作")
+    expect(run.recoveries).toEqual([])
+  })
+
+  it("paused 会话 → run=degraded（暂停/阻塞影响面）", async () => {
+    vi.mocked(loadNovelSessionStatus).mockResolvedValue({
+      status: "paused",
+      session_id: "s-paused",
+    } as never)
+    const report = await collectHealthReport({ projectPath: "/p/book", llmCfg: null })
+    const run = itemOf(report, "run")
+    expect(run.status).toBe("degraded")
+    expect(run.userImpact).toContain("已暂停/阻塞")
+    expect(run.autoRecoverable).toBe(false)
+  })
+
+  it("老 status.json 缺 session_id → technicalDetail 回退空串（向后兼容）", async () => {
+    vi.mocked(loadNovelSessionStatus).mockResolvedValue({ status: "running" } as never)
+    const report = await collectHealthReport({ projectPath: "/p/book", llmCfg: null })
+    const run = itemOf(report, "run")
+    expect(run.status).toBe("healthy")
+    expect(run.technicalDetail).toContain("status=running; session_id=")
+  })
+
+  it("含 invalid 记录 → history=attention_required(HISTORY_INVALID_RECORD)", async () => {
+    vi.mocked(loadExportHistoryView).mockResolvedValue([
+      { status: "available" },
+      { status: "source_missing" },
+      { status: "invalid" },
+    ] as never)
+    const report = await collectHealthReport({ projectPath: "/p/book", llmCfg: null })
+    const history = itemOf(report, "history")
+    expect(history.status).toBe("attention_required")
+    expect(history.errorCode).toBe("HISTORY_INVALID_RECORD")
+    expect(history.userImpact).toContain("损坏")
+    expect(history.suggestedAction).toContain("定位")
+  })
+
+  it("schema_version 前进 → version=attention_required(SCHEMA_VERSION_MISMATCH)", async () => {
+    vi.mocked(loadNovelSessionStatus).mockResolvedValue({
+      status: "running",
+      session_id: "s1",
+      schema_version: "2",
+    } as never)
+    const report = await collectHealthReport({ projectPath: "/p/book", llmCfg: null })
+    const version = itemOf(report, "version")
+    expect(version.status).toBe("attention_required")
+    expect(version.errorCode).toBe("SCHEMA_VERSION_MISMATCH")
+    expect(version.userImpact).toContain("不匹配")
+  })
+
+  it("门控指纹漂移 → version=degraded(GATE_PRIORITY_DRIFT)，缺指纹记 missing", async () => {
+    vi.mocked(structuralFingerprint).mockReturnValue("")
+    const report = await collectHealthReport({ projectPath: "/p/book", llmCfg: null })
+    const version = itemOf(report, "version")
+    expect(version.status).toBe("degraded")
+    expect(version.errorCode).toBe("GATE_PRIORITY_DRIFT")
+    expect(version.technicalDetail).toContain("missing")
+    expect(version.technicalDetail).toContain("GATE_PRIORITY order drift")
+  })
+})
+
 describe("各检测器读失败 → unknown/unavailable（门禁4）", () => {
   it("status.json 读取抛错 → run=unknown(RUN_STATUS_UNREADABLE)，version 内层同步 attention", async () => {
     vi.mocked(loadNovelSessionStatus).mockRejectedValue(new Error("status corrupt"))

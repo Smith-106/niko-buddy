@@ -3,12 +3,18 @@ import { streamChat } from "@/lib/llm-client"
 import {
   buildStagePrompt,
   DirectorStageGenerationError,
+  directorStageJournalKey,
   generateDirectorStage,
   generateDirectorStages,
   parseStageJson,
   validateStageOutput,
   type DirectorStageGenerationDeps,
 } from "./director-stage-generation"
+import {
+  buildStageRecord,
+  computeInstructionDigest,
+  serializeRecord,
+} from "./stage-output-journal"
 import type { StageJournalDeps, StageJournalRuntime } from "./stage-output-journal"
 import type { LlmConfig } from "@/stores/wiki-store"
 
@@ -324,5 +330,179 @@ describe("开书导演阶段生成器 · 默认 streamChat 链路（无 complete
     await expect(generateDirectorStage("character", instruction, { llmConfig: LLM })).rejects.toBeInstanceOf(
       DirectorStageGenerationError,
     )
+  })
+})
+
+describe("开书导演阶段生成器 · 校验分支补齐", () => {
+  it("idea 缺字段逐项报缺口，空白标题与非数组钩子亦不合格", () => {
+    const missing = validateStageOutput("idea", { title: "只有标题" })
+    expect(missing.ok).toBe(false)
+    if (!missing.ok) {
+      expect(missing.findings.map((f) => f.path)).toEqual(
+        expect.arrayContaining(["genre", "coreConflict", "logline", "hooks"]),
+      )
+    }
+
+    const blankTitle = validateStageOutput("idea", {
+      title: "   ",
+      genre: "题材",
+      coreConflict: "冲突",
+      logline: "故事",
+      hooks: ["钩子"],
+    })
+    expect(blankTitle.ok).toBe(false)
+    if (!blankTitle.ok) {
+      expect(blankTitle.findings.some((f) => f.path === "title")).toBe(true)
+    }
+
+    const badHooks = validateStageOutput("idea", {
+      title: "标题",
+      genre: "题材",
+      coreConflict: "冲突",
+      logline: "故事",
+      hooks: "不是数组",
+    })
+    expect(badHooks.ok).toBe(false)
+    if (!badHooks.ok) {
+      expect(badHooks.findings.some((f) => f.path === "hooks")).toBe(true)
+    }
+  })
+
+  it("character 非法条目逐项报缺口", () => {
+    const notObject = validateStageOutput("character", null)
+    expect(notObject.ok).toBe(false)
+    if (!notObject.ok) {
+      expect(notObject.findings.some((f) => f.path === "$.characters")).toBe(true)
+    }
+
+    const badEntries = validateStageOutput("character", {
+      characters: [
+        "字符串条目",
+        { name: "", role: "cameo", desire: "", flaw: "" },
+      ],
+    })
+    expect(badEntries.ok).toBe(false)
+    if (!badEntries.ok) {
+      const paths = badEntries.findings.map((f) => f.path)
+      expect(paths).toEqual(expect.arrayContaining([
+        "characters[1].name",
+        "characters[1].role",
+        "characters[1].desire",
+        "characters[1].flaw",
+      ]))
+    }
+  })
+
+  it("character 配角与对手齐备时校验通过", () => {
+    const result = validateStageOutput("character", {
+      characters: [
+        { name: "陈默", role: "protagonist", desire: "赎回身体", flaw: "撒谎" },
+        { name: "房东", role: "antagonist", desire: "榨干租客", flaw: "赌瘾" },
+        { name: "阿婆", role: "supporting", desire: "守住老街", flaw: "心软" },
+      ],
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value.characters).toHaveLength(3)
+    }
+  })
+
+  it("outline 缺框架与非法分卷逐项报缺口", () => {
+    const notObject = validateStageOutput("outline", null)
+    expect(notObject.ok).toBe(false)
+    if (!notObject.ok) {
+      expect(notObject.findings.some((f) => f.path === "framework")).toBe(true)
+    }
+
+    const badVolumes = validateStageOutput("outline", {
+      framework: "三幕",
+      volumes: [
+        null,
+        { title: "", arc: "", chapterCount: 0 },
+      ],
+    })
+    expect(badVolumes.ok).toBe(false)
+    if (!badVolumes.ok) {
+      const paths = badVolumes.findings.map((f) => f.path)
+      expect(paths).toEqual(expect.arrayContaining([
+        "volumes[1].title",
+        "volumes[1].arc",
+        "volumes[1].chapterCount",
+      ]))
+    }
+  })
+
+  it("chapters 缺首章计划与字段逐项报缺口", () => {
+    const notObject = validateStageOutput("chapters", null)
+    expect(notObject.ok).toBe(false)
+    if (!notObject.ok) {
+      expect(notObject.findings.some((f) => f.path === "$.firstChapter")).toBe(true)
+    }
+
+    const nonObjectChapter = validateStageOutput("chapters", { firstChapter: "字符串" })
+    expect(nonObjectChapter.ok).toBe(false)
+    if (!nonObjectChapter.ok) {
+      expect(nonObjectChapter.findings.map((f) => f.path)).toEqual(
+        expect.arrayContaining(["firstChapter.title", "firstChapter.beats", "firstChapter.hook"]),
+      )
+    }
+
+    const missingTitle = validateStageOutput("chapters", {
+      firstChapter: { beats: ["节拍"], hook: "钩子" },
+    })
+    expect(missingTitle.ok).toBe(false)
+    if (!missingTitle.ok) {
+      expect(missingTitle.findings.some((f) => f.path === "firstChapter.title")).toBe(true)
+    }
+
+    const missingHook = validateStageOutput("chapters", {
+      firstChapter: { title: "首章", beats: ["节拍"] },
+    })
+    expect(missingHook.ok).toBe(false)
+    if (!missingHook.ok) {
+      expect(missingHook.findings.some((f) => f.path === "firstChapter.hook")).toBe(true)
+    }
+  })
+
+  it("prompt 对缺失设定回退待定占位", () => {
+    const prompt = buildStagePrompt("outline", { idea: { title: "", genre: "", coreConflict: "" } })
+    expect(prompt).toContain("书名：\uff08待定\uff09")
+    expect(prompt).toContain("题材：\uff08待定\uff09")
+    expect(prompt).toContain("核心冲突：\uff08待定\uff09")
+  })
+
+  it("journal 命中旧 schema 记录时重新生成并覆盖", async () => {
+    const instruction = { idea: { title: "身体都是租的", genre: "都市异能", coreConflict: "活下去" } }
+    const prompt = buildStagePrompt("outline", instruction)
+    const digest = await computeInstructionDigest({ stage: "outline", prompt, instruction })
+    const journalKey = directorStageJournalKey("outline")
+    const stale = serializeRecord(buildStageRecord(digest, journalKey, { framework: "old" }, 1, 60_000))
+
+    let reads = 0
+    let written = ""
+    const deps: StageJournalDeps = {
+      read: async () => {
+        reads += 1
+        return reads === 1 ? stale : written
+      },
+      writeFile: async (_path, contents) => {
+        written = contents
+      },
+      createDirectory: async () => {},
+    }
+    const journal: StageJournalRuntime = { projectId: "proj", deps, now: () => 1_000, ttlMs: 60_000 }
+    let calls = 0
+    const complete = async () => {
+      calls += 1
+      return OUTLINE_JSON
+    }
+
+    const result = await generateDirectorStage("outline", instruction, { llmConfig: LLM, journal, complete })
+    expect(result.cached).toBe(false)
+    expect(result.digest).toBe(digest)
+    expect(result.output.volumes).toHaveLength(2)
+    expect(calls).toBe(1)
+    expect(written).toContain(digest)
+    expect(written).toContain("第二卷 违约")
   })
 })

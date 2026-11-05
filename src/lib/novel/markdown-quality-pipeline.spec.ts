@@ -189,4 +189,41 @@ describe("markdown quality pipeline", () => {
     expect(hasMarkdownContentChanged(source, candidate)).toBe(false)
   })
 
+  it("全空白正文修复为默认标题（repairTitle 空内容路径）", () => {
+    expect(repairStructuredMarkdownLocally("   \n  ")).toBe("# 结构化资料")
+    expect(inspectStructuredMarkdown("# 结构化资料").valid).toBe(true)
+  })
+
+  it("二级标题提升为一级标题而不是另起默认标题", () => {
+    expect(repairStructuredMarkdownLocally("## 小标题\n正文内容")).toBe("# 小标题\n正文内容")
+  })
+
+  it("首行是列表项时另起默认标题（不把条目改写成标题）", () => {
+    expect(repairStructuredMarkdownLocally("- 条目一\n- 条目二")).toBe(
+      "# 结构化资料\n\n- 条目一\n- 条目二",
+    )
+  })
+
+  it("未闭合行内代码遮蔽后续双星号（不成对加粗不误报）", () => {
+    const source = "# 文件\n\n使用 `**literal 标记。"
+
+    expect(inspectStructuredMarkdown(source).valid).toBe(true)
+    expect(repairStructuredMarkdownLocally(source)).toBe(source)
+  })
+
+  it("转义反引号不开启行内代码（表格仍可补分隔行并保留原文）", () => {
+    const source = "# 规则表\n\n| 模式 | 说明 |\n| a\\`b | 文字 |"
+    const expected = "# 规则表\n\n| 模式 | 说明 |\n| --- | --- |\n| a\\`b | 文字 |"
+
+    expect(repairStructuredMarkdownLocally(source)).toBe(expected)
+    expect(inspectStructuredMarkdown(expected).valid).toBe(true)
+  })
+
+  it("行内代码未闭合的行不被当作表格行", () => {
+    const source = "# 规则表\n\n| 名称 | 说明 |\n| `a ``b | 文字 |"
+
+    expect(repairStructuredMarkdownLocally(source)).toBe(source)
+    expect(inspectStructuredMarkdown(source).valid).toBe(true)
+  })
+
 })

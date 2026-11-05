@@ -397,6 +397,216 @@ describe("E-05 loadForPlanning 规划装配（六 truth 文件只读投影）", 
   })
 })
 
+describe("E-06 稀疏 truth 文件容错（缺字段回退）", () => {
+  function setupSparse() {
+    const files = new Map<string, string>()
+    // character-states.json 缺 characters 键（旧文件/损坏裁剪）→ ?? [] 右侧
+    files.set("/P/.novel/character-states.json", JSON.stringify({ lastUpdated: "" }))
+    // cognition 条目缺 doesNotKnow 字段 → 过滤器 ?? [] 右侧
+    files.set("/P/.novel/cognition-state.json", JSON.stringify({
+      characters: [{ character: "阿昴", knows: [] }],
+      readerKnows: [],
+      lastUpdatedChapter: 3,
+    }))
+    // 伏笔条目缺 id/description → 渲染回退 "?"/空串
+    files.set("/P/.novel/foreshadowing-tracker.json", JSON.stringify({
+      items: [{ status: "planted", plantedChapter: 1 }],
+      lastUpdated: "",
+    }))
+    fsMocks.readFile.mockImplementation(async (p: string) => {
+      if (!files.has(p)) throw new Error(`ENOENT: ${p}`)
+      return files.get(p)
+    })
+    fsMocks.fileExists.mockImplementation(async (p: string) => files.has(p))
+    fsMocks.listDirectory.mockImplementation(async () => { throw new Error("ENOENT") })
+  }
+
+  it("缺 characters 键时规划装配降级为仅章节头，不抛错", async () => {
+    setupSparse()
+    const { loadForPlanning } = await import("./process-library")
+    const ctx = await loadForPlanning("/P", 1)
+    expect(ctx.currentState).toBe("【当前状态】截至第1章")
+  })
+
+  it("缺字段角色渲染占位符；缺 id/描述伏笔回退 F:?", async () => {
+    const files = new Map<string, string>()
+    files.set("/P/.novel/character-states.json", JSON.stringify({
+      characters: [{ characterName: "阿昴" }],
+      lastUpdated: "",
+    }))
+    files.set("/P/.novel/cognition-state.json", JSON.stringify({
+      characters: [{ character: "阿昴", knows: [] }],
+      readerKnows: [],
+      lastUpdatedChapter: 3,
+    }))
+    files.set("/P/.novel/foreshadowing-tracker.json", JSON.stringify({
+      items: [{ status: "planted", plantedChapter: 1 }],
+      lastUpdated: "",
+    }))
+    fsMocks.readFile.mockImplementation(async (p: string) => {
+      if (!files.has(p)) throw new Error(`ENOENT: ${p}`)
+      return files.get(p)
+    })
+    fsMocks.fileExists.mockImplementation(async (p: string) => files.has(p))
+    fsMocks.listDirectory.mockImplementation(async () => { throw new Error("ENOENT") })
+    const { loadForPlanning } = await import("./process-library")
+    const ctx = await loadForPlanning("/P", 1)
+    expect(ctx.currentState).toContain("第?章 阿昴：位于?，状态?")
+    expect(ctx.currentState).not.toContain("不知道")
+    expect(ctx.pendingHooks).toContain("F:?")
+  })
+
+  it("computeVisibility：cognition 条目缺 doesNotKnow → 空不知道集", async () => {
+    const { computeVisibility } = await import("./process-library")
+    const s = makeSources()
+    const cognition = {
+      characters: [{ character: "菜月昴", knows: [] }],
+      readerKnows: [],
+      lastUpdatedChapter: 3,
+    } as unknown as CognitionState
+    const vis = computeVisibility("菜月昴", 3, { ...s, cognition })
+    expect(vis.doesNotKnow).toEqual([])
+    expect(vis.metBefore).toContain("蕾姆")
+  })
+})
+
+describe("E-06 visibleInfoFor 空 POV（渲染守卫 else 面）", () => {
+  it("陌生 POV 三面全空 → 空串（不渲染任何段）", async () => {
+    const s = makeSources()
+    const files = new Map<string, string>()
+    files.set("/P/.novel/cognition-state.json", JSON.stringify(s.cognition))
+    files.set("/P/.novel/encounter-matrix.json", JSON.stringify(s.matrix))
+    files.set("/P/.novel/particle-ledger.json", JSON.stringify(s.particles))
+    files.set("/P/.novel/resource-ledger.json", JSON.stringify(s.resources))
+    fsMocks.readFile.mockImplementation(async (p: string) => {
+      if (!files.has(p)) throw new Error(`ENOENT: ${p}`)
+      return files.get(p)
+    })
+    fsMocks.fileExists.mockImplementation(async (p: string) => files.has(p))
+    fsMocks.listDirectory.mockImplementation(async () => { throw new Error("ENOENT") })
+    const { visibleInfoFor } = await import("./process-library")
+    // 路人不在任何账本：doesNotKnow/metBefore/heldItems/particles 全空 + 无摘要
+    await expect(visibleInfoFor("/P", "路人", 3)).resolves.toBe("")
+  })
+})
+
+describe("E-06 extractAuditInputsFromText 空源与去重", () => {
+  it("三源全缺省 → 空在场集（?? 右侧）", async () => {
+    const { extractAuditInputsFromText } = await import("./process-library")
+    expect(extractAuditInputsFromText("菜月昴握着徽章。", {})).toEqual({
+      presentCharacters: [],
+      presentItems: [],
+      presentParticles: {},
+    })
+  })
+
+  it("重复粒子条目只收录一次（includes 跳过路径）", async () => {
+    const { extractAuditInputsFromText } = await import("./process-library")
+    const s = makeSources()
+    const ledger = createEmptyParticleLedgerStore()
+    ledger.entries = [
+      { kind: "injury", character: "菜月昴", name: "左臂", chapter: 2, delta: 1, state: "轻伤", note: "" },
+      { kind: "injury", character: "菜月昴", name: "左臂", chapter: 3, delta: 0, state: "加重", note: "" },
+    ]
+    const extracted = extractAuditInputsFromText("菜月昴握着徽章，左臂隐隐作痛。", {
+      cognition: s.cognition,
+      resources: s.resources,
+      particles: ledger,
+    })
+    expect(extracted.presentCharacters).toEqual(["菜月昴"])
+    expect(extracted.presentItems).toEqual(["徽章"])
+    expect(extracted.presentParticles["菜月昴"]).toEqual(["左臂"])
+  })
+})
+
+describe("E-06 auditChapter options.sources 注入（装配核心复用两面）", () => {
+  function sparseFiles() {
+    const files = new Map<string, string>()
+    files.set("/P/.novel/cognition-state.json", JSON.stringify({
+      characters: [{ character: "菜月昴", knows: [], doesNotKnow: ["密道位置"] }],
+      readerKnows: [],
+      lastUpdatedChapter: 3,
+    }))
+    files.set("/P/.novel/encounter-matrix.json", JSON.stringify({
+      edges: [{ a: "菜月昴", b: "蕾姆", chapter: 2, context: "客栈", witnessedBy: [] }],
+      lastUpdated: "",
+    }))
+    files.set("/P/.novel/particle-ledger.json", JSON.stringify({
+      entries: [{ kind: "injury", character: "菜月昴", name: "左臂", chapter: 2, delta: 0, state: "已愈", note: "text-heuristic" }],
+      lastUpdated: "",
+    }))
+    files.set("/P/.novel/resource-ledger.json", JSON.stringify({
+      entries: [{ item: "徽章", currentHolder: "菜月昴", chapter: 2, note: "" }],
+      lastUpdated: "",
+    }))
+    files.set("/P/.novel/foreshadowing-tracker.json", JSON.stringify({
+      items: [{
+        id: "F-001", name: "密道钥匙", description: "", status: "planted",
+        plantedChapter: 1, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "",
+      }],
+      lastUpdated: "",
+    }))
+    files.set("/P/.novel/character-states.json", JSON.stringify({
+      characters: [{ characterName: "乙", isAlive: false, deathChapter: 4 }],
+      lastUpdated: "",
+    }))
+    fsMocks.readFile.mockImplementation(async (p: string) => {
+      if (!files.has(p)) throw new Error(`ENOENT: ${p}`)
+      return files.get(p)
+    })
+    fsMocks.writeFileAtomic.mockClear()
+    fsMocks.fileExists.mockImplementation(async (p: string) => files.has(p))
+    fsMocks.listDirectory.mockImplementation(async () => { throw new Error("ENOENT") })
+  }
+
+  it("sources={} 走 loader 回退六路（?? 右侧），审计结论与直连一致", async () => {
+    sparseFiles()
+    const { auditChapter } = await import("./process-library")
+    const report = await auditChapter(
+      "/P", 6,
+      ["菜月昴"],
+      ["徽章"],
+      { 菜月昴: ["左臂"] },
+      { chapterText: "菜月昴说出了密道位置，左臂的伤又发作了。", sources: {} },
+    )
+    const kb = report.findings.find((f) => f.type === "knowledge_boundary")
+    expect(kb?.severity).toBe("critical")
+    expect(report.summary).toContain("第6章审计")
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+  })
+
+  it("全量注入 sources（?? 左侧）+ 账本粒子证据 → lost_item 判 critical", async () => {
+    fsMocks.readFile.mockImplementation(async () => { throw new Error("ENOENT") })
+    const { auditChapter } = await import("./process-library")
+    const s = makeSources()
+    const ledgerParticles = createEmptyParticleLedgerStore()
+    ledgerParticles.entries = [
+      { kind: "injury", character: "菜月昴", name: "左臂", chapter: 2, delta: 0, state: "已愈", note: "" },
+    ]
+    const report = await auditChapter(
+      "/P", 6,
+      ["菜月昴", "艾米莉娅"],
+      [],
+      { 菜月昴: ["左臂"] },
+      {
+        chapterText: "菜月昴说出了密道位置，左臂又疼了。",
+        sources: {
+          cognition: s.cognition as unknown as CognitionState,
+          matrix: s.matrix,
+          resources: s.resources,
+          particles: ledgerParticles,
+          foreshadowing: { items: [], lastUpdated: "" },
+          characterStates: { characters: [], lastUpdated: "" },
+        },
+      },
+    )
+    const li = report.findings.find((f) => f.type === "lost_item")
+    expect(li?.severity).toBe("critical")
+    const kb = report.findings.find((f) => f.type === "knowledge_boundary")
+    expect(kb?.severity).toBe("critical")
+  })
+})
+
 describe("E-05 assembleProcessView 摘要面（summariesStore 注入）", () => {
   it("有摘要 store 时 stateDelta 与 recentSummaries 均渲染", async () => {
     const { assembleProcessView } = await import("./process-library")

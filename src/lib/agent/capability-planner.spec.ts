@@ -17,6 +17,14 @@ function skill(id: string, name: string): UserSkill {
   }
 }
 
+function sparseSkill(): UserSkill {
+  return {
+    id: "s-sparse", name: "稀疏技能", description: "一句说明",
+    kind: [], stages: [], modes: [], content: "", source: "project",
+    priority: 50, tags: [], categoryId: "",
+  }
+}
+
 function cand(id: string, name: string, score = 1): RetrievedCapability {
   return { doc: docFromUserSkill(skill(id, name)), score }
 }
@@ -58,6 +66,22 @@ describe("capability-planner", () => {
     it("无候选 → 清单显示 无候选能力", () => {
       const p = buildCapabilityPlannerPrompt({ userMessage: "x", candidates: [] })
       expect(p).toContain("无候选能力")
+    })
+
+    it("空用户消息 + 上下文摘要 + 稀疏候选（空 modes/空 label/有说明）", () => {
+      const sparse = sparseSkill()
+      const p = buildCapabilityPlannerPrompt({
+        userMessage: "",
+        candidates: [{ doc: docFromUserSkill(sparse), score: 1 }],
+        contextSummary: "已写到第三章，主角进城",
+      })
+      // userMessage 为空 → 回退占位（capability-planner.ts:84 || 右侧）
+      expect(p).toContain("（未提供）")
+      expect(p).toContain("已写到第三章，主角进城")
+      // modes 为空 → "不限"；label 为空不渲染标签行；description 渲染说明行
+      expect(p).toContain("不限")
+      expect(p).toContain("一句说明")
+      expect(p).not.toContain("标签：")
     })
   })
 
@@ -105,6 +129,54 @@ describe("capability-planner", () => {
       expect(r.ok).toBe(false)
     })
 
+    it("顶层数组 JSON 直接作为节点数组（无 nodes/tasks 键）", () => {
+      const text = JSON.stringify([{ id: "n1", name: "检查", capabilityId: "cap-a" }])
+      const r = parseCapabilityPlan(text, allowed)
+      expect(r.ok).toBe(true)
+      if (r.ok) {
+        expect(r.plan).toHaveLength(1)
+        expect(r.plan[0].capabilityId).toBe("cap-a")
+      }
+    })
+
+    it("对象无 nodes/tasks 键 → 缺 nodes 数组 error", () => {
+      const r = parseCapabilityPlan(JSON.stringify({ hello: 1 }), allowed)
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.error).toContain("nodes")
+    })
+
+    it("节点不是对象 → error（定位到序号）", () => {
+      const r = parseCapabilityPlan(JSON.stringify({ nodes: [7] }), allowed)
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.error).toContain("第 1 个节点不是对象")
+    })
+
+    it("省略候选集时不做幻觉校验（allowedCapabilityIds 缺省）", () => {
+      const text = JSON.stringify({ nodes: [{ id: "n1", capabilityId: "cap-new" }] })
+      const r = parseCapabilityPlan(text)
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.plan[0].capabilityId).toBe("cap-new")
+    })
+
+    it("重复 id 经校验拒绝（validation.ok=false 路径）", () => {
+      const text = JSON.stringify({ nodes: [
+        { id: "n1", capabilityId: "cap-a" },
+        { id: "n1", capabilityId: "cap-b" },
+      ] })
+      const r = parseCapabilityPlan(text, allowed)
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.error).toContain("重复")
+    })
+
+    it("字符串内反斜杠转义不破坏 JSON 边界识别", () => {
+      const text = JSON.stringify({ nodes: [
+        { id: "n1", capabilityId: "cap-a", reason: "处理 a\\b 转义与 \"引用\"" },
+      ] })
+      const r = parseCapabilityPlan(text, allowed)
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.plan[0].reason).toContain("a\\b")
+    })
+
     it("缺 capabilityId → error", () => {
       const r = parseCapabilityPlan(JSON.stringify({ nodes: [{ id: "n1", name: "x" }] }), allowed)
       expect(r.ok).toBe(false)
@@ -144,6 +216,16 @@ describe("capability-planner", () => {
       const v = validateCapabilityPlan(plan)
       expect(v.ok).toBe(false)
       expect(v.errors.join()).toContain("循环")
+    })
+
+    it("空白 id 与缺省 dependsOn 触发校验错误（不抛错）", () => {
+      const plan = [{
+        ...node({ id: "   ", capabilityId: "cap-a" }),
+        dependsOn: undefined as unknown as string[],
+      }]
+      const v = validateCapabilityPlan(plan)
+      expect(v.ok).toBe(false)
+      expect(v.errors.join()).toContain("不能为空")
     })
   })
 })

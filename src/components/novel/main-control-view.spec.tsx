@@ -1527,3 +1527,54 @@ describe("W5 增补：异常分支与深章通道", () => {
   })
 })
 
+describe("MainControlView 分支覆盖补齐（20261105-ralph-coverage-100）", () => {
+  it("corrupt 快照缺 reason 回退 read_failed（123 行 ??）", async () => {
+    loadTraceSnapshot.mockResolvedValue({ status: "corrupt" })
+    render(<MainControlView />)
+    await waitFor(() =>
+      expect(screen.getByTestId("main-control-trace-corrupt")).toBeTruthy(),
+    )
+    expect(screen.getByTestId("main-control-trace-corrupt").textContent).toContain("读不出来")
+  })
+
+  it("第0章不被认作有效章号（156 行 value>0 false）", async () => {
+    const passGate = { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 }
+    runDeepChapterGeneration.mockResolvedValue({
+      finalContent: "深章正文片段",
+      taskBrief: "任务书",
+      draftContent: "草稿正文",
+      reviewResults: [],
+      revised: false,
+      decisionGates: { consistency: passGate, anti_ai: passGate, quality: passGate, overall: "pass" },
+      manualReviewRequired: false,
+      retryCount: 0,
+      partial: false,
+      partialReason: null,
+    })
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "第0章 测试" } })
+    fireEvent.click(screen.getByTestId("main-control-deep-run"))
+    await waitFor(() => expect(runDeepChapterGeneration).toHaveBeenCalledTimes(1))
+    const [input] = runDeepChapterGeneration.mock.calls[0] as [{ chapterNumber?: number }]
+    // 第0章非法 → parseChapterNumber 回退 undefined，输入不带有效章号
+    expect(input.chapterNumber).toBeUndefined()
+  })
+
+  it("回放快照缺 ok 字段渲染未知态（347 行 :unknown）", async () => {
+    loadTraceSnapshot.mockResolvedValue({
+      fileVersion: 2,
+      goal: "上次目标",
+      savedAt: 1700000000000,
+      roundsUsed: 2,
+      finalText: "终稿",
+      entries: [],
+      activities: [],
+    })
+    render(<MainControlView />)
+    await waitFor(() =>
+      expect(screen.getByTestId("main-control-activities-empty").textContent).toContain("快照里没有阶段事件"),
+    )
+    expect(screen.getByTestId("main-control-goal")).toBeTruthy()
+  })
+})
+
