@@ -147,6 +147,7 @@ import {
   CHARACTER_AURA_INVALID_AURA_MESSAGE,
   bindCharacterAura,
   buildCharacterAuraContext,
+  collectCustomAuraWebSearch,
   createCustomCharacterAura,
   createCustomCharacterAuraFromGeneratedSkill,
   createCustomCharacterAuraSkill,
@@ -156,6 +157,9 @@ import {
   loadCharacterAuraResearchDocument,
   loadCharacterAuraSkillDocument,
   loadCharacterAuraStore,
+  readCustomAuraLocalDocuments,
+  readCustomAuraUrls,
+  safeSkillSlug,
   saveCharacterAuraStore,
   toPinyin,
   toSimplified,
@@ -1387,3 +1391,238 @@ describe("createCustomCharacterAuraSkill", () => {
   })
 })
 
+
+// ---------------------------------------------------------------------------
+// Monolith-local generation helpers (deepen: directly exercise the helpers
+// that character-aura.ts keeps as its own implementations and re-exports).
+// ---------------------------------------------------------------------------
+
+describe("safeSkillSlug (monolith)", () => {
+  it("slugifies ascii names", () => {
+    expect(safeSkillSlug("id1", "Hello World")).toBe("id1-hello-world")
+  })
+
+  it("falls back to the bare id for punctuation-only names", () => {
+    expect(safeSkillSlug("id1", "###")).toBe("id1")
+  })
+
+  it("keeps chinese characters and trims edge dashes", () => {
+    expect(safeSkillSlug("id1", "  林动 传奇 ")).toBe("id1-林动-传奇")
+  })
+})
+
+describe("readCustomAuraLocalDocuments (monolith)", () => {
+  it("splits imported and failed local documents", async () => {
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path === "/d/ok.md") return "本地正文"
+      throw new Error("ENOENT")
+    })
+    const out = await readCustomAuraLocalDocuments(
+      skillInput({ localDocumentPaths: "/d/ok.md\n/d/missing.md" }),
+    )
+    expect(out.importedDocuments).toEqual([{ path: "/d/ok.md", content: "本地正文" }])
+    expect(out.failedDocuments).toEqual(["/d/missing.md"])
+  })
+})
+
+describe("readCustomAuraUrls (monolith)", () => {
+  it("returns empty when no urls are configured", async () => {
+    expect(await readCustomAuraUrls(skillInput({ sourceUrls: "" }))).toEqual({
+      importedUrls: [],
+      failedUrls: [],
+    })
+  })
+
+  it("marks every url failed when the fetcher cannot be created", async () => {
+    getHttpFetchMock.mockRejectedValue(new Error("no http"))
+    const out = await readCustomAuraUrls(skillInput({ sourceUrls: "https://a.com" }))
+    expect(out).toEqual({ importedUrls: [], failedUrls: ["https://a.com"] })
+  })
+
+  it("imports readable pages and records bad-status/empty failures", async () => {
+    getHttpFetchMock.mockResolvedValue(
+      vi.fn().mockImplementation(async (url: string) => {
+        if (url === "https://bad.com") return { ok: false, status: 500, text: async () => "" }
+        if (url === "https://empty.com") return { ok: true, status: 200, text: async () => "<div> </div>" }
+        return { ok: true, status: 200, text: async () => "<p>可用正文</p>" }
+      }),
+    )
+    const out = await readCustomAuraUrls(
+      skillInput({ sourceUrls: "https://ok.com\nhttps://bad.com\nhttps://empty.com" }),
+    )
+    expect(out.importedUrls).toEqual([{ url: "https://ok.com", content: "可用正文" }])
+    expect(out.failedUrls).toEqual(["https://bad.com", "https://empty.com"])
+  })
+})
+
+describe("collectCustomAuraWebSearch (monolith)", () => {
+  function monolithInput() {
+    return skillInput({ enableWebSearch: true, generationPrompt: "", localDocumentPaths: "", sourceUrls: "" })
+  }
+
+  it("collects, dedupes and reads web results with an injected search config", async () => {
+    webSearchMock.mockImplementation(async () => [searchResult()])
+    getHttpFetchMock.mockResolvedValue(vi.fn().mockResolvedValue(httpOk("<p>搜索正文</p>")))
+    const out = await collectCustomAuraWebSearch(monolithInput(), {
+      searchApiConfig: { provider: "tavily", apiKey: "tk" } as SearchApiConfig,
+    })
+    expect(out.searchQueries).toHaveLength(3)
+    expect(out.searchQueries[0]).toContain("林动")
+    // same url returned for all 3 queries → deduped to a single document
+    expect(out.webSearchResults).toHaveLength(1)
+    expect(webSearchMock).toHaveBeenCalledTimes(3)
+    expect(out.importedSearchDocuments).toHaveLength(1)
+    expect(out.importedSearchDocuments[0]).toMatchObject({ url: "https://s.com/1", content: "搜索正文" })
+    expect(out.generationNotes).toEqual([])
+  })
+
+  it("plans queries when the generation prompt is absent", async () => {
+    webSearchMock.mockResolvedValue([])
+    const out = await collectCustomAuraWebSearch(
+      skillInput({ enableWebSearch: true, generationPrompt: undefined, localDocumentPaths: "", sourceUrls: "" }),
+    )
+    expect(out.searchQueries).toHaveLength(3)
+    expect(out.searchQueries[0]).toContain("公开资料")
+  })
+
+  it("falls back to the store search config when none is injected", async () => {
+    webSearchMock.mockResolvedValue([])
+    const out = await collectCustomAuraWebSearch(monolithInput())
+    expect(webSearchMock).toHaveBeenCalledTimes(3)
+    expect(out.webSearchResults).toEqual([])
+    expect(out.generationNotes).toContain("AI 搜索没有拿到可用结果，本次继续只使用你提供的资料。")
+  })
+
+  it("breaks the query loop on a not-configured search backend", async () => {
+    webSearchMock.mockRejectedValue(new Error("tavily not configured"))
+    const out = await collectCustomAuraWebSearch(monolithInput())
+    expect(webSearchMock).toHaveBeenCalledTimes(1)
+    expect(out.generationNotes.some((note) => note.includes("AI 搜索"))).toBe(true)
+    expect(out.generationNotes).toContain("AI 搜索没有拿到可用结果，本次继续只使用你提供的资料。")
+  })
+
+  it("continues past a single failing query", async () => {
+    webSearchMock.mockImplementation(async (query: string) => {
+      if (query.includes("说话风格")) throw new Error("flaky")
+      return []
+    })
+    const out = await collectCustomAuraWebSearch(monolithInput())
+    expect(webSearchMock).toHaveBeenCalledTimes(3)
+    expect(out.generationNotes.some((note) => note.includes("说话风格"))).toBe(true)
+  })
+
+  it("continues past non-Error search failures with an unknown-error note", async () => {
+    webSearchMock.mockRejectedValue("boom-string")
+    const out = await collectCustomAuraWebSearch(monolithInput())
+    expect(webSearchMock).toHaveBeenCalledTimes(3)
+    expect(out.generationNotes.some((note) => note.includes("未知错误"))).toBe(true)
+    expect(out.generationNotes).toContain("AI 搜索没有拿到可用结果，本次继续只使用你提供的资料。")
+  })
+
+  it("plans prompt-scoped queries and dedupes empty urls", async () => {
+    webSearchMock.mockResolvedValue([searchResult({ url: "", snippet: "" })])
+    getHttpFetchMock.mockResolvedValue(vi.fn().mockResolvedValue(httpOk("<p>搜索正文</p>")))
+    const out = await collectCustomAuraWebSearch(
+      skillInput({ enableWebSearch: true, generationPrompt: "口语", localDocumentPaths: "", sourceUrls: "" }),
+    )
+    expect(out.searchQueries[0]).toContain("口语")
+    expect(out.webSearchResults).toHaveLength(1)
+    expect(out.importedSearchDocuments).toHaveLength(1)
+    expect(out.importedSearchDocuments[0].query).toBe(out.searchQueries[0])
+  })
+
+  it("marks every search document failed when the fetcher cannot be created", async () => {
+    webSearchMock.mockResolvedValue([searchResult()])
+    getHttpFetchMock.mockRejectedValue(new Error("no http"))
+    const out = await collectCustomAuraWebSearch(monolithInput())
+    expect(out.importedSearchDocuments).toEqual([])
+    expect(out.failedSearchUrls).toEqual(["https://s.com/1"])
+  })
+
+  it("records per-document http and empty-content failures", async () => {
+    webSearchMock.mockResolvedValue([
+      searchResult({ url: "https://bad.com", snippet: "s1" }),
+      searchResult({ url: "https://empty.com", snippet: "s2" }),
+    ])
+    getHttpFetchMock.mockResolvedValue(
+      vi.fn().mockImplementation(async (url: string) => {
+        if (url === "https://bad.com") return { ok: false, status: 500, text: async () => "" }
+        return { ok: true, status: 200, text: async () => "<div> </div>" }
+      }),
+    )
+    const out = await collectCustomAuraWebSearch(monolithInput())
+    expect(out.importedSearchDocuments).toEqual([])
+    expect(out.failedSearchUrls).toEqual(["https://bad.com", "https://empty.com"])
+  })
+})
+
+describe("monolith readSkillFileWithFallback degrade paths", () => {
+  const customAuraDoc = (skillFolder?: string) =>
+    ({
+      id: "custom-1",
+      builtIn: false,
+      name: "林动",
+      sourceNote: "",
+      corpus: "",
+      styleDescription: "",
+      behaviorRules: "",
+      boundaries: "",
+      notes: "",
+      skillFolder,
+    }) as never
+
+  it("warns with line 816 and rethrows when the tauri resourceDir API fails", async () => {
+    ;(isTauri as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true)
+    fsMocks.getExecutableDir.mockRejectedValue(new Error("no exe"))
+    fsMocks.getResourceDir.mockRejectedValue(new Error("no res"))
+    fsMocks.readFile.mockRejectedValue(new Error("gone"))
+    ;(resourceDir as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("api down"))
+    await expect(loadCharacterAuraSkillDocument(customAuraDoc("/s"))).rejects.toThrow("gone")
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      "character-aura",
+      "silent-degrade: 降级返回空值（吞错已标记）",
+      { line: 816 },
+    )
+  })
+
+  it("warns with line 817 and rethrows when the resourceDir import fails", async () => {
+    ;(isTauri as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true)
+    fsMocks.getExecutableDir.mockRejectedValue(new Error("no exe"))
+    fsMocks.getResourceDir.mockRejectedValue(new Error("no res"))
+    fsMocks.readFile.mockRejectedValue(new Error("gone"))
+    vi.doMock("@tauri-apps/api/path", () => {
+      throw new Error("pkg missing")
+    })
+    try {
+      await expect(loadCharacterAuraSkillDocument(customAuraDoc("/s"))).rejects.toThrow("gone")
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        "character-aura",
+        "silent-degrade: 降级返回空值（吞错已标记）",
+        { line: 817 },
+      )
+    } finally {
+      vi.doUnmock("@tauri-apps/api/path")
+    }
+  })
+
+  it("reaches the outer catch and keeps probing when the logger itself throws", async () => {
+    ;(isTauri as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true)
+    fsMocks.getExecutableDir.mockRejectedValue(new Error("no exe"))
+    fsMocks.getResourceDir.mockRejectedValue(new Error("no res"))
+    fsMocks.readFile.mockRejectedValue(new Error("gone"))
+    loggerWarnMock.mockImplementationOnce(() => {
+      throw new Error("log down")
+    })
+    await expect(loadCharacterAuraSkillDocument(customAuraDoc("/s"))).rejects.toThrow("gone")
+    // outer catch (line 808) caught the logger failure: the second inner try
+    // was skipped, but probing continued at the resourceDir API block
+    expect(fsMocks.getExecutableDir).toHaveBeenCalled()
+    expect(fsMocks.getResourceDir).not.toHaveBeenCalled()
+    expect(resourceDir).toHaveBeenCalled()
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      "character-aura",
+      "silent-degrade: 降级返回空值（吞错已标记）",
+      { line: 808 },
+    )
+  })
+})
