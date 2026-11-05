@@ -43,6 +43,48 @@
 ### lib/agent/tool-call-parser.ts
 - **L168 `: ""` 分支**（parseTextToolCalls 的 residualText 三元式）：`candidate` 只可能来自 `extractJsonCandidates` 的三个来源——① `text.trim()`（本身就是 text 的子串）、② `text.slice(firstObj, lastObj + 1)`（显然是子串）、③ 代码块围栏内的捕获组 `.trim()`（trim 只削首尾空白，结果仍是 text 的子串）。三者都满足 `text.includes(candidate) === true`，故 else 分支不可达。防御性代码。
 
+### lib/novel/skill-hub-seed.ts
+- **L19 else 穿透 / L20-22 glob catch / L23-41 fs-walk / L42-44 webview catch**（loadSkillHubModules 运行时分区）：函数在模块顶层无条件执行一次。vitest 下 `import.meta.glob` 被 Vite 编译期内联，恒返回仓库 `skills/SkillHub` 实有的 75 个 SKILL.md（已数过），`Object.keys(...).length > 0` 恒真，故 L20 以下永不执行。`npx tsx` 实测无 glob 变换时抛错 → fs-walk 真实走通并加载 75 个 Skill（`SKILLS_VIA_FSWALK:75`），故 fs-walk 是 Node 脚本运行时的活代码，不是死代码；仅在 vitest 分区下不可达。L42-44 仅当 `node:fs` 为 throwing shim 的 webview 分区触发。运行时分区代码。
+- **L67 `?? ""`**（getSkillHubFolder 无匹配回退）：唯一调用链是 `DEFAULT_SKILL_HUB_SKILLS` 的 `Object.entries(skillHubModules).map(...)`，key 要么是 glob 的 `"../../../skills/SkillHub/<Folder>/SKILL.md"`，要么是 fs-walk 的绝对路径（同样含 `/skills/SkillHub/<Folder>/`），正则 `/SkillHub\/([^/]+)\//` 恒匹配 → 右端不可达。行本身被执行，仅分支边缺失。
+
+### lib/novel/search-strategy.ts
+- **L414 both-empty `return 1.0`**（shingleSetJaccard 私有函数）：仅有的两个调用点——`charShingleJaccard`（L443-447）与 mmr 内部 `simBetween`（L496-501）——都在调用前做了完全相同的 both-empty 短路（`a===b` / trim 相等 / 双空返回），故私函数内的该行永不可达。防御性代码。
+- **L563-565 tie-break `u < bestIdx` 分支**：`unselected` 是按候选下标升序插入的 `Set`（`candidates.map((_, i) => i)`），迭代顺序恒升序；每轮首个访问的 `u` 即走 `bestIdx===-1` 分支成为最小值，后续 `u` 恒大于 `bestIdx` → `u < bestIdx` 永假。防御性 tie-break。
+- **L582 `break`**：`while (selected<targetK && unselected.size>0)` 保证循环体进入时 `unselected` 非空，`for` 至少执行一次、首次即走 `bestIdx===-1` 分支置位，故循环结束时 `bestIdx!==-1` 恒成立 → else-`break` 不可达。
+- **L600 `?? str`**（extractNodeStem）：`String.split` 恒返回 ≥1 元数组，`pop()` 永不返回 undefined → 回退不可达（判例模式 1）。
+- **L976 `!has(anchor)` false 侧**：`resolvedAnchors` 的全部返回点都是 `Array.from(resolvedSet)`（去重），`distanceMap` 初始为空，故首见恒为 miss → 已存在跳过侧不可达。
+
+### lib/novel/deep-chapter-generation.ts
+- **L635-639 / L834-838 `flush().catch` 回退**（manualHandoff 与 run-end 两处）：`statusMerger` 为空（`input.snapshotWriter` 缺省）时 `if` 不进；非空时 legacy 路径下唯一的 `schedule` 生产点在 route 块 L468（`if (routeInstruction)` 内，现有测试/生产配置恒走 legacy、`routeInstruction===null`，且 route 块本身 v8 ignore），故 pending 恒空 → `flush()` 直接返 `false` 不抛错 → `.catch` 永不触发。防御性代码（判例模式 2；若未来测试启用 route 模式需重审）。
+
+### lib/novel/main-control.ts
+- **L376-377 `getSkillConfig: () => null` / `getChatConversations: () => []`**：`enabledToolNames` 由 `MAIN_CONTROL_TOOLS` 白名单过滤产生（L295-296 `filter(name => allowed.has(name))`，调用方点名也无法扩大），白名单 12 项不含 `read_chat_history`/`apply_skill`；`registerAllBuiltInTools`（tools/index.ts:98/122）按名注册，故这两个 getter 永远没有对应工具实例去调用。`ToolFactoryOptions` 类型又强制要求传桩 → 桩体永不执行。类型占位死代码。
+
+### lib/novel/de-ai-skill-library.ts
+- **L785-787 整体回退分支**（deleteProjectDeAiSkill）：L782 已守卫 `skillId` 必为 `project:` 前缀。`next` 经 `normalizeDeAiSkillConfig`（L578-580）保证 `default ∈ knownIds（BUILT-IN ∪ 剩余 project）`；被删的 `skillId` 既不在剩余 project 中，也不在 `built-in:*` 集合中 → 首析取 `next.defaultSkillId===skillId` 永假；`getAllDeAiSkills(next)` 含全部 project + 全部内建 id → `!some(...)` 永假。故整个 `if` 体不可达。
+- **L598 `(config.builtInSkillOverrides ?? [])` 右端**（getAllDeAiSkills）：仓内全部生产调用点传入的 config 均经 `normalizeDeAiSkillConfig`（L571-577 恒产出数组，`[]` 保底），`?? []` 右端不可达（判例模式 3；直接手造未归一化对象可触发，但不属公共 API 调用路径）。
+
+### lib/agent/plugins/select-skills-plugin.ts
+- **L501-506 残留补齐循环体**（topoOrderPlan）：该函数模块私有，唯一调用点 L424 在 `if (!parsed.ok) return empty` 之后；`parseCapabilityPlan` 经 `validateCapabilityPlan`（capability-planner.ts:177-210，含 DFS 环检测 :208、自环 :191、悬空依赖 :192）保证传给 topo 的 plan 无环。Kahn 算法在无环输入下必访问全部节点 → 残留补齐 `if` 永假。防御性防漏选代码。
+
+### lib/novel/story-simulation/simulation-engine.ts
+- **L1184-1185 `usedIndex` 落盘分支**（runSimulation 随机事件）：唯一调用点 L1174 首参为 `stagedPool ?? state.dynamicEventPool`。非空池恒经 `stringArrayToStagedPool` 转成分阶段对象（L891-896；空池则两边同为 `undefined`）；`StoryNode.index` 类型为必填 `number`（types.ts:274），`totalNodes` 为实数 → `generateRandomEvent` 恒走分阶段分支（L390），只产 `usedEventId` 不产 `usedIndex`；空池走 `RANDOM_EVENTS` 也不产下标。故 `usedIndex` 恒为 `undefined`，首项恒假。legacy 下标 plumbing 仅对直接调用生效，本调用点不可达。历史遗留防御代码。
+
+### lib/novel/outline-multi-agent-orchestrator.ts
+- **L497 `runSingleAgentFallback: async () => ""`**（resumeInput 类型占位桩）：`OutlineMultiAgentRunInput` 接口强制该字段（L54）；`runDependencyGraph`（L233-338）只用 `runSubAgent`/`onStatusChange`，从不调用它；真正的三次回退调用（L171/194/216）走的都是原始 `input`。桩体经公共 API 永不执行。类型占位死代码。
+
+### lib/novel/foreshadowing-cleanup.ts
+- **L402-403 `applyMergeIssue` 内 kind 守卫 throw**：函数模块私有，唯一调用方 `applyCleanupIssue`（L555）在调用前已做完全相同的校验并先抛错（L551-553），两者之间无对象变异 → 私有守卫的 throw 侧永不可达。防御性双重守卫。
+
+### lib/novel/director-auto-advance.ts
+- **L437-438 外层 catch `return null`**（loadBlueprintForGate）：try 体两项全量兜底——① `import("./world-blueprint")` 目标静态存在，导入永不失败；② `loadWorldBlueprint` 内部自带 try/catch（world-blueprint.ts:134-140），异常返回 null 永不 reject。故外层 catch 不可达。防御性代码（判例模式 2）。
+
+### lib/novel/campaign-runner.ts
+- **L595-602 arc-settlement 可观测事件块**：守卫 `shouldTriggerArcSettlement(currentChapterNum, null)` 的 `arcEndChapter` 实参是字面量 `null`；被调函数首行即 `if (arcEndChapter === null) return false`（arc-settlement.ts:41-46）→ 恒假 → 事件体不可达。待 `TODO(B2-arc)` 接入真实弧边界来源后自然可达。占位可观测代码。
+
+### lib/diagnostics/health-check.ts
+- **L107 `return "healthy"` 尾部兜底**（worst）：`worst` 模块私有，唯一调用方 `collectHealthReport` 传入固定 7 元检测器数组（L578，非空）；`SEVERITY_ORDER` 穷举 `HealthStatus` 全部 5 值，循环内必命中 `return` → 尾部兜底不可达。防御性代码。
+
 ## components
 
 ### components/settings/sections/about-section.tsx
@@ -95,11 +137,44 @@
 - **L634 `if (!target) return` 早退**：hasMore=true 时哨兵元素必然渲染（visibleLimit < rows.length），refs 先于 effects 附加，target 必非 null。行级 start/stop。
 - **【行为修复】轮询完成标记逻辑（原 L116-143）**：原实现把 `completed.push(path)` 塞进 `setExtractTaskIdsByPath` updater、再在 updater 外检查 `completed.length > 0`——React 18/19 并发下 updater 非同步执行，completed 恒为空，完成态永不上勾（Check 图标从未出现）。改为在 interval 回调内基于闭包快照直接计算 next/completed，再分别 setState。修复后 `提取完成→打勾` 与 `队列无记录视为完成` 两个既有测试断言同步修正为 Check 图标。修复源为真实缺陷，非为覆盖而改。
 
+### components/novel/story-simulation/use-simulation-worker.ts
+- **L291 `if (workerRef.current) return ...` 真分支**（ensureWorker，编排方已核）：`workerRef.current` 恒为 null——全文件唯一的非-null 写入点（L314/331）落在 `sendRequest` 的 Promise 分支内，而该分支本身不可达（见下）。
+- **L303 `if (!worker)` else → L307-334 整个 Promise 分支**（编排方已核：setTimeout 超时回退 / `pendingRef.set` / `worker.postMessage` / catch 回退）：`ensureWorker()` 首次调用即置 `workerFailedRef=true` 并返回 null，此后 L290 直接返回 null → `worker` 恒 null → `if (!worker)` 恒真。
+- **L373-378 terminate 内非空分支**（编排方已核）：同上恒 null；且即使可达，该路径亦无 `onmessage` 接线，pending resolve 永不被 worker 消息触发，系 v2 残留脚手架。
+- **L381 `for (const [, pending] of pendingRef.current)` 循环体**（编排方已核：clearTimeout）：`pendingRef` 唯一写入在不可达的 L319-323，map 恒空 → 循环体零次执行。
+
+### components/novel/story-simulation/branch-compare-view.tsx
+- **L44 `default: return String(key)`**（dimensionLabel）：参数类型为 `keyof DirectorScore`（7 键联合），`switch` 穷举 7 案；调用点 L154/249（`DIMENSION_KEYS` 字面量迭代）与 L401（`d.key as keyof DirectorScore`）全在类型内 → default 不可达（判例模式 8）。
+- **L363-365 `branches.length<2` 早退**（KeyDifferencesTab 内 effect）：外层 `BranchCompareView` 在 `compareBranches<2` 时提前返回 `selectAtLeastTwoBranches`（L525-536），`KeyDifferencesTab` 仅在 ≥2 时挂载（L592）；父级 `story-simulation-view` 传的是实时 branches，收缩时外层先卸载本 Tab、effect 不会带着新 props 重跑 → 内层重复守卫仅防挂载后收缩竞态，当前调用点无收缩。防御性代码。
+
+### components/skill-library/writing-skill-sidebar-panel.tsx
+- **L123-126 `persist` 内 `!project` 早退**：`persist` 为组件内私有函数，全部 8 个调用方（handleDragEnd/Select/Create/Import/ToggleSkill/CreateCategory/RenameCategory/DeleteCategory）调用前均已 `if (!config||!project||saving) return`；按钮亦 `disabled={!config||!project||saving}`（L368/376）；且项目关闭时 `useWritingSkillConfig` 随 projectPath 变更即 `setConfig(null)` → 内层 `!project` 为第二层防御，不可达。
+- **L150 / L163 create/import 守卫 `!config||!project||saving`**：对应按钮 disabled 下原生 click 不派发 `onClick`（已有 spec 绕 disabled 派发不触发 handler 实证），无项目/无配置时 handler 无法经 UI 触发，函数未导出 → 防御性早退死代码。
+
+### components/skill-library/writing-skill-library-view.tsx
+- **L39 `handleOpenBundleImport` 内 `if (!project) return`**：函数仅在 `{config && project ? ...}` 挂载块内的按钮（L581）可点到，函数未导出 → 不可达。挂载门控防御。
+- **L140-143 `persist` 内 `!project` 早退**：`handleSaveSkill` 被 `canSaveDraft`（本身要求 project，L94）拦截，`handleToggleEnabled`/`handleDeleteSkill` 自带 `!project` 守卫；`handlePackImported` 不判 project，但其唯一触发源 `SkillPackPanel.onImported` 只挂载于 `{config&&project}` 块（L587-591）→ 第二层防御，不可达。
+- **L160 `!result.ok || !config` 守卫**（handlePackImported）：`!config` 被挂载守卫排除；`!result.ok` 被 `SkillPackPanel:122`（`if (imported.ok)` 才调 `onImported`）排除 → 双项皆死。
+- **L173 / L203 / L210 / L220 / L241 守卫中的 `!config` / `!selectedSkill` / `!project` / `source!=="linked"` 项**：保存按钮 `disabled={!canSaveDraft}`（L540，`canSaveDraft` 要求四者全真）；删除按钮 `disabled={!project||saving}`（L333）；toggle checkbox 与导出/删除行仅在 `selectedSkill` 真时渲染（L294 三元空态分支，`selectedSkill` 又派生自 `config?.skills` L58-61）；重载按钮仅在 `{isLinkedSkill ? ...}` 卡片内挂载（L488，`isLinkedSkill = selectedSkill?.source==="linked"`）→ 均为挂载/禁用门控下的第二层防御。
+
+### components/settings/sections/webhook-section.tsx
+- **L32-33 `ping` 内 `!url.trim()` 早退**：`ping`/`verify` 均为组件内 `useCallback`，未导出；ping 按钮 `disabled={!url.trim()}`（L113），原生 disabled 拦截 click（空 URL 用例实证无请求发出）→ 早退不可达。
+- **L70 `verify` 内 `!lastSigned` 早退**：验签按钮 `disabled={!lastSigned}`（L117），未签名不可点 → 不可达。
+
+### components/skills/SkillPackPanel.tsx
+- **L88-89 `stripped_tool_fields` / `stripped_pack_fields` 分支**（exportWarningText）：面板内 `buildPack` 调用固定 `options={name,version}`（L70-73），`options.tools` 恒 undefined → `tools=[]` → 前者永不产生；pack 顶层键固定且无一命中凭据键（`stripCredentialKeys` 只扫对象键，prompts 条目仅 `{id,body}`，body 字符串值不扫描）→ 后者永不产生。props 无法改变固定 options → 不可达。防御性分支。
+
+### components/novel/story-simulation/simulation-report-view.tsx
+- **L58-59 `formatDate` catch 回退**：`new Date(string)` 对任意输入永不抛错（非法串得 Invalid Date 对象）；`toLocaleString` 参数固定合法 → catch 不可达。防御性代码。
+
+### components/novel/story-simulation/interview-history-view.tsx
+- **L163-164 `formatDate` catch 回退**：同上判例，`new Date(string)` 永不抛错 → 不可达。防御性代码。
+
 ---
 
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
-> 以下 137 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。
+> 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。
 
 ### 死代码模式分类（本批次判例归纳）
 
@@ -112,8 +187,13 @@
 7. **`?? 0` / `?? 1` on ensureSnapshotIdentity 保证的 revision** — revision 恒已赋值。
 8. **switch default 全覆盖** — 所有 `case` 值穷举 union，default 不可达。
 9. **信号/超时三元的无信号侧** — 可选 `signal` 参数缺省时走安全超时默认（零失败语义，按 P15 边界接受）。
+10. **v2 适配层硬 `return null` 形成的整段死代码** — 通道下线后 `ensureWorker` 首调即置失败旗并返回 null，后续全部 `postMessage`/超时/pending 逻辑恒不可达（use-simulation-worker 判例）。
+11. **运行时分区代码** — `import.meta.glob` 在 vitest 下恒可用，fs-walk 回退分支不执行；但该分支在 Node 脚本运行时（tsx）真实生效并加载全部 75 个 Skill，不是死代码，仅在 vitest 分区下不可达（skill-hub-seed 判例）。
+12. **字面量 `null` 占位实参使纯函数守卫恒假** — 调用点传字面量 `null`，被调函数首行即 `=== null` 早退；待 TODO 接入真实来源后自然可达（campaign-runner/arc-settlement 判例）。
+13. **挂载/禁用门控下的第二层防御守卫** — handler 内 `!project`/`!config` 永假，因为按钮 `disabled` 拦截点击、详情区按选中态条件渲染、配置随 projectPath 变更即清空（skill-library 两视图 / webhook-section 判例）。
+14. **`new Date(string)` 的 catch 回退** — 构造器对任意输入永不抛错（非法串得 Invalid Date），`toLocaleString` 参数固定合法 → catch 不可达（simulation-report-view / interview-history-view 判例）。
 
-### 完整文件清单（137）
+### 完整文件清单（155）
 
 - `components/chat/chat-message.tsx`
 - `components/chat/chat-panel.tsx`
@@ -137,6 +217,7 @@
 - `components/lint/lint-view.tsx`
 - `components/novel/book-analysis-result-viewer.tsx`
 - `components/novel/book-analysis-view.tsx`
+- `components/novel/story-simulation/branch-compare-view.tsx`
 - `components/novel/chapter-selection-panel.tsx`
 - `components/novel/character-aura-view.tsx`
 - `components/novel/de-ai-skill-editor.tsx`
@@ -147,6 +228,9 @@
 - `components/novel/memory-center-view.tsx`
 - `components/novel/review-job-status-strip.tsx`
 - `components/novel/snapshot-viewer.tsx`
+- `components/novel/story-simulation/interview-history-view.tsx`
+- `components/novel/story-simulation/simulation-report-view.tsx`
+- `components/novel/story-simulation/use-simulation-worker.tsx`
 - `components/project/create-project-dialog.tsx`
 - `components/review/review-center-view.tsx`
 - `components/review/review-view.tsx`
@@ -164,10 +248,15 @@
 - `components/settings/sections/rerank-section.tsx`
 - `components/settings/sections/saved-models-manager.tsx`
 - `components/settings/sections/web-search-section.tsx`
+- `components/settings/sections/webhook-section.tsx`
+- `components/skill-library/writing-skill-library-view.tsx`
+- `components/skill-library/writing-skill-sidebar-panel.tsx`
+- `components/skills/SkillPackPanel.tsx`
 - `components/sources/outline-chat-panel.tsx`
 - `components/sources/outline-generator-dialog.tsx`
 - `components/sources/source-sidebar.tsx`
 - `lib/analytics.ts`
+- `lib/agent/plugins/select-skills-plugin.ts`
 - `lib/chat-copy-content.ts`
 - `lib/chat-request-budget.ts`
 - `lib/claude-cli-transport.ts`
@@ -175,6 +264,7 @@
 - `lib/dashboard-issue-actions.ts`
 - `lib/dedup-runner.ts`
 - `lib/dedup.ts`
+- `lib/diagnostics/health-check.ts`
 - `lib/deep-thinking-stream.ts`
 - `lib/endpoint-normalizer.ts`
 - `lib/enrich-wikilinks.ts`
@@ -192,6 +282,7 @@
 - `lib/novel/behavior-state-machine.ts`
 - `lib/novel/bindable-characters.ts`
 - `lib/novel/book-analysis/six-dimension-engine.ts`
+- `lib/novel/campaign-runner.ts`
 - `lib/novel/ced-report.ts`
 - `lib/novel/chapter-content-cleanup.ts`
 - `lib/novel/chapter-edit-file.ts`
@@ -209,31 +300,39 @@
 - `lib/novel/context-engine.ts`
 - `lib/novel/de-ai-dual-pass.ts`
 - `lib/novel/de-ai-rules.ts`
+- `lib/novel/de-ai-skill-library.ts`
 - `lib/novel/deep-chapter-generation.ts`
 - `lib/novel/deep-chapter-task-brief.ts`
 - `lib/novel/delete-source-memory.ts`
 - `lib/novel/deterministic-continuity-engine.ts`
 - `lib/novel/dimension-review-adapter.ts`
+- `lib/novel/director-auto-advance.ts`
 - `lib/novel/dismantling.ts`
 - `lib/novel/evidence-chain.ts`
 - `lib/novel/export.ts`
 - `lib/novel/fact-snapshot.ts`
+- `lib/novel/foreshadowing-cleanup.ts`
 - `lib/novel/format-normalizer.ts`
 - `lib/novel/gate-v2-scoring.ts`
 - `lib/novel/graph-adapter.ts`
 - `lib/novel/lint.ts`
+- `lib/novel/main-control.ts`
 - `lib/novel/mechanical-slop-detector.ts`
 - `lib/novel/memory-center.ts`
 - `lib/novel/model-resolver.ts`
 - `lib/novel/novel-session-status.ts`
 - `lib/novel/outline-generation.ts`
 - `lib/novel/outline-import.ts`
+- `lib/novel/outline-multi-agent-orchestrator.ts`
 - `lib/novel/residual-campaign.ts`
 - `lib/novel/review-adapter.ts`
 - `lib/novel/review-scoring.ts`
 - `lib/novel/scene-breakdown.ts`
 - `lib/novel/search-adapter.ts`
+- `lib/novel/search-strategy.ts`
+- `lib/novel/skill-hub-seed.ts`
 - `lib/novel/state-delta-light-check.ts`
+- `lib/novel/story-simulation/simulation-engine.ts`
 - `lib/novel/structure-first-rewrite.ts`
 - `lib/novel/task-router.ts`
 - `lib/novel/track-b-multi-objective.ts`
