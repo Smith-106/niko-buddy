@@ -760,6 +760,7 @@ vi.mock("./chat-message", () => ({
     isLastAssistant,
     onRegenerate,
     onSaveAsChapter,
+    onAcceptAndContinueNext,
     onDiscardDraft,
     onContinueNextChapter,
     onContinueUnfinished,
@@ -798,6 +799,11 @@ vi.mock("./chat-message", () => ({
           continue-unfinished
         </button>
       )}
+      {onAcceptAndContinueNext && (
+        <button data-testid="accept-and-continue-next" onClick={() => onAcceptAndContinueNext(message.content)} aria-label="accept-and-continue-next">
+          accept-and-continue-next
+        </button>
+      )}
       {saveStatus ? <div data-testid="save-status">{saveStatus}</div> : null}
       {isSaving ? <div data-testid="saving">saving</div> : null}
     </div>
@@ -806,7 +812,7 @@ vi.mock("./chat-message", () => ({
 }))
 
 vi.mock("./chat-input", () => ({
-  ChatInput: ({ onSend, onStop, placeholder, footerControls }: any) => {
+  ChatInput: ({ onSend, onStop, onForceStop, placeholder, footerControls }: any) => {
     const InputHarness = () => {
       const [value, setValue] = useState("")
       return (
@@ -823,6 +829,11 @@ vi.mock("./chat-input", () => ({
           <button data-testid="chat-stop" onClick={onStop} aria-label="stop">
             stop
           </button>
+          {onForceStop && (
+            <button data-testid="chat-force-stop" onClick={onForceStop} aria-label="force-stop">
+              force-stop
+            </button>
+          )}
           <div data-testid="chat-input-footer">{footerControls}</div>
         </div>
       )

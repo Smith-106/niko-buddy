@@ -612,3 +612,111 @@ describe("ReviewCenterView — 顶部审校概览条（第 6 块）", () => {
     expect(screen.getByTestId("review-center-summary-craft")).toBeDisabled()
   })
 })
+
+describe("ReviewCenterView — TASK-036 增补缺口", () => {
+  it("六维分数透传雷达块：有限分数逐维透传，非有限跳过（75-76/91-115）", async () => {
+    mocks.state.reviewRun = {
+      running: false,
+      dimensionResults: {
+        thrill: { score: 7.5, issues: [] },
+        pacing: { score: "bad" as unknown as number, issues: [] },
+        character: { score: Number.NaN, issues: [] },
+      },
+    }
+    render(<ReviewCenterView />)
+    fireEvent.click(document.querySelector("[data-craft-toggle]") as HTMLElement)
+    fireEvent.click(document.querySelector('[data-craft-tab="thrill-dashboard"]') as HTMLElement)
+    // 懒加载雷达块渲染（含 Suspense 解析）
+    const radar = await screen.findByTestId("review-center-six-dim-radar")
+    expect(radar.getAttribute("data-six-dim-scores")).toContain("7.5")
+    await waitFor(() => {
+      expect(document.querySelector("[data-radar-chart]")).toBeTruthy()
+    })
+    expect(
+      document.querySelector("[data-radar-chart]")?.getAttribute("data-radar-scores"),
+    ).toContain("7.5")
+    // thrill-dashboard 占位同步收到同一分数对象
+    const dash = document.querySelector('[data-craft-placeholder="thrill-dashboard"]')
+    expect(dash?.getAttribute("data-six-dim")).toContain("7.5")
+    expect(dash?.getAttribute("data-six-dim")).not.toContain("NaN")
+  })
+
+  it("无有效六维分数 → 雷达块不渲染（derive 返回 undefined）", async () => {
+    mocks.state.reviewRun = {
+      running: false,
+      dimensionResults: { thrill: { issues: [] } },
+    }
+    render(<ReviewCenterView />)
+    fireEvent.click(document.querySelector("[data-craft-toggle]") as HTMLElement)
+    fireEvent.click(document.querySelector('[data-craft-tab="thrill-dashboard"]') as HTMLElement)
+    await waitFor(() =>
+      expect(document.querySelector('[data-craft-placeholder="thrill-dashboard"]')).toBeTruthy(),
+    )
+    expect(document.querySelector('[data-testid="review-center-six-dim-radar"]')).toBeNull()
+  })
+
+  it("wish-drive 数据源成功映射（165-171）", async () => {
+    const client = await import("@/components/canon-editor/canon-editor-client")
+    vi.mocked(client.queryCanonBatch).mockResolvedValueOnce({
+      results: [
+        [
+          { edge_kind: "motivation", predicate: "活下去。加油", target_id: " 无名 " },
+          { edge_kind: "arc", predicate: "not_a_stage", target_id: "x" },
+        ],
+      ],
+      max_revision: 3,
+    } as never)
+    render(<ReviewCenterView />)
+    fireEvent.click(document.querySelector("[data-craft-toggle]") as HTMLElement)
+    fireEvent.click(document.querySelector('[data-craft-tab="wish-drive"]') as HTMLElement)
+    await waitFor(() => expect(client.queryCanonBatch).toHaveBeenCalledWith("p1", [
+      { edge_kinds: ["motivation", "arc"] },
+    ]))
+    await waitFor(() =>
+      expect(document.querySelector('[data-craft-placeholder="wish-drive"]')).toBeTruthy(),
+    )
+  })
+
+  it("wish-drive 数据源失败 → 空数组兜底（175）", async () => {
+    const client = await import("@/components/canon-editor/canon-editor-client")
+    vi.mocked(client.queryCanonBatch).mockRejectedValueOnce(new Error("canon-down"))
+    render(<ReviewCenterView />)
+    fireEvent.click(document.querySelector("[data-craft-toggle]") as HTMLElement)
+    fireEvent.click(document.querySelector('[data-craft-tab="wish-drive"]') as HTMLElement)
+    await waitFor(() => expect(client.queryCanonBatch).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(document.querySelector('[data-craft-placeholder="wish-drive"]')).toBeTruthy(),
+    )
+  })
+
+  it("style-radar tab 可达并挂载真实面板（363）", async () => {
+    render(<ReviewCenterView />)
+    fireEvent.click(document.querySelector("[data-craft-toggle]") as HTMLElement)
+    fireEvent.click(document.querySelector('[data-craft-tab="style-radar"]') as HTMLElement)
+    await waitFor(() => {
+      expect(document.querySelector("[data-craft-panel]")?.textContent).toBeTruthy()
+    })
+  })
+})
+
+describe("projectWishDriveProfile — 单边集合（TASK-036 变异锚点）", () => {
+  it("仅 motivation 边 → 非空（wish/motive 有值，arcStage null）", async () => {
+    const { projectWishDriveProfile } = await import("./review-center-view")
+    const p = projectWishDriveProfile([
+      { edge_kind: "motivation", predicate: "活下去", target_id: "无名" },
+    ])
+    expect(p).not.toBeNull()
+    expect(p!.wish).toEqual(["活下去"])
+    expect(p!.arcStage).toBeNull()
+  })
+
+  it("仅 arc 边 → 非空（wish/motive 缺省，arcStage 生效）", async () => {
+    const { projectWishDriveProfile } = await import("./review-center-view")
+    const p = projectWishDriveProfile([
+      { edge_kind: "arc", predicate: "commitment", target_id: "x" },
+    ])
+    expect(p).not.toBeNull()
+    expect(p!.wish).toBeUndefined()
+    expect(p!.arcStage).toBe("commitment")
+  })
+})

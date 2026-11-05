@@ -1155,3 +1155,61 @@ describe("OutlineChatPanel — 自动滚动", () => {
     expect(el.scrollTop).toBe(1000)
   })
 })
+
+describe("OutlineChatPanel — TASK-035 增补缺口", () => {
+  it("解构按钮打开 UnpackOutlineDialog；Escape 关闭回清状态（202/703）", async () => {
+    mocks.outlineState.conversations = [
+      makeConv({
+        messages: [{ id: "m1", role: "assistant", content: "## 第1章 开篇\n正文" }],
+      }),
+    ]
+    mocks.outlineState.activeConversationId = "conv-1"
+    renderPanel()
+    fireEvent.click(
+      await screen.findByTitle("将本大纲自动解构为 chapters 章节骨架文件"),
+    )
+    expect(await screen.findByText("大纲自动解构分发器")).toBeTruthy()
+    // radix Dialog 的 Escape → onOpenChange(false) → setUnpackOutlineContent(null)
+    fireEvent.keyDown(document, { key: "Escape" })
+    await waitFor(() => {
+      expect(screen.queryByText("大纲自动解构分发器")).toBeNull()
+    })
+  })
+
+  it("删除会话 Trash2 支持 Enter/Space 键盘操作（603-606）", () => {
+    mocks.outlineState.conversations = [
+      makeConv({ id: "conv-1", title: "会话一" }),
+      makeConv({ id: "conv-2", title: "会话二" }),
+    ]
+    mocks.outlineState.activeConversationId = "conv-1"
+    renderPanel()
+    const deletes = screen.getAllByLabelText("删除会话")
+    expect(deletes).toHaveLength(2)
+    fireEvent.keyDown(deletes[1], { key: "Enter" })
+    expect(mocks.deleteConversation).toHaveBeenCalledWith("conv-2")
+    fireEvent.keyDown(deletes[0], { key: " " })
+    expect(mocks.deleteConversation).toHaveBeenCalledWith("conv-1")
+    // 非确认键不触发删除（603 else 分支）
+    const callsBefore = mocks.deleteConversation.mock.calls.length
+    fireEvent.keyDown(deletes[0], { key: "Tab" })
+    expect(mocks.deleteConversation.mock.calls.length).toBe(callsBefore)
+  })
+
+  it("发送链路跑通 repairWithAi 与 onFailure 回调（413-420）", async () => {
+    mocks.finalizeStructuredMarkdownMessage.mockImplementationOnce(
+      (async (content: string, opts: { repairWithAi: (a: { content: string; maxTokens: number }) => Promise<string>; onFailure: () => void }) => {
+        const repaired = await opts.repairWithAi({ content, maxTokens: 5 })
+        expect(typeof repaired).toBe("string")
+        opts.onFailure()
+        return content
+      }) as unknown as (content: string) => Promise<string>,
+    )
+    renderPanel()
+    await sendText("请生成大纲")
+    await waitFor(() => expect(mocks.runDeepOutlineGeneration).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(mocks.finalizeStructuredMarkdownMessage).toHaveBeenCalledTimes(1),
+    )
+    await waitFor(() => expect(mocks.replaceLastAssistant).toHaveBeenCalled())
+  })
+})

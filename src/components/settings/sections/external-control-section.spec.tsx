@@ -280,3 +280,244 @@ describe("ExternalControlSection", () => {
     })
   })
 })
+
+describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）", () => {
+  const STOPPED = { ...STOPPED_STATUS }
+
+  beforeEach(() => {
+    invokeMock.mockReset()
+  })
+
+  afterEach(() => {
+    cleanup()
+    // 恢复可能被测试覆盖的 navigator.clipboard 自有属性。
+    try {
+      delete (navigator as unknown as Record<string, unknown>).clipboard
+    } catch {
+      /* 忽略：环境本就没有该属性 */
+    }
+  })
+
+  function stubClipboard(reject?: Error) {
+    const writeText = reject ? vi.fn().mockRejectedValue(reject) : vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    })
+    return writeText
+  }
+
+  it("运行中但 scope 缺失：回退 read（?? 防御分支），不崩", async () => {
+    const { scope: _omit, ...noScope } = RUNNING_STATUS
+    invokeMock.mockResolvedValue(noScope)
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-endpoint")).toHaveTextContent("45871")
+    })
+    expect(screen.getByTestId("external-control-scope-read")).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("启动失败：仍尝试启动并重读真实状态（开关不卡在用户意图上）", async () => {
+    // 注意：toggle 的 catch 先 setError，随后 refresh 成功会 setError(null) 清掉，
+    // 因此启动失败 + 状态正常时错误是瞬态的、最终不可见——这里不断言错误文案，
+    // 只断言启动被尝试过、状态被重读（开关回到真实关态）。
+    let statusCalls = 0
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_server_status") {
+        statusCalls += 1
+        return Promise.resolve(STOPPED)
+      }
+      if (cmd === "mcp_server_start") return Promise.reject(new Error("port busy"))
+      return Promise.resolve(undefined)
+    })
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-toggle")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("external-control-toggle"))
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("mcp_server_start", { scope: "read" })
+    })
+    await waitFor(() => {
+      expect(statusCalls).toBeGreaterThanOrEqual(2)
+    })
+    // 开关回到真实关态（aria 未选中），错误瞬态不残留。
+    expect(screen.getByTestId("external-control-toggle")).toHaveAttribute("aria-checked", "false")
+    expect(screen.queryByTestId("external-control-error")).toBeNull()
+  })
+
+  it("启动失败且状态重读也失败：显示重读错误", async () => {
+    let statusCalls = 0
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_server_status") {
+        statusCalls += 1
+        return statusCalls === 1 ? Promise.resolve(STOPPED) : Promise.reject(new Error("status down"))
+      }
+      if (cmd === "mcp_server_start") return Promise.reject(new Error("port busy"))
+      return Promise.resolve(undefined)
+    })
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-toggle")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("external-control-toggle"))
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-error")).toHaveTextContent("status down")
+    })
+  })
+
+  it("停止态切换权限域：只记意图不重启；再启动时带新 scope", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_server_status") return Promise.resolve(STOPPED)
+      if (cmd === "mcp_server_start") return Promise.resolve(45871)
+      return Promise.resolve(undefined)
+    })
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-scope-settings")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("external-control-scope-settings"))
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-scope-settings")).toHaveAttribute("aria-pressed", "true")
+    })
+    expect(invokeMock).not.toHaveBeenCalledWith("mcp_server_start", expect.anything())
+    // 再打开开关：带上刚记住的 settings 意图。
+    fireEvent.click(screen.getByTestId("external-control-toggle"))
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("mcp_server_start", { scope: "settings" })
+    })
+  })
+
+  it("运行中切换权限域失败且重读失败：显示重读错误", async () => {
+    let statusCalls = 0
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_server_status") {
+        statusCalls += 1
+        return statusCalls === 1 ? Promise.resolve(RUNNING_STATUS) : Promise.reject(new Error("status down"))
+      }
+      if (cmd === "mcp_server_start") return Promise.reject(new Error("restart failed"))
+      return Promise.resolve(undefined)
+    })
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-scope-project")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("external-control-scope-project"))
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("mcp_server_start", { scope: "project" })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-error")).toHaveTextContent("status down")
+    })
+  })
+
+  it("已取到 token 后再点显示：只切换掩码，不再调后端", async () => {
+    invokeMock.mockResolvedValue(RUNNING_STATUS)
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-reveal")).toBeInTheDocument()
+    })
+    invokeMock.mockResolvedValueOnce("t".repeat(64))
+    fireEvent.click(screen.getByTestId("external-control-reveal"))
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-token")).toHaveTextContent("t".repeat(64))
+    })
+    expect(invokeMock).toHaveBeenCalledWith("mcp_server_token")
+    const callsBefore = invokeMock.mock.calls.filter((c) => c[0] === "mcp_server_token").length
+    // 再点：隐藏（token 还在，只是不展示）。
+    fireEvent.click(screen.getByTestId("external-control-reveal"))
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-token")).not.toHaveTextContent("t".repeat(64))
+    })
+    // 第三次：重新展示，仍不调后端（token 缓存）。
+    fireEvent.click(screen.getByTestId("external-control-reveal"))
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-token")).toHaveTextContent("t".repeat(64))
+    })
+    expect(invokeMock.mock.calls.filter((c) => c[0] === "mcp_server_token").length).toBe(callsBefore)
+  })
+
+  it("取 token 失败：显示错误", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_server_token") return Promise.reject(new Error("vault locked"))
+      return Promise.resolve(RUNNING_STATUS)
+    })
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-reveal")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("external-control-reveal"))
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-error")).toHaveTextContent("vault locked")
+    })
+  })
+
+  it("轮换 token 失败：显示错误（finally 照常解 busy）", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_server_rotate_token") return Promise.reject(new Error("rotate down"))
+      return Promise.resolve(RUNNING_STATUS)
+    })
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-rotate")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("external-control-rotate"))
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-error")).toHaveTextContent("rotate down")
+    })
+    // busy 已解：按钮恢复可用。
+    expect((screen.getByTestId("external-control-rotate") as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it("复制连接地址成功：已复制提示 1.5s 后回到复制", async () => {
+    const writeText = stubClipboard()
+    invokeMock.mockResolvedValue(RUNNING_STATUS)
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-copy")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("external-control-copy"))
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("http://127.0.0.1:45871/mcp")
+    })
+    // 本文件不 mock i18n，走真实中文文案。
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-copy")).toHaveTextContent("已复制")
+    })
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("external-control-copy")).toHaveTextContent("复制")
+        expect(screen.getByTestId("external-control-copy")).not.toHaveTextContent("已复制")
+      },
+      { timeout: 4000 },
+    )
+  })
+
+  it("复制失败（剪贴板拒绝）：显示错误", async () => {
+    stubClipboard(new Error("clipboard denied"))
+    invokeMock.mockResolvedValue(RUNNING_STATUS)
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-copy")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("external-control-copy"))
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-error")).toHaveTextContent("clipboard denied")
+    })
+  })
+
+  it("status 恒为 null 时复制按钮禁用：守卫分支不触发写剪贴板", async () => {
+    // refresh 永不 resolve → status 恒 null → 复制按钮 disabled。
+    invokeMock.mockReturnValue(new Promise(() => {}))
+    const writeText = stubClipboard()
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-copy")).toBeInTheDocument()
+    })
+    expect((screen.getByTestId("external-control-copy") as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByTestId("external-control-copy"))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(writeText).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("external-control-error")).toBeNull()
+  })
+})

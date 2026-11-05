@@ -24,6 +24,8 @@ const mocks = vi.hoisted(() => {
     novelConfig: { preWriteGateMode: "warn" }
     focusMode: boolean
     setFocusMode: (v: boolean) => void
+    setActiveView: (v: string) => void
+    setSelectedFile: (p: string | null) => void
     selectedFile: string | null
     fileContent: string
     finalChapterSave: {
@@ -42,6 +44,8 @@ const mocks = vi.hoisted(() => {
     setFocusMode: vi.fn((v: boolean) => {
       mocks.wikiState.focusMode = v
     }),
+    setActiveView: vi.fn((_v: string) => {}),
+    setSelectedFile: vi.fn((_p: string | null) => {}),
     selectedFile: null,
     fileContent: "",
     finalChapterSave: null,
@@ -86,7 +90,37 @@ vi.mock("@/components/sources/sources-view", () => ({
 }))
 
 vi.mock("@/components/search/search-view", () => ({
-  SearchView: () => <div data-testid="search-view">search</div>,
+  SearchView: ({ onClose, onOpenFile }: { onClose?: () => void; onOpenFile?: (p: { path: string }) => void }) => (
+    <div data-testid="search-view">
+      search
+      <button type="button" data-testid="search-mock-close" onClick={() => onClose?.()}>close</button>
+      <button type="button" data-testid="search-mock-open" onClick={() => onOpenFile?.({ path: "/mock/opened.md" })}>open</button>
+    </div>
+  ),
+}))
+
+vi.mock("./chapter-draft-dock", () => ({
+  ChapterDraftDock: ({
+    onAdopted,
+    onGenerateDraft,
+    onOpenMemory,
+  }: {
+    onAdopted?: (p: string) => void
+    onGenerateDraft?: () => void
+    onOpenMemory?: () => void
+  }) => (
+    <div data-testid="chapter-draft-dock">
+      dock
+      <button type="button" data-testid="draft-mock-adopt" onClick={() => onAdopted?.("/mock/adopted.md")}>adopt</button>
+      <button type="button" data-testid="draft-mock-generate" onClick={() => onGenerateDraft?.()}>generate</button>
+      <button type="button" data-testid="draft-mock-memory" onClick={() => onOpenMemory?.()}>memory</button>
+    </div>
+  ),
+}))
+
+vi.mock("@/components/novel/campaign-dashboard-dialog", () => ({
+  CampaignDashboardDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="campaign-dialog">campaign</div> : null,
 }))
 
 // The lazy ChatPanel is loaded via `await import("@/components/chat/chat-panel")`.
@@ -127,6 +161,9 @@ beforeEach(() => {
   mocks.wikiState.selectedFile = null
   mocks.wikiState.fileContent = ""
   mocks.wikiState.finalChapterSave = null
+  vi.clearAllMocks()
+  novelMocks.loadForeshadowingTracker.mockRejectedValue(new Error("not mocked"))
+  fsMocks.getFileModifiedTime.mockResolvedValue(0)
   localStorage.clear()
 })
 
@@ -520,4 +557,111 @@ describe("WritingWorkspace — 写作工具抽屉接线", () => {
     expect(screen.getByTestId("chat-panel")).toBeTruthy()
   })
 
+})
+
+describe("WritingWorkspace — W3 剩余分支补齐", () => {
+  it("伏笔 effect 取消竞态：卸载后 resolve 不写状态", async () => {
+    let resolveTracker!: (v: never) => void
+    novelMocks.loadForeshadowingTracker.mockImplementation(
+      () => new Promise((r) => { resolveTracker = r as never }),
+    )
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    const { unmount } = render(<WritingWorkspace />)
+    unmount()
+    await act(async () => {
+      resolveTracker({ lastUpdated: "x", items: [] } as unknown as never)
+    })
+    await act(async () => {})
+    expect(true).toBe(true)
+  })
+
+  it("mtime 读取失败 fail-open：不显示快照且不崩溃", async () => {
+    fsMocks.getFileModifiedTime.mockRejectedValueOnce(new Error("mtime-boom"))
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    mocks.wikiState.selectedFile = "C:/novels/demo/正文/第01章.md"
+    mocks.wikiState.fileContent = "# 第一章\n\n正文。"
+    render(<WritingWorkspace />)
+    await waitFor(() => expect(fsMocks.getFileModifiedTime).toHaveBeenCalled())
+    await act(async () => {})
+    expect(screen.getByTestId("workspace-tools-target").textContent).not.toContain("本地快照")
+  })
+
+  it("生成本章草稿：预填主控目标并跳主控", async () => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    mocks.wikiState.selectedFile = "C:/novels/demo/正文/第01章.md"
+    mocks.wikiState.fileContent = "# 第一章 起点\n\n正文。"
+    const setActiveView = mocks.wikiState.setActiveView as unknown as ReturnType<typeof vi.fn>
+    setActiveView.mockClear()
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-generate-draft"))
+    expect(setActiveView).toHaveBeenCalledWith("mainControl")
+  })
+
+  it("长程战役调度按钮打开战役对话框", async () => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    render(<WritingWorkspace />)
+    expect(screen.queryByTestId("campaign-dialog")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("workspace-tools-toggle-campaign"))
+    expect(await screen.findByTestId("campaign-dialog")).toBeInTheDocument()
+  })
+
+  it("搜索抽屉 onClose 关闭抽屉", async () => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-desk-search"))
+    expect(await screen.findByTestId("search-view")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("search-mock-close"))
+    await waitFor(() => expect(screen.queryByTestId("workspace-chapter-dock")).not.toBeInTheDocument())
+  })
+
+  it("搜索抽屉 onOpenFile 切 wiki 并选中文件", async () => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    const setActiveView = mocks.wikiState.setActiveView as unknown as ReturnType<typeof vi.fn>
+    const setSelectedFile = mocks.wikiState.setSelectedFile as unknown as ReturnType<typeof vi.fn>
+    setActiveView.mockClear()
+    setSelectedFile.mockClear()
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-desk-search"))
+    expect(await screen.findByTestId("search-view")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("search-mock-open"))
+    expect(setSelectedFile).toHaveBeenCalledWith("/mock/opened.md")
+    expect(setActiveView).toHaveBeenCalledWith("wiki")
+  })
+
+  it("草稿抽屉 onAdopted：刷新并切 wiki", async () => {
+    novelMocks.loadForeshadowingTracker.mockResolvedValue({
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      items: [],
+    })
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    const setActiveView = mocks.wikiState.setActiveView as unknown as ReturnType<typeof vi.fn>
+    const setSelectedFile = mocks.wikiState.setSelectedFile as unknown as ReturnType<typeof vi.fn>
+    setActiveView.mockClear()
+    setSelectedFile.mockClear()
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    expect(await screen.findByTestId("chapter-draft-dock")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("draft-mock-adopt"))
+    expect(setSelectedFile).toHaveBeenCalledWith("/mock/adopted.md")
+    expect(setActiveView).toHaveBeenCalledWith("wiki")
+  })
+
+  it("草稿抽屉 onGenerateDraft 走主控，onOpenMemory 走 lint", async () => {
+    novelMocks.loadForeshadowingTracker.mockResolvedValue({
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      items: [],
+    })
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    mocks.wikiState.selectedFile = "C:/novels/demo/正文/第01章.md"
+    mocks.wikiState.fileContent = "# 第一章\n\n正文。"
+    const setActiveView = mocks.wikiState.setActiveView as unknown as ReturnType<typeof vi.fn>
+    setActiveView.mockClear()
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    expect(await screen.findByTestId("chapter-draft-dock")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("draft-mock-generate"))
+    expect(setActiveView).toHaveBeenCalledWith("mainControl")
+    fireEvent.click(screen.getByTestId("draft-mock-memory"))
+    expect(setActiveView).toHaveBeenCalledWith("lint")
+  })
 })

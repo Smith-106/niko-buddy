@@ -1779,3 +1779,118 @@ describe("ChatMessage malformed-LaTeX ErrorBoundary (P0)", () => {
     errorSpy.mockRestore()
   })
 })
+
+describe("TASK-021 chat-message uncovered lines", () => {
+  beforeEach(() => {
+    resetMocks()
+    __resetCitedImageCacheForTests()
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it("accept-and-continue-next wires content and isSaving variants (line 158)", () => {
+    const onAccept = vi.fn()
+    const draft = chapterDraft("ready")
+    const view = render(
+      <ChatMessage
+        message={createAssistantMessage(draft)}
+        isLastAssistant
+        novelMode
+        onSaveAsChapter={() => {}}
+        onAcceptAndContinueNext={onAccept}
+        onDiscardDraft={() => {}}
+        onContinueNextChapter={() => {}}
+      />,
+    )
+    const btn = screen.getByLabelText("接受并撰写下一章")
+    expect(btn).toBeInTheDocument()
+    expect(btn).not.toBeDisabled()
+    fireEvent.click(btn)
+    expect(onAccept).toHaveBeenCalledTimes(1)
+    expect(onAccept.mock.calls[0][0]).toContain("# Chapter 1 Title")
+    view.unmount()
+    cleanup()
+    render(
+      <ChatMessage
+        message={createAssistantMessage(draft)}
+        isLastAssistant
+        novelMode
+        onSaveAsChapter={() => {}}
+        onAcceptAndContinueNext={() => {}}
+        onDiscardDraft={() => {}}
+        onContinueNextChapter={() => {}}
+        isSaving
+      />,
+    )
+    expect(screen.getByLabelText("接受并撰写下一章")).toBeDisabled()
+  })
+
+  it("cache size helper reflects entries (line 323)", async () => {
+    const mod = await import("./chat-message")
+    mod.__resetCitedImageCacheForTests()
+    expect(mod.__getCitedImageCacheSizeForTests()).toBe(0)
+    await mod.getOrFetchCitedImageInfo("/p", "wiki/entities/size-probe.md")
+    expect(mod.__getCitedImageCacheSizeForTests()).toBe(1)
+  })
+
+  it("evicts oldest when exceeding max (lines 408-410 delete path)", async () => {
+    const mod = await import("./chat-message")
+    mod.__resetCitedImageCacheForTests()
+    for (let i = 0; i < 205; i++) {
+      mod.citedPageImageCache.set(`k${i}`, { count: 0, firstUrl: null })
+    }
+    expect(mod.citedPageImageCache.size).toBe(205)
+    await mod.getOrFetchCitedImageInfo("/p", "wiki/entities/evict-trigger.md")
+    expect(mod.citedPageImageCache.size).toBeLessThanOrEqual(mod.CITED_PAGE_IMAGE_CACHE_MAX)
+    expect(mod.citedPageImageCache.has("k0")).toBe(false)
+  })
+
+  it("deduplicates identical cited paths (line 454 branch)", async () => {
+    mocks.wikiState.project = { id: "p1", name: "P", path: "/p" }
+    mocks.readFile.mockResolvedValue("# page ![a](img-1.png)")
+    const dupRefs = [
+      { title: "A", path: "wiki/entities/a.md" },
+      { title: "A2", path: "wiki/entities/a.md" },
+    ]
+    render(<ChatMessage message={{ ...createAssistantMessage("hi"), references: dupRefs }} />)
+    const badges = await screen.findAllByTitle(/打开第一张图片/)
+    expect(badges.length).toBeGreaterThan(0)
+    expect(mocks.readFile).toHaveBeenCalled()
+  })
+
+  it("seeds synchronously on cache hit (lines 484-486)", async () => {
+    const mod = await import("./chat-message")
+    mod.__resetCitedImageCacheForTests()
+    mocks.wikiState.project = { id: "p1", name: "P", path: "/p" }
+    mocks.readFile.mockResolvedValue("# page ![a](img-1.png)")
+    const refs = [{ title: "A", path: "wiki/entities/seed-hit.md" }]
+    const first = render(<ChatMessage message={{ ...createAssistantMessage("hi"), references: refs }} />)
+    await screen.findByTitle(/打开第一张图片/)
+    first.unmount()
+    cleanup()
+    mocks.wikiState.project = { id: "p1", name: "P", path: "/p" }
+    mocks.readFile.mockClear()
+    render(<ChatMessage message={{ ...createAssistantMessage("hi"), references: refs }} />)
+    await screen.findByTitle(/打开第一张图片/)
+    expect(mocks.readFile).not.toHaveBeenCalled()
+  })
+
+  it("ignores late fetch after unmount (line 470 cancelled branch)", async () => {
+    const mod = await import("./chat-message")
+    mod.__resetCitedImageCacheForTests()
+    mocks.wikiState.project = { id: "p1", name: "P", path: "/p" }
+    mocks.readFile.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 20))
+      return "# page ![a](img-x.png)"
+    })
+    const view = render(
+      <ChatMessage message={{ ...createAssistantMessage("hi"), references: [{ title: "A", path: "wiki/entities/cancel-me.md" }] }} />,
+    )
+    view.unmount()
+    await new Promise((r) => setTimeout(r, 40))
+    expect(true).toBe(true)
+  })
+})

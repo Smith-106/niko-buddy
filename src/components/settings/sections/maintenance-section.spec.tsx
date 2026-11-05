@@ -50,6 +50,7 @@ const mocks = vi.hoisted(() => {
     cancelTask: vi.fn(async () => {}),
     retryTask: vi.fn(async () => {}),
     getQueue: vi.fn(() => queue),
+    loadDivergenceTrace: vi.fn(async () => ""),
     t: vi.fn((key: string) => key),
   }
 })
@@ -81,6 +82,14 @@ vi.mock("@/lib/dedup-queue", () => ({
   getQueue: mocks.getQueue,
   groupKey: mocks.groupKey,
 }))
+
+vi.mock("@/lib/novel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel")>()
+  return {
+    ...actual,
+    loadDivergenceTrace: mocks.loadDivergenceTrace,
+  }
+})
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: mocks.t }),
@@ -488,5 +497,93 @@ describe("MaintenanceSection — 孤儿任务列表（无匹配卡片）", () =>
     setState({ project: PROJECT })
     render(<MaintenanceSection />)
     expect(screen.queryByText("settings.sections.maintenance.dedup.queueTitle")).toBeNull()
+  })
+})
+
+describe("MaintenanceSection — divergence trace 审计读视图（覆盖战役补齐）", () => {
+  beforeEach(() => {
+    resetBaseline()
+    setupDomGlobals()
+    mocks.loadDivergenceTrace.mockReset()
+    mocks.loadDivergenceTrace.mockResolvedValue("")
+  })
+
+  function toggleViewer(): HTMLButtonElement {
+    return screen
+      .getByText("settings.sections.maintenance.divergenceTraceTitle")
+      .closest("button")! as HTMLButtonElement
+  }
+
+  it("无项目：展开显示空态，不调读取；再点收起", async () => {
+    setState({ project: null })
+    render(<MaintenanceSection />)
+    const toggle = toggleViewer()
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    await waitFor(() => {
+      expect(screen.getByText("settings.sections.maintenance.divergenceTraceEmpty")).toBeTruthy()
+    })
+    expect(mocks.loadDivergenceTrace).not.toHaveBeenCalled()
+    fireEvent.click(toggleViewer())
+    expect(screen.queryByText("settings.sections.maintenance.divergenceTraceEmpty")).toBeNull()
+  })
+
+  it("有项目：展开后加载并展示 trace 内容（按项目路径读）", async () => {
+    mocks.loadDivergenceTrace.mockResolvedValueOnce('{"rev":3}')
+    setState({ project: PROJECT })
+    render(<MaintenanceSection />)
+    fireEvent.click(toggleViewer())
+    await waitFor(() => {
+      expect(screen.getByText('{"rev":3}')).toBeTruthy()
+    })
+    expect(mocks.loadDivergenceTrace).toHaveBeenCalledWith("/p/test")
+  })
+
+  it("trace 为空串：按空态展示（空串 falsy 走 empty 分支）", async () => {
+    mocks.loadDivergenceTrace.mockResolvedValueOnce("")
+    setState({ project: PROJECT })
+    render(<MaintenanceSection />)
+    fireEvent.click(toggleViewer())
+    await waitFor(() => {
+      expect(screen.getByText("settings.sections.maintenance.divergenceTraceEmpty")).toBeTruthy()
+    })
+  })
+
+  it("加载中显示 spinner；完成后切 trace", async () => {
+    let resolveLoad!: (v: string) => void
+    mocks.loadDivergenceTrace.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        resolveLoad = resolve
+      }),
+    )
+    setState({ project: PROJECT })
+    render(<MaintenanceSection />)
+    fireEvent.click(toggleViewer())
+    await waitFor(() => {
+      expect(document.querySelector(".animate-spin")).not.toBeNull()
+    })
+    resolveLoad("trace-payload")
+    await waitFor(() => {
+      expect(screen.getByText("trace-payload")).toBeTruthy()
+    })
+  })
+
+  it("trace 已缓存：收起再展开不再重读", async () => {
+    mocks.loadDivergenceTrace.mockResolvedValueOnce("cached")
+    setState({ project: PROJECT })
+    render(<MaintenanceSection />)
+    fireEvent.click(toggleViewer())
+    await waitFor(() => {
+      expect(screen.getByText("cached")).toBeTruthy()
+    })
+    expect(mocks.loadDivergenceTrace).toHaveBeenCalledTimes(1)
+    fireEvent.click(toggleViewer())
+    expect(screen.queryByText("cached")).toBeNull()
+    fireEvent.click(toggleViewer())
+    await waitFor(() => {
+      expect(screen.getByText("cached")).toBeTruthy()
+    })
+    expect(mocks.loadDivergenceTrace).toHaveBeenCalledTimes(1)
   })
 })

@@ -12,7 +12,8 @@ import { ContentArea } from "./content-area"
 
 const mocks = vi.hoisted(() => {
   const state: { activeView: string; novelMode: boolean } = { activeView: "wiki", novelMode: true }
-  return { state }
+  const plannedSet = new Set<string>()
+  return { state, plannedSet }
 })
 
 vi.mock("@/stores/wiki-store", async (importOriginal) => {
@@ -68,6 +69,134 @@ vi.mock("@/components/review/review-center-view", () => ({
 
 vi.mock("@/components/novel/book-analysis-view", () => ({
   BookAnalysisView: () => <div>mock-book-analysis</div>,
+}))
+
+vi.mock("./planned-views", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./planned-views")>()
+  return {
+    ...actual,
+    isPlannedView: (view: string) => mocks.plannedSet.has(view) || actual.isPlannedView(view),
+  }
+})
+
+vi.mock("./planned-view", () => ({
+  PlannedView: ({ view }: { view: string }) => <div>mock-planned-{view}</div>,
+}))
+
+vi.mock("@/components/novel/story-simulation/story-simulation-view", () => ({
+  StorySimulationView: () => <div>mock-story-simulation</div>,
+}))
+
+vi.mock("@/components/skill-library/unified-skill-library-view", () => ({
+  UnifiedSkillLibraryView: () => <div>mock-skill-library</div>,
+}))
+
+vi.mock("@/components/novel/status-dashboard-view", () => ({
+  StatusDashboardView: () => <div>mock-status-dashboard</div>,
+}))
+
+vi.mock("@/components/novel/backup-export-view", () => ({
+  BackupExportView: () => <div>mock-backup-export</div>,
+}))
+
+vi.mock("@/components/novel/diagnostics-center", () => ({
+  DiagnosticsCenterView: () => <div>mock-diagnostics</div>,
+}))
+
+vi.mock("@/components/canon-editor/canon-editor", () => ({
+  CanonEditor: () => <div>mock-canon-editor</div>,
+}))
+
+vi.mock("@/components/novel/director-view", () => ({
+  DirectorView: () => <div>mock-director</div>,
+}))
+
+vi.mock("@/components/novel/module-heatmap-view", () => ({
+  ModuleHeatmapView: () => <div>mock-module-heatmap</div>,
+}))
+
+vi.mock("@/components/novel/pipeline-motion-view", () => ({
+  PipelineMotionView: () => <div>mock-pipeline-motion</div>,
+}))
+
+vi.mock("@/components/novel/live-execution-view", () => ({
+  LiveExecutionView: () => <div>mock-live-execution</div>,
+}))
+
+vi.mock("@/components/novel/followup-center-view", () => ({
+  FollowupCenterView: () => <div>mock-followup-center</div>,
+}))
+
+vi.mock("@/components/novel/creative-hub-view", () => ({
+  CreativeHubView: () => <div>mock-creative-hub</div>,
+}))
+
+vi.mock("@/components/novel/bookshelf-view", () => ({
+  BookshelfView: () => <div>mock-bookshelf</div>,
+}))
+
+vi.mock("@/components/novel/genre-library-view", () => ({
+  GenreLibraryView: () => <div>mock-genre-library</div>,
+}))
+
+vi.mock("@/components/novel/story-mode-library-view", () => ({
+  StoryModeLibraryView: () => <div>mock-story-mode-library</div>,
+}))
+
+vi.mock("@/components/novel/title-studio-view", () => ({
+  TitleStudioView: () => <div>mock-title-studio</div>,
+}))
+
+vi.mock("@/components/novel/style-engine-view", () => ({
+  StyleEngineView: () => <div>mock-style-engine</div>,
+}))
+
+vi.mock("@/components/novel/anti-ai-rules-view", () => ({
+  AntiAiRulesView: () => <div>mock-anti-ai-rules</div>,
+}))
+
+vi.mock("@/components/novel/model-routes-view", () => ({
+  ModelRoutesView: () => <div>mock-model-routes</div>,
+}))
+
+vi.mock("@/components/novel/mcp-manager-view", () => ({
+  McpManagerView: () => <div>mock-mcp-manager</div>,
+}))
+
+vi.mock("@/components/novel/workflow-editor-view", () => ({
+  WorkflowEditorView: () => <div>mock-workflow-editor</div>,
+}))
+
+vi.mock("@/components/novel/market-radar-view", () => ({
+  MarketRadarView: () => <div>mock-market-radar</div>,
+}))
+
+vi.mock("@/components/novel/help-view", () => ({
+  HelpView: () => <div>mock-help</div>,
+}))
+
+vi.mock("@/components/novel/export-center-view", () => ({
+  ExportCenterView: () => <div>mock-export-center</div>,
+}))
+
+vi.mock("@/components/novel/main-control-view", () => ({
+  MainControlView: () => <div>mock-main-control</div>,
+}))
+
+vi.mock("@/components/novel/data-manager-view", () => ({
+  DataManagerView: () => <div>mock-data-manager</div>,
+}))
+
+vi.mock("@/components/novel/asset-library-view", () => ({
+  AssetLibraryView: () => <div>mock-asset-library</div>,
+}))
+
+vi.mock("@/components/novel/world-library-view", () => ({
+  WorldLibraryView: () => <div>mock-world-library</div>,
+}))
+
+vi.mock("./workbench-view", () => ({
+  WorkbenchView: () => <div>mock-workbench</div>,
 }))
 
 function renderContentArea(): { container: HTMLDivElement; cleanup: () => void } {
@@ -219,5 +348,74 @@ describe("ContentArea", () => {
     expect(c.textContent).toContain("boom-f1")
     root.unmount()
     c.remove()
+  })
+})
+
+describe("ContentArea — W3 剩余视图全路由", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.state.activeView = "wiki"
+    mocks.state.novelMode = true
+    mocks.plannedSet.clear()
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ""
+    mocks.plannedSet.clear()
+  })
+
+  const cases: Array<[string, string]> = [
+    ["storySimulation", "mock-story-simulation"],
+    ["skillLibrary", "mock-skill-library"],
+    ["writingSkillLibrary", "mock-skill-library"],
+    ["skillFavorites", "mock-skill-library"],
+    ["statusDashboard", "mock-status-dashboard"],
+    ["backupExport", "mock-backup-export"],
+    ["diagnosticsCenter", "mock-diagnostics"],
+    ["canonEditor", "mock-canon-editor"],
+    ["director", "mock-director"],
+    ["moduleHeatmap", "mock-module-heatmap"],
+    ["pipelineMotion", "mock-pipeline-motion"],
+    ["liveExecution", "mock-live-execution"],
+    ["followUpCenter", "mock-followup-center"],
+    ["creativeHub", "mock-creative-hub"],
+    ["bookshelf", "mock-bookshelf"],
+    ["genreLibrary", "mock-genre-library"],
+    ["storyModeLibrary", "mock-story-mode-library"],
+    ["titleStudio", "mock-title-studio"],
+    ["styleEngine", "mock-style-engine"],
+    ["antiAiRules", "mock-anti-ai-rules"],
+    ["modelRoutes", "mock-model-routes"],
+    ["mcpManager", "mock-mcp-manager"],
+    ["workflowEditor", "mock-workflow-editor"],
+    ["marketRadar", "mock-market-radar"],
+    ["help", "mock-help"],
+    ["exportCenter", "mock-export-center"],
+    ["mainControl", "mock-main-control"],
+    ["dataManager", "mock-data-manager"],
+    ["worldLibrary", "mock-world-library"],
+    ["knowledgeLibrary", "mock-asset-library"],
+    ["workbench", "mock-workbench"],
+  ]
+
+  for (const [view, marker] of cases) {
+    it(`${view} → ${marker}`, async () => {
+      mocks.state.activeView = view
+      const { container, cleanup } = renderContentArea()
+      await flushAsync()
+      // 语义断言：正确视图挂载（改错分支会渲染别的 mock 而变红）
+      expect(container.textContent).toContain(marker)
+      cleanup()
+    })
+  }
+
+  it("计划态视图 → PlannedView（占位而非聊天面板）", async () => {
+    mocks.plannedSet.add("fakePlanned")
+    mocks.state.activeView = "fakePlanned"
+    const { container, cleanup } = renderContentArea()
+    await flushAsync()
+    expect(container.textContent).toContain("mock-planned-fakePlanned")
+    expect(container.textContent).not.toContain("mock-chat")
+    cleanup()
   })
 })

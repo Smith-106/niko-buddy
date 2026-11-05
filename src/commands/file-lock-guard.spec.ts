@@ -207,4 +207,50 @@ describe("withFileLockRetry", () => {
     expect(delay).toHaveBeenCalledTimes(1)
     expect(delays).toEqual([5])
   })
+
+  it("不传 sleep/delay 时走 defaultSleep 真实定时器：退避 0ms 后重试成功", async () => {
+    let calls = 0
+    const fn = vi.fn(async (): Promise<string> => {
+      calls += 1
+      if (calls === 1) throw new Error("EBUSY: resource busy or locked")
+      return "ok"
+    })
+
+    const result = await withFileLockRetry(fn, { baseDelayMs: 0, random: () => 1 })
+
+    expect(result).toBe("ok")
+    expect(fn).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("errorText 的未知拒绝值分支（经 isTransientFileLockError 观察）", () => {
+  it("纯对象只带 message：message 参与匹配", () => {
+    expect(isTransientFileLockError({ message: "sharing violation on x.tmp" })).toBe(true)
+  })
+
+  it("纯对象只带 code：code 参与匹配", () => {
+    expect(isTransientFileLockError({ code: "EBUSY" })).toBe(true)
+  })
+
+  it("纯对象 message + code 同时存在：两段参与匹配", () => {
+    expect(isTransientFileLockError({ message: "rename failed", code: "ETXTBSY" })).toBe(true)
+  })
+
+  it("纯对象两者都无：退回 JSON.stringify 文本匹配", () => {
+    expect(isTransientFileLockError({ detail: "lock conflict detected" })).toBe(true)
+  })
+
+  it("循环引用对象：JSON.stringify 抛错后落 String(err) 保底，不向外崩溃", () => {
+    const circular: Record<string, unknown> = { name: "x" }
+    circular.self = circular
+    expect(() => isTransientFileLockError(circular)).not.toThrow()
+    expect(isTransientFileLockError(circular)).toBe(false)
+  })
+
+  it("非对象原始值落 String(err)", () => {
+    expect(isTransientFileLockError(42)).toBe(false)
+    expect(isTransientFileLockError(null)).toBe(false)
+    expect(isTransientFileLockError(undefined)).toBe(false)
+    expect(isTransientFileLockError(true)).toBe(false)
+  })
 })

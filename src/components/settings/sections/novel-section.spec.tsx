@@ -925,3 +925,175 @@ describe("NovelSection", () => {
     })
   })
 })
+
+describe("NovelSection 未覆盖分支（覆盖战役补齐）", () => {
+  beforeEach(() => {
+    // 顶层 beforeEach 已重建 currentDraft；这里补上共识/任务定制/拼写三块字段。
+    Object.assign(currentDraft.novelConfig as unknown as Record<string, unknown>, {
+      consensusEnabled: false,
+      consensusWritingModels: [],
+      consensusDebateRounds: 2,
+      consensusReviewModels: {},
+      taskSkillNames: {},
+      taskPrompts: {},
+      dialoguePunctuationStyle: "",
+      paragraphIndent: "",
+      quoteConvention: "",
+    })
+  })
+
+  it("同意加载失败（reject）：开关保持关，不崩", async () => {
+    mocks.loadAntiAiTelemetryConsent.mockRejectedValueOnce(new Error("load-down"))
+    renderSection()
+    await waitFor(() => {
+      expect(mocks.loadAntiAiTelemetryConsent).toHaveBeenCalledTimes(1)
+    })
+    // catch 分支把 consent 置 false → 开关关态。
+    expect(String(toggleButtonFor("novel.settings.antiAiTelemetryConsent").className)).toContain("bg-input")
+  })
+
+  it("同意加载完成前卸载：cancelled 守卫阻止 setState，不报错", async () => {
+    let resolveLoad!: (v: boolean) => void
+    mocks.loadAntiAiTelemetryConsent.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolveLoad = resolve
+      }),
+    )
+    const view = render(<NovelSection draft={currentDraft} setDraft={setDraft} />)
+    view.unmount()
+    resolveLoad(true)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(screen.queryByText("novel.settings.antiAiTelemetryConsent")).toBeNull()
+  })
+
+  it("同意加载拒绝前卸载：catch 内 cancelled 守卫同样阻止 setState", async () => {
+    let rejectLoad!: (e: unknown) => void
+    mocks.loadAntiAiTelemetryConsent.mockReturnValueOnce(
+      new Promise<boolean>((_resolve, reject) => {
+        rejectLoad = reject
+      }),
+    )
+    const view = render(<NovelSection draft={currentDraft} setDraft={setDraft} />)
+    view.unmount()
+    rejectLoad(new Error("late-down"))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(screen.queryByText("novel.settings.antiAiTelemetryConsent")).toBeNull()
+  })
+
+  it("无项目时点 KB 采集：直接报错 kbShadowNoProject，不调后端", async () => {
+    mocks.wikiState.project = null
+    renderSection()
+    fireEvent.click(screen.getByText("novel.settings.kbShadowRunButton"))
+    await waitFor(() => {
+      // 错误经 kbShadowError 键包装展示（message 透传），断言组合后文本。
+      expect(screen.getByText("novel.settings.kbShadowError:novel.settings.kbShadowNoProject")).toBeInTheDocument()
+    })
+    expect(mocks.runKbShadowArmsIfConsented).not.toHaveBeenCalled()
+  })
+
+  it("KB 采集抛错：错误文案展示 toErrorMessage", async () => {
+    mocks.runKbShadowArmsIfConsented.mockRejectedValueOnce(new Error("shadow-down"))
+    renderSection()
+    fireEvent.click(screen.getByText("novel.settings.kbShadowRunButton"))
+    await waitFor(() => {
+      expect(screen.getByText("novel.settings.kbShadowError:shadow-down")).toBeInTheDocument()
+    })
+  })
+
+  it("持久化前 store 抛非 NovelConfigPersistError：按空回滚 + toast，不落盘", async () => {
+    mocks.wikiState.setNovelConfig.mockImplementationOnce(() => {
+      throw new Error("store-down")
+    })
+    renderSection()
+    const before = mocks.saveNovelConfig.mock.calls.length
+    fireEvent.click(toggleButtonFor("novel.settings.autoIngestOnSave"))
+    await waitFor(() => {
+      expect(mocks.toastError).toHaveBeenCalledWith("store-down")
+    })
+    expect(mocks.saveNovelConfig.mock.calls.length).toBe(before)
+  })
+
+  it("共识总开关：勾选后落盘 consensusEnabled=true，并展开写作模型输入", async () => {
+    renderSection()
+    fireEvent.click(screen.getByLabelText("novel.settings.consensusEnabled"))
+    await waitFor(() => {
+      expect(mocks.saveNovelConfig).toHaveBeenCalled()
+    })
+    expect(lastSavedNovelConfig().consensusEnabled as boolean).toBe(true)
+  })
+
+  it("共识写作模型输入：逗号分隔写入数组", async () => {
+    ;(currentDraft.novelConfig as unknown as Record<string, unknown>).consensusEnabled = true
+    renderSection()
+    fireEvent.change(screen.getByLabelText("novel.settings.consensusWritingModels"), {
+      target: { value: "a/m1, b/m2" },
+    })
+    await waitFor(() => {
+      expect(mocks.saveNovelConfig).toHaveBeenCalled()
+    })
+    expect(lastSavedNovelConfig().consensusWritingModels).toEqual(["a/m1", "b/m2"])
+  })
+
+  it("共识辩论轮数：CommitNumberInput 提交落盘", async () => {
+    ;(currentDraft.novelConfig as unknown as Record<string, unknown>).consensusEnabled = true
+    renderSection()
+    commitValue(screen.getByLabelText("novel.settings.consensusDebateRounds"), "3")
+    await waitFor(() => {
+      expect(mocks.saveNovelConfig).toHaveBeenCalled()
+    })
+    expect(lastSavedNovelConfig().consensusDebateRounds).toBe(3)
+  })
+
+  it("共识评审模型：按维度键写入 consensusReviewModels", async () => {
+    ;(currentDraft.novelConfig as unknown as Record<string, unknown>).consensusEnabled = true
+    renderSection()
+    // 维度行渲染（consensusDimensionKeys 展开）。
+    expect(screen.getByLabelText("reviewCenter.dimension.thrill")).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText("reviewCenter.dimension.thrill"), {
+      target: { value: "x/r1" },
+    })
+    await waitFor(() => {
+      expect(mocks.saveNovelConfig).toHaveBeenCalled()
+    })
+    expect((lastSavedNovelConfig().consensusReviewModels as Record<string, string[]>).thrill).toEqual(["x/r1"])
+  })
+
+  it("任务定制：技能名与附加提示词分别落盘", async () => {
+    renderSection()
+    fireEvent.change(screen.getByLabelText("novel.settings.taskCustom_writing"), {
+      target: { value: "skill-a, skill-b" },
+    })
+    await waitFor(() => {
+      expect(mocks.saveNovelConfig).toHaveBeenCalled()
+    })
+    expect((lastSavedNovelConfig().taskSkillNames as Record<string, string[]>).writing).toEqual([
+      "skill-a",
+      "skill-b",
+    ])
+    fireEvent.change(screen.getAllByLabelText(/附加提示词/)[0], {
+      target: { value: "extra-hint" },
+    })
+    await waitFor(() => {
+      expect((lastSavedNovelConfig().taskPrompts as Record<string, { extra: string }>).writing).toEqual({
+        extra: "extra-hint",
+      })
+    })
+  })
+
+  it("拼写约定三输入：改值即落盘对应键", async () => {
+    renderSection()
+    fireEvent.change(screen.getByLabelText("对话标点风格"), { target: { value: "用「」" } })
+    await waitFor(() => {
+      expect(mocks.saveNovelConfig).toHaveBeenCalled()
+    })
+    expect(lastSavedNovelConfig().dialoguePunctuationStyle).toBe("用「」")
+    fireEvent.change(screen.getByLabelText("段落缩进"), { target: { value: "两字符" } })
+    await waitFor(() => {
+      expect(lastSavedNovelConfig().paragraphIndent).toBe("两字符")
+    })
+    fireEvent.change(screen.getByLabelText("引号规范"), { target: { value: "双引号" } })
+    await waitFor(() => {
+      expect(lastSavedNovelConfig().quoteConvention).toBe("双引号")
+    })
+  })
+})

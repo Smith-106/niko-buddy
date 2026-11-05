@@ -36,6 +36,7 @@ vi.setConfig({ testTimeout: 30_000 })
 
 interface WikiStateLike {
   project: { id: string; name: string; path: string } | null
+  theme?: string
   novelMode: boolean
   dataVersion: number
   graphColorMode: string
@@ -98,6 +99,14 @@ const mocks = vi.hoisted(() => {
     findSurprisingConnections: vi.fn(),
     detectKnowledgeGaps: vi.fn(),
     buildEditableGraphNodePage: vi.fn(),
+    openMocks: {
+      openProject: vi.fn(),
+      claimProjectOwnership: vi.fn(),
+      hydrateProjectOnOpen: vi.fn(),
+      toastError: vi.fn(),
+      toastSuccess: vi.fn(),
+      toastInfo: vi.fn(),
+    },
     t: vi.fn((key: string) => lookupZhLocale(key) ?? key),
     fa2: { inferSettings: vi.fn(() => ({})), assign: vi.fn() },
   }
@@ -131,6 +140,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
       writeFileAtomic: mocks.writeFileAtomic,
       createDirectory: mocks.createDirectory,
       fileExists: mocks.fileExists,
+      openProject: mocks.openMocks.openProject,
     
   }
 })
@@ -167,6 +177,37 @@ vi.mock("@/lib/embedding", async (importOriginal) => {
   return {
     ...actual,
       embedPage: mocks.embedPage,
+    
+  }
+})
+
+vi.mock("@/lib/project-owner", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/project-owner")>()
+  return {
+    ...actual,
+      claimProjectOwnership: mocks.openMocks.claimProjectOwnership,
+    
+  }
+})
+
+vi.mock("@/lib/composition-root", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/composition-root")>()
+  return {
+    ...actual,
+      hydrateProjectOnOpen: mocks.openMocks.hydrateProjectOnOpen,
+    
+  }
+})
+
+vi.mock("@/lib/toast", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/toast")>()
+  return {
+    ...actual,
+      toast: {
+        error: mocks.openMocks.toastError,
+        success: mocks.openMocks.toastSuccess,
+        info: mocks.openMocks.toastInfo,
+      },
     
   }
 })
@@ -2950,5 +2991,233 @@ describe("GraphView — T2 repair：dashboard 维度开关驱动画布", () => {
       expect(lastStats().filteredNodeCount).toBe(3)
     })
     unmount()
+  })
+})
+
+const ORIG_PROMPT = window.prompt
+const ORIG_CONFIRM = window.confirm
+
+function resetOpenMocks(): void {
+  mocks.openMocks.openProject.mockReset()
+  mocks.openMocks.claimProjectOwnership.mockReset()
+  mocks.openMocks.hydrateProjectOnOpen.mockReset()
+  mocks.openMocks.toastError.mockReset()
+  mocks.openMocks.toastSuccess.mockReset()
+  mocks.openMocks.toastInfo.mockReset()
+}
+
+describe("GraphView — W3 覆盖补齐：纯函数与空态入口", () => {
+  beforeEach(() => {
+    resetBaseline()
+    resetOpenMocks()
+    setupDomGlobals()
+    if (typeof Element !== "undefined" && typeof Element.prototype.scrollIntoView !== "function") {
+      Element.prototype.scrollIntoView = vi.fn() as never
+    }
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
+    document.body.dataset.panelResizing = ""
+    delete document.body.dataset.panelResizing
+    window.prompt = ORIG_PROMPT
+    window.confirm = ORIG_CONFIRM
+  })
+
+  it("parseChapterNumber：文件名数字兜底分支", async () => {
+    const { parseChapterNumber } = await import("./graph-view")
+    // 第N章 / ch 前缀已由存量用例覆盖；此处覆盖文件名数字与空路径兜底
+    expect(parseChapterNumber({ label: "笔记", path: "/notes/012-xxx.md" })).toBe(12)
+    expect(parseChapterNumber({ label: "笔记", path: "009_xxx.md" })).toBe(9)
+    expect(parseChapterNumber({ label: "Alpha", path: "/p/test/wiki/characters/a.md" })).toBeNull()
+  })
+
+  it("无项目时点打开项目：prompt 返回空直接返回", async () => {
+    window.prompt = (() => null) as typeof window.prompt
+    setState({ project: null })
+    render(<GraphView />)
+    await waitFor(() => {
+      expect(screen.getByText("打开项目")).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText("打开项目"))
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 200))
+    })
+    // !path 早退：不触达 openProject
+    expect(mocks.openMocks.openProject).not.toHaveBeenCalled()
+    expect(mocks.openMocks.toastError).not.toHaveBeenCalled()
+  })
+
+  it("无项目时点打开项目：正常打开并注水", async () => {
+    window.prompt = (() => "/fake") as unknown as typeof window.prompt
+    const proj = { id: "p9", name: "T", path: "/fake" }
+    mocks.openMocks.openProject.mockResolvedValue(proj)
+    mocks.openMocks.claimProjectOwnership.mockResolvedValue({ ok: true, conflict: false, tookOver: false })
+    mocks.openMocks.hydrateProjectOnOpen.mockResolvedValue(undefined)
+    setState({ project: null })
+    render(<GraphView />)
+    await waitFor(() => {
+      expect(screen.getByText("打开项目")).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText("打开项目"))
+    await waitFor(() => {
+      expect(mocks.openMocks.openProject).toHaveBeenCalledWith("/fake")
+    })
+    await waitFor(() => {
+      expect(mocks.openMocks.claimProjectOwnership).toHaveBeenCalledWith("/fake")
+    })
+    await waitFor(() => {
+      expect(mocks.openMocks.hydrateProjectOnOpen).toHaveBeenCalledWith(proj)
+    })
+    expect(mocks.openMocks.toastError).not.toHaveBeenCalled()
+  })
+
+  it("打开项目遇占用：确认后继续打开", async () => {
+    window.prompt = (() => "/fake") as unknown as typeof window.prompt
+    window.confirm = (() => true) as typeof window.confirm
+    const proj = { id: "p9", name: "T", path: "/fake" }
+    mocks.openMocks.openProject.mockResolvedValue(proj)
+    mocks.openMocks.claimProjectOwnership.mockResolvedValue({
+      ok: false,
+      conflict: true,
+      tookOver: false,
+      occupant: { schema: "project-owner/1.0", app: "引擎B", instance: "i1", startedAt: Date.now() },
+    })
+    mocks.openMocks.hydrateProjectOnOpen.mockResolvedValue(undefined)
+    setState({ project: null })
+    render(<GraphView />)
+    await waitFor(() => {
+      expect(screen.getByText("打开项目")).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText("打开项目"))
+    await waitFor(() => {
+      expect(mocks.openMocks.hydrateProjectOnOpen).toHaveBeenCalledWith(proj)
+    })
+  })
+
+  it("打开项目遇占用：取消则不打开", async () => {
+    window.prompt = (() => "/fake") as unknown as typeof window.prompt
+    window.confirm = (() => false) as typeof window.confirm
+    mocks.openMocks.openProject.mockResolvedValue({ id: "p9", name: "T", path: "/fake" })
+    mocks.openMocks.claimProjectOwnership.mockResolvedValue({
+      ok: false,
+      conflict: true,
+      tookOver: false,
+      occupant: { schema: "project-owner/1.0", app: "引擎B", instance: "i1", startedAt: Date.now() },
+    })
+    setState({ project: null })
+    render(<GraphView />)
+    await waitFor(() => {
+      expect(screen.getByText("打开项目")).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText("打开项目"))
+    await waitFor(() => {
+      expect(mocks.openMocks.claimProjectOwnership).toHaveBeenCalled()
+    })
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 200))
+    })
+    expect(mocks.openMocks.hydrateProjectOnOpen).not.toHaveBeenCalled()
+  })
+
+  it("打开项目失败走 toast 错误", async () => {
+    window.prompt = (() => "/fake") as unknown as typeof window.prompt
+    mocks.openMocks.openProject.mockRejectedValue(new Error("denied"))
+    setState({ project: null })
+    render(<GraphView />)
+    await waitFor(() => {
+      expect(screen.getByText("打开项目")).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText("打开项目"))
+    await waitFor(() => {
+      expect(mocks.openMocks.toastError).toHaveBeenCalledWith(expect.stringContaining("打开项目失败"))
+    })
+  })
+})
+
+describe("GraphView — W3 覆盖补齐：并发与取消守卫", () => {
+  let errSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    resetBaseline()
+    resetOpenMocks()
+    setupDomGlobals()
+    if (typeof Element !== "undefined" && typeof Element.prototype.scrollIntoView !== "function") {
+      Element.prototype.scrollIntoView = vi.fn() as never
+    }
+    errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    errSpy.mockRestore()
+    vi.restoreAllMocks()
+    localStorage.clear()
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
+    document.body.dataset.panelResizing = ""
+    delete document.body.dataset.panelResizing
+    window.prompt = ORIG_PROMPT
+    window.confirm = ORIG_CONFIRM
+  })
+
+  it("伏笔 tracker 延迟成功在卸载后不再写入", async () => {
+    let resolveTracker!: (v: unknown) => void
+    mocks.buildWikiGraph.mockResolvedValue(BASIC_RESULT)
+    mocks.findSurprisingConnections.mockReturnValue([])
+    mocks.detectKnowledgeGaps.mockReturnValue([])
+    mocks.loadForeshadowingTracker.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveTracker = resolve
+        }),
+    )
+    setState({ project: PROJECT })
+    const { unmount } = render(<GraphView />)
+    await waitFor(() => {
+      expect(screen.getByTestId("sigma-container")).toBeTruthy()
+    })
+    unmount()
+    await act(async () => {
+      resolveTracker({ items: [], lastUpdated: "" })
+    })
+    expect(errSpy).not.toHaveBeenCalled()
+  })
+
+  it("伏笔 tracker 延迟失败在卸载后不记录错误", async () => {
+    let rejectTracker!: (e: unknown) => void
+    mocks.buildWikiGraph.mockResolvedValue(BASIC_RESULT)
+    mocks.findSurprisingConnections.mockReturnValue([])
+    mocks.detectKnowledgeGaps.mockReturnValue([])
+    mocks.loadForeshadowingTracker.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectTracker = reject
+        }),
+    )
+    setState({ project: PROJECT })
+    const { unmount } = render(<GraphView />)
+    await waitFor(() => {
+      expect(screen.getByTestId("sigma-container")).toBeTruthy()
+    })
+    unmount()
+    await act(async () => {
+      rejectTracker(new Error("tracker down"))
+    })
+    // 取消守卫早退：console.error 不应被调用
+    expect(errSpy).not.toHaveBeenCalledWith("[Graph] foreshadowing tracker load failed:", expect.anything())
+  })
+
+  it("主题 system 走 isSystemDark 分支", async () => {
+    const { rerender } = await renderLoadedGraph()
+    const mm = window.matchMedia as unknown as ReturnType<typeof vi.fn>
+    mm.mockClear()
+    setState({ theme: "system" })
+    await act(async () => {
+      rerender(<GraphView />)
+    })
+    await waitFor(() => {
+      expect(mm).toHaveBeenCalledWith("(prefers-color-scheme: dark)")
+    })
   })
 })

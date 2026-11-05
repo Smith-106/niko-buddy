@@ -1021,3 +1021,197 @@ describe("CanonEditor — 校正模式（写路径，合并收口）", () => {
     expect(screen.queryByTestId("correction-pov-chip-pov:alpha")).not.toBeInTheDocument()
   })
 })
+
+// ============================================================================
+// TASK-033 增补：校正模式退出 / 校正态加载失败 / 校正态刷新（覆盖 292 / 335-340 / 597）
+// ============================================================================
+
+describe("CanonEditor — 校正模式退出与刷新（TASK-033）", () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    setupDomGlobals()
+    mockCorrectInvoke({ edges: [makeCorrectionEdge()] })
+  })
+
+  it("返回浏览退出校正模式（exitCorrect）", async () => {
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    // 选中一行再退出：草稿与标记一并清理
+    fireEvent.click(await screen.findByTestId("canon-select-e1"))
+    expect(screen.getByTestId("correction-panel")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("canon-exit-correct"))
+    // 回到浏览模式：校正面板消失，进入校正按钮重现
+    await waitFor(() => {
+      expect(screen.getByTestId("canon-enter-correct")).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId("correction-panel")).toBeNull()
+  })
+
+  it("校正模式刷新重查 IPC（correct onRefresh）", async () => {
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    const queryCalls = () =>
+      invokeMock.mock.calls.filter((c) => c[0] === "canon_query_batch")
+    const before = queryCalls().length
+    fireEvent.click(screen.getByTestId("canon-refresh"))
+    await waitFor(() => expect(queryCalls().length).toBe(before + 1))
+  })
+
+  it("校正模式加载失败 → 错误 + 边集清空（292）", async () => {
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    expect(await screen.findByText("KNOWS")).toBeInTheDocument()
+    invokeMock.mockRejectedValueOnce(new Error("correct-load-down"))
+    fireEvent.click(screen.getByTestId("canon-refresh"))
+    expect(await screen.findByRole("alert")).toHaveTextContent("correct-load-down")
+    // 校正边集被清空 → 空态
+    expect(await screen.findByTestId("canon-empty")).toBeInTheDocument()
+  })
+
+  it("校正模式过滤应用/重置同样走服务端分页零偏移", async () => {
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    const queryCalls = () =>
+      invokeMock.mock.calls.filter((c) => c[0] === "canon_query_batch")
+    const before = queryCalls().length
+    fireEvent.change(screen.getByTestId("canon-filter-known-by"), {
+      target: { value: "pov:alpha" },
+    })
+    fireEvent.click(screen.getByTestId("canon-filter-apply"))
+    await waitFor(() => expect(queryCalls().length).toBe(before + 1))
+    expect(
+      (queryCalls()[queryCalls().length - 1]![1] as { filters: unknown[] }).filters[0],
+    ).toEqual(expect.objectContaining({ known_by: "pov:alpha", offset: 0, limit: 100 }))
+  })
+})
+
+describe("CanonEditor — 校正面板兜底分支（TASK-033）", () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    setupDomGlobals()
+  })
+
+  it("未知 edge_kind 回退原文 + valid_at 缺省 + capped/missing 后缀分支", async () => {
+    mockCorrectInvoke({
+      edges: [
+        makeCorrectionEdge({
+          id: "e9",
+          edge_kind: "custom_kind" as never,
+          valid_at: null,
+          revealed_at: null,
+        }),
+      ],
+      onSupersede: () => ({
+        result: { capped: 0, inserted: 1, missing: ["pov:ghost"] },
+        max_revision: 9,
+      }),
+    })
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    fireEvent.click(await screen.findByTestId("canon-select-e9"))
+    // 未知 kind 回退原文；valid_at 缺省显示兜底文案
+    const panel = screen.getByTestId("correction-panel")
+    expect(panel.textContent).toContain("custom_kind")
+    expect(panel.textContent).toContain("未设有效章节")
+    // 制造脏草稿后保存：capped=0 走空后缀，missing 非空走缺失后缀
+    fireEvent.change(screen.getByTestId("correction-revealed-at"), {
+      target: { value: "5" },
+    })
+    fireEvent.click(screen.getByTestId("correction-save"))
+    const saved = await screen.findByTestId("correction-saved")
+    expect(saved).toBeInTheDocument()
+    expect(tSpy).toHaveBeenCalledWith(
+      "canon.correctionSaved",
+      expect.objectContaining({ cappedSuffix: "", revision: 9 }),
+    )
+  })
+})
+
+describe("CanonEditor — 草稿守卫兜底（TASK-033）", () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    setupDomGlobals()
+  })
+
+  it("known_by 缺省边选中预填为空 + 空输入点添加直接返回", async () => {
+    mockCorrectInvoke({
+      edges: [makeCorrectionEdge({ id: "e7", known_by: undefined })],
+    })
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    fireEvent.click(await screen.findByTestId("canon-select-e7"))
+    expect(screen.getByTestId("correction-panel")).toBeInTheDocument()
+    // known_by 缺省 → chips 区无芯片
+    expect(screen.queryByTestId("correction-pov-chip-pov:alpha")).toBeNull()
+    // 空输入点添加：直接返回，不报错不触达 IPC
+    fireEvent.change(screen.getByTestId("correction-pov-input"), { target: { value: "   " } })
+    fireEvent.click(screen.getByTestId("correction-pov-add"))
+    expect(screen.queryByTestId("correction-pov-error")).toBeNull()
+    expect(invokeMock).not.toHaveBeenCalledWith("canon_supersede_edges", expect.anything())
+  })
+})
+
+describe("CanonEditor — 剩余守卫分支（TASK-033）", () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    setupDomGlobals()
+  })
+
+  it("脏草稿下切换选中行：拒绝确认则停留原行", async () => {
+    vi.mocked(window.confirm).mockReturnValue(false)
+    mockCorrectInvoke({
+      edges: [
+        makeCorrectionEdge({ id: "e1", revealed_at: 4 }),
+        makeCorrectionEdge({ id: "e2", predicate: "BESIEGES", revealed_at: null }),
+      ],
+    })
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    fireEvent.click(await screen.findByTestId("canon-select-e1"))
+    fireEvent.click(screen.getByLabelText("移除 pov:alpha"))
+    expect(screen.getByTestId("correction-save")).not.toBeDisabled()
+    fireEvent.click(screen.getByTestId("canon-select-e2"))
+    expect(window.confirm).toHaveBeenCalledTimes(1)
+    // 仍停留在 e1 草稿
+    expect(screen.getByTestId("correction-revealed-at")).toHaveValue("4")
+  })
+
+  it("校正查询缺首项/缺全量计数时降级为空（275-276）", async () => {
+    mockCorrectInvoke({ edges: [makeCorrectionEdge()] })
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    expect(await screen.findByText("KNOWS")).toBeInTheDocument()
+    invokeMock.mockResolvedValueOnce({ results: [], totals: [], max_revision: 3 })
+    fireEvent.click(screen.getByTestId("canon-refresh"))
+    await waitFor(() => {
+      expect(screen.getByTestId("canon-empty")).toBeInTheDocument()
+    })
+  })
+
+  it("保存中重复点击被守卫拦截（saving 分支）", async () => {
+    let resolveSupersede!: (v: unknown) => void
+    mockCorrectInvoke({
+      edges: [makeCorrectionEdge()],
+      onSupersede: () =>
+        new Promise((resolve) => {
+          resolveSupersede = resolve as (v: unknown) => void
+        }),
+    })
+    render(<CanonEditor projectId={PROJECT_ID} povAllowlist={ALLOWLIST} />)
+    await enterCorrectMode()
+    fireEvent.click(await screen.findByTestId("canon-select-e1"))
+    fireEvent.change(screen.getByTestId("correction-revealed-at"), { target: { value: "6" } })
+    fireEvent.click(screen.getByTestId("correction-save"))
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("canon_supersede_edges", expect.anything()),
+    )
+    const callsBefore = invokeMock.mock.calls.filter((c) => c[0] === "canon_supersede_edges").length
+    // 保存中再次点击（按钮已禁用；直接调用守卫路径不重复下发）
+    fireEvent.click(screen.getByTestId("correction-save"))
+    expect(
+      invokeMock.mock.calls.filter((c) => c[0] === "canon_supersede_edges").length,
+    ).toBe(callsBefore)
+    resolveSupersede({ result: { capped: 1, inserted: 1, missing: [] }, max_revision: 8 })
+    expect(await screen.findByTestId("correction-saved")).toBeInTheDocument()
+  })
+})

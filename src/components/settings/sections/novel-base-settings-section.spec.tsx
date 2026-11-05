@@ -138,3 +138,132 @@ describe("DiscardedWritingConfigNoticeBanner", () => {
     expect(screen.queryByTestId(BANNER)).not.toBeNull()
   })
 })
+
+describe("NovelBaseSettingsSection 基础控件（覆盖战役补齐）", () => {
+  const updateNovelConfig = vi.fn(async (_patch: unknown) => undefined)
+  const setDraft = vi.fn((_key: unknown, _value: unknown) => undefined)
+
+  function buildDraft(): Record<string, unknown> {
+    return {
+      maxHistoryMessages: 4,
+      aiWorkflowMode: "standard",
+      novelConfig: {
+        recentSummaryWindow: 8,
+        searchTopK: 5,
+        contextTokenBudget: 4000,
+        genre: undefined,
+        chapterTargetChars: 3000,
+        autoIngestOnSave: true,
+        reviewBeforeSave: false,
+        deepPreviousChaptersAnalysis: false,
+        deepChapterReview: false,
+        literaryPolishAfterGate: false,
+        autoGenerateChapterTitle: true,
+        autoPlanningEnabled: true,
+        stageJournalEnabled: true,
+        journalTtlMs: undefined,
+        reviewReasoningEffort: "high",
+        communitySummaryEnabled: false,
+        communitySummaryInterval: 7,
+        communitySummaryAsync: false,
+        temporalFactsEnabled: true,
+        entityBoostEnabled: true,
+        entityBoostWeight: 0.4,
+        stateDeltaLightCheckEnabled: true,
+        outlineThrillSoftGateEnabled: true,
+        dualKbRoutingEnabled: false,
+        usefulnessRerankEnabled: false,
+        hardInjectEnabled: true,
+        exemplarEnabled: true,
+        relatedChaptersEnabled: true,
+        referenceEnabled: true,
+        sceneBreakdownEnabled: false,
+        conditionalRoutingEnabled: true,
+        inspectorEnabled: true,
+        stateDeltaBlocksTrackA: false,
+        trustFilterEnabled: false,
+        residualCampaignEnabled: false,
+        residualCampaignIncludeFreezeChapters: false,
+      },
+    }
+  }
+
+  function renderFull(draft?: Record<string, unknown>) {
+    return render(
+      <NovelBaseSettingsSection
+        draft={(draft ?? buildDraft()) as never}
+        setDraft={setDraft as never}
+        updateNovelConfig={updateNovelConfig as never}
+      />,
+    )
+  }
+
+  beforeEach(() => {
+    updateNovelConfig.mockClear()
+    setDraft.mockClear()
+    setProject(null)
+  })
+
+  it("体裁选择：选具体体裁写入 code；选空/通用回退 undefined", () => {
+    renderFull()
+    const select = screen.getByTestId("novel-genre-select") as HTMLSelectElement
+    fireEvent.change(select, { target: { value: "xianxia" } })
+    expect(updateNovelConfig).toHaveBeenLastCalledWith({ genre: "xianxia" })
+    fireEvent.change(select, { target: { value: "" } })
+    expect(updateNovelConfig).toHaveBeenLastCalledWith({ genre: undefined })
+    fireEvent.change(select, { target: { value: "general" } })
+    expect(updateNovelConfig).toHaveBeenLastCalledWith({ genre: undefined })
+  })
+
+  it("工作流强度按钮：点击 fast 只改 draft（D1=A，不直接落盘）", () => {
+    renderFull()
+    fireEvent.click(screen.getByTestId("novel-ai-workflow-mode-fast"))
+    expect(setDraft).toHaveBeenCalledWith("aiWorkflowMode", "fast")
+    expect(updateNovelConfig).not.toHaveBeenCalled()
+  })
+
+  it("实验性检索开关三连：dualKb/usefulness/hardInject 取反写入", () => {
+    renderFull()
+    fireEvent.click(screen.getByRole("switch", { name: "novel.settings.dualKbRoutingEnabled" }))
+    expect(updateNovelConfig).toHaveBeenLastCalledWith({ dualKbRoutingEnabled: true })
+    fireEvent.click(screen.getByRole("switch", { name: "novel.settings.usefulnessRerankEnabled" }))
+    expect(updateNovelConfig).toHaveBeenLastCalledWith({ usefulnessRerankEnabled: true })
+    fireEvent.click(screen.getByRole("switch", { name: "novel.settings.hardInjectEnabled" }))
+    expect(updateNovelConfig).toHaveBeenLastCalledWith({ hardInjectEnabled: false })
+  })
+
+  it("实体加权小数：改值失焦提交 onCommit", () => {
+    renderFull()
+    const input = screen.getByLabelText("novel.settings.entityBoostWeight") as HTMLInputElement
+    fireEvent.change(input, { target: { value: "0.5" } })
+    fireEvent.blur(input)
+    expect(updateNovelConfig).toHaveBeenLastCalledWith({ entityBoostWeight: 0.5 })
+  })
+
+  it("内容组装开关（计算键）：exemplar 取反写入", () => {
+    renderFull()
+    fireEvent.click(screen.getByRole("switch", { name: "novel.settings.exemplarEnabled" }))
+    expect(updateNovelConfig).toHaveBeenLastCalledWith({ exemplarEnabled: false })
+  })
+
+  it("无 localStorage 环境（SSR/隐私模式）：effect 提前返回，不崩", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage")
+    vi.stubGlobal("localStorage", undefined)
+    try {
+      renderFull()
+      // 组件正常渲染：体裁选择器仍在，关闭态读不到存储即视为未关闭。
+      expect(screen.getByTestId("novel-genre-select")).toBeInTheDocument()
+    } finally {
+      vi.unstubAllGlobals()
+      if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor)
+    }
+  })
+
+  it("留痕值为 null（非字符串 raw）：横幅仍展示，body 走 ?? 空串分支", () => {
+    setProject(PROJECT_PATH)
+    noteDiscardedWritingConfig({ projectPath: PROJECT_PATH, raw: null })
+    renderFull()
+    // value 为 null：守卫 notice.value === "" 放行 null，展示时 ?? "" 兜底。
+    expect(screen.getByTestId("novel-writing-model-discarded-notice")).toBeInTheDocument()
+  })
+})

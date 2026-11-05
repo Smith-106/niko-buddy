@@ -163,4 +163,89 @@ describe("CommandPalette", () => {
     rerender(<CommandPalette open onOpenChange={vi.fn()} />)
     expect(input().value).toBe("")
   })
+
+  it("W3：搜索视图条目执行 setActiveView(search)", () => {
+    const { onOpenChange } = renderPalette()
+    fireEvent.change(input(), { target: { value: "novel.nav.search" } })
+    expect(optionLabels().some((l) => l.includes("novel.nav.search"))).toBe(true)
+    fireEvent.keyDown(input(), { key: "Enter" })
+    expect(mocks.state.setActiveView).toHaveBeenCalledWith("search")
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("W3：设置条目执行 setActiveView(settings)", () => {
+    const { onOpenChange } = renderPalette()
+    fireEvent.change(input(), { target: { value: "novel.nav.settings" } })
+    expect(optionLabels().some((l) => l.includes("novel.nav.settings"))).toBe(true)
+    fireEvent.keyDown(input(), { key: "Enter" })
+    expect(mocks.state.setActiveView).toHaveBeenCalledWith("settings")
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("W3：ArrowUp 回绕选中并触发 scrollIntoView", () => {
+    const scrollSpy = vi.fn()
+    const origScroll = Element.prototype.scrollIntoView
+    // jsdom 无 scrollIntoView：补桩以捕获调用
+    ;(Element.prototype as unknown as Record<string, unknown>).scrollIntoView = scrollSpy
+    try {
+      renderPalette()
+      // 空查询 → 40 条，ArrowDown 到 1，再 ArrowUp 回 0（覆盖 prev+1 与 prev-1 两分支）
+      fireEvent.keyDown(input(), { key: "ArrowDown" })
+      expect(screen.queryAllByRole("option")[1].getAttribute("aria-selected")).toBe("true")
+      fireEvent.keyDown(input(), { key: "ArrowUp" })
+      expect(screen.queryAllByRole("option")[0].getAttribute("aria-selected")).toBe("true")
+      expect(scrollSpy).toHaveBeenCalled()
+    } finally {
+      if (origScroll) (Element.prototype as unknown as Record<string, unknown>).scrollIntoView = origScroll
+      else delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView
+    }
+  })
+
+  it("W3：空列表时 ArrowUp/ArrowDown 早退不崩溃", () => {
+    mocks.state.fileTree = []
+    renderPalette()
+    fireEvent.change(input(), { target: { value: "zzz-not-found" } })
+    expect(() => fireEvent.keyDown(input(), { key: "ArrowUp" })).not.toThrow()
+    expect(() => fireEvent.keyDown(input(), { key: "ArrowDown" })).not.toThrow()
+    expect(mocks.state.setActiveView).not.toHaveBeenCalled()
+  })
+
+  it("W3：鼠标悬停切换高亮（onMouseEnter）", () => {
+    const scrollSpy = vi.fn()
+    ;(Element.prototype as unknown as Record<string, unknown>).scrollIntoView = scrollSpy
+    renderPalette()
+    const options = screen.queryAllByRole("option")
+    expect(options.length).toBeGreaterThan(1)
+    fireEvent.mouseEnter(options[2])
+    expect(options[2].getAttribute("aria-selected")).toBe("true")
+    // 语义锚点：悬停项与点击项一致，点击执行对应视图
+    fireEvent.click(options[2])
+    expect(mocks.state.setActiveView).toHaveBeenCalled()
+  })
+
+  it("W3：fileTree=null 与无 children 目录不崩溃（分支补齐）", () => {
+    mocks.state.fileTree = null as unknown as []
+    expect(() => renderPalette()).not.toThrow()
+    cleanup()
+    mocks.state.fileTree = [
+      { name: "emptyDir", path: "/proj/wiki/chapters", is_dir: true } as unknown as never,
+      { name: "note.txt", path: "/proj/wiki/chapters/note.txt", is_dir: false } as unknown as never,
+    ] as unknown as []
+    renderPalette()
+    // 非 md / 非章节文件不进列表，但视图项仍在
+    expect(optionLabels().some((l) => l.includes("novel.nav.wiki"))).toBe(true)
+    expect(optionLabels().some((l) => l.includes("note"))).toBe(false)
+  })
+
+  it("W3：focusMode=true 时标签切换为退出专注", () => {
+    mocks.state.focusMode = true
+    renderPalette()
+    expect(optionLabels().some((l) => l.includes("layout.focusMode.exit"))).toBe(true)
+  })
+
+  it("W3：非导航键不触发选择", () => {
+    renderPalette()
+    expect(() => fireEvent.keyDown(input(), { key: "a" })).not.toThrow()
+    expect(mocks.state.setActiveView).not.toHaveBeenCalled()
+  })
 })
