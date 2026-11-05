@@ -175,6 +175,20 @@ describe("T02 offline-replay-harness (F-31 / A-05.2)", () => {
       // 门控通过率: 5 过 / 6 总 ≈ 0.8333 (第 6 章门控过, 计入分母)
       expect(q.gatePassRate).toBeCloseTo(5 / 6, 5)
     })
+
+    it("整段都没有参照章 / 重放章: 两率取 0（不除零成 NaN）", () => {
+      // 无参照/无重放时分母为 0: 必须保守给 0，而不是 0/0=NaN 污染综合分。
+      const q = scoreReplay([
+        { chapterNumber: 1, branchId: "legacy", gatePassed: true, wallClockSeconds: 60 },
+        { chapterNumber: 2, branchId: "legacy", gatePassed: false, wallClockSeconds: 120 },
+      ])
+      expect(q.branchAgreementRate).toBe(0)
+      expect(q.selfConsistencyRate).toBe(0)
+      expect(q.gatePassRate).toBeCloseTo(0.5, 5)
+      expect(q.wallClockNormalized).toBeCloseTo((1 - 60 / 600 + (1 - 120 / 600)) / 2, 5)
+      expect(Number.isFinite(q.compositeScore)).toBe(true)
+      expect(q.compositeScore).toBeGreaterThan(0)
+    })
   })
 
   describe("replayStates (决策日志 + 质量分 同源合成 — T31 --score 口径一致)", () => {

@@ -117,3 +117,41 @@ describe("B4 矿脉计价骨架（estimateOreCost / checkOreQuota）", () => {
     expect(pricing.note).toContain("待定")
   })
 })
+
+// 本组补的是「缺省计量」与「非法入参」两条边界：
+//   - 缺省计量：某一模型没给对应用量字段时按 0 计（不报错、不串用其它模型的量）；
+//   - 非法入参：负数/未知字段/非法成本估算/非法配额一律 fail-loud（不静默兜底成 0）。
+describe("B4 矿脉计价骨架：缺省计量与非法入参 fail-loud", () => {
+  it("未给对应计量字段时按 0 计（per-entry / subscription 各自独立缺省，不串用别家用量）", () => {
+    const entry = estimateOreCost({ id: "per-entry", rate: 2, currency: "CNY" }, {})
+    expect(entry.quantity).toBe(0)
+    expect(entry.unit).toBe("entry")
+    expect(entry.cost).toBe(0)
+
+    // 只给了 tokens（属于 per-token 的量）→ subscription 仍按 periods 缺省 0 计，不在模型间借用量。
+    const sub = estimateOreCost({ id: "subscription", rate: 99, currency: "CNY" }, { tokens: 500 })
+    expect(sub.quantity).toBe(0)
+    expect(sub.unit).toBe("period")
+    expect(sub.cost).toBe(0)
+    expect(sub.breakdown).toBe(
+      "cost = 0 period × 99 CNY/period（模型 subscription，候选未拍板）",
+    )
+  })
+
+  it("用量非法（负数 / 未知字段）fail-loud，不按 0 静默兜底", () => {
+    const model = { id: "per-token", rate: 1, currency: "CNY" } as const
+    expect(() => estimateOreCost(model, { tokens: -1 })).toThrow(/用量非法/)
+    expect(() => estimateOreCost(model, { pages: 3 } as never)).toThrow(/用量非法/)
+    // 同一断言的对照组：合法用量仍能算出成本（契约未被放宽）。
+    expect(estimateOreCost(model, { tokens: 4 }).cost).toBe(4)
+  })
+
+  it("配额判定两侧入参非法都 fail-loud（成本估算非法 / 配额非法）", () => {
+    const est = estimateOreCost({ id: "per-token", rate: 1, currency: "CNY" }, { tokens: 10 })
+    expect(() => checkOreQuota({ ...est, cost: -1 }, { budget: 10, currency: "CNY" })).toThrow(/成本估算非法/)
+    expect(() => checkOreQuota(est, { budget: -1, currency: "CNY" })).toThrow(/配额非法/)
+    expect(() => checkOreQuota(est, { budget: 10, currency: "CNY", extra: 1 } as never)).toThrow(/配额非法/)
+    // 对照组：合法入参仍判预算内。
+    expect(checkOreQuota(est, { budget: 10, currency: "CNY" }).within).toBe(true)
+  })
+})

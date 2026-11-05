@@ -24,6 +24,15 @@ vi.mock("@/lib/novel", async (importOriginal) => {
     loadCharacterStates: vi.fn(async () => null),
     loadNovelSessionStatus: vi.fn(async () => null),
     listBindableNovelCharacters: vi.fn(async () => []),
+    // 生产关系库迁移（未注入 migrateRelationships 时的默认落点）：既有用例都显式注入，
+    // 这里的 mock 只服务「默认接线」用例，绝不触盘。
+    migrateRelationshipLibrary: vi.fn(async () => ({
+      status: "empty" as const,
+      path: "",
+      entryCount: 0,
+      existingHash: null,
+      derivedHash: "h",
+    })),
   }
 })
 
@@ -37,6 +46,7 @@ import {
   loadAllAssetLibrarySnapshots,
   loadCharacterStates,
   loadNovelSessionStatus,
+  migrateRelationshipLibrary,
 } from "@/lib/novel"
 import { readFile } from "@/commands/fs"
 
@@ -248,5 +258,51 @@ describe("AssetLibraryView 读失败兜底（覆盖补齐 2）", () => {
     render(<AssetLibraryView projectPath="/p/book" />)
     await waitFor(() => expect(screen.getByTestId("asset-library-row-genre_base")).toBeTruthy())
     expect(screen.getByTestId("asset-library-summary").textContent).toContain(`已生成 0/${LIBRARY_IDS.length}`)
+  })
+})
+
+describe("AssetLibraryView 联动装载失败兜底（覆盖补齐 3）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(loadAllAssetLibrarySnapshots).mockResolvedValue(LIBRARY_IDS.map((id) => snap({ libraryId: id })))
+    vi.mocked(loadCharacterStates).mockResolvedValue({ characters: [], lastUpdated: "" })
+    vi.mocked(loadNovelSessionStatus).mockResolvedValue(null)
+    vi.mocked(listBindableNovelCharacters).mockResolvedValue([])
+    vi.mocked(readFile).mockResolvedValue("")
+  })
+
+  afterEach(() => cleanup())
+
+  it("会话状态读取失败 → 不猜章节、不读 draft.md（提取面显式 N/A）", async () => {
+    vi.mocked(loadNovelSessionStatus).mockRejectedValueOnce(new Error("status gone"))
+    render(<AssetLibraryView projectPath="/p/book" />)
+    await waitFor(() => expect(screen.getByTestId("asset-library-row-genre_base")).toBeTruthy())
+    expect(loadNovelSessionStatus).toHaveBeenCalledWith("/p/book")
+    // 章节号来源失败 → chapterNumber 保持 null：绝不读某个「猜出来的」草稿路径。
+    expect(readFile).not.toHaveBeenCalled()
+    expect(screen.getByTestId("asset-extraction-gap-na").textContent).toContain("没有可检查的正文")
+    expect(screen.getByTestId("asset-extraction-gap-summary").textContent).toContain("N/A")
+  })
+
+  it("wiki 人物实体读取失败 → wikiLoaded=false（面板报未装载，不当成零实体）", async () => {
+    vi.mocked(loadNovelSessionStatus).mockResolvedValue({ current_task: { chapter_number: 3 } } as never)
+    vi.mocked(readFile).mockResolvedValue("林晚推门而入。")
+    vi.mocked(listBindableNovelCharacters).mockRejectedValueOnce(new Error("wiki gone"))
+    render(<AssetLibraryView projectPath="/p/book" />)
+    await waitFor(() =>
+      expect(screen.getByTestId("asset-extraction-gap-na").textContent).toContain("wiki 人物实体未装载"),
+    )
+    expect(listBindableNovelCharacters).toHaveBeenCalledWith("/p/book")
+    // wiki 未装载时不当成「零实体」：N/A 说明里逐条写清，汇总里的 wiki 计数记 0 但不冒充已验证。
+    expect(screen.getByTestId("asset-extraction-gap-summary").textContent).toContain("wiki 人物实体：0")
+  })
+
+  it("未注入迁移实现 → 走生产关系库迁移（默认落点不是空操作）", async () => {
+    vi.mocked(migrateRelationshipLibrary).mockClear()
+    render(<AssetLibraryView projectPath="/p/book" snapshots={[snap({ libraryId: "relationship_edge" })]} />)
+    fireEvent.click(screen.getByTestId("asset-library-migrate-relationships"))
+    await waitFor(() => expect(screen.getByTestId("asset-library-migrate-status")).toBeTruthy())
+    expect(migrateRelationshipLibrary).toHaveBeenCalledWith("/p/book")
+    expect(screen.getByTestId("asset-library-migrate-status").textContent).toContain("没有可迁移的关系")
   })
 })

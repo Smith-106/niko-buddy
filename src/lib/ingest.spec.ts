@@ -1868,6 +1868,37 @@ describe("executeIngestWrites", () => {
     expect(chat.messages.some((m) => m.content.includes("已写入知识库文件"))).toBe(true)
   })
 
+  it("deps.ingestSource 注入优先：chat store 无 ingestSource 也走图片注入", async () => {
+    const chat = installChatState()
+    chat.ingestSource = null
+    installReads(defaultReads())
+    installWikiState({ multimodalConfig: { ...makeWikiState().multimodalConfig, enabled: true } })
+    mocks.extractAndSaveSourceImages.mockResolvedValue([IMAGE as never])
+    installStreamChat([streamSuccess([blocksText])])
+
+    await executeIngestWrites(PP, LLM, undefined, undefined, { ingestSource: SP })
+
+    expect(mocks.extractAndSaveSourceImages).toHaveBeenCalledWith(PP, SP)
+    expect(writtenFiles().some(([p]) => p === `${PP}/wiki/sources/doc.md`)).toBe(true)
+  })
+
+  it("deps.multimodalEnabled=false 抑制图片注入（总开关穿参生效）", async () => {
+    const chat = installChatState()
+    chat.ingestSource = SP
+    installReads(defaultReads())
+    installWikiState({ multimodalConfig: { ...makeWikiState().multimodalConfig, enabled: true } })
+    mocks.extractAndSaveSourceImages.mockResolvedValue([IMAGE as never])
+    installStreamChat([streamSuccess([blocksText])])
+
+    await executeIngestWrites(PP, LLM, undefined, undefined, {
+      ingestSource: SP,
+      multimodalEnabled: false,
+    })
+
+    expect(mocks.extractAndSaveSourceImages).not.toHaveBeenCalled()
+    expect(chat.messages.some((m) => m.content.includes("已写入知识库文件"))).toBe(true)
+  })
+
   it("skips injection when extraction returns no images", async () => {
     const chat = installChatState()
     chat.ingestSource = SP

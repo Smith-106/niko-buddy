@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
-import { generateDynamicEventPool, stringArrayToStagedPool } from "./event-pool-generator"
+import {
+  generateDynamicEventPool,
+  pickStagedEvent,
+  stringArrayToStagedPool,
+  type StagedEvent,
+  type StagedEventPool,
+} from "./event-pool-generator"
 
 vi.mock("@/lib/llm-client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/llm-client")>()
@@ -163,5 +169,86 @@ describe("stringArrayToStagedPool", () => {
     expect(result.all).toHaveLength(8)
     expect(result.byStage.setup[0].text).toBe("e1")
     expect(result.byStage.setup[0].stage).toBe("setup")
+  })
+})
+
+// ── 覆盖加深（增补：原有用例保留不动）─────────────────────────────────────────
+// 目标：LLM 返回「四阶段键齐全但内容不合格」时的四条兜底路径，以及解析失败时
+// 对非 Error 抛出物的降级文案。这些都是脏数据防线，行为必须可观察。
+
+/** 让 streamChat 吐出一段原始文本（不解析），模拟 LLM 的畸形输出。 */
+async function respondWith(raw: string): Promise<void> {
+  const { streamChat } = await import("@/lib/llm-client")
+  vi.mocked(streamChat).mockImplementationOnce((_config, _messages, callbacks) => {
+    callbacks.onToken(raw)
+    callbacks.onDone()
+    return Promise.resolve()
+  })
+}
+
+describe("generateDynamicEventPool · 脏数据兜底（增补）", () => {
+  it("四阶段键齐全但全为空数组 → 返回空池（不产出空阶段池假对象）", async () => {
+    await respondWith(
+      JSON.stringify({ setup: [], rising: [], climax: [], resolution: [] }),
+    )
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const result = await generateDynamicEventPool(mockInput)
+    expect(result.all).toEqual([])
+    expect(result.byStage.setup).toEqual([])
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("事件池为空"),
+    )
+    warn.mockRestore()
+  })
+
+  it("阶段数组里混入非字符串项 → 只保留字符串项", async () => {
+    await respondWith(
+      JSON.stringify({
+        setup: [123, null, "有效事件"],
+        rising: ["承1"],
+        climax: ["转1"],
+        resolution: ["合1"],
+      }),
+    )
+    const result = await generateDynamicEventPool(mockInput)
+    expect(result.all).toHaveLength(4)
+    expect(result.all.every((e) => typeof e.text === "string")).toBe(true)
+    expect(result.byStage.setup.map((e) => e.text)).toEqual(["有效事件"])
+    expect(result.byStage.rising[0].text).toBe("承1")
+  })
+
+  it("返回数组但含非字符串项 → 走「格式无法解析」兜底，返回空池", async () => {
+    await respondWith(JSON.stringify(["合法事件", 42]))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const result = await generateDynamicEventPool(mockInput)
+    expect(result.all).toEqual([])
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("无法解析"),
+    )
+    warn.mockRestore()
+  })
+
+  it("streamChat 以非 Error 拒绝 → 降级为空池并落 String(err) 文案", async () => {
+    const { streamChat } = await import("@/lib/llm-client")
+    vi.mocked(streamChat).mockImplementationOnce(() => Promise.reject("连接被重置"))
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const result = await generateDynamicEventPool(mockInput)
+    expect(result.all).toEqual([])
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("[event-pool-generator]"),
+      "连接被重置",
+    )
+    error.mockRestore()
+  })
+})
+
+describe("pickStagedEvent · 池结构异常（增补）", () => {
+  it("byStage 缺少当前阶段的键 → 回退全局池而不是抛错", () => {
+    const stray: StagedEvent = { id: "x1", text: "孤立事件", stage: "rising" }
+    // 模拟反序列化/手写配置里 byStage 不完整（Record 类型之外的运行时事实）。
+    const malformed = { byStage: {} as StagedEventPool["byStage"], all: [stray] }
+    const result = pickStagedEvent(malformed, new Set<string>(), 0, 4)
+    expect(result?.id).toBe("x1")
+    expect(result?.text).toBe("孤立事件")
   })
 })

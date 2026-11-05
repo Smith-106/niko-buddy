@@ -519,6 +519,28 @@ describe("T36 精品模式 A/B 验收（终端硬门）", () => {
       // 但 judgeSource=fixture-mock ⇒ 门槛① 必须标 PENDING（见 driver 报告）
       // 本 spec 仅证统计机械可算且自检不偏袒
     })
+
+    // 配对口径的 fail-fast：错位配对（少一章的臂）绝不能被静默截断成看似合法的统计量，
+    // 否则「少判一章」会被算成一个可通过的门槛①——这里钉死报错与其可读原因。
+    it("配对口径 fail-fast：双臂配对数不等 / 输入为空都抛错（不静默截断或返回 0）", () => {
+      expect(() => computePairedMedianDiffStats([0.5, 0.6], [0.9, 1.0, 1.1])).toThrow(
+        "computePairedMedianDiffStats: 双臂配对数不等 (2 vs 3)",
+      )
+      expect(() => computePairedMedianDiffStats([0.5], [])).toThrow(
+        "computePairedMedianDiffStats: 双臂配对数不等 (1 vs 0)",
+      )
+      expect(() => computePairedMedianDiffStats([], [])).toThrow(
+        "computePairedMedianDiffStats: 输入为空",
+      )
+    })
+
+    // 中位数的空集语义：NaN（不是 0）——0 会被当成「中位差 = 0」混进门槛①判定。
+    it("medianOf 空集返回 NaN，奇偶长度各取其法（不把空集当 0）", () => {
+      expect(Number.isNaN(medianOf([]))).toBe(true)
+      expect(medianOf([3])).toBe(3)
+      expect(medianOf([3, 1, 2])).toBe(2)
+      expect(medianOf([4, 1, 3, 2])).toBe(2.5)
+    })
   })
 
   // ── 门槛② 一致性非劣（Track A） ──────────────────────────────────────

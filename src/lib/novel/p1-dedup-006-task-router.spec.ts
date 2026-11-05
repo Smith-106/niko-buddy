@@ -68,6 +68,16 @@ describe("ISS-20260709-007 否定守卫全量生效", () => {
     expect(hasUnnegatedKeyword("任意", "")).toBe(false)
   })
 
+  it("hasUnnegatedPatternMatch 对「已带 g」与「未带 g」的 pattern 同语义（逐处判定）", async () => {
+    const { hasUnnegatedPatternMatch } = await import("@/lib/novel/task-router")
+    // 已带 g：原样复用（不得因 lastIndex 复用而漏判后面未否定的那一处）。
+    expect(hasUnnegatedPatternMatch("不要写第1章，写第5章", /第\s*\d+\s*章/g)).toBe(true)
+    // 未带 g：内部补 g，结果与已带 g 一致。
+    expect(hasUnnegatedPatternMatch("不要写第1章，写第5章", /第\s*\d+\s*章/)).toBe(true)
+    // 多处全被否定 → false（两种形态一致）。
+    expect(hasUnnegatedPatternMatch("不要写第1章，不要写第5章", /第\s*\d+\s*章/g)).toBe(false)
+  })
+
   it("被否定的意图不再误路由（润色/写章）", () => {
     expect(routeTask("不要润色这段").intent).toBe("general_chat")
     expect(routeTask("避免生成第一章").intent).toBe("general_chat")

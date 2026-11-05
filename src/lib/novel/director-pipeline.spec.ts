@@ -4,6 +4,7 @@ import {
   createDirectorPipeline,
   DIRECTOR_PHASES,
   directorPipelineSummary,
+  directorVolumeArcSummary,
   phaseGateOutput,
   retryDirectorPhase,
   type PhaseGateInput,
@@ -104,5 +105,49 @@ describe("director-pipeline（吸收自 ANWA services/novel/director 阶段门�
     expect(a.advanced).toBe(b.advanced)
     expect(a.state.currentPhase).toBe(b.state.currentPhase)
     expect(JSON.stringify(a.state.statuses)).toBe(JSON.stringify(b.state.statuses))
+  })
+})
+
+describe("director-pipeline（增补：中间字段缺口的出口文案与早退语义）", () => {
+  it("idea 段 genre / coreConflict 缺失时给出各自专属原因（不只是书名）", () => {
+    expect(phaseGateOutput("idea", { ...passingInput(), idea: { title: "长夜灯", genre: "  ", coreConflict: "灯下藏凶" } })).toBe("题材缺失")
+    expect(phaseGateOutput("idea", { ...passingInput(), idea: { title: "长夜灯", genre: "悬疑", coreConflict: "" } })).toBe("核心冲突缺失")
+    // 三项齐备 → 放行
+    expect(phaseGateOutput("idea", passingInput())).toBeNull()
+  })
+
+  it("character 段主角先于对手校验：仅对手缺失时才报对手未建立", () => {
+    const noProtagonist = phaseGateOutput("character", { ...passingInput(), protagonistNamed: false, antagonistNamed: false })
+    expect(noProtagonist).toBe("主角未建立")
+    expect(phaseGateOutput("character", { ...passingInput(), protagonistNamed: true, antagonistNamed: false })).toBe("对手未建立")
+    expect(phaseGateOutput("character", passingInput())).toBeNull()
+  })
+
+  it("outline 段框架先于分卷校验：框架已选但分卷未规划 → 分卷未规划", () => {
+    expect(phaseGateOutput("outline", { ...passingInput(), frameworkChosen: true, volumesPlanned: false })).toBe("分卷未规划")
+    expect(phaseGateOutput("outline", { ...passingInput(), frameworkChosen: false, volumesPlanned: false })).toBe("情节框架未选型")
+    expect(phaseGateOutput("outline", passingInput())).toBeNull()
+  })
+
+  it("非 failed 阶段重试是空操作：原样返回同一状态（不误改 running/done）", () => {
+    const running = createDirectorPipeline()
+    expect(running.statuses.idea).toBe("running")
+    expect(retryDirectorPhase(running)).toBe(running)
+    expect(retryDirectorPhase(running).statuses.idea).toBe("running")
+
+    const done = advanceDirectorPhase(running, passingInput()).state
+    expect(done.statuses.idea).toBe("done")
+    expect(retryDirectorPhase(done)).toBe(done)
+    expect(retryDirectorPhase(done).statuses.idea).toBe("done")
+    expect(retryDirectorPhase(done).currentPhase).toBe(done.currentPhase)
+  })
+
+  it("directorVolumeArcSummary 渲染卷弧滚动状态：未开始 / 各段标签与完成计数", () => {
+    expect(
+      directorVolumeArcSummary({ volumeNumber: 2, segment: null, completedInVolume: 0 }, 12),
+    ).toBe("卷弧滚动：第2卷 [未开始] 0/12 章")
+    expect(
+      directorVolumeArcSummary({ volumeNumber: 1, segment: "转", completedInVolume: 7 }, 10),
+    ).toBe("卷弧滚动：第1卷 [转] 7/10 章")
   })
 })

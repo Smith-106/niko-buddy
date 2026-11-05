@@ -389,6 +389,18 @@ describe("BookAnalysisResultViewer", () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it("error 态：点击遮罩自身关闭，点击遮罩内部不关闭", () => {
+    const { onClose } = renderViewer()
+    const overlay = screen.getByRole("alertdialog").parentElement as HTMLElement
+    expect(overlay).toBeTruthy()
+    // 冒泡目标是内部对话框 → target !== currentTarget → 不关闭
+    fireEvent.pointerDown(screen.getByRole("alertdialog"))
+    expect(onClose).not.toHaveBeenCalled()
+    // 冒泡目标是遮罩自身 → target === currentTarget → 关闭
+    fireEvent.pointerDown(overlay)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it("renders the empty character state when a completed task has no characters", () => {
     mocks.wikiState.project = PROJECT
     mocks.bookState.tasks = [
@@ -1053,6 +1065,23 @@ describe("BookAnalysisResultViewer", () => {
     const xButton = screen.getAllByRole("button").find((b) => b.textContent?.trim() === "")
     fireEvent.click(xButton!)
     expect(onClose).toHaveBeenCalledTimes(2)
+  })
+
+  it("点击对话框外部：onInteractOutside preventDefault 拦住遮罩关闭", async () => {
+    mocks.wikiState.project = PROJECT
+    mocks.bookState.tasks = [makeTask()]
+    const { onClose } = renderViewer()
+    // Radix DismissableLayer 在 setTimeout(0) 之后才挂 document 级 pointerdown 监听
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    // 原实现不响应点击遮罩关闭：Radix 在 deferPointerDownOutside 下把外部点击
+    // 的判定推到随后的 click；onInteractOutside 里 preventDefault() 后
+    // onOpenChange(false) 不再触发 → 对话框保持打开。
+    fireEvent.pointerDown(document.body)
+    fireEvent.click(document.body)
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole("dialog")).toBeInTheDocument()
   })
 
   it("keeps the novel-character selection when the bindable list refreshes", async () => {

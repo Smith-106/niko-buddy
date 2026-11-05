@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import { cleanup } from "@testing-library/react"
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -940,5 +941,74 @@ describe("LintView — orphan deletion", () => {
     renderLintView()
     fireEvent.click(screen.getByText("lint.delete"))
     expect(mocks.cascadeDeleteWikiPagesWithRefs).not.toHaveBeenCalled()
+  })
+})
+
+describe("LintView — 分页与长详情（statements 收口增补）", () => {
+  it("历史 > 20 条：next 到第 2 页、prev 回第 1 页（分页回调双向下界/上界钳位）", async () => {
+    mocks.state.novelMode = true
+    const many = Array.from({ length: 21 }, (_, i) => ({
+      ...HISTORY_ENTRY,
+      id: `h${i + 1}`,
+      title: `第 ${i + 1} 章 lint`,
+      filePath: `/p/mybook/.niko-buddy/history/h${i + 1}.json`,
+    }))
+    mocks.listGenerationHistory.mockResolvedValue(many)
+    renderLintView()
+    await waitFor(() => {
+      expect(screen.getByTestId("pagination")).toBeInTheDocument()
+    })
+    // 第 1 页：01..20 在场，第 21 条不在 DOM，prev 禁用
+    expect(screen.getByText("第 1 章 lint")).toBeInTheDocument()
+    expect(screen.getByText("第 20 章 lint")).toBeInTheDocument()
+    expect(screen.queryByText("第 21 章 lint")).not.toBeInTheDocument()
+    expect(screen.getByTestId("pagination-prev")).toBeDisabled()
+    // 下一页 → 第 21 条可见、首页条目卸载、next 禁用
+    fireEvent.click(screen.getByTestId("pagination-next"))
+    await waitFor(() => {
+      expect(screen.getByText("第 21 章 lint")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("第 1 章 lint")).not.toBeInTheDocument()
+    expect(screen.getByTestId("pagination-next")).toBeDisabled()
+    // 上一页 → 回到第 1 页，第 21 条卸载，prev 再次禁用
+    fireEvent.click(screen.getByTestId("pagination-prev"))
+    await waitFor(() => {
+      expect(screen.getByText("第 1 章 lint")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("第 21 章 lint")).not.toBeInTheDocument()
+    expect(screen.getByTestId("pagination-prev")).toBeDisabled()
+  })
+
+  it("结果 detail 超过 80 字 → details 折叠展示（summary 截断 80 字、正文全文）", () => {
+    const longDetail = "长".repeat(100)
+    setLintRunState("r-long", { hasRun: true, results: [{ ...ORPHAN, detail: longDetail }] })
+    const { container } = renderLintView()
+    const details = container.querySelector("details")
+    expect(details).not.toBeNull()
+    expect(details!.querySelector("summary")!.textContent).toBe("长".repeat(80))
+    expect(details!.querySelector("p")!.textContent).toBe(longDetail)
+  })
+
+  it("切换项目时旧项目的迟到 history 加载被 cancelled 守卫丢弃", async () => {
+    mocks.state.novelMode = true
+    let resolveStale!: (value: unknown[]) => void
+    const stale = new Promise<unknown[]>((res) => {
+      resolveStale = res
+    })
+    mocks.listGenerationHistory.mockImplementationOnce(() => stale)
+    const { refresh } = renderLintView()
+    // 切到另一个项目 → effect 清理把 cancelled 置真；新项目的加载正常完成
+    mocks.state.project = { id: "p2", name: "OtherBook", path: "/p/other" }
+    mocks.listGenerationHistory.mockResolvedValue([HISTORY_ENTRY])
+    refresh()
+    await waitFor(() => {
+      expect(screen.getByText("第 5 章 lint")).toBeInTheDocument()
+    })
+    // 旧项目的迟到结果：必须被丢弃，不得写入当前项目的列表
+    await act(async () => {
+      resolveStale([{ ...HISTORY_ENTRY, id: "h-stale", title: "旧项目历史" }])
+    })
+    expect(screen.queryByText("旧项目历史")).not.toBeInTheDocument()
+    expect(screen.getByText("第 5 章 lint")).toBeInTheDocument()
   })
 })

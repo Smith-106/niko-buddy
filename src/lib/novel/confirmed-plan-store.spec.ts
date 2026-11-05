@@ -167,6 +167,57 @@ describe("loadConfirmedPlanRecord", () => {
     expect(record?.savedAt).toBe("")
   })
 
+  it("头部超过扫描上限（>5 行仍未见到闭合分隔线）判为旧格式，整份保留正文", async () => {
+    // 防误切的第二道闸：真实头部固定 2 行，放宽到 5 行；超出即不再当头部切。
+    // 宁可把带头的文件整份当计划（保守），也不吃掉用户正文。
+    const overflow =
+      "---\nsource: model\nsavedAt: t1\nsource: model\nsavedAt: t2\nsource: model\n正文第一行\n正文第二行\n"
+    useInMemoryDisk({ [`E:/Novel/${CONFIRMED_PLAN_DIR}/chapter-11.md`]: overflow })
+    const record = await loadConfirmedPlanRecord("E:/Novel", 11)
+    expect(record?.plan).toBe(overflow)
+    expect(record?.source).toBe("model")
+    expect(record?.savedAt).toBe("")
+    // 保守降级的可观察结果：正文行仍在计划里（没有被当成头部吃掉）
+    expect(record?.plan).toContain("正文第一行\n正文第二行")
+  })
+
+  it("文件只有一行水平线 ---（无换行）当旧格式整份保留", async () => {
+    // 首行是分隔线但整份内容没有换行：头部无从解析，按旧格式处理（plan 就是原文本）。
+    useInMemoryDisk({ [`E:/Novel/${CONFIRMED_PLAN_DIR}/chapter-13.md`]: "---" })
+    const record = await loadConfirmedPlanRecord("E:/Novel", 13)
+    expect(record).toEqual({ plan: "---", source: "model", savedAt: "" })
+  })
+
+  it("头部缺换行（最后一行无行尾换行且无闭合分隔线）当旧格式，正文不被吃掉", async () => {
+    const truncated = "---\nsource: user"
+    useInMemoryDisk({ [`E:/Novel/${CONFIRMED_PLAN_DIR}/chapter-14.md`]: truncated })
+    const record = await loadConfirmedPlanRecord("E:/Novel", 14)
+    expect(record?.plan).toBe(truncated)
+    // 未闭合的头部不算头部：不得把半截头部读成「用户已确认」（单向降级）。
+    expect(record?.source).toBe("model")
+    expect(record?.savedAt).toBe("")
+  })
+
+  it("CRLF 头部（Windows 落盘）同样能认出头部，正文的 CRLF 逐字节保留", async () => {
+    const crlf = "---\r\nsource: user\r\nsavedAt: 2026-01-01T00:00:00.000Z\r\n---\r\n正文第一行\r\n"
+    useInMemoryDisk({ [`E:/Novel/${CONFIRMED_PLAN_DIR}/chapter-15.md`]: crlf })
+    const record = await loadConfirmedPlanRecord("E:/Novel", 15)
+    expect(record?.source).toBe("user")
+    expect(record?.savedAt).toBe("2026-01-01T00:00:00.000Z")
+    // 只剥掉头部行自身的 \r；正文行尾的 CRLF 属于原文，不得被改写。
+    expect(record?.plan).toBe("正文第一行\r\n")
+  })
+
+  it("头部只有 source 没有 savedAt 时 savedAt 留空（不伪造时间）", async () => {
+    useInMemoryDisk({
+      [`E:/Novel/${CONFIRMED_PLAN_DIR}/chapter-16.md`]: "---\nsource: user\n---\n正文\n",
+    })
+    const record = await loadConfirmedPlanRecord("E:/Novel", 16)
+    expect(record?.source).toBe("user")
+    expect(record?.savedAt).toBe("")
+    expect(record?.plan).toBe("正文\n")
+  })
+
   it("头部 source 值不认识时降级为 model（单向降级，不升格）", async () => {
     useInMemoryDisk({
       [`E:/Novel/${CONFIRMED_PLAN_DIR}/chapter-4.md`]: "---\nsource: trusted\nsavedAt: 2026-01-01T00:00:00.000Z\n---\n正文\n",

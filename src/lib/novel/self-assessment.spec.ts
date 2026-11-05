@@ -7,6 +7,7 @@ import {
   extractSignals,
   scoreDimension,
   DIMENSION_KEYS,
+  type ChapterSignals,
   type SelfAssessmentInput,
 } from "./self-assessment"
 
@@ -194,5 +195,121 @@ describe("空输入安全 / LLM 扩展缝", () => {
     expect(res.degraded).toBe(true)
     // 回退后 length 仍为低分（机械）。
     expect(res.scores.find((s) => s.key === "length")!.gap).toBe(true)
+  })
+})
+
+// ── 覆盖加深（增补：原有用例保留不动）─────────────────────────────────────────
+// 目标：三处「区间上沿」打分分支（对话过多、段落过长）、目标篇幅为 0、
+// 以及两个运行时防线（text 为 null / 缺省）与非有限 LLM 覆盖值。
+
+/** 直接构造信号表，用于钉死打分公式的边界（不走 extractSignals 的文本路径）。 */
+function signals(overrides: Partial<ChapterSignals> = {}): ChapterSignals {
+  return {
+    charCount: 3000,
+    sentenceCount: 120,
+    dialogueChars: 600,
+    dialogueRatio: 0.2,
+    avgParagraphLength: 120,
+    sentenceLengthCv: 0.6,
+    sceneBreakCount: 5,
+    openingSentenceLength: 12,
+    openingHasDialogue: false,
+    openingHasEmphatic: false,
+    ...overrides,
+  }
+}
+
+/** 把运行时脏值传给声明为 string 的入参（只测防线，不做类型谎言扩散）。 */
+const asText = (value: unknown): string => value as string
+
+describe("区间上沿打分（增补）", () => {
+  it("dialogueRatio > 0.5 → 按 (0.7-d)/0.2 线性扣分，0.6 时正好 50 分", () => {
+    const r = scoreDimension("dialogueRatio", signals({ dialogueRatio: 0.6 }))
+    expect(r.score).toBe(50)
+    expect(r.evidence).toContain("dialogue=60.0%")
+  })
+
+  it("dialogueRatio 恰在 0.5 上沿 → 仍算自然区，满分", () => {
+    expect(scoreDimension("dialogueRatio", signals({ dialogueRatio: 0.5 })).score).toBe(100)
+  })
+
+  it("平均段长落在 [60,220] → 段落节奏满分", () => {
+    const r = scoreDimension("paragraphRhythm", signals({ avgParagraphLength: 100 }))
+    expect(r.score).toBe(100)
+    expect(r.evidence).toContain("avgPara=100.0")
+  })
+
+  it("平均段长 300（超长段落）→ 按 (a-220)/180 扣分，得 56 分", () => {
+    // 100 - ((300-220)/180)*100 = 55.56 → 四舍五入 56
+    expect(scoreDimension("paragraphRhythm", signals({ avgParagraphLength: 300 })).score).toBe(56)
+  })
+
+  it("目标篇幅为 0 时 length 维度得 0（不产生 Infinity/NaN）", () => {
+    const r = scoreDimension("length", signals(), { targetLength: 0 })
+    expect(r.score).toBe(0)
+    expect(r.evidence).toContain("target=0")
+  })
+})
+
+describe("运行时防线（增补）", () => {
+  it("extractSignals 收到 null → 按空文本抽取，不抛错", () => {
+    const s = extractSignals(asText(null))
+    expect(s.charCount).toBe(0)
+    expect(s.sentenceCount).toBe(0)
+    expect(s.dialogueChars).toBe(0)
+    expect(s.sceneBreakCount).toBe(0)
+  })
+
+  it("assessChapter 缺 text 字段 → 按空文本评估，六维齐全且 overall 为 0", async () => {
+    const input = {} as unknown as SelfAssessmentInput
+    const res = await assessChapter(input)
+    expect(res.scores).toHaveLength(DIMENSION_KEYS.length)
+    expect(res.overall).toBe(0)
+    expect(res.gaps.length).toBeGreaterThan(0)
+    expect(res.degraded).toBe(true)
+  })
+})
+
+describe("LLM 覆盖值不合规（增补）", () => {
+  it("覆盖值为 NaN / 缺失 → 该维回落机械分，其余维仍采用覆盖值", async () => {
+    const text = healthyText()
+    const mechanical = await assessChapter({ text })
+    const mechLength = mechanical.scores.find((s) => s.key === "length")!.score
+    const mechSceneBreaks = mechanical.scores.find((s) => s.key === "sceneBreaks")!.score
+
+    const res = await assessChapter(
+      { text },
+      {
+        llm: {
+          async evaluate() {
+            return {
+              length: Number.NaN,
+              dialogueRatio: 90,
+              // sceneBreaks 故意缺失（undefined）
+            }
+          },
+        },
+      },
+    )
+
+    expect(res.degraded).toBe(false)
+    expect(res.scores.find((s) => s.key === "length")!.score).toBe(mechLength)
+    expect(res.scores.find((s) => s.key === "sceneBreaks")!.score).toBe(mechSceneBreaks)
+    expect(res.scores.find((s) => s.key === "dialogueRatio")!.score).toBe(90)
+  })
+
+  it("覆盖值越界 → 仍被钳到 0-100 区间", async () => {
+    const res = await assessChapter(
+      { text: "很短。" },
+      {
+        llm: {
+          async evaluate() {
+            return { length: 500, openingHook: -20 }
+          },
+        },
+      },
+    )
+    expect(res.scores.find((s) => s.key === "length")!.score).toBe(100)
+    expect(res.scores.find((s) => s.key === "openingHook")!.score).toBe(0)
   })
 })

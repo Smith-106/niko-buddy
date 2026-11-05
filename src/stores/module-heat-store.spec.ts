@@ -504,6 +504,104 @@ describe("module-heat-store", () => {
     expect(FLUSH_TICK_MS).toBe(5000)
   })
 
+  // ── 回填单飞（同项目）───────────────────────────────────────────────────
+  it("hydrate 在飞时同项目复用同一份 promise：不重复读盘，也不提前标记已回填", async () => {
+    const gate = deferred<string>()
+    mocks.readFile.mockImplementationOnce(() => gate.promise)
+    const store = useModuleHeatStore.getState()
+    store.install()
+    recordModuleHit({ path: "live.ts", at: 20, ok: true })
+
+    const first = useModuleHeatStore.getState().hydrate("/proj")
+    const second = useModuleHeatStore.getState().hydrate("/proj")
+    // 第二条路径必须复用在飞任务，而不是再读一次盘。
+    expect(mocks.readFile).toHaveBeenCalledTimes(1)
+    // 后来者不得在快照读完前就认为“已回填”（否则 flush 会提前覆盖写）。
+    expect(useModuleHeatStore.getState().hydratedFor).toBeNull()
+
+    gate.resolve(
+      JSON.stringify({
+        fileVersion: 1,
+        sessionStartedAt: 1,
+        savedAt: 2,
+        hits: [{ path: "prior.ts", at: 5, ok: true }],
+      }),
+    )
+    await Promise.all([first, second])
+
+    expect(mocks.readFile).toHaveBeenCalledTimes(1)
+    expect(useModuleHeatStore.getState().hydratedFor).toBe("/proj")
+    expect(useModuleHeatStore.getState().hits.map((hit) => hit.path)).toEqual([
+      "prior.ts",
+      "live.ts",
+    ])
+  })
+
+  // ── flush 的“回填没落到目标项目”早退 ──────────────────────────────────
+  it("flush：回填期间项目被切走时放弃写盘（绝不把 A 项目的窗口写进 B）", async () => {
+    const gateA = deferred<string>()
+    mocks.readFile.mockImplementationOnce(() => gateA.promise)
+    mocks.readFile.mockResolvedValueOnce(
+      JSON.stringify({
+        fileVersion: 1,
+        sessionStartedAt: 1,
+        savedAt: 2,
+        hits: [{ path: "b-snapshot.ts", at: 10, ok: true }],
+      }),
+    )
+    const store = useModuleHeatStore.getState()
+    store.install()
+    recordModuleHit({ path: "a-live.ts", at: 20, ok: true })
+
+    const flushingA = useModuleHeatStore.getState().flush("/projA")
+    expect(mocks.readFile).toHaveBeenCalledTimes(1)
+    // 回填还挂在读盘上时切到 B：A 的回填结果会因代际作废。
+    await useModuleHeatStore.getState().hydrate("/projB")
+    expect(useModuleHeatStore.getState().hydratedFor).toBe("/projB")
+
+    gateA.resolve(
+      JSON.stringify({
+        fileVersion: 1,
+        sessionStartedAt: 1,
+        savedAt: 2,
+        hits: [{ path: "a-snapshot.ts", at: 5, ok: true }],
+      }),
+    )
+    await flushingA
+
+    // A 的 flush 发现 hydratedFor 不是自己 → 一次覆盖写都不许发生。
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(useModuleHeatStore.getState().hydratedFor).toBe("/projB")
+    expect(useModuleHeatStore.getState().hits.map((hit) => hit.path)).toEqual(["b-snapshot.ts"])
+  })
+
+  it("flush 在无项目路径时静默跳过", async () => {
+    const store = useModuleHeatStore.getState()
+    store.install()
+    recordModuleHit({ path: "a.ts", at: 1, ok: true })
+    await expect(useModuleHeatStore.getState().flush(null)).resolves.toBeUndefined()
+    expect(mocks.readFile).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    // 命中仍留在窗口里，等路径就绪后再落盘
+    expect(useModuleHeatStore.getState().pendingSinceFlush).toBe(1)
+  })
+
+  it("不传 options 时轮询按默认 5s 心跳醒来", async () => {
+    vi.useFakeTimers()
+    const stop = startModuleHeatFlushLoop(() => "/proj")
+    try {
+      // 默认 5000ms：4999ms 内不 tick（回填尚未开始）
+      await vi.advanceTimersByTimeAsync(4_999)
+      expect(mocks.readFile).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(mocks.readFile).toHaveBeenCalledTimes(1)
+      expect(mocks.readFile).toHaveBeenCalledWith("/proj/.novel/telemetry/module-heat.json")
+    } finally {
+      stop()
+      vi.useRealTimers()
+    }
+  })
+
   it("真实地图可统计（未调用时覆盖率为 0）", () => {
     const totals = heatTotals(MODULE_ATLAS, useModuleHeatStore.getState().heatMap())
     expect(totals.modules).toBeGreaterThan(500)

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest"
 import type { ReactNode } from "react"
 import { cleanup } from "@testing-library/react"
 import {
@@ -401,6 +401,12 @@ vi.mock("./review-center-sidebar-panel", () => ({
 vi.mock("./book-analysis-sidebar-panel", () => ({
   BookAnalysisSidebarPanel: () => <div data-testid="book-panel">book</div>,
 }))
+vi.mock("./director-sidebar-panel", () => ({
+  DirectorSidebarPanel: () => <div data-testid="director-panel">director</div>,
+}))
+vi.mock("@/components/skill-library/unified-skill-library-view", () => ({
+  UnifiedSkillLibrarySidebarPanel: () => <div data-testid="skill-library-panel">skills</div>,
+}))
 
 function renderSidebar(initial?: Partial<WikiStateLike>): {
   container: HTMLElement
@@ -464,6 +470,19 @@ describe("SidebarPanel 视图路由", () => {
       ["reviewCenter", "review-panel"],
       ["bookAnalysis", "book-panel"],
       ["trash", "trash-panel"],
+    ] as const) {
+      const { unmount } = renderSidebar({ activeView: view })
+      expect(screen.getByTestId(testId)).toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it("director / skillLibrary / writingSkillLibrary / skillFavorites 视图渲染对应面板", () => {
+    for (const [view, testId] of [
+      ["director", "director-panel"],
+      ["skillLibrary", "skill-library-panel"],
+      ["writingSkillLibrary", "skill-library-panel"],
+      ["skillFavorites", "skill-library-panel"],
     ] as const) {
       const { unmount } = renderSidebar({ activeView: view })
       expect(screen.getByTestId(testId)).toBeInTheDocument()
@@ -1250,6 +1269,35 @@ describe("SidebarPanel 知识模式（章节）", () => {
     const pending = screen.getByTestId("kt-pending").textContent ?? ""
     expect(pending).toContain("/p/mybook/wiki/chapters/chapter-2-第2章.md")
     expect(pending).toContain("/p/mybook/wiki/chapters/chapter-3-第3章.md")
+  })
+
+  it("交叉面板触发：chapterCreateNonce 递增自动新建章节（不再需要手动点按钮）", async () => {
+    // 非零 nonce 会残留在共享 store 桩里，污染后续用例的「首次挂载不自动创建」语义
+    onTestFinished(() => {
+      mocks.state.chapterCreateNonce = 0
+    })
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.getNextChapterNumber.mockResolvedValue(1)
+    const { setState } = renderSidebar({ chapterCreateNonce: 0 })
+    await flushAsync()
+    // 首次挂载 + nonce=0：只记录已见值，不自动创建
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+
+    setState({ chapterCreateNonce: 1 })
+    await flushAsync()
+
+    // nonce 变化 → 复用已有创建链路（编号/落盘/选中）
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
+      "/p/mybook/wiki/chapters/chapter-1-第1章.md",
+      expect.stringContaining("chapter_number: 1"),
+    )
+    expect(mocks.state.setSelectedFile).toHaveBeenCalledWith("/p/mybook/wiki/chapters/chapter-1-第1章.md")
+
+    // nonce 未变时的重渲染不重复创建
+    setState({ dataVersion: 7 })
+    await flushAsync()
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
   })
 
   it("新建大纲：无项目时守卫返回", async () => {

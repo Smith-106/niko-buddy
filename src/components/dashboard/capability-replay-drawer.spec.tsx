@@ -26,4 +26,47 @@ describe("CapabilityReplayDrawer", () => {
     expect(await screen.findByText("write · deep · success")).toBeInTheDocument()
     await act(async () => {})
   })
+
+  it("读 trace 失败：错误上屏并退化为空态（不阻断诊断面板）", async () => {
+    mocks.read.mockRejectedValue(new Error("trace boom"))
+    render(<CapabilityReplayDrawer />)
+    fireEvent.click(screen.getByRole("button"))
+    // 旁路观测失败只上屏错误文案 + 空态，不抛错
+    expect(await screen.findByText("trace boom")).toBeInTheDocument()
+    expect(screen.getByText("暂无能力规划记录")).toBeInTheDocument()
+    await act(async () => {})
+  })
+
+  it("planned 为空数组时链路显示 (empty)", async () => {
+    mocks.read.mockResolvedValue([{ query: "q", intent: "chat", mode: "fast", retrieved: [], filteredOut: [], planned: [], outcome: "skipped", at: 2 }])
+    render(<CapabilityReplayDrawer />)
+    fireEvent.click(screen.getByRole("button"))
+    expect(await screen.findByText("chat · fast · skipped")).toBeInTheDocument()
+    expect(screen.getByText("(empty)")).toBeInTheDocument()
+    await act(async () => {})
+  })
+
+  it("再次点击收起抽屉：不重复读取 trace", async () => {
+    mocks.read.mockResolvedValue([{ query: "q", intent: "write", mode: "deep", retrieved: [], filteredOut: [], planned: [{ id: "a" }], outcome: "success", at: 3 }])
+    render(<CapabilityReplayDrawer />)
+    const button = screen.getByRole("button")
+    fireEvent.click(button)
+    expect(await screen.findByText("write · deep · success")).toBeInTheDocument()
+    await act(async () => {})
+    fireEvent.click(button)
+    // 收起：记录区消失，且不再触发读取
+    expect(screen.queryByText("write · deep · success")).toBeNull()
+    expect(mocks.read).toHaveBeenCalledTimes(1)
+  })
+
+  it("无项目路径：按钮禁用且不读取 trace", async () => {
+    mocks.project = null
+    render(<CapabilityReplayDrawer />)
+    const button = screen.getByRole("button")
+    expect(button).toBeDisabled()
+    fireEvent.click(button)
+    await act(async () => {})
+    expect(mocks.read).not.toHaveBeenCalled()
+    expect(screen.queryByText("暂无能力规划记录")).toBeNull()
+  })
 })

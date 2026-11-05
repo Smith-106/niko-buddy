@@ -9,6 +9,7 @@ import { cleanup, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import type { CharacterAura, CharacterAuraBinding, CharacterAuraStore } from "@/lib/novel"
 import {
+  act,
   render,
   screen,
   fireEvent,
@@ -146,6 +147,17 @@ function bindingSelect(): HTMLSelectElement {
   const el = document.querySelector("select")
   if (!el) throw new Error("binding select not found")
   return el as HTMLSelectElement
+}
+
+/** 手动控制的 promise：用于让 aura 加载“迟到”，验证 cancelled 守卫。 */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
 }
 
 afterEach(() => {
@@ -437,5 +449,79 @@ describe("SoulSidebarPanel", () => {
       expect(screen.getByText("分页魂01")).toBeInTheDocument()
     })
     expect(screen.queryByText("分页魂21")).not.toBeInTheDocument()
+  })
+
+  it("分页 onPrev：从第 2 页点上一页回到第 1 页（下界钳位 0）", async () => {
+    const manyCustoms = Array.from({ length: 21 }, (_, i) => ({
+      id: `custom-p${i + 1}`, builtIn: false, name: `分页魂${String(i + 1).padStart(2, "0")}`,
+      sourceNote: "", corpus: "", styleDescription: "", behaviorRules: "", boundaries: "", notes: "",
+    }))
+    mocks.state.selectedSoulTab = "character"
+    mocks.state.selectedSoulSection = "custom"
+    mocks.listCharacterAuras.mockResolvedValue([...LOADED_AURAS.filter((a) => a.builtIn), ...manyCustoms])
+    render(<SoulSidebarPanel />)
+    await waitFor(() => {
+      expect(screen.getByText("分页魂01")).toBeInTheDocument()
+    })
+    // 先到第 2 页（第 1 页的 prev 是 disabled，React 不会派发点击）
+    fireEvent.click(screen.getByTestId("pagination-next"))
+    await waitFor(() => {
+      expect(screen.getByText("分页魂21")).toBeInTheDocument()
+    })
+    expect(screen.getByTestId("pagination-next")).toBeDisabled()
+    // 上一页 → 回到第 1 页，末页条目卸载，prev 再次禁用
+    fireEvent.click(screen.getByTestId("pagination-prev"))
+    await waitFor(() => {
+      expect(screen.getByText("分页魂01")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("分页魂21")).not.toBeInTheDocument()
+    expect(screen.getByTestId("pagination-prev")).toBeDisabled()
+  })
+
+  it("切换项目：旧项目迟到的成功结果被 cancelled 守卫丢弃（then 守卫）", async () => {
+    mocks.state.selectedSoulTab = "character"
+    mocks.state.selectedSoulSection = "custom"
+    const stale = deferred<CharacterAura[]>()
+    mocks.listCharacterAuras.mockImplementationOnce(() => stale.promise)
+    const { rerender } = render(<SoulSidebarPanel />)
+    // 项目 A 的加载仍在途中 → 立即切换到项目 B（effect 依赖 project.path，会重跑）
+    mocks.state.project = { id: "p2", name: "OtherBook", path: "/p/other" }
+    rerender(<SoulSidebarPanel />)
+    await waitFor(() => {
+      expect(screen.getByText("自定义魂")).toBeInTheDocument()
+    })
+    expect(mocks.listCharacterAuras).toHaveBeenCalledTimes(2)
+    // 旧项目的迟到成功结果：必须被丢弃，不得覆盖当前项目的列表
+    await act(async () => {
+      stale.resolve([
+        {
+          id: "custom-stale", builtIn: false, name: "旧项目魂",
+          sourceNote: "", corpus: "", styleDescription: "", behaviorRules: "", boundaries: "", notes: "",
+        },
+      ])
+    })
+    expect(screen.queryByText("旧项目魂")).not.toBeInTheDocument()
+    expect(screen.getByText("自定义魂")).toBeInTheDocument()
+  })
+
+  it("切换项目：旧项目迟到的加载失败被 cancelled 守卫吞掉（catch 守卫）", async () => {
+    const stale = deferred<CharacterAura[]>()
+    mocks.listCharacterAuras.mockImplementationOnce(() => stale.promise)
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { rerender } = render(<SoulSidebarPanel />)
+    mocks.state.project = { id: "p2", name: "OtherBook", path: "/p/other" }
+    rerender(<SoulSidebarPanel />)
+    // 项目 B 正常加载完成（绑定列表可见）
+    await waitFor(() => {
+      expect(screen.getByText("林冲")).toBeInTheDocument()
+    })
+    errorSpy.mockClear()
+    // 旧项目的迟到失败：cancelled 守卫直接吞掉，不得打成当前项目的错误
+    await act(async () => {
+      stale.reject(new Error("stale-load-fail"))
+    })
+    expect(errorSpy).not.toHaveBeenCalled()
+    expect(screen.getByText("林冲")).toBeInTheDocument()
+    errorSpy.mockRestore()
   })
 })

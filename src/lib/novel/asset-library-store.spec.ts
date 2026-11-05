@@ -8,7 +8,7 @@
  *   4. 写入侧拦截：schemaVersion 不符 / 守恒失配 → 抛错（禁手写脏产物落盘）；
  *   5. 路径确定性派生（5 库各一文件）。
  */
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   assetLibraryFilePath,
   loadAllAssetLibrarySnapshots,
@@ -25,6 +25,20 @@ import {
   stableStringify,
   type LibraryEntry,
 } from "./asset-library"
+
+// 覆盖补齐：默认 fs deps（生产接线）经 `@/commands/fs` 读/建目录/原子写。
+// 既有用例全部注入 memDeps，从不落到真实 fs，因此本 mock 不影响它们。
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+    readFile: vi.fn(async () => ""),
+    writeFileAtomic: vi.fn(async () => {}),
+    createDirectory: vi.fn(async () => {}),
+  }
+})
+
+import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 
 const genreEntries = [
   { entryId: "g1", name: "玄幻", toneTags: ["热血"], forbidPatterns: [], plotBeats: ["升级"] },
@@ -195,5 +209,78 @@ describe("loadAssetLibraryArtifact（读路径信任边界）", () => {
     expect(
       await loadAssetLibraryArtifact("/p", "relationship_edge", memDeps({ [path]: JSON.stringify(other) }).deps),
     ).toBeNull()
+  })
+})
+
+describe("默认 fs deps（生产接线，不注入 deps）", () => {
+  it("读：默认 readText 读到内容 → 正常解析（生产路径不是恒空）", async () => {
+    vi.mocked(readFile).mockResolvedValueOnce(JSON.stringify(artifact()))
+    const snap = await loadAssetLibrarySnapshot("/p", "genre_base")
+    expect(readFile).toHaveBeenCalledWith("/p/.novel/asset-library/genre_base.json")
+    expect(snap.present).toBe(true)
+    expect(snap.entryCount).toBe(1)
+    expect(snap.conserved).toBe(true)
+  })
+
+  it("读：文件不存在（readFile 抛错）→ 当缺失（present:false，不带 error）", async () => {
+    vi.mocked(readFile).mockRejectedValueOnce(new Error("ENOENT"))
+    const snap = await loadAssetLibrarySnapshot("/p", "genre_base")
+    expect(snap.present).toBe(false)
+    expect(snap.entryCount).toBe(0)
+    expect(snap.error).toBeUndefined()
+  })
+
+  it("写入：先建 .novel/asset-library 目录，再原子写派生路径（落盘内容即产物）", async () => {
+    vi.mocked(writeFileAtomic).mockClear()
+    vi.mocked(createDirectory).mockClear()
+    const a = artifact()
+    const res = await saveAssetLibraryArtifact("/p/", a)
+    expect(res).toEqual({ path: "/p/.novel/asset-library/genre_base.json", conserved: true })
+    expect(createDirectory).toHaveBeenCalledTimes(1)
+    expect(createDirectory).toHaveBeenCalledWith("/p/.novel/asset-library")
+    expect(writeFileAtomic).toHaveBeenCalledTimes(1)
+    const [writtenPath, writtenText] = vi.mocked(writeFileAtomic).mock.calls[0]!
+    expect(writtenPath).toBe("/p/.novel/asset-library/genre_base.json")
+    expect(JSON.parse(writtenText)).toEqual(a)
+    // 写入顺序：目录先于文件（原子写不会落进不存在的目录）。
+    expect(vi.mocked(createDirectory).mock.invocationCallOrder[0]!).toBeLessThan(
+      vi.mocked(writeFileAtomic).mock.invocationCallOrder[0]!,
+    )
+  })
+})
+
+describe("坏形状产物（entries 非数组）不崩、不当真源", () => {
+  const path = assetLibraryFilePath("/p", "relationship_edge")
+  const badShape = () =>
+    JSON.stringify({
+      libraryId: "relationship_edge",
+      schemaVersion: ASSET_LIBRARY_SCHEMA_VERSION,
+      generatorVersion: "t/1",
+      generatedAt: "2026-10-18T00:00:00.000Z",
+      entries: "oops",
+      contentHash: "deadbeef",
+    })
+
+  it("快照：entries 非数组 → 条数记 0（不臆造、不抛），守恒仍按原值判失配", async () => {
+    const { deps } = memDeps({ [path]: badShape() })
+    const snap = await loadAssetLibrarySnapshot("/p", "relationship_edge", deps)
+    expect(snap.present).toBe(true)
+    expect(snap.entryCount).toBe(0)
+    expect(snap.conserved).toBe(false)
+  })
+
+  it("原始条目回显：entries 非数组 → null（不把坏形状当真源）", async () => {
+    const { deps } = memDeps({ [path]: badShape() })
+    expect(await loadAssetLibraryArtifact("/p", "relationship_edge", deps)).toBeNull()
+  })
+
+  it("缺 contentHash/schemaVersion 字段 → 快照记 null（不伪造校验通过）", async () => {
+    const { deps } = memDeps({
+      [path]: JSON.stringify({ libraryId: "relationship_edge", entries: [] }),
+    })
+    const snap = await loadAssetLibrarySnapshot("/p", "relationship_edge", deps)
+    expect(snap.present).toBe(true)
+    expect(snap.contentHash).toBeNull()
+    expect(snap.schemaVersion).toBeNull()
   })
 })

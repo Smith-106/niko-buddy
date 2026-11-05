@@ -369,6 +369,36 @@ describe("BranchCompareView 关键差异", () => {
     expect(screen.queryByText(/事件数量更丰富/)).toBeNull()
   })
 
+  it("diff 返回未知维度键时回退展示原键名（dimensionLabel 的 default 兜底）", async () => {
+    // 边界类型事实：BranchDiffResult.dimensionDiffs[].key 声明为 string
+    // （use-simulation-worker.ts:6），组件在 :401 用 `as keyof DirectorScore`
+    // 未经校验地断言——未知键是这条未校验边界上的真实输入，不是类型内输入。
+    const calcBranchDiff = vi.fn().mockResolvedValue({
+      dimensionDiffs: [
+        { key: "thematicDensity", diff: 1.5, maxBranchName: "甲线", maxValue: 5, minValue: 3.5 },
+      ],
+      eventCounts: [1, 1],
+      characterCounts: [1, 1],
+      topSentimentDiffs: [],
+      divergenceRound: -1,
+      bestBranchIdx: 0,
+    })
+    vi.spyOn(workerMod, "useSimulationWorker").mockReturnValue({ calcBranchDiff } as never)
+    const [a, b] = richBranches()
+    render(<BranchCompareView branches={[a, b]} compareBranchIds={["b-a", "b-b"]} onBack={vi.fn()} />)
+    fireEvent.click(screen.getByText(t.tabKeyDifferences))
+    // 未知键 → 无 i18n 标签，直接显示键名本身
+    expect(await screen.findByText("1. thematicDensity")).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        t.dimensionLeader
+          .replace("{{branch}}", "甲线")
+          .replace("{{max}}", "5.0")
+          .replace("{{min}}", "3.5"),
+      ),
+    ).toBeInTheDocument()
+  })
+
   it("calcBranchDiff 抛错时打印错误并保持分析中", async () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     const calcBranchDiff = vi.fn().mockRejectedValue(new Error("worker boom"))

@@ -77,3 +77,37 @@ describe("de-ai-preserve-lock — P1-2 改写前锁定关键内容", () => {
     expect(t).toContain("spans")
   })
 })
+
+describe("de-ai-preserve-lock（增补：重叠剪枝 / 空锁报告 / verify 缺失面）", () => {
+  it("引用区间包含数字时只锁内层片段：重叠外层剪枝，原文仍可字节级还原", () => {
+    const raw = "他说：“2026年就走。”"
+    const lock = lockProtectedSpans(raw)
+
+    // 内层数字先入锁 → 包裹它的整句引用（“2026年就走。”）因区间重叠被剪枝；
+    // 不重叠的对白标签仍独立入锁
+    expect(lock.spans.map((s) => s.kind)).toEqual(["number", "dialogueTemplate"])
+    expect(lock.spans.map((s) => s.original)).toEqual(["2026年", "他说："])
+    // 引用未被整体替换（外层剪枝后引号保留在掩码文本里）
+    expect(lock.maskedText).toBe("⟦LOCK1⟧“⟦LOCK0⟧就走。”")
+    expect(lock.restore(lock.maskedText)).toBe(raw)
+    expect(lock.verify(lock.restore(lock.maskedText))).toEqual({ restored: true, missing: [] })
+  })
+
+  it("改写丢失保护片段时 verify 报告缺失项与 restored=false", () => {
+    const lock = lockProtectedSpans("白砚在2026年赶到 https://a.b/c")
+    const broken = lock.maskedText.replace("⟦LOCK0⟧", "")
+    const check = lock.verify(broken)
+    expect(check.restored).toBe(false)
+    expect(check.missing).toContain(lock.spans[0].original)
+    expect(check.missing.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("无可保护片段时 maskedText 原样返回、报告为空串、指令回退通用文案", () => {
+    const raw = "这里不需要保护任何东西。"
+    const lock = lockProtectedSpans(raw)
+    expect(lock.spans).toEqual([])
+    expect(lock.maskedText).toBe(raw)
+    expect(preserveLockToText(lock)).toBe("")
+    expect(buildPreserveDirective(lock.spans)).toContain("不增删剧情事实")
+  })
+})

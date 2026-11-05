@@ -135,6 +135,40 @@ describe("ISS-20260724-002 ARCH-1：ingest 叶子行为 spec 缺口补齐", () =
     expect(buildIngestWriteSummary([])).toBe("未写入任何文件。LLM 响应中未包含有效的文件块。")
   })
 
+  it("writeFileBlocks：同一路径的两块按输入序串行（组内排序）+ 后块读到前块落盘内容", async () => {
+    // 模拟磁盘可见性：writeFileAtomic 落盘，tryReadFile 读回上一次内容。
+    const disk = new Map<string, string>()
+    fsMocks.writeFileAtomic.mockImplementation(async (path: string, content: string) => {
+      disk.set(path, content)
+    })
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (disk.has(path)) return disk.get(path)!
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" })
+    })
+
+    const text = [
+      "---FILE: wiki/log.md ---",
+      "第一条：林云出场。",
+      "---END FILE---",
+      "",
+      "---FILE: wiki/log.md ---",
+      "第二条：雨夜追凶。",
+      "---END FILE---",
+    ].join("\n")
+
+    const res = await writeFileBlocks("P:/proj", text, LLM, "src.md")
+
+    // 同路径两块都落盘（组内串行、输入序），第二条读到第一条内容后追加。
+    expect(res.writtenPaths).toEqual(["wiki/log.md", "wiki/log.md"])
+    expect(res.hardFailures).toEqual([])
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledTimes(2)
+    const contents = fsMocks.writeFileAtomic.mock.calls.map((c) => c[1])
+    expect(contents[0]).toContain("第一条：林云出场。")
+    expect(contents[0]).not.toContain("第二条：雨夜追凶。")
+    expect(contents[1]).toContain("第一条：林云出场。")
+    expect(contents[1]).toContain("第二条：雨夜追凶。")
+  })
+
   it("writeFileBlocks：空累积零写盘 + log 块追加写盘（行为等价冒烟）", async () => {
     const empty = await writeFileBlocks("P:/proj", "no blocks here", LLM, "src.md")
     expect(empty).toEqual({ writtenPaths: [], warnings: [], hardFailures: [] })

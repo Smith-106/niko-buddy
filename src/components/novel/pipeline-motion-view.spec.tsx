@@ -3,7 +3,7 @@
  * 视图接线契约：注入账本直接渲染（不碰磁盘）；磁盘装载中显示 loading；
  * 装载失败显式报错且不编造管线（零数据时为空态）。
  */
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/commands/fs", async (importOriginal) => {
@@ -128,6 +128,32 @@ describe("PipelineMotionView 串行轮询", () => {
     expect(screen.getByTestId("motion-view-loading")).toBeTruthy()
     expect(screen.queryByTestId("motion-empty")).toBeNull()
     expect(screen.queryByTestId("motion-diagram")).toBeNull()
+  })
+
+  it("旧项目迟到的装载失败被丢弃：不弹旧错误、不覆盖新项目数据", async () => {
+    // 切项目 = 上一轮 tick 仍在 await 中（cancelled 已置 true），随后失败落地。
+    // 守卫必须丢弃它：否则旧项目的 "disk gone" 会盖在新项目已经读到的事件上，
+    // 屏幕上出现一条与新项目无关的错误条。
+    const pending: Array<{ resolve: (value: string) => void; reject: (error: Error) => void }> = []
+    const readText = vi.fn(
+      () =>
+        new Promise<string>((resolve, reject) => {
+          pending.push({ resolve, reject })
+        }),
+    )
+    const deps = { readText, appendText: () => Promise.resolve() }
+    const { rerender } = render(<PipelineMotionView projectPath="/a" deps={deps} pollMs={200} />)
+    await waitFor(() => expect(readText).toHaveBeenCalledTimes(1))
+    rerender(<PipelineMotionView projectPath="/b" deps={deps} pollMs={200} />)
+    await waitFor(() => expect(readText).toHaveBeenCalledTimes(2))
+    // 新项目先结算成功。
+    pending[1]!.resolve(LEDGER_LINE)
+    await screen.findByTestId("motion-diagram")
+    // 旧项目的读随后才失败：迟到 + cancelled → 丢弃。
+    pending[0]!.reject(new Error("disk gone"))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(screen.queryByTestId("motion-load-error")).toBeNull()
+    expect(screen.getByTestId("motion-node-draft").getAttribute("data-state")).toBe("current")
   })
 
   it("慢首轮结算即出图：无假空态、无永久 loading", async () => {
