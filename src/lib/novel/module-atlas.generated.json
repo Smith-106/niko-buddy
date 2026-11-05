@@ -91,7 +91,7 @@
   "specOnly": 267,
   "barrelOnly": 1,
   "edges": 4648,
-  "loc": 289719
+  "loc": 289730
  },
  "modules": [
   {
@@ -674,7 +674,7 @@
   {
    "p": "src/components/chat/chat-panel-test-setup.tsx",
    "s": 16,
-   "l": 1321,
+   "l": 1332,
    "r": false,
    "o": true,
    "x": true,
