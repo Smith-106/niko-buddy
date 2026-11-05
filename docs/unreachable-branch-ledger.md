@@ -9,6 +9,13 @@
 ### lib/path-utils.ts
 - **L26 `?? p`**（getFileName）：`normalized.split("/").pop()` 对任意字符串恒返回数组元素（空串输入返回 `""`），pop 永不返回 undefined → `?? p` 回退不可达。死代码。
 
+### lib/novel/outline-model-parse.ts
+- **L437-447（inline model 分支整体）+ L774-812（readModelObject 函数整体）**：`parseOutlineMarkdownToModel` 的入口是 `parseFrontmatter(content).frontmatter`，而 `src/lib/frontmatter.ts:174` 的 `normalize()` 会把一切非 string/number/boolean 的值（含嵌套对象与数组）`JSON.stringify` 化（`frontmatter.ts:195`）。因此 `fm.outline_model` 在运行时**只能是 string 或不存在**，L436 的 `typeof inlineModel === "object"` 恒假 → 整个分支与它唯一调用者 `readModelObject` 均不可达。
+- **L218（readNumber 的 `typeof value === "number"` 分支）**：同一原因——`normalize()` 对 number 也走 `String(v)`（`frontmatter.ts:190`），`readNumber` 从 frontmatter 拿到的值恒为 string。另一条能给到 typed number 的路径正是上面的 `readModelObject`，已不可达。
+- **L380（clamp01 的 `!Number.isFinite(value)` 守卫）**：`clamp01` 的所有调用点传入的都是算术中间值（比值/计数相除），恒为有限数；非有限值只能来自上游已不可达的 typed 路径。防御性代码。
+
+> 注：同文件 L291（mergeList 的空白项跳过）与 L609/L615（isVolumeTitleContinuation 的 heading 判定）**是可达的**，已另行补测，不列入本台账。
+
 ### lib/wiki-cleanup.ts
 - **L50 `?? normalized`**（normalizeWikiRefKey）：同上，`split("/").pop()` 永不返回 undefined → 回退不可达。死代码。
 
