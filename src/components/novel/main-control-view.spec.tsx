@@ -5,7 +5,7 @@
  */
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 const runMainControlAgent = vi.fn()
 const resolveWikiPath = vi.fn(async () => "/proj/wiki")
@@ -26,6 +26,14 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 const saveTraceSnapshot = vi.fn(async (_projectPath: string, _snapshot: unknown) => true)
 // TASK-014：回放读回端（磁盘快照 → 面板）。默认「没有快照」，与旧行为（真实实现读不到文件返回 null）一致。
 const loadTraceSnapshot = vi.fn(async (_projectPath: string): Promise<unknown | null> => null)
+// W5 增补：计划读盘入口可控替身。默认行为 = 真实实现（vi.importActual 绕开 mock），
+// 旧用例零感知；新用例用 mockRejectedValueOnce / mockResolvedValueOnce 注入读失败与读成功。
+const loadConfirmedPlanRecordMock = vi.fn(
+  async (projectPath: string, chapterNumber: number) => {
+    const actual = await vi.importActual<typeof import("@/lib/novel")>("@/lib/novel")
+    return actual.loadConfirmedPlanRecord(projectPath, chapterNumber)
+  },
+)
 
 vi.mock("@/lib/novel", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel")>()
@@ -39,6 +47,7 @@ vi.mock("@/lib/novel", async (importOriginal) => {
     rerunMainControlGates,
     saveTraceSnapshot,
     loadTraceSnapshot,
+    loadConfirmedPlanRecord: loadConfirmedPlanRecordMock,
   }
 })
 
@@ -1018,3 +1027,503 @@ describe("TASK-014 回放：快照 6 个字段全部读回（不再假空态）"
     expect(screen.queryByTestId("main-control-activities-replay")).toBeNull()
   })
 })
+
+/**
+ * W5 增补①：normalizeTraceReplay 判别 / 读回竞争 / upsert 更新 / persist 守卫。
+ */
+describe("W5 增补：回放读回判别与轨迹更新", () => {
+  const readySnapshot = {
+    fileVersion: 2 as const,
+    goal: "回填目标：给第12章写开头",
+    savedAt: 1_700_000_000_000,
+    ok: true as const,
+    roundsUsed: 2,
+    finalText: "回放终稿",
+    entries: [
+      {
+        callId: "c1",
+        name: "read_chapter",
+        input: '{"name":"第12章"}',
+        result: "正文",
+        status: "done" as const,
+        startedAt: 1,
+        finishedAt: 421,
+        durationMs: 420,
+        title: "读取章节",
+        summary: "读了第12章",
+        details: [],
+      },
+    ],
+    activities: [
+      { kind: "stage_output" as const, title: "回放产出", summary: "回放片段", at: 11 },
+    ],
+  }
+
+  it("ready 判别：快照回填轨迹 + 目标", async () => {
+    loadTraceSnapshot.mockResolvedValue({ status: "ready", snapshot: readySnapshot })
+    render(<MainControlView />)
+    await waitFor(() =>
+      expect((screen.getByTestId("main-control-goal") as HTMLTextAreaElement).value).toBe(
+        readySnapshot.goal,
+      ),
+    )
+    expect(screen.getByTestId("main-control-trace-entry-read_chapter")).toBeTruthy()
+  })
+
+  it("corrupt 判别：损坏横幅带原因，不回填目标", async () => {
+    loadTraceSnapshot.mockResolvedValue({ status: "corrupt", reason: "read_failed" })
+    render(<MainControlView />)
+    await waitFor(() =>
+      expect(screen.getByTestId("main-control-trace-corrupt")).toBeTruthy(),
+    )
+    expect(screen.getByTestId("main-control-trace-corrupt").textContent).toContain("读不出来")
+    expect(screen.getByTestId("main-control-trace-corrupt").textContent).toContain("快照文件读取失败")
+    expect((screen.getByTestId("main-control-goal") as HTMLTextAreaElement).value).toBe("")
+  })
+
+  it("未知 status 判别：按 missing 处理（不冒充轨迹）", async () => {
+    loadTraceSnapshot.mockResolvedValue({ status: "weird" })
+    render(<MainControlView />)
+    await waitFor(() => expect(loadTraceSnapshot).toHaveBeenCalledWith("/proj"))
+    await waitFor(() =>
+      expect(screen.getByTestId("main-control-activities-empty").textContent).toContain(
+        "本次运行没有阶段事件",
+      ),
+    )
+    expect((screen.getByTestId("main-control-goal") as HTMLTextAreaElement).value).toBe("")
+  })
+
+  it("读回中途卸载：迟到结果不再回填", async () => {
+    let resolveLoad!: (v: unknown | null) => void
+    loadTraceSnapshot.mockResolvedValue(
+      new Promise<unknown | null>((resolve) => {
+        resolveLoad = resolve
+      }),
+    )
+    const { unmount } = render(<MainControlView />)
+    unmount()
+    resolveLoad({ status: "ready", snapshot: readySnapshot })
+    await new Promise((r) => setTimeout(r, 30))
+    expect(document.body.textContent).toBe("")
+  })
+
+  it("同 callId 步骤更新：原地合并，不追加第二条", async () => {
+    runMainControlAgent.mockImplementationOnce(
+      ({ onStep }: { onStep: (s: unknown) => void }) => {
+        const base = { callId: "c1", name: "slow_tool", params: {}, at: Date.now() }
+        onStep({ ...base, status: "running" })
+        onStep({ ...base, status: "done", result: "最终产出", finishedAt: Date.now() })
+        return new Promise(() => {})
+      },
+    )
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "任意目标" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    // 合并后只有 1 步且已完成 → 「1/1」；若误追加会是「1/2」
+    await waitFor(() =>
+      expect(screen.getByTestId("main-control-elapsed").textContent).toContain("1/1"),
+    )
+    expect(screen.getByTestId("main-control-elapsed").textContent).not.toContain("/2")
+  })
+
+  it("persistSnapshot 无项目守卫：project 丢失后不再落快照", async () => {
+    // 先让主控跑完（result 就绪），再用深章补一条 extras：effect 基线落盘一次。
+    runMainControlAgent.mockResolvedValueOnce({
+      ok: true,
+      finalText: "本次终稿",
+      roundsUsed: 1,
+      steps: [],
+      drafts: [],
+    })
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "本次目标" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-final")).toBeTruthy())
+    const passGate = { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 }
+    runDeepChapterGeneration.mockImplementationOnce(
+      async (_input: unknown, callbacks?: { onThinking?: (s: string) => void }) => {
+        callbacks?.onThinking?.("深章进展")
+        return {
+          finalContent: "深章正文",
+          taskBrief: "tb",
+          draftContent: "dc",
+          reviewResults: [],
+          revised: false,
+          decisionGates: { consistency: passGate, anti_ai: passGate, quality: passGate, overall: "pass" },
+          manualReviewRequired: false,
+          retryCount: 0,
+          partial: false,
+          partialReason: null,
+        }
+      },
+    )
+    fireEvent.click(screen.getByTestId("main-control-deep-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-deep-output")).toBeTruthy())
+    const savedBefore = saveTraceSnapshot.mock.calls.length
+    expect(savedBefore).toBeGreaterThan(0)
+    const prevProject = wikiState.project
+    wikiState.project = null
+    try {
+      // 强制重渲染（store mock 无订阅，只能靠交互触发）：此时 projectPath 已空，
+      // effect 重跑 → persistSnapshot("") → 守卫早退，不再落盘。
+      fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "本次目标2" } })
+      await new Promise((r) => setTimeout(r, 100))
+      expect(saveTraceSnapshot.mock.calls.length).toBe(savedBefore)
+    } finally {
+      wikiState.project = prevProject
+    }
+  })
+})
+
+/**
+ * W5 增补②：回放确认流（二次确认 / 清除）与无项目守卫、计划读盘分支。
+ */
+describe("W5 增补：回放确认与计划读盘", () => {
+  const replaySnapshot = {
+    fileVersion: 2 as const,
+    goal: "回填旧目标：给第12章写开头",
+    savedAt: 1_700_000_000_000,
+    ok: true as const,
+    roundsUsed: 1,
+    finalText: "回放终稿",
+    entries: [],
+    activities: [],
+  }
+
+  it("以回填目标直接启动：先弹二次确认，不调模型", async () => {
+    loadTraceSnapshot.mockResolvedValue(replaySnapshot)
+    render(<MainControlView />)
+    await waitFor(() =>
+      expect((screen.getByTestId("main-control-goal") as HTMLTextAreaElement).value).toBe(
+        replaySnapshot.goal,
+      ),
+    )
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() =>
+      expect(screen.getByTestId("main-control-goal-replay-confirm")).toBeTruthy(),
+    )
+    expect(runMainControlAgent).not.toHaveBeenCalled()
+  })
+
+  it("二次确认后执行：唯一入口放行并透传回填目标", async () => {
+    loadTraceSnapshot.mockResolvedValue(replaySnapshot)
+    runMainControlAgent.mockResolvedValueOnce({
+      ok: true,
+      finalText: "跑完",
+      roundsUsed: 1,
+      steps: [],
+      drafts: [],
+    })
+    render(<MainControlView />)
+    await waitFor(() =>
+      expect((screen.getByTestId("main-control-goal") as HTMLTextAreaElement).value).toBe(
+        replaySnapshot.goal,
+      ),
+    )
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() =>
+      expect(screen.getByTestId("main-control-goal-replay-confirm-run")).toBeTruthy(),
+    )
+    fireEvent.click(screen.getByTestId("main-control-goal-replay-confirm-run"))
+    await waitFor(() => expect(runMainControlAgent).toHaveBeenCalledTimes(1))
+    expect(runMainControlAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ goal: replaySnapshot.goal }),
+    )
+  })
+
+  it("二次确认可取消：面板关闭且不调模型", async () => {
+    loadTraceSnapshot.mockResolvedValue(replaySnapshot)
+    render(<MainControlView />)
+    await waitFor(() =>
+      expect((screen.getByTestId("main-control-goal") as HTMLTextAreaElement).value).toBe(
+        replaySnapshot.goal,
+      ),
+    )
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() =>
+      expect(screen.getByTestId("main-control-goal-replay-confirm-cancel")).toBeTruthy(),
+    )
+    fireEvent.click(screen.getByTestId("main-control-goal-replay-confirm-cancel"))
+    await waitFor(() =>
+      expect(screen.queryByTestId("main-control-goal-replay-confirm")).toBeNull(),
+    )
+    expect(runMainControlAgent).not.toHaveBeenCalled()
+  })
+
+  it("回填角标可清除：目标清空且标记消失", async () => {
+    loadTraceSnapshot.mockResolvedValue(replaySnapshot)
+    render(<MainControlView />)
+    await waitFor(() =>
+      expect(screen.getByTestId("main-control-goal-replay")).toBeTruthy(),
+    )
+    fireEvent.click(screen.getByTestId("main-control-goal-replay-clear"))
+    expect((screen.getByTestId("main-control-goal") as HTMLTextAreaElement).value).toBe("")
+    expect(screen.queryByTestId("main-control-goal-replay")).toBeNull()
+  })
+
+  it("无项目时启动与深章都报 noProject 且不调任何入口", async () => {
+    const prev = wikiState.project
+    wikiState.project = null
+    try {
+      render(<MainControlView />)
+      fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "任意目标" } })
+      fireEvent.click(screen.getByTestId("main-control-run"))
+      await waitFor(() => expect(screen.getByTestId("main-control-error")).toBeTruthy())
+      expect(screen.getByTestId("main-control-error").textContent).toContain("请先打开一个项目")
+      expect(runMainControlAgent).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByTestId("main-control-deep-run"))
+      await new Promise((r) => setTimeout(r, 30))
+      expect(runDeepChapterGeneration).not.toHaveBeenCalled()
+      expect(screen.getByTestId("main-control-error").textContent).toContain("请先打开一个项目")
+    } finally {
+      wikiState.project = prev
+    }
+  })
+
+  it("计划读盘失败：warn 后降级为不带计划继续", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    loadConfirmedPlanRecordMock.mockRejectedValueOnce(new Error("EACCES"))
+    let captured: { getPlanBlueprint?: () => unknown; getFallbackParams?: () => unknown } = {}
+    runMainControlAgent.mockImplementationOnce(async (input: typeof captured) => {
+      captured = input
+      return { ok: true, finalText: "跑完", roundsUsed: 1, steps: [], drafts: [] }
+    })
+    try {
+      render(<MainControlView />)
+      fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "给第12章写开头" } })
+      fireEvent.click(screen.getByTestId("main-control-run"))
+      await waitFor(() => expect(runMainControlAgent).toHaveBeenCalledTimes(1))
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("读取第 12 章已保存计划失败"),
+        expect.anything(),
+      )
+      // 降级：不带计划原文，但章号仍从结构化来源透传
+      expect(captured.getPlanBlueprint?.()).toBeUndefined()
+      expect(captured.getFallbackParams?.()).toEqual({ chapterNumber: 12 })
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it("计划读到：原文与章号透传，面板出中性标识（含格式化时间）", async () => {
+    loadConfirmedPlanRecordMock.mockResolvedValueOnce({
+      plan: "计划原文甲",
+      source: "model",
+      savedAt: "2026-01-02T03:04:05",
+    })
+    let captured: { getPlanBlueprint?: () => unknown; getFallbackParams?: () => unknown } = {}
+    runMainControlAgent.mockImplementationOnce(async (input: typeof captured) => {
+      captured = input
+      return { ok: true, finalText: "跑完", roundsUsed: 1, steps: [], drafts: [] }
+    })
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "给第12章写开头" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() => expect(runMainControlAgent).toHaveBeenCalledTimes(1))
+    expect(captured.getPlanBlueprint?.()).toBe("计划原文甲")
+    expect(captured.getFallbackParams?.()).toEqual({ chapterNumber: 12, planBlueprint: "计划原文甲" })
+    const notice = await screen.findByTestId("main-control-plan-blueprint-notice")
+    expect(notice.textContent).toContain("12")
+    expect(notice.textContent).toContain("2026")
+    expect(notice.textContent).not.toContain("未知")
+  })
+
+  it("计划时间缺失或非法：标识显示未知而非伪造时间", async () => {
+    loadConfirmedPlanRecordMock.mockResolvedValueOnce({ plan: "甲", source: "model", savedAt: "" })
+    runMainControlAgent.mockResolvedValueOnce({ ok: true, finalText: "x", roundsUsed: 1, steps: [], drafts: [] })
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "给第12章写开头" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() => expect(runMainControlAgent).toHaveBeenCalledTimes(1))
+    expect((await screen.findByTestId("main-control-plan-blueprint-notice")).textContent).toContain(
+      "未知",
+    )
+    cleanup()
+    loadConfirmedPlanRecordMock.mockResolvedValueOnce({ plan: "乙", source: "model", savedAt: "not-a-date" })
+    runMainControlAgent.mockResolvedValueOnce({ ok: true, finalText: "y", roundsUsed: 1, steps: [], drafts: [] })
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "给第12章写开头" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() => expect(runMainControlAgent).toHaveBeenCalledTimes(2))
+    expect((await screen.findByTestId("main-control-plan-blueprint-notice")).textContent).toContain(
+      "未知",
+    )
+  })
+})
+
+/**
+ * W5 增补③：启动异常分支 / 深章回调全集与重入 / 心跳 tick / 轨迹折叠。
+ */
+describe("W5 增补：异常分支与深章通道", () => {
+  it("启动后用户中止再抛错：走已取消态而非红字", async () => {
+    let rejectRun!: (e: Error) => void
+    runMainControlAgent.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectRun = reject
+        }),
+    )
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "任意目标" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-stop")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("main-control-stop"))
+    rejectRun(new Error("abort"))
+    await waitFor(() => expect(screen.getByTestId("main-control-cancelled")).toBeTruthy())
+    expect(screen.queryByTestId("main-control-error")).toBeNull()
+  })
+
+  it("启动抛错：红字展示原因", async () => {
+    runMainControlAgent.mockRejectedValueOnce(new Error("网络中断"))
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "任意目标" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-error")).toBeTruthy())
+    expect(screen.getByTestId("main-control-error").textContent).toContain("网络中断")
+  })
+
+  it("主控运行时点深章：防重入守卫直接返回", async () => {
+    runMainControlAgent.mockImplementationOnce(() => new Promise(() => {}))
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "任意目标" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-stop")).toBeTruthy())
+    const deepBtn = screen.getByTestId("main-control-deep-run") as HTMLButtonElement
+    expect(deepBtn.disabled).toBe(true)
+    deepBtn.removeAttribute("disabled")
+    // 注：jsdom 对 disabled 按钮的合成 click 不会触发 React onClick（真实浏览器同），
+    // 这里直接调用当前渲染的 onClick，以回归「守卫本身」——即使 disabled 被绕过，
+    // 运行时重复进入深章也必须被拦下。
+    const fiberKey = Object.keys(deepBtn).find((k) => k.startsWith('__reactFiber$'))
+    const onClick = (deepBtn as unknown as Record<string, { memoizedProps?: { onClick?: () => void } }>)[fiberKey ?? '']?.memoizedProps?.onClick
+    expect(onClick).toBeDefined()
+    onClick?.()
+    await new Promise((r) => setTimeout(r, 30))
+    expect(runDeepChapterGeneration).not.toHaveBeenCalled()
+  })
+
+  it("深章回调全集：空思考被过滤、长文本截断、共识轨迹进通道", async () => {
+    const passGate = { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 }
+    let releaseDeep!: () => void
+    const deepGate = new Promise<void>((resolve) => {
+      releaseDeep = resolve
+    })
+    runDeepChapterGeneration.mockImplementationOnce(
+      async (
+        _input: unknown,
+        callbacks?: { onThinking?: (s: string) => void },
+        _u?: unknown,
+        _signal?: AbortSignal,
+        onTrace?: (t: { seatCount: number; debateRounds: number; winner: string }) => void,
+      ) => {
+        // 与 deepStartAt 拉开毫秒差：deepLastProgressAt 取「> 起点」的严格大于分支
+        await new Promise((r) => setTimeout(r, 5))
+        callbacks?.onThinking?.("   ")
+        callbacks?.onThinking?.(`y${"y".repeat(300)}`)
+        onTrace?.({ seatCount: 3, debateRounds: 2, winner: "共识A" })
+        // 挂起：让进展在 deepRunning=true 时先渲染一帧
+        await deepGate
+        return {
+          finalContent: "深章正文片段",
+          taskBrief: "tb",
+          draftContent: "dc",
+          reviewResults: [],
+          revised: false,
+          decisionGates: { consistency: passGate, anti_ai: passGate, quality: passGate, overall: "pass" },
+          manualReviewRequired: false,
+          retryCount: 0,
+          partial: false,
+          partialReason: null,
+        }
+      },
+    )
+    render(<MainControlView />)
+    fireEvent.click(screen.getByTestId("main-control-deep-run"))
+    // 深章仍在跑时，进展已进同一条 activities 通道
+    await waitFor(() =>
+      expect(screen.getAllByTestId("main-control-activity-stage_output")).toHaveLength(1),
+    )
+    expect(screen.getByTestId("main-control-activity-analysis").textContent).toContain("共识A")
+    releaseDeep()
+    await waitFor(() => expect(screen.getByTestId("main-control-deep-output")).toBeTruthy())
+    // 空思考被过滤：只有一条 stage_output
+    const stages = screen.getAllByTestId("main-control-activity-stage_output")
+    expect(stages).toHaveLength(1)
+    // 长文本截断到 240 字 + 省略号（卡片含标题，共 301 字原文不可能完整出现）
+    expect(stages[0].textContent?.endsWith("…")).toBe(true)
+    expect(stages[0].textContent).not.toContain("y".repeat(250))
+    // 共识轨迹进同一条通道
+    expect(screen.getByTestId("main-control-activity-analysis").textContent).toContain("共识A")
+  })
+
+  it("深章运行中中止：已取消态而非失败", async () => {
+    let rejectDeep!: (e: Error) => void
+    runDeepChapterGeneration.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectDeep = reject
+        }),
+    )
+    render(<MainControlView />)
+    fireEvent.click(screen.getByTestId("main-control-deep-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-stop")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("main-control-stop"))
+    rejectDeep(new Error("abort"))
+    await waitFor(() => expect(screen.getByTestId("main-control-cancelled")).toBeTruthy())
+    expect(screen.queryByTestId("main-control-error")).toBeNull()
+  })
+
+  it("心跳 tick：运行 10 秒后已运行秒数推进", async () => {
+    // 假时钟必须在运行开始前启用，否则 setInterval 落到真时钟上 advance 不到
+    vi.useFakeTimers()
+    try {
+      runMainControlAgent.mockImplementationOnce(() => new Promise(() => {}))
+      render(<MainControlView />)
+      fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "任意目标" } })
+      fireEvent.click(screen.getByTestId("main-control-run"))
+      expect(screen.getByTestId("main-control-stop")).toBeTruthy()
+      expect(screen.getByTestId("main-control-elapsed").textContent).toContain("0")
+      act(() => {
+        vi.advanceTimersByTime(10_000)
+      })
+      expect(screen.getByTestId("main-control-elapsed").textContent).toContain("10")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("轨迹条目可收起：二次点击后原始证据消失", async () => {
+    runMainControlAgent.mockResolvedValueOnce({
+      ok: true,
+      finalText: "完成",
+      roundsUsed: 1,
+      steps: [
+        {
+          callId: "c1",
+          name: "read_chapter",
+          params: { name: "第12章" },
+          status: "done",
+          result: "第12章正文全文……",
+          at: 1000,
+          finishedAt: 1420,
+        },
+      ],
+      drafts: [],
+    })
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "读第12章" } })
+    fireEvent.click(screen.getByTestId("main-control-run"))
+    await waitFor(() =>
+      expect(screen.getByTestId("main-control-trace-toggle-read_chapter")).toBeTruthy(),
+    )
+    fireEvent.click(screen.getByTestId("main-control-trace-toggle-read_chapter"))
+    await waitFor(() =>
+      expect(screen.getByTestId("main-control-trace-raw-read_chapter")).toBeTruthy(),
+    )
+    fireEvent.click(screen.getByTestId("main-control-trace-toggle-read_chapter"))
+    await waitFor(() =>
+      expect(screen.queryByTestId("main-control-trace-raw-read_chapter")).toBeNull(),
+    )
+  })
+})
+

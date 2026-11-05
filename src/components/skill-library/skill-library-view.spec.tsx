@@ -473,3 +473,333 @@ describe("SkillLibraryView", () => {
     cleanup(root, container)
   })
 })
+
+describe("SkillLibraryView 覆盖补齐（去AI味详情/侧栏未覆盖行）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedConfigContent = ""
+    readFileMock.mockImplementation(async () => {
+      if (savedConfigContent) return savedConfigContent
+      throw new Error("missing")
+    })
+    writeFileMock.mockImplementation(async (_path: string, content: string) => {
+      savedConfigContent = content
+    })
+    writeFileAtomicMock.mockImplementation(async (_path: string, content: string) => {
+      savedConfigContent = content
+    })
+    useWikiStore.getState().setProject({
+      id: "p1",
+      name: "测试项目",
+      path: "C:/project",
+    })
+    useWikiStore.getState().setSkillLibraryDraftDirty(false)
+    useWikiStore.getState().setSelectedSkillLibrarySkillId(null)
+  })
+
+  async function dispatchClick(element: Element | null) {
+    if (!element) throw new Error("element not found")
+    await act(async () => {
+      element.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    })
+    await flushEffects()
+  }
+
+  it("renders legacy skills with the 旧版 label", async () => {
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skill.txt")) return "旧版规则正文"
+      throw new Error("missing")
+    })
+    const { container, root } = await renderView()
+
+    expect(container.textContent).toContain("旧版技能")
+    expect(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')?.value).toBe(
+      "旧版自定义去AI味 Skill",
+    )
+
+    cleanup(root, container)
+  })
+
+  it("toggles a sidebar skill off and persists the disabled id list", async () => {
+    const { container, root } = await renderLibrary()
+    const checkbox = container.querySelector<HTMLInputElement>(
+      '[data-skill-id="built-in:comprehensive"] input[type="checkbox"]',
+    )
+    expect(checkbox).not.toBeNull()
+    expect(checkbox?.checked).toBe(true)
+
+    await act(async () => {
+      checkbox?.click()
+    })
+    await flushEffects()
+
+    const saved = JSON.parse(savedConfigContent)
+    expect(saved.disabledSkillIds).toEqual(["built-in:comprehensive"])
+    expect(container.textContent).toContain("已保存")
+
+    cleanup(root, container)
+  })
+
+  it("does not toggle a sidebar skill when no project is open, but saves once a project is set", async () => {
+    const { container, root } = await renderLibrary()
+    useWikiStore.getState().setProject(null)
+    await flushEffects()
+    writeFileAtomicMock.mockClear()
+
+    const checkbox = container.querySelector<HTMLInputElement>(
+      '[data-skill-id="built-in:comprehensive"] input[type="checkbox"]',
+    )
+    await dispatchClick(checkbox)
+
+    // 无项目时守卫直接返回：同一点击机制在有项目时可落盘（见下），故此处未写盘只能是守卫所致
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+
+    useWikiStore.getState().setProject({ id: "p1", name: "测试项目", path: "C:/project" })
+    await flushEffects()
+    await dispatchClick(container.querySelector('[data-skill-id="built-in:comprehensive"] input[type="checkbox"]'))
+    expect(writeFileAtomicMock).toHaveBeenCalled()
+
+    cleanup(root, container)
+  })
+
+  it("surfaces sidebar save failure when disk write fails", async () => {
+    writeFileAtomicMock.mockRejectedValueOnce(new Error("disk full"))
+    const { container, root } = await renderLibrary()
+
+    const createButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent?.trim() === "新建技能",
+    )
+    await dispatchClick(createButton ?? null)
+
+    expect(container.textContent).toContain("技能库保存失败")
+
+    cleanup(root, container)
+  })
+
+  it("sets another skill as default from the detail view", async () => {
+    const { container, root } = await renderLibrary()
+
+    await act(async () => {
+      container
+        .querySelector<HTMLElement>('[data-skill-id="built-in:reduce-explanation"]')
+        ?.querySelector<HTMLButtonElement>("button")
+        ?.click()
+    })
+    await flushEffects()
+
+    const defaultButton = container.querySelector<HTMLButtonElement>('[data-testid="skill-default-button"]')
+    expect(defaultButton?.disabled).toBe(false)
+    await act(async () => {
+      defaultButton?.click()
+    })
+    await flushEffects()
+
+    const saved = JSON.parse(savedConfigContent)
+    expect(saved.defaultSkillId).toBe("built-in:reduce-explanation")
+    expect(container.textContent).toContain("已保存")
+
+    cleanup(root, container)
+  })
+
+  it("blocks default persistence without a project (disabled button cannot activate the handler)", async () => {
+    const { container, root } = await renderLibrary()
+    useWikiStore.getState().setProject(null)
+    await flushEffects()
+    writeFileAtomicMock.mockClear()
+
+    // 设为默认按钮在无项目时被禁用：React 不会为禁用按钮触发 onClick，
+    // 因此详情 persist 的 !project 守卫（268-269）在 UI 上不可达，此处只断言提示与未写盘
+    const defaultButton = container.querySelector<HTMLButtonElement>('[data-testid="skill-default-button"]')
+    expect(defaultButton?.disabled).toBe(true)
+    await dispatchClick(defaultButton)
+
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+    expect(container.textContent).toContain("请先打开项目")
+
+    cleanup(root, container)
+  })
+
+  it("rejects saving when the rule content is empty", async () => {
+    const { container, root } = await renderView()
+    const contentInput = container.querySelector<HTMLTextAreaElement>('[data-testid="skill-content-input"]')
+    expect(contentInput).not.toBeNull()
+
+    await setTextareaValue(contentInput!, "")
+    const saveButton = container.querySelector<HTMLButtonElement>('[data-testid="skill-save-button"]')
+    expect(saveButton?.disabled).toBe(false)
+    await act(async () => {
+      saveButton?.click()
+    })
+    await flushEffects()
+
+    expect(container.textContent).toContain("技能规则不能为空")
+    expect(writeFileMock).not.toHaveBeenCalled()
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+
+    cleanup(root, container)
+  })
+
+  it("surfaces detail save failure when disk write fails", async () => {
+    const { container, root } = await renderView()
+    const nameInput = container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')
+    const contentInput = container.querySelector<HTMLTextAreaElement>('[data-testid="skill-content-input"]')
+
+    await setInputValue(nameInput!, "综合去AI味-写盘失败")
+    await setTextareaValue(contentInput!, "写盘失败时的规则")
+    writeFileAtomicMock.mockRejectedValueOnce(new Error("disk full"))
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="skill-save-button"]')?.click()
+    })
+    await flushEffects()
+
+    expect(container.textContent).toContain("技能库保存失败")
+
+    cleanup(root, container)
+  })
+
+  it("saves an edited description", async () => {
+    const { container, root } = await renderView()
+    const descriptionInput = container.querySelector<HTMLInputElement>(
+      '[data-testid="skill-description-input"]',
+    )
+
+    await setInputValue(descriptionInput!, "项目定制的新说明")
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="skill-save-button"]')?.click()
+    })
+    await flushEffects()
+
+    const saved = JSON.parse(savedConfigContent)
+    expect(saved.builtInSkillOverrides[0]).toMatchObject({
+      id: "built-in:comprehensive",
+      description: "项目定制的新说明",
+    })
+
+    cleanup(root, container)
+  })
+
+  it("deletes a project skill and falls back to a built-in default", async () => {
+    savedConfigContent = JSON.stringify({
+      version: 1,
+      defaultSkillId: "project:custom",
+      disabledSkillIds: [],
+      projectSkills: [{
+        id: "project:custom",
+        name: "项目技能",
+        description: "待删除",
+        templateId: "custom",
+        content: "项目规则",
+        source: "project",
+        createdAt: 100,
+        updatedAt: 100,
+      }],
+      builtInSkillOverrides: [],
+    })
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
+    const { container, root } = await renderLibrary()
+
+    expect(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')?.value).toBe("项目技能")
+    const deleteButton = container.querySelector<HTMLButtonElement>('[data-testid="skill-delete-button"]')
+    expect(deleteButton).not.toBeNull()
+    await act(async () => {
+      deleteButton?.click()
+    })
+    await flushEffects()
+
+    const saved = JSON.parse(savedConfigContent)
+    expect(saved.projectSkills).toEqual([])
+    expect(saved.defaultSkillId).not.toBe("project:custom")
+    // 删除后选中回退到内置默认（ selection 变化会清空“已保存”提示，以落盘内容为准）
+    expect(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')?.value).toBe(
+      "综合去AI味",
+    )
+
+    confirmSpy.mockRestore()
+    cleanup(root, container)
+  })
+
+  it("keeps a project skill when deletion is cancelled", async () => {
+    savedConfigContent = JSON.stringify({
+      version: 1,
+      defaultSkillId: "project:custom",
+      disabledSkillIds: [],
+      projectSkills: [{
+        id: "project:custom",
+        name: "项目技能",
+        description: "待删除",
+        templateId: "custom",
+        content: "项目规则",
+        source: "project",
+        createdAt: 100,
+        updatedAt: 100,
+      }],
+      builtInSkillOverrides: [],
+    })
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
+    const { container, root } = await renderLibrary()
+    writeFileAtomicMock.mockClear()
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="skill-delete-button"]')?.click()
+    })
+    await flushEffects()
+
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+    expect(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')?.value).toBe("项目技能")
+
+    confirmSpy.mockRestore()
+    cleanup(root, container)
+  })
+
+  it("shows 备份恢复失败 when the backup read fails", async () => {
+    let calls = 0
+    readFileMock.mockImplementation(async () => {
+      calls += 1
+      if (calls === 1) return "{bad json"
+      throw new Error("no backup")
+    })
+    const { container, root } = await renderView()
+
+    expect(container.textContent).toContain("技能库配置文件损坏")
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="skill-restore-backup-button"]')?.click()
+    })
+    await flushEffects()
+
+    expect(container.textContent).toContain("备份恢复失败")
+
+    cleanup(root, container)
+  })
+
+  it("shows recreate failure when recreating the config fails", async () => {
+    readFileMock.mockResolvedValueOnce("{bad json")
+    writeFileAtomicMock.mockRejectedValueOnce(new Error("disk full"))
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
+    const { container, root } = await renderView()
+
+    expect(container.textContent).toContain("技能库配置文件损坏")
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="skill-recreate-config-button"]')?.click()
+    })
+    await flushEffects()
+
+    expect(container.textContent).toContain("重新创建技能库配置失败")
+
+    confirmSpy.mockRestore()
+    cleanup(root, container)
+  })
+
+  it("registers a beforeunload guard while the draft is dirty", async () => {
+    const { container, root } = await renderView()
+    const nameInput = container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')
+
+    await setInputValue(nameInput!, "未保存的技能草稿")
+    expect(useWikiStore.getState().skillLibraryDraftDirty).toBe(true)
+
+    const event = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+
+    cleanup(root, container)
+  })
+})

@@ -4,6 +4,7 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useWikiStore } from "@/stores/wiki-store"
+import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
 import { UnifiedSkillLibrarySidebarPanel, UnifiedSkillLibraryView } from "./unified-skill-library-view"
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -377,6 +378,405 @@ describe("UnifiedSkillLibraryView", () => {
     await setInputValue(container.querySelector<HTMLInputElement>('[data-testid="unified-skill-search-input"]')!, "")
     expect(sidebar.querySelectorAll('[data-testid^="unified-skill-entry-"]').length).toBe(20)
     expect(sidebar.querySelector('[data-testid="unified-skill-entry-writing:skill:gen-1"]')).toBeNull()
+
+    cleanup(root, container)
+  })
+})
+
+describe("UnifiedSkillLibraryView 覆盖补齐（头部动作/导入/侧栏未覆盖行）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      throw new Error("missing")
+    })
+    writeFileMock.mockResolvedValue(undefined)
+    writeFileAtomicMock.mockResolvedValue(undefined)
+    openDialogMock.mockResolvedValue(null)
+    saveDialogMock.mockResolvedValue(null)
+    useWikiStore.getState().setProject({
+      id: "p1",
+      name: "测试项目",
+      path: "C:/project",
+    })
+    useWikiStore.getState().setActiveView("skillLibrary")
+    useWikiStore.getState().setSelectedSkillLibrarySkillId(null)
+    useWikiStore.getState().setSelectedWritingSkillLibrarySkillId(null)
+    useWikiStore.getState().setSkillLibraryDraftDirty(false)
+    useWikiStore.getState().setWritingSkillLibraryDraftDirty(false)
+  })
+
+  async function clickButton(container: HTMLElement, label: string) {
+    const button = getButton(container, label)
+    if (!button) throw new Error(`button not found: ${label}`)
+    await act(async () => {
+      button.click()
+    })
+    await flushEffects()
+  }
+
+  it("creates a blank de-AI skill from the right header", async () => {
+    const { container, root } = await renderLibrary()
+
+    await clickButton(container, "新建技能")
+
+    expect(writeFileAtomicMock).toHaveBeenCalledWith(
+      "C:/project/.niko-buddy/de-ai-skills.json",
+      expect.stringContaining("新建去AI味技能"),
+    )
+    expect(useWikiStore.getState().activeView).toBe("skillLibrary")
+    expect(useWikiStore.getState().selectedSkillLibrarySkillId).toMatch(/^project:/)
+
+    cleanup(root, container)
+  })
+
+  it("surfaces de-AI save failure from the right header", async () => {
+    writeFileAtomicMock.mockRejectedValueOnce(new Error("disk full"))
+    const { container, root } = await renderLibrary()
+
+    await clickButton(container, "新建技能")
+
+    expect(container.textContent).toContain("去AI味技能保存失败")
+
+    cleanup(root, container)
+  })
+
+  it("surfaces writing save failure from the right header", async () => {
+    writeFileAtomicMock.mockRejectedValueOnce(new Error("disk full"))
+    const { container, root } = await renderLibrary()
+
+    await clickButton(container, "写作技能")
+    await clickButton(container, "新建写作技能")
+
+    expect(container.textContent).toContain("写作技能保存失败")
+
+    cleanup(root, container)
+  })
+
+  it("imports a de-AI skill from a JSON file", async () => {
+    openDialogMock.mockResolvedValue("C:/skills/json-skill.json")
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      if (path === "C:/skills/json-skill.json") {
+        return JSON.stringify({ name: "JSON技能", description: "d", templateId: "t", content: "规则" })
+      }
+      throw new Error("missing")
+    })
+    const { container, root } = await renderLibrary()
+
+    await clickButton(container, "导入")
+
+    expect(writeFileAtomicMock).toHaveBeenCalledWith(
+      "C:/project/.niko-buddy/de-ai-skills.json",
+      expect.stringContaining("JSON技能"),
+    )
+    expect(useWikiStore.getState().activeView).toBe("skillLibrary")
+
+    cleanup(root, container)
+  })
+
+  it("rejects a de-AI import whose JSON cannot be parsed", async () => {
+    openDialogMock.mockResolvedValue("C:/skills/bad.json")
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      if (path === "C:/skills/bad.json") return "{bad json"
+      throw new Error("missing")
+    })
+    const { container, root } = await renderLibrary()
+    writeFileAtomicMock.mockClear()
+
+    await clickButton(container, "导入")
+
+    expect(container.textContent).toContain("导入失败：文件内容不是有效的去AI味技能")
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+
+    cleanup(root, container)
+  })
+
+  it("rejects de-AI JSON imports missing name or content", async () => {
+    openDialogMock.mockResolvedValue("C:/skills/noname.json")
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      if (path === "C:/skills/noname.json") return JSON.stringify({ content: "只有正文" })
+      throw new Error("missing")
+    })
+    const first = await renderLibrary()
+    writeFileAtomicMock.mockClear()
+    await clickButton(first.container, "导入")
+    expect(first.container.textContent).toContain("导入失败：文件内容不是有效的去AI味技能")
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+    cleanup(first.root, first.container)
+
+    openDialogMock.mockResolvedValue("C:/skills/nocontent.json")
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      if (path === "C:/skills/nocontent.json") return JSON.stringify({ name: "只有名字" })
+      throw new Error("missing")
+    })
+    const second = await renderLibrary()
+    await clickButton(second.container, "导入")
+    expect(second.container.textContent).toContain("导入失败：文件内容不是有效的去AI味技能")
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+    cleanup(second.root, second.container)
+  })
+
+  it("imports a de-AI skill from markdown with frontmatter", async () => {
+    openDialogMock.mockResolvedValue("C:/skills/front.md")
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      if (path === "C:/skills/front.md") {
+        return "---\nname: 前言技能\ndescription: 前言描述\n---\n正文规则"
+      }
+      throw new Error("missing")
+    })
+    const { container, root } = await renderLibrary()
+
+    await clickButton(container, "导入")
+
+    expect(writeFileAtomicMock).toHaveBeenCalledWith(
+      "C:/project/.niko-buddy/de-ai-skills.json",
+      expect.stringContaining("前言技能"),
+    )
+    expect(writeFileAtomicMock).toHaveBeenCalledWith(
+      "C:/project/.niko-buddy/de-ai-skills.json",
+      expect.stringContaining("正文规则"),
+    )
+
+    cleanup(root, container)
+  })
+
+  it("rejects a de-AI import when the file has no usable body", async () => {
+    openDialogMock.mockResolvedValue("C:/skills/empty.txt")
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      if (path === "C:/skills/empty.txt") return "   "
+      throw new Error("missing")
+    })
+    const { container, root } = await renderLibrary()
+    writeFileAtomicMock.mockClear()
+
+    await clickButton(container, "导入")
+
+    expect(container.textContent).toContain("导入失败：文件内容不是有效的去AI味技能")
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+
+    cleanup(root, container)
+  })
+
+  it("surfaces de-AI import read failure", async () => {
+    openDialogMock.mockResolvedValue("C:/skills/unreadable.md")
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      throw new Error("denied")
+    })
+    const { container, root } = await renderLibrary()
+
+    await clickButton(container, "导入")
+
+    expect(container.textContent).toContain("导入去AI味技能失败")
+
+    cleanup(root, container)
+  })
+
+  it("ignores a cancelled de-AI import dialog", async () => {
+    openDialogMock.mockResolvedValue(null)
+    const { container, root } = await renderLibrary()
+    writeFileAtomicMock.mockClear()
+
+    await clickButton(container, "导入")
+
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+
+    cleanup(root, container)
+  })
+
+  it("imports a writing skill from a markdown file", async () => {
+    openDialogMock.mockResolvedValue("C:/skills/w.md")
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      if (path === "C:/skills/w.md") return "写作规则正文"
+      throw new Error("missing")
+    })
+    const { container, root } = await renderLibrary()
+
+    await clickButton(container, "写作技能")
+    await clickButton(container, "导入")
+
+    expect(writeFileAtomicMock).toHaveBeenCalledWith(
+      expect.stringContaining("writing-skills.json"),
+      expect.stringContaining("写作规则正文"),
+    )
+    expect(useWikiStore.getState().activeView).toBe("writingSkillLibrary")
+    expect(useWikiStore.getState().selectedWritingSkillLibrarySkillId).toMatch(/^skill:/)
+
+    cleanup(root, container)
+  })
+
+  it("imports a writing skill from a valid JSON file", async () => {
+    openDialogMock.mockResolvedValue("C:/skills/w.json")
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      if (path === "C:/skills/w.json") return JSON.stringify({ name: "JSON写作", content: "JSON规则正文" })
+      throw new Error("missing")
+    })
+    const { container, root } = await renderLibrary()
+
+    await clickButton(container, "写作技能")
+    await clickButton(container, "导入")
+
+    expect(writeFileAtomicMock).toHaveBeenCalledWith(
+      expect.stringContaining("writing-skills.json"),
+      expect.stringContaining("JSON写作"),
+    )
+    expect(useWikiStore.getState().activeView).toBe("writingSkillLibrary")
+
+    cleanup(root, container)
+  })
+
+  it("rejects a writing JSON import with invalid content", async () => {
+    openDialogMock.mockResolvedValue("C:/skills/bad.json")
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      if (path === "C:/skills/bad.json") return "oops not json"
+      throw new Error("missing")
+    })
+    const { container, root } = await renderLibrary()
+    writeFileAtomicMock.mockClear()
+
+    await clickButton(container, "写作技能")
+    await clickButton(container, "导入")
+
+    expect(container.textContent).toContain("JSON 文件格式不正确，导入失败")
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+
+    cleanup(root, container)
+  })
+
+  it("surfaces writing import read failure", async () => {
+    openDialogMock.mockResolvedValue("C:/skills/unreadable.md")
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      throw new Error("denied")
+    })
+    const { container, root } = await renderLibrary()
+
+    await clickButton(container, "写作技能")
+    await clickButton(container, "导入")
+
+    expect(container.textContent).toContain("导入失败")
+
+    cleanup(root, container)
+  })
+
+  it("filters sidebar entries by category chips", async () => {
+    const { container, root } = await renderLibrary()
+    const searchInput = container.querySelector<HTMLInputElement>('[data-testid="unified-skill-search-input"]')!
+    await setInputValue(searchInput, "三翻")
+    expect(container.textContent).toContain("三翻四抖")
+
+    await clickButton(container, "风格")
+    expect(getButton(container, "风格")?.getAttribute("aria-pressed")).toBe("true")
+    expect(container.textContent).not.toContain("三翻四抖")
+
+    await clickButton(container, "全部")
+    expect(container.textContent).toContain("三翻四抖")
+
+    cleanup(root, container)
+  })
+
+  it("toggles a favorite star on a sidebar entry and back", async () => {
+    const { container, root } = await renderLibrary()
+    const searchInput = container.querySelector<HTMLInputElement>('[data-testid="unified-skill-search-input"]')!
+    await setInputValue(searchInput, "沉浸式")
+    const entry = container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-de-ai:project:quiet"]')
+    expect(entry).not.toBeNull()
+    const star = entry?.querySelector<HTMLButtonElement>('button[aria-label="收藏"]')
+    expect(star).not.toBeUndefined()
+
+    await act(async () => {
+      star?.click()
+    })
+    await flushEffects()
+
+    expect(useFavoriteSkillStore.getState().isFavorited("de-ai", "project:quiet")).toBe(true)
+    // 侧栏用 `useFavoriteSkillStore((s) => s.isFavorited)` 订阅的是函数引用，
+    // 收藏变更本身不触发重渲染；改一次搜索词迫使条目重渲染后再断言 UI
+    await setInputValue(searchInput, "沉浸式x")
+    await setInputValue(searchInput, "沉浸式")
+    const refreshed = container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-de-ai:project:quiet"]')
+    expect(refreshed?.querySelector('button[aria-label="取消收藏"]')).not.toBeNull()
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="unified-skill-entry-de-ai:project:quiet"] button[aria-label="取消收藏"]')?.click()
+    })
+    await flushEffects()
+
+    expect(useFavoriteSkillStore.getState().isFavorited("de-ai", "project:quiet")).toBe(false)
+
+    cleanup(root, container)
+  })
+
+  it("shows the sidebar load error when the de-ai config is corrupt", async () => {
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return "{bad json"
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      throw new Error("missing")
+    })
+    const { container, root } = await renderLibrary()
+    const sidebar = container.querySelector<HTMLElement>('[data-testid="unified-skill-library-sidebar"]')
+
+    expect(sidebar?.textContent).toContain("技能库加载失败")
+    expect(sidebar?.textContent).toContain("没有匹配的技能。")
+
+    cleanup(root, container)
+  })
+
+  it("paginates back to the first page with the prev control", async () => {
+    const manySkills = Array.from({ length: 25 }, (_, i) => ({
+      id: `skill:gen-${i + 1}`,
+      name: `分页技能${String(i + 1).padStart(2, "0")}`,
+      description: `第 ${i + 1} 个技能`,
+      kind: ["output"],
+      stages: ["planning"],
+      modes: ["standard"],
+      content: `内容 ${i + 1}`,
+      source: "uploaded",
+      createdAt: 100,
+      updatedAt: 100,
+    }))
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify({ ...writingConfig, skills: manySkills })
+      throw new Error("missing")
+    })
+    const { container, root } = await renderLibrary()
+    const sidebar = container.querySelector<HTMLElement>('[data-testid="unified-skill-library-sidebar"]')!
+
+    await act(async () => {
+      sidebar.querySelector<HTMLButtonElement>('[data-testid="pagination-next"]')!.click()
+    })
+    await flushEffects()
+    expect(sidebar.querySelector('[data-testid="unified-skill-entry-writing:builtin:chapter-connection"]')).toBeNull()
+
+    await act(async () => {
+      sidebar.querySelector<HTMLButtonElement>('[data-testid="pagination-prev"]')!.click()
+    })
+    await flushEffects()
+    expect(sidebar.querySelector('[data-testid="unified-skill-entry-writing:builtin:chapter-connection"]')).not.toBeNull()
+    expect(sidebar.querySelector<HTMLButtonElement>('[data-testid="pagination-prev"]')!.disabled).toBe(true)
 
     cleanup(root, container)
   })

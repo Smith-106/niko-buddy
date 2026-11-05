@@ -4,6 +4,9 @@ import {
   DEEP_CHAPTER_MAX_OUTPUT_TOKENS,
   DEEP_CHAPTER_MIN_CHARS,
   DEEP_CHAPTER_TARGET_CHARS,
+  PLAN_BLUEPRINT_MAX_CHARS,
+  STAGE_PROMPT_SCAFFOLD_TOKENS,
+  appendTaskExtraSection,
   buildDeepChapterBriefPrompt,
   buildDeepChapterDraftPrompt,
   buildDeepChapterExpansionPrompt,
@@ -11,10 +14,13 @@ import {
   buildDeepChapterLengthRewritePrompt,
   buildDeepChapterRevisionPrompt,
   countCodePoints,
+  fitStagePromptToWindow,
   planBlueprintSection,
   resolveChapterLengthSpec,
   truncateToCodePoints,
 } from "./deep-chapter-prompts"
+import type { StagePromptBudgetInput } from "./deep-chapter-prompts"
+import { PER_MESSAGE_TOKEN_OVERHEAD, estimateTokens } from "@/lib/token-estimator"
 import type { NovelReviewResult } from "./review-adapter"
 import { createDefaultStore, createPreference } from "@/lib/user-memory/types"
 
@@ -338,5 +344,222 @@ describe("planBlueprintSection：来源口径与截断语义分层", () => {
     const out = planBlueprintSection("字".repeat(30), 7.9, "user")
     expect(out).toContain("此处保留前 7 字")
     expect(out).toContain("字".repeat(7))
+  })
+})
+
+describe("appendTaskExtraSection：任务自定义追加段", () => {
+  it("extra 缺省/空白时原样返回同一字符串", () => {
+    expect(appendTaskExtraSection("prompt")).toBe("prompt")
+    expect(appendTaskExtraSection("prompt", "")).toBe("prompt")
+    expect(appendTaskExtraSection("prompt", "   \n\t ")).toBe("prompt")
+  })
+
+  it("非空 extra 在尾部追加【任务自定义要求】段", () => {
+    const out = appendTaskExtraSection("prompt", "  自定义要求  ")
+    expect(out.startsWith("prompt\n")).toBe(true)
+    expect(out).toContain("# 【任务自定义要求】")
+    expect(out.endsWith("自定义要求")).toBe(true)
+    expect(out).not.toContain("  自定义要求  ")
+  })
+
+  it("阶段 builder 透传 extra（brief 含自定义段）", () => {
+    const out = buildDeepChapterBriefPrompt("o", "ctx", "user", 3, undefined, undefined, "  自定义要求  ")
+    expect(out).toContain("【任务自定义要求】")
+    expect(out).toContain("自定义要求")
+  })
+})
+
+describe("fitStagePromptToWindow：阶段入口前置预算", () => {
+  const base: StagePromptBudgetInput = {
+    outlinePrompt: "o",
+    contextPrompt: "ctx",
+  }
+
+  it("无窗口信息时不预估、逐字节返回入参", () => {
+    for (const windowTokens of [undefined, 0, -5, Number.NaN]) {
+      const plan = "abc"
+      const out = fitStagePromptToWindow({ ...base, planBlueprint: plan, windowTokens })
+      expect(out.contextPrompt).toBe("ctx")
+      expect(out.planBlueprint).toBe(plan)
+      expect(out.planMaxChars).toBe(PLAN_BLUEPRINT_MAX_CHARS)
+      expect(out.budgetTokens).toBe(0)
+      expect(out.contextCompressed).toBe(false)
+      expect(out.planCompressed).toBe(false)
+      expect(out.droppedContextChars).toBe(0)
+      expect(out.droppedPlanChars).toBe(0)
+      expect(out.notes).toEqual([])
+      expect(out.estimatedTokens).toBe(
+        estimateTokens("o") + estimateTokens("ctx") + estimateTokens(plan) + STAGE_PROMPT_SCAFFOLD_TOKENS + PER_MESSAGE_TOKEN_OVERHEAD,
+      )
+    }
+  })
+
+  it("空白计划视为无计划", () => {
+    const out = fitStagePromptToWindow({ ...base, planBlueprint: "   \n ", windowTokens: 100000 })
+    expect(out.planBlueprint).toBeUndefined()
+    expect(out.contextPrompt).toBe("ctx")
+  })
+
+  it("空输入估算 = 脚手架 + 消息开销（token 口径回归）", () => {
+    const out = fitStagePromptToWindow({
+      outlinePrompt: "",
+      contextPrompt: "",
+      windowTokens: 3000,
+    })
+    expect(out.estimatedTokens).toBe(STAGE_PROMPT_SCAFFOLD_TOKENS + PER_MESSAGE_TOKEN_OVERHEAD)
+    expect(out.budgetTokens).toBe(2550)
+    expect(out.notes).toEqual([])
+  })
+
+  it("预算充足时原样通过并上报预算", () => {
+    const out = fitStagePromptToWindow({ ...base, windowTokens: 100000 })
+    expect(out.budgetTokens).toBe(85000)
+    expect(out.contextPrompt).toBe("ctx")
+    expect(out.contextCompressed).toBe(false)
+    expect(out.planCompressed).toBe(false)
+    expect(out.notes).toEqual([])
+  })
+
+  it("窗口比输出预留还小时不压缩、如实上报", () => {
+    const plan = "字".repeat(10)
+    const out = fitStagePromptToWindow({
+      ...base,
+      planBlueprint: plan,
+      windowTokens: 100,
+      reservedOutputTokens: 10000,
+    })
+    expect(out.budgetTokens).toBe(85 - 10000)
+    expect(out.contextPrompt).toBe("ctx")
+    expect(out.planBlueprint).toBe(plan)
+    expect(out.notes).toHaveLength(1)
+    expect(out.notes[0]).toContain("已无输入预算")
+  })
+
+  it("安全比例/输出预留非法值回退默认，合法值按设生效", () => {
+    const w = (safetyRatio: unknown, reservedOutputTokens: unknown) =>
+      fitStagePromptToWindow({ ...base, windowTokens: 1000, safetyRatio: safetyRatio as number, reservedOutputTokens: reservedOutputTokens as number }).budgetTokens
+    expect(w(2, 0)).toBe(850)
+    expect(w(0, 0)).toBe(850)
+    expect(w(Number.NaN, 0)).toBe(850)
+    expect(w(0.5, 0)).toBe(500)
+    expect(w(0.5, 10)).toBe(490)
+    expect(w(0.85, -5)).toBe(850)
+    expect(w(0.85, Number.NaN)).toBe(850)
+  })
+
+  it("planMaxChars 非法值回退默认上限", () => {
+    for (const planMaxChars of [-5, Number.NaN, undefined]) {
+      const out = fitStagePromptToWindow({
+        ...base,
+        planBlueprint: "字".repeat(10),
+        windowTokens: 100000,
+        planMaxChars: planMaxChars as number,
+      })
+      expect(out.planMaxChars).toBe(PLAN_BLUEPRINT_MAX_CHARS)
+      expect(out.notes).toEqual([])
+    }
+  })
+
+  it("计划超 20000 上限时截断上报（窗口充足也不压缩）", () => {
+    const rawPlan = "字".repeat(25000)
+    const out = fitStagePromptToWindow({
+      ...base,
+      planBlueprint: rawPlan,
+      windowTokens: 10_000_000,
+    })
+    expect(out.planMaxChars).toBe(PLAN_BLUEPRINT_MAX_CHARS)
+    expect(out.planBlueprint).toBe(rawPlan)
+    expect(out.contextPrompt).toBe("ctx")
+    expect(out.contextCompressed).toBe(false)
+    expect(out.notes).toHaveLength(1)
+    expect(out.notes[0]).toContain("超过上限 20000 字")
+  })
+
+  it("planMaxChars 覆盖上限：截断与上报按覆盖值", () => {
+    const rawPlan = "字".repeat(500)
+    const out = fitStagePromptToWindow({
+      ...base,
+      planBlueprint: rawPlan,
+      planMaxChars: 100,
+      windowTokens: 100000,
+    })
+    expect(out.planMaxChars).toBe(100)
+    expect(out.planBlueprint).toBe(rawPlan)
+    expect(out.notes).toHaveLength(1)
+    expect(out.notes[0]).toContain("上限 100 字")
+  })
+
+  it("计划恰达上限时不记截断", () => {
+    const out = fitStagePromptToWindow({
+      ...base,
+      planBlueprint: "字".repeat(10),
+      planMaxChars: 10,
+      windowTokens: 100000,
+    })
+    expect(out.notes).toEqual([])
+    expect(out.planMaxChars).toBe(10)
+  })
+
+  it("超窗先压 context：计划不动、口径不降级", () => {
+    const out = fitStagePromptToWindow({
+      outlinePrompt: "o",
+      contextPrompt: "字".repeat(5000),
+      windowTokens: 3000,
+    })
+    // estimated = 1 + 5000 + 2004 = 7005；budget = 2550；cut = 4455 + 80 = 4535
+    expect(out.budgetTokens).toBe(2550)
+    expect(out.contextCompressed).toBe(true)
+    expect(out.droppedContextChars).toBe(4535)
+    expect(out.planCompressed).toBe(false)
+    expect(out.droppedPlanChars).toBe(0)
+    expect(out.planMaxChars).toBe(PLAN_BLUEPRINT_MAX_CHARS)
+    expect(out.contextPrompt.startsWith("字".repeat(465))).toBe(true)
+    expect(out.contextPrompt).toContain("省略后段 4535 字")
+    expect(out.notes).toHaveLength(1)
+  })
+
+  it("context 为空时跳过第一压、只压计划（部分压缩）", () => {
+    const rawPlan = "字".repeat(5000)
+    const out = fitStagePromptToWindow({
+      outlinePrompt: "o",
+      contextPrompt: "",
+      planBlueprint: rawPlan,
+      windowTokens: 4706,
+    })
+    // estimated = 1 + 0 + 5000 + 2004 = 7005；budget = 4000；cut = 3005 + 160 = 3165
+    expect(out.budgetTokens).toBe(4000)
+    expect(out.contextCompressed).toBe(false)
+    expect(out.droppedContextChars).toBe(0)
+    expect(out.planCompressed).toBe(true)
+    expect(out.droppedPlanChars).toBe(3165)
+    expect(out.planMaxChars).toBe(1835)
+    expect(out.planBlueprint).toBe(rawPlan)
+    expect(out.estimatedTokens).toBe(1 + 0 + 1835 + STAGE_PROMPT_SCAFFOLD_TOKENS + PER_MESSAGE_TOKEN_OVERHEAD)
+    expect(out.notes).toHaveLength(1)
+    expect(out.notes[0]).toContain("仅保留前 1835 字")
+    expect(out.contextPrompt).toBe("")
+  })
+
+  it("context 压空仍超窗：计划整段省略并如实上报仍超窗", () => {
+    const rawPlan = "字".repeat(30000)
+    const out = fitStagePromptToWindow({
+      outlinePrompt: "o",
+      contextPrompt: "ctx",
+      planBlueprint: rawPlan,
+      windowTokens: 100,
+    })
+    expect(out.budgetTokens).toBe(85)
+    expect(out.contextCompressed).toBe(true)
+    expect(out.droppedContextChars).toBe(3)
+    expect(out.planCompressed).toBe(true)
+    expect(out.droppedPlanChars).toBe(30000)
+    expect(out.planMaxChars).toBe(0)
+    expect(out.planBlueprint).toBe(rawPlan)
+    expect(out.estimatedTokens).toBeLessThan(22006)
+    expect(out.notes).toHaveLength(4)
+    expect(out.notes[0]).toContain("超过上限")
+    expect(out.notes[1]).toContain("已先压缩 contextPrompt")
+    expect(out.notes[2]).toContain("已整段省略")
+    expect(out.notes[3]).toContain("仍超窗")
   })
 })

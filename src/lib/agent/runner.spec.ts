@@ -733,3 +733,987 @@ describe("必调工具门控：nudge 先、兜底后", () => {
     expect(diagnostics.roundsUsed).toBe(1 + REQUIRED_TOOL_NUDGE_MAX)
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 覆盖率战役增补（W-覆盖 runner）：只增补、不改动上文任何用例。
+// 目标：src/lib/agent/runner.ts 行覆盖 63.9%（104 行未覆盖）→ 下降 ≥90%。
+// LLM 一律经 mocks.streamChat 脚本化，不真连；断点持久化/预算裁剪用模块 spy
+// 隔离 Tauri/随机抛错，不碰生产代码。
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("runner 覆盖增补：错误类型与任务目标回退", () => {
+  it("ModelDoesNotSupportToolsError 构造：中文名与中文消息", () => {
+    const err = new ModelDoesNotSupportToolsError()
+    expect(err).toBeInstanceOf(Error)
+    expect(err.name).toBe("ModelDoesNotSupportToolsError")
+    expect(err.message).toContain("不支持工具调用")
+  })
+
+  it("无 taskGoal + 字符串 user 消息 → 任务契约取自消息文本", async () => {
+    const sentMessages = scriptStream([{ text: "终稿A" }])
+    const { record, errors, doneCount, texts } = await runAgent(
+      createConfig([], { taskGoal: undefined }),
+      [],
+      [{ role: "user", content: "请写摘要" }],
+    )
+    expect(record.finalText).toBe("终稿A")
+    expect(texts).toEqual(["终稿A"])
+    expect(doneCount()).toBe(1)
+    expect(errors).toEqual([])
+    // 任务契约是首条 system，且目标取自 user 文本（messageContentText 字符串分支）
+    expect(sentMessages[0][0].role).toBe("system")
+    expect(String(sentMessages[0][0].content)).toContain("请写摘要")
+  })
+
+  it("无 taskGoal + 数组内容消息 → 只取 text 块拼接", async () => {
+    const sentMessages = scriptStream([{ text: "ok" }])
+    const { record, errors } = await runAgent(
+      createConfig([], { taskGoal: undefined }),
+      [],
+      [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "第一章" },
+            { type: "image", mediaType: "image/png", dataBase64: "xx" },
+          ],
+        } as AgentMessage,
+      ],
+    )
+    expect(record.finalText).toBe("ok")
+    expect(errors).toEqual([])
+    expect(String(sentMessages[0][0].content)).toContain("第一章")
+  })
+
+  it("无 taskGoal 且无 user 消息 → 任务目标回退为未命名任务，契约追加到末尾", async () => {
+    const sentMessages = scriptStream([{ text: "ok" }])
+    const { record, errors } = await runAgent(
+      createConfig([], { taskGoal: undefined }),
+      [],
+      [{ role: "system", content: "sys-only" }],
+    )
+    expect(record.finalText).toBe("ok")
+    expect(errors).toEqual([])
+    // 全部是 system → 契约追加到末尾
+    expect(sentMessages[0]).toHaveLength(2)
+    expect(sentMessages[0][1].role).toBe("system")
+    expect(String(sentMessages[0][1].content)).toContain("未命名任务")
+  })
+})
+
+describe("runner 覆盖增补：断点持久化", () => {
+  it("projectPath 存在 → 保存/清理断点被调用，同工具重复调用去重", async () => {
+    const tbMod = await import("./task-breakpoint")
+    const saveSpy = vi.spyOn(tbMod, "saveTaskBreakpoint").mockResolvedValue(undefined)
+    const clearSpy = vi.spyOn(tbMod, "clearTaskBreakpoint").mockResolvedValue(undefined)
+    try {
+      scriptStream([
+        {
+          toolCalls: [
+            { index: 0, id: "c1", name: "read_chapter", arguments: JSON.stringify({ chapter: 1 }) },
+            { index: 1, id: "c2", name: "read_chapter", arguments: JSON.stringify({ chapter: 1 }) },
+          ],
+        },
+        { text: "终稿" },
+      ])
+      const readTool: Tool = {
+        name: "read_chapter",
+        description: "读取章节",
+        category: "read",
+        permission: "auto",
+        parameters: { chapter: { type: "integer", description: "章节号" } },
+        async execute() {
+          return "ok"
+        },
+      }
+      const { record, errors, doneCount } = await runAgent(
+        createConfig([readTool], { projectPath: "/tmp/qmai-runner-cov-test", taskGoal: "t" }),
+        [readTool],
+      )
+      expect(errors).toEqual([])
+      expect(doneCount()).toBe(1)
+      expect(record.finalText).toBe("终稿")
+      expect(record.toolCalls).toHaveLength(2)
+      // 初始持久化 + 两次工具进度保存
+      expect(saveSpy.mock.calls.length).toBeGreaterThanOrEqual(3)
+      expect(clearSpy).toHaveBeenCalled()
+    } finally {
+      saveSpy.mockRestore()
+      clearSpy.mockRestore()
+    }
+  })
+})
+
+describe("runner 覆盖增补：取消信号", () => {
+  function baseCallbacks() {
+    const errors: Error[] = []
+    let done = 0
+    const callbacks: AgentRunCallbacks = {
+      onText: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onToolError: () => {},
+      onDone: () => {
+        done += 1
+      },
+      onError: (error) => {
+        errors.push(error)
+      },
+    }
+    return { callbacks, errors, doneCount: () => done }
+  }
+
+  it("进入即已取消 → 直接 onError，不调模型", async () => {
+    const controller = new AbortController()
+    controller.abort()
+    let streamCalls = 0
+    mocks.streamChat.mockImplementation(async () => {
+      streamCalls += 1
+    })
+    const recorder = baseCallbacks()
+    const record = await new AgentRunner().run(
+      createConfig([], { taskGoal: "t" }),
+      createRegistry([]),
+      [{ role: "user", content: "hi" }],
+      recorder.callbacks,
+      controller.signal,
+    )
+    expect(streamCalls).toBe(0)
+    expect(record.roundsUsed).toBe(1)
+    expect(record.toolCalls).toEqual([])
+    expect(recorder.doneCount()).toBe(0)
+    expect(recorder.errors).toHaveLength(1)
+    expect(recorder.errors[0].message).toContain("操作已取消")
+  })
+
+  it("第 1 轮调工具、第 2 轮流式中取消 → 第 3 轮入口结算后 onError", async () => {
+    const controller = new AbortController()
+    let n = 0
+    mocks.streamChat.mockImplementation(async (_llm: unknown, _messages: unknown, cb: StreamCallbacks) => {
+      n += 1
+      if (n === 1) {
+        cb.onToolCallDelta?.({ index: 0, id: "c1", name: "read_chapter", arguments: JSON.stringify({ chapter: 1 }) })
+      } else {
+        controller.abort()
+        cb.onToken?.("第二轮散文")
+      }
+      cb.onFinishReason?.("stop")
+      cb.onDone()
+    })
+    const readTool: Tool = {
+      name: "read_chapter",
+      description: "读取章节",
+      category: "read",
+      permission: "auto",
+      parameters: { chapter: { type: "integer", description: "章节号" } },
+      async execute() {
+        return "ok"
+      },
+    }
+    const workflowTool = createWorkflowTool()
+    const recorder = baseCallbacks()
+    const record = await new AgentRunner().run(
+      createConfig([readTool, workflowTool], { requiredToolsOnce: [WORKFLOW_TOOL], maxRounds: 3, taskGoal: "t" }),
+      createRegistry([readTool, workflowTool]),
+      [{ role: "user", content: "hi" }],
+      recorder.callbacks,
+      controller.signal,
+    )
+    // 第 2 轮文本走 nudge 续轮，第 3 轮入口发现已取消
+    expect(n).toBe(2)
+    expect(record.roundsUsed).toBe(3)
+    expect(record.toolCalls.map((call) => [call.name, call.status])).toEqual([["read_chapter", "done"]])
+    expect(recorder.doneCount()).toBe(0)
+    expect(recorder.errors).toHaveLength(1)
+    expect(recorder.errors[0].message).toContain("操作已取消")
+  })
+
+  it("工具执行中取消 → 本轮末尾结算后 onError", async () => {
+    const controller = new AbortController()
+    mocks.streamChat.mockImplementation(async (_llm: unknown, _messages: unknown, cb: StreamCallbacks) => {
+      cb.onToolCallDelta?.({ index: 0, id: "c1", name: "read_chapter", arguments: JSON.stringify({ chapter: 1 }) })
+      cb.onFinishReason?.("stop")
+      cb.onDone()
+    })
+    const readTool: Tool = {
+      name: "read_chapter",
+      description: "读取章节",
+      category: "read",
+      permission: "auto",
+      parameters: { chapter: { type: "integer", description: "章节号" } },
+      async execute() {
+        controller.abort()
+        return "ok"
+      },
+    }
+    const recorder = baseCallbacks()
+    const record = await new AgentRunner().run(
+      createConfig([readTool], { taskGoal: "t" }),
+      createRegistry([readTool]),
+      [{ role: "user", content: "hi" }],
+      recorder.callbacks,
+      controller.signal,
+    )
+    expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    expect(record.toolCalls.map((call) => [call.name, call.status])).toEqual([["read_chapter", "done"]])
+    expect(recorder.doneCount()).toBe(0)
+    expect(recorder.errors).toHaveLength(1)
+    expect(recorder.errors[0].message).toContain("操作已取消")
+  })
+})
+
+describe("runner 覆盖增补：流式回调全量（推理/用量/记忆/思考/诊断）", () => {
+  it("一轮内同时产出推理 token、用量、记忆决策、思考块与同 index 多 delta", async () => {
+    let n = 0
+    mocks.streamChat.mockImplementation(async (_llm: unknown, _messages: unknown, cb: StreamCallbacks) => {
+      n += 1
+      if (n === 1) {
+        cb.onReasoningToken?.("reason-1")
+        cb.onUsage?.({ input: 100, output: 50, cachedInput: 10, cacheWriteInput: 5 })
+        // 同 index 三连：建项（带名）→ 无名更新（空操作）→ 具名更新（回填）
+        cb.onToolCallDelta?.({ index: 0, id: "c0", name: "read_chapter", arguments: JSON.stringify({ chapter: 1 }) })
+        cb.onToolCallDelta?.({ index: 0 })
+        cb.onToolCallDelta?.({ index: 0, name: "read_chapter" })
+        // 新 index 无名：建项但无名（覆盖 push 无名分支）
+        cb.onToolCallDelta?.({ index: 1, id: "c9" })
+        // 思考块：正常 thinking、有数据 redacted、无数据 redacted、仅签名 thinking、孤儿文本
+        cb.onThinkingDelta?.({ kind: "block_start", index: 2, block: { type: "thinking" } })
+        cb.onThinkingDelta?.({ kind: "text", index: 2, text: "think-text" })
+        cb.onThinkingDelta?.({ kind: "signature", index: 2, signature: "sig-abc" })
+        cb.onThinkingDelta?.({ kind: "text", index: 5, text: "orphan" })
+        cb.onThinkingDelta?.({ kind: "block_start", index: 3, block: { type: "redacted_thinking", data: "enc-1" } })
+        cb.onThinkingDelta?.({ kind: "block_start", index: 4, block: { type: "redacted_thinking" } })
+        cb.onThinkingDelta?.({ kind: "block_start", index: 6, block: { type: "thinking", signature: "sig-only" } })
+        cb.onUserMemoryDecision?.({ memoryKey: "k1", action: "accept" })
+      } else {
+        cb.onReasoningToken?.("reason-2")
+        cb.onUsage?.({ input: 10, output: 5 })
+        // 第二次记忆决策应被忽略（只保留首次）
+        cb.onUserMemoryDecision?.({ memoryKey: "k2", action: "reject" })
+        cb.onToken?.("终稿正文")
+      }
+      cb.onFinishReason?.("stop")
+      cb.onDone()
+    })
+
+    const readTool: Tool = {
+      name: "read_chapter",
+      description: "读取章节",
+      category: "read",
+      permission: "auto",
+      parameters: { chapter: { type: "integer", description: "章节号" } },
+      async execute() {
+        return "第一章正文…"
+      },
+    }
+    const reasoningTokens: string[] = []
+    const memoryDecisions: Array<{ memoryKey: string; action: "accept" | "reject" } | null> = []
+    const errors: Error[] = []
+    let done = 0
+    const sentMessages: AgentMessage[][] = []
+    const origImpl = mocks.streamChat.getMockImplementation()
+    mocks.streamChat.mockImplementation(async (llm: unknown, messages: unknown, cb: StreamCallbacks) => {
+      sentMessages.push(JSON.parse(JSON.stringify(messages)) as AgentMessage[][] as unknown as AgentMessage[])
+      return origImpl?.(llm, messages, cb)
+    })
+    const record = await new AgentRunner().run(
+      createConfig([readTool], { requiredToolsOnce: ["read_chapter"], taskGoal: "t" }),
+      createRegistry([readTool]),
+      [{ role: "user", content: "hi" }],
+      {
+        onText: () => {},
+        onToolCall: () => {},
+        onToolResult: () => {},
+        onToolError: () => {},
+        onDone: () => {
+          done += 1
+        },
+        onError: (error) => {
+          errors.push(error)
+        },
+        onReasoningToken: (token) => {
+          reasoningTokens.push(token)
+        },
+        onUserMemoryDecision: (decision) => {
+          memoryDecisions.push(decision)
+        },
+      },
+    )
+
+    expect(errors).toEqual([])
+    expect(done).toBe(1)
+    expect(record.finalText).toBe("终稿正文")
+    // 推理 token 全部透传
+    expect(reasoningTokens).toEqual(["reason-1", "reason-2"])
+    // 用量：末轮快照 + 全程累加
+    expect(record.lastRequestUsage).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 })
+    expect(record.usage).toEqual({
+      inputTokens: 110,
+      outputTokens: 55,
+      totalTokens: 165,
+      cachedInputTokens: 10,
+      cacheWriteInputTokens: 5,
+    })
+    // 记忆决策只保留首次
+    expect(record.userMemoryDecision).toEqual({ memoryKey: "k1", action: "accept" })
+    expect(memoryDecisions).toEqual([{ memoryKey: "k1", action: "accept" }])
+    // 诊断：同 index 更新回填名、新 index 无名建项
+    expect(diagnosticsOf(record).observedToolCalls).toEqual([
+      { round: 1, index: 0, name: "read_chapter" },
+      { round: 1, index: 1 },
+    ])
+    expect(diagnosticsOf(record).satisfiedTools).toEqual(["read_chapter"])
+    // 工具记录：具名调用成功、空名调用报未知工具
+    expect(record.toolCalls.map((call) => [call.name, call.status])).toEqual([
+      ["read_chapter", "done"],
+      ["", "error"],
+    ])
+    // 思考块回放：空洞跳过、无签名 thinking 丢弃、无数据 redacted 丢弃
+    const assistantWithTools = sentMessages[1].find(
+      (message) => message.role === "assistant" && message.tool_calls?.length,
+    )
+    expect(assistantWithTools?.thinking_blocks).toEqual([
+      { type: "thinking", thinking: "think-text", signature: "sig-abc" },
+      { type: "redacted_thinking", data: "enc-1" },
+      { type: "thinking", thinking: "", signature: "sig-only" },
+    ])
+  })
+})
+
+describe("runner 覆盖增补：工具不支持降级与重试", () => {
+  function readTool(): Tool {
+    return {
+      name: "read_chapter",
+      description: "读取章节",
+      category: "read",
+      permission: "auto",
+      parameters: { chapter: { type: "integer", description: "章节号" } },
+      async execute() {
+        return "ok"
+      },
+    }
+  }
+
+  function baseRun(configTools: Tool[], overrides: Partial<AgentConfig> = {}) {
+    const errors: Error[] = []
+    const texts: string[] = []
+    let done = 0
+    const run = () =>
+      new AgentRunner().run(
+        createConfig(configTools, { taskGoal: "t", ...overrides }),
+        createRegistry(configTools),
+        [{ role: "user", content: "hi" }],
+        {
+          onText: (chunk) => {
+            texts.push(chunk)
+          },
+          onToolCall: () => {},
+          onToolResult: () => {},
+          onToolError: () => {},
+          onDone: () => {
+            done += 1
+          },
+          onError: (error) => {
+            errors.push(error)
+          },
+        },
+      )
+    return { run, errors, texts, doneCount: () => done }
+  }
+
+  it("首轮抛工具不支持错误 → 去工具重试成功，终稿落盘", async () => {
+    let n = 0
+    mocks.streamChat.mockImplementation(async (_llm: unknown, _messages: unknown, cb: StreamCallbacks) => {
+      n += 1
+      if (n === 1) throw new Error("This model does not support function calls")
+      cb.onToken?.("ok")
+      cb.onFinishReason?.("stop")
+      cb.onDone()
+    })
+    const { run, errors, texts, doneCount } = baseRun([readTool()])
+    const record = await run()
+    expect(n).toBe(2)
+    expect(record.roundsUsed).toBe(1)
+    expect(record.finalText).toBe("ok")
+    expect(texts).toEqual(["ok"])
+    expect(doneCount()).toBe(1)
+    expect(errors).toEqual([])
+  })
+
+  it("首轮抛工具不支持、重试再抛 → ModelDoesNotSupportToolsError", async () => {
+    mocks.streamChat.mockImplementation(async () => {
+      throw new Error("tools are not supported by this model")
+    })
+    const { run, errors, doneCount } = baseRun([readTool()])
+    const record = await run()
+    expect(mocks.streamChat).toHaveBeenCalledTimes(2)
+    expect(record.finalText).toBe("")
+    expect(doneCount()).toBe(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(ModelDoesNotSupportToolsError)
+  })
+
+  it("首轮抛非工具错误 → 直接 onError，不重试", async () => {
+    mocks.streamChat.mockImplementation(async () => {
+      throw new Error("socket hang up")
+    })
+    const { run, errors, doneCount } = baseRun([readTool()])
+    const record = await run()
+    expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    expect(record.finalText).toBe("")
+    expect(doneCount()).toBe(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0].message).toContain("socket hang up")
+  })
+
+  it("首轮 onError 上报工具不支持 → 去工具重试成功", async () => {
+    let n = 0
+    mocks.streamChat.mockImplementation(async (_llm: unknown, _messages: unknown, cb: StreamCallbacks) => {
+      n += 1
+      if (n === 1) {
+        cb.onError?.(new Error("tool_choice is not supported"))
+        cb.onDone()
+        return
+      }
+      cb.onToken?.("recovered")
+      cb.onFinishReason?.("stop")
+      cb.onDone()
+    })
+    const { run, errors, doneCount } = baseRun([readTool()])
+    const record = await run()
+    expect(n).toBe(2)
+    expect(record.finalText).toBe("recovered")
+    expect(doneCount()).toBe(1)
+    expect(errors).toEqual([])
+  })
+
+  it("首轮 onError 上报工具不支持、重试抛错 → ModelDoesNotSupportToolsError", async () => {
+    let n = 0
+    mocks.streamChat.mockImplementation(async (_llm: unknown, _messages: unknown, cb: StreamCallbacks) => {
+      n += 1
+      if (n === 1) {
+        cb.onError?.(new Error("不支持工具调用"))
+        cb.onDone()
+        return
+      }
+      throw new Error("retry-down")
+    })
+    const { run, errors, doneCount } = baseRun([readTool()])
+    const record = await run()
+    expect(n).toBe(2)
+    expect(record.finalText).toBe("")
+    expect(doneCount()).toBe(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(ModelDoesNotSupportToolsError)
+  })
+
+  it("去工具重试后流式再报错 → 直接报模型不支持工具", async () => {
+    let n = 0
+    mocks.streamChat.mockImplementation(async (_llm: unknown, _messages: unknown, cb: StreamCallbacks) => {
+      n += 1
+      if (n === 1) throw new Error("function call is not supported")
+      cb.onError?.(new Error("downstream-boom"))
+      cb.onDone()
+    })
+    const { run, errors, doneCount } = baseRun([readTool()])
+    const record = await run()
+    expect(n).toBe(2)
+    expect(record.finalText).toBe("")
+    expect(doneCount()).toBe(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(ModelDoesNotSupportToolsError)
+  })
+
+  it("推理独占错误且推理未禁用 → 关推理重试成功", async () => {
+    let n = 0
+    mocks.streamChat.mockImplementation(async (_llm: unknown, _messages: unknown, cb: StreamCallbacks) => {
+      n += 1
+      if (n === 1) {
+        cb.onError?.(new Error("模型只输出了 500 字符的思考内容，但没有输出正文"))
+        cb.onDone()
+        return
+      }
+      cb.onToken?.("正文")
+      cb.onFinishReason?.("stop")
+      cb.onDone()
+    })
+    const { run, errors, doneCount } = baseRun([readTool()])
+    const record = await run()
+    expect(n).toBe(2)
+    expect(record.finalText).toBe("正文")
+    expect(doneCount()).toBe(1)
+    expect(errors).toEqual([])
+  })
+
+  it("推理独占错误但重试抛错 → 转发重试错误", async () => {
+    let n = 0
+    mocks.streamChat.mockImplementation(async (_llm: unknown, _messages: unknown, cb: StreamCallbacks) => {
+      n += 1
+      if (n === 1) {
+        cb.onError?.(new Error("模型只输出了 300 字符的思考内容，但没有输出正文"))
+        cb.onDone()
+        return
+      }
+      throw new Error("retry-boom")
+    })
+    const { run, errors, doneCount } = baseRun([readTool()])
+    const record = await run()
+    expect(n).toBe(2)
+    expect(record.finalText).toBe("")
+    expect(doneCount()).toBe(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0].message).toContain("retry-boom")
+  })
+
+  it("推理独占错误但推理已禁用 → 不重试，直接透传原错", async () => {
+    mocks.streamChat.mockImplementation(async (_llm: unknown, _messages: unknown, cb: StreamCallbacks) => {
+      cb.onError?.(new Error("模型只输出了 300 字符的思考内容，但没有输出正文"))
+      cb.onDone()
+    })
+    const { run, errors, doneCount } = baseRun([readTool()], {
+      llmConfig: { ...llmConfig, reasoning: { mode: "off" } },
+    })
+    const record = await run()
+    expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    expect(record.finalText).toBe("")
+    expect(doneCount()).toBe(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0].message).toContain("没有输出正文")
+  })
+
+  it("输出截断且有部分正文 → 保留部分正文再报错", async () => {
+    mocks.streamChat.mockImplementation(async (_llm: unknown, _messages: unknown, cb: StreamCallbacks) => {
+      cb.onToken?.("half-")
+      cb.onError?.(new Error("Response truncated at max_tokens"))
+      cb.onDone()
+    })
+    const { run, errors, texts, doneCount } = baseRun([readTool()])
+    const record = await run()
+    expect(record.finalText).toBe("half-")
+    expect(texts).toEqual(["half-"])
+    expect(doneCount()).toBe(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0].message).toMatch(/truncated/i)
+  })
+
+  it("预算裁剪抛错 → 透出可读的上下文不足错误", async () => {
+    const budgetMod = await import("../chat-request-budget")
+    const trimSpy = vi.spyOn(budgetMod, "trimChatMessagesToTokenBudget").mockImplementationOnce(() => {
+      throw new Error("boom-budget")
+    })
+    try {
+      mocks.streamChat.mockImplementation(async (_llm: unknown, _messages: unknown, cb: StreamCallbacks) => {
+        cb.onToken?.("hi")
+        cb.onDone()
+      })
+      const { run, errors, doneCount } = baseRun([readTool()])
+      const record = await run()
+      expect(mocks.streamChat).not.toHaveBeenCalled()
+      expect(record.finalText).toBe("")
+      expect(doneCount()).toBe(0)
+      expect(errors).toHaveLength(1)
+      expect(errors[0].message).toContain("模型上下文不足")
+    } finally {
+      trimSpy.mockRestore()
+    }
+  })
+})
+
+describe("runner 覆盖增补：文本工具调用与参数校验", () => {
+  function readTool(): Tool {
+    return {
+      name: "read_chapter",
+      description: "读取章节",
+      category: "read",
+      permission: "auto",
+      parameters: { chapter: { type: "integer", description: "章节号" } },
+      async execute() {
+        return "第一章正文…"
+      },
+    }
+  }
+
+  it("cursor-cli 文本桥接：正文内 JSON 工具调用被解析执行", async () => {
+    const sentMessages = scriptStream([
+      { text: `前言 {"name":"read_chapter","arguments":{"chapter":2}} 后记` },
+      { text: "收尾" },
+    ])
+    void sentMessages
+    const tool = readTool()
+    const { record, errors, doneCount } = await runAgent(
+      createConfig([tool], {
+        taskGoal: "t",
+        llmConfig: { ...llmConfig, provider: "cursor-cli" },
+      }),
+      [tool],
+    )
+    expect(errors).toEqual([])
+    expect(doneCount()).toBe(1)
+    expect(record.finalText).toBe("收尾")
+    expect(record.toolCalls.map((call) => [call.name, call.status])).toEqual([["read_chapter", "done"]])
+    expect(record.roundsUsed).toBe(2)
+  })
+
+  it("cursor-cli 下纯散文无 JSON → 直接按终稿接受", async () => {
+    scriptStream([{ text: "纯散文，无工具" }])
+    const tool = readTool()
+    const { record, errors, doneCount } = await runAgent(
+      createConfig([tool], {
+        taskGoal: "t",
+        llmConfig: { ...llmConfig, provider: "cursor-cli" },
+      }),
+      [tool],
+    )
+    expect(errors).toEqual([])
+    expect(doneCount()).toBe(1)
+    expect(record.finalText).toBe("纯散文，无工具")
+    expect(record.toolCalls).toEqual([])
+  })
+
+  it("工具参数是 JSON 但非对象 → 拒绝执行并记录错误", async () => {
+    scriptStream([
+      { toolCalls: [{ index: 0, id: "e1", name: "read_chapter", arguments: '"just-a-string"' }] },
+      { text: "done15a" },
+    ])
+    const tool = readTool()
+    const { record, errors, doneCount } = await runAgent(
+      createConfig([tool], { taskGoal: "t" }),
+      [tool],
+    )
+    expect(errors).toEqual([])
+    expect(doneCount()).toBe(1)
+    expect(record.finalText).toBe("done15a")
+    expect(record.toolCalls).toHaveLength(1)
+    expect(record.toolCalls[0].status).toBe("error")
+    expect(record.toolCalls[0].result).toContain("必须是 JSON 对象")
+  })
+
+  it("工具参数不是合法 JSON → 拒绝执行并记录错误", async () => {
+    scriptStream([
+      { toolCalls: [{ index: 0, id: "e2", name: "read_chapter", arguments: '{"chapter":' }] },
+      { text: "done15b" },
+    ])
+    const tool = readTool()
+    const { record, errors, doneCount } = await runAgent(
+      createConfig([tool], { taskGoal: "t" }),
+      [tool],
+    )
+    expect(errors).toEqual([])
+    expect(doneCount()).toBe(1)
+    expect(record.finalText).toBe("done15b")
+    expect(record.toolCalls).toHaveLength(1)
+    expect(record.toolCalls[0].status).toBe("error")
+    expect(record.toolCalls[0].result).toContain("不是合法 JSON")
+  })
+
+  it("工具调用无参数 → 默认空对象并正常执行", async () => {
+    scriptStream([
+      { toolCalls: [{ index: 0, id: "e3", name: "read_chapter" }] },
+      { text: "done15c" },
+    ])
+    const tool = readTool()
+    const { record, errors, doneCount } = await runAgent(
+      createConfig([tool], { taskGoal: "t" }),
+      [tool],
+    )
+    expect(errors).toEqual([])
+    expect(doneCount()).toBe(1)
+    expect(record.finalText).toBe("done15c")
+    expect(record.toolCalls.map((call) => [call.name, call.status])).toEqual([["read_chapter", "done"]])
+    expect(record.toolCalls[0].params).toEqual({})
+  })
+})
+
+describe("runner 覆盖增补：轮次耗尽与兜底收敛", () => {
+  function readTool(name = "read_chapter"): Tool {
+    return {
+      name,
+      description: "读取章节",
+      category: "read",
+      permission: "auto",
+      parameters: { chapter: { type: "integer", description: "章节号" } },
+      async execute() {
+        return "第一章正文…"
+      },
+    }
+  }
+
+  it("无必调工具、每轮都调普通工具 → 耗尽后报最大轮次", async () => {
+    scriptStream([
+      { toolCalls: [toolCallDelta("read_chapter", { chapter: 1 }, "call_r1")] },
+      { toolCalls: [toolCallDelta("read_chapter", { chapter: 2 }, "call_r2")] },
+    ])
+    const tool = readTool()
+    const { record, errors, doneCount } = await runAgent(
+      createConfig([tool], { maxRounds: 2, taskGoal: "t" }),
+      [tool],
+    )
+    expect(record.roundsUsed).toBe(2)
+    expect(record.finalText).toBe("")
+    expect(doneCount()).toBe(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0].message).toContain("最大调用轮次")
+    expect(record.toolCalls.map((call) => call.status)).toEqual(["done", "done"])
+  })
+
+  it("轮次耗尽时兜底成功 → 直接返回终稿（:680 成功分支）", async () => {
+    scriptStream([
+      { toolCalls: [toolCallDelta("read_other", { chapter: 1 }, "call_other")] },
+    ])
+    const workflowTool = createWorkflowTool({
+      finalizesRun: true,
+      buildRequiredToolFallbackParams: ({ taskGoal }) => ({ userRequest: taskGoal }),
+      async execute(_params, _signal, context) {
+        context?.onFinalContent?.("兜底终稿（轮次耗尽）")
+        return "工作流已交付"
+      },
+    })
+    const otherTool = readTool("read_other")
+    const { record, errors, doneCount } = await runAgent(
+      createConfig([workflowTool, otherTool], {
+        requiredToolsOnce: [WORKFLOW_TOOL],
+        maxRounds: 1,
+        taskGoal: "t",
+      }),
+      [workflowTool, otherTool],
+    )
+    expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    expect(record.finalText).toBe("兜底终稿（轮次耗尽）")
+    expect(doneCount()).toBe(1)
+    expect(errors).toEqual([])
+    const diagnostics = diagnosticsOf(record)
+    expect(diagnostics.fallbackStatus).toBe("success")
+    expect(diagnostics.satisfiedTools).toEqual(["read_other", WORKFLOW_TOOL])
+  })
+
+  it("force 且必调工具不在注册表 → 缺失为空，兜底直接成功且不调模型", async () => {
+    scriptStream([{ text: "不该被请求到" }])
+    const tool = readTool()
+    const { record, errors, doneCount } = await runAgent(
+      createConfig([tool], {
+        requiredToolsOnce: ["ghost_tool"],
+        forceRequiredToolsImmediately: true,
+        maxRounds: 2,
+        taskGoal: "t",
+      }),
+      [tool],
+    )
+    expect(mocks.streamChat).not.toHaveBeenCalled()
+    expect(record.toolCalls).toEqual([])
+    expect(record.finalText).toBe("")
+    expect(doneCount()).toBe(0)
+    expect(errors).toEqual([])
+    // 门控按可用性判定无需兜底（缺失为空），但诊断仍如实列出未满足的必调工具
+    expect(diagnosticsOf(record).missingTools).toEqual(["ghost_tool"])
+  })
+
+  it("force 时兜底不可用 → 主循环内第二次兜底命中收敛标记", async () => {
+    const sentMessages = scriptStream([
+      { text: "第一轮散文" },
+      { text: "第二轮散文" },
+    ])
+    void sentMessages
+    const tool = createWorkflowTool()
+    const { record, errors, doneCount } = await runAgent(
+      createConfig([tool], {
+        requiredToolsOnce: [WORKFLOW_TOOL],
+        forceRequiredToolsImmediately: true,
+        maxRounds: 2,
+        taskGoal: "t",
+      }),
+      [tool],
+    )
+    // force 那次 + 第 2 轮末轮那次（第二次命中 fallbackConvergenceChecked）
+    expect(mocks.streamChat).toHaveBeenCalledTimes(2)
+    expect(record.finalText).toBe("")
+    expect(doneCount()).toBe(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(RequiredToolsNotCalledError)
+  })
+
+  it("末轮非终结型兜底成功但无终稿 → 仍视为不可用并拒稿（fallback 成功无终稿时 attempted:false）", async () => {
+    scriptStream([{ text: "散文" }])
+    const tool = createWorkflowTool({
+      buildRequiredToolFallbackParams: ({ taskGoal }) => ({ userRequest: taskGoal }),
+      async execute() {
+        return "工作流完成（非终结）"
+      },
+    })
+    const { record, errors, doneCount } = await runAgent(
+      createConfig([tool], {
+        requiredToolsOnce: [WORKFLOW_TOOL],
+        maxRounds: 1,
+        taskGoal: "t",
+      }),
+      [tool],
+    )
+    expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    // 兜底执行成功但无终稿交付：fallback 返回 attempted:false，runner 判为不可用
+    expect(doneCount()).toBe(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(RequiredToolsNotCalledError)
+    expect(record.toolCalls.map((call) => [call.name, call.status])).toEqual([[WORKFLOW_TOOL, "done"]])
+    const diagnostics = diagnosticsOf(record)
+    expect(diagnostics.fallbackAttempted).toBe(false)
+    expect(diagnostics.fallbackStatus).toBe("unavailable")
+    expect(diagnostics.satisfiedTools).toEqual([])
+  })
+
+  it("末轮兜底部分成功仍有缺失 → 返回不可用并拒稿", async () => {
+    scriptStream([{ text: "散文" }])
+    const w1 = createWorkflowTool({ name: "w1" })
+    const w2 = createWorkflowTool({
+      name: "w2",
+      buildRequiredToolFallbackParams: ({ taskGoal }) => ({ userRequest: taskGoal }),
+      async execute() {
+        return "w2 完成（非终结）"
+      },
+    })
+    const { record, errors, doneCount } = await runAgent(
+      createConfig([w1, w2], {
+        requiredToolsOnce: ["w1", "w2"],
+        maxRounds: 1,
+        taskGoal: "t",
+      }),
+      [w1, w2],
+    )
+    expect(doneCount()).toBe(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(RequiredToolsNotCalledError)
+    // 拒稿携带的是兜底前快照（w1、w2 均缺）；诊断在兜底后刷新，只剩 w1
+    expect((errors[0] as RequiredToolsNotCalledError).missingTools).toEqual(["w1", "w2"])
+    expect(record.toolCalls.map((call) => [call.name, call.status])).toEqual([["w2", "done"]])
+    expect(diagnosticsOf(record).fallbackStatus).toBe("unavailable")
+    // attempted:false 时兜底带回的 satisfied 被丢弃，诊断保持兜底前快照
+    expect(diagnosticsOf(record).satisfiedTools).toEqual([])
+    expect(diagnosticsOf(record).missingTools).toEqual(["w1", "w2"])
+  })
+})
+
+describe("runner 覆盖增补：工具通道关闭与 nudge 形态", () => {
+  function readTool(): Tool {
+    return {
+      name: "read_chapter",
+      description: "读取章节",
+      category: "read",
+      permission: "auto",
+      parameters: { chapter: { type: "integer", description: "章节号" } },
+      async execute() {
+        return "第一章正文…"
+      },
+    }
+  }
+
+  it("函数调用开关关闭 → 无工具请求体，散文直接按终稿接受", async () => {
+    const sentMessages = scriptStream([{ text: "plain-final" }])
+    const tool = readTool()
+    const { record, errors, doneCount, texts } = await runAgent(
+      createConfig([tool], {
+        taskGoal: "t",
+        llmConfig: { ...llmConfig, functionCallingEnabled: false } as LlmConfig,
+      }),
+      [tool],
+    )
+    expect(errors).toEqual([])
+    expect(doneCount()).toBe(1)
+    expect(record.finalText).toBe("plain-final")
+    expect(texts).toEqual(["plain-final"])
+    // 未带 tools/tool_choice 的请求体
+    const firstRequest = (mocks.streamChat.mock.calls[0][4] ?? {}) as Record<string, unknown>
+    expect(firstRequest).not.toHaveProperty("tools")
+    expect(firstRequest).not.toHaveProperty("toolChoice")
+    void sentMessages
+  })
+
+  it("工具开关关闭时必调门控不拦截 → 缺失工具也不报错", async () => {
+    scriptStream([{ text: "plain-final" }])
+    const tool = readTool()
+    const { record, errors, doneCount } = await runAgent(
+      createConfig([tool], {
+        taskGoal: "t",
+        requiredToolsOnce: ["read_chapter"],
+        llmConfig: { ...llmConfig, functionCallingEnabled: false } as LlmConfig,
+      }),
+      [tool],
+    )
+    expect(errors).toEqual([])
+    expect(doneCount()).toBe(1)
+    expect(record.finalText).toBe("plain-final")
+    // 门控按 toolsEnabled=false 放行，但诊断仍如实列出未满足项
+    expect(diagnosticsOf(record).missingTools).toEqual(["read_chapter"])
+  })
+
+  it("空工具列表 → 终稿直接接受", async () => {
+    scriptStream([{ text: "t-final" }])
+    const { record, errors, doneCount } = await runAgent(createConfig([], { taskGoal: "t" }), [])
+    expect(errors).toEqual([])
+    expect(doneCount()).toBe(1)
+    expect(record.finalText).toBe("t-final")
+  })
+
+  it("nudge 时携带推理与思考块 → assistant 回放保留两者", async () => {
+    const sentMessages = scriptStream([
+      { text: "散文R1" },
+      { text: "散文R2" },
+    ])
+    // 首轮额外注入推理 token 与思考块（scriptStream 只产文本，这里叠加第二层实现）
+    const prevImpl = mocks.streamChat.getMockImplementation()
+    let n = 0
+    mocks.streamChat.mockImplementation(async (llm: unknown, messages: unknown, cb: StreamCallbacks) => {
+      n += 1
+      if (n === 1) {
+        cb.onReasoningToken?.("r1")
+        cb.onThinkingDelta?.({ kind: "block_start", index: 0, block: { type: "thinking" } })
+        cb.onThinkingDelta?.({ kind: "text", index: 0, text: "nt" })
+        cb.onThinkingDelta?.({ kind: "signature", index: 0, signature: "ns" })
+      }
+      return prevImpl?.(llm, messages, cb)
+    })
+    const tool = createWorkflowTool()
+    const { record, errors } = await runAgent(
+      createConfig([tool], { requiredToolsOnce: [WORKFLOW_TOOL], maxRounds: 2, taskGoal: "t" }),
+      [tool],
+    )
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(RequiredToolsNotCalledError)
+    expect(record.finalText).toBe("")
+    const assistants = sentMessages[1].filter((message) => message.role === "assistant")
+    expect(assistants).toHaveLength(1)
+    expect(assistants[0].reasoning_content).toBe("r1")
+    expect(assistants[0].thinking_blocks).toEqual([{ type: "thinking", thinking: "nt", signature: "ns" }])
+    expect(
+      sentMessages[1].some(
+        (message) =>
+          message.role === "system" &&
+          typeof message.content === "string" &&
+          message.content.includes(NUDGE_MARKER),
+      ),
+    ).toBe(true)
+  })
+
+  it("尾部 system 内容非字符串 → nudge 另起一条而非合并", async () => {
+    const sentMessages = scriptStream([{ text: "散文2" }])
+    // 首轮空输出：只 onDone，不产生 assistant，尾部保持初始的数组 system
+    mocks.streamChat.mockImplementationOnce(async (_llm: unknown, _messages: unknown, cb: StreamCallbacks) => {
+      cb.onFinishReason?.("stop")
+      cb.onDone()
+    })
+    const tool = createWorkflowTool()
+    const { errors } = await runAgent(
+      createConfig([tool], { requiredToolsOnce: [WORKFLOW_TOOL], maxRounds: 2, taskGoal: "t" }),
+      [tool],
+      [
+        { role: "user", content: "u" },
+        { role: "system", content: [{ type: "text", text: "sys-array" }] } as AgentMessage,
+      ],
+    )
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(RequiredToolsNotCalledError)
+    // 首轮 Once 实现不经过 scriptStream 的快照，只有第 2 轮请求被记录
+    const systems = sentMessages[0].filter((message) => message.role === "system")
+    expect(systems).toHaveLength(3)
+    // 首条是任务契约（字符串），中间是原数组 system（保持数组），末条是 nudge
+    expect(Array.isArray(systems[1].content)).toBe(true)
+    expect(String(systems[2].content)).toContain(NUDGE_MARKER)
+  })
+})

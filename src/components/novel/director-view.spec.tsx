@@ -74,6 +74,16 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
   }
 })
 
+// W-覆盖增补缝：@tauri-apps/api/core 默认透传真实 invoke（与既有行为一致，
+// 仅在骨架非空用例里 mockImplementationOnce 注入 entities 目录树）。
+vi.mock("@tauri-apps/api/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tauri-apps/api/core")>()
+  return {
+    ...actual,
+    invoke: vi.fn(actual.invoke),
+  }
+})
+
 function makeFile(partial?: Partial<DirectorPersistedFile>): DirectorPersistedFile {
   return {
     fileVersion: 1,
@@ -293,6 +303,330 @@ describe("DirectorView（60 号设计：开书导演主视图）", () => {
     expect(screen.queryByTestId("director-runlog-item")).not.toBeInTheDocument()
     expect(screen.getByTestId("director-runlog-empty")).toBeInTheDocument()
     // 切回全部 → 恢复
+    fireEvent.click(screen.getByTestId("director-runlog-filter-all"))
+    expect(screen.getAllByTestId("director-runlog-item")).toHaveLength(2)
+  })
+})
+
+describe("DirectorView 覆盖增补（W-未覆盖分支）", () => {
+  // 原文件 beforeEach 挂在第一个 describe 内，此处镜像同一份装配（不改既有用例）。
+  beforeEach(() => {
+    resetMocks()
+    cleanup()
+    vi.clearAllMocks()
+    mocks.fileExists.mockResolvedValue(false)
+    mocks.readFile.mockRejectedValue(new Error("ENOENT: no such file"))
+  })
+
+  it("编辑立意字段 → 输入值更新并落盘 ideaInput", async () => {
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-idea-title")).toBeInTheDocument())
+    fireEvent.change(screen.getByTestId("director-idea-title"), { target: { value: "新雾都" } })
+    fireEvent.change(screen.getByTestId("director-idea-genre"), { target: { value: "科幻" } })
+    fireEvent.change(screen.getByTestId("director-idea-conflict"), { target: { value: "新冲突" } })
+    expect(screen.getByTestId("director-idea-title")).toHaveValue("新雾都")
+    expect(screen.getByTestId("director-idea-genre")).toHaveValue("科幻")
+    expect(screen.getByTestId("director-idea-conflict")).toHaveValue("新冲突")
+    await waitFor(() =>
+      expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
+        "/proj/.novel/director-pipeline.json",
+        expect.stringContaining("新雾都"),
+      ),
+    )
+  })
+
+  it("推进被门挡下 → gap 显示 blockedReason + 运行记录记未过门 + 草稿收据可见", async () => {
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    advanceMock.fn.mockResolvedValue({
+      state: createDirectorPipeline(),
+      advanced: false,
+      completed: false,
+      generated: true,
+      stage: "idea",
+      blockedReason: "世界骨架未完备",
+      drafts: [{ id: "d1", chapterName: "第一章", chars: 500 }],
+    })
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-advance")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-advance"))
+    await waitFor(() => expect(screen.getByTestId("director-gap")).toBeInTheDocument())
+    expect(screen.getByTestId("director-gap").textContent).toContain("世界骨架未完备")
+    expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "gating")
+    expect(screen.getByTestId("director-draft-receipt")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("director-runlog-toggle"))
+    expect(screen.getByText("未过门：世界骨架未完备")).toBeInTheDocument()
+  })
+
+  it("推进返回 error → gap 显示推进失败 + 状态 failed", async () => {
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    advanceMock.fn.mockResolvedValue({
+      state: createDirectorPipeline(),
+      advanced: false,
+      completed: false,
+      generated: true,
+      stage: "idea",
+      error: "门炸了",
+    })
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-advance")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-advance"))
+    await waitFor(() => expect(screen.getByTestId("director-gap")).toBeInTheDocument())
+    expect(screen.getByTestId("director-gap").textContent).toContain("门炸了")
+    expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "failed")
+    fireEvent.click(screen.getByTestId("director-runlog-toggle"))
+    expect(screen.getByText("推进失败：门炸了")).toBeInTheDocument()
+  })
+
+  it("推进抛 Error → gap 显示异常信息 + 状态 failed", async () => {
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    advanceMock.fn.mockRejectedValue(new Error("LLM 爆炸"))
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-advance")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-advance"))
+    await waitFor(() => expect(screen.getByTestId("director-gap")).toBeInTheDocument())
+    expect(screen.getByTestId("director-gap").textContent).toContain("LLM 爆炸")
+    expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "failed")
+  })
+
+  it("推进抛非 Error 值 → gap 显示字符串", async () => {
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    advanceMock.fn.mockRejectedValue("字符串爆炸")
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-advance")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-advance"))
+    await waitFor(() => expect(screen.getByTestId("director-gap")).toBeInTheDocument())
+    expect(screen.getByTestId("director-gap").textContent).toContain("字符串爆炸")
+  })
+
+  it("推进无任何原因 → gap 不显示 + 运行记录记原因未知", async () => {
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    advanceMock.fn.mockResolvedValue({
+      state: createDirectorPipeline(),
+      advanced: false,
+      completed: false,
+      generated: true,
+      stage: "idea",
+    })
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-advance")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-advance"))
+    await waitFor(() => expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "gating"))
+    expect(screen.queryByTestId("director-gap")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("director-runlog-toggle"))
+    expect(screen.getByText("未过门：原因未知")).toBeInTheDocument()
+  })
+
+  it("失败态点重试 → 状态写回 + 运行记录记重试", async () => {
+    const base = createDirectorPipeline()
+    const failedState: DirectorPipelineState = {
+      ...base,
+      currentPhase: "idea",
+      statuses: { ...base.statuses, idea: "failed" },
+    }
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile({ state: failedState })))
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-retry")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-retry"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+    expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "idle")
+    fireEvent.click(screen.getByTestId("director-runlog-toggle"))
+    expect(screen.getByText("重试当前阶段")).toBeInTheDocument()
+  })
+
+  it("生成世界骨架（空项目）→ gap 提示未检测到项目实体", async () => {
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-generate-blueprint")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-generate-blueprint"))
+    await waitFor(() => expect(screen.getByTestId("director-gap")).toBeInTheDocument())
+    expect(screen.getByTestId("director-gap").textContent).toContain("directorPanel.blueprintEmpty")
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
+      expect.stringContaining("world-blueprint.json"),
+      expect.any(String),
+    )
+    fireEvent.click(screen.getByTestId("director-runlog-toggle"))
+    expect(screen.getByText("世界骨架为空：未检测到项目实体")).toBeInTheDocument()
+  })
+
+  it("生成世界骨架（有角色实体）→ gap 提示已生成草稿", async () => {
+    // 挂载期刷新也会调 list_directory，必须常驻注入（finally 恢复透传默认实现）。
+    const { invoke } = await import("@tauri-apps/api/core")
+    const mocked = vi.mocked(invoke)
+    const prevImpl = mocked.getMockImplementation()
+    mocked.mockImplementation(async (cmd, args) => {
+      const p = String((args as { path?: unknown } | undefined)?.path ?? "")
+      if (cmd === "list_directory" && p.includes("wiki/entities")) {
+        return [{ name: "zhang.md", path: "/proj/wiki/entities/characters/zhang.md", is_dir: false }]
+      }
+      throw new Error("tauri unavailable in jsdom")
+    })
+    try {
+      mocks.fileExists.mockResolvedValue(true)
+      mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+      render(<DirectorView projectId="/proj" />)
+      await waitFor(() => expect(screen.getByTestId("director-generate-blueprint")).toBeInTheDocument())
+      fireEvent.click(screen.getByTestId("director-generate-blueprint"))
+      await waitFor(() => expect(screen.getByTestId("director-gap")).toBeInTheDocument())
+      expect(screen.getByTestId("director-gap").textContent).toContain("directorPanel.blueprintDone")
+      expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
+        expect.stringContaining("world-blueprint.json"),
+        expect.stringContaining("zhang"),
+      )
+      fireEvent.click(screen.getByTestId("director-runlog-toggle"))
+      expect(screen.getByText("已根据实体生成世界骨架草稿")).toBeInTheDocument()
+    } finally {
+      mocked.mockReset()
+      if (prevImpl) mocked.mockImplementation(prevImpl)
+    }
+  })
+
+  it("已启动 + LLM 不可用：banner 本地写作 → 建 chapter-001 并跳写作工作区", async () => {
+    mocks.llmConfig = { provider: "openai", apiKey: "", model: "" }
+    // 首 call（hasPersisted）放行 true，章节循环一律 false → 落 chapter-001
+    mocks.fileExists.mockResolvedValue(false)
+    mocks.fileExists.mockResolvedValueOnce(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-llm-blocked-banner")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-local-write-banner"))
+    await waitFor(() => {
+      expect(mocks.createDirectory).toHaveBeenCalledWith("C:/proj/book/QM/chapters")
+      expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
+        "C:/proj/book/QM/chapters/chapter-001.md",
+        expect.stringContaining("chapter: 1"),
+      )
+      expect(mocks.setSelectedFile).toHaveBeenCalledWith("C:/proj/book/QM/chapters/chapter-001.md")
+      expect(mocks.setActiveView).toHaveBeenCalledWith("wiki")
+    })
+  })
+
+  it("已启动 + LLM 不可用：chapter-001 已存在 → 追加 chapter-002", async () => {
+    mocks.llmConfig = { provider: "openai", apiKey: "", model: "" }
+    mocks.fileExists.mockImplementation(async (path: string) =>
+      path.endsWith("director-pipeline.json") || path.endsWith("chapter-001.md"),
+    )
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-local-write-banner")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-local-write-banner"))
+    await waitFor(() =>
+      expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
+        "C:/proj/book/QM/chapters/chapter-002.md",
+        // 立意标题非空 → 沿用立意标题（雾都），仅章节号递增不断言默认标题
+        expect.stringContaining("chapter: 2"),
+      ),
+    )
+  })
+
+  it("本地写作 999 上限：fileExists 恒真 → 落到 chapter-999", async () => {
+    mocks.llmConfig = { provider: "openai", apiKey: "", model: "" }
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    mocks.fileExists.mockResolvedValue(true)
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-local-write-banner")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-local-write-banner"))
+    await waitFor(() =>
+      expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
+        "C:/proj/book/QM/chapters/chapter-999.md",
+        expect.any(String),
+      ),
+    )
+  })
+
+  it("project 缺失时本地写作为空操作", async () => {
+    mocks.project = null
+    mocks.llmConfig = { provider: "openai", apiKey: "", model: "" }
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-local-write-banner")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-local-write-banner"))
+    await waitFor(() => expect(screen.getByTestId("director-local-write-banner")).toBeInTheDocument())
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+  })
+
+  it("banner 配置模型 → 跳设置", async () => {
+    mocks.llmConfig = { provider: "openai", apiKey: "", model: "" }
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-configure-llm-banner")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-configure-llm-banner"))
+    expect(mocks.setActiveView).toHaveBeenCalledWith("settings")
+  })
+
+  it("未启动态配置模型 → 跳设置", async () => {
+    mocks.llmConfig = { provider: "openai", apiKey: "", model: "" }
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-configure-llm")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-configure-llm"))
+    expect(mocks.setActiveView).toHaveBeenCalledWith("settings")
+  })
+
+  it("unmount 取消：has 阶段取消不触发加载", async () => {
+    let resolveHas!: (v: boolean) => void
+    mocks.fileExists.mockImplementationOnce(() => new Promise<boolean>((res) => { resolveHas = res }))
+    const first = render(<DirectorView projectId="/proj" />)
+    first.unmount()
+    resolveHas(true)
+    await waitFor(() => expect(mocks.readFile).not.toHaveBeenCalled())
+    // 取消后重挂载仍可正常加载
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-idea-title")).toBeInTheDocument())
+  })
+
+  it("unmount 取消：load 阶段取消不写状态", async () => {
+    let resolveLoad!: (v: string) => void
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockImplementationOnce(() => new Promise<string>((res) => { resolveLoad = res }))
+    const first = render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(mocks.readFile).toHaveBeenCalled())
+    first.unmount()
+    resolveLoad(JSON.stringify(makeFile()))
+    // 取消后重挂载仍可正常加载
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-idea-title")).toBeInTheDocument())
+  })
+
+  it("运行记录级别筛选：info/success/error/all", async () => {
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    advanceMock.fn.mockResolvedValue({
+      state: createDirectorPipeline(),
+      advanced: true,
+      completed: false,
+      generated: true,
+      stage: "idea",
+    })
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-advance")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-advance"))
+    await waitFor(() =>
+      expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "advanced"),
+    )
+    fireEvent.click(screen.getByTestId("director-runlog-toggle"))
+    expect(screen.getAllByTestId("director-runlog-item")).toHaveLength(2)
+    fireEvent.click(screen.getByTestId("director-runlog-filter-success"))
+    expect(screen.getAllByTestId("director-runlog-item")).toHaveLength(1)
+    expect(screen.getByText("推进成功，进入下一阶段")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("director-runlog-filter-info"))
+    expect(screen.getAllByTestId("director-runlog-item")).toHaveLength(1)
+    expect(screen.getByText("开始推进当前阶段")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("director-runlog-filter-error"))
+    expect(screen.getByTestId("director-runlog-empty")).toBeInTheDocument()
     fireEvent.click(screen.getByTestId("director-runlog-filter-all"))
     expect(screen.getAllByTestId("director-runlog-item")).toHaveLength(2)
   })

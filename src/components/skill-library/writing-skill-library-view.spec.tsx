@@ -10,9 +10,10 @@ import { buildPack, serializePack, type UserSkill } from "@/lib/novel"
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const dialogOpenMock = vi.hoisted(() => vi.fn())
+const saveDialogMock = vi.hoisted(() => vi.fn())
 const bundleDialogProps = vi.hoisted(() => [] as Array<Record<string, unknown>>)
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: dialogOpenMock }))
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: dialogOpenMock, save: saveDialogMock }))
 
 vi.mock("@/components/skills/SkillBundleImportDialog", () => ({
   SkillBundleImportDialog: (props: Record<string, unknown>) => {
@@ -110,8 +111,8 @@ describe("WritingSkillLibraryView", () => {
       name: "测试项目",
       path: "C:/project",
     })
-    ;(useWikiStore.getState() as any).setWritingSkillLibraryDraftDirty?.(false)
-    ;(useWikiStore.getState() as any).setSelectedWritingSkillLibrarySkillId?.(null)
+    useWikiStore.getState().setWritingSkillLibraryDraftDirty(false)
+    useWikiStore.getState().setSelectedWritingSkillLibrarySkillId(null)
   })
 
   it("shows one import action in the writing skill sidebar", async () => {
@@ -325,6 +326,287 @@ describe("技能包（.zip）离线导入接线（A-F-002 / B-F-006）", () => {
 
     expect(container.querySelector('[data-testid="bundle-dialog-open"]')).toBeNull()
     expect(bundleDialogProps.every((props) => props.open === false)).toBe(true)
+
+    dialogOpenMock.mockReset()
+    cleanup(root, container)
+  })
+})
+
+describe("WritingSkillLibraryView 覆盖补齐（保存/导出/标签/分类未覆盖行）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedConfigContent = ""
+    readFileMock.mockImplementation(async () => {
+      if (savedConfigContent) return savedConfigContent
+      throw new Error("missing")
+    })
+    writeFileAtomicMock.mockImplementation(async (_path: string, content: string) => {
+      savedConfigContent = content
+    })
+    useWikiStore.getState().setProject({
+      id: "p1",
+      name: "测试项目",
+      path: "C:/project",
+    })
+    useWikiStore.getState().setWritingSkillLibraryDraftDirty(false)
+    useWikiStore.getState().setSelectedWritingSkillLibrarySkillId(null)
+  })
+
+  function seedSkill(overrides: Record<string, unknown> = {}, categories: Array<{ id: string; name: string }> = [{ id: "cat-a", name: "通用" }]) {
+    savedConfigContent = JSON.stringify({
+      version: 1,
+      selectedSkillId: "skill:one",
+      disabledSkillIds: [],
+      skills: [{
+        id: "skill:one",
+        name: "三翻四抖",
+        description: "三次转折",
+        content: "每章设置三次局势变化。",
+        kind: ["structure"],
+        stages: ["planning"],
+        modes: ["standard"],
+        priority: 50,
+        tags: [],
+        categoryId: "",
+        source: "uploaded",
+        createdAt: 1,
+        updatedAt: 1,
+        ...overrides,
+      }],
+      categories,
+    })
+  }
+
+  async function setSelectValue(select: HTMLSelectElement, value: string) {
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set
+      valueSetter?.call(select, value)
+      select.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    await flushEffects()
+  }
+
+  async function keyDown(element: Element, key: string) {
+    await act(async () => {
+      element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }))
+    })
+    await flushEffects()
+  }
+
+  it("rejects saving when the skill name is empty", async () => {
+    seedSkill()
+    const { container, root } = await renderLibrary()
+    writeFileAtomicMock.mockClear()
+
+    await setInputValue(container.querySelector('[data-testid="writing-skill-name-input"]')!, "")
+    await click(container.querySelector('[data-testid="writing-skill-save-button"]'))
+
+    expect(container.textContent).toContain("Skill 名称不能为空")
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+
+    cleanup(root, container)
+  })
+
+  it("rejects saving when the rule body is empty", async () => {
+    seedSkill()
+    const { container, root } = await renderLibrary()
+    writeFileAtomicMock.mockClear()
+
+    await setTextareaValue(container.querySelector('[data-testid="writing-skill-content-input"]')!, "")
+    await click(container.querySelector('[data-testid="writing-skill-save-button"]'))
+
+    expect(container.textContent).toContain("规则正文不能为空")
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+
+    cleanup(root, container)
+  })
+
+  it("surfaces save failure when disk write fails", async () => {
+    seedSkill()
+    const { container, root } = await renderLibrary()
+
+    await setInputValue(container.querySelector('[data-testid="writing-skill-name-input"]')!, "三翻四抖-改")
+    await setTextareaValue(container.querySelector('[data-testid="writing-skill-content-input"]')!, "新规则正文")
+    writeFileAtomicMock.mockRejectedValueOnce(new Error("disk full"))
+    await click(container.querySelector('[data-testid="writing-skill-save-button"]'))
+
+    expect(container.textContent).toContain("写作技能保存失败")
+
+    cleanup(root, container)
+  })
+
+  it("exports the selected skill to a chosen JSON file", async () => {
+    seedSkill()
+    saveDialogMock.mockResolvedValue("D:/out/skill.json")
+    const { container, root } = await renderLibrary()
+    writeFileAtomicMock.mockClear()
+
+    await click(Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.trim() === "导出") ?? null)
+
+    expect(saveDialogMock).toHaveBeenCalledWith(expect.objectContaining({ defaultPath: "三翻四抖.json" }))
+    expect(writeFileAtomicMock).toHaveBeenCalledWith(
+      "D:/out/skill.json",
+      expect.stringContaining("三翻四抖"),
+    )
+    expect(container.textContent).toContain("导出成功")
+
+    cleanup(root, container)
+  })
+
+  it("does nothing when the export dialog is cancelled", async () => {
+    seedSkill()
+    saveDialogMock.mockResolvedValue(null)
+    const { container, root } = await renderLibrary()
+    writeFileAtomicMock.mockClear()
+
+    await click(Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.trim() === "导出") ?? null)
+
+    expect(writeFileAtomicMock).not.toHaveBeenCalled()
+    expect(container.textContent).not.toContain("导出成功")
+
+    cleanup(root, container)
+  })
+
+  it("shows 导出 Skill 失败 when export write fails", async () => {
+    seedSkill()
+    saveDialogMock.mockResolvedValue("D:/out/skill.json")
+    writeFileAtomicMock.mockRejectedValueOnce(new Error("disk full"))
+    const { container, root } = await renderLibrary()
+
+    await click(Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.trim() === "导出") ?? null)
+
+    expect(container.textContent).toContain("导出 Skill 失败")
+
+    cleanup(root, container)
+  })
+
+  it("reloads linked skill content on demand", async () => {
+    seedSkill({ source: "linked", linkedPath: "C:/linked/skill.md", content: "旧内容" })
+    let fileContent = "版本一"
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path === "C:/linked/skill.md") return fileContent
+      if (savedConfigContent) return savedConfigContent
+      throw new Error("missing")
+    })
+    const { container, root } = await renderLibrary()
+
+    expect(container.textContent).toContain("引用")
+    const reloadButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.trim() === "重新读取")
+    expect(reloadButton).not.toBeUndefined()
+
+    fileContent = "版本二"
+    await click(reloadButton ?? null)
+
+    // 注意：成功提示会被“草稿同步 effect”（content 变化 → setMessage("")）立即清空，
+    // 此处以正文更新证明重载确实发生
+    expect(container.querySelector("textarea")?.value).toBe("版本二")
+
+    cleanup(root, container)
+  })
+
+  it("clears linked content when the linked file is unreadable (loader swallows the error)", async () => {
+    seedSkill({ source: "linked", linkedPath: "C:/linked/skill.md", content: "旧内容" })
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path === "C:/linked/skill.md") throw new Error("gone")
+      if (savedConfigContent) return savedConfigContent
+      throw new Error("missing")
+    })
+    const { container, root } = await renderLibrary()
+
+    const reloadButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.trim() === "重新读取")
+    await click(reloadButton ?? null)
+
+    // loadLinkedSkillContent 内部吞错返回 ""，外层 catch（252 行）实际不可达；
+    // 此处锁定当前真实行为：正文被清空且不抛错
+    expect(container.querySelector("textarea")?.value).toBe("")
+
+    cleanup(root, container)
+  })
+
+  it("adds, dedupes, and removes tags", async () => {
+    seedSkill()
+    const { container, root } = await renderLibrary()
+    const tagInput = container.querySelector<HTMLInputElement>('input[placeholder="输入标签后按回车添加"]')!
+    expect(tagInput).not.toBeNull()
+
+    await setInputValue(tagInput, "新标签")
+    await keyDown(tagInput, "Enter")
+    expect(container.textContent).toContain("新标签")
+
+    // 重复标签不会重复添加：输入框被清空且只剩一个 chip
+    await setInputValue(tagInput, "新标签")
+    await keyDown(tagInput, "Enter")
+    const chips = Array.from(container.querySelectorAll("span"))
+      .filter((span) => span.textContent === "新标签×")
+    expect(chips.length).toBe(1)
+
+    // 非确认键不添加标签
+    await setInputValue(tagInput, "不加")
+    await keyDown(tagInput, "a")
+    expect(container.textContent).not.toContain("不加×")
+
+    // 删除标签
+    const removeButton = container.querySelector<HTMLButtonElement>('button[aria-label="删除 新标签"]')
+    expect(removeButton).not.toBeNull()
+    await click(removeButton)
+    expect(container.querySelectorAll("span"))
+    expect(Array.from(container.querySelectorAll("span")).filter((span) => span.textContent === "新标签×").length).toBe(0)
+
+    cleanup(root, container)
+  })
+
+  it("saves the selected category", async () => {
+    seedSkill()
+    const { container, root } = await renderLibrary()
+    const select = container.querySelector<HTMLSelectElement>("select")!
+    expect(select).not.toBeNull()
+
+    await setSelectValue(select, "cat-a")
+    await setInputValue(container.querySelector('[data-testid="writing-skill-name-input"]')!, "三翻四抖-改")
+    await click(container.querySelector('[data-testid="writing-skill-save-button"]'))
+
+    const saved = JSON.parse(savedConfigContent)
+    expect(saved.skills.find((s: { id: string }) => s.id === "skill:one")).toMatchObject({ categoryId: "cat-a" })
+
+    cleanup(root, container)
+  })
+
+  it("clamps the priority input to 1-100 and falls back to 50", async () => {
+    seedSkill()
+    const { container, root } = await renderLibrary()
+    const priorityInput = container.querySelector<HTMLInputElement>('input[type="number"]')!
+    expect(priorityInput).not.toBeNull()
+
+    await setInputValue(priorityInput, "200")
+    expect(priorityInput.value).toBe("100")
+    await setInputValue(priorityInput, "0")
+    expect(priorityInput.value).toBe("1")
+    await setInputValue(priorityInput, "")
+    expect(priorityInput.value).toBe("50")
+
+    cleanup(root, container)
+  })
+
+  it("closes the bundle dialog via onClose", async () => {
+    seedSkill()
+    bundleDialogProps.length = 0
+    dialogOpenMock.mockResolvedValue("D:/tmp/skillpack-a.zip")
+    const { container, root } = await renderLibrary()
+
+    await click(container.querySelector('[data-testid="skill-bundle-import-open"]'))
+    expect(container.querySelector('[data-testid="bundle-dialog-open"]')).not.toBeNull()
+
+    const last = bundleDialogProps[bundleDialogProps.length - 1]
+    await act(async () => {
+      ;(last?.onClose as (() => void) | undefined)?.()
+    })
+    await flushEffects()
+    expect(container.querySelector('[data-testid="bundle-dialog-open"]')).toBeNull()
 
     dialogOpenMock.mockReset()
     cleanup(root, container)
