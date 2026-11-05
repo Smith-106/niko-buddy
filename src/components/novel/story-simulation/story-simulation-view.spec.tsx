@@ -10,7 +10,18 @@ import {
   scoreBarWidth,
 } from "./story-simulation-view"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
-import type { SimulationReport, StoryFramework, TimelineEvent } from "@/lib/novel"
+import type {
+  ExtractionResult,
+  NovelAgent,
+  RumorEvent,
+  SerializedSimulationSnapshot,
+  SimulationBranch,
+  SimulationDebugTrace,
+  SimulationReport,
+  StoryFramework,
+  TimelineEvent,
+} from "@/lib/novel"
+import type { SavedSimulationResult } from "@/stores/story-simulation-store"
 
 const wikiState = vi.hoisted(() => ({
   project: null as { id: string; name: string; path: string } | null,
@@ -232,7 +243,7 @@ describe("StorySimulationView 3 coreIssues wiring", () => {
 
 /* ===== 增补：覆盖 story-simulation-view.tsx 主流程（保留原有用例，仅追加） ===== */
 
-function makeMockAgent(id = "c1", name = "寨主"): any {
+function makeMockAgent(id = "c1", name = "寨主"): NovelAgent {
   return {
     characterId: id,
     name,
@@ -282,7 +293,7 @@ function makeFrameworkWithNodes(): StoryFramework {
   } as unknown as StoryFramework
 }
 
-function makeExtraction(): any {
+function makeExtraction(): ExtractionResult {
   return {
     characters: [{ id: "c1", name: "寨主", profile: "p", aura: null, cognition: null, soul: "s", skillContent: "" }],
     chapterContents: [],
@@ -296,7 +307,7 @@ function makeExtraction(): any {
   }
 }
 
-function makeDebugTrace(agent: any, round = 1): any {
+function makeDebugTrace(agent: NovelAgent, round = 1): SimulationDebugTrace {
   return {
     id: `t${round}`,
     type: "event-recorded",
@@ -312,6 +323,18 @@ function makeDebugTrace(agent: any, round = 1): any {
     timestamp: new Date().toISOString(),
   }
 }
+
+/**
+ * 防御分支需要故意传入运行时非法形状（例如损坏的快照、缺字段的传闻对象）；
+ * 在此具名入口一次性收口：运行时确实会收到此类脏数据（历史文件损坏/版本错配），
+ * 类型上用 unknown 中转，调用点不再各写断言。
+ */
+function rawForDefense<T>(v: unknown): T {
+  return v as unknown as T
+}
+
+
+
 
 function resetViewStore() {
   useStorySimulationStore.getState().reset()
@@ -338,16 +361,16 @@ function resetViewStore() {
   })
   wikiState.project = { id: "p1", name: "proj", path: "C:/proj" }
   Object.values(novelMocks).forEach((fn: any) => fn.mockReset())
-  novelMocks.resolveDefaultModel.mockReturnValue({ model: "mock" } as any)
-  novelMocks.serializeSimulationState.mockReturnValue({ agents: [], state: { currentRound: 0 } } as any)
-  novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [makeMockAgent()], state: { currentRound: 0, timelineEvents: [], activeAgents: new Map(), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } } as any)
-  novelMocks.appendStageMetric.mockResolvedValue(undefined as any)
-  novelMocks.saveFramework.mockResolvedValue(undefined as any)
-  novelMocks.saveSimulationResult.mockResolvedValue(undefined as any)
-  novelMocks.loadSimulationResults.mockResolvedValue([] as any)
-  novelMocks.loadInterviews.mockResolvedValue([] as any)
-  novelMocks.exportInterview.mockResolvedValue("C:/proj/interview.md" as any)
-  novelMocks.saveInterview.mockResolvedValue(undefined as any)
+  novelMocks.resolveDefaultModel.mockReturnValue({ model: "mock" })
+  novelMocks.serializeSimulationState.mockReturnValue({ agents: [], state: { currentRound: 0 } })
+  novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [makeMockAgent()], state: { currentRound: 0, timelineEvents: [], activeAgents: new Map(), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } })
+  novelMocks.appendStageMetric.mockResolvedValue(undefined)
+  novelMocks.saveFramework.mockResolvedValue(undefined)
+  novelMocks.saveSimulationResult.mockResolvedValue(undefined)
+  novelMocks.loadSimulationResults.mockResolvedValue([])
+  novelMocks.loadInterviews.mockResolvedValue([])
+  novelMocks.exportInterview.mockResolvedValue("C:/proj/interview.md")
+  novelMocks.saveInterview.mockResolvedValue(undefined)
 }
 
 describe("StorySimulationView 渲染分支", () => {
@@ -359,7 +382,7 @@ describe("StorySimulationView 渲染分支", () => {
       opts?.onProgress?.(10, "half")
       return makeExtraction()
     })
-    novelMocks.generateDynamicEventPool.mockResolvedValue([] as any)
+    novelMocks.generateDynamicEventPool.mockResolvedValue([])
     novelMocks.generateStoryFramework.mockImplementation(async (opts: any) => {
       opts?.onProgress?.("half")
       return makeFrameworkWithNodes()
@@ -391,24 +414,24 @@ describe("StorySimulationView 渲染分支", () => {
   it("各进度 phase 显示进度面板并映射标题", async () => {
     for (const phase of ["extracting", "framework-generating", "report-generating", "draft-generating"] as const) {
       cleanup()
-      useStorySimulationStore.setState({ phase: phase as any, progress: 42, progressLabel: "" })
+      useStorySimulationStore.setState({ phase: phase, progress: 42, progressLabel: "" })
       render(<StorySimulationView />)
       // 进度数字 42% 应出现，证明 ProgressPanel 分支被执行
       expect(screen.getByText("42%")).toBeTruthy()
       cleanup()
     }
     resetViewStore()
-    useStorySimulationStore.setState({ phase: "simulating", timelineEvents: [], debugTraces: [], currentFramework: makeFrameworkWithNodes(), branches: [], activeBranchId: null, compareBranchIds: [], isCompareMode: false } as any)
+    useStorySimulationStore.setState({ phase: "simulating", timelineEvents: [], debugTraces: [], currentFramework: makeFrameworkWithNodes(), branches: [], activeBranchId: null, compareBranchIds: [], isCompareMode: false })
     render(<StorySimulationView />)
     expect(screen.getByText(/等待推演事件/)).toBeTruthy()
   })
 
   it("simulating 对比模式渲染 BranchCompareView", async () => {
-    const mkBranch = (id: string, name: string) => ({
+    const mkBranch = (id: string, name: string): SimulationBranch => ({
       id, name, frameworkId: "fw1", mode: "event-driven", createdAt: new Date().toISOString(),
       timelineEvents: [], rumors: [], finalAgentSnapshots: [], directorEvaluations: [], overallScore: 3.5,
       scoreDetails: { avgDirectorScore: 3.5, eventCount: 2, characterDiversity: 1, plotProgression: 0.6 },
-    } as any)
+    })
     useStorySimulationStore.setState({
       phase: "simulating",
       timelineEvents: [makeEvent({ id: "e1" })],
@@ -417,7 +440,7 @@ describe("StorySimulationView 渲染分支", () => {
       branches: [mkBranch("b1", "B1"), mkBranch("b2", "B2")],
       isCompareMode: true,
       compareBranchIds: ["b1", "b2"],
-    } as any)
+    })
     render(<StorySimulationView />)
     // 对比模式下应渲染两个分支名（BranchCompareView 的图例）
     await waitFor(() => expect(document.body.innerHTML).toContain("B1"))
@@ -425,11 +448,11 @@ describe("StorySimulationView 渲染分支", () => {
   })
 
   it("report-viewing 对比模式与草稿视图分支", async () => {
-    const mkBranch = (id: string, name: string) => ({
+    const mkBranch = (id: string, name: string): SimulationBranch => ({
       id, name, frameworkId: "fw1", mode: "event-driven", createdAt: new Date().toISOString(),
       timelineEvents: [], rumors: [], finalAgentSnapshots: [], directorEvaluations: [], overallScore: 3.5,
       scoreDetails: { avgDirectorScore: 3.5, eventCount: 2, characterDiversity: 1, plotProgression: 0.6 },
-    } as any)
+    })
     useStorySimulationStore.setState({
       phase: "report-viewing",
       currentReport: makeReport(),
@@ -438,19 +461,19 @@ describe("StorySimulationView 渲染分支", () => {
       branches: [mkBranch("b1", "B1"), mkBranch("b2", "B2")],
       isCompareMode: true,
       compareBranchIds: ["b1", "b2"],
-    } as any)
+    })
     render(<StorySimulationView />)
     await waitFor(() => expect(document.body.innerHTML).toContain("B1"))
     cleanup()
     resetViewStore()
-    useStorySimulationStore.setState({ phase: "draft-viewing", currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [{ title: "t", content: "正文内容足够长用于断言", correspondingNode: 0 }], totalWords: 100, createdAt: new Date().toISOString() } as any, timelineEvents: [], debugTraces: [], currentRumors: [], currentAgents: new Map() } as any)
+    useStorySimulationStore.setState({ phase: "draft-viewing", currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [{ title: "t", content: "正文内容足够长用于断言", correspondingNode: 0 }], totalWords: 100, createdAt: new Date().toISOString() }, timelineEvents: [], debugTraces: [], currentRumors: [], currentAgents: new Map() })
     render(<StorySimulationView />)
     await waitFor(() => expect(document.body.innerHTML.length).toBeGreaterThan(0))
     expect(document.body.innerHTML).toContain("正文内容足够长用于断言")
   })
 
   it("handleResimulate / handleBackToReport / handleViewDraft 状态转移", async () => {
-    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [], totalWords: 0, createdAt: new Date().toISOString() } as any, timelineEvents: [makeEvent()], debugTraces: [], currentRumors: [], currentAgents: new Map(), currentFramework: makeFrameworkWithNodes() } as any)
+    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [], totalWords: 0, createdAt: new Date().toISOString() }, timelineEvents: [makeEvent()], debugTraces: [], currentRumors: [], currentAgents: new Map(), currentFramework: makeFrameworkWithNodes() })
     render(<StorySimulationView />)
     // 报告页有 resimulate 按钮
     fireEvent.click(screen.getByText("storySimulation.resimulate"))
@@ -459,7 +482,7 @@ describe("StorySimulationView 渲染分支", () => {
     cleanup()
     resetViewStore()
     // handleBackToReport：草稿视图返回报告
-    useStorySimulationStore.setState({ phase: "draft-viewing", currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [{ title: "t", content: "x", correspondingNode: 0 }], totalWords: 1, createdAt: new Date().toISOString() } as any, timelineEvents: [], debugTraces: [], currentRumors: [], currentAgents: new Map() } as any)
+    useStorySimulationStore.setState({ phase: "draft-viewing", currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [{ title: "t", content: "x", correspondingNode: 0 }], totalWords: 1, createdAt: new Date().toISOString() }, timelineEvents: [], debugTraces: [], currentRumors: [], currentAgents: new Map() })
     render(<StorySimulationView />)
     // StoryDraftView 的返回按钮 title=common.back
     const backBtn = document.querySelector('[aria-label="common.back"]') as HTMLElement
@@ -469,7 +492,7 @@ describe("StorySimulationView 渲染分支", () => {
   })
 
   it("空冲突事件提取显示错误并停留报告页", async () => {
-    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), timelineEvents: [makeEvent({ id: "x", actionType: "observe" as any, content: "旁观" })], currentFramework: makeFrameworkWithNodes() } as any)
+    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), timelineEvents: [makeEvent({ id: "x", actionType: "observe", content: "旁观" })], currentFramework: makeFrameworkWithNodes() })
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("时间线"))
     await waitFor(() => expect(screen.getByTestId("sim-extract-conflicts")).toBeTruthy())
@@ -479,7 +502,7 @@ describe("StorySimulationView 渲染分支", () => {
   })
 
   it("采访面板打开与关闭", async () => {
-    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), timelineEvents: [makeEvent()], currentAgents: new Map([["c1", makeMockAgent()]]), currentFramework: makeFrameworkWithNodes() } as any)
+    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), timelineEvents: [makeEvent()], currentAgents: new Map([["c1", makeMockAgent()]]), currentFramework: makeFrameworkWithNodes() })
     render(<StorySimulationView />)
     // 通过 tab=report 的采访按钮打开（每个角色一行 chatWith）
     const chatBtns = screen.getAllByText("storySimulation.chatWith")
@@ -516,7 +539,7 @@ describe("StorySimulationView handleStart/handleSave", () => {
 
   it("框架生成失败同样回 configuring", async () => {
     novelMocks.extractStoryContent.mockResolvedValue(makeExtraction())
-    novelMocks.generateDynamicEventPool.mockResolvedValue([] as any)
+    novelMocks.generateDynamicEventPool.mockResolvedValue([])
     novelMocks.generateStoryFramework.mockRejectedValue(new Error("gen fail"))
     useStorySimulationStore.setState({ phase: "configuring" })
     render(<StorySimulationView />)
@@ -543,8 +566,8 @@ describe("StorySimulationView handleStart/handleSave", () => {
 
   it("重新生成调用 handleStart", async () => {
     novelMocks.extractStoryContent.mockResolvedValue(makeExtraction())
-    novelMocks.generateDynamicEventPool.mockResolvedValue([] as any)
-    novelMocks.generateStoryFramework.mockResolvedValue(makeFrameworkWithNodes() as any)
+    novelMocks.generateDynamicEventPool.mockResolvedValue([])
+    novelMocks.generateStoryFramework.mockResolvedValue(makeFrameworkWithNodes())
     const fw = makeFrameworkWithNodes()
     useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw })
     render(<StorySimulationView />)
@@ -564,18 +587,18 @@ describe("StorySimulationView handleConfirmFramework", () => {
     const ev = makeEvent({ id: "sim-e1", content: "推演事件正文" })
     const report = makeReport()
     if (opts.withExtraction !== false) {
-      useStorySimulationStore.setState({ extractionResult: extraction } as any)
+      useStorySimulationStore.setState({ extractionResult: extraction })
     }
     useStorySimulationStore.setState({
       phase: "framework-confirming",
       currentFramework: fw,
-      frameworks: opts.withExistingFramework ? [fw] as any : [],
+      frameworks: opts.withExistingFramework ? [fw] : [],
       dynamicEventPool: opts.stagedPool
-        ? { byStage: { setup: [], rising: [], climax: [], resolution: [] }, all: [{ id: "s1", text: "evt", stage: "setup" }] } as any
-        : ["pool-evt"] as any,
+        ? { byStage: { setup: [], rising: [], climax: [], resolution: [] }, all: [{ id: "s1", text: "evt", stage: "setup" }] }
+        : ["pool-evt"],
       simulationRounds: 2,
-    } as any)
-    novelMocks.buildAgents.mockReturnValue([agent] as any)
+    })
+    novelMocks.buildAgents.mockReturnValue([agent])
     novelMocks.runSimulation.mockImplementation(async (_params: any, _ext: any, cb: any, _signal: any) => {
       cb?.onProgress?.(50, "half")
       cb?.onTelemetry?.({ latencyMs: 12, degraded: false, aborted: false, timestamp: new Date().toISOString() })
@@ -593,8 +616,8 @@ describe("StorySimulationView handleConfirmFramework", () => {
       o?.onProgress?.("gen")
       return report
     })
-    novelMocks.saveSimulationResult.mockResolvedValue(undefined as any)
-    novelMocks.loadSimulationResults.mockResolvedValue([{ id: "r1", frameworkId: "fw1", report, draft: null, timelineEvents: [ev], agentSnapshot: { agents: [], state: {} }, rumors: [], debugTraces: [], status: "complete", createdAt: report.createdAt }] as any)
+    novelMocks.saveSimulationResult.mockResolvedValue(undefined)
+    novelMocks.loadSimulationResults.mockResolvedValue([{ id: "r1", frameworkId: "fw1", report, draft: null, timelineEvents: [ev], agentSnapshot: { agents: [], state: {} }, rumors: [], debugTraces: [], status: "complete", createdAt: report.createdAt }])
     return { agent, fw, extraction, ev, report }
   }
 
@@ -638,20 +661,20 @@ describe("StorySimulationView handleConfirmFramework", () => {
       phase: "framework-confirming",
       currentFramework: fw,
       extractionResult: null,
-      frameworks: [fw] as any,
-      dynamicEventPool: { byStage: { setup: [], rising: [], climax: [], resolution: [] }, all: [{ id: "s1", text: "e", stage: "setup" }] } as any,
+      frameworks: [fw],
+      dynamicEventPool: { byStage: { setup: [], rising: [], climax: [], resolution: [] }, all: [{ id: "s1", text: "e", stage: "setup" }] },
       simulationRounds: 0,
-    } as any)
+    })
     novelMocks.extractStoryContent.mockImplementation(async (_p: any, o: any) => { o?.onProgress?.(5, "x"); return makeExtraction() })
-    novelMocks.buildAgents.mockReturnValue([agent] as any)
+    novelMocks.buildAgents.mockReturnValue([agent])
     novelMocks.runSimulation.mockImplementation(async (_p: any, _e: any, cb: any) => {
       cb?.onTimelineEvent?.(ev)
       cb?.onDebugTrace?.(makeDebugTrace(agent, 1))
       return [ev]
     })
-    novelMocks.generateSimulationReport.mockResolvedValue(report as any)
-    novelMocks.saveSimulationResult.mockResolvedValue(undefined as any)
-    novelMocks.loadSimulationResults.mockResolvedValue([] as any)
+    novelMocks.generateSimulationReport.mockResolvedValue(report)
+    novelMocks.saveSimulationResult.mockResolvedValue(undefined)
+    novelMocks.loadSimulationResults.mockResolvedValue([])
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.confirmFramework"))
     await waitFor(() => expect(useStorySimulationStore.getState().phase).toBe("report-viewing"), { timeout: 5000 })
@@ -663,8 +686,8 @@ describe("StorySimulationView handleConfirmFramework", () => {
 
   it("无 Agent 直接抛错回框架确认", async () => {
     const fw = makeFrameworkWithNodes()
-    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw] as any } as any)
-    novelMocks.buildAgents.mockReturnValue([] as any)
+    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw] })
+    novelMocks.buildAgents.mockReturnValue([])
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.confirmFramework"))
     await waitFor(() => expect(useStorySimulationStore.getState().phase).toBe("framework-confirming"))
@@ -673,8 +696,8 @@ describe("StorySimulationView handleConfirmFramework", () => {
 
   it("runSimulation 抛错回框架确认", async () => {
     const fw = makeFrameworkWithNodes()
-    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw] as any } as any)
-    novelMocks.buildAgents.mockReturnValue([makeMockAgent()] as any)
+    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw] })
+    novelMocks.buildAgents.mockReturnValue([makeMockAgent()])
     novelMocks.runSimulation.mockRejectedValue(new Error("engine boom"))
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.confirmFramework"))
@@ -686,8 +709,8 @@ describe("StorySimulationView handleConfirmFramework", () => {
     const agent = makeMockAgent()
     const fw = makeFrameworkWithNodes()
     const ev = makeEvent({ id: "e9" })
-    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw] as any } as any)
-    novelMocks.buildAgents.mockReturnValue([agent] as any)
+    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw] })
+    novelMocks.buildAgents.mockReturnValue([agent])
     novelMocks.runSimulation.mockImplementation(async (_p: any, _e: any, cb: any) => { cb?.onTimelineEvent?.(ev); cb?.onDebugTrace?.(makeDebugTrace(agent, 1)); return [ev] })
     novelMocks.generateSimulationReport.mockRejectedValue(new Error("report boom"))
     render(<StorySimulationView />)
@@ -701,8 +724,8 @@ describe("StorySimulationView handleConfirmFramework", () => {
     const fw = makeFrameworkWithNodes()
     const ev = makeEvent({ id: "e10" })
     const report = makeReport()
-    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw] as any, dynamicEventPool: [] as any } as any)
-    novelMocks.buildAgents.mockReturnValue([agent] as any)
+    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw], dynamicEventPool: [] })
+    novelMocks.buildAgents.mockReturnValue([agent])
     let seenPool: any = "sentinel"
     novelMocks.runSimulation.mockImplementation(async (params: any, _e: any, cb: any) => {
       seenPool = params.dynamicEventPool
@@ -710,7 +733,7 @@ describe("StorySimulationView handleConfirmFramework", () => {
       cb?.onDebugTrace?.(makeDebugTrace(agent, 1))
       return [ev]
     })
-    novelMocks.generateSimulationReport.mockResolvedValue(report as any)
+    novelMocks.generateSimulationReport.mockResolvedValue(report)
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     novelMocks.saveSimulationResult.mockRejectedValue(new Error("save fail"))
     render(<StorySimulationView />)
@@ -731,16 +754,20 @@ describe("StorySimulationView 历史结果选择与继续", () => {
     const fw = makeFrameworkWithNodes()
     const ev = makeEvent({ id: "h-e1", content: "历史事件" })
     const trace = makeDebugTrace(agent, 1)
-    const snap = { agents: [{ characterId: agent.characterId }], state: {} } as any
+    // 历史列表快照内容在此路径不被直接反序列化（deserialize mock 返回完整快照），用最小形状占位。
+    const snap: SerializedSimulationSnapshot = rawForDefense<SerializedSimulationSnapshot>({
+      agents: [{ characterId: agent.characterId }],
+      state: {},
+    })
     const report1 = { ...makeReport(), recommendation: "rec-one" }
     const report2 = { ...makeReport(), recommendation: "rec-two" }
-    const saved = [
+    const saved: SavedSimulationResult[] = [
       { id: "r1", frameworkId: "fw1", report: report1, draft: null, timelineEvents: [ev], agentSnapshot: snap, rumors: [], debugTraces: [trace], status: "complete", createdAt: report1.createdAt },
       { id: "r2", frameworkId: "fw1", report: report2, draft: null, timelineEvents: [ev], agentSnapshot: snap, rumors: [], debugTraces: [trace], status: "partial", partialReason: "中断", resume: { nextNodeIndex: 1, nextRound: 2, timelineEvents: [ev] }, createdAt: report2.createdAt },
-    ] as any
-    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, savedResults: saved, extractionResult: makeExtraction(), frameworks: [fw] as any } as any)
-    novelMocks.loadSimulationResults.mockResolvedValue(saved as any)
-    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 0, timelineEvents: [ev], activeAgents: new Map([[agent.characterId, agent]]), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } } as any)
+    ]
+    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, savedResults: saved, extractionResult: makeExtraction(), frameworks: [fw] })
+    novelMocks.loadSimulationResults.mockResolvedValue(saved)
+    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 0, timelineEvents: [ev], activeAgents: new Map([[agent.characterId, agent]]), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } })
     return { agent, fw, ev, trace, snap, report1, report2, saved }
   }
 
@@ -761,8 +788,8 @@ describe("StorySimulationView 历史结果选择与继续", () => {
     const { saved } = setupHistory()
     // 第二个结果去掉快照，覆盖无快照分支
     saved[1].agentSnapshot = null
-    useStorySimulationStore.setState({ savedResults: saved } as any)
-    novelMocks.loadSimulationResults.mockResolvedValue(saved as any)
+    useStorySimulationStore.setState({ savedResults: saved })
+    novelMocks.loadSimulationResults.mockResolvedValue(saved)
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.viewHistory"))
     await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy())
@@ -786,19 +813,19 @@ describe("StorySimulationView 历史结果选择与继续", () => {
 
   it("继续 partial 结果触发续跑并进入 simulating", async () => {
     const { agent, ev } = setupHistory()
-    novelMocks.buildAgents.mockReturnValue([agent] as any)
+    novelMocks.buildAgents.mockReturnValue([agent])
     // 续跑的 confirm mock：快速成功
     novelMocks.runSimulation.mockImplementation(async (_p: any, _e: any, cb: any) => {
       cb?.onTimelineEvent?.(ev)
       cb?.onDebugTrace?.(makeDebugTrace(agent, 5))
       return [ev]
     })
-    novelMocks.generateSimulationReport.mockResolvedValue(makeReport() as any)
-    novelMocks.saveSimulationResult.mockResolvedValue(undefined as any)
-    novelMocks.loadSimulationResults.mockResolvedValue([] as any)
+    novelMocks.generateSimulationReport.mockResolvedValue(makeReport())
+    novelMocks.saveSimulationResult.mockResolvedValue(undefined)
+    novelMocks.loadSimulationResults.mockResolvedValue([])
     // 恢复历史 modal 的列表 mock（续跑后 load 会被覆盖，保持原始 saved 供 modal 首屏）
     const savedForModal = useStorySimulationStore.getState().savedResults
-    novelMocks.loadSimulationResults.mockResolvedValueOnce(savedForModal as any)
+    novelMocks.loadSimulationResults.mockResolvedValueOnce(savedForModal)
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.viewHistory"))
     await waitFor(() => expect(screen.getByLabelText("rec-two")).toBeTruthy(), { timeout: 5000 })
@@ -814,16 +841,30 @@ describe("StorySimulationView 历史结果选择与继续", () => {
     const agent = makeMockAgent()
     const ev = makeEvent({ id: "se1" })
     const trace = makeDebugTrace(agent, 1)
-    const snap = { dummy: true } as any
+    // 损坏快照防御：历史文件损坏时 selectedResult 恢复应回退为空 agents；运行时确会收到此类脏数据。
+    const snap: SerializedSimulationSnapshot = rawForDefense<SerializedSimulationSnapshot>({ dummy: true })
     const report = makeReport()
+    const rumor: RumorEvent = {
+      id: "ru1",
+      round: 1,
+      nodeIndex: 0,
+      sourceId: null,
+      content: "r",
+      distortion: 0,
+      observableBy: [],
+      believedBy: [],
+      verifiedBy: [],
+      timestamp: new Date().toISOString(),
+      generation: 0,
+    }
     useStorySimulationStore.setState({
       phase: "report-viewing",
       currentReport: report,
       currentFramework: makeFrameworkWithNodes(),
-      savedResults: [{ id: "sel1", frameworkId: "fw1", report, draft: null, timelineEvents: [ev], agentSnapshot: snap, rumors: [{ id: "ru1" }], debugTraces: [trace], status: "complete", createdAt: report.createdAt }] as any,
+      savedResults: [{ id: "sel1", frameworkId: "fw1", report, draft: null, timelineEvents: [ev], agentSnapshot: snap, rumors: [rumor], debugTraces: [trace], status: "complete", createdAt: report.createdAt }],
       selectedResultId: null,
-    } as any)
-    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 1, timelineEvents: [ev], activeAgents: new Map([[agent.characterId, agent]]), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } } as any)
+    })
+    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 1, timelineEvents: [ev], activeAgents: new Map([[agent.characterId, agent]]), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } })
     render(<StorySimulationView />)
     // 触发 effect：设置 selectedResultId
     useStorySimulationStore.getState().setSelectedResultId("sel1")
@@ -840,7 +881,7 @@ describe("StorySimulationView 草稿生成", () => {
     const fw = makeFrameworkWithNodes()
     const report = makeReport()
     const ev = makeEvent({ id: "d-e1" })
-    const draft = { branchId: "b1", frameworkId: "fw1", chapters: [{ title: "t", content: "draft-body", correspondingNode: 0 }], totalWords: 100, createdAt: new Date().toISOString() } as any
+    const draft = { branchId: "b1", frameworkId: "fw1", chapters: [{ title: "t", content: "draft-body", correspondingNode: 0 }], totalWords: 100, createdAt: new Date().toISOString() }
     useStorySimulationStore.setState({
       phase: "report-viewing",
       currentFramework: fw,
@@ -849,15 +890,15 @@ describe("StorySimulationView 草稿生成", () => {
       currentRumors: [],
       debugTraces: [],
       currentAgents: new Map(),
-    } as any)
+    })
     return { fw, report, ev, draft }
   }
 
   it("缺输入直接报错", async () => {
-    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: null, currentReport: makeReport(), timelineEvents: [makeEvent()] } as any)
+    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: null, currentReport: makeReport(), timelineEvents: [makeEvent()] })
     render(<StorySimulationView />)
     // 无框架时 generateDraft 无法通过 UI 触发（按钮仍存在但 handler 早退），改为验证缺 draft 输入的 viewDraft 分支
-    useStorySimulationStore.setState({ currentDraft: null } as any)
+    useStorySimulationStore.setState({ currentDraft: null })
     // handleViewDraft 无 draft 时不切页
     expect(useStorySimulationStore.getState().phase).toBe("report-viewing")
     // 缺 currentReport 时 handleGenerateDraft 早退：直接调用需走 UI，验证 error 初始为空
@@ -867,8 +908,8 @@ describe("StorySimulationView 草稿生成", () => {
   it("成功生成草稿并保存", async () => {
     const { fw, report, draft } = setupDraft()
     novelMocks.generateStoryDraft.mockImplementation(async (o: any) => { o?.onProgress?.("half"); return draft })
-    novelMocks.saveSimulationResult.mockResolvedValue(undefined as any)
-    novelMocks.loadSimulationResults.mockResolvedValue([{ id: "r1", frameworkId: fw.id, report, draft, timelineEvents: [], agentSnapshot: null, rumors: [], debugTraces: [], status: "complete", createdAt: report.createdAt }] as any)
+    novelMocks.saveSimulationResult.mockResolvedValue(undefined)
+    novelMocks.loadSimulationResults.mockResolvedValue([{ id: "r1", frameworkId: fw.id, report, draft, timelineEvents: [], agentSnapshot: null, rumors: [], debugTraces: [], status: "complete", createdAt: report.createdAt }])
     render(<StorySimulationView />)
     fireEvent.click(screen.getAllByText("storySimulation.generateDraft")[0])
     await waitFor(() => expect(useStorySimulationStore.getState().phase).toBe("draft-viewing"), { timeout: 5000 })
@@ -889,7 +930,7 @@ describe("StorySimulationView 草稿生成", () => {
 
   it("保存草稿失败不阻断已生成草稿", async () => {
     const { draft } = setupDraft()
-    novelMocks.generateStoryDraft.mockResolvedValue(draft as any)
+    novelMocks.generateStoryDraft.mockResolvedValue(draft)
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     novelMocks.saveSimulationResult.mockRejectedValue(new Error("save fail"))
     render(<StorySimulationView />)
@@ -902,8 +943,8 @@ describe("StorySimulationView 草稿生成", () => {
   it("有草稿时可进入草稿视图", async () => {
     const fw = makeFrameworkWithNodes()
     const report = makeReport()
-    const draft = { branchId: "b", frameworkId: "fw1", chapters: [{ title: "t", content: "x", correspondingNode: 0 }], totalWords: 1, createdAt: new Date().toISOString() } as any
-    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: fw, currentReport: report, currentDraft: draft, timelineEvents: [makeEvent()], debugTraces: [], currentRumors: [], currentAgents: new Map() } as any)
+    const draft = { branchId: "b", frameworkId: "fw1", chapters: [{ title: "t", content: "x", correspondingNode: 0 }], totalWords: 1, createdAt: new Date().toISOString() }
+    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: fw, currentReport: report, currentDraft: draft, timelineEvents: [makeEvent()], debugTraces: [], currentRumors: [], currentAgents: new Map() })
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.viewDraft"))
     expect(useStorySimulationStore.getState().phase).toBe("draft-viewing")
@@ -918,8 +959,9 @@ describe("StorySimulationView 采访聊天", () => {
     const ev = makeEvent({ id: "chat-e1" })
     const report = makeReport()
     const fw = makeFrameworkWithNodes()
-    const snap = { dummy: true } as any
-    const saved = [{ id: "sel1", frameworkId: "fw1", report, draft: null, timelineEvents: [ev], agentSnapshot: snap, rumors: [], debugTraces: [], status: "complete", createdAt: report.createdAt }] as any
+    // 采访恢复路径不依赖快照内容（deserialize mock 返回完整快照），用最小形状占位。
+    const snap: SerializedSimulationSnapshot = rawForDefense<SerializedSimulationSnapshot>({ dummy: true })
+    const saved: SavedSimulationResult[] = [{ id: "sel1", frameworkId: "fw1", report, draft: null, timelineEvents: [ev], agentSnapshot: snap, rumors: [], debugTraces: [], status: "complete", createdAt: report.createdAt }]
     useStorySimulationStore.setState({
       phase: "report-viewing",
       currentFramework: fw,
@@ -930,14 +972,14 @@ describe("StorySimulationView 采访聊天", () => {
       agentChatMessages: [],
       savedResults: saved,
       selectedResultId: "sel1",
-    } as any)
-    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 0, timelineEvents: [ev], activeAgents: new Map([[agent.characterId, agent]]), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } } as any)
+    })
+    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 0, timelineEvents: [ev], activeAgents: new Map([[agent.characterId, agent]]), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } })
     return { agent, ev, report, fw, saved }
   }
 
   it("空输入不发送", async () => {
     setupChatBase()
-    novelMocks.interviewAgent.mockResolvedValue({ fullText: "", session: { agentId: "c1", agentName: "寨主", messages: [] } } as any)
+    novelMocks.interviewAgent.mockResolvedValue({ fullText: "", session: { agentId: "c1", agentName: "寨主", messages: [] } })
     render(<StorySimulationView />)
     await waitFor(() => expect(screen.getByPlaceholderText("storySimulation.chatPlaceholder")).toBeTruthy())
     // 不输入直接点发送（disabled），interview 不应被调用
@@ -950,7 +992,7 @@ describe("StorySimulationView 采访聊天", () => {
       opts?.onToken?.("hi ")
       opts?.onToken?.("there")
       opts?.onDone?.()
-      return { fullText: "hi there", session: { agentId: "c1", agentName: "寨主", messages: [] } } as any
+      return { fullText: "hi there", session: { agentId: "c1", agentName: "寨主", messages: [] } }
     })
     render(<StorySimulationView />)
     const input = screen.getByPlaceholderText("storySimulation.chatPlaceholder") as HTMLInputElement
@@ -975,7 +1017,7 @@ describe("StorySimulationView 采访聊天", () => {
     novelMocks.interviewAgent.mockImplementation(async (opts: any) => {
       opts?.onToken?.("part")
       opts?.onError?.(new Error("stream boom"))
-      return { fullText: "part", session: { agentId: "c1", agentName: "寨主", messages: [] } } as any
+      return { fullText: "part", session: { agentId: "c1", agentName: "寨主", messages: [] } }
     })
     render(<StorySimulationView />)
     fireEvent.change(screen.getByPlaceholderText("storySimulation.chatPlaceholder"), { target: { value: "hi" } })
@@ -996,9 +1038,9 @@ describe("StorySimulationView 采访聊天", () => {
     useStorySimulationStore.setState({
       phase: "report-viewing", currentFramework: fw, currentReport: makeReport(), timelineEvents: [makeEvent()],
       currentAgents: new Map(), activeChatAgent: { id: "c1", name: "寨主" }, agentChatMessages: [], savedResults: [], selectedResultId: null,
-    } as any)
+    })
     // deserialize 无快照时仍返回空，保证 refs 为空：mock 返回空 agents
-    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [], state: { currentRound: 0, timelineEvents: [], activeAgents: new Map(), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } } as any)
+    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [], state: { currentRound: 0, timelineEvents: [], activeAgents: new Map(), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } })
     render(<StorySimulationView />)
     fireEvent.change(screen.getByPlaceholderText("storySimulation.chatPlaceholder"), { target: { value: "hello" } })
     fireEvent.click(screen.getByTitle("chat.send"))
@@ -1010,8 +1052,8 @@ describe("StorySimulationView 采访聊天", () => {
     const agent = makeMockAgent("other-id", "寨主")
     setupChatBase(agent)
     // activeChatAgent id 不匹配，但名字匹配，应仍找到
-    useStorySimulationStore.setState({ activeChatAgent: { id: "mismatch", name: "寨主" } } as any)
-    novelMocks.interviewAgent.mockImplementation(async (opts: any) => { opts?.onDone?.(); return { fullText: "", session: { agentId: "x", agentName: "y", messages: [] } } as any })
+    useStorySimulationStore.setState({ activeChatAgent: { id: "mismatch", name: "寨主" } })
+    novelMocks.interviewAgent.mockImplementation(async (opts: any) => { opts?.onDone?.(); return { fullText: "", session: { agentId: "x", agentName: "y", messages: [] } } })
     render(<StorySimulationView />)
     fireEvent.change(screen.getByPlaceholderText("storySimulation.chatPlaceholder"), { target: { value: "hi" } })
     fireEvent.click(screen.getByTitle("chat.send"))
@@ -1020,7 +1062,7 @@ describe("StorySimulationView 采访聊天", () => {
     resetViewStore()
     // agent 不存在
     setupChatBase(makeMockAgent("c1", "寨主"))
-    useStorySimulationStore.setState({ activeChatAgent: { id: "nope", name: " nobody " } } as any)
+    useStorySimulationStore.setState({ activeChatAgent: { id: "nope", name: " nobody " } })
     render(<StorySimulationView />)
     fireEvent.change(screen.getByPlaceholderText("storySimulation.chatPlaceholder"), { target: { value: "hi" } })
     fireEvent.click(screen.getByTitle("chat.send"))
@@ -1030,9 +1072,9 @@ describe("StorySimulationView 采访聊天", () => {
   it("导出与保存聊天", async () => {
     setupChatBase()
     const msgs = [{ id: "m1", role: "user" as const, content: "hi", timestamp: new Date().toISOString() }]
-    useStorySimulationStore.setState({ agentChatMessages: msgs } as any)
-    novelMocks.exportInterview.mockResolvedValue("C:/proj/a.md" as any)
-    novelMocks.saveInterview.mockResolvedValue(undefined as any)
+    useStorySimulationStore.setState({ agentChatMessages: msgs })
+    novelMocks.exportInterview.mockResolvedValue("C:/proj/a.md")
+    novelMocks.saveInterview.mockResolvedValue(undefined)
     render(<StorySimulationView />)
     fireEvent.click(screen.getByTitle("storySimulation.exportChatMd"))
     await waitFor(() => expect(novelMocks.exportInterview).toHaveBeenCalled())
@@ -1044,7 +1086,7 @@ describe("StorySimulationView 采访聊天", () => {
 
   it("导出失败与保存失败报错", async () => {
     setupChatBase()
-    useStorySimulationStore.setState({ agentChatMessages: [{ id: "m1", role: "user" as const, content: "hi", timestamp: new Date().toISOString() }] } as any)
+    useStorySimulationStore.setState({ agentChatMessages: [{ id: "m1", role: "user" as const, content: "hi", timestamp: new Date().toISOString() }] })
     novelMocks.exportInterview.mockRejectedValue(new Error("export boom"))
     render(<StorySimulationView />)
     fireEvent.click(screen.getByTitle("storySimulation.exportChatMd"))
@@ -1052,7 +1094,7 @@ describe("StorySimulationView 采访聊天", () => {
     cleanup()
     resetViewStore()
     setupChatBase()
-    useStorySimulationStore.setState({ agentChatMessages: [{ id: "m1", role: "user" as const, content: "hi", timestamp: new Date().toISOString() }] } as any)
+    useStorySimulationStore.setState({ agentChatMessages: [{ id: "m1", role: "user" as const, content: "hi", timestamp: new Date().toISOString() }] })
     novelMocks.saveInterview.mockRejectedValue(new Error("save boom"))
     render(<StorySimulationView />)
     fireEvent.click(screen.getByTitle("storySimulation.saveInterviewTip"))
@@ -1066,23 +1108,23 @@ describe("StorySimulationView 续聊恢复与取消", () => {
 
   it("continuingInterview 从采访快照恢复", async () => {
     const agent = makeMockAgent()
-    const snap = { dummy: 1 } as any
-    novelMocks.loadInterviews.mockResolvedValue([{ id: "int1", agentId: "c1", agentName: "寨主", session: { agentId: "c1", agentName: "寨主", messages: [] }, agentSnapshot: snap, frameworkId: "fw1" }] as any)
-    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 2, timelineEvents: [], activeAgents: new Map([[agent.characterId, agent]]), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } } as any)
-    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), currentFramework: makeFrameworkWithNodes(), continuingInterviewId: "int1" } as any)
+    const snap = { dummy: 1 }
+    novelMocks.loadInterviews.mockResolvedValue([{ id: "int1", agentId: "c1", agentName: "寨主", session: { agentId: "c1", agentName: "寨主", messages: [] }, agentSnapshot: snap, frameworkId: "fw1" }])
+    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 2, timelineEvents: [], activeAgents: new Map([[agent.characterId, agent]]), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } })
+    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), currentFramework: makeFrameworkWithNodes(), continuingInterviewId: "int1" })
     render(<StorySimulationView />)
     // 恢复是异步 effect，等待 interviewAgent 可用即证明 refs 已填充：直接发消息
-    novelMocks.interviewAgent.mockImplementation(async (opts: any) => { opts?.onDone?.(); return { fullText: "", session: { agentId: "c1", agentName: "寨主", messages: [] } } as any })
-    useStorySimulationStore.setState({ activeChatAgent: { id: "c1", name: "寨主" }, agentChatMessages: [] } as any)
+    novelMocks.interviewAgent.mockImplementation(async (opts: any) => { opts?.onDone?.(); return { fullText: "", session: { agentId: "c1", agentName: "寨主", messages: [] } } })
+    useStorySimulationStore.setState({ activeChatAgent: { id: "c1", name: "寨主" }, agentChatMessages: [] })
     await waitFor(() => expect(novelMocks.loadInterviews).toHaveBeenCalled())
   })
 
   it("continuingInterview 无快照时从推演结果恢复", async () => {
     const agent = makeMockAgent()
-    novelMocks.loadInterviews.mockResolvedValue([{ id: "int2", agentId: "c1", agentName: "寨主", session: { agentId: "c1", agentName: "寨主", messages: [] }, frameworkId: "fw1" }] as any)
-    novelMocks.loadSimulationResults.mockResolvedValue([{ id: "r1", agentSnapshot: { dummy: 1 }, frameworkId: "fw1", report: makeReport() }] as any)
-    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 1, timelineEvents: [], activeAgents: new Map(), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } } as any)
-    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), currentFramework: makeFrameworkWithNodes(), continuingInterviewId: "int2" } as any)
+    novelMocks.loadInterviews.mockResolvedValue([{ id: "int2", agentId: "c1", agentName: "寨主", session: { agentId: "c1", agentName: "寨主", messages: [] }, frameworkId: "fw1" }])
+    novelMocks.loadSimulationResults.mockResolvedValue([{ id: "r1", agentSnapshot: { dummy: 1 }, frameworkId: "fw1", report: makeReport() }])
+    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 1, timelineEvents: [], activeAgents: new Map(), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } })
+    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), currentFramework: makeFrameworkWithNodes(), continuingInterviewId: "int2" })
     render(<StorySimulationView />)
     await waitFor(() => expect(novelMocks.loadSimulationResults).toHaveBeenCalled())
   })
@@ -1090,7 +1132,7 @@ describe("StorySimulationView 续聊恢复与取消", () => {
   it("continuingInterview 恢复失败不崩", async () => {
     novelMocks.loadInterviews.mockRejectedValue(new Error("load fail"))
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), currentFramework: makeFrameworkWithNodes(), continuingInterviewId: "bad" } as any)
+    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), currentFramework: makeFrameworkWithNodes(), continuingInterviewId: "bad" })
     render(<StorySimulationView />)
     await waitFor(() => expect(novelMocks.loadInterviews).toHaveBeenCalled())
     // 错误被 console.error 吞掉，页面不报错
@@ -1100,7 +1142,7 @@ describe("StorySimulationView 续聊恢复与取消", () => {
 
   it("取消无控制器时静默， abort 触发部分保存", async () => {
     // 无控制器：进度页取消不报错
-    useStorySimulationStore.setState({ phase: "extracting", progress: 10, progressLabel: "x" } as any)
+    useStorySimulationStore.setState({ phase: "extracting", progress: 10, progressLabel: "x" })
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("取消"))
     expect(useStorySimulationStore.getState().error).toBeNull()
@@ -1110,16 +1152,16 @@ describe("StorySimulationView 续聊恢复与取消", () => {
     const agent = makeMockAgent()
     const fw = makeFrameworkWithNodes()
     const ev = makeEvent({ id: "cancel-e1", content: "取消前事件" })
-    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw] as any, timelineEvents: [], debugTraces: [] } as any)
-    novelMocks.buildAgents.mockReturnValue([agent] as any)
+    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw], timelineEvents: [], debugTraces: [] })
+    novelMocks.buildAgents.mockReturnValue([agent])
     novelMocks.runSimulation.mockImplementation(async (_p: any, _e: any, cb: any, signal: any) => {
       cb?.onTimelineEvent?.(ev)
       await new Promise((r) => setTimeout(r, 300))
       if (signal?.aborted) throw new DOMException("aborted", "AbortError")
       return [ev]
     })
-    novelMocks.saveSimulationResult.mockResolvedValue(undefined as any)
-    novelMocks.loadSimulationResults.mockResolvedValue([] as any)
+    novelMocks.saveSimulationResult.mockResolvedValue(undefined)
+    novelMocks.loadSimulationResults.mockResolvedValue([])
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.confirmFramework"))
     // 等待进入 simulating 出现取消按钮后点取消
@@ -1137,8 +1179,8 @@ describe("StorySimulationView 续聊恢复与取消", () => {
   it("空时间线取消直接返回不保存", async () => {
     const agent = makeMockAgent()
     const fw = makeFrameworkWithNodes()
-    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw] as any, timelineEvents: [], debugTraces: [] } as any)
-    novelMocks.buildAgents.mockReturnValue([agent] as any)
+    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw], timelineEvents: [], debugTraces: [] })
+    novelMocks.buildAgents.mockReturnValue([agent])
     novelMocks.runSimulation.mockImplementation(async (_p: any, _e: any, _cb: any, signal: any) => {
       await new Promise((r) => setTimeout(r, 200))
       if (signal?.aborted) throw new DOMException("aborted", "AbortError")
@@ -1165,16 +1207,16 @@ describe("StorySimulationView 中断与回调全覆盖", () => {
     const agent = makeMockAgent()
     const fw = makeFrameworkWithNodes()
     const ev = makeEvent({ id: "abort-e1", content: "x".repeat(10) })
-    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw] as any, dynamicEventPool: [] as any } as any)
-    novelMocks.buildAgents.mockReturnValue([agent] as any)
+    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw], dynamicEventPool: [] })
+    novelMocks.buildAgents.mockReturnValue([agent])
     // run 延迟 400ms 后正常 resolve，但期间被 abort：覆盖 661 分支（resolve 后检查 aborted）
     novelMocks.runSimulation.mockImplementation(async (_p: any, _e: any, cb: any) => {
       cb?.onTimelineEvent?.(ev)
       await new Promise((r) => setTimeout(r, 400))
       return [ev]
     })
-    novelMocks.saveSimulationResult.mockResolvedValue(undefined as any)
-    novelMocks.loadSimulationResults.mockResolvedValue([{ id: "r1", frameworkId: fw.id, report: makeReport(), draft: null, timelineEvents: [ev], agentSnapshot: null, rumors: [], debugTraces: [], status: "cancelled", createdAt: new Date().toISOString() }] as any)
+    novelMocks.saveSimulationResult.mockResolvedValue(undefined)
+    novelMocks.loadSimulationResults.mockResolvedValue([{ id: "r1", frameworkId: fw.id, report: makeReport(), draft: null, timelineEvents: [ev], agentSnapshot: null, rumors: [], debugTraces: [], status: "cancelled", createdAt: new Date().toISOString() }])
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.confirmFramework"))
     await waitFor(() => expect(screen.queryByText("取消推演")).toBeTruthy(), { timeout: 5000 })
@@ -1189,15 +1231,15 @@ describe("StorySimulationView 中断与回调全覆盖", () => {
     const agent = makeMockAgent()
     const fw = makeFrameworkWithNodes()
     const ev = makeEvent({ id: "abort-e2" })
-    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw] as any } as any)
-    novelMocks.buildAgents.mockReturnValue([agent] as any)
+    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw] })
+    novelMocks.buildAgents.mockReturnValue([agent])
     novelMocks.runSimulation.mockImplementation(async (_p: any, _e: any, cb: any) => { cb?.onTimelineEvent?.(ev); return [ev] })
     novelMocks.generateSimulationReport.mockImplementation(async () => {
       await new Promise((r) => setTimeout(r, 400))
       return makeReport()
     })
-    novelMocks.saveSimulationResult.mockResolvedValue(undefined as any)
-    novelMocks.loadSimulationResults.mockResolvedValue([] as any)
+    novelMocks.saveSimulationResult.mockResolvedValue(undefined)
+    novelMocks.loadSimulationResults.mockResolvedValue([])
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.confirmFramework"))
     // 等待进入 report-generating（进度 80% + 取消按钮“取消”）后取消
@@ -1211,7 +1253,7 @@ describe("StorySimulationView 中断与回调全覆盖", () => {
     // 缺输入：无项目时点生成（需先进入 report-viewing 且有生成按钮）
     const fw = makeFrameworkWithNodes()
     const report = makeReport()
-    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: fw, currentReport: report, timelineEvents: [makeEvent()], currentAgents: new Map() } as any)
+    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: fw, currentReport: report, timelineEvents: [makeEvent()], currentAgents: new Map() })
     wikiState.project = null
     render(<StorySimulationView />)
     fireEvent.click(screen.getAllByText("storySimulation.generateDraft")[0])
@@ -1219,8 +1261,8 @@ describe("StorySimulationView 中断与回调全覆盖", () => {
     cleanup()
     resetViewStore()
     // 生成中取消：覆盖 821 分支
-    const draft = { branchId: "b1", frameworkId: "fw1", chapters: [{ title: "t", content: "x", correspondingNode: 0 }], totalWords: 1, createdAt: new Date().toISOString() } as any
-    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: makeFrameworkWithNodes(), currentReport: makeReport(), timelineEvents: [makeEvent()], currentAgents: new Map() } as any)
+    const draft = { branchId: "b1", frameworkId: "fw1", chapters: [{ title: "t", content: "x", correspondingNode: 0 }], totalWords: 1, createdAt: new Date().toISOString() }
+    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: makeFrameworkWithNodes(), currentReport: makeReport(), timelineEvents: [makeEvent()], currentAgents: new Map() })
     novelMocks.generateStoryDraft.mockImplementation(async () => { await new Promise((r) => setTimeout(r, 400)); return draft })
     render(<StorySimulationView />)
     fireEvent.click(screen.getAllByText("storySimulation.generateDraft")[0])
@@ -1231,7 +1273,7 @@ describe("StorySimulationView 中断与回调全覆盖", () => {
   })
 
   it("草稿抛错时 abort 与非 abort 分支", async () => {
-    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: makeFrameworkWithNodes(), currentReport: makeReport(), timelineEvents: [makeEvent()], currentAgents: new Map() } as any)
+    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: makeFrameworkWithNodes(), currentReport: makeReport(), timelineEvents: [makeEvent()], currentAgents: new Map() })
     // 非 abort 抛错
     novelMocks.generateStoryDraft.mockRejectedValueOnce(new Error("draft fail"))
     render(<StorySimulationView />)
@@ -1240,7 +1282,7 @@ describe("StorySimulationView 中断与回调全覆盖", () => {
     cleanup()
     resetViewStore()
     // abort 抛错：mock 直接 throw AbortError 且 signal 已 abort
-    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: makeFrameworkWithNodes(), currentReport: makeReport(), timelineEvents: [makeEvent()], currentAgents: new Map() } as any)
+    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: makeFrameworkWithNodes(), currentReport: makeReport(), timelineEvents: [makeEvent()], currentAgents: new Map() })
     novelMocks.generateStoryDraft.mockImplementation(async (_o: any) => {
       await new Promise((r) => setTimeout(r, 200))
       const e = new DOMException("aborted", "AbortError")
@@ -1257,7 +1299,7 @@ describe("StorySimulationView 中断与回调全覆盖", () => {
     // 保存早退：无项目时点保存直接返回
     const fw = makeFrameworkWithNodes()
     wikiState.project = null
-    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw } as any)
+    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw })
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.saveFramework"))
     await new Promise((r) => setTimeout(r, 100))
@@ -1265,8 +1307,8 @@ describe("StorySimulationView 中断与回调全覆盖", () => {
     cleanup()
     resetViewStore()
     // 历史选择 ghost id 早退
-    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, savedResults: [] as any, extractionResult: makeExtraction(), frameworks: [fw] as any } as any)
-    novelMocks.loadSimulationResults.mockResolvedValue([{ id: "ghost", frameworkId: "fw1", report: { ...makeReport(), recommendation: "ghost-rec" }, draft: null, timelineEvents: [], agentSnapshot: null, rumors: [], debugTraces: [], status: "complete", createdAt: new Date().toISOString() }] as any)
+    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, savedResults: [], extractionResult: makeExtraction(), frameworks: [fw] })
+    novelMocks.loadSimulationResults.mockResolvedValue([{ id: "ghost", frameworkId: "fw1", report: { ...makeReport(), recommendation: "ghost-rec" }, draft: null, timelineEvents: [], agentSnapshot: null, rumors: [], debugTraces: [], status: "complete", createdAt: new Date().toISOString() }])
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.viewHistory"))
     await waitFor(() => expect(screen.getByLabelText("ghost-rec")).toBeTruthy(), { timeout: 5000 })
@@ -1277,8 +1319,8 @@ describe("StorySimulationView 中断与回调全覆盖", () => {
     resetViewStore()
     // 继续 partial 无 resume 早退
     const report = makeReport()
-    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, savedResults: [{ id: "noresume", frameworkId: "fw1", report, draft: null, timelineEvents: [], agentSnapshot: null, rumors: [], debugTraces: [], status: "partial", createdAt: report.createdAt }] as any, extractionResult: makeExtraction(), frameworks: [fw] as any } as any)
-    novelMocks.loadSimulationResults.mockResolvedValue(useStorySimulationStore.getState().savedResults as any)
+    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, savedResults: [{ id: "noresume", frameworkId: "fw1", report, draft: null, timelineEvents: [], agentSnapshot: null, rumors: [], debugTraces: [], status: "partial", createdAt: report.createdAt }], extractionResult: makeExtraction(), frameworks: [fw] })
+    novelMocks.loadSimulationResults.mockResolvedValue(useStorySimulationStore.getState().savedResults)
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.viewHistory"))
     await waitFor(() => expect(screen.getByText("storySimulation.continueSimulation")).toBeTruthy(), { timeout: 5000 })
@@ -1292,20 +1334,21 @@ describe("StorySimulationView 中断与回调全覆盖", () => {
     const fw = makeFrameworkWithNodes()
     const ev = makeEvent({ id: "resume-corrupt-e" })
     const report = makeReport()
-    const badSnap = { corrupt: true } as any
+    // 损坏快照防御：历史文件损坏时续跑应回退为空 agents；运行时确会收到此类脏数据。
+    const badSnap: SerializedSimulationSnapshot = rawForDefense<SerializedSimulationSnapshot>({ corrupt: true })
     useStorySimulationStore.setState({
       phase: "framework-confirming", currentFramework: fw,
-      savedResults: [{ id: "bad", frameworkId: "fw1", report, draft: null, timelineEvents: [ev], agentSnapshot: badSnap, rumors: [], debugTraces: [], status: "partial", partialReason: "x", resume: { nextNodeIndex: 0, nextRound: 1, timelineEvents: [ev] }, createdAt: report.createdAt }] as any,
-      extractionResult: makeExtraction(), frameworks: [fw] as any,
-    } as any)
+      savedResults: [{ id: "bad", frameworkId: "fw1", report, draft: null, timelineEvents: [ev], agentSnapshot: badSnap, rumors: [], debugTraces: [], status: "partial", partialReason: "x", resume: { nextNodeIndex: 0, nextRound: 1, timelineEvents: [ev] }, createdAt: report.createdAt }],
+      extractionResult: makeExtraction(), frameworks: [fw],
+    })
     // 续跑的 deserialize 抛错一次（handleContinue 内），之后 confirm 内的 deserialize 也抛但被吞
     novelMocks.deserializeSimulationSnapshot.mockImplementation(() => { throw new Error("bad") })
-    novelMocks.buildAgents.mockReturnValue([agent] as any)
+    novelMocks.buildAgents.mockReturnValue([agent])
     novelMocks.runSimulation.mockImplementation(async (_p: any, _e: any, cb: any) => { cb?.onTimelineEvent?.(ev); return [ev] })
-    novelMocks.generateSimulationReport.mockResolvedValue(report as any)
-    novelMocks.saveSimulationResult.mockResolvedValue(undefined as any)
-    novelMocks.loadSimulationResults.mockResolvedValue([] as any)
-    novelMocks.loadSimulationResults.mockResolvedValueOnce(useStorySimulationStore.getState().savedResults as any)
+    novelMocks.generateSimulationReport.mockResolvedValue(report)
+    novelMocks.saveSimulationResult.mockResolvedValue(undefined)
+    novelMocks.loadSimulationResults.mockResolvedValue([])
+    novelMocks.loadSimulationResults.mockResolvedValueOnce(useStorySimulationStore.getState().savedResults)
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.viewHistory"))
     await waitFor(() => expect(screen.getByText("storySimulation.continueSimulation")).toBeTruthy(), { timeout: 5000 })
@@ -1321,7 +1364,7 @@ describe("StorySimulationView 收尾覆盖", () => {
 
   it("导出/保存早退不调用", async () => {
     const fw = makeFrameworkWithNodes()
-    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: fw, currentReport: makeReport(), timelineEvents: [makeEvent()], activeChatAgent: { id: "c1", name: "寨主" }, agentChatMessages: [] } as any)
+    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: fw, currentReport: makeReport(), timelineEvents: [makeEvent()], activeChatAgent: { id: "c1", name: "寨主" }, agentChatMessages: [] })
     render(<StorySimulationView />)
     // 消息为空时导出/保存按钮 disabled，点击不应调用
     expect(novelMocks.exportInterview).not.toHaveBeenCalled()
@@ -1370,8 +1413,8 @@ describe("StorySimulationView 收尾覆盖", () => {
 
   it("空输入回车早退", async () => {
     const agent = makeMockAgent()
-    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: makeFrameworkWithNodes(), currentReport: makeReport(), timelineEvents: [makeEvent()], currentAgents: new Map([[agent.characterId, agent]]), activeChatAgent: { id: agent.characterId, name: agent.name }, agentChatMessages: [] } as any)
-    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 0, timelineEvents: [], activeAgents: new Map(), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } } as any)
+    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: makeFrameworkWithNodes(), currentReport: makeReport(), timelineEvents: [makeEvent()], currentAgents: new Map([[agent.characterId, agent]]), activeChatAgent: { id: agent.characterId, name: agent.name }, agentChatMessages: [] })
+    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 0, timelineEvents: [], activeAgents: new Map(), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } })
     render(<StorySimulationView />)
     const input = screen.getByPlaceholderText("storySimulation.chatPlaceholder")
     fireEvent.keyDown(input, { key: "Enter", shiftKey: false })
@@ -1383,17 +1426,18 @@ describe("StorySimulationView 收尾覆盖", () => {
     const agent = makeMockAgent()
     const ev = makeEvent({ id: "restore-e1" })
     const report = makeReport()
-    const snap = { ok: 1 } as any
+    // 恢复路径快照内容由 deserialize mock 提供，此处仅占位（历史脏数据形状）。
+    const snap: SerializedSimulationSnapshot = rawForDefense<SerializedSimulationSnapshot>({ ok: 1 })
     // refs 为空：不预置 currentAgents，依靠 selectedResult 恢复
     useStorySimulationStore.setState({
       phase: "report-viewing", currentFramework: makeFrameworkWithNodes(), currentReport: report, timelineEvents: [ev],
       currentAgents: new Map(), activeChatAgent: { id: agent.characterId, name: agent.name }, agentChatMessages: [],
-      savedResults: [{ id: "rs1", frameworkId: "fw1", report, draft: null, timelineEvents: [ev], agentSnapshot: snap, rumors: [], debugTraces: [], status: "complete", createdAt: report.createdAt }] as any,
+      savedResults: [{ id: "rs1", frameworkId: "fw1", report, draft: null, timelineEvents: [ev], agentSnapshot: snap, rumors: [], debugTraces: [], status: "complete", createdAt: report.createdAt }],
       selectedResultId: "rs1",
-    } as any)
+    })
     // selectedResult effect 会先恢复一次，handleSendChat 内再次恢复也应走通
-    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 0, timelineEvents: [ev], activeAgents: new Map([[agent.characterId, agent]]), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } } as any)
-    novelMocks.interviewAgent.mockImplementation(async (opts: any) => { opts?.onDone?.(); return { fullText: "", session: { agentId: "c1", agentName: "寨主", messages: [] } } as any })
+    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 0, timelineEvents: [ev], activeAgents: new Map([[agent.characterId, agent]]), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } })
+    novelMocks.interviewAgent.mockImplementation(async (opts: any) => { opts?.onDone?.(); return { fullText: "", session: { agentId: "c1", agentName: "寨主", messages: [] } } })
     render(<StorySimulationView />)
     // 等待 effect 填充 refs 后再发送（refs 已有则不走恢复分支，为覆盖恢复分支需先清空 refs？此处 effect 已填充，handleSendChat 将直接走正常分支）
     // 为强制走恢复分支，等待后手动清空 refs 的唯一方式是重新渲染空 refs？改用直接验证恢复逻辑：发送应成功
@@ -1410,9 +1454,9 @@ describe("StorySimulationView 收尾覆盖", () => {
     useStorySimulationStore.setState({
       phase: "report-viewing", currentFramework: makeFrameworkWithNodes(), currentReport: report, timelineEvents: [ev],
       currentAgents: new Map(), activeChatAgent: { id: agent.characterId, name: agent.name }, agentChatMessages: [],
-      savedResults: [{ id: "bad1", frameworkId: "fw1", report, draft: null, timelineEvents: [ev], agentSnapshot: { bad: 1 }, rumors: [], debugTraces: [], status: "complete", createdAt: report.createdAt }] as any,
+      savedResults: [{ id: "bad1", frameworkId: "fw1", report, draft: null, timelineEvents: [ev], agentSnapshot: rawForDefense<SerializedSimulationSnapshot>({ bad: 1 }), rumors: [], debugTraces: [], status: "complete", createdAt: report.createdAt }],
       selectedResultId: "bad1",
-    } as any)
+    })
     novelMocks.deserializeSimulationSnapshot.mockImplementation(() => { throw new Error("corrupt") })
     render(<StorySimulationView />)
     // effect 的 deserialize 也会抛，但 handleSendChat 的恢复分支应报错 restoreAgentFailed
@@ -1428,23 +1472,23 @@ describe("StorySimulationView 收尾覆盖", () => {
     const ev = makeEvent({ id: "save-e1" })
     // 先通过 confirm 填充 refs
     const fw = makeFrameworkWithNodes()
-    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw] as any, dynamicEventPool: [] as any } as any)
-    novelMocks.buildAgents.mockReturnValue([agent] as any)
+    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw], dynamicEventPool: [] })
+    novelMocks.buildAgents.mockReturnValue([agent])
     novelMocks.runSimulation.mockImplementation(async (_p: any, _e: any, cb: any) => { cb?.onTimelineEvent?.(ev); cb?.onDebugTrace?.(makeDebugTrace(agent, 1)); return [ev] })
-    novelMocks.generateSimulationReport.mockResolvedValue(makeReport() as any)
-    novelMocks.saveSimulationResult.mockResolvedValue(undefined as any)
-    novelMocks.loadSimulationResults.mockResolvedValue([] as any)
+    novelMocks.generateSimulationReport.mockResolvedValue(makeReport())
+    novelMocks.saveSimulationResult.mockResolvedValue(undefined)
+    novelMocks.loadSimulationResults.mockResolvedValue([])
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.confirmFramework"))
     await waitFor(() => expect(useStorySimulationStore.getState().phase).toBe("report-viewing"), { timeout: 5000 })
     // 进入采访并保存，continuingInterviewId 存在且 confirm 返回 true → existingId 被设置
-    useStorySimulationStore.setState({ activeChatAgent: { id: agent.characterId, name: agent.name }, agentChatMessages: [{ id: "m1", role: "user" as const, content: "hi", timestamp: new Date().toISOString() }], continuingInterviewId: "int-keep" } as any)
-    novelMocks.saveInterview.mockResolvedValue(undefined as any)
-    novelMocks.serializeSimulationState.mockReturnValue({ agents: [], state: {} } as any)
+    useStorySimulationStore.setState({ activeChatAgent: { id: agent.characterId, name: agent.name }, agentChatMessages: [{ id: "m1", role: "user" as const, content: "hi", timestamp: new Date().toISOString() }], continuingInterviewId: "int-keep" })
+    novelMocks.saveInterview.mockResolvedValue(undefined)
+    novelMocks.serializeSimulationState.mockReturnValue({ agents: [], state: {} })
     await waitFor(() => expect(screen.queryByTitle("storySimulation.saveInterviewTip")).toBeTruthy(), { timeout: 5000 })
     fireEvent.click(screen.getByTitle("storySimulation.saveInterviewTip"))
     await waitFor(() => expect(novelMocks.saveInterview).toHaveBeenCalled())
-    const saveOpts = (novelMocks.saveInterview.mock.calls[0] as any)[2]
+    const saveOpts = (novelMocks.saveInterview.mock.calls[0])[2]
     expect(saveOpts.existingId).toBe("int-keep")
     expect(useStorySimulationStore.getState().continuingInterviewId).toBeNull()
   })
@@ -1453,16 +1497,16 @@ describe("StorySimulationView 收尾覆盖", () => {
     const agent = makeMockAgent()
     const ev = makeEvent({ id: "throttle-e" })
     const report = makeReport()
-    const snap = { ok: 1 } as any
-    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: makeFrameworkWithNodes(), currentReport: report, timelineEvents: [ev], currentAgents: new Map([[agent.characterId, agent]]), activeChatAgent: { id: agent.characterId, name: agent.name }, agentChatMessages: [], savedResults: [{ id: "th1", frameworkId: "fw1", report, draft: null, timelineEvents: [ev], agentSnapshot: snap, rumors: [], debugTraces: [], status: "complete", createdAt: report.createdAt }] as any, selectedResultId: "th1" } as any)
-    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 0, timelineEvents: [], activeAgents: new Map(), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } } as any)
+    const snap: SerializedSimulationSnapshot = rawForDefense<SerializedSimulationSnapshot>({ ok: 1 })
+    useStorySimulationStore.setState({ phase: "report-viewing", currentFramework: makeFrameworkWithNodes(), currentReport: report, timelineEvents: [ev], currentAgents: new Map([[agent.characterId, agent]]), activeChatAgent: { id: agent.characterId, name: agent.name }, agentChatMessages: [], savedResults: [{ id: "th1", frameworkId: "fw1", report, draft: null, timelineEvents: [ev], agentSnapshot: snap, rumors: [], debugTraces: [], status: "complete", createdAt: report.createdAt }], selectedResultId: "th1" })
+    novelMocks.deserializeSimulationSnapshot.mockReturnValue({ agents: [agent], state: { currentRound: 0, timelineEvents: [], activeAgents: new Map(), worldState: {}, directorEnabled: false, nextNodeInjectionMap: new Map() } })
     novelMocks.interviewAgent.mockImplementation(async (opts: any) => {
       opts?.onToken?.("a")
       await new Promise((r) => setTimeout(r, 120))
       opts?.onToken?.("b")
       await new Promise((r) => setTimeout(r, 120))
       opts?.onDone?.()
-      return { fullText: "ab", session: { agentId: "c1", agentName: "寨主", messages: [] } } as any
+      return { fullText: "ab", session: { agentId: "c1", agentName: "寨主", messages: [] } }
     })
     render(<StorySimulationView />)
     fireEvent.change(screen.getByPlaceholderText("storySimulation.chatPlaceholder"), { target: { value: "hi-throttle" } })
@@ -1475,16 +1519,16 @@ describe("StorySimulationView 收尾覆盖", () => {
   })
 
   it("各回调按钮全点击", async () => {
-    const mkBranch = (id: string, name: string) => ({ id, name, frameworkId: "fw1", mode: "event-driven", createdAt: new Date().toISOString(), timelineEvents: [], rumors: [], finalAgentSnapshots: [], directorEvaluations: [], overallScore: 3.5, scoreDetails: { avgDirectorScore: 3.5, eventCount: 2, characterDiversity: 1, plotProgression: 0.6 } } as any)
+    const mkBranch = (id: string, name: string): SimulationBranch => ({ id, name, frameworkId: "fw1", mode: "event-driven", createdAt: new Date().toISOString(), timelineEvents: [], rumors: [], finalAgentSnapshots: [], directorEvaluations: [], overallScore: 3.5, scoreDetails: { avgDirectorScore: 3.5, eventCount: 2, characterDiversity: 1, plotProgression: 0.6 } })
     // simulating 对比返回
-    useStorySimulationStore.setState({ phase: "simulating", timelineEvents: [makeEvent({ id: "e1" })], debugTraces: [], currentFramework: makeFrameworkWithNodes(), branches: [mkBranch("b1", "B1"), mkBranch("b2", "B2")], isCompareMode: true, compareBranchIds: ["b1", "b2"] } as any)
+    useStorySimulationStore.setState({ phase: "simulating", timelineEvents: [makeEvent({ id: "e1" })], debugTraces: [], currentFramework: makeFrameworkWithNodes(), branches: [mkBranch("b1", "B1"), mkBranch("b2", "B2")], isCompareMode: true, compareBranchIds: ["b1", "b2"] })
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.backToBranchManagement"))
     await waitFor(() => expect(useStorySimulationStore.getState().isCompareMode).toBe(false))
     cleanup()
     resetViewStore()
     // simulating 非对比采访（用 getAllByText 取事件气泡外的采访按钮，避免与筛选下拉重名）
-    useStorySimulationStore.setState({ phase: "simulating", timelineEvents: [makeEvent({ id: "e1", actorId: "c1", actorName: "寨主", content: "台词" })], debugTraces: [], currentFramework: makeFrameworkWithNodes(), branches: [], isCompareMode: false } as any)
+    useStorySimulationStore.setState({ phase: "simulating", timelineEvents: [makeEvent({ id: "e1", actorId: "c1", actorName: "寨主", content: "台词" })], debugTraces: [], currentFramework: makeFrameworkWithNodes(), branches: [], isCompareMode: false })
     render(<StorySimulationView />)
     const zhaiBtns = screen.getAllByText("寨主")
     // 采访按钮是 button 元素，筛选 option 不是
@@ -1496,8 +1540,8 @@ describe("StorySimulationView 收尾覆盖", () => {
     resetViewStore()
     // 历史 modal 关闭
     const fw = makeFrameworkWithNodes()
-    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, savedResults: [], extractionResult: makeExtraction(), frameworks: [fw] as any } as any)
-    novelMocks.loadSimulationResults.mockResolvedValue([] as any)
+    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, savedResults: [], extractionResult: makeExtraction(), frameworks: [fw] })
+    novelMocks.loadSimulationResults.mockResolvedValue([])
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.viewHistory"))
     await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy())
@@ -1506,20 +1550,20 @@ describe("StorySimulationView 收尾覆盖", () => {
     cleanup()
     resetViewStore()
     // report 对比返回 + 查看采访历史
-    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), timelineEvents: [makeEvent()], currentFramework: makeFrameworkWithNodes(), branches: [mkBranch("b1", "B1"), mkBranch("b2", "B2")], isCompareMode: true, compareBranchIds: ["b1", "b2"] } as any)
+    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), timelineEvents: [makeEvent()], currentFramework: makeFrameworkWithNodes(), branches: [mkBranch("b1", "B1"), mkBranch("b2", "B2")], isCompareMode: true, compareBranchIds: ["b1", "b2"] })
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.backToBranchManagement"))
     await waitFor(() => expect(useStorySimulationStore.getState().isCompareMode).toBe(false))
     cleanup()
     resetViewStore()
     // report 查看采访历史 + draft 回调
-    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), timelineEvents: [makeEvent()], currentFramework: makeFrameworkWithNodes(), currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [], totalWords: 0, createdAt: new Date().toISOString() } as any, currentAgents: new Map() } as any)
+    useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport(), timelineEvents: [makeEvent()], currentFramework: makeFrameworkWithNodes(), currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [], totalWords: 0, createdAt: new Date().toISOString() }, currentAgents: new Map() })
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("storySimulation.interviewHistory"))
     expect(useStorySimulationStore.getState().showInterviewHistory).toBe(true)
     cleanup()
     resetViewStore()
-    useStorySimulationStore.setState({ phase: "draft-viewing", currentReport: makeReport(), currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [{ title: "t", content: "正文", correspondingNode: 0 }], totalWords: 10, createdAt: new Date().toISOString() } as any, timelineEvents: [makeEvent()], debugTraces: [], currentRumors: [], currentAgents: new Map([["c1", makeMockAgent()]]) } as any)
+    useStorySimulationStore.setState({ phase: "draft-viewing", currentReport: makeReport(), currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [{ title: "t", content: "正文", correspondingNode: 0 }], totalWords: 10, createdAt: new Date().toISOString() }, timelineEvents: [makeEvent()], debugTraces: [], currentRumors: [], currentAgents: new Map([["c1", makeMockAgent()]]) })
     render(<StorySimulationView />)
     // draft 页的推演报告 tab 内应有 resimulate 按钮（切到报告 tab 才可见？先切 tab）
     fireEvent.click(screen.getByText("推演报告"))
@@ -1529,11 +1573,11 @@ describe("StorySimulationView 收尾覆盖", () => {
   })
 
   it("草稿页生成/采访/历史回调", async () => {
-    useStorySimulationStore.setState({ phase: "draft-viewing", currentReport: makeReport(), currentFramework: makeFrameworkWithNodes(), currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [{ title: "t", content: "正文", correspondingNode: 0 }], totalWords: 10, createdAt: new Date().toISOString() } as any, timelineEvents: [makeEvent()], debugTraces: [], currentRumors: [], currentAgents: new Map([["c1", makeMockAgent()]]) } as any)
-    const draft2 = { branchId: "b1", frameworkId: "fw1", chapters: [{ title: "t2", content: "y", correspondingNode: 0 }], totalWords: 5, createdAt: new Date().toISOString() } as any
-    novelMocks.generateStoryDraft.mockResolvedValue(draft2 as any)
-    novelMocks.saveSimulationResult.mockResolvedValue(undefined as any)
-    novelMocks.loadSimulationResults.mockResolvedValue([] as any)
+    useStorySimulationStore.setState({ phase: "draft-viewing", currentReport: makeReport(), currentFramework: makeFrameworkWithNodes(), currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [{ title: "t", content: "正文", correspondingNode: 0 }], totalWords: 10, createdAt: new Date().toISOString() }, timelineEvents: [makeEvent()], debugTraces: [], currentRumors: [], currentAgents: new Map([["c1", makeMockAgent()]]) })
+    const draft2 = { branchId: "b1", frameworkId: "fw1", chapters: [{ title: "t2", content: "y", correspondingNode: 0 }], totalWords: 5, createdAt: new Date().toISOString() }
+    novelMocks.generateStoryDraft.mockResolvedValue(draft2)
+    novelMocks.saveSimulationResult.mockResolvedValue(undefined)
+    novelMocks.loadSimulationResults.mockResolvedValue([])
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("推演报告"))
     await waitFor(() => expect(screen.getAllByText("storySimulation.generateDraft")[0]).toBeTruthy())
@@ -1542,7 +1586,7 @@ describe("StorySimulationView 收尾覆盖", () => {
     cleanup()
     resetViewStore()
     // 采访与历史
-    useStorySimulationStore.setState({ phase: "draft-viewing", currentReport: makeReport(), currentFramework: makeFrameworkWithNodes(), currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [{ title: "t", content: "正文", correspondingNode: 0 }], totalWords: 10, createdAt: new Date().toISOString() } as any, timelineEvents: [makeEvent()], debugTraces: [], currentRumors: [], currentAgents: new Map([["c1", makeMockAgent()]]) } as any)
+    useStorySimulationStore.setState({ phase: "draft-viewing", currentReport: makeReport(), currentFramework: makeFrameworkWithNodes(), currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [{ title: "t", content: "正文", correspondingNode: 0 }], totalWords: 10, createdAt: new Date().toISOString() }, timelineEvents: [makeEvent()], debugTraces: [], currentRumors: [], currentAgents: new Map([["c1", makeMockAgent()]]) })
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("推演报告"))
     await waitFor(() => expect(screen.getAllByText("storySimulation.chatWith")[0]).toBeTruthy())
@@ -1550,7 +1594,7 @@ describe("StorySimulationView 收尾覆盖", () => {
     await waitFor(() => expect(useStorySimulationStore.getState().activeChatAgent).not.toBeNull())
     cleanup()
     resetViewStore()
-    useStorySimulationStore.setState({ phase: "draft-viewing", currentReport: makeReport(), currentFramework: makeFrameworkWithNodes(), currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [{ title: "t", content: "正文", correspondingNode: 0 }], totalWords: 10, createdAt: new Date().toISOString() } as any, timelineEvents: [makeEvent()], debugTraces: [], currentRumors: [], currentAgents: new Map() } as any)
+    useStorySimulationStore.setState({ phase: "draft-viewing", currentReport: makeReport(), currentFramework: makeFrameworkWithNodes(), currentDraft: { branchId: "b", frameworkId: "fw1", chapters: [{ title: "t", content: "正文", correspondingNode: 0 }], totalWords: 10, createdAt: new Date().toISOString() }, timelineEvents: [makeEvent()], debugTraces: [], currentRumors: [], currentAgents: new Map() })
     render(<StorySimulationView />)
     fireEvent.click(screen.getByText("推演报告"))
     await waitFor(() => expect(screen.getByText("storySimulation.interviewHistory")).toBeTruthy())

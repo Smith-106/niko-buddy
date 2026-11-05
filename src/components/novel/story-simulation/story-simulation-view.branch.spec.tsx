@@ -21,7 +21,7 @@ import type { SavedSimulationResult } from "@/stores/story-simulation-store"
 
 /**
  * 分支覆盖增补（BRIEF：story-simulation-view 31 miss）。只增补，不改既有用例。
- * 禁止 as any：全部 helper 用真实类型构造；store 写入走 Partial 状态。
+ * 禁止 any 断言：全部 helper 用真实类型构造；store 写入走 Partial 状态。
  */
 
 const wikiState = vi.hoisted(() => ({

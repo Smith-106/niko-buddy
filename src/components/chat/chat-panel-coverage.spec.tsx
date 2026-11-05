@@ -4,6 +4,31 @@ import { act, fireEvent, screen } from "@/test-helpers/component-test-utils"
 import { getChatPanelMocks, deepGenResult, sessionStatus, PROJECT, setConversation, setMessages, msg, renderPanel, rerenderPanel, unmountPanel, flushAsync, sendText, lastStreamChatCall, lastFinalize, setDeepMode } from "./chat-panel-test-setup"
 
 const mocks = getChatPanelMocks()
+
+/** 防御分支需要故意传入运行时非法值（例如 BigInt session_id 触发 JSON 序列化失败）；集中收口，调用点不再分散断言。 */
+function rawForDefense<T>(v: unknown): T {
+  return v as unknown as T
+}
+
+/** window.getSelection 在 jsdom 下行为不足，用最小形状 mock；一次收口。 */
+function mockSelection(text: string | null): void {
+  window.getSelection = (
+    text === null ? (() => null) : (() => ({ toString: () => text }))
+  ) as unknown as typeof window.getSelection
+}
+
+/** Tauri 运行时标记：jsdom 下不存在，用具名窗口类型一次收口。 */
+interface TauriWindow {
+  __TAURI_INTERNALS__?: unknown
+}
+
+function setTauriInternals(v: unknown): void {
+  ;(window as unknown as TauriWindow).__TAURI_INTERNALS__ = v
+}
+
+function clearTauriInternals(): void {
+  delete (window as unknown as TauriWindow).__TAURI_INTERNALS__
+}
 import type { RetrievalGraph } from "@/lib/graph-relevance"
 describe("ChatPanel — 补覆盖：handleSend 分支", () => {
   it("novelMode+project+历史助手消息 → lastGeneratedChapterNumber 收到内容数组", async () => {
@@ -305,7 +330,7 @@ describe("ChatPanel — 补覆盖：深度生成分支", () => {
   it("marker JSON 序列化失败（BigInt sessionId）→ 降级无 marker", async () => {
     setupDeepBase()
     mocks.startDeepChapterSession.mockImplementation(async () =>
-      sessionStatus({ session_id: 1n as any, status: "running", active_step_index: 1, updated_at: "t" }),
+      sessionStatus({ session_id: rawForDefense<string>(1n), status: "running", active_step_index: 1, updated_at: "t" }),
     )
     setConversation("conv-1")
     renderPanel()
@@ -622,7 +647,7 @@ describe("ChatPanel — 补覆盖：继续未完成分支", () => {
   })
 
   it("上下文重建：routeTask 返回 null → taskDirective 空", async () => {
-    mocks.routeTask.mockReturnValue(null as any)
+    mocks.routeTask.mockReturnValue(rawForDefense<import("@/lib/novel").TaskRouteResult>(null))
     setupContinueConv()
     renderPanel()
     fireEvent.click(screen.getByTestId("continue-unfinished"))
@@ -794,7 +819,7 @@ describe("ChatPanel — 补覆盖：exemplar 防御分支", () => {
   it("对话框打开后项目被移除 → 提交早退", async () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
-    window.getSelection = (() => ({ toString: () => "选段" })) as any
+    mockSelection("选段")
     setConversation("conv-1")
     renderPanel()
     fireEvent.click(screen.getByLabelText("标记为风格范例"))
@@ -810,7 +835,7 @@ describe("ChatPanel — 补覆盖：exemplar 防御分支", () => {
   it("对话框打开后项目被移除 → A/B 评分早退", async () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
-    window.getSelection = (() => ({ toString: () => "选段" })) as any
+    mockSelection("选段")
     setConversation("conv-1")
     renderPanel()
     fireEvent.click(screen.getByLabelText("标记为风格范例"))
@@ -825,7 +850,7 @@ describe("ChatPanel — 补覆盖：exemplar 防御分支", () => {
   it("getSelection 返回 null → 空选提示（?? 兜底）", () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
-    window.getSelection = (() => null) as any
+    mockSelection(null)
     setConversation("conv-1")
     renderPanel()
     fireEvent.click(screen.getByLabelText("标记为风格范例"))
@@ -836,7 +861,7 @@ describe("ChatPanel — 补覆盖：exemplar 防御分支", () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
     mocks.markStyleExemplarViaRust.mockRejectedValueOnce("str-err")
-    window.getSelection = (() => ({ toString: () => "选段" })) as any
+    mockSelection("选段")
     setConversation("conv-1")
     renderPanel()
     fireEvent.click(screen.getByLabelText("标记为风格范例"))
@@ -928,7 +953,7 @@ describe("TASK-021 chat-panel uncovered lines", () => {
     mocks.appendExemplarABSample.mockRejectedValueOnce(new Error("ab-fail"))
     // need cognition load to succeed so failure is from append
     mocks.loadCognitionState.mockResolvedValueOnce(null)
-    window.getSelection = (() => ({ toString: () => "selected" })) as any
+    mockSelection("selected")
     setConversation("conv-1")
     renderPanel()
     fireEvent.click(screen.getByLabelText("标记为风格范例"))
@@ -1031,12 +1056,12 @@ describe("TASK-021 chat-panel uncovered lines", () => {
     await flushAsync()
     expect(capturedCb).not.toBeNull()
     const before = mocks.refreshProjectState.mock.calls.length
-    await (capturedCb as any)()
+    await capturedCb!()
     expect(mocks.refreshProjectState.mock.calls.length).toBeGreaterThan(before)
     // unmount then event should be ignored (disposed)
     unmountPanel()
     const before2 = mocks.refreshProjectState.mock.calls.length
-    await (capturedCb as any)()
+    await capturedCb!()
     expect(mocks.refreshProjectState.mock.calls.length).toBe(before2)
   })
 
@@ -1078,9 +1103,9 @@ describe("TASK-021 chat-panel uncovered lines", () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
     mocks.loadStyleExemplarsViaRust.mockResolvedValueOnce([
-      { exemplarId: "ex-12345678", text: "sample text for delete flow", markType: "style", chapterId: "chat" } as any,
+      { exemplarId: "ex-12345678", text: "sample text for delete flow", markType: "style", chapterId: "chat", createdAt: "t" },
     ])
-    window.getSelection = (() => ({ toString: () => "sel" })) as any
+    mockSelection("sel")
     setConversation("conv-1")
     renderPanel()
     fireEvent.click(screen.getByLabelText("标记为风格范例"))
@@ -1132,14 +1157,14 @@ describe("TASK-021 chat-panel round2", () => {
     const transport = await import("@/lib/claude-cli-transport")
     const activeSpy = vi.spyOn(transport, "activeRustStreamIds").mockReturnValue(["stream-1"])
     const killSpy = vi.spyOn(transport, "gracefulAbortStream").mockRejectedValue(new Error("kill-fail"))
-    ;(window as any).__TAURI_INTERNALS__ = {}
+    setTauriInternals({})
     setConversation("conv-1")
     setMessages([
       msg({ id: "u1", role: "user", content: "q" }),
       msg({ id: "a1", role: "assistant", content: "a" }),
     ])
     // need a conversation for convStillExists true
-    mocks.chatState.conversations = [{ id: "conv-1", title: "t", createdAt: 0, updatedAt: 0 } as any]
+    mocks.chatState.conversations = [{ id: "conv-1", title: "t", createdAt: 0, updatedAt: 0, deAiMode: false }]
     mocks.chatState.activeConversationId = "conv-1"
     renderPanel()
     mocks.streamChat.mockImplementation(() => new Promise(() => {}))
@@ -1151,7 +1176,7 @@ describe("TASK-021 chat-panel round2", () => {
     const calls = mocks.chatState.finalizeStream.mock.calls
     const warnCall = calls.find((c: any[]) => String(c[0]).includes("未能确认终止"))
     expect(warnCall).toBeTruthy()
-    delete (window as any).__TAURI_INTERNALS__
+    clearTauriInternals()
     activeSpy.mockRestore()
     killSpy.mockRestore()
   })

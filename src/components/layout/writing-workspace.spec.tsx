@@ -141,7 +141,12 @@ const novelMocks = vi.hoisted(() => ({
 }))
 vi.mock("@/lib/novel", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel")>()
-  return { ...actual, loadForeshadowingTracker: novelMocks.loadForeshadowingTracker }
+  return {
+    ...actual,
+    loadForeshadowingTracker: novelMocks.loadForeshadowingTracker,
+    // 包一层：cancelled 守卫唯一的外部可观察效果就是「卸载后不再调用它」。
+    analyzeForeshadowingDebt: vi.fn(actual.analyzeForeshadowingDebt),
+  }
 })
 
 afterEach(() => {
@@ -572,7 +577,9 @@ describe("WritingWorkspace — W3 剩余分支补齐", () => {
       resolveTracker({ lastUpdated: "x", items: [] } as unknown as never)
     })
     await act(async () => {})
-    expect(true).toBe(true)
+    // cancelled 守卫的可观察效果：晚 resolve 后不得再进入债务分析（也就不会再 setState）。
+    const { analyzeForeshadowingDebt } = await import("@/lib/novel")
+    expect(vi.mocked(analyzeForeshadowingDebt)).not.toHaveBeenCalled()
   })
 
   it("mtime 读取失败 fail-open：不显示快照且不崩溃", async () => {

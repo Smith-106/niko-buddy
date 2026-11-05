@@ -19,7 +19,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 
 /**
  * 分支覆盖增补（BRANCH-BRIEF：consensus-writing 20 miss）。只增补，不改既有用例。
- * 禁止 as any：输入对象用满足类型约束的最小形状 + 断言式收窄。
+ * 禁止 any 断言：输入对象用满足类型约束的最小形状 + 断言式收窄。
  */
 
 function cfg(model: string): LlmConfig {

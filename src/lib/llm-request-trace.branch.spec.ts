@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { estimateChatMessagesTokens } from "@/lib/chat-request-budget"
 import {
   buildLlmRequestCacheTrace,
   buildLlmRequestPrefixDescriptor,
@@ -83,6 +84,14 @@ describe("llm-request-trace branch coverage", () => {
     )
     expect(desc.prefixFingerprint).toMatch(/^[a-f0-9]{64}$/)
     expect(desc.prefixEstimatedTokens).toBeGreaterThan(0)
+    // 断点必须精确停在最后一个**带 cacheControl 的文本块**：末尾无 cacheControl 的
+    // 「尾部增量」不得进入前缀。只断言 tokens>0 对边界错误毫无断力——把 L93 的
+    // `&&` 变异成 `||` 后，末尾块也会被算进前缀，token 估算变大，但那两条断言照样绿。
+    const expectedPrefix: ChatMessage[] = [
+      { role: "user", content: [{ type: "text", text: "第一段" }] },
+      { role: "user", content: [{ type: "text", text: "稳定前缀", cacheControl: true }] },
+    ]
+    expect(desc.prefixEstimatedTokens).toBe(estimateChatMessagesTokens(expectedPrefix))
   })
 
   it("serialize 保留 image 块与工具/推理字段（117/120-123 真支）", () => {

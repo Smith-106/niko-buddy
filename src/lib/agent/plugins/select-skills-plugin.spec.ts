@@ -2,6 +2,8 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
 import { createSelectSkillsPlugin, buildSelectedSkillsPrompt, selectSkillsForRoute } from "./select-skills-plugin"
 import { normalizeUserSkill, SKILL_ROUTE_CATEGORY_IDS } from "@/lib/novel"
 import type { NovelTaskIntent, UserSkill } from "@/lib/novel"
+import type { AgentConfig } from "@/lib/agent/types"
+import { DEFAULT_NOVEL_CONFIG, type NovelConfig, type TaskPromptKey } from "@/stores/wiki-store"
 import * as llmClient from "@/lib/llm-client"
 import * as hasUsableLlmModule from "@/lib/has-usable-llm"
 import * as capabilityRetrieval from "../capability-retrieval"
@@ -19,6 +21,31 @@ function skill(partial: Partial<UserSkill>): UserSkill {
     content: partial.content ?? `${partial.name} content`,
     source: partial.source ?? "project",
   })
+}
+
+/** 用例需要完整 AgentConfig；集中构造，避免调用点分散断言。 */
+function testAgentConfig(): AgentConfig {
+  return {
+    maxRounds: 1,
+    tools: [],
+    systemPrompt: "test",
+    llmConfig: {
+      provider: "claude-code",
+      apiKey: "",
+      model: "test",
+      ollamaUrl: "",
+      customEndpoint: "",
+      maxContextSize: 100000,
+    },
+  }
+}
+
+/** 任务级技能名单覆盖：基于默认配置补丁，保持 NovelConfig 完整形状。 */
+function novelConfigWithSkills(patch: Partial<Record<TaskPromptKey, string[]>>): NovelConfig {
+  return {
+    ...DEFAULT_NOVEL_CONFIG,
+    taskSkillNames: { ...DEFAULT_NOVEL_CONFIG.taskSkillNames, ...patch },
+  }
 }
 
 const availableSkills = [
@@ -43,7 +70,7 @@ describe("SelectSkillsPlugin", () => {
     const result = await plugin.run({
       userMessage: "帮我写下一章",
       projectPath: "/project",
-      agentConfig: {} as any,
+      agentConfig: testAgentConfig(),
       novelMode: true,
       aiWorkflowMode: "standard",
       availableSkills,
@@ -62,7 +89,7 @@ describe("SelectSkillsPlugin", () => {
     const result = await plugin.run({
       userMessage: "帮我写下一章",
       projectPath: "/project",
-      agentConfig: {} as any,
+      agentConfig: testAgentConfig(),
       novelMode: true,
       aiWorkflowMode: "standard",
       availableSkills: [
@@ -93,7 +120,7 @@ describe("SelectSkillsPlugin", () => {
     const result = await plugin.run({
       userMessage: "直接写下一章",
       projectPath: "/project",
-      agentConfig: {} as any,
+      agentConfig: testAgentConfig(),
       novelMode: true,
       aiWorkflowMode: "fast",
       availableSkills,
@@ -110,7 +137,7 @@ describe("SelectSkillsPlugin", () => {
     const base = {
       userMessage: "帮我写下一章",
       projectPath: "/project",
-      agentConfig: {} as any,
+      agentConfig: testAgentConfig(),
       novelMode: true,
       aiWorkflowMode: "standard" as const,
       availableSkills,
@@ -128,7 +155,7 @@ describe("SelectSkillsPlugin", () => {
     const result = await plugin.run({
       userMessage: "帮我写关键转折章",
       projectPath: "/project",
-      agentConfig: {} as any,
+      agentConfig: testAgentConfig(),
       novelMode: true,
       aiWorkflowMode: "strict",
       availableSkills,
@@ -147,7 +174,7 @@ describe("SelectSkillsPlugin", () => {
     const result = await plugin.run({
       userMessage: "你好",
       projectPath: "/project",
-      agentConfig: {} as any,
+      agentConfig: testAgentConfig(),
       novelMode: false,
       aiWorkflowMode: "standard",
       availableSkills,
@@ -257,7 +284,7 @@ describe("SelectSkillsPlugin", () => {
     const fromName = await plugin.run({
       userMessage: "写下一章 combat-action",
       projectPath: "/project",
-      agentConfig: {} as any,
+      agentConfig: testAgentConfig(),
       novelMode: true,
       aiWorkflowMode: "standard",
       availableSkills: [...availableSkills, combat],
@@ -272,7 +299,7 @@ describe("SelectSkillsPlugin", () => {
     const fromToken = await plugin.run({
       userMessage: "写下一章",
       projectPath: "/project",
-      agentConfig: {} as any,
+      agentConfig: testAgentConfig(),
       novelMode: true,
       aiWorkflowMode: "standard",
       availableSkills: [...availableSkills, combat],
@@ -300,7 +327,7 @@ describe("SelectSkillsPlugin", () => {
     const result = await plugin.run({
       userMessage: "直接写下一章 combat-action",
       projectPath: "/project",
-      agentConfig: {} as any,
+      agentConfig: testAgentConfig(),
       novelMode: true,
       aiWorkflowMode: "fast",
       availableSkills: [...availableSkills, combat],
@@ -341,7 +368,7 @@ describe("SelectSkillsPlugin 覆盖加深（W-mode 补齐）", () => {
     return {
       userMessage: "帮我写下一章",
       projectPath: "/project",
-      agentConfig: {} as any,
+      agentConfig: testAgentConfig(),
       novelMode: true,
       aiWorkflowMode: "standard" as const,
       availableSkills,
@@ -479,7 +506,7 @@ describe("SelectSkillsPlugin 覆盖加深（W-mode 补齐）", () => {
     const plugin = createSelectSkillsPlugin()
     const result = await plugin.run(
       baseRun({
-        novelConfig: { taskSkillNames: { writing: ["人物动机", "不存在技能X"] } } as any,
+        novelConfig: novelConfigWithSkills({ writing: ["人物动机", "不存在技能X"] }),
       }),
     )
     expect(result.selectedSkills?.map((item) => item.name)).toEqual([
@@ -495,7 +522,7 @@ describe("SelectSkillsPlugin 覆盖加深（W-mode 补齐）", () => {
     const off = await plugin.run(baseRun())
     const on = await plugin.run(
       baseRun({
-        novelConfig: { taskSkillNames: { writing: ["全都不存在1", "全都不存在2"] } } as any,
+        novelConfig: novelConfigWithSkills({ writing: ["全都不存在1", "全都不存在2"] }),
       }),
     )
     expect(on.selectedSkills).toEqual(off.selectedSkills)
@@ -517,7 +544,7 @@ describe("SelectSkillsPlugin 覆盖加深（W-mode 补齐）", () => {
         userMessage: "请生成大纲",
         availableSkills: [outlineSkill],
         taskRoute: { intent: "generate_outline" as NovelTaskIntent, confidence: 0.95, extractedParams: {} },
-        novelConfig: { taskSkillNames: { outline: ["章纲结构", "幽灵技能"] } } as any,
+        novelConfig: novelConfigWithSkills({ outline: ["章纲结构", "幽灵技能"] }),
       }),
     )
     expect(result.selectedSkills?.[0]?.name).toBe("章纲结构")
@@ -530,7 +557,7 @@ describe("SelectSkillsPlugin 覆盖加深（W-mode 补齐）", () => {
       baseRun({
         userMessage: "帮我审稿",
         taskRoute: { intent: "review_chapter" as NovelTaskIntent, confidence: 0.95, extractedParams: {} },
-        novelConfig: { taskSkillNames: { review: ["世界观资料", "幽灵R"] } } as any,
+        novelConfig: novelConfigWithSkills({ review: ["世界观资料", "幽灵R"] }),
       }),
     )
     expect(result.selectedSkills?.map((item) => item.name)).toEqual([
@@ -554,7 +581,7 @@ describe("SelectSkillsPlugin 覆盖加深（W-mode 补齐）", () => {
       baseRun({
         userMessage: "查一下伏笔",
         taskRoute: { intent: "search_plot" as NovelTaskIntent, confidence: 0.95, extractedParams: {} },
-        novelConfig: { taskSkillNames: { writing: ["人物动机"] } } as any,
+        novelConfig: novelConfigWithSkills({ writing: ["人物动机"] }),
       }),
     )
     expect(on.selectedSkills).toEqual(off.selectedSkills)

@@ -1889,8 +1889,14 @@ describe("TASK-021 chat-message uncovered lines", () => {
     const view = render(
       <ChatMessage message={{ ...createAssistantMessage("hi"), references: [{ title: "A", path: "wiki/entities/cancel-me.md" }] }} />,
     )
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     view.unmount()
     await new Promise((r) => setTimeout(r, 40))
-    expect(true).toBe(true)
+    // 晚到的 fetch 必须真的跑完（否则这条用例什么也没验证）。
+    expect(mocks.readFile).toHaveBeenCalled()
+    // 局限说明：React 18+ 对已卸载组件 setState 已是静默 no-op，`cancelled` 守卫
+    // 的效果无法从 DOM 观察，能验的只有「全程无 React 报错 / 无未处理拒绝」。
+    expect(errorSpy).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
   })
 })

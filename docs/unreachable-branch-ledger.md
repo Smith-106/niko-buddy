@@ -15,10 +15,6 @@
 ### lib/deep-thinking-stream.ts
 - **L30 `|| raw`**（stageKey 内部函数）：唯一调用方 updateThinking 先 `content.trim()` 且守卫 `!trimmed` 早退，传入 stageKey 的 raw 首行必非空白；`split("\n",1)[0]?.trim()` 恒为真值 → 回退不可达。防御性代码。
 
-### lib/project-mutex.ts
-- **L51 `() => {}`**（`await prev.catch(...)` 回调）：锁链存储值恒为 `prev.then(() => next)`，`next` 在 finally 中必 resolve（release），链上 Promise 永不 reject → catch 回调永不被调用。防御性代码。
-- **L66 `locks.get(projectPath) === next` 子句**：map 存储的是派生 Promise（`prev.then(() => next)`），恒不等于 `next` → 该子句永假（源码注释亦承认"Tail check is approximate"）。仅 `locks.size > 1024` 子句可达（已有 flood 测试覆盖）。
-
 ### lib/chat-copy-content.ts
 - **L31 false 分支**（`if (!/<think(?:ing)?>/i.test(prefix))` 的 else）：配对块与未闭合开标签两条正则先执行——任何残存的 `<think` 开标签都会被 unclosed 正则（`<think…>$`）从该位置一直删到串尾，因此残存 `</think>` 的 prefix 中不可能再含开标签 → 条件恒真，false 分支不可达。
 
@@ -193,7 +189,7 @@
 13. **挂载/禁用门控下的第二层防御守卫** — handler 内 `!project`/`!config` 永假，因为按钮 `disabled` 拦截点击、详情区按选中态条件渲染、配置随 projectPath 变更即清空（skill-library 两视图 / webhook-section 判例）。
 14. **`new Date(string)` 的 catch 回退** — 构造器对任意输入永不抛错（非法串得 Invalid Date），`toLocaleString` 参数固定合法 → catch 不可达（simulation-report-view / interview-history-view 判例）。
 
-### 完整文件清单（155）
+### 完整文件清单（154）
 
 - `components/chat/chat-message.tsx`
 - `components/chat/chat-panel.tsx`
@@ -338,7 +334,6 @@
 - `lib/novel/track-b-multi-objective.ts`
 - `lib/path-utils.ts`
 - `lib/project-file-sync.ts`
-- `lib/project-mutex.ts`
 - `lib/proxy-config.ts`
 - `lib/rerank-api.ts`
 - `lib/review-rewrite-plan.ts`

@@ -13,7 +13,7 @@ import type { CapabilityDoc } from "../capability-retrieval"
 
 /**
  * 分支覆盖增补（BRANCH-BRIEF：select-skills-plugin 30 miss）。只增补，不改既有用例。
- * 禁止 as any：AgentConfig 用完整字面量构造；NovelConfig 用精确断言。
+ * 禁止 any 断言：AgentConfig 用完整字面量构造；NovelConfig 用精确断言。
  */
 
 function skill(partial: Partial<UserSkill>): UserSkill {
