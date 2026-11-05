@@ -576,3 +576,57 @@ describe("chatMessagesToLLM", () => {
     ])
   })
 })
+
+describe("setStreamingContent 空串清空", () => {
+  it("setStreamingContent('') 丢弃该会话缓冲并同步清零", () => {
+    const convId = createActiveConv()
+    useChatStore.getState().startStreaming(convId)
+    useChatStore.getState().appendStreamToken("pending-", convId)
+    // 缓冲未刷盘前经 getStreamingContent 可见
+    expect(useChatStore.getState().getStreamingContent(convId)).toBe("pending-")
+    useChatStore.getState().setStreamingContent("", convId)
+    // 同步清零：缓冲已丢弃，内容为空
+    expect(useChatStore.getState().getStreamingContent(convId)).toBe("")
+    expect(useChatStore.getState().streamingContents[convId]).toBe("")
+    // 后续刷盘不再把旧缓冲拼回来
+    flushStreamTokens()
+    expect(useChatStore.getState().getStreamingContent(convId)).toBe("")
+  })
+})
+
+describe("stream 批刷定时器", () => {
+  it("32ms 定时器到点自动刷出缓冲（无需手动 flushStreamTokens）", () => {
+    vi.useFakeTimers()
+    try {
+      const convId = createActiveConv()
+      useChatStore.getState().startStreaming(convId)
+      useChatStore.getState().appendStreamToken("hello", convId)
+      // 定时器未到：state 仍为空串，内容只在缓冲里
+      expect(useChatStore.getState().streamingContents[convId]).toBe("")
+      expect(useChatStore.getState().getStreamingContent(convId)).toBe("hello")
+      vi.advanceTimersByTime(50)
+      expect(useChatStore.getState().streamingContents[convId]).toBe("hello")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("flush 指定无缓冲会话：空转不建键、不抛错", () => {
+    const convId = createActiveConv()
+    useChatStore.getState().startStreaming(convId)
+    flushStreamTokens()
+    // 指定一个从无缓冲的会话 id 刷盘：循环内 pending 缺失直接跳过
+    flushStreamTokens("ghost-conv")
+    expect(useChatStore.getState().streamingContents).not.toHaveProperty("ghost-conv")
+    expect(useChatStore.getState().streamingContents[convId]).toBe("")
+  })
+
+  it("缓冲超过 1KB：追加时同步刷盘，无需等定时器", () => {
+    const convId = createActiveConv()
+    useChatStore.getState().startStreaming(convId)
+    useChatStore.getState().appendStreamToken("x".repeat(1025), convId)
+    // 阈值到达 → scheduleStreamFlush 内直接 flushStreamTokens
+    expect(useChatStore.getState().streamingContents[convId]).toBe("x".repeat(1025))
+    expect(useChatStore.getState().getStreamingContent(convId)).toBe("x".repeat(1025))
+  })
+})

@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
-import { render, screen, waitFor } from "@/test-helpers/component-test-utils"
+import { fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
 import type { Foreshadowing } from "@/lib/novel"
 import { derivePlotlineParticipation, derivePlotlineRows } from "./plotgrid-view"
 
@@ -23,6 +23,7 @@ const wiki = vi.hoisted(() => ({
   state: {
     project: { id: "p1", name: "Novel", path: "E:/Novel" } as { id: string; name: string; path: string } | null,
     dataVersion: 0,
+    setSelectedFile: vi.fn<(path: string | null) => void>(),
   },
 }))
 
@@ -51,6 +52,19 @@ vi.mock("@/lib/novel/chapter-ingest", async (importOriginal) => {
 const tracker = vi.hoisted(() => ({
   loadForeshadowingTracker: vi.fn<(projectPath: string) => Promise<{ items: Foreshadowing[]; lastUpdated: string }>>(async () => ({ items: [], lastUpdated: "" })),
 }))
+
+const chapterFile = vi.hoisted(() => ({
+  findChapterFileByNumber: vi.fn<(projectPath: string, chapterNumber: number) => Promise<string | null>>(async () => null),
+}))
+
+vi.mock("@/lib/novel/chapter-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-utils")>()
+  return {
+    ...actual,
+      findChapterFileByNumber: chapterFile.findChapterFileByNumber,
+    
+  }
+})
 
 vi.mock("@/lib/novel/foreshadowing-tracker", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel/foreshadowing-tracker")>()
@@ -84,6 +98,7 @@ beforeEach(() => {
   wiki.state.dataVersion = 0
   ingest.listSnapshots.mockResolvedValue([])
   tracker.loadForeshadowingTracker.mockResolvedValue({ items: [], lastUpdated: "" })
+  chapterFile.findChapterFileByNumber.mockResolvedValue(null)
 })
 
 afterEach(() => cleanup())
@@ -199,6 +214,100 @@ describe("PlotgridView", () => {
     wiki.state.dataVersion = 1
     rerender(<PlotgridView />)
     await waitFor(() => expect(tracker.loadForeshadowingTracker).toHaveBeenCalledTimes(2))
+  })
+
+  it("opens the chapter file when a participation cell is clicked", async () => {
+    tracker.loadForeshadowingTracker.mockResolvedValue({
+      items: [foreshadowing({ id: "f1", name: "玉佩之谜", plantedChapter: 2 })],
+      lastUpdated: "",
+    })
+    ingest.listSnapshots.mockResolvedValue([1, 2])
+    chapterFile.findChapterFileByNumber.mockResolvedValue("E:/Novel/wiki/chapters/第2章.md")
+    render(<PlotgridView />)
+    await screen.findByText("玉佩之谜")
+    const button = document.querySelector('[data-plotgrid-cell="f1:2"] button')
+    expect(button).not.toBeNull()
+    fireEvent.click(button as HTMLElement)
+    await waitFor(() =>
+      expect(chapterFile.findChapterFileByNumber).toHaveBeenCalledWith("E:/Novel", 2),
+    )
+    expect(wiki.state.setSelectedFile).toHaveBeenCalledWith("E:/Novel/wiki/chapters/第2章.md")
+  })
+
+  it("does not select a file when the chapter has no file yet", async () => {
+    tracker.loadForeshadowingTracker.mockResolvedValue({
+      items: [foreshadowing({ id: "f1", name: "玉佩之谜", plantedChapter: 2 })],
+      lastUpdated: "",
+    })
+    ingest.listSnapshots.mockResolvedValue([1, 2])
+    chapterFile.findChapterFileByNumber.mockResolvedValue(null)
+    render(<PlotgridView />)
+    await screen.findByText("玉佩之谜")
+    fireEvent.click(document.querySelector('[data-plotgrid-cell="f1:2"] button') as HTMLElement)
+    await waitFor(() =>
+      expect(chapterFile.findChapterFileByNumber).toHaveBeenCalledWith("E:/Novel", 2),
+    )
+    expect(wiki.state.setSelectedFile).not.toHaveBeenCalled()
+  })
+
+  it("filters chapter columns through the range inputs", async () => {
+    tracker.loadForeshadowingTracker.mockResolvedValue({
+      items: [foreshadowing({ id: "f1", name: "玉佩之谜", plantedChapter: 1, advancedChapters: [2, 3] })],
+      lastUpdated: "",
+    })
+    ingest.listSnapshots.mockResolvedValue([1, 2, 3])
+    render(<PlotgridView />)
+    await screen.findByText("玉佩之谜")
+    const chapterHeader = (ch: number) =>
+      screen.queryByText(`novel.plotgrid.chapterShort::{"num":${ch}}`)
+    expect(chapterHeader(1)).toBeInTheDocument()
+    expect(chapterHeader(3)).toBeInTheDocument()
+    // 起 ≥ 2：第 1 章列消失，其余保留。
+    fireEvent.change(screen.getByPlaceholderText("1"), { target: { value: "2" } })
+    expect(chapterHeader(1)).toBeNull()
+    expect(chapterHeader(2)).toBeInTheDocument()
+    // 止 ≤ 2：第 3 章列也消失，仅剩第 2 章。
+    fireEvent.change(screen.getByPlaceholderText("∞"), { target: { value: "2" } })
+    expect(chapterHeader(3)).toBeNull()
+    expect(chapterHeader(2)).toBeInTheDocument()
+    // 参与单元格随列过滤：f1:1 按钮消失，f1:2 保留。
+    expect(document.querySelector('[data-plotgrid-cell="f1:1"] button')).toBeNull()
+    expect(document.querySelector('[data-plotgrid-cell="f1:2"] button')).not.toBeNull()
+  })
+
+  it("ignores a stale fetch that resolves after dataVersion changes", async () => {
+    let resolveStale!: (value: { items: Foreshadowing[]; lastUpdated: string }) => void
+    tracker.loadForeshadowingTracker.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveStale = resolve }),
+    )
+    tracker.loadForeshadowingTracker.mockResolvedValue({
+      items: [foreshadowing({ id: "fresh", name: "新线", plantedChapter: 1 })],
+      lastUpdated: "",
+    })
+    ingest.listSnapshots.mockResolvedValue([1])
+    const { rerender } = render(<PlotgridView />)
+    // 旧请求飞行中切换 dataVersion：旧 effect 清理（cancelled），新请求启动。
+    wiki.state.dataVersion = 1
+    rerender(<PlotgridView />)
+    resolveStale({ items: [foreshadowing({ id: "stale", name: "旧线", plantedChapter: 1 })], lastUpdated: "" })
+    await screen.findByText("新线")
+    // 旧请求后到：结果被丢弃，不覆盖新数据。
+    expect(screen.queryByText("旧线")).toBeNull()
+    expect(tracker.loadForeshadowingTracker).toHaveBeenCalledTimes(2)
+  })
+
+  it("renders an abandoned-status row without a status badge token", async () => {
+    tracker.loadForeshadowingTracker.mockResolvedValue({
+      items: [foreshadowing({ id: "ab", name: "废线", status: "abandoned", plantedChapter: 1 })],
+      lastUpdated: "",
+    })
+    ingest.listSnapshots.mockResolvedValue([1])
+    render(<PlotgridView />)
+    await screen.findByText("废线")
+    // STATUS_BADGE 无 abandoned 键：徽标回退为空修饰（不编造颜色 token）。
+    const badge = document.querySelector("[data-plotgrid-matrix] tbody tr td span.shrink-0")
+    expect(badge).not.toBeNull()
+    expect(badge?.className).not.toContain("bg-")
   })
 })
 

@@ -182,4 +182,111 @@ describe("ExportCenterView", () => {
       exportPath: "C:/proj/exports/终稿.docx",
     }))
   })
+
+  it("同名探测抛错 → 按占用处理并可取消（取消后不导出）", async () => {
+    mockOneFinalChapter()
+    // fileExists 抛错（权限/瞬态 IO）：按"已占用"保守处理，先确认。
+    fileExistsMock.mockRejectedValueOnce(new Error("denied"))
+    const exportDocx = vi.fn()
+    const exportEpub = vi.fn()
+    render(<ExportCenterView projectPath="C:/proj" actions={{ exportDocx, exportEpub }} />)
+    await waitFor(() => expect(screen.getByTestId("export-center-count")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("export-docx-button"))
+    await waitFor(() => expect(screen.getByTestId("export-overwrite-confirm")).toBeTruthy())
+    expect(exportDocx).not.toHaveBeenCalled()
+    // 点取消：确认框消失，且始终没有写盘。
+    fireEvent.click(screen.getByText("取消"))
+    expect(screen.queryByTestId("export-overwrite-confirm")).toBeNull()
+    expect(exportDocx).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("export-history-list")).toBeNull()
+  })
+
+  it("改目录输入 → 目标路径跟随且清掉待确认态", async () => {
+    mockOneFinalChapter()
+    fileExistsMock.mockResolvedValue(true)
+    const exportDocx = vi.fn()
+    render(<ExportCenterView projectPath="C:/proj" actions={{ exportDocx, exportEpub: vi.fn() }} />)
+    await waitFor(() => expect(screen.getByTestId("export-center-count")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("export-docx-button"))
+    await waitFor(() => expect(screen.getByTestId("export-overwrite-confirm")).toBeTruthy())
+    fireEvent.change(screen.getByTestId("export-folder-name"), { target: { value: "newdir" } })
+    expect(screen.queryByTestId("export-overwrite-confirm")).toBeNull()
+    expect(screen.getByTestId("export-target-path").textContent).toContain("C:/proj/newdir/complete-novel.docx")
+    expect(exportDocx).not.toHaveBeenCalled()
+  })
+
+  it("EPUB 导出中 → 按钮显示进行态文案", async () => {
+    mockOneFinalChapter()
+    let resolveEpub!: (value: unknown) => void
+    const exportEpub = vi.fn().mockImplementation(() => new Promise((resolve) => { resolveEpub = resolve }))
+    render(<ExportCenterView projectPath="C:/proj" actions={{ exportDocx: vi.fn(), exportEpub }} />)
+    await waitFor(() => expect(screen.getByTestId("export-center-count")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("export-epub-button"))
+    await waitFor(() => expect(screen.getByTestId("export-epub-button").textContent).toContain("正在导出 EPUB"))
+    resolveEpub({ success: true, exportedPath: "C:/proj/exports/complete-novel.epub", chapterCount: 1, message: "ok" })
+    await waitFor(() => expect(screen.getByTestId("export-history-list")).toBeTruthy())
+    expect(screen.getByTestId("export-record-success").textContent).toContain("EPUB")
+  })
+
+  it("导出中再次点击 → 按钮禁用防重提（只落一条记录）", async () => {
+    mockOneFinalChapter()
+    let resolveDocx!: (value: unknown) => void
+    const exportDocx = vi.fn().mockImplementation(() => new Promise((resolve) => { resolveDocx = resolve }))
+    const exportEpub = vi.fn()
+    render(<ExportCenterView projectPath="C:/proj" actions={{ exportDocx, exportEpub }} />)
+    await waitFor(() => expect(screen.getByTestId("export-center-count")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("export-docx-button"))
+    await waitFor(() => expect(screen.getByTestId("export-docx-button").textContent).toContain("正在导出 Word"))
+    // 并发保护在渲染层：导出中两个按钮都 disabled（jsdom/真浏览器都不再派发点击）。
+    expect(screen.getByTestId("export-docx-button")).toHaveProperty("disabled", true)
+    expect(screen.getByTestId("export-epub-button")).toHaveProperty("disabled", true)
+    fireEvent.click(screen.getByTestId("export-epub-button"))
+    expect(exportEpub).not.toHaveBeenCalled()
+    resolveDocx({ success: true, exportedPath: "C:/proj/exports/complete-novel.docx", chapterCount: 1, message: "ok" })
+    await waitFor(() => expect(screen.getByTestId("export-history-list")).toBeTruthy())
+    expect(exportDocx).toHaveBeenCalledTimes(1)
+    expect(screen.getAllByTestId("export-record-success")).toHaveLength(1)
+  })
+
+  it("注入动作抛非 Error → 兜底失败行展示原文", async () => {
+    mockOneFinalChapter()
+    const exportDocx = vi.fn().mockRejectedValue("plain-string-failure")
+    render(<ExportCenterView projectPath="C:/proj" actions={{ exportDocx, exportEpub: vi.fn() }} />)
+    await waitFor(() => expect(screen.getByTestId("export-center-count")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("export-docx-button"))
+    await waitFor(() => expect(screen.getByTestId("export-record-failure")).toBeTruthy())
+    expect(screen.getByTestId("export-record-failure").textContent).toContain("plain-string-failure")
+  })
+
+  it("manuscriptExportPath 空目录/空文件名回退到约定值", async () => {
+    const { manuscriptExportPath } = await import("./export-center-view")
+    expect(manuscriptExportPath("C:/proj", "\\", "", "DOCX")).toBe("C:/proj/exports/complete-novel.docx")
+    expect(manuscriptExportPath("C:/proj", "  ", "  ", "EPUB")).toBe("C:/proj/exports/complete-novel.epub")
+  })
+
+  it("未注入目录选择器 → 走真实 platform 回退且目录不变", async () => {
+    mockOneFinalChapter()
+    const exportDocx = vi.fn()
+    // 不传 pickDirectory：触发 `pickDirectoryImpl ?? (await import("@/lib/platform")).pickDirectory` 右路。
+    // jsdom 无 Tauri/目录拣选器，prompt 未实现 → 回退分支静默保留手输目录。
+    render(<ExportCenterView projectPath="C:/proj" actions={{ exportDocx, exportEpub: vi.fn() }} />)
+    await waitFor(() => expect(screen.getByTestId("export-center-count")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("export-pick-directory"))
+    await waitFor(() => expect(screen.getByTestId("export-target-path").textContent).toContain("C:/proj/exports/complete-novel.docx"))
+    expect(exportDocx).not.toHaveBeenCalled()
+  })
+
+  it("加载中切换 projectPath → 旧请求被取消（不写回旧快照）", async () => {
+    // 挂起的旧请求：断言只关心「被取消后不写回」，不关心它最终 resolve 成什么，
+    // 故给一个永不 settle 的 Promise（也避免 resolve 回调的类型协变冲突）。
+    listDirectoryMock.mockImplementationOnce(() => new Promise(() => {}))
+    const { rerender } = render(<ExportCenterView projectPath="C:/proj" />)
+    expect(screen.getByTestId("export-center-loading")).toBeTruthy()
+    rerender(<ExportCenterView projectPath="" />)
+    expect(screen.getByTestId("export-center-empty")).toBeTruthy()
+    await waitFor(() => expect(listDirectoryMock).toHaveBeenCalledTimes(1))
+    // 旧请求已取消：空态保持，不冒出旧项目的计数。
+    expect(screen.getByTestId("export-center-empty")).toBeTruthy()
+    expect(screen.queryByTestId("export-center-count")).toBeNull()
+  })
 })

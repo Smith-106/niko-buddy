@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   appendPlanningBlockToTaskBrief,
   buildPlanningPrefillBlock,
+  isEmptyChapterPlanView,
   taskBriefHasPlanningBlock,
   PLANNING_BLOCK_MARKER,
 } from "./prefill"
@@ -188,6 +189,164 @@ describe("buildPlanningPrefillBlock", () => {
     }
     const block = buildPlanningPrefillBlock(plan)
     expect(block).toContain("Resolved 后仍有新增进度条目")
+  })
+})
+
+describe("isEmptyChapterPlanView：空 plan 判定（fail-open 本意）", () => {
+  /** 去掉伏笔实质内容：report=null 且无逾期发现 → hasForeshadowing=false */
+  function stripForeshadowing(plan: ReturnType<typeof buildChapterPlanView>): void {
+    plan.foreshadowing.report = null
+    plan.foreshadowing.overdueFindings = []
+  }
+
+  it("null/undefined → true", () => {
+    expect(isEmptyChapterPlanView(null)).toBe(true)
+    expect(isEmptyChapterPlanView(undefined)).toBe(true)
+  })
+
+  it("全维 degraded 或空 → true（append 时原样返回 brief）", () => {
+    const plan = buildChapterPlanView(makePlanInput())
+    stripForeshadowing(plan)
+    plan.characters.items = []
+    plan.threads.items = []
+    plan.threads.openCount = 0
+    expect(isEmptyChapterPlanView(plan)).toBe(true)
+    // 集成：空 plan 不注入预填块（fail-open）
+    expect(appendPlanningBlockToTaskBrief("写作任务书：写一章", plan)).toBe(
+      "写作任务书：写一章",
+    )
+  })
+
+  it("角色非空 → false（三维之一有实质内容即非空）", () => {
+    const plan = buildChapterPlanView(makePlanInput())
+    stripForeshadowing(plan)
+    expect(plan.characters.items.length).toBeGreaterThan(0)
+    expect(isEmptyChapterPlanView(plan)).toBe(false)
+  })
+
+  it("支线非空（items 或 openCount）→ false", () => {
+    const plan = buildChapterPlanView(makePlanInput())
+    stripForeshadowing(plan)
+    plan.characters.items = []
+    expect(plan.threads.items.length + plan.threads.openCount).toBeGreaterThan(0)
+    expect(isEmptyChapterPlanView(plan)).toBe(false)
+  })
+
+  it("认知盲区非空 → false", () => {
+    const plan = buildChapterPlanView({
+      ...makePlanInput(),
+      povCharacter: "林动",
+      cognition: {
+        status: "ok",
+        data: {
+          characters: [{ character: "林动", knows: [], doesNotKnow: ["黑市入口在城西"] }],
+          readerKnows: [],
+          lastUpdatedChapter: 7,
+        },
+      },
+    })
+    stripForeshadowing(plan)
+    plan.characters.items = []
+    plan.threads.items = []
+    plan.threads.openCount = 0
+    expect(plan.cognition?.items.length).toBeGreaterThan(0)
+    expect(isEmptyChapterPlanView(plan)).toBe(false)
+  })
+
+  it("近章状态变更非空 → false（cognition 为空时走到第二维）", () => {
+    const plan = buildChapterPlanView({
+      ...makePlanInput(),
+      povCharacter: "林动",
+      cognition: {
+        status: "ok",
+        data: { characters: [], readerKnows: [], lastUpdatedChapter: 0 },
+      },
+      chapterSummaries: {
+        status: "ok",
+        data: {
+          entries: [
+            {
+              chapter: 7,
+              happened: "第七章",
+              stateChanges: [{ kind: "item", entity: "青铜古戒", change: "归属 → 林动" }],
+              keyReveals: [],
+              endingHook: "",
+            },
+          ],
+          lastUpdated: "",
+        },
+      },
+    })
+    stripForeshadowing(plan)
+    plan.characters.items = []
+    plan.threads.items = []
+    plan.threads.openCount = 0
+    expect(plan.cognition?.items.length).toBe(0)
+    expect(plan.recentStateDeltas?.items.length).toBeGreaterThan(0)
+    expect(isEmptyChapterPlanView(plan)).toBe(false)
+  })
+
+  it("见面边界非空 → false", () => {
+    const plan = buildChapterPlanView({
+      ...makePlanInput(),
+      povCharacter: "林动",
+      cognition: {
+        status: "ok",
+        data: { characters: [], readerKnows: [], lastUpdatedChapter: 0 },
+      },
+      chapterSummaries: {
+        status: "ok",
+        data: { entries: [], lastUpdated: "" },
+      },
+      encounterMatrix: {
+        status: "ok",
+        data: {
+          edges: [{ a: "林动", b: "应欢欢", chapter: 3, context: "", witnessedBy: [] }],
+          lastUpdated: "",
+        },
+      },
+    })
+    stripForeshadowing(plan)
+    plan.characters.items = []
+    plan.threads.items = []
+    plan.threads.openCount = 0
+    expect(plan.recentStateDeltas?.items.length).toBe(0)
+    expect(plan.encounter?.items.length).toBeGreaterThan(0)
+    expect(isEmptyChapterPlanView(plan)).toBe(false)
+  })
+
+  it("粒子持有非空 → false（最后一维）", () => {
+    const plan = buildChapterPlanView({
+      ...makePlanInput(),
+      povCharacter: "林动",
+      cognition: {
+        status: "ok",
+        data: { characters: [], readerKnows: [], lastUpdatedChapter: 0 },
+      },
+      chapterSummaries: {
+        status: "ok",
+        data: { entries: [], lastUpdated: "" },
+      },
+      encounterMatrix: {
+        status: "ok",
+        data: { edges: [], lastUpdated: "" },
+      },
+      particles: {
+        status: "ok",
+        data: {
+          entries: [
+            { kind: "money", character: "林动", name: "灵石", chapter: 2, delta: 100, state: "余额 100", note: "" },
+          ],
+          lastUpdated: "",
+        },
+      },
+    })
+    stripForeshadowing(plan)
+    plan.characters.items = []
+    plan.threads.items = []
+    plan.threads.openCount = 0
+    expect(plan.particles?.items.length).toBeGreaterThan(0)
+    expect(isEmptyChapterPlanView(plan)).toBe(false)
   })
 })
 

@@ -936,4 +936,110 @@ describe("DataManagementSection", () => {
     const orphans = Array.from(document.querySelectorAll("label")).filter((l) => !(l as HTMLLabelElement).control)
     expect(orphans).toHaveLength(0)
   })
+
+  it("epub export progress: epub-export-progress 事件驱动进度条", async () => {
+    render(<DataManagementSection />)
+    // 第二个 listen 在首个 await 之后：先放行微任务
+    await flushAsync()
+    expect(mocks.listen).toHaveBeenCalledWith(
+      "epub-export-progress",
+      expect.any(Function),
+    )
+    const handler = mocks.listen.mock.calls[1][1] as (event: { payload: { current: number; total: number } }) => void
+    act(() => {
+      handler({ payload: { current: 2, total: 5 } })
+    })
+    expect(screen.getByText("settings.sections.dataManagement.epubExportProgress")).toBeInTheDocument()
+    expect(mocks.t).toHaveBeenCalledWith("settings.sections.dataManagement.epubExportProgress", expect.objectContaining({ current: 2, total: 5 }))
+  })
+
+  it("epub export throws: String(err) shown, 无成功块", async () => {
+    mocks.exportNovelEpub.mockRejectedValueOnce(new Error("epub invoke down"))
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.epubExportButton"))
+    await waitFor(() => {
+      expect(screen.getByText("Error: epub invoke down")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("settings.sections.dataManagement.epubExportSuccess")).not.toBeInTheDocument()
+  })
+
+  it("import full 策略二次确认拒绝：不执行导入", async () => {
+    const confirmMock = vi.mocked(window.confirm)
+    confirmMock.mockReturnValueOnce(true).mockReturnValueOnce(false)
+    render(<DataManagementSection />)
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.importButton"))
+    await flushAsync()
+    expect(mocks.importBackup).not.toHaveBeenCalled()
+    expect(confirmMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("vector store: 统计失败回退占位符、无未处理拒绝", async () => {
+    mocks.countVectorChunks.mockRejectedValue(new Error("vec down"))
+    render(<DataManagementSection />)
+    await waitFor(() => {
+      expect(mocks.countVectorChunks).toHaveBeenCalledWith("E:/Novel")
+    })
+    await flushAsync()
+    // 加载态结束、占位符回退、且无清理错误条（catch 只写 null，不写 cleanLegacyError）
+    expect(screen.queryByText("settings.sections.dataManagement.vectorLoading")).toBeNull()
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2)
+    expect(screen.queryByTestId("vector-clean-error")).toBeNull()
+    expect(screen.getByText("settings.sections.dataManagement.vectorCleanButton")).toBeDisabled()
+  })
+
+  it("vector store: 第二次清理确认拒绝不删表", async () => {
+    window.confirm = vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false)
+    mocks.legacyVectorRowCount.mockResolvedValue(5)
+    render(<DataManagementSection />)
+    await waitFor(() => {
+      expect(screen.getByText("5")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.vectorCleanButton"))
+    await flushAsync()
+    expect(window.confirm).toHaveBeenCalledTimes(2)
+    expect(mocks.dropLegacyVectorTable).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("vector-clean-error")).toBeNull()
+  })
+
+  it("vector store: 刷新按钮重新拉取统计", async () => {
+    render(<DataManagementSection />)
+    await waitFor(() => {
+      expect(mocks.countVectorChunks).toHaveBeenCalledWith("E:/Novel")
+    })
+    await flushAsync()
+    fireEvent.click(screen.getByText("settings.sections.dataManagement.vectorRefresh"))
+    await waitFor(() => {
+      expect(mocks.countVectorChunks).toHaveBeenCalledTimes(2)
+    })
+    expect(mocks.legacyVectorRowCount).toHaveBeenCalledTimes(2)
+  })
+
+  it("卸载后迟到的进度事件与章节计数结算不再写 state（cancelled=true 两侧）", async () => {
+    let resolveCount: (n: number) => void = () => {}
+    let rejectCount: (e: unknown) => void = () => {}
+    mocks.countFinalChapters
+      .mockReturnValueOnce(new Promise<number>((resolve) => { resolveCount = resolve }))
+      .mockReturnValueOnce(new Promise<number>((_resolve, reject) => { rejectCount = reject }))
+    // 首次渲染：计数悬挂 → 卸载 → 进度回调 + resolve 结算均被 cancelled 吞掉
+    const first = render(<DataManagementSection />)
+    // 两个 listen 分处首个 await 前后：放行微任务后再取 handler
+    await flushAsync()
+    const docxHandler = mocks.listen.mock.calls[0][1] as (event: { payload: { current: number; total: number } }) => void
+    const epubHandler = mocks.listen.mock.calls[1][1] as (event: { payload: { current: number; total: number } }) => void
+    first.unmount()
+    act(() => {
+      docxHandler({ payload: { current: 1, total: 2 } })
+      epubHandler({ payload: { current: 1, total: 2 } })
+    })
+    await act(async () => { resolveCount(3) })
+    await flushAsync()
+    // 第二次渲染：reject 结算同样被 cancelled 吞掉（无未处理拒绝）
+    const second = render(<DataManagementSection />)
+    await flushAsync()
+    expect(mocks.listen).toHaveBeenCalledTimes(4)
+    second.unmount()
+    await act(async () => { rejectCount(new Error("late")) })
+    await flushAsync()
+    expect(document.body.textContent).not.toContain("settings.sections.dataManagement.docxExportProgress")
+  })
 })

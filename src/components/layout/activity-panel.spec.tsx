@@ -503,3 +503,73 @@ describe("ActivityPanel", () => {
     view.unmount()
   })
 })
+
+describe("ActivityPanel statements 补齐（s6-execute-statements）", () => {
+  it("按类型筛选：切换 kind 只显示匹配任务", () => {
+    mocks.fileSyncState.tasks = [
+      makeFileSyncTask({ id: "k1", path: "/p/kind-created.md", kind: "created", status: "pending" }),
+      makeFileSyncTask({ id: "k2", path: "/p/kind-modified.md", kind: "modified", status: "pending" }),
+      makeFileSyncTask({ id: "k3", path: "/p/kind-deleted.md", kind: "deleted", status: "pending" }),
+    ]
+    const view = render(<ActivityPanel />)
+    expect(screen.getByText("kind-created.md")).toBeInTheDocument()
+    fireEvent.change(screen.getByTitle(/按类型筛选/), { target: { value: "modified" } })
+    expect(screen.queryByText("kind-created.md")).not.toBeInTheDocument()
+    expect(screen.getByText("kind-modified.md")).toBeInTheDocument()
+    expect(screen.queryByText("kind-deleted.md")).not.toBeInTheDocument()
+    view.unmount()
+  })
+
+  it("按状态筛选：切换 status 只显示匹配任务", () => {
+    mocks.fileSyncState.tasks = [
+      makeFileSyncTask({ id: "s1", path: "/p/status-pending.md", kind: "created", status: "pending" }),
+      makeFileSyncTask({ id: "s2", path: "/p/status-failed.md", kind: "created", status: "failed", error: "boom" }),
+    ]
+    const view = render(<ActivityPanel />)
+    expect(screen.getByText("status-pending.md")).toBeInTheDocument()
+    fireEvent.change(screen.getByTitle(/按状态筛选/), { target: { value: "failed" } })
+    expect(screen.queryByText("status-pending.md")).not.toBeInTheDocument()
+    expect(screen.getByText("status-failed.md")).toBeInTheDocument()
+    view.unmount()
+  })
+
+  it("EACCES 错误映射目录无权限文案", () => {
+    mocks.fileSyncState.lastError = "EACCES: permission denied, scandir '/data'"
+    const view = render(<ActivityPanel />)
+    expect(screen.getByText("目录无权限，无法监视该目录")).toBeInTheDocument()
+    view.unmount()
+  })
+
+  it("文件同步分页：51+ 任务翻页 + 缩容回 clamp", () => {
+    mocks.fileSyncState.tasks = Array.from({ length: 55 }, (_, i) => {
+      const n = String(i + 1).padStart(2, "0")
+      return makeFileSyncTask({ id: `pg-${n}`, path: `/p/f-${n}.md`, kind: "created", status: "pending" })
+    })
+    const view = render(<ActivityPanel />)
+    // 第 1 页：f-01..f-50 可见，f-51 不可见；上一页禁用。
+    expect(screen.getByText("f-01.md")).toBeInTheDocument()
+    expect(screen.getByText("f-50.md")).toBeInTheDocument()
+    expect(screen.queryByText("f-51.md")).not.toBeInTheDocument()
+    expect(screen.getByText(/activity\.pageInfo/)).toBeInTheDocument()
+    expect((screen.getByText(/activity\.prevPage/) as HTMLButtonElement).disabled).toBe(true)
+    // 下一页：第 2 页 f-51..f-55。
+    fireEvent.click(screen.getByText(/activity\.nextPage/))
+    expect(screen.queryByText("f-01.md")).not.toBeInTheDocument()
+    expect(screen.getByText("f-51.md")).toBeInTheDocument()
+    expect(screen.getByText("f-55.md")).toBeInTheDocument()
+    // 上一页：回到第 1 页。
+    fireEvent.click(screen.getByText(/activity\.prevPage/))
+    expect(screen.getByText("f-01.md")).toBeInTheDocument()
+    expect(screen.queryByText("f-51.md")).not.toBeInTheDocument()
+    // 缩容：在第 2 页时任务缩到 1 个 → clamp 回第 1 页。
+    fireEvent.click(screen.getByText(/activity\.nextPage/))
+    expect(screen.getByText("f-55.md")).toBeInTheDocument()
+    mocks.fileSyncState.tasks = [
+      makeFileSyncTask({ id: "only", path: "/p/only.md", kind: "created", status: "pending" }),
+    ]
+    view.rerender(<ActivityPanel />)
+    expect(screen.getByText("only.md")).toBeInTheDocument()
+    expect(screen.queryByText("f-55.md")).not.toBeInTheDocument()
+    view.unmount()
+  })
+})

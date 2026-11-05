@@ -471,6 +471,22 @@ describe("GCR 循环 (runGcrLoop)", () => {
     })
     await expect(runGcrLoop(input, controller.signal)).rejects.toThrow("已停止生成")
   })
+
+  it("第 0 轮调用中途中止 → 第 1 轮顶检查抛错（首轮 3 次调用已发生）", async () => {
+    const controller = new AbortController()
+    const mock = new ModelPort()
+    vi.spyOn(mock, "execute").mockImplementation(async () => {
+      controller.abort()
+      return "首轮文本"
+    })
+    const input = createInput({
+      modelPort: mock,
+      premiumConfig: createPremiumEnabledConfig(),
+    })
+    await expect(runGcrLoop(input, controller.signal)).rejects.toThrow("已停止生成")
+    // 第 0 轮生成/批判/修订各 1 次，第 1 轮顶直接抛错不再调用
+    expect(mock.execute).toHaveBeenCalledTimes(3)
+  })
 })
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -632,6 +648,41 @@ describe("交叉共识门 (runConsensusGate)", () => {
     expect(verdict.judgments.judgeB).toEqual([])
   })
 
+  it("中止信号提前终止（入口检查）", async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const modelPort = createMockModelPort("mock")
+    const input = createInput({
+      modelPort,
+      premiumConfig: createPremiumEnabledConfig(),
+    })
+    await expect(runConsensusGate(input, "测试正文", controller.signal)).rejects.toThrow(
+      "已停止生成",
+    )
+    expect(modelPort.execute).not.toHaveBeenCalled()
+  })
+
+  it("判官调用中途中止 → 判定后检查抛错（两次判官调用已发生）", async () => {
+    const controller = new AbortController()
+    const mock = new ModelPort()
+    vi.spyOn(mock, "execute").mockImplementation(async () => {
+      controller.abort()
+      return JSON.stringify([
+        { type: "accept", severity: "pass", reasoning: "ok" },
+        { type: "foreshadowing_conflict", severity: "pass", reasoning: "无冲突" },
+        { type: "pov_risk", severity: "pass", reasoning: "无风险" },
+      ])
+    })
+    const input = createInput({
+      modelPort: mock,
+      premiumConfig: createPremiumEnabledConfig(),
+    })
+    await expect(runConsensusGate(input, "测试正文", controller.signal)).rejects.toThrow(
+      "已停止生成",
+    )
+    expect(mock.execute).toHaveBeenCalledTimes(2)
+  })
+
   it("共识门未启用时不在 runPremiumExecution 中调用", async () => {
     const modelPort = createMockModelPort("mock")
     const premiumConfig = {
@@ -773,6 +824,33 @@ describe("双提案模式 (runDualProposal)", () => {
     expect(result).toBe("草稿A正文")
   })
 
+  it("中止信号提前终止（入口检查，不调模型）", async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const modelPort = createMockModelPort("mock")
+    const input = createInput({
+      modelPort,
+      premiumConfig: createPremiumEnabledConfig({ dualProposal: true }),
+    })
+    await expect(runDualProposal(input, controller.signal)).rejects.toThrow("已停止生成")
+    expect(modelPort.execute).not.toHaveBeenCalled()
+  })
+
+  it("双 writer 调用中途中止 → 仲裁前检查抛错（两次生成调用已发生）", async () => {
+    const controller = new AbortController()
+    const mock = new ModelPort()
+    vi.spyOn(mock, "execute").mockImplementation(async () => {
+      controller.abort()
+      return "草稿正文"
+    })
+    const input = createInput({
+      modelPort: mock,
+      premiumConfig: createPremiumEnabledConfig({ dualProposal: true }),
+    })
+    await expect(runDualProposal(input, controller.signal)).rejects.toThrow("已停止生成")
+    expect(mock.execute).toHaveBeenCalledTimes(2)
+  })
+
   it("双提案在 GCR 循环内被调用（当 dualProposal 启用时）", async () => {
     // GCR 第 0 轮应使用 dualProposal 替代初始 generate
     const modelPort = createSequentialMockModelPort([
@@ -823,6 +901,37 @@ describe("双判官模式 (runDualJudge)", () => {
     const result = await runDualJudge(input, "测试正文")
     expect(result).toBe(fusionOutput)
     expect(modelPort.execute).toHaveBeenCalledTimes(3)
+  })
+
+  it("中止信号提前终止（入口检查，不调模型）", async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const modelPort = createMockModelPort("mock")
+    const input = createInput({
+      modelPort,
+      premiumConfig: createPremiumEnabledConfig({ dualJudge: true }),
+    })
+    await expect(runDualJudge(input, "测试正文", controller.signal)).rejects.toThrow(
+      "已停止生成",
+    )
+    expect(modelPort.execute).not.toHaveBeenCalled()
+  })
+
+  it("双判官调用中途中止 → 融合前检查抛错（两次判定调用已发生）", async () => {
+    const controller = new AbortController()
+    const mock = new ModelPort()
+    vi.spyOn(mock, "execute").mockImplementation(async () => {
+      controller.abort()
+      return JSON.stringify([{ type: "accept", severity: "pass", reasoning: "ok" }])
+    })
+    const input = createInput({
+      modelPort: mock,
+      premiumConfig: createPremiumEnabledConfig({ dualJudge: true }),
+    })
+    await expect(runDualJudge(input, "测试正文", controller.signal)).rejects.toThrow(
+      "已停止生成",
+    )
+    expect(mock.execute).toHaveBeenCalledTimes(2)
   })
 })
 

@@ -268,3 +268,74 @@ describe("CanonRevisionViewer — 对比模式", () => {
     expect(screen.getByTestId("revision-group-3")).toBeInTheDocument()
   })
 })
+
+describe("CanonRevisionViewer statements 补齐（s6-execute-statements）", () => {
+  const fullEdges = [
+    makeFact({ id: "a", recordedRevision: 1, predicate: "KNOWS" }),
+    makeFact({ id: "b", recordedRevision: 2, predicate: "LOVES" }),
+    makeFact({ id: "c", recordedRevision: 3, predicate: "HATES" }),
+  ]
+
+  /** 时间线走 limit:500，失败注入只打在对比模式的全量拉取上。 */
+  function mockTimelineOkFullFails(timeline: CanonFact[], err: unknown) {
+    queryCanonEdgesMock.mockImplementation(async (_pid: string, filter?: { limit?: number | null }) => {
+      if (filter && filter.limit != null) return timeline
+      throw err
+    })
+  }
+
+  function mockEdgesByLimit(timeline: CanonFact[], full: CanonFact[]) {
+    queryCanonEdgesMock.mockImplementation(
+      async (_pid: string, filter?: { limit?: number | null }) => {
+        return filter && filter.limit != null ? timeline : full
+      },
+    )
+  }
+
+  it("groupByRecordedRevision：null 组在前也能排到末位（b===null 比较分支）", () => {
+    const groups = groupByRecordedRevision([
+      makeFact({ id: "c", recordedRevision: null }),
+      makeFact({ id: "b", recordedRevision: 2 }),
+    ])
+    expect(groups.map((g) => g.revision)).toEqual([2, null])
+  })
+
+  it("对比模式全量拉取拒绝（Error）→ diff-error 透出 message", async () => {
+    getCanonRevisionMock.mockResolvedValue(3)
+    mockTimelineOkFullFails(fullEdges, new Error("diff boom"))
+    render(<CanonRevisionViewer projectId={PROJECT_ID} />)
+    await waitFor(() => expect(screen.getByTestId("revision-group-3")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId("revision-compare-toggle"))
+    expect(await screen.findByTestId("diff-error")).toHaveTextContent("diff boom")
+    // 主时间线不受影响，无 revision-error。
+    expect(screen.queryByTestId("revision-error")).not.toBeInTheDocument()
+  })
+
+  it("对比模式全量拉取非 Error 拒绝 → 兜底文案", async () => {
+    getCanonRevisionMock.mockResolvedValue(3)
+    mockTimelineOkFullFails(fullEdges, "plain")
+    render(<CanonRevisionViewer projectId={PROJECT_ID} />)
+    await waitFor(() => expect(screen.getByTestId("revision-group-3")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId("revision-compare-toggle"))
+    expect(await screen.findByTestId("diff-error")).toHaveTextContent("canon 修订对比加载失败")
+  })
+
+  it("B 改小到 <=A 时回退到基线（A>=B clamp），不重新 IPC", async () => {
+    getCanonRevisionMock.mockResolvedValue(3)
+    mockEdgesByLimit(fullEdges, fullEdges)
+    render(<CanonRevisionViewer projectId={PROJECT_ID} />)
+    await waitFor(() => expect(screen.getByTestId("revision-group-3")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId("revision-compare-toggle"))
+    await waitFor(() => expect(screen.getAllByTestId("diff-added-item")).toHaveLength(1))
+    const callsBefore = queryCanonEdgesMock.mock.calls.length
+
+    // 默认 A=2、B=3；把 B 改为 2 → A>=B → A 回退基线 → 新增为 rev1+rev2 两条。
+    fireEvent.change(screen.getByTestId("diff-rev-b"), { target: { value: "2" } })
+    await waitFor(() => expect(screen.getAllByTestId("diff-added-item")).toHaveLength(2))
+    expect(queryCanonEdgesMock.mock.calls.length).toBe(callsBefore)
+    expect(screen.getByTestId("diff-rev-b")).toHaveValue("2")
+  })
+})

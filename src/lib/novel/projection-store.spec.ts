@@ -166,6 +166,28 @@ describe("E-03 createAtomicJsonStore 版本化", () => {
   })
 })
 
+describe("E-03 迁移链内部排序（按 to 升序执行，不依赖调用方顺序）", () => {
+  beforeEach(() => {
+    fsMocks.readFile.mockReset()
+    fsMocks.writeFileAtomic.mockClear()
+  })
+
+  it("migrations 逆序传入仍按 to 升序执行（v1 → v3 两级）", async () => {
+    const order: string[] = []
+    const store = createAtomicJsonStore<TestStore & { v2?: boolean; v3?: boolean }>("chain.json", emptyStore, {
+      currentVersion: 3,
+      migrations: [
+        { from: 2, to: 3, reversibility: "R0", forward: (raw) => { order.push("2→3"); return { ...raw, v3: true } }, inverse: (raw) => raw },
+        { from: 1, to: 2, reversibility: "R0", forward: (raw) => { order.push("1→2"); return { ...raw, v2: true } }, inverse: (raw) => raw },
+      ],
+    })
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({ items: ["a"], lastUpdated: "epoch" }))
+    const loaded = await store.load("/P")
+    expect(order).toEqual(["1→2", "2→3"])
+    expect(loaded).toMatchObject({ items: ["a"], v2: true, v3: true })
+  })
+})
+
 describe("E-03 migrateTruthFileBackward (回滚脚本入口)", () => {
   beforeEach(() => {
     fsMocks.readFile.mockReset()
@@ -275,5 +297,114 @@ describe("arrayFieldCaps（arch-risk W2 无界增长护栏）", () => {
     ;(await import("@/commands/fs")).writeFileAtomic = orig
     const saved = JSON.parse(written[0])
     expect(saved.entries).toEqual([1, 2, 3, 4, 5])
+  })
+})
+
+describe("读错误分类 / 空文件语义（ISS-20260712-010 多态）", () => {
+  beforeEach(() => {
+    fsMocks.readFile.mockReset()
+    fsMocks.writeFileAtomic.mockClear()
+    fsMocks.createDirectory.mockClear()
+  })
+
+  it("isMissingError=false → 非缺失类错误（EACCES）rethrow，不静默降级", async () => {
+    const store = createAtomicJsonStore<TestStore>(
+      "guarded.json",
+      emptyStore,
+      { isMissingError: (err) => (err as { code?: string }).code === "ENOENT" },
+    )
+    fsMocks.readFile.mockRejectedValue(Object.assign(new Error("denied"), { code: "EACCES" }))
+    await expect(store.load("/P")).rejects.toThrow(/denied/)
+  })
+
+  it("isMissingError=false 且错误为 ENOENT → 仍按缺失降级为空 store", async () => {
+    const store = createAtomicJsonStore<TestStore>(
+      "guarded.json",
+      emptyStore,
+      { isMissingError: (err) => (err as { code?: string }).code === "ENOENT" },
+    )
+    fsMocks.readFile.mockRejectedValue(Object.assign(new Error("no such file"), { code: "ENOENT" }))
+    await expect(store.load("/P")).resolves.toEqual(emptyStore())
+  })
+
+  it("onMissing='throw' → 文件缺失抛 Missing truth file（含相对路径）", async () => {
+    const store = createAtomicJsonStore<TestStore>("must-exist.json", emptyStore, { onMissing: "throw" })
+    fsMocks.readFile.mockRejectedValue(new Error("ENOENT"))
+    await expect(store.load("/P")).rejects.toThrow(/Missing truth file: \.novel\/must-exist\.json/)
+  })
+
+  it("空文件按 missing 语义处理：throw / null / empty 三态", async () => {
+    fsMocks.readFile.mockResolvedValue("   \n\t ")
+    const throwing = createAtomicJsonStore<TestStore>("empty.json", emptyStore, { onMissing: "throw" })
+    await expect(throwing.load("/P")).rejects.toThrow(/Empty truth file: \.novel\/empty\.json/)
+
+    const nullable = createAtomicJsonStore<TestStore>("empty.json", emptyStore, { onMissing: "null" })
+    await expect(nullable.load("/P")).resolves.toBeNull()
+
+    const degrading = createAtomicJsonStore<TestStore>("empty.json", emptyStore)
+    await expect(degrading.load("/P")).resolves.toEqual(emptyStore())
+  })
+})
+
+describe("migrateTruthFileBackward 边界（回滚脚本入口）", () => {
+  beforeEach(() => {
+    fsMocks.readFile.mockReset()
+    fsMocks.writeFileAtomic.mockClear()
+  })
+
+  it("fileVersion 已 <= targetVersion → 原样返回，不写盘（幂等回滚）", async () => {
+    const { migrateTruthFileBackward } = await import("./projection-store")
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({ items: ["a"], fileVersion: 1 }))
+    const result = await migrateTruthFileBackward("/P", "m.json", 1, { currentVersion: 3 })
+    expect(result).toEqual({ from: 1, to: 1 })
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+  })
+
+  it("多级 inverse 按 to 降序执行（v3 → v1 逐级回滚），fileVersion 落回目标版本", async () => {
+    const { migrateTruthFileBackward } = await import("./projection-store")
+    fsMocks.readFile.mockResolvedValue(
+      JSON.stringify({ items: ["a"], v2: true, v3: true, fileVersion: 3 }),
+    )
+    const order: string[] = []
+    const result = await migrateTruthFileBackward("/P", "m.json", 1, {
+      currentVersion: 3,
+      migrations: [
+        { from: 1, to: 2, reversibility: "R0", forward: (raw) => raw, inverse: (raw) => { order.push("2→1"); const { v2: _v2, ...rest } = raw; return rest } },
+        { from: 2, to: 3, reversibility: "R0", forward: (raw) => raw, inverse: (raw) => { order.push("3→2"); const { v3: _v3, ...rest } = raw; return rest } },
+      ],
+    })
+    expect(order).toEqual(["3→2", "2→1"])
+    expect(result).toEqual({ from: 3, to: 1 })
+    const payload = JSON.parse(fsMocks.writeFileAtomic.mock.calls[0][1])
+    expect(payload).toEqual({ items: ["a"] })
+  })
+
+  it("中间目标版本 > 1 → 保留并改写 fileVersion（不是剥字段）", async () => {
+    const { migrateTruthFileBackward } = await import("./projection-store")
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({ items: ["a"], v3: true, fileVersion: 3 }))
+    const result = await migrateTruthFileBackward("/P", "m.json", 2, {
+      currentVersion: 3,
+      migrations: [
+        { from: 2, to: 3, reversibility: "R0", forward: (raw) => raw, inverse: (raw) => { const { v3: _v3, ...rest } = raw; return rest } },
+      ],
+    })
+    expect(result).toEqual({ from: 3, to: 2 })
+    const payload = JSON.parse(fsMocks.writeFileAtomic.mock.calls[0][1])
+    expect(payload.fileVersion).toBe(2)
+    expect(payload.items).toEqual(["a"])
+  })
+
+  it("inverse 命中 R2 有损步 → 未显式 opt-in 时拒绝回滚", async () => {
+    const { migrateTruthFileBackward } = await import("./projection-store")
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({ items: ["a"], fileVersion: 2 }))
+    await expect(
+      migrateTruthFileBackward("/P", "m.json", 1, {
+        currentVersion: 2,
+        migrations: [
+          { from: 1, to: 2, reversibility: "R2", forward: (raw) => raw, inverse: (raw) => raw },
+        ],
+      }),
+    ).rejects.toThrow(/Inverse migration 1→2 for m\.json is lossy \(R2\) and not opted in/)
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 })

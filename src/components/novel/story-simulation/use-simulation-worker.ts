@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect } from "react"
+import { useCallback, useEffect } from "react"
 import type { SimulationBranch, DirectorScore } from "@/lib/novel"
 
 /** 分支对比结果（与 branch-compare-view 的 diffResult 内联类型同构，worker 侧具名化）。 */
@@ -20,14 +20,6 @@ type WorkerRequest =
   | { id: string; type: "clue-relations"; payload: { pairs: [string, string, number][] } }
   | { id: string; type: "branch-diff"; payload: BranchDiffResult }
   | { id: string; type: "board-layout"; payload: { id: string; x: number; y: number }[] }
-
-type PendingRequest = {
-  resolve: (value: unknown) => void
-  reject: (reason?: unknown) => void
-  timeoutId: ReturnType<typeof setTimeout>
-}
-
-const TIMEOUT_MS = 3000
 
 function extractKeywords(text: string): string[] {
   const words = text.split(/[，。？！、的了是在有和与等\s,.!?;:]/).filter((w) => w.length >= 2)
@@ -281,59 +273,16 @@ function fallbackCalcBranchDiff(branchA: SimulationBranch, branchB: SimulationBr
 }
 
 export function useSimulationWorker() {
-  const workerRef = useRef<Worker | null>(null)
-  const pendingRef = useRef<Map<string, PendingRequest>>(new Map())
-  const counterRef = useRef(0)
-  const workerFailedRef = useRef(false)
-
-  const ensureWorker = useCallback((): Worker | null => {
-    if (workerFailedRef.current) return null
-    if (workerRef.current) return workerRef.current
-
-    workerFailedRef.current = true
-    return null
-    // v2 适配：无 Web Worker 通道，全部走主线程同步计算（见 sendRequest fallback）
-  }, [])
-
+  // v2 适配：无 Web Worker 通道，全部走主线程同步计算。
+  // ensureWorker 首调即置失败旗并返回 null（全仓无 new Worker 写入点），
+  // 故 Worker 相关状态（workerRef / pendingRef / counterRef / workerFailedRef /
+  // TIMEOUT_MS / PendingRequest）与 Promise 分支均为死代码，已删除；
+  // sendRequest 直接执行 fallback，可观察行为不变。
   const sendRequest = useCallback(
-    <T>(request: Omit<WorkerRequest, "id">, fallback: () => T): Promise<T> => {
-      const worker = ensureWorker()
-      const id = `req-${Date.now()}-${counterRef.current++}`
-
-      if (!worker) {
-        return Promise.resolve(fallback())
-      }
-
-      return new Promise<T>((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-          pendingRef.current.delete(id)
-          try {
-            worker.terminate()
-          } catch {
-          }
-          workerRef.current = null
-          workerFailedRef.current = true
-          resolve(fallback())
-        }, TIMEOUT_MS)
-
-        pendingRef.current.set(id, {
-          resolve: resolve as (value: unknown) => void,
-          reject,
-          timeoutId,
-        })
-
-        try {
-          worker.postMessage({ ...request, id })
-        } catch {
-          clearTimeout(timeoutId)
-          pendingRef.current.delete(id)
-          workerFailedRef.current = true
-          workerRef.current = null
-          resolve(fallback())
-        }
-      })
+    <T>(_request: Omit<WorkerRequest, "id">, fallback: () => T): Promise<T> => {
+      return Promise.resolve(fallback())
     },
-    [ensureWorker],
+    [],
   )
 
   const calcClueRelations = useCallback(
@@ -370,17 +319,7 @@ export function useSimulationWorker() {
   )
 
   const terminate = useCallback(() => {
-    if (workerRef.current) {
-      try {
-        workerRef.current.terminate()
-      } catch {
-      }
-      workerRef.current = null
-    }
-    for (const [, pending] of pendingRef.current) {
-      clearTimeout(pending.timeoutId)
-    }
-    pendingRef.current.clear()
+    // v2 适配：无 Worker 实例、无待处理请求，无需清理（保留 API 兼容）。
   }, [])
 
   useEffect(() => {

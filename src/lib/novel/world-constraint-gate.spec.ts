@@ -9,6 +9,7 @@ import { WORLD_SAMPLE_ENTRY_SCHEMA, type WorldSampleEntry } from "./asset-librar
 import { combinePacks, runRuleStack } from "./rule-stack"
 import {
   WORLD_CONSTRAINT_PACK_ID,
+  WorldConstraintGateError,
   buildWorldConstraintPack,
   parseWorldConstraint,
 } from "./world-constraint-gate"
@@ -127,5 +128,47 @@ describe("buildWorldConstraintPack（P0 门联动）", () => {
         samples: [sample({ entryId: "", transferableConstraints: ["require:a"] })],
       }),
     ).toThrow()
+  })
+
+  it("空/纯前缀约束被跳过（防真空判据；硬+软两路 continue）", () => {
+    // 空串通不过 WORLD_SAMPLE_ENTRY_SCHEMA（min(1)），走 JSON 边界传入
+    // ——正好模拟磁盘资产未经 schema 校验的原始形态。
+    const samples = JSON.parse(
+      '[{"entryId":"ws-skip","transferableConstraints":["", "forbid:", "forbid:   ", "forbid:钢铁"],"softConstraints":["", "require:"]}]',
+    )
+    const pack = buildWorldConstraintPack({ text: "钢铁之城", samples })
+    // 6 条约束中仅 forbid:钢铁 成规则；其余全部跳过不建规则
+    expect(pack.rules.map((r) => r.id)).toEqual(["world-hard:ws-skip:3"])
+    const result = runRuleStack(combinePacks([pack]), { isFinale: false })
+    expect(result.verdicts.consistency).toBe("fail")
+  })
+
+  it("损坏资产（JSON 边界非字符串约束）→ 永不抛错并跳过该条", () => {
+    // transferableConstraints 来自 JSON 资产文件；损坏资产可能含非字符串。
+    // parseWorldConstraint 的 typeof 守卫 + 取值处的 ?? "" 共同保证永不抛错。
+    expect(parseWorldConstraint(JSON.parse("123"))).toBeNull()
+    expect(parseWorldConstraint(JSON.parse("null"))).toBeNull()
+    const samples = JSON.parse(
+      '[{"entryId":"ws-corrupt","transferableConstraints":[123, "forbid:钢铁"]}]',
+    )
+    const pack = buildWorldConstraintPack({ text: "钢铁之城", samples })
+    expect(pack.rules.map((r) => r.id)).toEqual(["world-hard:ws-corrupt:1"])
+    const result = runRuleStack(combinePacks([pack]), { isFinale: false })
+    expect(result.verdicts.consistency).toBe("fail")
+  })
+
+  it("schema 未校验的空 entryId 直达结构守卫（WorldConstraintGateError，fail-loud）", () => {
+    // 既有上例经 WORLD_SAMPLE_ENTRY_SCHEMA.parse 会先被 schema 拒绝（min(1)），
+    // 守卫行（throw + Error 构造）只能由绕过 schema 的调用方触发：
+    // spread 合法条目后清空 entryId，类型仍为 WorldSampleEntry，无需类型断言。
+    const valid = sample({ entryId: "ws-ok", transferableConstraints: ["require:a"] })
+    const bypassed = { ...valid, entryId: "" }
+    expect(bypassed.entryId).toBe("")
+    expect(() =>
+      buildWorldConstraintPack({ text: "", samples: [bypassed] }),
+    ).toThrow(WorldConstraintGateError)
+    expect(() =>
+      buildWorldConstraintPack({ text: "", samples: [bypassed] }),
+    ).toThrow("entryId 为空")
   })
 })

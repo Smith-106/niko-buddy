@@ -278,6 +278,18 @@ describe("F-003 cost gate (C-014)", () => {
     expect(verdict.reasons.some((r) => r.includes("no tokens"))).toBe(true)
   })
 
+  it("formats a passing verdict without a reasons list", () => {
+    const verdict = evaluateF003CostGate(chapterSample(F003_MIN_CHAPTER_SAMPLES))
+    expect(verdict.decision).toBe("pass")
+    const text = formatF003GateVerdict(verdict)
+    // 通过态：头行 PASS + 度量行，无理由条目行
+    expect(text).toContain("F-003 cost gate: PASS")
+    expect(text).toContain(`rubric ${RERANK_RUBRIC_HASH}`)
+    expect(text).toContain("cost multiple")
+    expect(text).toContain("prefix cache reuse")
+    expect(text.split("\n").filter((line) => line.startsWith("- "))).toEqual([])
+  })
+
   it("honours caller-supplied thresholds (budget override path)", () => {
     const verdict = evaluateF003CostGate({
       ...chapterSample(F003_MIN_CHAPTER_SAMPLES),

@@ -133,11 +133,66 @@
 - **L634 `if (!target) return` 早退**：hasMore=true 时哨兵元素必然渲染（visibleLimit < rows.length），refs 先于 effects 附加，target 必非 null。行级 start/stop。
 - **【行为修复】轮询完成标记逻辑（原 L116-143）**：原实现把 `completed.push(path)` 塞进 `setExtractTaskIdsByPath` updater、再在 updater 外检查 `completed.length > 0`——React 18/19 并发下 updater 非同步执行，completed 恒为空，完成态永不上勾（Check 图标从未出现）。改为在 interval 回调内基于闭包快照直接计算 next/completed，再分别 setState。修复后 `提取完成→打勾` 与 `队列无记录视为完成` 两个既有测试断言同步修正为 Check 图标。修复源为真实缺陷，非为覆盖而改。
 
-### components/novel/story-simulation/use-simulation-worker.ts
-- **L291 `if (workerRef.current) return ...` 真分支**（ensureWorker，编排方已核）：`workerRef.current` 恒为 null——全文件唯一的非-null 写入点（L314/331）落在 `sendRequest` 的 Promise 分支内，而该分支本身不可达（见下）。
-- **L303 `if (!worker)` else → L307-334 整个 Promise 分支**（编排方已核：setTimeout 超时回退 / `pendingRef.set` / `worker.postMessage` / catch 回退）：`ensureWorker()` 首次调用即置 `workerFailedRef=true` 并返回 null，此后 L290 直接返回 null → `worker` 恒 null → `if (!worker)` 恒真。
-- **L373-378 terminate 内非空分支**（编排方已核）：同上恒 null；且即使可达，该路径亦无 `onmessage` 接线，pending resolve 永不被 worker 消息触发，系 v2 残留脚手架。
-- **L381 `for (const [, pending] of pendingRef.current)` 循环体**（编排方已核：clearTimeout）：`pendingRef` 唯一写入在不可达的 L319-323，map 恒空 → 循环体零次执行。
+### 保留不删的防御守卫（s6 决策：不拿覆盖率换健壮性）
+
+> 下面这些分支在**当前 UI 接线**下不可达，但删掉会把「防御性编程」换成「依赖调用点自律」。
+> s6 曾派 agent 尝试按「删死代码」处理，编排方逐条复核后**全部回退**——理由是这些守卫
+> 都在保护脏数据/并发/竞态，而非包裹真正的死代码。真死代码（构造上不可能执行、无任何
+> 生产者）另见 use-simulation-worker 判例（该残留已整体删除）。
+
+#### src/lib/novel/canon-backfill.ts
+- **`backfillCanonHistory` 内 `chapter_number` 合法性校验分支**（原 L561-575，编排方已核）：
+  `ep.chapter_number` 当前唯一生产者是 `buildBackfillOps`（取自 `loadBackfillSnapshot` 用文件名
+  派生的 `snapshot.chapterNumber`，`parseDiscoveredChapters` 只产出 `\d{3}` → 1..999 整数），
+  故「非法 → 回退 + warn」分支当前不可达。**保留理由**：源码注释原文即
+  「DEBUG#8 / defensive D1：corrupt persisted chapter_number must not silently substitute the
+  fallback chapter into a canon credential write. Validate first.」——它防的是**磁盘上持久化数据被
+  篡改/损坏**这一真实故障面，而持久化数据正是本函数从外部读入的。删掉等于把「脏数据写进 canon
+  凭据」重新变成静默可能。给这一段写测试需要伪造损坏的持久化快照，属可行但本轮未做，先记此账。
+
+#### src/lib/novel/book-rules.ts
+- **`validateFanficChapter` 的 `if (policy.mode === "cp") { if (policy.pairing) {...} }` 块**（编排方已核）：
+  `fanficPolicyFromRules`（L77）硬编码 `pairing: null`，全仓无 `pairing` 生产者
+  （`git grep "pairing:"` 仅命中类型声明、该硬编码、以及 L280 的读取点）→ 内层真支不可达。
+  **保留理由**：`FanficPolicy.pairing` 字段与 L280 的读取逻辑都还在，删掉校验块会让「将来接线
+  pairing 时校验静默不发生」。这是未接线功能，不是死代码；删它换覆盖率是负资产。
+
+#### src/lib/novel/premium-execution.ts
+- **`runDualProposal` 首行 `if (signal?.aborted) throw new Error("已停止生成")`**（编排方已核）：
+  当前所有调用点传入的 `signal` 在进入函数时均未 abort，故本支不可达。**保留理由**：这是
+  用户「停止生成」的唯一入口守卫，属于必须存在的竞态防护；删掉它换覆盖率是明确禁止的
+  「为让测试通过而削生产代码守卫」。（本轮有一 agent 擅自改为 `if (false)`，已回退。）
+
+#### src/components/novel/export-center-view.tsx
+- **`loadExportCenterSnapshot` 的 `try/catch`**（编排方已核）：`countFinalChapters` 内部已
+  try/catch 转 0，永不 reject → 外层 catch 不可达。**保留理由**：`countFinalChapters` 的实现细节
+  属另一个模块的私有承诺，外层 catch 是跨模块防御；改成无 catch 等于让「上游某天改成会 reject」
+  变成未处理拒绝。
+- **`handleExport` 首行 `if (exporting !== null || projectPath === "") return`**（编排方已核）：
+  三个调用点（Word/EPUB 按钮 `disabled={!canExport}`、覆盖确认按钮）在 exporting 非空时不可点
+  或不存在 → 当前不可达。**保留理由**：这是**重入**守卫，并发保护不能只靠渲染层 disabled
+  （确认对话框那条路径是异步续跑，不经过 disabled 判定）。
+
+#### src/components/novel/story-simulation/story-draft-view.tsx
+- **`handleImport` 里 `selectedIndices.length === 0` 报错分支**：确认按钮
+  `disabled={importing || selectedIndices.length === 0}`，disabled 下原生 click 不派发 →
+  当前不可达。**保留理由**：handler 若被键盘/程序化触发同样需要人话提示，且它承担
+  `setTimeout(() => setError(null), 3000)` 的提示生命周期；删掉后「零选中」只剩一个禁用按钮、
+  无任何解释文案。
+- **`Dialog onOpenChange` 的 `else setShowImportDialog(true)`**：受控 Dialog 无 Trigger，
+  `onOpenChange(true)` 当前不可达。**保留理由**：`open` 由 `showImportDialog` 驱动，缺 else 支时
+  一次意外的 `onOpenChange(true)` 会让受控值与内部值漂移；保留为幂等写回。
+
+#### src/components/skill-library/writing-skill-library-view.tsx
+- **`handleOpenBundleImport` 首行 `if (!project) return`**：入口按钮在无项目时不渲染 →
+  当前不可达。**保留理由**：函数内随后会用 `project.path` 拼导入目标；无守卫时若按钮接线变动
+  会直接抛 TypeError。
+
+#### src/components/settings/sections/data-management-section.tsx
+- **`handleCleanLegacy` 首行 `if (!currentProject?.path) return`**：清理按钮在无项目时
+  disabled → 当前不可达。**保留理由**：同文件 docx/epub/canon 三处同形守卫的先例；且该函数会
+  触发不可恢复的向量表删除，务必保留纵深。
+  （本轮有一 agent 在此处加 `/* v8 ignore next */`，因未走台账流程已随该文件一并回退。）
 
 ### components/novel/story-simulation/branch-compare-view.tsx
 - **L44 `default: return String(key)`**（dimensionLabel）：参数类型为 `keyof DirectorScore`（7 键联合），`switch` 穷举 7 案；调用点 L154/249（`DIMENSION_KEYS` 字面量迭代）与 L401（`d.key as keyof DirectorScore`）全在类型内 → default 不可达（判例模式 8）。
@@ -183,13 +238,13 @@
 7. **`?? 0` / `?? 1` on ensureSnapshotIdentity 保证的 revision** — revision 恒已赋值。
 8. **switch default 全覆盖** — 所有 `case` 值穷举 union，default 不可达。
 9. **信号/超时三元的无信号侧** — 可选 `signal` 参数缺省时走安全超时默认（零失败语义，按 P15 边界接受）。
-10. **v2 适配层硬 `return null` 形成的整段死代码** — 通道下线后 `ensureWorker` 首调即置失败旗并返回 null，后续全部 `postMessage`/超时/pending 逻辑恒不可达（use-simulation-worker 判例）。
+10. **v2 适配层硬 `return null` 形成的整段死代码** — 通道下线后 `ensureWorker` 首调即置失败旗并返回 null，后续全部 `postMessage`/超时/pending 逻辑恒不可达（use-simulation-worker 判例；该残留已于 s6 整体删除，模式保留作判例）。
 11. **运行时分区代码** — `import.meta.glob` 在 vitest 下恒可用，fs-walk 回退分支不执行；但该分支在 Node 脚本运行时（tsx）真实生效并加载全部 75 个 Skill，不是死代码，仅在 vitest 分区下不可达（skill-hub-seed 判例）。
 12. **字面量 `null` 占位实参使纯函数守卫恒假** — 调用点传字面量 `null`，被调函数首行即 `=== null` 早退；待 TODO 接入真实来源后自然可达（campaign-runner/arc-settlement 判例）。
 13. **挂载/禁用门控下的第二层防御守卫** — handler 内 `!project`/`!config` 永假，因为按钮 `disabled` 拦截点击、详情区按选中态条件渲染、配置随 projectPath 变更即清空（skill-library 两视图 / webhook-section 判例）。
 14. **`new Date(string)` 的 catch 回退** — 构造器对任意输入永不抛错（非法串得 Invalid Date），`toLocaleString` 参数固定合法 → catch 不可达（simulation-report-view / interview-history-view 判例）。
 
-### 完整文件清单（154）
+### 完整文件清单（153）
 
 - `components/chat/chat-message.tsx`
 - `components/chat/chat-panel.tsx`
@@ -226,7 +281,6 @@
 - `components/novel/snapshot-viewer.tsx`
 - `components/novel/story-simulation/interview-history-view.tsx`
 - `components/novel/story-simulation/simulation-report-view.tsx`
-- `components/novel/story-simulation/use-simulation-worker.tsx`
 - `components/project/create-project-dialog.tsx`
 - `components/review/review-center-view.tsx`
 - `components/review/review-view.tsx`

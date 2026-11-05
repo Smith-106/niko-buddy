@@ -18,6 +18,7 @@ import {
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { LlmProviderSection, ReasoningControls } from "./llm-provider-section"
+import { HttpTimeoutControls } from "./llm-provider-widgets"
 import type { LlmPreset } from "@/lib/llm-config/llm-presets"
 import zhLocale from "@/i18n/zh.json"
 
@@ -147,9 +148,12 @@ vi.mock("@/lib/llm-config/llm-presets", () => ({
   LLM_PRESETS: mocks.LLM_PRESETS,
 }))
 
-vi.mock("@/lib/llm-config/preset-resolver", () => ({
-  resolveConfig: mocks.resolveConfig,
-}))
+// 只替换 resolveConfig；clampHttpTimeoutMs / HTTP_TIMEOUT_LIMITS 用真实实现
+// （纯函数且与断言直接相关：超时钳制用例要验真实上下限，替身会失去意义）。
+vi.mock("@/lib/llm-config/preset-resolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm-config/preset-resolver")>()
+  return { ...actual, resolveConfig: mocks.resolveConfig }
+})
 
 vi.mock("@/lib/endpoint-normalizer", () => ({
   normalizeEndpoint: mocks.normalizeEndpoint,
@@ -1199,5 +1203,51 @@ describe("LlmProviderSection a11y", () => {
     expect(document.getElementById(toggle.getAttribute("aria-controls")!)).toBeInTheDocument()
     // 字段 label 通过 htmlFor 关联
     expect(within(card).getByLabelText("API 密钥")).toHaveAttribute("type", "password")
+  })
+})
+
+describe("HttpTimeoutControls 超时三档", () => {
+  const connectLabel = () => lookupZhOrPending("settings.sections.llm.httpConnectTimeout")
+  const headerLabel = () => lookupZhOrPending("settings.sections.llm.httpHeaderTimeout")
+  const idleLabel = () => lookupZhOrPending("settings.sections.llm.httpStreamIdleMs")
+
+  it("PresetRow 超时输入经 HttpTimeoutControls 写回 override（patch 透传）", () => {
+    render(<LlmProviderSection />)
+    const card = cardByLabel("OpenAI")
+    expandCard(card)
+    // OpenAI 是 HTTP provider：三档超时输入渲染，且初始为空（沿用默认）
+    const input = within(card).getByLabelText(connectLabel()) as HTMLInputElement
+    expect(input.value).toBe("")
+    fireEvent.change(input, { target: { value: "15" } })
+    expect(mocks.state.providerConfigs["openai-main"].httpConnectTimeoutMs).toBe(15000)
+  })
+
+  it("HttpTimeoutControls (exported)：三档读写 + 空=undefined + 已有值回显 + 超限钳制", () => {
+    const onChange = vi.fn()
+    const { rerender } = render(
+      <HttpTimeoutControls
+        value={{ httpConnectTimeoutMs: 10000, httpHeaderTimeoutMs: undefined, httpStreamIdleMs: 90000 }}
+        onChange={onChange}
+      />,
+    )
+    // 已有值回显为秒；空档回退空串
+    expect((screen.getByLabelText(connectLabel()) as HTMLInputElement).value).toBe("10")
+    expect((screen.getByLabelText(idleLabel()) as HTMLInputElement).value).toBe("90")
+    expect((screen.getByLabelText(headerLabel()) as HTMLInputElement).value).toBe("")
+    // header 写入 30s → 30000ms
+    fireEvent.change(screen.getByLabelText(headerLabel()), { target: { value: "30" } })
+    expect(onChange).toHaveBeenLastCalledWith({ httpHeaderTimeoutMs: 30000 })
+    // idle 清空 → undefined（沿用默认）
+    fireEvent.change(screen.getByLabelText(idleLabel()), { target: { value: "" } })
+    expect(onChange).toHaveBeenLastCalledWith({ httpStreamIdleMs: undefined })
+    // 非法输入 → undefined
+    fireEvent.change(screen.getByLabelText(connectLabel()), { target: { value: "abc" } })
+    expect(onChange).toHaveBeenLastCalledWith({ httpConnectTimeoutMs: undefined })
+    // 超上限钳制：connect 1000s → 300s = 300000ms
+    fireEvent.change(screen.getByLabelText(connectLabel()), { target: { value: "1000" } })
+    expect(onChange).toHaveBeenLastCalledWith({ httpConnectTimeoutMs: 300000 })
+    // 全空回显
+    rerender(<HttpTimeoutControls value={{}} onChange={onChange} />)
+    expect((screen.getByLabelText(connectLabel()) as HTMLInputElement).value).toBe("")
   })
 })

@@ -227,6 +227,58 @@ describe("rerankCandidates — direct rerank endpoint", () => {
   })
 })
 
+describe("rerankCandidates — 离线模式短路", () => {
+  it("offlineMode 下直接返回原序并应用 topK（不触网）", async () => {
+    mocks.getState.mockReturnValue({
+      llmConfig: baseConfig,
+      rerankConfig,
+      dataVersion: 0,
+      offlineMode: true,
+    })
+    const list = [candidate("a"), candidate("b"), candidate("c")]
+    await expect(rerankCandidates("q", list, { topK: 2 })).resolves.toEqual([
+      candidate("a"),
+      candidate("b"),
+    ])
+    expect(mocks.streamChat).not.toHaveBeenCalled()
+    expect(mocks.requestDirectRerank).not.toHaveBeenCalled()
+  })
+})
+
+describe("rerankCandidates — G8 缓存容量上限 LRU 近似淘汰", () => {
+  it("direct 路径：满 50 条后最旧条目被淘汰（observable：重查 q0 重新请求）", async () => {
+    mocks.isRerankCapableEndpoint.mockReturnValue(true)
+    mocks.requestDirectRerank.mockResolvedValue([])
+    const list = [candidate("a"), candidate("b")]
+    for (let i = 0; i < 51; i += 1) {
+      const out = await rerankCandidates(`evict-direct-${i}`, list)
+      expect(out.map((c) => c.id)).toEqual(["a", "b"])
+    }
+    expect(mocks.requestDirectRerank).toHaveBeenCalledTimes(51)
+    // q0 已被淘汰 → 缓存未命中 → 第 52 次请求
+    const out = await rerankCandidates("evict-direct-0", list)
+    expect(out.map((c) => c.id)).toEqual(["a", "b"])
+    expect(mocks.requestDirectRerank).toHaveBeenCalledTimes(52)
+  })
+
+  it("LLM 路径：满 50 条后最旧条目被淘汰（observable：重查 q0 重新走流）", async () => {
+    mocks.streamChat.mockImplementation(async (_cfg, _msgs, callbacks) => {
+      callbacks.onToken('{"order":[]}')
+      callbacks.onDone()
+    })
+    const list = [candidate("a"), candidate("b")]
+    for (let i = 0; i < 51; i += 1) {
+      const out = await rerankCandidates(`evict-llm-${i}`, list)
+      expect(out.map((c) => c.id)).toEqual(["a", "b"])
+    }
+    expect(mocks.streamChat).toHaveBeenCalledTimes(51)
+    // q0 已被淘汰 → 缓存未命中 → 第 52 次流式调用
+    const out = await rerankCandidates("evict-llm-0", list)
+    expect(out.map((c) => c.id)).toEqual(["a", "b"])
+    expect(mocks.streamChat).toHaveBeenCalledTimes(52)
+  })
+})
+
 describe("rerankCandidates — streamed chat path", () => {
   it("reorders candidates by returned order and appends unlisted ones", async () => {
     mocks.streamChat.mockImplementation(async (_cfg, _msgs, callbacks) => {

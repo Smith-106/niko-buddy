@@ -664,6 +664,27 @@ describe("detectSupersedeDivergences (T1-T3 分歧三分类)", () => {
     expect(divs[1]).toEqual({ slot: 1, oldDigest: "old-digest-1", newDigest: ops[1]!.digest })
   })
 
+  it("空 ops → 短路返回空（不查库）", async () => {
+    const query = vi.mocked(CanonGraphClient.queryEpisodesByChapter)
+    const divs = await detectSupersedeDivergences(PROJECT, 1, [])
+    expect(divs).toEqual([])
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it("op 缺 digest（未预置幂等键）→ 跳过该槽位，不参与比较", async () => {
+    vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockResolvedValue({
+      episodes: [{ id: "ch1-fact0", chapter_number: 1, entity_id: "x", summary: "", digest: "old-digest-0" }],
+      total: 1,
+      max_revision: 1,
+    })
+    const opWithoutDigest = {
+      legacyPayload: { kind: "snapshot_fact" as const, chapterNumber: 1, fact: "事实A" },
+      canonPayload: { kind: "episode" as const, episode: { id: "ch1-fact0" } },
+    }
+    const divs = await detectSupersedeDivergences(PROJECT, 1, [opWithoutDigest])
+    expect(divs).toEqual([])
+  })
+
   it("查询失败 → 容错返回空（无分歧）", async () => {
     vi.mocked(CanonGraphClient.queryEpisodesByChapter).mockRejectedValue(new Error("DB down"))
     const ops = await buildBackfillOps(mkSnapshotForTest(1, ["事实A"]))
@@ -867,5 +888,68 @@ describe("runCanonHistoryBackfill", () => {
       runCanonHistoryBackfill("   ", { ...deps, listSnapshotsDir }, 1_000),
     ).rejects.toThrow(/open project path/)
     expect(listSnapshotsDir).not.toHaveBeenCalled()
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────────────
+// 9. E-05 晋升接线容错（promote 抛错 / promotionAudit 不一致与失败均非致命）
+// ──────────────────────────────────────────────────────────────────────────
+
+describe("backfillCanonHistory E-05 晋升接线容错", () => {
+  it("promote 写凭证失败 → 非致命告警，回填本身仍回报 backfilled", async () => {
+    const { logger } = await import("@/lib/utils")
+    const warn = vi.spyOn(logger, "warn")
+    // 仅让凭证层 promotions.json 的原子写失败（双写队列写不受影响）
+    writeFileAtomicMock.mockImplementation(async (path: string) => {
+      if (path.includes("promotions.json")) throw new Error("disk-full")
+    })
+    const { dualWrite } = makeHarness()
+    const deps = makeFsDeps({ 1: snapshotJson(1, ["第一章事实"]) }, dualWrite)
+    const report = await backfillCanonHistory(deps, PROJECT, {}, 1_000)
+
+    expect(report.perChapter[0]).toMatchObject({ chapter: 1, status: "backfilled", factCount: 1 })
+    expect(report.factsWritten).toBe(1)
+    expect(warn.mock.calls.some(([, message]) => /promote failed \(non-fatal, chapter 1\): disk-full/.test(message))).toBe(true)
+    warn.mockRestore()
+  })
+
+  it("promotionAudit 检出 recordWithoutEntry → 告警但不阻断回填", async () => {
+    const { logger } = await import("@/lib/utils")
+    const warn = vi.spyOn(logger, "warn")
+    // 预置一条无 targetRef.entryId 的历史凭证记录（静态内容每次读都返回）
+    readFileMock.mockImplementation(async (path: string) =>
+      path.includes("promotions.json")
+        ? JSON.stringify({ records: { "stale-key": { targetRef: {} } } })
+        : "",
+    )
+    const { dualWrite } = makeHarness()
+    const deps = makeFsDeps({ 1: snapshotJson(1, ["第一章事实"]) }, dualWrite)
+    const report = await backfillCanonHistory(deps, PROJECT, {}, 1_000)
+
+    expect(report.factsWritten).toBe(1)
+    expect(
+      warn.mock.calls.some(([, message]) =>
+        /promotionAudit inconsistent: recordWithoutEntry=1 entryWithoutRecord=0/.test(message),
+      ),
+    ).toBe(true)
+    warn.mockRestore()
+  })
+
+  it("promotionAudit 自身抛错（records 形状损坏）→ 告警后正常返回报告", async () => {
+    const { logger } = await import("@/lib/utils")
+    const warn = vi.spyOn(logger, "warn")
+    readFileMock.mockImplementation(async (path: string) =>
+      path.includes("promotions.json") ? '{"records":null}' : "",
+    )
+    const { dualWrite } = makeHarness()
+    const deps = makeFsDeps({ 1: snapshotJson(1, ["第一章事实"]) }, dualWrite)
+    const report = await backfillCanonHistory(deps, PROJECT, {}, 1_000)
+
+    expect(report.selectedChapters).toEqual([1])
+    expect(report.factsWritten).toBe(1)
+    expect(
+      warn.mock.calls.some(([, message]) => /promotionAudit failed \(non-fatal\)/.test(message)),
+    ).toBe(true)
+    warn.mockRestore()
   })
 })

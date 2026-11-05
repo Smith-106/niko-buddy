@@ -136,3 +136,106 @@ it("批次二·7：空态说明草稿从哪来，并提供「去主控生成」"
     expect(onOpenMemory).toHaveBeenCalledTimes(1)
   })
 })
+
+describe("ChapterDraftDock statements 补齐（s6-execute-statements）", () => {
+  it("listDrafts 拒绝 → 草稿读不出来", async () => {
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => {
+          throw new Error("io")
+        }}
+      />,
+    )
+    expect((await screen.findByTestId("chapter-draft-note")).textContent).toContain("草稿读不出来。")
+  })
+
+  it("章节名非法 formalChapterPathForDraft 抛错 → 提示且不弹窗确认", async () => {
+    const bad: ChapterDraft = { id: "bad", chapterName: "///", content: "x", createdAt: 1, status: "draft" }
+    const acceptDraft = vi.fn()
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => [bad]}
+        acceptDraft={acceptDraft}
+        pathExists={async () => false}
+      />,
+    )
+    fireEvent.click(await screen.findByTestId("chapter-draft-adopt-bad"))
+    expect((await screen.findByTestId("chapter-draft-note")).textContent).toContain("草稿没有章节名")
+    expect(screen.queryByTestId("chapter-draft-confirm")).toBeNull()
+    expect(acceptDraft).not.toHaveBeenCalled()
+  })
+
+  it("pathExists 拒绝 → 回退已占用（会覆盖）", async () => {
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => [draft]}
+        pathExists={async () => {
+          throw new Error("fs")
+        }}
+      />,
+    )
+    fireEvent.click(await screen.findByTestId("chapter-draft-adopt-d1"))
+    expect((await screen.findByTestId("chapter-draft-confirm")).textContent).toContain("会覆盖")
+  })
+
+  it("acceptDraft 拒绝（Error）→ 透出错误 message", async () => {
+    const acceptDraft = vi.fn(async () => {
+      throw new Error("写入失败")
+    })
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => [draft]}
+        acceptDraft={acceptDraft}
+        pathExists={async () => false}
+      />,
+    )
+    fireEvent.click(await screen.findByTestId("chapter-draft-adopt-d1"))
+    fireEvent.click(await screen.findByTestId("chapter-draft-confirm-accept"))
+    expect((await screen.findByTestId("chapter-draft-note")).textContent).toContain("写入失败")
+  })
+
+  it("acceptDraft 非 Error 拒绝 → 兜底文案", async () => {
+    const acceptDraft = vi.fn(async (): Promise<never> => {
+      // eslint-disable-next-line no-throw-literal
+      throw "plain"
+    })
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => [draft]}
+        acceptDraft={acceptDraft}
+        pathExists={async () => false}
+      />,
+    )
+    fireEvent.click(await screen.findByTestId("chapter-draft-adopt-d1"))
+    fireEvent.click(await screen.findByTestId("chapter-draft-confirm-accept"))
+    expect((await screen.findByTestId("chapter-draft-note")).textContent).toContain("没有写入正式章")
+  })
+
+  it("projectPath 为空 → 先开书提示（早期返回）", () => {
+    render(<ChapterDraftDock projectPath="" selectedFile={null} listDrafts={async () => []} />)
+    expect(screen.getByText("先打开一本书，才能采纳草稿。")).toBeTruthy()
+  })
+
+  it("saved 状态草稿显示已写入且无采纳按钮", async () => {
+    const saved: ChapterDraft = { ...draft, status: "saved" }
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile={null}
+        listDrafts={async () => [saved]}
+      />,
+    )
+    expect(await screen.findByText("已写入正式章")).toBeTruthy()
+    expect(screen.queryByTestId("chapter-draft-adopt-d1")).toBeNull()
+  })
+})

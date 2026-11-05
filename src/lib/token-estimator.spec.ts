@@ -152,6 +152,51 @@ describe("tokensToCharBudget：token 预算折算字符预算", () => {
   })
 })
 
+describe("estimateScaffoldTokens：循环引用防御", () => {
+  it("循环引用的脚手架返回 0 而不是抛错（fail-open，预算不失效）", () => {
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    expect(() => estimateScaffoldTokens(circular)).not.toThrow()
+    expect(estimateScaffoldTokens(circular)).toBe(0)
+  })
+})
+
+describe("tokensToCharBudget：数组块内容", () => {
+  it("块数组按文本块长度取比率（与字符串口径一致）", () => {
+    const text = "测".repeat(500)
+    const fromString = tokensToCharBudget([{ content: text }], 250)
+    const fromBlocks = tokensToCharBudget(
+      [{ content: [{ type: "text", text }] }],
+      250,
+    )
+    // 同一文本两种载体：字符数相同 → 预算一致
+    expect(fromBlocks).toBe(fromString)
+    expect(fromBlocks).toBeGreaterThan(200)
+    expect(fromBlocks).toBeLessThan(300)
+  })
+
+  it("非文本块不计入字符数（图像块按中性常量估 token，不占字符预算）", () => {
+    const textOnly = tokensToCharBudget(
+      [{ content: [{ type: "text", text: "a".repeat(400) }] }],
+      50,
+    )
+    const withImage = tokensToCharBudget(
+      [
+        {
+          content: [
+            { type: "text", text: "a".repeat(400) },
+            { type: "image", dataBase64: "xxxx" },
+          ],
+        },
+      ],
+      50,
+    )
+    // 图像块无 text（字符统计不变）但占 800 token → 分母变大 → 字符预算更保守
+    expect(withImage).toBeLessThan(textOnly)
+    expect(withImage).toBeGreaterThan(0)
+  })
+})
+
 describe("精确计数请求构造", () => {
   it("Anthropic：URL、headers、body 形状", () => {
     const req = buildAnthropicCountTokensRequest({

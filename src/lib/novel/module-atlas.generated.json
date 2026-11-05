@@ -91,7 +91,7 @@
   "specOnly": 268,
   "barrelOnly": 1,
   "edges": 4648,
-  "loc": 289730
+  "loc": 289669
  },
  "modules": [
   {
@@ -4368,7 +4368,7 @@
   {
    "p": "src/components/novel/story-simulation/use-simulation-worker.ts",
    "s": 16,
-   "l": 399,
+   "l": 338,
    "r": true,
    "o": false,
    "x": false,
