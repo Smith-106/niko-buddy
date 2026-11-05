@@ -221,6 +221,16 @@ describe("withFileLockRetry", () => {
     expect(result).toBe("ok")
     expect(fn).toHaveBeenCalledTimes(2)
   })
+
+  it("maxAttempts 传 NaN 时循环体一次不执行，落到 unreachable 兜底并抛错", async () => {
+    // 刻画行为：Math.max(1, Math.floor(NaN)) 仍是 NaN，`attempt <= NaN` 恒假
+    const fn = vi.fn(async (): Promise<string> => "ok")
+
+    await expect(withFileLockRetry(fn, { maxAttempts: Number.NaN })).rejects.toThrow(
+      "withFileLockRetry: unreachable",
+    )
+    expect(fn).not.toHaveBeenCalled()
+  })
 })
 
 describe("errorText 的未知拒绝值分支（经 isTransientFileLockError 观察）", () => {
