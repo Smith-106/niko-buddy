@@ -1126,8 +1126,12 @@ describe("StorySimulationView 续聊恢复与取消", () => {
     await waitFor(() => expect(screen.queryByText("取消推演")).toBeTruthy(), { timeout: 5000 })
     fireEvent.click(screen.getByText("取消推演"))
     await waitFor(() => expect(useStorySimulationStore.getState().phase).toBe("framework-confirming"), { timeout: 5000 })
-    expect(String(useStorySimulationStore.getState().error)).toContain("storySimulation.simulationCancelled")
-    expect(novelMocks.saveSimulationResult).toHaveBeenCalled()
+    // phase 与 error 是两次独立 setState，并发下 phase 先落地；断言各自等，不依赖落地顺序
+    await waitFor(
+      () => expect(String(useStorySimulationStore.getState().error)).toContain("storySimulation.simulationCancelled"),
+      { timeout: 5000 },
+    )
+    await waitFor(() => expect(novelMocks.saveSimulationResult).toHaveBeenCalled(), { timeout: 5000 })
   })
 
   it("空时间线取消直接返回不保存", async () => {

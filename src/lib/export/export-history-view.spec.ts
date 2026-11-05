@@ -175,3 +175,73 @@ describe("状态枚举完备性", () => {
     expect(all).toHaveLength(5)
   })
 })
+
+describe("resolveExportProvenance — 默认 IO 与残缺字段兜底（分支补齐）", () => {
+  it("不传 deps → 回落默认 fileExists（本文件 mock 为 false）→ source_missing", async () => {
+    const p = await resolveExportProvenance(PP, entry())
+    expect(p.status).toBe("source_missing")
+    expect(p.sourceAsset.existsAtRecordedPath).toBe(false)
+    expect(p.sourceAsset.resolvedPath).toBeNull()
+    expect(p.sourceAsset.reachable).toBe(false)
+    expect(p.output.exists).toBe(false)
+  })
+
+  it("仅传 chapterFileExists → output 侧回落默认 fileExists", async () => {
+    const p = await resolveExportProvenance(PP, entry(), {
+      chapterFileExists: async () => true,
+    })
+    expect(p.status).toBe("output_missing")
+    expect(p.sourceAsset.reachable).toBe(true)
+    expect(p.output.exists).toBe(false)
+  })
+
+  it("仅传 outputFileExists → chapter 侧回落默认 fileExists（记录路径+重连皆失）", async () => {
+    const p = await resolveExportProvenance(PP, entry(), {
+      outputFileExists: async () => true,
+    })
+    expect(p.status).toBe("source_missing")
+    expect(p.sourceAsset.reachable).toBe(false)
+    expect(p.output.exists).toBe(true)
+  })
+
+  it("字段缺失（undefined）→ invalid 且各派生取空兜底，不崩溃", async () => {
+    const hollow = entry({
+      id: undefined,
+      target: undefined,
+      chapterPath: undefined,
+      contentDigest: undefined,
+      confirmedDigest: undefined,
+      sessionId: undefined,
+      conversationId: undefined,
+      userRequest: undefined,
+      chapterNumber: undefined,
+      pages: undefined,
+      bytesWritten: undefined,
+      font: undefined,
+      exportedAt: undefined,
+    })
+    const p = await resolveExportProvenance(PP, hollow, {
+      chapterFileExists: async () => true,
+      outputFileExists: async () => true,
+    })
+    expect(p.status).toBe("invalid")
+    expect(p.exportId).toBe("")
+    expect(p.confirmedVersion).toEqual({ confirmedDigest: "", contentDigest: "" })
+    expect(p.run).toMatchObject({ sessionId: "", conversationId: "", userRequest: "", resolvable: false })
+    expect(p.sourceAsset).toMatchObject({
+      chapterPath: "",
+      chapterNumber: null,
+      existsAtRecordedPath: false,
+      resolvedPath: null,
+      reachable: false,
+    })
+    expect(p.output).toMatchObject({
+      target: "",
+      exists: false,
+      pages: 0,
+      bytesWritten: 0,
+      font: "",
+      exportedAt: "",
+    })
+  })
+})

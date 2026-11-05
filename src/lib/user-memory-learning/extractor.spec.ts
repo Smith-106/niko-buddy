@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   buildUserMemoryExtractionPrompt,
+  computeUserMessageHash,
   parseUserMemoryExtraction,
 } from "./extractor"
 
@@ -83,5 +84,89 @@ describe("user memory extractor", () => {
     ] }))
 
     expect(result).toEqual([])
+  })
+})
+
+describe("user memory extractor 分支覆盖", () => {
+  it("无 JSON 时返回空数组", () => {
+    expect(parseUserMemoryExtraction("这里没有 JSON")).toEqual([])
+    expect(parseUserMemoryExtraction("}{")).toEqual([])
+  })
+
+  it("memories 缺失或非数组时返回空数组", () => {
+    expect(parseUserMemoryExtraction("{}")).toEqual([])
+    expect(parseUserMemoryExtraction(JSON.stringify({ memories: {} }))).toEqual([])
+  })
+
+  it("跳过非对象和非法字段的候选", () => {
+    const result = parseUserMemoryExtraction(JSON.stringify({
+      memories: [
+        null,
+        "not-an-object",
+        42,
+        { rule: 123, category: "manual", surfaces: ["all"], confidence: 1, evidence_summary: "x" },
+        { rule: "回答时先给结论。", category: "unknown-cat", surfaces: ["all"], confidence: 1, evidence_summary: "x" },
+      ],
+    }))
+
+    expect(result).toEqual([])
+  })
+
+  it("过短或超长的规则会被过滤", () => {
+    const result = parseUserMemoryExtraction(JSON.stringify({
+      memories: [
+        { rule: "太短", category: "manual", surfaces: ["all"], confidence: 1, evidence_summary: "x" },
+        { rule: `回答${"啊".repeat(600)}。`, category: "manual", surfaces: ["all"], confidence: 1, evidence_summary: "x" },
+      ],
+    }))
+
+    expect(result).toEqual([])
+  })
+
+  it("缺失 evidence 与 surfaces 时使用默认值", () => {
+    const result = parseUserMemoryExtraction(JSON.stringify({
+      memories: [{
+        rule: "回答时先给结论并保持简洁。",
+        category: "interaction_preference",
+        evidence_summary: 123,
+      }],
+    }))
+
+    expect(result).toHaveLength(1)
+    expect(result[0]?.evidenceSummary).toBe("")
+    expect(result[0]?.surfaces).toEqual(["all"])
+    expect(result[0]?.confidence).toBe(0.5)
+  })
+
+  it("computeUserMessageHash 对空白归一化且稳定", async () => {
+    const a = await computeUserMessageHash("回答时先给结论")
+    const b = await computeUserMessageHash("  回答时先给结论  ")
+    const c = await computeUserMessageHash("保持简洁")
+
+    expect(a).toMatch(/^[0-9a-f]{64}$/)
+    expect(b).toBe(a)
+    expect(c).not.toBe(a)
+  })
+
+  it("无 subtle 时回退到 fnv1a 哈希", async () => {
+    vi.stubGlobal("crypto", undefined)
+    try {
+      const hash = await computeUserMessageHash("回答时先给结论")
+      expect(hash).toMatch(/^fnv1a:[0-9a-f]{8}$/)
+      expect(await computeUserMessageHash("回答时先给结论")).toBe(hash)
+      expect(await computeUserMessageHash("保持简洁")).not.toBe(hash)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("subtle 缺失时回退到 fnv1a 哈希", async () => {
+    vi.stubGlobal("crypto", {})
+    try {
+      const hash = await computeUserMessageHash("回答时先给结论")
+      expect(hash).toMatch(/^fnv1a:[0-9a-f]{8}$/)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

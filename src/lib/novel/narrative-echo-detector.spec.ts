@@ -3,6 +3,7 @@ import {
   fnv1a32,
   sentenceNGramSignature,
   chapterStructuralSignature,
+  ngramOverlap,
   signaturesSimilar,
   NarrativeEchoTracker,
   echoReportToText,
@@ -182,5 +183,114 @@ describe("P1-1 修复回归 — 句长分布区分度", () => {
     const b = chapterStructuralSignature(t)
     expect(a.sentenceLengthHash).toBe(b.sentenceLengthHash)
     expect(signaturesSimilar(a, b)).toBe(true)
+  })
+})
+
+// ============================================================================
+// 分支覆盖补齐（20261105-ralph-coverage-100）：段长桶全分桶 / 转场桶 1-2 /
+// 长句量化 / 空输入 / ngram 空集 / 桶失配与句长失配的 false 路径 / 默认窗口
+// ============================================================================
+describe("分支覆盖补齐 — paragraphBuckets 全分桶", () => {
+  it("四段分属 0-20/21-60/61-200/200+ 四桶", () => {
+    const p1 = "他走了。"
+    const p2 = "他推开门走了出去，夜色很深，远处传来几声狗叫。"
+    const p3 = [p2, p2, p2, p2].join("")
+    const p4 = Array.from({ length: 10 }, () => p2).join("")
+    expect(p2.length).toBeGreaterThan(20)
+    expect(p2.length).toBeLessThanOrEqual(60)
+    expect(p3.length).toBeGreaterThan(60)
+    expect(p4.length).toBeGreaterThan(200)
+    const sig = chapterStructuralSignature([p1, p2, p3, p4].join("\n"))
+    expect(sig.paragraphBuckets).toEqual([1, 1, 1, 1])
+  })
+})
+
+describe("分支覆盖补齐 — 转场密度桶 1/2 与空文本", () => {
+  it("转场占比 25% → 桶 1", () => {
+    const paras = [
+      "然而他推开门。",
+      "然而夜色很深。",
+      "他走了。",
+      "她来了。",
+      "天黑了。",
+      "风起了。",
+      "灯灭了。",
+      "门关了。",
+    ]
+    const sig = chapterStructuralSignature(paras.join("\n"))
+    expect(sig.transitionDensityBucket).toBe(1)
+  })
+
+  it("转场占比 50% → 桶 2", () => {
+    const paras = ["然而他推开门。", "然而夜色很深。", "他走了。", "她来了。"]
+    const sig = chapterStructuralSignature(paras.join("\n"))
+    expect(sig.transitionDensityBucket).toBe(2)
+  })
+
+  it("空文本 → 长度 0 / 空桶 / 转场桶 0", () => {
+    const sig = chapterStructuralSignature("")
+    expect(sig.length).toBe(0)
+    expect(sig.paragraphBuckets).toEqual([0, 0, 0, 0])
+    expect(sig.transitionDensityBucket).toBe(0)
+  })
+})
+
+describe("分支覆盖补齐 — 长句量化与 ngram 空集", () => {
+  it("含超 35 字长句 → 句长哈希与全短句版本不同", () => {
+    const short = "他走了。她来了。天黑了。"
+    const longSent = "他推开门走了出去，夜风卷着雨丝扑在脸上，走廊尽头那盏灯还亮着，没有人说话。"
+    expect(longSent.length).toBeGreaterThan(35)
+    const a = chapterStructuralSignature(short)
+    const b = chapterStructuralSignature(`${short}\n${longSent}`)
+    expect(a.sentenceLengthHash).not.toBe(b.sentenceLengthHash)
+  })
+
+  it("ngramOverlap 空集输入返回 0", () => {
+    expect(ngramOverlap([], [1, 2])).toBe(0)
+    expect(ngramOverlap([1], [])).toBe(0)
+    expect(ngramOverlap([1, 2, 3], [2, 3, 4])).toBeCloseTo(2 / 3)
+  })
+})
+
+describe("分支覆盖补齐 — signaturesSimilar 失配路径", () => {
+  it("空签名之间判同构（跳过长度门）", () => {
+    const e1 = chapterStructuralSignature("")
+    const e2 = chapterStructuralSignature("")
+    expect(signaturesSimilar(e1, e2)).toBe(true)
+  })
+
+  it("段长桶失配 → false（经 lengthRatioTolerance:1 绕过长度门）", () => {
+    const a = chapterStructuralSignature("他走了。\n她来了。\n天黑了。")
+    const longPara = "他推开门走了出去，夜色很深，远处传来几声狗叫，风从巷口灌进来。"
+    const b = chapterStructuralSignature([longPara, longPara, longPara].join("\n"))
+    expect(a.paragraphBuckets).toEqual([3, 0, 0, 0])
+    expect(b.paragraphBuckets).toEqual([0, 3, 0, 0])
+    expect(signaturesSimilar(a, b, { lengthRatioTolerance: 1 })).toBe(false)
+  })
+
+  it("句长指纹失配 → false（同段桶/同转场桶/长度比达标）", () => {
+    const a = chapterStructuralSignature("他走了。她来了。天黑了。\n他坐下。她站着。茶凉了。\n他笑了。她哭了。人散了。")
+    const b = chapterStructuralSignature(
+      "他推开门走了出去夜色很深。\n她放下杯子没有看他窗外下雨。\n他沉默了很久才开口说话沙哑。",
+    )
+    expect(a.paragraphBuckets).toEqual(b.paragraphBuckets)
+    expect(a.transitionDensityBucket).toBe(b.transitionDensityBucket)
+    expect(a.sentenceLengthHash).not.toBe(b.sentenceLengthHash)
+    expect(signaturesSimilar(a, b)).toBe(false)
+  })
+})
+
+describe("分支覆盖补齐 — 默认窗口与 duplicates 跨窗口 break", () => {
+  it("无参构造默认窗口 5：首章在窗口外且 duplicates 截断", () => {
+    const same = chapterStructuralSignature("他推开门走了出去。夜色很深。远处有狗叫。\n她放下杯子。窗外下雨了。\n他沉默了很久。")
+    const t = new NarrativeEchoTracker()
+    t.register(1, same)
+    for (let ch = 2; ch <= 6; ch++) t.register(ch, same)
+    // 默认 windowSize=5：第 7 章只与 2-6 章同构，1 号章已出窗口
+    expect(t.register(7, same)).toEqual([2, 3, 4, 5, 6])
+    // duplicates：1 号与 7 号章差 6 > 5 → break，全对都在窗口内成对
+    const dups = t.duplicates()
+    expect(dups.some((d) => d.a === 1 && d.b === 7)).toBe(false)
+    expect(dups.some((d) => d.a === 6 && d.b === 7)).toBe(true)
   })
 })

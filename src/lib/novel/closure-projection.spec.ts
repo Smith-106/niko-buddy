@@ -341,3 +341,91 @@ describe("信息差时态口径（审查回归）：撤销的记录不计入已�
     expect(row?.relatedIds).toEqual(["甲"])
   })
 })
+
+describe("分支覆盖补齐：空文本/缺章号/标签回退/同章排序（可失败断言）", () => {
+  it("同章号 timeline 行 → 按故事时间（恒 null）相等后回退到 id 码点序", () => {
+    const p = projectClosureState({
+      timelineEntries: [
+        { chapterNumber: 2, event: "章级B" },
+        { chapterNumber: 2, event: "章级A" },
+      ],
+    })
+
+    // 两行章号相等、故事时间都无真源（null → "")，只能按 id 码点排
+    expect(p.worldEvents.map((r) => r.id)).toEqual(["timeline:2:章级A", "timeline:2:章级B"])
+    expect(p.worldEvents[0].chapterNumber).toBe(2)
+    expect(p.worldEvents[0].storyTime).toBeNull()
+    expect(p.missingSources.some((s) => s.includes("timeline.json"))).toBe(false)
+  })
+
+  it("空 validFrom/空白 description → asText 回退 null，时态过滤被旁路（全部计入）", () => {
+    const p = projectClosureState({
+      narrativeState: {
+        declarations: [
+          decl({
+            declarationId: "d9",
+            validFrom: "",
+            description: "   ",
+            entityId: "塔",
+            property: "高",
+            modality: "fact",
+          }),
+        ],
+        visibilities: [
+          // validTo 早已闭合，但 validFrom 为空 → at === "" → 不做时态过滤，照样计入
+          vis({
+            declarationId: "d9",
+            characterId: "cZ",
+            state: "known",
+            validFrom: "第1章",
+            validTo: "第2章",
+          }),
+        ],
+      },
+    })
+
+    expect(p.infoGaps).toHaveLength(1)
+    const row = p.infoGaps[0]
+    expect(row.storyTime).toBeNull()
+    expect(row.detail).toBeNull()
+    expect(row.knownCount).toBe(1)
+    expect(row.unknownCount).toBe(0)
+    expect(row.relatedIds).toEqual(["cZ"])
+    expect(row.label).toBe("塔.高")
+  })
+
+  it("NaN 章号/空事件文本 → 章号与文本双回退；(无章号, 有章号) 比较走 return -1", () => {
+    const p = projectClosureState({
+      // 刻意把无章号行放前面：排序比较时 (有章号, 无章号) 命中「有章号优先」分支
+      timelineEntries: [
+        { chapterNumber: NaN, event: "" },
+        { chapterNumber: 1, event: "" },
+      ],
+    })
+
+    expect(p.worldEvents.map((r) => r.id)).toEqual(["timeline:1:", "timeline:?:"])
+    const first = p.worldEvents[0]
+    expect(first.chapterNumber).toBe(1)
+    expect(first.label).toBe("第 1 章事件（真源无文本）")
+    const second = p.worldEvents[1]
+    expect(second.chapterNumber).toBeNull()
+    expect(second.label).toBe("第 ? 章事件（真源无文本）")
+  })
+
+  it("entity/property 缺文本 → label 三级回退（entity / property / declarationId）", () => {
+    const p = projectClosureState({
+      narrativeState: {
+        declarations: [
+          decl({ declarationId: "d-a", entityId: "塔", property: "" }),
+          decl({ declarationId: "d-b", entityId: "", property: "主人" }),
+          decl({ declarationId: "d-c", entityId: "", property: "" }),
+        ],
+      },
+    })
+
+    const byId = new Map(p.infoGaps.map((r) => [r.id, r.label] as const))
+    expect(byId.get("d-a")).toBe("塔")
+    expect(byId.get("d-b")).toBe("主人")
+    expect(byId.get("d-c")).toBe("d-c")
+  })
+})

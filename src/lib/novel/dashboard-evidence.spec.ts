@@ -367,3 +367,90 @@ describe("事件收容矩阵回归（DeepSeek E1：stage 系不污染三门权�
     expect(deriveSubGateAlerts(polluted)).toHaveLength(3)
   })
 })
+
+describe("deriveSubGateAlerts（分支补齐：摘要提取全出口）", () => {
+  function stage(seq: number, payload: Record<string, unknown>): RunEventInput {
+    return { seq, eventId: `stage:${seq}`, ts: TS, kind: "stage", actor: "system", payload }
+  }
+
+  it("subGate 有 verdict 无 form → 裁定摘要不带括号", () => {
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      stage(0, { subGate: "cross-form-derivation", verdict: "pass" }),
+    ])
+    const items = deriveSubGateAlerts(ledger)
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ category: "subgate", name: "cross-form-derivation", summary: "裁定=pass" })
+  })
+
+  it("subGate 仅 decisiveSourceIds → 决定性证据数；空 subGate → 空摘要", () => {
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      stage(0, { subGate: "vis-cont", decisiveSourceIds: ["a", "b"] }),
+      stage(1, { subGate: "vis-cont" }),
+    ])
+    const items = deriveSubGateAlerts(ledger)
+    expect(items).toHaveLength(2)
+    // 最新在前：stage:1（空 subGate → 空摘要）在前
+    expect(items[0]).toMatchObject({ name: "vis-cont", summary: "" })
+    expect(items[1]).toMatchObject({ name: "vis-cont", summary: "决定性证据=2" })
+  })
+
+  it("subGate 有 pairsChecked 无 findings → 断裂计 0", () => {
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      stage(0, { subGate: "vis-cont", pairsChecked: 3 }),
+    ])
+    expect(deriveSubGateAlerts(ledger)[0]).toMatchObject({ summary: "跨帧对=3 断裂=0" })
+  })
+
+  it("subGate=counterfactual → 归入 counterfactual 类", () => {
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      stage(0, { subGate: "counterfactual", verdict: "pass" }),
+    ])
+    expect(deriveSubGateAlerts(ledger)[0]).toMatchObject({ category: "counterfactual", name: "counterfactual" })
+  })
+
+  it("aura 告警无 pairs → 同质化角色对=0；首项无 similarity → 不渲染最高相似度", () => {
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      stage(0, { alert: "aura-homogenization" }),
+      stage(1, { alert: "aura-homogenization", pairs: [{ entryIdA: "a", entryIdB: "b" }] }),
+    ])
+    const items = deriveSubGateAlerts(ledger)
+    // 最新在前：stage:1（有 pairs 无 similarity）在前
+    expect(items[0]?.summary).toBe("同质化角色对=1")
+    expect(items[0]?.summary).not.toContain("最高相似度")
+    expect(items[1]).toMatchObject({ summary: "同质化角色对=0" })
+  })
+
+  it("voice-drift 缺 drift/chapterId → 未知与 ? 兜底；未知告警 → 空摘要", () => {
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      stage(0, { alert: "voice-drift" }),
+      stage(1, { alert: "drift-unknown-kind" }),
+    ])
+    const items = deriveSubGateAlerts(ledger)
+    // 最新在前：stage:1（未知告警 → 空摘要）在前
+    expect(items[0]).toMatchObject({ category: "alert", name: "drift-unknown-kind", summary: "" })
+    expect(items[1]).toMatchObject({ category: "alert", name: "voice-drift", summary: "漂移=未知（ch?）" })
+  })
+
+  it("counterfactual 缺 gate（非字符串）→ 名兜底 ?；缺 decisiveSourceIds → 计数 0", () => {
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      stage(0, { counterfactual: { decisiveSourceIds: ["x"] } }),
+      stage(1, { counterfactual: { gate: "quality" } }),
+    ])
+    const items = deriveSubGateAlerts(ledger)
+    // 最新在前：stage:1（有 gate 无 decisiveSourceIds）在前
+    expect(items[0]).toMatchObject({ name: "counterfactual:quality", summary: "决定性证据=0" })
+    expect(items[1]).toMatchObject({ name: "counterfactual:?", summary: "决定性证据=1" })
+  })
+})
+
+describe("deriveBookHealthSummaries（分支补齐：非门事件与无 bookId 事件跳过）", () => {
+  it("stage 事件与无 bookId 的 gate-run 不计入任何书", () => {
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      { seq: 0, eventId: "stage:0", ts: TS, kind: "stage", actor: "system", payload: { subGate: "vis-cont", verdict: "pass" } },
+      gateRun(1, "consistency", "pass"),
+      gateRun(2, "consistency", "pass", { bookId: "book-a" }),
+    ])
+    const health = deriveBookHealthSummaries(ledger, ["book-a"])["book-a"]
+    expect(health).toMatchObject({ display: "not_evaluated", blocked: false, blockingGate: null, evaluatedGates: 1 })
+  })
+})

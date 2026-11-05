@@ -665,3 +665,201 @@ describe("WritingWorkspace — W3 剩余分支补齐", () => {
     expect(setActiveView).toHaveBeenCalledWith("lint")
   })
 })
+
+describe("WritingWorkspace — W4 剩余分支收敛（77-branch 冲刺）", () => {
+  it("伏笔 effect 取消竞态：项目切换后旧请求的拒绝不再清掉新数据（L114 else）", async () => {
+    let rejectFirst!: (e: Error) => void
+    novelMocks.loadForeshadowingTracker
+      .mockImplementationOnce(
+        () =>
+          new Promise<never>((_resolve, reject) => {
+            rejectFirst = reject as (e: Error) => void
+          }),
+      )
+      .mockImplementationOnce(async () => ({
+        lastUpdated: "2026-01-01T00:00:00.000Z",
+        items: [
+          { id: "o1", name: "玉佩", description: "", status: "planted", plantedChapter: 1, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+          { id: "o2", name: "密信", description: "", status: "planted", plantedChapter: 8, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+        ],
+      }))
+    mocks.wikiState.project = { path: "/proj/A" }
+    const { rerender } = render(<WritingWorkspace />)
+    await waitFor(() => {
+      expect(novelMocks.loadForeshadowingTracker).toHaveBeenCalledTimes(1)
+    })
+    mocks.wikiState.project = { path: "/proj/B" }
+    rerender(<WritingWorkspace />)
+    const alert = await screen.findByTestId("workspace-foreshadow-alert")
+    expect(alert.textContent).toContain("严重1")
+    rejectFirst(new Error("旧项目请求迟到"))
+    await act(async () => {})
+    expect(screen.getByTestId("workspace-foreshadow-alert").textContent).toContain("严重1")
+  })
+
+  it("mtime effect 取消竞态：文件切换后旧请求的结果/失败不再覆盖新快照（L131/L134 else）", async () => {
+    const pending: Array<{ resolve: (ms: number) => void; reject: (e: Error) => void }> = []
+    fsMocks.getFileModifiedTime.mockImplementation(
+      () =>
+        new Promise<number>((resolve, reject) => {
+          pending.push({ resolve, reject })
+        }),
+    )
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    mocks.wikiState.selectedFile = "C:/novels/demo/正文/第01章.md"
+    mocks.wikiState.fileContent = "# 第一章\n\n正文。"
+    const { rerender } = render(<WritingWorkspace />)
+    await waitFor(() => {
+      expect(fsMocks.getFileModifiedTime).toHaveBeenCalledTimes(1)
+    })
+    mocks.wikiState.selectedFile = "C:/novels/demo/正文/第02章.md"
+    rerender(<WritingWorkspace />)
+    await waitFor(() => {
+      expect(fsMocks.getFileModifiedTime).toHaveBeenCalledTimes(2)
+    })
+    mocks.wikiState.selectedFile = "C:/novels/demo/正文/第03章.md"
+    rerender(<WritingWorkspace />)
+    await waitFor(() => {
+      expect(fsMocks.getFileModifiedTime).toHaveBeenCalledTimes(3)
+    })
+    const latest = new Date(1720000000000).toLocaleString()
+    const stale = new Date(1111111111111).toLocaleString()
+    pending[2].resolve(1720000000000)
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-tools-target").textContent).toContain("本地快照")
+    })
+    expect(screen.getByTestId("workspace-tools-target").textContent).toContain(latest)
+    // 已取消的旧请求：resolve 被忽略（L131 else）、reject 被忽略（L134 else）
+    pending[0].resolve(1111111111111)
+    pending[1].reject(new Error("旧文件 mtime 迟到"))
+    await act(async () => {})
+    const text = screen.getByTestId("workspace-tools-target").textContent ?? ""
+    expect(text).toContain(latest)
+    expect(text).not.toContain(stale)
+  })
+
+  it("无选中文件时生成本章草稿：空目标仍跳主控（L145 selectedFile falsy）", async () => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    const setActiveView = mocks.wikiState.setActiveView as unknown as ReturnType<typeof vi.fn>
+    setActiveView.mockClear()
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-generate-draft"))
+    expect(setActiveView).toHaveBeenCalledWith("mainControl")
+  })
+
+  it("终稿已落盘态：章节行显示已落盘标签（L150 saved 分支）", () => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    mocks.wikiState.selectedFile = "C:/novels/demo/正文/第01章.md"
+    mocks.wikiState.fileContent = "# 第一章 起点\n\n第一段。"
+    mocks.wikiState.finalChapterSave = {
+      filePath: "C:/novels/demo/正文/第01章.md",
+      projectPath: "C:/novels/demo",
+      saving: false,
+      phase: "saved",
+    }
+    render(<WritingWorkspace />)
+    expect(screen.getByTestId("workspace-tools-target").textContent).toContain(
+      "novel.chapter.savedAsFinal",
+    )
+  })
+
+  it("桌面抽屉开关可二次点击关闭（L250/257/266/275 toggle-off）", async () => {
+    novelMocks.loadForeshadowingTracker.mockResolvedValue({
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      items: [],
+    })
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    expect(await screen.findByTestId("chapter-draft-dock")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    await waitFor(() => {
+      expect(screen.queryByTestId("workspace-chapter-dock")).not.toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("workspace-desk-outline"))
+    expect(await screen.findByTestId("sources-view")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("workspace-desk-outline"))
+    await waitFor(() => {
+      expect(screen.queryByTestId("workspace-chapter-dock")).not.toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("workspace-desk-search"))
+    expect(await screen.findByTestId("search-view")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("workspace-desk-search"))
+    await waitFor(() => {
+      expect(screen.queryByTestId("workspace-chapter-dock")).not.toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("workspace-desk-foreshadow"))
+    expect(await screen.findByTestId("foreshadowing-panel")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("workspace-desk-foreshadow"))
+    await waitFor(() => {
+      expect(screen.queryByTestId("workspace-chapter-dock")).not.toBeInTheDocument()
+    })
+  })
+
+  it("工具面板开关可二次点击关闭（L285 pdf / L303 manuscript toggle-off）", async () => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-tools-toggle-pdf"))
+    expect(screen.getByTestId("pdf-export-section")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("workspace-tools-toggle-pdf"))
+    expect(screen.queryByTestId("pdf-export-section")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("workspace-tools-toggle-manuscript"))
+    expect(await screen.findByTestId("manuscript-export-section")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("workspace-tools-toggle-manuscript"))
+    await waitFor(() => {
+      expect(screen.queryByTestId("manuscript-export-section")).not.toBeInTheDocument()
+    })
+  })
+
+  it("空正文文件：目标行无字数/落盘/快照后缀（L319 双 ternary falsy）", async () => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    mocks.wikiState.selectedFile = "C:/novels/demo/正文/第01章.md"
+    mocks.wikiState.fileContent = ""
+    render(<WritingWorkspace />)
+    await waitFor(() => {
+      expect(fsMocks.getFileModifiedTime).toHaveBeenCalled()
+    })
+    await act(async () => {})
+    const text = screen.getByTestId("workspace-tools-target").textContent ?? ""
+    expect(text).toContain("第01章 · 第01章.md")
+    expect(text).not.toContain("本地快照")
+  })
+
+  it("仅提示级逾期：dock 呼吸灯琥珀常亮无脉冲（L368/L373 warning）", async () => {
+    novelMocks.loadForeshadowingTracker.mockResolvedValue({
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      items: [
+        { id: "w1", name: "旧伤", description: "", status: "advanced", plantedChapter: 1, advancedChapters: [1], relatedCharacters: [], relatedEvents: [], notes: "" },
+        { id: "n1", name: "新线", description: "", status: "planted", plantedChapter: 11, advancedChapters: [], relatedCharacters: [], relatedEvents: [], notes: "" },
+      ],
+    })
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    render(<WritingWorkspace />)
+    const alert = await screen.findByTestId("workspace-foreshadow-alert")
+    expect(alert.textContent).toContain("伏笔逾期 1")
+    expect(alert.textContent).toContain("严重0")
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    const dot = await screen.findByTestId("workspace-dock-continuity-dot")
+    expect(dot.getAttribute("data-severity")).toBe("warning")
+    const pulse = dot.querySelector("span[aria-hidden='true']")
+    expect(pulse?.className).toContain("bg-warning")
+    expect(pulse?.className).not.toContain("animate-pulse")
+  })
+
+  it("专注模式选中文件：底部状态条带章节名（L420 cons）", () => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    mocks.wikiState.focusMode = true
+    mocks.wikiState.selectedFile = "C:/novels/demo/正文/第01章.md"
+    mocks.wikiState.fileContent = "# 第一章 起点\n\n正文。"
+    render(<WritingWorkspace />)
+    expect(screen.getByTestId("focus-ai-strip").textContent).toContain("第一章 起点")
+  })
+
+  it("未选中文件时仍可展开 PDF 导出：段落为空（L339 undefined）", async () => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-tools-toggle-pdf"))
+    expect(screen.getByTestId("pdf-export-section")).toBeInTheDocument()
+    expect(screen.getByTestId("pdfexport-paragraphs").textContent).toContain("0")
+  })
+})

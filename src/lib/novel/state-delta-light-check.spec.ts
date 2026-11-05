@@ -518,3 +518,44 @@ describe("deriveHookOps（§六-③ hookOps 四操作语义）", () => {
     expect(HOOK_OPS).toEqual(["add", "remove", "update", "relocate"])
   })
 })
+
+// ============================================================================
+// 分支覆盖补齐（20261105-ralph-coverage-100）：deriveHookOps 缺省数组/from 缺省；
+// parseStateDeltaStrict 围栏输入/null 根/chapter-rawNotes 缺省回退/空对象 null
+// ============================================================================
+describe("分支覆盖补齐 — deriveHookOps 缺省路径", () => {
+  it("空 delta → 空 ops；缺 from 的位置变更 detail 以 ? 开头", async () => {
+    const { deriveHookOps } = await import("./state-delta-light-check")
+    expect(deriveHookOps({ chapter: 1 })).toEqual([])
+    expect(
+      deriveHookOps({ chapter: 1, locationChanges: [{ entity: "李四", to: "客栈" }] }),
+    ).toEqual([{ op: "relocate", entity: "李四", detail: "?→客栈" }])
+  })
+})
+
+describe("分支覆盖补齐 — parseStateDeltaStrict 未覆盖分支", () => {
+  it("围栏包裹的合法 JSON 正常解析", async () => {
+    const { parseStateDeltaStrict } = await import("./state-delta-light-check")
+    const delta = parseStateDeltaStrict('```json\n{"chapter":3,"activeMentions":["阿宁"]}\n```', 9)!
+    expect(delta.chapter).toBe(3)
+    expect(delta.activeMentions).toEqual(["阿宁"])
+  })
+
+  it("null 根 → 抛错且信息为实际类型 object", async () => {
+    const { parseStateDeltaStrict } = await import("./state-delta-light-check")
+    expect(() => parseStateDeltaStrict("null", 3)).toThrow(/实际为 object/)
+  })
+
+  it("缺 chapter/rawNotes 时回退参数与 structured；仅 activeMentions 仍有 body", async () => {
+    const { parseStateDeltaStrict } = await import("./state-delta-light-check")
+    const delta = parseStateDeltaStrict(JSON.stringify({ rawNotes: "model", activeMentions: ["阿宁"] }), 7)!
+    expect(delta.chapter).toBe(7)
+    expect(delta.rawNotes).toBe("model")
+    expect(delta.activeMentions).toEqual(["阿宁"])
+  })
+
+  it("空对象 → schema 通过但无 body → null", async () => {
+    const { parseStateDeltaStrict } = await import("./state-delta-light-check")
+    expect(parseStateDeltaStrict("{}", 3)).toBeNull()
+  })
+})

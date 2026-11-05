@@ -140,3 +140,55 @@ describe("BookshelfView", () => {
     expect(mockedReadFile).not.toHaveBeenCalled()
   })
 })
+
+describe("BookshelfView 脏条目过滤（toBookshelfEntry 全出口）", () => {
+  it("脏条目静默丢弃：仅 status=error 的无作者有效条目渲染", async () => {
+    mockedReadFile.mockResolvedValue(
+      libraryJson([
+        "junk-string",
+        null,
+        42,
+        makeEntry({ bookId: "" }),
+        makeEntry({ bookId: "bad-title", title: "" }),
+        makeEntry({ bookId: "bad-num", totalChapters: "10" }),
+        makeEntry({ bookId: "bad-int", totalChapters: 1.5 }),
+        makeEntry({ bookId: "bad-neg", totalWords: -5 }),
+        makeEntry({ bookId: "bad-status", status: "weird" }),
+        makeEntry({ bookId: "bad-author", author: 123 }),
+        { ...makeEntry({ bookId: "book-ok", title: "有效", status: "error" }), author: undefined },
+      ]),
+    )
+    render(<BookshelfView projectPath="E:/Novel" />)
+    await waitFor(() => expect(screen.getByTestId("bookshelf-list")).toBeTruthy())
+    const list = screen.getByTestId("bookshelf-list")
+    expect(list.textContent).toContain("有效")
+    expect(list.textContent).toContain("失败")
+    for (const id of ["bad-title", "bad-num", "bad-int", "bad-neg", "bad-status", "bad-author"]) {
+      expect(screen.queryByTestId(`bookshelf-card-${id}`)).toBeNull()
+    }
+    expect(screen.getByTestId("bookshelf-card-book-ok")).toBeTruthy()
+    // 无作者条目不渲染作者行（author 分支 : entry / : null）
+    expect(screen.getByTestId("bookshelf-card-book-ok").textContent).not.toContain("忘语")
+  })
+
+  it("卸载竞态：解析前卸载 → 不写已卸载组件状态；重挂载正常加载", async () => {
+    let resolveRead!: (v: string) => void
+    mockedReadFile.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        resolveRead = resolve
+      }),
+    )
+    const { unmount } = render(<BookshelfView projectPath="E:/Novel" />)
+    unmount()
+    resolveRead(libraryJson([makeEntry()]))
+    await waitFor(() => expect(mockedReadFile).toHaveBeenCalled())
+    // 刷新宏任务，让 cancelled 分支实际执行
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(screen.queryByTestId("bookshelf-list")).toBeNull()
+    // 重挂载不受影响，正常渲染
+    mockedReadFile.mockResolvedValue(libraryJson([makeEntry()]))
+    render(<BookshelfView projectPath="E:/Novel" />)
+    await waitFor(() => expect(screen.getByTestId("bookshelf-list")).toBeTruthy())
+    expect(screen.getByTestId("bookshelf-card-book-1")).toBeTruthy()
+  })
+})
