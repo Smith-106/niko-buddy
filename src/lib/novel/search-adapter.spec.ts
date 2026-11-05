@@ -4,6 +4,7 @@ import type { EmbeddingConfig } from "@/stores/wiki-store"
 const mocks = vi.hoisted(() => ({
   searchWiki: vi.fn(),
   readFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
   logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
   rerankCandidates: vi.fn(),
   useWikiStoreGetState: vi.fn(),
@@ -13,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   searchByEmbedding: vi.fn(),
   buildRetrievalGraph: vi.fn(),
   getRelatedNodes: vi.fn(),
+  getFactsKnownBy: vi.fn(),
+  visibleInfoFor: vi.fn(),
 }))
 
 vi.mock("@/lib/search", async (importOriginal) => {
@@ -29,6 +32,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: (...args: unknown[]) => mocks.readFile(...args),
+      writeFileAtomic: (...args: unknown[]) => mocks.writeFileAtomic(...args),
     
   }
 })
@@ -97,6 +101,24 @@ vi.mock("@/lib/graph-relevance", async (importOriginal) => {
   }
 })
 
+vi.mock("./canon-graph-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./canon-graph-client")>()
+  return {
+    ...actual,
+      getFactsKnownBy: (...args: unknown[]) => mocks.getFactsKnownBy(...args),
+    
+  }
+})
+
+vi.mock("./process-library", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./process-library")>()
+  return {
+    ...actual,
+      visibleInfoFor: (...args: unknown[]) => mocks.visibleInfoFor(...args),
+    
+  }
+})
+
 import {
   filterAuthoritative,
   isAuthoritativeGenerationPath,
@@ -137,6 +159,9 @@ beforeEach(() => {
   mocks.sanitizeEntitySlug.mockImplementation((raw: string) => raw.replace(/[/\\]/g, ""))
   mocks.loadSnapshot.mockResolvedValue(null)
   mocks.listSnapshots.mockResolvedValue([])
+  mocks.getFactsKnownBy.mockResolvedValue([])
+  mocks.visibleInfoFor.mockResolvedValue("")
+  mocks.writeFileAtomic.mockResolvedValue(undefined)
 })
 
 describe("search-adapter pure helpers", () => {
@@ -1337,5 +1362,186 @@ describe("P1-IMP-17 kbReferences 通道 B 双源（关键词/域匹配零 LLM）
         expect.anything(),
       )
     })
+  })
+})
+
+describe("coverage-100 增补：traceChannel 留痕 + recipe 失败降级", () => {
+  it("traceChannel 透传 retrieval-trace：writeFileAtomic 被调用且 hits 携带归一化 relevance", async () => {
+    mocks.searchWiki.mockResolvedValue([keywordItem()])
+    mocks.readFile.mockResolvedValue("")
+    const results = await novelMixedSearch({ projectPath: pp, query: "剑", traceChannel: "hybrid", traceChapter: 3 })
+    expect(results.length).toBeGreaterThan(0)
+    // appendRetrievalTraceQuietly 是 void 异步：放行微任务后再断言
+    await new Promise((r) => setTimeout(r, 0))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    const [path, content] = mocks.writeFileAtomic.mock.calls[0] as [string, string]
+    expect(path).toBe(`${pp}/.niko-buddy/retrieval-traces.jsonl`)
+    expect(content).toContain("hybrid")
+    expect(content).toContain("剑")
+    // relevance 非数字时回退 0（typeof 守卫行为不断言实现，只验留痕成功）
+    expect(content).toContain("material")
+  })
+
+  it("trace 追加读取到既有内容时换行拼接（existing 非空分支）", async () => {
+    mocks.searchWiki.mockResolvedValue([keywordItem()])
+    mocks.readFile.mockResolvedValue('{"traceId":"old"}\n')
+    await novelMixedSearch({ projectPath: pp, query: "剑", traceChannel: "hybrid" })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    const [, content] = mocks.writeFileAtomic.mock.calls[0] as [string, string]
+    expect(content.startsWith('{"traceId":"old"}')).toBe(true)
+    expect(content.trimEnd().endsWith("}")).toBe(true)
+  })
+
+  it("trace 写入失败静默：writeFileAtomic 抛错不影响主检索结果", async () => {
+    mocks.searchWiki.mockResolvedValue([keywordItem()])
+    // readFile 保持默认拒绝 → 覆盖 append 内层 catch（existing 回退 ""）
+    mocks.writeFileAtomic.mockRejectedValueOnce(new Error("disk full"))
+    const results = await novelMixedSearch({ projectPath: pp, query: "剑", traceChannel: "hybrid" })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(results.length).toBeGreaterThan(0)
+  })
+
+  it("recipe 执行抛错 → warn 并降级为默认切片", async () => {
+    const strat = await import("./search-strategy")
+    const spy = vi.spyOn(strat, "applySearchRecipe").mockImplementationOnce(() => {
+      throw new Error("mmr boom")
+    })
+    try {
+      mocks.searchWiki.mockResolvedValue([
+        keywordItem({ path: `${pp}/wiki/entities/a.md`, title: "A", score: 0.9 }),
+        keywordItem({ path: `${pp}/wiki/entities/b.md`, title: "B", score: 0.8 }),
+      ])
+      const res = await novelMixedSearch({
+        projectPath: pp,
+        query: "test",
+        recipe: "diverse",
+        topK: 2,
+        includeVector: false,
+        includeGraph: false,
+        includeRecentChapters: false,
+        includeCanon: false,
+      })
+      expect(res.map((r) => r.title)).toEqual(["A", "B"])
+      expect(mocks.logger.warn).toHaveBeenCalledWith(
+        "Novel Search",
+        expect.stringContaining("Recipe execution failed"),
+        expect.anything(),
+      )
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+
+describe("coverage-100 增补：retrieveDualTrack 通道 A 硬注入 + trust 过滤", () => {
+  it("povCharacter 注入 canon 事实：hardInject 文本/引用/计数正确", async () => {
+    mocks.searchWiki.mockResolvedValue([keywordItem()])
+    mocks.getFactsKnownBy.mockResolvedValue([
+      { id: "f1", sourceId: "苏七", predicate: "持有", targetId: "青锋剑" },
+      { id: "f2", sourceId: "林晚", predicate: "位于", targetId: "青云门" },
+    ])
+    mocks.visibleInfoFor.mockResolvedValue("")
+    const res = await retrieveDualTrack({ projectPath: pp, query: "剑", povCharacter: "苏七", chapterNumber: 1 })
+    expect(res.hardInject).toHaveLength(2)
+    expect(res.hardInject[0]).toMatchObject({
+      source: "canon",
+      ref: "canon:f1:持有",
+      text: "苏七 持有 青锋剑",
+      origin: "f1",
+    })
+    expect(res.usage.hardInjectChars).toBe(res.hardInject.reduce((n, i) => n + i.text.length, 0))
+    expect(res.usage.truncatedCount).toBe(0)
+    expect(res.usage.ratio).toBeCloseTo(res.usage.hardInjectChars / res.usage.capChars, 5)
+  })
+
+  it("canon 事实超 cap：超限条目计数且不入列", async () => {
+    mocks.searchWiki.mockResolvedValue([])
+    mocks.getFactsKnownBy.mockResolvedValue([
+      { id: "f1", sourceId: "甲", predicate: "持有", targetId: "剑" },
+      { id: "f2", sourceId: "乙", predicate: "位于", targetId: "门派道场深处" },
+    ])
+    mocks.visibleInfoFor.mockResolvedValue("")
+    const res = await retrieveDualTrack({
+      projectPath: pp,
+      query: "q",
+      povCharacter: "甲",
+      chapterNumber: 1,
+      hardInjectCapChars: 8,
+    })
+    // "甲 持有 剑" = 6 chars 入列；第二条超限 → truncatedCount 1
+    expect(res.hardInject).toHaveLength(1)
+    expect(res.hardInject[0]!.text).toBe("甲 持有 剑")
+    expect(res.usage.truncatedCount).toBe(1)
+  })
+
+  it("getFactsKnownBy 抛错 → catch 回退 []（通道 A 空注入不崩）", async () => {
+    mocks.searchWiki.mockResolvedValue([keywordItem()])
+    mocks.getFactsKnownBy.mockRejectedValueOnce(new Error("canon down"))
+    mocks.visibleInfoFor.mockResolvedValue("")
+    const res = await retrieveDualTrack({ projectPath: pp, query: "剑", povCharacter: "苏七", chapterNumber: 1 })
+    expect(res.hardInject).toEqual([])
+    expect(res.usage.truncatedCount).toBe(0)
+  })
+
+  it("povText 注入 process_library：cap 内入列、超 cap 记截断", async () => {
+    mocks.searchWiki.mockResolvedValue([])
+    mocks.getFactsKnownBy.mockResolvedValue([])
+    mocks.visibleInfoFor.mockResolvedValue("苏七可见：青锋剑在手")
+    const ok = await retrieveDualTrack({ projectPath: pp, query: "q", povCharacter: "苏七", chapterNumber: 2 })
+    expect(ok.hardInject).toHaveLength(1)
+    expect(ok.hardInject[0]).toMatchObject({
+      source: "process_library",
+      ref: "process_library:苏七:2",
+      origin: "visibleInfoFor",
+    })
+    const over = await retrieveDualTrack({
+      projectPath: pp,
+      query: "q",
+      povCharacter: "苏七",
+      chapterNumber: 2,
+      hardInjectCapChars: 3,
+    })
+    expect(over.hardInject).toHaveLength(0)
+    expect(over.usage.truncatedCount).toBe(1)
+  })
+
+  it("visibleInfoFor 抛错 → catch 回退空串（无注入不崩）", async () => {
+    mocks.searchWiki.mockResolvedValue([keywordItem()])
+    mocks.getFactsKnownBy.mockResolvedValue([])
+    mocks.visibleInfoFor.mockRejectedValueOnce(new Error("view down"))
+    const res = await retrieveDualTrack({ projectPath: pp, query: "q", povCharacter: "苏七", chapterNumber: 2 })
+    expect(res.hardInject).toEqual([])
+  })
+
+  it("trust blocked 过滤：blocked 条目被剔除并记 trust_blocked gap", async () => {
+    mocks.searchWiki.mockResolvedValue([
+      keywordItem({ path: `${pp}/wiki/entities/好.md`, title: "好" }),
+      keywordItem({ path: `${pp}/wiki/entities/坏.md`, title: "坏" }),
+    ])
+    const res = await retrieveDualTrack({
+      projectPath: pp,
+      query: "q",
+      trustFilterEnabled: true,
+      trustGrades: {
+        [`${pp}/wiki/entities/好.md`.toLowerCase()]: "full",
+        [`${pp}/wiki/entities/坏.md`.toLowerCase()]: "blocked",
+      },
+    })
+    expect(res.ranked.every((r) => r.path !== `${pp}/wiki/entities/坏.md`)).toBe(true)
+    expect(res.ranked.some((r) => r.path === `${pp}/wiki/entities/好.md`)).toBe(true)
+    expect(res.gaps.some((g) => g.collection === "trust" && g.message.includes("trust_blocked: 1"))).toBe(true)
+  })
+
+  it("trust 过滤开启但无 blocked：不过滤且不记 trust_blocked gap", async () => {
+    mocks.searchWiki.mockResolvedValue([keywordItem({ path: `${pp}/wiki/entities/好.md`, title: "好" })])
+    const res = await retrieveDualTrack({
+      projectPath: pp,
+      query: "q",
+      trustFilterEnabled: true,
+      trustGrades: { [`${pp}/wiki/entities/好.md`.toLowerCase()]: "full" },
+    })
+    expect(res.ranked.some((r) => r.path === `${pp}/wiki/entities/好.md`)).toBe(true)
+    expect(res.gaps.filter((g) => g.collection === "trust" && g.message.includes("trust_blocked"))).toHaveLength(0)
   })
 })

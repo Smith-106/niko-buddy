@@ -5,7 +5,9 @@ import {
   planOutlineSubAgents,
   resumeOutlineMultiAgentWorkflow,
   runOutlineMultiAgentWorkflow,
+  validateOutlineSubAgentPlan,
   type OutlineSubAgentPlan,
+  type OutlineSubAgentStatusEvent,
 } from "./outline-multi-agent-orchestrator"
 import type { OutlineSubAgentResult } from "./outline-result-protocol"
 
@@ -309,3 +311,244 @@ function makeSubAgentJson(agentId: string, agentName: string): string {
     questions: [],
   })
 }
+
+function makeCompletedResult(agentId: string, agentName: string): OutlineSubAgentResult {
+  return {
+    agentId,
+    agentName,
+    stage: "outline",
+    usedSkills: [],
+    confidence: 0.9,
+    summary: "上游大纲已经完成",
+    contentMarkdown: "## 已完成的大纲",
+    constraints: ["保持主线"],
+    writebackItems: [],
+    risks: [],
+    questions: [],
+  }
+}
+
+describe("validateOutlineSubAgentPlan 边界", () => {
+  it("空计划 → 任务图不能为空", () => {
+    expect(validateOutlineSubAgentPlan([])).toEqual({ ok: false, errors: ["任务图不能为空"] })
+  })
+
+  it("超过 5 个任务 → 报数量上限", () => {
+    const plan = Array.from({ length: 6 }, (_, i) => ({ ...makePlan("outline"), id: `t${i}` }))
+    const result = validateOutlineSubAgentPlan(plan)
+    expect(result.ok).toBe(false)
+    expect(result.errors.some((e) => e.includes("任务数量不能超过"))).toBe(true)
+  })
+
+  it("空白 ID → Agent ID 不能为空", () => {
+    const result = validateOutlineSubAgentPlan([{ ...makePlan("outline"), id: "   " }])
+    expect(result.ok).toBe(false)
+    expect(result.errors).toContain("Agent ID 不能为空")
+  })
+
+  it("重复 ID → Agent ID 重复", () => {
+    const result = validateOutlineSubAgentPlan([makePlan("outline"), makePlan("outline")])
+    expect(result.ok).toBe(false)
+    expect(result.errors.some((e) => e.includes("Agent ID 重复"))).toBe(true)
+  })
+
+  it("自依赖 → Agent 不能依赖自身", () => {
+    const result = validateOutlineSubAgentPlan([{ ...makePlan("outline"), dependencies: ["outline-agent"] }])
+    expect(result.ok).toBe(false)
+    expect(result.errors.some((e) => e.includes("不能依赖自身"))).toBe(true)
+  })
+
+  it("依赖不存在 → 依赖不存在", () => {
+    const result = validateOutlineSubAgentPlan([{ ...makePlan("outline"), dependencies: ["ghost"] }])
+    expect(result.ok).toBe(false)
+    expect(result.errors.some((e) => e.includes("依赖不存在"))).toBe(true)
+  })
+
+  it("循环依赖 → 任务依赖存在循环", () => {
+    const a = { ...makePlan("outline"), id: "a", dependencies: ["b"] }
+    const b = { ...makePlan("topic"), id: "b", dependencies: ["a"] }
+    const result = validateOutlineSubAgentPlan([a, b])
+    expect(result.ok).toBe(false)
+    expect(result.errors).toContain("任务依赖存在循环")
+  })
+
+  it("合法计划 → ok", () => {
+    expect(validateOutlineSubAgentPlan([makePlan("outline")]).ok).toBe(true)
+  })
+})
+
+describe("runOutlineMultiAgentWorkflow 降级路径", () => {
+  it("规划失败时降级为单 Agent 并透出规划原因", async () => {
+    const result = await runOutlineMultiAgentWorkflow({
+      plan: [],
+      runSubAgent: async () => {
+        throw new Error("不应执行")
+      },
+      runSingleAgentFallback: async () => "单 Agent 兜底",
+      mergeResults: async () => {
+        throw new Error("不应合并")
+      },
+    })
+
+    expect(result.mode).toBe("single-agent-fallback")
+    expect(result.finalText).toBe("单 Agent 兜底")
+    expect(result.fallbackReason).toContain("多 Agent 规划失败")
+    expect(result.failureDetails).toEqual(["任务图不能为空"])
+  })
+
+  it("全部子 Agent 失败 → 降级（没有任何成功结果）", async () => {
+    const result = await runOutlineMultiAgentWorkflow({
+      plan: [makePlan("outline"), makePlan("topic")],
+      maxConcurrency: 2,
+      runSubAgent: async () => {
+        throw new Error("全挂")
+      },
+      runSingleAgentFallback: async () => "兜底",
+      mergeResults: async () => {
+        throw new Error("不应合并")
+      },
+    })
+
+    expect(result.mode).toBe("single-agent-fallback")
+    expect(result.finalText).toBe("兜底")
+    expect(result.fallbackReason).toContain("没有任何成功结果")
+    expect(result.failedAgents).toEqual(["outline-agent", "topic-agent"])
+  })
+
+  it("上游失败时下游提示词携带缺失依赖风险", async () => {
+    const parent = { ...makePlan("outline"), id: "parent" }
+    const child = { ...makePlan("character"), id: "child", dependencies: ["parent"] }
+    let childPrompt = ""
+
+    const result = await runOutlineMultiAgentWorkflow({
+      plan: [parent, child],
+      maxConcurrency: 2,
+      runSubAgent: async (item) => {
+        if (item.id === "parent") throw new Error("上游炸了")
+        if (item.id === "child") childPrompt = item.taskPrompt
+        return makeSubAgentJson(item.id, item.name)
+      },
+      runSingleAgentFallback: async () => "fallback",
+      mergeResults: async (items) => `成功数量：${items.length}`,
+    })
+
+    expect(childPrompt).toContain("## 缺失依赖风险")
+    expect(childPrompt).toContain("上游炸了")
+    expect(result.mode).toBe("multi-agent")
+    expect(result.finalText).toBe("成功数量：1")
+    expect(result.failedAgents).toEqual(["parent"])
+  })
+
+  it("子 Agent 返回空内容 → 两次重试后记为失败", async () => {
+    const events: OutlineSubAgentStatusEvent[] = []
+    const result = await runOutlineMultiAgentWorkflow({
+      plan: [makePlan("outline")],
+      maxConcurrency: 1,
+      runSubAgent: async () => "   ",
+      runSingleAgentFallback: async () => "兜底",
+      mergeResults: async () => {
+        throw new Error("不应合并")
+      },
+      onStatusChange: (event) => {
+        events.push(event)
+      },
+    })
+
+    expect(result.mode).toBe("single-agent-fallback")
+    expect(result.finalText).toBe("兜底")
+    expect(result.failedAgents).toEqual(["outline-agent"])
+    expect(events.filter((e) => e.status === "retrying")).toHaveLength(1)
+    expect(events[events.length - 1]?.status).toBe("failed")
+  })
+})
+
+describe("resumeOutlineMultiAgentWorkflow 续传边界", () => {
+  it("无失败 Agent → 直接合并已有结果", async () => {
+    const completed = makeCompletedResult("outline-agent", "outline Agent")
+    const result = await resumeOutlineMultiAgentWorkflow({
+      plan: [makePlan("outline")],
+      completedResults: [completed],
+      failedAgentIds: [],
+      runSubAgent: async () => "重试结果",
+      mergeResults: async (items) => `合并数量：${items.length}`,
+    })
+
+    expect(result.mode).toBe("multi-agent")
+    expect(result.finalText).toBe("合并数量：1")
+    expect(result.successfulAgents).toEqual(["outline-agent"])
+    expect(result.failedAgents).toEqual([])
+  })
+
+  it("无失败但合并失败 → 单 Agent 降级（空兜底）", async () => {
+    const completed = makeCompletedResult("outline-agent", "outline Agent")
+    const result = await resumeOutlineMultiAgentWorkflow({
+      plan: [makePlan("outline")],
+      completedResults: [completed],
+      failedAgentIds: [],
+      runSubAgent: async () => "重试结果",
+      mergeResults: async () => {
+        throw new Error("合并炸了")
+      },
+    })
+
+    expect(result.mode).toBe("single-agent-fallback")
+    expect(result.finalText).toBe("")
+    expect(result.successfulAgents).toEqual(["outline-agent"])
+    expect(result.fallbackReason).toContain("合并 Agent 失败")
+  })
+
+  it("失败 Agent 的依赖缺失 → 依赖未满足且续传无结果", async () => {
+    const parent = { ...makePlan("outline"), id: "parent" }
+    const child = { ...makePlan("character"), id: "child", dependencies: ["parent"] }
+    const result = await resumeOutlineMultiAgentWorkflow({
+      plan: [parent, child],
+      completedResults: [],
+      failedAgentIds: ["child"],
+      runSubAgent: async (item) => makeSubAgentJson(item.id, item.name),
+      mergeResults: async () => {
+        throw new Error("不应合并")
+      },
+    })
+
+    expect(result.mode).toBe("single-agent-fallback")
+    expect(result.fallbackReason).toBe("续传后仍无成功结果。")
+    expect(result.failedAgents).toEqual(["child"])
+    expect(result.failureDetails?.[0]).toContain("依赖未满足")
+  })
+
+  it("续传重试成功但合并失败 → 降级并保留成功者", async () => {
+    const parentResult = makeCompletedResult("parent", "outline Agent")
+    const parent = { ...makePlan("outline"), id: "parent" }
+    const child = { ...makePlan("character"), id: "child", dependencies: ["parent"] }
+    const result = await resumeOutlineMultiAgentWorkflow({
+      plan: [parent, child],
+      completedResults: [parentResult],
+      failedAgentIds: ["child"],
+      runSubAgent: async (item) => makeSubAgentJson(item.id, item.name),
+      mergeResults: async () => {
+        throw new Error("合并炸了")
+      },
+    })
+
+    expect(result.mode).toBe("single-agent-fallback")
+    expect(result.finalText).toBe("")
+    expect(result.successfulAgents).toEqual(["parent", "child"])
+    expect(result.failedAgents).toEqual([])
+    expect(result.fallbackReason).toContain("合并 Agent 失败")
+    expect(result.failureDetails?.join("")).toContain("合并 Agent：")
+  })
+})
+
+describe("buildBoundedSubAgentMergePayload 边界", () => {
+  it("空结果 → 空载荷", () => {
+    expect(buildBoundedSubAgentMergePayload([])).toBe("")
+  })
+
+  it("非正预算 → 返回完整载荷", () => {
+    const results = [makeCompletedResult("a0", "Agent 0")]
+    const full = buildBoundedSubAgentMergePayload(results)
+    expect(buildBoundedSubAgentMergePayload(results, 0)).toBe(full)
+    expect(buildBoundedSubAgentMergePayload(results, Number.NaN)).toBe(full)
+    expect(buildBoundedSubAgentMergePayload(results, Number.POSITIVE_INFINITY)).toBe(full)
+  })
+})

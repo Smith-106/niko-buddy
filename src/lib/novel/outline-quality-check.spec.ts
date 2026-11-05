@@ -275,3 +275,144 @@ describe("全项合规章纲：10 条章纲规则全部走 pass 分支", () => {
     expect(isLikelyChapterOutline(VALID_CHAPTER_OUTLINE)).toBe(true)
   })
 })
+
+/**
+ * 卷纲侧规则 pass 分支：20 章合规卷纲。
+ * 类型配比紧贴 DEFAULT_SHOUWEN_BASELINE（开场2/发展7/铺垫5/转折2/高潮3/收束1），
+ * 高压 25%（≤30%）、收束 5%（≤10%）、各类型偏差 ≤5%，且无连续 3 章同类型。
+ */
+const VOLUME_POSITION_ROWS = [
+  "| 1 | 开场 | 2 | 6 | 楔子：夜市初见 |",
+  "| 2 | 发展 | 2 | 5 | 查账起疑 |",
+  "| 3 | 铺垫 | 3 | 6 | 旧案重提 |",
+  "| 4 | 转折 | 3 | 7 | 线人灭口 |",
+  "| 5 | 发展 | 2 | 5 | 按下不表 |",
+  "| 6 | 铺垫 | 3 | 6 | 铜牌现身 |",
+  "| 7 | 高潮 | 4 | 8 | 当众对质 |",
+  "| 8 | 发展 | 3 | 6 | 余波回响 |",
+  "| 9 | 铺垫 | 3 | 6 | 火漆比对 |",
+  "| 10 | 发展 | 2 | 5 | 暗访账房 |",
+  "| 11 | 开场 | 2 | 5 | 分线开场 |",
+  "| 12 | 转折 | 4 | 7 | 第二本账 |",
+  "| 13 | 铺垫 | 3 | 6 | 长老施压 |",
+  "| 14 | 高潮 | 5 | 9 | 祠堂对簿 |",
+  "| 15 | 发展 | 3 | 6 | 份额归还 |",
+  "| 16 | 铺垫 | 3 | 6 | 信使南下 |",
+  "| 17 | 发展 | 3 | 6 | 整军备战 |",
+  "| 18 | 高潮 | 5 | 9 | 擂台约战 |",
+  "| 19 | 发展 | 2 | 5 | 战后清点 |",
+  "| 20 | 收束 | 1 | 4 | 卷尾落子 |",
+]
+
+const VOLUME_FULL = [
+  "## 本卷目标",
+  "主角查到线人被灭口的线索，决定收网。本卷以收束旧案、兑现承诺为核心，卷尾以悬念钩子承接下一卷。",
+  "## 爽点节奏",
+  "爽点节奏表：三章一小爽，七章一大爽（高潮章兑现），开篇钩子先行。",
+  "## 情绪弧线",
+  "情绪弧线呈W形：起点压抑→中段下降触底→强势回升→再降→最终回升，情绪强度逐级上升。",
+  "1/4 节点、中点、3/4 节点处各设情绪强度与压力级标注，开篇设悬念钩子，结尾收束并留下伏笔。",
+  "## 人物弧线",
+  "主角由隐忍转向公开对抗，配角由观望转为站队。",
+  "## 伏笔布局",
+  "| ID | 内容 | 优先级 | 预计回收时机 |",
+  "| --- | --- | --- | --- |",
+  "| F1 | 旧朝铜牌的来历 | 高 | 第18章回收 |",
+  "| F2 | 账房第二本账 | 中 | 第14章回收 |",
+  "## 关键反转",
+  "线人竟是内鬼，账本火漆与铜牌同源。",
+  "## 章节定位",
+  "| 章 | 定位 | 压力级(1-5) | 情绪强度(1-10) | 说明 |",
+  "| --- | --- | --- | --- | --- |",
+  ...VOLUME_POSITION_ROWS,
+].join("\n")
+
+describe("卷纲侧规则 pass 分支（20 章合规卷纲）", () => {
+  it("必填/八节点/情绪弧线/定位分布/相邻情绪/伏笔回收/收官纪律全部 pass", () => {
+    const items = runVolumeOutlineQualityCheck(VOLUME_FULL)
+    const byCategory = new Map(items.map((i) => [i.category, i]))
+    for (const category of ["卷纲必填项", "八节点结构", "情绪弧线", "章节定位分布", "相邻章情绪", "伏笔回收", "收官卷纪律"]) {
+      expect(byCategory.get(category)?.status, category).toBe("pass")
+    }
+    expect(byCategory.get("伏笔回收")?.message).toBe("所有伏笔均有回收计划")
+    expect(byCategory.get("收官卷纪律")?.message).toContain("非收官卷")
+  })
+
+  it("合规卷纲下爽点节律仍 warn：每 3 章一冲突与高压 ≤30% 在此配比下互斥", () => {
+    const item = runVolumeOutlineQualityCheck(VOLUME_FULL).find((i) => i.category === "爽点节律")
+    expect(item?.status).toBe("warn")
+    expect(item?.details?.length).toBeGreaterThan(0)
+  })
+})
+
+describe("卷纲侧规则 pass 分支（精干 4 章卷纲）", () => {
+  const LEAN_VOLUME = [
+    "| 章 | 定位 | 压力级(1-5) | 情绪强度(1-10) | 说明 |",
+    "| --- | --- | --- | --- | --- |",
+    "| 1 | 开场 | 2 | 5 | 楔子 |",
+    "| 2 | 转折 | 3 | 7 | 变故 |",
+    "| 3 | 发展 | 2 | 5 | 缓冲 |",
+    "| 4 | 高潮 | 5 | 9 | 决战 |",
+  ].join("\n")
+
+  it("爽点节律与相邻章情绪 pass（每 3 章窗都有转折/高潮、无同类型三连）", () => {
+    const items = runVolumeOutlineQualityCheck(LEAN_VOLUME)
+    const byCategory = new Map(items.map((i) => [i.category, i]))
+    expect(byCategory.get("爽点节律")?.status).toBe("pass")
+    expect(byCategory.get("相邻章情绪")?.status).toBe("pass")
+    expect(byCategory.get("伏笔回收")?.message).toBe("未检测到伏笔记录")
+  })
+
+  it("高压 50% 的代价：同一样本下章节定位分布 warn", () => {
+    const item = runVolumeOutlineQualityCheck(LEAN_VOLUME).find((i) => i.category === "章节定位分布")
+    expect(item?.status).toBe("warn")
+    expect(item?.details?.join("")).toContain("高压章")
+  })
+})
+
+describe("相邻章情绪扎堆 warn", () => {
+  it("连续 3 章同类型且情绪都 >7 → warn 并点名章节", () => {
+    const content = [
+      "| 章 | 定位 | 压力级(1-5) | 情绪强度(1-10) | 说明 |",
+      "| --- | --- | --- | --- | --- |",
+      "| 1 | 发展 | 2 | 5 | 缓冲 |",
+      "| 2 | 高潮 | 4 | 8 | 激战 |",
+      "| 3 | 高潮 | 5 | 9 | 决战 |",
+      "| 4 | 高潮 | 4 | 8 | 余烬 |",
+      "| 5 | 收束 | 1 | 3 | 收尾 |",
+    ].join("\n")
+    const item = runVolumeOutlineQualityCheck(content).find((i) => i.category === "相邻章情绪")
+    expect(item?.status).toBe("warn")
+    expect(item?.message).toBe("发现 1 处扎堆")
+    expect(item?.details?.join("")).toContain("第2、3、4章")
+  })
+})
+
+describe("卷纲伏笔缺少回收计划 warn", () => {
+  it("回收时机为空或占位 → warn 并点名伏笔", () => {
+    const content = [
+      "## 伏笔布局",
+      "| ID | 内容 | 优先级 | 预计回收时机 |",
+      "| --- | --- | --- | --- |",
+      "| F1 | 旧朝铜牌的来历 | 高 | 第18章回收 |",
+      "| F2 | 账房第二本账 | 中 | [待定] |",
+      "| F3 | 山下信使 | 低 |",
+    ].join("\n")
+    const item = runVolumeOutlineQualityCheck(content).find((i) => i.category === "伏笔回收")!
+    expect(item.status).toBe("warn")
+    expect(item.message).toContain("2 条伏笔缺少回收计划")
+    expect(item.details?.join("")).toContain("F2")
+    expect(item.details?.join("")).toContain("F3")
+  })
+})
+
+describe("章纲伏笔含糊其辞 warn", () => {
+  it("有伏笔章节但既无明确说明又无字段 → warn", () => {
+    const items = runChapterOutlineQualityCheck(
+      ["## 伏笔与追踪", "本章有一个重要伏笔，后面会交代。"].join("\n"),
+    )
+    const item = items.find((i) => i.category === "伏笔与追踪")!
+    expect(item.status).toBe("warn")
+    expect(item.message).toBe("伏笔处理不明确")
+  })
+})

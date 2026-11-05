@@ -636,3 +636,293 @@ describe("handleStateRequest — 章节", () => {
     expect(res.error).toContain("需要章节序号或文件名")
   })
 })
+
+// ===== 增补：默认依赖路径 / 空白选择器 / installStateBridge =====
+// 覆盖：defaultDeps 各箭头函数（readProjectPath/loadStatus/listChapters/
+// readSetting/startPipeline/readPipeline/writeChapterDraft/resolveFormalPath/
+// writeSetting）、chapter-read 空白选择器、installStateBridge 全分支。
+import { installStateBridge } from "./state-bridge"
+import { useWikiStore } from "@/stores/wiki-store"
+
+const tauriInvoke = vi.hoisted(() => vi.fn())
+const tauriListen = vi.hoisted(() => vi.fn())
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: tauriInvoke }))
+vi.mock("@tauri-apps/api/event", () => ({ listen: tauriListen }))
+
+describe("handleStateRequest — 默认依赖（无项目）", () => {
+  afterEach(() => {
+    useWikiStore.getState().setProject(null)
+  })
+
+  it("op=project 无项目时经默认依赖报错", async () => {
+    useWikiStore.getState().setProject(null)
+    const res = await handleStateRequest({ id: "r1", op: "project" })
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("未打开项目")
+  })
+
+  it("op=get 走写入器读 theme，读到 setTheme 写入的值", async () => {
+    useWikiStore.getState().setTheme("dark")
+    try {
+      const res = await handleStateRequest({ id: "r1", op: "get", key: "theme" })
+      expect(res.ok).toBe(true)
+      expect(res.value).toMatchObject({ key: "theme", value: "dark" })
+    } finally {
+      useWikiStore.getState().setTheme("system")
+    }
+  })
+
+  it("op=get 无写入器的 localStorage 键在存储不可读时回 error 而非 null", async () => {
+    // 文件级 beforeEach 会 stub window，这里显式还原出“存储不可读”的真实环境。
+    vi.unstubAllGlobals()
+    const res = await handleStateRequest({ id: "r1", op: "get", key: "lk-graph-edge-style" })
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("localStorage 不可读")
+  })
+
+  it("op=set 默认写入器落盘 offline-mode 并回 before/after", async () => {
+    useWikiStore.getState().setOfflineMode(false)
+    try {
+      const res = await handleStateRequest({
+        id: "r1",
+        op: "set",
+        key: "niko-buddy-offline-mode",
+        value: true,
+      })
+      expect(res.ok).toBe(true)
+      expect(res.value).toMatchObject({
+        key: "niko-buddy-offline-mode",
+        before: false,
+        after: true,
+      })
+    } finally {
+      useWikiStore.getState().setOfflineMode(false)
+    }
+  })
+
+  it("op=pipeline-start 默认登记器在无项目时拒绝", async () => {
+    useWikiStore.getState().setProject(null)
+    const res = await handleStateRequest({
+      id: "r1",
+      op: "pipeline-start",
+      params: { userRequest: "写一章" },
+    })
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("没有打开的项目")
+  })
+
+  it("op=pipeline-status 默认登记器查无任务", async () => {
+    const res = await handleStateRequest({
+      id: "r1",
+      op: "pipeline-status",
+      params: { taskId: "ptask_nope" },
+    })
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("未知 taskId")
+  })
+
+  it("op=chapter-read 空白选择器明确报错", async () => {
+    const res = await handleStateRequest(request({ op: "chapter-read", path: "   " }), deps())
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("需要章节序号或文件名")
+  })
+
+  it("op=chapter-read 负 offset/零 limit 被钳制而非崩", async () => {
+    const res = await handleStateRequest(
+      request({ op: "chapter-read", path: "1", offset: -5, limit: 0 }),
+      deps(),
+    )
+    expect(res.ok).toBe(true)
+    const v = res.value as { offset: number; limit: number; content: string }
+    expect(v.offset).toBe(0)
+    expect(v.limit).toBe(1)
+    expect(v.content).toBe("line1")
+  })
+})
+
+describe("handleStateRequest — 默认依赖（有项目，无真实后端）", () => {
+  const proj = { id: "probe-proj", name: "probe", path: "/tmp/qmai-bridge-probe-no-such-dir" }
+
+  beforeEach(() => {
+    useWikiStore.getState().setProject(proj)
+  })
+
+  afterEach(() => {
+    useWikiStore.getState().setProject(null)
+  })
+
+  it("op=project-state 状态文件缺失时降级为 null 而非报错", async () => {
+    const res = await handleStateRequest({ id: "r1", op: "project-state" })
+    expect(res.ok).toBe(true)
+    expect(res.value).toMatchObject({ projectPath: proj.path, status: null })
+  })
+
+  it("op=chapter-list 后端不可达时回 total 0", async () => {
+    const res = await handleStateRequest({ id: "r1", op: "chapter-list" })
+    expect(res.ok).toBe(true)
+    expect(res.value).toMatchObject({ total: 0, chapters: [] })
+  })
+
+  it("op=draft-write 参数缺失时校验先于落盘报错", async () => {
+    const res = await handleStateRequest({ id: "r1", op: "draft-write", params: {} })
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("chapterName")
+  })
+
+  it("op=formal-path 章节名解析为虚拟路径", async () => {
+    const res = await handleStateRequest({
+      id: "r1",
+      op: "formal-path",
+      params: { kind: "chapter", name: "第一章" },
+    })
+    expect(res.ok).toBe(true)
+    const v = res.value as { kind: string; path: string }
+    expect(v.kind).toBe("chapter")
+    expect(v.path).toContain("第一章")
+  })
+})
+
+describe("installStateBridge", () => {
+  const unlisten = vi.fn()
+
+  let captured!: (event: { payload: unknown }) => Promise<void>
+
+  beforeEach(() => {
+    tauriInvoke.mockReset()
+    tauriListen.mockReset()
+    tauriInvoke.mockResolvedValue(undefined)
+    tauriListen.mockImplementation(async (_event: unknown, handler: unknown) => {
+      captured = handler as (event: { payload: unknown }) => Promise<void>
+      return unlisten as unknown as () => void
+    })
+  })
+
+  it("注册 mcp:state-request 监听并把 schema 结果回传给 Rust", async () => {
+    const off = await installStateBridge()
+    expect(tauriListen).toHaveBeenCalledWith("mcp:state-request", expect.any(Function))
+    expect(off).toBe(unlisten)
+    await captured({ payload: { id: "r1", op: "schema" } })
+    expect(tauriInvoke).toHaveBeenCalledWith(
+      "mcp_state_respond",
+      expect.objectContaining({ id: "r1", ok: true, error: null }),
+    )
+    const arg = tauriInvoke.mock.calls[0][1] as { value: unknown[] }
+    expect(Array.isArray(arg.value)).toBe(true)
+    expect(arg.value.length).toBe(SETTINGS_CATALOG.length)
+  })
+
+  it("缺 id 的请求回 error 响应", async () => {
+    await installStateBridge()
+    await captured({ payload: { id: "", op: "schema" } })
+    expect(tauriInvoke).toHaveBeenCalledWith(
+      "mcp_state_respond",
+      expect.objectContaining({ id: "", ok: false }),
+    )
+  })
+
+  it("回传失败时记日志而不抛", async () => {
+    tauriInvoke.mockRejectedValue(new Error("rust gone"))
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      await installStateBridge()
+      await captured({ payload: { id: "r1", op: "schema" } })
+      expect(err).toHaveBeenCalledWith("[mcp-state-bridge] 回传响应失败", expect.any(Error))
+    } finally {
+      err.mockRestore()
+    }
+  })
+})
+
+// ===== 增补2：默认 fs 链 + 防御分支（覆盖 144/159/310/328）=====
+const writerFault = vi.hoisted(() => ({ validateBomb: false, hideWriterFor: null as string | null }))
+const catalogFault = vi.hoisted(() => ({ phantomAllowedKey: null as string | null }))
+
+vi.mock("./settings-writers", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("./settings-writers")>()
+  return {
+    ...orig,
+    getWriter: (key: string) => {
+      if (writerFault.hideWriterFor === key) return null
+      return orig.getWriter(key)
+    },
+    validateValue: (entry: Parameters<typeof orig.validateValue>[0], value: unknown) => {
+      if (writerFault.validateBomb) throw new Error("校验器内部故障")
+      return orig.validateValue(entry, value)
+    },
+  }
+})
+
+vi.mock("./settings-catalog", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("./settings-catalog")>()
+  return {
+    ...orig,
+    isBridgeAllowedKey: (key: string) =>
+      key === catalogFault.phantomAllowedKey || orig.isBridgeAllowedKey(key),
+  }
+})
+
+describe("handleStateRequest — 默认 fs 链（增补2）", () => {
+  const proj = { id: "probe-proj", name: "probe", path: "/tmp/qmai-bridge-probe-no-such-dir" }
+
+  beforeEach(() => {
+    useWikiStore.getState().setProject(proj)
+  })
+
+  afterEach(() => {
+    useWikiStore.getState().setProject(null)
+  })
+
+  it("op=chapter-read 默认依赖走真实 fs 命令链：列目录→读文件→分页", async () => {
+    tauriInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "list_directory") return Promise.resolve([{ name: "chapter-001.md" }])
+      if (cmd === "read_file") return Promise.resolve("hello\nworld")
+      return Promise.resolve(undefined)
+    })
+    try {
+      const res = await handleStateRequest({ id: "r1", op: "chapter-read", path: "1" })
+      expect(res.ok).toBe(true)
+      const v = res.value as { name: string; content: string; totalLines: number; truncated: boolean }
+      expect(v.name).toBe("chapter-001.md")
+      expect(v.content).toBe("hello\nworld")
+      expect(v.totalLines).toBe(2)
+      expect(v.truncated).toBe(false)
+      expect(tauriInvoke).toHaveBeenCalledWith(
+        "read_file",
+        expect.objectContaining({ path: expect.stringContaining("wiki/chapters/chapter-001.md") }),
+      )
+    } finally {
+      tauriInvoke.mockReset()
+    }
+  })
+})
+
+describe("handleStateRequest — 防御分支（增补2）", () => {
+  afterEach(() => {
+    writerFault.validateBomb = false
+    writerFault.hideWriterFor = null
+    catalogFault.phantomAllowedKey = null
+    useWikiStore.getState().setProject(null)
+  })
+
+  it("校验器抛未知异常时不吞掉，透传为 error", async () => {
+    writerFault.validateBomb = true
+    const res = await handleStateRequest(request({ op: "set", key: "theme", value: "dark" }), deps())
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("校验器内部故障")
+  })
+
+  it("默认 writeSetting 无写入器时明确拒绝", async () => {
+    writerFault.hideWriterFor = "theme"
+    const res = await handleStateRequest({ id: "r1", op: "set", key: "theme", value: "dark" })
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("没有注册写入器")
+  })
+
+  it("get 白名单与目录不一致时仍拒绝", async () => {
+    catalogFault.phantomAllowedKey = "ghost-key"
+    const res = await handleStateRequest(request({ key: "ghost-key" }), deps())
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("未登记")
+  })
+})

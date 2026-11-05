@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { RESERVED_CANON_RULES_CHARS } from "@/lib/context-budget"
 import {
   CANON_RULES_BUDGET_EXCEEDED_KEY,
+  CANON_RULES_BUDGET_EXCEEDED_TEXT,
   CONTEXT_DROP_ORDER,
   PROTECTED_COMPACT_FIELDS,
   RESTORE_PACK_BUDGET_CHARS,
@@ -9,6 +10,7 @@ import {
   buildCanonRulesBudgetExceeded,
   buildRestorePack,
   compactContextSections,
+  compactSectionText,
   createCompactBreaker,
   createCompactWatchdog,
   emitBudgetExceeded,
@@ -260,5 +262,248 @@ describe("compact watchdog 桥接", () => {
     feedCompactHeartbeat(wd, 500)
     expect(pollCompactWatchdog(wd, 1200).action).toBe("continue")
     expect(pollCompactWatchdog(wd, 1600).action).toBe("block_fallback")
+  })
+})
+
+describe("compactSectionText 别名", () => {
+  it("字符串原样透传", () => {
+    expect(compactSectionText("hello")).toBe("hello")
+  })
+
+  it("字符串数组换行拼接", () => {
+    expect(compactSectionText(["a", "b"])).toBe("a\nb")
+  })
+
+  it("混合数组非字符串项 JSON 序列化", () => {
+    expect(compactSectionText(["a", 1, { x: 1 }] as unknown[])).toBe('a\n1\n{"x":1}')
+  })
+
+  it("null/undefined 兜空串", () => {
+    expect(compactSectionText(null)).toBe("")
+    expect(compactSectionText(undefined)).toBe("")
+  })
+
+  it("数字/布尔 String 化", () => {
+    expect(compactSectionText(42 as unknown as string)).toBe("42")
+    expect(compactSectionText(true as unknown as string)).toBe("true")
+  })
+})
+
+describe("createCompactBreaker 参数护栏", () => {
+  it("非法阈值退化为默认值", () => {
+    for (const bad of [0, -3, Number.NaN, Number.POSITIVE_INFINITY, "x"]) {
+      const b = createCompactBreaker({ failureThreshold: bad as unknown as number })
+      expect(b.failureThreshold).toBe(3)
+    }
+    for (const bad of [0, -2, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const b = createCompactBreaker({ skipHalfOpenRounds: bad })
+      expect(b.skipHalfOpenRounds).toBe(2)
+    }
+  })
+
+  it("小数下取整", () => {
+    const b = createCompactBreaker({ failureThreshold: 2.9, skipHalfOpenRounds: 1.9 })
+    expect(b.failureThreshold).toBe(2)
+    expect(b.skipHalfOpenRounds).toBe(1)
+  })
+})
+
+describe("breaker 增补语义", () => {
+  it("非 open 直接允许探测", () => {
+    expect(allowHalfOpenProbe(createCompactBreaker())).toBe(true)
+  })
+
+  it("已 open 下再次失败返回 false 且保持 open", () => {
+    const breaker = createCompactBreaker({ failureThreshold: 1 })
+    expect(recordCompactFailure(breaker)).toBe(true)
+    expect(recordCompactFailure(breaker)).toBe(false)
+    expect(breaker.open).toBe(true)
+    expect(breaker.consecutiveFailures).toBe(2)
+  })
+
+  it("CANON 文案键与默认文案同源非空", () => {
+    expect(CANON_RULES_BUDGET_EXCEEDED_KEY.startsWith("rules.")).toBe(true)
+    expect(CANON_RULES_BUDGET_EXCEEDED_TEXT).toContain("正史规则")
+  })
+})
+
+describe("buildCanonRulesBudgetExceeded 参数护栏", () => {
+  it("负 canonRulesChars 归零 → null", () => {
+    expect(buildCanonRulesBudgetExceeded({ canonRulesChars: -5 })).toBeNull()
+  })
+
+  it("非法 reservedChars 退化为标准参考线", () => {
+    const r1 = buildCanonRulesBudgetExceeded({ canonRulesChars: RESERVED_CANON_RULES_CHARS + 10, reservedChars: -1 })
+    expect(r1!.reservedChars).toBe(RESERVED_CANON_RULES_CHARS)
+    const r2 = buildCanonRulesBudgetExceeded({ canonRulesChars: RESERVED_CANON_RULES_CHARS + 10, reservedChars: Number.NaN })
+    expect(r2!.reservedChars).toBe(RESERVED_CANON_RULES_CHARS)
+  })
+
+  it("reservedChars 小数下取整", () => {
+    const r = buildCanonRulesBudgetExceeded({ canonRulesChars: 5000, reservedChars: 4999.9 })
+    expect(r!.reservedChars).toBe(4999)
+    expect(r!.gapChars).toBe(1)
+  })
+
+  it("emitBudgetExceeded 无 sink 双 false、单 trace 显式报告", () => {
+    const rec = buildCanonRulesBudgetExceeded({ canonRulesChars: 5000 })!
+    expect(emitBudgetExceeded(rec, {})).toEqual({ trace: false, journal: false })
+    const traced: BudgetExceededRecord[] = []
+    expect(emitBudgetExceeded(rec, { trace: (r) => traced.push(r) })).toEqual({ trace: true, journal: false })
+    expect(traced).toHaveLength(1)
+  })
+})
+
+describe("compactContextSections 输入与恢复包", () => {
+  it("非法预算(0/负/NaN) → none 且 breaker 记成功", () => {
+    for (const bad of [0, -5, Number.NaN]) {
+      const breaker = createCompactBreaker()
+      const r = compactContextSections(bigSections(), { tokenBudget: bad, breaker })
+      expect(r.level).toBe("none")
+      expect(r.skipped).toBe(false)
+      expect(breaker.consecutiveFailures).toBe(0)
+    }
+  })
+
+  it("显式 restore 输入覆盖自动提取", () => {
+    const r = compactContextSections({ task: "real" }, { tokenBudget: 1_000_000, restore: { task: "CUSTOM任务" } })
+    expect(r.restorePack).toContain("CUSTOM任务")
+    expect(r.restorePack).not.toContain("real")
+  })
+
+  it("缺 task 时恢复包退化不断言失败", () => {
+    const r = compactContextSections({ outline: "大纲锚点" }, { tokenBudget: 1_000_000 })
+    expect(r.level).toBe("none")
+    expect(r.restorePack).toContain("任务缺失")
+  })
+
+  it("空串/undefined 输入被过滤", () => {
+    const r = compactContextSections(
+      { task: "t", empty: "", missing: undefined } as unknown as Record<string, string>,
+      { tokenBudget: 1_000_000 },
+    )
+    expect(Object.keys(r.sections)).toEqual(["task"])
+  })
+})
+
+describe("compactContextSections L1/L2 增补", () => {
+  it("microcompact：空白清理后恰好入预算", () => {
+    const dirty = `${"a".repeat(400)}  \n\n`
+    const cleaned = `${"a".repeat(400)}`
+    const task = "写第 10 章"
+    const budget = estimateCompactTokens(task) + estimateCompactTokens(cleaned)
+    expect(estimateCompactTokens(task) + estimateCompactTokens(dirty)).toBeGreaterThan(budget)
+    const r = compactContextSections({ task, searchResults: dirty }, { tokenBudget: budget })
+    expect(r.level).toBe("microcompact")
+    expect(r.gaps.map((g) => g.ref)).toContain("searchResults")
+    expect(r.sections.searchResults).toBe(cleaned)
+  })
+
+  it("空白-only 段 L2 被跳过(continue)照常 lightTrim", () => {
+    const r = compactContextSections(
+      { task: "写第 10 章", wskey: "   \n\n", graphSearchResults: `${"g".repeat(600)}` },
+      { tokenBudget: 100 },
+    )
+    expect(r.level).toBe("lightTrim")
+    expect(r.sections.wskey).toBe("")
+  })
+
+  it("lightTrim 短段直接删除(retainedLength 0)仍达 lightTrim", () => {
+    const sections = { task: "写第 10 章", u1: "x".repeat(150), u2: "x".repeat(150), u3: "x".repeat(150) }
+    const r = compactContextSections(sections, { tokenBudget: 60 })
+    expect(r.level).toBe("lightTrim")
+    expect(r.sections.u1).toBeUndefined()
+    expect(r.sections.u2).toBeUndefined()
+    expect(r.sections.u3).toBeDefined()
+    expect(r.gaps.filter((g) => g.retainedLength === 0).length).toBeGreaterThanOrEqual(2)
+  })
+
+  it("lightTrim 达标且带 breaker → 记成功", () => {
+    const breaker = createCompactBreaker({ failureThreshold: 3 })
+    const r = compactContextSections(
+      { task: "写第 10 章", u1: "x".repeat(150), u2: "x".repeat(150), u3: "x".repeat(150) },
+      { tokenBudget: 60, breaker },
+    )
+    expect(r.level).toBe("lightTrim")
+    expect(breaker.consecutiveFailures).toBe(0)
+    expect(breaker.open).toBe(false)
+  })
+})
+
+describe("compactContextSections L3/L4 与熔断增补", () => {
+  it("storeSummary 带 breaker → 替换后记成功", () => {
+    const breaker = createCompactBreaker({ failureThreshold: 3 })
+    const r = compactContextSections(
+      { task: "写第 10 章", recentChapterContents: "正文".repeat(10000) },
+      { tokenBudget: 3000, chapterSummaries: ["前章摘要一", "前章摘要二"], breaker },
+    )
+    expect(r.level).toBe("storeSummary")
+    expect(r.sections.recentChapterContents).toContain("前章摘要一")
+    expect(breaker.consecutiveFailures).toBe(0)
+  })
+
+  it("无摘要时跳过 storeSummary → fullSummary", () => {
+    const r = compactContextSections(
+      { task: "写第 10 章", recentChapterContents: "正文".repeat(10000) },
+      { tokenBudget: 3000 },
+    )
+    expect(r.level).toBe("fullSummary")
+    expect(r.sections.recentChapterContents).toBeUndefined()
+  })
+
+  it("无正文段时摘要无处可替 → fullSummary", () => {
+    const r = compactContextSections(
+      { task: "写第 10 章", searchResults: "检索".repeat(10000) },
+      { tokenBudget: 3000, chapterSummaries: ["前章摘要一"] },
+    )
+    expect(r.level).toBe("fullSummary")
+  })
+
+  it("fullSummary 带 breaker 且余量入预算 → 记成功 skipReason 为空", () => {
+    const breaker = createCompactBreaker({ failureThreshold: 5 })
+    const budget = estimateCompactTokens("写第 10 章") + 2
+    const r = compactContextSections(
+      { task: "写第 10 章", graphSearchResults: "g".repeat(2000) },
+      { tokenBudget: budget, breaker },
+    )
+    expect(r.level).toBe("fullSummary")
+    expect(r.skipReason).toBe("")
+    expect(breaker.consecutiveFailures).toBe(0)
+    expect(breaker.open).toBe(false)
+  })
+
+  it("fullSummary 仍超预算但未达阈值 → 失败计数 skipReason 为空", () => {
+    const breaker = createCompactBreaker({ failureThreshold: 5 })
+    const r = compactContextSections(
+      { task: "写第 10 章", graphSearchResults: "g".repeat(2000) },
+      { tokenBudget: 1, breaker },
+    )
+    expect(r.level).toBe("fullSummary")
+    expect(r.skipReason).toBe("")
+    expect(breaker.consecutiveFailures).toBe(1)
+    expect(breaker.open).toBe(false)
+  })
+
+  it("fullSummary 后 protected 余量已入预算 → mustAvoid/outline 不动", () => {
+    const mustAvoid = "禁区".repeat(50)
+    const outline = "大纲".repeat(50)
+    const budget = estimateCompactTokens("写第 10 章") + estimateCompactTokens(mustAvoid) + estimateCompactTokens(outline) + 10
+    const r = compactContextSections(
+      { task: "写第 10 章", mustAvoid, outline, searchResults: "s".repeat(20000) },
+      { tokenBudget: budget },
+    )
+    expect(r.level).toBe("fullSummary")
+    expect(r.sections.mustAvoid).toBe(mustAvoid)
+    expect(r.sections.outline).toBe(outline)
+    expect(r.gaps.some((g) => g.reason === "budget_exceeded")).toBe(false)
+  })
+
+  it("open 熔断 + 半开允许 → 继续压缩不跳过", () => {
+    const breaker = createCompactBreaker({ failureThreshold: 1, skipHalfOpenRounds: 1 })
+    recordCompactFailure(breaker)
+    expect(breaker.open).toBe(true)
+    const r = compactContextSections(bigSections(), { tokenBudget: 1, breaker })
+    expect(r.skipped).toBe(false)
+    expect(r.level).toBe("fullSummary")
   })
 })
