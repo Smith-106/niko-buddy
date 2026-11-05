@@ -136,3 +136,90 @@ describe("AntiAiRulesView", () => {
     expect(screen.getByTestId("anti-ai-categories")).toBeTruthy()
   })
 })
+
+describe("AntiAiRulesView（语句收口）：未选项目路径", () => {
+  it("空项目路径：显式提示「未选择项目路径」+ 空技能态，且不读配置文件", async () => {
+    render(<AntiAiRulesView projectPath="" />)
+
+    const loadError = await screen.findByTestId("anti-ai-load-error")
+    expect(loadError.textContent).toContain("未选择项目路径")
+    // 没有项目 → 不去读盘（避免对空路径发起 IPC）
+    expect(fsMock.readFile).not.toHaveBeenCalled()
+    // 没有配置 → 技能空态，预览统计落「共 0 个」而不是卡在「正在统计」
+    expect(screen.getByTestId("anti-ai-empty").textContent).toContain("暂无可用技能")
+    const preview = screen.getByTestId("anti-ai-preview")
+    expect(preview.textContent).toContain("共 0 个")
+    expect(preview.textContent).not.toContain("正在统计")
+    // 规则分类是静态真源，不依赖项目选择，仍完整展示 7 类
+    for (const category of EXPECTED_CATEGORIES) {
+      expect(screen.getByTestId(`anti-ai-category-${category}`)).toBeTruthy()
+    }
+  })
+})
+
+describe("AntiAiRulesView（分支收口）：重新启用 / 读取中卸载", () => {
+  it("禁用后再启用：按钮文案与 aria 翻转，两次写盘，配置回到全启用", async () => {
+    render(<AntiAiRulesView projectPath={PROJECT_PATH} />)
+    const first = await screen.findByTestId("anti-ai-toggle-built-in:comprehensive")
+    expect(first.textContent).toContain("禁用")
+
+    fireEvent.click(first)
+    await waitFor(() => expect(fsMock.writeFileAtomic).toHaveBeenCalledTimes(1))
+    const disabledWrite = String(fsMock.writeFileAtomic.mock.calls[0]?.[1] ?? "")
+    expect(disabledWrite).toContain("built-in:comprehensive")
+
+    // 已禁用 → 按钮变「启用」，aria-label 同步翻转
+    const second = screen.getByTestId("anti-ai-toggle-built-in:comprehensive")
+    expect(second.textContent).toContain("启用")
+    expect(second.getAttribute("aria-label")).toContain("启用")
+
+    fireEvent.click(second)
+    await waitFor(() => expect(fsMock.writeFileAtomic).toHaveBeenCalledTimes(2))
+    const enabledWrite = String(fsMock.writeFileAtomic.mock.calls[1]?.[1] ?? "")
+    expect(enabledWrite).not.toContain("built-in:comprehensive")
+    expect(
+      screen.getByTestId("anti-ai-skill-status-built-in:comprehensive").textContent,
+    ).toContain("已启用")
+    expect(screen.getByTestId("anti-ai-preview").textContent).toContain("启用 5 个技能")
+    expect(screen.getByTestId("anti-ai-preview").textContent).toContain("禁用 0 个")
+  })
+
+  it("配置读取中卸载（晚到成功）：不写状态、不崩，重新挂载仍正常", async () => {
+    let release: (value: string) => void = () => {}
+    // 单次未决 promise 供所有 readFile 共用：卸载后一起晚到。
+    const shared = new Promise<string>((resolve) => {
+      release = resolve
+    })
+    fsMock.readFile.mockImplementation(() => shared)
+    const first = render(<AntiAiRulesView projectPath={PROJECT_PATH} />)
+    await screen.findByTestId("anti-ai-rules-view")
+    first.unmount()
+
+    release("{}")
+    await waitFor(() => expect(fsMock.readFile).toHaveBeenCalled())
+    expect(screen.queryByTestId("anti-ai-rules-view")).toBeNull()
+
+    // 重新挂载走正常路径（无残留状态、无报错）
+    fsMock.readFile.mockRejectedValue(new Error("no file"))
+    render(<AntiAiRulesView projectPath={PROJECT_PATH} />)
+    expect(await screen.findByText("综合去AI味")).toBeTruthy()
+    expect(screen.queryByTestId("anti-ai-load-error")).toBeNull()
+  })
+
+  it("配置读取中卸载（晚到失败）：不写状态、不崩，重新挂载仍正常", async () => {
+    // 意外异常（路径解析失败）→ 走 .catch；此时组件已卸载 → 取消守卫拦下
+    pathMock.join.mockRejectedValue(new Error("late boom"))
+    const first = render(<AntiAiRulesView projectPath={PROJECT_PATH} />)
+    // 立刻卸载（不给拒绝的微任务机会），确保 catch 看到的是 cancelled=true
+    first.unmount()
+
+    await waitFor(() => expect(pathMock.join).toHaveBeenCalled())
+    expect(screen.queryByTestId("anti-ai-rules-view")).toBeNull()
+
+    pathMock.join.mockImplementation(async (...parts: string[]) => parts.join("/"))
+    fsMock.readFile.mockRejectedValue(new Error("no file"))
+    render(<AntiAiRulesView projectPath={PROJECT_PATH} />)
+    expect(await screen.findByText("综合去AI味")).toBeTruthy()
+    expect(screen.queryByTestId("anti-ai-load-error")).toBeNull()
+  })
+})

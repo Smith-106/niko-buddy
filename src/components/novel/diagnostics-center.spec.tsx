@@ -823,4 +823,75 @@ describe("DiagnosticsCenterView — 宿主容器（增补）", () => {
     fireEvent.click(screen.getByTestId("bundle-preview-btn"))
     await waitForHost(() => expect(screen.getByTestId("bundle-preview")).toBeTruthy())
   })
+
+  // ── 重入/契约漂移守卫（增补：原有用例保留不动）──────────────────────────────
+  // handleRecover 的两个早退守卫此前无入口：一个是「已有恢复在执行中」的重入闸，
+  // 一个是「上游给的恢复动作没有执行体」的契约漂移闸。二者都是防并发/防脏数据的
+  // 防御守卫，必须证明它们真的拦得住（重入闸的 UI 层实证：恢复期间其余按钮 disabled；
+  // 即使事件派发到 disabled 按钮，React 也不会触发 onClick）。
+  it("恢复执行中再触发其它恢复 → 被重入保护拦下（不并发第二个恢复）", async () => {
+    const hanging = vi.fn(() => new Promise<{ ok: boolean; detail: string }>(() => {}))
+    const other = vi.fn(async () => ({ ok: true, detail: "other" }))
+    const report = makeReportWith([
+      makeItem({
+        id: "a",
+        status: "degraded",
+        recoveries: [{ id: "go", label: "执行A", level: "auto", idempotent: true, reversible: true, run: hanging }],
+      }),
+      makeItem({
+        id: "b",
+        status: "degraded",
+        recoveries: [{ id: "go", label: "执行B", level: "auto", idempotent: true, reversible: true, run: other }],
+      }),
+    ])
+    resetAll()
+    withProject()
+    diagStubs.collectHealthReport.mockResolvedValue(report)
+    diagStubs.collectKbMetricsLive.mockResolvedValue(liveMetrics)
+    diagStubs.loadExportHistoryView.mockResolvedValue([])
+    render(<DiagnosticsCenterView />)
+    await waitForHost(() => expect(screen.getByTestId("recover-a-go")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("recover-a-go"))
+    await waitForHost(() => expect(screen.getByTestId("recover-a-go").textContent).toContain("执行中"))
+    // 其它恢复按钮在恢复期间一律 disabled（重入闸的第一层）
+    expect(screen.getByTestId("recover-b-go").hasAttribute("disabled")).toBe(true)
+    // 即便点击事件被派发到 disabled 按钮，也不得启动第二个恢复
+    fireEvent.click(screen.getByTestId("recover-b-go"))
+    await waitForHost(() => expect(screen.getByTestId("recover-a-go").textContent).toContain("执行中"))
+    expect(other).not.toHaveBeenCalled()
+    expect(hanging).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId("recover-note")).toBeNull()
+    // 只采过一次报告（没被第二个恢复的 finally 重刷）
+    expect(diagStubs.collectHealthReport).toHaveBeenCalledTimes(1)
+  })
+
+  it("上游恢复动作缺 run（契约漂移）→ 点击被守卫拦下：不弹确认、不执行、不产提示", async () => {
+    const report = makeReportWith([
+      makeItem({
+        id: "drift",
+        status: "degraded",
+        recoveries: [
+          {
+            id: "no-run",
+            label: "缺执行体",
+            level: "confirm",
+            idempotent: true,
+            reversible: true,
+          } as unknown as HealthItem["recoveries"][number],
+        ],
+      }),
+    ])
+    resetAll()
+    withProject()
+    diagStubs.collectHealthReport.mockResolvedValue(report)
+    diagStubs.collectKbMetricsLive.mockResolvedValue(liveMetrics)
+    diagStubs.loadExportHistoryView.mockResolvedValue([])
+    render(<DiagnosticsCenterView />)
+    await waitForHost(() => expect(screen.getByTestId("recover-drift-no-run")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("recover-drift-no-run"))
+    await waitForHost(() => expect(screen.getByTestId("recover-drift-no-run")).toBeTruthy())
+    expect(vi.mocked(ask)).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("recover-note")).toBeNull()
+    expect(diagStubs.collectHealthReport).toHaveBeenCalledTimes(1)
+  })
 })

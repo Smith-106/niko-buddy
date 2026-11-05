@@ -178,6 +178,7 @@ import {
   syncSnapshotToMemory,
   type ChapterSnapshot,
 } from "./chapter-ingest"
+import { PROJECTION_REGISTRY } from "./projection-status-ledger"
 
 const PROJECT = "E:/Novel"
 
@@ -492,8 +493,34 @@ describe("syncSnapshotToMemory", () => {
     expect(jsonWrites.some((p) => p.endsWith(".novel/character-cognition.json"))).toBe(false)
   })
 
-  it("uses the injected data-version bump callback", async () => {
-    const bump = vi.fn()
+  it("注册表条目缺 loader/saver 时跳过该投影，不让 sync 主链崩掉（防御守卫）", async () => {
+    // 注册表完整性守卫：syncDirectWrite 类投影若因重构/注册疏漏丢了 load/save，
+    // 必须单个跳过（继续其余类），不得让整次 sync 抛 TypeError。
+    const entry = PROJECTION_REGISTRY.cognition!
+    // 跳过只读类型约束注入「注册表疏漏」形态（Reflect.set 不做类型收窄，且 finally 还原）。
+    const savedLoad = entry.load
+    Reflect.set(entry, "load", undefined)
+    try {
+      const snapshot = baseSnapshot(1, {
+        knowledgeChanges: ["阿宁知道秘密"],
+        characterStateChanges: ["阿宁：受伤"],
+        foreshadowingChanges: ["新增伏笔：黑剑"],
+      })
+
+      await expect(syncSnapshotToMemory(PROJECT, snapshot)).resolves.toMatchObject({ writtenEntityPaths: [] })
+
+      const jsonWrites = fsMocks.writeFileAtomic.mock.calls.map(([p]) => String(p))
+      // cognition 被跳过…
+      expect(jsonWrites.some((p) => p.endsWith(".novel/cognition-state.json"))).toBe(false)
+      // …其余两类照常 fold。
+      expect(jsonWrites.some((p) => p.endsWith(".novel/character-states.json"))).toBe(true)
+      expect(jsonWrites.some((p) => p.endsWith(".novel/foreshadowing-tracker.json"))).toBe(true)
+    } finally {
+      Reflect.set(entry, "load", savedLoad)
+    }
+  })
+
+  it("uses the injected data-version bump callback", async () => {    const bump = vi.fn()
     await syncSnapshotToMemory(PROJECT, baseSnapshot(1), bump)
     expect(bump).toHaveBeenCalled()
     expect(storeState.bumpDataVersion).not.toHaveBeenCalled()

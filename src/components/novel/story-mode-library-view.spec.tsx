@@ -12,7 +12,7 @@
  * `buildLibraryArtifact` 构造（守恒口径与线上一致）；不用 Object.hasOwn/.at。
  */
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup, render, screen } from "@testing-library/react"
+import { act, cleanup, render, screen } from "@testing-library/react"
 import { StoryModeLibraryView } from "./story-mode-library-view"
 import { buildLibraryArtifact } from "@/lib/novel"
 
@@ -30,8 +30,23 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   }
 })
 
+/** 快照装载器的注入点；无实现时委托 barrel 真实现（既有用例语义零变化）。 */
+const barrelMock = vi.hoisted(() => ({ loadSnapshot: vi.fn() }))
+
+vi.mock("@/lib/novel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel")>()
+  return {
+    ...actual,
+    loadAssetLibrarySnapshot: ((...args: Parameters<typeof actual.loadAssetLibrarySnapshot>) =>
+      barrelMock.loadSnapshot.getMockImplementation()
+        ? barrelMock.loadSnapshot(...args)
+        : actual.loadAssetLibrarySnapshot(...args)) as typeof actual.loadAssetLibrarySnapshot,
+  }
+})
+
 afterEach(() => {
   cleanup()
+  barrelMock.loadSnapshot.mockReset()
 })
 
 const STANDARD_MODE = {
@@ -146,5 +161,107 @@ describe("StoryModeLibraryView（推进模式库只读浏览）", () => {
     expect(screen.queryByTestId("story-mode-card-m-dup")).toBeNull()
     // 文件存在且守恒通过 → 快照仍标已生成（坏的是条目契约，不是快照缺失）。
     expect((await screen.findByTestId("story-mode-snapshot")).textContent).toContain("已生成")
+  })
+})
+
+describe("StoryModeLibraryView（语句收口）：空项目路径 / 装载器抛错", () => {
+  it("空项目路径：不读盘，落「未生成」诚实空态并说明还没生成节奏模式", async () => {
+    fs.readFile.mockClear()
+    render(<StoryModeLibraryView projectPath="" />)
+
+    // 未选项目 → 一次读盘都不发起
+    expect(fs.readFile).not.toHaveBeenCalled()
+
+    await screen.findByTestId("story-mode-list")
+    expect((await screen.findByTestId("story-mode-summary")).textContent).toContain("共 0 个推进模式")
+    expect((await screen.findByTestId("story-mode-snapshot")).textContent).toContain("未生成")
+    const empty = await screen.findByTestId("story-mode-empty")
+    expect(empty.textContent).toContain("本项目尚未生成节奏模式")
+    expect(screen.queryByTestId("story-mode-invalid")).toBeNull()
+  })
+
+  it("快照装载器抛错：不臆造模式，落诚实空态且不整页崩", async () => {
+    barrelMock.loadSnapshot.mockRejectedValue(new Error("snapshot boom"))
+    render(<StoryModeLibraryView projectPath="/p" />)
+
+    expect(await screen.findByTestId("story-mode-library-view")).toBeTruthy()
+    // 装载失败 ⇒ 空态（未生成），且错误原因不写进快照区（那是「缺文件」语义）
+    const snapshot = await screen.findByTestId("story-mode-snapshot")
+    expect(snapshot.textContent).toContain("未生成")
+    expect(snapshot.textContent).not.toContain("读取失败")
+    expect((await screen.findByTestId("story-mode-summary")).textContent).toContain("共 0 个推进模式")
+    expect(screen.queryByTestId("story-mode-card-m-standard")).toBeNull()
+    expect(barrelMock.loadSnapshot).toHaveBeenCalledWith("/p", "pacing_pattern")
+  })
+})
+
+describe("StoryModeLibraryView（分支收口）：守恒失配 / 有快照无条目 / 卸载取消", () => {
+  it("快照守恒失配：下一步提示先核对守恒，快照区标「疑似手工篡改」", async () => {
+    barrelMock.loadSnapshot.mockResolvedValue({
+      libraryId: "pacing_pattern",
+      present: true,
+      entryCount: 1,
+      contentHash: "deadbeef",
+      schemaVersion: "1",
+      conserved: false,
+      health: null,
+    })
+    fs.readFile.mockResolvedValue(pacingJson([]))
+    render(<StoryModeLibraryView projectPath="/p" />)
+
+    const snapshot = await screen.findByTestId("story-mode-snapshot")
+    expect(snapshot.textContent).toContain("守恒失配（疑似手工篡改）")
+    expect(snapshot.textContent).not.toContain("守恒校验通过")
+    // 页面顶部「下一步」也据此改口径
+    expect(document.body.textContent).toContain("先核对守恒")
+  })
+
+  it("有快照但 0 条目：说「暂无可展示」而不是「尚未生成」", async () => {
+    fs.readFile.mockResolvedValue(pacingJson([]))
+    render(<StoryModeLibraryView projectPath="/p" />)
+
+    const empty = await screen.findByTestId("story-mode-empty")
+    expect(empty.textContent).toContain("暂无可展示的推进模式")
+    expect(empty.textContent).not.toContain("本项目尚未生成节奏模式")
+    expect((await screen.findByTestId("story-mode-snapshot")).textContent).toContain("已生成")
+  })
+
+  it("装载未完成就卸载：晚到的结果不写状态（取消守卫拦下，不崩）", async () => {
+    let release: (value: string) => void = () => {}
+    // 两个读盘（快照 + 条目）共用同一个未决 promise：卸载后一起晚到。
+    const shared = new Promise<string>((resolve) => {
+      release = resolve
+    })
+    fs.readFile.mockImplementation(() => shared)
+    const { unmount } = render(<StoryModeLibraryView projectPath="/p" />)
+    await screen.findByTestId("story-mode-library-view")
+    unmount()
+    release(pacingJson([STANDARD_MODE]))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    // 卸载后组件不再在文档里；晚到的 setState 被取消守卫拦下（无报错、无残留卡片）
+    expect(screen.queryByTestId("story-mode-library-view")).toBeNull()
+    expect(screen.queryByTestId("story-mode-card-m-standard")).toBeNull()
+  })
+
+  it("装载抛错且已卸载：catch 里的取消守卫也拦住（不写状态、不报错）", async () => {
+    let fail: (reason: unknown) => void = () => {}
+    barrelMock.loadSnapshot.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject
+        }),
+    )
+    const { unmount } = render(<StoryModeLibraryView projectPath="/p" />)
+    await screen.findByTestId("story-mode-library-view")
+    unmount()
+    fail(new Error("late boom"))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(screen.queryByTestId("story-mode-library-view")).toBeNull()
   })
 })

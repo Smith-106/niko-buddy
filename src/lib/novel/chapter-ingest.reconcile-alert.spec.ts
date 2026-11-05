@@ -118,6 +118,45 @@ describe("runCanonDualWriteHook — reconcile 告警消费 (55 W1-3)", () => {
     expect(warnCalls.length).toBe(0)
   })
 
+  it("queued>0 → logger.warn 携带 queued/ops 计数 (双写积压可见)", async () => {
+    shadowWriteCanonMock.mockResolvedValueOnce({
+      written: 0,
+      queued: 2,
+      results: [{ consistent: true }, { consistent: true }],
+      reconcile: { consistent: true, divergences: [] },
+    })
+    const deps = makeDeps()
+    await runCanonDualWriteHook(
+      deps,
+      PROJECT,
+      { chapter_status: "final" },
+      snapshotWithFacts(["主角佩剑名为黑剑", "黑剑出自寒江城"]),
+      1234,
+    )
+    const warnCalls = loggerWarnMock.mock.calls.filter((c) => String(c[1]).includes("ops queued"))
+    expect(warnCalls.length).toBe(1)
+    // 2 条正史事实 → 2 条 episode op；消息里的分母是 op 总数，不是事实数以外的占位。
+    expect(String(warnCalls[0]![1])).toBe("Canon dual-write: 2/2 ops queued (non-fatal)")
+  })
+
+  it("queued=0 → 无积压告警 (反向分支)", async () => {
+    shadowWriteCanonMock.mockResolvedValueOnce({
+      written: 2,
+      queued: 0,
+      results: [{ consistent: true }, { consistent: true }],
+      reconcile: { consistent: true, divergences: [] },
+    })
+    const deps = makeDeps()
+    await runCanonDualWriteHook(
+      deps,
+      PROJECT,
+      { chapter_status: "final" },
+      snapshotWithFacts(["主角佩剑名为黑剑", "黑剑出自寒江城"]),
+      1234,
+    )
+    expect(loggerWarnMock.mock.calls.filter((c) => String(c[1]).includes("ops queued"))).toHaveLength(0)
+  })
+
   it("告警不阻断 ingest 主流程 (非致命)", async () => {
     shadowWriteCanonMock.mockResolvedValueOnce({
       written: 1,

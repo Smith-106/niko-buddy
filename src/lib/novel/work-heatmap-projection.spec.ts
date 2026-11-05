@@ -275,3 +275,43 @@ describe("parseTimestamp 边界", () => {
     expect(parseTimestamp(undefined)).toBeNull()
   })
 })
+
+// ── 覆盖加深（增补：原有用例保留不动）─────────────────────────────────────────
+// 目标：两条此前无用例的路径 —— (1) 阶段名互为前缀时的码点序比较（短者在前）；
+// (2) 条目存在但**没有一条**可解析时间戳时的诚实 N/A 文案。
+describe("排序前缀与无时间戳真源（增补）", () => {
+  it("阶段名互为前缀 → 短者排在前（码点序长度裁决）", () => {
+    const p = projectWorkHeatmap(
+      {
+        stageMetrics: [
+          metric({ stage: "write_llm" }),
+          metric({ stage: "write" }),
+          metric({ stage: "write_llm_probe" }),
+        ],
+      },
+      { now: T0 + HOUR, maxBuckets: 2 },
+    )
+    expect(p.rows.map((r) => r.stage)).toEqual(["write", "write_llm", "write_llm_probe"])
+  })
+
+  it("条目存在但全无可解析时间戳 → 明确说「画不出时间轴」，且不进 undated 重复计数", () => {
+    const p = projectWorkHeatmap(
+      {
+        stageMetrics: [
+          metric({ timestamp: undefined }),
+          metric({ stage: "accept", timestamp: "not-a-date" }),
+        ],
+      },
+      { maxBuckets: 2 },
+    )
+    expect(p.buckets).toEqual([])
+    expect(p.rows).toEqual([])
+    expect(p.missingSources.some((m) => m.includes("没有一条带可解析时间戳"))).toBe(true)
+    // 条目若全部无时间戳，仍按 stage 汇总到 undated（不静默丢弃）
+    expect(p.undated).toEqual([
+      { stage: "accept", count: 1 },
+      { stage: "write_llm", count: 1 },
+    ])
+    expect(p.totals.entries).toBe(2)
+  })
+})

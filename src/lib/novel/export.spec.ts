@@ -24,6 +24,22 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }))
 
+// 覆盖率增补（countFinalChapters 的 catch 降级守卫）：path-utils 默认**原样透传**真实
+// 实现（throwOnNormalize=false），只在目标用例置位来模拟「路径归一化不可用」。
+// 目的是验证 countFinalChapters 在依赖抛错时返回 0 而不是把异常抛给设置页。
+const pathUtilsStub = vi.hoisted(() => ({ throwOnNormalize: false }))
+
+vi.mock("@/lib/path-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/path-utils")>()
+  return {
+    ...actual,
+    normalizePath: (p: string): string => {
+      if (pathUtilsStub.throwOnNormalize) throw new Error("bad-project-path")
+      return actual.normalizePath(p)
+    },
+  }
+})
+
 const fsState = vi.hoisted(() => {
   const files = new Map<string, string>()
   const directories = new Map<string, Array<{ name: string; path: string; is_dir: boolean }>>()
@@ -105,8 +121,16 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   }
 })
 
-import { exportProject, exportNovelDocx, exportNovelEpub, exportInteractiveStory, finalizeManuscript } from "./export"
-import { createDirectory, fileExists, listDirectory } from "@/commands/fs"
+import {
+  exportProject,
+  exportNovelDocx,
+  exportNovelEpub,
+  exportInteractiveStory,
+  finalizeManuscript,
+  countFinalChapters,
+} from "./export"
+import type { InteractiveStoryGraph } from "./interactive-film-graph"
+import { createDirectory, fileExists, listDirectory, writeFile } from "@/commands/fs"
 
 afterEach(() => {
   fsState.releaseAll()
@@ -788,5 +812,112 @@ describe("finalizeManuscript（P0 出箱定稿闭环）", () => {
     expect(result.message).toContain("EPUB")
     const paths = fsState.writes.slice(before).map((w) => w.path)
     expect(paths.some((p) => p.endsWith("MANIFEST.json"))).toBe(false)
+  })
+})
+
+// ── 覆盖加深（增补：原有用例保留不动）─────────────────────────────────────────
+// 目标：三条此前无用例的故障/降级路径 —— 互动影游落盘失败、countFinalChapters
+// （设置页空态门禁的计数入口）、finalizeManuscript 的两个中止分支。
+describe("故障降级路径（增补）", () => {
+  afterEach(() => {
+    pathUtilsStub.throwOnNormalize = false
+  })
+
+  const GRAPH: InteractiveStoryGraph = {
+    version: 1,
+    startId: "k1",
+    nodes: [
+      { id: "k1", kind: "knot", title: "雪夜", text: "风雪夜。" },
+      { id: "end1", kind: "end", title: "终", text: "终。" },
+    ],
+    edges: [{ from: "k1", to: "end1" }],
+  }
+
+  it("互动影游落盘失败（createDirectory 抛错）→ success:false 且带原因", async () => {
+    const before = fsState.writes.length
+    vi.mocked(createDirectory).mockRejectedValueOnce(new Error("ENOSPC: no space left"))
+    const result = await exportInteractiveStory({ projectPath: "/proj", exportPath: "/out", graph: GRAPH })
+    expect(result.success).toBe(false)
+    expect(result.chapterCount).toBe(0)
+    expect(result.exportedPath).toBe("/out")
+    expect(result.message).toContain("互动影游导出失败")
+    expect(result.message).toContain("ENOSPC")
+    // 诊断通过但落盘失败：一个文件都不许写（不留半成品）
+    expect(fsState.writes.length).toBe(before)
+  })
+
+  it("countFinalChapters 只数 final 章节（draft 章不计入空态门禁）", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.files.set(`${PROJECT}/wiki/chapters/001.md`, chapterFile(1, "第一章", "正文一。"))
+    fsState.files.set(`${PROJECT}/wiki/chapters/002.md`, chapterFile(2, "第二章", "正文二。"))
+    fsState.files.set(
+      `${PROJECT}/wiki/chapters/003.md`,
+      "---\nchapter_number: 3\ntitle: 草稿\nchapter_status: draft\n---\n草稿正文",
+    )
+    fsState.directories.set(`${PROJECT}/wiki/chapters`, [
+      { name: "001.md", path: `${PROJECT}/wiki/chapters/001.md`, is_dir: false },
+      { name: "002.md", path: `${PROJECT}/wiki/chapters/002.md`, is_dir: false },
+      { name: "003.md", path: `${PROJECT}/wiki/chapters/003.md`, is_dir: false },
+    ])
+    await expect(countFinalChapters(PROJECT)).resolves.toBe(2)
+  })
+
+  it("countFinalChapters 依赖抛错 → 返回 0（设置页拿到空态而不是异常）", async () => {
+    fsState.reset()
+    pathUtilsStub.throwOnNormalize = true
+    await expect(countFinalChapters(PROJECT)).resolves.toBe(0)
+  })
+
+  it("finalizeManuscript：项目导出失败 → 中止（不出 DOCX/EPUB/MANIFEST）", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.files.set(`${PROJECT}/wiki/chapters/001.md`, chapterFile(1, "第一章", "正文一。"))
+    fsState.directories.set(`${PROJECT}/wiki/chapters`, [
+      { name: "001.md", path: `${PROJECT}/wiki/chapters/001.md`, is_dir: false },
+    ])
+    vi.mocked(createDirectory)
+      .mockResolvedValueOnce(undefined) // 定稿包根目录创建成功
+      .mockRejectedValueOnce(new Error("mkdir-project-failed")) // exportProject 的目标目录失败
+    const before = fsState.writes.length
+    const result = await finalizeManuscript({ projectPath: PROJECT, exportDir: OUT })
+    expect(result.success).toBe(false)
+    expect(result.artifacts).toEqual([])
+    expect(result.chapterCount).toBe(0)
+    expect(result.message).toContain("出箱中止于项目导出")
+    expect(result.message).toContain("mkdir-project-failed")
+    const paths = fsState.writes.slice(before).map((w) => w.path)
+    expect(paths.some((p) => p.endsWith("MANIFEST.json"))).toBe(false)
+  })
+
+  it("finalizeManuscript：MANIFEST 写盘失败 → 外层 catch 收口为 success:false", async () => {
+    fsState.reset()
+    fsState.bypassGates = true
+    fsState.files.set(`${PROJECT}/wiki/chapters/001.md`, chapterFile(1, "第一章", "正文一。"))
+    fsState.directories.set(`${PROJECT}/wiki/chapters`, [
+      { name: "001.md", path: `${PROJECT}/wiki/chapters/001.md`, is_dir: false },
+    ])
+    vi.mocked(invoke).mockResolvedValue({ success: true, exportedPath: "x", chapterCount: 1, message: "ok" })
+    const writeFileMock = vi.mocked(writeFile)
+    const defaultWrite = writeFileMock.getMockImplementation()
+    writeFileMock.mockImplementation(async (path: string, contents: string) => {
+      if (String(path).endsWith("MANIFEST.json")) throw new Error("disk-quota-exceeded")
+      if (defaultWrite) await defaultWrite(path, contents)
+    })
+    try {
+      const result = await finalizeManuscript({ projectPath: PROJECT, exportDir: OUT })
+      expect(result.success).toBe(false)
+      expect(result.exportedDir).toBe(OUT)
+      // 三件产物已落盘，校验单没写成 → artifacts 停在 3 件（不自称完成）
+      expect(result.artifacts).toEqual([
+        "project/complete-novel.md",
+        "complete-novel.docx",
+        "complete-novel.epub",
+      ])
+      expect(result.message).toContain("disk-quota-exceeded")
+    } finally {
+      if (defaultWrite) writeFileMock.mockImplementation(defaultWrite)
+      else writeFileMock.mockReset()
+    }
   })
 })

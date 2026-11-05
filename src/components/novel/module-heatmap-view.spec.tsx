@@ -5,7 +5,7 @@
  */
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 
 const mocks = vi.hoisted(() => ({
   writeFile: vi.fn(async () => undefined),
@@ -347,5 +347,20 @@ describe("ModuleHeatmapView 分支覆盖补齐", () => {
     expect(drillLog.textContent).toContain("✓")
     expect(drillLog.textContent).toContain("✗")
     expect(drillLog.textContent).toContain("err-detail")
+  })
+})
+
+describe("ModuleHeatmapView 覆盖补齐：未接线清单下钻", () => {
+  it("点未接线清单项 → 下钻到该模块（与点节点同一路径）", () => {
+    render(<ModuleHeatmapView />)
+    const first = listUnwiredModules(MODULE_ATLAS)[0]
+    const panel = screen.getByTestId("heatmap-unwired")
+    const [firstRow] = within(panel).getAllByRole("button")
+    expect(firstRow).toBeTruthy()
+    fireEvent.click(firstRow)
+    const drill = screen.getByTestId("heatmap-drill").textContent ?? ""
+    expect(drill).toContain(first.path)
+    // 清单没收录的模块不可能出现在下钻里：确认选中的确实是清单第一行。
+    expect(within(panel).getAllByRole("button")[0].textContent).toContain(moduleLabel(first.path))
   })
 })

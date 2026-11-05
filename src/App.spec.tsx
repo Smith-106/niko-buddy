@@ -539,3 +539,126 @@ describe("App 组件树渲染与初始化流程", () => {
     cleanup()
   })
 })
+
+// 54 号设计隐患 1：项目占用锁。打开项目时若异主且新鲜（conflict）必须让用户确认；
+// 取消则不得 hydrate（避免两个引擎实例同时写 .niko-buddy/ 与 .novel/status.json）。
+const OCCUPANT = {
+  schema: "project-owner/1.0" as const,
+  app: "NikoBuddyWrite",
+  instance: "inst-other",
+  startedAt: 1_767_325_445_000,
+}
+
+describe("App 项目占用锁（54 号设计隐患 1）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.state.project = null
+    mocks.state.theme = "light"
+    mocks.getStateSnapshot.project = null
+    mocks.openProject.mockResolvedValue({ id: "opened-1", name: "Opened", path: "/p/opened" })
+    mocks.isTauri.mockReturnValue(false)
+    mocks.pickDirectory.mockResolvedValue(null)
+    mocks.initializeApp.mockResolvedValue(undefined)
+    mocks.hydrateProjectOnOpen.mockResolvedValue(undefined)
+    mocks.claimProjectOwnership.mockResolvedValue({ ok: true, conflict: false, tookOver: false })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it("最近项目冲突且用户取消：弹确认框列出占用方，且不 hydrate", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
+    mocks.openProject.mockResolvedValue({ id: "recent-1", name: "Recent", path: "/p/recent" })
+    mocks.claimProjectOwnership.mockResolvedValue({ ok: false, conflict: true, tookOver: false, occupant: OCCUPANT })
+    const { container, cleanup } = renderApp()
+    await flushAsync()
+
+    await clickAndFlush(container.querySelector('[data-testid="welcome-recent"]'))
+
+    expect(mocks.claimProjectOwnership).toHaveBeenCalledWith("/p/recent")
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    const message = confirmSpy.mock.calls[0]?.[0] as string
+    expect(message).toContain("NikoBuddyWrite")
+    expect(message).toContain("确定继续打开？")
+    expect(mocks.hydrateProjectOnOpen).not.toHaveBeenCalled()
+    cleanup()
+  })
+
+  it("最近项目冲突但用户确认继续：仍 hydrate 该项目", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
+    const recent = { id: "recent-1", name: "Recent", path: "/p/recent" }
+    mocks.openProject.mockResolvedValue(recent)
+    mocks.claimProjectOwnership.mockResolvedValue({ ok: false, conflict: true, tookOver: false, occupant: OCCUPANT })
+    const { container, cleanup } = renderApp()
+    await flushAsync()
+
+    await clickAndFlush(container.querySelector('[data-testid="welcome-recent"]'))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(mocks.hydrateProjectOnOpen).toHaveBeenCalledWith(recent)
+    cleanup()
+  })
+
+  it("最近项目 claim 未成功但无冲突：不弹确认框，直接 hydrate", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm")
+    const recent = { id: "recent-1", name: "Recent", path: "/p/recent" }
+    mocks.openProject.mockResolvedValue(recent)
+    mocks.claimProjectOwnership.mockResolvedValue({ ok: false, conflict: false, tookOver: false, occupant: OCCUPANT })
+    const { container, cleanup } = renderApp()
+    await flushAsync()
+
+    await clickAndFlush(container.querySelector('[data-testid="welcome-recent"]'))
+
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(mocks.hydrateProjectOnOpen).toHaveBeenCalledWith(recent)
+    cleanup()
+  })
+
+  it("选择目录冲突且用户取消：弹确认框且不 hydrate", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
+    mocks.pickDirectory.mockResolvedValue("/p/opened")
+    mocks.claimProjectOwnership.mockResolvedValue({ ok: false, conflict: true, tookOver: false, occupant: OCCUPANT })
+    const { container, cleanup } = renderApp()
+    await flushAsync()
+
+    await clickAndFlush(container.querySelector('[data-testid="welcome-open"]'))
+
+    expect(mocks.claimProjectOwnership).toHaveBeenCalledWith("/p/opened")
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(mocks.hydrateProjectOnOpen).not.toHaveBeenCalled()
+    cleanup()
+  })
+
+  it("选择目录冲突但用户确认继续：仍 hydrate 该项目", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
+    const opened = { id: "opened-1", name: "Opened", path: "/p/opened" }
+    mocks.pickDirectory.mockResolvedValue("/p/opened")
+    mocks.openProject.mockResolvedValue(opened)
+    mocks.claimProjectOwnership.mockResolvedValue({ ok: false, conflict: true, tookOver: false, occupant: OCCUPANT })
+    const { container, cleanup } = renderApp()
+    await flushAsync()
+
+    await clickAndFlush(container.querySelector('[data-testid="welcome-open"]'))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(mocks.hydrateProjectOnOpen).toHaveBeenCalledWith(opened)
+    cleanup()
+  })
+
+  it("选择目录 claim 冲突但缺 occupant 记录：不弹确认框，直接 hydrate", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm")
+    const opened = { id: "opened-1", name: "Opened", path: "/p/opened" }
+    mocks.pickDirectory.mockResolvedValue("/p/opened")
+    mocks.openProject.mockResolvedValue(opened)
+    mocks.claimProjectOwnership.mockResolvedValue({ ok: false, conflict: true, tookOver: false })
+    const { container, cleanup } = renderApp()
+    await flushAsync()
+
+    await clickAndFlush(container.querySelector('[data-testid="welcome-open"]'))
+
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(mocks.hydrateProjectOnOpen).toHaveBeenCalledWith(opened)
+    cleanup()
+  })
+})

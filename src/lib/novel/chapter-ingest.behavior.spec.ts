@@ -321,6 +321,21 @@ describe("ingestChapter — early guard branches", () => {
     fsMocks.readFile.mockRejectedValueOnce(new Error("read denied"))
     await expect(ingestChapter(PROJECT, CHAPTER_PATH)).rejects.toThrow("read denied")
   })
+
+  it("options.now 作为显式时钟下传 fold（store 的 lastUpdated 用注入时间，不再隐式读时钟）", async () => {
+    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockLlmJsonResponse(llmSnapshotJson())
+    const injectedNow = "2026-09-07T00:00:00.000Z"
+
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH, undefined, undefined, { now: injectedNow })
+
+    expect(result.snapshot?.chapterNumber).toBe(1)
+    const writes = fsMocks.writeFileAtomic.mock.calls
+    const arcsWrite = writes.find(([path]) => String(path).endsWith(".novel/emotional-arcs.json"))
+    const boardWrite = writes.find(([path]) => String(path).endsWith(".novel/subplot-board.json"))
+    expect(JSON.parse(String(arcsWrite![1])).lastUpdated).toBe(injectedNow)
+    expect(JSON.parse(String(boardWrite![1])).lastUpdated).toBe(injectedNow)
+  })
 })
 
 describe("ingestChapter — extraction failures degrade to extract_failed", () => {
@@ -356,6 +371,14 @@ describe("ingestChapter — extraction failures degrade to extract_failed", () =
     fsMocks.readFile.mockResolvedValueOnce(chapterContent())
     mockLlmStreamError("connection reset")
     await expect(ingestChapter(PROJECT, CHAPTER_PATH)).rejects.toThrow("connection reset")
+  })
+
+  it("returns failReason cancelled when the stream aborts mid-flight (cancellation is modelled, not a reject)", async () => {
+    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockLlmStreamError("request cancelled by user")
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH)
+    // 取消是已建模的 failReason：不得向外 reject，也不得谎报 extract_failed。
+    expect(result).toEqual({ snapshot: null, failReason: "cancelled" })
   })
 })
 
@@ -839,6 +862,23 @@ describe("ingestOutline", () => {
     fsMocks.readFile.mockResolvedValueOnce("大纲内容")
     mockLlmStreamError("provider timeout")
     await expect(ingestOutline(PROJECT, OUTLINE_PATH)).rejects.toThrow("provider timeout")
+  })
+
+  it("rethrows a non-SyntaxError parser failure instead of degrading to null", async () => {
+    // 防御守卫：JSON.parse 抛非 SyntaxError（解释器/宿主层异常）时必须原样上抛，
+    // 不得当成「模型输出的 JSON 坏了」静默降级为 null——否则真故障会被伪装成
+    // 友好的 ingestFailedNotification。用一次性故障注入触发该不可达（类型上
+    // jsonText 为 string，JSON.parse 只可能抛 SyntaxError）的防御分支。
+    fsMocks.readFile.mockResolvedValueOnce("大纲内容")
+    mockLlmJsonResponse(outlineJson())
+    const parseSpy = vi.spyOn(JSON, "parse").mockImplementationOnce(() => {
+      throw new TypeError("parser exploded")
+    })
+    try {
+      await expect(ingestOutline(PROJECT, OUTLINE_PATH)).rejects.toThrow("parser exploded")
+    } finally {
+      parseSpy.mockRestore()
+    }
   })
 })
 

@@ -278,6 +278,70 @@ describe("WelcomeScreen", () => {
     expect(mocks.removeFromRecentProjects).not.toHaveBeenCalled()
   })
 
+  it("恢复确认框：非 Escape 键不关闭，Escape 关闭且不触发导入", async () => {
+    renderWelcome()
+    fireEvent.click(screen.getByText("welcome.restoreBackup"))
+    const overlay = screen.getByRole("dialog")
+    expect(overlay).toBeInTheDocument()
+
+    // 非 Escape 键 → 保持打开（点击外无副作用）
+    fireEvent.keyDown(window, { key: "a" })
+    expect(screen.getByRole("dialog")).toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: "Escape" })
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(mocks.importBackup).not.toHaveBeenCalled()
+    // Esc 后键盘监听被移除（再按不会抛/不会改变状态）
+    fireEvent.keyDown(window, { key: "Escape" })
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+
+  it("恢复确认框：点「取消」关闭且不导入", () => {
+    renderWelcome()
+    fireEvent.click(screen.getByText("welcome.restoreBackup"))
+    expect(screen.getByRole("dialog")).toBeInTheDocument()
+    fireEvent.click(screen.getByText("project.cancel"))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(mocks.importBackup).not.toHaveBeenCalled()
+  })
+
+  it("恢复确认框：点背板关闭；点确认框内容不关闭", () => {
+    renderWelcome()
+    fireEvent.click(screen.getByText("welcome.restoreBackup"))
+    const overlay = screen.getByRole("dialog")
+    // 点内部标题（target !== currentTarget）→ 不关闭
+    fireEvent.click(screen.getByText("welcome.restoreConfirmTitle"))
+    expect(screen.getByRole("dialog")).toBeInTheDocument()
+    // 点背板本身（target === currentTarget）→ 关闭
+    fireEvent.click(overlay)
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(mocks.importBackup).not.toHaveBeenCalled()
+  })
+
+  it("恢复进行中再次确认 → isRestoring 守卫直接早退，不重复触发导入", async () => {
+    let resolveImport: (v: unknown) => void = () => {}
+    mocks.importBackup.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveImport = resolve
+        }),
+    )
+    renderWelcome()
+    fireEvent.click(screen.getByText("welcome.restoreBackup"))
+    fireEvent.click(screen.getByText("welcome.restoreConfirmGo"))
+    expect(mocks.importBackup).toHaveBeenCalledTimes(1)
+
+    // 恢复中再次打开确认框并点确认 → handleRestoreBackup 的 isRestoring 守卫命中
+    fireEvent.click(screen.getByText("恢复中..."))
+    fireEvent.click(screen.getByText("welcome.restoreConfirmGo"))
+    expect(mocks.importBackup).toHaveBeenCalledTimes(1)
+
+    resolveImport({ success: true, projects: [] })
+    await waitFor(() => {
+      expect(screen.getByText("welcome.restoreBackup")).toBeInTheDocument()
+    })
+  })
+
   it("shows 恢复中... while restoring; guard blocks concurrent re-entry", async () => {
     let resolveImport: (v: unknown) => void = () => {}
     mocks.importBackup.mockImplementation(

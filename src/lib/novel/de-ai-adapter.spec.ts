@@ -10,7 +10,8 @@
  * (de-ai-adapter 只经 Tauri path API 拼路径, 无文件系统真实读写)。
  * SKILL.md 经 `?raw` 真实导入 (renderer/vitest 均可用)。
  */
-import { describe, expect, it, vi, beforeEach } from "vitest"
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest"
+import { readFileSync } from "node:fs"
 
 const mocks = vi.hoisted(() => ({
   readFile: vi.fn(),
@@ -733,5 +734,115 @@ describe("补测: 命中恰好抵达正文末尾 (de-ai-adapter.ts:331 假分支
     expect(result.hits).toHaveLength(1)
     expect(result.hits[0].endIndex).toBe(text.length)
     expect(result.markedText).toBe("【至关重要】")
+  })
+})
+
+// ── 内置 SKILL.md 装载链（glob → Node fs → fail-open 空文本）──────────────────
+//
+// 生产契约（de-ai-adapter.ts 顶部注释）：renderer 走 `?raw` glob；Node 脚本运行时
+// （tsx，无 glob 变换）回退 `node:fs`；webview（node:fs 是会抛错的 shim）必须
+// fail-open 为空文本 + 告警，**绝不能**让模块求值抛错（否则整页白屏）。
+// 装载体只在模块求值时跑一次，因此这里用 resetModules + 动态 import 复现三种环境。
+describe("loadBundledDeAiSkill 装载链（glob 缺失 / fs 不可用）", () => {
+  const SKILL_SPECIFIER = "../../../skills/de-ai-writing/SKILL.md?raw"
+
+  afterEach(() => {
+    vi.doUnmock(SKILL_SPECIFIER)
+    vi.doUnmock("node:fs")
+    vi.restoreAllMocks()
+    vi.resetModules()
+  })
+
+  it("glob 拿不到内容（Node 运行时）→ 回退 node:fs 读到同一份内置 skill", async () => {
+    const onDisk = readFileSync(
+      new URL("../../../skills/de-ai-writing/SKILL.md", import.meta.url),
+      "utf8",
+    )
+    vi.resetModules()
+    vi.doMock(SKILL_SPECIFIER, () => ({ default: "" }))
+
+    const fresh = await import("./de-ai-adapter")
+
+    expect(fresh.buildQmQuaiSystemPrompt()).toBe(onDisk.trim())
+    expect(fresh.BUILTIN_DE_AI_SKILL_VERSION).not.toBe("unknown")
+  })
+
+  it("fs 也不可用（webview shim）→ fail-open 空文本 + 告警，模块求值不抛错", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    vi.resetModules()
+    vi.doMock(SKILL_SPECIFIER, () => ({ default: "" }))
+    vi.doMock("node:fs", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:fs")>()
+      return {
+        ...actual,
+        readFileSync: () => {
+          throw new Error("webview shim: node:fs unavailable")
+        },
+      }
+    })
+
+    const fresh = await import("./de-ai-adapter")
+
+    expect(fresh.buildQmQuaiSystemPrompt()).toBe("")
+    expect(fresh.BUILTIN_DE_AI_SKILL_VERSION).toBe("unknown")
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("bundled SKILL.md unavailable"))
+  })
+})
+
+// ── 词表脏数据守卫（RV-007 空词条死循环 / 非法正则 / 可空匹配）──────────────
+//
+// `runDeAiDetection` 对三条词表都带"空词条/空正则"守卫：`indexOf("")` 恒为 0 且
+// 指针不前进 → 会把同一命中无限 push 成死循环；一条非法正则 source 也不能让整次
+// 检测失败。词表是模块级常量，正常数据永远非空且合法，故这里用依赖注入复现脏数据。
+describe("词表脏数据守卫（空词条 / 非法正则 / 可空匹配）", () => {
+  afterEach(() => {
+    vi.doUnmock("./de-ai-tiered-table")
+    vi.doUnmock("./mechanical-slop-detector")
+    vi.restoreAllMocks()
+    vi.resetModules()
+  })
+
+  it("空词条、非法正则、可空匹配正则都不崩溃、不死循环、不产出错位命中", async () => {
+    vi.resetModules()
+    vi.doMock("./de-ai-tiered-table", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./de-ai-tiered-table")>()
+      return {
+        ...actual,
+        detectTieredDeAi: () => [
+          {
+            entry: { term: "", tier: "1A", category: "总结腔", weight: 1, suggestion: "删除" },
+            count: 0,
+          },
+        ],
+      }
+    })
+    vi.doMock("./mechanical-slop-detector", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./mechanical-slop-detector")>()
+      return {
+        ...actual,
+        slopScore: () => ({
+          tier1Hits: [{ kw: "", count: 1 }],
+          tier2Hits: [{ kw: "", count: 1 }],
+          // "" → 空 source 早退；"(" → new RegExp 抛错；"x*" → 可匹配空串
+          tier3Hits: [
+            { kw: "", count: 1 },
+            { kw: "(", count: 1 },
+            { kw: "x*", count: 1 },
+          ],
+          sentenceLengthCV: 1,
+          transitionOpenerRatio: 0,
+          slopPenalty: 0,
+        }),
+        classifySlop: () => "clean",
+      }
+    })
+
+    const fresh = await import("./de-ai-adapter")
+    const result = fresh.runDeAiDetection("可见的正文")
+
+    expect(result.hits).toEqual([])
+    expect(result.markedText).toBe("可见的正文")
+    expect(result.slopClass).toBe("clean")
+    expect(result.slopPenalty).toBe(0)
   })
 })

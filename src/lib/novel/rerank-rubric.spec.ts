@@ -7,7 +7,7 @@
  *   2. 结论不可静默过期：权重/判据/归一方式任一变动都会换掉 `rubric_hash`。
  */
 
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 
 import {
   DIM_TO_GATE_TYPE,
@@ -303,5 +303,65 @@ describe("F-003 cost gate (C-014)", () => {
     expect(verdict.reasons.some((r) => r.includes("hard cap 1000"))).toBe(true)
     expect(verdict.reasons.some((r) => r.includes("wallclock"))).toBe(true)
     expect(verdict.decision).toBe("blocked")
+  })
+})
+
+// ── 不变量自检的「检出能力」────────────────────────────────────────────────
+//
+// `assertRerankRubricInvariants` 读的是模块级 rubric 常量，没有注入点；要证明它真的
+// 会报违反（而不是恒返回 []），只能就地把常量改写成违反态，断言它报出对应违规项，
+// 然后在 afterEach 逐字段还原并再自检一次（还原失败会让后续用例立刻红）。
+describe("assertRerankRubricInvariants 检出各类违反", () => {
+  const pristine = RERANK_RUBRIC_CRITERIA.map((criterion) => ({ ...criterion }))
+  const pristineSources = { ...RERANK_REUSED_SOURCES }
+
+  afterEach(() => {
+    RERANK_RUBRIC_CRITERIA.forEach((criterion, index) => {
+      Object.assign(criterion, pristine[index])
+    })
+    Object.assign(RERANK_REUSED_SOURCES, pristineSources)
+    // 还原护栏：任何残留改写都会在这里暴露，而不是静默污染后续用例。
+    expect(assertRerankRubricInvariants()).toEqual([])
+  })
+
+  it("检出「权重和不为 1」与「权重非正」", () => {
+    const target = RERANK_RUBRIC_CRITERIA[0]
+    target.weight = 0
+
+    const violations = assertRerankRubricInvariants()
+
+    expect(violations.some((v) => v.startsWith("criterion weights must sum to 1, got"))).toBe(true)
+    expect(violations).toContain(`criterion ${target.id} must carry a positive weight`)
+  })
+
+  it("检出「判据没有可复用来源」", () => {
+    // 反 AI 味判据的来源键被摘掉 → 自检必须点名该判据（而不是静默复用失效）。
+    Reflect.deleteProperty(RERANK_REUSED_SOURCES, "antiAiAnalyzer")
+
+    expect(assertRerankRubricInvariants()).toContain(
+      `criterion ${RERANK_ANTI_AI_CRITERION_ID} has no reused source`,
+    )
+  })
+
+  it("检出「六维集合偏离 SIX_REVIEW_DIMENSION_ORDER」", () => {
+    const runner = RERANK_RUBRIC_CRITERIA.find((c) => c.source === "reviewRunner")
+    if (!runner) throw new Error("rubric 缺少六维判据：本用例前提不成立")
+    runner.id = `${runner.id}_renamed`
+
+    expect(assertRerankRubricInvariants()).toContain(
+      "review-runner criteria must mirror SIX_REVIEW_DIMENSION_ORDER exactly",
+    )
+  })
+
+  it("检出「P0 类权重丧失过半」", () => {
+    for (const criterion of RERANK_RUBRIC_CRITERIA) {
+      if (criterion.weightClass === "P0") criterion.weightClass = "P2"
+    }
+
+    const violations = assertRerankRubricInvariants()
+
+    expect(violations.some((v) => v.startsWith("P0 class weight must be at least 0.5, got"))).toBe(
+      true,
+    )
   })
 })

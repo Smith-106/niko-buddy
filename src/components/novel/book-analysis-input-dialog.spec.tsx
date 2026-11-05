@@ -13,7 +13,11 @@ const dialogMocks = vi.hoisted(() => ({
 
 vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  DialogContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  // NOTE: props（含 onKeyDown）必须透传——组件把 Enter 提交挂在 DialogContent 上，
+  // 不透传则 Enter/IME 守卫分支在测试中永不可达。
+  DialogContent: ({ children, ...rest }: React.HTMLAttributes<HTMLDivElement> & { children?: React.ReactNode }) => (
+    <div {...rest}>{children}</div>
+  ),
   DialogHeader: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   DialogTitle: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   DialogFooter: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -144,5 +148,54 @@ describe("BookAnalysisInputDialog", () => {
     expect(screen.getByText("导入后可进行：")).toBeInTheDocument()
     expect(screen.getByText(/自动识别章节/)).toBeInTheDocument()
     expect(screen.getByText(/提示：大型小说/)).toBeInTheDocument()
+  })
+
+  it("Enter 提交：已选文件时直接�交配置并重置表单", async () => {
+    const onSubmit = vi.fn()
+    renderDialog({ onSubmit })
+    dialogMocks.openDialog.mockResolvedValue("E:/Novel/斗破.txt")
+    fireEvent.click(screen.getByRole("button", { name: /浏览/ }))
+    await screen.findByDisplayValue("E:/Novel/斗破.txt")
+
+    fireEvent.keyDown(screen.getByPlaceholderText(/点击右侧按钮选择TXT文件/), { key: "Enter" })
+    expect(onSubmit).toHaveBeenCalledWith({ sourceType: "file", sourcePath: "E:/Novel/斗破.txt" })
+    await waitFor(() => expect(screen.queryByDisplayValue("E:/Novel/斗破.txt")).not.toBeInTheDocument())
+  })
+
+  it("Enter 提交：未选文件时报错而不回调", () => {
+    const onSubmit = vi.fn()
+    renderDialog({ onSubmit })
+    fireEvent.keyDown(screen.getByPlaceholderText(/点击右侧按钮选择TXT文件/), { key: "Enter" })
+    expect(screen.getByText("请选择一个TXT文件")).toBeInTheDocument()
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it("非 Enter 键不触发提交", () => {
+    const onSubmit = vi.fn()
+    renderDialog({ onSubmit })
+    fireEvent.keyDown(screen.getByPlaceholderText(/点击右侧按钮选择TXT文件/), { key: "a" })
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(screen.queryByText("请选择一个TXT文件")).not.toBeInTheDocument()
+  })
+
+  it("输入法组合中的 Enter 不做提交（IME 守卫）", async () => {
+    const onSubmit = vi.fn()
+    renderDialog({ onSubmit })
+    dialogMocks.openDialog.mockResolvedValue("E:/Novel/遮天.txt")
+    fireEvent.click(screen.getByRole("button", { name: /浏览/ }))
+    await screen.findByDisplayValue("E:/Novel/遮天.txt")
+
+    // isComposing=true / keyCode 229 两种信号均视为组合中
+    fireEvent.keyDown(screen.getByPlaceholderText(/点击右侧按钮选择TXT文件/), {
+      key: "Enter",
+      isComposing: true,
+    } as never)
+    fireEvent.keyDown(screen.getByPlaceholderText(/点击右侧按钮选择TXT文件/), {
+      key: "Enter",
+      keyCode: 229,
+    } as never)
+    expect(onSubmit).not.toHaveBeenCalled()
+    // 表单仍保留已选文件（未被重置）
+    expect(screen.getByDisplayValue("E:/Novel/遮天.txt")).toBeInTheDocument()
   })
 })

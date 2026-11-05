@@ -3,17 +3,23 @@
  * 接线契约：注入三路信号直接渲染（不碰磁盘）；三路全空时为诚实空态
  * （不编造运行状态）；磁盘装载中显示 loading；装载失败显式报错且保留旧数据。
  */
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
+const fsMocks = vi.hoisted(() => ({
+  // 默认返回一份合法的轨迹快照（v1 + entries:[]）；个别用例可用 mockResolvedValueOnce 改写。
+  readFile: vi.fn(() =>
+    Promise.resolve(
+      JSON.stringify({ fileVersion: 1, goal: "g", savedAt: 1, ok: true, roundsUsed: 0, finalText: "", entries: [] }),
+    ),
+  ),
+}))
 
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
   return {
     ...actual,
-    readFile: () =>
-      Promise.resolve(
-        JSON.stringify({ fileVersion: 1, goal: "g", savedAt: 1, ok: true, roundsUsed: 0, finalText: "", entries: [] }),
-      ),
+    readFile: fsMocks.readFile,
   }
 })
 
@@ -25,6 +31,7 @@ import { LiveExecutionView } from "./live-execution-view"
 afterEach(() => {
   cleanup()
   useActivityStore.setState({ items: [] })
+  fsMocks.readFile.mockClear()
 })
 
 const TS = "2026-10-19T00:00:00.000Z"
@@ -220,5 +227,133 @@ describe("LiveExecutionView 串行轮询", () => {
     for (const resolve of resolvers) resolve(LEDGER_LINE)
     await screen.findByTestId("live-events")
     expect(screen.getAllByTestId("live-event-item")).toHaveLength(1)
+  })
+})
+
+describe("LiveExecutionView 分支补齐：单路注入/默认 deps/轨迹损坏/卸载竞态", () => {
+  const LEDGER_LINE =
+    '{"seq":0,"eventId":"e:0","ts":"2026-10-19T00:00:00.000Z","kind":"generate","actor":"system","evidenceRefs":[]}\n'
+
+  it("只注入 activities（账本/轨迹未注入）→ 只渲染运行中，不伪造事件/轨迹", () => {
+    render(
+      <LiveExecutionView
+        projectPath="/fake"
+        activities={[activityOf({ id: "a1", title: "导入中", detail: "" })]}
+      />,
+    )
+    expect(screen.getByTestId("live-running")).toBeTruthy()
+    expect(screen.getAllByTestId("live-running-item")).toHaveLength(1)
+    // detail 为空 → 不渲染「：」细节段（只留标题与类型）
+    expect(screen.getByTestId("live-running-item").textContent).toBe("导入中（ingest）")
+    // 未注入 event / trace → 两区都不渲染（不是空壳分区）
+    expect(screen.queryByTestId("live-events")).toBeNull()
+    expect(screen.queryByTestId("live-trace")).toBeNull()
+    expect(screen.queryByTestId("live-empty")).toBeNull()
+  })
+
+  it("不注入 deps 时走生产 deps（fs 读盘），装载完不再 loading", async () => {
+    render(<LiveExecutionView projectPath="/fake" />)
+    await waitFor(() => expect(screen.queryByTestId("live-view-loading")).toBeNull())
+    // 默认 deps 真的去读了轨迹快照（不是空转）
+    expect(fsMocks.readFile).toHaveBeenCalledWith("/fake/.novel/telemetry/main-control-trace.json")
+    expect(screen.getByTestId("live-execution-view")).toBeTruthy()
+  })
+
+  it("轨迹快照损坏（非 missing/ready）→ 轨迹按零条目处理，账本照常显示", async () => {
+    fsMocks.readFile.mockResolvedValueOnce("not-json")
+    render(
+      <LiveExecutionView
+        projectPath="/fake"
+        deps={{ readText: () => Promise.resolve(LEDGER_LINE), appendText: () => Promise.resolve() }}
+      />,
+    )
+    await screen.findByTestId("live-events")
+    expect(screen.getAllByTestId("live-event-item")).toHaveLength(1)
+    // corrupt 快照等价于「没有可回放条目」：不渲染空轨迹区
+    expect(screen.queryByTestId("live-trace")).toBeNull()
+    expect(screen.queryByTestId("live-load-error")).toBeNull()
+  })
+
+  it("装载在途时卸载：结算后不再写状态、不再排下一轮", async () => {
+    let resolveRead: ((value: string) => void) | undefined
+    const readText = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveRead = resolve
+        }),
+    )
+    const { unmount } = render(
+      <LiveExecutionView
+        projectPath="/fake"
+        deps={{ readText, appendText: () => Promise.resolve() }}
+        pollMs={10}
+      />,
+    )
+    unmount()
+    resolveRead?.(LEDGER_LINE)
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    // 卸载即取消：迟到结算不写入，也不再排下一轮读盘。
+    expect(readText).toHaveBeenCalledTimes(1)
+  })
+
+  it("装载在途时卸载且读盘失败：迟到错误不写状态、不再排下一轮", async () => {
+    let rejectRead: ((reason: unknown) => void) | undefined
+    const readText = vi.fn(
+      () =>
+        new Promise<string>((_resolve, reject) => {
+          rejectRead = reject
+        }),
+    )
+    const { unmount } = render(
+      <LiveExecutionView
+        projectPath="/fake"
+        deps={{ readText, appendText: () => Promise.resolve() }}
+        pollMs={10}
+      />,
+    )
+    unmount()
+    rejectRead?.(new Error("late failure"))
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(readText).toHaveBeenCalledTimes(1)
+  })
+
+  it("卸载后已被浏览器排队的轮询定时器仍触发：直接退出，不再读盘", async () => {
+    // 模拟「clearTimeout 没能撤销已入队的回调」（卸载与定时器到点同一轮事件循环）。
+    const clearSpy = vi.spyOn(globalThis, "clearTimeout").mockImplementation(() => undefined)
+    try {
+      const readText = vi.fn(() => Promise.resolve(LEDGER_LINE))
+      const { unmount } = render(
+        <LiveExecutionView
+          projectPath="/fake"
+          deps={{ readText, appendText: () => Promise.resolve() }}
+          pollMs={10}
+        />,
+      )
+      await screen.findByTestId("live-events")
+      unmount()
+      const callsAtUnmount = readText.mock.calls.length
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      // 定时器空转一次即返回：没有新一轮读盘。
+      expect(readText.mock.calls.length).toBe(callsAtUnmount)
+    } finally {
+      clearSpy.mockRestore()
+    }
+  })
+
+  it("连续失败两轮（无任何成功数据）→ 错误可见且不重试刷屏", async () => {
+    const readText = vi.fn(() => Promise.reject(new Error("disk gone")))
+    render(
+      <LiveExecutionView
+        projectPath="/fake"
+        deps={{ readText, appendText: () => Promise.resolve() }}
+        pollMs={10}
+      />,
+    )
+    await screen.findByTestId("live-load-error")
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(screen.getByTestId("live-load-error").textContent).toContain("disk gone")
+    // 轮询在跑（至少两轮），但零数据仍是空态而非假实况。
+    expect(readText.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByTestId("live-empty")).toBeTruthy()
   })
 })

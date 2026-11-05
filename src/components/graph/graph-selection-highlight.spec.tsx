@@ -476,3 +476,103 @@ describe("CameraFocusController 布局校正", () => {
     expect(mocks.animate).toHaveBeenLastCalledWith({ x: 1, y: 2, ratio: 0.25 }, { duration: 400 })
   })
 })
+
+/**
+ * 并发删除守卫：布局 worker 回填 / 拖拽重建期间，forEachNode / forEachEdge 可能在
+ * 迭代过程中吐出已从图上删除的 id（graphology 的遍历快照），此时属性写入会抛
+ * “node not found”。applyHighlightState 的 hasNode / hasEdge 守卫必须跳过这些幽灵 id，
+ * 同时把存活节点的高亮/置灰照常写完。
+ */
+class StaleTraversalGraph extends FakeGraph {
+  readonly ghostNodeId = "gone-node"
+  readonly ghostEdgeId = "gone-edge"
+
+  override forEachNode(cb: (id: string) => void): void {
+    super.forEachNode(cb)
+    cb(this.ghostNodeId)
+  }
+
+  override forEachEdge(
+    cb: (id: string, attrs: Record<string, unknown>, source: string, target: string) => void,
+  ): void {
+    super.forEachEdge(cb)
+    cb(this.ghostEdgeId, {}, "a", "b")
+  }
+
+  override setNodeAttribute(id: string, key: string, value: unknown): void {
+    if (!this.nodeAttrs.has(id)) throw new Error(`graphology: node ${id} not found`)
+    super.setNodeAttribute(id, key, value)
+  }
+
+  override removeNodeAttribute(id: string, key: string): void {
+    if (!this.nodeAttrs.has(id)) throw new Error(`graphology: node ${id} not found`)
+    super.removeNodeAttribute(id, key)
+  }
+
+  override setEdgeAttribute(id: string, key: string, value: unknown): void {
+    if (!this.edgeAttrs.has(id)) throw new Error(`graphology: edge ${id} not found`)
+    super.setEdgeAttribute(id, key, value)
+  }
+
+  override removeEdgeAttribute(id: string, key: string): void {
+    if (!this.edgeAttrs.has(id)) throw new Error(`graphology: edge ${id} not found`)
+    super.removeEdgeAttribute(id, key)
+  }
+}
+
+describe("HighlightManager 并发删除守卫", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.graphThrows = false
+    ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it("清空高亮时跳过遍历中的幽灵节点/边，存活节点与边仍被清干净", () => {
+    const graph = new StaleTraversalGraph(["a", "b"], [["a", "b"]])
+    graph.nodeAttrs.set("a", { x: 0, y: 0, insightHighlight: true, dimmed: true })
+    graph.nodeAttrs.set("b", { x: 1, y: 1, dimmed: true })
+    graph.edgeAttrs.set("e0", { dimmed: true, highlighted: true })
+    setGraph(graph)
+
+    expect(() => {
+      act(() => {
+        render(<HighlightManager highlightedNodes={new Set()} selectedNodeId={null} />)
+      })
+    }).not.toThrow()
+
+    expect(graph.nodeAttrs.get("a")?.insightHighlight).toBeUndefined()
+    expect(graph.nodeAttrs.get("a")?.dimmed).toBeUndefined()
+    expect(graph.nodeAttrs.get("b")?.dimmed).toBeUndefined()
+    expect(graph.edgeAttrs.get("e0")?.dimmed).toBeUndefined()
+    expect(graph.edgeAttrs.get("e0")?.highlighted).toBeUndefined()
+    // 幽灵 id 未被触达（触达会抛错，也会污染替身状态）
+    expect(graph.nodeAttrs.has(graph.ghostNodeId)).toBe(false)
+    expect(graph.edgeAttrs.has(graph.ghostEdgeId)).toBe(false)
+    expect(mocks.refresh).toHaveBeenCalled()
+  })
+
+  it("写入高亮基准态时同样跳过幽灵节点/边，存活节点按集合置高亮或置灰", () => {
+    const graph = new StaleTraversalGraph(["a", "b", "c"], [["a", "b"]])
+    setGraph(graph)
+
+    expect(() => {
+      act(() => {
+        render(<HighlightManager highlightedNodes={new Set(["a"])} selectedNodeId={null} />)
+      })
+    }).not.toThrow()
+
+    expect(graph.nodeAttrs.get("a")?.insightHighlight).toBe(true)
+    expect(graph.nodeAttrs.get("a")?.dimmed).toBeUndefined()
+    expect(graph.nodeAttrs.get("b")?.dimmed).toBe(true)
+    expect(graph.nodeAttrs.get("c")?.dimmed).toBe(true)
+    // a 高亮而 b 未高亮 → a-b 不满足“两端都亮”，应当置灰
+    expect(graph.edgeAttrs.get("e0")?.dimmed).toBe(true)
+    expect(graph.edgeAttrs.get("e0")?.highlighted).toBeUndefined()
+    expect(graph.nodeAttrs.has(graph.ghostNodeId)).toBe(false)
+    expect(mocks.refresh).toHaveBeenCalled()
+  })
+})

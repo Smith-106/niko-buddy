@@ -1,7 +1,19 @@
 /** setting-projection：零新真源只读投影（自由文本关系如实呈现 + 缺口计数）。 */
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi, beforeEach } from "vitest"
 
-import { projectSettingState } from "./setting-projection"
+// loadSettingProjection 只经 createAtomicJsonStore 读 `.novel/character-states.json`；
+// 这里替换 readFile 以便断言**真实读取路径**（而不是替换掉被测的装载逻辑）。
+const fsMocks = vi.hoisted(() => ({ readFile: vi.fn() }))
+
+vi.mock("@/commands/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/commands/fs")>()
+  return {
+    ...actual,
+    readFile: fsMocks.readFile,
+  }
+})
+
+import { projectSettingState, loadSettingProjection } from "./setting-projection"
 import type { CharacterState } from "./character-state"
 
 function character(partial: Partial<CharacterState> & { characterName: string }): CharacterState {
@@ -182,5 +194,113 @@ describe("Wave 3B 审查回归：hash 可移植性 + entryId 碰撞", () => {
     })
     expect(edges).toEqual([])
     expect(() => buildRelationshipLibraryArtifact({ characters: [character({ characterName: long, relationships: { [long]: "y" } })] })).not.toThrow()
+  })
+})
+
+// ── 默认装载：读既有 character-states 真源（不新造真源、不造字段）──
+describe("loadSettingProjection（默认装载）", () => {
+  beforeEach(() => {
+    fsMocks.readFile.mockReset()
+  })
+
+  it("读 `.novel/character-states.json`（路径归一为 /）并做与纯函数同一套投影", async () => {
+    fsMocks.readFile.mockResolvedValueOnce(
+      JSON.stringify({
+        characters: [
+          character({
+            characterName: "林砚",
+            currentLocation: "青石镇",
+            relationships: { 苏晚: "师徒" },
+            lastUpdatedChapter: 7,
+          }),
+        ],
+      }),
+    )
+
+    const projection = await loadSettingProjection("C:\\proj\\qmai")
+
+    expect(fsMocks.readFile).toHaveBeenCalledWith("C:/proj/qmai/.novel/character-states.json")
+    expect(projection.cast.map((row) => row.name)).toEqual(["林砚"])
+    expect(projection.edges).toEqual([
+      { from: "林砚", to: "苏晚", description: "师徒", lastChapter: 7 },
+    ])
+    expect(projection.charactersWithoutRelations).toBe(0)
+  })
+
+  it("真源缺失 → 空投影（诚实缺口，不抛错、不造角色）", async () => {
+    fsMocks.readFile.mockRejectedValueOnce(new Error("ENOENT"))
+    const projection = await loadSettingProjection("/proj/absent")
+    expect(projection).toEqual({ cast: [], edges: [], charactersWithoutRelations: 0 })
+  })
+})
+
+// ── 脏真源容错（character-states.json 是 JSON 直读，类型不保证）──
+describe("脏真源容错（JSON 直读）", () => {
+  it("非字符串字段降级为 null/空名，非数字章号 → null（缺失 ≠ 第 0 章）", () => {
+    const dirty = JSON.parse(
+      JSON.stringify({
+        characters: [
+          { characterName: null, currentLocation: 42, relationships: { 苏晚: 123 }, lastUpdatedChapter: "7" },
+        ],
+      }),
+    )
+
+    const projection = projectSettingState(dirty)
+
+    expect(projection.cast).toEqual([
+      { name: "", location: null, status: null, lastChapter: null, isAlive: null, relationCount: 0 },
+    ])
+    expect(projection.edges).toEqual([])
+    expect(projection.charactersWithoutRelations).toBe(1)
+  })
+
+  it("relationships 字段整体缺失 → 视作无关系（缺口 +1，不抛错）", () => {
+    const dirty = JSON.parse(JSON.stringify({ characters: [{ characterName: "A" }] }))
+    const projection = projectSettingState(dirty)
+    expect(projection.cast[0]?.relationCount).toBe(0)
+    expect(projection.charactersWithoutRelations).toBe(1)
+  })
+
+  it("边排序是 from→to 两级比较（同 from 时按 to 再排）", () => {
+    const projection = projectSettingState({
+      characters: [
+        character({ characterName: "B", relationships: { A: "敌对" } }),
+        character({ characterName: "A", relationships: { D: "盟友", C: "旧识" } }),
+      ],
+    })
+    expect(projection.edges.map((edge) => `${edge.from}->${edge.to}`)).toEqual([
+      "A->C",
+      "A->D",
+      "B->A",
+    ])
+  })
+})
+
+describe("推导去重与 projectId 归属", () => {
+  it("同名角色重复出现时同一条边只保留一次（按 entryId 去重）", () => {
+    const edges = deriveRelationshipEntries({
+      characters: [
+        character({ characterName: "A", relationships: { B: "盟友" } }),
+        character({ characterName: "A", relationships: { B: "盟友" } }),
+      ],
+    })
+    expect(edges).toHaveLength(1)
+    expect(edges[0]?.entryId).toBe(relationshipEntryId("A", "B"))
+  })
+
+  it("传 projectId 时边与库产物都带上项目归属（不传则不带字段）", () => {
+    const store = {
+      characters: [character({ characterName: "A", relationships: { B: "盟友" } })],
+    }
+    const withProject = deriveRelationshipEntries(store, { projectId: "proj-1" })
+    expect(withProject.map((edge) => edge.projectId)).toEqual(["proj-1"])
+
+    const artifact = buildRelationshipLibraryArtifact(store, {
+      projectId: "proj-1",
+      generatedAt: "2026-10-18T00:00:00.000Z",
+    })
+    expect(artifact.entries.every((edge) => edge.projectId === "proj-1")).toBe(true)
+
+    expect(deriveRelationshipEntries(store)[0]?.projectId).toBeUndefined()
   })
 })

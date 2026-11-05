@@ -16,6 +16,7 @@ import {
 } from "./outline-model"
 import { parseOutlineMarkdownToModel } from "./outline-model-parse"
 import {
+  renderOutlineChapterByPosition,
   renderOutlineChapterToMarkdown,
   renderOutlineModelToMarkdown,
 } from "./outline-model-render"
@@ -1047,5 +1048,61 @@ describe("outline-model 覆盖增补：validateOutlineModel 全坏模型一次�
     ]) {
       expect(joined).toContain(needle)
     }
+  })
+})
+
+describe("outline-model-render 覆盖增补：按位置渲染 / 可选字段边界", () => {
+  it("renderOutlineChapterByPosition 命中时与按 id 渲染逐字节一致（options 走默认值）", () => {
+    const model = buildModel()
+    expect(renderOutlineChapterByPosition(model, 1, 1)).toBe(
+      renderOutlineChapterToMarkdown(model, outlineChapterId(1, 1)),
+    )
+    expect(renderOutlineChapterByPosition(model, 1, 1)).toContain("# 第1章 断桥")
+  })
+
+  it("renderOutlineChapterByPosition 未命中返回 null（不抛错）", () => {
+    expect(renderOutlineChapterByPosition(buildModel(), 9, 9)).toBeNull()
+    expect(renderOutlineChapterByPosition(buildModel(), 1, 99)).toBeNull()
+  })
+
+  it("单章渲染写入 digest；不传则不写该 frontmatter 行", () => {
+    const withDigest = renderOutlineChapterToMarkdown(buildModel(), "v01c001", { digest: "d1g3st" })
+    expect(withDigest).toContain("outline_model_digest: d1g3st")
+    expect(renderOutlineChapterToMarkdown(buildModel(), "v01c001")).not.toContain(
+      "outline_model_digest",
+    )
+  })
+
+  it("模型/章节 updatedAt 为空时省略 outline_updated_at（不写空值行）", () => {
+    const model = buildModel()
+    model.updatedAt = ""
+    model.volumes[0].chapters[0].updatedAt = ""
+    expect(renderOutlineModelToMarkdown(model)).not.toContain("outline_updated_at")
+    expect(renderOutlineChapterToMarkdown(model, "v01c001")).not.toContain("outline_updated_at")
+  })
+
+  it("章节无伏笔（埋设/回收都为空）→ 不渲染「伏笔」小节", () => {
+    const model = buildModel()
+    model.volumes[0].chapters[0].foreshadow = { plant: [], payoff: [] }
+    const markdown = renderOutlineChapterToMarkdown(model, "v01c001")
+    expect(markdown).not.toContain("### 伏笔")
+    expect(markdown).not.toContain("foreshadow_plant")
+    expect(markdown).not.toContain("foreshadow_payoff")
+  })
+
+  it("卷标题为空 → 省略 volume_title（不凭空造卷名）", () => {
+    const model = buildModel()
+    model.volumes[0].title = ""
+    const markdown = renderOutlineChapterToMarkdown(model, "v01c001")
+    expect(markdown).not.toContain("volume_title")
+    expect(markdown).toContain('title: "断桥"')
+  })
+
+  it("章节无登场实体 → 省略 entities frontmatter 行与「登场」小节", () => {
+    const model = buildModel()
+    model.volumes[0].chapters[0].entities = []
+    const markdown = renderOutlineChapterToMarkdown(model, "v01c001")
+    expect(markdown).not.toContain("entities:")
+    expect(markdown).not.toContain("### 登场")
   })
 })

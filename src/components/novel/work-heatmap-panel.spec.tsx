@@ -1,17 +1,34 @@
 // @vitest-environment jsdom
 /** 动态工作热力图面板：只读渲染 + 进度指针 + 空态/错误态 + 暂无声明三条。 */
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import { WorkHeatmapPanel } from "./work-heatmap-panel"
 import { projectWorkHeatmap } from "@/lib/novel"
+
+/** 项目路径可变（默认与原用例一致）；`null` = 未选项目。 */
+const storeState = vi.hoisted(() => ({ projectPath: "C:/proj" as string | null }))
+/** 缺省装载器（`loadNovelSessionStatus`）的注入点；无实现时委托真实现。 */
+const barrelMock = vi.hoisted(() => ({ loadStatus: vi.fn() }))
 
 vi.mock("@/stores/wiki-store", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>()
   return {
     ...actual,
     useWikiStore: (selector: (s: { project: { path: string } | null }) => unknown) =>
-      selector({ project: { path: "C:/proj" } }),
+      selector({ project: storeState.projectPath === null ? null : { path: storeState.projectPath } }),
+  }
+})
+
+vi.mock("@/lib/novel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel")>()
+  return {
+    ...actual,
+    // 默认委托真实现（既有用例语义零变化）；新用例才注入实现。
+    loadNovelSessionStatus: ((...args: Parameters<typeof actual.loadNovelSessionStatus>) =>
+      barrelMock.loadStatus.getMockImplementation()
+        ? barrelMock.loadStatus(...args)
+        : actual.loadNovelSessionStatus(...args)) as typeof actual.loadNovelSessionStatus,
   }
 })
 
@@ -34,7 +51,11 @@ function projection() {
   )
 }
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  barrelMock.loadStatus.mockReset()
+  storeState.projectPath = "C:/proj"
+})
 
 describe("有数据：渲染阶段行与时间桶", () => {
   it("两个 stage 行都在，格子带 data-count，合计正确", () => {
@@ -80,6 +101,17 @@ describe("空态与暂无声明：不画空网格", () => {
     expect(screen.getByTestId("work-heatmap-scope").textContent).toContain("不是事件流")
   })
 })
+
+/** 手动控制的 promise（测竞态：谁先 resolve 不等于谁先发起）。 */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
 
 describe("装载器：错误态不覆盖数据、null 给显式空态文案", () => {
   it("loader 抛错 → work-heatmap-error 出现", async () => {
@@ -224,5 +256,211 @@ describe("覆盖补齐：状态文案/兜底文案/色阶/装载路径", () => {
       vi.useRealTimers()
     }
     cleanup()
+  })
+})
+
+describe("覆盖补齐（语句收口）：idle 文案 / 缺省装载成功 / 无项目 / 竞态守卫 / 色阶兜底", () => {
+  it("status=idle → 状态文案「空闲」", () => {
+    render(
+      <WorkHeatmapPanel
+        input={{ status: "idle", activeStepIndex: null, currentChapterNumber: null, updatedAt: null }}
+        refreshMs={0}
+      />,
+    )
+    expect(screen.getByTestId("work-heatmap-progress").textContent).toContain("空闲")
+  })
+
+  it("缺省装载器成功：status.json 形状经 toWorkHeatmapInput 转成网格（步骤/章/阶段行）", async () => {
+    barrelMock.loadStatus.mockResolvedValue({
+      status: "running",
+      active_step_index: 1,
+      updated_at: "2026-10-18T00:05:00.000Z",
+      current_task: { chapter_number: 4 },
+      stage_metrics: [
+        { stage: "write_llm", tokenCost: 10, latencyMs: 5, timestamp: new Date(T0 + 5 * 60 * 1000).toISOString() },
+      ],
+    })
+    render(<WorkHeatmapPanel refreshMs={0} />)
+
+    await waitFor(() => expect(screen.getByTestId("work-heatmap-grid")).toBeTruthy())
+    expect(barrelMock.loadStatus).toHaveBeenCalledWith("C:/proj")
+    const progress = screen.getByTestId("work-heatmap-progress").textContent ?? ""
+    expect(progress).toMatch(/步骤\s*1(?![0-9])/)
+    expect(progress).toMatch(/章\s*4(?![0-9])/)
+    expect(progress).toContain("2026-10-18T00:05:00.000Z")
+    const row = screen.getByTestId("work-heatmap-row-write_llm")
+    expect(row.textContent).toContain("模型写作")
+    // 装载成功即无错误态
+    expect(screen.queryByTestId("work-heatmap-error")).toBeNull()
+    // 上次刷新时间戳落了（说明本轮读盘真的走完）
+    expect(screen.getByTestId("work-heatmap-progress").textContent).toContain("上次刷新")
+  })
+
+  it("未选项目且无装载器：不读盘、不报错、刷新按钮不卡「刷新中」", async () => {
+    storeState.projectPath = null
+    render(<WorkHeatmapPanel refreshMs={0} />)
+
+    fireEvent.click(screen.getByTestId("work-heatmap-refresh"))
+    await waitFor(() => expect(screen.getByTestId("work-heatmap-empty")).toBeTruthy())
+    expect(screen.queryByTestId("work-heatmap-error")).toBeNull()
+    // 没有任何装载器可跑 → refreshing 保持 false（按钮文案不卡在刷新中）
+    expect(screen.getByTestId("work-heatmap-refresh").textContent).toContain("立即刷新")
+    expect(screen.getByTestId("work-heatmap-progress").textContent).not.toContain("上次刷新")
+  })
+
+  it("竞态：旧响应的成功晚到不覆盖新响应（序号守卫）", async () => {
+    const slow = deferred<{ status: string } | null>()
+    const fast = deferred<{ status: string } | null>()
+    const loaderA = vi.fn<() => Promise<{ status: string } | null>>(() => slow.promise)
+    const loaderB = vi.fn<() => Promise<{ status: string } | null>>(() => fast.promise)
+    // 首读挂起（按钮此时被 refreshing 禁用，故用 loader 身份变化触发第二轮）
+    const { rerender } = render(<WorkHeatmapPanel loader={loaderA} refreshMs={0} />)
+
+    await waitFor(() => expect(loaderA).toHaveBeenCalledTimes(1))
+    rerender(<WorkHeatmapPanel loader={loaderB} refreshMs={0} />)
+    await waitFor(() => expect(loaderB).toHaveBeenCalledTimes(1))
+
+    // 后发先至：新响应先落地
+    await act(async () => {
+      fast.resolve({ status: "idle" })
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId("work-heatmap-progress").textContent).toContain("空闲"),
+    )
+
+    // 旧响应晚到 → 必须被丢弃（不能把「进行中」盖回来）
+    await act(async () => {
+      slow.resolve({ status: "running" })
+    })
+    const progress = screen.getByTestId("work-heatmap-progress").textContent ?? ""
+    expect(progress).toContain("空闲")
+    expect(progress).not.toContain("进行中")
+  })
+
+  it("竞态：旧响应的失败晚到不覆盖新数据（错误态不闪现）", async () => {
+    const slow = deferred<{ status: string } | null>()
+    const fast = deferred<{ status: string } | null>()
+    const loaderA = vi.fn<() => Promise<{ status: string } | null>>(() => slow.promise)
+    const loaderB = vi.fn<() => Promise<{ status: string } | null>>(() => fast.promise)
+    const { rerender } = render(<WorkHeatmapPanel loader={loaderA} refreshMs={0} />)
+
+    await waitFor(() => expect(loaderA).toHaveBeenCalledTimes(1))
+    rerender(<WorkHeatmapPanel loader={loaderB} refreshMs={0} />)
+    await waitFor(() => expect(loaderB).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      fast.resolve({ status: "idle" })
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId("work-heatmap-progress").textContent).toContain("空闲"),
+    )
+
+    await act(async () => {
+      slow.reject(new Error("stale boom"))
+    })
+    // 旧请求的错误不许落到错误态上（新数据已成立）
+    expect(screen.queryByTestId("work-heatmap-error")).toBeNull()
+    expect(screen.getByTestId("work-heatmap-progress").textContent).toContain("空闲")
+  })
+
+  it("未知 stage 回退「阶段」+ maxCount≤0 时色阶落最浅档", () => {
+    const base = projection()
+    render(
+      <WorkHeatmapPanel
+        projection={{
+          ...base,
+          maxCount: 0,
+          rows: [
+            {
+              stage: "mystery_stage",
+              cells: [
+                { stage: "mystery_stage", bucketIndex: 0, count: 3, tokenCost: null, latencyMs: null, partialCount: 0 },
+              ],
+              count: 3,
+              tokenCost: null,
+              latencyMs: null,
+              partialCount: 0,
+            },
+          ],
+        }}
+        refreshMs={0}
+      />,
+    )
+    const row = screen.getByTestId("work-heatmap-row-mystery_stage")
+    const header = row.querySelector("th")
+    // 可见标签回退到「阶段」；原始 stage 码点只留在读屏 sr-only 里
+    expect(header?.textContent).toContain("阶段")
+    expect(header?.querySelector(".sr-only")?.textContent).toBe("mystery_stage")
+    expect(screen.getByTestId("work-heatmap-cell-mystery_stage-0").className).toContain("bg-success/30")
+  })
+
+  it("缺时间戳真源 → 缺源清单说明「画不出时间轴」", () => {
+    const base = projection()
+    render(
+      <WorkHeatmapPanel
+        projection={{ ...base, missingSources: ["`stage_metrics[].timestamp`（无可解析时间戳）"] }}
+        refreshMs={0}
+      />,
+    )
+    expect(screen.getByTestId("work-heatmap-missing").textContent).toContain("画不出时间轴")
+  })
+
+  it("条目全在窗口外 → 空态说明「早于窗口」，不是「缺时间戳」", () => {
+    const folded = projectWorkHeatmap(
+      { stageMetrics: [{ stage: "write_llm", tokenCost: 1, latencyMs: 1, timestamp: new Date(T0).toISOString() }] },
+      { now: T0 + 30 * 24 * 60 * 60 * 1000, maxBuckets: 2 },
+    )
+    expect(folded.foldedCount).toBe(1)
+    render(<WorkHeatmapPanel projection={folded} refreshMs={0} />)
+    const empty = screen.getByTestId("work-heatmap-empty").textContent ?? ""
+    expect(empty).toContain("早于窗口")
+    expect(empty).toContain("这不是「缺时间戳」")
+    expect(screen.queryByTestId("work-heatmap-grid")).toBeNull()
+  })
+})
+
+describe("覆盖补齐（语句收口 · 续）：真装载器 reject / 卸载竞态 / 隐藏时可见性事件", () => {
+  it("真装载器 reject → catch 兜底成 null，落「读不到写作状态」错误态（不崩）", async () => {
+    barrelMock.loadStatus.mockRejectedValue(new Error("status.json boom"))
+    render(<WorkHeatmapPanel refreshMs={0} />)
+
+    const error = await screen.findByTestId("work-heatmap-error")
+    expect(error.textContent).toContain("读不到写作状态")
+    // 真被调到的仍是项目路径（不是别的项目）
+    expect(barrelMock.loadStatus).toHaveBeenCalledWith("C:/proj")
+  })
+
+  it("读盘未完成就卸载：晚到的响应不再 setState / setRefreshing（不崩）", async () => {
+    const pending = deferred<{ status: string } | null>()
+    const loader = vi.fn<() => Promise<{ status: string } | null>>(() => pending.promise)
+    const { unmount } = render(<WorkHeatmapPanel loader={loader} refreshMs={0} />)
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(1))
+
+    unmount()
+    await act(async () => {
+      pending.resolve({ status: "running" })
+    })
+    expect(screen.queryByTestId("work-heatmap-panel")).toBeNull()
+  })
+
+  it("页面隐藏时收到 visibilitychange → 不触发重读；可见时才重读", async () => {
+    const loader = vi.fn(async () => ({ status: "running" as const }))
+    render(<WorkHeatmapPanel loader={loader} refreshMs={100000} />)
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(1))
+
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
+    try {
+      document.dispatchEvent(new Event("visibilitychange"))
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(loader).toHaveBeenCalledTimes(1)
+
+      Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
+      document.dispatchEvent(new Event("visibilitychange"))
+      await waitFor(() => expect(loader).toHaveBeenCalledTimes(2))
+    } finally {
+      Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
+    }
   })
 })

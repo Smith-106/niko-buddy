@@ -405,3 +405,137 @@ describe("directorEvaluate", () => {
     expect(result.issues).toEqual([])
   })
 })
+
+describe("directorEvaluate 提示词与解析兜底", () => {
+  it("节点无预期结果且无事件时，用户提示词回退到占位文案", async () => {
+    const { streamChat } = await import("@/lib/llm-client")
+
+    let userPrompt = ""
+    vi.mocked(streamChat).mockImplementationOnce((_config, messages, callbacks) => {
+      userPrompt = String(messages[1].content)
+      callbacks.onToken(
+        JSON.stringify({
+          scores: buildMockScores(),
+          suggestion: "保持",
+          shouldInjectEvent: false,
+        }),
+      )
+      callbacks.onDone()
+      return Promise.resolve()
+    })
+
+    const result = await directorEvaluate({
+      node: { ...mockNode, expectedOutcome: "" },
+      nodeTimelineEvents: [],
+      worldRules: "这是一个玄幻世界",
+      llmConfig: mockLlmConfig,
+    })
+
+    // 空 expectedOutcome 落 `|| "无"`；空事件列表落 `|| "（无事件）"`
+    expect(userPrompt).toContain("预期结果：无")
+    expect(userPrompt).toContain("（无事件）")
+    expect(userPrompt).not.toContain("预期结果：无无")
+    expect(result.suggestion).toBe("保持")
+  })
+
+  it("LLM 输出夹带叙述文本时，抽取最外层 JSON 对象解析", async () => {
+    const { streamChat } = await import("@/lib/llm-client")
+
+    vi.mocked(streamChat).mockImplementationOnce((_config, _messages, callbacks) => {
+      callbacks.onToken(
+        "以下是本节点的评估结果，请查收：" +
+          JSON.stringify({
+            scores: buildMockScores({ tension: 5, pace: 4 }),
+            totalScore: 4.5,
+            highlights: ["张力充足"],
+            issues: [],
+            suggestion: "保持张力",
+            shouldInjectEvent: false,
+          }) +
+          " 以上。",
+      )
+      callbacks.onDone()
+      return Promise.resolve()
+    })
+
+    const result = await directorEvaluate({
+      node: mockNode,
+      nodeTimelineEvents: mockTimelineEvents,
+      worldRules: "这是一个玄幻世界",
+      llmConfig: mockLlmConfig,
+    })
+
+    // 前后夹带散文，既非合法 JSON 也非代码块，只能靠 `{...}` 兜底抽取
+    expect(result.scores.tension).toBe(5)
+    expect(result.scores.pace).toBe(4)
+    expect(result.totalScore).toBe(4.5)
+    expect(result.highlights).toEqual(["张力充足"])
+    expect(result.suggestion).toBe("保持张力")
+  })
+
+  it("signal 已中止时丢弃模型输出，返回默认评估", async () => {
+    const { streamChat } = await import("@/lib/llm-client")
+
+    vi.mocked(streamChat).mockImplementationOnce((_config, _messages, callbacks) => {
+      callbacks.onToken(
+        JSON.stringify({
+          scores: buildMockScores({ tension: 5 }),
+          totalScore: 5,
+          highlights: ["不应采用"],
+          issues: [],
+          suggestion: "不应采用",
+          shouldInjectEvent: true,
+          injectEvent: "不应采用",
+        }),
+      )
+      callbacks.onDone()
+      return Promise.resolve()
+    })
+
+    const controller = new AbortController()
+    controller.abort()
+
+    const result = await directorEvaluate({
+      node: mockNode,
+      nodeTimelineEvents: mockTimelineEvents,
+      worldRules: "这是一个玄幻世界",
+      llmConfig: mockLlmConfig,
+      signal: controller.signal,
+    })
+
+    expect(result.scores.tension).toBe(3)
+    expect(result.totalScore).toBe(3)
+    expect(result.highlights).toEqual([])
+    expect(result.suggestion).toBe("")
+    expect(result.shouldInjectEvent).toBe(false)
+    expect(result.injectEvent).toBeUndefined()
+  })
+
+  it("scores 缺失时各维度回退默认分，suggestion 缺失时为空串", async () => {
+    const { streamChat } = await import("@/lib/llm-client")
+
+    vi.mocked(streamChat).mockImplementationOnce((_config, _messages, callbacks) => {
+      callbacks.onToken(
+        JSON.stringify({
+          highlights: ["只有亮点"],
+          issues: [],
+          shouldInjectEvent: false,
+        }),
+      )
+      callbacks.onDone()
+      return Promise.resolve()
+    })
+
+    const result = await directorEvaluate({
+      node: mockNode,
+      nodeTimelineEvents: mockTimelineEvents,
+      worldRules: "这是一个玄幻世界",
+      llmConfig: mockLlmConfig,
+    })
+
+    expect(result.scores).toEqual(buildMockScores())
+    expect(result.totalScore).toBe(3)
+    expect(result.highlights).toEqual(["只有亮点"])
+    expect(result.suggestion).toBe("")
+  })
+})

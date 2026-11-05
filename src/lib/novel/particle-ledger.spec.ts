@@ -117,3 +117,98 @@ describe("P2-IMP-04 渲染 delta=0 不输出增量列", () => {
     expect(text).toContain("林墨")
   })
 })
+
+// ── 行解析边界（宁缺勿错：判不出归属/状态的行走「不提取」而不是造脏账目）──
+describe("parseParticleLine 边界（经 foldParticleEntries 公开入口）", () => {
+  it("无冒号的行不提取（没有「归属角色:状态」结构）", () => {
+    expect(foldParticleEntries(snap(["林墨左臂受伤已愈"]))).toEqual([])
+  })
+
+  it("冒号前为空的行不提取（无归属角色 → 强不变量拒绝）", () => {
+    expect(foldParticleEntries(snap(["：获得灵石百枚"]))).toEqual([])
+  })
+
+  it("冒号后为空的行不提取（无状态内容 → 不造空账目）", () => {
+    expect(foldParticleEntries(snap(["林墨："]))).toEqual([])
+  })
+
+  it("境界上下文里只有「化神」时 money 被负向护栏跳过（化神 不在 technique 正则内）", () => {
+    // TECHNIQUE_CONTEXT 含「化神」，technique 词表不含 → money 分支被跳过，
+    // injury 也未命中 → 整行不提取（而不是误归 money 的「灵石」）。
+    expect(foldParticleEntries(snap(["林墨：化神期获灵石十枚"]))).toEqual([])
+  })
+
+  it("旧快照缺 characterStateChanges 字段 → 视为无状态变化（不抛）", () => {
+    const legacy = JSON.parse(JSON.stringify(snap([])))
+    delete legacy.characterStateChanges
+    expect(foldParticleEntries(legacy)).toEqual([])
+  })
+})
+
+// ── aliasMaps 归一（E-03：角色名归一为 canonical，脏映射不得造空归属）──
+describe("aliasMaps 角色名归一", () => {
+  const aliasMap = { canonical: "林砚", aliases: ["林墨"] }
+
+  it("别名归一为 canonical", () => {
+    const entries = foldParticleEntries(snap(["林墨：获得灵石百枚"]), [aliasMap])
+    expect(entries.map((e) => e.character)).toEqual(["林砚"])
+  })
+
+  it("已有 canonical 本身命中 → 保持 canonical", () => {
+    const entries = foldParticleEntries(snap(["林砚：获得灵石百枚"]), [aliasMap])
+    expect(entries.map((e) => e.character)).toEqual(["林砚"])
+  })
+
+  it("无匹配映射 → 原样保留名字（不猜身份）", () => {
+    const entries = foldParticleEntries(snap(["赵九：获得灵石百枚"]), [aliasMap])
+    expect(entries.map((e) => e.character)).toEqual(["赵九"])
+  })
+
+  it("空 aliasMaps 数组 → 原样保留名字", () => {
+    const entries = foldParticleEntries(snap(["赵九：获得灵石百枚"]), [])
+    expect(entries.map((e) => e.character)).toEqual(["赵九"])
+  })
+
+  it("脏映射（canonical 为空）→ 丢弃该条，不造空归属账目", () => {
+    expect(
+      foldParticleEntries(snap(["林墨：获得灵石百枚"]), [{ canonical: "", aliases: ["林墨"] }]),
+    ).toEqual([])
+  })
+})
+
+describe("appendParticleEntry 同键覆盖只替换命中条目", () => {
+  it("多条目时覆盖左侧条目，其它条目逐字段保留", () => {
+    const money = foldParticleEntries(snap(["林墨：获得灵石百枚"], 1))[0]
+    const injury = foldParticleEntries(snap(["赵九：左臂受创"], 2))[0]
+    let store = appendParticleEntry(createEmptyParticleLedgerStore(), money)
+    store = appendParticleEntry(store, injury)
+    expect(store.entries).toHaveLength(2)
+
+    const revised = appendParticleEntry(store, { ...money, state: "获得灵石两百枚" })
+    expect(revised.entries).toHaveLength(2)
+    expect(revised.entries.map((e) => e.state)).toEqual(["获得灵石两百枚", injury.state])
+    expect(revised.entries[1]).toEqual(injury)
+  })
+})
+
+describe("particleLedgerToContextText 增量列符号", () => {
+  const entry = (delta: number, chapter: number) => ({
+    kind: "money" as const,
+    character: "林墨",
+    name: "灵石",
+    chapter,
+    delta,
+    state: delta > 0 ? "余额五十" : "余额三十",
+    note: "text-heuristic",
+  })
+
+  it("正增量带 + 号、负增量带 - 号（零增量则不出现增量列）", () => {
+    const text = particleLedgerToContextText({
+      entries: [entry(50, 3), entry(-20, 4)],
+      lastUpdated: "",
+    })
+    expect(text).toContain("第3章 林墨 灵石 +50 → 余额五十（text-heuristic）")
+    expect(text).toContain("第4章 林墨 灵石 -20 → 余额三十（text-heuristic）")
+    expect(text.split("\n")).toHaveLength(3) // 1 个分类标题 + 2 条账目
+  })
+})

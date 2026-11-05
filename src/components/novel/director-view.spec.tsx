@@ -308,6 +308,33 @@ describe("DirectorView（60 号设计：开书导演主视图）", () => {
   })
 })
 
+describe("DirectorView 覆盖增补（产物读取降级）", () => {
+  beforeEach(() => {
+    resetMocks()
+    cleanup()
+    vi.clearAllMocks()
+    mocks.fileExists.mockResolvedValue(false)
+    mocks.readFile.mockRejectedValue(new Error("ENOENT: no such file"))
+  })
+
+  it("产物清单读取抛错 → 降级为空产物，主界面与阶段面板照常渲染", async () => {
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile({ state: fullDoneState() })))
+    // 产物文件存在但读盘失败的等价形态：loadStageArtifacts 抛错（已在生产侧 try/catch 外的
+    // 调用点用 .catch 兑底）。断言降级为空产物而不是空自崩。
+    const novel = await import("@/lib/novel")
+    const spy = vi.spyOn(novel, "loadStageArtifacts").mockRejectedValue(new Error("EIO: artifacts unreadable"))
+
+    render(<DirectorView projectId="/proj" />)
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith("/proj"))
+    // 降级后不崩：完成横幅与阶段面板仍在，产物区因空产物而缺席
+    await waitFor(() => expect(screen.getByTestId("director-completed")).toBeInTheDocument())
+    expect(screen.queryByTestId("director-artifact-idea")).toBeNull()
+    expect(screen.getByTestId("director-runlog")).toBeInTheDocument()
+  })
+})
+
 describe("DirectorView 覆盖增补（W-未覆盖分支）", () => {
   // 原文件 beforeEach 挂在第一个 describe 内，此处镜像同一份装配（不改既有用例）。
   beforeEach(() => {

@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
-import { render, screen, waitFor } from "@/test-helpers/component-test-utils"
+import { render, screen, waitFor, act } from "@/test-helpers/component-test-utils"
 
 const wiki = vi.hoisted(() => ({
   state: { project: { id: "p1", name: "Novel", path: "E:/Novel" } as { id: string; name: string; path: string } | null },
@@ -159,5 +159,108 @@ describe("ReviewJobStatusStrip", () => {
     rerender(<ReviewJobStatusStrip refreshKey={1} />)
     await new Promise((r) => setTimeout(r, 20))
     expect(deps.loadNovelSessionStatus).toHaveBeenCalledTimes(1)
+  })
+
+  it("running 时每 2000ms 轮询 status.json 并刷新显示；单次轮询失败不清空已有状态", async () => {
+    vi.useFakeTimers()
+    try {
+      render(<ReviewJobStatusStrip />)
+      // 首轮加载（微任务）
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(deps.loadNovelSessionStatus).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId("review-job-status-strip")).toHaveTextContent("ch=7")
+
+      // 第二轮：状态推进 → chapterNumber 变 9
+      deps.getReviewJobUiModel.mockReturnValue({ ...deps.uiModel, chapterNumber: 9 })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000)
+      })
+      expect(deps.loadNovelSessionStatus).toHaveBeenCalledTimes(2)
+      expect(screen.getByTestId("review-job-status-strip")).toHaveTextContent("ch=9")
+
+      // 第三轮：轮询抛错 → catch 不 setModel，旧状态保留
+      deps.loadNovelSessionStatus.mockRejectedValueOnce(new Error("poll-boom"))
+      deps.getReviewJobUiModel.mockReturnValue(null)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000)
+      })
+      expect(deps.loadNovelSessionStatus).toHaveBeenCalledTimes(3)
+      expect(screen.getByTestId("review-job-status-strip")).toHaveTextContent("ch=9")
+
+      // 下一轮成功继续生效（轮询未被失败阻断）
+      deps.getReviewJobUiModel.mockReturnValue({ ...deps.uiModel, chapterNumber: 11 })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000)
+      })
+      expect(deps.loadNovelSessionStatus).toHaveBeenCalledTimes(4)
+      expect(screen.getByTestId("review-job-status-strip")).toHaveTextContent("ch=11")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("非 running 阶段不启动轮询", async () => {
+    deps.getReviewJobUiModel.mockReturnValue({ ...deps.uiModel, phase: "done" })
+    vi.useFakeTimers()
+    try {
+      render(<ReviewJobStatusStrip />)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(deps.loadNovelSessionStatus).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId("review-job-status-strip")).toHaveTextContent("审稿完成")
+      // 推进 6 秒仍无额外读取
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000)
+      })
+      expect(deps.loadNovelSessionStatus).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("未知 phase → 回退显示「审稿」", async () => {
+    deps.getReviewJobUiModel.mockReturnValue({ ...deps.uiModel, phase: "paused" as never })
+    render(<ReviewJobStatusStrip />)
+    const strip = await screen.findByTestId("review-job-status-strip")
+    // PHASE_PLAIN 无 paused 条目 → ?? 回退文案
+    expect(strip).toHaveTextContent("审稿")
+    expect(strip).not.toHaveTextContent("审稿进行中")
+  })
+
+  it("轮询读取进行中卸载 → cancelled 守卫生效，不再 setModel", async () => {
+    vi.useFakeTimers()
+    try {
+      const { unmount } = render(<ReviewJobStatusStrip />)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(deps.getReviewJobUiModel).toHaveBeenCalledTimes(1)
+
+      let resolvePoll!: (v: NovelSessionStatus | null) => void
+      deps.loadNovelSessionStatus.mockReturnValueOnce(
+        new Promise((res) => {
+          resolvePoll = res
+        }),
+      )
+      // 2000ms 后 interval 触发，读取挂起
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000)
+      })
+      expect(deps.loadNovelSessionStatus).toHaveBeenCalledTimes(2)
+      expect(deps.getReviewJobUiModel).toHaveBeenCalledTimes(1)
+
+      unmount()
+      await act(async () => {
+        resolvePoll({ review_job: { phase: "running" } } as unknown as NovelSessionStatus)
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      // cancelled → return，不刷新模型；报错也不落定
+      expect(deps.getReviewJobUiModel).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

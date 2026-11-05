@@ -159,6 +159,19 @@ describe("SigmaResizeRefresher", () => {
       vi.useRealTimers()
     }
   })
+
+  it("卸载时无待处理 resize（timer 未定义）也安全清理 observer", async () => {
+    const seen = installResizeObserver()
+    let unmount!: () => void
+    await act(async () => {
+      ;({ unmount } = render(<SigmaResizeRefresher debounceMs={50} />))
+    })
+    await act(async () => {
+      unmount()
+    })
+    expect(seen[0].disconnect).toHaveBeenCalledTimes(1)
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
 })
 
 function fireHandler(name: string, payload?: unknown): void {
@@ -373,6 +386,73 @@ describe("GraphLoader — 覆盖补齐", () => {
     fireHandler("clickNode", { node: "a" })
     expect(onNodeClick).toHaveBeenCalledTimes(1)
     expect(onNodeClick).toHaveBeenCalledWith("a")
+  })
+
+  it("节点 y 属性非数字时 tween 全程保持数值坐标（回退 end）", async () => {
+    const settled = vi.fn()
+    renderLoader({ onLayoutSettled: settled, refresh })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(liveGraph).not.toBeNull()
+    ;(liveGraph as unknown as Graph).setNodeAttribute("b", "y", "oops")
+    await act(async () => {
+      resolveCompute?.({ a: { x: 9, y: 9 }, b: { x: 20, y: 20 } })
+      // 仅推进到 tween 中途：若 start.y 取到了非数字，插值产物会是 NaN
+      await vi.advanceTimersByTimeAsync(100)
+    })
+    const midY = (liveGraph as unknown as Graph).getNodeAttribute("b", "y") as number
+    expect(typeof midY).toBe("number")
+    expect(Number.isNaN(midY)).toBe(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600)
+    })
+    expect(settled).toHaveBeenCalledTimes(1)
+    expect((liveGraph as unknown as Graph).getNodeAttribute("b", "y")).toBe(20)
+  })
+
+  it("tween 中途拖拽的节点在后续插值与最终回填时保持手工坐标", async () => {
+    const settled = vi.fn()
+    const container = document.createElement("div")
+    const workingSigma = {
+      getContainer: () => container,
+      refresh,
+      getGraph: () => {
+        if (!liveGraph) throw new Error("not ready")
+        return liveGraph
+      },
+      getCamera: () => ({ animate: vi.fn() }),
+      viewportToGraph: (p: { x: number; y: number }) => ({ x: p.x, y: p.y }),
+      setSetting: vi.fn(),
+    }
+    renderLoader({ onLayoutSettled: settled, refresh, sigmaImpl: workingSigma })
+    render(<EventHandler onNodeClick={vi.fn()} onNodeDoubleClick={vi.fn()} onNodeContextMenu={vi.fn()} />)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(liveGraph).not.toBeNull()
+    // 起点入 tween（此时 a 未被拖拽）：先跑几帧插值
+    await act(async () => {
+      resolveCompute?.({ a: { x: 100, y: 100 }, b: { x: 200, y: 200 } })
+      await vi.advanceTimersByTimeAsync(48)
+    })
+    // tween 进行中拖拽 a → 写入拖拽集合并同步手工坐标
+    fireHandler("downNode", {
+      node: "a",
+      event: { original: { button: 0, preventDefault: vi.fn() } },
+      preventSigmaDefault: vi.fn(),
+    })
+    fireHandler("mousemovebody", { x: 7, y: 8 })
+    expect((liveGraph as unknown as Graph).getNodeAttribute("a", "x")).toBe(7)
+    // 推进到落定：后续插值与最终回填都跳过 a，b 仍落到 worker 输出
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600)
+    })
+    expect((liveGraph as unknown as Graph).getNodeAttribute("a", "x")).toBe(7)
+    expect((liveGraph as unknown as Graph).getNodeAttribute("a", "y")).toBe(8)
+    expect((liveGraph as unknown as Graph).getNodeAttribute("b", "x")).toBe(200)
+    expect((liveGraph as unknown as Graph).getNodeAttribute("b", "y")).toBe(200)
+    expect(settled).toHaveBeenCalledTimes(1)
   })
 })
 

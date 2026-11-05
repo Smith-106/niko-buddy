@@ -78,3 +78,50 @@ describe("mechanical-fingerprint — 统计指纹自检 (零 LLM/IO)", () => {
     })
   })
 })
+
+// ── 覆盖加深（增补：原有用例保留不动）─────────────────────────────────────────
+// 目标：CV 上界衰减分支（cv > 0.7 → cvScore 线性衰减，不封顶为 1）。
+// 这是「人为造不规则」的信号位：句长极不均匀必须扣分，而不是和自然区间同分。
+describe("CV 上界衰减（增补）", () => {
+  it("句长极不均匀（cv > 0.7）→ cvScore 走衰减分支，score 按衰减后的权重计", () => {
+    // 2 字短句 + 40 字长句：mean≈21、std≈19 → cv≈0.9，落在「过不规则」区。
+    const r = statisticalFingerprint(
+      "走吧。他推开门，夜风卷着雨丝扑在脸上，走廊尽头那盏灯还亮着，像一只不肯闭上的眼睛，一直亮到天明。",
+    )
+    expect(r.sentence.cv).toBeGreaterThan(0.7)
+    const cvScore = Math.max(0, 1 - (r.sentence.cv - 0.7) / 0.7)
+    // 前提：本用例确实落在衰减区间内（cvScore 严格小于自然区间的 1）——否则断言无意义
+    expect(cvScore).toBeGreaterThan(0)
+    expect(cvScore).toBeLessThan(0.95)
+    const expected =
+      0.35 * cvScore +
+      0.2 * r.sentence.entropy +
+      0.15 * (1 - Math.abs(r.burstiness - 0.5) / 0.5) +
+      0.15 * Math.min(1, r.openerDiversity / 0.6) +
+      0.15 * (r.topWordRepetition < 0.2 ? 1 : Math.max(0, 1 - (r.topWordRepetition - 0.2) / 0.2))
+    expect(r.score).toBeCloseTo(expected, 10)
+    expect(r.score).toBeLessThan(0.35 + 0.2 + 0.15 + 0.15 + 0.15)
+  })
+
+  it("CV 进一步升高 → 分数单调下降（衰减不是封顶）", () => {
+    const milder = statisticalFingerprint(
+      "走吧。他推开门，夜风卷着雨丝扑在脸上，走廊尽头那盏灯还亮着，像一只不肯闭上的眼睛。",
+    )
+    const wilder = statisticalFingerprint(
+      "走吧。他推开门，夜风卷着雨丝扑在脸上，走廊尽头那盏灯还亮着，像一只不肯闭上的眼睛，一直亮到天明，雨也没有停下来的意思，整条街只剩下他的脚步声，一步一步走向那扇门。",
+    )
+    expect(wilder.sentence.cv).toBeGreaterThan(milder.sentence.cv)
+    expect(wilder.score).toBeLessThan(milder.score)
+  })
+})
+
+describe("空白文本（增补）", () => {
+  it("纯空白 → 分句为空 → 全零指纹（不产生哨兵句）", () => {
+    const r = statisticalFingerprint("   \n\t  ")
+    expect(r.sentence).toEqual({ mean: 0, std: 0, cv: 0, p25: 0, p75: 0, entropy: 0 })
+    expect(r.burstiness).toBe(0)
+    expect(r.openerDiversity).toBe(0)
+    expect(r.topWordRepetition).toBe(0)
+    expect(r.score).toBe(0)
+  })
+})

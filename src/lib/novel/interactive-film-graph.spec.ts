@@ -124,3 +124,58 @@ describe("interactive-film-graph (64 号实施：P0-1 互动影游图模型)", (
     expect(diags.some((d) => d.code === "missing_start")).toBe(true)
   })
 })
+
+// ── 覆盖加深（增补：原有用例保留不动）─────────────────────────────────────────
+// 目标：三条此前无用例的诊断/导出分支 —— 悬空边、choice 无出边、stitch 段导出。
+describe("interactive-film-graph — 校验与导出补充分支（增补）", () => {
+  it("边引用不存在的节点 → dangling_edge（且不计入出入度）", () => {
+    const g = graph()
+    g.edges.push({ from: "k2", to: "ghost", choiceLabel: "幽灵" })
+    const diags = validateInteractiveGraph(g)
+    const dangling = diags.filter((d) => d.code === "dangling_edge")
+    expect(dangling).toHaveLength(1)
+    expect(dangling[0].nodeId).toBe("k2")
+    expect(dangling[0].message).toContain("ghost")
+    // 悬空边不产生额外孤儿误报：其余诊断仍为空
+    expect(diags.filter((d) => d.code === "orphan")).toEqual([])
+  })
+
+  it("choice 节点没有任何出边 → empty_choice（玩家会卡死）", () => {
+    const g = graph({
+      nodes: [
+        { id: "k1", kind: "knot", title: "开端", text: "风雪夜。" },
+        { id: "c1", kind: "choice", title: "抉择", text: "门在你面前。" },
+        { id: "end1", kind: "end", title: "终章", text: "故事到此。" },
+      ],
+      edges: [
+        { from: "k1", to: "c1" },
+        { from: "c1", to: "end1" },
+      ],
+    })
+    // 把 c1 的出边替换掉：删掉 c1→end1 后，c1 出度为 0
+    g.edges = [{ from: "k1", to: "c1" }]
+    const diags = validateInteractiveGraph(g)
+    expect(diags.some((d) => d.code === "empty_choice" && d.nodeId === "c1")).toBe(true)
+    expect(diags.find((d) => d.code === "empty_choice")?.message).toContain("无出边")
+  })
+
+  it("stitch 节点导出为 ink 小节（`=` 单等号）而不是 knot 段（`===`）", () => {
+    const g = graph({
+      nodes: [
+        { id: "k1", kind: "knot", title: "开端", text: "风雪夜。" },
+        { id: "s1", kind: "stitch", title: "小节", text: "屋内。" },
+        { id: "end1", kind: "end", title: "终章", text: "故事到此。" },
+      ],
+      edges: [
+        { from: "k1", to: "s1" },
+        { from: "s1", to: "end1" },
+      ],
+    })
+    const ink = exportInteractiveInk(g)
+    expect(ink).toContain("\n= s1\n")
+    expect(ink).not.toContain("=== s1 ===")
+    // stitch 有出边 → divert，无选项行
+    expect(ink).toContain("-> end1")
+    expect(ink).not.toContain("* [")
+  })
+})

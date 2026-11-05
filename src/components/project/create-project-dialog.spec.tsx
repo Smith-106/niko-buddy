@@ -26,9 +26,13 @@ const mocks = vi.hoisted(() => {
   const wikiState: {
     novelMode: boolean
     setOutputLanguage: ReturnType<typeof vi.fn>
+    setActiveView: ReturnType<typeof vi.fn>
+    llmConfig?: { provider: string; apiKey: string; model: string }
   } = {
     novelMode: false,
     setOutputLanguage: vi.fn(),
+    setActiveView: vi.fn(),
+    llmConfig: undefined,
   }
   const template = {
     id: "general",
@@ -145,6 +149,7 @@ afterEach(() => {
 beforeEach(() => {
   setupDomGlobals()
   vi.clearAllMocks()
+  mocks.wikiState.llmConfig = undefined
   mocks.isTauri.mockReturnValue(true)
   mocks.getExecutableDir.mockResolvedValue("C:\\Program Files\\Niko Buddy")
   mocks.buildDefaultNovelDir.mockImplementation((p: string) =>
@@ -372,6 +377,69 @@ describe("CreateProjectDialog", () => {
     renderDialog(true)
     fireEvent.click(screen.getByRole("button", { name: "project.cancel" }))
     expect(mocks.onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("暂名冲突检测时列目录失败 → 按无冲突处理，直接用基础名（catch 兜底分支）", async () => {
+    mocks.wikiState.novelMode = false
+    mocks.listDirectory.mockRejectedValueOnce(new Error("permission denied"))
+    renderDialog(true)
+    fireEvent.submit(formOf())
+    await flushAsync()
+    expect(mocks.listDirectory).toHaveBeenCalled()
+    // 异常被吞掉后 existingNames 为空集合 → 无冲突，返回「未命名项目」而非报错
+    expect(mocks.createProject).toHaveBeenCalledWith("未命名项目", expect.any(String))
+    expect(mocks.onCreated).toHaveBeenCalled()
+  })
+
+  it("空名冲突且序号顺延 → 跳过已占用的 2，返回「未命名项目 3」（while 自增分支）", async () => {
+    mocks.wikiState.novelMode = false
+    mocks.listDirectory.mockResolvedValueOnce([{ name: "未命名项目" }, { name: "未命名项目 2" }] as never)
+    renderDialog(true)
+    fireEvent.submit(formOf())
+    await flushAsync()
+    expect(mocks.createProject).toHaveBeenCalledWith("未命名项目 3", expect.any(String))
+  })
+
+  it("模型服务区块可折叠：点击标题切换 aria-expanded 与面板可见性", async () => {
+    renderDialog(true)
+    await flushAsync()
+    // 默认 llmConfig 未配置 → 面板默认展开（nextStep 提示可见）
+    const toggle = screen.getByRole("button", { name: /project\.llmServiceCollapse/ })
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByRole("region", { name: "project.llmService" })).toBeInTheDocument()
+
+    fireEvent.click(toggle)
+    const collapsed = screen.getByRole("button", { name: /project\.llmServiceExpand/ })
+    expect(collapsed).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByRole("region", { name: "project.llmService" })).not.toBeInTheDocument()
+
+    fireEvent.click(collapsed)
+    expect(screen.getByRole("region", { name: "project.llmService" })).toBeInTheDocument()
+  })
+
+  it("点「立即配置」→ 关闭对话框并跳转设置视图", async () => {
+    renderDialog(true)
+    await flushAsync()
+    fireEvent.click(screen.getByRole("button", { name: "project.llmConfigure" }))
+    expect(mocks.onOpenChange).toHaveBeenCalledWith(false)
+    expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("settings")
+  })
+
+  it("模型服务可用时：状态点用成功色、面板默认折叠（canWrite 真分支）", async () => {
+    mocks.wikiState.novelMode = false
+    // 零字段即可用的 CLI provider → canWrite=true、nextStep=null
+    mocks.wikiState.llmConfig = { provider: "claude-code", apiKey: "", model: "" }
+    renderDialog(true)
+    await flushAsync()
+    // 已配置健康 → 默认折叠（不打扰老用户）
+    const toggle = screen.getByRole("button", { name: /project\.llmServiceExpand/ })
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    expect(screen.getByText("模型服务已就绪")).toHaveClass("text-success-foreground")
+    expect(screen.queryByRole("region", { name: "project.llmService" })).not.toBeInTheDocument()
+    // 展开后也无「下一步」提示（nextStep=null）
+    fireEvent.click(toggle)
+    expect(screen.queryByText(/尚未配置模型服务/)).not.toBeInTheDocument()
+    expect(screen.getByText("project.llmSkipHint")).toBeInTheDocument()
   })
 
   it("关闭后再打开会重新触发初始化（isOpen 假分支 + 状态重置）", async () => {
