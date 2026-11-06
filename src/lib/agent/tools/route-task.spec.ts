@@ -8,7 +8,7 @@ describe("route-task.ts smoke", () => {
 
   it("execute 返回意图与置信度 JSON", async () => {
     const tool = createRouteTaskTool("继续写第八章")
-    const out = JSON.parse((await tool.execute()) as string) as {
+    const out = JSON.parse((await tool.execute({})) as string) as {
       intent: string
       confidence: number
     }
