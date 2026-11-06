@@ -95,4 +95,15 @@ describe("动态大纲 Agent 规划器", () => {
 
     expect(result.ok).toBe(false)
   })
+  it("花括号闭合但 JSON 语法错误时报解析失败并带上错误原文", () => {
+    const r = parseDynamicOutlinePlan('前缀 {"tasks": } 后缀')
+    expect(r.ok).toBe(false)
+    expect(r.ok === false && r.error).toContain("规划 JSON 解析失败")
+  })
+
+  it("花括号始终不闭合时 extractJsonObject 返回 null，报未返回 JSON 对象", () => {
+    const r = parseDynamicOutlinePlan('{"tasks": [')
+    expect(r.ok).toBe(false)
+    expect(r.ok === false && r.error).toBe("规划器未返回 JSON 对象")
+  })
 })
