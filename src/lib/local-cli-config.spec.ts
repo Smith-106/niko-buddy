@@ -121,4 +121,21 @@ describe("resolveRuntimeLocalCliConfig", () => {
     const config = makeConfig({ model: "" })
     await expect(resolveRuntimeLocalCliConfig(config)).resolves.toBe(config)
   })
+
+  it("cursor-cli / antigravity-cli 各自映射到对应 detect 命令", async () => {
+    isTauriMock.mockReturnValue(true)
+    vi.mocked(invoke).mockResolvedValue({
+      installed: false,
+      version: null,
+      path: null,
+      model: null,
+      error: null,
+    })
+
+    await detectLocalCliConfig("cursor-cli")
+    expect(invoke).toHaveBeenCalledWith("cursor_cli_detect")
+
+    await detectLocalCliConfig("antigravity-cli")
+    expect(invoke).toHaveBeenCalledWith("antigravity_cli_detect")
+  })
 })

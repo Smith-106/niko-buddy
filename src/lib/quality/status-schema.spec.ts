@@ -73,4 +73,10 @@ describe("D3 写路径硬失败（不静默 coerce）", () => {
     const r = validateBeforeWrite({ ...validStatus, schemaVersion: 123 })
     expect(r.valid).toBe(false)
   })
+
+  it("chapters 含非对象项 → 报「章节必须为对象」并跳过该项", () => {
+    const r = validateStatusSchema({ ...validStatus, chapters: [null, 42] })
+    expect(r.valid).toBe(false)
+    expect(r.errors.filter((e) => e.includes("章节必须为对象"))).toHaveLength(2)
+  })
 })
