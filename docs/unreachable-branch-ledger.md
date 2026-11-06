@@ -331,6 +331,28 @@
   判定：**保留**。它不是纯死代码，而是 else 分支若被未来改动移除 seed 时的兜底；
   按「防御守卫一律保留并记账」处理，不删除。
 
+### components/skill-library/skill-library-view.tsx（逐条核对 disabled 表达式，2026-11-06）
+
+> 这一组曾被笼统归为「disabled 闸门对冲」。本次逐行核对每个触发按钮的 `disabled`
+> 表达式与 handler 守卫是否**逐字等价**，区分出三种不同机制——它们都不可达，
+> 但证明方式不同，混为一谈会在未来改动时误判。
+
+| 行 | 守卫 | 触发按钮 disabled | 机制 |
+|----|------|-------------------|------|
+| 98-99 | `persist`#1 `if (!project)` | — | **第二道防线**：两个调用方 `handleCreateSkill`(L116) / `handleToggleSkill`(L125) 都已先查 `!project` |
+| 116 | `handleCreateSkill` 首行 `!config \|\| !project \|\| saving` | `disabled={!config \|\| !project \|\| saving}`（新建技能按钮 L145） | **条件逐字等价** |
+| 268-269 | `persist`#2 `if (!project)` | 各调用按钮 | **传递蕴含**：`canSaveDraft = Boolean(project) && …`（L235）使所有可达路径都已有 project |
+| 287 | `handleSaveSkill` 首行 `!config \|\| !selectedSkill \|\| !canSaveDraft` | `disabled={!canSaveDraft}`（L558） | **传递蕴含**（canSaveDraft 蕴含 project + selectedIsEditable） |
+| 316 | `handleSetDefault` `!config \|\| !selectedSkill` | `disabled={!project \|\| saving \|\| !selectedEnabled \|\| config?.defaultSkillId === selectedSkill.id}` | disabled 表达式内直接解引用 `selectedSkill.id` / `config?.`，渲染前提已保证两者非空 |
+| 323 | `handleDeleteSkill` `!config \|\| !selectedSkill \|\| selectedIsBuiltIn` | `disabled={!project \|\| saving}`，且渲染在 selectedSkill 分支内 | 渲染前提 + disabled 闸门 |
+| 334 | `handleResetBuiltInSkill` 四条件 | `disabled={!project \|\| saving \|\| !selectedHasBuiltInOverride}` | 渲染前提 + disabled 闸门 |
+| 343 | `handleRestoreBackup` `!project \|\| saving` | `disabled={!project \|\| saving}`（L412） | **条件逐字等价** |
+| 361 | `handleRecreateConfig` `!project \|\| saving` | `disabled={!project \|\| saving}`（L421） | **条件逐字等价** |
+
+**React 行为前提**（本仓实测，见上文 skill-library 三视图论证）：React 19.2.4 下
+`disabled` 表单控件的 `.click()` 与 `dispatchEvent(MouseEvent)` 均不触发合成 onClick，
+故「disabled 条件 == handler 守卫条件」时守卫真分支在纯黑盒 UI 测试下不可达。
+
 ---
 
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
