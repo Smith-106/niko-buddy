@@ -425,6 +425,14 @@
 |----|------|------|
 | 198 / 204 / 236 | `handleOpenChapter` / `handleCreateScene` / `handleDeleteChapter` 的 `if (!project) return` | **渲染前提**：组件在 L258 `if (!project) return null`，无 project 时整个渲染树不存在。注：同形的 L179 是 `useEffect`（project 为 null 时确实跑过）故已覆盖——该结论只适用于渲染树内 handler |
 
+### components/novel/export-center-view.tsx（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 46 | `loadExportCenterSnapshot` 的 `catch { return { finalCount: 0 } }` | **永不抛的被调函数**：`countFinalChapters`（export.ts:325-330）自带 `try/catch { return 0 }`，故本 catch 是第二道防线 |
+| 124 | 组件内 `loadExportCenterSnapshot(...).catch(...)` | 同上：被调函数内部吞掉一切，返回的 Promise 永不 reject |
+| 135（未标注） | `handleExport` `if (exporting !== null \|\| projectPath === "") return` | **保留未标注**：`exporting !== null` 侧由 `disabled={!canExport}`（canExport 含 `exporting === null`）覆盖，但 `projectPath === ""` 侧与 `canExport` 的关系未经证明；L268 覆写确认按钮无 disabled，其时序亦未验证。留待补测 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

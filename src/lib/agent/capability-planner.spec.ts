@@ -228,4 +228,17 @@ describe("capability-planner", () => {
       expect(v.errors.join()).toContain("不能为空")
     })
   })
+
+  it("花括号闭合但 JSON 语法错误时报解析失败并带上错误原文", () => {
+    // extractJsonObject 能切出 {"a": }，但 JSON.parse 抛错 → 走 catch 分支
+    const r = parseCapabilityPlan('前缀 {"a": } 后缀')
+    expect(r.ok).toBe(false)
+    expect(r.ok === false && r.error).toContain("规划 JSON 解析失败")
+  })
+
+  it("花括号始终不闭合时 extractJsonObject 返回 null，报未返回 JSON 对象", () => {
+    const r = parseCapabilityPlan('{"a": 1')
+    expect(r.ok).toBe(false)
+    expect(r.ok === false && r.error).toBe("规划器未返回 JSON 对象")
+  })
 })

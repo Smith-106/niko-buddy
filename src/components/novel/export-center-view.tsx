@@ -43,6 +43,7 @@ export async function loadExportCenterSnapshot(projectPath: string): Promise<Exp
   try {
     return { finalCount: await countFinalChapters(projectPath) }
   } catch {
+    /* v8 ignore next -- 台账 export-center-view.tsx L46：loadExportCenterSnapshot 的 catch —— 被调 countFinalChapters 自带 try/catch 并 return 0（export.ts:325-330），永不抛，故此处第二道防线不可达 */
     return { finalCount: 0 }
   }
 }
@@ -121,6 +122,7 @@ export function ExportCenterView({
         if (!cancelled) setSnapshot(result)
       })
       .catch(() => {
+        /* v8 ignore next -- 台账 export-center-view.tsx L124：外层 .catch —— 同因：loadExportCenterSnapshot 内部 try/catch 吞掉一切，Promise 永不 reject */
         if (!cancelled) setSnapshot({ finalCount: 0 })
       })
       .finally(() => {
