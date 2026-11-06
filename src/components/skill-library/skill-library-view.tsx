@@ -94,6 +94,7 @@ export function SkillLibrarySidebarPanel() {
   const disabledSkillIds = new Set(config?.disabledSkillIds ?? [])
 
   async function persist(nextConfig: DeAiSkillConfig, nextSelectedSkillId: string) {
+    /* v8 ignore next -- 台账 skill-library-view.tsx L97：persist#1 !project —— 两个调用方已先查 project（第二道防线） */
     if (!project) {
       setMessage("请先打开项目")
       return
@@ -113,6 +114,7 @@ export function SkillLibrarySidebarPanel() {
   }
 
   async function handleCreateSkill() {
+    /* v8 ignore next -- 台账 skill-library-view.tsx L116：handleCreateSkill —— 与按钮 disabled={!config||!project||saving} 逐字等价 */
     if (!config || !project || saving) return
     if (draftDirty && !confirmDiscardSkillLibraryDraft()) return
     if (draftDirty) setDraftDirty(false)
@@ -264,6 +266,7 @@ export function SkillLibraryView() {
   }
 
   async function persist(nextConfig: DeAiSkillConfig, nextSelectedSkillId = selectedSkillId ?? "") {
+    /* v8 ignore next -- 台账 skill-library-view.tsx L267：persist#2 !project —— canSaveDraft=Boolean(project)&&… 传递蕴含 */
     if (!project) {
       setMessage("请先打开项目")
       return
@@ -284,6 +287,7 @@ export function SkillLibraryView() {
   }
 
   async function handleSaveSkill() {
+    /* v8 ignore next -- 台账 skill-library-view.tsx L287：handleSaveSkill —— canSaveDraft 蕴含 project/selectedIsEditable */
     if (!config || !selectedSkill || !canSaveDraft) return
     const name = normalizeDraftText(draftName)
     const description = normalizeDraftText(draftDescription)
@@ -304,6 +308,7 @@ export function SkillLibraryView() {
   }
 
   function handleDiscardDraft() {
+    /* v8 ignore next -- 台账 skill-library-view.tsx L307：handleDiscardDraft —— draftChanged=Boolean(selectedSkill&&…) 蕴含 selectedSkill */
     if (!selectedSkill || !draftChanged || saving) return
     setDraftName(selectedSkill.name)
     setDraftDescription(selectedSkill.description)
@@ -313,6 +318,7 @@ export function SkillLibraryView() {
   }
 
   async function handleSetDefault() {
+    /* v8 ignore next -- 台账 skill-library-view.tsx L316：handleSetDefault —— disabled 表达式内直接解引用 config?./selectedSkill.id */
     if (!config || !selectedSkill) return
     if (draftDirty && !confirmDiscardSkillLibraryDraft()) return
     if (draftDirty) setDraftDirty(false)
@@ -320,6 +326,7 @@ export function SkillLibraryView() {
   }
 
   async function handleDeleteSkill() {
+    /* v8 ignore next -- 台账 skill-library-view.tsx L323：handleDeleteSkill —— 渲染在 selectedSkill 分支内 + disabled 闸门 */
     if (!config || !selectedSkill || selectedIsBuiltIn) return
     if (draftDirty && !confirmDiscardSkillLibraryDraft()) return
     if (draftDirty) setDraftDirty(false)
@@ -331,6 +338,7 @@ export function SkillLibraryView() {
   }
 
   async function handleResetBuiltInSkill() {
+    /* v8 ignore next -- 台账 skill-library-view.tsx L334：handleResetBuiltInSkill —— 同上 */
     if (!config || !selectedSkill || !selectedIsBuiltIn || !selectedHasBuiltInOverride) return
     if (draftDirty && !confirmDiscardSkillLibraryDraft()) return
     if (draftDirty) setDraftDirty(false)
@@ -340,6 +348,7 @@ export function SkillLibraryView() {
   }
 
   async function handleRestoreBackup() {
+    /* v8 ignore next -- 台账 skill-library-view.tsx L343：handleRestoreBackup —— 与 disabled={!project||saving} 逐字等价 */
     if (!project || saving) return
     setSaving(true)
     try {
@@ -358,6 +367,7 @@ export function SkillLibraryView() {
   }
 
   async function handleRecreateConfig() {
+    /* v8 ignore next -- 台账 skill-library-view.tsx L361：handleRecreateConfig —— 与 disabled={!project||saving} 逐字等价 */
     if (!project || saving) return
     const confirmed = window.confirm("确定重新创建技能库配置吗？这会用默认内置 Skill 覆盖当前损坏的配置文件。")
     if (!confirmed) return
