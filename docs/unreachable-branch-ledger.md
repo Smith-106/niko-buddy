@@ -379,6 +379,22 @@
 | 186 | `saveEdit` `editingChapterIdx === null \|\| !draft` | 编辑对话框仅在 `editingChapterIdx` 非空时渲染，且打开前已要求 draft |
 | 288 | `else setShowImportDialog(true)` | 该 `Dialog` 无 `DialogTrigger`，受控 `open` 只由 L224 按钮置 true；Radix 不会产出 `onOpenChange(true)`。**注意**：`/* v8 ignore next */` 对 `else` 子句无效，必须用紧贴的 start/stop 块 |
 
+### components/novel/director-view.tsx（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 76 / 102 / 120 / 188 | `updateIdea` / `refreshSnapshot` / `handleAdvance` / `handleRetry` 的 `if (!persisted) return` | **渲染前提**：组件在 L252 `if (!started \|\| !persisted)` 提前返回，无 persisted 时本组件的按钮/输入框一律不渲染。注：同形的 L114 守卫**是覆盖的**（useEffect 在 persisted 为 null 时确实跑过），说明该结论只适用于渲染树内的 handler |
+
+
+### lib/novel/anti-ai-candidate-pool.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 153 | `mean([])` → 0 | 唯一外部入参 `lengths` 来自 `detectParagraphLengthDist`，L595 `paragraphs.length < 3` 已提前返回 → 长度恒 ≥3 |
+| 159 | `stddev([])` → 0 | 仅由 `coefficientOfVariation`(L169) 调用，入参同 `lengths` |
+| 168 | `m === 0` → 0 | `splitParagraphs`(L134) 以 `.filter(p => p.length > 0)` 过滤空段 → `lengths` 全 > 0 → 均值恒 > 0 |
+| 174 | `total === 0` → 0 | 唯一调用点 L462 传 `sentences.length`，而 L440 `sentences.length < 8` 已提前返回 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

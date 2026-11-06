@@ -150,12 +150,14 @@ function extractWordNGrams(tokens: string[], n: number): string[] {
 
 /** 计算均值 */
 function mean(values: number[]): number {
+  /* v8 ignore next -- 台账 anti-ai-candidate-pool.ts L153：mean([]) —— 唯一外部入参 lengths 来自 detectParagraphLengthDist，L595 `paragraphs.length < 3` 已提前返回，故长度恒 ≥3 */
   if (values.length === 0) return 0
   return values.reduce((a, b) => a + b, 0) / values.length
 }
 
 /** 计算标准差 */
 function stddev(values: number[]): number {
+  /* v8 ignore next -- 台账 anti-ai-candidate-pool.ts L159：stddev([]) —— 仅由 coefficientOfVariation(L169) 调用，入参同 lengths，恒 ≥3 */
   if (values.length === 0) return 0
   const m = mean(values)
   const variance = values.reduce((sum, v) => sum + (v - m) ** 2, 0) / values.length
@@ -165,12 +167,14 @@ function stddev(values: number[]): number {
 /** 计算变异系数 CV = stddev / mean */
 function coefficientOfVariation(values: number[]): number {
   const m = mean(values)
+  /* v8 ignore next -- 台账 anti-ai-candidate-pool.ts L168：m === 0 —— splitParagraphs(L134) 以 .filter(p => p.length > 0) 过滤空段，故 lengths 全 > 0，均值恒 > 0 */
   if (m === 0) return 0
   return stddev(values) / m
 }
 
 /** 计算熵 (shannon entropy, 以 bits 为单位) */
 function entropy(counts: Record<string, number>, total: number): number {
+  /* v8 ignore next -- 台账 anti-ai-candidate-pool.ts L174：total === 0 —— 唯一调用点 L462 传 sentences.length，而 L440 `sentences.length < 8` 已提前返回 */
   if (total === 0) return 0
   let h = 0
   for (const c of Object.values(counts)) {

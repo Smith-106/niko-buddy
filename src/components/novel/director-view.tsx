@@ -73,6 +73,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
   const ideaInput = persisted?.ideaInput ?? { title: "", genre: "", coreConflict: "" }
 
   const updateIdea = (patch: Partial<DirectorIdeaInput>) => {
+    /* v8 ignore next -- 台账 director-view.tsx L76（updateIdea）：渲染在 L252 `if (!started || !persisted)` 提前返回之后，无 persisted 时本组件的按钮/输入框一律不渲染 */
     if (!persisted) return
     const next = { ...persisted.ideaInput, ...patch }
     const file = { ...persisted, ideaInput: next }
@@ -99,6 +100,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
   }, [projectId])
 
   const refreshSnapshot = useCallback(async () => {
+    /* v8 ignore next -- 台账 director-view.tsx L102（refreshSnapshot）：渲染在 L252 `if (!started || !persisted)` 提前返回之后，无 persisted 时本组件的按钮/输入框一律不渲染 */
     if (!persisted) return
     const snap = await collectProjectSnapshot(projectId, persisted.ideaInput)
     setSnapshot(snap)
@@ -117,6 +119,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
   }, [persisted, refreshSnapshot, refreshArtifacts])
 
   const handleAdvance = useCallback(async () => {
+    /* v8 ignore next -- 台账 director-view.tsx L120（handleAdvance）：渲染在 L252 `if (!started || !persisted)` 提前返回之后，无 persisted 时本组件的按钮/输入框一律不渲染 */
     if (!persisted) return
     // 批次二·9：立意阶段必填项缺失时直接告诉作者缺什么，不去跑管线换回「未检测到项目实体」这类误导报错。
     if (persisted.state.currentPhase === "idea") {
@@ -185,6 +188,7 @@ export function DirectorView({ projectId }: DirectorViewProps) {
   }, [advanceCtl])
 
   const handleRetry = useCallback(async () => {
+    /* v8 ignore next -- 台账 director-view.tsx L188（handleRetry）：渲染在 L252 `if (!started || !persisted)` 提前返回之后，无 persisted 时本组件的按钮/输入框一律不渲染 */
     if (!persisted) return
     setBusy(true)
     setGap(null)
