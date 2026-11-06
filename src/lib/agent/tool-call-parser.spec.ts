@@ -284,4 +284,11 @@ describe("parseTextToolCalls：残留文本", () => {
     const text = '[{"name":"search","arguments":{}}]'
     expect(parseTextToolCalls(text, ALLOWED).residualText).toBe("")
   })
+
+  it("围栏里是原始值时视为无可解析工具调用", () => {
+    const text = "```json\n42\n```"
+    const result = parseTextToolCalls(text, ALLOWED)
+    expect(result.toolCalls).toEqual([])
+    expect(result.residualText).toBe(text)
+  })
 })

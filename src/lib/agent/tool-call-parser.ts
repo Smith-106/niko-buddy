@@ -27,6 +27,7 @@ export function accumulateToolCalls(deltas: ToolCallDelta[]): ToolCall[] {
 
 function extractJsonCandidates(text: string): string[] {
   const trimmed = text.trim()
+  /* v8 ignore next -- 台账 tool-call-parser.ts L30：extractJsonCandidates 的唯一调用点是 parseTextToolCalls（L157），后者在 L152 已有 `if (!text.trim() || ...)` 早退，传进来的 text 必然非空白 */
   if (!trimmed) return []
 
   const candidates: string[] = []

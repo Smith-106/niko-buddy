@@ -18,6 +18,7 @@ import {
   computeCheckpointDigest,
   computeCheckpointDigestOf,
   stableStringify,
+  verifyHmacSha256Hex,
 } from "./checkpoint-digest"
 
 // Well-known FIPS 180-2 SHA-256 test vectors.
@@ -127,5 +128,13 @@ describe("computeCheckpointDigestOf", () => {
     const normal = await computeCheckpointDigestOf({ a: { c: 3, b: [1, 2] } })
     const reordered = await computeCheckpointDigestOf({ a: { b: [1, 2], c: 3 } })
     expect(normal).toBe(reordered)
+  })
+
+  it("verifyHmacSha256Hex：空 secret/空签名直接 false，长度不符也 false", async () => {
+    const body = "canonical-body"
+    expect(await verifyHmacSha256Hex("", body, "abc")).toBe(false)
+    expect(await verifyHmacSha256Hex("secret", body, "")).toBe(false)
+    // 长度不符：无需真算 HMAC 就必须先被长度守卫拦下
+    expect(await verifyHmacSha256Hex("secret", body, "deadbeef")).toBe(false)
   })
 })
