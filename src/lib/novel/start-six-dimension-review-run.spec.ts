@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   advanceReviewJobRunning: vi.fn(async () => undefined),
   advanceReviewJobDone: vi.fn(async () => undefined),
   advanceReviewJobFailed: vi.fn(async () => undefined),
+  runContinuityMechanicalPreflight: vi.fn(async () => []),
 }))
 
 vi.mock("./dimension-review-adapter", () => ({
@@ -18,6 +19,11 @@ vi.mock("./dimension-review-adapter", () => ({
 vi.mock("./generation-history", () => ({
   saveGenerationHistoryEntry: mocks.saveGenerationHistoryEntry,
 }))
+
+vi.mock("@/lib/novel/review-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/review-adapter")>()
+  return { ...actual, runContinuityMechanicalPreflight: mocks.runContinuityMechanicalPreflight }
+})
 
 vi.mock("./review-job-lifecycle", () => ({
   advanceReviewJobRunning: mocks.advanceReviewJobRunning,
@@ -41,6 +47,8 @@ describe("startSixDimensionReviewRun", () => {
     useWikiStore.getState().setReviewRun(null)
     mocks.runSixDimensionReview.mockReset()
     mocks.saveGenerationHistoryEntry.mockReset()
+    mocks.runContinuityMechanicalPreflight.mockReset()
+    mocks.runContinuityMechanicalPreflight.mockResolvedValue([])
   })
 
   it("stores dimension progress, thinking, results, and history while running", async () => {
@@ -275,5 +283,44 @@ describe("startSixDimensionReviewRun", () => {
         }),
       }),
     )
+  })
+
+  it("机械连续性预检拒绝 → 回退空数组，不中断六维复核", async () => {
+    mocks.runContinuityMechanicalPreflight.mockRejectedValueOnce(new Error("preflight boom"))
+    mocks.runSixDimensionReview.mockResolvedValue({ thrill: dimensionResult("thrill") })
+
+    await startSixDimensionReviewRun({
+      fileContent: "---\nchapterNumber: 8\n---\n正文",
+      projectPath: "E:/Novel",
+      selectedFile: "E:/Novel/wiki/chapters/008.md",
+      t: ((key: string) => key) as never,
+    })
+
+    expect(mocks.runContinuityMechanicalPreflight).toHaveBeenCalledTimes(1)
+    expect(mocks.runSixDimensionReview).toHaveBeenCalledWith(
+      expect.objectContaining({ priorReviewResults: [] }),
+    )
+    expect(useWikiStore.getState().reviewRun?.dimensionResults?.thrill?.score).toBe(8.8)
+  })
+
+  it("完成后 signal 已 abort → 标记 runFailed 并提前返回", async () => {
+    const controller = new AbortController()
+    // 逐维 try/catch 会吞掉 abort，复核本身仍正常 resolve；只有完成后的显式检查能发现取消
+    mocks.runSixDimensionReview.mockImplementation(async () => {
+      controller.abort()
+      return { thrill: dimensionResult("thrill") }
+    })
+
+    await startSixDimensionReviewRun({
+      fileContent: "---\nchapterNumber: 8\n---\n正文",
+      projectPath: "E:/Novel",
+      selectedFile: "E:/Novel/wiki/chapters/008.md",
+      signal: controller.signal,
+      t: ((key: string) => key) as never,
+    })
+
+    const run = useWikiStore.getState().reviewRun
+    expect(run?.running).toBe(false)
+    expect(run?.error).toBe("novel.review.runFailed")
   })
 })
