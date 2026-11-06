@@ -91,4 +91,18 @@ describe("extractNeighborhood", () => {
     expect(extractNeighborhood(nodes, edges, { focusId: "hub", depth: 99 }).depth).toBe(2)
     expect(extractNeighborhood(nodes, edges, { focusId: "hub", depth: 0 }).depth).toBe(1)
   })
+
+  it("忽略指向未知节点的边与自环边", () => {
+    const nodes = [makeNode("hub"), makeNode("n1")]
+    const edges = [
+      makeEdge("hub", "ghost"),
+      makeEdge("ghost", "n1"),
+      makeEdge("n1", "n1"),
+      makeEdge("hub", "n1"),
+    ]
+    const result = extractNeighborhood(nodes, edges, { focusId: "hub", depth: 1 })
+    // 未知端点与自环都被过滤：邻居只剩 n1，ghost 不出现
+    expect(result.nodes.map((n) => n.id).sort()).toEqual(["hub", "n1"])
+    expect(result.edges.every((e) => e.source !== "ghost" && e.target !== "ghost")).toBe(true)
+  })
 })

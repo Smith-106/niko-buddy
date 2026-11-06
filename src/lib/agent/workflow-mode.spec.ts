@@ -23,4 +23,17 @@ describe("workflow-mode.ts smoke", () => {
   it("exports getWorkflowModeLabel", () => {
     expect(getWorkflowModeLabel).toBeDefined()
   })
+
+  it("isOutlineWorkflowMode 只认 fast/standard", () => {
+    expect(isOutlineWorkflowMode("fast")).toBe(true)
+    expect(isOutlineWorkflowMode("standard")).toBe(true)
+    expect(isOutlineWorkflowMode("deep")).toBe(false)
+    expect(isOutlineWorkflowMode(null)).toBe(false)
+  })
+
+  it("resolveOutlineWorkflowMode：fast 保留，其余回退默认", () => {
+    expect(resolveOutlineWorkflowMode("fast")).toBe("fast")
+    expect(resolveOutlineWorkflowMode("standard")).toBe(DEFAULT_OUTLINE_WORKFLOW_MODE)
+    expect(resolveOutlineWorkflowMode(undefined)).toBe(DEFAULT_OUTLINE_WORKFLOW_MODE)
+  })
 })
