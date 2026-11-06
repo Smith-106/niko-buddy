@@ -169,4 +169,28 @@ describe("fs command wrappers", () => {
     mocks.upsertProjectInfo.mockRejectedValue(err)
     await expect(openProject("/p/opened")).rejects.toBe(err)
   })
+
+  it("toFsError 对不可序列化的非 Error 对象回退 String(err)", () => {
+    // 环形引用使 JSON.stringify 抛错，落入 catch 的 String(err) 回退
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    expect(() => JSON.stringify(circular)).toThrow()
+
+    const wrapped = toFsError("probe_cmd", circular)
+    expect(wrapped).toBeInstanceOf(FsError)
+    expect(wrapped.message).toBe(String(circular))
+    expect(wrapped.command).toBe("probe_cmd")
+  })
+
+  it("openProject 在 open_project invoke 失败时抛 FsError 而非原始错误", async () => {
+    mocks.invoke.mockRejectedValue(new Error("dialog cancelled"))
+    await expect(openProject("/p/x")).rejects.toBeInstanceOf(FsError)
+    await expect(openProject("/p/x")).rejects.toMatchObject({ command: "open_project", message: "dialog cancelled" })
+  })
+
+  it("writeFilesAtomic 空数组直接返回且不调 invoke", async () => {
+    mocks.invoke.mockClear()
+    await expect(writeFilesAtomic([])).resolves.toBeUndefined()
+    expect(mocks.invoke).not.toHaveBeenCalled()
+  })
 })
