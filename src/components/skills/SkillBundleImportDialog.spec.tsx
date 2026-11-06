@@ -203,8 +203,12 @@ describe("SkillBundleImportDialog", () => {
     renderDialog({ onClose })
 
     await screen.findByText("演示包")
-    fireEvent.keyDown(window, { key: "Escape" })
-    expect(onClose).toHaveBeenCalledTimes(1)
+    // Escape 监听的 effect 依赖 busy：预览文字出现的那个 commit 里 busy 可能仍为 true，
+    // 此时监听闭包还是旧的（!busy 不成立），单发一次会漏。用有界重试等到空闲后的那次生效。
+    await waitFor(() => {
+      fireEvent.keyDown(window, { key: "Escape" })
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
   })
 
   it("closes on backdrop click but not on content click", async () => {
