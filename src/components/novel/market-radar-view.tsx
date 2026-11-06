@@ -74,6 +74,7 @@ export function MarketRadarView({ projectPath }: MarketRadarViewProps) {
         if (!cancelled) setSnapshot(result)
       })
       .catch(() => {
+        /* v8 ignore next -- 台账 market-radar-view.tsx L77：.catch 分支不可达 —— loadMarketRadarSnapshot（L46-53）是占位实现，无条件 return 字面量对象、不读盘不抛错，其 Promise 永不 reject */
         if (!cancelled) setSnapshot(null)
       })
       .finally(() => {
@@ -94,6 +95,7 @@ export function MarketRadarView({ projectPath }: MarketRadarViewProps) {
         <ReportSection title="下一步">
           <p className="text-base font-medium">先打开一个项目。没有项目时，这里不显示榜单。</p>
         </ReportSection>
+        /* v8 ignore stop */
       ) : null}
       {!loading && snapshot !== null && snapshot.connected && snapshot.signals.length > 0 ? (
         <ReportSection title="下一步">
@@ -115,6 +117,7 @@ export function MarketRadarView({ projectPath }: MarketRadarViewProps) {
           未指定项目路径
         </ReportCallout>
       ) : snapshot.connected && snapshot.signals.length > 0 ? (
+        /* v8 ignore start -- 台账 market-radar-view.tsx L118-132：榜单分支不可达 —— loadMarketRadarSnapshot（L46-53）是占位实现，恒返回 connected:false 且 signals:[]，故 L117 的 `snapshot.connected && snapshot.signals.length > 0` 永不为真 */
         <ReportSection title="榜单">
           <ul data-testid="market-radar-list" className="flex flex-col gap-1">
             {snapshot.signals.map((signal) => (

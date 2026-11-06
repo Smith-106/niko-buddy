@@ -193,6 +193,7 @@ const {
   loadDashboardHiddenTypes,
   saveDashboardHiddenTypes,
   DASHBOARD_FILTER_KEY,
+  DASHBOARD_FILTERS_EVENT,
   FORESHADOWING_LIST_LIMIT,
   CANON_QUERY_LIMIT,
   CANON_TOTAL_CAP,
@@ -539,5 +540,22 @@ describe("StatusDashboardView 分支覆盖补齐", () => {
     await waitFor(() => expect(screen.getByTestId("dashboard-card-foreshadowing")).toBeTruthy())
     expect(screen.getByTestId("dashboard-card-foreshadowing")).toHaveTextContent("已埋设：0")
     expect(screen.getByTestId("dashboard-card-foreshadowing")).toHaveTextContent("已回收：2")
+  })
+
+  it("(2c) 运行中收到 DASHBOARD_FILTERS_EVENT → 重读隐藏类型并出现次行", async () => {
+    render(<StatusDashboardView />)
+    await waitFor(() => expect(screen.getByTestId("dashboard-card-relations")).toBeTruthy())
+    expect(screen.queryByTestId("caliber-view-filtered")).toBeNull()
+
+    // 其他入口（图侧边栏）改了隐藏类型后会广播该事件，面板需跟着重读
+    localStorage.setItem(DASHBOARD_FILTER_KEY, JSON.stringify(["event"]))
+    window.dispatchEvent(new CustomEvent(DASHBOARD_FILTERS_EVENT))
+
+    await waitFor(() => expect(screen.getByTestId("caliber-view-filtered")).toHaveTextContent("5/6"))
+  })
+
+  it("(2d) 隐藏类型存储损坏 → 读成空集合", () => {
+    localStorage.setItem(DASHBOARD_FILTER_KEY, "{not json")
+    expect([...loadDashboardHiddenTypes()]).toEqual([])
   })
 })
