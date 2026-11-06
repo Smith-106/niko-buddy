@@ -554,6 +554,26 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | 536 | `handlePreviewBundle` 的 `if (!report \|\| !projectPath) return` | **渲染前提**：wrapper 在 `!projectPath`（L569）与 `!report`（L578）时各自提前返回，按钮在两种情况下都不存在 |
 | 555 | `handleExportBundle` 的 `if (!bundlePreview) return` | **渲染前提**：导出按钮位于 `{!preview ? … : …}` 的 else 分支内（L301 起），只有 `bundlePreview` 非空时才渲染 |
 
+### components/gate/GateHost.tsx（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 62 | `handleResume` 的 `if (!haltRequestId) return` | `handleResume` 只经 `onResume={haltRequestId ? handleResume : undefined}`（L80）下传，`haltRequestId` 为 null 时根本不会传入 |
+
+
+### components/novel/backup-export-view.tsx（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 491 | `handleCancel` 的 `if (isCancelling) return` | 唯一调用点是取消按钮，该按钮 `disabled={isCancelling}`（L595），`isCancelling` 为真时点击不触发 |
+
+
+### components/skills/SkillPackPanel.tsx（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 90 | `exportWarningText` 的 `stripped_tool_fields` / `stripped_pack_fields` 分支 | 两个 code 在本组件里无法产生：组件固定调用 `buildPack(skills, { name, version })`（L68-75）不传 `tools`，而 `stripped_tool_fields` 只在 `options.tools` 非空且含凭据类键时产生；`stripped_pack_fields` 需 `stripCredentialKeys(pack)` 命中凭据类键名，但 pack 键固定为 schemaVersion/kind/name/version/author/tools/prompts/trustLevel，均不含 CREDENTIAL_KEY_PARTS 任一片段。故只会收到 `stripped_prompt_lines` |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

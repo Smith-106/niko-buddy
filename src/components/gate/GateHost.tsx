@@ -59,6 +59,7 @@ export function GateHost({ pollMs = 1000, enabled = isTauri() }: GateHostProps) 
   // 熔断只能由携带 halt_request_id 的 resume_after_halt 解除。
   const haltRequestId = loop?.halt_request_id ?? null;
   const handleResume = useCallback(() => {
+    /* v8 ignore next -- 台账 GateHost.tsx L62：handleResume 只经 onResume={haltRequestId ? handleResume : undefined}（L80）下传，haltRequestId 为 null 时根本不会传入，故守卫恒不成立 */
     if (!haltRequestId) return;
     void resumeAfterHalt(haltRequestId, "resumed from host banner").finally(() => {
       void refresh();

@@ -23,4 +23,14 @@ describe("data-domain-registry.ts smoke", () => {
     // 不同域/时间戳互不影响（无共享可变状态）。
     expect(trashBinPath("chapters", "s2")).toBe(".trash-bin/s2/chapters")
   })
+
+  it("domainRequiresTypedConfirm 只对 risk=user 的域要求键入确认", () => {
+    const userDomains = DATA_DOMAINS.filter((d) => d.risk === "user")
+    const otherDomains = DATA_DOMAINS.filter((d) => d.risk !== "user")
+    // 两种风险等级都必须实际存在，否则下面的断言会退化为空循环
+    expect(userDomains.length).toBeGreaterThan(0)
+    expect(otherDomains.length).toBeGreaterThan(0)
+    for (const d of userDomains) expect(domainRequiresTypedConfirm(d)).toBe(true)
+    for (const d of otherDomains) expect(domainRequiresTypedConfirm(d)).toBe(false)
+  })
 })

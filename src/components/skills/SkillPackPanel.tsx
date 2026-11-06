@@ -87,6 +87,7 @@ export function SkillPackPanel({ skills, categoryId, onImported }: SkillPackPane
     switch (warning.code) {
       case "stripped_tool_fields":
       case "stripped_pack_fields":
+        /* v8 ignore next -- 台账 SkillPackPanel.tsx L90：stripped_tool_fields / stripped_pack_fields 两个 code 在本组件里无法产生。组件固定调用 buildPack(skills, { name: "niko-skills", version: "1.0.0" })（L68-75），不传 tools —— 而 stripped_tool_fields 只在 options.tools 非空且含凭据类键时产生（pack-export.ts L126-129）；stripped_pack_fields 需要 stripCredentialKeys(pack) 命中凭据类键名（L153-155），但 pack 的键固定为 schemaVersion/kind/name/version/author/tools/prompts/trustLevel，均不含 CREDENTIAL_KEY_PARTS（token/secret/password/passphrase/apikey/api-key/credential/authorization/bearer）任一片段。故 exportWarningText 只会收到 stripped_prompt_lines */
         return t(EXPORT_WARNING_KEY[warning.code], { fields: warning.fields.join(", ") });
       case "stripped_prompt_lines":
         return t(EXPORT_WARNING_KEY[warning.code], { n: warning.n });

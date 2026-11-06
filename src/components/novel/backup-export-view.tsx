@@ -488,6 +488,7 @@ export function BackupExportView() {
 
   /** ③-3：取消进行中的导出（绑定 lib/backup/export.ts 既有 cancelBackup 传输）。 */
   async function handleCancel() {
+    /* v8 ignore next -- 台账 backup-export-view.tsx L491：handleCancel 的唯一调用点是取消按钮，该按钮 disabled={isCancelling}（L595），isCancelling 为真时点击不触发，守卫是第二道防线 */
     if (isCancelling) return
     setIsCancelling(true)
     try {
