@@ -291,6 +291,25 @@
 ### components/novel/story-simulation/interview-history-view.tsx
 - **L163-164 `formatDate` catch 回退**：同上判例，`new Date(string)` 永不抛错 → 不可达。防御性代码。
 
+### lib/novel/canon-backfill.ts（两处，均为防御守卫）
+- **L559 `if (op.canonPayload.kind !== "episode") continue`**：循环遍历的 `ops` 只来自 `buildBackfillOps(snapshot)`（L541），该函数唯一构造点（L223-232）硬编码 `canonPayload: { kind: "episode" as const, ... }`，无分支；supersede 操作另存于 `supersedeOps`/`allOps`（L548-551），不进入此循环。类型上是联合类型，故该守卫是未来 producer 变更的契约保护，删除即失去保护。
+- **L571-574 invalid chapter_number 告警**：`ep.chapter_number` 取自 `buildBackfillOps` L227 的 `snapshot.chapterNumber`，而 `loadBackfillSnapshot`（L176-191）末尾 `return { ...parsed, chapterNumber: chapter }` 强制覆盖为发现章节号；`chapter` 来自 `parseChapterSnapshotFileName`（L78-83：`^(\d{3})\.snapshot\.json$` 且 `n >= 1`），恒为 1..999 正整数。故 `chapterNumber !== parsedChapter` 恒假。源码注释自称「defensive D1」。
+
+### components/novel/pipeline-motion-panel.tsx
+- **L354 `if (total === 0) return`**：L352-353 `useDemo = sourceEvents.length === 0`、`total = useDemo ? demoEvts.length : sourceEvents.length`。sourceEvents 非空 → total>0；为空 → total = `demoEvents()`（L131-145）返回固定 8 条字面量，永不为空。组件 props 只暴露 `projection`/`input`（L28-33），无法注入空 demo 流，也无法 mock 同文件私有函数。防御守卫。
+
+### components/settings/sections/external-control-section.tsx
+- **L211 `if (!status) return`**：`copyEndpoint` 唯一调用点是 L347 按钮，同按钮 L348 有 `disabled={!status}`，两处取同一次渲染的 status。React SimpleEventPlugin 对被 disabled 的表单元素不派发鼠标事件，handler 只可能在 status 为真时进入。**实测证据**：既有用例 `external-control-section.spec.tsx:509-522` 已对 disabled 按钮 `fireEvent.click` 并断言「未写剪贴板」，而同次覆盖里 L211 仍 count=0 —— 点击确实未进入 handler。属「disabled 闸门对冲 handler 守卫」判例（见上文 skill-library 三视图同型论证）。
+
+### lib/mcp/draft-actions.ts
+- **L47 `if (!cleaned) throw new Error("名称清洗后为空")`**：`sanitizeName` 为私有函数，全部 3 个调用点（L58、97、103）都以 `requireText(...)` 返回值为实参；`requireText`（L37-42）在 `value.trim() === ""` 时先行抛错，而 `cleaned = name.trim().replace(/[\/:*?"<>|]/g, "_")` 只做替换不做删除，故 `cleaned === ""` 当且仅当 `name.trim() === ""`，与前置条件直接矛盾。纵深防御守卫。
+
+### lib/novel/pipeline-motion-projection.ts
+- **L166 `default: return null`（eventToStage）**：switch 已穷举 `RunEventKind` 的 9 个字面量（见 `run-event-ledger.ts:48-61`）；运行期所有 producer 都经 `appendRunEvent` → `normalizeEvent` → `RUN_EVENT_SCHEMA.parse`（`run-event-ledger.ts:167-180`），zod `z.enum(RUN_EVENT_KINDS)` 对未知 kind 直接抛 `RunEventIntegrityError`；磁盘回放 `parseLedgerText`（`run-event-ledger-store.ts:124-146`）逐行走同一校验并 fail-loud。故未知 kind 无法到达投影函数。前向兼容防御分支。
+
+### lib/novel/skill-hub-seed.ts（补充运行时分区证据）
+- **L23-44（15 条，fs 遍历兜底 + 其 catch）**：L15 的 `import.meta.glob("../../../skills/SkillHub/**/SKILL.md", {eager:true})` 被 Vite 在构建期内联为静态对象字面量（非函数调用），永不抛错；仓库内 `skills/SkillHub` 恰有 75 个 SKILL.md，L19 `Object.keys(globbed).length > 0` 恒真并 return。**实测证据**：同一次 v8 覆盖中 `skill-hub-seed.spec.ts` 全过且 `DEFAULT_SKILL_HUB_SKILLS.length === 75`，而 L23-44 全部 count=0 —— 若走过 fs 遍历，这些语句必然 >0。
+
 ---
 
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
