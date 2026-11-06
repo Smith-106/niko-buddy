@@ -529,8 +529,10 @@ function extractOpeningChapterNumber(text: string): number | undefined {
   if (hasUnnegatedPatternMatch(text, /首章|第一章|第\s*1\s*章|开篇章节|小说开头|生成前三章|写前三章|黄金三章/)) {
     return 1
   }
+  /* v8 ignore start -- 台账 task-router.ts L532-533：两个 return 被上游 L524 循环遮蔽。L524 的 /第\s*([123一二三两])\s*章/g 是 /第二章|第\s*二\s*章/ 与 /第三章|第\s*三\s*章/ 的超集，用同一个 isNegatedBefore 逐处判否定，并在首个非否定匹配处 return。故 L532/L533 的模式若存在非否定匹配，L524 早已返回 2/3；能走到这里的第二章/第三章必然全被否定，条件恒 false */
   if (hasUnnegatedPatternMatch(text, /第二章|第\s*二\s*章/)) return 2
   if (hasUnnegatedPatternMatch(text, /第三章|第\s*三\s*章/)) return 3
+  /* v8 ignore stop */
   if (isAmbientOpeningKeywordRequest(text)) return 1
   return undefined
 }
@@ -546,6 +548,7 @@ function firstUnnegatedChapterNumber(text: string): number | undefined {
     for (const match of text.matchAll(new RegExp(pattern.source, flags))) {
       if (match.index === undefined || isNegatedBefore(text, match.index)) continue
       const raw = match[1]
+      /* v8 ignore next -- 台账 task-router.ts L549：CHAPTER_NUMBER_PATTERNS 的 4 个模式全部带且仅带一个捕获组，且量词均为 +（\d+ 或中文数字字符类 +），故 match[1] 恒为非空字符串，!raw 永不成立 */
       if (!raw) continue
       const num = /^\d+$/.test(raw) ? Number(raw) : parseChineseChapterNumber(raw)
       if (Number.isFinite(num) && num > 0) return num

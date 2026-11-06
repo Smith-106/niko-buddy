@@ -358,4 +358,14 @@ describe("RVF-06 章节号取号：标题里的「首章」二字不得劫持目
     expect(routeTask("第千章").chapterNumber).toBe(1000)
     expect(routeTask("第百章").chapterNumber).toBe(100)
   })
+
+  it("写开篇：无显式章号时取号回退为第 1 章", () => {
+    // 「写开篇」经 isAmbientOpeningKeywordRequest（L472）进入取号，最终由 ambient
+    // 关键词回退为开篇第 1 章。否定的第二/三章同样不得被认作目标章。
+    // （L524 的 123 章循环已覆盖所有非否定情形，故第二章/第三章两个显式分支不可达，
+    //  已在台账登记为被上游同义正则遮蔽。）
+    expect(routeTask("写开篇").chapterNumber).toBe(1)
+    expect(routeTask("写开篇，不要写第二章").chapterNumber).toBe(1)
+    expect(routeTask("写开篇，不要写第三章").chapterNumber).toBe(1)
+  })
 })
