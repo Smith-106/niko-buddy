@@ -441,6 +441,13 @@
 | 96 | `optionalCall` 的同类守卫 | 唯一调用点 L620 传 async 箭头字面量 |
 | 275（**未标注**） | `clearCredential` 的 `if (parsed === null)` | **可达，待补测**：按钮 `disabled={!secretControlsEnabled \|\| busy}`（L604）**不含** `parsedCredentialRef`，故「控件可用但无已解析凭据」时点清除即命中。不可标注 |
 
+### lib/novel/budget-resume.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 136 | `stoppedBy = "suspended"` 的 else 分支 | `nextPendingTask`(L42) 保证任务**存在且未完成**，故 `completeBudgetTask` 只剩「预算不足」一种拒绝（L61-66），其 reason 恒含「预算不足」→ L133 恒真。L57（未知任务）与 L59（幂等拒绝）两条非预算拒绝路径在 `advanceBudgetBatch` 内不可达 |
+| 143-145 | `if (current.status === "suspended")` | 接受路径 L76 只产 `done` / `in_progress`，永不产 `suspended` |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

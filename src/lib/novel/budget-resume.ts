@@ -133,6 +133,7 @@ export function advanceBudgetBatch(
       if (result.reason?.includes("预算不足")) {
         stoppedBy = "budget"
       } else {
+        /* v8 ignore next -- 台账 budget-resume.ts L136：stoppedBy = "suspended" 的 else 分支：nextPendingTask(L42) 保证任务存在且未完成，故 completeBudgetTask 只剩「预算不足」一种拒绝（L61-66），其 reason 恒含「预算不足」，L133 恒真 */
         stoppedBy = "suspended"
       }
       current = result.state
@@ -140,6 +141,7 @@ export function advanceBudgetBatch(
     }
     current = result.state
     completed++
+    /* v8 ignore next -- 台账 budget-resume.ts L143：if (current.status === "suspended")：接受路径 L76 只产 done/in_progress，永不产 suspended，故该分支恒假 */
     if (current.status === "suspended") {
       stoppedBy = "budget"
       break
