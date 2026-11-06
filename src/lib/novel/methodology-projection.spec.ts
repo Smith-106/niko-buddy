@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { registerNovelSkillHook, setNovelSkillHookRegistry } from "./novel-skill-hooks"
+import { registerNovelSkillHook, setNovelSkillHookRegistry, NOVEL_SKILL_HOOKS_SCHEMA } from "./novel-skill-hooks"
 import { projectMethodologyUsage } from "./methodology-projection"
 
 /** 码点升序（与实现同一定义：`a < b`，不用 localeCompare）。 */
@@ -133,5 +133,33 @@ describe("projectMethodologyUsage", () => {
 
     expect(runSpy).not.toHaveBeenCalled()
     expect(projectMethodologyUsage().stages[0].hookIds).toEqual(["spy.hook"])
+  })
+
+  it("同一 id 在注册表里声明两次 → 码点比较的「相等」分支：id 列表保留两份且不抛", () => {
+    // setNovelSkillHookRegistry 是公开的替换入口（bootstrap / 测试用），不做 id 去重；
+    // registerNovelSkillHook 会按 id 去重，所以重 id 只能经此入口出现。
+    // 投影是只读枚举，不得默默去重（否则面板计数与声明数对不上），
+    // 也不得在排序相等时抛出（compareCodePoint 必须返回 0 而非 undefined）。
+    const hook = (title: string) => ({
+      id: "dup.hook",
+      title,
+      stages: ["pre_write_prompt" as const],
+      track: "B" as const,
+      run: () => {},
+    })
+    setNovelSkillHookRegistry({
+      schemaVersion: NOVEL_SKILL_HOOKS_SCHEMA,
+      hooks: [hook("first"), hook("second")],
+    })
+
+    const projection = projectMethodologyUsage()
+
+    const [row] = projection.stages
+    expect(row.stage).toBe("pre_write_prompt")
+    expect(row.hookIds).toEqual(["dup.hook", "dup.hook"])
+    expect(row.hookCount).toBe(2)
+    // 跨 stage 去重后生效钩子仍是 1 个（Set 按 id 收敛），声明数按注册表原样计 2。
+    expect(projection.enabledHookCount).toBe(1)
+    expect(projection.declaredHookCount).toBe(2)
   })
 })

@@ -944,4 +944,32 @@ describe("createRunChapterWorkflowTool", () => {
       warnSpy.mockRestore()
     }
   })
+
+  it("模型把章号写成字符串：数字串归一成 number，非数字串归一成 undefined", async () => {
+    // 工具 schema 声明 integer，但模型实际常把 "12" 作为字符串传（JSON 宽松）。
+    // 字符串分支必须归一，否则 chapterNumber 会以原始字符串进生成链（下游 `?? 0` 误读）。
+    const runDeepChapterGeneration = vi.fn(
+      async (_input: { chapterNumber?: number }) => okResult,
+    )
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+    })
+
+    await tool.execute({ userRequest: "写第十二章", chapterNumber: "12", planBlueprint: "计划E" })
+
+    expect(planStoreMocks.saveConfirmedPlan).toHaveBeenCalledWith("E:/Novel", 12, "计划E")
+    expect(runDeepChapterGeneration.mock.calls[0]?.[0]).toMatchObject({ chapterNumber: 12 })
+
+    // 非数字串（Number() → NaN）→ undefined：不得把 NaN 当成章号写盘/进生成链。
+    planStoreMocks.saveConfirmedPlan.mockClear()
+    runDeepChapterGeneration.mockClear()
+    await tool.execute({ userRequest: "写下一章", chapterNumber: "十二章", planBlueprint: "计划F" })
+
+    expect(planStoreMocks.saveConfirmedPlan).not.toHaveBeenCalled()
+    const secondInput = runDeepChapterGeneration.mock.calls[0]?.[0]
+    expect(secondInput?.chapterNumber).toBeUndefined()
+  })
 })

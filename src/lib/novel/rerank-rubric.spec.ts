@@ -55,6 +55,21 @@ describe("rubric composition", () => {
     expect(assertRerankRubricInvariants()).toEqual([])
   })
 
+  it("检出空 rubric version（钉版本守卫）", () => {
+    // RERANK_RUBRIC_VERSION 是模块级常量，正常值非空；用作用域内替换
+    // String.prototype.trim 把该常量驱动到「空版本」状态，验证自检确实会报违规，
+    // 而不是恒返回 []。守卫的语义是：换判据/权重/归一方式必须升版，空版本非法。
+    const original = String.prototype.trim
+    try {
+      String.prototype.trim = function () { return "" } as typeof String.prototype.trim
+      expect(assertRerankRubricInvariants()).toContain("rubric version must not be empty")
+    } finally {
+      String.prototype.trim = original
+    }
+    // 还原后其余不变量仍全部通过（还原失败会让这里立刻红）
+    expect(assertRerankRubricInvariants()).toEqual([])
+  })
+
   it("mirrors the six existing review dimensions in order, plus the anti-AI criterion", () => {
     const dimensionIds = RERANK_RUBRIC_CRITERIA.filter((c) => c.source === "reviewRunner").map(
       (c) => c.id,

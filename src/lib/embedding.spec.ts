@@ -434,6 +434,34 @@ describe("embedAllPages", () => {
     // both files still embedded (title fell back to id)
     expect(invokeMock.mock.calls.filter((c) => c[0] === "vector_upsert_chunks")).toHaveLength(2)
   })
+
+  it("配置在批次进行中被关闭 → collectPageChunkRows 早退返回全零行集", async () => {
+    // embedAllPages 入口只查一次 cfg；若运行途中（读文件时）embedding 被用户关掉，
+    // collectPageChunkRows 自己的 !cfg.enabled 守卫必须拦住该页：不嵌入、不产出行。
+    let enabled = true
+    const dynamic = {
+      endpoint: "http://127.0.0.1:1234/v1/embeddings",
+      apiKey: "sk-test",
+      model: "text-embedding-model",
+      get enabled() { return enabled },
+    } as unknown as EmbeddingConfig
+    fsState.listDirectory.mockResolvedValue([
+      { name: "alpha.md", path: "/P/wiki/alpha.md", is_dir: false },
+    ])
+    fsState.readFile.mockImplementation(async () => {
+      enabled = false
+      return "# Alpha\n\nbody text"
+    })
+    fetchMock.mockImplementation(async () => okJsonResponse({ data: [{ embedding: [1] }] }))
+    invokeMock.mockResolvedValue({})
+    const done = await embedAllPages("/P", dynamic)
+    expect(done).toBe(1)
+    // 可观察行为：没有任何 embedding 请求，且对账清单为空（chunksTotal=0 的行集不贡献 expected）
+    expect(fetchMock).not.toHaveBeenCalled()
+    const reconcile = invokeMock.mock.calls.find((c) => c[0] === "vector_run_startup_reconcile")
+    expect(reconcile).toBeTruthy()
+    expect(reconcile![1].expected).toEqual([])
+  })
 })
 
 // ── searchByEmbedding ─────────────────────────────────────────────────────────
@@ -559,6 +587,24 @@ describe("getEmbeddingAdapter 覆盖补齐", () => {
   it("按 Google → DashScope → 通用顺序分发", () => {
     expect(getEmbeddingAdapter(cfg({ endpoint: "https://generativelanguage.googleapis.com/v1beta/models/x:embedContent" })).expectedShapeName).toBe("embedding.values")
     expect(getEmbeddingAdapter(cfg({ endpoint: "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding" })).expectedShapeName).toBe("output.embeddings[0].embedding")
+    expect(getEmbeddingAdapter(cfg()).expectedShapeName).toBe("data[0].embedding")
+  })
+
+  it("所有 adapter 都拒绝时仍回退通用 adapter（dispatch 不落空）", () => {
+    // 通用 adapter 的 matches 恒为 true，因此循环内 return 是常态；
+    // 这里临时把它改成「不认领」，命中函数尾部兜底 return，验证兜底返回的是
+    // 同一个通用 adapter（契约：绝不返回 undefined 给调用方）。
+    const generic = getEmbeddingAdapter(cfg())
+    const original = generic.matches
+    generic.matches = () => false
+    try {
+      const fallback = getEmbeddingAdapter(cfg())
+      expect(fallback).toBe(generic)
+      expect(fallback.expectedShapeName).toBe("data[0].embedding")
+    } finally {
+      generic.matches = original
+    }
+    // 还原后正常配置仍走通用 adapter
     expect(getEmbeddingAdapter(cfg()).expectedShapeName).toBe("data[0].embedding")
   })
 })

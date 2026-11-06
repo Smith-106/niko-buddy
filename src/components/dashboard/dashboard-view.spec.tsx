@@ -168,9 +168,10 @@ vi.mock("@/lib/novel/novel-session-status", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel/novel-session-status")>()
   return {
     ...actual,
-      loadNovelSessionStatus: mocks.loadNovelSessionStatus,
-      subscribeStatusJson: mocks.subscribeStatusJson,
-    
+    // getter：测试可先把导出降级为「旧宿主未提供此 API」，命中 dashboard 的
+    // `typeof subscribeStatusJson !== "function"` 兼容护栏；默认仍是真函数。
+    get subscribeStatusJson() { return mocks.subscribeStatusJson },
+    loadNovelSessionStatus: mocks.loadNovelSessionStatus,
   }
 })
 vi.mock("@/lib/novel/emotion-ledger", async (importOriginal) => {
@@ -384,6 +385,7 @@ beforeEach(() => {
   mocks.loadForeshadowingTracker.mockResolvedValue({})
   mocks.analyzeForeshadowingDebt.mockReturnValue(makeDebtReport())
   mocks.loadNovelSessionStatus.mockResolvedValue({})
+  mocks.subscribeStatusJson.mockImplementation(async (_pp: string, _fn: (s: unknown) => void | Promise<void>): Promise<() => void> => () => {})
   mocks.loadEmotionLedger.mockResolvedValue({ entries: [] })
   mocks.getTopEmotionalDebt.mockReturnValue([])
   mocks.loadDashboardIssueState.mockResolvedValue({ ignored: {}, rewrites: {} })
@@ -1428,5 +1430,39 @@ describe("DashboardView — 订阅/结账/证据开关补齐", () => {
     fireEvent.click(screen.getByTestId("debt-settle"))
     await waitFor(() => expect(errSpy).toHaveBeenCalledWith("[Dashboard] Settle debt failed:", expect.anything()))
     errSpy.mockRestore()
+  })
+
+  it("旧宿主未提供 subscribeStatusJson 时降级为不订阅（typeof 兼容护栏）", async () => {
+    const original = mocks.subscribeStatusJson
+    mocks.subscribeStatusJson = undefined as unknown as typeof original
+    try {
+      render(<DashboardView />)
+      await waitFor(() => expect(mocks.runFactCheck).toHaveBeenCalled())
+      // 无订阅函数可调用：面板照常渲染（不崩），且未发生任何订阅回调
+      expect(screen.getByTestId("debt-board-view")).toBeTruthy()
+      expect(screen.getByText("dashboard.noIssues")).toBeInTheDocument()
+    } finally {
+      mocks.subscribeStatusJson = original
+    }
+  })
+
+  it("结账回调时项目已关闭 → pp 为空早退，不读 status 不写盘", async () => {
+    // 先用有效项目渲染出 DebtBoardView（拿到 onSettleDebt 闭包），再把 project
+    // 换成「存在但 path 为空」的对象并触发交互；store mock 无订阅，靠 fireEvent
+    // 触发的 input change 强制重渲染来刷新闭包里的 project?.path。
+    mocks.state.project = { path: "E:/Novel" }
+    const { rerender } = render(<DashboardView />)
+    await waitFor(() => expect(screen.getByTestId("debt-board-view")).toBeTruthy())
+    mocks.state.project = {} as never
+    mocks.loadNovelSessionStatus.mockClear()
+    mocks.writeFileAtomic.mockClear()
+    rerender(<DashboardView />)
+    fireEvent.click(screen.getByTestId("debt-settle"))
+    // 真实信号：等一个微任务周期，确认没有任何异步读/写被排入
+    await act(async () => { await Promise.resolve() })
+    expect(mocks.loadNovelSessionStatus).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    // 面板仍在（早退不抛错、不卸载）
+    expect(screen.getByTestId("debt-board-view")).toBeTruthy()
   })
 })

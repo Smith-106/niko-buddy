@@ -151,6 +151,13 @@ describe("RoutePolicy（模块 21 设置底座）", () => {
     expect(schedulingTierRole("complex")).toBe("writer")
     expect(schedulingTierRole("simple")).toBe("writer")
   })
+
+  it("schedulingTierRole：standard 档同样落到 writer（三档普通写作不降级给 judge）", () => {
+    expect(schedulingTierRole("standard")).toBe("writer")
+    // 显式回归：只有 analysis 一个档位走 judge，其余三档必须全等。
+    const roles = (["simple", "standard", "complex"] as const).map(schedulingTierRole)
+    expect(roles).toEqual(["writer", "writer", "writer"])
+  })
 })
 
 describe("buildRoutingSelfCheckReport（路由自检，模块 21 超越点）", () => {

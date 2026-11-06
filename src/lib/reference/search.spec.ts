@@ -203,6 +203,25 @@ describe("reference/search", () => {
     expect(res.cause).toBe("ok")
   })
 
+  it("多 section 超预算时统计被完全裁掉的 section 数（omittedSections）", async () => {
+    // 两段引用各生成一段文本；sectionCap 只容得下第一段，第二段被整体裁掉。
+    // formatReferenceSection 固定前缀【@名】，用 snippetCap 把每段撑到 ~60 字符。
+    vi.mocked(novelMixedSearch).mockResolvedValue([
+      { type: "keyword", path: "x.md", title: "x", snippet: "内容".repeat(20), relevance: 0.9 },
+    ])
+    const res = await buildReferenceContext("/p", "@林墨 与 @北境 同场", {
+      sectionCap: 45,
+      snippetCap: 200,
+      includeUserMemory: false,
+    })
+    expect(res.cause).toBe("ok")
+    expect(res.truncated).toBe(true)
+    // section 0 部分截断（clipText 语义），section 1 被完全裁掉 → 计数 1
+    expect(res.omittedSections).toBe(1)
+    expect(res.text).toContain("【@林墨】")
+    expect(res.text).not.toContain("【@北境】")
+  })
+
   it("REFERENCE_SECTION_CAP is 2000", () => {
     expect(REFERENCE_SECTION_CAP).toBe(2000)
   })

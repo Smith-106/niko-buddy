@@ -153,6 +153,16 @@ describe("引用文件读写（容错读 + 原子写）", () => {
     expect((await loadUserAssetRefs("C:/proj")).assets).toEqual([])
   })
 
+  it("JSON 合法但不是对象（null / 数字 / 字符串）→ 空引用集，不抛属性访问错误", async () => {
+    // 磁盘上的引用文件被外部工具写成 "null" / "42" / "\"x\"" 时，
+    // JSON.parse 不会抛——必须由结构守卫兜住，否则 rawAssets 访问会崩。
+    for (const payload of ["null", "42", "\"assets\""]) {
+      fsMocks.readFile.mockResolvedValue(payload)
+      const file = await loadUserAssetRefs("C:/proj")
+      expect(file).toEqual({ schemaVersion: USER_ASSET_REF_SCHEMA_VERSION, assets: [] })
+    }
+  })
+
   it("读入时逐条规范化并丢弃非法项", async () => {
     fsMocks.readFile.mockResolvedValue(
       JSON.stringify({

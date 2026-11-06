@@ -50,6 +50,10 @@ describe("aggregateReviewDimension", () => {
     const out = aggregateReviewDimension("pull", [ballot("A", 7), ballot("B", 7 + CONSENSUS_DISPUTE_THRESHOLD)])
     expect(out.disputed).toBe(false)
   })
+
+  it("空票集 fail-loud：拒绝聚合并指名 no ballots", () => {
+    expect(() => aggregateReviewDimension("thrill", [])).toThrow("consensus aggregate: no ballots")
+  })
 })
 
 describe("pickBestDraft", () => {
@@ -101,5 +105,9 @@ describe("pickBestDraft", () => {
     const out = pickBestDraft(candidates, [])
     expect(out.winner.anonymousId).toBe("A")
     expect(out.averageScores.every((a) => a.average === 0)).toBe(true)
+  })
+
+  it("空候选集 fail-loud：不给幽灵稿胜出", () => {
+    expect(() => pickBestDraft([], [])).toThrow("consensus aggregate: no candidates")
   })
 })

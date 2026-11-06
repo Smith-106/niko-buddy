@@ -46,6 +46,7 @@ import {
   loadAntiAiTelemetryConsent,
   saveAntiAiTelemetryConsent,
   applyAntiAiTelemetryConsentOnProjectOpen,
+  defaultTelemetrySinkDeps,
 } from "./anti-ai-telemetry-wiring"
 import {
   getAntiAiTelemetrySink,
@@ -58,6 +59,33 @@ beforeEach(() => {
   fakeStore.reset()
   fakeStore.get.mockClear()
   fakeStore.set.mockClear()
+})
+
+describe("defaultTelemetrySinkDeps：全部副作用经 @/commands/fs IPC", () => {
+  it("readFile 直通 / listFiles 把 FileNode[] 映射成文件名数组", async () => {
+    const fsCommands = await import("@/commands/fs")
+    const readFileMock = vi.mocked(fsCommands.readFile)
+    const listDirectoryMock = vi.mocked(fsCommands.listDirectory)
+    readFileMock.mockResolvedValueOnce("{\"k\":1}")
+    listDirectoryMock.mockResolvedValueOnce([
+      { name: "a.jsonl", path: "/d/a.jsonl", is_dir: false },
+      { name: "b.jsonl", path: "/d/b.jsonl", is_dir: false },
+    ])
+
+    const deps = defaultTelemetrySinkDeps()
+
+    // listFiles 在 TelemetrySinkDeps 里是可选成员，但生产接线必须提供它
+    // （否则 sink 无法枚举段文件）。先断言存在，再调，避免可选链掩盖缺失。
+    const listFiles = deps.listFiles
+    if (!listFiles) throw new Error("defaultTelemetrySinkDeps 必须提供 listFiles")
+
+    // 遥测 sink 只需要文件名（段文件名承载 sessionId/projectId），不暴露完整路径。
+    await expect(listFiles("/d")).resolves.toEqual(["a.jsonl", "b.jsonl"])
+    expect(listDirectoryMock).toHaveBeenCalledWith("/d")
+
+    await expect(deps.readFile("/d/a.jsonl")).resolves.toBe("{\"k\":1}")
+    expect(readFileMock).toHaveBeenCalledWith("/d/a.jsonl")
+  })
 })
 
 describe("F-34 同意开关持久化", () => {

@@ -1159,16 +1159,20 @@ describe("W5 增补：回放读回判别与轨迹更新", () => {
     )
     fireEvent.click(screen.getByTestId("main-control-deep-run"))
     await waitFor(() => expect(screen.getByTestId("main-control-deep-output")).toBeTruthy())
-    const savedBefore = saveTraceSnapshot.mock.calls.length
-    expect(savedBefore).toBeGreaterThan(0)
     const prevProject = wikiState.project
     wikiState.project = null
     try {
       // 强制重渲染（store mock 无订阅，只能靠交互触发）：此时 projectPath 已空，
       // effect 重跑 → persistSnapshot("") → 守卫早退，不再落盘。
       fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "本次目标2" } })
-      await new Promise((r) => setTimeout(r, 100))
-      expect(saveTraceSnapshot.mock.calls.length).toBe(savedBefore)
+      await waitFor(() =>
+        expect((screen.getByTestId("main-control-goal") as HTMLTextAreaElement).value).toBe("本次目标2"),
+      )
+      // 断言不变量而非绝对调用次数：守卫存在时任何一次落盘都必须带非空 projectPath。
+      // 运行完成后的迟到异步落盘会让「次数不变」在 4 worker 并发下假红（与守卫无关）。
+      expect(
+        saveTraceSnapshot.mock.calls.every(([p]) => typeof p === "string" && p.length > 0),
+      ).toBe(true)
     } finally {
       wikiState.project = prevProject
     }

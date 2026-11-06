@@ -1225,4 +1225,31 @@ describe("analyze 脏字段集中断言（四-8）", () => {
     expect(c.relationships).toEqual([{ target: "厉飞雨", relation: "挚友", description: undefined }])
     expect(c.keyEvents).toEqual([{ chapterId: "1", description: "拜入七玄门" }])
   })
+
+  it("keyEvents 内非 record 条目（字符串/null/数组）被丢弃，只留合法条目", async () => {
+    setChapters({ c1: chapterFile("第一章", 1, "韩立出场") })
+    setStreamDispatch({
+      identify: () => identifyJson([{ name: "韩立", importance: 9 }]),
+      analyze: () => JSON.stringify({
+        name: "韩立",
+        keyEvents: [
+          "纯字符串条目",
+          null,
+          ["数组条目"],
+          42,
+          { chapterId: "7", description: "血色试炼" },
+        ],
+      }),
+    })
+    const result = await extractCharactersFromChapters({
+      bookPath: "E:/books/b1",
+      selectedChapterIds: ["c1"],
+      llmConfig,
+    })
+    expect(result.success).toBe(true)
+    // 4 个非 record 条目全被 continue 跳过，只剩最后一个合法 keyEvent
+    expect(result.characters[0].keyEvents).toEqual([
+      { chapterId: "7", description: "血色试炼" },
+    ])
+  })
 })

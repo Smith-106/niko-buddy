@@ -40,4 +40,21 @@ describe("跨模型偏差 — 同文同窗 pairwise Δ中位", () => {
     const r = evaluateCrossModel([m("a", { thril: 8 }), m("b", { thril: 8 })])
     expect(r.passed).toBe(false)
   })
+
+  it("样本数达标但全维度缺分（Δ 序列为空）→ 中位按 0 处理而非 NaN", () => {
+    // 5 个模型都只带空 scores：pairwise 循环里 Object.keys(a) 为空 → 一条 Δ 也不产生。
+    // 中位数取空序列时必须落到显式的 0（否则 NaN 会让「中位 ≤0.5」静默变成 false
+    // 而误判不达标，或反之被下游当作达标）。
+    const r = evaluateCrossModel([
+      m("a", {}),
+      m("b", {}),
+      m("c", {}),
+      m("d", {}),
+      m("e", {}),
+    ])
+    expect(r.sampleCount).toBe(5)
+    expect(r.medianDelta).toBe(0)
+    expect(r.maxDimDelta).toBe(0)
+    expect(r.passed).toBe(true)
+  })
 })

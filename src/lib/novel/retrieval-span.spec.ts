@@ -102,6 +102,12 @@ describe("R0-c 链序完整性断言（缺环 fail-loud）", () => {
     expect(() => assertRetrievalSpanSequence(duplicated)).toThrow(/stage 重复：rrf/)
   })
 
+  it("未知 stage fail-loud 并指名该 stage（契约外输入不被静默接纳）", () => {
+    const unknown = { ...fullChain()[0]!, stage: "unexpected_stage" } as never
+    expect(() => assertRetrievalSpanSequence([unknown])).toThrow(RetrievalSpanError)
+    expect(() => assertRetrievalSpanSequence([unknown])).toThrow(/未知 stage：unexpected_stage/)
+  })
+
   it("空序列即缺环（六 stage 全缺）", () => {
     expect(() => assertRetrievalSpanSequence([])).toThrow(/链序缺环/)
   })

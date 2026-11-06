@@ -326,4 +326,20 @@ describe("persist — full-coverage extensions", () => {
   it("returns empty when no chat history exists at all", async () => {
     expect(await loadChatHistory(projectPath)).toEqual({ conversations: [], messages: [] })
   })
+
+  it("某个会话的 chats 文件缺失 → 该会话被跳过，其余会话照常载入", async () => {
+    // 索引里声明了两个会话，但只有 conv-1 的 chats 文件在盘上：
+    // conv-2 的 readFile 会 reject，必须被 Promise.all 的 onRejected 于为 {ok:false}
+    // （否则一个丢失的文件会让整个历史读取失败），循环里再跳过它。
+    const second: Conversation = { ...baseConversation, id: "conv-2", title: "Conversation 2" }
+    fsState.fileMap.set(conversationsPath, JSON.stringify([baseConversation, second]))
+    fsState.fileMap.set(conversationFilePath, JSON.stringify(baseMessages))
+    // 故意不写 conv-2 的文件（模拟磁盘上被删除 / 从未落盘）。
+
+    const loaded = await loadChatHistory(projectPath)
+
+    // 两个会话元数据都保留（索引是真源），但只有能读到的那份消息进入结果。
+    expect(loaded.conversations.map((c) => c.id)).toEqual(["conv-1", "conv-2"])
+    expect(loaded.messages).toEqual(baseMessages)
+  })
 })

@@ -248,6 +248,22 @@ describe("compactContextSections 熔断器", () => {
     expect(breaker.consecutiveFailures).toBe(0)
   })
 
+  it("L1 微压缩后回到预算内 → 记成功并停在 microcompact（熔断计数清零）", () => {
+    // 超预算 → 跑 L1；L1 只折空白就够回到预算内 → 停在 microcompact，
+    // 不得继续往 lightTrim 丢内容，也不得把这次算成失败。
+    const breaker = createCompactBreaker({ failureThreshold: 2 })
+    recordCompactFailure(breaker)
+    expect(breaker.consecutiveFailures).toBe(1)
+    // 空白噪声段（非 protected）：4000 个换行经 L1 折成 2 个，token 从 ~1004 降到 ~5。
+    const noisy = `检索结果${"\n".repeat(4000)}结尾`
+    const r = compactContextSections({ searchResults: noisy }, { tokenBudget: 100, breaker })
+    expect(r.level).toBe("microcompact")
+    expect(r.skipped).toBe(false)
+    expect(r.gaps.some((g) => g.ref === "searchResults" && g.reason === "tier_compressible")).toBe(true)
+    // 只有 recordCompactSuccess 会把失败计数清零（未调用则仍为 1）
+    expect(breaker.consecutiveFailures).toBe(0)
+  })
+
   it("半开：跳过 N 轮后允许 1 次探测", () => {
     const breaker = createCompactBreaker({ failureThreshold: 1, skipHalfOpenRounds: 2 })
     recordCompactFailure(breaker)

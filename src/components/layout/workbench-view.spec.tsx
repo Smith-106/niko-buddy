@@ -68,6 +68,22 @@ describe("WorkbenchView 工作台总览", () => {
     expect(setActiveView).toHaveBeenCalledWith("wiki")
   })
 
+  it("批次三·12：最近使用 chip 点击回调 onOpen（传回该视图 id）", () => {
+    localStorage.setItem("niko-buddy-recent-views", JSON.stringify(["reviewCenter", "wiki"]))
+    try {
+      render(<WorkbenchView />)
+      const chips = [...screen.getByTestId("workbench-recent").querySelectorAll("[data-recent-view]")] as HTMLElement[]
+      expect(chips.map((c) => c.getAttribute("data-recent-view"))).toEqual(["reviewCenter", "wiki"])
+      setActiveView.mockClear()
+      fireEvent.click(chips[0])
+      expect(setActiveView).toHaveBeenCalledWith("reviewCenter")
+      fireEvent.click(chips[1])
+      expect(setActiveView).toHaveBeenLastCalledWith("wiki")
+    } finally {
+      localStorage.removeItem("niko-buddy-recent-views")
+    }
+  })
+
   it("批次三·12：最近使用按存储顺序列出，空时不渲染", () => {
     localStorage.removeItem("niko-buddy-recent-views")
     const { unmount } = render(<WorkbenchView />)

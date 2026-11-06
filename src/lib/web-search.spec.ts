@@ -17,6 +17,7 @@ import {
   SERPAPI_ENGINE_OPTIONS,
   resolveSearchConfig,
   webSearch,
+  providerRequiresApiKey,
 } from "./web-search"
 
 const mockedGetHttpFetch = vi.mocked(getHttpFetch)
@@ -45,6 +46,17 @@ function baseConfig(overrides: Partial<SearchApiConfig> = {}): SearchApiConfig {
 beforeEach(() => {
   vi.clearAllMocks()
   mockedGetHttpFetch.mockResolvedValue(vi.fn() as unknown as typeof fetch)
+})
+
+describe("providerRequiresApiKey", () => {
+  it("none / local 不需要 API key，其余 provider 均需要", () => {
+    expect(providerRequiresApiKey("none")).toBe(false)
+    expect(providerRequiresApiKey("local")).toBe(false)
+    expect(providerRequiresApiKey("tavily")).toBe(true)
+    expect(providerRequiresApiKey("serpapi")).toBe(true)
+    expect(providerRequiresApiKey("searxng")).toBe(true)
+    expect(providerRequiresApiKey("brave")).toBe(true)
+  })
 })
 
 describe("provider option lists", () => {

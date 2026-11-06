@@ -69,4 +69,28 @@ describe("D2 保角门 — 经验 FDR 实测（非 nominal）", () => {
     expect(r.windowFallback).toBe(true)
     expect(CONFORMAL_MIN_WINDOW).toBe(200)
   })
+
+  it("真阳性计入 TP：经验 FDR = FP/(FP+TP)，不是 FP/样本数", () => {
+    const cal = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    // 阈值 = 1.0；4 条全部越阈值：1 条假阳性（真人）+ 3 条真阳性（AI）。
+    // 分母必须是 FP+TP=4（FDR=0.25）；若 TP 未计数，分母退化成 1 → 1.0。
+    const r = evaluateConformalGate(cal, [1.1, 1.2, 1.3, 1.4], [false, true, true, true], 200)
+    expect(r.empiricalFdr).toBeCloseTo(0.25, 10)
+    expect(r.pass).toBe(false)
+  })
+})
+
+describe("D2 保角门 — 空校准集兜底", () => {
+  it("校准集为空 → 阈值 0（不产生 NaN/undefined，调用方拿到可用数）", () => {
+    expect(conformalThreshold([])).toBe(0)
+    // 非空校准集仍走分位计算（对照：空集兜底不是无条件返回 0）
+    expect(conformalThreshold([0.4, 0.8])).toBeGreaterThan(0)
+  })
+
+  it("空校准集 + 越阈值测试分：阈值 0 → 全部 flag，经验 FDR 照常实测", () => {
+    const r = evaluateConformalGate([], [0.1, 0.2], [false, true], 200)
+    // threshold=0 → 0.1/0.2 均 > 0 → fp=1, tp=1 → FDR 0.5
+    expect(r.empiricalFdr).toBeCloseTo(0.5, 10)
+    expect(r.pass).toBe(false)
+  })
 })

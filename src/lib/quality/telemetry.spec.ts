@@ -36,6 +36,28 @@ describe("D2 埋点 — 3 事件白名单（钉死——不混章节保存）", 
     const errors = validateTelemetryEvent({ ...event, type: "chapter_save" as never })
     expect(errors.join("; ")).toContain("未知事件类型")
   })
+
+  it("缺 ts 或 ts 为空串时报错，且不误伤合法事件", () => {
+    expect(validateTelemetryEvent({ ...event, ts: "" })).toContain("ts 不能为空")
+    expect(validateTelemetryEvent({ ...event, ts: undefined as never })).toContain("ts 不能为空")
+    expect(validateTelemetryEvent(event)).not.toContain("ts 不能为空")
+  })
+
+  it("payload 缺失或非对象时报错，且不误伤合法对象负载", () => {
+    expect(validateTelemetryEvent({ ...event, payload: undefined as never })).toContain("payload 必须为对象")
+    expect(validateTelemetryEvent({ ...event, payload: null as never })).toContain("payload 必须为对象")
+    expect(validateTelemetryEvent({ ...event, payload: "oops" as never })).toContain("payload 必须为对象")
+    expect(validateTelemetryEvent(event)).not.toContain("payload 必须为对象")
+  })
+
+  it("单次校验可同时报出全部三类错误（错误累加而非早退）", () => {
+    const errors = validateTelemetryEvent({
+      type: "unknown" as never,
+      ts: "",
+      payload: null as never,
+    })
+    expect(errors).toEqual(["未知事件类型: unknown", "ts 不能为空", "payload 必须为对象"])
+  })
 })
 
 describe("D2 jsonl 序列化 + 10MB 滚动", () => {

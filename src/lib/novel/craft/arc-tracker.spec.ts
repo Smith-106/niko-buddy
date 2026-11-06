@@ -212,6 +212,28 @@ describe("detectArcProgression — 边界条件", () => {
     expect(result.currentStage).toBe("climax")
   })
 
+  it("未知 stage 输入时 evaluateStage 走 default：零分/高阈值导致不推进", () => {
+    // ARC_STAGE_VALUES 是 `as const` 数组（运行时可写）。把首个阶段临时换成契约外
+    // stage，detectArcProgression 从 null 起步只评估 nextIndex=0，就会命中
+    // evaluateStage 的 default（{ score: 0, threshold: 1 }）——可观察结果是「不推进」。
+    const stages = ARC_STAGE_VALUES as unknown as string[]
+    const original = stages[0]
+    stages[0] = "unexpected_stage"
+    try {
+      const result = detectArcProgression(buildInput({ mckeeGhost: "幼年目睹灭门" }))
+      expect(result.progressed).toBe(false)
+      expect(result.reason).toBe("首次摄取，无前驱阶段")
+      expect(result.confidence).toBe(0)
+      expect(result.previousStage).toBeNull()
+    } finally {
+      stages[0] = original!
+    }
+    // 恢复后同一输入推进到 ghost_exposed，证明前面的「不推进」来自 default 分支而非输入本身
+    const normal = detectArcProgression(buildInput({ mckeeGhost: "幼年目睹灭门" }))
+    expect(normal.progressed).toBe(true)
+    expect(normal.currentStage).toBe("ghost_exposed")
+  })
+
   it("非法 currentStage 字符串视为 null", () => {
     const result = detectArcProgression(buildInput({
       currentStage: "invalid_stage" as ArcStage,

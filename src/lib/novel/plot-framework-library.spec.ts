@@ -201,4 +201,25 @@ describe("plot-framework-library 跨作品框架库持久化", () => {
     const r = await manualAdjustPlotFrameworkPacing(PROJECT, "nope", "tight");
     expect(r).toBeNull();
   });
+
+  it("upsertPlotFrameworks 空批次直接返回 []，不写库也不读库", async () => {
+    const accepted = await upsertPlotFrameworks(PROJECT, []);
+    expect(accepted).toEqual([]);
+    // 空批次不应该产生 library.json（没读写、没建目录）
+    expect(memStore.has(getPlotFrameworkLibraryPath(PROJECT))).toBe(false);
+    expect(await loadPlotFrameworkLibrary(PROJECT)).toEqual({ version: 1, frameworks: [] });
+  });
+
+  it("upsertPlotFrameworks 二次入库同 id 走覆盖分支（不追加重复项）", async () => {
+    await upsertPlotFrameworks(PROJECT, [makeFramework({ id: "fw-1" })]);
+    const second = await upsertPlotFrameworks(PROJECT, [
+      makeFramework({ id: "fw-1", title: "覆盖版", beats: { ...makeBeats(), hook: "新的开场" } }),
+    ]);
+    expect(second.map((f) => f.title)).toEqual(["覆盖版"]);
+    const loaded = await loadPlotFrameworkLibrary(PROJECT);
+    // idx >= 0 分支：原地替换，库内仍只有 1 条且是新内容
+    expect(loaded.frameworks).toHaveLength(1);
+    expect(loaded.frameworks[0].title).toBe("覆盖版");
+    expect(loaded.frameworks[0].beats.hook).toBe("新的开场");
+  });
 });

@@ -1156,7 +1156,12 @@ describe("StorySimulationView 续聊恢复与取消", () => {
     novelMocks.buildAgents.mockReturnValue([agent])
     novelMocks.runSimulation.mockImplementation(async (_p: any, _e: any, cb: any, signal: any) => {
       cb?.onTimelineEvent?.(ev)
-      await new Promise((r) => setTimeout(r, 300))
+      // 等真实 abort，不用固定 sleep：4 worker 负载下「等取消按钮出现」可能超过任何固定阈值，
+      // 旧写法 setTimeout(300) 会让 mock 先正常返回，abort 分支因此永远不进。
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) return resolve()
+        signal?.addEventListener?.("abort", () => resolve(), { once: true })
+      })
       if (signal?.aborted) throw new DOMException("aborted", "AbortError")
       return [ev]
     })

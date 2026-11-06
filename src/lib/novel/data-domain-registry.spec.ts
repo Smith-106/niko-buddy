@@ -14,4 +14,13 @@ describe("data-domain-registry.ts smoke", () => {
   it("exports domainRequiresTypedConfirm", () => {
     expect(domainRequiresTypedConfirm).toBeDefined()
   })
+
+  it("trashBinPath 拼出 .trash-bin/<stamp>/<domainId> 的相对路径", () => {
+    expect(TRASH_BIN_DIR).toBe(".trash-bin")
+    expect(trashBinPath("wiki", "2026-11-06_12-30-45")).toBe(
+      ".trash-bin/2026-11-06_12-30-45/wiki",
+    )
+    // 不同域/时间戳互不影响（无共享可变状态）。
+    expect(trashBinPath("chapters", "s2")).toBe(".trash-bin/s2/chapters")
+  })
 })

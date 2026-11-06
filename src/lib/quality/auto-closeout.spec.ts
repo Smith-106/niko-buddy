@@ -45,4 +45,18 @@ describe("冷评自动结案 — P0/P1 全自动 + P2 回退", () => {
     expect(r.passed).toBe(false)
     expect(MANUAL_FALLBACK_CAP).toBe(0.1)
   })
+
+  it("空章节集 → 四项计数/比率为 0 且未达标（不产生 NaN）", () => {
+    const r = evaluateAutoCloseout([])
+    expect(r).toEqual({
+      autoClosed: 0,
+      manualFallback: 0,
+      autoRate: 0,
+      fallbackRate: 0,
+      passed: false,
+    })
+    // 空集不能被误判为「100% 自动结案」，否则冷评门会在无数据时假绿
+    expect(Number.isNaN(r.autoRate)).toBe(false)
+    expect(r.autoRate).toBeLessThan(AUTO_CLOSEOUT_RATE)
+  })
 })

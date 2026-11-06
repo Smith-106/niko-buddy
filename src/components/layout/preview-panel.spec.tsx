@@ -2209,6 +2209,26 @@ describe("PreviewPanel 工具栏（compact / expanded）", () => {
     cleanup()
   })
 
+  it("P1-02：遮罩打开时非 Esc 按键不得关面板（只在 Esc 上接管）", async () => {
+    // 接管 window keydown 后若对所有键都关面板，用户只要在遮罩上打字（如输入法候选）
+    // 面板就会消失——所以非 Esc 必须早退、不 stopPropagation、不改状态。
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByLabelText("更多功能"))
+    fireEvent.click(screen.getByText("角色认知状态"))
+    expect(screen.getByTestId("cognition-panel")).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: "a" })
+    expect(screen.getByTestId("cognition-panel")).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: "Enter" })
+    expect(screen.getByTestId("cognition-panel")).toBeInTheDocument()
+    // 仍能由 Esc 正常关闭（非 Esc 早退没有把监听器消耗掉）
+    fireEvent.keyDown(window, { key: "Escape" })
+    expect(screen.queryByTestId("cognition-panel")).not.toBeInTheDocument()
+    cleanup()
+  })
+
   it("expanded 模式：非 compact 工具栏按钮全集", async () => {
     mocks.compactToolbar.value = false
     mocks.state.selectedFile = CHAPTER_PATH

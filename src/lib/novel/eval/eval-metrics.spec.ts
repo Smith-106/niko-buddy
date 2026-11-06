@@ -49,6 +49,19 @@ describe("computeL1 (C5: protected-layer existence, not rank)", () => {
 })
 
 describe("computeL2 (poison must not land in protected)", () => {
+  it("protected 层未装配时快速失败（不误判为无泄漏）", () => {
+    const r = computeL2(
+      [{ id: "p", subject: "白砚", predicate: "持有", object: "轩辕剑", poisonType: "contradiction", expectedLanding: "excluded" }],
+      view({ protectedLayerAssembled: false }),
+    )
+    expect(r.layer).toBe("L2")
+    expect(r.pass).toBe(false)
+    expect(r.score).toBe(0)
+    expect(r.detail).toEqual({ reason: "protected layer not assembled" })
+    // 与「已装配但零毒化块」的平凡通过形成对照：同样没有泄漏证据，结论却相反
+    expect(computeL2([], view()).pass).toBe(true)
+  })
+
   it("contradiction in protectedCurrent leaks", () => {
     const r = computeL2(
       [{ id: "p", subject: "白砚", predicate: "持有", object: "轩辕剑", poisonType: "contradiction", expectedLanding: "excluded" }],

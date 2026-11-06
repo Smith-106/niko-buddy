@@ -150,6 +150,20 @@ describe("jsonObjectToMarkdown 各类型分支（经 buildOutlineNodeWriteConten
     const out = buildOutlineNodeWriteContent("节点", "{不是合法 json}")
     expect(out).toContain("{不是合法 json}")
   })
+
+  it("JSON 解析结果是非常规类型时走 String(value) 兜底（不静默丢正文）", () => {
+    // JSON 规范本身不会产生 symbol/bigint，但解析层被替换/未来换成带 reviver 的实现时
+    // 该兜底必须把值落成可读文本。用一次性 spy 精确构造该输入，finally 保证还原。
+    const parseSpy = vi.spyOn(JSON, "parse").mockImplementationOnce(() => Symbol("ghost"))
+    try {
+      const out = buildOutlineNodeWriteContent("节点", '{"a":1}')
+      expect(out).toBe("## 节点\n\nSymbol(ghost)\n")
+    } finally {
+      parseSpy.mockRestore()
+    }
+    // 还原后正常 JSON 仍按对象渲染，证明 spy 未泄漏
+    expect(buildOutlineNodeWriteContent("节点", '{"a":"正常"}')).toContain("正常")
+  })
 })
 
 describe("normalizeOutlineWriteTarget 边界", () => {

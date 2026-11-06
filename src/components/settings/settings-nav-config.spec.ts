@@ -43,6 +43,15 @@ describe("settings-view-helpers", () => {
     expect(settingsValueEqual({ x: [1] }, { x: [1, 2] })).toBe(false)
   })
 
+  it("数组与对象形状不一致时直接判不等（不做键级比较）", () => {
+    // 两侧都是非 null 对象且 Object.is 为假，必须靠 Array.isArray 不等来短路；
+    // 否则把 [1] 当 {0:1} 比会与 {0:1} 误判为相等。
+    expect(settingsValueEqual([1, 2], { 0: 1, 1: 2 })).toBe(false)
+    expect(settingsValueEqual({ 0: 1, 1: 2 }, [1, 2])).toBe(false)
+    // 空数组与空对象也不相等
+    expect(settingsValueEqual([], {})).toBe(false)
+  })
+
   it("mergeResyncedDraft 未改字段取新基线，已改字段保留草稿", () => {
     const draft = { ...base, s: "user-edit" } as unknown as SettingsDraft
     const next = { ...base, a: 2, s: "store" } as unknown as SettingsDraft

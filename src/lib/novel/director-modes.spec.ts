@@ -100,6 +100,15 @@ describe("evaluatePhaseExit（阶段出口以既有门裁定为唯一开关）",
     expect(r.unmetGates).toEqual(["consistency"])
     expect(r.reasons[0]).toContain("未评估")
   })
+
+  it("未知阶段不得放行：canExit=false、无未达门、原因带出阶段名", () => {
+    // 未知 phaseKey 必须是「不放行」而不是「没有门所以放行」——
+    // 后者会让任意拼错的阶段名直接跳过整道门控。
+    const r = evaluatePhaseExit(m, "ghost-phase", { consistency: "pass", anti_ai: "pass", quality: "pass" })
+    expect(r.canExit).toBe(false)
+    expect(r.unmetGates).toEqual([])
+    expect(r.reasons).toEqual(['未知阶段: "ghost-phase"'])
+  })
 })
 
 describe("evaluateDraftAutoArm（机械门全 pass → 升 ready；绝不 accept）", () => {

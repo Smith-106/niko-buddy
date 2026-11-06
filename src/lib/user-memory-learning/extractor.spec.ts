@@ -93,6 +93,13 @@ describe("user memory extractor 分支覆盖", () => {
     expect(parseUserMemoryExtraction("}{")).toEqual([])
   })
 
+  it("括号成对但内容不是 JSON → 解析失败回空数组（不抛）", () => {
+    // start/end 定位成功 → JSON.parse 抛 → catch 兑空。
+    // 缺了这层兜底，模型返回脏输出（截断/注释/尾逗号）会直接冲垮提取链路。
+    expect(parseUserMemoryExtraction("{memories: [1,2,]}")).toEqual([])
+    expect(parseUserMemoryExtraction("```json\n{ \"memories\": [ }\n```")).toEqual([])
+  })
+
   it("memories 缺失或非数组时返回空数组", () => {
     expect(parseUserMemoryExtraction("{}")).toEqual([])
     expect(parseUserMemoryExtraction(JSON.stringify({ memories: {} }))).toEqual([])

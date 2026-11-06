@@ -218,6 +218,45 @@ describe("诊断包 — 默认脱敏(MAJOR-3 承接)", () => {
     expect(bundle.run?.sessionId).toBe("sess-x")
   })
 
+  it("报告无项目根（projectPath 为空）→ 掩码步骤直接返回原文，不造空正则", async () => {
+    // 无项目场景（全局/启动阶段）下 HealthReport.projectPath 为空串：
+    // 掩码必须原样返回。若不早退，`new RegExp("")` 会命中每一个位置，
+    // 把整份证据文本碎成 "[project]" 拼接物。
+    const report = {
+      checkedAt: "2026-11-06T00:00:00.000Z",
+      projectPath: "",
+      overall: "healthy" as const,
+      items: [
+        {
+          id: "run",
+          status: "healthy" as const,
+          objectName: "写作会话",
+          evidenceSource: ".novel/status.json",
+          checkedAt: "2026-11-06T00:00:00.000Z",
+          userImpact: "无影响",
+          suggestedAction: "无需操作",
+          autoRecoverable: false,
+          technicalDetail: "status=completed",
+          recoveries: [],
+        },
+      ],
+    }
+    const bundle = buildDiagnosticBundle({
+      report,
+      appVersion: "2.26.4",
+      platform: "windows x64",
+      projectMarkers: [],
+      run: null,
+      exportEntryCount: 0,
+    })
+
+    // 证据文本逐字保留（未被空正则捣碎），且未出现 [project] 占位。
+    expect(bundle.health[0]?.technicalDetail).toBe("status=completed")
+    expect(bundle.health[0]?.userImpact).toBe("无影响")
+    expect(bundle.project.present).toBe(false)
+    expect(serializeDiagnosticBundle(bundle)).not.toContain("[project]")
+  })
+
   it("previewDiagnosticBundle 列出包含/排除/脱敏/目标(门禁11)", async () => {
     await seedHealthyProject()
     const report = await collectHealthReport({ projectPath: PROJECT, llmCfg: null })

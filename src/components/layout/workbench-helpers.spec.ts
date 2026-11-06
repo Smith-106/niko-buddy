@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { RECENT_VIEWS_KEY, RECENT_VIEWS_LIMIT, nextStepRecommendations, readRecentViews, recordRecentView } from "./workbench-helpers"
 
 afterEach(() => localStorage.clear())
@@ -27,6 +27,21 @@ describe("workbench-helpers 最近使用", () => {
     expect(readRecentViews()).toEqual([])
     localStorage.setItem(RECENT_VIEWS_KEY, JSON.stringify({ a: 1 }))
     expect(readRecentViews()).toEqual([])
+  })
+
+  it("无 localStorage（非浏览器宿主）时读取返回空列表，写入只返回内存列表不抛错", () => {
+    const saved = (globalThis as Record<string, unknown>)["localStorage"]
+    try {
+      vi.stubGlobal("localStorage", undefined)
+      expect(readRecentViews()).toEqual([])
+      // recordRecentView 内还有第二处 typeof 守卫：同一环境下也不得抛错，
+      // 且仍返回本次会话的偏好列表（只是不落盘）。
+      expect(recordRecentView("wiki")).toEqual(["wiki"])
+      expect(readRecentViews()).toEqual([])
+    } finally {
+      if (saved === undefined) vi.unstubAllGlobals()
+      else vi.stubGlobal("localStorage", saved)
+    }
   })
 })
 

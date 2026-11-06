@@ -680,6 +680,27 @@ describe("novel config", () => {
     warn.mockRestore()
   })
 
+  it("配置是非对象的脏数据（数字/字符串）时不告警、不登记、按默认值重建", async () => {
+    // store 里的旧值可能被手工改坏成标量：pickInvariantOverrides 对非对象返回 {}，
+    // 因此载入流程能继续；warnDeprecatedWritingModel 的 typeof 守卫在此短路，
+    // 不把标量当 hasOwnProperty 宿主（否则会抛）。可观察结论：无迁移告警、无留痕、
+    // 返回的是完整默认配置而不是标量或 null。
+    __resetWritingModelDeprecationWarningsForTest()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      for (const [scope, dirty] of [["scalar-number", 42], ["scalar-string", "oops"]] as const) {
+        await mocks.store.set("projectNovelConfigs", { [scope]: dirty })
+        const loaded = await loadNovelConfig(scope)
+        expect(loaded?.searchTopK).toBeGreaterThan(0)
+        expect(loaded?.chapterTargetChars).toBeGreaterThan(0)
+        expect(getDiscardedWritingConfig(scope)).toBeNull()
+      }
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it("同一项目重复载入只 warn 一次（进程内按作用域去重）", async () => {
     __resetWritingModelDeprecationWarningsForTest()
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})

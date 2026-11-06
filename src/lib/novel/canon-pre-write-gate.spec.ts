@@ -21,6 +21,17 @@ describe("53 P1-2 canon-pre-write-gate 四态", () => {
     expect(preWriteIntervalsOverlap({ validAt: 11, invalidAt: null }, { validAt: 1, invalidAt: 10 })).toBe(false)
   })
 
+  it("preWriteIntervalsOverlap: 两端都封顶时双向区间交集才为真", () => {
+    // 两个都带 invalidAt → 走双向夹逼分支：aStart<=bEnd && bStart<=aEnd。
+    expect(preWriteIntervalsOverlap({ validAt: 1, invalidAt: 10 }, { validAt: 5, invalidAt: 20 })).toBe(true)
+    // 首尾相接（aEnd === bStart）仍算重叠（闭区间口径）。
+    expect(preWriteIntervalsOverlap({ validAt: 1, invalidAt: 5 }, { validAt: 5, invalidAt: 9 })).toBe(true)
+    // 严格分离：a 在前且 b 的起点晚于 a 的终点 → 不重叠。
+    expect(preWriteIntervalsOverlap({ validAt: 1, invalidAt: 5 }, { validAt: 6, invalidAt: 9 })).toBe(false)
+    // 对称性：交换两侧结果不变（避免单向夹逼写错）。
+    expect(preWriteIntervalsOverlap({ validAt: 6, invalidAt: 9 }, { validAt: 1, invalidAt: 5 })).toBe(false)
+  })
+
   it("无冲突 → PASS", () => {
     const r = checkCanonPreWrite(
       { newEdges: [edge("n1", { sourceId: "A", predicate: "loves", targetId: "B" })], existingEdges: [] },
