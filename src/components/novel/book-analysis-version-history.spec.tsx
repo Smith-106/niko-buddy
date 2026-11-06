@@ -250,7 +250,10 @@ describe("BookAnalysisVersionHistory", () => {
     await screen.findByText("书05")
     // 切换 project → versions 重取为单版本，page 应钳回第一页
     fsMock.listDirectory.mockResolvedValueOnce([dirNode("book-99")])
-    fsMock.readFile.mockImplementationOnce(async () => metaJson("新书", 999))
+    // 整体替换实现而非 mockImplementationOnce：项目切换后 readFile 可能被调用多次
+    // （effect 重跑 / 重取），一次性实现会在第二次调用时落回上一阶段的
+    // book-(\d+) 实现，解析出「书99」→ findByText("新书") 偶发超时。
+    fsMock.readFile.mockImplementation(async () => metaJson("新书", 999))
     rerender(<BookAnalysisVersionHistory projectPath="E:/Other" />)
     expect(await screen.findByText("新书")).toBeInTheDocument()
     expect(screen.queryByTestId("pagination")).toBeNull()
