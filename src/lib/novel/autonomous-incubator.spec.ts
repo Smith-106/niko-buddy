@@ -467,4 +467,23 @@ describe("Autonomous Novel Incubator（增补：补齐守卫与缺省章数）",
       expect.objectContaining({ chapterCount: 5, cruiseMode: true }),
     )
   })
+  it("unpack 产物是退化形状时 tokenCost 近似不抛错（数字项 / 循环引用）", async () => {
+    // incubatorTokenCost 的 array 分支：非 {profile:string} 项递归自身。
+    // 数字项 → 落到末尾 return 0；循环引用对象 → JSON.stringify 抛错 → catch return 0。
+    // unpackedSkeletons 只在这一处用于遥测，之后不再被消费，故造退化值不影响主链。
+    const cyclic: Record<string, unknown> = { name: "self" }
+    cyclic.self = cyclic
+    mocks.unpackOutlineToChapterFiles.mockResolvedValue([1, cyclic])
+
+    const result = await runAutonomousNovelIncubator({
+      projectPath: "/test/project",
+      idea: "赛博朋克都市中一名被遗忘的机械记忆修复师意外唤醒了神明代码",
+      targetChapters: 5,
+      llmConfig: mockLlmConfig,
+    })
+
+    // 遥测不因退化形状中断，孵化主链照常收敛
+    expect(result.projectPath).toBe("/test/project")
+    expect(mocks.unpackOutlineToChapterFiles).toHaveBeenCalled()
+  })
 })
