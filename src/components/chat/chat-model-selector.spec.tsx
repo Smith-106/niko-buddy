@@ -338,4 +338,19 @@ describe("ChatModelSelector", () => {
     expect(dropdown()).toBeNull()
     spy.mockRestore()
   })
+
+  it("打开下拉后按 Escape 关闭（window keydown 监听）", async () => {
+    mocks.state.providerConfigs = GROUPS
+    renderSelector({ value: "" })
+    openDropdown()
+    await waitFor(() => {
+      expect(dropdown()).not.toBeNull()
+    })
+
+    fireEvent.keyDown(window, { key: "Escape" })
+
+    await waitFor(() => {
+      expect(dropdown()).toBeNull()
+    })
+  })
 })
