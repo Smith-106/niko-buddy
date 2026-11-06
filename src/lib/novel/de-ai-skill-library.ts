@@ -782,10 +782,12 @@ export function deleteProjectDeAiSkill(config: DeAiSkillConfig, skillId: string)
   if (!skillId.startsWith("project:")) return config
   const projectSkills = config.projectSkills.filter((skill) => skill.id !== skillId)
   const next = normalizeDeAiSkillConfig({ ...config, projectSkills })
+  /* v8 ignore start -- 台账 de-ai-skill-library.ts L785-787：normalizeDeAiSkillConfig 保证 default ∈ knownIds，两析取永假 */
   if (next.defaultSkillId === skillId || !getAllDeAiSkills(next).some((skill) => skill.id === next.defaultSkillId)) {
     const fallback = resolveAvailableDeAiSkills(next)[0]
     return normalizeDeAiSkillConfig({ ...next, defaultSkillId: fallback?.id ?? DEFAULT_DE_AI_SKILL_ID })
   }
+  /* v8 ignore stop */
   return next
 }
 

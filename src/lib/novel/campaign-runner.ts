@@ -592,6 +592,7 @@ export async function runAutonomousDraftCampaign(
       // B2 弧结算可观测（P1-6：只发事件，不自动结算）。
       // arcEndChapter 暂无生产来源（传入 null）故默认不触发，仅保留事件形状供后续接线。
       // TODO(B2-arc)：arcEndChapter 来源 + 结算执行。
+      /* v8 ignore start -- 台账 campaign-runner.ts L595-602：arcEndChapter 字面量 null 使守卫恒假，待 TODO(B2-arc) 接入真实边界 */
       if (shouldTriggerArcSettlement(currentChapterNum, null)) {
         onProgress?.({
           stage: "arc-settlement",
@@ -600,6 +601,7 @@ export async function runAutonomousDraftCampaign(
           message: `[第 ${currentChapterNum} 章] 弧边界到达，待结算（当前仅可观测，不自动执行）。`,
         })
       }
+      /* v8 ignore stop */
     } catch (err) {
       const errorMsg = toErrorMessage(err)
       const failedResult: CampaignChapterResult = {

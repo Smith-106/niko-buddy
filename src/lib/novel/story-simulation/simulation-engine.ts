@@ -1182,6 +1182,7 @@ export async function runSimulation(
               usedEventIds.add(usedEventId)
             }
             if (usedIndex !== undefined && state.usedEventIndices) {
+              /* v8 ignore next -- 台账 simulation-engine.ts L1184-1185：分阶段池只产 usedEventId，usedIndex 恒 undefined */
               state.usedEventIndices.add(usedIndex)
             }
             events.push(randomEvent)

@@ -494,6 +494,7 @@ export async function resumeOutlineMultiAgentWorkflow(
     plan: input.plan,
     maxConcurrency,
     runSubAgent: input.runSubAgent,
+    /* v8 ignore next -- 台账 outline-multi-agent-orchestrator.ts L497：runDependencyGraph 只用 runSubAgent，桩体永不执行 */
     runSingleAgentFallback: async () => "",
     mergeResults: input.mergeResults,
     onStatusChange: input.onStatusChange,

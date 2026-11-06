@@ -634,6 +634,7 @@ export async function runDeepChapterGeneration(
     // R1-F2：flush 失败不再裸吞，记 warn 留痕（仍不阻断 run 返回）。
     if (statusMerger) {
       await statusMerger.flush().catch((err: unknown) => {
+        /* v8 ignore next -- 台账 deep-chapter-generation.ts L635-639：legacy 路径 pending 恒空，flush 不抛错 */
         logger.warn("deep-chapter", `status flush failed (manualHandoff): ${toErrorMessage(err)}`)
       })
     }
@@ -833,6 +834,7 @@ export async function runDeepChapterGeneration(
   // R1-F2：同上，失败记 warn 留痕。
   if (statusMerger) {
     await statusMerger.flush().catch((err: unknown) => {
+      /* v8 ignore next -- 台账 deep-chapter-generation.ts L834-838：同上（run-end 侧） */
       logger.warn("deep-chapter", `status flush failed (run-end): ${toErrorMessage(err)}`)
     })
   }

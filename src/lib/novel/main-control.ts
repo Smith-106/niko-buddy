@@ -373,6 +373,7 @@ export async function runMainControlAgent(options: RunMainControlOptions): Promi
       // 表现为「写了永远读不回」且用户无法诊断。
       getFallbackParams: resolveFallbackContext,
       llmConfig: options.llmConfig,
+      /* v8 ignore next -- 台账 main-control.ts L376-377：白名单 12 项不含 read_chat_history/apply_skill，两桩无工具实例调用 */
       getSkillConfig: () => null,
       getChatConversations: () => [],
       getOutlineConversations: () => outlineConversations,

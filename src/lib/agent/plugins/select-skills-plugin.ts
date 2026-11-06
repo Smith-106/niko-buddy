@@ -499,10 +499,12 @@ function topoOrderPlan(plan: { id: string; dependsOn: string[] }[]): string[] {
   // ISS-20260709-051: 判重改 Set O(1)（改前 order.includes 线性扫描 O(n²)），补齐序不变。
   const seenOrder = new Set(order)
   for (const n of plan) {
+    /* v8 ignore start -- 台账 select-skills-plugin.ts L501-506：Kahn 无环输入必访问全部节点，残留补齐 if 永假 */
     if (!seenOrder.has(n.id)) {
       seenOrder.add(n.id)
       order.push(n.id)
     }
+    /* v8 ignore stop */
   }
   return order
 }

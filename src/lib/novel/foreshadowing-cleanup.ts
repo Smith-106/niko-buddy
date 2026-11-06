@@ -400,6 +400,7 @@ function applyMergeIssue(
   canonicalId: string,
 ): ForeshadowingStore {
   if (issue.kind !== "duplicate") {
+    /* v8 ignore next -- 台账 foreshadowing-cleanup.ts L402-403：调用方已做相同校验并先抛错，私有守卫 throw 侧不可达 */
     throw new Error(`applyMergeIssue expects duplicate, got ${issue.kind}`)
   }
   const canonical = store.items.find((f) => f.id === canonicalId)

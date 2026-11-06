@@ -434,6 +434,7 @@ async function loadBlueprintForGate(projectPath: string) {
     const { loadWorldBlueprint } = await import("./world-blueprint")
     return await loadWorldBlueprint(projectPath)
   } catch {
+    /* v8 ignore next -- 台账 director-auto-advance.ts L437-438：import 恒成功 + loadWorldBlueprint 内部自兜底，外层 catch 不可达 */
     return null
   }
 }
