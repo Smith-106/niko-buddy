@@ -168,6 +168,7 @@ function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | 
   const [saving, setSaving] = useState(false)
 
   async function persistWritingConfig(nextConfig: ReturnType<typeof normalizeUserSkillConfig>, nextSkillId: string | null) {
+    /* v8 ignore next -- 台账 unified-skill-library-view.tsx L171：persistWritingConfig —— 调用方 handler 已先查 !project||saving（第二道防线） */
     if (!project || saving) return
     setSaving(true)
     try {
@@ -184,6 +185,7 @@ function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | 
   }
 
   async function persistDeAiConfig(nextConfig: ReturnType<typeof normalizeDeAiSkillConfig>, nextSkillId: string) {
+    /* v8 ignore next -- 台账 unified-skill-library-view.tsx L187：persistDeAiConfig —— 同上 */
     if (!project || saving) return
     setSaving(true)
     try {
@@ -200,6 +202,7 @@ function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | 
   }
 
   async function handleCreateDeAiSkill() {
+    /* v8 ignore next -- 台账 unified-skill-library-view.tsx L203：handleCreateDeAiSkill —— 与按钮 disabled={disabled}（=!project||saving）逐字等价 */
     if (!project || saving) return
     const config = await loadDeAiSkillConfig(project.path)
     const now = Date.now()
@@ -208,6 +211,7 @@ function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | 
   }
 
   async function handleImportDeAiSkillFile() {
+    /* v8 ignore next -- 台账 unified-skill-library-view.tsx L211：handleImportDeAiSkillFile —— 同上 */
     if (!project || saving) return
     try {
       const selected = await open({
@@ -234,6 +238,7 @@ function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | 
   }
 
   async function handleCreateWritingSkill() {
+    /* v8 ignore next -- 台账 unified-skill-library-view.tsx L237：handleCreateWritingSkill —— 同上 */
     if (!project || saving) return
     const config = await loadUserSkillConfig(project.path)
     const next = createBlankWritingSkill(config)
@@ -241,6 +246,7 @@ function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | 
   }
 
   async function handleImportWritingSkill() {
+    /* v8 ignore next -- 台账 unified-skill-library-view.tsx L244：handleImportWritingSkill —— 同上 */
     if (!project || saving) return
     try {
       const selected = await open({
