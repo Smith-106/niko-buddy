@@ -338,4 +338,24 @@ describe("CanonRevisionViewer statements 补齐（s6-execute-statements）", () 
     expect(queryCanonEdgesMock.mock.calls.length).toBe(callsBefore)
     expect(screen.getByTestId("diff-rev-b")).toHaveValue("2")
   })
+
+  it("B 选基线（空值）→ clamp 回退到最大 revision，diff 区间不变", async () => {
+    getCanonRevisionMock.mockResolvedValue(3)
+    mockEdgesByLimit(fullEdges, fullEdges)
+    render(<CanonRevisionViewer projectId={PROJECT_ID} />)
+    await waitFor(() => expect(screen.getByTestId("revision-group-3")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId("revision-compare-toggle"))
+    await waitFor(() => expect(screen.getByTestId("diff-summary")).toBeInTheDocument())
+    const before = screen.getByTestId("diff-summary").textContent
+
+    // 选空项 → setRevB(null) → useMemo 内 b == null 分支回退 revs[last]
+    fireEvent.change(screen.getByTestId("diff-rev-b"), { target: { value: "" } })
+
+    // clamp 生效后 B 被归一化到一个合法 revision（非空），diff 内容与默认一致
+    await waitFor(() => expect(screen.getByTestId("diff-summary").textContent).toBe(before))
+    const clamped = (screen.getByTestId("diff-rev-b") as HTMLSelectElement).value
+    expect(clamped).not.toBe("")
+    expect(["1", "2", "3"]).toContain(clamped)
+  })
 })

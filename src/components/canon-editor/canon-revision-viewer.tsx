@@ -159,6 +159,7 @@ export function CanonRevisionViewer({
     let b = revB
     if (b == null || !revs.includes(b)) b = revs[revs.length - 1]
     let a = revA
+    /* v8 ignore next -- 台账 canon-revision-viewer.tsx L162：revA 非空时必属于 revs。revA 只有两个来源：(a) A 下拉，其选项恰为 revs 且 onChange 把 "" 映射为 null，故非空值必 ∈ revs；(b) diffLoad 用与 setAllEdges 同一份 e 算出的 distinctRecordedRevisions 赋值。没有任何路径能在不重置 revA 的前提下改变 revs，故 a != null && !revs.includes(a) 恒 false */
     if (a != null && !revs.includes(a)) a = null
     if (a != null && b != null && a >= b) a = null
     const snapshotA = asOfSnapshot(allEdges, a)
