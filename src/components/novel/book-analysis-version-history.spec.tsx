@@ -238,7 +238,7 @@ describe("BookAnalysisVersionHistory", () => {
 
   it("resets page to 0 when versions change (75-77 行）", async () => {
     const nodes = Array.from({ length: 25 }, (_, i) => dirNode(`book-${String(i + 1).padStart(2, "0")}`))
-    fsMock.listDirectory.mockResolvedValueOnce(nodes)
+    fsMock.listDirectory.mockResolvedValue(nodes)
     fsMock.readFile.mockImplementation(async (p: string) => {
       const m = p.match(/book-(\d+)/)
       const n = m ? Number(m[1]) : 0
@@ -247,12 +247,15 @@ describe("BookAnalysisVersionHistory", () => {
     const { rerender } = render(<BookAnalysisVersionHistory projectPath="E:/Novel" />)
     await screen.findByText("书25")
     fireEvent.click(screen.getByTestId("pagination-next"))
-    await screen.findByText("书05")
+    // setPage 是 act 内的同步重渲染，不需要轮询：用同步 getByText 而不是 findByText，
+    // 避免在覆盖率插桩 + 并发负载下被 RTL 的 1000ms 轮询预算误伤（隔离跑 30ms，
+    // 全量跑会涨到 1030ms 而超时）。
+    expect(screen.getByText("书05")).toBeInTheDocument()
     // 切换 project → versions 重取为单版本，page 应钳回第一页
-    fsMock.listDirectory.mockResolvedValueOnce([dirNode("book-99")])
-    // 整体替换实现而非 mockImplementationOnce：项目切换后 readFile 可能被调用多次
-    // （effect 重跑 / 重取），一次性实现会在第二次调用时落回上一阶段的
-    // book-(\d+) 实现，解析出「书99」→ findByText("新书") 偶发超时。
+    fsMock.listDirectory.mockResolvedValue([dirNode("book-99")])
+    // 两处都用持久实现而非 *Once：项目切换后 effect 会重跑，listDirectory / readFile
+    // 都可能被调用不止一次。一次性实现会在第二次调用时落回上一阶段（或 beforeEach
+    // 的默认空实现），于是 versions 变空、「新书」永不出现 → 偶发超时。
     fsMock.readFile.mockImplementation(async () => metaJson("新书", 999))
     rerender(<BookAnalysisVersionHistory projectPath="E:/Other" />)
     expect(await screen.findByText("新书")).toBeInTheDocument()
