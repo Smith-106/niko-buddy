@@ -507,6 +507,7 @@ export function DiagnosticsCenterView() {
 
   const handleRecover = useCallback(
     async (itemId: string, actionId: string) => {
+      /* v8 ignore next -- 台账 diagnostics-center.tsx：handleRecover 的守卫是渲染前提：wrapper 在 !report 时提前返回 loading 态（L578-583），内层组件不会挂载；recovering 侧被恢复按钮的 disabled={recovering !== null}（L168）提前挡住 */
       if (!report || recovering) return
       const action = report.items.find((i) => i.id === itemId)?.recoveries.find((a) => a.id === actionId)
       if (!action?.run) return
@@ -533,6 +534,7 @@ export function DiagnosticsCenterView() {
   )
 
   const handlePreviewBundle = useCallback(async () => {
+    /* v8 ignore next -- 台账 diagnostics-center.tsx：handlePreviewBundle 的守卫是渲染前提：wrapper 在 !projectPath（L569）与 !report（L578）时各自提前返回，内层组件的按钮在两种情况下都不存在 */
     if (!report || !projectPath) return
     const st = await loadNovelSessionStatus(projectPath).catch(() => null)
     const bundle = buildDiagnosticBundle({
@@ -552,6 +554,7 @@ export function DiagnosticsCenterView() {
   }, [report, projectPath, historyView.length])
 
   const handleExportBundle = useCallback(async () => {
+    /* v8 ignore next -- 台账 diagnostics-center.tsx：handleExportBundle 的守卫是渲染前提：导出按钮位于 {!preview ? … : …} 的 else 分支内（L301 起），只有 bundlePreview 非空时才渲染 */
     if (!bundlePreview) return
     const out = await save({
       defaultPath: "diagnostic-bundle.json",

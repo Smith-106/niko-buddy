@@ -546,6 +546,14 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | 532-533 | `第二章` / `第三章` 的 `return 2` / `return 3` | **被上游同义正则遮蔽**：L524 的 `/第\s*([123一二三两])\s*章/g` 是 `/第二章\|第\s*二\s*章/` 与 `/第三章\|第\s*三\s*章/` 的超集，用同一个 `isNegatedBefore` 逐处判否定，并在首个非否定匹配处 `return`。故 L532/L533 的模式若存在非否定匹配，L524 早已返回；能走到这里的第二章/第三章必然全被否定，条件恒 false（实测 `if` 条件覆盖 29 次、`return` 表达式 0 次） |
 | 549 | `if (!raw) continue` | `CHAPTER_NUMBER_PATTERNS` 的 4 个模式全部带且仅带一个捕获组，量词均为 `+`（`\d+` 或中文数字字符类 `+`），故 `match[1]` 恒为非空字符串 |
 
+### components/novel/diagnostics-center.tsx（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 510 | `handleRecover` 的 `if (!report \|\| recovering) return` | **渲染前提**：wrapper 在 `!report` 时提前返回 loading 态（L578-583），内层组件不挂载；`recovering` 侧被恢复按钮 `disabled={recovering !== null}`（L168）提前挡住 |
+| 536 | `handlePreviewBundle` 的 `if (!report \|\| !projectPath) return` | **渲染前提**：wrapper 在 `!projectPath`（L569）与 `!report`（L578）时各自提前返回，按钮在两种情况下都不存在 |
+| 555 | `handleExportBundle` 的 `if (!bundlePreview) return` | **渲染前提**：导出按钮位于 `{!preview ? … : …}` 的 else 分支内（L301 起），只有 `bundlePreview` 非空时才渲染 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。
