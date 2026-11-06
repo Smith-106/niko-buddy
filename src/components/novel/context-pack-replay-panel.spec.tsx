@@ -114,4 +114,19 @@ describe("ContextPackReplayPanel (render + interaction)", () => {
     expect(pre).toHaveClass("break-words")
     expect(pre!.textContent!.length).toBeGreaterThan(0)
   })
+
+  it("gaps 非空时渲染缺口列表；非字符串字段被安全字符串化", () => {
+    // asText 的 String(value) 兵底：pack 字段若为数字（脏数据/旧数据）不得报错
+    const p = pack({
+      gaps: [
+        { type: "truncated", reason: "budget", ref: "wiki/setting", retainedLength: 10, originalLength: 99 },
+      ],
+      // searchResults 是 scalar 源（走 asText），且不在 consistencyCore（那里直接调 .trim()）
+      searchResults: 42,
+    } as never)
+    render(<ContextPackReplayPanel pack={p} />)
+
+    expect(screen.getByTestId("context-pack-replay-panel")).toBeTruthy()
+    expect(screen.getByText(/retained 10\/99/)).toBeTruthy()
+  })
 })

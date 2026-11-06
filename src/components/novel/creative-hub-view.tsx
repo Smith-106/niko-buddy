@@ -77,6 +77,7 @@ function verdictTone(verdict: DoctorVerdict): ReportTone {
 
 function findingTone(severity: string): ReportTone {
   if (severity === "error" || severity === "warn" || severity === "ok") return severity
+  /* v8 ignore next -- 台账 creative-hub-view.tsx L80：findingTone 的唯一调用点（L325）位于 problems.map 内，而 problems 在 L219 已把 findings 过滤为 severity === "error" || "warn"，故 severity 只可能是 error/warn，neutral 分支不可达 */
   return "neutral"
 }
 

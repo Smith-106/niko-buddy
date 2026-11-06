@@ -24,6 +24,12 @@ const mocks = vi.hoisted(() => ({
   createDirectory: vi.fn(),
 }))
 
+vi.mock("@/lib/novel/doctor", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/doctor")>()
+  // 默认委派真实实现；单个用例可用 mockResolvedValueOnce 覆盖
+  return { ...actual, runProjectDoctor: vi.fn(actual.runProjectDoctor) }
+})
+
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
   return {
@@ -161,6 +167,18 @@ describe("CreativeHubView", () => {
     expect(next[0]?.textContent).toContain("依据")
     expect(screen.queryByTestId("creative-empty")).toBeNull()
     expect(screen.getByTestId("creative-hub-view")).toBeTruthy()
+  })
+
+  it("verdict healthy → 诊断区块走 ok 色调分支", async () => {
+    const { runProjectDoctor } = await import("@/lib/novel/doctor")
+    vi.mocked(runProjectDoctor).mockResolvedValueOnce({
+      verdict: "healthy",
+      findings: [],
+    } as never)
+    routeFiles({ meta: true, status: true })
+    render(<CreativeHubView projectPath={PROJECT} />)
+    const diagnosis = await screen.findByTestId("creative-diagnosis")
+    expect(diagnosis.textContent).toContain("healthy")
   })
 
   it("未初始化零数据 → 诚实空态＋补全项目资料建议", async () => {

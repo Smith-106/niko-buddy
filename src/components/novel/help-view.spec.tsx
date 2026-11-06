@@ -57,4 +57,12 @@ describe("HelpView", () => {
     expect(hit[0]?.id).toBe("ops")
     expect(filterHelpSections(HELP_SECTIONS, "不存在的关键词xyz")).toHaveLength(0)
   })
+
+  it("命中分区标题时整节保留（不裁剪 items）", () => {
+    // 既有用例的 MCP 是靠条目正文命中的；这里专门走标题命中分支
+    const hit = filterHelpSections(HELP_SECTIONS, "导航")
+    expect(hit).toHaveLength(1)
+    expect(hit[0]?.id).toBe("nav")
+    expect(hit[0]?.items).toEqual(HELP_SECTIONS[0]?.items)
+  })
 })
