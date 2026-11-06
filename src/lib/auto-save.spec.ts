@@ -325,3 +325,16 @@ describe("flushAutoSave / pagehide 兜底", () => {
     expect(mocks.saveChatHistory).toHaveBeenCalledWith("E:/Novel", [{ id: "c1" }], [{ id: "m1" }], 50)
   })
 })
+
+describe("flushAutoSave 崩溃兜底", () => {
+  it("review 与 chat 两处保存都失败 → 各自记录且不抛出", async () => {
+    mocks.getProject.mockReturnValue({ path: "E:/Novel" })
+    mocks.saveReviewItems.mockRejectedValue(new Error("review boom"))
+    mocks.saveChatHistory.mockRejectedValue(new Error("chat boom"))
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    await expect(flushAutoSave()).resolves.toBeUndefined()
+    expect(errorSpy).toHaveBeenCalledTimes(2)
+    errorSpy.mockRestore()
+  })
+})

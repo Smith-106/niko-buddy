@@ -331,3 +331,30 @@ test("getRelatedNodes omits zero-relevance nodes and honors the default limit", 
   const related = getRelatedNodes("a", graph)
   expect(related).toHaveLength(1)
 })
+
+test("YAML 坏但块式 sources 仍被 regex 兜住；无 title 时标题回退到 H1", async () => {
+  // title 的引号未闭合 → js-yaml 两次都失败 → frontmatter 为 null，
+  // 于是走 parseFrontmatter 里的 regex 容错分支（块式 sources + H1 标题回退）。
+  mockedListDirectory.mockResolvedValue([
+    { name: "Broken.md", path: "/P/wiki/Broken.md", is_dir: false },
+  ])
+  mockedReadFile.mockImplementation(
+    async () => '---\ntitle: "unclosed\nsources:\n  - src-alpha\n  - "src beta"\n---\n# 破碎标题\n',
+  )
+
+  const graph = await buildRetrievalGraph("/P", 3)
+  const broken = [...graph.nodes.values()].find((n) => n.id === "Broken")!
+  expect(broken.sources).toEqual(["src-alpha", "src beta"])
+  expect(broken.title).toBe("破碎标题")
+})
+
+test("有 frontmatter 但无 title → 标题回退到正文 H1", async () => {
+  mockedListDirectory.mockResolvedValue([
+    { name: "H1.md", path: "/P/wiki/H1.md", is_dir: false },
+  ])
+  mockedReadFile.mockImplementation(async () => "---\ntype: entity\n---\n# 标题来自 H1\n")
+
+  const graph = await buildRetrievalGraph("/P", 3)
+  const n = [...graph.nodes.values()].find((x) => x.id === "H1")!
+  expect(n.title).toBe("标题来自 H1")
+})

@@ -158,6 +158,7 @@ function extractRelationLinks(content: string): Array<{ target: string; relation
 function resolveNodeTitle(content: string, fileName: string, fmTitle: string): string {
   if (fmTitle.trim()) return fmTitle.trim()
   const headingMatch = content.match(/^#\s+(.+)$/m)
+  /* v8 ignore next -- 台账 graph-relevance.ts L161：调用方 parseFrontmatter（L115-118）已用同一正则 /^#\s+(.+)$/m 在同一 content 上预算过标题，H1 存在时 fm.title 必非空、L159 已早退；无 H1 时 headingMatch 必为 null。故该分支不可达 */
   if (headingMatch) return headingMatch[1].trim()
   return fileName.replace(/\.md$/, "").replace(/-/g, " ")
 }

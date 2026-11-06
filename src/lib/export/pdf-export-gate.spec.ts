@@ -281,3 +281,17 @@ describe("PDF 导出确认门 + 导出历史（门禁 1/5/6/7/9）", () => {
     expect(await markExportHistorySourceMissing({ projectPath: PROJECT, chapterPath: "QM/chapters/other.md" })).toBe(0)
   })
 })
+
+describe("历史文件损坏/空历史", () => {
+  it("entries 非数组 → 视为空历史，不抛错", async () => {
+    fsState.fileMap.set(exportHistoryPath(PROJECT), JSON.stringify({ entries: "oops" }))
+    expect(await loadPdfExportHistory(PROJECT)).toEqual([])
+  })
+
+  it("空历史 → markExportHistorySourceMissing 直接返回 0", async () => {
+    fsState.fileMap.delete(exportHistoryPath(PROJECT))
+    expect(
+      await markExportHistorySourceMissing({ projectPath: PROJECT, chapterPath: "QM/chapters/other.md" }),
+    ).toBe(0)
+  })
+})
