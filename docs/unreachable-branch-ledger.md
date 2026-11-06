@@ -395,6 +395,30 @@
 | 168 | `m === 0` → 0 | `splitParagraphs`(L134) 以 `.filter(p => p.length > 0)` 过滤空段 → `lengths` 全 > 0 → 均值恒 > 0 |
 | 174 | `total === 0` → 0 | 唯一调用点 L462 传 `sentences.length`，而 L440 `sentences.length < 8` 已提前返回 |
 
+### lib/novel/book-rules.ts（补充论证 2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 125-130 | `if (policy.pairing)` 内的配对检查块 | `pairing` 类型允许 `[string,string]`，但**全仓唯一赋值点是 L77 的 `null`**（`grep -rn "pairing:" src/` 只命中类型声明与默认值）；注释亦记「未配置配对时不判定（由 fanfic-canon-import 的 merge proposal 提供 pairing）」。待该 proposal 落地即自然可达 |
+
+
+### components/skill-library/writing-skill-sidebar-panel.tsx（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 123-125 | `persist` `!project` | **第二道防线**：两个调用方 `handleCreateSkill`/`handleImportSkill` 已先查 project |
+| 150 | `handleCreateSkill` `!config \|\| !project \|\| saving` | 与按钮 `disabled={!config \|\| !project \|\| saving}`（L368）**逐字等价** |
+| 163 | `handleImportSkill` 同条件 | 与按钮 disabled（L376）**逐字等价** |
+
+
+### components/novel/story-simulation/simulation-report-view.tsx（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 59 | `catch { return dateStr }` | `new Date(str)` 对任意字符串都不抛；Invalid Date 的 `toLocaleString` 返回 `"Invalid Date"` 而非抛错 |
+| 92 / 215 | `if (typeof parsed === "string") return parsed.trim()` | 入参已被 `startsWith("[") && endsWith("]")` 约束，`JSON.parse` 不可能返回原始字符串（JSON 字符串字面量必以引号开头） |
+| 175 / 200 | `onlyInB.has(...)` | **集合补集 vs 遍历源**：`onlyInB` 定义为「在 compareReport 而不在 report」，而调用点 L326/L374 遍历的正是 `report.characterAnalyses` / `report.branches` → 参数必属 report，恒不命中 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

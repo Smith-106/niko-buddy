@@ -56,6 +56,7 @@ function formatDate(dateStr: string): string {
     const d = new Date(dateStr)
     return d.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
   } catch {
+    /* v8 ignore next -- 台账 simulation-report-view.tsx L59：catch 分支：new Date(str) 对任意字符串都不抛，Invalid Date 的 toLocaleString 返回 "Invalid Date" 而非抛错 */
     return dateStr
   }
 }
@@ -89,6 +90,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
         (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
       try {
         const parsed = JSON.parse(trimmed)
+        /* v8 ignore next -- 台账 simulation-report-view.tsx L92：typeof parsed === "string"：入参已被 L89 约束为以 [ 开头且以 ] 结尾，JSON.parse 不可能返回原始字符串（JSON 字符串字面量必以引号开头） */
         if (typeof parsed === "string") return parsed.trim()
         if (typeof parsed === "object" && parsed !== null) {
           const obj = parsed as Record<string, unknown>
@@ -170,6 +172,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
   const getCharHighlightClass = (name: string): string => {
     if (!characterDiff) return ""
     if (characterDiff.onlyInA.has(name)) return "bg-success-success/40"
+    /* v8 ignore next -- 台账 simulation-report-view.tsx L175：onlyInB 是「在 compareReport 而不在 report」的补集，而调用点 L326 遍历的正是 report.characterAnalyses → name 必属 report，恒不命中 */
     if (characterDiff.onlyInB.has(name)) return "bg-destructive dark:bg-destructive/40"
     if (characterDiff.scoreDiff.has(name)) return "bg-warning dark:bg-warning/40"
     return ""
@@ -195,6 +198,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
   const getBranchHighlightClass = (title: string): string => {
     if (!branchDiff) return ""
     if (branchDiff.onlyInA.has(title)) return "bg-success-success/40"
+    /* v8 ignore next -- 台账 simulation-report-view.tsx L200：同理：onlyInB 为 report.branches 的补集，调用点 L374 遍历 report.branches → title 必属 report，恒不命中 */
     if (branchDiff.onlyInB.has(title)) return "bg-destructive dark:bg-destructive/40"
     if (branchDiff.probDiff.has(title)) return "bg-warning dark:bg-warning/40"
     return ""
@@ -212,6 +216,7 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
           (compareRec.startsWith("[") && compareRec.endsWith("]"))) {
         try {
           const parsed = JSON.parse(compareRec)
+          /* v8 ignore next -- 台账 simulation-report-view.tsx L215：同上（compareRec 分支，L212 同样的 [] 约束） */
           if (typeof parsed === "string") return parsed.trim()
           if (typeof parsed === "object" && parsed !== null) {
             const obj = parsed as Record<string, unknown>

@@ -122,6 +122,7 @@ export function validateFanficChapter(
 
   if (policy.mode === "cp") {
     // 未配置配对时不判定（由 fanfic-canon-import 的 merge proposal 提供 pairing）
+    /* v8 ignore next -- 台账 book-rules.ts L126-130：policy.pairing 全仓唯一赋值点是 L77 的 null（类型允许 [string,string] 但无生产写入方），注释亦记「未配置配对时不判定」 */
     if (policy.pairing) {
       const [a, b] = policy.pairing
       const hasA = appearingNames.some((n) => n.includes(a) || a.includes(n))

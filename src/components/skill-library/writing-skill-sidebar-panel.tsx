@@ -120,6 +120,7 @@ export function WritingSkillLibrarySidebarPanel() {
   }
 
   async function persist(nextConfig: UserSkillConfig, nextSelectedSkillId: string | null) {
+    /* v8 ignore next -- 台账 writing-skill-sidebar-panel.tsx L124-125：persist 的 !project 为第二道防线，两个调用方 handleCreateSkill/handleImportSkill 已先查 project */
     if (!project) {
       setMessage("请先打开项目")
       return
@@ -147,6 +148,7 @@ export function WritingSkillLibrarySidebarPanel() {
   }
 
   async function handleCreateSkill() {
+    /* v8 ignore next -- 台账 writing-skill-sidebar-panel.tsx L150：与按钮 disabled={!config || !project || saving}（L368）逐字等价 */
     if (!config || !project || saving) return
     if (draftDirty && !confirmDiscardSkillLibraryDraft()) return
     if (draftDirty) setDraftDirty(false)
@@ -160,6 +162,7 @@ export function WritingSkillLibrarySidebarPanel() {
   }
 
   async function handleImportSkill() {
+    /* v8 ignore next -- 台账 writing-skill-sidebar-panel.tsx L163：与按钮 disabled={!config || !project || saving}（L376）逐字等价 */
     if (!config || !project || saving) return
     if (draftDirty && !confirmDiscardSkillLibraryDraft()) return
     if (draftDirty) setDraftDirty(false)
