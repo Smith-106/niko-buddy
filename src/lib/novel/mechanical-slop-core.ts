@@ -261,6 +261,7 @@ export function countOccurrences(haystack: string, needle: string): number {
 
 /** 统计某词在文本中的所有出现位置（字符索引，供同型短窗连击聚类）。 */
 function occurrencePositions(haystack: string, needle: string): number[] {
+  /* v8 ignore next -- 台账 mechanical-slop-core.ts L264：occurrencePositions 的空 needle 守卫 —— 唯一调用点 L294 只喂 TIER1_BANNED / TIER2_SUSPICIOUS（两者全为字面中文词，无空串）或 []（循环体不执行） */
   if (!needle) return []
   const positions: number[] = []
   let idx = haystack.indexOf(needle)
@@ -279,6 +280,7 @@ function regexOccurrencePositions(text: string, pattern: RegExp): number[] {
   let guard = 0
   while ((m = re.exec(text)) !== null && guard++ < 1000) {
     positions.push(m.index)
+    /* v8 ignore next -- 台账 mechanical-slop-core.ts L282：regexOccurrencePositions 的零宽推进守卫 —— 唯一调用点 L295 只喂 TIER3_FILLER，该数组每条正则都含至少一个字面字符，无法匹配空串，故 m.index === re.lastIndex 永不成立 */
     if (m.index === re.lastIndex) re.lastIndex++
   }
   return positions
@@ -410,6 +412,7 @@ export function slopScore(rawText: string): SlopReport {
 let penalty: number
   if (RAW_COUNT_FALLBACK) {
     // 旧裸计数制 (A/B 比对 / 发版降级)。
+    /* v8 ignore next -- 台账 mechanical-slop-core.ts L413：RAW_COUNT_FALLBACK 是 `export const ... = false`（L165）编译期常量，全仓无 spec / 运行时消费者可改写，故本分支恒不执行；保留是刻意的 A/B 回退与发版降级开关 */
     penalty =
       tier1Count * RAW_COUNT_WEIGHTS.tier1 +
       tier2Count * RAW_COUNT_WEIGHTS.tier2 +

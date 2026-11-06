@@ -494,6 +494,14 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 2. 放宽 p1-dedup-016 护栏（改 `v8 ignore` 白名单）—— 削弱既有安全护栏，需批准；
 3. 接受 statements 天花板 99.58%（= (74249-310)/74249）。
 
+### lib/novel/mechanical-slop-core.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 264 | `occurrencePositions` 的 `if (!needle) return []` | 唯一调用点 L294 只喂 `TIER1_BANNED` / `TIER2_SUSPICIOUS`（两者全为字面中文词，实测 `""` 出现 0 次）或 `[]`（循环体不执行） |
+| 282 | `regexOccurrencePositions` 的 `if (m.index === re.lastIndex) re.lastIndex++` | 唯一调用点 L295 只喂 `TIER3_FILLER`，该数组每条正则都含至少一个字面字符，无法匹配空串，故零宽推进永不触发 |
+| 413 | `if (RAW_COUNT_FALLBACK)` 分支内的 `penalty = ...` | `RAW_COUNT_FALLBACK` 是 `export const ... = false`（L165）**编译期常量**，全仓无 spec / 运行时消费者可改写；保留是刻意的 A/B 回退与发版降级开关 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。
