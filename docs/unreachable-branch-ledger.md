@@ -463,6 +463,37 @@
 | 233 | `() => null as unknown as CognitionState`（`createAtomicJsonStore` 的 emptyCtor） | **死工厂**：同处传入 `onMissing:"null"` + `onCorrupt:"throw"`；projection-store 的 load 在缺文件 / 空文件时 `return null as T`、解析损坏时 throw，三条路径都不落到 `emptyCtor()` |
 | 574-575 | `buildPovCognition` 函数体 | **已补测**：导出函数此前从未被调用。spec 用部分 mock 只替换 `canon-graph-client` 的 `getFactsKnownBy`，断言取数实参 `(proj, pov, chapter, true)` 与 `fromCanonGraph` 的投影结果 |
 
+### lib/novel/deep-chapter-review-repair.ts L253-275（2026-11-06 结构性不可达，已坐实）
+
+**结论：stage-5.5「返修后复审」块（L253-275，7 条语句）结构性不可达。**
+
+控制流证明（`novelConfig.deepChapterReview === true` 是进入 L253 的必要条件）：
+
+| 路径 | 条件 | gates 结果 |
+|------|------|-----------|
+| A | `!hasCheckpointReview(cp)` → L195 进 else（因 deepChapterReview 为真）| L213 `buildDecisionGates(...)` → **非 pending** |
+| B | `hasCheckpointReview(cp)` 且 gates 为 pending | L241-242 重算 `buildDecisionGates(...)` → **非 pending** |
+| C | `hasCheckpointReview(cp)` 且 gates 非 pending | 保持 → **非 pending** |
+
+关键事实：`resolveOverallVerdict`（deep-chapter-decision-gates.ts L165-187）只返回
+`manual_review` / `fail` / `warning` / `pass`，**永不返回 `pending`**。故三条路径穷尽后
+L253 的 `decisionGates.overall === "pending"` 恒为假。
+
+**既有行为锁已记录同一事实**：`deep-chapter-review-repair.spec.ts` L240-270 的用例名即
+「after_revision 检查点且门控为 pending：门控先按 findings 重建，不再重复调用阶段5.5 复审」，
+并断言 `thinking.join("
+")).not.toContain("阶段5.5")` —— 即使传 `emptyDecisionGates()`
+（pending）也进不去该块。
+
+**为什么不能标注**：`p1-dedup-016-stage55.spec.ts`（ISS-20260708-016 回归护栏）断言
+「阶段5.5：返修后复审」前 6 行（L249-254）不得含 `v8 ignore`。该护栏本身是**同义反复**
+（只对两个字面量断言 `true && "pending" === "pending"`，从不调用生产函数），并不构成可达性证明。
+
+**因此 statements 100% 在保留该死分支 + 保留该护栏的前提下不可达。** 三条出路都需人工决策：
+1. 删除死分支（须同步删改 L240-270 行为锁与 p1-dedup-016 护栏）—— 改动生产代码，需批准；
+2. 放宽 p1-dedup-016 护栏（改 `v8 ignore` 白名单）—— 削弱既有安全护栏，需批准；
+3. 接受 statements 天花板 99.58%（= (74249-310)/74249）。
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。
