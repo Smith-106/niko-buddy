@@ -419,6 +419,12 @@
 | 92 / 215 | `if (typeof parsed === "string") return parsed.trim()` | 入参已被 `startsWith("[") && endsWith("]")` 约束，`JSON.parse` 不可能返回原始字符串（JSON 字符串字面量必以引号开头） |
 | 175 / 200 | `onlyInB.has(...)` | **集合补集 vs 遍历源**：`onlyInB` 定义为「在 compareReport 而不在 report」，而调用点 L326/L374 遍历的正是 `report.characterAnalyses` / `report.branches` → 参数必属 report，恒不命中 |
 
+### components/novel/corkboard-view.tsx（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 198 / 204 / 236 | `handleOpenChapter` / `handleCreateScene` / `handleDeleteChapter` 的 `if (!project) return` | **渲染前提**：组件在 L258 `if (!project) return null`，无 project 时整个渲染树不存在。注：同形的 L179 是 `useEffect`（project 为 null 时确实跑过）故已覆盖——该结论只适用于渲染树内 handler |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

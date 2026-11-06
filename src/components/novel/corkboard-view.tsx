@@ -195,12 +195,14 @@ export function CorkboardView() {
   const refresh = useCallback(() => setLocalVersion((v) => v + 1), [])
 
   const handleOpenChapter = useCallback(async (chapterNumber: number) => {
+    /* v8 ignore next -- 台账 corkboard-view.tsx L198（handleOpenChapter）：组件在 L258 `if (!project) return null` 提前返回，无 project 时整个渲染树不存在。注：同形 L179 是 useEffect（project 为 null 时确实跑过）故已覆盖 */
     if (!project) return
     const path = await findChapterFileByNumber(project.path, chapterNumber)
     if (path) setSelectedFile(path)
   }, [project, setSelectedFile])
 
   const handleCreateScene = useCallback(async () => {
+    /* v8 ignore next -- 台账 corkboard-view.tsx L204（handleCreateScene）：组件在 L258 `if (!project) return null` 提前返回，无 project 时整个渲染树不存在。注：同形 L179 是 useEffect（project 为 null 时确实跑过）故已覆盖 */
     if (!project) return
     setBusyChapter(-1)
     setNotice(null)
@@ -233,6 +235,7 @@ export function CorkboardView() {
   }, [project, refresh, t])
 
   const handleDeleteChapter = useCallback(async (chapterNumber: number) => {
+    /* v8 ignore next -- 台账 corkboard-view.tsx L236（handleDeleteChapter）：组件在 L258 `if (!project) return null` 提前返回，无 project 时整个渲染树不存在。注：同形 L179 是 useEffect（project 为 null 时确实跑过）故已覆盖 */
     if (!project) return
     setBusyChapter(chapterNumber)
     setNotice(null)
