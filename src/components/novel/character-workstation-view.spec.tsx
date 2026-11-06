@@ -217,4 +217,21 @@ describe("CharacterWorkstationView · 分支补齐", () => {
     fireEvent.keyDown(screen.getByTestId("workstation-tab-char-linjing"), { key: "Enter" })
     expect(onActiveChange).not.toHaveBeenCalled()
   })
+
+  it("受控传入未知角色 id：← 仍能定位到工位（currentIdx < 0 分支）", () => {
+    const onActiveChange = vi.fn()
+    render(
+      <CharacterWorkstationView
+        characters={characters}
+        activeCharacterId="ghost"
+        onActiveCharacterChange={onActiveChange}
+      />,
+    )
+    // effectiveActiveId 回退首个角色，但 moveFocus 用的是原始 activeId（ghost）
+    // → tabs.findIndex 为 -1 → 走 currentIdx < 0 分支（delta < 0 取末项）
+    const activeTab = screen.getByTestId("workstation-tab-char-linjing")
+    activeTab.focus()
+    fireEvent.keyDown(activeTab, { key: "ArrowLeft" })
+    expect(onActiveChange).toHaveBeenCalledWith("char-gu")
+  })
 })

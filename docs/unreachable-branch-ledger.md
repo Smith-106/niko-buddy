@@ -525,6 +525,13 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | 160 | `if (b == null \|\| !revs.includes(b)) b = revs[revs.length - 1]` | **已补测**：B 下拉选空项（`onChange` 把 `""` 映射为 `null`）→ clamp 回退最大 revision |
 | 162 | `if (a != null && !revs.includes(a)) a = null` | `revA` 非空时必属于 `revs`。两个来源：(a) A 下拉，选项恰为 `revs` 且 `onChange` 把 `""` 映射为 `null`；(b) `diffLoad` 用与 `setAllEdges` 同一份 `e` 算出的 `distinctRecordedRevisions`。无路径能在不重置 `revA` 的前提下改变 `revs` |
 
+### components/novel/character-workstation-view.tsx（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 111 | `handleDraft` 的 `if (!activeCharacter) return` | **渲染前提**：`effectiveActiveId` 在 `characters` 非空时必回退 `firstId`（L100-101），故 `activeCharacter` 非空；`characters` 为空时既不渲染 textarea（L320）也无草稿编辑入口，`onDraftChange` 无从触发 |
+| 201 | `moveFocus` 的 `else if (currentIdx < 0)` | **已补测**：受控传入未知 `activeCharacterId` 时 `activeId` 仍是该未知 id（`effectiveActiveId` 才回退），`tabs.findIndex` 为 -1 → 走该分支 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

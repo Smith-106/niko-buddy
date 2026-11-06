@@ -108,6 +108,7 @@ export function CharacterWorkstationView(props: CharacterWorkstationViewProps) {
   }
 
   function handleDraft(nextDraft: string) {
+    /* v8 ignore next -- 台账 character-workstation-view.tsx L111：handleDraft 的 !activeCharacter 守卫是渲染前提 —— effectiveActiveId 在 characters 非空时必回退到 firstId（L100-101），故 activeCharacter 非空；characters 为空时既不渲染 textarea（L320）也无草稿编辑入口，onDraftChange 无从触发 */
     if (!activeCharacter) return
     if (!isControlled) {
       // 仅写入当前角色分区，其它角色草稿保持原样（隔离）。
