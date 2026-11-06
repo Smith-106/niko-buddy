@@ -288,6 +288,7 @@ function mergeList(existing: string[], next: string[]): string[] {
   const merged: string[] = []
   for (const item of [...existing, ...next]) {
     const trimmed = item.trim()
+    /* v8 ignore next -- 台账 outline-model-parse.ts L291：mergeList 两侧输入都不可能含空串。next 来自 collectListItems（L198/L201 与 splitInlineList 均 .filter(Boolean)）；existing 只可能来自 [] 初值（L240-243）、readStringArray（.filter(Boolean)）、或上一次 mergeList 的结果。fm.outline_model 的 JSON 路径运行时不可达（frontmatter normalize 恒 stringify 化，spec 已钉死该守卫） */
     if (!trimmed) continue
     if (merged.includes(trimmed)) continue
     merged.push(trimmed)
@@ -377,6 +378,7 @@ function buildSignals(
 }
 
 function clamp01(value: number): number {
+  /* v8 ignore next -- 台账 outline-model-parse.ts L380：clamp01 是模块私有函数，仅 3 个调用点（L396/L397/L405），实参恒有限——chapterCount 经 Math.max(...,1) ≥ 1，两个分子是计数且被分母上界约束，故 !Number.isFinite 永不成立 */
   if (!Number.isFinite(value)) return 0
   if (value < 0) return 0
   if (value > 1) return 1
@@ -606,12 +608,14 @@ export function parseOutlineMarkdownToModel(
   const isVolumeTitleContinuation = (line: string): boolean => {
     if (line.length > 30) return false
     if (line.endsWith("。") || line.endsWith("；")) return false
+    /* v8 ignore next -- 台账 outline-model-parse.ts：被上游遮蔽 —— isVolumeTitleContinuation 唯一调用点 L674 的行，在到达前已被 L644 VOLUME_HEADING_RE / L653 CHAPTER_HEADING_RE 的 exec 分支命中并 continue（两分支已消费所有卷/章 heading），故此处恒 false */
     if (VOLUME_HEADING_RE.test(line) || CHAPTER_HEADING_RE.test(line)) return false
     if (SECTION_HEADING_RE.test(line)) return false
     // R-12：不得把粗体台词 / 引用块 / 表格 / 列表条目 / 行内标签写进 volumes[].title。
     if (/^\*\*.+\*\*\s*[:：]/.test(line)) return false
     if (/^[>|]/.test(line)) return false
     if (/^[-*+]\s+/.test(line) || /^\d+[.、)]\s+/.test(line)) return false
+    /* v8 ignore next -- 台账 outline-model-parse.ts：被同函数上方 /^\*\*.+\*\*\s*[:：]/ 遮蔽 —— 该式无 $ 锚点，匹配范围严格包含 INLINE_SECTION_RE(/^\*\*(.+?)\*\*\s*[:：]\s*(.*)$/) 的同一前缀，能走到本行的行必已在上方 return false */
     if (INLINE_SECTION_RE.test(line)) return false
     const stripped = stripLineMarkup(line)
     if (VOLUME_TEXT_RE.test(stripped.text) || CHAPTER_TEXT_RE.test(stripped.text)) return false

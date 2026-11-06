@@ -502,6 +502,15 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | 282 | `regexOccurrencePositions` 的 `if (m.index === re.lastIndex) re.lastIndex++` | 唯一调用点 L295 只喂 `TIER3_FILLER`，该数组每条正则都含至少一个字面字符，无法匹配空串，故零宽推进永不触发 |
 | 413 | `if (RAW_COUNT_FALLBACK)` 分支内的 `penalty = ...` | `RAW_COUNT_FALLBACK` 是 `export const ... = false`（L165）**编译期常量**，全仓无 spec / 运行时消费者可改写；保留是刻意的 A/B 回退与发版降级开关 |
 
+### lib/novel/outline-model-parse.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 291 | `mergeList` 的 `if (!trimmed) continue` | 两侧输入都不含空串：`next` 来自 `collectListItems`（L198/L201 与 `splitInlineList` 均 `.filter(Boolean)`）；`existing` 只可能来自 `[]` 初值（L240-243）、`readStringArray`（`.filter(Boolean)`）或上一次 `mergeList` 结果。`fm.outline_model` 的 JSON 路径运行时不可达（frontmatter normalize 恒 stringify 化，spec 已钉死该守卫） |
+| 380 | `clamp01` 的 `if (!Number.isFinite(value)) return 0` | 模块私有，仅 3 个调用点（L396/L397/L405）；`chapterCount` 经 `Math.max(...,1)` ≥ 1，两个分子是计数且被分母上界约束 → 实参恒有限 |
+| 609 | `isVolumeTitleContinuation` 的 `VOLUME_HEADING_RE \|\| CHAPTER_HEADING_RE` 检查 | **被上游遮蔽**：唯一调用点 L674 的行在到达前已被 L644 `VOLUME_HEADING_RE.exec` / L653 `CHAPTER_HEADING_RE.exec` 分支命中并 `continue`（两分支已消费所有卷/章 heading） |
+| 615 | `isVolumeTitleContinuation` 的 `INLINE_SECTION_RE` 检查 | **被同函数上方遮蔽**：L612 的 `/^\*\*.+\*\*\s*[:：]/` 无 `$` 锚点，匹配范围严格包含 `INLINE_SECTION_RE` 的同一前缀，能走到 L615 的行必已在 L612 `return false` |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。
