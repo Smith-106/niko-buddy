@@ -83,6 +83,7 @@ const EMPTY_CONFIG: SyncConfig = {
  * `sync_status` 派生出的四字段工作（WebDAV 链路不因新能力缺席而失效）。
  */
 async function optionalRead<T>(read: (() => Promise<T>) | undefined): Promise<T | null> {
+  /* v8 ignore next -- 台账 CloudBackupPanel.tsx L86：optionalRead 的 typeof read !== "function" —— 全仓 3 个调用点（L171/190/193）一律传箭头函数字面量，从不传 undefined；该形参的 undefined 分支是签名允许但无调用方的死守卫 */
   if (typeof read !== "function") return null
   try {
     return await read()
@@ -93,6 +94,7 @@ async function optionalRead<T>(read: (() => Promise<T>) | undefined): Promise<T 
 
 /** 可选增强副作用：失败不影响主流程（例如调度器启停失败不阻碍配置落盘）。 */
 async function optionalCall(action: (() => Promise<unknown>) | undefined): Promise<void> {
+  /* v8 ignore next -- 台账 CloudBackupPanel.tsx L96：optionalCall 同理 —— 唯一调用点 L620 传 async 箭头字面量 */
   if (typeof action !== "function") return
   try {
     await action()

@@ -433,6 +433,14 @@
 | 124 | 组件内 `loadExportCenterSnapshot(...).catch(...)` | 同上：被调函数内部吞掉一切，返回的 Promise 永不 reject |
 | 135（未标注） | `handleExport` `if (exporting !== null \|\| projectPath === "") return` | **保留未标注**：`exporting !== null` 侧由 `disabled={!canExport}`（canExport 含 `exporting === null`）覆盖，但 `projectPath === ""` 侧与 `canExport` 的关系未经证明；L268 覆写确认按钮无 disabled，其时序亦未验证。留待补测 |
 
+### components/backup/CloudBackupPanel.tsx（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 86 | `optionalRead` 的 `typeof read !== "function"` | **无调用方传 undefined**：3 个调用点（L171/190/193）一律传箭头函数字面量。形参的 undefined 分支是签名允许但无人使用的死守卫 |
+| 96 | `optionalCall` 的同类守卫 | 唯一调用点 L620 传 async 箭头字面量 |
+| 275（**未标注**） | `clearCredential` 的 `if (parsed === null)` | **可达，待补测**：按钮 `disabled={!secretControlsEnabled \|\| busy}`（L604）**不含** `parsedCredentialRef`，故「控件可用但无已解析凭据」时点清除即命中。不可标注 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。
