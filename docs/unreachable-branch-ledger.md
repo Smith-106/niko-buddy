@@ -353,6 +353,21 @@
 `disabled` 表单控件的 `.click()` 与 `dispatchEvent(MouseEvent)` 均不触发合成 onClick，
 故「disabled 条件 == handler 守卫条件」时守卫真分支在纯黑盒 UI 测试下不可达。
 
+### components/skill-library/writing-skill-library-view.tsx（探针实测渲染前提，2026-11-06）
+
+> 判定手段：渲染时把 `project` 置空，枚举实际渲染出的 `data-testid`。
+> 无项目时**渲染出的**是 enabled-checkbox / delete-button / save-button / 各输入框；
+> **不渲染的**是 bundle-import-open、导出按钮、重载按钮。这决定了各守卫的不可达机制。
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 39 | `handleOpenBundleImport` `!project` | **渲染前提**：唯一入口在 `{config && project ? (`（L561）内，无项目不渲染。已有用例「无项目时技能包导入入口不渲染」锁定 |
+| 141-143 | `persist` `!project` | **多路径合并**：调用方要么先查 project（toggle/delete 守卫含 `!project`），要么触发按钮无项目时不渲染（导出/重载/导入） |
+| 174 | `handleSaveSkill` | **传递蕴含**：`canSaveDraft = Boolean(project && config && selectedSkill && draftChanged && !saving)`（L94） |
+| 211 | `handleDeleteSkill` | disabled 闸门 `{!project || saving}`（L333）+ 渲染前提排除 `!config`/`!selectedSkill` |
+| 221 | `handleExportSkill` `!selectedSkill` | **渲染前提**：导出按钮无项目时不渲染（探针实测 testid 缺失） |
+| 242 | `handleReloadLinkedContent` | **渲染前提**：重载按钮仅在 `source === "linked"` 技能下渲染（探针实测） |
+
 ---
 
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）

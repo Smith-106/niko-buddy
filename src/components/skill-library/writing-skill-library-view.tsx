@@ -36,6 +36,7 @@ export function WritingSkillLibraryView() {
   const [bundleDialogOpen, setBundleDialogOpen] = useState(false)
 
   const handleOpenBundleImport = async () => {
+    /* v8 ignore next -- 台账 writing-skill-library-view.tsx L39：唯一入口 skill-bundle-import-open 位于 `{config && project ? (`（L561）之内，无项目不渲染 */
     if (!project) return
     const { open } = await import("@tauri-apps/plugin-dialog")
     const selected = await open({
@@ -137,6 +138,7 @@ export function WritingSkillLibraryView() {
   }
 
   async function persist(nextConfig: UserSkillConfig, nextSelectedSkillId = selectedSkillId) {
+    /* v8 ignore next -- 台账 writing-skill-library-view.tsx L141：persist 的 !project —— 调用方要么先查 project（toggle/delete 守卫含 !project），要么触发按钮在无项目时不渲染 */
     if (!project) {
       setMessage("请先打开项目")
       return
@@ -170,6 +172,7 @@ export function WritingSkillLibraryView() {
   }
 
   async function handleSaveSkill() {
+    /* v8 ignore next -- 台账 writing-skill-library-view.tsx L174：handleSaveSkill —— 按钮 disabled={!canSaveDraft}，canSaveDraft=Boolean(project&&config&&selectedSkill&&…)(L94) 蕴含三者 */
     if (!config || !selectedSkill || !canSaveDraft) return
     const name = draftName.trim()
     if (!name) {
@@ -207,6 +210,7 @@ export function WritingSkillLibraryView() {
   }
 
   async function handleDeleteSkill() {
+    /* v8 ignore next -- 台账 writing-skill-library-view.tsx L211：handleDeleteSkill —— 按钮 disabled={!project||saving}；!config/!selectedSkill 侧由渲染前提排除 */
     if (!config || !selectedSkill || !project || saving) return
     if (draftDirty && !confirmDiscardSkillLibraryDraft()) return
     if (draftDirty) setDraftDirty(false)
@@ -217,6 +221,7 @@ export function WritingSkillLibraryView() {
   }
 
   async function handleExportSkill() {
+    /* v8 ignore next -- 台账 writing-skill-library-view.tsx L221：handleExportSkill —— 导出按钮在无项目时不渲染（探针实测 testid 缺失），!selectedSkill 由渲染前提排除 */
     if (!selectedSkill) return
     try {
       const jsonStr = exportSkillToJson(selectedSkill)
@@ -238,6 +243,7 @@ export function WritingSkillLibraryView() {
   }
 
   async function handleReloadLinkedContent() {
+    /* v8 ignore next -- 台账 writing-skill-library-view.tsx L242：handleReloadLinkedContent —— 重载按钮仅在 linked 技能下渲染（探针实测缺失） */
     if (!selectedSkill || selectedSkill.source !== "linked" || !config) return
     try {
       const content = await loadLinkedSkillContent(selectedSkill)

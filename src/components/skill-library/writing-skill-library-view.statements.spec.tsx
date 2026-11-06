@@ -389,4 +389,16 @@ describe("WritingSkillLibraryView 语句/分支收尾（20261105-ralph-coverage-
     expect(view.textContent).toContain("写作技能加载失败")
     cleanup(root, container)
   })
+
+  it("无项目时技能包导入入口不渲染（39 行守卫的渲染前提）", async () => {
+    seedSkill()
+    // 渲染前就无项目：组件首帧读到的 project 即为 null
+    useWikiStore.getState().setProject(null as never)
+    const { container, root } = await renderLibrary()
+    // 导入按钮位于 `{config && project ? (`（561 行）之内，无项目时不渲染
+    expect(container.querySelector('[data-testid="skill-bundle-import-open"]')).toBeNull()
+    // 因此 handleOpenBundleImport 首行 `if (!project) return`（39 行）无触发入口
+    expect(dialogOpenMock).not.toHaveBeenCalled()
+    cleanup(root, container)
+  })
 })
