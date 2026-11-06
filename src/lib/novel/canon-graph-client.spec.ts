@@ -6,8 +6,10 @@
 import { describe, expect, it, vi } from "vitest"
 import {
   buildCanonEdgeFilter,
+  assertNoHandleLeak,
   getFactsKnownBy,
   getFactsKnownByPaged,
+  queryCanonEdgesBatch,
   queryEpisodesByChapter,
 } from "./canon-graph-client"
 
@@ -185,5 +187,28 @@ describe("normalizeEdgeKind / normalizeModality 未知值回退（四-4）", () 
     } as unknown as import("./canon-graph-client").RawCanonEdge)
     expect(fact.edgeKind).toBe("world_fact")
     expect(fact.modality).toBeNull()
+  })
+})
+
+describe("assertNoHandleLeak（POV 防泄密兜底）", () => {
+  it("null / 数组 / 非对象一律抛错，不做静默放过", () => {
+    expect(() => assertNoHandleLeak(null)).toThrow(/不是普通对象/)
+    expect(() => assertNoHandleLeak([])).toThrow(/不是普通对象/)
+    expect(() => assertNoHandleLeak("轩辕剑")).toThrow(/不是普通对象/)
+  })
+
+  it("普通对象通过断言", () => {
+    const fact = { id: "e1", sourceId: "甲", targetId: "乙", predicate: "OWNS" }
+    expect(() => assertNoHandleLeak(fact)).not.toThrow()
+  })
+})
+
+describe("queryCanonEdgesBatch（T13 批量投影封装）", () => {
+  it("空结果集返回空数组，并原样透传 projectId / filters", async () => {
+    const filters = [buildCanonEdgeFilter({ knownBy: "甲" })]
+    vi.mocked(invoke).mockResolvedValueOnce({ results: [], max_revision: 7 })
+    const out = await queryCanonEdgesBatch("proj-1", filters)
+    expect(out).toEqual([])
+    expect(invoke).toHaveBeenCalledWith("canon_query_batch", { projectId: "proj-1", filters })
   })
 })
