@@ -257,12 +257,20 @@
   两套运行时互斥，jsdom 下无论怎么造都会走 catch/回退分支。
   这是**运行时分区代码**（不是死代码），正确处置是记账而非强测或删除。
 
-### lib/novel/deep-chapter-review-repair.ts（结构性不可达）
-- **L253-275 stage-5.5 返修后复审块（7 语句）**：上层 L241 已用 `buildDecisionGates`
-  把 `overall` 从 `pending` 重写为具体判定，本块的前置条件（`overall === "pending"`）
-  在返修完成后的调用序中恒不成立。该块是「返修流程改造前的旧复审通道」的残留，
-  当前调用链已由 decision-gates 统一出口接管；保留是因为它与旁路的 gate 判定口径不同，
-  贸然删除会让「返修后若 gate 重新产生 pending」这一未来情形失去兜底。
+### lib/novel/deep-chapter-review-repair.ts（⚠ 本条已证伪，禁止 v8 ignore）
+
+> **2026-11-06 更正**：原条目声称「L253-275 stage-5.5 块结构性不可达（overall==="pending"
+> 被 buildDecisionGates 重写后恒不成立）」。该结论**已被 ISS-20260708-016 证伪**：
+> `hasCheckpointRevision` 在 repair 主路径确有调用，revision checkpoint + pending 门控
+> 即可命中该分支。源码 L251-252 留有当时的结论注释，且 `p1-dedup-016-stage55.spec.ts`
+> 是锁定此事的回归护栏——它断言「阶段5.5：返修后复审」前 6 行内**不得出现** `v8 ignore`。
+>
+> 本次战役曾按本条给该块加块级 `v8 ignore`，被该护栏测试当场抓住并回退。
+> 教训：台账条目本身也可能过期，标注前必须交叉验证源码注释与既有回归测试，
+> 不能只信台账。
+>
+> **当前真实状态**：该块在既有全量跑中仍 count=0，但可达性已由静态推理 + 逻辑单测确认，
+> 属于「可达但未被真实驱动」。正确处置是**补一个真正走 resume 路径的用例**，不是抑制。
 
 ### components/novel/story-simulation/branch-compare-view.tsx
 - **L44 `default: return String(key)`**（dimensionLabel）：参数类型为 `keyof DirectorScore`（7 键联合），`switch` 穷举 7 案；调用点 L154/249（`DIMENSION_KEYS` 字面量迭代）与 L401（`d.key as keyof DirectorScore`）全在类型内 → default 不可达（判例模式 8）。
