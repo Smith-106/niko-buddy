@@ -124,4 +124,17 @@ describe("CanonRevisionDiffView — 分区渲染", () => {
     expect(container.textContent).not.toMatch(/\bknown_by\b/)
     expect(container.textContent).not.toMatch(/\bdigest\b/)
   })
+
+  it("invalidated/removed 非空时渲染对应列表项", () => {
+    const diff = makeDiff({
+      invalidated: [makeFact({ id: "inv-1" })],
+      removed: [makeFact({ id: "rm-1", archived: true })],
+    })
+    render(<CanonRevisionDiffView diff={diff} revA={1} revB={2} />)
+
+    expect(screen.getByTestId("diff-invalidated-section")).toBeInTheDocument()
+    expect(screen.getAllByTestId("diff-invalidated-item")).toHaveLength(1)
+    expect(screen.getByTestId("diff-removed-section")).toBeInTheDocument()
+    expect(screen.getAllByTestId("diff-removed-item")).toHaveLength(1)
+  })
 })
