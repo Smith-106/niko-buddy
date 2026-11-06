@@ -9,6 +9,7 @@ import {
   render,
   screen,
   setupDomGlobals,
+  within,
 } from "@/test-helpers/component-test-utils"
 import { NodeInspectorDrawer } from "./node-inspector-drawer"
 import type { GraphNode, GraphEdge } from "@/lib/wiki-graph"
@@ -257,5 +258,38 @@ describe("NodeInspectorDrawer — a11y 与筛选提示", () => {
       />,
     )
     expect(screen.queryAllByTestId("inspector-relation-filtered")).toHaveLength(0)
+  })
+})
+
+describe("NodeInspectorDrawer 入边点击（incoming 分支）", () => {
+  const nodes: GraphNode[] = [
+    { id: "n-in", label: "林动", type: "character", path: "characters/lin-dong.md", linkCount: 1, community: 1 },
+    { id: "n-src", label: "天妖貂", type: "beast", path: "beasts/diao.md", linkCount: 1, community: 2 },
+  ]
+  // 天妖貂 → 林动：对「林动」而言这是入边（edge.target === 我）。
+  const edges: GraphEdge[] = [{ source: "n-src", target: "n-in", weight: 0.8, relation: "生死相随" }]
+
+  beforeEach(() => {
+    setupDomGlobals()
+  })
+
+  it("点击入边条目回到边源节点（不是出边的对端）", () => {
+    const onSelectNode = vi.fn()
+    render(
+      <NodeInspectorDrawer
+        node={nodes[0]}
+        nodes={nodes}
+        edges={edges}
+        onSelectNode={onSelectNode}
+        onClose={vi.fn()}
+      />
+    )
+
+    const incomingGroup = screen.getByText(/指入关系/).closest("[data-relation-group]") as HTMLElement
+    fireEvent.click(within(incomingGroup).getByText("天妖貂"))
+
+    expect(onSelectNode).toHaveBeenCalledTimes(1)
+    // 入边点击必须跳去 edge.source（n-src）；若误用 targetNodeId 的传出语义会点到自己。
+    expect(onSelectNode).toHaveBeenCalledWith("n-src")
   })
 })

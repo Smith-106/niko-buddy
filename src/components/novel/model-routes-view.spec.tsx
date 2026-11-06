@@ -89,4 +89,33 @@ describe("ModelRoutesView", () => {
     expect(snapshot?.providers).toEqual([{ id: "openai", label: "OpenAI", savedModelCount: 2 }])
     expect(loadModelRoutesSnapshot({ reviewModel: "", defaultLlmModel: "  ", aiChatModel: "", providerConfigs: {} })).toBeNull()
   })
+  it("有 provider 配置 → 渲染 provider 行（来源总数 + 已保存模型数），不显示空态", () => {
+    useWikiStore.setState({
+      defaultLlmModel: "openai/gpt-4o",
+      providerConfigs: {
+        openai: {
+          label: "OpenAI",
+          savedModels: [
+            { id: "m1", name: "gpt-4o", model: "gpt-4o", createdAt: 0 },
+            { id: "m2", name: "o3", model: "o3", createdAt: 0 },
+          ],
+        },
+        deepseek: { savedModels: [] },
+      },
+    })
+    render(<ModelRoutesView projectPath="C:/proj" />)
+
+    expect(screen.queryByTestId("model-routes-no-providers")).toBeNull()
+    expect(screen.getByTestId("model-routes-providers").textContent).toContain("共 2 个")
+
+    const openaiRow = screen.getByTestId("model-provider-openai")
+    expect(openaiRow.textContent).toContain("OpenAI")
+    expect(openaiRow.textContent).toContain("openai")
+    expect(openaiRow.textContent).toContain("已保存模型 2 个")
+
+    // 未配置 label 的 provider 以 id 兜底展示，且模型数如实为 0（不编造）
+    const deepseekRow = screen.getByTestId("model-provider-deepseek")
+    expect(deepseekRow.textContent).toContain("deepseek")
+    expect(deepseekRow.textContent).toContain("已保存模型 0 个")
+  })
 })

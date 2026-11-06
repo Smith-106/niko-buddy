@@ -45,3 +45,45 @@ describe("pack-format.ts smoke", () => {
     expect(packFileName).toBeDefined()
   })
 })
+
+/** 行为补测（g08）：formatIssuePath 数值下标 + name_invalid 专属错误码。 */
+describe("pack-format.ts 行为补测", () => {
+  it("formatIssuePath 把 zod 数值路径渲染成 tools[0].category", () => {
+    expect(formatIssuePath(["tools", 0, "category"])).toBe("tools[0].category")
+    expect(formatIssuePath([0, "name"])).toBe("[0].name")
+    expect(formatIssuePath([])).toBe("")
+  })
+
+  it("name 不合规 → 专属 name_invalid（不是宽泛的 schema_invalid）", () => {
+    const result = parseNbskillPack({
+      schemaVersion: NBSKILL_PACK_SCHEMA_VERSION,
+      name: "Bad Name",
+      version: "1.0.0",
+      author: "someone",
+      tools: [],
+      prompts: [],
+      trustLevel: "untrusted",
+    })
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error("expected failure")
+    expect(result.issues).toHaveLength(1)
+    expect(result.issues[0]).toMatchObject({ code: "name_invalid", at: "name" })
+    expect(result.issues[0]!.detail).toContain("name must match")
+  })
+
+  it("合规范但缺 author 的包 → ok:true 且给出 trust 警告", () => {
+    const result = parseNbskillPack({
+      schemaVersion: NBSKILL_PACK_SCHEMA_VERSION,
+      name: "no-author-pack",
+      version: "1.0.0",
+      author: "   ",
+      tools: [],
+      prompts: [],
+      trustLevel: "untrusted",
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error("expected success")
+    expect(result.warnings).toHaveLength(1)
+    expect(result.warnings[0]).toContain("pack declares no author")
+  })
+})

@@ -132,3 +132,24 @@ describe("forecastResultsToContextText", () => {
     expect(text).toContain("复活已闭合线")
   })
 })
+
+describe("forecastResultsToContextText 无风险分支", () => {
+  it("零风险结果渲染「无预检风险」单行（不进风险拼接路径）", () => {
+    const text = forecastResultsToContextText([
+      { branchId: "b1", subplotId: "s1", risks: [], verdict: "advance" },
+    ])
+    expect(text).toBe("- [可推进] b1（支线 s1）：无预检风险")
+  })
+
+  it("真实推演出的零风险分支同样走该分支且多行分隔", () => {
+    const store = makeStore([makeSubplot({ id: "s1", status: "active" })])
+    const results = forecastBranches(store, [
+      branch({ id: "b1", subplotId: "s1", projectedChapter: 5 }),
+      branch({ id: "b2", subplotId: "s1", projectedChapter: 6 }),
+    ])
+    expect(results.every((r) => r.risks.length === 0)).toBe(true)
+    const lines = forecastResultsToContextText(results).split("\n")
+    expect(lines).toHaveLength(2)
+    expect(lines[0]).toBe("- [可推进] b1（支线 s1）：无预检风险")
+  })
+})

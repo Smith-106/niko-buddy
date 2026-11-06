@@ -247,3 +247,26 @@ describe("buildSkillPromptCoverage", () => {
     ])
   })
 })
+
+describe("同 id 重复声明（比较器相等分支）", () => {
+  it("同一 hook id 重复注册时两行都保留，稳定排序不丢行", () => {
+    const base = { id: "dup.hook", title: "dup", track: "B" as const, run: () => {} }
+    const coverage = buildSkillPromptCoverage({
+      hooks: [
+        { ...base, stages: ["pre_write_prompt"] },
+        { ...base, stages: ["post_draft_light_check"] },
+      ],
+      promptKeys: ["k1"],
+    })
+
+    // 相等比较（return 0）不能让 sort 丢掉其中一行。
+    expect(coverage.hooks.map((hook) => hook.id)).toEqual(["dup.hook", "dup.hook"])
+    // 比较器相等 → 稳定排序保持声明顺序（不是按 stage 重排）。
+    expect(coverage.hooks.map((hook) => [...hook.stages])).toEqual([
+      ["pre_write_prompt"],
+      ["post_draft_light_check"],
+    ])
+    expect(coverage.promptKeys.map((row) => row.key)).toEqual(["k1"])
+    expect(coverage.uncoveredPromptKeys).toEqual(["k1"])
+  })
+})

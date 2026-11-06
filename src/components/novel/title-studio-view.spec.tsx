@@ -16,9 +16,11 @@ import { TitleStudioView } from "./title-studio-view"
 
 /** 装载行为开关：real 走真 loadAssetLibraryArtifact；pending/reject 注入迟到与失败。 */
 const loadBehavior = vi.hoisted(() => ({
-  mode: "real" as "real" | "pending" | "reject",
+  mode: "real" as "real" | "pending" | "reject" | "dirty",
   resolve: null as ((value: null) => void) | null,
   reject: null as ((reason: unknown) => void) | null,
+  /** dirty 模式：装载器回带脏条目（绕过磁盘校验，模拟上游未校验的产物）。 */
+  dirtyArtifact: null as Record<string, unknown> | null,
 }))
 
 vi.mock("@/lib/novel", async (importOriginal) => {
@@ -30,6 +32,9 @@ vi.mock("@/lib/novel", async (importOriginal) => {
       ...args: Parameters<typeof actual.loadAssetLibraryArtifact>
     ) => {
       if (loadBehavior.mode === "reject") return Promise.reject(new Error("seed load boom"))
+      if (loadBehavior.mode === "dirty") {
+        return Promise.resolve(loadBehavior.dirtyArtifact as unknown as Awaited<ReturnType<typeof real>>)
+      }
       if (loadBehavior.mode === "pending") {
         return new Promise<null>((resolve, reject) => {
           loadBehavior.resolve = resolve
@@ -62,6 +67,7 @@ afterEach(() => {
   loadBehavior.mode = "real"
   loadBehavior.resolve = null
   loadBehavior.reject = null
+  loadBehavior.dirtyArtifact = null
 })
 
 /** 经 barrel 构造守恒合法的 title_seed.json（loadAssetLibraryArtifact 才会回显）。 */
@@ -124,6 +130,34 @@ describe("TitleStudioView", () => {
     fireEvent.click(screen.getByTestId("title-filter"))
     expect(screen.queryByTestId("title-result")).toBeNull()
     expect(screen.getByTestId("title-hint").textContent).toContain("每行一个")
+  })
+
+  it("脏条目（entryId/pattern 不过 schema）→ 逐条丢弃不渲染，合法条目照常可用", async () => {
+    loadBehavior.mode = "dirty"
+    loadBehavior.dirtyArtifact = {
+      schemaVersion: "asset-library.v1",
+      libraryId: "title_seed",
+      generatorVersion: "dirty-1",
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      contentHash: "not-a-real-hash",
+      entries: [
+        { entryId: "s1", pattern: "江湖", constraints: ["剑"], examples: [] },
+        { entryId: "", pattern: "空 id 脏条目", constraints: [], examples: [] },
+        { entryId: "s3", pattern: 42, constraints: [], examples: [] },
+      ],
+    }
+    render(<TitleStudioView projectPath="/p" />)
+    await waitFor(() => expect(screen.getByTestId("title-seeds")).toBeTruthy())
+
+    // 合法条目保留，脏条目一条都不渲染（不猜、不半填）
+    expect(screen.getByTestId("title-seed-s1")).toBeTruthy()
+    expect(screen.getByTestId("title-seeds").querySelectorAll("li")).toHaveLength(1)
+    expect(screen.queryByTestId("title-seed-")).toBeNull()
+    expect(screen.getByTestId("title-seeds").textContent).not.toContain("空 id 脏条目")
+    // 有合法种子 → 不是空态；筛选按钮可用（视图仍可工作）
+    expect(screen.queryByTestId("title-empty")).toBeNull()
+    expect(screen.getByTestId("title-filter").hasAttribute("disabled")).toBe(false)
+    loadBehavior.dirtyArtifact = null
   })
 
   it("projectPath 为空 → 空态，不崩", async () => {

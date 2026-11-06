@@ -55,3 +55,20 @@ describe("维度收敛 — 核心维/方差降/归一化", () => {
     expect(Number.isNaN(r.normalizedReduction)).toBe(false)
   })
 })
+
+// 空分数章（scores={}）仍会进入 medianVariance 取中位——单一章缺分不能把整个窗口
+// 的方差算成 NaN（NaN 会让 varianceReduction 的门槛比较既可能假绿也可能假红）。
+describe("维度收敛 — 空分数章参与中位计算", () => {
+  it("某章 scores={} 时按中位 0 计入，方差降幅仍为确定数值", () => {
+    const baseline = [ch("b0", { a: 10 }), ch("b1", {}), ch("b2", { a: 0 }), ch("b3", { a: 0 }), ch("b4", { a: 0 })]
+    const current = Array.from({ length: 5 }, (_, i) => ch(`c${i}`, { a: 0 }))
+
+    const r = evaluateConvergence(baseline, current, "v2.7.3-7006868f")
+
+    // baseline 中位数列 = [10, 0(空章), 0, 0, 0] → 中位 0 → 方差 20；current 方差 0。
+    expect(r.varianceReduction).toBe(1)
+    expect(Number.isNaN(r.varianceReduction)).toBe(false)
+    expect(r.coreDims).toEqual(["a"])
+    expect(r.passed).toBe(true)
+  })
+})

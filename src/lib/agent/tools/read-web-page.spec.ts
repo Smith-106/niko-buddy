@@ -160,3 +160,35 @@ describe("createReadWebPageTool 覆盖补齐", () => {
     expect(result.truncated).toBe(false)
   })
 })
+
+// 生产装配不注入 deps.fetchPage（见 src/lib/agent/tools/index.ts：createReadWebPageTool()），
+// 所以「回落到 getHttpFetch」才是线上真正走的那条通路，必须单独覆盖。
+describe("createReadWebPageTool 默认取数通路（未注入 fetchPage）", () => {
+  it("回落到 getHttpFetch 并真的发出带 Accept 的 GET", async () => {
+    const fetchSpy = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        status: 200,
+        headers: { get: () => "text/plain" },
+        text: async () => "回退通路正文",
+      }),
+    )
+    vi.stubGlobal("fetch", fetchSpy)
+
+    try {
+      const tool = createReadWebPageTool()
+      const raw = await tool.execute({ url: "https://example.com/fallback" })
+      const result = JSON.parse(raw)
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      expect(String(fetchSpy.mock.calls[0]![0])).toBe("https://example.com/fallback")
+      expect(fetchSpy.mock.calls[0]![1]).toMatchObject({ method: "GET" })
+      // Accept 头必须透传到真实 fetch（否则服务端可能返回非 HTML，正文抽取退化）。
+      expect(JSON.stringify(fetchSpy.mock.calls[0]![1]?.headers)).toContain("text/html")
+      expect(result.status).toBe("ok")
+      expect(result.content).toBe("回退通路正文")
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})

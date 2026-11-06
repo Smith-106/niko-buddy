@@ -681,3 +681,21 @@ describe("MemoryCenterView", () => {
     expect(await screen.findByTestId("wiki-reader")).toHaveTextContent("无前言的正文")
   })
 })
+
+describe("MemoryCenterView — 删除确认弹窗的模态交互守卫", () => {
+  it("点击弹窗外部不关闭删除确认框（onInteractOutside preventDefault）", async () => {
+    wiki.state.selectedMemoryCenterEntry = "character-states"
+    render(<MemoryCenterView />)
+    await screen.findByTestId("wiki-reader")
+    fireEvent.click(screen.getByText("novel.memoryCenter.delete"))
+    expect(await screen.findByText("novel.memoryCenter.deleteConfirmTitle")).toBeInTheDocument()
+
+    // 真实外部指针按下：Radix 默认会走 dismiss（onOpenChange(false) → onCancel）。
+    // 该弹窗在 onInteractOutside 里 preventDefault，故必须仍然打开。
+    fireEvent.pointerDown(document.body)
+    fireEvent.click(document.body)
+    expect(screen.getByText("novel.memoryCenter.deleteConfirmTitle")).toBeInTheDocument()
+    // 并未触发删除（外部点击不是确认动作）
+    expect(fsMock.deleteFile).not.toHaveBeenCalled()
+  })
+})

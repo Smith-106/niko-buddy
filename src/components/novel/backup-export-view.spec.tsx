@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   unlisten: vi.fn(),
   listenHandler: null as ((event: { payload: unknown }) => void) | null,
   project: { path: "E:/Novel", name: "Novel" } as { path: string; name: string } | null,
+  isTauri: true,
 }))
 
 vi.mock("react-i18next", () => ({
@@ -50,7 +51,8 @@ vi.mock("@tauri-apps/api/event", () => ({
 }))
 
 vi.mock("@/lib/platform", () => ({
-  isTauri: () => true,
+  // 默认 true（既有用例全是桌面运行时）；浏览器预览降级用例显式改 false。
+  isTauri: () => mocks.isTauri,
 }))
 
 vi.mock("@/commands/fs", () => ({
@@ -136,6 +138,7 @@ beforeEach(() => {
     return Promise.resolve(mocks.unlisten)
   })
   mocks.project = { path: "E:/Novel", name: "Novel" }
+  mocks.isTauri = true
   localStorage.clear()
 })
 
@@ -162,6 +165,18 @@ describe("BackupExportView", () => {
     expect(screen.getByText("novel.backupExport.exportButton")).toBeDisabled()
     expect(screen.getByText("novel.backupExport.restoreButton")).toBeDisabled()
     expect(screen.getByText("novel.backupExport.autoButton")).toBeDisabled()
+  })
+
+  it("浏览器预览（非 Tauri）→ 不订阅 backup-progress、不读 backups/auto（安全降级）", async () => {
+    mocks.isTauri = false
+    render(<BackupExportView />)
+
+    // 进度事件通道只在桌面运行时注册：web 模式下 listen 一次都不能调
+    expect(mocks.listen).not.toHaveBeenCalled()
+    // 备份历史刷新同样早退，不去碰磁盘
+    expect(mocks.listDir).not.toHaveBeenCalled()
+    // 界面照常渲染三张卡（降级不等于白屏）
+    expect(screen.getByText("novel.backupExport.exportTitle")).toBeInTheDocument()
   })
 
   it("export success: invokes canon_export_project, shows checksum + sidecar", async () => {

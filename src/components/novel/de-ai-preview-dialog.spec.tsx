@@ -475,3 +475,29 @@ describe("DeAiPreviewDialog (RPC-2 / TASK-005)", () => {
     expect(statusBanner).not.toHaveTextContent("(1 处冲突)")
   })
 })
+
+describe("DeAiPreviewDialog 模式切换：从 detect 点回 rewrite", () => {
+  it("detect 态下点击 rewrite 标签回调 onModeChange('rewrite')（不只 detect/edit 两个方向）", () => {
+    const onModeChange = vi.fn()
+    render(
+      <DeAiPreviewDialog
+        open
+        sourceContent="原文"
+        candidateContent="改文"
+        mode="detect"
+        onModeChange={onModeChange}
+        onApply={() => {}}
+        onSaveDraft={() => {}}
+        onClose={() => {}}
+      />,
+    )
+
+    const rewriteTab = screen.getByTestId("de-ai-mode-rewrite")
+    expect(rewriteTab).toHaveAttribute("aria-selected", "false")
+
+    fireEvent.click(rewriteTab)
+
+    expect(onModeChange).toHaveBeenCalledTimes(1)
+    expect(onModeChange).toHaveBeenCalledWith("rewrite")
+  })
+})

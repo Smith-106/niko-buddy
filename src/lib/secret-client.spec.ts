@@ -18,9 +18,16 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
 import {
   CREDENTIAL_REF_PREFIX,
   DEFAULT_SECRET_DOMAIN,
+  GITHUB_CREDENTIAL_REF_PREFIX,
+  GITHUB_SECRET_DOMAIN,
   defaultCredentialAccount,
+  githubCredentialRef,
+  githubSecretDelete,
+  githubSecretPut,
+  isGitHubCredentialRef,
   parseCredentialRef,
   resolveCredentialTarget,
+  resolveCredentialTargetForDomain,
   secretAvailable,
   secretDelete,
   secretPut,
@@ -131,5 +138,76 @@ describe("IPC 封装（secret_* 命令形态）", () => {
     await expect(secretDelete("webdav", "proj")).rejects.toBe("[secret_store] delete failed")
     invokeMock.mockRejectedValueOnce("probe down")
     await expect(secretAvailable()).rejects.toBe("probe down")
+  })
+})
+
+describe("G1 GitHub 凭据域（nb:github）", () => {
+  it("githubCredentialRef 拼出 nb:github:<account> 并裁掉首尾空白", () => {
+    expect(GITHUB_CREDENTIAL_REF_PREFIX).toBe("nb:github:")
+    expect(githubCredentialRef("  niko  ")).toBe("nb:github:niko")
+    // 产出必须被 isGitHubCredentialRef 认可（配置期硬门自洽）
+    expect(isGitHubCredentialRef(githubCredentialRef("niko"))).toBe(true)
+    expect(isGitHubCredentialRef(` ${githubCredentialRef("niko")} `)).toBe(true)
+    expect(isGitHubCredentialRef("nb:webdav:niko")).toBe(false)
+    expect(isGitHubCredentialRef("")).toBe(false)
+  })
+
+  it("githubSecretPut 落到 github 域且返回值只含引用、不回显 token", async () => {
+    invokeMock.mockResolvedValueOnce("nb:github:niko")
+    const token = "ghp_top_secret_token"
+    const ref = await githubSecretPut("niko", token)
+
+    expect(GITHUB_SECRET_DOMAIN).toBe("github")
+    expect(invokeMock).toHaveBeenCalledWith("secret_put", {
+      service: "github",
+      account: "niko",
+      secret: token,
+    })
+    expect(ref).toBe("nb:github:niko")
+    expect(ref).not.toContain(token)
+  })
+
+  it("githubSecretDelete 落到 github 域并返回是否删除既有条目", async () => {
+    invokeMock.mockResolvedValueOnce(true)
+    await expect(githubSecretDelete("niko")).resolves.toBe(true)
+    expect(invokeMock).toHaveBeenCalledWith("secret_delete", {
+      service: "github",
+      account: "niko",
+    })
+
+    invokeMock.mockResolvedValueOnce(false)
+    await expect(githubSecretDelete("niko")).resolves.toBe(false)
+  })
+
+  it("GitHub 写入/删除失败原样上抛（由调用方关闭传输目标，不静默回退明文）", async () => {
+    invokeMock.mockRejectedValueOnce("[secret_store] keyring locked")
+    await expect(githubSecretPut("niko", "tok")).rejects.toBe("[secret_store] keyring locked")
+    invokeMock.mockRejectedValueOnce("[secret_store] keyring locked")
+    await expect(githubSecretDelete("niko")).rejects.toBe("[secret_store] keyring locked")
+  })
+})
+
+describe("resolveCredentialTargetForDomain（按目标域解析，跨域旧引用不复用）", () => {
+  it("同域引用原样复用（轮换凭据时引用不变）", () => {
+    expect(
+      resolveCredentialTargetForDomain("github", "nb:github:niko", "/p/mybook"),
+    ).toEqual({ domain: "github", account: "niko" })
+  })
+
+  it("跨域引用改写为目标域 + 项目名派生账户（绝不复用旧域）", () => {
+    expect(
+      resolveCredentialTargetForDomain("github", "nb:webdav:proj-42", "/p/my book!"),
+    ).toEqual({ domain: "github", account: "mybook" })
+  })
+
+  it("无引用/非法引用回退目标域 + 项目名派生账户", () => {
+    expect(resolveCredentialTargetForDomain("github", "", "/p/mybook")).toEqual({
+      domain: "github",
+      account: "mybook",
+    })
+    expect(resolveCredentialTargetForDomain("github", "webdav:proj", "/p/mybook")).toEqual({
+      domain: "github",
+      account: "mybook",
+    })
   })
 })

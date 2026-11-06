@@ -105,4 +105,55 @@ describe("transport stream registry（C2 去猴补）", () => {
     expect(killed).toEqual([])
     expect(activeRustStreamIds()).toEqual([])
   })
+
+  it("forceKillAll 对仍在跑的流逐条发 terminate/kill（不是空转）", async () => {
+    const listeners = new Map<string, (event: { payload: unknown }) => void>()
+    vi.mocked(listen).mockImplementation(async (eventName, handler) => {
+      listeners.set(String(eventName), handler as (event: { payload: unknown }) => void)
+      return noopUnlisten
+    })
+    const commands: string[] = []
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      commands.push(String(command))
+      return undefined
+    })
+
+    const statuses: string[] = []
+    const p = streamClaudeCodeCli(
+      claudeCliConfig(),
+      [{ role: "user", content: "hi" }],
+      {
+        onToken: vi.fn(),
+        onDone: vi.fn(),
+        onError: vi.fn(),
+        onStatus: (s: string) => {
+          statuses.push(s)
+        },
+      },
+    )
+    await Promise.resolve()
+    await Promise.resolve()
+    const startMsg = statuses.find((s) => s.startsWith("claude-cli:stream-start:"))
+    expect(startMsg).toBeDefined()
+    const startedId = startMsg!.slice("claude-cli:stream-start:".length)
+    expect(activeRustStreamIds()).toContain(startedId)
+
+    commands.length = 0
+    await forceKillAll()
+
+    // 注册表里的活流必须真的收到 terminate + kill（graceMs=0 不等待）
+    expect(commands).toContain("claude_cli_terminate")
+    expect(commands).toContain("claude_cli_kill")
+    const killedIds = vi
+      .mocked(invoke)
+      .mock.calls.filter(([command]) => command === "claude_cli_kill")
+      .map(([, payload]) => (payload as { streamId?: string }).streamId)
+    expect(killedIds).toEqual([startedId])
+
+    // 收尾：结束该流，避免遗留悬挂 promise
+    const doneEvent = [...listeners.keys()].find((n) => n.endsWith(":done"))
+    expect(doneEvent).toBeDefined()
+    listeners.get(doneEvent!)?.({ payload: { code: 0, stderr: "" } })
+    await p
+  })
 })

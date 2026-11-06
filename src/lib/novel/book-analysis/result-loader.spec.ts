@@ -173,3 +173,27 @@ describe("loadBookAnalysisResult", () => {
     expect(result?.skills[0].chapterRange).toEqual(["undefined", "undefined"])
   })
 })
+
+describe("loadBookAnalysisResult 角色文件读取失败", () => {
+  it("单个角色 JSON 读失败 → 该条跳过（resolve 为 null），其余角色仍回填", async () => {
+    mockedRead.mockImplementation(async (p) => {
+      if (p.endsWith("metadata.json")) {
+        return JSON.stringify({ title: "T", totalChapters: 1, totalWords: 1, sourceType: "file", createdAt: 0, updatedAt: 0 })
+      }
+      if (p.endsWith("good.json")) return JSON.stringify({ id: "c-good", name: "好人" })
+      throw new Error("EACCES")
+    })
+    mockedList.mockImplementation(async (dir) => {
+      if (dir.endsWith("characters")) {
+        return [
+          { name: "good.json", is_dir: false, path: `${dir}/good.json` },
+          { name: "bad.json", is_dir: false, path: `${dir}/bad.json` },
+        ]
+      }
+      return []
+    })
+    const result = await loadBookAnalysisResult("/proj", "book-r")
+    expect(result?.characters).toHaveLength(1)
+    expect(result?.characters[0].name).toBe("好人")
+  })
+})

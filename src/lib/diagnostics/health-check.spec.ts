@@ -224,4 +224,17 @@ describe("各检测器读失败 → unknown/unavailable（门禁4）", () => {
     expect(runtime.status).toBe("unavailable")
     expect(runtime.errorCode).toBe("RUNTIME_PROBE_FAILED")
   })
+
+  it("Tauri 探测 reject（非同步抛错）→ 探活 promise 走 catch 降级为 false", async () => {
+    // 与上一条互补：上一条是同步 throw（外层 catch 兜住），本条是异步 reject
+    // （由 probeOk 链上的 .catch(() => false) 兜住），两者是不同的失败面。
+    vi.mocked(isTauri).mockReturnValue(true)
+    vi.mocked(fileExists).mockRejectedValue(new Error("ipc timeout"))
+    const report = await collectHealthReport({ projectPath: "/p/book", llmCfg: null })
+    const runtime = itemOf(report, "runtime")
+    expect(runtime.status).toBe("unavailable")
+    expect(runtime.errorCode).toBe("RUNTIME_UNREACHABLE")
+    expect(runtime.technicalDetail).toContain("probeOk=false")
+    expect(runtime.recoveries).toHaveLength(1)
+  })
 })

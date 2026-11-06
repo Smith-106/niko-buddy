@@ -394,3 +394,48 @@ describe("导入即副本幂等（R2）", () => {
     expect(fsMocks.writeFile).toHaveBeenCalledTimes(1)
   })
 })
+
+describe("导入即副本幂等：探测/读盘失败时降级（不误判为已存在）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fsMocks.createDirectory.mockResolvedValue(undefined)
+  })
+
+  it("fileExists 对某个 -N 变体抛错 → 跳过该变体继续探测，最终仍正常落盘", async () => {
+    fsMocks.readFile.mockImplementation(async (p: string) =>
+      String(p).startsWith("E:/book") ? "正文内容" : "")
+    fsMocks.fileExists.mockImplementation(async (p: string) => {
+      if (String(p).endsWith("chapter-001-前言-1.md")) throw new Error("EBUSY: stat failed")
+      return false
+    })
+
+    const imported = await importChapterFiles("E:/Novel", ["E:/book/第1章 前言.txt"], {
+      finalForMemoryExtraction: false,
+    })
+
+    expect(imported).toHaveLength(1)
+    expect(imported[0].path).toBe("E:/Novel/wiki/chapters/chapter-001-前言.md")
+    expect(fsMocks.writeFile).toHaveBeenCalledTimes(1)
+  })
+
+  it("既有副本读不出来（EACCES）→ 不认定指纹命中，改写到下一个可用 -N 路径", async () => {
+    const body = "正文内容"
+    fsMocks.readFile.mockImplementation(async (p: string) => {
+      if (String(p).startsWith("E:/book")) return body
+      throw new Error("EACCES: permission denied")
+    })
+    fsMocks.fileExists.mockImplementation(
+      async (p: string) => String(p).endsWith("chapter-001-前言.md"),
+    )
+
+    const imported = await importChapterFiles("E:/Novel", ["E:/book/第1章 前言.txt"], {
+      finalForMemoryExtraction: false,
+    })
+
+    expect(imported).toHaveLength(1)
+    // 既有 chapter-001-前言.md 不可读 → 不能复用它（会丢正文），改落 -2 副本
+    expect(imported[0].path).toBe("E:/Novel/wiki/chapters/chapter-001-前言-2.md")
+    expect(fsMocks.writeFile).toHaveBeenCalledTimes(1)
+    expect(String(fsMocks.writeFile.mock.calls[0][1])).toContain("正文内容")
+  })
+})

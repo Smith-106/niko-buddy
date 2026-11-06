@@ -534,3 +534,30 @@ describe("hasCharacterProfile", () => {
     await expect(hasCharacterProfile("/P", "小晴")).rejects.toThrow("search down")
   })
 })
+
+describe("readSkillFileWithFallback — resourceDir API 调用失败", () => {
+  it("resourceDir() 抛错 → 记降级警告并继续使用已收集的根（不放弃回退链）", async () => {
+    loggerWarnMock.mockReset()
+    fsMocks.readFile.mockReset()
+    fsMocks.getExecutableDir.mockReset()
+    fsMocks.getResourceDir.mockReset()
+    ;(isTauri as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true)
+    fsMocks.getExecutableDir.mockResolvedValue("C:/apps/niko")
+    fsMocks.getResourceDir.mockResolvedValue("C:/apps/niko/resources")
+    vi.mocked(resourceDir).mockRejectedValueOnce(new Error("tauri path api down"))
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path === "C:/apps/niko/_up_/s/SKILL.md") return "# exe 侧命中"
+      throw new Error("ENOENT")
+    })
+
+    await expect(
+      loadCharacterAuraSkillDocument(customAura("/s") as never),
+    ).resolves.toBe("# exe 侧命中")
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      "character-aura-context",
+      expect.stringContaining("silent-degrade"),
+      { line: 172 },
+    )
+  })
+})

@@ -11,6 +11,7 @@ import {
   type CharacterArchetypeEntry,
 } from "./asset-library"
 import {
+  BookAnalysisEvolutionError,
   applyAuraSeedsToArchetype,
   evolutionAuraEvents,
   evolutionToAuraSeeds,
@@ -149,6 +150,33 @@ describe("applyAuraSeedsToArchetype（单向闭环机械面）", () => {
     })
     expect(verifyLibraryConservation(artifact).conserved).toBe(true)
     expect(artifact.entries[0]).toMatchObject({ auraSeeds: ["她烧掉了过去的名字@ch4"] })
+  })
+
+  it("并入后条目违反库 schema（种子超 256）→ fail-loud 并带问题路径", () => {
+    const entry = archetype()
+    // 边界可达：anchorText 合法上限 256，但种子要再拼 `@ch<章号>` 后缀，
+    // 拼后 260 字 > 库 schema 的 z.string().max(256) —— 合成期产物必须被并入端拦下。
+    const longAnchor = "剑".repeat(256)
+    const s = evolutionToAuraSeeds({
+      timeline: timeline({ anchors: [{ chapterId: 12, anchorText: longAnchor }] }),
+    })
+    expect(s.seeds[0]?.length).toBeGreaterThan(256)
+
+    let thrown: unknown
+    try {
+      applyAuraSeedsToArchetype(entry, s)
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(BookAnalysisEvolutionError)
+    const message = (thrown as Error).message
+    expect(message).toContain("aura 种子并入后契约违反")
+    // 带出问题路径与原因（可对账，不是一句无信息的 throw）
+    expect(message).toContain("auraSeeds.0")
+    expect(message).toContain("256")
+    // 输入条目未被污染（单向闭环：失败不半写）
+    expect(entry.auraSeeds).toEqual([])
   })
 })
 

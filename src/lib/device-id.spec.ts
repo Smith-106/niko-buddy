@@ -124,3 +124,20 @@ describe("与冲突命名的契约", () => {
     )
   })
 })
+
+describe("store() 访问 localStorage 即抛错（隐私模式 / 受限 WebView）", () => {
+  it("getter 抛 SecurityError 时降级为进程内稳定值，且不落盘", async () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("SecurityError: storage is disabled")
+      },
+    })
+    vi.resetModules()
+    const mod = await import("@/lib/device-id")
+    const first = mod.getDeviceId()
+    expect(first).toMatch(/^dev-[A-Za-z0-9_-]+$/)
+    // 同一进程内恒定（fallbackToken 记忆），不会每次重新随机
+    expect(mod.getDeviceId()).toBe(first)
+  })
+})

@@ -796,6 +796,23 @@ describe("deleteChapterSnapshots (rebuild path)", () => {
     expect(bump).toHaveBeenCalled()
   })
 
+  it("单个产物删除失败不阻断其余两条删除，也不阻断 rebuild/bump（逐条 catch）", async () => {
+    // 文件都在，但底层删除全部失败（权限/占用）：三条各进一次 catch，控制流不变
+    fsMocks.fileExists.mockResolvedValue(true)
+    fsMocks.deleteFile.mockRejectedValue(new Error("delete denied"))
+    const bump = vi.fn()
+
+    await expect(deleteChapterSnapshots(PROJECT, 1, bump)).resolves.toBeUndefined()
+
+    // 三条路径都尝试过：前一条失败不会提前退出（catch 只记诊断）
+    expect(fsMocks.deleteFile).toHaveBeenCalledWith(`${PROJECT}/.novel/snapshots/001.snapshot.json`)
+    expect(fsMocks.deleteFile).toHaveBeenCalledWith(`${PROJECT}/.novel/snapshots/001.snapshot.md`)
+    expect(fsMocks.deleteFile).toHaveBeenCalledWith(`${PROJECT}/.novel/snapshots/history/001`)
+    expect(fsMocks.deleteFile).toHaveBeenCalledTimes(3)
+    // 缺文件仍视为已删、删除失败非致命：rebuild 与 bump 照常执行
+    expect(bump).toHaveBeenCalledTimes(1)
+  })
+
   it("re-embeds every snapshot when the embedding config is enabled, tolerating embed failures", async () => {
     storeState.embeddingConfig = { enabled: true, model: "emb" }
     fsMocks.listDirectory.mockImplementation(async (path: string) => {

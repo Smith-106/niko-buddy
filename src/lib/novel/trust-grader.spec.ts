@@ -146,6 +146,25 @@ describe("P1-IMP-06 buildTrustGradeMap + trustKeyOfPath", () => {
     expect(map["x"]).toBe("full")
   })
 
+  it("缺 name / 缺 trust 的条目不入表（K-11 安全不变量：无法派生 trust → 不得入映射）", async () => {
+    const { buildTrustGradeMap } = await import("./trust-grader")
+    const map = buildTrustGradeMap({
+      collections: {
+        craft: [
+          { collection: "craft", name: "", trust: "full" },
+          { collection: "craft", trust: "reference_only" },
+          { collection: "craft", name: "Kept", trust: "full" },
+        ],
+      },
+    })
+    // 只有同时具备非空 name 与 trust 的条目成为映射键
+    expect(Object.keys(map).sort()).toEqual(["craft/kept", "kept"])
+    expect(map["craft/kept"]).toBe("full")
+    // 空 name 不得凭空造出 "craft/" 或 "" 键
+    expect(map["craft/"]).toBeUndefined()
+    expect(map[""]).toBeUndefined()
+  })
+
   it("trustKeyOfPath 归一化（反斜杠/前导点/大小写）", async () => {
     const { trustKeyOfPath } = await import("./trust-grader")
     expect(trustKeyOfPath(".\\Craft\\X.md")).toBe("craft/x.md")

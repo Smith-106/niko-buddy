@@ -720,3 +720,37 @@ describe("projectWishDriveProfile — 单边集合（TASK-036 变异锚点）", 
     expect(p!.arcStage).toBe("commitment")
   })
 })
+
+describe("ReviewCenterView — F8 wish-drive 懒取竞态守卫", () => {
+  it("面板关闭后才返回的 batch 结果被丢弃（wishEdges 不落地，重开面板重新懒取）", async () => {
+    const { queryCanonBatch } = await import("@/components/canon-editor/canon-editor-client")
+    const qb = vi.mocked(queryCanonBatch)
+    type BatchRes = Awaited<ReturnType<typeof queryCanonBatch>>
+    let resolveBatch!: (value: BatchRes) => void
+    const deferred = new Promise<BatchRes>((resolve) => {
+      resolveBatch = resolve
+    })
+    qb.mockImplementationOnce(() => deferred)
+
+    render(<ReviewCenterView />)
+    fireEvent.click(document.querySelector("[data-craft-toggle]") as HTMLElement)
+    fireEvent.click(document.querySelector('[data-craft-tab="wish-drive"]') as HTMLElement)
+    await waitFor(() => expect(qb).toHaveBeenCalledTimes(1))
+
+    // 关闭面板 → effect cleanup 置 cancelled=true
+    fireEvent.click(document.querySelector("[data-craft-close]") as HTMLElement)
+    // 关闭之后 Promise 才 resolve：cancelled 守卫必须丢弃结果
+    await act(async () => {
+      resolveBatch({
+        results: [[{ edge_kind: "motivation", predicate: "复仇", target_id: "敌手" }]],
+        max_revision: 1,
+      } as BatchRes)
+    })
+
+    // 重开面板：wishEdges 仍为 null → 必须重新懒取（若守卫缺失，旧结果已填 → 不再取）
+    fireEvent.click(document.querySelector("[data-craft-toggle]") as HTMLElement)
+    fireEvent.click(document.querySelector('[data-craft-tab="wish-drive"]') as HTMLElement)
+    await waitFor(() => expect(qb).toHaveBeenCalledTimes(2))
+    expect(document.querySelector('[data-craft-placeholder="wish-drive"]')).toBeTruthy()
+  })
+})

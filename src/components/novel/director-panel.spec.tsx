@@ -230,3 +230,35 @@ describe("DirectorPanel · 阶段生成状态与产物摘要（B 范围）", () 
     expect(screen.getByTestId("director-artifacts-empty")).toBeInTheDocument()
   })
 })
+
+describe("DirectorPanel · 旧存档 idea.hooks 结构不合格", () => {
+  beforeEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+
+  it("hooks 不是数组 → 只跳过立意卡摘要，其余阶段照常显示", () => {
+    render(
+      <DirectorPanel
+        state={createDirectorPipeline()}
+        progress={{
+          status: "gating",
+          // 手改/旧版本存档：title+genre 齐全但 hooks 不是数组。
+          artifacts: {
+            idea: { title: "雾都", genre: "悬疑", hooks: "h1" },
+            character: {
+              characters: [{ name: "陈默", role: "protagonist" as const, desire: "d", flaw: "f" }],
+            },
+          } as never,
+        }}
+        onAdvance={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    )
+
+    // 立意卡整段跳过（不能渲染出 "undefined 个钩子"），但面板不能因此变成全空。
+    expect(screen.queryByTestId("director-artifact-idea")).toBeNull()
+    expect(screen.queryByTestId("director-artifacts-empty")).toBeNull()
+    expect(screen.getByTestId("director-artifact-character")).toHaveTextContent("陈默")
+  })
+})

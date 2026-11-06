@@ -1084,3 +1084,45 @@ describe("hydrateProjectOnOpen", () => {
     expect(errorSpy).toHaveBeenCalledWith("加载拆书任务失败:", expect.any(Error))
   })
 })
+
+describe("hydrateProjectOnOpen 非致命降级分支", () => {
+  function seedHappyPath() {
+    mocks.resetProjectState.mockResolvedValue(undefined)
+    mocks.loadNovelConfig.mockResolvedValue(null)
+    mocks.loadRevisionFeedbackWindowConfig.mockResolvedValue(null)
+    mocks.saveLastProject.mockResolvedValue(undefined)
+    mocks.loadScheduledImportConfig.mockResolvedValue(null)
+    mocks.listDirectory.mockResolvedValue([])
+    mocks.loadReviewItems.mockResolvedValue([])
+    mocks.loadChatHistory.mockResolvedValue({ conversations: [], messages: [] })
+    mocks.loadNovelSessionStatus.mockResolvedValue(null)
+    mocks.hydrateChat.mockReturnValue({ conversations: [], messages: [], focusConversationId: null })
+  }
+
+  it("创建 metrics 目录失败 → 记录错误但不中断打开项目（仍指向当日 JSONL）", async () => {
+    seedHappyPath()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    mocks.createDirectory.mockRejectedValue(new Error("EACCES: metrics dir"))
+
+    await expect(hydrateProjectOnOpen(proj)).resolves.toBeUndefined()
+
+    expect(consoleError).toHaveBeenCalledWith("创建 LLM 指标目录失败:", expect.any(Error))
+    expect(mocks.setMetricsFilePath).toHaveBeenCalledWith(
+      `C:/projects/test/.novel/metrics/llm-metrics-${new Date().toISOString().slice(0, 10)}.jsonl`,
+    )
+  })
+
+  it("回写 interrupted 失败（磁盘只读）→ 吞错，不阻断项目打开与聊天水合", async () => {
+    seedHappyPath()
+    mocks.loadNovelSessionStatus.mockResolvedValue({ status: "running", session_id: "s1" })
+    mocks.markSessionInterrupted.mockRejectedValue(new Error("EROFS: read-only file system"))
+
+    await expect(hydrateProjectOnOpen(proj)).resolves.toBeUndefined()
+    await flushDynamicImports()
+
+    expect(mocks.markSessionInterrupted).toHaveBeenCalledWith(proj.path)
+    // 残留在内存里的 running 会话仍被标记为 interrupted 后再水合（不因回写失败丢历史）
+    expect(mocks.hydrateChat).toHaveBeenCalled()
+    expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("wiki")
+  })
+})

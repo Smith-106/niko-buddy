@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { loadStyleExemplarsViaRust, markStyleExemplarViaRust, type MarkStyleExemplarInput } from "./exemplar"
+import {
+  deleteStyleExemplarViaRust,
+  loadStyleExemplarsViaRust,
+  markStyleExemplarViaRust,
+  type MarkStyleExemplarInput,
+} from "./exemplar"
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -56,5 +61,27 @@ describe("exemplar command wrappers", () => {
     mocks.invoke.mockRejectedValue(err)
     await expect(markStyleExemplarViaRust("/p", MARK)).rejects.toBe(err)
     await expect(loadStyleExemplarsViaRust("/p")).rejects.toBe(err)
+  })
+})
+
+describe("deleteStyleExemplarViaRust", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.invoke.mockResolvedValue(undefined)
+  })
+
+  it("按 projectPath + exemplarId 透传给 Rust delete_style_exemplar", async () => {
+    await expect(deleteStyleExemplarViaRust("/p", "ex-7")).resolves.toBeUndefined()
+    expect(mocks.invoke).toHaveBeenCalledTimes(1)
+    expect(mocks.invoke).toHaveBeenCalledWith("delete_style_exemplar", {
+      projectPath: "/p",
+      exemplarId: "ex-7",
+    })
+  })
+
+  it("Rust 侧失败原样传播（不吞错）", async () => {
+    const err = new Error("exemplar not found")
+    mocks.invoke.mockRejectedValue(err)
+    await expect(deleteStyleExemplarViaRust("/p", "missing")).rejects.toBe(err)
   })
 })

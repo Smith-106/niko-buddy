@@ -45,4 +45,14 @@ describe("D7 P0 锁死 — 严格限定 P0", () => {
     const lock = evaluateP0Lock(["consistency"], [])
     expect(verifyNoQualityOverride(lock, 9.5)).toBe(true) // 锁死仍 BLOCK
   })
+
+  it("未锁死时 Quality 走常规通道（不被该锁判定误拦）", () => {
+    const unlocked = evaluateP0Lock([], [])
+    expect(unlocked.state).toBe("UNLOCKED")
+    // 未锁死 → 本判定不干预（仍返回 true，表示质量门自行生效）
+    expect(verifyNoQualityOverride(unlocked, 9.5)).toBe(true)
+    // 反例对照：锁死 + 低分也不得被该判定放行
+    const locked = evaluateP0Lock(["consistency"], [])
+    expect(verifyNoQualityOverride(locked, 8.9)).toBe(true)
+  })
 })

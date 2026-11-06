@@ -82,3 +82,11 @@ describe("capability-trace-store", () => {
     expect(all).toHaveLength(2)
   })
 })
+
+describe("readCapabilityTraces 无 trace 文件", () => {
+  it("文件不存在 → 空数组（首次使用不报错、不抛 ENOENT）", async () => {
+    const { files, deps } = memFs()
+    expect(files.size).toBe(0)
+    await expect(readCapabilityTraces("fresh-proj", deps)).resolves.toEqual([])
+  })
+})

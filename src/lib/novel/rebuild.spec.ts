@@ -188,6 +188,29 @@ describe("rebuild rebuildAllSnapshots", () => {
     expect(result.success).toBe(0)
     expect(result.failed).toBe(0)
   })
+
+  it("单个章节读不出来时只跳过该章，其余章节照常摄取", async () => {
+    mocks.listDirectory.mockResolvedValue([
+      mdNode("broken.md", "C:/novel/wiki/chapters/broken.md"),
+      mdNode("ch2.md", "C:/novel/wiki/chapters/ch2.md"),
+    ])
+    // 并发读取阶段：broken.md 的 readFile 拒绝 → 映射为 {ok:false}，不得中断整批
+    mocks.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("broken.md")) throw new Error("EACCES")
+      return '{"type":"chapter","chapter_status":"final","chapter_number":2}'
+    })
+    mocks.isChapterPage.mockReturnValue(true)
+    mocks.isFinalChapter.mockReturnValue(true)
+    mocks.ingestChapter.mockResolvedValue({ snapshot: {}, failReason: undefined })
+
+    const result = await rebuildAllSnapshots("C:/novel")
+
+    // 失败读取不计入 failed（那只是「无法解析」），且绝不交给 ingestChapter
+    expect(result).toEqual({ success: 1, failed: 0, errors: [] })
+    expect(mocks.ingestChapter).toHaveBeenCalledTimes(1)
+    expect(mocks.ingestChapter.mock.calls[0][1]).toContain("ch2.md")
+    expect(mocks.ingestChapter.mock.calls[0][1]).not.toContain("broken.md")
+  })
 })
 
 describe("rebuild rebuildVectorIndex", () => {

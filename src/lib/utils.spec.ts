@@ -1,5 +1,26 @@
-import { describe, expect, it } from "vitest"
-import { bytesToHex, fnv1aHex, todayStamp, toErrorMessage } from "./utils"
+import { describe, expect, it, vi, afterEach } from "vitest"
+import { bytesToHex, fnv1aHex, todayStamp, toErrorMessage, safeStorageGet } from "./utils"
+
+// safeStorageGet 的两种可达环境：
+// 1) SSR/隐私模式 —— 没有 localStorage（window 也不存在）；
+// 2) 正常环境 —— 有 localStorage，必须原样读出已存值。
+describe("safeStorageGet（无 localStorage 不抛错）", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("localStorage 缺失时返回 null（SSR/隐私模式）", () => {
+    vi.stubGlobal("localStorage", undefined)
+    expect(safeStorageGet("niko_buddy_fallback_fingerprint")).toBeNull()
+  })
+
+  it("localStorage 可用时读出原值，不把已存值吞成 null", () => {
+    const getItem = vi.fn((key: string) => (key === "depth-preference" ? "deep" : null))
+    vi.stubGlobal("localStorage", { getItem })
+    expect(safeStorageGet("depth-preference")).toBe("deep")
+    expect(getItem).toHaveBeenCalledWith("depth-preference")
+  })
+})
 
 describe("todayStamp", () => {
   it("默认返回今日 UTC YYYY-MM-DD", () => {

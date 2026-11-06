@@ -112,6 +112,35 @@ describe("play-runtime (64 号实施：P0-2 Play 可玩面引擎)", () => {
     expect(s.ended).toBe(false)
   })
 
+  it("stepPlay：当前 nodeId 不在图中（脏 state）→ null，不越界取节点", () => {
+    const stale = { ...createPlayState(GRAPH), nodeId: "ghost" }
+    expect(stepPlay(GRAPH, stale, 0)).toBeNull()
+  })
+
+  it("stepPlay：出边指向不存在的节点（悬空边）→ null", () => {
+    const dangling: InteractiveStoryGraph = {
+      ...GRAPH,
+      edges: [{ from: "k1", to: "nowhere" }],
+    }
+    expect(stepPlay(dangling, createPlayState(dangling), 0)).toBeNull()
+  })
+
+  it("replayPlay：choicePath 越过已结束节点 → null（end 后不可再步进）", () => {
+    // end1 之后仍挂一条出边，模拟作者后期补写：end 后 step 必然返回 null，
+    // replay 的「中途失效 → null」因此可达。
+    const extended: InteractiveStoryGraph = {
+      ...GRAPH,
+      nodes: [
+        ...GRAPH.nodes,
+        { id: "tail", kind: "knot", title: "余波", text: "故事之后。" },
+      ],
+      edges: [...GRAPH.edges, { from: "end1", to: "tail" }],
+    }
+    expect(replayPlay(extended, ["c1", "end1", "tail"])).toBeNull()
+    // 同一图上只回放到 end1 仍然成功（证明 null 来自越界，而非图不可用）
+    expect(replayPlay(extended, ["c1", "end1"])!.ended).toBe(true)
+  })
+
   it("纯性：stepPlay 不改输入 state", () => {
     const s = createPlayState(GRAPH)
     const snapshot = JSON.stringify(s)

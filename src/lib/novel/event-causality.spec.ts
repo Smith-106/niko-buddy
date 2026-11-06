@@ -101,3 +101,25 @@ describe("event-causality（吸收 underworld-graph 事件因果链+级联闭合
     expect(JSON.stringify(traceCausality(chain, "e-leaf"))).toBe(JSON.stringify(traceCausality(chain, "e-leaf")))
   })
 })
+
+describe("validateEventLog 环检测的重复访问剪枝", () => {
+  it("链上进入他人环（A→B↔C）时剪枝终止，只报环成员，不误报 A", () => {
+    const events = [
+      event({ eventId: "a", causedBy: "b" }),
+      event({ eventId: "b", causedBy: "c" }),
+      event({ eventId: "c", causedBy: "b" }),
+    ]
+    const errs = validateEventLog(events)
+    const cycles = errs.filter((e) => e.includes("因果环"))
+    // b、c 各自从自身出发命中环；a 的游走遇到已访问节点后 break（不自称环）
+    expect(cycles).toHaveLength(2)
+    expect(cycles.some((e) => e.startsWith("因果环：b"))).toBe(true)
+    expect(cycles.some((e) => e.startsWith("因果环：c"))).toBe(true)
+    expect(errs.some((e) => e.includes("因果环：a"))).toBe(false)
+    expect(validateEventLog(events)).toEqual(errs)
+  })
+
+  it("自环（A→A）由自身命中而非剪枝分支", () => {
+    expect(validateEventLog([event({ eventId: "a", causedBy: "a" })])).toEqual(["因果环：a → … → a"])
+  })
+})

@@ -4,8 +4,8 @@
  * （deps 注入）/ 装载失败提示。
  */
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest"
-import { cleanup, render, screen } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import {
   appendRunEvents,
   createRunEventLedger,
@@ -79,5 +79,37 @@ describe("SubgateAlertsSection（G-14 子门/告警可见区）", () => {
     render(<SubgateAlertsSection projectId="p-3" deps={failing} />)
     await screen.findByTestId("subgate-alerts-failed", undefined, { timeout: 2000 })
     cleanup()
+  })
+
+  it("装载结果回来之前卸载：迟到的账本被丢弃（不再渲染/不再报错）", async () => {
+    // 手动控制装载完成时机，稳定复现「await 回来后组件已卸载」的窗口。
+    let release: (text: string | null) => void = () => {}
+    const pending = new Promise<string | null>((resolve) => {
+      release = resolve
+    })
+    const readText = vi.fn(() => pending)
+    const deps: RunEventLedgerStoreDeps = { readText, appendText: async () => {} }
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    try {
+      const { container, unmount } = render(<SubgateAlertsSection projectId="p-late" deps={deps} />)
+      // 装载确实发起了（否则下面的「迟到」不成立）。
+      await waitFor(() => expect(readText).toHaveBeenCalledTimes(1))
+      unmount()
+
+      release(JSON.stringify(stage(0, { alert: "late-drift", drift: 0.4 })) + "\n")
+      await pending
+      // 把 await 之后的续体（cancelled 早退 / finally）跑完。
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      // 卸载后迟到的结果不得渲染任何东西，也不得抛错/打 React 告警。
+      expect(container.innerHTML).toBe("")
+      expect(screen.queryByTestId("subgate-alerts-list")).toBeNull()
+      expect(screen.queryByTestId("subgate-alerts-failed")).toBeNull()
+      expect(errorSpy).not.toHaveBeenCalled()
+    } finally {
+      errorSpy.mockRestore()
+      cleanup()
+    }
   })
 })

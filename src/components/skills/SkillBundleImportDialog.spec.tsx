@@ -220,3 +220,29 @@ describe("SkillBundleImportDialog", () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
+
+describe("SkillBundleImportDialog · 路径被清空后的过期可用态", () => {
+  it("bundlePath 清空但 verify/confirmed 仍在时按钮仍可点，handler 必须机械拒绝（不发起导入）", async () => {
+    mocks.verifySkillBundle.mockResolvedValue(VERIFY_OK)
+    const { rerender } = renderDialog()
+
+    const checkbox = await screen.findByRole("checkbox")
+    await waitFor(() => expect((checkbox as HTMLInputElement).disabled).toBe(false))
+    fireEvent.click(checkbox)
+
+    const submitOf = () => screen.getByText("skillbundle.import.submit").closest("button") as HTMLButtonElement
+    expect(submitOf().disabled).toBe(false)
+
+    // 宿主把选择清空：校验结果与勾选状态都还留在组件状态里（effect 在 !bundlePath 时直接 return，
+    // 不清 verify / confirmed），所以按钮的 disabled 闸门拦不住这一态。
+    rerender(<SkillBundleImportDialog open bundlePath={null} destRoot="C:/proj" onClose={() => {}} />)
+    expect(submitOf().disabled).toBe(false)
+
+    fireEvent.click(submitOf())
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    // 没有路径就绝不调用导入命令，也不进 busy / 错误态。
+    expect(mocks.importSkillBundle).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("skillbundle-import-error")).toBeNull()
+  })
+})

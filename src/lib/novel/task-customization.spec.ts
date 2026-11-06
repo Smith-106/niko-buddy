@@ -82,3 +82,21 @@ describe("isTaskPromptKey", () => {
     expect(isTaskPromptKey("")).toBe(false)
   })
 })
+
+type SkillNamesArg = Parameters<typeof resolveTaskSkillNames>[0]
+
+describe("resolveTaskSkillNames 非数组输入防御", () => {
+  it("任务键缺失（undefined）→ 空数组", () => {
+    const partial = { taskSkillNames: { writing: undefined } } as unknown as SkillNamesArg
+    expect(resolveTaskSkillNames(partial, "writing")).toEqual([])
+  })
+
+  it("配置被写成字符串（历史脏数据）→ 空数组，不退化为逐字符名单", () => {
+    const dirty = { taskSkillNames: { writing: "章节承接" } } as unknown as SkillNamesArg
+    expect(resolveTaskSkillNames(dirty, "writing")).toEqual([])
+  })
+
+  it("novelConfig 整体缺失 → 空数组", () => {
+    expect(resolveTaskSkillNames(undefined, "extract")).toEqual([])
+  })
+})

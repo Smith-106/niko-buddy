@@ -155,4 +155,34 @@ describe("assembleChatContext", () => {
     expect(res.systemMessages).toEqual([])
     expect(res.queryRefs).toEqual([])
   })
+
+  it("小说上下文装配失败 → 降级继续生成（无 novelContextPreamble，systemMessages 结构不缩水）", async () => {
+    mocks.buildContextPack.mockResolvedValue({ characterAuras: "" })
+    const route = { chapterNumber: 2, intent: "write_chapter" as const, confidence: 1, extractedParams: {} }
+    const hasPreamble = (messages: Array<{ content: unknown }>) =>
+      messages.some((m) => JSON.stringify(m.content).includes("mock-preamble"))
+
+    // 对照组：装配正常 → 上下文前置段进入 prompt
+    const control = await assembleChatContext(
+      makeParams({ text: "写第2章", novelMode: true, effectiveTaskRoute: route }).params,
+    )
+    expect(control.cancelled).toBe(false)
+    if (control.cancelled) return
+    expect(hasPreamble(control.systemMessages)).toBe(true)
+
+    // 实验组：装配环节抛错（真实来源：context-engine 字段形态变化 / 预算计算异常）
+    mocks.renderCanonRulesBaseForStablePrefix.mockImplementationOnce(() => {
+      throw new Error("context engine exploded")
+    })
+    const res = await assembleChatContext(
+      makeParams({ text: "写第2章", novelMode: true, effectiveTaskRoute: route }).params,
+    )
+
+    expect(res.cancelled).toBe(false)
+    if (res.cancelled) return
+    // 降级而非中断：消息条数不变（稳定前缀与动态段照常装配），只丢上下文前置段
+    expect(res.systemMessages).toHaveLength(control.systemMessages.length)
+    expect(hasPreamble(res.systemMessages)).toBe(false)
+    expect(res.queryRefs).toEqual(control.queryRefs)
+  })
 })

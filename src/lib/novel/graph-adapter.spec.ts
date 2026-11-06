@@ -470,6 +470,27 @@ describe("writeSnapshotToWiki", () => {
     expect(content.match(/- \[\[沈微\]\]/g)).toHaveLength(1)
   })
 
+  it("空白实体名不进 A7 精度门源文（trim 后为空 → 跳过，不污染机械层证据）", async () => {
+    fsMocks.createDirectory.mockResolvedValue(undefined)
+    fsMocks.fileExists.mockResolvedValue(false)
+    fsMocks.writeFileAtomic.mockResolvedValue(undefined)
+
+    // 模型偶发返回全空白实体名：必须被 trim 丢弃，不得成为「源文现身」证据，
+    // 也不能因此让真实实体（旧城）的页面写不出来。
+    const s = mkSnapshot({
+      characters: [],
+      locations: ["   ", "旧城"],
+      organizations: ["		"],
+      items: [""],
+    })
+    const paths = await writeSnapshotToWiki("E:/Novel", s)
+
+    expect(paths).toEqual(["E:/Novel/wiki/entities/locations/旧城.md"])
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    const [, content] = fsMocks.writeFileAtomic.mock.calls[0]
+    expect(content).toContain('title: "旧城"')
+  })
+
   it("既有实体页 snapshot_id 与 new 相同 → 不写 superseded_by_snapshot", async () => {
     fsMocks.createDirectory.mockResolvedValue(undefined)
     fsMocks.fileExists.mockResolvedValue(true)

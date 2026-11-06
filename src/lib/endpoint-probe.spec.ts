@@ -168,6 +168,31 @@ describe("probeEndpointReachability", () => {
     expect(b.reachable).toBe(true)
   })
 
+  it("同键并发：后到者复用进行中的 probe（in-flight 去重返回同一结果对象）", async () => {
+    // 与上一条并发用例互补：这里显式让第一次探测停在网络上，确保第二次调用
+    // 落在 inFlightProbes 已登记的窗口内 —— 该分支返回的是进行中的 promise 本身，
+    // 因此两次调用共享同一个结果对象、且只发一次请求。
+    let releaseFetch: ((value: Response) => void) | undefined
+    setupFetch(
+      (() =>
+        new Promise<Response>((resolve) => {
+          releaseFetch = resolve
+        })) as unknown as typeof fetch,
+    )
+
+    const first = probeEndpointReachability(URL_CHAT)
+    // 让 first 越过 resolveProxyState 并在 inFlightProbes 中登记
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const second = probeEndpointReachability(URL_CHAT)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    releaseFetch?.(new Response("[]", { status: 200 }))
+
+    const [a, b] = await Promise.all([first, second])
+    expect(a).toBe(b) // 同一 result 实例 = 走了 in-flight 复用而非另起一次探测
+    expect(a).toMatchObject({ reachable: true, status: 200 })
+    expect(mocks.getHttpFetch).toHaveBeenCalledTimes(1)
+  })
+
   it("returns unreachable without any request for unusable URLs", async () => {
     const fetchSpy = vi.fn(okFetch()) as unknown as ReturnType<typeof vi.fn>
     setupFetch(fetchFetchSpy(fetchSpy))

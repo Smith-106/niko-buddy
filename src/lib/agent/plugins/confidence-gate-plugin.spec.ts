@@ -157,6 +157,27 @@ describe("confidence-gate-plugin", () => {
     expect(result.shouldStop).toBeUndefined()
   })
 
+  it("getCandidates 交回空集时不拦截（无候选 → 不能凭空弹澄清）", async () => {
+    const plugin = createConfidenceGatePlugin({ threshold: 0.7, getCandidates: () => [] })
+
+    const result = await plugin.run({
+      userMessage: "随便聊聊",
+      projectPath: "/test",
+      agentConfig: {} as any,
+      novelMode: true,
+      taskRoute: {
+        intent: "general_chat" as NovelTaskIntent,
+        confidence: 0.2,
+        extractedParams: {},
+      },
+    })
+
+    // 置信度不足且是闲聊 → 进候选分支，但候选为空 → 不中止、不带澄清载荷
+    expect(result.shouldStop).toBeUndefined()
+    expect(result.clarificationCandidates).toBeUndefined()
+    expect(result.clarificationNeeded).toBeUndefined()
+  })
+
   it("does nothing when no task route", async () => {
     const plugin = createConfidenceGatePlugin()
 

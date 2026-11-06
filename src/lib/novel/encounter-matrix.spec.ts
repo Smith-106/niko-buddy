@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { appendMeetingEdge, createEmptyEncounterMatrixStore, metBefore } from "./encounter-matrix"
+import { appendMeetingEdge, createEmptyEncounterMatrixStore, foldMeetingEdges, metBefore } from "./encounter-matrix"
+import type { ChapterSnapshot } from "./chapter-ingest"
+import type { NameAliasMap } from "./book-analysis/types"
 
 function edge(a: string, b: string, chapter: number) {
   return appendMeetingEdge(createEmptyEncounterMatrixStore(), {
@@ -101,5 +103,60 @@ describe("P2-IMP-05 metBefore 时间窗参数化", () => {
     s = appendMeetingEdge(s, { a: "甲", b: "丙", chapter: 2, context: "", witnessedBy: [] })
     expect(new Set(metBefore(s, "甲", 3, "past"))).toEqual(new Set(["乙", "丙"]))
     expect(new Set(metBefore(s, "甲", 3, "inclusive"))).toEqual(new Set(["乙", "丙"]))
+  })
+})
+
+describe("foldMeetingEdges：别名归一与退化名跳过（可达性收尾）", () => {
+  function snapshotWith(characters: string[]): ChapterSnapshot {
+    return {
+      chapterId: "ch-7",
+      chapterNumber: 7,
+      summary: "",
+      characters,
+      locations: [],
+      organizations: [],
+      items: [],
+      events: [],
+      characterStateChanges: [],
+      relationshipChanges: [],
+      knowledgeChanges: [],
+      foreshadowingChanges: [],
+      newCanonFacts: [],
+      timelineEvents: [],
+      conflicts: [],
+      endingHook: "",
+      graphNodes: [],
+      graphEdges: [],
+    }
+  }
+
+  it("两个不同写法归一到同一 canonical → 不产出自我见面边（a === b 跳过）", () => {
+    const aliasMaps: readonly NameAliasMap[] = [{ canonical: "甲", aliases: ["阿甲"] }]
+    const edges = foldMeetingEdges(snapshotWith(["甲", "阿甲"]), aliasMaps)
+
+    // 唯一一对 (甲, 阿甲) 归一后同为「甲」：跳过，绝不产出 a===b 的自环
+    expect(edges).toEqual([])
+  })
+
+  it("归一结果为空（degenerate canonical）→ 跳过该对", () => {
+    const aliasMaps: readonly NameAliasMap[] = [{ canonical: "", aliases: [] }]
+    expect(foldMeetingEdges(snapshotWith(["甲", "乙"]), aliasMaps)).toEqual([])
+  })
+
+  it("别名表不含该角色 → 保留原名并照常成边（fall-through 返回 name）", () => {
+    const aliasMaps: readonly NameAliasMap[] = [{ canonical: "丙", aliases: ["阿丙"] }]
+    const edges = foldMeetingEdges(snapshotWith(["甲", "乙"]), aliasMaps)
+
+    expect(edges).toHaveLength(1)
+    expect(edges[0]).toMatchObject({ a: "甲", b: "乙", chapter: 7 })
+  })
+
+  it("别名命中但阈值未被空表短路：非空表内无匹配即原样输出（不被空表早退吞掉）", () => {
+    // 空表早退（aliasMaps.length === 0）与「非空但不匹配」是两条不同路径，此处取后者
+    const edges = foldMeetingEdges(snapshotWith(["甲", "乙"]), [{ canonical: "甲", aliases: [] }])
+    expect(edges).toHaveLength(1)
+    expect(edges[0]).toMatchObject({ a: "甲", b: "乙" })
+    // 见证者列表同样经过归一：both 不在 witnesses 内时为空
+    expect(edges[0].witnessedBy).toEqual([])
   })
 })

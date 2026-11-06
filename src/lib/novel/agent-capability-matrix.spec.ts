@@ -116,3 +116,21 @@ describe("roleRequirementsFromDimensions", () => {
     expect(roleRequirementsFromDimensions(["  ", ""])).toEqual([])
   })
 })
+
+describe("compareCodePoints 前缀关系（一者是另一者的前缀时按长度定序）", () => {
+  it("roleId 互为前缀时短者在前，且顺序不随输入数组翻转", () => {
+    const roles: CapabilityRole[] = [
+      { id: "r1", label: "R1", kinds: ["vol"] },
+      { id: "r", label: "R", kinds: ["vol"] },
+    ]
+    const skills: CapabilitySkill[] = [{ name: "卷管理", kinds: ["vol"] }]
+
+    const a = projectAgentCapabilityMatrix({ skills, roles })
+    // 逐字符相等后由长度决定："r"(1) 先于 "r1"(2)。
+    expect(a.rows.map((row) => row.roleId)).toEqual(["r", "r1"])
+    expect(a.rows.every((row) => row.matchedSkills.length === 1)).toBe(true)
+
+    const b = projectAgentCapabilityMatrix({ skills, roles: [...roles].reverse() })
+    expect(b.rows.map((row) => row.roleId)).toEqual(["r", "r1"])
+  })
+})

@@ -167,3 +167,36 @@ describe("runSecondSignal (C7 explicit SKIP)", () => {
     expect(secondSignalReportSchema.safeParse(r).success).toBe(true)
   })
 })
+
+describe("extractObligationsFromCanonFacts 空输入", () => {
+  it("facts 为 null / undefined → 空数组（不伪造义务三元组）", () => {
+    expect(extractObligationsFromCanonFacts(null)).toEqual([])
+    expect(extractObligationsFromCanonFacts(undefined)).toEqual([])
+  })
+
+  it("空数组走 length===0 早退", () => {
+    expect(extractObligationsFromCanonFacts([])).toEqual([])
+  })
+})
+
+describe("compareObligationsToGenerated 缺失端点剪枝", () => {
+  it("subject/object 为空串的义务不产生 warning（正文 includes('') 恒真，必须剪掉）", () => {
+    const warnings = compareObligationsToGenerated(
+      [
+        { subject: "", predicate: "状态", object: "重伤", former: true, source: "temporalFacts" },
+        { subject: "墨渊", predicate: "状态", object: "", former: true, source: "temporalFacts" },
+      ],
+      "墨渊 现在 已经 重伤 复原",
+    )
+    expect(warnings).toEqual([])
+  })
+
+  it("对照：端点齐全时同一正文仍会告警（证明上例是被剪枝而非正文不命中）", () => {
+    const warnings = compareObligationsToGenerated(
+      [{ subject: "墨渊", predicate: "状态", object: "重伤", former: true, source: "temporalFacts" }],
+      "墨渊 现在 已经 重伤 复原",
+    )
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0].kind).toBe("superseded_fact_referenced")
+  })
+})

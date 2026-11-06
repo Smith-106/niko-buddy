@@ -41,4 +41,22 @@ describe("解耦证明 — 决策级一致率", () => {
   it("阈值冻结", () => {
     expect(DECOUPLING_RATE).toBe(0.95)
   })
+
+  it("三模型阵列不满 3 条时不参与计票（既不记一致也不记翻转）", () => {
+    const decisions = Array.from({ length: 29 }, () => trio("pass"))
+    // 残缺投票（只回 2 个模型）：既不能当一致，也不得当翻转——直接跳过
+    decisions.push([
+      { model: "m1", verdict: "pass" },
+      { model: "m2", verdict: "fail" },
+    ])
+    // 另一条仅 1 个模型且与残缺票同向，用于证明「短票不翻转」不是巧合
+    decisions.push([{ model: "m1", verdict: "fail" }])
+
+    const r = evaluateDecoupling(decisions)
+
+    expect(decisions).toHaveLength(31)
+    // 分母仍是全部决策组数（N），一致数只含满 3 条的 29 组
+    expect(r.rate).toBeCloseTo(29 / 31, 10)
+    expect(r.flips).toBe(0)
+  })
 })

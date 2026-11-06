@@ -105,6 +105,22 @@ describe("buildCorrectionLoopStats（闭环率 + FP 聚合）", () => {
     expect(consistency?.fpRate).toBeNull()
   })
 
+  it("gates 选项：未列名的门不参与统计（过滤闸门在 fail 累加前生效）", () => {
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      gateRun(0, "consistency", "fail"),
+      action(1, "retry"),
+      gateRun(2, "consistency", "pass"),
+    ])
+    const stats = buildCorrectionLoopStats(ledger, { gates: ["anti_ai"] })
+    // 只报告被点名的门；consistency 的 fail 被过滤掉，不得沉淀到任何计数
+    expect(stats.gates).toHaveLength(1)
+    expect(stats.gates[0]).toMatchObject({ gate: "anti_ai", failRuns: 0, corrections: 0, falsePositives: 0, openFailRuns: 0 })
+    expect(stats.totals).toMatchObject({ failRuns: 0, corrections: 0, falsePositives: 0, closureRate: null, fpRate: null })
+    // 对照：不加过滤时同一账本会算出 1 条闭环
+    const unfiltered = buildCorrectionLoopStats(ledger)
+    expect(unfiltered.totals).toMatchObject({ failRuns: 1, corrections: 1, closureRate: 1 })
+  })
+
   it("空账本 → 全门零计数 + 双率 null（不臆造 100%）", () => {
     const stats = buildCorrectionLoopStats(createRunEventLedger())
     expect(stats.totals.failRuns).toBe(0)

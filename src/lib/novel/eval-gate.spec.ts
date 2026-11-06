@@ -65,6 +65,28 @@ describe("E-06 G-1 种子契约（REQ-EVAL-001）", () => {
     expect(violations.some((v) => v.category === "obligation_recall")).toBe(true)
     expect(validateGovSeedScale([]).length).toBeGreaterThan(0)
   })
+
+  it("陷阱子校验：某类陷阱只命中 1 例 → 记违约并带可对账 detail（零命中不参与）", () => {
+    const cases: GovSeedCase[] = []
+    for (let i = 0; i < 60; i++) cases.push(makeCase({ caseId: `EVAL-OBL-${i}` }))
+    for (let i = 0; i < 30; i++) cases.push(makeCase({ caseId: `EVAL-PSN-${i}`, category: "poison_block" }))
+    // 回放总 20 例（达标）：P-1 命中 19 例（达标），P-2 仅 1 例（不足）
+    for (let i = 0; i < 19; i++) {
+      cases.push(makeCase({ caseId: `EVAL-VIO-${i}-P-1`, category: "canon_violation_replay" }))
+    }
+    cases.push(makeCase({ caseId: "EVAL-VIO-LONE-P-2", category: "canon_violation_replay" }))
+
+    const violations = validateGovSeedScale(cases)
+
+    // 只有 P-2 那一条：其余陷阱（P-3..P-6）零命中不参与子校验，规模三项均达标
+    expect(violations).toHaveLength(1)
+    expect(violations[0]).toEqual({
+      category: "canon_violation_replay",
+      expected: 2,
+      actual: 1,
+      detail: "陷阱 P-2 用例不足（≥2）",
+    })
+  })
 })
 
 describe("E-06 loadGovSeedSet 三态（C-7）", () => {

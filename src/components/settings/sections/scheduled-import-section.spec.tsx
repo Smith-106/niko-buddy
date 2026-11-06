@@ -33,7 +33,10 @@ const mocks = vi.hoisted(() => {
   return {
     state,
     t: vi.fn((key: string, _options?: Record<string, unknown>) => key),
-    scanAndImport: vi.fn(async () => ({ scanned: 0, imported: 0, failed: 0, skipped: false })),
+    scanAndImport: vi.fn(
+      async (): Promise<{ scanned: number; imported: number; failed: number; skipped: boolean; skippedCount?: number }> =>
+        ({ scanned: 0, imported: 0, failed: 0, skipped: false }),
+    ),
     pickDirectory: vi.fn<() => Promise<string | null>>(async () => null),
   }
 })
@@ -54,6 +57,12 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
 
 vi.mock("@/lib/scheduled-import", () => ({
   scanAndImport: mocks.scanAndImport,
+}))
+
+const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
+
+vi.mock("@/lib/toast", () => ({
+  toast: { success: toastMocks.success, error: toastMocks.error },
 }))
 
 vi.mock("@/lib/platform", async (importOriginal) => {
@@ -90,6 +99,8 @@ beforeEach(() => {
   mocks.pickDirectory.mockResolvedValue(null)
   mocks.state.project = null
   mocks.state.scheduledImportConfig = { lastScan: null, intervalMinutes: 15 }
+  toastMocks.success.mockClear()
+  toastMocks.error.mockClear()
 })
 
 afterEach(() => {
@@ -299,5 +310,48 @@ describe("ScheduledImportSection", () => {
     const interval = screen.getByLabelText("settings.sections.scheduledImport.interval") as HTMLInputElement
     fireEvent.change(interval, { target: { value: "60" } })
     expect(interval.value).toBe("60")
+  })
+  it("扫描被跳过（summary.skipped）→ 静默返回，不弹任何 toast", async () => {
+    mocks.state.project = { id: "p1", path: "/book", name: "Book" }
+    mocks.scanAndImport.mockResolvedValue({ scanned: 3, imported: 0, failed: 0, skipped: true, skippedCount: 3 })
+    render(
+      <ScheduledImportSection
+        draft={makeDraft({ scheduledImportEnabled: true, scheduledImportPath: "raw/sources" })}
+        setDraft={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByText("settings.sections.scheduledImport.scanNow"))
+    await waitFor(() => {
+      expect(mocks.scanAndImport).toHaveBeenCalled()
+    })
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(toastMocks.success).not.toHaveBeenCalled()
+    expect(toastMocks.error).not.toHaveBeenCalled()
+    // finally 仍执行：按钮从「扫描中」回到「立即扫描」
+    expect(screen.getByText("settings.sections.scheduledImport.scanNow")).toBeInTheDocument()
+  })
+
+  it("扫描有失败项（failed > 0）→ 报 error 而非 success，文案带失败/跳过数", async () => {
+    mocks.state.project = { id: "p1", path: "/book", name: "Book" }
+    mocks.scanAndImport.mockResolvedValue({ scanned: 5, imported: 2, failed: 2, skipped: false, skippedCount: 1 })
+    render(
+      <ScheduledImportSection
+        draft={makeDraft({ scheduledImportEnabled: true, scheduledImportPath: "raw/sources" })}
+        setDraft={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByText("settings.sections.scheduledImport.scanNow"))
+    await waitFor(() => {
+      expect(toastMocks.error).toHaveBeenCalledTimes(1)
+    })
+    expect(toastMocks.success).not.toHaveBeenCalled()
+    // 文案键 + 插值参数如实带出（t 的第二个参数即 i18n 插值）
+    expect(mocks.t).toHaveBeenCalledWith(
+      "settings.sections.scheduledImport.scanFailed",
+      expect.objectContaining({ scanned: 5, imported: 2, failed: 2, skipped: 1 }),
+    )
+    expect(toastMocks.error.mock.calls[0]![0]).toBe("settings.sections.scheduledImport.scanFailed")
   })
 })
