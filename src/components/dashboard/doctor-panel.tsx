@@ -66,6 +66,7 @@ export function DoctorPanel() {
   const [healNote, setHealNote] = useState<string | null>(null)
 
   const run = useCallback(async () => {
+    /* v8 ignore next -- 台账 doctor-panel.tsx：run 的 !projectPath 守卫不可达 —— 两个调用点都已前提阻断：挂载 effect 在下方 `if (!projectPath) return` 先判；刷新按钮 disabled={running || !projectPath} 使无项目时点击不触发。无项目时页面只渲染空态提示 */
     if (!projectPath) return
     setRunning(true)
     setError(null)
@@ -82,6 +83,7 @@ export function DoctorPanel() {
 
   const heal = useCallback(
     async (kind: "fts" | "compaction" | "reconcile") => {
+      /* v8 ignore next -- 台账 doctor-panel.tsx：heal 的 !projectPath || healing 守卫不可达 —— 三个调用点（FTS/向量压缩/向量对账按钮）全部 `disabled={!projectPath || healing !== null}`，两个析取项都被 disabled 属性提前挡住 */
       if (!projectPath || healing) return
       setHealing(kind)
       setHealNote(null)

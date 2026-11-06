@@ -511,6 +511,13 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | 609 | `isVolumeTitleContinuation` 的 `VOLUME_HEADING_RE \|\| CHAPTER_HEADING_RE` 检查 | **被上游遮蔽**：唯一调用点 L674 的行在到达前已被 L644 `VOLUME_HEADING_RE.exec` / L653 `CHAPTER_HEADING_RE.exec` 分支命中并 `continue`（两分支已消费所有卷/章 heading） |
 | 615 | `isVolumeTitleContinuation` 的 `INLINE_SECTION_RE` 检查 | **被同函数上方遮蔽**：L612 的 `/^\*\*.+\*\*\s*[:：]/` 无 `$` 锚点，匹配范围严格包含 `INLINE_SECTION_RE` 的同一前缀，能走到 L615 的行必已在 L612 `return false` |
 
+### components/dashboard/doctor-panel.tsx（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 69 | `run` 的 `if (!projectPath) return` | 两个调用点都已前提阻断：挂载 effect 有独立 `if (!projectPath) return` 先判；刷新按钮 `disabled={running \|\| !projectPath}`。无项目时页面只渲染空态提示 |
+| 85 | `heal` 的 `if (!projectPath \|\| healing) return` | 三个调用点（FTS / 向量压缩 / 向量对账按钮）全部 `disabled={!projectPath \|\| healing !== null}`，两个析取项都被 disabled 属性提前挡住 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。
