@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   appendExemplarABSample,
+  buildPovCognition,
   appendRewriteRateASample,
   appendRoutingROISample,
   cognitionToContextText,
@@ -24,6 +25,15 @@ import type { CanonFact } from "./canon-graph-client"
 // fromCanonGraph 经 canon-graph-client 引入 @tauri-apps/api/core（仅 import，
 // 不调用 invoke）—— 与 canon-backfill.spec 同款 mock，避免依赖 Tauri 运行时。
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }))
+
+// buildPovCognition 唯一的取数口是 canon-graph-client 的 getFactsKnownBy（会打
+// canon_facts_known_by invoke）。用部分 mock 只替换这一个函数，fromCanonGraph 等
+// 仍走真实实现，既有用例零影响。
+const getFactsKnownByStub = vi.hoisted(() => vi.fn())
+vi.mock("./canon-graph-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./canon-graph-client")>()
+  return { ...actual, getFactsKnownBy: getFactsKnownByStub }
+})
 
 // vi.hoisted: 内存文件系统 mock, 控制 save/loadCognitionState 与 A/B 埋点读写
 // (走 @/commands/fs readFile/writeFileAtomic/createDirectory/fileExists,
@@ -625,6 +635,15 @@ describe("fromCanonGraph (T25 认知轴)", () => {
     const leaked = makeCanonEdge({ id: "e1" }) as unknown as CanonFact & { known_by?: string[] }
     leaked.known_by = ["乙"]
     expect(() => fromCanonGraph([{ character: "乙", facts: [leaked] }])).toThrow(/禁句柄外泄/)
+  })
+  it("buildPovCognition 按 POV 角色取已知事实并投影为认知轴", async () => {
+    getFactsKnownByStub.mockResolvedValue([makeCanonEdge({ id: "e1", revealedAt: 3 })])
+    const out = await buildPovCognition("proj-1", "白砚", 5)
+    // 第四个实参 includeInvalidated 固定为 true（召回已失效窗口边）
+    expect(getFactsKnownByStub).toHaveBeenCalledWith("proj-1", "白砚", 5, true)
+    expect(out).toEqual([
+      { character: "白砚", knows: ["白砚 OWNS 轩辕剑（第3章）"], doesNotKnow: [] },
+    ])
   })
 })
 

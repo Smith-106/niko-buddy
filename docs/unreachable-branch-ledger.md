@@ -456,6 +456,13 @@
 | 74 | `burstiness` 的 `mean === 0` | `splitSentences`(L51) 以 `.filter(s => s.length >= 2)` 过滤，每句长 ≥2 → mean ≥2 恒 > 0 |
 | 81 | `percentile` 的 `sorted.length === 0` | `sorted` 来自同一 `lengths`，L103 已保证非空 |
 
+### lib/novel/character-cognition.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 233 | `() => null as unknown as CognitionState`（`createAtomicJsonStore` 的 emptyCtor） | **死工厂**：同处传入 `onMissing:"null"` + `onCorrupt:"throw"`；projection-store 的 load 在缺文件 / 空文件时 `return null as T`、解析损坏时 throw，三条路径都不落到 `emptyCtor()` |
+| 574-575 | `buildPovCognition` 函数体 | **已补测**：导出函数此前从未被调用。spec 用部分 mock 只替换 `canon-graph-client` 的 `getFactsKnownBy`，断言取数实参 `(proj, pov, chapter, true)` 与 `fromCanonGraph` 的投影结果 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

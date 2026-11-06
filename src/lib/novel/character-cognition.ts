@@ -230,6 +230,7 @@ export function mergeCognitionFromSnapshot(
 // no-data) — 经 onMissing:"null" + onCorrupt:"throw" 选项实现, 零行为变化。
 const store = createAtomicJsonStore<CognitionState>(
   "cognition-state.json",
+  /* v8 ignore next -- 台账 character-cognition.ts L233：该 emptyCtor 是死工厂。同处传入 onMissing:"null" + onCorrupt:"throw"，projection-store 的 load 在缺文件/空文件时 `return null as T`、损坏时 throw，三条路径都不落到 emptyCtor() */
   () => null as unknown as CognitionState,
   { onMissing: "null", onCorrupt: "throw" },
 )
