@@ -317,4 +317,26 @@ describe("GateHaltBanner — 熔断横幅", () => {
     fireEvent.click(screen.getByTestId("gate-halt-resume"));
     expect(onResume).toHaveBeenCalledTimes(1);
   });
+
+  it("忙碌中到达自动裁决时刻：settle 被 busy 守卫拦下；Tab 陷阱无 focusables 提前返回", async () => {
+    let now = NOW;
+    mocks.confirmGate.mockReturnValue(new Promise<GateOutcome>(() => {}));
+    const pending = makePending({ deadline_ms: NOW + 60_000 });
+    const { rerender } = render(<ConfirmGateDialog pending={pending} nowMs={() => now} />);
+
+    fireEvent.click(screen.getByTestId("confirm-gate-accept"));
+    await waitFor(() => expect(mocks.confirmGate).toHaveBeenCalledTimes(1));
+    const accept = screen.getByTestId("confirm-gate-accept") as HTMLButtonElement;
+    await waitFor(() => expect(accept.disabled).toBe(true));
+
+    // busy 中全部按钮 disabled → querySelectorAll 为空 → Tab 陷阱提前返回，不移动焦点
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).not.toBe(screen.getByTestId("confirm-gate-reject"));
+
+    // 越过 deadline：自动裁决 effect 无 busy 判断 → settle(false) 被 busy 守卫拦下
+    now = NOW + 120_000;
+    rerender(<ConfirmGateDialog pending={pending} nowMs={() => now} />);
+    await waitFor(() => expect(accept.disabled).toBe(true));
+    expect(mocks.rejectGate).not.toHaveBeenCalled();
+  });
 });

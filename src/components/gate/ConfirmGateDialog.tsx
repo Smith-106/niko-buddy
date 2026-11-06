@@ -132,6 +132,7 @@ export function ConfirmGateDialog({ pending, onResolved, nowMs }: ConfirmGateDia
         const focusables = dialogRef.current.querySelectorAll<HTMLElement>(
           'button:not([disabled]), [href], input:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
         );
+        /* v8 ignore next -- 台账 ConfirmGateDialog.tsx L135：focusables 恒非空。对话框无条件渲染 <details><summary>diff</summary>（L227-228），而 summary 就在 L133 的 focusable 选择器里，且 summary 没有 disabled 属性——即使 busy 时所有按钮 disabled，summary 仍可聚焦 */
         if (focusables.length === 0) return;
         const first = focusables[0];
         const last = focusables[focusables.length - 1];
