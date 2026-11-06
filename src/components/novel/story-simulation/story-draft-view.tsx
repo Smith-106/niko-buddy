@@ -102,6 +102,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
 
   const handleImport = async () => {
     if (!projectPath || !currentFramework || !draft) return
+    /* v8 ignore next -- 台账 story-draft-view.tsx L105：handleImport 空选守卫 —— 按钮 disabled={importing || selectedIndices.length === 0}（L462）逐字等价 */
     if (selectedIndices.length === 0) {
       setError(t("storySimulation.selectAtLeastOne"))
       setTimeout(() => setError(null), 3000)
@@ -175,6 +176,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
   }
 
   const openEditDialog = (idx: number) => {
+    /* v8 ignore next -- 台账 story-draft-view.tsx L178：openEditDialog —— 唯一入口 L265 在 draft.chapters.map 内，渲染前提已保证 draft 非空 */
     if (!draft) return
     const chapter = draft.chapters[idx]
     setEditTitle(chapter.title)
@@ -183,6 +185,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
   }
 
   const saveEdit = () => {
+    /* v8 ignore next -- 台账 story-draft-view.tsx L186：saveEdit —— 编辑对话框仅在 editingChapterIdx 非空时渲染，且打开前已要求 draft */
     if (editingChapterIdx === null || !draft) return
     const updatedDraft: StoryDraft = {
       ...draft,
@@ -285,7 +288,9 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
       {/* 导入确认对话框 */}
       <Dialog open={showImportDialog} onOpenChange={(open) => {
         if (!open) handleCloseDialog()
+            /* v8 ignore start -- 台账 story-draft-view.tsx L288：该 Dialog 无 DialogTrigger，受控 open 只由 L224 按钮置 true，Radix 不会产出 onOpenChange(true) */
         else setShowImportDialog(true)
+            /* v8 ignore stop */
       }}>
         <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
