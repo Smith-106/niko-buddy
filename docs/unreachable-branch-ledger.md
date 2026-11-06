@@ -310,6 +310,19 @@
 ### lib/novel/skill-hub-seed.ts（补充运行时分区证据）
 - **L23-44（15 条，fs 遍历兜底 + 其 catch）**：L15 的 `import.meta.glob("../../../skills/SkillHub/**/SKILL.md", {eager:true})` 被 Vite 在构建期内联为静态对象字面量（非函数调用），永不抛错；仓库内 `skills/SkillHub` 恰有 75 个 SKILL.md，L19 `Object.keys(globbed).length > 0` 恒真并 return。**实测证据**：同一次 v8 覆盖中 `skill-hub-seed.spec.ts` 全过且 `DEFAULT_SKILL_HUB_SKILLS.length === 75`，而 L23-44 全部 count=0 —— 若走过 fs 遍历，这些语句必然 >0。
 
+### lib/novel/related-chapters.ts（冗余惰性构造，实测确认）
+- **L162-163 `rset = new Set(existing.reasons)` / `reasonSets.set(chapter, rset)`**
+  与 **L171-172 `eset = ...` / `entitySets.set(chapter, eset)`**：`byChapter` 的唯一写入点是
+  同函数 else 分支（L186-193），而该分支在 `byChapter.set(...)` 之后**立即**执行
+  `reasonSets.set(chapter, new Set([reason]))` 与 `entitySets.set(chapter, new Set([entity]))`。
+  因此凡 `existing` 为真的章，两个 Map 必然已有条目 → `if (!rset)` / `if (!eset)` 恒假。
+  这是 ISS-20260709-051（reasons/matchedEntities 判重改 Set O(1)）改造后的遗留冗余。
+  **实测证据**：专门写探针把两条伏笔放在同一章（`轩辕剑封印` + `玉佩来历`，均命中大纲），
+  断言 `matchedEntities === ["轩辕剑封印","玉佩来历"]` 成立，而同次 v8 覆盖里 L162/163/171/172
+  仍 count=0 —— 即「同章第二次命中」确实发生了，但惰性构造确实没被执行。
+  判定：**保留**。它不是纯死代码，而是 else 分支若被未来改动移除 seed 时的兜底；
+  按「防御守卫一律保留并记账」处理，不删除。
+
 ---
 
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
