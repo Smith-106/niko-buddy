@@ -13,6 +13,7 @@ import {
   normalizeGlobalUserMemoryConfig,
   clearGlobalUserMemoryConfig,
   getGlobalUserMemoryStats,
+  exportGlobalUserMemoryJson,
 } from "./store"
 import { consumeUserMemoryLearningBudget, loadUserMemoryLearningBudget } from "./learning-budget"
 import type { UserMemoryRule } from "./types"
@@ -491,5 +492,47 @@ describe("global user memory store · 分支补齐", () => {
     const config = { ...base, rules: [rest as UserMemoryRule] }
 
     expect(getGlobalUserMemoryStats(config).activeRules).toBe(1)
+  })
+
+  it("window.localStorage 访问抛错 → defaultStorage 返回 null，降级为默认配置", () => {
+    vi.stubGlobal("window", {
+      get localStorage(): never {
+        throw new Error("storage denied")
+      },
+    })
+    try {
+      expect(loadGlobalUserMemoryConfig()).toEqual(normalizeGlobalUserMemoryConfig(null))
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("crypto.randomUUID 抛错 → createId 回退到 now+random 形式", () => {
+    const spy = vi.spyOn(crypto, "randomUUID").mockImplementation(() => {
+      throw new Error("no uuid")
+    })
+    try {
+      const config = addManualUserMemoryRule(loadGlobalUserMemoryConfig(new MemoryStorage()), {
+        rule: "回退 id。",
+        category: "constraint",
+        surfaces: ["all"],
+      }, 100)
+      const id = config.rules[0].id
+      // 回退形式 memory:<now>:<random> 有两段冒号；UUID 形式只有一段
+      expect(id.split(":")).toHaveLength(3)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it("exportGlobalUserMemoryJson 输出规范化后的 2 空格缩进 JSON", () => {
+    const config = addManualUserMemoryRule(loadGlobalUserMemoryConfig(new MemoryStorage()), {
+      rule: "先给结论，再给依据。",
+      category: "interaction_preference",
+      surfaces: ["all"],
+    }, 100)
+    const json = exportGlobalUserMemoryJson(config)
+    expect(JSON.parse(json)).toEqual(normalizeGlobalUserMemoryConfig(config))
+    expect(json).toContain("\n  \"")
   })
 })
