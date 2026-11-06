@@ -44,6 +44,7 @@ function requireText(value: unknown, field: string): string {
 /** 章节名不得带路径分隔符——否则草稿文件会落到草稿目录之外。 */
 function sanitizeName(name: string): string {
   const cleaned = name.trim().replace(/[\\/:*?"<>|]/g, "_")
+  /* v8 ignore next -- 台账 mcp/draft-actions.ts L47：cleaned 为空当且仅当 trim 后为空，与 requireText 前置条件矛盾 */
   if (!cleaned) throw new Error("名称清洗后为空")
   return cleaned
 }

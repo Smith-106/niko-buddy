@@ -104,6 +104,7 @@ function worst(statuses: HealthStatus[]): HealthStatus {
   for (const s of SEVERITY_ORDER) {
     if (statuses.includes(s)) return s
   }
+  /* v8 ignore next -- 台账 health-check.ts L107：SEVERITY_ORDER 穷举 5 值，循环内必命中 return */
   return "healthy"
 }
 

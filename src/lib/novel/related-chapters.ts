@@ -158,19 +158,23 @@ export function buildRelatedChapters(input: RelatedChaptersInput, options: Relat
     const existing = byChapter.get(chapter)
     if (existing) {
       let rset = reasonSets.get(chapter)
+      /* v8 ignore start -- 台账 related-chapters.ts L162-163：else 分支建条目时已 seed reasonSets，此惰性构造恒不执行 */
       if (!rset) {
         rset = new Set(existing.reasons)
         reasonSets.set(chapter, rset)
       }
+      /* v8 ignore stop */
       if (!rset.has(reason)) {
         rset.add(reason)
         existing.reasons.push(reason)
       }
       let eset = entitySets.get(chapter)
+      /* v8 ignore start -- 台账 related-chapters.ts L171-172：else 分支建条目时已 seed entitySets，此惰性构造恒不执行 */
       if (!eset) {
         eset = new Set(existing.matchedEntities)
         entitySets.set(chapter, eset)
       }
+      /* v8 ignore stop */
       if (!eset.has(entity)) {
         eset.add(entity)
         existing.matchedEntities.push(entity)

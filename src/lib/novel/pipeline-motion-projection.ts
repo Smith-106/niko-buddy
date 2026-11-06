@@ -162,6 +162,7 @@ function eventToStage(event: Pick<RunEvent, "kind" | "actor">): string | null {
       return "model-router"
     case "error":
       return null
+      /* v8 ignore next -- 台账 pipeline-motion-projection.ts L166：RunEventKind 9 字面量已穷举，且 appendRunEvent/parseLedgerText 双路径 fail-loud */
     default:
       return null
   }

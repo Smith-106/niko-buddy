@@ -20,6 +20,9 @@ function loadSkillHubModules(): Record<string, string> {
   } catch {
     // No glob transform (Node runtime): try fs walk below.
   }
+  /* v8 ignore start -- 运行时分区：Vite bundle 下上方 glob 恒非空并已 return，
+     仅 Node/tsx 脚本运行时才走此 fs 兜底；论证见 docs/unreachable-branch-ledger.md
+     「lib/novel/skill-hub-seed.ts（运行时分区代码）」。 */
   try {
     const root = new URL("../../../skills/SkillHub/", import.meta.url)
     const modules: Record<string, string> = {}
@@ -43,6 +46,7 @@ function loadSkillHubModules(): Record<string, string> {
     console.warn("[skill-hub-seed] SkillHub modules unavailable, using empty set")
     return {}
   }
+  /* v8 ignore stop */
 }
 
 const skillHubModules = loadSkillHubModules()

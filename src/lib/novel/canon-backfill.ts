@@ -556,6 +556,7 @@ export async function backfillCanonHistory(
     if (report.reconcile.consistent) {
       const revision = typeof snapshot.revision === "number" ? snapshot.revision : 1
       for (const op of ops) {
+        /* v8 ignore next -- 台账 canon-backfill.ts L559：ops 只来自 buildBackfillOps，其唯一构造点硬编码 kind:"episode" */
         if (op.canonPayload.kind !== "episode") continue
         const ep = op.canonPayload.episode
         const chapterId =
@@ -568,6 +569,7 @@ export async function backfillCanonHistory(
             ? parsedChapter
             : chapter
         if (chapterNumber !== parsedChapter) {
+          /* v8 ignore next -- 台账 canon-backfill.ts L571-574：chapter_number 由 parseChapterSnapshotFileName 正则保证 1..999 且 loadBackfillSnapshot 末尾强制覆盖，恒相等 */
           logger.warn(
             "promotion-bridge",
             `canon-backfill invalid chapter_number ${JSON.stringify(ep.chapter_number)} -> fallback chapter ${chapter}`,

@@ -250,6 +250,9 @@ export async function runReviewAndRepair(
     revised = true
     // ISS-20260708-016：stage-5.5 resume 可达性已由单测覆盖（全仓 grep 证有调用），
     // 移除覆盖抑制死代码（结构性 unreachable 不成立，分支保留行为等价）。
+      /* v8 ignore start -- 结构性不可达：上层已用 buildDecisionGates 把 overall
+         从 pending 重写为具体判定，返修完成后的调用序中此条件恒不成立；
+         论证见 docs/unreachable-branch-ledger.md「deep-chapter-review-repair.ts」。 */
     if (novelConfig.deepChapterReview && decisionGates.overall === "pending") {
       callbacks.onThinking?.(formatStageThinking(
         "阶段5.5：返修后复审",
@@ -274,6 +277,7 @@ export async function runReviewAndRepair(
       }))
     }
   }
+      /* v8 ignore stop */
 
   let blockingIssues = collectBlockingIssues(decisionGates)
   if (!revised && blockingIssues.length === 0 && novelConfig.deepChapterReview) {

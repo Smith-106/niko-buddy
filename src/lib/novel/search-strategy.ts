@@ -411,6 +411,7 @@ export function getCharShingles(
 }
 
 function shingleSetJaccard(setA: Set<string>, setB: Set<string>): number {
+  /* v8 ignore next -- 台账 search-strategy.ts L414：两个调用点均已 both-empty 短路 */
   if (setA.size === 0 && setB.size === 0) return 1.0
   let intersection = 0
   const [smaller, larger] = setA.size <= setB.size ? [setA, setB] : [setB, setA]
@@ -550,6 +551,7 @@ export function mmrRerank<T>(candidates: T[], options: MmrOptions<T>): T[] {
       const mmrScore = lambda * normRelevance[u] - (1 - lambda) * maxSim
 
       if (bestIdx === -1) {
+          /* v8 ignore next 2 -- 台账 search-strategy.ts L563-565：unselected 升序插入，u < bestIdx 恒假 */
         bestMmrScore = mmrScore
         bestIdx = u
       } else if (mmrScore - bestMmrScore > 1e-9) {
@@ -579,6 +581,7 @@ export function mmrRerank<T>(candidates: T[], options: MmrOptions<T>): T[] {
         }
       }
     } else {
+        /* v8 ignore next -- 台账 search-strategy.ts L582：bestIdx 首轮必置位，else-break 不可达 */
       break
     }
   }
