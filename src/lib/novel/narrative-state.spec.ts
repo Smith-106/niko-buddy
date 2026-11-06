@@ -233,4 +233,15 @@ describe("narrative-state 激活增量（27 号评估 V5 共识：持久化门�
       JSON.stringify(observePublicDeclaration([], input)),
     )
   })
+  it("characterView：声明没有对应可见性记录时整条跳过（L97 !v）", () => {
+    // 声明 d9 无任何可见性记录 → vis.find 返回 undefined → continue
+    const view = characterView([decl({ declarationId: "d9" })], [vis({ declarationId: "d1" })], "c1", "ch5")
+    expect(view).toHaveLength(0)
+  })
+
+  it("characterView：可见性记录已过期（storyTime 超出 validTo）时跳过（L101 时间覆盖）", () => {
+    // ch1 已知道，但记录在 ch2 闭合；storyTime=ch5 时不再覆盖 → continue
+    const view = characterView([decl({})], [vis({ validFrom: "ch1", validTo: "ch2" })], "c1", "ch5")
+    expect(view).toHaveLength(0)
+  })
 })

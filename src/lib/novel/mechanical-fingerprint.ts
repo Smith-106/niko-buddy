@@ -53,6 +53,7 @@ function splitSentences(text: string): string[] {
 
 /** 句长分布 Shannon 熵 (归一化到 [0,1] — 均匀分布=1) */
 function sentenceEntropy(lengths: number[]): number {
+  /* v8 ignore next -- 台账 mechanical-fingerprint.ts L56：sentenceEntropy 的空数组守卫 —— 唯一调用点 L147 在 L103 `sentences.length === 0` 提前返回之后，lengths 恒非空 */
   if (lengths.length === 0) return 0
   const buckets = new Map<number, number>()
   for (const l of lengths) {
@@ -71,6 +72,7 @@ function sentenceEntropy(lengths: number[]): number {
 
 /** 突发性 (Burstiness): (std - mean) / (std + mean) 规范化到 [0,1] */
 function burstiness(std: number, mean: number): number {
+  /* v8 ignore next -- 台账 mechanical-fingerprint.ts L74：burstiness 的 mean === 0 —— splitSentences(L51) 以 .filter(s => s.length >= 2) 过滤，故每个句长 ≥2，mean ≥2 恒 > 0 */
   if (mean === 0) return 0
   const b = (std - mean) / (std + mean)
   return Math.max(0, Math.min(1, (b + 1) / 2))
@@ -78,6 +80,7 @@ function burstiness(std: number, mean: number): number {
 
 /** 分位 (nearest-rank, 与 de-ai-percentile 一致) */
 function percentile(sorted: number[], p: number): number {
+  /* v8 ignore next -- 台账 mechanical-fingerprint.ts L81：percentile 的空数组守卫 —— sorted 来自同一 lengths，L103 已保证非空 */
   if (sorted.length === 0) return 0
   const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1))
   return sorted[idx]!
