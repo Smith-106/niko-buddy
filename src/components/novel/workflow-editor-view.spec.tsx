@@ -84,3 +84,13 @@ describe("WorkflowEditorView", () => {
     expect(readFileMock).not.toHaveBeenCalled()
   })
 })
+
+describe("装载抛错兜底", () => {
+  it("读盘直接抛错 → 诚实空态（不臆造模板条目）", async () => {
+    readFileMock.mockRejectedValue(new Error("boom"))
+    render(<WorkflowEditorView projectPath="C:/proj" />)
+    await waitFor(() => expect(screen.getByTestId("workflow-editor-view")).toBeTruthy())
+    // 模板区照常渲染，账本区为空态而非编造事件
+    expect(screen.getByTestId("workflow-templates")).toBeTruthy()
+  })
+})

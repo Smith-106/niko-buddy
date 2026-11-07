@@ -1072,3 +1072,20 @@ describe("CharacterAuraView", () => {
     expect(within(sidebar).queryByText("分页魂21")).not.toBeInTheDocument()
   })
 })
+
+describe("角色灵魂分页", () => {
+  it("超过一页时上一页按钮可用并回退（onPrev 真正执行）", async () => {
+    const base = auraLib.builtInAuras[0]!
+    auraLib.listCharacterAuras.mockResolvedValue(
+      Array.from({ length: 21 }, (_, i) => ({ ...base, id: `aura-${i}`, name: `光环${i}` })),
+    )
+    render(<CharacterAuraView />)
+    await switchToCharacterTab()
+    await waitFor(() => expect(screen.getByTestId("pagination")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId("pagination-next"))
+    await waitFor(() => expect(screen.getByTestId("pagination-prev")).not.toBeDisabled())
+    fireEvent.click(screen.getByTestId("pagination-prev"))
+    await waitFor(() => expect(screen.getByTestId("pagination-prev")).toBeDisabled())
+  })
+})

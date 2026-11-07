@@ -283,3 +283,21 @@ describe("unwrapMermaidPre", () => {
     expect((result as React.ReactElement).type).toBe(MermaidDiagram)
   })
 })
+
+describe("全屏浮层键盘关闭", () => {
+  it("Esc 关闭全屏浮层（onKeyDown 路径）", async () => {
+    renderDiagram()
+    triggerIntersect(true)
+    await waitFor(() => {
+      expect(screen.getByTitle("放大图表（Esc 关闭）")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTitle("放大图表（Esc 关闭）"))
+    const dialog = await screen.findByRole("dialog")
+    expect(dialog).toBeInTheDocument()
+
+    fireEvent.keyDown(dialog, { key: "Escape" })
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull()
+    })
+  })
+})

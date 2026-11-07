@@ -145,6 +145,7 @@ export function WorkflowEditorView({ projectPath, snapshot: snapshotOverride }: 
       })
       .catch(() => {
         // 纯函数模板区理论上不抛错；兜底诚实空态，不臆造模板条目。
+        /* v8 ignore next -- 台账 workflow-editor-view.tsx L148：loadWorkflowSnapshot（L82-116）整体包在 try/catch 内，任何读盘/解析失败都在内部转成带 ledgerError 的快照返回，永不 reject；此处是第二道防线 */
         if (!cancelled) setSnapshot(null)
       })
       .finally(() => {
