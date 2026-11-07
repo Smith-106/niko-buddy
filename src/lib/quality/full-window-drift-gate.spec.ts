@@ -41,8 +41,8 @@ describe("D5 全文窗漂移门 — 合法手法零误杀", () => {
 
 describe("verifyZeroFalseKill 误杀检测", () => {
   it("合法样本被门判为漂移 → 返回 false（存在误杀）", () => {
-    const gate = (s: number[]): FullWindowDriftResult => ({
-      driftedWindows: [s],
+    const gate = (_s: number[]): FullWindowDriftResult => ({
+      driftedWindows: [{ start: 1, drift: 1 }],
       chaptersToRecheck: [1],
       triggered: true,
     })
