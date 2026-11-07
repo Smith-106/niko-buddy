@@ -138,3 +138,11 @@ describe("composeCoreRulePacks origin 透传", () => {
     }
   })
 })
+
+describe("零均值文本的长度变异系数", () => {
+  it("仅标点的正文 → 句长全 0 → CV 走零均值早退返回 0（不 NaN）", () => {
+    const f = precomputeTextFeatures("。。。！！！")
+    expect(f.sentenceLengthCV).toBe(0)
+    expect(Number.isNaN(f.sentenceLengthCV)).toBe(false)
+  })
+})

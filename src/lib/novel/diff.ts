@@ -102,9 +102,11 @@ export function computeMyersDiff(original: string, replacement: string): DiffCha
   }
 
   // 如果 Myers 搜索失败（退化情况），回退到 LCS
+  /* v8 ignore start -- 台账 diff.ts L105-106：bestD 初值 -1 后由 d=maxD=n+m 的内层循环必达终点（x>=n && y>=m）赋非负值，外层 `if (bestD >= 0) break` 后不可能仍为负 */
   if (bestD < 0) {
     return computeLcsDiff(original, replacement)
   }
+  /* v8 ignore stop */
 
   // 使用简化的双指针回溯构造 diff
   // 直接从原文和目标文构造行级 diff（更健壮，避免复杂回溯逻辑）

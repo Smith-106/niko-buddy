@@ -843,6 +843,14 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | lib/novel/deep-chapter-decision-gates.ts:243 | `if (finding.severity !== "warning" && ...) continue` | 上游 `collectRepairIssues`（L225-229）只收 `severity === "warning"` 的 finding |
 | lib/ingest-queue.ts:339-341、373-378 | `if (sweepAbortController) { sweepAbortController.abort() }` | `sweepAbortController` 全仓只有 null 初始化（L45）与置 null，无任何赋值点，sweep 中止分支为死路径 |
 
+### 2026-11-06 第十八批（搜索必达 + 过滤后非空）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| lib/novel/diff.ts:105-107 | `if (bestD < 0) return computeLcsDiff(...)` | bestD 初值 -1，d=maxD=n+m 的内层循环必达终点（x>=n && y>=m）赋非负值，外层 `if (bestD >= 0) break` 后不可能仍为负 |
+| lib/novel/story-simulation/story-framework-generator.ts:379 | `if (total <= 0) return "起"` | normalizeNodes 里 `total = list.length` 且循环条件 `i < total`，derivePhase 只在 total > 0 时被调用 |
+| lib/novel/packs/shared-text-features.ts:118 | `if (mean === 0) return 0` | 两个调用方的 lengths 都经 `filter(s => s.length > 0)`，元素恒 > 0，均值不可能为 0 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

@@ -98,3 +98,11 @@ describe("53 P1-1 appendRecoveryDirectives 接线语义", () => {
     expect(appended).toBe(fragment)
   })
 })
+
+describe("对话引号占比", () => {
+  it("含中文引号对话的正文 → dialogue_ratio 计入引号内字数（reduce 路径）", () => {
+    const profile = measurePer1kProfile("“你来了。”他说。门外风雨交加，烛火摇晃。")
+    const found = new Map(profile.map((m) => [m.metric, m.perK]))
+    expect(found.get("dialogue_ratio")).toBeGreaterThan(0)
+  })
+})

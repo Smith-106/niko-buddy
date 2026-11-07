@@ -101,3 +101,13 @@ describe("analyzeEditImpact（G4 事前冲击面预测）", () => {
     expect(r.affectedEntities).toHaveLength(0)
   })
 })
+
+describe("空角色名的防御", () => {
+  it("角色名为空串 → mentions 恒 false，不产生受影响条目", () => {
+    const r = analyzeEditImpact(
+      { before: "她走向地窖。", after: "她跑向地窖。" },
+      { characters: [{ id: "c-empty", characterName: "" }] },
+    )
+    expect(r.affectedCharacters).toHaveLength(0)
+  })
+})

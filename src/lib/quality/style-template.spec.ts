@@ -33,3 +33,12 @@ describe("风格模板 — 一致率/性能双条件", () => {
     expect(CONTENT_FIDELITY_CAP).toBe(0.1)
   })
 })
+
+describe("evaluateStyleBatch 空批次", () => {
+  it("无结果 → agreementRate 0、p95 0、不通过（p95 走空集早退）", () => {
+    const r = evaluateStyleBatch([])
+    expect(r.p95Ms).toBe(0)
+    expect(r.agreementRate).toBe(0)
+    expect(r.passed).toBe(false)
+  })
+})

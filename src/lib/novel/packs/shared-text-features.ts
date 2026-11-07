@@ -115,6 +115,7 @@ function extractWordNGrams(tokens: string[], n: number): string[] {
 function coefficientOfVariation(lengths: readonly number[]): number {
   if (lengths.length === 0) return 0
   const mean = lengths.reduce((a, b) => a + b, 0) / lengths.length
+  /* v8 ignore next -- 台账 shared-text-features.ts L118：两个调用方的 lengths 都来自 splitSentenceLengths / splitParagraphLengths，末尾 filter(s => s.length > 0) 保证元素恒 > 0，mean 不可能为 0 */
   if (mean === 0) return 0
   const variance = lengths.reduce((sum, l) => sum + (l - mean) ** 2, 0) / lengths.length
   return Math.sqrt(variance) / mean

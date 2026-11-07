@@ -376,6 +376,7 @@ function normalizePhase(
  * 按节点位置比例推导阶段，保证起承转合四段分布。
  */
 function derivePhase(index: number, total: number): StoryNode["phase"] {
+  /* v8 ignore next -- 台账 story-framework-generator.ts L379：normalizeNodes 里 total = list.length 且正常化循环条件为 i < total，derivePhase 只在 total > 0 时被调用 */
   if (total <= 0) return "起"
   const ratio = index / total
   if (ratio < 0.25) return "起"
