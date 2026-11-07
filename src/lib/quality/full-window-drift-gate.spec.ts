@@ -4,7 +4,7 @@
  * 覆盖：滑窗漂移 / 整章重检 / 零误杀
  */
 import { describe, expect, it } from "vitest"
-import { WINDOW_DRIFT_THRESHOLD, evaluateFullWindowDrift, verifyZeroFalseKill } from "./full-window-drift-gate"
+import { WINDOW_DRIFT_THRESHOLD, evaluateFullWindowDrift, verifyZeroFalseKill, type FullWindowDriftResult } from "./full-window-drift-gate"
 
 describe("D5 全文窗漂移门 — 滑窗漂移", () => {
   it("平稳序列无漂移", () => {
@@ -36,5 +36,16 @@ describe("D5 全文窗漂移门 — 合法手法零误杀", () => {
       [0.49, 0.5, 0.51, 0.5, 0.49, 0.5], // 时间跳跃
     ]
     expect(verifyZeroFalseKill(legal, evaluateFullWindowDrift)).toBe(true)
+  })
+})
+
+describe("verifyZeroFalseKill 误杀检测", () => {
+  it("合法样本被门判为漂移 → 返回 false（存在误杀）", () => {
+    const gate = (s: number[]): FullWindowDriftResult => ({
+      driftedWindows: [s],
+      chaptersToRecheck: [1],
+      triggered: true,
+    })
+    expect(verifyZeroFalseKill([[1, 2, 3]], gate)).toBe(false)
   })
 })

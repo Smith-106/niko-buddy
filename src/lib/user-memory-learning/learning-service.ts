@@ -149,6 +149,7 @@ export function enqueueUserMemoryLearning(input: UserMemoryLearningInput): void 
   current.items.push(input)
   const flush = () => {
     const batch = queuedBatches.get(key)
+    /* v8 ignore next -- 台账 learning-service.ts L152：flush 只由定时器或满批触发；每次入队都 clearTimeout 旧定时器（L157），且 batchKey 条目只被 flush 自身删除，故触发的定时器必能找到条目 */
     if (!batch) return
     queuedBatches.delete(key)
     void learnUserMemoryFromMessages(batch.items)

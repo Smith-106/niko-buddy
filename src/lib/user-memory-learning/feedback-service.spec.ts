@@ -27,3 +27,13 @@ describe("user memory feedback service", () => {
     expect(loaded.rules[1]?.negativeFeedback).toBe(0)
   })
 })
+
+describe("无决策时的反馈写入", () => {
+  it("从未产生决策 → 直接返回，不改配置（不凭空记反馈）", () => {
+    window.localStorage.clear()
+    setLatestUserMemoryDecision(null)
+    const before = JSON.stringify(loadGlobalUserMemoryConfig())
+    recordLatestUserMemoryFeedback("positive", 200)
+    expect(JSON.stringify(loadGlobalUserMemoryConfig())).toBe(before)
+  })
+})

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parseAnthropicThinkingDelta } from "./llm-stream-parsers"
+import { createResponsesToolDeltaParser, parseAnthropicThinkingDelta } from "./llm-stream-parsers"
 
 /**
  * Anthropic 扩展思考块解析。
@@ -79,5 +79,13 @@ describe("parseAnthropicThinkingDelta", () => {
       parseAnthropicThinkingDelta(sse({ type: "message_start", message: { usage: { input_tokens: 1 } } })),
     ).toBeNull()
     expect(parseAnthropicThinkingDelta(sse({ type: "message_delta", usage: { output_tokens: 5 } }))).toBeNull()
+  })
+})
+
+describe("responses 工具增量解析的坏 JSON 兜底", () => {
+  it("data: 后是非法 JSON → 返回 null 而不抛", () => {
+    const parse = createResponsesToolDeltaParser()
+    expect(parse("data: {oops")).toBeNull()
+    expect(parse("data: [DONE]")).toBeNull()
   })
 })

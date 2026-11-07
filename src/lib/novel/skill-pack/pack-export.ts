@@ -151,6 +151,7 @@ export function buildPack(
   };
 
   const cleanedPack = stripCredentialKeys(pack);
+  /* v8 ignore next -- 台账 pack-export.ts L154-155：同一 stripCredentialKeys 已在上游 tools 循环（L129-137）剔除含凭据键的工具，prompts 只含 id/body，pack 其余键（schemaVersion/kind/name/version/author/trustLevel）均不匹配 CREDENTIAL_KEY_PARTS */
   if (cleanedPack.stripped.length > 0) {
     warnings.push({ code: "stripped_pack_fields", fields: cleanedPack.stripped });
   }

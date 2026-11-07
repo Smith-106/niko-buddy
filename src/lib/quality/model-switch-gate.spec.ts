@@ -35,3 +35,11 @@ describe("换模型硬门 — 漏报=0 硬断言", () => {
     expect(r.pass).toBe(true)
   })
 })
+
+describe("verifyZeroMissed 漏报检测", () => {
+  it("注入样本未触发门（清单未变）→ 记一次漏报，pass=false", () => {
+    const same = { model: "m1", version: "v1", weightHash: "h1" }
+    const r = verifyZeroMissed([{ baseline: same, current: { ...same } }])
+    expect(r).toEqual({ missed: 1, pass: false })
+  })
+})

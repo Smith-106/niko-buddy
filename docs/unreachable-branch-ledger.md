@@ -829,6 +829,13 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | components/layout/activity-panel.tsx:29 | `if (!raw) return ""` | 两处调用点带前置守卫（L269 `{fileSyncError && ...}`、L463 `task.status === "failed" && task.error && ...`），raw 恒非空 |
 | components/novel/pipeline-motion-panel.tsx:354 | `if (total === 0) return` | `demoEvents()` 恒返回 8 条（L131-144），sourceEvents 为空时 total=8、非空时 total=length>0，两分支互补 |
 
+### 2026-11-06 第十六批（定时器/上游过滤）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| lib/user-memory-learning/learning-service.ts:152 | `if (!batch) return` | flush 只由定时器或满批触发；每次入队都 clearTimeout 旧定时器（L157），条目只被 flush 自身删除，触发的定时器必能找到条目 |
+| lib/novel/skill-pack/pack-export.ts:154 | `if (cleanedPack.stripped.length > 0)` | 同一 stripCredentialKeys 已在上游 tools 循环剔除含凭据键的工具；prompts 只含 id/body；pack 其余键均不匹配 CREDENTIAL_KEY_PARTS |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。
