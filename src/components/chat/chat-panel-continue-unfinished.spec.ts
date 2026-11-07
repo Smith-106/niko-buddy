@@ -64,11 +64,16 @@ const mocks = vi.hoisted(() => ({
 
 const widgetMocks = vi.hoisted(() => ({
   loadEnabledDismantlingDirective: vi.fn(async () => ""),
+  findPreviousUserRequest: vi.fn(() => undefined as string | undefined),
 }))
 
 vi.mock("./chat-panel-widgets", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./chat-panel-widgets")>()
-  return { ...actual, loadEnabledDismantlingDirective: widgetMocks.loadEnabledDismantlingDirective }
+  return {
+    ...actual,
+    loadEnabledDismantlingDirective: widgetMocks.loadEnabledDismantlingDirective,
+    findPreviousUserRequest: widgetMocks.findPreviousUserRequest,
+  }
 })
 
 vi.mock("@/lib/novel", () => ({
@@ -406,6 +411,30 @@ describe("续写：旁路依赖降级", () => {
 })
 
 describe("续写：ContextPack 装配路径的拆解指令降级", () => {
+  it("有项目 + 无断点 → 装配 ContextPack 路径走到拆解指令加载（失败降级为空）", async () => {
+    widgetMocks.findPreviousUserRequest.mockReturnValueOnce("原始章节需求")
+    widgetMocks.loadEnabledDismantlingDirective.mockRejectedValueOnce(new Error("config boom"))
+    mocks.buildInterruptedResumeContextPayload.mockReturnValue(null)
+    mocks.extractContinueUnfinishedDeepChapterContext.mockReturnValue(null)
+    mocks.buildContinueUnfinishedDeepChapterPrompt.mockReturnValue("RESUME-PROMPT")
+    mocks.stripContinueUnfinishedDeepChapterContext.mockImplementation((content: string) => content)
+    mocks.routeTask.mockReturnValue(null)
+    mocks.detectGoldenThreeChapterRequest.mockReturnValue(null)
+    mocks.resolveNovelModel.mockReturnValue(LLM_CONFIG)
+    mocks.streamChat.mockImplementation(async (_config, _messages, callbacks: { onToken?: (t: string) => void; onDone?: () => void }) => {
+      callbacks.onToken?.("续写正文")
+      callbacks.onDone?.()
+    })
+    const h = makeHarness({ project: PROJECT })
+
+    await runContinueUnfinished(h.ctx)
+
+    expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    expect(h.setReplayContextPack).toHaveBeenCalled()
+    expect(widgetMocks.loadEnabledDismantlingDirective).toHaveBeenCalled()
+    expect(h.finalizeStream).toHaveBeenCalledTimes(1)
+  })
+
   it("hardInject 开启 + 拆解指令加载失败 → .catch(() => \"\") 兜底", async () => {
     widgetMocks.loadEnabledDismantlingDirective.mockRejectedValue(new Error("config boom"))
     mocks.wikiNovelConfig.hardInjectEnabled = true
