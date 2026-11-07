@@ -795,6 +795,12 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 |---------|------|------|
 | lib/token-estimator.ts:207 | `if (tokens <= 0) return maxTokens` | 上一行 `if (chars === 0)` 已拦下空内容，`chars > 0` 时 `estimateMessagesTokens` 必返回正数 |
 
+### 2026-11-06 第十二批（协议分支）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| lib/novel/outline-result-protocol.ts:144 | `if (!contentMarkdown) return { ok: false, error: parsed.error }` | L130 的 `if (!text.trim())` 已拦下空文本，L143 的 `contentMarkdown = text.trim()` 与它同源，恒非空 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

@@ -141,6 +141,7 @@ export function coerceOutlineSubAgentResult(
 
   const contentMarkdown = text.trim()
   if (!contentMarkdown) {
+    /* v8 ignore next -- 台账 outline-result-protocol.ts L144：L130 的 if (!text.trim()) 已拦下空文本，L143 的 contentMarkdown 与 text.trim() 同源，恒非空 */
     return { ok: false, error: parsed.error }
   }
 
