@@ -520,6 +520,7 @@ function maybeDeriveRumor(
   random: () => number = Math.random,
 ): RumorEvent | null {
   const totalActive = activeAgentIds.length
+  /* v8 ignore next -- 台账 simulation-engine.ts L523：两处调用点（L1120 决策成功后 / L1396 react 分支）都在某个 agent 成功产出事件之后，该 agent 必来自 state.activeAgents，且该 Map 只在节点开始时整体重建（L964）、回合内无删除路径，故 activeAgentIds 长度恒 ≥ 1 */
   if (totalActive === 0) return null
 
   if (event.observableBy.length >= totalActive) {
@@ -1032,6 +1033,7 @@ export async function runSimulation(
 
           // 获取最新状态的 agent 引用（可能被之前的事件更新了记忆）
           const currentAgent = state.activeAgents.get(agent.characterId)
+          /* v8 ignore next -- 台账 simulation-engine.ts L1035：roundAgentList 由 state.activeAgents.get(turn.agentId) 过滤 !!agent 得到，回合循环内无任何删除/重建 activeAgents 的路径（仅节点开始时 L964 整体重建），故再次 get 必命中 */
           if (!currentAgent) continue
 
           let result: Awaited<ReturnType<typeof agentDecideAndAct>> | null = null

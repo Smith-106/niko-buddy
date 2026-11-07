@@ -51,6 +51,34 @@ function finding(overrides: Partial<ContinuityFinding> = {}): ContinuityFinding 
   } as ContinuityFinding
 }
 
+const auditMock = vi.hoisted(() => ({ forceCritical: false }))
+
+vi.mock("./process-library", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./process-library")>()
+  return {
+    ...actual,
+    auditChapter: async (...args: Parameters<typeof actual.auditChapter>) => {
+      const report = await actual.auditChapter(...args)
+      if (!auditMock.forceCritical) return report
+      return {
+        ...report,
+        findings: [
+          ...report.findings,
+          {
+            type: "knowledge_boundary",
+            subtype: "consistency_mechanical",
+            severity: "critical",
+            ref: "character:甲",
+            message: "预检 BLOCK",
+            chapter: 5,
+            evidence: "doesNotKnow:密道位置",
+          },
+        ],
+      }
+    },
+  }
+})
+
 describe("E-04 checkConsistency（PASS/BLOCK 边界）", () => {
   it("无 critical → PASS", () => {
     expect(checkConsistency([finding({ severity: "warning" }), finding({ severity: "info" })])).toEqual({
@@ -138,6 +166,19 @@ describe("E-04 runAuditTriadPreflight（审查侧接线）", () => {
     expect(results).toHaveLength(1)
     expect(results[0].severity).toBe("warning")
     expect(results[0].message).toContain("审计未完成")
+  })
+
+  it("存在 critical（consistency_mechanical）→ 预检 BLOCK 并回传一致性结果", async () => {
+    auditMock.forceCritical = true
+    try {
+      const results = await runAuditTriadPreflight("/P", 5, { chapterText: "甲在集市闲逛。" })
+      expect(results).toHaveLength(1)
+      expect(results[0].type).toBe("consistency_mechanical")
+      expect(results[0].severity).toBe("error")
+      expect(results[0].message).toBe("预检 BLOCK")
+    } finally {
+      auditMock.forceCritical = false
+    }
   })
 
   it("chapterNumber 缺失 → 空（不阻断）", async () => {

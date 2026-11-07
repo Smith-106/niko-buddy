@@ -353,6 +353,7 @@ export function HighlightManager({ highlightedNodes, selectedNodeId }: { highlig
     if (graph.order === 0) return
     applyHighlightState(graph, resolveHighlightSet(graph, highlightedNodes, selectedNodeId))
     // 世代令牌 + unmount 双检：任一失配说明本闭包已过期，丢弃 refresh（#37 根因：kill 后 stale 刷）。
+    /* v8 ignore next -- 台账 sigma-graph-views.tsx L356：世代令牌读取到本行之间是同步代码（无 await/yield），React cleanup 只在提交/卸载时执行，无法在同步函数体内插队，故本守卫恒为假（纯防御双检） */
     if (!mountedRef.current || gen !== genRef.current) return
     try {
       sigma.refresh()

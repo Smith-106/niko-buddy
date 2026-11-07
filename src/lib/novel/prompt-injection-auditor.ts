@@ -139,6 +139,7 @@ export function auditRetrievedChunk(
   return {
     findings,
     action,
+    /* v8 ignore next -- 台账 prompt-injection-auditor.ts L142：INJECTION_RULES 全部规则正则均无 g 标志，exec 恒返回同一处匹配，内层 while 只累加到 maxFindings 上限后外层即 break，故一次审计只可能来自单条规则、单个起始行 → Set 恒 1 元素，排序比较器不会被调用（同类多规则累积缺陷另记） */
     affectedLineNumbers: [...affectedLineNumbers].sort((a, b) => a - b),
   }
 }

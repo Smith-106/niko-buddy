@@ -142,6 +142,7 @@ export function DocumentGraphView({
       return // 页码切换后 DOM 尚未提交，等待依赖变化重试
     }
     const el = document.getElementById(graphDocumentNodeDomId(pendingScrollNodeId))
+    /* v8 ignore next -- 台账 document-graph-view.tsx L145：visibleDocumentNodes 是同一 visibleNodes 的等页切片，卡片整段在本页 map 中无条件渲染；分组区仅在 groups 为空时不渲染，而 groups 为空则 visibleNodes 亦为空、上文 idx<0 已早退；且 React 先提交 DOM 再跑 effect，故本行元素必存在 */
     if (!el) return // 页尚未提交，等待依赖变化重试
     el.scrollIntoView({ block: "start", behavior: "smooth" })
     setPendingScrollNodeId(null)
