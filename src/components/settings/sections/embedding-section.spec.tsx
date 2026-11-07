@@ -646,6 +646,6 @@ describe("离线模式开关", () => {
     fireEvent.click(sw)
     // 开关直连 store 的 setOfflineMode（不经过 setDraft）
     expect(mocks.state.offlineMode).toBe(true)
-    expect(mocks.state.offlineMode).toBe(!draft.offlineMode)
+    expect(draft.embeddingEnabled).toBe(false)
   })
 })
