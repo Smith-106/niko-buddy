@@ -395,6 +395,7 @@ export function GraphView() {
   const handleSearchSelectNode = useCallback(
     (nodeId: string) => {
       const node = nodes.find((n) => n.id === nodeId)
+      /* v8 ignore next -- 台账 graph-view.tsx L398：搜索列表取 timelineGraph.nodes（filteredGraph.nodes 的子集，L604），而 filteredGraph = applyGraphFilters(nodes)（L581）恒为 nodes 子集；列表与处理器同属一个渲染帧，故 nodeId 必在 nodes 中 */
       if (!node) return
       setFocusNodeId(nodeId)
       focusCamera(nodeId)

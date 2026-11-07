@@ -272,6 +272,7 @@ export function CloudBackupPanel({ projectPath, deviceId }: CloudBackupPanelProp
     () =>
       run(async () => {
         const parsed = parsedCredentialRef
+        /* v8 ignore next -- 台账 CloudBackupPanel.tsx L275：清除按钮整体在 `{parsedCredentialRef !== null && (...)}`（L601）内渲染，同一渲染帧的闭包变量不可能为 null */
         if (parsed === null) return t("backup.cloud.credentialClearNoRef")
         const removed = await secretDelete(parsed.domain, parsed.account)
         setSecretDraft("")

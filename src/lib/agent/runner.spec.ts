@@ -845,6 +845,35 @@ describe("runner 覆盖增补：断点持久化", () => {
   })
 })
 
+describe("runner 覆盖增补：无 projectPath 不落断点", () => {
+  it("未给 projectPath → 断点持久化整体跳过（不调用 save/clear），运行照常完成", async () => {
+    const tbMod = await import("./task-breakpoint")
+    const saveSpy = vi.spyOn(tbMod, "saveTaskBreakpoint").mockResolvedValue(undefined)
+    const clearSpy = vi.spyOn(tbMod, "clearTaskBreakpoint").mockResolvedValue(undefined)
+    try {
+      scriptStream([{ text: "终稿" }])
+      const readTool: Tool = {
+        name: "read_chapter",
+        description: "读取章节",
+        category: "read",
+        permission: "auto",
+        parameters: { chapter: { type: "integer", description: "章节号" } },
+        async execute() {
+          return "ok"
+        },
+      }
+      const { record, errors } = await runAgent(createConfig([readTool], { taskGoal: "无项目任务" }), [readTool])
+      expect(errors).toEqual([])
+      expect(record.finalText).toBe("终稿")
+      expect(saveSpy).not.toHaveBeenCalled()
+      expect(clearSpy).not.toHaveBeenCalled()
+    } finally {
+      saveSpy.mockRestore()
+      clearSpy.mockRestore()
+    }
+  })
+})
+
 describe("runner 覆盖增补：取消信号", () => {
   function baseCallbacks() {
     const errors: Error[] = []

@@ -125,6 +125,7 @@ export function LiveExecutionView({
           setReady(true)
         }
       }
+      /* v8 ignore next -- 台账 live-execution-view.tsx L128：cancelled 只在本轮 await 期间（或 cleanup）翻转，而 try 与 catch 各有先行的 `if (cancelled) return`（L101/L124）；两条路径到此均无再 await，故此处 cancelled 恒 false */
       if (cancelled) return
       timer = setTimeout(() => {
         void tick(false)

@@ -152,6 +152,7 @@ export class AgentRunner {
       : null
 
     const persistTaskBreakpoint = async () => {
+      /* v8 ignore next -- 台账 runner.ts L155：唯一调用点在 L234 的 `if (taskBreakpoint)` 内，而 taskBreakpoint 仅由 projectPath 为真时创建（L147），故两个操作数在调用时恒为真 */
       if (!projectPath || !taskBreakpoint) return
       try {
         await saveTaskBreakpoint(projectPath, taskBreakpoint)

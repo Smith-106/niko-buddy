@@ -907,6 +907,18 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 |---------|------|------|
 | lib/ingest.ts:1000 | `if (!r) continue` | groups 由全部 blocks 分组而来（同文件一组），每组逐块 writeOne 后回填 index，故非软丢块在 slotByIndex 中必有条目 |
 
+### 2026-11-07 第二十六批（上游守卫致下游恒真/恒假）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| lib/agent/required-tool-fallback.ts:85 | `if (!isRequiredToolExecutionFulfilled(tool, executed))` | 到此 status 已 done（L66 早退）；finalizesRun 为真时 finalContent 已非空（L78 早退），故判定恒真 |
+| lib/agent/runner.ts:155 | `if (!projectPath \|\| !taskBreakpoint) return` | 唯一调用点在 L234 的 `if (taskBreakpoint)` 内，taskBreakpoint 仅由 projectPath 为真时创建（L147） |
+| components/backup/CloudBackupPanel.tsx:275 | `if (parsed === null) return ...` | 清除按钮在 `{parsedCredentialRef !== null && (...)}`（L601）内渲染，同帧闭包变量不可能为 null |
+| components/novel/story-simulation/story-simulation-view.tsx:287 | `if (!projectPath \|\| !currentFramework) return;` | 三处调用点（L661/695/765）均在 runSimulation 之后的中止分支，进入推演必先过 L505 同一守卫 |
+| components/novel/chapter-selection-panel.tsx:283 | `if (showCharacterPicker \|\| showWorkstation) event.preventDefault()` | Radix DismissableLayer 把 Escape 派发给最顶层层；角色弹窗/工作台即最顶层并自行消费，外层 onEscapeKeyDown 收不到派发（工作台用例已证 onCancel 不触发） |
+| components/graph/graph-view.tsx:398 | `if (!node) return` | 搜索列表取 timelineGraph.nodes ⊆ filteredGraph.nodes（L604），filteredGraph = applyGraphFilters(nodes)（L581）恒为 nodes 子集；列表与处理器同属一帧 |
+| components/novel/live-execution-view.tsx:128 | `if (cancelled) return` | cancelled 只在本轮 await 期间翻转，try/catch 各有先行 `if (cancelled) return`（L101/L124），到此无再 await |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

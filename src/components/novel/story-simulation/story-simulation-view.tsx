@@ -284,6 +284,7 @@ export function StorySimulationView() {
   // ── 核心流程 ──
 
   const savePartialSimulationResult = async (partialReason: string) => {
+    /* v8 ignore next -- 台账 story-simulation-view.tsx L287：三处调用点（L661/695/765）都在 runSimulation 之后的中止分支，而进入推演必先过 L505 的同一个 projectPath/currentFramework 守卫 */
     if (!projectPath || !currentFramework) return;
     const state = useStorySimulationStore.getState();
     const savedTimelineEvents = state.timelineEvents;

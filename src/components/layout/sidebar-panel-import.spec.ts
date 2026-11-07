@@ -232,6 +232,30 @@ describe("runBatchMemoryExtraction", () => {
     expect(result.errors[0]).toContain("read-boom")
   })
 
+  it("输入 signal 未中止 → 注册转发监听；运行中 abort 即取消", async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    mocks.findChapterFile.mockResolvedValue("/p/ch1.md")
+    const controller = new AbortController()
+    mocks.extractSnapshot.mockImplementation(async () => {
+      // 注册发生在逐章处理之前，这里 abort 才能走转发监听
+      controller.abort()
+      await gate
+      return { chapter: 1 }
+    })
+    const pending = runBatchMemoryExtraction({
+      projectPath: "/proj-run-signal-live",
+      chapters: [1, 2],
+      signal: controller.signal,
+    })
+    await Promise.resolve()
+    release()
+    const result = await pending
+    expect(result.cancelled).toBe(true)
+  })
+
   it("输入 signal 已取消 → 直接 cancelled", async () => {
     const controller = new AbortController()
     controller.abort()

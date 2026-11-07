@@ -81,6 +81,7 @@ export async function executeRequiredToolFallback(input: {
         error: new RequiredToolFallbackError(toolName, "工具执行完成，但没有交付终稿正文"),
       }
     }
+    /* v8 ignore next -- 台账 required-tool-fallback.ts L85：走到此行时 status 已为 done（L66 早退）、且 finalizesRun 为真时 finalContent 已非空（L78 早退），isRequiredToolExecutionFulfilled 恒真 */
     if (!isRequiredToolExecutionFulfilled(tool, executed)) {
       return {
         attempted: true,

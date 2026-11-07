@@ -280,6 +280,7 @@ export function ChapterSelectionPanel({
             return
           }
           // 角色选择弹窗/工作台打开时，Escape 只作用于顶层模态层，不级联取消整个任务（UAT C7-2）
+          /* v8 ignore next -- 台账 chapter-selection-panel.tsx L283：Radix DismissableLayer 把 Escape 派发给最顶层层；角色弹窗/工作台打开时二者即最顶层并自行消费（工作台用例已证 onCancel 不触发），本外层 onEscapeKeyDown 收不到派发 */
           if (showCharacterPicker || showWorkstation) event.preventDefault()
         }}
       >
