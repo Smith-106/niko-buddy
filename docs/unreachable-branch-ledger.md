@@ -919,6 +919,13 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | components/graph/graph-view.tsx:398 | `if (!node) return` | 搜索列表取 timelineGraph.nodes ⊆ filteredGraph.nodes（L604），filteredGraph = applyGraphFilters(nodes)（L581）恒为 nodes 子集；列表与处理器同属一帧 |
 | components/novel/live-execution-view.tsx:128 | `if (cancelled) return` | cancelled 只在本轮 await 期间翻转，try/catch 各有先行 `if (cancelled) return`（L101/L124），到此无再 await |
 
+### 2026-11-07 第二十七批（质量终检候选池）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| lib/novel/markdown-quality-finalizer.ts:153 | `if (!localContentChanged) { candidates.push(...) }` | inspection 的 4 类问题（全文围栏/缺一级标题/奇数加粗/缺表格分隔）各有镜像修复，修复后必 valid 并在 L145 早退；`!localContentChanged` 只可能出现在修复差异全部被 normalize 抹平（标题标记/表格分隔行/加粗标记/列表标记）的情形，那些修复同样使 local 变 valid |
+| lib/novel/markdown-quality-finalizer.ts:160-161 | `candidates.reduce((current, candidate) => ...)` | 该分支候选池只含 initial 一条（追加 local 候选需 L153，而 L153 恒不可达），reduce 单元素不调用比较器 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

@@ -318,3 +318,35 @@ describe("finalizeStructuredMarkdownMessage 覆盖补齐", () => {
     expect(onFailure).not.toHaveBeenCalled()
   })
 })
+
+describe("AI 候选与原文规范化等价时进候选池比较", () => {
+  it("AI 原样返回（规范化等价、仍缺一级标题且奇数加粗）→ 进候选池按问题数择优", async () => {
+    const source = "- 甲\n- 乙\n\n**未闭合"
+    const onFailure = vi.fn()
+    const finalMessage = await finalizeStructuredMarkdownMessage(source, {
+      enabled: true,
+      repairWithAi: vi.fn(async () => source),
+      onFailure,
+    })
+    // 原文与 AI 候选同为 2 类问题（缺一级标题 + 奇数加粗），并列时保留原文
+    expect(finalMessage).toBe(source)
+    expect(onFailure).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("正文超出 AI 输入预算时旁路 AI", () => {
+  it("超预算 → 不调用 repairWithAi，按问题数择优返回并回调 onFailure", async () => {
+    const source = "- 甲\n- 乙\n\n**未闭合\n\n" + "正文".repeat(20000)
+    const repairWithAi = vi.fn(async () => "# 不该被调用")
+    const onFailure = vi.fn()
+    const finalMessage = await finalizeStructuredMarkdownMessage(source, {
+      enabled: true,
+      repairWithAi,
+      onFailure,
+    })
+    expect(repairWithAi).not.toHaveBeenCalled()
+    expect(onFailure).toHaveBeenCalledTimes(1)
+    expect(finalMessage.length).toBeGreaterThan(0)
+    expect(finalMessage).not.toContain("不该被调用")
+  })
+})

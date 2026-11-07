@@ -939,3 +939,21 @@ describe("CustomProviderCards a11y", () => {
     expect(within(card).getByRole("button", { name: "OpenAI 兼容" })).toHaveAttribute("aria-pressed", "true")
   })
 })
+
+describe("HTTP 超时编辑", () => {
+  it("改连接超时（秒）→ 卡片回写 onUpdate 并持久化毫秒值", async () => {
+    const { rerender } = render(<CustomProviderCards />)
+    fireEvent.click(screen.getByRole("button", { name: /添加模型/ }))
+    await waitFor(() => expect(Object.keys(mocks.state.providerConfigs).length).toBe(1))
+    rerender(<CustomProviderCards />)
+    const card = cardByLabel("自定义模型")
+    // 卡片默认收起，超时控件在展开区
+    fireEvent.click(within(card).getByRole("button", { name: new RegExp("展开配置") }))
+    const input = within(card).getByLabelText("建连") as HTMLInputElement
+    fireEvent.change(input, { target: { value: "12" } })
+    await waitFor(() => {
+      const cfg = Object.values(mocks.state.providerConfigs)[0] as Record<string, unknown>
+      expect(cfg.httpConnectTimeoutMs).toBe(12000)
+    })
+  })
+})

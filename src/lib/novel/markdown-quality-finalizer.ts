@@ -149,6 +149,7 @@ export async function finalizeStructuredMarkdownMessage(
     content: string
     inspection: MarkdownQualityInspection
   }> = [{ content: originalBody, inspection: initialInspection }]
+  /* v8 ignore next -- 台账 markdown-quality-finalizer.ts L153：inspection 的 4 类问题（全文围栏/缺一级标题/奇数加粗/缺表格分隔）各有镜像修复，修复后必 valid 并在 L145 早退；而 !localContentChanged 只可能发生在修复差异全部被 normalize 抹平（标题标记/表格分隔行/加粗标记/列表标记）的情形，那些修复同样使 local 变 valid */
   if (!localContentChanged) {
     candidates.push({ content: localContent, inspection: localInspection })
   }
@@ -156,11 +157,13 @@ export async function finalizeStructuredMarkdownMessage(
   const aiInput = localContentChanged ? originalBody : localContent
   const aiPlan = planMarkdownAiRepair(aiInput)
   if (!aiPlan.shouldCallAi) {
+    /* v8 ignore start -- 台账 markdown-quality-finalizer.ts L160-161：本分支候选池只含 initial 一条（追加 local 候选需 L153，而 L153 恒不可达），reduce 单元素不调用比较器 */
     const best = candidates.reduce((current, candidate) =>
       candidate.inspection.issues.length < current.inspection.issues.length
         ? candidate
         : current,
     )
+    /* v8 ignore stop */
     options.onFailure()
     return joinMessageParts(best.content, parts.protocol)
   }
