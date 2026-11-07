@@ -344,3 +344,18 @@ describe("outline chat store — 磁盘保存", () => {
     expect(typeof payload.activeConversationId).toBe("string")
   })
 })
+
+describe("outline chat store — 节流定时器自然到期", () => {
+  it("32ms 定时器到期后自动落盘到 streamingContent（无需显式 flush）", () => {
+    vi.useFakeTimers()
+    try {
+      useOutlineChatStore.getState().setStreamingContent("节流内容")
+      // 定时器未到期前不可见
+      expect(useOutlineChatStore.getState().streamingContent).toBe("")
+      vi.advanceTimersByTime(32)
+      expect(useOutlineChatStore.getState().streamingContent).toBe("节流内容")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

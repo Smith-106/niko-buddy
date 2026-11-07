@@ -393,3 +393,16 @@ describe("抗欺骗：空壳标签不得被判 pass（2026-10-28 加固）", () 
     }
   })
 })
+
+describe("空壳标签与弱能动性", () => {
+  it("标签后是「有压力」空壳（长度达标也不认）→ 能动性检查点不判 pass", () => {
+    const shell = "主角能动性：有压力" + "，".repeat(9)
+    const results = evaluateOutlineThrillCheckpoints(shell)
+    expect(results.find((x) => x.id === "protagonist_agency")?.status).not.toBe("pass")
+  })
+
+  it("能动提示词与手段词共现、无动作链 → 仍判为可识别能动性", () => {
+    const results = evaluateOutlineThrillCheckpoints("主角拒绝。")
+    expect(results.find((x) => x.id === "protagonist_agency")?.status).toBe("pass")
+  })
+})

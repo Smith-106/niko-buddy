@@ -137,3 +137,37 @@ describe("outline-multi-agent-adapter", () => {
     expect(isSimpleOutlineTask("生成包含主线、角色、伏笔的完整第一卷大纲")).toBe(false)
   })
 })
+
+vi.mock("@/lib/mcp/agent-consumer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/mcp/agent-consumer")>()
+  return {
+    ...actual,
+    runMcpToolLoop: vi.fn(async (options: { prompt: string }) => ({
+      finalText: `[mcp] ${options.prompt.slice(0, 8)}`,
+      turns: 1,
+    })),
+  }
+})
+
+describe("MCP 工具回路", () => {
+  it("传入 mcpTools → 子智能体走 runMcpToolLoop 并回填其 finalText", async () => {
+    const { runMcpToolLoop } = await import("@/lib/mcp/agent-consumer")
+    vi.mocked(runMcpToolLoop).mockClear()
+
+    const result = await runOutlineMultiAgentGeneration({
+      llmConfig: { provider: "mock" } as never,
+      userRequest: "生成第一卷大纲",
+      contextPack: makePack(),
+      plan: makePlan(),
+      maxConcurrency: 1,
+      onStatusChange: () => {},
+      mcpTools: [{ name: "search" }] as never,
+    })
+
+    expect(vi.mocked(runMcpToolLoop).mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(String(vi.mocked(runMcpToolLoop).mock.calls[0]?.[0]?.prompt)).toContain("子智能体")
+    // 子智能体成功走 MCP 回路 → 不落进失败清单
+    expect(result.failedAgents).toEqual([])
+    expect(result.successfulAgents).toEqual(["a1", "a2"])
+  })
+})

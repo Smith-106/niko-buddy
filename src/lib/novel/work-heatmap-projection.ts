@@ -136,6 +136,7 @@ export interface WorkHeatmapOptions {
 }
 
 function codePointCompare(a: string, b: string): number {
+  /* v8 ignore next -- 台账 work-heatmap-projection.ts L139：codePointCompare 的两个调用源都是「stage 唯一」的集合——L280 是 Set 展开、L314 是 Map.entries()，故 a === b 恒假 */
   if (a === b) return 0
   const ax = Array.from(a)
   const bx = Array.from(b)
@@ -261,6 +262,7 @@ export function projectWorkHeatmap(
   const acc = new Map<string, { count: number; token: number | null; latency: number | null; partial: number }>()
   const key = (stage: string, idx: number) => `${stage}\u0000${idx}`
   for (const item of inWindow) {
+    /* v8 ignore next -- 台账 work-heatmap-projection.ts L264：inWindow（L224-226）在 anchorMs === null 时直接取 []，故 anchor 为 null 时循环体一次都不会进 */
     if (anchor === null) break
     const idx = Math.min(
       bucketCount - 1,
