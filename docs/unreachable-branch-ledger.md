@@ -926,6 +926,16 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | lib/novel/markdown-quality-finalizer.ts:153 | `if (!localContentChanged) { candidates.push(...) }` | inspection 的 4 类问题（全文围栏/缺一级标题/奇数加粗/缺表格分隔）各有镜像修复，修复后必 valid 并在 L145 早退；`!localContentChanged` 只可能出现在修复差异全部被 normalize 抹平（标题标记/表格分隔行/加粗标记/列表标记）的情形，那些修复同样使 local 变 valid |
 | lib/novel/markdown-quality-finalizer.ts:160-161 | `candidates.reduce((current, candidate) => ...)` | 该分支候选池只含 initial 一条（追加 local 候选需 L153，而 L153 恒不可达），reduce 单元素不调用比较器 |
 
+### 2026-11-07 第二十八批（审计/模拟/图谱防御分支）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| lib/novel/prompt-injection-auditor.ts:142 | `[...affectedLineNumbers].sort((a, b) => a - b)` | INJECTION_RULES 全部规则正则均无 `g` 标志，`exec` 恒返回同一处匹配，内层 `while` 只会把同一匹配累加到 `maxFindings` 上限，外层随即 `break` → 一次审计只可能来自单条规则、单个起始行，`Set` 恒为 1 元素，排序比较器不会被调用。（附：这是同类多规则累积缺陷的外显症状，按纪律不在覆盖率战役中改生产行为） |
+| lib/novel/story-simulation/simulation-engine.ts:523 | `if (totalActive === 0) return null` | 两处调用点（决策成功后 / react 分支）都发生在某个 agent 成功产出事件之后，该 agent 必取自 `state.activeAgents`；该 Map 只在节点开始时整体重建、回合内无删除路径，故 `activeAgentIds.length` 恒 ≥ 1 |
+| lib/novel/story-simulation/simulation-engine.ts:1035 | `if (!currentAgent) continue` | `roundAgentList` 由 `state.activeAgents.get(turn.agentId)` 过滤 `!!agent` 得到，回合循环内无任何删除/重建 `activeAgents` 的路径，再次 `get` 必命中 |
+| components/graph/sigma-graph-views.tsx:356 | `if (!mountedRef.current \|\| gen !== genRef.current) return` | 世代令牌读取到本行之间是同步代码（无 await/yield），React cleanup 只在提交/卸载时执行，无法在同步函数体内插队 → 纯防御双检，恒为假 |
+| components/graph/document-graph-view.tsx:145 | `if (!el) return` | `visibleDocumentNodes` 是同一 `visibleNodes` 的等页切片，卡片在本页 map 中无条件渲染；分组区仅在 `groups` 为空时不渲染，而 `groups` 为空则 `visibleNodes` 亦为空、上文 `idx < 0` 已早退；且 React 先提交 DOM 再跑 effect，故本行元素必存在 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。
