@@ -192,3 +192,14 @@ describe("T10 薄编排化：route() 接入 + T09 字段 + role→model 解析�
     expect(a).toMatch(/^[0-9a-f]{64}$/)
   })
 })
+
+describe("normalizeAntiAiMode 经 buildDeepChapterRouteRuntime 归一", () => {
+  it("warn / block 原样透传，未知档归 off", () => {
+    const cfg = baseNovelConfig()
+    expect(buildDeepChapterRouteRuntime(baseInput({ antiAiMode: "warn" }), undefined, cfg).antiAiMode).toBe("warn")
+    expect(buildDeepChapterRouteRuntime(baseInput({ antiAiMode: "block" }), undefined, cfg).antiAiMode).toBe("block")
+    expect(
+      buildDeepChapterRouteRuntime(baseInput({ antiAiMode: "custom-x" as never }), undefined, cfg).antiAiMode,
+    ).toBe("off")
+  })
+})

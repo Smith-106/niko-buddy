@@ -429,3 +429,14 @@ describe("分支覆盖补齐：空文本/缺章号/标签回退/同章排序（�
     expect(byId.get("d-c")).toBe("d-c")
   })
 })
+
+describe("loadClosureProjection 真源失败兜底", () => {
+  it("两个加载器都 reject → 各自回退 null，等价于空真源", async () => {
+    mocks.readFile.mockRejectedValue(new Error("boom"))
+    const p = await loadClosureProjection("/P")
+    expect(p.infoGaps).toEqual([])
+    expect(p.worldEvents).toEqual([])
+    expect(p.ripples).toEqual([])
+    expect(p.missingSources).toHaveLength(4)
+  })
+})

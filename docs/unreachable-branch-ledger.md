@@ -599,6 +599,13 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 |----|------|------|
 | 161 | `resolveNodeTitle` 的 `if (headingMatch) return headingMatch[1].trim()` | 调用方 `parseFrontmatter`（L115-118）已用**完全相同的正则** `/^#\s+(.+)$/m` 在**同一个 content** 上预算过标题：H1 存在时 `fm.title` 必非空、L159 已早退；无 H1 时 `headingMatch` 必为 null。两条路径都到不了该分支 |
 
+### lib/novel/closure-projection.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 317 | `loadNarrativeState(pp).catch(() => null)` | `loadNarrativeState`（narrative-state.ts L193）转调 `createAtomicJsonStore(...).load()`；该 store 未覆写默认值，而默认是 `onMissing="empty"`、`onCorrupt="empty"`、`isMissingError=()=>true`（projection-store.ts L106-108），读错误与解析错误一律返回空 store 不抛 |
+| 318 | `loadTimeline(pp).catch(() => null)` | `loadTimeline`（timeline.ts L45-53）自带 try/catch，读盘失败与 JSON 解析失败全部吞掉并恒返回空 `TimelineFile`，Promise 永不 reject |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

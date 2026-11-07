@@ -10,6 +10,7 @@ import {
   buildCalibrationBaseline,
   computeDimensionStats,
   percentile,
+  stddev,
   verifyDeterminism,
   type ChapterScores,
 } from "./calibration-baseline"
@@ -61,5 +62,17 @@ describe("D1 校准基线 — 构建 + 冻结", () => {
     const a = buildCalibrationBaseline(fiveChapters)
     const b = buildCalibrationBaseline(fiveChapters)
     expect(verifyDeterminism(a, b)).toBe(true)
+  })
+})
+
+describe("边界输入", () => {
+  it("percentile：单元素直接返回该值", () => {
+    expect(percentile([7], 50)).toBe(7)
+    expect(percentile([7], 0)).toBe(7)
+    expect(percentile([7], 100)).toBe(7)
+  })
+
+  it("stddev：空数组为 0", () => {
+    expect(stddev([])).toBe(0)
   })
 })

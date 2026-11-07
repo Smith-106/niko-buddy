@@ -42,3 +42,21 @@ describe("D3 联合分布 — 观测通道", () => {
     }
   })
 })
+
+describe("退化与边界输入", () => {
+  it("样本不足（<2 条）或维度为 0 → 早退为 0/无异常/仅观测", () => {
+    const base = { correlation: 0, jointAnomaly: false, observationOnly: true }
+    expect(observeJointDistribution([])).toMatchObject(base)
+    expect(observeJointDistribution([[1, 2, 3]])).toMatchObject(base)
+    expect(observeJointDistribution([[], []])).toMatchObject(base)
+  })
+
+  it("某一路信号方差为 0 → 跳过该对，不产生 NaN", () => {
+    const r = observeJointDistribution([
+      [1, 1, 1, 1],
+      [2, 3, 4, 5],
+    ])
+    expect(Number.isNaN(r.correlation)).toBe(false)
+    expect(r.correlation).toBe(0)
+  })
+})
