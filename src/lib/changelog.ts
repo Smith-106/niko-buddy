@@ -15,6 +15,29 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.26.5（2026-11-07）：设置页补齐 3 个有消费点无控件的字段、覆盖率门禁棘轮转绿、writingModel 真删除，并修掉主控轨迹快照读回、agent 装配层与告知横幅三类缺口。
+    version: "2.26.5",
+    date: "2026-11-07",
+    highlights: {
+      en: [
+        "New: three settings that had consumers but no control now have one. autoPlanningEnabled (on by default, matching the fail-open consumer), residualCampaignIncludeFreezeChapters (next to residualCampaignEnabled, with a permanent hint about frozen chapters) and journalTtlMs (leaving it blank writes no key at all, never zero, and values go through sanitizeJournalTtlMs). All three defaults are unchanged, so there is no behavior change.",
+        "Changed: the coverage gate was ratcheted from 80 / 75 / 80 / 80 to statements 99.9 / branches 97 / functions 99.5 / lines 99.9. The gate had been permanently red; after this coverage campaign the measured numbers are 99.99% / 97.55% / 99.80% / 99.98% and npm run test:coverage is green again. Statements plateau at 99.99% because seven statements in deep-chapter-review-repair.ts are protected by the p1-dedup-016 regression guard, and the earlier 'structurally unreachable' claim was disproven by test, so the fix is a resume-path case rather than a suppression.",
+        "Changed (breaking): NovelConfig dropped writingModel together with two genuinely dead fields (decayEnabled / supersessionFilterEnabled), taking the interface from 53 to 50 fields. writingModel never had a production write path (the model-resolver writer / reviser mapping now follows the session model, configuredWriting is gone, and dead i18n keys were removed), so online behavior is unchanged. Projects that still carry the key get 'accept the switch, keep a trace, tell the user': the settings page shows the discarded original value and explains that prose now always uses the AI session's current model.",
+        "Fixed: the main-control trace snapshot read-back only restored entries / savedAt. It now restores activities, finalText, goal, ok, stopReason and roundsUsed as well, and 'no snapshot' versus 'snapshot exists but that run had no stage events' are two different messages instead of one false empty state.",
+        "Fixed: agent assembly gaps — load_context was never registered, planBlueprint was never wired, and deterministic tool arming never took effect on the real path. planBlueprint now reaches the prompts and the stage-2 task brief, requiredToolsOnce really receives resolveRequiredToolsOnce(), and arming decisions use a structured gateIntent plus a route-level pattern that matches the handoff wording 'write this chapter's draft for chapter N' instead of guessing from text in the assembly layer.",
+        "Fixed: the 'this project's writing model was discarded' banner never rendered in production, because the trace used a human-readable scope string on the write side and a bare project path on the read side. Both sides now share noticeKeyForProject(), and a corrupt module-heat snapshot can no longer crash the heat map permanently: bad entries are dropped one by one instead of invalidating the whole snapshot.",
+      ],
+      zh: [
+        "新增：三个「有消费点、无控件」的字段补上控件。autoPlanningEnabled（默认开，对齐消费点的 fail-open 语义）、residualCampaignIncludeFreezeChapters（紧邻 residualCampaignEnabled，封印章走常驻提示）、journalTtlMs（留空即不写该键，绝不写 0，写入前过 sanitizeJournalTtlMs）。三个默认值均未改动，零行为变更。",
+        "变更：覆盖率门禁从 80 / 75 / 80 / 80 棘轮到 statements 99.9 / branches 97 / functions 99.5 / lines 99.9。门禁此前长期恒红，本轮覆盖率战役后实测 99.99% / 97.55% / 99.80% / 99.98%，npm run test:coverage 恢复常态化绿。statements 天花板是 99.99%：deep-chapter-review-repair.ts 有 7 条语句被 p1-dedup-016 回归护栏禁止加 ignore，且「结构性不可达」的旧结论已被实测证伪，正确处置是补 resume 路径用例而不是抑制。",
+        "变更（破坏性）：NovelConfig 删除 writingModel，并清掉两个真死字段 decayEnabled / supersessionFilterEnabled（接口 53 → 50 字段）。writingModel 一直没有生产写入口（writer / reviser 映射改走会话模型，configuredWriting 移除，零引用 i18n 死键删除），线上行为零变化。旧项目里已有的该键按「接受切换 + 留痕 + 告知」处理：设置页显示被丢弃的原值，并说明正文现在始终使用 AI 会话当前模型。",
+        "修复：主控轨迹快照的读回端只恢复 entries / savedAt。现在 activities / finalText / goal / ok / stopReason / roundsUsed 六项全部读回，并且「快照不存在」与「快照存在但那次没有阶段事件」是两句不同的话，不再共用假空态。",
+        "修复：agent 装配层三处缺口 —— load_context 从未注册、planBlueprint 从未接线、确定性工具武装在真实路径不生效。现在 planBlueprint 进提示词与阶段 2 任务书，requiredToolsOnce 真拿到 resolveRequiredToolsOnce() 的返回值，武装判定改为结构化 gateIntent 加路由本体识别，不再在装配层做文本猜测。",
+        "修复：「正文写作模型已被丢弃」横幅在生产环境永不渲染 —— 留痕写侧带人类可读作用域串、读侧用裸项目路径查，两者不可能相等。现在两侧共用 noticeKeyForProject()；模块热度快照里一条脏记录也不再让热力图永久崩溃，坏条目逐条丢弃而不是整份快照失效。",
+      ],
+    },
+  },
+  {
     // 2.26.4（2026-11-04）：主控内补齐三档权能 —— 写作设置与工作流强度可配、草稿可采纳、门控可重跑、四项观测接进轨迹。
     version: "2.26.4",
     date: "2026-11-04",

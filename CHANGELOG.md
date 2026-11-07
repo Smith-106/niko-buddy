@@ -7,6 +7,27 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.26.5] - 2026-11-07
+
+### Added
+
+- 新增：设置页补齐 3 个「有消费点、无控件」的字段 —— `autoPlanningEnabled`（默认开，对齐消费点 `deep-chapter-context-assembly` 的 fail-open 语义）、`residualCampaignIncludeFreezeChapters`（紧邻 `residualCampaignEnabled`，封印章走常驻可见提示）、`journalTtlMs`（留空即不写该键，绝不写 0，写入前过 `sanitizeJournalTtlMs`）。三个字段默认值未改动，零行为变更，中英文成对补齐。
+
+### Changed
+
+- 变更：覆盖率门禁从 80 / 75 / 80 / 80 棘轮到 statements 99.9 / branches 97 / functions 99.5 / lines 99.9。此前门禁长期恒红，本轮覆盖率战役后实测 99.99% / 97.55% / 99.80% / 99.98%，`npm run test:coverage` 恢复常态化绿。statements 的天花板是 99.99% 而非 100%：`src/lib/novel/deep-chapter-review-repair.ts` 有 7 条语句被 `p1-dedup-016`（ISS-20260708-016）回归护栏禁止加 ignore，且该块的「结构性不可达」结论已被实测证伪 —— 正确处置是补 resume 路径用例，不是抑制。
+- 变更（破坏性）：`NovelConfig` 删除 `writingModel`，并清掉两个真死字段 `decayEnabled` / `supersessionFilterEnabled`（接口 53 → 50 字段，`DEFAULT_NOVEL_CONFIG` 51 → 48 键）。`writingModel` 一直没有生产写入口（`model-resolver` 的 writer / reviser 映射改走会话模型，`deep-chapter-route-shell` 的 `configuredWriting` 一并移除，i18n 零引用死键删除），线上行为零变化；旧项目里已有的该键按「接受切换 + 留痕 + 告知」处理，设置页显示被丢弃的原值并说明正文现在始终使用 AI 会话当前模型。
+
+### Fixed
+
+- 修复：主控轨迹快照的读回端只恢复 `entries` / `savedAt`。现在 `activities` / `finalText` / `goal` / `ok` / `stopReason` / `roundsUsed` 六项全部读回（写侧零改动，问题在读回端），并且「快照不存在」与「快照存在但那次没有阶段事件」不再共用一句假空态文案。
+- 修复：agent 装配层两处接线缺失 —— `load_context` 从未注册、`list_outlines` 默认章号恒空，现在装配层就地推导 taskRoute 并注入 virtualToolContext（不新增 prop、不造第二套规则）；`planBlueprint` 三处一次接线（生成入口 → 工作流 → 提示词与阶段 2 任务书，并纳入 stageJournal digest），不再只是工具描述里的空承诺。
+- 修复：确定性工具武装在真实主路径不生效 —— `requiredToolsOnce` 现在确实拿到 `resolveRequiredToolsOnce()` 的返回值。同时补上路由本体缺口：原 patterns 全部 ^ 锚定动词，匹配不到以「为」开头的章节页交接文案「为「第N章 X」生成本章草稿」，该目标因此被当普通对话而不武装；武装判定改为结构化 `gateIntent` 加路由本体识别的正则，不再在装配层做文本猜测。
+- 修复：设置页「正文写作模型已被丢弃」告知横幅在生产环境永不渲染 —— 留痕写侧用人类可读作用域串做 key、读侧用裸项目路径查，两者不可能相等。key 契约统一由 `noticeKeyForProject()` 产出（归一化路径与尾斜杠，无路径落 `__global__` 哨兵），并补走 `loadNovelConfig` 的跨模块用例钉住写读对齐、项目间隔离与全局哨兵。
+- 修复：模块热度快照读盘不校验元素，盘上一条脏记录就让热力图视图永久崩溃且不自愈。现在读盘侧逐条过滤（`path` 为非空 string、`at` / `ms` 为有限 number、`detail` 为 string），坏条目丢弃而非整份快照失效，`fileVersion` 契约不变。
+- 修复：nudge 消息形态不变量纠偏 —— 原断言「相邻消息不得同角色」是错的（一轮两个 tool call 就合法产生相邻 tool），收窄为「system 不紧跟 system」，并把 nudge 并入尾部 system，让误传在类型上不可表达。
+- 修复：旧写作模型配置被丢弃时的留痕与告知（DEBT-residual-04）与 `module-heat` 读盘加固（A-04）等遗留台账一并清偿，不再有「接受切换但用户不知情」的静默路径。
+
 ## [2.26.4] - 2026-11-04
 
 ### Added
@@ -102,7 +123,8 @@
 
 - 修复：G7 缓存块零截断。`trimSystemMessagePreservingCachedBlocks` 保留带 `cacheControl` 的缓存块（稳定前缀含世界规则 base）零截断，只压缩非缓存动态块；字符串形态 system 消息仍走通用裁剪，避免破坏 400 超额重试路径。
 - 修复：`check-consistency` 的 IPC 命令解析对 CRLF 不宽容。命令属性与 `fn` 之间存在其它属性（如 `#[allow(clippy::too_many_arguments)]`）且文件为 CRLF 换行时，`#[tauri::command]` 后接 `
-` 的匹配失败，导致命令被误判「无定义」；改为 `?
+` 的匹配失败，导致命令被误判「无定义」；改为 `
+?
 ` 后 14/14 通过（是修复漏检，不是放宽门禁）。
 - 修复：同步配置校验（B1）。`validateSyncConfig` 的 github 分支改用 `GITHUB_CREDENTIAL_REF_PREFIX` / `isGitHubCredentialRef`，杜绝把非 GitHub 凭据引用误当合法配置。
 - 修复：凭据目标解析（F-001/F-005）。`CloudBackupPanel` 走 `resolveCredentialTargetForDomain(GITHUB_SECRET_DOMAIN, …)`；冲突选项渲染如实反映可选性。
