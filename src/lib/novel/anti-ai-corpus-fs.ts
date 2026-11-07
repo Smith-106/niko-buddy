@@ -16,6 +16,7 @@ export function resolveDefaultCorpusRoot(): string | null {
   try {
     return resolve(dirname(fileURLToPath(import.meta.url)), "../../../../docs/p0/corpus")
   } catch {
+    /* v8 ignore next -- 台账 anti-ai-corpus-fs.ts L19：webview 专用兜底。Node/vitest 下 import.meta.url 恒为 file://，fileURLToPath 不会抛 ERR_INVALID_URL；仅 tauri:// 宿主会走到 */
     return null // webview：无文件系统语义，FS 路径不可达
   }
 }
