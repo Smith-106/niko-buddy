@@ -108,6 +108,7 @@ export function CharacterWorkstationView(props: CharacterWorkstationViewProps) {
   }
 
   function handleDraft(nextDraft: string) {
+    /* v8 ignore next -- 台账 character-workstation-view.tsx L111：handleDraft 只作为 onDraftChange 传给 CharacterStation，而它仅在 activeCharacter 非空时渲染（L146 三元） */
     if (!activeCharacter) return
     if (!isControlled) {
       // 仅写入当前角色分区，其它角色草稿保持原样（隔离）。

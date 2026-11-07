@@ -315,6 +315,7 @@ function parseRecommendation(raw: unknown): string {
         (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
       try {
         const parsed = JSON.parse(trimmed)
+        /* v8 ignore next -- 台账 simulation-report-agent.ts L318：进入该行的前提是 trimmed 以 { 或 [ 开头，JSON.parse 对这类文本只会产出对象/数组，不可能得到 string */
         if (typeof parsed === "string") return parsed.trim() || "模型未提供综合推荐建议"
         if (typeof parsed === "object" && parsed !== null) {
           // 尝试提取常见的文本字段

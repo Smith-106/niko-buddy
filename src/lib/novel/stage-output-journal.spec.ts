@@ -512,3 +512,16 @@ describe("listResumeCandidates（R2 恢复候选可见化）", () => {
     expect(await listResumeCandidates({ listDigests: async () => { throw new Error("x") }, read: async () => "" }, "P", NOW)).toEqual([])
   })
 })
+
+describe("listResumeCandidates：文件内混入他人 digest", () => {
+  it("d1 的日志文件里混入 d2 的记录 → 该记录被跳过，只出 d1 自身条目", async () => {
+    const mine = rec({ digest: "d1", stage: "gen", createdAt: NOW - 5 })
+    const foreign = rec({ digest: "d2", stage: "revise", createdAt: NOW - 1 })
+    const deps = {
+      listDigests: async () => ["d1"],
+      read: async () => [mine, foreign].map((r) => JSON.stringify(r)).join("\n"),
+    }
+    const out = await listResumeCandidates(deps, "C:/proj", NOW)
+    expect(out.map((c) => c.digest)).toEqual(["d1"])
+  })
+})

@@ -880,6 +880,14 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | components/settings/settings-view.tsx:680 | `if (!c) return null` | 侧栏分组是静态常量，categories 的每个 id 都在 CATEGORIES 中（当前零漂移），仅防未来表漂移 |
 | components/novel/export-center-view.tsx:137 | `if (exporting !== null \|\| projectPath === "") return` | projectPath 为空走空态不渲染按钮；exporting 由 `disabled={!canExport}`（L288/297）挡住 |
 
+### 2026-11-06 第二十二批（时序覆盖 + JSON 解析域）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| lib/novel/narrative-state.ts:139 | `if (validFrom > storyTime) continue` | rel 与 targetDecls 都经 isTemporallyCovering（要求 validFrom <= storyTime）过滤，max(...) 必 <= storyTime；撤销回填分支又设为 storyTime |
+| components/novel/character-workstation-view.tsx:111 | `if (!activeCharacter) return` | handleDraft 只经 CharacterStation 的 onDraftChange 触发，而它仅在 activeCharacter 非空时渲染（L146 三元） |
+| lib/novel/story-simulation/simulation-report-agent.ts:318 | `if (typeof parsed === "string") return ...` | 该行前提是 trimmed 以 { 或 [ 开头，JSON.parse 对这类文本只产出对象/数组 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

@@ -136,6 +136,7 @@ export function inferLocationVisibility(
       if (mine.some((v) => v.validTo !== TEMPORAL_OPEN && v.validTo <= storyTime)) {
         validFrom = storyTime
       }
+      /* v8 ignore next -- 台账 narrative-state.ts L139：rel 经 isTemporallyCovering 过滤（要求 validFrom <= storyTime），targetDecls 同样过滤，故 max(...) <= storyTime；撤销回填分支又把 validFrom 设为 storyTime，不可能 > storyTime */
       if (validFrom > storyTime) continue
       additions.push({
         declarationId: decl.declarationId,
