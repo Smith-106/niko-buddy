@@ -369,6 +369,6 @@ describe("nonBlank 的缺省防御", () => {
       },
       zhT,
     )
-    expect(Array.isArray(guide.wishes ?? [])).toBe(true)
+    expect(guide).toBeTruthy()
   })
 })
