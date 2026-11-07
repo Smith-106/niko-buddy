@@ -103,6 +103,9 @@ impl SessionScope {
     /// 满足自身。除此之外仍无全序——`Project` 不蕴含 `Settings`，反之亦然。
     ///
     /// 没有任何工具会要求 `Auto`：它是**被满足方**（组合档），不是被要求方。
+    /// 这条说的是**工具需求侧**的约束（由 tools.rs 的
+    /// `no_registered_tool_requires_auto_scope` 守住），不是 `satisfies` 的非自反性——
+    /// `Auto.satisfies(Auto)` 仍为 true（偏序自反）。
     pub fn satisfies(self, required: Self) -> bool {
         match required {
             Self::Read => true,
@@ -421,9 +424,13 @@ mod tests {
             !SessionScope::Auto.satisfies(SessionScope::Full),
             "auto 不得顺带拿到直写正文"
         );
+        // 自反性：被要求时自己当然满足自己（required=Auto 时 Auto 通过）。
+        // 「auto 不得成为被要求方」是**工具需求侧**的不变量，由 tools.rs 的
+        // no_registered_tool_requires_auto_scope 守住——用 satisfies 的非自反性
+        // 去表达它会破坏偏序语义，也会让 future 的 required=Auto 分支无故失效。
         assert!(
-            !SessionScope::Auto.satisfies(SessionScope::Auto),
-            "没有任何工具会要求 auto；它只能被自己满足，不得成为被要求方"
+            SessionScope::Auto.satisfies(SessionScope::Auto),
+            "satisfies 是自反的：required=auto 时 auto 必须通过"
         );
         // 反向不成立：单档不得冒充组合档。
         assert!(!SessionScope::Settings.satisfies(SessionScope::Auto));

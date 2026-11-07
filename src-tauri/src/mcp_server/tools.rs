@@ -1764,6 +1764,11 @@ pub fn build_registry() -> super::registry::ToolRegistry {
     r.register(Arc::new(PipelineStatusTool));
     r.register(Arc::new(GateRunTool));
     r.register(Arc::new(ChapterWriteTool));
+    r.register(Arc::new(DirectorAdvanceTool));
+    r.register(Arc::new(OutlineGenerateTool));
+    r.register(Arc::new(CharacterUpsertTool));
+    r.register(Arc::new(ChapterBatchTool));
+    r.register(Arc::new(ExportRunTool));
     r.register(Arc::new(MemoryWriteTool));
     r.register(Arc::new(ChapterWriteDirectTool));
     r.register(Arc::new(UndoLastTool));
@@ -1838,6 +1843,50 @@ mod tests {
                 "chapter.write_direct",
                 "undo_last",
             ]
+        );
+    }
+
+    #[test]
+    fn orchestration_tools_appear_in_tools_list_payload() {
+        // names() 是内部内省，客户端看到的是 list() 的 JSON。两者分离才防得住
+        // 「结构体在、impl 在、名字在断言里，但 tools/list 永远看不到」。
+        let r = build_registry();
+        let payload = r.list();
+        let names: Vec<&str> = payload["tools"]
+            .as_array()
+            .expect("tools 必须是数组")
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        for name in [
+            "director.advance",
+            "outline.generate",
+            "character.upsert",
+            "chapter.batch",
+            "export.run",
+        ] {
+            assert!(
+                names.contains(&name),
+                "tools/list 的 JSON 结果里没有 {name}；说明 build_registry() 漏注册",
+            );
+        }
+        assert_eq!(names.len(), r.len(), "list() 与 registry 长度不一致");
+    }
+
+    #[test]
+    fn no_registered_tool_requires_auto_scope() {
+        // satisfies(Auto) 自反是偏序语义：被要求时自己当然满足自己。
+        // 真正要守的是「没有任何工具把 Auto 当 required」——只有这条能让组合档
+        // 变成「被要求方」，从而出现语义歧义。
+        let r = build_registry();
+        let offenders: Vec<&'static str> = r
+            .names()
+            .into_iter()
+            .filter(|n| r.required_scope(n) == Some(crate::mcp_server::session::SessionScope::Auto))
+            .collect();
+        assert!(
+            offenders.is_empty(),
+            "这些工具要求了 auto 档；auto 只能作被满足方：{offenders:?}"
         );
     }
 

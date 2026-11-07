@@ -54,12 +54,17 @@
 |-------|------|----------|----------|
 | DEBT-20261108-01 | `workflowMode` 被接受但不生效（管线无深度参数） | 深章管线提供深度档位，或决定移除该字段（需改客户端 schema 与两处调用） | 下次动 `pipeline.run_chapter` 契约时 |
 | DEBT-20261108-02 | `auto` 档目前只覆盖「设置 + 项目动作」；角色/大纲只写 `wiki/` 规划产物，尚无「人物关系账本」与「世界观蓝图」的独立外部工具 | `character-state` / `world-blueprint` 出现稳定的单点写入口 | 需要外部 Agent 驱动世界观阶段时 |
-| DEBT-20261108-03 | 本地 Windows 上 `cargo test --lib` 的测试二进制启动即 `STATUS_ENTRYPOINT_NOT_FOUND`（未运行任何用例）；CI（ubuntu + windows runner）执行 `cargo test` | 本地能复现并定位到具体 DLL 导入，或改用容器化跑 Rust 测试 | 下次需要本地 Rust 测试证据时 |
+| DEBT-20261108-03 | 【已结项 2026-11-07】本地 `cargo test` 无法运行。真机制：测试二进制静态导入 `comctl32!TaskDialogIndirect`（仅 ComCtl32 **v6** 导出）；`tauri-build` 只给 bin target 嵌 manifest，test target 依赖 `QMAI/src-tauri/.cargo/config.toml` 的 `target.*.rustflags=/MANIFESTDEPENDENCY:...Common-Controls 6.0.0.0`，而 cargo 的 config 发现是**从 cwd 逐级向上**：⇒ 必须 `cd QMAI/src-tauri && cargo test --lib`（CI 就是这么跑的）；从仓库根用 `--manifest-path` 调用不会得到该 flag，产物缺旁挂 `.exe.manifest`，进程在 main 之前就 `0xC0000139`、0 用例执行。实测：`cd QMAI/src-tauri` 形态 **600 用例 / 597 passed / 0 failed / 3 ignored**。 | — | 已结项 |
+| DEBT-20261108-04 | 测试二进制对 SxS manifest 的依赖是**旁挂**（`<exe>.manifest`）而非内嵌：`cargo clean`、复制 exe、或设置 `RUSTFLAGS` 环境变量（会覆盖 `.cargo/config.toml` 的 rustflags）任一都会让测试重新 `0xC0000139`。加固方案：`build.rs` 追加 `cargo:rustc-link-arg-tests=/MANIFESTDEPENDENCY:...` + `/MANIFEST:EMBED`（tests-only，不与 bin 的 `WindowsAttributes` 冲突）。 | 出现第三次「测试 exe 缺 manifest」事故，或 CI 之外的机器踩坑 | 下一次动构建配置时 |
+| DEBT-20261108-05 | `auto` / `full` 逐会话授权按钮的 i18n key（`grantAuto` / `revokeAuto` / `autoGranted`）在 `zh.json`/`en.json` 双缺，中文界面回落显示英文 defaultValue（如 `Grant auto (settings + actions)`）。 | 下一次动设置页「外部控制」文案 | 下个补丁版本前 |
 
 ## 验收证据
 
-- Rust：`cargo check` 通过（0 error）；新增单测覆盖 `SessionScope::Auto` 的 `satisfies` / 逐会话授予 / `full` 优先于 `auto` / `clear` 归一，与 5 个工具的 `required_scope`、参数校验、无 app 句柄时的失败语义。
-- TS：`npm run typecheck` 0 错误；`npx vitest run src/lib/mcp src/components/settings/sections/external-control-section.spec.tsx` 15 文件 / 257 用例全绿（含新增：批量整批校验、导演/大纲参数门、桥的 4 个新 op、`auto` 授权与吊销 UI）。
+- Rust：`cd QMAI/src-tauri && cargo test --lib` → **600 用例 / 597 passed / 0 failed / 3 ignored**（3 条 ignored 均为既有用例）；`cargo check` 0 error；`cargo fmt --check` 干净。
+- TS：`npm run typecheck` 0 错误；`npx vitest run src/lib/mcp src/components/settings/sections/external-control-section.spec.tsx src/lib/novel/director-auto-advance.spec.ts` 16 文件 / 288 用例全绿（含新增：批量整批校验、导演/大纲参数门、桥的 4 个新 op、`auto` 授权与吊销 UI）。
+- 注册表：`build_registry()` 已注册 5 个编排工具（原先只有 struct/impl，**没有 register 行**，且 `debug_assert_eq!(privileged, ...)` 里已写入它们 → debug 构建必 panic）。修复后 `tools/list` 实测 22 项，顺序为 `chapter.write → director.advance → outline.generate → character.upsert → chapter.batch → export.run → memory.write`。
+- 真机端到端（运行中的应用 + 真实 MCP HTTP 客户端）：`initialize` 200 且 `serverInfo.name=niko-buddy`；`notifications/initialized` 202；`tools/list` 22 项含全部 5 个新工具；read 档调 `director.advance` 被拒（`isError=true` +「权限不足：需要 scope="project"」）；在设置页点「授予 auto」后**同一会话** `director.advance` 返回 `isError=false` 与非空 `taskId`，`chapter.batch` 同样起任务。`pipeline.status` / `gate.run` 对该任务如实报「生成失败，没有门控结论」。
+- 剩余外部阻塞：真实章节正文生成被上游以 `HTTP 401 Invalid API key` 拒绝（无 Authorization 头时报 `Missing API key`，有头但值无效时报 `Invalid API key`，E2E 拿到后者 ⇒ 应用确实带了非空但已失效的凭据）。这不是代码缺陷，需在设置页换有效的 provider 密钥后才能拿到「正文 + 门控结论」。
 
 ## 附：一窗口怎么接、怎么说话
 
