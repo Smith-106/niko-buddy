@@ -60,3 +60,24 @@
 
 - Rust：`cargo check` 通过（0 error）；新增单测覆盖 `SessionScope::Auto` 的 `satisfies` / 逐会话授予 / `full` 优先于 `auto` / `clear` 归一，与 5 个工具的 `required_scope`、参数校验、无 app 句柄时的失败语义。
 - TS：`npm run typecheck` 0 错误；`npx vitest run src/lib/mcp src/components/settings/sections/external-control-section.spec.tsx` 15 文件 / 257 用例全绿（含新增：批量整批校验、导演/大纲参数门、桥的 4 个新 op、`auto` 授权与吊销 UI）。
+
+## 附：一窗口怎么接、怎么说话
+
+（`docs/` 除 decision-log 外不入版本控制，故使用说明落在这里。）
+
+1. **应用侧**：设置 →「外部控制」→ 选 `project`（或 `settings`）→ 打开开关，取出 `http://127.0.0.1:<port>/mcp` 与 bearer token。
+2. **客户端侧**（任意 MCP HTTP 客户端）：
+
+   ```bash
+   claude mcp add --transport http niko-buddy http://127.0.0.1:<port>/mcp \
+     --header "Authorization: Bearer <token>"
+   ```
+
+   等价 `mcpServers` 写法：`{"mcpServers":{"niko-buddy":{"type":"http","url":"http://127.0.0.1:<port>/mcp","headers":{"Authorization":"Bearer <token>"}}}}`。
+3. **授权**：在会话列表对该会话点「授予自动编排」（`auto`）。要直写正式正文再单独授予「完整写入」（`full`）。
+
+编排顺序固定为「立项 → 大纲 → 角色 → 逐章 → 门控 → 采纳」：`director.advance`（`maxPhases` 1–4）→ `outline.generate`（按需）→ `character.upsert`（按需）→ `chapter.batch`（≤10 章）→ `gate.run` / `pipeline.status` → 用户在应用内采纳。改参数走 `settings.*`，导出走 `export.run`。
+
+一句话示例（可直接对窗口说）：「`director.advance` 推两阶段落大纲与角色；`chapter.batch` 起 11–13 章；每章跑完用 `gate.run` 看结论，一致性不过就停下报原因，别自己改正文。」
+
+边界不变：产出只进草稿区（Draft-first）；门控结论只由管线产出；`auto` / `full` 都只能逐会话授予，随时可单独吊销。
