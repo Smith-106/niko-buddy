@@ -223,3 +223,27 @@ describe("runDeepChapterSend", () => {
     expect(msg).toContain("进度点没能保存：disk full")
   })
 })
+
+describe("多模型共识开关（模型组判空）", () => {
+  it("consensusEnabled 但模型组全是空白项 → some 判空回落单模型，不加载共识执行器", async () => {
+    mocks.runDeepChapterGeneration.mockClear()
+    mocks.runDeepChapterGeneration.mockImplementation(async (_params, handlers) => {
+      handlers.onFinalContent("第5章正文")
+      return {
+        finalContent: "第5章正文",
+        reviewResults: [],
+        manualReviewRequired: false,
+        partial: false,
+      }
+    })
+    const { ctx } = makeCtx({
+      novelConfig: {
+        ...NOVEL_CONFIG,
+        consensusEnabled: true,
+        consensusWritingModels: ["  ", ""],
+      } as unknown as NovelConfig,
+    })
+    await runDeepChapterSend(ctx)
+    expect(mocks.runDeepChapterGeneration).toHaveBeenCalled()
+  })
+})

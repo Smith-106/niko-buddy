@@ -62,6 +62,15 @@ const mocks = vi.hoisted(() => ({
   } as unknown as NovelConfig,
 }))
 
+const widgetMocks = vi.hoisted(() => ({
+  loadEnabledDismantlingDirective: vi.fn(async () => ""),
+}))
+
+vi.mock("./chat-panel-widgets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./chat-panel-widgets")>()
+  return { ...actual, loadEnabledDismantlingDirective: widgetMocks.loadEnabledDismantlingDirective }
+})
+
 vi.mock("@/lib/novel", () => ({
   loadNovelSessionStatus: mocks.loadNovelSessionStatus,
   routeTask: mocks.routeTask,
@@ -370,5 +379,42 @@ describe("runContinueUnfinished", () => {
     )
     expect(h.finalizeStream).toHaveBeenCalledTimes(1)
     expect(h.finalizeStream.mock.calls[0]![0] as string).toContain("出错：继续未完成失败：已停止生成")
+  })
+})
+
+describe("续写：旁路依赖降级", () => {
+  it("共识模型组全空白 → some 判空回落单模型（不启用共识执行器）", async () => {
+    enableDeepResume("原始章节需求")
+    mocks.wikiNovelConfig.consensusEnabled = true
+    mocks.wikiNovelConfig.consensusWritingModels = ["  ", ""]
+    mocks.runDeepChapterGeneration.mockResolvedValue({ manualReviewRequired: false, retryCount: 0 })
+    const h = makeHarness({ project: PROJECT })
+    await runContinueUnfinished(h.ctx)
+    expect(mocks.runDeepChapterGeneration).toHaveBeenCalled()
+    mocks.wikiNovelConfig.consensusEnabled = false
+    mocks.wikiNovelConfig.consensusWritingModels = []
+  })
+
+  it("拆解指令加载失败 → .catch(() => \"\") 兜底，续写照常进行", async () => {
+    widgetMocks.loadEnabledDismantlingDirective.mockRejectedValueOnce(new Error("config boom"))
+    enableDeepResume("原始章节需求")
+    mocks.runDeepChapterGeneration.mockResolvedValue({ manualReviewRequired: false, retryCount: 0 })
+    const h = makeHarness({ project: PROJECT })
+    await runContinueUnfinished(h.ctx)
+    expect(h.startStreaming).toHaveBeenCalledWith("conv-1")
+  })
+})
+
+describe("续写：ContextPack 装配路径的拆解指令降级", () => {
+  it("hardInject 开启 + 拆解指令加载失败 → .catch(() => \"\") 兜底", async () => {
+    widgetMocks.loadEnabledDismantlingDirective.mockRejectedValue(new Error("config boom"))
+    mocks.wikiNovelConfig.hardInjectEnabled = true
+    enableDeepResume("原始章节需求")
+    mocks.runDeepChapterGeneration.mockResolvedValue({ manualReviewRequired: false, retryCount: 0 })
+    const h = makeHarness({ project: PROJECT })
+    await runContinueUnfinished(h.ctx)
+    expect(h.startStreaming).toHaveBeenCalledWith("conv-1")
+    mocks.wikiNovelConfig.hardInjectEnabled = false
+    widgetMocks.loadEnabledDismantlingDirective.mockImplementation(async () => "")
   })
 })
