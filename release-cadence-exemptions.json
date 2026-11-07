@@ -155,6 +155,16 @@
         "same-day-duplicate",
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.26.5",
+      "reason": "用户于 2026-11-07 明确裁决发 v2.26.5 稳定版（三项裁决之一：发版走 v2.26.5 stable，并预先批准登记 weekly-stable + thirty-day-stable 两项豁免；另两项为阈值棘轮与真实构建 NSIS + portable 资产）。版本内容：设置页补齐 3 个有消费点无控件的字段（autoPlanningEnabled / residualCampaignIncludeFreezeChapters / journalTtlMs，默认值全未改动）、覆盖率门禁由 80/75/80/80 棘轮到 99.9/97/99.5/99.9（实测 99.99/97.55/99.80/99.98 全过）、NovelConfig 破坏性删除 writingModel 与两个真死字段（53→50 字段，线上行为零变化，旧键按留痕+告知处理）、主控轨迹快照 6 字段读回恢复、agent 装配层 load_context/planBlueprint/确定性武装三处接线、告知横幅永不渲染与模块热度脏快照致崩溃两处修复。规则事实（按 release:cadence 自身口径的本地周键）：weekly-stable —— ISO 周 2026-11-02 有 7 个 stable（v2.25.2, v2.26.0, v2.26.1, v2.26.2, v2.26.3, v2.26.4, v2.26.5）；same-day-duplicate 未触发（2026-11-07 当日仅本版一个 stable，未重打任何已发布 tag）；thirty-day-stable —— 发布前 30 天 stable 22 个（上限 4），属历史连续高频发布所致，非跳过工程门禁。发版门禁：typecheck 0 error / eslint 0 error + boundaries 5/5 / gen:check 6/6 / consistency 14/14 / 全量 test:mocks / cargo fmt --check，实测输出见本次发版记录。",
+      "approvedBy": "user",
+      "approvedAt": "2026-11-07",
+      "scope": [
+        "weekly-stable",
+        "thirty-day-stable"
+      ]
     }
   ]
 }
