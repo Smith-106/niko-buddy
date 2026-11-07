@@ -10,6 +10,7 @@ import {
   feedToken,
   pollWatchdog,
   resetWatchdog,
+  shouldNotify,
   type WatchdogState,
 } from "./watchdog"
 
@@ -147,5 +148,13 @@ describe("时间防御（单调时钟假设下的坏输入钳制）", () => {
     const v = pollWatchdog(w, 9_999)
     expect(v.elapsedMs).toBe(0)
     expect(v.action).toBe("continue")
+  })
+})
+
+describe("shouldNotify 兜底路径", () => {
+  it("prev 已触发且未 continue、next 仍 block_fallback → 落到最终 null（不重复告警）", () => {
+    const prev = { action: "continue" as const, elapsedMs: 1000, triggered: true }
+    const next = { action: "block_fallback" as const, elapsedMs: 2000, triggered: true }
+    expect(shouldNotify(prev, next)).toBeNull()
   })
 })

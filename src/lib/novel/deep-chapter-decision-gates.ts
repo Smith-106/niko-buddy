@@ -240,6 +240,7 @@ export function collectLiteraryPolishIssues(decisionGates: DeepChapterDecisionGa
   const out: NovelReviewResult[] = []
   for (const finding of collectRepairIssues(decisionGates)) {
     const t = (finding.type || "").toLowerCase()
+    /* v8 ignore next -- 台账 deep-chapter-decision-gates.ts L243：上游 collectRepairIssues（L225-229）只收 severity === "warning" 的 finding，此处恒为 warning */
     if (finding.severity !== "warning" && finding.severity !== "info") continue
     if (literaryTypes.has(t) || t.includes("thrill") || t.includes("pacing") || t.includes("pull") || t.includes("plot")) {
       out.push(finding)

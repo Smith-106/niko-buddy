@@ -336,9 +336,11 @@ export function clearQueueState(): void {
   if (currentAbortController) {
     currentAbortController.abort()
   }
+  /* v8 ignore start -- 台账 ingest-queue.ts L339-341/L373-375：sweepAbortController 全仓只有 null 初始化（L45）与置 null，无任何赋值点，sweep 中止分支为死路径 */
   if (sweepAbortController) {
     sweepAbortController.abort()
   }
+  /* v8 ignore stop */
   queue = []
   processing = false
   currentProjectId = ""
@@ -370,10 +372,12 @@ export async function pauseQueue(): Promise<void> {
     currentAbortController.abort()
     currentAbortController = null
   }
+  /* v8 ignore start -- 台账 ingest-queue.ts L339-341/L373-375：sweepAbortController 全仓只有 null 初始化（L45）与置 null，无任何赋值点，sweep 中止分支为死路径 */
   if (sweepAbortController) {
     sweepAbortController.abort()
     sweepAbortController = null
   }
+  /* v8 ignore stop */
   processing = false
 
   // Revert any in-flight processing task back to pending so when the

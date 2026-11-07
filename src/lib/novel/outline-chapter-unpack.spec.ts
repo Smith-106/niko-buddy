@@ -115,3 +115,10 @@ describe("outline-chapter-unpack (大纲自动解构分发器)", () => {
     expect(writtenContent).toContain("第二章大纲设定。")
   })
 })
+
+describe("无前缀的短章节标题", () => {
+  it("裸标题（非 # / 非列表、无句末标点）仍识别为章节头", () => {
+    const chapters = parseOutlineToChapters("第3章 风起\n本章主角第一次遇见旧友。")
+    expect(chapters.map((c) => c.chapterNumber)).toContain(3)
+  })
+})
