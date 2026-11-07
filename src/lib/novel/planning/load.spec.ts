@@ -19,6 +19,19 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   }
 })
 
+const povMock = vi.hoisted(() => ({ fail: false }))
+
+vi.mock("../character-cognition", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../character-cognition")>()
+  return {
+    ...actual,
+    resolveChapterPovCharacter: async (projectPath: string, chapterNumber: number) => {
+      if (povMock.fail) throw new Error("pov resolver exploded")
+      return actual.resolveChapterPovCharacter(projectPath, chapterNumber)
+    },
+  }
+})
+
 import { buildChapterPlan } from "./aggregate"
 
 const FORESHADOWING_JSON = JSON.stringify({
@@ -312,5 +325,18 @@ describe("buildChapterPlan — P2-IMP-11 四新维 IO 三态", () => {
     const view = await buildChapterPlan("/proj", 8, { povCharacter: "林动" })
     expect(view.cognition!.status).toBe("ok")
     expect(view.cognition!.items).toEqual([])
+  })
+})
+
+describe("POV 解析器抛错", () => {
+  it("resolveChapterPovCharacter reject → .catch(() => null) 兜底，不整体失败", async () => {
+    povMock.fail = true
+    try {
+      const view = await buildChapterPlan("/proj", 8)
+      expect(view.chapterNumber).toBe(8)
+      expect(view.povCharacter ?? "").toBe("")
+    } finally {
+      povMock.fail = false
+    }
   })
 })

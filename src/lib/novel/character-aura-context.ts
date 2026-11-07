@@ -166,6 +166,7 @@ async function readSkillFileWithFallback(filePath: string, projectPath?: string)
           logger.warn("character-aura-context", "silent-degrade: 降级返回空值（吞错已标记）", { line: 163 })
         }
       } catch {
+        /* v8 ignore next -- 台账 character-aura-context.ts L169：外层 catch 只接动态 import("@/commands/fs") 的失败；其内两个子 try（L148/L158）已各自吞掉调用错误，模块导入本身在本仓恒可用 */
         logger.warn("character-aura-context", "silent-degrade: 降级返回空值（吞错已标记）", { line: 164 })
       }
 

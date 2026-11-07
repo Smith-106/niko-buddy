@@ -287,3 +287,24 @@ describe("loadMetadata", () => {
     expect(await loadMetadata("E:/Novel/book-analysis/b1")).toBeNull()
   })
 })
+
+describe("loadChapterList：单章解析异常不拖垮整表", () => {
+  it("readFile 返回非字符串 → 单章解析抛错被吞（logger.error）并跳过该章", async () => {
+    const { logger } = await import("@/lib/utils")
+    const spy = vi.spyOn(logger, "error").mockImplementation(() => {})
+    fsMocks.listDirectory.mockResolvedValue([
+      { name: "ch-0001.md", path: "E:/Novel/book-analysis/b1/chapters/ch-0001.md", is_dir: false },
+      { name: "ch-0002.md", path: "E:/Novel/book-analysis/b1/chapters/ch-0002.md", is_dir: false },
+    ])
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path.includes("ch-0001")) return undefined as unknown as string
+      return "---\nid: ch-0002\ntitle: 第2章 夜探\norder: 2\n---\n正文"
+    })
+
+    const chapters = await loadChapterList("E:/Novel/book-analysis/b1")
+
+    expect(chapters.map((c) => c.chapterId)).toEqual(["ch-0002"])
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
+  })
+})

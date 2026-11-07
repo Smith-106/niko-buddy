@@ -21,7 +21,7 @@ vi.mock("@/lib/utils", async (importOriginal) => {
   return { ...actual, logger: { ...actual.logger, warn: warnStub } }
 })
 
-import { loadEntityLinkIndex } from "./chapter-ingest-entity-validation"
+import { loadEntityLinkIndex, validateCanonConflicts } from "./chapter-ingest-entity-validation"
 
 describe("loadEntityLinkIndex 非致命降级", () => {
   it("实体文件枚举失败时降级为空索引并记 warn，不向上抛", async () => {
@@ -37,5 +37,14 @@ describe("loadEntityLinkIndex 非致命降级", () => {
       "load entity link index failed, degrade to empty (non-fatal)",
       expect.objectContaining({ error: "enumerate boom" }),
     )
+  })
+})
+
+describe("validateCanonConflicts 外层降级", () => {
+  it("快照 events 非可迭代 → 外层 catch 记 warn、返回已有告警，不向上抛", async () => {
+    warnStub.mockClear()
+    const warnings = await validateCanonConflicts("/proj", { events: undefined } as never)
+    expect(warnings).toEqual([])
+    expect(warnStub).toHaveBeenCalled()
   })
 })
