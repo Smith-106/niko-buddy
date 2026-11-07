@@ -81,6 +81,7 @@ export function PipelineMotionView({
     // 串行轮询：结算后才排下一轮，请求永不重叠（慢读只会推迟下一轮，
     // 不会被超车作废——每轮成功都写入，不存在永久 loading）。
     const tick = async (first: boolean): Promise<void> => {
+      /* v8 ignore next -- 台账 pipeline-motion-view.tsx L84：tick 的唯一来源是 L113 的 setTimeout 与 L117 的首次调用；前者在 cleanup（L120）被 clearTimeout，后者在挂载时 cancelled 必为 false。定时器回调开始执行时 cleanup 尚未跑，cancelled 仍为 false，故恒不成立 */
       if (cancelled) return
       try {
         const [ledger, snapshot] = await Promise.all([
@@ -109,6 +110,7 @@ export function PipelineMotionView({
           setReady(true)
         }
       }
+      /* v8 ignore next -- 台账 pipeline-motion-view.tsx L112：cancelled 只可能在 await 期间被 cleanup 置真，而 await 之后的 L90/L100 已先行 return；从 L90 到 L112 之间无任何 await，cancelled 不会变化，故恒不成立 */
       if (cancelled) return
       timer = setTimeout(() => {
         void tick(false)

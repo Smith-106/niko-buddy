@@ -173,3 +173,30 @@ describe("PipelineMotionView 串行轮询", () => {
     expect(screen.getByTestId("motion-node-draft").getAttribute("data-state")).toBe("current")
   })
 })
+
+describe("卸载竞态守卫", () => {
+  it("装载挂起时卸载 → 结算后不再排下一轮轮询", async () => {
+    vi.useFakeTimers()
+    try {
+      let calls = 0
+      let resolveFn: ((v: string) => void) | undefined
+      const readText = () => {
+        calls += 1
+        return new Promise<string>((res) => {
+          resolveFn = res
+        })
+      }
+      const { unmount } = render(
+        <PipelineMotionView projectPath="/fake" pollMs={10} deps={{ readText, appendText: () => Promise.resolve() }} />,
+      )
+      expect(resolveFn).toBeDefined()
+      unmount()
+      resolveFn?.("")
+      await vi.advanceTimersByTimeAsync(100)
+      // 守卫生效：卸载后既不再装载，也不排下一轮
+      expect(calls).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

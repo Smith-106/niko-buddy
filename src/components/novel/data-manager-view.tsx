@@ -107,6 +107,7 @@ export function DataManagerView() {
 
   const doClearDomain = useCallback(
     async (domain: DataDomain) => {
+      /* v8 ignore next -- 台账 data-manager-view.tsx L110/L142：渲染前提。L207 的 `if (!projectPath)` 早退整块空态，projectPath 为空时清空域/整项目重置按钮根本不渲染，两个 handler 无从触发 */
       if (!projectPath) return
       const needTyped = domainRequiresTypedConfirm(domain)
       if (needTyped && confirmText.trim() !== domain.id) {
@@ -139,6 +140,7 @@ export function DataManagerView() {
   )
 
   const doResetAll = useCallback(async () => {
+    /* v8 ignore next -- 台账 data-manager-view.tsx L110/L142：渲染前提。L207 的 `if (!projectPath)` 早退整块空态，projectPath 为空时清空域/整项目重置按钮根本不渲染，两个 handler 无从触发 */
     if (!projectPath) return
     if (confirmText.trim() !== "RESET") {
       await ask(t("dataManager.confirm.typeReset"), {

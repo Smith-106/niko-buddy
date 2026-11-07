@@ -154,6 +154,7 @@ function trimSystemMessagePreservingCachedBlocks(
 
   // 只压到「刚好消掉超额」为止，多余额度留给动态内容
   const target = Math.max(0, mutableChars - excess)
+  /* v8 ignore next -- 台账 chat-request-budget.ts L157：唯一调用点（L289）传入的 excess = totalLength(next) - maxChars，而循环条件 L274 保证 totalLength(next) > maxChars，故 excess >= 1，target = mutableChars - excess 恒 < mutableChars */
   if (target >= mutableChars) return null
 
   // 动态块内部沿用「保留尾部」语义（最新检索结果更相关）
@@ -290,6 +291,7 @@ export function trimChatMessagesToBudget(
       if (shrunk) next[i] = shrunk
       continue
     }
+    /* v8 ignore next -- 台账 chat-request-budget.ts L293：唯一到达路径在 L288 已对 role === "system" continue，此处 current 必非 system；而 isLeadingSystemMessage（L97-105）首条判据就是 messages[index]?.role === "system"，故恒 false */
     if (isLeadingSystemMessage(next, i)) continue
     const targetLength = Math.max(0, messageLength(current) - excess)
     next[i] = trimMessage(current, targetLength)

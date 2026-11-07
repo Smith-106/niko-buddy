@@ -631,6 +631,28 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | 104 | 页面装载的 `catch { logger.warn(...) }` | 第二道防线：读盘失败已在同函数上方 L94-97 由 `!read.ok` 处理并 `continue`，进入 try 体后只剩 `extractWikilinks`/`getRelativePath` 这类对字符串不会抛的操作 |
 | 370 | 摘要装载的 `catch { logger.warn(...) }` | 同上：L360-363 的 `!read.ok` 已处理读失败，try 体内只剩 `slice`/`getRelativePath` |
 
+### lib/chat-request-budget.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 157 | `trimSystemMessagePreservingCachedBlocks` 的 `if (target >= mutableChars) return null` | 唯一调用点（L289）传入的 `excess = totalLength(next) - maxChars`，而循环条件（L274）保证 `totalLength(next) > maxChars`，故 `excess >= 1`，`target = mutableChars - excess` 恒 < `mutableChars` |
+| 293 | Pass 3 的 `if (isLeadingSystemMessage(next, i)) continue` | 到达该行时 `current.role` 必非 `system`（L288 已 `continue`）；而 `isLeadingSystemMessage`（L97-105）首条判据就是 `messages[index]?.role === "system"`，故恒 false |
+
+
+### components/novel/data-manager-view.tsx（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 110, 142 | `doClearDomain` / `doResetAll` 的 `if (!projectPath) return` | 渲染前提：L207 的 `if (!projectPath)` 早退整块空态，`projectPath` 为空时清空域/整项目重置按钮根本不渲染，两个 handler 无从触发 |
+
+
+### components/novel/pipeline-motion-view.tsx（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 84 | `tick` 开头的 `if (cancelled) return` | `tick` 的唯一来源是 L113 的 `setTimeout` 与 L117 的首次调用；前者在 cleanup（L120）被 `clearTimeout`，后者在挂载时 `cancelled` 必为 false。定时器回调开始执行时 cleanup 尚未跑，`cancelled` 仍为 false |
+| 112 | 排下一轮前的 `if (cancelled) return` | `cancelled` 只可能在 await 期间被 cleanup 置真，而 await 之后的 L90/L100 已先行 return；从 L90 到 L112 之间无任何 await，`cancelled` 不会变化 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。
