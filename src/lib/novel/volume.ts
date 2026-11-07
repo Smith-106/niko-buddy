@@ -153,9 +153,11 @@ export function allocateVolumeArc(
     cursor += count
   })
   // 兜底：浮点取整导致的总数不足时并入末段
+  /* v8 ignore start -- 台账 volume.ts L156-159：兜底不可达。segments 前三项是 floor(total*ratio/sum) ≥ 0，第四项 = total-前三项；若第四项 ≥ 0 则四项之和恰为 total，cursor = start+total = end+1；若第四项 < 0 则被 Math.max(…,0) 夹成 0，前三项之和 > total，cursor > end+1。两种情形 cursor <= chapterRangeEnd 恒为 false */
   if (cursor <= chapterRangeEnd && result.length > 0) {
     const last = result[result.length - 1]
     last.endChapter = chapterRangeEnd
+  /* v8 ignore stop */
   }
   return result
 }

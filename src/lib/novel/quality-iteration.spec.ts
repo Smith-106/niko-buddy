@@ -179,3 +179,22 @@ describe("默认预算", () => {
     expect(QUALITY_DIMS).toHaveLength(6)
   })
 })
+
+describe("评分异常兜底", () => {
+  it("首轮评分正常、重写后评分抛错 → score-error 停止并保留原稿", async () => {
+    const score = vi
+      .fn<(content: string) => Promise<DimensionScores>>()
+      .mockResolvedValueOnce(LOW)
+      .mockRejectedValueOnce(new Error("scorer down"))
+    const result = await runQualityIteration({
+      content: "原稿",
+      score,
+      revise: async (content) => `${content}+改`,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.stopReason).toBe("score-error")
+    expect(result.content).toBe("原稿")
+    // 该轮评分失败，round 记录发生在评分之后，故不落轮次
+    expect(result.rounds).toHaveLength(0)
+  })
+})
