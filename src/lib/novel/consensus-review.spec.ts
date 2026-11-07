@@ -147,3 +147,20 @@ describe("runDimensionConsensus", () => {
     ).rejects.toThrow("stream down")
   })
 })
+
+describe("辩论席位流中断", () => {
+  it("streamChat 触发 onError → 降级沿用上轮票并记 warn（不中断整体）", async () => {
+    streamChatMock.mockImplementation(async (_cfg, _msgs, callbacks) => {
+      callbacks.onError?.(new Error("stream broken"))
+    })
+    const out = await runDimensionConsensus({
+      models: [cfg("m6"), cfg("m8"), cfg("m9")],
+      dimension,
+      contextPack: {} as never,
+      chapterContent: "章",
+      debateRounds: 1,
+    })
+    // 辩论流中断 → 沿用首轮票（6/8/9 → 中位 8），流程不抛
+    expect(out.result.score).toBe(8)
+  })
+})

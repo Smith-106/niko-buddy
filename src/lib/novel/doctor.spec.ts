@@ -159,3 +159,17 @@ describe("形态轴新 leaf 挂载诊断 (64 号实施：P0-3/P0-4/P0-5 接线)"
     expect(ids).toContain("play-graph")
   })
 })
+
+describe("runProjectDoctor 备份目录含文件", () => {
+  it("备份目录里有文件（非目录）→ chapter-backups 判 ok", async () => {
+    fsMocks.readFile.mockImplementation(async (p: string) => {
+      if (p.endsWith("status.json")) return "{}"
+      throw new Error("ENOENT")
+    })
+    fsMocks.listDirectory.mockImplementation(async () => [
+      { name: "ch-0001.md", is_dir: false, path: "/proj/.niko-buddy/chapter-backups/ch-0001.md" },
+    ])
+    const report = await runProjectDoctor("/proj", { canonDualWriteEnabled: true, ftsIndexReady: true })
+    expect(report.findings.find((f) => f.id === "chapter-backups")?.severity).toBe("ok")
+  })
+})

@@ -139,3 +139,15 @@ describe("E-06 LIFECYCLE_POLICY（GOV-LIFE-03 策略不交叉）", () => {
     expect(LIFECYCLE_POLICY.process).toEqual({ decay: false, supersession: true })
   })
 })
+
+describe("recomputeDecay 缺省 now", () => {
+  it("不传 now → 取事件最大 distilledAt 作为重放时刻", () => {
+    const states = recomputeDecay([
+      { entryId: "e1", distilledAt: 0, usageCount: 1 },
+      { entryId: "e2", distilledAt: null, usageCount: 1 },
+    ])
+    expect(states).toHaveLength(2)
+    // distilledAt 为空 → 恒 1；有蒸馏时刻的条目在原时刻重放也应满足 >= 1 的界
+    expect(states[1].decayFactor).toBe(1)
+  })
+})

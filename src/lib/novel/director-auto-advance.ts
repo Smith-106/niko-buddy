@@ -294,6 +294,7 @@ export async function advanceDirectorAutomatically(
     return { state, advanced: false, completed: true, generated: false, recovery: undefined }
   }
 
+  /* v8 ignore next -- 台账 director-auto-advance.ts L297：loadStageArtifacts（同文件 L53-60）自带 try/catch 恒返回对象，永不 reject；此处是第二道防线 */
   const artifacts = await loadStageArtifacts(projectPath).catch(() => ({}) as DirectorStageArtifacts)
   const drafts: DirectorDraftReceipt[] = []
   let effectiveIdea = { ...idea }

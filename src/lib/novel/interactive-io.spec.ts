@@ -84,3 +84,11 @@ describe("interactive-io", () => {
     expect(await loadPlaySession("/p/book")).toBeNull()
   })
 })
+
+describe("loadPlaySession 损坏存档", () => {
+  it("存档内容不是合法 JSON → 返回 null（不抛）", async () => {
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue("{ 这不是 JSON")
+    expect(await loadPlaySession("/p/book")).toBeNull()
+  })
+})

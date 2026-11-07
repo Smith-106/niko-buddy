@@ -168,7 +168,9 @@ export function diffCanonRevisions(
 
   const changes: CanonDiffChange[] = [
     ...superseded,
+    /* v8 ignore start -- 台账 canon-revision-diff.ts L171-172：invalidated 在上一行被显式置为本波恒空（见同段注释 limitation），map 回调不可达 */
     ...invalidated.map((edge) => ({ kind: "invalidated" as const, edge })),
+    /* v8 ignore stop */
     ...removed.map((edge) => ({ kind: "removed" as const, edge })),
     ...pureAdded.map((edge) => ({ kind: "added" as const, edge })),
   ]

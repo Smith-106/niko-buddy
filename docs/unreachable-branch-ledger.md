@@ -775,6 +775,13 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | lib/novel/context-engine-prompt.ts:245 | `if (!config) return ""` | `canonRules` 是 `FIELD_CONFIGS` 的静态成员（同文件 L105），`find` 恒命中 |
 | lib/novel/context-engine-technique-sources.ts:151 | `if (next === undefined) return blocks` | `idx` 在上一行被夹到 `[0, remaining.length-1]`，`remaining[idx]` 恒存在 |
 
+### 2026-11-06 第九批（守卫/回退面）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| lib/novel/canon-revision-diff.ts:171-172 | `...invalidated.map(...)` 的 map 回调 | `invalidated` 在上一行被显式置为本波恒空（同段注释记录 limitation），回调不可达（`v8 ignore start/stop` 块） |
+| lib/novel/director-auto-advance.ts:297 | `loadStageArtifacts(...).catch(...)` | `loadStageArtifacts`（同文件 L53-60）自带 try/catch 恒返回对象，永不 reject；此处是第二道防线 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。
