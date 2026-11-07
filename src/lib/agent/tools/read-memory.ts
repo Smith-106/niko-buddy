@@ -46,6 +46,7 @@ function resolveMemoryAliasFiles(name: string): Array<{ fileName: string; label:
   ).map(({ fileName, label }) => ({ fileName, label }))
   const seen = new Set<string>()
   return matches.filter((entry) => {
+    /* v8 ignore next -- 台账 read-memory.ts L49：MEMORY_ALIAS_FILES 的 7 条 fileName 互不相同，matches 不可能出现重复 fileName */
     if (seen.has(entry.fileName)) return false
     seen.add(entry.fileName)
     return true

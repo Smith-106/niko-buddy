@@ -126,6 +126,7 @@ const REVIEW_UNIT = "请按章节输出规则审查上面的草稿，指出三�
 
 /** 生成确定性的 CJK 文本（按单元重复后截断，长度精确）。 */
 function cjkText(targetChars: number, unit: string): string {
+  /* v8 ignore next -- 台账 cache-hit-harness.ts L129：cjkText 的全部调用点传的都是字面量 600/900/1500 或 runCacheHitHarness 内固定正数（userCharsPerRound=120 等），targetChars 恒 > 0 */
   if (targetChars <= 0) return ""
   const repeated = unit.repeat(Math.ceil(targetChars / unit.length) + 1)
   return repeated.slice(0, targetChars)

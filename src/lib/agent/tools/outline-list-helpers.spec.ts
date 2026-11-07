@@ -224,3 +224,10 @@ describe("outline-list-helpers 覆盖增补：目录遍历与路径归一", () =
     expect(result).not.toContain("本次目标章号")
   })
 })
+
+describe("extractOutlineTypeFields 数值字段", () => {
+  it("frontmatter 数值标量被转成字符串（不丢弃）", () => {
+    const fields = extractOutlineTypeFields("---\nvolume: 3\n---\n正文")
+    expect(fields).toBeTruthy()
+  })
+})

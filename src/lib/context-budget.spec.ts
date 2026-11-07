@@ -344,3 +344,9 @@ describe("G4b trim 预算边界回归（空预算 / 恰好满 / 超一 token）"
     expect(trimmed[trimmed.length - 1]).toBe(messages[messages.length - 1])
   })
 })
+
+describe("charsPerTokenForText 空文本", () => {
+  it("空文本回落到 CJK_CHARS_PER_TOKEN（不做 0/0）", () => {
+    expect(charsPerTokenForText("")).toBe(CJK_CHARS_PER_TOKEN)
+  })
+})

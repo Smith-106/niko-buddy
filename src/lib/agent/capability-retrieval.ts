@@ -228,6 +228,7 @@ export function retrieveCapabilities(
   const filteredOut: Array<{ id: string; reason: string }> = []
   for (const r of ranked) {
     const doc = docById.get(r.id)
+    /* v8 ignore next -- 台账 capability-retrieval.ts L231：ranked 来自 rankByBm25(query, index)，index 与 docById 同源同序构建，ranked 的 id 必然在 docById 中 */
     if (!doc) continue
     const reason = ruleFilterReason(doc, ctx)
     if (reason) filteredOut.push({ id: r.id, reason })

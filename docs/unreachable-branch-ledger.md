@@ -739,6 +739,17 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | 726 | `trustLookup` 的 `if (!params.trustGrades) return undefined` | 两个调用点（L734/L735）都在 `if (params.trustFilterEnabled && params.trustGrades)` 内，`trustGrades` 必为真 |
 | 767 | `if (collection === "tech") continue` | `routeByQueryIntent` 的 `collections` 按 K-11 安全不变量恒不含 `tech`（见 search-strategy.ts L147 注释），此处是出口兜底 |
 
+### 2026-11-06 第五批（lib 长尾）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| lib/context-budget.ts:222 | `if (total === 0) return CJK_CHARS_PER_TOKEN` | 上一行 `if (!text)` 已拦下空串；非空字符串的 `for...of` 迭代次数 >= 1，`total` 恒 >= 1 |
+| lib/agent/tools/outline-list-helpers.ts:25 | `scalarFrontmatterString` 的数值分支 | 唯一两个调用点传的是 `parseFrontmatter` 的 `type`/`outline_type`，YAML 解析已把标量统一成字符串 |
+| lib/agent/tools/read-memory.ts:49 | `if (seen.has(entry.fileName)) return false` | `MEMORY_ALIAS_FILES` 的 7 条 `fileName` 互不相同，`matches` 不可能出现重复 |
+| lib/agent/activity-trace.ts:221 | `webSourceRefsFromResults` 的 `if (!Array.isArray(value)) return []` | 两个调用点（L201/L209）都被 `Array.isArray` 守卫，非数组入参不可达 |
+| lib/agent/capability-retrieval.ts:231 | `if (!doc) continue` | `ranked` 来自 `rankByBm25(query, index)`，`index` 与 `docById` 同源同序构建，`ranked` 的 id 必然在 `docById` 中 |
+| lib/cache-hit-harness.ts:129 | `cjkText` 的 `if (targetChars <= 0) return ""` | 全部调用点传的是字面量 600/900/1500 或 `runCacheHitHarness` 内固定正数（userCharsPerRound=120、assistantCharsPerRound=640） |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

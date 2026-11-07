@@ -218,6 +218,7 @@ function inferSourceRefsFromToolEvent(event: AgentToolEvent): AgentActivityEvent
 }
 
 function webSourceRefsFromResults(value: unknown): NonNullable<AgentActivityEvent["sourceRefs"]> {
+  /* v8 ignore next -- 台账 activity-trace.ts L221：webSourceRefsFromResults 的两个调用点（L201/L209）都被 Array.isArray 守卫，非数组入参不可达 */
   if (!Array.isArray(value)) return []
   const refs: NonNullable<AgentActivityEvent["sourceRefs"]> = []
   for (const item of value) {

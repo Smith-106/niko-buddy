@@ -6,3 +6,11 @@ describe("apply-skill.ts smoke", () => {
     expect(createApplySkillTool).toBeDefined()
   })
 })
+
+describe("apply-skill 缺配置", () => {
+  it("配置未加载且无用户技能 → 明确报错", async () => {
+    const tool = createApplySkillTool(() => null, () => [])
+    const out = await tool.execute({ name: "任意技能" }, {} as never)
+    expect(String(out)).toContain("技能库配置未加载")
+  })
+})

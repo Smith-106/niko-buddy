@@ -22,6 +22,7 @@ export interface OutlineListEntry {
 
 function scalarFrontmatterString(value: unknown): string | undefined {
   if (typeof value === "string" && value.trim()) return value.trim()
+  /* v8 ignore next -- 台账 outline-list-helpers.ts L25：scalarFrontmatterString 的唯一两个调用点传的是 parseFrontmatter 的 type / outline_type，YAML 解析已把标量统一成字符串，数值分支不可达 */
   if (typeof value === "number" && Number.isFinite(value)) return String(value)
   return undefined
 }

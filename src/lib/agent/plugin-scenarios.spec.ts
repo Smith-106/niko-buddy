@@ -9,3 +9,11 @@ describe("plugin-scenarios.ts smoke", () => {
     expect(getScenarioConfig).toBeDefined()
   })
 })
+
+describe("getScenarioConfig", () => {
+  it("按场景返回对应配置（review 禁用两个插件）", () => {
+    expect(getScenarioConfig("review").disabledPlugins).toEqual(["soul_dialog", "confidence_gate"])
+    expect(getScenarioConfig("outline_gen").disabledPlugins).toEqual(["soul_dialog"])
+    expect(getScenarioConfig("general").disabledPlugins).toBeUndefined()
+  })
+})

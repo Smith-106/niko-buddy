@@ -219,6 +219,7 @@ export function charsPerTokenForText(text: string): number {
     else nonCjk += 1
   }
   const total = cjk + nonCjk
+  /* v8 ignore next -- 台账 context-budget.ts L222：上一行 if (!text) 已拦下空串，非空字符串的 for...of 迭代次数 >= 1，故 total 恒 >= 1 */
   if (total === 0) return CJK_CHARS_PER_TOKEN
   const tokens = cjk / CJK_CHARS_PER_TOKEN + nonCjk / NON_CJK_CHARS_PER_TOKEN
   return total / tokens
