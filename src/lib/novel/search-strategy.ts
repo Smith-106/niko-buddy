@@ -563,8 +563,10 @@ export function mmrRerank<T>(candidates: T[], options: MmrOptions<T>): T[] {
           bestMmrScore = mmrScore
           bestIdx = u
         } else if (normRelevance[u] === normRelevance[bestIdx] && u < bestIdx) {
+          /* v8 ignore start -- 台账 search-strategy.ts L567-568：unselected 升序插入，bestIdx 在同一轮升序迭代中被先出现的 u 赋值，后续 u 恒 > bestIdx，故 u < bestIdx 恒假（与 L554 同机制） */
           bestMmrScore = mmrScore
           bestIdx = u
+          /* v8 ignore stop */
         }
       }
     }

@@ -678,6 +678,20 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | 424 | `loadReferenceBindings(pp).catch(() => null)` 的回退体 | `loadReferenceBindings`（reference-binding.ts L47-51）直委 `createAtomicJsonStore.load`，后者对缺失/损坏一律降级 `emptyCtor`，从不 reject |
 | 491 | `loadUserMemoryForProject(pp).catch(() => null)` 的回退体 | `loadUserMemoryForProject`（user-memory/session.ts L39-51）内部 `loadUserMemory`（store.ts L15-35）自带 try/catch，读失败/解析失败一律返回 `createDefaultStore`，从不 reject |
 
+### lib/novel/search-strategy.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 567-568 | MMR 平票内的 `u < bestIdx` 分支体 | `unselected` 升序插入，`bestIdx` 在同一轮升序迭代中被先出现的 `u` 赋值，后续 `u` 恒 > `bestIdx`，故条件恒假（与 L554 同机制）。注：`/* v8 ignore next 2 */` 在此只覆盖一条，必须用 start/stop 块 |
+
+
+### lib/novel/numeric-fact-checker.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 81 | `cnToNumber` 内 `if (v === undefined) return null` | `cnToNumber` 的唯一调用点（L140）传入 `CN_NUM_RE` 的捕获组，其字符集（一二三四五六七八九十百千万两）恰是 `CN_NUM_MAP` 的全部键 |
+| 141 | `if (value === null) continue` | 同 L81：`cnToNumber` 对正则捕获组恒返回数值 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

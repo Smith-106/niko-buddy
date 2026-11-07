@@ -78,6 +78,7 @@ function cnToNumber(s: string): number | null {
   let current = 0
   for (const ch of s) {
     const v = CN_NUM_MAP[ch]
+    /* v8 ignore next -- 台账 numeric-fact-checker.ts L81：cnToNumber 的唯一调用点（L140）传入的是 CN_NUM_RE 的捕获组，其字符集（一二三四五六七八九十百千万两）恰是 CN_NUM_MAP 的全部键，故 CN_NUM_MAP[ch] 恒有值 */
     if (v === undefined) return null
     if (v >= 10) {
       total += (current === 0 ? 1 : current) * v
@@ -138,6 +139,7 @@ export function extractNumericFacts(text: string, chapter: number, knownSubjects
   // 中文数字序数 (境界/层级)
   for (const m of text.matchAll(CN_NUM_RE)) {
     const value = cnToNumber(m[1]!)
+    /* v8 ignore next -- 台账 numeric-fact-checker.ts L141：同 L81，cnToNumber 对正则捕获组恒返回数值，null 分支不可达 */
     if (value === null) continue
     const unit = m[2]!
     const before = text.slice(Math.max(0, (m.index ?? 0) - 40), m.index ?? 0)
