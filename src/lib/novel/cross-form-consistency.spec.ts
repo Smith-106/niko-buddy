@@ -129,3 +129,16 @@ describe("波1 账本联动（appendRunEvents + 切片）", () => {
     expect((stages[0]?.payload as { verdict?: string }).verdict).toBe("blocked")
   })
 })
+describe("VIS-CONT 无可比 shingle", () => {
+  it("相邻帧 auraSeeds 只有空串 → jaccard 为 null，跳过该帧对（不计入 pairsChecked）", () => {
+    const verdict = evaluateVisCont(
+      [
+        { frameId: "f1", auraSeeds: [""] },
+        { frameId: "f2", auraSeeds: [""] },
+      ],
+      0.5,
+    )
+    expect(verdict.pairsChecked).toBe(0)
+    expect(verdict.verdict).toBe("pass")
+  })
+})

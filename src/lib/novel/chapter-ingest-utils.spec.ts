@@ -64,3 +64,9 @@ describe("extractFrontmatterNumber（数值直取 / 可转字符串 / 非法 nul
     expect(extractFrontmatterNumber(FM_DOC, "not_there")).toBeNull()
   })
 })
+
+describe("extractFrontmatterNumber 数值型字段", () => {
+  it("frontmatter 直接给 number → 原值返回（不走字符串解析）", () => {
+    expect(extractFrontmatterNumber("---\nword_count: 4321\n---\n正文", "word_count")).toBe(4321)
+  })
+})

@@ -20,7 +20,7 @@ vi.mock("@/commands/fs", () => ({
   createDirectory: vi.fn(),
 }))
 
-import { loadHeatSnapshot } from "./module-heat-persist"
+import { loadHeatSnapshot, saveHeatSnapshot } from "./module-heat-persist"
 
 const PROJECT = "C:/QM-BOOK/demo"
 
@@ -128,5 +128,11 @@ describe("loadHeatSnapshot 读盘侧过滤（A-04）", () => {
     expect(await loadHeatSnapshot(PROJECT)).toBeNull()
     mocks.readFile.mockResolvedValue("{not json")
     expect(await loadHeatSnapshot(PROJECT)).toBeNull()
+  })
+})
+
+describe("saveHeatSnapshot 空命中", () => {
+  it("hits 为空 → 直接返回 false，不写盘", async () => {
+    expect(await saveHeatSnapshot("C:/proj", 1, [], Date.now())).toBe(false)
   })
 })

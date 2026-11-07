@@ -81,6 +81,7 @@ function scoreRhythm(rawText: string): number {
   if (paragraphs.length < 3) return 0.7 // 短文本不确定, 给中性分
   const lens = paragraphs.map((p) => p.length)
   const mean = lens.reduce((a, b) => a + b, 0) / lens.length
+  /* v8 ignore next -- 台账 de-ai-selfcheck.ts L84：paragraphs 已先过滤 length > 0 且要求 >= 3 段，每段长度 >= 1，mean 恒 > 0 */
   if (mean === 0) return 0.5
   const variance = lens.reduce((s, l) => s + (l - mean) ** 2, 0) / lens.length
   const cv = Math.sqrt(variance) / mean

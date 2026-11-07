@@ -756,6 +756,15 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 |---------|------|------|
 | lib/novel/anti-ai-telemetry-sink.ts:226 | 默认 deps 的 `readFile: async () => ""` | `TelemetrySinkDeps.readFile` 只在 L90 声明，全文件无任何调用点，默认实现是死代码 |
 
+### 2026-11-06 第七批（novel 长尾）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| lib/novel/chapter-typography.ts:85 | `if (value === undefined) return null` | L66 正则已把 `raw` 限制在 `[0-9零〇一二两三四五六七八九十百千]`，纯数字在 L67 提前返回，剩余字符必在 `CNY_DIGITS` 中 |
+| lib/novel/curation-gate.ts:139 | `isEmpty` 的兜底 `return false` | 唯一调用点 L156 的 entry 先过 `CURATION_BATCH_SCHEMA.safeParse`，必填字段类型被契约限制为 `string \| string[]` |
+| lib/novel/chapter-ingest-utils.ts:36 | `if (typeof v === "number" ...) return v` | `parseFrontmatter` 的 `normalize` 用 `stringifyScalar` 把所有标量转成 string（frontmatter.ts L174-190），`v` 恒为 string |
+| lib/novel/de-ai-selfcheck.ts:84 | `if (mean === 0) return 0.5` | `paragraphs` 已先过滤 `length > 0` 且要求 >= 3 段，每段长度 >= 1，`mean` 恒 > 0 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

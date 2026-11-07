@@ -136,6 +136,7 @@ function isEmpty(value: unknown): boolean {
   if (value === undefined || value === null) return true
   if (typeof value === "string") return value.trim().length === 0
   if (Array.isArray(value)) return value.length === 0
+  /* v8 ignore next -- 台账 curation-gate.ts L139：唯一调用点 L156 的 entry 先过 CURATION_BATCH_SCHEMA.safeParse，必填字段类型被契约限制为 string | string[]，不会出现 boolean/number/object */
   return false
 }
 

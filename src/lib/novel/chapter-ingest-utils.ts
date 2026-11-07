@@ -33,6 +33,7 @@ export function extractFrontmatterString(content: string, key: string): string |
 export function extractFrontmatterNumber(content: string, key: string): number | null {
   const { frontmatter } = parseFrontmatter(content)
   const v = frontmatter?.[key]
+  /* v8 ignore next -- 台账 chapter-ingest-utils.ts L36：parseFrontmatter 的 normalize 用 stringifyScalar 把所有标量转成 string（frontmatter.ts L174-190），v 恒为 string */
   if (typeof v === "number" && Number.isFinite(v)) return v
   if (typeof v === "string") {
     const parsed = Number(v)

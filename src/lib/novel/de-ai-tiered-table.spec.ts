@@ -221,3 +221,9 @@ describe("DE_AI_EXTENDED_TABLE — 2026 补漏扩展 (不扰动 112 词基线)",
     expect(hits).toEqual([])
   })
 })
+
+describe("detectExtendedDeAi 空文本", () => {
+  it("空串 → 无命中（不跑正则）", () => {
+    expect(detectExtendedDeAi("")).toEqual([])
+  })
+})

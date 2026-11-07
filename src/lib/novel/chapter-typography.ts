@@ -82,6 +82,7 @@ export function parseChapterOrdinal(text: string): number | null {
       digit = 0
     } else {
       const value = CNY_DIGITS[char]
+      /* v8 ignore next -- 台账 chapter-typography.ts L85：L66 的正则已把 raw 限制在 [0-9零〇一二两三四五六七八九十百千]，且纯数字在 L67 提前返回，剩余字符必在 CNY_DIGITS 中 */
       if (value === undefined) return null
       digit = value
     }
