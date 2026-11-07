@@ -5,6 +5,7 @@ import { afterEach } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { fireEvent, render, screen, setupDomGlobals, userEvent } from "@/test-helpers/component-test-utils"
 import {
+  CharacterStationSwitcher,
   CharacterWorkstationView,
   type CharacterWorkstationItem,
 } from "./character-workstation-view"
@@ -233,5 +234,24 @@ describe("CharacterWorkstationView · 分支补齐", () => {
     activeTab.focus()
     fireEvent.keyDown(activeTab, { key: "ArrowLeft" })
     expect(onActiveChange).toHaveBeenCalledWith("char-gu")
+  })
+})
+
+describe("roving tabindex 的 activeId 失配兜底", () => {
+  it("activeId 不在 characters 内 → 方向键按首/末兜底落点（不越界，仍回写 onSelect）", () => {
+    const onSelect = vi.fn()
+    render(
+      <CharacterStationSwitcher
+        characters={[
+          { id: "c1", name: "甲", category: "protagonist" } as CharacterWorkstationItem,
+          { id: "c2", name: "乙", category: "antagonist" } as CharacterWorkstationItem,
+        ]}
+        activeId="ghost"
+        onSelect={onSelect}
+      />,
+    )
+    const tabs = screen.getAllByRole("tab")
+    fireEvent.keyDown(tabs[0]!, { key: "ArrowRight" })
+    expect(onSelect).toHaveBeenLastCalledWith("c1")
   })
 })

@@ -26,6 +26,7 @@ const FS_PAGE_SIZE = 50
 
 /** ③-5：watcher 启动错误含 Permission denied/Access denied/EACCES 时映射「目录无权限」文案。 */
 function mapFileSyncError(raw: string | null | undefined): string {
+  /* v8 ignore next -- 台账 activity-panel.tsx L29：两处调用点都带前置守卫（L269 `{fileSyncError && ...}`、L463 `task.status === "failed" && task.error && ...`），raw 恒非空 */
   if (!raw) return ""
   if (/Permission denied|Access denied|EACCES/i.test(raw)) return "目录无权限，无法监视该目录"
   return raw

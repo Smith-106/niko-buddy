@@ -124,3 +124,14 @@ describe("MethodologyPanel", () => {
     expect(screen.getByTestId("methodology-na-source-0").textContent).toContain("N/A")
   })
 })
+
+describe("缺失真源文案兜底", () => {
+  it("reason 不含任何已知关键词 → 落到「缺资料」兜底（不吞条目不崩溃）", () => {
+    render(
+      <MethodologyPanel
+        projection={{ ...projectionWithRealSources, missingSources: ["某个未来新增的真源缺失说明"] }}
+      />,
+    )
+    expect(screen.getByTestId("methodology-na-source-0").textContent).toContain("缺资料")
+  })
+})

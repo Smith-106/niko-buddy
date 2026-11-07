@@ -822,6 +822,13 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | components/layout/chapter-draft-dock.tsx:81 | `if (!pending \|\| busy) return` | 确认块整体在 `{pending ? ...}` 内（L155）；`busy` 由 `disabled={busy}`（L166）挡住 |
 | components/novel/main-control-draft-adopt-block.tsx:92 | `if (!pending \|\| busy) return` | 同上（确认块 L154，disabled L166） |
 
+### 2026-11-06 第十五批（渲染守卫 + 常量非空）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| components/layout/activity-panel.tsx:29 | `if (!raw) return ""` | 两处调用点带前置守卫（L269 `{fileSyncError && ...}`、L463 `task.status === "failed" && task.error && ...`），raw 恒非空 |
+| components/novel/pipeline-motion-panel.tsx:354 | `if (total === 0) return` | `demoEvents()` 恒返回 8 条（L131-144），sourceEvents 为空时 total=8、非空时 total=length>0，两分支互补 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

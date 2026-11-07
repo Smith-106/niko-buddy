@@ -351,6 +351,7 @@ export function PipelineMotionPanel({ projection, input }: PipelineMotionPanelPr
     }
     const useDemo = sourceEvents.length === 0
     const total = useDemo ? demoEvts.length : sourceEvents.length
+    /* v8 ignore next -- 台账 pipeline-motion-panel.tsx L354：demoEvents() 恒返回 8 条（L131-144），sourceEvents 为空时 total=8；非空时 total=length>0，两分支互补使 total 恒 > 0 */
     if (total === 0) return
     setDemoMode(useDemo)
     setFrame(0)
