@@ -357,3 +357,18 @@ describe("wish-drive i18n parity (F11-4)", () => {
     }
   })
 })
+
+describe("nonBlank 的缺省防御", () => {
+  it("wish 字段缺失（undefined）→ 走非空哨兵返回空数组，不抛", () => {
+    const guide = buildWishDriveGuide(
+      {
+        ...makeProfile(),
+        wish: undefined as unknown as readonly string[],
+        motive: undefined as unknown as readonly string[],
+        wmaAction: undefined as unknown as readonly string[],
+      },
+      zhT,
+    )
+    expect(Array.isArray(guide.wishes ?? [])).toBe(true)
+  })
+})

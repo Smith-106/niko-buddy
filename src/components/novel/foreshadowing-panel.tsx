@@ -131,6 +131,7 @@ export function ForeshadowingPanel() {
   const visibleItems = (store?.items ?? []).filter(touchesRange)
 
   const handleOpenChapter = useCallback(async (chapterNumber: number) => {
+    /* v8 ignore next -- 台账 foreshadowing-panel.tsx L134：组件在 L143 `if (!project)` 走空态，章节行不存在即不可点 */
     if (!project) return
     const path = await findChapterFileByNumber(project.path, chapterNumber)
     if (path) setSelectedFile(path)

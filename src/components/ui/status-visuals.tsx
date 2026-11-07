@@ -4,6 +4,7 @@
  */
 
 function formatMeterValue(value: number): string {
+  /* v8 ignore next -- 台账 status-visuals.tsx L7：formatMeterValue 只在 MeterBar 内被调用（L51-52），实参 safeValue/safeMax 均已经过 Number.isFinite 消毒且 safeMax >= 1 */
   if (!Number.isFinite(value)) return "0"
   const rounded = Math.round(value * 10) / 10
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)

@@ -851,6 +851,16 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | lib/novel/story-simulation/story-framework-generator.ts:379 | `if (total <= 0) return "起"` | normalizeNodes 里 `total = list.length` 且循环条件 `i < total`，derivePhase 只在 total > 0 时被调用 |
 | lib/novel/packs/shared-text-features.ts:118 | `if (mean === 0) return 0` | 两个调用方的 lengths 都经 `filter(s => s.length > 0)`，元素恒 > 0，均值不可能为 0 |
 
+### 2026-11-06 第十九批（组件渲染前提续）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| components/novel/timeline-view.tsx:45 | `if (!project) return` | 组件在 L50 `if (!project) return null` 整体不渲染，章节行不存在即不可点 |
+| components/novel/plotgrid-view.tsx:113 | `if (!project) return` | 组件在 L118 `if (!project) return null` 整体不渲染 |
+| components/novel/foreshadowing-panel.tsx:134 | `if (!project) return` | 组件在 L143 `if (!project)` 走空态，章节行不存在即不可点 |
+| components/chat/chat-panel.tsx:426 | `if (typeof subscribeStatusJson !== "function") return` | 静态 ESM 导入绑定，typeof 恒为 function（旧 mock 兼容护栏） |
+| components/ui/status-visuals.tsx:7 | `if (!Number.isFinite(value)) return "0"` | formatMeterValue 仅被 MeterBar（L51-52）调用，实参已经过 Number.isFinite 消毒 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

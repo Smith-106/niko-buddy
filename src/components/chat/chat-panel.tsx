@@ -423,6 +423,7 @@ export function ChatPanel() {
     const pp = project?.path ? normalizePath(project.path) : null
     if (!pp) return
     // 防御：旧测试/mock 未提供新导出时降级为不订阅（导出兼容护栏）
+    /* v8 ignore next -- 台账 chat-panel.tsx L426：subscribeStatusJson 是静态 ESM 导入绑定，typeof 恒为 "function"（该分支是旧 mock 兼容护栏，见同段注释） */
     if (typeof subscribeStatusJson !== "function") return
     let disposed = false
     let unlisten: (() => void) | undefined

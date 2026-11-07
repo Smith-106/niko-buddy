@@ -42,6 +42,7 @@ export function TimelineView() {
   const visibleEvents = events.filter((e) => inRange(e.chapterNumber))
 
   const handleOpenChapter = useCallback(async (chapterNumber: number) => {
+    /* v8 ignore next -- 台账 timeline-view.tsx L45：组件在 L50 `if (!project) return null` 整体不渲染，章节行不存在即不可点 */
     if (!project) return
     const path = await findChapterFileByNumber(project.path, chapterNumber)
     if (path) setSelectedFile(path)

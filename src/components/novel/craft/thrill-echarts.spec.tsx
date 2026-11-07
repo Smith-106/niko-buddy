@@ -6,12 +6,15 @@ import { render } from "@/test-helpers/component-test-utils"
 
 // jsdom 无 canvas：echarts.init 会崩，mock 捕获 setOption 以便断言 tooltip 含义文案
 const captured: unknown[] = []
+const resizeCalls: number[] = []
 vi.mock("echarts", () => ({
   init: () => ({
     setOption: (opt: unknown) => {
       captured.push(opt)
     },
-    resize: () => {},
+    resize: () => {
+      resizeCalls.push(1)
+    },
     dispose: () => {},
   }),
 }))
@@ -80,5 +83,36 @@ describe("thrill-echarts tooltip 含义（Odyssey FIX-1）", () => {
     expect(text).toContain("/ 10")
     expect(container.querySelector("[title]")?.getAttribute("title")).toContain("0–10")
     unmount()
+  })
+})
+
+describe("尺寸变化响应", () => {
+  it("ResizeObserver 回调触发 chart.resize；窗口 resize 同样触发", () => {
+    class FakeResizeObserver {
+      static last: FakeResizeObserver | null = null
+      private cb: () => void
+      constructor(cb: () => void) {
+        this.cb = cb
+        FakeResizeObserver.last = this
+      }
+      observe() {}
+      disconnect() {}
+      fire() {
+        this.cb()
+      }
+    }
+    vi.stubGlobal("ResizeObserver", FakeResizeObserver)
+    try {
+      const before = resizeCalls.length
+      const { unmount } = render(<TensionCurveChart tensionCurve={[{ positionRatio: 0.5, raw: 0.8, smoothed: 0.7 }]} />)
+      FakeResizeObserver.last!.fire()
+      expect(resizeCalls.length).toBeGreaterThan(before)
+      const beforeWindow = resizeCalls.length
+      window.dispatchEvent(new Event("resize"))
+      expect(resizeCalls.length).toBeGreaterThan(beforeWindow)
+      unmount()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
