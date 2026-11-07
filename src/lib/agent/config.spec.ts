@@ -391,3 +391,11 @@ describe("MiniMax 预设工具可用性（端到端）", () => {
     expect(effectiveToolsEnabled(cfg.model, cfg as LlmConfig)).toBe(false)
   })
 })
+
+describe("modelSupportsTools 边界", () => {
+  it("空 modelId 一律不支持工具", () => {
+    expect(modelSupportsTools("   ")).toBe(false)
+    expect(modelSupportsTools("")).toBe(false)
+    expect(modelSupportsTools("gpt-4o")).toBe(true)
+  })
+})

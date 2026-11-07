@@ -80,6 +80,7 @@ export function modelSupportsTools(
   apiMode?: "chat_completions" | "responses" | "anthropic_messages",
 ): boolean {
   if (provider && TOOL_UNSUPPORTED_PROVIDERS.has(provider)) return false
+  /* v8 ignore next -- 台账 agent/config.ts L83：apiModeSupportsTools（L66-75）对 undefined/chat_completions/responses/anthropic_messages 四种取值全部返回 true，而 apiMode 的静态类型恰是后三种 + undefined，故该早退不可达 */
   if (!apiModeSupportsTools(apiMode)) return false
 
   const id = modelId.trim().toLowerCase()

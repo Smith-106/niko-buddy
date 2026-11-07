@@ -618,6 +618,12 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 |----|------|------|
 | 69 | `gateLabel` 的 `return gate` 兜底 | 唯一调用点（L220）位于 `snapshot.blocked` 守卫内；`blocked` 定义为 `blockingGate !== null`（dashboard-evidence.ts L226），`blockingGate` 由 `GATE_PRIORITY_ORDER.find` 产出，而 `GateKey` 恰为 `consistency \| anti_ai \| quality`（audit-taxonomy.ts L78）——三个分支已全覆盖 |
 
+### lib/agent/config.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 83 | `modelSupportsTools` 的 `if (!apiModeSupportsTools(apiMode)) return false` | `apiModeSupportsTools`（L66-75）对 `undefined`/`chat_completions`/`responses`/`anthropic_messages` 四种取值全部返回 true，而 `apiMode` 的静态类型恰是后三种 + `undefined`，故该早退不可达 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

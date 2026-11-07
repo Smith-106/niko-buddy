@@ -1,7 +1,7 @@
 /** 提示词注册表：只读枚举（键/场景/参数/占位符预览），失败不造空串。 */
 import { describe, expect, it } from "vitest"
 import { PROMPTS } from "./prompt-templates"
-import { groupPromptRegistry, listPromptRegistry, promptSceneOf } from "./prompt-registry"
+import { groupPromptRegistry, listPromptRegistry, probeSlotCount, promptSceneOf } from "./prompt-registry"
 
 describe("listPromptRegistry", () => {
   it("覆盖 PROMPTS 的全部函数键（不遗漏、不多造）", () => {
@@ -88,5 +88,20 @@ describe("listPromptRegistry", () => {
       notAFunction: 42,
     } as unknown as Record<string, (...args: unknown[]) => unknown>
     expect(listPromptRegistry(source).map((entry) => entry.id)).toEqual(["aKey", "bKey"])
+  })
+})
+
+describe("probeSlotCount 边界", () => {
+  it("prompt 返回非字符串 → 走 String() 兜底且槽位不增", () => {
+    expect(probeSlotCount(() => 42)).toEqual({ slotCount: 0, capped: false })
+  })
+
+  it("多传参数即抛错 → 在越界处停止探测", () => {
+    function prompt(a?: unknown): string {
+      // 用 arguments.length 感知调用方传了几个哨兵
+      if (arguments.length > 1) throw new Error("too many args")
+      return String(a)
+    }
+    expect(probeSlotCount(prompt)).toEqual({ slotCount: 1, capped: false })
   })
 })

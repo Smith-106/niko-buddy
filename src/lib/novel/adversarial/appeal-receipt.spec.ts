@@ -86,3 +86,12 @@ describe("D4 稳定性判定 — N≥3 且 |max-min|≤0.5", () => {
     expect(isStable([9.0, 9.2, 9.5])).toBe(true)
   })
 })
+
+describe("validateReceipt 三块完整性", () => {
+  it("空 receiptId 与空 plainSummary 各报一条", () => {
+    const errs = validateReceipt({ ...receipt, receiptId: "", plainSummary: "" })
+    expect(errs).toContain("receiptId 不能为空")
+    expect(errs).toContain("人话摘要不能为空")
+    expect(errs).toHaveLength(2)
+  })
+})
