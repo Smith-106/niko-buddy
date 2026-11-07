@@ -139,6 +139,7 @@ export function DataManagementSection() {
   }, [loadVectorStats])
 
   async function handleCleanLegacy() {
+    /* v8 ignore next -- 台账 data-management-section.tsx L142：清理旧行按钮 disabled={!currentProject?.path || ...}（L668 相邻），守卫与禁用同条件 */
     if (!currentProject?.path) return
     if (!window.confirm(t("settings.sections.dataManagement.vectorCleanConfirm", { defaultValue: "确定清理遗留（legacy）向量表？此操作不可恢复。" }))) return
     if (!window.confirm(t("settings.sections.dataManagement.vectorCleanConfirm2", { defaultValue: "再次确认：将删除 legacy 向量行并触发重建，继续吗？" }))) return

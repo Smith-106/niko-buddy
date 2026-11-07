@@ -861,6 +861,15 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | components/chat/chat-panel.tsx:426 | `if (typeof subscribeStatusJson !== "function") return` | 静态 ESM 导入绑定，typeof 恒为 function（旧 mock 兼容护栏） |
 | components/ui/status-visuals.tsx:7 | `if (!Number.isFinite(value)) return "0"` | formatMeterValue 仅被 MeterBar（L51-52）调用，实参已经过 Number.isFinite 消毒 |
 
+### 2026-11-06 第二十批（设置页按钮同条件禁用）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| components/settings/sections/external-control-section.tsx:211 | `if (!status) return` | 复制端点按钮 `disabled={!status}`（L348） |
+| components/settings/sections/vector-health-card.tsx:44 | `if (!project \|\| busy) return` | 三个触发按钮均 `disabled={!project \|\| busy !== null}`（L106/111/119/127） |
+| components/settings/sections/data-management-section.tsx:142 | `if (!currentProject?.path) return` | 清理旧行按钮 `disabled={!currentProject?.path \|\| ...}`（L668 相邻） |
+| components/settings/sections/llm-provider-cli-pills.tsx:375 | `if (!status?.managed) return` | 停止按钮整体在 `{status?.managed && (...)}` 内渲染（L457） |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

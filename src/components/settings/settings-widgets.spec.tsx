@@ -36,3 +36,16 @@ describe("CommitNumberInput 标红时机", () => {
     expect(onCommit).toHaveBeenLastCalledWith(3)
   })
 })
+
+describe("CommitNumberInput Esc 取消", () => {
+  it("输入未提交时按 Escape → 文本回滚到外部值（不改 onCommit）", () => {
+    const onCommit = vi.fn()
+    render(<CommitNumberInput aria-label="esc" value={12} min={3} max={30} onCommit={onCommit} />)
+    const input = screen.getByRole("spinbutton") as HTMLInputElement
+    fireEvent.change(input, { target: { value: "27" } })
+    expect(input.value).toBe("27")
+    fireEvent.keyDown(input, { key: "Escape" })
+    expect(input.value).toBe("12")
+    expect(onCommit).not.toHaveBeenCalled()
+  })
+})

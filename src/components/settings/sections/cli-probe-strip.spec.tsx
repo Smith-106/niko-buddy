@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render, screen, fireEvent, setupDomGlobals } from "@/test-helpers/component-test-utils"
+import { act, render, screen, fireEvent, setupDomGlobals, waitFor } from "@/test-helpers/component-test-utils"
 import { cleanup } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { CliProbeStrip } from "./cli-probe-strip"
@@ -45,5 +45,16 @@ describe("CliProbeStrip", () => {
     const btn = await screen.findByRole("button")
     await act(async () => { fireEvent.click(btn) })
     expect(mocks.invoke.mock.calls.length).toBeGreaterThanOrEqual(4)
+  })
+})
+
+describe("重新检测按钮", () => {
+  it("点击重新检测 → 再次发起四路探针（刷新后按钮复位）", async () => {
+    render(<CliProbeStrip />)
+    await screen.findByTestId("cli-probe-claude")
+    const before = mocks.invoke.mock.calls.length
+    const btn = screen.getByRole("button", { name: "settings.sections.llm.cliStatus.recheck" })
+    fireEvent.click(btn)
+    await waitFor(() => expect(mocks.invoke.mock.calls.length).toBeGreaterThan(before))
   })
 })

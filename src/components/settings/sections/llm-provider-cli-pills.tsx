@@ -372,6 +372,7 @@ export function CursorProxyStatusBadge() {
   }
 
   async function handleStop() {
+    /* v8 ignore next -- 台账 llm-provider-cli-pills.tsx L375：停止按钮整体在 `{status?.managed && (...)}` 内渲染（L457），status?.managed 为假时无按钮 */
     if (!status?.managed) return
     setStopping(true)
     try {

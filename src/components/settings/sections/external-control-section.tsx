@@ -208,6 +208,7 @@ export function ExternalControlSection() {
   }, [refresh])
 
   const copyEndpoint = useCallback(async () => {
+    /* v8 ignore next -- 台账 external-control-section.tsx L211：复制端点按钮 disabled={!status}（L348），status 为空时不可点 */
     if (!status) return
     try {
       await navigator.clipboard.writeText(status.endpoint)

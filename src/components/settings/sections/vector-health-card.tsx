@@ -41,6 +41,7 @@ export function VectorHealthCard() {
 
   const run = useCallback(
     async (kind: "reconcile" | "compaction" | "drop") => {
+      /* v8 ignore next -- 台账 vector-health-card.tsx L44：三个触发按钮均 disabled={!project || busy !== null}（L106/L111/L119/L127），与守卫同条件 */
       if (!project || busy) return
       // 删除 legacy 表不可恢复：沿用数据管理页的二次确认（两次 confirm 都通过才执行）
       if (kind === "drop") {
