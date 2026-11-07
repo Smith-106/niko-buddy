@@ -134,6 +134,7 @@ export function ExportCenterView({
   }, [projectPath])
 
   async function handleExport(format: ManuscriptExportFormat, confirmed = false) {
+    /* v8 ignore next -- 台账 export-center-view.tsx L137：projectPath 为空时组件走空态（不渲染导出按钮）；exporting !== null 由 disabled={!canExport}（L288/297）挡住，canExport 含 exporting === null */
     if (exporting !== null || projectPath === "") return
     const exportPath = manuscriptExportPath(projectPath, folderName, baseName, format)
     if (!confirmed) {

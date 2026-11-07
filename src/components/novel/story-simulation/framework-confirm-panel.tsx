@@ -80,6 +80,7 @@ export function FrameworkConfirmPanel({
     .sort((a, b) => a.index - b.index);
 
   const handleSave = () => {
+    /* v8 ignore next -- 台账 framework-confirm-panel.tsx L83：保存按钮在 `{onSave && (...)}`（L234）内渲染，onSave 缺失时无触发点 */
     if (!onSave) return;
     onSave();
     setSavedTip(true);

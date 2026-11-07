@@ -67,6 +67,7 @@ export function TranslationWorkbenchView({ port, chapterNumbers = [1, 2, 3, 4, 5
 
   const run = useCallback(
     async (count: number) => {
+      /* v8 ignore next -- 台账 translation-workbench-view.tsx L70：批量按钮 disabled={running || !port || !projectPath}（L183），守卫与禁用同条件 */
       if (!projectPath || !port) return
       setRunning(true)
       setNotice(null)

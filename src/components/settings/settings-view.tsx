@@ -677,6 +677,7 @@ export function SettingsView() {
                 </div>
                 {group.categories.map((id) => {
                   const c = CATEGORIES.find((category) => category.id === id)
+                  /* v8 ignore next -- 台账 settings-view.tsx L680：侧栏分组是静态常量，其 categories 的每个 id 都存在于 CATEGORIES（当前零漂移），此分支只防未来表漂移 */
                   if (!c) return null
                   const Icon = c.icon
                   const isActive = c.id === active

@@ -78,6 +78,7 @@ export function BranchManagerPanel({
   };
 
   const handleFinishRename = () => {
+    /* v8 ignore next -- 台账 branch-manager-panel.tsx L81：handleFinishRename 只挂在 L228 的 onBlur，而该输入框在 `{editingId === branch.id ? ...}`（L222）内渲染，无 editingId 时不存在 */
     if (!editingId) return;
     const name = editingName.trim();
     if (name) {
