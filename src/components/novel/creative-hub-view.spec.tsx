@@ -22,12 +22,15 @@ const mocks = vi.hoisted(() => ({
   listDirectory: vi.fn(),
   writeFile: vi.fn(),
   createDirectory: vi.fn(),
+  runProjectDoctor: vi.fn(),
 }))
 
 vi.mock("@/lib/novel/doctor", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel/doctor")>()
-  // 默认委派真实实现；单个用例可用 mockResolvedValueOnce 覆盖
-  return { ...actual, runProjectDoctor: vi.fn(actual.runProjectDoctor) }
+  // 默认委派真实实现；单个用例可用 mockResolvedValueOnce 覆盖（句柄从 hoisted 取，
+  // 避免在 spec 体内 import novel 模块 —— boundaries 规则不允许 components/novel → novel）。
+  mocks.runProjectDoctor.mockImplementation(actual.runProjectDoctor)
+  return { ...actual, runProjectDoctor: mocks.runProjectDoctor }
 })
 
 vi.mock("@/commands/fs", async (importOriginal) => {
@@ -170,8 +173,7 @@ describe("CreativeHubView", () => {
   })
 
   it("verdict healthy → 诊断区块走 ok 色调分支", async () => {
-    const { runProjectDoctor } = await import("@/lib/novel/doctor")
-    vi.mocked(runProjectDoctor).mockResolvedValueOnce({
+    mocks.runProjectDoctor.mockResolvedValueOnce({
       verdict: "healthy",
       findings: [],
     } as never)
