@@ -401,6 +401,7 @@ async function extractCharactersFromChapters(
     }
   >
 > {
+  /* v8 ignore next -- 台账 story-extractor.ts L404：唯一调用点（L514）外层条件是 chapterContents.length > 0，此处是第二道防线 */
   if (chapterContents.length === 0) return new Map()
 
   const chaptersText = chapterContents
@@ -453,6 +454,7 @@ ${chaptersText.slice(0, 15000)}
     if (!jsonMatch) return new Map()
 
     const parsed = JSON.parse(jsonMatch[0])
+    /* v8 ignore next -- 台账 story-extractor.ts L456：jsonMatch 由 /\[[\s\S]*\]/ 取出，必然以 [ 开头，合法 JSON 解析结果必为数组；非数组只可能是畸形 JSON，那会在上一行 JSON.parse 直接抛出 */
     if (!Array.isArray(parsed)) return new Map()
 
     const characterMap = new Map<

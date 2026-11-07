@@ -724,6 +724,21 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 |----|------|------|
 | 148 | `.catch(() => { if (!cancelled) setSnapshot(null) })` 的 catch 体 | `loadWorkflowSnapshot`（L82-116）整体包在 try/catch 内，任何读盘/解析失败都在内部转成带 `ledgerError` 的快照返回，永不 reject；此处是第二道防线 |
 
+### lib/novel/story-simulation/story-extractor.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 404 | `extractCharactersFromChapters` 的 `if (chapterContents.length === 0) return new Map()` | 唯一调用点（L514）外层条件已是 `chapterContents.length > 0`，此处是第二道防线 |
+| 456 | `if (!Array.isArray(parsed)) return new Map()` | `jsonMatch` 由 `/\[[\s\S]*\]/` 取出，必然以 `[` 开头，合法 JSON 解析结果必为数组；非数组只可能是畸形 JSON，那会在上一行 `JSON.parse` 直接抛出 |
+
+
+### lib/novel/search-adapter.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 726 | `trustLookup` 的 `if (!params.trustGrades) return undefined` | 两个调用点（L734/L735）都在 `if (params.trustFilterEnabled && params.trustGrades)` 内，`trustGrades` 必为真 |
+| 767 | `if (collection === "tech") continue` | `routeByQueryIntent` 的 `collections` 按 K-11 安全不变量恒不含 `tech`（见 search-strategy.ts L147 注释），此处是出口兜底 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

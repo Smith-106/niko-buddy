@@ -723,6 +723,7 @@ export async function retrieveDualTrack(params: DualTrackParams): Promise<DualTr
   // (IC-02 绝不静默: type=filtered, ref=trust_blocked)。
   // P1-IMP-06: 过滤改归一键查找（直连 r.path 必 miss → normalize 后按 collection/name 与 name 双查找）。
   const trustLookup = (path: string): TrustGrade | undefined => {
+    /* v8 ignore next -- 台账 search-adapter.ts L726：trustLookup 的两个调用点（L734/L735）都在 if (params.trustFilterEnabled && params.trustGrades) 内，trustGrades 必为真 */
     if (!params.trustGrades) return undefined
     const k = trustKeyOfPath(path)
     if (params.trustGrades[k] !== undefined) return params.trustGrades[k]
@@ -764,6 +765,7 @@ export async function retrieveDualTrack(params: DualTrackParams): Promise<DualTr
     let refChars = 0
     const cols = (kbRoutingView as { collections?: Record<string, Array<Record<string, unknown>>> }).collections ?? {}
     for (const collection of routed.collections) {
+      /* v8 ignore next -- 台账 search-adapter.ts L767：routeByQueryIntent 的 collections 按 K-11 安全不变量恒不含 tech（见 search-strategy.ts L147 注释），此处是出口兜底断言 */
       if (collection === "tech") continue // K-11 安全不变量
       const entries = cols[collection] ?? []
       for (const entry of entries) {
