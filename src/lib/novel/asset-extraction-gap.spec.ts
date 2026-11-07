@@ -168,3 +168,32 @@ describe("detectAssetExtractionGaps", () => {
     expect(gap.evidence).toContain("…")
   })
 })
+
+describe("排序与同名去重", () => {
+  it("多个缺角色名按码点序输出（sort 比较器真正执行）", () => {
+    const result = detectAssetExtractionGaps({
+      ...BASE,
+      chapterText: "张三推门进来。王五站在门外。赵六在院里。",
+      wikiCharacterNames: ["张三", "李四", "王五", "赵六"],
+    })
+    const subjects = result.gaps
+      .filter((item) => item.code === "character_not_in_state")
+      .map((item) => item.subject)
+    // 码点序：王(U+738B) < 赵(U+8D75)
+    expect(subjects).toEqual(["王五", "赵六"])
+  })
+
+  it("同名角色重复登记时关系候选跳过自身配对", () => {
+    const result = detectAssetExtractionGaps({
+      ...BASE,
+      characters: [
+        { characterName: "张三", relationships: {} },
+        { characterName: "张三", relationships: {} },
+        { characterName: "李四", relationships: {} },
+      ],
+    })
+    // 张三↔李四 共现一次 → 恰好 1 条；同名自身配对（张三↔张三）必须被跳过，不得多出一条
+    const relations = result.gaps.filter((item) => item.code === "relationship_not_in_state")
+    expect(relations).toHaveLength(1)
+  })
+})

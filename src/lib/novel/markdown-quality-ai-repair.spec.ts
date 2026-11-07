@@ -27,3 +27,22 @@ describe("repairMarkdownFormatWithAi", () => {
     expect(stream).toHaveBeenCalledTimes(1)
   })
 })
+
+describe("stream 报错透传", () => {
+  it("onError 被调用 → 把该错误抛给调用方（不返回半截文本）", async () => {
+    const boom = new Error("stream failed")
+    const stream = vi.fn<typeof streamChat>(async (_config, _messages, callbacks) => {
+      callbacks.onToken?.("半截")
+      callbacks.onError?.(boom)
+    })
+
+    await expect(
+      repairMarkdownFormatWithAi({
+        content: "正文",
+        llmConfig: {} as Parameters<typeof streamChat>[0],
+        stream,
+        maxTokens: 100,
+      }),
+    ).rejects.toBe(boom)
+  })
+})

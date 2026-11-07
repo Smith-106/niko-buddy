@@ -659,6 +659,12 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 |----|------|------|
 | 198-199 | `switch (sixDimOutcome)` 的 `default: assertNeverSixDimOutcome(...)` | 编译期 exhaustiveness 断言：`SixDimOutcome` 的三个成员（success/failure/skipped）已在上面全部显式处理，`assertNever` 的参数类型是 `never`，运行期不可达 |
 
+### lib/novel/markdown-quality-pipeline.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 237 | `if (lastMarkerIndex === undefined) return content` | 上一行已对偶数个标记早退（`markerIndices.length % 2 === 0`），到达此处时 length 必为奇数且 >= 1，末元素必然存在 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

@@ -227,3 +227,10 @@ describe("markdown quality pipeline", () => {
   })
 
 })
+
+describe("markdownCodeMask 行内反引号切分", () => {
+  it("行内双反引号代码段被整体屏蔽，内部未配对加粗不被改写", () => {
+    const src = "# 标题\n\n正文 ``a**b`` 结束"
+    expect(repairStructuredMarkdownLocally(src)).toBe(src)
+  })
+})

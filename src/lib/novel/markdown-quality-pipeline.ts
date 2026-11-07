@@ -234,6 +234,7 @@ function repairUnpairedBold(content: string): string {
   const markerIndices = boldMarkerIndices(content)
   if (markerIndices.length % 2 === 0) return content
   const lastMarkerIndex = markerIndices[markerIndices.length - 1]
+  /* v8 ignore next -- 台账 markdown-quality-pipeline.ts L237：上一行已对偶数个标记早退（markerIndices.length % 2 === 0），此处 length 必为奇数且 >= 1，末元素必然存在 */
   if (lastMarkerIndex === undefined) return content
   return `${content.slice(0, lastMarkerIndex)}${content.slice(lastMarkerIndex + 2)}`
 }
