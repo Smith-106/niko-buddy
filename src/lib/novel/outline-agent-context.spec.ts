@@ -49,3 +49,11 @@ describe("scoped outline sub-agent context", () => {
     expect(context.length).toBeLessThanOrEqual(1200)
   })
 })
+
+describe("clampContext 极小预算", () => {
+  it("maxChars 小于压缩标记长度 → 直接硬截断，不加标记", () => {
+    const out = buildScopedOutlineSubAgentContext(pack, "outline", 5)
+    expect(out.length).toBeLessThanOrEqual(5)
+    expect(out).not.toContain("局部上下文已压缩")
+  })
+})

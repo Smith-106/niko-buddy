@@ -111,6 +111,7 @@ function parsePayload(payloadText: string): NextStepRecommendation | null {
   } catch {
     return null
   }
+  /* v8 ignore next -- 台账 outline-next-step.ts L114：payload 来自 JSON.parse(extractJsonObject(...))，extractJsonObject 必以 { 开头且以 } 结尾，解析成功即普通对象 */
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null
   const raw = payload as Record<string, unknown>
   const recommendations = normalizeRecommendations(raw.recommendations)

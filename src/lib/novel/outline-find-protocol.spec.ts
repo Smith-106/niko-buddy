@@ -18,3 +18,9 @@ describe("outline-find-protocol.ts smoke", () => {
     expect(stripOutlineFindProtocol).toBeDefined()
   })
 })
+
+describe("formatTargetChapterLine", () => {
+  it("渲染目标章号提示行", () => {
+    expect(formatTargetChapterLine(7)).toContain("第 7 章")
+  })
+})
