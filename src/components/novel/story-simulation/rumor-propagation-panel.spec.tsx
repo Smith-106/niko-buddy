@@ -316,3 +316,17 @@ describe("RumorPropagationPanel 传播树", () => {
     expect(screen.queryByText(fill(t.generation, { gen: 1 }))).toBeNull()
   })
 })
+
+describe("选中项被新数据移除", () => {
+  it("选中传闻 A 后父级只回传 B → 家谱树为空（!target 早退），不崩", () => {
+    const a = makeRumor({ id: "ra", content: "山下来了商队" })
+    const b = makeRumor({ id: "rb", content: "城主病重" })
+    const { rerender } = render(
+      <RumorPropagationPanel rumors={[a, b]} agents={new Map()} events={[]} />,
+    )
+    fireEvent.click(screen.getByRole("button", { name: "山下来了商队" }))
+    rerender(<RumorPropagationPanel rumors={[b]} agents={new Map()} events={[]} />)
+    expect(screen.queryByRole("button", { name: "山下来了商队" })).toBeNull()
+    expect(screen.getByRole("button", { name: "城主病重" })).toBeTruthy()
+  })
+})

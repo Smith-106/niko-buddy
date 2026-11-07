@@ -52,6 +52,7 @@ function reasonLabel(reason: string): string {
   if (reason === "no_seed_pattern_match") return "未命中任何种子模式"
   if (reason === "below_min_constraint_hits") return "约束命中数不足"
   if (reason === "admitted") return "通过"
+  /* v8 ignore next -- 台账 title-studio-view.tsx L55：reason 的唯一生产者 title-forge.ts:162 是三元表达式，值域恒为 {no_seed_pattern_match, below_min_constraint_hits, admitted} */
   return reason
 }
 

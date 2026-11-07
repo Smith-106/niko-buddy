@@ -161,6 +161,7 @@ export function InterviewHistoryView() {
         minute: "2-digit",
       })
     } catch {
+      /* v8 ignore next -- 台账 interview-history-view.tsx L164：new Date(...) 只会产出合法 Date 或 Invalid Date，toLocaleString 对后者返回 "Invalid Date" 而非抛错；此 catch 仅防非标准 Intl 实现 */
       return dateStr
     }
   }
