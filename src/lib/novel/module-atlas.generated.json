@@ -91,7 +91,7 @@
   "specOnly": 269,
   "barrelOnly": 1,
   "edges": 4648,
-  "loc": 289669
+  "loc": 289900
  },
  "modules": [
   {
@@ -203,7 +203,7 @@
   {
    "p": "src/components/backup/CloudBackupPanel.tsx",
    "s": 16,
-   "l": 891,
+   "l": 894,
    "r": true,
    "o": false,
    "x": false,
@@ -225,7 +225,7 @@
   {
    "p": "src/components/briefing/BriefingPanel.tsx",
    "s": 16,
-   "l": 162,
+   "l": 163,
    "r": false,
    "o": true,
    "x": true,
@@ -270,7 +270,7 @@
   {
    "p": "src/components/canon-editor/canon-editor.tsx",
    "s": 16,
-   "l": 840,
+   "l": 841,
    "r": true,
    "o": false,
    "x": false,
@@ -294,7 +294,7 @@
   {
    "p": "src/components/canon-editor/canon-fact-table.tsx",
    "s": 16,
-   "l": 170,
+   "l": 171,
    "r": true,
    "o": false,
    "x": false,
@@ -340,7 +340,7 @@
   {
    "p": "src/components/canon-editor/canon-revision-viewer.tsx",
    "s": 16,
-   "l": 364,
+   "l": 365,
    "r": true,
    "o": false,
    "x": false,
@@ -472,7 +472,7 @@
   {
    "p": "src/components/chat/chat-message.tsx",
    "s": 16,
-   "l": 1043,
+   "l": 1044,
    "r": true,
    "o": false,
    "x": false,
@@ -757,7 +757,7 @@
   {
    "p": "src/components/chat/chat-panel.tsx",
    "s": 16,
-   "l": 1204,
+   "l": 1205,
    "r": true,
    "o": false,
    "x": false,
@@ -988,7 +988,7 @@
   {
    "p": "src/components/dashboard/capability-replay-drawer.tsx",
    "s": 16,
-   "l": 66,
+   "l": 67,
    "r": true,
    "o": false,
    "x": false,
@@ -1068,7 +1068,7 @@
   {
    "p": "src/components/dashboard/doctor-panel.tsx",
    "s": 16,
-   "l": 165,
+   "l": 167,
    "r": true,
    "o": false,
    "x": false,
@@ -1244,7 +1244,7 @@
   {
    "p": "src/components/gate/ConfirmGateDialog.tsx",
    "s": 16,
-   "l": 318,
+   "l": 319,
    "r": true,
    "o": false,
    "x": false,
@@ -1262,7 +1262,7 @@
   {
    "p": "src/components/gate/GateHost.tsx",
    "s": 16,
-   "l": 98,
+   "l": 99,
    "r": true,
    "o": false,
    "x": false,
@@ -1280,7 +1280,7 @@
   {
    "p": "src/components/graph/document-graph-view.tsx",
    "s": 16,
-   "l": 613,
+   "l": 614,
    "r": true,
    "o": false,
    "x": false,
@@ -1351,7 +1351,7 @@
   {
    "p": "src/components/graph/graph-view.tsx",
    "s": 16,
-   "l": 1425,
+   "l": 1426,
    "r": true,
    "o": false,
    "x": false,
@@ -1442,7 +1442,7 @@
   {
    "p": "src/components/graph/sigma-graph-views.tsx",
    "s": 16,
-   "l": 584,
+   "l": 585,
    "r": true,
    "o": false,
    "x": false,
@@ -1542,7 +1542,7 @@
   {
    "p": "src/components/layout/activity-panel.tsx",
    "s": 16,
-   "l": 557,
+   "l": 558,
    "r": true,
    "o": false,
    "x": false,
@@ -1619,7 +1619,7 @@
   {
    "p": "src/components/layout/chapter-draft-dock.tsx",
    "s": 16,
-   "l": 212,
+   "l": 213,
    "r": true,
    "o": false,
    "x": false,
@@ -1926,7 +1926,7 @@
   {
    "p": "src/components/layout/planned-views.ts",
    "s": 16,
-   "l": 40,
+   "l": 41,
    "r": true,
    "o": false,
    "x": false,
@@ -2449,7 +2449,7 @@
   {
    "p": "src/components/novel/anti-ai-rules-view.tsx",
    "s": 16,
-   "l": 249,
+   "l": 250,
    "r": true,
    "o": false,
    "x": false,
@@ -2543,7 +2543,7 @@
   {
    "p": "src/components/novel/backup-export-view.tsx",
    "s": 16,
-   "l": 921,
+   "l": 922,
    "r": true,
    "o": false,
    "x": false,
@@ -2827,7 +2827,7 @@
   {
    "p": "src/components/novel/chapter-selection-panel.tsx",
    "s": 16,
-   "l": 702,
+   "l": 703,
    "r": true,
    "o": false,
    "x": false,
@@ -2917,7 +2917,7 @@
   {
    "p": "src/components/novel/character-workstation-view.tsx",
    "s": 16,
-   "l": 336,
+   "l": 337,
    "r": true,
    "o": false,
    "x": false,
@@ -2987,7 +2987,7 @@
   {
    "p": "src/components/novel/corkboard-view.tsx",
    "s": 16,
-   "l": 382,
+   "l": 385,
    "r": true,
    "o": false,
    "x": false,
@@ -3007,7 +3007,7 @@
   {
    "p": "src/components/novel/cover-generate-card.tsx",
    "s": 16,
-   "l": 75,
+   "l": 76,
    "r": true,
    "o": false,
    "x": false,
@@ -3120,7 +3120,7 @@
   {
    "p": "src/components/novel/creative-hub-view.tsx",
    "s": 16,
-   "l": 346,
+   "l": 347,
    "r": true,
    "o": false,
    "x": false,
@@ -3137,7 +3137,7 @@
   {
    "p": "src/components/novel/data-manager-view.tsx",
    "s": 16,
-   "l": 352,
+   "l": 354,
    "r": true,
    "o": false,
    "x": false,
@@ -3229,7 +3229,7 @@
   {
    "p": "src/components/novel/diagnostics-center.tsx",
    "s": 16,
-   "l": 604,
+   "l": 607,
    "r": true,
    "o": false,
    "x": false,
@@ -3290,7 +3290,7 @@
   {
    "p": "src/components/novel/director-view.tsx",
    "s": 16,
-   "l": 481,
+   "l": 485,
    "r": true,
    "o": false,
    "x": false,
@@ -3350,7 +3350,7 @@
   {
    "p": "src/components/novel/export-center-view.tsx",
    "s": 16,
-   "l": 341,
+   "l": 344,
    "r": true,
    "o": false,
    "x": false,
@@ -3389,7 +3389,7 @@
   {
    "p": "src/components/novel/followup-center-view.tsx",
    "s": 16,
-   "l": 408,
+   "l": 409,
    "r": true,
    "o": false,
    "x": false,
@@ -3409,7 +3409,7 @@
   {
    "p": "src/components/novel/foreshadowing-panel.tsx",
    "s": 16,
-   "l": 332,
+   "l": 333,
    "r": true,
    "o": false,
    "x": false,
@@ -3546,7 +3546,7 @@
   {
    "p": "src/components/novel/live-execution-view.tsx",
    "s": 16,
-   "l": 226,
+   "l": 227,
    "r": true,
    "o": false,
    "x": false,
@@ -3565,7 +3565,7 @@
   {
    "p": "src/components/novel/main-control-draft-adopt-block.tsx",
    "s": 16,
-   "l": 198,
+   "l": 199,
    "r": true,
    "o": false,
    "x": false,
@@ -3586,7 +3586,7 @@
   {
    "p": "src/components/novel/main-control-gate-rerun-block.tsx",
    "s": 16,
-   "l": 305,
+   "l": 306,
    "r": true,
    "o": false,
    "x": false,
@@ -3669,7 +3669,7 @@
   {
    "p": "src/components/novel/market-radar-view.tsx",
    "s": 16,
-   "l": 142,
+   "l": 145,
    "r": true,
    "o": false,
    "x": false,
@@ -3820,7 +3820,7 @@
   {
    "p": "src/components/novel/pipeline-motion-panel.tsx",
    "s": 16,
-   "l": 741,
+   "l": 742,
    "r": true,
    "o": false,
    "x": false,
@@ -3836,7 +3836,7 @@
   {
    "p": "src/components/novel/pipeline-motion-view.tsx",
    "s": 16,
-   "l": 148,
+   "l": 150,
    "r": true,
    "o": false,
    "x": false,
@@ -3853,7 +3853,7 @@
   {
    "p": "src/components/novel/plotgrid-view.tsx",
    "s": 16,
-   "l": 258,
+   "l": 259,
    "r": true,
    "o": false,
    "x": false,
@@ -4069,7 +4069,7 @@
   {
    "p": "src/components/novel/story-simulation/branch-manager-panel.tsx",
    "s": 16,
-   "l": 357,
+   "l": 358,
    "r": true,
    "o": false,
    "x": false,
@@ -4104,7 +4104,7 @@
   {
    "p": "src/components/novel/story-simulation/framework-confirm-panel.tsx",
    "s": 16,
-   "l": 612,
+   "l": 613,
    "r": true,
    "o": false,
    "x": false,
@@ -4150,7 +4150,7 @@
   {
    "p": "src/components/novel/story-simulation/interview-history-view.tsx",
    "s": 16,
-   "l": 389,
+   "l": 390,
    "r": true,
    "o": false,
    "x": false,
@@ -4290,7 +4290,7 @@
   {
    "p": "src/components/novel/story-simulation/simulation-report-view.tsx",
    "s": 16,
-   "l": 865,
+   "l": 870,
    "r": true,
    "o": false,
    "x": false,
@@ -4313,7 +4313,7 @@
   {
    "p": "src/components/novel/story-simulation/story-draft-view.tsx",
    "s": 16,
-   "l": 524,
+   "l": 529,
    "r": true,
    "o": false,
    "x": false,
@@ -4338,7 +4338,7 @@
   {
    "p": "src/components/novel/story-simulation/story-simulation-view.tsx",
    "s": 16,
-   "l": 1355,
+   "l": 1356,
    "r": true,
    "o": false,
    "x": false,
@@ -4462,7 +4462,7 @@
   {
    "p": "src/components/novel/timeline-view.tsx",
    "s": 16,
-   "l": 130,
+   "l": 131,
    "r": true,
    "o": false,
    "x": false,
@@ -4481,7 +4481,7 @@
   {
    "p": "src/components/novel/title-studio-view.tsx",
    "s": 16,
-   "l": 265,
+   "l": 266,
    "r": true,
    "o": false,
    "x": false,
@@ -4498,7 +4498,7 @@
   {
    "p": "src/components/novel/translation-workbench-view.tsx",
    "s": 16,
-   "l": 194,
+   "l": 195,
    "r": true,
    "o": false,
    "x": false,
@@ -4578,7 +4578,7 @@
   {
    "p": "src/components/novel/workflow-editor-view.tsx",
    "s": 16,
-   "l": 278,
+   "l": 279,
    "r": true,
    "o": false,
    "x": false,
@@ -5050,7 +5050,7 @@
   {
    "p": "src/components/settings/sections/data-management-section.tsx",
    "s": 16,
-   "l": 809,
+   "l": 810,
    "r": true,
    "o": false,
    "x": false,
@@ -5103,7 +5103,7 @@
   {
    "p": "src/components/settings/sections/external-control-section.tsx",
    "s": 16,
-   "l": 497,
+   "l": 498,
    "r": true,
    "o": false,
    "x": false,
@@ -5162,7 +5162,7 @@
   {
    "p": "src/components/settings/sections/llm-provider-cli-pills.tsx",
    "s": 16,
-   "l": 474,
+   "l": 475,
    "r": true,
    "o": false,
    "x": false,
@@ -5550,7 +5550,7 @@
   {
    "p": "src/components/settings/sections/vector-health-card.tsx",
    "s": 16,
-   "l": 135,
+   "l": 136,
    "r": true,
    "o": false,
    "x": false,
@@ -5683,7 +5683,7 @@
   {
    "p": "src/components/settings/settings-view.tsx",
    "s": 16,
-   "l": 763,
+   "l": 764,
    "r": true,
    "o": false,
    "x": false,
@@ -5822,7 +5822,7 @@
   {
    "p": "src/components/skill-library/skill-library-view.tsx",
    "s": 16,
-   "l": 588,
+   "l": 598,
    "r": true,
    "o": false,
    "x": false,
@@ -5839,7 +5839,7 @@
   {
    "p": "src/components/skill-library/unified-skill-library-view.tsx",
    "s": 16,
-   "l": 544,
+   "l": 550,
    "r": true,
    "o": false,
    "x": false,
@@ -5894,7 +5894,7 @@
   {
    "p": "src/components/skill-library/writing-skill-library-view.tsx",
    "s": 16,
-   "l": 606,
+   "l": 612,
    "r": true,
    "o": false,
    "x": false,
@@ -5918,7 +5918,7 @@
   {
    "p": "src/components/skill-library/writing-skill-sidebar-panel.tsx",
    "s": 16,
-   "l": 433,
+   "l": 436,
    "r": true,
    "o": false,
    "x": false,
@@ -5976,7 +5976,7 @@
   {
    "p": "src/components/skills/SkillPackPanel.tsx",
    "s": 16,
-   "l": 249,
+   "l": 250,
    "r": true,
    "o": false,
    "x": false,
@@ -6291,7 +6291,7 @@
   {
    "p": "src/components/ui/status-visuals.tsx",
    "s": 16,
-   "l": 62,
+   "l": 63,
    "r": true,
    "o": false,
    "x": false,
@@ -6356,7 +6356,7 @@
   {
    "p": "src/lib/agent/activity-trace.ts",
    "s": 12,
-   "l": 421,
+   "l": 422,
    "r": false,
    "o": false,
    "x": false,
@@ -6395,7 +6395,7 @@
   {
    "p": "src/lib/agent/capability-retrieval.ts",
    "s": 12,
-   "l": 238,
+   "l": 239,
    "r": false,
    "o": false,
    "x": false,
@@ -6424,7 +6424,7 @@
   {
    "p": "src/lib/agent/config.ts",
    "s": 12,
-   "l": 144,
+   "l": 145,
    "r": true,
    "o": false,
    "x": false,
@@ -6612,7 +6612,7 @@
   {
    "p": "src/lib/agent/plugins/select-skills-plugin.ts",
    "s": 12,
-   "l": 509,
+   "l": 511,
    "r": false,
    "o": false,
    "x": false,
@@ -6676,7 +6676,7 @@
   {
    "p": "src/lib/agent/required-tool-fallback.ts",
    "s": 12,
-   "l": 106,
+   "l": 107,
    "r": true,
    "o": false,
    "x": false,
@@ -6705,7 +6705,7 @@
   {
    "p": "src/lib/agent/runner.ts",
    "s": 12,
-   "l": 689,
+   "l": 690,
    "r": true,
    "o": false,
    "x": false,
@@ -6751,7 +6751,7 @@
   {
    "p": "src/lib/agent/tool-call-parser.ts",
    "s": 12,
-   "l": 177,
+   "l": 178,
    "r": true,
    "o": false,
    "x": false,
@@ -6949,7 +6949,7 @@
   {
    "p": "src/lib/agent/tools/outline-list-helpers.ts",
    "s": 12,
-   "l": 159,
+   "l": 160,
    "r": true,
    "o": false,
    "x": false,
@@ -7018,7 +7018,7 @@
   {
    "p": "src/lib/agent/tools/read-memory.ts",
    "s": 12,
-   "l": 106,
+   "l": 107,
    "r": true,
    "o": true,
    "x": true,
@@ -7401,7 +7401,7 @@
   {
    "p": "src/lib/cache-hit-harness.ts",
    "s": 18,
-   "l": 535,
+   "l": 536,
    "r": false,
    "o": true,
    "x": true,
@@ -7417,7 +7417,7 @@
   {
    "p": "src/lib/changelog.ts",
    "s": 18,
-   "l": 2467,
+   "l": 2469,
    "r": true,
    "o": false,
    "x": false,
@@ -7507,7 +7507,7 @@
   {
    "p": "src/lib/chat-request-budget.ts",
    "s": 18,
-   "l": 314,
+   "l": 316,
    "r": true,
    "o": false,
    "x": false,
@@ -7637,7 +7637,7 @@
   {
    "p": "src/lib/context-budget.ts",
    "s": 18,
-   "l": 368,
+   "l": 369,
    "r": true,
    "o": false,
    "x": false,
@@ -7853,7 +7853,7 @@
   {
    "p": "src/lib/diagnostics/health-check.ts",
    "s": 18,
-   "l": 582,
+   "l": 583,
    "r": true,
    "o": false,
    "x": false,
@@ -8219,7 +8219,7 @@
   {
    "p": "src/lib/graph-relevance.ts",
    "s": 18,
-   "l": 364,
+   "l": 365,
    "r": true,
    "o": false,
    "x": false,
@@ -8328,7 +8328,7 @@
   {
    "p": "src/lib/ingest-queue.ts",
    "s": 18,
-   "l": 581,
+   "l": 585,
    "r": true,
    "o": false,
    "x": false,
@@ -8359,7 +8359,7 @@
   {
    "p": "src/lib/ingest.ts",
    "s": 18,
-   "l": 1589,
+   "l": 1590,
    "r": true,
    "o": false,
    "x": false,
@@ -8449,7 +8449,7 @@
   {
    "p": "src/lib/lint.ts",
    "s": 18,
-   "l": 425,
+   "l": 427,
    "r": true,
    "o": false,
    "x": false,
@@ -8731,7 +8731,7 @@
   {
    "p": "src/lib/mcp/draft-actions.ts",
    "s": 18,
-   "l": 108,
+   "l": 109,
    "r": true,
    "o": false,
    "x": false,
@@ -9067,7 +9067,7 @@
   {
    "p": "src/lib/novel/anti-ai-candidate-pool.ts",
    "s": 7,
-   "l": 860,
+   "l": 864,
    "r": true,
    "o": false,
    "x": false,
@@ -9081,7 +9081,7 @@
   {
    "p": "src/lib/novel/anti-ai-corpus-fs.ts",
    "s": 7,
-   "l": 71,
+   "l": 72,
    "r": true,
    "o": false,
    "x": false,
@@ -9113,7 +9113,7 @@
   {
    "p": "src/lib/novel/anti-ai-telemetry-sink.ts",
    "s": 7,
-   "l": 358,
+   "l": 359,
    "r": true,
    "o": false,
    "x": false,
@@ -9772,7 +9772,7 @@
   {
    "p": "src/lib/novel/book-rules.ts",
    "s": 18,
-   "l": 299,
+   "l": 300,
    "r": true,
    "o": false,
    "x": false,
@@ -9857,7 +9857,7 @@
   {
    "p": "src/lib/novel/budget-resume.ts",
    "s": 18,
-   "l": 150,
+   "l": 152,
    "r": true,
    "o": false,
    "x": false,
@@ -9877,7 +9877,7 @@
   {
    "p": "src/lib/novel/campaign-runner.ts",
    "s": 6,
-   "l": 804,
+   "l": 806,
    "r": true,
    "o": false,
    "x": false,
@@ -9921,7 +9921,7 @@
   {
    "p": "src/lib/novel/canon-backfill.ts",
    "s": 9,
-   "l": 651,
+   "l": 653,
    "r": true,
    "o": true,
    "x": true,
@@ -10011,7 +10011,7 @@
   {
    "p": "src/lib/novel/canon-revision-diff.ts",
    "s": 9,
-   "l": 187,
+   "l": 189,
    "r": true,
    "o": true,
    "x": true,
@@ -10352,7 +10352,7 @@
   {
    "p": "src/lib/novel/chapter-ingest-utils.ts",
    "s": 8,
-   "l": 43,
+   "l": 44,
    "r": true,
    "o": false,
    "x": false,
@@ -10537,7 +10537,7 @@
   {
    "p": "src/lib/novel/chapter-typography.ts",
    "s": 6,
-   "l": 281,
+   "l": 282,
    "r": true,
    "o": false,
    "x": false,
@@ -10597,7 +10597,7 @@
   {
    "p": "src/lib/novel/character-aura-context.ts",
    "s": 3,
-   "l": 267,
+   "l": 268,
    "r": false,
    "o": true,
    "x": true,
@@ -10764,7 +10764,7 @@
   {
    "p": "src/lib/novel/character-cognition.ts",
    "s": 3,
-   "l": 577,
+   "l": 578,
    "r": true,
    "o": false,
    "x": false,
@@ -10911,7 +10911,7 @@
   {
    "p": "src/lib/novel/closure-projection.ts",
    "s": 9,
-   "l": 325,
+   "l": 327,
    "r": true,
    "o": true,
    "x": true,
@@ -11177,7 +11177,7 @@
   {
    "p": "src/lib/novel/context-engine-prompt.ts",
    "s": 5,
-   "l": 346,
+   "l": 347,
    "r": true,
    "o": false,
    "x": false,
@@ -11194,7 +11194,7 @@
   {
    "p": "src/lib/novel/context-engine-technique-sources.ts",
    "s": 5,
-   "l": 178,
+   "l": 179,
    "r": true,
    "o": false,
    "x": false,
@@ -11256,7 +11256,7 @@
   {
    "p": "src/lib/novel/context-engine.ts",
    "s": 5,
-   "l": 1415,
+   "l": 1417,
    "r": true,
    "o": false,
    "x": false,
@@ -11601,7 +11601,7 @@
   {
    "p": "src/lib/novel/curation-gate.ts",
    "s": 7,
-   "l": 256,
+   "l": 257,
    "r": true,
    "o": true,
    "x": true,
@@ -11657,7 +11657,7 @@
   {
    "p": "src/lib/novel/de-ai-adapter.ts",
    "s": 18,
-   "l": 560,
+   "l": 561,
    "r": true,
    "o": false,
    "x": false,
@@ -11817,7 +11817,7 @@
   {
    "p": "src/lib/novel/de-ai-preserve-lock.ts",
    "s": 18,
-   "l": 190,
+   "l": 191,
    "r": true,
    "o": false,
    "x": false,
@@ -11839,7 +11839,7 @@
   {
    "p": "src/lib/novel/de-ai-selfcheck.ts",
    "s": 18,
-   "l": 164,
+   "l": 165,
    "r": true,
    "o": false,
    "x": false,
@@ -11852,7 +11852,7 @@
   {
    "p": "src/lib/novel/de-ai-skill-library.ts",
    "s": 13,
-   "l": 900,
+   "l": 902,
    "r": true,
    "o": false,
    "x": false,
@@ -11932,7 +11932,7 @@
   {
    "p": "src/lib/novel/deep-chapter-decision-gates.ts",
    "s": 7,
-   "l": 258,
+   "l": 259,
    "r": true,
    "o": false,
    "x": false,
@@ -11962,7 +11962,7 @@
   {
    "p": "src/lib/novel/deep-chapter-generation.ts",
    "s": 6,
-   "l": 1084,
+   "l": 1086,
    "r": true,
    "o": false,
    "x": false,
@@ -12092,7 +12092,7 @@
   {
    "p": "src/lib/novel/deep-chapter-review.ts",
    "s": 10,
-   "l": 226,
+   "l": 228,
    "r": true,
    "o": false,
    "x": false,
@@ -12293,7 +12293,7 @@
   {
    "p": "src/lib/novel/diff.ts",
    "s": 18,
-   "l": 240,
+   "l": 242,
    "r": false,
    "o": true,
    "x": true,
@@ -12347,7 +12347,7 @@
   {
    "p": "src/lib/novel/director-auto-advance.ts",
    "s": 1,
-   "l": 498,
+   "l": 500,
    "r": true,
    "o": false,
    "x": false,
@@ -12369,7 +12369,7 @@
   {
    "p": "src/lib/novel/director-followup.ts",
    "s": 1,
-   "l": 219,
+   "l": 220,
    "r": true,
    "o": true,
    "x": true,
@@ -12944,7 +12944,7 @@
   {
    "p": "src/lib/novel/foreshadowing-cleanup.ts",
    "s": 9,
-   "l": 570,
+   "l": 571,
    "r": false,
    "o": true,
    "x": true,
@@ -13752,7 +13752,7 @@
   {
    "p": "src/lib/novel/main-control.ts",
    "s": 18,
-   "l": 454,
+   "l": 456,
    "r": true,
    "o": false,
    "x": false,
@@ -13790,7 +13790,7 @@
   {
    "p": "src/lib/novel/markdown-quality-finalizer.ts",
    "s": 7,
-   "l": 195,
+   "l": 198,
    "r": true,
    "o": false,
    "x": false,
@@ -13802,7 +13802,7 @@
   {
    "p": "src/lib/novel/markdown-quality-pipeline.ts",
    "s": 7,
-   "l": 374,
+   "l": 375,
    "r": true,
    "o": false,
    "x": false,
@@ -13838,7 +13838,7 @@
   {
    "p": "src/lib/novel/mechanical-fingerprint.ts",
    "s": 15,
-   "l": 211,
+   "l": 214,
    "r": true,
    "o": false,
    "x": false,
@@ -13850,7 +13850,7 @@
   {
    "p": "src/lib/novel/mechanical-slop-core.ts",
    "s": 18,
-   "l": 473,
+   "l": 476,
    "r": true,
    "o": false,
    "x": false,
@@ -14074,7 +14074,7 @@
   {
    "p": "src/lib/novel/narrative-state.ts",
    "s": 18,
-   "l": 252,
+   "l": 253,
    "r": true,
    "o": false,
    "x": false,
@@ -14208,7 +14208,7 @@
   {
    "p": "src/lib/novel/numeric-fact-checker.ts",
    "s": 18,
-   "l": 237,
+   "l": 239,
    "r": true,
    "o": false,
    "x": false,
@@ -14374,7 +14374,7 @@
   {
    "p": "src/lib/novel/outline-model-parse.ts",
    "s": 4,
-   "l": 814,
+   "l": 818,
    "r": true,
    "o": true,
    "x": true,
@@ -14444,7 +14444,7 @@
   {
    "p": "src/lib/novel/outline-multi-agent-orchestrator.ts",
    "s": 4,
-   "l": 552,
+   "l": 553,
    "r": true,
    "o": false,
    "x": false,
@@ -14457,7 +14457,7 @@
   {
    "p": "src/lib/novel/outline-next-step.ts",
    "s": 4,
-   "l": 182,
+   "l": 183,
    "r": false,
    "o": true,
    "x": true,
@@ -14481,7 +14481,7 @@
   {
    "p": "src/lib/novel/outline-result-protocol.ts",
    "s": 4,
-   "l": 164,
+   "l": 165,
    "r": true,
    "o": false,
    "x": false,
@@ -14632,7 +14632,7 @@
   {
    "p": "src/lib/novel/packs/shared-text-features.ts",
    "s": 18,
-   "l": 265,
+   "l": 266,
    "r": true,
    "o": false,
    "x": false,
@@ -14681,7 +14681,7 @@
   {
    "p": "src/lib/novel/pipeline-motion-projection.ts",
    "s": 9,
-   "l": 358,
+   "l": 359,
    "r": true,
    "o": true,
    "x": true,
@@ -14997,7 +14997,7 @@
   {
    "p": "src/lib/novel/prompt-injection-auditor.ts",
    "s": 7,
-   "l": 160,
+   "l": 162,
    "r": true,
    "o": false,
    "x": false,
@@ -15102,7 +15102,7 @@
   {
    "p": "src/lib/novel/related-chapters.ts",
    "s": 18,
-   "l": 357,
+   "l": 361,
    "r": true,
    "o": false,
    "x": false,
@@ -15115,7 +15115,7 @@
   {
    "p": "src/lib/novel/relationship-migration.ts",
    "s": 18,
-   "l": 77,
+   "l": 78,
    "r": true,
    "o": true,
    "x": true,
@@ -15576,7 +15576,7 @@
   {
    "p": "src/lib/novel/search-adapter.ts",
    "s": 13,
-   "l": 813,
+   "l": 815,
    "r": true,
    "o": false,
    "x": false,
@@ -15607,7 +15607,7 @@
   {
    "p": "src/lib/novel/search-strategy.ts",
    "s": 13,
-   "l": 1097,
+   "l": 1102,
    "r": true,
    "o": false,
    "x": false,
@@ -15749,7 +15749,7 @@
   {
    "p": "src/lib/novel/skill-hub-seed.ts",
    "s": 13,
-   "l": 145,
+   "l": 149,
    "r": true,
    "o": false,
    "x": false,
@@ -15779,7 +15779,7 @@
   {
    "p": "src/lib/novel/skill-pack/pack-export.ts",
    "s": 11,
-   "l": 169,
+   "l": 170,
    "r": true,
    "o": true,
    "x": true,
@@ -16305,7 +16305,7 @@
   {
    "p": "src/lib/novel/story-simulation/simulation-engine.ts",
    "s": 14,
-   "l": 1425,
+   "l": 1428,
    "r": true,
    "o": true,
    "x": true,
@@ -16341,7 +16341,7 @@
   {
    "p": "src/lib/novel/story-simulation/simulation-report-agent.ts",
    "s": 14,
-   "l": 429,
+   "l": 430,
    "r": true,
    "o": true,
    "x": true,
@@ -16383,7 +16383,7 @@
   {
    "p": "src/lib/novel/story-simulation/story-extractor.ts",
    "s": 14,
-   "l": 654,
+   "l": 656,
    "r": true,
    "o": true,
    "x": true,
@@ -16408,7 +16408,7 @@
   {
    "p": "src/lib/novel/story-simulation/story-framework-generator.ts",
    "s": 14,
-   "l": 451,
+   "l": 452,
    "r": true,
    "o": true,
    "x": true,
@@ -16507,7 +16507,7 @@
   {
    "p": "src/lib/novel/style-radar-projection.ts",
    "s": 9,
-   "l": 261,
+   "l": 262,
    "r": true,
    "o": false,
    "x": false,
@@ -16566,7 +16566,7 @@
   {
    "p": "src/lib/novel/task-router.ts",
    "s": 5,
-   "l": 650,
+   "l": 653,
    "r": true,
    "o": false,
    "x": false,
@@ -16881,7 +16881,7 @@
   {
    "p": "src/lib/novel/volume.ts",
    "s": 18,
-   "l": 287,
+   "l": 289,
    "r": true,
    "o": false,
    "x": false,
@@ -16931,7 +16931,7 @@
   {
    "p": "src/lib/novel/work-heatmap-projection.ts",
    "s": 9,
-   "l": 368,
+   "l": 370,
    "r": true,
    "o": true,
    "x": true,
@@ -18399,7 +18399,7 @@
   {
    "p": "src/lib/token-estimator.ts",
    "s": 18,
-   "l": 288,
+   "l": 289,
    "r": true,
    "o": false,
    "x": false,
@@ -18530,7 +18530,7 @@
   {
    "p": "src/lib/user-memory-learning/learning-service.ts",
    "s": 18,
-   "l": 167,
+   "l": 168,
    "r": false,
    "o": true,
    "x": true,
