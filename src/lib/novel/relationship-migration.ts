@@ -69,6 +69,7 @@ export async function migrateRelationshipLibrary(
   }
   const conservation = verifyLibraryConservation(derived)
   if (!conservation.conserved) {
+    /* v8 ignore next -- 台账 relationship-migration.ts L72：derived 由 buildLibraryArtifact 用同一 stableStringify 同输入算出 contentHash，verifyLibraryConservation 用同一函数重算，故 conserved 恒真；此处是第二道防线 */
     throw new Error(`关系库守恒失配：expected=${conservation.expectedHash} actual=${conservation.actualHash}`)
   }
   await saveAssetLibraryArtifact(projectPath, derived)

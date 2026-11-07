@@ -692,6 +692,19 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | 81 | `cnToNumber` 内 `if (v === undefined) return null` | `cnToNumber` 的唯一调用点（L140）传入 `CN_NUM_RE` 的捕获组，其字符集（一二三四五六七八九十百千万两）恰是 `CN_NUM_MAP` 的全部键 |
 | 141 | `if (value === null) continue` | 同 L81：`cnToNumber` 对正则捕获组恒返回数值 |
 
+### lib/novel/relationship-migration.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 72 | `if (!conservation.conserved) throw` | `derived` 由 `buildLibraryArtifact` 用同一 `stableStringify` 同输入算出 `contentHash`，`verifyLibraryConservation` 用同一函数重算，故 `conserved` 恒真；此处是第二道防线 |
+
+
+### lib/novel/prompt-injection-auditor.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 129 | 零宽匹配防死循环 `if (m[0].length === 0) rule.re.lastIndex++` | `INJECTION_RULES` 的全部内置规则正则都以字面量或必填捕获组开头，最短匹配长度 >= 1，`exec` 不可能返回零宽匹配 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

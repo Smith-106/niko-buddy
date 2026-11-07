@@ -126,6 +126,7 @@ export function auditRetrievedChunk(
       affectedLineNumbers.add(lineIdx)
       if (findings.length >= maxFindings) break
       // 零宽匹配防死循环
+      /* v8 ignore next -- 台账 prompt-injection-auditor.ts L129：INJECTION_RULES 的全部内置规则正则都以字面量或必填捕获组开头，最短匹配长度 >= 1，exec 不可能返回零宽匹配 */
       if (m[0].length === 0) rule.re.lastIndex++
     }
     if (findings.length >= maxFindings) break

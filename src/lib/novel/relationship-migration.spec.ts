@@ -103,3 +103,19 @@ describe("Wave 3B 审查回归：坏文件与篡改不得被覆盖", () => {
     expect(fsState.files.get(path)).toBe("{ this is not json")
   })
 })
+
+describe("缺省依赖注入", () => {
+  it("不注入 loadStates 时走真实加载器；空真源不造假产物", async () => {
+    const result = await migrateRelationshipLibrary("C:/proj-empty")
+    expect(result.entryCount).toBe(0)
+    expect(result.status).toBe("empty")
+  })
+})
+
+vi.mock("./character-state", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./character-state")>()
+  return {
+    ...actual,
+    loadCharacterStates: async () => ({ characters: [] }) as never,
+  }
+})
