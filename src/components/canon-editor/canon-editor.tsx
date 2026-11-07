@@ -409,6 +409,7 @@ export function CanonEditor({ projectId, povAllowlist = [], className }: CanonEd
   }, [povInput, draftKnownBy, povAllowlist])
 
   const handleSave = useCallback(async () => {
+    /* v8 ignore next -- 台账 canon-editor.tsx L412：保存按钮 disabled={saving || !correctionDirty}（L786），而 correctionDirty 在 !selected 时恒 false（L351 早退），两分支均被渲染前提挡住 */
     if (!selected || saving) return
     setSaveError(null)
     setLastSave(null)

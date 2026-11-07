@@ -17,6 +17,7 @@ export function CapabilityReplayDrawer() {
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
+    /* v8 ignore next -- 台账 capability-replay-drawer.tsx L20：触发按钮 disabled={!projectPath}（L40），load 不可能在无 projectPath 时被调用 */
     if (!projectPath) return
     setError(null)
     try {

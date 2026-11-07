@@ -74,6 +74,7 @@ export function CanonFactTable({ edges, maxRevision }: CanonFactTableProps) {
       case "source → target": return "来源 → 对象"
       case "source_chapter": return t("canon.factTableSourceChapter")
       case "digest": return t("canon.factTableDigest")
+      /* v8 ignore next -- 台账 canon-fact-table.tsx L77：columnLabel 的入参类型是 (typeof COLUMNS)[number]，10 个成员逐一无遗漏列出，default 是编译期穷尽性的兜底 */
       default: return col
     }
   }

@@ -352,3 +352,31 @@ describe("第 6 块：债务可视化（跨度条 + 堆叠条 + 双向条）", (
     expect(bare).not.toContain("<polyline")
   })
 })
+
+describe("结清进行中时的并发点击", () => {
+  it("debt-1 结清未完成时点击 debt-2 → 被 settling 守卫拦住，不重复入账", async () => {
+    let resolveFirst: (() => void) | null = null
+    const onSettleDebt = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFirst = resolve
+        }),
+    )
+    const { container } = render(
+      <DebtBoardView
+        chaseDebts={sampleChaseDebts}
+        chaseDebtEvents={sampleChaseDebtEvents}
+        currentChapter={2}
+        onSettleDebt={onSettleDebt}
+      />,
+    )
+    const pick = (id: string) => container.querySelector(`[data-testid="${id}"]`) as HTMLElement
+    fireEvent.click(pick("settle-debt-debt-1"))
+    expect(onSettleDebt).toHaveBeenCalledTimes(1)
+    // debt-2 的按钮未被禁用（disabled 只按 settling.id 匹配）→ 进入 handleSettle 后被 settling 守卫返回
+    fireEvent.click(pick("settle-debt-debt-2"))
+    expect(onSettleDebt).toHaveBeenCalledTimes(1)
+    resolveFirst?.()
+    await waitFor(() => expect(pick("settle-debt-debt-1")).toBeEnabled())
+  })
+})

@@ -90,3 +90,10 @@ describe("nav tier 分层", () => {
     expect(isNavPrimaryTier({ tier: "secondary" })).toBe(false)
   })
 })
+
+describe("readCollapsedGroups 非法存储", () => {
+  it("localStorage 里是非数组 JSON → 返回空数组（不抛）", () => {
+    localStorage.setItem(NAV_COLLAPSED_GROUPS_KEY, JSON.stringify({ not: "array" }))
+    expect(readCollapsedGroups()).toEqual([])
+  })
+})

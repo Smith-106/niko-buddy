@@ -26,6 +26,7 @@ export const PLANNED_VIEWS: readonly PlannedViewSpec[] = [
   // content-area 的占位分支与 workbench 的置灰逻辑随之自然退役（无分支改动）。
 ] as const
 
+/* v8 ignore next -- 台账 planned-views.ts L29：PLANNED_VIEWS 为空表（同文件注释：WaveC 毕业后 15 个灰卡视图全部落地为真视图），map 回调不可达 */
 const PLANNED_VIEW_BY_KEY = new Map(PLANNED_VIEWS.map((spec) => [spec.view, spec]))
 
 /** 是否计划态视图（含类型收窄用）。 */

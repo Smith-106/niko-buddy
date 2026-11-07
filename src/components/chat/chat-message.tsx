@@ -406,6 +406,7 @@ export async function getOrFetchCitedImageInfo(
   citedPageImageCache.set(key, info)
   while (citedPageImageCache.size > CITED_PAGE_IMAGE_CACHE_MAX) {
     const oldest = citedPageImageCache.keys().next().value
+    /* v8 ignore next -- 台账 chat-message.tsx L409：外层 while (citedPageImageCache.size > CITED_PAGE_IMAGE_CACHE_MAX) 且 MAX=200 >= 0，进入循环时 Map 必非空，keys().next().value 恒有值 */
     if (oldest === undefined) break
     citedPageImageCache.delete(oldest)
   }

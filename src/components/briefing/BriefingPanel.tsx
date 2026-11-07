@@ -139,6 +139,7 @@ export function BriefingPanel({ digest, canonClaims = [], onWritePatch }: Briefi
           disabled={!patchOptIn || !onWritePatch || patchState === "busy"}
           aria-label="write"
           onClick={() => {
+            /* v8 ignore next -- 台账 BriefingPanel.tsx L142：触发按钮同条件禁用（disabled={!patchOptIn || !onWritePatch || patchState === "busy"}，L139），UI 不可达 */
             if (!onWritePatch) return;
             setPatchState("busy");
             void onWritePatch(patch as MemoryPatchDraft)

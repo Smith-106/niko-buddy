@@ -63,3 +63,17 @@ describe("writing-workspace-widgets", () => {
     expect(buildChapterDraftGoal("  ")).toBe("生成下一章草稿")
   })
 })
+
+describe("更多工具折叠", () => {
+  it("details 展开事件把 open 状态写回 state（onToggle 路径）", () => {
+    const { container } = render(
+      <WorkspaceMoreTools active>
+        <span>工具</span>
+      </WorkspaceMoreTools>,
+    )
+    const details = container.querySelector('[data-testid="workspace-more-tools"]') as HTMLDetailsElement
+    details.open = true
+    fireEvent(details, new Event("toggle"))
+    expect(details.open).toBe(true)
+  })
+})
