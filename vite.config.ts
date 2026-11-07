@@ -203,15 +203,18 @@ export default defineConfig(async () => ({
         // 注：vitest 支持对象 key 为 glob；此处保留全局四维基线，
         //     核心模块高保护在政策文档中以定向测量命令执行
         //
-        // 2026-11-05 覆盖率战役（Session 20261105-ralph-coverage-100）：statements 80 → 100（用户裁决）。
-        // 已知后果：在 statements 真正达到 100%（含尾段不可达分支全部入 unreachable-branch-ledger）之前，
-        //   `npm run test:coverage` 会因 statements < 100 而退出非零 —— 这是预期，不是失败。
-        //   战役期间该命令不作 PR 门禁，进度以报告的四维百分比为准。
-        //   其余三项（branches 75 / functions 80 / lines 80）维持不变，未做任何下调。
-        statements: 100,
-        branches: 75,
-        functions: 80,
-        lines: 80,
+        // 2026-11-07 棘轮门（用户裁决，覆盖率战役收口后）：四维贴近实测值设门，锁住战役成果，
+        // 任何维度回退即 exit 非零 —— 不再是「已知恒红」的战役期临时值。
+        //   实测基线（HEAD 539b6d3e，串行全量 1401 文件）：statements 99.99% / branches 97.55%
+        //   / functions 99.80% / lines 99.98%。
+        // statements 天花板是 99.99% 而非 100%：src/lib/novel/deep-chapter-review-repair.ts
+        //   L254/261-266 共 7 条为 p1-dedup-016 护栏明令禁止标注的结构性死分支，
+        //   经用户裁决接受为永久地板（见 docs/unreachable-branch-ledger.md）。
+        // 下调仍受 58 号 C 共识约束：四维不得低于 80/75/80/80。
+        statements: 99.9,
+        branches: 97,
+        functions: 99.5,
+        lines: 99.9,
       },
     },
   },
