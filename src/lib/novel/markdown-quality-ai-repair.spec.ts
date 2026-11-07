@@ -41,6 +41,7 @@ describe("stream 报错透传", () => {
         content: "正文",
         llmConfig: {} as Parameters<typeof streamChat>[0],
         stream,
+        signal: new AbortController().signal,
         maxTokens: 100,
       }),
     ).rejects.toBe(boom)
