@@ -421,6 +421,7 @@ async function buildContextPackUnlocked(
     // 非空才渲染，零绑定字节级不变）。失败降级 undefined，不阻断 pack 装配。
     let referenceBindingsText = ""
     try {
+      /* v8 ignore next -- 台账 context-engine.ts L424：loadReferenceBindings（reference-binding.ts L47-51）直委 createAtomicJsonStore.load，后者对缺失/损坏一律降级 emptyCtor，从不 reject，故 .catch 回退体不可达 */
       const bindingStore = await loadReferenceBindings(pp).catch(() => null)
       if (bindingStore) {
         referenceBindingsText = bindingsToContextText(bindingStore, context.chapterNumber ?? 0)
@@ -488,6 +489,7 @@ async function buildContextPackUnlocked(
     // Wave 5 (v2.5.0): 上下文用量快照 — 预算线直读 currentBuildBudget（本 build
     // 已算，不重算），记忆段实测 user-memory preference 字符数。additive：加载
     // 失败/无 store 时 memoryChars=0，仍冻结预算线（ring 照常渲染其余四段）。
+    /* v8 ignore next -- 台账 context-engine.ts L491：loadUserMemoryForProject（user-memory/session.ts L39-51）内部 loadUserMemory（store.ts L15-35）自带 try/catch，读失败/解析失败一律返回 createDefaultStore，从不 reject */
     const userMemoryStore = await loadUserMemoryForProject(pp).catch(() => null)
     if (currentBuildBudget) {
       pack.contextUsage = buildContextUsage(currentBuildBudget, userMemoryStore)

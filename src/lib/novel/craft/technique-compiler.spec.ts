@@ -610,3 +610,31 @@ describe("compileWithFallback 离线降级路径", () => {
     ).rejects.toThrow(/健康探活未通过/)
   })
 })
+
+describe("validateRegistryTraceability 钩子溯源 + 字段填充判定", () => {
+  const registry = compileFromCommittedSnapshot()
+
+  it("钩子型 sourceMemoryId 不在快照中 → 报 hookTypeRegistry[i].sourceMemoryId", () => {
+    const tainted: CompiledTechniqueRegistry = {
+      ...registry,
+      hookTypeRegistry: registry.hookTypeRegistry.map((entry, i) =>
+        i === 0 ? { ...entry, sourceMemoryId: "ghost-hook-memory" } : entry,
+      ),
+    }
+    const result = validateRegistryTraceability(tainted, NMEM_SNAPSHOT)
+    expect(result.ok).toBe(false)
+    expect(
+      result.violations.some(
+        (v) => v.path === "hookTypeRegistry[0].sourceMemoryId" && v.message.includes("ghost-hook-memory"),
+      ),
+    ).toBe(true)
+  })
+
+  it("非字符串非数组字段（如数字）视为已填充", () => {
+    const rate = measureCraftFieldFillRate({
+      wish: 42,
+    } as unknown as EntityCraftFields)
+    expect(rate.filled).toContain("wish")
+    expect(rate.missing).not.toContain("wish")
+  })
+})

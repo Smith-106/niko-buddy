@@ -671,6 +671,13 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 |----|------|------|
 | 19 | `resolveDefaultCorpusRoot` 的 `catch { return null }` | webview 专用兜底：Node/vitest 下 `import.meta.url` 恒为 `file://`，`fileURLToPath` 不会抛 `ERR_INVALID_URL`，只有 `tauri://` 宿主会走到 |
 
+### lib/novel/context-engine.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 424 | `loadReferenceBindings(pp).catch(() => null)` 的回退体 | `loadReferenceBindings`（reference-binding.ts L47-51）直委 `createAtomicJsonStore.load`，后者对缺失/损坏一律降级 `emptyCtor`，从不 reject |
+| 491 | `loadUserMemoryForProject(pp).catch(() => null)` 的回退体 | `loadUserMemoryForProject`（user-memory/session.ts L39-51）内部 `loadUserMemory`（store.ts L15-35）自带 try/catch，读失败/解析失败一律返回 `createDefaultStore`，从不 reject |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。
