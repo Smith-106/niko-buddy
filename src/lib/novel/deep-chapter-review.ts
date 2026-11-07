@@ -195,8 +195,10 @@ export async function runFullReviewWithSixDim(
       break
     }
     default: {
+    /* v8 ignore start -- 台账 deep-chapter-review.ts L198-199：switch(sixDimOutcome) 已穷举 SixDimOutcome 联合的全部成员，default 是编译期 exhaustiveness 断言（assertNever 的参数类型是 never），运行期不可达 */
       assertNeverSixDimOutcome(sixDimOutcome)
       break
+    /* v8 ignore stop */
     }
   }
   // ISS-20260719-002 (option C1 真接线已激活): 机械预检在 sixDimP 启动前先跑

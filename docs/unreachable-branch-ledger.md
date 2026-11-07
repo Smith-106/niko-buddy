@@ -653,6 +653,12 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | 84 | `tick` 开头的 `if (cancelled) return` | `tick` 的唯一来源是 L113 的 `setTimeout` 与 L117 的首次调用；前者在 cleanup（L120）被 `clearTimeout`，后者在挂载时 `cancelled` 必为 false。定时器回调开始执行时 cleanup 尚未跑，`cancelled` 仍为 false |
 | 112 | 排下一轮前的 `if (cancelled) return` | `cancelled` 只可能在 await 期间被 cleanup 置真，而 await 之后的 L90/L100 已先行 return；从 L90 到 L112 之间无任何 await，`cancelled` 不会变化 |
 
+### lib/novel/deep-chapter-review.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 198-199 | `switch (sixDimOutcome)` 的 `default: assertNeverSixDimOutcome(...)` | 编译期 exhaustiveness 断言：`SixDimOutcome` 的三个成员（success/failure/skipped）已在上面全部显式处理，`assertNever` 的参数类型是 `never`，运行期不可达 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

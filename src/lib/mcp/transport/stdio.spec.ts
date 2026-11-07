@@ -55,3 +55,23 @@ describe("TauriStdioTransport", () => {
     expect(invoke).toHaveBeenCalledWith("mcp_stdio_kill", { pid: 123 })
   })
 })
+
+describe("TauriStdioTransport 生命周期幂等", () => {
+  it("start 幂等：已启动后再次 start 直接返回缓存 pid，不重复 spawn", async () => {
+    vi.mocked(invoke).mockReset()
+    vi.mocked(invoke).mockResolvedValueOnce(456)
+    const transport = new TauriStdioTransport({ command: "node" })
+
+    expect(await transport.start()).toBe(456)
+    expect(await transport.start()).toBe(456)
+    expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1)
+  })
+
+  it("未启动即 close → 空操作，不调用 kill", async () => {
+    vi.mocked(invoke).mockReset()
+    const transport = new TauriStdioTransport({ command: "node" })
+
+    await expect(transport.close()).resolves.toBeUndefined()
+    expect(vi.mocked(invoke)).not.toHaveBeenCalled()
+  })
+})
