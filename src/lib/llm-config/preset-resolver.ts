@@ -60,9 +60,12 @@ export function resolveConfig(
         ? Math.floor(preset.suggestedMaxOutputTokens)
         : undefined
   // HTTP 三档超时 (UI 可调毫秒数) 透传——非法值 → undefined (沿用各档硬编码默认, 零行为变更)
-  const httpConnectTimeoutMs = clampHttpTimeoutMs(ov.httpConnectTimeoutMs, "httpConnectTimeoutMs")
-  const httpHeaderTimeoutMs = clampHttpTimeoutMs(ov.httpHeaderTimeoutMs, "httpHeaderTimeoutMs")
-  const httpStreamIdleMs = clampHttpTimeoutMs(ov.httpStreamIdleMs, "httpStreamIdleMs")
+  // 回退优先级：provider 覆盖 > 全局 LlmConfig（fallback）。模型路由（resolveModelConfig）
+  // 会为每个任务模型重建配置，若只读覆盖值，用户在全局设的超时就会在审查/摘要等
+  // 任务模型上静默失效，又退回 20s 默认。
+  const httpConnectTimeoutMs = clampHttpTimeoutMs(ov.httpConnectTimeoutMs ?? fallback.httpConnectTimeoutMs, "httpConnectTimeoutMs")
+  const httpHeaderTimeoutMs = clampHttpTimeoutMs(ov.httpHeaderTimeoutMs ?? fallback.httpHeaderTimeoutMs, "httpHeaderTimeoutMs")
+  const httpStreamIdleMs = clampHttpTimeoutMs(ov.httpStreamIdleMs ?? fallback.httpStreamIdleMs, "httpStreamIdleMs")
 
   if (preset.provider === "custom") {
     return {

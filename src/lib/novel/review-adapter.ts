@@ -114,6 +114,20 @@ function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error))
 }
 
+/** 审查阶段墙钟上限的默认值与钳制区间（60s–30min）。 */
+export const REVIEW_STAGE_TIMEOUT_DEFAULT_MS = 300_000
+const REVIEW_STAGE_TIMEOUT_MIN_MS = 60_000
+const REVIEW_STAGE_TIMEOUT_MAX_MS = 1_800_000
+
+/**
+ * 钳制 `novelConfig.reviewStageTimeoutMs`。非数字/非法值 → 回退默认 5 分钟，
+ * 保证未配置时行为与改前逐字节一致。
+ */
+export function clampReviewStageTimeoutMs(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return REVIEW_STAGE_TIMEOUT_DEFAULT_MS
+  return Math.max(REVIEW_STAGE_TIMEOUT_MIN_MS, Math.min(REVIEW_STAGE_TIMEOUT_MAX_MS, Math.floor(value)))
+}
+
 // M10-2：门控键解析块（CORR108 legacy + resolveReviewGateKey）已剥至
 // ./review-prompt-assembly（re-export 见文件顶部桥接）。
 export interface NovelReviewCallbacks {
@@ -635,6 +649,10 @@ export async function reviewChapter(
   // 审稿 reasoning 档位可配置（默认 high）；下调可省审稿推理 Token。
   // ISS-20260709-023 (DC-7) 渐进式 DI: 注入优先, 缺省回退 store。
   const reviewReasoningEffort = options.novelConfig?.reviewReasoningEffort ?? useWikiStore.getState().novelConfig.reviewReasoningEffort ?? "high"
+  // 阶段墙钟上限与 reasoning 档同一条 DI 规则：调用方传了用传递的，否则读 store。
+  const reviewStageTimeoutMs = clampReviewStageTimeoutMs(
+    options.novelConfig?.reviewStageTimeoutMs ?? useWikiStore.getState().novelConfig.reviewStageTimeoutMs,
+  )
 
   const systemPrompt = `你是一个专业的小说审稿编辑。你的任务是检查章节内容是否存在连贯性问题。
 请在一次回复里先完成分阶段审查分析，再在最后只输出最终审查 JSON 数组，JSON 之外不要有多余内容。
@@ -676,6 +694,7 @@ ${langReminder}`
         reviewReasoningEffort,
         0,
         i,
+        reviewStageTimeoutMs,
       )
 
       // ISS-20260711-001: parse now happens inside runReviewStage (with retry),
@@ -768,6 +787,7 @@ async function runReviewStage(
   reasoningMode: "low" | "medium" | "high" = "high",
   retryCount = 0,
   chunkIndex = 0,
+  stageTimeoutMs: number = REVIEW_STAGE_TIMEOUT_DEFAULT_MS,
 ): Promise<unknown[]> {
   publishReviewStageThinking(stageThinking, callbacks, stageTitle, "正在分析...")
   const messages: ChatMessage[] = [
@@ -807,7 +827,7 @@ async function runReviewStage(
       // #7: 内部阶段超时（非用户取消）→ 改写为明确的超时错误并降为 warn，
       // 避免日志先误报 "Request cancelled" 再出现重试，造成“被取消却又重跑”的困惑。
       if (stageTimedOut && !signal?.aborted && (error.name === "AbortError" || /request cancell?ed/i.test(error.message))) {
-        const timeoutError = new Error(`审查阶段「${stageTitle}」超过 5 分钟未完成，已超时`)
+        const timeoutError = new Error(`审查阶段「${stageTitle}」超过 ${Math.round(stageTimeoutMs / 60000)} 分钟未完成，已超时`)
         logger.warn("Novel Review", "Stage timed out", { stage: stageTitle })
         streamError = timeoutError
         return
@@ -819,10 +839,12 @@ async function runReviewStage(
   }
 
   const timeoutController = new AbortController()
+  // 阶段墙钟上限：默认 5 分钟（与改前一致）；低容量网关可用 novelConfig.reviewStageTimeoutMs
+  // 放宽，否则「等上游账号池腾位」的重试退避会先撞上阶段超时。
   const timeoutId = setTimeout(() => {
     stageTimedOut = true
     timeoutController.abort()
-  }, 300000)
+  }, stageTimeoutMs)
 
   const combinedSignal = signal
     ? combineSignals(signal, timeoutController.signal)
@@ -860,7 +882,7 @@ async function runReviewStage(
       })
       publishReviewStageThinking(stageThinking, callbacks, stageTitle, "网络波动，正在重试...")
       await new Promise(resolve => setTimeout(resolve, 2000))
-      return runReviewStage(llmConfig, systemPrompt, userPrompt, stageTitle, callbacks, stageThinking, signal, reasoningMode, retryCount + 1, chunkIndex)
+      return runReviewStage(llmConfig, systemPrompt, userPrompt, stageTitle, callbacks, stageThinking, signal, reasoningMode, retryCount + 1, chunkIndex, stageTimeoutMs)
     }
     throw err
   }

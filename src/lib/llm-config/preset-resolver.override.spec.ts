@@ -119,3 +119,24 @@ describe("F-004 resolveProviderOverride — API-key anthropic HTTP default routi
     expect(resolveProviderOverride(codex)).toBe("codex-cli")
   })
 })
+
+describe("resolveConfig 传输层配置回退", () => {
+  it("provider 覆盖未指定超时时继承全局 LlmConfig（模型路由不会把它们退回默认）", () => {
+    const globalConfig: LlmConfig = {
+      ...fallback,
+      httpConnectTimeoutMs: 30_000,
+      httpHeaderTimeoutMs: 120_000,
+      httpStreamIdleMs: 300_000,
+    }
+    const resolved = resolveConfig(preset("custom"), { apiKey: "k", baseUrl: "https://gw.example/v1", model: "m" }, globalConfig)
+    expect(resolved.httpHeaderTimeoutMs).toBe(120_000)
+    expect(resolved.httpConnectTimeoutMs).toBe(30_000)
+    expect(resolved.httpStreamIdleMs).toBe(300_000)
+  })
+
+  it("provider 覆盖显式指定时以覆盖为准", () => {
+    const globalConfig: LlmConfig = { ...fallback, httpHeaderTimeoutMs: 120_000 }
+    const resolved = resolveConfig(preset("custom"), { apiKey: "k", httpHeaderTimeoutMs: 45_000 }, globalConfig)
+    expect(resolved.httpHeaderTimeoutMs).toBe(45_000)
+  })
+})

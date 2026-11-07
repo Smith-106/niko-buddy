@@ -3,7 +3,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import type { StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
 import type { ChapterSnapshot } from "./chapter-ingest"
-import { buildReviewPrompt, buildCanonModalityContext, ReviewParseError, reviewChapter, resolveReviewGateKey, CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES, CORR108_LEGACY_ANTI_AI_REVIEW_TYPES } from "./review-adapter"
+import { buildReviewPrompt, buildCanonModalityContext, clampReviewStageTimeoutMs, ReviewParseError, REVIEW_STAGE_TIMEOUT_DEFAULT_MS, reviewChapter, resolveReviewGateKey, CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES, CORR108_LEGACY_ANTI_AI_REVIEW_TYPES } from "./review-adapter"
 import type { TemporalFact } from "./temporal-memory"
 
 const mocks = vi.hoisted(() => ({
@@ -1450,5 +1450,20 @@ describe("53 P0-3 genre 激活维度注入 (buildReviewPrompt)", () => {
   it("characterOnly 模式不注入激活段 (角色专项审查现状)", () => {
     const prompt = buildReviewPrompt(contextPack, "正文", true, "tuili")
     expect(prompt).not.toContain("本轮审查维度激活集")
+  })
+})
+
+describe("clampReviewStageTimeoutMs", () => {
+  it("未配置/非法值回退默认 5 分钟", () => {
+    expect(clampReviewStageTimeoutMs(undefined)).toBe(REVIEW_STAGE_TIMEOUT_DEFAULT_MS)
+    expect(clampReviewStageTimeoutMs(0)).toBe(REVIEW_STAGE_TIMEOUT_DEFAULT_MS)
+    expect(clampReviewStageTimeoutMs(Number.NaN)).toBe(REVIEW_STAGE_TIMEOUT_DEFAULT_MS)
+    expect(clampReviewStageTimeoutMs("900000")).toBe(REVIEW_STAGE_TIMEOUT_DEFAULT_MS)
+  })
+
+  it("合法值生效并钳制到 60s–30min", () => {
+    expect(clampReviewStageTimeoutMs(900_000)).toBe(900_000)
+    expect(clampReviewStageTimeoutMs(1_000)).toBe(60_000)
+    expect(clampReviewStageTimeoutMs(9_999_999)).toBe(1_800_000)
   })
 })

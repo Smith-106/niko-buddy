@@ -179,6 +179,65 @@ async function streamViaAntigravityCli(
 const NETWORK_RETRY_DELAYS_MS = [2_000, 5_000, 10_000]
 
 /**
+ * 上游「容量暂时不足」的重试节奏（毫秒）。
+ *
+ * 网关在账号池被打满时会返 503 `no_healthy_account` / `auth_unavailable`
+ * （偶见 429），这是**瞬时**状态：等一会儿就有空闲账号。以前这类响应被当成
+ * 终态错误，整条章节管线（门控阶段并行发多个大请求）直接 failed —— 见
+ * DEBT-20261108-07。这里按 3s/8s/20s/30s 退避，仍受 30 分钟总上限约束。
+ */
+const CAPACITY_RETRY_DELAYS_MS = [5_000, 10_000, 20_000, 30_000, 45_000, 60_000]
+
+/**
+ * 判断一个非 2xx 响应是不是「上游容量暂时不足」而非真实故障。
+ * 429 一律算；503 要看响应体——普通 503（网关整体故障）不重试，
+ * 只有承载池耗尽语义的 503 才值得等。
+ */
+export function isCapacityLimitResponse(status: number, detail: string): boolean {
+  if (status === 429) return true
+  if (status !== 503) return false
+  return /no_healthy_account|auth_unavailable|no_healthy|all accounts are temporarily unavailable|temporarily unavailable|rate.?limit/i.test(
+    detail,
+  )
+}
+
+/** `llmConfig.maxConcurrency` 的钳制：非正整数/非法值 → undefined（不介入）。 */
+export function clampMaxConcurrency(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 1
+    ? Math.max(1, Math.min(32, Math.floor(value)))
+    : undefined
+}
+
+/**
+ * 按接口地址计数的并发门闸。只在 `llmConfig.maxConcurrency` 显式配置时启用，
+ * 缺省完全不介入（行为与改前一致）。
+ *
+ * 注：名额在响应头到达时释放（不等到流结束），对流式调用是偏松的估算；
+ * 这里要的是「不要一次性把账号池打穿」，不是精确带宽控制。
+ */
+const endpointInFlight = new Map<string, number>()
+const endpointWaiters = new Map<string, Array<() => void>>()
+
+async function acquireEndpointSlot(endpoint: string, limit: number, signal?: AbortSignal): Promise<() => void> {
+  const release = (): void => {
+    const current = (endpointInFlight.get(endpoint) ?? 1) - 1
+    if (current <= 0) endpointInFlight.delete(endpoint)
+    else endpointInFlight.set(endpoint, current)
+    endpointWaiters.get(endpoint)?.shift()?.()
+  }
+  while ((endpointInFlight.get(endpoint) ?? 0) >= limit) {
+    await new Promise<void>((resolve) => {
+      const queue = endpointWaiters.get(endpoint) ?? []
+      queue.push(resolve)
+      endpointWaiters.set(endpoint, queue)
+    })
+    if (signal?.aborted) return release
+  }
+  endpointInFlight.set(endpoint, (endpointInFlight.get(endpoint) ?? 0) + 1)
+  return release
+}
+
+/**
  * 进程内 prompt 缓存诊断环形缓冲（上限 32 条）。
  *
  * 它存在的意义不是存历史，而是算 startGapMs / idleGapMs：只有持有同前缀的
@@ -692,6 +751,8 @@ async function streamChatHeld(
   // headers arrive, reset on each chunk, aborts the body read on a stall.
   // 三档超时取自运行时配置 (UI 可调), 缺省 = 各档硬编码默认 (零行为变更)。
   const httpTimeouts = resolveHttpTimeouts(mutableRuntimeConfig)
+  // 可选并发门闸：未配置 = 完全不介入。上游账号池容量小的网关才需要开（见 DEBT-20261108-07）。
+  const capacityLimit = clampMaxConcurrency(mutableRuntimeConfig.maxConcurrency)
   let streamIdleFired = false
   const streamIdleController = new AbortController()
   const armStreamIdleTimer = (): ReturnType<typeof setTimeout> =>
@@ -742,6 +803,7 @@ async function streamChatHeld(
       const httpFetch = await getHttpFetch()
       let attempt = 0
       let probeSettled = false
+      let capacityAttempt = 0
       while (true) {
         // Per-attempt header deadline: aborts the in-flight request when no
         // response headers arrive in time (proxy black hole / hung gateway).
@@ -762,8 +824,26 @@ async function streamChatHeld(
           signal: attemptSignal,
           connectTimeout: httpTimeouts.connectTimeoutMs,
         } as RequestInit
+        const releaseSlot = capacityLimit ? await acquireEndpointSlot(providerConfig.url, capacityLimit, signal) : null
         try {
-          return await httpFetch(providerConfig.url, attemptInit)
+          const res = await httpFetch(providerConfig.url, attemptInit)
+          if (res.status !== 429 && res.status !== 503) return res
+          // 读掉失败体的同时也把「上游容量不足」与「真实故障」区分开：判据不够
+          // 就原样把响应交回上层，由既有错误路径如实上报。
+          let detail = ""
+          try {
+            detail = await res.text()
+          } catch {
+            return res
+          }
+          const rebuilt = (): Response =>
+            new Response(detail, { status: res.status, statusText: res.statusText, headers: res.headers })
+          const delay = CAPACITY_RETRY_DELAYS_MS[capacityAttempt]
+          if (!isCapacityLimitResponse(res.status, detail) || delay === undefined) return rebuilt()
+          capacityAttempt += 1
+          const shouldRetry = await waitForRetry(delay, combinedSignal)
+          if (!shouldRetry) return rebuilt()
+          continue
         } catch (err) {
           if (signal?.aborted || combinedSignal?.aborted) throw err
           /* v8 ignore next */
@@ -804,6 +884,7 @@ async function streamChatHeld(
           if (!shouldContinue) throw err
         } finally {
           clearTimeout(headerTimer)
+          releaseSlot?.()
         }
       }
     }

@@ -57,8 +57,49 @@
 | DEBT-20261108-03 | 【已结项 2026-11-07】本地 `cargo test` 无法运行。真机制：测试二进制静态导入 `comctl32!TaskDialogIndirect`（仅 ComCtl32 **v6** 导出）；`tauri-build` 只给 bin target 嵌 manifest，test target 依赖 `QMAI/src-tauri/.cargo/config.toml` 的 `target.*.rustflags=/MANIFESTDEPENDENCY:...Common-Controls 6.0.0.0`，而 cargo 的 config 发现是**从 cwd 逐级向上**：⇒ 必须 `cd QMAI/src-tauri && cargo test --lib`（CI 就是这么跑的）；从仓库根用 `--manifest-path` 调用不会得到该 flag，产物缺旁挂 `.exe.manifest`，进程在 main 之前就 `0xC0000139`、0 用例执行。实测：`cd QMAI/src-tauri` 形态 **600 用例 / 597 passed / 0 failed / 3 ignored**。 | — | 已结项 |
 | DEBT-20261108-04 | 测试二进制对 SxS manifest 的依赖是**旁挂**（`<exe>.manifest`）而非内嵌：`cargo clean`、复制 exe、或设置 `RUSTFLAGS` 环境变量（会覆盖 `.cargo/config.toml` 的 rustflags）任一都会让测试重新 `0xC0000139`。加固方案：`build.rs` 追加 `cargo:rustc-link-arg-tests=/MANIFESTDEPENDENCY:...` + `/MANIFEST:EMBED`（tests-only，不与 bin 的 `WindowsAttributes` 冲突）。 | 出现第三次「测试 exe 缺 manifest」事故，或 CI 之外的机器踩坑 | 下一次动构建配置时 |
 | DEBT-20261108-06 | 长章节生成在「慢网关 / 代理黑洞」下会被 20s 的 HTTP header 超时误杀：`DEFAULT_HTTP_HEADER_TIMEOUT_MS = 20_000`（`src/lib/llm-client.ts:212`）只管响应头到达，非流式大请求或网关侧排队时会先到 20s；实测 `chapter.batch` 在 `after_draft` 之后的门控阶段连续报「连接模型接口超过 20 秒仍无响应」。可用 `llmConfig.httpHeaderTimeoutMs`（钳制 5s–300s）调大，实测 120s 后同一章可从 `after_scene_breakdown` 推进到 `after_draft`。 | 出现第三次同类误杀，或用户反馈长章频繁超时 | 下一次动 LLM 传输层时评估按请求类型（非流式大请求）自适应放宽 |
-| DEBT-20261108-07 | 章节管线对 provider 的**并发上限**零适配：实测同一把 key 打 `cpa.nikoniko.tech/v1`，串行/单发大请求 200，**6 路并发大请求 → 4 路 503 `no_healthy_account`**（网关并发上限约 2，且把限流错标成「账号池无健康账号」）。`chapter.batch` 在 `after_draft` 之后的门控环节并行发多个大请求，必然撞上；应用侧没有「按 provider 并发额度排队」也没有对 503 `no_healthy_account` 的退避重试，任务直接 failed。 | 用户反馈「偶发失败/换网就好」或同一 provider 上并发章节增多 | 下一次动 LLM 传输层时加「按 provider 的并发信号量 + 503 指数退避」，并用并发探针做回归 |
+| DEBT-20261108-07（已修，2026-11-08 04:00） | 章节管线对 provider 的**并发上限**零适配：实测同一把 key 打 `cpa.nikoniko.tech/v1`，串行/单发大请求 200，**6 路并发大请求 → 4 路 503 `no_healthy_account`**（网关并发上限约 2，且把限流错标成「账号池无健康账号」）。`chapter.batch` 在 `after_draft` 之后的门控环节并行发多个大请求，必然撞上；应用侧没有「按 provider 并发额度排队」也没有对 503 `no_healthy_account` 的退避重试，任务直接 failed。 | 用户反馈「偶发失败/换网就好」或同一 provider 上并发章节增多 | 下一次动 LLM 传输层时加「按 provider 的并发信号量 + 503 指数退避」，并用并发探针做回归 |
 | DEBT-20261108-05 | `auto` / `full` 逐会话授权按钮的 i18n key（`grantAuto` / `revokeAuto` / `autoGranted`）在 `zh.json`/`en.json` 双缺，中文界面回落显示英文 defaultValue（如 `Grant auto (settings + actions)`）。 | 下一次动设置页「外部控制」文案 | 下个补丁版本前 |
+
+## 2026-11-08 修复：真机一窗口全流程跑通（第 4 轮）
+
+### 根因（三条，全部可复现）
+
+1. **容量类 503 被当终态**：同一 key 打 `cpa.nikoniko.tech/v1`，串行/单发（60k–300k 字符输入、
+   `max_tokens` 2000–16000、`reasoning_effort=high`）全 200；**6 路并发大请求 → 4 路
+   `503 no_healthy_account`**。网关每 key 并发额度约 2，且把限流错标成「账号池无健康账号」。
+   `chapter.batch` 在 `after_draft` 之后的门控环节并行发大请求 → 必然撞上 → 整章 failed。
+2. **模型路由丢传输层配置**：`resolveConfig()` 只从 provider 覆盖读三档 HTTP 超时，按任务模型
+   （review/summary）重建配置时全局设的 120s header 超时被静默丢弃、退回 20s 默认。实测单次大请求
+   36s 才回头部 → 20s 必死。
+3. **审查阶段 5 分钟硬编码**：等上游腾位的退避还没结束就先撞阶段超时。
+
+### 修复
+
+| 文件 | 变更 |
+|---|---|
+| `src/lib/llm-client.ts` | `CAPACITY_RETRY_DELAYS_MS=[5s,10s,20s,30s,45s,60s]` + `isCapacityLimitResponse()`（429 一律重试；503 仅当 body 含 `no_healthy_account`/`auth_unavailable` 等容量语义）+ `clampMaxConcurrency()` + `acquireEndpointSlot()` 按端点并发门闸（缺省不介入）。非容量 503 与 400 保持不重试 |
+| `src/lib/llm-config/preset-resolver.ts` | 三档超时回退优先级改为 `provider 覆盖 > 全局 LlmConfig` |
+| `src/lib/novel/review-adapter.ts` + `wiki-store-config.ts` | `NovelConfig.reviewStageTimeoutMs`（默认 300000，钳制 60s–30min），阶段超时错误文案按实际分钟数渲染；`LlmConfig.maxConcurrency`（可选，1–32） |
+| 测试 | `llm-client.spec.ts` +6 条（退避恢复、非容量 503 不重试、400 不重试、429 退避、耗尽上报、并发峰值=1）；`review-adapter.spec.ts` +2 条（钳制）；`preset-resolver.override.spec.ts` +2 条（超时回退/覆盖优先） |
+
+### 验收证据（第 4 轮真机，2026-11-08 03:48–04:17）
+
+- `chapter.batch` → `taskId=ptask_mw6rc948_1`；`pipeline.status` 68 次轮询走完
+  `queued → after_task_brief → after_scene_breakdown → after_draft → after_review → after_revision → done`，
+  终态 `status=done`、`contentChars=3780`、`finishedAt=1794078701201`。
+- `gate.run` isError=false，返回真实结论：`anti_ai` passed/pass（0 条）、`consistency` failed/manual_review
+  （21 条 + 12 条修复建议）、`quality` failed/manual_review（11 条）、`overall`+`manualReviewRequired`+`note` 齐备。
+- `chapter.read {chapter:"1"}` isError=false，3775 字符正文。
+- 单测：`llm-client.spec.ts` 127 passed、`review-adapter.spec.ts` 62 passed、`preset-resolver.override.spec.ts` 8 passed；
+  `npm run typecheck` 0 错；`eslint` 干净。
+- 证据文件：`.workflow/sessions/close-verification-gaps/e2e/{mcp-e2e-final.json, mcp-e2e-round4-evidence.json, round4-20261108.md}`。
+
+### 环境前提
+
+`llmConfig.model=deepseek-v4.1-flash`、`httpHeaderTimeoutMs=120000`、`httpStreamIdleMs=300000`、
+`maxConcurrency` 未设；`novelConfig` 四个任务模型统一 `deepseek/deepseek-v4.1-flash`、
+`reviewStageTimeoutMs=900000`。已排除的误判：`writingModel` 曾指向网关不存在的
+`muse-spark-1.3-contributor-free`（实发请求被抓到 → 400 unknown provider），已改。
 
 ## 验收证据
 

@@ -143,6 +143,12 @@ export interface LlmConfig {
   httpConnectTimeoutMs?: number
   httpHeaderTimeoutMs?: number
   httpStreamIdleMs?: number
+  /**
+   * 同一接口地址的最大并发 LLM 请求数（可选 additive）。
+   * undefined = 不介入（行为与改前完全一致）；设置后经 clampMaxConcurrency 钳制到 1–32。
+   * 用于上游账号池容量小、并发一打就 503 no_healthy_account 的网关。
+   */
+  maxConcurrency?: number
   apiMode?: CustomApiMode
   reasoning?: ReasoningConfig
   localCliIsolation?: boolean
@@ -344,6 +350,12 @@ export interface NovelConfig {
   journalTtlMs?: number
   /** Reasoning effort tier for review calls (default high). */
   reviewReasoningEffort: "low" | "medium" | "high"
+  /**
+   * 单个审查阶段的墙钟上限（毫秒，可选 additive）。
+   * undefined = 300000（5 分钟，与改前一致）。低容量网关（并发额度小、需要退避等位）
+   * 上长章节的审查很容易超 5 分钟，可用此字段放宽；钳制区间 60s–30min。
+   */
+  reviewStageTimeoutMs?: number
   reviewModel: string
   summaryModel: string
   extractModel: string

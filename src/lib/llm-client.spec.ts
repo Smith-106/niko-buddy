@@ -109,6 +109,8 @@ import {
   extractJsonArraySpan,
   flushContinuityMetrics,
   flushMetrics,
+  clampMaxConcurrency,
+  isCapacityLimitResponse,
   isOutputTruncatedError,
   isRequestCancelledError,
   isTransportInactivityError,
@@ -617,6 +619,26 @@ describe("streamChat CLI transports", () => {
 
 // ── HTTP happy path ───────────────────────────────────────────────────────
 
+describe("上游容量判定与并发钳制", () => {
+  it("429 一律视为容量类；503 只在响应体带池耗尽语义时算", () => {
+    expect(isCapacityLimitResponse(429, "")).toBe(true)
+    expect(isCapacityLimitResponse(503, '{"error":{"code":"no_healthy_account"}}')).toBe(true)
+    expect(isCapacityLimitResponse(503, '{"error":{"message":"auth_unavailable: no auth available"}}')).toBe(true)
+    expect(isCapacityLimitResponse(503, '{"error":"gateway exploded"}')).toBe(false)
+    expect(isCapacityLimitResponse(400, "no_healthy_account")).toBe(false)
+    expect(isCapacityLimitResponse(200, "no_healthy_account")).toBe(false)
+  })
+
+  it("maxConcurrency 钳制到 1–32，非法值不介入", () => {
+    expect(clampMaxConcurrency(undefined)).toBeUndefined()
+    expect(clampMaxConcurrency(0)).toBeUndefined()
+    expect(clampMaxConcurrency(-3)).toBeUndefined()
+    expect(clampMaxConcurrency("2")).toBeUndefined()
+    expect(clampMaxConcurrency(2.7)).toBe(2)
+    expect(clampMaxConcurrency(99)).toBe(32)
+  })
+})
+
 describe("streamChat HTTP path", () => {
   it("54 W3: config.maxOutputTokens 合并进请求体 max_tokens (openai 分支)", async () => {
     let capturedBody: Record<string, unknown> | null = null
@@ -739,6 +761,121 @@ describe("streamChat HTTP path", () => {
     expect(callbacks.onError).toHaveBeenCalledTimes(1)
     expect(callbacks.onError.mock.calls[0][0].message).toContain("无法连接到模型接口")
     expect(callbacks.onDone).not.toHaveBeenCalled()
+  })
+
+  it("重试上游容量不足（503 no_healthy_account）而不是直接失败", async () => {
+    vi.useFakeTimers()
+    const capacityBody = JSON.stringify({
+      error: { code: "no_healthy_account", message: "auth_unavailable: no auth available (model=deepseek-v4.1-flash)" },
+    })
+    let attempts = 0
+    setupHttpFetch(((async () => {
+      attempts++
+      if (attempts <= 2) return streamResponse(capacityBody, 503)
+      return streamResponse(sseLines(openAiToken("recovered"), "data: [DONE]"))
+    }) as unknown) as typeof fetch)
+
+    const callbacks = makeCallbacks()
+    const p = streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+    await vi.advanceTimersByTimeAsync(60_000)
+    await p
+
+    expect(attempts).toBe(3)
+    expect(callbacks.onToken).toHaveBeenCalledWith("recovered")
+    expect(callbacks.onDone).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
+
+  it("普通 503（无容量语义）不重试，如实上报响应体", async () => {
+    let attempts = 0
+    setupHttpFetch(((async () => {
+      attempts++
+      return streamResponse('{"error":"gateway exploded"}', 503)
+    }) as unknown) as typeof fetch)
+
+    const callbacks = makeCallbacks()
+    await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+
+    expect(attempts).toBe(1)
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("503")
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("gateway exploded")
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+  })
+
+  it("400 保持不可重试（不因新增退避而变成重试）", async () => {
+    let attempts = 0
+    setupHttpFetch(((async () => {
+      attempts++
+      return streamResponse('{"error":"unknown provider"}', 400)
+    }) as unknown) as typeof fetch)
+
+    const callbacks = makeCallbacks()
+    await streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+
+    expect(attempts).toBe(1)
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("unknown provider")
+  })
+
+  it("429 也走退避重试", async () => {
+    vi.useFakeTimers()
+    let attempts = 0
+    setupHttpFetch(((async () => {
+      attempts++
+      if (attempts === 1) return streamResponse('{"error":"rate limited"}', 429)
+      return streamResponse(sseLines(openAiToken("ok"), "data: [DONE]"))
+    }) as unknown) as typeof fetch)
+
+    const callbacks = makeCallbacks()
+    const p = streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+    await vi.advanceTimersByTimeAsync(30_000)
+    await p
+
+    expect(attempts).toBe(2)
+    expect(callbacks.onDone).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
+
+  it("容量退避耗尽后如实上报最后一次响应体", async () => {
+    vi.useFakeTimers()
+    let attempts = 0
+    setupHttpFetch(((async () => {
+      attempts++
+      return streamResponse('{"error":{"code":"no_healthy_account"}}', 503)
+    }) as unknown) as typeof fetch)
+
+    const callbacks = makeCallbacks()
+    const p = streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
+    await vi.advanceTimersByTimeAsync(200_000)
+    await p
+
+    // 首发 + 6 次退避（5s/10s/20s/30s/45s/60s）
+    expect(attempts).toBe(7)
+    expect(callbacks.onError).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("503")
+    expect(callbacks.onError.mock.calls[0][0].message).toContain("no_healthy_account")
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+  })
+
+  it("maxConcurrency=1 时同一端点串行（峰值并发为 1）", async () => {
+    let inFlight = 0
+    let peak = 0
+    setupHttpFetch(((async () => {
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      inFlight -= 1
+      return streamResponse(sseLines(openAiToken("ok"), "data: [DONE]"))
+    }) as unknown) as typeof fetch)
+
+    const config = llmConfig({ maxConcurrency: 1 })
+    await Promise.all([
+      streamChat(config, [{ role: "user", content: "a" }], makeCallbacks()),
+      streamChat(config, [{ role: "user", content: "b" }], makeCallbacks()),
+    ])
+
+    expect(peak).toBe(1)
   })
 
   it("LL-2: aborts the retry wait when the caller signal fires → cancelled error, no onDone", async () => {
