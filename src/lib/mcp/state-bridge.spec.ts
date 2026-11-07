@@ -63,6 +63,10 @@ function deps(overrides: Partial<StateBridgeDeps> = {}): StateBridgeDeps {
     // 项目动作：默认给出"未实现"的失败，让各用例显式覆盖自己要验的分支，
     // 避免某个用例因为默认实现而"假通过"。
     startPipeline: () => ({ ok: false, error: "测试未注入 startPipeline" }),
+    startPipelineBatch: () => ({ ok: false, error: "测试未注入 startPipelineBatch" }),
+    startDirectorAdvance: () => ({ ok: false, error: "测试未注入 startDirectorAdvance" }),
+    startOutlineGeneration: () => ({ ok: false, error: "测试未注入 startOutlineGeneration" }),
+    upsertCharacter: async () => ({ name: "x", role: "supporting", path: "/proj/wiki/entities/characters/x.md" }),
     readPipeline: () => null,
     writeChapterDraft: async () => ({ draftId: "draft_test", chapterName: "x", path: "/proj/d.md", chars: 1 }),
     resolveFormalPath: () => ({ kind: "chapter", path: "/proj/wiki/chapters/x.md" }),
@@ -328,6 +332,103 @@ describe("handleStateRequest — 项目动作（P2）", () => {
     )
     expect(res.ok).toBe(true)
     expect(res.value).toEqual(snapshot)
+  })
+
+  it("pipeline-start-batch 转发整批参数并回多个 taskId", async () => {
+    const startPipelineBatch = vi.fn(() => ({
+      ok: true as const,
+      tasks: [
+        { taskId: "ptask_1", chapterNumber: 1 },
+        { taskId: "ptask_2", chapterNumber: 2 },
+      ],
+      started: 2,
+    }))
+    const requests = [{ userRequest: "写第1章" }, { userRequest: "写第2章", chapterNumber: 2 }]
+    const res = await handleStateRequest(
+      request({ op: "pipeline-start-batch", params: { requests } }),
+      deps({ startPipelineBatch }),
+    )
+    expect(res.ok).toBe(true)
+    expect(res.value).toMatchObject({ started: 2 })
+    expect(startPipelineBatch).toHaveBeenCalledWith({ requests })
+  })
+
+  it("pipeline-start-batch 整批校验失败时不回半个批次", async () => {
+    const res = await handleStateRequest(
+      request({ op: "pipeline-start-batch", params: { requests: [{ userRequest: "好的" }, { userRequest: "" }] } }),
+      deps({
+        startPipelineBatch: () => ({ ok: false as const, error: "requests[1]: 需要非空字符串参数 userRequest" }),
+      }),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("requests[1]")
+  })
+
+  it("director-advance 转发参数并回 taskId", async () => {
+    const startDirectorAdvance = vi.fn(() => ({ ok: true as const, taskId: "ptask_d1", stage: "loading" }))
+    const res = await handleStateRequest(
+      request({ op: "director-advance", params: { maxPhases: 2, brief: "偏冷硬" } }),
+      deps({ startDirectorAdvance }),
+    )
+    expect(res.ok).toBe(true)
+    expect(res.value).toMatchObject({ taskId: "ptask_d1" })
+    expect(startDirectorAdvance).toHaveBeenCalledWith({ maxPhases: 2, brief: "偏冷硬" })
+  })
+
+  it("director-advance 的拒绝原因原样回传（不在桥里改写）", async () => {
+    const res = await handleStateRequest(
+      request({ op: "director-advance", params: {} }),
+      deps({ startDirectorAdvance: () => ({ ok: false as const, error: "尚未配置模型（缺少 apiKey）" }) }),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("apiKey")
+  })
+
+  it("outline-generate 转发 prompt 与 multiAgent 开关", async () => {
+    const startOutlineGeneration = vi.fn(() => ({ ok: true as const, taskId: "ptask_o1", stage: "generating" }))
+    const res = await handleStateRequest(
+      request({ op: "outline-generate", params: { prompt: "三卷仙侠", multiAgent: true } }),
+      deps({ startOutlineGeneration }),
+    )
+    expect(res.ok).toBe(true)
+    expect(res.value).toMatchObject({ taskId: "ptask_o1" })
+    expect(startOutlineGeneration).toHaveBeenCalledWith({ prompt: "三卷仙侠", multiAgent: true })
+  })
+
+  it("character-upsert 未打开项目时拒绝", async () => {
+    const res = await handleStateRequest(
+      request({
+        op: "character-upsert",
+        params: { name: "甲", role: "protagonist", desire: "复仇", flaw: "多疑" },
+      }),
+      deps({ readProjectPath: () => "" }),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("未打开项目")
+  })
+
+  it("character-upsert 把项目路径与字段一起交给写入器", async () => {
+    const upsertCharacter = vi.fn(async () => ({ name: "甲", role: "protagonist", path: "/proj/wiki/entities/characters/甲.md" }))
+    const params = { name: "甲", role: "protagonist", desire: "复仇", flaw: "多疑" }
+    const res = await handleStateRequest(
+      request({ op: "character-upsert", params }),
+      deps({ upsertCharacter }),
+    )
+    expect(res.ok).toBe(true)
+    expect(upsertCharacter).toHaveBeenCalledWith("/proj", params)
+  })
+
+  it("character-upsert 写入器抛错时转成 error 响应", async () => {
+    const res = await handleStateRequest(
+      request({ op: "character-upsert", params: { name: "甲" } }),
+      deps({
+        upsertCharacter: async () => {
+          throw new Error("character.upsert 的 role 只接受 protagonist / antagonist / supporting")
+        },
+      }),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("role")
   })
 
   it("draft-write 未打开项目时拒绝", async () => {

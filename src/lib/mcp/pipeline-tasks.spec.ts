@@ -16,7 +16,7 @@ vi.mock("@/lib/novel", () => ({
   runDeepChapterGeneration,
 }))
 
-import { getPipelineTask, resetPipelineTasks, startPipelineTask } from "./pipeline-tasks"
+import { getPipelineTask, resetPipelineTasks, startDirectorAdvanceTask, startOutlineGenerationTask, startPipelineBatch, startPipelineTask } from "./pipeline-tasks"
 
 beforeEach(() => {
   resetPipelineTasks()
@@ -233,5 +233,84 @@ describe("startPipelineTask 成功路径与快照（增补）", () => {
     await flushPipeline()
     await flushPipeline()
     expect(getPipelineTask(first.taskId)?.status).toBe("done")
+  })
+})
+
+describe("一窗口全流程：批量与编排任务的参数门", () => {
+  it("批量空数组 / 超上限 / 坏的成员一律整批拒绝，且不起任何任务", () => {
+    setWiki("/proj", "test-key")
+    const empty = startPipelineBatch({ requests: [] })
+    expect(empty.ok).toBe(false)
+
+    const tooMany = startPipelineBatch({
+      requests: Array.from({ length: 11 }, (_, i) => ({ userRequest: `第${i}章` })),
+    })
+    expect(tooMany.ok).toBe(false)
+
+    const badMember = startPipelineBatch({
+      requests: [{ userRequest: "好的" }, { userRequest: "   " }],
+    })
+    expect(badMember.ok).toBe(false)
+    if (!badMember.ok) expect(badMember.error).toContain("requests[1]")
+
+    // 校验失败必须一个任务都不留（否则调用方要去清理半批任务）。
+    expect(runDeepChapterGeneration).not.toHaveBeenCalled()
+    setWiki(null, null)
+  })
+
+  it("批量未打开项目时整批拒绝", () => {
+    const res = startPipelineBatch({ requests: [{ userRequest: "写一章" }] })
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toContain("没有打开的项目")
+    expect(runDeepChapterGeneration).not.toHaveBeenCalled()
+  })
+
+  it("批量成功时每章一个 taskId，且都进同一张登记表", async () => {
+    setWiki("/proj", "test-key")
+    runDeepChapterGeneration.mockImplementation(() => new Promise(() => {}))
+    const res = startPipelineBatch({
+      requests: [{ userRequest: "写第1章", chapterNumber: 1 }, { userRequest: "写第2章", chapterNumber: 2 }],
+    })
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(res.started).toBe(2)
+      expect(res.tasks.map((t) => t.chapterNumber)).toEqual([1, 2])
+      for (const task of res.tasks) {
+        expect(getPipelineTask(task.taskId)?.kind).toBe("chapter")
+      }
+    }
+    setWiki(null, null)
+  })
+
+  it("导演推进：maxPhases 越界 / 未打开项目 / 缺模型都在起任务前拒绝", () => {
+    expect(startDirectorAdvanceTask({ maxPhases: 0 }).ok).toBe(false)
+    expect(startDirectorAdvanceTask({ maxPhases: 9 }).ok).toBe(false)
+    expect(startDirectorAdvanceTask({ targetVolumes: 99 }).ok).toBe(false)
+
+    const noProject = startDirectorAdvanceTask({})
+    expect(noProject.ok).toBe(false)
+    if (!noProject.ok) expect(noProject.error).toContain("没有打开的项目")
+
+    setWiki("/proj", null)
+    const noKey = startDirectorAdvanceTask({})
+    expect(noKey.ok).toBe(false)
+    if (!noKey.ok) expect(noKey.error).toContain("apiKey")
+    setWiki(null, null)
+  })
+
+  it("大纲生成：缺 prompt / 未打开项目 / 缺模型都在起任务前拒绝", () => {
+    const noPrompt = startOutlineGenerationTask({ prompt: "  " })
+    expect(noPrompt.ok).toBe(false)
+    if (!noPrompt.ok) expect(noPrompt.error).toContain("prompt")
+
+    const noProject = startOutlineGenerationTask({ prompt: "三卷仙侠" })
+    expect(noProject.ok).toBe(false)
+    if (!noProject.ok) expect(noProject.error).toContain("没有打开的项目")
+
+    setWiki("/proj", null)
+    const noKey = startOutlineGenerationTask({ prompt: "三卷仙侠" })
+    expect(noKey.ok).toBe(false)
+    if (!noKey.ok) expect(noKey.error).toContain("apiKey")
+    setWiki(null, null)
   })
 })

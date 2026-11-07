@@ -1,9 +1,9 @@
 # Tauri 命令参考（自动生成）
 
-> 生成时间：2026-11-02（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
-> 注册数：**131**（`generate_handler!` 块）；未注册声明（死命令）：**0**
+> 生成时间：2026-11-07（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
+> 注册数：**133**（`generate_handler!` 块）；未注册声明（死命令）：**0**
 
-## 注册命令（131）
+## 注册命令（133）
 
 | 命令 | 模块 | 注册 |
 |------|------|------|
@@ -93,7 +93,9 @@
 | `mcp_server_status` | mcp_server | ✓ |
 | `mcp_server_stop` | mcp_server | ✓ |
 | `mcp_server_token` | mcp_server | ✓ |
+| `mcp_session_grant_auto` | mcp_server | ✓ |
 | `mcp_session_grant_full` | mcp_server | ✓ |
+| `mcp_session_revoke_auto` | mcp_server | ✓ |
 | `mcp_session_revoke_full` | mcp_server | ✓ |
 | `mcp_state_respond` | mcp_server::state_bridge | ✓ |
 | `mcp_stdio_kill` | mcp_stdio | ✓ |

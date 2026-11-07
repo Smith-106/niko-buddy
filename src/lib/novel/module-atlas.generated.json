@@ -87,11 +87,11 @@
   "modules": 1192,
   "reachable": 1003,
   "unwired": 189,
-  "orphan": 278,
-  "specOnly": 269,
+  "orphan": 277,
+  "specOnly": 268,
   "barrelOnly": 1,
-  "edges": 4648,
-  "loc": 289923
+  "edges": 4651,
+  "loc": 290314
  },
  "modules": [
   {
@@ -5103,7 +5103,7 @@
   {
    "p": "src/components/settings/sections/external-control-section.tsx",
    "s": 16,
-   "l": 498,
+   "l": 553,
    "r": true,
    "o": false,
    "x": false,
@@ -8744,13 +8744,15 @@
   {
    "p": "src/lib/mcp/pipeline-tasks.ts",
    "s": 18,
-   "l": 184,
+   "l": 421,
    "r": true,
    "o": false,
    "x": false,
    "b": false,
    "i": [
     766,
+    828,
+    1033,
     1161,
     1189
    ]
@@ -8831,7 +8833,7 @@
   {
    "p": "src/lib/mcp/state-bridge.ts",
    "s": 18,
-   "l": 472,
+   "l": 549,
    "r": true,
    "o": false,
    "x": false,
@@ -8843,6 +8845,7 @@
     479,
     480,
     497,
+    766,
     817,
     1189
    ],
@@ -12347,7 +12350,7 @@
   {
    "p": "src/lib/novel/director-auto-advance.ts",
    "s": 1,
-   "l": 500,
+   "l": 520,
    "r": true,
    "o": false,
    "x": false,
@@ -13164,7 +13167,7 @@
   {
    "p": "src/lib/novel/index.ts",
    "s": 18,
-   "l": 1591,
+   "l": 1593,
    "r": true,
    "o": false,
    "x": false,
@@ -14308,8 +14311,8 @@
    "s": 4,
    "l": 872,
    "r": true,
-   "o": true,
-   "x": true,
+   "o": false,
+   "x": false,
    "b": false,
    "i": [
     4,

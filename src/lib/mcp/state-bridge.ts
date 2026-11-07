@@ -47,6 +47,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { readFile } from "@/commands/fs"
 import { listScopeFiles } from "@/lib/novel/agent-tools"
 import { loadNovelSessionStatus } from "@/lib/novel/novel-session-status"
+import { upsertCharacterEntity } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 
 import {
@@ -57,12 +58,12 @@ import {
 } from "./settings-catalog"
 import { SettingsValidationError, getWriter, validateValue } from "./settings-writers"
 import { resolveFormalPath, writeChapterDraft } from "./draft-actions"
-import { getPipelineTask, startPipelineTask } from "./pipeline-tasks"
+import { getPipelineTask, startDirectorAdvanceTask, startOutlineGenerationTask, startPipelineBatch, startPipelineTask } from "./pipeline-tasks"
 
 /** Rust → WebView 的请求事件名（与 Rust 侧 `state_bridge::REQUEST_EVENT` 必须一致）。 */
 export const STATE_REQUEST_EVENT = "mcp:state-request"
 
-/** 桥支持的操作。P0 只读 / P1 增单键写入 / P2 增项目动作。 */
+/** 桥支持的操作。P0 只读 / P1 增单键写入 / P2 增项目动作 / P4 增一窗口全流程编排。 */
 export type StateOp =
   | "get"
   | "list"
@@ -73,7 +74,11 @@ export type StateOp =
   | "chapter-list"
   | "chapter-read"
   | "pipeline-start"
+  | "pipeline-start-batch"
   | "pipeline-status"
+  | "director-advance"
+  | "outline-generate"
+  | "character-upsert"
   | "draft-write"
   | "formal-path"
 
@@ -123,6 +128,14 @@ export interface StateBridgeDeps {
   writeSetting: (key: string, value: unknown) => Promise<unknown>
   /** 起一个深章生成长任务，立刻返回 taskId。 */
   startPipeline: (params: Record<string, unknown>) => unknown
+  /** 一次起多个深章任务（批量）；校验失败时不启动任何一个。 */
+  startPipelineBatch: (params: Record<string, unknown>) => unknown
+  /** 起一个导演阶段推进任务，立刻返回 taskId。 */
+  startDirectorAdvance: (params: Record<string, unknown>) => unknown
+  /** 起一个大纲生成任务，立刻返回 taskId。 */
+  startOutlineGeneration: (params: Record<string, unknown>) => unknown
+  /** 建/改一个角色实体（`wiki/entities/characters/*.md`）。 */
+  upsertCharacter: (projectPath: string, params: Record<string, unknown>) => Promise<unknown>
   /** 查长任务快照；未知 id 返回 `null`。 */
   readPipeline: (taskId: string) => unknown
   /** 写章节草稿（Draft-first）。 */
@@ -149,6 +162,10 @@ const defaultDeps: StateBridgeDeps = {
     return entry?.storage === "localStorage" ? readLocalStorage(key) : null
   },
   startPipeline: (params) => startPipelineTask(params),
+  startPipelineBatch: (params) => startPipelineBatch(params),
+  startDirectorAdvance: (params) => startDirectorAdvanceTask(params),
+  startOutlineGeneration: (params) => startOutlineGenerationTask(params),
+  upsertCharacter: (projectPath, params) => upsertCharacterEntityFromParams(projectPath, params),
   readPipeline: (taskId) => getPipelineTask(taskId),
   writeChapterDraft: (projectPath, params) => writeChapterDraft(projectPath, params),
   resolveFormalPath: (projectPath, params) => resolveFormalPath(projectPath, params),
@@ -160,6 +177,32 @@ const defaultDeps: StateBridgeDeps = {
     }
     return writer.write(value)
   },
+}
+
+/**
+ * 建/改一个角色实体。
+ *
+ * 落盘格式由 `upsertCharacterEntity` 单点持有（导演 `character` 阶段走同一个函数），
+ * 这里只做参数校验与字段提取。
+ */
+async function upsertCharacterEntityFromParams(
+  projectPath: string,
+  params: Record<string, unknown>,
+): Promise<unknown> {
+  const read = (field: string): string => {
+    const raw = params[field]
+    if (typeof raw !== "string" || raw.trim() === "") {
+      throw new Error(`character.upsert 需要非空字符串参数 ${field}`)
+    }
+    return raw.trim()
+  }
+  const role = read("role")
+  if (role !== "protagonist" && role !== "antagonist" && role !== "supporting") {
+    throw new Error(`character.upsert 的 role 只接受 protagonist / antagonist / supporting，收到 ${role}`)
+  }
+  const entry = { name: read("name"), role, desire: read("desire"), flaw: read("flaw") }
+  const path = await upsertCharacterEntity(projectPath, entry)
+  return { name: entry.name, role: entry.role, path }
 }
 
 /** 读取单个 localStorage 键的原始值（不存在返回 null）。 */
@@ -405,6 +448,40 @@ export async function handleStateRequest(
           | { ok: false; error: string }
         if (!started.ok) return { ok: false, error: started.error }
         return { ok: true, value: started }
+      }
+
+      case "pipeline-start-batch": {
+        // 与单章同一条校验链：任何一章的配置/参数不过，整批都不启动。
+        const params = payload.params ?? {}
+        const started = deps.startPipelineBatch(params) as
+          | { ok: true; tasks: unknown[]; started: number }
+          | { ok: false; error: string }
+        if (!started.ok) return { ok: false, error: started.error }
+        return { ok: true, value: started }
+      }
+
+      case "director-advance": {
+        const params = payload.params ?? {}
+        const started = deps.startDirectorAdvance(params) as
+          | { ok: true; taskId: string; stage: string }
+          | { ok: false; error: string }
+        if (!started.ok) return { ok: false, error: started.error }
+        return { ok: true, value: started }
+      }
+
+      case "outline-generate": {
+        const params = payload.params ?? {}
+        const started = deps.startOutlineGeneration(params) as
+          | { ok: true; taskId: string; stage: string }
+          | { ok: false; error: string }
+        if (!started.ok) return { ok: false, error: started.error }
+        return { ok: true, value: started }
+      }
+
+      case "character-upsert": {
+        const projectPath = requireProjectPath(deps)
+        const written = await deps.upsertCharacter(projectPath, payload.params ?? {})
+        return { ok: true, value: written }
       }
 
       case "pipeline-status": {

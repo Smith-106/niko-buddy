@@ -18,13 +18,16 @@ interface McpSession {
   calls: number
   /** 是否被用户逐会话授予了完整写入（full）。 */
   full_granted: boolean
+  /** 是否被用户逐会话授予了自动编排（auto = settings + project，不含直写正文）。 */
+  auto_granted: boolean
 }
 
 /**
- * 服务端授予外部 Agent 的权限域。
+ * 服务端授予外部 Agent 的权限域（启动时可选的部分）。
  *
  * 三项**互斥**，不是累加：`project` 不蕴含 `settings`（见后端 `SessionScope::satisfies`）。
- * 同时要两类写权限的组合 scope 属于 P3，届时在设置页显式授权。
+ * 同时要两类写权限的 `auto` 档与直写正文的 `full` 档都不能在启动时授予，只能对
+ * 具体会话逐次授权（下方会话列表里的两个按钮）。
  */
 type McpScope = "read" | "settings" | "project"
 
@@ -115,6 +118,31 @@ export function ExternalControlSection() {
       try {
         await invoke(
           grant ? "mcp_session_grant_full" : "mcp_session_revoke_full",
+          { sessionId },
+        )
+        await refresh()
+      } catch (e) {
+        setError(toErrorMessage(e))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [refresh],
+  )
+
+  /**
+   * 逐会话授予 / 吊销自动编排（`auto`）。
+   *
+   * 为什么和 `full` 分开：「一个窗口跑完整流程」需要同时改设置 + 起项目动作，但
+   * **不需要**直写正文。少一条护栏的档位单独授权，用户才能看清自己给了什么。
+   */
+  const toggleAuto = useCallback(
+    async (sessionId: string, grant: boolean) => {
+      setBusy(true)
+      setError(null)
+      try {
+        await invoke(
+          grant ? "mcp_session_grant_auto" : "mcp_session_revoke_auto",
           { sessionId },
         )
         await refresh()
@@ -449,6 +477,16 @@ export function ExternalControlSection() {
               >
                 <code className="truncate font-mono">{session.id.slice(0, 8)}</code>
                 <span className="text-muted-foreground">{session.scope}</span>
+                {session.auto_granted ? (
+                  <span
+                    className="rounded bg-sky-500/15 px-1.5 py-0.5 text-sky-700 dark:text-sky-400"
+                    data-testid="external-control-session-auto-badge"
+                  >
+                    {t("settings.sections.externalControl.autoGranted", {
+                      defaultValue: "Auto orchestration",
+                    })}
+                  </span>
+                ) : null}
                 {session.full_granted ? (
                   <span
                     className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-400"
@@ -468,6 +506,23 @@ export function ExternalControlSection() {
                     count: session.calls,
                   })}
                 </span>
+                <Button
+                  variant={session.auto_granted ? "outline" : "secondary"}
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  data-testid="external-control-session-auto-toggle"
+                  aria-pressed={session.auto_granted}
+                  disabled={busy}
+                  onClick={() => void toggleAuto(session.id, !session.auto_granted)}
+                >
+                  {session.auto_granted
+                    ? t("settings.sections.externalControl.revokeAuto", {
+                        defaultValue: "Revoke auto"
+                      })
+                    : t("settings.sections.externalControl.grantAuto", {
+                        defaultValue: "Grant auto (settings + actions)"
+                      })}
+                </Button>
                 <Button
                   variant={session.full_granted ? "outline" : "secondary"}
                   size="sm"

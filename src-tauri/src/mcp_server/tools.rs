@@ -1,7 +1,10 @@
-//! P0 只读工具集（方案 `d23eb1df`）。
+//! 工具集（P0 只读 → P1 设置写入 → P2 项目动作 → P3 直写，以及一窗口全流程的编排工具）。
 //!
-//! 全部只读。这是只读投影锁定（`architecture-constraints-400`）在工具层的落实：
-//! 本文件不得出现任何 set / write / delete / accept 语义的工具。
+//! 本文件包含各权限档的工具，权限不在文件名上分：每个工具用
+//! `required_scope()` 声明自己最低需要的档位，调度器在 `dispatch_as` 里逐次校验
+//! （见 `mod.rs`）。因此“本文件只放只读工具”这类按文件分的约定已不成立——
+//! 新增工具必须做的事是**声明 scope**，并在 `build_registry` 的权限集合断言里
+//! 主动改一行。
 //!
 //! ## 工具为什么是异步的
 //!
@@ -537,7 +540,7 @@ impl super::registry::McpTool for CanonQueryTool {
     }
 }
 
-/// 构造 P0 只读注册表。
+// 构造 P0 只读注册表。
 // ── P2：项目动作（全部转发既有管线/命令，不新造写路径）─────────────────────
 
 /// 取必填字符串参数。缺失/类型不符一律 `INVALID_PARAMS`（协议层错误）。
@@ -587,7 +590,7 @@ impl super::registry::McpTool for PipelineRunChapterTool {
             "properties": {
                 "userRequest": { "type": "string", "description": "What this chapter should accomplish, in natural language" },
                 "chapterNumber": { "type": "integer", "minimum": 1, "description": "Target chapter number (optional)" },
-                "workflowMode": { "type": "string", "enum": ["fast", "standard", "strict"], "description": "Pipeline depth (optional, defaults to the app setting)" }
+                "workflowMode": { "type": "string", "enum": ["fast", "standard", "strict"], "description": "Accepted for forward compatibility. The deep-chapter pipeline currently derives depth from app settings, so this value is validated but does not change behaviour." }
             },
             "required": ["userRequest"],
             "additionalProperties": false
@@ -845,10 +848,418 @@ impl super::registry::McpTool for ChapterWriteTool {
     }
 }
 
-/// `memory.write` —— 当前**明确拒绝**（应用没有记忆草稿审阅入口）。
+/// `director.advance` —— 推进开书管线（idea → world → character → outline）。
 ///
-/// 保留注册是为了给调用方一个说清原因的答复，而不是让它对着 "unknown tool" 猜。
-/// 详见 `src/lib/mcp/draft-actions.ts` 文件头的推导。
+/// ## 为什么也是异步任务
+///
+/// 每个阶段都是一次 LLM 生成，跑几十秒到几分钟。状态桥 15s 超时，同步等必然超时，
+/// 超时后前端还在跑而调用方以为失败。所以这里只起任务并立刻返回 taskId，进度与结果
+/// 一律用 `pipeline.status` 轮询（与 `pipeline.run_chapter` 同一张登记表）。
+///
+/// ## 为什么一阶段一次
+///
+/// 单一真源 `advanceDirectorAutomatically` 的语义就是「推进一步，由调用方循环」——
+/// 阶段门（`advanceDirectorPhase`）要逐阶段判。这里用 `maxPhases` 表达循环次数，
+/// 不给它另造一套「一口气跑完」的状态机。
+pub struct DirectorAdvanceTool;
+
+impl super::registry::McpTool for DirectorAdvanceTool {
+    fn name(&self) -> &'static str {
+        "director.advance"
+    }
+
+    fn description(&self) -> &'static str {
+        "Advance the book-setup pipeline (idea -> world -> character -> outline) and return a taskId immediately. Poll pipeline.status for progress; the state machine keeps the last-good phase and never rolls backward. Outline and character artifacts land in wiki/ as planning documents; the first chapter (if the pipeline reaches it) lands in the draft area, never as a formal chapter."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "maxPhases": { "type": "integer", "minimum": 1, "maximum": 4, "description": "How many phases to advance in this task (default 1). Stops early on a blocked gate or failure." },
+                "brief": { "type": "string", "description": "Extra authorial constraints (tone, length, taboos). Participates in the stage digest." },
+                "targetVolumes": { "type": "integer", "minimum": 1, "maximum": 30, "description": "Desired volume count for the outline phase (optional)" }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let mut params = json!({});
+            if let Some(n) = optional_positive_int(args, "director.advance", "maxPhases")? {
+                if n > 4 {
+                    return Err(ToolError::invalid_params(format!(
+                        "director.advance: `maxPhases` 最多 4（管线只有 4 个阶段），收到 {n}"
+                    )));
+                }
+                params["maxPhases"] = json!(n);
+            }
+            if let Some(brief) = args.get("brief").and_then(|v| v.as_str()) {
+                params["brief"] = json!(brief);
+            }
+            if let Some(n) = optional_positive_int(args, "director.advance", "targetVolumes")? {
+                if n > 30 {
+                    return Err(ToolError::invalid_params(format!(
+                        "director.advance: `targetVolumes` 最多 30，收到 {n}"
+                    )));
+                }
+                params["targetVolumes"] = json!(n);
+            }
+
+            let started = ctx
+                .bridge_query(StateQuery::new("director-advance").with_params(params))
+                .await?;
+            Ok(json!({
+                "taskId": started.get("taskId").cloned().unwrap_or(Value::Null),
+                "stage": started.get("stage").cloned().unwrap_or(Value::Null),
+                "note": "任务已起，用 pipeline.status 轮询。阶段门未过时任务不推进，原因在 status 的 error 里。",
+            }))
+        })
+    }
+}
+
+/// `outline.generate` —— 生成/重生成大纲。
+///
+/// 复用设置页大纲生成器的同一个函数（`generateOutlineFile`）：大纲是**规划产物**，
+/// 落 `wiki/outlines/`，不是正文，因此不触发 Draft-first；正文边界不受影响。
+pub struct OutlineGenerateTool;
+
+impl super::registry::McpTool for OutlineGenerateTool {
+    fn name(&self) -> &'static str {
+        "outline.generate"
+    }
+
+    fn description(&self) -> &'static str {
+        "Generate or regenerate the book outline from a natural-language brief and return a taskId immediately. Poll pipeline.status. The outline is a planning artifact written under wiki/outlines; no chapter text and no formal memory are touched."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "prompt": { "type": "string", "description": "What the outline should cover: genre, scale, structure, hard constraints" },
+                "multiAgent": { "type": "boolean", "description": "Use the multi-agent outline workflow instead of the single-pass generator (default false)" }
+            },
+            "required": ["prompt"],
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let prompt = require_str(args, "outline.generate", "prompt")?;
+            let mut params = json!({ "prompt": prompt });
+            if let Some(flag) = args.get("multiAgent") {
+                let flag = flag.as_bool().ok_or_else(|| {
+                    ToolError::invalid_params(
+                        "outline.generate: `multiAgent` 必须是布尔值".to_string(),
+                    )
+                })?;
+                params["multiAgent"] = json!(flag);
+            }
+            let started = ctx
+                .bridge_query(StateQuery::new("outline-generate").with_params(params))
+                .await?;
+            Ok(json!({
+                "taskId": started.get("taskId").cloned().unwrap_or(Value::Null),
+                "stage": started.get("stage").cloned().unwrap_or(Value::Null),
+                "note": "任务已起，用 pipeline.status 轮询；完成后 outline 路径在结果的 error/末态里。",
+            }))
+        })
+    }
+}
+
+/// `character.upsert` —— 建/改一个角色实体（`wiki/entities/characters/<name>.md`）。
+///
+/// 落盘格式复用导演管线同一个 `characterEntityDoc`（同一个真源），因此外部 Agent
+/// 建的角色与导演阶段产出的角色长得一样，后续 `character` 阶段门看到的是同一批实体。
+/// 只写实体文档，不碰正式章节、正式记忆与角色状态账本。
+pub struct CharacterUpsertTool;
+
+impl super::registry::McpTool for CharacterUpsertTool {
+    fn name(&self) -> &'static str {
+        "character.upsert"
+    }
+
+    fn description(&self) -> &'static str {
+        "Create or overwrite one character entity under wiki/entities/characters. Same document format as the director pipeline produces, so later stages and gates see the same ledger. Does not write chapters, formal memory, or character state."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Character name; also the file name (path separators are sanitized)" },
+                "role": { "type": "string", "enum": ["protagonist", "antagonist", "supporting"], "description": "Narrative role" },
+                "desire": { "type": "string", "description": "What this character wants" },
+                "flaw": { "type": "string", "description": "This character's fatal flaw" }
+            },
+            "required": ["name", "role", "desire", "flaw"],
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let name = require_str(args, "character.upsert", "name")?;
+            let role = require_str(args, "character.upsert", "role")?;
+            if !matches!(role, "protagonist" | "antagonist" | "supporting") {
+                return Err(ToolError::invalid_params(format!(
+                    "character.upsert: `role` 只接受 protagonist / antagonist / supporting，收到 {role}"
+                )));
+            }
+            let desire = require_str(args, "character.upsert", "desire")?;
+            let flaw = require_str(args, "character.upsert", "flaw")?;
+            let written = ctx
+                .bridge_query(StateQuery::new("character-upsert").with_params(json!({
+                    "name": name,
+                    "role": role,
+                    "desire": desire,
+                    "flaw": flaw,
+                })))
+                .await?;
+            Ok(written)
+        })
+    }
+}
+
+/// `chapter.batch` —— 一次起多章深章生成。
+///
+/// 不另写批量逻辑：每个元素都走同一个 `startPipelineTask`（与单章工具同一入口），
+/// 只是把「起任务」这一步循环起来。参数校验在**起任何任务之前**完成，所以一个坏
+/// 元素不会留下半批已启动的任务。
+pub struct ChapterBatchTool;
+
+/// 一次批量请求的上限。定上限是为了让一个写错循环的调用方不能一口气起上百章。
+const MAX_BATCH_CHAPTERS: usize = 10;
+
+impl super::registry::McpTool for ChapterBatchTool {
+    fn name(&self) -> &'static str {
+        "chapter.batch"
+    }
+
+    fn description(&self) -> &'static str {
+        "Start deep-chapter generation for up to 10 chapters at once and return one taskId per chapter. Same pipeline as pipeline.run_chapter, so every result stays in the draft area and still needs user acceptance. Poll each task with pipeline.status."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "requests": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": MAX_BATCH_CHAPTERS,
+                    "description": "Chapters to start, in reading order",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "userRequest": { "type": "string", "description": "What this chapter should accomplish" },
+                            "chapterNumber": { "type": "integer", "minimum": 1 },
+                            "workflowMode": { "type": "string", "enum": ["fast", "standard", "strict"] }
+                        },
+                        "required": ["userRequest"],
+                        "additionalProperties": false
+                    }
+                },
+                "workflowMode": { "type": "string", "enum": ["fast", "standard", "strict"], "description": "Default for entries that omit their own. Validated for forward compatibility; the pipeline currently derives depth from app settings." }
+            },
+            "required": ["requests"],
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let requests = args
+                .get("requests")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| {
+                    ToolError::invalid_params(
+                        "chapter.batch: `requests` 必须是非空数组".to_string(),
+                    )
+                })?;
+            if requests.is_empty() {
+                return Err(ToolError::invalid_params(
+                    "chapter.batch: `requests` 不能为空".to_string(),
+                ));
+            }
+            if requests.len() > MAX_BATCH_CHAPTERS {
+                return Err(ToolError::invalid_params(format!(
+                    "chapter.batch: 一次最多 {MAX_BATCH_CHAPTERS} 章，收到 {}",
+                    requests.len()
+                )));
+            }
+            let default_mode = args.get("workflowMode").and_then(|v| v.as_str());
+            if let Some(mode) = default_mode {
+                if !matches!(mode, "fast" | "standard" | "strict") {
+                    return Err(ToolError::invalid_params(format!(
+                        "chapter.batch: `workflowMode` 只接受 fast / standard / strict，收到 {mode}"
+                    )));
+                }
+            }
+            // 先全量校验再起任务：半个批次启动、半个批次报错是最难收拾的状态。
+            let mut normalized: Vec<Value> = Vec::with_capacity(requests.len());
+            for (index, entry) in requests.iter().enumerate() {
+                let user_request = entry
+                    .get("userRequest")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| {
+                        ToolError::invalid_params(format!(
+                            "chapter.batch: requests[{index}].userRequest 必须是非空字符串"
+                        ))
+                    })?;
+                let mut item = json!({ "userRequest": user_request });
+                if let Some(n) = optional_positive_int(entry, "chapter.batch", "chapterNumber")? {
+                    item["chapterNumber"] = json!(n);
+                }
+                let mode = entry
+                    .get("workflowMode")
+                    .and_then(|v| v.as_str())
+                    .or(default_mode);
+                if let Some(mode) = mode {
+                    if !matches!(mode, "fast" | "standard" | "strict") {
+                        return Err(ToolError::invalid_params(format!(
+                            "chapter.batch: requests[{index}].workflowMode 只接受 fast / standard / strict，收到 {mode}"
+                        )));
+                    }
+                    item["workflowMode"] = json!(mode);
+                }
+                normalized.push(item);
+            }
+
+            let started = ctx
+                .bridge_query(
+                    StateQuery::new("pipeline-start-batch")
+                        .with_params(json!({ "requests": normalized })),
+                )
+                .await?;
+            Ok(json!({
+                "tasks": started.get("tasks").cloned().unwrap_or_else(|| json!([])),
+                "started": started.get("started").cloned().unwrap_or(Value::Null),
+                "note": "每章一个 taskId，用 pipeline.status 逐个轮询；正文仍留在草稿区，需用户在应用内确认。",
+            }))
+        })
+    }
+}
+
+/// `export.run` —— 导出项目备份包（zip + SHA-256 旁挂）。
+///
+/// 在 Rust 侧直接调既有 `canon_export_project` 命令：它自己会过 `agent_gate` 并在失败
+/// 时给出原因。这里**不**另写打包逻辑——备份包的格式、校验和与加密只有一份实现。
+pub struct ExportRunTool;
+
+impl super::registry::McpTool for ExportRunTool {
+    fn name(&self) -> &'static str {
+        "export.run"
+    }
+
+    fn description(&self) -> &'static str {
+        "Export the whole project as a zip backup with a SHA-256 sidecar and an optional passphrase, using the same exporter as the in-app backup view. Returns the zip path, size and checksum. Defaults to the OS temp directory when no path is given."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "outputZipPath": { "type": "string", "description": "Absolute path of the zip to write (default: a timestamped file in the OS temp directory)" },
+                "passphrase": { "type": "string", "description": "Optional local passphrase for AES-256 encryption" }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn required_scope(&self) -> super::session::SessionScope {
+        super::session::SessionScope::Project
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let app = ctx.app()?.clone();
+            let project_path = ctx.project_path().await?;
+            let output = match args.get("outputZipPath").and_then(|v| v.as_str()) {
+                Some(raw) if !raw.trim().is_empty() => raw.trim().to_string(),
+                _ => {
+                    let stamp = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    std::env::temp_dir()
+                        .join(format!("niko-buddy-backup-{stamp}.zip"))
+                        .to_string_lossy()
+                        .into_owned()
+                }
+            };
+            let passphrase = args
+                .get("passphrase")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .filter(|s| !s.is_empty());
+            let request = crate::canon::export::CanonExportRequest {
+                project_path,
+                output_zip_path: output.clone(),
+                passphrase,
+            };
+            let result = crate::canon::export::canon_export_project(app, request)
+                .await
+                .map_err(ToolError::internal)?;
+            Ok(json!({
+                "success": result.success,
+                "zipPath": output,
+                "fileCount": result.file_count,
+                "totalSize": result.total_size,
+                "checksumSha256": result.checksum_sha256,
+                "sidecarPath": result.sidecar_path,
+                "warnings": result.warnings,
+                "error": result.error,
+            }))
+        })
+    }
+}
+
+// `memory.write` —— 当前**明确拒绝**（应用没有记忆草稿审阅入口）。
+//
+// 保留注册是为了给调用方一个说清原因的答复，而不是让它对着 "unknown tool" 猜。
+// 详见 `src/lib/mcp/draft-actions.ts` 文件头的推导。
 
 // ───────────────────────── P3：直写 + 快照 + 回滚 ─────────────────────────
 
@@ -1377,6 +1788,11 @@ pub fn build_registry() -> super::registry::ToolRegistry {
             "pipeline.status",
             "gate.run",
             "chapter.write",
+            "director.advance",
+            "outline.generate",
+            "character.upsert",
+            "chapter.batch",
+            "export.run",
             "memory.write",
             "chapter.write_direct",
             "undo_last",
@@ -1413,6 +1829,11 @@ mod tests {
                 "pipeline.status",
                 "gate.run",
                 "chapter.write",
+                "director.advance",
+                "outline.generate",
+                "character.upsert",
+                "chapter.batch",
+                "export.run",
                 "memory.write",
                 "chapter.write_direct",
                 "undo_last",
@@ -1449,6 +1870,113 @@ mod tests {
         assert_eq!(tool.input_schema()["required"], json!(["key"]));
     }
 
+    // ── 一窗口全流程编排工具 ───────────────────────────────────────
+
+    #[test]
+    fn orchestration_tools_require_project_scope() {
+        let r = build_registry();
+        for name in [
+            "director.advance",
+            "outline.generate",
+            "character.upsert",
+            "chapter.batch",
+            "export.run",
+        ] {
+            assert_eq!(
+                r.required_scope(name),
+                Some(crate::mcp_server::session::SessionScope::Project),
+                "{name} 必须要求 Project 档（auto 档也应能满足它）"
+            );
+            assert!(
+                crate::mcp_server::session::SessionScope::Auto
+                    .satisfies(r.required_scope(name).expect("scope")),
+                "{name} 必须在 auto 档下可调"
+            );
+            assert!(
+                !crate::mcp_server::session::SessionScope::Read
+                    .satisfies(r.required_scope(name).expect("scope")),
+                "{name} 不得在只读档下可调"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn character_upsert_rejects_unknown_role_before_bridge() {
+        // 校验在状态桥之前完成：坏参数不应该先去碰项目文件。
+        let ctx = ToolContext::for_test();
+        let err = CharacterUpsertTool
+            .call(
+                &ctx,
+                &json!({ "name": "甲", "role": "villain", "desire": "x", "flaw": "y" }),
+            )
+            .await
+            .expect_err("role 不是三档之一必须报参数错");
+        assert_eq!(err.code, crate::mcp_server::protocol::INVALID_PARAMS);
+    }
+
+    #[tokio::test]
+    async fn chapter_batch_validates_before_starting_anything() {
+        let ctx = ToolContext::for_test();
+        let empty = ChapterBatchTool
+            .call(&ctx, &json!({ "requests": [] }))
+            .await
+            .expect_err("空批次必须报错");
+        assert_eq!(empty.code, crate::mcp_server::protocol::INVALID_PARAMS);
+
+        let too_many: Vec<Value> = (0..(MAX_BATCH_CHAPTERS + 1))
+            .map(|i| json!({ "userRequest": format!("第 {i} 章") }))
+            .collect();
+        let oversized = ChapterBatchTool
+            .call(&ctx, &json!({ "requests": too_many }))
+            .await
+            .expect_err("超上限必须报错");
+        assert_eq!(oversized.code, crate::mcp_server::protocol::INVALID_PARAMS);
+
+        // 单个元素坏掉时整批不启动（不会先起前三章再报错）。
+        let bad_member = ChapterBatchTool
+            .call(
+                &ctx,
+                &json!({ "requests": [
+                    { "userRequest": "好的" },
+                    { "userRequest": "   " },
+                ] }),
+            )
+            .await
+            .expect_err("空 userRequest 必须报错");
+        assert_eq!(bad_member.code, crate::mcp_server::protocol::INVALID_PARAMS);
+    }
+
+    #[tokio::test]
+    async fn director_advance_caps_phase_count() {
+        let ctx = ToolContext::for_test();
+        let err = DirectorAdvanceTool
+            .call(&ctx, &json!({ "maxPhases": 9 }))
+            .await
+            .expect_err("超过四阶段必须报错");
+        assert_eq!(err.code, crate::mcp_server::protocol::INVALID_PARAMS);
+    }
+
+    #[tokio::test]
+    async fn outline_generate_requires_prompt() {
+        let ctx = ToolContext::for_test();
+        let err = OutlineGenerateTool
+            .call(&ctx, &json!({}))
+            .await
+            .expect_err("缺 prompt 必须报错");
+        assert_eq!(err.code, crate::mcp_server::protocol::INVALID_PARAMS);
+    }
+
+    #[tokio::test]
+    async fn export_run_reports_missing_app_handle() {
+        // 无 AppHandle 时必须报内部错误（真实失败模式），不得伪造成功。
+        let ctx = ToolContext::for_test();
+        let err = ExportRunTool
+            .call(&ctx, &json!({}))
+            .await
+            .expect_err("无 app 句柄不得成功");
+        assert_eq!(err.code, crate::mcp_server::protocol::INTERNAL_ERROR);
+    }
+
     #[test]
     fn chapter_read_requires_chapter_argument() {
         let tool = ChapterReadTool;
@@ -1473,6 +2001,11 @@ mod tests {
                 "pipeline.status",
                 "gate.run",
                 "chapter.write",
+                "director.advance",
+                "outline.generate",
+                "character.upsert",
+                "chapter.batch",
+                "export.run",
                 "memory.write",
                 "chapter.write_direct",
                 "undo_last",

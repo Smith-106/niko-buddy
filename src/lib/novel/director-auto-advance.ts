@@ -84,6 +84,29 @@ function characterEntityDoc(entry: { name: string; role: string; desire: string;
   ].join("\n")
 }
 
+/** 角色实体文档的落盘路径（`wiki/entities/characters/<安全名>.md`）。 */
+export function characterEntityPath(projectPath: string, name: string): string {
+  const safe = name.replace(/[\\/:*?"<>|]/g, "_")
+  return `${projectPath}/wiki/entities/characters/${safe}.md`
+}
+
+/**
+ * 建/改**一个**角色实体。
+ *
+ * 导演 `character` 阶段与外部控制面（`character.upsert` 工具）共用本函数：角色文档
+ * 只有一种格式，否则"导演建的角色"与"外部建的角色"会在后续阶段门里变成两批东西。
+ */
+export async function upsertCharacterEntity(
+  projectPath: string,
+  entry: { name: string; role: string; desire: string; flaw: string },
+): Promise<string> {
+  const dir = `${projectPath}/wiki/entities/characters`
+  await createDirectory(dir)
+  const path = characterEntityPath(projectPath, entry.name)
+  await writeFileAtomic(path, characterEntityDoc(entry))
+  return path
+}
+
 function outlineDoc(title: string, body: readonly string[]): string {
   return [`# ${title}`, "", ...body.map((line) => `- ${line}`), ""].join("\n")
 }
@@ -96,11 +119,8 @@ export async function persistStageArtifacts(
 ): Promise<void> {
   if (stage === "character") {
     const characters = (output as DirectorStageOutputMap["character"]).characters
-    const dir = `${projectPath}/wiki/entities/characters`
-    await createDirectory(dir)
     for (const entry of characters) {
-      const safe = entry.name.replace(/[\\/:*?"<>|]/g, "_")
-      await writeFileAtomic(`${dir}/${safe}.md`, characterEntityDoc(entry))
+      await upsertCharacterEntity(projectPath, entry)
     }
     return
   }

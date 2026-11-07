@@ -203,6 +203,7 @@ describe("ExternalControlSection", () => {
           last_call_at: 2,
           calls: 3,
           full_granted: false,
+          auto_granted: false,
         },
       ],
     }
@@ -236,6 +237,7 @@ describe("ExternalControlSection", () => {
           last_call_at: 2,
           calls: 1,
           full_granted: true,
+          auto_granted: false,
         },
       ],
     }
@@ -267,6 +269,7 @@ describe("ExternalControlSection", () => {
           last_call_at: 2,
           calls: 0,
           full_granted: false,
+          auto_granted: false,
         },
       ],
     }
@@ -519,5 +522,71 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(writeText).not.toHaveBeenCalled()
     expect(screen.queryByTestId("external-control-error")).toBeNull()
+  })
+
+  it("逐会话授予自动编排：调 grant_auto 并刷新，不重启监听", async () => {
+    const withSession = {
+      ...RUNNING_STATUS,
+      sessions: [
+        {
+          id: "99990000-1111-2222-3333-444455556666",
+          scope: "project",
+          connected_at: 1,
+          last_call_at: 2,
+          calls: 5,
+          full_granted: false,
+          auto_granted: false,
+        },
+      ],
+    }
+    invokeMock.mockResolvedValueOnce(withSession) // 首次 status
+    invokeMock.mockResolvedValueOnce(undefined) // grant_auto
+    invokeMock.mockResolvedValueOnce(withSession) // refresh
+    render(<ExternalControlSection />)
+
+    const toggle = await screen.findByTestId("external-control-session-auto-toggle")
+    expect(toggle).toHaveAttribute("aria-pressed", "false")
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("mcp_session_grant_auto", {
+        sessionId: "99990000-1111-2222-3333-444455556666",
+      })
+    })
+    // auto 与 full 一样是会话级授权：不得因此重启监听。
+    expect(invokeMock).not.toHaveBeenCalledWith("mcp_server_start", expect.anything())
+    expect(invokeMock).not.toHaveBeenCalledWith("mcp_server_stop")
+  })
+
+  it("已授权的自动编排显示徽标，按钮改为吊销并调 revoke_auto", async () => {
+    const granted = {
+      ...RUNNING_STATUS,
+      sessions: [
+        {
+          id: "77778888-9999-aaaa-bbbb-ccccddddeeee",
+          scope: "project",
+          connected_at: 1,
+          last_call_at: 2,
+          calls: 1,
+          full_granted: false,
+          auto_granted: true,
+        },
+      ],
+    }
+    invokeMock.mockResolvedValueOnce(granted)
+    invokeMock.mockResolvedValueOnce(undefined)
+    invokeMock.mockResolvedValueOnce(granted)
+    render(<ExternalControlSection />)
+
+    await screen.findByTestId("external-control-session-auto-badge")
+    const toggle = screen.getByTestId("external-control-session-auto-toggle")
+    expect(toggle).toHaveAttribute("aria-pressed", "true")
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("mcp_session_revoke_auto", {
+        sessionId: "77778888-9999-aaaa-bbbb-ccccddddeeee",
+      })
+    })
   })
 })

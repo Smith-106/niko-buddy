@@ -471,11 +471,17 @@ pub async fn mcp_server_start(
         Some(raw) => session::SessionScope::parse(raw)
             .ok_or_else(|| format!("未知 scope: {raw}（只接受 read / settings / project）"))?,
     };
-    // `full` 不能在这里授予：客户端带着 token 重新 initialize 就能拿到，而用户
-    // 根本不知道发过。它只能逐会话授权（见 `mcp_session_grant_full`）。
+    // `full` 与 `auto` 不能在启动时授予：客户端带着 token 重新 initialize 就能拿到，
+    // 而用户根本不知道发过。它们只能逐会话授权（见 `mcp_session_grant_full` /
+    // `mcp_session_grant_auto`）。
     if granted == session::SessionScope::Full {
         return Err(
             "full 不能在启动时授予。请先用 read / settings / project 启动，再到设置页「外部控制」里对具体会话点「授予完整写入」。".to_string(),
+        );
+    }
+    if granted == session::SessionScope::Auto {
+        return Err(
+            "auto 不能在启动时授予。请先用 read / settings / project 启动，再到设置页「外部控制」里对具体会话点「授予自动编排」。".to_string(),
         );
     }
 
@@ -534,6 +540,47 @@ pub async fn mcp_session_revoke_full(
         .ok_or_else(|| "服务未运行，没有可吊销的会话".to_string())?;
     if revoked {
         log::info!("[mcp_server] full write revoked for session {session_id}");
+        Ok(())
+    } else {
+        Err(format!(
+            "没有这个会话：{session_id}（可能已断开，请刷新会话列表）"
+        ))
+    }
+}
+
+/// 对**具体会话**授予自动编排（`auto` = settings + project，不含直写正文）。
+///
+/// 与 `full` 同理落在会话上而不是服务端：「让屏幕上这个客户端能跑全流程」不等于
+/// 「给未来所有客户端开门」。它与 `full` 分开的只是「能不能不经草稿改正文」。
+#[tauri::command]
+pub async fn mcp_session_grant_auto(
+    handle: tauri::State<'_, McpServerHandle>,
+    session_id: String,
+) -> Result<(), String> {
+    let granted = handle
+        .with_state(|state| state.sessions.grant_auto(&session_id))
+        .ok_or_else(|| "服务未运行，没有可授权的会话".to_string())?;
+    if granted {
+        log::info!("[mcp_server] auto orchestration granted to session {session_id}");
+        Ok(())
+    } else {
+        Err(format!(
+            "没有这个会话：{session_id}（可能已断开，请刷新会话列表）"
+        ))
+    }
+}
+
+/// 吊销某会话的自动编排。不影响它原有的 scope 与 `full` 授权。
+#[tauri::command]
+pub async fn mcp_session_revoke_auto(
+    handle: tauri::State<'_, McpServerHandle>,
+    session_id: String,
+) -> Result<(), String> {
+    let revoked = handle
+        .with_state(|state| state.sessions.revoke_auto(&session_id))
+        .ok_or_else(|| "服务未运行，没有可吊销的会话".to_string())?;
+    if revoked {
+        log::info!("[mcp_server] auto orchestration revoked for session {session_id}");
         Ok(())
     } else {
         Err(format!(

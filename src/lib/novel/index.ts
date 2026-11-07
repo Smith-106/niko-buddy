@@ -122,6 +122,7 @@ export type { DirectorSnapshot } from "./director-orchestrator"
 export {
   advanceDirectorAutomatically,
   advanceDirectorToStall,
+  characterEntityPath,
   failDirectorPhase,
   isPipelineCompleted,
   loadStageArtifacts,
@@ -129,6 +130,7 @@ export {
   persistStageArtifacts,
   recoveryCursor,
   saveStageArtifacts,
+  upsertCharacterEntity,
 } from "./director-auto-advance"
 export type {
   DirectorAutoAdvanceDeps,
