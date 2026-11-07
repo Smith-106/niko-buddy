@@ -2459,8 +2459,10 @@ function compareVersions(a: string, b: string): number {
 
 export function allChangelog(): ChangelogEntry[] {
   return ENTRIES.filter((entry) => {
+    /* v8 ignore start -- 台账 changelog.ts L2462-2463：ENTRIES 的数据不变量是「被合并的补丁号段从未有过独立条目」（见 L2445 注释），故 isHiddenVersion(entry.version) 恒 false；HISTORY_SKIPPED_VERSIONS 是空 Set（L2448），has 恒 false */
     if (isHiddenVersion(entry.version)) return false
     if (HISTORY_SKIPPED_VERSIONS.has(entry.version)) return false
+    /* v8 ignore stop */
     return compareVersions(entry.version, HISTORY_CEILING) <= 0
   })
 }

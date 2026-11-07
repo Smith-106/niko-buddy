@@ -314,3 +314,18 @@ describe("runSemanticLint", () => {
     errorSpy.mockRestore()
   })
 })
+
+describe("读取失败跳过", () => {
+  it("单个 wiki 页面读取失败 → 跳过该页且不中断整轮 lint", async () => {
+    fsState.listDirectory.mockResolvedValue(WIKI_TREE)
+    fsState.readFile.mockImplementation(async (p: string) => {
+      if (String(p).endsWith("d.md")) throw new Error("boom")
+      return contentFor(p)
+    })
+    const results = await runStructuralLint("/P")
+    // d.md 被跳过：不再作为孤儿出现在结果里
+    expect(results.some((r) => r.page === "d.md")).toBe(false)
+    // 其余页面照常产出
+    expect(results.some((r) => r.type === "no-outlinks")).toBe(true)
+  })
+})

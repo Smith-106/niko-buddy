@@ -624,6 +624,13 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 |----|------|------|
 | 83 | `modelSupportsTools` 的 `if (!apiModeSupportsTools(apiMode)) return false` | `apiModeSupportsTools`（L66-75）对 `undefined`/`chat_completions`/`responses`/`anthropic_messages` 四种取值全部返回 true，而 `apiMode` 的静态类型恰是后三种 + `undefined`，故该早退不可达 |
 
+### lib/lint.ts（2026-11-06）
+
+| 行 | 守卫 | 机制 |
+|----|------|------|
+| 104 | 页面装载的 `catch { logger.warn(...) }` | 第二道防线：读盘失败已在同函数上方 L94-97 由 `!read.ok` 处理并 `continue`，进入 try 体后只剩 `extractWikilinks`/`getRelativePath` 这类对字符串不会抛的操作 |
+| 370 | 摘要装载的 `catch { logger.warn(...) }` | 同上：L360-363 的 `!read.ok` 已处理读失败，try 体内只剩 `slice`/`getRelativePath` |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

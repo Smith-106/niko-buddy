@@ -101,6 +101,7 @@ export async function runStructuralLint(projectPath: string): Promise<LintResult
       const outlinks = extractWikilinks(content)
       pages.push({ path: f.path, slug, content, outlinks })
     } catch {
+      /* v8 ignore next -- 台账 lint.ts L104/L370：第二道防线。读盘失败已在同函数上方由 `!read.ok` 处理并 continue，进入 try 体后只剩 extractWikilinks / getRelativePath / slice 这类对字符串不会抛的操作 */
       logger.warn("lint", "lint: 读取wiki页面失败跳过（吞错已标记）")
     }
   }
@@ -367,6 +368,7 @@ export async function runSemanticLint(
       const shortPath = getRelativePath(f.path, wikiRoot)
       summaries.push(`### ${shortPath}\n${preview}`)
     } catch {
+      /* v8 ignore next -- 台账 lint.ts L104/L370：第二道防线。读盘失败已在同函数上方由 `!read.ok` 处理并 continue，进入 try 体后只剩 extractWikilinks / getRelativePath / slice 这类对字符串不会抛的操作 */
       logger.warn("lint", "lint: 读取wiki页面失败跳过（吞错已标记）")
     }
   }
