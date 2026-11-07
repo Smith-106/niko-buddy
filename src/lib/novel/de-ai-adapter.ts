@@ -409,6 +409,7 @@ export function parseDeAiEditPlanChecked(raw: string): DeAiEditPlanParseResult {
   if (!jsonText) return { ok: false, reason: "unparseable" }
   try {
     const parsed: unknown = JSON.parse(jsonText)
+    /* v8 ignore next -- 台账 de-ai-adapter.ts L412：jsonText 来自 extractReviewRewriteJsonArray（review-rewrite-plan.ts L173-178），必以 [ 开头且以 ] 结尾，合法 JSON 解析结果必为数组；畸形 JSON 会在上一行抛错 */
     if (!Array.isArray(parsed)) return { ok: false, reason: "unparseable" }
     return { ok: true, edits: [] }
   } catch {

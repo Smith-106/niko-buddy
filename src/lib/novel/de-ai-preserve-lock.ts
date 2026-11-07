@@ -84,6 +84,7 @@ function collectMatches(text: string, re: RegExp): { value: string; at: number }
   let guard = 0
   while ((m = r.exec(text)) !== null && guard++ < 5000) {
     out.push({ value: m[0], at: m.index })
+    /* v8 ignore next -- 台账 de-ai-preserve-lock.ts L87：collectMatches 的三个正则（URL_RE/NUMBER_RE/QUOTE_RE）都要求至少一个字符，零长度匹配不存在 */
     if (m.index === r.lastIndex) r.lastIndex++
   }
   return out

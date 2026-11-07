@@ -116,6 +116,7 @@ export function propagateStaleness(
   const visited = new Set<string>(queued)
   while (queued.length > 0) {
     const current = queued.shift()
+    /* v8 ignore next -- 台账 director-followup.ts L119：外层 while (queued.length > 0) 保证 shift() 必返回元素 */
     if (current === undefined) break
     for (const downstream of adjacency.get(current) ?? []) {
       if (visited.has(downstream)) continue

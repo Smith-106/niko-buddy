@@ -765,6 +765,16 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | lib/novel/chapter-ingest-utils.ts:36 | `if (typeof v === "number" ...) return v` | `parseFrontmatter` 的 `normalize` 用 `stringifyScalar` 把所有标量转成 string（frontmatter.ts L174-190），`v` 恒为 string |
 | lib/novel/de-ai-selfcheck.ts:84 | `if (mean === 0) return 0.5` | `paragraphs` 已先过滤 `length > 0` 且要求 >= 3 段，每段长度 >= 1，`mean` 恒 > 0 |
 
+### 2026-11-06 第八批（protocol/守卫型兜底）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| lib/novel/de-ai-adapter.ts:412 | `if (!Array.isArray(parsed)) ...` | `jsonText` 来自 `extractReviewRewriteJsonArray`（review-rewrite-plan.ts L173-178），必以 `[` 开头、`]` 结尾，合法 JSON 解析结果必为数组 |
+| lib/novel/de-ai-preserve-lock.ts:87 | `if (m.index === r.lastIndex) r.lastIndex++` | `collectMatches` 的三个正则（URL_RE/NUMBER_RE/QUOTE_RE）都要求至少一个字符，零长度匹配不存在 |
+| lib/novel/director-followup.ts:119 | `if (current === undefined) break` | 外层 `while (queued.length > 0)` 保证 `shift()` 必返回元素 |
+| lib/novel/context-engine-prompt.ts:245 | `if (!config) return ""` | `canonRules` 是 `FIELD_CONFIGS` 的静态成员（同文件 L105），`find` 恒命中 |
+| lib/novel/context-engine-technique-sources.ts:151 | `if (next === undefined) return blocks` | `idx` 在上一行被夹到 `[0, remaining.length-1]`，`remaining[idx]` 恒存在 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。

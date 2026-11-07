@@ -148,6 +148,7 @@ export function orderTechniqueBlocksByPreference(
       const pick = chooseTechniqueIndex(remaining.length, 0, prefsAligned)
       const idx = Number.isInteger(pick) && pick >= 0 && pick < remaining.length ? pick : 0
       const next: TechniquePromptBlock | undefined = remaining[idx]
+      /* v8 ignore next -- 台账 context-engine-technique-sources.ts L151：idx 在上一行被夹到 [0, remaining.length-1]，remaining[idx] 恒存在 */
       if (next === undefined) return blocks
       remaining.splice(idx, 1)
       ordered.push(next)

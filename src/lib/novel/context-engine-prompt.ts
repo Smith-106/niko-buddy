@@ -242,6 +242,7 @@ export function canonRulesDelta(full: string, base: string): string {
  */
 export function renderCanonRulesBaseForStablePrefix(pack: ContextPack): string {
   const config = FIELD_CONFIGS.find((c) => c.fieldKey === "canonRules")
+  /* v8 ignore next -- 台账 context-engine-prompt.ts L245：canonRules 是 FIELD_CONFIGS 的静态成员（同文件 L105），find 恒命中 */
   if (!config) return ""
   // 单一真源：与动态段同源切分，退化时稳定段为空（绝不重复渲染）。
   const { stable } = splitCanonRules(pack)

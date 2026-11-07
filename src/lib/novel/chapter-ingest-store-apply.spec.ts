@@ -346,6 +346,12 @@ describe("applySubplotChangesToStore", () => {
     return b
   }
 
+  it("废弃伏笔但名称为空 → 跳过该条变更（不误弃任何子情节）", () => {
+    const b = board()
+    applySubplotChangesToStore(b, snap({ foreshadowingChanges: ["废弃："] }))
+    expect(b.items.every((s) => s.abandoned !== true)).toBe(true)
+  })
+
   it("回收伏笔 → targetResolutionChapter + resolved", () => {
     const b = board()
     applySubplotChangesToStore(b, snap({ chapterNumber: 7, foreshadowingChanges: ["回收伏笔：主线复仇-大仇得报"] }))
