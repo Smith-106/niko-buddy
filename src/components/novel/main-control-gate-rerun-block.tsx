@@ -135,6 +135,7 @@ export function MainControlGateRerunBlock({ projectPath, ledger, deps }: MainCon
   }, [projectPath, ledger, deps, reloadToken])
 
   async function rerun(draft: ChapterDraft): Promise<void> {
+    /* v8 ignore next -- 台账 main-control-gate-rerun-block.tsx L138：重跑按钮 disabled={busyId !== null}（L191），busy 时不可点 */
     if (busyId) return
     setBusyId(draft.id)
     setNote(null)

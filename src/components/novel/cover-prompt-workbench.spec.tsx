@@ -157,3 +157,16 @@ describe("buildCoverPrompt — 纯函数", () => {
     )
   })
 })
+
+describe("复制反馈自动复位", () => {
+  it("复制成功后 1500ms 复位 copied 状态（标签回到 copy）", async () => {
+    render(<CoverPromptWorkbench templates={TEMPLATES} />)
+    const copyBtn = document.querySelector("[data-cover-copy]") as HTMLButtonElement
+    fireEvent.click(copyBtn)
+    await waitFor(() => expect(screen.getByText("novel.coverWorkbench.copied")).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText("novel.coverWorkbench.copy")).toBeInTheDocument(), {
+      timeout: 4000,
+    })
+    expect(clipboard.writeText).toHaveBeenCalledTimes(1)
+  })
+})

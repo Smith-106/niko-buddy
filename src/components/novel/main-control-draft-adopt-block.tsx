@@ -89,6 +89,7 @@ export function MainControlDraftAdoptBlock({ projectPath, selectedFile = null, o
   }
 
   async function confirmAdopt(): Promise<void> {
+    /* v8 ignore next -- 台账 main-control-draft-adopt-block.tsx L92：确认块整体在 `{pending ? ...}` 内渲染（L154），`!pending` 不可达；`busy` 由 disabled={busy}（L166）挡住 */
     if (!pending || busy) return
     setBusy(true)
     try {

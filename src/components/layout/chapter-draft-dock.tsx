@@ -78,6 +78,7 @@ export function ChapterDraftDock({
   }
 
   async function confirmAdopt(): Promise<void> {
+    /* v8 ignore next -- 台账 chapter-draft-dock.tsx L81：确认块整体在 `{pending ? ...}` 内渲染（L155），`!pending` 不可达；`busy` 由 disabled={busy}（L166）挡住 */
     if (!pending || busy) return
     setBusy(true)
     try {

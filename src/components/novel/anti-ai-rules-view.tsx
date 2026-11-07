@@ -118,6 +118,7 @@ export function AntiAiRulesView({ projectPath }: AntiAiRulesViewProps) {
   const disabledCount = skills.length - enabledCount
 
   async function handleToggle(skill: DeAiSkill, enabled: boolean): Promise<void> {
+    /* v8 ignore next -- 台账 anti-ai-rules-view.tsx L121：config 缺失时技能列表恒空（L107）故无触发按钮；savingId 非空时按钮 disabled（L233） */
     if (!config || savingId !== null) return
     const next = setDeAiSkillEnabled(config, skill.id, !enabled)
     setSavingId(skill.id)

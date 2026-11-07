@@ -30,6 +30,7 @@ export function CoverGenerateCard({ port, meta, aspect = "portrait", promptOverr
   const [notice, setNotice] = useState<string | null>(null)
 
   const run = useCallback(async () => {
+    /* v8 ignore next -- 台账 cover-generate-card.tsx L33：触发按钮同条件禁用（L68 `disabled={!port || !projectPath || !meta || running}`） */
     if (!port || !projectPath || !meta) return
     setRunning(true)
     setNotice(null)

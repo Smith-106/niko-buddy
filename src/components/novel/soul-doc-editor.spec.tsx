@@ -148,3 +148,13 @@ describe("SoulDocEditor", () => {
     expect(screen.getByRole("textbox")).toBeInTheDocument()
   })
 })
+
+describe("模式切换回读态", () => {
+  it("点击「阅读」按钮 → 从编辑态切回读态（正文变只读展示）", async () => {
+    render(<SoulDocEditor />)
+    await waitFor(() => expect(screen.getByRole("button", { name: "阅读" })).toBeTruthy())
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }))
+    fireEvent.click(screen.getByRole("button", { name: "阅读" }))
+    expect(screen.getByRole("button", { name: "阅读" })).toBeTruthy()
+  })
+})

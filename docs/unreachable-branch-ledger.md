@@ -812,6 +812,16 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | components/chat/chat-message.tsx:409 | `if (oldest === undefined) break` | 外层 `while (size > CITED_PAGE_IMAGE_CACHE_MAX)`（MAX=200 >= 0）保证进入循环时 Map 非空，`keys().next().value` 恒有值 |
 | components/layout/planned-views.ts:29 | `PLANNED_VIEWS.map(...)` 的 map 回调 | `PLANNED_VIEWS` 为空表（同文件注释：WaveC 毕业后 15 个灰卡视图全部落地为真视图） |
 
+### 2026-11-06 第十四批（确认块渲染前提）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| components/novel/cover-generate-card.tsx:33 | `if (!port \|\| !projectPath \|\| !meta) return` | 触发按钮同条件禁用（L68） |
+| components/novel/main-control-gate-rerun-block.tsx:138 | `if (busyId) return` | 重跑按钮 `disabled={busyId !== null}`（L191） |
+| components/novel/anti-ai-rules-view.tsx:121 | `if (!config \|\| savingId !== null) return` | config 缺失时技能列表恒空（L107）无触发按钮；savingId 非空时按钮 disabled（L233） |
+| components/layout/chapter-draft-dock.tsx:81 | `if (!pending \|\| busy) return` | 确认块整体在 `{pending ? ...}` 内（L155）；`busy` 由 `disabled={busy}`（L166）挡住 |
+| components/novel/main-control-draft-adopt-block.tsx:92 | `if (!pending \|\| busy) return` | 同上（确认块 L154，disabled L166） |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。
