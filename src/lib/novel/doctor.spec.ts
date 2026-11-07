@@ -166,9 +166,9 @@ describe("runProjectDoctor 备份目录含文件", () => {
       if (p.endsWith("status.json")) return "{}"
       throw new Error("ENOENT")
     })
-    fsMocks.listDirectory.mockImplementation(async () => [
-      { name: "ch-0001.md", is_dir: false, path: "/proj/.niko-buddy/chapter-backups/ch-0001.md" },
-    ])
+    fsMocks.listDirectory.mockImplementation(async () =>
+      [{ name: "ch-0001.md", is_dir: false, path: "/proj/.niko-buddy/chapter-backups/ch-0001.md" }] as never,
+    )
     const report = await runProjectDoctor("/proj", { canonDualWriteEnabled: true, ftsIndexReady: true })
     expect(report.findings.find((f) => f.id === "chapter-backups")?.severity).toBe("ok")
   })
