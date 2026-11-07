@@ -997,6 +997,7 @@ export async function writeFileBlocks(
       continue
     }
     const r = slotByIndex.get(i)
+    /* v8 ignore next -- 台账 ingest.ts L1000：groups 由全部 blocks 分组而来（同一文件一组），每组逐块 writeOne 后回填 index，故非软丢块在 slotByIndex 中必有条目 */
     if (!r) continue
     if (r.warning !== undefined) warnings.push(r.warning)
     if (r.writtenPath !== undefined) writtenPaths.push(r.writtenPath)
