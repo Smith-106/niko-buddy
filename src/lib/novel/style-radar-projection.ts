@@ -112,6 +112,7 @@ function finiteOrNull(value: unknown): number | null {
 /** 0–100 归一（打分器已在该区间，这里只做防御性钳制，不改语义）。 */
 function clampScore(value: unknown): number | null {
   const n = finiteOrNull(value)
+  /* v8 ignore next -- 台账 style-radar-projection.ts L115：clampScore 的两个调用点都来自 assessDimension/其均值，而 scoreDimension 对 charCount<=0 早退、各分母用 Math.max(1, ...) 兜底，分值恒为有限数；且投影只在 hasText 时计算，故 null 分支不可达 */
   if (n === null) return null
   return Math.max(0, Math.min(100, n))
 }

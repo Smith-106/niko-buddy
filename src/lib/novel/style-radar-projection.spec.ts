@@ -218,3 +218,16 @@ describe("几何：顶点对称、可复现", () => {
     expect(toPointsAttr([])).toBe("")
   })
 })
+
+describe("style-radar-projection 边界", () => {
+  it("radarPoints 空轴 → 空数组", () => {
+    expect(radarPoints([], 100)).toEqual([])
+  })
+
+  it("极短正文不产生 NaN 轴值（clampScore 兜底）", () => {
+    const projection = projectStyleRadar({ text: "啊" })
+    for (const axis of projection.axes) {
+      expect(Number.isNaN(axis.value ?? 0)).toBe(false)
+    }
+  })
+})
