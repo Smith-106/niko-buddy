@@ -57,3 +57,9 @@ describe("双门自愈回滚 — 熔断", () => {
     expect(circuitState(true, 600_000, false).state).toBe("open")
   })
 })
+
+describe("circuitState 未跳闸", () => {
+  it("未跳闸 → closed 且不进入半开探测", () => {
+    expect(circuitState(false, 0, false)).toEqual({ state: "closed", elapsedMs: 0, halfOpenProbe: false })
+  })
+})

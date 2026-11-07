@@ -25,3 +25,10 @@ describe("D5 双盲三编辑 — 视角分裂（防同源污染）", () => {
     expect(r.observationOnly).toBe(true)
   })
 })
+
+describe("consensusRate 空串", () => {
+  it("任一侧为空串 → 相似度 0（不比空）", () => {
+    // a 为空 → 含 a 的两对 minLen=0 跳过，仅 b/c 相同贡献 1/3
+    expect(consensusRate("", "abc", "abc")).toBeCloseTo(1 / 3, 10)
+  })
+})

@@ -48,3 +48,9 @@ describe("D1 盲测复述 — 距离衰减（长程记忆）", () => {
     expect(decay[2].hitRate).toBeGreaterThan(0.5)
   })
 })
+
+describe("computeRecallHitRate 空样本", () => {
+  it("无样本 → hitRate 0 且不通过（不臆造命中）", () => {
+    expect(computeRecallHitRate([])).toEqual({ hitRate: 0, pass: false })
+  })
+})

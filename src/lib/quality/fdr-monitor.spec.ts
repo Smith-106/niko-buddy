@@ -23,3 +23,11 @@ describe("D2 FDR 监控 — EWMA 控制图（观测）", () => {
     expect(r.observationOnly).toBe(true)
   })
 })
+
+describe("monitorFdr 空批量", () => {
+  it("无批量 FDR → ewma 0 且不告警（观察期照常开启）", () => {
+    const r = monitorFdr([])
+    expect(r.ewmaFdr).toBe(0)
+    expect(r.alert).toBe(false)
+  })
+})

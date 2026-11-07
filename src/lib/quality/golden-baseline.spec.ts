@@ -70,3 +70,9 @@ describe("D1 结构性约束 — 门控顺序不变量", () => {
     expect(structuralFingerprint()).toContain("Consistency(P0)")
   })
 })
+
+describe("verifyStructural 长度不符", () => {
+  it("优先级列表长度与基线不一致 → false", () => {
+    expect(verifyStructural([])).toBe(false)
+  })
+})

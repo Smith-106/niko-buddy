@@ -353,3 +353,9 @@ describe("缓存指标解析：厂商语义差异", () => {
     expect(openai?.cachedInput).toBeUndefined()
   })
 })
+
+describe("tokensToCharBudget 空消息", () => {
+  it("消息为空 → token 估算为 0 → 直接返回 maxTokens 上限", () => {
+    expect(tokensToCharBudget([], 4321)).toBe(4321)
+  })
+})

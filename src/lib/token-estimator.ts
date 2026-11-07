@@ -204,6 +204,7 @@ export function tokensToCharBudget(
   if (chars === 0) return maxTokens
 
   const tokens = estimateMessagesTokens(messages as never)
+  /* v8 ignore next -- 台账 token-estimator.ts L207：上一行 if (chars === 0) 已拦下空内容，chars > 0 时 estimateMessagesTokens 必返回正数 */
   if (tokens <= 0) return maxTokens
 
   const charsPerToken = chars / tokens

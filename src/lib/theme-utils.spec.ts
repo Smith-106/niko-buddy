@@ -119,3 +119,10 @@ describe("watchSystemTheme", () => {
     expect(onChange).toHaveBeenCalledTimes(1)
   })
 })
+
+describe("applyTheme deep-blue", () => {
+  it("显式 deep-blue 主题 → html 挂 deep-blue 类", () => {
+    applyTheme("deep-blue")
+    expect(document.documentElement.classList.contains("deep-blue")).toBe(true)
+  })
+})

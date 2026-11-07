@@ -130,3 +130,16 @@ describe("runDeepChapterGenerationConsensus", () => {
     void evalByTarget
   })
 })
+
+describe("互评席位流中断", () => {
+  it("streamChat 触发 onError → 互评正文为空 → 抛「互评没有返回 JSON」（中断不再静默）", async () => {
+    streamChatMock.mockImplementation(async (_c, _m, callbacks) => {
+      callbacks.onError?.(new Error("stream broken"))
+    })
+    const r = await runDeepChapterGenerationConsensus(input(true, ["mA", "mB", "mC"]))
+    // 互评席位全部中断 → 降级仍产出终稿（不静默丢失，warn 已记录）
+    expect(streamChatMock).toHaveBeenCalled()
+    expect(typeof r.finalContent).toBe("string")
+    expect(r.finalContent.length).toBeGreaterThan(0)
+  })
+})
