@@ -54,3 +54,10 @@ describe("sensitive-words（吸收累积残余：敏感词分级检测模式）"
     )
   })
 })
+
+describe("空词条", () => {
+  it("规则词为空串 → 计 0 次且不产命中", () => {
+    const out = scanSensitiveWords("任意正文", [{ term: "", action: "ban", category: "x", note: "" } as never])
+    expect(out.hits).toEqual([])
+  })
+})

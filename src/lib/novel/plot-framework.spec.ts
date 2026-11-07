@@ -443,3 +443,14 @@ describe("plot-framework 类型层", () => {
     })
   })
 })
+
+describe("normalizePlotFramework 标签清洗", () => {
+  it("标签数组里的非字符串项被丢弃（不抛）", () => {
+    const out = normalizePlotFramework({
+      title: "框架",
+      beats: { hook: "钩子", buildup: "铺垫", payoff: "回报", endingHook: "收束" },
+      tags: ["权谋", 1, null, "  ", "权谋"] as never,
+    })
+    expect(out?.tags).toEqual(["权谋"])
+  })
+})

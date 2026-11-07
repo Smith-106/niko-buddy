@@ -137,3 +137,15 @@ describe("T3 技法偏好回灌最小版", () => {
     expect(preferenceStorePath("/p")).toBe("/p/.novel/technique-preference.json")
   })
 })
+describe("偏好文件形状非法项", () => {
+  it("值为非对象（数字/数组/null）→ 跳过该条，对象项照常清洗", async () => {
+    fsMocks.files.clear()
+    fsMocks.files.set(
+      preferenceStorePath("/proj"),
+      JSON.stringify({ bad1: 1, bad2: [1, 2], bad3: null, good: { accept: 2, reject: 1 } }),
+    )
+    const map = await createPreferenceStore().load("/proj")
+    expect(Object.keys(map)).toEqual(["good"])
+    expect(map.good).toEqual({ accept: 2, reject: 1 })
+  })
+})
