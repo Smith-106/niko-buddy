@@ -252,3 +252,14 @@ describe("ReferenceMention", () => {
     expect(ref.current!.handleKeyDown({ key: "ArrowDown", preventDefault: () => {} } as React.KeyboardEvent)).toBe(false)
   })
 })
+
+describe("输入法合成中的按键", () => {
+  it("候选打开 + IME 合成中（keyCode 229）→ 方向键直接放行，不切换选中", async () => {
+    const ref = { current: null as import("./reference-mention").ReferenceMentionHandle | null }
+    render(<ReferenceMention ref={ref} value="让@林" onRemoveToken={vi.fn()} />)
+    await waitDebounce()
+    await waitFor(() => expect(screen.getByText("林墨")).toBeInTheDocument())
+    const ev = { key: "ArrowDown", keyCode: 229, preventDefault: () => {} } as unknown as React.KeyboardEvent
+    expect(ref.current!.handleKeyDown(ev)).toBe(false)
+  })
+})

@@ -324,3 +324,21 @@ describe("R2 契约与输出 schema", () => {
     expect(r.lockedCount + r.nominatedTargets.length).toBe(SCALE_UNLOCK_TARGETS.length)
   })
 })
+
+describe("R2 MMR 达标但推广流程文档缺失", () => {
+  it("净增益 > 0 且 λ 就位，但 docs.promotionFlowDocPresent=false → locked(promotion_flow_doc_missing)", () => {
+    const big = { corpusEntries: 1200, rerankEvidence: triggeredEvidence() }
+    const cluster = { clusterQueries: 34, top3GainPp: 12, p95LatencyDeltaMs: 200 }
+    const r = evaluateUnlockGates(
+      ctx({
+        ...big,
+        lambda: RETRIEVAL_LAMBDA_INITIAL,
+        sameCluster: cluster,
+        docs: { promotionFlowDocPresent: false },
+      }),
+    )
+    const d = r.decisions.find((x) => x.target === "dualKbRoutingEnabled")!
+    expect(d.verdict).toBe("locked")
+    expect(d.reasonCode).toBe("promotion_flow_doc_missing")
+  })
+})

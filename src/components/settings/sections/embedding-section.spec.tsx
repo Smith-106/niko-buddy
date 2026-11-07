@@ -38,9 +38,15 @@ const mocks = vi.hoisted(() => {
   const state: {
     project: ProjectLike | null
     embeddingConfig: Record<string, unknown>
+    offlineMode: boolean
+    setOfflineMode: (next: boolean) => void
   } = {
     project: null,
     embeddingConfig: {},
+    offlineMode: false,
+    setOfflineMode: (next: boolean) => {
+      state.offlineMode = next
+    },
   }
   return {
     state,
@@ -627,5 +633,19 @@ describe("EmbeddingSection", () => {
     rerender(<EmbeddingSection draft={makeDraft({ embeddingModel: "x", embeddingEndpoint: "http://other" })} setDraft={mocks.setDraft} />)
     await flushAsync()
     expect(screen.queryByRole("combobox")).toBeNull()
+  })
+})
+
+describe("离线模式开关", () => {
+  it("点击开关 → setDraft 收到 offlineMode 取反后的 draft", () => {
+    mocks.t.mockImplementation((k: string) => k)
+    const draft = makeDraft()
+    render(<EmbeddingSection draft={draft} setDraft={mocks.setDraft} />)
+    const sw = screen.getByRole("switch", { name: "settings.sections.embedding.offlineMode" })
+    expect(sw.getAttribute("aria-checked")).toBe("false")
+    fireEvent.click(sw)
+    // 开关直连 store 的 setOfflineMode（不经过 setDraft）
+    expect(mocks.state.offlineMode).toBe(true)
+    expect(mocks.state.offlineMode).toBe(!draft.offlineMode)
   })
 })

@@ -110,3 +110,14 @@ describe("TimelineBoard", () => {
     expect(onOpen).toHaveBeenCalledWith(3)
   })
 })
+
+describe("章节刻度可点开章节", () => {
+  it("点击泳道章节按钮 → onOpenChapter 收到该章号", () => {
+    const onOpenChapter = vi.fn()
+    render(<TimelineBoard entries={[{ chapterNumber: 3, event: "入城" }]} onOpenChapter={onOpenChapter} />)
+    const lane = screen.getByTestId("timeline-board-lane-3")
+    const chapterButton = lane.querySelector("button") as HTMLButtonElement
+    fireEvent.click(chapterButton)
+    expect(onOpenChapter).toHaveBeenCalledWith(3)
+  })
+})
