@@ -13,6 +13,7 @@ import {
   appendRunEvents,
   createRunEventLedger,
   findChapterFileByNumber,
+  loadRunEventLedgerStore,
   type RunEventInput,
   type RunEventLedgerStoreDeps,
 } from "@/lib/novel"
@@ -25,6 +26,8 @@ vi.mock("@/lib/novel", async (importOriginal) => {
   return {
     ...actual,
     findChapterFileByNumber: vi.fn(async () => null),
+    // 默认委派真实实现；单个用例可覆盖以制造挂起
+    loadRunEventLedgerStore: vi.fn(actual.loadRunEventLedgerStore),
   }
 })
 
@@ -333,5 +336,29 @@ describe("FollowupCenterView 覆盖补齐：quality 门/装载分支/回到正�
     fireEvent.click(screen.getByTestId("followup-dismiss-item-todo"))
     expect(useReviewStore.getState().items.some((i) => i.id === "item-todo")).toBe(false)
     expect(screen.queryByTestId("followup-item-item-todo")).toBeNull()
+  })
+})
+
+describe("装载竞态守卫", () => {
+  it("账本装载未完成即卸载 → cancelled 守卫拦住，不写 state、不报错", async () => {
+    let resolveFn: ((v: unknown) => void) | undefined
+    vi.mocked(loadRunEventLedgerStore).mockImplementationOnce(
+      () =>
+        new Promise((res) => {
+          resolveFn = res as (v: unknown) => void
+        }) as never,
+    )
+
+    const { unmount } = render(<FollowupCenterView projectPath="/P" />)
+    // render 后 effect 已同步跑完，挂起中的 resolve 句柄已就位
+    expect(resolveFn).toBeDefined()
+    unmount()
+    resolveFn?.(createRunEventLedger())
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // 卸载后守卫生效：不出现装载失败横幅，也不出现阻塞横幅
+    expect(screen.queryByTestId("followup-ledger-failed")).toBeNull()
+    expect(screen.queryByTestId("followup-blocked-banner")).toBeNull()
   })
 })

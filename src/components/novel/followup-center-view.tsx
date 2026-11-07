@@ -66,6 +66,7 @@ function gateLabel(gate: string): string {
   if (gate === "consistency") return "一致性"
   if (gate === "anti_ai") return "反 AI"
   if (gate === "quality") return "质量"
+  /* v8 ignore next -- 台账 followup-center-view.tsx L69：唯一调用点（L220）在 snapshot.blocked 守卫内，而 blocked 定义为 blockingGate !== null（dashboard-evidence.ts L226），blockingGate 由 GATE_PRIORITY_ORDER.find 产出、GateKey 恰为 consistency/anti_ai/quality 三个字面量（audit-taxonomy.ts L78），三个分支已全覆盖 */
   return gate
 }
 
