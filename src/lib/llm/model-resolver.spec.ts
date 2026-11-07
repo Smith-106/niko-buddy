@@ -57,3 +57,11 @@ describe("model-resolver.ts smoke", () => {
     expect(classifyError).toBeDefined()
   })
 })
+
+describe("classifyError 未分类错误", () => {
+  it("不匹配任何已知模式的 Error → RetryableError（默认可重试）", () => {
+    const err = classifyError(new Error("完全未知的失败"))
+    expect(err).toBeInstanceOf(RetryableError)
+    expect(err.message).toBe("完全未知的失败")
+  })
+})

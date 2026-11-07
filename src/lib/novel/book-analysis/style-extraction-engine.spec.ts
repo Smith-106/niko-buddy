@@ -275,3 +275,17 @@ describe("styleProfileToMarkdown", () => {
     expect(md).toContain("（无）")
   })
 })
+
+describe("派发前已取消", () => {
+  it("抽样期间收到 abort → 派发前中止（不读样本正文）", async () => {
+    const controller = new AbortController()
+    mocks.loadChapterList.mockResolvedValue(chapters)
+    mocks.loadMetadata.mockImplementation(async () => {
+      controller.abort()
+      return { title: "样例作品" }
+    })
+    await expect(
+      analyzeWritingStyle("E:/Novel/book-analysis/b1", stubLlmConfig, { signal: controller.signal }),
+    ).rejects.toThrow("用户取消提取")
+  })
+})

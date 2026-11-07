@@ -29,3 +29,22 @@ describe("graph-layout-engine.ts smoke", () => {
     }
   })
 })
+
+describe("端点缺失的边", () => {
+  it("引用不存在节点的边被跳过（不抛错）", () => {
+    const out = computeForceAtlas2Positions({
+      nodes: [
+        { id: "a", x: 0, y: 0, size: 1 },
+        { id: "b", x: 10, y: 10, size: 1 },
+      ],
+      edges: [
+        { source: "ghost", target: "a", weight: 1 },
+        { source: "a", target: "b", weight: 1 },
+      ],
+      iterations: 2,
+      settings: GRAPH_LAYOUT_SETTINGS,
+      barnesHutOptimize: false,
+    })
+    expect(Object.keys(out).sort()).toEqual(["a", "b"])
+  })
+})

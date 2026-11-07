@@ -223,6 +223,7 @@ export function createAntiAiTelemetrySink(
   deps?: Partial<TelemetrySinkDeps>,
 ): AntiAiTelemetrySink {
   const d: TelemetrySinkDeps = {
+    /* v8 ignore next -- 台账 anti-ai-telemetry-sink.ts L226：TelemetrySinkDeps.readFile 只在 L90 声明，全文件无任何调用点，默认实现是死代码 */
     readFile: async () => "",
     writeFile: async () => {},
     createDirectory: async () => {},

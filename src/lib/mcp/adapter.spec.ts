@@ -89,3 +89,16 @@ describe("MCP adapter", () => {
     expect(result.error).toContain("不支持的 MCP 参数类型")
   })
 })
+
+describe("MCP 调用失败兜底", () => {
+  it("caller 抛错 → 返回 status=error 的 JSON（普通会话可继续）", async () => {
+    const caller = vi.fn().mockRejectedValue(new Error("server exploded"))
+    const result = adaptMcpTool(descriptor({ operation: "analysis" }), caller)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    const output = JSON.parse((await result.tool.execute!({ query: "x" })) as string)
+    expect(output.status).toBe("error")
+    expect(output.message).toContain("MCP 调用失败")
+    expect(output.message).toContain("server exploded")
+  })
+})

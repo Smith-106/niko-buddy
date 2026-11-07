@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   getCustomCompatibleHeaders,
+  resolvePromptCacheStrategy,
   getProviderConfig,
   withCustomOriginHeader,
   buildAnthropicUrl,
@@ -1412,5 +1413,13 @@ describe("anthropic thinking 块回放", () => {
     const blocks = body.messages.find((m) => m.role === "assistant")!.content as Array<{ type: string }>
     expect(blocks.some((b) => b.type === "thinking")).toBe(false)
     expect(body.thinking).toMatchObject({ type: "enabled" })
+  })
+})
+
+describe("未知 provider 的缓存策略", () => {
+  it("未知 provider → none（默认分支）", () => {
+    expect(
+      resolvePromptCacheStrategy({ provider: "some-future-provider" } as never),
+    ).toBe("none")
   })
 })

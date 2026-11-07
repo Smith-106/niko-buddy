@@ -30,3 +30,9 @@ describe("ann-index.ts smoke", () => {
     expect(withInjectedClock).toBeDefined()
   })
 })
+
+describe("recallAtK 空参考", () => {
+  it("参考序列为空 → 定义域内返回 1（不除零）", () => {
+    expect(recallAtK([], ["x", "y"], 3)).toBe(1)
+  })
+})

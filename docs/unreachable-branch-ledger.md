@@ -750,6 +750,12 @@ L253 的 `decisionGates.overall === "pending"` 恒为假。
 | lib/agent/capability-retrieval.ts:231 | `if (!doc) continue` | `ranked` 来自 `rankByBm25(query, index)`，`index` 与 `docById` 同源同序构建，`ranked` 的 id 必然在 `docById` 中 |
 | lib/cache-hit-harness.ts:129 | `cjkText` 的 `if (targetChars <= 0) return ""` | 全部调用点传的是字面量 600/900/1500 或 `runCacheHitHarness` 内固定正数（userCharsPerRound=120、assistantCharsPerRound=640） |
 
+### 2026-11-06 第六批（lib 长尾续）
+
+| 文件:行 | 守卫 | 机制 |
+|---------|------|------|
+| lib/novel/anti-ai-telemetry-sink.ts:226 | 默认 deps 的 `readFile: async () => ""` | `TelemetrySinkDeps.readFile` 只在 L90 声明，全文件无任何调用点，默认实现是死代码 |
+
 ## 附录：v8-ignore 全量清单（v2.4.9 覆盖率 100% 收口）
 
 > 以下 155 个文件包含 `/* v8 ignore */` 注释，均经论证为「可证明不可达 / 死代码 / v8 伪分支 / 防御性回退」，符合 P15 策略（仅在可证明不可达处加注释；可达缺口补真实测试）。详细论证见上方代表性条目；同类模式（数组 `.pop() ??` 回退、内部 try/catch 使外层 catch 死亡、类型保证的 `?? fallback`、批量 setState 非函数侧等）按既有判例处理。
