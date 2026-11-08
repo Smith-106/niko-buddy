@@ -327,6 +327,10 @@ export function isRequestCancelledError(error: Error): boolean {
 }
 
 export function isTransportInactivityError(error: Error): boolean {
+  // 结构化优先：HTTP 传输的停滞错误带稳定 name，且文案是本地化的（中文）。
+  // 只靠英文正则会让「HTTP provider 中途停滞 + 已有部分内容」永远走不到
+  // partial-preserve 降级分支（实测：真机只会硬失败，partial 分支不可达）。
+  if (error.name === STREAM_IDLE_ERROR_NAME) return true
   return /produced no meaningful stream output within \d+ seconds|produced no additional stream output within \d+ seconds|never produced assistant text or StructuredOutput before stalling|kept emitting progress heartbeats/i.test(
     error.message,
   )

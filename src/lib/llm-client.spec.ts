@@ -520,6 +520,14 @@ describe("streaming helpers", () => {
   it("isTransportInactivityError matches stall messages", () => {
     expect(isTransportInactivityError(new Error("produced no meaningful stream output within 90 seconds"))).toBe(true)
     expect(isTransportInactivityError(new Error("produced no additional stream output within 30 seconds"))).toBe(true)
+    // 真机回归：HTTP 传输的停滞错误文案是本地化中文，靠英文正则永远匹配不到，
+    // 于是「已有部分内容 + 传输停滞」的 partial-preserve 降级分支不可达。现在结构化 name 优先。
+    expect(
+      isTransportInactivityError(
+        Object.assign(new Error("模型输出停滞超过 30 秒，已中止本次请求。"), { name: "StreamIdleTimeoutError" }),
+      ),
+    ).toBe(true)
+    expect(isTransportInactivityError(Object.assign(new Error("随便一个别的错"), { name: "Error" }))).toBe(false)
     expect(isTransportInactivityError(new Error("never produced assistant text or StructuredOutput before stalling"))).toBe(true)
     expect(isTransportInactivityError(new Error("kept emitting progress heartbeats"))).toBe(true)
     expect(isTransportInactivityError(new Error("plain error"))).toBe(false)
