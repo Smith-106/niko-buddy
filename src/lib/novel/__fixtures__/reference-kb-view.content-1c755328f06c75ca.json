@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "builtFrom": "sha256:878b6f16f9b20798",
+  "builtFrom": "sha256:1c755328f06c75ca",
   "source": "reference/REFERENCE-KB-VIEW.json（hub 生成产物；内容面快照，禁手改）",
   "collections": [
     "craft",
@@ -8,7 +8,7 @@
     "world_ref",
     "corpus"
   ],
-  "entryCount": 98,
+  "entryCount": 101,
   "entries": [
     {
       "name": "avoid-ai-writing",
@@ -67,8 +67,8 @@
         "revise"
       ],
       "trust": "reference_only",
-      "summary": "分层剧本生成（DeepMind）（dramatron）；分类：writing-engines；上游：google-deepmind/dramatron；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：DeepMind 交互式剧作家（分层剧本生成）。",
-      "contentDigest": "sha256-d17a78ecb0535a36bf19371a3416c900",
+      "summary": "分层剧本生成（DeepMind）（dramatron）；分类：writing-engines；上游：google-deepmind/dramatron；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：DeepMind 交互式剧作家（分层剧本生成）。",
+      "contentDigest": "sha256-ef0b47feaa14d90b990186c9bc0a1d94",
       "upstream": "google-deepmind/dramatron",
       "purpose": "DeepMind 交互式剧作家（分层剧本生成）"
     },
@@ -194,6 +194,27 @@
       "purpose": "AI 小说写作助手"
     },
     {
+      "name": "lore-weave",
+      "collection": "craft",
+      "title": "Canon-safe 写作+设定图谱",
+      "author": "letuhao",
+      "lang": "en",
+      "era": "unavailable",
+      "domain": [
+        "一致性",
+        "设定"
+      ],
+      "query_intent": [
+        "plan",
+        "revise"
+      ],
+      "trust": "reference_only",
+      "summary": "Canon-safe 写作+设定图谱（lore-weave）；分类：writing-tools；上游：letuhao/lore-weave；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：小说知识图谱自动抽取+Canon-safe 写作。",
+      "contentDigest": "sha256-80ee6180c089f768163082a6565fb8f1",
+      "upstream": "letuhao/lore-weave",
+      "purpose": "小说知识图谱自动抽取+Canon-safe 写作"
+    },
+    {
       "name": "narrative-consistency-verifier",
       "collection": "craft",
       "title": "声明分解+证据检索一致性核查",
@@ -226,8 +247,8 @@
         "revise"
       ],
       "trust": "reference_only",
-      "summary": "确定性连续性错误检测（pagegod-narrative-scanner）；分类：writing-engines；上游：PAGEGOD/pagegod-narrative-scanner；许可：Apache-2.0；ADR 档级：理念参考 gap2（纯算术连续性主原型）；信任：reference_only；用途：确定性引擎检测小说连续性错误——不使用 LLM，与 anti-LLM 检测轴直接对齐。",
-      "contentDigest": "sha256-9d5009c31deaa277a8603477f641b8e0",
+      "summary": "确定性连续性错误检测（pagegod-narrative-scanner）；分类：writing-engines；上游：PAGEGOD/pagegod-narrative-scanner；许可：MIT；ADR 档级：理念参考 gap2（纯算术连续性主原型）；信任：reference_only；用途：确定性引擎检测小说连续性错误——不使用 LLM，与 anti-LLM 检测轴直接对齐。",
+      "contentDigest": "sha256-3a6f63590b13c211f0ac180677e63dc5",
       "upstream": "PAGEGOD/pagegod-narrative-scanner",
       "purpose": "确定性引擎检测小说连续性错误——不使用 LLM，与 anti-LLM 检测轴直接对齐"
     },
@@ -252,6 +273,25 @@
       "purpose": "单二进制逐章自动连写+伏笔系统+全书优化"
     },
     {
+      "name": "story-engine",
+      "collection": "craft",
+      "title": "确定性因果逻辑审计故事引擎",
+      "author": "nohn3043-arch",
+      "lang": "en",
+      "era": "unavailable",
+      "domain": [
+        "一致性"
+      ],
+      "query_intent": [
+        "revise"
+      ],
+      "trust": "reference_only",
+      "summary": "确定性因果逻辑审计故事引擎（story-engine）；分类：writing-engines；上游：nohn3043-arch/story-engine；许可：MIT；ADR 档级：理念参考 gap2（因果逻辑审计）；信任：reference_only；用途：确定性故事生成引擎——因果逻辑审计保持角色与剧情一致。",
+      "contentDigest": "sha256-e0e28b05f46d3bce5227e8494acafd46",
+      "upstream": "nohn3043-arch/story-engine",
+      "purpose": "确定性故事生成引擎——因果逻辑审计保持角色与剧情一致"
+    },
+    {
       "name": "fantasy-term-dungeon",
       "collection": "lexicon",
       "title": "地下城与遗迹规则",
@@ -266,9 +306,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "地下城与遗迹规则（fantasy-term-dungeon）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻词条：地下城与遗迹规则（自建 CC0）。",
-      "contentDigest": "sha256-bd8b019be60654c5833e6e8c364f7010",
+      "trust": "reference_only",
+      "summary": "地下城与遗迹规则（fantasy-term-dungeon）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：奇幻词条：地下城与遗迹规则（自建 CC0）。",
+      "contentDigest": "sha256-ad2a0b0b8c0ec06a4d36a638fff476a6",
       "upstream": "UNKNOWN",
       "purpose": "奇幻词条：地下城与遗迹规则（自建 CC0）"
     },
@@ -287,9 +327,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "魔力流动与感知（fantasy-term-mana）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻词条：魔力流动与感知（自建 CC0）。",
-      "contentDigest": "sha256-1df23c4da0b77bb9145252b4556081cb",
+      "trust": "reference_only",
+      "summary": "魔力流动与感知（fantasy-term-mana）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：奇幻词条：魔力流动与感知（自建 CC0）。",
+      "contentDigest": "sha256-56fd00f444b7c955874f432d898b78ba",
       "upstream": "UNKNOWN",
       "purpose": "奇幻词条：魔力流动与感知（自建 CC0）"
     },
@@ -308,9 +348,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "誓约与契约的约束力（fantasy-term-oath）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻词条：誓约与契约约束（自建 CC0）。",
-      "contentDigest": "sha256-fd9fa4eda135bafb5d676cae60460efb",
+      "trust": "reference_only",
+      "summary": "誓约与契约的约束力（fantasy-term-oath）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：奇幻词条：誓约与契约约束（自建 CC0）。",
+      "contentDigest": "sha256-ed39df3c802c30418bfb948e2b173e70",
       "upstream": "UNKNOWN",
       "purpose": "奇幻词条：誓约与契约约束（自建 CC0）"
     },
@@ -329,9 +369,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "外星生态与接触协议（scifi-term-alien）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻词条：外星生态与接触协议（自建 CC0）。",
-      "contentDigest": "sha256-b13681f5eaa7e91058761bc99c67a075",
+      "trust": "reference_only",
+      "summary": "外星生态与接触协议（scifi-term-alien）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：科幻词条：外星生态与接触协议（自建 CC0）。",
+      "contentDigest": "sha256-9b2fbc699c5cf972b661b39b938f75b5",
       "upstream": "UNKNOWN",
       "purpose": "科幻词条：外星生态与接触协议（自建 CC0）"
     },
@@ -350,9 +390,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "曲率航行与时间代价（scifi-term-warp）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻词条：曲率航行与时间代价（自建 CC0）。",
-      "contentDigest": "sha256-f1fcfcf7d72a6c34f33293ce6a01cfaa",
+      "trust": "reference_only",
+      "summary": "曲率航行与时间代价（scifi-term-warp）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：科幻词条：曲率航行与时间代价（自建 CC0）。",
+      "contentDigest": "sha256-47c53de6ca3c2cf7d3b2bfb92a29b29c",
       "upstream": "UNKNOWN",
       "purpose": "科幻词条：曲率航行与时间代价（自建 CC0）"
     },
@@ -371,9 +411,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "废土生存与旧世遗迹（scifi-term-wasteland）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻词条：废土生存与旧世遗迹（自建 CC0）。",
-      "contentDigest": "sha256-641ce8dbc37e173057e7164c734cd118",
+      "trust": "reference_only",
+      "summary": "废土生存与旧世遗迹（scifi-term-wasteland）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：科幻词条：废土生存与旧世遗迹（自建 CC0）。",
+      "contentDigest": "sha256-130956a352e902474b581693f6e60256",
       "upstream": "UNKNOWN",
       "purpose": "科幻词条：废土生存与旧世遗迹（自建 CC0）"
     },
@@ -392,9 +432,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "内功经脉与修炼代价（wuxia-term-neigong）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠词条：内功经脉与修炼代价（自建 CC0）。",
-      "contentDigest": "sha256-b8c79b90f512a2430760d4be8d17a93f",
+      "trust": "reference_only",
+      "summary": "内功经脉与修炼代价（wuxia-term-neigong）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：武侠词条：内功经脉与修炼代价（自建 CC0）。",
+      "contentDigest": "sha256-986fe6e6f021387e1c6f7735c37ddcf5",
       "upstream": "UNKNOWN",
       "purpose": "武侠词条：内功经脉与修炼代价（自建 CC0）"
     },
@@ -413,9 +453,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "侠义与仇怨法则（wuxia-term-revenge-code）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠词条：侠义与仇怨法则（自建 CC0）。",
-      "contentDigest": "sha256-8499ae12261d08e8e869703e27230e95",
+      "trust": "reference_only",
+      "summary": "侠义与仇怨法则（wuxia-term-revenge-code）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：武侠词条：侠义与仇怨法则（自建 CC0）。",
+      "contentDigest": "sha256-d9a381a9c47756433a47802e688c9f35",
       "upstream": "UNKNOWN",
       "purpose": "武侠词条：侠义与仇怨法则（自建 CC0）"
     },
@@ -434,9 +474,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "兵器谱与招式命名（wuxia-term-weapons）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠词条：兵器谱与招式命名（自建 CC0）。",
-      "contentDigest": "sha256-c06df89d70d7ecabccb1e14a7d622446",
+      "trust": "reference_only",
+      "summary": "兵器谱与招式命名（wuxia-term-weapons）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：武侠词条：兵器谱与招式命名（自建 CC0）。",
+      "contentDigest": "sha256-17627fb3c005561cc9d3bbab19031030",
       "upstream": "UNKNOWN",
       "purpose": "武侠词条：兵器谱与招式命名（自建 CC0）"
     },
@@ -455,9 +495,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "丹道（xianxia-art-alchemy）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：丹道（自建 CC0）。",
-      "contentDigest": "sha256-5575e308c5c37551a9de32b2cbaf593d",
+      "trust": "reference_only",
+      "summary": "丹道（xianxia-art-alchemy）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙功法：丹道（自建 CC0）。",
+      "contentDigest": "sha256-d1ecea5d4c535e353e4c1be99e6af8c1",
       "upstream": "UNKNOWN",
       "purpose": "修仙功法：丹道（自建 CC0）"
     },
@@ -476,9 +516,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "炼体诀（xianxia-art-body-refining）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：炼体诀（自建 CC0）。",
-      "contentDigest": "sha256-01c19d07c1d2be1a4e2e546fd88c3dd5",
+      "trust": "reference_only",
+      "summary": "炼体诀（xianxia-art-body-refining）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙功法：炼体诀（自建 CC0）。",
+      "contentDigest": "sha256-6f6436782d7a69ef2f3a0a8cf561fc30",
       "upstream": "UNKNOWN",
       "purpose": "修仙功法：炼体诀（自建 CC0）"
     },
@@ -497,9 +537,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "五行遁术（xianxia-art-five-elements）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：五行遁术（自建 CC0）。",
-      "contentDigest": "sha256-b3cfc980157508b3bb9a2e6f745822b2",
+      "trust": "reference_only",
+      "summary": "五行遁术（xianxia-art-five-elements）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙功法：五行遁术（自建 CC0）。",
+      "contentDigest": "sha256-b3018e92092242f770f0affa52982014",
       "upstream": "UNKNOWN",
       "purpose": "修仙功法：五行遁术（自建 CC0）"
     },
@@ -518,9 +558,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "阵法之道（xianxia-art-formation）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：阵法之道（自建 CC0）。",
-      "contentDigest": "sha256-e4c8f097a2af6c973f3013684b96d8d4",
+      "trust": "reference_only",
+      "summary": "阵法之道（xianxia-art-formation）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙功法：阵法之道（自建 CC0）。",
+      "contentDigest": "sha256-2f1eb17de9eab139dcfc67bb68cacf48",
       "upstream": "UNKNOWN",
       "purpose": "修仙功法：阵法之道（自建 CC0）"
     },
@@ -539,9 +579,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "傀儡术（xianxia-art-puppetry）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：傀儡术（自建 CC0）。",
-      "contentDigest": "sha256-a17e24ab16931e6499db449299d74e75",
+      "trust": "reference_only",
+      "summary": "傀儡术（xianxia-art-puppetry）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙功法：傀儡术（自建 CC0）。",
+      "contentDigest": "sha256-e7aa087471e54df642b535d4686fe5cf",
       "upstream": "UNKNOWN",
       "purpose": "修仙功法：傀儡术（自建 CC0）"
     },
@@ -560,9 +600,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "神识功法（xianxia-art-spirit-sense）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：神识功法（自建 CC0）。",
-      "contentDigest": "sha256-48fa27a7ddc0a7f0138f8c90851211f8",
+      "trust": "reference_only",
+      "summary": "神识功法（xianxia-art-spirit-sense）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙功法：神识功法（自建 CC0）。",
+      "contentDigest": "sha256-ae7efc147194309cde8a612112f81f97",
       "upstream": "UNKNOWN",
       "purpose": "修仙功法：神识功法（自建 CC0）"
     },
@@ -581,9 +621,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "御剑术（xianxia-art-sword-control）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：御剑术（自建 CC0）。",
-      "contentDigest": "sha256-6fbba2762880291ad0cfa6c0f333873a",
+      "trust": "reference_only",
+      "summary": "御剑术（xianxia-art-sword-control）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙功法：御剑术（自建 CC0）。",
+      "contentDigest": "sha256-5855f557815e0021e7cbe668e87ff0d1",
       "upstream": "UNKNOWN",
       "purpose": "修仙功法：御剑术（自建 CC0）"
     },
@@ -602,9 +642,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "符箓之术（xianxia-art-talisman）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙功法：符箓之术（自建 CC0）。",
-      "contentDigest": "sha256-2c08c7fb0213e5da7387433f09f0adfb",
+      "trust": "reference_only",
+      "summary": "符箓之术（xianxia-art-talisman）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙功法：符箓之术（自建 CC0）。",
+      "contentDigest": "sha256-2e5b1f217a435523da91102a879b13cf",
       "upstream": "UNKNOWN",
       "purpose": "修仙功法：符箓之术（自建 CC0）"
     },
@@ -623,9 +663,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "阵材与符纸（xianxia-item-array-materials）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙灵物：阵材与符纸（自建 CC0）。",
-      "contentDigest": "sha256-474cfca49a0c43e3c11ec322d7230aab",
+      "trust": "reference_only",
+      "summary": "阵材与符纸（xianxia-item-array-materials）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙灵物：阵材与符纸（自建 CC0）。",
+      "contentDigest": "sha256-5fc8b2dc7de22237af1a0c4ce8e0ac5d",
       "upstream": "UNKNOWN",
       "purpose": "修仙灵物：阵材与符纸（自建 CC0）"
     },
@@ -644,9 +684,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "洞府（xianxia-item-cave）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙灵物：洞府（自建 CC0）。",
-      "contentDigest": "sha256-3414d8d558fc90a3d2f17f4bb5283a97",
+      "trust": "reference_only",
+      "summary": "洞府（xianxia-item-cave）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙灵物：洞府（自建 CC0）。",
+      "contentDigest": "sha256-368514745c71b99f2d9196327b9a0fc5",
       "upstream": "UNKNOWN",
       "purpose": "修仙灵物：洞府（自建 CC0）"
     },
@@ -665,9 +705,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "秘境（xianxia-item-secret-realm）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙灵物：秘境（自建 CC0）。",
-      "contentDigest": "sha256-52adcc4b61e557b3327c5e07c7ca42c9",
+      "trust": "reference_only",
+      "summary": "秘境（xianxia-item-secret-realm）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙灵物：秘境（自建 CC0）。",
+      "contentDigest": "sha256-f6199d9b62e8a24bf18ceedcc63d9523",
       "upstream": "UNKNOWN",
       "purpose": "修仙灵物：秘境（自建 CC0）"
     },
@@ -686,9 +726,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "灵兽（xianxia-item-spirit-beast）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙灵物：灵兽（自建 CC0）。",
-      "contentDigest": "sha256-8dff1699de0ba2ff17c22a71ad7a25f7",
+      "trust": "reference_only",
+      "summary": "灵兽（xianxia-item-spirit-beast）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙灵物：灵兽（自建 CC0）。",
+      "contentDigest": "sha256-4296fcfc039ff91c46f2e011f63fa1a0",
       "upstream": "UNKNOWN",
       "purpose": "修仙灵物：灵兽（自建 CC0）"
     },
@@ -707,9 +747,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "灵草（xianxia-item-spirit-herb）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙灵物：灵草（自建 CC0）。",
-      "contentDigest": "sha256-26725cd20bde9adae09107b377f590db",
+      "trust": "reference_only",
+      "summary": "灵草（xianxia-item-spirit-herb）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙灵物：灵草（自建 CC0）。",
+      "contentDigest": "sha256-54f90cdcc6561b9730d60f1a2aabcca2",
       "upstream": "UNKNOWN",
       "purpose": "修仙灵物：灵草（自建 CC0）"
     },
@@ -728,9 +768,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "灵石（xianxia-item-spirit-stone）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙灵物：灵石（自建 CC0）。",
-      "contentDigest": "sha256-63133129af50a59a2982da7e45a82d41",
+      "trust": "reference_only",
+      "summary": "灵石（xianxia-item-spirit-stone）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙灵物：灵石（自建 CC0）。",
+      "contentDigest": "sha256-3803b12c080b61fe833fb894a1cf477f",
       "upstream": "UNKNOWN",
       "purpose": "修仙灵物：灵石（自建 CC0）"
     },
@@ -749,9 +789,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "法宝（xianxia-item-treasure）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙灵物：法宝（自建 CC0）。",
-      "contentDigest": "sha256-fea6ea29eca6e8e22f13e024b8c79d19",
+      "trust": "reference_only",
+      "summary": "法宝（xianxia-item-treasure）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙灵物：法宝（自建 CC0）。",
+      "contentDigest": "sha256-6fa93ac3a64e2385b637b6156be47212",
       "upstream": "UNKNOWN",
       "purpose": "修仙灵物：法宝（自建 CC0）"
     },
@@ -770,9 +810,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "驻颜丹（xianxia-pill-beauty）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：驻颜丹（自建 CC0）。",
-      "contentDigest": "sha256-4485b295ff3510d1c6cf3ac8b62d0501",
+      "trust": "reference_only",
+      "summary": "驻颜丹（xianxia-pill-beauty）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙丹药：驻颜丹（自建 CC0）。",
+      "contentDigest": "sha256-e5ac8c15c9886063851429e333349ff6",
       "upstream": "UNKNOWN",
       "purpose": "修仙丹药：驻颜丹（自建 CC0）"
     },
@@ -791,9 +831,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "破境丹（xianxia-pill-breakthrough）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：破境丹（自建 CC0）。",
-      "contentDigest": "sha256-c77fb745d1e3c85049f2713d999d16ba",
+      "trust": "reference_only",
+      "summary": "破境丹（xianxia-pill-breakthrough）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙丹药：破境丹（自建 CC0）。",
+      "contentDigest": "sha256-e8f408930f917ddcd46c4c5def1c554f",
       "upstream": "UNKNOWN",
       "purpose": "修仙丹药：破境丹（自建 CC0）"
     },
@@ -812,9 +852,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "筑基丹（xianxia-pill-foundation）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：筑基丹（自建 CC0）。",
-      "contentDigest": "sha256-b9c3eb5f61565d5f9e9a612b1e2b5e25",
+      "trust": "reference_only",
+      "summary": "筑基丹（xianxia-pill-foundation）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙丹药：筑基丹（自建 CC0）。",
+      "contentDigest": "sha256-da1c9e41c913cf94e6eef0f776528347",
       "upstream": "UNKNOWN",
       "purpose": "修仙丹药：筑基丹（自建 CC0）"
     },
@@ -833,9 +873,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "洗髓丹（xianxia-pill-marrow-washing）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：洗髓丹（自建 CC0）。",
-      "contentDigest": "sha256-f221de3714f108aa4ca9232d285978a7",
+      "trust": "reference_only",
+      "summary": "洗髓丹（xianxia-pill-marrow-washing）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙丹药：洗髓丹（自建 CC0）。",
+      "contentDigest": "sha256-37f368b1cb867452a95c393914f5d37a",
       "upstream": "UNKNOWN",
       "purpose": "修仙丹药：洗髓丹（自建 CC0）"
     },
@@ -854,9 +894,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "凝神丹（xianxia-pill-ningshen）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：凝神丹（自建 CC0）。",
-      "contentDigest": "sha256-a1f218e303a8f71e75d757f974136742",
+      "trust": "reference_only",
+      "summary": "凝神丹（xianxia-pill-ningshen）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙丹药：凝神丹（自建 CC0）。",
+      "contentDigest": "sha256-78caa5a389180a5db3e73eb2623981be",
       "upstream": "UNKNOWN",
       "purpose": "修仙丹药：凝神丹（自建 CC0）"
     },
@@ -875,9 +915,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "聚气丹（xianxia-pill-qi-gathering）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：聚气丹（自建 CC0）。",
-      "contentDigest": "sha256-45c9c2ccc5a597f4b67f280d04b77d87",
+      "trust": "reference_only",
+      "summary": "聚气丹（xianxia-pill-qi-gathering）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙丹药：聚气丹（自建 CC0）。",
+      "contentDigest": "sha256-cc2ffc47c0c7452c738b4fc125552868",
       "upstream": "UNKNOWN",
       "purpose": "修仙丹药：聚气丹（自建 CC0）"
     },
@@ -896,9 +936,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "九转还魂丹（xianxia-pill-revive）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：九转还魂丹（自建 CC0）。",
-      "contentDigest": "sha256-5641c454b57fe1a6063f9a6d4cce17f0",
+      "trust": "reference_only",
+      "summary": "九转还魂丹（xianxia-pill-revive）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙丹药：九转还魂丹（自建 CC0）。",
+      "contentDigest": "sha256-1265cc2d5ef39ac72a0afbb2d3390e5a",
       "upstream": "UNKNOWN",
       "purpose": "修仙丹药：九转还魂丹（自建 CC0）"
     },
@@ -917,9 +957,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "培元丹（xianxia-pill-yuan-pei）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙丹药：培元丹（自建 CC0）。",
-      "contentDigest": "sha256-b17657feaf3ba1a6858a46ddc82df58e",
+      "trust": "reference_only",
+      "summary": "培元丹（xianxia-pill-yuan-pei）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙丹药：培元丹（自建 CC0）。",
+      "contentDigest": "sha256-d756f809bb56227d272218af94e645fb",
       "upstream": "UNKNOWN",
       "purpose": "修仙丹药：培元丹（自建 CC0）"
     },
@@ -938,9 +978,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "飞升（xianxia-realm-ascension）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：飞升（自建 CC0）。",
-      "contentDigest": "sha256-332f3d31ae8b08996cda8b32be674d31",
+      "trust": "reference_only",
+      "summary": "飞升（xianxia-realm-ascension）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙境界：飞升（自建 CC0）。",
+      "contentDigest": "sha256-52f797d6840e6fa83b373c7f2bea904c",
       "upstream": "UNKNOWN",
       "purpose": "修仙境界：飞升（自建 CC0）"
     },
@@ -959,9 +999,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "合体（xianxia-realm-body-union）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：合体（自建 CC0）。",
-      "contentDigest": "sha256-863cf1e3e52f603a326727fa7721696a",
+      "trust": "reference_only",
+      "summary": "合体（xianxia-realm-body-union）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙境界：合体（自建 CC0）。",
+      "contentDigest": "sha256-2e98b5757f7559d4042e4b7a6ee9f8b3",
       "upstream": "UNKNOWN",
       "purpose": "修仙境界：合体（自建 CC0）"
     },
@@ -980,9 +1020,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "筑基（xianxia-realm-foundation）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：筑基（自建 CC0）。",
-      "contentDigest": "sha256-147c90829443ee52eb762cb1c2f6ed83",
+      "trust": "reference_only",
+      "summary": "筑基（xianxia-realm-foundation）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙境界：筑基（自建 CC0）。",
+      "contentDigest": "sha256-14fb94fabf76c362125c49a6af5f1024",
       "upstream": "UNKNOWN",
       "purpose": "修仙境界：筑基（自建 CC0）"
     },
@@ -1001,9 +1041,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "金丹（xianxia-realm-golden-core）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：金丹（自建 CC0）。",
-      "contentDigest": "sha256-53b39669df19b2cfacb94cfbee303a36",
+      "trust": "reference_only",
+      "summary": "金丹（xianxia-realm-golden-core）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙境界：金丹（自建 CC0）。",
+      "contentDigest": "sha256-6096759fd57324a9c3d29d8c1e9a51cb",
       "upstream": "UNKNOWN",
       "purpose": "修仙境界：金丹（自建 CC0）"
     },
@@ -1022,9 +1062,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "大乘（xianxia-realm-mahayana）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：大乘（自建 CC0）。",
-      "contentDigest": "sha256-69b7962d226f59c92bbeb955f2ad756d",
+      "trust": "reference_only",
+      "summary": "大乘（xianxia-realm-mahayana）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙境界：大乘（自建 CC0）。",
+      "contentDigest": "sha256-57b3331523f59d6f96875be6536f10db",
       "upstream": "UNKNOWN",
       "purpose": "修仙境界：大乘（自建 CC0）"
     },
@@ -1043,9 +1083,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "元婴（xianxia-realm-nascent-soul）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：元婴（自建 CC0）。",
-      "contentDigest": "sha256-ea9cda0c37cf759682e9a0f615fb0c8b",
+      "trust": "reference_only",
+      "summary": "元婴（xianxia-realm-nascent-soul）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙境界：元婴（自建 CC0）。",
+      "contentDigest": "sha256-574bc9fe9462b972c4991c1d3400fbc1",
       "upstream": "UNKNOWN",
       "purpose": "修仙境界：元婴（自建 CC0）"
     },
@@ -1064,9 +1104,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "炼气（xianxia-realm-qi-refining）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：炼气（自建 CC0）。",
-      "contentDigest": "sha256-188dbade4bb79f95729f51db1813bf50",
+      "trust": "reference_only",
+      "summary": "炼气（xianxia-realm-qi-refining）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙境界：炼气（自建 CC0）。",
+      "contentDigest": "sha256-cc199fd4139cfa7dbffb4603e940f433",
       "upstream": "UNKNOWN",
       "purpose": "修仙境界：炼气（自建 CC0）"
     },
@@ -1085,9 +1125,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "化神（xianxia-realm-spirit-transformation）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：化神（自建 CC0）。",
-      "contentDigest": "sha256-77c99ab32020f5eb148b1c5565d26ead",
+      "trust": "reference_only",
+      "summary": "化神（xianxia-realm-spirit-transformation）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙境界：化神（自建 CC0）。",
+      "contentDigest": "sha256-8952b38a5850488d34d63e55ddf8f83a",
       "upstream": "UNKNOWN",
       "purpose": "修仙境界：化神（自建 CC0）"
     },
@@ -1106,9 +1146,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "渡劫（xianxia-realm-tribulation）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：渡劫（自建 CC0）。",
-      "contentDigest": "sha256-183c4a66b1288fd134e26782071ab123",
+      "trust": "reference_only",
+      "summary": "渡劫（xianxia-realm-tribulation）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙境界：渡劫（自建 CC0）。",
+      "contentDigest": "sha256-b00b54782481ef998326e2a6f01ab2ca",
       "upstream": "UNKNOWN",
       "purpose": "修仙境界：渡劫（自建 CC0）"
     },
@@ -1127,9 +1167,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "炼虚（xianxia-realm-void-refining）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙境界：炼虚（自建 CC0）。",
-      "contentDigest": "sha256-22142ba380d4b87f8e66bb2368f4c17b",
+      "trust": "reference_only",
+      "summary": "炼虚（xianxia-realm-void-refining）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙境界：炼虚（自建 CC0）。",
+      "contentDigest": "sha256-5390fa93f13377413061f0f1b59d996c",
       "upstream": "UNKNOWN",
       "purpose": "修仙境界：炼虚（自建 CC0）"
     },
@@ -1148,9 +1188,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "魔道宗门（xianxia-sect-demon）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙门派：魔道宗门（自建 CC0）。",
-      "contentDigest": "sha256-cf8fc5a0733c15b13a60113c94374e5f",
+      "trust": "reference_only",
+      "summary": "魔道宗门（xianxia-sect-demon）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙门派：魔道宗门（自建 CC0）。",
+      "contentDigest": "sha256-4a944b2a28dc0af22df87ff288113cd2",
       "upstream": "UNKNOWN",
       "purpose": "修仙门派：魔道宗门（自建 CC0）"
     },
@@ -1169,9 +1209,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "昆仑（xianxia-sect-kunlun）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙门派：昆仑（自建 CC0）。",
-      "contentDigest": "sha256-19b94d55920bf9cc37046b74b8f2bf86",
+      "trust": "reference_only",
+      "summary": "昆仑（xianxia-sect-kunlun）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙门派：昆仑（自建 CC0）。",
+      "contentDigest": "sha256-61b6f20df6f72c6b508d0391de8f84f8",
       "upstream": "UNKNOWN",
       "purpose": "修仙门派：昆仑（自建 CC0）"
     },
@@ -1190,9 +1230,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "蓬莱（xianxia-sect-penglai）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙门派：蓬莱（自建 CC0）。",
-      "contentDigest": "sha256-cb6760bf53d2a3c26e2a93f490664003",
+      "trust": "reference_only",
+      "summary": "蓬莱（xianxia-sect-penglai）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙门派：蓬莱（自建 CC0）。",
+      "contentDigest": "sha256-eff9a32658e1aa19fb811beaae1fdc85",
       "upstream": "UNKNOWN",
       "purpose": "修仙门派：蓬莱（自建 CC0）"
     },
@@ -1211,9 +1251,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "青云门（xianxia-sect-qingyun）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙门派：青云门（自建 CC0）。",
-      "contentDigest": "sha256-10d12b97e651ef1e1942a7ba4349bc0a",
+      "trust": "reference_only",
+      "summary": "青云门（xianxia-sect-qingyun）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙门派：青云门（自建 CC0）。",
+      "contentDigest": "sha256-f74acc06f1312c83e50fcee2bd23aa67",
       "upstream": "UNKNOWN",
       "purpose": "修仙门派：青云门（自建 CC0）"
     },
@@ -1232,9 +1272,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "散修联盟（xianxia-sect-rogue）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙门派：散修联盟（自建 CC0）。",
-      "contentDigest": "sha256-23f3ac000decd7f3662914b66f4eb343",
+      "trust": "reference_only",
+      "summary": "散修联盟（xianxia-sect-rogue）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙门派：散修联盟（自建 CC0）。",
+      "contentDigest": "sha256-041f69b08055e527fd9f9b4f050e1274",
       "upstream": "UNKNOWN",
       "purpose": "修仙门派：散修联盟（自建 CC0）"
     },
@@ -1253,9 +1293,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "蜀山剑派（xianxia-sect-shushan）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙门派：蜀山剑派（自建 CC0）。",
-      "contentDigest": "sha256-279b489a1687234891f4d5ac2c891f22",
+      "trust": "reference_only",
+      "summary": "蜀山剑派（xianxia-sect-shushan）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙门派：蜀山剑派（自建 CC0）。",
+      "contentDigest": "sha256-f2925bb0e3e25318ae4b5c9f41767f0f",
       "upstream": "UNKNOWN",
       "purpose": "修仙门派：蜀山剑派（自建 CC0）"
     },
@@ -1274,9 +1314,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "修仙称谓与人情（xianxia-term-appellation）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙词条：称谓与人情（自建 CC0）。",
-      "contentDigest": "sha256-3b2a4ab8654b9d10f6adf83131a10da0",
+      "trust": "reference_only",
+      "summary": "修仙称谓与人情（xianxia-term-appellation）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙词条：称谓与人情（自建 CC0）。",
+      "contentDigest": "sha256-8c49f431889e8accaee9755365d10b65",
       "upstream": "UNKNOWN",
       "purpose": "修仙词条：称谓与人情（自建 CC0）"
     },
@@ -1295,9 +1335,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "灵根与资质（xianxia-term-linggen）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙词条：灵根与资质（自建 CC0）。",
-      "contentDigest": "sha256-2b34c131e83544a53114d98083f5375e",
+      "trust": "reference_only",
+      "summary": "灵根与资质（xianxia-term-linggen）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙词条：灵根与资质（自建 CC0）。",
+      "contentDigest": "sha256-25301b3900758be9f3e2f93a0ae1925f",
       "upstream": "UNKNOWN",
       "purpose": "修仙词条：灵根与资质（自建 CC0）"
     },
@@ -1316,9 +1356,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "灵气感知与灵压（xianxia-term-lingqi-sense）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙词条：灵气感知与灵压（自建 CC0）。",
-      "contentDigest": "sha256-67853cb0d8dd8aee94ee866b3da82c2a",
+      "trust": "reference_only",
+      "summary": "灵气感知与灵压（xianxia-term-lingqi-sense）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙词条：灵气感知与灵压（自建 CC0）。",
+      "contentDigest": "sha256-9f5ab906522965cc73e9fd4948cf772a",
       "upstream": "UNKNOWN",
       "purpose": "修仙词条：灵气感知与灵压（自建 CC0）"
     },
@@ -1337,9 +1377,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "宗门职司体系（xianxia-term-sect-office）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙词条：宗门职司体系（自建 CC0）。",
-      "contentDigest": "sha256-6dcc4b33cc6ecd376597056c9f72eee6",
+      "trust": "reference_only",
+      "summary": "宗门职司体系（xianxia-term-sect-office）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙词条：宗门职司体系（自建 CC0）。",
+      "contentDigest": "sha256-99a8e321431395888b40ad65edd563de",
       "upstream": "UNKNOWN",
       "purpose": "修仙词条：宗门职司体系（自建 CC0）"
     },
@@ -1358,9 +1398,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "心魔与道心（xianxia-term-xinmo）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙词条：心魔与道心（自建 CC0）。",
-      "contentDigest": "sha256-45e9e8916b38825d25b7ed4f406b2fca",
+      "trust": "reference_only",
+      "summary": "心魔与道心（xianxia-term-xinmo）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙词条：心魔与道心（自建 CC0）。",
+      "contentDigest": "sha256-4843d5772596a2876fcaafd5fe2ba236",
       "upstream": "UNKNOWN",
       "purpose": "修仙词条：心魔与道心（自建 CC0）"
     },
@@ -1380,9 +1420,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "克苏鲁人物原型（cthulhu-characters）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁人物原型卡（自建 CC0：调查员/疯狂学者/邪教徒）。",
-      "contentDigest": "sha256-3514f6e9317816c0b2c6b464b5f11d29",
+      "trust": "reference_only",
+      "summary": "克苏鲁人物原型（cthulhu-characters）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：克苏鲁人物原型卡（自建 CC0：调查员/疯狂学者/邪教徒）。",
+      "contentDigest": "sha256-400ffda53af49405ff8f65ba826531d2",
       "upstream": "UNKNOWN",
       "purpose": "克苏鲁人物原型卡（自建 CC0：调查员/疯狂学者/邪教徒）"
     },
@@ -1402,9 +1442,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "克苏鲁眷族（cthulhu-creatures）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁眷族卡（自建 CC0：深潜者/米·戈/食尸鬼等）。",
-      "contentDigest": "sha256-6b9750046da9bc8541505eae0049e326",
+      "trust": "reference_only",
+      "summary": "克苏鲁眷族（cthulhu-creatures）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：克苏鲁眷族卡（自建 CC0：深潜者/米·戈/食尸鬼等）。",
+      "contentDigest": "sha256-ba07bfeaa0a17d7493d019fa8befbb22",
       "upstream": "UNKNOWN",
       "purpose": "克苏鲁眷族卡（自建 CC0：深潜者/米·戈/食尸鬼等）"
     },
@@ -1424,9 +1464,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "克苏鲁教团（cthulhu-cults）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁教团卡（自建 CC0：黄印兄弟会/星之眷族等）。",
-      "contentDigest": "sha256-9b228c4ba7a1d524a928c6abc72ae3f7",
+      "trust": "reference_only",
+      "summary": "克苏鲁教团（cthulhu-cults）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：克苏鲁教团卡（自建 CC0：黄印兄弟会/星之眷族等）。",
+      "contentDigest": "sha256-ca36027fcc255cba17cc5f0d5a2587d5",
       "upstream": "UNKNOWN",
       "purpose": "克苏鲁教团卡（自建 CC0：黄印兄弟会/星之眷族等）"
     },
@@ -1446,9 +1486,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "克苏鲁神祇（cthulhu-deities）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁神祇卡（自建 CC0：克苏鲁/阿撒托斯/奈亚拉托提普等）。",
-      "contentDigest": "sha256-dd0a04f510c7ec8b27c8a77008985b63",
+      "trust": "reference_only",
+      "summary": "克苏鲁神祇（cthulhu-deities）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：克苏鲁神祇卡（自建 CC0：克苏鲁/阿撒托斯/奈亚拉托提普等）。",
+      "contentDigest": "sha256-5a1e668ac90f0dc81877cc36de41c8bb",
       "upstream": "UNKNOWN",
       "purpose": "克苏鲁神祇卡（自建 CC0：克苏鲁/阿撒托斯/奈亚拉托提普等）"
     },
@@ -1468,9 +1508,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "克苏鲁时代（cthulhu-eras）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁时代卡（自建 CC0：1920s/维多利亚/现代）。",
-      "contentDigest": "sha256-0d6fb72be9b054fb617bdcd67d36c34b",
+      "trust": "reference_only",
+      "summary": "克苏鲁时代（cthulhu-eras）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：克苏鲁时代卡（自建 CC0：1920s/维多利亚/现代）。",
+      "contentDigest": "sha256-84598d0f23ef5d00d51ea619b56f8641",
       "upstream": "UNKNOWN",
       "purpose": "克苏鲁时代卡（自建 CC0：1920s/维多利亚/现代）"
     },
@@ -1490,9 +1530,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "克苏鲁地点（cthulhu-places）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁地点卡（自建 CC0：拉莱耶/阿卡姆/敦威治等）。",
-      "contentDigest": "sha256-a20b5626afb37a848acf10aeb0313b47",
+      "trust": "reference_only",
+      "summary": "克苏鲁地点（cthulhu-places）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：克苏鲁地点卡（自建 CC0：拉莱耶/阿卡姆/敦威治等）。",
+      "contentDigest": "sha256-7e836517b335453954ecf542ed6025c8",
       "upstream": "UNKNOWN",
       "purpose": "克苏鲁地点卡（自建 CC0：拉莱耶/阿卡姆/敦威治等）"
     },
@@ -1512,9 +1552,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "克苏鲁文风（cthulhu-style）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁文风卡（自建 CC0：不可名状/理智值/渐进疯狂）。",
-      "contentDigest": "sha256-3901f1622b6e5b4dfd98a11ecbbd7bab",
+      "trust": "reference_only",
+      "summary": "克苏鲁文风（cthulhu-style）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：克苏鲁文风卡（自建 CC0：不可名状/理智值/渐进疯狂）。",
+      "contentDigest": "sha256-12cf8533141ca95ecbea6fb0520d3d50",
       "upstream": "UNKNOWN",
       "purpose": "克苏鲁文风卡（自建 CC0：不可名状/理智值/渐进疯狂）"
     },
@@ -1534,9 +1574,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "克苏鲁典籍（cthulhu-tomes）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：克苏鲁典籍卡（自建 CC0：死灵之书/黄衣之王等）。",
-      "contentDigest": "sha256-25e95460d96f1adb1d96a16fe419a30d",
+      "trust": "reference_only",
+      "summary": "克苏鲁典籍（cthulhu-tomes）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：克苏鲁典籍卡（自建 CC0：死灵之书/黄衣之王等）。",
+      "contentDigest": "sha256-e8d27d6d926ed66c33eec31c4dee0efe",
       "upstream": "UNKNOWN",
       "purpose": "克苏鲁典籍卡（自建 CC0：死灵之书/黄衣之王等）"
     },
@@ -1557,9 +1597,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "奇幻王国政治与封建秩序（fantasy-world-kingdoms）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻世界卡：王国政治与封建秩序（自建 CC0）。",
-      "contentDigest": "sha256-c686e79832fed8a7c45a68af2a5b85d2",
+      "trust": "reference_only",
+      "summary": "奇幻王国政治与封建秩序（fantasy-world-kingdoms）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：奇幻世界卡：王国政治与封建秩序（自建 CC0）。",
+      "contentDigest": "sha256-c79db6ab2b10f803e2e887a6ec85178d",
       "upstream": "UNKNOWN",
       "purpose": "奇幻世界卡：王国政治与封建秩序（自建 CC0）"
     },
@@ -1580,9 +1620,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "奇幻魔法体系与代价（fantasy-world-magic-system）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻世界卡：魔法体系与代价（自建 CC0）。",
-      "contentDigest": "sha256-cfa93cde9a3033063c85c80f10887b33",
+      "trust": "reference_only",
+      "summary": "奇幻魔法体系与代价（fantasy-world-magic-system）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：奇幻世界卡：魔法体系与代价（自建 CC0）。",
+      "contentDigest": "sha256-203177815623ec7ee293614ff1631862",
       "upstream": "UNKNOWN",
       "purpose": "奇幻世界卡：魔法体系与代价（自建 CC0）"
     },
@@ -1603,9 +1643,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "奇幻种族关系与偏见（fantasy-world-races）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：奇幻世界卡：种族关系与偏见（自建 CC0）。",
-      "contentDigest": "sha256-116bc731aa0c16b3583a5b1298cd77f4",
+      "trust": "reference_only",
+      "summary": "奇幻种族关系与偏见（fantasy-world-races）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：奇幻世界卡：种族关系与偏见（自建 CC0）。",
+      "contentDigest": "sha256-d4990dfac3e64f66f639e42d32d915f0",
       "upstream": "UNKNOWN",
       "purpose": "奇幻世界卡：种族关系与偏见（自建 CC0）"
     },
@@ -1626,9 +1666,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "人工智能人格与责任边界（scifi-world-ai-ethics）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻世界卡：人工智能人格与责任边界（自建 CC0）。",
-      "contentDigest": "sha256-a6016af0fb87c5d03524ddd785684e6d",
+      "trust": "reference_only",
+      "summary": "人工智能人格与责任边界（scifi-world-ai-ethics）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：科幻世界卡：人工智能人格与责任边界（自建 CC0）。",
+      "contentDigest": "sha256-51341a40bf1ae496b4a1d851fe34c96a",
       "upstream": "UNKNOWN",
       "purpose": "科幻世界卡：人工智能人格与责任边界（自建 CC0）"
     },
@@ -1649,9 +1689,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "义体化与赛博阶层（scifi-world-cyber）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻世界卡：义体化与赛博阶层（自建 CC0）。",
-      "contentDigest": "sha256-dceab5e45e6be18007019dbccd1fb99b",
+      "trust": "reference_only",
+      "summary": "义体化与赛博阶层（scifi-world-cyber）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：科幻世界卡：义体化与赛博阶层（自建 CC0）。",
+      "contentDigest": "sha256-51a8accbf2faab6754ec9e557c7a8b28",
       "upstream": "UNKNOWN",
       "purpose": "科幻世界卡：义体化与赛博阶层（自建 CC0）"
     },
@@ -1672,9 +1712,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "星际殖民与航路政治（scifi-world-interstellar）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：科幻世界卡：星际殖民与航路政治（自建 CC0）。",
-      "contentDigest": "sha256-b1ead5955ca8d8f5d563339530c50b17",
+      "trust": "reference_only",
+      "summary": "星际殖民与航路政治（scifi-world-interstellar）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：科幻世界卡：星际殖民与航路政治（自建 CC0）。",
+      "contentDigest": "sha256-56bb5024b754dc18f5ad72c6eb499e2c",
       "upstream": "UNKNOWN",
       "purpose": "科幻世界卡：星际殖民与航路政治（自建 CC0）"
     },
@@ -1695,9 +1735,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "朝廷与武林的相互利用（wuxia-world-court）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠世界卡：朝廷与武林相互利用（自建 CC0）。",
-      "contentDigest": "sha256-c033de4554f8c0f1748f133619317975",
+      "trust": "reference_only",
+      "summary": "朝廷与武林的相互利用（wuxia-world-court）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：武侠世界卡：朝廷与武林相互利用（自建 CC0）。",
+      "contentDigest": "sha256-d59e6c80ef894c145fe6650e5e5a8f99",
       "upstream": "UNKNOWN",
       "purpose": "武侠世界卡：朝廷与武林相互利用（自建 CC0）"
     },
@@ -1718,9 +1758,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "镖局商路与绿林规矩（wuxia-world-escort）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠世界卡：镖局商路与绿林规矩（自建 CC0）。",
-      "contentDigest": "sha256-f21c98adf8750bfa2206e8143d5ae44d",
+      "trust": "reference_only",
+      "summary": "镖局商路与绿林规矩（wuxia-world-escort）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：武侠世界卡：镖局商路与绿林规矩（自建 CC0）。",
+      "contentDigest": "sha256-5911a87cb5c3d17c74708dd575f7a45a",
       "upstream": "UNKNOWN",
       "purpose": "武侠世界卡：镖局商路与绿林规矩（自建 CC0）"
     },
@@ -1741,9 +1781,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "江湖秩序与门派生态（wuxia-world-jianghu）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：武侠世界卡：江湖秩序与门派生态（自建 CC0）。",
-      "contentDigest": "sha256-4d14c5e3b6a28138c5a618dfa05cfabb",
+      "trust": "reference_only",
+      "summary": "江湖秩序与门派生态（wuxia-world-jianghu）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：武侠世界卡：江湖秩序与门派生态（自建 CC0）。",
+      "contentDigest": "sha256-4a76dbcf23d881fc507025fa53a18398",
       "upstream": "UNKNOWN",
       "purpose": "武侠世界卡：江湖秩序与门派生态（自建 CC0）"
     },
@@ -1764,9 +1804,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "丹道经济与灵石本位（xianxia-world-alchemy-economy）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：丹道经济与灵石本位（自建 CC0）。",
-      "contentDigest": "sha256-1bf5473850f558c5d6bb81cd28ef2534",
+      "trust": "reference_only",
+      "summary": "丹道经济与灵石本位（xianxia-world-alchemy-economy）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙世界卡：丹道经济与灵石本位（自建 CC0）。",
+      "contentDigest": "sha256-fc7a8b7579705a4ce9816b0bc6e9a8e3",
       "upstream": "UNKNOWN",
       "purpose": "修仙世界卡：丹道经济与灵石本位（自建 CC0）"
     },
@@ -1787,9 +1827,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "飞升与天劫体系（xianxia-world-ascension-tribulation）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：飞升与天劫体系（自建 CC0）。",
-      "contentDigest": "sha256-6cb898dbd6f39f74f3b9988d8bedd0fc",
+      "trust": "reference_only",
+      "summary": "飞升与天劫体系（xianxia-world-ascension-tribulation）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙世界卡：飞升与天劫体系（自建 CC0）。",
+      "contentDigest": "sha256-c9e6ae8f7eb9b8deafc708256d5ac195",
       "upstream": "UNKNOWN",
       "purpose": "修仙世界卡：飞升与天劫体系（自建 CC0）"
     },
@@ -1810,9 +1850,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "天道法则与因果（xianxia-world-cultivation-law）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：天道法则与因果（自建 CC0）。",
-      "contentDigest": "sha256-f7e441ffd0a3b4a7217442120d3d0c7b",
+      "trust": "reference_only",
+      "summary": "天道法则与因果（xianxia-world-cultivation-law）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙世界卡：天道法则与因果（自建 CC0）。",
+      "contentDigest": "sha256-5461449034a47deacf63aae6ba8c6ca7",
       "upstream": "UNKNOWN",
       "purpose": "修仙世界卡：天道法则与因果（自建 CC0）"
     },
@@ -1833,9 +1873,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "鬼道魔道修行体系（xianxia-world-ghost-demon-path）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：鬼道魔道修行体系（自建 CC0）。",
-      "contentDigest": "sha256-1f1d6c371cf621c698a2996c18a8363d",
+      "trust": "reference_only",
+      "summary": "鬼道魔道修行体系（xianxia-world-ghost-demon-path）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙世界卡：鬼道魔道修行体系（自建 CC0）。",
+      "contentDigest": "sha256-45f62cc1fc76d29629b63e2fdb289bad",
       "upstream": "UNKNOWN",
       "purpose": "修仙世界卡：鬼道魔道修行体系（自建 CC0）"
     },
@@ -1856,9 +1896,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "凡人世界与仙凡隔绝（xianxia-world-mortal-realm）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：凡人世界与仙凡隔绝（自建 CC0）。",
-      "contentDigest": "sha256-a387f1cbe0605f62d46e77eb7b3494f2",
+      "trust": "reference_only",
+      "summary": "凡人世界与仙凡隔绝（xianxia-world-mortal-realm）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙世界卡：凡人世界与仙凡隔绝（自建 CC0）。",
+      "contentDigest": "sha256-043935914d845c102a79d48670962fdb",
       "upstream": "UNKNOWN",
       "purpose": "修仙世界卡：凡人世界与仙凡隔绝（自建 CC0）"
     },
@@ -1879,9 +1919,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "修仙九州地理（xianxia-world-realm-geography）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：九州地理与灵域分级（自建 CC0）。",
-      "contentDigest": "sha256-824222d58bd2d252dbaf487575500870",
+      "trust": "reference_only",
+      "summary": "修仙九州地理（xianxia-world-realm-geography）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙世界卡：九州地理与灵域分级（自建 CC0）。",
+      "contentDigest": "sha256-6ca0e84c6b73004fa7fe1dfed84149f4",
       "upstream": "UNKNOWN",
       "purpose": "修仙世界卡：九州地理与灵域分级（自建 CC0）"
     },
@@ -1902,9 +1942,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "秘境与洞天规则（xianxia-world-secret-realm）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：秘境与洞天规则（自建 CC0）。",
-      "contentDigest": "sha256-d6b6047b4b7a861d1d6baedfae5bcb5f",
+      "trust": "reference_only",
+      "summary": "秘境与洞天规则（xianxia-world-secret-realm）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙世界卡：秘境与洞天规则（自建 CC0）。",
+      "contentDigest": "sha256-913740980d8f14205201731f0fba4307",
       "upstream": "UNKNOWN",
       "purpose": "修仙世界卡：秘境与洞天规则（自建 CC0）"
     },
@@ -1925,9 +1965,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "宗门秩序与阵营（xianxia-world-sect-order）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：宗门秩序与阵营（自建 CC0）。",
-      "contentDigest": "sha256-091e242360a11b2c26e93e182a83f3fc",
+      "trust": "reference_only",
+      "summary": "宗门秩序与阵营（xianxia-world-sect-order）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙世界卡：宗门秩序与阵营（自建 CC0）。",
+      "contentDigest": "sha256-2380495e48b6e54eed729fa069cba08e",
       "upstream": "UNKNOWN",
       "purpose": "修仙世界卡：宗门秩序与阵营（自建 CC0）"
     },
@@ -1948,9 +1988,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "妖兽谱系与灵兽契约（xianxia-world-spirit-beast-hierarchy）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：妖兽谱系与灵兽契约（自建 CC0）。",
-      "contentDigest": "sha256-8bbc621fdfbb90d48132e67f8c846e62",
+      "trust": "reference_only",
+      "summary": "妖兽谱系与灵兽契约（xianxia-world-spirit-beast-hierarchy）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙世界卡：妖兽谱系与灵兽契约（自建 CC0）。",
+      "contentDigest": "sha256-c10d6167fda4ad3d4ee1ed88a0832033",
       "upstream": "UNKNOWN",
       "purpose": "修仙世界卡：妖兽谱系与灵兽契约（自建 CC0）"
     },
@@ -1971,9 +2011,9 @@
         "lookup",
         "draft"
       ],
-      "trust": "full",
-      "summary": "灵脉与资源争夺（xianxia-world-spirit-vein）；分类：content-pack；上游：UNKNOWN；许可：CC0；ADR 档级：已吸收；信任：full；用途：修仙世界卡：灵脉与资源争夺（自建 CC0）。",
-      "contentDigest": "sha256-2707820d509788b6f82c02de878b384e",
+      "trust": "reference_only",
+      "summary": "灵脉与资源争夺（xianxia-world-spirit-vein）；分类：content-pack；上游：UNKNOWN；许可：MIT；ADR 档级：已吸收；信任：reference_only；用途：修仙世界卡：灵脉与资源争夺（自建 CC0）。",
+      "contentDigest": "sha256-1d05c1c3b7562723ede1ba427af3003b",
       "upstream": "UNKNOWN",
       "purpose": "修仙世界卡：灵脉与资源争夺（自建 CC0）"
     },
@@ -1993,8 +2033,8 @@
         "lookup"
       ],
       "trust": "reference_only",
-      "summary": "AI 自动生成小说范文（AI-automatically-generates-novels）；分类：writing-tools；上游：wfcz10086/AI-automatically-generates-novels；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：AI 自动生成小说工具（批量草稿流水线）。",
-      "contentDigest": "sha256-174e5c9c329075d0f7bd50c6a58bbcc4",
+      "summary": "AI 自动生成小说范文（AI-automatically-generates-novels）；分类：writing-tools；上游：wfcz10086/AI-automatically-generates-novels；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：AI 自动生成小说工具（批量草稿流水线）。",
+      "contentDigest": "sha256-eba87a911334f3f198a9ccbe77050842",
       "upstream": "wfcz10086/AI-automatically-generates-novels",
       "purpose": "AI 自动生成小说工具（批量草稿流水线）"
     },
@@ -2014,10 +2054,32 @@
         "lookup"
       ],
       "trust": "reference_only",
-      "summary": "AINovel CLI 生成样本（ainovel-cli）；分类：writing-engines；上游：voocel/ainovel-cli；许可：Apache-2.0；ADR 档级：理念参考；信任：reference_only；用途：AI 小说 CLI 生成链。",
-      "contentDigest": "sha256-a6b2047a7df72d6d058cce6782e6efb4",
+      "summary": "AINovel CLI 生成样本（ainovel-cli）；分类：writing-engines；上游：voocel/ainovel-cli；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：AI 小说 CLI 生成链。",
+      "contentDigest": "sha256-43423340f698c5f0663d0511fd4ca0e6",
       "upstream": "voocel/ainovel-cli",
       "purpose": "AI 小说 CLI 生成链"
+    },
+    {
+      "name": "autonovel",
+      "collection": "corpus",
+      "title": "NousResearch 五阶段全自主管道产出范文（19章 79k 字）",
+      "author": "NousResearch",
+      "lang": "zh",
+      "era": "unavailable",
+      "domain": [
+        "生成范文",
+        "长篇样本"
+      ],
+      "query_intent": [
+        "draft",
+        "style",
+        "lookup"
+      ],
+      "trust": "reference_only",
+      "summary": "NousResearch 五阶段全自主管道产出范文（19章 79k 字）（autonovel）；分类：writing-engines；上游：NousResearch/autonovel；许可：MIT；ADR 档级：理念参考；信任：reference_only；用途：NousResearch 五阶段全自主管道，已产出19章79k字完整小说。",
+      "contentDigest": "sha256-241c4eadcf56c1398ea1ba855c1e5a87",
+      "upstream": "NousResearch/autonovel",
+      "purpose": "NousResearch 五阶段全自主管道，已产出19章79k字完整小说"
     },
     {
       "name": "goat-storytelling",
