@@ -1,0 +1,17 @@
+# 仓库根 cargo 配置：只为「从仓库根用 --manifest-path src-tauri/Cargo.toml」的调用
+# 兜住 Windows 测试二进制的 SxS 激活上下文。
+#
+# 背景（DEBT-20261108-03/04）：tauri 的 muda / rfd 会导入 comctl32 的
+# TaskDialogIndirect，该符号只在 comctl32 v6 旁加载程序集里。正式 app exe 的 manifest
+# 由 tauri-build 注入，cargo 产出的**测试** exe 没有 manifest，加载器于是绑定到 system32
+# 的 comctl32 v5 → 进程启动即 STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139)，表现为
+# 「cargo test 一个用例都没跑就失败」。
+#
+# cargo 的 config 发现是从 cwd 逐级向上读取 `.cargo/config.toml`，因此 `cd src-tauri`
+# 时命中 `src-tauri/.cargo/config.toml`（原本就有），而从仓库根调用时只命中这个文件。
+# 两份保持一致；`target.*.rustflags` 属于「就近覆盖」语义，同值不会叠加成重复参数。
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+  "-C",
+  "link-arg=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'",
+]

@@ -14,4 +14,6 @@
 rustflags = [
   "-C",
   "link-arg=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'",
+  # 这里**不能**加 /MANIFEST:EMBED：bin 的 manifest 已由 tauri-build 作为资源写入，
+  # 再加 link 的内嵌清单会撞成 CVT1100 duplicate resource MANIFEST（实测）。
 ]
