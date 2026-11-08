@@ -1506,7 +1506,7 @@
         "httpConnectTimeout": "Connect",
         "httpHeaderTimeout": "Headers",
         "httpStreamIdleMs": "Stream idle",
-        "httpTimeoutsHint": "Connect 5–300s, wait-for-headers 5–300s, stream stall 30–600s. Empty = defaults (10/20/90s). Raise headers wait for slow gateways.",
+        "httpTimeoutsHint": "Connect 5–300s, wait-for-headers 5–300s, stream stall 30–600s. Empty = defaults (10/60/90s). Raise headers wait for slow gateways.",
         "wireOpenAi": "OpenAI Compatible",
         "wireResponses": "Responses API",
         "wireAnthropic": "Anthropic Compatible",
@@ -2104,6 +2104,9 @@
         "scopeProjectHint": "Also allows chapter.write, memory.write, pipeline.run_chapter and gate.run. Output only ever lands in the draft area.",
         "grantFull": "Grant full write",
         "revokeFull": "Revoke full write",
+        "grantAuto": "Grant auto (settings + actions)",
+        "revokeAuto": "Revoke auto",
+        "autoGranted": "Auto orchestration",
         "fullGranted": "Full write",
         "fullNote": "Full write (direct edits to formal chapters and memory) is never granted at startup. Grant it per session below, and revoke it any time."
       }

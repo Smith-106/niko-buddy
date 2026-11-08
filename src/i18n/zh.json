@@ -871,7 +871,7 @@
         "httpConnectTimeout": "建连",
         "httpHeaderTimeout": "首包",
         "httpStreamIdleMs": "流 idle",
-        "httpTimeoutsHint": "建连 5–300 秒、首包等待 5–300 秒、流式停滞 30–600 秒。留空 = 默认 (10/20/90 秒)。首包慢的网关可调大首包等待。",
+        "httpTimeoutsHint": "建连 5–300 秒、首包等待 5–300 秒、流式停滞 30–600 秒。留空 = 默认 (10/60/90 秒)。首包慢的网关可调大首包等待。",
         "wireOpenAi": "OpenAI 兼容",
         "wireResponses": "Responses API",
         "wireAnthropic": "Anthropic 兼容",
@@ -1469,6 +1469,9 @@
         "scopeProjectHint": "额外允许 chapter.write / memory.write / pipeline.run_chapter / gate.run。产出只会进草稿区，不会直接改正式正文或正式记忆。",
         "grantFull": "授予完整写入",
         "revokeFull": "吊销完整写入",
+        "grantAuto": "授予 auto（设置 + 项目动作）",
+        "revokeAuto": "撤销 auto",
+        "autoGranted": "auto 编排",
         "fullGranted": "完整写入",
         "fullNote": "完整写入（直改正式正文与正式记忆）不会在启动时授予。请在下方对具体会话单独授权，随时可吊销。"
       }

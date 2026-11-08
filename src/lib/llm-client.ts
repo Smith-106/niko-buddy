@@ -268,7 +268,14 @@ export const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 30 * 60 * 1000
  * The 30-min DEFAULT_LLM_REQUEST_TIMEOUT_MS remains the total upper bound.
  */
 export const DEFAULT_HTTP_CONNECT_TIMEOUT_MS = 10_000
-export const DEFAULT_HTTP_HEADER_TIMEOUT_MS = 20_000
+/**
+ * 响应头截止时间。
+ *
+ * DEBT-20261108-06：原 20s 对慢网关/长上下文生成太紧——实测单发大请求要 36s 才回头部，
+ * 20s 会先把正常请求误判成「代理挂起」。这里只影响「多久没收到响应头算异常」，
+ * 真正的挂起仍由 connect 10s 与 stream idle 90s 两道卡住，退避重试总额（2/5/10s）不变。
+ */
+export const DEFAULT_HTTP_HEADER_TIMEOUT_MS = 60_000
 export const DEFAULT_HTTP_STREAM_IDLE_MS = 90_000
 
 export function combineAbortSignals(

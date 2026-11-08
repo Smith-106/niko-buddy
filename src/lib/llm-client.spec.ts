@@ -947,9 +947,9 @@ describe("streamChat HTTP path", () => {
     setupHttpFetch(mockFetch)
     const callbacks = makeCallbacks()
     const p = streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
-    // 4 attempts × 20s header deadline + 2/5/10s backoff waits ≈ 97s — far below
+    // 4 attempts × 60s header deadline + 2/5/10s backoff waits ≈ 257s — far below
     // the 30-min total budget, which no longer governs pre-header hangs.
-    await vi.advanceTimersByTimeAsync(2 * 60 * 1000)
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
     await p
     expect(callbacks.onError).toHaveBeenCalledTimes(1)
     expect(callbacks.onError.mock.calls[0][0].message).toContain("已自动快速重试约 20 秒")
@@ -1464,8 +1464,8 @@ describe("streamChat HTTP staged timeouts", () => {
     setupHttpFetch(abortAwareFetch(() => new Promise<Response>(() => {})))
     const callbacks = makeCallbacks()
     const p = streamChat(llmConfig(), [{ role: "user", content: "hi" }], callbacks)
-    // 4 attempts x 20s header deadline + 2/5/10s backoff waits
-    await vi.advanceTimersByTimeAsync(20_000 + 2_000 + 20_000 + 5_000 + 20_000 + 10_000 + 20_000)
+    // 4 attempts x 60s header deadline (默认值) + 2/5/10s backoff waits
+    await vi.advanceTimersByTimeAsync(60_000 + 2_000 + 60_000 + 5_000 + 60_000 + 10_000 + 60_000)
     await p
     expect(callbacks.onError).toHaveBeenCalledTimes(1)
     const message = callbacks.onError.mock.calls[0][0].message as string
