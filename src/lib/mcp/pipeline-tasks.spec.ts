@@ -314,3 +314,58 @@ describe("一窗口全流程：批量与编排任务的参数门", () => {
     setWiki(null, null)
   })
 })
+
+// ===== DEBT-20261108-01：workflowMode 必须落到管线真实在读的开关 =====
+describe("startPipelineTask 的 workflowMode 深度映射", () => {
+  beforeEach(() => {
+    setWiki("/proj", "test-key")
+  })
+
+  afterEach(() => {
+    setWiki(null, null)
+    wikiState.novelConfig = {}
+  })
+
+  it("fast 关闭共识写作/审查与门控后文学打磨", async () => {
+    wikiState.novelConfig = { consensusEnabled: true, literaryPolishAfterGate: true }
+    runDeepChapterGeneration.mockImplementation(() => Promise.resolve(fakeDoneResult("正文")))
+    const res = startPipelineTask({ userRequest: "写一章", workflowMode: "fast" })
+    expect(res.ok).toBe(true)
+    const input = runDeepChapterGeneration.mock.calls[0][0] as { novelConfig: Record<string, unknown> }
+    expect(input.novelConfig).toMatchObject({ consensusEnabled: false, literaryPolishAfterGate: false })
+    await flushPipeline()
+    await flushPipeline()
+  })
+
+  it("strict 打开两处加厚阶段", async () => {
+    wikiState.novelConfig = { consensusEnabled: false, literaryPolishAfterGate: false }
+    runDeepChapterGeneration.mockImplementation(() => Promise.resolve(fakeDoneResult("正文")))
+    startPipelineTask({ userRequest: "写一章", workflowMode: "strict" })
+    const input = runDeepChapterGeneration.mock.calls[0][0] as { novelConfig: Record<string, unknown> }
+    expect(input.novelConfig).toMatchObject({ consensusEnabled: true, literaryPolishAfterGate: true })
+    await flushPipeline()
+    await flushPipeline()
+  })
+
+  it("未传档位时原配置引用直通（零行为变更）", async () => {
+    const original = { consensusEnabled: true, literaryPolishAfterGate: false }
+    wikiState.novelConfig = original
+    runDeepChapterGeneration.mockImplementation(() => Promise.resolve(fakeDoneResult("正文")))
+    startPipelineTask({ userRequest: "写一章" })
+    const input = runDeepChapterGeneration.mock.calls[0][0] as { novelConfig: Record<string, unknown> }
+    expect(input.novelConfig).toBe(original)
+    await flushPipeline()
+    await flushPipeline()
+  })
+
+  it("standard 档位等价于未传（仍按应用设置）", async () => {
+    const original = { consensusEnabled: false, literaryPolishAfterGate: true }
+    wikiState.novelConfig = original
+    runDeepChapterGeneration.mockImplementation(() => Promise.resolve(fakeDoneResult("正文")))
+    startPipelineTask({ userRequest: "写一章", workflowMode: "standard" })
+    const input = runDeepChapterGeneration.mock.calls[0][0] as { novelConfig: Record<string, unknown> }
+    expect(input.novelConfig).toBe(original)
+    await flushPipeline()
+    await flushPipeline()
+  })
+})

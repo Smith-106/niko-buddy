@@ -3,6 +3,7 @@ import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type { DeepChapterGenerationCallbacks, DeepChapterGenerationDeps, DeepChapterGenerationInput, DeepChapterGenerationResult, StageJournalRuntime } from "@/lib/novel"
 import type { ConsensusTrace } from "@/lib/novel"
 import { saveConfirmedPlan } from "@/lib/novel/confirmed-plan-store"
+import { applyWorkflowModeDepth } from "@/lib/novel/workflow-mode-depth"
 import i18n from "@/i18n"
 import type { AgentActivityEvent, AgentToolEvent, Tool, ToolExecutionContext } from "../types"
 
@@ -271,16 +272,18 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
           }
         }
       }
-      // 本轮未接线（无消费点，保持现状，避免造第二个静默丢弃）：
-      //   - params.intent / params.workflowMode 仍只被 normalizeParams 解析、不传入生成链。
-      //     DeepChapterGenerationInput 无对应字段，也没有任何阶段读它们；
-      //     若将来接线，需同时提供消费点，不得只透传到结构体。
+      // 本轮未接线：params.intent 仍只被 normalizeParams 解析、不传入生成链；
+      // 若将来接线，需同时提供消费点，不得只透传到结构体。
+      // （params.workflowMode 已接线：见下方 novelConfig 的 applyWorkflowModeDepth）
       const rawChapterNumber = params.chapterNumber
       // ISS-20260709-033: novelConfig 注入优先（getNovelConfig），缺省回退原惰性
       // store 读取（向后兼容，行为等价）。
-      const novelConfig = options.getNovelConfig
+      const injectedNovelConfig = options.getNovelConfig
         ? options.getNovelConfig()
         : (await import("@/stores/wiki-store")).useWikiStore.getState().novelConfig
+      // DEBT-20261108-01：档位落到管线真实在读的加厚阶段开关
+      // （standard / 未传：原配置引用，行为零变更）。
+      const novelConfig = applyWorkflowModeDepth(injectedNovelConfig, params.workflowMode)
       const result = await options.runDeepChapterGeneration(
         {
           projectPath: options.projectPath,

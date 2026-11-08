@@ -590,7 +590,7 @@ impl super::registry::McpTool for PipelineRunChapterTool {
             "properties": {
                 "userRequest": { "type": "string", "description": "What this chapter should accomplish, in natural language" },
                 "chapterNumber": { "type": "integer", "minimum": 1, "description": "Target chapter number (optional)" },
-                "workflowMode": { "type": "string", "enum": ["fast", "standard", "strict"], "description": "Accepted for forward compatibility. The deep-chapter pipeline currently derives depth from app settings, so this value is validated but does not change behaviour." }
+                "workflowMode": { "type": "string", "enum": ["fast", "standard", "strict"], "description": "Depth preset bound to the pipeline's real switches: fast turns off consensus writing/review and the post-gate literary polish (fewer stages, faster); standard follows app settings (default); strict turns both on (multi-model consensus still needs configured consensus model lists). No preset ever skips the consistency gate." }
             },
             "required": ["userRequest"],
             "additionalProperties": false
@@ -1081,13 +1081,13 @@ impl super::registry::McpTool for ChapterBatchTool {
                         "properties": {
                             "userRequest": { "type": "string", "description": "What this chapter should accomplish" },
                             "chapterNumber": { "type": "integer", "minimum": 1 },
-                            "workflowMode": { "type": "string", "enum": ["fast", "standard", "strict"] }
+                            "workflowMode": { "type": "string", "enum": ["fast", "standard", "strict"], "description": "Depth preset: fast = no consensus/polish extras; standard = app settings (default); strict = both on. The consistency gate always runs." }
                         },
                         "required": ["userRequest"],
                         "additionalProperties": false
                     }
                 },
-                "workflowMode": { "type": "string", "enum": ["fast", "standard", "strict"], "description": "Default for entries that omit their own. Validated for forward compatibility; the pipeline currently derives depth from app settings." }
+                "workflowMode": { "type": "string", "enum": ["fast", "standard", "strict"], "description": "Default for entries that omit their own. Depth preset: fast = no consensus/polish extras; standard = app settings (default); strict = both on. The consistency gate always runs." }
             },
             "required": ["requests"],
             "additionalProperties": false

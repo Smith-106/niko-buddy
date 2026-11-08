@@ -973,3 +973,80 @@ describe("createRunChapterWorkflowTool", () => {
     expect(secondInput?.chapterNumber).toBeUndefined()
   })
 })
+
+/**
+ * DEBT-20261108-01：智能体工具路径的 workflowMode 也必须落到管线真实开关上
+ * （此前只被 normalizeParams 解析、不传入生成链）。
+ */
+describe("createRunChapterWorkflowTool workflowMode 深度映射", () => {
+  const fakeResult = () => ({
+    finalContent: "正文",
+    taskBrief: "任务书",
+    draftContent: "初稿",
+    reviewResults: [],
+    decisionGates: {} as import("@/lib/novel/deep-chapter-generation").DeepChapterDecisionGates,
+    manualReviewRequired: false,
+    retryCount: 0,
+    partial: false,
+    partialReason: null,
+    status: "passed",
+    verdict: "pass",
+    findings: [],
+    revised: false,
+  })
+
+  /** 捕获管线实参：mock 的 calls 元组在 vi.fn 无参声明时索引不到，故显式收口。 */
+  function captureNovelConfig() {
+    const captured: { value?: unknown } = {}
+    const runDeepChapterGeneration = vi.fn(async (input: { novelConfig: unknown }) => {
+      captured.value = input.novelConfig
+      return fakeResult()
+    })
+    return { captured, runDeepChapterGeneration }
+  }
+
+  it("fast 关闭共识与门控后打磨", async () => {
+    const { captured, runDeepChapterGeneration } = captureNovelConfig()
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+      getNovelConfig: () =>
+        ({ consensusEnabled: true, literaryPolishAfterGate: true }) as import("@/stores/wiki-store").NovelConfig,
+    })
+    await tool.execute({ userRequest: "生成第3章", chapterNumber: 3, workflowMode: "fast" })
+    expect(captured.value).toMatchObject({ consensusEnabled: false, literaryPolishAfterGate: false })
+  })
+
+  it("strict 打开共识与门控后打磨", async () => {
+    const { captured, runDeepChapterGeneration } = captureNovelConfig()
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+      getNovelConfig: () =>
+        ({ consensusEnabled: false, literaryPolishAfterGate: false }) as import("@/stores/wiki-store").NovelConfig,
+    })
+    await tool.execute({ userRequest: "生成第3章", chapterNumber: 3, workflowMode: "strict" })
+    expect(captured.value).toMatchObject({ consensusEnabled: true, literaryPolishAfterGate: true })
+  })
+
+  it("未传档位时原配置引用直通（零行为变更）", async () => {
+    const original = {
+      consensusEnabled: true,
+      literaryPolishAfterGate: false,
+    } as import("@/stores/wiki-store").NovelConfig
+    const { captured, runDeepChapterGeneration } = captureNovelConfig()
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+      getNovelConfig: () => original,
+    })
+    await tool.execute({ userRequest: "生成第3章", chapterNumber: 3 })
+    expect(captured.value).toBe(original)
+  })
+})

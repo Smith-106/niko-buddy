@@ -22,6 +22,7 @@
 
 import { advanceDirectorToStall, buildStageJournalRuntime, loadDirectorPersisted, runDeepChapterGeneration, saveDirectorPersisted } from "@/lib/novel"
 import type { DeepChapterDecisionGates, DeepChapterGenerationResult } from "@/lib/novel"
+import { applyWorkflowModeDepth } from "@/lib/novel/workflow-mode-depth"
 import { generateOutlineFile, generateOutlineFileMultiAgent } from "@/lib/novel/outline-generation"
 import { refreshProjectState } from "@/lib/project-refresh"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -178,8 +179,9 @@ function normalizeChapterParams(
     if (mode !== "fast" && mode !== "standard" && mode !== "strict") {
       return { ok: false, error: `workflowMode 只接受 fast / standard / strict，收到 ${JSON.stringify(mode)}` }
     }
-    // 历史事实：深章管线（`DeepChapterGenerationInput`）没有深度参数，深度取自应用设置。
-    // 这里仍接受并校验该字段（客户端契约不改），但不能声称它会影响生成长度。
+    // 历史事实：深章管线（`DeepChapterGenerationInput`）没有「档位」参数，档位映射到它
+    // 已经在读的两个加厚阶段（DEBT-20261108-01 已接线）：fast 关掉共识与门控后打磨，
+    // strict 打开；任何档位都不跳一致性门控。详见 `applyWorkflowModeDepth`。
     workflowMode = mode
   }
 
@@ -214,10 +216,12 @@ export function startPipelineTask(
 ): { ok: true; taskId: string; stage: string } | { ok: false; error: string } {
   const normalized = normalizeChapterParams(params)
   if (!normalized.ok) return normalized
-  const { userRequest, chapterNumber } = normalized.value
+  const { userRequest, chapterNumber, workflowMode } = normalized.value
   const context = requireGenerationContext()
   if (!context.ok) return context
   const { projectPath, llmConfig, novelConfig } = context
+  // DEBT-20261108-01：档位落到管线真实在读的开关上（standard/未传：原配置引用，零变更）。
+  const depthConfig = applyWorkflowModeDepth(novelConfig, workflowMode)
 
   const { taskId, stage } = registerTask("chapter", "queued", (record) =>
     runDeepChapterGeneration(
@@ -226,7 +230,7 @@ export function startPipelineTask(
         userRequest,
         chapterNumber,
         llmConfig,
-        novelConfig,
+        novelConfig: depthConfig,
       },
       {
         onCheckpoint: (checkpoint) => {
