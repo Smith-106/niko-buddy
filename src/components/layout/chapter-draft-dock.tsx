@@ -257,6 +257,14 @@ export function ChapterDraftDock({
           <li key={draft.id} className="rounded border px-2 py-1.5" data-testid={`chapter-draft-${draft.id}`}>
             <div className="font-medium">{draft.chapterName}</div>
             <div className="text-muted-foreground">{draft.status === "saved" ? "已写入正式章" : "尚未写入正式章"}</div>
+            {draft.partial ? (
+              <div
+                className="mt-1 rounded border border-warning/40 bg-warning/10 px-1.5 py-1 text-warning-foreground"
+                data-testid={`chapter-draft-partial-${draft.id}`}
+              >
+                截断稿：正文可能不完整，采纳前请先复核。
+              </div>
+            ) : null}
             {draft.status !== "saved" ? (
               <button
                 type="button"
@@ -276,6 +284,11 @@ export function ChapterDraftDock({
             确认后才把「{pending.draft.chapterName}」写入 {pending.target}。
             {pending.occupied ? "这个文件已存在，会覆盖。" : "确认前不会写入。"}
           </p>
+          {pending.draft.partial ? (
+            <p className="mt-1 text-warning-foreground" data-testid="chapter-draft-confirm-partial">
+              这份草稿是截断稿，正文可能不完整；采纳会把不完整正文写进正式章。
+            </p>
+          ) : null}
           <div className="mt-1 flex gap-1">
             <button
               type="button"

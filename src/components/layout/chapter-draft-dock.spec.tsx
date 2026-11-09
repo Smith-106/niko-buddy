@@ -64,6 +64,40 @@ describe("ChapterDraftDock", () => {
     expect(onAdopted).toHaveBeenCalledWith("C:/book/正文/第01章.md")
   })
 
+  it("partial 截断稿在列表与确认块都标出来（RF-1）", async () => {
+    const partialDraft: ChapterDraft = { ...draft, partial: true }
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => [partialDraft]}
+        acceptDraft={vi.fn()}
+        pathExists={async () => false}
+      />,
+    )
+    expect(await screen.findByTestId("chapter-draft-partial-d1")).toBeTruthy()
+    expect(screen.getByTestId("chapter-draft-partial-d1").textContent).toContain("截断稿")
+
+    fireEvent.click(await screen.findByTestId("chapter-draft-adopt-d1"))
+    expect(await screen.findByTestId("chapter-draft-confirm-partial")).toBeTruthy()
+  })
+
+  it("完整草稿不渲染 partial 提示", async () => {
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => [draft]}
+        acceptDraft={vi.fn()}
+        pathExists={async () => false}
+      />,
+    )
+    expect(await screen.findByTestId("chapter-draft-adopt-d1")).toBeTruthy()
+    expect(screen.queryByTestId("chapter-draft-partial-d1")).toBeNull()
+    fireEvent.click(screen.getByTestId("chapter-draft-adopt-d1"))
+    expect(screen.queryByTestId("chapter-draft-confirm-partial")).toBeNull()
+  })
+
   it("Q14-B 有告警时渲染连续性告警条（critical 用 destructive 色）", async () => {
     render(
       <ChapterDraftDock

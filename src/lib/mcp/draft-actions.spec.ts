@@ -46,6 +46,18 @@ describe("writeChapterDraft", () => {
     expect(res.draftId).toBe("draft_1")
   })
 
+  it("partial 透传进草稿写入器的 meta（RF-1）", async () => {
+    writeDraft.mockResolvedValue({ id: "draft_1", chapterName: "第一章", content: "x" })
+    await writeChapterDraft("/proj", { chapterName: "第一章", content: "正文", partial: true })
+    expect(writeDraft.mock.calls[0][3]).toMatchObject({ partial: true })
+  })
+
+  it("非布尔 partial 不当真（只认 true）", async () => {
+    writeDraft.mockResolvedValue({ id: "draft_1", chapterName: "第一章", content: "x" })
+    await writeChapterDraft("/proj", { chapterName: "第一章", content: "正文", partial: "yes" })
+    expect(writeDraft.mock.calls[0][3]).not.toHaveProperty("partial")
+  })
+
   it("明确告知未进入正式章节", async () => {
     writeDraft.mockResolvedValue({ id: "draft_1", chapterName: "第一章", content: "x" })
     const res = await writeChapterDraft("/proj", { chapterName: "第一章", content: "正文" })

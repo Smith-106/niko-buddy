@@ -254,13 +254,15 @@ export function startPipelineTask(
       // 先落老字段：草稿写失败时它们仍留在 failed 快照里（调用方据此判断产出规模与门控）。
       record.snapshot = { ...record.snapshot, ...base }
       // 落盘闸门只有「有没有可采纳正文」一条：partial 部分稿同样算有正文，同样落一次草稿；
-      // partial 的真实性由快照 partial + gates + manualReviewRequired 表达（需人工复核）。
+      // partial 的真实性由快照 partial + gates + manualReviewRequired 表达（需人工复核），
+      // 并透传进草稿 frontmatter，否则采纳决策点看不到「这是截断稿」。
       if (result.finalContent.trim() === "") {
         throw new Error("深章产出为空，未写草稿")
       }
       const draft = await writeChapterDraft(projectPath, {
         chapterName: draftChapterName(chapterNumber, userRequest),
         content: result.finalContent,
+        partial: result.partial === true,
       })
       return { ...base, artifactPath: draft.path }
     }),

@@ -92,6 +92,24 @@ describe("draft-manager.ts smoke", () => {
   it("exports writeDraft", () => {
     expect(writeDraft).toBeDefined()
   })
+
+  it("partial 草稿写入 frontmatter 并能读回", async () => {
+    const written = await writeDraft("C:/book", "第02章", "截断正文", { partial: true })
+    expect(written.partial).toBe(true)
+    expect(fsState.files.get(`C:/book/.qm-drafts/${written.id}.md`)).toContain("partial: true")
+
+    const listed = await listChapterDrafts("C:/book")
+    expect(listed.find((item) => item.id === written.id)?.partial).toBe(true)
+  })
+
+  it("完整草稿不写 partial 行，读回也没有该标记", async () => {
+    const written = await writeDraft("C:/book", "第03章", "完整正文")
+    const raw = fsState.files.get(`C:/book/.qm-drafts/${written.id}.md`) ?? ""
+    expect(raw).not.toContain("partial:")
+
+    const listed = await listChapterDrafts("C:/book")
+    expect(listed.find((item) => item.id === written.id)?.partial).toBeUndefined()
+  })
 })
 
 describe("acceptChapterDraft", () => {

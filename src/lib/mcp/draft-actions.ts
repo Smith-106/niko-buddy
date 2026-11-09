@@ -54,13 +54,14 @@ function sanitizeName(name: string): string {
  */
 export async function writeChapterDraft(
   projectPath: string,
-  params: { chapterName?: unknown; content?: unknown },
+  params: { chapterName?: unknown; content?: unknown; partial?: unknown },
 ): Promise<ChapterDraftResult> {
   const chapterName = sanitizeName(requireText(params.chapterName, "chapterName"))
   const content = requireText(params.content, "content")
 
   const draft: ChapterDraft = await writeDraft(projectPath, chapterName, content, {
     sourceConversationId: "mcp:external-agent",
+    ...(params.partial === true ? { partial: true } : {}),
   })
 
   return {

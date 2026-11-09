@@ -415,7 +415,7 @@ describe("startPipelineTask 落草稿（G1）", () => {
     await flushPipeline()
     expect(writeChapterDraft).toHaveBeenCalledTimes(1)
     expect(writeChapterDraft.mock.calls[0][0]).toBe("/proj")
-    expect(writeChapterDraft.mock.calls[0][1]).toEqual({ chapterName: "第3章", content: "正文内容" })
+    expect(writeChapterDraft.mock.calls[0][1]).toEqual({ chapterName: "第3章", content: "正文内容", partial: false })
     const snap = getPipelineTask(res.taskId)
     expect(snap).toMatchObject({
       status: "done",
@@ -459,6 +459,8 @@ describe("startPipelineTask 落草稿（G1）", () => {
     await flushPipeline()
     expect(writeChapterDraft).toHaveBeenCalledTimes(1)
     expect(writeChapterDraft.mock.calls[0][0]).toBe("/proj")
+    // RF-1：截断事实必须透传进草稿，否则采纳决策点看不到「这是截断稿」。
+    expect(writeChapterDraft.mock.calls[0][1]).toMatchObject({ partial: true })
     const snap = getPipelineTask(res.taskId)
     expect(snap).toMatchObject({
       status: "done",

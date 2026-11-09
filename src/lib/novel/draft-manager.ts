@@ -29,6 +29,8 @@ function buildDraftContent(draft: ChapterDraft): string {
   ]
   if (draft.sourceConversationId) metaLines.push(`source_conversation_id: ${draft.sourceConversationId}`)
   if (draft.sourceMessageId) metaLines.push(`source_message_id: ${draft.sourceMessageId}`)
+  // 截断稿只在持久化层留 trace：采纳决策点必须能看出「这是截断稿，不是完整章」。
+  if (draft.partial) metaLines.push("partial: true")
   return `---\n${metaLines.join("\n")}\n---\n\n${draft.content}`
 }
 
@@ -36,7 +38,7 @@ export async function writeDraft(
   projectPath: string,
   chapterName: string,
   content: string,
-  meta?: { sourceConversationId?: string; sourceMessageId?: string },
+  meta?: { sourceConversationId?: string; sourceMessageId?: string; partial?: boolean },
 ): Promise<ChapterDraft> {
   await ensureDraftsDir(projectPath)
   const draft: ChapterDraft = {
@@ -47,6 +49,7 @@ export async function writeDraft(
     status: "draft",
     sourceConversationId: meta?.sourceConversationId,
     sourceMessageId: meta?.sourceMessageId,
+    ...(meta?.partial ? { partial: true } : {}),
   }
   const filePath = `${draftsDir(projectPath)}/${draft.id}.md`
   await writeFile(filePath, buildDraftContent(draft))
@@ -95,6 +98,7 @@ function parseStoredDraft(text: string, fallbackId: string): ChapterDraft | null
     status,
     sourceConversationId: raw.source_conversation_id ? String(raw.source_conversation_id) : undefined,
     sourceMessageId: raw.source_message_id ? String(raw.source_message_id) : undefined,
+    ...(raw.partial === true || raw.partial === "true" ? { partial: true } : {}),
   }
 }
 
