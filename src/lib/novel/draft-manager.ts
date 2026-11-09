@@ -133,8 +133,22 @@ export async function listChapterDrafts(
   return drafts
 }
 
-async function ensureParent(path: string, deps: DraftManagerDeps): Promise<void> {
-  const parent = path.slice(0, path.lastIndexOf("/"))
+/**
+ * 采集既有正式章要保留的头部（含 frontmatter 及任何前置脏行）。
+ *
+ * 采纳只换正文：`parseFrontmatter().rawBlock` 在正常文件里就是文件前缀；
+ * LLM 写过脏行的页靠 fallback 扫描命中，rawBlock 不在开头，此时要把前缀一起带上，
+ * 否则采纳会顺手删掉并非本函数拥有的内容。无 frontmatter 返回空串（维持只写正文）。
+ */
+function preserveExistingPrefix(text: string): string {
+  const { rawBlock } = parseFrontmatter(text)
+  if (!rawBlock) return ""
+  const at = text.indexOf(rawBlock)
+  const prefix = at > 0 ? text.slice(0, at) : ""
+  return `${prefix}${rawBlock}`
+}
+
+async function ensureParent(path: string, deps: DraftManagerDeps): Promise<void> {  const parent = path.slice(0, path.lastIndexOf("/"))
   if (!parent || await deps.fileExists(parent)) return
   const grand = parent.slice(0, parent.lastIndexOf("/"))
   if (grand && !await deps.fileExists(grand)) await deps.createDirectory(grand)
@@ -163,7 +177,9 @@ export async function acceptChapterDraft(
   await ensureParent(target, deps)
   // 正式章通常带 type/chapter_number/chapter_status 等 frontmatter，只换正文，
   // 否则采纳会把页面降级成非章节页（下游摄取按 isChapterPage 判定即 not_chapter）。
-  const existingBlock = await deps.fileExists(target) ? parseFrontmatter(await deps.readFile(target)).rawBlock : ""
+  // 前缀夹脏行的页走 parseFrontmatter 的 fallback 扫描，rawBlock 不是文件前缀，
+  // 此时保留前缀原样，不把脏行吞掉。
+  const existingBlock = await deps.fileExists(target) ? preserveExistingPrefix(await deps.readFile(target)) : ""
   const nextContent = `${existingBlock}${draft.content}`
   await deps.writeFileAtomic(target, nextContent)
   const written = await deps.readFile(target)

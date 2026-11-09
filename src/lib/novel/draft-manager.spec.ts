@@ -147,8 +147,39 @@ describe("acceptChapterDraft", () => {
     expect(written).not.toContain("旧正文")
   })
 
-  it("目标章不存在时仍只写正文（既有行为不变）", async () => {
+  it("frontmatter 前带脏行时连前缀一起保留", async () => {
     const { files, deps } = memoryDeps()
+    files.set("C:/book/.qm-drafts/draft_1.md", STORED)
+    const preface = "这是 LLM 多写的一行\n"
+    const chapterFm = "---\ntype: chapter\nchapter_number: '8'\nchapter_status: final\n---\n\n"
+    files.set("C:/book/wiki/chapters/第01章.md", `${preface}${chapterFm}旧正文。`)
+
+    await acceptChapterDraft({
+      projectPath: "C:/book",
+      draftId: "draft_1",
+      formalChapterPath: "C:/book/wiki/chapters/第01章.md",
+      confirmed: true,
+    }, deps)
+
+    expect(files.get("C:/book/wiki/chapters/第01章.md")).toBe(`${preface}${chapterFm}# 第01章\n\n正文。`)
+  })
+
+  it("既有正式章没有 frontmatter 时仍只写正文", async () => {
+    const { files, deps } = memoryDeps()
+    files.set("C:/book/.qm-drafts/draft_1.md", STORED)
+    files.set("C:/book/wiki/chapters/第01章.md", "旧正文。")
+
+    await acceptChapterDraft({
+      projectPath: "C:/book",
+      draftId: "draft_1",
+      formalChapterPath: "C:/book/wiki/chapters/第01章.md",
+      confirmed: true,
+    }, deps)
+
+    expect(files.get("C:/book/wiki/chapters/第01章.md")).toBe("# 第01章\n\n正文。")
+  })
+
+  it("目标章不存在时仍只写正文（既有行为不变）", async () => {    const { files, deps } = memoryDeps()
     files.set("C:/book/.qm-drafts/draft_1.md", STORED)
 
     await acceptChapterDraft({
