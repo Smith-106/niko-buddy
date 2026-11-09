@@ -90,8 +90,8 @@
   "orphan": 277,
   "specOnly": 268,
   "barrelOnly": 1,
-  "edges": 4655,
-  "loc": 290484
+  "edges": 4657,
+  "loc": 290623
  },
  "modules": [
   {
@@ -1619,18 +1619,20 @@
   {
    "p": "src/components/layout/chapter-draft-dock.tsx",
    "s": 16,
-   "l": 213,
+   "l": 293,
    "r": true,
    "o": false,
    "x": false,
    "b": false,
    "i": [
     4,
-    766
+    766,
+    1162
    ],
    "e": [
     "lucide-react",
-    "react"
+    "react",
+    "react-i18next"
    ]
   },
   {
@@ -2319,7 +2321,7 @@
   {
    "p": "src/components/layout/writing-workspace.tsx",
    "s": 16,
-   "l": 509,
+   "l": 537,
    "r": true,
    "o": false,
    "x": false,
@@ -8471,7 +8473,7 @@
   {
    "p": "src/lib/llm-client.ts",
    "s": 18,
-   "l": 1166,
+   "l": 1170,
    "r": true,
    "o": false,
    "x": false,
@@ -8745,12 +8747,13 @@
   {
    "p": "src/lib/mcp/pipeline-tasks.ts",
    "s": 18,
-   "l": 425,
+   "l": 452,
    "r": true,
    "o": false,
    "x": false,
    "b": false,
    "i": [
+    474,
     766,
     828,
     1015,
