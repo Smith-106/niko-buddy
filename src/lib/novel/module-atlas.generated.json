@@ -91,7 +91,7 @@
   "specOnly": 268,
   "barrelOnly": 1,
   "edges": 4657,
-  "loc": 290683
+  "loc": 290708
  },
  "modules": [
   {
@@ -1619,7 +1619,7 @@
   {
    "p": "src/components/layout/chapter-draft-dock.tsx",
    "s": 16,
-   "l": 333,
+   "l": 346,
    "r": true,
    "o": false,
    "x": false,
@@ -8734,7 +8734,7 @@
   {
    "p": "src/lib/mcp/draft-actions.ts",
    "s": 18,
-   "l": 109,
+   "l": 110,
    "r": true,
    "o": false,
    "x": false,
@@ -8747,7 +8747,7 @@
   {
    "p": "src/lib/mcp/pipeline-tasks.ts",
    "s": 18,
-   "l": 452,
+   "l": 454,
    "r": true,
    "o": false,
    "x": false,
@@ -12521,7 +12521,7 @@
   {
    "p": "src/lib/novel/draft-manager.ts",
    "s": 6,
-   "l": 193,
+   "l": 197,
    "r": true,
    "o": false,
    "x": false,
@@ -13587,7 +13587,7 @@
   {
    "p": "src/lib/novel/lifecycle-types.ts",
    "s": 18,
-   "l": 15,
+   "l": 20,
    "r": true,
    "o": false,
    "x": false,
