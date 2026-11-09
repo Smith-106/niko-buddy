@@ -91,7 +91,7 @@
   "specOnly": 268,
   "barrelOnly": 1,
   "edges": 4657,
-  "loc": 290623
+  "loc": 290663
  },
  "modules": [
   {
@@ -1619,7 +1619,7 @@
   {
    "p": "src/components/layout/chapter-draft-dock.tsx",
    "s": 16,
-   "l": 293,
+   "l": 333,
    "r": true,
    "o": false,
    "x": false,
