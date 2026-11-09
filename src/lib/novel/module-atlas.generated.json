@@ -91,7 +91,7 @@
   "specOnly": 268,
   "barrelOnly": 1,
   "edges": 4657,
-  "loc": 290667
+  "loc": 290683
  },
  "modules": [
   {
@@ -12521,7 +12521,7 @@
   {
    "p": "src/lib/novel/draft-manager.ts",
    "s": 6,
-   "l": 177,
+   "l": 193,
    "r": true,
    "o": false,
    "x": false,
