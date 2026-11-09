@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { CheckCircle2 } from "lucide-react"
+import { CheckCircle2, CircleAlert, CircleX, type LucideIcon } from "lucide-react"
 import { fileExists } from "@/commands/fs"
 import {
   acceptChapterDraft,
@@ -21,6 +21,35 @@ const INGEST_NOTE_KEYS: Record<AcceptDraftIngestStatus, string> = {
   "skipped-config": "mainControl.draftIngestSkippedConfig",
   "skipped-no-model": "mainControl.draftIngestSkippedNoModel",
   failed: "mainControl.draftIngestFailed",
+}
+
+/**
+ * 呈现语气：只决定视觉，不是第五种 ingest 状态（四态枚举不变）。
+ * `settled` 只表示「正文已落盘」；回填四态决定语气 —— 只有 ok 才是「成功」，
+ * skipped-* 走警示语气、failed 走错误语气，避免把降级/失败渲染成同一个绿色成功块。
+ */
+type NoteTone = "success" | "warning" | "error"
+
+/** 四态 → 语气：ok 成功 / 两种 skipped 警示 / failed 错误。 */
+const INGEST_NOTE_TONES: Record<AcceptDraftIngestStatus, NoteTone> = {
+  ok: "success",
+  "skipped-config": "warning",
+  "skipped-no-model": "warning",
+  failed: "error",
+}
+
+/** 语气 → 区块样式：只有 ok 挂 draft-celebrate 庆祝动画，降级/失败不庆祝。 */
+const NOTE_TONE_CLASS: Record<NoteTone, string> = {
+  success: "draft-celebrate border-success/40 bg-success/10 text-success-foreground",
+  warning: "border-warning/40 bg-warning/10 text-warning-foreground",
+  error: "border-destructive/40 bg-destructive/10 text-destructive",
+}
+
+/** 语气 → 图标：成功用勾，降级/失败不再用 CheckCircle2。 */
+const NOTE_TONE_ICONS: Record<NoteTone, LucideIcon> = {
+  success: CheckCircle2,
+  warning: CircleAlert,
+  error: CircleX,
 }
 
 /**
@@ -86,6 +115,8 @@ export function ChapterDraftDock({
   // 成功态由显式 state 驱动（不比对文案）：默认路径成功、注入路径 resolve、
   // 以及「已落盘但回填抛错」三条路都置 true，庆祝块与「查看记忆更新」入口才出现。
   const [settled, setSettled] = useState(false)
+  // 与 settled 正交：settled 只说「已落盘」，语气由回填四态决定（跳过/失败不得用成功语气）。
+  const [noteTone, setNoteTone] = useState<NoteTone>("success")
   const [busy, setBusy] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
 
@@ -110,8 +141,9 @@ export function ChapterDraftDock({
   }, [listDrafts, projectPath, reloadKey])
 
   async function askAdopt(draft: ChapterDraft): Promise<void> {
-    // 第一步只展开确认面板：不写盘、不 ingest；同时清掉上一轮的庆祝态。
+    // 第一步只展开确认面板：不写盘、不 ingest；同时清掉上一轮的庆祝态与语气。
     setSettled(false)
+    setNoteTone("success")
     let target = ""
     try {
       target = formalChapterPathForDraft(projectPath, draft.chapterName, selectedFile)
@@ -142,6 +174,7 @@ export function ChapterDraftDock({
         })
         setPending(null)
         setSettled(true)
+        setNoteTone(INGEST_NOTE_TONES[outcome.ingest])
         setNote(
           `${t("mainControl.draftAcceptDone", { path: outcome.formalChapterPath })} · ${ingestNote(outcome.ingest, outcome.failReason)}`,
         )
@@ -156,6 +189,7 @@ export function ChapterDraftDock({
         })
         setPending(null)
         setSettled(true)
+        setNoteTone("success")
         setNote("已写入正式章。")
         setReloadKey((key) => key + 1)
         onAdopted?.(result.formalChapterPath)
@@ -165,6 +199,7 @@ export function ChapterDraftDock({
         // 正文已落盘、只是回填抛错：如实呈现「已写入 + 回填失败」，不删除/不重写正式章（零回滚）。
         setPending(null)
         setSettled(true)
+        setNoteTone("error")
         setNote(
           `${t("mainControl.draftAcceptDone", { path: pending.target })} · ${ingestNote("failed", toErrorMessage(error))}`,
         )
@@ -182,6 +217,8 @@ export function ChapterDraftDock({
   if (!projectPath) {
     return <p className="p-2 text-xs text-muted-foreground">先打开一本书，才能采纳草稿。</p>
   }
+
+  const NoteToneIcon = NOTE_TONE_ICONS[noteTone]
 
   return (
     <div className="space-y-2 p-2 text-xs" data-testid="chapter-draft-dock">
@@ -264,13 +301,16 @@ export function ChapterDraftDock({
         settled ? (
           // ISS-20260709-018：草稿接受轻量庆祝 — 内联成功态，不弹窗、不抢焦点、
           // role=status + aria-live polite 播报，文案语义不变，仅加视觉反馈。
+          // 语气按回填四态分层：只有 ingest=ok 用绿色庆祝块；skipped-*/failed 用警示/错误块，
+          // 「正文已落盘」的事实仍由文案承载，不因降级而丢失。
           <p
             data-testid="chapter-draft-note"
+            data-tone={noteTone}
             role="status"
             aria-live="polite"
-            className="draft-celebrate flex items-center gap-1.5 rounded border border-success/40 bg-success/10 px-2 py-1.5 text-success-foreground"
+            className={`flex items-center gap-1.5 rounded border px-2 py-1.5 ${NOTE_TONE_CLASS[noteTone]}`}
           >
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <NoteToneIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>{note}</span>
             {onOpenMemory ? (
               <button

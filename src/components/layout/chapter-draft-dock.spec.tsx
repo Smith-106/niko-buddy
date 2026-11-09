@@ -303,6 +303,13 @@ describe("G2 采纳即回填四态", () => {
     )
     expect(note.textContent).toContain("已写入正式章：C:/book/正文/第01章.md")
     expect(note.getAttribute("role")).toBe("status")
+    // 语气分层：只有 ok 才是绿色成功庆祝块。
+    expect(note.getAttribute("data-tone")).toBe("success")
+    expect(note.className).toContain("bg-success/10")
+    expect(note.className).toContain("border-success/40")
+    expect(note.className).toContain("draft-celebrate")
+    expect(note.className).not.toContain("bg-warning")
+    expect(note.className).not.toContain("bg-destructive")
     expect(onAdopted).toHaveBeenCalledWith(resolvedPath)
     expect(listDrafts.mock.calls.length).toBeGreaterThan(1)
     fireEvent.click(screen.getByTestId("chapter-draft-open-memory"))
@@ -323,6 +330,12 @@ describe("G2 采纳即回填四态", () => {
     expect(note.textContent).toContain("autoIngestOnSave 关闭")
     expect(note.textContent).not.toContain("记忆回填完成")
     expect(note.textContent).not.toContain("记忆回填失败")
+    // 跳过不是成功：警示语气，无绿色/庆祝语义。
+    expect(note.getAttribute("data-tone")).toBe("warning")
+    expect(note.className).toContain("border-warning/40")
+    expect(note.className).toContain("bg-warning/10")
+    expect(note.className).not.toContain("bg-success")
+    expect(note.className).not.toContain("draft-celebrate")
   })
 
   it("C3-3 skipped-no-model：无可用模型跳过", async () => {
@@ -338,6 +351,11 @@ describe("G2 采纳即回填四态", () => {
     expect(note.textContent).not.toContain("记忆回填完成")
     expect(note.textContent).not.toContain("记忆回填失败")
     expect(note.textContent).not.toContain("autoIngestOnSave")
+    // 与 skipped-config 同属警示语气，但文案仍各自可区分（见 C3-7）。
+    expect(note.getAttribute("data-tone")).toBe("warning")
+    expect(note.className).toContain("bg-warning/10")
+    expect(note.className).not.toContain("bg-success")
+    expect(note.className).not.toContain("draft-celebrate")
   })
 
   it("C3-4 failed：回填失败如实呈现（不掩盖已写正文）", async () => {
@@ -355,6 +373,67 @@ describe("G2 采纳即回填四态", () => {
     await waitFor(() => expect(note.textContent).toContain("记忆回填失败：extract_failed"))
     expect(note.textContent).toContain("已写入正式章：")
     expect(onAdopted).toHaveBeenCalledWith(resolvedPath)
+    // 回填失败用错误语气，仍保留「已写入正式章」事实。
+    expect(note.getAttribute("data-tone")).toBe("error")
+    expect(note.className).toContain("border-destructive/40")
+    expect(note.className).toContain("bg-destructive/10")
+    expect(note.className).not.toContain("bg-success")
+    expect(note.className).not.toContain("draft-celebrate")
+  })
+
+  it("C3-7 四态语气可区分：ok=成功块，skipped-*=警示块，failed=错误块，文案四态各异", async () => {
+    const cases = [
+      { ingest: "ok" as const, expectText: "记忆回填完成", tone: "success", has: "bg-success/10", hasNot: "bg-warning/10" },
+      {
+        ingest: "skipped-config" as const,
+        expectText: "已按设置跳过记忆回填",
+        tone: "warning",
+        has: "bg-warning/10",
+        hasNot: "bg-success",
+      },
+      {
+        ingest: "skipped-no-model" as const,
+        expectText: "记忆回填已跳过",
+        tone: "warning",
+        has: "border-warning/40",
+        hasNot: "bg-success",
+      },
+      {
+        ingest: "failed" as const,
+        expectText: "记忆回填失败：extract_failed",
+        tone: "error",
+        has: "bg-destructive/10",
+        hasNot: "bg-success",
+      },
+    ]
+    const seen: { tone: string | null; text: string }[] = []
+    for (const item of cases) {
+      const adoptAndIngest = vi.fn(
+        async (input: ChapterDraftDockAdoptAndIngestInput): Promise<AcceptDraftAndIngestResult> => {
+          input.onAcceptSettled?.()
+          return {
+            formalChapterPath: resolvedPath,
+            ingest: item.ingest,
+            failReason: item.ingest === "failed" ? "extract_failed" : undefined,
+          }
+        },
+      )
+      const { unmount } = renderDock({ adoptAndIngest })
+      fireEvent.click(await screen.findByTestId("chapter-draft-adopt-d1"))
+      fireEvent.click(await screen.findByTestId("chapter-draft-confirm-accept"))
+      const note = await screen.findByTestId("chapter-draft-note")
+      await waitFor(() => expect(note.textContent).toContain(item.expectText))
+      expect(note.getAttribute("data-tone")).toBe(item.tone)
+      expect(note.className).toContain(item.has)
+      expect(note.className).not.toContain(item.hasNot)
+      // 「已落盘」事实在任何语气下都不丢。
+      expect(note.textContent).toContain("已写入正式章：")
+      seen.push({ tone: note.getAttribute("data-tone"), text: note.textContent ?? "" })
+      unmount()
+    }
+    // 三种语气覆盖四态（两种 skipped 共享警示语气），四态文案两两不同。
+    expect(seen.map((entry) => entry.tone)).toEqual(["success", "warning", "warning", "error"])
+    expect(new Set(seen.map((entry) => entry.text)).size).toBe(4)
   })
 
   it("C3-5 accept 抛错不 ingest（settled 回调未触发）", async () => {
@@ -394,6 +473,11 @@ describe("G2 采纳即回填四态", () => {
     expect(note.textContent).toContain("已写入正式章：C:/book/正文/第01章.md")
     expect(note.textContent).not.toContain("采纳失败")
     expect(note.getAttribute("role")).toBe("status")
+    // 已落盘但回填抛错 → 错误语气（不得用绿色成功块）。
+    expect(note.getAttribute("data-tone")).toBe("error")
+    expect(note.className).toContain("bg-destructive/10")
+    expect(note.className).not.toContain("bg-success")
+    expect(note.className).not.toContain("draft-celebrate")
     expect(onAdopted).toHaveBeenCalledWith(resolvedPath)
     expect(listDrafts.mock.calls.length).toBeGreaterThan(1)
     // 面板已关：无法二次确认造成重复 accept/ingest
