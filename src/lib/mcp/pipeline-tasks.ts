@@ -16,8 +16,9 @@
  *
  * ## 硬边界
  *
- * 任务只把结果留在内存里给调用方**看**。正式正文与正式记忆一律不在此落盘：
- * 落盘仍须走 `writeDraft` → 用户 accept（Draft-first）。
+ * 任务可以把成品正文落到 `.qm-drafts` 草稿（经 `writeDraft`），并由快照的
+ * `artifactPath` 指向该草稿文件；正式正文与正式记忆仍只能由用户 accept 写入
+ * （Draft-first）。快照本身仍不含正文——正文只能经草稿读取/章节读取工具取。
  */
 
 import { advanceDirectorToStall, buildStageJournalRuntime, loadDirectorPersisted, runDeepChapterGeneration, saveDirectorPersisted } from "@/lib/novel"
@@ -25,6 +26,7 @@ import type { DeepChapterDecisionGates, DeepChapterGenerationResult } from "@/li
 import { applyWorkflowModeDepth } from "@/lib/novel/workflow-mode-depth"
 import { generateOutlineFile, generateOutlineFileMultiAgent } from "@/lib/novel/outline-generation"
 import { refreshProjectState } from "@/lib/project-refresh"
+import { writeChapterDraft } from "./draft-actions"
 import { useWikiStore } from "@/stores/wiki-store"
 import { toErrorMessage } from "@/lib/utils"
 
@@ -38,7 +40,11 @@ export type PipelineTaskStatus = "running" | "done" | "failed"
  */
 export type PipelineTaskKind = "chapter" | "director" | "outline"
 
-/** 对外快照。**不含正文**——正文经草稿/章节读取工具取，避免两套内容出口。 */
+/**
+ * 对外快照。**不含正文**——正文经草稿/章节读取工具取，避免两套内容出口。
+ * 成品正文先落 `.qm-drafts` 草稿（`artifactPath` 指向该草稿文件），正式层仍只由
+ * 用户 accept 写入。
+ */
 export interface PipelineTaskSnapshot {
   taskId: string
   /** 任务种类（additive：老调用方不看这个字段也能工作）。 */
@@ -237,18 +243,39 @@ export function startPipelineTask(
           record.snapshot.stage = String(checkpoint?.stage ?? record.snapshot.stage)
         },
       },
-    ).then((result) => {
+    ).then(async (result) => {
       record.result = result
-      return {
+      const base = {
         gates: result.decisionGates,
         manualReviewRequired: result.manualReviewRequired,
         partial: result.partial,
         contentChars: result.finalContent.length,
       }
+      // 先落老字段：草稿写失败时它们仍留在 failed 快照里（调用方据此判断产出规模与门控）。
+      record.snapshot = { ...record.snapshot, ...base }
+      // 落盘闸门只有「有没有可采纳正文」一条：partial 部分稿同样算有正文，同样落一次草稿；
+      // partial 的真实性由快照 partial + gates + manualReviewRequired 表达（需人工复核）。
+      if (result.finalContent.trim() === "") {
+        throw new Error("深章产出为空，未写草稿")
+      }
+      const draft = await writeChapterDraft(projectPath, {
+        chapterName: draftChapterName(chapterNumber, userRequest),
+        content: result.finalContent,
+      })
+      return { ...base, artifactPath: draft.path }
     }),
   )
 
   return { ok: true, taskId, stage }
+}
+
+/**
+ * 草稿章名：有章号就按章号命名，否则取用户需求前 40 字。
+ *
+ * 只决定「草稿叫什么」，不做路径与非法字符处理——那是写入器自己的纪律（单一真源）。
+ */
+function draftChapterName(chapterNumber: number | undefined, userRequest: string): string {
+  return chapterNumber ? `第${chapterNumber}章` : userRequest.slice(0, 40)
 }
 
 /** 一次批量最多起多少章（与 `chapter.batch` 工具的上限一致）。 */

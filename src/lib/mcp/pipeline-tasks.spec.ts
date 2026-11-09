@@ -11,16 +11,40 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const runDeepChapterGeneration = vi.hoisted(() => vi.fn())
+// `./draft-actions` 自身 import 了被上面整模块 mock 掉的 `@/lib/novel`（`writeDraft` 等），
+// 不整模块替换就会让真实实现里的 `writeDraft` 变 undefined：成功用例会由 done 翻成 failed。
+const writeChapterDraft = vi.hoisted(() => vi.fn())
 
 vi.mock("@/lib/novel", () => ({
   runDeepChapterGeneration,
 }))
 
+vi.mock("./draft-actions", () => ({ writeChapterDraft }))
+
 import { getPipelineTask, resetPipelineTasks, startDirectorAdvanceTask, startOutlineGenerationTask, startPipelineBatch, startPipelineTask } from "./pipeline-tasks"
+
+/** 草稿序号：每次落盘递增，用来让相邻用例拿到不同的 draftId/path。 */
+let draftSeq = 0
 
 beforeEach(() => {
   resetPipelineTasks()
   runDeepChapterGeneration.mockReset()
+  draftSeq = 0
+  writeChapterDraft.mockReset()
+  // 默认成功实现：返回形状与 draft-actions 的 ChapterDraftResult 一致（draftId/chapterName/path/chars/note），
+  // 因此既有成功用例拿到的 draft.path 永不为 undefined。需要抛错的用例自行覆盖。
+  writeChapterDraft.mockImplementation(
+    async (projectPath: string, params: { chapterName?: unknown; content?: unknown }) => {
+      draftSeq += 1
+      return {
+        draftId: `draft_${draftSeq}`,
+        chapterName: String(params.chapterName ?? ""),
+        path: `${projectPath}/.qm-drafts/draft_${draftSeq}.md`,
+        chars: String(params.content ?? "").length,
+        note: "",
+      }
+    },
+  )
 })
 
 describe("startPipelineTask 参数校验", () => {
@@ -367,5 +391,155 @@ describe("startPipelineTask 的 workflowMode 深度映射", () => {
     expect(input.novelConfig).toBe(original)
     await flushPipeline()
     await flushPipeline()
+  })
+})
+
+// ===== G1：成品正文落 .qm-drafts 草稿并由 artifactPath 指回 =====
+// 落盘闸门只有「有没有可采纳正文」一条：非空 finalContent（partial 部分稿同样算）落一次草稿；
+// partial 的终态仍是既有 status=done + partial:true，靠 gates/manualReviewRequired 表达「需人工复核」。
+describe("startPipelineTask 落草稿（G1）", () => {
+  beforeEach(() => {
+    setWiki("/proj", "test-key")
+  })
+
+  afterEach(() => {
+    setWiki(null, null)
+  })
+
+  it("C1-1 非 partial 非空稿：写一次草稿并回填 artifactPath", async () => {
+    runDeepChapterGeneration.mockImplementation(() => Promise.resolve(fakeDoneResult("正文内容")))
+    const res = startPipelineTask({ userRequest: "写第三章", chapterNumber: 3 })
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    await flushPipeline()
+    await flushPipeline()
+    expect(writeChapterDraft).toHaveBeenCalledTimes(1)
+    expect(writeChapterDraft.mock.calls[0][0]).toBe("/proj")
+    expect(writeChapterDraft.mock.calls[0][1]).toEqual({ chapterName: "第3章", content: "正文内容" })
+    const snap = getPipelineTask(res.taskId)
+    expect(snap).toMatchObject({
+      status: "done",
+      stage: "done",
+      artifactPath: "/proj/.qm-drafts/draft_1.md",
+      contentChars: 4,
+    })
+    expect(snap?.gates?.overall).toBe("pass")
+  })
+
+  it("C1-2 空稿不落草稿、如实失败", async () => {
+    runDeepChapterGeneration.mockImplementation(() => Promise.resolve(fakeDoneResult("   ")))
+    const res = startPipelineTask({ userRequest: "写第三章", chapterNumber: 3 })
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    await flushPipeline()
+    await flushPipeline()
+    // 默认成功实现仍挂在 beforeEach 里：这里证明的是「没被调用」而不是「没配」。
+    expect(writeChapterDraft).not.toHaveBeenCalled()
+    const snap = getPipelineTask(res.taskId)
+    expect(snap?.status).toBe("failed")
+    expect(snap?.artifactPath).toBeUndefined()
+    expect(snap?.error).toContain("为空")
+    expect(snap?.error).toContain("未写草稿")
+    expect(snap?.partial).toBe(false)
+    expect(snap?.contentChars).toBe(3)
+    expect(snap?.gates?.overall).toBe("pass")
+  })
+
+  it("C1-3 partial 且正文非空：仍落一次草稿，status=done + partial:true（需人工复核）", async () => {
+    const partialResult: DeepChapterGenerationResult = {
+      ...fakeDoneResult("正文"),
+      partial: true,
+      partialReason: "transport-inactivity",
+    }
+    runDeepChapterGeneration.mockImplementation(() => Promise.resolve(partialResult))
+    const res = startPipelineTask({ userRequest: "写第三章", chapterNumber: 3 })
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    await flushPipeline()
+    await flushPipeline()
+    expect(writeChapterDraft).toHaveBeenCalledTimes(1)
+    expect(writeChapterDraft.mock.calls[0][0]).toBe("/proj")
+    const snap = getPipelineTask(res.taskId)
+    expect(snap).toMatchObject({
+      status: "done",
+      stage: "done",
+      partial: true,
+      // 管线报的是 false，快照原样保留（本任务不改 manualReviewRequired 的取值来源）。
+      manualReviewRequired: false,
+      artifactPath: "/proj/.qm-drafts/draft_1.md",
+      contentChars: 2,
+    })
+    expect(snap?.gates?.overall).toBe("pass")
+    expect(snap?.error).toBeUndefined()
+    expect(JSON.stringify(snap)).not.toContain("正文")
+  })
+
+  it("C1-4 写盘抛错如实失败（不虚报 done）", async () => {
+    runDeepChapterGeneration.mockImplementation(() => Promise.resolve(fakeDoneResult("正文")))
+    writeChapterDraft.mockImplementation(() => Promise.reject(new Error("EACCES: 落盘失败")))
+    const res = startPipelineTask({ userRequest: "写第三章", chapterNumber: 3 })
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    await flushPipeline()
+    await flushPipeline()
+    const snap = getPipelineTask(res.taskId)
+    expect(snap).toMatchObject({ status: "failed", error: "EACCES: 落盘失败" })
+    expect(snap?.artifactPath).toBeUndefined()
+    expect(snap?.gates?.overall).toBe("pass")
+    expect(snap?.partial).toBe(false)
+  })
+
+  it("C1-5 无 chapterNumber 时用 userRequest 前 40 字作 chapterName", async () => {
+    const longRequest = "续".repeat(60)
+    runDeepChapterGeneration.mockImplementation(() => Promise.resolve(fakeDoneResult("正文")))
+    const res = startPipelineTask({ userRequest: longRequest })
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    await flushPipeline()
+    await flushPipeline()
+    expect(writeChapterDraft).toHaveBeenCalledTimes(1)
+    const params = writeChapterDraft.mock.calls[0][1] as { chapterName: string }
+    expect(params.chapterName.length).toBe(40)
+    expect(params.chapterName).toBe(longRequest.slice(0, 40))
+  })
+
+  it("C1-6 同一章号的两个任务各自落一次（不做跨任务去重）", async () => {
+    runDeepChapterGeneration.mockImplementation(() => Promise.resolve(fakeDoneResult("正文")))
+    const first = startPipelineTask({ userRequest: "写第七章", chapterNumber: 7 })
+    const second = startPipelineTask({ userRequest: "再写第七章", chapterNumber: 7 })
+    expect(first.ok && second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+    await flushPipeline()
+    await flushPipeline()
+    expect(writeChapterDraft).toHaveBeenCalledTimes(2)
+    expect(getPipelineTask(first.taskId)?.artifactPath).toBe("/proj/.qm-drafts/draft_1.md")
+    expect(getPipelineTask(second.taskId)?.artifactPath).toBe("/proj/.qm-drafts/draft_2.md")
+  })
+
+  it("C1-7 快照不含正文（正文不塞 status）", async () => {
+    runDeepChapterGeneration.mockImplementation(() => Promise.resolve(fakeDoneResult("UNIQUE_BODY_MARKER")))
+    const res = startPipelineTask({ userRequest: "写第三章", chapterNumber: 3 })
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    await flushPipeline()
+    await flushPipeline()
+    const snap = getPipelineTask(res.taskId)
+    expect(JSON.stringify(snap)).not.toContain("UNIQUE_BODY_MARKER")
+    expect(snap).not.toHaveProperty("content")
+  })
+
+  it("C1-8 管线取消 / 中途 reject 如实失败，不落草稿、不产生 artifactPath", async () => {
+    // USER_ABORT_MESSAGE：用户取消路径与任意取消类 reject 走同一个 catch 分支。
+    runDeepChapterGeneration.mockRejectedValue(new Error("已停止生成"))
+    const res = startPipelineTask({ userRequest: "写第三章", chapterNumber: 3 })
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    await flushPipeline()
+    await flushPipeline()
+    const snap = getPipelineTask(res.taskId)
+    expect(snap).toMatchObject({ status: "failed", stage: "failed", error: "已停止生成" })
+    expect(snap?.artifactPath).toBeUndefined()
+    expect(snap?.finishedAt).toBeGreaterThan(0)
+    expect(writeChapterDraft).not.toHaveBeenCalled()
   })
 })
