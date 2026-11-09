@@ -15,6 +15,31 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.27.0（2026-11-09）：MCP 一窗口全流程落地（auto 档 + 5 工具真注册），深章产出真的落成可采纳草稿，pipeline.status 投影补全，草稿采纳链修掉两个会毁正文/frontmatter 的真机缺陷。
+    version: "2.27.0",
+    date: "2026-11-09",
+    highlights: {
+      en: [
+        "New: one-window MCP flow. An auto session tier plus five orchestration tools let an external session start a chapter, poll it, read and write memory and write formal prose after a single authorization. The tools are actually registered now instead of only documented, and the auto tier assertions follow the real permission surface.",
+        "New: deep-chapter output now lands as an adoptable draft. Previously a four-thousand-character result lived in memory for a moment and vanished, so the returned taskId bought you nothing; now the finished task carries the draft location and its size, and pipeline.status projects five more fields (kind, phase, advanced, advancedCount, artifactPath) without changing any existing one.",
+        "New: the ordinary draft dock backfills memory after adoption and reports the outcome in four states (success / skipped by configuration / skipped without a model / failed), so skipped and failed runs are no longer rendered as a green success block. Drafts also persist a partial marker now: a transport-truncated draft is flagged both in the list and in the confirmation step, and adoption stays your call.",
+        "New: workflowMode now maps onto the real deep-chapter depth switches. Fast / standard / strict used to be UI state only; they now change how deep the pipeline actually goes.",
+        "Changed: the LLM header timeout default moved from 20s to 60s, the auto-tier authorization button gained English and Chinese copy, and the review stage timeout is configurable so long chapters no longer share a short cap with review.",
+        "Fixed: adopting a draft over an existing formal chapter used to wipe its frontmatter (type, chapter_number, chapter_status), which demoted the page to a non-chapter page and made memory backfill fail permanently with not_chapter. Adoption now replaces only the body and keeps the original frontmatter, with unchanged behavior when the target chapter does not exist. Pages with stray lines before their frontmatter no longer lose those lines either.",
+        "Fixed: capacity-related 503 responses are retried with bounded backoff instead of failing on the first attempt, transport configuration falls back to defaults instead of throwing, and stall detection honors structured fields rather than only a natural-language name.",
+      ],
+      zh: [
+        "新增：MCP 一窗口全流程 —— `auto` 会话档加 5 个编排工具，外部会话一次授权即可起章、查状态、读记忆、写记忆与直写正文。工具真正注册进 `generate_handler!`（此前只活在文档里），`auto` 档断言也按实际授权口径重写，而不是自说自话。",
+        "新增：深章产出真的落成可采纳草稿。此前四千字的成品只在内存里停一会就散掉，返回的 taskId 什么也换不回来；现在任务终态带着草稿落点与字节规模，`pipeline.status` 另补 5 个字段（kind / phase / advanced / advancedCount / artifactPath），老字段一个没动。",
+        "新增：普通草稿坞采纳后按设置回填记忆，并把结果分四态如实呈现（成功 / 配置跳过 / 无模型跳过 / 失败），跳过与失败不再渲染成绿色成功块。草稿现在还会持久化 `partial` 标记：被传输截断的部分稿在列表与确认块各有一条警示，采纳与否仍由你决定。",
+        "新增：`workflowMode` 真的映射到管线深度开关。快速 / 标准 / 严格三档此前只是 UI 状态，现在真的改变深章管线走多深。",
+        "变更：LLM 请求头超时默认值从 20s 抬到 60s，`auto` 档授权按钮补齐中英文案，审查阶段超时改为可配，长章节生成与审查不再共用同一个短上限。",
+        "修复：采纳草稿覆盖既有正式章时会抹掉它的 frontmatter（type / chapter_number / chapter_status），页面因此降级成非章节页，记忆回填在真实路径上永远失败（判 not_chapter）。现在只换正文、保留原 frontmatter，目标章不存在时行为不变；frontmatter 前夹了脏行的页也不再被连带删掉前缀行。",
+        "修复：容量类 503 改走有界退避重试而不是一次就失败，传输层配置缺项时回退默认值而不是抛错，停滞判定也认结构化字段而不只认自然语言 name。",
+      ],
+    },
+  },
+  {
     // 2.26.5（2026-11-07）：设置页补齐 3 个有消费点无控件的字段、覆盖率门禁棘轮转绿、writingModel 真删除，并修掉主控轨迹快照读回、agent 装配层与告知横幅三类缺口。
     version: "2.26.5",
     date: "2026-11-07",
