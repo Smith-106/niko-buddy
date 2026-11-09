@@ -637,6 +637,39 @@ impl super::registry::McpTool for PipelineRunChapterTool {
     }
 }
 
+/// `pipeline.status` 的投影：把前端快照整形成对外 JSON。
+///
+/// 抽成不依赖 `AppHandle` 的纯函数，才能用 `json!` 直接单测键名与缺省语义——
+/// 埋在 `call` 里就没有真实桥接可测。10 个老键的名字与取值来源保持不变；
+/// `kind` / `phase` / `advanced` / `advancedCount` / `artifactPath` 是 additive 补充，
+/// 缺省 `null`（key 恒出，调用方不必判断存在性）。
+fn project_pipeline_status(snapshot: &Value, fallback_task_id: &str) -> Value {
+    json!({
+        "taskId": snapshot.get("taskId").cloned().unwrap_or_else(|| json!(fallback_task_id)),
+        "status": snapshot.get("status").cloned().unwrap_or(Value::Null),
+        "stage": snapshot.get("stage").cloned().unwrap_or(Value::Null),
+        "startedAt": snapshot.get("startedAt").cloned().unwrap_or(Value::Null),
+        "finishedAt": snapshot.get("finishedAt").cloned().unwrap_or(Value::Null),
+        "error": snapshot.get("error").cloned().unwrap_or(Value::Null),
+        "overallVerdict": snapshot
+            .get("gates")
+            .and_then(|g| g.get("overall"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        "manualReviewRequired": snapshot
+            .get("manualReviewRequired")
+            .cloned()
+            .unwrap_or(Value::Null),
+        "partial": snapshot.get("partial").cloned().unwrap_or(Value::Null),
+        "contentChars": snapshot.get("contentChars").cloned().unwrap_or(Value::Null),
+        "kind": snapshot.get("kind").cloned().unwrap_or(Value::Null),
+        "phase": snapshot.get("phase").cloned().unwrap_or(Value::Null),
+        "advanced": snapshot.get("advanced").cloned().unwrap_or(Value::Null),
+        "advancedCount": snapshot.get("advancedCount").cloned().unwrap_or(Value::Null),
+        "artifactPath": snapshot.get("artifactPath").cloned().unwrap_or(Value::Null),
+    })
+}
+
 /// `pipeline.status` —— 长任务快照。
 pub struct PipelineStatusTool;
 
@@ -646,7 +679,7 @@ impl super::registry::McpTool for PipelineStatusTool {
     }
 
     fn description(&self) -> &'static str {
-        "Poll a pipeline task started by pipeline.run_chapter. Returns status, current stage, timings, the overall gate verdict, and any error. Never returns chapter text — read that through chapter.read after the user accepts the draft."
+        "Poll a pipeline task started by pipeline.run_chapter. Returns status, current stage, timings, the overall gate verdict, and any error. Never returns chapter text — read that through chapter.read after the user accepts the draft. artifactPath (when present) points at the draft file the pipeline wrote, not at a formal chapter."
     }
 
     fn input_schema(&self) -> Value {
@@ -676,25 +709,7 @@ impl super::registry::McpTool for PipelineStatusTool {
                     StateQuery::new("pipeline-status").with_params(json!({ "taskId": task_id })),
                 )
                 .await?;
-            Ok(json!({
-                "taskId": snapshot.get("taskId").cloned().unwrap_or(json!(task_id)),
-                "status": snapshot.get("status").cloned().unwrap_or(Value::Null),
-                "stage": snapshot.get("stage").cloned().unwrap_or(Value::Null),
-                "startedAt": snapshot.get("startedAt").cloned().unwrap_or(Value::Null),
-                "finishedAt": snapshot.get("finishedAt").cloned().unwrap_or(Value::Null),
-                "error": snapshot.get("error").cloned().unwrap_or(Value::Null),
-                "overallVerdict": snapshot
-                    .get("gates")
-                    .and_then(|g| g.get("overall"))
-                    .cloned()
-                    .unwrap_or(Value::Null),
-                "manualReviewRequired": snapshot
-                    .get("manualReviewRequired")
-                    .cloned()
-                    .unwrap_or(Value::Null),
-                "partial": snapshot.get("partial").cloned().unwrap_or(Value::Null),
-                "contentChars": snapshot.get("contentChars").cloned().unwrap_or(Value::Null),
-            }))
+            Ok(project_pipeline_status(&snapshot, task_id))
         })
     }
 }
@@ -2243,5 +2258,93 @@ mod tests {
         assert_eq!(value_hash(&json!("1")), value_hash(&json!("1")));
         assert_ne!(value_hash(&json!("1")), value_hash(&json!(1)));
         assert_ne!(value_hash(&json!(null)), value_hash(&json!(false)));
+    }
+
+    // ===== pipeline.status 投影：additive 补 5 键，10 个老键名字/来源不变 =====
+
+    #[test]
+    fn pipeline_status_projection_keeps_legacy_fields() {
+        let snapshot = json!({
+            "taskId": "ptask_1",
+            "status": "done",
+            "stage": "done",
+            "startedAt": 1,
+            "finishedAt": 2,
+            "error": null,
+            "gates": { "overall": "pass" },
+            "manualReviewRequired": false,
+            "partial": false,
+            "contentChars": 123
+        });
+        let out = project_pipeline_status(&snapshot, "ptask_fallback");
+        assert_eq!(out["taskId"], json!("ptask_1"));
+        assert_eq!(out["status"], json!("done"));
+        assert_eq!(out["stage"], json!("done"));
+        assert_eq!(out["startedAt"], json!(1));
+        assert_eq!(out["finishedAt"], json!(2));
+        assert_eq!(out["error"], Value::Null);
+        assert_eq!(out["overallVerdict"], json!("pass"));
+        assert_eq!(out["manualReviewRequired"], json!(false));
+        assert_eq!(out["partial"], json!(false));
+        assert_eq!(out["contentChars"], json!(123));
+    }
+
+    #[test]
+    fn pipeline_status_projection_adds_five_additive_fields() {
+        let snapshot = json!({
+            "taskId": "ptask_1",
+            "status": "done",
+            "stage": "done",
+            "startedAt": 1,
+            "finishedAt": 2,
+            "error": null,
+            "gates": { "overall": "pass" },
+            "manualReviewRequired": false,
+            "partial": false,
+            "contentChars": 123,
+            "kind": "chapter",
+            "phase": "world",
+            "advanced": true,
+            "advancedCount": 2,
+            "artifactPath": "/proj/.qm-drafts/draft_1.md"
+        });
+        let out = project_pipeline_status(&snapshot, "ptask_fallback");
+        assert_eq!(out["kind"], json!("chapter"));
+        assert_eq!(out["phase"], json!("world"));
+        assert_eq!(out["advanced"], json!(true));
+        assert_eq!(out["advancedCount"], json!(2));
+        assert_eq!(out["artifactPath"], json!("/proj/.qm-drafts/draft_1.md"));
+        // 老键不受新增影响（逐键再钉一次，防「补字段时把 taskId 换成 fallback」这类事故）。
+        assert_eq!(out["taskId"], json!("ptask_1"));
+        assert_eq!(out["status"], json!("done"));
+        assert_eq!(out["stage"], json!("done"));
+        assert_eq!(out["startedAt"], json!(1));
+        assert_eq!(out["finishedAt"], json!(2));
+        assert_eq!(out["error"], Value::Null);
+        assert_eq!(out["overallVerdict"], json!("pass"));
+        assert_eq!(out["manualReviewRequired"], json!(false));
+        assert_eq!(out["partial"], json!(false));
+        assert_eq!(out["contentChars"], json!(123));
+    }
+
+    #[test]
+    fn pipeline_status_projection_nulls_missing_fields() {
+        let legacy_only = json!({
+            "taskId": "ptask_1",
+            "status": "running",
+            "stage": "queued",
+            "startedAt": 7,
+            "gates": { "overall": "pending" }
+        });
+        let out = project_pipeline_status(&legacy_only, "ptask_fallback");
+        // key 恒出（不省略），值缺省 null：调用方不必判断键存在性。
+        for key in ["kind", "phase", "advanced", "advancedCount", "artifactPath"] {
+            assert!(out.get(key).is_some(), "投影缺键 {key}: {out}");
+            assert_eq!(out[key], Value::Null, "{key} 缺省应为 null: {out}");
+        }
+        // 快照里没有 taskId 时回落到入参（老语义：调用方传了 id，桥接没有再兜底）。
+        let no_task_id = json!({ "status": "running" });
+        let fell_back = project_pipeline_status(&no_task_id, "ptask_fallback");
+        assert_eq!(fell_back["taskId"], json!("ptask_fallback"));
     }
 }
