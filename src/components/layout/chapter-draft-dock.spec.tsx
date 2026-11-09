@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import type { ChapterDraft } from "@/lib/novel"
-import { ChapterDraftDock } from "./chapter-draft-dock"
+import type { AcceptDraftAndIngestResult, ChapterDraft } from "@/lib/novel"
+import {
+  ChapterDraftDock,
+  type ChapterDraftDockAdoptAndIngest,
+  type ChapterDraftDockAdoptAndIngestInput,
+} from "./chapter-draft-dock"
 
 const draft: ChapterDraft = {
   id: "d1",
@@ -237,5 +241,163 @@ describe("ChapterDraftDock statements 补齐（s6-execute-statements）", () => 
     )
     expect(await screen.findByText("已写入正式章")).toBeTruthy()
     expect(screen.queryByTestId("chapter-draft-adopt-d1")).toBeNull()
+  })
+})
+
+describe("G2 采纳即回填四态", () => {
+  const resolvedPath = "C:/book/正文/第01章.md"
+
+  function renderDock(overrides: {
+    adoptAndIngest?: ChapterDraftDockAdoptAndIngest
+    acceptDraft?: () => Promise<unknown>
+    onAdopted?: (path: string) => void
+    onOpenMemory?: () => void
+    listDrafts?: () => Promise<ChapterDraft[]>
+  }) {
+    return render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile={resolvedPath}
+        listDrafts={overrides.listDrafts ?? (async () => [draft])}
+        acceptDraft={overrides.acceptDraft as never}
+        adoptAndIngest={overrides.adoptAndIngest}
+        onAdopted={overrides.onAdopted}
+        onOpenMemory={overrides.onOpenMemory}
+        pathExists={async () => false}
+      />,
+    )
+  }
+
+  it("C3-0 两步确认：第一步只展开确认面板，不写盘、不 ingest", async () => {
+    const adoptAndIngest = vi.fn<ChapterDraftDockAdoptAndIngest>()
+    const acceptDraft = vi.fn()
+    renderDock({ adoptAndIngest, acceptDraft })
+    fireEvent.click(await screen.findByTestId("chapter-draft-adopt-d1"))
+    expect(await screen.findByTestId("chapter-draft-confirm")).toBeTruthy()
+    expect(screen.getByTestId("chapter-draft-confirm-accept")).toBeTruthy()
+    expect(adoptAndIngest).not.toHaveBeenCalled()
+    expect(acceptDraft).not.toHaveBeenCalled()
+  })
+
+  it("C3-1 ok：采纳 + 记忆回填完成，庆祝态与「查看记忆更新」入口可点", async () => {
+    const onAdopted = vi.fn()
+    const onOpenMemory = vi.fn()
+    const listDrafts = vi.fn(async () => [draft])
+    const adoptAndIngest = vi.fn(async (input: ChapterDraftDockAdoptAndIngestInput) => {
+      input.onAcceptSettled?.()
+      return { formalChapterPath: resolvedPath, ingest: "ok" as const }
+    })
+    renderDock({ adoptAndIngest, onAdopted, onOpenMemory, listDrafts })
+    fireEvent.click(await screen.findByTestId("chapter-draft-adopt-d1"))
+    fireEvent.click(await screen.findByTestId("chapter-draft-confirm-accept"))
+    const note = await screen.findByTestId("chapter-draft-note")
+    await waitFor(() => expect(note.textContent).toContain("记忆回填完成"))
+    expect(adoptAndIngest).toHaveBeenCalledTimes(1)
+    expect(adoptAndIngest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectPath: "C:/book",
+        draftId: "d1",
+        formalChapterPath: resolvedPath,
+        onAcceptSettled: expect.any(Function),
+      }),
+    )
+    expect(note.textContent).toContain("已写入正式章：C:/book/正文/第01章.md")
+    expect(note.getAttribute("role")).toBe("status")
+    expect(onAdopted).toHaveBeenCalledWith(resolvedPath)
+    expect(listDrafts.mock.calls.length).toBeGreaterThan(1)
+    fireEvent.click(screen.getByTestId("chapter-draft-open-memory"))
+    expect(onOpenMemory).toHaveBeenCalledTimes(1)
+  })
+
+  it("C3-2 skipped-config：按设置跳过回填", async () => {
+    const adoptAndIngest = vi.fn(async (input: ChapterDraftDockAdoptAndIngestInput) => {
+      input.onAcceptSettled?.()
+      return { formalChapterPath: resolvedPath, ingest: "skipped-config" as const }
+    })
+    renderDock({ adoptAndIngest })
+    fireEvent.click(await screen.findByTestId("chapter-draft-adopt-d1"))
+    fireEvent.click(await screen.findByTestId("chapter-draft-confirm-accept"))
+    const note = await screen.findByTestId("chapter-draft-note")
+    await waitFor(() => expect(note.textContent).toContain("已按设置跳过记忆回填"))
+    expect(note.textContent).toContain("已写入正式章：")
+    expect(note.textContent).toContain("autoIngestOnSave 关闭")
+    expect(note.textContent).not.toContain("记忆回填完成")
+    expect(note.textContent).not.toContain("记忆回填失败")
+  })
+
+  it("C3-3 skipped-no-model：无可用模型跳过", async () => {
+    const adoptAndIngest = vi.fn(async (input: ChapterDraftDockAdoptAndIngestInput) => {
+      input.onAcceptSettled?.()
+      return { formalChapterPath: resolvedPath, ingest: "skipped-no-model" as const }
+    })
+    renderDock({ adoptAndIngest })
+    fireEvent.click(await screen.findByTestId("chapter-draft-adopt-d1"))
+    fireEvent.click(await screen.findByTestId("chapter-draft-confirm-accept"))
+    const note = await screen.findByTestId("chapter-draft-note")
+    await waitFor(() => expect(note.textContent).toContain("未配置可用提取模型，记忆回填已跳过"))
+    expect(note.textContent).not.toContain("记忆回填完成")
+    expect(note.textContent).not.toContain("记忆回填失败")
+    expect(note.textContent).not.toContain("autoIngestOnSave")
+  })
+
+  it("C3-4 failed：回填失败如实呈现（不掩盖已写正文）", async () => {
+    const onAdopted = vi.fn()
+    const adoptAndIngest = vi.fn(
+      async (input: ChapterDraftDockAdoptAndIngestInput): Promise<AcceptDraftAndIngestResult> => {
+        input.onAcceptSettled?.()
+        return { formalChapterPath: resolvedPath, ingest: "failed", failReason: "extract_failed" }
+      },
+    )
+    renderDock({ adoptAndIngest, onAdopted })
+    fireEvent.click(await screen.findByTestId("chapter-draft-adopt-d1"))
+    fireEvent.click(await screen.findByTestId("chapter-draft-confirm-accept"))
+    const note = await screen.findByTestId("chapter-draft-note")
+    await waitFor(() => expect(note.textContent).toContain("记忆回填失败：extract_failed"))
+    expect(note.textContent).toContain("已写入正式章：")
+    expect(onAdopted).toHaveBeenCalledWith(resolvedPath)
+  })
+
+  it("C3-5 accept 抛错不 ingest（settled 回调未触发）", async () => {
+    const onAdopted = vi.fn()
+    const acceptDraft = vi.fn()
+    const adoptAndIngest = vi.fn(
+      async (_input: ChapterDraftDockAdoptAndIngestInput): Promise<AcceptDraftAndIngestResult> => {
+        throw new Error("采纳草稿必须先确认")
+      },
+    )
+    renderDock({ adoptAndIngest, acceptDraft, onAdopted })
+    fireEvent.click(await screen.findByTestId("chapter-draft-adopt-d1"))
+    fireEvent.click(await screen.findByTestId("chapter-draft-confirm-accept"))
+    const note = await screen.findByTestId("chapter-draft-note")
+    await waitFor(() => expect(note.textContent).toBe("采纳草稿必须先确认"))
+    expect(note.textContent).not.toContain("已写入正式章：")
+    expect(note.textContent).not.toContain("记忆回填")
+    expect(note.getAttribute("role")).toBeNull()
+    expect(acceptDraft).not.toHaveBeenCalled()
+    expect(onAdopted).not.toHaveBeenCalled()
+  })
+
+  it("C3-6 accept 已落盘后 ingest 抛错：不掩盖已写正文、不回滚、确认面板已关", async () => {
+    const onAdopted = vi.fn()
+    const listDrafts = vi.fn(async () => [draft])
+    const adoptAndIngest = vi.fn(
+      async (input: ChapterDraftDockAdoptAndIngestInput): Promise<AcceptDraftAndIngestResult> => {
+        input.onAcceptSettled?.()
+        throw new Error("snapshot 写盘失败")
+      },
+    )
+    renderDock({ adoptAndIngest, onAdopted, listDrafts })
+    fireEvent.click(await screen.findByTestId("chapter-draft-adopt-d1"))
+    fireEvent.click(await screen.findByTestId("chapter-draft-confirm-accept"))
+    const note = await screen.findByTestId("chapter-draft-note")
+    await waitFor(() => expect(note.textContent).toContain("记忆回填失败：snapshot 写盘失败"))
+    expect(note.textContent).toContain("已写入正式章：C:/book/正文/第01章.md")
+    expect(note.textContent).not.toContain("采纳失败")
+    expect(note.getAttribute("role")).toBe("status")
+    expect(onAdopted).toHaveBeenCalledWith(resolvedPath)
+    expect(listDrafts.mock.calls.length).toBeGreaterThan(1)
+    // 面板已关：无法二次确认造成重复 accept/ingest
+    expect(screen.queryByTestId("chapter-draft-confirm")).toBeNull()
+    expect(adoptAndIngest).toHaveBeenCalledTimes(1)
   })
 })

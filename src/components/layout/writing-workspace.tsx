@@ -11,13 +11,14 @@ import { splitChapterHeading } from "@/lib/chapter-selection"
 import { getFileName, getRelativePath } from "@/lib/path-utils"
 import { clampChatHeight, clampChatWidth } from "@/lib/workspace-layout"
 import { getFileModifiedTime } from "@/commands/fs"
-import { analyzeForeshadowingDebt, getForeshadowingWatermark, loadForeshadowingTracker } from "@/lib/novel"
+import { analyzeForeshadowingDebt, acceptDraftAndIngest, createMainControlAcceptSeam, getForeshadowingWatermark, loadForeshadowingTracker } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { shouldShowRightDockChat, shouldShowWritingChat } from "./chat-layout"
 import { Flame } from "lucide-react"
 import { CampaignDashboardDialog } from "@/components/novel/campaign-dashboard-dialog"
 import { buildChapterDraftGoal, setMainControlGoalHandoff } from "@/components/novel/main-control-handoff"
 import { DraftsToggleButton, GenerateDraftButton, WorkspaceMoreTools, usePendingDraftCount } from "./writing-workspace-widgets"
+import type { ChapterDraftDockAdoptAndIngest } from "./chapter-draft-dock"
 
 const ExportCenterView = lazy(async () => {
   const mod = await import("@/components/novel/export-center-view")
@@ -73,6 +74,9 @@ export function WritingWorkspace() {
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const finalChapterSave = useWikiStore((s) => s.finalChapterSave)
+  // G2：采纳后按设置回填记忆所需的配置（判定本身归 accept-draft-with-ingest.ts，这里只透传）。
+  const llmConfig = useWikiStore((s) => s.llmConfig)
+  const novelConfig = useWikiStore((s) => s.novelConfig)
 
   const chapter = useMemo(() => splitChapterHeading(fileContent), [fileContent])
   const paragraphs = useMemo(
@@ -145,6 +149,29 @@ export function WritingWorkspace() {
     setMainControlGoalHandoff(buildChapterDraftGoal(selectedFile ? chapterTitle : ""))
     setActiveView("mainControl")
   }, [chapterTitle, selectedFile, setActiveView])
+  // G2：普通写作台的「采纳即回填」只做装配——accept seam 复用主控同一个装配器
+  // （底层仍是 acceptChapterDraft，confirmed 由第二步确认给出），
+  // 顺序/降级分类/四态判定全部由组合函数持有，本层不复制业务规则。
+  const adoptDraftAndIngest = useCallback<ChapterDraftDockAdoptAndIngest>(
+    async (input) =>
+      acceptDraftAndIngest({
+        projectPath: input.projectPath,
+        formalChapterPath: input.formalChapterPath,
+        accept: async (formalChapterPath) => {
+          await createMainControlAcceptSeam({
+            projectPath: input.projectPath,
+            draftId: input.draftId,
+            // 第二步确认：用户在确认面板里点了「确认采纳」（第一步只展开面板）。
+            confirmed: true,
+          })(formalChapterPath)
+          // 落盘回执：之后 ingest 抛错不得被当成「采纳失败」。
+          input.onAcceptSettled?.()
+        },
+        novelConfig,
+        llmConfig,
+      }),
+    [novelConfig, llmConfig],
+  )
   const saveLabel = matchedSave?.saving
     ? t("novel.chapter.savingAsFinal")
     : matchedSave?.phase === "saved" || matchedSave?.phase === "ingested"
@@ -404,6 +431,7 @@ export function WritingWorkspace() {
             }}
             onGenerateDraft={openMainControlForDraft}
             onOpenMemory={() => setActiveView("lint")}
+            adoptAndIngest={adoptDraftAndIngest}
           />
         ) : null}
       </Suspense>

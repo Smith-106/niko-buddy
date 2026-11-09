@@ -1,12 +1,43 @@
 import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { CheckCircle2 } from "lucide-react"
 import { fileExists } from "@/commands/fs"
 import {
   acceptChapterDraft,
   formalChapterPathForDraft,
   listChapterDrafts,
+  type AcceptDraftAndIngestResult,
+  type AcceptDraftIngestStatus,
   type ChapterDraft,
 } from "@/lib/novel"
+import { toErrorMessage } from "@/lib/utils"
+
+/**
+ * 四态 → 文案键（与 accept-draft-with-ingest.ts、main-control-draft-adopt-block.tsx 的
+ * 同名映射逐字同构；R-6：改键名必须三处同改）。不新增 i18n 键、不新增第五态。
+ */
+const INGEST_NOTE_KEYS: Record<AcceptDraftIngestStatus, string> = {
+  ok: "mainControl.draftIngestOk",
+  "skipped-config": "mainControl.draftIngestSkippedConfig",
+  "skipped-no-model": "mainControl.draftIngestSkippedNoModel",
+  failed: "mainControl.draftIngestFailed",
+}
+
+/**
+ * 采纳即回填的注入点（G2）：writing-workspace 用 acceptDraftAndIngest + 主控 accept seam 装配。
+ * 顺序/降级分类归 accept-draft-with-ingest.ts，本组件只呈现四态。
+ */
+export interface ChapterDraftDockAdoptAndIngestInput {
+  projectPath: string
+  draftId: string
+  formalChapterPath: string
+  /** accept 已落盘的回执：此后即便 ingest 抛错也不能再当「采纳失败」（不掩盖已写正文）。 */
+  onAcceptSettled?: () => void
+}
+
+export type ChapterDraftDockAdoptAndIngest = (
+  input: ChapterDraftDockAdoptAndIngestInput,
+) => Promise<AcceptDraftAndIngestResult>
 
 export interface ChapterDraftDockProps {
   readonly projectPath: string
@@ -14,6 +45,10 @@ export interface ChapterDraftDockProps {
   readonly onAdopted?: (formalChapterPath: string) => void
   readonly listDrafts?: typeof listChapterDrafts
   readonly acceptDraft?: typeof acceptChapterDraft
+  /**
+   * 采纳 + 按设置回填记忆的注入点；缺省时不注入 → 仍走上面的 acceptDraft（只采纳），行为不变。
+   */
+  readonly adoptAndIngest?: ChapterDraftDockAdoptAndIngest
   readonly pathExists?: (path: string) => Promise<boolean>
   /**
    * Q14-B：连续性告警计数（与 toolsBar / Dock 呼吸灯同源 foreshadowOverdue）。
@@ -41,13 +76,23 @@ export function ChapterDraftDock({
   onOpenMemory,
   listDrafts = listChapterDrafts,
   acceptDraft = acceptChapterDraft,
+  adoptAndIngest,
   pathExists = fileExists,
 }: ChapterDraftDockProps) {
+  const { t } = useTranslation()
   const [drafts, setDrafts] = useState<ChapterDraft[]>([])
   const [pending, setPending] = useState<PendingAdopt | null>(null)
   const [note, setNote] = useState<string | null>(null)
+  // 成功态由显式 state 驱动（不比对文案）：默认路径成功、注入路径 resolve、
+  // 以及「已落盘但回填抛错」三条路都置 true，庆祝块与「查看记忆更新」入口才出现。
+  const [settled, setSettled] = useState(false)
   const [busy, setBusy] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+
+  /** 四态 → 文案（键映射固定；reason 只在 failed 时非空）。 */
+  function ingestNote(status: AcceptDraftIngestStatus, reason?: string): string {
+    return t(INGEST_NOTE_KEYS[status], { reason: reason ?? "" })
+  }
 
   useEffect(() => {
     if (!projectPath) return
@@ -65,6 +110,8 @@ export function ChapterDraftDock({
   }, [listDrafts, projectPath, reloadKey])
 
   async function askAdopt(draft: ChapterDraft): Promise<void> {
+    // 第一步只展开确认面板：不写盘、不 ingest；同时清掉上一轮的庆祝态。
+    setSettled(false)
     let target = ""
     try {
       target = formalChapterPathForDraft(projectPath, draft.chapterName, selectedFile)
@@ -81,19 +128,52 @@ export function ChapterDraftDock({
     /* v8 ignore next -- 台账 chapter-draft-dock.tsx L81：确认块整体在 `{pending ? ...}` 内渲染（L155），`!pending` 不可达；`busy` 由 disabled={busy}（L166）挡住 */
     if (!pending || busy) return
     setBusy(true)
+    // 局部回执（不用 ref、不靠 await 后读过期闭包）：区分「采纳没落盘」与「已落盘但回填异常」。
+    let acceptSettled = false
     try {
-      const result = await acceptDraft({
-        projectPath,
-        draftId: pending.draft.id,
-        formalChapterPath: pending.target,
-        confirmed: true,
-      })
-      setPending(null)
-      setNote("已写入正式章。")
-      setReloadKey((key) => key + 1)
-      onAdopted?.(result.formalChapterPath)
+      if (adoptAndIngest) {
+        const outcome = await adoptAndIngest({
+          projectPath,
+          draftId: pending.draft.id,
+          formalChapterPath: pending.target,
+          onAcceptSettled: () => {
+            acceptSettled = true
+          },
+        })
+        setPending(null)
+        setSettled(true)
+        setNote(
+          `${t("mainControl.draftAcceptDone", { path: outcome.formalChapterPath })} · ${ingestNote(outcome.ingest, outcome.failReason)}`,
+        )
+        setReloadKey((key) => key + 1)
+        onAdopted?.(outcome.formalChapterPath)
+      } else {
+        const result = await acceptDraft({
+          projectPath,
+          draftId: pending.draft.id,
+          formalChapterPath: pending.target,
+          confirmed: true,
+        })
+        setPending(null)
+        setSettled(true)
+        setNote("已写入正式章。")
+        setReloadKey((key) => key + 1)
+        onAdopted?.(result.formalChapterPath)
+      }
     } catch (error) {
-      setNote(error instanceof Error ? error.message : "没有写入正式章")
+      if (acceptSettled) {
+        // 正文已落盘、只是回填抛错：如实呈现「已写入 + 回填失败」，不删除/不重写正式章（零回滚）。
+        setPending(null)
+        setSettled(true)
+        setNote(
+          `${t("mainControl.draftAcceptDone", { path: pending.target })} · ${ingestNote("failed", toErrorMessage(error))}`,
+        )
+        setReloadKey((key) => key + 1)
+        onAdopted?.(pending.target)
+      } else {
+        setSettled(false)
+        setNote(error instanceof Error ? error.message : "没有写入正式章")
+      }
     } finally {
       setBusy(false)
     }
@@ -181,7 +261,7 @@ export function ChapterDraftDock({
         </div>
       ) : null}
       {note ? (
-        note === "已写入正式章。" ? (
+        settled ? (
           // ISS-20260709-018：草稿接受轻量庆祝 — 内联成功态，不弹窗、不抢焦点、
           // role=status + aria-live polite 播报，文案语义不变，仅加视觉反馈。
           <p
