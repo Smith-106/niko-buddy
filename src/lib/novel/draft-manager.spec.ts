@@ -128,6 +128,39 @@ describe("acceptChapterDraft", () => {
     expect(files.get("C:/book/.qm-drafts/draft_1.md")).toContain("status: saved")
   })
 
+  it("采纳到既有正式章时保留原 frontmatter，只换正文", async () => {
+    const { files, deps } = memoryDeps()
+    files.set("C:/book/.qm-drafts/draft_1.md", STORED)
+    const chapterFm = "---\ntype: chapter\nchapter_number: '8'\nchapter_status: final\ntitle: \"第08章 旧题\"\n---\n\n"
+    files.set("C:/book/wiki/chapters/第01章.md", `${chapterFm}# 第01章\n\n旧正文。`)
+
+    await acceptChapterDraft({
+      projectPath: "C:/book",
+      draftId: "draft_1",
+      formalChapterPath: "C:/book/wiki/chapters/第01章.md",
+      confirmed: true,
+    }, deps)
+
+    const written = files.get("C:/book/wiki/chapters/第01章.md") ?? ""
+    expect(written.startsWith(chapterFm)).toBe(true)
+    expect(written).toBe(`${chapterFm}# 第01章\n\n正文。`)
+    expect(written).not.toContain("旧正文")
+  })
+
+  it("目标章不存在时仍只写正文（既有行为不变）", async () => {
+    const { files, deps } = memoryDeps()
+    files.set("C:/book/.qm-drafts/draft_1.md", STORED)
+
+    await acceptChapterDraft({
+      projectPath: "C:/book",
+      draftId: "draft_1",
+      formalChapterPath: "C:/book/wiki/chapters/第01章.md",
+      confirmed: true,
+    }, deps)
+
+    expect(files.get("C:/book/wiki/chapters/第01章.md")).toBe("# 第01章\n\n正文。")
+  })
+
   it("拒绝写到这本书外面", async () => {
     const { files, deps } = memoryDeps()
     files.set("C:/book/.qm-drafts/draft_1.md", STORED)

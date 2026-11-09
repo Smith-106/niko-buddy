@@ -161,9 +161,13 @@ export async function acceptChapterDraft(
   if (!draft) throw new Error("找不到草稿")
   if (!draft.content.trim()) throw new Error("草稿没有正文")
   await ensureParent(target, deps)
-  await deps.writeFileAtomic(target, draft.content)
+  // 正式章通常带 type/chapter_number/chapter_status 等 frontmatter，只换正文，
+  // 否则采纳会把页面降级成非章节页（下游摄取按 isChapterPage 判定即 not_chapter）。
+  const existingBlock = await deps.fileExists(target) ? parseFrontmatter(await deps.readFile(target)).rawBlock : ""
+  const nextContent = `${existingBlock}${draft.content}`
+  await deps.writeFileAtomic(target, nextContent)
   const written = await deps.readFile(target)
-  if (written !== draft.content) throw new Error("写入后读回不一致，没有记成已采纳")
+  if (written !== nextContent) throw new Error("写入后读回不一致，没有记成已采纳")
   await deps.writeFile(
     `${draftsDir(input.projectPath)}/${draft.id}.md`,
     buildDraftContent({ ...draft, status: "saved" }),
