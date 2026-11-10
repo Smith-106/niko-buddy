@@ -15,11 +15,22 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.26.4-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.27.1-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
+
+## v2.27.1 修复（MCP 自述权限如实回报 + 草稿目录描述纠正，安装包待验）
+
+外部 Agent 读到的 MCP 自述权限此前与实际闸门相反，本版按请求如实回报：
+
+- **`app.status` 不再恒报只读**：`readOnly` 此前是硬编码 `true`，拿到写授权的会话读到的仍是「只读」，与权限闸门的实际放行相反。现在它表示**本次请求**的有效 scope 是否只读，并同时返回 `scope`（`read` / `settings` / `project` / `auto` / `full`）——`readOnly: false` 只说明该会话有某项写授权，不代表可直写正文（那仍是 `full` 的逐会话授权）。caller scope 经请求局部上下文带入，共享的服务端上下文保持只读基线、不会被某个会话的授权污染；权限检查、工具 `required_scope`、审计与快照路径均未改动。
+- **`chapter.write` 描述指向真实草稿目录**：工具描述原写 `.novel/drafts`，而章节草稿的实际目录是 `.qm-drafts`（`.novel/drafts` 仍是合法的记忆草稿区，不受影响）；`required_scope` 仍为 `project`。
+
+发布语义：**stable**（`weekly-stable` / `thirty-day-stable` 两项节奏豁免已由用户批准并登记于 `release-cadence-exemptions.json`，其余硬门不变）。
+
+> 源码层修补已通过聚焦库测试（103 passed / 0 failed）与独立源码复核；新版本安装/升级后的 MCP 回读（`app.status` 的 `scope` / `readOnly`、`tools/list` 描述）仍待真实安装包验证，不因本节视为包级验收已通过。
 
 ## v2.26.4 新增（主控三档权能补全，正式稳定版）
 

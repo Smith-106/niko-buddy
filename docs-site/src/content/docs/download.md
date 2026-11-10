@@ -7,12 +7,18 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.26.4**（2026-11-04 发布：主控三档权能补全 — **stable Latest**）
+**v2.27.1**（2026-11-11 装配完成：MCP 自述权限如实回报 + 草稿目录描述纠正 — **stable，安装包与真机回读待验**）
 
-v2.26.4 为当前 Latest 稳定版，已装 v2.26.3 及更早版本的用户可直接通过应用内更新器自动检查并升级。
-> **v2.26.4 更新亮点**：主控 run 页签可直接改写作设置与 `aiWorkflowMode`；drafts 页签可采纳草稿、live 页签可重跑门控；深章阶段产出 / 共识写作 / 标题生成 / 记忆回填四项接进轨迹与 live；`autoGenerateChapterTitle` 从恒真变为真开关。详见下方「v2.26.4 更新亮点」。
+v2.27.1 的发行资产由 tag 触发的 CI 构建；真实安装/升级后的 MCP 回读尚未完成，因此本页不宣称已在真机验证。当前线上 Latest 仍为 v2.27.0（2026-11-09）。
+> **v2.27.1 更新要点**：`app.status` 不再恒报 `readOnly: true` —— 它现在如实回报**本次请求**的有效 scope（并同时返回 `scope`），`readOnly: false` 不等于可直写正文；`chapter.write` 的工具描述从错误的 `.novel/drafts` 改为真实草稿目录 `.qm-drafts`。详见下方「v2.27.1 更新要点」。
 
-> **上一稳定版 v2.26.3（2026-11-04）**：顶栏成为唯一窗口外框后侧栏顶部不再重复「Niko Buddy」文字，「总字数」改为独立数据块。仍可从 Releases 页取该版安装包。
+> **上一稳定版 v2.27.0（2026-11-09）**：MCP 一窗口全流程（`auto` 会话档 + 5 个编排工具真注册）、深章产出落成可采纳草稿并回 `artifactPath`、`pipeline.status` 投影补 5 个字段、草稿采纳链修掉两个会毁正文/frontmatter 的真机缺陷。仍可从 Releases 页取该版安装包。
+
+### v2.27.1 更新要点（2026-11-11，stable，安装包待验）
+
+- **`app.status` 不再恒报只读**：`readOnly` 此前是硬编码 `true`，拿到写授权的会话读到的仍是「只读」，与权限闸门的实际放行相反。现在它表示**本次请求**的有效 scope 是否只读，并同时返回 `scope`（`read` / `settings` / `project` / `auto` / `full`）——`readOnly: false` 只说明该会话有某项写授权，不代表可直写正文（那仍是 `full` 的逐会话授权）。caller scope 经请求局部上下文带入，共享服务端上下文保持只读基线、不会被某个会话的授权污染；权限检查、`required_scope`、审计与快照路径均未改动。
+- **`chapter.write` 描述指向真实草稿目录**：工具描述原写 `.novel/drafts`，而章节草稿的实际目录是 `.qm-drafts`（`.novel/drafts` 仍是合法记忆草稿区，不受影响）；`required_scope` 仍为 `project`。
+- 发布语义：**stable**（`weekly-stable` / `thirty-day-stable` 两项节奏豁免已登记，其余硬门不变）；源码层修补已过聚焦库测试与独立源码复核，包级安装/回读仍待验。
 
 ### v2.26.4 更新亮点（2026-11-04，stable）
 

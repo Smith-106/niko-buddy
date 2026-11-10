@@ -174,6 +174,16 @@
       "scope": [
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.27.1",
+      "reason": "用户于 2026-11-10 明确授权以 stable v2.27.1 发布应用内 MCP 元数据修补（app.status 按请求局部 scope 回报 readOnly + scope，chapter.write 描述指向 .qm-drafts），并预先批准登记两项节奏豁免；其余硬门不变。性质：已发布 v2.27.0 不含该修补，本版为补救性稳定补丁，目的是让外部 Agent 读到的自述权限与真实闸门一致（属更新链路 / 客户端可见元数据修复类补救发布）。规则事实（check-release-cadence.mjs 同源算法 + gh release 列表 87 条，本机时区 +0900 的 2026-11-11 实测）：weekly-stable —— ISO 周 2026-11-09 现有 1 个 stable（v2.27.0@2026-11-09），本版令该周计数为 2，超出「stable：每周 ≤1」；thirty-day-stable —— 2026-10-12 起累计 23 个稳定版，发布前 30 天 stable 23 个（上限 4），属历史连续高频发布所致，非跳过工程门禁；same-day-duplicate 未触发（2026-11-11 与前一 stable 2026-11-09 不同日），故不登记该项豁免。发版前机械门按本节实际操作记录为准（typecheck / lint / test:mocks / gen:check / consistency），不预支未执行的检查。",
+      "approvedBy": "user",
+      "approvedAt": "2026-11-10",
+      "scope": [
+        "weekly-stable",
+        "thirty-day-stable"
+      ]
     }
   ]
 }
