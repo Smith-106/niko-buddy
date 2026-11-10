@@ -1,6 +1,6 @@
 # Tauri 命令参考（自动生成）
 
-> 生成时间：2026-11-07（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
+> 生成时间：2026-11-10（脚本 `scripts/gen-tauri-commands-doc.mjs`，68 号 P2-12 / C2）
 > 注册数：**133**（`generate_handler!` 块）；未注册声明（死命令）：**0**
 
 ## 注册命令（133）
