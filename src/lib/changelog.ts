@@ -15,6 +15,25 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.27.1（2026-11-11）：MCP 元数据两处纠正 —— app.status 按请求局部 scope 回报 readOnly + scope，chapter.write 描述指向真实草稿目录 .qm-drafts；同时登记两项节奏豁免。
+    version: "2.27.1",
+    date: "2026-11-11",
+    highlights: {
+      en: [
+        "Fixed: the in-app MCP app.status tool always reported readOnly: true. The value was a hardcoded constant, so a session holding a write grant still read 'read only' — the opposite of what the permission gate actually allowed. app.status now reports whether this specific request's effective scope is the read tier, and additionally returns scope (read / settings / project / auto / full). readOnly: false only means the session holds some write grant; it never means writing formal prose, which stays a per-session full grant. The caller scope is carried by a request-local context, so the shared server context keeps its read baseline and one session's grant can never leak into another request; permission checks, each tool's required_scope, audit and snapshot paths are unchanged.",
+        "Fixed: the chapter.write tool description claimed drafts land in .novel/drafts, while the real chapter draft area is .qm-drafts (.novel/drafts remains a legitimate memory draft area and is untouched). The description now points at .qm-drafts and required_scope stays project.",
+        "Release cadence exemptions registered: weekly-stable (ISO week 2026-11-09 already carries v2.27.0, so v2.27.1 makes it two stable releases in one week) and thirty-day-stable (23 stable releases since 2026-10-12; the 30-day limit is 4). Both were explicitly approved by the user (approvedBy=user, 2026-11-10) and are recorded in release-cadence-exemptions.json. Rules not listed there still judge normally: same-day-duplicate is not triggered (2026-11-11 differs from the previous stable on 2026-11-09) and is therefore not exempted, and type / lint / test / signature / install / trunk gates are unchanged.",
+        "Note: this entry describes the source-level fix and its library tests only. MCP read-back after installing or updating a real package (app.status scope / readOnly, tools/list description) is still pending and is not claimed as a passed package-level acceptance here.",
+      ],
+      zh: [
+        "修复：应用内 MCP 的 `app.status` 一直自报 `readOnly: true`。该字段此前是硬编码常量，拿到写授权的会话读到的仍是「只读」，与权限闸门的实际放行相反。现在 `readOnly` 如实表示**本次请求**的有效 scope 是否只读，并同时返回 `scope`（read / settings / project / auto / full）——`readOnly: false` 只说明该会话有某项写授权，不代表可直写正文（那仍是 `full` 的逐会话授权）。caller scope 由请求局部上下文带入，共享的服务端上下文保持只读基线、不会被某个会话的授权污染；权限检查、工具 `required_scope`、审计与快照路径均未改动。",
+        "修复：`chapter.write` 的工具描述写「写到 `.novel/drafts`」，与章节草稿的实际目录 `.qm-drafts` 不符（`.novel/drafts` 仍是合法的记忆草稿区，不受影响）。现在描述指向 `.qm-drafts`，`required_scope` 仍为 `project`。",
+        "发布节奏豁免（已登记）：`weekly-stable` —— 本 ISO 周（2026-11-09 起）已有 v2.27.0（2026-11-09），v2.27.1 令该周 stable 计数为 2，超出「stable：每周 ≤1」；`thirty-day-stable` —— 自 2026-10-12 起累计 23 个稳定版，发布前 30 天 stable 23 个（上限 4），属历史高频发布的累积结果。两项均由用户明确批准登记（`approvedBy=user`，2026-11-10）并记入 `release-cadence-exemptions.json`；未列入该文件的规则照常判定：`same-day-duplicate` 本版未触发（2026-11-11 与前一 stable 2026-11-09 不同日），类型 / lint / 测试 / 签名 / 安装 / 主干等硬门一律不变。",
+        "说明：本次修补仅为源码层与其库测试结果；新版本安装/升级后的 MCP 回读（`app.status` 的 `scope` / `readOnly`、`tools/list` 描述）仍待真实安装包验证，不视为包级验收已通过。",
+      ],
+    },
+  },
+  {
     // 2.27.0（2026-11-09）：MCP 一窗口全流程落地（auto 档 + 5 工具真注册），深章产出真的落成可采纳草稿，pipeline.status 投影补全，草稿采纳链修掉两个会毁正文/frontmatter 的真机缺陷。
     version: "2.27.0",
     date: "2026-11-09",

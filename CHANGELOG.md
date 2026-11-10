@@ -7,6 +7,21 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.27.1] - 2026-11-11
+
+### Fixed
+
+- 修复：应用内 MCP 的 `app.status` 一直自报 `readOnly: true`。该字段此前是硬编码常量，拿到写授权的会话读到的仍是「只读」，与权限闸门的实际放行相反。现在 `readOnly` 如实表示**本次请求**的有效 scope 是否只读，并同时返回 `scope`（`read` / `settings` / `project` / `auto` / `full`）——`readOnly: false` 只说明该会话有某项写授权，**不**代表可直写正文（那仍是 `full` 的逐会话授权）。caller scope 由请求局部上下文带入，共享的服务端上下文保持只读基线、不会被某个会话的授权污染；权限检查、工具 `required_scope`、审计与快照路径均未改动。
+- 修复：`chapter.write` 的工具描述写「写到 `.novel/drafts`」，与章节草稿的实际目录 `.qm-drafts` 不符（`.novel/drafts` 仍是合法的记忆草稿区，不受影响）。现在描述指向 `.qm-drafts`，`required_scope` 仍为 `project`。
+
+### 发布节奏豁免（已登记）
+
+- `weekly-stable`：本 ISO 周（2026-11-09 起）已有 v2.27.0（2026-11-09），v2.27.1 令该周 stable 计数为 2，超出「stable：每周 ≤1」。用户已明确批准登记豁免（`approvedBy=user`，2026-11-10）。
+- `thirty-day-stable`：自 2026-10-12 起累计 23 个稳定版，发布前 30 天 stable 23 个（上限 4），属历史高频发布的累积结果，不是跳过工程门禁。用户已明确批准登记豁免（`approvedBy=user`，2026-11-10）。
+- 未列入 `release-cadence-exemptions.json` 的规则照常判定：`same-day-duplicate` 本版未触发（2026-11-11 与前一 stable 2026-11-09 不同日），因此未登记豁免；类型 / lint / 测试 / 签名 / 安装 / 主干等硬门一律不变。
+
+> 说明：本节只描述源码层修补与其库测试结果；新版本安装/升级后的 MCP 回读（`app.status` 的 `scope` / `readOnly`、`tools/list` 描述）仍待真实安装包验证，不因本节而视为包级验收已通过。
+
 ## [2.27.0] - 2026-11-09
 
 ### Added
