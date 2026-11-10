@@ -160,7 +160,10 @@ async fn handle_tools_call(
         }
     }
 
-    match state.registry.call(&state.ctx, name, args).await {
+    // 单个调用走请求局部上下文：把这一次的 caller 带进工具，共享 `state.ctx`
+    // 本身不被改写（它会被后续请求复用，写进去等于把授权串给别的会话）。
+    let ctx = state.ctx.for_caller(caller);
+    match state.registry.call(&ctx, name, args).await {
         None => error_response(Some(id), METHOD_NOT_FOUND, &format!("unknown tool: {name}")),
         Some(Ok(value)) => ok_response(id, tool_result(&value)),
         Some(Err(ToolError { code, message })) => {
@@ -341,6 +344,9 @@ pub async fn start(
             app: Some(app),
             bridge,
             port,
+            // 共享上下文的基线是「无调用方」= 最小权限。每次请求由
+            // `handle_tools_call` 用 `for_caller` 派生带 scope 的局部副本。
+            caller_scope: session::SessionScope::Read,
         }),
         sessions: Arc::new(session::SessionRegistry::new()),
         granted_scope,
@@ -668,6 +674,14 @@ mod tests {
         }
     }
 
+    /// `tools/call` 返回的 content 文本里是 `to_string_pretty` 过的工具结果。
+    fn tool_payload(out: &Value) -> Value {
+        let text = out["result"]["content"][0]["text"]
+            .as_str()
+            .expect("tool result text");
+        serde_json::from_str(text).expect("app.status payload 必须是 JSON")
+    }
+
     #[tokio::test]
     async fn initialize_returns_server_info() {
         let out = dispatch(&state("t"), &req("initialize", None))
@@ -736,6 +750,57 @@ mod tests {
         assert_eq!(out["result"]["isError"], false);
         let text = out["result"]["content"][0]["text"].as_str().expect("text");
         assert!(text.contains("\"readOnly\": true"), "{text}");
+        // 默认 dispatch 没有声明调用方 → 最小权限，且把这一事实写成 scope。
+        assert!(text.contains("\"scope\": \"read\""), "{text}");
+    }
+
+    /// 五档 scope 各自正确，且请求局部 scope 不污染共享上下文。
+    #[tokio::test]
+    async fn app_status_reports_the_request_local_caller_scope() {
+        let state = state("t");
+        let cases = [
+            (session::SessionScope::Read, true, "read"),
+            (session::SessionScope::Settings, false, "settings"),
+            (session::SessionScope::Project, false, "project"),
+            (session::SessionScope::Auto, false, "auto"),
+            (session::SessionScope::Full, false, "full"),
+        ];
+        for (caller, read_only, scope) in cases {
+            let out = dispatch_as(
+                &state,
+                &req(
+                    "tools/call",
+                    Some(json!({"name": "app.status", "arguments": {}})),
+                ),
+                caller,
+            )
+            .await
+            .expect("has response");
+            let payload = tool_payload(&out);
+            assert_eq!(
+                payload["readOnly"],
+                json!(read_only),
+                "{caller:?}: {payload}"
+            );
+            assert_eq!(payload["scope"], json!(scope), "{caller:?}: {payload}");
+            // 共享 ctx 是全局资源：任何一次请求都不能把自己的 scope 写回去。
+            assert_eq!(
+                state.ctx.caller_scope,
+                session::SessionScope::Read,
+                "{caller:?} 的请求 scope 污染了共享上下文"
+            );
+        }
+        // 紧接着的默认（Read）请求仍然只读。
+        let out = dispatch(
+            &state,
+            &req(
+                "tools/call",
+                Some(json!({"name": "app.status", "arguments": {}})),
+            ),
+        )
+        .await
+        .expect("has response");
+        assert_eq!(tool_payload(&out)["readOnly"], json!(true));
     }
 
     #[tokio::test]
@@ -1112,6 +1177,124 @@ mod tests {
             granted_scope: session::SessionScope::Read,
         };
         serve(state, 0).await.expect("start")
+    }
+
+    /// 经真实 HTTP 入口握一次手，拿到服务端下发的会话 id。
+    async fn http_initialize(server: &RunningServer) -> String {
+        let url = format!("http://127.0.0.1:{}/mcp", server.port);
+        let resp = reqwest::Client::new()
+            .post(&url)
+            .bearer_auth("secret-token")
+            .body(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#)
+            .send()
+            .await
+            .expect("initialize");
+        assert_eq!(resp.status(), 200);
+        resp.headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+            .expect("initialize 必须下发 Mcp-Session-Id")
+            .to_string()
+    }
+
+    /// 经真实 HTTP 入口调 `app.status`（`sid` 即请求头 `Mcp-Session-Id`）。
+    async fn http_app_status(server: &RunningServer, sid: Option<&str>) -> Value {
+        let url = format!("http://127.0.0.1:{}/mcp", server.port);
+        let mut request = reqwest::Client::new()
+            .post(&url)
+            .bearer_auth("secret-token")
+            .body(
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": { "name": "app.status", "arguments": {} }
+                })
+                .to_string(),
+            );
+        if let Some(sid) = sid {
+            request = request.header("mcp-session-id", sid);
+        }
+        let resp = request.send().await.expect("tools/call");
+        assert_eq!(resp.status(), 200);
+        let body: Value = resp.json().await.expect("json");
+        tool_payload(&body)
+    }
+
+    /// HTTP 入口读的是注册表里的**有效** scope：逐会话 grant / revoke 必须
+    /// 真的让 `app.status` 变档，而另一个会话不得被连带升级。
+    #[tokio::test]
+    async fn http_app_status_tracks_per_session_grants() {
+        let server = start_test_server().await;
+        let sid_a = http_initialize(&server).await;
+        let sid_b = http_initialize(&server).await;
+
+        let payload = http_app_status(&server, Some(&sid_a)).await;
+        assert_eq!(
+            payload["readOnly"],
+            json!(true),
+            "新会话继承的仍是 Read: {payload}"
+        );
+        assert_eq!(payload["scope"], json!("read"), "{payload}");
+
+        // 逐会话授予 auto：只有被授予的那个会话看到 readOnly=false。
+        assert!(
+            server.state.sessions.grant_auto(&sid_a),
+            "会话表里应有刚握手的会话"
+        );
+        let payload = http_app_status(&server, Some(&sid_a)).await;
+        assert_eq!(payload["readOnly"], json!(false), "{payload}");
+        assert_eq!(payload["scope"], json!("auto"), "{payload}");
+
+        let other = http_app_status(&server, Some(&sid_b)).await;
+        assert_eq!(
+            other["readOnly"],
+            json!(true),
+            "第二会话不得被连带升级: {other}"
+        );
+        assert_eq!(other["scope"], json!("read"), "{other}");
+
+        // 叠加 full 以 full 为准；吊销 full 回落 auto；再吊销 auto 回只读。
+        assert!(server.state.sessions.grant_full(&sid_a));
+        let payload = http_app_status(&server, Some(&sid_a)).await;
+        assert_eq!(payload["readOnly"], json!(false), "{payload}");
+        assert_eq!(payload["scope"], json!("full"), "{payload}");
+
+        assert!(server.state.sessions.revoke_full(&sid_a));
+        let payload = http_app_status(&server, Some(&sid_a)).await;
+        assert_eq!(
+            payload["scope"],
+            json!("auto"),
+            "吊销 full 应回落 auto: {payload}"
+        );
+
+        assert!(server.state.sessions.revoke_auto(&sid_a));
+        let payload = http_app_status(&server, Some(&sid_a)).await;
+        assert_eq!(payload["readOnly"], json!(true), "{payload}");
+        assert_eq!(payload["scope"], json!("read"), "{payload}");
+
+        server.stop();
+    }
+
+    /// 缺失 / 未知 session id 一律最小权限（不隐式创建、不默认放行）。
+    #[tokio::test]
+    async fn http_app_status_missing_or_unknown_session_is_read_only() {
+        let server = start_test_server().await;
+
+        let missing = http_app_status(&server, None).await;
+        assert_eq!(missing["readOnly"], json!(true), "{missing}");
+        assert_eq!(missing["scope"], json!("read"), "{missing}");
+
+        let unknown = http_app_status(&server, Some("no-such-session")).await;
+        assert_eq!(unknown["readOnly"], json!(true), "{unknown}");
+        assert_eq!(unknown["scope"], json!("read"), "{unknown}");
+        assert_eq!(
+            server.state.sessions.len(),
+            0,
+            "未知 session id 不得被隐式创建"
+        );
+
+        server.stop();
     }
 
     #[tokio::test]

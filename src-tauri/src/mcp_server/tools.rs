@@ -28,6 +28,7 @@ use tauri::{AppHandle, Manager};
 
 use super::protocol::SERVER_VERSION;
 use super::registry::ToolError;
+use super::session::SessionScope;
 use super::state_bridge::{self, StateBridgeState, StateQuery};
 
 /// boxed future 别名（避免引入 async_trait）。
@@ -43,6 +44,12 @@ pub struct ToolContext {
     pub bridge: StateBridgeState,
     /// 服务端当前监听端口（`app.status` 回报）。
     pub port: u16,
+    /// **本次请求**调用方的有效权限域（`app.status` 如实回报它）。
+    ///
+    /// 由 `handle_tools_call` 逐请求带入（见 [`ToolContext::for_caller`]），不在
+    /// `ServerState` 上原地改：`ctx` 是全局共享资源，把某个会话的 scope 写进去会
+    /// 让之后任何请求都读到别人的授权。共享实例上的值只是安全基线（`Read`）。
+    pub caller_scope: SessionScope,
 }
 
 impl ToolContext {
@@ -53,6 +60,21 @@ impl ToolContext {
             app: None,
             bridge: StateBridgeState::new(),
             port: 0,
+            caller_scope: SessionScope::Read,
+        }
+    }
+
+    /// 派生一个**请求局部**的上下文：共享同一批运行时资源，只替换调用方 scope。
+    ///
+    /// `AppHandle` 与 `StateBridgeState` 的克隆不复制状态（桥内部是 `Arc`，克隆
+    /// 共享同一张待决表），因此这里只把「谁在调」这一条**请求事实**带进工具，
+    /// 不新增任何持久状态、也不把 scope 写回共享句柄。
+    pub fn for_caller(&self, caller: SessionScope) -> Self {
+        Self {
+            app: self.app.clone(),
+            bridge: self.bridge.clone(),
+            port: self.port,
+            caller_scope: caller,
         }
     }
 
@@ -83,7 +105,9 @@ impl ToolContext {
 
 /// `app.status` —— 应用与 MCP 服务端自身的状态。
 ///
-/// 不读项目、不读设置：它回答的是「我在跟谁说话、它什么版本、什么模式」。
+/// 不读项目、不读设置：它回答的是「我在跟谁说话、它什么版本、什么模式」，以及
+/// **这一次请求**带着哪一档权限（`readOnly` / `scope` 都取自请求局部上下文，
+/// 不取服务器基础 scope，也不取客户端参数推断）。
 pub struct AppStatusTool;
 
 impl super::registry::McpTool for AppStatusTool {
@@ -105,11 +129,15 @@ impl super::registry::McpTool for AppStatusTool {
         _args: &'a Value,
     ) -> ToolFuture<'a, Result<Value, ToolError>> {
         Box::pin(async move {
+            let scope = ctx.caller_scope;
             Ok(json!({
                 "version": SERVER_VERSION,
                 "mode": if cfg!(debug_assertions) { "dev" } else { "production" },
                 "listen": format!("127.0.0.1:{}", ctx.port),
-                "readOnly": true,
+                // 只读档 = 没有任何写能力；其余档虽非只读，也不等于有直写正文
+                // 权限（那仍是 `full` 的逐会话授权），故同时回 `scope` 让人看清。
+                "readOnly": scope == SessionScope::Read,
+                "scope": scope.as_str(),
             }))
         })
     }
@@ -825,7 +853,7 @@ impl super::registry::McpTool for ChapterWriteTool {
     }
 
     fn description(&self) -> &'static str {
-        "Write a chapter draft into the project draft area (.novel/drafts). Never writes a formal chapter: the user must accept the draft in the app first. Returns the draft id and path."
+        "Write a chapter draft into the project draft area (.qm-drafts). Never writes a formal chapter: the user must accept the draft in the app first. Returns the draft id and path."
     }
 
     fn input_schema(&self) -> Value {
@@ -1925,6 +1953,81 @@ mod tests {
                 tool["name"]
             );
         }
+    }
+
+    // ── app.status / chapter.write 元数据 ───────────────────────────
+
+    #[tokio::test]
+    async fn app_status_defaults_to_read_only() {
+        // 默认上下文（无调用方）就是最小权限：readOnly=true、scope=read，且
+        // version / mode / listen 三个既有字段的名称与结构都不变。
+        let ctx = ToolContext::for_test();
+        let out = AppStatusTool
+            .call(&ctx, &json!({}))
+            .await
+            .expect("app.status 不依赖 AppHandle，必须成功");
+        assert_eq!(out["readOnly"], json!(true), "{out}");
+        assert_eq!(out["scope"], json!("read"), "{out}");
+        assert_eq!(out["version"], json!(SERVER_VERSION), "{out}");
+        assert_eq!(out["listen"], json!("127.0.0.1:0"), "{out}");
+        assert!(out["mode"].is_string(), "mode 必须保留: {out}");
+    }
+
+    #[tokio::test]
+    async fn app_status_read_only_tracks_the_request_scope() {
+        use crate::mcp_server::session::SessionScope;
+        let shared = ToolContext::for_test();
+        for (caller, read_only) in [
+            (SessionScope::Read, true),
+            (SessionScope::Settings, false),
+            (SessionScope::Project, false),
+            (SessionScope::Auto, false),
+            (SessionScope::Full, false),
+        ] {
+            let out = AppStatusTool
+                .call(&shared.for_caller(caller), &json!({}))
+                .await
+                .expect("ok");
+            assert_eq!(out["readOnly"], json!(read_only), "{caller:?}: {out}");
+            assert_eq!(
+                out["scope"],
+                json!(caller.as_str()),
+                "{caller:?} 的 scope 字符串不对: {out}"
+            );
+        }
+        // 请求局部副本不得污染共享上下文：派生之后共享句柄仍是 Read，
+        // 随后一次「没有调用方」的调用仍必须回到只读。
+        assert_eq!(shared.caller_scope, SessionScope::Read);
+        let after = AppStatusTool.call(&shared, &json!({})).await.expect("ok");
+        assert_eq!(after["readOnly"], json!(true), "共享上下文被污染: {after}");
+        assert_eq!(after["scope"], json!("read"), "{after}");
+    }
+
+    #[test]
+    fn chapter_write_metadata_points_at_qm_drafts() {
+        // 描述是客户端看到的唯一目录线索：写的是 .qm-drafts 就不能说 .novel/drafts。
+        let r = build_registry();
+        let payload = r.list();
+        let tool = payload["tools"]
+            .as_array()
+            .expect("tools 必须是数组")
+            .iter()
+            .find(|t| t["name"].as_str() == Some("chapter.write"))
+            .expect("chapter.write 必须在 tools/list 里");
+        let desc = tool["description"].as_str().expect("description");
+        assert!(
+            desc.contains(".qm-drafts"),
+            "草稿目录是 .qm-drafts，描述却没写出来: {desc}"
+        );
+        assert!(
+            !desc.contains(".novel/drafts"),
+            "描述里不得再出现 .novel/drafts: {desc}"
+        );
+        // 只改文档字符串：权限仍是 Project（本次不动任何权限语义）。
+        assert_eq!(
+            r.required_scope("chapter.write"),
+            Some(crate::mcp_server::session::SessionScope::Project)
+        );
     }
 
     #[test]
