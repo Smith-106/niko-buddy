@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
 
-## v2.27.1 修复（MCP 自述权限如实回报 + 草稿目录描述纠正，安装包待验）
+## v2.27.1 修复（MCP 自述权限如实回报 + 草稿目录描述纠正，正式稳定版）
 
 外部 Agent 读到的 MCP 自述权限此前与实际闸门相反，本版按请求如实回报：
 
@@ -30,7 +30,9 @@
 
 发布语义：**stable**（`weekly-stable` / `thirty-day-stable` 两项节奏豁免已由用户批准并登记于 `release-cadence-exemptions.json`，其余硬门不变）。
 
-> 源码层修补已通过聚焦库测试（103 passed / 0 failed）与独立源码复核；新版本安装/升级后的 MCP 回读（`app.status` 的 `scope` / `readOnly`、`tools/list` 描述）仍待真实安装包验证，不因本节视为包级验收已通过。
+当前发布与验收状态：tag `v2.27.1` 指向 `e7736d13`，Release CI（run 42913998699）success，四资产齐全且做过本地 digest 校验；该 release 为 **stable 且已接任 GitHub Latest**（`prerelease=false`，线上 `latest.json` 的 `version` = 2.27.1）。updater 签名按 Blake2b-512 / Ed25519 双签验签通过（keyId 匹配，artifact 与 trusted comment 双签皆验），并含被篡改 digest 与篡改 trusted comment 的负例拒绝。真实升级路径已实测：应用内 updater 从 2.27.0 升到 2.27.1 后 `FileVersion` / `ProductVersion` / HKCU `DisplayVersion` 均为 2.27.1；已装 EXE 的 SHA-256 与 NSIS 包内 payload 一致，便携版与安装版仅包类型标记（`NSS` / `UNK` 三字节）不同。
+
+> 安装与验签已按上述真机路径验证。但 **MCP 包级回读仍未进行**：新版本安装/升级后 `app.status` 的 `scope` / `readOnly` 返回与 `tools/list` 的 `chapter.write` 描述，都需要一个已安全配置的认证 MCP 连接才能读取；目前该连接缺失（探针无监听器，认证请求 0 次），故仍 pending。源码层修补另已通过聚焦库测试（103 passed / 0 failed）与独立源码复核。不因本节视为 MCP 契约已验，也不据此声明 G5 / L9 / Goal 完成。
 
 ## v2.26.4 新增（主控三档权能补全，正式稳定版）
 

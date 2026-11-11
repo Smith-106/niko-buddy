@@ -7,18 +7,18 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.27.1**（2026-11-11 装配完成：MCP 自述权限如实回报 + 草稿目录描述纠正 — **stable，安装包与真机回读待验**）
+**v2.27.1**（2026-11-11 发布：MCP 自述权限如实回报 + 草稿目录描述纠正 — **stable，已接任 GitHub Latest**）
 
-v2.27.1 的发行资产由 tag 触发的 CI 构建；真实安装/升级后的 MCP 回读尚未完成，因此本页不宣称已在真机验证。当前线上 Latest 仍为 v2.27.0（2026-11-09）。
+v2.27.1 的发行资产由 tag 触发的 CI 构建（run 42913998699 success）；该 release 已从 prerelease 提升为 **stable 最新版（Latest）**，线上 `latest.json` 的 `version` 为 2.27.1，已装 2.27.0 的用户可经应用内 updater 直接升级。**MCP 包级回读仍未进行**：真实安装/升级后的 `app.status`（`scope` / `readOnly`）与 `tools/list` 的 `chapter.write` 描述需要一个已安全配置的认证 MCP 连接才能读取，目前仍未完成，本页不据此宣称 MCP 契约已验。
 > **v2.27.1 更新要点**：`app.status` 不再恒报 `readOnly: true` —— 它现在如实回报**本次请求**的有效 scope（并同时返回 `scope`），`readOnly: false` 不等于可直写正文；`chapter.write` 的工具描述从错误的 `.novel/drafts` 改为真实草稿目录 `.qm-drafts`。详见下方「v2.27.1 更新要点」。
 
 > **上一稳定版 v2.27.0（2026-11-09）**：MCP 一窗口全流程（`auto` 会话档 + 5 个编排工具真注册）、深章产出落成可采纳草稿并回 `artifactPath`、`pipeline.status` 投影补 5 个字段、草稿采纳链修掉两个会毁正文/frontmatter 的真机缺陷。仍可从 Releases 页取该版安装包。
 
-### v2.27.1 更新要点（2026-11-11，stable，安装包待验）
+### v2.27.1 更新要点（2026-11-11，stable）
 
 - **`app.status` 不再恒报只读**：`readOnly` 此前是硬编码 `true`，拿到写授权的会话读到的仍是「只读」，与权限闸门的实际放行相反。现在它表示**本次请求**的有效 scope 是否只读，并同时返回 `scope`（`read` / `settings` / `project` / `auto` / `full`）——`readOnly: false` 只说明该会话有某项写授权，不代表可直写正文（那仍是 `full` 的逐会话授权）。caller scope 经请求局部上下文带入，共享服务端上下文保持只读基线、不会被某个会话的授权污染；权限检查、`required_scope`、审计与快照路径均未改动。
 - **`chapter.write` 描述指向真实草稿目录**：工具描述原写 `.novel/drafts`，而章节草稿的实际目录是 `.qm-drafts`（`.novel/drafts` 仍是合法记忆草稿区，不受影响）；`required_scope` 仍为 `project`。
-- 发布语义：**stable**（`weekly-stable` / `thirty-day-stable` 两项节奏豁免已登记，其余硬门不变）；源码层修补已过聚焦库测试与独立源码复核，包级安装/回读仍待验。
+- 发布语义：**stable**（`weekly-stable` / `thirty-day-stable` 两项节奏豁免已登记，其余硬门不变）；updater 签名（Blake2b-512 / Ed25519 双签）与 2.27.0 → 2.27.1 真实升级（`FileVersion` / `ProductVersion` / `DisplayVersion` 均为 2.27.1）已验；源码层修补已过聚焦库测试与独立源码复核。**MCP 包级回读（`app.status` 的 `scope` / `readOnly`、`tools/list` 描述）仍待认证连接**。
 
 ### v2.26.4 更新亮点（2026-11-04，stable）
 
@@ -464,13 +464,13 @@ v2.27.1 的发行资产由 tag 触发的 CI 构建；真实安装/升级后的 M
 
 ## Windows 安装包
 
-当前 stable 是 **v2.24.1**。
+当前 stable 是 **v2.27.1**（2026-11-11 发布，占 GitHub Latest）。
 
-下载 [`niko-buddy_2.24.1_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.24.1/niko-buddy_2.24.1_windows_X64.exe)，双击运行 NSIS 安装程序即可。
+下载 [`niko-buddy_2.27.1_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.27.1/niko-buddy_2.27.1_windows_X64.exe)，双击运行 NSIS 安装程序即可。
 
 ## 便携版
 
-下载 [`niko-buddy_2.24.1_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.24.1/niko-buddy_2.24.1_windows_X64_portable.exe)（单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
+下载 [`niko-buddy_2.27.1_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.27.1/niko-buddy_2.27.1_windows_X64_portable.exe)（单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
 
 ## 系统要求
 
