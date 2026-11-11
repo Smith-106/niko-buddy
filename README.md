@@ -715,7 +715,7 @@ sequenceDiagram
 
 > 注：v2.7.8 是 v2.7 系列收官（notes-only，安装包沿用 v2.7.7），属历史记录，不代表当前版本。
 > 注：CI 发布构建当前只有 Windows x64 一个活跃 matrix 目标（[build.yml](.github/workflows/build.yml) 的 `matrix.include` 仅 `windows-x64` / `windows-latest`；2026-10-14 用户指令锁定 Windows-only，macOS/Linux 条目已移除，条件步骤不等于活跃目标）；macOS/Linux 是否正式发版以 Releases 实际资产为准。
-> 当前版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处 manifest 为唯一真源；本文件不重复硬编码版本三元组。
+> 当前版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处 manifest 为唯一真源；**本段不硬编码版本三元组**，本文件其余段落出现的版本编号均为叙述性摘选（顶部徽章/版本摘要不构成版本权威）。
 > 源码 tip ≠ 已发布安装包：`smith/master` 上的 P1 角色行为路由归一修复（提交 `0cf0815c`，atlas `5f71a7fe`）只存在于源码，不在已发布的 v2.27.1 安装包里。当前发布状态与交付资产以上方 v2.27.1 节与 [Releases](https://github.com/Smith-106/niko-buddy/releases) 为准。
 
 ### 安装方式
@@ -850,15 +850,15 @@ npm run build:github-release
 
 ### 质量门槛
 
-- **测试**：`npm test` = `test:mocks`（Vitest 全量）+ `test:llm`（真实 LLM 凭证块）+ `test:cargo`（Rust 测试）；用例总数**不硬编码**，以基线记录 [`../docs/p0/t00-baseline.md`](../docs/p0/t00-baseline.md)（相对 QMAI/ 的 hub 根路径）为准（2 skipped 为凭证门控块）；新增功能需附带或更新对应测试，PR 合并前须全绿。
-- **凭证门控 skipped 块**：全量套件默认 `N passed | 2 skipped`（EXIT=0），2 skipped 为凭证门控块，缺 env 时自动跳过：
+- **测试**：`npm test` 串联三个子命令——`test:mocks`（`scripts/lint-character-aura.mjs` + Vitest mock 套件，排除 real-llm/bench 等，graph-view 单测以串行第二跑补齐）+ `test:llm`（real-llm 凭证块）+ `test:cargo`（Rust 测试）；用例总数与通过/跳过数**不硬编码**，取决于实际调用的命令、排除项与环境，历史基线仅作参考（[`../docs/p0/t00-baseline.md`](../docs/p0/t00-baseline.md)，相对 QMAI/ 的 hub 根路径）；新增功能需附带或更新对应测试，PR 合并前须全绿。
+- **凭证门控 skipped 块**：凭证门控用例缺 env 时自动跳过，**skipped ≠ PASS**（EXIT=0 只说明被跳过而非通过）；通用运行不给固定 passed/skipped 计数，实际数字随调用命令、排除项与环境变化：
   - `src/lib/iss002-real-llm-token.spec.ts` — 需 `ISS002_REAL_LLM_KEY` + `ISS002_REAL_LLM_BASE`（可选 `ISS002_REAL_LLM_MODEL`）
   - `src/lib/novel/export-app-context-pack.real-fs.spec.ts` — 需 `EXPORT_APP_PACK=1` + `EXPORT_APP_PACK_PROJECT` + `EXPORT_APP_PACK_CHAPTER` + `EXPORT_APP_PACK_OUT`
   - `src/lib/novel/step0-ab-calibration.real-llm.spec.ts` — 需 `STEP0_REAL_LLM_KEY` + `STEP0_REAL_LLM_BASE`（可选 `STEP0_REAL_LLM_MODEL`）；注意 `.env.test.local` 若含 STEP0 凭证则默认跑批中实际运行
   - 设置对应 env 即可激活该块（烧真实 LLM token / 真实 fs 写盘，CI 默认不触发）
-- **测试覆盖率**：`src/` 全口径（statements/branches/functions/lines）分层阈值 **80/75/80/80**，由 `vite.config.ts` 阈值门控持续保障（58 号共识：100/100/100/100 结构性不可达——57A 实测 lines 82%，核心写作主链高保护在政策文档以定向测量命令执行）；新增源码须同步补齐测试或如实登记于 `docs/unreachable-branch-ledger.md`。
-- **类型检查**：`npm run typecheck`（tsc 严格模式）须零错误。
-- **无 lint 门（有意决策）**：本仓库不设独立 lint script / lint CI 门——以 `typecheck`（tsc 严格模式）+ `test:mocks`（vitest 全量 + 覆盖率 100% 阈值）作为质量门；如需静态风格检查，`tsc --noEmit` 已覆盖大部分可静态发现的问题；已配置 eslint.config.js（eslint ^9.39.5 在 devDependencies），但无独立 lint script/CI 门，静态检查以 tsc --noEmit 为主
+- **测试覆盖率**：`test:mocks` **不采集覆盖率**，覆盖率须显式跑 `npm run test:coverage`（vitest 同排除集 + `--coverage`，不含 aura lint 前置与 graph-view 串行补跑）；统计范围（`include`/`exclude` 白名单）与 statements/branches/functions/lines 四维阈值以 `vite.config.ts` 的 `test.coverage` 为唯一真源，本文件不复制阈值数字、也不声明任何当前实测覆盖率；新增源码须同步补齐测试或如实登记于 `docs/unreachable-branch-ledger.md`。
+- **类型检查**：`npm run typecheck`（= `tsc --build --force --pretty`）须零错误；**禁止裸 `tsc --noEmit`**——根 tsconfig 为纯 references 结构（`files: []`），裸 `--noEmit` 是空操作假阴性。
+- **Lint 门**：`npm run lint`（= `eslint . && node scripts/check-boundaries.mjs`，配置见 `eslint.config.js`）**存在且是 CI 硬门**——`.github/workflows/checks.yml` 显式执行 `npm run lint`，要求 0 error；静态风格检查以 `eslint` + `scripts/check-boundaries.mjs` 为准，不靠 `tsc --noEmit`。
 - **记忆引擎专项**：`src/lib/novel/` 下核心模块（记忆中心、上下文引擎、审查适配器、连续性引擎等）均有配套 .spec.ts 覆盖，改动相关逻辑时请同步维护。
 - **评测基线门（v2.6.3+）**：交付了双轨评测基线门，二者语义独立、不可互相替代：
   - **B 门（synthetic 合成基线）**：`npm run eval:baseline` —— 跑 `scripts/eval-baseline.mjs`，合成语料机械回归对照；预期 `PASS → ESTABLISHED → PASS`。合成基线合法留存作为机械回归基准。

@@ -49,9 +49,9 @@ latest.json
 
 ## 平台覆盖
 
-- Windows（nsis + portable）+ macOS（AppleSilicon + Intel）+ Linux（AppImage + deb，matrix 已就绪）。
-- 每个平台资产齐全才发布；缺失平台在正文标注原因。
-- 注：CI 已具备三平台构建 matrix（build.yml），本地 tauri.conf targets 默认仅 nsis；历史发布资产为 Windows-only。macOS/Linux 是否正式发版以 Releases 为准。
+- **当前活跃目标：仅 Windows x64**（nsis 安装包 + portable）——`.github/workflows/build.yml` 的 `matrix.include` 只有 `windows-x64` / `windows-latest`（2026-10-14 用户指令锁定 Windows-only）。
+- 每个**活跃**目标资产齐全才发布；活跃目标缺失或未补齐须在正文标注原因，未成为活跃目标的平台不计入发布门槛。
+- 注：上方 macOS（AppleSilicon + Intel）/ Linux（AppImage + deb）命名仅为潜在平台的命名约定，**不代表已交付支持**；恢复需先在 build.yml 恢复对应 matrix 条目，是否正式发版以 Releases 实际资产为准。
 
 ## 发布后检查清单
 
