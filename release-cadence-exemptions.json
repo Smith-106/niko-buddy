@@ -184,6 +184,16 @@
         "weekly-stable",
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.27.2",
+      "reason": "用户于 2026-11-11 明确授权装配已落地源码修补发 v2.27.2（先以未发布 Draft 持有真实构建/签名资产，次日起窗口开放后首发候选，验证后再升 stable+Latest），并预先批准登记本两项节奏豁免；其余硬门不变。版本内容：把已存在于 smith/master 但不在 v2.27.1 安装包里的 P1 角色行为路由归一（0cf0815c，随附 module-atlas 重生 5f71a7fe）与两份公开文档纠正（0eaecdb4 README 交付元数据、13b37dc5 公开质量门与平台覆盖声明）装配进真包，不新增功能、不改门或阈值。性质：普通源码修补交付的独立节奏，明确不是旧 fix-forward 资产补齐。规则事实（check-release-cadence.mjs 同源算法 + gh release 列表回读，本机时区 +0900 的 2026-11-11）：weekly-stable —— ISO 周 2026-11-09 已有 2 个 stable（v2.27.0@2026-11-09、v2.27.1@2026-11-10T22:22:42Z），本版令该周计数为 3，超出「stable：每周 ≤1」；thirty-day-stable —— v2.27.1 登记时同源算法实测发布前 30 天 stable 23 个（上限 4），属历史连续高频发布所致，非跳过工程门禁；same-day-duplicate 未登记（本版发布日尚未确定，不声称其触发或豁免）。scope 只登记上述两项；主干 / 签名 / 活跃目标资产齐全 / 必要工程门 / 真实安装更新重启等硬门不变。本登记不预支发布时间，2026-11-12 仅为已批准的最早计划发布日。",
+      "approvedBy": "user",
+      "approvedAt": "2026-11-11",
+      "scope": [
+        "weekly-stable",
+        "thirty-day-stable"
+      ]
     }
   ]
 }
