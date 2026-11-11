@@ -27,7 +27,7 @@
 | 上下文装配 | `src/lib/novel/context-engine.ts` + `context-data-sources.ts` |
 | 章节生成 | `src/lib/novel/deep-chapter-generation.ts` + `deep-chapter-prompts.ts` |
 | 草稿/会话状态 | `src/lib/novel/novel-session-status.ts` + `chapter-save-strategy.ts` |
-| 审查/门控写回 | `src/lib/novel/review-adapter.ts` + `start-review-run.ts` + `start-six-dimension-review-run.ts` |
+| 审查/门控写回 | `src/lib/novel/review-adapter.ts` + `start-review-run.ts` + `start-six-dimension-review-run.ts` + `review-prompt-assembly.ts`（M10 提取，登记：`resolveReviewGateKey` / `CORR108_LEGACY_{CONSISTENCY,ANTI_AI}_REVIEW_TYPES` / `buildReviewPrompt` / `buildCanonModalityContext` / `splitChapterForReview`；review-adapter 经同目录 import + re-export 保对外 import 面） |
 | Anti-AI | `src/lib/novel/de-ai-rules.ts` + `de-ai-adapter.ts` + `mechanical-slop-detector.ts` |
 | 角色认知 | `src/lib/novel/character-cognition.ts` + `character-state.ts` + `character-aura.ts`（+ ARCH-1 拆分 `bindable-characters.ts`） |
 | 过程库门面 | `src/lib/novel/process-library.ts`（E-02/E-04 登记：loadForPlanning / visibleInfoFor / auditChapter / computeVisibility / extractAuditInputsFromText） |

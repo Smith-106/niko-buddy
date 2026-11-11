@@ -57,21 +57,48 @@ export const CORR108_LEGACY_ANTI_AI_REVIEW_TYPES: readonly string[] = [
 const AUDIT_DIMENSION_ID_SET: ReadonlySet<string> = new Set<string>(ALL_AUDIT_DIMENSION_IDS)
 
 /**
+ * 生产者 type 别名 → T22 37 维注册表规范 id 的前置归一表（只登记已知生产者别名）。
+ *
+ * 现存唯一别名：review-adapter 机械层 `detectCharacterActions` 产 raw type
+ * `character_behavior`，其机械信号在 T22 注册表里的规范 id 是 `behavioral_repetition`
+ * （gate anti_ai = P1，severity warning，detectionMethod mechanical）。别名本身未注册，
+ * 若不归一会落到 quality 缺省：P1 finding 混进 P2 的题材级 warn→fail 计数，同时 P1
+ * 看起来是干净的（finding 挂在 P2 名下）。
+ *
+ * 本表只做身份归一，**不**携带门控键 —— 门归属恒定由 GATE_MAPPING（唯一真源，经
+ * getGateForDimension）决定，别名不硬编码自己属于哪个门。表内目标 id 必须已注册，
+ * 注册关系由 review-adapter.spec.ts 独立钉住（别名非规范 / 目标已注册且归 anti_ai）。
+ *
+ * 只翻译本表列出的别名：未列出的 type 原样进入既有解析序（registered → CORR108
+ * legacy consistency → CORR108 legacy anti_ai → quality 缺省）。
+ */
+const PRODUCER_TYPE_ALIASES: Readonly<Record<string, AuditDimensionId>> = {
+  character_behavior: "behavioral_repetition",
+}
+
+/**
  * 解析审查 finding type → 三门控键（consistency / anti_ai / quality）。
  *
  * 解析序（与 CORR-108 时代 resolveDecisionGateKey 优先级一致）：
+ *   0. normalize（trim + lowercase）后先查生产者别名归一表 PRODUCER_TYPE_ALIASES，
+ *      命中则把 type 换成已注册的规范 id（如 character_behavior → behavioral_repetition）；
  *   1. type ∈ T22 37 维注册表 → 经 GATE_MAPPING/AUDIT_TAXONOMY 取归属门
  *      （getGateForDimension，唯一真源路径）；
  *   2. type ∈ CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES → "consistency"；
  *   3. type ∈ CORR108_LEGACY_ANTI_AI_REVIEW_TYPES → "anti_ai"；
  *   4. 其余（含未知 type）→ "quality"（保守缺省，P2 永不覆盖 P0/P1）。
  *
+ * 别名归一不改变 raw finding（type/severity/evidence/suggestion 原样保留），
+ * 只改归属；legacy alias 集合与 shape 保持不变。
+ *
  * 纯函数零副作用；normalize 口径（trim + lowercase）与 resolveDecisionGateKey 一致。
  */
 export function resolveReviewGateKey(type: string): GateKey {
   const normalized = type.trim().toLowerCase()
-  if (AUDIT_DIMENSION_ID_SET.has(normalized)) {
-    return getGateForDimension(normalized as AuditDimensionId)
+  // 生产者别名前置归一：未登记别名原样透传，随后统一走注册表查门（不返回硬编码门）。
+  const canonicalType = PRODUCER_TYPE_ALIASES[normalized] ?? normalized
+  if (AUDIT_DIMENSION_ID_SET.has(canonicalType)) {
+    return getGateForDimension(canonicalType as AuditDimensionId)
   }
   if (CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES.includes(normalized)) return "consistency"
   if (CORR108_LEGACY_ANTI_AI_REVIEW_TYPES.includes(normalized)) return "anti_ai"

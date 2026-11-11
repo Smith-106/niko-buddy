@@ -4,6 +4,9 @@ import type { StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
 import type { ChapterSnapshot } from "./chapter-ingest"
 import { buildReviewPrompt, buildCanonModalityContext, clampReviewStageTimeoutMs, ReviewParseError, REVIEW_STAGE_TIMEOUT_DEFAULT_MS, reviewChapter, resolveReviewGateKey, CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES, CORR108_LEGACY_ANTI_AI_REVIEW_TYPES } from "./review-adapter"
+import type { NovelReviewResult } from "./review-adapter"
+import { ALL_AUDIT_DIMENSION_IDS, AUDIT_TAXONOMY, type AuditDimensionId } from "./audit-taxonomy"
+import { buildDecisionGates } from "./deep-chapter-decision-gates"
 import type { TemporalFact } from "./temporal-memory"
 
 const mocks = vi.hoisted(() => ({
@@ -1369,6 +1372,114 @@ describe("T24 resolveReviewGateKey — GATE_MAPPING 唯一真源 + CORR-108 lega
   it("未知 type 保守缺省 quality（P2 永不覆盖 P0/P1）", () => {
     expect(resolveReviewGateKey("unknown_type")).toBe("quality")
     expect(resolveReviewGateKey("")).toBe("quality")
+  })
+
+  // ── P1 behavior routing（2026-11-11）：生产者别名 → 规范维度身份归一 ──────
+  // review-adapter 机械层产 raw type `character_behavior`（detectCharacterActions）；
+  // T22 注册表里的规范 id 是 `behavioral_repetition`（gate anti_ai，即 P1）。
+  // 别名未注册时曾落到 quality 缺省 → P1 finding 混入 P2 计数。
+  //
+  // 下面两个常量在本 spec 独立硬编码（不遍历实现自带的别名表）：别名必须
+  // 非规范，目标必须已注册且归 anti_ai —— 任一侧漂移即红。
+  const BEHAVIOR_ALIAS_TYPE = "character_behavior"
+  const BEHAVIOR_CANONICAL_TYPE = "behavioral_repetition"
+
+  function finding(overrides: Partial<NovelReviewResult> & { type: string }): NovelReviewResult {
+    return {
+      severity: "warning",
+      message: "问题描述",
+      evidence: "正文片段",
+      relatedMemory: "",
+      suggestion: "修改建议",
+      ...overrides,
+    }
+  }
+
+  describe("P1 behavior routing — character_behavior 经 behavioral_repetition 归 anti_ai", () => {
+    it("别名 key 本身未注册 37 维；目标维度已注册且 GATE_MAPPING 归 anti_ai", () => {
+      expect(ALL_AUDIT_DIMENSION_IDS as readonly string[]).not.toContain(BEHAVIOR_ALIAS_TYPE)
+      expect(ALL_AUDIT_DIMENSION_IDS as readonly string[]).toContain(BEHAVIOR_CANONICAL_TYPE)
+      expect(AUDIT_TAXONOMY[BEHAVIOR_CANONICAL_TYPE as AuditDimensionId].gate).toBe("anti_ai")
+      // 规范 id 自身直接命中同一条唯一真源路径（GATE_MAPPING 唯一真源，非硬编码门）
+      expect(resolveReviewGateKey(BEHAVIOR_CANONICAL_TYPE)).toBe("anti_ai")
+    })
+
+    it("character_behavior 及其 normalize 变体解析到 P1(anti_ai)，不再落 Quality 缺省", () => {
+      expect(resolveReviewGateKey(BEHAVIOR_ALIAS_TYPE)).toBe("anti_ai")
+      expect(resolveReviewGateKey("  Character_Behavior ")).toBe("anti_ai")
+      expect(resolveReviewGateKey("CHARACTER_BEHAVIOR")).toBe("anti_ai")
+    })
+
+    it("near-miss / 未知 / 既有 legacy alias 归类不变（别名归一不扩大范围）", () => {
+      for (const nearMiss of [
+        "character_behavior_pattern",
+        "character_behaviors",
+        "behaviour_repetition",
+        "behavior",
+        "behavioral_repetition_mechanical",
+      ]) {
+        expect(resolveReviewGateKey(nearMiss), `near-miss ${nearMiss} 必须仍缺省 quality`).toBe("quality")
+      }
+      expect(resolveReviewGateKey("")).toBe("quality")
+      expect(resolveReviewGateKey("unknown_type")).toBe("quality")
+      // 既有 legacy alias 归类逐项不变
+      for (const type of CORR108_LEGACY_CONSISTENCY_REVIEW_TYPES) {
+        expect(resolveReviewGateKey(type)).toBe("consistency")
+      }
+      for (const type of CORR108_LEGACY_ANTI_AI_REVIEW_TYPES) {
+        expect(resolveReviewGateKey(type)).toBe("anti_ai")
+      }
+    })
+
+    it("行为 finding 折叠进 anti_ai.findings（不进 quality），raw 字段原样保留", () => {
+      const behavior = finding({
+        type: BEHAVIOR_ALIAS_TYPE,
+        message: '角色行为模式: "点头"×4',
+        evidence: "角色行为模式检测:\n- ⚠️ \"点头\" 共 4 次",
+        suggestion: "减少重复动作标签, 用差异化微动作替代, 避免角色标签化",
+      })
+      const gates = buildDecisionGates([behavior], 0)
+
+      expect(gates.anti_ai.findings).toEqual([behavior])
+      expect(gates.quality.findings).toEqual([])
+      // raw type/severity/evidence/suggestion 一字不改（只改归属，不改 finding）
+      const folded = gates.anti_ai.findings[0]!
+      expect(folded.type).toBe("character_behavior")
+      expect(folded.severity).toBe("warning")
+      expect(folded.evidence).toBe(behavior.evidence)
+      expect(folded.suggestion).toBe(behavior.suggestion)
+      // P1 判 warning，不臆造 pass
+      expect(gates.anti_ai.verdict).toBe("warning")
+      expect(gates.anti_ai.status).toBe("passed")
+      expect(gates.overall).toBe("warning")
+    })
+
+    it("tuili：行为 warning 不再计入 P2 warn→fail 计数；加 P0 error 后 overall 仍 fail", () => {
+      // 2 条真 Quality warning + 1 条行为 warning，题材 tuili
+      // （Quality 升级阈值 DEFAULT_UPGRADE_THRESHOLD=3：2 < 3 不升级）
+      const qualityA = finding({ type: "pacing_tension", message: "节奏松弛" })
+      const qualityB = finding({ type: "reading_power", message: "爽点偏弱" })
+      const behavior = finding({ type: BEHAVIOR_ALIAS_TYPE, message: '角色行为模式: "推眼镜"×3' })
+
+      const gates = buildDecisionGates([qualityA, qualityB, behavior], 0, undefined, "tuili")
+
+      // 行为 finding 只落 P1，不参与 P2 计数
+      expect(gates.anti_ai.findings.map((item) => item.type)).toEqual(["character_behavior"])
+      expect(gates.quality.findings.map((item) => item.type)).toEqual(["pacing_tension", "reading_power"])
+      expect(gates.quality.verdict).toBe("warning")
+      expect(gates.quality.status).toBe("passed")
+      expect(gates.anti_ai.verdict).toBe("warning")
+      expect(gates.overall).toBe("warning")
+
+      // 加一条 P0 error：overall 必须 fail，且 P2 的 warning 结果不能掩盖 P0
+      const p0Error = finding({ type: "timeline_consistency", severity: "error", message: "时间线错位" })
+      const withP0 = buildDecisionGates([qualityA, qualityB, behavior, p0Error], 0, undefined, "tuili")
+
+      expect(withP0.quality.verdict).toBe("warning")
+      expect(withP0.quality.findings.map((item) => item.type)).toEqual(["pacing_tension", "reading_power"])
+      expect(withP0.consistency.verdict).toBe("fail")
+      expect(withP0.overall).toBe("fail")
+    })
   })
 })
 

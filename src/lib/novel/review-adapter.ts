@@ -568,7 +568,9 @@ export async function reviewChapter(
   if (!novelMode) return []
 
   // A19 机械层零 LLM 前置门控: 先跑 slop + 再跑角色行为模式检测
-  // slop 属 Anti-AI(P1), 行为模式属 Character(P1), 不覆盖 Consistency(P0)。
+  // slop 与行为模式同属 Anti-AI(P1) — slop 归 slop_mechanical, 行为模式 raw type
+  // character_behavior 归 T22 规范维 behavioral_repetition (detectionMethod mechanical),
+  // 两者都经 resolveReviewGateKey 落 anti_ai 门; 不覆盖 Consistency(P0)。
   const slopReport = slopScore(chapterContent)
   if (classifySlop(slopReport) === "block") {
     return [{
@@ -581,7 +583,8 @@ export async function reviewChapter(
     }]
   }
 
-  // P0: 角色行为模式检测 (角色-动作绑定, 零 LLM)
+  // P1: 角色行为模式检测 (角色-动作绑定, 零 LLM) — 规范维 behavioral_repetition (anti_ai)
+  // raw type 保留 character_behavior, 门归属由 resolveReviewGateKey 归一后取 GATE_MAPPING。
   const actionHits = detectCharacterActions(chapterContent)
   const actionText = characterActionsToText(actionHits)
   const behaviorReview: NovelReviewResult[] = actionText
