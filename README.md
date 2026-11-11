@@ -16,10 +16,11 @@
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
   <img src="https://img.shields.io/badge/version-2.27.1-blue?style=flat-square" alt="Version" />
-  <img src="https://img.shields.io/badge/coverage-100%25-brightgreen?style=flat-square" alt="Coverage" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
+
+> 版本摘要口径：本文件按版本摘选要点，并非逐版完整记录 —— v2.26.5、v2.27.0 等条目未在此逐版列出；完整逐版历史见 [CHANGELOG.md](CHANGELOG.md) 与 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
 
 ## v2.27.1 修复（MCP 自述权限如实回报 + 草稿目录描述纠正，正式稳定版）
 
@@ -712,9 +713,10 @@ sequenceDiagram
 - **行为**：开启后 **embedding / rerank 入口短路**（本地无向量/重排，退化为仅关键词/图谱检索路径）。
 - **适用**：无 embedding 服务或离线写作场景；非 LLM 离线（LLM 调用仍按模型配置联网）。隔离网络环境可将 `VITE_QMAI_LLM_ENDPOINT` 指向本地 Ollama 或内网网关。
 
-> 注：v2.7.8 是 v2.7 系列收官（notes-only，安装包沿用 v2.7.7），不是当前 tip。当前源码 tip 是 **v2.21.1** prerelease（2026-10-22，不进 Latest）。当前 stable 仍是 **v2.21.0**。
-> 注：CI 已具备三平台构建 matrix（build.yml），本地 tauri.conf 默认仅 nsis；历史发布资产为 Windows-only，macOS/Linux 是否正式发版以 Releases 为准。
-> 产品版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`（均 2.21.1）为准；`smith/master` 源码 tip 为准，以 [Releases](https://github.com/Smith-106/niko-buddy/releases) 资产为交付真源。
+> 注：v2.7.8 是 v2.7 系列收官（notes-only，安装包沿用 v2.7.7），属历史记录，不代表当前版本。
+> 注：CI 发布构建当前只有 Windows x64 一个活跃 matrix 目标（[build.yml](.github/workflows/build.yml) 的 `matrix.include` 仅 `windows-x64` / `windows-latest`；2026-10-14 用户指令锁定 Windows-only，macOS/Linux 条目已移除，条件步骤不等于活跃目标）；macOS/Linux 是否正式发版以 Releases 实际资产为准。
+> 当前版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处 manifest 为唯一真源；本文件不重复硬编码版本三元组。
+> 源码 tip ≠ 已发布安装包：`smith/master` 上的 P1 角色行为路由归一修复（提交 `0cf0815c`，atlas `5f71a7fe`）只存在于源码，不在已发布的 v2.27.1 安装包里。当前发布状态与交付资产以上方 v2.27.1 节与 [Releases](https://github.com/Smith-106/niko-buddy/releases) 为准。
 
 ### 安装方式
 
