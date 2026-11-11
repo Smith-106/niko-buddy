@@ -7,14 +7,22 @@ description: 下载 Niko Buddy 最新版本安装包
 
 ## 最新版本
 
-**v2.27.1**（2026-11-11 发布：MCP 自述权限如实回报 + 草稿目录描述纠正 — **stable，已接任 GitHub Latest**）
+**v2.27.2**（2026-11-12 JST 发布：装配 P1 角色行为路由归一 + 两项既有文档/质量声明修复 — **stable，GitHub Latest**）
 
-v2.27.1 的发行资产由 tag 触发的 CI 构建（run 42913998699 success）；该 release 已从 prerelease 提升为 **stable 最新版（Latest）**，线上 `latest.json` 的 `version` 为 2.27.1，已装 2.27.0 的用户可经应用内 updater 直接升级。**MCP 包级回读仍未进行**：真实安装/升级后的 `app.status`（`scope` / `readOnly`）与 `tools/list` 的 `chapter.write` 描述需要一个已安全配置的认证 MCP 连接才能读取，目前仍未完成，本页不据此宣称 MCP 契约已验。
-> **v2.27.1 更新要点**：`app.status` 不再恒报 `readOnly: true` —— 它现在如实回报**本次请求**的有效 scope（并同时返回 `scope`），`readOnly: false` 不等于可直写正文；`chapter.write` 的工具描述从错误的 `.novel/drafts` 改为真实草稿目录 `.qm-drafts`。详见下方「v2.27.1 更新要点」。
+v2.27.2 的发行资产由 tag 触发的 CI 构建（run 43036064065，attempt 1 success），四资产齐全（`latest.json` + NSIS 安装包 + `.sig` + 便携版）；该 release 为 **stable 最新版（Latest）**（`prerelease=false`），公开 updater alias 真网络回读的 `latest.json` 的 `version` 为 2.27.2（URL tag-pinned，signature 与真实 `.sig` 匹配）。本版安装路径是**真实 NSIS 覆盖升级 2.27.1 → 2.27.2**（版本读回 / payload 哈希 / 重启后可用），不是应用内 updater 自动升到 2.27.2 的实测。**MCP 包级回读仍未进行**：真实安装/升级后的 `app.status`（`scope` / `readOnly`）与 `tools/list` 的 `chapter.write` 描述需要一个已安全配置的认证 MCP 连接才能读取，目前仍未完成，本页不据此宣称 MCP 契约已验。
+> **v2.27.2 更新要点**：本版把三项既有交付装进真包 —— P1 角色行为路由归一（生产者侧 `character_behavior` 在查 `GATE_MAPPING` 前归一成规范键 `behavioral_repetition`，raw finding / 优先级 / 阈值未改）、README 交付口径、公开质量门与平台声明。详见下方「v2.27.2 更新要点」。
 
-> **上一稳定版 v2.27.0（2026-11-09）**：MCP 一窗口全流程（`auto` 会话档 + 5 个编排工具真注册）、深章产出落成可采纳草稿并回 `artifactPath`、`pipeline.status` 投影补 5 个字段、草稿采纳链修掉两个会毁正文/frontmatter 的真机缺陷。仍可从 Releases 页取该版安装包。
+> **上一稳定版 v2.27.1（2026-11-11）**：MCP 自述权限如实回报（`app.status` 不再恒报 `readOnly: true`，改报本次请求的有效 scope）+ `chapter.write` 草稿目录描述纠正（`.novel/drafts` → `.qm-drafts`）；该版的 CI / 验签 / 真实升级证据见下方「v2.27.1 更新要点」。仍可从 Releases 页取该版安装包。
+>
+> **更早稳定版 v2.27.0（2026-11-09）**：MCP 一窗口全流程（`auto` 会话档 + 5 个编排工具真注册）、深章产出落成可采纳草稿并回 `artifactPath`、`pipeline.status` 投影补 5 个字段、草稿采纳链修掉两个会毁正文/frontmatter 的真机缺陷。仍可从 Releases 页取该版安装包。
 
-### v2.27.1 更新要点（2026-11-11，stable）
+### v2.27.2 更新要点（2026-11-12 JST，stable）
+
+- **P1 角色行为路由归一**：生产者侧 `character_behavior` 在查 `GATE_MAPPING` 之前归一成规范键 `behavioral_repetition`；raw finding、优先级与阈值均未改动。
+- **两项既有交付随包装载**：README 交付口径（提交 `0eaecdb4`）与公开质量门 / 平台声明（提交 `13b37dc5`）。
+- 发布语义：**stable**（`weekly-stable` / `thirty-day-stable` 两项节奏豁免经用户批准并登记，其余硬门不豁免，实际节奏门 PASS）；真实渠道回读 `latest.json` = 2.27.2；**MCP 包级回读（`app.status` 的 `scope` / `readOnly`、`tools/list` 描述）仍待认证连接与逐会话 Read**，本页不据此宣称 MCP 契约已验。
+
+### v2.27.1 更新要点（2026-11-11，stable，历史版）
 
 - **`app.status` 不再恒报只读**：`readOnly` 此前是硬编码 `true`，拿到写授权的会话读到的仍是「只读」，与权限闸门的实际放行相反。现在它表示**本次请求**的有效 scope 是否只读，并同时返回 `scope`（`read` / `settings` / `project` / `auto` / `full`）——`readOnly: false` 只说明该会话有某项写授权，不代表可直写正文（那仍是 `full` 的逐会话授权）。caller scope 经请求局部上下文带入，共享服务端上下文保持只读基线、不会被某个会话的授权污染；权限检查、`required_scope`、审计与快照路径均未改动。
 - **`chapter.write` 描述指向真实草稿目录**：工具描述原写 `.novel/drafts`，而章节草稿的实际目录是 `.qm-drafts`（`.novel/drafts` 仍是合法记忆草稿区，不受影响）；`required_scope` 仍为 `project`。
@@ -464,13 +472,13 @@ v2.27.1 的发行资产由 tag 触发的 CI 构建（run 42913998699 success）�
 
 ## Windows 安装包
 
-当前 stable 是 **v2.27.1**（2026-11-11 发布，占 GitHub Latest）。
+当前 stable 是 **v2.27.2**（2026-11-12 JST 发布，占 GitHub Latest）。
 
-下载 [`niko-buddy_2.27.1_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.27.1/niko-buddy_2.27.1_windows_X64.exe)，双击运行 NSIS 安装程序即可。
+下载 [`niko-buddy_2.27.2_windows_X64.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.27.2/niko-buddy_2.27.2_windows_X64.exe)，双击运行 NSIS 安装程序即可。
 
 ## 便携版
 
-下载 [`niko-buddy_2.27.1_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.27.1/niko-buddy_2.27.1_windows_X64_portable.exe)（单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
+下载 [`niko-buddy_2.27.2_windows_X64_portable.exe`](https://github.com/Smith-106/niko-buddy/releases/download/v2.27.2/niko-buddy_2.27.2_windows_X64_portable.exe)（单文件免安装），直接运行即可，无需安装，适合 U 盘随身携带或免安装场景。
 
 ## 系统要求
 

@@ -15,14 +15,27 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.27.1-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.27.2-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
 
 > 版本摘要口径：本文件按版本摘选要点，并非逐版完整记录 —— v2.26.5、v2.27.0 等条目未在此逐版列出；完整逐版历史见 [CHANGELOG.md](CHANGELOG.md) 与 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
 
-## v2.27.1 修复（MCP 自述权限如实回报 + 草稿目录描述纠正，正式稳定版）
+## v2.27.2（装配 P1 路由归一修复与两项既有交付，正式稳定版 — 当前 GitHub Latest）
+
+**当前稳定版（GitHub Latest，2026-11-12 JST 发布）**：tag `v2.27.2` 指向 `59cfb725`，Release CI（run 43036064065，attempt 1）success，四资产齐全（`latest.json` + NSIS 安装包 + `.sig` + 便携版）；`prerelease=false`，公开 updater alias 真网络回读的 `latest.json` 的 `version` 为 2.27.2（URL tag-pinned，signature 与真实 `.sig` 匹配）。
+
+本版把三项**已交付**的内容装进真包，不含新功能：
+
+- **P1 角色行为路由归一**（提交 `0cf0815c`，atlas `5f71a7fe`）：生产者侧的 `character_behavior` 在查 `GATE_MAPPING` 之前归一成规范键 `behavioral_repetition`；raw finding、优先级与阈值均未改动。
+- **README 交付口径**（提交 `0eaecdb4`）与**公开质量门/平台声明**（提交 `13b37dc5`）。
+
+发布语义：**stable**（`weekly-stable` / `thirty-day-stable` 两项节奏豁免经用户批准并登记，其余同日 / 主干 / 资产 / 签名 / 工程 / 真实安装硬门不豁免，实际节奏门 PASS）。
+
+验证边界：本版的安装证据是**真实 NSIS 覆盖升级 2.27.1 → 2.27.2**（版本读回、已装 EXE 与包内 payload 哈希一致、重启后可用），**不是**应用内 updater 自动升到 2.27.2 的实测 —— 应用内自动升级的实测证据属于 2.27.0 → 2.27.1。**MCP 包级回读仍 pending**：需要一个已安全配置的认证 MCP 客户端与逐会话 Read，才能读取 `app.status` 的 `scope` / `readOnly` 与 `tools/list` 的 `chapter.write` 描述；本节不据此声明 MCP 契约、G5、L9 或 Goal 完成。
+
+## v2.27.1 修复（MCP 自述权限如实回报 + 草稿目录描述纠正，正式稳定版 — 已被 v2.27.2 接任）
 
 外部 Agent 读到的 MCP 自述权限此前与实际闸门相反，本版按请求如实回报：
 
@@ -31,9 +44,9 @@
 
 发布语义：**stable**（`weekly-stable` / `thirty-day-stable` 两项节奏豁免已由用户批准并登记于 `release-cadence-exemptions.json`，其余硬门不变）。
 
-当前发布与验收状态：tag `v2.27.1` 指向 `e7736d13`，Release CI（run 42913998699）success，四资产齐全且做过本地 digest 校验；该 release 为 **stable 且已接任 GitHub Latest**（`prerelease=false`，线上 `latest.json` 的 `version` = 2.27.1）。updater 签名按 Blake2b-512 / Ed25519 双签验签通过（keyId 匹配，artifact 与 trusted comment 双签皆验），并含被篡改 digest 与篡改 trusted comment 的负例拒绝。真实升级路径已实测：应用内 updater 从 2.27.0 升到 2.27.1 后 `FileVersion` / `ProductVersion` / HKCU `DisplayVersion` 均为 2.27.1；已装 EXE 的 SHA-256 与 NSIS 包内 payload 一致，便携版与安装版仅包类型标记（`NSS` / `UNK` 三字节）不同。
+该版发布时的验收状态（**历史记录**，GitHub Latest 现由 v2.27.2 接任）：tag `v2.27.1` 指向 `e7736d13`，Release CI（run 42913998699）success，四资产齐全且做过本地 digest 校验；该 release 当时为 **stable 且接任 GitHub Latest**（`prerelease=false`，当时线上 `latest.json` 的 `version` = 2.27.1）；v2.27.2 发布后 Latest 已移交给 v2.27.2，本版的发布正文与四资产未变。updater 签名按 Blake2b-512 / Ed25519 双签验签通过（keyId 匹配，artifact 与 trusted comment 双签皆验），并含被篡改 digest 与篡改 trusted comment 的负例拒绝。真实升级路径已实测：应用内 updater 从 2.27.0 升到 2.27.1 后 `FileVersion` / `ProductVersion` / HKCU `DisplayVersion` 均为 2.27.1；已装 EXE 的 SHA-256 与 NSIS 包内 payload 一致，便携版与安装版仅包类型标记（`NSS` / `UNK` 三字节）不同。
 
-> 安装与验签已按上述真机路径验证。但 **MCP 包级回读仍未进行**：新版本安装/升级后 `app.status` 的 `scope` / `readOnly` 返回与 `tools/list` 的 `chapter.write` 描述，都需要一个已安全配置的认证 MCP 连接才能读取；目前该连接缺失（探针无监听器，认证请求 0 次），故仍 pending。源码层修补另已通过聚焦库测试（103 passed / 0 failed）与独立源码复核。不因本节视为 MCP 契约已验，也不据此声明 G5 / L9 / Goal 完成。
+> 安装与验签已按上述真机路径验证。但 **MCP 包级回读仍未进行**：新版本安装/升级后 `app.status` 的 `scope` / `readOnly` 返回与 `tools/list` 的 `chapter.write` 描述，都需要一个已安全配置的认证 MCP 连接才能读取；该版发布时该连接缺失（当时探针无监听器、认证请求 0 次；这是该版的记录，不代表本次实时监听结果），故仍 pending。源码层修补另已通过聚焦库测试（103 passed / 0 failed）与独立源码复核。不因本节视为 MCP 契约已验，也不据此声明 G5 / L9 / Goal 完成。
 
 ## v2.26.4 新增（主控三档权能补全，正式稳定版）
 
@@ -716,7 +729,7 @@ sequenceDiagram
 > 注：v2.7.8 是 v2.7 系列收官（notes-only，安装包沿用 v2.7.7），属历史记录，不代表当前版本。
 > 注：CI 发布构建当前只有 Windows x64 一个活跃 matrix 目标（[build.yml](.github/workflows/build.yml) 的 `matrix.include` 仅 `windows-x64` / `windows-latest`；2026-10-14 用户指令锁定 Windows-only，macOS/Linux 条目已移除，条件步骤不等于活跃目标）；macOS/Linux 是否正式发版以 Releases 实际资产为准。
 > 当前版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处 manifest 为唯一真源；**本段不硬编码版本三元组**，本文件其余段落出现的版本编号均为叙述性摘选（顶部徽章/版本摘要不构成版本权威）。
-> 源码 tip ≠ 已发布安装包：`smith/master` 上的 P1 角色行为路由归一修复（提交 `0cf0815c`，atlas `5f71a7fe`）只存在于源码，不在已发布的 v2.27.1 安装包里。当前发布状态与交付资产以上方 v2.27.1 节与 [Releases](https://github.com/Smith-106/niko-buddy/releases) 为准。
+> 源码 tip ≠ 已发布安装包：`smith/master` 上的 P1 角色行为路由归一修复（提交 `0cf0815c`，atlas `5f71a7fe`）已随 v2.27.2 真包装载（v2.27.1 及更早的安装包里没有），同版还装入 README 交付口径 `0eaecdb4` 与公开质量门/平台声明 `13b37dc5`；源码层与发行包仍是不同层，版本权威仍以三份 manifest 为准。当前发布状态与交付资产以上方 v2.27.2 节与 [Releases](https://github.com/Smith-106/niko-buddy/releases) 为准。
 
 ### 安装方式
 
