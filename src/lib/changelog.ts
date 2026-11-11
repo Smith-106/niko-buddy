@@ -15,6 +15,31 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.27.2（计划最早发布日 2026-11-12）：把已落在主干但不在 v2.27.1 安装包里的 P1 角色行为路由归一（0cf0815c / atlas 5f71a7fe）、README 交付元数据纠正（0eaecdb4）与公开质量门/平台覆盖纠正（13b37dc5）装配进真包；登记本版两项节奏豁免。
+    version: "2.27.2",
+    date: "2026-11-12",
+    highlights: {
+      en: [
+        "Assembled: this version packages the three deliveries that are already on smith/master but absent from the published v2.27.1 installer — the P1 character-behaviour routing normalization (0cf0815c, with its regenerated module atlas 5f71a7fe), the README delivery-metadata correction (0eaecdb4) and the public quality-gate / platform-coverage correction (13b37dc5). All three are reused exactly as delivered: no feature work, no gate or threshold change, and none of them is re-implemented here.",
+        "Fixed (delivered by 0cf0815c): the mechanical character-action detector emitted the producer type character_behavior, which is not a registered audit dimension id, so gate resolution fell through to the conservative quality (P2) default. A P1 Anti-AI finding was therefore read as clean by the Anti-AI gate while it also polluted the P2 genre warn-to-fail count. One non-exported producer-alias table now normalizes that type to its canonical dimension behavioral_repetition before the registered lookup, so the gate is again taken from GATE_MAPPING as the single source of truth instead of a hardcoded key.",
+        "Unchanged by that fix: the raw finding type, severities, verdicts, group priority, genre thresholds, repair severity and the Draft-first boundary; the CORR-108 legacy alias arrays keep their exact bytes; unknown, empty and near-miss types still fall back to quality.",
+        "Release cadence exemptions registered for this tag only: weekly-stable (ISO week 2026-11-09 already carries v2.27.0, published 2026-11-09, and v2.27.1, published 2026-11-10T22:22:42Z, so the week already holds two stable releases against a limit of one) and thirty-day-stable (the 30-day window already exceeds the limit of four by the historical release pace; the v2.27.1 registration measured 23 stable releases in the preceding 30 days). Both were explicitly approved by the user (approvedBy=user, approvedAt=2026-11-11) and are recorded in release-cadence-exemptions.json and in the exemptions table of the 2026-10-18 release-channel decision log; the release body repeats the same reason, scope and approval date.",
+        "The exempted scope is exactly those two rules. same-day-duplicate is not registered and is neither claimed as triggered nor waived; the trunk, signature, active-target asset-completeness, required engineering-gate and install/update/restart requirements are unchanged. This version's exemption covers an ordinary source-repair delivery and is explicitly not an asset backfill.",
+        "Note (scope of this entry): it documents the source-level assembly only. Installing or updating a real package, and reading the MCP metadata back from an installed build, are still unverified and are not claimed as passed package-level acceptance here. No publication time is asserted: 2026-11-12 is the approved earliest planned release date (JST 2026-11-12 00:00 = 2026-11-11T15:00:00Z), and the actual timestamp must come from the release readback.",
+        "Note (literary scope): the chapter-side claim is not applicable to this pure application release — no chapter was scored, no writer run, no gate re-evaluation, and no canon, prose or memory change is part of it. The overall G5 / L9 goal remains unmet, and an empty anti-AI pass is not evidence that the anti-AI check was verified.",
+      ],
+      zh: [
+        "装配：本版把已落在 `smith/master` 但不在 v2.27.1 安装包里的三项交付装进真包 —— P1 角色行为路由归一（`0cf0815c`，随附 module-atlas 重生 `5f71a7fe`）、README 交付元数据纠正（`0eaecdb4`）、公开质量门与平台覆盖声明纠正（`13b37dc5`）。三项均按已交付状态复用：不重做、不新增功能、不改任何门或阈值。",
+        "修复（由 `0cf0815c` 交付）：机械层角色行为检测产出的 type `character_behavior` 不是已登记的审计维 id，门控解析因此落到保守的 `quality`（P2）缺省分支 —— P1 的 Anti-AI finding 被 Anti-AI 门当作 clean，同时又污染 P2 的题材 warn 到 fail 计数。现在一张非导出的生产者别名表在查表之前把该 type 归一到规范维 `behavioral_repetition`，门归属重新唯一由 `GATE_MAPPING` 决定，不硬编码门键。",
+        "该修复未改动的部分：raw finding 的 type / severity / evidence / suggestion、分组优先级、体裁阈值、repair severity 与 Draft-first 边界；CORR-108 历史别名数组字节不变；unknown / empty / near-miss 仍回落 `quality`。",
+        "发布节奏豁免（仅本 tag，已登记）：`weekly-stable` —— ISO 周 2026-11-09 已有 v2.27.0（2026-11-09 发布）与 v2.27.1（`2026-11-10T22:22:42Z` 发布）两个 stable，超过「每周 ≤1」；`thirty-day-stable` —— 发布前 30 天 stable 已超上限 4（v2.27.1 登记时用同源算法实测为 23 个），属历史连续高频发布的累积结果。两项均由用户明确批准（`approvedBy=user`，`approvedAt=2026-11-11`），并同步登记在 `release-cadence-exemptions.json` 与 2026-10-18 发布渠道决策表的「已登记豁免」表；release body 与本条使用同一 reason / scope / 批准日。",
+        "豁免范围恰为该两项。`same-day-duplicate` 未登记，本次也不声称其触发或豁免；主干、签名、活跃目标资产齐全、必要工程门、真实安装 / 更新 / 重启等硬门一律不变。本版豁免事由是普通源码修补交付，明确不属于资产补齐。",
+        "说明（本条目的边界）：只描述源码层装配。新版本安装 / 升级后从已装包回读 MCP 元数据仍未验证，不视为包级验收已通过。本条不宣称任何发布时间 —— 2026-11-12 是已批准的最早计划发布日（JST 2026-11-12 00:00 = `2026-11-11T15:00:00Z`），实际发布时间须以发布回读为准。",
+        "说明（文学侧边界）：章节侧的宣称不适用于本次纯应用发版 —— 本次未跑章节评分、未跑 writer、未重跑门控，也未改正文 / canon / 记忆。整体 G5 / L9 仍未达成；空的 anti_ai pass 不等于「反AI已验」。",
+      ],
+    },
+  },
+  {
     // 2.27.1（2026-11-11）：MCP 元数据两处纠正 —— app.status 按请求局部 scope 回报 readOnly + scope，chapter.write 描述指向真实草稿目录 .qm-drafts；同时登记两项节奏豁免。
     version: "2.27.1",
     date: "2026-11-11",

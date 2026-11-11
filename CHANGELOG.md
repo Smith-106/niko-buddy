@@ -7,6 +7,26 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.27.2] - 2026-11-12
+
+> 日期口径：2026-11-12 是已批准的**最早计划发布日**（JST 2026-11-12 00:00 = `2026-11-11T15:00:00Z`）；实际发布时间以 release 回读为准，本节不预支发布时间。
+
+### Fixed
+
+- 修复（由 `0cf0815c` 交付）：机械层角色行为检测产出的 type `character_behavior` 不是已登记的审计维 id，门控解析因此落到保守的 `quality`（P2）缺省分支 —— P1 的 Anti-AI finding 被 Anti-AI 门当作 clean，同时又污染 P2 的题材 warn 到 fail 计数。现在一张非导出的生产者别名表在查表之前把该 type 归一到规范维 `behavioral_repetition`，门归属重新唯一由 `GATE_MAPPING` 决定，不硬编码门键。raw finding 的 type / severity / evidence / suggestion、分组优先级、体裁阈值、repair severity 与 Draft-first 边界均未改；CORR-108 历史别名数组字节不变；unknown / empty / near-miss 仍回落 `quality`。
+
+### 装配范围（无新功能）
+
+- 本版把已落在 `smith/master` 但不在 v2.27.1 安装包里的三项交付装进真包：P1 角色行为路由归一（`0cf0815c`，随附 module-atlas 重生 `5f71a7fe`）、README 交付元数据纠正（`0eaecdb4`）、公开质量门与平台覆盖声明纠正（`13b37dc5`）。三项按已交付状态复用，不重做、不新增功能、不改门或阈值。
+
+### 发布节奏豁免（已登记）
+
+- `weekly-stable`：ISO 周 2026-11-09 已有 v2.27.0（2026-11-09 发布）与 v2.27.1（`2026-11-10T22:22:42Z` 发布）两个 stable，超过「stable：每周 ≤1」。用户已明确批准登记豁免（`approvedBy=user`，`approvedAt=2026-11-11`）。
+- `thirty-day-stable`：发布前 30 天 stable 已超上限 4（v2.27.1 登记时用同源算法实测为 23 个），属历史连续高频发布的累积结果，不是跳过工程门禁。用户已明确批准登记豁免（`approvedBy=user`，`approvedAt=2026-11-11`）。
+- 未列入 `release-cadence-exemptions.json` 的规则照常判定：`same-day-duplicate` 本次未登记（也不声称其触发或豁免）；主干 / 签名 / 活跃目标资产齐全 / 必要工程门 / 真实安装更新重启等硬门一律不变。本版豁免事由是普通源码修补交付，明确不属于资产补齐。
+
+> 说明：本节只描述源码层装配与其库测试结果；新版本安装/升级后的 MCP 回读仍未验证，不因本节而视为包级验收已通过。章节侧宣称（L9 等）不适用于本次纯应用发版 —— 本次未跑章节评分 / writer / 门控重跑，也未改正文、canon 或记忆；整体 G5 / L9 仍未达成，空的 anti_ai pass 不等于「反AI已验」。
+
 ## [2.27.1] - 2026-11-11
 
 ### Fixed
