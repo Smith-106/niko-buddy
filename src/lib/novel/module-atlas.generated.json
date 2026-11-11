@@ -91,7 +91,7 @@
   "specOnly": 268,
   "barrelOnly": 1,
   "edges": 4657,
-  "loc": 290752
+  "loc": 290782
  },
  "modules": [
   {
@@ -15295,7 +15295,7 @@
   {
    "p": "src/lib/novel/review-adapter.ts",
    "s": 10,
-   "l": 968,
+   "l": 971,
    "r": true,
    "o": false,
    "x": false,
@@ -15382,7 +15382,7 @@
   {
    "p": "src/lib/novel/review-prompt-assembly.ts",
    "s": 10,
-   "l": 269,
+   "l": 296,
    "r": true,
    "o": false,
    "x": false,
