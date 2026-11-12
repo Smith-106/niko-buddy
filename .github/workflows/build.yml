@@ -159,7 +159,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build ${{ matrix.tauri_args }}
+        run: npx tauri build ${{ matrix.tauri_args }} --config src-tauri/tauri.ci.conf.json
 
       - name: Publish Windows updater manifest
         if: github.event_name == 'push' && matrix.label == 'windows-x64'
