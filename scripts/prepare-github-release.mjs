@@ -64,7 +64,7 @@ const latest = {
   platforms: {
     "windows-x86_64": {
       signature,
-      url: `https://github.com/Smith-106/niko-buddy/releases/latest/download/${releaseAssetName}`,
+      url: `https://github.com/Smith-106/niko-buddy/releases/download/v${pkg.version}/${releaseAssetName}`,
     },
   },
 }
