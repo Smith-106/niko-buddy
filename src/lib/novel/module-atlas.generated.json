@@ -91,7 +91,7 @@
   "specOnly": 268,
   "barrelOnly": 1,
   "edges": 4657,
-  "loc": 290807
+  "loc": 290822
  },
  "modules": [
   {
@@ -12325,7 +12325,7 @@
   {
    "p": "src/lib/novel/dimension-review-adapter.ts",
    "s": 10,
-   "l": 1014,
+   "l": 1029,
    "r": true,
    "o": false,
    "x": false,
