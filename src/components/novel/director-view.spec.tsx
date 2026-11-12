@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest"
 import { render, screen, fireEvent, waitFor } from "@/test-helpers/component-test-utils"
 import { cleanup } from "@testing-library/react"
 import { DirectorView } from "./director-view"
@@ -102,6 +102,16 @@ function fullDoneState(): DirectorPipelineState {
   }
   return state
 }
+
+// 用例级所有权：每个用例自行卸载渲染根（本文件未启用 vitest globals，RTL 自动 cleanup 不生效）。
+afterEach(() => cleanup())
+
+// 所有权守卫：文件结束时不得残留渲染容器（RTL 自动 cleanup 未安装时的回归探测）。
+afterAll(() => {
+  const leftovers = [...document.body.children].map((el) => `<${el.tagName.toLowerCase()}>`)
+  expect(leftovers, "渲染容器在文件结束后仍残留于 document.body").toEqual([])
+  expect(document.body.childElementCount).toBe(0)
+})
 
 describe("DirectorView（60 号设计：开书导演主视图）", () => {
   beforeEach(() => {
@@ -689,7 +699,12 @@ describe("DirectorView statements 缺口补齐（第十五批）", () => {
     render(<DirectorView projectId="/proj" />)
     await waitFor(() => expect(screen.getByTestId("director-advance")).toBeInTheDocument())
     fireEvent.click(screen.getByTestId("director-advance"))
-    await waitFor(() => expect(advanceMock.fn).toHaveBeenCalledTimes(1))
+    // 推进完成契约：phase-status 变 advanced 且推进按钮退出 busy（disabled={busy}，finally 复位）
+    await waitFor(() =>
+      expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "advanced"),
+    )
+    await waitFor(() => expect(screen.getByTestId("director-advance")).not.toBeDisabled())
+    expect(advanceMock.fn).toHaveBeenCalledTimes(1)
     expect(screen.queryByTestId("director-gap")).not.toBeInTheDocument()
     expect(screen.getByTestId("director-phase-status")).toHaveAttribute("data-status", "advanced")
   })
