@@ -90,8 +90,8 @@
   "orphan": 277,
   "specOnly": 268,
   "barrelOnly": 1,
-  "edges": 4657,
-  "loc": 290822
+  "edges": 4658,
+  "loc": 291892
  },
  "modules": [
   {
@@ -1985,7 +1985,7 @@
   {
    "p": "src/components/layout/preview-panel-helpers.ts",
    "s": 16,
-   "l": 167,
+   "l": 655,
    "r": true,
    "o": false,
    "x": false,
@@ -2003,7 +2003,7 @@
   {
    "p": "src/components/layout/preview-panel.tsx",
    "s": 16,
-   "l": 1429,
+   "l": 1957,
    "r": true,
    "o": false,
    "x": false,
@@ -2321,7 +2321,7 @@
   {
    "p": "src/components/layout/writing-workspace.tsx",
    "s": 16,
-   "l": 537,
+   "l": 591,
    "r": true,
    "o": false,
    "x": false,
@@ -2332,6 +2332,7 @@
     57,
     75,
     77,
+    93,
     94,
     107,
     130,
