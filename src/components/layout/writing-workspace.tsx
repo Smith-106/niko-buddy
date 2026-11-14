@@ -3,7 +3,8 @@
 
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { PreviewPanel } from "./preview-panel"
+import { PreviewPanel, type PreviewPanelAdoptionStart, type PreviewPanelWriteGate } from "./preview-panel"
+import { ChapterAdoptionUnavailableError, getChapterWriteCoordinator } from "./preview-panel-helpers"
 import { PdfExportDialog } from "@/components/export/PdfExportDialog"
 import { BatchReplacePanel } from "@/components/tools/BatchReplacePanel"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
@@ -144,6 +145,19 @@ export function WritingWorkspace() {
   }, [selectedFile])
   // 草稿状态徽标（批次二·6）：待采纳数随 dataVersion 与采纳动作刷新。
   const [draftReloadKey, setDraftReloadKey] = useState(0)
+  // G2-NATIVE-F1：采纳专用刷新令牌。采纳把正式正文写回**当前选中的同一个文件**时
+  // selectedFile identity 不变，只看选中路径的装载 effect 不会重跑（编辑区留旧正文）。
+  // token 与 path 同批更新：path 指认这次采纳写入的正式章，只有它等于当前选中文件才重载。
+  const [chapterAdoptionRefresh, setChapterAdoptionRefresh] = useState({ token: 0, path: "" })
+  // 编辑区的同文件写入门（由 PreviewPanel 挂载时登记）：正式采纳写入之前先静默它的写盘。
+  const previewWriteGateRef = useRef<PreviewPanelWriteGate | null>(null)
+  const adoptionOwnerRef = useRef<object>({})
+  const adoptionCoordinator = getChapterWriteCoordinator()
+  useEffect(() => {
+    const owner = adoptionOwnerRef.current
+    // 真正离开写作台取消准备态；已经准入的 accept/read 只在实际 I/O 落定后释放。
+    return () => { adoptionCoordinator.releaseOwnedAdoptions(owner) }
+  }, [adoptionCoordinator])
   const pendingDraftCount = usePendingDraftCount(projectPath, `${dataVersion}:${draftReloadKey}`)
   const openMainControlForDraft = useCallback(() => {
     setMainControlGoalHandoff(buildChapterDraftGoal(selectedFile ? chapterTitle : ""))
@@ -158,19 +172,51 @@ export function WritingWorkspace() {
         projectPath: input.projectPath,
         formalChapterPath: input.formalChapterPath,
         accept: async (formalChapterPath) => {
-          await createMainControlAcceptSeam({
-            projectPath: input.projectPath,
-            draftId: input.draftId,
-            // 第二步确认：用户在确认面板里点了「确认采纳」（第一步只展开面板）。
-            confirmed: true,
-          })(formalChapterPath)
+          // 正式采纳写入之前先静默同一文件上的编辑器写盘：作废待写盘、确认旧输入已关闭、
+          // 并等该目标**全部**已准入的真实 I/O 落定（不是单槽最后一笔）。
+          // 否则任一旧写盘都可能落在采纳之后，把刚采纳的正文覆盖回去。
+          const gate = previewWriteGateRef.current
+          const start: PreviewPanelAdoptionStart = gate
+            ? await gate.begin(formalChapterPath, adoptionOwnerRef.current)
+            : { status: "idle", lease: null }
+          if (start.status === "blocked") {
+            if (start.reason === "busy") throw new Error("该章节还有一次采纳正在落盘，请稍后重试")
+            throw new ChapterAdoptionUnavailableError(start.reason, start.relocation ?? null)
+          }
+          let lease = start.lease
+          // 缺省/旧可选门也沿用同一协调器，不另造一条采纳写路径。
+          if (!lease) {
+            const begin = adoptionCoordinator.beginAdoption(formalChapterPath, adoptionOwnerRef.current)
+            if (!begin.ok) throw new Error("该章节还有一次采纳正在落盘，请稍后重试")
+            lease = begin.lease!
+            await begin.admittedTail
+          }
+          try {
+            const accepted = adoptionCoordinator.runAdoption(lease, () => createMainControlAcceptSeam({
+              projectPath: input.projectPath,
+              draftId: input.draftId,
+              // 第二步确认：仍转调原 acceptChapterDraft；迁移由 runAdoption 中止，不重定向参数。
+              confirmed: true,
+            })(formalChapterPath))
+            // 此刻是 writing 态：这里只登记释放意图，真实 accept/read 落定前不能解锁。
+            adoptionCoordinator.releaseAdoption(lease)
+            await accepted
+          } catch (error) {
+            gate?.abort(start)
+            adoptionCoordinator.releaseAdoption(lease)
+            throw error
+          }
+          // 落盘已确认：立即让编辑区对齐权威正文（不等可能很慢的 ingest/onAdopted）。
+          // 刷新放在这一步而不是 onAdopted：回填可能跑很久，那之后用户已经接着写作，
+          // 再刷新会冲掉新写的内容。
+          setChapterAdoptionRefresh((current) => ({ token: current.token + 1, path: formalChapterPath }))
           // 落盘回执：之后 ingest 抛错不得被当成「采纳失败」。
           input.onAcceptSettled?.()
         },
         novelConfig,
         llmConfig,
       }),
-    [novelConfig, llmConfig],
+    [novelConfig, llmConfig, adoptionCoordinator],
   )
   const saveLabel = matchedSave?.saving
     ? t("novel.chapter.savingAsFinal")
@@ -468,7 +514,11 @@ export function WritingWorkspace() {
       <div ref={containerRef} className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <div className="min-w-0 flex-1 overflow-hidden">
-            <PreviewPanel />
+            <PreviewPanel
+              adoptionRefreshToken={chapterAdoptionRefresh.token}
+              adoptionRefreshPath={chapterAdoptionRefresh.path}
+              writeGateRef={previewWriteGateRef}
+            />
           </div>
           {chapterDock}
           <div
@@ -501,7 +551,11 @@ export function WritingWorkspace() {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className={focusMode ? "flex min-w-0 flex-1 justify-center overflow-auto bg-muted/20" : "min-w-0 flex-1 overflow-hidden"}>
           <div className={focusMode ? "w-full max-w-4xl px-6 py-4" : "h-full w-full"}>
-            <PreviewPanel />
+            <PreviewPanel
+              adoptionRefreshToken={chapterAdoptionRefresh.token}
+              adoptionRefreshPath={chapterAdoptionRefresh.path}
+              writeGateRef={previewWriteGateRef}
+            />
           </div>
         </div>
         {chapterDock}

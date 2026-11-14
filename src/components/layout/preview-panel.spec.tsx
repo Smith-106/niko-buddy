@@ -12,6 +12,8 @@ configure({ asyncUtilTimeout: 5000 })
 import { render, screen, fireEvent, waitFor, act, setupDomGlobals } from "@/test-helpers/component-test-utils"
 import type { NovelReviewResult, DeAiBatchSummary, DeAiBatchOptions } from "@/lib/novel"
 import type { ChapterBodySelection } from "@/lib/chapter-selection"
+import type { ComponentProps } from "react"
+import type { ChapterDraftDockAdoptAndIngest } from "./chapter-draft-dock"
 
 const CHAPTER_PATH = "/proj/wiki/chapters/第1章.md"
 const OUTLINE_PATH = "/proj/wiki/outlines/大纲.md"
@@ -70,6 +72,11 @@ const mocks = vi.hoisted(() => {
     chapterMetaFinalGate,
     saveText,
     selectionText,
+    realEditor: { value: false },
+    confirmTarget: { value: "/proj/wiki/chapters/第1章.md" },
+    confirmError: vi.fn(),
+    acceptSettled: vi.fn(),
+    acceptChapterDraft: vi.fn(),
     t: vi.fn<(key: string, opts?: { defaultValue?: string } | string) => string | number>((key, opts) =>
       lookupZhLocale(key) ?? (typeof opts === "string" ? opts : opts?.defaultValue) ?? key
     ),
@@ -301,13 +308,20 @@ vi.mock("@/lib/novel/chapter-ingest", async (importOriginal) => {
     ...actual, ingestChapter: mocks.ingestChapter 
   }
 })
-vi.mock("@/lib/workspace-layout", () => ({
-  shouldUseCompactChapterToolbar: mocks.shouldUseCompactChapterToolbar,
-  getPreviewContentContainerClass: mocks.getPreviewContentContainerClass,
-}))
+vi.mock("@/lib/workspace-layout", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/workspace-layout")>()
+  return {
+    ...actual,
+    shouldUseCompactChapterToolbar: mocks.shouldUseCompactChapterToolbar,
+    getPreviewContentContainerClass: mocks.getPreviewContentContainerClass,
+  }
+})
 
-vi.mock("@/components/editor/wiki-editor", () => ({
-  WikiEditor: (props: Record<string, any>) => (
+vi.mock("@/components/editor/wiki-editor", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/editor/wiki-editor")>()
+  return { WikiEditor: (props: ComponentProps<typeof actual.WikiEditor>) => mocks.realEditor.value
+    ? <actual.WikiEditor {...props} />
+    : (
     <div data-testid="wiki-editor">
       <span data-testid="editor-content">{props.content}</span>
       <span data-testid="editor-mode">{props.defaultMode}</span>
@@ -328,9 +342,34 @@ vi.mock("@/components/editor/wiki-editor", () => ({
         hl
       </button>
       <span data-testid="editor-highlight">{props.highlightRequest ? props.highlightRequest.text : "none"}</span>
+      <button data-testid="editor-reemit" onClick={() => props.onSave(props.content)}>reemit</button>
     </div>
+  ) }
+})
+
+// R6-PC integration uses the REAL WritingWorkspace + PreviewPanel + coordinator.
+// Only the confirmed accept I/O seam / Dock's second-click driver are controlled.
+vi.mock("@/lib/novel/draft-manager", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/draft-manager")>()
+  return { ...actual, acceptChapterDraft: mocks.acceptChapterDraft, listChapterDrafts: vi.fn(async () => []) }
+})
+vi.mock("./chapter-draft-dock", () => ({
+  ChapterDraftDock: ({ adoptAndIngest, onAdopted }: {
+    adoptAndIngest?: ChapterDraftDockAdoptAndIngest
+    onAdopted?: (path: string) => void
+  }) => (
+    <button data-testid="workspace-confirm" onClick={() => {
+      void adoptAndIngest?.({
+        projectPath: "/proj",
+        draftId: "controlled-draft",
+        formalChapterPath: mocks.confirmTarget.value,
+        onAcceptSettled: mocks.acceptSettled,
+      }).then((result) => onAdopted?.(result.formalChapterPath), (error: unknown) => mocks.confirmError(error))
+    }}>second confirmation</button>
   ),
 }))
+vi.mock("@/components/chat/chat-panel", () => ({ ChatPanel: () => <div data-testid="workspace-chat" /> }))
+vi.mock("@/components/novel/campaign-dashboard-dialog", () => ({ CampaignDashboardDialog: () => null }))
 
 vi.mock("@/components/editor/wiki-reader", () => ({
   WikiReader: (props: { body: string }) => <div data-testid="wiki-reader">{props.body}</div>,
@@ -430,6 +469,15 @@ vi.mock("@/lib/novel/chapter-meta", async (importOriginal) => {
 })
 
 import { PreviewPanel } from "./preview-panel"
+import { WritingWorkspace } from "./writing-workspace"
+import type { PreviewPanelAdoptionStart, PreviewPanelWriteGate } from "./preview-panel"
+import {
+  createChapterWriteCoordinator,
+  getChapterWriteCoordinator,
+  resetChapterWriteCoordinator,
+  normalizeChapterWriting,
+  type ChapterWriteCoordinator,
+} from "./preview-panel-helpers"
 import zhLocale from "@/i18n/zh.json"
 
 function lookupZhLocale(key: string): string | undefined {
@@ -447,6 +495,19 @@ async function flushAsync(ms = 0): Promise<void> {
   })
 }
 
+/**
+ * 起一次采纳受理。begin 会等「装载守卫真正提交到 DOM」，必须让一次渲染发生；
+ * 把 `await begin()` 塞进同一个 async act 会自锁（act 内的更新要等回调结束才提交）。
+ */
+async function beginAdoption(
+  gateRef: { current: PreviewPanelWriteGate | null },
+  path: string,
+): Promise<PreviewPanelAdoptionStart> {
+  const pending = gateRef.current!.begin(path)
+  await flushAsync(20)
+  return pending
+}
+
 async function renderPanel(): Promise<{ rerender: () => void; cleanup: () => void }> {
   const view = render(<PreviewPanel />)
   await flushAsync(10)
@@ -459,6 +520,8 @@ async function renderPanel(): Promise<{ rerender: () => void; cleanup: () => voi
 beforeEach(() => {
   vi.clearAllMocks()
   setupDomGlobals()
+  // 写入协调器是同进程共享实例：每个用例从干净的瞬时状态开始。
+  resetChapterWriteCoordinator()
   mocks.state.project = { path: "/proj" }
   mocks.state.selectedFile = null
   mocks.state.selectedTrashItem = null
@@ -474,6 +537,16 @@ beforeEach(() => {
   mocks.chapterMetaFinalGate.value = true
   mocks.saveText.value = "用户改动的内容"
   mocks.selectionText.value = "选中文本"
+  mocks.realEditor.value = false
+  mocks.confirmTarget.value = CHAPTER_PATH
+  mocks.acceptChapterDraft.mockResolvedValue(undefined)
+  mocks.state.focusMode = false
+  mocks.state.chatDockPosition = "bottom"
+  mocks.state.dataVersion = 0
+  mocks.state.thrilSoftGateAcknowledgedByChapter = {}
+  mocks.state.setFocusMode = vi.fn((value: boolean) => { mocks.state.focusMode = value })
+  mocks.state.setActiveView = vi.fn()
+  mocks.getFileModifiedTime.mockResolvedValue(0)
   mocks.readFile.mockResolvedValue("")
   mocks.writeFileAtomic.mockResolvedValue(undefined)
   mocks.writeFileAtomic.mockResolvedValue(undefined)
@@ -3185,5 +3258,1430 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled(), { timeout: 3000 })
     expect(mocks.writeFileAtomic.mock.calls[0][1]).toContain("# 第1章-新标题")
     cleanup()
+  })
+})
+
+/**
+ * G2-NATIVE-F1 回归（草稿采纳后编辑区不刷新 / 重载窗口丢稿 / 旧写盘越序）。
+ *
+ * 已确认缺陷：chapter-draft-dock 采纳成功后 onAdopted(formalChapterPath) 只做
+ * `setSelectedFile(同一个 path)` + `setActiveView("wiki")`；而磁盘重载 effect 的
+ * 依赖是 selectedFile 的 identity（preview-panel.tsx 装载 effect）——同路径写回时
+ * identity 不变 ⇒ 不重跑 ⇒ 编辑区停在采纳前的旧正文。
+ * 修正后的口径（本组用例锁定）：
+ *  1) 令牌 +1 且令牌指认当前文件后必须重读磁盘并渲染权威正文；令牌指认别的文件则不动编辑区；
+ *  2) 采纳是权威写入：writeGate.begin 必须作废待写盘、卸载旧编辑器、等在途写盘落定，
+ *     之后才轮到正式采纳写入（否则旧缓冲可能在采纳之后落盘、覆盖刚采纳的正文）；
+ *  3) 重载窗口内旧缓冲区已卸载 ⇒ 不存在「窗口内补的一笔被静默丢弃」；
+ *  4) 采纳失败（abort）恢复编辑区并把未落盘正文重新排队；读盘失败如实报错且不写空内容；
+ *  5) 采纳窗口内的 pagehide / 切章都不得把旧缓冲 flush 回正式章。
+ */
+describe("G2-NATIVE-F1 采纳后同路径重载", () => {
+  const ADOPTED_MD = CHAPTER_MD.replace("正文第一段。", "采纳后的权威正文。")
+  const SECOND_PATH = "/proj/wiki/chapters/第二章.md"
+  const SECOND_MD = "# 第二章\n\n新章正文"
+
+  function renderWithGate(): {
+    gateRef: { current: PreviewPanelWriteGate | null }
+    view: ReturnType<typeof render>
+  } {
+    const gateRef: { current: PreviewPanelWriteGate | null } = { current: null }
+    const view = render(
+      <PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" writeGateRef={gateRef} />,
+    )
+    return { gateRef, view }
+  }
+
+  it("同路径采纳成功后重载权威正文（selectedFile identity 未变）", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const view = render(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" />)
+    await flushAsync(10)
+    expect(screen.getByTestId("editor-content").textContent).toBe(CHAPTER_MD)
+
+    // 采纳落盘：盘上换成正式正文，选中路径不变，令牌 +1（并指认这个路径）。
+    mocks.readFile.mockResolvedValue(ADOPTED_MD)
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} />)
+    await flushAsync(20)
+    // mock store 非响应式：读盘结果经 setFileContent 落到 state，再渲一次取最新内容。
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} />)
+
+    expect(mocks.readFile).toHaveBeenCalledTimes(2)
+    expect(mocks.readFile).toHaveBeenLastCalledWith(CHAPTER_PATH)
+    expect(screen.getByTestId("editor-content").textContent).toBe(ADOPTED_MD)
+    // 重载本身是只读动作：不得顺手写盘。
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it("令牌指认的不是当前文件 → 不重读、不打扰当前编辑区的未保存文本", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    mocks.saveText.value = CHAPTER_MD + "\n正在写的内容"
+    const view = render(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" />)
+    await flushAsync(10)
+    fireEvent.click(screen.getByTestId("editor-save"))
+
+    // 采纳写入的是另一章（例如此刻选中章被切走过）：当前这块正文必须原样留着。
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={SECOND_PATH} />)
+    await flushAsync(20)
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={SECOND_PATH} />)
+
+    expect(mocks.readFile).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId("editor-content").textContent).toContain("正在写的内容")
+    view.unmount()
+  })
+
+  it("重载作废采纳前排队的旧缓冲防抖写盘；随后真实用户保存仍然生效", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    mocks.saveText.value = CHAPTER_MD + "\n未采纳的旧缓冲改动"
+    const view = render(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" />)
+    await flushAsync(10)
+    // 用户在采纳前编辑过一次：1s 防抖写盘已排队但尚未执行。
+    fireEvent.click(screen.getByTestId("editor-save"))
+    mocks.readFile.mockResolvedValue(ADOPTED_MD)
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} />)
+    await flushAsync(1200)
+    // 旧缓冲绝不能覆盖刚采纳的正式正文（采纳是权威写入）。
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+
+    // 采纳之后的真实用户编辑仍然照常写盘。
+    mocks.saveText.value = ADOPTED_MD + "\n采纳后用户继续改"
+    fireEvent.click(screen.getByTestId("editor-save"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled(), { timeout: 3000 })
+    expect(mocks.writeFileAtomic.mock.calls[0][0]).toBe(CHAPTER_PATH)
+    expect(mocks.writeFileAtomic.mock.calls[0][1]).toContain("采纳后用户继续改")
+    view.unmount()
+  })
+
+  it("令牌不变时普通 rerender 不重复读盘（不打扰未保存文本）", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    mocks.saveText.value = CHAPTER_MD + "\n正在写的内容"
+    const view = render(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} />)
+    await flushAsync(10)
+    fireEvent.click(screen.getByTestId("editor-save"))
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} />)
+    await flushAsync(20)
+    // 只有初次装载那一次读盘：没有令牌变化就不许再读，免得覆盖未保存文本。
+    expect(mocks.readFile).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId("editor-content").textContent).toContain("正在写的内容")
+    view.unmount()
+  })
+
+  it("令牌与切换文件同批发生 → 仍按原来的切文件路径 flush 前一章并装载新章", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    mocks.saveText.value = CHAPTER_MD + "\n前一章未保存改动"
+    const view = render(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" />)
+    await flushAsync(10)
+    fireEvent.click(screen.getByTestId("editor-save"))
+
+    mocks.state.selectedFile = SECOND_PATH
+    mocks.readFile.mockResolvedValue(SECOND_MD)
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} />)
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled(), { timeout: 3000 })
+    // 前一章不是「同路径采纳」，必须照旧 flush（不丢无关未保存改动）。
+    expect(mocks.writeFileAtomic.mock.calls[0][1]).toContain("前一章未保存改动")
+    await flushAsync(20)
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} />)
+    expect(screen.getByTestId("editor-content").textContent).toBe(SECOND_MD)
+    view.unmount()
+  })
+
+  it("采纳重载窗口内旧缓冲区已卸载：不存在「窗口内补一笔被丢弃」", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const view = render(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" />)
+    await flushAsync(10)
+
+    let resolveAdoption!: (content: string) => void
+    mocks.readFile.mockImplementationOnce(
+      () => new Promise<string>((resolve) => { resolveAdoption = resolve }),
+    )
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} />)
+    await flushAsync(5)
+    // 复用既有装载守卫：窗口内只渲染加载态，旧编辑器已卸载 ⇒ 不可能再接受输入，
+    // 所以不存在「补了一笔又被静默丢弃」这条实现取舍。
+    expect(screen.queryByTestId("editor-content")).toBeNull()
+    expect(screen.queryByTestId("editor-save")).toBeNull()
+    expect(screen.getByText("正在加载...")).toBeInTheDocument()
+
+    await act(async () => { resolveAdoption(ADOPTED_MD) })
+    await flushAsync(1200)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} />)
+    expect(screen.getByTestId("editor-content").textContent).toBe(ADOPTED_MD)
+    view.unmount()
+  })
+
+  it("在途旧写盘：begin 先让出编辑区并等它落定，之后采纳重载读到的就是采纳正文", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    mocks.saveText.value = CHAPTER_MD + "\n未落盘的旧缓冲改动"
+    const { gateRef, view } = renderWithGate()
+    await flushAsync(10)
+
+    // 用户改一笔 → 1s 防抖触发 → write_file_atomic 已在途（真实后端是独立 spawn_blocking）。
+    let resolveOldWrite!: () => void
+    mocks.writeFileAtomic.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { resolveOldWrite = resolve }),
+    )
+    fireEvent.click(screen.getByTestId("editor-save"))
+    await flushAsync(1200)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+
+    // 正式采纳写入之前：静默门必须让出编辑区并等旧写盘落定。
+    let beginSettled = false
+    let beginPromise: Promise<PreviewPanelAdoptionStart> | null = null
+    await act(async () => {
+      beginPromise = gateRef.current!.begin(CHAPTER_PATH).then((start) => {
+        beginSettled = true
+        return start
+      })
+    })
+    await flushAsync(5)
+    expect(beginSettled).toBe(false)
+    expect(screen.queryByTestId("editor-save")).toBeNull()
+    expect(screen.getByText("正在加载...")).toBeInTheDocument()
+
+    await act(async () => { resolveOldWrite() })
+    const start = await beginPromise!
+    expect(beginSettled).toBe(true)
+    expect(start.status).toBe("ready")
+    const snapshot = start.status === "ready" ? start.snapshot : null
+    expect(snapshot?.path).toBe(CHAPTER_PATH)
+    expect(snapshot?.buffer).toContain("未落盘的旧缓冲改动")
+
+    // 采纳落盘（accept 写入）→ 令牌让编辑区重载：读回的就是采纳正文，旧缓冲不再覆盖。
+    mocks.readFile.mockResolvedValue(ADOPTED_MD)
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} writeGateRef={gateRef} />)
+    await flushAsync(20)
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} writeGateRef={gateRef} />)
+    expect(mocks.readFile).toHaveBeenCalledTimes(2)
+    expect(screen.getByTestId("editor-content").textContent).toBe(ADOPTED_MD)
+    // 全程只有那一次在途旧写盘：采纳之后没有任何旧缓冲写盘。
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+
+    // 重载之后继续正常编辑：新改动照旧落盘。
+    mocks.saveText.value = ADOPTED_MD + "\n采纳后继续写"
+    fireEvent.click(screen.getByTestId("editor-save"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2), { timeout: 3000 })
+    expect(mocks.writeFileAtomic.mock.calls[1][0]).toBe(CHAPTER_PATH)
+    expect(mocks.writeFileAtomic.mock.calls[1][1]).toContain("采纳后继续写")
+    view.unmount()
+  })
+
+  it("采纳失败 abort：未存正文不丢、不自动回写（throw 不证明此前零 I/O）", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    mocks.saveText.value = CHAPTER_MD + "\n未落盘的旧缓冲改动"
+    const { gateRef, view } = renderWithGate()
+    await flushAsync(10)
+    fireEvent.click(screen.getByTestId("editor-save"))
+
+    const start = await beginAdoption(gateRef, CHAPTER_PATH)
+    expect(start.status).toBe("ready")
+    expect(screen.queryByTestId("editor-save")).toBeNull()
+
+    act(() => { gateRef.current!.abort(start) })
+    await flushAsync(1200)
+    view.rerender(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" writeGateRef={gateRef} />)
+    // 编辑区回来了，未存正文还在（没有被采纳流程吞掉）。
+    expect(screen.getByTestId("editor-content").textContent).toContain("未落盘的旧缓冲改动")
+    // 但不无条件把旧缓冲回写正式文件：throw 不证明此前零 I/O（draft-manager 先写后读回）。
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    // 相同内容的 markdownUpdated 回声仍不是新意图，不能冒充用户显式保存。
+    fireEvent.click(screen.getByTestId("editor-save"))
+    await flushAsync(1200)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    fireEvent.keyDown(screen.getByTestId("editor-content"), { key: "s", ctrlKey: true })
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1), { timeout: 3000 })
+    expect(mocks.writeFileAtomic.mock.calls[0][0]).toBe(CHAPTER_PATH)
+    expect(mocks.writeFileAtomic.mock.calls[0][1]).toContain("未落盘的旧缓冲改动")
+    view.unmount()
+  })
+
+  it("采纳窗口内 pagehide / 切章都不把旧缓冲 flush 回正式章", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    mocks.saveText.value = CHAPTER_MD + "\n未落盘的旧缓冲改动"
+    const { gateRef, view } = renderWithGate()
+    await flushAsync(10)
+    fireEvent.click(screen.getByTestId("editor-save"))
+    expect((await beginAdoption(gateRef, CHAPTER_PATH)).status).toBe("ready")
+
+    // 标签页隐藏的既有 flush 不得把已被采纳取代的旧缓冲写回正式章。
+    await act(async () => { window.dispatchEvent(new Event("pagehide")) })
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+
+    // 采纳窗口内切章同理：旧章不 flush，新章照常装载。
+    mocks.state.selectedFile = SECOND_PATH
+    mocks.readFile.mockResolvedValue(SECOND_MD)
+    view.rerender(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" writeGateRef={gateRef} />)
+    await flushAsync(20)
+    view.rerender(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" writeGateRef={gateRef} />)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(screen.getByTestId("editor-content").textContent).toBe(SECOND_MD)
+    view.unmount()
+  })
+
+  it("采纳后读盘失败：如实报错且不把空内容写回正式章", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const view = render(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" />)
+    await flushAsync(10)
+
+    mocks.readFile.mockRejectedValueOnce(new Error("disk gone"))
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} />)
+    await flushAsync(20)
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} />)
+    expect(screen.getByTestId("editor-content").textContent).toBe("")
+    expect(screen.getByText(/操作失败：disk gone/)).toBeInTheDocument()
+    await flushAsync(1200)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it("在途旧读盘结果被取消，迟到结果不得覆盖新正文", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const view = render(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" />)
+    await flushAsync(10)
+
+    let resolveSlow!: (content: string) => void
+    mocks.readFile.mockImplementationOnce(
+      () => new Promise<string>((resolve) => { resolveSlow = resolve }),
+    )
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} />)
+    await flushAsync(5)
+
+    mocks.readFile.mockResolvedValue(ADOPTED_MD)
+    view.rerender(<PreviewPanel adoptionRefreshToken={2} adoptionRefreshPath={CHAPTER_PATH} />)
+    await flushAsync(20)
+
+    await act(async () => { resolveSlow("迟到的旧正文") })
+    view.rerender(<PreviewPanel adoptionRefreshToken={2} adoptionRefreshPath={CHAPTER_PATH} />)
+    expect(screen.getByTestId("editor-content").textContent).toBe(ADOPTED_MD)
+    view.unmount()
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * G2 统一写入协议（R-1）。上面 G2-NATIVE-F1 组锁定的是「同路径刷新 + 写序」；
+ * 这里补的是统一协议本体：意图/实际 I/O 准入分离、真实 FIFO 前驱、采纳栅栏（解锁后仍有效）、
+ * 受影响路径组、全部自有写者接线、refs 先于解锁、归属清理与不丢输入。
+ * ------------------------------------------------------------------------- */
+describe("G2 统一写入协议 — 协调层（helpers 真实实现）", () => {
+  const tick = (ms = 0) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+  function deferred(): { promise: Promise<void>; resolve: () => void } {
+    let resolve!: () => void
+    const promise = new Promise<void>((res) => { resolve = res })
+    return { promise, resolve }
+  }
+
+  it("A 已真实开始、B 不越过 A、begin 等整条尾链（不把 A 的调用数写成 0）", async () => {
+    const coordinator: ChapterWriteCoordinator = createChapterWriteCoordinator()
+    const a = deferred()
+    const order: string[] = []
+    const admitA = coordinator.admitMutation(
+      coordinator.captureIntent("debounce-save", "/p/a.md"),
+      ["/p/a.md"],
+      async () => {
+        order.push("A:start")
+        await a.promise
+        order.push("A:end")
+      },
+    )
+    const admitB = coordinator.admitMutation(
+      coordinator.captureIntent("debounce-save", "/p/a.md"),
+      ["/p/a.md"],
+      async () => {
+        order.push("B:start")
+      },
+    )
+    if (admitA.kind !== "admitted" || admitB.kind !== "admitted") throw new Error("expected admitted")
+    await tick()
+    // A 确实已经开始（不是 0 次调用），B 还排在它后面。
+    expect(order).toEqual(["A:start"])
+
+    const adopted = coordinator.beginAdoption("/p/a.md", {})
+    if (!adopted.ok) throw new Error("expected adoption begin")
+    let tailSettled = false
+    void adopted.admittedTail.then(() => { tailSettled = true })
+    await tick()
+    // begin 不在 A 落定前放行（不是单槽「最后一笔」）。
+    expect(tailSettled).toBe(false)
+
+    a.resolve()
+    await tick(5)
+    expect(order).toEqual(["A:start", "A:end", "B:start"])
+    expect(tailSettled).toBe(true)
+  })
+
+  it("采纳解锁后迟到的旧意图仍被拒；采纳之后捕获的新意图可以准入", async () => {
+    const coordinator = createChapterWriteCoordinator()
+    const stale = coordinator.captureIntent("format", "/p/a.md")
+    const adopted = coordinator.beginAdoption("/p/a.md", {})
+    if (!adopted.ok || !adopted.lease) throw new Error("expected exclusive adoption")
+    expect(coordinator.releaseAdoption(adopted.lease)).toBe(true)
+    expect(coordinator.leaseOf("/p/a.md")).toBeNull()
+
+    const late = coordinator.admitMutation(stale, ["/p/a.md"], async () => {
+      throw new Error("迟到意图不得执行")
+    })
+    expect(late.kind).toBe("fenced")
+    if (late.kind === "fenced") {
+      expect(late.refusals[0].path).toBe("/p/a.md")
+      expect(late.refusals[0].leased).toBe(false)
+    }
+
+    const fresh = coordinator.captureIntent("debounce-save", "/p/a.md")
+    expect(coordinator.admitMutation(fresh, ["/p/a.md"], async () => undefined).kind).toBe("admitted")
+  })
+
+  it("受影响路径组：同一 barrier 登记，write/delete 不自等，也不永久归并 alias", async () => {
+    const coordinator = createChapterWriteCoordinator()
+    const order: string[] = []
+    const group = coordinator.admitMutation(
+      coordinator.captureIntent("title", "/p/wiki/chapters/第1章.md"),
+      ["/p/wiki/chapters/第1章.md", "/p/wiki/chapters/第1章-新标题.md"],
+      async () => {
+        order.push("write-new")
+        order.push("delete-old")
+      },
+    )
+    if (group.kind !== "admitted") throw new Error("expected admitted")
+    // 自等会永久挂住：用真实超时把「自等」变成失败，而不是靠整条用例超时。
+    const raced = await Promise.race([
+      group.result.then(() => "done" as const),
+      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 1000)),
+    ])
+    expect(raced).toBe("done")
+    expect(order).toEqual(["write-new", "delete-old"])
+    expect(group.isCurrent()).toBe(true)
+
+    const next = coordinator.admitMutation(
+      coordinator.captureIntent("debounce-save", "/p/wiki/chapters/第1章-新标题.md"),
+      ["/p/wiki/chapters/第1章-新标题.md"],
+      async () => undefined,
+    )
+    expect(next.kind).toBe("admitted")
+    expect(group.isCurrent()).toBe(false)
+  })
+
+  it("lease 归属：同目标并发采纳如实 busy，旧 lease 不能释放新 lease", async () => {
+    const coordinator = createChapterWriteCoordinator()
+    const ownerA = {}
+    const ownerB = {}
+    const first = coordinator.beginAdoption("/p/a.md", ownerA)
+    if (!first.ok || !first.lease) throw new Error("expected first lease")
+    expect(coordinator.beginAdoption("/p/a.md", ownerB)).toEqual({ ok: false, reason: "busy" })
+
+    expect(coordinator.releaseAdoption(first.lease)).toBe(true)
+    const second = coordinator.beginAdoption("/p/a.md", ownerB)
+    if (!second.ok || !second.lease) throw new Error("expected second lease")
+    expect(coordinator.leaseOf("/p/a.md")).toBe(second.lease)
+    // 旧 lease 的重复释放不得清新 lease。
+    expect(coordinator.releaseAdoption(first.lease)).toBe(false)
+    expect(coordinator.leaseOf("/p/a.md")).toBe(second.lease)
+    // owner 清理只释放自己的。
+    expect(coordinator.releaseOwnedAdoptions(ownerA)).toBe(0)
+    expect(coordinator.leaseOf("/p/a.md")).toBe(second.lease)
+    expect(coordinator.releaseOwnedAdoptions(ownerB)).toBe(1)
+    expect(coordinator.leaseOf("/p/a.md")).toBeNull()
+  })
+
+  it("栅栏比较的是意图序号：受理之前捕获的该目标意图被拒，之后捕获的可准入", async () => {
+    const coordinator = createChapterWriteCoordinator()
+    const unrelated = coordinator.captureIntent("debounce-save", "/p/b.md")
+    const beforeAdoption = coordinator.captureIntent("leave-flush", "/p/a.md")
+    const adopted = coordinator.beginAdoption("/p/a.md", {}, { exclusive: false })
+    if (!adopted.ok) throw new Error("expected adoption begin")
+    expect(adopted.lease).toBeNull()
+    // 无关目标不受影响。
+    expect(coordinator.admitMutation(unrelated, ["/p/b.md"], async () => undefined).kind).toBe("admitted")
+    // 受理之前捕获的该目标意图被拒。
+    expect(coordinator.admitMutation(beforeAdoption, ["/p/a.md"], async () => undefined).kind).toBe("fenced")
+    // 受理之后捕获的新意图允许准入。
+    const afterAdoption = coordinator.captureIntent("leave-flush", "/p/a.md")
+    expect(coordinator.admitMutation(afterAdoption, ["/p/a.md"], async () => undefined).kind).toBe("admitted")
+  })
+
+  it("实际 I/O 失败只释放继续、不吞业务错误", async () => {
+    const coordinator = createChapterWriteCoordinator()
+    const failing = coordinator.admitMutation(
+      coordinator.captureIntent("debounce-save", "/p/a.md"),
+      ["/p/a.md"],
+      async () => {
+        throw new Error("disk full")
+      },
+    )
+    const next = coordinator.admitMutation(
+      coordinator.captureIntent("debounce-save", "/p/a.md"),
+      ["/p/a.md"],
+      async () => "ok",
+    )
+    if (failing.kind !== "admitted" || next.kind !== "admitted") throw new Error("expected admitted")
+    await expect(failing.result).rejects.toThrow("disk full")
+    await expect(next.result).resolves.toBe("ok")
+  })
+})
+
+describe("G2 统一写入协议 — 编辑区真实写者交错", () => {
+  const ADOPTED_MD = CHAPTER_MD.replace("正文第一段。", "采纳后的权威正文。")
+  const SECOND_PATH = "/proj/wiki/chapters/第二章.md"
+  const SECOND_MD = "# 第二章\n\n新章正文"
+  const TITLE_TARGET = "/proj/wiki/chapters/第1章-新标题.md"
+
+  function renderWithGate() {
+    const gateRef: { current: PreviewPanelWriteGate | null } = { current: null }
+    const view = render(
+      <PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" writeGateRef={gateRef} />,
+    )
+    return { gateRef, view }
+  }
+
+  it("两笔在途写盘：B 不越过 A，begin 等两笔全部落定后才允许采纳", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    let resolveA!: () => void
+    mocks.writeFileAtomic.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { resolveA = resolve }),
+    )
+    const { gateRef, view } = renderWithGate()
+    await flushAsync(10)
+
+    mocks.saveText.value = CHAPTER_MD + "\nA 笔"
+    fireEvent.click(screen.getByTestId("editor-save"))
+    await flushAsync(1200)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+
+    mocks.saveText.value = CHAPTER_MD + "\nB 笔"
+    fireEvent.click(screen.getByTestId("editor-save"))
+    await flushAsync(1200)
+    // B 的防抖已经触发，但真实写盘必须排在 A 之后（FIFO 尾链，不是并发两笔）。
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+
+    let settled = false
+    const beginPromise = gateRef.current!.begin(CHAPTER_PATH).then((start) => {
+      settled = true
+      return start
+    })
+    await flushAsync(20)
+    expect(settled).toBe(false)
+
+    resolveA()
+    const start = await beginPromise
+    expect(start.status).toBe("ready")
+    // A、B 两笔都已真实落定：begin 等的是整条尾链。
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2)
+    expect(mocks.writeFileAtomic.mock.calls[1][1]).toContain("B 笔")
+    view.unmount()
+  })
+
+  it("终稿评审未返回时不占采纳等待链；晚返回的终稿不写、不 final、不 ingest，busy 如实结束", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.state.novelConfig = { reviewBeforeSave: true, autoIngestOnSave: true }
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    mocks.compactToolbar.value = false
+    let resolveReview!: (results: NovelReviewResult[]) => void
+    mocks.reviewChapter.mockImplementation(
+      () => new Promise<NovelReviewResult[]>((resolve) => { resolveReview = resolve }),
+    )
+    const { gateRef, view } = renderWithGate()
+    await flushAsync(10)
+
+    fireEvent.click(screen.getByText("保存为正式章节"))
+    await waitFor(() => expect(mocks.reviewChapter).toHaveBeenCalled())
+
+    // 评审还挂着：采纳必须能照常落定（评审不进入采纳必须等待的 I/O 尾链）。
+    const start = await beginAdoption(gateRef, CHAPTER_PATH)
+    expect(start.status).toBe("ready")
+
+    mocks.readFile.mockResolvedValue(ADOPTED_MD)
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} writeGateRef={gateRef} />)
+    await flushAsync(20)
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} writeGateRef={gateRef} />)
+    expect(mocks.readFile).toHaveBeenCalledWith(CHAPTER_PATH)
+    expect(await screen.findByTestId("editor-content")).toHaveTextContent("采纳后的权威正文。")
+
+    // 评审迟到返回：不得写盘、不得标 final、不得 ingest。
+    await act(async () => { resolveReview([]) })
+    await flushAsync(50)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(mocks.ingestChapter).not.toHaveBeenCalled()
+    expect(mocks.state.setFinalChapterSave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ saving: false, phase: null }),
+    )
+    // busy 如实结束：按钮不再处于「保存中」。
+    expect(screen.getByText("保存为正式章节")).not.toBeDisabled()
+    view.unmount()
+  })
+
+  it("标题 canonical 解析晚于采纳解锁：旧意图被拒，不写/不删/不重指，标题输入不丢", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    mocks.compactToolbar.value = false
+    // canonical 解析的唯一 await（fileExists）先挂住：标题意图已捕获，实际 I/O 尚未准入。
+    let resolveExists!: (value: boolean) => void
+    mocks.fileExists.mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => { resolveExists = resolve }),
+    )
+    const { gateRef, view } = renderWithGate()
+    await flushAsync(10)
+
+    const input = screen.getByRole("textbox")
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: "新标题" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    fireEvent.blur(input)
+    await flushAsync(20)
+
+    const start = await beginAdoption(gateRef, CHAPTER_PATH)
+    expect(start.status).toBe("ready")
+    // 采纳未确认落盘 → 解锁（栅栏仍记录该目标最近采纳序号）。
+    act(() => { gateRef.current!.abort(start) })
+    await flushAsync(20)
+
+    // 迟到解析才返回：仍然不得写、不得删旧文件、不得把选中项改指新路径。
+    await act(async () => { resolveExists(false) })
+    await flushAsync(50)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(mocks.deleteFile).not.toHaveBeenCalled()
+    expect(mocks.state.setSelectedFile).not.toHaveBeenCalledWith(TITLE_TARGET)
+    // 被拒的是写入，不是 raw 输入；编号化只能在新的正式标题提交后发生。
+    expect(screen.getByRole("textbox")).toHaveValue("新标题")
+    expect(getChapterWriteCoordinator().peekRecovery(CHAPTER_PATH)).toEqual(expect.objectContaining({
+      titleDraft: "新标题", titleEditing: true,
+    }))
+    expect(screen.getByText(/章节标题未写入/)).toBeInTheDocument()
+    errSpy.mockRestore()
+    view.unmount()
+  })
+
+  it("排版写盘已准入时 begin 等它落定；排版被拒时不预标已保存", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    mocks.compactToolbar.value = false
+    let resolveFormat!: () => void
+    mocks.writeFileAtomic.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { resolveFormat = resolve }),
+    )
+    const { gateRef, view } = renderWithGate()
+    await flushAsync(10)
+
+    fireEvent.click(screen.getByText("一键排版"))
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+
+    let settled = false
+    const beginPromise = gateRef.current!.begin(CHAPTER_PATH).then((start) => {
+      settled = true
+      return start
+    })
+    await flushAsync(20)
+    expect(settled).toBe(false)
+
+    resolveFormat()
+    const start = await beginPromise
+    expect(start.status).toBe("ready")
+    act(() => { gateRef.current!.abort(start) })
+    await flushAsync(20)
+
+    view.unmount()
+  })
+
+  it("采纳窗口内旧输入入口整体关闭：保存/排版都不可达，不存在窗口内新写入", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    mocks.compactToolbar.value = false
+    const { gateRef, view } = renderWithGate()
+    await flushAsync(10)
+
+    const start = await beginAdoption(gateRef, CHAPTER_PATH)
+    expect(start.status).toBe("ready")
+    // 装载守卫已提交：旧编辑器与全部写入口一起卸载（不存在「窗口内补一笔」）。
+    expect(screen.queryByTestId("editor-save")).toBeNull()
+    expect(screen.queryByTestId("editor-content")).toBeNull()
+    expect(screen.queryByText("一键排版")).toBeNull()
+    expect(screen.queryByText("保存为正式章节")).toBeNull()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+
+    act(() => { gateRef.current!.abort(start) })
+    await flushAsync(20)
+    view.rerender(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" writeGateRef={gateRef} />)
+    // 中止后受控地还回来，未存正文仍在。
+    expect(screen.getByTestId("editor-content").textContent).toBe(CHAPTER_MD)
+    expect(screen.getByText("一键排版")).toBeInTheDocument()
+    view.unmount()
+  })
+
+  it("采纳重载读成功后立即 pagehide：refs 先同步再解锁，旧缓冲不落盘", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const { gateRef, view } = renderWithGate()
+    await flushAsync(10)
+    // 旧缓冲已排队的防抖写盘（begin 会作废它）。
+    mocks.saveText.value = CHAPTER_MD + "\n旧缓冲"
+    fireEvent.click(screen.getByTestId("editor-save"))
+
+    const start = await beginAdoption(gateRef, CHAPTER_PATH)
+    expect(start.status).toBe("ready")
+
+    let resolveRead!: (content: string) => void
+    mocks.readFile.mockImplementationOnce(
+      () => new Promise<string>((resolve) => { resolveRead = resolve }),
+    )
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} writeGateRef={gateRef} />)
+    await flushAsync(5)
+
+    // 读结果落定后紧接着（同一 tick 的后续微任务）就要 pagehide：refs 必须已经同步。
+    resolveRead(ADOPTED_MD)
+    await act(async () => {
+      await Promise.resolve()
+      window.dispatchEvent(new Event("pagehide"))
+    })
+    await flushAsync(1200)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} writeGateRef={gateRef} />)
+    expect(screen.getByTestId("editor-content").textContent).toBe(ADOPTED_MD)
+    view.unmount()
+  })
+
+  it("采纳重载读失败后立即 pagehide：refs 同步恢复输入及失败回执，不写回正式章", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const { gateRef, view } = renderWithGate()
+    await flushAsync(10)
+    mocks.saveText.value = CHAPTER_MD + "\n旧缓冲"
+    fireEvent.click(screen.getByTestId("editor-save"))
+
+    const start = await beginAdoption(gateRef, CHAPTER_PATH)
+    expect(start.status).toBe("ready")
+
+    mocks.readFile.mockRejectedValueOnce(new Error("disk gone"))
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} writeGateRef={gateRef} />)
+    await flushAsync(20)
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(1200)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} writeGateRef={gateRef} />)
+    expect(screen.getByTestId("editor-content").textContent).toBe(CHAPTER_MD + "\n旧缓冲")
+    expect(getChapterWriteCoordinator().peekRecovery(CHAPTER_PATH)?.buffer).toBe(CHAPTER_MD + "\n旧缓冲")
+    expect(getChapterWriteCoordinator().isFenced(CHAPTER_PATH)).toBe(false)
+    expect(screen.getByText(/操作失败：disk gone/)).toBeInTheDocument()
+    view.unmount()
+  })
+
+  it("采纳窗口内切章：按归属释放 lease，旧 lease 不清新 lease，新编辑仍能正常保存", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const { gateRef, view } = renderWithGate()
+    await flushAsync(10)
+
+    const start = await beginAdoption(gateRef, CHAPTER_PATH)
+    expect(start.status).toBe("ready")
+
+    // 采纳窗口内切到别章：旧章缓冲不得被 flush 回正式章；lease 仍在途（IPC 链未结束）。
+    mocks.state.selectedFile = SECOND_PATH
+    mocks.readFile.mockResolvedValue(SECOND_MD)
+    view.rerender(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" writeGateRef={gateRef} />)
+    await flushAsync(20)
+    view.rerender(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" writeGateRef={gateRef} />)
+    expect(screen.getByTestId("editor-content").textContent).toBe(SECOND_MD)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(getChapterWriteCoordinator().leaseOf(CHAPTER_PATH)).not.toBeNull()
+
+    // 新目标可以再开一次采纳（不是被旧 lease 误拦同章，而是不同路径互不影响）。
+    const second = await beginAdoption(gateRef, SECOND_PATH)
+    expect(second.status).toBe("ready")
+    const lease2 = getChapterWriteCoordinator().leaseOf(SECOND_PATH)
+    expect(lease2).not.toBeNull()
+
+    // 旧的读结果/旧 cleanup 落定不得清新 lease。
+    view.rerender(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" writeGateRef={gateRef} />)
+    await flushAsync(20)
+    expect(getChapterWriteCoordinator().leaseOf(SECOND_PATH)).toBe(lease2)
+
+    // 旧章中止只释放自己的 lease，不碰新 lease。
+    act(() => { gateRef.current!.abort(start) })
+    expect(getChapterWriteCoordinator().leaseOf(CHAPTER_PATH)).toBeNull()
+    expect(getChapterWriteCoordinator().leaseOf(SECOND_PATH)).toBe(lease2)
+
+    act(() => { gateRef.current!.abort(second) })
+    await flushAsync(20)
+    view.rerender(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" writeGateRef={gateRef} />)
+    // 旧 lease 释放后正常编辑保存恢复（flush 没有被永久抑制）。
+    mocks.saveText.value = SECOND_MD + "\n切章后继续写"
+    fireEvent.click(screen.getByTestId("editor-save"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1), { timeout: 3000 })
+    expect(mocks.writeFileAtomic.mock.calls[0][0]).toBe(SECOND_PATH)
+    expect(mocks.writeFileAtomic.mock.calls[0][1]).toContain("切章后继续写")
+    view.unmount()
+  })
+
+  it("采纳 abort 时当前在别章：不灌别章内容、不写快照路径，保留恢复快照归属", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const { gateRef, view } = renderWithGate()
+    await flushAsync(10)
+    mocks.saveText.value = CHAPTER_MD + "\nA 章未存正文"
+    fireEvent.click(screen.getByTestId("editor-save"))
+
+    const start = await beginAdoption(gateRef, CHAPTER_PATH)
+    expect(start.status).toBe("ready")
+    const snapshotBuffer = start.status === "ready" ? start.snapshot.buffer : ""
+    expect(snapshotBuffer).toContain("A 章未存正文")
+
+    mocks.state.selectedFile = SECOND_PATH
+    mocks.readFile.mockResolvedValue(SECOND_MD)
+    view.rerender(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" writeGateRef={gateRef} />)
+    await flushAsync(20)
+    view.rerender(<PreviewPanel adoptionRefreshToken={0} adoptionRefreshPath="" writeGateRef={gateRef} />)
+    expect(screen.getByTestId("editor-content").textContent).toBe(SECOND_MD)
+
+    act(() => { gateRef.current!.abort(start) })
+    await flushAsync(50)
+    // 当前别章内容不被旧快照覆盖，也不替旧章自动写盘。
+    expect(screen.getByTestId("editor-content").textContent).toBe(SECOND_MD)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    // 未存输入不丢：恢复归属保留在协调层，等该章真实 UI 回来。
+    expect(getChapterWriteCoordinator().peekRecovery(CHAPTER_PATH)?.buffer).toContain("A 章未存正文")
+    view.unmount()
+  })
+
+  it("可选 props 全缺省（无写入门）：协议照常工作，防抖保存仍落盘", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const view = render(<PreviewPanel />)
+    await flushAsync(10)
+    expect(screen.getByTestId("editor-content").textContent).toBe(CHAPTER_MD)
+    mocks.saveText.value = CHAPTER_MD + "\n缺省 props 下的改动"
+    fireEvent.click(screen.getByTestId("editor-save"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1), { timeout: 3000 })
+    expect(mocks.writeFileAtomic.mock.calls[0][0]).toBe(CHAPTER_PATH)
+    expect(mocks.writeFileAtomic.mock.calls[0][1]).toContain("缺省 props 下的改动")
+    view.unmount()
+  })
+})
+
+// The additional human-authorized R-1 slot: reverse interleavings missing from
+// the frozen 233-test candidate. No gate facsimiles: all cases mount production
+// PreviewPanel / WritingWorkspace and use the production shared coordinator.
+describe("R6-PC additional executor — real reverse interleavings", () => {
+  const OTHER_PATH = "/proj/wiki/chapters/第二章.md"
+  const OTHER_CANONICAL_PATH = "/proj/wiki/chapters/第2章.md"
+  const OTHER_MD = CHAPTER_MD.replace(/第一章/g, "第二章").replace("chapter_number: 1", "chapter_number: 2").replace("正文第一段。", "B 章盘上正文。")
+  const ADOPTED_MD = CHAPTER_MD.replace("正文第一段。", "采纳后的权威正文。")
+
+  function controlled<T>() {
+    let resolve!: (value: T) => void
+    let reject!: (error: unknown) => void
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+    return { promise, resolve, reject }
+  }
+  function titleInput(): HTMLInputElement {
+    const input = document.querySelector("input[type='text']")
+    if (!(input instanceof HTMLInputElement)) throw new Error("real chapter title input missing")
+    return input
+  }
+  function bodyInput(): HTMLTextAreaElement {
+    const input = document.querySelector("textarea")
+    if (!(input instanceof HTMLTextAreaElement)) throw new Error("real WritingTextarea missing")
+    return input
+  }
+  function setupDisk() {
+    const disk = new Map([[CHAPTER_PATH, CHAPTER_MD], [OTHER_PATH, OTHER_MD]])
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockImplementation(async (path: string) => disk.get(path) ?? "")
+    mocks.writeFileAtomic.mockImplementation(async (path: string, content: string) => { disk.set(path, content) })
+    mocks.deleteFile.mockImplementation(async (path: string) => { disk.delete(path) })
+    mocks.acceptChapterDraft.mockImplementation(async (input: { formalChapterPath: string }) => {
+      await mocks.writeFileAtomic(input.formalChapterPath, ADOPTED_MD)
+    })
+    return disk
+  }
+  function panelWithGate() {
+    const gateRef: { current: PreviewPanelWriteGate | null } = { current: null }
+    const view = render(<PreviewPanel writeGateRef={gateRef} />)
+    return { gateRef, view }
+  }
+  async function openConfirmation() {
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    await screen.findByTestId("workspace-confirm")
+  }
+
+  it("PC1 committed accept keeps body/title through a failed authority read and consumes only old body on successful remount", async () => {
+    const disk = setupDisk()
+    mocks.realEditor.value = true
+    const coordinator = getChapterWriteCoordinator()
+    const { gateRef, view } = panelWithGate()
+    await flushAsync(20)
+    const latestBody = "真实采纳前尚未保存的正文。"
+    const latestTitle = "  读失败仍保留的原始标题  "
+    fireEvent.change(bodyInput(), { target: { value: latestBody } })
+    fireEvent.focus(titleInput())
+    fireEvent.change(titleInput(), { target: { value: latestTitle } })
+    const start = await beginAdoption(gateRef, CHAPTER_PATH)
+    if (start.status !== "ready" || !start.lease) throw new Error("real adoption lease missing")
+    await act(async () => {
+      await coordinator.runAdoption(start.lease!, () => mocks.acceptChapterDraft({ formalChapterPath: CHAPTER_PATH }))
+    })
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    expect(disk.get(CHAPTER_PATH)).toBe(ADOPTED_MD)
+
+    mocks.readFile.mockRejectedValueOnce(new Error("adopted authority read failed"))
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} writeGateRef={gateRef} />)
+    await flushAsync(20)
+    expect(bodyInput()).toHaveValue(latestBody)
+    expect(titleInput()).toHaveValue(latestTitle)
+    expect(screen.getByText(/操作失败：adopted authority read failed/)).toBeInTheDocument()
+    expect(coordinator.peekRecovery(CHAPTER_PATH)).toEqual(expect.objectContaining({
+      titleDraft: latestTitle, titleEditing: true, adoptionCommitted: true,
+    }))
+    expect(coordinator.peekRecovery(CHAPTER_PATH)?.buffer).toContain(latestBody)
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(1100)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    expect(disk.get(CHAPTER_PATH)).toBe(ADOPTED_MD)
+    view.unmount()
+
+    const next = render(<PreviewPanel />)
+    await flushAsync(20)
+    expect(bodyInput()).toHaveValue("采纳后的权威正文。\n")
+    expect(titleInput()).toHaveValue(latestTitle)
+    expect(coordinator.peekRecovery(CHAPTER_PATH)).toEqual(expect.objectContaining({
+      titleDraft: latestTitle, titleEditing: true, buffer: undefined, adoptionCommitted: false,
+    }))
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(1100)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    expect(disk.get(CHAPTER_PATH)).not.toContain(latestTitle)
+    next.unmount()
+  })
+
+  it("PC1 a new no-UI failed adoption cannot borrow the prior committed marker to discard recovered input", async () => {
+    const disk = setupDisk()
+    mocks.realEditor.value = true
+    const coordinator = getChapterWriteCoordinator()
+    const { gateRef, view } = panelWithGate()
+    await flushAsync(20)
+    const latestBody = "两次采纳之间仍未保存的输入。"
+    const latestTitle = "  两次采纳之间的未提交标题  "
+    fireEvent.change(bodyInput(), { target: { value: latestBody } })
+    fireEvent.focus(titleInput())
+    fireEvent.change(titleInput(), { target: { value: latestTitle } })
+    const first = await beginAdoption(gateRef, CHAPTER_PATH)
+    if (first.status !== "ready" || !first.lease) throw new Error("real first adoption lease missing")
+    await act(async () => {
+      await coordinator.runAdoption(first.lease!, () => mocks.acceptChapterDraft({ formalChapterPath: CHAPTER_PATH }))
+    })
+    mocks.readFile.mockRejectedValueOnce(new Error("first authority read failed"))
+    view.rerender(<PreviewPanel adoptionRefreshToken={1} adoptionRefreshPath={CHAPTER_PATH} writeGateRef={gateRef} />)
+    await flushAsync(20)
+    expect(coordinator.peekRecovery(CHAPTER_PATH)?.adoptionCommitted).toBe(true)
+    view.unmount()
+
+    const second = coordinator.beginAdoption(CHAPTER_PATH, {})
+    if (!second.ok || !second.lease) throw new Error("real no-UI adoption lease missing")
+    expect(coordinator.peekRecovery(CHAPTER_PATH)).toEqual(expect.objectContaining({
+      adoptionId: second.lease.id, adoptionCommitted: false,
+    }))
+    await expect(coordinator.runAdoption(second.lease, async () => {
+      throw new Error("second accept failed")
+    })).rejects.toThrow("second accept failed")
+    expect(coordinator.releaseAdoption(second.lease)).toBe(true)
+    const next = render(<PreviewPanel />)
+    await flushAsync(20)
+    expect(bodyInput()).toHaveValue(latestBody)
+    expect(titleInput()).toHaveValue(latestTitle)
+    expect(coordinator.peekRecovery(CHAPTER_PATH)?.adoptionCommitted).toBe(false)
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(1100)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    expect(disk.get(CHAPTER_PATH)).toBe(ADOPTED_MD)
+    next.unmount()
+  })
+
+  it("PC1 normal selection clears another chapter's title without discarding the original pending input", async () => {
+    setupDisk()
+    mocks.realEditor.value = true
+    const view = render(<PreviewPanel />)
+    await flushAsync(20)
+    const pendingTitle = "  A 章未提交的原始标题  "
+    fireEvent.focus(titleInput())
+    fireEvent.change(titleInput(), { target: { value: pendingTitle } })
+    mocks.state.selectedFile = OTHER_PATH
+    view.rerender(<PreviewPanel />)
+    await flushAsync(20)
+    expect(bodyInput()).toHaveValue("B 章盘上正文。\n")
+    expect(titleInput()).toHaveValue("第二章")
+    expect(getChapterWriteCoordinator().peekRecovery(CHAPTER_PATH)).toEqual(expect.objectContaining({
+      titleDraft: pendingTitle, titleEditing: true,
+    }))
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    mocks.state.selectedFile = CHAPTER_PATH
+    view.rerender(<PreviewPanel />)
+    await flushAsync(20)
+    expect(bodyInput()).toHaveValue("正文第一段。\n")
+    expect(titleInput()).toHaveValue(pendingTitle)
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(1100)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it("PC1 abort on another chapter restores latest body/title into REAL returning and remounted UI without writes", async () => {
+    setupDisk()
+    mocks.realEditor.value = true
+    const { gateRef, view } = panelWithGate()
+    await flushAsync(20)
+    const latestBody = "A 章真正未存的最新正文。"
+    const latestTitle = "  A 章未提交标题  "
+    fireEvent.change(bodyInput(), { target: { value: latestBody } })
+    fireEvent.focus(titleInput())
+    fireEvent.change(titleInput(), { target: { value: latestTitle } })
+    const originalGate = gateRef.current!
+    const start = await beginAdoption(gateRef, CHAPTER_PATH)
+    expect(start.status).toBe("ready")
+    expect(document.querySelector("textarea")).toBeNull()
+
+    mocks.state.selectedFile = OTHER_PATH
+    view.rerender(<PreviewPanel writeGateRef={gateRef} />)
+    await flushAsync(20)
+    expect(bodyInput()).toHaveValue("B 章盘上正文。\n")
+    act(() => originalGate.abort(start))
+    await flushAsync(20)
+    expect(bodyInput()).toHaveValue("B 章盘上正文。\n")
+    expect(titleInput()).toHaveValue("第二章")
+
+    mocks.state.selectedFile = CHAPTER_PATH
+    view.rerender(<PreviewPanel writeGateRef={gateRef} />)
+    await flushAsync(20)
+    expect(bodyInput()).toHaveValue(latestBody)
+    expect(titleInput()).toHaveValue(latestTitle)
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(1100)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    view.unmount()
+    const remount = render(<PreviewPanel />)
+    await flushAsync(20)
+    expect(bodyInput()).toHaveValue(latestBody)
+    expect(titleInput()).toHaveValue(latestTitle)
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    remount.unmount()
+  })
+
+  it("PC1 explicit Ctrl+S saves recovered body, not hydration, and keeps the pending title across remount", async () => {
+    const disk = setupDisk()
+    mocks.realEditor.value = true
+    const { gateRef, view } = panelWithGate()
+    await flushAsync(20)
+    const latestBody = "恢复后明确保存的正文 B。"
+    const latestTitle = "  仍未提交的标题 B  "
+    fireEvent.change(bodyInput(), { target: { value: latestBody } })
+    fireEvent.focus(titleInput())
+    fireEvent.change(titleInput(), { target: { value: latestTitle } })
+    const originalGate = gateRef.current!
+    const start = await beginAdoption(gateRef, CHAPTER_PATH)
+    act(() => originalGate.abort(start))
+    await flushAsync(20)
+    expect(bodyInput()).toHaveValue(latestBody)
+    expect(titleInput()).toHaveValue(latestTitle)
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(1100)
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(bodyInput(), { key: "s", ctrlKey: true })
+    window.dispatchEvent(new Event("pagehide"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1))
+    expect(disk.get(CHAPTER_PATH)).toContain(latestBody)
+    expect(disk.get(CHAPTER_PATH)).not.toContain(latestTitle)
+    expect(getChapterWriteCoordinator().peekRecovery(CHAPTER_PATH)).toEqual(expect.objectContaining({
+      titleDraft: latestTitle, titleEditing: true, buffer: undefined,
+    }))
+    view.unmount()
+    const next = render(<PreviewPanel />)
+    await flushAsync(20)
+    // 显式保存沿用既有正文排版：两全角缩进，而非未存 raw 输入的尾换行。
+    expect(bodyInput()).toHaveValue(`　　${latestBody}`)
+    expect(titleInput()).toHaveValue(latestTitle)
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(1100)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    next.unmount()
+  })
+
+  it.each(["failed", "fenced"] as const)("PC1 late %s title retains its ORIGINAL input owner, never another chapter's title", async (mode) => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
+    setupDisk()
+    const exists = controlled<boolean>()
+    const write = controlled<void>()
+    if (mode === "fenced") mocks.fileExists.mockReturnValueOnce(exists.promise)
+    else mocks.writeFileAtomic.mockReturnValueOnce(write.promise)
+    const { gateRef, view } = panelWithGate()
+    await flushAsync(20)
+    const originalTitle = "  A 章原始标题输入  "
+    fireEvent.focus(titleInput())
+    fireEvent.change(titleInput(), { target: { value: originalTitle } })
+    fireEvent.blur(titleInput())
+    await flushAsync(20)
+    const originalGate = gateRef.current!
+    const start = mode === "fenced" ? await beginAdoption(gateRef, CHAPTER_PATH) : null
+    mocks.state.selectedFile = OTHER_PATH
+    view.rerender(<PreviewPanel writeGateRef={gateRef} />)
+    await flushAsync(20)
+    fireEvent.focus(titleInput())
+    fireEvent.change(titleInput(), { target: { value: "B 章自己的新标题" } })
+    if (start) act(() => originalGate.abort(start))
+    await act(async () => {
+      if (mode === "fenced") exists.resolve(false)
+      else write.reject(new Error("old A title write failed"))
+    })
+    await flushAsync(20)
+    expect(titleInput()).toHaveValue("B 章自己的新标题")
+    mocks.state.selectedFile = CHAPTER_PATH
+    view.rerender(<PreviewPanel writeGateRef={gateRef} />)
+    await flushAsync(20)
+    expect(titleInput()).toHaveValue(originalTitle)
+    // A failure means an actual I/O was issued; a fenced late intent was not.
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(mode === "failed" ? 1 : 0)
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(mode === "failed" ? 1 : 0)
+    view.unmount()
+    errorLog.mockRestore()
+  })
+
+  it("PC2 old issued write -> begin -> unmount/new instance -> old result neither leaks nor clears a newer lease", async () => {
+    const disk = setupDisk()
+    const oldWrite = controlled<void>()
+    mocks.writeFileAtomic.mockImplementationOnce(async (path: string, body: string) => {
+      await oldWrite.promise
+      disk.set(path, body)
+    })
+    mocks.compactToolbar.value = false
+    const { gateRef, view } = panelWithGate()
+    await flushAsync(20)
+    fireEvent.click(screen.getByText("一键排版"))
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    mocks.saveText.value = CHAPTER_MD + "\n晚于已派发排版的 B 输入"
+    fireEvent.click(screen.getByTestId("editor-save"))
+    const oldGate = gateRef.current!
+    const pendingBegin = oldGate.begin(CHAPTER_PATH)
+    await flushAsync(20)
+    view.unmount()
+    const nextGateRef: { current: PreviewPanelWriteGate | null } = { current: null }
+    const next = render(<PreviewPanel writeGateRef={nextGateRef} />)
+    await flushAsync(20)
+    // Already-issued old I/O is still pending; the new observer cannot hydrate
+    // and enable the old on-disk buffer while that predecessor is outstanding.
+    expect(screen.queryByTestId("editor-save")).toBeNull()
+    await act(async () => oldWrite.resolve())
+    const oldStart = await pendingBegin
+    expect(oldStart).toEqual({ status: "blocked", reason: "cancelled" })
+    await flushAsync(20)
+    expect(screen.getByTestId("editor-content")).toHaveTextContent("晚于已派发排版的 B 输入")
+    const newer = await beginAdoption(nextGateRef, CHAPTER_PATH)
+    expect(newer.status).toBe("ready")
+    const newerLease = getChapterWriteCoordinator().leaseOf(CHAPTER_PATH)
+    expect(newerLease).not.toBeNull()
+    act(() => nextGateRef.current!.abort(oldStart))
+    expect(getChapterWriteCoordinator().leaseOf(CHAPTER_PATH)).toBe(newerLease)
+    act(() => nextGateRef.current!.abort(newer))
+    await flushAsync(20)
+    // Re-emission of the restored markdown is hydration, not a user save.
+    fireEvent.click(screen.getByTestId("editor-reemit"))
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(1100)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    next.unmount()
+  })
+
+  it("PC2 preparing lease survives REAL layout remount before the prior I/O tail settles", async () => {
+    const disk = setupDisk()
+    const oldWrite = controlled<void>()
+    const acceptedWrite = controlled<void>()
+    mocks.compactToolbar.value = false
+    mocks.writeFileAtomic.mockImplementation(async (path: string, body: string) => {
+      if (body === ADOPTED_MD) await acceptedWrite.promise
+      else await oldWrite.promise
+      disk.set(path, body)
+    })
+    const view = render(<WritingWorkspace />)
+    await flushAsync(20)
+    fireEvent.click(screen.getByText("一键排版"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1))
+    mocks.saveText.value = CHAPTER_MD + "\n旧 I/O 之后尚未保存的 B 输入"
+    fireEvent.click(screen.getByTestId("editor-save"))
+    await openConfirmation()
+    fireEvent.click(screen.getByTestId("workspace-confirm"))
+    await flushAsync(20)
+    const coordinator = getChapterWriteCoordinator()
+    const preparingLease = coordinator.leaseOf(CHAPTER_PATH)
+    expect(preparingLease).not.toBeNull()
+    expect(mocks.acceptChapterDraft).not.toHaveBeenCalled()
+    mocks.state.chatExpanded = true
+    mocks.state.chatDockPosition = "right"
+    view.rerender(<WritingWorkspace />)
+    await flushAsync(20)
+    expect(screen.queryByTestId("editor-save")).toBeNull()
+    expect(coordinator.leaseOf(CHAPTER_PATH)).toBe(preparingLease)
+
+    await act(async () => oldWrite.resolve())
+    await waitFor(() => expect(mocks.acceptChapterDraft).toHaveBeenCalledTimes(1))
+    expect(coordinator.leaseOf(CHAPTER_PATH)).toBe(preparingLease)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2)
+    expect(screen.queryByTestId("editor-save")).toBeNull()
+    expect(coordinator.admitMutation(coordinator.captureIntent("format", CHAPTER_PATH), [CHAPTER_PATH], async () => undefined).kind).toBe("fenced")
+    await act(async () => acceptedWrite.resolve())
+    await waitFor(() => expect(mocks.acceptSettled).toHaveBeenCalledTimes(1))
+    await flushAsync(20)
+    view.rerender(<WritingWorkspace />)
+    expect(screen.getByTestId("editor-content")).toHaveTextContent("采纳后的权威正文。")
+    expect(mocks.confirmError).not.toHaveBeenCalled()
+    expect(coordinator.leaseOf(CHAPTER_PATH)).toBeNull()
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(1100)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2)
+    view.unmount()
+  })
+
+  it("PC2 actual accept I/O -> REAL layout remount -> same-target writer stays behind accept while unrelated A works", async () => {
+    const disk = setupDisk()
+    const accepting = controlled<void>()
+    const order: string[] = []
+    mocks.writeFileAtomic.mockImplementation(async (path: string, body: string) => {
+      order.push(`write:${path}`)
+      if (body === ADOPTED_MD) {
+        await accepting.promise
+        order.push("accept-I/O:settled")
+      }
+      disk.set(path, body)
+    })
+    const view = render(<WritingWorkspace />)
+    await flushAsync(20)
+    await openConfirmation()
+    fireEvent.click(screen.getByTestId("workspace-confirm"))
+    await waitFor(() => expect(mocks.acceptChapterDraft).toHaveBeenCalledTimes(1))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    mocks.state.chatExpanded = true
+    mocks.state.chatDockPosition = "right"
+    view.rerender(<WritingWorkspace />)
+    await flushAsync(20)
+    expect(screen.queryByTestId("editor-save")).toBeNull()
+    const coordinator = getChapterWriteCoordinator()
+    const forbiddenWrite = vi.fn(async () => undefined)
+    const concurrent = coordinator.admitMutation(coordinator.captureIntent("format", CHAPTER_PATH), [CHAPTER_PATH], forbiddenWrite)
+    expect(concurrent.kind).toBe("fenced")
+    expect(forbiddenWrite).not.toHaveBeenCalled()
+
+    mocks.state.selectedFile = OTHER_PATH
+    view.rerender(<WritingWorkspace />)
+    await flushAsync(20)
+    mocks.saveText.value = OTHER_MD + "\n无关 A 正常编辑"
+    fireEvent.click(screen.getByTestId("editor-save"))
+    window.dispatchEvent(new Event("pagehide"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mocks.state.selectedFile).toBe(OTHER_CANONICAL_PATH))
+    expect(disk.get(OTHER_CANONICAL_PATH)).toContain("无关 A 正常编辑")
+    expect(disk.has(OTHER_PATH)).toBe(false)
+    expect(order).not.toContain("accept-I/O:settled")
+    mocks.state.selectedFile = CHAPTER_PATH
+    view.rerender(<WritingWorkspace />)
+    await flushAsync(20)
+    expect(screen.queryByTestId("editor-save")).toBeNull()
+    await act(async () => accepting.resolve())
+    await flushAsync(20)
+    view.rerender(<WritingWorkspace />)
+    expect(screen.getByTestId("editor-content")).toHaveTextContent("采纳后的权威正文。")
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2)
+    mocks.saveText.value = ADOPTED_MD + "\n新实例在采纳后继续写"
+    fireEvent.click(screen.getByTestId("editor-save"))
+    window.dispatchEvent(new Event("pagehide"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(3))
+    expect(order.indexOf("accept-I/O:settled")).toBeLessThan(order.lastIndexOf(`write:${CHAPTER_PATH}`))
+    expect(disk.get(CHAPTER_PATH)).toContain("新实例在采纳后继续写")
+    expect(mocks.acceptSettled).toHaveBeenCalledTimes(1)
+    view.unmount()
+  })
+
+  it("PC2/PC4 old B mutation pending while UI shows A -> adopt B waits B, ordinary selection does not reject adoption", async () => {
+    const disk = setupDisk()
+    const oldB = controlled<void>()
+    const ingest = controlled<{ snapshot: { chapterNumber: number } | null; failReason: string | null }>()
+    mocks.state.novelConfig = { reviewBeforeSave: false, autoIngestOnSave: true }
+    mocks.ingestChapter.mockReturnValueOnce(ingest.promise)
+    mocks.compactToolbar.value = false
+    mocks.writeFileAtomic.mockImplementationOnce(async (path: string, body: string) => {
+      await oldB.promise
+      disk.set(path, body)
+    })
+    const view = render(<WritingWorkspace />)
+    await flushAsync(20)
+    fireEvent.click(screen.getByText("一键排版"))
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    mocks.state.selectedFile = OTHER_PATH
+    view.rerender(<WritingWorkspace />)
+    await flushAsync(20)
+    await openConfirmation()
+    fireEvent.click(screen.getByTestId("workspace-confirm"))
+    await flushAsync(20)
+    expect(mocks.acceptChapterDraft).not.toHaveBeenCalled()
+    expect(screen.getByTestId("editor-content")).toHaveTextContent("B 章盘上正文。")
+    mocks.saveText.value = OTHER_MD + "\nA 章继续使用"
+    fireEvent.click(screen.getByTestId("editor-save"))
+    window.dispatchEvent(new Event("pagehide"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mocks.state.selectedFile).toBe(OTHER_CANONICAL_PATH))
+    expect(disk.get(OTHER_CANONICAL_PATH)).toContain("A 章继续使用")
+    expect(disk.has(OTHER_PATH)).toBe(false)
+    await act(async () => oldB.resolve())
+    await waitFor(() => expect(mocks.acceptSettled).toHaveBeenCalledTimes(1))
+    expect(mocks.acceptChapterDraft).toHaveBeenCalledWith(expect.objectContaining({ formalChapterPath: CHAPTER_PATH, confirmed: true }))
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(3)
+    expect(disk.get(CHAPTER_PATH)).toBe(ADOPTED_MD)
+    // B 的成功 token 不负责重载已经完成自身 canonical 写入的 A。
+    expect(screen.getByTestId("editor-content")).toHaveTextContent("A 章继续使用")
+    expect(mocks.state.selectedFile).toBe(OTHER_CANONICAL_PATH)
+    expect(mocks.confirmError).not.toHaveBeenCalled()
+    await act(async () => ingest.resolve({ snapshot: { chapterNumber: 1 }, failReason: null }))
+    view.unmount()
+  })
+
+  it("PC3 old format A -> newer unsaved B/title -> committed DOM closure -> partial accept failure preserves B, never auto-writes it", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
+    const disk = setupDisk()
+    mocks.realEditor.value = true
+    mocks.compactToolbar.value = false
+    const oldFormat = controlled<void>()
+    mocks.writeFileAtomic.mockImplementationOnce(async (path: string, body: string) => {
+      await oldFormat.promise
+      disk.set(path, body)
+    })
+    const partial = CHAPTER_MD.replace("正文第一段。", "accept 已有部分 I/O。")
+    mocks.acceptChapterDraft.mockImplementationOnce(async (input: { formalChapterPath: string }) => {
+      await mocks.writeFileAtomic(input.formalChapterPath, partial)
+      throw new Error("partial write then verification failed")
+    })
+    const view = render(<WritingWorkspace />)
+    await flushAsync(20)
+    await openConfirmation()
+    fireEvent.click(screen.getByText("一键排版"))
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    const latestBody = "真正更晚的未存正文 B。\n第二行仍未存。"
+    const latestTitle = "  真正更晚的未提交标题 B  "
+    fireEvent.change(bodyInput(), { target: { value: latestBody } })
+    fireEvent.focus(titleInput())
+    fireEvent.change(titleInput(), { target: { value: latestTitle } })
+    fireEvent.click(screen.getByTestId("workspace-confirm"))
+    await flushAsync(20)
+    expect(document.querySelector("textarea")).toBeNull()
+    expect(document.querySelector("input[type='text']")).toBeNull()
+    expect(screen.queryByText("一键排版")).toBeNull()
+    expect(mocks.acceptChapterDraft).not.toHaveBeenCalled()
+    await act(async () => oldFormat.resolve())
+    await waitFor(() => expect(mocks.confirmError).toHaveBeenCalledTimes(1))
+    view.rerender(<WritingWorkspace />)
+    expect(bodyInput()).toHaveValue(latestBody)
+    expect(titleInput()).toHaveValue(latestTitle)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2)
+    expect(disk.get(CHAPTER_PATH)).toBe(partial)
+    expect(mocks.acceptSettled).not.toHaveBeenCalled()
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(1100)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2)
+    view.unmount()
+    const remount = render(<WritingWorkspace />)
+    await flushAsync(20)
+    expect(bodyInput()).toHaveValue(latestBody)
+    expect(titleInput()).toHaveValue(latestTitle)
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(2)
+    expect(disk.get(CHAPTER_PATH)).toBe(partial)
+    remount.unmount()
+    errorLog.mockRestore()
+  })
+
+  it("PC4 admitted canonical A->A' relocation stops the OLD confirmation; latest input restores to its explicitly relocated owner", async () => {
+    const disk = setupDisk()
+    const migration = controlled<void>()
+    const target = "/proj/wiki/chapters/第1章-迁移.md"
+    mocks.realEditor.value = true
+    mocks.writeFileAtomic.mockImplementationOnce(async (path: string, body: string) => {
+      await migration.promise
+      disk.set(path, body)
+    })
+    const view = render(<WritingWorkspace />)
+    await flushAsync(20)
+    await openConfirmation()
+    fireEvent.focus(titleInput())
+    fireEvent.change(titleInput(), { target: { value: "迁移" } })
+    fireEvent.blur(titleInput())
+    await flushAsync(20)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    expect(mocks.writeFileAtomic.mock.calls[0][0]).toBe(target)
+    const latestBody = "迁移旧 I/O 之后输入但尚未保存的 B。"
+    fireEvent.change(bodyInput(), { target: { value: latestBody } })
+    fireEvent.focus(titleInput())
+    fireEvent.change(titleInput(), { target: { value: "最新未提交标题 B" } })
+    fireEvent.click(screen.getByTestId("workspace-confirm"))
+    await flushAsync(20)
+    expect(mocks.acceptChapterDraft).not.toHaveBeenCalled()
+    await act(async () => migration.resolve())
+    await flushAsync(20)
+    view.rerender(<WritingWorkspace />)
+    await flushAsync(20)
+    expect(mocks.deleteFile).toHaveBeenCalledWith(CHAPTER_PATH)
+    expect(mocks.state.selectedFile).toBe(target)
+    expect(mocks.acceptChapterDraft).not.toHaveBeenCalled()
+    expect(mocks.acceptSettled).not.toHaveBeenCalled()
+    expect(mocks.ingestChapter).not.toHaveBeenCalled()
+    expect(mocks.confirmError).toHaveBeenCalledTimes(1)
+    expect(String(mocks.confirmError.mock.calls[0][0])).toContain("重新确认")
+    expect(bodyInput()).toHaveValue(latestBody)
+    expect(titleInput()).toHaveValue("最新未提交标题 B")
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(1100)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    expect(disk.has(CHAPTER_PATH)).toBe(false)
+    expect(disk.get(target)).toBe(normalizeChapterWriting(CHAPTER_MD.replace("# 第一章", "# 第1章-迁移")))
+    view.unmount()
   })
 })

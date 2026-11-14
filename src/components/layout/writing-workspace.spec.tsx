@@ -14,6 +14,8 @@ import {
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
 import { WritingWorkspace } from "./writing-workspace"
+import type { PreviewPanelAdoptionStart, PreviewPanelWriteGate } from "./preview-panel"
+import { getChapterWriteCoordinator, resetChapterWriteCoordinator } from "./preview-panel-helpers"
 import type { ForeshadowingStore } from "@/lib/novel"
 
 const mocks = vi.hoisted(() => {
@@ -73,8 +75,32 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
   }
 })
 
+// 编辑区采纳写入门桩：真实组件 begin/abort 的语义在 preview-panel.spec.tsx 里验，
+// 这里只验写作台对它的调用时序（先静默 → 再采纳 → 最后下发令牌）与失败/阻塞口径。
+const gateMock = vi.hoisted(() => ({
+  begin: vi.fn(async (_path: string, _owner?: object): Promise<PreviewPanelAdoptionStart> => ({ status: "idle", lease: null })),
+  abort: vi.fn(),
+}))
+
 vi.mock("./preview-panel", () => ({
-  PreviewPanel: () => <div data-testid="preview-panel">preview</div>,
+  // 只模拟「挂载时把采纳写入门登记给写作台」这一个契约；begin/abort 由各用例的桩决定。
+  // （真实组件用 effect 登记；mock 在渲染时直接赋值，注册时机对调用方不可见。）
+  PreviewPanel: ({ adoptionRefreshToken, adoptionRefreshPath, writeGateRef }: {
+    adoptionRefreshToken?: number
+    adoptionRefreshPath?: string
+    writeGateRef?: { current: PreviewPanelWriteGate | null }
+  }) => {
+    if (writeGateRef) writeGateRef.current = gateMock
+    return (
+      <div
+        data-testid="preview-panel"
+        data-adoption-refresh={String(adoptionRefreshToken ?? "none")}
+        data-adoption-path={adoptionRefreshPath ?? "none"}
+      >
+        preview
+      </div>
+    )
+  },
 }))
 
 vi.mock("@/components/novel/export-center-view", () => ({
@@ -99,19 +125,44 @@ vi.mock("@/components/search/search-view", () => ({
   ),
 }))
 
+// 采纳失败的向外传递面：真实 Dock 会把错误变成「没有写入正式章」的回执，
+// mock 不渲染文案，用这个 spy 观察同一个错误被上抛了。
+const dockMocks = vi.hoisted(() => ({ confirmError: vi.fn() }))
+
 vi.mock("./chapter-draft-dock", () => ({
   ChapterDraftDock: ({
     onAdopted,
     onGenerateDraft,
     onOpenMemory,
+    adoptAndIngest,
   }: {
     onAdopted?: (p: string) => void
     onGenerateDraft?: () => void
     onOpenMemory?: () => void
+    adoptAndIngest?: (input: {
+      projectPath: string
+      draftId: string
+      formalChapterPath: string
+      onAcceptSettled?: () => void
+    }) => Promise<{ formalChapterPath: string; ingest: string }>
   }) => (
     <div data-testid="chapter-draft-dock">
       dock
       <button type="button" data-testid="draft-mock-adopt" onClick={() => onAdopted?.("/mock/adopted.md")}>adopt</button>
+      <button
+        type="button"
+        data-testid="draft-mock-confirm"
+        onClick={() => {
+          // 只驱动「第二步确认」通道；第一步（点采纳）不触发任何写入准备工作。
+          void adoptAndIngest?.({
+            projectPath: "C:/novels/demo",
+            draftId: "d1",
+            formalChapterPath: "/mock/adopted.md",
+          }).then((outcome) => onAdopted?.(outcome.formalChapterPath), (error: unknown) => dockMocks.confirmError(error))
+        }}
+      >
+        confirm
+      </button>
       <button type="button" data-testid="draft-mock-generate" onClick={() => onGenerateDraft?.()}>generate</button>
       <button type="button" data-testid="draft-mock-memory" onClick={() => onOpenMemory?.()}>memory</button>
     </div>
@@ -138,6 +189,9 @@ const novelMocks = vi.hoisted(() => ({
   loadForeshadowingTracker: vi.fn(async (_path: string): Promise<ForeshadowingStore> => {
     throw new Error("not mocked")
   }),
+  // 采纳链：只在「写入次序」用例里替换成可观察的桩，其余用例不触发采纳。
+  acceptDraftAndIngest: vi.fn(),
+  createMainControlAcceptSeam: vi.fn(),
 }))
 vi.mock("@/lib/novel", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel")>()
@@ -146,6 +200,8 @@ vi.mock("@/lib/novel", async (importOriginal) => {
     loadForeshadowingTracker: novelMocks.loadForeshadowingTracker,
     // 包一层：cancelled 守卫唯一的外部可观察效果就是「卸载后不再调用它」。
     analyzeForeshadowingDebt: vi.fn(actual.analyzeForeshadowingDebt),
+    acceptDraftAndIngest: novelMocks.acceptDraftAndIngest,
+    createMainControlAcceptSeam: novelMocks.createMainControlAcceptSeam,
   }
 })
 
@@ -159,6 +215,7 @@ afterEach(() => {
 
 beforeEach(() => {
   setupDomGlobals()
+  resetChapterWriteCoordinator()
   mocks.wikiState.chatExpanded = false
   mocks.wikiState.chatDockPosition = "bottom"
   mocks.wikiState.project = null
@@ -168,6 +225,17 @@ beforeEach(() => {
   mocks.wikiState.finalChapterSave = null
   vi.clearAllMocks()
   novelMocks.loadForeshadowingTracker.mockRejectedValue(new Error("not mocked"))
+  // 采纳链默认：只把目标路径透传给注入的 accept（不写盘、不调模型），时序由用例外层观察。
+  novelMocks.acceptDraftAndIngest.mockImplementation(async (input: {
+    formalChapterPath: string
+    accept: (path: string) => Promise<void>
+  }) => {
+    await input.accept(input.formalChapterPath)
+    return { formalChapterPath: input.formalChapterPath, ingest: "skipped-config" }
+  })
+  novelMocks.createMainControlAcceptSeam.mockImplementation(() => async () => {})
+  gateMock.begin.mockResolvedValue({ status: "idle", lease: null })
+  gateMock.abort.mockReset()
   fsMocks.getFileModifiedTime.mockResolvedValue(0)
   localStorage.clear()
 })
@@ -651,6 +719,182 @@ describe("WritingWorkspace — W3 剩余分支补齐", () => {
     fireEvent.click(screen.getByTestId("draft-mock-adopt"))
     expect(setSelectedFile).toHaveBeenCalledWith("/mock/adopted.md")
     expect(setActiveView).toHaveBeenCalledWith("wiki")
+  })
+
+  it("草稿抽屉确认采纳：刷新令牌递增并交给当前 PreviewPanel（bottom chat 布局）", async () => {
+    novelMocks.loadForeshadowingTracker.mockResolvedValue({
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      items: [],
+    })
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    mocks.wikiState.chatExpanded = false
+    mocks.wikiState.chatDockPosition = "bottom"
+    render(<WritingWorkspace />)
+    expect(screen.getByTestId("preview-panel").getAttribute("data-adoption-refresh")).toBe("0")
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    expect(await screen.findByTestId("chapter-draft-dock")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("draft-mock-confirm"))
+    // G2-NATIVE-F1：同路径采纳落盘后令牌必须 +1 且指认正式章（否则编辑区不会重读盘）。
+    await waitFor(() => {
+      expect(screen.getByTestId("preview-panel").getAttribute("data-adoption-refresh")).toBe("1")
+    })
+    expect(screen.getByTestId("preview-panel").getAttribute("data-adoption-path")).toBe("/mock/adopted.md")
+    // 回填之后才到来的 onAdopted 不得再 +1：那时用户可能已经继续写作，再刷新会冲掉新内容。
+    await act(async () => { fireEvent.click(screen.getByTestId("draft-mock-adopt")) })
+    expect(screen.getByTestId("preview-panel").getAttribute("data-adoption-refresh")).toBe("1")
+  })
+
+  it("草稿抽屉确认采纳：右侧聊天布局下的 PreviewPanel 收到同一个采纳刷新令牌", async () => {
+    novelMocks.loadForeshadowingTracker.mockResolvedValue({
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      items: [],
+    })
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    mocks.wikiState.chatExpanded = true
+    mocks.wikiState.chatDockPosition = "right"
+    render(<WritingWorkspace />)
+    expect(screen.getByTestId("preview-panel").getAttribute("data-adoption-refresh")).toBe("0")
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    expect(await screen.findByTestId("chapter-draft-dock")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("draft-mock-confirm"))
+    await waitFor(() => {
+      expect(screen.getByTestId("preview-panel").getAttribute("data-adoption-refresh")).toBe("1")
+    })
+    expect(screen.getByTestId("preview-panel").getAttribute("data-adoption-path")).toBe("/mock/adopted.md")
+    mocks.wikiState.chatExpanded = false
+    mocks.wikiState.chatDockPosition = "bottom"
+  })
+
+  it("确认采纳顺序：先静默同文件编辑区写盘，再落盘，最后才下发刷新令牌", async () => {
+    novelMocks.loadForeshadowingTracker.mockResolvedValue({
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      items: [],
+    })
+    const order: string[] = []
+    let releaseBegin!: () => void
+    gateMock.begin.mockImplementation(async (path: string): Promise<PreviewPanelAdoptionStart> => {
+      order.push(`begin:${path}`)
+      // 真实 begin 会等该目标已准入的全部在途写盘落定；这里用可控 Promise 锁住同一个先后关系。
+      await new Promise<void>((resolve) => { releaseBegin = resolve })
+      return {
+        status: "ready",
+        lease: null,
+        snapshot: { path, buffer: "采纳前未落盘的正文", titleDraft: "", titleEditing: false },
+      }
+    })
+    novelMocks.createMainControlAcceptSeam.mockImplementation(() => async (path: string) => {
+      order.push(`accept:${path}`)
+    })
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    fireEvent.click(await screen.findByTestId("draft-mock-confirm"))
+    await waitFor(() => expect(order).toEqual(["begin:/mock/adopted.md"]))
+    // 静默门未落定之前，正式采纳写入一次都不许发生，令牌也不许先发。
+    expect(order).toEqual(["begin:/mock/adopted.md"])
+    expect(screen.getByTestId("preview-panel").getAttribute("data-adoption-refresh")).toBe("0")
+
+    await act(async () => { releaseBegin() })
+    await waitFor(() => expect(order).toEqual(["begin:/mock/adopted.md", "accept:/mock/adopted.md"]))
+    await waitFor(() => {
+      expect(screen.getByTestId("preview-panel").getAttribute("data-adoption-refresh")).toBe("1")
+    })
+    expect(gateMock.abort).not.toHaveBeenCalled()
+  })
+
+  it("确认采纳失败：恢复入口被调用（abort）且不下发刷新令牌", async () => {
+    novelMocks.loadForeshadowingTracker.mockResolvedValue({
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      items: [],
+    })
+    const start: PreviewPanelAdoptionStart = {
+      status: "ready",
+      lease: null,
+      snapshot: { path: "/mock/adopted.md", buffer: "采纳前未落盘的正文", titleDraft: "", titleEditing: false },
+    }
+    gateMock.begin.mockResolvedValue(start)
+    novelMocks.createMainControlAcceptSeam.mockImplementation(() => async () => {
+      throw new Error("写入后读回不一致，没有记成已采纳")
+    })
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    fireEvent.click(await screen.findByTestId("draft-mock-confirm"))
+    await waitFor(() => expect(gateMock.abort).toHaveBeenCalledWith(start))
+    expect(gateMock.abort).toHaveBeenCalledTimes(1)
+    // accept 确实被调用过（throw 不证明零前序 I/O，也不能把调用数写成 0）。
+    expect(novelMocks.createMainControlAcceptSeam).toHaveBeenCalledTimes(1)
+    // 采纳失败必须如实上抛（Dock 据此呈现「没有写入正式章」）。
+    await waitFor(() => expect(dockMocks.confirmError).toHaveBeenCalledTimes(1))
+    // 采纳没落盘：编辑区不得被令牌重载（否则会把未落盘正文冲掉）。
+    expect(screen.getByTestId("preview-panel").getAttribute("data-adoption-refresh")).toBe("0")
+  })
+
+  it("同目标已有采纳 lease 在途（blocked）：如实拒绝，不做任何正式写入", async () => {
+    novelMocks.loadForeshadowingTracker.mockResolvedValue({
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      items: [],
+    })
+    gateMock.begin.mockResolvedValue({ status: "blocked", reason: "busy" })
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    fireEvent.click(await screen.findByTestId("draft-mock-confirm"))
+    // 没有任何写入：不调 accept seam、不下发刷新令牌、失败如实上抛。
+    await waitFor(() => expect(dockMocks.confirmError).toHaveBeenCalledTimes(1))
+    expect(novelMocks.createMainControlAcceptSeam).not.toHaveBeenCalled()
+    expect(screen.getByTestId("preview-panel").getAttribute("data-adoption-refresh")).toBe("0")
+  })
+
+  it.each(["cancelled", "relocated"] as const)("R6-PC blocked %s preserves its reason and never calls the confirmed accept seam", async (reason) => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    gateMock.begin.mockResolvedValue({ status: "blocked", reason })
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    fireEvent.click(await screen.findByTestId("draft-mock-confirm"))
+    await waitFor(() => expect(dockMocks.confirmError).toHaveBeenCalledTimes(1))
+    expect(novelMocks.createMainControlAcceptSeam).not.toHaveBeenCalled()
+    expect(screen.getByTestId("preview-panel").getAttribute("data-adoption-refresh")).toBe("0")
+    expect(String(dockMocks.confirmError.mock.calls[0][0])).toContain("重新确认")
+    expect(String(dockMocks.confirmError.mock.calls[0][0])).not.toContain("还有一次")
+  })
+
+  it("R6-PC legacy idle gate still fences actual accept I/O across layouts and releases after its real result", async () => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    let completeAccept!: () => void
+    const accepting = new Promise<void>((resolve) => { completeAccept = resolve })
+    const accept = vi.fn(async () => { await accepting })
+    novelMocks.createMainControlAcceptSeam.mockReturnValue(accept)
+    const view = render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    fireEvent.click(await screen.findByTestId("draft-mock-confirm"))
+    await waitFor(() => expect(accept).toHaveBeenCalledTimes(1))
+    const coordinator = getChapterWriteCoordinator()
+    const lease = coordinator.leaseOf("/mock/adopted.md")
+    expect(lease).not.toBeNull()
+    expect(lease?.owner).toBe(gateMock.begin.mock.calls[0][1])
+    const forbidden = vi.fn(async () => undefined)
+    expect(coordinator.admitMutation(coordinator.captureIntent("format", "/mock/adopted.md"), ["/mock/adopted.md"], forbidden).kind).toBe("fenced")
+    expect(forbidden).not.toHaveBeenCalled()
+    const unrelated = vi.fn(async () => undefined)
+    const other = coordinator.admitMutation(coordinator.captureIntent("format", "/mock/other.md"), ["/mock/other.md"], unrelated)
+    if (other.kind !== "admitted") throw new Error("unrelated writer was blocked")
+    await other.result
+    expect(unrelated).toHaveBeenCalledTimes(1)
+    mocks.wikiState.chatExpanded = true
+    mocks.wikiState.chatDockPosition = "right"
+    view.rerender(<WritingWorkspace />)
+    expect(coordinator.leaseOf("/mock/adopted.md")).toBe(lease)
+    expect(screen.getByTestId("preview-panel").getAttribute("data-adoption-refresh")).toBe("0")
+    await act(async () => completeAccept())
+    await waitFor(() => expect(screen.getByTestId("preview-panel").getAttribute("data-adoption-refresh")).toBe("1"))
+    expect(coordinator.leaseOf("/mock/adopted.md")).toBeNull()
+    expect(dockMocks.confirmError).not.toHaveBeenCalled()
+    const fresh = coordinator.admitMutation(coordinator.captureIntent("format", "/mock/adopted.md"), ["/mock/adopted.md"], forbidden)
+    if (fresh.kind !== "admitted") throw new Error("settled acceptance leaked its lease")
+    await fresh.result
+    expect(forbidden).toHaveBeenCalledTimes(1)
+    view.unmount()
   })
 
   it("草稿抽屉 onGenerateDraft 走主控，onOpenMemory 走 lint", async () => {

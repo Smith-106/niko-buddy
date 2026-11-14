@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useCallback, useRef, useMemo, useState, useLayoutEffect } from "react"
+import type { MutableRefObject } from "react"
 import { useTranslation } from "react-i18next"
 import { Check } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -25,6 +26,12 @@ import {
   getChapterTitleFromPath,
   collectRecentChapterFiles, DE_AI_SELECTION_TIMEOUT_MS, CHAPTER_TITLE_MIN_WIDTH_PX,
   CHAPTER_TITLE_RESTING_EXTRA_WIDTH_PX, CHAPTER_TITLE_EDITING_EXTRA_WIDTH_PX,
+  getChapterWriteCoordinator, settleChapterRecoveryBodyWrite, settleChapterAdoptionRecoveryAfterRead,
+  type ChapterAdoptionLease,
+  type ChapterWriteFenceRefusal,
+  type ChapterWriteIntent,
+  type ChapterWriteRecovery,
+  type ChapterTargetRelocation,
 } from "./preview-panel-helpers"
 import { getNextChatExpanded } from "./chat-layout"
 import { DeAiPreviewDialog } from "@/components/novel/de-ai-preview-dialog"
@@ -55,7 +62,64 @@ const SnapshotViewer = lazy(async () => {
 })
 
 
-export function PreviewPanel() {
+export interface PreviewPanelWriteGateSnapshot {
+  /** 被静默的编辑区文件（= 本次采纳写入的正式章）。 */
+  path: string
+  /** 采纳前编辑区里的正文（原样，未归一化），供采纳失败时保留未落盘内容。 */
+  buffer: string
+  /** 采纳前正在编辑的标题草稿与编辑态（未提交的标题输入不得丢）。 */
+  titleDraft: string
+  titleEditing: boolean
+}
+
+/**
+ * `begin` 的受理结果：
+ * - `idle`：采纳目标不是本编辑区正在显示的文件，不动编辑区（仍已在协调层登记栅栏）。
+ * - `ready`：编辑区已让出旧输入并等完此前准入的真实 I/O，可以落正式采纳写入。
+ * - `blocked`：同一目标已有采纳 lease 在途，本次采纳必须如实拒绝（不排队、不静默合并）。
+ */
+export type PreviewPanelAdoptionStart =
+  | { status: "idle"; lease: ChapterAdoptionLease | null }
+  | { status: "ready"; lease: ChapterAdoptionLease | null; snapshot: PreviewPanelWriteGateSnapshot }
+  | { status: "blocked"; reason: "busy" | "cancelled" | "relocated"; relocation?: ChapterTargetRelocation }
+
+/**
+ * 采纳写入前的「同文件静默门」（G2 统一写入协议）。
+ *
+ * 采纳是盘上正文的权威写入：编辑区在这之前排队的防抖写盘、已经派发的
+ * `write_file_atomic` 都必须先落定，否则旧缓冲可能在采纳之后落盘、把刚采纳的正文覆盖回去
+ * （`fs.rs` 的临时文件 + fsync + rename 不提供写者之间的次序保证）。
+ * 本门只管「同一个路径」这一件事：等的是该目标已准入 mutation 的整条 FIFO 尾链（不是单槽最后一笔），
+ * 不做全局写队列、不新增状态权威。
+ */
+export interface PreviewPanelWriteGate {
+  /** 正式采纳写入之前调用：同路径则让出编辑区并等全部在途写盘落定。 */
+  begin(targetPath: string, owner?: object): Promise<PreviewPanelAdoptionStart>
+  /**
+   * 采纳没有确认落盘（accept 抛错等）：按归属释放 lease 并恢复可编辑输入。
+   * 不自动把旧缓冲回写正式文件 —— throw 不证明此前零 I/O；新的一次用户保存/编辑意图才恢复写路径。
+   */
+  abort(start: PreviewPanelAdoptionStart): void
+}
+
+export interface PreviewPanelProps {
+  /**
+   * 采纳专用刷新令牌（G2-NATIVE-F1）。
+   *
+   * 草稿采纳成功时正式正文会写回**当前选中同一个文件**，此时 `selectedFile` 的
+   * identity 不变，光靠「选中路径变化」触发的磁盘装载 effect 不会重跑，编辑区就停在
+   * 采纳前的旧正文。令牌只是把这个「同路径、盘上正文已变」的事实显式表达一次：
+   * 令牌 +1 且选中路径未变 ⇒ 重新读盘。它不参与任何别的刷新语义（不订阅 dataVersion、
+   * 不作废未保存文本、不改变切文件与保存的既有路径）。
+   */
+  adoptionRefreshToken?: number
+  /** 本次令牌指向的正式章路径，与 token 同批更新；不等于当前选中文件的令牌不重载。 */
+  adoptionRefreshPath?: string
+  /** 写作台注入的采纳写入门（挂载时登记）；缺省不注入，编辑区行为与原来一致。 */
+  writeGateRef?: MutableRefObject<PreviewPanelWriteGate | null>
+}
+
+export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "", writeGateRef }: PreviewPanelProps) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const selectedFile = useWikiStore((s) => s.selectedFile)
@@ -77,6 +141,25 @@ export function PreviewPanel() {
   const setFinalChapterSave = useWikiStore((s) => s.setFinalChapterSave)
   const outlineTasks = useOutlineGenerationStore((s) => s.tasks)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 统一写入协调器（同进程共享）：意图 / 实际 I/O 尾链 / 采纳栅栏 / lease 都在这里，
+  // 不持有正文或状态权威。每个挂载实例用 owner 标识自己的采纳 lease。
+  const writeCoordinator = getChapterWriteCoordinator()
+  const writeOwnerRef = useRef<object>({})
+  // 输入观察与已准入 I/O 的寿命分开；A/B 交错时每个 lease 都保留自己的快照归属。
+  const mountedRef = useRef(true)
+  const adoptionLeaseRef = useRef<ChapterAdoptionLease | null>(null)
+  const adoptionStartsRef = useRef(new Map<ChapterAdoptionLease, {
+    snapshot: PreviewPanelWriteGateSnapshot | null
+    admittedTail: Promise<void>
+    handedOff: boolean
+  }>())
+  const loadGenerationRef = useRef(0)
+  const recoveredInputRef = useRef<ChapterWriteRecovery | null>(null)
+  // 装载守卫是否已真正提交到 DOM（setter 返回不是证明）。
+  const committedInputPathRef = useRef<string | null>(null)
+  const loadingGuardWaitersRef = useRef<Array<{ path: string; resolve: () => void }>>([])
+  // 采纳刷新令牌的上一次取值：只有令牌真的变化才判为采纳刷新（初始装载不算）。
+  const adoptionRefreshTokenRef = useRef(adoptionRefreshToken)
   const [isSavingFinal, setIsSavingFinal] = useState(false)
   const [saveStatus, setSaveStatus] = useState<string>("")
   const [restoringTrash, setRestoringTrash] = useState(false)
@@ -120,10 +203,37 @@ export function PreviewPanel() {
   const [selectionTransformCandidateContent, setSelectionTransformCandidateContent] = useState("")
   const [chapterTitleDraft, setChapterTitleDraft] = useState("")
   const [chapterTitleEditing, setChapterTitleEditing] = useState(false)
+  const chapterTitleInputRef = useRef({ path: selectedFile, draft: "", editing: false, revision: 0 })
   const [chapterTitleWidthPx, setChapterTitleWidthPx] = useState(CHAPTER_TITLE_MIN_WIDTH_PX)
   const [chapterToolbarCompact, setChapterToolbarCompact] = useState(true)
   const [chapterToolbarMoreOpen, setChapterToolbarMoreOpen] = useState(false)
-  const [loadedFilePath, setLoadedFilePath] = useState<string | null>(null)
+  const [loadedFilePath, setLoadedFilePathState] = useState<string | null>(null)
+  const loadedFilePathRef = useRef<string | null>(null)
+  const [recoveryReloadToken, setRecoveryReloadToken] = useState(0)
+  const setLoadedFilePath = useCallback((path: string | null) => {
+    loadedFilePathRef.current = path
+    setLoadedFilePathState(path)
+  }, [])
+  useLayoutEffect(() => {
+    // 此值描述本次真正提交的渲染分支，而不是刚调用过哪个 state setter。
+    const inputPath = !selectedTrashItem && selectedFile !== null && loadedFilePath === selectedFile
+      && !writeCoordinator.isFenced(selectedFile) ? selectedFile : null
+    committedInputPathRef.current = inputPath
+    const pending = loadingGuardWaitersRef.current
+    loadingGuardWaitersRef.current = pending.filter((waiter) => waiter.path === inputPath)
+    for (const waiter of pending) if (waiter.path !== inputPath) waiter.resolve()
+  })
+  useLayoutEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      committedInputPathRef.current = null
+      const waiters = loadingGuardWaitersRef.current
+      loadingGuardWaitersRef.current = []
+      // 真正卸载结束输入观察；begin 恢复时还必须检查 cancelled，不能再发出 accept。
+      for (const waiter of waiters) waiter.resolve()
+    }
+  }, [])
   // Snapshot of what was most recently loaded from disk. Milkdown re-emits
   // `markdownUpdated` on initial parse (before the user types anything),
   // which used to trigger an auto-save that could write back a placeholder
@@ -139,53 +249,171 @@ export function PreviewPanel() {
     fileContentRef.current = fileContent
   }, [fileContent])
 
-  const syncChapterToCanonicalPath = useCallback(async (path: string, markdown: string) => {
+  /** 等装载守卫真正提交到 DOM。已经在加载态/无编辑器 ⇒ 无需等待。 */
+  const awaitLoadingGuardCommit = useCallback((expectedPath: string) => {
+    if (committedInputPathRef.current !== expectedPath) return Promise.resolve()
+    return new Promise<void>((resolve) => {
+      loadingGuardWaitersRef.current.push({ path: expectedPath, resolve })
+    })
+  }, [])
+
+  /** 按归属释放本实例的采纳 lease（旧 cleanup / 旧结果不得释放新 lease）。 */
+  const releaseOwnAdoption = useCallback((expectedPath?: string, expectedLease?: ChapterAdoptionLease | null) => {
+    const lease = expectedLease ?? (expectedPath === undefined
+      ? adoptionLeaseRef.current
+      : Array.from(adoptionStartsRef.current.keys()).find((entry) => normalizePath(entry.path) === normalizePath(expectedPath)))
+    if (!lease) return false
+    if (expectedPath !== undefined && normalizePath(lease.path) !== normalizePath(expectedPath)) return false
+    const released = writeCoordinator.releaseAdoption(lease)
+    if (released && adoptionLeaseRef.current === lease) adoptionLeaseRef.current = null
+    if (released) adoptionStartsRef.current.delete(lease)
+    return released
+  }, [writeCoordinator])
+
+  const setTitleInput = useCallback((draft: string, editing: boolean, userIntent = false) => {
+    const path = useWikiStore.getState().selectedFile
+    chapterTitleInputRef.current = { path, draft, editing, revision: chapterTitleInputRef.current.revision + (userIntent ? 1 : 0) }
+    setChapterTitleDraft(draft)
+    setChapterTitleEditing(editing)
+    if (userIntent && committedInputPathRef.current === path) {
+      for (const record of adoptionStartsRef.current.values()) {
+        if (record.snapshot?.path === path && !record.handedOff) {
+          record.snapshot.titleDraft = draft
+          record.snapshot.titleEditing = editing
+          const lease = writeCoordinator.leaseOf(path)
+          const recovery = lease ? writeCoordinator.recoveryForAdoption(lease) : null
+          if (recovery) writeCoordinator.retainRecovery({ ...recovery, titleDraft: draft, titleEditing: editing })
+        }
+      }
+      const recovery = path ? writeCoordinator.peekRecovery(path) : null
+      if (path && recovery && !writeCoordinator.isFenced(path)) {
+        if (!editing && recovery.buffer === undefined) {
+          writeCoordinator.dropRecovery(path)
+          recoveredInputRef.current = null
+        } else {
+          writeCoordinator.retainRecovery({ ...recovery, titleDraft: draft, titleEditing: editing })
+        }
+      }
+    }
+  }, [writeCoordinator])
+
+  const restoreRecovery = useCallback((entry: ChapterWriteRecovery) => {
+    const current = useWikiStore.getState().selectedFile
+    if (!mountedRef.current || current === null || normalizePath(current) !== normalizePath(entry.path)) return
+    const buffer = entry.buffer ?? fileContentRef.current
+    // 先同步本路径 refs，再放回真实 UI。恢复仍是 dirty，不伪报 saved；自动 flush 挂起。
+    fileContentRef.current = buffer
+    recoveredInputRef.current = { ...entry, buffer }
+    setFileContent(buffer)
+    setTitleInput(entry.titleDraft, entry.titleEditing)
+    setLoadedFilePath(current)
+    setSaveStatus(entry.message ?? (entry.adoptionCommitted
+      ? "采纳已落盘但读回未完成：已接回未存输入，正文未被自动回写，请检查后重新编辑或保存。"
+      : "采纳未确认落盘：已接回未存输入，正文未被自动回写，请检查后重新编辑或保存。"))
+  }, [setFileContent, setLoadedFilePath, setTitleInput])
+
+  type ChapterCommitOutcome =
+    | { status: "committed"; targetPath: string; markdown: string; stillCurrent: boolean }
+    | { status: "fenced"; refusals: readonly ChapterWriteFenceRefusal[] }
+    | { status: "failed"; error: unknown; recoveryPath: string }
+
+  /**
+   * 唯一实际正文写入入口。
+   *
+   * 1) 先解析受影响路径组（只读解析，不占 I/O 尾链，也不阻断采纳）；
+   * 2) 以「同一同步段登记整组前驱 + 同一个新 barrier」的方式准入；
+   * 3) write / delete / 重指选中项 与提交后 refs/可见内容同步全在这一个许可内，不再嵌套排自己的尾链。
+   * 调用方必须在任何 await 之前用 captureIntent 捕获意图。
+   */
+  const commitChapter = useCallback(async (
+    intent: ChapterWriteIntent,
+    path: string,
+    markdown: string,
+    options?: { verifyAfterWrite?: (targetPath: string, markdown: string) => Promise<void> },
+  ): Promise<ChapterCommitOutcome> => {
     const normalized = normalizeChapterWriting(markdown)
     const chapterNumber = extractChapterNumberFromMarkdown(normalized)
     const targetPath = await getCanonicalChapterPath(path, normalized, chapterNumber)
-
-    await writeFileAtomic(targetPath, normalized)
-    if (targetPath !== path) {
-      await deleteFile(path)
-      if (project) {
-        try {
-          const tree = await listDirectory(normalizePath(project.path))
-          setFileTree(tree)
-        } catch {
-          // non-critical tree refresh
+    let deleteIssued = false
+    const admission = writeCoordinator.admitMutation(intent, [path, targetPath], async () => {
+      await writeFileAtomic(targetPath, normalized)
+      // 终稿补偿重写属于同一个有效许可，不能作为绕过协议的第二处直接写。
+      if (options?.verifyAfterWrite) await options.verifyAfterWrite(targetPath, normalized)
+      if (targetPath !== path) {
+        const deletion = deleteFile(path)
+        deleteIssued = true
+        // 已验证的新文件 + 实际发出的旧路径删除：登记事实，不把 confirmed 目标静默改指。
+        writeCoordinator.noteRelocation(intent, path, targetPath)
+        await deletion
+        if (project) {
+          try {
+            const tree = await listDirectory(normalizePath(project.path))
+            setFileTree(tree)
+          } catch (error) {
+            console.warn("章节目录刷新失败:", toErrorMessage(error))
+          }
+        }
+        if (useWikiStore.getState().selectedFile === path) {
+          selectedFileRef.current = targetPath
+          useWikiStore.getState().setSelectedFile(targetPath)
         }
       }
-      if (useWikiStore.getState().selectedFile === path) {
-        selectedFileRef.current = targetPath
-        useWikiStore.getState().setSelectedFile(targetPath)
+
+      if (useWikiStore.getState().selectedFile === targetPath) {
+        // canonical 重指同时迁移输入路径快照；异目标采纳 token 不负责重载它。
+        fileContentRef.current = normalized
+        lastLoadedRef.current = normalized
+        chapterTitleInputRef.current = { ...chapterTitleInputRef.current, path: targetPath }
+        setFileContent(normalized)
+        // 已准入的旧 I/O 可以落定，但不能重开正在等待采纳的旧输入。
+        if (!writeCoordinator.isFenced(path) && !writeCoordinator.isFenced(targetPath)) setLoadedFilePath(targetPath)
       }
-    }
 
-    if (useWikiStore.getState().selectedFile === targetPath) {
-      setFileContent(normalized)
-      fileContentRef.current = normalized
-      lastLoadedRef.current = normalized
+      settleChapterRecoveryBodyWrite(writeCoordinator, intent, targetPath, normalized)
+      bumpDataVersion()
+    })
+    if (admission.kind === "fenced") return { status: "fenced", refusals: admission.refusals }
+    // 新的显式标题/终稿保存已真正准入，才消费恢复输入；迟到的旧意图不能清它。
+    if (intent.kind === "title" || intent.kind === "final-save") {
+      writeCoordinator.dropRecovery(path)
+      if (recoveredInputRef.current?.path === normalizePath(path)) recoveredInputRef.current = null
     }
-
-    bumpDataVersion()
-    return { targetPath, markdown: normalized }
-  }, [project, setFileContent, setFileTree, bumpDataVersion])
+    try {
+      await admission.result
+    } catch (error) {
+      // barrier 只负责释放继续，业务错误必须如实回到调用方。
+      return { status: "failed", error, recoveryPath: deleteIssued ? targetPath : path }
+    }
+    return { status: "committed", targetPath, markdown: normalized, stillCurrent: admission.isCurrent() }
+  }, [bumpDataVersion, project, setFileContent, setFileTree, setLoadedFilePath, writeCoordinator])
 
   const flushChapterBeforeLeave = useCallback(async (path: string | null, markdown: string) => {
     /* v8 ignore next */
     if (!path || !isChapterPath(path)) return
-    if (finalChapterSave?.saving && finalChapterSave.filePath === path) return
+    // 先处理未派发的 timer：早退分支不得把待写盘留在那里（否则栅栏解除后旧缓冲还会落盘）。
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current)
       saveTimerRef.current = null
     }
+    if (finalChapterSave?.saving && finalChapterSave.filePath === path) return
+    // 失败/取消恢复不是新的保存意图；pagehide、切章、卸载都不能自动覆盖盘上事实。
+    if (writeCoordinator.peekRecovery(path)
+      && (recoveredInputRef.current?.path === normalizePath(path) || loadedFilePathRef.current !== path)) return
     if (markdown === lastLoadedRef.current) return
-    try {
-      await syncChapterToCanonicalPath(path, markdown)
-    } catch (err) {
-      console.error("切换章节前同步文件失败:", err)
+    // 离开 flush 也是真实写入意图：捕获后才准入；被采纳栅栏拒就静默放弃这份旧缓冲。
+    const intent = writeCoordinator.captureIntent("leave-flush", path)
+    const outcome = await commitChapter(intent, path, markdown)
+    if (outcome.status === "failed") {
+      console.error("切换章节前同步文件失败:", outcome.error)
     }
-  }, [syncChapterToCanonicalPath, finalChapterSave])
+  }, [commitChapter, finalChapterSave, writeCoordinator])
+
+  // 装载 effect 只用 [选中路径, 采纳令牌] 作为重跑依据：把 flush 放进 ref，避免
+  // 「其它状态（如终稿保存阶段）变化 → 重跑 effect → 重读磁盘 → 冲掉未存正文」。
+  const flushChapterRef = useRef(flushChapterBeforeLeave)
+  useEffect(() => {
+    flushChapterRef.current = flushChapterBeforeLeave
+  }, [flushChapterBeforeLeave])
 
   // ui-audit-20261016 P1-02（W-02）：角色认知 / 多视角点评是 absolute inset-0 的
   // 全屏遮罩，旧版除了面板自己的关闭钮没有任何退路（无 Esc、无遮罩点击）。
@@ -206,13 +434,92 @@ export function PreviewPanel() {
   }, [showCognition, showPersona])
 
   useEffect(() => {
+    if (!selectedFile) return
+    // 两个既有挂载点的真正消费者：新实例接手在途 lease，恢复只装回正确路径的 UI。
+    return writeCoordinator.subscribe(selectedFile, (event) => {
+      if (!mountedRef.current || useWikiStore.getState().selectedFile !== selectedFile) return
+      if (event === "lease") {
+        loadGenerationRef.current += 1
+        setLoadedFilePath(null)
+        return
+      }
+      if (event === "release") {
+        for (const lease of adoptionStartsRef.current.keys()) {
+          if (lease.path === normalizePath(selectedFile) && writeCoordinator.leaseOf(selectedFile) !== lease) {
+            adoptionStartsRef.current.delete(lease)
+            if (adoptionLeaseRef.current === lease) adoptionLeaseRef.current = null
+          }
+        }
+      }
+      const recovery = writeCoordinator.peekRecovery(selectedFile)
+      if (recovery && !writeCoordinator.isFenced(selectedFile)
+        && (event === "release" || committedInputPathRef.current === selectedFile)) {
+        if (event === "release" && recovery.adoptionCommitted && loadedFilePathRef.current !== selectedFile) {
+          // 成功后移交的观察仍须先读盘，不以旧快照重新开放输入窗口。
+          setRecoveryReloadToken((token) => token + 1)
+        } else restoreRecovery(recovery)
+      } else if (event === "release" && !recovery && loadedFilePathRef.current !== selectedFile) {
+        // 没有旧输入的装载也可能被 lease 作废；失败释放后恢复同一条真实读路径。
+        setRecoveryReloadToken((token) => token + 1)
+      }
+    })
+  }, [selectedFile, restoreRecovery, setLoadedFilePath, writeCoordinator])
+
+  useEffect(() => {
     let cancelled = false
+    let reloadLease: ChapterAdoptionLease | null = null
+    const generation = ++loadGenerationRef.current
+    const isCurrentRead = () => !cancelled && mountedRef.current && loadGenerationRef.current === generation
+      && useWikiStore.getState().selectedFile === selectedFile
+    const cancelRead = () => {
+      cancelled = true
+      // 选章/卸载只结束观察；已发出的读和新观察者的读都落定后才能释放同一 lease。
+      if (reloadLease) writeCoordinator.releaseAdoption(reloadLease)
+    }
     const previousFile = selectedFileRef.current
     const previousContent = fileContentRef.current
-    if (previousFile && previousFile !== selectedFile && isChapterPath(previousFile)) {
-      void flushChapterBeforeLeave(previousFile, previousContent)
+    // G2-NATIVE-F1：令牌变化 + 令牌指认当前文件 + 选中路径未变 ⇒ 同一份文件刚被采纳写回
+    // （权威正文已落盘）。这时必须重新读盘，且不能把采纳前的旧缓冲 flush 回正式章。
+    const adoptionRefreshRequested = adoptionRefreshToken !== adoptionRefreshTokenRef.current
+    adoptionRefreshTokenRef.current = adoptionRefreshToken
+    const adoptionSameFileRefresh = adoptionRefreshRequested
+      && previousFile !== null
+      && previousFile === selectedFile
+      && normalizePath(adoptionRefreshPath) === normalizePath(selectedFile)
+    if (adoptionRefreshRequested && !adoptionSameFileRefresh) {
+      // 令牌异目标/选章已变：只终结该目标的观察，当前输入不重载。
+      releaseOwnAdoption(adoptionRefreshPath)
+      if (previousFile === selectedFile) return cancelRead
+    }
+    if (adoptionSameFileRefresh) {
+      // 采纳写入是权威：作废本文件排队的旧缓冲防抖写盘，并复用既有装载守卫
+      // （loadedFilePath !== selectedFile 只渲染加载态）把旧缓冲区卸载 —— 重载窗口内不存在
+      // 可接受输入的旧编辑器，所以不会出现「窗口内补的一笔被静默丢弃」。
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
+      setLoadedFilePath(null)
+    } else if (previousFile && previousFile !== selectedFile && isChapterPath(previousFile)) {
+      void flushChapterRef.current(previousFile, previousContent)
     }
     selectedFileRef.current = selectedFile
+    if (previousFile !== selectedFile) {
+      const pendingTitle = chapterTitleInputRef.current
+      if (previousFile && isChapterPath(previousFile) && pendingTitle.path === previousFile
+        && pendingTitle.editing && !writeCoordinator.peekRecovery(previousFile)) {
+        writeCoordinator.retainRecovery({
+          path: previousFile,
+          buffer: previousContent !== lastLoadedRef.current ? previousContent : undefined,
+          titleDraft: pendingTitle.draft,
+          titleEditing: true,
+          message: "未提交的章节输入已保留，请检查后继续编辑或保存。",
+        })
+      }
+      recoveredInputRef.current = null
+      // 旧章输入留在原归属；新章标题不能继承旧章的 editing/draft 状态。
+      setTitleInput("", false)
+    }
     setSelectionTransformOpen(false)
     setDeAiPreviewOpen(false)
     // RV-004: 切章同样作废在途单章流（否则旧章的流落定后会重开对话框/覆写候选）
@@ -220,7 +527,7 @@ export function PreviewPanel() {
     deAiAbortRef.current?.abort()
     deAiAbortRef.current = null
     setDeAiProcessing(false)
-    setLoadedFilePath(null)
+    if (!adoptionSameFileRefresh) setLoadedFilePath(null)
 
     if (!selectedFile) {
       setFileContent("")
@@ -245,42 +552,87 @@ export function PreviewPanel() {
       }
     }
 
-    setFileContent("")
-    fileContentRef.current = ""
-    lastLoadedRef.current = ""
-    setSaveStatus("")
+    if (!adoptionSameFileRefresh) {
+      setFileContent("")
+      fileContentRef.current = ""
+      lastLoadedRef.current = ""
+      setSaveStatus("")
+    }
 
-    readFile(selectedFile)
-      .then((content) => {
-        if (cancelled || useWikiStore.getState().selectedFile !== selectedFile) return
+    const load = async () => {
+      const observedLease = writeCoordinator.leaseOf(selectedFile)
+      // 新挂载/回到同章先接住真实采纳寿命；普通切章不是迁移，也不取消已准入 accept。
+      // 同路径成功令牌本身已确认落盘，兼容未注入写入门的旧调用方。
+      if (observedLease && !adoptionSameFileRefresh) await writeCoordinator.adoptionSettled(observedLease)
+      await writeCoordinator.tailOf(selectedFile)
+      if (!isCurrentRead()) return
+      reloadLease = writeCoordinator.leaseOf(selectedFile)
+      const install = async () => {
+        let content = ""
+        let errorMessage = ""
+        try {
+          content = await readFile(selectedFile)
+        } catch (error) {
+          errorMessage = formatOperationError(t, error)
+        }
+        if (!isCurrentRead()) return
+        // 盘上事实先同步 refs/路径快照；恢复输入仍是 dirty，绝不把错误文本当正文。
+        fileContentRef.current = content
         lastLoadedRef.current = content
         setFileContent(content)
-        setSaveStatus("")
+        setSaveStatus(errorMessage)
         setLoadedFilePath(selectedFile)
-      })
-      .catch((err) => {
-        if (cancelled || useWikiStore.getState().selectedFile !== selectedFile) return
-        lastLoadedRef.current = ""
-        // R4 共识（deepseek+glm high；glm+qwen critical）: 原先把错误文本写进 fileContent，
-        // 编辑器再 emit → 1s 防抖自动保存会把 “Error loading file: …” 回写覆盖原文件（数据丢失）。
-        // 正确做法：内容置空（与 lastLoadedRef 一致 ⇒ 不触发保存）+ 失败如实上报。
-        setFileContent("")
-        setSaveStatus(formatOperationError(t, err))
-        setLoadedFilePath(selectedFile)
-      })
-    return () => {
-      cancelled = true
+        // 旧默认门的成功令牌也须消费它自己的快照，不能确认新调用方的 lease。
+        if (adoptionSameFileRefresh && reloadLease?.owner === writeOwnerRef.current) {
+          writeCoordinator.markAdoptionCommitted(reloadLease)
+        }
+        if (!errorMessage) {
+          settleChapterAdoptionRecoveryAfterRead(writeCoordinator, selectedFile)
+          recoveredInputRef.current = null
+        }
+        const recovery = writeCoordinator.peekRecovery(selectedFile)
+        if (recovery) {
+          const pending = errorMessage
+            ? { ...recovery, message: `${errorMessage}；已保留未存输入，请检查后重新编辑或保存。` }
+            : recovery
+          // 释放通知/新挂载也要保留本次读失败回执，不能把它覆盖为泛化恢复提示。
+          if (errorMessage) writeCoordinator.retainRecovery(pending)
+          restoreRecovery(pending)
+        }
+        if (reloadLease) releaseOwnAdoption(selectedFile, reloadLease)
+      }
+      if (reloadLease) await writeCoordinator.runAdoptionReload(reloadLease, install)
+      else await install()
     }
-  }, [selectedFile, setFileContent, flushChapterBeforeLeave])
+    void load().catch((error: unknown) => {
+      if (isCurrentRead()) setSaveStatus(formatOperationError(t, error))
+    })
+    return cancelRead
+  }, [selectedFile, adoptionRefreshToken, adoptionRefreshPath, recoveryReloadToken, setFileContent, setLoadedFilePath, setTitleInput, releaseOwnAdoption, restoreRecovery, writeCoordinator])
 
+  // 真正的卸载清理：依赖必须为空。若挂在 [flushChapterBeforeLeave] 上，任何让该回调换新
+  // （例如终稿保存阶段变化）都会把“依赖变化”当成卸载，从而在终稿写入期间意外 flush 脏缓冲。
   useEffect(() => {
     return () => {
       const currentFile = selectedFileRef.current
       if (currentFile && isChapterPath(currentFile)) {
-        void flushChapterBeforeLeave(currentFile, fileContentRef.current)
+        void flushChapterRef.current(currentFile, fileContentRef.current)
+      }
+      // 卸载不会再有任何渲染提交：把等待装载守卫的等待者释放掉，避免采纳侧永远挂着。
+      const waiters = loadingGuardWaitersRef.current
+      loadingGuardWaitersRef.current = []
+      for (const waiter of waiters) waiter.resolve()
+      // begin 已同步保留快照；不能在成功采纳消费快照后又用旧 cleanup 把旧正文加回来。
+      // 先前准入 I/O 落定后才移交/释放准备态 lease；writing/read 则由协调器延后终结。
+      for (const [lease, record] of adoptionStartsRef.current) {
+        record.handedOff = true
+        // 真正确认的调用方拥有 lease；布局卸载只终止本实例的输入观察。
+        if (lease.owner === writeOwnerRef.current) {
+          void record.admittedTail.then(() => releaseOwnAdoption(undefined, lease))
+        }
       }
     }
-  }, [flushChapterBeforeLeave])
+  }, [releaseOwnAdoption])
 
   // S4-R2：标签页隐藏/窗口关闭前刷出待保存的章节（防 1s 防抖窗口内丢稿）。
   // kill-9 级崩溃仍由 writeFileAtomic 的 temp+fsync+rename 原子性兜底。
@@ -288,7 +640,8 @@ export function PreviewPanel() {
     const flush = () => {
       const currentFile = selectedFileRef.current
       if (currentFile && isChapterPath(currentFile)) {
-        void flushChapterBeforeLeave(currentFile, fileContentRef.current)
+        // 经 ref 取最新实现：监听只订阅一次，不随 flush 的依赖变化重建。
+        void flushChapterRef.current(currentFile, fileContentRef.current)
       }
     }
     const onVisibilityChange = () => {
@@ -300,39 +653,119 @@ export function PreviewPanel() {
       window.removeEventListener("pagehide", flush)
       document.removeEventListener("visibilitychange", onVisibilityChange)
     }
-  }, [flushChapterBeforeLeave])
+  }, [])
+
+  /**
+   * 1s 防抖写盘：timer 真正准备派发时准入。
+   * 被采纳栅栏拒就放弃这份旧缓冲（不写、也不把它标成已加载）；新的用户编辑会产生新意图。
+   */
+  const scheduleSave = useCallback((path: string, persistedMarkdown: string) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null
+      const intent = writeCoordinator.captureIntent("debounce-save", path)
+      const admission = writeCoordinator.admitMutation(intent, [path], async () => {
+        await writeFileAtomic(path, persistedMarkdown)
+        // 只有「仍是当前文件」的写盘才能成为新的已加载快照：另一目标的后台写盘完成
+        // 不得改写当前文件的 lastLoaded（否则当前脏输入会被当成已保存）。
+        if (selectedFileRef.current !== null && normalizePath(selectedFileRef.current) === normalizePath(path)) {
+          lastLoadedRef.current = persistedMarkdown
+        }
+        settleChapterRecoveryBodyWrite(writeCoordinator, intent, path, persistedMarkdown)
+        bumpDataVersion()
+      })
+      if (admission.kind === "fenced") return
+      void admission.result.catch((err) => {
+        // R4 共识（deepseek+glm；glm+qwen）: 写盘失败原先仅 console.error，用户以为已保存。
+        setSaveStatus(formatOperationError(t, err))
+      })
+    }, 1000)
+  }, [bumpDataVersion, t, writeCoordinator])
 
   const handleSave = useCallback(
-    (markdown: string) => {
+    (markdown: string, explicitSave = false) => {
       /* v8 ignore next */
-      if (!selectedFile) return
+      if (!selectedFile || !mountedRef.current || useWikiStore.getState().selectedFile !== selectedFile
+        || committedInputPathRef.current !== selectedFile) return
       const persistedMarkdown = isChapterPath(selectedFile)
         ? normalizeChapterWriting(markdown)
         : markdown
+      const recovery = writeCoordinator.peekRecovery(selectedFile)
+      const recoveredBuffer = recovery?.buffer ?? recoveredInputRef.current?.buffer
+      // 恢复后的初始 markdownUpdated 不是新的保存意图，不能回滚部分 I/O。
+      if (recovery && recoveredBuffer !== undefined && !explicitSave
+        && persistedMarkdown === normalizeChapterWriting(recoveredBuffer)) return
       setFileContent(markdown)
       fileContentRef.current = markdown
-      // Ignore no-op saves from the editor's initial re-emit. Only write
-      // when the user has actually changed the content relative to the
-      // last disk read.
-      if (persistedMarkdown === lastLoadedRef.current) return
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = setTimeout(() => {
-        writeFileAtomic(selectedFile, persistedMarkdown)
-          .then(() => {
-            // Our own write becomes the new "last loaded" — subsequent
-            // re-emits from Milkdown that match this content must not
-            // trigger another save.
-            lastLoadedRef.current = persistedMarkdown
-            bumpDataVersion()
-          })
-          .catch((err) => {
-            // R4 共识（deepseek+glm；glm+qwen）: 写盘失败原先仅 console.error，用户以为已保存。
-            setSaveStatus(formatOperationError(t, err))
-          })
-      }, 1000)
+      for (const [lease, record] of adoptionStartsRef.current) {
+        if (record.snapshot?.path === selectedFile && !record.handedOff) {
+          record.snapshot.buffer = markdown
+          const entry = writeCoordinator.recoveryForAdoption(lease)
+          if (entry) writeCoordinator.retainRecovery({ ...entry, buffer: markdown })
+        }
+      }
+      if (writeCoordinator.isFenced(selectedFile)) return
+      if (persistedMarkdown === lastLoadedRef.current && !explicitSave) return
+      if (recovery) {
+        // 新用户输入允许正常 timer/leave 写入；未提交标题仍保留在原恢复归属。
+        writeCoordinator.retainRecovery({ ...recovery, buffer: markdown, adoptionCommitted: false })
+        recoveredInputRef.current = null
+      }
+      scheduleSave(selectedFile, persistedMarkdown)
     },
-    [selectedFile, setFileContent, bumpDataVersion]
+    [scheduleSave, selectedFile, setFileContent, writeCoordinator]
   )
+
+  const writeGate = useMemo<PreviewPanelWriteGate>(() => ({
+    async begin(targetPath, owner = writeOwnerRef.current) {
+      const current = selectedFileRef.current
+      const isCurrentTarget = current !== null && normalizePath(current) === normalizePath(targetPath)
+      // 先保留真实当前输入。旧 I/O 的提交后动作不能替换这份较新的正文/标题。
+      const title = chapterTitleInputRef.current
+      const snapshot: PreviewPanelWriteGateSnapshot | null = isCurrentTarget && committedInputPathRef.current === current
+        ? { path: current, buffer: fileContentRef.current, titleDraft: title.draft, titleEditing: title.editing }
+        : null
+      const begin = writeCoordinator.beginAdoption(targetPath, owner)
+      if (!begin.ok) return { status: "blocked", reason: "busy" }
+      const lease = begin.lease!
+      const record = { snapshot, admittedTail: begin.admittedTail, handedOff: false }
+      adoptionLeaseRef.current = lease
+      adoptionStartsRef.current.set(lease, record)
+      if (snapshot) writeCoordinator.retainRecovery({ ...snapshot, adoptionId: lease.id })
+      if (isCurrentTarget) {
+        if (saveTimerRef.current) {
+          clearTimeout(saveTimerRef.current)
+          saveTimerRef.current = null
+        }
+        setLoadedFilePath(null)
+        await awaitLoadingGuardCommit(current)
+      }
+      // DOM 关闭之前的真实输入仍可更新快照；关闭后不再接收旧编辑器事件。
+      record.handedOff = true
+      await begin.admittedTail
+      if (writeCoordinator.leaseOf(targetPath) !== lease
+        || (owner === writeOwnerRef.current && !mountedRef.current)) {
+        return { status: "blocked", reason: "cancelled" }
+      }
+      return snapshot ? { status: "ready", lease, snapshot } : { status: "idle", lease }
+    },
+    abort(start) {
+      if (start.status === "blocked") return
+      const lease = start.lease
+      const recovery = lease ? writeCoordinator.recoveryForAdoption(lease) : start.status === "ready" ? start.snapshot : null
+      if (lease) releaseOwnAdoption(undefined, lease)
+      // begin 已同步保留归属；迁移只搬恢复输入，不把原确认改指向新路径。
+      if (recovery) restoreRecovery(recovery)
+    },
+  }), [awaitLoadingGuardCommit, releaseOwnAdoption, restoreRecovery, setLoadedFilePath, writeCoordinator])
+
+  useEffect(() => {
+    if (!writeGateRef) return
+    writeGateRef.current = writeGate
+    return () => {
+      if (writeGateRef.current === writeGate) writeGateRef.current = null
+    }
+  }, [writeGate, writeGateRef])
 
   const chapterFrontmatter = useMemo(() => {
     if (!selectedFile || getFileCategory(selectedFile) !== "markdown") return null
@@ -478,15 +911,12 @@ export function PreviewPanel() {
 
   useEffect(() => {
     if (!chapterHeader) {
-      setChapterTitleDraft("")
-      setChapterTitleEditing(false)
+      setTitleInput("", false)
       setChapterTitleWidthPx(CHAPTER_TITLE_MIN_WIDTH_PX)
       return
     }
-    if (!chapterTitleEditing) {
-      setChapterTitleDraft(chapterDisplayTitle)
-    }
-  }, [chapterDisplayTitle, chapterHeader, chapterTitleEditing])
+    if (!chapterTitleEditing) setTitleInput(chapterDisplayTitle, false)
+  }, [chapterDisplayTitle, chapterHeader, chapterTitleEditing, setTitleInput])
 
   useLayoutEffect(() => {
     if (!chapterHeader) return
@@ -534,38 +964,72 @@ export function PreviewPanel() {
   const commitChapterTitleDraft = useCallback(async () => {
     /* v8 ignore next */
     if (!selectedFile || !isChapterPath(selectedFile) || !chapterHeader) return
-    const normalizedTitle = normalizeChapterTitleInput(chapterTitleDraft)
+    const path = selectedFile
+    const sourceMarkdown = fileContentRef.current
+    // 意图在任何 await（canonical 路径解析 / 写入）之前捕获：晚恢复的标题不得取得旧正文写许可。
+    const intent = writeCoordinator.captureIntent("title", path)
+    const originalInput = { ...chapterTitleInputRef.current }
+    const normalizedTitle = normalizeChapterTitleInput(originalInput.draft)
     const fallbackTitle = chapterDisplayTitle || (chapterNumber !== null ? makeDefaultChapterTitle(chapterNumber) : "")
     const nextTitle = normalizedTitle || fallbackTitle
-    setChapterTitleDraft(nextTitle)
-    setChapterTitleEditing(false)
+    setTitleInput(nextTitle, false)
     if (nextTitle === chapterDisplayTitle) return
-    try {
-      await syncChapterToCanonicalPath(selectedFile, updateChapterHeading(fileContent, nextTitle))
-    } catch (error) {
-      console.error("章节标题同步失败:", error)
+    const outcome = await commitChapter(intent, path, updateChapterHeading(sourceMarkdown, nextTitle))
+    if (outcome.status === "committed") return
+    const recoveryPath = outcome.status === "failed" ? outcome.recoveryPath : path
+    const existing = writeCoordinator.peekRecovery(recoveryPath)
+    const latest = chapterTitleInputRef.current
+    const newerInput = latest.path === path && latest.revision > originalInput.revision
+    const preservedTitle = newerInput ? { draft: latest.draft, editing: latest.editing }
+      : existing?.titleEditing ? { draft: existing.titleDraft, editing: existing.titleEditing }
+      : { draft: originalInput.draft, editing: true }
+    const detail = outcome.status === "fenced"
+      ? "正文在此期间已被采纳或替换"
+      : toErrorMessage(outcome.error)
+    const recovery: ChapterWriteRecovery = {
+      ...existing,
+      path: recoveryPath,
+      titleDraft: preservedTitle.draft,
+      titleEditing: preservedTitle.editing,
+      message: `章节标题未写入：${detail}`,
     }
+    writeCoordinator.retainRecovery(recovery)
+    // 迟到结果只归原输入；不能覆盖另一章或更新的标题，也不自动重试旧缓冲。
+    if (useWikiStore.getState().selectedFile === path && saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    restoreRecovery(recovery)
+    console.error("章节标题同步失败:", detail)
   }, [
     chapterHeader,
     chapterNumber,
     chapterDisplayTitle,
     chapterTitleDraft,
+    commitChapter,
     fileContent,
     normalizeChapterTitleInput,
+    restoreRecovery,
     selectedFile,
-    syncChapterToCanonicalPath,
+    setTitleInput,
+    writeCoordinator,
   ])
 
   const cancelChapterTitleEditing = useCallback(() => {
-    setChapterTitleDraft(chapterDisplayTitle)
-    setChapterTitleEditing(false)
-  }, [chapterDisplayTitle])
+    setTitleInput(chapterDisplayTitle, false, true)
+  }, [chapterDisplayTitle, setTitleInput])
 
   const handleSaveAsFinal = useCallback(async () => {
     /* v8 ignore next */
     if (!project || !selectedFile || !chapterFrontmatter) return
 
-    let savePath = selectedFile
+    const formalPath = selectedFile
+    // 评审/回填是长 await：返回后必须确认本次终稿意图仍作用在同一份正文上。
+    // 取 ref 而不是本次渲染的 prop —— ref 在每次编辑时同步更新，是「当前正文」的真实快照。
+    const bodySnapshot = fileContentRef.current
+    // 意图在评审/路径解析/写入任何 await 之前捕获。
+    const intent = writeCoordinator.captureIntent("final-save", formalPath)
+    let savePath = formalPath
     const projectPath = project.path
     const updatePhase = (saving: boolean, phase: FinalChapterSavePhase | null, params?: Record<string, string | number>) => {
       /* v8 ignore next */
@@ -582,7 +1046,7 @@ export function PreviewPanel() {
       try {
         const chapterNumber = chapterFrontmatter.chapterNumber as number | undefined
         const { reviewChapter } = await import("@/lib/novel/review-adapter")
-        const results = await reviewChapter(project.path, fileContent, chapterNumber)
+        const results = await reviewChapter(project.path, bodySnapshot, chapterNumber)
         if (results.length > 0) {
           const reviewStore = useReviewStore.getState()
           reviewStore.addNovelReviewEntry({
@@ -614,31 +1078,58 @@ export function PreviewPanel() {
       }
     }
 
+    // 评审返回后：正文/目标已被替换则本次终稿失效 —— 不写、不标 final、不 ingest，busy 如实结束。
+    const invalidated = selectedFileRef.current !== formalPath || fileContentRef.current !== bodySnapshot
+    if (invalidated) {
+      updatePhase(false, null)
+      setSaveStatus("正文已被更新：本次「保存为终稿」未写入，请重新确认后再试。")
+      setIsSavingFinal(false)
+      return
+    }
+
     try {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)
         saveTimerRef.current = null
       }
 
-      const updatedMarkdown = updateChapterStatus(fileContent, "final")
-      const syncResult = await syncChapterToCanonicalPath(selectedFile, updatedMarkdown)
-      const targetPath = syncResult.targetPath
+      const updatedMarkdown = updateChapterStatus(bodySnapshot, "final")
+      const llmConfig = useWikiStore.getState().llmConfig
+      const canIngest = novelConfig.autoIngestOnSave && hasUsableLlm(llmConfig)
+      const outcome = await commitChapter(intent, formalPath, updatedMarkdown, {
+        // 终稿回读校验 + 补偿重写属于同一个有效 mutation 许可（不是第二处直接写）。
+        verifyAfterWrite: canIngest
+          ? async (targetPath, markdown) => {
+              const verifyContent = await readFile(targetPath)
+              const verifyParsed = parseFrontmatter(verifyContent)
+              const verifyFm = verifyParsed.frontmatter as Record<string, unknown> | null
+              if (!verifyFm || !isFinalChapter(verifyFm)) {
+                await writeFileAtomic(targetPath, markdown)
+                await new Promise((resolve) => setTimeout(resolve, 100))
+              }
+            }
+          : undefined,
+      })
+      if (outcome.status === "fenced") {
+        updatePhase(false, null)
+        setSaveStatus("正文在此期间已被采纳或替换：本次「保存为终稿」未写入。")
+        return
+      }
+      if (outcome.status === "failed") throw outcome.error
+
+      const targetPath = outcome.targetPath
       savePath = targetPath
-      lastLoadedRef.current = syncResult.markdown
-      setFileContent(syncResult.markdown)
+      if (!outcome.stillCurrent) {
+        // 写入后又出现了更新的同目标写入：不冒领 final/ingest。
+        updatePhase(false, null)
+        setSaveStatus("终稿写入已被后续写入取代：本次未标记终稿，也未提取记忆。")
+        return
+      }
 
       if (novelConfig.autoIngestOnSave) {
-        const llmConfig = useWikiStore.getState().llmConfig
         if (!hasUsableLlm(llmConfig)) {
           updatePhase(false, "ingest_no_llm")
         } else {
-          const verifyContent = await readFile(targetPath)
-          const verifyParsed = parseFrontmatter(verifyContent)
-          const verifyFm = verifyParsed.frontmatter as Record<string, unknown> | null
-          if (!verifyFm || !isFinalChapter(verifyFm)) {
-            await writeFileAtomic(targetPath, syncResult.markdown)
-            await new Promise((resolve) => setTimeout(resolve, 100))
-          }
           const chapterTitle = chapterFrontmatter?.title || `第${chapterFrontmatter?.chapterNumber || '?'}章`
           const ingestAbortController = new AbortController()
           const ingestTaskId = useImportProgressStore.getState().startTask({
@@ -684,7 +1175,7 @@ export function PreviewPanel() {
     } finally {
       setIsSavingFinal(false)
     }
-  }, [chapterFrontmatter, fileContent, project, selectedFile, setFileContent, setFinalChapterSave, t, syncChapterToCanonicalPath])
+  }, [chapterFrontmatter, commitChapter, fileContent, project, selectedFile, setFinalChapterSave, t, writeCoordinator])
 
   const handleReingest = useCallback(async () => {
     /* v8 ignore next */
@@ -751,16 +1242,36 @@ export function PreviewPanel() {
   const handleFormatWriting = useCallback(async () => {
     /* v8 ignore next */
     if (!selectedFile || !canFormatWriting) return
-    const formatted = normalizeChapterWriting(fileContent)
-    setFileContent(formatted)
-    lastLoadedRef.current = formatted
-    try {
-      await writeFileAtomic(selectedFile, formatted)
+    const path = selectedFile
+    const source = fileContentRef.current
+    // 意图在任何 await 之前捕获；先取得合法许可再改变任何提交状态。
+    const intent = writeCoordinator.captureIntent("format", path)
+    const formatted = normalizeChapterWriting(source)
+    const admission = writeCoordinator.admitMutation(intent, [path], async () => {
+      await writeFileAtomic(path, formatted)
+      if (selectedFileRef.current !== null && normalizePath(selectedFileRef.current) === normalizePath(path)) {
+        fileContentRef.current = formatted
+        lastLoadedRef.current = formatted
+      }
       bumpDataVersion()
-    } catch (err) {
-      console.error("格式化写作内容失败:", err)
+    })
+    if (admission.kind === "fenced") {
+      // 不预先标成已保存：保留脏输入，如实提示未写入。
+      setSaveStatus("排版未写入：正文正在被采纳或已被替换，请重新确认后再试")
+      return
     }
-  }, [canFormatWriting, fileContent, selectedFile, setFileContent, bumpDataVersion])
+    try {
+      await admission.result
+    } catch (err) {
+      // 写失败：保留脏输入/错误，不把内容标成已保存。
+      console.error("格式化写作内容失败:", toErrorMessage(err))
+      setSaveStatus(formatOperationError(t, err))
+      return
+    }
+    if (selectedFileRef.current !== null && normalizePath(selectedFileRef.current) === normalizePath(path)) {
+      setFileContent(formatted)
+    }
+  }, [bumpDataVersion, canFormatWriting, fileContent, selectedFile, setFileContent, t, writeCoordinator])
 
   const handleIngestOutline = useCallback(() => {
     /* v8 ignore next */
@@ -1028,7 +1539,10 @@ export function PreviewPanel() {
     const fileName = normalizedPath.split("/").pop() || "file" /* v8 ignore start */ /* v8 ignore stop */
     const baseName = fileName.replace(/\.md$/, "")
     const draftPath = normalizePath(`${dir}${baseName}${DRAFT_FILENAME_SUFFIX}`)
-    try {
+    const projectRoot = normalizePath(project.path)
+    // 异目标草稿写：按它自己的草稿路径独立准入（不被正式章栅栏全局阻断，也不污染正式状态）。
+    const intent = writeCoordinator.captureIntent("de-ai-draft", draftPath)
+    const admission = writeCoordinator.admitMutation(intent, [draftPath], async () => {
       // 草稿带原章一级标题，但不带 frontmatter：同目录的草稿若带 chapter_number /
       // chapter_status，会被章节索引（findChapterFileByNumber）与导出（loadFinalChapters）
       // 当作同号正式章节。replaceWholeChapterBody 剥掉候选自带的 frontmatter/标题后套原章标题。
@@ -1036,14 +1550,23 @@ export function PreviewPanel() {
       // isDraftChapterFile 统一排除（DRAFT_FILENAME_SUFFIX 与过滤口径同源）。
       const { body: bodyWithHeading } = parseFrontmatter(replaceWholeChapterBody(fileContent, deAiCandidateContent))
       await writeFileAtomic(draftPath, bodyWithHeading)
-      const tree = await listDirectory(normalizePath(project.path))
+      // 提交后动作同属这一个许可。
+      const tree = await listDirectory(projectRoot)
       setFileTree(tree)
       bumpDataVersion()
       setDeAiPreviewOpen(false)
-    } catch (err) {
-      console.error("另存去AI味草稿失败:", err)
+    })
+    if (admission.kind === "fenced") {
+      setSaveStatus("去AI味草稿未另存：目标路径正在写入，请稍后重试")
+      return
     }
-  }, [deAiWriteBlocked, selectedFile, project, fileContent, deAiCandidateContent, setFileTree, bumpDataVersion])
+    try {
+      await admission.result
+    } catch (err) {
+      setSaveStatus(formatOperationError(t, err))
+      console.error("另存去AI味草稿失败:", toErrorMessage(err))
+    }
+  }, [deAiCandidateContent, deAiWriteBlocked, fileContent, project, selectedFile, setFileTree, bumpDataVersion, t, writeCoordinator])
 
   const handleDeAiClose = useCallback(() => {
     // RV-004: 关闭对话框即取消/作废在途单章流，onDone 不得再打开对话框或覆写状态
@@ -1269,7 +1792,7 @@ export function PreviewPanel() {
     (novelMode && project)
   )
 
-  if (loadedFilePath !== selectedFile) {
+  if (loadedFilePath !== selectedFile || (selectedFile !== null && writeCoordinator.isFenced(selectedFile))) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         {t("preview.loading", { defaultValue: "正在加载..." })}
@@ -1320,11 +1843,9 @@ export function PreviewPanel() {
         onShowCognition={() => setShowCognition(true)}
         onShowPersona={() => setShowPersona(true)}
         onClosePreview={() => setSelectedFile(null)}
-        onTitleFocus={() => {
-          setChapterTitleEditing(true)
-          setChapterTitleDraft(chapterDisplayTitle)
-        }}
-        onTitleChange={(value) => setChapterTitleDraft(value)}
+        onTitleFocus={() => setTitleInput(chapterTitleInputRef.current.editing
+          ? chapterTitleInputRef.current.draft : chapterDisplayTitle, true, true)}
+        onTitleChange={(value) => setTitleInput(value, true, true)}
         onTitleCommit={() => void commitChapterTitleDraft()}
         onTitleCancel={() => cancelChapterTitleEditing()}
         visibleSaveStatus={visibleSaveStatus}
@@ -1335,7 +1856,14 @@ export function PreviewPanel() {
         inspectorChapterId={selectedFile ?? ""}
         inspectorRefreshKey={fileContent}
       />
-      <div className={getPreviewContentContainerClass(isSelectedChapter)}>
+      <div className={getPreviewContentContainerClass(isSelectedChapter)} onKeyDownCapture={(event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s"
+          && selectedFile && recoveredInputRef.current?.path === normalizePath(selectedFile)) {
+          event.preventDefault()
+          event.stopPropagation()
+          handleSave(fileContentRef.current, true)
+        }
+      }}>
         {category === "markdown" ? (
           <WikiEditor
             key={selectedFile}
