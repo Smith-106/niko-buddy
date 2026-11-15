@@ -15,6 +15,35 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.27.3（计划最早发布日 2026-11-15）：把已独立接受、已落在 smith/master 但不在 v2.27.2 安装包里的 R6 源码修补（草稿采纳后编辑区不刷新，统一自有写入协议）装配进真包；登记本版两项节奏豁免。
+    version: "2.27.3",
+    date: "2026-11-15",
+    highlights: {
+      en: [
+        "Assembled: this version packages one delivery that is already on smith/master but absent from the published v2.27.2 installer — the accepted R6 source repair for 'editor does not refresh after a draft is adopted' (G2-NATIVE-F1, commits 6f4db0d6 source/spec, c832e2f3 script-generated module atlas, 0291b841 decision-log record). It is reused exactly as accepted: no feature work, no gate or threshold change, and it is not re-implemented here.",
+        "Fixed (delivered by 6f4db0d6): adopting a chapter draft reused the same selected-file path, so the editor's load effect never re-ran and the panel kept showing the pre-adoption text while the saved chapter had already changed. The three existing components now share one own-write protocol: a monotonic adoption token scopes the extra reload to the adopted path only, the adoption write is sequenced before accept instead of after it, in-flight writers are queued per affected path (FIFO) with their ownership released only after the read-back refs are installed, the unsaved buffer/title snapshot is captured before the write is admitted rather than after the old tail settles, and a confirmed request whose target path migrated is re-confirmed instead of being applied to the stale path.",
+        "Fixed (delivered by 6f4db0d6): unsaved input is no longer dropped on the failure and lifecycle edges. A successful read-back installs the refs before the old recovery buffer is consumed; a failed read keeps the dirty body, the raw title and the original error instead of replacing them with a generic notice, and re-renders nothing into a different chapter. Releasing the write lease or remounting the panel no longer turns a previous success into permission to discard the current failure.",
+        "Unchanged by that repair: chapter-draft-dock.tsx, the accept chain (draft-manager.ts), chapter-save-strategy.ts, the Rust write layer (fs.rs) and the Draft-first boundary. No new store, no state authority, no new dependency, no i18n or style change, and the pre-existing behaviour of ordinary chapter switching and save-as-final is preserved.",
+        "Scope of the independent review behind this entry: one fresh read-only reviewer covered the seven coordinated paths 7/7 with 0 skipped and found no material defect inside the approved source domain (approve_scoped). It did not review, and this entry does not claim, all formal writers (the deep-draft adoption path in chat-panel.tsx stays outside this coordinator), cross-process or external-window write ordering, or real-application end-to-end timing.",
+        "Release cadence exemptions registered for this tag only: weekly-stable (ISO week 2026-11-09 already carries v2.27.0, v2.27.1 and v2.27.2, so the week already holds three stable releases against a limit of one) and thirty-day-stable (the 30-day window already exceeds the limit of four by the historical release pace). Both were explicitly approved by the user (approvedBy=user, approvedAt=2026-11-15) and are recorded in release-cadence-exemptions.json and in the exemptions table of the 2026-10-18 release-channel decision log; the release body repeats the same reason, scope and approval date.",
+        "The exempted scope is exactly those two rules. same-day-duplicate is not registered and is neither claimed as triggered nor waived — it is re-checked against the real candidate published_at at promotion time. The trunk, signature, active-target asset-completeness, required engineering-gate and install/update/restart requirements are unchanged. This version's exemption covers an ordinary source-repair delivery and is explicitly not an asset backfill or a fix-forward of the old v2.27.2 assets.",
+        "Note (scope of this entry): it documents the source-level assembly and the source-domain review only. The tag-triggered CI package, its signature and manifest, and the install/update/restart acceptance are still unverified and are not claimed as passed here. No publication time is asserted: 2026-11-15 is the approved earliest planned release date, and the actual timestamp must come from the release readback.",
+        "Note (literary scope): the chapter-side claim is not applicable to this pure application release — no chapter was scored, no writer run, no gate re-evaluation, and no canon, prose or memory change is part of it. The overall G5 / L9 goal remains unmet, and an empty anti-AI pass is not evidence that the anti-AI check was verified.",
+      ],
+      zh: [
+        "装配：本版把已独立接受、已落在 `smith/master` 但不在 v2.27.2 安装包里的 R6 源码修补装进真包 —— 「草稿采纳后编辑区不刷新」（G2-NATIVE-F1，提交 `6f4db0d6` 源码/spec、`c832e2f3` 脚本生成的 module-atlas、`0291b841` 决策记录）。按已接受状态复用：不重做、不新增功能、不改任何门或阈值。",
+        "修复（由 `6f4db0d6` 交付）：采纳章节草稿复用了同一个选中文件路径，编辑区的装载 effect 因此不重跑，面板继续显示采纳前的正文，而磁盘上的正式章已经变更。现在三个既有组件共用一套自有写入协议：单调递增的采纳令牌把额外重载限定在采纳路径上，采纳写入被排到 accept **之前**（而不是之后），在途写者按受影响路径排队（FIFO）且只有读回 refs 落定后才释放归属，未保存正文/标题快照在写入准入**之前**取得（而不是等旧 tail 落定之后），已确认但目标路径发生迁移的请求按新目标重新确认而不是继续作用在旧路径上。",
+        "修复（由 `6f4db0d6` 交付）：失败与生命周期边界不再丢未保存输入。成功的读回先安装 refs 再消费旧恢复正文；读失败保留 dirty 正文、raw 标题与原错误，不用通用提示替代，也不渲染进别的章。释放写租约或重新挂载面板，不会把上一次的成功变成允许丢弃本次失败的许可。",
+        "该修复未改动的部分：`chapter-draft-dock.tsx`、accept 链（`draft-manager.ts`）、`chapter-save-strategy.ts`、Rust 写盘层（`fs.rs`）与 Draft-first 边界；无新 store、无新状态权威、无新依赖、无 i18n 或样式改动，普通切章与「保存为终稿」的既有行为保持不变。",
+        "本条背后那次独立复核的范围：一次 fresh 只读复核覆盖原协调的七条路径 7/7、0 跳过，在已批准的源码域内未发现材料性缺陷（`approve_scoped`）。它**没有**复核，本条也**不**宣称：全体正式写者（`chat-panel.tsx` 的深层草稿采纳路径不在本协调器内）、跨进程或外部窗口的写序、以及真实应用内的端到端时序。",
+        "发布节奏豁免（仅本 tag，已登记）：`weekly-stable` —— ISO 周 2026-11-09 已有 v2.27.0、v2.27.1、v2.27.2 三个 stable，本版令该周为 4，超出「每周 ≤1」；`thirty-day-stable` —— 发布前 30 天 stable 已超上限 4，属历史连续高频发布的累积结果。两项均由用户明确批准（`approvedBy=user`，`approvedAt=2026-11-15`），并同步登记在 `release-cadence-exemptions.json` 与 2026-10-18 发布渠道决策表的「已登记豁免」表；release body 与本条使用同一 reason / scope / 批准日。",
+        "豁免范围恰为该两项。`same-day-duplicate` 未登记，本次也不声称其触发或豁免 —— 它会在提升时按真实 candidate `published_at` 重新判定。主干、签名、活跃目标资产齐全、必要工程门、真实安装 / 更新 / 重启等硬门一律不变。本版豁免事由是普通源码修补交付，明确不属于资产补齐，也不是旧 v2.27.2 资产的 fix-forward。",
+        "说明（本条目的边界）：只描述源码层装配与源码域复核。tag 触发的 CI 真包、其签名与 manifest、以及安装 / 更新 / 重启验收仍未验证，不视为包级验收已通过。本条不宣称任何发布时间 —— 2026-11-15 是已批准的最早计划发布日，实际发布时间须以发布回读为准。",
+        "说明（文学侧边界）：章节侧的宣称不适用于本次纯应用发版 —— 本次未跑章节评分、未跑 writer、未重跑门控，也未改正文 / canon / 记忆。整体 G5 / L9 仍未达成；空的 anti_ai pass 不等于「反AI已验」。",
+      ],
+    },
+  },
+  {
     // 2.27.2（计划最早发布日 2026-11-12）：把已落在主干但不在 v2.27.1 安装包里的 P1 角色行为路由归一（0cf0815c / atlas 5f71a7fe）、README 交付元数据纠正（0eaecdb4）与公开质量门/平台覆盖纠正（13b37dc5）装配进真包；登记本版两项节奏豁免。
     version: "2.27.2",
     date: "2026-11-12",
