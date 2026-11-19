@@ -90,8 +90,8 @@
   "orphan": 277,
   "specOnly": 268,
   "barrelOnly": 1,
-  "edges": 4663,
-  "loc": 292294
+  "edges": 4664,
+  "loc": 292364
  },
  "modules": [
   {
@@ -11091,7 +11091,7 @@
   {
    "p": "src/lib/novel/context-data-sources.ts",
    "s": 5,
-   "l": 728,
+   "l": 798,
    "r": true,
    "o": false,
    "x": false,
@@ -11102,6 +11102,7 @@
     588,
     589,
     596,
+    599,
     613,
     634,
     636,
@@ -11116,6 +11117,9 @@
     1020,
     1027,
     1120
+   ],
+   "e": [
+    "js-yaml"
    ]
   },
   {
