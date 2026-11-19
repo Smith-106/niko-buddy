@@ -15,6 +15,29 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.27.5（2026-11-19）：已审历史上下文、界面错误归属及依赖修补的 Windows 交付。
+    version: "2.27.5",
+    date: "2026-11-19",
+    highlights: {
+      en: [
+        "Read previous chapter content and endings from the exact formal chapter; conflicting identities, duplicate sources and malformed metadata remain explicit context gaps.",
+        "Unified source selection for volume and chapter outline copies before selecting the context window, reducing mixed-copy content.",
+        "Fixed error-message ownership in story simulation, interview history and drafts: a successful retry preserves the old deadline, and an old callback cannot clear a later error.",
+        "Added cancellation checks when restoring historical analysis so a cancelled restoration cannot update the current view.",
+        "Updated security fixes in testing and static-analysis dependencies and their lockfile.",
+        "Release cadence: the coordinator registered a thirty-day-stable exemption under the user authorization to execute and sign the full Goal plan; every rule will be checked again against the actual publishedAt.",
+      ],
+      zh: [
+        "按正式章节身份读取前情和上一章结尾；章号冲突、重复来源及损坏元数据继续报告上下文缺口。",
+        "统一卷纲和细纲副本的来源选择，再截取上下文窗口，减少不同副本内容混用。",
+        "修复故事模拟、访谈记录和草稿的错误提示归属：成功重试保留旧消息的原到期时间，旧回调不会误清后来发布的错误。",
+        "恢复历史分析记录时补齐取消判定，防止已取消的恢复操作更新当前界面。",
+        "更新测试与静态检查依赖的安全修补，并同步锁文件。",
+        "发布节奏：依据用户授予的完整 Goal 执行与方案签署权限，协调者登记本版 thirty-day-stable 豁免；发布后以真实 publishedAt 重新核对各项规则。",
+      ],
+    },
+  },
+  {
     // 2.27.3（计划最早发布日 2026-11-15）：把已独立接受、已落在 smith/master 但不在 v2.27.2 安装包里的 R6 源码修补（草稿采纳后编辑区不刷新，统一自有写入协议）装配进真包；登记本版两项节奏豁免。
     version: "2.27.3",
     date: "2026-11-15",
