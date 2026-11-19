@@ -15,6 +15,27 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.27.4（2026-11-19）：已审历史上下文、界面错误归属及依赖修补的 Windows 交付。
+    version: "2.27.4",
+    date: "2026-11-19",
+    highlights: {
+      en: [
+        "Improved chapter-number filtering for historical memory and summaries in chapter context; history that cannot be reconstructed remains an explicit context gap.",
+        "Unified source selection for volume and chapter outline copies before selecting the context window, reducing mixed-copy content.",
+        "Fixed error-message ownership in story simulation, interview history and drafts: a successful retry preserves the old deadline, and an old callback cannot clear a later error.",
+        "Added cancellation checks when restoring historical analysis so a cancelled restoration cannot update the current view.",
+        "Updated security fixes in testing and static-analysis dependencies and their lockfile.",
+      ],
+      zh: [
+        "改进章节上下文中历史记忆与概要的章号筛选；无法重建的历史信息继续显示为上下文缺口。",
+        "统一卷纲和细纲副本的来源选择，再截取上下文窗口，减少不同副本内容混用。",
+        "修复故事模拟、访谈记录和草稿的错误提示归属：成功重试保留旧消息的原到期时间，旧回调不会误清后来发布的错误。",
+        "恢复历史分析记录时补齐取消判定，防止已取消的恢复操作更新当前界面。",
+        "更新测试与静态检查依赖的安全修补，并同步锁文件。",
+      ],
+    },
+  },
+  {
     // 2.27.3（计划最早发布日 2026-11-15）：把已独立接受、已落在 smith/master 但不在 v2.27.2 安装包里的 R6 源码修补（草稿采纳后编辑区不刷新，统一自有写入协议）装配进真包；登记本版两项节奏豁免。
     version: "2.27.3",
     date: "2026-11-15",

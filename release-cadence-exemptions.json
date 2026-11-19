@@ -204,6 +204,15 @@
         "weekly-stable",
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.27.4",
+      "reason": "依据用户于 2026-11-19 授予的完整 Goal 执行和方案签署权限，协调者为当前已独立准入的源码修补选择 v2.27.4 Windows 交付。源码捕获：e004dffd 手写、9fe1263d generated；历史上下文/纲目选择、错误消息归属、分析历史取消守卫与依赖审计修补。2026-11-19 Asia/Tokyo 的只读 Release 列表共 90 条；按现行 check-release-cadence.mjs 同源算法预测，本版发布前 30 天 stable 18 个（含预测候选，既有 17 个；上限 4），触发 thirty-day-stable。此数值是预测，真实 candidate publishedAt 下必须重算；该周与该日尚无其他 stable，因此不登记 weekly-stable 或 same-day-duplicate。仅豁免 thirty-day-stable，必要工程门、主干、签名、活跃目标资产和真实更新重启验收照常执行。用户授权协调者代签，未声称用户亲自审阅这份具体版本差异。",
+      "approvedBy": "user-authorized-coordinator",
+      "approvedAt": "2026-11-19",
+      "scope": [
+        "thirty-day-stable"
+      ]
     }
   ]
 }
