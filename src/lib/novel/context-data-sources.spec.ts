@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ContextLoadContext } from "./context-data-source"
 import type { ChapterSummariesStore } from "./chapter-summaries"
+import type { FileNode } from "@/types/wiki"
+import { invalidateChapterCache } from "./chapter-utils"
 import {
   fallbackPreviousEndingDataSource,
   fallbackRecentSummariesDataSource,
@@ -29,6 +31,7 @@ import { DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG } from "./revision-feedback"
 const mocks = vi.hoisted(() => ({
   buildWritingStyleContext: vi.fn(),
   readFile: vi.fn(),
+  listDirectory: vi.fn(),
   searchWiki: vi.fn(),
   listSnapshots: vi.fn(),
   loadSnapshot: vi.fn(),
@@ -117,6 +120,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   return {
     ...actual,
       readFile: mocks.readFile,
+      listDirectory: mocks.listDirectory,
     
   }
 })
@@ -144,11 +148,29 @@ const context: ContextLoadContext = {
 
 beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset()
+  invalidateChapterCache()
+  mocks.listDirectory.mockResolvedValue([])
   mocks.loadChapterSummaries.mockResolvedValue({ entries: [], lastUpdated: "" })
   mocks.joinNonEmpty.mockImplementation((parts: string[], sep: string) =>
     parts.map((p) => String(p).trim()).filter(Boolean).join(sep),
   )
 })
+
+function chapterNode(relativePath: string): FileNode {
+  return {
+    name: relativePath.split("/").pop() ?? relativePath,
+    path: `${context.projectPath}/wiki/chapters/${relativePath}`,
+    is_dir: false,
+  }
+}
+
+function mockFileContents(files: Record<string, string>): void {
+  mocks.readFile.mockImplementation(async (path: string) => {
+    const content = files[path]
+    if (content === undefined) throw new Error(`ENOENT: ${path}`)
+    return content
+  })
+}
 
 function snapshot(chapterNumber: number, overrides: Partial<NonNullable<Awaited<ReturnType<typeof mocks.loadSnapshot>>>> = {}) {
   return {
@@ -210,10 +232,7 @@ describe("recentChapterContentsDataSource", () => {
         recentSummaryWindow: 5,
       },
     }
-    mocks.searchWiki.mockImplementation(async (_projectPath: string, query: string) => {
-      const matched = query.match(/chapter_number:(\d+)/)
-      return matched ? [{ path: `E:/Novel/wiki/chapters/chapter-${matched[1]}.md` }] : []
-    })
+    mocks.listDirectory.mockResolvedValue(Array.from({ length: 5 }, (_, index) => chapterNode(`chapter-${index + 1}.md`)))
     mocks.readFile.mockImplementation(async (path: string) => {
       const matched = path.match(/chapter-(\d+)\.md$/)
       const number = matched?.[1] ?? "0"
@@ -225,8 +244,9 @@ describe("recentChapterContentsDataSource", () => {
     expect(result).toHaveLength(5)
     expect(result[0]).toContain("第1章正文关键事实")
     expect(result[4]).toContain("第5章正文结尾")
-    expect(mocks.searchWiki).toHaveBeenCalledWith("E:/Novel", "chapter_number:1")
-    expect(mocks.searchWiki).toHaveBeenCalledWith("E:/Novel", "chapter_number:5")
+    expect(mocks.searchWiki).not.toHaveBeenCalled()
+    expect(mocks.listDirectory).toHaveBeenCalledExactlyOnceWith("E:/Novel/wiki/chapters")
+    expect(mocks.readFile).toHaveBeenCalledTimes(5)
   })
 
   it("长章节正文片段保留开头和结尾，避免只读取章节开头", async () => {
@@ -238,7 +258,7 @@ describe("recentChapterContentsDataSource", () => {
         recentSummaryWindow: 1,
       },
     }
-    mocks.searchWiki.mockResolvedValue([{ path: "E:/Novel/wiki/chapters/chapter-1.md" }])
+    mocks.listDirectory.mockResolvedValue([chapterNode("chapter-1.md")])
     mocks.readFile.mockResolvedValue(`---\ntype: chapter\nchapter_number: 1\nstatus: final\n---\n开头事实${"中段".repeat(4000)}结尾事实`)
 
     const result = await recentChapterContentsDataSource.load(chapterContext)
@@ -273,6 +293,405 @@ describe("recentChapterContentsDataSource", () => {
     expect(result[1]).toContain("第二章 draft 结尾钩")
     expect(mocks.readFile).toHaveBeenCalledWith("E:/Novel/.novel/chapters/1/draft.md")
     expect(mocks.readFile).toHaveBeenCalledWith("E:/Novel/.novel/chapters/2/draft.md")
+  })
+})
+
+describe("章节原文 reader 的身份与错误回执", () => {
+  it("搜索首项始终是第 1 章时，两个 reader 都回读真实第 81 章", async () => {
+    const first = chapterNode("chapter-001.md")
+    const target = chapterNode("chapter-0081.md")
+    const recordGap = vi.fn()
+    mocks.searchWiki.mockResolvedValue([{ path: first.path }, { path: target.path }])
+    mocks.listDirectory.mockResolvedValue([first, target])
+    mockFileContents({
+      [first.path]: "---\nchapter_number: 1\n---\n第一章错误前情",
+      [target.path]: "---\nchapter_number: 81\n---\n第八十一章真实开头\n第八十一章真实结尾",
+    })
+    const loadContext = { ...context, chapterNumber: 82, config: { ...context.config, recentSummaryWindow: 1 }, recordGap }
+
+    expect(await recentChapterContentsDataSource.load(loadContext)).toEqual([
+      "## 第81章正文片段\n第八十一章真实开头\n第八十一章真实结尾",
+    ])
+    expect(mocks.listDirectory).toHaveBeenCalledTimes(1)
+    expect(await fallbackPreviousEndingDataSource.load(loadContext)).toBe("第八十一章真实开头\n第八十一章真实结尾")
+    expect(mocks.readFile).not.toHaveBeenCalledWith(first.path)
+    expect(mocks.readFile).toHaveBeenCalledTimes(2)
+    expect(mocks.searchWiki).not.toHaveBeenCalled()
+    expect(recordGap).not.toHaveBeenCalled()
+  })
+
+  it("支持嵌套数字文件、matching filename 的无编号字段正文和仅 frontmatter 编号", async () => {
+    const legacy = chapterNode("第79章-开局.md")
+    const nested = chapterNode("volume-3/chapter-080.md")
+    const metadataOnly = chapterNode("尾声.md")
+    const recordGap = vi.fn()
+    mocks.listDirectory.mockResolvedValue([
+      legacy,
+      { name: "volume-3", path: "E:/Novel/wiki/chapters/volume-3", is_dir: true, children: [nested] },
+      metadataOnly,
+    ])
+    mockFileContents({
+      [legacy.path]: "第七十九章旧格式正文",
+      [nested.path]: "---\ntitle: 旧格式标题\nchapter_status: draft\n---\n第八十章正式路径正文",
+      [metadataOnly.path]: "---\nchapter_number: '81'\nchapter_status: revised\n---\n第八十一章无数字文件名正文",
+    })
+    const result = await recentChapterContentsDataSource.load({
+      ...context, chapterNumber: 82, config: { ...context.config, recentSummaryWindow: 3 }, recordGap,
+    })
+    expect(result).toEqual([
+      "## 第79章正文片段\n第七十九章旧格式正文",
+      "## 第80章正文片段\n第八十章正式路径正文",
+      "## 第81章正文片段\n第八十一章无数字文件名正文",
+    ])
+    expect(mocks.readFile).toHaveBeenCalledTimes(3)
+    expect(recordGap).not.toHaveBeenCalled()
+    expect(await fallbackPreviousEndingDataSource.load({ ...context, chapterNumber: 82, recordGap }))
+      .toBe("第八十一章无数字文件名正文")
+    expect(recordGap).not.toHaveBeenCalled()
+  })
+
+  it("草稿 suffix 不抢占同号正式文件", async () => {
+    const formal = chapterNode("chapter-2.md")
+    const drafts = ["chapter-2-去AI味稿.md", "chapter-2.draft.md", "chapter-2.tmp"].map(chapterNode)
+    mocks.listDirectory.mockResolvedValue([...drafts, formal])
+    mockFileContents({ [formal.path]: "---\nchapter_number: 2\n---\n第二章正式正文" })
+    const loadContext = { ...context, config: { ...context.config, recentSummaryWindow: 1 } }
+    expect(await recentChapterContentsDataSource.load(loadContext)).toEqual(["## 第2章正文片段\n第二章正式正文"])
+    expect(await fallbackPreviousEndingDataSource.load(loadContext)).toBe("第二章正式正文")
+    expect(mocks.readFile).toHaveBeenCalledTimes(2)
+    for (const draft of drafts) expect(mocks.readFile).not.toHaveBeenCalledWith(draft.path)
+  })
+
+  it.each(["ENOENT", "ENOTDIR", "EIO"])("目录 %s 拒绝后 draft 成功仍保留每次 load 的一条 gap", async (code) => {
+    const recentGap = vi.fn()
+    const endingGap = vi.fn()
+    mocks.listDirectory.mockRejectedValue(new Error(`${code}: chapters`))
+    mockFileContents({
+      "E:/Novel/.novel/chapters/1/draft.md": "第一章草稿",
+      "E:/Novel/.novel/chapters/2/draft.md": "第二章草稿结尾",
+    })
+    expect(await recentChapterContentsDataSource.load({
+      ...context, config: { ...context.config, recentSummaryWindow: 2 }, recordGap: recentGap,
+    })).toEqual([
+      "## 第1章正文片段（draft）\n第一章草稿",
+      "## 第2章正文片段（draft）\n第二章草稿结尾",
+    ])
+    expect(mocks.listDirectory).toHaveBeenCalledExactlyOnceWith("E:/Novel/wiki/chapters")
+    expect(recentGap).toHaveBeenCalledExactlyOnceWith("recentChapterContents", "datasource_error")
+    expect(await fallbackPreviousEndingDataSource.load({ ...context, recordGap: endingGap })).toBe("第二章草稿结尾")
+    expect(endingGap).toHaveBeenCalledExactlyOnceWith("fallbackPreviousEnding", "datasource_error")
+    expect(mocks.readFile.mock.calls.map(([path]) => path)).toEqual([
+      "E:/Novel/.novel/chapters/1/draft.md", "E:/Novel/.novel/chapters/2/draft.md", "E:/Novel/.novel/chapters/2/draft.md",
+    ])
+  })
+
+  it("目标 read 拒绝只回退该章，其他正式正文保留，成功 draft 不清除错误", async () => {
+    const first = chapterNode("chapter-1.md")
+    const second = chapterNode("chapter-2.md")
+    const recentGap = vi.fn()
+    const endingGap = vi.fn()
+    mocks.listDirectory.mockResolvedValue([first, second])
+    mockFileContents({ [second.path]: "第二章正式正文", "E:/Novel/.novel/chapters/1/draft.md": "第一章草稿" })
+    expect(await recentChapterContentsDataSource.load({
+      ...context, config: { ...context.config, recentSummaryWindow: 2 }, recordGap: recentGap,
+    })).toEqual(["## 第1章正文片段（draft）\n第一章草稿", "## 第2章正文片段\n第二章正式正文"])
+    expect(mocks.readFile).toHaveBeenCalledTimes(3)
+    expect(recentGap).toHaveBeenCalledExactlyOnceWith("recentChapterContents", "datasource_error")
+    expect(await fallbackPreviousEndingDataSource.load({ ...context, chapterNumber: 2, recordGap: endingGap })).toBe("第一章草稿")
+    expect(endingGap).toHaveBeenCalledExactlyOnceWith("fallbackPreviousEnding", "datasource_error")
+  })
+
+  it.each([
+    { caseName: "读取拒绝", raw: undefined },
+    { caseName: "显式无效编号", raw: "---\nchapter_number: null\n---\n不明章正文" },
+    { caseName: "编号 YAML 解析失败", raw: "---\nchapter_number: [\n---\n不明章正文" },
+  ])("无数字名候选 $caseName 时保留已验正文，并留下不确定 gap", async ({ raw }) => {
+    const second = chapterNode("chapter-2.md")
+    const unknown = chapterNode("尾声.md")
+    const files: Record<string, string> = {
+      [second.path]: "第二章正式正文",
+      "E:/Novel/.novel/chapters/1/draft.md": "第一章草稿",
+    }
+    if (raw !== undefined) files[unknown.path] = raw
+    const recentGap = vi.fn()
+    const endingGap = vi.fn()
+    mocks.listDirectory.mockResolvedValue([second, unknown])
+    mockFileContents(files)
+    expect(await recentChapterContentsDataSource.load({
+      ...context, config: { ...context.config, recentSummaryWindow: 2 }, recordGap: recentGap,
+    })).toEqual(["## 第1章正文片段（draft）\n第一章草稿", "## 第2章正文片段\n第二章正式正文"])
+    expect(recentGap).toHaveBeenCalledExactlyOnceWith("recentChapterContents", "datasource_error")
+    expect(await fallbackPreviousEndingDataSource.load({ ...context, recordGap: endingGap })).toBe("第二章正式正文")
+    expect(endingGap).toHaveBeenCalledExactlyOnceWith("fallbackPreviousEnding", "datasource_error")
+  })
+
+  it("无数字名候选读失败且没有已验正文时，draft 输出仍带 unresolved gap", async () => {
+    const recentGap = vi.fn()
+    const endingGap = vi.fn()
+    mocks.listDirectory.mockResolvedValue([chapterNode("未编号正文.md")])
+    mockFileContents({ "E:/Novel/.novel/chapters/2/draft.md": "第二章草稿" })
+    expect(await recentChapterContentsDataSource.load({
+      ...context, config: { ...context.config, recentSummaryWindow: 1 }, recordGap: recentGap,
+    })).toEqual(["## 第2章正文片段（draft）\n第二章草稿"])
+    expect(recentGap).toHaveBeenCalledExactlyOnceWith("recentChapterContents", "datasource_error")
+    expect(await fallbackPreviousEndingDataSource.load({ ...context, recordGap: endingGap })).toBe("第二章草稿")
+    expect(endingGap).toHaveBeenCalledExactlyOnceWith("fallbackPreviousEnding", "datasource_error")
+  })
+
+  it("已知同号多个候选不取首项，两个 reader 都回退 exact draft 并记录一条 gap", async () => {
+    const first = chapterNode("chapter-2.md")
+    const second = chapterNode("第2章-另稿.md")
+    const recentGap = vi.fn()
+    const endingGap = vi.fn()
+    mocks.listDirectory.mockResolvedValue([first, second])
+    mockFileContents({ [first.path]: "首项正文", [second.path]: "同号另稿正文", "E:/Novel/.novel/chapters/2/draft.md": "第二章草稿" })
+    expect(await recentChapterContentsDataSource.load({
+      ...context, config: { ...context.config, recentSummaryWindow: 1 }, recordGap: recentGap,
+    })).toEqual(["## 第2章正文片段（draft）\n第二章草稿"])
+    expect(recentGap).toHaveBeenCalledExactlyOnceWith("recentChapterContents", "datasource_error")
+    expect(await fallbackPreviousEndingDataSource.load({ ...context, recordGap: endingGap })).toBe("第二章草稿")
+    expect(endingGap).toHaveBeenCalledExactlyOnceWith("fallbackPreviousEnding", "datasource_error")
+  })
+
+  it("basename 和 frontmatter 编号冲突不冒充目标，也不丢弃其他正确章节", async () => {
+    const first = chapterNode("chapter-1.md")
+    const conflicting = chapterNode("chapter-2.md")
+    const recentGap = vi.fn()
+    const endingGap = vi.fn()
+    mocks.listDirectory.mockResolvedValue([first, conflicting])
+    mockFileContents({
+      [first.path]: "---\nchapter_number: 1\n---\n第一章正式正文",
+      [conflicting.path]: "---\nchapter_number: 1\n---\n被误标成第二章的正文",
+      "E:/Novel/.novel/chapters/2/draft.md": "第二章草稿",
+    })
+    expect(await recentChapterContentsDataSource.load({
+      ...context, config: { ...context.config, recentSummaryWindow: 2 }, recordGap: recentGap,
+    })).toEqual(["## 第1章正文片段\n第一章正式正文", "## 第2章正文片段（draft）\n第二章草稿"])
+    expect(recentGap).toHaveBeenCalledExactlyOnceWith("recentChapterContents", "datasource_error")
+    expect(await fallbackPreviousEndingDataSource.load({ ...context, recordGap: endingGap })).toBe("第二章草稿")
+    expect(endingGap).toHaveBeenCalledExactlyOnceWith("fallbackPreviousEnding", "datasource_error")
+  })
+
+  it.each(["null", "''", "0", "-2", "2.5", "9007199254740992", "bad", "[2]"])(
+    "存在 chapter_number: %s 时不得 truthy 回退 basename",
+    async (value) => {
+      const formal = chapterNode("chapter-2.md")
+      const recentGap = vi.fn()
+      const endingGap = vi.fn()
+      mocks.listDirectory.mockResolvedValue([formal])
+      mockFileContents({ [formal.path]: `---\nchapter_number: ${value}\n---\n身份无效的正文`, "E:/Novel/.novel/chapters/2/draft.md": "第二章草稿" })
+      expect(await recentChapterContentsDataSource.load({
+        ...context, config: { ...context.config, recentSummaryWindow: 1 }, recordGap: recentGap,
+      })).toEqual(["## 第2章正文片段（draft）\n第二章草稿"])
+      expect(recentGap).toHaveBeenCalledExactlyOnceWith("recentChapterContents", "datasource_error")
+      expect(await fallbackPreviousEndingDataSource.load({ ...context, recordGap: endingGap })).toBe("第二章草稿")
+      expect(endingGap).toHaveBeenCalledExactlyOnceWith("fallbackPreviousEnding", "datasource_error")
+    },
+  )
+
+  it.each([
+    { caseName: "合法 flow mapping", fileName: "chapter-2.md", raw: "---\n{chapter_number: 2, title: ok}\n---\nFORMAL_BODY", expectedBody: "FORMAL_BODY", usesDraft: false },
+    { caseName: "合法 flow 的编号冲突", fileName: "chapter-2.md", raw: "---\n{chapter_number: 1, title: ok}\n---\nFORMAL_BODY", expectedBody: "EXACT_CH2_DRAFT", usesDraft: true },
+    { caseName: "合法 block mapping", fileName: "chapter-2.md", raw: "---\nchapter_number: 2\ntitle: ok\n---\nFORMAL_BODY", expectedBody: "FORMAL_BODY", usesDraft: false },
+    { caseName: "损坏 block mapping", fileName: "chapter-2.md", raw: "---\nchapter_number: 1\nextra: [\n---\nFORMAL_BODY", expectedBody: "EXACT_CH2_DRAFT", usesDraft: true },
+    { caseName: "损坏 flow 与数字文件名", fileName: "chapter-2.md", raw: "---\n{chapter_number: 1, extra: [}\n---\nFORMAL_BODY", expectedBody: "EXACT_CH2_DRAFT", usesDraft: true },
+    { caseName: "损坏 flow 与无数字文件名", fileName: "unlabeled.md", raw: "---\n{chapter_number: 2, extra: [}\n---\nFORMAL_BODY", expectedBody: "EXACT_CH2_DRAFT", usesDraft: true },
+    { caseName: "合法 flow 与无数字文件名", fileName: "unlabeled.md", raw: "---\n{chapter_number: 2, title: ok}\n---\nFORMAL_BODY", expectedBody: "FORMAL_BODY", usesDraft: false },
+    { caseName: "无编号字段的非空声明块解析失败", fileName: "chapter-2.md", raw: "---\nextra: [\n---\nFORMAL_BODY", expectedBody: "EXACT_CH2_DRAFT", usesDraft: true },
+    { caseName: "没有 frontmatter", fileName: "chapter-2.md", raw: "FORMAL_BODY", expectedBody: "FORMAL_BODY", usesDraft: false },
+    { caseName: "合法空 frontmatter", fileName: "chapter-2.md", raw: "---\n\n---\nFORMAL_BODY", expectedBody: "FORMAL_BODY", usesDraft: false },
+    { caseName: "仅注释的空 frontmatter", fileName: "chapter-2.md", raw: "---\n# {chapter_number: 1, extra: [}\n---\nFORMAL_BODY", expectedBody: "FORMAL_BODY", usesDraft: false },
+    { caseName: "合法空 flow mapping", fileName: "chapter-2.md", raw: "---\n{}\n---\nFORMAL_BODY", expectedBody: "FORMAL_BODY", usesDraft: false },
+    { caseName: "合法空 flow sequence", fileName: "chapter-2.md", raw: "---\n[]\n---\nFORMAL_BODY", expectedBody: "FORMAL_BODY", usesDraft: false },
+    { caseName: "合法 null 元数据", fileName: "chapter-2.md", raw: "---\nnull\n---\nFORMAL_BODY", expectedBody: "FORMAL_BODY", usesDraft: false },
+    { caseName: "合法无编号 scalar 元数据", fileName: "chapter-2.md", raw: "---\nlegacy metadata\n---\nFORMAL_BODY", expectedBody: "FORMAL_BODY", usesDraft: false },
+    { caseName: "旧正文中的 flow 文本没有声明 FM", fileName: "chapter-2.md", raw: "{chapter_number: 1, extra: [}\nFORMAL_BODY", expectedBody: "{chapter_number: 1, extra: [}\nFORMAL_BODY", usesDraft: false },
+  ])("两 reader 的声明 FM 解析边界：$caseName", async ({ fileName, raw, expectedBody, usesDraft }) => {
+    const formal = chapterNode(fileName)
+    const draftPath = "E:/Novel/.novel/chapters/2/draft.md"
+    const recentGap = vi.fn()
+    const endingGap = vi.fn()
+    mocks.listDirectory.mockResolvedValue([formal])
+    mockFileContents({ [formal.path]: raw, [draftPath]: "EXACT_CH2_DRAFT" })
+    const loadContext = { ...context, config: { ...context.config, recentSummaryWindow: 1 } }
+
+    expect(await recentChapterContentsDataSource.load({ ...loadContext, recordGap: recentGap })).toEqual([
+      `## 第2章正文片段${usesDraft ? "（draft）" : ""}\n${expectedBody}`,
+    ])
+    expect(mocks.listDirectory).toHaveBeenCalledExactlyOnceWith("E:/Novel/wiki/chapters")
+    expect(await fallbackPreviousEndingDataSource.load({ ...loadContext, recordGap: endingGap })).toBe(expectedBody)
+    if (usesDraft) {
+      expect(recentGap).toHaveBeenCalledExactlyOnceWith("recentChapterContents", "datasource_error")
+      expect(endingGap).toHaveBeenCalledExactlyOnceWith("fallbackPreviousEnding", "datasource_error")
+    } else {
+      expect(recentGap).not.toHaveBeenCalled()
+      expect(endingGap).not.toHaveBeenCalled()
+      expect(mocks.readFile).not.toHaveBeenCalledWith(draftPath)
+    }
+    expect(mocks.listDirectory).toHaveBeenCalledTimes(2)
+    expect(mocks.readFile.mock.calls.map(([path]) => path)).toEqual(usesDraft
+      ? [formal.path, draftPath, formal.path, draftPath]
+      : [formal.path, formal.path])
+  })
+
+  it("数字目标的损坏 flow 只回退该章，另一章已验正文继续保留", async () => {
+    const first = chapterNode("chapter-1.md")
+    const corrupt = chapterNode("chapter-2.md")
+    const recentGap = vi.fn()
+    const endingGap = vi.fn()
+    mocks.listDirectory.mockResolvedValue([first, corrupt])
+    mockFileContents({
+      [first.path]: "CH1_FORMAL",
+      [corrupt.path]: "---\n{chapter_number: 1, extra: [}\n---\nFORMAL_BODY",
+      "E:/Novel/.novel/chapters/2/draft.md": "EXACT_CH2_DRAFT",
+    })
+    expect(await recentChapterContentsDataSource.load({
+      ...context, config: { ...context.config, recentSummaryWindow: 2 }, recordGap: recentGap,
+    })).toEqual(["## 第1章正文片段\nCH1_FORMAL", "## 第2章正文片段（draft）\nEXACT_CH2_DRAFT"])
+    expect(recentGap).toHaveBeenCalledExactlyOnceWith("recentChapterContents", "datasource_error")
+    expect(await fallbackPreviousEndingDataSource.load({ ...context, recordGap: endingGap })).toBe("EXACT_CH2_DRAFT")
+    expect(endingGap).toHaveBeenCalledExactlyOnceWith("fallbackPreviousEnding", "datasource_error")
+  })
+
+  it("未知候选损坏 flow 时保留已验目标正文，同时每个 reader 留下总 gap", async () => {
+    const known = chapterNode("chapter-2.md")
+    const unknown = chapterNode("unlabeled.md")
+    const recentGap = vi.fn()
+    const endingGap = vi.fn()
+    const draftPath = "E:/Novel/.novel/chapters/2/draft.md"
+    mocks.listDirectory.mockResolvedValue([known, unknown])
+    mockFileContents({
+      [known.path]: "CH2_FORMAL",
+      [unknown.path]: "---\n{chapter_number: 2, extra: [}\n---\nFORMAL_BODY",
+      [draftPath]: "EXACT_CH2_DRAFT",
+    })
+    const loadContext = { ...context, config: { ...context.config, recentSummaryWindow: 1 } }
+    expect(await recentChapterContentsDataSource.load({ ...loadContext, recordGap: recentGap }))
+      .toEqual(["## 第2章正文片段\nCH2_FORMAL"])
+    expect(recentGap).toHaveBeenCalledExactlyOnceWith("recentChapterContents", "datasource_error")
+    expect(await fallbackPreviousEndingDataSource.load({ ...loadContext, recordGap: endingGap })).toBe("CH2_FORMAL")
+    expect(endingGap).toHaveBeenCalledExactlyOnceWith("fallbackPreviousEnding", "datasource_error")
+    expect(mocks.readFile).not.toHaveBeenCalledWith(draftPath)
+  })
+
+  it("真实空目录与成功空 draft 是无内容，不产生错误 gap", async () => {
+    const recentGap = vi.fn()
+    const endingGap = vi.fn()
+    mockFileContents({ "E:/Novel/.novel/chapters/2/draft.md": "" })
+    expect(await recentChapterContentsDataSource.load({
+      ...context, config: { ...context.config, recentSummaryWindow: 1 }, recordGap: recentGap,
+    })).toEqual([])
+    expect(await fallbackPreviousEndingDataSource.load({ ...context, recordGap: endingGap })).toBe("")
+    expect(recentGap).not.toHaveBeenCalled()
+    expect(endingGap).not.toHaveBeenCalled()
+  })
+
+  it("无正式候选但 exact draft 成功时，兼容 draft 内容且没有错误 gap", async () => {
+    const recentGap = vi.fn()
+    const endingGap = vi.fn()
+    mocks.listDirectory.mockResolvedValue([chapterNode("chapter-3.md")])
+    mockFileContents({ "E:/Novel/.novel/chapters/2/draft.md": "第二章草稿结尾" })
+    expect(await recentChapterContentsDataSource.load({
+      ...context, config: { ...context.config, recentSummaryWindow: 1 }, recordGap: recentGap,
+    })).toEqual(["## 第2章正文片段（draft）\n第二章草稿结尾"])
+    expect(await fallbackPreviousEndingDataSource.load({ ...context, recordGap: endingGap })).toBe("第二章草稿结尾")
+    expect(recentGap).not.toHaveBeenCalled()
+    expect(endingGap).not.toHaveBeenCalled()
+    expect(mocks.readFile).not.toHaveBeenCalledWith("E:/Novel/wiki/chapters/chapter-3.md")
+  })
+
+  it("空正文的正式文件允许 exact draft 回退且不产生错误 gap", async () => {
+    const formal = chapterNode("chapter-2.md")
+    const recentGap = vi.fn()
+    const endingGap = vi.fn()
+    mocks.listDirectory.mockResolvedValue([formal])
+    mockFileContents({ [formal.path]: "---\nchapter_number: 2\n---\n", "E:/Novel/.novel/chapters/2/draft.md": "第二章草稿" })
+    expect(await recentChapterContentsDataSource.load({
+      ...context, config: { ...context.config, recentSummaryWindow: 1 }, recordGap: recentGap,
+    })).toEqual(["## 第2章正文片段（draft）\n第二章草稿"])
+    expect(await fallbackPreviousEndingDataSource.load({ ...context, recordGap: endingGap })).toBe("第二章草稿")
+    expect(recentGap).not.toHaveBeenCalled()
+    expect(endingGap).not.toHaveBeenCalled()
+  })
+
+  it("真实空目录中 draft 自身读取失败仍记录一条 gap", async () => {
+    const recentGap = vi.fn()
+    const endingGap = vi.fn()
+    mockFileContents({})
+    expect(await recentChapterContentsDataSource.load({
+      ...context, config: { ...context.config, recentSummaryWindow: 1 }, recordGap: recentGap,
+    })).toEqual([])
+    expect(await fallbackPreviousEndingDataSource.load({ ...context, recordGap: endingGap })).toBe("")
+    expect(recentGap).toHaveBeenCalledExactlyOnceWith("recentChapterContents", "datasource_error")
+    expect(endingGap).toHaveBeenCalledExactlyOnceWith("fallbackPreviousEnding", "datasource_error")
+  })
+
+  it("并行读取乱序完成仍按章号保序，每次只列目录一次且每个选中文件只读一次", async () => {
+    const nodes = [1, 2, 3].map((number) => chapterNode(`chapter-${number}.md`))
+    const release = new Map<string, (content: string) => void>()
+    const completionOrder: string[] = []
+    let notifyStarted: () => void = () => { throw new Error("reads not initialized") }
+    const started = new Promise<void>((resolve) => { notifyStarted = resolve })
+    mocks.listDirectory.mockResolvedValue(nodes)
+    mocks.readFile.mockImplementation((path: string) => new Promise<string>((resolve) => {
+      release.set(path, resolve)
+      if (release.size === nodes.length) notifyStarted()
+    }).then((content) => { completionOrder.push(path); return content }))
+    const recordGap = vi.fn()
+    const loading = recentChapterContentsDataSource.load({
+      ...context, chapterNumber: 4, config: { ...context.config, recentSummaryWindow: 3 }, recordGap,
+    })
+    await started
+    for (const number of [3, 2, 1]) {
+      const resolve = release.get(nodes[number - 1].path)
+      if (!resolve) throw new Error(`read not started: ${number}`)
+      resolve(`第${number}章正文`)
+    }
+    expect(await loading).toEqual(["## 第1章正文片段\n第1章正文", "## 第2章正文片段\n第2章正文", "## 第3章正文片段\n第3章正文"])
+    expect(completionOrder).toEqual([nodes[2].path, nodes[1].path, nodes[0].path])
+    expect(mocks.listDirectory).toHaveBeenCalledTimes(1)
+    expect(mocks.readFile).toHaveBeenCalledTimes(3)
+    expect(recordGap).not.toHaveBeenCalled()
+  })
+
+  it("下一次 load 回读当前字节，不使用跨 fetch 原文缓存", async () => {
+    const formal = chapterNode("chapter-2.md")
+    mocks.listDirectory.mockResolvedValue([formal])
+    mockFileContents({ [formal.path]: "原正文" })
+    expect(await fallbackPreviousEndingDataSource.load(context)).toBe("原正文")
+    mockFileContents({ [formal.path]: "当前正文" })
+    expect(await fallbackPreviousEndingDataSource.load(context)).toBe("当前正文")
+    expect(mocks.listDirectory).toHaveBeenCalledTimes(2)
+    expect(mocks.readFile).toHaveBeenCalledTimes(2)
+  })
+
+  it("前章末尾仍最多 30 行、1200 字符", async () => {
+    const formal = chapterNode("chapter-2.md")
+    mocks.listDirectory.mockResolvedValue([formal])
+    const shortLines = Array.from({ length: 45 }, (_, index) => `line-${index + 1}`)
+    mockFileContents({ [formal.path]: `---\nchapter_number: 2\n---\n${shortLines.join("\n")}` })
+    const ending = await fallbackPreviousEndingDataSource.load(context)
+    expect(ending.split("\n")).toHaveLength(30)
+    expect(ending.startsWith("line-16\n")).toBe(true)
+    expect(ending.endsWith("line-45")).toBe(true)
+    const longLines = Array.from({ length: 45 }, (_, index) => `${index + 1}-${"字".repeat(100)}`)
+    mockFileContents({ [formal.path]: `---\nchapter_number: 2\n---\n${longLines.join("\n")}` })
+    const capped = await fallbackPreviousEndingDataSource.load(context)
+    expect(capped).toHaveLength(1200)
+    expect(capped.endsWith(longLines[44])).toBe(true)
+  })
+
+  it("目标编号不是安全正整数时不读取目录或 draft，两个 reader 都记录一条 gap", async () => {
+    const recentGap = vi.fn()
+    const endingGap = vi.fn()
+    expect(await recentChapterContentsDataSource.load({
+      ...context, chapterNumber: 3.5, config: { ...context.config, recentSummaryWindow: 1 }, recordGap: recentGap,
+    })).toEqual([])
+    expect(await fallbackPreviousEndingDataSource.load({ ...context, chapterNumber: 3.5, recordGap: endingGap })).toBe("")
+    expect(mocks.listDirectory).not.toHaveBeenCalled()
+    expect(mocks.readFile).not.toHaveBeenCalled()
+    expect(recentGap).toHaveBeenCalledExactlyOnceWith("recentChapterContents", "datasource_error")
+    expect(endingGap).toHaveBeenCalledExactlyOnceWith("fallbackPreviousEnding", "datasource_error")
   })
 })
 
@@ -605,10 +1024,12 @@ describe("recentChapterContentsDataSource 边界", () => {
       recentChapterContentsDataSource.load({ ...context, chapterNumber: undefined }),
     ).resolves.toEqual([])
     expect(mocks.searchWiki).not.toHaveBeenCalled()
+    expect(mocks.listDirectory).not.toHaveBeenCalled()
+    expect(mocks.readFile).not.toHaveBeenCalled()
   })
 
   it("wiki 命中但正文为空 → 回退 draft; draft 也空 → null 丢弃", async () => {
-    mocks.searchWiki.mockResolvedValue([{ path: "E:/Novel/wiki/chapters/chapter-1.md" }])
+    mocks.listDirectory.mockResolvedValue([chapterNode("chapter-1.md")])
     mocks.readFile.mockImplementation(async (p: string) => {
       if (p.includes("/wiki/chapters/")) return "---\ntype: chapter\n---\n   " // 空正文
       throw new Error(`no draft ${p}`)
@@ -621,18 +1042,22 @@ describe("recentChapterContentsDataSource 边界", () => {
     expect(result).toEqual([])
   })
 
-  it("searchWiki 抛错 → null 丢弃", async () => {
-    mocks.searchWiki.mockRejectedValue(new Error("wiki down"))
+  it("正式目录与 draft 读取失败 → null 丢弃且只有一条 gap", async () => {
+    const recordGap = vi.fn()
+    mocks.listDirectory.mockRejectedValue(new Error("directory down"))
+    mocks.readFile.mockRejectedValue(new Error("draft read fail"))
     const result = await recentChapterContentsDataSource.load({
       ...context,
       chapterNumber: 2,
       config: { ...context.config, recentSummaryWindow: 1 },
+      recordGap,
     })
     expect(result).toEqual([])
+    expect(recordGap).toHaveBeenCalledExactlyOnceWith("recentChapterContents", "datasource_error")
   })
 
   it("readFile 抛错 → null 丢弃", async () => {
-    mocks.searchWiki.mockResolvedValue([{ path: "E:/Novel/wiki/chapters/chapter-1.md" }])
+    mocks.listDirectory.mockResolvedValue([chapterNode("chapter-1.md")])
     mocks.readFile.mockRejectedValue(new Error("read fail"))
     const result = await recentChapterContentsDataSource.load({
       ...context,
@@ -764,22 +1189,21 @@ describe("fallbackPreviousEndingDataSource 边界", () => {
   })
 
   it("wiki 命中上一章 → 取正文尾部 30 行 excerpt; 无 frontmatter 全文作为正文", async () => {
-    mocks.searchWiki.mockResolvedValue([{ path: "E:/Novel/wiki/chapters/chapter-2.md" }])
+    mocks.listDirectory.mockResolvedValue([chapterNode("chapter-2.md")])
     mocks.readFile.mockResolvedValue(
       "---\ntype: chapter\nchapter_number: 2\nstatus: final\n---\n第2章行一\n第2章行二\n结尾钩子",
     )
     const ending = await fallbackPreviousEndingDataSource.load({ ...context, chapterNumber: 3 })
     expect(ending).toContain("结尾钩子")
 
-    mocks.searchWiki.mockResolvedValue([{ path: "E:/Novel/wiki/chapters/chapter-2.md" }])
     mocks.readFile.mockResolvedValue("无 frontmatter 的结尾行\n真正的钩子")
     const ending2 = await fallbackPreviousEndingDataSource.load({ ...context, chapterNumber: 3 })
     expect(ending2).toContain("真正的钩子")
   })
 
-  it("searchWiki 抛错 → recordGap; draft 有正文 → 取 draft 结尾", async () => {
+  it("正式目录抛错 → recordGap; draft 有正文 → 取 draft 结尾", async () => {
     const recordGap = vi.fn()
-    mocks.searchWiki.mockRejectedValue(new Error("wiki down"))
+    mocks.listDirectory.mockRejectedValue(new Error("directory down"))
     mocks.readFile.mockResolvedValue("draft 前文\ndraft 结尾钩子")
     const ending = await fallbackPreviousEndingDataSource.load({
       ...context,
@@ -787,16 +1211,17 @@ describe("fallbackPreviousEndingDataSource 边界", () => {
       recordGap,
     })
     expect(ending).toContain("draft 结尾钩子")
-    expect(recordGap).toHaveBeenCalledWith("fallbackPreviousEnding", "datasource_error")
+    expect(recordGap).toHaveBeenCalledExactlyOnceWith("fallbackPreviousEnding", "datasource_error")
   })
 
-  it("searchWiki 抛错且 draft 为空 → 空串", async () => {
+  it("正式目录与 draft 读取失败 → 空串且只有一条 gap", async () => {
     const recordGap = vi.fn()
-    mocks.searchWiki.mockRejectedValue(new Error("wiki down"))
+    mocks.listDirectory.mockRejectedValue(new Error("directory down"))
     mocks.readFile.mockRejectedValue(new Error("no draft"))
     await expect(
       fallbackPreviousEndingDataSource.load({ ...context, chapterNumber: 3, recordGap }),
     ).resolves.toBe("")
+    expect(recordGap).toHaveBeenCalledExactlyOnceWith("fallbackPreviousEnding", "datasource_error")
   })
 
   it("wiki 与 draft 均缺失 → 空串", async () => {
@@ -1022,13 +1447,10 @@ describe("IC-02 gaps 恰好一次 (P0)", () => {
 
   it("recentChapterContents: 单章抛错 → 其余保留 + 恰一条 gap", async () => {
     const recordGap = vi.fn()
-    mocks.searchWiki.mockImplementation(async (_projectPath: string, query: string) => {
-      const matched = query.match(/chapter_number:(\d+)/)
-      return matched ? [{ path: `E:/Novel/wiki/chapters/chapter-${matched[1]}.md` }] : []
-    })
+    mocks.listDirectory.mockResolvedValue([chapterNode("chapter-1.md"), chapterNode("chapter-2.md")])
     mocks.readFile.mockImplementation(async (p: string) => {
-      if (p.includes("chapter-1.md")) throw new Error("read fail")
-      return "---\ntype: chapter\nchapter_number: 2\nstatus: final\n---\n第二章正文"
+      if (p === "E:/Novel/wiki/chapters/chapter-2.md") return "---\ntype: chapter\nchapter_number: 2\nstatus: final\n---\n第二章正文"
+      throw new Error(`read fail ${p}`)
     })
     const result = await recentChapterContentsDataSource.load({
       ...context,
@@ -1044,10 +1466,7 @@ describe("IC-02 gaps 恰好一次 (P0)", () => {
 
   it("recentChapterContents: 全成功 → 零 gap", async () => {
     const recordGap = vi.fn()
-    mocks.searchWiki.mockImplementation(async (_projectPath: string, query: string) => {
-      const matched = query.match(/chapter_number:(\d+)/)
-      return matched ? [{ path: `E:/Novel/wiki/chapters/chapter-${matched[1]}.md` }] : []
-    })
+    mocks.listDirectory.mockResolvedValue([chapterNode("chapter-1.md"), chapterNode("chapter-2.md")])
     mocks.readFile.mockResolvedValue("---\ntype: chapter\n---\n正文内容")
     const result = await recentChapterContentsDataSource.load({
       ...context,
