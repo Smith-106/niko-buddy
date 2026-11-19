@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { StrictMode } from "react"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import {
@@ -16,6 +17,7 @@ import type {
   RumorEvent,
   SerializedSimulationSnapshot,
   SimulationBranch,
+  SimulationCallbacks,
   SimulationDebugTrace,
   SimulationReport,
   StoryFramework,
@@ -1209,27 +1211,63 @@ describe("StorySimulationView 中断与回调全覆盖", () => {
   afterEach(() => { cleanup(); resetViewStore(); vi.unstubAllGlobals() })
 
   it("run 成功后被取消走保存部分分支", async () => {
-    const agent = makeMockAgent()
-    const fw = makeFrameworkWithNodes()
-    const ev = makeEvent({ id: "abort-e1", content: "x".repeat(10) })
-    useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw], dynamicEventPool: [] })
-    novelMocks.buildAgents.mockReturnValue([agent])
-    // run 延迟 400ms 后正常 resolve，但期间被 abort：覆盖 661 分支（resolve 后检查 aborted）
-    novelMocks.runSimulation.mockImplementation(async (_p: any, _e: any, cb: any) => {
-      cb?.onTimelineEvent?.(ev)
-      await new Promise((r) => setTimeout(r, 400))
-      return [ev]
-    })
-    novelMocks.saveSimulationResult.mockResolvedValue(undefined)
-    novelMocks.loadSimulationResults.mockResolvedValue([{ id: "r1", frameworkId: fw.id, report: makeReport(), draft: null, timelineEvents: [ev], agentSnapshot: null, rumors: [], debugTraces: [], status: "cancelled", createdAt: new Date().toISOString() }])
-    render(<StorySimulationView />)
-    fireEvent.click(screen.getByText("storySimulation.confirmFramework"))
-    await waitFor(() => expect(screen.queryByText("取消推演")).toBeTruthy(), { timeout: 5000 })
-    fireEvent.click(screen.getByText("取消推演"))
-    await waitFor(() => expect(useStorySimulationStore.getState().phase).toBe("framework-confirming"), { timeout: 6000 })
-    expect(String(useStorySimulationStore.getState().error)).toContain("storySimulation.simulationCancelled")
-    // 部分保存应被调用且 info 提示出现
-    await waitFor(() => expect(novelMocks.saveSimulationResult).toHaveBeenCalled())
+    const timers = installBannerTimers()
+    try {
+      const agent = makeMockAgent()
+      const fw = makeFrameworkWithNodes()
+      const ev = makeEvent({ id: "abort-e1", content: "x".repeat(10) })
+      let capturedSignal: AbortSignal | undefined
+      let runResolved = false
+      useStorySimulationStore.setState({ phase: "framework-confirming", currentFramework: fw, extractionResult: makeExtraction(), frameworks: [fw], dynamicEventPool: [] })
+      novelMocks.buildAgents.mockReturnValue([agent])
+      // abort 后正常返回，专门覆盖 resolve 后检查 signal 的部分保存分支。
+      novelMocks.runSimulation.mockImplementation(async (_p: unknown, _e: unknown, cb: SimulationCallbacks, signal: AbortSignal) => {
+        capturedSignal = signal
+        cb.onTimelineEvent?.(ev)
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) return resolve()
+          signal.addEventListener("abort", () => resolve(), { once: true })
+        })
+        runResolved = true
+        return [ev]
+      })
+      novelMocks.saveSimulationResult.mockResolvedValue(undefined)
+      novelMocks.loadSimulationResults.mockResolvedValue([{ id: "r1", frameworkId: fw.id, report: makeReport(), draft: null, timelineEvents: [ev], agentSnapshot: null, rumors: [], debugTraces: [], status: "cancelled", createdAt: new Date().toISOString() }])
+      render(<StorySimulationView />)
+      fireEvent.click(screen.getByText("storySimulation.confirmFramework"))
+      await waitFor(() => expect(screen.queryByText("取消推演")).toBeTruthy(), { timeout: 5000 })
+      expect(capturedSignal).toBeDefined()
+      expect(capturedSignal?.aborted).toBe(false)
+      expect(runResolved).toBe(false)
+      expect(useStorySimulationStore.getState().timelineEvents).toEqual([ev])
+      fireEvent.click(screen.getByText("取消推演"))
+      await waitFor(() => {
+        const state = useStorySimulationStore.getState()
+        expect(state.phase).toBe("framework-confirming")
+        expect(String(state.error)).toContain("storySimulation.simulationCancelled")
+      }, { timeout: 6000 })
+      expect(capturedSignal?.aborted).toBe(true)
+      expect(runResolved).toBe(true)
+      expect(String(useStorySimulationStore.getState().error)).toContain("storySimulation.simulationCancelled")
+      // 部分保存及续跑位置必须与取消前事件一致，不生成正常报告。
+      await waitFor(() => expect(novelMocks.saveSimulationResult).toHaveBeenCalled())
+      expect(novelMocks.saveSimulationResult).toHaveBeenCalledTimes(1)
+      const savedArgs = novelMocks.saveSimulationResult.mock.calls[0]
+      expect(savedArgs[3]).toBeUndefined()
+      expect(savedArgs[4]).toEqual([ev])
+      expect(savedArgs[8]).toMatchObject({
+        status: "cancelled",
+        partialReason: "用户取消推演",
+        resume: { nextNodeIndex: ev.nodeIndex, nextRound: ev.round + 1, timelineEvents: [ev] },
+      })
+      expect(useStorySimulationStore.getState().timelineEvents).toHaveLength(1)
+      expect(useStorySimulationStore.getState().infoMessage).toBe("storySimulation.partialSavedInfo")
+      expect(novelMocks.generateSimulationReport).not.toHaveBeenCalled()
+      expect(useStorySimulationStore.getState().currentReport).toBeNull()
+    } finally {
+      cleanup()
+      timers.restore()
+    }
   })
 
   it("报告生成后被取消走取消分支", async () => {
@@ -1608,43 +1646,81 @@ describe("StorySimulationView 收尾覆盖", () => {
   })
 })
 
+type BannerTimer = { id: number; fn: () => void; ms: number; dueAt: number }
+
+function installBannerTimers() {
+  const pending: BannerTimer[] = []
+  let nextId = -1
+  let nowMs = 0
+  const realSetTimeout = globalThis.setTimeout
+  const realClearTimeout = globalThis.clearTimeout
+  const setTimerSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+    fn: (...args: unknown[]) => void,
+    ms?: number,
+    ...args: unknown[]
+  ) => {
+    if ((ms ?? 0) >= 3000) {
+      const id = nextId--
+      pending.push({ id, fn: () => fn(...args), ms: ms ?? 0, dueAt: nowMs + (ms ?? 0) })
+      return id as unknown as ReturnType<typeof setTimeout>
+    }
+    return realSetTimeout(fn, ms, ...args)
+  }) as typeof globalThis.setTimeout)
+  const clearTimerSpy = vi.spyOn(globalThis, "clearTimeout").mockImplementation((id) => {
+    const index = pending.findIndex((timer) => timer.id === id)
+    if (index >= 0) pending.splice(index, 1)
+    else realClearTimeout(id)
+  })
+
+  return {
+    pending,
+    fireDueTimers(upToMs: number): number {
+      nowMs = upToMs
+      const due = pending.filter((timer) => timer.dueAt <= upToMs)
+      let fired = 0
+      act(() => {
+        for (const timer of due) {
+          const index = pending.findIndex((current) => current.id === timer.id)
+          if (index < 0) continue
+          pending.splice(index, 1)
+          timer.fn()
+          fired++
+        }
+      })
+      return fired
+    },
+    restore() {
+      act(() => useStorySimulationStore.getState().setError(null))
+      pending.splice(0)
+      clearTimerSpy.mockRestore()
+      setTimerSpy.mockRestore()
+    },
+  }
+}
+
 describe("StorySimulationView 横幅自动清除（确定性计时）", () => {
   // 3s/5s/8s 的 setTimeout 只承担「到点自动清除横幅」：靠真实等待既拖慢用例，
   // 命中与否又取决于并发调度（同一文件里后面的用例跑够久才会顺手触发）。
   // 这里拦截 >=3000ms 的定时器，在断言前显式触发，验证横幅确实被清空。
-  let pending: Array<{ fn: () => void; ms: number }>
+  let pending: BannerTimer[]
+  let bannerTimers: ReturnType<typeof installBannerTimers>
 
   beforeEach(() => {
     cleanup()
     resetViewStore()
-    pending = []
-    const realSetTimeout = globalThis.setTimeout
-    vi.spyOn(globalThis, "setTimeout").mockImplementation(((
-      fn: () => void,
-      ms?: number,
-      ...args: unknown[]
-    ) => {
-      if ((ms ?? 0) >= 3000) {
-        pending.push({ fn, ms: ms ?? 0 })
-        return 0 as unknown as ReturnType<typeof setTimeout>
-      }
-      return realSetTimeout(fn, ms, ...args)
-    }) as typeof globalThis.setTimeout)
+    bannerTimers = installBannerTimers()
+    pending = bannerTimers.pending
   })
 
   afterEach(() => {
     cleanup()
+    bannerTimers.restore()
     vi.restoreAllMocks()
     resetViewStore()
   })
 
   function fireDueTimers(upToMs: number): number {
-    const due = pending.filter((t) => t.ms <= upToMs)
-    pending = pending.filter((t) => t.ms > upToMs)
-    act(() => {
-      for (const t of due) t.fn()
-    })
-    return due.length
+    return bannerTimers.fireDueTimers(upToMs)
   }
 
   function makeDraft(branchId = "b1") {
@@ -1655,6 +1731,50 @@ describe("StorySimulationView 横幅自动清除（确定性计时）", () => {
       totalWords: 10,
       createdAt: new Date().toISOString(),
     }
+  }
+
+  function setupAbortControlledRun(rejectAfterAbort = false) {
+    const agent = makeMockAgent()
+    const fw = makeFrameworkWithNodes()
+    const ev = makeEvent({ id: "lifecycle-e1" })
+    const signals: AbortSignal[] = []
+    useStorySimulationStore.setState({
+      phase: "framework-confirming",
+      currentFramework: fw,
+      extractionResult: makeExtraction(),
+      frameworks: [fw],
+      dynamicEventPool: [],
+    })
+    novelMocks.buildAgents.mockReturnValue([agent])
+    novelMocks.runSimulation.mockImplementation(async (_p: unknown, _e: unknown, cb: SimulationCallbacks, signal: AbortSignal) => {
+      signals.push(signal)
+      cb.onTimelineEvent?.(ev)
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) return resolve()
+        signal.addEventListener("abort", () => resolve(), { once: true })
+      })
+      if (rejectAfterAbort) throw new DOMException("aborted", "AbortError")
+      return [ev]
+    })
+    return { fw, ev, signals }
+  }
+
+  async function cancelRunningSimulation() {
+    fireEvent.click(screen.getByText("storySimulation.confirmFramework"))
+    await waitFor(() => expect(screen.queryByText("取消推演")).toBeTruthy())
+    fireEvent.click(screen.getByText("取消推演"))
+    await waitFor(() => {
+      const state = useStorySimulationStore.getState()
+      expect(state.phase).toBe("framework-confirming")
+      expect(state.error).toBe("storySimulation.simulationCancelled")
+    })
+  }
+
+  function getCancellationTimer(): BannerTimer {
+    const timer = pending.find((current) => current.ms === 3000)
+    expect(timer).toBeDefined()
+    if (!timer) throw new Error("取消横幅 timer 未排定")
+    return timer
   }
 
   it("草稿生成中取消：取消提示 3s 后自动清除，停留报告页", async () => {
@@ -1682,6 +1802,8 @@ describe("StorySimulationView 横幅自动清除（确定性计时）", () => {
     expect(useStorySimulationStore.getState().phase).toBe("report-viewing")
     expect(pending.some((t) => t.ms === 3000)).toBe(true)
 
+    expect(fireDueTimers(2999)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("storySimulation.draftCancelled")
     expect(fireDueTimers(3000)).toBeGreaterThan(0)
     expect(useStorySimulationStore.getState().error).toBeNull()
   })
@@ -1824,6 +1946,108 @@ describe("StorySimulationView 横幅自动清除（确定性计时）", () => {
     expect(useStorySimulationStore.getState().infoMessage).toBeNull()
   })
 
+  it("推演抛错且已取消：取消横幅 3s 后清除并保留部分保存", async () => {
+    const { ev, signals } = setupAbortControlledRun(true)
+    render(<StorySimulationView />)
+    await cancelRunningSimulation()
+    expect(signals[0].aborted).toBe(true)
+    expect(novelMocks.generateSimulationReport).not.toHaveBeenCalled()
+    expect(novelMocks.saveSimulationResult).toHaveBeenCalledTimes(1)
+    const savedArgs = novelMocks.saveSimulationResult.mock.calls[0]
+    expect(savedArgs[4]).toEqual([ev])
+    expect(savedArgs[8]).toMatchObject({
+      status: "cancelled",
+      resume: { nextNodeIndex: ev.nodeIndex, nextRound: ev.round + 1, timelineEvents: [ev] },
+    })
+    expect(fireDueTimers(2999)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("storySimulation.simulationCancelled")
+    expect(fireDueTimers(3000)).toBe(1)
+    expect(useStorySimulationStore.getState().error).toBeNull()
+    expect(useStorySimulationStore.getState().infoMessage).toBe("storySimulation.partialSavedInfo")
+  })
+
+  it("卸载取消 view 后旧 timer 不清除新 view 的同文案错误", async () => {
+    setupAbortControlledRun()
+    const previousView = render(<StorySimulationView />)
+    await cancelRunningSimulation()
+    const previousTimer = getCancellationTimer()
+    previousView.unmount()
+    expect(pending.some((timer) => timer.id === previousTimer.id)).toBe(false)
+
+    act(() => useStorySimulationStore.getState().setError("storySimulation.simulationCancelled"))
+    render(<StorySimulationView />)
+    // 即使已进入任务队列的旧回调被执行，也不能写入另一 view 的错误。
+    act(() => previousTimer.fn())
+    expect(fireDueTimers(3000)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("storySimulation.simulationCancelled")
+  })
+
+  it("同 view 下一轮推演的同文案错误不被旧 generation timer 清除", async () => {
+    const { ev, signals } = setupAbortControlledRun()
+    render(<StorySimulationView />)
+    await cancelRunningSimulation()
+    const previousTimer = getCancellationTimer()
+    expect(fireDueTimers(1000)).toBe(0)
+
+    await cancelRunningSimulation()
+    expect(signals).toHaveLength(2)
+    expect(signals.every((signal) => signal.aborted)).toBe(true)
+    const currentTimer = getCancellationTimer()
+    expect(currentTimer.id).not.toBe(previousTimer.id)
+    expect(pending.filter((timer) => timer.ms === 3000)).toHaveLength(1)
+    act(() => previousTimer.fn())
+    expect(useStorySimulationStore.getState().error).toBe("storySimulation.simulationCancelled")
+    expect(fireDueTimers(3000)).toBe(0)
+    expect(fireDueTimers(3999)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("storySimulation.simulationCancelled")
+    expect(fireDueTimers(4000)).toBe(1)
+    expect(useStorySimulationStore.getState().error).toBeNull()
+    expect(novelMocks.saveSimulationResult).toHaveBeenCalledTimes(2)
+    for (const savedArgs of novelMocks.saveSimulationResult.mock.calls) {
+      expect(savedArgs[4]).toEqual([ev])
+      expect(savedArgs[8]).toMatchObject({ status: "cancelled", resume: { timelineEvents: [ev] } })
+    }
+    expect(novelMocks.generateSimulationReport).not.toHaveBeenCalled()
+  })
+
+  it("新草稿启动撤销推演 timer，替换后只保留新取消横幅的归属", async () => {
+    setupAbortControlledRun()
+    render(<StorySimulationView />)
+    await cancelRunningSimulation()
+    const previousTimer = getCancellationTimer()
+    expect(fireDueTimers(1000)).toBe(0)
+    act(() => useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport() }))
+    novelMocks.generateStoryDraft.mockImplementation(async ({ signal }: { signal: AbortSignal }) => {
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) return resolve()
+        signal.addEventListener("abort", () => resolve(), { once: true })
+      })
+      return makeDraft()
+    })
+
+    fireEvent.click(screen.getAllByText("storySimulation.generateDraft")[0])
+    await waitFor(() => expect(screen.queryByText("取消")).toBeTruthy())
+    expect(pending.some((timer) => timer.id === previousTimer.id)).toBe(false)
+    expect(useStorySimulationStore.getState().error).toBeNull()
+    fireEvent.click(screen.getByText("取消"))
+    await waitFor(() => {
+      const state = useStorySimulationStore.getState()
+      expect(state.phase).toBe("report-viewing")
+      expect(state.error).toBe("storySimulation.draftCancelled")
+    })
+    const currentTimer = getCancellationTimer()
+    expect(currentTimer.id).not.toBe(previousTimer.id)
+    expect(pending.filter((timer) => timer.ms === 3000)).toHaveLength(1)
+    act(() => previousTimer.fn())
+    expect(fireDueTimers(3000)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("storySimulation.draftCancelled")
+    expect(fireDueTimers(3999)).toBe(0)
+    expect(fireDueTimers(4000)).toBe(1)
+    expect(useStorySimulationStore.getState().error).toBeNull()
+    expect(novelMocks.saveSimulationResult).toHaveBeenCalledTimes(1)
+    expect(useStorySimulationStore.getState().currentDraft).toBeNull()
+  })
+
   function setupInterview(agent = makeMockAgent()) {
     const ev = makeEvent({ id: "timer-chat-e1" })
     const report = makeReport()
@@ -1866,6 +2090,112 @@ describe("StorySimulationView 横幅自动清除（确定性计时）", () => {
     })
   }
 
+  it("无冲突错误 timer：3000 ms 清除，重排与卸载旧回调不清新错误", async () => {
+    useStorySimulationStore.setState({
+      phase: "report-viewing",
+      currentFramework: makeFrameworkWithNodes(),
+      currentReport: makeReport(),
+      timelineEvents: [makeEvent({ actionType: "observe" })],
+    })
+    const view = render(<StrictMode><StorySimulationView /></StrictMode>)
+    fireEvent.click(screen.getByText("时间线"))
+    await waitFor(() => expect(screen.getByTestId("sim-extract-conflicts")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("sim-extract-conflicts"))
+    expect(useStorySimulationStore.getState().error).toBe("本轮暂无可提取的冲突动作")
+    expect(fireDueTimers(2999)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("本轮暂无可提取的冲突动作")
+    expect(fireDueTimers(3000)).toBe(1)
+    expect(useStorySimulationStore.getState().error).toBeNull()
+
+    fireEvent.click(screen.getByTestId("sim-extract-conflicts"))
+    const replacedTimer = getCancellationTimer()
+    expect(fireDueTimers(4000)).toBe(0)
+    fireEvent.click(screen.getByTestId("sim-extract-conflicts"))
+    expect(pending.some((timer) => timer.id === replacedTimer.id)).toBe(false)
+    expect(pending.filter((timer) => timer.ms === 3000)).toHaveLength(1)
+    act(() => replacedTimer.fn())
+    expect(fireDueTimers(6999)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("本轮暂无可提取的冲突动作")
+    expect(fireDueTimers(7000)).toBe(1)
+    expect(useStorySimulationStore.getState().error).toBeNull()
+
+    fireEvent.click(screen.getByTestId("sim-extract-conflicts"))
+    const unmountedTimer = getCancellationTimer()
+    view.unmount()
+    expect(pending.some((timer) => timer.id === unmountedTimer.id)).toBe(false)
+    act(() => useStorySimulationStore.getState().setError("本轮暂无可提取的冲突动作"))
+    render(<StrictMode><StorySimulationView /></StrictMode>)
+    act(() => unmountedTimer.fn())
+    expect(fireDueTimers(10000)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("本轮暂无可提取的冲突动作")
+    expect(useStorySimulationStore.getState().phase).toBe("report-viewing")
+    expect(useStorySimulationStore.getState().currentDraft).toBeNull()
+    expect(novelMocks.saveSimulationResult).not.toHaveBeenCalled()
+  })
+
+  it("采访保存错误 timer：5000 ms 清除，下一轮取消不受旧回调影响", async () => {
+    setupInterview()
+    novelMocks.saveInterview.mockRejectedValue(new Error("save boom"))
+    const view = render(<StorySimulationView />)
+    fireEvent.click(screen.getByTitle("storySimulation.saveInterviewTip"))
+    await waitFor(() => expect(String(useStorySimulationStore.getState().error)).toContain("save boom"))
+    const firstError = useStorySimulationStore.getState().error
+    expect(fireDueTimers(4999)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe(firstError)
+    expect(fireDueTimers(5000)).toBe(1)
+    expect(useStorySimulationStore.getState().error).toBeNull()
+
+    let rejectPendingSave!: (reason: unknown) => void
+    const pendingSave = new Promise<void>((_resolve, reject) => { rejectPendingSave = reject })
+    novelMocks.saveInterview.mockReturnValueOnce(pendingSave)
+    fireEvent.click(screen.getByTitle("storySimulation.saveInterviewTip"))
+    expect(novelMocks.saveInterview).toHaveBeenCalledTimes(2)
+    let signals: AbortSignal[] = []
+    act(() => { signals = setupAbortControlledRun().signals })
+    fireEvent.click(screen.getByText("storySimulation.confirmFramework"))
+    await waitFor(() => expect(screen.queryByText("取消推演")).toBeTruthy())
+    expect(signals[0].aborted).toBe(false)
+    // 保存期间启动了另一轮推演，真实保存失败仍必须显示。
+    await act(async () => { rejectPendingSave(new Error("late save boom")) })
+    await waitFor(() => expect(String(useStorySimulationStore.getState().error)).toContain("late save boom"))
+    expect(useStorySimulationStore.getState().phase).toBe("simulating")
+    const previousSaveTimer = pending.find((timer) => timer.ms === 5000)
+    expect(previousSaveTimer).toBeDefined()
+    if (!previousSaveTimer) throw new Error("采访保存失败 timer 未排定")
+
+    fireEvent.click(screen.getByText("取消推演"))
+    await waitFor(() => {
+      const state = useStorySimulationStore.getState()
+      expect(state.phase).toBe("framework-confirming")
+      expect(state.error).toBe("storySimulation.simulationCancelled")
+    })
+    expect(signals[0].aborted).toBe(true)
+    expect(pending.some((timer) => timer.id === previousSaveTimer.id)).toBe(false)
+    act(() => previousSaveTimer.fn())
+    expect(fireDueTimers(7999)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("storySimulation.simulationCancelled")
+    expect(fireDueTimers(8000)).toBe(1)
+    expect(useStorySimulationStore.getState().error).toBeNull()
+    expect(novelMocks.saveSimulationResult).toHaveBeenCalledTimes(1)
+    expect(novelMocks.generateSimulationReport).not.toHaveBeenCalled()
+
+    act(() => useStorySimulationStore.setState({ phase: "report-viewing", currentReport: makeReport() }))
+    let rejectAfterUnmount!: (reason: unknown) => void
+    const saveAfterUnmount = new Promise<void>((_resolve, reject) => { rejectAfterUnmount = reject })
+    novelMocks.saveInterview.mockReturnValueOnce(saveAfterUnmount)
+    fireEvent.click(screen.getByTitle("storySimulation.saveInterviewTip"))
+    expect(novelMocks.saveInterview).toHaveBeenCalledTimes(3)
+    const pendingBeforeLateFailure = new Set(pending.map((timer) => timer.id))
+    view.unmount()
+    await act(async () => { rejectAfterUnmount(new Error("save after unmount")) })
+    expect(String(useStorySimulationStore.getState().error)).toContain("save after unmount")
+    expect(pending.filter((timer) => !pendingBeforeLateFailure.has(timer.id))).toHaveLength(0)
+    const reportedError = useStorySimulationStore.getState().error
+    render(<StorySimulationView />)
+    fireDueTimers(13000)
+    expect(useStorySimulationStore.getState().error).toBe(reportedError)
+  })
+
   it("采访导出成功：导出提示 5s 后自动清除", async () => {
     setupInterview()
     novelMocks.exportInterview.mockResolvedValue("C:/proj/interview.md")
@@ -1880,6 +2210,90 @@ describe("StorySimulationView 横幅自动清除（确定性计时）", () => {
 
     fireDueTimers(5000)
     expect(useStorySimulationStore.getState().infoMessage).toBeNull()
+  })
+
+  it("error ownership：旧父视图 callback 不清除仍 mounted 时外部相同文本的新错误", async () => {
+    setupInterview()
+    novelMocks.saveInterview.mockRejectedValueOnce(new Error("parent ownership failure"))
+    render(<StorySimulationView />)
+    fireEvent.click(screen.getByTitle("storySimulation.saveInterviewTip"))
+    await waitFor(() => expect(useStorySimulationStore.getState().error).toContain("parent ownership failure"))
+    expect(novelMocks.saveInterview).toHaveBeenCalledTimes(1)
+    expect(pending.filter((timer) => timer.ms === 5000)).toHaveLength(1)
+    const originalError = useStorySimulationStore.getState().error
+    expect(fireDueTimers(1000)).toBe(0)
+    act(() => useStorySimulationStore.getState().setError(originalError))
+    expect(useStorySimulationStore.getState().error).toBe(originalError)
+    // 回调数先断言，避免把未执行的旧任务误当作归属保护。
+    expect(fireDueTimers(5000)).toBe(1)
+    expect(useStorySimulationStore.getState().error).toBe(originalError)
+  })
+
+  it.each(["manual", "transient"] as const)("同步 subscriber 写相同文本的 %s error，父视图旧调用不排 timer", async (kind) => {
+    setupInterview()
+    novelMocks.saveInterview.mockRejectedValueOnce(new Error("sync parent failure"))
+    let rewritten = false
+    const unsubscribe = useStorySimulationStore.subscribe((state) => {
+      if (!rewritten && typeof state.error === "string" && state.error.includes("sync parent failure")) {
+        rewritten = true
+        if (kind === "manual") state.setError(state.error)
+        else state.setTransientError(state.error, 5000)
+      }
+    })
+    try {
+      render(<StorySimulationView />)
+      fireEvent.click(screen.getByTitle("storySimulation.saveInterviewTip"))
+      await waitFor(() => expect(useStorySimulationStore.getState().error).toContain("sync parent failure"))
+      expect(rewritten).toBe(true)
+      expect(novelMocks.saveInterview).toHaveBeenCalledTimes(1)
+      const expectedError = useStorySimulationStore.getState().error
+      expect(pending).toHaveLength(kind === "manual" ? 0 : 1)
+      expect(fireDueTimers(4999)).toBe(0)
+      expect(useStorySimulationStore.getState().error).toBe(expectedError)
+      expect(fireDueTimers(5000)).toBe(kind === "manual" ? 0 : 1)
+      expect(useStorySimulationStore.getState().error).toBe(kind === "manual" ? expectedError : null)
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it("successful interview save retry keeps previous error cleanup", async () => {
+    setupInterview()
+    let rejectFirstSave!: (reason: unknown) => void
+    let resolveRetry!: () => void
+    const firstSave = new Promise<void>((_resolve, reject) => { rejectFirstSave = reject })
+    const retrySave = new Promise<void>((resolve) => { resolveRetry = resolve })
+    novelMocks.saveInterview.mockReturnValueOnce(firstSave).mockReturnValueOnce(retrySave)
+    render(<StorySimulationView />)
+    const saveButton = screen.getByTitle("storySimulation.saveInterviewTip") as HTMLButtonElement
+    expect(saveButton.disabled).toBe(false)
+    fireEvent.click(saveButton)
+    expect(saveButton.disabled).toBe(true)
+    expect(novelMocks.saveInterview).toHaveBeenCalledTimes(1)
+    await act(async () => { rejectFirstSave(new Error("retry save boom")) })
+    expect(String(useStorySimulationStore.getState().error)).toContain("retry save boom")
+    expect(saveButton.disabled).toBe(false)
+    const originalError = useStorySimulationStore.getState().error
+    const originalRevision = useStorySimulationStore.getState().errorRevision
+    expect(pending.some((timer) => timer.ms === 5000)).toBe(true)
+
+    expect(fireDueTimers(1000)).toBe(0)
+    fireEvent.click(saveButton)
+    expect(saveButton.disabled).toBe(true)
+    expect(novelMocks.saveInterview).toHaveBeenCalledTimes(2)
+    await act(async () => { resolveRetry() })
+    expect(saveButton.disabled).toBe(false)
+    expect(String(useStorySimulationStore.getState().infoMessage)).toContain("storySimulation.interviewSaved")
+    expect(useStorySimulationStore.getState().error).toBe(originalError)
+    expect(useStorySimulationStore.getState().errorRevision).toBe(originalRevision)
+
+    expect(fireDueTimers(4999)).toBeGreaterThan(0)
+    expect(useStorySimulationStore.getState().error).toBe(originalError)
+    const errorCallbacksFired = fireDueTimers(5000)
+    expect(useStorySimulationStore.getState().error).toBeNull()
+    expect(errorCallbacksFired).toBe(1)
+    expect(useStorySimulationStore.getState().errorRevision).toBe(originalRevision + 1)
+    expect(useStorySimulationStore.getState().phase).toBe("report-viewing")
   })
 
   it("采访保存失败：错误横幅 5s 后自动清除", async () => {

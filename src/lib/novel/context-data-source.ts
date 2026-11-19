@@ -12,7 +12,7 @@ import type { NovelConfig, RevisionFeedbackWindowConfig } from "@/stores/wiki-st
  * 反向 import 加重循环依赖 (ARCH F-007)。context-engine.ts 的 ContextGap.reason
  * 复用此类型, recordGap 注入契约也用它, 使调用方传非 union 字符串时编译期报错。
  */
-export type ContextGapReason = "budget_exceeded" | "tier_compressible" | "datasource_error"
+export type ContextGapReason = "budget_exceeded" | "tier_compressible" | "datasource_error" | "temporal_history_unavailable"
 
 /**
  * 上下文加载配置

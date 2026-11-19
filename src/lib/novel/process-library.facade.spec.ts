@@ -626,7 +626,7 @@ describe("E-05 assembleProcessView 摘要面（summariesStore 注入）", () => 
       ],
       lastUpdated: "",
     } as unknown as Awaited<ReturnType<typeof import("./chapter-summaries").loadChapterSummaries>>
-    const view = assembleProcessView("菜月昴", 3, {
+    const view = assembleProcessView("菜月昴", 4, {
       cognition: s.cognition,
       matrix: s.matrix,
       resources: s.resources,
@@ -700,9 +700,11 @@ describe("E-05 visibleInfoFor/auditChapter 摘要成功路径", () => {
   it("visibleInfoFor 带摘要 store 时追加 stateDelta 与 recentSummaries 行", async () => {
     setupWithSummaries()
     const { visibleInfoFor } = await import("./process-library")
-    const text = await visibleInfoFor("/P", "菜月昴", 3)
+    const text = await visibleInfoFor("/P", "菜月昴", 4)
     expect(text).toContain("【菜月昴 不知道】密道位置")
     expect(text).toContain("夜话定策")
+    const beforeChapter = await visibleInfoFor("/P", "菜月昴", 3)
+    expect(beforeChapter).not.toContain("夜话定策")
   })
 
   it("auditChapter 摘要加载成功走非降级路径，summary 仍正确聚合", async () => {

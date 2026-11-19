@@ -11,6 +11,8 @@ import {
 } from "./context-task-brief-builders"
 import {
   flattenOutlineMarkdownFiles,
+  groupOutlineSources,
+  selectOutlineSources,
   includesChapterMarker,
   readFrontmatterChapterNumber,
 } from "./context-engine-outline-helpers"
@@ -66,9 +68,10 @@ export function emptyPack(task: string): ContextPack {
 export async function readOutlineContent(pp: string): Promise<string> {
   try {
     const results = await searchWiki(pp, "outline type:outline")
-    if (results.length > 0) {
+    const selected = selectOutlineSources(results)
+    if (selected.length > 0) {
       const contents = await Promise.all(
-        results.map(async (result) => {
+        selected.map(async (result) => {
           try {
             return await readFile(result.path)
           } catch {
@@ -112,13 +115,15 @@ export function pickChapterOutlineByNumber(
   candidates: Array<{ path: string; content: string }>,
   chapterNumber: number,
 ): string {
-  const frontmatterMatch = candidates.find((candidate) => readFrontmatterChapterNumber(candidate.content) === chapterNumber)
-  if (frontmatterMatch) return tieredSlice(frontmatterMatch.content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:frontmatter`)
+  for (const group of groupOutlineSources(candidates)) {
+    const frontmatterMatch = group.find((candidate) => readFrontmatterChapterNumber(candidate.content) === chapterNumber)
+    if (frontmatterMatch) return tieredSlice(frontmatterMatch.content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:frontmatter`)
 
-  const headingMatch = candidates.find((candidate) =>
-    includesChapterMarker(candidate.content, chapterNumber) || includesChapterMarker(candidate.path, chapterNumber),
-  )
-  if (headingMatch) return tieredSlice(headingMatch.content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:heading`)
+    const headingMatch = group.find((candidate) =>
+      includesChapterMarker(candidate.content, chapterNumber) || includesChapterMarker(candidate.path, chapterNumber),
+    )
+    if (headingMatch) return tieredSlice(headingMatch.content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:heading`)
+  }
 
   return ""
 }
@@ -126,44 +131,38 @@ export function pickChapterOutlineByNumber(
 export async function readChapterOutlineDirect(pp: string, chapterNumber: number): Promise<string> {
   try {
     const tree = await listDirectory(`${pp}/wiki/outlines`)
-    const files = flattenOutlineMarkdownFiles(tree)
-    // ISS-20260709-037: 80 文件全量读改按需增量（行为等价）。
-    // 改前 `files.slice(0, 80)` 经 Promise.all 一次读全 80 个文件内容，即便目标章节的
-    // frontmatter 在第 1 个文件里也要等 80 路 IPC。现改增量分批（每批 10，保持原扁平序，
-    // 80 上限不变）：每批后检查累积前缀的 frontmatter 首见命中 ——
-    // pickChapterOutlineByNumber 本就 frontmatter 优先，累积前缀已含 frontmatter 命中时，
-    // 全量扫描的首个 frontmatter 命中必在该前缀内（后缀命中只会更晚），此时直接返回与全量
-    // 完全一致；无 frontmatter 时才继续读完（heading 回退分支语义不变）。
-    // tieredSlice 切片每次现算（currentBuildBudget 逐 build 自适应）。
+    // 来源选择先于 first80；备份文件不能挤掉正式大纲，也不能凭较早的 frontmatter 胜出。
+    const files = selectOutlineSources(flattenOutlineMarkdownFiles(tree))
     const scoped = files.slice(0, 80)
-    const candidates: Array<{ path: string; content: string }> = []
     const BATCH = 10
-    for (let i = 0; i < scoped.length; i += BATCH) {
-      const batch = scoped.slice(i, i + BATCH)
-      // 注：每次现读，不做跨调用内容缓存 —— 大纲文件可随时被编辑/生成，
-      // path-keyed 常驻缓存会串味（旧内容覆盖新文件），与改前每次现读不等价。
-      const contents = await Promise.all(
-        batch.map((file) => readFile(file.path).catch(() => "")),
-      )
-      for (let j = 0; j < batch.length; j += 1) {
-        candidates.push({ path: batch[j].path, content: contents[j] })
-      }
-      const prefixHit = candidates.find(
-        (candidate) => readFrontmatterChapterNumber(candidate.content) === chapterNumber,
-      )
-      if (prefixHit) {
-        // 前缀已含 frontmatter 首见 == 全量 frontmatter 首见（证见上），直接结算。
-        return pickChapterOutlineByNumber(
-          candidates.filter((candidate) => candidate.content.trim()),
-          chapterNumber,
+    // 组内仍按增量批读找 frontmatter 首见；读完该组后才用 heading 回退。
+    for (const group of groupOutlineSources(scoped)) {
+      const candidates: Array<{ path: string; content: string }> = []
+      for (let i = 0; i < group.length; i += BATCH) {
+        const batch = group.slice(i, i + BATCH)
+        // 每次现读，不做跨调用内容缓存，避免大纲编辑后仍取旧内容。
+        const contents = await Promise.all(
+          batch.map((file) => readFile(file.path).catch(() => "")),
         )
+        for (let j = 0; j < batch.length; j += 1) {
+          candidates.push({ path: batch[j].path, content: contents[j] })
+        }
+        const prefixHit = candidates.find(
+          (candidate) => readFrontmatterChapterNumber(candidate.content) === chapterNumber,
+        )
+        if (prefixHit) {
+          return pickChapterOutlineByNumber(
+            candidates.filter((candidate) => candidate.content.trim()),
+            chapterNumber,
+          )
+        }
       }
+      const fromWiki = pickChapterOutlineByNumber(
+        candidates.filter((candidate) => candidate.content.trim()),
+        chapterNumber,
+      )
+      if (fromWiki.trim()) return fromWiki
     }
-    const fromWiki = pickChapterOutlineByNumber(
-      candidates.filter((candidate) => candidate.content.trim()),
-      chapterNumber,
-    )
-    if (fromWiki.trim()) return fromWiki
   } catch {
     // fall through to project-root FILLED outlines (M1)
   }
@@ -240,21 +239,21 @@ export async function readChapterOutlineContent(pp: string, chapterNumber?: numb
     `chapter_number:${chapterNumber} outline_type:chapter-outline`,
   ]
   // PERF (odyssey-review): probe all queries concurrently, then pick the
-  // first (by original query priority order) that returned any result.
+  // first within the preferred source group (original query/result order).
   // Previously each query awaited searchWiki serially (up to 3×2 round-trips).
   const allResults = await Promise.all(
     queries.map((query) => searchWiki(pp, query).catch(() => [])),
   )
-  for (const results of allResults) {
-    if (results.length > 0) {
-      try {
-        const content = await readFile(results[0].path)
-        return tieredSlice(content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:search`)
-      } catch {
-        logger.warn("context-engine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1829 })
-      }
-    logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1876 })
+  const selectedResults = selectOutlineSources(allResults.flat())
+  for (const result of selectedResults) {
+    try {
+      const content = await readFile(result.path)
+      return tieredSlice(content, "protected", resolveChapterOutlineProtectedCap(), `chapter-outline:${chapterNumber}:search`)
+    } catch {
+      logger.warn("context-engine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1829 })
     }
+    logger.warn("ContextEngine", "silent-degrade: 降级返回空值（吞错已标记）", { line: 1876 })
   }
+
   return ""
 }

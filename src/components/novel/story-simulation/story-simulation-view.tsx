@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useWikiStore } from "@/stores/wiki-store";
@@ -157,6 +157,15 @@ export function StorySimulationView() {
 
   // 取消控制器
   const abortControllerRef = useRef<AbortController | null>(null);
+  const transientErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const operationGenerationRef = useRef(0);
+  const transientErrorOwnerMountedRef = useRef(false);
+  const clearTransientErrorTimer = useCallback(() => {
+    if (transientErrorTimerRef.current !== null) {
+      clearTimeout(transientErrorTimerRef.current);
+      transientErrorTimerRef.current = null;
+    }
+  }, []);
   const [isCancelling, setIsCancelling] = useState(false);
   const resumeSimulationRef = useRef<SimulationResumePoint | null>(null);
   /** 本次推演是否降级（连续 Agent 决策失败） */
@@ -190,6 +199,15 @@ export function StorySimulationView() {
 
   // 当前阶段的进度基线
   const phaseBaseProgressRef = useRef(0);
+
+  useEffect(() => {
+    transientErrorOwnerMountedRef.current = true;
+    return () => {
+      transientErrorOwnerMountedRef.current = false;
+      operationGenerationRef.current += 1;
+      clearTransientErrorTimer();
+    };
+  }, [clearTransientErrorTimer]);
 
   // 采访面板打开时自动滚动到底部
   useEffect(() => {
@@ -365,6 +383,46 @@ export function StorySimulationView() {
     setTimeout(() => setInfoMessage(null), 5000);
   };
 
+  const showTransientError = (
+    message: string,
+    durationMs: number,
+    cancellationSignal?: AbortSignal,
+  ) => {
+    const generation = operationGenerationRef.current;
+    clearTransientErrorTimer();
+    const expectedRevision = useStorySimulationStore.getState().errorRevision + 1;
+    setError(message);
+    if (
+      !transientErrorOwnerMountedRef.current ||
+      useStorySimulationStore.getState().errorRevision !== expectedRevision
+    ) return;
+    const timer = setTimeout(() => {
+      if (
+        transientErrorTimerRef.current !== timer ||
+        useStorySimulationStore.getState().errorRevision !== expectedRevision
+      ) return;
+      transientErrorTimerRef.current = null;
+      if (
+        operationGenerationRef.current === generation &&
+        transientErrorOwnerMountedRef.current &&
+        (!cancellationSignal || cancellationSignal.aborted) &&
+        useStorySimulationStore.getState().error === message
+      ) {
+        setError(null);
+      }
+    }, durationMs);
+    transientErrorTimerRef.current = timer;
+  };
+
+  const showCancellationError = (
+    message: string,
+    generation: number,
+    signal: AbortSignal,
+  ) => {
+    if (operationGenerationRef.current !== generation || !signal.aborted) return;
+    showTransientError(message, 3000, signal);
+  };
+
   /** 取消当前正在进行的操作 */
   const handleCancel = () => {
     if (abortControllerRef.current) {
@@ -503,6 +561,8 @@ export function StorySimulationView() {
 
   /** 确认框架：必要时先保存 → 构建角色 → 仿真 → 生成报告。 */
   const handleConfirmFramework = async () => {
+    clearTransientErrorTimer();
+    const operationGeneration = ++operationGenerationRef.current;
     if (!projectPath || !currentFramework) {
       setError(t("storySimulation.missingProjectOrFramework"));
       return;
@@ -661,8 +721,7 @@ export function StorySimulationView() {
       if (ac.signal.aborted) {
         await savePartialSimulationResult("用户取消推演");
         setPhase("framework-confirming");
-        setError(t("storySimulation.simulationCancelled"));
-        setTimeout(() => setError(null), 3000);
+        showCancellationError(t("storySimulation.simulationCancelled"), operationGeneration, ac.signal);
         return;
       }
 
@@ -695,8 +754,7 @@ export function StorySimulationView() {
       if (ac.signal.aborted) {
         await savePartialSimulationResult("用户取消推演");
         setPhase("framework-confirming");
-        setError(t("storySimulation.cancelled"));
-        setTimeout(() => setError(null), 3000);
+        showCancellationError(t("storySimulation.cancelled"), operationGeneration, ac.signal);
         return;
       }
 
@@ -765,8 +823,7 @@ export function StorySimulationView() {
       if (ac.signal.aborted) {
         await savePartialSimulationResult("用户取消推演");
         setPhase("framework-confirming");
-        setError(t("storySimulation.simulationCancelled"));
-        setTimeout(() => setError(null), 3000);
+        showCancellationError(t("storySimulation.simulationCancelled"), operationGeneration, ac.signal);
       } else {
         setError(formatOperationError(t, err));
         setPhase("framework-confirming");
@@ -794,6 +851,8 @@ export function StorySimulationView() {
 
   /** 选择走向分支并生成故事草稿。 */
   const handleGenerateDraft = async (branch: StoryBranch) => {
+    clearTransientErrorTimer();
+    const operationGeneration = ++operationGenerationRef.current;
     if (!projectPath || !currentFramework || !currentReport) {
       setError(t("storySimulation.missingDraftInputs"));
       return;
@@ -820,8 +879,7 @@ export function StorySimulationView() {
 
       if (ac.signal.aborted) {
         setPhase("report-viewing");
-        setError(t("storySimulation.draftCancelled"));
-        setTimeout(() => setError(null), 3000);
+        showCancellationError(t("storySimulation.draftCancelled"), operationGeneration, ac.signal);
         return;
       }
 
@@ -873,8 +931,7 @@ export function StorySimulationView() {
     } catch (err) {
       if (ac.signal.aborted) {
         setPhase("report-viewing");
-        setError(t("storySimulation.draftCancelled"));
-        setTimeout(() => setError(null), 3000);
+        showCancellationError(t("storySimulation.draftCancelled"), operationGeneration, ac.signal);
       } else {
         setError(formatOperationError(t, err));
         setPhase("report-viewing");
@@ -899,10 +956,10 @@ export function StorySimulationView() {
 
   /** 一键提取：将本轮冲突动作原文直送正文草稿（无 LLM 改写，所见即所得）。 */
   const handleExtractConflictsToDraft = () => {
+    clearTransientErrorTimer();
     const conflicts = pickConflictEvents(timelineEvents);
     if (conflicts.length === 0) {
-      setError("本轮暂无可提取的冲突动作");
-      setTimeout(() => setError(null), 3000);
+      showTransientError("本轮暂无可提取的冲突动作", 3000);
       return;
     }
     setError(null);
@@ -979,8 +1036,7 @@ export function StorySimulationView() {
       setInfoMessage(t("storySimulation.interviewSaved", { count: agentChatMessages.length }));
       setTimeout(() => setInfoMessage(null), 3000);
     } catch (err) {
-      setError(formatOperationError(t, err));
-      setTimeout(() => setError(null), 5000);
+      showTransientError(formatOperationError(t, err), 5000);
     } finally {
       setChatSaving(false);
     }

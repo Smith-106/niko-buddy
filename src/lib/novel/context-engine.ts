@@ -21,6 +21,7 @@ import {
   readResourceLedgerText,
   readEmotionLedgerText,
   readAuraEvolutionText,
+  type ContextProjectionReadOptions,
 } from "./context-derived-stores"
 import {
   rerankActiveEntitiesByTemporalFacts,
@@ -658,16 +659,16 @@ export function resolveSummaryBasics(rawData: ContextRawData, snapshots: RawSnap
  * 职责 2 前半：五投影 store 文本并行预取
  * （原 PERF-NEW-04 Promise.all 逐字搬迁；各 store 独立）。
  */
-export async function loadProjectionTexts(projectPath: string): Promise<ProjectionTexts> {
+export async function loadProjectionTexts(projectPath: string, options?: ContextProjectionReadOptions): Promise<ProjectionTexts> {
   // PERF-NEW-04: pre-fetch the four projection-store texts in parallel
   // before joinNonEmpty (was 3 serial readFile IPC round-trips inside the
   // array literal). The stores are independent.
   const [emotionalText, subplotText, resourceText, emotionLedgerText, auraEvolutionText] = await Promise.all([
-    readEmotionalArcsText(projectPath),
-    readSubplotBoardText(projectPath),
-    readResourceLedgerText(projectPath),
-    readEmotionLedgerText(projectPath),
-    readAuraEvolutionText(projectPath),
+    readEmotionalArcsText(projectPath, options),
+    readSubplotBoardText(projectPath, options),
+    readResourceLedgerText(projectPath, options),
+    readEmotionLedgerText(projectPath, options),
+    readAuraEvolutionText(projectPath, options),
   ])
   return { emotionalText, subplotText, resourceText, emotionLedgerText, auraEvolutionText }
 }
@@ -859,7 +860,10 @@ async function buildContextPackFromRawData(
     resolveSummaryBasics(rawData, snapshots)
 
   // 职责 2：投影预取 + 人物状态拼装
-  const projections = await loadProjectionTexts(context.projectPath)
+  const projections = await loadProjectionTexts(context.projectPath, {
+    beforeChapter: context.chapterNumber,
+    recordGap: context.recordGap,
+  })
   const characterStates = resolveCharacterStates(rawData, snapshots, projections)
   
   // 职责 3：时间线 + 伏笔

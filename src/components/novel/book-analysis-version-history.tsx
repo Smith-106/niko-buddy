@@ -31,6 +31,7 @@ export function BookAnalysisVersionHistory({ projectPath }: { projectPath: strin
   useEffect(() => {
     if (!projectPath) {
       setVersions([])
+      setPage(0)
       return
     }
     let cancelled = false
@@ -60,9 +61,15 @@ export function BookAnalysisVersionHistory({ projectPath }: { projectPath: strin
           }
         }
         books.sort((a, b) => b.createdAt - a.createdAt)
-        if (!cancelled) setVersions(books)
+        if (!cancelled) {
+          setVersions(books)
+          setPage(0)
+        }
       } catch {
-        if (!cancelled) setVersions([])
+        if (!cancelled) {
+          setVersions([])
+          setPage(0)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -71,10 +78,6 @@ export function BookAnalysisVersionHistory({ projectPath }: { projectPath: strin
       cancelled = true
     }
   }, [projectPath])
-
-  useEffect(() => {
-    setPage(0)
-  }, [versions])
 
   if (!projectPath) return null
 

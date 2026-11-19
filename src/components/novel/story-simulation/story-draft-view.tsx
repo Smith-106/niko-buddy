@@ -29,7 +29,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
   const currentFramework = useStorySimulationStore((s) => s.currentFramework)
   const draft = useStorySimulationStore((s) => s.currentDraft)
   const setCurrentDraft = useStorySimulationStore((s) => s.setCurrentDraft)
-  const setError = useStorySimulationStore((s) => s.setError)
+  const setTransientError = useStorySimulationStore((s) => s.setTransientError)
   const setInfoMessage = useStorySimulationStore((s) => s.setInfoMessage)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
@@ -93,8 +93,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
       setInfoMessage(t("storySimulation.draftExported", { path: filePath }))
       setTimeout(() => setInfoMessage(null), 5000)
     } catch (err) {
-      setError(formatOperationError(t, err))
-      setTimeout(() => setError(null), 5000)
+      setTransientError(formatOperationError(t, err), 5000)
     } finally {
       setExporting(false)
     }
@@ -104,8 +103,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
     if (!projectPath || !currentFramework || !draft) return
     /* v8 ignore next -- 台账 story-draft-view.tsx L105：handleImport 空选守卫 —— 按钮 disabled={importing || selectedIndices.length === 0}（L462）逐字等价 */
     if (selectedIndices.length === 0) {
-      setError(t("storySimulation.selectAtLeastOne"))
-      setTimeout(() => setError(null), 3000)
+      setTransientError(t("storySimulation.selectAtLeastOne"), 3000)
       return
     }
     setImporting(true)
@@ -136,8 +134,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
         setSelectedFile(result.chapterPaths[0])
       }
     } catch (err) {
-      setError(formatOperationError(t, err))
-      setTimeout(() => setError(null), 5000)
+      setTransientError(formatOperationError(t, err), 5000)
     } finally {
       setImporting(false)
       setImportProgress(null)

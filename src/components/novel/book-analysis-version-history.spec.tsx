@@ -7,7 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
-import { fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
+import { act, fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
 import { BookAnalysisVersionHistory } from "./book-analysis-version-history"
 
 const fsMock = vi.hoisted(() => ({
@@ -69,6 +69,12 @@ function fakeResult(title: string) {
     characters: [],
     skills: [],
   }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
 }
 
 beforeEach(() => {
@@ -170,28 +176,86 @@ describe("BookAnalysisVersionHistory", () => {
 
   it("paginates over 25 versions and prev/next clamp correctly (81-82/130-131 行）", async () => {
     const nodes = Array.from({ length: 25 }, (_, i) => dirNode(`book-${String(i + 1).padStart(2, "0")}`))
-    fsMock.listDirectory.mockResolvedValueOnce(nodes)
-    fsMock.readFile.mockImplementation(async (p: string) => {
-      const m = p.match(/book-(\d+)/)
-      const n = m ? Number(m[1]) : 0
-      return metaJson(`书${String(n).padStart(2, "0")}`, n)
+    const listed = deferred<ReturnType<typeof dirNode>[]>()
+    const metadata = new Map(nodes.map((node) => [`${node.path}/metadata.json`, deferred<string>()]))
+    fsMock.listDirectory.mockReturnValue(listed.promise)
+    fsMock.readFile.mockImplementation((p: string) => {
+      const pending = metadata.get(p)
+      if (!pending) throw new Error(`unexpected ${p}`)
+      return pending.promise
     })
     render(<BookAnalysisVersionHistory projectPath="E:/Novel" />)
+    expect(screen.getByText("加载中...")).toBeInTheDocument()
+    await act(async () => { listed.resolve(nodes) })
+    expect(fsMock.readFile).toHaveBeenCalledTimes(25)
+    // 按相反完成顺序交付 metadata，装载完成后立即翻页。
+    await act(async () => {
+      for (let index = nodes.length - 1; index >= 0; index--) {
+        metadata.get(`${nodes[index].path}/metadata.json`)!.resolve(metaJson(`书${String(index + 1).padStart(2, "0")}`, index + 1))
+      }
+      await Promise.all([...metadata.values()].map((pending) => pending.promise))
+    })
     // 排序后首位应为 book-25（createdAt 最大）
-    const firstPage = await screen.findAllByRole("button")
+    const firstPage = screen.getAllByRole("button")
     // 20 条 + prev + next = 22 个 button（Pagination pageCount=2 时渲染）
     expect(firstPage.length).toBeGreaterThanOrEqual(20)
     expect(screen.getByText("书25")).toBeInTheDocument()
     expect(screen.queryByText("书05")).toBeNull()
+    expect(screen.getByTestId("pagination-info")).toHaveTextContent(/第\s*1\s*\/\s*2\s*页/)
+    expect(screen.getByTestId("pagination-prev")).toBeDisabled()
+    expect(screen.getByTestId("pagination-next")).not.toBeDisabled()
     // 下一页
     fireEvent.click(screen.getByTestId("pagination-next"))
-    await waitFor(() => expect(screen.getByText("书05")).toBeInTheDocument())
+    expect(screen.getByText("书05")).toBeInTheDocument()
     expect(screen.queryByText("书25")).toBeNull()
+    expect(screen.getByTestId("pagination-info")).toHaveTextContent(/第\s*2\s*\/\s*2\s*页/)
+    expect(screen.getByTestId("pagination-prev")).not.toBeDisabled()
+    expect(screen.getByTestId("pagination-next")).toBeDisabled()
     // 上一页钳位回第一页
     fireEvent.click(screen.getByTestId("pagination-prev"))
-    await waitFor(() => expect(screen.getByText("书25")).toBeInTheDocument())
+    expect(screen.getByText("书25")).toBeInTheDocument()
     // 第一页时 prev 禁用（钳位 Math.max）
     expect((screen.getByTestId("pagination-prev") as HTMLButtonElement).disabled).toBe(true)
+    expect(fsMock.listDirectory).toHaveBeenCalledTimes(1)
+  })
+
+  it("新项目提交第一页，迟到旧项目结果不重置已翻到的第二页", async () => {
+    const oldList = deferred<ReturnType<typeof dirNode>[]>()
+    const newList = deferred<ReturnType<typeof dirNode>[]>()
+    const nodes = (project: string) => Array.from({ length: 25 }, (_, index) =>
+      dirNode(`book-${String(index + 1).padStart(2, "0")}`, `${project}/book-analysis`))
+    fsMock.listDirectory.mockImplementation((base: string) => {
+      if (base === "E:/Novel/book-analysis") return Promise.resolve(nodes("E:/Novel"))
+      if (base === "E:/Late/book-analysis") return oldList.promise
+      if (base === "E:/Other/book-analysis") return newList.promise
+      throw new Error(`unexpected ${base}`)
+    })
+    fsMock.readFile.mockImplementation(async (p: string) => {
+      const number = Number(p.match(/book-(\d+)/)?.[1])
+      const title = p.startsWith("E:/Other") ? "新书" : p.startsWith("E:/Late") ? "迟到书" : "书"
+      return metaJson(`${title}${String(number).padStart(2, "0")}`, number)
+    })
+    const { rerender } = render(<BookAnalysisVersionHistory projectPath="E:/Novel" />)
+    await screen.findByText("书25")
+    fireEvent.click(screen.getByTestId("pagination-next"))
+    expect(screen.getByText("书05")).toBeInTheDocument()
+
+    rerender(<BookAnalysisVersionHistory projectPath="E:/Late" />)
+    rerender(<BookAnalysisVersionHistory projectPath="E:/Other" />)
+    await act(async () => { newList.resolve(nodes("E:/Other")) })
+    expect(screen.getByText("新书25")).toBeInTheDocument()
+    expect(screen.queryByText("新书05")).toBeNull()
+    expect(screen.getByTestId("pagination-info")).toHaveTextContent(/第\s*1\s*\/\s*2\s*页/)
+    expect(screen.getByTestId("pagination-prev")).toBeDisabled()
+    fireEvent.click(screen.getByTestId("pagination-next"))
+    expect(screen.getByText("新书05")).toBeInTheDocument()
+    expect(screen.getByTestId("pagination-next")).toBeDisabled()
+
+    await act(async () => { oldList.resolve(nodes("E:/Late")) })
+    expect(screen.getByText("新书05")).toBeInTheDocument()
+    expect(screen.queryByText("迟到书25")).toBeNull()
+    expect(screen.getByTestId("pagination-info")).toHaveTextContent(/第\s*2\s*\/\s*2\s*页/)
+    expect(fsMock.listDirectory).toHaveBeenCalledTimes(3)
   })
 
   it("selects a version to drill down and closes viewer (84-91/133-139 行）", async () => {

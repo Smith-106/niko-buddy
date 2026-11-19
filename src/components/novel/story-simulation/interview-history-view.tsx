@@ -18,7 +18,7 @@ export function InterviewHistoryView() {
   const setShowInterviewHistory = useStorySimulationStore((s) => s.setShowInterviewHistory)
   const setSavedInterviews = useStorySimulationStore((s) => s.setSavedInterviews)
   const setViewingInterview = useStorySimulationStore((s) => s.setViewingInterview)
-  const setError = useStorySimulationStore((s) => s.setError)
+  const setTransientError = useStorySimulationStore((s) => s.setTransientError)
   const setInfoMessage = useStorySimulationStore((s) => s.setInfoMessage)
   const setContinuingInterviewId = useStorySimulationStore((s) => s.setContinuingInterviewId)
   const setActiveChatAgent = useStorySimulationStore((s) => s.setActiveChatAgent)
@@ -72,8 +72,7 @@ export function InterviewHistoryView() {
       setInfoMessage(t("storySimulation.interviewDeleted"))
       setTimeout(() => setInfoMessage(null), 2000)
     } catch (err) {
-      setError(formatOperationError(t, err))
-      setTimeout(() => setError(null), 3000)
+      setTransientError(formatOperationError(t, err), 3000)
     } finally {
       setDeleting(null)
     }
@@ -87,8 +86,7 @@ export function InterviewHistoryView() {
       setInfoMessage(t("storySimulation.interviewExported", { path: filePath }))
       setTimeout(() => setInfoMessage(null), 5000)
     } catch (err) {
-      setError(formatOperationError(t, err))
-      setTimeout(() => setError(null), 3000)
+      setTransientError(formatOperationError(t, err), 3000)
     } finally {
       setExporting(null)
     }
@@ -121,16 +119,14 @@ export function InterviewHistoryView() {
       }
 
       if (agents.length === 0) {
-        setError(t("storySimulation.cannotRestoreReadonly"))
-        setTimeout(() => setError(null), 3000)
+        setTransientError(t("storySimulation.cannotRestoreReadonly"), 3000)
         return
       }
 
       // 找到对应角色的 agent
       const targetAgent = agents.find((a) => a.name === interview.agentName)
       if (!targetAgent) {
-        setError(t("storySimulation.agentDataNotFound", { name: interview.agentName }))
-        setTimeout(() => setError(null), 3000)
+        setTransientError(t("storySimulation.agentDataNotFound", { name: interview.agentName }), 3000)
         return
       }
 
@@ -143,8 +139,7 @@ export function InterviewHistoryView() {
       setInfoMessage(t("storySimulation.interviewResumed"))
       setTimeout(() => setInfoMessage(null), 2000)
     } catch (err) {
-      setError(formatOperationError(t, err))
-      setTimeout(() => setError(null), 3000)
+      setTransientError(formatOperationError(t, err), 3000)
     } finally {
       setResuming(false)
     }

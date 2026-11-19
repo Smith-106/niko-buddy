@@ -67,4 +67,35 @@ describe("P2-IMP-16 assembleProcessView 三面装配核心（六维只读视图�
     expect(view.recentSummaries).toContain("遇配角")
     expect(view.recentSummaries).not.toContain("主角登场")
   })
+
+  const laterStore = {
+    ...summariesStore,
+    entries: [...summariesStore.entries, ...[3, 155, 162].map((chapter) => ({
+      ...summariesStore.entries[0], chapter, happened: `事件${chapter}`,
+    }))],
+  }
+  Object.freeze(laterStore.entries)
+  Object.freeze(laterStore)
+
+  it.each([
+    { mode: "past" as const, expected: "第1章：主角登场" },
+    { mode: "inclusive" as const, expected: "第2章：遇配角" },
+  ])("$mode 的章号边界先于近窗截断，且不改共享 store", ({ mode, expected }) => {
+    const view = assembleProcessView("主角", 2, sources, mode, laterStore, 1)
+    expect(view.recentSummaries).toBe(`【近 1 章摘要】\n${expected}`)
+    expect(view.stateDelta).toContain(expected)
+    expect(view.stateDelta).not.toContain("第162章")
+    expect(laterStore.entries.map((entry) => entry.chapter)).toEqual([1, 2, 3, 155, 162])
+  })
+
+  it("首章起草没有历史摘要或状态增量", () => {
+    const view = assembleProcessView("主角", 1, sources, "past", laterStore)
+    expect(view.stateDelta).toBe("")
+    expect(view.recentSummaries).toBe("")
+  })
+
+  it("默认窗口仍为 3，只取目标章之前的 3 章", () => {
+    const view = assembleProcessView("主角", 4, sources, "past", laterStore)
+    expect(view.recentSummaries).toBe("【近 3 章摘要】\n第1章：主角登场\n第2章：遇配角\n第3章：事件3")
+  })
 })

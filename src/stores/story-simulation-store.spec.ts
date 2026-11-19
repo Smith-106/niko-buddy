@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 // StorySimulation store 冒烟覆盖：初始契约 + append 语义 setter + 关键状态迁移
 // （M1 测试债第一块：唯一无 spec 的 store，improve-odyssey 20260914）
-import { beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   calculateBranchScore,
   useStorySimulationStore,
 } from "./story-simulation-store"
 
-const reset = () =>
+const reset = () => {
+  useStorySimulationStore.getState().setError(null)
   useStorySimulationStore.setState({
     phase: "idle",
     mode: "event-driven",
@@ -39,6 +40,7 @@ const reset = () =>
     selectedFrameworkId: null,
     binding: null,
   })
+}
 
 beforeEach(reset)
 
@@ -786,5 +788,263 @@ describe("story-simulation store — getDisplayAgents / reset / initWithPreset",
     const s = st.getState()
     expect(s.phase).toBe("configuring")
     expect(s.userIdea).toBe("hi")
+  })
+})
+
+type StoreErrorTimer = {
+  id: number
+  fn: ReturnType<typeof vi.fn<() => void>>
+  dueAt: number
+  cancelled: boolean
+  fired: boolean
+}
+
+function installStoreErrorTimers() {
+  // 此组仅测试同步 store action，保留取消记录和回调，不替换其他时钟 API。
+  const scheduled: StoreErrorTimer[] = []
+  let nowMs = 0
+  const setTimerSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+    fn: (...args: unknown[]) => void,
+    ms?: number,
+    ...args: unknown[]
+  ) => {
+    const id = -scheduled.length - 1
+    scheduled.push({ id, fn: vi.fn(() => fn(...args)), dueAt: nowMs + (ms ?? 0), cancelled: false, fired: false })
+    return id as unknown as ReturnType<typeof setTimeout>
+  }) as typeof globalThis.setTimeout)
+  const realClearTimeout = globalThis.clearTimeout
+  const clearTimerSpy = vi.spyOn(globalThis, "clearTimeout").mockImplementation((id) => {
+    const timer = scheduled.find((entry) => entry.id === id)
+    if (timer) timer.cancelled = true
+    else realClearTimeout(id)
+  })
+  return {
+    scheduled,
+    fireDueTimers(upToMs: number) {
+      nowMs = upToMs
+      const due = scheduled.filter((timer) => !timer.cancelled && !timer.fired && timer.dueAt <= upToMs)
+      let fired = 0
+      for (const timer of due) {
+        if (timer.cancelled) continue
+        timer.fired = true
+        timer.fn()
+        fired++
+      }
+      return fired
+    },
+    restore() {
+      useStorySimulationStore.getState().setError(null)
+      clearTimerSpy.mockRestore()
+      setTimerSpy.mockRestore()
+    },
+  }
+}
+
+describe("story-simulation store — error ownership", () => {
+  let timers: ReturnType<typeof installStoreErrorTimers>
+
+  beforeEach(() => { timers = installStoreErrorTimers() })
+  afterEach(() => { timers.restore() })
+
+  it("setError 和重复 reset 原子发布递增版本，同文本与 null 也递增", () => {
+    const startRevision = useStorySimulationStore.getState().errorRevision
+    const observed: Array<[string | null, number]> = []
+    const unsubscribe = useStorySimulationStore.subscribe((state) => {
+      observed.push([state.error, state.errorRevision])
+    })
+    try {
+      expect(useStorySimulationStore.getState().setError("same")).toBeUndefined()
+      useStorySimulationStore.getState().setError("same")
+      useStorySimulationStore.getState().setError(null)
+      useStorySimulationStore.getState().setError(null)
+      useStorySimulationStore.getState().reset()
+      useStorySimulationStore.getState().reset()
+    } finally {
+      unsubscribe()
+    }
+    expect(observed).toEqual([
+      ["same", startRevision + 1],
+      ["same", startRevision + 2],
+      [null, startRevision + 3],
+      [null, startRevision + 4],
+      [null, startRevision + 5],
+      [null, startRevision + 6],
+    ])
+    expect(timers.scheduled).toHaveLength(0)
+  })
+
+  it.each(["different", "same"] as const)("连续 transient error（%s）按新期限到期，旧回调无权清理", (kind) => {
+    const startRevision = useStorySimulationStore.getState().errorRevision
+    useStorySimulationStore.getState().setTransientError("first", 3000)
+    const oldTimer = timers.scheduled[0]
+    expect(timers.fireDueTimers(1000)).toBe(0)
+    const newerError = kind === "same" ? "first" : "second"
+    useStorySimulationStore.getState().setTransientError(newerError, 5000)
+    const newerTimer = timers.scheduled[1]
+    expect(oldTimer.cancelled).toBe(true)
+    expect(newerTimer.dueAt).toBe(6000)
+    expect(useStorySimulationStore.getState().errorRevision).toBe(startRevision + 2)
+    oldTimer.fn()
+    expect(oldTimer.fn).toHaveBeenCalledTimes(1)
+    expect(useStorySimulationStore.getState().error).toBe(newerError)
+    expect(newerTimer.cancelled).toBe(false)
+    expect(timers.fireDueTimers(5999)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe(newerError)
+    expect(timers.fireDueTimers(6000)).toBe(1)
+    expect(newerTimer.fn).toHaveBeenCalledTimes(1)
+    expect(useStorySimulationStore.getState().error).toBeNull()
+  })
+
+  it.each(["manual", "dismiss", "reset"] as const)("%s 使旧回调失效且不破坏后来 TTL", (kind) => {
+    useStorySimulationStore.getState().setTransientError("old", 3000)
+    const oldTimer = timers.scheduled[0]
+    const revision = useStorySimulationStore.getState().errorRevision
+    expect(timers.fireDueTimers(1000)).toBe(0)
+    if (kind === "reset") useStorySimulationStore.getState().reset()
+    else useStorySimulationStore.getState().setError(kind === "manual" ? "manual error" : null)
+    expect(oldTimer.cancelled).toBe(true)
+    expect(useStorySimulationStore.getState().errorRevision).toBe(revision + 1)
+    useStorySimulationStore.getState().setTransientError("new TTL", 5000)
+    const newerTimer = timers.scheduled[1]
+    oldTimer.fn()
+    expect(oldTimer.fn).toHaveBeenCalledTimes(1)
+    expect(useStorySimulationStore.getState().error).toBe("new TTL")
+    expect(newerTimer.cancelled).toBe(false)
+    expect(timers.fireDueTimers(5999)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("new TTL")
+    expect(timers.fireDueTimers(6000)).toBe(1)
+    expect(newerTimer.fn).toHaveBeenCalledTimes(1)
+    expect(useStorySimulationStore.getState().error).toBeNull()
+  })
+
+  it("manual error 不继承旧 TTL，强制旧回调后仍保留", () => {
+    useStorySimulationStore.getState().setTransientError("old", 3000)
+    const oldTimer = timers.scheduled[0]
+    useStorySimulationStore.getState().setError("manual")
+    expect(oldTimer.cancelled).toBe(true)
+    oldTimer.fn()
+    expect(oldTimer.fn).toHaveBeenCalledTimes(1)
+    expect(useStorySimulationStore.getState().error).toBe("manual")
+    expect(timers.fireDueTimers(8000)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("manual")
+  })
+
+  it("发布后同步 subscriber 写 manual error，旧调用不再排 timer", () => {
+    const revision = useStorySimulationStore.getState().errorRevision
+    const unsubscribe = useStorySimulationStore.subscribe((state) => {
+      if (state.error === "outer") state.setError("subscriber manual")
+    })
+    try {
+      useStorySimulationStore.getState().setTransientError("outer", 3000)
+    } finally {
+      unsubscribe()
+    }
+    expect(useStorySimulationStore.getState().error).toBe("subscriber manual")
+    expect(useStorySimulationStore.getState().errorRevision).toBe(revision + 2)
+    expect(timers.scheduled).toHaveLength(0)
+    expect(timers.fireDueTimers(5000)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("subscriber manual")
+  })
+
+  it("发布后同步 subscriber 写 transient error，旧调用不覆盖新 timer", () => {
+    const unsubscribe = useStorySimulationStore.subscribe((state) => {
+      if (state.error === "outer") state.setTransientError("subscriber transient", 5000)
+    })
+    try {
+      useStorySimulationStore.getState().setTransientError("outer", 3000)
+    } finally {
+      unsubscribe()
+    }
+    expect(timers.scheduled).toHaveLength(1)
+    expect(timers.scheduled[0].dueAt).toBe(5000)
+    expect(useStorySimulationStore.getState().error).toBe("subscriber transient")
+    expect(timers.fireDueTimers(3000)).toBe(0)
+    expect(timers.fireDueTimers(4999)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("subscriber transient")
+    expect(timers.fireDueTimers(5000)).toBe(1)
+    expect(useStorySimulationStore.getState().error).toBeNull()
+  })
+
+  it.each(["setError", "reset"] as const)("%s 发布前释放旧 TTL，发布后保留 subscriber 新 TTL", (kind) => {
+    useStorySimulationStore.getState().setTransientError("old", 3000)
+    const oldTimer = timers.scheduled[0]
+    expect(timers.fireDueTimers(1000)).toBe(0)
+    const expectedError = kind === "reset" ? null : "publish manual"
+    const unsubscribe = useStorySimulationStore.subscribe((state) => {
+      if (state.error === expectedError) {
+        expect(oldTimer.cancelled).toBe(true)
+        state.setTransientError("subscriber TTL", 5000)
+      }
+    })
+    try {
+      if (kind === "reset") useStorySimulationStore.getState().reset()
+      else useStorySimulationStore.getState().setError("publish manual")
+    } finally {
+      unsubscribe()
+    }
+    expect(timers.scheduled).toHaveLength(2)
+    const newerTimer = timers.scheduled[1]
+    expect(newerTimer.dueAt).toBe(6000)
+    oldTimer.fn()
+    expect(oldTimer.fn).toHaveBeenCalledTimes(1)
+    expect(useStorySimulationStore.getState().error).toBe("subscriber TTL")
+    expect(newerTimer.cancelled).toBe(false)
+    expect(timers.fireDueTimers(5999)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("subscriber TTL")
+    expect(timers.fireDueTimers(6000)).toBe(1)
+    expect(useStorySimulationStore.getState().error).toBeNull()
+  })
+
+  it("当前 TTL 清除时 subscriber 建立新 TTL，旧 callback 返回后不丢新引用", () => {
+    useStorySimulationStore.getState().setTransientError("first", 3000)
+    const oldTimer = timers.scheduled[0]
+    const unsubscribe = useStorySimulationStore.subscribe((state, previous) => {
+      if (state.error === null && previous.error === "first") state.setTransientError("clear subscriber", 5000)
+    })
+    try {
+      expect(timers.fireDueTimers(3000)).toBe(1)
+    } finally {
+      unsubscribe()
+    }
+    expect(oldTimer.fn).toHaveBeenCalledTimes(1)
+    expect(timers.scheduled).toHaveLength(2)
+    const newerTimer = timers.scheduled[1]
+    expect(newerTimer.dueAt).toBe(8000)
+    expect(useStorySimulationStore.getState().error).toBe("clear subscriber")
+    oldTimer.fn()
+    expect(oldTimer.fn).toHaveBeenCalledTimes(2)
+    expect(useStorySimulationStore.getState().error).toBe("clear subscriber")
+    expect(newerTimer.cancelled).toBe(false)
+    expect(timers.fireDueTimers(7999)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("clear subscriber")
+    expect(timers.fireDueTimers(8000)).toBe(1)
+    expect(newerTimer.fn).toHaveBeenCalledTimes(1)
+    expect(useStorySimulationStore.getState().error).toBeNull()
+  })
+
+  it("无关更新与 initWithPreset 不推进 error revision 或改变原 deadline", () => {
+    useStorySimulationStore.getState().setTransientError("keep deadline", 3000)
+    const revision = useStorySimulationStore.getState().errorRevision
+    const timer = timers.scheduled[0]
+    expect(timers.fireDueTimers(1000)).toBe(0)
+    const state = useStorySimulationStore.getState()
+    state.setPhase("report-viewing")
+    state.setProgress(50, "progress")
+    state.setInfoMessage("saved")
+    state.setUserIdea("idea")
+    state.bumpListRefresh()
+    state.setShowInterviewHistory(false)
+    state.initWithPreset({ intent: "story_framework_generate", userInput: "preset idea", hasFramework: false })
+    expect(useStorySimulationStore.getState().errorRevision).toBe(revision)
+    expect(useStorySimulationStore.getState().phase).toBe("configuring")
+    expect(useStorySimulationStore.getState().userIdea).toBe("preset idea")
+    expect(timers.scheduled).toHaveLength(1)
+    expect(timer.cancelled).toBe(false)
+    expect(timer.dueAt).toBe(3000)
+    expect(timers.fireDueTimers(2999)).toBe(0)
+    expect(useStorySimulationStore.getState().error).toBe("keep deadline")
+    expect(timers.fireDueTimers(3000)).toBe(1)
+    expect(timer.fn).toHaveBeenCalledTimes(1)
+    expect(useStorySimulationStore.getState().error).toBeNull()
   })
 })

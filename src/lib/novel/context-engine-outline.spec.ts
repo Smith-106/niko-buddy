@@ -280,3 +280,78 @@ describe("readChapterOutlineContent", () => {
     await expect(readChapterOutlineContent("/proj", 2)).resolves.toBe("")
   })
 })
+
+
+describe("canonical 来源优先", () => {
+  const canonical = "/proj/wiki/outlines/story-outline.md"
+  const backup = "/proj/wiki/outlines/story-outline.backup-pre-thrill-20261028.md"
+
+  it("general 不将先命中的 backup 拼进 canonical 大纲", async () => {
+    searchMocks.searchWiki.mockResolvedValueOnce([{ path: backup }, { path: canonical }])
+    fsMocks.readFile.mockImplementation(async (path: string) => path === canonical ? "正式大纲" : "旧备份")
+    await expect(readOutlineContent("/proj")).resolves.toBe("正式大纲")
+    expect(fsMocks.readFile).toHaveBeenCalledExactlyOnceWith(canonical)
+  })
+
+  it("canonical 超过旧 first80 与 first10 时仍先读，并优先于 backup frontmatter", async () => {
+    const backups = Array.from({ length: 81 }, (_, index) => node(
+      "story-outline.backup-" + index + ".md", "/proj/wiki/outlines/story-outline.backup-" + index + ".md",
+    ))
+    fsMocks.listDirectory.mockResolvedValueOnce([...backups, node("story-outline.md", canonical)])
+    fsMocks.readFile.mockImplementation(async (path: string) => path === canonical
+      ? "第3章 正式目标"
+      : "---\nchapter_number: 3\n---\n旧备份目标")
+    await expect(readChapterOutlineDirect("/proj", 3)).resolves.toBe("第3章 正式目标")
+    expect(fsMocks.readFile).toHaveBeenCalledExactlyOnceWith(canonical)
+  })
+
+  it("pick 的 canonical heading 优先于 backup frontmatter", () => {
+    expect(pickChapterOutlineByNumber([
+      { path: backup, content: "---\nchapter_number: 3\n---\n旧目标" },
+      { path: canonical, content: "第3章 正式目标" },
+    ], 3)).toBe("第3章 正式目标")
+  })
+
+  it("同一常规来源组跨 batch 保留 frontmatter 优先，不提前返回 heading", async () => {
+    const files = Array.from({ length: 12 }, (_, index) => node("c" + index + ".md", "/proj/wiki/outlines/c" + index + ".md"))
+    fsMocks.listDirectory.mockResolvedValueOnce(files)
+    fsMocks.readFile.mockImplementation(async (path: string) => path.endsWith("c11.md")
+      ? "---\nchapter_number: 3\n---\n后批 frontmatter"
+      : path.endsWith("c0.md") ? "第3章 前批 heading" : "无关")
+    await expect(readChapterOutlineDirect("/proj", 3)).resolves.toContain("后批 frontmatter")
+    expect(fsMocks.readFile).toHaveBeenCalledTimes(12)
+  })
+
+  it("backup-only 项目保持 direct 与 general 兼容", async () => {
+    fsMocks.listDirectory.mockResolvedValueOnce([node("story-outline.backup-pre-thrill-20261028.md", backup)])
+    fsMocks.readFile.mockResolvedValue("第3章 仅存备份目标")
+    await expect(readChapterOutlineDirect("/proj", 3)).resolves.toBe("第3章 仅存备份目标")
+    searchMocks.searchWiki.mockResolvedValueOnce([{ path: backup }])
+    await expect(readOutlineContent("/proj")).resolves.toBe("第3章 仅存备份目标")
+  })
+
+  it("search fallback 跨 query 优先 canonical，不按 backup 的 query 首见顺序选取", async () => {
+    fsMocks.listDirectory.mockResolvedValueOnce([])
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path === canonical) return "第3章 搜索正式目标"
+      if (path === backup) return "第3章 搜索旧备份"
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" })
+    })
+    searchMocks.searchWiki.mockImplementation(async (_pp: string, query: string) =>
+      query.startsWith("第3章") ? [{ path: backup }] : query.startsWith("chapter 3") ? [{ path: canonical }] : [],
+    )
+    await expect(readChapterOutlineContent("/proj", 3)).resolves.toBe("第3章 搜索正式目标")
+    expect(fsMocks.readFile).not.toHaveBeenCalledWith(backup)
+  })
+
+  it("canonical 已存在但没有章标记时，不回退到旧 backup 目标", async () => {
+    fsMocks.listDirectory.mockResolvedValueOnce([node("story-outline.backup-pre-thrill-20261028.md", backup), node("story-outline.md", canonical)])
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path === canonical) return "无该章目标"
+      if (path === backup) return "第3章 过期目标"
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" })
+    })
+    await expect(readChapterOutlineDirect("/proj", 3)).resolves.toBe("")
+    expect(fsMocks.readFile).not.toHaveBeenCalledWith(backup)
+  })
+})

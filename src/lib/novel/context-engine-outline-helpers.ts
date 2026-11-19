@@ -22,6 +22,30 @@ export function flattenOutlineMarkdownFiles(nodes: FileNode[]): FileNode[] {
   return files
 }
 
+/**
+ * 来源优先级：story-outline.md → 其他正式大纲 → 仅存备份。
+ * 显式稳定分组保留每组的输入顺序与对象身份；有正式来源时不混入备份。
+ */
+export function groupOutlineSources<T extends { path: string }>(sources: T[]): T[][] {
+  const canonical: T[] = []
+  const regular: T[] = []
+  const backups: T[] = []
+  for (const source of sources) {
+    const name = source.path.replace(/\\/g, "/").split("/").pop()?.toLowerCase() ?? ""
+    if (name === "story-outline.md") canonical.push(source)
+    else if (/(?:^|[._-])(?:backup|bak)(?:[._-]|$)/i.test(name)) backups.push(source)
+    else regular.push(source)
+  }
+  return canonical.length || regular.length
+    ? [canonical, regular].filter((group) => group.length > 0)
+    : backups.length ? [backups] : []
+}
+
+/** 三个 reader 共享的稳定来源选择；必须先选来源，再按 IO 上限截断。 */
+export function selectOutlineSources<T extends { path: string }>(sources: T[]): T[] {
+  return groupOutlineSources(sources).flat()
+}
+
 /** frontmatter.chapter_number → number（number|可转number的string，>0 有效）。 */
 export function readFrontmatterChapterNumber(content: string): number | undefined {
   const raw = parseFrontmatter(content).frontmatter?.chapter_number

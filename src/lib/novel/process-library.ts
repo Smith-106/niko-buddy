@@ -173,11 +173,19 @@ export function assembleProcessView(
   recentWindow = 3,
 ): ProcessView {
   const base = computeVisibility(pov, chapter, sources, metBeforeUpTo)
-  const stateDelta = summariesStore
-    ? chapterSummariesToContextText(summariesStore, recentWindow > 0 ? recentWindow : 3)
+  const visibleSummaries = summariesStore && chapter
+    ? {
+      ...summariesStore,
+      entries: summariesStore.entries.filter((entry) =>
+        metBeforeUpTo === "past" ? entry.chapter < chapter : entry.chapter <= chapter,
+      ),
+    }
+    : summariesStore
+  const stateDelta = visibleSummaries
+    ? chapterSummariesToContextText(visibleSummaries, recentWindow > 0 ? recentWindow : 3)
     : ""
-  const recentSummaries = summariesStore
-    ? recentChapterSummariesText(summariesStore, recentWindow > 0 ? recentWindow : 3)
+  const recentSummaries = visibleSummaries
+    ? recentChapterSummariesText(visibleSummaries, recentWindow > 0 ? recentWindow : 3)
     : ""
   return {
     doesNotKnow: base.doesNotKnow,

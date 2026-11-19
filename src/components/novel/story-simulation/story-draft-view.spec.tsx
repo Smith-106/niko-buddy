@@ -93,6 +93,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  useStorySimulationStore.getState().setError(null)
   vi.restoreAllMocks()
   useStorySimulationStore.setState({
     currentFramework: null,
@@ -430,6 +431,7 @@ describe("StoryDraftView 定时器与守卫补充", () => {
     vi.useFakeTimers()
   })
   afterEach(() => {
+    useStorySimulationStore.getState().setError(null)
     vi.useRealTimers()
   })
 
@@ -613,5 +615,112 @@ describe("StoryDraftView 章节编辑", () => {
     fireEvent.click(screen.getByText(T.discard))
     expect(useStorySimulationStore.getState().currentDraft?.chapters[1].content).toBe("编辑后内容")
     expect(screen.queryByText(T.editChapterDesc)).toBeNull()
+  })
+})
+
+type OwnedErrorTimer = {
+  id: number
+  fn: ReturnType<typeof vi.fn<() => void>>
+  dueAt: number
+  cancelled: boolean
+  fired: boolean
+}
+
+function installOwnedErrorTimers() {
+  // 保留已取消回调，允许模拟已经投递到队列的旧任务。
+  const pending: OwnedErrorTimer[] = []
+  let nowMs = 0
+  const realSetTimeout = globalThis.setTimeout
+  const realClearTimeout = globalThis.clearTimeout
+  const setTimerSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+    fn: (...args: unknown[]) => void,
+    ms?: number,
+    ...args: unknown[]
+  ) => {
+    if ((ms ?? 0) >= 3000) {
+      const id = -pending.length - 1
+      pending.push({ id, fn: vi.fn(() => fn(...args)), dueAt: nowMs + (ms ?? 0), cancelled: false, fired: false })
+      return id as unknown as ReturnType<typeof setTimeout>
+    }
+    return realSetTimeout(fn, ms, ...args)
+  }) as typeof globalThis.setTimeout)
+  const clearTimerSpy = vi.spyOn(globalThis, "clearTimeout").mockImplementation((id) => {
+    const timer = pending.find((entry) => entry.id === id)
+    if (timer) timer.cancelled = true
+    else realClearTimeout(id)
+  })
+  return {
+    pending,
+    fireDueTimers(upToMs: number) {
+      nowMs = upToMs
+      let fired = 0
+      act(() => {
+        for (const timer of pending) {
+          if (!timer.cancelled && !timer.fired && timer.dueAt <= upToMs) {
+            timer.fired = true
+            timer.fn()
+            fired++
+          }
+        }
+      })
+      return fired
+    },
+    restore() {
+      act(() => useStorySimulationStore.getState().setError(null))
+      clearTimerSpy.mockRestore()
+      setTimerSpy.mockRestore()
+    },
+  }
+}
+
+describe("StoryDraftView error ownership", () => {
+  it.each([
+    { name: "不同文本的新错误", sameText: false, unmount: false },
+    { name: "相同文本的新错误", sameText: true, unmount: false },
+    { name: "卸载草稿后相同文本的新错误", sameText: true, unmount: true },
+  ])("旧草稿 callback 不清除 $name", async ({ sameText, unmount }) => {
+    const timers = installOwnedErrorTimers()
+    try {
+      vi.mocked(exportDraft).mockRejectedValueOnce(new Error("first draft failure"))
+      const view = render(<StoryDraftView onBack={vi.fn()} />)
+      fireEvent.click(screen.getByText(T.exportMd))
+      await waitFor(() => expect(useStorySimulationStore.getState().error).toContain("first draft failure"))
+      expect(vi.mocked(exportDraft)).toHaveBeenCalledTimes(1)
+      expect(timers.pending).toHaveLength(1)
+      const originalError = useStorySimulationStore.getState().error
+      const oldTimer = timers.pending[0]
+      expect(timers.fireDueTimers(1000)).toBe(0)
+      if (unmount) view.unmount()
+      const newerError = sameText ? originalError : "later draft error"
+      act(() => useStorySimulationStore.getState().setError(newerError))
+      expect(useStorySimulationStore.getState().error).toBe(newerError)
+      act(() => oldTimer.fn())
+      // 即使取消已经发生，也强制执行旧队列回调来检查归属。
+      expect(oldTimer.fn).toHaveBeenCalledTimes(1)
+      expect(useStorySimulationStore.getState().error).toBe(newerError)
+    } finally {
+      cleanup()
+      timers.restore()
+    }
+  })
+
+  it("卸载草稿保留共享错误原来的 5000 ms 期限", async () => {
+    const timers = installOwnedErrorTimers()
+    try {
+      vi.mocked(exportDraft).mockRejectedValueOnce(new Error("unmount draft failure"))
+      const view = render(<StoryDraftView onBack={vi.fn()} />)
+      fireEvent.click(screen.getByText(T.exportMd))
+      await waitFor(() => expect(useStorySimulationStore.getState().error).toContain("unmount draft failure"))
+      const originalError = useStorySimulationStore.getState().error
+      expect(timers.fireDueTimers(1000)).toBe(0)
+      view.unmount()
+      expect(timers.fireDueTimers(4999)).toBe(0)
+      expect(useStorySimulationStore.getState().error).toBe(originalError)
+      expect(timers.fireDueTimers(5000)).toBe(1)
+      expect(useStorySimulationStore.getState().error).toBeNull()
+    } finally {
+      cleanup()
+      timers.restore()
+    }
   })
 })

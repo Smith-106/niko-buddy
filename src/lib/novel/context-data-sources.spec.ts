@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ContextLoadContext } from "./context-data-source"
+import type { ChapterSummariesStore } from "./chapter-summaries"
 import {
   fallbackPreviousEndingDataSource,
   fallbackRecentSummariesDataSource,
@@ -31,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   searchWiki: vi.fn(),
   listSnapshots: vi.fn(),
   loadSnapshot: vi.fn(),
+  loadChapterSummaries: vi.fn(),
   getChapterVolumes: vi.fn(),
   loadRevisionFeedbackForContext: vi.fn(),
   loadCognitionState: vi.fn(),
@@ -54,6 +56,11 @@ vi.mock("./chapter-ingest", () => ({
   listSnapshots: mocks.listSnapshots,
   loadSnapshot: mocks.loadSnapshot,
 }))
+
+vi.mock("./chapter-summaries", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./chapter-summaries")>()
+  return { ...actual, loadChapterSummaries: mocks.loadChapterSummaries }
+})
 
 vi.mock("./volume", () => ({
   getChapterVolumes: mocks.getChapterVolumes,
@@ -137,6 +144,7 @@ const context: ContextLoadContext = {
 
 beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset()
+  mocks.loadChapterSummaries.mockResolvedValue({ entries: [], lastUpdated: "" })
   mocks.joinNonEmpty.mockImplementation((parts: string[], sep: string) =>
     parts.map((p) => String(p).trim()).filter(Boolean).join(sep),
   )
@@ -424,13 +432,72 @@ describe("snapshotDataSource", () => {
     expect(result.previousChapterEnding).toBe("")
     expect(result.characterStates).toBe("")
   })
+
+  describe("状态增量窗口", () => {
+    const store: ChapterSummariesStore = {
+      entries: [1, 2, 3, 4, 155, 162].map((chapter) => ({
+        chapter,
+        happened: `本章事件${chapter}`,
+        stateChanges: [{ kind: "character", entity: "主角", change: `状态变化${chapter}` }],
+        keyReveals: [],
+        endingHook: "",
+      })),
+      lastUpdated: "frozen",
+    }
+    Object.freeze(store.entries)
+    Object.freeze(store)
+
+    beforeEach(() => {
+      mocks.listSnapshots.mockResolvedValue([1, 2, 3, 4, 155, 162])
+      mocks.selectLookbackChapterNumbers.mockReturnValue([])
+      mocks.loadSnapshot.mockImplementation(async (_projectPath: string, chapter: number) => snapshot(chapter))
+      mocks.loadChapterSummaries.mockResolvedValue(store)
+    })
+
+    it("先筛出目标章之前的状态，再取最近 N 章，且不修改共享投影", async () => {
+      const result = await snapshotDataSource.load({
+        ...context,
+        chapterNumber: 4,
+        config: { ...context.config, recentSummaryWindow: 2 },
+      })
+
+      expect(result.recentStateDeltas).toBe(
+        "【近 2 章摘要】\n第2章：本章事件2\n  - [character] 主角: 状态变化2\n第3章：本章事件3\n  - [character] 主角: 状态变化3",
+      )
+      expect(store.entries.map((entry) => entry.chapter)).toEqual([1, 2, 3, 4, 155, 162])
+      expect(store.lastUpdated).toBe("frozen")
+    })
+
+    it("首章没有历史状态，不注入当前章或晚章状态", async () => {
+      const result = await snapshotDataSource.load({ ...context, chapterNumber: 1 })
+
+      expect(result.recentStateDeltas).toBe("")
+    })
+
+    it.each([undefined, 0])("无目标章 %s 时保留最新 N 章的已有行为", async (chapterNumber) => {
+      const result = await snapshotDataSource.load({
+        ...context,
+        chapterNumber,
+        config: { ...context.config, recentSummaryWindow: 2 },
+      })
+
+      expect(result.recentStateDeltas).toContain("第155章：本章事件155")
+      expect(result.recentStateDeltas).toContain("第162章：本章事件162")
+      expect(result.recentStateDeltas).not.toContain("第4章：")
+    })
+  })
 })
 
 describe("fallbackCharacterStatesDataSource", () => {
+  const legacyContext: ContextLoadContext = {
+    ...context,
+    chapterNumber: undefined,
+  }
+
   it("结构化 character-states.json 非空时优先 → slice 3000", async () => {
     mocks.loadCharacterStates.mockResolvedValue({ entries: {} })
     mocks.characterStatesToContextText.mockReturnValue("结构化角色状态".repeat(100))
-    const result = await fallbackCharacterStatesDataSource.load(context)
+    const result = await fallbackCharacterStatesDataSource.load(legacyContext)
     expect(result).toBe("结构化角色状态".repeat(100).slice(0, 3000))
   })
 
@@ -438,7 +505,7 @@ describe("fallbackCharacterStatesDataSource", () => {
     mocks.loadCharacterStates.mockRejectedValue(new Error("missing"))
     mocks.searchWiki.mockResolvedValue([{ path: "E:/Novel/wiki/entities/a.md" }])
     mocks.readFile.mockResolvedValue("角色页内容")
-    const result = await fallbackCharacterStatesDataSource.load(context)
+    const result = await fallbackCharacterStatesDataSource.load(legacyContext)
     expect(result).toContain("角色页内容")
   })
 
@@ -447,21 +514,21 @@ describe("fallbackCharacterStatesDataSource", () => {
     mocks.characterStatesToContextText.mockReturnValue("")
     const recordGap = vi.fn()
     mocks.searchWiki.mockRejectedValue(new Error("index down"))
-    await expect(fallbackCharacterStatesDataSource.load({ ...context, recordGap })).resolves.toBe("")
+    await expect(fallbackCharacterStatesDataSource.load({ ...legacyContext, recordGap })).resolves.toBe("")
     expect(recordGap).toHaveBeenCalledWith("fallbackCharacterStates", "datasource_error")
   })
 
   it("wiki 无结果 → 空串", async () => {
     mocks.loadCharacterStates.mockRejectedValue(new Error("missing"))
     mocks.searchWiki.mockResolvedValue([])
-    await expect(fallbackCharacterStatesDataSource.load(context)).resolves.toBe("")
+    await expect(fallbackCharacterStatesDataSource.load(legacyContext)).resolves.toBe("")
   })
 
   it("readFile 单页失败不影响其余页 (catch(() => ''))", async () => {
     mocks.loadCharacterStates.mockRejectedValue(new Error("missing"))
     mocks.searchWiki.mockResolvedValue([{ path: "a.md" }, { path: "b.md" }])
     mocks.readFile.mockImplementation(async (p: string) => (p === "a.md" ? "A 页" : Promise.reject(new Error("boom"))))
-    const result = await fallbackCharacterStatesDataSource.load(context)
+    const result = await fallbackCharacterStatesDataSource.load(legacyContext)
     expect(result).toContain("A 页")
   })
 })
@@ -577,6 +644,41 @@ describe("recentChapterContentsDataSource 边界", () => {
 })
 
 describe("fallbackRecentSummariesDataSource wiki 路径", () => {
+  it("按目标章先过滤，再从无序 wiki 命中中选最近 N 章", async () => {
+    const chapters = [155, 162, 4, 1, 3, 2]
+    mocks.searchWiki.mockResolvedValue(chapters.map((chapter) => ({ path: `c${chapter}.md` })))
+    mocks.readFile.mockImplementation(async (p: string) => {
+      const chapter = Number(p.match(/^c(\d+)\.md$/)?.[1])
+      return `---\ntype: chapter\nchapter_number: ${chapter}\nchapter_status: final\n---\n正文${chapter}`
+    })
+
+    const result = await fallbackRecentSummariesDataSource.load({
+      ...context, chapterNumber: 4, config: { ...context.config, recentSummaryWindow: 2 },
+    })
+
+    expect(result).toEqual(["第2章 (final): 正文2", "第3章 (final): 正文3"])
+  })
+
+  it("首章不注入当前章或晚章 wiki 摘要", async () => {
+    mocks.searchWiki.mockResolvedValue([{ path: "c1.md" }, { path: "c162.md" }])
+    mocks.readFile.mockImplementation(async (p: string) =>
+      `---\ntype: chapter\nchapter_number: ${p === "c1.md" ? 1 : 162}\n---\n正文`,
+    )
+
+    await expect(fallbackRecentSummariesDataSource.load({ ...context, chapterNumber: 1 })).resolves.toEqual([])
+  })
+
+  it.each([undefined, 0])("无目标章 %s 时仍按 wiki 命中顺序截取窗口", async (chapterNumber) => {
+    mocks.searchWiki.mockResolvedValue([{ path: "c162.md" }, { path: "c155.md" }])
+    mocks.readFile.mockImplementation(async (p: string) =>
+      `---\ntype: chapter\nchapter_number: ${p === "c162.md" ? 162 : 155}\n---\n正文`,
+    )
+    await expect(fallbackRecentSummariesDataSource.load({
+      ...context, chapterNumber, config: { ...context.config, recentSummaryWindow: 1 },
+    })).resolves.toEqual(["第162章 (draft): 正文"])
+    expect(mocks.readFile).toHaveBeenCalledTimes(1)
+  })
+
   it("type:chapter 命中并解析 meta → 渲染摘要; 无 frontmatter 条目被跳过", async () => {
     mocks.searchWiki.mockResolvedValue([
       { path: "E:/Novel/wiki/chapters/c1.md" },
@@ -785,17 +887,17 @@ describe("revisionFeedbackDataSource", () => {
 describe("cognitionTextDataSource", () => {
   it("state 为空 → 空串; state 非空 → 渲染文本", async () => {
     mocks.loadCognitionState.mockResolvedValue(null)
-    await expect(cognitionTextDataSource.load(context)).resolves.toBe("")
+    await expect(cognitionTextDataSource.load({ ...context, chapterNumber: undefined })).resolves.toBe("")
 
     mocks.loadCognitionState.mockResolvedValue({ version: 1 })
     mocks.cognitionToContextText.mockReturnValue("认知文本")
-    await expect(cognitionTextDataSource.load(context)).resolves.toBe("认知文本")
+    await expect(cognitionTextDataSource.load({ ...context, chapterNumber: undefined })).resolves.toBe("认知文本")
   })
 
   it("loadCognitionState 抛错 → recordGap + 空串", async () => {
     const recordGap = vi.fn()
     mocks.loadCognitionState.mockRejectedValue(new Error("state down"))
-    await expect(cognitionTextDataSource.load({ ...context, recordGap })).resolves.toBe("")
+    await expect(cognitionTextDataSource.load({ ...context, chapterNumber: undefined, recordGap })).resolves.toBe("")
     expect(recordGap).toHaveBeenCalledWith("cognitionText", "datasource_error")
   })
 })

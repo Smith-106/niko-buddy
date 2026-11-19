@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
-import { fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
+import { act, fireEvent, render, screen, waitFor } from "@/test-helpers/component-test-utils"
 import { InterviewHistoryView } from "./interview-history-view"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -81,6 +81,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  useStorySimulationStore.getState().setError(null)
   vi.restoreAllMocks()
   useStorySimulationStore.setState({
     showInterviewHistory: false,
@@ -530,6 +531,7 @@ describe("InterviewHistoryView 定时器清理", () => {
     vi.useFakeTimers()
   })
   afterEach(() => {
+    useStorySimulationStore.getState().setError(null)
     vi.useRealTimers()
   })
 
@@ -643,5 +645,120 @@ describe("InterviewHistoryView 定时器清理", () => {
     expect(useStorySimulationStore.getState().error).toContain("操作失败")
     await vi.advanceTimersByTimeAsync(4000)
     expect(useStorySimulationStore.getState().error).toBeNull()
+  })
+})
+
+type OwnedErrorTimer = {
+  id: number
+  fn: ReturnType<typeof vi.fn<() => void>>
+  dueAt: number
+  cancelled: boolean
+  fired: boolean
+}
+
+function installOwnedErrorTimers() {
+  // 保留已取消回调，允许模拟已经投递到队列的旧任务。
+  const pending: OwnedErrorTimer[] = []
+  let nowMs = 0
+  const realSetTimeout = globalThis.setTimeout
+  const realClearTimeout = globalThis.clearTimeout
+  const setTimerSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+    fn: (...args: unknown[]) => void,
+    ms?: number,
+    ...args: unknown[]
+  ) => {
+    if ((ms ?? 0) >= 3000) {
+      const id = -pending.length - 1
+      pending.push({ id, fn: vi.fn(() => fn(...args)), dueAt: nowMs + (ms ?? 0), cancelled: false, fired: false })
+      return id as unknown as ReturnType<typeof setTimeout>
+    }
+    return realSetTimeout(fn, ms, ...args)
+  }) as typeof globalThis.setTimeout)
+  const clearTimerSpy = vi.spyOn(globalThis, "clearTimeout").mockImplementation((id) => {
+    const timer = pending.find((entry) => entry.id === id)
+    if (timer) timer.cancelled = true
+    else realClearTimeout(id)
+  })
+  return {
+    pending,
+    fireDueTimers(upToMs: number) {
+      nowMs = upToMs
+      let fired = 0
+      act(() => {
+        for (const timer of pending) {
+          if (!timer.cancelled && !timer.fired && timer.dueAt <= upToMs) {
+            timer.fired = true
+            timer.fn()
+            fired++
+          }
+        }
+      })
+      return fired
+    },
+    restore() {
+      act(() => useStorySimulationStore.getState().setError(null))
+      clearTimerSpy.mockRestore()
+      setTimerSpy.mockRestore()
+    },
+  }
+}
+
+describe("InterviewHistoryView error ownership", () => {
+  it.each([
+    { name: "不同文本的新错误", sameText: false, close: false },
+    { name: "相同文本的新错误", sameText: true, close: false },
+    { name: "关闭历史后相同文本的新错误", sameText: true, close: true },
+  ])("旧采访历史 callback 不清除 $name", async ({ sameText, close }) => {
+    const timers = installOwnedErrorTimers()
+    try {
+      vi.mocked(loadInterviews).mockResolvedValue([])
+      vi.mocked(deleteInterview).mockRejectedValueOnce(new Error("first history failure"))
+      showWith([], { viewingInterview: makeInterview() })
+      render(<InterviewHistoryView />)
+      fireEvent.click(screen.getByText(T.delete))
+      await waitFor(() => expect(useStorySimulationStore.getState().error).toContain("first history failure"))
+      expect(vi.mocked(deleteInterview)).toHaveBeenCalledTimes(1)
+      expect(timers.pending).toHaveLength(1)
+      const originalError = useStorySimulationStore.getState().error
+      const oldTimer = timers.pending[0]
+      expect(timers.fireDueTimers(1000)).toBe(0)
+      if (close) {
+        fireEvent.click(screen.getByRole("dialog"))
+        expect(useStorySimulationStore.getState().showInterviewHistory).toBe(false)
+      }
+      const newerError = sameText ? originalError : "later history error"
+      act(() => useStorySimulationStore.getState().setError(newerError))
+      expect(useStorySimulationStore.getState().error).toBe(newerError)
+      act(() => oldTimer.fn())
+      // 先证明旧回调确实执行，再检查它是否越权清除新消息。
+      expect(oldTimer.fn).toHaveBeenCalledTimes(1)
+      expect(useStorySimulationStore.getState().error).toBe(newerError)
+    } finally {
+      cleanup()
+      timers.restore()
+    }
+  })
+
+  it("关闭历史保留共享错误原来的 3000 ms 期限", async () => {
+    const timers = installOwnedErrorTimers()
+    try {
+      vi.mocked(loadInterviews).mockResolvedValue([])
+      vi.mocked(deleteInterview).mockRejectedValueOnce(new Error("close history failure"))
+      showWith([], { viewingInterview: makeInterview() })
+      render(<InterviewHistoryView />)
+      fireEvent.click(screen.getByText(T.delete))
+      await waitFor(() => expect(useStorySimulationStore.getState().error).toContain("close history failure"))
+      const originalError = useStorySimulationStore.getState().error
+      expect(timers.fireDueTimers(1000)).toBe(0)
+      fireEvent.click(screen.getByRole("dialog"))
+      expect(useStorySimulationStore.getState().showInterviewHistory).toBe(false)
+      expect(timers.fireDueTimers(2999)).toBe(0)
+      expect(useStorySimulationStore.getState().error).toBe(originalError)
+      expect(timers.fireDueTimers(3000)).toBe(1)
+      expect(useStorySimulationStore.getState().error).toBeNull()
+    } finally {
+      cleanup()
+      timers.restore()
+    }
   })
 })

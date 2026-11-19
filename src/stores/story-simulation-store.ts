@@ -50,6 +50,7 @@ interface StorySimulationState {
   selectedFrameworkId: string | null;
   binding: FrameworkBinding | null;
   error: string | null;
+  errorRevision: number;
   /** 提示/成功消息 */
   infoMessage: string | null;
   progress: number;
@@ -132,6 +133,7 @@ interface StorySimulationState {
   setSelectedFrameworkId: (id: string | null) => void;
   setBinding: (binding: FrameworkBinding | null) => void;
   setError: (error: string | null) => void;
+  setTransientError: (error: string, durationMs: number) => void;
   setInfoMessage: (infoMessage: string | null) => void;
   setProgress: (progress: number, label: string) => void;
   setTimelineEvents: (events: TimelineEvent[]) => void;
@@ -198,7 +200,9 @@ interface StorySimulationState {
   initWithPreset: (preset: SimulationPreset) => void;
 }
 
-export const useStorySimulationStore = create<StorySimulationState>((set) => ({
+let transientErrorTimer: ReturnType<typeof setTimeout> | null = null;
+
+export const useStorySimulationStore = create<StorySimulationState>((set, get) => ({
   phase: "idle",
   mode: "event-driven",
   userIdea: "",
@@ -213,6 +217,7 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
   selectedFrameworkId: null,
   binding: null,
   error: null,
+  errorRevision: 0,
   infoMessage: null,
   progress: 0,
   progressLabel: "",
@@ -256,7 +261,26 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
   setFrameworks: (frameworks) => set({ frameworks }),
   setSelectedFrameworkId: (selectedFrameworkId) => set({ selectedFrameworkId }),
   setBinding: (binding) => set({ binding }),
-  setError: (error) => set({ error }),
+  setError: (error) => {
+    const timer = transientErrorTimer;
+    transientErrorTimer = null;
+    if (timer !== null) clearTimeout(timer);
+    set((state) => ({ error, errorRevision: state.errorRevision + 1 }));
+  },
+  setTransientError: (error, durationMs) => {
+    const expectedRevision = get().errorRevision + 1;
+    get().setError(error);
+    if (get().errorRevision !== expectedRevision) return;
+    const timer = setTimeout(() => {
+      if (
+        get().errorRevision !== expectedRevision ||
+        transientErrorTimer !== timer
+      ) return;
+      transientErrorTimer = null;
+      get().setError(null);
+    }, durationMs);
+    transientErrorTimer = timer;
+  },
   setInfoMessage: (infoMessage: string | null) => set({ infoMessage }),
   setProgress: (progress, progressLabel) => set({ progress, progressLabel }),
   setTimelineEvents: (timelineEvents) => set({ timelineEvents }),
@@ -514,14 +538,18 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
     return agents;
   },
 
-  reset: () =>
-    set({
+  reset: () => {
+    const timer = transientErrorTimer;
+    transientErrorTimer = null;
+    if (timer !== null) clearTimeout(timer);
+    set((state) => ({
       phase: "idle",
       extractionResult: null,
       currentFramework: null,
       currentReport: null,
       currentDraft: null,
       error: null,
+      errorRevision: state.errorRevision + 1,
       progress: 0,
       progressLabel: "",
       timelineEvents: [],
@@ -548,7 +576,8 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
       historyIndex: -1,
       isPlaying: false,
       playbackSpeed: 1,
-    }),
+    }));
+  },
   initWithPreset: (preset) =>
     set((state) => {
       let phase: SimulationPhase = "configuring";

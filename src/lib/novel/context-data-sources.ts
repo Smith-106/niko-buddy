@@ -11,7 +11,7 @@ import { parseChapterMeta } from "./chapter-meta"
 import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
 import { loadChapterSummaries, chapterSummariesToContextText } from "./chapter-summaries"
 import { loadRevisionFeedbackForContext, createEmptyRevisionFeedback, type NovelRevisionFeedback } from "./revision-feedback"
-import { loadCognitionState, cognitionToContextText } from "./character-cognition"
+import { readCognitionStatesText } from "./context-derived-stores"
 import { getChapterVolumes } from "./volume"
 import { readSoulDoc } from "./soul-doc"
 import { buildWritingStyleContext } from "./writing-style-store"
@@ -206,8 +206,14 @@ export const snapshotDataSource: DataSource<{
     // 降级空 store（投影 fold_rebuildable，缺失不阻断主链）。窗口与
     // recentSummaryWindow 对齐（无效/缺省回退函数默认 3）。
     const summariesStore = await loadChapterSummaries(projectPath).catch(() => null)
-    const recentStateDeltas = summariesStore
-      ? chapterSummariesToContextText(summariesStore, config.recentSummaryWindow > 0 ? config.recentSummaryWindow : 3)
+    const summariesBeforeChapter = summariesStore && chapterNumber
+      ? {
+        ...summariesStore,
+        entries: summariesStore.entries.filter((entry) => entry.chapter < chapterNumber),
+      }
+      : summariesStore
+    const recentStateDeltas = summariesBeforeChapter
+      ? chapterSummariesToContextText(summariesBeforeChapter, config.recentSummaryWindow > 0 ? config.recentSummaryWindow : 3)
       : ""
     const characterStates = joinNonEmpty(
       validLookback
@@ -297,18 +303,21 @@ export const fallbackRecentSummariesDataSource: DataSource<string[]> = {
       // item-level drops without double-counting when both fire (the outer
       // throw path never sets the flag).
       let itemLoadFailed = false
+      const candidates = context.chapterNumber && context.config.recentSummaryWindow > 0
+        ? results
+        : results.slice(0, context.config.recentSummaryWindow)
       const fetched = await Promise.all(
-        results.slice(0, context.config.recentSummaryWindow).map(async (r) => {
+        candidates.map(async (r) => {
           try {
             const content = await readFile(r.path)
             const parsed = parseFrontmatter(content)
             const fm = parsed.frontmatter as Record<string, unknown> | null
             const meta = fm ? parseChapterMeta(fm) : null
-            if (meta) {
+            if (meta && (!context.chapterNumber || meta.chapterNumber < context.chapterNumber)) {
               const bodyStart = content.indexOf("---", 4)
               /* v8 ignore next */
               const body = bodyStart >= 0 ? content.slice(bodyStart + 3).trim() : content
-              return `第${meta.chapterNumber}章 (${meta.status}): ${body.slice(0, 800)}`
+              return { chapter: meta.chapterNumber, text: `第${meta.chapterNumber}章 (${meta.status}): ${body.slice(0, 800)}` }
             }
             return null
           } catch {
@@ -318,9 +327,12 @@ export const fallbackRecentSummariesDataSource: DataSource<string[]> = {
         }),
       )
       if (itemLoadFailed) context.recordGap?.("fallbackRecentSummaries", "datasource_error")
-      for (const s of fetched) {
-        if (s !== null) summaries.push(s)
-      }
+      const eligible = fetched.filter((s): s is { chapter: number; text: string } => s !== null)
+      // 指定目标章时，先过滤历史章，再截取最近 N 章并按章号升序渲染。
+      const selected = context.chapterNumber
+        ? eligible.sort((a, b) => b.chapter - a.chapter).slice(0, context.config.recentSummaryWindow).reverse()
+        : eligible
+      for (const s of selected) summaries.push(s.text)
     } catch (err) {
       context.recordGap?.("fallbackRecentSummaries", "datasource_error")
     }
@@ -382,6 +394,11 @@ export const fallbackCharacterStatesDataSource: DataSource<string> = {
   name: "fallbackCharacterStates",
   priority: 7,
   async load(context: ContextLoadContext): Promise<string> {
+    const beforeChapter = context.chapterNumber
+    if (beforeChapter !== undefined && (!Number.isInteger(beforeChapter) || beforeChapter <= 0)) {
+      context.recordGap?.("fallbackCharacterStates", "temporal_history_unavailable")
+      return ""
+    }
     // Prefer structured character-states.json (non-empty after seed/ingest) before wiki search.
     try {
       // ISS-20260709-048: character-state 为显式懒加载依赖（首屏不进主 chunk）。
@@ -391,10 +408,26 @@ export const fallbackCharacterStatesDataSource: DataSource<string> = {
       const stateModule: CharacterStateModule = await import("./character-state")
       const { loadCharacterStates, characterStatesToContextText } = stateModule
       const store = await loadCharacterStates(context.projectPath)
+      if (beforeChapter !== undefined) {
+        // 整条状态必须已有可信章号；过滤为空也不能回落到混合了未来事实的 wiki 正文。
+        const characters = store.characters.filter((character) =>
+          Number.isInteger(character.lastUpdatedChapter)
+          && character.lastUpdatedChapter > 0
+          && character.lastUpdatedChapter < beforeChapter,
+        )
+        if (characters.length === 0 || characters.length < store.characters.length) {
+          context.recordGap?.("fallbackCharacterStates", "temporal_history_unavailable")
+        }
+        return characterStatesToContextText({ ...store, characters }).slice(0, 3000)
+      }
       const structured = characterStatesToContextText(store)
       if (structured.trim()) return structured.slice(0, 3000)
     } catch {
-      // soft — fall through to wiki entity pages
+      if (beforeChapter !== undefined) {
+        context.recordGap?.("fallbackCharacterStates", "datasource_error")
+        return ""
+      }
+      // 未指定章号时保持原有 structured → wiki 读取顺序。
     }
     try {
       const results = await searchWiki(context.projectPath, "type:entity character")
@@ -570,14 +603,10 @@ export const cognitionTextDataSource: DataSource<string> = {
   name: "cognitionText",
   priority: 16,
   async load(context: ContextLoadContext): Promise<string> {
-    try {
-      const state = await loadCognitionState(context.projectPath)
-      if (!state) return ""
-      return cognitionToContextText(state)
-    } catch (err) {
-      context.recordGap?.("cognitionText", "datasource_error")
-    }
-    return ""
+    return readCognitionStatesText(context.projectPath, {
+      beforeChapter: context.chapterNumber,
+      recordGap: context.recordGap,
+    })
   },
 }
 

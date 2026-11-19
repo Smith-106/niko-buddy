@@ -77,7 +77,7 @@ export const CHAPTER_OUTLINE_PROTECTED_CAP = 6000
 export type SourceTier = "protected" | "compressible"
 
 export interface ContextGap {
-  type: "compressed" | "truncated" | "load_failed"
+  type: "compressed" | "truncated" | "load_failed" | "unavailable"
   ref: string
   reason: ContextGapReason
   originalLength: number
@@ -134,7 +134,7 @@ export function collectContextGaps(): ContextGap[] {
 export function recordDatasourceLoadFailure(ref: string, reason: ContextGapReason = "datasource_error"): void {
   if (!contextGapsActive) return
   contextGaps.push({
-    type: "load_failed",
+    type: reason === "temporal_history_unavailable" ? "unavailable" : "load_failed",
     ref,
     reason,
     originalLength: 0,

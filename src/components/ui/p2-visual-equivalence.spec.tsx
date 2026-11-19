@@ -12,7 +12,6 @@ import * as path from "node:path"
 
 import { buttonVariants, Button } from "@/components/ui/button"
 import { StatusChip } from "@/components/ui/status-visuals"
-import { execSync } from "node:child_process"
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
@@ -44,6 +43,14 @@ const SRC = process.cwd()
 
 function readSrc(rel: string): string {
   return fs.readFileSync(path.join(SRC, rel), "utf-8")
+}
+
+function* sourceFiles(dir = path.join(SRC, "src")): Generator<string> {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name)
+    if (entry.isDirectory()) yield* sourceFiles(file)
+    else if (/\.tsx?$/.test(entry.name) && !/\.spec\.tsx?$/.test(entry.name)) yield file
+  }
 }
 
 beforeEach(() => {
@@ -218,11 +225,10 @@ describe("P2-6 Inspector 数据+刷新中 stale-refreshing 过渡", () => {
 
 describe("P2-7 index key 残余改稳定 key", () => {
   it("源码不再含 key={i} / key={index} 纯索引键", () => {
-    const out = execSync(
-      `grep -rn "key={i}\\|key={index}" --include="*.tsx" src/ | grep -v spec || true`,
-      { cwd: SRC, encoding: "utf-8" },
-    ) as string
-    expect(out.trim()).toBe("")
+    const matches = [...sourceFiles()].filter((file) =>
+      file.endsWith(".tsx") && /key=\{(?:i|index)\}/.test(fs.readFileSync(file, "utf-8")),
+    )
+    expect(matches).toEqual([])
   })
 
   it("planning-panel 长列表用内容派生 key + 虚拟化窗口", () => {
@@ -235,11 +241,10 @@ describe("P2-7 index key 残余改稳定 key", () => {
 
 describe("P2-8 window.alert 迁移应用内 toast", () => {
   it("源码不再含 window.alert / 裸 alert（安全用例除外）", () => {
-    const out = execSync(
-      `grep -rn "window\\\\.alert" --include="*.tsx" --include="*.ts" src/ | grep -v spec || true`,
-      { cwd: SRC, encoding: "utf-8" },
-    ) as string
-    expect(out.trim()).toBe("")
+    const matches = [...sourceFiles()].filter((file) =>
+      /window\.alert/.test(fs.readFileSync(file, "utf-8")),
+    )
+    expect(matches).toEqual([])
   })
 
   it("迁移目标文件均走 toast 且文案不变", () => {
