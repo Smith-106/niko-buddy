@@ -26,11 +26,36 @@ const fsMocks = vi.hoisted(() => ({
   deleteFile: vi.fn(),
 }))
 
+const sourceFs = vi.hoisted(() => ({
+  chapterPath: "E:/Novel/wiki/chapters/chapter-001.md",
+  chapterSource: null as string | null,
+  chapterSequence: [] as Array<string | Error>,
+}))
+
+/**
+ * MF-01: 显式 chapterPath 保持稳定正文（初始 read 与提交前同路径复查同源），
+ * unrelated paths 仍走各用例原本的 per-test 行为（ENOENT/错误/wiki-patch）。
+ */
+function mockChapterSource(content: string, path: string = sourceFs.chapterPath): void {
+  sourceFs.chapterPath = path
+  sourceFs.chapterSource = content
+  sourceFs.chapterSequence = []
+}
+
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
   return {
     ...actual,
-      readFile: (...args: unknown[]) => fsMocks.readFile(...args),
+      readFile: (path: unknown) => {
+        const p = String(path)
+        if (p === sourceFs.chapterPath) {
+          const queued = sourceFs.chapterSequence.shift()
+          if (queued instanceof Error) return Promise.reject(queued)
+          if (typeof queued === "string") return Promise.resolve(queued)
+          if (sourceFs.chapterSource !== null) return Promise.resolve(sourceFs.chapterSource)
+        }
+        return fsMocks.readFile(path)
+      },
       writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
       writeFilesAtomic: (...args: unknown[]) => fsMocks.writeFilesAtomic(...args),
       listDirectory: (...args: unknown[]) => fsMocks.listDirectory(...args),
@@ -175,13 +200,16 @@ import {
   isCanonDualWriteEligible,
   parseFactsSubject,
   runCanonDualWriteHook,
+  runCanonDualWriteHookOutcome,
   type ChapterSnapshot,
 } from "./chapter-ingest"
-import { computeCheckpointDigestOf } from "./checkpoint-digest"
+import { buildChapterIngestOutput } from "./chapter-ingest-output"
+import { parseFrontmatter } from "@/lib/frontmatter"
+import { computeCheckpointDigest, computeCheckpointDigestOf } from "./checkpoint-digest"
 import type { CanonDualWriteDeps } from "./canon-dual-write"
 
 const PROJECT = "E:/Novel"
-const CHAPTER_PATH = `${PROJECT}/wiki/chapters/chapter-001.md`
+const CHAPTER_PATH = sourceFs.chapterPath
 
 function chapterContent(overrides: Record<string, string | number> = {}): string {
   const fm = {
@@ -278,6 +306,9 @@ function makeDeps(extra: Partial<T16TestDeps> = {}): T16TestDeps {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  sourceFs.chapterPath = "E:/Novel/wiki/chapters/chapter-001.md"
+  sourceFs.chapterSource = null
+  sourceFs.chapterSequence = []
   storeState.novelMode = true
   storeState.llmConfig = { provider: "custom", model: "extract-model", customEndpoint: "http://localhost:11434", apiKey: "" } as LlmConfig
   storeState.novelConfig = {
@@ -442,31 +473,43 @@ describe("buildCanonDualWriteOps（从 newCanonFacts 派生 episode 双写操作
 })
 
 describe("runCanonDualWriteHook（单点双写钩子）", () => {
-  it("deps 未注入 → 空操作（向后兼容，不触达 shadowWriteCanon）", async () => {
+  it("deps 未注入 → skipped/no_deps（向后兼容，不触达 shadowWriteCanon）", async () => {
     const snap = snapshotWithFacts(["主角佩剑名为黑剑"])
-    await expect(runCanonDualWriteHook(undefined, PROJECT, { chapter_status: "final" }, snap, 1234)).resolves.toBeUndefined()
+    await expect(runCanonDualWriteHookOutcome(undefined, PROJECT, { chapter_status: "final" }, snap, 1234)).resolves.toEqual({
+      status: "skipped",
+      reason: "no_deps",
+    })
   })
 
-  it("章未 accept/final（draft=reject）→ 不写 canon", async () => {
+  it("章未 accept/final（draft=reject）→ skipped/not_eligible，不写 canon", async () => {
     const deps = makeDeps()
     const snap = snapshotWithFacts(["主角佩剑名为黑剑"])
-    await runCanonDualWriteHook(deps, PROJECT, { chapter_status: "draft" }, snap, 1234)
+    await expect(
+      runCanonDualWriteHookOutcome(deps, PROJECT, { chapter_status: "draft" }, snap, 1234),
+    ).resolves.toEqual({ status: "skipped", reason: "not_eligible" })
     expect(deps.writeCanon).not.toHaveBeenCalled()
     expect(deps.writeLegacy).not.toHaveBeenCalled()
   })
 
-  it("final 但无新正史事实 → 无操作可双写，不写 canon", async () => {
+  it("final 但无新正史事实 → skipped/no_facts，不写 canon", async () => {
     const deps = makeDeps()
     const snap = snapshotWithFacts([])
-    await runCanonDualWriteHook(deps, PROJECT, { chapter_status: "final" }, snap, 1234)
+    await expect(
+      runCanonDualWriteHookOutcome(deps, PROJECT, { chapter_status: "final" }, snap, 1234),
+    ).resolves.toEqual({ status: "skipped", reason: "no_facts" })
     expect(deps.writeCanon).not.toHaveBeenCalled()
   })
 
-  it("final + 新事实 → 调 shadowWriteCanon，两侧各一次（now 由入参提供）", async () => {
+  it("final + 新事实 → completed + 原 ShadowWriteReport（两侧各一次，now 由入参提供）", async () => {
     const deps = makeDeps()
     const facts = ["主角佩剑名为黑剑", "码头设防"]
     const snap = snapshotWithFacts(facts)
-    await runCanonDualWriteHook(deps, PROJECT, { chapter_status: "final" }, snap, 1234)
+    const outcome = await runCanonDualWriteHookOutcome(deps, PROJECT, { chapter_status: "final" }, snap, 1234)
+    expect(outcome.status).toBe("completed")
+    if (outcome.status !== "completed") throw new Error("expected completed outcome")
+    expect(outcome.report.written).toBe(2)
+    expect(outcome.report.queued).toBe(0)
+    expect(outcome.report.reconcile.consistent).toBe(true)
     expect(deps.writeCanon).toHaveBeenCalledTimes(2)
     expect(deps.writeLegacy).toHaveBeenCalledTimes(2)
     const digest0 = await computeCheckpointDigestOf({ chapter: 1, fact: facts[0] })
@@ -487,7 +530,10 @@ describe("runCanonDualWriteHook（单点双写钩子）", () => {
       }),
     })
     const snap = snapshotWithFacts(["主角佩剑名为黑剑"])
-    await expect(runCanonDualWriteHook(deps, PROJECT, { chapter_status: "final" }, snap, 1234)).resolves.toBeUndefined()
+    await expect(runCanonDualWriteHookOutcome(deps, PROJECT, { chapter_status: "final" }, snap, 1234)).resolves.toMatchObject({
+      status: "failed",
+      reason: expect.stringContaining("queue boom"),
+    })
     expect(deps.writeCanon).toHaveBeenCalled()
   })
 
@@ -499,14 +545,27 @@ describe("runCanonDualWriteHook（单点双写钩子）", () => {
       }),
     })
     const snap = snapshotWithFacts(["主角佩剑名为黑剑"])
-    await expect(runCanonDualWriteHook(deps, PROJECT, { chapter_status: "final" }, snap, 1234)).resolves.toBeUndefined()
+    await expect(runCanonDualWriteHookOutcome(deps, PROJECT, { chapter_status: "final" }, snap, 1234)).resolves.toMatchObject({
+      status: "failed",
+      reason: expect.stringContaining("queue boom string"),
+    })
     expect(deps.writeCanon).toHaveBeenCalled()
+  })
+
+  it("legacy runCanonDualWriteHook 仍保持 Promise<void> 契约（副作用同一实现，回返值不变）", async () => {
+    const deps = makeDeps()
+    const snap = snapshotWithFacts(["主角佩剑名为黑剑"])
+    await expect(
+      runCanonDualWriteHook(deps, PROJECT, { chapter_status: "final" }, snap, 1234),
+    ).resolves.toBeUndefined()
+    expect(deps.writeCanon).toHaveBeenCalledTimes(1)
+    expect(deps.writeLegacy).toHaveBeenCalledTimes(1)
   })
 })
 
 describe("ingestChapter — T16 双写钩子接入（reject 先于双写）", () => {
   it("final 章 + 新正史事实 → 触发 canon 双写（每条事实一个 episode）", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({ newCanonFacts: ["主角佩剑名为黑剑", "码头设防"] }))
 
     const deps = makeDeps()
@@ -521,7 +580,7 @@ describe("ingestChapter — T16 双写钩子接入（reject 先于双写）", ()
   })
 
   it("54 ③: facts-store 接线——final 章 newCanonFacts 写入 facts.json (ADR-26 唯一真源)", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({ newCanonFacts: ["主角：佩剑名为黑剑", "码头设防"] }))
     // facts.json 不存在 → 空表重建
     fsMocks.readFile.mockRejectedValueOnce(new Error("ENOENT"))
@@ -541,7 +600,7 @@ describe("ingestChapter — T16 双写钩子接入（reject 先于双写）", ()
   })
 
   it("54 ③: subject 解析排除误切——「名为/称为/因为/作为」不切分, 冒号仍优先", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({ newCanonFacts: ["主角：佩剑名为黑剑"] }))
     // facts.json 不存在 → 空表重建
     fsMocks.readFile.mockRejectedValueOnce(new Error("ENOENT"))
@@ -567,17 +626,180 @@ describe("ingestChapter — T16 双写钩子接入（reject 先于双写）", ()
   })
 
   it("未注入 canonDualWriteDeps → 旧行为，不触发双写（零回归）", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({ newCanonFacts: ["主角佩剑名为黑剑"] }))
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result.snapshot).not.toBeNull()
   })
 
   it("draft 章 → early-return not_final，根本不触达双写（reject 先于双写断言）", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent({ chapter_status: "draft" }))
+    mockChapterSource(chapterContent({ chapter_status: "draft" }))
     const deps = makeDeps()
     const result = await ingestChapter(PROJECT, CHAPTER_PATH, undefined, undefined, { canonDualWriteDeps: deps })
     expect(result).toEqual({ snapshot: null, failReason: "not_final" })
+    expect(deps.writeCanon).not.toHaveBeenCalled()
+  })
+})
+
+describe("ingestChapter — 提交点实源绑定与归一化消费者连接", () => {
+  const FIXED_NOW = "2026-11-20T00:00:00.000Z"
+  const CHAPTER_62_PATH = `${PROJECT}/wiki/chapters/chapter-062.md`
+
+  function chapter62Content(): string {
+    return chapterContent({ chapter_number: 62, title: "第62章 雪夜" })
+  }
+
+  it("fixture：normalized-consumer 前后 output JSON 字节与 Canon op digest 不变（真实 buildChapterIngestOutput/buildCanonDualWriteOps + 真实 saver 写盘 JSON）", async () => {
+    mockChapterSource(chapter62Content(), CHAPTER_62_PATH)
+    mockLlmJsonResponse(llmSnapshotJson({
+      chapterNumber: 62,
+      newCanonFacts: ["主角佩剑名为黑剑", "码头设防"],
+      beliefFacts: [{ subject: "阿宁", predicate: "认为", object: "沈舟是凶手" }],
+      hypothesisFacts: [],
+    }))
+    const deps = makeDeps()
+
+    const result = await ingestChapter(PROJECT, CHAPTER_62_PATH, undefined, undefined, { canonDualWriteDeps: deps })
+    expect(result.snapshot).not.toBeNull()
+
+    // 真实 saver 写盘 JSON：第一份 062.snapshot.json 属提交点（后续 sync 会再物化）。
+    const snapshotBatch = fsMocks.writeFilesAtomic.mock.calls
+      .map(([files]) => files as Array<[string, string]>)
+      .flat()
+      .find(([p]) => String(p).endsWith(".novel/snapshots/062.snapshot.json"))
+    expect(snapshotBatch).toBeDefined()
+    const savedSnapshotJson = String(snapshotBatch![1])
+    const savedSnapshot = JSON.parse(savedSnapshotJson) as ChapterSnapshot
+
+    // 旧消费者（pre-commit snapshot）vs 新消费者（saver 实际返回值）：逐字节相同。
+    const outputBefore = JSON.stringify(
+      buildChapterIngestOutput(result.snapshot!, { title: "第62章 雪夜", now: FIXED_NOW }),
+      null,
+      2,
+    )
+    const outputAfter = JSON.stringify(
+      buildChapterIngestOutput(savedSnapshot, { title: "第62章 雪夜", now: FIXED_NOW }),
+      null,
+      2,
+    )
+    expect(outputAfter).toBe(outputBefore)
+    expect(await computeCheckpointDigest(outputAfter)).toBe(await computeCheckpointDigest(outputBefore))
+
+    // Canon 操作集：同一事实集 → 相同 digest / payload（不因 normalized 身份变化）。
+    const opsBefore = await buildCanonDualWriteOps(result.snapshot!)
+    const opsAfter = await buildCanonDualWriteOps(savedSnapshot)
+    expect(opsBefore).toHaveLength(3)
+    expect(opsAfter.map((op) => op.digest)).toEqual(opsBefore.map((op) => op.digest))
+    // 捕获本次真实 fixture 字节/digest 值（探测输出契约不变）。
+    expect({
+      outputCodeUnits: outputBefore.length,
+      outputSha256: await computeCheckpointDigest(outputBefore),
+      canonDigests: opsBefore.map((op) => op.digest),
+      canonPayloadDigest: await computeCheckpointDigestOf(opsBefore.map((op) => op.canonPayload)),
+    }).toEqual({
+      outputCodeUnits: 8660,
+      outputSha256: "a848f17936730b054a336282ccd8fe734a84f0b418c1088e8a009ec1b15213cc",
+      canonDigests: [
+        "967a4f8e09ae870ad3168b7999f7bb9f1536b583aeaaed075234239d977974a7",
+        "18370a812865156b414f1f66ec75cea0ee5ad8596cbfcf9b13052458c59cbb2e",
+        "93adf5bbc3c90c03b01ff8afac38d1a571e1cb1961df653c973df8cf14ba707f",
+      ],
+      canonPayloadDigest: "acbc1240566d0547fbfdb770b340625aa96152a81245e7ce9e99e2e1b2f4f676",
+    })
+    expect(await computeCheckpointDigestOf(opsAfter.map((op) => op.canonPayload)))
+      .toBe(await computeCheckpointDigestOf(opsBefore.map((op) => op.canonPayload)))
+
+    // receipt.snapshotJsonSha256 绑定 saver 实际写入字节（真实 normalized JSON 身份）。
+    expect(result.receipt?.snapshotJsonSha256AtExtractionCommit).toBe(await computeCheckpointDigest(savedSnapshotJson))
+    expect(savedSnapshot.revision).toBe(1)
+    expect(savedSnapshot.snapshotId).toBe("chapter-62-r1")
+    // ingest 返回体/后续投影输入保持 pre-commit snapshot 语义（无新身份字段）。
+    expect(result.snapshot?.revision).toBeUndefined()
+    expect(result.snapshot?.snapshotId).toBeUndefined()
+
+    // 同一 read 的完整源摘要（parsed.body / content 原始字符串），readPath 为精确实参。
+    const content = chapter62Content()
+    const parsed = parseFrontmatter(content)
+    expect(result.sourceBinding).toEqual({
+      readPath: CHAPTER_62_PATH,
+      chapterNumber: 62,
+      bodySha256: await computeCheckpointDigest(parsed.body),
+      contentSha256: await computeCheckpointDigest(content),
+    })
+    // 对外源引用/receipt 只有无正文摘要，不携带原文或持久新字段。
+    expect(Object.keys(result.sourceBinding!).sort()).toEqual(
+      ["bodySha256", "chapterNumber", "contentSha256", "readPath"].sort(),
+    )
+    expect(Object.keys(result.receipt!).sort()).toEqual(
+      [
+        "bodySha256",
+        "canonOutcome",
+        "chapterNumber",
+        "contentSha256",
+        "readPath",
+        "snapshotIdAtExtractionCommit",
+        "snapshotJsonSha256AtExtractionCommit",
+        "snapshotRevisionAtExtractionCommit",
+      ].sort(),
+    )
+    const published = JSON.stringify({ sourceBinding: result.sourceBinding, receipt: result.receipt })
+    expect(published).not.toContain("正文内容")
+    expect(published).not.toContain("originalContent")
+    expect(published).not.toMatch(/bodyRevision|formalBodyRevision/)
+  })
+
+  it("snapshot revision 7、Canon 写响应 max_revision 23、正文 revision unknown 分域可见", async () => {
+    mockChapterSource(chapterContent())
+    mockLlmJsonResponse(llmSnapshotJson({
+      revision: 7,
+      newCanonFacts: ["主角佩剑名为黑剑"],
+    }))
+    const writeCanon = vi.fn(async () => ({ ok: true, revision: 23 }))
+    const deps = makeDeps({ writeCanon })
+
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH, undefined, undefined, { canonDualWriteDeps: deps })
+    expect(result.receipt?.snapshotRevisionAtExtractionCommit).toBe(7)
+    expect(result.canonOutcome?.status).toBe("completed")
+    const outcome = result.canonOutcome
+    if (outcome?.status !== "completed") throw new Error("expected completed canon outcome")
+    expect(outcome.report.results.map((r) => r.canon.revision)).toEqual([23])
+    // 正文 revision 无真源 → sourceBinding 无该字段；snapshot revision / Canon max_revision 不交叉复制。
+    expect(JSON.stringify(result.sourceBinding)).not.toContain("revision")
+    expect(result.receipt?.snapshotRevisionAtExtractionCommit).not.toBe(outcome.report.results[0]!.canon.revision)
+  })
+
+  it("Canon 部分失败入队 → canonOutcome 原样携带 per-op outcome/queued，不装饰成全部成功", async () => {
+    mockChapterSource(chapterContent())
+    mockLlmJsonResponse(llmSnapshotJson({ newCanonFacts: ["主角佩剑名为黑剑", "码头设防"] }))
+    let calls = 0
+    const deps = makeDeps({
+      writeCanon: vi.fn(async () => {
+        calls += 1
+        return calls === 1 ? { ok: true, revision: 5 } : { ok: false, error: "canon boom" }
+      }),
+    })
+
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH, undefined, undefined, { canonDualWriteDeps: deps })
+    expect(result.snapshot).not.toBeNull()
+    const outcome = result.canonOutcome
+    if (outcome?.status !== "completed") throw new Error("expected completed canon outcome")
+    expect(outcome.report.written).toBe(1)
+    expect(outcome.report.queued).toBe(1)
+    expect(outcome.report.results.map((r) => r.canon.ok)).toEqual([true, false])
+    expect(outcome.report.results[1]!.canon.error).toBe("canon boom")
+    expect(outcome.report.reconcile.consistent).toBe(false)
+    // ingest 四态不变：snapshot 成功仍 ok（Canon 状态另列，不篡改 ingest 语义）。
+    expect(result.receipt?.canonOutcome).toEqual(outcome)
+  })
+
+  it("无新正史事实且 canon deps 存在 → canonOutcome 为 skipped/no_facts，snapshot 仍成功", async () => {
+    mockChapterSource(chapterContent())
+    mockLlmJsonResponse(llmSnapshotJson({ newCanonFacts: [], beliefFacts: [], hypothesisFacts: [] }))
+    const deps = makeDeps()
+
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH, undefined, undefined, { canonDualWriteDeps: deps })
+    expect(result.snapshot).not.toBeNull()
+    expect(result.canonOutcome).toEqual({ status: "skipped", reason: "no_facts" })
     expect(deps.writeCanon).not.toHaveBeenCalled()
   })
 })

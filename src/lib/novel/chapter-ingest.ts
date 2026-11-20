@@ -101,7 +101,14 @@ export {
 // (A)-2（chapter-ingest 二次拆分第 1 步）：ingestChapter 的前置解析与守卫已拆至
 // ./chapter-ingest-ingest-guards（判定顺序与 failReason 字面值零变化）。
 import { resolveIngestTarget } from "./chapter-ingest-ingest-guards"
-import { commitIngestSnapshot } from "./chapter-ingest-commit"
+import {
+  commitIngestSnapshot,
+  type CanonDualWriteOutcome,
+  type CommitIngestSnapshotResult,
+  type IngestCommitReceipt,
+  type IngestSourceBinding,
+  type IngestSourceRead,
+} from "./chapter-ingest-commit"
 import { runIngestProjections } from "./chapter-ingest-projections"
 import { resolveNovelModel } from "./model-resolver"
 // S5 首拆切片 #2（chapter-ingest 拆分第 2 步）：快照预览纯函数簇已拆至 ./snapshot-preview。
@@ -143,7 +150,7 @@ import {
 // B2（守门四件套接线 · projection-self-heal 派生）：跳过集合与门槛的唯一事实源。
 // mayEnterFoldReplay(projection, isRebuildable)：isSelfHealSkipClass 命中 →
 // false（禁入自愈重算）；其余交由 isAutoRebuildableProjection 既有门槛。
-import { computeCheckpointDigestOf } from "./checkpoint-digest"
+import { computeCheckpointDigest, computeCheckpointDigestOf } from "./checkpoint-digest"
 import type { CanonDualWriteDeps, CanonDualWriteOp } from "./canon-dual-write"
 import { shadowWriteCanon, replayPendingQueue } from "./canon-dual-write"
 
@@ -252,7 +259,17 @@ import {
 } from "./chapter-snapshot-normalize"
 
 
-export type IngestFailReason = "no_llm" | "not_chapter" | "not_final" | "invalid_chapter_number" | "extract_failed" | "cancelled"
+export type IngestFailReason =
+  | "no_llm"
+  | "not_chapter"
+  | "not_final"
+  | "invalid_chapter_number"
+  | "extract_failed"
+  | "cancelled"
+  /** 提交前同路径完整内容与本次提取读取不一致（本次不提交）。 */
+  | "source_changed"
+  /** 提交前同路径源已不可读（本次不提交；入口初次 read 的既有行为不变）。 */
+  | "source_unavailable"
 
 /**
  * P1-IMP-12：rebuild 重嵌契约常量（LightRAG chunk_schema 单真源模式）。
@@ -277,6 +294,15 @@ export interface IngestResult {
    * 触发下次入口自愈收敛；false = 落盘成功；省略 = 未进入投影落盘段。
    */
   ledgerSaveFailed?: boolean
+  /**
+   * 本次提交点实际绑定的无正文源引用（仅成功路径；早退失败/跳过不携带）。
+   * 缺失 = 未绑定，不能读作 bound。legacy 无 sourceRead 直调 commit 时为 null。
+   */
+  sourceBinding?: IngestSourceBinding
+  /** 本次 commit 调用的实际 Canon 双写 outcome（skip/failed/completed 原样）。 */
+  canonOutcome?: CanonDualWriteOutcome
+  /** 本次提交点瞬时 receipt（源 SHA + 实际写入 snapshot 身份/JSON SHA + Canon outcome）。 */
+  receipt?: IngestCommitReceipt
 }
 
 /**
@@ -432,6 +458,9 @@ export async function buildCanonDualWriteOps(snapshot: ChapterSnapshot): Promise
  * - 无新正史事实 → 无操作
  * - final + 事实 → 调 shadowWriteCanon
  * - 双写异常 → 非致命告警，不阻断
+ *
+ * 保留既有 `Promise<void>` 契约（外部调用方只依赖副作用）。需要逐次实
+ * outcome 的提交点用下方 `runCanonDualWriteHookOutcome`。
  */
 export async function runCanonDualWriteHook(
   deps: CanonDualWriteDeps | undefined,
@@ -440,14 +469,29 @@ export async function runCanonDualWriteHook(
   snapshot: ChapterSnapshot,
   now: number,
 ): Promise<void> {
-  if (!deps) return
-  if (!isCanonDualWriteEligible(fm)) return
+  await runCanonDualWriteHookOutcome(deps, projectPath, fm, snapshot, now)
+}
+
+/**
+ * T16 / F-14 plus 提交点结果连接：与 `runCanonDualWriteHook` 同一实现与副作用，
+ * 额外返回 discriminated outcome。只透传既有 ShadowWriteReport/skip/error，
+ * 不新增 canon schema/payload/队列/晋升语义，也不篡改非致命行为。
+ */
+export async function runCanonDualWriteHookOutcome(
+  deps: CanonDualWriteDeps | undefined,
+  projectPath: string,
+  fm: Record<string, unknown>,
+  snapshot: ChapterSnapshot,
+  now: number,
+): Promise<CanonDualWriteOutcome> {
+  if (!deps) return { status: "skipped", reason: "no_deps" }
+  if (!isCanonDualWriteEligible(fm)) return { status: "skipped", reason: "not_eligible" }
 
   // R4 共识（deepseek+glm）: 原先在 try 外构建 ops，且调用方（ingestChapter）未包 try
   // ⇒ 构建抛错会冲出「非致命钩子」契约，成为未处理 rejection。
   try {
     const ops = await buildCanonDualWriteOps(snapshot)
-    if (ops.length === 0) return
+    if (ops.length === 0) return { status: "skipped", reason: "no_facts" }
     // E-05 (C-4/C-6): T16 钩子传 promoteChannel="canon-dual-write" ——
     // reconcile 一致时对 episode 类 ops 批量晋升（凭证层落盘 + 事件日志）。
     const report = await shadowWriteCanon(deps, projectPath, ops, now, "canon-dual-write")
@@ -461,10 +505,12 @@ export async function runCanonDualWriteHook(
         divergences: report.reconcile.divergences,
       })
     }
+    return { status: "completed", report }
   } catch (err) {
     logger.warn("Chapter Ingest", "Canon dual-write hook failed (non-fatal)", {
       error: toErrorMessage(err),
     })
+    return { status: "failed", reason: toErrorMessage(err) }
   }
 }
 
@@ -554,6 +600,17 @@ export async function ingestChapter(
   }
 
   if (signal?.aborted) return { snapshot: null, failReason: "cancelled" }
+
+  // 同一 read 的完整内容/正文摘要（原始字符串直接 hash，无 trim/slice/二次提取 read）。
+  // readPath 是本函数自己的 chapterPath 实参，即 resolveIngestTarget 传给 readFile 的
+  // 同一个字符串；originalContent 只在本地 sourceRead 中存在，不落盘、不发布。
+  const sourceRead: IngestSourceRead = {
+    readPath: chapterPath,
+    chapterNumber,
+    originalContent: content,
+    bodySha256: await computeCheckpointDigest(body),
+    contentSha256: await computeCheckpointDigest(content),
+  }
   let extractedSnapshot
   try {
     extractedSnapshot = await extractSnapshotWithLLM(chapterNumber, body, runtimeLlmConfig, signal)
@@ -571,19 +628,29 @@ export async function ingestChapter(
     return { snapshot: null, failReason: "extract_failed" as IngestFailReason }
   }
 
+  let committedReceipt: Extract<CommitIngestSnapshotResult, { status: "committed" }> | null = null
   /* v8 ignore next */
   if (snapshot) {
     // (A)-3：提交点（实体链接/校验 → 快照落盘 → 摄取产物 → memory-op 预演
     // → facts-store → canon 双写钩子）已抽至 ./chapter-ingest-commit。
     // 三个非致命 try/catch 的吞错边界与日志文案零变化。
     // runCanonDualWriteHook 以依赖注入传入，避免母模块 ↔ 本模块运行时循环。
-    await commitIngestSnapshot({
+    // 提交前源守卫（sourceRead + 同一 signal）在本调用内执行；changed/unavailable/
+    // cancelled 是本次提交的明确拒绝，早退形状保持 { snapshot: null, failReason }。
+    const commitResult: CommitIngestSnapshotResult = await commitIngestSnapshot({
       pp,
       snapshot,
       fm: fm as Record<string, unknown>,
       canonDualWriteDeps: options.canonDualWriteDeps,
-      runCanonDualWriteHook,
+      runCanonDualWriteHook: runCanonDualWriteHookOutcome,
+      sourceRead,
+      signal,
     })
+    if (commitResult.status !== "committed") {
+      const failReason: IngestFailReason = commitResult.status
+      return { snapshot: null, failReason }
+    }
+    committedReceipt = commitResult
   }
 
   const embCfg = options.embeddingConfig ?? useWikiStore.getState().embeddingConfig
@@ -617,7 +684,14 @@ export async function ingestChapter(
   const memorySyncedAt = projectionRun.memorySyncedAt
   const ledgerSaveFailed = projectionRun.ledgerSaveFailed
 
-  return { snapshot: { ...snapshot, memorySyncedAt }, selfHeal: entrySelfHeal, ledgerSaveFailed }
+  return {
+    snapshot: { ...snapshot, memorySyncedAt },
+    selfHeal: entrySelfHeal,
+    ledgerSaveFailed,
+    ...(committedReceipt?.sourceBinding ? { sourceBinding: committedReceipt.sourceBinding } : {}),
+    ...(committedReceipt ? { canonOutcome: committedReceipt.canonOutcome } : {}),
+    ...(committedReceipt?.receipt ? { receipt: committedReceipt.receipt } : {}),
+  }
 }
 
 export const ingestChapterPipeline = createChapterPipeline({ ingestChapter })

@@ -41,7 +41,14 @@ import {
 } from "./snapshot-paths"
 import type { ChapterSnapshot } from "./chapter-ingest"
 
-export async function saveSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<void> {
+/**
+ * 落盘快照（JSON+MD 原子批写）并合并 timeline。
+ *
+ * 返回值是**本次实际序列化的 normalized snapshot**（identity 已完成）：提交点
+ * 的 output/Canon/receipt 复用它，不再二次 normalize/identity，也不新增持久字段。
+ * 既有调用方忽略返回值不受影响。
+ */
+export async function saveSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<ChapterSnapshot> {
   const canonicalSnapshot = ensureSnapshotIdentity(canonicalizeSnapshotCharacters(snapshot))
   const normalizedSnapshot = normalizeChapterSnapshot(canonicalSnapshot, {
     chapterId: snapshot.chapterId,
@@ -65,6 +72,8 @@ export async function saveSnapshot(projectPath: string, snapshot: ChapterSnapsho
   ])
 
   await mergeSnapshotTimeline(projectPath, normalizedSnapshot.chapterNumber, normalizedSnapshot.timelineEvents)
+
+  return normalizedSnapshot
 }
 
 export async function saveChapterIngestOutput(

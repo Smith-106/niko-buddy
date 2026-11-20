@@ -23,11 +23,43 @@ const fsMocks = vi.hoisted(() => ({
   deleteFile: vi.fn(),
 }))
 
+const sourceFs = vi.hoisted(() => ({
+  chapterPath: "E:/Novel/wiki/chapters/chapter-001.md",
+  chapterSource: null as string | null,
+  chapterSequence: [] as Array<string | Error>,
+}))
+
+/**
+ * MF-01: 显式 chapterPath 保持稳定正文（初始 read 与提交前同路径复查同源），
+ * unrelated paths 仍走各用例原本的 per-test 行为（ENOENT/错误/wiki-patch）。
+ */
+function mockChapterSource(content: string, path: string = sourceFs.chapterPath): void {
+  sourceFs.chapterPath = path
+  sourceFs.chapterSource = content
+  sourceFs.chapterSequence = []
+}
+
+/** 仅用于蓄意源变化负向控制：按 read 次序返回不同章节响应。 */
+function mockChapterSourceSequence(responses: Array<string | Error>, path: string = sourceFs.chapterPath): void {
+  sourceFs.chapterPath = path
+  sourceFs.chapterSource = null
+  sourceFs.chapterSequence = [...responses]
+}
+
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
   return {
     ...actual,
-      readFile: (...args: unknown[]) => fsMocks.readFile(...args),
+      readFile: (path: unknown) => {
+        const p = String(path)
+        if (p === sourceFs.chapterPath) {
+          const queued = sourceFs.chapterSequence.shift()
+          if (queued instanceof Error) return Promise.reject(queued)
+          if (typeof queued === "string") return Promise.resolve(queued)
+          if (sourceFs.chapterSource !== null) return Promise.resolve(sourceFs.chapterSource)
+        }
+        return fsMocks.readFile(path)
+      },
       writeFileAtomic: (...args: unknown[]) => fsMocks.writeFileAtomic(...args),
       writeFilesAtomic: (...args: unknown[]) => fsMocks.writeFilesAtomic(...args),
       listDirectory: (...args: unknown[]) => fsMocks.listDirectory(...args),
@@ -174,9 +206,11 @@ import {
   ingestOutline,
   type ChapterSnapshot,
 } from "./chapter-ingest"
+import { parseFrontmatter } from "@/lib/frontmatter"
+import { computeCheckpointDigest } from "./checkpoint-digest"
 
 const PROJECT = "E:/Novel"
-const CHAPTER_PATH = `${PROJECT}/wiki/chapters/chapter-001.md`
+const CHAPTER_PATH = sourceFs.chapterPath
 
 function chapterContent(overrides: Record<string, string | number> = {}): string {
   const fm = {
@@ -240,6 +274,9 @@ function setupDefaultFs(): void {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  sourceFs.chapterPath = "E:/Novel/wiki/chapters/chapter-001.md"
+  sourceFs.chapterSource = null
+  sourceFs.chapterSequence = []
   storeState.novelMode = true
   storeState.llmConfig = { provider: "custom", model: "extract-model", customEndpoint: "http://localhost:11434", apiKey: "" } as LlmConfig
   storeState.novelConfig = {
@@ -286,19 +323,19 @@ describe("ingestChapter — early guard branches", () => {
   })
 
   it("returns failReason not_chapter when the file has no frontmatter", async () => {
-    fsMocks.readFile.mockResolvedValueOnce("plain body without frontmatter")
+    mockChapterSource("plain body without frontmatter")
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result).toEqual({ snapshot: null, failReason: "not_chapter" })
   })
 
   it("returns failReason not_chapter when frontmatter is not a chapter page", async () => {
-    fsMocks.readFile.mockResolvedValueOnce("---\ntype: note\ntitle: 笔记\n---\n\n正文")
+    mockChapterSource("---\ntype: note\ntitle: 笔记\n---\n\n正文")
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result).toEqual({ snapshot: null, failReason: "not_chapter" })
   })
 
   it("returns failReason not_final when the chapter status is not final", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent({ chapter_status: "draft" }))
+    mockChapterSource(chapterContent({ chapter_status: "draft" }))
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result).toEqual({ snapshot: null, failReason: "not_final" })
     // E-05 (C-10) 零向量化回归：draft 章 not_final 早退 → embedPage 零调用
@@ -306,13 +343,13 @@ describe("ingestChapter — early guard branches", () => {
   })
 
   it("returns failReason invalid_chapter_number for zero chapter numbers", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent({ chapter_number: 0 }))
+    mockChapterSource(chapterContent({ chapter_number: 0 }))
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result).toEqual({ snapshot: null, failReason: "invalid_chapter_number" })
   })
 
   it("returns failReason cancelled when the signal is already aborted", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     const result = await ingestChapter(PROJECT, CHAPTER_PATH, undefined, AbortSignal.abort())
     expect(result).toEqual({ snapshot: null, failReason: "cancelled" })
   })
@@ -323,7 +360,7 @@ describe("ingestChapter — early guard branches", () => {
   })
 
   it("options.now 作为显式时钟下传 fold（store 的 lastUpdated 用注入时间，不再隐式读时钟）", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     const injectedNow = "2026-09-07T00:00:00.000Z"
 
@@ -340,41 +377,41 @@ describe("ingestChapter — early guard branches", () => {
 
 describe("ingestChapter — extraction failures degrade to extract_failed", () => {
   it("returns failReason extract_failed when the model returns no JSON object at all", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse("模型只输出了散文，没有 JSON")
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result).toEqual({ snapshot: null, failReason: "extract_failed" })
   })
 
   it("returns failReason extract_failed for unbalanced braces (never-closed object)", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse('{"summary": "未闭合')
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result).toEqual({ snapshot: null, failReason: "extract_failed" })
   })
 
   it("returns failReason extract_failed for malformed JSON (SyntaxError)", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse('{"summary": 未闭合的引号}')
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result).toEqual({ snapshot: null, failReason: "extract_failed" })
   })
 
   it("returns failReason extract_failed for valid JSON that is not an object", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse("[1, 2, 3]")
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result).toEqual({ snapshot: null, failReason: "extract_failed" })
   })
 
   it("rethrows stream errors instead of degrading (transport/abort path stays distinct)", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmStreamError("connection reset")
     await expect(ingestChapter(PROJECT, CHAPTER_PATH)).rejects.toThrow("connection reset")
   })
 
   it("returns failReason cancelled when the stream aborts mid-flight (cancellation is modelled, not a reject)", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmStreamError("request cancelled by user")
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     // 取消是已建模的 failReason：不得向外 reject，也不得谎报 extract_failed。
@@ -384,7 +421,7 @@ describe("ingestChapter — extraction failures degrade to extract_failed", () =
 
 describe("ingestChapter — JSON object extraction from model text", () => {
   it("extracts from a ```json code fence", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson(), "json")
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result.snapshot?.chapterNumber).toBe(1)
@@ -392,28 +429,28 @@ describe("ingestChapter — JSON object extraction from model text", () => {
   })
 
   it("extracts from a plain ``` fence", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson(), "")
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result.snapshot?.summary).toBe("主角来到码头")
   })
 
   it("extracts the first balanced object from prose with leading/trailing chatter", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(`好的，以下是提取结果：\n${JSON.stringify(llmSnapshotJson())}\n希望有帮助！`)
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result.snapshot?.chapterNumber).toBe(1)
   })
 
   it("keeps braces inside strings balanced (escaped quotes and nested objects)", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({ summary: "他说：\"我们走}\"，然后离开" }))
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result.snapshot?.summary).toBe("他说：\"我们走}\"，然后离开")
   })
 
   it("prefers the fenced object when both fence and outer prose contain braces", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     const fenceJson = JSON.stringify(llmSnapshotJson({ summary: "围栏内的摘要" }))
     streamChatMock.mockImplementation(async (_cfg: unknown, _msgs: unknown, callbacks: StreamCallbacks) => {
       callbacks.onToken(`前面有 { 干扰 } 内容\n\`\`\`json\n${fenceJson}\n\`\`\``)
@@ -426,7 +463,7 @@ describe("ingestChapter — JSON object extraction from model text", () => {
 
 describe("ingestChapter — full success path with projections", () => {
   it("commits snapshot + ingest output and runs every projection", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
 
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
@@ -466,7 +503,7 @@ describe("ingestChapter — full success path with projections", () => {
   })
 
   it("S4-R4：批量事务失败时不合并 timeline（prepare 失败＝零落盘语义）", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     fsMocks.writeFilesAtomic.mockRejectedValueOnce(new Error("batch commit failed"))
     await expect(ingestChapter(PROJECT, CHAPTER_PATH)).rejects.toThrow("batch commit failed")
@@ -474,7 +511,7 @@ describe("ingestChapter — full success path with projections", () => {
   })
 
   it("skips data-driven projections whose change lists are empty", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       characterStateChanges: [],
       knowledgeChanges: [],
@@ -491,7 +528,7 @@ describe("ingestChapter — full success path with projections", () => {
   })
 
   it("executes the console-log branches when graph projections return paths", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     moduleMocks.writeSnapshotToWiki.mockResolvedValue([`${PROJECT}/wiki/entities/阿宁.md`])
     moduleMocks.writePatchFieldsToWiki.mockResolvedValue([`${PROJECT}/wiki/entities/阿宁.md`])
@@ -502,7 +539,7 @@ describe("ingestChapter — full success path with projections", () => {
   })
 
   it("embeds the chapter page when the embedding config is enabled", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     storeState.embeddingConfig = { enabled: true, model: "emb-model" }
     await ingestChapter(PROJECT, CHAPTER_PATH)
@@ -516,7 +553,7 @@ describe("ingestChapter — full success path with projections", () => {
   })
 
   it("uses the page id as title when frontmatter has no title", async () => {
-    fsMocks.readFile.mockResolvedValueOnce("---\ntype: chapter\nchapter_number: 1\nchapter_status: final\n---\n\n# 第1章\n\n正文")
+    mockChapterSource("---\ntype: chapter\nchapter_number: 1\nchapter_status: final\n---\n\n# 第1章\n\n正文")
     mockLlmJsonResponse(llmSnapshotJson())
     storeState.embeddingConfig = { enabled: true, model: "emb-model" }
     await ingestChapter(PROJECT, CHAPTER_PATH)
@@ -524,7 +561,7 @@ describe("ingestChapter — full success path with projections", () => {
   })
 
   it("renders every non-empty snapshot section into the markdown snapshot", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       organizations: ["商会"],
       items: ["黑剑"],
@@ -545,7 +582,7 @@ describe("ingestChapter — full success path with projections", () => {
   })
 
   it("builds the entity link index from existing entity pages during linking", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     fsMocks.listDirectory.mockImplementation(async (path: string) => {
       const p = String(path)
       if (p.endsWith("wiki/entities")) {
@@ -573,7 +610,7 @@ describe("ingestChapter — full success path with projections", () => {
   })
 
   it("runs memory-op rehearsal when canon facts produce ops, and warns when it throws", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     moduleMocks.planAddOpsFromCanonFacts.mockReturnValue([{ op: "add", fact: "黑剑" }])
     moduleMocks.applyMemoryOps.mockReturnValue([{ ok: true }])
@@ -583,13 +620,13 @@ describe("ingestChapter — full success path with projections", () => {
     moduleMocks.planAddOpsFromCanonFacts.mockImplementation(() => {
       throw new Error("memory-op boom")
     })
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result.snapshot).not.toBeNull()
   })
 
   it("records a failed projection to the ledger and continues when a projection throws", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     moduleMocks.writeSnapshotToWiki.mockRejectedValue(new Error("graph boom"))
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
@@ -600,7 +637,7 @@ describe("ingestChapter — full success path with projections", () => {
   })
 
   it("falls back to a fresh ledger when the ledger load throws", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     fsMocks.readFile.mockImplementation(async (path: string) => {
       const p = String(path)
@@ -613,7 +650,7 @@ describe("ingestChapter — full success path with projections", () => {
   })
 
   it("warns when the ledger save fails but still returns the snapshot", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     // ledgerPath = ${PROJECT}/.novel/projection-status.json (非 projection-status-ledger.json)
     fsMocks.writeFileAtomic.mockImplementation(async (path: string) => {
@@ -625,7 +662,7 @@ describe("ingestChapter — full success path with projections", () => {
   })
 
   it("resets warnings when entity validation throws", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     moduleMocks.resolveEntityLink.mockImplementation(() => {
       throw new Error("link boom")
@@ -638,7 +675,7 @@ describe("ingestChapter — full success path with projections", () => {
 
 describe("ingestChapter — validation warning branches", () => {
   it("emits canon_conflict warnings from events matching the conflict patterns", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       events: ["主角推翻了旧设定", "主角之前对真相有误解", "实际上真相是……"],
     }))
@@ -655,14 +692,14 @@ describe("ingestChapter — validation warning branches", () => {
   })
 
   it("emits no canon warnings when canon.md is missing", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({ events: ["主角推翻了旧设定"] }))
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result.snapshot!.validationWarnings!.filter((w) => w.type === "canon_conflict")).toHaveLength(0)
   })
 
   it("marks entities as new only when their wiki file does not exist, and handles probe errors", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     // 阿宁/宁/码头 exist on disk except 码头; one probe throws
     fsMocks.fileExists.mockImplementation(async (path: string) => {
@@ -675,7 +712,7 @@ describe("ingestChapter — validation warning branches", () => {
   })
 
   it("collapses entity references to canonical names and remaps detail records", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     const linkTargets = new Map<string, string>([
       ["宁", "阿宁"],
       ["码头", "东码头"],
@@ -707,7 +744,7 @@ describe("ingestChapter — validation warning branches", () => {
 
 describe("ingestChapter — community summary rebuild", () => {
   it("waits synchronously when communitySummaryAsync is off", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     moduleMocks.shouldRebuildCommunitySummaries.mockReturnValue(true)
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
@@ -716,7 +753,7 @@ describe("ingestChapter — community summary rebuild", () => {
   })
 
   it("fires and forgets when communitySummaryAsync is on", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     moduleMocks.shouldRebuildCommunitySummaries.mockReturnValue(true)
     storeState.novelConfig = { ...storeState.novelConfig, communitySummaryAsync: true }
@@ -726,7 +763,7 @@ describe("ingestChapter — community summary rebuild", () => {
   })
 
   it("routes summary failure to the injected callback", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     moduleMocks.shouldRebuildCommunitySummaries.mockReturnValue(true)
     moduleMocks.generateCommunitySummaries.mockRejectedValue(new Error("summary boom"))
@@ -737,7 +774,7 @@ describe("ingestChapter — community summary rebuild", () => {
   })
 
   it("falls back to the store notification when no callback is injected", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     moduleMocks.shouldRebuildCommunitySummaries.mockReturnValue(true)
     moduleMocks.generateCommunitySummaries.mockRejectedValue(new Error("summary boom"))
@@ -749,7 +786,7 @@ describe("ingestChapter — community summary rebuild", () => {
 
 describe("ingestChapter — options DI", () => {
   it("prefers injected llmConfig / novelConfig / embeddingConfig / novelMode over the store", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     const options = {
       llmConfig: { provider: "custom", model: "injected", customEndpoint: "http://injected", apiKey: "" } as LlmConfig,
@@ -767,7 +804,7 @@ describe("ingestChapter — options DI", () => {
 describe("ingestChapterPipeline", () => {
   it("resolves the review model and forwards to ingestChapter", async () => {
     storeState.novelConfig = { ...storeState.novelConfig, reviewModel: "review-model" }
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     const result = await ingestChapterPipeline(PROJECT, CHAPTER_PATH)
     expect(result.snapshot).not.toBeNull()
@@ -933,7 +970,7 @@ describe("buildSnapshotMemorySyncPreview", () => {
 
 describe("fold helpers via ingest projections (CORR-001/002 shared colon parsers)", () => {
   it("folds fullwidth and ASCII colon character-state lines and weak includes fallback", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       characterStateChanges: [
         "阿宁：受伤",
@@ -972,7 +1009,7 @@ describe("fold helpers via ingest projections (CORR-001/002 shared colon parsers
   })
 
   it("folds foreshadow add/advance/resolve with notes and unrecognized lines", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       foreshadowingChanges: [
         "新增伏笔：黑剑-主角的佩剑",
@@ -1011,7 +1048,7 @@ describe("fold helpers via ingest projections (CORR-001/002 shared colon parsers
   })
 
   it("folds emotional arcs and resource ledger from details, skipping empty entries", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       characterDetails: {
         阿宁: { identity: "主角", faction: "无", goals: "复仇", arcChange: "从复仇到释然" },
@@ -1041,7 +1078,7 @@ describe("fold helpers via ingest projections (CORR-001/002 shared colon parsers
   })
 
   it("updates an existing resource-ledger entry when the holder changes", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       itemDetails: {
         断水剑: { holder: "苏未晞", previousHolders: "", abilities: "", limitations: "", origin: "" },
@@ -1070,13 +1107,13 @@ describe("fold helpers via ingest projections (CORR-001/002 shared colon parsers
 })
 describe("chapter-ingest residual branches (L2A)", () => {
   it("routes an unparseable chapter_number through the ?? 0 fallback to invalid_chapter_number", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent({ chapter_number: "abc" }))
+    mockChapterSource(chapterContent({ chapter_number: "abc" }))
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result).toEqual({ snapshot: null, failReason: "invalid_chapter_number" })
   })
 
   it("resets warnings when entity validation throws a non-Error value", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     moduleMocks.resolveEntityLink.mockImplementation(() => {
       throw "link boom string"
@@ -1087,7 +1124,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("logs String(err) when the memory-op rehearsal throws a non-Error", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     moduleMocks.planAddOpsFromCanonFacts.mockImplementation(() => {
       throw "memory-op boom"
@@ -1097,7 +1134,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("logs String(err) when a projection fails with a non-Error", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     moduleMocks.writeSnapshotToWiki.mockRejectedValue("graph boom string")
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
@@ -1105,7 +1142,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("skips the embed when the chapter path has no page-id stem", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent(), `${CHAPTER_PATH}/`)
     mockLlmJsonResponse(llmSnapshotJson())
     storeState.embeddingConfig = { enabled: true, model: "emb-model" }
     await ingestChapter(PROJECT, `${CHAPTER_PATH}/`)
@@ -1113,7 +1150,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("logs String(err) when the ledger save fails with a non-Error", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     fsMocks.writeFileAtomic.mockImplementation(async (path: string) => {
       if (String(path).endsWith("projection-status.json")) throw "ledger boom string"
@@ -1124,7 +1161,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("routes non-Error community-summary failures through String(err)", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson())
     moduleMocks.shouldRebuildCommunitySummaries.mockReturnValue(true)
     moduleMocks.generateCommunitySummaries.mockRejectedValue("summary boom string")
@@ -1134,7 +1171,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("rethrows non-Error stream failures with String(err) from extractSnapshotWithLLM", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     streamChatMock.mockImplementation(async () => {
       throw "raw stream failure"
     })
@@ -1142,7 +1179,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("renders （无） placeholders for empty characters and locations in the snapshot markdown", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({ characters: [], locations: [] }))
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result.snapshot).not.toBeNull()
@@ -1154,7 +1191,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("advances a foreshadow without a dash separator (bare name)", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       foreshadowingChanges: ["推进伏笔：黑剑"],
     }))
@@ -1181,7 +1218,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("ignores colon-less character-state lines that match no existing character", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       characterStateChanges: ["完全陌生的路人受伤了"],
     }))
@@ -1208,7 +1245,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("matches advance lines against boundary-anchored partial foreshadow names (P2-IMP-09 词界)", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       foreshadowingChanges: ["推进伏笔：黑剑", "推进伏笔：碎片"],
     }))
@@ -1239,7 +1276,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("P2-IMP-09 伏笔短名反例：单字「剑」不命中「剑意」，中缀「剑法」不命中「九剑法门」", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       foreshadowingChanges: ["推进伏笔：剑", "推进伏笔：九剑法门"],
     }))
@@ -1270,7 +1307,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("skips advance/resolve lines with no matching foreshadow", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       foreshadowingChanges: ["推进伏笔：不存在的剑", "回收伏笔：也没有的钥匙"],
     }))
@@ -1297,7 +1334,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("does not duplicate the advancedChapter on a same-chapter re-advance and appends notes", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       foreshadowingChanges: ["推进伏笔：黑剑-第一次", "推进伏笔：黑剑-第二次"],
     }))
@@ -1324,7 +1361,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("appends resolution notes when the resolved foreshadow already has notes", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       foreshadowingChanges: ["回收伏笔：黑剑-钥匙沉入井底"],
     }))
@@ -1351,7 +1388,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("skips character-detail entries without an arcChange", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       characterDetails: {
         无弧光者: { identity: "配角", faction: "", goals: "", arcChange: undefined as unknown as string },
@@ -1367,7 +1404,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("handles item details missing holder or previousHolders", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       itemDetails: {
         无主之物: { previousHolders: "老掌门", abilities: "", limitations: "", origin: "" },
@@ -1390,7 +1427,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("keeps an existing ledger entry unchanged when the holder did not change", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       itemDetails: {
         断水剑: { holder: "阿宁", previousHolders: "", abilities: "", limitations: "", origin: "" },
@@ -1418,7 +1455,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("drops characterAliases when the LLM emits none and no alias links resolve", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({ characterAliases: undefined }))
     const result = await ingestChapter(PROJECT, CHAPTER_PATH)
     expect(result.snapshot).not.toBeNull()
@@ -1426,7 +1463,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("seeds an alias list for a canonical name that had no aliases yet", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     const linkTargets = new Map<string, string>([
       ["宁", "阿宁"],
       ["小猫", "猫妖"],
@@ -1442,7 +1479,7 @@ describe("chapter-ingest residual branches (L2A)", () => {
   })
 
   it("keeps unlinked location/organization detail keys under their raw names", async () => {
-    fsMocks.readFile.mockResolvedValueOnce(chapterContent())
+    mockChapterSource(chapterContent())
     mockLlmJsonResponse(llmSnapshotJson({
       locationDetails: { 神秘地点: { region: "东城", type: "秘境", controller: "", hiddenInfo: "" } },
       organizationDetails: { 无名组织: { leader: "", members: "", goals: "", resources: "" } },
@@ -1458,5 +1495,115 @@ describe("chapter-ingest residual branches (L2A)", () => {
       throw "boom-string"
     })
     await expect(ingestOutline(PROJECT, `${PROJECT}/wiki/outlines/总大纲.md`)).rejects.toThrow("boom-string")
+  })
+})
+
+describe("ingestChapter — 提交前实源绑定与严格源变化拒绝", () => {
+  const CRLF_CHAPTER = "---\r\ntype: chapter\r\nchapter_number: 1\r\nchapter_status: final\r\ntitle: 第1章 开局\r\n---\r\n\r\n# 第1章 开局\r\n\r\n正文第一行……\r\n正文最后一行……\r\n\r\n"
+
+  function expectNoCommitStarted(): void {
+    // 本次新提交的 saveSnapshot(JSON+MD) / ingest output / facts / 投影 / Canon 均未启动。
+    expect(fsMocks.writeFilesAtomic).not.toHaveBeenCalled()
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(moduleMocks.mergeSnapshotTimeline).not.toHaveBeenCalled()
+    expect(moduleMocks.writeSnapshotToWiki).not.toHaveBeenCalled()
+    expect(moduleMocks.writePatchFieldsToWiki).not.toHaveBeenCalled()
+    expect(moduleMocks.embedPage).not.toHaveBeenCalled()
+    expect(storeState.bumpDataVersion).not.toHaveBeenCalled()
+  }
+
+  it("CRLF/H1/首尾空行的完整 parsed.body 与 content 原始字符串直接 hash（无 trim/slice）；尾部单字符差异改变 SHA", async () => {
+    mockChapterSource(CRLF_CHAPTER)
+    mockLlmJsonResponse(llmSnapshotJson())
+
+    const first = await ingestChapter(PROJECT, CHAPTER_PATH)
+    expect(first.snapshot).not.toBeNull()
+    const parsed = parseFrontmatter(CRLF_CHAPTER)
+    expect(first.sourceBinding?.readPath).toBe(CHAPTER_PATH)
+    expect(first.sourceBinding?.chapterNumber).toBe(1)
+    expect(first.sourceBinding?.bodySha256).toBe(await computeCheckpointDigest(parsed.body))
+    expect(first.sourceBinding?.contentSha256).toBe(await computeCheckpointDigest(CRLF_CHAPTER))
+    // 不是 trim / 规范化后的摘要：CRLF、H1、首尾空行保留在 hash 输入里。
+    expect(first.sourceBinding?.bodySha256).not.toBe(await computeCheckpointDigest(parsed.body.trim()))
+    expect(first.sourceBinding?.contentSha256).not.toBe(await computeCheckpointDigest(CRLF_CHAPTER.trim()))
+
+    // 仅尾部一个字符变化（frontmatter 不动）→ body/content SHA 均变化。
+    const tailChanged = `${CRLF_CHAPTER.slice(0, -1)}X`
+    mockChapterSource(tailChanged)
+    const second = await ingestChapter(PROJECT, CHAPTER_PATH)
+    expect(second.snapshot).not.toBeNull()
+    const tailParsed = parseFrontmatter(tailChanged)
+    expect(second.sourceBinding?.bodySha256).toBe(await computeCheckpointDigest(tailParsed.body))
+    expect(second.sourceBinding?.bodySha256).not.toBe(first.sourceBinding?.bodySha256)
+    expect(second.sourceBinding?.contentSha256).not.toBe(first.sourceBinding?.contentSha256)
+  })
+
+  it("提取期间正文变化 → 本次提交拒绝（source_changed），不落快照/产物/facts/Canon/投影", async () => {
+    mockChapterSourceSequence([
+      chapterContent(),
+      chapterContent().replace("正文内容……", "正文内容……已被外部改写"),
+    ])
+    mockLlmJsonResponse(llmSnapshotJson())
+
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH)
+    expect(result).toEqual({ snapshot: null, failReason: "source_changed" })
+    expectNoCommitStarted()
+  })
+
+  it("实体校验期间仅 frontmatter 变化（正文相同）也拒绝本次提交", async () => {
+    mockChapterSourceSequence([
+      chapterContent(),
+      chapterContent({ title: "第1章 开局（外部改题）" }),
+    ])
+    mockLlmJsonResponse(llmSnapshotJson())
+
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH)
+    expect(result).toEqual({ snapshot: null, failReason: "source_changed" })
+    expectNoCommitStarted()
+  })
+
+  it("提交前同路径不可读 → source_unavailable（不把 IO 错误当相同内容），零新下游调用", async () => {
+    mockChapterSourceSequence([chapterContent(), new Error("EACCES: permission denied")])
+    mockLlmJsonResponse(llmSnapshotJson())
+
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH)
+    expect(result).toEqual({ snapshot: null, failReason: "source_unavailable" })
+    expectNoCommitStarted()
+  })
+
+  it("提取完成后取销 → cancelled（同一 AbortSignal），零新下游调用", async () => {
+    const controller = new AbortController()
+    mockChapterSource(chapterContent())
+    streamChatMock.mockImplementation(async (_cfg: unknown, _msgs: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onToken(JSON.stringify(llmSnapshotJson()))
+      callbacks.onDone()
+      controller.abort()
+    })
+
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH, undefined, controller.signal)
+    expect(result).toEqual({ snapshot: null, failReason: "cancelled" })
+    expectNoCommitStarted()
+  })
+
+  it("成功提交不引入持久新字段：快照 JSON 无 readPath/bodySha256，receipt 不带正文", async () => {
+    mockChapterSource(chapterContent())
+    mockLlmJsonResponse(llmSnapshotJson())
+
+    const result = await ingestChapter(PROJECT, CHAPTER_PATH)
+    expect(result.snapshot).not.toBeNull()
+    expect(result.receipt).toBeDefined()
+
+    const batchFiles = fsMocks.writeFilesAtomic.mock.calls.map(([files]) => files as Array<[string, string]>).flat()
+    const snapshotJsonWrite = batchFiles.find(([p]) => String(p).endsWith(".novel/snapshots/001.snapshot.json"))
+    expect(snapshotJsonWrite).toBeDefined()
+    const snapshotJson = String(snapshotJsonWrite![1])
+    expect(snapshotJson).not.toContain("readPath")
+    expect(snapshotJson).not.toContain("bodySha256")
+    expect(snapshotJson).not.toContain("originalContent")
+    expect(snapshotJson).not.toContain("sourceBinding")
+
+    const published = JSON.stringify({ sourceBinding: result.sourceBinding, receipt: result.receipt })
+    expect(published).not.toContain("正文内容")
+    expect(published).not.toContain("originalContent")
   })
 })

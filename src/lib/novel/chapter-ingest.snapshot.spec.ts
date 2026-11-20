@@ -179,6 +179,8 @@ import {
   type ChapterSnapshot,
 } from "./chapter-ingest"
 import { PROJECTION_REGISTRY } from "./projection-status-ledger"
+import { saveSnapshot } from "./chapter-ingest-snapshot-io"
+import { computeCheckpointDigest } from "./checkpoint-digest"
 
 const PROJECT = "E:/Novel"
 
@@ -258,6 +260,51 @@ beforeEach(() => {
   moduleMocks.planAddOpsFromCanonFacts.mockReturnValue([])
   moduleMocks.applyMemoryOps.mockReturnValue([])
   moduleMocks.embedPage.mockResolvedValue(undefined)
+})
+
+describe("saveSnapshot", () => {
+  it("返回本次实际序列化的 normalized snapshot（与 JSON 写入字节逐字相同，identity 已完成）", async () => {
+    const raw: ChapterSnapshot = {
+      chapterId: "chapter-1",
+      chapterNumber: 1,
+      summary: "摘要",
+      characters: ["阿宁"],
+      locations: [],
+      organizations: [],
+      items: [],
+      events: [],
+      characterStateChanges: [],
+      relationshipChanges: [],
+      knowledgeChanges: [],
+      foreshadowingChanges: [],
+      newCanonFacts: [],
+      timelineEvents: ["第一天"],
+      conflicts: [],
+      endingHook: "钩子",
+      graphNodes: [],
+      graphEdges: [],
+    }
+
+    const returned = await saveSnapshot(PROJECT, raw)
+
+    const batch = fsMocks.writeFilesAtomic.mock.calls[0]![0] as Array<[string, string]>
+    const jsonWrite = batch.find(([p]) => String(p).endsWith(".novel/snapshots/001.snapshot.json"))
+    const mdWrite = batch.find(([p]) => String(p).endsWith(".novel/snapshots/001.snapshot.md"))
+    expect(jsonWrite).toBeDefined()
+    expect(mdWrite).toBeDefined()
+
+    // saver 返回值就是写盘 JSON 的同一序列化，不是重算或默认值。
+    expect(JSON.stringify(returned, null, 2)).toBe(String(jsonWrite![1]))
+    expect(await computeCheckpointDigest(JSON.stringify(returned, null, 2)))
+      .toBe(await computeCheckpointDigest(String(jsonWrite![1])))
+    expect(returned.chapterId).toBe("chapter-1")
+    expect(returned.revision).toBe(1)
+    expect(returned.snapshotId).toBe("chapter-1-r1")
+    expect(returned.sourceType).toBe("chapter")
+    expect(returned.sourceSequence).toBe(1)
+    // 既有 timeline 第三写语义不变：用同一 normalized snapshot 的 events。
+    expect(moduleMocks.mergeSnapshotTimeline).toHaveBeenCalledWith(PROJECT, 1, returned.timelineEvents)
+  })
 })
 
 describe("loadSnapshot", () => {

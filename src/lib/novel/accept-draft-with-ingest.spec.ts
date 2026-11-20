@@ -52,6 +52,104 @@ describe("acceptDraftAndIngest", () => {
     expect(out.selfHeal).toEqual({ attempted: false, healed: [] })
   })
 
+  it("失败/跳过不伪造 bound source：failed 与两个 skip 均不携带 sourceBinding/canonOutcome/receipt", async () => {
+    ingestChapter.mockResolvedValue({ snapshot: null, failReason: "source_changed" })
+    const failed = await acceptDraftAndIngest({
+      projectPath: "/proj",
+      formalChapterPath: "/proj/wiki/chapters/第3章.md",
+      accept: vi.fn(async () => {}),
+      novelConfig: novelConfig(),
+      llmConfig,
+    })
+    expect(failed.ingest).toBe("failed")
+    expect(failed.failReason).toBe("source_changed")
+    expect(failed).not.toHaveProperty("sourceBinding")
+    expect(failed).not.toHaveProperty("canonOutcome")
+    expect(failed).not.toHaveProperty("receipt")
+
+    ingestChapter.mockClear()
+    const skippedConfig = await acceptDraftAndIngest({
+      projectPath: "/proj",
+      formalChapterPath: "/proj/wiki/chapters/第3章.md",
+      accept: vi.fn(async () => {}),
+      novelConfig: novelConfig({ autoIngestOnSave: false }),
+      llmConfig,
+    })
+    expect(skippedConfig).not.toHaveProperty("sourceBinding")
+    expect(ingestChapter).not.toHaveBeenCalled()
+
+    const skippedNoModel = await acceptDraftAndIngest({
+      projectPath: "/proj",
+      formalChapterPath: "/proj/wiki/chapters/第3章.md",
+      accept: vi.fn(async () => {}),
+      novelConfig: novelConfig(),
+      llmConfig: { ...llmConfig, apiKey: "" } as LlmConfig,
+    })
+    expect(skippedNoModel).not.toHaveProperty("sourceBinding")
+  })
+
+  it("ok：additive 透传 ingest 的 sourceBinding/canonOutcome/receipt（无则不上报）", async () => {
+    const sourceBinding = {
+      readPath: "/proj/wiki/chapters/第3章.md",
+      chapterNumber: 3,
+      bodySha256: "body-sha",
+      contentSha256: "content-sha",
+    }
+    const canonOutcome = {
+      status: "completed" as const,
+      report: {
+        written: 1,
+        queued: 0,
+        results: [{ digest: "d", legacy: { ok: true }, canon: { ok: true, revision: 23 }, consistent: true }],
+        reconcile: { consistent: true, divergences: [] },
+      },
+    }
+    const receipt = {
+      ...sourceBinding,
+      snapshotIdAtExtractionCommit: "chapter-3-r7",
+      snapshotRevisionAtExtractionCommit: 7,
+      snapshotJsonSha256AtExtractionCommit: "json-sha",
+      canonOutcome,
+    }
+    ingestChapter.mockResolvedValue({
+      snapshot: { chapterId: "chapter-3" },
+      selfHeal: { attempted: false, healed: [] },
+      sourceBinding,
+      canonOutcome,
+      receipt,
+    })
+
+    const out = await acceptDraftAndIngest({
+      projectPath: "/proj",
+      formalChapterPath: "/proj/wiki/chapters/第3章.md",
+      accept: vi.fn(async () => {}),
+      novelConfig: novelConfig(),
+      llmConfig,
+    })
+
+    expect(out.ingest).toBe("ok")
+    expect(out.sourceBinding).toEqual(sourceBinding)
+    expect(out.canonOutcome).toEqual(canonOutcome)
+    expect(out.receipt).toEqual(receipt)
+  })
+
+  it("ok 但 ingest 未提供详情（legacy 返回）→ 不发明 bound receipt", async () => {
+    ingestChapter.mockResolvedValue({ snapshot: { chapterId: "chapter-3" } })
+
+    const out = await acceptDraftAndIngest({
+      projectPath: "/proj",
+      formalChapterPath: "/proj/wiki/chapters/第3章.md",
+      accept: vi.fn(async () => {}),
+      novelConfig: novelConfig(),
+      llmConfig,
+    })
+
+    expect(out.ingest).toBe("ok")
+    expect(out).not.toHaveProperty("sourceBinding")
+    expect(out).not.toHaveProperty("canonOutcome")
+    expect(out).not.toHaveProperty("receipt")
+  })
+
   it("skipped-config：autoIngestOnSave 关闭时不摄取", async () => {
     const accept = vi.fn(async () => {})
     const out = await acceptDraftAndIngest({

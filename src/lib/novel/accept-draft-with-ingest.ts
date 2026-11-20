@@ -24,6 +24,11 @@ import type { AgentActivityEvent, AgentActivityKind } from "@/lib/agent/types"
 import i18n from "@/i18n"
 import type { IngestFailReason, IngestResult } from "./chapter-ingest"
 import { ingestChapter } from "./chapter-ingest"
+import type {
+  CanonDualWriteOutcome,
+  IngestCommitReceipt,
+  IngestSourceBinding,
+} from "./chapter-ingest-commit"
 import { defaultCanonDualWriteDeps } from "./canon-dual-write"
 import { resolveNovelModel } from "./model-resolver"
 import { resolveReviewModel } from "./review-model"
@@ -48,6 +53,15 @@ export interface AcceptDraftAndIngestResult {
   failReason?: IngestFailReason
   selfHeal?: IngestResult["selfHeal"]
   ledgerSaveFailed?: boolean
+  /**
+   * 摄取成功时透传的无正文源绑定（仅 additive 详情；失败/跳过不携带，不伪造）。
+   * 缺失 = 未绑定，不能读作 bound。
+   */
+  sourceBinding?: IngestSourceBinding
+  /** 摄取成功时透传的实际 Canon 双写 outcome（skip/failed/completed 原样）。 */
+  canonOutcome?: CanonDualWriteOutcome
+  /** 摄取成功时透传的提交点瞬时 receipt。 */
+  receipt?: IngestCommitReceipt
 }
 
 /** 摄取状态 → 事件文案键（固定映射，不用模板字面量拼 key）。 */
@@ -116,6 +130,9 @@ export async function acceptDraftAndIngest(
       ingest: "ok",
       selfHeal: result.selfHeal,
       ledgerSaveFailed: result.ledgerSaveFailed,
+      ...(result.sourceBinding ? { sourceBinding: result.sourceBinding } : {}),
+      ...(result.canonOutcome ? { canonOutcome: result.canonOutcome } : {}),
+      ...(result.receipt ? { receipt: result.receipt } : {}),
     }
   }
   return {
