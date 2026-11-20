@@ -90,8 +90,8 @@
   "orphan": 277,
   "specOnly": 268,
   "barrelOnly": 1,
-  "edges": 4664,
-  "loc": 292387
+  "edges": 4666,
+  "loc": 292618
  },
  "modules": [
   {
@@ -8912,7 +8912,7 @@
   {
    "p": "src/lib/novel/accept-draft-with-ingest.ts",
    "s": 6,
-   "l": 127,
+   "l": 144,
    "r": true,
    "o": false,
    "x": false,
@@ -8922,6 +8922,7 @@
     370,
     443,
     563,
+    576,
     588,
     803,
     903,
@@ -10128,7 +10129,7 @@
   {
    "p": "src/lib/novel/chapter-ingest-commit.ts",
    "s": 8,
-   "l": 159,
+   "l": 290,
    "r": true,
    "o": false,
    "x": false,
@@ -10140,6 +10141,7 @@
     585,
     587,
     588,
+    615,
     644,
     748,
     799,
@@ -10320,7 +10322,7 @@
   {
    "p": "src/lib/novel/chapter-ingest-snapshot-io.ts",
    "s": 8,
-   "l": 213,
+   "l": 222,
    "r": true,
    "o": false,
    "x": false,
@@ -10373,7 +10375,7 @@
   {
    "p": "src/lib/novel/chapter-ingest.ts",
    "s": 8,
-   "l": 1215,
+   "l": 1289,
    "r": true,
    "o": false,
    "x": false,
