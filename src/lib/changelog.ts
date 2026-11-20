@@ -15,6 +15,25 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.27.6（2026-11-20）：章节摄取提交源校验与实际快照、Canon 结果回传。
+    version: "2.27.6",
+    date: "2026-11-20",
+    highlights: {
+      en: [
+        "Chapter ingestion rereads the same formal chapter before committing extracted results and reports content changes, unreadable sources and cancellation explicitly.",
+        "Post-adoption ingestion returns the source read, the normalized snapshot actually saved and the actual Canon update result.",
+        "An ingestion failure preserves the completed draft adoption and reports the memory synchronization failure.",
+        "Release cadence: the user-authorized coordinator records weekly-stable, same-day-duplicate and thirty-day-stable exemptions for this release. The forecast counts 2 stable releases (v2.27.5 and this version) in ISO week 2026-11-16 and Tokyo local day 2026-11-20, and 18 in the rolling 30-day window including this candidate (limit 4). These are distinct tags published in sequence; existing tags remain untouched. The production cadence audit runs against the actual publishedAt after promotion. This delegation is not a claim of personal human review.",
+      ],
+      zh: [
+        "章节摄取在提交前重新读取同一正式章节；正文变化、无法读取或任务取消时，返回明确的失败原因。",
+        "草稿采纳后的摄取结果回传本次正文来源、实际保存的标准化快照和 Canon 更新结果。",
+        "摄取失败时保留已经完成的正文采纳，并如实报告记忆同步失败。",
+        "发布节奏：依据用户授予的完整 Goal 执行与方案签署权限，协调者登记本版 weekly-stable / same-day-duplicate / thirty-day-stable 三项豁免。预测 ISO 周 2026-11-16 与东京 2026-11-20 各有 2 个 stable（v2.27.5 与本版），30 天 stable 为 18 个（含预测候选，上限 4）；这是不同 tag 的先后发布，未重打或改动任何既有 tag。以上预测在实际提升后按真实 publishedAt 重算；不放宽规则或跳过工程门。协调者依用户授权代签，未声称用户亲自审核本版差异。",
+      ],
+    },
+  },
+  {
     // 2.27.5（2026-11-19）：已审历史上下文、界面错误归属及依赖修补的 Windows 交付。
     version: "2.27.5",
     date: "2026-11-19",

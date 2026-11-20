@@ -213,6 +213,17 @@
       "scope": [
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.27.6",
+      "reason": "依据用户于 2026-11-19 授予的完整 Goal 执行和方案签署权限，协调者为当前已独立准入的 source-binding 源码修补选择 v2.27.6 Windows 交付。源码捕获：9fd934f58a5cddb54dc3a976bd9ee5fe15660b0a（tree=9982b0e401864259645ff164002216eeb78ea189；手写 e5985f6b1d20c3363232a94ff84fbbe3bb0c0366 + 生成 9fd934f5，P16 拆分），内容为章节摄取提交点的正式源绑定校验（在首次持久写入前重读同一正式路径，与实际提取所用 originalContent 的完整原始字符串严格比较，并检查 AbortSignal；源变化/不可读/取消则拒绝该次 extraction-commit，body/content SHA 只作瞬时回执）以及把真实 normalized snapshot 与 Canon 上报通过既有 accept/ingest 结果原样回传。性质：普通源码修补交付的独立节奏，明确不是旧 asset-only fix-forward 资产补齐。规则事实（check-release-cadence.mjs 同源算法 + 只读 Release 列表 92 条，2026-11-20 Asia/Tokyo）：weekly-stable —— ISO 周 2026-11-16 含 v2.27.5 与本版，计数 2（上限 1）；same-day-duplicate —— 2026-11-20 本地当日含 v2.27.5（publishedAt UTC 2026-11-19T20:34:45Z，+0900 即 11-20）与本版，计数 2，两个均为不同 tag 的先后发布，未重打任何已发布 tag；thirty-day-stable —— 发布前 30 天 stable 18 个（含预测候选，上限 4），属历史连续高频发布所致，非跳过工程门禁。上述为预测值，真实 candidate publishedAt 下必须重算；若发布时刻改到下一 ISO 周且当日无其他 stable，则 weekly-stable 与 same-day-duplicate 不再触发，届时按真实结果调整 scope 而非放宽未触发项。仅登记上述三项，必要工程门、主干、签名、活跃目标资产齐全与真实更新重启验收照常执行。用户授权协调者代签，未声称用户亲自审阅这份具体版本差异。",
+      "approvedBy": "user-authorized-coordinator",
+      "approvedAt": "2026-11-20",
+      "scope": [
+        "weekly-stable",
+        "same-day-duplicate",
+        "thirty-day-stable"
+      ]
     }
   ]
 }
