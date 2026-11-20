@@ -494,6 +494,205 @@ impl super::registry::McpTool for ChapterReadTool {
     }
 }
 
+/// 取可选布尔参数。给了就必须是 boolean——把字符串 "true" 当真的话，调用方
+/// 会以为自己开了网络授权，实际没开（或反之）。
+fn optional_bool(args: &Value, tool: &str, field: &str) -> Result<Option<bool>, ToolError> {
+    match args.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(b)) => Ok(Some(*b)),
+        Some(other) => Err(ToolError::invalid_params(format!(
+            "{tool}: `{field}` 必须是 boolean，收到 {other}"
+        ))),
+    }
+}
+
+/// 取可选的 [min, max] 整数参数。负数/小数/字符串一律报错，不静默钳制。
+fn optional_int_in_range(
+    args: &Value,
+    tool: &str,
+    field: &str,
+    min: u64,
+    max: u64,
+) -> Result<Option<u64>, ToolError> {
+    match args.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => match v.as_u64() {
+            Some(n) if n >= min && n <= max => Ok(Some(n)),
+            _ => Err(ToolError::invalid_params(format!(
+                "{tool}: `{field}` 必须是 {min}..={max} 的整数，收到 {v}"
+            ))),
+        },
+    }
+}
+
+/// `context.inspect` —— 只读上下文回读（生效配置 + 选定章来源/窗口/哈希）。
+///
+/// 默认 **0 次 pack 构建**：只回真实生效配置、章节来源与 review 窗口。
+/// 显式 `includePack` / `dimension` 才触发一次生产 `buildContextPack`；
+/// embedding/rerank 生效时检索会真出网，故 `allowRetrievalNetwork` 默认 false
+/// 并在构建前拒绝，只有显式 true 才按真实配置构建（绝不改写成 disabled）。
+///
+/// `dimension` 在 schema 里刻意保持 `string` 而不列 enum：六维真源是前端
+/// `SIX_REVIEW_DIMENSION_ORDER`，在 Rust 再抄一份枚举就会出现「Rust 列了但生产
+/// 没有」/「生产加了但 Rust 漏了」的漂移。非法键由前端真源严格拒绝。
+pub struct ContextInspectTool;
+
+/// 与前端 `MAX_PROMPT_PAGE_CHARS` 对齐的单页硬上限。
+const CONTEXT_INSPECT_PROMPT_LIMIT_MAX: u64 = 50_000;
+
+impl super::registry::McpTool for ContextInspectTool {
+    fn name(&self) -> &'static str {
+        "context.inspect"
+    }
+
+    fn description(&self) -> &'static str {
+        "Read-only context readback: the effective runtime config (public fields only), the selected chapter's exact source path/size/UTF-8 SHA-256, and the review window. Builds no ContextPack by default; includePack=true returns a full production ContextPack copy and a new opaque inspectionId. Reuse that ID with the same chapter/task/network policy for six dimensions and pages (8 in-memory snapshots, 5-minute TTL; unknown, expired or drifted IDs fail without rebuilding). dimension returns the base production user analysis prompt; runtime skill hook fragments and system prompt are not included. promptOffset/promptLimit use UTF-16 code units. includeChapter=true returns the exact chapter text. Building requires allowRetrievalNetwork=true when embedding/rerank retrieval is enabled because that build really uses the network. Never writes chapter text, drafts, memory, settings or telemetry."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "chapter": {
+                    "type": "string",
+                    "description": "1-based chapter index (e.g. \"3\") or exact listed filename; never an arbitrary filesystem path"
+                },
+                "task": {
+                    "type": "string",
+                    "description": "Caller-supplied frozen task passed to the production builder (default: 六维审查第N章)"
+                },
+                "inspectionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Opaque ID returned by a prior includePack or dimension call. Reuse only with the same chapter, task and allowRetrievalNetwork policy; unknown/expired/drifted IDs are rejected without a new build."
+                },
+                "includePack": {
+                    "type": "boolean",
+                    "description": "Return the actual full ContextPack produced by the production builder (default false)"
+                },
+                "dimension": {
+                    "type": "string",
+                    "description": "One production six-dimension key: thrill, consistency, pacing, character, continuity, pull. Validated in the WebView against SIX_REVIEW_DIMENSION_ORDER; one dimension per call."
+                },
+                "includeChapter": {
+                    "type": "boolean",
+                    "description": "Return the exact chapter text read through the existing Tauri FS (default false)"
+                },
+                "allowRetrievalNetwork": {
+                    "type": "boolean",
+                    "description": "Explicit opt-in for a build while embedding/rerank retrieval is enabled (default false: the build is refused before any network call)"
+                },
+                "promptOffset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "0-based UTF-16 code-unit offset into the frozen base production prompt (default 0)"
+                },
+                "promptLimit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50_000,
+                    "description": "Page length in UTF-16 code units (default 16000); never changes the review chapter window"
+                }
+            },
+            "required": ["chapter"],
+            "additionalProperties": false
+        })
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a ToolContext,
+        args: &'a Value,
+    ) -> ToolFuture<'a, Result<Value, ToolError>> {
+        Box::pin(async move {
+            let tool = "context.inspect";
+            let object = args
+                .as_object()
+                .ok_or_else(|| ToolError::invalid_params(format!("{tool}: 参数必须是 object")))?;
+            let allowed_fields = [
+                "chapter",
+                "task",
+                "inspectionId",
+                "dimension",
+                "includePack",
+                "includeChapter",
+                "allowRetrievalNetwork",
+                "promptOffset",
+                "promptLimit",
+            ];
+            for (field, value) in object {
+                if !allowed_fields.contains(&field.as_str()) {
+                    return Err(ToolError::invalid_params(format!(
+                        "{tool}: 未知参数 `{field}`"
+                    )));
+                }
+                if value.is_null() {
+                    return Err(ToolError::invalid_params(format!(
+                        "{tool}: `{field}` 不接受显式 null"
+                    )));
+                }
+            }
+            let chapter = require_str(args, tool, "chapter")?;
+            let mut params = json!({ "chapter": chapter });
+
+            match args.get("task") {
+                None => {}
+                Some(Value::String(task)) if !task.trim().is_empty() => {
+                    params["task"] = json!(task);
+                }
+                Some(other) => {
+                    return Err(ToolError::invalid_params(format!(
+                        "{tool}: `task` 必须是非空字符串，收到 {other}"
+                    )))
+                }
+            }
+            match args.get("dimension") {
+                None => {}
+                Some(Value::String(dim)) if !dim.trim().is_empty() => {
+                    params["dimension"] = json!(dim);
+                }
+                Some(other) => {
+                    return Err(ToolError::invalid_params(format!(
+                        "{tool}: `dimension` 必须是非空字符串，收到 {other}"
+                    )))
+                }
+            }
+            match args.get("inspectionId") {
+                None => {}
+                Some(Value::String(id)) if !id.trim().is_empty() => {
+                    params["inspectionId"] = json!(id);
+                }
+                Some(other) => {
+                    return Err(ToolError::invalid_params(format!(
+                        "{tool}: `inspectionId` 必须是非空字符串，收到 {other}"
+                    )))
+                }
+            }
+
+            for field in ["includePack", "includeChapter", "allowRetrievalNetwork"] {
+                if let Some(value) = optional_bool(args, tool, field)? {
+                    params[field] = json!(value);
+                }
+            }
+            if let Some(offset) = optional_int_in_range(args, tool, "promptOffset", 0, u64::MAX)? {
+                params["promptOffset"] = json!(offset);
+            }
+            if let Some(limit) = optional_int_in_range(
+                args,
+                tool,
+                "promptLimit",
+                1,
+                CONTEXT_INSPECT_PROMPT_LIMIT_MAX,
+            )? {
+                params["promptLimit"] = json!(limit);
+            }
+
+            ctx.bridge_query(StateQuery::new("context-inspect").with_params(params))
+                .await
+        })
+    }
+}
+
 /// `canon.query` —— 复用既有 `canon_query_impl` 读 canon 边。
 ///
 /// **参数是真实的 `CanonEdgeFilter` 形状，不是自由文本 `q`。** 任务描述写的
@@ -1802,6 +2001,7 @@ pub fn build_registry() -> super::registry::ToolRegistry {
     r.register(Arc::new(ProjectStateTool));
     r.register(Arc::new(ChapterListTool));
     r.register(Arc::new(ChapterReadTool));
+    r.register(Arc::new(ContextInspectTool));
     r.register(Arc::new(CanonQueryTool));
     r.register(Arc::new(PipelineRunChapterTool));
     r.register(Arc::new(PipelineStatusTool));
@@ -1872,6 +2072,7 @@ mod tests {
                 "project.state",
                 "chapter.list",
                 "chapter.read",
+                "context.inspect",
                 "canon.query",
                 "pipeline.run_chapter",
                 "pipeline.status",
@@ -2148,6 +2349,165 @@ mod tests {
     fn chapter_read_requires_chapter_argument() {
         let tool = ChapterReadTool;
         assert_eq!(tool.input_schema()["required"], json!(["chapter"]));
+    }
+
+    // ── context.inspect（只读上下文回读） ──────────────────────────────
+
+    #[test]
+    fn context_inspect_is_registered_with_read_scope() {
+        let r = build_registry();
+        assert_eq!(
+            r.required_scope("context.inspect"),
+            Some(crate::mcp_server::session::SessionScope::Read),
+            "context.inspect 必须只需只读档"
+        );
+        // 原有 privileged 名单不变：只读回读不得进入授权面。
+        assert!(
+            !r.privileged_tools().contains(&"context.inspect"),
+            "只读回读不得进 privileged 集合"
+        );
+        let payload = r.list();
+        let tool = payload["tools"]
+            .as_array()
+            .expect("tools 必须是数组")
+            .iter()
+            .find(|t| t["name"].as_str() == Some("context.inspect"))
+            .expect("context.inspect 必须在 tools/list 里");
+        assert_eq!(tool["inputSchema"]["type"], json!("object"));
+        assert_eq!(tool["inputSchema"]["required"], json!(["chapter"]));
+    }
+
+    #[test]
+    fn context_inspect_dimension_stays_a_string_so_no_production_key_is_dropped() {
+        // 六维真源在前端 `SIX_REVIEW_DIMENSION_ORDER`。Rust 若再抄一份 enum，
+        // 生产新增/改名维度时这里就会静默丢掉一维。所以 schema 只声明 string，
+        // 合法性由前端真源拒绝——本用例钉住这个决定与六个键的可达性。
+        let schema = ContextInspectTool.input_schema();
+        let dim = &schema["properties"]["dimension"];
+        assert_eq!(dim["type"], json!("string"));
+        assert!(
+            dim.get("enum").is_none(),
+            "dimension 不得在 Rust 侧列 enum（会与生产真源漂移）: {dim}"
+        );
+        for key in [
+            "thrill",
+            "consistency",
+            "pacing",
+            "character",
+            "continuity",
+            "pull",
+        ] {
+            assert_eq!(
+                json!({ "dimension": key })["dimension"].as_str(),
+                Some(key),
+                "合法六维键 {key} 必须能作为 string 传入"
+            );
+        }
+    }
+
+    #[test]
+    fn context_inspect_schema_declares_inspection_id_and_strict_keys() {
+        let schema = ContextInspectTool.input_schema();
+        assert_eq!(
+            schema["properties"]["inspectionId"]["type"],
+            json!("string")
+        );
+        assert_eq!(schema["properties"]["inspectionId"]["minLength"], json!(1));
+        assert_eq!(schema["additionalProperties"], json!(false));
+        assert!(schema["properties"]["promptOffset"]["description"]
+            .as_str()
+            .expect("offset 描述必须是字符串")
+            .contains("UTF-16"));
+    }
+
+    #[tokio::test]
+    async fn context_inspect_rejects_unknown_keys_and_explicit_nulls_before_bridge() {
+        let ctx = ToolContext::for_test();
+        let mut cases = vec![
+            json!({ "chapter": "1", "includePacks": true }),
+            json!({ "chapter": "1", "dimenion": "thrill" }),
+            json!({ "chapter": "1", "extra": 1 }),
+            json!({ "chapter": "1", "inspectionId": 42 }),
+            json!({ "chapter": "1", "inspectionId": " " }),
+            json!([]),
+            Value::Null,
+        ];
+        for field in [
+            "chapter",
+            "task",
+            "inspectionId",
+            "dimension",
+            "includePack",
+            "includeChapter",
+            "allowRetrievalNetwork",
+            "promptOffset",
+            "promptLimit",
+        ] {
+            let mut args = json!({ "chapter": "1" });
+            args[field] = Value::Null;
+            cases.push(args);
+        }
+        for args in cases {
+            let err = ContextInspectTool
+                .call(&ctx, &args)
+                .await
+                .expect_err("未知键和显式 null 必须在 bridge 前拒绝");
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "args={args}: {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn context_inspect_accepts_nonempty_inspection_id_before_bridge() {
+        let ctx = ToolContext::for_test();
+        let err = ContextInspectTool.call(&ctx, &json!({
+            "chapter": "1", "inspectionId": "test-batch-id", "dimension": "thrill",
+            "task": "冻结任务", "allowRetrievalNetwork": false, "promptOffset": 0, "promptLimit": 500
+        })).await.expect_err("无 AppHandle 不得假成功");
+        assert_eq!(err.code, crate::mcp_server::protocol::INTERNAL_ERROR);
+    }
+
+    #[tokio::test]
+    async fn context_inspect_rejects_wrong_types_before_the_bridge() {
+        // 参数校验不依赖 AppHandle，因此可在无 tauri 环境里直接断言错误码。
+        // 关键点："true" 这类字符串不得被当成布尔、负 offset / 0 limit 不得静默钳制。
+        let ctx = ToolContext::for_test();
+        let cases: [Value; 9] = [
+            json!({}),
+            json!({ "chapter": "   " }),
+            json!({ "chapter": 3 }),
+            json!({ "chapter": "1", "includePack": "true" }),
+            json!({ "chapter": "1", "includeChapter": 1 }),
+            json!({ "chapter": "1", "allowRetrievalNetwork": "yes" }),
+            json!({ "chapter": "1", "promptOffset": -1 }),
+            json!({ "chapter": "1", "promptLimit": 0 }),
+            json!({ "chapter": "1", "promptLimit": 50_001 }),
+        ];
+        for args in cases {
+            let err = ContextInspectTool
+                .call(&ctx, &args)
+                .await
+                .expect_err("非法参数必须在状态桥之前被拒");
+            assert_eq!(
+                err.code,
+                crate::mcp_server::protocol::INVALID_PARAMS,
+                "args={args} 应报 INVALID_PARAMS，实际: {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn context_inspect_reports_missing_app_handle_as_internal() {
+        // 参数合法时唯一失败点是「没有 AppHandle」——不得伪造成成功。
+        let ctx = ToolContext::for_test();
+        let err = ContextInspectTool
+            .call(&ctx, &json!({ "chapter": "1", "dimension": "thrill" }))
+            .await
+            .expect_err("无 app 句柄不得成功");
+        assert_eq!(err.code, crate::mcp_server::protocol::INTERNAL_ERROR);
     }
 
     #[test]

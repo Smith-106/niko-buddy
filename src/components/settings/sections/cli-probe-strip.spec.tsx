@@ -51,10 +51,10 @@ describe("CliProbeStrip", () => {
 describe("重新检测按钮", () => {
   it("点击重新检测 → 再次发起四路探针（刷新后按钮复位）", async () => {
     render(<CliProbeStrip />)
-    await screen.findByTestId("cli-probe-claude")
+    const btn = await screen.findByRole("button", { name: "settings.sections.llm.cliStatus.recheck" })
     const before = mocks.invoke.mock.calls.length
-    const btn = screen.getByRole("button", { name: "settings.sections.llm.cliStatus.recheck" })
     fireEvent.click(btn)
-    await waitFor(() => expect(mocks.invoke.mock.calls.length).toBeGreaterThan(before))
+    await waitFor(() => expect(mocks.invoke.mock.calls.length).toBe(before + 4))
+    expect(await screen.findByRole("button", { name: "settings.sections.llm.cliStatus.recheck" })).toBeEnabled()
   })
 })

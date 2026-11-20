@@ -59,6 +59,7 @@ import {
 import { SettingsValidationError, getWriter, validateValue } from "./settings-writers"
 import { resolveFormalPath, writeChapterDraft } from "./draft-actions"
 import { getPipelineTask, startDirectorAdvanceTask, startOutlineGenerationTask, startPipelineBatch, startPipelineTask } from "./pipeline-tasks"
+import { inspectContext, sameInspectedChapter, type ContextInspectionRequest, type InspectedChapter } from "./context-inspection"
 
 /** Rust → WebView 的请求事件名（与 Rust 侧 `state_bridge::REQUEST_EVENT` 必须一致）。 */
 export const STATE_REQUEST_EVENT = "mcp:state-request"
@@ -81,6 +82,7 @@ export type StateOp =
   | "character-upsert"
   | "draft-write"
   | "formal-path"
+  | "context-inspect"
 
 export interface StateRequestPayload {
   id: string
@@ -148,6 +150,12 @@ export interface StateBridgeDeps {
    * 与 `wiki/memory`）。Rust 再把它映射成物理路径，映射规则也只有一份。
    */
   resolveFormalPath: (projectPath: string, params: Record<string, unknown>) => unknown
+  /**
+   * 只读上下文回读（`context.inspect`）：生效配置 + 选定章来源/窗口/哈希，
+   * 默认 0 次 pack 构建。项目/章节解析留在本模块（复用既有 `chapter-list`
+   * 语义），构建与配置投影在 `context-inspection.ts`。
+   */
+  inspectContext: (request: ContextInspectionRequest) => Promise<unknown>
 }
 
 const defaultDeps: StateBridgeDeps = {
@@ -169,6 +177,7 @@ const defaultDeps: StateBridgeDeps = {
   readPipeline: (taskId) => getPipelineTask(taskId),
   writeChapterDraft: (projectPath, params) => writeChapterDraft(projectPath, params),
   resolveFormalPath: (projectPath, params) => resolveFormalPath(projectPath, params),
+  inspectContext: (request) => inspectContext(request),
   writeSetting: (key, value) => {
     const writer = getWriter(key)
     if (!writer) {
@@ -274,6 +283,31 @@ function resolveChapter(
     throw new Error(`找不到章节文件：${trimmed}`)
   }
   return byName
+}
+
+/**
+ * 把章节标识解析成**精确条目**（`context-inspect` 用）。
+ *
+ * 复用 [`resolveChapter`] 的既有语义（1 起序号 / 文件名），只是额外带上序号与
+ * 章号：`context.inspect` 需要它们作为检索章节号与默认 task，且绝不允许调用方
+ * 传任意文件路径。条目形状由 `context-inspection.ts` 持有（`InspectedChapter`），
+ * 这里只负责生产它，不另建一份形状。
+ */
+export function selectChapter(
+  chapters: { name: string; path: string }[],
+  selector: string,
+): InspectedChapter {
+  const sorted = [...chapters].sort((a, b) => compareChapterName(a.name, b.name))
+  const entry = resolveChapter(sorted, selector)
+  const index = sorted.findIndex((c) => c.path === entry.path && c.name === entry.name)
+  const ordinal = index >= 0 ? index + 1 : 1
+  const number = chapterOrderKey(entry.name)
+  return {
+    index: ordinal,
+    number: Number.isFinite(number) && number !== Number.MAX_SAFE_INTEGER ? number : ordinal,
+    name: entry.name,
+    path: entry.path,
+  }
 }
 
 /** 按行切片，返回内容与是否被截断。 */
@@ -507,6 +541,55 @@ export async function handleStateRequest(
           return { ok: false, error: "op=formal-path 需要 params.kind = chapter | memory" }
         }
         return { ok: true, value: deps.resolveFormalPath(projectPath, payload.params ?? {}) }
+      }
+
+      case "context-inspect": {
+        // 章节解析走既有 `chapter-list` 语义：只接受 1 起序号或精确文件名，
+        // 不开放任意路径读取。参数（task/dimension/分页/开关）由
+        // `context-inspection.ts` 自行校验，桥不解释。
+        const projectPath = requireProjectPath(deps)
+        const params = payload.params ?? {}
+        const selector = typeof params.chapter === "string" ? params.chapter : ""
+        if (selector.trim() === "") {
+          return { ok: false, error: "context-inspect 需要 params.chapter（章节序号或文件名）" }
+        }
+        const chapters = await deps.listChapters(projectPath)
+        if (chapters.length === 0) {
+          return { ok: false, error: `项目下没有章节文件：${projectPath}/wiki/chapters` }
+        }
+        const chapter = selectChapter(chapters, selector)
+        // 构建可能持续数秒：期间项目被切换或章节集合变化（插入/删除/改名）
+        // 都会让「这份回读」指向另一个目标，必须显式拒绝而不是返回混合快照。
+        //
+        // 该复查必须作为**内部异步回调**交给门面，而不是在 `inspectContext`
+        // 返回之后再做：它内部还要读一次章节目录，那个 await 若留在外面，就会
+        // 越过门面的正文 / 完整配置终检，那段窗口里的漂移会被漏报成稳定成功。
+        // 分工不变：桥独占目录读取与章身份（listChapters / selectChapter /
+        // 四元组比对），门面独占正文与完整配置终检。
+        const recheckChapter = async (): Promise<void> => {
+          if (deps.readProjectPath() !== projectPath) {
+            throw new Error("context-inspect 拒绝：项目在回读期间发生变化，请重跑")
+          }
+          const after = await deps.listChapters(projectPath)
+          // 最后的目录读取也会 await；该期间切换项目仍须拒绝。
+          if (deps.readProjectPath() !== projectPath) {
+            throw new Error("context-inspect 拒绝：项目在回读期间发生变化，请重跑")
+          }
+          let recheck: InspectedChapter
+          try {
+            recheck = selectChapter(after, selector)
+          } catch {
+            throw new Error("context-inspect 拒绝：章节在回读期间发生变化，请重跑")
+          }
+          if (!sameInspectedChapter(recheck, chapter)) {
+            throw new Error(
+              `context-inspect 拒绝：章节在回读期间发生变化（${chapter.name}, index=${chapter.index}, number=${chapter.number} → ${recheck.name}, index=${recheck.index}, number=${recheck.number}），请重跑`,
+            )
+          }
+        }
+        // 拿到 value 之后不再追加目录 await：终检顺序统一由门面持有。
+        const value = await deps.inspectContext({ projectPath, chapter, params, recheckChapter })
+        return { ok: true, value }
       }
 
       default:

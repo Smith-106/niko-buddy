@@ -22,6 +22,15 @@ import {
   type StateBridgeDeps,
   type StateRequestPayload,
 } from "./state-bridge"
+import {
+  createContextInspectionCache,
+  inspectContext as inspectContextFacade,
+  type ContextInspectionDeps,
+  type ContextInspectionResult,
+  type ContextRuntimeConfig,
+} from "./context-inspection"
+import type { ContextPack } from "@/lib/novel/context-engine-types"
+import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG } from "@/stores/wiki-store"
 
 const store = new Map<string, string>()
 
@@ -70,6 +79,11 @@ function deps(overrides: Partial<StateBridgeDeps> = {}): StateBridgeDeps {
     readPipeline: () => null,
     writeChapterDraft: async () => ({ draftId: "draft_test", chapterName: "x", path: "/proj/d.md", chars: 1 }),
     resolveFormalPath: () => ({ kind: "chapter", path: "/proj/wiki/chapters/x.md" }),
+    // 上下文回读：默认给出「未实现」标记，让各用例显式注入自己要验的行为。
+    inspectContext: async (input) => {
+      await input.recheckChapter?.()
+      return { stub: true }
+    },
     ...overrides,
   }
 }
@@ -735,6 +749,308 @@ describe("handleStateRequest — 章节", () => {
     const res = await handleStateRequest(request({ op: "chapter-read" }), deps())
     expect(res.ok).toBe(false)
     expect(res.error).toContain("需要章节序号或文件名")
+  })
+})
+
+describe("handleStateRequest — context-inspect", () => {
+  it("缺 params.chapter 时显式报错（不开放任意路径）", async () => {
+    const res = await handleStateRequest(request({ op: "context-inspect" }), deps())
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("params.chapter")
+  })
+
+  it("未打开项目时明确报错", async () => {
+    const res = await handleStateRequest(
+      request({ op: "context-inspect", params: { chapter: "1" } }),
+      deps({ readProjectPath: () => "" }),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("未打开项目")
+  })
+
+  it("项目下没有章节文件时明确报错", async () => {
+    const res = await handleStateRequest(
+      request({ op: "context-inspect", params: { chapter: "1" } }),
+      deps({ listChapters: async () => [] }),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("没有章节文件")
+  })
+
+  it("序号选择器解析成精确条目（index/number/name/path）后交给门面", async () => {
+    const seen: unknown[] = []
+    const res = await handleStateRequest(
+      request({ op: "context-inspect", params: { chapter: "2", includePack: false, inspectionId: "batch-test" } }),
+      deps({
+        inspectContext: async (input) => {
+          await input.recheckChapter?.()
+          seen.push(input)
+          return { ok: "from-inspection" }
+        },
+      }),
+    )
+    expect(res.ok).toBe(true)
+    expect(res.value).toEqual({ ok: "from-inspection" })
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({
+      recheckChapter: expect.any(Function),
+      projectPath: "/proj",
+      chapter: {
+        index: 2,
+        number: 2,
+        name: "chapter-002.md",
+        path: "/proj/wiki/chapters/chapter-002.md",
+      },
+      params: { chapter: "2", includePack: false, inspectionId: "batch-test" },
+    })
+  })
+
+  it("文件名选择器同样解析（含中文命名里的章号）", async () => {
+    const seen: { chapter: { index: number; number: number } }[] = []
+    const res = await handleStateRequest(
+      request({ op: "context-inspect", params: { chapter: "第170章-新灵气契约.md" } }),
+      deps({
+        listChapters: async () => [
+          { name: "第170章-新灵气契约.md", path: "/p/第170章-新灵气契约.md" },
+          { name: "chapter-001.md", path: "/p/chapter-001.md" },
+        ],
+        inspectContext: async (input) => {
+          await input.recheckChapter?.()
+          seen.push(input as { chapter: { index: number; number: number } })
+          return null
+        },
+      }),
+    )
+    expect(res.ok).toBe(true)
+    expect(seen[0].chapter).toMatchObject({ index: 2, number: 170 })
+  })
+
+  it("未知章节选择器拒绝", async () => {
+    const res = await handleStateRequest(
+      request({ op: "context-inspect", params: { chapter: "chapter-999.md" } }),
+      deps(),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("找不到章节文件")
+  })
+
+  it("越界序号拒绝", async () => {
+    const res = await handleStateRequest(
+      request({ op: "context-inspect", params: { chapter: "9" } }),
+      deps(),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("越界")
+  })
+
+  it("门面抛错时回 ok:false + 原因（不静默）", async () => {
+    const res = await handleStateRequest(
+      request({ op: "context-inspect", params: { chapter: "1", dimension: "thril" } }),
+      deps({
+        inspectContext: async () => {
+          throw new Error("dimension 非法：thril")
+        },
+      }),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("dimension 非法")
+  })
+
+  it("项目在回读期间被切换 → 拒绝（不返回混合快照）", async () => {
+    let reads = 0
+    const res = await handleStateRequest(
+      request({ op: "context-inspect", params: { chapter: "1" } }),
+      deps({
+        readProjectPath: () => {
+          reads += 1
+          return reads === 1 ? "/proj" : "/another-project"
+        },
+      }),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("项目在回读期间发生变化")
+  })
+
+  it("章节集合在回读期间变化（同名序号指向别的文件）→ 拒绝", async () => {
+    let calls = 0
+    const res = await handleStateRequest(
+      request({ op: "context-inspect", params: { chapter: "1" } }),
+      deps({
+        listChapters: async () => {
+          calls += 1
+          return calls === 1
+            ? [
+                { name: "chapter-001.md", path: "/p/chapter-001.md" },
+                { name: "chapter-002.md", path: "/p/chapter-002.md" },
+              ]
+            : [
+                { name: "chapter-000.md", path: "/p/chapter-000.md" },
+                { name: "chapter-001.md", path: "/p/chapter-001.md" },
+              ]
+        },
+      }),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("章节在回读期间发生变化")
+  })
+
+  it("最后的 listChapters await 期间切换项目仍拒绝", async () => {
+    let projectPath = "/proj"
+    let lists = 0
+    const res = await handleStateRequest(
+      request({ op: "context-inspect", params: { chapter: "1" } }),
+      deps({
+        readProjectPath: () => projectPath,
+        listChapters: async () => {
+          await Promise.resolve()
+          if (++lists === 2) projectPath = "/another-project"
+          return [{ name: "chapter-001.md", path: "/p/chapter-001.md" }]
+        },
+      }),
+    )
+    expect(lists).toBe(2)
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain("项目在回读期间发生变化")
+  })
+
+  it.each(["insert", "remove-before", "delete-selected", "rename", "renumber"])(
+    "文件名选择器的 %s 漂移拒绝，路径相同也不接受过期序号",
+    async (change) => {
+      const first = [
+        { name: "chapter-001.md", path: "/p/chapter-001.md" },
+        { name: "chapter-002.md", path: "/p/chapter-002.md" },
+      ]
+      const changed = change === "insert"
+        ? [{ name: "chapter-000.md", path: "/p/chapter-000.md" }, ...first]
+        : change === "remove-before"
+          ? [first[1]]
+          : change === "delete-selected"
+            ? [first[0]]
+            : [first[0], { ...first[1], name: change === "rename" ? "chapter-002-renamed.md" : "chapter-004.md" }]
+      let lists = 0
+      const res = await handleStateRequest(
+        request({ op: "context-inspect", params: { chapter: "chapter-002.md" } }),
+        deps({ listChapters: async () => ++lists === 1 ? first : changed }),
+      )
+      expect(lists).toBe(2)
+      expect(res.ok).toBe(false)
+      expect(res.error).toContain("章节在回读期间发生变化")
+    },
+  )
+})
+
+function deferredValue<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
+/** 真正 facade 的可控 IO；桥仍使用实际 selectChapter 与回调接线。 */
+function facadeFixture() {
+  const config: ContextRuntimeConfig = {
+    novelMode: true,
+    novelConfig: { ...DEFAULT_NOVEL_CONFIG },
+    llmConfig: { provider: "openai", apiKey: "TEST-PRIVATE-M5", model: "fixture",
+      ollamaUrl: "", customEndpoint: "", maxContextSize: 128_000 },
+    embeddingConfig: { enabled: false, endpoint: "", apiKey: "", model: "fixture" },
+    rerankConfig: { ...DEFAULT_RERANK_CONFIG },
+    revisionFeedbackWindowConfig: { currentChapterIncludeShouldImprove: true,
+      previousChapterCarryEnabled: true, lookbackChapterCount: 2, lookbackIncludeMustFixOnly: false },
+  }
+  const pack: ContextPack = {
+    task: "六维审查第1章", chapterGoal: "", outline: "本章章纲", recentSummaries: [],
+    previousChapterEnding: "", characterStates: "", soulDoc: "", characterAuras: "",
+    cognitionStates: "", foreshadowingStates: "", timeline: "", relatedSettings: "",
+    canonRules: "", writingStyle: "", searchResults: "", graphSearchResults: "", mustDo: "",
+    mustAvoid: "", nextChapterAdvice: "", revisionDirectives: "",
+  }
+  const state = { projectPath: "/proj", chapterText: "原始章节正文", config, textReads: 0, builds: 0, goldLoads: 0 }
+  const facadeDeps: ContextInspectionDeps = {
+    readProjectPath: () => state.projectPath,
+    readFileText: async () => { state.textReads += 1; return state.chapterText },
+    readRuntimeConfig: () => state.config,
+    buildContextPack: async () => { state.builds += 1; return pack },
+    loadGoldMaterials: async () => { state.goldLoads += 1; return { anchors: [], exemplars: [], merged: [] } },
+    inspectionCache: createContextInspectionCache(),
+    now: () => 0,
+  }
+  return { state, facadeDeps }
+}
+
+const finalDirectoryCases = (["metadata", "fresh", "cache"] as const).flatMap((mode) =>
+  (["config-public", "config-private", "body", "chapter"] as const).map((drift) => ({ mode, drift })),
+)
+
+describe("context-inspect — 最后目录 await 与真正 facade 的终检顺序", () => {
+  it.each(finalDirectoryCases)("$mode / $drift：deferred 目录之后仍拒绝漂移", async ({ mode, drift }) => {
+    const { state, facadeDeps } = facadeFixture()
+    const chapters = [{ name: "chapter-001.md", path: "/proj/wiki/chapters/chapter-001.md" }]
+    const lastDirectory = deferredValue<typeof chapters>()
+    const directoryStarted = deferredValue<void>()
+    let gateEnabled = false
+    let entered = false
+    let lists = 0
+    const bridgeDeps = deps({
+      readProjectPath: () => state.projectPath,
+      listChapters: async () => {
+        lists += 1
+        if (gateEnabled && lists === 2) {
+          entered = true
+          directoryStarted.resolve(undefined)
+          return await lastDirectory.promise
+        }
+        return chapters
+      },
+      // 不用跳过 callback 的 stub：这就是生产 facade 加可控 IO 的实际接线。
+      inspectContext: (input) => inspectContextFacade(input, facadeDeps),
+    })
+    let inspectionId: string | undefined
+    if (mode === "cache") {
+      const seed = await handleStateRequest(request({ op: "context-inspect",
+        params: { chapter: "chapter-001.md", includePack: true } }), bridgeDeps)
+      expect(seed.ok).toBe(true)
+      inspectionId = (seed.value as ContextInspectionResult).inspectionId
+      if (!inspectionId) throw new Error("cache seed 缺少 inspectionId")
+    }
+    lists = 0
+    gateEnabled = true
+    const params = mode === "metadata" ? { chapter: "chapter-001.md" }
+      : { chapter: "chapter-001.md", inspectionId, includePack: true, dimension: "pull" }
+    const pending = handleStateRequest(request({ op: "context-inspect", params }), bridgeDeps)
+    await Promise.race([directoryStarted.promise, pending.then(() => {
+      if (!entered) throw new Error("最终目录 callback 未执行就返回了响应")
+    })])
+    const readsAtDirectory = state.textReads
+    const buildsAtDirectory = state.builds
+    const goldAtDirectory = state.goldLoads
+    if (drift === "config-public") state.config.novelConfig.chapterTargetChars += 1
+    if (drift === "config-private") state.config.llmConfig.apiKey = "TEST-PRIVATE-M5-ROTATED"
+    if (drift === "body") state.chapterText += "\n最后目录 await 期间改写"
+    lastDirectory.resolve(drift === "chapter"
+      ? [{ name: "chapter-000.md", path: "/proj/wiki/chapters/chapter-000.md" }, ...chapters]
+      : chapters)
+    const result = await pending
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatch(drift.startsWith("config") ? /生效配置/ : drift === "body" ? /章节正文/ : /章节在回读期间发生变化/)
+    expect(result.value).toBeUndefined()
+    expect(lists).toBe(2)
+    // 身份 callback 拒绝时不再读正文；其他漂移必须在目录完成后再读正文终检。
+    expect(state.textReads).toBe(readsAtDirectory + (drift === "chapter" ? 0 : 1))
+    expect(state.builds).toBe(mode === "metadata" ? 0 : 1)
+    expect(state.goldLoads).toBe(mode === "metadata" ? 0 : 1)
+    expect(state.builds).toBe(buildsAtDirectory)
+    expect(state.goldLoads).toBe(goldAtDirectory)
+    expect(facadeDeps.inspectionCache?.size).toBe(0)
+    expect(JSON.stringify(result)).not.toContain("TEST-PRIVATE-M5-ROTATED")
+    if (inspectionId) {
+      gateEnabled = false
+      const retry = await handleStateRequest(request({ op: "context-inspect",
+        params: { chapter: "chapter-001.md", inspectionId, includePack: true } }), bridgeDeps)
+      expect(retry.ok).toBe(false)
+      expect(retry.error).toMatch(/inspectionId 未知或已失效/)
+      expect(state.builds).toBe(1)
+      expect(state.goldLoads).toBe(1)
+    }
   })
 })
 
