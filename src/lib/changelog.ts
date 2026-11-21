@@ -15,6 +15,31 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.28.0（2026-11-21）：只读上下文回读、安全依赖与共享提示归属修正。
+    version: "2.28.0",
+    date: "2026-11-21",
+    highlights: {
+      en: [
+        "Added the read-only MCP context.inspect tool to inspect a chapter's effective public configuration, exact source and review window.",
+        "ContextPack construction and six-dimension base user prompts are available on explicit request; an inspection ID reuses the same pack across dimensions and pages.",
+        "Inspection rejects project, chapter, text or full configuration drift and invalidates expired or unstable snapshots. Retrieval telemetry is discarded in this read path.",
+        "Optional gold-context failures are reported explicitly. Base prompt inspection identifies the runtime-hook and system-prompt boundaries.",
+        "Updated Zod to 4.6.7 and KaTeX to 0.18.2, pinned four indirect KaTeX consumers, and migrated the affected data validation and Markdown/WikiEditor integration.",
+        "Fixed shared story-simulation info-message TTL ownership so stale callbacks cannot clear newer messages; successful retries and synchronous subscriber updates preserve the original deadlines.",
+        "Release cadence: under the user's authorization to execute and sign the full Goal plan, the coordinator records weekly-stable and thirty-day-stable exemptions for this version. Reviewed source tip 71d9e308ffeaf4c1e0143993539e2fac110e6e87 (tree 1ca72a41bf61a520e9b8bba2a16e8e0693e4245e) includes context.inspect and the dependency/info TTL corrections. The complete 93-release list and existing algorithm forecast 3 stable releases in ISO week 2026-11-16 (v2.27.5, v2.27.6 and this candidate; limit 1), only this candidate on Tokyo local day 2026-11-21, and 19 in the rolling 30-day window including this candidate (limit 4). These are forecasts as of 2026-11-21T03:52:34.773Z; the audit uses actual publishedAt after promotion. Engineering, trunk, assets, signatures and real installation/update checks still apply. Delegated signing is not a claim of personal human review.",
+      ],
+      zh: [
+        "新增只读 MCP context.inspect，回读章节的生效公开配置、精确正文来源和审查窗口。",
+        "显式请求可回读生产 ContextPack 与六维基座用户 Prompt；同一个 inspectionId 在六维和分页之间复用同一份 pack。",
+        "检查期间项目、章节身份、正文或完整配置变化时明确拒绝，过期或漂移的检查快照会失效；本路径丢弃检索遥测。",
+        "可选 gold 上下文不可用时如实报告，基座 Prompt 同时标明 runtime hook 和 system prompt 的覆盖边界。",
+        "升级 Zod 至 4.6.7、KaTeX 至 0.18.2，定向锁定四处 KaTeX 间接依赖；同步迁移相关数据校验及 Markdown/WikiEditor 集成。",
+        "修复故事模拟共享 info 提示的 TTL 归属，避免旧回调清除新提示；成功重试和同步订阅重入仍遵循原提示期限。",
+        "发布节奏：依据用户授予的完整 Goal 执行与方案签署权限，协调者登记本版 weekly-stable / thirty-day-stable 两项豁免。已审源码 tip 71d9e308ffeaf4c1e0143993539e2fac110e6e87（tree 1ca72a41bf61a520e9b8bba2a16e8e0693e4245e）包含 context.inspect、安全依赖与 info TTL 修正。基于 93 条完整发布记录与现行算法，预测 ISO 周 2026-11-16 有 3 个 stable（v2.27.5、v2.27.6 与本候选，上限 1），东京 2026-11-21 当日仅本候选 1 个，近 30 天有 19 个 stable（含本候选，上限 4）。以上为 2026-11-21T03:52:34.773Z 的预测，提升后按真实 publishedAt 复算；工程门、主干、资产、签名及真实安装更新验收照常执行。协调者依用户授权代签，未声称用户亲自审核本版差异。",
+      ],
+    },
+  },
+  {
     // 2.27.6（2026-11-20）：章节摄取提交源校验与实际快照、Canon 结果回传。
     version: "2.27.6",
     date: "2026-11-20",

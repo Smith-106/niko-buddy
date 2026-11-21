@@ -224,6 +224,16 @@
         "same-day-duplicate",
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.28.0",
+      "reason": "依据用户授予的完整 Goal 执行与方案签署权限，协调者签署 2.28.0 minor 交付，新增向后兼容的只读 MCP context.inspect，并纳入已审安全依赖与 info TTL 修正。最终源码 tip 71d9e308ffeaf4c1e0143993539e2fac110e6e87（tree=1ca72a41bf61a520e9b8bba2a16e8e0693e4245e）；修正手写提交 1d81324355c89d8134a80379853dbcbe3c7839f5 与生成提交 71d9e308ffeaf4c1e0143993539e2fac110e6e87 按 P16 分开捕获，独立依赖源码复核 SHA256=7c557c8cb47b9bfe8b923d259546c2f142b50d621bc6e61c027b4a6dd55b1326。按 93 条完整 Release 记录及现行 check-release-cadence.mjs 算法，以 UTC 2026-11-21T03:52:34.773Z、Tokyo 2026-11-21 为预测时点：ISO 周 2026-11-16 含 v2.27.5、v2.27.6 与本候选，共 3 个 stable（上限 1）；本地当日仅本候选 1 个；30 天共 19 个 stable（含本候选，既有 18 个，上限 4）。scope 恰为实际预测触发的 weekly-stable 与 thirty-day-stable；提升后按真实 publishedAt 重算。工程门、主干、活跃目标资产、签名和真实安装更新重启照常验收。用户授权协调者代签，未声称用户亲自审核具体版本差异。",
+      "approvedBy": "user-authorized-coordinator",
+      "approvedAt": "2026-11-21",
+      "scope": [
+        "weekly-stable",
+        "thirty-day-stable"
+      ]
     }
   ]
 }
