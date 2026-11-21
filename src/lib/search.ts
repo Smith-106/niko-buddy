@@ -184,19 +184,29 @@ interface WikiCacheEntry {
 
 const wikiContentCache = new Map<string, WikiCacheEntry>()
 const wikiTreeCache = new Map<string, { files: FileNode[]; cachedAt: number }>()
+const wikiContentInFlight = new Map<string, Promise<string>>()
+const wikiTreeInFlight = new Map<string, Promise<FileNode[]>>()
 let wikiCacheDataVersion = -1
+let wikiCacheEpoch = 0
 
 export function invalidateWikiSearchCache(projectPath?: string): void {
+  wikiCacheEpoch += 1
   if (!projectPath) {
     wikiContentCache.clear()
     wikiTreeCache.clear()
+    wikiContentInFlight.clear()
+    wikiTreeInFlight.clear()
     return
   }
   const pp = normalizePath(projectPath)
   for (const key of [...wikiContentCache.keys()]) {
     if (key.startsWith(pp + "/")) wikiContentCache.delete(key)
   }
+  for (const key of [...wikiContentInFlight.keys()]) {
+    if (key.startsWith(pp + "/")) wikiContentInFlight.delete(key)
+  }
   wikiTreeCache.delete(pp)
+  wikiTreeInFlight.delete(pp)
 }
 
 function readFileCached(path: string): Promise<string> {
@@ -204,23 +214,50 @@ function readFileCached(path: string): Promise<string> {
   if (hit && Date.now() - hit.cachedAt < WIKI_CACHE_TTL_MS) {
     return Promise.resolve(hit.content)
   }
-  return readFile(path).then((content) => {
-    if (wikiContentCache.size >= WIKI_CACHE_MAX_ENTRIES) {
-      const oldest = wikiContentCache.keys().next().value
-      if (oldest !== undefined) wikiContentCache.delete(oldest)
-    }
-    wikiContentCache.set(path, { content, cachedAt: Date.now() })
-    return content
-  })
+  const pending = wikiContentInFlight.get(path)
+  if (pending) return pending
+  const startEpoch = wikiCacheEpoch
+  const req = readFile(path)
+    .then((content) => {
+      if (wikiCacheEpoch === startEpoch) {
+        if (wikiContentCache.size >= WIKI_CACHE_MAX_ENTRIES) {
+          const oldest = wikiContentCache.keys().next().value
+          if (oldest !== undefined) wikiContentCache.delete(oldest)
+        }
+        wikiContentCache.set(path, { content, cachedAt: Date.now() })
+      }
+      return content
+    })
+    .finally(() => {
+      if (wikiContentInFlight.get(path) === req) {
+        wikiContentInFlight.delete(path)
+      }
+    })
+  wikiContentInFlight.set(path, req)
+  return req
 }
 
 async function listWikiFiles(pp: string): Promise<FileNode[]> {
   const hit = wikiTreeCache.get(pp)
   if (hit && Date.now() - hit.cachedAt < WIKI_CACHE_TTL_MS) return hit.files
-  const wikiTree = await listDirectory(`${pp}/wiki`)
-  const files = flattenMdFiles(wikiTree)
-  wikiTreeCache.set(pp, { files, cachedAt: Date.now() })
-  return files
+  const pending = wikiTreeInFlight.get(pp)
+  if (pending) return pending
+  const startEpoch = wikiCacheEpoch
+  const req = listDirectory(`${pp}/wiki`)
+    .then((wikiTree) => {
+      const files = flattenMdFiles(wikiTree)
+      if (wikiCacheEpoch === startEpoch) {
+        wikiTreeCache.set(pp, { files, cachedAt: Date.now() })
+      }
+      return files
+    })
+    .finally(() => {
+      if (wikiTreeInFlight.get(pp) === req) {
+        wikiTreeInFlight.delete(pp)
+      }
+    })
+  wikiTreeInFlight.set(pp, req)
+  return req
 }
 
 function extractTitle(content: string, fileName: string): string {
@@ -320,6 +357,9 @@ export async function searchWiki(
     if (dataVersion !== wikiCacheDataVersion) {
       wikiContentCache.clear()
       wikiTreeCache.clear()
+      wikiContentInFlight.clear()
+      wikiTreeInFlight.clear()
+      wikiCacheEpoch += 1
       wikiCacheDataVersion = dataVersion
     }
     const wikiFiles = await listWikiFiles(pp)

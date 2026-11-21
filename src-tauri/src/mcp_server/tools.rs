@@ -687,9 +687,91 @@ impl super::registry::McpTool for ContextInspectTool {
                 params["promptLimit"] = json!(limit);
             }
 
-            ctx.bridge_query(StateQuery::new("context-inspect").with_params(params))
-                .await
+            let needs_async_build = params.get("includePack").and_then(|v| v.as_bool()) == Some(true)
+                || params.get("dimension").is_some()
+                || params.get("inspectionId").is_some();
+            if !needs_async_build {
+                return ctx
+                    .bridge_query(StateQuery::new("context-inspect").with_params(params))
+                    .await;
+            }
+            run_context_inspect_async(
+                params,
+                CONTEXT_INSPECT_POLL_INTERVAL,
+                CONTEXT_INSPECT_MAX_WAIT,
+                |query| ctx.bridge_query(query),
+            )
+            .await
         })
+    }
+}
+
+const CONTEXT_INSPECT_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+const CONTEXT_INSPECT_MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(180);
+
+async fn run_context_inspect_async<F, Fut>(
+    params: Value,
+    poll_interval: std::time::Duration,
+    max_wait: std::time::Duration,
+    mut query_bridge: F,
+) -> Result<Value, ToolError>
+where
+    F: FnMut(StateQuery) -> Fut,
+    Fut: Future<Output = Result<Value, ToolError>>,
+{
+    let started = query_bridge(StateQuery::new("context-inspect-start").with_params(params)).await?;
+    match started.get("status").and_then(|v| v.as_str()) {
+        Some("done") => return Ok(started.get("value").cloned().unwrap_or(Value::Null)),
+        Some("failed") => {
+            let msg = started
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("context.inspect 失败");
+            return Err(ToolError::internal(msg.to_string()));
+        }
+        Some("running") => {}
+        other => {
+            return Err(ToolError::internal(format!(
+                "context-inspect-start 返回未知状态：{other:?}"
+            )))
+        }
+    }
+    let job_id = started
+        .get("jobId")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ToolError::internal("context-inspect-start 缺少 jobId"))?
+        .to_string();
+
+    let deadline = std::time::Instant::now() + max_wait;
+    loop {
+        if std::time::Instant::now() >= deadline {
+            return Err(ToolError::internal(format!(
+                "context.inspect 任务超时（>{}s，jobId={job_id}）",
+                max_wait.as_secs()
+            )));
+        }
+        tokio::time::sleep(poll_interval).await;
+        let polled = query_bridge(
+            StateQuery::new("context-inspect-poll").with_params(json!({ "jobId": job_id })),
+        )
+        .await?;
+        match polled.get("status").and_then(|v| v.as_str()) {
+            Some("running") => continue,
+            Some("done") => return Ok(polled.get("value").cloned().unwrap_or(Value::Null)),
+            Some("failed") => {
+                let msg = polled
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("context.inspect 失败");
+                return Err(ToolError::internal(msg.to_string()));
+            }
+            other => {
+                return Err(ToolError::internal(format!(
+                    "context-inspect-poll 返回未知状态：{other:?}"
+                )))
+            }
+        }
     }
 }
 
@@ -2508,6 +2590,61 @@ mod tests {
             .await
             .expect_err("无 app 句柄不得成功");
         assert_eq!(err.code, crate::mcp_server::protocol::INTERNAL_ERROR);
+    }
+
+    #[tokio::test]
+    async fn context_inspect_async_polls_until_done_and_surfaces_failures() {
+        let polls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let polls_ref = polls.clone();
+        let ok = run_context_inspect_async(
+            json!({ "chapter": "1", "includePack": true }),
+            std::time::Duration::from_millis(1),
+            std::time::Duration::from_secs(2),
+            move |q| {
+                let p = polls_ref.clone();
+                async move {
+                    match q.op.as_str() {
+                        "context-inspect-start" => {
+                            Ok(json!({ "status": "running", "jobId": "job-1" }))
+                        }
+                        "context-inspect-poll" => {
+                            let n = p.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            if n == 0 {
+                                Ok(json!({ "status": "running", "jobId": "job-1" }))
+                            } else {
+                                Ok(json!({ "status": "done", "jobId": "job-1", "value": { "contextPackBuilt": true } }))
+                            }
+                        }
+                        other => Err(ToolError::internal(format!("unexpected op {other}"))),
+                    }
+                }
+            },
+        )
+        .await
+        .expect("async poll should resolve");
+        assert_eq!(ok["contextPackBuilt"], json!(true));
+        assert_eq!(polls.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        let err = run_context_inspect_async(
+            json!({ "chapter": "1", "includePack": true }),
+            std::time::Duration::from_millis(1),
+            std::time::Duration::from_secs(2),
+            |q| async move {
+                match q.op.as_str() {
+                    "context-inspect-start" => {
+                        Ok(json!({ "status": "running", "jobId": "job-2" }))
+                    }
+                    "context-inspect-poll" => {
+                        Ok(json!({ "status": "failed", "jobId": "job-2", "error": "retrieval refused" }))
+                    }
+                    other => Err(ToolError::internal(format!("unexpected op {other}"))),
+                }
+            },
+        )
+        .await
+        .expect_err("failed job must error");
+        assert_eq!(err.code, crate::mcp_server::protocol::INTERNAL_ERROR);
+        assert!(err.message.contains("retrieval refused"));
     }
 
     #[test]

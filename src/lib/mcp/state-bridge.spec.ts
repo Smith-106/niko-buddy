@@ -1158,6 +1158,90 @@ describe("handleStateRequest — 默认依赖（无项目）", () => {
   })
 })
 
+describe("handleStateRequest — context-inspect-start / poll 异步慢构建路径", () => {
+  it("start 立即返回 running + jobId，完成后 poll 返回完整结果", async () => {
+    const deferred = deferredValue<unknown>()
+    const testDeps = deps({
+      inspectContext: async (input) => {
+        await input.recheckChapter?.()
+        return await deferred.promise
+      },
+    })
+
+    const started = await handleStateRequest(
+      request({ op: "context-inspect-start", params: { chapter: "1", includePack: true } }),
+      testDeps,
+    )
+    expect(started.ok).toBe(true)
+    const startVal = started.value as { status: string; jobId: string }
+    expect(startVal.status).toBe("running")
+    expect(startVal.jobId).toMatch(/^cinspect_/)
+
+    const runningPoll = await handleStateRequest(
+      request({ op: "context-inspect-poll", params: { jobId: startVal.jobId } }),
+      testDeps,
+    )
+    expect(runningPoll).toEqual({ ok: true, value: { status: "running", jobId: startVal.jobId } })
+
+    deferred.resolve({ inspectionId: "insp-async-1", contextPackBuilt: true })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const donePoll = await handleStateRequest(
+      request({ op: "context-inspect-poll", params: { jobId: startVal.jobId } }),
+      testDeps,
+    )
+    expect(donePoll).toEqual({
+      ok: true,
+      value: {
+        status: "done",
+        jobId: startVal.jobId,
+        value: { inspectionId: "insp-async-1", contextPackBuilt: true },
+      },
+    })
+  })
+
+  it("后台任务抛错时 poll 明确回 failed + error 文本", async () => {
+    const started = await handleStateRequest(
+      request({ op: "context-inspect-start", params: { chapter: "1", includePack: true } }),
+      deps({
+        inspectContext: async () => {
+          throw new Error("需要检索网络授权")
+        },
+      }),
+    )
+    expect(started.ok).toBe(true)
+    const { jobId } = started.value as { jobId: string }
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const failedPoll = await handleStateRequest(
+      request({ op: "context-inspect-poll", params: { jobId } }),
+      deps(),
+    )
+    expect(failedPoll).toEqual({
+      ok: true,
+      value: { status: "failed", jobId, error: "需要检索网络授权" },
+    })
+  })
+
+  it("poll 缺 jobId 或未知 jobId（含前端重载丢失）立即报错", async () => {
+    const missingParam = await handleStateRequest(
+      request({ op: "context-inspect-poll", params: {} }),
+      deps(),
+    )
+    expect(missingParam.ok).toBe(false)
+    expect(missingParam.error).toContain("params.jobId")
+
+    const unknownJob = await handleStateRequest(
+      request({ op: "context-inspect-poll", params: { jobId: "cinspect_missing" } }),
+      deps(),
+    )
+    expect(unknownJob.ok).toBe(false)
+    expect(unknownJob.error).toContain("未知 context-inspect 任务")
+  })
+})
+
 describe("handleStateRequest — 默认依赖（有项目，无真实后端）", () => {
   const proj = { id: "probe-proj", name: "probe", path: "/tmp/qmai-bridge-probe-no-such-dir" }
 

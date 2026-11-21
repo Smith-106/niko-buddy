@@ -83,6 +83,8 @@ export type StateOp =
   | "draft-write"
   | "formal-path"
   | "context-inspect"
+  | "context-inspect-start"
+  | "context-inspect-poll"
 
 export interface StateRequestPayload {
   id: string
@@ -326,6 +328,84 @@ function sliceLines(
   }
 }
 
+const MAX_INSPECT_JOBS = 16
+
+type InspectJobEntry =
+  | { status: "running"; startedAt: number }
+  | { status: "done"; startedAt: number; finishedAt: number; value: unknown }
+  | { status: "failed"; startedAt: number; finishedAt: number; error: string }
+
+const inspectJobs = new Map<string, InspectJobEntry>()
+let inspectJobSeq = 0
+
+function nextInspectJobId(): string {
+  inspectJobSeq += 1
+  return `cinspect_${Date.now().toString(36)}_${inspectJobSeq.toString(36)}`
+}
+
+function pruneInspectJobsIfNeeded(): void {
+  if (inspectJobs.size <= MAX_INSPECT_JOBS) return
+  const finished = [...inspectJobs.entries()]
+    .filter((entry): entry is [string, Extract<InspectJobEntry, { status: "done" | "failed" }>] => entry[1].status !== "running")
+    .sort((a, b) => a[1].finishedAt - b[1].finishedAt)
+  for (const [id] of finished) {
+    if (inspectJobs.size <= MAX_INSPECT_JOBS) break
+    inspectJobs.delete(id)
+  }
+}
+
+async function prepareContextInspect(
+  payload: StateRequestPayload,
+  deps: StateBridgeDeps,
+): Promise<{
+  projectPath: string
+  chapter: InspectedChapter
+  params: Record<string, unknown>
+  recheckChapter: () => Promise<void>
+}> {
+  const projectPath = requireProjectPath(deps)
+  const params = payload.params ?? {}
+  const selector = typeof params.chapter === "string" ? params.chapter : ""
+  if (selector.trim() === "") {
+    throw new Error("context-inspect 需要 params.chapter（章节序号或文件名）")
+  }
+  const chapters = await deps.listChapters(projectPath)
+  if (chapters.length === 0) {
+    throw new Error(`项目下没有章节文件：${projectPath}/wiki/chapters`)
+  }
+  const chapter = selectChapter(chapters, selector)
+  // 构建可能持续数秒：期间项目被切换或章节集合变化（插入/删除/改名）
+  // 都会让「这份回读」指向另一个目标，必须显式拒绝而不是返回混合快照。
+  //
+  // 该复查必须作为**内部异步回调**交给门面，而不是在 `inspectContext`
+  // 返回之后再做：它内部还要读一次章节目录，那个 await 若留在外面，就会
+  // 越过门面的正文 / 完整配置终检，那段窗口里的漂移会被漏报成稳定成功。
+  // 分工不变：桥独占目录读取与章身份（listChapters / selectChapter /
+  // 四元组比对），门面独占正文与完整配置终检。
+  const recheckChapter = async (): Promise<void> => {
+    if (deps.readProjectPath() !== projectPath) {
+      throw new Error("context-inspect 拒绝：项目在回读期间发生变化，请重跑")
+    }
+    const after = await deps.listChapters(projectPath)
+    // 最后的目录读取也会 await；该期间切换项目仍须拒绝。
+    if (deps.readProjectPath() !== projectPath) {
+      throw new Error("context-inspect 拒绝：项目在回读期间发生变化，请重跑")
+    }
+    let recheck: InspectedChapter
+    try {
+      recheck = selectChapter(after, selector)
+    } catch {
+      throw new Error("context-inspect 拒绝：章节在回读期间发生变化，请重跑")
+    }
+    if (!sameInspectedChapter(recheck, chapter)) {
+      throw new Error(
+        `context-inspect 拒绝：章节在回读期间发生变化（${chapter.name}, index=${chapter.index}, number=${chapter.number} → ${recheck.name}, index=${recheck.index}, number=${recheck.number}），请重跑`,
+      )
+    }
+  }
+  return { projectPath, chapter, params, recheckChapter }
+}
+
 /**
  * 处理一条桥请求。除 `handleStateRequest` 的同步分支外全部只读。
  *
@@ -547,49 +627,48 @@ export async function handleStateRequest(
         // 章节解析走既有 `chapter-list` 语义：只接受 1 起序号或精确文件名，
         // 不开放任意路径读取。参数（task/dimension/分页/开关）由
         // `context-inspection.ts` 自行校验，桥不解释。
-        const projectPath = requireProjectPath(deps)
-        const params = payload.params ?? {}
-        const selector = typeof params.chapter === "string" ? params.chapter : ""
-        if (selector.trim() === "") {
-          return { ok: false, error: "context-inspect 需要 params.chapter（章节序号或文件名）" }
-        }
-        const chapters = await deps.listChapters(projectPath)
-        if (chapters.length === 0) {
-          return { ok: false, error: `项目下没有章节文件：${projectPath}/wiki/chapters` }
-        }
-        const chapter = selectChapter(chapters, selector)
-        // 构建可能持续数秒：期间项目被切换或章节集合变化（插入/删除/改名）
-        // 都会让「这份回读」指向另一个目标，必须显式拒绝而不是返回混合快照。
-        //
-        // 该复查必须作为**内部异步回调**交给门面，而不是在 `inspectContext`
-        // 返回之后再做：它内部还要读一次章节目录，那个 await 若留在外面，就会
-        // 越过门面的正文 / 完整配置终检，那段窗口里的漂移会被漏报成稳定成功。
-        // 分工不变：桥独占目录读取与章身份（listChapters / selectChapter /
-        // 四元组比对），门面独占正文与完整配置终检。
-        const recheckChapter = async (): Promise<void> => {
-          if (deps.readProjectPath() !== projectPath) {
-            throw new Error("context-inspect 拒绝：项目在回读期间发生变化，请重跑")
-          }
-          const after = await deps.listChapters(projectPath)
-          // 最后的目录读取也会 await；该期间切换项目仍须拒绝。
-          if (deps.readProjectPath() !== projectPath) {
-            throw new Error("context-inspect 拒绝：项目在回读期间发生变化，请重跑")
-          }
-          let recheck: InspectedChapter
-          try {
-            recheck = selectChapter(after, selector)
-          } catch {
-            throw new Error("context-inspect 拒绝：章节在回读期间发生变化，请重跑")
-          }
-          if (!sameInspectedChapter(recheck, chapter)) {
-            throw new Error(
-              `context-inspect 拒绝：章节在回读期间发生变化（${chapter.name}, index=${chapter.index}, number=${chapter.number} → ${recheck.name}, index=${recheck.index}, number=${recheck.number}），请重跑`,
-            )
-          }
-        }
+        const prepared = await prepareContextInspect(payload, deps)
         // 拿到 value 之后不再追加目录 await：终检顺序统一由门面持有。
-        const value = await deps.inspectContext({ projectPath, chapter, params, recheckChapter })
+        const value = await deps.inspectContext(prepared)
         return { ok: true, value }
+      }
+
+      case "context-inspect-start": {
+        // 慢链路（真实检索网络 / 大项目首次构建）可能超过状态桥 15s 兜底；
+        // 先同步校验项目与章身份，再登记异步任务立即返回 jobId 供 Rust 轮询。
+        const prepared = await prepareContextInspect(payload, deps)
+        const jobId = nextInspectJobId()
+        const startedAt = Date.now()
+        inspectJobs.set(jobId, { status: "running", startedAt })
+        pruneInspectJobsIfNeeded()
+        void deps
+          .inspectContext(prepared)
+          .then((value) => {
+            inspectJobs.set(jobId, { status: "done", startedAt, finishedAt: Date.now(), value })
+          })
+          .catch((err: unknown) => {
+            const error = err instanceof Error ? err.message : String(err)
+            inspectJobs.set(jobId, { status: "failed", startedAt, finishedAt: Date.now(), error })
+          })
+        return { ok: true, value: { status: "running", jobId } }
+      }
+
+      case "context-inspect-poll": {
+        const jobId = typeof payload.params?.jobId === "string" ? payload.params.jobId : ""
+        if (!jobId) {
+          return { ok: false, error: "op=context-inspect-poll 需要 params.jobId" }
+        }
+        const entry = inspectJobs.get(jobId)
+        if (!entry) {
+          return { ok: false, error: `未知 context-inspect 任务：${jobId}（任务不存在、已被清理或前端已重载）` }
+        }
+        if (entry.status === "running") {
+          return { ok: true, value: { status: "running", jobId } }
+        }
+        if (entry.status === "done") {
+          return { ok: true, value: { status: "done", jobId, value: entry.value } }
+        }
+        return { ok: true, value: { status: "failed", jobId, error: entry.error } }
       }
 
       default:

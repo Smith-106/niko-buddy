@@ -485,4 +485,63 @@ describe("searchWiki — 按项目失效缓存（残留行）", () => {
     expect(mocks.listDirectory).toHaveBeenCalledTimes(3)
     expect(mocks.readFile).toHaveBeenCalledTimes(3)
   })
+
+  it("并发 searchWiki 复用同路径 in-flight 树枚举与读文件，不重复打 IPC", async () => {
+    let releaseDir!: () => void
+    let releaseFile!: () => void
+    mocks.listDirectory.mockImplementation(
+      () => new Promise((resolve) => {
+        releaseDir = () => resolve([mdFile(`${PP}/wiki/notes.md`, "notes.md")])
+      }),
+    )
+    mocks.readFile.mockImplementation(
+      () => new Promise((resolve) => {
+        releaseFile = () => resolve("needle 并发内容")
+      }),
+    )
+
+    const p1 = searchWiki(PP, "needle", { includeVector: false })
+    const p2 = searchWiki(PP, "并发", { includeVector: false })
+    const p3 = searchWiki(PP, "内容", { includeVector: false })
+
+    await vi.waitFor(() => expect(mocks.listDirectory).toHaveBeenCalledTimes(1))
+    releaseDir()
+    await vi.waitFor(() => expect(mocks.readFile).toHaveBeenCalledTimes(1))
+    releaseFile()
+
+    const [r1, r2, r3] = await Promise.all([p1, p2, p3])
+    expect(r1).toHaveLength(1)
+    expect(r2).toHaveLength(1)
+    expect(r3).toHaveLength(1)
+    expect(mocks.listDirectory).toHaveBeenCalledTimes(1)
+    expect(mocks.readFile).toHaveBeenCalledTimes(1)
+  })
+
+  it("in-flight 读取期间缓存被失效时，旧读取不回写污染缓存", async () => {
+    let releaseOld!: () => void
+    let callCount = 0
+    mocks.listDirectory.mockResolvedValue([mdFile(`${PP}/wiki/notes.md`, "notes.md")])
+    mocks.readFile.mockImplementation(() => {
+      callCount += 1
+      if (callCount === 1) {
+        return new Promise((resolve) => {
+          releaseOld = () => resolve("旧内容")
+        })
+      }
+      return Promise.resolve("needle 新内容")
+    })
+
+    const inflight = searchWiki(PP, "needle", { includeVector: false })
+    await vi.waitFor(() => expect(mocks.readFile).toHaveBeenCalledTimes(1))
+
+    invalidateWikiSearchCache(PP)
+    const fresh = await searchWiki(PP, "needle", { includeVector: false })
+    expect(fresh).toHaveLength(1)
+
+    releaseOld()
+    await expect(inflight).resolves.toEqual([])
+    const after = await searchWiki(PP, "needle", { includeVector: false })
+    expect(after).toHaveLength(1)
+    expect(mocks.readFile).toHaveBeenCalledTimes(2)
+  })
 })
