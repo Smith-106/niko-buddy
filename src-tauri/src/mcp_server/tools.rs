@@ -687,7 +687,8 @@ impl super::registry::McpTool for ContextInspectTool {
                 params["promptLimit"] = json!(limit);
             }
 
-            let needs_async_build = params.get("includePack").and_then(|v| v.as_bool()) == Some(true)
+            let needs_async_build = params.get("includePack").and_then(|v| v.as_bool())
+                == Some(true)
                 || params.get("dimension").is_some()
                 || params.get("inspectionId").is_some();
             if !needs_async_build {
@@ -719,7 +720,8 @@ where
     F: FnMut(StateQuery) -> Fut,
     Fut: Future<Output = Result<Value, ToolError>>,
 {
-    let started = query_bridge(StateQuery::new("context-inspect-start").with_params(params)).await?;
+    let started =
+        query_bridge(StateQuery::new("context-inspect-start").with_params(params)).await?;
     match started.get("status").and_then(|v| v.as_str()) {
         Some("done") => return Ok(started.get("value").cloned().unwrap_or(Value::Null)),
         Some("failed") => {
