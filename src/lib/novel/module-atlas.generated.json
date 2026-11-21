@@ -91,7 +91,7 @@
   "specOnly": 268,
   "barrelOnly": 1,
   "edges": 4678,
-  "loc": 293787
+  "loc": 293800
  },
  "modules": [
   {
@@ -1139,7 +1139,7 @@
   {
    "p": "src/components/editor/wiki-editor.tsx",
    "s": 16,
-   "l": 560,
+   "l": 548,
    "r": true,
    "o": false,
    "x": false,
@@ -4153,7 +4153,7 @@
   {
    "p": "src/components/novel/story-simulation/interview-history-view.tsx",
    "s": 16,
-   "l": 385,
+   "l": 382,
    "r": true,
    "o": false,
    "x": false,
@@ -4293,7 +4293,7 @@
   {
    "p": "src/components/novel/story-simulation/simulation-report-view.tsx",
    "s": 16,
-   "l": 870,
+   "l": 869,
    "r": true,
    "o": false,
    "x": false,
@@ -4316,7 +4316,7 @@
   {
    "p": "src/components/novel/story-simulation/story-draft-view.tsx",
    "s": 16,
-   "l": 526,
+   "l": 525,
    "r": true,
    "o": false,
    "x": false,
@@ -15836,7 +15836,7 @@
   {
    "p": "src/lib/novel/skill-pack/pack-format.ts",
    "s": 13,
-   "l": 187,
+   "l": 188,
    "r": true,
    "o": false,
    "x": false,
@@ -19140,7 +19140,7 @@
   {
    "p": "src/stores/story-simulation-store.ts",
    "s": 17,
-   "l": 646,
+   "l": 675,
    "r": true,
    "o": false,
    "x": false,
