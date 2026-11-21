@@ -15,6 +15,23 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.28.1（2026-11-22）：wiki 检索并发去重与 context.inspect 异步轮询修复。
+    version: "2.28.1",
+    date: "2026-11-22",
+    highlights: {
+      en: [
+        "Coalesced concurrent wiki directory listings and file reads in searchWiki with epoch-guarded cache invalidation so parallel context-pack assembly no longer floods IPC on large projects.",
+        "Routed pack-building and cached-lookup context.inspect requests through context-inspect-start and bounded 250ms polling while keeping the 15s state-bridge timeout and external contract unchanged.",
+        "Release cadence: under the user's authorization to execute and sign the full Goal plan, the coordinator records weekly-stable and thirty-day-stable exemptions for v2.28.1 (fix commit 1dce8573a012dcdbccd1b3d02f319614d635754e, generated atlas commit c12440fea52b49b44c1b0466f86fc22f771772e0). Forecast across 94 releases on Tokyo local day 2026-11-22: 4 stable releases in ISO week 2026-11-16 (v2.27.5, v2.27.6, v2.28.0, v2.28.1; limit 1), only v2.28.1 on 2026-11-22, and 19 in the rolling 30-day window (limit 4). Final cadence audit re-evaluates actual publishedAt; engineering, trunk, assets, signatures and real update checks apply. Delegated signing is not a claim of personal human review.",
+      ],
+      zh: [
+        "为 searchWiki 的 wiki 目录枚举与文件内容读取增加 in-flight Promise 去重和 epoch 失效守卫，避免长篇大项目并行构建 ContextPack 时重复触发全量 IPC 读取。",
+        "为需要构建或查找的 context.inspect 请求改用 context-inspect-start 与 250ms 有界轮询，在保持 15 秒状态桥默认超时和外部接口契约不变的前提下避免真实检索网络超时。",
+        "发布节奏：依据用户授予的完整 Goal 执行与方案签署权限，协调者登记 v2.28.1 的 weekly-stable / thirty-day-stable 两项豁免（修复手写提交 1dce8573a012dcdbccd1b3d02f319614d635754e、生成索引提交 c12440fea52b49b44c1b0466f86fc22f771772e0）。基于 94 条完整发布记录在东京 2026-11-22 预测：ISO 周 2026-11-16 有 4 个 stable（v2.27.5、v2.27.6、v2.28.0 与本版，上限 1），2026-11-22 当日仅本版 1 个，近 30 天有 19 个 stable（含本版，上限 4）。提升后按真实 publishedAt 复算；工程门、主干、资产、签名及真机更新重启验收照常执行。协调者依用户授权代签，未声称用户亲自审核本版差异。",
+      ],
+    },
+  },
+  {
     // 2.28.0（2026-11-21）：只读上下文回读、安全依赖与共享提示归属修正。
     version: "2.28.0",
     date: "2026-11-21",

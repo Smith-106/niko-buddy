@@ -234,6 +234,16 @@
         "weekly-stable",
         "thirty-day-stable"
       ]
+    },
+    {
+      "tag": "v2.28.1",
+      "reason": "依据用户授予的完整 Goal 执行与方案签署权限，协调者签署 2.28.1 补丁交付，修复真机大项目 context.inspect 暴露的 searchWiki 并发读风暴（in-flight 去重 + epoch 守卫）与真实检索网络超过状态桥 15s 默认超时问题（慢路径走 context-inspect-start + 250ms 有界轮询，保持 15s 超时与外部契约不变）。手写修复提交 1dce8573a012dcdbccd1b3d02f319614d635754e 与生成索引提交 c12440fea52b49b44c1b0466f86fc22f771772e0 按 P16 分开捕获，经独立只读 Reviewer APPROVE。按 94 条完整 Release 记录及现行 check-release-cadence.mjs 算法，在 Tokyo 2026-11-22 预测：ISO 周 2026-11-16 含 v2.27.5、v2.27.6、v2.28.0 与本候选共 4 个 stable（上限 1）；本地当日 2026-11-22 仅本候选 1 个（不触发 same-day-duplicate）；30 天共 19 个 stable（上限 4）。scope 仅列实际触发的 weekly-stable 与 thirty-day-stable；发布后按真实 publishedAt 复算。工程门、主干、活跃目标资产、签名和真机更新重启验收照常执行。用户授权协调者代签，未声称用户亲自审核具体版本差异。",
+      "approvedBy": "user-authorized-coordinator",
+      "approvedAt": "2026-11-22",
+      "scope": [
+        "weekly-stable",
+        "thirty-day-stable"
+      ]
     }
   ]
 }
