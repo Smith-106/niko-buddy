@@ -38,10 +38,11 @@ export function isAllowedToolCategory(value: string): value is PackToolCategory 
 }
 
 /** zod 路径（`tools.0.category`）→ 面板可读路径（`tools[0].category`）。 */
-export function formatIssuePath(path: (string | number)[]): string {
+export function formatIssuePath(path: readonly PropertyKey[]): string {
   return path.reduce<string>((acc, segment) => {
     if (typeof segment === "number") return `${acc}[${segment}]`;
-    return acc ? `${acc}.${segment}` : segment;
+    const text = String(segment);
+    return acc ? `${acc}.${text}` : text;
   }, "");
 }
 

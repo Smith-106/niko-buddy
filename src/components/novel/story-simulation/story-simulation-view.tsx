@@ -94,6 +94,7 @@ export function StorySimulationView() {
   const setError = useStorySimulationStore((s) => s.setError);
   const infoMessage = useStorySimulationStore((s) => s.infoMessage);
   const setInfoMessage = useStorySimulationStore((s) => s.setInfoMessage);
+  const setTransientInfoMessage = useStorySimulationStore((s) => s.setTransientInfoMessage);
   const setProgress = useStorySimulationStore((s) => s.setProgress);
   const setTimelineEvents = useStorySimulationStore((s) => s.setTimelineEvents);
   const addTimelineEvent = useStorySimulationStore((s) => s.addTimelineEvent);
@@ -379,8 +380,7 @@ export function StorySimulationView() {
         createdAt: r.report.createdAt,
       })),
     );
-    setInfoMessage(t("storySimulation.partialSavedInfo"));
-    setTimeout(() => setInfoMessage(null), 5000);
+    setTransientInfoMessage(t("storySimulation.partialSavedInfo"), 5000);
   };
 
   const showTransientError = (
@@ -816,8 +816,7 @@ export function StorySimulationView() {
         console.error("保存推演结果失败:", saveErr);
       }
       if (degradedRef.current) {
-        setInfoMessage(t("storySimulation.degradedInfo"));
-        setTimeout(() => setInfoMessage(null), 8000);
+        setTransientInfoMessage(t("storySimulation.degradedInfo"), 8000);
       }
     } catch (err) {
       if (ac.signal.aborted) {
@@ -989,8 +988,7 @@ export function StorySimulationView() {
         activeChatAgent.name,
         agentChatMessages,
       );
-      setInfoMessage(t("storySimulation.chatExported", { path: filePath }));
-      setTimeout(() => setInfoMessage(null), 5000);
+      setTransientInfoMessage(t("storySimulation.chatExported", { path: filePath }), 5000);
     } catch (err) {
       setError(formatOperationError(t, err));
     } finally {
@@ -1033,8 +1031,10 @@ export function StorySimulationView() {
         existingId,
       });
       setContinuingInterviewId(null);
-      setInfoMessage(t("storySimulation.interviewSaved", { count: agentChatMessages.length }));
-      setTimeout(() => setInfoMessage(null), 3000);
+      setTransientInfoMessage(
+        t("storySimulation.interviewSaved", { count: agentChatMessages.length }),
+        3000,
+      );
     } catch (err) {
       showTransientError(formatOperationError(t, err), 5000);
     } finally {

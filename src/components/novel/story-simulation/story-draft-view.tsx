@@ -30,7 +30,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
   const draft = useStorySimulationStore((s) => s.currentDraft)
   const setCurrentDraft = useStorySimulationStore((s) => s.setCurrentDraft)
   const setTransientError = useStorySimulationStore((s) => s.setTransientError)
-  const setInfoMessage = useStorySimulationStore((s) => s.setInfoMessage)
+  const setTransientInfoMessage = useStorySimulationStore((s) => s.setTransientInfoMessage)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const [copied, setCopied] = useState(false)
@@ -90,8 +90,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
     setExporting(true)
     try {
       const filePath = await exportDraft(projectPath, currentFramework, draft)
-      setInfoMessage(t("storySimulation.draftExported", { path: filePath }))
-      setTimeout(() => setInfoMessage(null), 5000)
+      setTransientInfoMessage(t("storySimulation.draftExported", { path: filePath }), 5000)
     } catch (err) {
       setTransientError(formatOperationError(t, err), 5000)
     } finally {

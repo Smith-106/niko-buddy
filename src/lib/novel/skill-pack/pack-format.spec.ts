@@ -54,6 +54,28 @@ describe("pack-format.ts 行为补测", () => {
     expect(formatIssuePath([])).toBe("")
   })
 
+  it("formatIssuePath 接受 readonly symbol 路径且不修改输入", () => {
+    const field = Symbol("field")
+    const path = Object.freeze(["tools", field, 1] as const)
+    expect(formatIssuePath(path)).toBe("tools.Symbol(field)[1]")
+    expect(path).toEqual(["tools", field, 1])
+  })
+
+  it("65 条工具超过上界时整包拒绝", () => {
+    const result = parseNbskillPack({
+      schemaVersion: NBSKILL_PACK_SCHEMA_VERSION,
+      name: "count-limit-pack",
+      version: "1.0.0",
+      author: "test",
+      tools: Array.from({ length: 65 }, (_, index) => ({ name: `tool-${index}`, category: PACK_TOOL_CATEGORIES[0] })),
+      prompts: [],
+      trustLevel: "untrusted",
+    })
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error("expected whole-pack rejection")
+    expect(result.issues.some((issue) => issue.at === "tools")).toBe(true)
+  })
+
   it("name 不合规 → 专属 name_invalid（不是宽泛的 schema_invalid）", () => {
     const result = parseNbskillPack({
       schemaVersion: NBSKILL_PACK_SCHEMA_VERSION,

@@ -322,13 +322,6 @@ function WritingTextarea({
 }
 
 function WikiEditorInner({ content, onSave }: WikiEditorInnerProps) {
-  // Milkdown fires `markdownUpdated` once on initial parse before any
-  // user interaction. That one emit must not be forwarded as a save,
-  // otherwise just opening a file can overwrite its content with
-  // Milkdown's normalized-but-equivalent re-emit (or, worse, with a
-  // placeholder string that came back from a failed read).
-  const initialEmitConsumedRef = useRef(false)
-
   useEditor(
     (root) =>
       Editor.make()
@@ -336,12 +329,7 @@ function WikiEditorInner({ content, onSave }: WikiEditorInnerProps) {
         .config((ctx) => {
           ctx.set(rootCtx, root)
           ctx.set(defaultValueCtx, content)
-          initialEmitConsumedRef.current = false
           ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
-            if (!initialEmitConsumedRef.current) {
-              initialEmitConsumedRef.current = true
-              return
-            }
             onSave(markdown)
           })
         })

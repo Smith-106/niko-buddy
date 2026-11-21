@@ -1690,7 +1690,10 @@ function installBannerTimers() {
       return fired
     },
     restore() {
-      act(() => useStorySimulationStore.getState().setError(null))
+      act(() => {
+        useStorySimulationStore.getState().setError(null)
+        useStorySimulationStore.getState().setInfoMessage(null)
+      })
       pending.splice(0)
       clearTimerSpy.mockRestore()
       setTimerSpy.mockRestore()
@@ -2258,6 +2261,20 @@ describe("StorySimulationView 横幅自动清除（确定性计时）", () => {
   })
 
   it("successful interview save retry keeps previous error cleanup", async () => {
+    // 从真实旧视图的采访保存路径保留清除回调，隔离负载概率。
+    setupInterview()
+    const previousView = render(<StorySimulationView />)
+    const previousSaveButton = screen.getByTitle("storySimulation.saveInterviewTip") as HTMLButtonElement
+    fireEvent.click(previousSaveButton)
+    await waitFor(() => {
+      expect(previousSaveButton.disabled).toBe(false)
+      expect(String(useStorySimulationStore.getState().infoMessage)).toContain("storySimulation.interviewSaved")
+    })
+    const previousInfoTimer = pending.find((timer) => timer.ms === 3000)
+    if (!previousInfoTimer) throw new Error("Expected prior interview info timer")
+    previousView.unmount()
+    resetViewStore()
+
     setupInterview()
     let rejectFirstSave!: (reason: unknown) => void
     let resolveRetry!: () => void
@@ -2284,6 +2301,10 @@ describe("StorySimulationView 横幅自动清除（确定性计时）", () => {
     await act(async () => { resolveRetry() })
     expect(saveButton.disabled).toBe(false)
     expect(String(useStorySimulationStore.getState().infoMessage)).toContain("storySimulation.interviewSaved")
+    const retryInfo = useStorySimulationStore.getState().infoMessage
+    // 即使取消的旧回调被强制执行，也不得清除当前新提示。
+    act(() => previousInfoTimer.fn())
+    expect(useStorySimulationStore.getState().infoMessage).toBe(retryInfo)
     expect(useStorySimulationStore.getState().error).toBe(originalError)
     expect(useStorySimulationStore.getState().errorRevision).toBe(originalRevision)
 

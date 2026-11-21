@@ -78,6 +78,20 @@ describe("eval-schema", () => {
     }
   })
 
+  it.each([
+    { thresholds: {}, l1Min: 0.95 },
+    { thresholds: { l1Min: 0.96 }, l1Min: 0.96 },
+  ])("fills nested defaults for $thresholds", ({ thresholds, l1Min }) => {
+    expect(evalRunConfigSchema.parse({ thresholds })).toEqual({
+      replayOnlyFailed: true,
+      thresholds: { l1Min, l2Min: 0.99, l3Max: 0.01 },
+    })
+  })
+
+  it.each([-0.01, 1.01, "0.96"])("rejects invalid threshold %s", (l1Min) => {
+    expect(evalRunConfigSchema.safeParse({ thresholds: { l1Min } }).success).toBe(false)
+  })
+
   it("rejectionSignal requires negation_active (C10)", () => {
     const parsed = rejectionSignalSchema.safeParse({ reason: "x", negation_active: true })
     expect(parsed.success).toBe(true)

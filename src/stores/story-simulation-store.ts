@@ -53,6 +53,8 @@ interface StorySimulationState {
   errorRevision: number;
   /** 提示/成功消息 */
   infoMessage: string | null;
+  /** 信息提示发布版本，用于隔离旧清除回调 */
+  infoRevision: number;
   progress: number;
   progressLabel: string;
   /** 仿真过程中的时间线事件（实时流） */
@@ -135,6 +137,7 @@ interface StorySimulationState {
   setError: (error: string | null) => void;
   setTransientError: (error: string, durationMs: number) => void;
   setInfoMessage: (infoMessage: string | null) => void;
+  setTransientInfoMessage: (infoMessage: string, durationMs: number) => void;
   setProgress: (progress: number, label: string) => void;
   setTimelineEvents: (events: TimelineEvent[]) => void;
   addTimelineEvent: (event: TimelineEvent) => void;
@@ -201,6 +204,7 @@ interface StorySimulationState {
 }
 
 let transientErrorTimer: ReturnType<typeof setTimeout> | null = null;
+let transientInfoTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useStorySimulationStore = create<StorySimulationState>((set, get) => ({
   phase: "idle",
@@ -219,6 +223,7 @@ export const useStorySimulationStore = create<StorySimulationState>((set, get) =
   error: null,
   errorRevision: 0,
   infoMessage: null,
+  infoRevision: 0,
   progress: 0,
   progressLabel: "",
   timelineEvents: [],
@@ -281,7 +286,26 @@ export const useStorySimulationStore = create<StorySimulationState>((set, get) =
     }, durationMs);
     transientErrorTimer = timer;
   },
-  setInfoMessage: (infoMessage: string | null) => set({ infoMessage }),
+  setInfoMessage: (infoMessage) => {
+    const timer = transientInfoTimer;
+    transientInfoTimer = null;
+    if (timer !== null) clearTimeout(timer);
+    set((state) => ({ infoMessage, infoRevision: state.infoRevision + 1 }));
+  },
+  setTransientInfoMessage: (infoMessage, durationMs) => {
+    const expectedRevision = get().infoRevision + 1;
+    get().setInfoMessage(infoMessage);
+    if (get().infoRevision !== expectedRevision) return;
+    const timer = setTimeout(() => {
+      if (
+        get().infoRevision !== expectedRevision ||
+        transientInfoTimer !== timer
+      ) return;
+      transientInfoTimer = null;
+      get().setInfoMessage(null);
+    }, durationMs);
+    transientInfoTimer = timer;
+  },
   setProgress: (progress, progressLabel) => set({ progress, progressLabel }),
   setTimelineEvents: (timelineEvents) => set({ timelineEvents }),
   addTimelineEvent: (event) =>
@@ -542,6 +566,9 @@ export const useStorySimulationStore = create<StorySimulationState>((set, get) =
     const timer = transientErrorTimer;
     transientErrorTimer = null;
     if (timer !== null) clearTimeout(timer);
+    const infoTimer = transientInfoTimer;
+    transientInfoTimer = null;
+    if (infoTimer !== null) clearTimeout(infoTimer);
     set((state) => ({
       phase: "idle",
       extractionResult: null,
@@ -550,6 +577,8 @@ export const useStorySimulationStore = create<StorySimulationState>((set, get) =
       currentDraft: null,
       error: null,
       errorRevision: state.errorRevision + 1,
+      infoMessage: null,
+      infoRevision: state.infoRevision + 1,
       progress: 0,
       progressLabel: "",
       timelineEvents: [],

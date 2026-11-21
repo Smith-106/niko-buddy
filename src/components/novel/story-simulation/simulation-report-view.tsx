@@ -494,7 +494,7 @@ export function SimulationReportView({
   const timelineEvents = useStorySimulationStore((s) => s.timelineEvents)
   const savedResults = useStorySimulationStore((s) => s.savedResults)
   const setError = useStorySimulationStore((s) => s.setError)
-  const setInfoMessage = useStorySimulationStore((s) => s.setInfoMessage)
+  const setTransientInfoMessage = useStorySimulationStore((s) => s.setTransientInfoMessage)
   const [exporting, setExporting] = useState(false)
   const [compareMode, setCompareMode] = useState(false)
   const [selectedCompareId, setSelectedCompareId] = useState<string | null>(null)
@@ -520,8 +520,7 @@ export function SimulationReportView({
     setExporting(true)
     try {
       const filePath = await exportReport(projectPath, currentFramework, activeReport, activeTimeline)
-      setInfoMessage(t("storySimulation.reportExported", { path: filePath }))
-      setTimeout(() => setInfoMessage(null), 5000)
+      setTransientInfoMessage(t("storySimulation.reportExported", { path: filePath }), 5000)
     } catch (err) {
       setError(formatOperationError(t, err))
       setTimeout(() => setError(null), 5000)

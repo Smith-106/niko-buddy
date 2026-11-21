@@ -19,7 +19,7 @@ export function InterviewHistoryView() {
   const setSavedInterviews = useStorySimulationStore((s) => s.setSavedInterviews)
   const setViewingInterview = useStorySimulationStore((s) => s.setViewingInterview)
   const setTransientError = useStorySimulationStore((s) => s.setTransientError)
-  const setInfoMessage = useStorySimulationStore((s) => s.setInfoMessage)
+  const setTransientInfoMessage = useStorySimulationStore((s) => s.setTransientInfoMessage)
   const setContinuingInterviewId = useStorySimulationStore((s) => s.setContinuingInterviewId)
   const setActiveChatAgent = useStorySimulationStore((s) => s.setActiveChatAgent)
   const setAgentChatMessages = useStorySimulationStore((s) => s.setAgentChatMessages)
@@ -69,8 +69,7 @@ export function InterviewHistoryView() {
       if (viewingInterview?.id === interview.id) {
         setViewingInterview(null)
       }
-      setInfoMessage(t("storySimulation.interviewDeleted"))
-      setTimeout(() => setInfoMessage(null), 2000)
+      setTransientInfoMessage(t("storySimulation.interviewDeleted"), 2000)
     } catch (err) {
       setTransientError(formatOperationError(t, err), 3000)
     } finally {
@@ -83,8 +82,7 @@ export function InterviewHistoryView() {
     setExporting(interview.id)
     try {
       const filePath = await exportInterview(projectPath, interview)
-      setInfoMessage(t("storySimulation.interviewExported", { path: filePath }))
-      setTimeout(() => setInfoMessage(null), 5000)
+      setTransientInfoMessage(t("storySimulation.interviewExported", { path: filePath }), 5000)
     } catch (err) {
       setTransientError(formatOperationError(t, err), 3000)
     } finally {
@@ -136,8 +134,7 @@ export function InterviewHistoryView() {
       setContinuingInterviewId(interview.id)
       setShowInterviewHistory(false)
       setViewingInterview(null)
-      setInfoMessage(t("storySimulation.interviewResumed"))
-      setTimeout(() => setInfoMessage(null), 2000)
+      setTransientInfoMessage(t("storySimulation.interviewResumed"), 2000)
     } catch (err) {
       setTransientError(formatOperationError(t, err), 3000)
     } finally {

@@ -114,7 +114,7 @@ export const RUN_EVENT_SCHEMA = z
     replayId: z.string().min(1).max(128).optional(),
     budgetCost: BUDGET_COST_SCHEMA.optional(),
     /** 有界自由负载（如 gate-run 的 gate/status/llmMediated）。 */
-    payload: z.record(z.unknown()).optional(),
+    payload: z.record(z.string(), z.unknown()).optional(),
   })
   .strict()
 

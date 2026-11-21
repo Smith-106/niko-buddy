@@ -93,7 +93,7 @@ export const evalRunConfigSchema = z.object({
       l2Min: z.number().min(0).max(1).default(0.99),
       l3Max: z.number().min(0).max(1).default(0.01),
     })
-    .default({}),
+    .prefault({}),
 })
 export type EvalRunConfig = z.infer<typeof evalRunConfigSchema>
 

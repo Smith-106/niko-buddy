@@ -52,6 +52,19 @@ describe("append-only 不变式", () => {
     expect(l1.schemaVersion).toBe(RUN_EVENT_LEDGER_SCHEMA_VERSION)
   })
 
+  it("string-key payload 保留 unknown 值，空负载与省略仍可追加", () => {
+    const payload = { text: "x", count: 2, active: true, empty: null, nested: ["a", { value: 1 }] }
+    const ledger = appendRunEvents(createRunEventLedger(), [
+      baseEvent(0),
+      baseEvent(1, { payload: {} }),
+      baseEvent(2, { payload }),
+    ])
+    expect(ledger.events[0].payload).toBeUndefined()
+    expect(ledger.events[1].payload).toEqual({})
+    expect(ledger.events[2].payload).toEqual(payload)
+    expect(ledger.events.map((event) => event.seq)).toEqual([0, 1, 2])
+  })
+
   it("seq 必须严格单调（=数组下标），跳号/回退拒绝", () => {
     const l0 = createRunEventLedger()
     expect(() => appendRunEvent(l0, baseEvent(1))).toThrow(RunEventIntegrityError)

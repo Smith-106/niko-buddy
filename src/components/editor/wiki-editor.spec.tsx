@@ -201,17 +201,20 @@ describe("WikiEditor", () => {
       "正文",
     )
 
-    // 首次 emit 被吞，后续 emit 触发 onSave(rawBlock + markdown)
+    // 挂载不产生保存；真实文档更新的第一笔与后续笔都转发，并保留 rawBlock。
+    expect(onSave).not.toHaveBeenCalled()
     const handler = mocks.markdownUpdated.mock.calls[mocks.markdownUpdated.mock.calls.length - 1]?.[0]
     expect(handler).toBeTypeOf("function")
     await act(async () => {
-      handler(null, "首次")
+      handler(null, "首次编辑")
     })
-    expect(onSave).not.toHaveBeenCalled()
+    expect(onSave).toHaveBeenCalledTimes(1)
+    expect(onSave).toHaveBeenCalledWith("---\ntitle: T\n---\n\n首次编辑")
     await act(async () => {
-      handler(null, "后续")
+      handler(null, "后续编辑")
     })
-    expect(onSave).toHaveBeenCalledWith("---\ntitle: T\n---\n\n后续")
+    expect(onSave).toHaveBeenCalledTimes(2)
+    expect(onSave).toHaveBeenCalledWith("---\ntitle: T\n---\n\n后续编辑")
     expect(mocks.editor.make).toHaveBeenCalled()
     expect(mocks.editor.use).toHaveBeenCalled()
   })

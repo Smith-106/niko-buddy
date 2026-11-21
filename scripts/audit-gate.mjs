@@ -30,22 +30,6 @@ const EXCEPTIONS = [
       return null
     },
   },
-  {
-    url: 'https://github.com/advisories/GHSA-mrhx-c7xc-m3w5',
-    reason:
-      'zod 校验超大受限集合内存耗尽 DoS；修复版仅 4.6.7（semver major），当前 ^3.25.76，v3 线无 patch；' +
-      '本应用为本地 Tauri 桌面应用，zod 仅校验本地项目文件/用户本机操作数据，无远程未认证输入路径；' +
-      'v4 迁移为独立大版本事项，不在本次图谱管线修复 scope 内。',
-    // 复查条件：zod 依赖范围一旦离开 v3（启动 v4 迁移），本例外即过期，逼人工复审后移除
-    revalidate: () => {
-      const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
-      const range = String(pkg.dependencies?.zod ?? pkg.devDependencies?.zod ?? '')
-      if (!/^\^?~?3\./.test(range)) {
-        return `zod 依赖范围已变更（${range}），请复审 GHSA-mrhx-c7xc-m3w5 是否已修复并移除例外`
-      }
-      return null
-    },
-  },
 ]
 
 let raw
