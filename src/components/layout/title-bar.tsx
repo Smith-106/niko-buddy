@@ -127,8 +127,8 @@ export function TitleBar({ onOpenCommandPalette }: { onOpenCommandPalette?: () =
           onClick={() => bumpFont(-0.05)}
           disabled={uiFontSizeScale <= 0.85}
           className="soft-button flex h-7 w-7 items-center justify-center rounded-xl text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-          title="减小字号"
-          aria-label="减小字号"
+          title={t("titleBar.decreaseFont", { defaultValue: "减小字号" })}
+          aria-label={t("titleBar.decreaseFont", { defaultValue: "减小字号" })}
         >
           <Type className="h-3.5 w-3.5" />
           <span className="text-xs">−</span>
@@ -141,6 +141,10 @@ export function TitleBar({ onOpenCommandPalette }: { onOpenCommandPalette?: () =
           }}
           className="soft-button flex h-7 items-center rounded-xl px-2 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
           title={t("settings.sections.interface.fontSize")}
+          aria-label={t("titleBar.fontSizeSettings", {
+            percent: Math.round(uiFontSizeScale * 100),
+            defaultValue: `界面字号设置（当前 ${Math.round(uiFontSizeScale * 100)}%）`,
+          })}
         >
           {Math.round(uiFontSizeScale * 100)}%
         </button>
@@ -149,8 +153,8 @@ export function TitleBar({ onOpenCommandPalette }: { onOpenCommandPalette?: () =
           onClick={() => bumpFont(0.05)}
           disabled={uiFontSizeScale >= 1.3}
           className="soft-button flex h-7 w-7 items-center justify-center rounded-xl text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-          title="增大字号"
-          aria-label="增大字号"
+          title={t("titleBar.increaseFont", { defaultValue: "增大字号" })}
+          aria-label={t("titleBar.increaseFont", { defaultValue: "增大字号" })}
         >
           <Type className="h-3.5 w-3.5" />
           <span className="text-xs">＋</span>
@@ -163,8 +167,8 @@ export function TitleBar({ onOpenCommandPalette }: { onOpenCommandPalette?: () =
             type="button"
             onClick={() => win("min")}
             className="soft-button flex h-7 w-9 items-center justify-center rounded-xl text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-            title="最小化"
-            aria-label="最小化"
+            title={t("titleBar.minimize", { defaultValue: "最小化" })}
+            aria-label={t("titleBar.minimize", { defaultValue: "最小化" })}
           >
             <Minus className="h-4 w-4" />
           </button>
@@ -172,8 +176,8 @@ export function TitleBar({ onOpenCommandPalette }: { onOpenCommandPalette?: () =
             type="button"
             onClick={() => win("max")}
             className="soft-button flex h-7 w-9 items-center justify-center rounded-xl text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-            title="最大化/还原"
-            aria-label="最大化/还原"
+            title={t("titleBar.toggleMaximize", { defaultValue: "最大化/还原" })}
+            aria-label={t("titleBar.toggleMaximize", { defaultValue: "最大化/还原" })}
           >
             <Square className="h-3.5 w-3.5" />
           </button>
@@ -181,8 +185,8 @@ export function TitleBar({ onOpenCommandPalette }: { onOpenCommandPalette?: () =
             type="button"
             onClick={() => win("close")}
             className="soft-button flex h-7 w-9 items-center justify-center rounded-xl text-muted-foreground hover:bg-destructive/80 hover:text-destructive-foreground"
-            title="关闭"
-            aria-label="关闭"
+            title={t("common.close", { defaultValue: "关闭" })}
+            aria-label={t("common.close", { defaultValue: "关闭" })}
           >
             <X className="h-4 w-4" />
           </button>

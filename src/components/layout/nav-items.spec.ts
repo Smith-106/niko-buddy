@@ -70,6 +70,10 @@ describe("nav tier 分层", () => {
     const entry = NAV_ITEMS.find((i) => i.view === "mainControl")
     expect(entry?.group).toBe("ma")
     expect(entry?.tier).toBe("primary")
+
+    const workflowEntry = NAV_ITEMS.find((i) => i.view === "workflowEditor")
+    expect(workflowEntry?.group).toBe("maint")
+    expect(workflowEntry?.tier).toBe("secondary")
   })
 
   it("高频入口常驻 primary，低频收进 secondary", () => {

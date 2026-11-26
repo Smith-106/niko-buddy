@@ -8,7 +8,144 @@ import { normalizeChapterStatus, resolveChapterTitle } from "@/lib/novel"
 import { buildChapterWordCountLabel, getChapterStatusLabel } from "@/lib/chapter-display"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import type { ChapterStatus } from "@/lib/novel"
+import {
+  ChapterAdoptionUnavailableError,
+  getChapterWriteCoordinator,
+  isChapterPath,
+  resetChapterWriteCoordinator,
+  type ChapterWriteIntent,
+  type ChapterWriteKind,
+} from "./preview-panel-helpers"
 import type { KnowledgeCreateRequest } from "./knowledge-tree"
+
+export type ChapterRelocationOutcome<T = void> =
+  | { status: "committed"; value: T }
+  | { status: "fenced" }
+  | { status: "relocated" }
+
+export function isChapterAdoptionUnavailableError(
+  error: unknown,
+): error is ChapterAdoptionUnavailableError {
+  return error instanceof ChapterAdoptionUnavailableError
+}
+
+/**
+ * 知识树章节重命名/移卷的统一写入协调入口（U4-02）：
+ * 复用编辑区同一协调器（captureIntent -> admitMutation -> noteRelocation），
+ * 串行化编辑区防抖写盘/离开刷盘/采纳与知识树重定位，避免双路径竞态复活旧文件。
+ */
+export async function coordinateChapterRelocation<T = void>(params: {
+  kind: Extract<ChapterWriteKind, "tree-rename" | "tree-move">
+  fromPath: string
+  toPath: string
+  /** 调用方在首个 await 之前预先捕获的意图（可选；缺省时就地捕获）。 */
+  intent?: ChapterWriteIntent
+  /** 临界区执行体：写新/删旧后调用 markRelocated() 立即广播重定位，再同步选中路径。 */
+  run: (controls: { intent: ChapterWriteIntent; markRelocated: () => void }) => Promise<T>
+}): Promise<ChapterRelocationOutcome<T>> {
+  const coordinator = getChapterWriteCoordinator()
+  const from = normalizePath(params.fromPath)
+  const to = normalizePath(params.toPath)
+  const intent = params.intent ?? coordinator.captureIntent(params.kind, from)
+  let relocationNoted = false
+  const markRelocated = () => {
+    if (relocationNoted || from === to) return
+    relocationNoted = true
+    coordinator.noteRelocation(intent, from, to)
+  }
+  const affectedPaths = from === to ? [from] : [from, to]
+  const admission = coordinator.admitMutation(intent, affectedPaths, () =>
+    params.run({ intent, markRelocated }),
+  )
+  if (admission.kind === "fenced") {
+    return { status: "fenced" }
+  }
+  try {
+    const value = await admission.result
+    return { status: "committed", value }
+  } catch (error) {
+    if (isChapterAdoptionUnavailableError(error) && error.reason === "relocated") {
+      return { status: "relocated" }
+    }
+    throw error
+  }
+}
+
+/**
+ * 知识树章节重排的统一写入协调入口（R2-U05）：
+ * 将受影响的全部章节路径纳入同一次 admitMutation，确保编辑区在途写盘/采纳落定后再重读并更新章号。
+ */
+export async function coordinateChapterReorder<T = void>(params: {
+  paths: readonly string[]
+  intent?: ChapterWriteIntent
+  run: (controls: { intent: ChapterWriteIntent }) => Promise<T>
+}): Promise<ChapterRelocationOutcome<T>> {
+  const coordinator = getChapterWriteCoordinator()
+  const normalizedPaths = [...new Set(params.paths.map((path) => normalizePath(path)))]
+  const intent = params.intent ?? coordinator.captureIntent("tree-reorder", normalizedPaths[0] ?? "")
+  if (normalizedPaths.length === 0) {
+    const value = await params.run({ intent })
+    return { status: "committed", value }
+  }
+  const admission = coordinator.admitMutation(intent, normalizedPaths, () =>
+    params.run({ intent }),
+  )
+  if (admission.kind === "fenced") {
+    return { status: "fenced" }
+  }
+  try {
+    const value = await admission.result
+    return { status: "committed", value }
+  } catch (error) {
+    if (isChapterAdoptionUnavailableError(error) && error.reason === "relocated") {
+      return { status: "relocated" }
+    }
+    throw error
+  }
+}
+
+/**
+ * 知识树章节删除的统一写入协调入口（R2-U05）：
+ * 移入回收站后通过 dropRecovery + noteRelocation 通知编辑区取消防抖计时器并跳过 leave-flush，防止已删章节复活。
+ */
+export async function coordinateChapterDelete<T = void>(params: {
+  path: string
+  intent?: ChapterWriteIntent
+  run: (controls: { intent: ChapterWriteIntent; markDeleted: () => void }) => Promise<T>
+}): Promise<ChapterRelocationOutcome<T>> {
+  const coordinator = getChapterWriteCoordinator()
+  const target = normalizePath(params.path)
+  const intent = params.intent ?? coordinator.captureIntent("tree-delete", target)
+  let deleteNoted = false
+  const markDeleted = () => {
+    if (deleteNoted) return
+    deleteNoted = true
+    coordinator.dropRecovery(target)
+    coordinator.noteRelocation(intent, target, `${target}.__deleted__`)
+  }
+  const admission = coordinator.admitMutation(intent, [target], () =>
+    params.run({ intent, markDeleted }),
+  )
+  if (admission.kind === "fenced") {
+    return { status: "fenced" }
+  }
+  try {
+    const value = await admission.result
+    return { status: "committed", value }
+  } catch (error) {
+    if (isChapterAdoptionUnavailableError(error) && error.reason === "relocated") {
+      return { status: "relocated" }
+    }
+    throw error
+  }
+}
+
+export { getChapterWriteCoordinator, isChapterPath }
+
+/** 测试辅助：复位共享章节写入协调器，避免跨用例泄漏栅栏或迁移记录。 */
+export function resetChapterWriteCoordinatorForTests(): void {
+  resetChapterWriteCoordinator()
+}
 
 export interface WikiPageInfo {
   path: string
@@ -29,6 +166,39 @@ export interface KnowledgeTreeProps {
   pendingPages?: WikiPageInfo[]
   onRemovePendingPage?: (pagePath: string) => void
   onRequestCreate?: (request: KnowledgeCreateRequest) => void
+  /** 工具栏或导入完成触发打开批量提取弹层（单实例受控触发器，避免重复挂载弹层）。 */
+  batchExtractTrigger?: { key: number; seedChapter: number | null } | null
+}
+
+/** 原子更新章节/大纲 frontmatter 标题、可选章号与首个 H1 标题（供重命名与同号冲突一键顺延共用）。 */
+export function updatePageTitleContent(
+  content: string,
+  newTitle: string,
+  newChapterNumber?: number | null,
+): string {
+  const escapedTitle = newTitle.replace(/"/g, '\\"')
+  let next = content
+  const frontmatterMatch = next.match(/^---\n([\s\S]*?)\n---/)
+  if (frontmatterMatch) {
+    let frontmatterBody = frontmatterMatch[1]
+    if (/^title:\s*.*$/m.test(frontmatterBody)) {
+      frontmatterBody = frontmatterBody.replace(/^title:\s*.*$/m, `title: "${escapedTitle}"`)
+    } else {
+      frontmatterBody = `${frontmatterBody}\ntitle: "${escapedTitle}"`
+    }
+    if (typeof newChapterNumber === "number" && newChapterNumber > 0) {
+      if (/^chapter_number:\s*.*$/m.test(frontmatterBody)) {
+        frontmatterBody = frontmatterBody.replace(/^chapter_number:\s*.*$/m, `chapter_number: ${newChapterNumber}`)
+      } else {
+        frontmatterBody = `${frontmatterBody}\nchapter_number: ${newChapterNumber}`
+      }
+    }
+    next = next.replace(/^---[\s\S]*?---/, `---\n${frontmatterBody}\n---`)
+  }
+  if (/^#\s+.+$/m.test(next)) {
+    next = next.replace(/^#\s+.+$/m, `# ${newTitle}`)
+  }
+  return next
 }
 
 export interface CreateMenuState {
@@ -336,6 +506,7 @@ export function DeleteButton({
         onClick()
       }}
       title={t("knowledgeTree.deleteTitle", { name })}
+      aria-label={t("knowledgeTree.deleteTitle", { name })}
     >
       <Trash2 className="h-3 w-3 shrink-0" />
     </Button>

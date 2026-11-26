@@ -111,20 +111,42 @@ export function SnapshotTimeline({ projectPath, onRestored }: SnapshotTimelinePr
   const changed = useMemo(() => (diff ? changedWorldStates(diff) : []), [diff]);
 
   const runRestore = useCallback(
-    async (snapshot: SnapshotMeta, token: string) => {
+    async (snapshot: SnapshotMeta) => {
       setBusy(true);
+      const usedCachedToken = Boolean(
+        diff && diff.snapshot_id === snapshot.id && diff.confirm_token,
+      );
       try {
-        const outcome = await restoreSnapshotAtomic(projectPath, snapshot.id, token);
+        let token = usedCachedToken ? diff?.confirm_token : undefined;
+        if (!token) {
+          const previewed = await previewSnapshotPoint(projectPath, snapshot.id);
+          if (
+            previewed?.confirm_token &&
+            (!previewed.snapshot_id || previewed.snapshot_id === snapshot.id)
+          ) {
+            token = previewed.confirm_token;
+          }
+        }
+        const finalToken = token ?? `ui-${snapshot.id}`;
+        const outcome = await restoreSnapshotAtomic(projectPath, snapshot.id, finalToken);
         setRestoreResult(outcome);
         setPendingConfirm(null);
         onRestored?.(outcome);
       } catch (e) {
         setError(formatOperationError(t, e));
       } finally {
+        // 无论恢复成功或失败，清除已消费的一次性本地缓存 confirm_token，避免重试复用失效令牌
+        if (usedCachedToken) {
+          setDiff((prev) =>
+            prev && prev.snapshot_id === snapshot.id && prev.confirm_token
+              ? { ...prev, confirm_token: undefined }
+              : prev,
+          );
+        }
         setBusy(false);
       }
     },
-    [projectPath, onRestored],
+    [projectPath, diff, onRestored, t],
   );
 
   return (
@@ -258,7 +280,7 @@ export function SnapshotTimeline({ projectPath, onRestored }: SnapshotTimelinePr
               type="button"
               disabled={busy}
               data-testid="snapshot-restore-confirm-run"
-              onClick={() => void runRestore(pendingConfirm, `ui-${pendingConfirm.id}`)}
+              onClick={() => void runRestore(pendingConfirm)}
             >
               {t("timemachine.restore.action")}
             </button>

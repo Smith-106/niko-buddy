@@ -31,11 +31,18 @@ export interface PendingPageInfo {
 }
 
 export type ImportMemoryDecision = "extract" | "import-only" | "cancel"
+export type ChapterImportDecision = "draft" | "final-only" | "final-and-batch-extract" | "cancel"
 
-export interface ImportMemoryDecisionRequest {
-  kind: "chapter" | "outline"
-  count: number
-}
+export type ImportMemoryDecisionRequest =
+  | {
+      kind: "outline"
+      count: number
+    }
+  | {
+      kind: "chapter"
+      count: number
+      sourceSummary?: string
+    }
 
 export const MEMORY_LABEL_KEYS: Record<string, string> = {
   snapshots: "novel.memoryCenter.snapshots.title",

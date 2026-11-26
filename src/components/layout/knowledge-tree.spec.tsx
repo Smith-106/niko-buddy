@@ -19,6 +19,7 @@ interface WikiStateShape {
   setSelectedFile: Mock
   setFileTree: Mock
   bumpDataVersion: Mock
+  clearFinalChapterSaveForPath: Mock
 }
 
 interface ImportTaskShape {
@@ -44,6 +45,7 @@ const mocks = vi.hoisted(() => {
     setSelectedFile: vi.fn(),
     setFileTree: vi.fn(),
     bumpDataVersion: vi.fn(),
+    clearFinalChapterSaveForPath: vi.fn(),
   }
   const importState = {
     tasks: [] as ImportTaskShape[],
@@ -66,6 +68,14 @@ const mocks = vi.hoisted(() => {
     moveFileToTrash: vi.fn(),
     deleteNovelSourceMemory: vi.fn(),
     confirm: vi.fn<(message?: string) => boolean>(() => true),
+    readBatchQueue: vi.fn((): BatchExtractQueueState | null => null),
+    restoreBatchQueue: vi.fn<() => Promise<BatchExtractQueueState | null>>(async () => null),
+    discardBatch: vi.fn(async (): Promise<boolean> => false),
+    resetCorruptBatch: vi.fn(async (): Promise<string> => "/proj/.novel/backup.json"),
+    setAsideBatch: vi.fn(async (): Promise<boolean> => true),
+    scanBackfill: vi.fn(),
+    runBatch: vi.fn(),
+    acceptBatch: vi.fn(),
     alert: vi.fn<(message?: string) => void>(() => {}),
     toastError: vi.fn<(message?: string) => void>(() => {}),
     toastInfo: vi.fn<(message?: string) => void>(() => {}),
@@ -100,6 +110,25 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
       ),
     
   }
+})
+
+vi.mock("./sidebar-panel-import", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./sidebar-panel-import")>()
+  return {
+    ...actual,
+    getBatchExtractQueue: mocks.readBatchQueue,
+    restoreBatchExtractQueue: () => mocks.restoreBatchQueue(),
+    discardBatchExtractionDrafts: mocks.discardBatch,
+    resetCorruptBatchExtractionDrafts: mocks.resetCorruptBatch,
+    setAsideUncertainBatchDrafts: mocks.setAsideBatch,
+    runBatchMemoryExtraction: mocks.runBatch,
+    acceptBatchExtractionDrafts: mocks.acceptBatch,
+  }
+})
+
+vi.mock("@/lib/novel/snapshot-scanner", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/snapshot-scanner")>()
+  return { ...actual, scanFinalChapterBackfill: (...args: Parameters<typeof actual.scanFinalChapterBackfill>) => mocks.scanBackfill(...args) }
 })
 
 vi.mock("@/stores/import-progress-store", async (importOriginal) => {
@@ -147,7 +176,9 @@ vi.mock("@/lib/novel/delete-source-memory", async (importOriginal) => {
   }
 })
 
-import { KnowledgeTree, RawSourcesSection } from "./knowledge-tree"
+import { KnowledgeTree, RawSourcesSection, BatchExtractScopeDialog } from "./knowledge-tree"
+import { getChapterWriteCoordinator, resetChapterWriteCoordinatorForTests } from "./knowledge-tree-helpers"
+import { CorruptBatchDraftArtifactError, type BatchExtractQueueState } from "@/lib/novel/snapshot-scanner"
 import zhLocale from "@/i18n/zh.json"
 
 function lookupZhLocale(key: string): string | undefined {
@@ -285,6 +316,7 @@ function setElementFromPoint(el: Element | Text | null): void {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetChapterWriteCoordinatorForTests()
   setupDomGlobals()
   mocks.t.mockImplementation((key: string, opts?: Record<string, unknown>) => {
     const base = lookupZhLocale(key) ?? key
@@ -437,13 +469,17 @@ describe("KnowledgeTree", () => {
     view.unmount()
   })
 
-  it("文件夹展开/折叠切换", async () => {
+  it("文件夹展开/折叠切换与 aria-expanded 同步", async () => {
     const view = renderTree()
     await screen.findByText("序章-开端")
+    const folderButton = screen.getByText("卷1").closest("button") as HTMLButtonElement
+    expect(folderButton).toHaveAttribute("aria-expanded", "true")
     expect(screen.getByText("序章-开端")).toBeInTheDocument()
-    fireEvent.click(screen.getByText("卷1"))
+    fireEvent.click(folderButton)
+    expect(folderButton).toHaveAttribute("aria-expanded", "false")
     expect(screen.queryByText("序章-开端")).not.toBeInTheDocument()
-    fireEvent.click(screen.getByText("卷1"))
+    fireEvent.click(folderButton)
+    expect(folderButton).toHaveAttribute("aria-expanded", "true")
     expect(screen.getByText("序章-开端")).toBeInTheDocument()
     view.unmount()
   })
@@ -733,19 +769,36 @@ describe("KnowledgeTree", () => {
     view.unmount()
   })
 
-  it("菜单通过 document mousedown/keydown 与容器点击关闭", async () => {
+  it("菜单通过 document mousedown / Escape 与容器点击关闭，非 Escape 键不误关且支持键盘导航", async () => {
     const view = renderTree()
     await screen.findByText("第三章-高潮")
     // document mousedown 关闭
     fireEvent.contextMenu(screen.getByText("章节"))
+    expect(screen.getByRole("menu")).toBeInTheDocument()
     expect(screen.getByText("新建章节")).toBeInTheDocument()
     act(() => document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })))
-    expect(screen.queryByText("新建章节")).not.toBeInTheDocument()
-    // document keydown 关闭
-    fireEvent.contextMenu(screen.getByText("章节"))
-    expect(screen.getByText("新建章节")).toBeInTheDocument()
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
+    // 非 Escape 键不关闭；ArrowDown/ArrowUp/Home/End 在 menuitem 间循环焦点；Escape 关闭
+    const row = pageRow(view.container, `${CHAPTERS}/第三章-高潮.md`)
+    const triggerBtn = within(row).getByText("第三章-高潮").closest("button") as HTMLElement
+    fireEvent.contextMenu(triggerBtn)
+    const menu = screen.getByRole("menu")
+    const items = within(menu).getAllByRole("menuitem")
+    expect(items.length).toBeGreaterThan(2)
+    expect(document.activeElement).toBe(items[0])
     act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true })))
-    expect(screen.queryByText("新建章节")).not.toBeInTheDocument()
+    expect(screen.getByRole("menu")).toBeInTheDocument()
+    fireEvent.keyDown(menu, { key: "ArrowDown" })
+    expect(document.activeElement).toBe(items[1])
+    fireEvent.keyDown(menu, { key: "End" })
+    expect(document.activeElement).toBe(items[items.length - 1])
+    fireEvent.keyDown(menu, { key: "Home" })
+    expect(document.activeElement).toBe(items[0])
+    fireEvent.keyDown(menu, { key: "ArrowUp" })
+    expect(document.activeElement).toBe(items[items.length - 1])
+    fireEvent.keyDown(menu, { key: "Escape" })
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
+    expect(document.activeElement).toBe(triggerBtn)
     // 容器 onClick 关闭
     fireEvent.contextMenu(screen.getByText("章节"))
     expect(screen.getByText("新建章节")).toBeInTheDocument()
@@ -857,11 +910,11 @@ describe("KnowledgeTree", () => {
     view.unmount()
   })
 
-  it("重命名：重复标题/章号冲突中止；空标题/相同标题取消；Escape 取消", async () => {
+  it("重命名：重复标题/章号冲突显性反馈并保留输入框；空标题/相同标题取消；Escape 取消", async () => {
     const view = renderTree()
     await screen.findByText("第三章-高潮")
     const row = pageRow(view.container, `${CHAPTERS}/第三章-高潮.md`)
-    // 重复标题
+    // 重复标题 → 保留输入框 + role="alert" + toast.error
     fireEvent.contextMenu(row)
     fireEvent.click(screen.getByText("重命名"))
     let input = within(row).getByRole("textbox")
@@ -869,14 +922,23 @@ describe("KnowledgeTree", () => {
     fireEvent.keyDown(input, { key: "Enter" })
     await flush()
     expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
-    // 章号冲突（第三章 → 第二章 → 与第二章-进展 冲突）
-    fireEvent.contextMenu(row)
-    fireEvent.click(screen.getByText("重命名"))
-    input = within(row).getByRole("textbox")
-    fireEvent.change(input, { target: { value: "第二章-冲突" } })
-    fireEvent.keyDown(input, { key: "Enter" })
+    expect(within(row).getByRole("textbox")).toBeInTheDocument()
+    expect(within(row).getByRole("textbox")).toHaveAttribute("aria-invalid", "true")
+    expect(within(row).getByRole("alert")).toHaveTextContent(/第二章-进展/)
+    expect(mocks.toastError).toHaveBeenCalled()
+    // 修改输入清除错误，改为章号冲突（第三章 → 第二章 → 与第二章-进展 冲突）
+    mocks.toastError.mockClear()
+    fireEvent.change(within(row).getByRole("textbox"), { target: { value: "第二章-冲突" } })
+    expect(within(row).queryByRole("alert")).not.toBeInTheDocument()
+    fireEvent.keyDown(within(row).getByRole("textbox"), { key: "Enter" })
     await flush()
     expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(within(row).getByRole("textbox")).toBeInTheDocument()
+    expect(within(row).getByRole("alert")).toHaveTextContent(/第二章-进展|2/)
+    expect(mocks.toastError).toHaveBeenCalled()
+    // Escape 取消冲突态输入框
+    fireEvent.keyDown(within(row).getByRole("textbox"), { key: "Escape" })
+    expect(within(row).queryByRole("textbox")).not.toBeInTheDocument()
     // 空标题 → 取消
     fireEvent.contextMenu(row)
     fireEvent.click(screen.getByText("重命名"))
@@ -975,7 +1037,7 @@ describe("KnowledgeTree", () => {
     resolveRead(CONTENTS[`${CHAPTERS}/第三章-高潮.md`])
     await flush()
     expect(mocks.writeFileAtomic).toHaveBeenCalled()
-    // readFile 失败 → console.error + 输入框清理
+    // readFile 失败 → console.error + toast.error + inline role="alert"，Escape 后关闭输入框
     mocks.readFile.mockRejectedValueOnce(new Error("read-fail"))
     fireEvent.contextMenu(row)
     fireEvent.click(screen.getByText("重命名"))
@@ -984,6 +1046,9 @@ describe("KnowledgeTree", () => {
     fireEvent.keyDown(input2, { key: "Enter" })
     await flush()
     expect(errSpy).toHaveBeenCalled()
+    expect(mocks.toastError).toHaveBeenCalled()
+    expect(within(row).getByRole("alert")).toHaveTextContent(/read-fail/)
+    fireEvent.keyDown(within(row).getByRole("textbox"), { key: "Escape" })
     expect(within(row).queryByRole("textbox")).not.toBeInTheDocument()
     view.unmount()
   })
@@ -1601,15 +1666,16 @@ describe("KnowledgeTree", () => {
     view.unmount()
   })
 
-  it("重命名中点击行按钮：renamingPath === pagePath 早退", async () => {
+  it("重命名态 WCAG 4.1.2：input 不嵌套在 button 内，点击重命名容器不切换选中文件", async () => {
     const view = renderTree()
     await screen.findByText("第三章-高潮")
     const row = pageRow(view.container, `${CHAPTERS}/第三章-高潮.md`)
     fireEvent.contextMenu(row)
     fireEvent.click(screen.getByText("重命名"))
-    const rowButton = row.querySelector("button") as HTMLElement
-    expect(rowButton.hasAttribute("disabled")).toBe(true)
-    fireEvent.click(rowButton)
+    const input = within(row).getByRole("textbox")
+    expect(input.closest("button")).toBeNull()
+    const group = within(row).getByRole("group")
+    fireEvent.click(group)
     expect(mocks.wikiState.setSelectedFile).not.toHaveBeenCalled()
     view.unmount()
   })
@@ -1754,8 +1820,7 @@ describe("RawSourcesSection", () => {
       makeTask({ id: "t1", kind: "outline", status: "running", completed: 1, total: 2, currentTitle: "", updatedAt: 2 }),
       makeTask({ id: "t-other", projectPath: "/other", kind: "chapter", status: "running", updatedAt: 9 }),
     ]
-    const onCancelExtraction = vi.fn()
-    const view = render(<RawSourcesSection onCancelExtraction={onCancelExtraction} />)
+    const view = render(<RawSourcesSection />)
     // 自动展开
     expect(screen.getByText("AI 大纲提取中")).toBeInTheDocument()
     expect(screen.getByText("50%")).toBeInTheDocument()
@@ -1765,8 +1830,20 @@ describe("RawSourcesSection", () => {
     expect(view.container.querySelector(".bg-primary")).not.toBeNull()
     fireEvent.click(screen.getByText("停止"))
     expect(mocks.importState.cancelTask).toHaveBeenCalledWith("t1")
-    expect(onCancelExtraction).toHaveBeenCalled()
     view.unmount()
+  })
+
+  it("批量提取行：仅取消所选 batch 任务，不触其它行", async () => {
+    mocks.importState.tasks = [
+      makeTask({ id: "tb", kind: "batch_extraction", status: "running", completed: 1, total: 3, currentTitle: "batch chapter", updatedAt: 5 }),
+      makeTask({ id: "to", kind: "outline_generation", status: "running", completed: 0, total: 1, currentTitle: "", updatedAt: 6 }),
+      makeTask({ id: "tx", projectPath: "/other", kind: "batch_extraction", status: "running", updatedAt: 7 }),
+    ]
+    render(<RawSourcesSection />)
+    const row = screen.getByText("batch chapter").closest("div.flex.items-center.justify-between")! as HTMLElement
+    fireEvent.click(within(row).getByRole("button", { name: "停止" }))
+    expect(mocks.importState.cancelTask).toHaveBeenCalledTimes(1)
+    expect(mocks.importState.cancelTask).toHaveBeenCalledWith("tb")
   })
 
   it("running：cancelling 文案 + currentTitle + total=0 + completed=0", async () => {
@@ -1820,6 +1897,631 @@ describe("RawSourcesSection", () => {
     // 按 updatedAt 降序
     const titles = [...view.container.querySelectorAll(".truncate")].map((el) => el.textContent)
     expect(titles[0]).toBe("AI 大纲提取完成")
+    view.unmount()
+  })
+
+  it("pending/skipped 任务：渲染 Clock/MinusCircle 图标并给 .truncate 设置完整 title", async () => {
+    mocks.importState.tasks = [
+      makeTask({ id: "t-pending-msg", kind: "chapter", status: "pending", message: "等待主控同步记忆", updatedAt: 4 }),
+      makeTask({ id: "t-pending-default", kind: "outline", status: "pending", updatedAt: 3 }),
+      makeTask({ id: "t-skipped-msg", kind: "chapter", status: "skipped", message: "未配置模型已跳过", updatedAt: 2 }),
+      makeTask({ id: "t-skipped-default", kind: "outline_generation", status: "skipped", updatedAt: 1 }),
+    ]
+    const view = render(<RawSourcesSection />)
+    fireEvent.click(screen.getByText("提取中"))
+
+    expect(screen.getByText("等待主控同步记忆")).toBeInTheDocument()
+    expect(screen.getByText("AI 大纲待处理")).toBeInTheDocument()
+    expect(screen.getByText("未配置模型已跳过")).toBeInTheDocument()
+    expect(screen.getByText("生成大纲已跳过")).toBeInTheDocument()
+
+    // 2 个 pending → 2 个 Clock 图标；2 个 skipped → 2 个 MinusCircle 图标
+    expect(view.container.querySelectorAll("svg.lucide-clock").length).toBe(2)
+    expect(view.container.querySelectorAll("svg.lucide-circle-minus, svg.lucide-minus-circle").length).toBe(2)
+
+    // .truncate span 具备完整 title 属性用于截断悬停提示
+    const truncatedTitles = [...view.container.querySelectorAll(".truncate")].map((el) => el.getAttribute("title"))
+    expect(truncatedTitles).toEqual([
+      "等待主控同步记忆",
+      "AI 大纲待处理",
+      "未配置模型已跳过",
+      "生成大纲已跳过",
+    ])
+    view.unmount()
+  })
+})
+
+describe("BatchExtractScopeDialog 草稿保留/丢弃回归", () => {
+  const readyQueue: BatchExtractQueueState = {
+    projectPath: "/proj",
+    status: "done",
+    budget: 20,
+    admitted: [1],
+    skippedByBudget: [],
+    drafts: [{ chapter: 1, status: "ready", updatedAt: 0, snapshot: { chapterNumber: 1 } as never, source: { readPath: "/proj/wiki/chapters/c1.md", chapterNumber: 1, bodySha256: "b", contentSha256: "c" } }],
+    completed: 0,
+    failed: 0,
+    previousOutcomes: [{ path: "/proj/wiki/chapters/c1.md", chapterNumber: 1, status: "failed", reason: "fixture" } as never],
+  }
+  const uncertainQueue: BatchExtractQueueState = {
+    projectPath: "/proj",
+    status: "done",
+    budget: 20,
+    admitted: [2],
+    skippedByBudget: [],
+    drafts: [{ chapter: 2, status: "uncertain", updatedAt: 0, snapshot: { chapterNumber: 2 } as never, source: { readPath: "/proj/wiki/chapters/c2.md", chapterNumber: 2, bodySha256: "b2", contentSha256: "c2" } }],
+    completed: 0,
+    failed: 0,
+  }
+  const okScan = { total: 2, chapters: [], pending: [{ chapterNumber: 2, path: "/proj/wiki/chapters/c2.md", status: "missing_memory" as const }], errors: [], paths: { 2: "/proj/wiki/chapters/c2.md" }, excluded: { invalid: 0, nonFinal: 0, unreadable: 0, duplicateChapters: [] } }
+
+  beforeEach(() => {
+    mocks.importState.tasks = []
+    mocks.readBatchQueue.mockReturnValue(null)
+    mocks.restoreBatchQueue.mockImplementation(async () => mocks.readBatchQueue())
+    mocks.discardBatch.mockResolvedValue(false)
+    mocks.resetCorruptBatch.mockResolvedValue("/proj/.novel/backup.json")
+    mocks.setAsideBatch.mockResolvedValue(true)
+    mocks.scanBackfill.mockResolvedValue(okScan)
+  })
+
+  it("ready 草稿存在 → Start 禁用 + 内联二次确认丢弃（取消不执行、确认后执行）", async () => {
+    mocks.readBatchQueue.mockReturnValue(readyQueue)
+    mocks.discardBatch.mockImplementationOnce(async () => {
+      mocks.readBatchQueue.mockReturnValue(null)
+      return true
+    })
+    const view = render(<BatchExtractScopeDialog open projectPath="/proj" onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByRole("button", { name: "丢弃待确认草稿" })).toBeInTheDocument())
+    expect(screen.getByRole("button", { name: "开始批量提取" })).toBeDisabled()
+
+    // 点击丢弃 → 弹出内联确认条，绝不调 window.confirm，也未立即执行 discard
+    fireEvent.click(screen.getByRole("button", { name: "丢弃待确认草稿" }))
+    expect(mocks.confirm).not.toHaveBeenCalled()
+    expect(mocks.discardBatch).not.toHaveBeenCalled()
+    const confirmBox = screen.getByTestId("batch-extract-inline-confirm")
+    expect(confirmBox).toHaveAttribute("role", "alertdialog")
+    expect(confirmBox).toHaveTextContent(lookupZhLocale("extract.batchDiscardConfirm")!)
+
+    // 点击取消 → 收起确认条且不调用 discardBatch
+    fireEvent.click(within(confirmBox).getByRole("button", { name: "取消" }))
+    expect(screen.queryByTestId("batch-extract-inline-confirm")).not.toBeInTheDocument()
+    expect(mocks.discardBatch).not.toHaveBeenCalled()
+
+    // 再次点击丢弃并确认 → 调用 discardBatch 并刷新状态
+    fireEvent.click(screen.getByRole("button", { name: "丢弃待确认草稿" }))
+    const confirmBox2 = screen.getByTestId("batch-extract-inline-confirm")
+    fireEvent.click(within(confirmBox2).getByRole("button", { name: "确认" }))
+    await waitFor(() => expect(mocks.discardBatch).toHaveBeenCalledWith("/proj", readyQueue))
+    expect(mocks.confirm).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("batch-extract-inline-confirm")).not.toBeInTheDocument()
+    view.unmount()
+  })
+
+  it("resetCorrupt 工件损坏 → 内联二次确认（取消不执行、确认后备份并重扫）", async () => {
+    mocks.restoreBatchQueue
+      .mockRejectedValueOnce(new CorruptBatchDraftArtifactError("fp-corrupt-1"))
+      .mockResolvedValueOnce(null)
+    const view = render(<BatchExtractScopeDialog open projectPath="/proj" onClose={vi.fn()} />)
+    const resetBtn = await screen.findByRole("button", { name: lookupZhLocale("extract.batchResetCorrupt")! })
+    fireEvent.click(resetBtn)
+    expect(mocks.confirm).not.toHaveBeenCalled()
+    expect(mocks.resetCorruptBatch).not.toHaveBeenCalled()
+
+    const confirmBox = screen.getByTestId("batch-extract-inline-confirm")
+    expect(confirmBox).toHaveAttribute("role", "alertdialog")
+    expect(confirmBox).toHaveTextContent(lookupZhLocale("extract.batchResetCorruptConfirm")!)
+
+    // 取消 → 收起且不调用 resetCorruptBatch
+    fireEvent.click(within(confirmBox).getByRole("button", { name: "取消" }))
+    expect(screen.queryByTestId("batch-extract-inline-confirm")).not.toBeInTheDocument()
+    expect(mocks.resetCorruptBatch).not.toHaveBeenCalled()
+
+    // 确认 → 执行 resetCorruptBatch 并触发重扫
+    fireEvent.click(resetBtn)
+    fireEvent.click(within(screen.getByTestId("batch-extract-inline-confirm")).getByRole("button", { name: "确认" }))
+    await waitFor(() => expect(mocks.resetCorruptBatch).toHaveBeenCalledWith("/proj", "fp-corrupt-1"))
+    expect(mocks.confirm).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByTestId("batch-extract-inline-confirm")).not.toBeInTheDocument())
+    view.unmount()
+  })
+
+  it("setAside 中断草稿 → 内联二次确认（取消不执行、确认后搁置）", async () => {
+    mocks.readBatchQueue.mockReturnValue(uncertainQueue)
+    mocks.setAsideBatch.mockImplementationOnce(async () => {
+      mocks.readBatchQueue.mockReturnValue(null)
+      return true
+    })
+    const view = render(<BatchExtractScopeDialog open projectPath="/proj" onClose={vi.fn()} />)
+    const setAsideBtn = await screen.findByRole("button", { name: lookupZhLocale("extract.batchSetAside")! })
+    fireEvent.click(setAsideBtn)
+    expect(mocks.confirm).not.toHaveBeenCalled()
+    expect(mocks.setAsideBatch).not.toHaveBeenCalled()
+
+    const confirmBox = screen.getByTestId("batch-extract-inline-confirm")
+    expect(confirmBox).toHaveAttribute("role", "alertdialog")
+    expect(confirmBox).toHaveTextContent(lookupZhLocale("extract.batchSetAsideConfirm")!)
+
+    // 取消 → 收起且不调用 setAsideBatch
+    fireEvent.click(within(confirmBox).getByRole("button", { name: "取消" }))
+    expect(screen.queryByTestId("batch-extract-inline-confirm")).not.toBeInTheDocument()
+    expect(mocks.setAsideBatch).not.toHaveBeenCalled()
+
+    // 确认 → 执行 setAsideBatch
+    fireEvent.click(setAsideBtn)
+    fireEvent.click(within(screen.getByTestId("batch-extract-inline-confirm")).getByRole("button", { name: "确认" }))
+    await waitFor(() => expect(mocks.setAsideBatch).toHaveBeenCalledWith("/proj", uncertainQueue))
+    expect(mocks.confirm).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("batch-extract-inline-confirm")).not.toBeInTheDocument()
+    view.unmount()
+  })
+
+  it("budget 输入框越界夹取 [1, 60]、小数截断与忽略非有限输入", async () => {
+    const view = render(<BatchExtractScopeDialog open projectPath="/proj" onClose={vi.fn()} />)
+    const budgetInput = await screen.findByTestId("batch-budget-input") as HTMLInputElement
+    const maxBudget = Number(budgetInput.max)
+    expect(maxBudget).toBe(60)
+
+    // 下界夹取：0 与负数 → 1
+    fireEvent.change(budgetInput, { target: { value: "0" } })
+    expect(budgetInput.value).toBe("1")
+    fireEvent.change(budgetInput, { target: { value: "-5" } })
+    expect(budgetInput.value).toBe("1")
+
+    // 上界夹取：超过 budgetMax → budgetMax (60)
+    fireEvent.change(budgetInput, { target: { value: String(maxBudget + 50) } })
+    expect(budgetInput.value).toBe(String(maxBudget))
+
+    // 小数整数截断
+    fireEvent.change(budgetInput, { target: { value: "3.9" } })
+    expect(budgetInput.value).toBe("3")
+
+    // 非有限/空输入 → 忽略，保持上一次有效值
+    fireEvent.change(budgetInput, { target: { value: "" } })
+    expect(budgetInput.value).toBe("3")
+    fireEvent.change(budgetInput, { target: { value: "abc" } })
+    expect(budgetInput.value).toBe("3")
+    view.unmount()
+  })
+
+  it("P1-03 起止章号范围筛选与起>止错误提示", async () => {
+    mocks.scanBackfill.mockResolvedValueOnce({
+      total: 4,
+      chapters: [1, 2, 3, 4],
+      pending: [
+        { chapter: 1, reason: "missing_optional_field", missingFields: [], revision: null },
+        { chapter: 2, reason: "missing_optional_field", missingFields: [], revision: null },
+        { chapter: 3, reason: "missing_optional_field", missingFields: [], revision: null },
+        { chapter: 4, reason: "missing_optional_field", missingFields: [], revision: null },
+      ],
+      errors: [],
+      paths: {},
+      excluded: { invalid: 0, nonFinal: 0, unreadable: 0, duplicateChapters: [], duplicateChapterPaths: {} },
+    })
+    const view = render(<BatchExtractScopeDialog open projectPath="/proj" onClose={vi.fn()} />)
+    const startInput = await screen.findByTestId("batch-range-start")
+    const endInput = screen.getByTestId("batch-range-end")
+
+    fireEvent.change(startInput, { target: { value: "2" } })
+    fireEvent.change(endInput, { target: { value: "3" } })
+    expect(screen.getByText(/将提取.*::\{"count":2,"skipped":0\}/)).toBeInTheDocument()
+
+    // 起始 > 结束 → 渲染 role="alert" 且可提取数为 0
+    fireEvent.change(startInput, { target: { value: "5" } })
+    expect(screen.getByRole("alert")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "开始批量提取" })).toBeDisabled()
+    view.unmount()
+  })
+
+  it("P1-03 同号正式章冲突排查卡：展示 duplicateChapterPaths、支持打开定位与一键顺延章号后重扫", async () => {
+    const dupA = `${CHAPTERS}/第3章-正本.md`
+    const dupB = `${CHAPTERS}/第3章-副本.md`
+    mocks.readFile.mockImplementation(async (p: string) => {
+      if (p === dupB) {
+        return "---\ntype: chapter\ntitle: \"第3章-副本\"\nchapter_number: 3\nchapter_status: final\n---\n# 第3章-副本\n副本正文"
+      }
+      return CONTENTS[p] ?? ""
+    })
+    mocks.scanBackfill
+      .mockResolvedValueOnce({
+        total: 1,
+        chapters: [1],
+        pending: [],
+        errors: [`第 3 章发现 2 个正式章文件，全部跳过：${dupA}, ${dupB}`],
+        paths: { 1: `${CHAPTERS}/卷1/第一章-开端.md` },
+        excluded: {
+          invalid: 0,
+          nonFinal: 0,
+          unreadable: 0,
+          duplicateChapters: [3],
+          duplicateChapterPaths: { 3: [dupA, dupB] },
+        },
+      })
+      .mockResolvedValueOnce({
+        total: 2,
+        chapters: [1, 3],
+        pending: [],
+        errors: [],
+        paths: { 1: `${CHAPTERS}/卷1/第一章-开端.md`, 3: dupA },
+        excluded: { invalid: 0, nonFinal: 0, unreadable: 0, duplicateChapters: [], duplicateChapterPaths: {} },
+      })
+
+    const onClose = vi.fn()
+    const view = render(<BatchExtractScopeDialog open projectPath={PROJ} onClose={onClose} />)
+    const card = await screen.findByTestId("batch-duplicate-conflict-card")
+    expect(within(card).getByText("第3章-正本.md")).toBeInTheDocument()
+    expect(within(card).getByText("第3章-副本.md")).toBeInTheDocument()
+
+    // 一键顺延章号 → 原子写新文件、删旧文件、刷新并触发重扫
+    const relocateBtn = within(card).getByTestId("batch-relocate-duplicate")
+    fireEvent.click(relocateBtn)
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+    expect(mocks.deleteFile).toHaveBeenCalledWith(dupB)
+    expect(mocks.wikiState.bumpDataVersion).toHaveBeenCalled()
+    await waitFor(() => expect(mocks.scanBackfill).toHaveBeenCalledTimes(2))
+
+    // 再测试「打开定位」
+    mocks.scanBackfill.mockResolvedValueOnce({
+      total: 1,
+      chapters: [1],
+      pending: [],
+      errors: [],
+      paths: {},
+      excluded: {
+        invalid: 0,
+        nonFinal: 0,
+        unreadable: 0,
+        duplicateChapters: [3],
+        duplicateChapterPaths: { 3: [dupA, dupB] },
+      },
+    })
+    view.unmount()
+    const view2 = render(<BatchExtractScopeDialog open projectPath={PROJ} onClose={onClose} />)
+    const card2 = await screen.findByTestId("batch-duplicate-conflict-card")
+    const locateButtons = within(card2).getAllByRole("button", { name: /打开定位|batchDuplicateLocate/ })
+    fireEvent.click(locateButtons[0])
+    expect(mocks.wikiState.setSelectedFile).toHaveBeenCalledWith(dupA)
+    expect(onClose).toHaveBeenCalled()
+    view2.unmount()
+  })
+
+  it("采纳成功 → 重新扫描刷新候选，队列清空后 Start 仍禁用", async () => {
+    mocks.scanBackfill.mockResolvedValueOnce(okScan).mockResolvedValueOnce({ ...okScan, pending: [] })
+    mocks.readBatchQueue.mockReturnValue(readyQueue)
+    mocks.acceptBatch.mockImplementationOnce(async () => {
+      mocks.readBatchQueue.mockReturnValue(null)
+      return { accepted: [1], failed: [], outcomes: [] }
+    })
+    const view = render(<BatchExtractScopeDialog open projectPath="/proj" onClose={vi.fn()} />)
+    const accept = await screen.findByRole("button", { name: "accept 回填正式记忆" })
+    await waitFor(() => expect(accept).toBeEnabled())
+    fireEvent.click(accept)
+    await waitFor(() => expect(mocks.scanBackfill).toHaveBeenCalledTimes(2))
+    expect(mocks.scanBackfill).toHaveBeenLastCalledWith("/proj")
+    await waitFor(() => expect(screen.getByRole("button", { name: "开始批量提取" })).toBeDisabled())
+    view.unmount()
+  })
+
+  it("refreshes the candidates even if the acceptance receipt could not be saved", async () => {
+    mocks.scanBackfill.mockResolvedValueOnce(okScan).mockResolvedValueOnce({ ...okScan, pending: [] })
+    mocks.readBatchQueue.mockReturnValue(readyQueue)
+    mocks.acceptBatch.mockImplementationOnce(async () => {
+      mocks.readBatchQueue.mockReturnValue(null)
+      throw new Error("synthetic receipt write failure")
+    })
+    const view = render(<BatchExtractScopeDialog open projectPath="/proj" onClose={vi.fn()} />)
+    const accept = await screen.findByRole("button", { name: "accept 回填正式记忆" })
+    await waitFor(() => expect(accept).toBeEnabled())
+    fireEvent.click(accept)
+    await waitFor(() => expect(mocks.scanBackfill).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByRole("button", { name: "开始批量提取" })).toBeDisabled())
+    expect(screen.getByRole("status")).toHaveTextContent("synthetic receipt write failure")
+    view.unmount()
+  })
+})
+
+describe("KnowledgeTree — U4-02 章节重命名/移卷协调与围栏", () => {
+  it("移卷：先于 listDirectory 完成 noteRelocation 与 setSelectedFile，支持反斜杠路径比对", async () => {
+    const sourcePath = `${CHAPTERS}/第三章-高潮.md`
+    const destPath = `${CHAPTERS}/卷1/第三章-高潮.md`
+    // 模拟 Windows 反斜杠 selectedFile
+    mocks.wikiState.selectedFile = sourcePath.replace(/\//g, "\\")
+    const coordinator = getChapterWriteCoordinator()
+    const seqBefore = coordinator.currentSequence()
+    const events: string[] = []
+    const unsub = coordinator.subscribe(sourcePath, (ev) => events.push(ev))
+
+    const order: string[] = []
+    let resolveList!: (nodes: FileNode[]) => void
+    mocks.copyFile.mockImplementationOnce(async () => { order.push("copy") })
+    mocks.deleteFile.mockImplementationOnce(async () => { order.push("delete") })
+    mocks.wikiState.setSelectedFile.mockImplementation((p: string | null) => {
+      order.push(`select:${p}`)
+      mocks.wikiState.selectedFile = p
+    })
+
+    const view = renderTree()
+    await screen.findByText("第三章-高潮")
+
+    // 挂起移卷后的 loadPages listDirectory，验证在这之前 selectedFile 与 noteRelocation 已完成
+    mocks.listDirectory.mockImplementationOnce(() => new Promise<FileNode[]>((resolve) => {
+      order.push("listDirectory")
+      resolveList = resolve
+    }))
+
+    const row = pageRow(view.container, sourcePath)
+    fireEvent.contextMenu(row)
+    fireEvent.click(screen.getByText("移动到卷"))
+    const menu = screen.getByText("重命名").closest("div.absolute") as HTMLElement
+    fireEvent.click(within(menu).getByText("卷1"))
+    await waitFor(() => expect(order).toContain("listDirectory"))
+
+    expect(order.indexOf("delete")).toBeLessThan(order.indexOf(`select:${destPath}`))
+    expect(order.indexOf(`select:${destPath}`)).toBeLessThan(order.indexOf("listDirectory"))
+    expect(coordinator.wasRelocatedSince(sourcePath, seqBefore)).toBe(true)
+    expect(events).toContain("relocation")
+
+    resolveList(defaultWikiTree())
+    await flush()
+    unsub()
+    view.unmount()
+  })
+
+  it("移卷被采纳栅栏拦截 → toast.error 提示且零 copy/delete", async () => {
+    const sourcePath = `${CHAPTERS}/第三章-高潮.md`
+    const coordinator = getChapterWriteCoordinator()
+    const begin = coordinator.beginAdoption(sourcePath, {})
+    expect(begin.ok).toBe(true)
+
+    const view = renderTree()
+    await screen.findByText("第三章-高潮")
+    const row = pageRow(view.container, sourcePath)
+    fireEvent.contextMenu(row)
+    fireEvent.click(screen.getByText("移动到卷"))
+    const menu = screen.getByText("重命名").closest("div.absolute") as HTMLElement
+    fireEvent.click(within(menu).getByText("卷1"))
+    await flush()
+
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("正在被保存或采纳"))
+    expect(mocks.copyFile).not.toHaveBeenCalled()
+    expect(mocks.deleteFile).not.toHaveBeenCalled()
+    if (begin.ok && begin.lease) coordinator.releaseAdoption(begin.lease)
+    view.unmount()
+  })
+
+  it("章节重命名被采纳栅栏拦截 → toast.error 提示且零写盘/删旧", async () => {
+    const sourcePath = `${CHAPTERS}/第三章-高潮.md`
+    const coordinator = getChapterWriteCoordinator()
+    const begin = coordinator.beginAdoption(sourcePath, {})
+    expect(begin.ok).toBe(true)
+
+    const view = renderTree()
+    await screen.findByText("第三章-高潮")
+    const row = pageRow(view.container, sourcePath)
+    fireEvent.contextMenu(row)
+    fireEvent.click(screen.getByText("重命名"))
+    const input = within(row).getByRole("textbox")
+    fireEvent.change(input, { target: { value: "第四章-被拦重命名" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    await flush()
+
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("正在被保存或采纳"))
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(mocks.deleteFile).not.toHaveBeenCalled()
+    if (begin.ok && begin.lease) coordinator.releaseAdoption(begin.lease)
+    view.unmount()
+  })
+
+  it("并发竞态：知识树重命名挂起在 readFile 期间原路径被编辑区迁移 → relocated 拦截并 toast.error", async () => {
+    const sourcePath = `${CHAPTERS}/第三章-高潮.md`
+    const coordinator = getChapterWriteCoordinator()
+    const view = renderTree()
+    await screen.findByText("第三章-高潮")
+
+    let resolveRead!: (content: string) => void
+    mocks.readFile.mockImplementationOnce(() => new Promise<string>((resolve) => { resolveRead = resolve }))
+
+    const row = pageRow(view.container, sourcePath)
+    fireEvent.contextMenu(row)
+    fireEvent.click(screen.getByText("重命名"))
+    const input = within(row).getByRole("textbox")
+    fireEvent.change(input, { target: { value: "第四章-树改名" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    await flush()
+
+    // 模拟编辑区在 readFile 挂起期间完成重定位
+    const editorIntent = coordinator.captureIntent("title", sourcePath)
+    coordinator.noteRelocation(editorIntent, sourcePath, `${CHAPTERS}/第3章-编辑区改名.md`)
+
+    resolveRead(CONTENTS[sourcePath])
+    await flush()
+
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("已发生重命名或移动"))
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(mocks.deleteFile).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it("并发串行：编辑区在途写入未落定时，知识树移卷必须等待前驱写盘完成后才执行 copy+delete", async () => {
+    const sourcePath = `${CHAPTERS}/第三章-高潮.md`
+    const coordinator = getChapterWriteCoordinator()
+    const order: string[] = []
+    let finishEditorWrite!: () => void
+    const editorWriteIntent = coordinator.captureIntent("debounce-save", sourcePath)
+    const editorAdm = coordinator.admitMutation(editorWriteIntent, [sourcePath], async () => {
+      order.push("editor-write:start")
+      await new Promise<void>((resolve) => { finishEditorWrite = resolve })
+      order.push("editor-write:end")
+    })
+    expect(editorAdm.kind).toBe("admitted")
+    mocks.copyFile.mockImplementationOnce(async () => { order.push("tree-move:copy") })
+    mocks.deleteFile.mockImplementationOnce(async () => { order.push("tree-move:delete") })
+
+    const view = renderTree()
+    await screen.findByText("第三章-高潮")
+    const row = pageRow(view.container, sourcePath)
+    fireEvent.contextMenu(row)
+    fireEvent.click(screen.getByText("移动到卷"))
+    const menu = screen.getByText("重命名").closest("div.absolute") as HTMLElement
+    fireEvent.click(within(menu).getByText("卷1"))
+    await flush()
+
+    // 编辑区写入未落定前，copyFile 尚未执行
+    expect(mocks.copyFile).not.toHaveBeenCalled()
+    finishEditorWrite()
+    await flush()
+
+    expect(order).toEqual(["editor-write:start", "editor-write:end", "tree-move:copy", "tree-move:delete"])
+    view.unmount()
+  })
+
+  it("BLK-02：编辑区在途写盘挂起时触发知识树重命名，等待落盘后重读最新正文并保留编辑区新提交内容", async () => {
+    const sourcePath = `${CHAPTERS}/第三章-高潮.md`
+    const targetPath = `${CHAPTERS}/第4章-新篇章.md`
+    const coordinator = getChapterWriteCoordinator()
+    const disk = new Map<string, string>([
+      ...Object.entries(CONTENTS),
+    ])
+    const order: string[] = []
+    let finishEditorWrite!: () => void
+
+    mocks.readFile.mockImplementation(async (p: string) => {
+      if (p === sourcePath) order.push(`read:${disk.get(p)?.includes("编辑区刚落盘的新正文") ? "latest" : "old"}`)
+      return disk.get(p) ?? ""
+    })
+    mocks.writeFileAtomic.mockImplementation(async (p: string, content: string) => {
+      order.push(`write:${p}`)
+      disk.set(p, content)
+    })
+
+    const view = renderTree()
+    await screen.findByText("第三章-高潮")
+    order.length = 0
+
+    // 编辑区已准入一笔正文/终稿写盘，尚未落盘
+    const editorIntent = coordinator.captureIntent("final-save", sourcePath)
+    const editorAdm = coordinator.admitMutation(editorIntent, [sourcePath], async () => {
+      order.push("editor-write:start")
+      await new Promise<void>((resolve) => { finishEditorWrite = resolve })
+      disk.set(sourcePath, "---\nchapter_status: final\n---\n# 第三章-高潮\n编辑区刚落盘的新正文")
+      order.push("editor-write:end")
+    })
+    expect(editorAdm.kind).toBe("admitted")
+    // 让前驱微任务进入执行态，确保编辑区写盘已真正处于在途状态
+    await flush()
+
+    // 在编辑区写盘挂起期间触发知识树重命名（外层预读拿到的还是旧 draft 正文）
+    const row = pageRow(view.container, sourcePath)
+    fireEvent.contextMenu(row)
+    fireEvent.click(screen.getByText("重命名"))
+    const input = within(row).getByRole("textbox")
+    fireEvent.change(input, { target: { value: "第四章-新篇章" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    await flush()
+
+    // 编辑区写盘未落定前，知识树不得写新文件
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+
+    finishEditorWrite()
+    await flush()
+
+    // 断言重命名临界区在 editor-write:end 之后才重读最新正文并写入 targetPath（后续 loadPages 读盘不计入）
+    expect(order.slice(0, 5)).toEqual([
+      "editor-write:start",
+      "read:old",
+      "editor-write:end",
+      "read:latest",
+      `write:${targetPath}`,
+    ])
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
+      targetPath,
+      expect.stringContaining("编辑区刚落盘的新正文"),
+    )
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
+      targetPath,
+      expect.stringContaining("chapter_status: final"),
+    )
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
+      targetPath,
+      expect.stringContaining('title: "第4章-新篇章"'),
+    )
+    view.unmount()
+  })
+
+  it("R2-U05 章节删除受采纳栅栏拦截，正常删除时标记重定位防编辑区复活并清 finalChapterSave", async () => {
+    const targetPath = `${CHAPTERS}/第三章-高潮.md`
+    const coordinator = getChapterWriteCoordinator()
+    const begin = coordinator.beginAdoption(targetPath, {})
+    expect(begin.ok).toBe(true)
+
+    const view = renderTree()
+    await screen.findByText("第三章-高潮")
+    const row = pageRow(view.container, targetPath)
+    // 二次点击触发删除
+    const deleteBtn1 = within(row).getByTitle(/移入回收站/)
+    fireEvent.click(deleteBtn1)
+    const confirmBtn1 = within(row).getByRole("button", { name: /确认/ })
+    fireEvent.click(confirmBtn1)
+    await flush()
+
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("正在被保存或采纳"))
+    expect(mocks.moveFileToTrash).not.toHaveBeenCalled()
+    if (begin.ok && begin.lease) coordinator.releaseAdoption(begin.lease)
+
+    // 栅栏释放后删除成功：markDeleted 触发 relocation、清 finalChapterSave 并清 selectedFile
+    mocks.wikiState.selectedFile = targetPath
+    const seqBefore = coordinator.currentSequence()
+    const deleteBtn2 = within(row).getByTitle(/移入回收站/)
+    fireEvent.click(deleteBtn2)
+    const confirmBtn2 = within(row).getByRole("button", { name: /确认/ })
+    fireEvent.click(confirmBtn2)
+    await waitFor(() => expect(mocks.moveFileToTrash).toHaveBeenCalledWith(PROJ, targetPath, "chapter"))
+    expect(coordinator.wasRelocatedSince(targetPath, seqBefore)).toBe(true)
+    expect(mocks.wikiState.clearFinalChapterSaveForPath).toHaveBeenCalledWith(targetPath)
+    expect(mocks.wikiState.setSelectedFile).toHaveBeenCalledWith(null)
+    view.unmount()
+  })
+
+  it("R2-U08 BatchExtractScopeDialog 运行期展示进度条、支持取消、cancelling 禁用按钮并拦截关窗", async () => {
+    const onClose = vi.fn()
+    mocks.importState.tasks = [{
+      id: "batch-1",
+      projectPath: "/proj",
+      kind: "batch_extraction",
+      status: "running",
+      completed: 2,
+      total: 5,
+      currentTitle: "第 3 章",
+      cancelling: false,
+      createdAt: 1,
+      updatedAt: 2,
+    }]
+    const view = render(<BatchExtractScopeDialog open projectPath="/proj" onClose={onClose} />)
+
+    const progressEl = await screen.findByTestId("batch-extract-progress")
+    expect(progressEl).toBeInTheDocument()
+    const bar = within(progressEl).getByRole("progressbar")
+    expect(bar).toHaveAttribute("aria-valuenow", "2")
+    expect(bar).toHaveAttribute("aria-valuemax", "5")
+
+    const cancelBtn = within(progressEl).getByTestId("batch-extract-cancel")
+    expect(cancelBtn).not.toBeDisabled()
+    fireEvent.click(cancelBtn)
+    expect(mocks.importState.cancelTask).toHaveBeenCalledWith("batch-1")
+
+    // 运行期关闭按钮禁用且不可通过 Escape 关闭
+    const closeBtn = screen.getByRole("button", { name: "关闭" })
+    expect(closeBtn).toBeDisabled()
+    fireEvent.click(closeBtn)
+    expect(onClose).not.toHaveBeenCalled()
+
+    // cancelling=true 时禁用取消按钮
+    mocks.importState.tasks = [{
+      ...mocks.importState.tasks[0],
+      cancelling: true,
+    }]
+    view.rerender(<BatchExtractScopeDialog open projectPath="/proj" onClose={onClose} />)
+    expect(screen.getByTestId("batch-extract-cancel")).toBeDisabled()
     view.unmount()
   })
 })

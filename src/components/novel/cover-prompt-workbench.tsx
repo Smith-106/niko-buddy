@@ -6,7 +6,7 @@ import { CoverGenerateCard } from "./cover-generate-card"
 import { Input } from "@/components/ui/input"
 import { WikiReader } from "@/components/editor/wiki-reader"
 import defaultTemplatesJson from "../../../config/cover-platform-templates.json"
-import { buildCoverBrief, validateCoverBrief, coverBriefToPrompt } from "@/lib/novel"
+import { buildCoverBrief, validateCoverBrief, coverBriefToPrompt, type CoverImagePort } from "@/lib/novel"
 
 /**
  * CoverPromptWorkbench — 封面 Prompt 工作台（F-012，净新独立视图）。
@@ -81,7 +81,13 @@ export function buildCoverPrompt(template: CoverPlatformTemplate, input: CoverPr
   )
 }
 
-export function CoverPromptWorkbench({ templates }: { templates?: CoverPlatformTemplate[] }) {
+export function CoverPromptWorkbench({
+  templates,
+  imagePort,
+}: {
+  templates?: CoverPlatformTemplate[]
+  imagePort?: CoverImagePort
+}) {
   const { t } = useTranslation()
   const platforms = templates ?? DEFAULT_TEMPLATES
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(platforms[0]?.platform ?? null)
@@ -218,8 +224,14 @@ export function CoverPromptWorkbench({ templates }: { templates?: CoverPlatformT
         <p className="mt-1.5 text-xs text-muted-foreground">{t("novel.coverWorkbench.hint")}</p>
       </div>
 
-      {/* 65 号 G2: 封面生成（形态轴 F5 消费侧；Port 未注入时优雅降级） */}
-      <CoverGenerateCard meta={{ title, genre, protagonistBrief: keywords, tone: genre, keyImagery: keywords.split(/[,，、]/).filter(Boolean).slice(0, 4) }} promptOverride={prompt || undefined} />
+      {/* P1-02: 仅在调用方注入真实 imagePort 时渲染生图卡片，避免无端口时出现不可用报错卡 */}
+      {imagePort ? (
+        <CoverGenerateCard
+          port={imagePort}
+          meta={{ title, genre, protagonistBrief: keywords, tone: genre, keyImagery: keywords.split(/[,，、]/).filter(Boolean).slice(0, 4) }}
+          promptOverride={prompt || undefined}
+        />
+      ) : null}
     </div>
   )
 }

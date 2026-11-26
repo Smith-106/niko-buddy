@@ -181,7 +181,7 @@ export const CHAPTER_TITLE_EDITING_EXTRA_WIDTH_PX = 16
  * 只有「UI 已不在场时不得丢稿」所需的恢复登记是这里的瞬时条目（永不自动回写正式文件）。
  * ------------------------------------------------------------------------- */
 
-/** 编辑区自己的全部写者（都必须经过同一个准入入口）。 */
+/** 编辑区与目录树对章节的全部写者（都必须经过同一个准入入口）。 */
 export const CHAPTER_WRITE_KINDS = [
   "debounce-save",
   "leave-flush",
@@ -189,6 +189,11 @@ export const CHAPTER_WRITE_KINDS = [
   "format",
   "final-save",
   "de-ai-draft",
+  "tree-rename",
+  "tree-move",
+  "chat-edit",
+  "tree-reorder",
+  "tree-delete",
 ] as const
 
 export type ChapterWriteKind = (typeof CHAPTER_WRITE_KINDS)[number]
@@ -200,6 +205,8 @@ export interface ChapterWriteIntent {
   readonly kind: ChapterWriteKind
   /** 发起时的请求路径（解析后的实际目标另算受影响路径组）。 */
   readonly requestedPath: string
+  /** 调用方观察到该路径有效时的协调序号（用于拦截加载后发生的重定位）。 */
+  readonly observedSeq?: number
 }
 
 export interface ChapterWriteFenceRefusal {
@@ -275,8 +282,12 @@ export interface ChapterWriteRecovery {
   readonly originalPath?: string
 }
 
+export type ChapterWriteCoordinatorEvent = "lease" | "recovery" | "release" | "relocation"
+
 export interface ChapterWriteCoordinator {
-  captureIntent(kind: ChapterWriteKind, requestedPath: string): ChapterWriteIntent
+  currentSequence(): number
+  wasRelocatedSince(path: string, sinceSeq?: number): boolean
+  captureIntent(kind: ChapterWriteKind, requestedPath: string, observedSeq?: number): ChapterWriteIntent
   admitMutation<T>(
     intent: ChapterWriteIntent,
     affectedPaths: readonly string[],
@@ -299,7 +310,7 @@ export interface ChapterWriteCoordinator {
   relocationSinceBegin(lease: ChapterAdoptionLease): ChapterTargetRelocation | null
   noteRelocation(intent: ChapterWriteIntent, fromPath: string, toPath: string): void
   tailOf(path: string): Promise<void>
-  subscribe(path: string, listener: (event: "lease" | "recovery" | "release") => void): () => void
+  subscribe(path: string, listener: (event: ChapterWriteCoordinatorEvent) => void): () => void
   releaseAdoption(lease: ChapterAdoptionLease): boolean
   releaseOwnedAdoptions(owner: object): number
   leaseOf(path: string): ChapterAdoptionLease | null
@@ -317,6 +328,9 @@ interface ChapterWriteTargetState {
   lease: ChapterAdoptionLease | null
   /** 单次实际迁移事实；不是永久 alias 链，也不是路径解析权威。 */
   relocation: ChapterTargetRelocation | null
+  relocationSeq: number
+  /** 最近一次从本路径迁出后的规范目标路径（仅作瞬时重定位事实）。 */
+  relocatedTo: string | null
 }
 
 interface ChapterAdoptionLifetime {
@@ -335,10 +349,10 @@ export function createChapterWriteCoordinator(): ChapterWriteCoordinator {
   const targets = new Map<string, ChapterWriteTargetState>()
   const recoveries = new Map<string, ChapterWriteRecovery>()
   const lifetimes = new WeakMap<ChapterAdoptionLease, ChapterAdoptionLifetime>()
-  const listeners = new Map<string, Set<(event: "lease" | "recovery" | "release") => void>>()
+  const listeners = new Map<string, Set<(event: ChapterWriteCoordinatorEvent) => void>>()
 
   const keyOf = (path: string) => normalizePath(path)
-  const notify = (path: string, event: "lease" | "recovery" | "release") => {
+  const notify = (path: string, event: ChapterWriteCoordinatorEvent) => {
     for (const listener of listeners.get(keyOf(path)) ?? []) listener(event)
   }
 
@@ -346,14 +360,33 @@ export function createChapterWriteCoordinator(): ChapterWriteCoordinator {
     const key = keyOf(path)
     const existing = targets.get(key)
     if (existing) return existing
-    const created: ChapterWriteTargetState = { tail: RESOLVED_TAIL, adoptionSeq: 0, lease: null, relocation: null }
+    const created: ChapterWriteTargetState = {
+      tail: RESOLVED_TAIL,
+      adoptionSeq: 0,
+      lease: null,
+      relocation: null,
+      relocationSeq: 0,
+      relocatedTo: null,
+    }
     targets.set(key, created)
     return created
   }
 
-  function captureIntent(kind: ChapterWriteKind, requestedPath: string): ChapterWriteIntent {
+  function currentSequence(): number {
+    return sequence
+  }
+
+  function wasRelocatedSince(path: string, sinceSeq = 0): boolean {
+    const state = targets.get(keyOf(path))
+    if (!state || state.relocationSeq === 0) return false
+    return state.relocationSeq > sinceSeq
+  }
+
+  function captureIntent(kind: ChapterWriteKind, requestedPath: string, observedSeq?: number): ChapterWriteIntent {
     sequence += 1
-    return { id: sequence, kind, requestedPath: keyOf(requestedPath) }
+    return observedSeq !== undefined
+      ? { id: sequence, kind, requestedPath: keyOf(requestedPath), observedSeq }
+      : { id: sequence, kind, requestedPath: keyOf(requestedPath) }
   }
 
   function admitMutation<T>(
@@ -376,9 +409,21 @@ export function createChapterWriteCoordinator(): ChapterWriteCoordinator {
     }
     if (refusals.length > 0) return { kind: "fenced", refusals }
 
+    const effectiveSeq = intent.observedSeq !== undefined
+      ? Math.min(intent.id, intent.observedSeq)
+      : intent.id
     // 同一同步段：先捕获整组真实前驱，再给整组登记同一个新 barrier（无 await、无自等）。
     const predecessor = Promise.all(paths.map((path) => stateOf(path).tail))
-    const result = predecessor.then(() => run())
+    const result = predecessor.then(() => {
+      const relocatedPath = paths.find((path) => {
+        const threshold = path === intent.requestedPath ? effectiveSeq : intent.id
+        return stateOf(path).relocationSeq > threshold
+      })
+      if (relocatedPath) {
+        throw new ChapterAdoptionUnavailableError("relocated", stateOf(relocatedPath).relocation)
+      }
+      return run()
+    })
     const barrier = result.then(
       () => undefined,
       () => undefined,
@@ -500,20 +545,26 @@ export function createChapterWriteCoordinator(): ChapterWriteCoordinator {
     const from = keyOf(fromPath)
     const to = keyOf(toPath)
     if (from === to) return
-    stateOf(from).relocation = { fromPath: from, toPath: to, intentId: intent.id, deleteIssued: true }
+    const state = stateOf(from)
+    state.relocationSeq = ++sequence
+    state.relocatedTo = to
+    state.relocation = { fromPath: from, toPath: to, intentId: intent.id, deleteIssued: true }
+    const destState = targets.get(to)
+    if (destState) destState.relocatedTo = null
     // 只移动这一笔已发出的 canonical 迁移的恢复归属；不合并 alias 或 accept 参数。
     const recovery = recoveries.get(from)
     if (recovery && !recoveries.has(to)) {
       recoveries.delete(from)
       retainRecovery({ ...recovery, path: to, originalPath: recovery.originalPath ?? from })
     }
+    notify(from, "relocation")
   }
 
   function tailOf(path: string): Promise<void> {
     return stateOf(path).tail
   }
 
-  function subscribe(path: string, listener: (event: "lease" | "recovery" | "release") => void): () => void {
+  function subscribe(path: string, listener: (event: ChapterWriteCoordinatorEvent) => void): () => void {
     const key = keyOf(path)
     const group = listeners.get(key) ?? new Set()
     group.add(listener)
@@ -581,6 +632,8 @@ export function createChapterWriteCoordinator(): ChapterWriteCoordinator {
   }
 
   return {
+    currentSequence,
+    wasRelocatedSince,
     captureIntent,
     admitMutation,
     beginAdoption,
@@ -652,3 +705,5 @@ export function getChapterWriteCoordinator(): ChapterWriteCoordinator {
 export function resetChapterWriteCoordinator(): void {
   sharedChapterWriteCoordinator = null
 }
+
+export const resetChapterWriteCoordinatorForTests = resetChapterWriteCoordinator

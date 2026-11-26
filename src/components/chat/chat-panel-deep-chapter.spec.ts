@@ -3,8 +3,11 @@
  * mock novel 模块与深度流式渲染，覆盖：成功、checkpoint 失败、pause/abort、review-required。
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { DeepChapterGenerationCallbacks } from "@/lib/novel"
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
+import { readManagedDeepChapterDraftMessage } from "./chat-message-content"
 import { runDeepChapterSend, type ChatDeepChapterContext } from "./chat-panel-deep-chapter"
+import { deepGenResult, EMPTY_DECISION_GATES } from "@/test-helpers/chat-panel/chat-panel-test-fixtures"
 
 const mocks = vi.hoisted(() => ({
   loadNovelSessionStatus: vi.fn(),
@@ -15,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   pauseDeepChapterSession: vi.fn(),
   completeDeepChapterSession: vi.fn(),
   runDeepChapterGeneration: vi.fn(),
+  runDeepChapterGenerationConsensus: vi.fn(),
   buildStageJournalRuntime: vi.fn(),
   novelSessionStatusPath: vi.fn((pp: string) => `${pp}/.novel/status.json`),
   createNovelSessionId: vi.fn(() => "mock-sess-id"),
@@ -35,6 +39,10 @@ vi.mock("@/lib/novel", () => ({
 
 vi.mock("@/lib/novel/deep-chapter-generation", () => ({
   runDeepChapterGeneration: mocks.runDeepChapterGeneration,
+}))
+
+vi.mock("@/lib/novel/consensus-writing", () => ({
+  runDeepChapterGenerationConsensus: mocks.runDeepChapterGenerationConsensus,
 }))
 
 vi.mock("@/lib/novel/residual-campaign", () => ({
@@ -162,11 +170,54 @@ describe("runDeepChapterSend", () => {
     expect(activeStreamSessionsRef.current["conv-deep"]).toBeUndefined()
   })
 
+  it("共识候选已流式输出时，ready 消息只保留最终选定的正文与思考块", async () => {
+    const finalContent = "# 第5章 最终稿\r\n\r\n选定正文 \r\n"
+    mocks.runDeepChapterGenerationConsensus.mockImplementationOnce(async (_input, handlers: DeepChapterGenerationCallbacks) => {
+      handlers.onThinking?.("## 共识进度")
+      handlers.onFinalContent?.("候选一")
+      handlers.onFinalContent?.("候选二")
+      return deepGenResult({ finalContent, finalConsistencyReviewed: true })
+    })
+    const { ctx, finalizeStream } = makeCtx({
+      novelConfig: { ...NOVEL_CONFIG, consensusEnabled: true, consensusWritingModels: ["writer-a", "writer-b"] },
+    })
+    await runDeepChapterSend(ctx)
+
+    expect(mocks.runDeepChapterGeneration).not.toHaveBeenCalled()
+    expect(mocks.completeDeepChapterSession).toHaveBeenCalledWith(expect.objectContaining({
+      finalContent, decisionGates: EMPTY_DECISION_GATES, finalConsistencyReviewed: true,
+    }))
+    expect(readManagedDeepChapterDraftMessage(finalizeStream.mock.calls[0][0])).toEqual({
+      conversationId: "conv-deep",
+      sessionId: "sess-1",
+      draftStatus: "ready",
+      body: `<think>\n## 共识进度\n</think>\n\n${finalContent}`,
+    })
+  })
+
+  it("终稿空白时保留已流式输出的正文，不完成为 ready", async () => {
+    mocks.runDeepChapterGeneration.mockImplementationOnce(async (_input, handlers: DeepChapterGenerationCallbacks) => {
+      handlers.onThinking?.("## 已有进度")
+      handlers.onFinalContent?.("已有")
+      handlers.onFinalContent?.("正文")
+      return deepGenResult({ finalContent: " \r\n\t" })
+    })
+    const { ctx, finalizeStream } = makeCtx()
+    await runDeepChapterSend(ctx)
+
+    expect(mocks.completeDeepChapterSession).not.toHaveBeenCalled()
+    expect(mocks.pauseDeepChapterSession).toHaveBeenCalledTimes(1)
+    expect(readManagedDeepChapterDraftMessage(finalizeStream.mock.calls[0][0])).toMatchObject({
+      draftStatus: "pending",
+      body: "<think>\n## 已有进度\n</think>\n\n已有正文",
+    })
+  })
+
   it("人工审查分支（manualReviewRequired）：调用 blockDeepChapterSession，draftStatus 为 pending", async () => {
-    mocks.runDeepChapterGeneration.mockResolvedValue({
+    mocks.runDeepChapterGeneration.mockResolvedValue(deepGenResult({
       manualReviewRequired: true,
       retryCount: 3,
-    })
+    }))
     const { ctx, finalizeStream } = makeCtx()
     await runDeepChapterSend(ctx)
 
@@ -180,10 +231,11 @@ describe("runDeepChapterSend", () => {
   })
 
   it("部分内容中断分支（partial）：调用 pauseDeepChapterSession，留存待继续正文", async () => {
-    mocks.runDeepChapterGeneration.mockResolvedValue({
+    mocks.runDeepChapterGeneration.mockResolvedValue(deepGenResult({
+      finalContent: "已有部分正文",
       partial: true,
       manualReviewRequired: false,
-    })
+    }))
     const { ctx, finalizeStream } = makeCtx()
     await runDeepChapterSend(ctx)
 

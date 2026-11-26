@@ -1,7 +1,7 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle, Copy, Eye, EyeOff, Loader2, RefreshCw } from "lucide-react"
@@ -80,30 +80,62 @@ export function ExternalControlSection() {
   const [status, setStatus] = useState<McpServerStatus | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [tokenVisible, setTokenVisible] = useState(false)
+  const [tokenBusy, setTokenBusy] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   // 停止状态下先记住用户想要的权限域，下次启动时带上去。
   const [wantScope, setWantScope] = useState<McpScope>("read")
+  const mountedRef = useRef(true)
+  const tokenGenRef = useRef(0)
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      if (copiedTimerRef.current !== null) {
+        clearTimeout(copiedTimerRef.current)
+        copiedTimerRef.current = null
+      }
+    }
+  }, [])
 
   const running = status?.running ?? false
   /** 界面上应显示的权限域：运行中读真实状态，停止时显示待生效的意图。 */
   const currentScope: McpScope = running ? (status?.scope ?? "read") : wantScope
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options?: { preserveError?: boolean }) => {
     try {
       const next = await invoke<McpServerStatus>("mcp_server_status")
+      if (!mountedRef.current) return
       setStatus(next)
       if (next.running) setWantScope(next.scope)
-      setError(null)
+      if (!options?.preserveError) setError(null)
     } catch (e) {
+      if (!mountedRef.current) return
       setError(toErrorMessage(e))
     }
   }, [])
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    let cancelled = false
+    void invoke<McpServerStatus>("mcp_server_status").then(
+      (next) => {
+        if (cancelled || !mountedRef.current) return
+        setStatus(next)
+        if (next.running) setWantScope(next.scope)
+        setError(null)
+      },
+      (e: unknown) => {
+        if (cancelled || !mountedRef.current) return
+        setError(toErrorMessage(e))
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   /**
    * 逐会话授予 / 吊销完整写入（`full`）。
@@ -122,9 +154,9 @@ export function ExternalControlSection() {
         )
         await refresh()
       } catch (e) {
-        setError(toErrorMessage(e))
+        if (mountedRef.current) setError(toErrorMessage(e))
       } finally {
-        setBusy(false)
+        if (mountedRef.current) setBusy(false)
       }
     },
     [refresh],
@@ -147,9 +179,9 @@ export function ExternalControlSection() {
         )
         await refresh()
       } catch (e) {
-        setError(toErrorMessage(e))
+        if (mountedRef.current) setError(toErrorMessage(e))
       } finally {
-        setBusy(false)
+        if (mountedRef.current) setBusy(false)
       }
     },
     [refresh],
@@ -159,22 +191,27 @@ export function ExternalControlSection() {
     async (next: boolean) => {
       setBusy(true)
       setError(null)
+      if (!next) {
+        tokenGenRef.current += 1
+      }
       try {
         if (next) {
           await invoke<number>("mcp_server_start", { scope: wantScope })
         } else {
           await invoke("mcp_server_stop")
           // 停服后旧 token 不再展示，避免用户以为它还生效。
-          setToken(null)
-          setTokenVisible(false)
+          if (mountedRef.current) {
+            setToken(null)
+            setTokenVisible(false)
+          }
         }
         await refresh()
       } catch (e) {
-        setError(toErrorMessage(e))
-        // 失败也要重读真实状态：开关必须反映现实，不能停在用户点击的意图上。
-        await refresh()
+        if (mountedRef.current) setError(toErrorMessage(e))
+        // 失败也要重读真实状态：开关必须反映现实，不能停在用户点击的意图上；同时保留本次报错。
+        await refresh({ preserveError: true })
       } finally {
-        setBusy(false)
+        if (mountedRef.current) setBusy(false)
       }
     },
     [refresh, wantScope],
@@ -197,41 +234,54 @@ export function ExternalControlSection() {
         await invoke<number>("mcp_server_start", { scope: next })
         await refresh()
       } catch (e) {
-        setError(toErrorMessage(e))
-        await refresh()
+        if (mountedRef.current) setError(toErrorMessage(e))
+        await refresh({ preserveError: true })
       } finally {
-        setBusy(false)
+        if (mountedRef.current) setBusy(false)
       }
     },
     [currentScope, refresh, running],
   )
 
   const revealToken = useCallback(async () => {
+    if (busy || tokenBusy) return
     if (token) {
       setTokenVisible((v) => !v)
       return
     }
+    const gen = ++tokenGenRef.current
+    setTokenBusy(true)
     try {
       const value = await invoke<string>("mcp_server_token")
+      if (!mountedRef.current || gen !== tokenGenRef.current) return
       setToken(value)
       setTokenVisible(true)
     } catch (e) {
-      setError(toErrorMessage(e))
+      if (mountedRef.current && gen === tokenGenRef.current) setError(toErrorMessage(e))
+    } finally {
+      if (mountedRef.current) setTokenBusy(false)
     }
-  }, [token])
+  }, [busy, token, tokenBusy])
 
   const rotateToken = useCallback(async () => {
+    const gen = ++tokenGenRef.current
     setBusy(true)
     setError(null)
     try {
       const value = await invoke<string>("mcp_server_rotate_token")
+      if (!mountedRef.current || gen !== tokenGenRef.current) return
       setToken(value)
       setTokenVisible(true)
       await refresh()
     } catch (e) {
-      setError(toErrorMessage(e))
+      if (mountedRef.current && gen === tokenGenRef.current) {
+        setToken(null)
+        setTokenVisible(false)
+        setError(toErrorMessage(e))
+      }
+      await refresh({ preserveError: true })
     } finally {
-      setBusy(false)
+      if (mountedRef.current) setBusy(false)
     }
   }, [refresh])
 
@@ -240,10 +290,15 @@ export function ExternalControlSection() {
     if (!status) return
     try {
       await navigator.clipboard.writeText(status.endpoint)
+      if (!mountedRef.current) return
       setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
+      if (copiedTimerRef.current !== null) clearTimeout(copiedTimerRef.current)
+      copiedTimerRef.current = setTimeout(() => {
+        copiedTimerRef.current = null
+        if (mountedRef.current) setCopied(false)
+      }, 1500)
     } catch (e) {
-      setError(toErrorMessage(e))
+      if (mountedRef.current) setError(toErrorMessage(e))
     }
   }, [status])
 
@@ -260,7 +315,7 @@ export function ExternalControlSection() {
         <p className="mt-1 text-sm text-muted-foreground">
           {t("settings.sections.externalControl.description", {
             defaultValue:
-              "Let an external agent (Claude Code, PI) connect to this app over a loopback-only MCP endpoint. Read-only unless you explicitly grant settings write access; the app must stay running.",
+              "Let an external agent (Claude Code, PI) connect to this app over a loopback-only MCP endpoint. Read-only by default; write actions follow the scope and per-session grants below. The app must stay running.",
           })}
         </p>
       </div>
@@ -348,6 +403,7 @@ export function ExternalControlSection() {
 
       {error ? (
         <div
+          role="alert"
           className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
           data-testid="external-control-error"
         >
@@ -407,6 +463,7 @@ export function ExternalControlSection() {
             variant="outline"
             size="sm"
             onClick={() => void revealToken()}
+            disabled={busy || tokenBusy}
             data-testid="external-control-reveal"
           >
             {tokenVisible ? (
@@ -453,7 +510,7 @@ export function ExternalControlSection() {
           </div>
           <span className="text-xs text-muted-foreground" data-testid="external-control-tool-count">
             {t("settings.sections.externalControl.toolCount", {
-              defaultValue: "{{count}} read-only tools",
+              defaultValue: "{{count}} available tools",
               count: status?.tool_count ?? 0,
             })}
           </span>
@@ -479,7 +536,7 @@ export function ExternalControlSection() {
                 <span className="text-muted-foreground">{session.scope}</span>
                 {session.auto_granted ? (
                   <span
-                    className="rounded bg-sky-500/15 px-1.5 py-0.5 text-sky-700 dark:text-sky-400"
+                    className="rounded bg-info/15 px-1.5 py-0.5 text-info"
                     data-testid="external-control-session-auto-badge"
                   >
                     {t("settings.sections.externalControl.autoGranted", {
@@ -489,7 +546,7 @@ export function ExternalControlSection() {
                 ) : null}
                 {session.full_granted ? (
                   <span
-                    className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-400"
+                    className="rounded bg-warning/15 px-1.5 py-0.5 text-warning-foreground"
                     data-testid="external-control-session-full-badge"
                   >
                     {t("settings.sections.externalControl.fullGranted", {

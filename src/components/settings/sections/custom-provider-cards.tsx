@@ -11,7 +11,8 @@ import { fetchLlmModelList } from "@/lib/settings-model-list"
 import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { useTranslation } from "react-i18next"
 import { HttpTimeoutControls, ReasoningControls } from "./llm-provider-section"
-import { toErrorMessage } from "@/lib/utils"
+import { saveActivePresetId, saveProviderConfigs } from "@/lib/project-store"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { SettingsSwitch } from "../settings-widgets"
 
 interface CustomProviderCard {
@@ -67,8 +68,21 @@ export function CustomProviderCards() {
     })
   })
 
+  const persistQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const lastCardIdRef = useRef(0)
+
+  function enqueuePersist(task: () => Promise<void>, label: string) {
+    persistQueueRef.current = persistQueueRef.current
+      .then(task)
+      .catch((err) => {
+        logger.warn("CustomProviderCards", `${label} failed`, { error: toErrorMessage(err) })
+      })
+  }
+
   function addCard() {
-    const newId = `custom-${Date.now()}`
+    const seq = Math.max(Date.now(), lastCardIdRef.current + 1)
+    lastCardIdRef.current = seq
+    const newId = `custom-${seq}`
     const newCard: CustomProviderCard = {
       id: newId,
       label: t("settings.sections.shared.defaultCustomLabel"),
@@ -79,11 +93,12 @@ export function CustomProviderCards() {
       enabled: true,
       savedModels: [],
     }
-    setCards([...cards, newCard])
+    setCards((prev) => [...prev, newCard])
 
-    // Also add to store
+    // Also add to store (read latest store state to avoid stale closure overwrites)
+    const latestConfigs = useWikiStore.getState().providerConfigs
     const newConfigs = {
-      ...providerConfigs,
+      ...latestConfigs,
       [newId]: {
         label: newCard.label,
         apiMode: newCard.apiMode,
@@ -95,14 +110,15 @@ export function CustomProviderCards() {
       },
     }
     setProviderConfigs(newConfigs)
-    persistConfigs(newConfigs)
+    enqueuePersist(() => saveProviderConfigs(newConfigs), "saveProviderConfigs")
   }
 
   function updateCard(id: string, updates: Partial<CustomProviderCard>) {
-    setCards(cards.map((c) => (c.id === id ? { ...c, ...updates } : c)))
+    setCards((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)))
 
     // Update store — 用 ?? 回退到 store 已有值，避免 updates 中未指定的字段被 undefined 覆盖
-    const prev = providerConfigs[id] ?? {}
+    const latestConfigs = useWikiStore.getState().providerConfigs
+    const prev = latestConfigs[id] ?? {}
     const updatedConfig: ProviderOverride = {
       ...prev,
       label: updates.label ?? prev.label,
@@ -121,47 +137,40 @@ export function CustomProviderCards() {
       savedModels: updates.savedModels ?? prev.savedModels,
     }
     const newConfigs = {
-      ...providerConfigs,
+      ...latestConfigs,
       [id]: updatedConfig,
     }
     setProviderConfigs(newConfigs)
-    persistConfigs(newConfigs)
+    enqueuePersist(() => saveProviderConfigs(newConfigs), "saveProviderConfigs")
   }
 
   function deleteCard(id: string) {
     if (!confirm(t("settings.sections.shared.confirmDeleteConfig"))) return
 
-    setCards(cards.filter((c) => c.id !== id))
+    setCards((prev) => prev.filter((c) => c.id !== id))
 
     // Remove from store
-    const newConfigs = { ...providerConfigs }
+    const latestState = useWikiStore.getState()
+    const newConfigs = { ...latestState.providerConfigs }
     delete newConfigs[id]
     setProviderConfigs(newConfigs)
 
     // If this was active, deactivate
-    if (activePresetId === id) {
+    if ((latestState.activePresetId ?? activePresetId) === id) {
       setActivePresetId(null)
-      persistActiveId(null)
+      enqueuePersist(() => saveActivePresetId(null), "saveActivePresetId")
     }
 
-    persistConfigs(newConfigs)
+    enqueuePersist(() => saveProviderConfigs(newConfigs), "saveProviderConfigs")
   }
 
   function toggleEnabled(id: string) {
+    const latestConfig = useWikiStore.getState().providerConfigs[id]
     const card = cards.find((c) => c.id === id)
+    const currentEnabled = latestConfig?.enabled ?? card?.enabled
     /* v8 ignore next */
-    if (!card) return
-    updateCard(id, { enabled: !card.enabled })
-  }
-
-  async function persistConfigs(newConfigs: typeof providerConfigs) {
-    const { saveProviderConfigs } = await import("@/lib/project-store")
-    await saveProviderConfigs(newConfigs)
-  }
-
-  async function persistActiveId(id: string | null) {
-    const { saveActivePresetId } = await import("@/lib/project-store")
-    await saveActivePresetId(id)
+    if (currentEnabled === undefined) return
+    updateCard(id, { enabled: !currentEnabled })
   }
 
   return (
@@ -231,6 +240,15 @@ function CustomProviderCardItem({
 
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const prevSavedModelsLength = useRef(card.savedModels.length)
+  const mountedRef = useRef(true)
+  const fetchSeqRef = useRef(0)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   // 当已选模型从有到无时，将输入框回退到单模型模式（显示 card.model）
   useEffect(() => {
@@ -265,6 +283,7 @@ function CustomProviderCardItem({
   }, [card, llmConfig])
 
   async function loadModelOptions() {
+    const seq = ++fetchSeqRef.current
     setModelListState({
       loading: true,
       success: false,
@@ -273,6 +292,7 @@ function CustomProviderCardItem({
 
     try {
       const result = await fetchLlmModelList(resolvedConfig)
+      if (!mountedRef.current || fetchSeqRef.current !== seq) return
       setModelOptions(result.models)
 
       // 保留已选模型，仅在 URL/API 变更导致模型失效时由用户手动清空
@@ -285,6 +305,7 @@ function CustomProviderCardItem({
         message: t("settings.sections.llm.fetchedModelsCount", { count: result.models.length }),
       })
     } catch (error) {
+      if (!mountedRef.current || fetchSeqRef.current !== seq) return
       setModelListState({
         loading: false,
         success: false,

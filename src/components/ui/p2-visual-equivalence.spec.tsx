@@ -248,9 +248,9 @@ describe("P2-8 window.alert 迁移应用内 toast", () => {
   })
 
   it("迁移目标文件均走 toast 且文案不变", () => {
-    // 导入/toast 逻辑已随 REFACTOR_AUDIT §二 拆分下沉至 sidebar-panel-import.ts。
+    // 导入/toast 逻辑已随 REFACTOR_AUDIT §二 拆分下沉至 sidebar-panel-import.ts（R3 已 i18n 化）。
     const sidebar = readSrc("src/components/layout/sidebar-panel-import.ts")
-    expect(sidebar).toContain('toast.info("没有找到可导入的章节文档。")')
+    expect(sidebar).toContain('toast.info(t("sidebar.noImportableChapters", { defaultValue: "没有找到可导入的章节文档。" }))')
     expect(sidebar).toContain("toast.error(`导入失败：${message}`)")
     const welcome = readSrc("src/components/project/welcome-screen.tsx")
     expect(welcome).toContain("toast.success(`恢复成功！")

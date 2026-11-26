@@ -84,7 +84,12 @@ const mocks = vi.hoisted(() => {
     state,
     getStateSnapshot,
     importProgressActions,
-    t: vi.fn((key: string) => lookupZhLocale(key) ?? key),
+    t: vi.fn((key: string, opts?: Record<string, unknown>) => {
+      const found = lookupZhLocale(key)
+      if (found) return found
+      if (opts && typeof opts.defaultValue === "string") return opts.defaultValue
+      return key
+    }),
     // fs
     createDirectory: vi.fn<(path: string) => Promise<void>>(async () => {}),
     fileExists: vi.fn<(path: string) => Promise<boolean>>(async () => false),
@@ -112,6 +117,22 @@ const mocks = vi.hoisted(() => {
     importChapterFiles: vi.fn<
       (projectPath: string, sourcePaths: readonly string[], options: { finalForMemoryExtraction: boolean }) => Promise<ImportedChapter[]>
     >(async () => []),
+    importWholeTxtNovel: vi.fn<
+      (projectPath: string, sourcePath: string, options?: { finalForMemoryExtraction?: boolean; conflictStrategy?: string }) => Promise<{
+        imported: ImportedChapter[]
+        detectedCount: number
+        skippedCount: number
+        remappedCount: number
+        warnings: string[]
+      }>
+    >(async () => ({ imported: [], detectedCount: 0, skippedCount: 0, remappedCount: 0, warnings: [] })),
+    previewWholeTxtChapters: vi.fn<
+      (sourcePath: string) => Promise<{
+        chapters: Array<{ order: number; detectedChapterNumber: number | null; title: string; body: string; wordCount: number; preview: string }>
+        totalWords: number
+        warnings: string[]
+      }>
+    >(async () => ({ chapters: [], totalWords: 0, warnings: [] })),
     importOutlineCandidates: vi.fn<(projectPath: string, candidates: readonly OutlineImportCandidate[]) => Promise<string[]>>(async () => []),
     importOutlineFiles: vi.fn<(projectPath: string, sourcePaths: string[]) => Promise<string[]>>(async () => []),
     runImportedChapterMemoryExtraction: vi.fn<
@@ -123,7 +144,7 @@ const mocks = vi.hoisted(() => {
         ingestChapter: (projectPath: string, chapterPath: string, reviewModel?: string) => Promise<{ snapshot: unknown | null; failReason?: string }>
         onProgress?: (progress: ImportedChapterMemoryProgress) => void
       }) => Promise<ImportedChapterMemoryResult>
-    >(async () => ({ cancelled: false, completed: 0, failed: 0, errors: [] })),
+    >(async () => ({ cancelled: false, completed: 0, pending: 0, partial: 0, failed: 0, errors: [] })),
     runOutlineIngestTask: vi.fn<(taskId: string) => Promise<void>>(async () => {}),
     createOutlineIngestTask: vi.fn<(projectPath: string, outlinePath: string) => string>((_p: string, path: string) => `outline-task:${path}`),
     ingestChapter: vi.fn<
@@ -236,6 +257,8 @@ vi.mock("@/lib/novel/chapter-import", async (importOriginal) => {
       CHAPTER_IMPORT_EXTENSIONS: mocks.CHAPTER_IMPORT_EXTENSIONS,
       collectChapterImportCandidatesFromFolder: mocks.collectChapterImportCandidatesFromFolder,
       importChapterFiles: mocks.importChapterFiles,
+      importWholeTxtNovel: mocks.importWholeTxtNovel,
+      previewWholeTxtChapters: mocks.previewWholeTxtChapters,
       runImportedChapterMemoryExtraction: mocks.runImportedChapterMemoryExtraction,
       sortChapterImportCandidates: mocks.sortChapterImportCandidates,
     
@@ -297,6 +320,10 @@ vi.mock("@/components/ui/button", () => ({
     title,
     type = "button",
     className,
+    "aria-label": ariaLabel,
+    "aria-haspopup": ariaHaspopup,
+    "aria-expanded": ariaExpanded,
+    "data-testid": testId,
   }: {
     children?: ReactNode
     onClick?: () => void
@@ -304,8 +331,22 @@ vi.mock("@/components/ui/button", () => ({
     title?: string
     type?: "button" | "submit" | "reset"
     className?: string
+    "aria-label"?: string
+    "aria-haspopup"?: "menu" | "listbox" | "tree" | "grid" | "dialog" | boolean
+    "aria-expanded"?: boolean
+    "data-testid"?: string
   }) => (
-    <button type={type} onClick={onClick} disabled={disabled} title={title} className={className}>
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={className}
+      aria-label={ariaLabel}
+      aria-haspopup={ariaHaspopup}
+      aria-expanded={ariaExpanded}
+      data-testid={testId}
+    >
       {children}
     </button>
   ),
@@ -346,17 +387,20 @@ vi.mock("@/components/layout/knowledge-tree", () => ({
     pendingPages,
     onRemovePendingPage,
     onRequestCreate,
+    batchExtractTrigger,
   }: {
     filterType: "chapter" | "outline"
     refreshKey?: number
     pendingPages?: Array<{ path: string; type: string }>
     onRemovePendingPage?: (pagePath: string) => void
     onRequestCreate?: (request: { kind: string; parentDir?: string }) => void
+    batchExtractTrigger?: { key: number; seedChapter: number | null } | null
   }) => (
     <div data-testid="knowledge-tree">
       <span data-testid="kt-filter">{filterType}</span>
       <span data-testid="kt-refresh">{String(refreshKey ?? 0)}</span>
       <span data-testid="kt-pending">{JSON.stringify((pendingPages ?? []).map((p) => p.path))}</span>
+      <span data-testid="kt-batch-trigger">{batchExtractTrigger ? JSON.stringify(batchExtractTrigger) : "none"}</span>
       <button type="button" data-testid="kt-create" onClick={() => onRequestCreate?.({ kind: filterType })}>
         create
       </button>
@@ -383,13 +427,7 @@ vi.mock("@/components/layout/knowledge-tree", () => ({
       </button>
     </div>
   ),
-  RawSourcesSection: ({ onCancelExtraction }: { onCancelExtraction?: () => void }) => (
-    <div data-testid="raw-sources">
-      <button type="button" data-testid="raw-cancel" onClick={() => onCancelExtraction?.()}>
-        cancel-extraction
-      </button>
-    </div>
-  ),
+  RawSourcesSection: () => <div data-testid="raw-sources" />,
 }))
 
 vi.mock("./trash-panel", () => ({ TrashPanel: () => <div data-testid="trash-panel">trash</div> }))
@@ -675,6 +713,21 @@ describe("SidebarPanel 视图路由", () => {
     firstRender.unmount()
   })
 
+  it("记忆中心：dataVersion 变化自动重新加载（R2-U11）", async () => {
+    const view = renderSidebar({
+      activeView: "lint",
+      novelMode: true,
+      project: DEFAULT_PROJECT,
+      dataVersion: 0,
+    })
+    await flushAsync()
+    expect(mocks.loadMemoryCenterData).toHaveBeenCalledTimes(1)
+
+    view.setState({ dataVersion: 1 })
+    await waitFor(() => expect(mocks.loadMemoryCenterData).toHaveBeenCalledTimes(2))
+    view.unmount()
+  })
+
   it("记忆中心：选中条目时渲染 secondary 变体按钮", async () => {
     renderSidebar({
       activeView: "lint",
@@ -695,9 +748,9 @@ describe("SidebarPanel 视图路由", () => {
     await flushAsync()
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => expect(screen.getByText("是否提取记忆")).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText("选择章节导入方式")).toBeInTheDocument())
     fireEvent.click(screen.getByTestId("dialog-reopen"))
-    expect(screen.getByText("是否提取记忆")).toBeInTheDocument()
+    expect(screen.getByText("选择章节导入方式")).toBeInTheDocument()
   })
 })
 
@@ -722,7 +775,9 @@ describe("SidebarPanel 知识模式（章节）", () => {
     mocks.createDirectory.mockResolvedValue(undefined)
     mocks.dialogOpen.mockResolvedValue(null)
     mocks.importChapterFiles.mockResolvedValue([])
-    mocks.runImportedChapterMemoryExtraction.mockResolvedValue({ cancelled: false, completed: 0, failed: 0, errors: [] })
+    mocks.importWholeTxtNovel.mockResolvedValue({ imported: [], detectedCount: 0, skippedCount: 0, remappedCount: 0, warnings: [] })
+    mocks.previewWholeTxtChapters.mockResolvedValue({ chapters: [], totalWords: 0, warnings: [] })
+    mocks.runImportedChapterMemoryExtraction.mockResolvedValue({ cancelled: false, completed: 0, pending: 0, partial: 0, failed: 0, errors: [] })
     mocks.getNextChapterNumber.mockResolvedValue(1)
     mocks.importProgressActions.startTask.mockReturnValue("task-1")
     mocks.flattenMdFiles.mockImplementation(
@@ -782,12 +837,24 @@ describe("SidebarPanel 知识模式（章节）", () => {
     expect(mocks.countChapterBodyWords).toHaveBeenCalled()
   })
 
-  it("章节导入菜单：展开/折叠/Escape/外部点击", () => {
+  it("章节工具栏批量提取按钮、导入菜单 role=menu/menuitem 与整本 TXT 入口", () => {
     renderSidebar()
+    const batchBtn = screen.getByTestId("sidebar-batch-extract-button")
+    expect(screen.getByTestId("kt-batch-trigger")).toHaveTextContent("none")
+    fireEvent.click(batchBtn)
+    expect(screen.getByTestId("kt-batch-trigger")).toHaveTextContent('{"key":1,"seedChapter":null}')
+
     const menuButton = screen.getByRole("button", { name: "导入" })
+    expect(menuButton).toHaveAttribute("aria-haspopup", "menu")
+    expect(menuButton).toHaveAttribute("aria-expanded", "false")
     fireEvent.click(menuButton)
+    expect(menuButton).toHaveAttribute("aria-expanded", "true")
+    const menu = screen.getByRole("menu")
+    const items = within(menu).getAllByRole("menuitem")
+    expect(items).toHaveLength(3)
     expect(screen.getByText("导入文件")).toBeInTheDocument()
     expect(screen.getByText("导入文件夹")).toBeInTheDocument()
+    expect(screen.getByText("整本 TXT 拆章导入")).toBeInTheDocument()
 
     fireEvent.keyDown(document, { key: "Escape" })
     expect(screen.queryByText("导入文件")).not.toBeInTheDocument()
@@ -805,78 +872,135 @@ describe("SidebarPanel 知识模式（章节）", () => {
     expect(screen.queryByText("导入文件")).not.toBeInTheDocument()
   })
 
-  it("章节导入文件：提取记忆完整链路", async () => {
+  it("章节导入文件：三选一「标记已定稿并批量提取」打开批量提取向导且绝不裸调 ingestChapter", async () => {
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md", "/tmp/ch2.md"])
     mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: "第一章", chapterNumber: 1 }])
-    mocks.runImportedChapterMemoryExtraction.mockImplementation(
-      async ({ onProgress }) => {
-        onProgress?.({ completed: 0, total: 1, currentPath: null })
-        onProgress?.({ completed: 1, total: 1, currentPath: "/p/mybook/wiki/chapters/other.md" })
-        onProgress?.({ completed: 1, total: 1, currentPath: CH1 })
-        return { cancelled: false, completed: 1, failed: 0, errors: [] }
-      },
-    )
     renderSidebar()
 
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => expect(screen.getByText("是否提取记忆")).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText("选择章节导入方式")).toBeInTheDocument())
     const dialog = within(screen.getByTestId("dialog-content"))
-    expect(dialog.getByText(/本次将导入 2 个章节文档/)).toBeInTheDocument()
+    expect(dialog.getByText(/本次将导入/)).toBeInTheDocument()
+    expect(mocks.t).toHaveBeenCalledWith(
+      "sidebar.chapterImportDecisionDesc",
+      expect.objectContaining({ count: 2 }),
+    )
 
-    fireEvent.click(dialog.getByText("提取记忆"))
-    await waitFor(() => expect(mocks.importChapterFiles).toHaveBeenCalled())
+    fireEvent.click(dialog.getByText("标记已定稿并批量提取"))
     await waitFor(() =>
       expect(mocks.importChapterFiles).toHaveBeenCalledWith("/p/mybook", ["/tmp/ch1.md", "/tmp/ch2.md"], {
         finalForMemoryExtraction: true,
       }),
     )
-    await waitFor(() => expect(mocks.importProgressActions.startTask).toHaveBeenCalled())
-    expect(mocks.importProgressActions.startTask).toHaveBeenCalledWith(
-      expect.objectContaining({ projectPath: "/p/mybook", kind: "chapter", total: 1, currentTitle: "第一章" }),
-    )
-    await waitFor(() => expect(mocks.importProgressActions.updateTask).toHaveBeenCalled())
-    expect(mocks.importProgressActions.updateTask).toHaveBeenCalledWith("task-1", expect.objectContaining({ currentTitle: "" }))
-    expect(mocks.importProgressActions.updateTask).toHaveBeenCalledWith(
-      "task-1",
-      expect.objectContaining({ currentTitle: "/p/mybook/wiki/chapters/other.md" }),
-    )
-    expect(mocks.importProgressActions.updateTask).toHaveBeenCalledWith(
-      "task-1",
-      expect.objectContaining({ completed: 1, currentTitle: "第一章" }),
-    )
     await waitFor(() =>
-      expect(mocks.importProgressActions.finishTask).toHaveBeenCalledWith(
-        "task-1",
-        "done",
-        expect.objectContaining({ message: "记忆提取完成：成功 1 个章节。" }),
-      ),
+      expect(screen.getByTestId("kt-batch-trigger")).toHaveTextContent('{"key":1,"seedChapter":1}'),
     )
+    expect(mocks.runImportedChapterMemoryExtraction).not.toHaveBeenCalled()
+    expect(mocks.ingestChapter).not.toHaveBeenCalled()
+    expect(mocks.importProgressActions.startTask).not.toHaveBeenCalled()
     expect(mocks.invalidateChapterCache).toHaveBeenCalledWith("/p/mybook")
     expect(mocks.state.setFileTree).toHaveBeenCalled()
     expect(mocks.state.setSelectedFile).toHaveBeenCalledWith(CH1)
     expect(mocks.getStateSnapshot.bumpDataVersion).toHaveBeenCalled()
-    // 菜单已关闭
     expect(screen.queryByText("导入文件")).not.toBeInTheDocument()
   })
 
-  it("章节导入文件：只导入不提取记忆", async () => {
+  it("章节导入文件：三选一「作为草稿导入」写草稿且不打开批量提取", async () => {
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
     mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: "第一章", chapterNumber: 1 }])
     renderSidebar()
 
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => expect(screen.getByText("是否提取记忆")).toBeInTheDocument())
-    fireEvent.click(screen.getByText("只导入"))
+    await waitFor(() => expect(screen.getByText("选择章节导入方式")).toBeInTheDocument())
+    fireEvent.click(screen.getByText("作为草稿导入"))
     await waitFor(() =>
       expect(mocks.importChapterFiles).toHaveBeenCalledWith("/p/mybook", ["/tmp/ch1.md"], {
         finalForMemoryExtraction: false,
       }),
     )
     await flushAsync()
-    expect(mocks.importProgressActions.startTask).not.toHaveBeenCalled()
+    expect(screen.getByTestId("kt-batch-trigger")).toHaveTextContent("none")
+    expect(mocks.runImportedChapterMemoryExtraction).not.toHaveBeenCalled()
     expect(mocks.invalidateChapterCache).toHaveBeenCalledWith("/p/mybook")
+  })
+
+  it("章节导入文件：三选一「标记已定稿（暂不提取）」写 final 且不触发提取", async () => {
+    mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
+    mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: "第一章", chapterNumber: 1 }])
+    renderSidebar()
+
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("导入文件"))
+    await waitFor(() => expect(screen.getByText("选择章节导入方式")).toBeInTheDocument())
+    fireEvent.click(screen.getByText("标记已定稿（暂不提取）"))
+    await waitFor(() =>
+      expect(mocks.importChapterFiles).toHaveBeenCalledWith("/p/mybook", ["/tmp/ch1.md"], {
+        finalForMemoryExtraction: true,
+      }),
+    )
+    await flushAsync()
+    expect(screen.getByTestId("kt-batch-trigger")).toHaveTextContent("none")
+    expect(mocks.runImportedChapterMemoryExtraction).not.toHaveBeenCalled()
+    expect(mocks.ingestChapter).not.toHaveBeenCalled()
+  })
+
+  it("整本 TXT 拆章导入：预览识章数 → 调 importWholeTxtNovel → 打开批量提取向导", async () => {
+    mocks.dialogOpen.mockResolvedValue("/tmp/book.txt")
+    mocks.previewWholeTxtChapters.mockResolvedValue({
+      chapters: [
+        { order: 1, detectedChapterNumber: 1, title: "第一章 开端", body: "正文1", wordCount: 500, preview: "正文1" },
+        { order: 2, detectedChapterNumber: 2, title: "第二章 进展", body: "正文2", wordCount: 600, preview: "正文2" },
+      ],
+      totalWords: 1100,
+      warnings: [],
+    })
+    mocks.importWholeTxtNovel.mockResolvedValue({
+      imported: [
+        { sourcePath: "/tmp/book.txt", path: CH1, title: "第一章 开端", chapterNumber: 1 },
+        { sourcePath: "/tmp/book.txt", path: "/p/mybook/wiki/chapters/ch2.md", title: "第二章 进展", chapterNumber: 2 },
+      ],
+      detectedCount: 2,
+      skippedCount: 0,
+      remappedCount: 0,
+      warnings: [],
+    })
+    renderSidebar()
+
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("整本 TXT 拆章导入"))
+    await waitFor(() => expect(mocks.previewWholeTxtChapters).toHaveBeenCalledWith("/tmp/book.txt"))
+    await waitFor(() => expect(screen.getByText("选择章节导入方式")).toBeInTheDocument())
+    expect(within(screen.getByTestId("dialog-content")).getByText(/识别出/)).toBeInTheDocument()
+    expect(mocks.t).toHaveBeenCalledWith(
+      "sidebar.wholeTxtDetectedSummary",
+      expect.objectContaining({ fileName: "book.txt", count: 2, words: 1100 }),
+    )
+
+    fireEvent.click(screen.getByText("标记已定稿并批量提取"))
+    await waitFor(() =>
+      expect(mocks.importWholeTxtNovel).toHaveBeenCalledWith("/p/mybook", "/tmp/book.txt", {
+        finalForMemoryExtraction: true,
+        conflictStrategy: "auto-offset",
+      }),
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId("kt-batch-trigger")).toHaveTextContent('{"key":1,"seedChapter":1}'),
+    )
+    expect(mocks.runImportedChapterMemoryExtraction).not.toHaveBeenCalled()
+    expect(mocks.ingestChapter).not.toHaveBeenCalled()
+  })
+
+  it("整本 TXT 拆章导入：0 章识别时 toast 提示并关闭菜单", async () => {
+    mocks.dialogOpen.mockResolvedValue("/tmp/empty.txt")
+    mocks.previewWholeTxtChapters.mockResolvedValue({ chapters: [], totalWords: 0, warnings: [] })
+    renderSidebar()
+
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("整本 TXT 拆章导入"))
+    await waitFor(() => expect(mocks.toastInfo).toHaveBeenCalledWith("没有找到可导入的章节文档。"))
+    expect(mocks.importWholeTxtNovel).not.toHaveBeenCalled()
   })
 
   it("章节导入文件：取消导入不执行导入", async () => {
@@ -885,11 +1009,10 @@ describe("SidebarPanel 知识模式（章节）", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => expect(screen.getByText("是否提取记忆")).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText("选择章节导入方式")).toBeInTheDocument())
     fireEvent.click(screen.getByText("取消导入"))
     await flushAsync()
     expect(mocks.importChapterFiles).not.toHaveBeenCalled()
-    // 取消时菜单保持打开（源码未关闭）
     expect(screen.getByText("导入文件")).toBeInTheDocument()
   })
 
@@ -899,29 +1022,27 @@ describe("SidebarPanel 知识模式（章节）", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => expect(screen.getByText("是否提取记忆")).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText("选择章节导入方式")).toBeInTheDocument())
     fireEvent.click(screen.getByTestId("dialog-close"))
     await flushAsync()
     expect(mocks.importChapterFiles).not.toHaveBeenCalled()
   })
 
   it("章节导入文件：空结果时 alert", async () => {
-    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
     mocks.importChapterFiles.mockResolvedValue([])
     renderSidebar()
 
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => expect(screen.getByText("是否提取记忆")).toBeInTheDocument())
-    fireEvent.click(screen.getByText("提取记忆"))
+    await waitFor(() => expect(screen.getByText("选择章节导入方式")).toBeInTheDocument())
+    fireEvent.click(screen.getByText("标记已定稿并批量提取"))
     await waitFor(() => expect(mocks.toastInfo).toHaveBeenCalledWith("没有找到可导入的章节文档。"))
     await flushAsync()
-    expect(mocks.importProgressActions.startTask).not.toHaveBeenCalled()
+    expect(screen.getByTestId("kt-batch-trigger")).toHaveTextContent("none")
   })
 
   it("章节导入文件：失败时 alert 导入失败", async () => {
-    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
     mocks.importChapterFiles.mockRejectedValue(new Error("chapter boom"))
@@ -929,14 +1050,14 @@ describe("SidebarPanel 知识模式（章节）", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => expect(screen.getByText("是否提取记忆")).toBeInTheDocument())
-    fireEvent.click(screen.getByText("提取记忆"))
+    await waitFor(() => expect(screen.getByText("选择章节导入方式")).toBeInTheDocument())
+    fireEvent.click(screen.getByText("标记已定稿并批量提取"))
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("导入失败：chapter boom"))
     await flushAsync()
     expect(console.error).toHaveBeenCalled()
   })
 
-  it("章节导入文件夹：提取记忆完整链路", async () => {
+  it("章节导入文件夹：三选一「标记已定稿并批量提取」打开批量提取向导", async () => {
     mocks.dialogOpen.mockResolvedValue("/tmp/folder")
     mocks.collectChapterImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/folder/a.md", name: "a.md" }])
     mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: "第一章", chapterNumber: 1 }])
@@ -947,19 +1068,21 @@ describe("SidebarPanel 知识模式（章节）", () => {
     await waitFor(() =>
       expect(mocks.collectChapterImportCandidatesFromFolder).toHaveBeenCalledWith("/tmp/folder"),
     )
-    await waitFor(() => expect(screen.getByText("是否提取记忆")).toBeInTheDocument())
-    fireEvent.click(screen.getByText("提取记忆"))
+    await waitFor(() => expect(screen.getByText("选择章节导入方式")).toBeInTheDocument())
+    fireEvent.click(screen.getByText("标记已定稿并批量提取"))
     await waitFor(() =>
       expect(mocks.importChapterFiles).toHaveBeenCalledWith("/p/mybook", ["/tmp/folder/a.md"], {
         finalForMemoryExtraction: true,
       }),
     )
-    await flushAsync()
+    await waitFor(() =>
+      expect(screen.getByTestId("kt-batch-trigger")).toHaveTextContent('{"key":1,"seedChapter":1}'),
+    )
+    expect(mocks.runImportedChapterMemoryExtraction).not.toHaveBeenCalled()
     expect(mocks.invalidateChapterCache).toHaveBeenCalledWith("/p/mybook")
   })
 
   it("章节导入文件夹：无候选时 alert 并关闭菜单", async () => {
-    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     mocks.dialogOpen.mockResolvedValue("/tmp/folder")
     mocks.collectChapterImportCandidatesFromFolder.mockResolvedValue([])
     renderSidebar()
@@ -979,83 +1102,6 @@ describe("SidebarPanel 知识模式（章节）", () => {
     expect(mocks.collectChapterImportCandidatesFromFolder).not.toHaveBeenCalled()
   })
 
-  it("记忆提取：失败计数与取消结果文案", async () => {
-    mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
-    mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: "第一章", chapterNumber: 1 }])
-    mocks.runImportedChapterMemoryExtraction.mockResolvedValue({ cancelled: false, completed: 1, failed: 1, errors: [] })
-    renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "导入" }))
-    fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => screen.getByText("是否提取记忆"))
-    fireEvent.click(screen.getByText("提取记忆"))
-    await waitFor(() =>
-      expect(mocks.importProgressActions.finishTask).toHaveBeenCalledWith(
-        "task-1",
-        "done",
-        expect.objectContaining({ message: "记忆提取完成：成功 1 个，失败 1 个。" }),
-      ),
-    )
-  })
-
-  it("记忆提取：取消结果时以 cancelled 收尾", async () => {
-    mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
-    mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: "第一章", chapterNumber: 1 }])
-    mocks.runImportedChapterMemoryExtraction.mockResolvedValue({ cancelled: true, completed: 0, failed: 0, errors: [] })
-    renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "导入" }))
-    fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => screen.getByText("是否提取记忆"))
-    fireEvent.click(screen.getByText("提取记忆"))
-    await waitFor(() =>
-      expect(mocks.importProgressActions.finishTask).toHaveBeenCalledWith(
-        "task-1",
-        "cancelled",
-        expect.objectContaining({ message: "已取消记忆提取，已完成 0/1 个章节。" }),
-      ),
-    )
-  })
-
-  it("记忆提取进行中点击停止：markCancelling + abort", async () => {
-    let capturedSignal: AbortSignal | undefined
-    let resolveExtraction!: (value: ImportedChapterMemoryResult) => void
-    mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
-    mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: "第一章", chapterNumber: 1 }])
-    mocks.runImportedChapterMemoryExtraction.mockImplementation(
-      ({ signal }) =>
-        new Promise((resolve) => {
-          capturedSignal = signal
-          resolveExtraction = resolve
-        }),
-    )
-    renderSidebar()
-    fireEvent.click(screen.getByRole("button", { name: "导入" }))
-    fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => screen.getByText("是否提取记忆"))
-    fireEvent.click(screen.getByText("提取记忆"))
-    await waitFor(() => expect(mocks.importProgressActions.startTask).toHaveBeenCalled())
-
-    fireEvent.click(screen.getByTestId("raw-cancel"))
-    expect(mocks.importProgressActions.markCancelling).toHaveBeenCalledWith("task-1")
-    expect(capturedSignal?.aborted).toBe(true)
-
-    act(() => {
-      resolveExtraction({ cancelled: true, completed: 0, failed: 0, errors: [] })
-    })
-    await waitFor(() =>
-      expect(mocks.importProgressActions.finishTask).toHaveBeenCalledWith(
-        "task-1",
-        "cancelled",
-        expect.objectContaining({ message: expect.stringContaining("已取消记忆提取") }),
-      ),
-    )
-  })
-
-  it("无任务时点击停止不调用 markCancelling", () => {
-    renderSidebar()
-    fireEvent.click(screen.getByTestId("raw-cancel"))
-    expect(mocks.importProgressActions.markCancelling).not.toHaveBeenCalled()
-  })
-
   it("导入中再次触发被 chapterImporting 守卫拦截", async () => {
     let resolveImport!: (value: ImportedChapter[]) => void
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
@@ -1067,8 +1113,8 @@ describe("SidebarPanel 知识模式（章节）", () => {
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => screen.getByText("是否提取记忆"))
-    fireEvent.click(screen.getByText("提取记忆"))
+    await waitFor(() => screen.getByText("选择章节导入方式"))
+    fireEvent.click(screen.getByText("标记已定稿（暂不提取）"))
     await waitFor(() => expect(screen.getByText("导入中...")).toBeInTheDocument())
 
     fireEvent.click(screen.getByRole("button", { name: "导入中..." }))
@@ -1087,8 +1133,8 @@ describe("SidebarPanel 知识模式（章节）", () => {
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => screen.getByText("是否提取记忆"))
-    fireEvent.click(screen.getByText("提取记忆"))
+    await waitFor(() => screen.getByText("选择章节导入方式"))
+    fireEvent.click(screen.getByText("标记已定稿（暂不提取）"))
     await waitFor(() =>
       expect(mocks.importChapterFiles).toHaveBeenCalledWith("/p/mybook", ["/tmp/single.md"], {
         finalForMemoryExtraction: true,
@@ -1103,20 +1149,19 @@ describe("SidebarPanel 知识模式（章节）", () => {
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
     await flushAsync()
-    expect(screen.queryByText("是否提取记忆")).not.toBeInTheDocument()
+    expect(screen.queryByText("选择章节导入方式")).not.toBeInTheDocument()
     expect(mocks.importChapterFiles).not.toHaveBeenCalled()
   })
 
   it("章节导入文件：非 Error 拒绝时 alert 字符串", async () => {
-    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
     mocks.importChapterFiles.mockRejectedValue("chapter-boom-str")
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => screen.getByText("是否提取记忆"))
-    fireEvent.click(screen.getByText("提取记忆"))
+    await waitFor(() => screen.getByText("选择章节导入方式"))
+    fireEvent.click(screen.getByText("标记已定稿并批量提取"))
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("导入失败：chapter-boom-str"))
     await flushAsync()
   })
@@ -1127,14 +1172,13 @@ describe("SidebarPanel 知识模式（章节）", () => {
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件夹"))
-    await waitFor(() => screen.getByText("是否提取记忆"))
+    await waitFor(() => screen.getByText("选择章节导入方式"))
     fireEvent.click(screen.getByText("取消导入"))
     await flushAsync()
     expect(mocks.importChapterFiles).not.toHaveBeenCalled()
   })
 
   it("章节导入文件夹：失败时 alert 导入失败（Error 对象）", async () => {
-    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue("/tmp/folder")
     mocks.collectChapterImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/folder/a.md", name: "a.md" }])
@@ -1142,14 +1186,13 @@ describe("SidebarPanel 知识模式（章节）", () => {
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件夹"))
-    await waitFor(() => screen.getByText("是否提取记忆"))
-    fireEvent.click(screen.getByText("提取记忆"))
+    await waitFor(() => screen.getByText("选择章节导入方式"))
+    fireEvent.click(screen.getByText("标记已定稿并批量提取"))
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("导入失败：folder-err"))
     await flushAsync()
   })
 
   it("章节导入文件夹：非 Error 拒绝时 alert 导入失败（非 Error）", async () => {
-    // P2: window.alert → toast (应用内消息)，断言通道同步迁移，文案不变
     vi.spyOn(console, "error").mockImplementation(() => {})
     mocks.dialogOpen.mockResolvedValue("/tmp/folder")
     mocks.collectChapterImportCandidatesFromFolder.mockResolvedValue([{ path: "/tmp/folder/a.md", name: "a.md" }])
@@ -1157,8 +1200,8 @@ describe("SidebarPanel 知识模式（章节）", () => {
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件夹"))
-    await waitFor(() => screen.getByText("是否提取记忆"))
-    fireEvent.click(screen.getByText("提取记忆"))
+    await waitFor(() => screen.getByText("选择章节导入方式"))
+    fireEvent.click(screen.getByText("标记已定稿并批量提取"))
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("导入失败：folder-boom-str"))
     await flushAsync()
     expect(console.error).toHaveBeenCalled()
@@ -1178,29 +1221,14 @@ describe("SidebarPanel 知识模式（章节）", () => {
     unmount()
   })
 
-  it("章节导入：无项目时文件与文件夹入口均由守卫返回", async () => {
+  it("章节导入：无项目时文件、文件夹与整本 TXT 入口均由守卫返回", async () => {
     renderSidebar({ project: null })
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
     fireEvent.click(screen.getByText("导入文件"))
     fireEvent.click(screen.getByText("导入文件夹"))
+    fireEvent.click(screen.getByText("整本 TXT 拆章导入"))
     await flushAsync()
     expect(mocks.dialogOpen).not.toHaveBeenCalled()
-  })
-
-  it("章节记忆提取：章节标题缺失时初始标题回退为空", async () => {
-    mocks.dialogOpen.mockResolvedValue(["/tmp/ch1.md"])
-    mocks.importChapterFiles.mockResolvedValue([{ sourcePath: CH1, path: CH1, title: undefined as unknown as string, chapterNumber: 1 }])
-    renderSidebar()
-
-    fireEvent.click(screen.getByRole("button", { name: "导入" }))
-    fireEvent.click(screen.getByText("导入文件"))
-    await waitFor(() => expect(screen.getByText("是否提取记忆")).toBeInTheDocument())
-    fireEvent.click(screen.getByText("提取记忆"))
-    await waitFor(() =>
-      expect(mocks.importProgressActions.startTask).toHaveBeenCalledWith(
-        expect.objectContaining({ currentTitle: "" }),
-      ),
-    )
   })
 
   it("章节导入菜单：非 Escape 按键不关闭", () => {
@@ -1331,7 +1359,7 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     mocks.importOutlineFiles.mockResolvedValue([])
     mocks.importOutlineCandidates.mockResolvedValue([])
     mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([])
-    mocks.runOutlineIngestTask.mockResolvedValue(undefined)
+    mocks.runOutlineIngestTask.mockResolvedValue({ ok: true, cancelled: false } as unknown as void)
     mocks.createOutlineIngestTask.mockImplementation((_p: string, path: string) => `outline-task:${path}`)
     mocks.importProgressActions.startTask.mockReturnValue("task-1")
   })
@@ -1415,16 +1443,23 @@ describe("SidebarPanel 文件模式（大纲）", () => {
       expect(mocks.importProgressActions.finishTask).toHaveBeenCalledWith(
         "task-1",
         "done",
-        expect.objectContaining({ message: "大纲记忆提取完成：成功 2 个大纲。" }),
+        expect.objectContaining({ message: expect.stringContaining("大纲记忆提取完成") }),
       ),
     )
     expect(mocks.createOutlineIngestTask).toHaveBeenCalledTimes(2)
     expect(mocks.runOutlineIngestTask).toHaveBeenCalledTimes(2)
+    expect(mocks.runOutlineIngestTask).toHaveBeenCalledWith(
+      "outline-task:/p/mybook/wiki/outlines/o1.md",
+      expect.objectContaining({ reuseParentTask: true, signal: expect.any(AbortSignal) }),
+    )
+    expect(mocks.state.setSelectedFile).toHaveBeenCalledTimes(1)
     expect(mocks.state.setSelectedFile).toHaveBeenCalledWith("/p/mybook/wiki/outlines/o1.md")
+    expect(mocks.toastSuccess).toHaveBeenCalledWith(expect.stringContaining("大纲记忆提取完成"))
   })
 
-  it("大纲导入文件夹：提取中途取消", async () => {
-    let resolveIngest!: (value: void) => void
+  it("大纲导入文件夹：提取中途取消与失败计数递增，且不劫持已在编辑的章节", async () => {
+    let resolveIngest!: (value: { ok: boolean; cancelled: boolean }) => void
+    mocks.state.selectedFile = "/p/mybook/wiki/chapters/editing-ch1.md"
     mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
     mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([
       { path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] },
@@ -1437,7 +1472,7 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     mocks.runOutlineIngestTask.mockReturnValue(
       new Promise((resolve) => {
         resolveIngest = resolve
-      }),
+      }) as unknown as Promise<void>,
     )
     renderSidebar()
     fireEvent.click(screen.getByRole("button", { name: "导入" }))
@@ -1446,16 +1481,47 @@ describe("SidebarPanel 文件模式（大纲）", () => {
     fireEvent.click(screen.getByText("提取记忆"))
     await waitFor(() => expect(mocks.importProgressActions.startTask).toHaveBeenCalled())
 
-    fireEvent.click(screen.getByTestId("raw-cancel"))
-    expect(mocks.importProgressActions.markCancelling).toHaveBeenCalledWith("task-1")
+    const controller = mocks.importProgressActions.startTask.mock.calls[0][0].abortController as AbortController
+    controller.abort()
     act(() => {
-      resolveIngest(undefined)
+      resolveIngest({ ok: false, cancelled: true })
     })
     await waitFor(() =>
       expect(mocks.importProgressActions.finishTask).toHaveBeenCalledWith(
         "task-1",
         "cancelled",
-        expect.objectContaining({ message: "已取消大纲记忆提取，已完成 1/2 个大纲。" }),
+        expect.objectContaining({ message: expect.stringContaining("大纲记忆提取已取消") }),
+      ),
+    )
+    // 已有正在编辑的章节时，大纲导入与提取完成都不强切编辑区，改为 toast 通知
+    expect(mocks.state.setSelectedFile).not.toHaveBeenCalled()
+    expect(mocks.toastInfo).toHaveBeenCalledWith(expect.stringContaining("大纲记忆提取已取消"))
+  })
+
+  it("大纲导入文件夹：单篇提取失败或抛错时递增 failed 并标记 error 状态", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    mocks.dialogOpen.mockResolvedValue("/tmp/ofolder")
+    mocks.collectOutlineImportCandidatesFromFolder.mockResolvedValue([
+      { path: "/tmp/ofolder/o1.md", name: "o1.md", targetFolders: [] },
+      { path: "/tmp/ofolder/o2.md", name: "o2.md", targetFolders: [] },
+    ])
+    mocks.importOutlineCandidates.mockResolvedValue([
+      "/p/mybook/wiki/outlines/o1.md",
+      "/p/mybook/wiki/outlines/o2.md",
+    ])
+    mocks.runOutlineIngestTask
+      .mockResolvedValueOnce({ ok: false, cancelled: false } as unknown as void)
+      .mockRejectedValueOnce(new Error("ingest exploded"))
+    renderSidebar()
+    fireEvent.click(screen.getByRole("button", { name: "导入" }))
+    fireEvent.click(screen.getByText("文件夹"))
+    await waitFor(() => screen.getByText("是否提取记忆"))
+    fireEvent.click(screen.getByText("提取记忆"))
+    await waitFor(() =>
+      expect(mocks.importProgressActions.finishTask).toHaveBeenCalledWith(
+        "task-1",
+        "error",
+        expect.objectContaining({ completed: 2, total: 2 }),
       ),
     )
   })

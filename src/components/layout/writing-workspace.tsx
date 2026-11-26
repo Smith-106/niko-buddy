@@ -9,7 +9,7 @@ import { PdfExportDialog } from "@/components/export/PdfExportDialog"
 import { BatchReplacePanel } from "@/components/tools/BatchReplacePanel"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
 import { splitChapterHeading } from "@/lib/chapter-selection"
-import { getFileName, getRelativePath } from "@/lib/path-utils"
+import { getFileName, getRelativePath, normalizePath } from "@/lib/path-utils"
 import { clampChatHeight, clampChatWidth } from "@/lib/workspace-layout"
 import { getFileModifiedTime } from "@/commands/fs"
 import { analyzeForeshadowingDebt, acceptDraftAndIngest, createMainControlAcceptSeam, getForeshadowingWatermark, loadForeshadowingTracker } from "@/lib/novel"
@@ -17,9 +17,10 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { shouldShowRightDockChat, shouldShowWritingChat } from "./chat-layout"
 import { Flame } from "lucide-react"
 import { CampaignDashboardDialog } from "@/components/novel/campaign-dashboard-dialog"
-import { buildChapterDraftGoal, setMainControlGoalHandoff } from "@/components/novel/main-control-handoff"
+import { buildChapterDraftGoal, setMainControlGoalHandoff, setMainControlTabHandoff } from "@/components/novel/main-control-handoff"
 import { DraftsToggleButton, GenerateDraftButton, WorkspaceMoreTools, usePendingDraftCount } from "./writing-workspace-widgets"
 import type { ChapterDraftDockAdoptAndIngest } from "./chapter-draft-dock"
+import { ResizeSplitter } from "@/components/ui/resize-splitter"
 
 const ExportCenterView = lazy(async () => {
   const mod = await import("@/components/novel/export-center-view")
@@ -49,8 +50,6 @@ const ChatPanel = lazy(async () => {
 
 export function WritingWorkspace() {
   const containerRef = useRef<HTMLDivElement>(null)
-  const resizingRef = useRef(false)
-  const horizontalResizingRef = useRef(false)
   const { t } = useTranslation()
   const chatExpanded = useWikiStore((s) => s.chatExpanded)
   const chatDockPosition = useWikiStore((s) => s.chatDockPosition)
@@ -95,8 +94,9 @@ export function WritingWorkspace() {
     [fileContent, selectedFile],
   )
   const matchedSave = finalChapterSave
-    && finalChapterSave.filePath === selectedFile
-    && finalChapterSave.projectPath === projectPath
+    && selectedFile !== null
+    && normalizePath(finalChapterSave.filePath) === normalizePath(selectedFile)
+    && normalizePath(finalChapterSave.projectPath) === normalizePath(projectPath)
     ? finalChapterSave
     : null
   // 伏笔逾期注入通道（foreshadowingAlert coreIssues）：读 tracker 真源 →
@@ -142,7 +142,7 @@ export function WritingWorkspace() {
     return () => {
       cancelled = true
     }
-  }, [selectedFile])
+  }, [selectedFile, dataVersion])
   // 草稿状态徽标（批次二·6）：待采纳数随 dataVersion 与采纳动作刷新。
   const [draftReloadKey, setDraftReloadKey] = useState(0)
   // G2-NATIVE-F1：采纳专用刷新令牌。采纳把正式正文写回**当前选中的同一个文件**时
@@ -163,6 +163,10 @@ export function WritingWorkspace() {
     setMainControlGoalHandoff(buildChapterDraftGoal(selectedFile ? chapterTitle : ""))
     setActiveView("mainControl")
   }, [chapterTitle, selectedFile, setActiveView])
+  const openMainControlGateRerun = useCallback(() => {
+    setMainControlTabHandoff("live")
+    setActiveView("mainControl")
+  }, [setActiveView])
   // G2：普通写作台的「采纳即回填」只做装配——accept seam 复用主控同一个装配器
   // （底层仍是 acceptChapterDraft，confirmed 由第二步确认给出），
   // 顺序/降级分类/四态判定全部由组合函数持有，本层不复制业务规则。
@@ -197,6 +201,7 @@ export function WritingWorkspace() {
               draftId: input.draftId,
               // 第二步确认：仍转调原 acceptChapterDraft；迁移由 runAdoption 中止，不重定向参数。
               confirmed: true,
+              expectedDraftContent: input.expectedDraftContent,
             })(formalChapterPath))
             // 此刻是 writing 态：这里只登记释放意图，真实 accept/read 落定前不能解锁。
             adoptionCoordinator.releaseAdoption(lease)
@@ -218,9 +223,10 @@ export function WritingWorkspace() {
       }),
     [novelConfig, llmConfig, adoptionCoordinator],
   )
+  const isFinalChapterLoaded = chapterHeader?.status === "final"
   const saveLabel = matchedSave?.saving
     ? t("novel.chapter.savingAsFinal")
-    : matchedSave?.phase === "saved" || matchedSave?.phase === "ingested"
+    : (matchedSave?.phase === "saved" || matchedSave?.phase === "ingested") && isFinalChapterLoaded
       ? t("novel.chapter.savedAsFinal")
       : chapterHeader?.statusLabel
   // PDF 确认门与批量替换共用同一相对化契约：导出前按该相对路径读回章节磁盘内容断言 final（门禁 1）。
@@ -249,58 +255,16 @@ export function WritingWorkspace() {
     localStorage.setItem("lk-chat-right-width", String(chatWidth))
   }, [chatWidth])
 
-  const startResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    resizingRef.current = true
-    document.body.style.cursor = "row-resize"
-    document.body.style.userSelect = "none"
-    document.body.dataset.panelResizing = "true"
-
-    const handleMouseMove = (nextEvent: MouseEvent) => {
-      if (!resizingRef.current || !containerRef.current) return
-      const rect = containerRef.current.getBoundingClientRect()
-      const nextHeight = rect.bottom - nextEvent.clientY
-      setChatHeight(clampChatHeight(nextHeight))
-    }
-
-    const handleMouseUp = () => {
-      resizingRef.current = false
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      delete document.body.dataset.panelResizing
-      document.removeEventListener("mousemove", handleMouseMove)
-      document.removeEventListener("mouseup", handleMouseUp)
-    }
-
-    document.addEventListener("mousemove", handleMouseMove)
-    document.addEventListener("mouseup", handleMouseUp)
+  const resolveBottomChatHeight = useCallback(({ clientY }: { clientY: number }) => {
+    if (!containerRef.current) return null
+    const rect = containerRef.current.getBoundingClientRect()
+    return clampChatHeight(rect.bottom - clientY)
   }, [])
 
-  const startHorizontalResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    horizontalResizingRef.current = true
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    document.body.dataset.panelResizing = "true"
-
-    const handleMouseMove = (nextEvent: MouseEvent) => {
-      if (!horizontalResizingRef.current || !containerRef.current) return
-      const rect = containerRef.current.getBoundingClientRect()
-      const nextWidth = rect.right - nextEvent.clientX
-      setChatWidth(clampChatWidth(nextWidth))
-    }
-
-    const handleMouseUp = () => {
-      horizontalResizingRef.current = false
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      delete document.body.dataset.panelResizing
-      document.removeEventListener("mousemove", handleMouseMove)
-      document.removeEventListener("mouseup", handleMouseUp)
-    }
-
-    document.addEventListener("mousemove", handleMouseMove)
-    document.addEventListener("mouseup", handleMouseUp)
+  const resolveRightChatWidth = useCallback(({ clientX }: { clientX: number }) => {
+    if (!containerRef.current) return null
+    const rect = containerRef.current.getBoundingClientRect()
+    return clampChatWidth(rect.right - clientX)
   }, [])
 
   const toolsBar = projectPath ? (
@@ -329,7 +293,7 @@ export function WritingWorkspace() {
           className="rounded border px-2 py-1 text-xs hover:bg-accent/50"
           onClick={() => setDeskTab((current) => (current === "outline" ? null : "outline"))}
         >
-          大纲
+          {t("workspace.tools.outline", { defaultValue: "大纲" })}
         </button>
         <button
           type="button"
@@ -338,7 +302,7 @@ export function WritingWorkspace() {
           className="rounded border px-2 py-1 text-xs hover:bg-accent/50"
           onClick={() => setDeskTab((current) => (current === "search" ? null : "search"))}
         >
-          搜索
+          {t("workspace.tools.search", { defaultValue: "搜索" })}
         </button>
         <button
           type="button"
@@ -347,7 +311,7 @@ export function WritingWorkspace() {
           className="rounded border px-2 py-1 text-xs hover:bg-accent/50"
           onClick={() => setDeskTab((current) => (current === "foreshadow" ? null : "foreshadow"))}
         >
-          本章伏笔
+          {t("workspace.tools.foreshadow", { defaultValue: "本章伏笔" })}
         </button>
         <WorkspaceMoreTools active={toolsPanel !== null}>
         <button
@@ -375,7 +339,7 @@ export function WritingWorkspace() {
           className="rounded border px-2 py-1 text-xs hover:bg-accent/50"
           onClick={() => setToolsPanel((current) => (current === "manuscript" ? null : "manuscript"))}
         >
-          导出书稿
+          {t("workspace.tools.exportManuscript", { defaultValue: "导出书稿" })}
         </button>
         <button
           type="button"
@@ -384,7 +348,7 @@ export function WritingWorkspace() {
           onClick={() => setCampaignOpen(true)}
         >
           <Flame className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
-          <span>长程战役调度</span>
+          <span>{t("workspace.tools.campaign", { defaultValue: "长程战役调度" })}</span>
         </button>
         </WorkspaceMoreTools></>}
         <span className="truncate text-xs text-muted-foreground" data-testid="workspace-tools-target">
@@ -477,6 +441,7 @@ export function WritingWorkspace() {
             }}
             onGenerateDraft={openMainControlForDraft}
             onOpenMemory={() => setActiveView("lint")}
+            onOpenGateRerun={openMainControlGateRerun}
             adoptAndIngest={adoptDraftAndIngest}
           />
         ) : null}
@@ -509,43 +474,6 @@ export function WritingWorkspace() {
   const showBottomChat = focusMode ? focusAiOpen : shouldShowWritingChat(chatExpanded, chatDockPosition)
   const showRightChat = !focusMode && shouldShowRightDockChat(chatExpanded, chatDockPosition)
 
-  if (showRightChat) {
-    return (
-      <div ref={containerRef} className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-        <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="min-w-0 flex-1 overflow-hidden">
-            <PreviewPanel
-              adoptionRefreshToken={chapterAdoptionRefresh.token}
-              adoptionRefreshPath={chapterAdoptionRefresh.path}
-              writeGateRef={previewWriteGateRef}
-            />
-          </div>
-          {chapterDock}
-          <div
-            className="w-1.5 shrink-0 cursor-col-resize bg-border/40 transition-colors hover:bg-primary/30 active:bg-primary/40"
-            onMouseDown={startHorizontalResize}
-          />
-          <div className="h-full min-h-0 shrink-0 overflow-hidden border-l bg-background" style={{ width: chatWidth }}>
-            <Suspense
-              fallback={
-                <div
-                  className="flex h-full items-center justify-center text-sm text-muted-foreground"
-                  data-testid="chat-panel-loading"
-                >
-                  加载中...
-                </div>
-              }
-            >
-              <ChatPanel />
-            </Suspense>
-          </div>
-        </div>
-        {toolsBar}
-        <CampaignDashboardDialog open={campaignOpen} onOpenChange={setCampaignOpen} />
-      </div>
-    )
-  }
-
   return (
     <div ref={containerRef} className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -559,14 +487,48 @@ export function WritingWorkspace() {
           </div>
         </div>
         {chapterDock}
+        {showRightChat && (
+          <>
+            <ResizeSplitter
+              orientation="vertical"
+              value={chatWidth}
+              min={280}
+              max={520}
+              invertDrag
+              ariaLabel={t("workspace.resizeRightChat", { defaultValue: "调整右侧对话栏宽度" })}
+              resolveDragValue={resolveRightChatWidth}
+              onChange={setChatWidth}
+            />
+            <div className="h-full min-h-0 shrink-0 overflow-hidden border-l bg-background" style={{ width: chatWidth }}>
+              <Suspense
+                fallback={
+                  <div
+                    className="flex h-full items-center justify-center text-sm text-muted-foreground"
+                    data-testid="chat-panel-loading"
+                  >
+                    {t("common.loading", { defaultValue: "加载中..." })}
+                  </div>
+                }
+              >
+                <ChatPanel />
+              </Suspense>
+            </div>
+          </>
+        )}
       </div>
       {toolsBar}
       {focusStrip}
       {showBottomChat && (
         <>
-          <div
-            className="h-1.5 shrink-0 cursor-row-resize bg-border/40 transition-colors hover:bg-primary/30 active:bg-primary/40"
-            onMouseDown={startResize}
+          <ResizeSplitter
+            orientation="horizontal"
+            value={chatHeight}
+            min={180}
+            max={520}
+            invertDrag
+            ariaLabel={t("workspace.resizeBottomChat", { defaultValue: "调整底部对话区高度" })}
+            resolveDragValue={resolveBottomChatHeight}
+            onChange={setChatHeight}
           />
           <div className="shrink-0 overflow-hidden border-t bg-background" style={{ height: chatHeight }}>
             <Suspense
@@ -575,7 +537,7 @@ export function WritingWorkspace() {
                   className="flex h-full items-center justify-center text-sm text-muted-foreground"
                   data-testid="chat-panel-loading"
                 >
-                  加载中...
+                  {t("common.loading", { defaultValue: "加载中..." })}
                 </div>
               }
             >

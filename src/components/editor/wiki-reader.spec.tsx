@@ -118,8 +118,8 @@ describe("WikiReader", () => {
     expect(screen.getByText("列A", { selector: "th" })).toBeInTheDocument()
     expect(screen.getByText("const x = 1", { selector: "code" })).toBeInTheDocument()
     // mermaid 块：react-markdown v10 将 code renderer 元素作为 pre children，
-    // unwrapMermaidPre 恒为 null → MermaidDiagram 真实渲染在 pre 内（jsdom 占位符）
-    expect(screen.getByText("Diagram")).toBeInTheDocument()
+    // unwrapMermaidPre 恒为 null → MermaidDiagram 真实渲染在 pre 内（jsdom 占位符，已 i18n 化）
+    expect(screen.getByText("图表")).toBeInTheDocument()
     expect(document.querySelectorAll("pre")).toHaveLength(2)
   })
 

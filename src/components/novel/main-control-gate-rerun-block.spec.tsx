@@ -33,6 +33,8 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 const wikiState = vi.hoisted(() => ({
   novelConfig: { chapterTargetChars: 3000, genre: "玄幻" },
   llmConfig: { provider: "openai", model: "gpt-test", apiKey: "k", baseUrl: "" },
+  dataVersion: 1,
+  bumpDataVersion: vi.fn(),
 }))
 
 vi.mock("@/stores/wiki-store", async (importOriginal) => {
@@ -43,6 +45,12 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
     },
     get llmConfig() {
       return wikiState.llmConfig
+    },
+    get dataVersion() {
+      return wikiState.dataVersion
+    },
+    get bumpDataVersion() {
+      return wikiState.bumpDataVersion
     },
   }
   const useWikiStore = <T,>(selector: (s: typeof state) => T) => selector(state)
@@ -140,6 +148,8 @@ afterEach(() => {
   rerunMainControlGates.mockReset()
   readFile.mockReset()
   readFile.mockResolvedValue(null)
+  wikiState.dataVersion = 1
+  wikiState.bumpDataVersion.mockReset()
 })
 
 describe("MainControlGateRerunBlock（F17：saved 草稿不可重跑）", () => {
@@ -454,5 +464,73 @@ describe("MainControlGateRerunBlock 重跑结果降级提示与默认 deps", () 
     expect(readFile).toHaveBeenCalledWith(expect.stringContaining(".novel/run-events.jsonl"))
     expect(history.textContent).toContain("2026-10-18 00:10:00Z")
     expect(screen.getByTestId("main-control-gate-history-row-quality").textContent).toContain("未通过")
+  })
+
+  it("U-5：重跑门控未全部通过时给出修改并重跑提示，不再自指「主控 → AI 实况」", async () => {
+    listChapterDrafts.mockResolvedValue([PENDING_DRAFT])
+    rerunMainControlGates.mockResolvedValue({
+      ...okResult(PENDING_DRAFT.id),
+      overall: "manual_review",
+      adoptionGate: "manual_review",
+    })
+    render(<MainControlGateRerunBlock projectPath="/proj" ledger={null} />)
+
+    await waitFor(() => expect(screen.getByTestId("main-control-gate-rerun-draft_1_abc")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("main-control-gate-rerun-draft_1_abc"))
+
+    const note = await waitFor(() => screen.getByTestId("main-control-gate-rerun-note"))
+    expect(note.textContent).toContain("门控尚未全部通过")
+    expect(note.textContent).not.toContain("主控 → AI 实况")
+    expect(note.textContent).not.toContain("mainControl.draftGateRerunBlocked")
+  })
+
+  it("R2-U03：默认隐藏 status=failed 草稿；dataVersion 变更自动重拉列表；失败门自动展开错因与修复建议", async () => {
+    const failedDraft = { ...PENDING_DRAFT, id: "draft_discarded", status: "failed" as const }
+    listChapterDrafts.mockResolvedValueOnce([PENDING_DRAFT, failedDraft]).mockResolvedValueOnce([PENDING_DRAFT])
+    rerunMainControlGates.mockResolvedValue({
+      ...okResult(PENDING_DRAFT.id),
+      overall: "fail",
+      adoptionGate: "blocked",
+      rows: [
+        {
+          key: "consistency",
+          status: "fail",
+          verdict: "fail",
+          findings: 1,
+          findingDetails: [
+            {
+              severity: "error",
+              type: "timeline_consistency",
+              message: "时间线倒退",
+              evidence: "昨日竟在明日之后",
+              suggestion: "统一调整日期",
+            },
+          ],
+          repairSuggestions: ["统一调整日期"],
+        },
+        { key: "anti_ai", status: "pass", verdict: "pass", findings: 0 },
+        { key: "quality", status: "pass", verdict: "pass", findings: 0 },
+      ],
+    })
+
+    const { rerender } = render(<MainControlGateRerunBlock projectPath="/proj" ledger={null} />)
+    await waitFor(() => expect(screen.getByTestId("main-control-gate-rerun-draft_1_abc")).toBeTruthy())
+    expect(screen.queryByTestId("main-control-gate-rerun-row-draft_discarded")).toBeNull()
+
+    // dataVersion 变更触发重新加载草稿列表
+    wikiState.dataVersion = 2
+    rerender(<MainControlGateRerunBlock projectPath="/proj" ledger={null} />)
+    await waitFor(() => expect(listChapterDrafts).toHaveBeenCalledTimes(2))
+
+    fireEvent.click(screen.getByTestId("main-control-gate-rerun-draft_1_abc"))
+    const details = await waitFor(() => screen.getByTestId("main-control-gate-row-details-consistency"))
+    expect(details.textContent).toContain("时间线倒退")
+    expect(details.textContent).toContain("昨日竟在明日之后")
+    expect(details.textContent).toContain("统一调整日期")
+    expect(wikiState.bumpDataVersion).toHaveBeenCalledTimes(1)
+
+    // 可手动收起与重新展开明细
+    fireEvent.click(screen.getByTestId("main-control-gate-row-toggle-consistency"))
+    expect(screen.queryByTestId("main-control-gate-row-details-consistency")).toBeNull()
   })
 })

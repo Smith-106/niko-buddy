@@ -57,9 +57,9 @@ describe("FileEditPreview", () => {
       onApply: vi.fn(async () => [{ filePath: "src/a.ts", success: true }]),
     })
     fireEvent.click(rowButtons(container, 0)[1])
-    await waitFor(() => expect(onApply).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText("已处理 1 条修改")).toBeTruthy()
+    expect(onApply).toHaveBeenCalledTimes(1)
     expect(onApply).toHaveBeenCalledWith([editA])
-    expect(screen.getByText("已处理 1 条修改")).toBeTruthy()
   })
 
   it("单条应用返回失败结果 → 已处理视图显示错误信息", async () => {
@@ -112,9 +112,9 @@ describe("FileEditPreview", () => {
       ]),
     })
     fireEvent.click(screen.getByText("全部应用 (2)"))
-    await waitFor(() => expect(onApply).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText("已处理 2 条修改")).toBeTruthy()
+    expect(onApply).toHaveBeenCalledTimes(1)
     expect(onApply).toHaveBeenCalledWith([editA, editB])
-    expect(screen.getByText("已处理 2 条修改")).toBeTruthy()
   })
 
   it("全部应用时已忽略/已应用条目被排除", async () => {

@@ -42,32 +42,32 @@ describe("WorkflowEditorView", () => {
     expect(readFileMock).not.toHaveBeenCalled()
   })
 
-  it("空账本 → 模板照常渲染 + 账本诚实空态", async () => {
+  it("空记录 → 模板照常渲染 + 运行记录诚实空态", async () => {
     readFileMock.mockRejectedValue(new Error("missing"))
     render(<WorkflowEditorView projectPath="C:/proj" />)
     await waitFor(() => expect(screen.getByTestId("workflow-ledger-empty")).toBeTruthy())
     expect(screen.getByTestId("workflow-templates")).toBeTruthy()
-    expect(screen.getByTestId("workflow-ledger-empty").textContent).toContain("暂无运行事件")
+    expect(screen.getByTestId("workflow-ledger-empty").textContent).toContain("暂无运行记录")
     // 模板注册表来自纯函数真源：断言至少有一项登记（不断言具体条目数，避免与真源漂移耦合）。
     expect(document.querySelectorAll('[data-testid^="workflow-template-"]').length).toBeGreaterThan(0)
     expect(screen.queryByTestId("workflow-ledger-error")).toBeNull()
   })
 
-  it("合法事件行 → 最近事件渲染", async () => {
+  it("合法事件行 → 最近记录渲染", async () => {
     readFileMock.mockResolvedValue(VALID_EVENT_LINE)
     render(<WorkflowEditorView projectPath="C:/proj" />)
     await waitFor(() => expect(screen.getByTestId("workflow-ledger-count")).toBeTruthy())
-    expect(screen.getByTestId("workflow-ledger-count").textContent).toContain("共 1 条事件")
+    expect(screen.getByTestId("workflow-ledger-count").textContent).toContain("共 1 条记录")
     const row = screen.getByTestId("workflow-event-0")
     expect(row.textContent).toContain("generate")
     expect(row.textContent).toContain("writer")
   })
 
-  it("损坏行 → 账本区失败文案，模板区不受影响", async () => {
+  it("损坏行 → 运行记录失败文案，模板区不受影响", async () => {
     readFileMock.mockResolvedValue("not-json\n")
     render(<WorkflowEditorView projectPath="C:/proj" />)
     await waitFor(() => expect(screen.getByTestId("workflow-ledger-error")).toBeTruthy())
-    expect(screen.getByTestId("workflow-ledger-error").textContent).toContain("账本读取失败")
+    expect(screen.getByTestId("workflow-ledger-error").textContent).toContain("运行记录读取失败")
     expect(screen.getByTestId("workflow-templates")).toBeTruthy()
     expect(document.querySelectorAll('[data-testid^="workflow-template-"]').length).toBeGreaterThan(0)
   })

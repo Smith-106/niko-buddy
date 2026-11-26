@@ -19,7 +19,8 @@ import {
 } from "@/components/ui/dialog"
 import i18n from "@/i18n"
 import { useWikiStore } from "@/stores/wiki-store"
-import type { ReviewItem } from "@/stores/review-store"
+import type { NovelReviewEntry, ReviewItem } from "@/stores/review-store"
+import type { NovelReviewResult } from "@/lib/novel"
 import type {
   ReviewRewriteEdit,
 } from "@/lib/review-rewrite-plan"
@@ -144,6 +145,199 @@ export function ReviewCard({
           {item.resolvedAction}
         </div>
       )}
+    </div>
+  )
+}
+
+const CONSISTENCY_GATE_TYPES = new Set([
+  "timeline_consistency",
+  "character_consistency",
+  "setting_consistency",
+  "foreshadowing_integrity",
+  "plot_continuity",
+  "causal_chain",
+  "knowledge_boundary",
+  "memory_consistency",
+  "location_consistency",
+  "ability_consistency",
+  "subplot_resolution",
+  "arc_structural",
+  "canon_alignment",
+  "secret_guarding",
+  "emotional_arc_consistency",
+  "consistency",
+  "continuity",
+  "contradiction",
+  "canon_violation",
+  "fact_conflict",
+  "state_delta_light_check",
+])
+
+const ANTI_AI_GATE_TYPES = new Set([
+  "slop_explanation",
+  "slop_summary",
+  "slop_mechanical",
+  "slop_emotion_abstract",
+  "statistical_ai_signature",
+  "de_ai_residual",
+  "behavioral_repetition",
+  "formulaic_transition",
+  "generic_description",
+  "translationese",
+  "anti_ai",
+  "ai_style",
+  "ai_tone",
+])
+
+const QUALITY_GATE_TYPES = new Set([
+  "thrill_density",
+  "reading_power",
+  "pacing_tension",
+  "dialogue_quality",
+  "description_vividness",
+  "emotional_impact",
+  "structural_balance",
+  "narrative_innovation",
+  "consistency_of_voice",
+  "scene_craft",
+  "tension_curve",
+  "worldbuilding_immersion",
+  "quality",
+])
+
+type ReviewPriorityTier = "P0" | "P1" | "P2"
+
+function classifyNovelReviewTier(type: string): ReviewPriorityTier {
+  const normalized = type.trim().toLowerCase()
+  if (QUALITY_GATE_TYPES.has(normalized)) return "P2"
+  if (CONSISTENCY_GATE_TYPES.has(normalized)) return "P0"
+  if (ANTI_AI_GATE_TYPES.has(normalized)) return "P1"
+  if (
+    normalized.includes("consistency") ||
+    normalized.includes("continuity") ||
+    normalized.includes("canon") ||
+    normalized.includes("timeline") ||
+    normalized.includes("foreshadow") ||
+    normalized.includes("contradiction")
+  ) {
+    return "P0"
+  }
+  if (
+    normalized.includes("anti_ai") ||
+    normalized.includes("de_ai") ||
+    normalized.includes("slop")
+  ) {
+    return "P1"
+  }
+  return "P2"
+}
+
+const TIER_RANK: Record<ReviewPriorityTier, number> = { P0: 0, P1: 1, P2: 2 }
+const SEVERITY_RANK: Record<string, number> = { error: 0, warning: 1, info: 2 }
+
+/**
+ * 展示保存前审稿（pre-save review）挂入 reviewStore 的章节审稿条目，
+ * 严格按门控优先级 Consistency(P0) > Anti-AI(P1) > Quality(P2) 排序，
+ * 并提供「打开本章」与「标记已处理」（消除侧边栏幽灵红点）。
+ */
+export function NovelReviewEntryCard({
+  entry,
+  onOpenChapter,
+  onDismiss,
+}: {
+  entry: NovelReviewEntry
+  onOpenChapter: (chapterNumber: number) => void
+  onDismiss: (id: string) => void
+}) {
+  const { t } = useTranslation()
+  const sortedResults = [...entry.results].sort((a: NovelReviewResult, b: NovelReviewResult) => {
+    const tierDiff =
+      TIER_RANK[classifyNovelReviewTier(a.type)] - TIER_RANK[classifyNovelReviewTier(b.type)]
+    if (tierDiff !== 0) return tierDiff
+    return (SEVERITY_RANK[a.severity] ?? 3) - (SEVERITY_RANK[b.severity] ?? 3)
+  })
+
+  return (
+    <div
+      data-testid={`novel-review-entry-${entry.id}`}
+      className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm"
+    >
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+          <span className="font-medium">
+            {t("novel.review.chapterReviewTitle", { chapter: entry.chapterNumber })}
+          </span>
+          {entry.createdAt ? (
+            <span className="text-xs text-muted-foreground">
+              {entry.createdAt.slice(0, 16).replace("T", " ")}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            data-testid={`novel-review-entry-open-${entry.id}`}
+            onClick={() => onOpenChapter(entry.chapterNumber)}
+          >
+            {t("novel.review.openChapter")}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            data-testid={`novel-review-entry-dismiss-${entry.id}`}
+            onClick={() => onDismiss(entry.id)}
+          >
+            {t("novel.review.markResolved")}
+          </Button>
+        </div>
+      </div>
+
+      <ul className="space-y-1.5" data-testid={`novel-review-entry-findings-${entry.id}`}>
+        {sortedResults.map((finding, index) => {
+          const tier = classifyNovelReviewTier(finding.type)
+          const tierLabelKey =
+            tier === "P0"
+              ? "novel.review.priorityP0"
+              : tier === "P1"
+                ? "novel.review.priorityP1"
+                : "novel.review.priorityP2"
+          const tierBadgeClass =
+            tier === "P0"
+              ? "border-destructive/40 bg-destructive/15 text-destructive"
+              : tier === "P1"
+                ? "border-warning/40 bg-warning/15 text-warning-foreground"
+                : "border-border bg-muted text-muted-foreground"
+          const dimKey = `review.results.dimension.${finding.type}`
+          const dimLabel = i18n.exists(dimKey) ? i18n.t(dimKey) : finding.type
+          return (
+            <li
+              key={`${entry.id}-${finding.type}-${index}`}
+              data-testid={`novel-review-entry-finding-${entry.id}-${index}`}
+              data-tier={tier}
+              className="rounded border border-border/60 bg-background/80 p-2 text-xs"
+            >
+              <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                <span className={`rounded border px-1.5 py-0.5 text-[11px] font-medium ${tierBadgeClass}`}>
+                  {t(tierLabelKey)}
+                </span>
+                <span className="font-medium text-foreground">{dimLabel}</span>
+                <span className="text-muted-foreground">{finding.severity}</span>
+              </div>
+              <p className="text-foreground">{finding.message}</p>
+              {finding.evidence ? (
+                <p className="mt-1 italic text-muted-foreground">「{finding.evidence}」</p>
+              ) : null}
+              {finding.suggestion ? (
+                <p className="mt-1 text-success-foreground">{finding.suggestion}</p>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }

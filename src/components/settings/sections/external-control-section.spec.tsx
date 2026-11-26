@@ -320,10 +320,7 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
     expect(screen.getByTestId("external-control-scope-read")).toHaveAttribute("aria-pressed", "true")
   })
 
-  it("启动失败：仍尝试启动并重读真实状态（开关不卡在用户意图上）", async () => {
-    // 注意：toggle 的 catch 先 setError，随后 refresh 成功会 setError(null) 清掉，
-    // 因此启动失败 + 状态正常时错误是瞬态的、最终不可见——这里不断言错误文案，
-    // 只断言启动被尝试过、状态被重读（开关回到真实关态）。
+  it("启动失败：保留启动报错并重读真实状态（开关不卡在用户意图上）", async () => {
     let statusCalls = 0
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "mcp_server_status") {
@@ -344,9 +341,9 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
     await waitFor(() => {
       expect(statusCalls).toBeGreaterThanOrEqual(2)
     })
-    // 开关回到真实关态（aria 未选中），错误瞬态不残留。
+    // 开关回到真实关态（aria 未选中），且 refresh({ preserveError: true }) 保留本次报错。
     expect(screen.getByTestId("external-control-toggle")).toHaveAttribute("aria-checked", "false")
-    expect(screen.queryByTestId("external-control-error")).toBeNull()
+    expect(screen.getByTestId("external-control-error")).toHaveTextContent("port busy")
   })
 
   it("启动失败且状态重读也失败：显示重读错误", async () => {
@@ -470,6 +467,8 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
     })
     // busy 已解：按钮恢复可用。
     expect((screen.getByTestId("external-control-rotate") as HTMLButtonElement).disabled).toBe(false)
+    const statusReads = invokeMock.mock.calls.filter(([cmd]) => cmd === "mcp_server_status")
+    expect(statusReads.length).toBeGreaterThanOrEqual(2)
   })
 
   it("复制连接地址成功：已复制提示 1.5s 后回到复制", async () => {
@@ -588,5 +587,118 @@ describe("ExternalControlSection 错误与边界路径（覆盖战役补齐）",
         sessionId: "77778888-9999-aaaa-bbbb-ccccddddeeee",
       })
     })
+  })
+
+  it("U4-08：运行中切换权限域失败但重读状态成功时，保留重启报错并还原真实 scope", async () => {
+    let statusCalls = 0
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_server_status") {
+        statusCalls += 1
+        return Promise.resolve(RUNNING_STATUS)
+      }
+      if (cmd === "mcp_server_start") return Promise.reject(new Error("restart failed"))
+      return Promise.resolve(undefined)
+    })
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-scope-project")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("external-control-scope-project"))
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("mcp_server_start", { scope: "project" })
+    })
+    await waitFor(() => {
+      expect(statusCalls).toBeGreaterThanOrEqual(2)
+    })
+    expect(screen.getByTestId("external-control-error")).toHaveTextContent("restart failed")
+    expect(screen.getByTestId("external-control-scope-read")).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("U4-08：初始 status 挂起期间卸载组件，迟到 resolve/reject 不报错", async () => {
+    let resolveStatus!: (value: typeof RUNNING_STATUS) => void
+    let rejectStatus!: (error: Error) => void
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    invokeMock.mockReturnValueOnce(new Promise<typeof RUNNING_STATUS>((res) => { resolveStatus = res }))
+    const first = render(<ExternalControlSection />)
+    first.unmount()
+    resolveStatus(RUNNING_STATUS)
+    await new Promise((r) => setTimeout(r, 20))
+
+    invokeMock.mockReturnValueOnce(new Promise<typeof RUNNING_STATUS>((_res, rej) => { rejectStatus = rej }))
+    const second = render(<ExternalControlSection />)
+    second.unmount()
+    rejectStatus(new Error("late failure"))
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(errSpy).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+
+  it("U4-08：复制后连续点击重置计时器，且卸载时清理未触发的 copied timer", async () => {
+    const clearSpy = vi.spyOn(globalThis, "clearTimeout")
+    const writeText = stubClipboard()
+    invokeMock.mockResolvedValue(RUNNING_STATUS)
+    const view = render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-copy")).not.toBeDisabled()
+    })
+    fireEvent.click(screen.getByTestId("external-control-copy"))
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId("external-control-copy")).toHaveTextContent("已复制")
+    })
+    const clearCallsAfterFirst = clearSpy.mock.calls.length
+    // 再次点击应清理前一次 timer
+    fireEvent.click(screen.getByTestId("external-control-copy"))
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledTimes(2)
+      expect(clearSpy.mock.calls.length).toBeGreaterThan(clearCallsAfterFirst)
+    })
+    const clearCallsBeforeUnmount = clearSpy.mock.calls.length
+    view.unmount()
+    expect(clearSpy.mock.calls.length).toBeGreaterThan(clearCallsBeforeUnmount)
+    clearSpy.mockRestore()
+  })
+
+  it("U-3v2：工具数展示「可用工具」且描述准确反映权限域与会话授权（不含过时只读措辞）", async () => {
+    invokeMock.mockResolvedValue(RUNNING_STATUS)
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-endpoint")).toHaveTextContent("45871")
+    })
+    const toolCount = screen.getByTestId("external-control-tool-count")
+    expect(toolCount).toHaveTextContent("5 个可用工具")
+    expect(toolCount.textContent).toContain("可用工具")
+    expect(toolCount.textContent).not.toContain("只读工具")
+
+    const description = screen.getByRole("heading", { level: 2 }).nextElementSibling
+    expect(description).not.toBeNull()
+    expect(description?.textContent).toContain("默认只读，可按下方权限域与会话授权放开写操作")
+    expect(description?.textContent).not.toContain("当前阶段为只读")
+  })
+
+  it("U-3v2：toggle 失败时保留带 role=\"alert\" 的错误横幅不被 refresh() 清空", async () => {
+    let statusCalls = 0
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_server_status") {
+        statusCalls += 1
+        return Promise.resolve(STOPPED)
+      }
+      if (cmd === "mcp_server_start") return Promise.reject(new Error("bind failed"))
+      return Promise.resolve(undefined)
+    })
+    render(<ExternalControlSection />)
+    await waitFor(() => {
+      expect(screen.getByTestId("external-control-toggle")).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId("external-control-toggle"))
+    await waitFor(() => {
+      expect(statusCalls).toBeGreaterThanOrEqual(2)
+      expect(screen.getByTestId("external-control-toggle")).not.toBeDisabled()
+    })
+    const alert = screen.getByRole("alert")
+    expect(alert).toBe(screen.getByTestId("external-control-error"))
+    expect(alert).toHaveTextContent("bind failed")
+    expect(screen.getByTestId("external-control-toggle")).toHaveAttribute("aria-checked", "false")
   })
 })

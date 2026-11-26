@@ -7,6 +7,263 @@ interface MermaidDiagramProps {
   code: string
 }
 
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg"
+const XLINK_NAMESPACE = "http://www.w3.org/1999/xlink"
+
+const ALLOWED_SVG_TAGS = new Set([
+  "svg",
+  "g",
+  "path",
+  "rect",
+  "circle",
+  "ellipse",
+  "line",
+  "polyline",
+  "polygon",
+  "text",
+  "tspan",
+  "defs",
+  "marker",
+  "clippath",
+  "mask",
+  "pattern",
+  "lineargradient",
+  "radialgradient",
+  "stop",
+  "title",
+  "desc",
+  "symbol",
+  "use",
+  "style",
+])
+
+const ALLOWED_SVG_ATTRS = new Set([
+  "id",
+  "class",
+  "viewbox",
+  "width",
+  "height",
+  "x",
+  "y",
+  "x1",
+  "y1",
+  "x2",
+  "y2",
+  "cx",
+  "cy",
+  "r",
+  "rx",
+  "ry",
+  "d",
+  "points",
+  "transform",
+  "fill",
+  "fill-opacity",
+  "fill-rule",
+  "stroke",
+  "stroke-width",
+  "stroke-opacity",
+  "stroke-dasharray",
+  "stroke-dashoffset",
+  "stroke-linecap",
+  "stroke-linejoin",
+  "stroke-miterlimit",
+  "opacity",
+  "style",
+  "font-family",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "text-anchor",
+  "dominant-baseline",
+  "alignment-baseline",
+  "dy",
+  "dx",
+  "marker-start",
+  "marker-mid",
+  "marker-end",
+  "clip-path",
+  "mask",
+  "refx",
+  "refy",
+  "markerwidth",
+  "markerheight",
+  "markerunits",
+  "orient",
+  "preserveaspectratio",
+  "offset",
+  "stop-color",
+  "stop-opacity",
+  "gradientunits",
+  "gradienttransform",
+  "spreadmethod",
+  "role",
+  "aria-label",
+  "aria-roledescription",
+  "aria-labelledby",
+  "aria-describedby",
+  "aria-hidden",
+  "focusable",
+  "data-id",
+  "data-node",
+  "data-edge",
+])
+
+const FRAGMENT_HREF_RE = /^#[a-zA-Z0-9_.:-]+$/
+const CSS_DANGEROUS_RE =
+  /(?:<|\\|\/\*|\*\/|@import|@charset|image-set\s*\(|javascript\s*:|vbscript\s*:|expression\s*\(|behavior\s*:|-moz-binding)/i
+const CSS_URL_OPEN_RE = /url\s*\(/gi
+const CSS_URL_RE = /url\s*\(\s*([^)]*?)\s*\)/gi
+const SAFE_URL_FRAGMENT_RE = /^['"]?#[a-zA-Z0-9_.:-]+['"]?$/
+
+function hasSafeCssUrls(value: string): boolean {
+  if (CSS_DANGEROUS_RE.test(value)) return false
+  const openCount = (value.match(CSS_URL_OPEN_RE) ?? []).length
+  CSS_URL_RE.lastIndex = 0
+  let matchedCount = 0
+  let match: RegExpExecArray | null
+  while ((match = CSS_URL_RE.exec(value)) !== null) {
+    matchedCount += 1
+    const target = (match[1] ?? "").trim()
+    if (!SAFE_URL_FRAGMENT_RE.test(target)) {
+      return false
+    }
+  }
+  return matchedCount === openCount
+}
+
+function sanitizeStyleElement(parent: Element, el: Element): void {
+  const childNodes = Array.from(el.childNodes)
+  const textParts: string[] = []
+  for (const child of childNodes) {
+    // 拒绝含任意子元素的 <style>（防 <style><img onerror> / <style><script> mXSS）
+    if (child.nodeType === 1) {
+      parent.removeChild(el)
+      return
+    }
+    if (child.nodeType === 3) {
+      textParts.push(child.nodeValue ?? "")
+    } else {
+      // 移除 CDATA / PI / Comment 等非纯文本节点
+      el.removeChild(child)
+    }
+  }
+  const css = textParts.join("")
+  if (!hasSafeCssUrls(css)) {
+    parent.removeChild(el)
+    return
+  }
+  for (const attr of Array.from(el.attributes)) {
+    const attrName = attr.name.toLowerCase()
+    if (attrName !== "id" && attrName !== "class") {
+      el.removeAttribute(attr.name)
+    }
+  }
+  // 展平为单一纯文本节点，彻底消除多节点/CDATA 拼接歧义
+  el.textContent = css
+}
+
+function sanitizeElementTree(node: Element): void {
+  const children = Array.from(node.childNodes)
+  for (const child of children) {
+    // 仅允许元素节点（1）与纯文本节点（3）；一律移除 CDATA（4）、PI（7）、Comment（8）及其他节点
+    if (child.nodeType === 3) continue
+    if (child.nodeType !== 1) {
+      node.removeChild(child)
+      continue
+    }
+    const el = child as Element
+    // 严格命名空间与无前缀校验：阻断 XHTML/MathML 等外来命名空间与带前缀元素（防止序列化重造 xmlns:*）
+    if (el.namespaceURI !== SVG_NAMESPACE || el.prefix) {
+      node.removeChild(el)
+      continue
+    }
+    const tag = el.localName.toLowerCase()
+    if (!ALLOWED_SVG_TAGS.has(tag)) {
+      node.removeChild(el)
+      continue
+    }
+    if (tag === "style") {
+      sanitizeStyleElement(node, el)
+      continue
+    }
+    sanitizeElementAttributes(el, tag, false)
+    sanitizeElementTree(el)
+  }
+}
+
+function sanitizeElementAttributes(el: Element, tag: string, isRoot: boolean): void {
+  for (const attr of Array.from(el.attributes)) {
+    const name = attr.name.toLowerCase()
+    const value = attr.value.trim()
+    if (name.startsWith("on")) {
+      el.removeAttribute(attr.name)
+      continue
+    }
+    if (name === "xmlns" || name.startsWith("xmlns:")) {
+      // 仅根 <svg> 允许受控标准 SVG/XLink 命名空间声明；子元素一律剥离 xmlns
+      const allowedRootNs =
+        isRoot &&
+        ((name === "xmlns" && value === SVG_NAMESPACE) ||
+          (name === "xmlns:xlink" && value === XLINK_NAMESPACE))
+      if (!allowedRootNs) {
+        el.removeAttribute(attr.name)
+      }
+      continue
+    }
+    if (name === "href" || name === "xlink:href") {
+      if (tag === "use" && FRAGMENT_HREF_RE.test(value)) {
+        continue
+      }
+      el.removeAttribute(attr.name)
+      continue
+    }
+    if (!ALLOWED_SVG_ATTRS.has(name)) {
+      el.removeAttribute(attr.name)
+      continue
+    }
+    if (
+      name === "style" ||
+      name === "fill" ||
+      name === "stroke" ||
+      name === "clip-path" ||
+      name === "mask" ||
+      name === "marker-start" ||
+      name === "marker-mid" ||
+      name === "marker-end"
+    ) {
+      if (!hasSafeCssUrls(value)) {
+        el.removeAttribute(attr.name)
+      }
+    }
+  }
+}
+
+/**
+ * 原生 DOMParser 严格白名单净化 Mermaid 输出的 SVG，不依赖第三方包。
+ * 阻断非 SVG 命名空间、CDATA/PI/注释 mXSS、script/foreignObject/iframe/a/image/animate*、
+ * 事件处理器、非片段 href 与危险 CSS（含转义/注释绕过）。
+ */
+export function sanitizeMermaidSvg(rawSvg: string): string {
+  if (!rawSvg || typeof rawSvg !== "string") return ""
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(rawSvg, "image/svg+xml")
+  if (doc.querySelector("parsererror")) return ""
+  const root = doc.documentElement
+  if (
+    !root ||
+    root.prefix ||
+    root.localName.toLowerCase() !== "svg" ||
+    root.namespaceURI !== SVG_NAMESPACE
+  ) {
+    return ""
+  }
+
+  sanitizeElementAttributes(root, "svg", true)
+  sanitizeElementTree(root)
+  return new XMLSerializer().serializeToString(root)
+}
+
 export function MermaidDiagram({ code }: MermaidDiagramProps) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -56,13 +313,20 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
           startOnLoad: false,
           theme: "default",
           securityLevel: "strict",
+          htmlLabels: false,
         })
 
         const id = `mermaid-${Math.random().toString(36).slice(2, 10)}`
         const { svg: rendered } = await mermaid.render(id, code)
+        const sanitized = sanitizeMermaidSvg(rendered)
         if (!cancelled) {
-          setSvg(rendered)
-          setError(null)
+          if (!sanitized) {
+            setError(formatOperationError(t, new Error("Invalid Mermaid SVG output")))
+            setSvg(null)
+          } else {
+            setSvg(sanitized)
+            setError(null)
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -94,7 +358,10 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
 
   if (error) {
     return (
-      <div className="my-2 rounded border border-destructive/60 bg-destructive/50 dark:bg-destructive/20 p-2 text-xs text-destructive">
+      <div
+        role="alert"
+        className="my-2 rounded border border-destructive/60 bg-destructive/50 dark:bg-destructive/20 p-2 text-xs text-destructive"
+      >
         <p className="font-medium mb-1">{t("mermaid.syntaxError", "Mermaid 语法错误")}</p>
         <pre className="whitespace-pre-wrap text-xs opacity-70">{error}</pre>
       </div>
@@ -113,7 +380,8 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
             <button
               type="button"
               onClick={() => setExpanded(true)}
-              className="absolute top-2 right-2 z-10 rounded-md bg-background/80 px-1.5 py-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/diagram:opacity-100"
+              aria-label={t("mermaid.zoomIn")}
+              className="absolute top-2 right-2 z-10 rounded-md bg-background/80 px-1.5 py-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/diagram:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               title={t("mermaid.zoomIn")}
             >
               <ZoomIn className="h-4 w-4" />
@@ -121,18 +389,21 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
             <div
               className="cursor-zoom-in p-3"
               onClick={() => setExpanded(true)}
-              // SEC-ODX-01 防御假设：svg 的净化保证来自上方 mermaid.initialize({ securityLevel: "strict" })（库级 escape/sandbox），
-              // 非应用层 sanitize。升级 mermaid 或改动 securityLevel 前必须重新评估这两处注入点的安全性。
+              // SEC-ODX-01：双层防御 = mermaid securityLevel:"strict" + htmlLabels:false + 应用层 DOMParser 白名单 sanitizeMermaidSvg。
               dangerouslySetInnerHTML={{ __html: svg }}
             />
           </>
         ) : visible ? (
           <div className="flex items-center justify-center h-full p-4">
-            <span className="text-xs text-muted-foreground animate-pulse">Rendering diagram...</span>
+            <span className="text-xs text-muted-foreground animate-pulse">
+              {t("mermaid.rendering", { defaultValue: "正在渲染图表..." })}
+            </span>
           </div>
         ) : (
           <div className="flex items-center justify-center h-full p-4">
-            <span className="text-xs text-muted-foreground">Diagram</span>
+            <span className="text-xs text-muted-foreground">
+              {t("mermaid.placeholder", { defaultValue: "图表" })}
+            </span>
           </div>
         )}
       </div>
@@ -183,7 +454,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
             <div
               className="origin-top-left transition-transform duration-150"
               style={{ transform: `scale(${scale})` }}
-              // SEC-ODX-01：同上，净化边界 = mermaid securityLevel:"strict"（见 :48）
+              // SEC-ODX-01：同上，经 sanitizeMermaidSvg 严格白名单净化后注入。
               dangerouslySetInnerHTML={{ __html: svg }}
             />
           </div>

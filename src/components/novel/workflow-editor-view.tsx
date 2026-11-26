@@ -159,35 +159,35 @@ export function WorkflowEditorView({ projectPath, snapshot: snapshotOverride }: 
   return (
     <ReportPage
       testId="workflow-editor-view"
-      title="工作流"
-      description="只能看模板和最近的运行记录。这里不能改工作流，也不写盘。"
+      title="运行模板与记录（只读）"
+      description="查看系统内置的章节与大纲模板，以及本项目最近的写作与审稿运行记录。本页仅供查看，不会改动你的文稿。"
     >
       {loading ? (
         <p data-testid="workflow-loading" className="flex items-center gap-1 text-sm text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
-          正在读取工作流模板与运行事件…
+          正在读取模板与运行记录…
         </p>
       ) : snapshot === null ? (
         <ReportSection title="下一步">
-          <p className="text-base font-medium">先打开一个项目，才能看模板和运行记录。</p>
+          <p className="text-base font-medium">先打开一个项目，即可查看模板和最近运行记录。</p>
           <ReportCallout testId="workflow-empty" tone="neutral">
             未指定项目路径
           </ReportCallout>
         </ReportSection>
       ) : (
         <>
-          <ReportSection title="下一步">
+          <ReportSection title="说明">
             <p className="text-base font-medium">
               {snapshot.ledgerError !== null
-                ? "运行记录读失败。模板仍可查看，这里仍然不写回。"
+                ? "运行记录读取失败，下方内置模板仍可正常查看。"
                 : snapshot.ledgerEventCount === 0
-                  ? "先看下面的模板。运行记录还是空的，这里不编造事件。"
-                  : "最近的运行记录在下面。这一页只读。"}
+                  ? "下方为系统内置写作模板；本项目目前还没有运行记录。"
+                  : "下方展示内置模板与最近的生成、审稿运行记录（只读）。"}
             </p>
           </ReportSection>
           <div data-testid="workflow-templates" className="rounded-md border border-border bg-background px-3 py-2">
             <p className="text-sm font-medium text-foreground">
-              模板注册表（共 {snapshot.templates.length} 项）
+              内置模板清单（共 {snapshot.templates.length} 项）
             </p>
             {snapshot.groups.length === 0 ? (
               <p data-testid="workflow-templates-empty" className="mt-1 text-xs text-muted-foreground">
@@ -205,7 +205,7 @@ export function WorkflowEditorView({ projectPath, snapshot: snapshotOverride }: 
                           : group.kind === "skill-stage"
                             ? "技能阶段"
                             : group.kind === "enum"
-                              ? "枚举"
+                              ? "分类项"
                               : group.kind}
                       （{group.entries.length} 项）
                       <span className="sr-only">{group.kind}</span>
@@ -237,20 +237,19 @@ export function WorkflowEditorView({ projectPath, snapshot: snapshotOverride }: 
             <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
               <ScrollText className="h-3.5 w-3.5" />
               运行记录
-              <span className="sr-only">run-events.jsonl</span>
             </div>
             {snapshot.ledgerError !== null ? (
               <p data-testid="workflow-ledger-error" role="alert" className="mt-1 text-xs text-destructive">
-                账本读取失败：{snapshot.ledgerError}
+                运行记录读取失败：{snapshot.ledgerError}
               </p>
             ) : snapshot.ledgerEventCount === 0 ? (
               <p data-testid="workflow-ledger-empty" className="mt-1 text-xs text-muted-foreground">
-                暂无运行事件（账本缺失或为空，共 0 条）
+                暂无运行记录（共 0 条）
               </p>
             ) : (
               <>
                 <p data-testid="workflow-ledger-count" className="mt-1 text-xs text-muted-foreground">
-                  共 {snapshot.ledgerEventCount} 条事件（仅展示最近 {snapshot.recentEvents.length} 条）
+                  共 {snapshot.ledgerEventCount} 条记录（仅展示最近 {snapshot.recentEvents.length} 条）
                 </p>
                 <ul className="mt-1 flex flex-col gap-1">
                   {snapshot.recentEvents.map((event) => (
@@ -262,7 +261,7 @@ export function WorkflowEditorView({ projectPath, snapshot: snapshotOverride }: 
                       <span>#{event.seq}</span>
                       <span>{EVENT_KIND_LABEL[event.kind] ?? "事件"}</span>
                       <span className="sr-only">{event.kind}</span>
-                      <span>{EVENT_ACTOR_LABEL[event.actor] ?? "执行者"}</span>
+                      <span>{EVENT_ACTOR_LABEL[event.actor] ?? "执行角色"}</span>
                       <span className="sr-only">{event.actor}</span>
                       <span>{event.ts}</span>
                     </li>

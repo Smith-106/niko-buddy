@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within, userEvent, setupDomGlo
 import { cleanup } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ReviewView } from "./review-view"
-import type { ReviewItem } from "@/stores/review-store"
+import type { NovelReviewEntry, ReviewItem } from "@/stores/review-store"
 import type { NovelReviewResult, GenerationHistoryEntry, CognitionState } from "@/lib/novel"
 import type { NovelReviewActionItem } from "@/lib/novel-review-action-items"
 import type { DashboardIssueState, DashboardIssueRewriteBackup } from "@/lib/dashboard-issue-actions"
@@ -38,12 +38,16 @@ const mocks = vi.hoisted(() => {
 
     state,
     reviewItems: [] as ReviewItem[],
+    novelReviewEntries: [] as NovelReviewEntry[],
+    omitNovelReviewEntries: false,
     t: vi.fn((key: string) => key),
     i18nExists: vi.fn(() => true),
     resolveItem: vi.fn<(id: string) => void>(),
     setItems: vi.fn<(items: ReviewItem[]) => void>(),
     dismissItem: vi.fn<(id: string) => void>(),
     clearResolved: vi.fn<() => void>(),
+    dismissNovelReviewEntry: vi.fn<(id: string) => void>(),
+    findChapterFileByNumber: vi.fn<(projectPath: string, chapterNumber: number) => Promise<string | null>>(),
     // @/commands/fs mirror
     readFile: vi.fn<(path: string) => Promise<string>>(),
     writeFileAtomic: vi.fn<(path: string, content: string) => Promise<void>>(),
@@ -123,6 +127,12 @@ vi.mock("@/stores/review-store", () => ({
       setItems: mocks.setItems,
       dismissItem: mocks.dismissItem,
       clearResolved: mocks.clearResolved,
+      ...(mocks.omitNovelReviewEntries
+        ? {}
+        : {
+            novelReviewEntries: mocks.novelReviewEntries,
+            dismissNovelReviewEntry: mocks.dismissNovelReviewEntry,
+          }),
     }),
 }))
 
@@ -152,6 +162,13 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   }
 })
 
+vi.mock("@/lib/novel/chapter-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/chapter-utils")>()
+  return {
+    ...actual,
+    findChapterFileByNumber: mocks.findChapterFileByNumber,
+  }
+})
 vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
   return {
@@ -377,7 +394,7 @@ function setRun(run: unknown) {
 
 function actionItemCard(message: string): HTMLElement {
   const el = screen.getByText(message)
-  const card = el.closest("button")
+  const card = el.closest("article")
   if (!card) throw new Error(`no card for ${message}`)
   return card as HTMLElement
 }
@@ -407,6 +424,9 @@ beforeEach(() => {
   mocks.state.setPendingEditorHighlight = vi.fn()
   mocks.state.bumpDataVersion = vi.fn()
   mocks.reviewItems = []
+  mocks.novelReviewEntries = []
+  mocks.omitNovelReviewEntries = false
+  mocks.findChapterFileByNumber.mockResolvedValue("E:/Novel/wiki/chapters/chapter-008.md")
   mocks.i18nExists.mockReturnValue(true)
   mocks.t.mockImplementation((key: string) => key)
   mocks.hasUsableLlm.mockReturnValue(true)
@@ -799,14 +819,15 @@ describe("ReviewView — novel review 结果 / 行动项 / action bar", () => {
     mocks.buildVisibleNovelReviewActionItems.mockReturnValue([makeActionItem({ id: "a1" })])
     renderView()
     const card = actionItemCard("行动项消息")
-    fireEvent.click(card)
+    const openBtn = within(card).getByRole("button", { name: /行动项消息/ })
+    fireEvent.click(openBtn)
     await waitFor(() => expect(mocks.state.setSelectedFile).toHaveBeenCalledWith("E:/Novel/chapter-8.md"))
     expect(mocks.readFile).toHaveBeenCalledWith("E:/Novel/chapter-8.md")
     expect(mocks.state.setActiveView).toHaveBeenCalledWith("wiki")
     // 原生 button：键盘 Enter/Space 由浏览器转为 click（jsdom 不模拟，故用 click 覆盖等价路径）
-    fireEvent.click(card)
+    fireEvent.click(openBtn)
     await waitFor(() => expect(mocks.state.setSelectedFile).toHaveBeenCalledTimes(2))
-    fireEvent.click(card)
+    fireEvent.click(openBtn)
     await waitFor(() => expect(mocks.state.setSelectedFile).toHaveBeenCalledTimes(3))
   })
 
@@ -843,7 +864,7 @@ describe("ReviewView — novel review 结果 / 行动项 / action bar", () => {
     mocks.buildVisibleNovelReviewActionItems.mockReturnValue([makeActionItem({ id: "a1" })])
     mocks.readFile.mockRejectedValue(new Error("boom"))
     renderView()
-    fireEvent.click(actionItemCard("行动项消息"))
+    fireEvent.click(within(actionItemCard("行动项消息")).getByRole("button", { name: /行动项消息/ }))
     await waitFor(() => expect(errSpy).toHaveBeenCalled())
     expect(mocks.state.setSelectedFile).not.toHaveBeenCalled()
     errSpy.mockRestore()
@@ -2280,5 +2301,62 @@ describe("ReviewView — 卸载后的迟到异步响应", () => {
     expect(mocks.loadEmotionLedger).toHaveBeenCalledTimes(1)
     // 卸载后不重算熔断态（无 setState、无纯计算副作用）
     expect(mocks.getCircuitBreakerStatus).not.toHaveBeenCalled()
+  })
+})
+
+describe("ReviewView — 保存前审稿待处理条目（P1-01 / BLOCKING-7）", () => {
+  it("按 Consistency(P0) > Anti-AI(P1) > Quality(P2) 排序展示，计入角标，并支持打开本章与标记已处理", async () => {
+    mocks.novelReviewEntries = [
+      {
+        id: "pre-save-ch8",
+        chapterNumber: 8,
+        createdAt: "2026-11-25T10:30:00.000Z",
+        resolved: false,
+        results: [
+          makeResult({ type: "pacing_tension", severity: "error", message: "P2 节奏拖沓" }),
+          makeResult({ type: "slop_explanation", severity: "warning", message: "P1 解释腔残留" }),
+          makeResult({ type: "timeline_consistency", severity: "error", message: "P0 时间线冲突" }),
+          makeResult({ type: "state_delta_light_check", severity: "warning", message: "P0 状态变化未闭环" }),
+        ],
+      },
+    ]
+    mocks.readFile.mockResolvedValueOnce("# 第8章\n正文内容")
+
+    renderView()
+
+    expect(screen.getByTestId("novel-review-entries-section")).toBeInTheDocument()
+    const finding0 = screen.getByTestId("novel-review-entry-finding-pre-save-ch8-0")
+    const finding1 = screen.getByTestId("novel-review-entry-finding-pre-save-ch8-1")
+    const finding2 = screen.getByTestId("novel-review-entry-finding-pre-save-ch8-2")
+    const finding3 = screen.getByTestId("novel-review-entry-finding-pre-save-ch8-3")
+    expect(finding0.getAttribute("data-tier")).toBe("P0")
+    expect(finding0.textContent).toContain("P0 时间线冲突")
+    expect(finding1.getAttribute("data-tier")).toBe("P0")
+    expect(finding1.textContent).toContain("P0 状态变化未闭环")
+    expect(finding2.getAttribute("data-tier")).toBe("P1")
+    expect(finding2.textContent).toContain("P1 解释腔残留")
+    expect(finding3.getAttribute("data-tier")).toBe("P2")
+    expect(finding3.textContent).toContain("P2 节奏拖沓")
+
+    // 打开本章：经 findChapterFileByNumber + readFile 跳转编辑视图
+    fireEvent.click(screen.getByTestId("novel-review-entry-open-pre-save-ch8"))
+    await waitFor(() => {
+      expect(mocks.findChapterFileByNumber).toHaveBeenCalledWith("E:/Novel", 8)
+      expect(mocks.readFile).toHaveBeenCalledWith("E:/Novel/wiki/chapters/chapter-008.md")
+      expect(mocks.state.setSelectedFile).toHaveBeenCalledWith("E:/Novel/wiki/chapters/chapter-008.md")
+      expect(mocks.state.setFileContent).toHaveBeenCalledWith("# 第8章\n正文内容")
+      expect(mocks.state.setActiveView).toHaveBeenCalledWith("wiki")
+    })
+
+    // 标记已处理：消除侧边栏幽灵红点
+    fireEvent.click(screen.getByTestId("novel-review-entry-dismiss-pre-save-ch8"))
+    expect(mocks.dismissNovelReviewEntry).toHaveBeenCalledWith("pre-save-ch8")
+  })
+
+  it("store mock 省略 novelReviewEntries 时安全回退空数组不崩溃", () => {
+    mocks.omitNovelReviewEntries = true
+    renderView()
+    expect(screen.queryByTestId("novel-review-entries-section")).toBeNull()
+    expect(screen.getByText("novel.review.allClear")).toBeInTheDocument()
   })
 })

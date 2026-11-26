@@ -35,6 +35,7 @@ interface ChatMessageProps {
   novelMode?: boolean
   projectPath?: string | null
   onSaveAsChapter?: (content: string) => void
+  onReviewDraft?: (content: string) => void
   onAcceptAndContinueNext?: (content: string) => void
   onContinueNextChapter?: () => void
   onContinueUnfinished?: () => void
@@ -42,6 +43,8 @@ interface ChatMessageProps {
   onDiscardDraft?: () => void
   saveStatus?: string
   isSaving?: boolean
+  isReviewing?: boolean
+  isDiscarding?: boolean
 }
 
 
@@ -62,7 +65,7 @@ const ACTION_BUTTON_BASE =
 // props;回调引用由父级 chat-panel useCallback 稳定,message 对象引用稳定
 // (chat-store 按 id 去重)。isLastAssistant 只对末条 assistant 消息变化,
 // 非末条消息该 prop 恒定 false,不触发重渲染。
-function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, projectPath, onSaveAsChapter, onAcceptAndContinueNext, onContinueNextChapter, onContinueUnfinished, onDiscardDraft, saveStatus, isSaving }: ChatMessageProps) {
+function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, projectPath, onSaveAsChapter, onReviewDraft, onAcceptAndContinueNext, onContinueNextChapter, onContinueUnfinished, onDiscardDraft, saveStatus, isSaving, isReviewing, isDiscarding }: ChatMessageProps) {
   const { t } = useTranslation()
   const isUser = message.role === "user"
   const isSystem = message.role === "system"
@@ -76,6 +79,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
   const canResumeUnfinished = Boolean(
     novelMode && isLastAssistant && onContinueUnfinished && canContinueUnfinishedDeepChapter(message.content),
   )
+  const actionBusy = Boolean(isSaving || isReviewing || isDiscarding)
 
   return (
     <div
@@ -140,8 +144,8 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
               <button
                 type="button"
                 onClick={() => onSaveAsChapter(message.content)}
-                disabled={isSaving}
-                aria-busy={isSaving}
+                disabled={actionBusy}
+                aria-busy={Boolean(isSaving)}
                 aria-label={isSaving ? "保存中" : "接受草稿"}
                 // POLISH-09 (odyssey-ui): accept is the primary commitment \u2014
                 // solid-fill primary with Check icon, visually dominant over
@@ -156,8 +160,8 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
               <button
                 type="button"
                 onClick={() => onAcceptAndContinueNext(message.content)}
-                disabled={isSaving}
-                aria-busy={isSaving}
+                disabled={actionBusy}
+                aria-busy={Boolean(isSaving)}
                 className={`${ACTION_BUTTON_BASE} inline-flex items-center gap-1 border border-primary/60 bg-primary/10 font-medium text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50`}
                 title="接受当前草稿并自动发起下一章撰写"
                 aria-label="接受并撰写下一章"
@@ -166,11 +170,24 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
                 {"接受并撰写下一章"}
               </button>
             )}
+            {canAcceptDraft && onReviewDraft && (
+              <button
+                type="button"
+                onClick={() => onReviewDraft(message.content)}
+                disabled={actionBusy}
+                aria-busy={Boolean(isReviewing)}
+                className={`${ACTION_BUTTON_BASE} inline-flex items-center gap-1 border border-border text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                {isReviewing ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> : null}
+                {isReviewing ? t("chat.reviewingDraft") : t("chat.reviewDraft")}
+              </button>
+            )}
             {canRejectDraft && onDiscardDraft && (
               <button
                 type="button"
                 onClick={onDiscardDraft}
-                disabled={isSaving}
+                disabled={actionBusy}
+                aria-busy={Boolean(isDiscarding)}
                 aria-label="拒绝草稿"
                 className={`${ACTION_BUTTON_BASE} border border-destructive/40 text-destructive hover:bg-destructive/5 disabled:cursor-not-allowed disabled:opacity-50`}
               >
@@ -181,7 +198,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
               <button
                 type="button"
                 onClick={onContinueNextChapter}
-                disabled={isSaving}
+                disabled={actionBusy}
                 aria-label="继续生成下一章"
                 className={`${ACTION_BUTTON_BASE} border border-border text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50`}
               >
@@ -192,7 +209,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
               <button
                 type="button"
                 onClick={onContinueUnfinished}
-                disabled={isSaving}
+                disabled={actionBusy}
                 aria-label="继续未完成"
                 // VH-002 (odyssey-ui): amber resume button → primary token tier,
                 // consistent with the primary-tinted info banner above.
@@ -219,7 +236,7 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
           </div>
         )}
         {saveStatus && (
-          <p className="mt-1 text-xs text-muted-foreground">{saveStatus}</p>
+          <p role="status" aria-atomic="true" className="mt-1 text-xs text-muted-foreground">{saveStatus}</p>
         )}
       </div>
     </div>
@@ -228,25 +245,67 @@ function ChatMessageImpl({ message, isLastAssistant, onRegenerate, novelMode, pr
 
 function CopyButton({ content }: { content: string }) {
   const { t } = useTranslation()
-  const [copied, setCopied] = useState(false)
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle")
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      if (resetTimerRef.current !== null) {
+        clearTimeout(resetTimerRef.current)
+        resetTimerRef.current = null
+      }
+    }
+  }, [])
+
+  const scheduleReset = useCallback(() => {
+    if (resetTimerRef.current !== null) {
+      clearTimeout(resetTimerRef.current)
+    }
+    resetTimerRef.current = setTimeout(() => {
+      resetTimerRef.current = null
+      setCopyState("idle")
+    }, 2000)
+  }, [])
 
   const handleCopy = useCallback(async () => {
     const clean = getCopyableAssistantContent(content)
-    await navigator.clipboard.writeText(clean)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }, [content])
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard API unavailable")
+      }
+      await navigator.clipboard.writeText(clean)
+      if (!mountedRef.current) return
+      setCopyState("copied")
+    } catch {
+      if (!mountedRef.current) return
+      setCopyState("failed")
+    }
+    scheduleReset()
+  }, [content, scheduleReset])
+
+  const label = copyState === "copied"
+    ? "已复制"
+    : copyState === "failed"
+      ? t("chat.copyFailed")
+      : "复制"
 
   return (
     <button
       type="button"
-      onClick={handleCopy}
-      className={`${ACTION_BUTTON_BASE} inline-flex items-center gap-1 text-muted-foreground hover:bg-primary/10 hover:text-primary`}
+      onClick={() => void handleCopy()}
+      className={`${ACTION_BUTTON_BASE} inline-flex items-center gap-1 ${
+        copyState === "failed"
+          ? "text-destructive hover:bg-destructive/10"
+          : "text-muted-foreground hover:bg-primary/10 hover:text-primary"
+      }`}
       title={t("chat.copyToClipboard")}
       aria-label={t("chat.copyToClipboard")}
     >
-      {copied ? <Check className="h-3 w-3 shrink-0" /> : <Copy className="h-3 w-3 shrink-0" />}
-      {copied ? "已复制" : "复制"}
+      {copyState === "copied" ? <Check className="h-3 w-3 shrink-0" /> : <Copy className="h-3 w-3 shrink-0" />}
+      {label}
     </button>
   )
 }

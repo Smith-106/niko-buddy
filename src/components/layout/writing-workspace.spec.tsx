@@ -16,6 +16,7 @@ import {
 import { WritingWorkspace } from "./writing-workspace"
 import type { PreviewPanelAdoptionStart, PreviewPanelWriteGate } from "./preview-panel"
 import { getChapterWriteCoordinator, resetChapterWriteCoordinator } from "./preview-panel-helpers"
+import { clearMainControlTabHandoff, peekMainControlTabHandoff } from "@/components/novel/main-control-handoff"
 import type { ForeshadowingStore } from "@/lib/novel"
 
 const mocks = vi.hoisted(() => {
@@ -30,6 +31,7 @@ const mocks = vi.hoisted(() => {
     setSelectedFile: (p: string | null) => void
     selectedFile: string | null
     fileContent: string
+    dataVersion: number
     finalChapterSave: {
       filePath: string
       projectPath: string
@@ -50,6 +52,7 @@ const mocks = vi.hoisted(() => {
     setSelectedFile: vi.fn((_p: string | null) => {}),
     selectedFile: null,
     fileContent: "",
+    dataVersion: 0,
     finalChapterSave: null,
   }
   return {
@@ -82,26 +85,37 @@ const gateMock = vi.hoisted(() => ({
   abort: vi.fn(),
 }))
 
-vi.mock("./preview-panel", () => ({
-  // 只模拟「挂载时把采纳写入门登记给写作台」这一个契约；begin/abort 由各用例的桩决定。
-  // （真实组件用 effect 登记；mock 在渲染时直接赋值，注册时机对调用方不可见。）
-  PreviewPanel: ({ adoptionRefreshToken, adoptionRefreshPath, writeGateRef }: {
-    adoptionRefreshToken?: number
-    adoptionRefreshPath?: string
-    writeGateRef?: { current: PreviewPanelWriteGate | null }
-  }) => {
-    if (writeGateRef) writeGateRef.current = gateMock
-    return (
-      <div
-        data-testid="preview-panel"
-        data-adoption-refresh={String(adoptionRefreshToken ?? "none")}
-        data-adoption-path={adoptionRefreshPath ?? "none"}
-      >
-        preview
-      </div>
-    )
-  },
-}))
+const previewLifecycle = vi.hoisted(() => ({ mounts: 0, unmounts: 0 }))
+
+vi.mock("./preview-panel", async () => {
+  const { useEffect } = await import("react")
+  return {
+    // 只模拟「挂载时把采纳写入门登记给写作台」这一个契约；begin/abort 由各用例的桩决定。
+    // （真实组件用 effect 登记；mock 在渲染时直接赋值，注册时机对调用方不可见。）
+    PreviewPanel: ({ adoptionRefreshToken, adoptionRefreshPath, writeGateRef }: {
+      adoptionRefreshToken?: number
+      adoptionRefreshPath?: string
+      writeGateRef?: { current: PreviewPanelWriteGate | null }
+    }) => {
+      if (writeGateRef) writeGateRef.current = gateMock
+      useEffect(() => {
+        previewLifecycle.mounts += 1
+        return () => {
+          previewLifecycle.unmounts += 1
+        }
+      }, [])
+      return (
+        <div
+          data-testid="preview-panel"
+          data-adoption-refresh={String(adoptionRefreshToken ?? "none")}
+          data-adoption-path={adoptionRefreshPath ?? "none"}
+        >
+          preview
+        </div>
+      )
+    },
+  }
+})
 
 vi.mock("@/components/novel/export-center-view", () => ({
   ExportCenterView: () => <div data-testid="export-center-view">export</div>,
@@ -134,11 +148,13 @@ vi.mock("./chapter-draft-dock", () => ({
     onAdopted,
     onGenerateDraft,
     onOpenMemory,
+    onOpenGateRerun,
     adoptAndIngest,
   }: {
     onAdopted?: (p: string) => void
     onGenerateDraft?: () => void
     onOpenMemory?: () => void
+    onOpenGateRerun?: () => void
     adoptAndIngest?: (input: {
       projectPath: string
       draftId: string
@@ -165,6 +181,7 @@ vi.mock("./chapter-draft-dock", () => ({
       </button>
       <button type="button" data-testid="draft-mock-generate" onClick={() => onGenerateDraft?.()}>generate</button>
       <button type="button" data-testid="draft-mock-memory" onClick={() => onOpenMemory?.()}>memory</button>
+      <button type="button" data-testid="draft-mock-gate-rerun" onClick={() => onOpenGateRerun?.()}>gate-rerun</button>
     </div>
   ),
 }))
@@ -207,6 +224,7 @@ vi.mock("@/lib/novel", async (importOriginal) => {
 
 afterEach(() => {
   cleanup()
+  clearMainControlTabHandoff()
   localStorage.clear()
   document.body.style.cursor = ""
   document.body.style.userSelect = ""
@@ -216,6 +234,9 @@ afterEach(() => {
 beforeEach(() => {
   setupDomGlobals()
   resetChapterWriteCoordinator()
+  clearMainControlTabHandoff()
+  previewLifecycle.mounts = 0
+  previewLifecycle.unmounts = 0
   mocks.wikiState.chatExpanded = false
   mocks.wikiState.chatDockPosition = "bottom"
   mocks.wikiState.project = null
@@ -998,20 +1019,35 @@ describe("WritingWorkspace — W4 剩余分支收敛（77-branch 冲刺）", () 
     expect(setActiveView).toHaveBeenCalledWith("mainControl")
   })
 
-  it("终稿已落盘态：章节行显示已落盘标签（L150 saved 分支）", () => {
+  it("终稿已落盘态：仅终稿章节显示已落盘标签，非终稿章不误显，且 dataVersion 变化会刷新 mtime", async () => {
     mocks.wikiState.project = { path: "C:/novels/demo" }
     mocks.wikiState.selectedFile = "C:/novels/demo/正文/第01章.md"
-    mocks.wikiState.fileContent = "# 第一章 起点\n\n第一段。"
+    mocks.wikiState.fileContent = "---\nchapter_status: final\n---\n# 第一章 起点\n\n第一段。"
     mocks.wikiState.finalChapterSave = {
       filePath: "C:/novels/demo/正文/第01章.md",
       projectPath: "C:/novels/demo",
       saving: false,
       phase: "saved",
     }
-    render(<WritingWorkspace />)
+    const { rerender } = render(<WritingWorkspace />)
     expect(screen.getByTestId("workspace-tools-target").textContent).toContain(
       "novel.chapter.savedAsFinal",
     )
+
+    // 非终稿章（draft）即使存在陈旧 finalChapterSave 也不误显终稿已保存回执
+    mocks.wikiState.fileContent = "---\nchapter_status: draft\n---\n# 第一章 起点\n\n草稿正文。"
+    rerender(<WritingWorkspace />)
+    expect(screen.getByTestId("workspace-tools-target").textContent).not.toContain(
+      "novel.chapter.savedAsFinal",
+    )
+
+    // dataVersion 递增触发重新拉取 mtime
+    const callsBefore = fsMocks.getFileModifiedTime.mock.calls.length
+    mocks.wikiState.dataVersion = mocks.wikiState.dataVersion + 1
+    rerender(<WritingWorkspace />)
+    await waitFor(() => {
+      expect(fsMocks.getFileModifiedTime.mock.calls.length).toBeGreaterThan(callsBefore)
+    })
   })
 
   it("桌面抽屉开关可二次点击关闭（L250/257/266/275 toggle-off）", async () => {
@@ -1112,5 +1148,88 @@ describe("WritingWorkspace — W4 剩余分支收敛（77-branch 冲刺）", () 
     fireEvent.click(screen.getByTestId("workspace-tools-toggle-pdf"))
     expect(screen.getByTestId("pdf-export-section")).toBeInTheDocument()
     expect(screen.getByTestId("pdfexport-paragraphs").textContent).toContain("0")
+  })
+})
+
+describe("WritingWorkspace — U-5 门控直达与 U-7 单树防卸载/拖拽清理", () => {
+  it("U-5：草稿抽屉 onOpenGateRerun 写入 live 页签交接并切主控", async () => {
+    novelMocks.loadForeshadowingTracker.mockResolvedValue({
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      items: [],
+    })
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    const setActiveView = mocks.wikiState.setActiveView as unknown as ReturnType<typeof vi.fn>
+    setActiveView.mockClear()
+    render(<WritingWorkspace />)
+    fireEvent.click(screen.getByTestId("workspace-desk-drafts"))
+    expect(await screen.findByTestId("chapter-draft-dock")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("draft-mock-gate-rerun"))
+    expect(peekMainControlTabHandoff()).toBe("live")
+    expect(setActiveView).toHaveBeenCalledWith("mainControl")
+  })
+
+  it("U-7：切换 chatDockPosition（bottom ↔ right）与 focusMode 时 PreviewPanel 零卸载重挂（mount 恒为 1）", async () => {
+    mocks.wikiState.project = { path: "C:/novels/demo" }
+    mocks.wikiState.chatExpanded = true
+    mocks.wikiState.chatDockPosition = "bottom"
+    mocks.wikiState.focusMode = false
+    const { rerender } = render(<WritingWorkspace />)
+    await waitFor(() => expect(screen.getByTestId("chat-panel")).toBeInTheDocument())
+    expect(previewLifecycle.mounts).toBe(1)
+    expect(previewLifecycle.unmounts).toBe(0)
+
+    mocks.wikiState.chatDockPosition = "right"
+    rerender(<WritingWorkspace />)
+    expect(document.querySelector('[class*="cursor-col-resize"]')).not.toBeNull()
+    expect(previewLifecycle.mounts).toBe(1)
+    expect(previewLifecycle.unmounts).toBe(0)
+
+    mocks.wikiState.focusMode = true
+    rerender(<WritingWorkspace />)
+    expect(document.querySelector(".max-w-4xl")).not.toBeNull()
+    expect(previewLifecycle.mounts).toBe(1)
+    expect(previewLifecycle.unmounts).toBe(0)
+
+    mocks.wikiState.focusMode = false
+    mocks.wikiState.chatDockPosition = "bottom"
+    rerender(<WritingWorkspace />)
+    expect(document.querySelector('[class*="cursor-row-resize"]')).not.toBeNull()
+    expect(previewLifecycle.mounts).toBe(1)
+    expect(previewLifecycle.unmounts).toBe(0)
+  })
+
+  it("U-7：垂直/水平 resize 拖拽过程中卸载组件，立即清理 body 样式、dataset.panelResizing 与 document 监听", async () => {
+    const removeSpy = vi.spyOn(document, "removeEventListener")
+    mocks.wikiState.chatExpanded = true
+    mocks.wikiState.chatDockPosition = "bottom"
+    const v1 = render(<WritingWorkspace />)
+    await waitFor(() => expect(screen.getByTestId("chat-panel")).toBeInTheDocument())
+    const rowHandle = document.querySelector('[class*="cursor-row-resize"]') as HTMLElement
+    fireEvent.mouseDown(rowHandle)
+    expect(document.body.dataset.panelResizing).toBe("true")
+    expect(document.body.style.cursor).toBe("row-resize")
+    expect(document.body.style.userSelect).toBe("none")
+    v1.unmount()
+    expect(document.body.dataset.panelResizing).toBeUndefined()
+    expect(document.body.style.cursor).toBe("")
+    expect(document.body.style.userSelect).toBe("")
+    expect(removeSpy).toHaveBeenCalledWith("mousemove", expect.any(Function))
+    expect(removeSpy).toHaveBeenCalledWith("mouseup", expect.any(Function))
+
+    removeSpy.mockClear()
+    mocks.wikiState.chatDockPosition = "right"
+    const v2 = render(<WritingWorkspace />)
+    await waitFor(() => expect(screen.getByTestId("chat-panel")).toBeInTheDocument())
+    const colHandle = document.querySelector('[class*="cursor-col-resize"]') as HTMLElement
+    fireEvent.mouseDown(colHandle)
+    expect(document.body.dataset.panelResizing).toBe("true")
+    expect(document.body.style.cursor).toBe("col-resize")
+    v2.unmount()
+    expect(document.body.dataset.panelResizing).toBeUndefined()
+    expect(document.body.style.cursor).toBe("")
+    expect(document.body.style.userSelect).toBe("")
+    expect(removeSpy).toHaveBeenCalledWith("mousemove", expect.any(Function))
+    expect(removeSpy).toHaveBeenCalledWith("mouseup", expect.any(Function))
+    removeSpy.mockRestore()
   })
 })

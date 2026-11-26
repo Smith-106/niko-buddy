@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next"
 import { formatOperationError } from "@/lib/format-operation-error"
 import { WikiReader } from "@/components/editor/wiki-reader"
 import i18n from "@/i18n"
-import { resolveDefaultModel, loadCognitionState, deleteGenerationHistoryEntry, listGenerationHistory, startNovelReviewRun, startSixDimensionReviewRun, SIX_REVIEW_DIMENSIONS, SIX_REVIEW_DIMENSION_ORDER, formatMeasurementFingerprintSummary, exportEvidenceChainForReview, dismissFinding, loadEmotionLedger, getCircuitBreakerStatus } from "@/lib/novel"
+import { resolveDefaultModel, loadCognitionState, deleteGenerationHistoryEntry, listGenerationHistory, startNovelReviewRun, startSixDimensionReviewRun, SIX_REVIEW_DIMENSIONS, SIX_REVIEW_DIMENSION_ORDER, formatMeasurementFingerprintSummary, exportEvidenceChainForReview, dismissFinding, loadEmotionLedger, getCircuitBreakerStatus, findChapterFileByNumber } from "@/lib/novel"
 import type { NovelReviewResult, CognitionState, GenerationHistoryEntry, SixReviewDimensionKey, ContinuityOverrideReasonCode } from "@/lib/novel"
 import {
   AlertTriangle,
@@ -12,7 +12,7 @@ import {
   Trash2,
   ChevronDown,
 } from "lucide-react"
-import { actionLooksLikeCreate, BreakerStatusBadge, detectPageType, ReviewCard, ReviewRewritePreviewDialog } from "./review-cards"
+import { actionLooksLikeCreate, BreakerStatusBadge, detectPageType, NovelReviewEntryCard, ReviewCard, ReviewRewritePreviewDialog } from "./review-cards"
 import { Button } from "@/components/ui/button"
 import { MeterBar, StatusChip } from "@/components/ui/status-visuals"
 import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
@@ -70,6 +70,9 @@ export function ReviewView({
   const setItems = useReviewStore((s) => s.setItems)
   const dismissItem = useReviewStore((s) => s.dismissItem)
   const clearResolved = useReviewStore((s) => s.clearResolved)
+  // BLOCKING-7 防御读取：既有测试 mock 若未补全该字段则安全回退空数组
+  const novelReviewEntries = useReviewStore((s) => s.novelReviewEntries) ?? []
+  const dismissNovelReviewEntry = useReviewStore((s) => s.dismissNovelReviewEntry)
   const project = useWikiStore((s) => s.project)
   const selectedFile = useWikiStore((s) => s.selectedFile)
   const selectedReviewFilePath = useWikiStore((s) => s.selectedReviewFilePath)
@@ -746,7 +749,30 @@ export function ReviewView({
   }, [items, lastBatchIds, setItems])
   const pending = dimensionScoped ? [] : items.filter((i) => !i.resolved)
   const resolved = dimensionScoped ? [] : items.filter((i) => i.resolved)
-  const headerCount = dimensionScoped ? novelReviewActionItems.length : pending.length
+  const pendingNovelEntries = dimensionScoped ? [] : novelReviewEntries.filter((entry) => !entry.resolved)
+  const headerCount = dimensionScoped ? novelReviewActionItems.length : pending.length + pendingNovelEntries.length
+
+  const handleOpenNovelReviewChapter = useCallback(async (chapterNumber: number) => {
+    if (!project) return
+    setReviewActionError(null)
+    try {
+      const chapterPath = await findChapterFileByNumber(project.path, chapterNumber)
+      if (!chapterPath) {
+        setReviewActionError(t("novel.review.chapterNotFound", { chapter: chapterNumber }))
+        return
+      }
+      const content = await readFile(chapterPath)
+      setSelectedFile(chapterPath)
+      setFileContent(content)
+      setActiveView("wiki")
+    } catch (err) {
+      setReviewActionError(formatOperationError(t, err))
+    }
+  }, [project, setActiveView, setFileContent, setSelectedFile, t])
+
+  const handleDismissNovelReviewEntry = useCallback((entryId: string) => {
+    dismissNovelReviewEntry?.(entryId)
+  }, [dismissNovelReviewEntry])
   const showReviewHistory = !dimensionScoped && reviewHistory.length > 0
   const showCognition = !dimensionScoped && novelMode && cognitionState
   const reviewThinkingContent = dimensionKey ? selectedDimensionThinking : reviewRun?.thinking
@@ -780,7 +806,7 @@ export function ReviewView({
               variant="outline"
               size="sm"
               data-testid="export-evidence-chain"
-              title="Export evidence chain JSON (not accept blocker)"
+              title={t("review.copyEvidenceTitle", { defaultValue: "复制审稿依据 JSON（仅用于核查，不影响采纳）" })}
               disabled={allReviewResults.length === 0}
               onClick={() => {
                 try {
@@ -803,7 +829,7 @@ export function ReviewView({
               }}
             >
               <Copy className="mr-1 h-3 w-3" />
-              Evidence
+              {t("review.copyEvidence", { defaultValue: "复制审稿依据" })}
             </Button>
             <Button
               variant="outline"
@@ -848,7 +874,10 @@ export function ReviewView({
           </div>
         )}
         {reviewError && (
-          <div className="m-3 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div
+            role="alert"
+            className="m-3 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <span>{reviewError}</span>
           </div>
@@ -905,7 +934,7 @@ export function ReviewView({
             </div>
           </div>
         )}
-        {pending.length === 0 && resolved.length === 0 && novelReviewActionItems.length === 0 && !showReviewHistory ? (
+        {pending.length === 0 && resolved.length === 0 && pendingNovelEntries.length === 0 && novelReviewActionItems.length === 0 && !showReviewHistory ? (
           <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-sm text-success-foreground">
             <CheckCircle2 className="h-8 w-8 animate-pulse text-success" style={{ animationDuration: "1.5s" }} aria-hidden="true" />
             <p>{emptyMessage || t(novelMode ? "novel.review.allClear" : "review.allClear")}</p>
@@ -922,6 +951,21 @@ export function ReviewView({
           </div>
         ) : (
           <div className="flex flex-col gap-2 p-3">
+            {pendingNovelEntries.length > 0 && (
+              <div className="space-y-2" data-testid="novel-review-entries-section">
+                <h3 className="text-xs font-semibold text-muted-foreground">
+                  {t("novel.review.preSaveEntriesTitle")}
+                </h3>
+                {pendingNovelEntries.map((entry) => (
+                  <NovelReviewEntryCard
+                    key={entry.id}
+                    entry={entry}
+                    onOpenChapter={(chapterNumber) => void handleOpenNovelReviewChapter(chapterNumber)}
+                    onDismiss={handleDismissNovelReviewEntry}
+                  />
+                ))}
+              </div>
+            )}
             {(pending.length > 0 || lastBatchIds) && (
               <div className="flex items-center gap-2" data-testid="review-batch-bar">
                 {pending.length > 0 && (
@@ -990,11 +1034,9 @@ export function ReviewView({
                   const typeLabel = i18n.exists(dimensionKey) ? i18n.t(dimensionKey) : item.detail
 
                   return (
-                    <button type="button"
+                    <article
                       key={item.id}
-                      onClick={() => void openNovelReviewActionItem(item)}
-                      aria-label={`${severityLabel} ${typeLabel}: ${item.message}`}
-                      className={`group cursor-pointer rounded-lg border p-3 text-sm transition-all duration-150 hover:border-primary/60 hover:elevation-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${
+                      className={`group rounded-lg border p-3 text-sm transition-all duration-150 hover:border-primary/60 hover:elevation-1 ${
                         item.reviewSeverity === "error"
                           ? "border-destructive/30 bg-destructive/5"
                           : item.reviewSeverity === "warning"
@@ -1002,35 +1044,42 @@ export function ReviewView({
                             : "border-border bg-muted/20"
                       }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`inline-block h-1.5 w-1.5 rounded-full ${
-                            item.reviewSeverity === "error" ? "bg-destructive" : item.reviewSeverity === "warning" ? "bg-warning" : "bg-muted-foreground"
-                          }`}
-                          aria-hidden="true"
-                        />
-                        <StatusChip
-                          label={typeLabel}
-                          tone={item.reviewSeverity === "error" ? "danger" : item.reviewSeverity === "warning" ? "warning" : "neutral"}
-                        />
-                        {item.continuityMeta && i18n.exists(`review.results.subtype.${item.continuityMeta.subtype}`) ? (
-                          <span className="rounded border border-border/60 px-1.5 py-0.5 text-xs text-muted-foreground">
-                            {i18n.t(`review.results.subtype.${item.continuityMeta.subtype}`)}
-                          </span>
-                        ) : null}
-                        <span className="text-xs text-muted-foreground">{severityLabel}</span>
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-left">{item.message}</p>
-                      {item.evidence && (
-                        <p className="mt-1 line-clamp-1 text-left text-xs text-muted-foreground italic">「{item.evidence}」</p>
-                      )}
-                      {item.suggestion && (
-                        <p className="mt-1 line-clamp-1 text-left text-xs text-success-foreground">
-                          💡 {item.suggestion}
-                        </p>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => void openNovelReviewActionItem(item)}
+                        aria-label={`${severityLabel} ${typeLabel}: ${item.message}`}
+                        className="block w-full cursor-pointer rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`inline-block h-1.5 w-1.5 rounded-full ${
+                              item.reviewSeverity === "error" ? "bg-destructive" : item.reviewSeverity === "warning" ? "bg-warning" : "bg-muted-foreground"
+                            }`}
+                            aria-hidden="true"
+                          />
+                          <StatusChip
+                            label={typeLabel}
+                            tone={item.reviewSeverity === "error" ? "danger" : item.reviewSeverity === "warning" ? "warning" : "neutral"}
+                          />
+                          {item.continuityMeta && i18n.exists(`review.results.subtype.${item.continuityMeta.subtype}`) ? (
+                            <span className="rounded border border-border/60 px-1.5 py-0.5 text-xs text-muted-foreground">
+                              {i18n.t(`review.results.subtype.${item.continuityMeta.subtype}`)}
+                            </span>
+                          ) : null}
+                          <span className="text-xs text-muted-foreground">{severityLabel}</span>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-left">{item.message}</p>
+                        {item.evidence && (
+                          <p className="mt-1 line-clamp-1 text-left text-xs text-muted-foreground italic">「{item.evidence}」</p>
+                        )}
+                        {item.suggestion && (
+                          <p className="mt-1 line-clamp-1 text-left text-xs text-success-foreground">
+                            💡 {item.suggestion}
+                          </p>
+                        )}
+                      </button>
                       {renderNovelReviewActionBar(item)}
-                    </button>
+                    </article>
                   )
                 })}
               </div>

@@ -62,6 +62,24 @@ function normalizeQuery(value: string): string {
   return value.toLowerCase().replace(/[\s\-_/\\()[\]，。、]/g, "")
 }
 
+/**
+ * 提取章节号并拼入中英文检索别名，兑现「第12章」命中「chapter-012.md」。
+ */
+export function buildChapterKeywords(title: string, path: string): string {
+  const normalizedPath = path.replace(/\\/g, "/")
+  const baseName = normalizedPath.split("/").pop()?.replace(/\.md$/i, "") ?? ""
+  const candidate = `${title} ${baseName}`
+  const match =
+    candidate.match(/(?:^|[^\da-z])(?:chapter|ch)[\s_-]*0*(\d+)/i)
+    ?? candidate.match(/第\s*0*(\d+)\s*[章节回]/)
+    ?? baseName.match(/^0*(\d+)(?:[^\d]|$)/)
+  if (!match?.[1]) return path
+  const n = Number.parseInt(match[1], 10)
+  if (!Number.isSafeInteger(n) || n <= 0) return path
+  const pad3 = String(n).padStart(3, "0")
+  return `第${n}章 第${pad3}章 chapter${n} ch${n} ${path}`
+}
+
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const { t } = useTranslation()
   const setActiveView = useWikiStore((s) => s.setActiveView)
@@ -79,55 +97,55 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     setActiveIndex(0)
   }, [open])
 
-  const entries = useMemo<PaletteEntry[]>(() => {
-    const focusEntry: PaletteEntry = {
+  const { focusEntry, navEntries, chapterEntries } = useMemo(() => {
+    const focus: PaletteEntry = {
       id: "action:focus-mode",
       label: t(focusMode ? "layout.focusMode.exit" : "layout.focusMode.enter"),
       hint: t("commandPalette.kindAction", { defaultValue: "操作" }),
       keywords: `focus zen ${t("layout.focusMode.label")} ${t("layout.focusMode.enter")} ${t("layout.focusMode.exit")}`,
       run: () => setFocusMode(!focusMode),
     }
-    const navEntries: PaletteEntry[] = NAV_ITEMS.map((item: NavItem) => ({
+    const navs: PaletteEntry[] = NAV_ITEMS.map((item: NavItem) => ({
       id: `view:${item.view}`,
       label: t(item.labelKey),
       hint: t("commandPalette.kindView", { defaultValue: "视图" }),
       keywords: `${item.view} ${t(item.labelKey)} ${t(item.labelKey, { lng: "en" })}`,
       run: () => setActiveView(item.view),
     }))
-    navEntries.push({
+    navs.push({
       id: `view:${SEARCH_NAV_ITEM.view}`,
       label: t(SEARCH_NAV_ITEM.labelKey),
       hint: t("commandPalette.kindView", { defaultValue: "视图" }),
       keywords: `search ${t(SEARCH_NAV_ITEM.labelKey)}`,
       run: () => setActiveView(SEARCH_NAV_ITEM.view),
     })
-    navEntries.push({
+    navs.push({
       id: "view:settings",
       label: t("novel.nav.settings"),
       hint: t("commandPalette.kindView", { defaultValue: "视图" }),
       keywords: `settings ${t("novel.nav.settings")}`,
       run: () => setActiveView("settings"),
     })
-    const chapterEntries: PaletteEntry[] = collectChapterEntries(fileTree ?? []).map((chapter) => ({
+    const chapters: PaletteEntry[] = collectChapterEntries(fileTree ?? []).map((chapter) => ({
       id: `chapter:${chapter.path}`,
       label: chapter.title,
       hint: t("commandPalette.kindChapter", { defaultValue: "章节" }),
-      keywords: chapter.path,
+      keywords: buildChapterKeywords(chapter.title, chapter.path),
       run: () => {
         setActiveView("wiki")
         setSelectedFile(chapter.path)
       },
     }))
-    return [focusEntry, ...chapterEntries, ...navEntries]
+    return { focusEntry: focus, navEntries: navs, chapterEntries: chapters }
   }, [fileTree, focusMode, setActiveView, setFocusMode, setSelectedFile, t])
 
   const filtered = useMemo(() => {
     const q = normalizeQuery(query)
-    if (!q) return entries.slice(0, 40)
-    return entries
+    if (!q) return [focusEntry, ...navEntries, ...chapterEntries.slice(0, 20)]
+    return [focusEntry, ...navEntries, ...chapterEntries]
       .filter((entry) => normalizeQuery(`${entry.label}${entry.keywords}`).includes(q))
       .slice(0, 40)
-  }, [entries, query])
+  }, [focusEntry, navEntries, chapterEntries, query])
 
   const runEntry = useCallback(
     (entry: PaletteEntry | undefined) => {

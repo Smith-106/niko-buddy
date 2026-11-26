@@ -80,10 +80,13 @@ export function MainControlGateRerunBlock({ projectPath, ledger, deps }: MainCon
   const { t } = useTranslation()
   const novelConfig = useWikiStore((s) => s.novelConfig)
   const llmConfig = useWikiStore((s) => s.llmConfig)
+  const dataVersion = useWikiStore((s) => s.dataVersion)
+  const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const [drafts, setDrafts] = useState<ChapterDraft[]>([])
   const [busyId, setBusyId] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [result, setResult] = useState<RerunMainControlGatesResult | null>(null)
+  const [expandedGates, setExpandedGates] = useState<Record<string, boolean>>({})
   /** 账本回读的上一次重跑结论（B9：页签切回来结论仍在）。 */
   const [history, setHistory] = useState<GateRunEvidenceGroup | null>(null)
   /** 回读失败原因（非致命：只是历史面缺失，不影响本次重跑）。 */
@@ -96,7 +99,7 @@ export function MainControlGateRerunBlock({ projectPath, ledger, deps }: MainCon
     let cancelled = false
     void listChapterDrafts(projectPath)
       .then((rows) => {
-        if (!cancelled) setDrafts(rows)
+        if (!cancelled) setDrafts(rows.filter((row) => row.status !== "failed"))
       })
       .catch((error) => {
         if (!cancelled) setNote(toErrorMessage(error))
@@ -104,7 +107,7 @@ export function MainControlGateRerunBlock({ projectPath, ledger, deps }: MainCon
     return () => {
       cancelled = true
     }
-  }, [projectPath])
+  }, [projectPath, dataVersion])
 
   // B9：挂载 / 重跑后回读账本里上一次 `main-control-rerun` 的结论。
   useEffect(() => {
@@ -149,7 +152,24 @@ export function MainControlGateRerunBlock({ projectPath, ledger, deps }: MainCon
         llmConfig,
       })
       setResult(outcome)
-      setNote(t("mainControl.draftGateRerunDone", { overall: t(OVERALL_LABEL_KEYS[outcome.overall]) }))
+      const nextExpanded: Record<string, boolean> = {}
+      for (const row of outcome.rows) {
+        if (
+          row.status === "fail" &&
+          ((row.findingDetails?.length ?? 0) > 0 || (row.repairSuggestions?.length ?? 0) > 0)
+        ) {
+          nextExpanded[row.key] = true
+        }
+      }
+      setExpandedGates(nextExpanded)
+      setNote(
+        outcome.adoptionGate && outcome.adoptionGate !== "passed"
+          ? t("mainControl.draftGateRerunBlocked")
+          : t("mainControl.draftGateRerunDone", { overall: t(OVERALL_LABEL_KEYS[outcome.overall]) }),
+      )
+      if (outcome.adoptionGate !== undefined) {
+        bumpDataVersion?.()
+      }
       // 落账后重新回读账本（本轮结论进历史面；写入归 lib，组件只能重读）
       setReloadToken((token) => token + 1)
     } catch (error) {
@@ -222,15 +242,72 @@ export function MainControlGateRerunBlock({ projectPath, ledger, deps }: MainCon
             {t("mainControl.draftGateRerunCurrent")}
           </p>
           <ul className="flex flex-col gap-0.5">
-            {result.rows.map((row) => (
-              <li key={row.key} className="text-xs" data-testid={`main-control-gate-row-${row.key}`}>
-                <span className="mr-1 font-medium">{t(GATE_LABEL_KEYS[row.key])}</span>
-                <span className={row.status === "pass" ? "text-success" : row.status === "fail" ? "text-destructive" : "text-muted-foreground"}>
-                  {t(GATE_STATUS_LABEL_KEYS[row.status])}
-                </span>
-                <span className="ml-1 text-muted-foreground">· {row.findings}</span>
-              </li>
-            ))}
+            {result.rows.map((row) => {
+              const hasDetails =
+                (row.findingDetails?.length ?? 0) > 0 || (row.repairSuggestions?.length ?? 0) > 0
+              const isExpanded = Boolean(expandedGates[row.key])
+              return (
+                <li key={row.key} className="text-xs" data-testid={`main-control-gate-row-${row.key}`}>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="font-medium">{t(GATE_LABEL_KEYS[row.key])}</span>
+                    <span className={row.status === "pass" ? "text-success" : row.status === "fail" ? "text-destructive" : "text-muted-foreground"}>
+                      {t(GATE_STATUS_LABEL_KEYS[row.status])}
+                    </span>
+                    <span className="text-muted-foreground">· {row.findings}</span>
+                    {hasDetails ? (
+                      <button
+                        type="button"
+                        data-testid={`main-control-gate-row-toggle-${row.key}`}
+                        aria-expanded={isExpanded}
+                        onClick={() =>
+                          setExpandedGates((prev) => ({ ...prev, [row.key]: !prev[row.key] }))
+                        }
+                        className="ml-auto text-xs text-primary underline-offset-2 hover:underline"
+                      >
+                        {isExpanded
+                          ? t("mainControl.draftGateDetailsHide")
+                          : t("mainControl.draftGateDetailsToggle")}
+                      </button>
+                    ) : null}
+                  </div>
+                  {hasDetails && isExpanded ? (
+                    <div
+                      data-testid={`main-control-gate-row-details-${row.key}`}
+                      className="mt-1 space-y-1 rounded border border-border/60 bg-muted/30 p-1.5"
+                    >
+                      {(row.findingDetails ?? []).map((finding, idx) => (
+                        <div key={`${row.key}-finding-${idx}`} className="space-y-0.5">
+                          <p className="text-foreground">
+                            <span className="mr-1 font-medium uppercase text-destructive">
+                              [{finding.severity}]
+                            </span>
+                            {finding.message}
+                          </p>
+                          {finding.evidence ? (
+                            <p className="italic text-muted-foreground">「{finding.evidence}」</p>
+                          ) : null}
+                          {finding.suggestion ? (
+                            <p className="text-success-foreground">{finding.suggestion}</p>
+                          ) : null}
+                        </div>
+                      ))}
+                      {(row.repairSuggestions?.length ?? 0) > 0 ? (
+                        <div className="border-t border-border/50 pt-1">
+                          <p className="font-medium text-muted-foreground">
+                            {t("mainControl.draftGateRepairSuggestions")}
+                          </p>
+                          <ul className="list-disc pl-4 text-muted-foreground">
+                            {(row.repairSuggestions ?? []).map((suggestion, idx) => (
+                              <li key={`${row.key}-sug-${idx}`}>{suggestion}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </li>
+              )
+            })}
           </ul>
           {!result.llmMediated ? (
             <p className="text-xs text-warning-foreground" data-testid="main-control-gate-rerun-no-review">

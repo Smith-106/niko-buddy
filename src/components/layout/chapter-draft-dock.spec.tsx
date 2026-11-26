@@ -60,6 +60,7 @@ describe("ChapterDraftDock", () => {
       draftId: "d1",
       formalChapterPath: "C:/book/正文/第01章.md",
       confirmed: true,
+      expectedDraftContent: "正文",
     })
     expect(onAdopted).toHaveBeenCalledWith("C:/book/正文/第01章.md")
   })
@@ -78,8 +79,9 @@ describe("ChapterDraftDock", () => {
     expect(await screen.findByTestId("chapter-draft-partial-d1")).toBeTruthy()
     expect(screen.getByTestId("chapter-draft-partial-d1").textContent).toContain("截断稿")
 
-    fireEvent.click(await screen.findByTestId("chapter-draft-adopt-d1"))
-    expect(await screen.findByTestId("chapter-draft-confirm-partial")).toBeTruthy()
+    // partial 草稿走门控路径：无 adopt 按钮，先复核再采纳。
+    expect(screen.queryByTestId("chapter-draft-adopt-d1")).toBeNull()
+    expect(await screen.findByTestId("chapter-draft-gate-d1")).toBeTruthy()
   })
 
   it("完整草稿不渲染 partial 提示", async () => {
@@ -485,7 +487,7 @@ describe("G2 采纳即回填四态", () => {
     await waitFor(() => expect(note.textContent).toBe("采纳草稿必须先确认"))
     expect(note.textContent).not.toContain("已写入正式章：")
     expect(note.textContent).not.toContain("记忆回填")
-    expect(note.getAttribute("role")).toBeNull()
+    expect(note.getAttribute("role")).toBe("status")
     expect(acceptDraft).not.toHaveBeenCalled()
     expect(onAdopted).not.toHaveBeenCalled()
   })
@@ -517,5 +519,142 @@ describe("G2 采纳即回填四态", () => {
     // 面板已关：无法二次确认造成重复 accept/ingest
     expect(screen.queryByTestId("chapter-draft-confirm")).toBeNull()
     expect(adoptAndIngest).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("ChapterDraftDock A01 门禁", () => {
+  it("绑定 manual_review 草稿显示门禁提示且不可点采纳；普通草稿照旧可采纳", async () => {
+    const bound: ChapterDraft = {
+      ...draft,
+      adoptionGate: { status: "manual_review" },
+    }
+    const ordinary: ChapterDraft = {
+      ...draft,
+      id: "d2",
+      chapterName: "第02章",
+      content: "第二章正文",
+    }
+    const acceptDraft = vi.fn(async () => ({ formalChapterPath: "C:/book/正文/第01章.md" }))
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => [bound, ordinary]}
+        acceptDraft={acceptDraft}
+        pathExists={async () => false}
+      />,
+    )
+    expect(await screen.findByTestId("chapter-draft-gate-d1")).toBeTruthy()
+    expect(screen.queryByTestId("chapter-draft-adopt-d1")).toBeNull()
+    expect(await screen.findByTestId("chapter-draft-adopt-d2")).toBeTruthy()
+  })
+
+  it("passed 回执草稿走确认流并把复核期正文透传进 accept", async () => {
+    const passed: ChapterDraft = {
+      ...draft,
+      adoptionGate: { status: "passed", bodySha256: "a".repeat(64) },
+    }
+    const acceptDraft = vi.fn(async () => ({ formalChapterPath: "C:/book/正文/第01章.md" }))
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => [passed]}
+        acceptDraft={acceptDraft}
+        pathExists={async () => false}
+      />,
+    )
+    fireEvent.click(await screen.findByTestId("chapter-draft-adopt-d1"))
+    fireEvent.click(await screen.findByTestId("chapter-draft-confirm-accept"))
+    await waitFor(() => expect(acceptDraft).toHaveBeenCalledTimes(1))
+    expect(acceptDraft).toHaveBeenCalledWith(expect.objectContaining({
+      draftId: "d1",
+      expectedDraftContent: "正文",
+    }))
+  })
+
+  it("U-5：门控拦截草稿在传入 onOpenGateRerun 时渲染「前往重跑门控」按钮并触发回调", async () => {
+    const bound: ChapterDraft = {
+      ...draft,
+      adoptionGate: { status: "manual_review" },
+    }
+    const onOpenGateRerun = vi.fn()
+    const { unmount } = render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => [bound]}
+        pathExists={async () => false}
+        onOpenGateRerun={onOpenGateRerun}
+      />,
+    )
+    const gateNote = await screen.findByTestId("chapter-draft-gate-d1")
+    expect(gateNote.textContent).toContain("主控 → AI 实况")
+    const goBtn = screen.getByTestId("chapter-draft-gate-go-d1")
+    expect(goBtn.textContent).toContain("前往重跑门控")
+    fireEvent.click(goBtn)
+    expect(onOpenGateRerun).toHaveBeenCalledTimes(1)
+    unmount()
+
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => [bound]}
+        pathExists={async () => false}
+      />,
+    )
+    await screen.findByTestId("chapter-draft-gate-d1")
+    expect(screen.queryByTestId("chapter-draft-gate-go-d1")).toBeNull()
+  })
+
+  it("R2-U02 / BLOCKING-3：展示 5 态门控徽章、预览正文、覆盖对比、截断稿去编辑器修订与 discardChapterDraft 丢弃", async () => {
+    const { useWikiStore } = await import("@/stores/wiki-store")
+    useWikiStore.setState({ selectedFile: null, activeView: "mainControl" })
+
+    const partialDraft: ChapterDraft = { ...draft, id: "d_partial", partial: true, content: "半截正文" }
+    const discardedDraft: ChapterDraft = { ...draft, id: "d_failed", status: "failed", content: "已废弃" }
+    const discardDraft = vi.fn(async () => {})
+    const readTargetFile = vi.fn(async () => "旧正式章第一行")
+
+    render(
+      <ChapterDraftDock
+        projectPath="C:/book"
+        selectedFile="C:/book/正文/第01章.md"
+        listDrafts={async () => [draft, partialDraft, discardedDraft]}
+        discardDraft={discardDraft}
+        readTargetFile={readTargetFile}
+        pathExists={async () => true}
+      />,
+    )
+
+    // status=failed 默认隐藏
+    await screen.findByTestId("chapter-draft-d1")
+    expect(screen.queryByTestId("chapter-draft-d_failed")).toBeNull()
+
+    // 5 态门控徽章
+    expect(screen.getByTestId("chapter-draft-gate-badge-d1").getAttribute("data-gate-status")).toBe("passed")
+    expect(screen.getByTestId("chapter-draft-gate-badge-d_partial").getAttribute("data-gate-status")).toBe("partial")
+
+    // 预览正文
+    fireEvent.click(screen.getByTestId("chapter-draft-preview-d1"))
+    expect((await screen.findByTestId("draft-preview-body")).textContent).toContain("正文")
+    fireEvent.click(screen.getAllByRole("button", { name: "关闭" })[0])
+
+    // 覆盖对比 (Diff)
+    fireEvent.click(screen.getByTestId("chapter-draft-adopt-d1"))
+    fireEvent.click(await screen.findByTestId("chapter-draft-confirm-diff"))
+    await waitFor(() => expect(readTargetFile).toHaveBeenCalledWith("C:/book/正文/第01章.md"))
+    expect((await screen.findByTestId("draft-diff-line-1")).textContent).toContain("- 旧正式章第一行")
+    fireEvent.click(screen.getAllByRole("button", { name: "关闭" })[0])
+
+    // partial 截断稿：去编辑器修订选中 .qm-drafts/{id}.md 并切 wiki
+    fireEvent.click(screen.getByTestId("chapter-draft-edit-d_partial"))
+    expect(useWikiStore.getState().selectedFile).toBe("C:/book/.qm-drafts/d_partial.md")
+    expect(useWikiStore.getState().activeView).toBe("wiki")
+
+    // partial 截断稿：丢弃走 discardChapterDraft
+    fireEvent.click(screen.getByTestId("chapter-draft-discard-d_partial"))
+    await waitFor(() => expect(discardDraft).toHaveBeenCalledWith("C:/book", "d_partial"))
   })
 })

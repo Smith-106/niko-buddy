@@ -1,26 +1,48 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { CheckCircle2, CircleAlert, CircleX, type LucideIcon } from "lucide-react"
-import { fileExists } from "@/commands/fs"
+import { fileExists, readFile } from "@/commands/fs"
 import {
+  DRAFTS_DIR,
   acceptChapterDraft,
-  formalChapterPathForDraft,
+  discardChapterDraft,
+  draftNeedsGateReview,
+  getDraftGateStatus,
+  resolveChapterDraftAdoptionTarget,
   listChapterDrafts,
   type AcceptDraftAndIngestResult,
   type AcceptDraftIngestStatus,
   type ChapterDraft,
+  type DraftGateStatus,
 } from "@/lib/novel"
+import { formatMemoryIngest } from "@/lib/novel"
+import { normalizePath } from "@/lib/path-utils"
 import { toErrorMessage } from "@/lib/utils"
+import { useWikiStore } from "@/stores/wiki-store"
+import { DraftPreviewDiffDialog } from "@/components/novel/draft-preview-diff-dialog"
+import { createDraftDialogGuard } from "@/components/novel/draft-dialog-guard"
 
-/**
- * 四态 → 文案键（与 accept-draft-with-ingest.ts、main-control-draft-adopt-block.tsx 的
- * 同名映射逐字同构；R-6：改键名必须三处同改）。不新增 i18n 键、不新增第五态。
- */
-const INGEST_NOTE_KEYS: Record<AcceptDraftIngestStatus, string> = {
-  ok: "mainControl.draftIngestOk",
-  "skipped-config": "mainControl.draftIngestSkippedConfig",
-  "skipped-no-model": "mainControl.draftIngestSkippedNoModel",
-  failed: "mainControl.draftIngestFailed",
+const GATE_BADGE_KEYS: Record<DraftGateStatus, string> = {
+  passed: "mainControl.draftGateBadgePassed",
+  unassessed: "mainControl.draftGateBadgeUnassessed",
+  blocked: "mainControl.draftGateBadgeBlocked",
+  manual_review: "mainControl.draftGateBadgeManualReview",
+  partial: "mainControl.draftGateBadgePartial",
+}
+
+const GATE_BADGE_CLASSES: Record<DraftGateStatus, string> = {
+  passed: "border-success/40 bg-success/10 text-success-foreground",
+  unassessed: "border-border bg-muted/50 text-muted-foreground",
+  blocked: "border-destructive/40 bg-destructive/10 text-destructive",
+  manual_review: "border-warning/40 bg-warning/10 text-warning-foreground",
+  partial: "border-warning/40 bg-warning/15 text-warning-foreground",
+}
+
+function formatDraftCreatedAt(ts: number): string {
+  if (!Number.isFinite(ts) || ts <= 0) return ""
+  const date = new Date(ts)
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toLocaleString("zh-CN", { hour12: false })
 }
 
 /**
@@ -35,6 +57,9 @@ const INGEST_NOTE_TONES: Record<AcceptDraftIngestStatus, NoteTone> = {
   ok: "success",
   "skipped-config": "warning",
   "skipped-no-model": "warning",
+  "skipped-not-final": "warning",
+  pending: "warning",
+  partial: "warning",
   failed: "error",
 }
 
@@ -62,6 +87,8 @@ export interface ChapterDraftDockAdoptAndIngestInput {
   formalChapterPath: string
   /** accept 已落盘的回执：此后即便 ingest 抛错也不能再当「采纳失败」（不掩盖已写正文）。 */
   onAcceptSettled?: () => void
+  /** A01 绑定草稿复核期正文快照：不一致则 accept 通道拒绝写入。 */
+  expectedDraftContent?: string
 }
 
 export type ChapterDraftDockAdoptAndIngest = (
@@ -74,6 +101,8 @@ export interface ChapterDraftDockProps {
   readonly onAdopted?: (formalChapterPath: string) => void
   readonly listDrafts?: typeof listChapterDrafts
   readonly acceptDraft?: typeof acceptChapterDraft
+  readonly discardDraft?: typeof discardChapterDraft
+  readonly readTargetFile?: (path: string) => Promise<string>
   /**
    * 采纳 + 按设置回填记忆的注入点；缺省时不注入 → 仍走上面的 acceptDraft（只采纳），行为不变。
    */
@@ -88,6 +117,8 @@ export interface ChapterDraftDockProps {
   readonly onGenerateDraft?: () => void
   /** 采纳成功后「查看记忆更新」：跳到记忆中心。缺省不渲染链接。 */
   readonly onOpenMemory?: () => void
+  /** 门控拦截时一键直达「主控 → AI 实况」重跑门控；缺省不渲染按钮。 */
+  readonly onOpenGateRerun?: () => void
 }
 
 interface PendingAdopt {
@@ -103,12 +134,19 @@ export function ChapterDraftDock({
   alerts,
   onGenerateDraft,
   onOpenMemory,
+  onOpenGateRerun,
   listDrafts = listChapterDrafts,
   acceptDraft = acceptChapterDraft,
+  discardDraft = discardChapterDraft,
+  readTargetFile = readFile,
   adoptAndIngest,
   pathExists = fileExists,
 }: ChapterDraftDockProps) {
   const { t } = useTranslation()
+  const dataVersion = useWikiStore((s) => s.dataVersion)
+  const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
+  const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
+  const setActiveView = useWikiStore((s) => s.setActiveView)
   const [drafts, setDrafts] = useState<ChapterDraft[]>([])
   const [pending, setPending] = useState<PendingAdopt | null>(null)
   const [note, setNote] = useState<string | null>(null)
@@ -118,47 +156,175 @@ export function ChapterDraftDock({
   // 与 settled 正交：settled 只说「已落盘」，语气由回填四态决定（跳过/失败不得用成功语气）。
   const [noteTone, setNoteTone] = useState<NoteTone>("success")
   const [busy, setBusy] = useState(false)
+  const [discardingId, setDiscardingId] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [dialogState, setDialogState] = useState<{
+    open: boolean
+    mode: "preview" | "diff"
+    draft: ChapterDraft | null
+    targetPath: string | null
+    existingContent: string | null
+    loading: boolean
+    error: string | null
+  }>({
+    open: false,
+    mode: "preview",
+    draft: null,
+    targetPath: null,
+    existingContent: null,
+    loading: false,
+    error: null,
+  })
 
-  /** 四态 → 文案（键映射固定；reason 只在 failed 时非空）。 */
-  function ingestNote(status: AcceptDraftIngestStatus, reason?: string): string {
-    return t(INGEST_NOTE_KEYS[status], { reason: reason ?? "" })
-  }
+  const mountedRef = useRef(true)
+  const adoptGuardRef = useRef(createDraftDialogGuard())
+  const diffGuardRef = useRef(createDraftDialogGuard())
+
+  useEffect(() => {
+    mountedRef.current = true
+    const adoptGuard = adoptGuardRef.current
+    const diffGuard = diffGuardRef.current
+    return () => {
+      mountedRef.current = false
+      adoptGuard.invalidate()
+      diffGuard.invalidate()
+    }
+  }, [])
+
+  useEffect(() => {
+    adoptGuardRef.current.invalidate()
+    diffGuardRef.current.invalidate()
+    setPending(null)
+    setDialogState((prev) => (prev.open || prev.loading ? { ...prev, open: false, loading: false } : prev))
+  }, [projectPath])
 
   useEffect(() => {
     if (!projectPath) return
     let cancelled = false
     void listDrafts(projectPath)
       .then((rows) => {
-        if (!cancelled) setDrafts(rows)
+        // BLOCKING-3：默认隐藏已丢弃（status === "failed"）草稿
+        if (!cancelled) setDrafts(rows.filter((row) => row.status !== "failed"))
       })
-      .catch(() => {
-        if (!cancelled) setNote("草稿读不出来。")
+      .catch((err) => {
+        void err
+        if (!cancelled) setNote(t("workspace.draftDock.loadFailed", { defaultValue: "草稿读不出来。" }))
       })
     return () => {
       cancelled = true
     }
-  }, [listDrafts, projectPath, reloadKey])
+  }, [listDrafts, projectPath, reloadKey, dataVersion, t])
 
   async function askAdopt(draft: ChapterDraft): Promise<void> {
     // 第一步只展开确认面板：不写盘、不 ingest；同时清掉上一轮的庆祝态与语气。
+    const token = adoptGuardRef.current.begin()
+    diffGuardRef.current.invalidate()
     setSettled(false)
     setNoteTone("success")
     let target = ""
     try {
-      target = formalChapterPathForDraft(projectPath, draft.chapterName, selectedFile)
+      target = await resolveChapterDraftAdoptionTarget(projectPath, draft, selectedFile)
     } catch (error) {
-      setNote(error instanceof Error ? error.message : "不能确定正式章位置")
+      if (!mountedRef.current || !adoptGuardRef.current.isCurrent(token)) return
+      setNote(error instanceof Error ? error.message : t("workspace.draftDock.resolveTargetFailed", { defaultValue: "不能确定正式章位置" }))
       return
     }
-    const occupied = await pathExists(target).catch(() => true)
+    if (!mountedRef.current || !adoptGuardRef.current.isCurrent(token)) return
+    const occupied = await pathExists(target).catch((err) => {
+      void err
+      return true
+    })
+    if (!mountedRef.current || !adoptGuardRef.current.isCurrent(token)) return
     setPending({ draft, target, occupied })
     setNote(null)
+  }
+
+  function openPreview(draft: ChapterDraft): void {
+    diffGuardRef.current.invalidate()
+    setDialogState({
+      open: true,
+      mode: "preview",
+      draft,
+      targetPath: null,
+      existingContent: null,
+      loading: false,
+      error: null,
+    })
+  }
+
+  async function openOverwriteDiff(targetPending: PendingAdopt): Promise<void> {
+    const token = diffGuardRef.current.begin()
+    if (!targetPending.occupied) {
+      setDialogState({
+        open: true,
+        mode: "diff",
+        draft: targetPending.draft,
+        targetPath: targetPending.target,
+        existingContent: null,
+        loading: false,
+        error: null,
+      })
+      return
+    }
+    setDialogState({
+      open: true,
+      mode: "diff",
+      draft: targetPending.draft,
+      targetPath: targetPending.target,
+      existingContent: null,
+      loading: true,
+      error: null,
+    })
+    try {
+      const existing = await readTargetFile(targetPending.target)
+      if (!mountedRef.current || !diffGuardRef.current.isCurrent(token)) return
+      setDialogState((prev) => ({
+        ...prev,
+        existingContent: existing,
+        loading: false,
+      }))
+    } catch (err) {
+      if (!mountedRef.current || !diffGuardRef.current.isCurrent(token)) return
+      setDialogState((prev) => ({
+        ...prev,
+        loading: false,
+        error: t("mainControl.draftDiffLoadFailed", { message: toErrorMessage(err) }),
+      }))
+    }
+  }
+
+  function handleEditDraftInEditor(draft: ChapterDraft): void {
+    if (!projectPath) return
+    const root = normalizePath(projectPath).replace(/\/+$/, "")
+    const draftPath = `${root}/${DRAFTS_DIR}/${draft.id}.md`
+    setSelectedFile?.(draftPath)
+    setActiveView?.("wiki")
+  }
+
+  async function handleDiscardDraft(draft: ChapterDraft): Promise<void> {
+    if (!projectPath || discardingId) return
+    setDiscardingId(draft.id)
+    setSettled(false)
+    try {
+      // BLOCKING-3：必须经 discardChapterDraft 原子标废，严禁调 deleteFile
+      await discardDraft(projectPath, draft.id)
+      if (pending?.draft.id === draft.id) setPending(null)
+      setNoteTone("warning")
+      setNote(t("mainControl.draftDiscarded", { name: draft.chapterName }))
+      setReloadKey((key) => key + 1)
+      bumpDataVersion?.()
+    } catch (err) {
+      setNoteTone("error")
+      setNote(t("mainControl.draftDiscardFailed", { message: toErrorMessage(err) }))
+    } finally {
+      setDiscardingId(null)
+    }
   }
 
   async function confirmAdopt(): Promise<void> {
     /* v8 ignore next -- 台账 chapter-draft-dock.tsx L81：确认块整体在 `{pending ? ...}` 内渲染（L155），`!pending` 不可达；`busy` 由 disabled={busy}（L166）挡住 */
     if (!pending || busy) return
+    if (draftNeedsGateReview(pending.draft)) return
     setBusy(true)
     // 局部回执（不用 ref、不靠 await 后读过期闭包）：区分「采纳没落盘」与「已落盘但回填异常」。
     let acceptSettled = false
@@ -168,17 +334,23 @@ export function ChapterDraftDock({
           projectPath,
           draftId: pending.draft.id,
           formalChapterPath: pending.target,
+          expectedDraftContent: pending.draft.content,
           onAcceptSettled: () => {
             acceptSettled = true
           },
         })
         setPending(null)
         setSettled(true)
-        setNoteTone(INGEST_NOTE_TONES[outcome.ingest])
+        setNoteTone(
+          outcome.failReason === "memory_pending" || outcome.failReason === "not_final"
+            ? "warning"
+            : INGEST_NOTE_TONES[outcome.ingest],
+        )
         setNote(
-          `${t("mainControl.draftAcceptDone", { path: outcome.formalChapterPath })} · ${ingestNote(outcome.ingest, outcome.failReason)}`,
+          `${t("mainControl.draftAcceptDone", { path: outcome.formalChapterPath })} · ${formatMemoryIngest(t, outcome)}`,
         )
         setReloadKey((key) => key + 1)
+        bumpDataVersion?.()
         onAdopted?.(outcome.formalChapterPath)
       } else {
         const result = await acceptDraft({
@@ -186,12 +358,14 @@ export function ChapterDraftDock({
           draftId: pending.draft.id,
           formalChapterPath: pending.target,
           confirmed: true,
+          expectedDraftContent: pending.draft.content,
         })
         setPending(null)
         setSettled(true)
         setNoteTone("success")
         setNote("已写入正式章。")
         setReloadKey((key) => key + 1)
+        bumpDataVersion?.()
         onAdopted?.(result.formalChapterPath)
       }
     } catch (error) {
@@ -201,9 +375,10 @@ export function ChapterDraftDock({
         setSettled(true)
         setNoteTone("error")
         setNote(
-          `${t("mainControl.draftAcceptDone", { path: pending.target })} · ${ingestNote("failed", toErrorMessage(error))}`,
+          `${t("mainControl.draftAcceptDone", { path: pending.target })} · ${t("mainControl.draftIngestFailed", { reason: toErrorMessage(error) })}`,
         )
         setReloadKey((key) => key + 1)
+        bumpDataVersion?.()
         onAdopted?.(pending.target)
       } else {
         setSettled(false)
@@ -253,30 +428,100 @@ export function ChapterDraftDock({
         </div>
       ) : null}
       <ul className="space-y-1.5">
-        {drafts.map((draft) => (
-          <li key={draft.id} className="rounded border px-2 py-1.5" data-testid={`chapter-draft-${draft.id}`}>
-            <div className="font-medium">{draft.chapterName}</div>
-            <div className="text-muted-foreground">{draft.status === "saved" ? "已写入正式章" : "尚未写入正式章"}</div>
-            {draft.partial ? (
-              <div
-                className="mt-1 rounded border border-warning/40 bg-warning/10 px-1.5 py-1 text-warning-foreground"
-                data-testid={`chapter-draft-partial-${draft.id}`}
-              >
-                截断稿：正文可能不完整，采纳前请先复核。
+        {drafts.map((draft) => {
+          const gateStatus = getDraftGateStatus(draft)
+          const wordCount = draft.content.replace(/\s/g, "").length
+          const createdLabel = formatDraftCreatedAt(draft.createdAt)
+          return (
+            <li key={draft.id} className="rounded border px-2 py-1.5" data-testid={`chapter-draft-${draft.id}`}>
+              <div className="flex flex-wrap items-center justify-between gap-1">
+                <span className="font-medium">{draft.chapterName}</span>
+                <span
+                  data-testid={`chapter-draft-gate-badge-${draft.id}`}
+                  data-gate-status={gateStatus}
+                  className={`rounded border px-1.5 py-0.5 text-[11px] font-medium ${GATE_BADGE_CLASSES[gateStatus]}`}
+                >
+                  {t(GATE_BADGE_KEYS[gateStatus])}
+                </span>
               </div>
-            ) : null}
-            {draft.status !== "saved" ? (
-              <button
-                type="button"
-                className="mt-1 rounded border px-2 py-1"
-                data-testid={`chapter-draft-adopt-${draft.id}`}
-                onClick={() => void askAdopt(draft)}
-              >
-                采纳
-              </button>
-            ) : null}
-          </li>
-        ))}
+              <div className="mt-0.5 flex flex-wrap items-center gap-2 text-muted-foreground">
+                <span>{draft.status === "saved" ? "已写入正式章" : "尚未写入正式章"}</span>
+                <span data-testid={`chapter-draft-words-${draft.id}`}>
+                  {t("mainControl.draftWords", { count: wordCount })}
+                </span>
+                {createdLabel ? (
+                  <span data-testid={`chapter-draft-time-${draft.id}`}>{createdLabel}</span>
+                ) : null}
+              </div>
+              {draft.partial ? (
+                <div
+                  className="mt-1 rounded border border-warning/40 bg-warning/10 px-1.5 py-1 text-warning-foreground"
+                  data-testid={`chapter-draft-partial-${draft.id}`}
+                >
+                  {t("mainControl.draftPartialHint")}
+                </div>
+              ) : null}
+              <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                <button
+                  type="button"
+                  className="rounded border border-border px-2 py-1 text-xs hover:bg-accent"
+                  data-testid={`chapter-draft-preview-${draft.id}`}
+                  onClick={() => openPreview(draft)}
+                >
+                  {t("mainControl.draftPreview")}
+                </button>
+                {draft.status !== "saved" && gateStatus === "partial" ? (
+                  <>
+                    <button
+                      type="button"
+                      className="rounded border border-primary/60 px-2 py-1 text-xs text-primary hover:bg-accent"
+                      data-testid={`chapter-draft-edit-${draft.id}`}
+                      onClick={() => handleEditDraftInEditor(draft)}
+                    >
+                      {t("mainControl.draftEditInEditor")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={discardingId !== null}
+                      className="rounded border border-destructive/50 px-2 py-1 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-40"
+                      data-testid={`chapter-draft-discard-${draft.id}`}
+                      onClick={() => void handleDiscardDraft(draft)}
+                    >
+                      {t("mainControl.draftDiscard")}
+                    </button>
+                  </>
+                ) : null}
+                {draft.status !== "saved" && !draftNeedsGateReview(draft) ? (
+                  <button
+                    type="button"
+                    className="rounded border px-2 py-1"
+                    data-testid={`chapter-draft-adopt-${draft.id}`}
+                    onClick={() => void askAdopt(draft)}
+                  >
+                    采纳
+                  </button>
+                ) : null}
+              </div>
+              {draft.status !== "saved" && draftNeedsGateReview(draft) ? (
+                <div className="mt-1 space-y-1">
+                  <p className="text-xs text-muted-foreground" data-testid={`chapter-draft-gate-${draft.id}`}>
+                    {t("mainControl.draftGateRequired")}
+                  </p>
+                  {onOpenGateRerun ? (
+                    <button
+                      type="button"
+                      className="rounded border border-primary/60 px-2 py-1 text-xs text-primary hover:bg-accent"
+                      data-testid={`chapter-draft-gate-go-${draft.id}`}
+                      onClick={onOpenGateRerun}
+                    >
+                      {t("mainControl.draftGateGoRerun")}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </li>
+          )
+        })}
       </ul>
       {pending ? (
         <div className="rounded border border-warning/40 bg-warning/10 p-2" data-testid="chapter-draft-confirm">
@@ -289,27 +534,52 @@ export function ChapterDraftDock({
               这份草稿是截断稿，正文可能不完整；采纳会把不完整正文写进正式章。
             </p>
           ) : null}
-          <div className="mt-1 flex gap-1">
+          <div className="mt-1 flex flex-wrap gap-1">
             <button
               type="button"
               className="rounded border px-2 py-1 disabled:opacity-40"
               data-testid="chapter-draft-confirm-accept"
-              disabled={busy}
+              disabled={busy || draftNeedsGateReview(pending.draft)}
               onClick={() => void confirmAdopt()}
             >
               确认采纳
             </button>
             <button
               type="button"
+              className="rounded border border-border px-2 py-1 hover:bg-accent"
+              data-testid="chapter-draft-confirm-diff"
+              onClick={() => void openOverwriteDiff(pending)}
+            >
+              {t("mainControl.draftCompareDiff")}
+            </button>
+            <button
+              type="button"
               className="rounded border px-2 py-1"
               data-testid="chapter-draft-confirm-cancel"
-              onClick={() => setPending(null)}
+              onClick={() => {
+                adoptGuardRef.current.invalidate()
+                diffGuardRef.current.invalidate()
+                setPending(null)
+              }}
             >
-              取消
+              {t("common.cancel", { defaultValue: "取消" })}
             </button>
           </div>
         </div>
       ) : null}
+      <DraftPreviewDiffDialog
+        open={dialogState.open}
+        onOpenChange={(open) => {
+          if (!open) diffGuardRef.current.invalidate()
+          setDialogState((prev) => ({ ...prev, open, loading: open ? prev.loading : false }))
+        }}
+        mode={dialogState.mode}
+        draft={dialogState.draft}
+        targetPath={dialogState.targetPath}
+        existingContent={dialogState.existingContent}
+        loading={dialogState.loading}
+        error={dialogState.error}
+      />
       {note ? (
         settled ? (
           // ISS-20260709-018：草稿接受轻量庆祝 — 内联成功态，不弹窗、不抢焦点、
@@ -325,7 +595,7 @@ export function ChapterDraftDock({
           >
             <NoteToneIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>{note}</span>
-            {onOpenMemory ? (
+            {noteTone === "success" && onOpenMemory ? (
               <button
                 type="button"
                 className="ml-auto shrink-0 underline underline-offset-2 hover:no-underline"
@@ -337,7 +607,7 @@ export function ChapterDraftDock({
             ) : null}
           </p>
         ) : (
-          <p data-testid="chapter-draft-note">{note}</p>
+          <p data-testid="chapter-draft-note" role="status" aria-live="polite">{note}</p>
         )
       ) : null}
     </div>

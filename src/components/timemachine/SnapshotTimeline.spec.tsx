@@ -370,4 +370,66 @@ describe("SnapshotTimeline", () => {
       expect(screen.queryByTestId("snapshot-restore-confirm")).toBeNull();
     });
   });
+
+  it("恢复：已预览 diff 带后端 confirm_token 时直接复用，不重复拉取 preview", async () => {
+    previewMock.mockResolvedValue(diff("s1", { confirm_token: "srv-token-s1" }));
+    renderTimeline();
+    const items = await screen.findAllByTestId("snapshot-point");
+    fireEvent.click(within(items[0]).getByText("s1"));
+    await screen.findByTestId("snapshot-diff");
+    expect(previewMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId("snapshot-restore-s1"));
+    const runBtn = await screen.findByTestId("snapshot-restore-confirm-run");
+    // BLOCKING-7：打开确认框时按钮立即可点击，不得异步置灰
+    expect(runBtn).not.toBeDisabled();
+    fireEvent.click(runBtn);
+
+    await waitFor(() => {
+      expect(restoreMock).toHaveBeenCalledWith(PROJECT, "s1", "srv-token-s1");
+    });
+    expect(previewMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("恢复：未提前预览时按需调用 previewSnapshotPoint 获取后端 confirm_token", async () => {
+    previewMock.mockResolvedValueOnce(diff("s2", { confirm_token: "srv-token-s2" }));
+    renderTimeline();
+    await screen.findAllByTestId("snapshot-point");
+
+    fireEvent.click(screen.getByTestId("snapshot-restore-s2"));
+    const runBtn = await screen.findByTestId("snapshot-restore-confirm-run");
+    expect(runBtn).not.toBeDisabled();
+    fireEvent.click(runBtn);
+
+    await waitFor(() => {
+      expect(previewMock).toHaveBeenCalledWith(PROJECT, "s2");
+      expect(restoreMock).toHaveBeenCalledWith(PROJECT, "s2", "srv-token-s2");
+    });
+  });
+
+  it("恢复失败后清除已消费的缓存 confirm_token，重试时重新拉取新令牌", async () => {
+    previewMock
+      .mockResolvedValueOnce(diff("s1", { confirm_token: "srv-token-once-1" }))
+      .mockResolvedValueOnce(diff("s1", { confirm_token: "srv-token-once-2" }));
+    restoreMock
+      .mockRejectedValueOnce(new Error("transient-fail"))
+      .mockResolvedValueOnce(outcome());
+
+    renderTimeline();
+    const items = await screen.findAllByTestId("snapshot-point");
+    fireEvent.click(within(items[0]).getByText("s1"));
+    await screen.findByTestId("snapshot-diff");
+
+    fireEvent.click(screen.getByTestId("snapshot-restore-s1"));
+    fireEvent.click(await screen.findByTestId("snapshot-restore-confirm-run"));
+    await screen.findByTestId("snapshot-error");
+    expect(restoreMock).toHaveBeenNthCalledWith(1, PROJECT, "s1", "srv-token-once-1");
+
+    // 重试不得复用已消费的 srv-token-once-1，必须按需重拉新令牌
+    fireEvent.click(screen.getByTestId("snapshot-restore-confirm-run"));
+    await waitFor(() => {
+      expect(restoreMock).toHaveBeenNthCalledWith(2, PROJECT, "s1", "srv-token-once-2");
+    });
+    expect(previewMock).toHaveBeenCalledTimes(2);
+  });
 });

@@ -216,6 +216,7 @@ beforeEach(() => {
   setupDomGlobals()
   mocks.state.providerConfigs = {}
   mocks.state.activePresetId = null
+  mocks.store.data = {}
   mocks.batch.state = { loading: false, success: false, message: "", failedModels: undefined }
   mocks.batch.runBatchTest.mockClear()
   mocks.batch.retryFailed.mockClear()
@@ -511,10 +512,13 @@ describe("CustomProviderCards", () => {
     })
   })
 
-  it("shows loading state while fetching models (button disabled + loading label)", () => {
-    mocks.fetchLlmModelList.mockReturnValueOnce(new Promise(() => {}))
+  it("shows loading state while fetching models (button disabled + loading label) and ignores unmount settlement", async () => {
+    let resolveFetch!: (value: { models: string[] }) => void
+    mocks.fetchLlmModelList.mockImplementationOnce(
+      () => new Promise<{ models: string[] }>((resolve) => { resolveFetch = resolve }),
+    )
     mocks.state.providerConfigs = { "custom-1": { label: "C1", enabled: true } }
-    render(<CustomProviderCards />)
+    const { unmount } = render(<CustomProviderCards />)
     const card = cardByLabel("C1")
     expandCard(card)
     fireEvent.click(within(card).getByText(FETCH_BTN))
@@ -522,6 +526,47 @@ describe("CustomProviderCards", () => {
     expect(loadingLabel).toBeInTheDocument()
     expect(loadingLabel.closest("button")).toBeDisabled()
     expect(within(card).getByText(TEST_BTN).closest("button")).toBeDisabled()
+
+    // 卸载后再 settle 挂起的 Promise，验证无泄漏且不报错
+    unmount()
+    resolveFetch({ models: ["late-model"] })
+    await Promise.resolve()
+  })
+
+  it("assigns unique monotonic ids on same-tick rapid addCard and ignores stale model list rejection after unmount", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1700000000000)
+    try {
+      render(<CustomProviderCards />)
+      const addBtn = screen.getByRole("button", { name: /添加模型/ })
+      fireEvent.click(addBtn)
+      fireEvent.click(addBtn)
+      const keys = Object.keys(mocks.state.providerConfigs)
+      expect(keys).toEqual(["custom-1700000000000", "custom-1700000000001"])
+    } finally {
+      nowSpy.mockRestore()
+    }
+
+    let rejectFetch!: (err: Error) => void
+    mocks.fetchLlmModelList.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => { rejectFetch = reject }),
+    )
+    mocks.state.providerConfigs = { "custom-1": { label: "C-late-err", enabled: true } }
+    const { unmount } = render(<CustomProviderCards />)
+    const card = cardByLabel("C-late-err")
+    expandCard(card)
+    fireEvent.click(within(card).getByText(FETCH_BTN))
+    unmount()
+    rejectFetch(new Error("late network error"))
+    await Promise.resolve()
+  })
+
+  it("handles store persistence failure gracefully without unhandled rejection", async () => {
+    mocks.store.set.mockRejectedValueOnce(new Error("disk full"))
+    render(<CustomProviderCards />)
+    fireEvent.click(screen.getByRole("button", { name: /添加模型/ }))
+    await waitFor(() => {
+      expect(mocks.store.set).toHaveBeenCalled()
+    })
   })
 
   it("tests models and shows failed retry UI with retry button", async () => {

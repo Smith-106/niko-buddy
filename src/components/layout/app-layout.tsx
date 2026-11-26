@@ -13,6 +13,7 @@ import { useOutlineGenerationStore, type OutlineGenerationTask, type OutlineGene
 import { openGeneratedOutline, runOutlineIngestTask } from "@/lib/novel"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { ErrorBoundary } from "@/components/error-boundary"
+import { ResizeSplitter } from "@/components/ui/resize-splitter"
 import { clampSidebarWidth } from "@/lib/workspace-layout"
 import { recordRecentView } from "./workbench-helpers"
 import { TitleBar } from "./title-bar"
@@ -56,7 +57,6 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
   })
   // 拆书分析通知：用户手动关闭的任务ID集合（运行中关闭后不再显示，完成后重新弹出）
   const [dismissedBookAnalysisTaskIds, setDismissedBookAnalysisTaskIds] = useState<Set<string>>(new Set())
-  const isDraggingLeft = useRef(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const latestOutlineTask = outlineTasks
     .filter((task: OutlineGenerationTask) => (
@@ -92,40 +92,11 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
     return () => { cancelled = true }
   }, [project, setFileTree])
 
-  const startDrag = useCallback(
-    (side: "left") => (e: React.MouseEvent) => {
-      e.preventDefault()
-      /* v8 ignore next */
-      if (side === "left") isDraggingLeft.current = true
-      document.body.style.cursor = "col-resize"
-      document.body.style.userSelect = "none"
-      document.body.dataset.panelResizing = "true"
-
-      const handleMouseMove = (e: MouseEvent) => {
-        if (!containerRef.current) return
-        const rect = containerRef.current.getBoundingClientRect()
-
-        /* v8 ignore next */
-        if (isDraggingLeft.current) {
-          const newWidth = e.clientX - rect.left
-          setLeftWidth(clampSidebarWidth(newWidth))
-        }
-      }
-
-      const handleMouseUp = () => {
-        isDraggingLeft.current = false
-        document.body.style.cursor = ""
-        document.body.style.userSelect = ""
-        delete document.body.dataset.panelResizing
-        document.removeEventListener("mousemove", handleMouseMove)
-        document.removeEventListener("mouseup", handleMouseUp)
-      }
-
-      document.addEventListener("mousemove", handleMouseMove)
-      document.addEventListener("mouseup", handleMouseUp)
-    },
-    []
-  )
+  const resolveSidebarWidth = useCallback(({ clientX }: { clientX: number }) => {
+    if (!containerRef.current) return null
+    const rect = containerRef.current.getBoundingClientRect()
+    return clampSidebarWidth(clientX - rect.left)
+  }, [])
 
   // Settings is a full-width admin view — the file tree / activity panel
   // are irrelevant there and their narrow column makes the settings form
@@ -163,8 +134,8 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
         setFocusMode(!useWikiStore.getState().focusMode)
       }
     }
-    window.addEventListener("keydown", onKeyDown)
-    return () => window.removeEventListener("keydown", onKeyDown)
+    window.addEventListener("keydown", onKeyDown, true)
+    return () => window.removeEventListener("keydown", onKeyDown, true)
   }, [setFocusMode])
 
   const dismissUsageGuidePrompt = useCallback(() => {
@@ -395,9 +366,14 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
               </div>
               <ActivityPanel />
             </div>
-            <div
-              className="w-1.5 shrink-0 cursor-col-resize bg-border/40 transition-colors hover:bg-primary/30 active:bg-primary/40"
-              onMouseDown={startDrag("left")}
+            <ResizeSplitter
+              orientation="vertical"
+              value={leftWidth}
+              min={150}
+              max={400}
+              ariaLabel={t("appLayout.resizeSidebar", { defaultValue: "调整侧边栏宽度" })}
+              resolveDragValue={resolveSidebarWidth}
+              onChange={setLeftWidth}
             />
           </>
         )}

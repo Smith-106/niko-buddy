@@ -113,7 +113,7 @@ export function BookshelfView({ projectPath }: BookshelfViewProps) {
     <ReportPage
       testId="bookshelf-view"
       title="书架"
-      description="已导入的拆书作品。先选一本，再继续或打开分析。"
+      description="已导入的拆书作品。先选一本，再打开拆书分析。"
       actions={
         entries !== null && entries.length > 0 ? (
           <span className="text-xs text-muted-foreground">共 {entries.length} 本拆书作品</span>
@@ -141,7 +141,7 @@ export function BookshelfView({ projectPath }: BookshelfViewProps) {
       ) : (
         <>
         <ReportSection title="下一步">
-          <p className="text-base font-medium">点一本，然后继续创作或打开分析。</p>
+          <p className="text-base font-medium">点一本，打开拆书分析。</p>
         </ReportSection>
         <ul data-testid="bookshelf-list" className="flex flex-col gap-2">
           {entries.map((entry) => {
@@ -177,19 +177,11 @@ export function BookshelfView({ projectPath }: BookshelfViewProps) {
                 <span className="mt-2 flex gap-2">
                   <button
                     type="button"
-                    data-testid={`bookshelf-continue-${entry.bookId}`}
-                    onClick={() => openInAnalysis(entry.bookId)}
-                    className="rounded border border-border px-2 py-1 text-xs"
-                  >
-                    继续创作
-                  </button>
-                  <button
-                    type="button"
                     data-testid={`bookshelf-open-analysis-${entry.bookId}`}
                     onClick={() => openInAnalysis(entry.bookId)}
                     className="rounded border border-border px-2 py-1 text-xs"
                   >
-                    打开分析
+                    打开拆书分析
                   </button>
                 </span>
               </li>

@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest"
+import { createHash } from "node:crypto"
 import { fireEvent, screen, within, waitFor } from "@/test-helpers/component-test-utils"
-import { getChatPanelMocks, deepGenResult, reviewResult, sessionStatus, PROJECT, setConversation, setMessages, msg, renderPanel, rerenderPanel, flushAsync, lastStreamChatCall, lastFinalize } from "./chat-panel-test-setup"
+import { getChatPanelMocks, deepGenResult, reviewResult, sessionStatus, PROJECT, setConversation, setMessages, msg, renderPanel, rerenderPanel, flushAsync, lastStreamChatCall, lastFinalize, mockManagedDraft } from "@/test-helpers/chat-panel/chat-panel-test-setup"
+import { readManagedDeepChapterDraftMessage } from "./chat-message-content"
+import { appendContextUsageMarker, appendManagedDeepChapterDraftMarker } from "./chat-message-markers"
+import type { DisplayMessage } from "@/stores/chat-store"
 
 const mocks = getChatPanelMocks()
 
@@ -208,7 +212,10 @@ describe("ChatPanel — 继续未完成 (continue unfinished)", () => {
     const [, msgs] = lastStreamChatCall()
     expect(msgs[0].role).toBe("system")
     expect(contentText(msgs[0].content)).toContain("CONTEXT_PACK_PROMPT")
-    expect(lastFinalize()[0]).toContain("## 继续未完成")
+    expect(readManagedDeepChapterDraftMessage(lastFinalize()[0])).toMatchObject({
+      body: "继续未完成失败：模型没有返回内容。",
+      draftStatus: "pending",
+    })
   })
 
   it("无 checkpoint 且原始请求为空 → 仅基础 system prompt", async () => {
@@ -359,55 +366,100 @@ describe("ChatPanel — 保存 / 丢弃章节草稿", () => {
     expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
   })
 
-  it("保存成功（next 策略）：写 chapter 文件 + accepted marker + 状态回填 + 切 wiki 视图", async () => {
+  it("采纳以存档章号、原请求和精确 CRLF 正文写入，并保留 accepted 会话 ID", async () => {
     mocks.wikiState.project = PROJECT
+    mocks.wikiState.selectedFile = "/p/mybook/wiki/chapters/chapter-002.md"
     setConversation("conv-1")
+    const body = "\r\n# 第12章 标题X\r\n\r\n  正文内容  \r\n\t\r\n"
+    const { draft, message } = mockManagedDraft(body, {
+      chapter_number: 12,
+      user_request: "存档请求：写第12章",
+    })
+    const thinking = "<think>\n阶段一\n</think>\n\n<think>\n阶段二\n</think>\n\n"
+    const content = appendContextUsageMarker(thinking + message.content, deepGenResult().contextUsage)
     setMessages([
-      msg({ id: "u1", role: "user", content: "写第3章" }),
-      msg({ id: "a1", role: "assistant", content: "# 第3章 标题\n正文内容" }),
+      msg({ id: "u1", role: "user", content: "不是存档请求：写第2章" }),
+      msg({ id: "u2", role: "user", content: "继续未完成" }),
+      { ...message, content },
     ])
-    mocks.cleanGeneratedChapterContentWithTitle.mockReturnValue({ content: "清理后正文", title: "标题X" })
     renderPanel()
-    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    fireEvent.click(screen.getAllByTestId("save-as-chapter")[2])
     await flushAsync()
-    expect(mocks.getNextChapterNumber).toHaveBeenCalledWith("/p/mybook")
-    expect(mocks.createDirectory).toHaveBeenCalledWith("/p/mybook/wiki/chapters")
+    const chapterPath = "/p/mybook/wiki/chapters/chapter-012.md"
+    expect(mocks.requireManagedDeepChapterDraft).toHaveBeenCalledWith(PROJECT.path, "conv-1", "accept")
+    expect(mocks.getManagedDraftAdoptionGate).toHaveBeenCalledWith(draft)
+    expect(mocks.findChapterFileByNumber).toHaveBeenCalledWith(PROJECT.path, 12)
+    expect(mocks.readManagedChapterForWrite).toHaveBeenCalledWith(chapterPath)
+    expect(mocks.getNextChapterNumber).not.toHaveBeenCalled()
+    expect(mocks.readSelectedChapterNumberForFile).not.toHaveBeenCalled()
+    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledTimes(1)
     expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledWith(
       expect.objectContaining({
-        projectPath: "/p/mybook",
+        projectPath: PROJECT.path,
         conversationId: "conv-1",
-        chapterNumber: 7,
-        chapterPath: "/p/mybook/wiki/chapters/chapter-007.md",
+        sessionId: draft.session_id,
+        userRequest: draft.user_request,
+        chapterNumber: 12,
+        chapterPath,
+        expectedExistingContent: null,
+        overwriteExisting: false,
       }),
     )
-    expect(mocks.invalidateChapterCache).toHaveBeenCalledWith("/p/mybook")
-    expect(mocks.chatState.setMessages).toHaveBeenCalled()
-    const setMessagesCall = mocks.chatState.setMessages.mock.calls[0][0]
-    const updated = setMessagesCall.find((m: any) => m.id === "a1")
-    expect(decodeURIComponent(updated.content)).toContain('"draftStatus":"accepted"')
-    expect(mocks.wikiState.setSelectedFile).toHaveBeenCalledWith("/p/mybook/wiki/chapters/chapter-007.md")
+    const [{ finalChapterContent }] = mocks.commitAcceptedDeepChapterDraft.mock.calls[0]
+    expect(finalChapterContent.split("\n---\n")).toEqual([
+      expect.stringContaining("chapter_number: 12\nchapter_status: final\ntitle: \"第12章 标题X\""),
+      body,
+    ])
+    expect(mocks.invalidateChapterCache).toHaveBeenCalledWith(PROJECT.path)
+    const updated = mocks.chatState.setMessages.mock.calls[0][0].find((m: DisplayMessage) => m.id === message.id)
+    expect(readManagedDeepChapterDraftMessage(updated.content)).toMatchObject({
+      draftStatus: "accepted", conversationId: draft.conversation_id, sessionId: draft.session_id,
+    })
+    expect(mocks.wikiState.setSelectedFile).toHaveBeenCalledWith(chapterPath)
     expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("wiki")
-    expect(mocks.refreshProjectState).toHaveBeenCalledWith("/p/mybook")
-    expect(screen.getByTestId("save-status").textContent).toContain("已接受草稿并保存为 标题X")
-    expect(mocks.wikiState.novelConfig.autoIngestOnSave).toBe(false) // 默认关闭
+    expect(mocks.refreshProjectState).toHaveBeenCalledWith(PROJECT.path)
+    expect(screen.getByTestId("save-status").textContent).toContain("已接受草稿并保存为 第12章 标题X")
+    expect(mocks.ingestChapter).not.toHaveBeenCalled()
   })
 
-  it("保存成功（direct_explicit_target_new 策略）：targetChapterNumber 直接使用", async () => {
+  it("未评估草稿不能采纳；复核通过后仍须另点保存才写正式章", async () => {
     mocks.wikiState.project = PROJECT
-    mocks.decideChapterSaveStrategy.mockReturnValue({
-      action: "direct_explicit_target_new",
-      targetChapterNumber: 5,
-    })
-    mocks.detectGeneratedTargetChapterNumber.mockReturnValue(5)
-    mocks.findChapterFileByNumber.mockImplementation(async () => null)
     setConversation("conv-1")
-    setMessages([
-      msg({ id: "u1", role: "user", content: "写章节" }),
-      msg({ id: "a1", role: "assistant", content: "正文" }),
-    ])
+    const { draft, message } = mockManagedDraft("# 第5章 复核对象\n正文内容")
+    setMessages([message])
+    mocks.getManagedDraftAdoptionGate.mockResolvedValue("unassessed")
+    mocks.rerunMainControlGates.mockImplementationOnce(async () => {
+      mocks.getManagedDraftAdoptionGate.mockResolvedValue("passed")
+      return {
+        draftId: draft.draft_id, chapterNumber: 5, adoptionGate: "passed", overall: "pass",
+        rows: [], contractEvaluated: true, llmMediated: true, unassessedDimensions: [],
+      }
+    })
     renderPanel()
-    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
     await flushAsync()
+    expect(screen.getByTestId("save-status").textContent).toContain("须通过正文复核")
+    expect(mocks.rerunMainControlGates).not.toHaveBeenCalled()
+    expect(mocks.readManagedChapterForWrite).not.toHaveBeenCalled()
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId("review-draft"))
+    await flushAsync()
+    expect(mocks.rerunMainControlGates).toHaveBeenCalledWith({
+      draftId: draft.draft_id,
+      projectPath: PROJECT.path,
+      novelConfig: mocks.wikiState.novelConfig,
+      llmConfig: mocks.wikiState.llmConfig,
+      managedDraft: { artifact: draft, chapterNumber: 5 },
+    })
+    expect(screen.getByTestId("save-status").textContent).toBe("复核已通过，尚未采纳草稿。")
+    expect(mocks.readManagedChapterForWrite).not.toHaveBeenCalled()
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
+    expect(mocks.ingestChapter).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
+    await flushAsync()
+    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledTimes(1)
     expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledWith(
       expect.objectContaining({ chapterNumber: 5, chapterPath: "/p/mybook/wiki/chapters/chapter-005.md" }),
     )
@@ -417,7 +469,57 @@ describe("ChatPanel — 保存 / 丢弃章节草稿", () => {
   it("autoIngestOnSave：可用 LLM + 摄取成功", async () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelConfig.autoIngestOnSave = true
+    const base = PROJECT.path
+    const sourcePath = `${base}/wiki/chapters/chapter-005.md`
+    const historyPath = `${base}/.novel/snapshots/history/005/extraction.snapshot.json`
+    const body = "# 测试章\n正文"
+    const source = `---
+type: chapter
+chapter_number: 5
+chapter_status: final
+---
+${body}`
+    const sha = (value: string) => createHash("sha256").update(value, "utf8").digest("hex")
+    const extraction = { chapterNumber: 5, snapshotId: "chapter-005-r1", revision: 1, isHistorical: false }
+    const archive = JSON.stringify({ ...extraction, isHistorical: true }, null, 2)
+    const current = JSON.stringify({ ...extraction, snapshotId: "chapter-005-r2", revision: 2, supersedes: "chapter-005-r1" }, null, 2)
+    const files = new Map<string, string>([
+      [sourcePath, source],
+      [historyPath, archive],
+      [`${base}/.novel/snapshots/005.snapshot.json`, current],
+      [`${base}/.novel/projection-status.json`, JSON.stringify({
+        schemaVersion: "2",
+        chapters: { "5": { sync_snapshot_to_memory: { projection: "sync_snapshot_to_memory", category: "fold_rebuildable", status: "committed", updated_at: "2026-01-01T00:00:00Z", last_error: "" } } },
+      })],
+    ])
+    mocks.readFile.mockImplementation(async (path) => {
+      const text = files.get(path)
+      if (text === undefined) throw new Error(`ENOENT: ${path}`)
+      return text
+    })
     mocks.ingestChapter.mockImplementation(async () => ({
+      ledgerSaveFailed: false,
+      factsStoreFailed: false,
+      failedProjections: [],
+      pendingProjections: [],
+      committedProjections: ["sync_snapshot_to_memory"],
+      canonOutcome: { status: "skipped", reason: "no_facts" },
+      receipt: {
+        readPath: sourcePath,
+        chapterNumber: 5,
+        bodySha256: sha(body),
+        contentSha256: sha(source),
+        snapshotIdAtExtractionCommit: "chapter-005-r1",
+        snapshotRevisionAtExtractionCommit: 1,
+        snapshotJsonSha256AtExtractionCommit: sha(JSON.stringify(extraction, null, 2)),
+        canonOutcome: { status: "skipped", reason: "no_facts" },
+      },
+      projectionReceipt: {
+        extractionHistoryPath: historyPath,
+        snapshotId: "chapter-005-r2",
+        revision: 2,
+        snapshotJsonSha256: sha(current),
+      },
       snapshot: {
         chapterId: "chapter-005",
         chapterNumber: 5,
@@ -440,34 +542,32 @@ describe("ChatPanel — 保存 / 丢弃章节草稿", () => {
       },
     }))
     setConversation("conv-1")
-    setMessages([
-      msg({ id: "u1", role: "user", content: "q" }),
-      msg({ id: "a1", role: "assistant", content: "正文" }),
-    ])
+    setMessages([mockManagedDraft(body).message])
     renderPanel()
-    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
     // 动态导入 chapter-ingest / canon-dual-write 超出单次 setTimeout(0) 的 flush 能力，改用轮询断言
     await waitFor(() => {
-      expect(screen.getByTestId("save-status").textContent).toContain("已接受草稿并保存为 测试章")
+      const status = screen.getByTestId("save-status").textContent ?? ""
+      expect(status).toContain("已接受草稿并保存为 测试章")
+      expect(status).toContain("记忆回填完成")
     })
     expect(mocks.ingestChapter).toHaveBeenCalled()
-    expect(screen.getByTestId("save-status").textContent).not.toContain("未完成")
   })
 
-  it("autoIngestOnSave：摄取无 snapshot → 提示未完成", async () => {
+  it.each([
+    [undefined, "但章节摄取未完成"],
+    ["not_final", "章节未标为终稿，已跳过记忆回填"],
+  ] as const)("autoIngestOnSave：摄取无 snapshot（%s）→ 如实提示状态", async (failReason, status) => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelConfig.autoIngestOnSave = true
-    mocks.ingestChapter.mockImplementation(async () => ({ snapshot: null }))
+    mocks.ingestChapter.mockImplementation(async () => ({ snapshot: null, failReason }))
     setConversation("conv-1")
-    setMessages([
-      msg({ id: "u1", role: "user", content: "q" }),
-      msg({ id: "a1", role: "assistant", content: "正文" }),
-    ])
+    setMessages([mockManagedDraft("# 测试章\n正文").message])
     renderPanel()
-    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
     // 同上：动态导入导致时序超出 flushAsync，改用轮询断言
     await waitFor(() => {
-      expect(screen.getByTestId("save-status").textContent).toContain("但章节摄取未完成")
+      expect(screen.getByTestId("save-status").textContent).toContain(status)
     })
   })
 
@@ -476,39 +576,102 @@ describe("ChatPanel — 保存 / 丢弃章节草稿", () => {
     mocks.wikiState.novelConfig.autoIngestOnSave = true
     mocks.hasUsableLlm.mockReturnValue(false)
     setConversation("conv-1")
-    setMessages([
-      msg({ id: "u1", role: "user", content: "q" }),
-      msg({ id: "a1", role: "assistant", content: "正文" }),
-    ])
+    setMessages([mockManagedDraft("# 测试章\n正文").message])
     renderPanel()
-    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
     await flushAsync()
     expect(mocks.ingestChapter).not.toHaveBeenCalled()
     expect(screen.getByTestId("save-status").textContent).toContain("未配置可用 AI 模型")
   })
 
-  it("保存失败 → saveFailed 状态（含错误消息）", async () => {
+  it("正式采纳失败 → 明确失败且不摄取、不切换预览", async () => {
     mocks.wikiState.project = PROJECT
     mocks.commitAcceptedDeepChapterDraft.mockRejectedValueOnce(new Error("disk-error"))
     setConversation("conv-1")
-    setMessages([
-      msg({ id: "u1", role: "user", content: "q" }),
-      msg({ id: "a1", role: "assistant", content: "正文" }),
-    ])
+    setMessages([mockManagedDraft("# 测试章\n正文").message])
     renderPanel()
-    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
     await flushAsync()
-    expect(screen.getByTestId("save-status").textContent).toContain("保存失败：{{message}}::disk-error")
+    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId("save-status").textContent).toContain("无法确认保存结果")
+    expect(screen.getByTestId("save-status").textContent).toContain("disk-error")
+    expect(mocks.ingestChapter).not.toHaveBeenCalled()
+    expect(mocks.wikiState.setSelectedFile).not.toHaveBeenCalled()
   })
 
-  it("丢弃草稿成功：reject 落盘 + rejected marker + 标记丢弃", async () => {
+  it("复核草稿进行中不置 isSaving=true，保存进行中才置 isSaving=true（U-4）", async () => {
+    mocks.wikiState.project = PROJECT
+    setConversation("conv-1")
+    const { draft, message } = mockManagedDraft("# 第5章 复核对象\n正文内容")
+    setMessages([message])
+    let resolveReview!: (value: Awaited<ReturnType<typeof mocks.rerunMainControlGates>>) => void
+    mocks.rerunMainControlGates.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveReview = resolve
+        }),
+    )
+    renderPanel()
+    fireEvent.click(screen.getByTestId("review-draft"))
+    await waitFor(() => expect(mocks.rerunMainControlGates).toHaveBeenCalledTimes(1))
+    expect(screen.queryByTestId("saving")).toBeNull()
+
+    resolveReview({
+      draftId: draft.draft_id,
+      chapterNumber: 5,
+      adoptionGate: "passed",
+      overall: "pass",
+      rows: [],
+      contractEvaluated: true,
+      llmMediated: true,
+      unassessedDimensions: [],
+    })
+    await flushAsync()
+    expect(screen.getByTestId("save-status").textContent).toBe("复核已通过，尚未采纳草稿。")
+
+    let resolveCommit!: () => void
+    mocks.commitAcceptedDeepChapterDraft.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCommit = resolve
+        }),
+    )
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
+    await waitFor(() => expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledTimes(1))
+    expect(screen.getByTestId("saving")).toBeInTheDocument()
+    resolveCommit()
+    await flushAsync()
+    expect(screen.queryByTestId("saving")).toBeNull()
+  })
+
+  it("复核/保存异常保留本地化基文案并附加规整截断的 120 字摘要（U-4）", async () => {
+    mocks.wikiState.project = PROJECT
+    setConversation("conv-1")
+    const { message } = mockManagedDraft("# 第5章 异常摘要\n正文内容")
+    setMessages([message])
+    const longErr = `  line1\n   line2   ${"E".repeat(150)}`
+    mocks.rerunMainControlGates.mockRejectedValueOnce(new Error(longErr))
+    renderPanel()
+    fireEvent.click(screen.getByTestId("review-draft"))
+    await flushAsync()
+    const status = screen.getByTestId("save-status").textContent ?? ""
+    expect(status).toContain("无法复核当前草稿")
+    expect(status).toContain("line1 line2 ")
+    const match = status.match(/（(.+)）$/)
+    expect(match).not.toBeNull()
+    expect(match![1].length).toBe(120)
+  })
+
+  it("丢弃草稿成功：rejected marker 保留会话 ID，不采用陈旧状态的会话 ID", async () => {
     mocks.wikiState.project = PROJECT
     mocks.detectGeneratedTargetChapterNumber.mockReturnValue(3)
+    mocks.rejectDeepChapterDraft.mockResolvedValueOnce(sessionStatus({
+      session_id: "stale-state-session",
+      current_task: { conversation_id: "other-conversation" },
+    }))
     setConversation("conv-1")
-    setMessages([
-      msg({ id: "u1", role: "user", content: "q" }),
-      msg({ id: "a1", role: "assistant", content: "草稿正文" }),
-    ])
+    const { draft, message } = mockManagedDraft("# 第3章 草稿\n草稿正文", { chapter_number: 3 })
+    setMessages([msg({ id: "u1", role: "user", content: "q" }), message])
     renderPanel()
     fireEvent.click(screen.getByTestId("discard-draft"))
     await flushAsync()
@@ -516,9 +679,12 @@ describe("ChatPanel — 保存 / 丢弃章节草稿", () => {
       expect.objectContaining({ chapterNumber: 3, conversationId: "conv-1" }),
     )
     expect(mocks.chatState.markLastAssistantDiscarded).toHaveBeenCalled()
-    const setMessagesCall = mocks.chatState.setMessages.mock.calls[0][0]
-    const updated = setMessagesCall.find((m: any) => m.id === "a1")
-    expect(decodeURIComponent(updated.content)).toContain('"draftStatus":"rejected"')
+    const updated = mocks.chatState.setMessages.mock.calls[0][0].find((m: DisplayMessage) => m.id === message.id)
+    expect(readManagedDeepChapterDraftMessage(updated.content)).toMatchObject({
+      conversationId: draft.conversation_id,
+      sessionId: draft.session_id,
+      draftStatus: "rejected",
+    })
     expect(screen.getByTestId("save-status").textContent).toContain("已拒绝草稿")
   })
 
@@ -553,90 +719,105 @@ describe("ChatPanel — 保存 / 丢弃章节草稿", () => {
     expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
   })
 
-  it("findPreviousUserRequest：『继续未完成』用户消息被跳过，回退到前一条", async () => {
+  it.each([
+    ["正文已改变", (body: string) => `${body}\n不同结尾`],
+    ["正文前多了非思考内容", (body: string) => `附加正文\n\n${body}`],
+  ] as const)("相同会话但%s → Save 与 Review 均不写入", async (_label, staleBody) => {
     mocks.wikiState.project = PROJECT
     setConversation("conv-1")
-    setMessages([
-      msg({ id: "u1", role: "user", content: "原始需求" }),
-      msg({ id: "a1", role: "assistant", content: "第一版" }),
-      msg({ id: "u2", role: "user", content: "继续未完成" }),
-      msg({ id: "a2", role: "assistant", content: "第二版" }),
-    ])
+    const { draft, message } = mockManagedDraft("# 第5章 现行存档\n正文")
+    setMessages([{ ...message, content: appendManagedDeepChapterDraftMarker(staleBody(draft.content), {
+      conversationId: draft.conversation_id, sessionId: draft.session_id, draftStatus: "ready",
+    }) }])
     renderPanel()
-    fireEvent.click(screen.getAllByTestId("save-as-chapter")[0])
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
     await flushAsync()
-    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledWith(
-      expect.objectContaining({ userRequest: "原始需求" }),
-    )
+    expect(screen.getByTestId("save-status").textContent).toContain("无法确认保存结果")
+    fireEvent.click(screen.getByTestId("review-draft"))
+    await flushAsync()
+    expect(screen.getByTestId("save-status").textContent).toContain("无法复核当前草稿")
+    expect(mocks.requireManagedDeepChapterDraft).toHaveBeenCalledTimes(2)
+    expect(mocks.rerunMainControlGates).not.toHaveBeenCalled()
+    expect(mocks.getManagedDraftAdoptionGate).not.toHaveBeenCalled()
+    expect(mocks.readManagedChapterForWrite).not.toHaveBeenCalled()
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
   })
 
-  it("findPreviousUserRequest：全部用户消息均为『继续未完成』→ 回退 userMessages[0]", async () => {
+  it("普通助手正文没有受管标记，不读存档也不写正式章", async () => {
     mocks.wikiState.project = PROJECT
     setConversation("conv-1")
-    setMessages([
-      msg({ id: "u1", role: "user", content: "继续未完成" }),
-      msg({ id: "a1", role: "assistant", content: "正文" }),
-    ])
+    setMessages([msg({ role: "assistant", content: "# 第5章 普通消息\n正文" })])
     renderPanel()
-    fireEvent.click(screen.getAllByTestId("save-as-chapter")[0])
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
     await flushAsync()
-    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledWith(
-      expect.objectContaining({ userRequest: "继续未完成" }),
-    )
+    expect(mocks.requireManagedDeepChapterDraft).not.toHaveBeenCalled()
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
   })
 
-  it("findPreviousUserRequest：无用户消息 → userRequest 空 → 正文前 80 字兜底", async () => {
+  it.each(["pending", "accepted"] as const)("存档为 %s 时不能借 ready 标记采纳", async (draft_status) => {
     mocks.wikiState.project = PROJECT
-    mocks.cleanGeneratedChapterContentWithTitle.mockReturnValue({ content: "清理后正文", title: "" })
     setConversation("conv-1")
-    setMessages([msg({ id: "a1", role: "assistant", content: "正文" })])
+    const { draft, message } = mockManagedDraft("# 第5章 草稿\n正文")
+    mocks.requireManagedDeepChapterDraft.mockResolvedValue({ ...draft, draft_status })
+    setMessages([message])
     renderPanel()
-    fireEvent.click(screen.getAllByTestId("save-as-chapter")[0])
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
     await flushAsync()
-    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledWith(
-      expect.objectContaining({ userRequest: "清理后正文" }),
-    )
+    expect(mocks.getManagedDraftAdoptionGate).not.toHaveBeenCalled()
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
+  })
+
+  it("旧草稿缺章号，无法从正文明确识别时不得复核或保存到下一章", async () => {
+    mocks.wikiState.project = PROJECT
+    setConversation("conv-1")
+    const { draft, message } = mockManagedDraft("未明确章号的正文", { chapter_number: undefined })
+    setMessages([message])
+    renderPanel()
+    fireEvent.click(screen.getByTestId("review-draft"))
+    await flushAsync()
+    expect(mocks.detectGeneratedTargetChapterNumber).toHaveBeenCalledWith(draft.content)
+    expect(screen.getByTestId("save-status").textContent).toContain("未绑定章号")
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
+    await flushAsync()
+    expect(mocks.rerunMainControlGates).not.toHaveBeenCalled()
+    expect(mocks.getNextChapterNumber).not.toHaveBeenCalled()
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
   })
 
   // ── C4 覆盖守卫（目标章节已有正文 → 显式确认后才覆盖）─────────────────────
   it("C4 覆盖守卫：目标章节已有正文 → 先弹确认，确认前不写入", async () => {
     mocks.wikiState.project = PROJECT
-    mocks.fileExists.mockImplementation(async () => true)
-    mocks.readFile.mockImplementation(
-      async () => "---\ntype: chapter\nchapter_number: 7\nchapter_status: draft\n---\n\n# 第7章 旧稿\n\n已有正文",
-    )
+    const chapterPath = "/p/mybook/wiki/chapters/第7章 旧稿.md"
+    const original = "\uFEFF---\r\ntype: chapter\r\nchapter_number: 7\r\nchapter_status: final\r\n---\r\n\r\n# 第7章 旧稿\r\n\r\n已有正文 \r\n"
+    mocks.findChapterFileByNumber.mockResolvedValue(chapterPath)
+    mocks.readManagedChapterForWrite.mockResolvedValue(original)
     setConversation("conv-1")
-    setMessages([
-      msg({ id: "u1", role: "user", content: "写第7章" }),
-      msg({ id: "a1", role: "assistant", content: "# 第7章 标题\n新正文内容" }),
-    ])
+    setMessages([mockManagedDraft("# 第7章 标题\n新正文内容", { chapter_number: 7 }).message])
     renderPanel()
-    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
     await flushAsync()
-    // 未经确认：不调用 accept 通道、不落盘
+    expect(mocks.readManagedChapterForWrite).toHaveBeenCalledWith(chapterPath)
     expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
-    expect(screen.getByTestId("chapter-overwrite-accept")).toBeTruthy()
     fireEvent.click(screen.getByTestId("chapter-overwrite-accept"))
     await flushAsync()
     expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledWith(
       expect.objectContaining({
         chapterNumber: 7,
-        chapterPath: "/p/mybook/wiki/chapters/chapter-007.md",
+        chapterPath,
+        expectedExistingContent: original,
+        overwriteExisting: true,
       }),
     )
   })
 
   it("C4 覆盖守卫：取消覆盖 → 不写入 + 状态提示未覆盖", async () => {
     mocks.wikiState.project = PROJECT
-    mocks.fileExists.mockImplementation(async () => true)
-    mocks.readFile.mockImplementation(async () => "---\ntype: chapter\n---\n\n旧正文")
+    mocks.readManagedChapterForWrite.mockResolvedValue("---\ntype: chapter\n---\n\n旧正文")
     setConversation("conv-1")
-    setMessages([
-      msg({ id: "u1", role: "user", content: "写第7章" }),
-      msg({ id: "a1", role: "assistant", content: "新正文内容" }),
-    ])
+    setMessages([mockManagedDraft("# 第7章 新稿\n新正文内容", { chapter_number: 7 }).message])
     renderPanel()
-    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
     await flushAsync()
     fireEvent.click(screen.getByTestId("chapter-overwrite-cancel"))
     await flushAsync()
@@ -645,53 +826,51 @@ describe("ChatPanel — 保存 / 丢弃章节草稿", () => {
     expect(screen.queryByTestId("chapter-overwrite-accept")).toBeNull()
   })
 
-  it("C4 覆盖守卫：目标存在但无正文（planned 骨架）→ 不弹确认直接保存", async () => {
+  it.each(["conversation", "project"] as const)("覆盖确认后 %s 已切换 → 不写原目标", async (changed) => {
     mocks.wikiState.project = PROJECT
-    mocks.fileExists.mockImplementation(async () => true)
-    mocks.readFile.mockImplementation(
-      async () => "---\ntype: chapter\nchapter_number: 7\nchapter_status: draft\n---\n",
-    )
+    mocks.readManagedChapterForWrite.mockResolvedValue("旧正文")
     setConversation("conv-1")
-    setMessages([
-      msg({ id: "u1", role: "user", content: "写第7章" }),
-      msg({ id: "a1", role: "assistant", content: "新正文内容" }),
-    ])
+    setMessages([mockManagedDraft("# 第5章 新稿\n新正文").message])
     renderPanel()
-    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
     await flushAsync()
-    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalled()
-    expect(screen.queryByTestId("chapter-overwrite-accept")).toBeNull()
-  })
-
-  it("C4 覆盖守卫：目标存在但正文读取失败 → 保守要求确认", async () => {
-    mocks.wikiState.project = PROJECT
-    mocks.fileExists.mockImplementation(async () => true)
-    mocks.readFile.mockRejectedValueOnce(new Error("read-boom"))
-    setConversation("conv-1")
-    setMessages([
-      msg({ id: "u1", role: "user", content: "写第7章" }),
-      msg({ id: "a1", role: "assistant", content: "新正文内容" }),
-    ])
-    renderPanel()
-    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    const confirm = screen.getByTestId("chapter-overwrite-accept")
+    if (changed === "project") mocks.wikiState.project = { ...PROJECT, path: "/p/other-book" }
+    else mocks.chatState.activeConversationId = "conv-other"
+    fireEvent.click(confirm)
     await flushAsync()
     expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
-    expect(screen.getByTestId("chapter-overwrite-accept")).toBeTruthy()
+    expect(mocks.wikiState.setSelectedFile).not.toHaveBeenCalled()
   })
 
-  it("C4 覆盖守卫：存在性查询失败 → 降级放行（不弹确认、不阻断写作）", async () => {
+  it("C4 覆盖守卫：目标存在但无正文（planned 骨架）→ 不弹确认直接保存", async () => {
     mocks.wikiState.project = PROJECT
-    mocks.fileExists.mockRejectedValueOnce(new Error("ipc-down"))
+    const skeleton = "---\ntype: chapter\nchapter_number: 7\nchapter_status: planned\n---\n"
+    mocks.readManagedChapterForWrite.mockResolvedValue(skeleton)
     setConversation("conv-1")
-    setMessages([
-      msg({ id: "u1", role: "user", content: "写第7章" }),
-      msg({ id: "a1", role: "assistant", content: "新正文内容" }),
-    ])
+    setMessages([mockManagedDraft("# 第7章 新稿\n新正文内容", { chapter_number: 7 }).message])
     renderPanel()
-    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
     await flushAsync()
-    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalled()
+    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledWith(expect.objectContaining({
+      expectedExistingContent: skeleton, overwriteExisting: false,
+    }))
     expect(screen.queryByTestId("chapter-overwrite-accept")).toBeNull()
+  })
+
+  it.each(["invalid UTF-8", "existence query failed"])("严格读取失败（%s）→ 不弹确认、不写入", async (error) => {
+    mocks.wikiState.project = PROJECT
+    mocks.readManagedChapterForWrite.mockRejectedValueOnce(new Error(error))
+    setConversation("conv-1")
+    setMessages([mockManagedDraft("# 第7章 新稿\n新正文内容", { chapter_number: 7 }).message])
+    renderPanel()
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
+    await flushAsync()
+    expect(mocks.readManagedChapterForWrite).toHaveBeenCalledWith("/p/mybook/wiki/chapters/chapter-007.md")
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
+    expect(mocks.ingestChapter).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("chapter-overwrite-accept")).toBeNull()
+    expect(screen.getByTestId("save-status").textContent).toContain("无法确认保存结果")
   })
 })
 
@@ -713,8 +892,7 @@ describe("ChatPanel — exemplar 标记 UI", () => {
     rerenderPanel()
     expect(screen.getByTestId("dialog")).toBeInTheDocument()
     expect(screen.getByText("这一段写得很好")).toBeInTheDocument()
-    const countSpan = screen.getByTestId("dialog").querySelector("span.font-mono")
-    expect(countSpan?.textContent).toContain("1")
+    expect(screen.getByTestId("dialog").textContent).toContain("1")
     expect(mocks.loadStyleExemplarsViaRust).toHaveBeenCalledWith("/p/mybook")
   })
 
@@ -754,7 +932,7 @@ describe("ChatPanel — exemplar 标记 UI", () => {
       .getAllByRole("combobox")
       .find((el) => (el as HTMLSelectElement).value === "style") as HTMLSelectElement
     fireEvent.change(markTypeSelect, { target: { value: "voice" } })
-    fireEvent.change(screen.getByPlaceholderText("为什么这段是好文风锚点？"), {
+    fireEvent.change(screen.getByPlaceholderText("为什么喜欢这段写法？（可选）"), {
       target: { value: "角色声线" },
     })
     fireEvent.click(screen.getByText("标记锚点"))
@@ -779,7 +957,7 @@ describe("ChatPanel — exemplar 标记 UI", () => {
     rerenderPanel()
     fireEvent.click(screen.getByText("标记锚点"))
     await flushAsync()
-    expect(screen.getByText("标记失败：write-fail")).toBeInTheDocument()
+    expect(screen.getByText("收藏失败：write-fail")).toBeInTheDocument()
     expect(screen.getByTestId("dialog")).toBeInTheDocument()
   })
 
@@ -819,14 +997,14 @@ describe("ChatPanel — exemplar 标记 UI", () => {
     renderPanel()
     fireEvent.click(screen.getByLabelText("标记为风格范例"))
     rerenderPanel()
-    fireEvent.click(screen.getByText("3★开"))
+    fireEvent.click(screen.getAllByText("3★")[0]!)
     await flushAsync()
     expect(mocks.appendExemplarABSample).toHaveBeenCalledWith(
       "/p/mybook",
       expect.objectContaining({ variant: "enabled", score: 3, chapterId: "chat" }),
     )
-    expect(screen.getByText(/开启均分 4.20，关闭均分 无/)).toBeInTheDocument()
-    fireEvent.click(screen.getByText("2★关"))
+    expect(screen.getByText(/开启参考均分 4.20，关闭参考均分 暂无/)).toBeInTheDocument()
+    fireEvent.click(screen.getAllByText("2★")[1]!)
     await flushAsync()
     expect(mocks.appendExemplarABSample).toHaveBeenCalledWith(
       "/p/mybook",
@@ -843,9 +1021,9 @@ describe("ChatPanel — exemplar 标记 UI", () => {
     renderPanel()
     fireEvent.click(screen.getByLabelText("标记为风格范例"))
     rerenderPanel()
-    fireEvent.click(screen.getByText("1★开"))
+    fireEvent.click(screen.getAllByText("1★")[0]!)
     await flushAsync()
-    expect(screen.getByText(/开启均分 无，关闭均分 3.50/)).toBeInTheDocument()
+    expect(screen.getByText(/开启参考均分 暂无，关闭参考均分 3.50/)).toBeInTheDocument()
   })
 
   it("selectedFile 存在时 chapterId 取文件名", async () => {
@@ -857,7 +1035,7 @@ describe("ChatPanel — exemplar 标记 UI", () => {
     renderPanel()
     fireEvent.click(screen.getByLabelText("标记为风格范例"))
     rerenderPanel()
-    fireEvent.click(screen.getByText("1★开"))
+    fireEvent.click(screen.getAllByText("1★")[0]!)
     await flushAsync()
     expect(mocks.appendExemplarABSample).toHaveBeenCalledWith(
       "/p/mybook",

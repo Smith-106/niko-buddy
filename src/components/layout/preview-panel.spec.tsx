@@ -10,12 +10,39 @@ import { cleanup as rtlCleanup, configure } from "@testing-library/react"
 // 全量负载下持久化链变慢：放宽 waitFor 默认超时，避免时序偶发
 configure({ asyncUtilTimeout: 5000 })
 import { render, screen, fireEvent, waitFor, act, setupDomGlobals } from "@/test-helpers/component-test-utils"
-import type { NovelReviewResult, DeAiBatchSummary, DeAiBatchOptions } from "@/lib/novel"
+import type { IngestResult, NovelReviewResult, DeAiBatchSummary, DeAiBatchOptions } from "@/lib/novel"
 import type { ChapterBodySelection } from "@/lib/chapter-selection"
 import type { ComponentProps } from "react"
 import type { ChapterDraftDockAdoptAndIngest } from "./chapter-draft-dock"
-
+import { createHash, webcrypto } from "node:crypto"
+import { parseFrontmatter } from "@/lib/frontmatter"
 const CHAPTER_PATH = "/proj/wiki/chapters/第1章.md"
+const COMPLETED_MEMORY_INGEST = {
+  snapshot: { chapterNumber: 1 },
+  failReason: null,
+  ledgerSaveFailed: false,
+  factsStoreFailed: false,
+  failedProjections: [],
+  pendingProjections: [],
+  committedProjections: ["sync_snapshot_to_memory"],
+  canonOutcome: { status: "skipped", reason: "no_facts" },
+  receipt: {
+    readPath: CHAPTER_PATH,
+    chapterNumber: 1,
+    bodySha256: "body-sha",
+    contentSha256: "content-sha",
+    snapshotIdAtExtractionCommit: "chapter-1-r7",
+    snapshotRevisionAtExtractionCommit: 7,
+    snapshotJsonSha256AtExtractionCommit: "json-sha",
+    canonOutcome: { status: "skipped", reason: "no_facts" },
+  },
+  projectionReceipt: {
+    extractionHistoryPath: "/proj/.novel/extraction-history/chapter-1.md",
+    snapshotId: "chapter-1-r8",
+    revision: 8,
+    snapshotJsonSha256: "json-sha",
+  },
+} as const
 const OUTLINE_PATH = "/proj/wiki/outlines/大纲.md"
 
 const CHAPTER_MD = [
@@ -51,6 +78,11 @@ const mocks = vi.hoisted(() => {
     setSelectedFile: vi.fn((v: unknown) => { state.selectedFile = v }),
     setPendingEditorHighlight: vi.fn((v: unknown) => { state.pendingEditorHighlight = v }),
     setFinalChapterSave: vi.fn((v: unknown) => { state.finalChapterSave = v }),
+    clearFinalChapterSaveForPath: vi.fn((path: string) => {
+      if (state.finalChapterSave && state.finalChapterSave.filePath === path && state.finalChapterSave.phase !== "saving" && !state.finalChapterSave.saving) {
+        state.finalChapterSave = null
+      }
+    }),
     bumpDataVersion: vi.fn(),
   }
   const outlineState: Record<string, any> = { tasks: [] }
@@ -64,6 +96,7 @@ const mocks = vi.hoisted(() => {
   const saveText = { value: "用户改动的内容" }
   const selectionText = { value: "选中文本" }
   return {
+    verifyAutoMemory: vi.fn(async (..._args: unknown[]) => {}),
     state,
     outlineState,
     reviewState,
@@ -72,6 +105,7 @@ const mocks = vi.hoisted(() => {
     chapterMetaFinalGate,
     saveText,
     selectionText,
+    deAiAdapterImportError: { value: null as Error | null },
     realEditor: { value: false },
     confirmTarget: { value: "/proj/wiki/chapters/第1章.md" },
     confirmError: vi.fn(),
@@ -136,7 +170,7 @@ const mocks = vi.hoisted(() => {
     startOutlineIngestTask: vi.fn(),
     streamChat: vi.fn(),
     reviewChapter: vi.fn<() => Promise<NovelReviewResult[]>>(async () => []),
-    ingestChapter: vi.fn<() => Promise<{ snapshot: { chapterNumber: number } | null; failReason: string | null }>>(async () => ({ snapshot: null, failReason: "extract_failed" })),
+    ingestChapter: vi.fn<() => Promise<{ snapshot: { chapterNumber: number } | null; failReason: string | null } & Omit<IngestResult, "snapshot" | "failReason">>>(async () => ({ snapshot: null, failReason: "extract_failed" })),
     buildPolishSelectionMessages: vi.fn(() => []),
     rebuildChapterBody: vi.fn((h: string, b: string) => (h ? `# ${h}\n\n${b}` : b)),
     replaceChapterBodySelection: vi.fn<(currentBody: string, selection: ChapterBodySelection, replacement: string) => { ok: true; body: string } | { ok: false; reason: "changed" | "empty" }>(() => ({ ok: true as const, body: "new-body" })),
@@ -233,6 +267,14 @@ vi.mock("@/commands/fs", async (importOriginal) => {
   }
 })
 
+vi.mock("@/lib/novel/rebuild", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/novel/rebuild")>()
+  return {
+    ...actual,
+    verifyRebuildOutcome: (...args: Parameters<typeof actual.verifyRebuildOutcome>) =>
+      args[2].receipt === COMPLETED_MEMORY_INGEST.receipt ? mocks.verifyAutoMemory(...args) : actual.verifyRebuildOutcome(...args),
+  }
+})
 vi.mock("@/lib/novel/model-resolver", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel/model-resolver")>()
   return {
@@ -253,12 +295,27 @@ vi.mock("@/lib/novel/review-model", async (importOriginal) => {
 })
 vi.mock("@/lib/novel/de-ai-adapter", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel/de-ai-adapter")>()
-  return {
+  const mod: Record<string, unknown> = {
     ...actual,
-      buildDeAiRewriteMessages: mocks.buildDeAiRewriteMessages,
-      loadSmartDeAiSkill: mocks.loadSmartDeAiSkill,
-    
+    buildDeAiRewriteMessages: mocks.buildDeAiRewriteMessages,
   }
+  Object.defineProperty(mod, "loadSmartDeAiSkill", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      if (mocks.deAiAdapterImportError.value) throw mocks.deAiAdapterImportError.value
+      return mocks.loadSmartDeAiSkill
+    },
+  })
+  Object.defineProperty(mod, "runDeAiDetection", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      if (mocks.deAiAdapterImportError.value) throw mocks.deAiAdapterImportError.value
+      return actual.runDeAiDetection
+    },
+  })
+  return mod
 })
 vi.mock("@/lib/novel/de-ai-batch", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel/de-ai-batch")>()
@@ -537,6 +594,7 @@ beforeEach(() => {
   mocks.chapterMetaFinalGate.value = true
   mocks.saveText.value = "用户改动的内容"
   mocks.selectionText.value = "选中文本"
+  mocks.deAiAdapterImportError.value = null
   mocks.realEditor.value = false
   mocks.confirmTarget.value = CHAPTER_PATH
   mocks.acceptChapterDraft.mockResolvedValue(undefined)
@@ -797,7 +855,7 @@ describe("PreviewPanel 工具栏收敛回归锁定 (C项防退化)", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument()
     // 打开 More 后溢出动作出现（去 AI 味/排版等进菜单而非常显）
     fireEvent.click(screen.getByLabelText("更多功能"))
-    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole("group")).toBeInTheDocument())
     cleanup()
   })
 })
@@ -1104,9 +1162,9 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
     cleanup()
   })
 
-  it("autoIngestOnSave + 快照成功 → ingested", async () => {
+  it("autoIngestOnSave + memory completed → ingested", async () => {
     chapterSetup({ reviewBeforeSave: false, autoIngestOnSave: true })
-    mocks.ingestChapter.mockResolvedValue({ snapshot: { chapterNumber: 1 }, failReason: null })
+    mocks.ingestChapter.mockResolvedValue(COMPLETED_MEMORY_INGEST)
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
@@ -1114,6 +1172,25 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
     ), { timeout: 3000 })
     expect(mocks.importState.startTask).toHaveBeenCalled()
     expect(mocks.importState.finishTask).toHaveBeenCalledWith("task-1", "done", expect.anything())
+    cleanup()
+  })
+
+  it.each([
+    { failedProjections: ["vector"], pendingProjections: [], terminal: "error" },
+    { failedProjections: [], pendingProjections: ["community_summary"], terminal: "pending" },
+  ])("keeps formal save distinct from incomplete memory: %j", async ({ terminal, ...projections }) => {
+    chapterSetup({ reviewBeforeSave: false, autoIngestOnSave: true })
+    mocks.ingestChapter.mockResolvedValue({
+      ...COMPLETED_MEMORY_INGEST,
+      ...projections,
+    })
+    const { cleanup } = await renderPanel()
+    fireEvent.click(screen.getByText("保存为正式章节"))
+    await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
+      expect.objectContaining({ saving: false, phase: "ingest_incomplete" }),
+    ))
+    expect(mocks.writeFileAtomic.mock.calls[0][1]).toContain("chapter_status: final")
+    expect(mocks.importState.finishTask).toHaveBeenCalledWith("task-1", terminal, expect.anything())
     cleanup()
   })
 
@@ -1163,7 +1240,7 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
 
   it("autoIngestOnSave + 磁盘验证非 final → 重写回写后提取", async () => {
     chapterSetup({ reviewBeforeSave: false, autoIngestOnSave: true })
-    mocks.ingestChapter.mockResolvedValue({ snapshot: { chapterNumber: 1 }, failReason: null })
+    mocks.ingestChapter.mockResolvedValue(COMPLETED_MEMORY_INGEST)
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByText("保存为正式章节"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
@@ -1173,15 +1250,14 @@ describe("PreviewPanel 保存为正式章节（handleSaveAsFinal）", () => {
     cleanup()
   })
 
-  it("保存流程抛错 → ingest_failed + message", async () => {
+  it("formal write failure is announced as a save failure, not a memory failure", async () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     chapterSetup({ reviewBeforeSave: false, autoIngestOnSave: false })
     mocks.writeFileAtomic.mockRejectedValue(new Error("disk-full"))
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByText("保存为正式章节"))
-    await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
-      expect.objectContaining({ saving: false, phase: "ingest_failed", params: expect.objectContaining({ message: expect.stringContaining("快照提取异常") }) }),
-    ))
+    await waitFor(() => expect(mocks.t).toHaveBeenCalledWith("chat.saveFailed", { message: "disk-full" }))
+    expect(mocks.ingestChapter).not.toHaveBeenCalled()
     expect(errSpy).toHaveBeenCalled()
     errSpy.mockRestore()
     cleanup()
@@ -1207,16 +1283,75 @@ describe("PreviewPanel 重新提取（handleReingest）", () => {
     mocks.compactToolbar.value = false
   }
 
-  it("final 章节 → 重新提取成功 → ingested", async () => {
+  it("快照存在但缺少回执时不报成功", async () => {
     finalSetup()
     mocks.ingestChapter.mockResolvedValue({ snapshot: { chapterNumber: 1 }, failReason: null })
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByText("重新提取记忆"))
     await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
-      expect.objectContaining({ phase: "ingested" }),
+      expect.objectContaining({ phase: "reingest_unverified" }),
     ))
-    expect(mocks.importState.startTask).toHaveBeenCalledWith(expect.objectContaining({ kind: "chapter" }))
+    expect(mocks.importState.finishTask).toHaveBeenCalledWith("task-1", "error", expect.objectContaining({ completed: 0 }))
+    expect(screen.queryByRole("button", { name: "复制核验回执" })).not.toBeInTheDocument()
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
     cleanup()
+  })
+
+  it("只有回读来源、快照链和账本通过后才显示成功并可复制原回执", async () => {
+    finalSetup()
+    const source = CHAPTER_MD.replace("chapter_status: draft", "chapter_status: final")
+    const hash = (text: string) => createHash("sha256").update(text).digest("hex")
+    const extraction = { chapterNumber: 1, snapshotId: "chapter-1-r3", revision: 3, isHistorical: false }
+    const extractionHistoryPath = "/proj/.novel/snapshots/history/001/2026-01-02T03-04-05.snapshot.json"
+    const projected = JSON.stringify({ ...extraction, snapshotId: "chapter-1-r4", revision: 4, supersedes: "chapter-1-r3" }, null, 2)
+    const reads = new Map([
+      [CHAPTER_PATH, source],
+      [extractionHistoryPath, JSON.stringify({ ...extraction, isHistorical: true }, null, 2)],
+      ["/proj/.novel/snapshots/001.snapshot.json", projected],
+      ["/proj/.novel/projection-status.json", JSON.stringify({ schemaVersion: "2", chapters: { "1": { sync_snapshot_to_memory: { projection: "sync_snapshot_to_memory", category: "fold_rebuildable", status: "committed", updated_at: "2026-01-02T03:04:05.006Z", last_error: "" } } } })],
+    ])
+    const receipt = {
+      readPath: CHAPTER_PATH,
+      chapterNumber: 1,
+      bodySha256: hash(parseFrontmatter(source).body),
+      contentSha256: hash(source),
+      snapshotIdAtExtractionCommit: extraction.snapshotId,
+      snapshotRevisionAtExtractionCommit: 3,
+      snapshotJsonSha256AtExtractionCommit: hash(JSON.stringify(extraction, null, 2)),
+      canonOutcome: { status: "skipped", reason: "no_facts" } as const,
+    }
+    const projectionReceipt = { extractionHistoryPath, snapshotId: "chapter-1-r4", revision: 4, snapshotJsonSha256: hash(projected) }
+    mocks.readFile.mockImplementation(async (path: string) => {
+      const data = reads.get(path)
+      if (data === undefined) throw new Error(`Unexpected read: ${path}`)
+      return data
+    })
+    mocks.ingestChapter.mockResolvedValue({
+      snapshot: { chapterNumber: 1 }, failReason: null, receipt, projectionReceipt,
+      ledgerSaveFailed: false, factsStoreFailed: false, failedProjections: [], pendingProjections: [],
+      committedProjections: ["sync_snapshot_to_memory"],
+    })
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard")
+    const writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } })
+    vi.stubGlobal("crypto", webcrypto)
+    try {
+      const { cleanup } = await renderPanel()
+      fireEvent.click(screen.getByText("重新提取记忆"))
+      const button = await screen.findByRole("button", { name: "复制核验回执" })
+      expect(mocks.ingestChapter).toHaveBeenCalledWith("/proj", CHAPTER_PATH, "review-model", expect.any(AbortSignal), expect.objectContaining({ awaitCommunitySummary: true }))
+      expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(expect.objectContaining({ phase: "reingest_verified", reingestReceipt: { receipt, projectionReceipt } }))
+      expect(mocks.importState.finishTask).toHaveBeenCalledWith("task-1", "done", expect.objectContaining({ completed: 1 }))
+      expect(writeText).not.toHaveBeenCalled()
+      fireEvent.click(button)
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith(JSON.stringify({ receipt, projectionReceipt }, null, 2)))
+      expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+      cleanup()
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard)
+      else Reflect.deleteProperty(navigator, "clipboard")
+      vi.unstubAllGlobals()
+    }
   })
 
   it("final 章节 + invalid_chapter_number → ingest_no_chapter_number", async () => {
@@ -2405,7 +2540,7 @@ describe("PreviewPanel 编辑器高亮与 saveStatus", () => {
     mocks.state.finalChapterSave = { projectPath: "/proj", filePath: CHAPTER_PATH, saving: false, phase: "ingested", params: undefined }
     mocks.readFile.mockResolvedValue(CHAPTER_MD)
     const { cleanup } = await renderPanel()
-    expect(screen.getByText("正式章节已保存并生成快照：第{{chapter}}章")).toBeInTheDocument()
+    expect(screen.getByText("正式章节和记忆均已保存：第{{chapter}}章")).toBeInTheDocument()
     cleanup()
   })
 
@@ -2859,7 +2994,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     // 加载读旧路径（draft）；rename 后 canonical 路径（第1章.md）与 verify 读都返回
     // final 内容 → verifyFm final → 跳过重写分支（preview-panel.tsx 634 else）。
     mocks.readFile.mockImplementation(async (p: string) => (p === nonCanonical ? CHAPTER_MD : finalMd))
-    mocks.ingestChapter.mockResolvedValue({ snapshot: { chapterNumber: 1 }, failReason: null })
+    mocks.ingestChapter.mockResolvedValue(COMPLETED_MEMORY_INGEST)
     mocks.compactToolbar.value = false
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByText("保存为正式章节"))
@@ -2892,12 +3027,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     mocks.compactToolbar.value = false
     const { cleanup } = await renderPanel()
     fireEvent.click(screen.getByText("保存为正式章节"))
-    await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
-      expect.objectContaining({
-        saving: false, phase: "ingest_failed",
-        params: expect.objectContaining({ message: expect.stringContaining("raw-disk-error") }),
-      }),
-    ))
+    await waitFor(() => expect(mocks.t).toHaveBeenCalledWith("chat.saveFailed", { message: "raw-disk-error" }))
     errSpy.mockRestore()
     cleanup()
   })
@@ -3204,7 +3334,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     cleanup()
   })
 
-  it("章节编号存在但标题与路径均为空 → 标题回退为默认章节名", async () => {
+  it("章节编号存在但标题与路径均为空 → 用户显式编辑清空后回退为默认章节名", async () => {
     const md = "---\ntype: chapter\nchapter_number: 1\nchapter_status: draft\n---\n\n正文无标题。"
     mocks.state.selectedFile = "/proj/wiki/chapters/.md"
     mocks.state.fileContent = md
@@ -3213,6 +3343,7 @@ describe("PreviewPanel 全口径补盲（W4E4 迭代）", () => {
     const input = screen.getByRole("textbox")
     expect(input).toHaveValue("")
     fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: "   " } })
     fireEvent.blur(input)
     await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
       "/proj/wiki/chapters/第1章.md",
@@ -3653,7 +3784,22 @@ describe("G2 统一写入协议 — 协调层（helpers 真实实现）", () => 
     expect(coordinator.admitMutation(fresh, ["/p/a.md"], async () => undefined).kind).toBe("admitted")
   })
 
-  it("受影响路径组：同一 barrier 登记，write/delete 不自等，也不永久归并 alias", async () => {
+  it("does not run a queued save against a deleted chapter path", async () => {
+    const coordinator = createChapterWriteCoordinator()
+    const oldPath = "/p/wiki/chapters/old.md"
+    const newPath = "/p/wiki/chapters/new.md"
+    const title = coordinator.captureIntent("title", oldPath)
+    const move = coordinator.admitMutation(title, [oldPath, newPath], async () => {
+      coordinator.noteRelocation(title, oldPath, newPath)
+    })
+    const staleWrite = vi.fn(async () => undefined)
+    const stale = coordinator.admitMutation(coordinator.captureIntent("debounce-save", oldPath), [oldPath], staleWrite)
+    if (move.kind !== "admitted" || stale.kind !== "admitted") throw new Error("expected admitted")
+    await expect(stale.result).rejects.toThrow("重新确认")
+    expect(staleWrite).not.toHaveBeenCalled()
+  })
+
+it("受影响路径组：同一 barrier 登记，write/delete 不自等，也不永久归并 alias", async () => {
     const coordinator = createChapterWriteCoordinator()
     const order: string[] = []
     const group = coordinator.admitMutation(
@@ -4683,5 +4829,317 @@ describe("R6-PC additional executor — real reverse interleavings", () => {
     expect(disk.has(CHAPTER_PATH)).toBe(false)
     expect(disk.get(target)).toBe(normalizeChapterWriting(CHAPTER_MD.replace("# 第一章", "# 第1章-迁移")))
     view.unmount()
+  })
+})
+
+describe("PreviewPanel — U4-01 未编辑失焦/Escape 零写盘与 Enter 防二次提交", () => {
+  it("非规范标题未编辑 focus → blur 零写盘、零删旧、零迁移", async () => {
+    // CHAPTER_MD 含 chapter_number: 1 且标题为非规范「第一章」（若误提交会规范化并迁移为 第1章-第一章.md）
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const { cleanup } = await renderPanel()
+    const input = screen.getByRole("textbox")
+    expect(input).toHaveValue("第一章")
+
+    fireEvent.focus(input)
+    fireEvent.blur(input)
+    await flushAsync(30)
+
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(mocks.deleteFile).not.toHaveBeenCalled()
+    expect(mocks.state.setSelectedFile).not.toHaveBeenCalled()
+    expect(input).toHaveValue("第一章")
+    cleanup()
+  })
+
+  it("编辑标题后按 Escape（含随后 blur）零写盘并恢复原标题", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const { cleanup } = await renderPanel()
+    const input = screen.getByRole("textbox")
+
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: "临时误改标题" } })
+    expect(input).toHaveValue("临时误改标题")
+    fireEvent.keyDown(input, { key: "Escape" })
+    // 模拟真实浏览器中 e.currentTarget.blur() 派发的 onBlur
+    fireEvent.blur(input)
+    await flushAsync(30)
+
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(mocks.deleteFile).not.toHaveBeenCalled()
+    expect(input).toHaveValue("第一章")
+    cleanup()
+  })
+
+  it("编辑标题后按 Enter 立即提交且紧随其后的 blur 不二次触发写盘", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const { cleanup } = await renderPanel()
+    const input = screen.getByRole("textbox")
+
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: "只写一次" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    fireEvent.blur(input)
+
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1))
+    await flushAsync(40)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    expect(mocks.deleteFile).toHaveBeenCalledTimes(1)
+    expect(mocks.writeFileAtomic.mock.calls[0][0]).toBe("/proj/wiki/chapters/第1章-只写一次.md")
+    cleanup()
+  })
+})
+
+describe("PreviewPanel — U4-02 重定位防旧路径复活与 ingest_failed 参数兜底", () => {
+  it("外部重定位广播立即清防抖 timer，且切到新路径时跳过离开 flush（不复活旧文件）", async () => {
+    const relocatedPath = "/proj/wiki/chapters/卷1/第1章.md"
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockImplementation(async (p: string) =>
+      p === relocatedPath ? CHAPTER_MD.replace("正文第一段。", "已移卷正文。") : CHAPTER_MD,
+    )
+    const view = render(<PreviewPanel />)
+    await flushAsync(20)
+
+    // 在编辑区输入改动，挂起 1s 防抖写盘 timer
+    mocks.saveText.value = CHAPTER_MD + "\n未落盘改动"
+    fireEvent.click(screen.getByTestId("editor-save"))
+
+    // 模拟知识树在防抖窗口内将 CHAPTER_PATH 移至 relocatedPath
+    const coordinator = getChapterWriteCoordinator()
+    const moveIntent = coordinator.captureIntent("tree-move", CHAPTER_PATH)
+    coordinator.noteRelocation(moveIntent, CHAPTER_PATH, relocatedPath)
+
+    // 随后 store 切到新路径
+    mocks.state.selectedFile = relocatedPath
+    view.rerender(<PreviewPanel />)
+    await flushAsync(1150)
+
+    // 防抖与切文件离开刷盘均被拦下，旧路径零写入
+    expect(mocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(screen.getByTestId("editor-content").textContent).toContain("已移卷正文。")
+    view.unmount()
+  })
+
+  it("commitChapter 自身重定位在 listDirectory 挂起前已同步 noteRelocation 与 selectedFile，期间 pagehide 不复活旧路径", async () => {
+    const targetPath = "/proj/wiki/chapters/第1章-改名中.md"
+    let resolveList!: (nodes: unknown[]) => void
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    mocks.listDirectory.mockImplementationOnce(() => new Promise((resolve) => { resolveList = resolve }))
+
+    const { cleanup } = await renderPanel()
+    const input = screen.getByRole("textbox")
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: "改名中" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await waitFor(() => expect(mocks.listDirectory).toHaveBeenCalledTimes(1))
+    // 早在 listDirectory 完成之前，selectedFile 与 relocation 状态已同步更新
+    expect(mocks.state.selectedFile).toBe(targetPath)
+    expect(getChapterWriteCoordinator().wasRelocatedSince(CHAPTER_PATH, 0)).toBe(true)
+
+    window.dispatchEvent(new Event("pagehide"))
+    await flushAsync(40)
+    expect(mocks.writeFileAtomic).toHaveBeenCalledTimes(1)
+    expect(mocks.writeFileAtomic.mock.calls[0][0]).toBe(targetPath)
+
+    resolveList([])
+    await flushAsync(20)
+    cleanup()
+  })
+
+  it("ingest_failed 缺 params 时补默认 { message: 'unknown' }，且两处写入均传 message", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.state.finalChapterSave = {
+      projectPath: "/proj",
+      filePath: CHAPTER_PATH,
+      saving: false,
+      phase: "ingest_failed",
+      params: undefined,
+    }
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const { cleanup } = await renderPanel()
+    expect(mocks.t).toHaveBeenCalledWith("novel.chapter.ingestFailedRetry", { message: "unknown" })
+    cleanup()
+
+    // handleReingest 进入 ingest_failed 时携带 { message }
+    const finalMd = CHAPTER_MD.replace("chapter_status: draft", "chapter_status: final")
+    mocks.compactToolbar.value = false
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = finalMd
+    mocks.state.finalChapterSave = null
+    mocks.readFile.mockResolvedValue(finalMd)
+    mocks.ingestChapter.mockResolvedValueOnce({ snapshot: null, failReason: "extract_timeout" })
+    const second = await renderPanel()
+    fireEvent.click(screen.getByText("重新提取记忆"))
+    await waitFor(() => expect(mocks.state.setFinalChapterSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phase: "ingest_failed",
+        params: { message: "extract_timeout" },
+      }),
+    ))
+    second.cleanup()
+  })
+})
+
+describe("PreviewPanel — U-6v2 去AI味动态导入异常恢复、错字修正与工具栏 a11y", () => {
+  it("rewrite/edit 动态导入 de-ai-adapter 失败 → 解除 deAiProcessing 且 saveStatus 展示脱敏摘要", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason) }
+    process.on("unhandledRejection", onUnhandled)
+    try {
+      mocks.compactToolbar.value = false
+      mocks.state.selectedFile = CHAPTER_PATH
+      mocks.state.fileContent = CHAPTER_MD
+      mocks.readFile.mockResolvedValue(CHAPTER_MD)
+      const { cleanup } = await renderPanel()
+
+      // 1) rewrite 分支动态导入失败（带 URL 与 Bearer 凭据，验证脱敏与摘要回显）
+      mocks.deAiAdapterImportError.value = new Error("chunk load failed https://secret.example/a.js Bearer tok-123")
+      fireEvent.click(screen.getByText("去AI味"))
+
+      await waitFor(() => expect(errSpy).toHaveBeenCalled())
+      const status = screen.getByRole("status")
+      expect(status.textContent).toContain("去 AI 味未完成，请检查模型连接后重试。")
+      expect(status.textContent).toContain("chunk load failed [url] [redacted]")
+      expect(status.textContent).not.toContain("https://secret.example")
+      expect(status.textContent).not.toContain("tok-123")
+      expect(screen.getByTestId("de-ai-dialog").dataset.processing).toBe("false")
+      expect(screen.getByRole("button", { name: "去AI味" })).not.toBeDisabled()
+
+      // 2) 恢复导入打开对话框后，切到 edit 模式再次动态导入失败 → 解除 deAiProcessing 且更新摘要
+      mocks.deAiAdapterImportError.value = null
+      mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: { onToken: (t: string) => void; onDone: () => void }) => {
+        cb.onToken("重写正文")
+        cb.onDone()
+        return Promise.resolve()
+      })
+      fireEvent.click(screen.getByText("去AI味"))
+      await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
+
+      errSpy.mockClear()
+      mocks.deAiAdapterImportError.value = new Error("edit chunk missing")
+      fireEvent.click(screen.getByTestId("de-ai-switch-edit"))
+      await waitFor(() => expect(errSpy).toHaveBeenCalled())
+      expect(screen.getByRole("status").textContent).toContain("edit chunk missing")
+      expect(screen.getByTestId("de-ai-dialog").dataset.processing).toBe("false")
+      expect(unhandled).toEqual([])
+      cleanup()
+    } finally {
+      process.off("unhandledRejection", onUnhandled)
+      errSpy.mockRestore()
+    }
+  })
+
+  it("handleDeAiModeChange('detect') 动态导入失败 → 无 unhandled rejection 且更新 saveStatus", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason) }
+    process.on("unhandledRejection", onUnhandled)
+    try {
+      mocks.compactToolbar.value = false
+      mocks.state.selectedFile = CHAPTER_PATH
+      mocks.state.fileContent = CHAPTER_MD
+      mocks.readFile.mockResolvedValue(CHAPTER_MD)
+      mocks.streamChat.mockImplementationOnce((_c: unknown, _m: unknown, cb: { onToken: (t: string) => void; onDone: () => void }) => {
+        cb.onToken("初始重写")
+        cb.onDone()
+        return Promise.resolve()
+      })
+      const { cleanup } = await renderPanel()
+      fireEvent.click(screen.getByText("去AI味"))
+      await waitFor(() => expect(screen.getByTestId("de-ai-dialog").dataset.open).toBe("true"))
+
+      mocks.deAiAdapterImportError.value = new Error("detect chunk offline")
+      fireEvent.click(screen.getByTestId("de-ai-switch-detect"))
+
+      await waitFor(() => expect(errSpy).toHaveBeenCalled())
+      expect(screen.getByRole("status").textContent).toContain("去 AI 味未完成，请检查模型连接后重试。")
+      expect(screen.getByRole("status").textContent).toContain("detect chunk offline")
+      expect(screen.getByTestId("de-ai-dialog").dataset.processing).toBe("false")
+      await flushAsync(20)
+      expect(unhandled).toEqual([])
+      cleanup()
+    } finally {
+      process.off("unhandledRejection", onUnhandled)
+      errSpy.mockRestore()
+    }
+  })
+
+  it("选区去AI味动态导入失败 → 释放 selectionActionPending 且展示错误提示", async () => {
+    mocks.compactToolbar.value = false
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const { cleanup } = await renderPanel()
+
+    mocks.deAiAdapterImportError.value = new Error("selection adapter broken")
+    fireEvent.click(screen.getByTestId("editor-selection-deai"))
+
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("selection adapter broken"))
+    expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument()
+    cleanup()
+  })
+
+  it("章节工具栏 a11y 与 ingest_no_chapter_number 错字修正", async () => {
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.state.finalChapterSave = {
+      projectPath: "/proj",
+      filePath: CHAPTER_PATH,
+      saving: false,
+      phase: "ingest_no_chapter_number",
+    }
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    const { cleanup } = await renderPanel()
+
+    // 章节标题 input 具备 aria-label="章节标题"，关闭按钮具备 type="button"
+    expect(screen.getByRole("textbox", { name: "章节标题" })).toBeInTheDocument()
+    const closeBtn = screen.getByRole("button", { name: "关闭预览" })
+    expect(closeBtn).toHaveAttribute("type", "button")
+
+    // 错字修正 & i18n 契约键 novel.chapter.ingestNoChapterNumber（非章节2栏）
+    const status = screen.getByRole("status")
+    expect(status.textContent).toContain("已保存为正式章节，但未识别到有效章号，跳过记忆提取")
+    expect(status.textContent).not.toContain("章节2栏")
+    cleanup()
+  })
+
+  it("R2-U04/U09/U10：排版成功清旧回执、批量单章操作异常有 catch 且忙锁阻断重入", async () => {
+    mocks.compactToolbar.value = false
+    mocks.state.selectedFile = CHAPTER_PATH
+    mocks.state.fileContent = CHAPTER_MD
+    mocks.state.finalChapterSave = {
+      projectPath: "/proj",
+      filePath: CHAPTER_PATH,
+      saving: false,
+      phase: "saved",
+    }
+    mocks.readFile.mockResolvedValue(CHAPTER_MD)
+    mocks.writeFileAtomic.mockResolvedValue(undefined)
+    const { cleanup } = await renderPanel()
+
+    fireEvent.click(screen.getByText("一键排版"))
+    await waitFor(() => expect(mocks.writeFileAtomic).toHaveBeenCalled())
+    expect(mocks.state.clearFinalChapterSaveForPath).toHaveBeenCalledWith(CHAPTER_PATH)
+
+    // 批量去AI味单章接受/拒绝失败时捕获错误并回显
+    mocks.acceptDeAiBatchDraft.mockRejectedValueOnce(new Error("accept chapter boom"))
+    fireEvent.click(screen.getByTestId("de-ai-batch-accept-1"))
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("accept chapter boom"))
+
+    mocks.rejectDeAiBatchDraft.mockRejectedValueOnce(new Error("reject chapter boom"))
+    fireEvent.click(screen.getByTestId("de-ai-batch-reject-1"))
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("reject chapter boom"))
+    cleanup()
   })
 })

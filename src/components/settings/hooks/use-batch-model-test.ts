@@ -1,7 +1,7 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { testSettingsLlmModel } from "@/lib/settings-model-test"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { toErrorMessage } from "@/lib/utils"
@@ -36,18 +36,33 @@ export function useBatchModelTest(
     success: false,
     message: "",
   })
+  const mountedRef = useRef(true)
+  const runSeqRef = useRef(0)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const runBatchTest = useCallback(
     async (modelsToTest: string[], buildConfig: (modelId: string) => LlmConfig) => {
+      const seq = ++runSeqRef.current
+      const isActive = () => mountedRef.current && runSeqRef.current === seq
+
       if (modelsToTest.length === 0 || modelsToTest.some((m) => !m)) {
-        setModelTestState({
-          loading: false,
-          success: false,
-          message: "请先输入或选择模型",
-        })
+        if (isActive()) {
+          setModelTestState({
+            loading: false,
+            success: false,
+            message: "请先输入或选择模型",
+          })
+        }
         return
       }
 
+      if (!isActive()) return
       setModelTestState({
         loading: true,
         success: false,
@@ -58,6 +73,7 @@ export function useBatchModelTest(
 
       try {
         for (let i = 0; i < modelsToTest.length; i++) {
+          if (!isActive()) return
           const modelId = modelsToTest[i]
           setModelTestState({
             loading: true,
@@ -71,13 +87,16 @@ export function useBatchModelTest(
 
           try {
             const result = await testSettingsLlmModel(buildConfig(modelId))
+            if (!isActive()) return
             results.push({ model: result.model, ok: true })
           } catch (error) {
+            if (!isActive()) return
             const message = toErrorMessage(error)
             results.push({ model: modelId, ok: false, error: message })
           }
         }
 
+        if (!isActive()) return
         const successCount = results.filter((r) => r.ok).length
         const allSuccess = successCount === modelsToTest.length
 
@@ -108,6 +127,7 @@ export function useBatchModelTest(
           })
         }
       } catch (error) {
+        if (!isActive()) return
         setModelTestState({
           loading: false,
           success: false,
@@ -127,6 +147,7 @@ export function useBatchModelTest(
   )
 
   const clearTestState = useCallback(() => {
+    runSeqRef.current += 1
     setModelTestState({
       loading: false,
       success: false,

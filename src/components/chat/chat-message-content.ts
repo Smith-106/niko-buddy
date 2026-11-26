@@ -19,12 +19,21 @@ export const MANAGED_CONTEXT_USAGE_RE = /<!--\s*niko-buddy-context-usage:([\s\S]
 
 export type ManagedDeepChapterDraftStatus = "pending" | "ready" | "accepted" | "rejected" | "superseded"
 
-export function getManagedDeepChapterDraftStatus(content: string): ManagedDeepChapterDraftStatus | null {
-  const match = content.match(MANAGED_DEEP_CHAPTER_DRAFT_RE)
-  if (!match?.[1]) return null
+export function readManagedDeepChapterDraftMessage(content: string): {
+  conversationId: string
+  sessionId?: string
+  draftStatus: ManagedDeepChapterDraftStatus
+  body: string
+} | null {
+  const matches = [...content.matchAll(new RegExp(MANAGED_DEEP_CHAPTER_DRAFT_RE, "gi"))]
+  const match = matches[matches.length - 1]
+  if (!match?.[1] || match.index === undefined) return null
+  const suffix = content.slice(match.index + match[0].length).trim()
+  if (suffix && suffix.match(MANAGED_CONTEXT_USAGE_RE)?.[0] !== suffix) return null
   try {
     const parsed = JSON.parse(decodeURIComponent(match[1])) as {
       conversationId?: unknown
+      sessionId?: unknown
       draftStatus?: unknown
     }
     if (
@@ -32,12 +41,21 @@ export function getManagedDeepChapterDraftStatus(content: string): ManagedDeepCh
       && typeof parsed?.draftStatus === "string"
       && ["pending", "ready", "accepted", "rejected", "superseded"].includes(parsed.draftStatus)
     ) {
-      return parsed.draftStatus as ManagedDeepChapterDraftStatus
+      return {
+        conversationId: parsed.conversationId,
+        sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId : undefined,
+        draftStatus: parsed.draftStatus as ManagedDeepChapterDraftStatus,
+        body: content.slice(0, match.index).replace(/\n$/, ""),
+      }
     }
     return null
   } catch {
     return null
   }
+}
+
+export function getManagedDeepChapterDraftStatus(content: string): ManagedDeepChapterDraftStatus | null {
+  return readManagedDeepChapterDraftMessage(content)?.draftStatus ?? null
 }
 
 /**

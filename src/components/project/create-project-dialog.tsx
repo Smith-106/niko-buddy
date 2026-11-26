@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -23,6 +23,7 @@ interface CreateProjectDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onCreated: (project: WikiProject) => void
+  onConfigureLlm?: () => void
 }
 
 /** J01-T03 (F-003)：空名项目的无冲突暂名生成。
@@ -43,16 +44,24 @@ async function resolveUntitledName(parentDir: string): Promise<string> {
   return `${base} ${i}`
 }
 
-export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: CreateProjectDialogProps) {
+export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated, onConfigureLlm }: CreateProjectDialogProps) {
   const { t } = useTranslation()
   const [name, setName] = useState("")
   const [path, setPath] = useState("")
   const [error, setError] = useState("")
   const [creating, setCreating] = useState(false)
-  // ②-3：模板选择（TemplatePicker 接入）；默认空白 general 模板，提交时 getTemplate(selectedTemplateId)
+  // ②-3 + P0-02：模板选择（TemplatePicker 接入）；默认随 novelMode 同步，用户手动选定后不再覆盖
   const novelMode = useWikiStore((s) => s.novelMode)
-  const [selectedTemplateId, setSelectedTemplateId] = useState(novelMode ? "novel-demo" : "general")
+  const defaultTemplateId = novelMode ? "novel-demo" : "general"
+  const [selectedTemplateId, setSelectedTemplateId] = useState(defaultTemplateId)
+  const templateTouchedRef = useRef(false)
   const setOutputLanguage = useWikiStore((s) => s.setOutputLanguage)
+
+  useEffect(() => {
+    if (!templateTouchedRef.current) {
+      setSelectedTemplateId(defaultTemplateId)
+    }
+  }, [defaultTemplateId])
   // J01-T01 (F-007)：模型服务健康检查——建项时可见 LLM 状态，可展开配置或明示跳过。
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const setActiveView = useWikiStore((s) => s.setActiveView)
@@ -170,7 +179,8 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
       onOpenChange(false)
       setName("")
       setPath("")
-      setSelectedTemplateId("general")
+      templateTouchedRef.current = false
+      setSelectedTemplateId(defaultTemplateId)
     } catch (err) {
       // 本地化引导 + 原始诊断：引导语缺失时诊断不会丢。
       setError(`${t("project.createFailed", "创建项目失败")}：${String(err)}`)
@@ -216,7 +226,13 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
             </div>
             <div className="flex flex-col gap-2">
               <Label>{t("project.templateLabel", { defaultValue: "项目模板" })}</Label>
-              <TemplatePicker selected={selectedTemplateId} onSelect={setSelectedTemplateId} />
+              <TemplatePicker
+                selected={selectedTemplateId}
+                onSelect={(id) => {
+                  templateTouchedRef.current = true
+                  setSelectedTemplateId(id)
+                }}
+              />
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="path">{t("project.parentDir")}</Label>
@@ -264,7 +280,11 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
                       size="sm"
                       onClick={() => {
                         onOpenChange(false)
-                        setActiveView("settings")
+                        if (onConfigureLlm) {
+                          onConfigureLlm()
+                        } else {
+                          setActiveView("settings")
+                        }
                       }}
                     >
                       {t("project.llmConfigure")}

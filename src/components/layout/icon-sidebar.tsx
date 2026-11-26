@@ -3,12 +3,10 @@
 
 import { useEffect, useState } from "react"
 import {
-  ArrowLeftRight, ChevronRight, Eye, GitMerge, Image, Languages, Monitor, Moon, Search, Settings, Sun, Trash2,
+  ArrowLeftRight, ChevronRight, Eye, Image, Monitor, Moon, Search, Settings, Sun, Trash2,
 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { CoverPromptWorkbench } from "@/components/novel/cover-prompt-workbench"
-import { TranslationWorkbenchView } from "@/components/novel/translation-workbench-view"
-import { FanficMergeDialog } from "@/components/novel/fanfic-merge-dialog"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { useTranslation } from "react-i18next"
@@ -50,8 +48,6 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
   const project = useWikiStore((s) => s.project)
   // F-012: 封面 Prompt 工作台入口（独立 dialog，不新增 activeView，不进主链热路径）
   const [coverWorkbenchOpen, setCoverWorkbenchOpen] = useState(false)
-  const [translationViewOpen, setTranslationViewOpen] = useState(false)
-  const [fanficMergeOpen, setFanficMergeOpen] = useState(false)
   // 有书时只展开写作和审改。没有书时开书组展开。用户点过后以存储为准。
   const [collapsedGroups, setCollapsedGroups] = useState<NavModeGroup[]>(() =>
     initialCollapsedGroups(useWikiStore.getState().project === null),
@@ -290,28 +286,6 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             >
               <Image className="h-[1.125rem] w-[1.125rem] shrink-0" />
             </button>
-            {/* 65 号 G2: 翻译工作台入口（独立 dialog，零 activeView） */}
-            <button
-              type="button"
-              onClick={() => setTranslationViewOpen(true)}
-              data-translation-workbench-entry="true"
-              title={t("novel.nav.translationWorkbench")}
-              aria-label={t("novel.nav.translationWorkbench")}
-              className="soft-button flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
-            >
-              <Languages className="h-[1.125rem] w-[1.125rem] shrink-0" />
-            </button>
-            {/* 65 号 G2: 同人正典合并入口（Draft-first pending） */}
-            <button
-              type="button"
-              onClick={() => setFanficMergeOpen(true)}
-              data-fanfic-merge-entry="true"
-              title={t("novel.nav.fanficMerge")}
-              aria-label={t("novel.nav.fanficMerge")}
-              className="soft-button flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
-            >
-              <GitMerge className="h-[1.125rem] w-[1.125rem] shrink-0" />
-            </button>
             <button
               type="button"
               onClick={() => {
@@ -384,18 +358,6 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
           <CoverPromptWorkbench />
         </DialogContent>
       </Dialog>
-      {/* 65 号 G2: 翻译工作台 dialog（Port 注入由上层组装；此处默认未注入 → 优雅降级） */}
-      <Dialog open={translationViewOpen} onOpenChange={setTranslationViewOpen}>
-        <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>{t("novel.translation.title")}</DialogTitle>
-            <DialogDescription>{t("novel.translation.dialogHint")}</DialogDescription>
-          </DialogHeader>
-          <TranslationWorkbenchView />
-        </DialogContent>
-      </Dialog>
-      {/* 65 号 G2: 同人正典合并 dialog（Draft-first pending 工件） */}
-      <FanficMergeDialog open={fanficMergeOpen} onOpenChange={setFanficMergeOpen} />
     </>
   )
 }

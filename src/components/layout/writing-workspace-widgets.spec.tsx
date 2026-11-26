@@ -18,8 +18,13 @@ afterEach(() => {
 })
 
 describe("writing-workspace-widgets", () => {
-  it("待采纳数只计未写入正式章的草稿", async () => {
-    const list = vi.fn(async () => [mk("a", "draft"), mk("b", "saved"), mk("c", "draft")])
+  it("待采纳数只计未写入正式章且未失败的草稿（R3-U01 排除 failed 幽灵角标）", async () => {
+    const list = vi.fn(async () => [
+      mk("a", "draft"),
+      mk("b", "saved"),
+      mk("c", "draft"),
+      mk("d", "failed"),
+    ])
     const { result } = renderHook(() => usePendingDraftCount("C:/book", 0, list))
     await waitFor(() => expect(result.current).toBe(2))
   })

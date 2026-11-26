@@ -25,8 +25,17 @@ const mocks = vi.hoisted(() => {
       return n.split("/").pop() ?? p
     }),
     getSelection: vi.fn<() => Selection | null>(() => null),
+    toastInfo: vi.fn<(message: string) => void>(() => {}),
   }
 })
+
+vi.mock("@/lib/toast", () => ({
+  toast: {
+    info: mocks.toastInfo,
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}))
 
 vi.mock("@/commands/exemplar", () => ({
   markStyleExemplarViaRust: mocks.markStyleExemplarViaRust,
@@ -85,7 +94,7 @@ describe("useExemplarState", () => {
     expect(result.current.exemplarDialog.open).toBe(false)
   })
 
-  it("选区为空时给出提示且不打开弹窗", async () => {
+  it("选区为空时给出提示、触发 toast.info 且不打开弹窗", async () => {
     mocks.getSelection.mockReturnValue({ toString: () => "   " } as unknown as Selection)
     const { result } = renderHook(() =>
       useExemplarState({ project: PROJECT, selectedFile: null }),
@@ -94,6 +103,8 @@ describe("useExemplarState", () => {
       await result.current.openExemplarDialogFromSelection()
     })
     expect(result.current.exemplarFeedback).toBe("请先在消息中选中一段文本")
+    expect(mocks.toastInfo).toHaveBeenCalledTimes(1)
+    expect(mocks.toastInfo).toHaveBeenCalledWith("请先在消息中选中一段文本")
     expect(result.current.exemplarDialog.open).toBe(false)
     expect(mocks.loadStyleExemplarsViaRust).not.toHaveBeenCalled()
   })
@@ -172,7 +183,7 @@ describe("useExemplarState", () => {
       note: "补充说明",
     })
     expect(result.current.exemplarCount).toBe(1)
-    expect(result.current.exemplarFeedback).toBe("已标记为用户锚点（非自动生成）")
+    expect(result.current.exemplarFeedback).toBe("已收藏为文风范例，后续写作将参考这段风格")
     expect(result.current.exemplarDialog).toEqual({ open: false, text: "", chapterId: "" })
   })
 
@@ -193,7 +204,7 @@ describe("useExemplarState", () => {
       markType: "style",
       note: undefined,
     })
-    expect(result.current.exemplarFeedback).toBe("已标记为用户锚点（非自动生成）")
+    expect(result.current.exemplarFeedback).toBe("已收藏为文风范例，后续写作将参考这段风格")
   })
 
   it("submitExemplarMark 失败：Error 实例显示 message", async () => {
@@ -207,7 +218,7 @@ describe("useExemplarState", () => {
     await act(async () => {
       await result.current.submitExemplarMark()
     })
-    expect(result.current.exemplarFeedback).toBe("标记失败：boom")
+    expect(result.current.exemplarFeedback).toBe("收藏失败：boom")
     expect(result.current.exemplarDialog.open).toBe(true)
   })
 
@@ -222,7 +233,7 @@ describe("useExemplarState", () => {
     await act(async () => {
       await result.current.submitExemplarMark()
     })
-    expect(result.current.exemplarFeedback).toBe("标记失败：raw-string-error")
+    expect(result.current.exemplarFeedback).toBe("收藏失败：raw-string-error")
   })
 
   it("submitExemplarABScore 无项目时直接返回", async () => {
@@ -251,11 +262,11 @@ describe("useExemplarState", () => {
     })
     expect(mocks.loadCognitionState).toHaveBeenCalledWith(NORMALIZED)
     expect(result.current.exemplarFeedback).toBe(
-      "已记录评分 4★（开启）— 开启均分 4.50，关闭均分 3.25",
+      "已记录反馈 4★（开启参考时）— 开启参考均分 4.50，关闭参考均分 3.25",
     )
   })
 
-  it("submitExemplarABScore 无 selectedFile 时 chapterId 为 chat；均分为 null 时显示 N/A", async () => {
+  it("submitExemplarABScore 无 selectedFile 时 chapterId 为 chat；均分为 null 时显示暂无", async () => {
     mocks.exemplarABStats.mockReturnValue({ enabledAvg: null, disabledAvg: null })
     const { result } = renderHook(() =>
       useExemplarState({ project: PROJECT, selectedFile: null }),
@@ -268,7 +279,7 @@ describe("useExemplarState", () => {
       expect.objectContaining({ variant: "disabled", score: 5, chapterId: "chat" }),
     )
     expect(result.current.exemplarFeedback).toBe(
-      "已记录评分 5★（关闭）— 开启均分 无，关闭均分 无",
+      "已记录反馈 5★（关闭参考时）— 开启参考均分 暂无，关闭参考均分 暂无",
     )
   })
 
@@ -319,7 +330,7 @@ describe("useExemplarState", () => {
       await result.current.deleteExemplar("e1-long-id-1234")
     })
     expect(mocks.deleteStyleExemplarViaRust).toHaveBeenCalledWith(NORMALIZED, "e1-long-id-1234")
-    expect(result.current.exemplarFeedback).toBe("已删除范例 e1-long-")
+    expect(result.current.exemplarFeedback).toBe("已移除这条文风范例（e1-long-）")
     expect(result.current.exemplarDeleteConfirmId).toBeNull()
   })
 

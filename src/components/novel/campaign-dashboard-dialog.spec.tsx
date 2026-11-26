@@ -1,14 +1,22 @@
 /** @vitest-environment jsdom */
+import { createHash } from "node:crypto"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { CampaignDashboardDialog } from "./campaign-dashboard-dialog"
-import type { CampaignChapterResult } from "@/lib/novel"
+import type { CampaignChapterResult, CampaignReport, CampaignRunOptions } from "@/lib/novel"
+
+function withReviewedBody<T extends CampaignChapterResult>(chapter: T) {
+  return {
+    ...chapter,
+    reviewedBodySha256: createHash("sha256").update(JSON.stringify([chapter.chapterNumber, chapter.content])).digest("hex"),
+  }
+}
 
 const mocks = vi.hoisted(() => ({
   projectPath: "/mock/project",
   projectNull: false,
   getNextChapterNumber: vi.fn(async (_path?: string) => 5),
-  runAutonomousDraftCampaign: vi.fn(async (_options?: any) => ({
+  runAutonomousDraftCampaign: vi.fn(async (_options?: CampaignRunOptions): Promise<CampaignReport> => ({
     projectPath: "/mock/project",
     startChapter: 5,
     endChapter: 6,
@@ -55,6 +63,8 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
   toastInfo: vi.fn(),
   toastError: vi.fn(),
+  invalidateChapterCache: vi.fn(),
+  bumpDataVersion: vi.fn(),
 }))
 
 vi.mock("@/stores/wiki-store", async (importOriginal) => {
@@ -67,6 +77,7 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
         llmConfig: { provider: "mock", model: "gpt-4o" },
         novelConfig: { chapterTargetChars: 2500 },
         setFileTree: vi.fn(),
+        bumpDataVersion: mocks.bumpDataVersion,
       }),
   }
 })
@@ -94,6 +105,7 @@ vi.mock("@/lib/novel", async (importOriginal) => {
     getNextChapterNumber: mocks.getNextChapterNumber,
     runAutonomousDraftCampaign: mocks.runAutonomousDraftCampaign,
     batchAcceptCampaignDrafts: mocks.batchAcceptCampaignDrafts,
+    invalidateChapterCache: mocks.invalidateChapterCache,
   }
 })
 
@@ -125,7 +137,7 @@ describe("CampaignDashboardDialog", () => {
           reviewResults: [],
           revised: false,
         },
-      ]
+      ].map(withReviewedBody)
       options?.onChapterComplete?.(5, results[0])
       options?.onChapterComplete?.(6, results[1])
       return {
@@ -163,7 +175,7 @@ describe("CampaignDashboardDialog", () => {
 
     expect(screen.getByText(/长程战役调度工作台/)).toBeDefined()
     expect(screen.getByText("启动战役")).toBeDefined()
-    expect(screen.getByText("批量验收摄取事实库")).toBeDefined()
+    expect(screen.getByText("验收后自动同步设定记忆")).toBeDefined()
 
     await waitFor(() => {
       expect(mocks.getNextChapterNumber).toHaveBeenCalledWith("/mock/project")
@@ -192,7 +204,7 @@ describe("CampaignDashboardDialog", () => {
     await waitFor(() => {
       expect(screen.getByText("第五章 风暴前夕")).toBeDefined()
       expect(screen.getByText("第六章 破晓之战")).toBeDefined()
-      expect(screen.getByText(/批量验收并落盘 \(2\)/)).toBeDefined()
+      expect(screen.getByText(/批量验收并写入正文 \(2\)/)).toBeDefined()
     })
   })
 
@@ -207,10 +219,10 @@ describe("CampaignDashboardDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
 
     await waitFor(() => {
-      expect(screen.getByText(/批量验收并落盘 \(2\)/)).toBeDefined()
+      expect(screen.getByText(/批量验收并写入正文 \(2\)/)).toBeDefined()
     })
 
-    const acceptBtn = screen.getByRole("button", { name: /批量验收并落盘 \(2\)/ })
+    const acceptBtn = screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ })
     fireEvent.click(acceptBtn)
 
     await waitFor(() => {
@@ -248,7 +260,7 @@ describe("CampaignDashboardDialog 增补：未覆盖分支收敛", () => {
           reviewResults: [],
           revised: false,
         },
-      ]
+      ].map(withReviewedBody)
       options?.onChapterComplete?.(5, results[0])
       options?.onChapterComplete?.(6, results[1])
       return {
@@ -297,7 +309,7 @@ describe("CampaignDashboardDialog 增补：未覆盖分支收敛", () => {
       reviewResults: [],
       revised: false,
     },
-  ]
+  ].map(withReviewedBody)
 
   it("open=false 时不探测章节号（守卫早退）", async () => {
     render(<CampaignDashboardDialog open={false} onOpenChange={vi.fn()} />)
@@ -434,7 +446,7 @@ describe("CampaignDashboardDialog 增补2：巡航 / 中止 / 验收边界", () 
           reviewResults: [],
           revised: false,
         },
-      ]
+      ].map(withReviewedBody)
       options?.onChapterComplete?.(5, results[0])
       options?.onChapterComplete?.(6, results[1])
       return {
@@ -472,10 +484,10 @@ describe("CampaignDashboardDialog 增补2：巡航 / 中止 / 验收边界", () 
       reviewResults: [],
       revised: false,
     },
-  ]
+  ].map(withReviewedBody)
 
-  it("巡航落盘：autoAccepted 章触发巡航成功文案", async () => {
-    const auto = { ...readyResults()[0], autoAccepted: true }
+  it.each([false, true])("巡航落盘和已验证摄取分开计数（autoIngested=%s）", async (autoIngested) => {
+    const auto = { ...readyResults()[0], autoAccepted: true, autoIngested }
     mocks.runAutonomousDraftCampaign.mockImplementationOnce(async () => ({
       projectPath: "/mock/project",
       startChapter: 5,
@@ -495,7 +507,9 @@ describe("CampaignDashboardDialog 增补2：巡航 / 中止 / 验收边界", () 
     fireEvent.click(screen.getByText(/开启全自动巡航推进/))
     fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
     await waitFor(() => {
-      expect(mocks.toastSuccess).toHaveBeenCalledWith(expect.stringContaining("全自动巡航完成"))
+      expect(mocks.toastSuccess).toHaveBeenCalledWith(
+        `全自动巡航完成！自动落盘 1 章，已验证事实库摄取 ${Number(autoIngested)} 章`,
+      )
     })
   })
 
@@ -568,7 +582,7 @@ describe("CampaignDashboardDialog 增补2：巡航 / 中止 / 验收边界", () 
     expect(mocks.toastError).not.toHaveBeenCalled()
   })
 
-  it("报告就绪为 0 但面板有就绪卡：验收提示没有可验收章节", async () => {
+  it("报告就绪为 0 但面板有就绪卡：禁止验收", async () => {
     const [r5] = readyResults()
     const blocked = { ...r5, status: "blocked" as const }
     mocks.runAutonomousDraftCampaign.mockImplementationOnce(async (options?: any) => {
@@ -591,14 +605,47 @@ describe("CampaignDashboardDialog 增补2：巡航 / 中止 / 验收边界", () 
       expect(mocks.getNextChapterNumber).toHaveBeenCalled()
     })
     fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /批量验收并落盘 \(1\)/ })).toBeDefined()
-    })
-    fireEvent.click(screen.getByRole("button", { name: /批量验收并落盘 \(1\)/ }))
-    await waitFor(() => {
-      expect(mocks.toastInfo).toHaveBeenCalledWith("没有可验收落盘的就绪章节")
-    })
+    await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalled())
+    expect(screen.getByRole("button", { name: /批量验收并写入正文 \(0\)/ })).toHaveProperty("disabled", true)
     expect(mocks.batchAcceptCampaignDrafts).not.toHaveBeenCalled()
+  })
+
+  it("只提交带凭证且未自动落盘的就绪章节，正式落盘为 0 时提示而非报成功", async () => {
+    const [candidate] = readyResults()
+    const other = withReviewedBody({ ...candidate, chapterNumber: 6 })
+    const results = [
+      candidate,
+      { ...other, autoAccepted: true },
+      { ...other, chapterNumber: 7, reviewedBodySha256: undefined },
+    ]
+    mocks.runAutonomousDraftCampaign.mockImplementationOnce(async (options?: CampaignRunOptions) => {
+      for (const chapter of results) options?.onChapterComplete?.(chapter.chapterNumber, chapter)
+      return {
+        projectPath: "/mock/project",
+        startChapter: 5,
+        endChapter: 7,
+        totalChapters: 3,
+        completedChapters: 3,
+        totalWords: 7800,
+        startTime: new Date().toISOString(),
+        endTime: new Date().toISOString(),
+        results,
+        summary: { allPassed: true, readyCount: 3, failedCount: 0 },
+      }
+    })
+    mocks.batchAcceptCampaignDrafts.mockResolvedValueOnce({ acceptedCount: 0, ingestedCount: 0, chapterPaths: [] })
+
+    render(<CampaignDashboardDialog open={true} onOpenChange={vi.fn()} />)
+    fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
+    const accept = await screen.findByRole("button", { name: /批量验收并写入正文 \(1\)/ })
+    await waitFor(() => expect(accept).toHaveProperty("disabled", false))
+    mocks.toastSuccess.mockClear()
+    fireEvent.click(accept)
+
+    await waitFor(() => expect(mocks.toastInfo).toHaveBeenCalledWith("批量验收未落盘任何章节"))
+    expect(mocks.batchAcceptCampaignDrafts).toHaveBeenCalledWith("/mock/project", [candidate], expect.anything())
+    expect(mocks.toastSuccess).not.toHaveBeenCalled()
+    expect(screen.queryByText(/已成功验收写入/)).toBeNull()
   })
 
   it("批量验收透传 onProgress：落盘进度文案可观测", async () => {
@@ -614,9 +661,9 @@ describe("CampaignDashboardDialog 增补2：巡航 / 中止 / 验收边界", () 
     })
     fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /批量验收并落盘 \(2\)/ })).toBeDefined()
+      expect(screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ })).toBeDefined()
     })
-    fireEvent.click(screen.getByRole("button", { name: /批量验收并落盘 \(2\)/ }))
+    fireEvent.click(screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ }))
     await waitFor(() => {
       expect(screen.getByText("正在落盘: 第 1/2 篇 (c.md)")).toBeDefined()
     })
@@ -633,9 +680,9 @@ describe("CampaignDashboardDialog 增补2：巡航 / 中止 / 验收边界", () 
       })
       fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /批量验收并落盘 \(2\)/ })).toBeDefined()
+        expect(screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ })).toBeDefined()
       })
-      fireEvent.click(screen.getByRole("button", { name: /批量验收并落盘 \(2\)/ }))
+      fireEvent.click(screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ }))
       await waitFor(() => {
         expect(mocks.toastSuccess).toHaveBeenCalledWith(expect.stringContaining("批量验收完成"))
       })
@@ -653,9 +700,9 @@ describe("CampaignDashboardDialog 增补2：巡航 / 中止 / 验收边界", () 
     })
     fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /批量验收并落盘 \(2\)/ })).toBeDefined()
+      expect(screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ })).toBeDefined()
     })
-    fireEvent.click(screen.getByRole("button", { name: /批量验收并落盘 \(2\)/ }))
+    fireEvent.click(screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ }))
     await waitFor(() => {
       expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("落盘 IO 错"))
     })
@@ -690,7 +737,7 @@ describe("CampaignDashboardDialog 增补3：输入 / 开关 / 展开 / 关闭", 
           reviewResults: [],
           revised: false,
         },
-      ]
+      ].map(withReviewedBody)
       options?.onChapterComplete?.(5, results[0])
       options?.onChapterComplete?.(6, results[1])
       return {
@@ -734,9 +781,9 @@ describe("CampaignDashboardDialog 增补3：输入 / 开关 / 展开 / 关闭", 
     })
     fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /批量验收并落盘 \(2\)/ })).toBeDefined()
+      expect(screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ })).toBeDefined()
     })
-    const acceptBtn = screen.getByRole("button", { name: /批量验收并落盘 \(2\)/ })
+    const acceptBtn = screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ })
     fireEvent.click(acceptBtn)
     fireEvent.click(acceptBtn)
     expect(mocks.batchAcceptCampaignDrafts).toHaveBeenCalledTimes(1)
@@ -765,12 +812,12 @@ describe("CampaignDashboardDialog 增补3：输入 / 开关 / 展开 / 关闭", 
     await waitFor(() => {
       expect(mocks.getNextChapterNumber).toHaveBeenCalled()
     })
-    fireEvent.click(screen.getByText("批量验收摄取事实库"))
+    fireEvent.click(screen.getByText("验收后自动同步设定记忆"))
     fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /批量验收并落盘 \(2\)/ })).toBeDefined()
+      expect(screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ })).toBeDefined()
     })
-    fireEvent.click(screen.getByRole("button", { name: /批量验收并落盘 \(2\)/ }))
+    fireEvent.click(screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ }))
     await waitFor(() => {
       expect(mocks.batchAcceptCampaignDrafts).toHaveBeenCalledWith(
         "/mock/project",
@@ -797,7 +844,7 @@ describe("CampaignDashboardDialog 增补3：输入 / 开关 / 展开 / 关闭", 
     expect(screen.getByRole("region", { name: "第 5 章详情" }).textContent).toContain(
       "暴风雨在天边聚集",
     )
-    fireEvent.click(screen.getByRole("button", { name: "关闭" }))
+    fireEvent.click(screen.getAllByRole("button", { name: "关闭" })[0])
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })
@@ -831,7 +878,7 @@ describe("CampaignDashboardDialog 增补4：分支缺口收敛（77-branch 冲�
           reviewResults: [],
           revised: false,
         },
-      ]
+      ].map(withReviewedBody)
       options?.onChapterComplete?.(5, results[0])
       options?.onChapterComplete?.(6, results[1])
       return {
@@ -897,20 +944,20 @@ describe("CampaignDashboardDialog 增补4：分支缺口收敛（77-branch 冲�
     })
     fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /批量验收并落盘 \(2\)/ })).toBeDefined()
+      expect(screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ })).toBeDefined()
     })
     // 模拟用户在结果就绪后关闭了项目：store 读到 null，触发重渲染拿到新闭包
     mocks.toastSuccess.mockClear()
     mocks.projectNull = true
     fireEvent.click(screen.getByRole("button", { name: "展开第 5 章详情" }))
     expect(screen.getByRole("region", { name: "第 5 章详情" })).toBeDefined()
-    fireEvent.click(screen.getByRole("button", { name: /批量验收并落盘 \(2\)/ }))
+    fireEvent.click(screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ }))
     expect(mocks.batchAcceptCampaignDrafts).not.toHaveBeenCalled()
     expect(mocks.toastSuccess).not.toHaveBeenCalled()
   })
 
   it("战役抛错前已有部分完成：验收走 chapterResults 兜底（L174 ?? 右）", async () => {
-    const partial = {
+    const partial = withReviewedBody({
       chapterNumber: 5,
       title: "第五章 风暴前夕",
       content: "暴风雨在天边聚集，雷光撕裂黑夜。",
@@ -920,7 +967,7 @@ describe("CampaignDashboardDialog 增补4：分支缺口收敛（77-branch 冲�
       status: "ready" as const,
       reviewResults: [],
       revised: false,
-    }
+    })
     mocks.runAutonomousDraftCampaign.mockImplementationOnce(async (options: any) => {
       options?.onChapterComplete?.(5, partial)
       throw new Error("第 6 章调度崩了")
@@ -934,7 +981,7 @@ describe("CampaignDashboardDialog 增补4：分支缺口收敛（77-branch 冲�
       expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("第 6 章调度崩了"))
     })
     // campaignReport 为 null，但 chapterResults 有 1 章就绪 → 兜底可验收
-    const acceptBtn = await screen.findByRole("button", { name: /批量验收并落盘 \(1\)/ })
+    const acceptBtn = await screen.findByRole("button", { name: /批量验收并写入正文 \(1\)/ })
     fireEvent.click(acceptBtn)
     await waitFor(() => {
       expect(mocks.batchAcceptCampaignDrafts).toHaveBeenCalledWith(
@@ -945,7 +992,7 @@ describe("CampaignDashboardDialog 增补4：分支缺口收敛（77-branch 冲�
     })
   })
 
-  it("验收零摄取：成功文案不带摄取后缀、横幅无摄取（L203/L373 else）", async () => {
+  it("验收零摄取：明确报告正式落盘数与零验证摄取", async () => {
     mocks.batchAcceptCampaignDrafts.mockResolvedValueOnce({
       acceptedCount: 2,
       ingestedCount: 0,
@@ -957,13 +1004,13 @@ describe("CampaignDashboardDialog 增补4：分支缺口收敛（77-branch 冲�
     })
     fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /批量验收并落盘 \(2\)/ })).toBeDefined()
+      expect(screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ })).toBeDefined()
     })
-    fireEvent.click(screen.getByRole("button", { name: /批量验收并落盘 \(2\)/ }))
+    fireEvent.click(screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ }))
     await waitFor(() => {
-      expect(mocks.toastSuccess).toHaveBeenCalledWith("批量验收完成！成功落盘 2 个章节")
+      expect(mocks.toastSuccess).toHaveBeenCalledWith("批量验收完成！成功落盘 2 个章节，已验证事实库摄取 0 章")
     })
-    expect(screen.getByText("已成功验收落盘 2 章节。")).toBeDefined()
+    expect(screen.getByText("已成功验收写入 2 章节。")).toBeDefined()
   })
 
   it("巡航卡片渲染：autoAccepted 章显示巡航落盘徽（L323 cons）", async () => {
@@ -1149,3 +1196,232 @@ describe("CampaignDashboardDialog 增补4：分支缺口收敛（77-branch 冲�
   })
 })
 
+describe("CampaignDashboardDialog R2-U03 / P1-01 增强", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.projectNull = false
+    mocks.getNextChapterNumber.mockResolvedValue(5)
+    mocks.batchAcceptCampaignDrafts.mockResolvedValue({
+      acceptedCount: 1,
+      ingestedCount: 1,
+      chapterPaths: ["/mock/project/wiki/chapters/chapter-005.md"],
+    })
+  })
+  afterEach(() => {
+    cleanup()
+  })
+
+  it("展示 partial 截断草稿徽章，展开详情呈现 error / decisionGates / reviewResults", async () => {
+    const partialChapter: CampaignChapterResult = {
+      chapterNumber: 5,
+      title: "第五章 半途截断",
+      content: "半截正文",
+      taskBrief: "起草第5章",
+      draftContent: "半截正文",
+      wordCount: 500,
+      status: "partial",
+      error: "模型输出提前中断",
+      decisionGates: {
+        overall: "manual_review",
+        consistency: {
+          status: "failed",
+          verdict: "fail",
+          findings: [
+            {
+              severity: "error",
+              type: "timeline_consistency",
+              message: "时间线矛盾",
+              evidence: "",
+              relatedMemory: "",
+              suggestion: "修正时间戳",
+            },
+          ],
+          repair_suggestions: ["修正时间戳"],
+          retry_count: 1,
+        },
+        anti_ai: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+        quality: { status: "passed", verdict: "pass", findings: [], repair_suggestions: [], retry_count: 0 },
+      },
+      reviewResults: [
+        {
+          severity: "error",
+          type: "timeline_consistency",
+          message: "时间线矛盾",
+          evidence: "",
+          relatedMemory: "",
+          suggestion: "修正时间戳",
+        },
+      ],
+      revised: false,
+    }
+    mocks.runAutonomousDraftCampaign.mockImplementationOnce(async (options?: CampaignRunOptions) => {
+      options?.onChapterComplete?.(5, partialChapter)
+      return {
+        projectPath: "/mock/project",
+        startChapter: 5,
+        endChapter: 5,
+        totalChapters: 1,
+        completedChapters: 1,
+        totalWords: 500,
+        startTime: new Date().toISOString(),
+        endTime: new Date().toISOString(),
+        results: [partialChapter],
+        summary: { allPassed: false, readyCount: 0, failedCount: 0 },
+      }
+    })
+
+    render(<CampaignDashboardDialog open={true} onOpenChange={vi.fn()} />)
+    fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
+    await waitFor(() => {
+      expect(screen.getByTestId("campaign-chapter-badge-partial-5")).toBeTruthy()
+    })
+    fireEvent.click(screen.getByRole("button", { name: "展开第 5 章详情" }))
+    expect(screen.getByTestId("campaign-chapter-error-5").textContent).toContain("模型输出提前中断")
+    expect(screen.getByTestId("campaign-chapter-gates-5").textContent).toContain("设定一致性：未通过（1）")
+    expect(screen.getByTestId("campaign-chapter-findings-5").textContent).toContain("时间线矛盾")
+  })
+
+  it("支持单章重试与从此章续跑，保留既有历史章结果不丢弃", async () => {
+    const ch5Ready = withReviewedBody({
+      chapterNumber: 5,
+      title: "第五章 已就绪",
+      content: "第五章正文",
+      taskBrief: "t5",
+      draftContent: "第五章正文",
+      wordCount: 2000,
+      status: "ready" as const,
+      reviewResults: [],
+      revised: false,
+    })
+    const ch6Failed: CampaignChapterResult = {
+      chapterNumber: 6,
+      title: "第六章 失败",
+      content: "",
+      taskBrief: "t6",
+      draftContent: "",
+      wordCount: 0,
+      status: "failed",
+      error: "超时",
+      reviewResults: [],
+      revised: false,
+    }
+    const ch6Retried = withReviewedBody({
+      ...ch6Failed,
+      title: "第六章 重试通过",
+      content: "第六章正文",
+      wordCount: 2100,
+      status: "ready" as const,
+      error: undefined,
+    })
+
+    mocks.runAutonomousDraftCampaign
+      .mockImplementationOnce(async (options?: CampaignRunOptions) => {
+        options?.onChapterComplete?.(5, ch5Ready)
+        options?.onChapterComplete?.(6, ch6Failed)
+        return {
+          projectPath: "/mock/project",
+          startChapter: 5,
+          endChapter: 6,
+          totalChapters: 2,
+          completedChapters: 2,
+          totalWords: 2000,
+          startTime: new Date().toISOString(),
+          endTime: new Date().toISOString(),
+          results: [ch5Ready, ch6Failed],
+          summary: { allPassed: false, readyCount: 1, failedCount: 1 },
+        }
+      })
+      .mockImplementationOnce(async (options?: CampaignRunOptions) => {
+        options?.onChapterComplete?.(6, ch6Retried)
+        return {
+          projectPath: "/mock/project",
+          startChapter: 6,
+          endChapter: 6,
+          totalChapters: 1,
+          completedChapters: 1,
+          totalWords: 2100,
+          startTime: new Date().toISOString(),
+          endTime: new Date().toISOString(),
+          results: [ch6Retried],
+          summary: { allPassed: true, readyCount: 1, failedCount: 0 },
+        }
+      })
+
+    render(<CampaignDashboardDialog open={true} onOpenChange={vi.fn()} />)
+    fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
+    await waitFor(() => expect(screen.getByTestId("campaign-retry-chapter-6")).toBeTruthy())
+
+    fireEvent.click(screen.getByTestId("campaign-retry-chapter-6"))
+    await waitFor(() => {
+      expect(mocks.runAutonomousDraftCampaign).toHaveBeenLastCalledWith(
+        expect.objectContaining({ startChapter: 6, chapterCount: 1 }),
+      )
+      expect(screen.getByText("第六章 重试通过")).toBeTruthy()
+    })
+    // 历史第 5 章保留且可批量验收计数升至 2
+    expect(screen.getByText("第五章 已就绪")).toBeTruthy()
+    expect(screen.getByRole("button", { name: /批量验收并写入正文 \(2\)/ })).toBeTruthy()
+  })
+
+  it("终止进入 isCancelling 过渡态不提前切回空闲，且运行/验收期拦截关闭并在落盘后刷新缓存与版本", async () => {
+    let rejectRun!: (e: Error) => void
+    mocks.runAutonomousDraftCampaign.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectRun = reject
+        }),
+    )
+    const onOpenChange = vi.fn()
+    render(<CampaignDashboardDialog open={true} onOpenChange={onOpenChange} />)
+    fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
+    await waitFor(() => expect(screen.getByRole("button", { name: "终止战役" })).toBeTruthy())
+
+    // 运行期关闭按钮禁用
+    expect(screen.getByRole("button", { name: "关闭" })).toHaveProperty("disabled", true)
+
+    fireEvent.click(screen.getByRole("button", { name: "终止战役" }))
+    // 进入过渡态：显示“正在终止...”且禁用，不立刻回到“启动战役”
+    const cancellingBtn = await screen.findByRole("button", { name: "正在终止..." })
+    expect(cancellingBtn).toHaveProperty("disabled", true)
+    expect(screen.queryByRole("button", { name: "启动战役" })).toBeNull()
+    expect(onOpenChange).not.toHaveBeenCalled()
+
+    rejectRun(new Error("aborted"))
+    await waitFor(() => expect(screen.getByRole("button", { name: "启动战役" })).toBeTruthy())
+
+    // 批量验收落盘后调 invalidateChapterCache + bumpDataVersion
+    const ready = withReviewedBody({
+      chapterNumber: 5,
+      title: "第五章",
+      content: "正文",
+      taskBrief: "t",
+      draftContent: "正文",
+      wordCount: 1000,
+      status: "ready" as const,
+      reviewResults: [],
+      revised: false,
+    })
+    mocks.runAutonomousDraftCampaign.mockImplementationOnce(async (options?: CampaignRunOptions) => {
+      options?.onChapterComplete?.(5, ready)
+      return {
+        projectPath: "/mock/project",
+        startChapter: 5,
+        endChapter: 5,
+        totalChapters: 1,
+        completedChapters: 1,
+        totalWords: 1000,
+        startTime: new Date().toISOString(),
+        endTime: new Date().toISOString(),
+        results: [ready],
+        summary: { allPassed: true, readyCount: 1, failedCount: 0 },
+      }
+    })
+    fireEvent.click(screen.getByRole("button", { name: "启动战役" }))
+    const acceptBtn = await screen.findByRole("button", { name: /批量验收并写入正文 \(1\)/ })
+    fireEvent.click(acceptBtn)
+    await waitFor(() => {
+      expect(mocks.invalidateChapterCache).toHaveBeenCalledWith("/mock/project")
+      expect(mocks.bumpDataVersion).toHaveBeenCalled()
+    })
+  })
+})

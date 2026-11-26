@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest"
 import { act, fireEvent, screen } from "@/test-helpers/component-test-utils"
-import { getChatPanelMocks, deepGenResult, sessionStatus, PROJECT, setConversation, setMessages, msg, renderPanel, rerenderPanel, unmountPanel, flushAsync, sendText, lastStreamChatCall, lastFinalize, setDeepMode } from "./chat-panel-test-setup"
+import { getChatPanelMocks, deepGenResult, sessionStatus, PROJECT, setConversation, setMessages, msg, renderPanel, rerenderPanel, unmountPanel, flushAsync, sendText, lastStreamChatCall, lastFinalize, setDeepMode, mockManagedDraft } from "@/test-helpers/chat-panel/chat-panel-test-setup"
+import { readManagedDeepChapterDraftMessage } from "./chat-message-content"
 
 const mocks = getChatPanelMocks()
 
@@ -543,13 +544,18 @@ describe("ChatPanel — 补覆盖：继续未完成分支", () => {
     )
   })
 
-  it("深度续写：accumulated 为空 → 兜底文案", async () => {
-    mocks.deepStreamRenderer.updateThinking.mockReturnValue("")
+  it("深度续写：终稿空白且没有流式正文，不展示思考占位或标为 ready", async () => {
+    mocks.runDeepChapterGeneration.mockResolvedValueOnce(deepGenResult({ finalContent: " \r\n\t" }))
     setupDeepContinue()
     renderPanel()
     fireEvent.click(screen.getByTestId("continue-unfinished"))
     await flushAsync()
-    expect(lastFinalize()[0]).toContain("继续未完成失败：模型没有返回内容。")
+    expect(readManagedDeepChapterDraftMessage(lastFinalize()[0])).toMatchObject({
+      body: "继续未完成失败：模型没有返回内容。",
+      draftStatus: "pending",
+    })
+    expect(mocks.deepStreamRenderer.replaceFinal).not.toHaveBeenCalled()
+    expect(mocks.completeDeepChapterSession).not.toHaveBeenCalled()
   })
 
   it("深度续写：goldenResume 启用 → 透传", async () => {
@@ -734,14 +740,12 @@ describe("ChatPanel — 补覆盖：保存/丢弃分支", () => {
     mocks.wikiState.project = PROJECT
     mocks.commitAcceptedDeepChapterDraft.mockRejectedValueOnce("disk-string")
     setConversation("conv-1")
-    setMessages([
-      msg({ id: "u1", role: "user", content: "q" }),
-      msg({ id: "a1", role: "assistant", content: "正文" }),
-    ])
+    setMessages([mockManagedDraft("# 第5章 草稿\n正文").message])
     renderPanel()
-    fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
+    fireEvent.click(screen.getByTestId("save-as-chapter"))
     await flushAsync()
-    expect(screen.getByTestId("save-status").textContent).toContain("保存失败：{{message}}::disk-string")
+    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId("save-status").textContent).toContain("无法确认保存结果")
   })
 
   it("丢弃失败（非 Error）→ String 分支", async () => {
@@ -770,47 +774,23 @@ describe("ChatPanel — 补覆盖：保存/丢弃分支", () => {
     )
   })
 
-  it("保存进行中另一会话保存完成 → finally prev 不匹配 → 跳过回填", async () => {
+  it("同一轮连点 Save 和 Review 只执行一次采纳", async () => {
     mocks.wikiState.project = PROJECT
-    let resolveCommit1: (v: void | PromiseLike<void>) => void = () => {}
-    mocks.commitAcceptedDeepChapterDraft.mockImplementationOnce(
-      () => new Promise((res) => { resolveCommit1 = res }),
-    )
-    // conv-1 的 refresh 窗口挂起 50ms，期间 conv-2 的保存状态入队 → finally 时 prev 不匹配
-    mocks.refreshProjectState.mockImplementationOnce(
-      () => new Promise((res) => { setTimeout(res, 50) }),
-    )
-    mocks.chatState.conversations = [
-      { id: "conv-1", title: "一", createdAt: 1, updatedAt: Date.now(), deAiMode: false },
-      { id: "conv-2", title: "二", createdAt: 1, updatedAt: Date.now(), deAiMode: false },
-    ]
-    mocks.chatState.activeConversationId = "conv-1"
-    mocks.chatState.messages = [
-      msg({ id: "u1", role: "user", content: "q", conversationId: "conv-1" }),
-      msg({ id: "a1", role: "assistant", content: "草稿A", conversationId: "conv-1" }),
-      msg({ id: "u2", role: "user", content: "q", conversationId: "conv-2" }),
-      msg({ id: "a2", role: "assistant", content: "草稿B", conversationId: "conv-2" }),
-    ]
+    setConversation("conv-1")
+    setMessages([mockManagedDraft("# 第5章 草稿\n正文").message])
     renderPanel()
-    // conv-1 保存挂起在 commitAcceptedDeepChapterDraft
-    await act(async () => {
-      fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
-    })
-    // 放行 commit → conv-1 进入 refresh 挂起窗口
-    await act(async () => {
-      resolveCommit1(undefined)
-      await new Promise((r) => setTimeout(r, 0))
-    })
-    // refresh 窗口内：conv-2 完整完成一次保存（状态入队覆盖 prev）
-    mocks.chatState.activeConversationId = "conv-2"
-    rerenderPanel()
-    await act(async () => {
-      fireEvent.click(screen.getAllByTestId("save-as-chapter")[1])
-    })
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 80)) // 放行 refresh → conv-1 finally 跳过不匹配的 prev
+    const save = screen.getByTestId("save-as-chapter")
+    const review = screen.getByTestId("review-draft")
+    act(() => {
+      fireEvent.click(save)
+      fireEvent.click(save)
+      fireEvent.click(review)
     })
     await flushAsync()
+    expect(mocks.requireManagedDeepChapterDraft).toHaveBeenCalledTimes(1)
+    expect(mocks.readManagedChapterForWrite).toHaveBeenCalledTimes(1)
+    expect(mocks.rerunMainControlGates).not.toHaveBeenCalled()
+    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledTimes(1)
     expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("wiki")
   })
 })
@@ -842,12 +822,12 @@ describe("ChatPanel — 补覆盖：exemplar 防御分支", () => {
     rerenderPanel()
     mocks.wikiState.project = null
     rerenderPanel()
-    fireEvent.click(screen.getByText("1★开"))
+    fireEvent.click(screen.getAllByText("1★")[0]!)
     await flushAsync()
     expect(mocks.appendExemplarABSample).not.toHaveBeenCalled()
   })
 
-  it("getSelection 返回 null → 空选提示（?? 兜底）", () => {
+  it("getSelection 返回 null → 空选提示（?? 兜底）并渲染内联状态反馈", () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
     mockSelection(null)
@@ -855,6 +835,48 @@ describe("ChatPanel — 补覆盖：exemplar 防御分支", () => {
     renderPanel()
     fireEvent.click(screen.getByLabelText("标记为风格范例"))
     expect(screen.queryByTestId("dialog")).toBeNull()
+    const inlineFeedback = screen.getByTestId("exemplar-inline-feedback")
+    expect(inlineFeedback).toHaveAttribute("role", "status")
+    expect(inlineFeedback).toHaveTextContent("请先在消息中选中一段文本")
+  })
+
+  it("U4-03：标记为风格范例按钮包含 Bookmark 图标，TooltipContent 为 TooltipTrigger 合法兄弟节点", () => {
+    mocks.wikiState.project = PROJECT
+    mocks.wikiState.novelMode = true
+    setConversation("conv-1")
+    renderPanel()
+    const triggerBtn = screen.getByLabelText("标记为风格范例")
+    const icon = triggerBtn.querySelector("svg.lucide-bookmark")
+    expect(icon).not.toBeNull()
+    expect(icon).toHaveAttribute("aria-hidden", "true")
+    // TooltipContent 必须是同级兄弟节点，不得嵌套在 Button/TooltipTrigger 内部
+    expect(triggerBtn.querySelector('[data-testid="tooltip-content"]')).toBeNull()
+    const tooltipRoot = triggerBtn.closest('[data-testid="tooltip"]')
+    expect(tooltipRoot).not.toBeNull()
+    const siblingContent = tooltipRoot?.querySelector('[data-testid="tooltip-content"]')
+    expect(siblingContent).not.toBeNull()
+    expect(siblingContent?.textContent).toBeTruthy()
+    // NON_BLOCKING-2：mouseDown preventDefault，避免桌面端点击按钮前清空当前文本选区
+    const downEvt = new MouseEvent("mousedown", { bubbles: true, cancelable: true })
+    triggerBtn.dispatchEvent(downEvt)
+    expect(downEvt.defaultPrevented).toBe(true)
+  })
+
+  it("U4-03：有效选区打开弹窗后不再重复显示底部内联反馈", async () => {
+    mocks.wikiState.project = PROJECT
+    mocks.wikiState.novelMode = true
+    mockSelection(null)
+    setConversation("conv-1")
+    renderPanel()
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
+    expect(screen.getByTestId("exemplar-inline-feedback")).toBeInTheDocument()
+
+    mockSelection("一段值得收藏的描写")
+    fireEvent.click(screen.getByLabelText("标记为风格范例"))
+    await flushAsync()
+    rerenderPanel()
+    expect(screen.getByTestId("dialog")).toBeInTheDocument()
+    expect(screen.queryByTestId("exemplar-inline-feedback")).toBeNull()
   })
 
   it("提交标记失败（非 Error）→ String(e)", async () => {
@@ -868,7 +890,7 @@ describe("ChatPanel — 补覆盖：exemplar 防御分支", () => {
     rerenderPanel()
     fireEvent.click(screen.getByText("标记锚点"))
     await flushAsync()
-    expect(screen.getByText("标记失败：str-err")).toBeInTheDocument()
+    expect(screen.getByText("收藏失败：str-err")).toBeInTheDocument()
   })
 })
 
@@ -1000,29 +1022,21 @@ describe("TASK-021 chat-panel uncovered lines", () => {
     expect(call[0]).toContain("已强制终止生成。")
   })
 
-  it("accept-and-continue-next success and early return (lines 815-822)", async () => {
+  it("接受并撰写下一章：先采纳存档章号，再在新会话请求后一章", async () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
-    // need a managed draft marker message to show accept button
-    const marker = `<!-- niko-buddy-deep-chapter-draft:${encodeURIComponent(JSON.stringify({ conversationId: "conv-1", draftStatus: "ready" }))} -->`
-    const draftContent = `# Chapter 1 Title\n\n${"X".repeat(130)}\n\n${marker}`
     setConversation("conv-1")
-    setMessages([msg({ id: "a1", role: "assistant", content: draftContent, conversationId: "conv-1" })])
-    // mock save path: fileExists false, find null, next 7
-    mocks.fileExists.mockResolvedValue(false)
-    mocks.findChapterFileByNumber.mockResolvedValue(null)
-    mocks.getNextChapterNumber.mockResolvedValue(7)
-    mocks.readFile.mockResolvedValue("# existing")
+    setMessages([mockManagedDraft(`# Chapter 5 Title\n\n${"X".repeat(130)}`).message])
     renderPanel()
-    // accept-and-continue button rendered via mock
     const btn = screen.getByTestId("accept-and-continue-next")
     expect(btn).toBeInTheDocument()
     await act(async () => {
       fireEvent.click(btn)
     })
     await flushAsync()
-    // should create new conversation and send next chapter prompt
+    expect(mocks.commitAcceptedDeepChapterDraft).toHaveBeenCalledWith(expect.objectContaining({ chapterNumber: 5 }))
     expect(mocks.chatState.createConversation).toHaveBeenCalled()
+    expect(mocks.chatState.addMessage).toHaveBeenCalledWith("user", expect.stringContaining("第 6 章正文"))
   })
 
   it("regenerate restores message when handleSend fails (lines 794-799)", async () => {
@@ -1130,27 +1144,21 @@ describe("TASK-021 chat-panel uncovered lines", () => {
 })
 
 describe("TASK-021 chat-panel round2", () => {
-  it("accept-and-continue early return when save fails (line 817)", async () => {
+  it("接受并撰写下一章：目标不可读时不采纳，也不开启新会话", async () => {
     mocks.wikiState.project = PROJECT
     mocks.wikiState.novelMode = true
-    const marker = `<!-- niko-buddy-deep-chapter-draft:${encodeURIComponent(JSON.stringify({ conversationId: "conv-1", draftStatus: "ready" }))} -->`
-    const draftContent = `# Chapter 1 Title\n\n${"X".repeat(130)}\n\n${marker}`
     setConversation("conv-1")
-    setMessages([msg({ id: "a1", role: "assistant", content: draftContent, conversationId: "conv-1" })])
-    // force save failure: make readFile throw so executeSaveDraft fails? simpler: mock fileExists true + overwrite cancel
-    // easiest: make getNextChapterNumber reject to force res null path? Actually executeSaveDraft returns null when no project? No project set, so need project.
-    // Mock execute path to return null by making project null after render? Instead mock commit to throw to get res null? Let's make findChapter throw to trigger catch -> returns {success:false}
-    mocks.fileExists.mockResolvedValue(false)
-    mocks.getNextChapterNumber.mockRejectedValueOnce(new Error("next-fail"))
+    setMessages([mockManagedDraft(`# Chapter 5 Title\n\n${"X".repeat(130)}`).message])
+    mocks.readManagedChapterForWrite.mockRejectedValueOnce(new Error("Target unreadable"))
     renderPanel()
     const btn = screen.getByTestId("accept-and-continue-next")
-    const createCalls = mocks.chatState.createConversation.mock.calls.length
     await act(async () => {
       fireEvent.click(btn)
     })
     await flushAsync()
-    // early return: no new conversation
-    expect(mocks.chatState.createConversation.mock.calls.length).toBe(createCalls)
+    expect(mocks.readManagedChapterForWrite).toHaveBeenCalled()
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
+    expect(mocks.chatState.createConversation).not.toHaveBeenCalled()
   })
 
   it("force stop with Tauri kill failure finalizes warn (lines 736-750)", async () => {
@@ -1196,9 +1204,7 @@ describe("TASK-021 chat-panel round2", () => {
     fireEvent.click(deepBtn)
     await flushAsync()
     // send triggers deep path (novelMode + deep enabled)
-    const sendP = sendText("write deep chapter")
-    await flushAsync()
-    await sendP
+    await sendText("write deep chapter")
     // now managed flag should be true for conv-1; force stop should early-return (no force finalize)
     const before = mocks.chatState.finalizeStream.mock.calls.length
     fireEvent.click(screen.getByTestId("chat-force-stop"))
@@ -1206,6 +1212,48 @@ describe("TASK-021 chat-panel round2", () => {
     const afterCalls = mocks.chatState.finalizeStream.mock.calls.slice(before)
     // early return means no "已强制终止生成。" finalize from force stop
     expect(afterCalls.some((c: any[]) => String(c[0]).includes("已强制终止生成。"))).toBe(false)
+    setDeepMode(false)
+  })
+
+  it("R2-U06 装配期中止：在上下文检索阶段点击停止后绝不继续发起 streamChat", async () => {
+    mocks.wikiState.project = PROJECT
+    mocks.wikiState.novelMode = false
+    setConversation("conv-1")
+    type SearchResults = Awaited<ReturnType<typeof mocks.searchWiki>>
+    let resolveSearch!: (v: SearchResults) => void
+    mocks.searchWiki.mockImplementationOnce(
+      () => new Promise<SearchResults>((resolve) => { resolveSearch = resolve }),
+    )
+    renderPanel()
+    await sendText("分析一下全书伏笔脉络")
+
+    // 在 searchWiki 等待期间点击停止：startStreaming 后立即注册的 AbortController 被中止
+    fireEvent.click(screen.getByTestId("chat-stop"))
+    resolveSearch([])
+    await flushAsync()
+
+    expect(mocks.streamChat).not.toHaveBeenCalled()
+  })
+
+  it("R2-U01/U09 handleDiscardDraft 互斥锁：连点两次丢弃仅执行一次 rejectDeepChapterDraft，且与保存互斥", async () => {
+    mocks.wikiState.project = PROJECT
+    mocks.wikiState.novelMode = true
+    setConversation("conv-1")
+    setMessages([mockManagedDraft(`# Chapter 5 Title\n\n${"X".repeat(130)}`).message])
+    type RejectResult = Awaited<ReturnType<typeof mocks.rejectDeepChapterDraft>>
+    let resolveDiscard!: (v: RejectResult) => void
+    mocks.rejectDeepChapterDraft.mockImplementationOnce(
+      () => new Promise<RejectResult>((resolve) => { resolveDiscard = resolve }),
+    )
+    renderPanel()
+    const discardBtn = screen.getByTestId("discard-draft")
+    const saveBtn = screen.getByTestId("save-as-chapter")
+    fireEvent.click(discardBtn)
+    fireEvent.click(discardBtn)
+    fireEvent.click(saveBtn)
+    expect(mocks.rejectDeepChapterDraft).toHaveBeenCalledTimes(1)
+    expect(mocks.commitAcceptedDeepChapterDraft).not.toHaveBeenCalled()
+    resolveDiscard(sessionStatus())
+    await flushAsync()
   })
 })
-

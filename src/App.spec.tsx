@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act } from "react"
+import { act, type ReactNode } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import App from "./App"
@@ -166,6 +166,7 @@ vi.mock("@/components/project/create-project-dialog", () => ({
     open: boolean
     onOpenChange: (open: boolean) => void
     onCreated: (p: ProjectLike) => void
+    onConfigureLlm?: () => void
   }) => (
     <div>
       <span>{`dialog-open:${String(props.open)}`}</span>
@@ -175,8 +176,41 @@ vi.mock("@/components/project/create-project-dialog", () => ({
       <button data-testid="dialog-close" onClick={() => props.onOpenChange(false)}>
         close
       </button>
+      {props.onConfigureLlm && (
+        <button data-testid="dialog-configure-llm" onClick={props.onConfigureLlm}>
+          configure-llm
+        </button>
+      )}
     </div>
   ),
+}))
+
+vi.mock("@/components/ui/dialog", () => ({
+  Dialog: ({
+    open,
+    onOpenChange,
+    children,
+  }: {
+    open: boolean
+    onOpenChange?: (open: boolean) => void
+    children?: ReactNode
+  }) =>
+    open ? (
+      <div data-testid="llm-config-dialog">
+        <button data-testid="llm-config-dialog-close" onClick={() => onOpenChange?.(false)}>
+          close-llm
+        </button>
+        {children}
+      </div>
+    ) : null,
+  DialogContent: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  DialogHeader: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  DialogTitle: ({ children }: { children?: ReactNode }) => <h2 data-testid="llm-config-title">{children}</h2>,
+  DialogDescription: ({ children }: { children?: ReactNode }) => <p data-testid="llm-config-desc">{children}</p>,
+}))
+
+vi.mock("@/components/settings/sections/llm-provider-section", () => ({
+  LlmProviderSection: () => <div data-testid="llm-provider-section">llm-provider-section</div>,
 }))
 
 vi.mock("@/lib/app-title", () => ({
@@ -403,6 +437,32 @@ describe("App 组件树渲染与初始化流程", () => {
 
     await clickAndFlush(container.querySelector('[data-testid="dialog-close"]'))
     expect(container.textContent).toContain("dialog-open:false")
+    cleanup()
+  })
+
+  it("P0-02：无项目欢迎屏下触发 onConfigureLlm → 打开独立模型配置弹窗并可关闭", async () => {
+    const { container, cleanup } = renderApp()
+    await flushAsync()
+
+    expect(container.querySelector('[data-testid="llm-config-dialog"]')).toBeNull()
+    await clickAndFlush(container.querySelector('[data-testid="dialog-configure-llm"]'))
+
+    expect(container.querySelector('[data-testid="llm-config-dialog"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="llm-config-title"]')?.textContent).toContain("settings.sections.llm.title")
+    expect(container.querySelector('[data-testid="llm-config-desc"]')?.textContent).toContain("settings.sections.llm.description")
+    expect(container.querySelector('[data-testid="llm-provider-section"]')).not.toBeNull()
+
+    await clickAndFlush(container.querySelector('[data-testid="llm-config-dialog-close"]'))
+    expect(container.querySelector('[data-testid="llm-config-dialog"]')).toBeNull()
+    cleanup()
+  })
+
+  it("有项目分支不传 onConfigureLlm（沿用设置视图）", async () => {
+    mocks.state.project = DEFAULT_PROJECT
+    const { container, cleanup } = renderApp()
+    await flushAsync()
+
+    expect(container.querySelector('[data-testid="dialog-configure-llm"]')).toBeNull()
     cleanup()
   })
 

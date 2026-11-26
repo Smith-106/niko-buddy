@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import { useEffect, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
 import {
   Flame,
   Square,
@@ -14,6 +15,8 @@ import {
   Sparkles,
   ChevronDown,
   ChevronUp,
+  RotateCcw,
+  Play,
 } from "lucide-react"
 import {
   Dialog,
@@ -33,10 +36,13 @@ import { toast } from "@/lib/toast"
 import {
   runAutonomousDraftCampaign,
   batchAcceptCampaignDrafts,
+  filterAcceptableChapters,
   getNextChapterNumber,
+  invalidateChapterCache,
   type CampaignChapterResult,
   type CampaignReport,
   type BatchAcceptResult,
+  type DeepChapterGateVerdict,
 } from "@/lib/novel"
 import { toErrorMessage } from "@/lib/utils"
 
@@ -45,14 +51,65 @@ interface CampaignDashboardDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
+const GATE_VERDICT_LABELS: Record<DeepChapterGateVerdict, string> = {
+  pass: "通过",
+  warning: "警告",
+  fail: "未通过",
+  manual_review: "需人工复核",
+  pending: "未评估",
+}
+
+function mergeChapterResultLists(
+  existing: readonly CampaignChapterResult[],
+  incoming: readonly CampaignChapterResult[],
+): CampaignChapterResult[] {
+  const byChapter = new Map<number, CampaignChapterResult>()
+  for (const item of existing) {
+    byChapter.set(item.chapterNumber, item)
+  }
+  for (const item of incoming) {
+    byChapter.set(item.chapterNumber, item)
+  }
+  return Array.from(byChapter.values()).sort((a, b) => a.chapterNumber - b.chapterNumber)
+}
+
+function mergeCampaignReport(
+  previous: CampaignReport | null,
+  next: CampaignReport,
+  preserveHistory: boolean,
+): CampaignReport {
+  if (!preserveHistory || !previous) return next
+  const mergedResults = mergeChapterResultLists(previous.results, next.results)
+  const readyCount = mergedResults.filter((item) => item.status === "ready").length
+  const failedCount = mergedResults.filter((item) => item.status === "failed").length
+  const totalWords = mergedResults.reduce((acc, item) => acc + item.wordCount, 0)
+  const chapterNumbers = mergedResults.map((item) => item.chapterNumber)
+  return {
+    ...next,
+    startChapter: chapterNumbers.length > 0 ? Math.min(...chapterNumbers) : next.startChapter,
+    endChapter: chapterNumbers.length > 0 ? Math.max(...chapterNumbers) : next.endChapter,
+    totalChapters: mergedResults.length,
+    completedChapters: mergedResults.length,
+    totalWords,
+    results: mergedResults,
+    summary: {
+      allPassed: mergedResults.every((item) => item.status === "ready"),
+      readyCount,
+      failedCount,
+    },
+  }
+}
+
 export function CampaignDashboardDialog({
   open,
   onOpenChange,
 }: CampaignDashboardDialogProps) {
+  const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const novelConfig = useWikiStore((s) => s.novelConfig)
   const setFileTree = useWikiStore((s) => s.setFileTree)
+  const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
 
   const [startChapter, setStartChapter] = useState(1)
   const [chapterCount, setChapterCount] = useState(3)
@@ -60,14 +117,18 @@ export function CampaignDashboardDialog({
   const [cruiseMode, setCruiseMode] = useState(false)
 
   const [isRunning, setIsRunning] = useState(false)
+  const [isCancelling, setIsCancelling] = useState(false)
   const [progressMessage, setProgressMessage] = useState("")
   const [activeChapterIndex, setActiveChapterIndex] = useState(0)
+  const [activeRunTotal, setActiveRunTotal] = useState(0)
   const [chapterResults, setChapterResults] = useState<CampaignChapterResult[]>([])
   const [expandedChapter, setExpandedChapter] = useState<number | null>(null)
   const [campaignReport, setCampaignReport] = useState<CampaignReport | null>(null)
 
   const [isAccepting, setIsAccepting] = useState(false)
   const [acceptResult, setAcceptResult] = useState<BatchAcceptResult | null>(null)
+  const readyItems = filterAcceptableChapters(campaignReport?.results ?? chapterResults)
+  const isBusy = isRunning || isCancelling || isAccepting
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -91,23 +152,39 @@ export function CampaignDashboardDialog({
     }
   }, [open, project])
 
-  async function handleStartCampaign() {
-    if (!project || isRunning) return
+  async function runCampaignRange(options: {
+    runStart: number
+    runCount: number
+    preserveHistory: boolean
+  }) {
+    if (!project || isBusy) return
 
     const controller = new AbortController()
     abortRef.current = controller
 
     setIsRunning(true)
-    setChapterResults([])
-    setCampaignReport(null)
-    setAcceptResult(null)
-    setProgressMessage(`正在准备调度第 ${startChapter} 至 ${startChapter + chapterCount - 1} 章...`)
+    setIsCancelling(false)
+    setActiveChapterIndex(0)
+    setActiveRunTotal(options.runCount)
+    if (!options.preserveHistory) {
+      setChapterResults([])
+      setCampaignReport(null)
+      setAcceptResult(null)
+    } else {
+      setAcceptResult(null)
+    }
+    const endChapter = options.runStart + options.runCount - 1
+    setProgressMessage(
+      options.runCount === 1
+        ? `正在准备重试第 ${options.runStart} 章...`
+        : `正在准备调度第 ${options.runStart} 至 ${endChapter} 章...`,
+    )
 
     try {
       const report = await runAutonomousDraftCampaign({
         projectPath: project.path,
-        startChapter,
-        chapterCount,
+        startChapter: options.runStart,
+        chapterCount: options.runCount,
         llmConfig,
         novelConfig,
         cruiseMode,
@@ -116,16 +193,7 @@ export function CampaignDashboardDialog({
           setProgressMessage(`正在生成第 ${chapterNumber} 章 (${current}/${total})...`)
         },
         onChapterComplete: (chapterNumber, result) => {
-          setChapterResults((prev) => {
-            const next = [...prev]
-            const existingIdx = next.findIndex((item) => item.chapterNumber === chapterNumber)
-            if (existingIdx >= 0) {
-              next[existingIdx] = result
-            } else {
-              next.push(result)
-            }
-            return next
-          })
+          setChapterResults((prev) => mergeChapterResultLists(prev, [{ ...result, chapterNumber }]))
         },
         onProgress: (info) => {
           setProgressMessage(info.message)
@@ -133,9 +201,15 @@ export function CampaignDashboardDialog({
         signal: controller.signal,
       })
 
-      setCampaignReport(report)
-      const autoCount = report.results.filter((r) => r.autoAccepted).length
-      if (autoCount > 0) {
+      setCampaignReport((prev) => mergeCampaignReport(prev, report, options.preserveHistory))
+      if (options.preserveHistory && report.results.length > 0) {
+        setChapterResults((prev) => mergeChapterResultLists(prev, report.results))
+      }
+
+      const autoAccepted = report.results.filter((r) => r.autoAccepted === true)
+      if (autoAccepted.length > 0) {
+        invalidateChapterCache(project.path)
+        bumpDataVersion?.()
         try {
           const tree = await listDirectory(normalizePath(project.path))
           setFileTree(tree)
@@ -144,11 +218,14 @@ export function CampaignDashboardDialog({
         }
       }
 
-      toast.success(
-        cruiseMode && autoCount > 0
-          ? `全自动巡航完成！自动落盘并摄取 ${autoCount} 章`
-          : `批量战役完成！共生成 ${report.completedChapters} 章，准备就绪 ${report.summary.readyCount} 章`,
-      )
+      if (cruiseMode) {
+        const verifiedMemoryCount = autoAccepted.filter((r) => r.autoIngested === true).length
+        const message = `全自动巡航${report.summary.allPassed ? "完成" : "暂停"}！自动落盘 ${autoAccepted.length} 章，已验证事实库摄取 ${verifiedMemoryCount} 章`
+        if (autoAccepted.length > 0) toast.success(message)
+        else toast.info(message)
+      } else {
+        toast.success(`批量战役完成！共生成 ${report.completedChapters} 章，准备就绪 ${report.summary.readyCount} 章`)
+      }
     } catch (err) {
       if (controller.signal.aborted) {
         toast.info("战役推进已被用户终止")
@@ -157,22 +234,55 @@ export function CampaignDashboardDialog({
       }
     } finally {
       setIsRunning(false)
+      setIsCancelling(false)
       abortRef.current = null
     }
+  }
+
+  async function handleStartCampaign() {
+    await runCampaignRange({
+      runStart: startChapter,
+      runCount: chapterCount,
+      preserveHistory: false,
+    })
+  }
+
+  async function handleRetrySingleChapter(chapterNumber: number) {
+    await runCampaignRange({
+      runStart: chapterNumber,
+      runCount: 1,
+      preserveHistory: true,
+    })
+  }
+
+  async function handleResumeFromChapter(chapterNumber: number) {
+    const plannedEnd = Math.max(
+      startChapter + chapterCount - 1,
+      ...chapterResults.map((item) => item.chapterNumber),
+      chapterNumber,
+    )
+    const remaining = Math.max(1, plannedEnd - chapterNumber + 1)
+    await runCampaignRange({
+      runStart: chapterNumber,
+      runCount: remaining,
+      preserveHistory: true,
+    })
   }
 
   function handleCancelCampaign() {
-    if (abortRef.current) {
-      abortRef.current.abort()
-      abortRef.current = null
-    }
-    setIsRunning(false)
+    if (!isRunning || isCancelling) return
+    setIsCancelling(true)
+    setProgressMessage("正在终止战役，等待当前步骤安全收尾...")
+    abortRef.current?.abort()
+  }
+
+  function handleDialogOpenChange(nextOpen: boolean) {
+    if (!nextOpen && isBusy) return
+    onOpenChange(nextOpen)
   }
 
   async function handleBatchAccept() {
-    if (!project || isAccepting) return
-    const resultsToAccept = campaignReport?.results ?? chapterResults
-    const readyItems = resultsToAccept.filter((r) => r.status === "ready")
+    if (!project || isAccepting || isRunning || isCancelling) return
     if (readyItems.length === 0) {
       toast.info("没有可验收落盘的就绪章节")
       return
@@ -180,7 +290,7 @@ export function CampaignDashboardDialog({
 
     setIsAccepting(true)
     try {
-      const res = await batchAcceptCampaignDrafts(project.path, resultsToAccept, {
+      const res = await batchAcceptCampaignDrafts(project.path, readyItems, {
         autoIngest,
         llmConfig,
         onProgress: (current, total, path) => {
@@ -188,7 +298,14 @@ export function CampaignDashboardDialog({
         },
       })
 
+      if (res.acceptedCount === 0) {
+        setAcceptResult(null)
+        toast.info("批量验收未落盘任何章节")
+        return
+      }
       setAcceptResult(res)
+      invalidateChapterCache(project.path)
+      bumpDataVersion?.()
 
       // 刷新文件树
       try {
@@ -199,9 +316,7 @@ export function CampaignDashboardDialog({
       }
 
       toast.success(
-        `批量验收完成！成功落盘 ${res.acceptedCount} 个章节${
-          res.ingestedCount > 0 ? `，事实库摄取 ${res.ingestedCount} 章` : ""
-        }`,
+        `批量验收完成！成功落盘 ${res.acceptedCount} 个章节，已验证事实库摄取 ${res.ingestedCount} 章`,
       )
     } catch (err) {
       toast.error(`批量验收失败：${toErrorMessage(err)}`)
@@ -210,43 +325,53 @@ export function CampaignDashboardDialog({
     }
   }
 
-  const readyCount = chapterResults.filter((r) => r.status === "ready").length
+  const readyCount = readyItems.length
   const totalWords = chapterResults.reduce((acc, r) => acc + r.wordCount, 0)
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-6">
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+      <DialogContent showCloseButton={!isBusy} className="max-w-2xl max-h-[90vh] flex flex-col p-6">
         <DialogHeader>
           <div className="flex items-center gap-2">
             <Flame className="h-5 w-5 text-kind-orange" />
-            <DialogTitle>长程战役调度工作台 (Autonomous Campaign Runner)</DialogTitle>
+            <DialogTitle>
+              {t("campaign.dialog.title", { defaultValue: "长程战役调度工作台" })}
+            </DialogTitle>
           </div>
           <DialogDescription>
-            自动跨章连续推演与撰写，在沙箱中动态传递前情因果，坚守 Draft-first 安全红线。
+            {t("campaign.dialog.description", {
+              defaultValue: "自动跨章连续推演与起草，新章节先进入草稿箱审阅，确认后才会写入正式正文。",
+            })}
           </DialogDescription>
         </DialogHeader>
 
         {/* 顶部参数配置区 */}
         <div className="grid grid-cols-2 gap-3 p-3 rounded-lg border bg-muted/20 text-xs">
           <div className="flex flex-col gap-1">
-            <Label className="text-xs text-muted-foreground">起始章节</Label>
+            <Label htmlFor="campaign-start-chapter" className="text-xs text-muted-foreground">
+              {t("campaign.dialog.startChapter", { defaultValue: "起始章节" })}
+            </Label>
             <Input
+              id="campaign-start-chapter"
               type="number"
               min={1}
               value={startChapter}
-              disabled={isRunning}
+              disabled={isBusy}
               onChange={(e) => setStartChapter(Math.max(1, Number.parseInt(e.target.value, 10) || 1))}
               className="h-8 text-xs"
             />
           </div>
           <div className="flex flex-col gap-1">
-            <Label className="text-xs text-muted-foreground">连写章数</Label>
+            <Label htmlFor="campaign-chapter-count" className="text-xs text-muted-foreground">
+              {t("campaign.dialog.chapterCount", { defaultValue: "连写章数" })}
+            </Label>
             <Input
+              id="campaign-chapter-count"
               type="number"
               min={1}
               max={20}
               value={chapterCount}
-              disabled={isRunning}
+              disabled={isBusy}
               onChange={(e) => setChapterCount(Math.max(1, Math.min(20, Number.parseInt(e.target.value, 10) || 1)))}
               className="h-8 text-xs"
             />
@@ -256,21 +381,25 @@ export function CampaignDashboardDialog({
               <input
                 type="checkbox"
                 checked={cruiseMode}
-                disabled={isRunning}
+                disabled={isBusy}
                 onChange={(e) => setCruiseMode(e.target.checked)}
                 className="rounded border-border text-primary focus:ring-primary"
               />
-              <span className="font-semibold text-primary">开启全自动巡航推进（门控全绿自动晋升正式章节并双写事实库）</span>
+              <span className="font-semibold text-primary">
+                {t("campaign.dialog.cruiseMode", {
+                  defaultValue: "开启全自动巡航推进（质检全通过时自动转入正式章节并同步设定记忆）",
+                })}
+              </span>
             </label>
             <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
               <input
                 type="checkbox"
                 checked={autoIngest}
-                disabled={isRunning}
+                disabled={isBusy}
                 onChange={(e) => setAutoIngest(e.target.checked)}
                 className="rounded border-border text-primary focus:ring-primary"
               />
-              <span>批量验收摄取事实库</span>
+              <span>{t("campaign.dialog.autoIngest", { defaultValue: "验收后自动同步设定记忆" })}</span>
             </label>
           </div>
         </div>
@@ -284,7 +413,7 @@ export function CampaignDashboardDialog({
             </div>
             {isRunning && (
               <span className="font-mono">
-                {activeChapterIndex} / {chapterCount} 章
+                {activeChapterIndex} / {activeRunTotal || chapterCount} 章
               </span>
             )}
           </div>
@@ -334,11 +463,47 @@ export function CampaignDashboardDialog({
                           <AlertTriangle className="h-3 w-3" /> 阻断转人工
                         </span>
                       )}
+                      {result.status === "partial" && (
+                        <span
+                          data-testid={`campaign-chapter-badge-partial-${result.chapterNumber}`}
+                          className="inline-flex items-center gap-1 rounded-full bg-warning/15 text-warning-foreground px-2 py-0.5 text-xs font-medium border border-warning/30"
+                        >
+                          <AlertTriangle className="h-3 w-3" /> 截断草稿
+                        </span>
+                      )}
                       {result.status === "failed" && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 text-destructive px-2 py-0.5 text-xs font-medium border border-destructive/20">
                           <XCircle className="h-3 w-3" /> 失败
                         </span>
                       )}
+
+                      {!result.autoAccepted &&
+                      (result.status === "failed" ||
+                        result.status === "blocked" ||
+                        result.status === "partial") ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            data-testid={`campaign-retry-chapter-${result.chapterNumber}`}
+                            onClick={() => void handleRetrySingleChapter(result.chapterNumber)}
+                            className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[11px] text-foreground hover:bg-accent disabled:opacity-40"
+                          >
+                            <RotateCcw className="h-3 w-3" aria-hidden="true" />
+                            重试本章
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            data-testid={`campaign-resume-from-${result.chapterNumber}`}
+                            onClick={() => void handleResumeFromChapter(result.chapterNumber)}
+                            className="inline-flex items-center gap-1 rounded border border-primary/50 px-1.5 py-0.5 text-[11px] text-primary hover:bg-accent disabled:opacity-40"
+                          >
+                            <Play className="h-3 w-3" aria-hidden="true" />
+                            从此章续跑
+                          </button>
+                        </div>
+                      ) : null}
 
                       <button
                         type="button"
@@ -353,10 +518,73 @@ export function CampaignDashboardDialog({
                     </div>
                   </div>
 
-                  {/* 展开查看正文选段 */}
+                  {/* 展开查看错误原因、门控结论、审稿明细与正文选段 */}
                   {isExpanded && (
-                    <div id={chapterDetailPanelId} role="region" aria-label={`第 ${result.chapterNumber} 章详情`} className="mt-1 p-2.5 rounded bg-muted/40 border text-xs text-muted-foreground font-sans whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed">
-                      {result.content ? result.content.slice(0, 500) + (result.content.length > 500 ? "..." : "") : "（空正文）"}
+                    <div id={chapterDetailPanelId} role="region" aria-label={`第 ${result.chapterNumber} 章详情`} className="mt-1 space-y-2 p-2.5 rounded bg-muted/40 border text-xs text-muted-foreground font-sans max-h-60 overflow-y-auto leading-relaxed">
+                      {result.error ? (
+                        <div
+                          role="alert"
+                          data-testid={`campaign-chapter-error-${result.chapterNumber}`}
+                          className="rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-destructive"
+                        >
+                          失败原因：{result.error}
+                        </div>
+                      ) : null}
+                      {result.decisionGates ? (
+                        <div
+                          data-testid={`campaign-chapter-gates-${result.chapterNumber}`}
+                          className="flex flex-wrap items-center gap-2 rounded border border-border/60 bg-background/70 px-2 py-1"
+                        >
+                          <span className="font-medium text-foreground">
+                            {t("campaign.dialog.gateSummary", {
+                              verdict: GATE_VERDICT_LABELS[result.decisionGates.overall],
+                              defaultValue: `质检总评：${GATE_VERDICT_LABELS[result.decisionGates.overall]}`,
+                            })}
+                          </span>
+                          <span>
+                            {t("campaign.dialog.gateConsistency", {
+                              verdict: GATE_VERDICT_LABELS[result.decisionGates.consistency.verdict],
+                              count: result.decisionGates.consistency.findings.length,
+                              defaultValue: `设定一致性：${GATE_VERDICT_LABELS[result.decisionGates.consistency.verdict]}（${result.decisionGates.consistency.findings.length}）`,
+                            })}
+                          </span>
+                          <span>
+                            {t("campaign.dialog.gateAntiAi", {
+                              verdict: GATE_VERDICT_LABELS[result.decisionGates.anti_ai.verdict],
+                              count: result.decisionGates.anti_ai.findings.length,
+                              defaultValue: `自然文风：${GATE_VERDICT_LABELS[result.decisionGates.anti_ai.verdict]}（${result.decisionGates.anti_ai.findings.length}）`,
+                            })}
+                          </span>
+                          <span>
+                            {t("campaign.dialog.gateQuality", {
+                              verdict: GATE_VERDICT_LABELS[result.decisionGates.quality.verdict],
+                              count: result.decisionGates.quality.findings.length,
+                              defaultValue: `阅读质量：${GATE_VERDICT_LABELS[result.decisionGates.quality.verdict]}（${result.decisionGates.quality.findings.length}）`,
+                            })}
+                          </span>
+                        </div>
+                      ) : null}
+                      {result.reviewResults.length > 0 ? (
+                        <ul
+                          data-testid={`campaign-chapter-findings-${result.chapterNumber}`}
+                          className="space-y-1 rounded border border-border/60 bg-background/70 p-2"
+                        >
+                          {result.reviewResults.map((finding, idx) => (
+                            <li key={`${result.chapterNumber}-finding-${idx}`}>
+                              <span className="mr-1 font-medium uppercase text-foreground">
+                                [{finding.severity}]
+                              </span>
+                              <span className="text-foreground">{finding.message}</span>
+                              {finding.suggestion ? (
+                                <span className="ml-1 text-success-foreground">（建议：{finding.suggestion}）</span>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <div className="whitespace-pre-wrap">
+                        {result.content ? result.content.slice(0, 500) + (result.content.length > 500 ? "..." : "") : "（空正文）"}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -370,7 +598,16 @@ export function CampaignDashboardDialog({
           <div className="flex items-center gap-2 text-xs px-3 py-2 bg-success/10 text-success-foreground rounded border border-success/40">
             <CheckCheck className="h-4 w-4 shrink-0 text-success" />
             <span>
-              已成功验收落盘 {acceptResult.acceptedCount} 章节{acceptResult.ingestedCount > 0 ? `，事实库自动摄取 ${acceptResult.ingestedCount} 章` : ""}。
+              {acceptResult.ingestedCount > 0
+                ? t("campaign.dialog.acceptSuccessWithMemory", {
+                    accepted: acceptResult.acceptedCount,
+                    ingested: acceptResult.ingestedCount,
+                    defaultValue: `已成功验收写入 ${acceptResult.acceptedCount} 章节，并同步更新设定记忆 ${acceptResult.ingestedCount} 章。`,
+                  })
+                : t("campaign.dialog.acceptSuccess", {
+                    accepted: acceptResult.acceptedCount,
+                    defaultValue: `已成功验收写入 ${acceptResult.acceptedCount} 章节。`,
+                  })}
             </span>
           </div>
         )}
@@ -391,14 +628,25 @@ export function CampaignDashboardDialog({
         <DialogFooter className="mt-2 flex items-center justify-between sm:justify-between w-full">
           <div>
             {isRunning ? (
-              <Button variant="destructive" size="sm" onClick={handleCancelCampaign} className="gap-1.5">
-                <Square className="h-4 w-4 shrink-0" />
-                终止战役
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={isCancelling}
+                onClick={handleCancelCampaign}
+                className="gap-1.5"
+              >
+                {isCancelling ? (
+                  <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                ) : (
+                  <Square className="h-4 w-4 shrink-0" />
+                )}
+                {isCancelling ? "正在终止..." : "终止战役"}
               </Button>
             ) : (
               <Button
                 variant="default"
                 size="sm"
+                disabled={isBusy}
                 onClick={handleStartCampaign}
                 className="gap-1.5 bg-kind-orange hover:opacity-90 text-white"
               >
@@ -409,14 +657,14 @@ export function CampaignDashboardDialog({
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={isRunning}>
-              关闭
+            <Button variant="outline" size="sm" onClick={() => handleDialogOpenChange(false)} disabled={isBusy}>
+              {t("common.close", { defaultValue: "关闭" })}
             </Button>
             <Button
               variant="default"
               size="sm"
               onClick={handleBatchAccept}
-              disabled={readyCount === 0 || isRunning || isAccepting}
+              disabled={readyCount === 0 || isBusy}
               className="gap-1.5"
             >
               {isAccepting ? (
@@ -424,7 +672,12 @@ export function CampaignDashboardDialog({
               ) : (
                 <CheckCheck className="h-4 w-4 shrink-0" />
               )}
-              {isAccepting ? "正在原子落盘..." : `批量验收并落盘 (${readyCount})`}
+              {isAccepting
+                ? t("campaign.dialog.accepting", { defaultValue: "正在写入正式章节..." })
+                : t("campaign.dialog.batchAccept", {
+                    count: readyCount,
+                    defaultValue: `批量验收并写入正文 (${readyCount})`,
+                  })}
             </Button>
           </div>
         </DialogFooter>

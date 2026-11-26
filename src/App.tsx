@@ -11,6 +11,14 @@ import { AppLockOverlay } from "@/components/lock/AppLockOverlay"
 import { GateHost } from "@/components/gate/GateHost"
 import { WelcomeScreen } from "@/components/project/welcome-screen"
 import { CreateProjectDialog } from "@/components/project/create-project-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { LlmProviderSection } from "@/components/settings/sections/llm-provider-section"
 import { formatAppTitle } from "@/lib/app-title"
 import { resetProjectState } from "@/lib/reset-project-state"
 import { toast } from "@/lib/toast"
@@ -27,6 +35,7 @@ function App() {
   const communitySummaryError = useWikiStore((s) => s.communitySummaryError)
   const setCommunitySummaryError = useWikiStore((s) => s.setCommunitySummaryError)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [showLlmConfigDialog, setShowLlmConfigDialog] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -173,7 +182,21 @@ function App() {
           open={showCreateDialog}
           onOpenChange={setShowCreateDialog}
           onCreated={handleProjectCreated}
+          onConfigureLlm={() => setShowLlmConfigDialog(true)}
         />
+        {/* P0-02：无项目欢迎屏下没有 Settings 视图，建项弹窗点「立即配置」弹出独立模型配置框 */}
+        <Dialog open={showLlmConfigDialog} onOpenChange={setShowLlmConfigDialog}>
+          <DialogContent
+            className="max-h-[85vh] overflow-y-auto sm:max-w-2xl"
+            closeLabel={i18n.t("common.close")}
+          >
+            <DialogHeader>
+              <DialogTitle>{i18n.t("settings.sections.llm.title")}</DialogTitle>
+              <DialogDescription>{i18n.t("settings.sections.llm.description")}</DialogDescription>
+            </DialogHeader>
+            <LlmProviderSection />
+          </DialogContent>
+        </Dialog>
         {/* 门与锁最后挂载：欢迎屏与主布局都是 fixed inset-0，先挂会被遮住指针事件。 */}
         <AppLockOverlay />
         <GateHost />

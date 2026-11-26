@@ -422,7 +422,7 @@ describe("IconSidebar", () => {
     expect(document.querySelector('[data-nav-group="maint"] [data-view="exportCenter"]')).toBeTruthy()
     expect(document.querySelector('[data-nav-group="ma"] button[aria-expanded]')?.textContent).toContain("2")
     expect(document.querySelector('[data-view="liveExecution"]')).toBeNull()
-    expect(document.querySelector('[data-nav-group="maint"] button[aria-expanded]')?.textContent).toContain("7")
+    expect(document.querySelector('[data-nav-group="maint"] button[aria-expanded]')?.textContent).toContain("8")
     expect(document.querySelector('[data-nav-group="si"] button[aria-expanded]')?.textContent).toContain("7")
   })
 
@@ -539,28 +539,13 @@ describe("IconSidebar", () => {
     mocks.wikiState.activeView = "wiki"
   })
 
-  it("底部工具入口：封面 Prompt 工作台弹窗可打开", async () => {
+  it("底部工具入口：封面 Prompt 工作台弹窗可打开，无端口的翻译/同人死弹窗已下架（P1-02）", async () => {
     renderSidebar()
     const entry = document.querySelector('[data-cover-workbench-entry="true"]') as HTMLButtonElement
     expect(entry).toBeTruthy()
+    expect(document.querySelector('[data-translation-workbench-entry="true"]')).toBeNull()
+    expect(document.querySelector('[data-fanfic-merge-entry="true"]')).toBeNull()
     fireEvent.click(entry)
     expect(await screen.findByText("novel.coverWorkbench.title")).toBeTruthy()
-  })
-
-  it("底部工具入口：翻译工作台弹窗可打开", async () => {
-    renderSidebar()
-    const entry = document.querySelector('[data-translation-workbench-entry="true"]') as HTMLButtonElement
-    expect(entry).toBeTruthy()
-    fireEvent.click(entry)
-    // 弹窗标题 + 工作台内标题各一处，共两处（证明 dialog 已打开且工作台已挂载）
-    expect((await screen.findAllByText("novel.translation.title")).length).toBe(2)
-  })
-
-  it("底部工具入口：同人正典合并弹窗可打开", async () => {
-    renderSidebar()
-    const entry = document.querySelector('[data-fanfic-merge-entry="true"]') as HTMLButtonElement
-    expect(entry).toBeTruthy()
-    fireEvent.click(entry)
-    expect(await screen.findByTestId("fanfic-merge-dialog")).toBeTruthy()
   })
 })

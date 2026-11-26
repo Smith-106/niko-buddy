@@ -159,7 +159,7 @@ describe("WritingPreferenceSection", () => {
     expect(mocks.addPreferenceForProject).not.toHaveBeenCalled()
   })
 
-  it("无项目：删除直接返回（projectPath 守卫）", async () => {
+  it("项目切为 null 时清空 prefs 列表，不残留上一项目偏好", async () => {
     mocks.listPreferences.mockResolvedValue([
       { id: "p1", key: "deai_boost:词汇", value: "2.0", category: "vocabulary", label: "词汇增强系数", createdAt: "", updatedAt: "" },
     ])
@@ -167,8 +167,48 @@ describe("WritingPreferenceSection", () => {
     await waitFor(() => expect(screen.getAllByText("词汇增强系数").length).toBeGreaterThan(0))
     mocks.wikiState.project = null
     rerender(<WritingPreferenceSection />)
-    fireEvent.click(screen.getByRole("button", { name: "删除" }))
+    await waitFor(() => expect(screen.getByText("暂无写作偏好，添加一条开始个性化。")).toBeInTheDocument())
+    expect(screen.queryByRole("button", { name: "删除" })).not.toBeInTheDocument()
     expect(mocks.deletePreferenceForProject).not.toHaveBeenCalled()
+  })
+
+  it("跨项目切换竞态：丢弃旧项目晚到的 listPreferences 结果，并捕获读写异常", async () => {
+    let resolveFirst!: (items: UserPreference[]) => void
+    mocks.listPreferences
+      .mockImplementationOnce(() => new Promise<UserPreference[]>((resolve) => { resolveFirst = resolve }))
+      .mockResolvedValueOnce([
+        { id: "p2", key: "avoid_words", value: "新项目词", category: "vocabulary", label: "避用词", createdAt: "", updatedAt: "" },
+      ])
+
+    const { rerender } = render(<WritingPreferenceSection />)
+    mocks.wikiState.project = { id: "p2", path: "/p2" }
+    rerender(<WritingPreferenceSection />)
+    await waitFor(() => expect(screen.getByText("新项目词")).toBeInTheDocument())
+
+    // 旧项目请求晚返回，绝不覆写新项目列表
+    resolveFirst([
+      { id: "p1", key: "avoid_words", value: "旧项目词", category: "vocabulary", label: "避用词", createdAt: "", updatedAt: "" },
+    ])
+    await Promise.resolve()
+    expect(screen.getByText("新项目词")).toBeInTheDocument()
+    expect(screen.queryByText("旧项目词")).not.toBeInTheDocument()
+
+    // 新增与删除失败时均捕获并恢复按钮可用
+    mocks.addPreferenceForProject.mockRejectedValueOnce(new Error("add failed"))
+    fireEvent.change(screen.getByLabelText("取值"), { target: { value: "0.8" } })
+    fireEvent.click(screen.getByText("添加"))
+    await waitFor(() => expect(mocks.addPreferenceForProject).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByText("添加").closest("button")).not.toBeDisabled())
+
+    mocks.deletePreferenceForProject.mockRejectedValueOnce(new Error("delete failed"))
+    fireEvent.click(screen.getByLabelText("删除"))
+    await waitFor(() => expect(mocks.deletePreferenceForProject).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByLabelText("删除")).not.toBeDisabled())
+
+    mocks.listPreferences.mockRejectedValueOnce(new Error("list failed"))
+    mocks.wikiState.project = { id: "p3", path: "/p3" }
+    rerender(<WritingPreferenceSection />)
+    await waitFor(() => expect(mocks.listPreferences).toHaveBeenCalledWith("/p3"))
   })
 
   it("pref 无 label → 显示内部 key（label ?? key 兜底）", async () => {

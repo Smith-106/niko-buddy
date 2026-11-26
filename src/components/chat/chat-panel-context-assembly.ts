@@ -17,6 +17,8 @@ import {
   composeStableSystemBlocks,
 } from "@/lib/stable-prefix"
 import { logger, toErrorMessage } from "@/lib/utils"
+import { toast } from "@/lib/toast"
+import i18n from "@/i18n"
 import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
 import type { ChatMessage as LLMMessage } from "@/lib/llm-client"
 import { setLastQueryPages } from "./chat-shared"
@@ -43,8 +45,15 @@ export interface AssembleChatContextParams {
   goldenThreeChapter: GoldenThreeChapterRequest | undefined
   dismantlingDirective: string
   llmConfig: LlmConfig
+  /** 可选取消信号（R2-U06：装配期点击停止立即短路返回 cancelled）。 */
+  signal?: AbortSignal
   requestSoulDialog: (summary: string) => Promise<boolean>
   setReplayContextPack: (pack: React.ComponentProps<typeof ContextPackReplayPanel>["pack"]) => void
+}
+
+const ABORTED_RESULT: AssembleChatContextResult = {
+  cancelled: true,
+  message: "已停止生成。",
 }
 
 /**
@@ -71,9 +80,12 @@ export async function assembleChatContext(
     goldenThreeChapter,
     dismantlingDirective,
     llmConfig,
+    signal,
     requestSoulDialog,
     setReplayContextPack,
   } = params
+
+  if (signal?.aborted) return ABORTED_RESULT
 
   const systemMessages: LLMMessage[] = []
   let queryRefs: { title: string; path: string }[] = []
@@ -118,9 +130,16 @@ if (project && greetingOnly) {
   } = computeContextBudget(llmConfig.maxContextSize)
 
   const [rawIndex, purpose] = await Promise.all([
-    readFile(`${pp}/wiki/index.md`).catch(() => ""),
-    readFile(`${pp}/purpose.md`).catch(() => ""),
+    readFile(`${pp}/wiki/index.md`).catch((err) => {
+      logger.warn("ChatPanel", "read wiki index.md failed, continuing without index", { error: toErrorMessage(err) })
+      return ""
+    }),
+    readFile(`${pp}/purpose.md`).catch((err) => {
+      logger.warn("ChatPanel", "read purpose.md failed, continuing without purpose", { error: toErrorMessage(err) })
+      return ""
+    }),
   ])
+  if (signal?.aborted) return ABORTED_RESULT
 
   // ── Phase 1: Tokenized search → top 10 ────────────────
   const searchResults = await searchWiki(pp, text, {
@@ -128,6 +147,7 @@ if (project && greetingOnly) {
     topK: 10,
     rerankPurpose: "用于聊天问答时挑选最值得注入上下文的知识页面。",
   })
+  if (signal?.aborted) return ABORTED_RESULT
   const topSearchResults = searchResults.slice(0, 10)
 
   // ── Trim index by relevance if over budget ─────────────
@@ -161,7 +181,9 @@ if (project && greetingOnly) {
   // Note: Vector search (if enabled) is already merged into searchResults
   // by searchWiki() in search.ts — no duplicate code needed here.
   const { buildRetrievalGraph, getRelatedNodes } = await import("@/lib/graph-relevance")
+  if (signal?.aborted) return ABORTED_RESULT
   const graph = await buildRetrievalGraph(pp, dataVersion)
+  if (signal?.aborted) return ABORTED_RESULT
   const expandedIds = new Set<string>()
   const searchHitPaths = new Set(topSearchResults.map((r) => r.path))
   const graphExpansions: { title: string; path: string; relevance: number }[] = []
@@ -186,9 +208,10 @@ if (project && greetingOnly) {
   const relevantPages: PageEntry[] = []
 
   const tryAddPage = async (title: string, filePath: string, priority: number): Promise<boolean> => {
-    if (usedChars >= PAGE_BUDGET) return false
+    if (signal?.aborted || usedChars >= PAGE_BUDGET) return false
     try {
       const raw = await readFile(filePath)
+      if (signal?.aborted) return false
       const relativePath = getRelativePath(filePath, pp)
       const truncated = raw.length > MAX_PAGE_SIZE
         ? raw.slice(0, MAX_PAGE_SIZE) + "\n\n[...truncated...]"
@@ -197,25 +220,33 @@ if (project && greetingOnly) {
       usedChars += truncated.length
       relevantPages.push({ title, path: relativePath, content: truncated, priority })
       return true
-    } catch { return false }
+    } catch (err) {
+      logger.warn("ChatPanel", "read wiki page failed during context assembly", { filePath, error: toErrorMessage(err) })
+      return false
+    }
   }
 
   // P0: Title matches
   for (const r of topSearchResults.filter((r) => r.titleMatch)) {
+    if (signal?.aborted) return ABORTED_RESULT
     await tryAddPage(r.title, r.path, 0)
   }
   // P1: Content matches
   for (const r of topSearchResults.filter((r) => !r.titleMatch)) {
+    if (signal?.aborted) return ABORTED_RESULT
     await tryAddPage(r.title, r.path, 1)
   }
   // P2: Graph expansions
   for (const exp of graphExpansions) {
+    if (signal?.aborted) return ABORTED_RESULT
     await tryAddPage(exp.title, exp.path, 2)
   }
   // P3: Overview fallback
   if (relevantPages.length === 0) {
+    if (signal?.aborted) return ABORTED_RESULT
     await tryAddPage("Overview", `${pp}/wiki/overview.md`, 3)
   }
+  if (signal?.aborted) return ABORTED_RESULT
 
   const pagesContext = relevantPages.length > 0
     ? relevantPages.map((p, i) =>
@@ -236,33 +267,75 @@ if (project && greetingOnly) {
     try {
       const taskDirective = buildTaskDirective(effectiveTaskRoute)
       const goldenDirective = buildGoldenThreeChapterDirective(goldenThreeChapter)
-      const { buildContextPack, contextPackToPrompt, renderCanonRulesBaseForStablePrefix } = await import("@/lib/novel/context-engine")
-      const contextPack = await buildContextPack(pp, text, effectiveTaskRoute.chapterNumber).catch(() => ({
-        task: text,
-        chapterGoal: "",
-        outline: "",
-        recentSummaries: [],
-        previousChapterEnding: "",
-        characterStates: "",
-        soulDoc: "",
-        characterAuras: "",
-        cognitionStates: "",
-        foreshadowingStates: "",
-        timeline: "",
-        relatedSettings: "",
-        canonRules: "",
-        writingStyle: "",
-        searchResults: "",
-        graphSearchResults: "",
-        mustDo: "",
-        mustAvoid: "",
-        nextChapterAdvice: "",
-        revisionDirectives: "",
-      }))
+      const novelConfig = useWikiStore.getState().novelConfig
+      const contextEngineMod = await import("@/lib/novel/context-engine")
+      const { buildContextPack, contextPackToPrompt, renderCanonRulesBaseForStablePrefix } = contextEngineMod
+      if (signal?.aborted) return ABORTED_RESULT
+      const contextPack = await buildContextPack(pp, text, effectiveTaskRoute.chapterNumber, {
+        novelMode: true,
+        novelConfig,
+        llmConfig,
+      }).catch((err) => {
+        const message = toErrorMessage(err)
+        logger.warn("ChatPanel", "buildContextPack failed, degrading to empty pack", { error: message })
+        toast.info(
+          i18n.t("chat.contextPackDegraded", {
+            defaultValue: "小说上下文装配失败，已降级继续生成（本轮可能缺少角色与设定参考）。",
+          }),
+        )
+        const createEmpty =
+          "createEmptyContextPackWithGap" in contextEngineMod
+            ? (
+                contextEngineMod as {
+                  createEmptyContextPackWithGap?: (
+                    task: string,
+                    ref: string,
+                    reason?: "datasource_error" | "budget_exceeded" | "tier_compressible" | "temporal_history_unavailable",
+                  ) => Awaited<ReturnType<typeof buildContextPack>>
+                }
+              ).createEmptyContextPackWithGap
+            : undefined
+        if (typeof createEmpty === "function") {
+          return createEmpty(text, "chat_context_pack", "datasource_error")
+        }
+        return {
+          task: text,
+          chapterGoal: "",
+          outline: "",
+          recentSummaries: [],
+          previousChapterEnding: "",
+          characterStates: "",
+          soulDoc: "",
+          characterAuras: "",
+          cognitionStates: "",
+          foreshadowingStates: "",
+          timeline: "",
+          relatedSettings: "",
+          canonRules: "",
+          writingStyle: "",
+          searchResults: "",
+          graphSearchResults: "",
+          mustDo: "",
+          mustAvoid: "",
+          nextChapterAdvice: "",
+          revisionDirectives: "",
+          gaps: [
+            {
+              type: "load_failed" as const,
+              ref: "chat_context_pack",
+              reason: "datasource_error" as const,
+              originalLength: 0,
+              retainedLength: 0,
+            },
+          ],
+        }
+      })
+      if (signal?.aborted) return ABORTED_RESULT
       // Wave C6: 接入 ContextPackReplayPanel —— 捕获本次装配结果供回放面板只读展示。
       setReplayContextPack(contextPack)
       if (contextPack.characterAuras.trim()) {
         const confirmed = await requestSoulDialog(contextPack.characterAuras)
+        if (signal?.aborted) return ABORTED_RESULT
         if (!confirmed) {
           return {
             cancelled: true,
@@ -270,7 +343,6 @@ if (project && greetingOnly) {
           }
         }
       }
-      const novelConfig = useWikiStore.getState().novelConfig
       const budget = novelConfig.contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined
       // G6：base 进稳定缓存段，动态段只放 temporal 增量（否则跨章前缀不一致，永不命中）。
       stableCanonRulesBase = renderCanonRulesBaseForStablePrefix(contextPack)
@@ -294,6 +366,7 @@ if (project && greetingOnly) {
       })
     }
   }
+  if (signal?.aborted) return ABORTED_RESULT
 
   // 稳定前缀（G4a）：技能、角色定位、章节输出规则、规则、Markdown 格式要求。
   // 字段白名单、版本号、哈希全部在 @/lib/stable-prefix —— 这里只提供字段值，
@@ -341,12 +414,15 @@ if (project && greetingOnly) {
   // ── Agent mode: append file edit instructions if user has edit intent ──
   if (novelMode && systemMessages.length > 0) {
     const { detectEditIntent, buildAgentSystemSuffix } = await import("@/lib/novel/agent-parser")
+    if (signal?.aborted) return ABORTED_RESULT
     if (detectEditIntent(text)) {
       const lastSys = systemMessages[systemMessages.length - 1]
       /* v8 ignore next */
       if (lastSys) {
         const { readScopeFileContents } = await import("@/lib/novel/agent-tools")
+        if (signal?.aborted) return ABORTED_RESULT
         const filesWithContent = await readScopeFileContents(pp, "chapters")
+        if (signal?.aborted) return ABORTED_RESULT
         const fileContentStr = filesWithContent.length > 0
           ? `\n\n## 当前章节文件内容（供修改定位）\n${filesWithContent.map(f => `### ${f.name}\n\`\`\`\n${f.content}\n\`\`\``).join("\n\n")}`
           : "\n\n## 当前章节文件列表\n(暂无章节文件)"
@@ -363,6 +439,7 @@ if (project && greetingOnly) {
     }
   }
 
+  if (signal?.aborted) return ABORTED_RESULT
   const nextQueryPages = relevantPages.map((p) => ({ title: p.title, path: p.path }))
   setLastQueryPages(nextQueryPages)
   queryRefs = [...nextQueryPages]

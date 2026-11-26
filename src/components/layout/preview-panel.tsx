@@ -3,12 +3,13 @@ import type { MutableRefObject } from "react"
 import { useTranslation } from "react-i18next"
 import { Check } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { resolveDefaultModel, isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus, resolveReviewModel, buildDeAiRewriteMessages, acceptAllDeAiBatchDrafts, acceptDeAiBatchDraft, loadDeAiBatchState, rejectDeAiBatchDraft, runDeAiBatch, startOutlineIngestTask, DRAFT_FILENAME_SUFFIX, DEFAULT_DE_AI_MODE } from "@/lib/novel"
-import type { DeAiBatchProgress, DeAiBatchSummary, DeAiMode, DeAiDetectResult, DeAiSpanApplyResult, DeAiEditError } from "@/lib/novel"
+import { resolveDefaultModel, isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus, resolveReviewModel, buildDeAiRewriteMessages, acceptAllDeAiBatchDrafts, acceptDeAiBatchDraft, loadDeAiBatchState, rejectDeAiBatchDraft, runDeAiBatch, startOutlineIngestTask, DRAFT_FILENAME_SUFFIX, DEFAULT_DE_AI_MODE, readBackMemoryIngest, formatMemoryIngest, resolveNovelModel, verifyRebuildOutcome } from "@/lib/novel"
+import type { DeAiBatchProgress, DeAiBatchSummary, DeAiMode, DeAiDetectResult, DeAiSpanApplyResult, DeAiEditError, VerifiedRebuildReceipt } from "@/lib/novel"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { deleteFile, fileExists, readFile, writeFileAtomic, listDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { toast } from "@/lib/toast"
 import { restoreTrashItem } from "@/lib/trash"
 import { formatOperationError } from "@/lib/format-operation-error"
 import { getFileCategory, isBinary } from "@/lib/file-types"
@@ -26,7 +27,7 @@ import {
   getChapterTitleFromPath,
   collectRecentChapterFiles, DE_AI_SELECTION_TIMEOUT_MS, CHAPTER_TITLE_MIN_WIDTH_PX,
   CHAPTER_TITLE_RESTING_EXTRA_WIDTH_PX, CHAPTER_TITLE_EDITING_EXTRA_WIDTH_PX,
-  getChapterWriteCoordinator, settleChapterRecoveryBodyWrite, settleChapterAdoptionRecoveryAfterRead,
+  getChapterWriteCoordinator, settleChapterRecoveryBodyWrite, settleChapterAdoptionRecoveryAfterRead, ChapterAdoptionUnavailableError,
   type ChapterAdoptionLease,
   type ChapterWriteFenceRefusal,
   type ChapterWriteIntent,
@@ -139,6 +140,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const finalChapterSave = useWikiStore((s) => s.finalChapterSave)
   const setFinalChapterSave = useWikiStore((s) => s.setFinalChapterSave)
+  const clearFinalChapterSaveForPath = useWikiStore((s) => s.clearFinalChapterSaveForPath)
   const outlineTasks = useOutlineGenerationStore((s) => s.tasks)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 统一写入协调器（同进程共享）：意图 / 实际 I/O 尾链 / 采纳栅栏 / lease 都在这里，
@@ -188,6 +190,8 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
   const selectionActionFirstTokenRef = useRef(false)
   // Wave 4 (v2.5.0): 批量去AI味状态（进度 + 结果 + 中止引用）
   const [batchRunning, setBatchRunning] = useState(false)
+  const [deAiBatchActionBusy, setDeAiBatchActionBusy] = useState(false)
+  const deAiBatchActionBusyRef = useRef(false)
   const [batchProgress, setBatchProgress] = useState<DeAiBatchProgress | null>(null)
   const [batchSummary, setBatchSummary] = useState<DeAiBatchSummary | null>(null)
   const [batchDialogOpen, setBatchDialogOpen] = useState(false)
@@ -203,16 +207,22 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
   const [selectionTransformCandidateContent, setSelectionTransformCandidateContent] = useState("")
   const [chapterTitleDraft, setChapterTitleDraft] = useState("")
   const [chapterTitleEditing, setChapterTitleEditing] = useState(false)
-  const chapterTitleInputRef = useRef({ path: selectedFile, draft: "", editing: false, revision: 0 })
+  const chapterTitleInputRef = useRef({ path: selectedFile, draft: "", editing: false, dirty: false, revision: 0 })
   const [chapterTitleWidthPx, setChapterTitleWidthPx] = useState(CHAPTER_TITLE_MIN_WIDTH_PX)
   const [chapterToolbarCompact, setChapterToolbarCompact] = useState(true)
   const [chapterToolbarMoreOpen, setChapterToolbarMoreOpen] = useState(false)
   const [loadedFilePath, setLoadedFilePathState] = useState<string | null>(null)
   const loadedFilePathRef = useRef<string | null>(null)
+  const loadedPathSeqRef = useRef<{ path: string; seq: number } | null>(null)
   const [recoveryReloadToken, setRecoveryReloadToken] = useState(0)
   const setLoadedFilePath = useCallback((path: string | null) => {
     loadedFilePathRef.current = path
     setLoadedFilePathState(path)
+  }, [])
+  const observedSeqFor = useCallback((path: string): number | undefined => {
+    const snap = loadedPathSeqRef.current
+    if (!snap) return undefined
+    return normalizePath(snap.path) === normalizePath(path) ? snap.seq : undefined
   }, [])
   useLayoutEffect(() => {
     // 此值描述本次真正提交的渲染分支，而不是刚调用过哪个 state setter。
@@ -270,9 +280,19 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     return released
   }, [writeCoordinator])
 
-  const setTitleInput = useCallback((draft: string, editing: boolean, userIntent = false) => {
+  const setTitleInput = useCallback((draft: string, editing: boolean, userIntent = false, nextDirty?: boolean) => {
     const path = useWikiStore.getState().selectedFile
-    chapterTitleInputRef.current = { path, draft, editing, revision: chapterTitleInputRef.current.revision + (userIntent ? 1 : 0) }
+    const prev = chapterTitleInputRef.current
+    const dirty = editing
+      ? (nextDirty ?? (prev.path === path ? prev.dirty : false))
+      : false
+    chapterTitleInputRef.current = {
+      path,
+      draft,
+      editing,
+      dirty,
+      revision: prev.revision + (userIntent ? 1 : 0),
+    }
     setChapterTitleDraft(draft)
     setChapterTitleEditing(editing)
     if (userIntent && committedInputPathRef.current === path) {
@@ -301,16 +321,25 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     const current = useWikiStore.getState().selectedFile
     if (!mountedRef.current || current === null || normalizePath(current) !== normalizePath(entry.path)) return
     const buffer = entry.buffer ?? fileContentRef.current
+    const restoredHeader = isChapterPath(current) && getFileCategory(current) === "markdown"
+      ? buildChapterEditorHeader(buffer)
+      : null
+    const restoredDisplayTitle = restoredHeader
+      ? restoredHeader.heading || getChapterTitleFromPath(current)
+      : ""
     // 先同步本路径 refs，再放回真实 UI。恢复仍是 dirty，不伪报 saved；自动 flush 挂起。
     fileContentRef.current = buffer
     recoveredInputRef.current = { ...entry, buffer }
+    if (!loadedPathSeqRef.current || normalizePath(loadedPathSeqRef.current.path) !== normalizePath(current)) {
+      loadedPathSeqRef.current = { path: current, seq: writeCoordinator.currentSequence() }
+    }
     setFileContent(buffer)
-    setTitleInput(entry.titleDraft, entry.titleEditing)
+    setTitleInput(entry.titleDraft, entry.titleEditing, false, entry.titleEditing && entry.titleDraft !== restoredDisplayTitle)
     setLoadedFilePath(current)
     setSaveStatus(entry.message ?? (entry.adoptionCommitted
       ? "采纳已落盘但读回未完成：已接回未存输入，正文未被自动回写，请检查后重新编辑或保存。"
       : "采纳未确认落盘：已接回未存输入，正文未被自动回写，请检查后重新编辑或保存。"))
-  }, [setFileContent, setLoadedFilePath, setTitleInput])
+  }, [setFileContent, setLoadedFilePath, setTitleInput, writeCoordinator])
 
   type ChapterCommitOutcome =
     | { status: "committed"; targetPath: string; markdown: string; stillCurrent: boolean }
@@ -331,6 +360,11 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     markdown: string,
     options?: { verifyAfterWrite?: (targetPath: string, markdown: string) => Promise<void> },
   ): Promise<ChapterCommitOutcome> => {
+    if (saveTimerRef.current
+      && (selectedFileRef.current === null || normalizePath(selectedFileRef.current) === normalizePath(path))) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
     const normalized = normalizeChapterWriting(markdown)
     const chapterNumber = extractChapterNumberFromMarkdown(normalized)
     const targetPath = await getCanonicalChapterPath(path, normalized, chapterNumber)
@@ -339,12 +373,28 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       await writeFileAtomic(targetPath, normalized)
       // 终稿补偿重写属于同一个有效许可，不能作为绕过协议的第二处直接写。
       if (options?.verifyAfterWrite) await options.verifyAfterWrite(targetPath, normalized)
-      if (targetPath !== path) {
+      const isRelocation = normalizePath(targetPath) !== normalizePath(path)
+      if (isRelocation) {
         const deletion = deleteFile(path)
         deleteIssued = true
-        // 已验证的新文件 + 实际发出的旧路径删除：登记事实，不把 confirmed 目标静默改指。
-        writeCoordinator.noteRelocation(intent, path, targetPath)
+        // 已验证的新文件 + 旧路径删除真正成功后：才登记迁移事实（仅成功删除使旧路径退役），
+        // 不把 confirmed 目标静默改指；deleteIssued 仍负责失败上报。
         await deletion
+        writeCoordinator.noteRelocation(intent, path, targetPath)
+        const currentSelected = useWikiStore.getState().selectedFile
+        if (currentSelected !== null && normalizePath(currentSelected) === normalizePath(path)) {
+          selectedFileRef.current = targetPath
+          lastLoadedRef.current = normalized
+          fileContentRef.current = normalized
+          chapterTitleInputRef.current = { ...chapterTitleInputRef.current, path: targetPath }
+          loadedPathSeqRef.current = { path: targetPath, seq: writeCoordinator.currentSequence() }
+          if (!writeCoordinator.isFenced(path) && !writeCoordinator.isFenced(targetPath)) {
+            committedInputPathRef.current = targetPath
+            setLoadedFilePath(targetPath)
+          }
+          setFileContent(normalized)
+          useWikiStore.getState().setSelectedFile(targetPath)
+        }
         if (project) {
           try {
             const tree = await listDirectory(normalizePath(project.path))
@@ -353,18 +403,21 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
             console.warn("章节目录刷新失败:", toErrorMessage(error))
           }
         }
-        if (useWikiStore.getState().selectedFile === path) {
-          selectedFileRef.current = targetPath
-          useWikiStore.getState().setSelectedFile(targetPath)
-        }
       }
 
-      if (useWikiStore.getState().selectedFile === targetPath) {
+      const latestSelected = useWikiStore.getState().selectedFile
+      if (intent.kind !== "final-save") {
+        clearFinalChapterSaveForPath?.(path)
+        if (isRelocation) clearFinalChapterSaveForPath?.(targetPath)
+      }
+      if (latestSelected !== null && normalizePath(latestSelected) === normalizePath(targetPath)) {
         // canonical 重指同时迁移输入路径快照；异目标采纳 token 不负责重载它。
         fileContentRef.current = normalized
         lastLoadedRef.current = normalized
         chapterTitleInputRef.current = { ...chapterTitleInputRef.current, path: targetPath }
+        loadedPathSeqRef.current = { path: targetPath, seq: writeCoordinator.currentSequence() }
         setFileContent(normalized)
+        if (mountedRef.current && intent.kind !== "final-save") setSaveStatus("")
         // 已准入的旧 I/O 可以落定，但不能重开正在等待采纳的旧输入。
         if (!writeCoordinator.isFenced(path) && !writeCoordinator.isFenced(targetPath)) setLoadedFilePath(targetPath)
       }
@@ -385,7 +438,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       return { status: "failed", error, recoveryPath: deleteIssued ? targetPath : path }
     }
     return { status: "committed", targetPath, markdown: normalized, stillCurrent: admission.isCurrent() }
-  }, [bumpDataVersion, project, setFileContent, setFileTree, setLoadedFilePath, writeCoordinator])
+  }, [bumpDataVersion, clearFinalChapterSaveForPath, project, setFileContent, setFileTree, setLoadedFilePath, writeCoordinator])
 
   const flushChapterBeforeLeave = useCallback(async (path: string | null, markdown: string) => {
     /* v8 ignore next */
@@ -395,18 +448,21 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       clearTimeout(saveTimerRef.current)
       saveTimerRef.current = null
     }
+    const observedSeq = observedSeqFor(path)
+    if (writeCoordinator.wasRelocatedSince(path, observedSeq)) return
     if (finalChapterSave?.saving && finalChapterSave.filePath === path) return
     // 失败/取消恢复不是新的保存意图；pagehide、切章、卸载都不能自动覆盖盘上事实。
     if (writeCoordinator.peekRecovery(path)
       && (recoveredInputRef.current?.path === normalizePath(path) || loadedFilePathRef.current !== path)) return
     if (markdown === lastLoadedRef.current) return
     // 离开 flush 也是真实写入意图：捕获后才准入；被采纳栅栏拒就静默放弃这份旧缓冲。
-    const intent = writeCoordinator.captureIntent("leave-flush", path)
+    const intent = writeCoordinator.captureIntent("leave-flush", path, observedSeq)
     const outcome = await commitChapter(intent, path, markdown)
     if (outcome.status === "failed") {
+      if (outcome.error instanceof ChapterAdoptionUnavailableError && outcome.error.reason === "relocated") return
       console.error("切换章节前同步文件失败:", outcome.error)
     }
-  }, [commitChapter, finalChapterSave, writeCoordinator])
+  }, [commitChapter, finalChapterSave, observedSeqFor, writeCoordinator])
 
   // 装载 effect 只用 [选中路径, 采纳令牌] 作为重跑依据：把 flush 放进 ref，避免
   // 「其它状态（如终稿保存阶段）变化 → 重跑 effect → 重读磁盘 → 冲掉未存正文」。
@@ -437,6 +493,15 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     if (!selectedFile) return
     // 两个既有挂载点的真正消费者：新实例接手在途 lease，恢复只装回正确路径的 UI。
     return writeCoordinator.subscribe(selectedFile, (event) => {
+      if (event === "relocation") {
+        if (saveTimerRef.current
+          && selectedFileRef.current !== null
+          && normalizePath(selectedFileRef.current) === normalizePath(selectedFile)) {
+          clearTimeout(saveTimerRef.current)
+          saveTimerRef.current = null
+        }
+        return
+      }
       if (!mountedRef.current || useWikiStore.getState().selectedFile !== selectedFile) return
       if (event === "lease") {
         loadGenerationRef.current += 1
@@ -478,6 +543,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     }
     const previousFile = selectedFileRef.current
     const previousContent = fileContentRef.current
+    const prevObserved = previousFile ? observedSeqFor(previousFile) : undefined
     // G2-NATIVE-F1：令牌变化 + 令牌指认当前文件 + 选中路径未变 ⇒ 同一份文件刚被采纳写回
     // （权威正文已落盘）。这时必须重新读盘，且不能把采纳前的旧缓冲 flush 回正式章。
     const adoptionRefreshRequested = adoptionRefreshToken !== adoptionRefreshTokenRef.current
@@ -491,6 +557,9 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       releaseOwnAdoption(adoptionRefreshPath)
       if (previousFile === selectedFile) return cancelRead
     }
+    const previousRelocated = Boolean(
+      previousFile && isChapterPath(previousFile) && writeCoordinator.wasRelocatedSince(previousFile, prevObserved),
+    )
     if (adoptionSameFileRefresh) {
       // 采纳写入是权威：作废本文件排队的旧缓冲防抖写盘，并复用既有装载守卫
       // （loadedFilePath !== selectedFile 只渲染加载态）把旧缓冲区卸载 —— 重载窗口内不存在
@@ -501,13 +570,21 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       }
       setLoadedFilePath(null)
     } else if (previousFile && previousFile !== selectedFile && isChapterPath(previousFile)) {
-      void flushChapterRef.current(previousFile, previousContent)
+      if (previousRelocated) {
+        if (saveTimerRef.current) {
+          clearTimeout(saveTimerRef.current)
+          saveTimerRef.current = null
+        }
+      } else {
+        void flushChapterRef.current(previousFile, previousContent)
+      }
     }
     selectedFileRef.current = selectedFile
     if (previousFile !== selectedFile) {
       const pendingTitle = chapterTitleInputRef.current
       if (previousFile && isChapterPath(previousFile) && pendingTitle.path === previousFile
-        && pendingTitle.editing && !writeCoordinator.peekRecovery(previousFile)) {
+        && pendingTitle.editing && pendingTitle.dirty && !previousRelocated
+        && !writeCoordinator.peekRecovery(previousFile)) {
         writeCoordinator.retainRecovery({
           path: previousFile,
           buffer: previousContent !== lastLoadedRef.current ? previousContent : undefined,
@@ -518,7 +595,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       }
       recoveredInputRef.current = null
       // 旧章输入留在原归属；新章标题不能继承旧章的 editing/draft 状态。
-      setTitleInput("", false)
+      setTitleInput("", false, false, false)
     }
     setSelectionTransformOpen(false)
     setDeAiPreviewOpen(false)
@@ -530,6 +607,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     if (!adoptionSameFileRefresh) setLoadedFilePath(null)
 
     if (!selectedFile) {
+      loadedPathSeqRef.current = null
       setFileContent("")
       fileContentRef.current = ""
       lastLoadedRef.current = ""
@@ -542,6 +620,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     const category = getFileCategory(selectedFile)
 
     if (isBinary(category)) {
+      loadedPathSeqRef.current = { path: selectedFile, seq: writeCoordinator.currentSequence() }
       setFileContent("")
       fileContentRef.current = ""
       lastLoadedRef.current = ""
@@ -568,6 +647,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       if (!isCurrentRead()) return
       reloadLease = writeCoordinator.leaseOf(selectedFile)
       const install = async () => {
+        const readSeq = writeCoordinator.currentSequence()
         let content = ""
         let errorMessage = ""
         try {
@@ -579,6 +659,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
         // 盘上事实先同步 refs/路径快照；恢复输入仍是 dirty，绝不把错误文本当正文。
         fileContentRef.current = content
         lastLoadedRef.current = content
+        loadedPathSeqRef.current = { path: selectedFile, seq: readSeq }
         setFileContent(content)
         setSaveStatus(errorMessage)
         setLoadedFilePath(selectedFile)
@@ -608,7 +689,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       if (isCurrentRead()) setSaveStatus(formatOperationError(t, error))
     })
     return cancelRead
-  }, [selectedFile, adoptionRefreshToken, adoptionRefreshPath, recoveryReloadToken, setFileContent, setLoadedFilePath, setTitleInput, releaseOwnAdoption, restoreRecovery, writeCoordinator])
+  }, [selectedFile, adoptionRefreshToken, adoptionRefreshPath, recoveryReloadToken, observedSeqFor, setFileContent, setLoadedFilePath, setTitleInput, releaseOwnAdoption, restoreRecovery, writeCoordinator])
 
   // 真正的卸载清理：依赖必须为空。若挂在 [flushChapterBeforeLeave] 上，任何让该回调换新
   // （例如终稿保存阶段变化）都会把“依赖变化”当成卸载，从而在终稿写入期间意外 flush 脏缓冲。
@@ -659,34 +740,52 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
    * 1s 防抖写盘：timer 真正准备派发时准入。
    * 被采纳栅栏拒就放弃这份旧缓冲（不写、也不把它标成已加载）；新的用户编辑会产生新意图。
    */
-  const scheduleSave = useCallback((path: string, persistedMarkdown: string) => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+  const scheduleSave = useCallback((path: string, persistedMarkdown: string, observedSeq?: number) => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    const effectiveObservedSeq = observedSeq ?? observedSeqFor(path)
+    if (writeCoordinator.wasRelocatedSince(path, effectiveObservedSeq)) return
+    const intent = writeCoordinator.captureIntent("debounce-save", path, effectiveObservedSeq)
     saveTimerRef.current = setTimeout(() => {
       saveTimerRef.current = null
-      const intent = writeCoordinator.captureIntent("debounce-save", path)
+      if (writeCoordinator.wasRelocatedSince(path, effectiveObservedSeq)) return
       const admission = writeCoordinator.admitMutation(intent, [path], async () => {
         await writeFileAtomic(path, persistedMarkdown)
+        clearFinalChapterSaveForPath?.(path)
         // 只有「仍是当前文件」的写盘才能成为新的已加载快照：另一目标的后台写盘完成
         // 不得改写当前文件的 lastLoaded（否则当前脏输入会被当成已保存）。
-        if (selectedFileRef.current !== null && normalizePath(selectedFileRef.current) === normalizePath(path)) {
+        if (mountedRef.current && selectedFileRef.current !== null && normalizePath(selectedFileRef.current) === normalizePath(path)) {
           lastLoadedRef.current = persistedMarkdown
+          setSaveStatus("")
         }
         settleChapterRecoveryBodyWrite(writeCoordinator, intent, path, persistedMarkdown)
         bumpDataVersion()
       })
       if (admission.kind === "fenced") return
       void admission.result.catch((err) => {
+        if (err instanceof ChapterAdoptionUnavailableError && err.reason === "relocated") return
+        if (!mountedRef.current || selectedFileRef.current === null || normalizePath(selectedFileRef.current) !== normalizePath(path)) return
         // R4 共识（deepseek+glm；glm+qwen）: 写盘失败原先仅 console.error，用户以为已保存。
         setSaveStatus(formatOperationError(t, err))
       })
     }, 1000)
-  }, [bumpDataVersion, t, writeCoordinator])
+  }, [bumpDataVersion, clearFinalChapterSaveForPath, observedSeqFor, t, writeCoordinator])
 
   const handleSave = useCallback(
     (markdown: string, explicitSave = false) => {
       /* v8 ignore next */
       if (!selectedFile || !mountedRef.current || useWikiStore.getState().selectedFile !== selectedFile
         || committedInputPathRef.current !== selectedFile) return
+      const observedSeq = observedSeqFor(selectedFile)
+      if (writeCoordinator.wasRelocatedSince(selectedFile, observedSeq)) {
+        if (saveTimerRef.current) {
+          clearTimeout(saveTimerRef.current)
+          saveTimerRef.current = null
+        }
+        return
+      }
       const persistedMarkdown = isChapterPath(selectedFile)
         ? normalizeChapterWriting(markdown)
         : markdown
@@ -711,9 +810,9 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
         writeCoordinator.retainRecovery({ ...recovery, buffer: markdown, adoptionCommitted: false })
         recoveredInputRef.current = null
       }
-      scheduleSave(selectedFile, persistedMarkdown)
+      scheduleSave(selectedFile, persistedMarkdown, observedSeq)
     },
-    [scheduleSave, selectedFile, setFileContent, writeCoordinator]
+    [observedSeqFor, scheduleSave, selectedFile, setFileContent, writeCoordinator]
   )
 
   const writeGate = useMemo<PreviewPanelWriteGate>(() => ({
@@ -808,9 +907,20 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     }
     const outlineNum = -(Math.abs(hash % 999) + 1)
     setOutlineSnapshotNumber(outlineNum)
+    let cancelled = false
     const prefix = `outline-${String(Math.abs(outlineNum)).padStart(3, "0")}`
     const jsonPath = `${normalizePath(project.path)}/.novel/snapshots/${prefix}.snapshot.json`
-    fileExists(jsonPath).then((exists) => setOutlineIngested(exists)).catch(() => setOutlineIngested(false))
+    void fileExists(jsonPath)
+      .then((exists) => {
+        if (!cancelled) setOutlineIngested(exists)
+      })
+      .catch((err) => {
+        void err
+        if (!cancelled) setOutlineIngested(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [canIngestOutline, project, selectedFile])
   useEffect(() => {
     if (!canIngestOutline) return
@@ -823,33 +933,55 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     return meta?.chapterNumber ?? null
   }, [chapterFrontmatter])
   const canViewSnapshot = Boolean(novelMode && project && chapterNumber !== null)
-  const currentFinalChapterSave = finalChapterSave != null && finalChapterSave.projectPath === project?.path && finalChapterSave.filePath === selectedFile ? finalChapterSave : null
+  const currentFinalChapterSave = finalChapterSave != null
+    && project?.path != null
+    && selectedFile != null
+    && normalizePath(finalChapterSave.projectPath) === normalizePath(project.path)
+    && normalizePath(finalChapterSave.filePath) === normalizePath(selectedFile)
+    ? finalChapterSave
+    : null
   const isFinalChapterSaving = currentFinalChapterSave?.saving ?? isSavingFinal
   const isOutlineIngesting = currentOutlineTask?.status === "ingesting"
+  const reingestReceipt = saveStatus ? undefined : currentFinalChapterSave?.reingestReceipt
+  const handleCopyReingestReceipt = useCallback(async () => {
+    if (!reingestReceipt) return
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(reingestReceipt, null, 2))
+      toast.success(t("novel.chapter.reingestReceiptCopied"))
+    } catch {
+      toast.error(t("novel.chapter.reingestReceiptCopyFailed"))
+    }
+  }, [reingestReceipt, t])
 
   // R4 共识（deepseek+glm）: 原 map 存的是**译文**，visibleSaveStatus 又对译文调 t(label, params)
   // ⇒ 二次翻译且 params 永远无法插值。改为存**键**，统一在 visibleSaveStatus 解析一次。
-  // （末尾三条无对应键，保持硬编码中文；t(原文) 在键缺失时原样返回，行为不变。）
   const phaseLabelMap: Record<FinalChapterSavePhase, string> = {
     saving: "novel.chapter.savingAsFinal",
     reviewing: "novel.chapter.reviewInProgress",
     saved: "novel.chapter.savedAsFinal",
     reingesting: "novel.chapter.savingAsFinal",
+    reingest_verified: "novel.chapter.reingestVerified",
+    reingest_unverified: "novel.chapter.reingestUnverified",
     ingested: "novel.chapter.ingestSuccess",
+    ingest_incomplete: "novel.chapter.savedWithMemoryStatus",
     blocked_by_review: "novel.chapter.reviewBlockedWithErrors",
     ingest_failed: "novel.chapter.ingestFailedRetry",
     ingest_no_llm: "novel.chapter.ingestNoLlmKey",
-    ingest_no_chapter_number: "章节已保存为正式章节，但快照生成失败：章节编号无效。请在章节2栏中重命名章节以修正编号。",
-    ingest_not_final: "章节已保存为正式章节，但快照生成失败：章节状态异常，请检查章节是否正确标记为终稿。",
-    ingest_extract_failed: "章节已保存为正式章节，但快照生成失败：LLM 生成超时或返回格式错误，请重试。",
+    ingest_no_chapter_number: "novel.chapter.ingestNoChapterNumber",
+    ingest_not_final: "mainControl.draftIngestSkippedNotFinal",
+    ingest_extract_failed: "novel.chapter.ingestExtractFailed",
     review_warnings: "novel.chapter.reviewWarningsButProceeding",
     review_failed_proceed: "novel.chapter.reviewFailedProceeding",
   }
 
   const visibleSaveStatus = (() => {
-    if (!currentFinalChapterSave?.phase) return saveStatus
-    const label = phaseLabelMap[currentFinalChapterSave.phase]
-    const params = currentFinalChapterSave.params
+    if (saveStatus || !currentFinalChapterSave?.phase) return saveStatus
+    const phase = currentFinalChapterSave.phase
+    const label = phaseLabelMap[phase]
+    const rawParams = currentFinalChapterSave.params
+    const params = (phase === "ingest_failed" || phase === "ingest_extract_failed") && !rawParams?.message
+      ? { ...rawParams, message: "unknown" }
+      : rawParams
     const result = t(label, (params ?? {}) as never)
     return typeof result === "string" ? result : saveStatus
   })()
@@ -964,16 +1096,24 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
   const commitChapterTitleDraft = useCallback(async () => {
     /* v8 ignore next */
     if (!selectedFile || !isChapterPath(selectedFile) || !chapterHeader) return
+    const originalInput = { ...chapterTitleInputRef.current }
+    if (!originalInput.editing || !originalInput.dirty || originalInput.draft === chapterDisplayTitle) {
+      setTitleInput(chapterDisplayTitle, false, false, false)
+      return
+    }
     const path = selectedFile
     const sourceMarkdown = fileContentRef.current
     // 意图在任何 await（canonical 路径解析 / 写入）之前捕获：晚恢复的标题不得取得旧正文写许可。
-    const intent = writeCoordinator.captureIntent("title", path)
-    const originalInput = { ...chapterTitleInputRef.current }
+    const intent = writeCoordinator.captureIntent("title", path, observedSeqFor(path))
     const normalizedTitle = normalizeChapterTitleInput(originalInput.draft)
     const fallbackTitle = chapterDisplayTitle || (chapterNumber !== null ? makeDefaultChapterTitle(chapterNumber) : "")
     const nextTitle = normalizedTitle || fallbackTitle
-    setTitleInput(nextTitle, false)
+    setTitleInput(nextTitle, false, false, false)
     if (nextTitle === chapterDisplayTitle) return
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
     const outcome = await commitChapter(intent, path, updateChapterHeading(sourceMarkdown, nextTitle))
     if (outcome.status === "committed") return
     const recoveryPath = outcome.status === "failed" ? outcome.recoveryPath : path
@@ -988,6 +1128,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       : toErrorMessage(outcome.error)
     const recovery: ChapterWriteRecovery = {
       ...existing,
+      buffer: existing?.buffer ?? (sourceMarkdown !== lastLoadedRef.current ? sourceMarkdown : undefined),
       path: recoveryPath,
       titleDraft: preservedTitle.draft,
       titleEditing: preservedTitle.editing,
@@ -1009,6 +1150,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     commitChapter,
     fileContent,
     normalizeChapterTitleInput,
+    observedSeqFor,
     restoreRecovery,
     selectedFile,
     setTitleInput,
@@ -1016,7 +1158,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
   ])
 
   const cancelChapterTitleEditing = useCallback(() => {
-    setTitleInput(chapterDisplayTitle, false, true)
+    setTitleInput(chapterDisplayTitle, false, true, false)
   }, [chapterDisplayTitle, setTitleInput])
 
   const handleSaveAsFinal = useCallback(async () => {
@@ -1028,7 +1170,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     // 取 ref 而不是本次渲染的 prop —— ref 在每次编辑时同步更新，是「当前正文」的真实快照。
     const bodySnapshot = fileContentRef.current
     // 意图在评审/路径解析/写入任何 await 之前捕获。
-    const intent = writeCoordinator.captureIntent("final-save", formalPath)
+    const intent = writeCoordinator.captureIntent("final-save", formalPath, observedSeqFor(formalPath))
     let savePath = formalPath
     const projectPath = project.path
     const updatePhase = (saving: boolean, phase: FinalChapterSavePhase | null, params?: Record<string, string | number>) => {
@@ -1037,6 +1179,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     }
 
     setIsSavingFinal(true)
+    setSaveStatus("")
     updatePhase(true, "saving")
 
     const novelConfig = useWikiStore.getState().novelConfig
@@ -1079,14 +1222,20 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     }
 
     // 评审返回后：正文/目标已被替换则本次终稿失效 —— 不写、不标 final、不 ingest，busy 如实结束。
+    const isStillTargetFile = (target: string) =>
+      mountedRef.current && selectedFileRef.current !== null && normalizePath(selectedFileRef.current) === normalizePath(target)
     const invalidated = selectedFileRef.current !== formalPath || fileContentRef.current !== bodySnapshot
     if (invalidated) {
       updatePhase(false, null)
-      setSaveStatus("正文已被更新：本次「保存为终稿」未写入，请重新确认后再试。")
-      setIsSavingFinal(false)
+      if (isStillTargetFile(formalPath)) {
+        setSaveStatus("正文已被更新：本次「保存为终稿」未写入，请重新确认后再试。")
+      }
+      if (mountedRef.current) setIsSavingFinal(false)
       return
     }
 
+    let formalSaved = false
+    let ingestTaskId: string | undefined
     try {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)
@@ -1095,7 +1244,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
 
       const updatedMarkdown = updateChapterStatus(bodySnapshot, "final")
       const llmConfig = useWikiStore.getState().llmConfig
-      const canIngest = novelConfig.autoIngestOnSave && hasUsableLlm(llmConfig)
+      const canIngest = novelConfig.autoIngestOnSave && hasUsableLlm(resolveNovelModel(llmConfig, novelConfig, "extract"))
       const outcome = await commitChapter(intent, formalPath, updatedMarkdown, {
         // 终稿回读校验 + 补偿重写属于同一个有效 mutation 许可（不是第二处直接写）。
         verifyAfterWrite: canIngest
@@ -1112,7 +1261,9 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       })
       if (outcome.status === "fenced") {
         updatePhase(false, null)
-        setSaveStatus("正文在此期间已被采纳或替换：本次「保存为终稿」未写入。")
+        if (isStillTargetFile(formalPath)) {
+          setSaveStatus("正文在此期间已被采纳或替换：本次「保存为终稿」未写入。")
+        }
         return
       }
       if (outcome.status === "failed") throw outcome.error
@@ -1122,17 +1273,20 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       if (!outcome.stillCurrent) {
         // 写入后又出现了更新的同目标写入：不冒领 final/ingest。
         updatePhase(false, null)
-        setSaveStatus("终稿写入已被后续写入取代：本次未标记终稿，也未提取记忆。")
+        if (isStillTargetFile(targetPath)) {
+          setSaveStatus("终稿写入已被后续写入取代：本次未标记终稿，也未提取记忆。")
+        }
         return
       }
+      formalSaved = true
 
       if (novelConfig.autoIngestOnSave) {
-        if (!hasUsableLlm(llmConfig)) {
+        if (!canIngest) {
           updatePhase(false, "ingest_no_llm")
         } else {
           const chapterTitle = chapterFrontmatter?.title || `第${chapterFrontmatter?.chapterNumber || '?'}章`
           const ingestAbortController = new AbortController()
-          const ingestTaskId = useImportProgressStore.getState().startTask({
+          ingestTaskId = useImportProgressStore.getState().startTask({
             projectPath: project.path,
             kind: "chapter",
             total: 1,
@@ -1146,23 +1300,35 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
           ])
           const result = await ingestChapter(project.path, targetPath, resolveReviewModel(), ingestAbortController.signal, {
             canonDualWriteDeps: defaultCanonDualWriteDeps(),
+            llmConfig,
+            novelConfig,
           })
-          useImportProgressStore.getState().finishTask(ingestTaskId, result.snapshot ? "done" : "error", {
-            completed: result.snapshot ? 1 : 0,
+          const memory = await readBackMemoryIngest(project.path, targetPath, result)
+          const message = formatMemoryIngest(t, memory)
+          const status = memory.ingest === "ok" ? "done"
+            : memory.failReason === "memory_pending" ? "pending"
+              : memory.ingest === "skipped-no-model" || memory.failReason === "not_final" ? "skipped"
+                : memory.failReason === "cancelled" ? "cancelled" : "error"
+          useImportProgressStore.getState().finishTask(ingestTaskId, status, {
+            completed: status === "done" ? 1 : 0,
             total: 1,
             currentTitle: "",
-            message: result.snapshot ? `${chapterTitle} 提取完成` : `${chapterTitle} 提取失败`,
+            message,
           })
-          if (result.snapshot) {
+          if (memory.ingest === "ok" && result.snapshot) {
             updatePhase(false, "ingested", { chapter: result.snapshot.chapterNumber })
+          } else if (result.snapshot) {
+            updatePhase(false, "ingest_incomplete", { message })
+          } else if (memory.ingest === "skipped-no-model") {
+            updatePhase(false, "ingest_no_llm")
           } else if (result.failReason === "invalid_chapter_number") {
             updatePhase(false, "ingest_no_chapter_number")
           } else if (result.failReason === "not_final") {
             updatePhase(false, "ingest_not_final")
           } else if (result.failReason === "extract_failed") {
-            updatePhase(false, "ingest_extract_failed")
+            updatePhase(false, "ingest_extract_failed", { message: (message || result.failReason || "unknown").slice(0, 100) })
           } else {
-            updatePhase(false, "ingest_failed")
+            updatePhase(false, "ingest_failed", { message: (message || result.failReason || "unknown").slice(0, 100) })
           }
         }
       } else {
@@ -1170,12 +1336,21 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       }
     } catch (error) {
       const message = toErrorMessage(error)
-      updatePhase(false, "ingest_failed", { message: `快照提取异常: ${message.slice(0, 100)}` })
-      console.error("[preview-panel] ingest failed:", toErrorMessage(error))
+      if (formalSaved) {
+        const ingestMessage = t("mainControl.draftIngestUnexpectedError")
+        if (ingestTaskId) useImportProgressStore.getState().finishTask(ingestTaskId, "error", { message: ingestMessage })
+        updatePhase(false, "ingest_incomplete", { message: ingestMessage })
+      } else {
+        updatePhase(false, null)
+        if (isStillTargetFile(savePath)) {
+          setSaveStatus(t("chat.saveFailed", { message }))
+        }
+      }
+      console.error("[preview-panel] final save or ingest failed:", message)
     } finally {
-      setIsSavingFinal(false)
+      if (mountedRef.current) setIsSavingFinal(false)
     }
-  }, [chapterFrontmatter, commitChapter, fileContent, project, selectedFile, setFinalChapterSave, t, writeCoordinator])
+  }, [chapterFrontmatter, commitChapter, fileContent, observedSeqFor, project, selectedFile, setFinalChapterSave, t, writeCoordinator])
 
   const handleReingest = useCallback(async () => {
     /* v8 ignore next */
@@ -1186,9 +1361,9 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     }
     const projectPath = project.path
     const filePath = selectedFile
-    const updatePhase = (saving: boolean, phase: FinalChapterSavePhase | null, params?: Record<string, string | number>) => {
+    const updatePhase = (saving: boolean, phase: FinalChapterSavePhase | null, params?: Record<string, string | number>, reingestReceipt?: VerifiedRebuildReceipt) => {
       /* v8 ignore next */
-      setFinalChapterSave({ projectPath, filePath, saving, phase: phase ?? null, params })
+      setFinalChapterSave({ projectPath, filePath, saving, phase: phase ?? null, params, ...(reingestReceipt ? { reingestReceipt } : {}) })
     }
 
     setIsSavingFinal(true)
@@ -1211,19 +1386,41 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       ])
       const result = await ingestChapter(projectPath, filePath, resolveReviewModel(), ingestAbortController.signal, {
         canonDualWriteDeps: defaultCanonDualWriteDeps(),
-      })
-      useImportProgressStore.getState().finishTask(ingestTaskId, result.snapshot ? "done" : "error", {
-        completed: result.snapshot ? 1 : 0,
-        total: 1,
-        currentTitle: "",
-        message: result.snapshot ? `${chapterTitle} 提取完成` : `${chapterTitle} 提取失败`,
+        awaitCommunitySummary: true,
+        requireUniqueFinalChapter: true,
       })
       if (result.snapshot) {
-        updatePhase(false, "ingested", { chapter: result.snapshot.chapterNumber })
-      } else if (result.failReason === "invalid_chapter_number") {
+        let receipt: VerifiedRebuildReceipt
+        try {
+          if (chapterNumber === null) throw new Error("Missing expected chapter number.")
+          receipt = await verifyRebuildOutcome(normalizePath(projectPath), { path: filePath, chapterNumber }, result)
+        } catch (error) {
+          const message = toErrorMessage(error).slice(0, 100)
+          useImportProgressStore.getState().finishTask(ingestTaskId, "error", {
+            completed: 0, total: 1, currentTitle: "",
+            message: t("novel.chapter.reingestUnverified", { message }),
+          })
+          updatePhase(false, "reingest_unverified", { message })
+          return
+        }
+        const verifiedChapter = receipt.receipt.chapterNumber
+        useImportProgressStore.getState().finishTask(ingestTaskId, "done", {
+          completed: 1, total: 1, currentTitle: "",
+          message: t("novel.chapter.reingestVerified", { chapter: verifiedChapter }),
+        })
+        updatePhase(false, "reingest_verified", { chapter: verifiedChapter }, receipt)
+        return
+      }
+      useImportProgressStore.getState().finishTask(ingestTaskId, "error", {
+        completed: 0,
+        total: 1,
+        currentTitle: "",
+        message: `${chapterTitle} 提取失败`,
+      })
+      if (result.failReason === "invalid_chapter_number") {
         updatePhase(false, "ingest_no_chapter_number")
       } else {
-        updatePhase(false, "ingest_failed")
+        updatePhase(false, "ingest_failed", { message: (result.failReason || "unknown").slice(0, 100) })
       }
     } catch (error) {
       const message = toErrorMessage(error)
@@ -1234,10 +1431,13 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
         message: `${chapterTitle} 提取失败`,
       })
       updatePhase(false, "ingest_failed", { message: message.slice(0, 100) })
+      if (mountedRef.current && selectedFileRef.current !== null && normalizePath(selectedFileRef.current) === normalizePath(filePath)) {
+        setSaveStatus(formatOperationError(t, error))
+      }
     } finally {
-      setIsSavingFinal(false)
+      if (mountedRef.current) setIsSavingFinal(false)
     }
-  }, [chapterFrontmatter, project, selectedFile, setFinalChapterSave, t])
+  }, [chapterFrontmatter, chapterNumber, project, selectedFile, setFinalChapterSave, t])
 
   const handleFormatWriting = useCallback(async () => {
     /* v8 ignore next */
@@ -1245,19 +1445,23 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     const path = selectedFile
     const source = fileContentRef.current
     // 意图在任何 await 之前捕获；先取得合法许可再改变任何提交状态。
-    const intent = writeCoordinator.captureIntent("format", path)
+    const intent = writeCoordinator.captureIntent("format", path, observedSeqFor(path))
     const formatted = normalizeChapterWriting(source)
     const admission = writeCoordinator.admitMutation(intent, [path], async () => {
       await writeFileAtomic(path, formatted)
-      if (selectedFileRef.current !== null && normalizePath(selectedFileRef.current) === normalizePath(path)) {
+      clearFinalChapterSaveForPath?.(path)
+      if (mountedRef.current && selectedFileRef.current !== null && normalizePath(selectedFileRef.current) === normalizePath(path)) {
         fileContentRef.current = formatted
         lastLoadedRef.current = formatted
+        setSaveStatus("")
       }
       bumpDataVersion()
     })
     if (admission.kind === "fenced") {
       // 不预先标成已保存：保留脏输入，如实提示未写入。
-      setSaveStatus("排版未写入：正文正在被采纳或已被替换，请重新确认后再试")
+      if (mountedRef.current && selectedFileRef.current !== null && normalizePath(selectedFileRef.current) === normalizePath(path)) {
+        setSaveStatus("排版未写入：正文正在被采纳或已被替换，请重新确认后再试")
+      }
       return
     }
     try {
@@ -1265,13 +1469,15 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     } catch (err) {
       // 写失败：保留脏输入/错误，不把内容标成已保存。
       console.error("格式化写作内容失败:", toErrorMessage(err))
-      setSaveStatus(formatOperationError(t, err))
+      if (mountedRef.current && selectedFileRef.current !== null && normalizePath(selectedFileRef.current) === normalizePath(path)) {
+        setSaveStatus(formatOperationError(t, err))
+      }
       return
     }
-    if (selectedFileRef.current !== null && normalizePath(selectedFileRef.current) === normalizePath(path)) {
+    if (mountedRef.current && selectedFileRef.current !== null && normalizePath(selectedFileRef.current) === normalizePath(path)) {
       setFileContent(formatted)
     }
-  }, [bumpDataVersion, canFormatWriting, fileContent, selectedFile, setFileContent, t, writeCoordinator])
+  }, [bumpDataVersion, canFormatWriting, clearFinalChapterSaveForPath, fileContent, observedSeqFor, selectedFile, setFileContent, t, writeCoordinator])
 
   const handleIngestOutline = useCallback(() => {
     /* v8 ignore next */
@@ -1296,8 +1502,22 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     setDeAiDetectResult(null)
   }, [])
 
+  /** 脱敏并截断去 AI 味失败摘要，用于 saveStatus 状态栏回显 */
+  const formatDeAiFailedStatus = useCallback((error: unknown) => {
+    const detail = toErrorMessage(error)
+      .replace(/https?:\/\/[^\s"']+/g, "[url]")
+      .replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+      .replace(/\s+/g, " ")
+      .trim()
+    const base = t("preview.deAiFailed")
+    return detail ? `${base}（${detail.slice(0, 120)}）` : base
+  }, [t])
+
   const handleDeAiProcess = useCallback(async (targetMode: DeAiMode = DEFAULT_DE_AI_MODE) => {
-    if (!fileContent.trim()) return
+    if (!fileContent.trim()) {
+      setSaveStatus(t("preview.deAiEmpty"))
+      return
+    }
     const source = fileContent
     const sourceFile = selectedFileRef.current
     // 请求代际：切模式 / 关对话框 / 切章都 +1；过期流的 onDone/onError 一律丢弃。
@@ -1305,11 +1525,26 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     deAiGenerationRef.current = generation
     const isStale = () => deAiGenerationRef.current !== generation
     clearDeAiOutput()
+    setSaveStatus("")
+    const failDeAi = (error: unknown) => {
+      if (!mountedRef.current || isStale() || selectedFileRef.current !== sourceFile) return
+      deAiAbortRef.current = null
+      console.error("去AI味处理失败:", toErrorMessage(error))
+      setSaveStatus(formatDeAiFailedStatus(error))
+      setDeAiProcessing(false)
+    }
 
     if (targetMode === "detect") {
       setDeAiProcessing(false)
-      const { runDeAiDetection, extractDeAiChapterBody } = await import("@/lib/novel/de-ai-adapter")
-      if (isStale()) return
+      let runDeAiDetection: typeof import("@/lib/novel/de-ai-adapter").runDeAiDetection
+      let extractDeAiChapterBody: typeof import("@/lib/novel/de-ai-adapter").extractDeAiChapterBody
+      try {
+        ;({ runDeAiDetection, extractDeAiChapterBody } = await import("@/lib/novel/de-ai-adapter"))
+      } catch (err) {
+        failDeAi(err)
+        return
+      }
+      if (isStale() || selectedFileRef.current !== sourceFile) return
       // RV-006: 只看章节正文（frontmatter + 一级标题不计入检测）
       const body = extractDeAiChapterBody(source)
       const detectResult = runDeAiDetection(body)
@@ -1325,21 +1560,24 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     const llmConfig = resolveDefaultModel(useWikiStore.getState().llmConfig)
     if (!hasUsableLlm(llmConfig)) {
       setDeAiProcessing(false)
+      setSaveStatus(t("preview.deAiNoModel"))
       return
     }
-    const { loadSmartDeAiSkill, buildDeAiEditMessages, parseDeAiEditPlanChecked, applyDeAiSpanEdits, extractDeAiChapterBody } = await import("@/lib/novel/de-ai-adapter")
+    let buildDeAiEditMessages: typeof import("@/lib/novel/de-ai-adapter").buildDeAiEditMessages
+    let parseDeAiEditPlanChecked: typeof import("@/lib/novel/de-ai-adapter").parseDeAiEditPlanChecked
+    let applyDeAiSpanEdits: typeof import("@/lib/novel/de-ai-adapter").applyDeAiSpanEdits
+    let extractDeAiChapterBody: typeof import("@/lib/novel/de-ai-adapter").extractDeAiChapterBody
     let customDeAiSkill: string | null = null
     try {
+      let loadSmartDeAiSkill: typeof import("@/lib/novel/de-ai-adapter").loadSmartDeAiSkill
+      ;({ loadSmartDeAiSkill, buildDeAiEditMessages, parseDeAiEditPlanChecked, applyDeAiSpanEdits, extractDeAiChapterBody } = await import("@/lib/novel/de-ai-adapter"))
+      if (isStale() || selectedFileRef.current !== sourceFile) return
       customDeAiSkill = await loadSmartDeAiSkill(project?.path ?? null, "去AI味润色", undefined)
     } catch (err) {
-      // R4 共识（deepseek+glm high）: 原 await 在 try 外 ⇒ 失败后 deAiProcessing 永久为 true
-      //（按钮卡在“处理中”）且形成未处理 rejection。
-      if (isStale()) return
-      setSaveStatus(formatOperationError(t, err))
-      setDeAiProcessing(false)
+      failDeAi(err)
       return
     }
-    if (isStale()) return
+    if (isStale() || selectedFileRef.current !== sourceFile) return
 
     // RV-006: edit 模式只对章节正文发请求（frontmatter/H1 排除）；rewrite 模式保持全量内容不变。
     const chapterBody = extractDeAiChapterBody(source)
@@ -1388,22 +1626,14 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
             setDeAiPreviewOpen(true)
             setDeAiProcessing(false)
           },
-          onError: (error) => {
-            if (isStale()) return
-            deAiAbortRef.current = null
-            console.error("去AI味处理失败:", toErrorMessage(error))
-            setDeAiProcessing(false)
-          },
+          onError: failDeAi,
         },
         controller.signal,
       )
     } catch (err) {
-      if (isStale()) return
-      deAiAbortRef.current = null
-      console.error("去AI味处理失败:", toErrorMessage(err))
-      setDeAiProcessing(false)
+      failDeAi(err)
     }
-  }, [fileContent, project, t, clearDeAiOutput])
+  }, [fileContent, project, t, clearDeAiOutput, formatDeAiFailedStatus])
 
   const handleDeAiModeChange = useCallback(async (newMode: DeAiMode) => {
     if (newMode === deAiMode) return
@@ -1411,7 +1641,20 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       // RV-001: 切模式先作废在途流，并清空上一模式候选/校验结果
       cancelDeAiStream()
       clearDeAiOutput()
-      const { runDeAiDetection, extractDeAiChapterBody } = await import("@/lib/novel/de-ai-adapter")
+      const sourceFile = selectedFileRef.current
+      const generation = deAiGenerationRef.current
+      let runDeAiDetection: typeof import("@/lib/novel/de-ai-adapter").runDeAiDetection
+      let extractDeAiChapterBody: typeof import("@/lib/novel/de-ai-adapter").extractDeAiChapterBody
+      try {
+        ;({ runDeAiDetection, extractDeAiChapterBody } = await import("@/lib/novel/de-ai-adapter"))
+      } catch (err) {
+        if (!mountedRef.current || deAiGenerationRef.current !== generation || selectedFileRef.current !== sourceFile) return
+        console.error("去AI味处理失败:", toErrorMessage(err))
+        setSaveStatus(formatDeAiFailedStatus(err))
+        setDeAiProcessing(false)
+        return
+      }
+      if (!mountedRef.current || deAiGenerationRef.current !== generation || selectedFileRef.current !== sourceFile) return
       const body = extractDeAiChapterBody(deAiSourceContent || fileContent)
       setDeAiMode("detect")
       setDeAiSourceContent(body)
@@ -1421,13 +1664,13 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     }
     // rewrite/edit：由 handleDeAiProcess 统一代际自增 + 清空旧产出
     await handleDeAiProcess(newMode)
-  }, [deAiMode, deAiSourceContent, fileContent, handleDeAiProcess, cancelDeAiStream, clearDeAiOutput])
+  }, [deAiMode, deAiSourceContent, fileContent, handleDeAiProcess, cancelDeAiStream, clearDeAiOutput, formatDeAiFailedStatus])
 
   // Wave 4 (v2.5.0): 批量去AI味 — 一键全书 + 进度 + 结果回填（lib API 纯薄壳）
   const refreshBatchChapters = useCallback(async () => {
     if (!project) return
     const state = await loadDeAiBatchState(project.path)
-    if (!state) return
+    if (!state || !mountedRef.current) return
     setBatchChapters(
       Object.entries(state.perChapter).map(([key, chapter]) => ({
         chapterNumber: Number(key),
@@ -1439,12 +1682,13 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
   }, [project])
 
   const handleDeAiBatchStart = useCallback(async () => {
-    if (!project) return
+    if (!project || batchRunning || deAiBatchActionBusyRef.current) return
     const llmConfig = resolveDefaultModel(useWikiStore.getState().llmConfig)
     if (!hasUsableLlm(llmConfig)) {
       setSaveStatus("未配置可用的 AI 模型，无法批量去AI味")
       return
     }
+    const sourceFile = selectedFileRef.current
     const controller = new AbortController()
     batchAbortRef.current = controller
     setBatchRunning(true)
@@ -1455,60 +1699,106 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     try {
       const summary = await runDeAiBatch(project.path, {
         llmConfig,
-        onProgress: (progress) => setBatchProgress(progress),
+        onProgress: (progress) => {
+          if (mountedRef.current) setBatchProgress(progress)
+        },
         signal: controller.signal,
       })
+      if (!mountedRef.current) return
       setBatchSummary(summary)
       await refreshBatchChapters()
-      setSaveStatus(
-        summary.phase === "paused"
-          ? `批量去AI味已中止（完成 ${summary.processed} 章）`
-          : `批量去AI味完成：${summary.processed} 章成功，${summary.failed.length} 章失败，${summary.skipped} 章跳过`,
-      )
+      if (mountedRef.current && selectedFileRef.current === sourceFile) {
+        setSaveStatus(
+          summary.phase === "paused"
+            ? `批量去AI味已中止（完成 ${summary.processed} 章）`
+            : `批量去AI味完成：${summary.processed} 章成功，${summary.failed.length} 章失败，${summary.skipped} 章跳过`,
+        )
+      }
     } catch (error) {
-      setSaveStatus(formatOperationError(t, error))
+      if (mountedRef.current && selectedFileRef.current === sourceFile) {
+        setSaveStatus(formatOperationError(t, error))
+      }
     } finally {
-      setBatchRunning(false)
+      if (mountedRef.current) setBatchRunning(false)
       batchAbortRef.current = null
     }
-  }, [project, refreshBatchChapters, t])
+  }, [batchRunning, project, refreshBatchChapters, t])
 
   const handleDeAiBatchCancel = useCallback(() => {
     batchAbortRef.current?.abort()
   }, [])
 
   const handleDeAiBatchAcceptAll = useCallback(async () => {
-    if (!project) return
+    if (!project || batchRunning || deAiBatchActionBusyRef.current) return
+    const sourceFile = selectedFileRef.current
+    deAiBatchActionBusyRef.current = true
+    setDeAiBatchActionBusy(true)
     // R4 共识（deepseek+glm；glm+qwen）: 原无 try/catch 且调用方以 void 丢弃 ⇒ 未处理 rejection、
     // 失败时用户看不到任何反馈。
     try {
       const result = await acceptAllDeAiBatchDrafts(project.path)
-      setSaveStatus(`批量回填完成：${result.accepted} 章已写回，${result.skipped} 章跳过`)
+      if (mountedRef.current && selectedFileRef.current === sourceFile) {
+        setSaveStatus(`批量回填完成：${result.accepted} 章已写回，${result.skipped} 章跳过`)
+      }
       await refreshBatchChapters()
       bumpDataVersion()
     } catch (err) {
-      setSaveStatus(formatOperationError(t, err))
+      if (mountedRef.current && selectedFileRef.current === sourceFile) {
+        setSaveStatus(formatOperationError(t, err))
+      }
+    } finally {
+      deAiBatchActionBusyRef.current = false
+      if (mountedRef.current) setDeAiBatchActionBusy(false)
     }
-  }, [project, refreshBatchChapters, bumpDataVersion, t])
+  }, [batchRunning, project, refreshBatchChapters, bumpDataVersion, t])
 
   const handleDeAiBatchAcceptChapter = useCallback(async (chapterNumber: number) => {
-    if (!project) return
-    const ok = await acceptDeAiBatchDraft(project.path, chapterNumber)
-    setSaveStatus(ok ? `第 ${chapterNumber} 章已回填` : `第 ${chapterNumber} 章回填失败`)
-    await refreshBatchChapters()
-    bumpDataVersion()
-  }, [project, refreshBatchChapters, bumpDataVersion])
+    if (!project || batchRunning || deAiBatchActionBusyRef.current) return
+    const sourceFile = selectedFileRef.current
+    deAiBatchActionBusyRef.current = true
+    setDeAiBatchActionBusy(true)
+    try {
+      const ok = await acceptDeAiBatchDraft(project.path, chapterNumber)
+      if (mountedRef.current && selectedFileRef.current === sourceFile) {
+        setSaveStatus(ok ? `第 ${chapterNumber} 章已回填` : `第 ${chapterNumber} 章回填失败`)
+      }
+      await refreshBatchChapters()
+      bumpDataVersion()
+    } catch (err) {
+      if (mountedRef.current && selectedFileRef.current === sourceFile) {
+        setSaveStatus(formatOperationError(t, err))
+      }
+    } finally {
+      deAiBatchActionBusyRef.current = false
+      if (mountedRef.current) setDeAiBatchActionBusy(false)
+    }
+  }, [batchRunning, project, refreshBatchChapters, bumpDataVersion, t])
 
   const handleDeAiBatchRejectChapter = useCallback(async (chapterNumber: number) => {
-    if (!project) return
-    const ok = await rejectDeAiBatchDraft(project.path, chapterNumber)
-    setSaveStatus(ok ? `第 ${chapterNumber} 章已拒绝` : `第 ${chapterNumber} 章拒绝失败`)
-    await refreshBatchChapters()
-  }, [project, refreshBatchChapters])
+    if (!project || batchRunning || deAiBatchActionBusyRef.current) return
+    const sourceFile = selectedFileRef.current
+    deAiBatchActionBusyRef.current = true
+    setDeAiBatchActionBusy(true)
+    try {
+      const ok = await rejectDeAiBatchDraft(project.path, chapterNumber)
+      if (mountedRef.current && selectedFileRef.current === sourceFile) {
+        setSaveStatus(ok ? `第 ${chapterNumber} 章已拒绝` : `第 ${chapterNumber} 章拒绝失败`)
+      }
+      await refreshBatchChapters()
+    } catch (err) {
+      if (mountedRef.current && selectedFileRef.current === sourceFile) {
+        setSaveStatus(formatOperationError(t, err))
+      }
+    } finally {
+      deAiBatchActionBusyRef.current = false
+      if (mountedRef.current) setDeAiBatchActionBusy(false)
+    }
+  }, [batchRunning, project, refreshBatchChapters, t])
 
   const handleDeAiBatchClose = useCallback(() => {
+    if (batchRunning || deAiBatchActionBusyRef.current) return
     setBatchDialogOpen(false)
-  }, [])
+  }, [batchRunning])
 
   /**
    * 写回前置条件（RV-001/RV-002）：
@@ -1563,7 +1853,9 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     try {
       await admission.result
     } catch (err) {
-      setSaveStatus(formatOperationError(t, err))
+      if (mountedRef.current && selectedFileRef.current !== null && normalizePath(selectedFileRef.current) === normalizePath(selectedFile)) {
+        setSaveStatus(formatOperationError(t, err))
+      }
       console.error("另存去AI味草稿失败:", toErrorMessage(err))
     }
   }, [deAiCandidateContent, deAiWriteBlocked, fileContent, project, selectedFile, setFileTree, bumpDataVersion, t, writeCoordinator])
@@ -1595,9 +1887,9 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     setSelectionActionPending(true)
     setSaveStatus(`正在调用模型，${actionLabel}中…`)
 
-    const { loadSmartDeAiSkill } = await import("@/lib/novel/de-ai-adapter")
     let customDeAiSkill: string | null = null
     try {
+      const { loadSmartDeAiSkill } = await import("@/lib/novel/de-ai-adapter")
       customDeAiSkill = await loadSmartDeAiSkill(
         project?.path ?? null,
         action === "de-ai" ? "去AI味" : "润色",
@@ -1606,9 +1898,9 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
     } catch (err) {
       // R4 共识（deepseek+glm high）: 原 await 在 try 外 ⇒ selectionActionPending 卡死 +
       // 未处理 rejection。
-      setSaveStatus(formatOperationError(t, err))
+      if (mountedRef.current && selectedFileRef.current === actionFile) setSaveStatus(formatOperationError(t, err))
       selectionActionInFlightRef.current = false
-      setSelectionActionPending(false)
+      if (mountedRef.current) setSelectionActionPending(false)
       return
     }
 
@@ -1638,7 +1930,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
           },
           onDone: () => {
             clearTimeout(deadline)
-            if (selectedFileRef.current !== actionFile) return
+            if (!mountedRef.current || selectedFileRef.current !== actionFile) return
             if (controller.signal.aborted) {
               setSaveStatus(
                 selectionActionTimedOutRef.current
@@ -1656,7 +1948,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
           },
           onError: (error) => {
             clearTimeout(deadline)
-            if (selectedFileRef.current !== actionFile) return
+            if (!mountedRef.current || selectedFileRef.current !== actionFile) return
             // F-16 (CWE-532 / PAT-DC1-MSG-UI): err.message from the LLM transport may
             // carry provider endpoint URL / auth header — strip before surfacing in
             // the saveStatus UI. Raw message logged to console only.
@@ -1675,14 +1967,14 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       clearTimeout(deadline)
       const message = toErrorMessage(err)
       const safe = message.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
-      if (selectedFileRef.current !== actionFile) return
+      if (!mountedRef.current || selectedFileRef.current !== actionFile) return
       console.error(`${actionLabel}失败:`, message)
       setSaveStatus(`${actionLabel}失败：${safe}`)
     } finally {
       clearTimeout(deadline)
       selectionActionAbortRef.current = null
       selectionActionInFlightRef.current = false
-      setSelectionActionPending(false)
+      if (mountedRef.current) setSelectionActionPending(false)
     }
   }, [project])
 
@@ -1843,12 +2135,19 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
         onShowCognition={() => setShowCognition(true)}
         onShowPersona={() => setShowPersona(true)}
         onClosePreview={() => setSelectedFile(null)}
-        onTitleFocus={() => setTitleInput(chapterTitleInputRef.current.editing
-          ? chapterTitleInputRef.current.draft : chapterDisplayTitle, true, true)}
-        onTitleChange={(value) => setTitleInput(value, true, true)}
+        onTitleFocus={() => {
+          const current = chapterTitleInputRef.current
+          if (current.editing) {
+            setTitleInput(current.draft, true, false, current.dirty)
+          } else {
+            setTitleInput(chapterDisplayTitle, true, false, false)
+          }
+        }}
+        onTitleChange={(value) => setTitleInput(value, true, true, value !== chapterDisplayTitle)}
         onTitleCommit={() => void commitChapterTitleDraft()}
         onTitleCancel={() => cancelChapterTitleEditing()}
         visibleSaveStatus={visibleSaveStatus}
+        onCopyReingestReceipt={reingestReceipt ? () => void handleCopyReingestReceipt() : undefined}
         selectionActionPending={selectionActionPending}
         onCancelSelectionAction={handleSelectionActionCancel}
         showInspector={Boolean(isSelectedChapter && project)}
@@ -1930,6 +2229,7 @@ export function PreviewPanel({ adoptionRefreshToken = 0, adoptionRefreshPath = "
       <DeAiBatchDialog
         open={batchDialogOpen}
         running={batchRunning}
+        busy={deAiBatchActionBusy}
         progress={batchProgress}
         summary={batchSummary}
         chapters={batchChapters}

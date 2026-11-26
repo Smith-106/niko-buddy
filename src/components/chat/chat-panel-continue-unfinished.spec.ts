@@ -9,8 +9,11 @@
  * - catch 路径：finalizeStream 输出「出错：继续未完成失败」并清理 ref
  */
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { readManagedDeepChapterDraftMessage } from "./chat-message-content"
 import { createStreamSessionGuard, type StreamSessionGuard } from "./stream-session"
 import { runContinueUnfinished, type ChatContinueUnfinishedContext } from "./chat-panel-continue-unfinished"
+import { deepGenResult, EMPTY_DECISION_GATES } from "@/test-helpers/chat-panel/chat-panel-test-fixtures"
+import type { DeepChapterGenerationCallbacks } from "@/lib/novel"
 import type { DisplayMessage, MessageReference } from "@/stores/chat-store"
 import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 import type { WikiProject } from "@/types/wiki"
@@ -214,6 +217,12 @@ function mockDeepSessionState(): void {
     draft: { draft_status: "pending" },
     updated_at: 1800,
   })
+  mocks.completeDeepChapterSession.mockResolvedValue({
+    status: "completed",
+    active_step_index: 3,
+    draft: { draft_status: "ready" },
+    updated_at: 2000,
+  })
   mocks.pauseDeepChapterSession.mockResolvedValue({
     status: "paused",
     active_step_index: 1,
@@ -273,7 +282,7 @@ describe("runContinueUnfinished", () => {
 
   it("深度续写 manualReviewRequired → blockDeepChapterSession 且落盘 pending marker", async () => {
     enableDeepResume("原始章节需求")
-    mocks.runDeepChapterGeneration.mockResolvedValue({ manualReviewRequired: true, retryCount: 2 })
+    mocks.runDeepChapterGeneration.mockResolvedValue(deepGenResult({ manualReviewRequired: true, retryCount: 2 }))
     const h = makeHarness({ project: PROJECT })
 
     await runContinueUnfinished(h.ctx)
@@ -296,6 +305,43 @@ describe("runContinueUnfinished", () => {
     expect(h.novelManagedStopRef.current["conv-1"]).toBeUndefined()
     expect(h.activeStreamSessionsRef.current["conv-1"]).toBeUndefined()
     expect(h.abortControllersRef.current["conv-1"]).toBeUndefined()
+  })
+
+  it("深度续写完成后，存档和消息使用同一终稿，并保留完成门控", async () => {
+    enableDeepResume("原始章节需求")
+    const finalContent = "# 第2章 最终稿\r\n\r\n正文  \r\n"
+    mocks.runDeepChapterGeneration.mockImplementationOnce(async (_input, handlers: DeepChapterGenerationCallbacks) => {
+      handlers.onFinalContent?.("先前候选")
+      return deepGenResult({ finalContent, finalConsistencyReviewed: true })
+    })
+    const h = makeHarness({ project: PROJECT })
+    await runContinueUnfinished(h.ctx)
+
+    expect(mocks.completeDeepChapterSession).toHaveBeenCalledWith(expect.objectContaining({
+      finalContent, decisionGates: EMPTY_DECISION_GATES, finalConsistencyReviewed: true,
+    }))
+    const renderedDraft = readManagedDeepChapterDraftMessage(h.finalizeStream.mock.calls[0][0])
+    expect(renderedDraft).toMatchObject({ sessionId: "sess-1", draftStatus: "ready" })
+    expect(renderedDraft?.body).toBe(h.setStreamingContent.mock.lastCall?.[0].replace(/先前候选$/, finalContent))
+  })
+
+  it("深度续写返回空白终稿时保留累积流，并且只保留 pending 状态", async () => {
+    enableDeepResume("原始章节需求")
+    mocks.runDeepChapterGeneration.mockImplementationOnce(async (_input, handlers: DeepChapterGenerationCallbacks) => {
+      handlers.onFinalContent?.("保留的")
+      handlers.onFinalContent?.("流式正文")
+      return deepGenResult({ finalContent: " \r\n\t" })
+    })
+    const h = makeHarness({ project: PROJECT })
+    await runContinueUnfinished(h.ctx)
+
+    expect(mocks.completeDeepChapterSession).not.toHaveBeenCalled()
+    expect(mocks.pauseDeepChapterSession).toHaveBeenCalledTimes(1)
+    expect(readManagedDeepChapterDraftMessage(h.finalizeStream.mock.calls[0][0])).toMatchObject({
+      sessionId: "sess-1",
+      draftStatus: "pending",
+      body: h.setStreamingContent.mock.lastCall?.[0],
+    })
   })
 
   it("深度续写 partial → pauseDeepChapterSession 留存待继续正文", async () => {
@@ -340,9 +386,8 @@ describe("runContinueUnfinished", () => {
     expect(messages[1]!.content).toBe("RESUME-PROMPT")
     expect(h.setStreamingContent).toHaveBeenCalled()
     expect(h.finalizeStream).toHaveBeenCalledTimes(1)
-    const finalized = decodeURIComponent(h.finalizeStream.mock.calls[0]![0] as string)
-    expect(finalized).toContain("续写正文")
-    expect(finalized).toContain('"draftStatus":"ready"')
+    const finalized = readManagedDeepChapterDraftMessage(h.finalizeStream.mock.calls[0]![0] as string)
+    expect(finalized).toMatchObject({ body: expect.stringContaining("续写正文"), draftStatus: "pending" })
     expect(h.abortControllersRef.current["conv-1"]).toBeUndefined()
   })
 
@@ -392,7 +437,7 @@ describe("续写：旁路依赖降级", () => {
     enableDeepResume("原始章节需求")
     mocks.wikiNovelConfig.consensusEnabled = true
     mocks.wikiNovelConfig.consensusWritingModels = ["  ", ""]
-    mocks.runDeepChapterGeneration.mockResolvedValue({ manualReviewRequired: false, retryCount: 0 })
+    mocks.runDeepChapterGeneration.mockResolvedValue(deepGenResult())
     const h = makeHarness({ project: PROJECT })
     await runContinueUnfinished(h.ctx)
     expect(mocks.runDeepChapterGeneration).toHaveBeenCalled()
@@ -403,7 +448,7 @@ describe("续写：旁路依赖降级", () => {
   it("拆解指令加载失败 → .catch(() => \"\") 兜底，续写照常进行", async () => {
     widgetMocks.loadEnabledDismantlingDirective.mockRejectedValueOnce(new Error("config boom"))
     enableDeepResume("原始章节需求")
-    mocks.runDeepChapterGeneration.mockResolvedValue({ manualReviewRequired: false, retryCount: 0 })
+    mocks.runDeepChapterGeneration.mockResolvedValue(deepGenResult())
     const h = makeHarness({ project: PROJECT })
     await runContinueUnfinished(h.ctx)
     expect(h.startStreaming).toHaveBeenCalledWith("conv-1")
@@ -439,7 +484,7 @@ describe("续写：ContextPack 装配路径的拆解指令降级", () => {
     widgetMocks.loadEnabledDismantlingDirective.mockRejectedValue(new Error("config boom"))
     mocks.wikiNovelConfig.hardInjectEnabled = true
     enableDeepResume("原始章节需求")
-    mocks.runDeepChapterGeneration.mockResolvedValue({ manualReviewRequired: false, retryCount: 0 })
+    mocks.runDeepChapterGeneration.mockResolvedValue(deepGenResult())
     const h = makeHarness({ project: PROJECT })
     await runContinueUnfinished(h.ctx)
     expect(h.startStreaming).toHaveBeenCalledWith("conv-1")

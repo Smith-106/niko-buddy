@@ -179,6 +179,27 @@ describe("PdfExportDialog — 确认导出通道", () => {
     expect(mocks.loadPdfExportHistory).toHaveBeenCalledWith("/proj");
   });
 
+  it("确认通道兼容绝对路径 chapterPath（不重复拼接 projectPath）", async () => {
+    mocks.exportConfirmedChapterPdf.mockImplementation(async (input: {
+      readChapterContent: () => Promise<string>;
+    }) => {
+      const content = await input.readChapterContent();
+      expect(content).toContain("c01");
+      return { report: REPORT, entry: ENTRY };
+    });
+    mocks.loadPdfExportHistory.mockResolvedValue([ENTRY]);
+    render(
+      <PdfExportDialog
+        projectPath="C:/proj"
+        title="T"
+        paragraphs={["p1"]}
+        chapterPath="C:/proj/wiki/chapters/c01.md"
+      />,
+    );
+    fireEvent.click(screen.getByTestId("pdfexport-submit"));
+    await waitFor(() => expect(mocks.readFile).toHaveBeenCalledWith("C:/proj/wiki/chapters/c01.md"));
+  });
+
   it("确认通道失败 → 错误态且无确认记录", async () => {
     mocks.exportConfirmedChapterPdf.mockRejectedValue(new Error("PDF_EXPORT_NOT_CONFIRMED: 未终章"));
     render(

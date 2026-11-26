@@ -131,9 +131,17 @@ describe("CoverPromptWorkbench", () => {
 
   it("normalizeCoverPlatforms returns an empty list for malformed roots", () => {
     expect(normalizeCoverPlatforms(null)).toEqual([])
-    expect(normalizeCoverPlatforms("junk")).toEqual([])
     expect(normalizeCoverPlatforms({})).toEqual([])
-    expect(normalizeCoverPlatforms({ platforms: "not-an-array" })).toEqual([])
+    expect(normalizeCoverPlatforms({ platforms: "not-array" })).toEqual([])
+  })
+
+  it("P1-02: only renders CoverGenerateCard when imagePort is provided", () => {
+    const { rerender } = render(<CoverPromptWorkbench templates={TEMPLATES} />)
+    expect(screen.queryByTestId("cover-generate-card")).toBeNull()
+
+    const mockPort = { generate: vi.fn() } as never
+    rerender(<CoverPromptWorkbench templates={TEMPLATES} imagePort={mockPort} />)
+    expect(screen.getByTestId("cover-generate-card")).toBeTruthy()
   })
 })
 

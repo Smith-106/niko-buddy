@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { XIcon } from "lucide-react"
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 
@@ -58,6 +59,8 @@ function DialogContent({
   /** 关闭按钮可访问名称（F-B1/F-D3：中文界面下屏幕阅读器不再只听到英文 Close）。 */
   closeLabel?: string
 }) {
+  const { t } = useTranslation()
+  const resolvedCloseLabel = closeLabel ?? t("common.close", { defaultValue: "关闭" })
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -76,11 +79,11 @@ function DialogContent({
           // 并补 aria-label（屏幕阅读器此前只听到英文 “Close”）。
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            aria-label={closeLabel ?? "Close"}
+            aria-label={resolvedCloseLabel}
             className="absolute top-4 right-4 flex h-6 w-6 items-center justify-center rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
             <XIcon />
-            <span className="sr-only">{closeLabel ?? "Close"}</span>
+            <span className="sr-only">{resolvedCloseLabel}</span>
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Popup>
@@ -101,11 +104,15 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 function DialogFooter({
   className,
   showCloseButton = false,
+  closeLabel,
   children,
   ...props
 }: React.ComponentProps<"div"> & {
   showCloseButton?: boolean
+  closeLabel?: string
 }) {
+  const { t } = useTranslation()
+  const resolvedCloseLabel = closeLabel ?? t("common.close", { defaultValue: "关闭" })
   return (
     <div
       data-slot="dialog-footer"
@@ -117,8 +124,8 @@ function DialogFooter({
     >
       {children}
       {showCloseButton && (
-        <DialogPrimitive.Close>
-          <Button variant="outline">Close</Button>
+        <DialogPrimitive.Close render={<Button type="button" variant="outline" />}>
+          {resolvedCloseLabel}
         </DialogPrimitive.Close>
       )}
     </div>

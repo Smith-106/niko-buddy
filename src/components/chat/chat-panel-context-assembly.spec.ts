@@ -18,6 +18,15 @@ const mocks = vi.hoisted(() => ({
   buildRetrievalGraph: vi.fn(),
   getRelatedNodes: vi.fn(() => []),
   setLastQueryPages: vi.fn(),
+  toastInfo: vi.fn(),
+}))
+
+vi.mock("@/lib/toast", () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    info: mocks.toastInfo,
+  },
 }))
 
 vi.mock("@/lib/search", () => ({
@@ -184,5 +193,64 @@ describe("assembleChatContext", () => {
     expect(res.systemMessages).toHaveLength(control.systemMessages.length)
     expect(hasPreamble(res.systemMessages)).toBe(false)
     expect(res.queryRefs).toEqual(control.queryRefs)
+  })
+
+  it("R2-U01/U06 中止信号：入口已中止或在检索/上下文装配异步边界中止时立即返回 cancelled", async () => {
+    const preAborted = new AbortController()
+    preAborted.abort()
+    const immediate = await assembleChatContext(
+      makeParams({ text: "写第2章", signal: preAborted.signal }).params,
+    )
+    expect(immediate).toEqual({ cancelled: true, message: "已停止生成。" })
+    expect(mocks.readFile).not.toHaveBeenCalled()
+    expect(mocks.searchWiki).not.toHaveBeenCalled()
+
+    // 在 searchWiki 等待期间触发中止
+    const midController = new AbortController()
+    mocks.searchWiki.mockImplementationOnce(async () => {
+      midController.abort()
+      return [{ path: "D:/project/wiki/a.md", title: "A", snippet: "s", score: 1 }]
+    })
+    const midRes = await assembleChatContext(
+      makeParams({ text: "查一下设定", novelMode: false, signal: midController.signal }).params,
+    )
+    expect(midRes).toEqual({ cancelled: true, message: "已停止生成。" })
+    expect(mocks.setLastQueryPages).not.toHaveBeenCalled()
+  })
+
+  it("契约 3：buildContextPack 透传 novelMode/novelConfig/llmConfig；失败时 toast.info 告警并保留 load_failed gap", async () => {
+    mocks.buildContextPack.mockRejectedValueOnce(new Error("db read failed"))
+    const route = { chapterNumber: 5, intent: "write_chapter" as const, confidence: 1, extractedParams: {} }
+    const { params, setReplayContextPack } = makeParams({
+      text: "写第5章",
+      novelMode: true,
+      effectiveTaskRoute: route,
+    })
+
+    const res = await assembleChatContext(params)
+
+    expect(res.cancelled).toBe(false)
+    expect(mocks.buildContextPack).toHaveBeenCalledWith(
+      "D:/project",
+      "写第5章",
+      5,
+      expect.objectContaining({
+        novelMode: true,
+        llmConfig: LLM_CONFIG,
+        novelConfig: expect.any(Object),
+      }),
+    )
+    expect(mocks.toastInfo).toHaveBeenCalledTimes(1)
+    expect(setReplayContextPack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gaps: expect.arrayContaining([
+          expect.objectContaining({
+            type: "load_failed",
+            ref: "chat_context_pack",
+            reason: "datasource_error",
+          }),
+        ]),
+      }),
+    )
   })
 })

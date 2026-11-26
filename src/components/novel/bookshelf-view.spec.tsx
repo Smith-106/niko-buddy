@@ -116,20 +116,13 @@ describe("BookshelfView", () => {
     expect(screen.getByTestId("bookshelf-select-book-1").getAttribute("aria-pressed")).toBe("true")
   })
 
-  it("「继续创作」→ 选中 + 跳到 bookAnalysis", async () => {
-    mockedReadFile.mockResolvedValue(libraryJson([makeEntry()]))
-    render(<BookshelfView projectPath="E:/Novel" />)
-    await waitFor(() => expect(screen.getByTestId("bookshelf-continue-book-1")).toBeTruthy())
-    fireEvent.click(screen.getByTestId("bookshelf-continue-book-1"))
-    expect(useBookAnalysisStore.getState().selectedLibraryBookId).toBe("book-1")
-    expect(useWikiStore.getState().activeView).toBe("bookAnalysis")
-  })
-
-  it("「打开分析」→ 选中 + 跳到 bookAnalysis", async () => {
+  it("「打开拆书分析」单一按钮（合并重复入口）→ 选中 + 跳到 bookAnalysis", async () => {
     mockedReadFile.mockResolvedValue(libraryJson([makeEntry({ bookId: "book-2", title: "诡秘之主" })]))
     render(<BookshelfView projectPath="E:/Novel" />)
-    await waitFor(() => expect(screen.getByTestId("bookshelf-open-analysis-book-2")).toBeTruthy())
-    fireEvent.click(screen.getByTestId("bookshelf-open-analysis-book-2"))
+    const openBtn = await waitFor(() => screen.getByTestId("bookshelf-open-analysis-book-2"))
+    expect(openBtn.textContent).toBe("打开拆书分析")
+    expect(screen.queryByTestId("bookshelf-continue-book-2")).toBeNull()
+    fireEvent.click(openBtn)
     expect(useBookAnalysisStore.getState().selectedLibraryBookId).toBe("book-2")
     expect(useWikiStore.getState().activeView).toBe("bookAnalysis")
   })

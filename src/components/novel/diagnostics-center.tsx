@@ -17,7 +17,7 @@
  * - 中文标签直书（与 kb-health-view 同款约定），零新增 i18n 键。
  */
 
-import { useCallback, useEffect, useId, useState } from "react"
+import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { AgentStudioPanelMounted } from "./agent-studio-panel"
 import { ClosurePanel } from "./closure-panel"
 import { MethodologyPanel } from "./methodology-panel"
@@ -25,7 +25,7 @@ import { PromptRegistryPanel } from "./prompt-registry-panel"
 import { SkillPromptCoveragePanel } from "./skill-prompt-coverage-panel"
 import { WorkflowTemplatePanel } from "./workflow-template-panel"
 import { useTranslation } from "react-i18next"
-import { AlertTriangle, CheckCircle2, Download, Eye, FileSearch, RefreshCw, Wrench } from "lucide-react"
+import { AlertTriangle, Download, Eye, FileSearch, RefreshCw, Wrench } from "lucide-react"
 import { ask, save } from "@tauri-apps/plugin-dialog"
 import { writeFileAtomic } from "@/commands/fs"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -47,6 +47,7 @@ import { loadNovelSessionStatus } from "@/lib/novel"
 import { KbHealthView } from "./kb-health-view"
 import { collectKbMetricsLive, type KbMetrics } from "@/lib/novel"
 import { toErrorMessage } from "@/lib/utils"
+import { normalizePath } from "@/lib/path-utils"
 
 // ── 展示文案（直书中文，零 i18n 键） ─────────────────────────────────────────
 
@@ -93,6 +94,8 @@ export interface DiagnosticsCenterProps {
   recovering: string | null
   recoverNote: string | null
   bundleNote: string | null
+  /** 已有报告状态下重新检测失败的错误文案（U4-08）。 */
+  recheckError?: string | null
   onRecheck: () => void
   onRecover: (itemId: string, actionId: string) => void
   onPreviewBundle: () => void
@@ -112,8 +115,8 @@ function HealthItemRow({
 }) {
   const [expanded, setExpanded] = useState(false)
   const panelId = useId()
-  const runnable = item.recoveries.filter((a) => a.run !== null)
-  const manual = item.recoveries.filter((a) => a.run === null)
+  const runnable = item.recoveries.filter((a) => a.level !== "forbidden" && a.run !== null)
+  const manual = item.recoveries.filter((a) => a.level === "forbidden" || a.run === null)
   return (
     <div
       data-testid={`health-item-${item.id}`}
@@ -393,6 +396,16 @@ export function DiagnosticsCenter(props: DiagnosticsCenterProps) {
       >
         总体{HEALTH_STATUS_ZH[report.overall]} · {report.items.length} 项 · {report.checkedAt}
       </p>
+      {props.recheckError ? (
+        <div
+          role="alert"
+          data-testid="diagnostics-center-recheck-error"
+          className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>重新检测失败：{props.recheckError}</span>
+        </div>
+      ) : null}
       {/* KB/记忆健康 6 指标（GOV-OBS-01）：数据源 collectKbMetricsLive，缺源显式 N/A，
           绝不伪造数值。metrics 缺省（未拿到项目路径/未装载）→ 不渲染，避免假面板。 */}
       {props.kbMetrics ? (
@@ -406,7 +419,6 @@ export function DiagnosticsCenter(props: DiagnosticsCenterProps) {
       ) : null}
       {props.recoverNote ? (
         <p data-testid="recover-note" role="status" className="flex items-center gap-1 text-xs text-foreground">
-          <CheckCircle2 className="h-3 w-3" />
           {props.recoverNote}
         </p>
       ) : null}
@@ -470,34 +482,88 @@ const BUNDLE_PROJECT_MARKERS = [".niko-buddy/", "QM/", ".novel/"]
 
 export function DiagnosticsCenterView() {
   const { t } = useTranslation()
-  // tOr 回退（与 backup-export-view 同款）：缺键时用中文兜底，不新增 i18n 键负担。
-  const tOr = (key: string, defaultValue: string) => t(key, { defaultValue }) as string
+  // tOr 回退（与 backup-export-view 同款）：支持插值参数，缺键时用中文兜底。
+  const tOr = useCallback(
+    (key: string, defaultValue: string, params?: Record<string, string | number>) =>
+      t(key, { defaultValue, ...params }) as string,
+    [t],
+  )
   const project = useWikiStore((s) => s.project)
   const projectPath = project?.path ?? ""
   const [report, setReport] = useState<HealthReport | null>(null)
   const [historyView, setHistoryView] = useState<ExportHistoryViewEntry[]>([])
   const [bundlePreview, setBundlePreview] = useState<DiagnosticBundlePreview | null>(null)
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [recovering, setRecovering] = useState<string | null>(null)
   const [recoverNote, setRecoverNote] = useState<string | null>(null)
   const [bundleNote, setBundleNote] = useState<string | null>(null)
+  const mountedRef = useRef(true)
+  const projectGenRef = useRef(0)
+  const refreshRequestIdRef = useRef(0)
+  const previewRequestIdRef = useRef(0)
+  const recoveryInFlight = useRef(false)
+  const bundleExportInFlight = useRef(false)
   // KB/记忆健康 6 指标：真实采集（promotion 重放率走 promotion-bridge 凭证层），
   // 失败/缺源 → collectKbMetrics 显式 N/A（诚实降级，不造数）。
   const [kbMetrics, setKbMetrics] = useState<KbMetrics | null>(null)
 
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  // 项目切换/关闭时作废在途请求并清空旧项目的报告与提示状态，避免跨项目或 ABA 串写。
+  useEffect(() => {
+    projectGenRef.current += 1
+    refreshRequestIdRef.current += 1
+    previewRequestIdRef.current += 1
+    setReport(null)
+    setHistoryView([])
+    setKbMetrics(null)
+    setBundlePreview(null)
+    setBundleNote(null)
+    setRecovering(null)
+    setRecoverNote(null)
+    setLoadError(null)
+  }, [projectPath])
+
   const refresh = useCallback(async () => {
     if (!projectPath) return
+    const gen = projectGenRef.current
+    const requestId = ++refreshRequestIdRef.current
+    const startedProject = normalizePath(projectPath)
+    const isCurrent = () =>
+      mountedRef.current &&
+      projectGenRef.current === gen &&
+      refreshRequestIdRef.current === requestId &&
+      normalizePath(useWikiStore.getState().project?.path ?? "") === startedProject
+
     setLoading(true)
+    setLoadError(null)
     try {
       const llmCfg = useWikiStore.getState().llmConfig
       const r = await collectHealthReport({ projectPath, llmCfg })
+      if (!isCurrent()) return
+      const metrics = await collectKbMetricsLive({ projectPath }).catch(() => null)
+      if (!isCurrent()) return
+      const history = await loadExportHistoryView(projectPath)
+      if (!isCurrent()) return
       setReport(r)
-      setKbMetrics(await collectKbMetricsLive({ projectPath }).catch(() => null))
-      setHistoryView(await loadExportHistoryView(projectPath))
+      setKbMetrics(metrics)
+      setHistoryView(history)
       setBundlePreview(null)
       setBundleNote(null)
+      setLoadError(null)
+    } catch (e) {
+      if (!isCurrent()) return
+      setLoadError(toErrorMessage(e))
     } finally {
-      setLoading(false)
+      if (mountedRef.current && projectGenRef.current === gen && refreshRequestIdRef.current === requestId) {
+        setLoading(false)
+      }
     }
   }, [projectPath])
 
@@ -510,64 +576,120 @@ export function DiagnosticsCenterView() {
       /* v8 ignore next -- 台账 diagnostics-center.tsx：handleRecover 的守卫是渲染前提：wrapper 在 !report 时提前返回 loading 态（L578-583），内层组件不会挂载；recovering 侧被恢复按钮的 disabled={recovering !== null}（L168）提前挡住 */
       if (!report || recovering) return
       const action = report.items.find((i) => i.id === itemId)?.recoveries.find((a) => a.id === actionId)
-      if (!action?.run) return
-      if (action.level === "confirm") {
-        const ok = await ask(`执行「${action.label}」？`, {
-          title: "确认恢复操作",
-          kind: "warning",
-        })
-        if (!ok) return
-      }
-      setRecovering(`${itemId}:${actionId}`)
-      setRecoverNote(null)
+      if (!action?.run || action.level === "forbidden") return
+      if (recoveryInFlight.current) return
+      const gen = projectGenRef.current
+      const startedProject = normalizePath(useWikiStore.getState().project?.path ?? "")
+      if (startedProject !== normalizePath(projectPath) || startedProject !== normalizePath(report.projectPath)) return
+      const isCurrent = () =>
+        mountedRef.current &&
+        projectGenRef.current === gen &&
+        normalizePath(useWikiStore.getState().project?.path ?? "") === startedProject
+      recoveryInFlight.current = true
+      let didExecute = false
       try {
+        if (action.level === "confirm") {
+          const ok = await ask(
+            tOr("diagnostics.confirmActionPrompt", "执行「{{label}}」？", { label: action.label }),
+            {
+              title: tOr("diagnostics.confirmActionTitle", "确认恢复操作"),
+              kind: "warning",
+            },
+          )
+          if (!ok || !isCurrent()) return
+        }
+        setRecovering(`${itemId}:${actionId}`)
+        setRecoverNote(null)
+        didExecute = true
         const res = await action.run()
+        if (!isCurrent()) return
         setRecoverNote(res.ok ? `恢复成功：${res.detail}` : `恢复未完成：${res.detail}`)
       } catch (e) {
+        if (!isCurrent()) return
         setRecoverNote(`恢复失败：${toErrorMessage(e)}`)
       } finally {
-        setRecovering(null)
-        await refresh()
+        recoveryInFlight.current = false
+        if (mountedRef.current && projectGenRef.current === gen) setRecovering(null)
+        if (didExecute && isCurrent()) {
+          await refresh()
+        }
       }
     },
-    [report, recovering, refresh],
+    [report, recovering, projectPath, refresh, tOr],
   )
 
   const handlePreviewBundle = useCallback(async () => {
     /* v8 ignore next -- 台账 diagnostics-center.tsx：handlePreviewBundle 的守卫是渲染前提：wrapper 在 !projectPath（L569）与 !report（L578）时各自提前返回，内层组件的按钮在两种情况下都不存在 */
     if (!report || !projectPath) return
-    const st = await loadNovelSessionStatus(projectPath).catch(() => null)
-    const bundle = buildDiagnosticBundle({
-      report,
-      appVersion: typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "unknown",
-      platform: typeof navigator !== "undefined" ? sanitizeForBundle(navigator.userAgent || "unknown") : "unknown",
-      projectMarkers: BUNDLE_PROJECT_MARKERS,
-      run: st
-        ? { status: st.status, sessionId: st.session_id, hasCurrentTask: st.current_task != null }
-        : null,
-      exportEntryCount: historyView.length,
-    })
-    setBundlePreview(
-      previewDiagnosticBundle({ bundle, targetPath: "diagnostic-bundle.json（由保存对话框确认）" }),
-    )
-    setBundleNote(null)
+    const requestId = ++previewRequestIdRef.current
+    const startedProject = normalizePath(projectPath)
+    const isCurrent = () =>
+      mountedRef.current &&
+      previewRequestIdRef.current === requestId &&
+      normalizePath(useWikiStore.getState().project?.path ?? "") === startedProject
+    try {
+      const st = await loadNovelSessionStatus(projectPath).catch(() => null)
+      if (!isCurrent()) return
+      const bundle = buildDiagnosticBundle({
+        report,
+        appVersion: typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "unknown",
+        platform: typeof navigator !== "undefined" ? sanitizeForBundle(navigator.userAgent || "unknown") : "unknown",
+        projectMarkers: BUNDLE_PROJECT_MARKERS,
+        run: st
+          ? { status: st.status, sessionId: st.session_id, hasCurrentTask: st.current_task != null }
+          : null,
+        exportEntryCount: historyView.length,
+      })
+      const preview = previewDiagnosticBundle({
+        bundle,
+        targetPath: "diagnostic-bundle.json（由保存对话框确认）",
+      })
+      if (!isCurrent()) return
+      setBundlePreview(preview)
+      setBundleNote(null)
+    } catch (e) {
+      if (!isCurrent()) return
+      setBundleNote(`诊断包预览失败：${toErrorMessage(e)}`)
+    }
   }, [report, projectPath, historyView.length])
 
   const handleExportBundle = useCallback(async () => {
     /* v8 ignore next -- 台账 diagnostics-center.tsx：handleExportBundle 的守卫是渲染前提：导出按钮位于 {!preview ? … : …} 的 else 分支内（L301 起），只有 bundlePreview 非空时才渲染 */
     if (!bundlePreview) return
-    const out = await save({
-      defaultPath: "diagnostic-bundle.json",
-      filters: [{ name: "JSON", extensions: ["json"] }],
-    })
-    if (!out) {
-      setBundleNote("已取消导出。")
-      return
+    if (bundleExportInFlight.current) return
+    const startedProject = normalizePath(useWikiStore.getState().project?.path ?? "")
+    if (startedProject !== normalizePath(report?.projectPath ?? "")) return
+    const isSameProject = () =>
+      mountedRef.current && normalizePath(useWikiStore.getState().project?.path ?? "") === startedProject
+    bundleExportInFlight.current = true
+    try {
+      const out = await save({
+        defaultPath: "diagnostic-bundle.json",
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      })
+      if (!isSameProject()) return
+      if (!out) {
+        setBundleNote("已取消导出。")
+        return
+      }
+      const confirmed = await ask("将预览中的脱敏诊断包写入所选位置？", { title: "确认导出诊断包", kind: "warning" })
+      if (!isSameProject()) return
+      if (!confirmed) {
+        setBundleNote("已取消导出。")
+        return
+      }
+      await writeFileAtomic(out, serializeDiagnosticBundle(bundlePreview.bundle))
+      if (!isSameProject()) return
+      setBundlePreview((p) => (p ? { ...p, targetPath: out } : p))
+      setBundleNote(`诊断包已导出：${out}`)
+    } catch (e) {
+      if (isSameProject()) {
+        setBundleNote(`诊断包导出失败：${toErrorMessage(e)}`)
+      }
+    } finally {
+      bundleExportInFlight.current = false
     }
-    await writeFileAtomic(out, serializeDiagnosticBundle(bundlePreview.bundle))
-    setBundlePreview((p) => (p ? { ...p, targetPath: out } : p))
-    setBundleNote(`诊断包已导出：${out}`)
-  }, [bundlePreview])
+  }, [bundlePreview, report])
 
   if (!projectPath) {
     return (
@@ -575,6 +697,30 @@ export function DiagnosticsCenterView() {
         <p className="text-sm text-muted-foreground">
           {tOr("novel.diagnostics.noProject", "请先打开一个项目再使用诊断中心。")}
         </p>
+      </section>
+    )
+  }
+  if (!report && loadError) {
+    return (
+      <section
+        data-testid="diagnostics-center-error"
+        role="alert"
+        className="flex h-full flex-col items-center justify-center gap-3 p-4"
+      >
+        <p className="flex items-center gap-1.5 text-sm text-destructive">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>诊断检测失败：{loadError}</span>
+        </p>
+        <button
+          type="button"
+          data-testid="diagnostics-retry"
+          disabled={loading}
+          onClick={() => void refresh()}
+          className="flex items-center gap-1 rounded border border-border px-3 py-1.5 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          重试
+        </button>
       </section>
     )
   }
@@ -594,6 +740,7 @@ export function DiagnosticsCenterView() {
       recovering={recovering}
       recoverNote={recoverNote}
       bundleNote={bundleNote}
+      recheckError={loadError}
       kbMetrics={kbMetrics}
       onRecheck={() => void refresh()}
       onRecover={(itemId, actionId) => void handleRecover(itemId, actionId)}

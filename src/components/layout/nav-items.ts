@@ -59,8 +59,8 @@ export interface NavItem {
  * - ma 写作：章节库/主控（AI 实况已并入主控页签，不再单列）
  * - review 审改：审查中心/跟进中心（记忆中心、去 AI 规则收进 More）
  * - shen 设定资料：资料源/图谱/角色灵魂/设定编辑
- * - tools 创作工具：创作中枢/书名工坊（风格引擎、技能库、工作流、市场雷达收进 More）
- * - maint 维护：备份（导出中心、诊断、数据、模型路由、MCP、帮助收进 More）
+ * - tools 创作工具：创作中枢/书名工坊（风格引擎、技能库、市场雷达收进 More）
+ * - maint 维护：备份（导出中心、诊断、数据、模型路由、运行模板与记录（只读）、MCP、帮助收进 More）
  *
  * UX 审计批次三·10：旧「设置」组 14 项拆成「创作工具」与「维护」，组名改「维护」，
  * 不再与设置页「模型与写作设置」撞名。组 id 沿用 si/ma/shen/maint，用户存过的折叠偏好继续有效。
@@ -91,13 +91,13 @@ export const NAV_ITEMS: NavItem[] = [
   { view: "titleStudio", icon: PenTool, labelKey: "novel.nav.titleStudio", group: "tools", tier: "primary" },
   { view: "styleEngine", icon: SlidersHorizontal, labelKey: "novel.nav.styleEngine", group: "tools", tier: "secondary" },
   { view: "skillLibrary", icon: Wrench, labelKey: "novel.nav.skillLibrary", group: "tools", tier: "secondary" },
-  { view: "workflowEditor", icon: Workflow, labelKey: "novel.nav.workflowEditor", group: "tools", tier: "secondary" },
   { view: "marketRadar", icon: Radar, labelKey: "novel.nav.marketRadar", group: "tools", tier: "secondary" },
   { view: "backupExport", icon: ArchiveRestore, labelKey: "novel.nav.backupExport", group: "maint", tier: "primary" },
   { view: "exportCenter", icon: Download, labelKey: "novel.nav.exportCenter", group: "maint", tier: "secondary" },
   { view: "diagnosticsCenter", icon: Stethoscope, labelKey: "novel.nav.diagnosticsCenter", group: "maint", tier: "secondary" },
   { view: "dataManager", icon: Database, labelKey: "novel.nav.dataManager", group: "maint", tier: "secondary" },
   { view: "modelRoutes", icon: Route, labelKey: "novel.nav.modelRoutes", group: "maint", tier: "secondary" },
+  { view: "workflowEditor", icon: Workflow, labelKey: "novel.nav.workflowEditor", group: "maint", tier: "secondary" },
   { view: "mcpManager", icon: Plug, labelKey: "novel.nav.mcpManager", group: "maint", tier: "secondary" },
   { view: "help", icon: CircleQuestionMark, labelKey: "novel.nav.help", group: "maint", tier: "secondary" },
 ]

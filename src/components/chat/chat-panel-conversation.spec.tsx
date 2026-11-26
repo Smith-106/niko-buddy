@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest"
 import { act, fireEvent, screen, within } from "@/test-helpers/component-test-utils"
-import { getChatPanelMocks, PROJECT, setConversation, setMessages, msg, renderPanel, rerenderPanel, flushAsync, sendText, lastStreamChatCall, lastFinalize } from "./chat-panel-test-setup"
+import { getChatPanelMocks, PROJECT, setConversation, setMessages, msg, renderPanel, rerenderPanel, flushAsync, sendText, lastStreamChatCall, lastFinalize } from "@/test-helpers/chat-panel/chat-panel-test-setup"
 
 const mocks = getChatPanelMocks()
 import type { RetrievalGraph } from "@/lib/graph-relevance"
@@ -630,7 +630,16 @@ describe("ChatPanel — handleSend 主链路", () => {
     setConversation("conv-1")
     renderPanel()
     await sendText("写第3章")
-    expect(mocks.buildContextPack).toHaveBeenCalledWith("/p/mybook", "写第3章", 5)
+    expect(mocks.buildContextPack).toHaveBeenCalledWith(
+      "/p/mybook",
+      "写第3章",
+      5,
+      expect.objectContaining({
+        novelMode: true,
+        novelConfig: mocks.wikiState.novelConfig,
+        llmConfig: mocks.wikiState.llmConfig,
+      }),
+    )
     // G6：base 进稳定缓存段后，装配点额外传 excludeCanonRulesBase（动态段只放增量）。
     expect(mocks.contextPackToPrompt).toHaveBeenCalledWith(
       expect.anything(),

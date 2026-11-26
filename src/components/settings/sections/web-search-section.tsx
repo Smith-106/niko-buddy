@@ -1,7 +1,7 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Input } from "@/components/ui/input"
@@ -12,7 +12,9 @@ import {
   type SearchProvider,
   type SearchProviderOverride,
 } from "@/stores/wiki-store"
+import { saveSearchApiConfig } from "@/lib/project-store"
 import { SEARXNG_CATEGORY_OPTIONS, SERPAPI_ENGINE_OPTIONS, resolveSearchConfig } from "@/lib/web-search"
+import { logger, toErrorMessage } from "@/lib/utils"
 
 /** Supported search provider definitions. */
 const SEARCH_PROVIDERS = [
@@ -50,33 +52,59 @@ export function WebSearchSection() {
   const resolvedConfig = resolveSearchConfig(searchApiConfig)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [savedId, setSavedId] = useState<string | null>(null)
+  const mountedRef = useRef(true)
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const persistQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const configRef = useRef(resolvedConfig)
+  configRef.current = resolvedConfig
 
-  /** Persist updated search config to store and disk. */
-  async function persist(next: SearchApiConfig) {
-    const { saveSearchApiConfig } = await import("@/lib/project-store")
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      if (savedTimerRef.current) {
+        clearTimeout(savedTimerRef.current)
+        savedTimerRef.current = null
+      }
+    }
+  }, [])
+
+  /** Persist updated search config to store synchronously and serialize disk writes. */
+  function persist(next: SearchApiConfig) {
+    configRef.current = next
     setSearchApiConfig(next)
-    await saveSearchApiConfig(next)
+    persistQueueRef.current = persistQueueRef.current
+      .then(() => saveSearchApiConfig(next))
+      .catch((err) => {
+        logger.warn("WebSearchSection", "saveSearchApiConfig failed", { error: toErrorMessage(err) })
+      })
   }
 
   /** Update a single provider's override settings. */
   function updateProvider(id: Exclude<SearchProvider, "none">, patch: SearchProviderOverride) {
+    const base = configRef.current
     /* v8 ignore next */
-    const currentConfigs = resolvedConfig.providerConfigs ?? {}
+    const currentConfigs = base.providerConfigs ?? {}
     const merged = { ...(currentConfigs[id] ?? {}), ...patch }
     const nextConfigs = { ...currentConfigs, [id]: merged }
     const next = resolveSearchConfig({
-      ...resolvedConfig,
+      ...base,
       providerConfigs: nextConfigs,
     })
-    persist(next).catch(() => {})
+    persist(next)
     setSavedId(id)
-    setTimeout(() => setSavedId((cur) => (cur === id ? null : cur)), 1500)
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+    savedTimerRef.current = setTimeout(() => {
+      savedTimerRef.current = null
+      if (mountedRef.current) setSavedId(null)
+    }, 1500)
   }
 
   /** Toggle a provider between active and inactive. */
   function toggleActive(id: Exclude<SearchProvider, "none">) {
-    const nextProvider = resolvedConfig.provider === id ? "none" : id
-    persist(resolveSearchConfig({ ...resolvedConfig, provider: nextProvider })).catch(() => {})
+    const base = configRef.current
+    const nextProvider = base.provider === id ? "none" : id
+    persist(resolveSearchConfig({ ...base, provider: nextProvider }))
   }
 
   return (

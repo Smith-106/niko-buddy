@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
-import { fireEvent, render, screen } from "@/test-helpers/component-test-utils"
+import { act, fireEvent, render, screen } from "@/test-helpers/component-test-utils"
 
 afterEach(() => cleanup())
 import { DiagnosticsCenter } from "./diagnostics-center"
@@ -17,9 +17,18 @@ import type { HealthReport } from "@/lib/diagnostics/health-check"
 import type { DiagnosticBundlePreview } from "@/lib/diagnostics/diagnostic-bundle"
 import type { ExportHistoryViewEntry } from "@/lib/export/export-history-view"
 
+const i18nStubs = vi.hoisted(() => ({
+  t: vi.fn((key: string, opts?: Record<string, unknown>) => {
+    const raw = (opts?.defaultValue as string) ?? key
+    return raw.replace(/\{\{(\w+)\}\}/g, (_match, name: string) =>
+      opts && opts[name] !== undefined ? String(opts[name]) : "",
+    )
+  }),
+}))
+
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
-  useTranslation: () => ({ t: (key: string, opts?: Record<string, unknown>) => (opts?.defaultValue as string) ?? key }),
+  useTranslation: () => ({ t: i18nStubs.t }),
 }))
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -28,7 +37,8 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(),
 }))
 
-vi.mock("@/commands/fs", () => ({
+vi.mock("@/commands/fs", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/commands/fs")>(),
   writeFileAtomic: vi.fn(),
   fileExists: vi.fn(),
   readFile: vi.fn(),
@@ -324,7 +334,19 @@ const diagStubs = vi.hoisted(() => ({
   collectKbMetricsLive: vi.fn(),
   loadExportHistoryView: vi.fn(),
   loadNovelSessionStatus: vi.fn(),
+  buildDiagnosticBundleOverride: null as null | ((...args: unknown[]) => unknown),
 }))
+
+vi.mock("@/lib/diagnostics/diagnostic-bundle", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/diagnostics/diagnostic-bundle")>()
+  return {
+    ...actual,
+    buildDiagnosticBundle: ((...args: Parameters<typeof actual.buildDiagnosticBundle>) =>
+      diagStubs.buildDiagnosticBundleOverride
+        ? diagStubs.buildDiagnosticBundleOverride(...args)
+        : actual.buildDiagnosticBundle(...args)) as typeof actual.buildDiagnosticBundle,
+  }
+})
 
 vi.mock("@/lib/diagnostics/health-check", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/diagnostics/health-check")>()
@@ -645,6 +667,7 @@ describe("DiagnosticsCenterView — 宿主容器（增补）", () => {
     diagStubs.collectKbMetricsLive.mockReset()
     diagStubs.loadExportHistoryView.mockReset()
     diagStubs.loadNovelSessionStatus.mockReset()
+    diagStubs.buildDiagnosticBundleOverride = null
     vi.mocked(ask).mockReset()
     vi.mocked(save).mockReset()
     vi.mocked(writeFileAtomic).mockReset()
@@ -732,9 +755,15 @@ describe("DiagnosticsCenterView — 宿主容器（增补）", () => {
     diagStubs.loadExportHistoryView.mockResolvedValue([])
     render(<DiagnosticsCenterView />)
     await waitForHost(() => expect(screen.getByTestId("recover-migrate-do-it")).toBeTruthy())
-    // 默认 ask 返回 undefined（假值）→ 不执行
+    // 默认 ask 返回 undefined（假值）→ 不执行；并验证 confirmActionPrompt 正确透传 { label } 插值（不消费为空串）
+    i18nStubs.t.mockClear()
     fireEvent.click(screen.getByTestId("recover-migrate-do-it"))
     await waitForHost(() => expect(vi.mocked(ask)).toHaveBeenCalledTimes(1))
+    expect(i18nStubs.t).toHaveBeenCalledWith(
+      "diagnostics.confirmActionPrompt",
+      expect.objectContaining({ label: "执行迁移" }),
+    )
+    expect(vi.mocked(ask)).toHaveBeenCalledWith("执行「执行迁移」？", expect.objectContaining({ kind: "warning" }))
     expect(run).not.toHaveBeenCalled()
     // 确认后执行
     vi.mocked(ask).mockResolvedValueOnce(true)
@@ -787,9 +816,11 @@ describe("DiagnosticsCenterView — 宿主容器（增补）", () => {
     await waitForHost(() => expect(screen.getByTestId("diagnostics-center")).toBeTruthy())
     fireEvent.click(screen.getByTestId("bundle-preview-btn"))
     await waitForHost(() => expect(screen.getByTestId("bundle-preview")).toBeTruthy())
+    vi.mocked(ask).mockResolvedValueOnce(true)
     fireEvent.click(screen.getByTestId("bundle-export-btn"))
     await waitForHost(() => expect(screen.getByTestId("bundle-note")).toBeTruthy())
     expect(screen.getByTestId("bundle-note").textContent).toContain("诊断包已导出")
+    expect(vi.mocked(ask)).toHaveBeenCalledTimes(1)
     expect(vi.mocked(writeFileAtomic)).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId("bundle-preview").textContent).toContain("C:/out/diagnostic-bundle.json")
   })
@@ -893,5 +924,335 @@ describe("DiagnosticsCenterView — 宿主容器（增补）", () => {
     expect(vi.mocked(ask)).not.toHaveBeenCalled()
     expect(screen.queryByTestId("recover-note")).toBeNull()
     expect(diagStubs.collectHealthReport).toHaveBeenCalledTimes(1)
+  })
+
+  // ── U4-08：异常展示 / 重试 / 构包捕获 / 并发与项目切换竞态（5 组单测）────
+  it("U4-08-1：首次 collectHealthReport 失败 → 退出 loading 展示错误态并支持重试恢复", async () => {
+    resetAll()
+    withProject()
+    diagStubs.collectHealthReport
+      .mockRejectedValueOnce(new Error("health io down"))
+      .mockResolvedValueOnce(makeReport())
+    diagStubs.collectKbMetricsLive.mockResolvedValue(liveMetrics)
+    diagStubs.loadExportHistoryView.mockResolvedValue([])
+    render(<DiagnosticsCenterView />)
+    const errBox = await waitFor(() => screen.getByTestId("diagnostics-center-error"), { timeout: 5000 })
+    expect(errBox).toHaveAttribute("role", "alert")
+    expect(errBox.textContent).toContain("health io down")
+    expect(screen.queryByTestId("diagnostics-center-loading")).toBeNull()
+    fireEvent.click(screen.getByTestId("diagnostics-retry"))
+    await waitForHost(() => expect(screen.getByTestId("diagnostics-center")).toBeTruthy())
+    expect(screen.queryByTestId("diagnostics-center-error")).toBeNull()
+    expect(diagStubs.collectHealthReport).toHaveBeenCalledTimes(2)
+  })
+
+  it("U4-08-2：首次 loadExportHistoryView 失败 → 展示错误态并可重试恢复", async () => {
+    resetAll()
+    withProject()
+    diagStubs.collectHealthReport.mockResolvedValue(makeReport())
+    diagStubs.collectKbMetricsLive.mockResolvedValue(liveMetrics)
+    diagStubs.loadExportHistoryView
+      .mockRejectedValueOnce(new Error("history corrupt"))
+      .mockResolvedValueOnce(makeHistory())
+    render(<DiagnosticsCenterView />)
+    const errBox = await waitFor(() => screen.getByTestId("diagnostics-center-error"), { timeout: 5000 })
+    expect(errBox).toHaveAttribute("role", "alert")
+    expect(errBox.textContent).toContain("history corrupt")
+    fireEvent.click(screen.getByTestId("diagnostics-retry"))
+    await waitForHost(() => expect(screen.getByTestId("diagnostics-center")).toBeTruthy())
+    expect(screen.getByTestId("history-view-list")).toBeTruthy()
+  })
+
+  it("U4-08-3：已有报告后重检失败 → 保留原报告并展示 recheck-error，再次成功后清空", async () => {
+    resetAll()
+    withProject()
+    diagStubs.collectHealthReport
+      .mockResolvedValueOnce(makeReport())
+      .mockRejectedValueOnce(new Error("recheck timeout"))
+      .mockResolvedValueOnce(makeReport())
+    diagStubs.collectKbMetricsLive.mockResolvedValue(liveMetrics)
+    diagStubs.loadExportHistoryView.mockResolvedValue([])
+    render(<DiagnosticsCenterView />)
+    await waitForHost(() => expect(screen.getByTestId("diagnostics-center")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("diagnostics-recheck"))
+    const recheckErr = await waitFor(() => screen.getByTestId("diagnostics-center-recheck-error"), { timeout: 5000 })
+    expect(recheckErr).toHaveAttribute("role", "alert")
+    expect(recheckErr.textContent).toContain("recheck timeout")
+    // 原报告内容保持可见
+    expect(screen.getByTestId("diagnostics-overall")).toBeTruthy()
+    fireEvent.click(screen.getByTestId("diagnostics-recheck"))
+    await waitForHost(() => expect(screen.queryByTestId("diagnostics-center-recheck-error")).toBeNull())
+  })
+
+  it("U4-08-4：handlePreviewBundle 构包抛错 → 捕获并在 bundle-note 展示错误", async () => {
+    resetAll()
+    withProject()
+    diagStubs.collectHealthReport.mockResolvedValue(makeReport())
+    diagStubs.collectKbMetricsLive.mockResolvedValue(liveMetrics)
+    diagStubs.loadExportHistoryView.mockResolvedValue([])
+    diagStubs.loadNovelSessionStatus.mockResolvedValue(null)
+    diagStubs.buildDiagnosticBundleOverride = () => {
+      throw new Error("bundle serialize fail")
+    }
+    render(<DiagnosticsCenterView />)
+    await waitForHost(() => expect(screen.getByTestId("diagnostics-center")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("bundle-preview-btn"))
+    await waitForHost(() => expect(screen.getByTestId("bundle-note").textContent).toContain("bundle serialize fail"))
+    expect(screen.queryByTestId("bundle-preview")).toBeNull()
+  })
+
+  it("U4-08-5：项目切换竞态 → 项目 A 慢请求迟到返回/报错不得覆盖项目 B 报告或污染错误态", async () => {
+    resetAll()
+    let rejectProjA!: (err: Error) => void
+    const projAPromise = new Promise<HealthReport>((_res, rej) => { rejectProjA = rej })
+    const reportB: HealthReport = {
+      ...makeReport(),
+      projectPath: "C:/projB",
+      checkedAt: "2026-10-01T00:00:00.000Z",
+      overall: "healthy",
+      items: [makeItem({ id: "b-only", status: "healthy", objectName: "项目B专属项" })],
+    }
+    wikiState.project = { id: "pA", name: "projA", path: "C:/projA" }
+    diagStubs.collectHealthReport.mockImplementation(({ projectPath }: { projectPath: string }) => {
+      if (projectPath === "C:/projA") return projAPromise
+      return Promise.resolve(reportB)
+    })
+    diagStubs.collectKbMetricsLive.mockResolvedValue(liveMetrics)
+    diagStubs.loadExportHistoryView.mockResolvedValue([])
+
+    const view = render(<DiagnosticsCenterView />)
+    await waitForHost(() => expect(screen.getByTestId("diagnostics-center-loading")).toBeTruthy())
+
+    // 切换到项目 B：先清空并完成项目 B 的采集
+    wikiState.project = { id: "pB", name: "projB", path: "C:/projB" }
+    view.rerender(<DiagnosticsCenterView />)
+    await waitForHost(() => expect(screen.getByTestId("health-item-b-only")).toBeTruthy())
+
+    // 此时项目 A 的旧请求迟到失败：不得触发 error 或覆盖项目 B 视图
+    rejectProjA(new Error("stale projA error"))
+    await new Promise((r) => setTimeout(r, 30))
+    expect(screen.getByTestId("health-item-b-only")).toBeTruthy()
+    expect(screen.queryByTestId("diagnostics-center-recheck-error")).toBeNull()
+    expect(screen.queryByTestId("diagnostics-center-error")).toBeNull()
+    view.unmount()
+  })
+
+  it("U-6v2：恢复动作在切换项目后 reject 时，不污染新项目的 recover-note", async () => {
+    resetAll()
+    let rejectRecover!: (err: Error) => void
+    const runProjA = vi.fn(
+      () => new Promise<{ ok: boolean; detail: string }>((_res, rej) => { rejectRecover = rej }),
+    )
+    const reportA: HealthReport = {
+      ...makeReport(),
+      projectPath: "C:/projA",
+      items: [
+        makeItem({
+          id: "idx-a",
+          status: "degraded",
+          objectName: "项目A索引",
+          recoveries: [
+            { id: "rebuild-a", label: "重建A", level: "auto", idempotent: true, reversible: true, run: runProjA },
+          ],
+        }),
+      ],
+    }
+    const reportB: HealthReport = {
+      ...makeReport(),
+      projectPath: "C:/projB",
+      overall: "healthy",
+      items: [makeItem({ id: "b-clean", status: "healthy", objectName: "项目B健康项" })],
+    }
+
+    wikiState.project = { id: "pA", name: "projA", path: "C:/projA" }
+    diagStubs.collectHealthReport.mockImplementation(({ projectPath }: { projectPath: string }) =>
+      Promise.resolve(projectPath === "C:/projA" ? reportA : reportB),
+    )
+    diagStubs.collectKbMetricsLive.mockResolvedValue(liveMetrics)
+    diagStubs.loadExportHistoryView.mockResolvedValue([])
+
+    const view = render(<DiagnosticsCenterView />)
+    await waitForHost(() => expect(screen.getByTestId("recover-idx-a-rebuild-a")).toBeTruthy())
+
+    // 在项目 A 启动恢复动作，动作保持挂起
+    fireEvent.click(screen.getByTestId("recover-idx-a-rebuild-a"))
+    await waitForHost(() => expect(runProjA).toHaveBeenCalledTimes(1))
+
+    // 切换到项目 B 并等待项目 B 报告加载完成
+    wikiState.project = { id: "pB", name: "projB", path: "C:/projB" }
+    view.rerender(<DiagnosticsCenterView />)
+    await waitForHost(() => expect(screen.getByTestId("health-item-b-clean")).toBeTruthy())
+    const callsBeforeReject = diagStubs.collectHealthReport.mock.calls.length
+
+    // 项目 A 的恢复动作迟到 reject：不得污染项目 B 的 recover-note，也不应触发旧项目重刷
+    await act(async () => {
+      rejectRecover(new Error("projA recovery failed"))
+      await new Promise((r) => setTimeout(r, 30))
+    })
+    expect(screen.queryByTestId("recover-note")).toBeNull()
+    expect(screen.getByTestId("health-item-b-clean")).toBeTruthy()
+    expect(diagStubs.collectHealthReport).toHaveBeenCalledTimes(callsBeforeReject)
+    view.unmount()
+  })
+
+  it("Rem-C：诊断包导出在 writeFileAtomic 挂起期间切换项目 → 迟到完成不得污染项目 B 提示或预览", async () => {
+    resetAll()
+    let resolveWrite!: () => void
+    const reportA: HealthReport = {
+      ...makeReport(),
+      projectPath: "C:/projA",
+      items: [makeItem({ id: "a-only", status: "healthy", objectName: "项目A专属项" })],
+    }
+    const reportB: HealthReport = {
+      ...makeReport(),
+      projectPath: "C:/projB",
+      overall: "healthy",
+      items: [makeItem({ id: "b-clean", status: "healthy", objectName: "项目B健康项" })],
+    }
+
+    wikiState.project = { id: "pA", name: "projA", path: "C:/projA" }
+    diagStubs.collectHealthReport.mockImplementation(({ projectPath }: { projectPath: string }) =>
+      Promise.resolve(projectPath === "C:/projA" ? reportA : reportB),
+    )
+    diagStubs.collectKbMetricsLive.mockResolvedValue(liveMetrics)
+    diagStubs.loadExportHistoryView.mockResolvedValue([])
+    diagStubs.loadNovelSessionStatus.mockResolvedValue(null)
+    vi.mocked(save).mockResolvedValueOnce("C:/out/projA-bundle.json")
+    vi.mocked(ask).mockResolvedValueOnce(true)
+    vi.mocked(writeFileAtomic).mockImplementationOnce(
+      () => new Promise<void>((res) => { resolveWrite = res }) as never,
+    )
+
+    const view = render(<DiagnosticsCenterView />)
+    await waitForHost(() => expect(screen.getByTestId("health-item-a-only")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("bundle-preview-btn"))
+    await waitForHost(() => expect(screen.getByTestId("bundle-preview")).toBeTruthy())
+
+    // 在项目 A 启动导出，save 和 ask 通过，writeFileAtomic 保持挂起
+    fireEvent.click(screen.getByTestId("bundle-export-btn"))
+    await waitForHost(() => expect(vi.mocked(writeFileAtomic)).toHaveBeenCalledTimes(1))
+
+    // 切换到项目 B 并等待项目 B 视图就绪
+    wikiState.project = { id: "pB", name: "projB", path: "C:/projB" }
+    view.rerender(<DiagnosticsCenterView />)
+    await waitForHost(() => expect(screen.getByTestId("health-item-b-clean")).toBeTruthy())
+    expect(screen.queryByTestId("bundle-preview")).toBeNull()
+
+    // 项目 A 的 writeFileAtomic 迟到 resolve：不得向项目 B 写入「诊断包已导出」或旧预览
+    await act(async () => {
+      resolveWrite()
+      await new Promise((r) => setTimeout(r, 30))
+    })
+    expect(screen.queryByTestId("bundle-note")).toBeNull()
+    expect(screen.queryByTestId("bundle-preview")).toBeNull()
+    expect(screen.getByTestId("health-item-b-clean")).toBeTruthy()
+    view.unmount()
+  })
+
+  it("Rem-C：诊断包导出在 save 挂起期间切换项目后取消 → 不得向项目 B 写入「已取消导出」", async () => {
+    resetAll()
+    let resolveSave!: (value: string | null) => void
+    const reportA: HealthReport = {
+      ...makeReport(),
+      projectPath: "C:/projA",
+      items: [makeItem({ id: "a-only", status: "healthy", objectName: "项目A专属项" })],
+    }
+    const reportB: HealthReport = {
+      ...makeReport(),
+      projectPath: "C:/projB",
+      overall: "healthy",
+      items: [makeItem({ id: "b-clean", status: "healthy", objectName: "项目B健康项" })],
+    }
+
+    wikiState.project = { id: "pA", name: "projA", path: "C:/projA" }
+    diagStubs.collectHealthReport.mockImplementation(({ projectPath }: { projectPath: string }) =>
+      Promise.resolve(projectPath === "C:/projA" ? reportA : reportB),
+    )
+    diagStubs.collectKbMetricsLive.mockResolvedValue(liveMetrics)
+    diagStubs.loadExportHistoryView.mockResolvedValue([])
+    diagStubs.loadNovelSessionStatus.mockResolvedValue(null)
+    vi.mocked(save).mockImplementationOnce(
+      () => new Promise<string | null>((res) => { resolveSave = res }),
+    )
+
+    const view = render(<DiagnosticsCenterView />)
+    await waitForHost(() => expect(screen.getByTestId("health-item-a-only")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("bundle-preview-btn"))
+    await waitForHost(() => expect(screen.getByTestId("bundle-preview")).toBeTruthy())
+
+    // 在项目 A 启动导出，save 对话框保持挂起
+    fireEvent.click(screen.getByTestId("bundle-export-btn"))
+    await waitForHost(() => expect(vi.mocked(save)).toHaveBeenCalledTimes(1))
+
+    // 切换到项目 B 并等待项目 B 视图就绪
+    wikiState.project = { id: "pB", name: "projB", path: "C:/projB" }
+    view.rerender(<DiagnosticsCenterView />)
+    await waitForHost(() => expect(screen.getByTestId("health-item-b-clean")).toBeTruthy())
+
+    // 用户取消旧对话框（返回 null）：不得向项目 B 写入「已取消导出。」
+    await act(async () => {
+      resolveSave(null)
+      await new Promise((r) => setTimeout(r, 30))
+    })
+    expect(screen.queryByTestId("bundle-note")).toBeNull()
+    expect(vi.mocked(ask)).not.toHaveBeenCalled()
+    expect(vi.mocked(writeFileAtomic)).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it("Rem-C：诊断包导出在 ask 取消与 writeFileAtomic 失败时给出准确提示；ask 挂起期切项目不写盘", async () => {
+    resetAll()
+    withProject()
+    diagStubs.collectHealthReport.mockResolvedValue(makeReport())
+    diagStubs.collectKbMetricsLive.mockResolvedValue(liveMetrics)
+    diagStubs.loadExportHistoryView.mockResolvedValue([])
+    diagStubs.loadNovelSessionStatus.mockResolvedValue(null)
+
+    const view = render(<DiagnosticsCenterView />)
+    await waitForHost(() => expect(screen.getByTestId("diagnostics-center")).toBeTruthy())
+    fireEvent.click(screen.getByTestId("bundle-preview-btn"))
+    await waitForHost(() => expect(screen.getByTestId("bundle-preview")).toBeTruthy())
+
+    // 1. ask 返回 false → 同项目显示「已取消导出。」且不写盘
+    vi.mocked(save).mockResolvedValueOnce("C:/out/cancel.json")
+    vi.mocked(ask).mockResolvedValueOnce(false)
+    fireEvent.click(screen.getByTestId("bundle-export-btn"))
+    await waitForHost(() => expect(screen.getByTestId("bundle-note").textContent).toContain("已取消导出"))
+    expect(vi.mocked(writeFileAtomic)).not.toHaveBeenCalled()
+
+    // 2. writeFileAtomic 抛错 → 同项目显示「诊断包导出失败：disk full」
+    vi.mocked(save).mockResolvedValueOnce("C:/out/fail.json")
+    vi.mocked(ask).mockResolvedValueOnce(true)
+    vi.mocked(writeFileAtomic).mockRejectedValueOnce(new Error("disk full"))
+    fireEvent.click(screen.getByTestId("bundle-export-btn"))
+    await waitForHost(() => expect(screen.getByTestId("bundle-note").textContent).toContain("disk full"))
+    expect(screen.getByTestId("bundle-note").textContent).toContain("诊断包导出失败")
+
+    // 3. ask 挂起期间切换项目 → 切项目后确认也不得写盘或写提示
+    let resolveAsk!: (v: boolean) => void
+    const reportB: HealthReport = {
+      ...makeReport(),
+      projectPath: "C:/projB",
+      overall: "healthy",
+      items: [makeItem({ id: "b-clean", status: "healthy", objectName: "项目B健康项" })],
+    }
+    diagStubs.collectHealthReport.mockResolvedValue(reportB)
+    vi.mocked(save).mockResolvedValueOnce("C:/out/stale-ask.json")
+    vi.mocked(ask).mockImplementationOnce(() => new Promise<boolean>((res) => { resolveAsk = res }))
+    vi.mocked(writeFileAtomic).mockClear()
+    fireEvent.click(screen.getByTestId("bundle-export-btn"))
+    await waitForHost(() => expect(vi.mocked(ask)).toHaveBeenCalledTimes(3))
+
+    wikiState.project = { id: "pB", name: "projB", path: "C:/projB" }
+    view.rerender(<DiagnosticsCenterView />)
+    await waitForHost(() => expect(screen.getByTestId("health-item-b-clean")).toBeTruthy())
+
+    await act(async () => {
+      resolveAsk(true)
+      await new Promise((r) => setTimeout(r, 30))
+    })
+    expect(vi.mocked(writeFileAtomic)).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("bundle-note")).toBeNull()
+    view.unmount()
   })
 })

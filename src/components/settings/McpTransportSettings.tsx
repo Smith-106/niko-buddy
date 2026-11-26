@@ -64,6 +64,7 @@ export function McpTransportSettings({ projectPath }: McpTransportSettingsProps)
   const [mode, setMode] = useState<TransportMode>(DEFAULT_TRANSPORT_MODE);
   const [allowHttp, setAllowHttp] = useState(false);
   const [serverId, setServerId] = useState("");
+  const [sourceLicense, setSourceLicense] = useState("");
   const [status, setStatus] = useState<StatusState>({ kind: "idle", text: "" });
   const [phase, setPhase] = useState<ConnectionPhase>("idle");
   const [session, setSession] = useState<RemoteSession | null>(null);
@@ -126,7 +127,10 @@ export function McpTransportSettings({ projectPath }: McpTransportSettingsProps)
   const requestAndAudit = async () => {
     try {
       const payload = await requestRemote(projectPath, serverId, JSON.stringify({ id: 1 }));
-      const audit = auditRemotePayload(payload.body, { license: "MIT", adrScore: 1 });
+      const normalizedLicense = sourceLicense.trim();
+      const audit = auditRemotePayload(payload.body, {
+        license: normalizedLicense.length > 0 ? normalizedLicense : undefined,
+      });
       if (!audit.allowed) {
         setStatus({ kind: "blocked", text: `${t("mcp.remote.audit.blocked")} — ${audit.reason}` });
         return;
@@ -235,6 +239,18 @@ export function McpTransportSettings({ projectPath }: McpTransportSettingsProps)
         value={serverId}
         onChange={(e) => setServerId(e.target.value)}
       />
+
+      <label className="flex flex-col gap-1 text-sm">
+        <span>{t("mcp.transport.sourceLicense")}</span>
+        <input
+          className="rounded border px-2 py-1 text-sm"
+          data-testid="mcp-source-license"
+          aria-label={t("mcp.transport.sourceLicense")}
+          placeholder={t("mcp.transport.sourceLicensePlaceholder")}
+          value={sourceLicense}
+          onChange={(e) => setSourceLicense(e.target.value)}
+        />
+      </label>
 
       <p
         data-testid="mcp-transport-status"

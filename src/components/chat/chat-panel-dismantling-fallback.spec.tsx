@@ -28,7 +28,7 @@ import {
   unmountPanel,
   sendText,
   lastStreamChatCall,
-} from "./chat-panel-test-setup"
+} from "@/test-helpers/chat-panel/chat-panel-test-setup"
 import { loadEnabledDismantlingDirective } from "./chat-panel-widgets"
 
 const mocks = getChatPanelMocks()

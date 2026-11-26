@@ -18,7 +18,7 @@
  *   `canon_auto_backup`。
  */
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Pagination, PAGINATION_PAGE_SIZE } from "@/components/ui/pagination"
 import { useTranslation } from "react-i18next"
 import {
@@ -40,16 +40,27 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { listDirectory } from "@/commands/fs"
-import { cancelBackup } from "@/lib/backup/export"
+import { cancelBackup, inventoryProjectBackupScope } from "@/lib/backup/export"
 import { CloudBackupPanel } from "@/components/backup/CloudBackupPanel"
 import { SnapshotTimeline } from "@/components/timemachine/SnapshotTimeline"
 import { getDeviceId, setDeviceId } from "@/lib/device-id"
-import type { BackupProgressPayload } from "@/lib/backup/types"
+import type { BackupProgressPayload, ProjectBackupScopeInventory } from "@/lib/backup/types"
 import { normalizePath } from "@/lib/path-utils"
 import { isTauri } from "@/lib/platform"
+import { pad, toErrorMessage } from "@/lib/utils"
 import { useWikiStore } from "@/stores/wiki-store"
 
-// ── IPC 契约（与 src-tauri/src/canon_export.rs camelCase 一一对应）──
+// ── IPC 契约（与 src-tauri/src/canon/export.rs camelCase 一一对应）──
+
+export interface CanonBackupComponentCounts {
+  status: number
+  drafts: number
+  qmDrafts: number
+  canonLancedb: number
+  wiki: number
+  snapshots: number
+  rootDocs: number
+}
 
 export interface CanonExportRequest {
   projectPath: string
@@ -84,6 +95,11 @@ export interface CanonRestoreResult {
   autoBackupPath: string | null
   warnings: string[]
   error: string | null
+  formatVersion?: number
+  restoredWiki?: boolean
+  restoredSnapshots?: boolean
+  restoredQmDrafts?: boolean
+  restoredRootDocs?: boolean
 }
 
 export interface CanonVerifyRequest {
@@ -101,6 +117,10 @@ export interface CanonVerifyResult {
   contentDigestVerified: boolean
   warnings: string[]
   error: string | null
+  formatVersion?: number
+  componentCounts?: CanonBackupComponentCounts
+  createdAt?: string | null
+  projectName?: string | null
 }
 
 export interface CanonAutoBackupRequest {
@@ -150,8 +170,6 @@ export function invokeCanonVerifyExport(request: CanonVerifyRequest): Promise<Ca
 export function invokeCanonAutoBackup(request: CanonAutoBackupRequest): Promise<CanonAutoBackupResult> {
   return invoke<CanonAutoBackupResult>("canon_auto_backup", { request })
 }
-
-import { pad } from "@/lib/utils"
 
 /** 导出包默认文件名：niko-buddy-project-backup-YYYYMMDD-HHMMSS.zip */
 export function defaultExportName(now: Date = new Date()): string {
@@ -204,12 +222,55 @@ export function BackupExportView() {
   const [isCancelling, setIsCancelling] = useState(false)
   const [backupHistory, setBackupHistory] = useState<BackupHistoryEntry[]>([])
   const [backupHistoryPage, setBackupHistoryPage] = useState(0)
+  const [scopeInventory, setScopeInventory] = useState<ProjectBackupScopeInventory | null>(null)
   const BACKUP_HISTORY_PAGE_SIZE = PAGINATION_PAGE_SIZE
+  const mountedRef = useRef(true)
+  const projectGenRef = useRef(0)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  // 切换或关闭项目时递增代际并清空旧项目状态，阻断在途异步结果跨项目回写。
+  useEffect(() => {
+    projectGenRef.current += 1
+    setExportResult(null)
+    setVerifyResult(null)
+    setRestoreResult(null)
+    setAutoResult(null)
+    setPassphrase("")
+    setProgress(null)
+    setBackupHistory([])
+    setBackupHistoryPage(0)
+    setScopeInventory(null)
+    setIsBusy(null)
+  }, [projectPath])
 
   const tOr = useCallback(
-    (key: string, defaultValue: string) => t(key, { defaultValue }) as string,
+    (key: string, defaultValue: string, params?: Record<string, string | number>) =>
+      t(key, { defaultValue, ...params }) as string,
     [t],
   )
+
+  const refreshScopeInventory = useCallback(async () => {
+    if (!isTauri() || !projectPath) {
+      setScopeInventory(null)
+      return
+    }
+    const gen = projectGenRef.current
+    try {
+      const next = await inventoryProjectBackupScope(projectPath)
+      if (!mountedRef.current || gen !== projectGenRef.current) return
+      setScopeInventory(next)
+    } catch (err) {
+      if (!mountedRef.current || gen !== projectGenRef.current) return
+      console.warn("[BackupExportView] inventory project backup scope failed:", toErrorMessage(err))
+      setScopeInventory(null)
+    }
+  }, [projectPath])
 
   const backupHistoryPageCount = Math.max(1, Math.ceil(backupHistory.length / BACKUP_HISTORY_PAGE_SIZE))
   const visibleBackupHistory = backupHistory.slice(
@@ -228,9 +289,11 @@ export function BackupExportView() {
       setBackupHistoryPage(0)
       return
     }
+    const gen = projectGenRef.current
     try {
       const autoDir = `${normalizePath(projectPath)}/backups/auto`
       const entries = (await listDirectory(autoDir)) ?? []
+      if (!mountedRef.current || gen !== projectGenRef.current) return
       setBackupHistory(
         entries
           .filter((entry) => entry.name.endsWith(".zip"))
@@ -238,8 +301,10 @@ export function BackupExportView() {
           .map((entry) => ({ name: entry.name, path: entry.path })),
       )
       setBackupHistoryPage(0)
-    } catch {
+    } catch (err) {
       // backups/auto 尚不存在或无权限（首次使用）→ 空列表，不打扰用户
+      void err
+      if (!mountedRef.current || gen !== projectGenRef.current) return
       setBackupHistory([])
     }
   }, [projectPath])
@@ -252,7 +317,15 @@ export function BackupExportView() {
     let unlistenBackup: UnlistenFn | undefined
     void listen<BackupProgressPayload>("backup-progress", (event) => {
       if (!disposed) setProgress(event.payload)
-    }).then((un) => { unlistenBackup = un }).catch(() => {})
+    }).then((un) => {
+      if (disposed) {
+        un()
+        return
+      }
+      unlistenBackup = un
+    }).catch((err) => {
+      console.warn("[BackupExportView] listen backup-progress failed:", toErrorMessage(err))
+    })
     return () => {
       disposed = true
       unlistenBackup?.()
@@ -264,14 +337,17 @@ export function BackupExportView() {
     if (isBusy === null) setProgress(null)
   }, [isBusy])
 
-  // 项目打开/切换时刷新历史备份列表（操作完成后由各 handler 再显式刷新一次）。
+  // 项目打开/切换时刷新历史备份列表与备份范围盘点（操作完成后由各 handler 再显式刷新一次）。
   useEffect(() => {
     void refreshBackupHistory()
-  }, [refreshBackupHistory])
+    void refreshScopeInventory()
+  }, [refreshBackupHistory, refreshScopeInventory])
 
   async function handleExport() {
     /* v8 ignore next -- 无项目时按钮 disabled，守卫不可达 */
     if (!projectPath) return
+    const gen = projectGenRef.current
+    const isStale = () => !mountedRef.current || gen !== projectGenRef.current
     setIsBusy("export")
     setExportResult(null)
     try {
@@ -279,6 +355,7 @@ export function BackupExportView() {
         defaultPath: defaultExportName(),
         filters: [{ name: "ZIP 备份文件", extensions: ["zip"] }],
       })
+      if (isStale()) return
       if (!outputPath) {
         setExportResult({
           success: false,
@@ -296,8 +373,10 @@ export function BackupExportView() {
         outputZipPath: outputPath,
         passphrase: passphrase.trim() || null,
       })
+      if (isStale()) return
       setExportResult(result)
     } catch (err) {
+      if (isStale()) return
       setExportResult({
         success: false,
         warnings: [],
@@ -308,14 +387,100 @@ export function BackupExportView() {
         error: String(err),
       })
     } finally {
-      setIsBusy(null)
-      void refreshBackupHistory()
+      if (!isStale()) {
+        setIsBusy(null)
+        void refreshBackupHistory()
+      }
     }
+  }
+
+  function emptyFailedRestore(error: string, warnings: string[] = []): CanonRestoreResult {
+    return {
+      success: false,
+      restoredStatus: false,
+      restoredDrafts: false,
+      restoredCanonLancedb: false,
+      restoredFiles: 0,
+      checksumVerified: null,
+      autoBackupPath: null,
+      warnings,
+      error,
+    }
+  }
+
+  function formatVerifyComponents(counts?: CanonBackupComponentCounts): string {
+    if (!counts) {
+      return [
+        tOr("novel.backupExport.restoreComponentWiki", "正文与设定"),
+        tOr("novel.backupExport.restoreComponentStatus", "写作状态"),
+        tOr("novel.backupExport.restoreComponentCanon", "事实库"),
+      ].join("、")
+    }
+    const items: Array<[number, string]> = [
+      [counts.wiki, tOr("novel.backupExport.restoreComponentWiki", "正文与设定")],
+      [counts.snapshots, tOr("novel.backupExport.restoreComponentSnapshots", "历史快照")],
+      [counts.qmDrafts, tOr("novel.backupExport.restoreComponentQmDrafts", "草稿箱")],
+      [counts.drafts, tOr("novel.backupExport.restoreComponentDrafts", "旧草稿工件")],
+      [counts.status, tOr("novel.backupExport.restoreComponentStatus", "写作状态")],
+      [counts.canonLancedb, tOr("novel.backupExport.restoreComponentCanon", "事实库")],
+      [counts.rootDocs, tOr("novel.backupExport.restoreComponentRootDocs", "书魂文档")],
+    ]
+    const active = items.filter(([count]) => count > 0).map(([count, label]) => `${label}(${count})`)
+    return active.length > 0 ? active.join("、") : tOr("novel.backupExport.scopeEmpty", "无")
+  }
+
+  async function runVerifiedRestore(zipPath: string, gen: number, suffixLabel?: string) {
+    const isStale = () => !mountedRef.current || gen !== projectGenRef.current
+    const trimmedPassphrase = passphrase.trim() || null
+    const verified = await invokeCanonVerifyExport({
+      zipPath,
+      passphrase: trimmedPassphrase,
+    })
+    if (isStale()) return
+    if (!verified.success) {
+      const reason = verified.error || tOr("novel.backupExport.verifyPreflightFailed", "恢复前预检未通过", { error: "" })
+      setRestoreResult(emptyFailedRestore(reason, verified.warnings))
+      return
+    }
+
+    const version = verified.formatVersion ?? 1
+    const baseConfirm = version < 2
+      ? tOr(
+          "novel.backupExport.restoreConfirmV1Warning",
+          "检测到旧版（v1）备份包：仅包含写作状态、旧草稿工件与事实库，不包含正文、快照与草稿箱；恢复时不会触碰当前正文与草稿箱，替换前会自动备份现状。确定继续？",
+        )
+      : tOr(
+          "novel.backupExport.restoreConfirmV2Summary",
+          "已通过 v2 备份包预检（共 {{fileCount}} 个文件；包含：{{components}}）。恢复将原子替换对应项目数据（替换前自动备份现状）。确定继续？",
+          {
+            fileCount: verified.fileCount,
+            components: formatVerifyComponents(verified.componentCounts),
+          },
+        )
+    const confirmMessage = suffixLabel ? `${baseConfirm}\n${suffixLabel}` : baseConfirm
+    const confirmed = await ask(confirmMessage, {
+      title: tOr("novel.backupExport.restoreConfirmTitle", "确认恢复"),
+      kind: "warning",
+    })
+    if (isStale()) return
+    if (!confirmed) {
+      setRestoreResult(emptyFailedRestore(tOr("novel.backupExport.cancelled", "已取消")))
+      return
+    }
+    const result = await invokeCanonRestoreProject({
+      projectPath,
+      zipPath,
+      passphrase: trimmedPassphrase,
+    })
+    if (isStale()) return
+    setRestoreResult(result)
   }
 
   async function handleRestore() {
     /* v8 ignore next -- 无项目时按钮 disabled，守卫不可达 */
     if (!projectPath) return
+    const gen = projectGenRef.current
+    const isStale = () => !mountedRef.current || gen !== projectGenRef.current
     setIsBusy("restore")
     setRestoreResult(null)
     try {
@@ -324,118 +489,46 @@ export function BackupExportView() {
         directory: false,
         filters: [{ name: "项目备份包", extensions: ["zip"] }],
       })
+      if (isStale()) return
       const zipPath = typeof picked === "string" ? picked : null
       if (!zipPath) {
-        setRestoreResult({
-          success: false,
-          restoredStatus: false,
-          restoredDrafts: false,
-          restoredCanonLancedb: false,
-          restoredFiles: 0,
-          checksumVerified: null,
-          autoBackupPath: null,
-          warnings: [],
-          error: tOr("novel.backupExport.cancelled", "已取消"),
-        })
+        setRestoreResult(emptyFailedRestore(tOr("novel.backupExport.cancelled", "已取消")))
         return
       }
-      const confirmed = await ask(
-        tOr(
-          "novel.backupExport.restoreConfirm",
-          "恢复将覆盖当前项目的写作状态、草稿和设定数据（替换前会自动备份现状）。确定继续？",
-        ),
-        { title: tOr("novel.backupExport.restoreConfirmTitle", "确认恢复"), kind: "warning" },
-      )
-      if (!confirmed) {
-        setRestoreResult({
-          success: false,
-          restoredStatus: false,
-          restoredDrafts: false,
-          restoredCanonLancedb: false,
-          restoredFiles: 0,
-          checksumVerified: null,
-          autoBackupPath: null,
-          warnings: [],
-          error: tOr("novel.backupExport.cancelled", "已取消"),
-        })
-        return
-      }
-      const result = await invokeCanonRestoreProject({
-        projectPath,
-        zipPath,
-        passphrase: passphrase.trim() || null,
-      })
-      setRestoreResult(result)
+      await runVerifiedRestore(zipPath, gen)
     } catch (err) {
-      setRestoreResult({
-        success: false,
-        restoredStatus: false,
-        restoredDrafts: false,
-        restoredCanonLancedb: false,
-        restoredFiles: 0,
-        checksumVerified: null,
-        autoBackupPath: null,
-        warnings: [],
-        error: String(err),
-      })
+      if (isStale()) return
+      setRestoreResult(emptyFailedRestore(String(err)))
     } finally {
-      setIsBusy(null)
-      void refreshBackupHistory()
+      if (!isStale()) {
+        setIsBusy(null)
+        void refreshBackupHistory()
+        void refreshScopeInventory()
+      }
     }
   }
 
   /**
-   * 历史版本一键恢复：跳过 open 对话框，直接用历史列表条目路径恢复。
-   * 确认文案复用 handleRestore（消息后追加条目名），其余流程（口令透传/result/finally 刷新）一致。
+   * 历史版本一键恢复：跳过 open 对话框，经 canon_verify_export 预检并确认后用历史列表条目路径恢复。
    */
   async function handleRestoreFromHistory(entry: BackupHistoryEntry) {
     /* v8 ignore next -- 无项目时按钮 disabled，守卫不可达 */
     if (!projectPath) return
+    const gen = projectGenRef.current
+    const isStale = () => !mountedRef.current || gen !== projectGenRef.current
     setIsBusy("restore")
     setRestoreResult(null)
     try {
-      const confirmed = await ask(
-        `${tOr(
-          "novel.backupExport.restoreConfirm",
-          "恢复将覆盖当前项目的写作状态、草稿和设定数据（替换前会自动备份现状）。确定继续？",
-        )}\n${entry.name}`,
-        { title: tOr("novel.backupExport.restoreConfirmTitle", "确认恢复"), kind: "warning" },
-      )
-      if (!confirmed) {
-        setRestoreResult({
-          success: false,
-          restoredStatus: false,
-          restoredDrafts: false,
-          restoredCanonLancedb: false,
-          restoredFiles: 0,
-          checksumVerified: null,
-          autoBackupPath: null,
-          warnings: [],
-          error: tOr("novel.backupExport.cancelled", "已取消"),
-        })
-        return
-      }
-      const result = await invokeCanonRestoreProject({
-        projectPath,
-        zipPath: entry.path,
-        passphrase: passphrase.trim() || null,
-      })
-      setRestoreResult(result)
+      await runVerifiedRestore(entry.path, gen, entry.name)
     } catch (err) {
-      setRestoreResult({
-        success: false,
-        restoredStatus: false,
-        restoredDrafts: false,
-        restoredCanonLancedb: false,
-        restoredFiles: 0,
-        checksumVerified: null,
-        autoBackupPath: null,
-        warnings: [],
-        error: String(err),
-      })
+      if (isStale()) return
+      setRestoreResult(emptyFailedRestore(String(err)))
     } finally {
-      setIsBusy(null)
-      void refreshBackupHistory()
+      if (!isStale()) {
+        setIsBusy(null)
+        void refreshBackupHistory()
+        void refreshScopeInventory()
+      }
     }
   }
 
@@ -443,6 +536,8 @@ export function BackupExportView() {
   async function handleVerify() {
     /* v8 ignore next -- 无项目时按钮 disabled，守卫不可达 */
     if (!projectPath) return
+    const gen = projectGenRef.current
+    const isStale = () => !mountedRef.current || gen !== projectGenRef.current
     setIsBusy("verify")
     setVerifyResult(null)
     try {
@@ -451,6 +546,7 @@ export function BackupExportView() {
         directory: false,
         filters: [{ name: "ZIP 备份文件", extensions: ["zip"] }],
       })
+      if (isStale()) return
       const zipPath = typeof picked === "string" ? picked : null
       if (!zipPath) {
         setVerifyResult({
@@ -469,8 +565,10 @@ export function BackupExportView() {
         zipPath,
         passphrase: passphrase.trim() || null,
       })
+      if (isStale()) return
       setVerifyResult(result)
     } catch (err) {
+      if (isStale()) return
       setVerifyResult({
         success: false,
         containerChecksumMatches: null,
@@ -482,7 +580,7 @@ export function BackupExportView() {
         error: String(err),
       })
     } finally {
-      setIsBusy(null)
+      if (!isStale()) setIsBusy(null)
     }
   }
 
@@ -494,15 +592,22 @@ export function BackupExportView() {
     try {
       await cancelBackup()
     } catch (err) {
-      setProgress((prev) => (prev ? { ...prev, message: `取消失败：${String(err)}` } : prev))
+      const failedText = `取消失败：${String(err)}`
+      setProgress((prev) =>
+        prev
+          ? { ...prev, message: failedText }
+          : { stage: "", current: 0, total: 0, message: failedText },
+      )
     } finally {
-      setIsCancelling(false)
+      if (mountedRef.current) setIsCancelling(false)
     }
   }
 
   async function handleAutoBackup() {
     /* v8 ignore next -- 无项目时按钮 disabled，守卫不可达 */
     if (!projectPath) return
+    const gen = projectGenRef.current
+    const isStale = () => !mountedRef.current || gen !== projectGenRef.current
     setIsBusy("auto")
     setAutoResult(null)
     try {
@@ -510,8 +615,10 @@ export function BackupExportView() {
         projectPath,
         reason: "pre-supersede-manual",
       })
+      if (isStale()) return
       setAutoResult(result)
     } catch (err) {
+      if (isStale()) return
       setAutoResult({
         success: false,
         backupPath: null,
@@ -520,8 +627,10 @@ export function BackupExportView() {
         error: String(err),
       })
     } finally {
-      setIsBusy(null)
-      void refreshBackupHistory()
+      if (!isStale()) {
+        setIsBusy(null)
+        void refreshBackupHistory()
+      }
     }
   }
 
@@ -539,7 +648,7 @@ export function BackupExportView() {
         <p className="mt-1 text-sm text-muted-foreground">
           {tOr(
             "novel.backupExport.description",
-            "当前项目的独立备份包：status.json（会话状态）+ drafts（草稿）+ Canon LanceDB 快照，zip + SHA-256 校验和。全局配置备份请到 设置 → 数据管理。",
+            "当前项目的独立完整备份包：包含正文、大纲、设定、历史快照、草稿箱、写作状态、事实库与书魂文档，zip + SHA-256 校验和。全局配置备份请到 设置 → 数据管理。",
           )}
         </p>
       </div>
@@ -568,32 +677,42 @@ export function BackupExportView() {
         </p>
       </div>
 
-      {/* 操作进度（backup-progress 通道）+ 取消按钮 */}
-      {isBusy !== null && progress && progress.total > 0 && (
+      {/* 操作进度（backup-progress 通道）+ busy 期间常驻取消按钮 */}
+      {isBusy !== null && (
         <div className="rounded-lg border p-4 space-y-2" data-testid="backup-progress-area">
           <div className="flex items-center justify-between gap-2 text-sm min-w-0">
             <span className="truncate text-muted-foreground min-w-0">
-              {progress.stage || progress.message || tOr("novel.backupExport.progressWorking", "处理中...")}
+              {progress?.stage || progress?.message || tOr("novel.backupExport.progressWorking", "处理中...")}
             </span>
-            <span className="shrink-0 font-mono text-xs">
-              {progress.current}/{progress.total} (
-              {Math.min(100, Math.round(((progress.current || 0) / progress.total) * 100))}%)
-            </span>
+            {progress && progress.total > 0 ? (
+              <span className="shrink-0 font-mono text-xs">
+                {progress.current}/{progress.total} (
+                {Math.min(100, Math.round(((progress.current || 0) / progress.total) * 100))}%)
+              </span>
+            ) : null}
           </div>
-          <div
-            className="h-2 w-full overflow-hidden rounded-full bg-muted"
-            role="progressbar"
-            aria-label={tOr("novel.backupExport.progressWorking", "处理中...")}
-            aria-valuemin={0}
-            aria-valuemax={progress.total}
-            aria-valuenow={progress.current}
-          >
+          {progress && progress.total > 0 ? (
             <div
-              className="h-full bg-primary transition-all"
-              style={{ width: `${Math.min(100, Math.round(((progress.current || 0) / progress.total) * 100))}%` }}
-            />
-          </div>
-          <Button size="sm" variant="outline" onClick={() => void handleCancel()} disabled={isCancelling}>
+              className="h-2 w-full overflow-hidden rounded-full bg-muted"
+              role="progressbar"
+              aria-label={tOr("novel.backupExport.progressWorking", "处理中...")}
+              aria-valuemin={0}
+              aria-valuemax={progress.total}
+              aria-valuenow={progress.current}
+            >
+              <div
+                className="h-full bg-primary transition-all"
+                style={{ width: `${Math.min(100, Math.round(((progress.current || 0) / progress.total) * 100))}%` }}
+              />
+            </div>
+          ) : null}
+          <Button
+            size="sm"
+            variant="outline"
+            data-testid="backup-cancel-button"
+            onClick={() => void handleCancel()}
+            disabled={isCancelling}
+          >
             {isCancelling
               ? tOr("novel.backupExport.cancelling", "取消中...")
               : tOr("novel.backupExport.cancelButton", "取消")}
@@ -607,6 +726,35 @@ export function BackupExportView() {
           <Download className="h-5 w-5 shrink-0 text-primary" />
           <h3 className="font-medium">{tOr("novel.backupExport.exportTitle", "导出项目备份包")}</h3>
         </div>
+        {projectPath ? (
+          <div
+            className="rounded-md border bg-muted/20 p-3 space-y-2 text-xs"
+            data-testid="backup-scope-inventory"
+          >
+            <p className="font-medium text-foreground">
+              {tOr("novel.backupExport.scopeTitle", "本次备份包含的项目内容")}
+            </p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4 text-muted-foreground">
+              {(
+                [
+                  ["chapters", tOr("novel.backupExport.scopeChapters", "正文与章节"), scopeInventory?.chapters ?? 0],
+                  ["outlines", tOr("novel.backupExport.scopeOutlines", "大纲文件"), scopeInventory?.outlines ?? 0],
+                  ["settings", tOr("novel.backupExport.scopeSettings", "设定与词条"), scopeInventory?.settings ?? 0],
+                  ["snapshots", tOr("novel.backupExport.scopeSnapshots", "历史快照"), scopeInventory?.snapshots ?? 0],
+                  ["qmDrafts", tOr("novel.backupExport.scopeQmDrafts", "待采纳草稿箱"), scopeInventory?.qmDrafts ?? 0],
+                  ["status", tOr("novel.backupExport.scopeStatus", "会话状态"), scopeInventory?.status ?? 0],
+                  ["canonLancedb", tOr("novel.backupExport.scopeCanonLancedb", "事实库 (Canon)"), scopeInventory?.canonLancedb ?? 0],
+                  ["rootDocs", tOr("novel.backupExport.scopeRootDocs", "书魂与规范文档"), scopeInventory?.rootDocs ?? 0],
+                ] as const
+              ).map(([key, label, count]) => (
+                <div key={key} className="flex items-center justify-between gap-2" data-testid={`backup-scope-${key}`}>
+                  <span className="truncate">{label}</span>
+                  <span className="shrink-0 font-mono text-foreground">{count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <Button onClick={() => void handleExport()} disabled={!projectPath || isBusy !== null}>
           {isBusy === "export" ? (
             <>
@@ -694,7 +842,15 @@ export function BackupExportView() {
                     {verifyResult.fileCount} {tOr("novel.backupExport.filesUnit", "个文件")}，
                     {tOr("novel.backupExport.verifyContentDigest", "内容摘要校验")}{" "}
                     {verifyResult.contentDigestVerified ? "✓" : "✗"}
+                    {verifyResult.formatVersion !== undefined
+                      ? ` · ${tOr("novel.backupExport.verifyFormatVersion", `格式版本：v${verifyResult.formatVersion}`, { version: verifyResult.formatVersion })}`
+                      : ""}
                   </p>
+                  {verifyResult.componentCounts ? (
+                    <p className="text-xs text-muted-foreground" data-testid="verify-component-summary">
+                      {formatVerifyComponents(verifyResult.componentCounts)}
+                    </p>
+                  ) : null}
                   {verifyResult.computedChecksum && (
                     <p className="font-mono text-xs break-all text-muted-foreground select-all">
                       SHA-256: {verifyResult.computedChecksum}
@@ -759,11 +915,28 @@ export function BackupExportView() {
                   <p>
                     {tOr("novel.backupExport.restoreSuccess", "恢复成功")}：
                     {restoreResult.restoredFiles} {tOr("novel.backupExport.filesUnit", "个文件")}
+                    {restoreResult.formatVersion !== undefined
+                      ? ` · ${tOr("novel.backupExport.restoreFormatVersion", `备份格式：v${restoreResult.formatVersion}`, { version: restoreResult.formatVersion })}`
+                      : ""}
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    status: {restoreResult.restoredStatus ? "✓" : "—"} · drafts:{" "}
-                    {restoreResult.restoredDrafts ? "✓" : "—"} · canon:{" "}
-                    {restoreResult.restoredCanonLancedb ? "✓" : "—"}
+                  <p className="text-xs text-muted-foreground" data-testid="restore-components-detail">
+                    {[
+                      `${tOr("novel.backupExport.restoreComponentStatus", "写作状态")}：${restoreResult.restoredStatus ? "✓" : "—"}`,
+                      `${tOr("novel.backupExport.restoreComponentDrafts", "旧草稿工件")}：${restoreResult.restoredDrafts ? "✓" : "—"}`,
+                      `${tOr("novel.backupExport.restoreComponentCanon", "事实库")}：${restoreResult.restoredCanonLancedb ? "✓" : "—"}`,
+                      ...((restoreResult.formatVersion && restoreResult.formatVersion >= 2) ||
+                      restoreResult.restoredWiki !== undefined ||
+                      restoreResult.restoredSnapshots !== undefined ||
+                      restoreResult.restoredQmDrafts !== undefined ||
+                      restoreResult.restoredRootDocs !== undefined
+                        ? [
+                            `${tOr("novel.backupExport.restoreComponentWiki", "正文与设定")}：${restoreResult.restoredWiki ? "✓" : "—"}`,
+                            `${tOr("novel.backupExport.restoreComponentSnapshots", "历史快照")}：${restoreResult.restoredSnapshots ? "✓" : "—"}`,
+                            `${tOr("novel.backupExport.restoreComponentQmDrafts", "草稿箱")}：${restoreResult.restoredQmDrafts ? "✓" : "—"}`,
+                            `${tOr("novel.backupExport.restoreComponentRootDocs", "书魂文档")}：${restoreResult.restoredRootDocs ? "✓" : "—"}`,
+                          ]
+                        : []),
+                    ].join(" · ")}
                   </p>
                   {restoreResult.autoBackupPath && (
                     <p className="text-xs text-muted-foreground">

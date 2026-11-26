@@ -141,14 +141,59 @@ describe("DeAiBatchDialog", () => {
   it("关闭：onClose 回调", () => {
     const onClose = vi.fn()
     render(<DeAiBatchDialog {...baseProps({ onClose })} />)
-    fireEvent.click(screen.getByText("关闭"))
+    const closeButtons = screen.getAllByRole("button", { name: "关闭" })
+    fireEvent.click(closeButtons[0])
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it("对话框 X 关闭（onOpenChange false）→ onClose", () => {
     const onClose = vi.fn()
     render(<DeAiBatchDialog {...baseProps({ onClose })} />)
-    fireEvent.click(screen.getByRole("button", { name: "Close" }))
+    const closeIconBtn = document.querySelector('[data-slot="dialog-close"]') as HTMLButtonElement
+    expect(closeIconBtn).not.toBeNull()
+    fireEvent.click(closeIconBtn)
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it("running=true 或 busy=true 时拦截关闭并禁用动作按钮", () => {
+    const onClose = vi.fn()
+    const onAcceptAll = vi.fn()
+    const onAcceptChapter = vi.fn()
+    const onRejectChapter = vi.fn()
+    const { rerender } = render(
+      <DeAiBatchDialog
+        {...baseProps({
+          running: true,
+          progress,
+          onClose,
+        })}
+      />,
+    )
+    expect(document.querySelector('[data-slot="dialog-close"]')).toBeNull()
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("50")
+    fireEvent.keyDown(document, { key: "Escape" })
+    expect(onClose).not.toHaveBeenCalled()
+
+    rerender(
+      <DeAiBatchDialog
+        {...baseProps({
+          running: false,
+          busy: true,
+          summary,
+          chapters: [{ chapterNumber: 1, status: "ready" }],
+          onClose,
+          onAcceptAll,
+          onAcceptChapter,
+          onRejectChapter,
+        })}
+      />,
+    )
+    expect(document.querySelector('[data-slot="dialog-close"]')).toBeNull()
+    expect(screen.getByText("全部回填").closest("button")?.disabled).toBe(true)
+    expect(screen.getByText("回填").closest("button")?.disabled).toBe(true)
+    expect(screen.getByText("拒绝").closest("button")?.disabled).toBe(true)
+    expect((screen.getByRole("button", { name: "关闭" }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.keyDown(document, { key: "Escape" })
+    expect(onClose).not.toHaveBeenCalled()
   })
 })

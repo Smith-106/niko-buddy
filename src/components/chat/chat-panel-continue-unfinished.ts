@@ -144,6 +144,7 @@ export async function runContinueUnfinished(ctx: ChatContinueUnfinishedContext):
 
   const deepStream = createDeepThinkingStreamRenderer()
   let accumulated = deepStream.updateThinking("## 继续未完成\n正在基于上一轮已完成阶段继续生成，避免从头重新思考。")
+  let hasStreamedBody = false
   let resumeThinking = ""
   let latestCheckpoint = resumeCheckpoint
   let novelSessionId: string | undefined
@@ -231,6 +232,7 @@ export async function runContinueUnfinished(ctx: ChatContinueUnfinishedContext):
           },
           onFinalContent: (content) => {
             if (!streamSessionGuardRef.current.isActive(convId, sessionId)) return
+            hasStreamedBody ||= Boolean(content.trim())
             accumulated = deepStream.appendFinal(content)
             setStreamingContent(accumulated, convId)
           },
@@ -263,6 +265,7 @@ export async function runContinueUnfinished(ctx: ChatContinueUnfinishedContext):
         undefined,
         controller.signal,
       )
+      const hasFinalContent = Boolean(generationResult.finalContent.trim())
       if (generationResult.manualReviewRequired) {
         const blockedState = await blockDeepChapterSession({
           projectPath: pp,
@@ -279,7 +282,7 @@ export async function runContinueUnfinished(ctx: ChatContinueUnfinishedContext):
           draftStatus: blockedState.draft.draft_status,
           updatedAt: blockedState.updated_at,
         }
-      } else if (generationResult.partial) {
+      } else if (generationResult.partial || !hasFinalContent) {
         // Continue-unfinished itself stalled mid-generation and preserved a
         // partial. Re-pause (draft_status "pending") so the user can retry
         // continue-unfinished again, rather than persisting a still-truncated
@@ -291,7 +294,9 @@ export async function runContinueUnfinished(ctx: ChatContinueUnfinishedContext):
           chapterNumber: resumeRoute?.chapterNumber,
           sessionId: novelSessionId,
           checkpoint: latestCheckpoint,
-          errorMessage: `写到一半的正文已留下，可以再次用「继续未完成」接着写。`,
+          errorMessage: hasFinalContent
+            ? "写到一半的正文已留下，可以再次用「继续未完成」接着写。"
+            : "模型没有返回可保存的正文。",
         })
         sessionDebug.finalWrite = {
           status: pausedState.status,
@@ -309,6 +314,8 @@ export async function runContinueUnfinished(ctx: ChatContinueUnfinishedContext):
           checkpoint: latestCheckpoint,
           finalContent: generationResult.finalContent,
           reviewResults: generationResult.reviewResults,
+          decisionGates: generationResult.decisionGates,
+          finalConsistencyReviewed: generationResult.finalConsistencyReviewed,
           // Wave 5 (v2.5.0): 上下文用量快照落盘（additive，缺省不落盘）。
           contextUsage: generationResult.contextUsage,
         })
@@ -322,17 +329,18 @@ export async function runContinueUnfinished(ctx: ChatContinueUnfinishedContext):
 
       if (!streamSessionGuardRef.current.isActive(convId, sessionId)) return
       streamSessionGuardRef.current.finish(convId, sessionId, () => {
+        const finalizedContent = hasFinalContent
+          ? deepStream.replaceFinal(generationResult.finalContent)
+          : (hasStreamedBody && accumulated) || "继续未完成失败：模型没有返回内容。"
         finalizeStream(
           appendManagedDeepChapterDraftMarker(
-            accumulated || "继续未完成失败：模型没有返回内容。",
+            finalizedContent,
             {
               conversationId: convId,
               sessionId: novelSessionId,
-              draftStatus: generationResult.manualReviewRequired
+              draftStatus: generationResult.manualReviewRequired || generationResult.partial || !hasFinalContent
                 ? "pending"
-                : generationResult.partial
-                  ? "pending"
-                  : "ready",
+                : "ready",
             },
           ),
           [],
@@ -435,6 +443,7 @@ export async function runContinueUnfinished(ctx: ChatContinueUnfinishedContext):
       {
         onToken: (token) => {
           if (!streamSessionGuardRef.current.isActive(convId, sessionId)) return
+          hasStreamedBody ||= Boolean(token.trim())
           accumulated = deepStream.appendFinal(token)
           setStreamingContent(accumulated, convId)
         },
@@ -462,11 +471,11 @@ export async function runContinueUnfinished(ctx: ChatContinueUnfinishedContext):
       finalizeStream(
         appendContextUsageMarker(
           appendManagedDeepChapterDraftMarker(
-            accumulated || "继续未完成失败：模型没有返回内容。",
+            (hasStreamedBody && accumulated) || "继续未完成失败：模型没有返回内容。",
             {
               conversationId: convId,
               sessionId: novelSessionId,
-              draftStatus: "ready",
+              draftStatus: "pending",
             },
           ),
           continueContextUsage,

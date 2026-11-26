@@ -1,10 +1,10 @@
 // Copyright (c) 2024 Niko-hub contributors. MIT License.
-import { useEffect, useCallback, useState } from "react"
+import { useEffect, useCallback, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { formatOperationError } from "@/lib/format-operation-error"
-import { logger, toErrorMessage, todayStamp } from "@/lib/utils"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { BookOpen, Brain, FileEdit, ArrowDown, ClipboardList } from "lucide-react"
+import { BookOpen, Bookmark, Brain, FileEdit, ArrowDown, ClipboardList } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -16,12 +16,11 @@ import { PlanningPanel } from "./planning-panel"
 import { ChatModelSelector } from "./chat-model-selector"
 import { useChatStore, chatMessagesToLLM, type DisplayMessage } from "@/stores/chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { chapterMarkdownHasBody, resolveChapterLengthSpec, routeTask, detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, invalidateChapterCache, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat, injectDeAiDirective, cleanGeneratedChapterContentWithTitle, acceptDraftAndIngest, detectGoldenThreeChapterRequest, isChatEditRequest, updateChapterStatus, decideChapterSaveStrategy, detectGeneratedTargetChapterNumber, commitAcceptedDeepChapterDraft, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, loadNovelSessionStatus, subscribeStatusJson } from "@/lib/novel"
+import { chapterMarkdownHasBody, resolveChapterLengthSpec, resolveChapterTitle, routeTask, detectLastGeneratedChapterNumber, findChapterFileByNumber, invalidateChapterCache, resolveTargetChapterNumberForChat, injectDeAiDirective, acceptDraftAndIngest, detectGoldenThreeChapterRequest, isChatEditRequest, detectGeneratedTargetChapterNumber, commitAcceptedDeepChapterDraft, rejectDeepChapterDraft, resolveInterruptedSessionResumeCheckpoint, loadNovelSessionStatus, subscribeStatusJson, buildManagedChapterDocument, readManagedChapterForWrite, getManagedDraftAdoptionGate, requireManagedDeepChapterDraft, rerunMainControlGates } from "@/lib/novel"
+import { formatMemoryIngest } from "@/lib/novel"
 import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
 import { activeRustStreamIds } from "@/lib/claude-cli-transport"
 import { executeIngestWrites } from "@/lib/ingest"
-import { readFile, createDirectory, fileExists } from "@/commands/fs"
-// C4 覆盖守卫：目标章节 Markdown 是否有正文的纯函数（chapter-save-strategy 模块）。
 import { normalizePath } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
 import { resolveUserVisibleReasoning } from "@/lib/user-visible-reasoning"
@@ -59,6 +58,7 @@ export function getDeepChapterToggleButtonClass(enabled: boolean): string {
 //（chat-panel 拆分第 1 步）。本地 import 供内部调用点使用，并 re-export
 // 保持既有 import 面不变。
 import { replaceManagedDeepChapterDraftMarker } from "./chat-message-markers"
+import { readManagedDeepChapterDraftMessage } from "./chat-message-content"
 export {
   appendContextUsageMarker,
   appendHiddenNovelSessionDebug,
@@ -145,8 +145,9 @@ export function ChatPanel() {
     conversationId: string
     messageId: string
     status: string
-    isSaving: boolean
+    pendingAction: "save" | "review" | "discard" | null
   } | null>(null)
+  const chapterSaveInFlight = useRef(false)
   // C4 覆盖守卫 + Soul 注入确认弹窗（chat-panel 拆分 T3：收敛至 use-chat-confirm-dialogs）。
   const {
     pendingSoulDialog, closeSoulDialog, requestSoulDialog,
@@ -199,69 +200,64 @@ export function ChatPanel() {
     }
   }, [activeConversationId, activeMessages])
 
-  const executeSaveDraftAsChapter = useCallback(async (content: string): Promise<{ success: boolean; chapterNumber: number; chapterPath: string } | null> => {
-    if (!project) return null
+  const executeSaveDraftAsChapter = useCallback(async (content: string, reviewOnly = false): Promise<{ success: boolean; chapterNumber: number; chapterPath: string } | null> => {
+    if (!project || chapterSaveInFlight.current) return null
     const latestDraftContext = getLatestAssistantDraftContext()
-    if (!latestDraftContext) return null
+    if (!latestDraftContext || latestDraftContext.assistantMessage.content !== content) return null
     const pp = normalizePath(project.path)
-    setChapterSaveState({
-      conversationId: latestDraftContext.conversationId,
-      messageId: latestDraftContext.assistantMessage.id,
-      status: "",
-      isSaving: true,
-    })
+    chapterSaveInFlight.current = true
     try {
-      const { content: cleanedContent, title: extractedTitle } = cleanGeneratedChapterContentWithTitle(
-        getCopyableAssistantContent(content),
-      )
-      const selectedChapterNumber = await readSelectedChapterNumberForFile(selectedFile)
-      const generatedTargetChapterNumber = detectGeneratedTargetChapterNumber(cleanedContent)
-      const explicitTargetPath = generatedTargetChapterNumber ? await findChapterFileByNumber(pp, generatedTargetChapterNumber) : null
-      const strategy = decideChapterSaveStrategy({
-        selectedChapterNumber: selectedChapterNumber ?? null,
-        generatedTargetChapterNumber,
-        generatedTargetExists: Boolean(explicitTargetPath),
+      setChapterSaveState({
+        conversationId: latestDraftContext.conversationId,
+        messageId: latestDraftContext.assistantMessage.id,
+        status: "",
+        pendingAction: reviewOnly ? "review" : "save",
       })
-
-      const targetChapterNumber = strategy.action === "direct_explicit_target_new"
-        ? strategy.targetChapterNumber
-        : await getNextChapterNumber(pp)
-      const chapterTitle = extractedTitle || `Chapter ${targetChapterNumber}`
-
-      const buildDraftContent = (chapterNumber: number, title: string, bodyContent: string) => {
-        const now = todayStamp()
-        const frontmatter = [
-          "---",
-          "type: chapter",
-          `chapter_number: ${chapterNumber}`,
-          "chapter_status: draft",
-          `title: \"${title}\"`,
-          `created: ${now}`,
-          "---",
-          "",
-        ].join("\n")
-        return `${frontmatter}${bodyContent}\n`
+      const messageDraft = readManagedDeepChapterDraftMessage(content)
+      if (messageDraft?.draftStatus !== "ready" || messageDraft.conversationId !== latestDraftContext.conversationId) {
+        throw new Error("The chat message is not a ready managed draft")
       }
-
-      const chapterDir = `${pp}/wiki/chapters`
-      await createDirectory(chapterDir)
-      const chapterPath = `${chapterDir}/chapter-${String(targetChapterNumber).padStart(3, "0")}.md`
-      // C4 覆盖守卫（CORR-012 落地，方案 a）：目标章节文件已存在且已有正文时，
-      // 必须先经用户显式确认才允许覆盖；确认前不调用 accept 通道、不落盘。
-      // 降级纪律：存在性查询失败不阻断写作（写入层仍会拒绝覆盖已定稿章节）；
-      // 「存在但读不出正文」保守视为有正文，仍需人工确认。
-      let existingTargetHasBody = false
-      try {
-        if (await fileExists(chapterPath)) {
-          try {
-            existingTargetHasBody = chapterMarkdownHasBody(await readFile(chapterPath))
-          } catch {
-            existingTargetHasBody = true
-          }
+      const draft = await requireManagedDeepChapterDraft(pp, latestDraftContext.conversationId, "accept")
+      const prefixLength = messageDraft.body.length - draft.content.length
+      const sameBody = messageDraft.body.endsWith(draft.content) && (prefixLength === 0 || /^(?:<think>\n[\s\S]*?\n<\/think>\n\n)+$/.test(messageDraft.body.slice(0, prefixLength)))
+      if (draft.draft_status !== "ready" || !draft.content.trim() || !draft.session_id
+        || messageDraft.conversationId !== draft.conversation_id || messageDraft.sessionId !== draft.session_id || !sameBody) {
+        throw new Error("The chat message no longer matches the managed draft")
+      }
+      if (reviewOnly) {
+        const chapterNumber = draft.chapter_number ?? detectGeneratedTargetChapterNumber(draft.content)
+        if (chapterNumber == null || !Number.isSafeInteger(chapterNumber) || chapterNumber < 1) {
+          setChapterSaveState((prev) => prev ? { ...prev, status: t("chat.draftReviewNeedsChapter"), pendingAction: null } : prev)
+          return null
         }
-      } catch {
-        existingTargetHasBody = false
+        const result = await rerunMainControlGates({
+          draftId: draft.draft_id,
+          projectPath: pp,
+          novelConfig,
+          llmConfig,
+          managedDraft: { artifact: draft, chapterNumber },
+        })
+        setChapterSaveState({
+          conversationId: latestDraftContext.conversationId,
+          messageId: latestDraftContext.assistantMessage.id,
+          status: result.adoptionGate === "passed"
+            ? t("chat.draftReviewPassed")
+            : t("chat.draftReviewIncomplete"),
+          pendingAction: null,
+        })
+        return null
       }
+      const targetChapterNumber = draft.chapter_number
+      if (targetChapterNumber === undefined || !Number.isSafeInteger(targetChapterNumber) || targetChapterNumber < 1
+        || await getManagedDraftAdoptionGate(draft) !== "passed") {
+        setChapterSaveState((prev) => prev ? { ...prev, status: t("chat.draftReviewRequired"), pendingAction: null } : prev)
+        return null
+      }
+      const chapterTitle = resolveChapterTitle(draft.content, `Chapter ${targetChapterNumber}`)
+      const chapterPath = await findChapterFileByNumber(pp, targetChapterNumber)
+        ?? `${pp}/wiki/chapters/chapter-${String(targetChapterNumber).padStart(3, "0")}.md`
+      const existingContent = await readManagedChapterForWrite(chapterPath)
+      const existingTargetHasBody = existingContent !== null && chapterMarkdownHasBody(existingContent.replace(/^\uFEFF/, ""))
       if (existingTargetHasBody) {
         const overwriteConfirmed = await requestChapterOverwriteConfirm(targetChapterNumber)
         if (!overwriteConfirmed) {
@@ -269,15 +265,14 @@ export function ChatPanel() {
             conversationId: latestDraftContext.conversationId,
             messageId: latestDraftContext.assistantMessage.id,
             status: t("chat.overwriteCancelled"),
-            isSaving: false,
+            pendingAction: null,
           })
           return { success: false, chapterNumber: targetChapterNumber, chapterPath }
         }
       }
-      const finalChapterContent = updateChapterStatus(
-        buildDraftContent(targetChapterNumber, chapterTitle, cleanedContent),
-        "final",
-      )
+      if (useWikiStore.getState().project?.path !== project.path
+        || useChatStore.getState().activeConversationId !== latestDraftContext.conversationId) return null
+      const finalChapterContent = buildManagedChapterDocument(targetChapterNumber, chapterTitle, draft.content)
       // 采纳 + 记忆回填组合收敛到共享函数（G2）：采纳实现仍由本文件注入（accept seam），
       // 顺序、降级分类与 store 回滚语义都在 lib 内单一实现；三句状态文案逐字保留（R-04）。
       const ingestOutcome = await acceptDraftAndIngest({
@@ -289,10 +284,13 @@ export function ChatPanel() {
           await commitAcceptedDeepChapterDraft({
             projectPath: pp,
             conversationId: latestDraftContext.conversationId,
-            userRequest: latestDraftContext.userRequest || cleanedContent.slice(0, 80),
+            sessionId: draft.session_id,
+            userRequest: draft.user_request,
             chapterNumber: targetChapterNumber,
             chapterPath,
             finalChapterContent,
+            expectedExistingContent: existingContent,
+            overwriteExisting: existingTargetHasBody,
           })
           invalidateChapterCache(pp)
           useChatStore.getState().setMessages(
@@ -303,6 +301,7 @@ export function ChatPanel() {
                     ...message,
                     content: replaceManagedDeepChapterDraftMarker(message.content, {
                       conversationId: latestDraftContext.conversationId,
+                      sessionId: draft.session_id,
                       draftStatus: "accepted",
                     }),
                   }),
@@ -311,7 +310,10 @@ export function ChatPanel() {
       })
 
       let nextStatus = `已接受草稿并保存为 ${chapterTitle}`
-      if (ingestOutcome.ingest === "failed") {
+      if (ingestOutcome.ingest === "ok" || ingestOutcome.failReason === "memory_pending" || ingestOutcome.failReason === "memory_incomplete"
+        || ingestOutcome.failReason === "not_final" || ingestOutcome.failReason === "ingest_error") {
+        nextStatus += ` · ${formatMemoryIngest(t, ingestOutcome)}`
+      } else if (ingestOutcome.ingest === "failed") {
         nextStatus = `已接受草稿并保存为 ${chapterTitle}，但章节摄取未完成`
       } else if (ingestOutcome.ingest === "skipped-no-model") {
         nextStatus = `已接受草稿并保存为 ${chapterTitle}，但未配置可用 AI 模型`
@@ -320,7 +322,7 @@ export function ChatPanel() {
         conversationId: latestDraftContext.conversationId,
         messageId: latestDraftContext.assistantMessage.id,
         status: nextStatus,
-        isSaving: false,
+        pendingAction: null,
       })
       useWikiStore.getState().setSelectedFile(chapterPath)
 
@@ -328,15 +330,18 @@ export function ChatPanel() {
       useWikiStore.getState().setActiveView("wiki")
       return { success: true, chapterNumber: targetChapterNumber, chapterPath }
     } catch (error) {
-      const message = toErrorMessage(error)
+      const detail = toErrorMessage(error).replace(/\s+/g, " ").trim()
+      logger.warn("Chat", "Managed draft action failed", { error: detail })
+      const base = t(reviewOnly ? "chat.draftReviewError" : "chat.draftSaveError")
       setChapterSaveState({
         conversationId: latestDraftContext.conversationId,
         messageId: latestDraftContext.assistantMessage.id,
-        status: t("chat.saveFailed", { message }),
-        isSaving: false,
+        status: detail ? `${base}（${detail.slice(0, 120)}）` : base,
+        pendingAction: null,
       })
       return { success: false, chapterNumber: 0, chapterPath: "" }
     } finally {
+      chapterSaveInFlight.current = false
       setChapterSaveState((prev) => {
         if (
           !prev ||
@@ -345,30 +350,35 @@ export function ChatPanel() {
         ) {
           return prev
         }
-        return { ...prev, isSaving: false }
+        return { ...prev, pendingAction: null }
       })
     }
-  }, [getLatestAssistantDraftContext, novelConfig, project, refreshProjectState, requestChapterOverwriteConfirm, selectedFile, t])
+  }, [getLatestAssistantDraftContext, llmConfig, novelConfig, project, refreshProjectState, requestChapterOverwriteConfirm, t])
 
   const handleSaveAsChapter = useCallback(async (content: string) => {
     await executeSaveDraftAsChapter(content)
   }, [executeSaveDraftAsChapter])
 
+  const handleReviewDraft = useCallback(async (content: string) => {
+    await executeSaveDraftAsChapter(content, true)
+  }, [executeSaveDraftAsChapter])
+
   const handleDiscardDraft = useCallback(async () => {
-    if (!project) return
+    if (!project || chapterSaveInFlight.current) return
     const latestDraftContext = getLatestAssistantDraftContext()
     if (!latestDraftContext) return
     const pp = normalizePath(project.path)
+    chapterSaveInFlight.current = true
     setChapterSaveState({
       conversationId: latestDraftContext.conversationId,
       messageId: latestDraftContext.assistantMessage.id,
       status: "",
-      isSaving: true,
+      pendingAction: "discard",
     })
     try {
       const cleanedContent = getCopyableAssistantContent(latestDraftContext.assistantMessage.content)
       const generatedTargetChapterNumber = detectGeneratedTargetChapterNumber(cleanedContent) ?? undefined
-      await rejectDeepChapterDraft({
+      const rejectedState = await rejectDeepChapterDraft({
         projectPath: pp,
         conversationId: latestDraftContext.conversationId,
         userRequest: latestDraftContext.userRequest || "draft rejected",
@@ -382,6 +392,8 @@ export function ChatPanel() {
                 ...message,
                 content: replaceManagedDeepChapterDraftMarker(message.content, {
                   conversationId: latestDraftContext.conversationId,
+                  sessionId: readManagedDeepChapterDraftMessage(message.content)?.sessionId
+                    ?? (rejectedState.current_task.conversation_id === latestDraftContext.conversationId ? rejectedState.session_id : undefined),
                   draftStatus: "rejected",
                 }),
               }),
@@ -391,7 +403,7 @@ export function ChatPanel() {
         conversationId: latestDraftContext.conversationId,
         messageId: latestDraftContext.assistantMessage.id,
         status: "已拒绝草稿",
-        isSaving: false,
+        pendingAction: null,
       })
     } catch (error) {
       const message = toErrorMessage(error)
@@ -399,9 +411,10 @@ export function ChatPanel() {
         conversationId: latestDraftContext.conversationId,
         messageId: latestDraftContext.assistantMessage.id,
         status: t("chat.saveFailed", { message }),
-        isSaving: false,
+        pendingAction: null,
       })
     } finally {
+      chapterSaveInFlight.current = false
       setChapterSaveState((prev) => {
         /* v8 ignore next */
         if (
@@ -411,7 +424,7 @@ export function ChatPanel() {
         ) {
           return prev
         }
-        return { ...prev, isSaving: false }
+        return { ...prev, pendingAction: null }
       })
     }
   }, [getLatestAssistantDraftContext, markLastAssistantDiscarded, project, t])
@@ -451,8 +464,8 @@ export function ChatPanel() {
 
   // 切换会话时不再中断后台生成——每个会话独立运行
 
-  const handleSend = useCallback(
-    async (text: string) => {
+  const executeSend = useCallback(
+    async (text: string, rethrowOnError = false) => {
       if (novelMode && !hasUsableLlm(llmConfig)) {
         addMessage("user", text)
         addMessage(
@@ -473,235 +486,326 @@ export function ChatPanel() {
       startStreaming(capturedConvId)
       const sessionId = streamSessionGuardRef.current.start(capturedConvId)
       activeStreamSessionsRef.current[capturedConvId] = sessionId
-
-      const taskRoute = novelMode ? routeTask(text) : null
-      const pp = project ? normalizePath(project.path) : ""
-      // 会话内上次生成的章节号：未保存到章节库时也能正确推进“下一章”
-      const lastGeneratedChapterNumber = novelMode && project
-        ? detectLastGeneratedChapterNumber(
-          useChatStore.getState().getActiveMessages()
-            .filter((m) => m.role === "assistant" && !m.discarded)
-            .map((m) => m.content),
-        )
-        : undefined
-      const targetChapterNumber = novelMode && project && taskRoute
-        ? await resolveTargetChapterNumberForChat({
-          projectPath: pp,
-          userRequest: text,
-          routeIntent: taskRoute.intent,
-          routeChapterNumber: taskRoute.chapterNumber,
-          selectedFile,
-          lastGeneratedChapterNumber,
-        })
-        : undefined
-      const effectiveTaskRoute = taskRoute && targetChapterNumber
-        ? {
-          ...taskRoute,
-          chapterNumber: targetChapterNumber,
-          extractedParams: {
-            ...taskRoute.extractedParams,
-            chapterNumber: String(targetChapterNumber),
-          },
-        }
-        : taskRoute
-      // Wave 3 (v2.5.0): 计划面板目标章跟随最近一次深度章节请求（未发送过 → 0 = 全书视图）
-      if (effectiveTaskRoute?.chapterNumber !== undefined) {
-        planningChapterRef.current = effectiveTaskRoute.chapterNumber
-      }
-      const effectiveChatLlmConfig = resolveEffectiveChatLlmConfig({ aiChatModel, llmConfig, providerConfigs })
-      const shouldUseEditMode = novelMode && chatEditModeEnabled && isChatEditRequest(text)
-      const goldenThreeChapter = novelMode
-        ? detectGoldenThreeChapterRequest(text, effectiveTaskRoute?.chapterNumber)
-        : undefined
-      const dismantlingDirective = novelMode && project
-        ? await loadEnabledDismantlingDirective(pp).catch(() => "")
-        : ""
-      if (shouldUseEditMode) {
-        await runChatEditMode({
-          text,
-          capturedConvId,
-          sessionId,
-          pp,
-          selectedFile,
-          effectiveChatLlmConfig,
-          finalizeStream,
-          appendStreamToken,
-          abortControllersRef,
-          activeStreamSessionsRef,
-          streamSessionGuardRef,
-        })
-        return
-      }
-      const deepChapterEnabledNow = sharedDeepChapterEnabledRef.current
-      if (novelMode && project && deepChapterEnabledNow) {
-        const interruptedResumeCheckpoint = await loadNovelSessionStatus(pp)
-          .then((status) => resolveInterruptedSessionResumeCheckpoint(status, {
-            conversationId: capturedConvId,
-            userRequest: text,
-          }))
-          .catch(() => undefined)
-        await runDeepChapterSend({
-          text,
-          capturedConvId,
-          sessionId,
-          pp,
-          effectiveTaskRoute,
-          effectiveChatLlmConfig,
-          goldenThreeChapter,
-          dismantlingDirective,
-          novelConfig,
-          planningPlan,
-          setPlanningPlan,
-          setStreamingContent,
-          finalizeStream,
-          abortControllersRef,
-          activeStreamSessionsRef,
-          streamSessionGuardRef,
-          novelManagedStopRef,
-          interruptedResumeCheckpoint,
-          autoResumedFromStatus: Boolean(interruptedResumeCheckpoint),
-          resumeCheckpoint: interruptedResumeCheckpoint,
-        })
-        return
-      }
-      const systemMessages: LLMMessage[] = []
-      let queryRefs: { title: string; path: string }[] = []
-      let langReminder: string | undefined
-      if (project) {
-        const contextResult = await assembleChatContext({
-          text,
-          project,
-          novelMode,
-          effectiveTaskRoute,
-          goldenThreeChapter,
-          dismantlingDirective,
-          llmConfig,
-          requestSoulDialog,
-          setReplayContextPack,
-        })
-        if (contextResult.cancelled) {
-          streamSessionGuardRef.current.finish(capturedConvId, sessionId, () => {
-            finalizeStream(contextResult.message, undefined, capturedConvId)
-            delete activeStreamSessionsRef.current[capturedConvId]
-          })
-          delete abortControllersRef.current[capturedConvId]
-          return
-        }
-        systemMessages.push(...contextResult.systemMessages)
-        queryRefs = contextResult.queryRefs
-        langReminder = contextResult.langReminder
-      }
-
-      // ── Conversation history with count limit ────────────────
-      // Only include messages from the active conversation, last N messages
-      const activeConvMessages = useChatStore.getState().getActiveMessages()
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .slice(-maxHistoryMessages)
-
-      // Prepend the language reminder onto the final user turn rather than
-      // inserting a second {role:"system"} between history and the final
-      // user message. vLLM / llama.cpp / Ollama drive their chat templates
-      // from HF Jinja, and Qwen3-family templates enforce "system only at
-      // index 0" — a mid-conversation system message gets rejected with
-      // "System message must be at the beginning." (HTTP 400). OpenAI and
-      // Anthropic are more lenient, but keeping a single system at the top
-      // is the safest shape across every OpenAI-compatible backend.
-      const historyMessages = chatMessagesToLLM(activeConvMessages)
-      let llmMessages: LLMMessage[] = [...systemMessages, ...historyMessages]
-      if (langReminder && historyMessages.length > 0) {
-        const lastIdx = llmMessages.length - 1
-        const last = llmMessages[lastIdx]
-        /* v8 ignore next */
-        if (last && last.role === "user") {
-          llmMessages = [
-            ...llmMessages.slice(0, lastIdx),
-            { role: "user", content: `[${langReminder}]\n\n${last.content}` },
-          ]
-        }
-      }
-
-      const conversations = useChatStore.getState().conversations
-      // 使用 capturedConvId 而非闭包中的 activeConversationId，防止切换会话后取错会话
-      const activeConv = conversations.find(c => c.id === capturedConvId)
-      const deAiMode = activeConv?.deAiMode ?? false
-      if (deAiMode && llmMessages.length > 0) {
-        const lastIdx = llmMessages.length - 1
-        const last = llmMessages[lastIdx]
-        /* v8 ignore next */
-        if (last && last.role === "user" && typeof last.content === "string") {
-          llmMessages = [
-            ...llmMessages.slice(0, lastIdx),
-            { role: "user", content: injectDeAiDirective(last.content, deAiMode) },
-          ]
-        }
-      }
-
+      // R2-U01/U06: startStreaming 后立即创建并注册 AbortController，装配期点击停止可即时中止
       const controller = new AbortController()
       abortControllersRef.current[capturedConvId] = controller
 
-      let accumulated = ""
-      let thinkingOpen = false
-
-      const appendReasoning = (token: string) => {
-        if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
-        if (!token) return
-        if (!thinkingOpen) {
-          thinkingOpen = true
-          accumulated += "<think>"
-          appendStreamToken("<think>", capturedConvId)
+      const isStillActive = () =>
+        !controller.signal.aborted && streamSessionGuardRef.current.isActive(capturedConvId, sessionId)
+      const cleanupCancelled = () => {
+        streamSessionGuardRef.current.finish(capturedConvId, sessionId, () => {
+          finalizeStream("已停止生成。", [], capturedConvId)
+          if (activeStreamSessionsRef.current[capturedConvId] === sessionId) {
+            delete activeStreamSessionsRef.current[capturedConvId]
+          }
+        })
+        if (abortControllersRef.current[capturedConvId] === controller) {
+          delete abortControllersRef.current[capturedConvId]
         }
-        accumulated += token
-        appendStreamToken(token, capturedConvId)
+        if (activeStreamSessionsRef.current[capturedConvId] === sessionId) {
+          delete activeStreamSessionsRef.current[capturedConvId]
+        }
       }
 
-      const closeReasoning = () => {
-        if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
-        if (!thinkingOpen) return
-        thinkingOpen = false
-        accumulated += "</think>"
-        appendStreamToken("</think>", capturedConvId)
-      }
-
-      await streamChat(
-        effectiveChatLlmConfig,
-        llmMessages,
-        {
-          onToken: (token) => {
-            if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
-            closeReasoning()
-            accumulated += token
-            appendStreamToken(token, capturedConvId)
-          },
-          onReasoningToken: appendReasoning,
-          onDone: () => {
+      try {
+        const taskRoute = novelMode ? routeTask(text) : null
+        const pp = project ? normalizePath(project.path) : ""
+        // 会话内上次生成的章节号：未保存到章节库时也能正确推进“下一章”
+        const lastGeneratedChapterNumber = novelMode && project
+          ? detectLastGeneratedChapterNumber(
+            useChatStore.getState().getActiveMessages()
+              .filter((m) => m.role === "assistant" && !m.discarded)
+              .map((m) => m.content),
+          )
+          : undefined
+        const targetChapterNumber = novelMode && project && taskRoute
+          ? await resolveTargetChapterNumberForChat({
+            projectPath: pp,
+            userRequest: text,
+            routeIntent: taskRoute.intent,
+            routeChapterNumber: taskRoute.chapterNumber,
+            selectedFile,
+            lastGeneratedChapterNumber,
+          })
+          : undefined
+        if (!isStillActive()) {
+          cleanupCancelled()
+          return
+        }
+        const effectiveTaskRoute = taskRoute && targetChapterNumber
+          ? {
+            ...taskRoute,
+            chapterNumber: targetChapterNumber,
+            extractedParams: {
+              ...taskRoute.extractedParams,
+              chapterNumber: String(targetChapterNumber),
+            },
+          }
+          : taskRoute
+        // Wave 3 (v2.5.0): 计划面板目标章跟随最近一次深度章节请求（未发送过 → 0 = 全书视图）
+        if (effectiveTaskRoute?.chapterNumber !== undefined) {
+          planningChapterRef.current = effectiveTaskRoute.chapterNumber
+        }
+        const effectiveChatLlmConfig = resolveEffectiveChatLlmConfig({ aiChatModel, llmConfig, providerConfigs })
+        const shouldUseEditMode = novelMode && chatEditModeEnabled && isChatEditRequest(text)
+        const goldenThreeChapter = novelMode
+          ? detectGoldenThreeChapterRequest(text, effectiveTaskRoute?.chapterNumber)
+          : undefined
+        const dismantlingDirective = novelMode && project
+          ? await loadEnabledDismantlingDirective(pp).catch((err) => {
+              logger.warn("ChatPanel", "loadEnabledDismantlingDirective failed, continuing without it", {
+                error: toErrorMessage(err),
+              })
+              return ""
+            })
+          : ""
+        if (!isStillActive()) {
+          cleanupCancelled()
+          return
+        }
+        if (shouldUseEditMode) {
+          await runChatEditMode({
+            text,
+            capturedConvId,
+            sessionId,
+            pp,
+            selectedFile,
+            effectiveChatLlmConfig,
+            controller,
+            finalizeStream,
+            appendStreamToken,
+            abortControllersRef,
+            activeStreamSessionsRef,
+            streamSessionGuardRef,
+          })
+          return
+        }
+        const deepChapterEnabledNow = sharedDeepChapterEnabledRef.current
+        if (novelMode && project && deepChapterEnabledNow) {
+          const interruptedResumeCheckpoint = await loadNovelSessionStatus(pp)
+            .then((status) => resolveInterruptedSessionResumeCheckpoint(status, {
+              conversationId: capturedConvId,
+              userRequest: text,
+            }))
+            .catch((err) => {
+              logger.warn("ChatPanel", "loadNovelSessionStatus failed before deep chapter send", {
+                error: toErrorMessage(err),
+              })
+              return undefined
+            })
+          if (!isStillActive()) {
+            cleanupCancelled()
+            return
+          }
+          await runDeepChapterSend({
+            text,
+            capturedConvId,
+            sessionId,
+            pp,
+            effectiveTaskRoute,
+            effectiveChatLlmConfig,
+            goldenThreeChapter,
+            dismantlingDirective,
+            novelConfig,
+            planningPlan,
+            setPlanningPlan,
+            setStreamingContent,
+            finalizeStream,
+            abortControllersRef,
+            activeStreamSessionsRef,
+            streamSessionGuardRef,
+            novelManagedStopRef,
+            interruptedResumeCheckpoint,
+            autoResumedFromStatus: Boolean(interruptedResumeCheckpoint),
+            resumeCheckpoint: interruptedResumeCheckpoint,
+          })
+          return
+        }
+        const systemMessages: LLMMessage[] = []
+        let queryRefs: { title: string; path: string }[] = []
+        let langReminder: string | undefined
+        if (project) {
+          const contextResult = await assembleChatContext({
+            text,
+            project,
+            novelMode,
+            effectiveTaskRoute,
+            goldenThreeChapter,
+            dismantlingDirective,
+            llmConfig,
+            signal: controller.signal,
+            requestSoulDialog,
+            setReplayContextPack,
+          })
+          if (!isStillActive()) {
+            cleanupCancelled()
+            return
+          }
+          if (contextResult.cancelled) {
             streamSessionGuardRef.current.finish(capturedConvId, sessionId, () => {
+              finalizeStream(contextResult.message, undefined, capturedConvId)
+              if (activeStreamSessionsRef.current[capturedConvId] === sessionId) {
+                delete activeStreamSessionsRef.current[capturedConvId]
+              }
+            })
+            if (abortControllersRef.current[capturedConvId] === controller) {
+              delete abortControllersRef.current[capturedConvId]
+            }
+            return
+          }
+          systemMessages.push(...contextResult.systemMessages)
+          queryRefs = contextResult.queryRefs
+          langReminder = contextResult.langReminder
+        }
+
+        // ── Conversation history with count limit ────────────────
+        // Only include messages from the active conversation, last N messages
+        const activeConvMessages = useChatStore.getState().getActiveMessages()
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .slice(-maxHistoryMessages)
+
+        // Prepend the language reminder onto the final user turn rather than
+        // inserting a second {role:"system"} between history and the final
+        // user message. vLLM / llama.cpp / Ollama drive their chat templates
+        // from HF Jinja, and Qwen3-family templates enforce "system only at
+        // index 0" — a mid-conversation system message gets rejected with
+        // "System message must be at the beginning." (HTTP 400). OpenAI and
+        // Anthropic are more lenient, but keeping a single system at the top
+        // is the safest shape across every OpenAI-compatible backend.
+        const historyMessages = chatMessagesToLLM(activeConvMessages)
+        let llmMessages: LLMMessage[] = [...systemMessages, ...historyMessages]
+        if (langReminder && historyMessages.length > 0) {
+          const lastIdx = llmMessages.length - 1
+          const last = llmMessages[lastIdx]
+          /* v8 ignore next */
+          if (last && last.role === "user") {
+            llmMessages = [
+              ...llmMessages.slice(0, lastIdx),
+              { role: "user", content: `[${langReminder}]\n\n${last.content}` },
+            ]
+          }
+        }
+
+        const conversations = useChatStore.getState().conversations
+        // 使用 capturedConvId 而非闭包中的 activeConversationId，防止切换会话后取错会话
+        const activeConv = conversations.find(c => c.id === capturedConvId)
+        const deAiMode = activeConv?.deAiMode ?? false
+        if (deAiMode && llmMessages.length > 0) {
+          const lastIdx = llmMessages.length - 1
+          const last = llmMessages[lastIdx]
+          /* v8 ignore next */
+          if (last && last.role === "user" && typeof last.content === "string") {
+            llmMessages = [
+              ...llmMessages.slice(0, lastIdx),
+              { role: "user", content: injectDeAiDirective(last.content, deAiMode) },
+            ]
+          }
+        }
+
+        if (!isStillActive()) {
+          cleanupCancelled()
+          return
+        }
+
+        let accumulated = ""
+        let thinkingOpen = false
+
+        const appendReasoning = (token: string) => {
+          if (!isStillActive()) return
+          if (!token) return
+          if (!thinkingOpen) {
+            thinkingOpen = true
+            accumulated += "<think>"
+            appendStreamToken("<think>", capturedConvId)
+          }
+          accumulated += token
+          appendStreamToken(token, capturedConvId)
+        }
+
+        const closeReasoning = () => {
+          if (!isStillActive()) return
+          if (!thinkingOpen) return
+          thinkingOpen = false
+          accumulated += "</think>"
+          appendStreamToken("</think>", capturedConvId)
+        }
+
+        await streamChat(
+          effectiveChatLlmConfig,
+          llmMessages,
+          {
+            onToken: (token) => {
+              if (!isStillActive()) return
               closeReasoning()
-              finalizeStream(accumulated, queryRefs, capturedConvId)
-              delete activeStreamSessionsRef.current[capturedConvId]
-              delete abortControllersRef.current[capturedConvId]
-            })
+              accumulated += token
+              appendStreamToken(token, capturedConvId)
+            },
+            onReasoningToken: appendReasoning,
+            onDone: () => {
+              streamSessionGuardRef.current.finish(capturedConvId, sessionId, () => {
+                closeReasoning()
+                finalizeStream(accumulated, queryRefs, capturedConvId)
+                if (activeStreamSessionsRef.current[capturedConvId] === sessionId) {
+                  delete activeStreamSessionsRef.current[capturedConvId]
+                }
+                if (abortControllersRef.current[capturedConvId] === controller) {
+                  delete abortControllersRef.current[capturedConvId]
+                }
+              })
+            },
+            onError: (err) => {
+              streamSessionGuardRef.current.finish(capturedConvId, sessionId, () => {
+                // F-16 (CWE-532 / PAT-DC1-MSG-UI): err.message from the LLM transport
+                // may carry provider endpoint URL / auth header — strip before surfacing
+                // in the user-visible chat stream. Raw message logged to console only.
+                // (Twin of ingest.ts:1532/1622 startIngest/executeIngestWrites sites,
+                // PAT-G2 16th recurrence — chat-panel main stream was the missed twin.)
+                const raw = toErrorMessage(err)
+                console.error("[chat] stream error:", raw)
+                const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+                finalizeStream(`出错：${safe}`, undefined, capturedConvId)
+                if (activeStreamSessionsRef.current[capturedConvId] === sessionId) {
+                  delete activeStreamSessionsRef.current[capturedConvId]
+                }
+                if (abortControllersRef.current[capturedConvId] === controller) {
+                  delete abortControllersRef.current[capturedConvId]
+                }
+              })
+            },
           },
-          onError: (err) => {
-            streamSessionGuardRef.current.finish(capturedConvId, sessionId, () => {
-              // F-16 (CWE-532 / PAT-DC1-MSG-UI): err.message from the LLM transport
-              // may carry provider endpoint URL / auth header — strip before surfacing
-              // in the user-visible chat stream. Raw message logged to console only.
-              // (Twin of ingest.ts:1532/1622 startIngest/executeIngestWrites sites,
-              // PAT-G2 16th recurrence — chat-panel main stream was the missed twin.)
-              const raw = toErrorMessage(err)
-              console.error("[chat] stream error:", raw)
-              const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
-              finalizeStream(`出错：${safe}`, undefined, capturedConvId)
-              delete activeStreamSessionsRef.current[capturedConvId]
-              delete abortControllersRef.current[capturedConvId]
-            })
-          },
-        },
-        controller.signal,
-        { reasoning: resolveUserVisibleReasoning(effectiveChatLlmConfig.reasoning) },
-      )
+          controller.signal,
+          { reasoning: resolveUserVisibleReasoning(effectiveChatLlmConfig.reasoning) },
+        )
+        if (controller.signal.aborted) {
+          cleanupCancelled()
+        }
+      } catch (err) {
+        const raw = toErrorMessage(err)
+        console.error("[chat] send failed:", raw)
+        const safe = raw.replace(/https?:\/\/[^\s"']+/g, "[url]").replace(/(Bearer|Authorization|api[-_]?key)\s*[:=]?\s*[^\s"']+/gi, "[redacted]")
+        streamSessionGuardRef.current.finish(capturedConvId, sessionId, () => {
+          finalizeStream(`出错：${safe}`, undefined, capturedConvId)
+          if (activeStreamSessionsRef.current[capturedConvId] === sessionId) {
+            delete activeStreamSessionsRef.current[capturedConvId]
+          }
+        })
+        if (abortControllersRef.current[capturedConvId] === controller) {
+          delete abortControllersRef.current[capturedConvId]
+        }
+        if (activeStreamSessionsRef.current[capturedConvId] === sessionId) {
+          delete activeStreamSessionsRef.current[capturedConvId]
+        }
+        if (rethrowOnError) throw err
+      }
     },
     [aiChatModel, llmConfig, providerConfigs, chatEditModeEnabled, addMessage, startStreaming, setStreamingContent, appendStreamToken, finalizeStream, createConversation, maxHistoryMessages, requestSoulDialog, project, novelMode, novelConfig, selectedFile, planningPlan, setPlanningPlan],
+  )
+
+  const handleSend = useCallback(
+    async (text: string) => {
+      await executeSend(text, false)
+    },
+    [executeSend],
   )
 
   const handleStop = useCallback(() => {
@@ -790,7 +894,7 @@ export function ChatPanel() {
     // R4 共识（deepseek+glm）: 先把末条用户消息从 store 移除、再浮空调用 handleSend，
     // 一旦失败消息永久丢失且成为未处理 rejection。改为捕获失败并恢复该消息。
     try {
-      await handleSend(lastUserMsg.content)
+      await executeSend(lastUserMsg.content, true)
     } catch (err) {
       useChatStore.setState((s) =>
         s.messages.some((m) => m.id === lastUserMsg.id) ? {} : { messages: [...s.messages, lastUserMsg] }
@@ -799,7 +903,7 @@ export function ChatPanel() {
         error: toErrorMessage(err),
       })
     }
-  }, [removeLastAssistantMessage, handleSend])
+  }, [removeLastAssistantMessage, executeSend])
 
   const handleContinueNextChapter = useCallback(() => {
     if (isStreaming) return
@@ -935,12 +1039,15 @@ export function ChatPanel() {
                           novelMode={novelMode}
                           projectPath={project?.path ?? null}
                           onSaveAsChapter={handleSaveAsChapter}
+                          onReviewDraft={isLastAssistant ? handleReviewDraft : undefined}
                           onAcceptAndContinueNext={isLastAssistant ? handleAcceptAndContinueNextChapter : undefined}
                           onDiscardDraft={isLastAssistant ? handleDiscardDraft : undefined}
                           onContinueNextChapter={isLastAssistant ? handleContinueNextChapter : undefined}
                           onContinueUnfinished={isLastAssistant ? () => handleContinueUnfinished(msg) : undefined}
                           saveStatus={messageSaveState?.status}
-                          isSaving={messageSaveState?.isSaving ?? false}
+                          isSaving={messageSaveState?.pendingAction === "save"}
+                          isReviewing={messageSaveState?.pendingAction === "review"}
+                          isDiscarding={messageSaveState?.pendingAction === "discard"}
                         />
                       </div>
                     )
@@ -974,7 +1081,7 @@ export function ChatPanel() {
                 className="mx-3 mb-2 shrink-0 overflow-hidden rounded-lg border bg-background text-sm"
                 data-testid="context-pack-replay-collapsible"
               >
-                <summary className="cursor-pointer select-none list-none px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/40" role="note">
+                <summary className="cursor-pointer select-none list-none px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/40">
                   <span className="flex items-center gap-2">
                     ContextPack 决策回放（最近一次装配）
                     <span className="shrink-0 rounded bg-muted/60 px-1.5 py-0.5">{t("chat.expandHint")}</span>
@@ -1028,6 +1135,15 @@ export function ChatPanel() {
               />
             </div>
           )}
+          {!exemplarDialog.open && exemplarFeedback ? (
+            <div
+              role="status"
+              data-testid="exemplar-inline-feedback"
+              className="px-3 pt-1.5 text-xs text-muted-foreground"
+            >
+              {exemplarFeedback}
+            </div>
+          ) : null}
           <ChatInput
             onSend={handleSend}
             onStop={handleStop}
@@ -1050,18 +1166,20 @@ export function ChatPanel() {
                                 variant="ghost"
                                 size="icon"
                                 className="relative"
+                                onMouseDown={(e) => e.preventDefault()}
                                 onClick={openExemplarDialogFromSelection}
                                 title={t("chat.markExemplar")}
                                 aria-label={t("chat.markExemplar")}
                               />
                             )}
                           >
+                            <Bookmark className="h-4 w-4 shrink-0" aria-hidden="true" />
                             {/* ③-6 审计修复：计数徽标 */}
                             {exemplarCount > 0 ? (
                               <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-1 text-xs font-bold leading-none text-primary-foreground" aria-label={`已标记 ${exemplarCount} 条范例`}>{exemplarCount}</span>
                             ) : null}
-                            <TooltipContent>{t("chat.markExemplarUserAnchor")}</TooltipContent>
                           </TooltipTrigger>
+                          <TooltipContent side="top">{t("chat.markExemplarUserAnchor")}</TooltipContent>
                         </Tooltip>
                         <Button
                           type="button"

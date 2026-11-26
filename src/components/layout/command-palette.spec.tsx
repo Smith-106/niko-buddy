@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup } from "@testing-library/react"
 import { render, screen, fireEvent, setupDomGlobals } from "@/test-helpers/component-test-utils"
-import { CommandPalette } from "./command-palette"
+import { CommandPalette, buildChapterKeywords } from "./command-palette"
 
 const mocks = vi.hoisted(() => {
   const state: {
@@ -247,5 +247,60 @@ describe("CommandPalette", () => {
     renderPalette()
     expect(() => fireEvent.keyDown(input(), { key: "a" })).not.toThrow()
     expect(mocks.state.setActiveView).not.toHaveBeenCalled()
+  })
+
+  it("U-7：100 章长篇下空查询优先展示全部视图与前 20 章，输入「第12章」「第85章」精准命中", () => {
+    mocks.state.fileTree = [
+      {
+        name: "chapters",
+        path: "/proj/wiki/chapters",
+        is_dir: true,
+        children: Array.from({ length: 100 }, (_, idx) => {
+          const num = String(idx + 1).padStart(3, "0")
+          return {
+            name: `chapter-${num}.md`,
+            path: `/proj/wiki/chapters/chapter-${num}.md`,
+            is_dir: false,
+          }
+        }),
+      },
+    ]
+    const { onOpenChange } = renderPalette()
+    const idleLabels = optionLabels()
+    // 视图全部优先可见，不被百章挤出
+    expect(idleLabels.some((l) => l.includes("novel.nav.wiki"))).toBe(true)
+    expect(idleLabels.some((l) => l.includes("novel.nav.mainControl"))).toBe(true)
+    expect(idleLabels.some((l) => l.includes("novel.nav.search"))).toBe(true)
+    expect(idleLabels.some((l) => l.includes("novel.nav.settings"))).toBe(true)
+    // 空查询保留前 20 章预览
+    expect(idleLabels.some((l) => l.includes("chapter-001"))).toBe(true)
+    expect(idleLabels.some((l) => l.includes("chapter-020"))).toBe(true)
+    expect(idleLabels.some((l) => l.includes("chapter-021"))).toBe(false)
+
+    // 「第12章」命中 chapter-012.md
+    fireEvent.change(input(), { target: { value: "第12章" } })
+    const match12 = optionLabels()
+    expect(match12.some((l) => l.includes("chapter-012"))).toBe(true)
+    expect(match12.some((l) => l.includes("chapter-001"))).toBe(false)
+    fireEvent.keyDown(input(), { key: "Enter" })
+    expect(mocks.state.setActiveView).toHaveBeenCalledWith("wiki")
+    expect(mocks.state.setSelectedFile).toHaveBeenCalledWith("/proj/wiki/chapters/chapter-012.md")
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+
+    // 超过前 20 章的「第85章」在检索时同样命中
+    fireEvent.change(input(), { target: { value: "第85章" } })
+    const match85 = optionLabels()
+    expect(match85.some((l) => l.includes("chapter-085"))).toBe(true)
+  })
+
+  it("U-7：buildChapterKeywords 支持多格式章号提取并在无章号时回退 path", () => {
+    expect(buildChapterKeywords("chapter-012", "/proj/wiki/chapters/chapter-012.md")).toBe(
+      "第12章 第012章 chapter12 ch12 /proj/wiki/chapters/chapter-012.md",
+    )
+    expect(buildChapterKeywords("ch_3", "/proj/wiki/chapters/ch_3.md")).toContain("第3章 第003章 chapter3 ch3")
+    expect(buildChapterKeywords("第7章 暗夜", "/proj/wiki/chapters/第7章 暗夜.md")).toContain("第7章 第007章 chapter7 ch7")
+    expect(buildChapterKeywords("012-序幕", "/proj/wiki/chapters/012-序幕.md")).toContain("第12章 第012章 chapter12 ch12")
+    expect(buildChapterKeywords("prologue", "/proj/wiki/chapters/prologue.md")).toBe("/proj/wiki/chapters/prologue.md")
+    expect(buildChapterKeywords("chapter-000", "/proj/wiki/chapters/chapter-000.md")).toBe("/proj/wiki/chapters/chapter-000.md")
   })
 })

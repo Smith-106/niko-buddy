@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { CheckCircle2, CircleAlert, Flame, Loader2, Play, Square, Sparkles, Wand2 } from "lucide-react"
+import { CheckCircle2, CircleAlert, Copy, Flame, Loader2, Play, Save, Square, Sparkles, Wand2 } from "lucide-react"
 import { fileExists } from "@/commands/fs"
 import { WikiReader } from "@/components/editor/wiki-reader"
 import {
@@ -14,10 +14,13 @@ import {
   resolveWikiPath,
   runMainControlAgent,
   saveTraceSnapshot,
+  writeDraft,
   type ConfirmedPlanRecord,
   type ConfirmedPlanSource,
+  type DeepChapterDecisionGateKey,
   type DeepChapterGateVerdict,
   type DeepChapterGenerationResult,
+  type DraftGateStatus,
   type MainControlResult,
   type MainControlStep,
   type MainControlTraceActivity,
@@ -27,6 +30,7 @@ import {
   type TraceSnapshotLoad,
 } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
+import { useMainControlRuntimeStore } from "@/stores/main-control-runtime-store"
 import { resolveAiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type { AgentActivityEvent, AgentActivityKind } from "@/lib/agent/types"
 import { cn, toErrorMessage } from "@/lib/utils"
@@ -38,7 +42,13 @@ import { PipelineMotionView } from "./pipeline-motion-view"
 import { ForeshadowingPanel } from "./foreshadowing-panel"
 import { WorkHeatmapPanel } from "./work-heatmap-panel"
 import { LiveExecutionView } from "./live-execution-view"
-import { clearMainControlGoalHandoff, peekMainControlGoalHandoff } from "./main-control-handoff"
+import {
+  clearMainControlGoalHandoff,
+  clearMainControlTabHandoff,
+  peekMainControlGoalHandoff,
+  peekMainControlTabHandoff,
+  type MainControlTab,
+} from "./main-control-handoff"
 
 export interface MainControlViewProps {
   /** 项目 id（与其它视图签名一致；路径取 store 里的 project.path）。 */
@@ -170,6 +180,48 @@ const DEEP_GATE_VERDICT_KEYS: Record<DeepChapterGateVerdict, string> = {
   pending: "mainControl.draftGatePending",
 }
 
+const DEEP_GATE_ORDER: readonly DeepChapterDecisionGateKey[] = ["consistency", "anti_ai", "quality"]
+
+const DEEP_GATE_LABEL_KEYS: Record<DeepChapterDecisionGateKey, string> = {
+  consistency: "mainControl.draftGateConsistency",
+  anti_ai: "mainControl.draftGateAntiAi",
+  quality: "mainControl.draftGateQuality",
+}
+
+/**
+ * 按真实门控结论推导 `.qm-drafts/` 落盘门禁态（与 decideDraftAdoptionGate 同源，严禁伪造 passed）。
+ */
+function resolveRealDeepAdoptionGate(output: DeepChapterGenerationResult): DraftGateStatus {
+  if (output.partial) return "partial"
+  const gates = output.decisionGates
+  if (output.manualReviewRequired || gates.overall === "manual_review") return "manual_review"
+  const nonBlockingQualityUpgrade =
+    gates.consistency.status === "passed" &&
+    gates.anti_ai.status === "passed" &&
+    gates.quality.status === "failed" &&
+    !gates.quality.findings.some((item) => item.severity === "error")
+  const hasBlockingQualityError =
+    gates.quality.status === "failed" &&
+    gates.quality.findings.some((item) => item.severity === "error")
+  if (
+    gates.consistency.status === "failed" ||
+    gates.anti_ai.status === "failed" ||
+    hasBlockingQualityError ||
+    (gates.overall === "fail" && !nonBlockingQualityUpgrade)
+  ) {
+    return "blocked"
+  }
+  if (
+    output.finalConsistencyReviewed === true &&
+    gates.consistency.status === "passed" &&
+    (gates.consistency.verdict === "pass" || gates.consistency.verdict === "warning") &&
+    (gates.overall === "pass" || gates.overall === "warning" || nonBlockingQualityUpgrade)
+  ) {
+    return "passed"
+  }
+  return "unassessed"
+}
+
 /**
  * 阶段事件类别 → 文案键（固定映射表）。
  * 不用模板字面量拼 key（避免把 kind 插进 key 里）：未命中的 kind 会渲染出原始 key，
@@ -202,6 +254,22 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   // R-02：绝不硬编码默认档，否则设置改了主控仍跑 standard。
   const aiWorkflowMode = useWikiStore((s) => s.aiWorkflowMode)
   const setActiveView = useWikiStore((s) => s.setActiveView)
+  const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
+  // P0-04：深章运行态/产出/阶段活动放纯内存 Store，同项目切页保活，换项目立即 abort 并清零。
+  const deepRunning = useMainControlRuntimeStore((s) => s.deepRunning)
+  const deepOutput = useMainControlRuntimeStore((s) => s.deepOutput)
+  const deepChapterNumber = useMainControlRuntimeStore((s) => s.deepChapterNumber)
+  const deepStartAt = useMainControlRuntimeStore((s) => s.deepStartAt)
+  const deepError = useMainControlRuntimeStore((s) => s.deepError)
+  const deepCancelledAt = useMainControlRuntimeStore((s) => s.deepCancelledAt)
+  const deepActivities = useMainControlRuntimeStore((s) => s.deepActivities)
+  useEffect(() => {
+    useMainControlRuntimeStore.getState().syncProject(projectPath)
+  }, [projectPath])
+  const [deepSavingDraft, setDeepSavingDraft] = useState(false)
+  const [deepSaveNote, setDeepSaveNote] = useState<{ text: string; isError: boolean } | null>(null)
+  const [deepCopyNote, setDeepCopyNote] = useState<string | null>(null)
+  const [deepGatesOpen, setDeepGatesOpen] = useState(false)
   // 章节页「生成本章草稿」交接的目标只预填，不自动执行（批次二·8）。
   const [goal, setGoal] = useState(() => peekMainControlGoalHandoff() ?? "")
   /**
@@ -226,20 +294,16 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   }, [])
   useEffect(() => {
     clearMainControlGoalHandoff()
+    clearMainControlTabHandoff()
   }, [])
   const [steps, setSteps] = useState<MainControlStep[]>([])
   const [result, setResult] = useState<MainControlResult | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cancelledAt, setCancelledAt] = useState<number | null>(null)
-  // R03=a（TASK-008）：显式「跑深章」入口的独立运行态与产出（与主控 Agent 运行互不覆盖）。
-  const [deepRunning, setDeepRunning] = useState(false)
-  const [deepOutput, setDeepOutput] = useState<DeepChapterGenerationResult | null>(null)
-  // RV-13：深章入口自己的运行起点（卡住判定以「最近一次进展」为基准，起点是第一个进展）。
-  const [deepStartAt, setDeepStartAt] = useState<number | null>(null)
   // 页内分层（IA：跑流程 / 收草稿 / 本章上下文分开，不再上下堆一屏；只切换展示，不碰执行语义）。
   // 批次三·12：AI 实况并入主控，作为第四个页签（独立页路由保留给旧深链）。
-  const [tab, setTab] = useState<"run" | "drafts" | "context" | "live">("run")
+  const [tab, setTab] = useState<MainControlTab>(() => peekMainControlTabHandoff() ?? "run")
   // 管线动态：默认展开实况拓扑，开始运行自动展开，无需等磁盘轮询。
   const [motionOpen, setMotionOpen] = useState(true)
   // PAT-U5（ISS-20260712-006 batch-2）：折叠触发点补 aria-controls + region。
@@ -273,8 +337,6 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   // RV-002 ②：运行结束后才发生的观测（记忆回填）也要进同一个 activities 列表。
   const [extraActivities, setExtraActivities] = useState<AgentActivityEvent[]>([])
   const abortRef = useRef<AbortController | null>(null)
-  // 深章入口自己的中止句柄（与主控 Agent 的 abortRef 分开，两条运行互不顶掉）。
-  const deepAbortRef = useRef<AbortController | null>(null)
 
   /**
    * 当前章节：优先「已打开的文件」（与采纳块同一数据源 selectedFile），
@@ -290,10 +352,13 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const liveTrace = useMemo(() => buildTraceEntries(steps), [steps])
   // D5=A：阶段过程事件独立通道（缺失即空数组，不伪造）。
   const runActivities = useMemo(() => result?.activities ?? [], [result])
-  // 同一条通道的两个来源：本次运行（stage_output / consensus） + 采纳后回填（ingest）。
+  // 同一条通道的三个来源：本次 Agent 运行 + 内存保活的深章阶段产出 + 采纳后回填（ingest）。
   const liveActivities = useMemo(
-    () => (extraActivities.length > 0 ? [...runActivities, ...extraActivities] : runActivities),
-    [runActivities, extraActivities],
+    () =>
+      deepActivities.length > 0 || extraActivities.length > 0
+        ? [...runActivities, ...deepActivities, ...extraActivities]
+        : runActivities,
+    [runActivities, deepActivities, extraActivities],
   )
   /**
    * 回放快照（展示用）。
@@ -593,14 +658,16 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   const stop = () => {
     abortRef.current?.abort()
     // 深章入口与主控 Agent 共用同一个「中止」出口（两条都在跑时一起停）。
-    deepAbortRef.current?.abort()
+    const now = Date.now()
+    if (deepRunning) {
+      useMainControlRuntimeStore.getState().abortDeepRun(now)
+    }
     setRunning(false)
-    setDeepRunning(false)
-    setCancelledAt(Date.now())
+    setCancelledAt(now)
   }
 
   /**
-   * R03=a（TASK-008）：显式「跑深章」入口。
+   * R03=a（TASK-008）+ P0-04：显式「跑深章」入口（纯内存 store 切页保活）。
    *
    * 为什么不是「拼一句目标再跑 Agent」：主控里的 `run_chapter_workflow` 是模型自觉调用的工具，
    * 没有任何确定性保证（F23：正文生成无独立入口）。这里直接走 `start()` 用的同一条两步路径——
@@ -608,7 +675,8 @@ export function MainControlView(_props: MainControlViewProps = {}) {
    * 从模型判断变成用户点击；共识/单模型入口选择仍归 `resolveDeepChapterRunner`，
    * 门控仍归 `buildDecisionGates`（不另开生成路径、不另立门控）。
    *
-   * 硬边界：产物只进面板展示，**点击路径零写盘**（无 writeFile/writeDraft/accept 调用）；
+   * 硬边界：产物只进内存 store 展示，**点击「跑深章」路径零写盘**；
+   * 只有用户显式点「一键存入草稿箱」才按真实门控状态写 `.qm-drafts/`，
    * 采纳仍是草稿区的两步确认，`draft-manager` 的 `if (!input.confirmed) throw` 原样生效。
    */
   const startDeepChapter = async () => {
@@ -622,12 +690,17 @@ export function MainControlView(_props: MainControlViewProps = {}) {
     const userRequest = goal.trim() || t("mainControl.deepChapterGoalFallback")
     setError(null)
     setCancelledAt(null)
-    setDeepOutput(null)
-    setDeepRunning(true)
-    // RV-13：深章的卡住判定需要「最近一次进展」的时间基准，起点就是第一个进展。
-    setDeepStartAt(Date.now())
+    setDeepSaveNote(null)
+    setDeepCopyNote(null)
+    setDeepGatesOpen(false)
     const controller = new AbortController()
-    deepAbortRef.current = controller
+    const runtime = useMainControlRuntimeStore.getState()
+    runtime.beginDeepRun({
+      projectPath,
+      chapterNumber: currentChapterNumber,
+      controller,
+      startedAt: Date.now(),
+    })
     try {
       // 与 start() 同一行代码语义：按开关取入口（共识版/单模型版），再跑深章流水线。
       const runDeepChapterGeneration = await resolveDeepChapterRunner(novelConfig)
@@ -654,17 +727,14 @@ export function MainControlView(_props: MainControlViewProps = {}) {
             const body = content.trim()
             if (!body) return
             const timestamp = Date.now()
-            setExtraActivities((prev) => [
-              ...prev,
-              {
-                id: `main_control_deep_chapter:thinking:${timestamp}`,
-                stageId: "main_control_deep_chapter",
-                kind: "stage_output",
-                title: t("mainControl.deepChapterActivityTitle"),
-                content: body.length > 240 ? `${body.slice(0, 240)}…` : body,
-                timestamp,
-              },
-            ])
+            useMainControlRuntimeStore.getState().appendDeepActivity(controller, {
+              id: `main_control_deep_chapter:thinking:${timestamp}`,
+              stageId: "main_control_deep_chapter",
+              kind: "stage_output",
+              title: t("mainControl.deepChapterActivityTitle"),
+              content: body.length > 240 ? `${body.slice(0, 240)}…` : body,
+              timestamp,
+            })
           },
         },
         undefined,
@@ -677,30 +747,69 @@ export function MainControlView(_props: MainControlViewProps = {}) {
             `${t("mainControl.consensusDebateRounds")}: ${trace.debateRounds}`,
             `${t("mainControl.consensusWinner")}: ${trace.winner}`,
           ]
-          setExtraActivities((prev) => [
-            ...prev,
-            {
-              id: `consensus_writing:${timestamp}`,
-              stageId: "consensus_writing",
-              kind: "analysis",
-              title: t("mainControl.consensusTitle"),
-              content: parts.join(" · "),
-              timestamp,
-            },
-          ])
+          useMainControlRuntimeStore.getState().appendDeepActivity(controller, {
+            id: `consensus_writing:${timestamp}`,
+            stageId: "consensus_writing",
+            kind: "analysis",
+            title: t("mainControl.consensusTitle"),
+            content: parts.join(" · "),
+            timestamp,
+          })
         },
       )
-      setDeepOutput(out)
+      useMainControlRuntimeStore.getState().finishDeepRunSuccess(controller, out)
     } catch (err) {
       // 用户亲手中止不算失败（与主控 Agent 同一判定：以 signal 为准）。
       if (controller.signal.aborted) {
-        setCancelledAt(Date.now())
+        useMainControlRuntimeStore.getState().finishDeepRunCancelled(controller, Date.now())
       } else {
-        setError(t("mainControl.deepChapterFailed", { message: toErrorMessage(err) }))
+        useMainControlRuntimeStore
+          .getState()
+          .finishDeepRunError(
+            controller,
+            t("mainControl.deepChapterFailed", { message: toErrorMessage(err) }),
+          )
       }
+    }
+  }
+
+  const handleSaveDeepOutputToDrafts = async () => {
+    if (!deepOutput || !projectPath || deepSavingDraft) return
+    setDeepSavingDraft(true)
+    setDeepSaveNote(null)
+    try {
+      const targetChapter = deepChapterNumber ?? currentChapterNumber
+      const chapterName = targetChapter
+        ? `第${targetChapter}章`
+        : goal.trim().slice(0, 30) || t("mainControl.deepChapterOutputTitle")
+      const adoptionGate = resolveRealDeepAdoptionGate(deepOutput)
+      const saved = await writeDraft(projectPath, chapterName, deepOutput.finalContent, {
+        partial: deepOutput.partial,
+        adoptionGate,
+      })
+      bumpDataVersion?.()
+      setDeepSaveNote({
+        text: t("mainControl.deepChapterSavedToDrafts", { id: saved.id }),
+        isError: false,
+      })
+    } catch (err) {
+      setDeepSaveNote({
+        text: t("mainControl.deepChapterSaveDraftFailed", { message: toErrorMessage(err) }),
+        isError: true,
+      })
     } finally {
-      setDeepRunning(false)
-      deepAbortRef.current = null
+      setDeepSavingDraft(false)
+    }
+  }
+
+  const handleCopyDeepOutput = async () => {
+    if (!deepOutput) return
+    setDeepCopyNote(null)
+    try {
+      await navigator.clipboard.writeText(deepOutput.finalContent)
+      setDeepCopyNote(t("mainControl.deepChapterCopied"))
+    } catch (err) {
+      setDeepCopyNote(t("mainControl.deepChapterCopyFailed", { message: toErrorMessage(err) }))
     }
   }
 
@@ -740,6 +849,9 @@ export function MainControlView(_props: MainControlViewProps = {}) {
   // RV-13：深章也算「在跑」——已运行秒数同样要有（否则几十分钟里只有 spinner）。
   const activeStartAt = running ? runStartAt : deepRunning ? deepStartAt : null
   const elapsedSecs = activeStartAt ? Math.max(Math.floor((Date.now() - activeStartAt) / 1000), 0) : 0
+  const displayError = error ?? deepError
+  const displayCancelledAt = cancelledAt ?? deepCancelledAt
+  const displayDeepChapter = deepChapterNumber ?? currentChapterNumber
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4" data-testid="main-control-view">
@@ -749,7 +861,12 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         <span className="text-xs text-muted-foreground">{t("mainControl.subtitle")}</span>
       </div>
 
-      <div className="flex items-center gap-1" role="tablist" aria-label={t("mainControl.tabsLabel")} data-testid="main-control-tabs">
+      <div
+        className="flex items-center gap-1"
+        role="tablist"
+        aria-label={t("mainControl.tabsLabel")}
+        data-testid="main-control-tabs"
+      >
         {(
           [
             { key: "run", labelKey: "mainControl.tabRun" },
@@ -757,16 +874,31 @@ export function MainControlView(_props: MainControlViewProps = {}) {
             { key: "context", labelKey: "mainControl.tabContext" },
             { key: "live", labelKey: "mainControl.tabLive" },
           ] as const
-        ).map((item) => (
+        ).map((item, idx, list) => (
           <button
             key={item.key}
+            id={`main-control-tab-${item.key}`}
             type="button"
             role="tab"
             aria-selected={tab === item.key}
+            aria-controls={`main-control-panel-${item.key}`}
+            tabIndex={tab === item.key ? 0 : -1}
             data-testid={`main-control-tab-${item.key}`}
             onClick={() => setTab(item.key)}
+            onKeyDown={(event) => {
+              let nextIndex: number | null = null
+              if (event.key === "ArrowRight") nextIndex = (idx + 1) % list.length
+              else if (event.key === "ArrowLeft") nextIndex = (idx - 1 + list.length) % list.length
+              else if (event.key === "Home") nextIndex = 0
+              else if (event.key === "End") nextIndex = list.length - 1
+              if (nextIndex === null) return
+              event.preventDefault()
+              const targetTab = list[nextIndex]
+              setTab(targetTab.key)
+              document.getElementById(`main-control-tab-${targetTab.key}`)?.focus()
+            }}
             className={cn(
-              "h-7 rounded-md border px-2 text-xs",
+              "h-7 rounded-md border px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               tab === item.key
                 ? "border-primary bg-primary font-medium text-primary-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -777,6 +909,12 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         ))}
       </div>
 
+      <div
+        role="tabpanel"
+        id={`main-control-panel-${tab}`}
+        aria-labelledby={`main-control-tab-${tab}`}
+        className="flex flex-col gap-3"
+      >
       {tab === "run" && (
       <div className="flex flex-col gap-2 rounded-lg border p-2">
         <label className="text-xs font-medium text-muted-foreground" htmlFor="main-control-goal">
@@ -914,15 +1052,16 @@ export function MainControlView(_props: MainControlViewProps = {}) {
             {t("mainControl.viewHeatmap")}
           </button>
         </div>
-        {error ? (
-          <p className="flex items-center gap-1 text-xs text-destructive" data-testid="main-control-error">
+        {displayError ? (
+          <p role="alert" className="flex items-center gap-1 text-xs text-destructive" data-testid="main-control-error">
             <CircleAlert className="h-3 w-3" />
-            {error}
+            {displayError}
           </p>
         ) : null}
         {/* RVF-08：有计划就中性标识一句；没有则不提示（首跑没计划是正常态，不是异常）。 */}
         {planBlueprintNotice ? (
           <p
+            role="status"
             className="flex items-center gap-1 text-xs text-muted-foreground"
             data-testid="main-control-plan-blueprint-notice"
           >
@@ -936,16 +1075,16 @@ export function MainControlView(_props: MainControlViewProps = {}) {
             })}
           </p>
         ) : null}
-        {!running && cancelledAt && !error ? (
-          <p className="flex items-center gap-1 text-xs text-warning-foreground" data-testid="main-control-cancelled">
+        {!running && !deepRunning && displayCancelledAt && !displayError ? (
+          <p role="status" className="flex items-center gap-1 text-xs text-warning-foreground" data-testid="main-control-cancelled">
             <Square className="h-3 w-3" />
             {t("mainControl.cancelled", {
-              time: new Date(cancelledAt).toLocaleTimeString("zh-CN", { hour12: false }),
+              time: new Date(displayCancelledAt).toLocaleTimeString("zh-CN", { hour12: false }),
             })}
           </p>
         ) : null}
         {stuck ? (
-          <p className="flex items-center gap-1 text-xs text-warning-foreground" data-testid="main-control-stuck">
+          <p role="status" className="flex items-center gap-1 text-xs text-warning-foreground" data-testid="main-control-stuck">
             <CircleAlert className="h-3 w-3" />
             {stuckTimeout
               ? t("mainControl.timeoutHint", { step: stuckLabel })
@@ -954,7 +1093,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
         ) : null}
         {/* RV-06：快照读坏了就说读坏了（带原因）——不得落成「还没跑过」。 */}
         {replay.status === "corrupt" ? (
-          <p className="flex items-center gap-1 text-xs text-destructive" data-testid="main-control-trace-corrupt">
+          <p role="alert" className="flex items-center gap-1 text-xs text-destructive" data-testid="main-control-trace-corrupt">
             <CircleAlert className="h-3 w-3" />
             {t("mainControl.traceCorrupt", { reason: t(TRACE_SNAPSHOT_ISSUE_KEYS[replay.reason]) })}
           </p>
@@ -964,23 +1103,80 @@ export function MainControlView(_props: MainControlViewProps = {}) {
 
       {tab === "run" && <MainControlSettingsBlock />}
 
-      {/* R03=a：深章产出只在这里展示——不写盘、不进草稿区，采纳仍需草稿区的两步确认。 */}
+      {/* R03=a + P0-04：深章产出切页保活展示；点击「一键存入草稿箱」按真实门控落 .qm-drafts/，绝不直写正式章。 */}
       {tab === "run" && deepOutput ? (
         <div className="rounded-lg border p-2" data-testid="main-control-deep-output">
-          <h3 className="mb-1 flex flex-wrap items-center gap-2 text-xs font-semibold">
-            {t("mainControl.deepChapterOutputTitle")}
-            <span
-              className="rounded border px-1 text-xs font-normal text-muted-foreground"
-              data-testid="main-control-deep-verdict"
-            >
-              {t(DEEP_GATE_VERDICT_KEYS[deepOutput.decisionGates.overall])}
-            </span>
-            {currentChapterNumber ? (
-              <span className="text-xs font-normal text-muted-foreground" data-testid="main-control-deep-chapter">
-                {t("mainControl.deepChapterChapterLabel", { chapter: currentChapterNumber })}
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+              {t("mainControl.deepChapterOutputTitle")}
+              <span
+                className="rounded border px-1 text-xs font-normal text-muted-foreground"
+                data-testid="main-control-deep-verdict"
+              >
+                {t(DEEP_GATE_VERDICT_KEYS[deepOutput.decisionGates.overall])}
               </span>
-            ) : null}
-          </h3>
+              {displayDeepChapter ? (
+                <span className="text-xs font-normal text-muted-foreground" data-testid="main-control-deep-chapter">
+                  {t("mainControl.deepChapterChapterLabel", { chapter: displayDeepChapter })}
+                </span>
+              ) : null}
+            </h3>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                disabled={deepSavingDraft || !projectPath}
+                data-testid="main-control-deep-save-draft"
+                onClick={() => void handleSaveDeepOutputToDrafts()}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-primary bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+              >
+                {deepSavingDraft ? (
+                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Save className="h-3 w-3" aria-hidden="true" />
+                )}
+                {deepSavingDraft
+                  ? t("mainControl.deepChapterSavingDraft")
+                  : t("mainControl.deepChapterSaveToDrafts")}
+              </button>
+              <button
+                type="button"
+                data-testid="main-control-deep-copy"
+                onClick={() => void handleCopyDeepOutput()}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs text-foreground hover:bg-accent"
+              >
+                <Copy className="h-3 w-3" aria-hidden="true" />
+                {t("mainControl.deepChapterCopyFull")}
+              </button>
+              <button
+                type="button"
+                aria-expanded={deepGatesOpen}
+                data-testid="main-control-deep-gates-toggle"
+                onClick={() => setDeepGatesOpen((open) => !open)}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs text-foreground hover:bg-accent"
+              >
+                {deepGatesOpen
+                  ? t("mainControl.deepChapterHideGateDetails")
+                  : t("mainControl.deepChapterViewGateDetails")}
+              </button>
+            </div>
+          </div>
+          {deepSaveNote ? (
+            <p
+              role={deepSaveNote.isError ? "alert" : "status"}
+              data-testid="main-control-deep-save-status"
+              className={cn(
+                "mb-1 text-xs",
+                deepSaveNote.isError ? "text-destructive" : "text-success-foreground",
+              )}
+            >
+              {deepSaveNote.text}
+            </p>
+          ) : null}
+          {deepCopyNote ? (
+            <p role="status" data-testid="main-control-deep-copy-status" className="mb-1 text-xs text-muted-foreground">
+              {deepCopyNote}
+            </p>
+          ) : null}
           {deepOutput.partial ? (
             <p className="text-xs text-warning-foreground" data-testid="main-control-deep-partial">
               {t("mainControl.deepChapterPartial", { reason: deepOutput.partialReason ?? "" })}
@@ -990,6 +1186,56 @@ export function MainControlView(_props: MainControlViewProps = {}) {
             <p className="text-xs text-warning-foreground" data-testid="main-control-deep-manual-review">
               {t("mainControl.deepChapterManualReview")}
             </p>
+          ) : null}
+          {deepGatesOpen ? (
+            <div
+              data-testid="main-control-deep-gates-panel"
+              className="my-2 space-y-1.5 rounded-md border border-border/70 bg-muted/30 p-2 text-xs"
+            >
+              {DEEP_GATE_ORDER.map((gateKey) => {
+                const gate = deepOutput.decisionGates[gateKey]
+                return (
+                  <div
+                    key={gateKey}
+                    data-testid={`main-control-deep-gate-detail-${gateKey}`}
+                    className="rounded border border-border/50 bg-background/80 p-1.5"
+                  >
+                    <div className="flex items-center gap-2 font-medium">
+                      <span>{t(DEEP_GATE_LABEL_KEYS[gateKey])}</span>
+                      <span
+                        className={
+                          gate.status === "passed"
+                            ? "text-success"
+                            : gate.status === "failed"
+                              ? "text-destructive"
+                              : "text-muted-foreground"
+                        }
+                      >
+                        {t(DEEP_GATE_VERDICT_KEYS[gate.verdict])}
+                      </span>
+                      <span className="text-muted-foreground">· {gate.findings.length}</span>
+                    </div>
+                    {gate.findings.length === 0 ? (
+                      <p className="mt-0.5 text-muted-foreground">{t("mainControl.deepChapterNoFindings")}</p>
+                    ) : (
+                      <ul className="mt-1 space-y-0.5">
+                        {gate.findings.map((finding, idx) => (
+                          <li key={`${gateKey}-${idx}`} className="text-muted-foreground">
+                            <span className="mr-1 font-medium uppercase text-foreground">
+                              [{finding.severity}]
+                            </span>
+                            <span className="text-foreground">{finding.message}</span>
+                            {finding.suggestion ? (
+                              <span className="ml-1 text-success-foreground">{finding.suggestion}</span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           ) : null}
           <WikiReader body={deepOutput.finalContent} />
           <p className="mt-1 text-xs text-muted-foreground" data-testid="main-control-deep-output-hint">
@@ -1127,6 +1373,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
                 >
                   <button
                     type="button"
+                    aria-expanded={open}
                     onClick={() =>
                       setExpanded((prev) =>
                         prev.includes(entry.callId)
@@ -1219,6 +1466,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
             projectPath={projectPath}
             selectedFile={selectedFile}
             onActivityEvent={(event) => setExtraActivities((prev) => [...prev, event])}
+            onOpenGateRerun={() => setTab("live")}
           />
         ) : null}
       </div>
@@ -1286,6 +1534,7 @@ export function MainControlView(_props: MainControlViewProps = {}) {
           ) : null}
         </div>
       ) : null}
+      </div>
     </div>
   )
 }

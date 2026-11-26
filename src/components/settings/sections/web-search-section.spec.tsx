@@ -298,28 +298,64 @@ describe("WebSearchSection", () => {
     expect(generalBtn.className).toContain("border-primary")
   })
 
-  it("saved 徽标跨 provider 竞争：旧 timer 回调 cur !== id 分支", async () => {
+  it("saved 徽标跨 provider 更新时重置 timer，卸载时清理 timer 防泄漏", async () => {
     vi.useFakeTimers()
-    render(<WebSearchSection />)
+    const { unmount } = render(<WebSearchSection />)
     fireEvent.click(expandFor("tavily"))
     const apiInput = screen.getAllByPlaceholderText("Enter your Tavily API key (tavily.com)")[0] as HTMLInputElement
     fireEvent.change(apiInput, { target: { value: "tk-a" } })
+    expect(screen.getByText("settings.sections.webSearch.savedBadge")).toBeInTheDocument()
+
+    // 1000ms 后改 serpapi → 清理旧 timer 并重新计时 1500ms
     await act(async () => {
-      await Promise.resolve()
-      await Promise.resolve()
+      vi.advanceTimersByTime(1000)
     })
-    // 再更新 serpapi → savedId 被覆盖为 serpapi，tavily 的 timer 仍待触发
     fireEvent.click(expandFor("serpapi"))
     fireEvent.click(screen.getByText("Google News"))
+    // 再过 600ms（已超过第一次的 1500ms，但未到第二次的 1500ms）→ 徽标仍在
     await act(async () => {
-      await Promise.resolve()
-      await Promise.resolve()
+      vi.advanceTimersByTime(600)
     })
-    // 两个 timer 同时到期：tavily 回调先执行（cur=serpapi !== tavily → 保持），serpapi 回调置 null
+    expect(screen.getByText("settings.sections.webSearch.savedBadge")).toBeInTheDocument()
+
+    // 再过 900ms（到达第二次的 1500ms）→ 清除徽标
     await act(async () => {
-      vi.advanceTimersByTime(1500)
+      vi.advanceTimersByTime(900)
     })
     expect(screen.queryByText("settings.sections.webSearch.savedBadge")).not.toBeInTheDocument()
+
+    // 再次触发保存后立即卸载 → timer 被清理且不报错
+    fireEvent.change(apiInput, { target: { value: "tk-b" } })
+    unmount()
+    await act(async () => {
+      vi.advanceTimersByTime(2000)
+    })
+    vi.useRealTimers()
+  })
+
+  it("串行落盘且吞掉持久化失败不产生未处理拒绝，连续修改不丢前一次字段", async () => {
+    let releaseFirst!: () => void
+    mocks.saveSearchApiConfig
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { releaseFirst = resolve }))
+      .mockRejectedValueOnce(new Error("disk busy"))
+
+    render(<WebSearchSection />)
+    fireEvent.click(expandFor("tavily"))
+    const apiInput = screen.getAllByPlaceholderText("Enter your Tavily API key (tavily.com)")[0] as HTMLInputElement
+    fireEvent.change(apiInput, { target: { value: "tk-1" } })
+    fireEvent.click(toggleFor("tavily"))
+
+    // 同步更新 store，且第二次写入排队等待第一次完成
+    expect(mocks.state.searchApiConfig.provider).toBe("tavily")
+    expect(mocks.state.searchApiConfig.providerConfigs?.tavily?.apiKey).toBe("tk-1")
+    await waitFor(() => {
+      expect(mocks.saveSearchApiConfig).toHaveBeenCalledTimes(1)
+    })
+
+    releaseFirst()
+    await waitFor(() => {
+      expect(mocks.saveSearchApiConfig).toHaveBeenCalledTimes(2)
+    })
   })
 
   it("active provider（tavily）卡片高亮 + toggle 关闭文案", () => {

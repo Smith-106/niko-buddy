@@ -79,6 +79,10 @@ vi.mock("@/commands/fs", async (importOriginal) => {
 
 vi.mock("@/lib/templates", () => ({
   getTemplate: mocks.getTemplate,
+  templates: [
+    { id: "general", name: "空白模板", description: "基础目录", icon: "📄", schema: "", purpose: "", extraDirs: [] },
+    { id: "novel-demo", name: "小说演示", description: "演示样例", icon: "📖", schema: "", purpose: "", extraDirs: [] },
+  ],
 }))
 
 vi.mock("@/stores/wiki-store", async (importOriginal) => {
@@ -117,12 +121,13 @@ async function flushAsync(): Promise<void> {
   })
 }
 
-function renderDialog(open = true): ReturnType<typeof render> {
+function renderDialog(open = true, onConfigureLlm?: () => void): ReturnType<typeof render> {
   return render(
     <CreateProjectDialog
       open={open}
       onOpenChange={mocks.onOpenChange}
       onCreated={mocks.onCreated}
+      onConfigureLlm={onConfigureLlm}
     />,
   )
 }
@@ -149,6 +154,7 @@ afterEach(() => {
 beforeEach(() => {
   setupDomGlobals()
   vi.clearAllMocks()
+  mocks.wikiState.novelMode = false
   mocks.wikiState.llmConfig = undefined
   mocks.isTauri.mockReturnValue(true)
   mocks.getExecutableDir.mockResolvedValue("C:\\Program Files\\Niko Buddy")
@@ -417,12 +423,68 @@ describe("CreateProjectDialog", () => {
     expect(screen.getByRole("region", { name: "project.llmService" })).toBeInTheDocument()
   })
 
-  it("点「立即配置」→ 关闭对话框并跳转设置视图", async () => {
+  it("点「立即配置」→ 未传 onConfigureLlm 时关闭对话框并回退跳转设置视图", async () => {
     renderDialog(true)
     await flushAsync()
     fireEvent.click(screen.getByRole("button", { name: "project.llmConfigure" }))
     expect(mocks.onOpenChange).toHaveBeenCalledWith(false)
     expect(mocks.wikiState.setActiveView).toHaveBeenCalledWith("settings")
+  })
+
+  it("P0-02：点「立即配置」且传入 onConfigureLlm → 关闭弹窗并优先调用 onConfigureLlm（不切 settings）", async () => {
+    const onConfigureLlm = vi.fn()
+    renderDialog(true, onConfigureLlm)
+    await flushAsync()
+    fireEvent.click(screen.getByRole("button", { name: "project.llmConfigure" }))
+    expect(mocks.onOpenChange).toHaveBeenCalledWith(false)
+    expect(onConfigureLlm).toHaveBeenCalledTimes(1)
+    expect(mocks.wikiState.setActiveView).not.toHaveBeenCalled()
+  })
+
+  it("P0-02：未手动选模板时跟随 novelMode 同步；手动选择后保持选择；创建成功后复位为 novelMode 对应默认模板", async () => {
+    mocks.wikiState.novelMode = false
+    const { rerender } = renderDialog(true)
+    await flushAsync()
+
+    // 未触碰模板：novelMode 切为 true 时自动切到 novel-demo
+    mocks.wikiState.novelMode = true
+    rerender(
+      <CreateProjectDialog
+        open={true}
+        onOpenChange={mocks.onOpenChange}
+        onCreated={mocks.onCreated}
+      />,
+    )
+    await flushAsync()
+
+    // 用户手动切回空白模板：锁定选择，不再随 novelMode 覆盖
+    fireEvent.click(screen.getByRole("button", { name: /空白模板/ }))
+    mocks.wikiState.novelMode = false
+    rerender(
+      <CreateProjectDialog
+        open={true}
+        onOpenChange={mocks.onOpenChange}
+        onCreated={mocks.onCreated}
+      />,
+    )
+    mocks.wikiState.novelMode = true
+    rerender(
+      <CreateProjectDialog
+        open={true}
+        onOpenChange={mocks.onOpenChange}
+        onCreated={mocks.onCreated}
+      />,
+    )
+    fireEvent.change(nameInput(), { target: { value: "BookA" } })
+    fireEvent.submit(formOf())
+    await flushAsync()
+    expect(mocks.getTemplate).toHaveBeenLastCalledWith("general")
+
+    // 创建成功后在 novelMode=true 下复位为 novel-demo（不再错复位为 general）
+    fireEvent.change(nameInput(), { target: { value: "BookB" } })
+    fireEvent.submit(formOf())
+    await flushAsync()
+    expect(mocks.getTemplate).toHaveBeenLastCalledWith("novel-demo")
   })
 
   it("模型服务可用时：状态点用成功色、面板默认折叠（canWrite 真分支）", async () => {

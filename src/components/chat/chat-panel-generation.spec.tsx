@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest"
 import { fireEvent, screen } from "@/test-helpers/component-test-utils"
-import { getChatPanelMocks, deepGenResult, reviewResult, sessionStatus, PROJECT, setConversation, setMessages, msg, renderPanel, rerenderPanel, flushAsync, sendText, lastFinalize, setDeepMode } from "./chat-panel-test-setup"
+import { getChatPanelMocks, deepGenResult, reviewResult, sessionStatus, PROJECT, setConversation, setMessages, msg, renderPanel, rerenderPanel, flushAsync, sendText, lastFinalize, setDeepMode } from "@/test-helpers/chat-panel/chat-panel-test-setup"
 
 const mocks = getChatPanelMocks()
 describe("ChatPanel — 编辑章节模式 (chat edit mode)", () => {

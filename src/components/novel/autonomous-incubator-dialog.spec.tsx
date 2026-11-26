@@ -127,6 +127,7 @@ describe("AutonomousIncubatorDialog (全自动小说冷启动孵化器组件)", 
     await waitFor(() => {
       expect(screen.getByText("《赛博纪元》全自动孵化大获成功！")).toBeTruthy()
       expect(screen.getByText("完成并开启创作")).toBeTruthy()
+      expect(screen.getByText(/wiki\/entities\/characters\//)).toBeTruthy()
     })
 
     expect(mocks.toastSuccess).toHaveBeenCalled()

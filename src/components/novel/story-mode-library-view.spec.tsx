@@ -12,7 +12,7 @@
  * `buildLibraryArtifact` 构造（守恒口径与线上一致）；不用 Object.hasOwn/.at。
  */
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { act, cleanup, render, screen } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 import { StoryModeLibraryView } from "./story-mode-library-view"
 import { buildLibraryArtifact } from "@/lib/novel"
 
@@ -128,8 +128,8 @@ describe("StoryModeLibraryView（推进模式库只读浏览）", () => {
     fs.readFile.mockRejectedValue(new Error("not found: pacing_pattern.json"))
     render(<StoryModeLibraryView projectPath="/p" />)
 
-    const snapshot = await screen.findByTestId("story-mode-snapshot")
-    expect(snapshot.textContent).toContain("未生成")
+    const snapshot = screen.getByTestId("story-mode-snapshot")
+    await waitFor(() => expect(snapshot.textContent).toContain("未生成"))
     expect(await screen.findByTestId("story-mode-list")).toBeTruthy()
     expect((await screen.findByTestId("story-mode-empty")).textContent).toContain("未生成")
     expect(screen.queryByTestId("story-mode-card-m-standard")).toBeNull()
@@ -139,8 +139,8 @@ describe("StoryModeLibraryView（推进模式库只读浏览）", () => {
     fs.readFile.mockResolvedValue("not json{{{")
     render(<StoryModeLibraryView projectPath="/p" />)
 
-    const snapshot = await screen.findByTestId("story-mode-snapshot")
-    expect(snapshot.textContent).toContain("解析失败")
+    const snapshot = screen.getByTestId("story-mode-snapshot")
+    await waitFor(() => expect(snapshot.textContent).toContain("解析失败"))
     expect(snapshot.textContent).not.toContain("未生成")
   })
 
@@ -186,8 +186,8 @@ describe("StoryModeLibraryView（语句收口）：空项目路径 / 装载器�
 
     expect(await screen.findByTestId("story-mode-library-view")).toBeTruthy()
     // 装载失败 ⇒ 空态（未生成），且错误原因不写进快照区（那是「缺文件」语义）
-    const snapshot = await screen.findByTestId("story-mode-snapshot")
-    expect(snapshot.textContent).toContain("未生成")
+    const snapshot = screen.getByTestId("story-mode-snapshot")
+    await waitFor(() => expect(snapshot.textContent).toContain("未生成"))
     expect(snapshot.textContent).not.toContain("读取失败")
     expect((await screen.findByTestId("story-mode-summary")).textContent).toContain("共 0 个推进模式")
     expect(screen.queryByTestId("story-mode-card-m-standard")).toBeNull()
@@ -209,8 +209,8 @@ describe("StoryModeLibraryView（分支收口）：守恒失配 / 有快照无�
     fs.readFile.mockResolvedValue(pacingJson([]))
     render(<StoryModeLibraryView projectPath="/p" />)
 
-    const snapshot = await screen.findByTestId("story-mode-snapshot")
-    expect(snapshot.textContent).toContain("守恒失配（疑似手工篡改）")
+    const snapshot = screen.getByTestId("story-mode-snapshot")
+    await waitFor(() => expect(snapshot.textContent).toContain("守恒失配（疑似手工篡改）"))
     expect(snapshot.textContent).not.toContain("守恒校验通过")
     // 页面顶部「下一步」也据此改口径
     expect(document.body.textContent).toContain("先核对守恒")

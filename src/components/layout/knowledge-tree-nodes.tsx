@@ -3,8 +3,9 @@
 // M11-1 增量切片：从 knowledge-tree.tsx 剥离树节点渲染层（纯组件）。
 // knowledge-tree.tsx 保留数据 hook / 变异回调 / 菜单浮层，仅透传 props。
 
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react"
+import { useId, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react"
 import { ChevronDown, ChevronRight, FileText, Folder, Globe } from "lucide-react"
+import { useTranslation } from "react-i18next"
 import type { FileNode } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
 import {
@@ -27,6 +28,7 @@ export interface KnowledgeTreeNodesProps {
   deletingPath: string | null
   renamingPath: string | null
   renameValue: string
+  renameError?: string | null
   renamingBusy: boolean
   dragSource: string | null
   dragInsertIndex: number | null
@@ -68,6 +70,7 @@ function FolderRow({
     >
       <button
         type="button"
+        aria-expanded={!isCollapsed}
         onClick={() => onToggleFolder(normalizedPath)}
         className="flex flex-1 items-center gap-1.5 text-left"
       >
@@ -96,6 +99,7 @@ interface PageRowProps {
   isInsertTarget: boolean
   renamingPath: string | null
   renameValue: string
+  renameError?: string | null
   renamingBusy: boolean
   onPageClick: (pagePath: string) => void
   onPageContextMenu: (event: ReactMouseEvent, pagePath: string) => void
@@ -118,6 +122,7 @@ function PageRow({
   isInsertTarget,
   renamingPath,
   renameValue,
+  renameError,
   renamingBusy,
   onPageClick,
   onPageContextMenu,
@@ -127,6 +132,13 @@ function PageRow({
   onSubmitRename,
   onCancelRename,
 }: PageRowProps) {
+  const { t } = useTranslation()
+  const renameErrorId = useId()
+  const isRenaming = renamingPath === normalizedPath
+  const icon = page.origin === "web-clip"
+    ? <Globe className="h-3 w-3 shrink-0 text-info" />
+    : <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+
   return (
     <div
       data-knowledge-interactive="true"
@@ -141,58 +153,77 @@ function PageRow({
         WebkitTouchCallout: filterType === "chapter" ? "none" : undefined,
       }}
     >
-      <button
-        type="button"
-        onClick={() => onPageClick(normalizedPath)}
-        disabled={renamingPath === normalizedPath}
-        className={`flex min-w-0 flex-1 items-center justify-between gap-2 px-2 py-1 text-left text-sm ${
-          isSelected ? "qm-selected-muted" : "text-muted-foreground group-hover:text-foreground"
-        }`}
-        title={normalizedPath}
-      >
-        {page.origin === "web-clip" ? <Globe className="h-3 w-3 shrink-0 text-info" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
-        {renamingPath === normalizedPath ? (
-          <input
-            type="text"
-            value={renameValue}
-            onChange={(event) => onRenameValueChange(event.target.value)}
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
-            onFocus={(event) => event.stopPropagation()}
-            onBlur={() => onSubmitRename()}
-            onKeyDown={(event) => {
-              event.stopPropagation()
-              if (event.key === "Enter") {
-                event.preventDefault()
-                onSubmitRename()
-              } else if (event.key === "Escape") {
-                event.preventDefault()
-                onCancelRename()
-              }
-            }}
-            className="w-full rounded border bg-background px-1.5 py-0.5 text-xs outline-none focus:ring-1 focus:ring-ring"
-            autoFocus
-            disabled={renamingBusy}
-          />
-        ) : (
-          <>
-            <span className="min-w-0 flex-1 truncate">{page.title}</span>
-            {page.type === "chapter" && page.statusLabel && (
-              <span
-                data-chapter-status={page.status}
-                title={page.statusLabel}
-                aria-label={page.statusLabel}
-                className={`h-1.5 w-1.5 shrink-0 rounded-full ${chapterStatusDotClass(page.status)}`}
-              />
-            )}
-            {page.type === "chapter" && page.wordCountLabel && (
-              <span className={`shrink-0 text-right text-xs ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
-                {page.wordCountLabel}
-              </span>
-            )}
-          </>
-        )}
-      </button>
+      {isRenaming ? (
+        <div
+          role="group"
+          aria-label={t("knowledgeTree.rename")}
+          className="flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-1"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            {icon}
+            <input
+              type="text"
+              aria-label={t("knowledgeTree.rename")}
+              aria-invalid={Boolean(renameError)}
+              aria-describedby={renameError ? renameErrorId : undefined}
+              value={renameValue}
+              onChange={(event) => onRenameValueChange(event.target.value)}
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+              onFocus={(event) => event.stopPropagation()}
+              onBlur={() => {
+                if (!renameError) onSubmitRename()
+              }}
+              onKeyDown={(event) => {
+                event.stopPropagation()
+                if (event.key === "Enter") {
+                  event.preventDefault()
+                  onSubmitRename()
+                } else if (event.key === "Escape") {
+                  event.preventDefault()
+                  onCancelRename()
+                }
+              }}
+              className={`w-full rounded border bg-background px-1.5 py-0.5 text-xs outline-none focus:ring-1 ${
+                renameError ? "border-destructive focus:ring-destructive" : "focus:ring-ring"
+              }`}
+              autoFocus
+              disabled={renamingBusy}
+            />
+          </div>
+          {renameError ? (
+            <p id={renameErrorId} role="alert" className="pl-5 text-[11px] leading-tight text-destructive">
+              {renameError}
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onPageClick(normalizedPath)}
+          className={`flex min-w-0 flex-1 items-center justify-between gap-2 px-2 py-1 text-left text-sm ${
+            isSelected ? "qm-selected-muted" : "text-muted-foreground group-hover:text-foreground"
+          }`}
+          title={normalizedPath}
+        >
+          {icon}
+          <span className="min-w-0 flex-1 truncate">{page.title}</span>
+          {page.type === "chapter" && page.statusLabel && (
+            <span
+              data-chapter-status={page.status}
+              title={page.statusLabel}
+              aria-label={page.statusLabel}
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${chapterStatusDotClass(page.status)}`}
+            />
+          )}
+          {page.type === "chapter" && page.wordCountLabel && (
+            <span className={`shrink-0 text-right text-xs ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
+              {page.wordCountLabel}
+            </span>
+          )}
+        </button>
+      )}
       <DeleteButton
         armed={isArmed}
         deleting={isDeleting}
@@ -220,6 +251,7 @@ export function KnowledgeTreeNodes({
   deletingPath,
   renamingPath,
   renameValue,
+  renameError,
   renamingBusy,
   dragSource,
   dragInsertIndex,
@@ -266,6 +298,7 @@ export function KnowledgeTreeNodes({
                   deletingPath={deletingPath}
                   renamingPath={renamingPath}
                   renameValue={renameValue}
+                  renameError={renameError}
                   renamingBusy={renamingBusy}
                   dragSource={dragSource}
                   dragInsertIndex={dragInsertIndex}
@@ -312,6 +345,7 @@ export function KnowledgeTreeNodes({
             isInsertTarget={isInsertTarget}
             renamingPath={renamingPath}
             renameValue={renameValue}
+            renameError={renameError}
             renamingBusy={renamingBusy}
             onPageClick={onPageClick}
             onPageContextMenu={onPageContextMenu}

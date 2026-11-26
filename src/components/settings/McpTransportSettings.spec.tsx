@@ -74,6 +74,10 @@ function setServerId(value: string): void {
   fireEvent.change(screen.getByTestId("mcp-server-id"), { target: { value } })
 }
 
+function setSourceLicense(value: string): void {
+  fireEvent.change(screen.getByTestId("mcp-source-license"), { target: { value } })
+}
+
 beforeEach(() => {
   setupDomGlobals()
   vi.clearAllMocks()
@@ -299,9 +303,23 @@ describe("McpTransportSettings — 连接 / 断开", () => {
 })
 
 describe("McpTransportSettings — 请求与审计门", () => {
-  it("干净载荷放行：状态 ok 且携带字节数", async () => {
+  it("未填来源许可证时默认 fail-closed 拦截（blocked）", async () => {
     renderPanel()
     setServerId("s1")
+    fireEvent.click(screen.getByTestId("mcp-transport-request"))
+    await waitFor(() => {
+      expect(screen.getByTestId("mcp-transport-status").getAttribute("data-status")).toBe(
+        "blocked",
+      )
+    })
+    expect(statusText()).toContain("mcp.remote.audit.blocked")
+    expect(statusText()).toContain("trust: blocked")
+  })
+
+  it("显式填写允许许可证（MIT）+ 干净载荷放行：状态 ok 且携带字节数", async () => {
+    renderPanel()
+    setServerId("s1")
+    setSourceLicense("MIT")
     fireEvent.click(screen.getByTestId("mcp-transport-request"))
     await waitFor(() => {
       expect(mocks.requestRemote).toHaveBeenCalledWith(
@@ -318,6 +336,20 @@ describe("McpTransportSettings — 请求与审计门", () => {
     expect(statusText()).toContain("mcp.transport.status.audited")
   })
 
+  it("填写拒绝许可证（AGPL-3.0）被信任审计门拦截：状态 blocked", async () => {
+    renderPanel()
+    setServerId("s1")
+    setSourceLicense("AGPL-3.0")
+    fireEvent.click(screen.getByTestId("mcp-transport-request"))
+    await waitFor(() => {
+      expect(screen.getByTestId("mcp-transport-status").getAttribute("data-status")).toBe(
+        "blocked",
+      )
+    })
+    expect(statusText()).toContain("mcp.remote.audit.blocked")
+    expect(statusText()).toContain("trust: blocked")
+  })
+
   it("注入载荷被审计门拦截：状态 blocked 且不走入库", async () => {
     mocks.requestRemote.mockResolvedValueOnce({
       server_id: "s1",
@@ -327,6 +359,7 @@ describe("McpTransportSettings — 请求与审计门", () => {
       origin: "remote",
     })
     renderPanel()
+    setSourceLicense("MIT")
     fireEvent.click(screen.getByTestId("mcp-transport-request"))
     await waitFor(() => {
       expect(screen.getByTestId("mcp-transport-status").getAttribute("data-status")).toBe(
@@ -334,6 +367,7 @@ describe("McpTransportSettings — 请求与审计门", () => {
       )
     })
     expect(statusText()).toContain("mcp.remote.audit.blocked")
+    expect(statusText()).toContain("injection:")
   })
 
   it("后端审计拦截错误映射为 blocked", async () => {

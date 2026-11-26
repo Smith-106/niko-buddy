@@ -13,11 +13,13 @@ import {
   waitFor,
   act,
 } from "@/test-helpers/component-test-utils"
-import { MermaidDiagram, unwrapMermaidPre } from "./mermaid-diagram"
+import { MermaidDiagram, sanitizeMermaidSvg, unwrapMermaidPre } from "./mermaid-diagram"
+
+const SAMPLE_SVG = '<svg xmlns="http://www.w3.org/2000/svg">ok</svg>'
 
 const mocks = vi.hoisted(() => ({
   initialize: vi.fn(),
-  render: vi.fn(async (_id: string, _code: string) => ({ svg: "<svg>ok</svg>" })),
+  render: vi.fn(async (_id: string, _code: string) => ({ svg: '<svg xmlns="http://www.w3.org/2000/svg">ok</svg>' })),
 }))
 
 vi.mock("mermaid", () => ({
@@ -67,13 +69,13 @@ beforeEach(() => {
   ;(globalThis as unknown as Record<string, unknown>).IntersectionObserver = MockIntersectionObserver
   mocks.initialize.mockClear()
   mocks.render.mockClear()
-  mocks.render.mockResolvedValue({ svg: "<svg>ok</svg>" })
+  mocks.render.mockResolvedValue({ svg: SAMPLE_SVG })
 })
 
 describe("MermaidDiagram", () => {
   it("未进入视口时渲染占位符并注册 observer", () => {
     renderDiagram()
-    expect(screen.getByText("Diagram")).toBeInTheDocument()
+    expect(screen.getByText("图表")).toBeInTheDocument()
     expect(observerCallbacks.length).toBe(1)
     expect(globalThis.IntersectionObserver).toBe(MockIntersectionObserver)
   })
@@ -88,18 +90,20 @@ describe("MermaidDiagram", () => {
       startOnLoad: false,
       theme: "default",
       securityLevel: "strict",
+      htmlLabels: false,
     })
     expect(mocks.render).toHaveBeenCalledTimes(1)
     // svg 经 dangerouslySetInnerHTML 注入
     const svgHost = document.querySelector('[class*="cursor-zoom-in"]')
-    expect(svgHost?.innerHTML).toContain("<svg>ok</svg>")
+    expect(svgHost?.querySelector("svg")).not.toBeNull()
+    expect(svgHost?.textContent).toContain("ok")
   })
 
   it("isIntersecting=false 时不进入渲染（observer 不触发 visible）", async () => {
     renderDiagram()
     triggerIntersect(false)
     await settle()
-    expect(screen.getByText("Diagram")).toBeInTheDocument()
+    expect(screen.getByText("图表")).toBeInTheDocument()
     expect(mocks.render).not.toHaveBeenCalled()
     // 随后 true 才渲染
     triggerIntersect(true)
@@ -147,7 +151,7 @@ describe("MermaidDiagram", () => {
     await settle()
     // 卸载后 resolve → cancelled=true → 不写 state
     unmount()
-    resolveRender({ svg: "<svg>late</svg>" })
+    resolveRender({ svg: '<svg xmlns="http://www.w3.org/2000/svg">late</svg>' })
     await settle()
   })
 
@@ -298,6 +302,83 @@ describe("全屏浮层键盘关闭", () => {
     fireEvent.keyDown(dialog, { key: "Escape" })
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).toBeNull()
+    })
+  })
+})
+
+describe("sanitizeMermaidSvg", () => {
+  it("strips script, foreignObject, iframe, a, image, event handlers, and unsafe CSS/href", () => {
+    const dirty = [
+      '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)" viewBox="0 0 100 100">',
+      "<script>alert(1)</script>",
+      '<foreignObject><div xmlns="http://www.w3.org/1999/xhtml" onclick="alert(2)">bad</div></foreignObject>',
+      '<iframe src="https://evil.test"/>',
+      '<a href="javascript:alert(3)"><text>click</text></a>',
+      '<image href="https://evil.test/x.png"/>',
+      '<style>@import url("https://evil.test/a.css");</style>',
+      '<style>.node { fill: #fff; }</style>',
+      '<g onclick="alert(4)" style="background:url(https://evil.test/x.png)">',
+      '<path d="M0 0 L10 10" marker-end="url(#arrow)" stroke="black"/>',
+      '<use href="#good-node"/>',
+      '<use href="https://evil.test/#bad"/>',
+      "<text>Safe Label</text>",
+      "</g>",
+      "</svg>",
+    ].join("")
+
+    const clean = sanitizeMermaidSvg(dirty)
+    expect(clean).toContain("Safe Label")
+    expect(clean).toContain('marker-end="url(#arrow)"')
+    expect(clean).toContain('href="#good-node"')
+    expect(clean).toContain(".node { fill: #fff; }")
+    expect(clean).not.toMatch(/<script/i)
+    expect(clean).not.toMatch(/foreignObject/i)
+    expect(clean).not.toMatch(/<iframe/i)
+    expect(clean).not.toMatch(/<a[\s>]/i)
+    expect(clean).not.toMatch(/<image/i)
+    expect(clean).not.toMatch(/onload|onclick|javascript:|@import|evil\.test/i)
+  })
+
+  it("returns empty string for non-svg, missing SVG namespace, XHTML root, or malformed XML", () => {
+    expect(sanitizeMermaidSvg("<div>not svg</div>")).toBe("")
+    expect(sanitizeMermaidSvg("<svg>missing-ns</svg>")).toBe("")
+    expect(sanitizeMermaidSvg('<svg xmlns="http://www.w3.org/1999/xhtml"><img src="x" onerror="alert(1)"/></svg>')).toBe("")
+    expect(sanitizeMermaidSvg('<svg xmlns="http://www.w3.org/2000/svg"><unclosed></svg>')).toBe("")
+    expect(sanitizeMermaidSvg("")).toBe("")
+  })
+
+  it("blocks mXSS vectors: <style> child elements, CDATA in <title>, processing instructions, XHTML children, and CSS escape/comment bypasses", () => {
+    const vectors: Array<[string, string]> = [
+      ["style-img-child", '<style><img src="x" onerror="alert(1)"/></style>'],
+      ["style-script-child", "<style><script>alert(2)</script></style>"],
+      ["style-decoded-lt-breakout", '<style>.x { content: "&lt;/style&gt;&lt;img src=x onerror=alert(3)&gt;"; }</style>'],
+      ["style-css-comment-url", '<style>.x { background: url/**/(https://evil.test/a.png); }</style>'],
+      ["style-css-comment-import", '<style>@im/**/port "https://evil.test/a.css";</style>'],
+      ["style-css-hex-escape", '<style>.x { background: \\75\\72\\6c(https://evil.test/b.png); }</style>'],
+      ["style-css-charset-imageset", '<style>@charset "utf-8"; .x { background: image-set("https://evil.test/c.png" 1x); }</style>'],
+      ["title-cdata-mxss", '<title><![CDATA[</title><img src="x" onerror="alert(4)"/>]]></title>'],
+      ["processing-instruction-mxss", '<?x ><img src="x" onerror="alert(5)"/>?>'],
+      ["xhtml-namespace-child", '<g xmlns="http://www.w3.org/1999/xhtml"><text>xhtml-bad</text></g>'],
+    ]
+
+    for (const [label, payload] of vectors) {
+      const input = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">${payload}<g xmlns="http://www.w3.org/2000/svg"><text>svg-good</text></g></svg>`
+      const clean = sanitizeMermaidSvg(input)
+      expect(clean, `${label} should preserve safe SVG sibling`).toContain("svg-good")
+      expect(clean, `${label} must strip dangerous vector`).not.toMatch(
+        /onerror|alert\(|<script|<img|<style|evil\.test|xhtml-bad|CDATA|\?x/i,
+      )
+      // 子元素不得保留 xmlns 属性
+      expect(clean, `${label} must strip child xmlns`).not.toMatch(/<g[^>]+xmlns=/i)
+    }
+  })
+
+  it("MermaidDiagram renders error state when sanitized SVG is empty", async () => {
+    mocks.render.mockResolvedValueOnce({ svg: "<div>not-svg</div>" })
+    renderDiagram()
+    triggerIntersect(true)
+    await waitFor(() => {
+      expect(screen.getByText("Mermaid 语法错误")).toBeInTheDocument()
     })
   })
 })

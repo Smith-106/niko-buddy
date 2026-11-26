@@ -1,7 +1,7 @@
 // MIT License - Copyright (c) 2026 Niko Buddy Contributors
 // SPDX-License-Identifier: MIT
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Plus, Trash2 } from "lucide-react"
 import { Label } from "@/components/ui/label"
@@ -14,6 +14,7 @@ import {
   deletePreferenceForProject,
 } from "@/lib/user-memory/session"
 import type { UserPreference } from "@/lib/user-memory/types"
+import { logger, toErrorMessage } from "@/lib/utils"
 
 /**
  * 人类可读标签 → 内部 key 前缀映射（PR8 录入门槛：普通作者零内部记号暴露）。
@@ -46,14 +47,35 @@ export function WritingPreferenceSection() {
   const [busy, setBusy] = useState(false)
 
   const projectPath = project?.path
+  const mountedRef = useRef(true)
+  const requestSeqRef = useRef(0)
+  const projectPathRef = useRef(projectPath)
+  projectPathRef.current = projectPath
 
-  const refresh = async () => {
-    if (!projectPath) return
-    setPrefs(await listPreferences(projectPath))
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  const refresh = async (targetPath: string | undefined = projectPath) => {
+    const seq = ++requestSeqRef.current
+    if (!targetPath) {
+      if (mountedRef.current) setPrefs([])
+      return
+    }
+    try {
+      const items = await listPreferences(targetPath)
+      if (!mountedRef.current || requestSeqRef.current !== seq) return
+      setPrefs(items)
+    } catch (error) {
+      logger.warn("WritingPreferenceSection", "listPreferences failed", { error: toErrorMessage(error) })
+    }
   }
 
   useEffect(() => {
-    void refresh()
+    void refresh(projectPath)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectPath])
 
@@ -64,30 +86,41 @@ export function WritingPreferenceSection() {
   )
 
   const handleAdd = async () => {
-    if (!projectPath || !value.trim()) return
+    const targetPath = projectPath
+    const trimmed = value.trim()
+    if (!targetPath || !trimmed) return
     setBusy(true)
     try {
-      await addPreferenceForProject(projectPath, {
+      await addPreferenceForProject(targetPath, {
         key: preset.key,
-        value: value.trim(),
+        value: trimmed,
         category: preset.category,
         label: t(preset.labelKey),
       })
-      setValue("")
-      await refresh()
+      if (mountedRef.current && projectPathRef.current === targetPath) {
+        setValue("")
+        await refresh(targetPath)
+      }
+    } catch (error) {
+      logger.warn("WritingPreferenceSection", "addPreferenceForProject failed", { error: toErrorMessage(error) })
     } finally {
-      setBusy(false)
+      if (mountedRef.current) setBusy(false)
     }
   }
 
   const handleDelete = async (id: string) => {
-    if (!projectPath) return
+    const targetPath = projectPath
+    if (!targetPath) return
     setBusy(true)
     try {
-      await deletePreferenceForProject(projectPath, id)
-      await refresh()
+      await deletePreferenceForProject(targetPath, id)
+      if (mountedRef.current && projectPathRef.current === targetPath) {
+        await refresh(targetPath)
+      }
+    } catch (error) {
+      logger.warn("WritingPreferenceSection", "deletePreferenceForProject failed", { error: toErrorMessage(error) })
     } finally {
-      setBusy(false)
+      if (mountedRef.current) setBusy(false)
     }
   }
 

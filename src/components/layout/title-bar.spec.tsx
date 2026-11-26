@@ -10,7 +10,7 @@ import { fireEvent, render, screen } from "@/test-helpers/component-test-utils"
 import { TitleBar } from "./title-bar"
 
 const mocks = vi.hoisted(() => ({
-  t: vi.fn((key: string) => key),
+  t: vi.fn((key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key),
   project: null as { id: string; name: string; path: string } | null,
   theme: "light",
   setTheme: vi.fn(),

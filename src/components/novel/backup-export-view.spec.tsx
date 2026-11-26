@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   open: vi.fn(),
   ask: vi.fn(),
   listDir: vi.fn(),
+  fileExists: vi.fn(),
   listen: vi.fn(),
   unlisten: vi.fn(),
   listenHandler: null as ((event: { payload: unknown }) => void) | null,
@@ -57,6 +58,7 @@ vi.mock("@/lib/platform", () => ({
 
 vi.mock("@/commands/fs", () => ({
   listDirectory: mocks.listDir,
+  fileExists: mocks.fileExists,
 }))
 
 vi.mock("@/stores/wiki-store", async (importOriginal) => {
@@ -120,6 +122,30 @@ function autoResult(overrides: Partial<CanonAutoBackupResult> = {}): CanonAutoBa
   }
 }
 
+function verifyOkResult(overrides: Record<string, unknown> = {}) {
+  return {
+    success: true,
+    containerChecksumMatches: true,
+    computedChecksum: "c".repeat(64),
+    manifestFound: true,
+    fileCount: 12,
+    contentDigestVerified: true,
+    warnings: [],
+    error: null,
+    formatVersion: 2,
+    componentCounts: {
+      status: 1,
+      drafts: 0,
+      qmDrafts: 2,
+      canonLancedb: 3,
+      wiki: 4,
+      snapshots: 1,
+      rootDocs: 1,
+    },
+    ...overrides,
+  }
+}
+
 beforeEach(() => {
   mocks.t.mockClear()
   mocks.invoke.mockReset()
@@ -127,9 +153,16 @@ beforeEach(() => {
   mocks.open.mockReset()
   mocks.ask.mockReset()
   mocks.listDir.mockReset()
-  mocks.listDir.mockResolvedValue([
-    { name: "20260102-000000-auto.zip", path: "E:/Novel/backups/auto/20260102-000000-auto.zip" },
-  ])
+  mocks.fileExists.mockReset()
+  mocks.fileExists.mockResolvedValue(false)
+  mocks.listDir.mockImplementation(async (dirPath: string) => {
+    if (String(dirPath).includes("/backups/auto")) {
+      return [
+        { name: "20260102-000000-auto.zip", path: "E:/Novel/backups/auto/20260102-000000-auto.zip" },
+      ]
+    }
+    return []
+  })
   mocks.listen.mockReset()
   mocks.unlisten.mockReset()
   mocks.listenHandler = null
@@ -231,33 +264,57 @@ describe("BackupExportView", () => {
     })
   })
 
-  it("restore happy path: open → ask confirmed → canon_restore_project invoked", async () => {
+  it("restore happy path: open → verify preflight → ask confirmed → canon_restore_project invoked", async () => {
     mocks.open.mockResolvedValue("E:/backup.zip")
     mocks.ask.mockResolvedValue(true)
-    mocks.invoke.mockResolvedValue(restoreResult())
+    mocks.invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_verify_export") return verifyOkResult()
+      if (cmd === "canon_restore_project") {
+        return restoreResult({
+          formatVersion: 2,
+          restoredWiki: true,
+          restoredSnapshots: true,
+          restoredQmDrafts: true,
+          restoredRootDocs: true,
+        })
+      }
+      return undefined
+    })
     render(<BackupExportView />)
     fireEvent.click(screen.getByText("novel.backupExport.restoreButton"))
     await waitFor(() => {
+      expect(mocks.invoke).toHaveBeenCalledWith("canon_verify_export", {
+        request: { zipPath: "E:/backup.zip", passphrase: null },
+      })
       expect(mocks.invoke).toHaveBeenCalledWith("canon_restore_project", {
         request: { projectPath: "E:/Novel", zipPath: "E:/backup.zip", passphrase: null },
       })
     })
-    expect(mocks.ask).toHaveBeenCalled()
+    expect(mocks.ask).toHaveBeenCalledWith(
+      "novel.backupExport.restoreConfirmV2Summary",
+      expect.objectContaining({ kind: "warning" }),
+    )
     await waitFor(() => {
       expect(screen.getByText(/novel\.backupExport\.restoreSuccess/)).toBeInTheDocument()
     })
+    expect(screen.getByTestId("restore-components-detail").textContent).toContain("novel.backupExport.restoreComponentWiki")
     expect(screen.getByText(/pre-restore-x\.zip/)).toBeInTheDocument()
   })
 
-  it("restore declined at confirm: no invoke", async () => {
+  it("restore declined at confirm: verify runs but canon_restore_project not invoked", async () => {
     mocks.open.mockResolvedValue("E:/backup.zip")
     mocks.ask.mockResolvedValue(false)
+    mocks.invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_verify_export") return verifyOkResult()
+      return undefined
+    })
     render(<BackupExportView />)
     fireEvent.click(screen.getByText("novel.backupExport.restoreButton"))
     await waitFor(() => {
       expect(screen.getByText("novel.backupExport.cancelled")).toBeInTheDocument()
     })
-    expect(mocks.invoke).not.toHaveBeenCalled()
+    expect(mocks.invoke).toHaveBeenCalledWith("canon_verify_export", expect.anything())
+    expect(mocks.invoke).not.toHaveBeenCalledWith("canon_restore_project", expect.anything())
   })
 
   it("restore dialog cancel: no invoke", async () => {
@@ -270,25 +327,45 @@ describe("BackupExportView", () => {
     expect(mocks.invoke).not.toHaveBeenCalled()
   })
 
-  it("restore verification failure surfaces backend error", async () => {
+  it("restore verification failure surfaces backend error and blocks ask/restore", async () => {
     mocks.open.mockResolvedValue("E:/bad.zip")
     mocks.ask.mockResolvedValue(true)
-    mocks.invoke.mockResolvedValue(
-      restoreResult({
-        success: false,
-        restoredStatus: false,
-        restoredDrafts: false,
-        restoredCanonLancedb: false,
-        restoredFiles: 0,
-        checksumVerified: null,
-        autoBackupPath: null,
-        error: "SHA-256 校验和不匹配：备份文件可能已被篡改或损坏，已中止恢复",
-      }),
-    )
+    mocks.invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_verify_export") {
+        return verifyOkResult({
+          success: false,
+          error: "SHA-256 校验和不匹配：备份文件可能已被篡改或损坏，已中止恢复",
+        })
+      }
+      return restoreResult()
+    })
     render(<BackupExportView />)
     fireEvent.click(screen.getByText("novel.backupExport.restoreButton"))
     await waitFor(() => {
       expect(screen.getByText(/SHA-256 校验和不匹配/)).toBeInTheDocument()
+    })
+    expect(mocks.ask).not.toHaveBeenCalled()
+    expect(mocks.invoke).not.toHaveBeenCalledWith("canon_restore_project", expect.anything())
+  })
+
+  it("restore v1 preflight shows v1 warning confirmation copy", async () => {
+    mocks.open.mockResolvedValue("E:/legacy-v1.zip")
+    mocks.ask.mockResolvedValue(true)
+    mocks.invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_verify_export") return verifyOkResult({ formatVersion: 1, componentCounts: undefined })
+      if (cmd === "canon_restore_project") return restoreResult({ formatVersion: 1 })
+      return undefined
+    })
+    render(<BackupExportView />)
+    fireEvent.click(screen.getByText("novel.backupExport.restoreButton"))
+    await waitFor(() => {
+      expect(mocks.ask).toHaveBeenCalledWith(
+        "novel.backupExport.restoreConfirmV1Warning",
+        expect.objectContaining({ kind: "warning" }),
+      )
+    })
+    await waitFor(() => {
+      expect(mocks.invoke).toHaveBeenCalledWith("canon_restore_project", expect.anything())
     })
   })
 
@@ -349,9 +426,13 @@ describe("接线：云端备份（F-004）与快照时间机器（F-002）", () 
 })
 
 describe("历史版本一键恢复", () => {
-  it("历史行恢复按钮：确认后直接用 entry.path 恢复并显示成功", async () => {
+  it("历史行恢复按钮：经预检确认后直接用 entry.path 恢复并显示成功", async () => {
     mocks.ask.mockResolvedValue(true)
-    mocks.invoke.mockResolvedValue(restoreResult())
+    mocks.invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_verify_export") return verifyOkResult()
+      if (cmd === "canon_restore_project") return restoreResult()
+      return undefined
+    })
     render(<BackupExportView />)
     const btn = await screen.findByTestId("restore-history-20260102-000000-auto.zip")
     expect(btn).toHaveTextContent("novel.backupExport.restoreHistory")
@@ -378,15 +459,20 @@ describe("历史版本一键恢复", () => {
     })
   })
 
-  it("历史恢复拒绝确认：无 invoke", async () => {
+  it("历史恢复拒绝确认：预检通过但拒绝后不调 canon_restore_project", async () => {
     mocks.ask.mockResolvedValue(false)
+    mocks.invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "canon_verify_export") return verifyOkResult()
+      return undefined
+    })
     render(<BackupExportView />)
     const btn = await screen.findByTestId("restore-history-20260102-000000-auto.zip")
     fireEvent.click(btn)
     await waitFor(() => {
       expect(screen.getByText("novel.backupExport.cancelled")).toBeInTheDocument()
     })
-    expect(mocks.invoke).not.toHaveBeenCalled()
+    expect(mocks.invoke).toHaveBeenCalledWith("canon_verify_export", expect.anything())
+    expect(mocks.invoke).not.toHaveBeenCalledWith("canon_restore_project", expect.anything())
     expect(mocks.open).not.toHaveBeenCalled()
   })
 })
@@ -669,5 +755,55 @@ describe("增补：backup-progress 订阅与取消", () => {
     })
     unmount()
     expect(mocks.unlisten).toHaveBeenCalledTimes(1)
+  })
+
+  it("P0-03：busy 期间无进度事件也常驻取消按钮，且导出区展示 8 类范围盘点清单", async () => {
+    mocks.fileExists.mockImplementation(async (p: string) => {
+      const s = String(p)
+      return s.endsWith("/QM") || s.endsWith("/.novel/status.json") || s.endsWith("/soul.md") || s.endsWith("/.qm-drafts")
+    })
+    mocks.listDir.mockImplementation(async (p: string) => {
+      const s = String(p)
+      if (s.endsWith("/QM")) {
+        return [
+          {
+            name: "chapters",
+            path: "E:/Novel/QM/chapters",
+            is_dir: true,
+            children: [
+              { name: "chapter-001.md", path: "E:/Novel/QM/chapters/chapter-001.md", is_dir: false },
+              { name: "chapter-002.md", path: "E:/Novel/QM/chapters/chapter-002.md", is_dir: false },
+            ],
+          },
+          {
+            name: "outlines",
+            path: "E:/Novel/QM/outlines",
+            is_dir: true,
+            children: [
+              { name: "main.md", path: "E:/Novel/QM/outlines/main.md", is_dir: false },
+            ],
+          },
+          { name: "world.md", path: "E:/Novel/QM/world.md", is_dir: false },
+        ]
+      }
+      if (s.endsWith("/.qm-drafts")) {
+        return [{ name: "d1.md", path: "E:/Novel/.qm-drafts/d1.md", is_dir: false }]
+      }
+      return []
+    })
+    mocks.save.mockImplementationOnce(() => new Promise(() => {}))
+    render(<BackupExportView />)
+    await waitFor(() => {
+      expect(screen.getByTestId("backup-scope-chapters").textContent).toContain("2")
+    })
+    expect(screen.getByTestId("backup-scope-outlines").textContent).toContain("1")
+    expect(screen.getByTestId("backup-scope-settings").textContent).toContain("1")
+    expect(screen.getByTestId("backup-scope-qmDrafts").textContent).toContain("1")
+    expect(screen.getByTestId("backup-scope-status").textContent).toContain("1")
+    expect(screen.getByTestId("backup-scope-rootDocs").textContent).toContain("1")
+
+    fireEvent.click(screen.getByText("novel.backupExport.exportButton"))
+    const cancelBtn = await screen.findByTestId("backup-cancel-button")
+    expect(cancelBtn).toBeInTheDocument()
   })
 })

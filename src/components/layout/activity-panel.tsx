@@ -234,6 +234,7 @@ export function ActivityPanel() {
               <div className="mb-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
                 <span>{t("activity.fileSync")}</span>
                 <button
+                  type="button"
                   onClick={handleFileSyncRescan}
                   className="rounded px-1.5 py-0.5 text-xs hover:bg-accent hover:text-foreground"
                   title={t("activity.rescanTitle")}
@@ -247,6 +248,7 @@ export function ActivityPanel() {
                   onChange={(e) => { setFsKindFilter(e.target.value as FileChangeKind | "all"); setFsPage(0) }}
                   className="rounded border bg-background px-1 py-0.5"
                   title={t("activity.filterKind", { defaultValue: "按类型筛选" })}
+                  aria-label={t("activity.filterKind", { defaultValue: "按类型筛选" })}
                 >
                   <option value="all">{t("activity.filterAllKinds", { defaultValue: "全部类型" })}</option>
                   <option value="created">{t("activity.fsKind.created", { defaultValue: "新建" })}</option>
@@ -258,6 +260,7 @@ export function ActivityPanel() {
                   onChange={(e) => { setFsStatusFilter(e.target.value as FileChangeStatus | "all"); setFsPage(0) }}
                   className="rounded border bg-background px-1 py-0.5"
                   title={t("activity.filterStatus", { defaultValue: "按状态筛选" })}
+                  aria-label={t("activity.filterStatus", { defaultValue: "按状态筛选" })}
                 >
                   <option value="all">{t("activity.filterAllStatus", { defaultValue: "全部状态" })}</option>
                   <option value="pending">{t("activity.fsStatus.pending", { defaultValue: "待处理" })}</option>
@@ -329,6 +332,7 @@ export function ActivityPanel() {
                 </span>
                 {queueSummary.pending + queueSummary.processing >= 2 && (
                   <button
+                    type="button"
                     onClick={handleCancelAll}
                     className="rounded px-1.5 py-0.5 text-xs text-destructive hover:bg-destructive/10"
                     title={t("activity.cancelAllTitle")}
@@ -337,7 +341,14 @@ export function ActivityPanel() {
                   </button>
                 )}
               </div>
-              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+              <div
+                role="progressbar"
+                aria-label={t("activity.ingestQueue")}
+                aria-valuemin={0}
+                aria-valuemax={Math.max(queueSummary.total, 1)}
+                aria-valuenow={Math.max(0, queueSummary.total - queueSummary.pending - queueSummary.processing)}
+                className="h-1.5 rounded-full bg-muted overflow-hidden"
+              >
                 <div
                   className="h-full rounded-full bg-primary transition-all"
                   style={{ width: `${((queueSummary.total - queueSummary.pending - queueSummary.processing) / Math.max(queueSummary.total, 1)) * 100}%` }}
@@ -373,6 +384,7 @@ export function ActivityPanel() {
           })}
           {items.some((i) => i.status !== "running") && (
             <button
+              type="button"
               onClick={clearDone}
               className="w-full px-3 py-1 text-center text-xs text-muted-foreground hover:underline"
             >
@@ -409,18 +421,22 @@ function QueueRow({ task, onRetry, onCancel }: { task: IngestTask; onRetry: (id:
         <div className="flex items-center gap-1 shrink-0">
           {task.status === "failed" && (
             <button
+              type="button"
               onClick={() => onRetry(task.id)}
               className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
               title={t("activity.retry")}
+              aria-label={t("activity.retry")}
             >
               <RotateCcw className="h-3 w-3 shrink-0" />
             </button>
           )}
           {(task.status === "pending" || task.status === "processing") && (
             <button
+              type="button"
               onClick={() => onCancel(task.id)}
               className="p-0.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive"
               title={t("activity.cancel")}
+              aria-label={t("activity.cancel")}
             >
               <X className="h-3 w-3 shrink-0" />
             </button>
@@ -474,16 +490,20 @@ function FileSyncRow({ task, onRetry, onIgnore }: { task: FileChangeTask; onRetr
         {task.status === "failed" && (
           <div className="flex shrink-0 items-center gap-1">
             <button
+              type="button"
               onClick={() => onRetry(task.id)}
               className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
               title={t("activity.retry")}
+              aria-label={t("activity.retry")}
             >
               <RotateCcw className="h-3 w-3 shrink-0" />
             </button>
             <button
+              type="button"
               onClick={() => onIgnore(task.id)}
               className="rounded p-0.5 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
               title={t("activity.ignore")}
+              aria-label={t("activity.ignore")}
             >
               <X className="h-3 w-3 shrink-0" />
             </button>
@@ -522,9 +542,11 @@ function ActivityRow({ item, onCancel }: { item: ActivityItem; onCancel?: () => 
         </div>
         {item.status === "running" && onCancel && (
           <button
+            type="button"
             onClick={onCancel}
             className="shrink-0 p-0.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive"
             title={t("activity.cancel")}
+            aria-label={t("activity.cancel")}
           >
             <X className="h-3 w-3 shrink-0" />
           </button>

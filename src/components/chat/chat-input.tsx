@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, type ReactNode } from "react"
+import { useEffect, useRef, useState, useCallback, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { Send, Square, Octagon } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -56,6 +56,13 @@ export function ChatInput({ onSend, onStop, onForceStop, isStreaming, placeholde
   const [inputHeight, setInputHeight] = useState(DEFAULT_RESIZABLE_INPUT_HEIGHT)
   const rootRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const dragCleanupRef = useRef<(() => void) | null>(null)
+
+  useEffect(() => {
+    return () => {
+      dragCleanupRef.current?.()
+    }
+  }, [])
 
   const setValue = useCallback(
     (draft: string) => {
@@ -131,6 +138,7 @@ export function ChatInput({ onSend, onStop, onForceStop, isStreaming, placeholde
   const handleResizePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
     event.preventDefault()
+    dragCleanupRef.current?.()
 
     const resizeHandle = event.currentTarget
     const pointerId = event.pointerId
@@ -158,11 +166,17 @@ export function ChatInput({ onSend, onStop, onForceStop, isStreaming, placeholde
       window.removeEventListener("pointermove", handlePointerMove)
       window.removeEventListener("pointerup", handlePointerUp)
       window.removeEventListener("pointercancel", handlePointerUp)
+      window.removeEventListener("blur", handlePointerUp)
+      if (dragCleanupRef.current === handlePointerUp) {
+        dragCleanupRef.current = null
+      }
     }
 
+    dragCleanupRef.current = handlePointerUp
     window.addEventListener("pointermove", handlePointerMove)
     window.addEventListener("pointerup", handlePointerUp)
     window.addEventListener("pointercancel", handlePointerUp)
+    window.addEventListener("blur", handlePointerUp)
   }, [getResizeBounds, inputHeight])
 
   const handleSend = useCallback(() => {

@@ -10,7 +10,8 @@ import { advanceDirectorAutomatically, buildStageJournalRuntime, collectProjectS
 import type { DirectorSnapshot, DirectorIdeaInput, DirectorPersistedFile, DirectorStageArtifacts } from "@/lib/novel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { assessLlmHealth } from "@/lib/llm-health"
-import { writeFileAtomic, createDirectory, fileExists } from "@/commands/fs"
+import { writeFileAtomic, createDirectory, fileExists, listDirectory } from "@/commands/fs"
+import { logger, toErrorMessage } from "@/lib/utils"
 import { Play, Rocket, PenLine, Settings as SettingsIcon } from "lucide-react"
 import { missingIdeaFields } from "./director-view-helpers"
 
@@ -27,6 +28,8 @@ export function DirectorView({ projectId }: DirectorViewProps) {
   const { t } = useTranslation()
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
+  const setFileTree = useWikiStore((s) => s.setFileTree)
+  const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   // J05-02/F-010：Director 接入六态模型健康，LLM 不可用时 CTA 禁用+本地写作分流
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const project = useWikiStore((s) => s.project)
@@ -225,15 +228,15 @@ export function DirectorView({ projectId }: DirectorViewProps) {
     }
   }, [projectId, refreshSnapshot, t, appendLog])
 
-  // J05-04/F-010：跳过 LLM 的本地写作路径——建空白第一章 → 写作工作区编辑器。
+  // J05-04/F-010 + P0-02：跳过 LLM 的本地写作路径——建空白第一章 → 写作工作区编辑器。
   // 兑现建项流程「跳过=仅本地编辑可用」的承诺。不依赖任何 LLM/Provider。
   const handleLocalWrite = useCallback(async () => {
     if (!project) return
     setBusy(true)
     try {
       const pp = project.path.replace(/\\/g, "/").replace(/\/+$/, "")
-      // 项目知识根是 QM/（LEGACY=wiki）；章节物理落 QM/chapters/ 才与 fileTree/编辑器对齐
-      const chaptersDir = `${pp}/QM/chapters`
+      // 章节规范路径为 wiki/chapters/chapter-NNN.md，与知识树/扫描器/正文编辑器同源
+      const chaptersDir = `${pp}/wiki/chapters`
       await createDirectory(chaptersDir)
       // 若已有章节则追加下一章号，不覆盖已有正文
       let num = 1
@@ -243,15 +246,37 @@ export function DirectorView({ projectId }: DirectorViewProps) {
         chapterPath = `${chaptersDir}/chapter-${String(num).padStart(3, "0")}.md`
       }
       const title = ideaInput.title.trim() || `第${num}章`
-      // frontmatter 标记章节 + 标题占位——Draft-first 本地正文，不走 LLM
-      const content = `---\nkind: chapter\nchapter: ${num}\ntitle: ${title}\nstatus: draft\n---\n\n# ${title}\n\n`
+      const escapedTitle = title.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+      // 规范章节 frontmatter（type / chapter_number / title / chapter_status）——Draft-first 本地正文，不走 LLM
+      const content = [
+        "---",
+        "type: chapter",
+        `chapter_number: ${num}`,
+        `title: "${escapedTitle}"`,
+        "chapter_status: draft",
+        "---",
+        "",
+        `# ${title}`,
+        "",
+        "",
+      ].join("\n")
       await writeFileAtomic(chapterPath, content)
+      try {
+        const tree = await listDirectory(pp)
+        setFileTree(tree)
+      } catch (err) {
+        logger.warn("DirectorView", "refresh file tree after local chapter write failed (non-fatal)", {
+          path: pp,
+          error: toErrorMessage(err),
+        })
+      }
+      bumpDataVersion()
       setSelectedFile(chapterPath)
       setActiveView("wiki")
     } finally {
       setBusy(false)
     }
-  }, [project, ideaInput.title, setSelectedFile, setActiveView])
+  }, [project, ideaInput.title, setFileTree, bumpDataVersion, setSelectedFile, setActiveView])
 
   if (!started || !persisted) {
     return (
@@ -343,22 +368,25 @@ export function DirectorView({ projectId }: DirectorViewProps) {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="flex flex-col gap-2 rounded-lg border p-4">
           <h3 className="text-sm font-semibold">{t("directorPanel.ideaTitle")}</h3>
-          <label className="text-xs text-muted-foreground">{t("directorPanel.ideaTitleField")}</label>
+          <label htmlFor="director-idea-title" className="text-xs text-muted-foreground">{t("directorPanel.ideaTitleField")}</label>
           <Input
+            id="director-idea-title"
             value={ideaInput.title}
             onChange={(e) => updateIdea({ title: e.target.value })}
             data-testid="director-idea-title"
             placeholder={t("directorPanel.ideaTitlePlaceholder")}
           />
-          <label className="text-xs text-muted-foreground">{t("directorPanel.ideaGenreField")}</label>
+          <label htmlFor="director-idea-genre" className="text-xs text-muted-foreground">{t("directorPanel.ideaGenreField")}</label>
           <Input
+            id="director-idea-genre"
             value={ideaInput.genre}
             onChange={(e) => updateIdea({ genre: e.target.value })}
             data-testid="director-idea-genre"
             placeholder={t("directorPanel.ideaGenrePlaceholder")}
           />
-          <label className="text-xs text-muted-foreground">{t("directorPanel.ideaConflictField")}</label>
+          <label htmlFor="director-idea-conflict" className="text-xs text-muted-foreground">{t("directorPanel.ideaConflictField")}</label>
           <Textarea
+            id="director-idea-conflict"
             value={ideaInput.coreConflict}
             onChange={(e) => updateIdea({ coreConflict: e.target.value })}
             data-testid="director-idea-conflict"
@@ -468,16 +496,26 @@ export function DirectorView({ projectId }: DirectorViewProps) {
         </div>)}
       </div>
 
-      <div className="flex items-center justify-between rounded-lg border p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
         <span className="text-xs text-muted-foreground">{t("directorPanel.nextStep")}</span>
-        <Button
-          size="sm"
-          variant="outline"
-          data-testid="director-goto-review"
-          onClick={() => setActiveView("reviewCenter")}
-        >
-          {t("directorPanel.gotoReview")}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="default"
+            data-testid="director-goto-writing"
+            onClick={() => setActiveView("wiki")}
+          >
+            {t("directorPanel.gotoWriting", { defaultValue: "前往写作工作区" })}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            data-testid="director-goto-main-control"
+            onClick={() => setActiveView("mainControl")}
+          >
+            {t("directorPanel.gotoMainControl", { defaultValue: "前往主控台" })}
+          </Button>
+        </div>
       </div>
     </div>
   )

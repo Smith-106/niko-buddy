@@ -85,6 +85,11 @@ export function SidebarPanel() {
   const [sidebarTotalWordCount, setSidebarTotalWordCount] = useState<number | null>(null)
   const [sidebarWordCountFailed, setSidebarWordCountFailed] = useState(0)
   const [incubatorOpen, setIncubatorOpen] = useState(false)
+  const [batchExtractTrigger, setBatchExtractTrigger] = useState<{ key: number; seedChapter: number | null } | null>(null)
+
+  const openBatchExtractDialog = useCallback((seedChapter: number | null = null) => {
+    setBatchExtractTrigger((prev) => ({ key: (prev?.key ?? 0) + 1, seedChapter }))
+  }, [])
 
   const loadMemoryCenter = useCallback(async (projectPath: string) => {
     const { loadMemoryCenterData } = await import("@/lib/novel/memory-center")
@@ -171,12 +176,12 @@ export function SidebarPanel() {
     chapterImportMenuRef,
     memoryDecisionRequest,
     closeMemoryDecision,
-    handleCancelImportMemoryExtraction,
     handleImportChapterFiles,
     handleImportChapterFolder,
+    handleImportWholeTxtNovel,
     handleImportOutlineFiles,
     handleImportOutlineFolder,
-  } = useSidebarImport({ refreshTree })
+  } = useSidebarImport({ refreshTree, onOpenBatchExtract: openBatchExtractDialog })
 
   useEffect(() => {
     if (isChapter) {
@@ -344,7 +349,7 @@ export function SidebarPanel() {
     return () => {
       cancelled = true
     }
-  }, [activeView, loadMemoryCenter, novelMode, project?.path])
+  }, [activeView, dataVersion, loadMemoryCenter, novelMode, project?.path])
 
   if (activeView === "graph") {
     return <GraphSidebarPanel />
@@ -426,6 +431,7 @@ export function SidebarPanel() {
             }}
             disabled={memoryLoading}
             title={t("novel.memoryCenter.refresh")}
+            aria-label={t("novel.memoryCenter.refresh")}
           >
             <RefreshCw className={`h-4 w-4 ${memoryLoading ? "animate-spin" : ""}`} />
           </Button>
@@ -499,37 +505,66 @@ export function SidebarPanel() {
                 <Wand2 className="h-3.5 w-3.5" />
                 <span>孵化</span>
               </Button>
-              <div ref={chapterImportMenuRef} className="relative">
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-7 px-2 text-xs"
-                onClick={() => setChapterImportMenuOpen((prev) => !prev)}
-                disabled={chapterImporting}
+                data-testid="sidebar-batch-extract-button"
+                className="h-7 px-2 text-xs gap-1"
+                onClick={() => openBatchExtractDialog(null)}
+                disabled={!project}
+                title={t("extract.batchEntry")}
               >
-                {chapterImporting ? "导入中..." : "导入"}
-                <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>{t("sidebar.batchExtract", { defaultValue: "批量提取" })}</span>
               </Button>
-              {chapterImportMenuOpen ? (
-                <div className="absolute right-0 top-full z-20 mt-1 w-28 rounded-md border bg-popover py-1 text-xs text-popover-foreground elevation-3">
-                  <button
-                    type="button"
-                    className="block w-full px-3 py-1.5 text-left hover:bg-accent"
-                    onClick={() => void handleImportChapterFiles()}
+              <div ref={chapterImportMenuRef} className="relative">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs"
+                  aria-haspopup="menu"
+                  aria-expanded={chapterImportMenuOpen}
+                  onClick={() => setChapterImportMenuOpen((prev) => !prev)}
+                  disabled={chapterImporting}
+                >
+                  {chapterImporting ? "导入中..." : "导入"}
+                  <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                </Button>
+                {chapterImportMenuOpen ? (
+                  <div
+                    role="menu"
+                    aria-label={t("sidebar.importChapterMenu", { defaultValue: "章节导入方式" })}
+                    className="absolute right-0 top-full z-20 mt-1 w-40 rounded-md border bg-popover py-1 text-xs text-popover-foreground elevation-3"
                   >
-                    导入文件
-                  </button>
-                  <button
-                    type="button"
-                    className="block w-full px-3 py-1.5 text-left hover:bg-accent"
-                    onClick={() => void handleImportChapterFolder()}
-                  >
-                    导入文件夹
-                  </button>
-                </div>
-              ) : null}
-            </div>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full px-3 py-1.5 text-left hover:bg-accent"
+                      onClick={() => void handleImportChapterFiles()}
+                    >
+                      导入文件
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full px-3 py-1.5 text-left hover:bg-accent"
+                      onClick={() => void handleImportChapterFolder()}
+                    >
+                      导入文件夹
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full px-3 py-1.5 text-left hover:bg-accent"
+                      onClick={() => void handleImportWholeTxtNovel()}
+                    >
+                      {t("sidebar.importWholeTxt", { defaultValue: "整本 TXT 拆章导入" })}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </>
           ) : (
             <div ref={outlineImportMenuRef} className="relative">
@@ -538,6 +573,8 @@ export function SidebarPanel() {
                 size="sm"
                 variant="outline"
                 className="h-7 px-2 text-xs"
+                aria-haspopup="menu"
+                aria-expanded={outlineImportMenuOpen}
                 onClick={() => setOutlineImportMenuOpen((prev) => !prev)}
                 disabled={outlineImporting}
               >
@@ -545,9 +582,14 @@ export function SidebarPanel() {
                 <ChevronDown className="ml-1 h-3.5 w-3.5" />
               </Button>
               {outlineImportMenuOpen ? (
-                <div className="absolute right-0 top-full z-20 mt-1 w-28 rounded-md border bg-popover py-1 text-xs text-popover-foreground elevation-3">
+                <div
+                  role="menu"
+                  aria-label={t("sidebar.importOutlineMenu", { defaultValue: "大纲导入方式" })}
+                  className="absolute right-0 top-full z-20 mt-1 w-28 rounded-md border bg-popover py-1 text-xs text-popover-foreground elevation-3"
+                >
                   <button
                     type="button"
+                    role="menuitem"
                     className="block w-full px-3 py-1.5 text-left hover:bg-accent"
                     onClick={() => void handleImportOutlineFiles()}
                   >
@@ -555,6 +597,7 @@ export function SidebarPanel() {
                   </button>
                   <button
                     type="button"
+                    role="menuitem"
                     className="block w-full px-3 py-1.5 text-left hover:bg-accent"
                     onClick={() => void handleImportOutlineFolder()}
                   >
@@ -575,6 +618,7 @@ export function SidebarPanel() {
             }}
             className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             title={isChapter ? t("sidebar.newChapter") : t("sidebar.newOutline")}
+            aria-label={isChapter ? t("sidebar.newChapter") : t("sidebar.newOutline")}
             disabled={creating || outlineImporting || chapterImporting}
           >
             <Plus className="h-4 w-4" />
@@ -627,6 +671,7 @@ export function SidebarPanel() {
           pendingPages={pendingPages.filter((page) => page.type === (isChapter ? "chapter" : "outline"))}
           onRemovePendingPage={handleRemovePendingPage}
           onRequestCreate={beginCreate}
+          batchExtractTrigger={batchExtractTrigger}
         />
       </div>
       <div className="border-t px-3 py-2">
@@ -641,7 +686,7 @@ export function SidebarPanel() {
           <span>{t("iconSidebar.usageGuide")}</span>
         </button>
       </div>
-      <RawSourcesSection onCancelExtraction={handleCancelImportMemoryExtraction} />
+      <RawSourcesSection />
       <Dialog
         open={Boolean(memoryDecisionRequest)}
         onOpenChange={(open) => {
@@ -649,28 +694,63 @@ export function SidebarPanel() {
         }}
       >
         <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t("novel.outlineImport.extractMemory")}</DialogTitle>
-            <DialogDescription>
-              {memoryDecisionRequest?.kind === "outline"
-                ? `本次将导入 ${memoryDecisionRequest.count} 个 AI 大纲文档。提取记忆会增加 token 消耗，速度也会比较慢，请耐心等待。`
-                : `本次将导入 ${memoryDecisionRequest?.count ?? 0} 个章节文档。提取记忆会增加 token 消耗，速度也会比较慢，请耐心等待。`}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-            点击“提取记忆”会在导入后逐个提取并同步到记忆库；点击“只导入”不会提取记忆；点击“取消导入”或关闭弹窗将取消本次导入。
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => closeMemoryDecision("cancel")}>
-              取消导入
-            </Button>
-            <Button type="button" variant="secondary" onClick={() => closeMemoryDecision("import-only")}>
-              只导入
-            </Button>
-            <Button type="button" onClick={() => closeMemoryDecision("extract")}>
-              提取记忆
-            </Button>
-          </DialogFooter>
+          {memoryDecisionRequest?.kind === "chapter" ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {t("sidebar.chapterImportDecisionTitle", { defaultValue: "选择章节导入方式" })}
+                </DialogTitle>
+                <DialogDescription>
+                  {memoryDecisionRequest.sourceSummary ?? t("sidebar.chapterImportDecisionDesc", {
+                    count: memoryDecisionRequest.count,
+                    defaultValue: `本次将导入 ${memoryDecisionRequest.count} 个章节文档。请选择导入后的章节状态与是否进入批量记忆提取向导。`,
+                  })}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                {t("sidebar.chapterImportDecisionHint", {
+                  defaultValue: "草稿仅保存正文，不会触发记忆提取；标记已定稿后可暂不提取，或直接打开批量提取向导（先生成草稿，人工确认后再回填正式记忆）。",
+                })}
+              </div>
+              <DialogFooter className="flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={() => closeMemoryDecision("cancel")}>
+                  {t("sidebar.cancelImport", { defaultValue: "取消导入" })}
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => closeMemoryDecision("draft")}>
+                  {t("sidebar.importAsDraft", { defaultValue: "作为草稿导入" })}
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => closeMemoryDecision("final-only")}>
+                  {t("sidebar.importAsFinalOnly", { defaultValue: "标记已定稿（暂不提取）" })}
+                </Button>
+                <Button type="button" onClick={() => closeMemoryDecision("final-and-batch-extract")}>
+                  {t("sidebar.importAsFinalAndExtract", { defaultValue: "标记已定稿并批量提取" })}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>{t("novel.outlineImport.extractMemory")}</DialogTitle>
+                <DialogDescription>
+                  {`本次将导入 ${memoryDecisionRequest?.count ?? 0} 个 AI 大纲文档。提取记忆会增加 token 消耗，速度也会比较慢，请耐心等待。`}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                点击“提取记忆”会在导入后逐个提取并同步到记忆库；点击“只导入”不会提取记忆；点击“取消导入”或关闭弹窗将取消本次导入。
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => closeMemoryDecision("cancel")}>
+                  取消导入
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => closeMemoryDecision("import-only")}>
+                  只导入
+                </Button>
+                <Button type="button" onClick={() => closeMemoryDecision("extract")}>
+                  提取记忆
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
       <AutonomousIncubatorDialog

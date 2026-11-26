@@ -15,8 +15,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 const fileExists = vi.fn(async (_path: string) => false)
+const readFile = vi.fn(async (_path: string) => "既有章节正文")
 const listChapterDrafts = vi.fn(async (): Promise<unknown[]> => [])
 const adoptMainControlDraft = vi.fn()
+const discardChapterDraft = vi.fn(async () => {})
 const runMainControlAgent = vi.fn()
 const resolveWikiPath = vi.fn(async () => "/proj/wiki")
 const saveTraceSnapshot = vi.fn(async (_projectPath: string, _snapshot: unknown) => true)
@@ -24,7 +26,7 @@ const rerunMainControlGates = vi.fn()
 
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
-  return { ...actual, fileExists }
+  return { ...actual, fileExists, readFile }
 })
 
 vi.mock("@/lib/novel", async (importOriginal) => {
@@ -33,6 +35,7 @@ vi.mock("@/lib/novel", async (importOriginal) => {
     ...actual,
     listChapterDrafts,
     adoptMainControlDraft,
+    discardChapterDraft,
     runMainControlAgent,
     resolveWikiPath,
     saveTraceSnapshot,
@@ -64,6 +67,8 @@ const wikiState = vi.hoisted(() => ({
     autoIngestOnSave: false,
   },
   setActiveView: vi.fn(),
+  setSelectedFile: vi.fn(),
+  bumpDataVersion: vi.fn(),
 }))
 
 vi.mock("@/stores/wiki-store", async (importOriginal) => {
@@ -91,6 +96,12 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
     get setActiveView() {
       return wikiState.setActiveView
     },
+    get setSelectedFile() {
+      return wikiState.setSelectedFile
+    },
+    get bumpDataVersion() {
+      return wikiState.bumpDataVersion
+    },
   }
   const useWikiStore = <T,>(selector: (s: typeof state) => T) => selector(state)
   return { ...actual, useWikiStore }
@@ -98,6 +109,8 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
 
 const { MainControlDraftAdoptBlock } = await import("./main-control-draft-adopt-block")
 const { MainControlView } = await import("./main-control-view")
+const { useMainControlRuntimeStore } = await import("@/stores/main-control-runtime-store")
+const { getChapterWriteCoordinator } = await import("@/components/layout/preview-panel-helpers")
 
 /** 草稿名与「当前打开的章」同名（复用分支的命中条件）。 */
 const draftRow = { id: "draft_1_abc", chapterName: "第3章 旧梦", content: "正文", createdAt: 1, status: "draft" }
@@ -107,19 +120,28 @@ const NEW_CHAPTER_PATH = "/proj/wiki/chapters/第3章 旧梦.md"
 beforeEach(() => {
   fileExists.mockClear()
   fileExists.mockResolvedValue(false)
+  readFile.mockReset()
+  readFile.mockResolvedValue("既有章节正文")
   listChapterDrafts.mockReset()
   listChapterDrafts.mockResolvedValue([draftRow])
   adoptMainControlDraft.mockReset()
   adoptMainControlDraft.mockResolvedValue({ formalChapterPath: NEW_CHAPTER_PATH, ingest: "skipped-config" })
+  discardChapterDraft.mockReset()
+  discardChapterDraft.mockResolvedValue(undefined)
   runMainControlAgent.mockReset()
   saveTraceSnapshot.mockReset()
   saveTraceSnapshot.mockResolvedValue(true)
   rerunMainControlGates.mockReset()
   wikiState.selectedFile = null
+  wikiState.dataVersion = 1
+  wikiState.setActiveView.mockReset()
+  wikiState.setSelectedFile.mockReset()
+  wikiState.bumpDataVersion.mockReset()
 })
 
 afterEach(() => {
   cleanup()
+  useMainControlRuntimeStore.getState().reset()
 })
 
 /** 展开第一步确认面板（只解析目标路径，不写盘）。 */
@@ -141,7 +163,7 @@ describe("MainControlDraftAdoptBlock selectedFile（F16）", () => {
     fireEvent.click(screen.getByTestId("main-control-draft-adopt-confirm-accept"))
     await waitFor(() => expect(adoptMainControlDraft).toHaveBeenCalledTimes(1))
     expect(adoptMainControlDraft).toHaveBeenCalledWith(
-      expect.objectContaining({ draftId: "draft_1_abc", chapterName: "第3章 旧梦", confirmed: true, selectedFile: CHAPTER_FILE }),
+      expect.objectContaining({ draftId: "draft_1_abc", chapterName: "第3章 旧梦", confirmed: true, formalChapterPath: CHAPTER_FILE }),
     )
   })
 
@@ -153,7 +175,7 @@ describe("MainControlDraftAdoptBlock selectedFile（F16）", () => {
     fireEvent.click(screen.getByTestId("main-control-draft-adopt-confirm-accept"))
     await waitFor(() => expect(adoptMainControlDraft).toHaveBeenCalledTimes(1))
     expect(adoptMainControlDraft).toHaveBeenCalledWith(
-      expect.objectContaining({ selectedFile: null, confirmed: true }),
+      expect.objectContaining({ formalChapterPath: NEW_CHAPTER_PATH, confirmed: true }),
     )
   })
 
@@ -307,5 +329,109 @@ describe("MainControlDraftAdoptBlock 换项目竞态", () => {
     await act(async () => {})
     expect(screen.queryByTestId("main-control-draft-adopt-note")).toBeNull()
     expect(screen.getByTestId("main-control-draft-adopt-draft_1_abc")).toBeTruthy()
+  })
+})
+
+describe("MainControlDraftAdoptBlock / MainControlView U-5 门控一键直达", () => {
+  const gatedDraft = {
+    ...draftRow,
+    id: "draft_gated_1",
+    adoptionGate: { status: "manual_review" as const },
+  }
+
+  it("门控拦截提示旁提供「前往重跑门控」按钮并触发 onOpenGateRerun；缺省回调不渲染按钮", async () => {
+    listChapterDrafts.mockResolvedValue([gatedDraft])
+    const onOpenGateRerun = vi.fn()
+    const { unmount } = render(
+      <MainControlDraftAdoptBlock projectPath="/proj" onOpenGateRerun={onOpenGateRerun} />,
+    )
+    const gateNote = await screen.findByTestId("main-control-draft-gate-draft_gated_1")
+    expect(gateNote.textContent).toContain("主控 → AI 实况")
+    const goBtn = screen.getByTestId("main-control-draft-gate-go-draft_gated_1")
+    expect(goBtn.textContent).toContain("前往重跑门控")
+    fireEvent.click(goBtn)
+    expect(onOpenGateRerun).toHaveBeenCalledTimes(1)
+    unmount()
+
+    render(<MainControlDraftAdoptBlock projectPath="/proj" />)
+    await screen.findByTestId("main-control-draft-gate-draft_gated_1")
+    expect(screen.queryByTestId("main-control-draft-gate-go-draft_gated_1")).toBeNull()
+  })
+
+  it("MainControlView：drafts 页签点击「前往重跑门控」切到 live 页签", async () => {
+    listChapterDrafts.mockResolvedValue([gatedDraft])
+    render(<MainControlView />)
+    fireEvent.click(screen.getByTestId("main-control-tab-drafts"))
+    const goBtn = await screen.findByTestId("main-control-draft-gate-go-draft_gated_1")
+    fireEvent.click(goBtn)
+    expect(screen.getByTestId("main-control-tab-live").getAttribute("aria-selected")).toBe("true")
+    expect(await screen.findByTestId("main-control-gate-rerun")).toBeTruthy()
+  })
+
+  it("MainControlView：通过 setMainControlTabHandoff('live') 挂载即直达 live 页签并一次性消费", async () => {
+    const handoff = await import("./main-control-handoff")
+    handoff.setMainControlTabHandoff("live")
+    try {
+      const { unmount } = render(<MainControlView />)
+      expect(screen.getByTestId("main-control-tab-live").getAttribute("aria-selected")).toBe("true")
+      expect(handoff.peekMainControlTabHandoff()).toBeNull()
+      unmount()
+
+      render(<MainControlView />)
+      expect(screen.getByTestId("main-control-tab-run").getAttribute("aria-selected")).toBe("true")
+    } finally {
+      handoff.clearMainControlTabHandoff()
+    }
+  })
+
+  it("R2-U02 / R2-U07 / BLOCKING-3：采纳接入 coordinator + bumpDataVersion、错误态 role=alert、截断稿修订/丢弃与 Diff 对比", async () => {
+    const partialDraft = { ...draftRow, id: "draft_partial_1", partial: true }
+    const discardedDraft = { ...draftRow, id: "draft_failed_1", status: "failed" as const }
+    listChapterDrafts.mockResolvedValue([draftRow, partialDraft, discardedDraft])
+    fileExists.mockResolvedValue(true)
+
+    render(<MainControlDraftAdoptBlock projectPath="/proj" selectedFile={CHAPTER_FILE} />)
+
+    // status=failed 默认隐藏
+    await waitFor(() => expect(screen.getByTestId("main-control-draft-row-draft_1_abc")).toBeTruthy())
+    expect(screen.queryByTestId("main-control-draft-row-draft_failed_1")).toBeNull()
+
+    // 预览与 Diff
+    fireEvent.click(screen.getByTestId("main-control-draft-preview-draft_1_abc"))
+    expect((await screen.findByTestId("draft-preview-body")).textContent).toContain("正文")
+    fireEvent.click(screen.getAllByRole("button", { name: "关闭" })[0])
+
+    fireEvent.click(screen.getByTestId("main-control-draft-adopt-draft_1_abc"))
+    fireEvent.click(await screen.findByTestId("main-control-draft-adopt-confirm-diff"))
+    await waitFor(() => expect(readFile).toHaveBeenCalledWith(CHAPTER_FILE))
+    expect((await screen.findByTestId("draft-diff-line-1")).textContent).toContain("- 既有章节正文")
+    fireEvent.click(screen.getAllByRole("button", { name: "关闭" })[0])
+
+    // coordinator 占用期间采纳报 role=alert 错误，不触碰 adoptMainControlDraft
+    const coord = getChapterWriteCoordinator()
+    const externalOwner = {}
+    const held = coord.beginAdoption(CHAPTER_FILE, externalOwner)
+    expect(held.ok).toBe(true)
+    try {
+      fireEvent.click(screen.getByTestId("main-control-draft-adopt-confirm-accept"))
+      const alertNote = await screen.findByTestId("main-control-draft-adopt-note")
+      expect(alertNote.getAttribute("role")).toBe("alert")
+      expect(adoptMainControlDraft).not.toHaveBeenCalled()
+    } finally {
+      coord.releaseOwnedAdoptions(externalOwner)
+    }
+
+    // 释放后采纳成功并 bumpDataVersion
+    fireEvent.click(screen.getByTestId("main-control-draft-adopt-confirm-accept"))
+    await waitFor(() => expect(adoptMainControlDraft).toHaveBeenCalledTimes(1))
+    expect(wikiState.bumpDataVersion).toHaveBeenCalled()
+
+    // partial 截断稿：去编辑器修订 + discardChapterDraft 丢弃
+    fireEvent.click(screen.getByTestId("main-control-draft-edit-draft_partial_1"))
+    expect(wikiState.setSelectedFile).toHaveBeenCalledWith("/proj/.qm-drafts/draft_partial_1.md")
+    expect(wikiState.setActiveView).toHaveBeenCalledWith("wiki")
+
+    fireEvent.click(screen.getByTestId("main-control-draft-discard-draft_partial_1"))
+    await waitFor(() => expect(discardChapterDraft).toHaveBeenCalledWith("/proj", "draft_partial_1"))
   })
 })

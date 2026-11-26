@@ -1,244 +1,376 @@
 /**
- * model-routes-view.tsx — 模型路由配置只读视图。
+ * model-routes-view.tsx — 写作模型分工视图（响应式订阅 + 快捷跳转设置）。
  *
  * ## 职责
- *   - 全局模型路由只读展示：基准模型（审查/默认/会话模型三源回退）+
- *     五角色路由解析（writer/critic/reviser/arbiter/judge）+ provider 配置摘要；
- *   - 不提供任何写回（路由/密钥修改请走设置页），本页只读。
+ *   - 响应式订阅 `useWikiStore`（切设置返回立即同步，不留陈旧缓存）；
+ *   - 使用 `@/lib/novel` 的 `resolveNovelModel` 真实解析四条核心写作任务路由：
+ *     正文写作（writing）、章节审稿（review）、剧情摘要（summary）、记忆提取（extract），
+ *     明确标出「专用覆盖」或「跟随主模型」；
+ *   - 若已开启多模型共识，展示写作共识与审稿共识席位；
+ *   - 提供「前往模型设置」「前往写作路由设置」快捷入口。
  *
- * ## 数据源（全部经 barrel `@/lib/novel`，已 grep 确认存在）
- *   - `resolveReviewModel()`（model-resolver：读全局 novelConfig.reviewModel）；
- *   - `normalizeRoutePolicy` + `resolveRouteModel`（scheduling-gate：本地 RoutePolicy
- *     规范化与角色解析，纯函数）；
- *   - provider 配置摘要直读 `useWikiStore` 全局 `providerConfigs`（store 允许
- *     app 侧直接消费； novel 域边界仅约束 `@/lib/novel` 深导入）。
- *
- * ## 缺口记录（2026-10-19）
- *   - barrel 未导出 `WritingRole` / `ALL_WRITING_ROLES`（仅 scheduling-gate 内部
- *     引用 `@/lib/llm/model-resolver`），组件不得深导入该模块，故下方
- *     `ModelRouteRole` 是与 T33 同形的本地镜像联合类型（writer/critic/reviser/
- *     arbiter/judge，顺序按管线）；barrel 补齐导出后应切回。
- *   - 仓库内无持久化的 RoutePolicy 真源（wiki-store 无 routePolicy 字段）：
- *     本视图以「审查/默认/会话模型」为基准模型现场组装空绑定 policy
- *     （roleBindings={}），各角色如实显示「走兜底」，绝不编造绑定关系。
- *   - provider 配置为全局设置（非项目级）：`projectPath === ""` 时仍按统一签名
- *     显示空态，不展示全局数据。
- *
- * 中文 UI；只读。
+ * 中文 UI；只读展示（修改统一前往设置页）。
  *
  * @license MIT © Niko Buddy
  */
 
-import { useEffect, useState } from "react"
-import { Cpu, Loader2 } from "lucide-react"
+import { useMemo } from "react"
+import { useTranslation } from "react-i18next"
+import { Cpu, Settings2, Users } from "lucide-react"
 import { ReportCallout, ReportPage, ReportSection } from "./report-page"
+import { Button } from "@/components/ui/button"
+import { resolveNovelModel, type NovelTaskType } from "@/lib/novel"
 import {
-  normalizeRoutePolicy,
-  resolveReviewModel,
-  resolveRouteModel,
-  type RoutePolicy,
-  type RouteResolution,
-} from "@/lib/novel"
-import { useWikiStore, type ProviderConfigs } from "@/stores/wiki-store"
+  useWikiStore,
+  type LlmConfig,
+  type NovelConfig,
+  type ProviderConfigs,
+} from "@/stores/wiki-store"
 
-/** 五角色（本地镜像，见文件头缺口记录；与 T33 WritingRole 同形同序）。 */
-export type ModelRouteRole = "writer" | "critic" | "reviser" | "arbiter" | "judge"
+/** 四条核心写作任务路由（与 model-resolver.ts 的真实解析对齐）。 */
+export type CoreNovelRouteTask = Extract<NovelTaskType, "writing" | "review" | "summary" | "extract">
 
-const MODEL_ROUTE_ROLES: readonly { readonly role: ModelRouteRole; readonly label: string }[] = [
-  { role: "writer", label: "写作" },
-  { role: "critic", label: "批评" },
-  { role: "reviser", label: "改写" },
-  { role: "arbiter", label: "仲裁" },
-  { role: "judge", label: "终审" },
+const CORE_ROUTE_TASKS: readonly {
+  readonly task: CoreNovelRouteTask
+  readonly labelKey: string
+  readonly defaultLabel: string
+}[] = [
+  { task: "writing", labelKey: "novel.modelRoutes.taskWriting", defaultLabel: "正文写作" },
+  { task: "review", labelKey: "novel.modelRoutes.taskReview", defaultLabel: "章节审稿" },
+  { task: "summary", labelKey: "novel.modelRoutes.taskSummary", defaultLabel: "剧情摘要" },
+  { task: "extract", labelKey: "novel.modelRoutes.taskExtract", defaultLabel: "记忆提取" },
 ]
 
-export interface ModelRouteResolutionRow {
-  readonly role: ModelRouteRole
-  readonly label: string
-  readonly resolution: RouteResolution
+export interface CoreModelRouteRow {
+  readonly task: CoreNovelRouteTask
+  readonly labelKey: string
+  readonly defaultLabel: string
+  readonly configuredModel: string
+  readonly resolvedModel: string
+  readonly isOverride: boolean
 }
 
-export interface ModelProviderRow {
+export interface ModelSourceRow {
   readonly id: string
   readonly label: string
   readonly savedModelCount: number
 }
 
+export interface ConsensusSeatSummary {
+  readonly enabled: boolean
+  readonly draftModels: readonly string[]
+  readonly reviewGroups: ReadonlyArray<{ readonly dimension: string; readonly models: readonly string[] }>
+  readonly debateRounds: number
+}
+
 export interface ModelRoutesSnapshot {
-  readonly baseModelId: string
-  readonly reviewModel: string
+  readonly primaryModelId: string
   readonly defaultLlmModel: string
   readonly aiChatModel: string
-  readonly policy: RoutePolicy
-  readonly resolutions: readonly ModelRouteResolutionRow[]
-  readonly providers: readonly ModelProviderRow[]
+  readonly routes: readonly CoreModelRouteRow[]
+  readonly consensus: ConsensusSeatSummary
+  readonly sources: readonly ModelSourceRow[]
 }
 
 /** 装载输入（全局 store 切片；显式传参以便脱离 Tauri 单元测试）。 */
 export interface ModelRoutesStoreSlice {
-  readonly reviewModel: string
+  readonly llmConfig: LlmConfig
+  readonly novelConfig: NovelConfig
   readonly defaultLlmModel: string
   readonly aiChatModel: string
   readonly providerConfigs: ProviderConfigs
 }
 
 /**
- * 纯装载：全局路由快照。
- *
- * 基准模型回退链 = 审查模型 > 默认模型 > 会话模型（与 resolveDefaultModel
- * 的 defaultLlmModel > aiChatModel 优先级同向，审查优先是本视图的展示选择）。
- * 三源全空 → 返回 null（诚实「未配置」，不编造 policy）。
+ * 纯装载：基于真实 `resolveNovelModel` 解析四条写作任务路由 + 多模型共识席位 + 已配置服务商摘要。
+ * 主模型与所有任务覆盖均为空 → 返回 null（诚实「未配置」，不编造绑定）。
  */
 export function loadModelRoutesSnapshot(slice: ModelRoutesStoreSlice): ModelRoutesSnapshot | null {
-  const baseModelId =
-    slice.reviewModel.trim() || slice.defaultLlmModel.trim() || slice.aiChatModel.trim()
-  if (baseModelId === "") return null
-  const policy = normalizeRoutePolicy({
-    version: "route-policy/1.0",
-    defaultModelId: baseModelId,
-    roleBindings: {},
+  const aiChat = slice.aiChatModel.trim()
+  const defaultModel = slice.defaultLlmModel.trim()
+  const baseConfigModel = slice.llmConfig.model.trim()
+  const primaryModelId = aiChat || defaultModel || baseConfigModel
+
+  const taskOverrides: Record<CoreNovelRouteTask, string> = {
+    writing: "",
+    review: slice.novelConfig.reviewModel.trim(),
+    summary: slice.novelConfig.summaryModel.trim(),
+    extract: slice.novelConfig.extractModel.trim(),
+  }
+
+  const hasAnyModel =
+    primaryModelId !== "" ||
+    Object.values(taskOverrides).some((m) => m !== "")
+  if (!hasAnyModel) return null
+
+  const storeSnapshot = {
+    providerConfigs: slice.providerConfigs,
+    defaultLlmModel: slice.defaultLlmModel,
+    aiChatModel: slice.aiChatModel,
+  }
+
+  const routes: readonly CoreModelRouteRow[] = CORE_ROUTE_TASKS.map((entry) => {
+    const override = taskOverrides[entry.task]
+    const resolved = resolveNovelModel(slice.llmConfig, slice.novelConfig, entry.task, storeSnapshot)
+    const resolvedLabel = override || resolved.model?.trim() || primaryModelId
+    return {
+      task: entry.task,
+      labelKey: entry.labelKey,
+      defaultLabel: entry.defaultLabel,
+      configuredModel: override,
+      resolvedModel: resolvedLabel,
+      isOverride: override !== "",
+    }
   })
-  const resolutions: readonly ModelRouteResolutionRow[] = MODEL_ROUTE_ROLES.map((entry) => ({
-    role: entry.role,
-    label: entry.label,
-    resolution: resolveRouteModel(policy, entry.role),
-  }))
-  const providers: readonly ModelProviderRow[] = Object.entries(slice.providerConfigs).map(
+
+  const draftModels = (slice.novelConfig.consensusWritingModels ?? [])
+    .map((m) => m.trim())
+    .filter(Boolean)
+  const reviewGroups = Object.entries(slice.novelConfig.consensusReviewModels ?? {})
+    .map(([dimension, models]) => ({
+      dimension,
+      models: (models ?? []).map((m) => m.trim()).filter(Boolean),
+    }))
+    .filter((group) => group.models.length > 0)
+
+  const sources: readonly ModelSourceRow[] = Object.entries(slice.providerConfigs).map(
     ([id, override]) => ({
       id,
       label: override.label?.trim() || id,
       savedModelCount: override.savedModels?.length ?? 0,
     }),
   )
+
   return {
-    baseModelId,
-    reviewModel: slice.reviewModel,
+    primaryModelId,
     defaultLlmModel: slice.defaultLlmModel,
     aiChatModel: slice.aiChatModel,
-    policy,
-    resolutions,
-    providers,
+    routes,
+    consensus: {
+      enabled: Boolean(slice.novelConfig.consensusEnabled),
+      draftModels,
+      reviewGroups,
+      debateRounds: slice.novelConfig.consensusDebateRounds ?? 1,
+    },
+    sources,
   }
 }
 
 export interface ModelRoutesViewProps {
-  /** 项目根路径（统一签名；本视图展示的是全局路由，未指定时显示空态）。 */
+  /** 项目根路径（统一签名；本视图展示全局模型分工，未指定时显示空态）。 */
   readonly projectPath: string
 }
 
 export function ModelRoutesView({ projectPath }: ModelRoutesViewProps) {
-  const [snapshot, setSnapshot] = useState<ModelRoutesSnapshot | null>(null)
-  const [loading, setLoading] = useState(projectPath !== "")
+  const { t } = useTranslation()
+  const llmConfig = useWikiStore((s) => s.llmConfig)
+  const novelConfig = useWikiStore((s) => s.novelConfig)
+  const defaultLlmModel = useWikiStore((s) => s.defaultLlmModel)
+  const aiChatModel = useWikiStore((s) => s.aiChatModel)
+  const providerConfigs = useWikiStore((s) => s.providerConfigs)
+  const setActiveView = useWikiStore((s) => s.setActiveView)
+  const setActiveSettingsCategory = useWikiStore((s) => s.setActiveSettingsCategory)
 
-  useEffect(() => {
-    if (projectPath === "") {
-      setSnapshot(null)
-      setLoading(false)
-      return
-    }
-    const state = useWikiStore.getState()
-    setSnapshot(
-      loadModelRoutesSnapshot({
-        reviewModel: resolveReviewModel(),
-        defaultLlmModel: state.defaultLlmModel,
-        aiChatModel: state.aiChatModel,
-        providerConfigs: state.providerConfigs,
-      }),
-    )
-    setLoading(false)
-  }, [projectPath])
+  const snapshot = useMemo(() => {
+    if (projectPath === "") return null
+    return loadModelRoutesSnapshot({
+      llmConfig,
+      novelConfig,
+      defaultLlmModel,
+      aiChatModel,
+      providerConfigs,
+    })
+  }, [aiChatModel, defaultLlmModel, llmConfig, novelConfig, projectPath, providerConfigs])
+
+  const openLlmSettings = () => {
+    setActiveSettingsCategory("llm")
+    setActiveView("settings")
+  }
+
+  const openNovelRouteSettings = () => {
+    setActiveSettingsCategory("novel")
+    setActiveView("settings")
+  }
+
+  const hasOverride = snapshot?.routes.some((row) => row.isOverride) ?? false
 
   return (
     <ReportPage
       testId="model-routes-view"
-      title="模型路由"
-      description="这里只看每个角色用哪个模型。要改，去设置页。"
+      title={t("novel.modelRoutes.title", { defaultValue: "模型分工" })}
+      description={t("novel.modelRoutes.description", {
+        defaultValue: "查看正文写作、章节审稿、剧情摘要与记忆提取各自使用的模型。调整请前往设置页。",
+      })}
     >
-      {loading ? (
-        <p data-testid="model-routes-loading" className="flex items-center gap-1 text-sm text-muted-foreground">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          正在读取模型路由配置…
-        </p>
-      ) : snapshot === null ? (
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          data-testid="model-routes-open-llm-settings"
+          onClick={openLlmSettings}
+        >
+          <Settings2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+          {t("novel.modelRoutes.openLlmSettings", { defaultValue: "前往模型设置" })}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          data-testid="model-routes-open-novel-settings"
+          onClick={openNovelRouteSettings}
+        >
+          <Settings2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+          {t("novel.modelRoutes.openNovelSettings", { defaultValue: "前往写作路由设置" })}
+        </Button>
+      </div>
+
+      {snapshot === null ? (
         <ReportCallout testId="model-routes-empty" tone="neutral">
-          {projectPath === "" ? "未指定项目路径，打开任意项目后查看全局配置" : "全局未配置可用模型（审查/默认/会话模型均为空），请先在设置页配置模型"}
+          {projectPath === ""
+            ? t("novel.modelRoutes.noProject", { defaultValue: "未指定项目路径，打开任意项目后查看全局模型分工" })
+            : t("novel.modelRoutes.noModelConfigured", {
+                defaultValue: "尚未配置可用模型，请先前往模型设置完成接入",
+              })}
         </ReportCallout>
       ) : (
         <>
-          <ReportSection title="下一步">
-            <p className="text-base font-medium text-foreground">
-              {snapshot.resolutions.every((row) => row.resolution.usedDefault)
-                ? "角色绑定表为空，五个角色目前都走兜底模型。要改模型，去设置页。"
-                : "有角色已经指定了模型。要改，去设置页。"}
+          <ReportSection title={t("novel.modelRoutes.nextStepTitle", { defaultValue: "当前状态" })}>
+            <p className="text-sm font-medium text-foreground">
+              {hasOverride
+                ? t("novel.modelRoutes.hasOverridesSummary", {
+                    defaultValue: "部分环节已指定专用模型，其余环节跟随主模型运行。",
+                  })
+                : t("novel.modelRoutes.allFollowPrimarySummary", {
+                    defaultValue: "四个核心写作环节目前均跟随主模型运行，可在写作设置中为审稿、摘要或提取单独指定模型。",
+                  })}
             </p>
           </ReportSection>
+
           <div data-testid="model-routes-base" className="rounded-md border border-border bg-background px-3 py-2">
             <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-              <Cpu className="h-3.5 w-3.5" />
-              基准模型
+              <Cpu className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("novel.modelRoutes.primarySectionTitle", { defaultValue: "当前主模型" })}
             </div>
             <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <div className="flex gap-1">
-                <dt>基准：</dt>
-                <dd data-testid="model-routes-base-id" className="font-mono">
-                  {snapshot.baseModelId}
+                <dt>{t("novel.modelRoutes.primaryModelLabel", { defaultValue: "生效主模型：" })}</dt>
+                <dd data-testid="model-routes-base-id" className="font-mono text-foreground">
+                  {snapshot.primaryModelId || t("novel.modelRoutes.notConfigured", { defaultValue: "未配置" })}
                 </dd>
               </div>
               <div className="flex gap-1">
-                <dt>审查模型：</dt>
-                <dd className="font-mono">{snapshot.reviewModel.trim() || "未配置"}</dd>
+                <dt>{t("novel.modelRoutes.chatModelLabel", { defaultValue: "会话模型：" })}</dt>
+                <dd className="font-mono">
+                  {snapshot.aiChatModel.trim() || t("novel.modelRoutes.notConfigured", { defaultValue: "未配置" })}
+                </dd>
               </div>
               <div className="flex gap-1">
-                <dt>默认模型：</dt>
-                <dd className="font-mono">{snapshot.defaultLlmModel.trim() || "未配置"}</dd>
-              </div>
-              <div className="flex gap-1">
-                <dt>会话模型：</dt>
-                <dd className="font-mono">{snapshot.aiChatModel.trim() || "未配置"}</dd>
+                <dt>{t("novel.modelRoutes.defaultModelLabel", { defaultValue: "全局默认模型：" })}</dt>
+                <dd className="font-mono">
+                  {snapshot.defaultLlmModel.trim() || t("novel.modelRoutes.notConfigured", { defaultValue: "未配置" })}
+                </dd>
               </div>
             </dl>
-
           </div>
 
           <div data-testid="model-routes-roles" className="rounded-md border border-border bg-background px-3 py-2">
-            <p className="text-sm font-medium text-foreground">五角色路由解析</p>
-            <ul className="mt-1 flex flex-col gap-1">
-              {snapshot.resolutions.map((row) => (
+            <p className="text-sm font-medium text-foreground">
+              {t("novel.modelRoutes.coreRoutesTitle", { defaultValue: "核心写作环节分工" })}
+            </p>
+            <ul className="mt-1.5 flex flex-col gap-1.5">
+              {snapshot.routes.map((row) => (
                 <li
-                  key={row.role}
-                  data-testid={`model-route-${row.role}`}
-                  className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground"
+                  key={row.task}
+                  data-testid={`model-route-${row.task}`}
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
                 >
-                  <span className="font-medium text-foreground">{row.label}</span>
-                  <span className="sr-only">{row.role}</span>
-                  <span className="font-mono">{row.resolution.modelId}</span>
-                  {row.resolution.usedDefault ? (
-                    <span className="rounded bg-muted px-1.5 py-0.5">走兜底</span>
-                  ) : null}
+                  <span className="font-medium text-foreground">
+                    {t(row.labelKey, { defaultValue: row.defaultLabel })}
+                  </span>
+                  <span className="font-mono text-foreground">
+                    {row.resolvedModel || t("novel.modelRoutes.notConfigured", { defaultValue: "未配置" })}
+                  </span>
+                  <span
+                    className={
+                      row.isOverride
+                        ? "rounded bg-primary/10 px-1.5 py-0.5 text-primary"
+                        : "rounded bg-muted px-1.5 py-0.5 text-muted-foreground"
+                    }
+                  >
+                    {row.isOverride
+                      ? t("novel.modelRoutes.badgeOverride", { defaultValue: "专用覆盖" })
+                      : t("novel.modelRoutes.badgeFollowPrimary", { defaultValue: "跟随主模型" })}
+                  </span>
                 </li>
               ))}
             </ul>
           </div>
 
+          {snapshot.consensus.enabled ? (
+            <div data-testid="model-routes-consensus" className="rounded-md border border-border bg-background px-3 py-2">
+              <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                <Users className="h-3.5 w-3.5" aria-hidden="true" />
+                {t("novel.modelRoutes.consensusTitle", { defaultValue: "多模型协同席位（已开启）" })}
+              </div>
+              <div className="mt-1.5 space-y-1.5 text-xs text-muted-foreground">
+                <div>
+                  <span className="font-medium text-foreground">
+                    {t("novel.modelRoutes.consensusWritingLabel", { defaultValue: "写作协同席位：" })}
+                  </span>
+                  {snapshot.consensus.draftModels.length > 0 ? (
+                    <span className="font-mono">{snapshot.consensus.draftModels.join("、")}</span>
+                  ) : (
+                    <span>{t("novel.modelRoutes.consensusFallbackPrimary", { defaultValue: "跟随主模型（未单独配置席位）" })}</span>
+                  )}
+                </div>
+                <div>
+                  <span className="font-medium text-foreground">
+                    {t("novel.modelRoutes.consensusReviewLabel", { defaultValue: "审稿协同席位：" })}
+                  </span>
+                  {snapshot.consensus.reviewGroups.length > 0 ? (
+                    <ul className="mt-1 space-y-0.5 pl-3">
+                      {snapshot.consensus.reviewGroups.map((group) => (
+                        <li key={group.dimension}>
+                          <span>{group.dimension}：</span>
+                          <span className="font-mono">{group.models.join("、")}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span>{t("novel.modelRoutes.consensusFallbackReview", { defaultValue: "跟随章节审稿模型" })}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <div data-testid="model-routes-providers" className="rounded-md border border-border bg-background px-3 py-2">
             <p className="text-sm font-medium text-foreground">
-              模型来源（全局，共 {snapshot.providers.length} 个）
+              {t("novel.modelRoutes.sourcesTitle", {
+                count: snapshot.sources.length,
+                defaultValue: `已配置的模型服务（共 ${snapshot.sources.length} 个）`,
+              })}
             </p>
-            {snapshot.providers.length === 0 ? (
+            {snapshot.sources.length === 0 ? (
               <p data-testid="model-routes-no-providers" className="mt-1 text-xs text-muted-foreground">
-                暂无 provider 配置
+                {t("novel.modelRoutes.noSources", { defaultValue: "尚未保存任何模型服务配置" })}
               </p>
             ) : (
               <ul className="mt-1 flex flex-col gap-1">
-                {snapshot.providers.map((provider) => (
+                {snapshot.sources.map((source) => (
                   <li
-                    key={provider.id}
-                    data-testid={`model-provider-${provider.id}`}
+                    key={source.id}
+                    data-testid={`model-provider-${source.id}`}
                     className="flex flex-wrap gap-x-2 text-xs text-muted-foreground"
                   >
-                    <span className="font-medium text-foreground">{provider.label}</span>
-                    <span className="font-mono">{provider.id}</span>
-                    <span>已保存模型 {provider.savedModelCount} 个</span>
+                    <span className="font-medium text-foreground">{source.label}</span>
+                    <span>
+                      {t("novel.modelRoutes.savedModelsCount", {
+                        count: source.savedModelCount,
+                        defaultValue: `已保存模型 ${source.savedModelCount} 个`,
+                      })}
+                    </span>
                   </li>
                 ))}
               </ul>

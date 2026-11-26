@@ -1,8 +1,11 @@
 import type { ReactNode, RefObject } from "react"
+import { useId, useRef } from "react"
 import { useTranslation } from "react-i18next"
-import { MoreHorizontal, X } from "lucide-react"
+import { AlertTriangle, MoreHorizontal, X } from "lucide-react"
 import { InspectorPanel } from "@/components/inspector/inspector-panel"
 import type { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
+import { normalizePath } from "@/lib/path-utils"
+import { useWikiStore } from "@/stores/wiki-store"
 
 // M5-2：从 preview-panel.tsx 剥出的章节工具栏头（标题输入 + 紧凑/展开操作组 +
 // saveStatus 行 + Inspector 行）。纯展示组件：全部状态与副作用留在 PreviewPanel，
@@ -54,6 +57,7 @@ export interface ChapterToolbarHeaderProps {
   onTitleCommit: () => void
   onTitleCancel: () => void
   visibleSaveStatus: string
+  onCopyReingestReceipt?: () => void
   selectionActionPending: boolean
   onCancelSelectionAction: () => void
   showInspector: boolean
@@ -108,6 +112,7 @@ export function ChapterToolbarHeader({
   onTitleCommit,
   onTitleCancel,
   visibleSaveStatus,
+  onCopyReingestReceipt,
   selectionActionPending,
   onCancelSelectionAction,
   showInspector,
@@ -115,7 +120,20 @@ export function ChapterToolbarHeader({
   inspectorChapterId,
   inspectorRefreshKey,
 }: ChapterToolbarHeaderProps) {
+  const moreButtonRef = useRef<HTMLButtonElement>(null)
+  const skipNextBlurCommitRef = useRef(false)
+  const moreActionsId = useId()
+  const closeMoreAndRestoreFocus = () => { onCloseMoreMenu(); moreButtonRef.current?.focus() }
   const { t } = useTranslation()
+  // BLOCKING-8：直接订阅 store，零修改 ChapterToolbarHeaderProps 接口
+  const finalChapterSave = useWikiStore((s) => s.finalChapterSave)
+  const selectedFile = useWikiStore((s) => s.selectedFile)
+  const setActiveView = useWikiStore((s) => s.setActiveView)
+  const isBlockedByReview = Boolean(
+    finalChapterSave?.phase === "blocked_by_review" &&
+      selectedFile &&
+      normalizePath(finalChapterSave.filePath) === normalizePath(selectedFile),
+  )
   return (
       <div className="border-b px-3 py-1.5">
         <div ref={toolbarRef} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
@@ -135,10 +153,18 @@ export function ChapterToolbarHeader({
                 </span>
                 <input
                   type="text"
+                  aria-label={t("preview.chapterTitle")}
                   value={chapterTitleDraft}
-                  onFocus={onTitleFocus}
+                  onFocus={() => {
+                    skipNextBlurCommitRef.current = false
+                    onTitleFocus()
+                  }}
                   onChange={(e) => onTitleChange(e.target.value)}
                   onBlur={() => {
+                    if (skipNextBlurCommitRef.current) {
+                      skipNextBlurCommitRef.current = false
+                      return
+                    }
                     onTitleCommit()
                   }}
                   onMouseDown={(e) => e.stopPropagation()}
@@ -147,11 +173,14 @@ export function ChapterToolbarHeader({
                     e.stopPropagation()
                     if (e.key === "Enter") {
                       e.preventDefault()
+                      skipNextBlurCommitRef.current = true
+                      onTitleCommit()
                       e.currentTarget.blur()
                       return
                     }
                     if (e.key === "Escape") {
                       e.preventDefault()
+                      skipNextBlurCommitRef.current = true
                       onTitleCancel()
                       e.currentTarget.blur()
                     }
@@ -171,26 +200,37 @@ export function ChapterToolbarHeader({
           </div>
           <div className="relative ml-auto flex shrink-0 items-center justify-end gap-1">
           {chapterToolbarCompact && hasChapterToolbarActions ? (
-            <div className="relative shrink-0">
+            <div className="relative shrink-0"
+              onKeyDown={event => {
+                if (event.key === "Escape" && chapterToolbarMoreOpen) {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  closeMoreAndRestoreFocus()
+                }
+              }}
+              onBlur={event => {
+                if (chapterToolbarMoreOpen && !event.currentTarget.contains(event.relatedTarget)) onCloseMoreMenu()
+              }}
+            >
               <button
                 type="button"
                 onClick={onToggleMoreOpen}
-                className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
+                ref={moreButtonRef}
+                className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 title={t("preview.moreActions")}
                 aria-label={t("preview.moreActions")}
-                aria-haspopup="menu"
                 aria-expanded={chapterToolbarMoreOpen}
-                aria-controls="preview-chapter-toolbar-menu"
+                aria-controls={moreActionsId}
               >
                 <MoreHorizontal className="h-3.5 w-3.5 shrink-0" />
               </button>
               {chapterToolbarMoreOpen ? (
-                <div id="preview-chapter-toolbar-menu" role="menu" className="absolute right-0 top-8 z-30 w-40 rounded-md border bg-popover p-1 text-xs text-popover-foreground elevation-3">
+                <div id={moreActionsId} role="group" aria-label={t("preview.moreActions")} className="absolute right-0 top-8 z-30 w-40 max-h-[min(60vh,24rem)] overflow-y-auto rounded-md border bg-popover p-1 text-xs text-popover-foreground elevation-3">
                   {chapterHeader ? (
                     <button
                       type="button"
                       onClick={() => {
-                        onCloseMoreMenu()
+                        closeMoreAndRestoreFocus()
                         onToggleChat()
                       }}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
@@ -202,7 +242,7 @@ export function ChapterToolbarHeader({
                     <button
                       type="button"
                       onClick={() => {
-                        onCloseMoreMenu()
+                        closeMoreAndRestoreFocus()
                         onDeAiProcess()
                       }}
                       disabled={deAiProcessing}
@@ -216,7 +256,7 @@ export function ChapterToolbarHeader({
                     <button
                       type="button"
                       onClick={() => {
-                        onCloseMoreMenu()
+                        closeMoreAndRestoreFocus()
                         onDeAiBatchStart()
                       }}
                       disabled={batchRunning || deAiProcessing}
@@ -230,7 +270,7 @@ export function ChapterToolbarHeader({
                     <button
                       type="button"
                       onClick={() => {
-                        onCloseMoreMenu()
+                        closeMoreAndRestoreFocus()
                         onIngestOutline()
                       }}
                       disabled={isOutlineIngesting}
@@ -244,7 +284,7 @@ export function ChapterToolbarHeader({
                     <button
                       type="button"
                       onClick={() => {
-                        onCloseMoreMenu()
+                        closeMoreAndRestoreFocus()
                         onOpenUnpackOutline()
                       }}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
@@ -256,7 +296,7 @@ export function ChapterToolbarHeader({
                     <button
                       type="button"
                       onClick={() => {
-                        onCloseMoreMenu()
+                        closeMoreAndRestoreFocus()
                         onShowOutlineSnapshot()
                       }}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
@@ -268,7 +308,7 @@ export function ChapterToolbarHeader({
                     <button
                       type="button"
                       onClick={() => {
-                        onCloseMoreMenu()
+                        closeMoreAndRestoreFocus()
                         onSaveAsFinal()
                       }}
                       disabled={isFinalChapterSaving}
@@ -282,7 +322,7 @@ export function ChapterToolbarHeader({
                     <button
                       type="button"
                       onClick={() => {
-                        onCloseMoreMenu()
+                        closeMoreAndRestoreFocus()
                         onReingest()
                       }}
                       disabled={isFinalChapterSaving}
@@ -296,7 +336,7 @@ export function ChapterToolbarHeader({
                     <button
                       type="button"
                       onClick={() => {
-                        onCloseMoreMenu()
+                        closeMoreAndRestoreFocus()
                         onFormatWriting()
                       }}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
@@ -308,7 +348,7 @@ export function ChapterToolbarHeader({
                     <button
                       type="button"
                       onClick={() => {
-                        onCloseMoreMenu()
+                        closeMoreAndRestoreFocus()
                         onShowSnapshot()
                       }}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
@@ -320,7 +360,7 @@ export function ChapterToolbarHeader({
                     <button
                       type="button"
                       onClick={() => {
-                        onCloseMoreMenu()
+                        closeMoreAndRestoreFocus()
                         onShowCognition()
                       }}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
@@ -332,7 +372,7 @@ export function ChapterToolbarHeader({
                     <button
                       type="button"
                       onClick={() => {
-                        onCloseMoreMenu()
+                        closeMoreAndRestoreFocus()
                         onShowPersona()
                       }}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent"
@@ -480,6 +520,7 @@ export function ChapterToolbarHeader({
             </button>
           ) : null}
           <button
+            type="button"
             aria-label={t("novel.preview.closePreview")}
             onClick={onClosePreview}
             className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent"
@@ -488,8 +529,8 @@ export function ChapterToolbarHeader({
           </button>
           </div>
         </div>
-        {visibleSaveStatus ? (
-          <div className="mt-1 flex items-center justify-end gap-2 text-right min-w-0">
+        {visibleSaveStatus || selectionActionPending || onCopyReingestReceipt ? (
+          <div className="mt-1 flex flex-wrap items-center justify-end gap-2 text-right min-w-0">
             {selectionActionPending ? (
               <button
                 type="button"
@@ -499,9 +540,38 @@ export function ChapterToolbarHeader({
                 {t("preview.cancel")}
               </button>
             ) : null}
-            <span className="block truncate text-xs text-muted-foreground min-w-0">
+            <span role="status" aria-atomic="true" className="min-w-0 break-words text-xs text-muted-foreground">
               {visibleSaveStatus}
             </span>
+            {onCopyReingestReceipt ? (
+              <button
+                type="button"
+                onClick={onCopyReingestReceipt}
+                className="shrink-0 rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                {t("novel.chapter.copyReingestReceipt")}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {isBlockedByReview ? (
+          <div
+            role="alert"
+            data-testid="chapter-review-blocked-banner"
+            className="mt-1.5 flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive"
+          >
+            <span className="flex items-center gap-1.5 font-medium">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              {t("novel.chapter.reviewBlockedBannerTitle")}
+            </span>
+            <button
+              type="button"
+              data-testid="chapter-go-review-center"
+              onClick={() => setActiveView?.("reviewCenter")}
+              className="shrink-0 rounded border border-destructive/50 bg-background px-2 py-0.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+            >
+              {t("novel.chapter.goReviewCenter")}
+            </button>
           </div>
         ) : null}
         {showInspector ? (

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { Suspense, lazy } from "react"
+import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { WritingWorkspace } from "./writing-workspace"
@@ -176,9 +177,10 @@ const MainControlView = lazy(async () => {
 })
 
 function LoadingView() {
+  const { t } = useTranslation()
   return (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      <span>加载中...</span>
+      <span>{t("common.loading", { defaultValue: "加载中..." })}</span>
     </div>
   )
 }

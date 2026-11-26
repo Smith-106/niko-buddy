@@ -1,17 +1,9 @@
 // @vitest-environment jsdom
 /**
- * model-routes-view.spec.tsx — 模型路由配置只读视图契约。
- *
- * 覆盖：
- *   1. 空 projectPath → 空态（未指定项目路径），不读 store 之外任何磁盘；
- *   2. store 有默认模型 → 基准模型 + 五角色兜底解析渲染；
- *   3. store 三源全空 → 诚实「未配置」文案（loader 返回 null）；
- *   4. 纯装载函数单测：provider 摘要 + 审查模型优先回退链。
- *
- * 磁盘统一经 `@/commands/fs`（本视图实际只读内存 store，此处 mock 仅作统一边界）。
+ * model-routes-view.spec.tsx — 模型分工视图契约（P1-02 响应式订阅 + 4 条核心写作路由 + 快捷设置入口）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
@@ -25,11 +17,24 @@ import { ModelRoutesView, loadModelRoutesSnapshot } from "./model-routes-view"
 const readFileMock = vi.mocked(readFile)
 
 function resetModelStore() {
+  const prevNovel = useWikiStore.getState().novelConfig
+  const prevLlm = useWikiStore.getState().llmConfig
   useWikiStore.setState({
     defaultLlmModel: "",
     aiChatModel: "",
     providerConfigs: {},
-    novelConfig: { ...useWikiStore.getState().novelConfig, reviewModel: "" },
+    activeView: "modelRoutes",
+    activeSettingsCategory: null,
+    llmConfig: { ...prevLlm, model: "" },
+    novelConfig: {
+      ...prevNovel,
+      reviewModel: "",
+      summaryModel: "",
+      extractModel: "",
+      consensusEnabled: false,
+      consensusWritingModels: [],
+      consensusReviewModels: {},
+    },
   })
 }
 
@@ -48,50 +53,56 @@ describe("ModelRoutesView", () => {
     expect(readFileMock).not.toHaveBeenCalled()
   })
 
-  it("store 有默认模型 → 基准模型 + 五角色兜底渲染", () => {
-    useWikiStore.setState({ defaultLlmModel: "openai/gpt-4o", aiChatModel: "openai/gpt-4o-mini" })
+  it("响应式订阅 store：4 条核心写作路由真实解析，且设置变更立即同步刷新", () => {
+    useWikiStore.setState({
+      defaultLlmModel: "openai/gpt-4o",
+      aiChatModel: "openai/gpt-4o-mini",
+      novelConfig: {
+        ...useWikiStore.getState().novelConfig,
+        reviewModel: "anthropic/claude-sonnet",
+        summaryModel: "",
+        extractModel: "deepseek/deepseek-chat",
+      },
+    })
     render(<ModelRoutesView projectPath="C:/proj" />)
-    expect(screen.getByTestId("model-routes-base-id").textContent).toContain("openai/gpt-4o")
-    // 角色绑定表为空，五角色全部走兜底，如实展示。
-    for (const role of ["writer", "critic", "reviser", "arbiter", "judge"]) {
-      const row = screen.getByTestId(`model-route-${role}`)
-      expect(row.textContent).toContain("openai/gpt-4o")
-      expect(row.textContent).toContain("走兜底")
-    }
-    expect(screen.getByTestId("model-routes-no-providers").textContent).toContain("暂无 provider 配置")
+    expect(screen.getByTestId("model-routes-base-id").textContent).toContain("openai/gpt-4o-mini")
+
+    expect(screen.getByTestId("model-route-writing").textContent).toContain("跟随主模型")
+    expect(screen.getByTestId("model-route-review").textContent).toContain("anthropic/claude-sonnet")
+    expect(screen.getByTestId("model-route-review").textContent).toContain("专用覆盖")
+    expect(screen.getByTestId("model-route-summary").textContent).toContain("跟随主模型")
+    expect(screen.getByTestId("model-route-extract").textContent).toContain("deepseek/deepseek-chat")
+    expect(screen.getByTestId("model-route-extract").textContent).toContain("专用覆盖")
+    expect(screen.getByTestId("model-routes-no-providers").textContent).toContain("尚未保存任何模型服务配置")
+
+    // 动态修改 store：组件无需重挂载即刻同步
+    act(() => {
+      useWikiStore.setState({
+        novelConfig: {
+          ...useWikiStore.getState().novelConfig,
+          summaryModel: "openai/gpt-4o",
+        },
+      })
+    })
+    expect(screen.getByTestId("model-route-summary").textContent).toContain("专用覆盖")
+    expect(screen.getByTestId("model-route-summary").textContent).toContain("openai/gpt-4o")
   })
 
-  it("store 三源全空 → 诚实「未配置」文案", () => {
+  it("store 全空 → 诚实「尚未配置可用模型」文案", () => {
     render(<ModelRoutesView projectPath="C:/proj" />)
-    expect(screen.getByTestId("model-routes-empty").textContent).toContain("全局未配置可用模型")
+    expect(screen.getByTestId("model-routes-empty").textContent).toContain("尚未配置可用模型")
     expect(screen.queryByTestId("model-routes-base")).toBeNull()
   })
 
-  it("loadModelRoutesSnapshot：审查模型优先 + provider 摘要", () => {
-    const snapshot = loadModelRoutesSnapshot({
-      reviewModel: "anthropic/claude-x",
-      defaultLlmModel: "openai/gpt-4o",
-      aiChatModel: "",
-      providerConfigs: {
-        openai: {
-          label: "OpenAI",
-          savedModels: [
-            { id: "m1", name: "gpt-4o", model: "gpt-4o", createdAt: 0 },
-            { id: "m2", name: "o3", model: "o3", createdAt: 0 },
-          ],
-        },
-      },
-    })
-    expect(snapshot).not.toBeNull()
-    expect(snapshot?.baseModelId).toBe("anthropic/claude-x")
-    expect(snapshot?.resolutions).toHaveLength(5)
-    expect(snapshot?.resolutions.every((row) => row.resolution.usedDefault)).toBe(true)
-    expect(snapshot?.providers).toEqual([{ id: "openai", label: "OpenAI", savedModelCount: 2 }])
-    expect(loadModelRoutesSnapshot({ reviewModel: "", defaultLlmModel: "  ", aiChatModel: "", providerConfigs: {} })).toBeNull()
-  })
-  it("有 provider 配置 → 渲染 provider 行（来源总数 + 已保存模型数），不显示空态", () => {
+  it("多模型协同开启时展示写作/审稿席位，并支持跳转模型设置与写作路由设置", () => {
     useWikiStore.setState({
       defaultLlmModel: "openai/gpt-4o",
+      novelConfig: {
+        ...useWikiStore.getState().novelConfig,
+        consensusEnabled: true,
+        consensusWritingModels: ["openai/gpt-4o", "anthropic/claude-sonnet"],
+        consensusReviewModels: { consistency: ["deepseek/deepseek-r1"] },
+      },
       providerConfigs: {
         openai: {
           label: "OpenAI",
@@ -105,17 +116,53 @@ describe("ModelRoutesView", () => {
     })
     render(<ModelRoutesView projectPath="C:/proj" />)
 
+    const consensus = screen.getByTestId("model-routes-consensus")
+    expect(consensus.textContent).toContain("openai/gpt-4o")
+    expect(consensus.textContent).toContain("anthropic/claude-sonnet")
+    expect(consensus.textContent).toContain("deepseek/deepseek-r1")
+
     expect(screen.queryByTestId("model-routes-no-providers")).toBeNull()
     expect(screen.getByTestId("model-routes-providers").textContent).toContain("共 2 个")
+    expect(screen.getByTestId("model-provider-openai").textContent).toContain("已保存模型 2 个")
+    expect(screen.getByTestId("model-provider-deepseek").textContent).toContain("已保存模型 0 个")
 
-    const openaiRow = screen.getByTestId("model-provider-openai")
-    expect(openaiRow.textContent).toContain("OpenAI")
-    expect(openaiRow.textContent).toContain("openai")
-    expect(openaiRow.textContent).toContain("已保存模型 2 个")
+    fireEvent.click(screen.getByTestId("model-routes-open-llm-settings"))
+    expect(useWikiStore.getState().activeSettingsCategory).toBe("llm")
+    expect(useWikiStore.getState().activeView).toBe("settings")
 
-    // 未配置 label 的 provider 以 id 兜底展示，且模型数如实为 0（不编造）
-    const deepseekRow = screen.getByTestId("model-provider-deepseek")
-    expect(deepseekRow.textContent).toContain("deepseek")
-    expect(deepseekRow.textContent).toContain("已保存模型 0 个")
+    fireEvent.click(screen.getByTestId("model-routes-open-novel-settings"))
+    expect(useWikiStore.getState().activeSettingsCategory).toBe("novel")
+    expect(useWikiStore.getState().activeView).toBe("settings")
+  })
+
+  it("loadModelRoutesSnapshot：纯装载返回 4 条任务路由与来源摘要", () => {
+    const state = useWikiStore.getState()
+    const snapshot = loadModelRoutesSnapshot({
+      llmConfig: { ...state.llmConfig, model: "" },
+      novelConfig: { ...state.novelConfig, reviewModel: "anthropic/claude-x", summaryModel: "", extractModel: "" },
+      defaultLlmModel: "openai/gpt-4o",
+      aiChatModel: "",
+      providerConfigs: {
+        openai: {
+          label: "OpenAI",
+          savedModels: [{ id: "m1", name: "gpt-4o", model: "gpt-4o", createdAt: 0 }],
+        },
+      },
+    })
+    expect(snapshot).not.toBeNull()
+    expect(snapshot?.routes).toHaveLength(4)
+    expect(snapshot?.routes.find((r) => r.task === "review")?.isOverride).toBe(true)
+    expect(snapshot?.routes.find((r) => r.task === "writing")?.isOverride).toBe(false)
+    expect(snapshot?.sources).toEqual([{ id: "openai", label: "OpenAI", savedModelCount: 1 }])
+
+    expect(
+      loadModelRoutesSnapshot({
+        llmConfig: { ...state.llmConfig, model: "" },
+        novelConfig: { ...state.novelConfig, reviewModel: "", summaryModel: "", extractModel: "" },
+        defaultLlmModel: "  ",
+        aiChatModel: "",
+        providerConfigs: {},
+      }),
+    ).toBeNull()
   })
 })

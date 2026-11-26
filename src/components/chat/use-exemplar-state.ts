@@ -9,7 +9,9 @@ import {
 } from "@/commands/exemplar"
 import { appendExemplarABSample, exemplarABStats, loadCognitionState } from "@/lib/novel"
 import { normalizePath, getFileName } from "@/lib/path-utils"
+import { toast } from "@/lib/toast"
 import { toErrorMessage } from "@/lib/utils"
+import i18n from "@/i18n"
 
 /**
  * Manages the Style Exemplar marking UI state and operations.
@@ -52,7 +54,9 @@ export function useExemplarState(params: {
     const selection = window.getSelection?.()
     const text = selection?.toString().trim() ?? ""
     if (!text) {
-      setExemplarFeedback("请先在消息中选中一段文本")
+      const message = i18n.t("chat.exemplar.selectFirst", { defaultValue: "请先在消息中选中一段文本" })
+      setExemplarFeedback(message)
+      toast.info(message)
       return
     }
     const pp = normalizePath(project.path)
@@ -84,10 +88,15 @@ export function useExemplarState(params: {
       const list = await loadStyleExemplarsViaRust(pp)
       setExemplarCount(list.length)
       setExemplarList(list)
-      setExemplarFeedback("已标记为用户锚点（非自动生成）")
+      setExemplarFeedback(i18n.t("chat.exemplar.savedFeedback", { defaultValue: "已收藏为文风范例，后续写作将参考这段风格" }))
       setExemplarDialog({ open: false, text: "", chapterId: "" })
     } catch (e) {
-      setExemplarFeedback(`标记失败：${toErrorMessage(e)}`)
+      setExemplarFeedback(
+        i18n.t("chat.exemplar.saveFailed", {
+          message: toErrorMessage(e),
+          defaultValue: `收藏失败：${toErrorMessage(e)}`,
+        }),
+      )
     }
   }, [project, exemplarDialog, exemplarMarkType, exemplarNote])
 
@@ -100,10 +109,20 @@ export function useExemplarState(params: {
       const list = await loadStyleExemplarsViaRust(pp)
       setExemplarList(list)
       setExemplarCount(list.length)
-      setExemplarFeedback(`已删除范例 ${exemplarId.slice(0, 8)}`)
+      setExemplarFeedback(
+        i18n.t("chat.exemplar.deletedFeedback", {
+          id: exemplarId.slice(0, 8),
+          defaultValue: `已移除这条文风范例（${exemplarId.slice(0, 8)}）`,
+        }),
+      )
       setExemplarDeleteConfirmId(null)
     } catch (e) {
-      setExemplarFeedback(`删除失败：${toErrorMessage(e)}`)
+      setExemplarFeedback(
+        i18n.t("chat.exemplar.deleteFailed", {
+          message: toErrorMessage(e),
+          defaultValue: `删除失败：${toErrorMessage(e)}`,
+        }),
+      )
     }
   }, [project])
 
@@ -120,10 +139,20 @@ export function useExemplarState(params: {
       })
       const state = await loadCognitionState(pp)
       const stats = exemplarABStats(state)
-      const enabledStr = stats.enabledAvg !== null ? stats.enabledAvg.toFixed(2) : "N/A"
-      const disabledStr = stats.disabledAvg !== null ? stats.disabledAvg.toFixed(2) : "N/A"
+      const emptyLabel = i18n.t("chat.exemplar.noScoreYet", { defaultValue: "暂无" })
+      const enabledStr = stats.enabledAvg !== null ? stats.enabledAvg.toFixed(2) : emptyLabel
+      const disabledStr = stats.disabledAvg !== null ? stats.disabledAvg.toFixed(2) : emptyLabel
+      const modeLabel = variant === "enabled"
+        ? i18n.t("chat.exemplar.feedbackEnabled", { defaultValue: "开启参考时" })
+        : i18n.t("chat.exemplar.feedbackDisabled", { defaultValue: "关闭参考时" })
       setExemplarFeedback(
-        `已记录评分 ${score}★（${variant === "enabled" ? "开启" : "关闭"}）— 开启均分 ${enabledStr === "N/A" ? "无" : enabledStr}，关闭均分 ${disabledStr === "N/A" ? "无" : disabledStr}`,
+        i18n.t("chat.exemplar.scoreRecorded", {
+          score,
+          mode: modeLabel,
+          enabledAvg: enabledStr,
+          disabledAvg: disabledStr,
+          defaultValue: `已记录反馈 ${score}★（${modeLabel}）— 开启参考均分 ${enabledStr}，关闭参考均分 ${disabledStr}`,
+        }),
       )
     } catch (err) {
       // R4 共识（deepseek+qwen）: 评分提交失败原本无 catch ⇒ 浮空 rejection + 界面无反馈。

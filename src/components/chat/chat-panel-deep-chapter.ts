@@ -54,7 +54,7 @@ export interface ChatDeepChapterContext {
  * - 动态加载 deep-chapter-generation / consensus-writing / residual-campaign 保持动态
  * - sessionState 初始化、stageJournalRuntime 装配、runGenerationFirst 调用契约不变
  * - onThinking / onFinalContent / onCheckpoint 顺序与错误抛出 CHECKPOINT_PERSIST_FAILED 逐字保留
- * - manualReviewRequired / partial / completed / abort / error 状态分支落盘与 marker 注入逐字保留
+ * - manualReviewRequired / partial / completed / abort / error 走既有会话落盘与 marker
  * - setPlanningPlan(null) 的 one-shot 清除语义逐字保留
  * - finally 清理 novelManagedStopRef / activeStreamSessionsRef / abortControllersRef 逐字保留
  */
@@ -101,6 +101,7 @@ export async function runDeepChapterSend(ctx: ChatDeepChapterContext): Promise<v
   abortControllersRef.current[capturedConvId] = controller
   const deepStream = createDeepThinkingStreamRenderer()
   let accumulated = ""
+  let hasStreamedBody = false
   let latestCheckpoint: import("@/lib/novel/deep-chapter-generation").DeepChapterGenerationResumeCheckpoint | undefined
   let novelSessionId: string | undefined
   let checkpointPersistError: string | null = null
@@ -164,6 +165,7 @@ export async function runDeepChapterSend(ctx: ChatDeepChapterContext): Promise<v
         onThinking: appendThinkingBlock,
         onFinalContent: (content) => {
           if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
+          hasStreamedBody ||= Boolean(content.trim())
           accumulated = deepStream.appendFinal(content)
           setStreamingContent(accumulated, capturedConvId)
         },
@@ -198,6 +200,7 @@ export async function runDeepChapterSend(ctx: ChatDeepChapterContext): Promise<v
     )
     // Wave 3 (v2.5.0): one-shot 语义 — 计划快照消费后立即清除（不跨次发送残留）
     setPlanningPlan(null)
+    const hasFinalContent = Boolean(generationResult.finalContent.trim())
     if (generationResult.manualReviewRequired) {
       const blockedState = await blockDeepChapterSession({
         projectPath: pp,
@@ -214,7 +217,7 @@ export async function runDeepChapterSend(ctx: ChatDeepChapterContext): Promise<v
         draftStatus: blockedState.draft.draft_status,
         updatedAt: blockedState.updated_at,
       }
-    } else if (generationResult.partial) {
+    } else if (generationResult.partial || !hasFinalContent) {
       // The transport timed out mid-generation and collectModelText
       // preserved a partial draft. Route to pause (draft_status "pending")
       // so continue-unfinished resumes from the partial via the
@@ -229,7 +232,9 @@ export async function runDeepChapterSend(ctx: ChatDeepChapterContext): Promise<v
         chapterNumber: effectiveTaskRoute?.chapterNumber,
         sessionId: novelSessionId,
         checkpoint: latestCheckpoint,
-        errorMessage: `写到一半的正文已留下，可以用「继续未完成」接着写。`,
+        errorMessage: hasFinalContent
+          ? "写到一半的正文已留下，可以用「继续未完成」接着写。"
+          : "模型没有返回可保存的正文。",
       })
       sessionDebug.finalWrite = {
         status: pausedState.status,
@@ -247,6 +252,8 @@ export async function runDeepChapterSend(ctx: ChatDeepChapterContext): Promise<v
         checkpoint: latestCheckpoint,
         finalContent: generationResult.finalContent,
         reviewResults: generationResult.reviewResults,
+        decisionGates: generationResult.decisionGates,
+        finalConsistencyReviewed: generationResult.finalConsistencyReviewed,
         // Wave 5 (v2.5.0): 上下文用量快照落盘（additive，缺省不落盘）。
         contextUsage: generationResult.contextUsage,
       })
@@ -258,16 +265,17 @@ export async function runDeepChapterSend(ctx: ChatDeepChapterContext): Promise<v
       }
     }
     streamSessionGuardRef.current.finish(capturedConvId, sessionId, () => {
+      const finalizedContent = hasFinalContent
+        ? deepStream.replaceFinal(generationResult.finalContent)
+        : (hasStreamedBody && accumulated) || "出错：模型没有返回内容。"
       finalizeStream(
         appendContextUsageMarker(
-          appendManagedDeepChapterDraftMarker(accumulated, {
+          appendManagedDeepChapterDraftMarker(finalizedContent, {
             conversationId: capturedConvId,
             sessionId: novelSessionId,
-            draftStatus: generationResult.manualReviewRequired
+            draftStatus: generationResult.manualReviewRequired || generationResult.partial || !hasFinalContent
               ? "pending"
-              : generationResult.partial
-                ? "pending"
-                : "ready",
+              : "ready",
           }),
           generationResult.contextUsage,
         ),

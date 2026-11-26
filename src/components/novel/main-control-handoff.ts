@@ -4,7 +4,10 @@
 // 章节页 → 主控的目标交接（UX 审计批次二·8）：章节页「生成本章草稿」只预填主控目标并跳转，
 // 不自动执行；用户在主控点「开始执行」才真正调模型。仅内存，不落盘、不进 status.json。
 
+export type MainControlTab = "run" | "drafts" | "context" | "live"
+
 let pendingGoal: string | null = null
+let pendingTab: MainControlTab | null = null
 
 /** 写入待交接的主控目标（覆盖上一次未取走的值）。 */
 export function setMainControlGoalHandoff(goal: string): void {
@@ -20,6 +23,21 @@ export function peekMainControlGoalHandoff(): string | null {
 /** 清空待交接目标（主控挂载后在 effect 里调用）。 */
 export function clearMainControlGoalHandoff(): void {
   pendingGoal = null
+}
+
+/** 写入待交接的主控页签（覆盖上一次未取走的值；纯内存，不落盘）。 */
+export function setMainControlTabHandoff(tab: MainControlTab): void {
+  pendingTab = tab
+}
+
+/** 只读不清空待交接页签（供 useState 初始化；StrictMode 下初始化会跑两次）。 */
+export function peekMainControlTabHandoff(): MainControlTab | null {
+  return pendingTab
+}
+
+/** 清空待交接页签（主控挂载后在 effect 里调用）。 */
+export function clearMainControlTabHandoff(): void {
+  pendingTab = null
 }
 
 /** 章节页默认目标文案：按章节标题生成一句作者语言的目标。 */

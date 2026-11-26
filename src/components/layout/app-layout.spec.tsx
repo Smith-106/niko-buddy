@@ -499,14 +499,23 @@ describe("AppLayout", () => {
     view.unmount()
   })
 
-  it("拖拽中卸载组件后 mousemove：containerRef 为 null 提前返回", () => {
+  it("拖拽中卸载组件：立即清理 body 样式、dataset.panelResizing 与 document 监听", () => {
+    const removeSpy = vi.spyOn(document, "removeEventListener")
     const view = render(<AppLayout onSwitchProject={() => {}} />)
     const divider = view.container.querySelector(".cursor-col-resize") as HTMLElement
     expect(divider).not.toBeNull()
     fireEvent.mouseDown(divider, { clientX: 0 })
+    expect(document.body.dataset.panelResizing).toBe("true")
+    expect(document.body.style.cursor).toBe("col-resize")
+    expect(document.body.style.userSelect).toBe("none")
     view.unmount()
-    // 卸载后 ref 置空但 document 监听仍在；mousemove 走 !containerRef.current 提前返回
+    expect(document.body.dataset.panelResizing).toBeUndefined()
+    expect(document.body.style.cursor).toBe("")
+    expect(document.body.style.userSelect).toBe("")
+    expect(removeSpy).toHaveBeenCalledWith("mousemove", expect.any(Function))
+    expect(removeSpy).toHaveBeenCalledWith("mouseup", expect.any(Function))
     expect(() => fireEvent.mouseMove(document, { clientX: 400 })).not.toThrow()
+    removeSpy.mockRestore()
   })
 
   it("拖拽调整侧边栏宽度：clamp 到 [150,400]；mouseup 清理监听", () => {
@@ -573,5 +582,26 @@ describe("命令面板与专注模式热键", () => {
     fireEvent.keyDown(window, { key: "j", ctrlKey: true })
     expect(mocks.wikiState.setFocusMode).toHaveBeenCalledTimes(1)
     view.unmount()
+  })
+
+  it("U-7：子元素冒泡期 stopPropagation 时，捕获阶段 Ctrl+K / Ctrl+\\ 仍生效", () => {
+    const view = render(<AppLayout onSwitchProject={() => {}} />)
+    const child = screen.getByTestId("content-area")
+    const stopInBubble = vi.fn((event: KeyboardEvent) => {
+      event.stopPropagation()
+    })
+    child.addEventListener("keydown", stopInBubble)
+    try {
+      fireEvent.keyDown(child, { key: "k", ctrlKey: true })
+      expect(stopInBubble).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId("command-palette")).toBeInTheDocument()
+
+      fireEvent.keyDown(child, { key: "\\", ctrlKey: true })
+      expect(stopInBubble).toHaveBeenCalledTimes(2)
+      expect(mocks.wikiState.setFocusMode).toHaveBeenCalledWith(true)
+    } finally {
+      child.removeEventListener("keydown", stopInBubble)
+      view.unmount()
+    }
   })
 })

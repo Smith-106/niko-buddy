@@ -198,4 +198,47 @@ describe("useBatchModelTest", () => {
     act(() => result.current.removeFailedModel("nope"))
     expect(result.current.modelTestState.failedModels).toBeUndefined()
   })
+
+  it("ignores stale in-flight run results after clearTestState or newer runBatchTest", async () => {
+    let resolveFirst!: (val: { model: string; content: string }) => void
+    mocks.testSettingsLlmModel
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      .mockResolvedValueOnce({ model: "m-new", content: "ok" })
+
+    const { result } = renderHook(() => useBatchModelTest(t))
+    let firstPromise!: Promise<void>
+    act(() => {
+      firstPromise = result.current.runBatchTest(["m-old", "m-never"], makeConfig)
+    })
+
+    // 启动新一轮测试使旧测试失效
+    await act(async () => {
+      await result.current.runBatchTest(["m-new"], makeConfig)
+    })
+    expect(result.current.modelTestState.success).toBe(true)
+
+    // 旧轮次晚返回：不得覆写新轮次状态，也不再发起 m-never 测试
+    await act(async () => {
+      resolveFirst({ model: "m-old", content: "ok" })
+      await firstPromise
+    })
+    expect(result.current.modelTestState.success).toBe(true)
+    expect(mocks.testSettingsLlmModel).toHaveBeenCalledTimes(2)
+  })
+
+  it("stops updating state after unmount while testSettingsLlmModel is pending", async () => {
+    let rejectPending!: (err: Error) => void
+    mocks.testSettingsLlmModel.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => { rejectPending = reject }),
+    )
+    const { result, unmount } = renderHook(() => useBatchModelTest(t))
+    let pending!: Promise<void>
+    act(() => {
+      pending = result.current.runBatchTest(["m1", "m2"], makeConfig)
+    })
+    unmount()
+    rejectPending(new Error("late failure"))
+    await pending
+    expect(mocks.testSettingsLlmModel).toHaveBeenCalledTimes(1)
+  })
 })

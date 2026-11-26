@@ -17,6 +17,8 @@ const setActiveView = vi.fn()
 const listChapterDrafts = vi.fn(async (): Promise<unknown[]> => [])
 const adoptMainControlDraft = vi.fn()
 const rerunMainControlGates = vi.fn()
+const writeDraft = vi.fn()
+const bumpDataVersion = vi.fn()
 
 vi.mock("@/commands/fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/commands/fs")>()
@@ -45,6 +47,7 @@ vi.mock("@/lib/novel", async (importOriginal) => {
     listChapterDrafts,
     adoptMainControlDraft,
     rerunMainControlGates,
+    writeDraft,
     saveTraceSnapshot,
     loadTraceSnapshot,
     loadConfirmedPlanRecord: loadConfirmedPlanRecordMock,
@@ -95,24 +98,30 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
     },
     setSelectedFile: wikiState.setSelectedFile,
     setActiveView,
+    bumpDataVersion,
   }
   const useWikiStore = <T,>(selector: (s: typeof state) => T) => selector(state)
   return { ...actual, useWikiStore }
 })
 
 const { MainControlView } = await import("./main-control-view")
+const { useMainControlRuntimeStore } = await import("@/stores/main-control-runtime-store")
 
 afterEach(() => {
   cleanup()
+  useMainControlRuntimeStore.getState().reset()
+  wikiState.project = { id: "p1", path: "/proj" }
   runMainControlAgent.mockReset()
   resolveDeepChapterRunner.mockReset()
   resolveDeepChapterRunner.mockResolvedValue(runDeepChapterGeneration)
   runDeepChapterGeneration.mockReset()
   setActiveView.mockReset()
+  bumpDataVersion.mockReset()
   listChapterDrafts.mockReset()
   listChapterDrafts.mockResolvedValue([])
   adoptMainControlDraft.mockReset()
   rerunMainControlGates.mockReset()
+  writeDraft.mockReset()
   saveTraceSnapshot.mockReset()
   saveTraceSnapshot.mockResolvedValue(true)
   loadTraceSnapshot.mockReset()
@@ -1579,6 +1588,109 @@ describe("MainControlView 分支覆盖补齐（20261105-ralph-coverage-100）", 
       expect(screen.getByTestId("main-control-activities-empty").textContent).toContain("快照里没有阶段事件"),
     )
     expect(screen.getByTestId("main-control-goal")).toBeTruthy()
+  })
+})
+
+describe("MainControlView P0-04 切页保活与产出闭环操作", () => {
+  it("同项目卸载再挂载保留深章产出；切换项目后立即清零", async () => {
+    const passGate = { status: "passed" as const, verdict: "pass" as const, findings: [], repair_suggestions: [], retry_count: 0 }
+    runDeepChapterGeneration.mockResolvedValueOnce({
+      finalContent: "切页保活的正文内容",
+      taskBrief: "任务书",
+      draftContent: "切页保活的正文内容",
+      reviewResults: [],
+      revised: false,
+      finalConsistencyReviewed: true,
+      decisionGates: { consistency: passGate, anti_ai: passGate, quality: passGate, overall: "pass" },
+      manualReviewRequired: false,
+      retryCount: 0,
+      partial: false,
+      partialReason: null,
+    })
+
+    const first = render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "写第7章" } })
+    fireEvent.click(screen.getByTestId("main-control-deep-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-deep-output")).toBeTruthy())
+    first.unmount()
+
+    // 同项目重挂载 → 产出仍在
+    const second = render(<MainControlView />)
+    expect(screen.getByTestId("main-control-deep-output").textContent).toContain("切页保活的正文内容")
+
+    // 切换项目 → 产出立即清零
+    wikiState.project = { id: "p2", path: "/proj-other" }
+    second.rerender(<MainControlView />)
+    await waitFor(() => expect(screen.queryByTestId("main-control-deep-output")).toBeNull())
+  })
+
+  it("一键存入草稿箱按真实门控落盘（严禁伪造 passed），并支持复制全文与查看门控明细", async () => {
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    })
+    const failGate = {
+      status: "failed" as const,
+      verdict: "fail" as const,
+      findings: [
+        {
+          severity: "error" as const,
+          type: "timeline_consistency",
+          message: "时间线矛盾",
+          evidence: "",
+          relatedMemory: "",
+          suggestion: "改为次日清晨",
+        },
+      ],
+      repair_suggestions: ["改为次日清晨"],
+      retry_count: 1,
+    }
+    const passGate = { status: "passed" as const, verdict: "pass" as const, findings: [], repair_suggestions: [], retry_count: 0 }
+    runDeepChapterGeneration.mockResolvedValueOnce({
+      finalContent: "需要复核的深章正文",
+      taskBrief: "任务书",
+      draftContent: "需要复核的深章正文",
+      reviewResults: failGate.findings,
+      revised: false,
+      finalConsistencyReviewed: false,
+      decisionGates: { consistency: failGate, anti_ai: passGate, quality: passGate, overall: "fail" },
+      manualReviewRequired: false,
+      retryCount: 1,
+      partial: false,
+      partialReason: null,
+    })
+    writeDraft.mockResolvedValueOnce({ id: "draft_real_1" })
+
+    render(<MainControlView />)
+    fireEvent.change(screen.getByTestId("main-control-goal"), { target: { value: "写第8章" } })
+    fireEvent.click(screen.getByTestId("main-control-deep-run"))
+    await waitFor(() => expect(screen.getByTestId("main-control-deep-output")).toBeTruthy())
+    // 跑深章本身绝不自动写草稿
+    expect(writeDraft).not.toHaveBeenCalled()
+
+    // 一键存入草稿箱：按真实失败门控落 blocked，绝不伪造 passed
+    fireEvent.click(screen.getByTestId("main-control-deep-save-draft"))
+    await waitFor(() => expect(writeDraft).toHaveBeenCalledTimes(1))
+    expect(writeDraft).toHaveBeenCalledWith(
+      "/proj",
+      "第8章",
+      "需要复核的深章正文",
+      { partial: false, adoptionGate: "blocked" },
+    )
+    expect(bumpDataVersion).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId("main-control-deep-save-status").textContent).toContain("draft_real_1")
+
+    // 复制全文
+    fireEvent.click(screen.getByTestId("main-control-deep-copy"))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("需要复核的深章正文"))
+
+    // 展开门控明细（P0 > P1 > P2）
+    fireEvent.click(screen.getByTestId("main-control-deep-gates-toggle"))
+    const panel = screen.getByTestId("main-control-deep-gates-panel")
+    expect(panel.textContent).toContain("时间线矛盾")
+    expect(panel.textContent).toContain("改为次日清晨")
   })
 })
 

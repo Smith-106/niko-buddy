@@ -11,8 +11,11 @@ const mocks = vi.hoisted(() => ({
   readFile: vi.fn(),
   writeFileAtomic: vi.fn<(path: string, content: string) => Promise<void>>(async () => {}),
   createDirectory: vi.fn(),
+  listDirectory: vi.fn<(path: string) => Promise<Array<Record<string, unknown>>>>(async () => []),
   setActiveView: vi.fn(),
   setSelectedFile: vi.fn(),
+  setFileTree: vi.fn(),
+  bumpDataVersion: vi.fn(),
   // J05：可用 LLM 配置（usable 态）——默认让原有用例走 LLM 可用路径
   llmConfig: { provider: "openai", apiKey: "sk-test", model: "gpt-4o" } as Record<string, unknown>,
   project: { id: "p1", name: "测试之书", path: "C:/proj/book" } as Record<string, unknown> | null,
@@ -22,10 +25,13 @@ function resetMocks() {
   mocks.fileExists.mockReset()
   mocks.readFile.mockReset()
   mocks.writeFileAtomic.mockReset()
-  mocks.writeFileAtomic.mockReset()
   mocks.createDirectory.mockReset()
+  mocks.listDirectory.mockReset()
+  mocks.listDirectory.mockResolvedValue([])
   mocks.setActiveView.mockReset()
   mocks.setSelectedFile.mockReset()
+  mocks.setFileTree.mockReset()
+  mocks.bumpDataVersion.mockReset()
   advanceMock.fn.mockReset()
   // 默认恢复可用 LLM
   mocks.llmConfig = { provider: "openai", apiKey: "sk-test", model: "gpt-4o" }
@@ -55,6 +61,7 @@ vi.mock("@/commands/fs", async (importOriginal) => {
       readFile: mocks.readFile,
       writeFileAtomic: mocks.writeFileAtomic,
       createDirectory: mocks.createDirectory,
+      listDirectory: mocks.listDirectory,
     
   }
 })
@@ -67,6 +74,8 @@ vi.mock("@/stores/wiki-store", async (importOriginal) => {
         sel({
           setActiveView: mocks.setActiveView,
           setSelectedFile: mocks.setSelectedFile,
+          setFileTree: mocks.setFileTree,
+          bumpDataVersion: mocks.bumpDataVersion,
           llmConfig: mocks.llmConfig,
           project: mocks.project,
         }),
@@ -227,15 +236,17 @@ describe("DirectorView（60 号设计：开书导演主视图）", () => {
     await waitFor(() => expect(screen.getByTestId("director-artifact-idea")).toBeInTheDocument())
   })
 
-  it("全 done → 完成横幅 + 前往审查中心按钮", async () => {
+  it("全 done → 完成横幅 + 底部下一步前往写作工作区与主控台（P1-02）", async () => {
     mocks.fileExists.mockResolvedValue(true)
     mocks.readFile.mockResolvedValue(
       JSON.stringify(makeFile({ state: fullDoneState() })),
     )
     render(<DirectorView projectId="/proj" />)
     await waitFor(() => expect(screen.getByTestId("director-completed")).toBeInTheDocument())
-    fireEvent.click(screen.getByTestId("director-goto-review"))
-    expect(mocks.setActiveView).toHaveBeenCalledWith("reviewCenter")
+    fireEvent.click(screen.getByTestId("director-goto-writing"))
+    expect(mocks.setActiveView).toHaveBeenCalledWith("wiki")
+    fireEvent.click(screen.getByTestId("director-goto-main-control"))
+    expect(mocks.setActiveView).toHaveBeenCalledWith("mainControl")
   })
 
   it("LLM 未配置（F-010）→ 显示本地写作分流而非开书启动", async () => {
@@ -248,18 +259,23 @@ describe("DirectorView（60 号设计：开书导演主视图）", () => {
     expect(screen.getByTestId("director-configure-llm")).toBeInTheDocument()
   })
 
-  it("LLM 未配置点「继续本地写作」→ 建 chapter-001 + 跳写作工作区", async () => {
+  it("LLM 未配置点「继续本地写作」→ 建 wiki/chapters/chapter-001（规范 frontmatter）+ 刷新文件树 + 跳写作工作区", async () => {
     mocks.llmConfig = { provider: "openai", apiKey: "", model: "" }
+    const tree = [{ name: "wiki", path: "C:/proj/book/wiki", is_dir: true }]
+    mocks.listDirectory.mockResolvedValue(tree)
     render(<DirectorView projectId="/proj" />)
     await waitFor(() => expect(screen.getByTestId("director-local-write")).toBeInTheDocument())
     fireEvent.click(screen.getByTestId("director-local-write"))
     await waitFor(() => {
-      expect(mocks.createDirectory).toHaveBeenCalledWith("C:/proj/book/QM/chapters")
+      expect(mocks.createDirectory).toHaveBeenCalledWith("C:/proj/book/wiki/chapters")
       expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
-        "C:/proj/book/QM/chapters/chapter-001.md",
-        expect.stringContaining("chapter: 1"),
+        "C:/proj/book/wiki/chapters/chapter-001.md",
+        expect.stringContaining("type: chapter\nchapter_number: 1\ntitle: \"第1章\"\nchapter_status: draft"),
       )
-      expect(mocks.setSelectedFile).toHaveBeenCalledWith("C:/proj/book/QM/chapters/chapter-001.md")
+      expect(mocks.listDirectory).toHaveBeenCalledWith("C:/proj/book")
+      expect(mocks.setFileTree).toHaveBeenCalledWith(tree)
+      expect(mocks.bumpDataVersion).toHaveBeenCalledTimes(1)
+      expect(mocks.setSelectedFile).toHaveBeenCalledWith("C:/proj/book/wiki/chapters/chapter-001.md")
       expect(mocks.setActiveView).toHaveBeenCalledWith("wiki")
     })
   })
@@ -495,38 +511,28 @@ describe("DirectorView 覆盖增补（W-未覆盖分支）", () => {
   })
 
   it("生成世界骨架（有角色实体）→ gap 提示已生成草稿", async () => {
-    // 挂载期刷新也会调 list_directory，必须常驻注入（finally 恢复透传默认实现）。
-    const { invoke } = await import("@tauri-apps/api/core")
-    const mocked = vi.mocked(invoke)
-    const prevImpl = mocked.getMockImplementation()
-    mocked.mockImplementation(async (cmd, args) => {
-      const p = String((args as { path?: unknown } | undefined)?.path ?? "")
-      if (cmd === "list_directory" && p.includes("wiki/entities")) {
+    mocks.listDirectory.mockImplementation(async (p: string) => {
+      if (p.includes("wiki/entities")) {
         return [{ name: "zhang.md", path: "/proj/wiki/entities/characters/zhang.md", is_dir: false }]
       }
-      throw new Error("tauri unavailable in jsdom")
+      return []
     })
-    try {
-      mocks.fileExists.mockResolvedValue(true)
-      mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
-      render(<DirectorView projectId="/proj" />)
-      await waitFor(() => expect(screen.getByTestId("director-generate-blueprint")).toBeInTheDocument())
-      fireEvent.click(screen.getByTestId("director-generate-blueprint"))
-      await waitFor(() => expect(screen.getByTestId("director-gap")).toBeInTheDocument())
-      expect(screen.getByTestId("director-gap").textContent).toContain("directorPanel.blueprintDone")
-      expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
-        expect.stringContaining("world-blueprint.json"),
-        expect.stringContaining("zhang"),
-      )
-      fireEvent.click(screen.getByTestId("director-runlog-toggle"))
-      expect(screen.getByText("已根据实体生成世界骨架草稿")).toBeInTheDocument()
-    } finally {
-      mocked.mockReset()
-      if (prevImpl) mocked.mockImplementation(prevImpl)
-    }
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    render(<DirectorView projectId="/proj" />)
+    await waitFor(() => expect(screen.getByTestId("director-generate-blueprint")).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId("director-generate-blueprint"))
+    await waitFor(() => expect(screen.getByTestId("director-gap")).toBeInTheDocument())
+    expect(screen.getByTestId("director-gap").textContent).toContain("directorPanel.blueprintDone")
+    expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
+      expect.stringContaining("world-blueprint.json"),
+      expect.stringContaining("zhang"),
+    )
+    fireEvent.click(screen.getByTestId("director-runlog-toggle"))
+    expect(screen.getByText("已根据实体生成世界骨架草稿")).toBeInTheDocument()
   })
 
-  it("已启动 + LLM 不可用：banner 本地写作 → 建 chapter-001 并跳写作工作区", async () => {
+  it("已启动 + LLM 不可用：banner 本地写作 → 建 wiki/chapters/chapter-001 并跳写作工作区", async () => {
     mocks.llmConfig = { provider: "openai", apiKey: "", model: "" }
     // 首 call（hasPersisted）放行 true，章节循环一律 false → 落 chapter-001
     mocks.fileExists.mockResolvedValue(false)
@@ -536,35 +542,39 @@ describe("DirectorView 覆盖增补（W-未覆盖分支）", () => {
     await waitFor(() => expect(screen.getByTestId("director-llm-blocked-banner")).toBeInTheDocument())
     fireEvent.click(screen.getByTestId("director-local-write-banner"))
     await waitFor(() => {
-      expect(mocks.createDirectory).toHaveBeenCalledWith("C:/proj/book/QM/chapters")
+      expect(mocks.createDirectory).toHaveBeenCalledWith("C:/proj/book/wiki/chapters")
       expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
-        "C:/proj/book/QM/chapters/chapter-001.md",
-        expect.stringContaining("chapter: 1"),
+        "C:/proj/book/wiki/chapters/chapter-001.md",
+        expect.stringContaining("type: chapter\nchapter_number: 1\ntitle: \"雾都\"\nchapter_status: draft"),
       )
-      expect(mocks.setSelectedFile).toHaveBeenCalledWith("C:/proj/book/QM/chapters/chapter-001.md")
+      expect(mocks.listDirectory).toHaveBeenCalledWith("C:/proj/book")
+      expect(mocks.setFileTree).toHaveBeenCalledWith([])
+      expect(mocks.bumpDataVersion).toHaveBeenCalledTimes(1)
+      expect(mocks.setSelectedFile).toHaveBeenCalledWith("C:/proj/book/wiki/chapters/chapter-001.md")
       expect(mocks.setActiveView).toHaveBeenCalledWith("wiki")
     })
   })
 
-  it("已启动 + LLM 不可用：chapter-001 已存在 → 追加 chapter-002", async () => {
+  it("已启动 + LLM 不可用：chapter-001 已存在 → 追加 chapter-002（且双引号标题正确转义）", async () => {
     mocks.llmConfig = { provider: "openai", apiKey: "", model: "" }
     mocks.fileExists.mockImplementation(async (path: string) =>
       path.endsWith("director-pipeline.json") || path.endsWith("chapter-001.md"),
     )
-    mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
+    mocks.readFile.mockResolvedValue(
+      JSON.stringify(makeFile({ ideaInput: { title: '雾"都', genre: "悬疑", coreConflict: "连环失踪" } })),
+    )
     render(<DirectorView projectId="/proj" />)
     await waitFor(() => expect(screen.getByTestId("director-local-write-banner")).toBeInTheDocument())
     fireEvent.click(screen.getByTestId("director-local-write-banner"))
     await waitFor(() =>
       expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
-        "C:/proj/book/QM/chapters/chapter-002.md",
-        // 立意标题非空 → 沿用立意标题（雾都），仅章节号递增不断言默认标题
-        expect.stringContaining("chapter: 2"),
+        "C:/proj/book/wiki/chapters/chapter-002.md",
+        expect.stringContaining('type: chapter\nchapter_number: 2\ntitle: "雾\\"都"\nchapter_status: draft'),
       ),
     )
   })
 
-  it("本地写作 999 上限：fileExists 恒真 → 落到 chapter-999", async () => {
+  it("本地写作 999 上限：fileExists 恒真 → 落到 wiki/chapters/chapter-999", async () => {
     mocks.llmConfig = { provider: "openai", apiKey: "", model: "" }
     mocks.fileExists.mockResolvedValue(true)
     mocks.readFile.mockResolvedValue(JSON.stringify(makeFile()))
@@ -574,10 +584,35 @@ describe("DirectorView 覆盖增补（W-未覆盖分支）", () => {
     fireEvent.click(screen.getByTestId("director-local-write-banner"))
     await waitFor(() =>
       expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
-        "C:/proj/book/QM/chapters/chapter-999.md",
-        expect.any(String),
+        "C:/proj/book/wiki/chapters/chapter-999.md",
+        expect.stringContaining("chapter_number: 999"),
       ),
     )
+  })
+
+  it("P0-02：本地写作落盘后 listDirectory 刷新失败 → 记 logger.warn 且不阻断 bumpDataVersion 与跳转", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      mocks.llmConfig = { provider: "openai", apiKey: "", model: "" }
+      mocks.listDirectory.mockRejectedValue(new Error("EIO: tree refresh failed"))
+      render(<DirectorView projectId="/proj" />)
+      await waitFor(() => expect(screen.getByTestId("director-local-write")).toBeInTheDocument())
+      fireEvent.click(screen.getByTestId("director-local-write"))
+      await waitFor(() => {
+        expect(mocks.writeFileAtomic).toHaveBeenCalledWith(
+          "C:/proj/book/wiki/chapters/chapter-001.md",
+          expect.stringContaining("chapter_status: draft"),
+        )
+        expect(mocks.bumpDataVersion).toHaveBeenCalledTimes(1)
+        expect(mocks.setSelectedFile).toHaveBeenCalledWith("C:/proj/book/wiki/chapters/chapter-001.md")
+        expect(mocks.setActiveView).toHaveBeenCalledWith("wiki")
+      })
+      expect(mocks.setFileTree).not.toHaveBeenCalled()
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("[DirectorView]"))
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("EIO: tree refresh failed"))
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 
   it("project 缺失时本地写作为空操作", async () => {

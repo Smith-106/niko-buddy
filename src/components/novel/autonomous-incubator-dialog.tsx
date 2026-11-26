@@ -70,19 +70,29 @@ export function AutonomousIncubatorDialog({
   const [cruiseCount, setCruiseCount] = useState(3)
 
   const [isRunning, setIsRunning] = useState(false)
+  const [isCancelling, setIsCancelling] = useState(false)
   const [currentStage, setCurrentStage] = useState<string>("")
   const [progressMessage, setProgressMessage] = useState("")
   const [result, setResult] = useState<{ incubation: NovelIncubatorResult; campaign?: CampaignReport } | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
+  const runInFlightRef = useRef(false)
+  const isBusy = isRunning || isCancelling
+
+  function handleDialogOpenChange(next: boolean) {
+    if (!next && (isRunning || isCancelling)) return
+    onOpenChange(next)
+  }
 
   async function handleStart() {
-    if (!project || !idea.trim() || isRunning) return
+    if (!project || !idea.trim() || isRunning || isCancelling || runInFlightRef.current) return
 
     const controller = new AbortController()
     abortRef.current = controller
+    runInFlightRef.current = true
 
     setIsRunning(true)
+    setIsCancelling(false)
     setResult(null)
     setCurrentStage("soul-doc")
     setProgressMessage("正在启动全自动孵化引擎...")
@@ -108,13 +118,14 @@ export function AutonomousIncubatorDialog({
       setResult(res)
       onSuccess?.(res)
 
-      // 刷新项目文件树
+      // 刷新项目文件树与全局数据版本，使各侧栏/视图立刻同步孵化产出
       try {
         const tree = await listDirectory(normalizePath(project.path))
         setFileTree(tree)
       } catch (e) {
         console.warn("孵化后刷新文件树失败:", e)
       }
+      useWikiStore.getState?.()?.bumpDataVersion?.()
 
       toast.success(
         autoCruise && res.campaign
@@ -128,22 +139,22 @@ export function AutonomousIncubatorDialog({
         toast.error(`全自动孵化失败：${toErrorMessage(err)}`)
       }
     } finally {
+      runInFlightRef.current = false
       setIsRunning(false)
+      setIsCancelling(false)
       abortRef.current = null
     }
   }
 
   function handleCancel() {
-    if (abortRef.current) {
-      abortRef.current.abort()
-      abortRef.current = null
-    }
-    setIsRunning(false)
+    if (!isRunning || isCancelling) return
+    setIsCancelling(true)
+    abortRef.current?.abort()
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-6">
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+      <DialogContent showCloseButton={!isBusy} className="max-w-2xl max-h-[90vh] flex flex-col p-6">
         <DialogHeader>
           <div className="flex items-center gap-2">
             <Wand2 className="h-5 w-5 text-kind-purple" />
@@ -158,12 +169,13 @@ export function AutonomousIncubatorDialog({
           <div className="flex flex-col gap-4 py-2 overflow-y-auto">
             {/* 核心灵感输入 */}
             <div className="flex flex-col gap-1.5">
-              <Label className="text-xs font-semibold">
+              <Label htmlFor="incubator-idea" className="text-xs font-semibold">
                 核心创意 / 灵感点子 <span className="text-destructive">*</span>
               </Label>
               <Textarea
+                id="incubator-idea"
                 rows={3}
-                disabled={isRunning}
+                disabled={isBusy}
                 value={idea}
                 onChange={(e) => setIdea(e.target.value)}
                 placeholder="例如：赛博朋克都市中一名被遗忘的机械记忆修复师，在一次日常维修中意外唤醒了来自旧纪元的神明源代码，从此被巨企神权追杀..."
@@ -174,9 +186,10 @@ export function AutonomousIncubatorDialog({
             {/* 可选参数网格 */}
             <div className="grid grid-cols-3 gap-3 p-3 rounded-lg border bg-muted/20 text-xs">
               <div className="flex flex-col gap-1">
-                <Label className="text-xs text-muted-foreground">作品书名 (可选)</Label>
+                <Label htmlFor="incubator-title" className="text-xs text-muted-foreground">作品书名 (可选)</Label>
                 <Input
-                  disabled={isRunning}
+                  id="incubator-title"
+                  disabled={isBusy}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="未填写则自动推导"
@@ -184,9 +197,10 @@ export function AutonomousIncubatorDialog({
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <Label className="text-xs text-muted-foreground">题材流派 (可选)</Label>
+                <Label htmlFor="incubator-genre" className="text-xs text-muted-foreground">题材流派 (可选)</Label>
                 <Input
-                  disabled={isRunning}
+                  id="incubator-genre"
+                  disabled={isBusy}
                   value={genre}
                   onChange={(e) => setGenre(e.target.value)}
                   placeholder="科幻 / 玄幻 / 悬疑等"
@@ -194,12 +208,13 @@ export function AutonomousIncubatorDialog({
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <Label className="text-xs text-muted-foreground">目标篇幅 (章)</Label>
+                <Label htmlFor="incubator-target-chapters" className="text-xs text-muted-foreground">目标篇幅 (章)</Label>
                 <Input
+                  id="incubator-target-chapters"
                   type="number"
                   min={1}
                   max={50}
-                  disabled={isRunning}
+                  disabled={isBusy}
                   value={targetChapters}
                   onChange={(e) => setTargetChapters(Math.max(1, Number.parseInt(e.target.value, 10) || 10))}
                   className="h-8 text-xs"
@@ -213,7 +228,7 @@ export function AutonomousIncubatorDialog({
                 <input
                   type="checkbox"
                   checked={autoCruise}
-                  disabled={isRunning}
+                  disabled={isBusy}
                   onChange={(e) => setAutoCruise(e.target.checked)}
                   className="rounded border-border text-primary focus:ring-primary"
                 />
@@ -229,7 +244,8 @@ export function AutonomousIncubatorDialog({
                     type="number"
                     min={1}
                     max={10}
-                    disabled={isRunning}
+                    aria-label="巡航连写章数"
+                    disabled={isBusy}
                     value={cruiseCount}
                     onChange={(e) => setCruiseCount(Math.max(1, Number.parseInt(e.target.value, 10) || 3))}
                     className="w-16 h-7 text-xs"
@@ -317,7 +333,7 @@ export function AutonomousIncubatorDialog({
                     ))}
                   </span>
                 </p>
-                <p className="text-muted-foreground">人设卡片已归档至 wiki/characters/</p>
+                <p className="text-muted-foreground">人设卡片已归档至 wiki/entities/characters/</p>
               </div>
 
               <div className="p-3 rounded border bg-card flex flex-col gap-1.5">
@@ -327,7 +343,7 @@ export function AutonomousIncubatorDialog({
                 <p className="text-muted-foreground">
                   已自动铺排 {result.incubation.unpackedSkeletons.createdCount} 个章节预定文件
                 </p>
-                <p className="text-muted-foreground">规范状态：planned，后续起草自动提取细纲</p>
+                <p className="text-muted-foreground">状态：待写大纲，后续起草自动提取细纲</p>
               </div>
 
               <div className="p-3 rounded border bg-card flex flex-col gap-1.5">
@@ -343,7 +359,7 @@ export function AutonomousIncubatorDialog({
               <div className="p-3 rounded border bg-kind-orange/10 border-kind-orange/20 text-kind-orange flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Flame className="h-4 w-4 text-kind-orange" />
-                  <span>战役全自动巡航已完成第 1 至 {result.campaign.completedChapters} 章正文起草与事实库双写</span>
+                  <span>战役全自动巡航已完成第 1 至 {result.campaign.completedChapters} 章正文起草并写入设定记忆库</span>
                 </div>
                 <span className="font-mono font-semibold">{result.campaign.totalWords.toLocaleString()} 字</span>
               </div>
@@ -357,16 +373,17 @@ export function AutonomousIncubatorDialog({
               <Button
                 variant="outline"
                 size="sm"
+                disabled={isCancelling}
                 onClick={() => {
                   if (isRunning) handleCancel()
-                  else onOpenChange(false)
+                  else handleDialogOpenChange(false)
                 }}
               >
-                {isRunning ? "中止孵化" : "取消"}
+                {isCancelling ? "正在中止..." : isRunning ? "中止孵化" : "取消"}
               </Button>
               <Button
                 size="sm"
-                disabled={isRunning || !idea.trim()}
+                disabled={isBusy || !idea.trim()}
                 onClick={handleStart}
                 className="gap-1.5 bg-gradient-to-r from-kind-purple to-kind-indigo text-white hover:from-kind-purple hover:to-kind-indigo"
               >
@@ -387,7 +404,7 @@ export function AutonomousIncubatorDialog({
             <Button
               size="sm"
               onClick={() => {
-                onOpenChange(false)
+                handleDialogOpenChange(false)
                 setResult(null)
               }}
               className="ml-auto"

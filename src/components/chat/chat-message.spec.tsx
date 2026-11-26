@@ -26,6 +26,8 @@ import {
 } from "@/test-helpers/component-test-utils"
 import type { DisplayMessage } from "@/stores/chat-store"
 import { ChatMessage, StreamingMessage, __resetCitedImageCacheForTests } from "./chat-message"
+import { readManagedDeepChapterDraftMessage } from "./chat-message-content"
+import { appendContextUsageMarker, appendManagedDeepChapterDraftMarker } from "./chat-message-markers"
 import { getDeepChapterToggleButtonClass } from "./chat-panel"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -262,24 +264,56 @@ describe("deep chapter thinking toggle style", () => {
   })
 })
 
-describe("chapter save preview sync regression", () => {
-  it("always routes AI chapter saves to the next chapter instead of reusing the current chapter", () => {
-    const source = readFileSync(resolve(__dirname, "chat-panel.tsx"), "utf8")
-
-    expect(source).toContain('strategy.action === "direct_explicit_target_new"')
-    expect(source).toContain("await getNextChapterNumber(pp)")
-    expect(source).toContain('updateChapterStatus(')
-    expect(source).toContain('"final"')
-    expect(source).toContain("commitAcceptedDeepChapterDraft({")
-    expect(source).toContain("let nextStatus = `已接受草稿并保存为 ${chapterTitle}`")
+describe("受管章节草稿操作的消息契约", () => {
+  beforeEach(resetMocks)
+  afterEach(() => {
+    cleanup()
+    mocks.getCopyableAssistantContent.mockImplementation((content) => content)
   })
 
-  it("no longer uses the pending chapter save dialog flow", () => {
-    const source = readFileSync(resolve(__dirname, "chat-panel.tsx"), "utf8")
+  it("ready 标记后有上下文用量时，复核与接受分别传递原始消息", async () => {
+    const { getCopyableAssistantContent } = await vi.importActual<typeof import("@/lib/chat-copy-content")>("@/lib/chat-copy-content")
+    mocks.getCopyableAssistantContent.mockImplementation(getCopyableAssistantContent)
+    const body = `<think>\n内部阶段\n</think>\n\n# Chapter 4 Cold Key\r\n\r\n${"X".repeat(140)}  \r\n`
+    const content = appendContextUsageMarker(
+      appendManagedDeepChapterDraftMarker(body, {
+        conversationId: "conv-1", sessionId: "session-4", draftStatus: "ready",
+      }),
+      { memoryChars: 1, retrievalChars: 0, graphChars: 0, bodyChars: 0, otherChars: 0, maxCtx: 100 },
+    )
+    const onReviewDraft = vi.fn()
+    const onSaveAsChapter = vi.fn()
+    render(<ChatMessage
+      message={createAssistantMessage(content)}
+      isLastAssistant
+      novelMode
+      onReviewDraft={onReviewDraft}
+      onSaveAsChapter={onSaveAsChapter}
+    />)
+    expect(readManagedDeepChapterDraftMessage(content)).toEqual({
+      body, conversationId: "conv-1", sessionId: "session-4", draftStatus: "ready",
+    })
+    fireEvent.click(screen.getByRole("button", { name: "复核草稿" }))
+    expect(onReviewDraft).toHaveBeenCalledWith(content)
+    expect(onSaveAsChapter).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "接受草稿" }))
+    expect(onSaveAsChapter).toHaveBeenCalledWith(content)
+  })
 
-    expect(source).not.toContain("pendingChapterSaveDialog")
-    expect(source).not.toContain("applyPendingChapterSave")
-    expect(source).not.toContain("保存到章节后面")
+  it("正文里的标记不是消息末尾元数据，不能启用复核或接受", () => {
+    const body = `# Chapter 4 Cold Key\n\n${"X".repeat(140)}`
+    const content = `${appendManagedDeepChapterDraftMarker(body, {
+      conversationId: "conv-1", sessionId: "session-4", draftStatus: "ready",
+    })}\n还有正文`
+    render(<ChatMessage
+      message={createAssistantMessage(content)}
+      isLastAssistant
+      novelMode
+      onReviewDraft={vi.fn()}
+      onSaveAsChapter={vi.fn()}
+    />)
+    expect(screen.queryByRole("button", { name: "复核草稿" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "接受草稿" })).not.toBeInTheDocument()
   })
 })
 
@@ -659,10 +693,85 @@ describe("ChatMessage 角色与气泡样式", () => {
     })
     expect(writeText).toHaveBeenCalledWith("copy me")
     expect(screen.getByText("已复制")).toBeInTheDocument()
+    // 连续二次点击清理前一个定时器并顺延 2s 复原窗口
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+      fireEvent.click(screen.getByTitle("复制到剪贴板"))
+    })
+    act(() => {
+      vi.advanceTimersByTime(1500)
+    })
+    expect(screen.getByText("已复制")).toBeInTheDocument()
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+    expect(screen.getByText("复制")).toBeInTheDocument()
+  })
+
+  it("复制按钮在 clipboard.writeText 拒绝时不抛未捕获异常，展示复制失败并 2s 后复原", async () => {
+    vi.useFakeTimers()
+    const writeText = vi.fn().mockRejectedValue(new Error("permission denied"))
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+    render(<ChatMessage message={createAssistantMessage("copy fail")} novelMode isLastAssistant />)
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("复制到剪贴板"))
+    })
+    expect(writeText).toHaveBeenCalledWith("copy fail")
+    expect(screen.getByText("复制失败")).toBeInTheDocument()
     act(() => {
       vi.advanceTimersByTime(2000)
     })
     expect(screen.getByText("复制")).toBeInTheDocument()
+  })
+
+  it("复制按钮卸载时清理复原定时器，剪贴板不可用时同样降级为复制失败", async () => {
+    vi.useFakeTimers()
+    const clearSpy = vi.spyOn(globalThis, "clearTimeout")
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true })
+    const view = render(<ChatMessage message={createAssistantMessage("no clipboard")} novelMode isLastAssistant />)
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("复制到剪贴板"))
+    })
+    expect(screen.getByText("复制失败")).toBeInTheDocument()
+    view.unmount()
+    expect(clearSpy).toHaveBeenCalled()
+    act(() => {
+      vi.advanceTimersByTime(2000)
+    })
+    clearSpy.mockRestore()
+  })
+
+  it("复制按钮在 clipboard.writeText 挂起期间卸载后 resolve/reject 不调度定时器也不报错", async () => {
+    vi.useFakeTimers()
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    // 分支 1：卸载后 resolve
+    let resolveWrite!: () => void
+    const writeResolve = vi.fn(() => new Promise<void>((res) => { resolveWrite = res }))
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: writeResolve }, configurable: true })
+    const view1 = render(<ChatMessage message={createAssistantMessage("pending ok")} novelMode isLastAssistant />)
+    fireEvent.click(screen.getByTitle("复制到剪贴板"))
+    expect(writeResolve).toHaveBeenCalledWith("pending ok")
+    view1.unmount()
+    await act(async () => {
+      resolveWrite()
+    })
+    expect(vi.getTimerCount()).toBe(0)
+
+    // 分支 2：卸载后 reject
+    let rejectWrite!: (err: Error) => void
+    const writeReject = vi.fn(() => new Promise<void>((_res, rej) => { rejectWrite = rej }))
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: writeReject }, configurable: true })
+    const view2 = render(<ChatMessage message={createAssistantMessage("pending fail")} novelMode isLastAssistant />)
+    fireEvent.click(screen.getByTitle("复制到剪贴板"))
+    expect(writeReject).toHaveBeenCalledWith("pending fail")
+    view2.unmount()
+    await act(async () => {
+      rejectWrite(new Error("late failure"))
+    })
+    expect(vi.getTimerCount()).toBe(0)
+    expect(errorSpy).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
   })
 
   it("重新生成按钮回调", () => {
@@ -733,6 +842,59 @@ describe("ChatMessage 深度章节草稿操作", () => {
     expect(onDiscardDraft).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByText("继续生成下一章"))
     expect(onContinueNextChapter).toHaveBeenCalledTimes(1)
+  })
+
+  it("isReviewing 仅让复核草稿显示复核中与 aria-busy，不误显保存中且禁用全部草稿操作", () => {
+    render(
+      <ChatMessage
+        message={createAssistantMessage(chapterDraft("ready"))}
+        isLastAssistant
+        novelMode
+        onSaveAsChapter={() => {}}
+        onAcceptAndContinueNext={() => {}}
+        onReviewDraft={() => {}}
+        onDiscardDraft={() => {}}
+        onContinueNextChapter={() => {}}
+        isReviewing
+      />,
+    )
+    const review = screen.getByRole("button", { name: "复核中…" })
+    const accept = screen.getByRole("button", { name: "接受草稿" })
+    const acceptNext = screen.getByRole("button", { name: "接受并撰写下一章" })
+    const reject = screen.getByRole("button", { name: "拒绝草稿" })
+    const cont = screen.getByRole("button", { name: "继续生成下一章" })
+
+    expect(review).toBeDisabled()
+    expect(review).toHaveAttribute("aria-busy", "true")
+    expect(review.querySelector(".animate-spin")).not.toBeNull()
+    expect(screen.queryByText("保存中")).not.toBeInTheDocument()
+    expect(accept).toBeDisabled()
+    expect(accept).toHaveAttribute("aria-busy", "false")
+    expect(accept.querySelector(".animate-spin")).toBeNull()
+    expect(acceptNext).toBeDisabled()
+    expect(acceptNext).toHaveAttribute("aria-busy", "false")
+    expect(acceptNext.querySelector(".animate-spin")).toBeNull()
+    expect(reject).toBeDisabled()
+    expect(cont).toBeDisabled()
+  })
+
+  it("isDiscarding 禁用全部草稿操作，且不误显保存中或复核中", () => {
+    render(
+      <ChatMessage
+        message={createAssistantMessage(chapterDraft("ready"))}
+        isLastAssistant
+        novelMode
+        onSaveAsChapter={() => {}}
+        onReviewDraft={() => {}}
+        onDiscardDraft={() => {}}
+        isDiscarding
+      />,
+    )
+    expect(screen.getByRole("button", { name: "接受草稿" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "复核草稿" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "拒绝草稿" })).toBeDisabled()
+    expect(screen.queryByText("保存中")).not.toBeInTheDocument()
+    expect(screen.queryByText("复核中…")).not.toBeInTheDocument()
   })
 
   it("未提供对应回调时不渲染对应按钮", () => {

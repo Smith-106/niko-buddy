@@ -2,25 +2,31 @@
 // SPDX-License-Identifier: MIT
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, ChevronDown, ChevronRight, Folder, FolderInput, FolderOpen, Loader2, Pencil, Plus, Sparkles, Trash2, Check, X } from "lucide-react"
+import { BookOpen, ChevronDown, ChevronRight, Clock, Loader2, MinusCircle, Check, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { useWikiStore } from "@/stores/wiki-store"
 import { deleteFile, fileExists, listDirectory, readFile, writeFileAtomic, openFileLocation, copyFile } from "@/commands/fs"
-import { normalizePath } from "@/lib/path-utils"
+import { getFileName, normalizePath } from "@/lib/path-utils"
+import { getNextChapterNumber, invalidateChapterCache } from "@/lib/novel"
 import { toErrorMessage } from "@/lib/utils"
 import { moveFileToTrash } from "@/lib/trash"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
 import {
   extractPageOrderFromTitle, extractChapterNumberFromContent, getDirName,
   getUniquePagePath, flattenMdFiles, flattenAllFiles, cleanupDeletedSourceMemory, parsePageInfo,
-  findNodeByPath,
+  findNodeByPath, coordinateChapterRelocation, coordinateChapterReorder, coordinateChapterDelete,
+  getChapterWriteCoordinator, isChapterPath, updatePageTitleContent,
   type WikiPageInfo, type KnowledgeTreeProps, type CreateMenuState,
 } from "./knowledge-tree-helpers"
 import { KnowledgeTreeNodes } from "./knowledge-tree-nodes"
+import { BatchDuplicateConflictCard, CreateContextMenu, PageContextMenu } from "./knowledge-tree-menus"
 import { useImportProgressStore } from "@/stores/import-progress-store"
 import { toast } from "@/lib/toast"
+import { discardBatchExtractionDrafts, getBatchExtractQueue, resetCorruptBatchExtractionDrafts, restoreBatchExtractQueue, setAsideUncertainBatchDrafts } from "./sidebar-panel-import"
+import type { BatchExtractQueueState } from "@/lib/novel/snapshot-scanner"
 
 
 export interface KnowledgeCreateRequest {
@@ -36,6 +42,7 @@ export function KnowledgeTree({
   pendingPages = [],
   onRemovePendingPage,
   onRequestCreate,
+  batchExtractTrigger,
 }: KnowledgeTreeProps) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
@@ -53,10 +60,13 @@ export function KnowledgeTree({
   const [pageMenu, setPageMenu] = useState<{ path: string; x: number; y: number } | null>(null)
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
+  const [renameError, setRenameError] = useState<string | null>(null)
   const [renamingBusy, setRenamingBusy] = useState(false)
   const [moveMenuTarget, setMoveMenuTarget] = useState<string | null>(null)
-  // G3（TASK-004 D3）：知识树右键「批量提取记忆」→ 先弹范围选择（D2）再进队列。
+  // G3（TASK-004 D3）：知识树右键或工具栏「批量提取记忆」→ 先弹范围选择（D2）再进队列。
   const [batchScope, setBatchScope] = useState<{ chapter: number | null } | null>(null)
+  const lastBatchTriggerKeyRef = useRef<number | null>(null)
+  const menuTriggerRef = useRef<HTMLElement | null>(null)
   const [dragSource, setDragSource] = useState<string | null>(null)
   const [dragInsertIndex, setDragInsertIndex] = useState<number | null>(null)
   const [isDragging, setIsDragging] = useState(false)
@@ -68,6 +78,13 @@ export function KnowledgeTree({
   const lastPointerTypeRef = useRef<string>("mouse")
   const removeGlobalPointerListenersRef = useRef<(() => void) | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!batchExtractTrigger) return
+    if (lastBatchTriggerKeyRef.current === batchExtractTrigger.key) return
+    lastBatchTriggerKeyRef.current = batchExtractTrigger.key
+    setBatchScope({ chapter: batchExtractTrigger.seedChapter })
+  }, [batchExtractTrigger])
 
   useEffect(() => { dragSourceRef.current = dragSource }, [dragSource])
   useEffect(() => { dragInsertIndexRef.current = dragInsertIndex }, [dragInsertIndex])
@@ -132,18 +149,30 @@ export function KnowledgeTree({
     }
   }, [armedPath])
 
-  useEffect(() => {
-    const closeMenus = () => {
-      setCreateMenu(null)
-      setPageMenu(null)
-    }
-    document.addEventListener("mousedown", closeMenus)
-    document.addEventListener("keydown", closeMenus)
-    return () => {
-      document.removeEventListener("mousedown", closeMenus)
-      document.removeEventListener("keydown", closeMenus)
+  const closeMenus = useCallback((restoreFocus = false) => {
+    setCreateMenu(null)
+    setPageMenu(null)
+    setMoveMenuTarget(null)
+    if (restoreFocus) {
+      menuTriggerRef.current?.focus()
+      menuTriggerRef.current = null
     }
   }, [])
+
+  useEffect(() => {
+    const handleMouseDown = () => {
+      closeMenus(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMenus(true)
+    }
+    document.addEventListener("mousedown", handleMouseDown)
+    document.addEventListener("keydown", handleKeyDown)
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown)
+      document.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [closeMenus])
 
   const pageInfoByPath = useMemo(() => {
     const map = new Map<string, WikiPageInfo>()
@@ -197,9 +226,13 @@ export function KnowledgeTree({
     /* v8 ignore next */
     if (!fileName) return
 
-    const destPath = `${targetVolumePath}/${fileName}`
+    const destPath = normalizePath(`${normalizePath(targetVolumePath)}/${fileName}`)
     /* v8 ignore next */
     if (normalizedSource === destPath) return
+
+    const moveIntent = isChapterPath(normalizedSource)
+      ? getChapterWriteCoordinator().captureIntent("tree-move", normalizedSource)
+      : undefined
 
     if (await fileExists(destPath)) {
       toast.error(t("knowledgeTree.moveTargetExists"))
@@ -207,23 +240,50 @@ export function KnowledgeTree({
     }
 
     try {
-      await copyFile(normalizedSource, destPath)
-      await deleteFile(normalizedSource)
+      if (isChapterPath(normalizedSource)) {
+        const outcome = await coordinateChapterRelocation({
+          kind: "tree-move",
+          fromPath: normalizedSource,
+          toPath: destPath,
+          intent: moveIntent,
+          run: async ({ markRelocated }) => {
+            await copyFile(normalizedSource, destPath)
+            await deleteFile(normalizedSource)
+            markRelocated()
+            const currentSelected = useWikiStore.getState().selectedFile
+            if (currentSelected !== null && normalizePath(currentSelected) === normalizedSource) {
+              setSelectedFile(destPath)
+            }
+          },
+        })
+        if (outcome.status !== "committed") {
+          toast.error(
+            outcome.status === "relocated"
+              ? "该章节已发生重命名或移动，请刷新后重试"
+              : "该章节正在被保存或采纳，请稍后重试",
+          )
+          return
+        }
+      } else {
+        await copyFile(normalizedSource, destPath)
+        await deleteFile(normalizedSource)
+        const currentSelected = useWikiStore.getState().selectedFile
+        if (currentSelected !== null && normalizePath(currentSelected) === normalizedSource) {
+          setSelectedFile(destPath)
+        }
+      }
 
       await loadPages()
       const tree = await listDirectory(normalizePath(project.path))
       setFileTree(tree)
       bumpDataVersion()
-      if (selectedFile === normalizedSource) {
-        setSelectedFile(destPath)
-      }
     } catch (error) {
       console.error("[KnowledgeTree] move to volume failed:", error)
     } finally {
       setMoveMenuTarget(null)
       setPageMenu(null)
     }
-  }, [project, t, loadPages, setFileTree, bumpDataVersion, selectedFile, setSelectedFile])
+  }, [project, t, loadPages, setFileTree, bumpDataVersion, setSelectedFile])
 
   const handleDeleteClick = useCallback(async (pagePath: string) => {
     /* v8 ignore next */
@@ -237,13 +297,46 @@ export function KnowledgeTree({
     setDeletingPath(pagePath)
     try {
       const projectPath = normalizePath(project.path)
-      let sourceContent: string | undefined
-      if (filterType === "chapter") {
-        try {
-          sourceContent = await readFile(pagePath)
-        } catch { /* ignore */ }
+      const normalizedPagePath = normalizePath(pagePath)
+      const deleteTargetFile = async (markDeleted?: () => void) => {
+        let contentBeforeDelete: string | undefined
+        if (filterType === "chapter") {
+          try {
+            contentBeforeDelete = await readFile(pagePath)
+          } catch (readError) {
+            console.warn("[KnowledgeTree] read before delete failed:", pagePath, toErrorMessage(readError))
+          }
+        }
+        await moveFileToTrash(projectPath, pagePath, filterType)
+        markDeleted?.()
+        const storeState = useWikiStore.getState()
+        storeState.clearFinalChapterSaveForPath?.(pagePath)
+        const currentSelected = "selectedFile" in storeState ? storeState.selectedFile : selectedFile
+        if (currentSelected !== null && normalizePath(currentSelected) === normalizedPagePath) {
+          setSelectedFile(null)
+        }
+        return contentBeforeDelete
       }
-      await moveFileToTrash(projectPath, pagePath, filterType)
+
+      let sourceContent: string | undefined
+      if (isChapterPath(normalizedPagePath)) {
+        const outcome = await coordinateChapterDelete({
+          path: normalizedPagePath,
+          run: async ({ markDeleted }) => deleteTargetFile(markDeleted),
+        })
+        if (outcome.status !== "committed") {
+          toast.error(
+            outcome.status === "relocated"
+              ? "该章节已发生重命名或移动，请刷新后重试"
+              : "该章节正在被保存或采纳，请稍后重试",
+          )
+          return
+        }
+        sourceContent = outcome.value
+      } else {
+        sourceContent = await deleteTargetFile()
+      }
+
       try {
         await cleanupDeletedSourceMemory(projectPath, {
           kind: filterType,
@@ -259,7 +352,6 @@ export function KnowledgeTree({
       const tree = await listDirectory(projectPath)
       setFileTree(tree)
       bumpDataVersion()
-      if (selectedFile === pagePath) setSelectedFile(null)
     } catch (error) {
       console.error("[KnowledgeTree] delete failed:", error)
     } finally {
@@ -289,9 +381,27 @@ export function KnowledgeTree({
     setDeletingPath(normalizedFolderPath)
     try {
       const projectPath = normalizePath(project.path)
+      let blockedCount = 0
+      const deletedPaths = new Set<string>()
       for (const filePath of mdFiles) {
         try {
-          await moveFileToTrash(projectPath, filePath, fileKind)
+          if (isChapterPath(filePath)) {
+            const outcome = await coordinateChapterDelete({
+              path: filePath,
+              run: async ({ markDeleted }) => {
+                await moveFileToTrash(projectPath, filePath, fileKind)
+                markDeleted()
+                useWikiStore.getState().clearFinalChapterSaveForPath?.(filePath)
+              },
+            })
+            if (outcome.status !== "committed") {
+              blockedCount += 1
+              continue
+            }
+          } else {
+            await moveFileToTrash(projectPath, filePath, fileKind)
+          }
+          deletedPaths.add(filePath)
           await cleanupDeletedSourceMemory(projectPath, {
             kind: fileKind,
             pagePath: filePath,
@@ -303,25 +413,35 @@ export function KnowledgeTree({
         onRemovePendingPage?.(filePath)
       }
 
-      // 尝试删除文件夹：如果目录不存在或已空，直接删除；
-      // 这样能清理掉那些文件已丢失、只剩空壳目录的幽灵条目
-      try {
-        const remainingNodes = await listDirectory(normalizedFolderPath).catch(() => [])
-        if (flattenAllFiles(remainingNodes).length === 0) {
-          await deleteFile(normalizedFolderPath)
-        } else {
-          toast.error(t("knowledgeTree.deleteFolderBlocked", { name: folderName }))
+      if (blockedCount > 0) {
+        toast.error("部分章节正在被保存或采纳，未能删除整个目录，请稍后重试")
+      } else {
+        // 尝试删除文件夹：如果目录不存在或已空，直接删除；
+        // 这样能清理掉那些文件已丢失、只剩空壳目录的幽灵条目
+        try {
+          const remainingNodes = await listDirectory(normalizedFolderPath).catch(() => [])
+          if (flattenAllFiles(remainingNodes).length === 0) {
+            await deleteFile(normalizedFolderPath)
+          } else {
+            toast.error(t("knowledgeTree.deleteFolderBlocked", { name: folderName }))
+          }
+        } catch (dirError) {
+          // 目录可能已经不存在了，记诊断后视为删除成功
+          console.warn("[KnowledgeTree] delete folder cleanup warning:", normalizedFolderPath, toErrorMessage(dirError))
         }
-      } catch {
-        // 目录可能已经不存在了，直接视为删除成功
       }
 
       await loadPages()
       const tree = await listDirectory(projectPath)
       setFileTree(tree)
       bumpDataVersion()
-      if (selectedFile?.startsWith(`${normalizedFolderPath}/`)) {
-        setSelectedFile(null)
+      const storeState = useWikiStore.getState()
+      const currentSelected = "selectedFile" in storeState ? storeState.selectedFile : selectedFile
+      if (currentSelected) {
+        const normalizedSelected = normalizePath(currentSelected)
+        if (normalizedSelected.startsWith(`${normalizedFolderPath}/`) && (blockedCount === 0 || deletedPaths.has(normalizedSelected))) {
+          setSelectedFile(null)
+        }
       }
     } catch (error) {
       console.error("[KnowledgeTree] folder delete failed:", error)
@@ -329,34 +449,6 @@ export function KnowledgeTree({
       setDeletingPath(null)
     }
   }, [project, filterType, sectionNodes, t, loadPages, setFileTree, bumpDataVersion, selectedFile, setSelectedFile, onRemovePendingPage])
-
-  const updatePageTitleContent = useCallback((content: string, newTitle: string, newChapterNumber?: number | null) => {
-    const escapedTitle = newTitle.replace(/"/g, '\\"')
-    let next = content
-    const frontmatterMatch = next.match(/^---\n([\s\S]*?)\n---/)
-    if (frontmatterMatch) {
-      let frontmatterBody = frontmatterMatch[1]
-      if (/^title:\s*.*$/m.test(frontmatterBody)) {
-        frontmatterBody = frontmatterBody.replace(/^title:\s*.*$/m, `title: "${escapedTitle}"`)
-      } else {
-        frontmatterBody = `${frontmatterBody}\ntitle: "${escapedTitle}"`
-      }
-      if (typeof newChapterNumber === "number" && newChapterNumber > 0) {
-        if (/^chapter_number:\s*.*$/m.test(frontmatterBody)) {
-          frontmatterBody = frontmatterBody.replace(/^chapter_number:\s*.*$/m, `chapter_number: ${newChapterNumber}`)
-        } else {
-          frontmatterBody = `${frontmatterBody}\nchapter_number: ${newChapterNumber}`
-        }
-      }
-      next = next.replace(/^---[\s\S]*?---/, `---
-${frontmatterBody}
----`)
-    }
-    if (/^#\s+.+$/m.test(next)) {
-      next = next.replace(/^#\s+.+$/m, `# ${newTitle}`)
-    }
-    return next
-  }, [])
 
   const updateChapterNumberContent = useCallback((content: string, newChapterNumber: number) => {
     /* v8 ignore next */
@@ -381,6 +473,7 @@ ${frontmatterBody}
 
   const startRenamePage = useCallback((page: WikiPageInfo) => {
     setPageMenu(null)
+    setMoveMenuTarget(null)
     setIsDragging(false)
     setDragSource(null)
     setDragInsertIndex(null)
@@ -396,6 +489,12 @@ ${frontmatterBody}
     pendingPointerPositionRef.current = null
     setRenamingPath(page.path)
     setRenameValue(page.title)
+    setRenameError(null)
+  }, [])
+
+  const handleRenameValueChange = useCallback((value: string) => {
+    setRenameValue(value)
+    setRenameError(null)
   }, [])
 
   const submitRenamePage = useCallback(async () => {
@@ -404,6 +503,7 @@ ${frontmatterBody}
     if (!newTitle) {
       setRenamingPath(null)
       setRenameValue("")
+      setRenameError(null)
       return
     }
 
@@ -411,26 +511,60 @@ ${frontmatterBody}
     if (!current || current.title === newTitle) {
       setRenamingPath(null)
       setRenameValue("")
+      setRenameError(null)
       return
     }
 
+    let keepOpenOnError = false
+    setRenameError(null)
     setRenamingBusy(true)
     try {
-      const duplicate = effectivePages.some((page) => page.path !== renamingPath && page.type === current.type && page.title.trim() === newTitle)
-      if (duplicate) return
+      const duplicate = effectivePages.find(
+        (page) => page.path !== renamingPath && page.type === current.type && page.title.trim() === newTitle,
+      )
+      if (duplicate) {
+        const msg = current.type === "chapter"
+          ? t("knowledgeTree.renameDuplicateChapterTitle", {
+              title: newTitle,
+              defaultValue: `已存在同名章节「${newTitle}」`,
+            })
+          : t("knowledgeTree.renameDuplicateOutlineTitle", {
+              title: newTitle,
+              defaultValue: `已存在同名大纲「${newTitle}」`,
+            })
+        keepOpenOnError = true
+        setRenameError(msg)
+        toast.error(msg)
+        return
+      }
+
+      const normalizedRenamingPath = normalizePath(renamingPath)
+      const renameIntent = current.type === "chapter"
+        ? getChapterWriteCoordinator().captureIntent("tree-rename", normalizedRenamingPath)
+        : undefined
 
       const content = await readFile(renamingPath)
       const oldChapterNumber = extractChapterNumberFromContent(content) ?? extractPageOrderFromTitle(current.title)
       const userChapterNumber = extractPageOrderFromTitle(newTitle)
       const chapterNumber = (current.type === "chapter" && userChapterNumber !== null) ? userChapterNumber : oldChapterNumber
-      const chapterNumberConflict = current.type === "chapter"
-        && typeof chapterNumber === "number"
-        && effectivePages.some((page) => (
-          page.path !== renamingPath
-          && page.type === "chapter"
-          && page.chapterNumber === chapterNumber
-        ))
-      if (chapterNumberConflict) return
+      const conflictPage = current.type === "chapter" && typeof chapterNumber === "number"
+        ? effectivePages.find((page) => (
+            page.path !== renamingPath
+            && page.type === "chapter"
+            && page.chapterNumber === chapterNumber
+          ))
+        : undefined
+      if (conflictPage && typeof chapterNumber === "number") {
+        const msg = t("knowledgeTree.renameChapterNumberConflict", {
+          chapter: chapterNumber,
+          title: conflictPage.title,
+          defaultValue: `第 ${chapterNumber} 章已被「${conflictPage.title}」占用`,
+        })
+        keepOpenOnError = true
+        setRenameError(msg)
+        toast.error(msg)
+        return
+      }
       const normalizedTitle = current.type === "chapter" && chapterNumber
         ? makeDefaultChapterTitle(chapterNumber, newTitle)
         : newTitle
@@ -438,13 +572,48 @@ ${frontmatterBody}
       const targetFileName = current.type === "chapter"
         ? makeChapterFileName(normalizedTitle, chapterNumber)
         : `${makeSafeFileSlug(newTitle)}.md`
-      const targetPath = await getUniquePagePath(getDirName(renamingPath), targetFileName, renamingPath)
+      const targetPath = normalizePath(await getUniquePagePath(getDirName(renamingPath), targetFileName, normalizedRenamingPath))
 
-      await writeFileAtomic(targetPath, nextContent)
-      if (targetPath !== renamingPath) {
-        await deleteFile(renamingPath)
-        if (selectedFile === renamingPath) setSelectedFile(targetPath)
-        onRemovePendingPage?.(renamingPath)
+      if (current.type === "chapter") {
+        const outcome = await coordinateChapterRelocation({
+          kind: "tree-rename",
+          fromPath: normalizedRenamingPath,
+          toPath: targetPath,
+          intent: renameIntent,
+          run: async ({ markRelocated }) => {
+            // 在前驱写盘全部落定后重读最新磁盘正文，避免覆盖编辑区刚落盘的正文或终稿状态
+            const latestContent = await readFile(renamingPath)
+            const latestNextContent = updatePageTitleContent(latestContent, normalizedTitle, chapterNumber)
+            await writeFileAtomic(targetPath, latestNextContent)
+            if (targetPath !== normalizedRenamingPath) {
+              await deleteFile(renamingPath)
+              markRelocated()
+              const currentSelected = useWikiStore.getState().selectedFile
+              if (currentSelected !== null && normalizePath(currentSelected) === normalizedRenamingPath) {
+                setSelectedFile(targetPath)
+              }
+              onRemovePendingPage?.(renamingPath)
+            }
+          },
+        })
+        if (outcome.status !== "committed") {
+          toast.error(
+            outcome.status === "relocated"
+              ? "该章节已发生重命名或移动，请刷新后重试"
+              : "该章节正在被保存或采纳，请稍后重试",
+          )
+          return
+        }
+      } else {
+        await writeFileAtomic(targetPath, nextContent)
+        if (targetPath !== normalizedRenamingPath) {
+          await deleteFile(renamingPath)
+          const currentSelected = useWikiStore.getState().selectedFile
+          if (currentSelected !== null && normalizePath(currentSelected) === normalizedRenamingPath) {
+            setSelectedFile(targetPath)
+          }
+          onRemovePendingPage?.(renamingPath)
+        }
       }
 
       await loadPages()
@@ -456,17 +625,28 @@ ${frontmatterBody}
       bumpDataVersion()
     } catch (error) {
       console.error("[KnowledgeTree] rename failed:", error)
+      const msg = t("knowledgeTree.renameFailed", {
+        message: toErrorMessage(error),
+        defaultValue: `重命名失败：${toErrorMessage(error)}`,
+      })
+      keepOpenOnError = true
+      setRenameError(msg)
+      toast.error(msg)
     } finally {
       setRenamingBusy(false)
-      setRenamingPath(null)
-      setRenameValue("")
+      if (!keepOpenOnError) {
+        setRenamingPath(null)
+        setRenameValue("")
+        setRenameError(null)
+      }
     }
-  }, [renamingPath, renamingBusy, renameValue, effectivePages, updatePageTitleContent, selectedFile, setSelectedFile, onRemovePendingPage, loadPages, project, setFileTree, bumpDataVersion])
+  }, [renamingPath, renamingBusy, renameValue, effectivePages, t, setSelectedFile, onRemovePendingPage, loadPages, project, setFileTree, bumpDataVersion])
 
   const cancelRenamePage = useCallback(() => {
     if (renamingBusy) return
     setRenamingPath(null)
     setRenameValue("")
+    setRenameError(null)
   }, [renamingBusy])
 
   const executeChapterReorder = useCallback(async (sourcePath: string, targetIndex: number) => {
@@ -484,35 +664,53 @@ ${frontmatterBody}
     reordered.splice(effectiveTarget, 0, moved)
 
     try {
-      const writes: { path: string; content: string; nextNumber: number }[] = []
+      const affectedItems: { path: string; nextNumber: number }[] = []
       for (let i = 0; i < reordered.length; i += 1) {
         const page = reordered[i]
         const nextNumber = i + 1
         const currentNumber = page.chapterNumber ?? extractPageOrderFromTitle(page.title)
         if (currentNumber === nextNumber) continue
-
-        const content = await readFile(page.path)
-        writes.push({ path: page.path, content, nextNumber })
+        affectedItems.push({ path: page.path, nextNumber })
       }
 
       /* v8 ignore next */
-      if (writes.length === 0) return
+      if (affectedItems.length === 0) return
 
-      const appliedWrites: { path: string; content: string }[] = []
-      try {
-        for (const item of writes) {
-          await writeFileAtomic(item.path, updateChapterNumberContent(item.content, item.nextNumber))
-          appliedWrites.push({ path: item.path, content: item.content })
-        }
-      } catch (error) {
-        for (const item of appliedWrites.reverse()) {
-          try {
-            await writeFileAtomic(item.path, item.content)
-          } catch {
-            // Ignore rollback failures and preserve the original error.
+      const outcome = await coordinateChapterReorder({
+        paths: affectedItems.map((item) => item.path),
+        run: async () => {
+          // 在协调器临界区内重读最新磁盘正文，避免覆盖编辑区刚刚落盘的修改
+          const writes: { path: string; content: string; nextNumber: number }[] = []
+          for (const item of affectedItems) {
+            const content = await readFile(item.path)
+            writes.push({ path: item.path, content, nextNumber: item.nextNumber })
           }
-        }
-        throw error
+
+          const appliedWrites: { path: string; content: string }[] = []
+          try {
+            for (const item of writes) {
+              await writeFileAtomic(item.path, updateChapterNumberContent(item.content, item.nextNumber))
+              appliedWrites.push({ path: item.path, content: item.content })
+            }
+          } catch (error) {
+            for (const item of appliedWrites.reverse()) {
+              try {
+                await writeFileAtomic(item.path, item.content)
+              } catch (rollbackError) {
+                console.warn("[KnowledgeTree] chapter reorder rollback failed:", item.path, toErrorMessage(rollbackError))
+              }
+            }
+            throw error
+          }
+        },
+      })
+      if (outcome.status !== "committed") {
+        toast.error(
+          outcome.status === "relocated"
+            ? "部分章节已发生重命名或移动，请刷新后重试"
+            : "部分章节正在被保存或采纳，请稍后重试",
+        )
+        return
       }
 
       await loadPages()
@@ -642,6 +840,8 @@ ${frontmatterBody}
   const openCreateMenu = useCallback((event: React.MouseEvent, parentDir?: string, targetFolderName?: string) => {
     event.preventDefault()
     event.stopPropagation()
+    const target = event.target instanceof HTMLElement ? event.target : null
+    menuTriggerRef.current = target?.closest<HTMLElement>("button, [tabindex]") ?? (event.currentTarget instanceof HTMLElement ? event.currentTarget : null)
     const rect = containerRef.current?.getBoundingClientRect()
     setCreateMenu({
       parentDir,
@@ -651,11 +851,14 @@ ${frontmatterBody}
       y: rect ? event.clientY - rect.top : event.clientY, /* v8 ignore start */ /* v8 ignore stop */
     })
     setPageMenu(null)
+    setMoveMenuTarget(null)
   }, [])
 
   const openPageMenu = useCallback((event: React.MouseEvent, pagePath: string) => {
     event.preventDefault()
     event.stopPropagation()
+    const target = event.target instanceof HTMLElement ? event.target : null
+    menuTriggerRef.current = target?.closest<HTMLElement>("button, [tabindex]") ?? (event.currentTarget instanceof HTMLElement ? event.currentTarget : null)
     const rect = containerRef.current?.getBoundingClientRect()
     setPageMenu({
       path: pagePath,
@@ -663,6 +866,7 @@ ${frontmatterBody}
       y: rect ? event.clientY - rect.top : event.clientY, /* v8 ignore start */ /* v8 ignore stop */
     })
     setCreateMenu(null)
+    setMoveMenuTarget(null)
   }, [])
 
   const handlePageContextMenu = useCallback((event: React.MouseEvent, pagePath: string) => {
@@ -760,6 +964,7 @@ ${frontmatterBody}
             deletingPath={deletingPath}
             renamingPath={renamingPath}
             renameValue={renameValue}
+            renameError={renameError}
             renamingBusy={renamingBusy}
             dragSource={dragSource}
             dragInsertIndex={dragInsertIndex}
@@ -770,196 +975,46 @@ ${frontmatterBody}
             onPageContextMenu={handlePageContextMenu}
             onItemPointerDown={handleItemPointerDown}
             onDeleteClick={(pagePath) => void handleDeleteClick(pagePath)}
-            onRenameValueChange={setRenameValue}
+            onRenameValueChange={handleRenameValueChange}
             onSubmitRename={() => void submitRenamePage()}
             onCancelRename={cancelRenamePage}
           />
         )}
 
         {createMenu && (
-          <div
-            className="absolute z-20 w-40 rounded-md border bg-background py-1 text-xs elevation-3"
-            style={{ left: createMenu.x, top: createMenu.y }}
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              aria-label={filterType === "chapter" ? t("sidebar.newChapter") : t("sidebar.newOutline")}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
-              onClick={() => {
-                onRequestCreate?.({ kind: filterType, parentDir: createMenu.parentDir })
-                setCreateMenu(null)
-              }}
-            >
-              <Plus className="h-3.5 w-3.5 shrink-0" />
-              {filterType === "chapter" ? t("sidebar.newChapter") : t("sidebar.newOutline")}
-            </button>
-            <button
-              type="button"
-              aria-label={filterType === "chapter" ? t("sidebar.newVolume") : t("sidebar.newFolder")}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
-              onClick={() => {
-                onRequestCreate?.({ kind: filterType === "chapter" ? "volume" : "folder", parentDir: createMenu.parentDir })
-                setCreateMenu(null)
-              }}
-            >
-              <Folder className="h-3.5 w-3.5 shrink-0" />
-              {filterType === "chapter" ? t("sidebar.newVolume") : t("sidebar.newFolder")}
-            </button>
-            {createMenu.targetFolderPath ? (
-              <button
-                type="button"
-                aria-label={filterType === "chapter" ? t("knowledgeTree.deleteVolume") : t("knowledgeTree.deleteFolder")}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-accent"
-                onClick={() => {
-                  const targetFolderPath = createMenu.targetFolderPath
-                  setCreateMenu(null)
-                  /* v8 ignore next */
-                  if (targetFolderPath) {
-                    void handleDeleteFolder(targetFolderPath)
-                  }
-                }}
-              >
-                <Trash2 className="h-3.5 w-3.5 shrink-0" />
-                {filterType === "chapter" ? t("knowledgeTree.deleteVolume") : t("knowledgeTree.deleteFolder")}
-              </button>
-            ) : null}
-            {filterType === "chapter" && (
-              <button
-                type="button"
-                data-testid="knowledge-tree-batch-extract"
-                className="flex w-full items-center gap-2 border-t px-3 py-2 text-left hover:bg-accent"
-                onClick={() => {
-                  setBatchScope({ chapter: null })
-                  setCreateMenu(null)
-                }}
-              >
-                <Sparkles className="h-3.5 w-3.5 shrink-0" />
-                {t("extract.batchEntry")}
-              </button>
-            )}
-          </div>
+          <CreateContextMenu
+            menu={createMenu}
+            filterType={filterType}
+            onRequestCreate={onRequestCreate}
+            onDeleteFolder={(targetFolderPath) => void handleDeleteFolder(targetFolderPath)}
+            onOpenBatchExtract={() => setBatchScope({ chapter: null })}
+            onClose={closeMenus}
+          />
         )}
 
         {pageMenu && (
-          <div
-            className="absolute z-20 w-40 rounded-md border bg-background py-1 text-xs elevation-3"
-            style={{ left: pageMenu.x, top: pageMenu.y }}
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              aria-label={filterType === "chapter" ? t("sidebar.newChapter") : t("sidebar.newOutline")}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
-              onClick={() => {
-                const target = pageInfoByPath.get(pageMenu.path)
-                onRequestCreate?.({ kind: filterType, parentDir: target ? getDirName(target.path) : undefined })
-                setPageMenu(null)
-              }}
-            >
-              <Plus className="h-3.5 w-3.5 shrink-0" />
-              {filterType === "chapter" ? t("sidebar.newChapter") : t("sidebar.newOutline")}
-            </button>
-            <button
-              type="button"
-              aria-label={filterType === "chapter" ? t("sidebar.newVolume") : t("sidebar.newFolder")}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
-              onClick={() => {
-                const target = pageInfoByPath.get(pageMenu.path)
-                onRequestCreate?.({
-                  kind: filterType === "chapter" ? "volume" : "folder",
-                  parentDir: target ? getDirName(target.path) : undefined,
-                })
-                setPageMenu(null)
-              }}
-            >
-              <Folder className="h-3.5 w-3.5 shrink-0" />
-              {filterType === "chapter" ? t("sidebar.newVolume") : t("sidebar.newFolder")}
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
-              onClick={() => {
-                const target = pageInfoByPath.get(pageMenu.path)
-                if (target) startRenamePage(target)
-              }}
-            >
-              <Pencil className="h-3.5 w-3.5 shrink-0" />
-              {t("knowledgeTree.rename")}
-            </button>
-            {/* G3（TASK-004 D3）：单章重提语义不变（本项只是新增入口，不改既有项）。 */}
-            {filterType === "chapter" && (
-              <button
-                type="button"
-                data-testid="knowledge-tree-batch-extract"
-                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
-                onClick={() => {
-                  const target = pageInfoByPath.get(pageMenu.path)
-                  setBatchScope({ chapter: target?.chapterNumber ?? null })
-                  setPageMenu(null)
-                }}
-              >
-                <Sparkles className="h-3.5 w-3.5 shrink-0" />
-                {t("extract.batchEntry")}
-              </button>
-            )}
-            {filterType === "chapter" && volumeFolders.length > 0 && (
-              <div>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
-                  onClick={() => setMoveMenuTarget(moveMenuTarget === pageMenu.path ? null : pageMenu.path)}
-                >
-                  <FolderInput className="h-3.5 w-3.5 shrink-0" />
-                  {t("knowledgeTree.moveToVolume")}
-                  <ChevronRight className="ml-auto h-3 w-3 shrink-0" />
-                </button>
-                {moveMenuTarget === pageMenu.path && (
-                  <div className="max-h-48 overflow-y-auto border-t bg-background py-1 text-xs">
-                    {volumeFolders.map((vol) => {
-                      const sourceDir = getDirName(pageMenu.path)
-                      const isCurrentVolume = sourceDir === vol.path
-                      return (
-                        <button
-                          key={vol.path}
-                          type="button"
-                          className={`flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent ${isCurrentVolume ? "opacity-50 cursor-not-allowed" : ""}`}
-                          disabled={isCurrentVolume}
-                          onClick={() => {
-                            /* v8 ignore next */
-                            if (!isCurrentVolume) {
-                              void handleMoveToVolume(pageMenu.path, vol.path)
-                            }
-                          }}
-                        >
-                          <Folder className="h-3 w-3 shrink-0 text-warning" />
-                          <span className="truncate">{vol.name}</span>
-                          {isCurrentVolume && <span className="ml-auto text-xs text-muted-foreground">当前</span>}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
-              onClick={() => {
-                openFileLocation(pageMenu.path).catch((err) => console.error("打开文件位置失败:", err))
-              }}
-            >
-              <FolderOpen className="h-4 w-4 shrink-0" />
-              打开文件所在位置
-            </button>
-          </div>
+          <PageContextMenu
+            menu={pageMenu}
+            filterType={filterType}
+            targetPage={pageInfoByPath.get(pageMenu.path)}
+            volumeFolders={volumeFolders}
+            moveMenuOpen={moveMenuTarget === pageMenu.path}
+            onToggleMoveMenu={() => setMoveMenuTarget(moveMenuTarget === pageMenu.path ? null : pageMenu.path)}
+            onRequestCreate={onRequestCreate}
+            onStartRename={startRenamePage}
+            onOpenBatchExtract={(chapter) => setBatchScope({ chapter })}
+            onMoveToVolume={(pagePath, volumePath) => void handleMoveToVolume(pagePath, volumePath)}
+            onOpenFileLocation={(pagePath) => {
+              openFileLocation(pagePath).catch((err) => console.error("打开文件位置失败:", err))
+            }}
+            onClose={closeMenus}
+          />
         )}
 
         {/* G3（TASK-004 D2/D3）：右键 → 先弹范围选择，确认后才进批量队列。 */}
         {batchScope && project && (
           <BatchExtractScopeDialog
+            key={normalizePath(project.path)}
             open
             projectPath={normalizePath(project.path)}
             seedChapter={batchScope.chapter}
@@ -980,7 +1035,6 @@ type SnapshotScanResult = import("@/lib/novel/snapshot-scanner").SnapshotScanRes
 type BatchExtractScopeMode = import("@/lib/novel/snapshot-scanner").BatchExtractScopeMode
 type BatchExtractBudgetPlan = import("@/lib/novel/snapshot-scanner").BatchExtractBudgetPlan
 type BatchBudgetLedger = import("@/lib/novel/snapshot-scanner").BatchBudgetLedger
-type BatchExtractDraft = import("@/lib/novel/snapshot-scanner").BatchExtractDraft
 
 export interface BatchExtractScopeDialogProps {
   open: boolean
@@ -997,6 +1051,14 @@ export interface BatchExtractScopeDialogProps {
  * Draft-first：本弹层只建队列、显示 pending/ready 草稿与 accept 入口；
  * 正式记忆回填只能经 accept（acceptBatchExtractionDrafts → syncSnapshotToMemory）。
  */
+function parseOptionalChapterBound(raw: string): number | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const parsed = Number(trimmed)
+  if (!Number.isFinite(parsed) || parsed < 1) return null
+  return Math.floor(parsed)
+}
+
 export function BatchExtractScopeDialog({
   open,
   projectPath,
@@ -1005,41 +1067,69 @@ export function BatchExtractScopeDialog({
 }: BatchExtractScopeDialogProps) {
   const { t } = useTranslation()
   const scannerRef = useRef<SnapshotScannerModule | null>(null)
+  const scanScope = useRef({ open, projectPath })
   const [scan, setScan] = useState<SnapshotScanResult | null>(null)
   const [mode, setMode] = useState<BatchExtractScopeMode | null>(null)
   const [skipExisting, setSkipExisting] = useState(true)
   const [force, setForce] = useState(false)
+  const [startChapterInput, setStartChapterInput] = useState("")
+  const [endChapterInput, setEndChapterInput] = useState("")
   const [budget, setBudget] = useState(0)
   const [budgetMax, setBudgetMax] = useState(0)
   const [scanning, setScanning] = useState(false)
-  const [running, setRunning] = useState(false)
-  const [drafts, setDrafts] = useState<BatchExtractDraft[]>([])
+  const [relocatingPath, setRelocatingPath] = useState<string | null>(null)
+  const [running, setRunning] = useState<"extract" | "accept" | "discard" | null>(null)
+  const [pendingConfirm, setPendingConfirm] = useState<"discard" | "resetCorrupt" | "setAside" | null>(null)
+  const [corruptFingerprint, setCorruptFingerprint] = useState<string | null>(null)
+  const [scanGeneration, setScanGeneration] = useState(0)
+  const [queue, setQueue] = useState<BatchExtractQueueState | null>(null)
+  const [statusMessage, setStatusMessage] = useState("")
+  const [scanError, setScanError] = useState<string | null>(null)
+
+  useEffect(() => {
+    scanScope.current = { open, projectPath }
+    return () => { scanScope.current = { open: false, projectPath } }
+  }, [open, projectPath])
+
+  useEffect(() => {
+    if (!open) return
+    setStartChapterInput("")
+    setEndChapterInput("")
+  }, [open, projectPath])
 
   useEffect(() => {
     if (!open) return
     let cancelled = false
+    setRunning(null)
+    setPendingConfirm(null)
+    setQueue(null)
     setScanning(true)
+    setStatusMessage("")
+    setScanError(null)
+    setScan(null)
+    setCorruptFingerprint(null)
     void (async () => {
+      let scanner: typeof import("@/lib/novel/snapshot-scanner") | undefined
       try {
-        const scanner = await import("@/lib/novel/snapshot-scanner")
-        /* v8 ignore next */
+        scanner = await import("@/lib/novel/snapshot-scanner")
+        const restored = await restoreBatchExtractQueue(projectPath)
         if (cancelled) return
+        setQueue(restored)
         scannerRef.current = scanner
         setMode(scanner.DEFAULT_BATCH_EXTRACT_SCOPE)
         setSkipExisting(scanner.DEFAULT_BATCH_SKIP_EXISTING)
         setForce(scanner.DEFAULT_BATCH_FORCE)
         setBudget(scanner.BATCH_EXTRACT_BUDGET_DEFAULT)
         setBudgetMax(scanner.BATCH_EXTRACT_BUDGET_MAX)
-        const result = await scanner.scanSnapshotBackfill(projectPath)
+        const result = await scanner.scanFinalChapterBackfill(projectPath)
         /* v8 ignore next */
         if (cancelled) return
         setScan(result)
-        const { getBatchExtractQueue } = await import("./sidebar-panel-import")
-        /* v8 ignore next */
-        if (cancelled) return
-        setDrafts(getBatchExtractQueue(projectPath)?.drafts ?? [])
       } catch (err) {
-        console.error("[batch-extract] scan failed:", err)
+        if (!cancelled) {
+          setScanError(toErrorMessage(err))
+          if (scanner && err instanceof scanner.CorruptBatchDraftArtifactError) setCorruptFingerprint(err.fingerprint)
+        }
       } finally {
         /* v8 ignore next */
         if (!cancelled) setScanning(false)
@@ -1048,82 +1138,343 @@ export function BatchExtractScopeDialog({
     return () => {
       cancelled = true
     }
-  }, [open, projectPath])
+  }, [open, projectPath, scanGeneration])
 
-  const preview = useMemo<{ plan: BatchExtractBudgetPlan; ledger: BatchBudgetLedger; total: number } | null>(() => {
+  const batchTask = useImportProgressStore(s => s.tasks.find(task => task.kind === "batch_extraction" && task.projectPath === projectPath))
+  useEffect(() => {
+    if (open && batchTask) setQueue(getBatchExtractQueue(projectPath))
+  }, [open, projectPath, batchTask])
+
+  const startChapter = parseOptionalChapterBound(startChapterInput)
+  const endChapter = parseOptionalChapterBound(endChapterInput)
+  const rangeInvalid = startChapter !== null && endChapter !== null && startChapter > endChapter
+
+  const preview = useMemo<{ plan: BatchExtractBudgetPlan; ledger: BatchBudgetLedger; chapters: number[] } | null>(() => {
     const scanner = scannerRef.current
     if (!scanner || !scan || mode === null) return null
-    const selection = scanner.resolveBatchExtractScope(scan, { mode, skipExisting, force })
-    const plan = scanner.applyBatchExtractBudget(selection.chapters, budget)
-    return { plan, ledger: scanner.buildBatchBudgetLedger(plan), total: selection.chapters.length }
-  }, [scan, mode, skipExisting, force, budget])
+    const selection = scanner.resolveBatchExtractScope(scan, {
+      mode,
+      skipExisting,
+      force,
+      startChapter,
+      endChapter,
+    })
+    const plan = scanner.applyDesktopBatchExtractBudget(selection.chapters, budget)
+    return { plan, ledger: scanner.buildBatchBudgetLedger(plan), chapters: selection.chapters }
+  }, [scan, mode, skipExisting, force, startChapter, endChapter, budget])
 
+  const drafts = queue?.drafts ?? []
   const readyCount = drafts.filter((draft) => draft.status === "ready").length
+  const uncertainCount = drafts.filter((draft) => draft.status === "uncertain").length
+  const outcomes = [
+    ...(queue?.previousOutcomes ?? []),
+    ...drafts.flatMap((draft) => (draft.outcome ? [draft.outcome] : [])),
+  ]
+  const busy = running !== null || relocatingPath !== null || batchTask?.status === "running"
 
-  if (!open) return null
+  const handleLocateDuplicate = (filePath: string) => {
+    useWikiStore.getState().setSelectedFile?.(normalizePath(filePath))
+    onClose()
+  }
+
+  const handleRelocateDuplicate = async (filePath: string, currentChapter: number) => {
+    if (busy || scanning) return
+    const scopeAtStart = scanScope.current
+    const normalizedFrom = normalizePath(filePath)
+    setRelocatingPath(normalizedFrom)
+    setStatusMessage("")
+    try {
+      const renameIntent = getChapterWriteCoordinator().captureIntent("tree-rename", normalizedFrom)
+      let nextFromDisk = 1
+      try {
+        nextFromDisk = await getNextChapterNumber(projectPath)
+      } catch (err) {
+        console.warn("[BatchExtractScopeDialog] getNextChapterNumber fallback:", toErrorMessage(err))
+      }
+      const maxKnown = Math.max(
+        0,
+        currentChapter,
+        ...(scan?.chapters ?? []),
+        ...(scan?.excluded?.duplicateChapters ?? []),
+      )
+      const nextChapterNumber = Math.max(nextFromDisk, maxKnown + 1)
+      const rawContent = await readFile(normalizedFrom)
+      const parsed = parsePageInfo(normalizedFrom, getFileName(normalizedFrom), rawContent)
+      const nextTitle = makeDefaultChapterTitle(nextChapterNumber, parsed?.title ?? "")
+      const targetFileName = makeChapterFileName(nextTitle, nextChapterNumber)
+      const targetPath = normalizePath(
+        await getUniquePagePath(getDirName(normalizedFrom), targetFileName, normalizedFrom),
+      )
+
+      const outcome = await coordinateChapterRelocation({
+        kind: "tree-rename",
+        fromPath: normalizedFrom,
+        toPath: targetPath,
+        intent: renameIntent,
+        run: async ({ markRelocated }) => {
+          const latestContent = await readFile(normalizedFrom)
+          const updatedContent = updatePageTitleContent(latestContent, nextTitle, nextChapterNumber)
+          await writeFileAtomic(targetPath, updatedContent)
+          if (targetPath !== normalizedFrom) {
+            await deleteFile(normalizedFrom)
+            markRelocated()
+            const storeState = useWikiStore.getState()
+            if (storeState.selectedFile && normalizePath(storeState.selectedFile) === normalizedFrom) {
+              storeState.setSelectedFile?.(targetPath)
+            }
+          }
+        },
+      })
+
+      if (scopeAtStart !== scanScope.current) return
+      if (outcome.status !== "committed") {
+        toast.error(
+          outcome.status === "relocated"
+            ? "该章节已发生重命名或移动，请刷新后重试"
+            : "该章节正在被保存或采纳，请稍后重试",
+        )
+        return
+      }
+
+      invalidateChapterCache(projectPath)
+      try {
+        const tree = await listDirectory(normalizePath(projectPath))
+        useWikiStore.getState().setFileTree?.(tree)
+      } catch (treeErr) {
+        console.warn("[BatchExtractScopeDialog] refresh tree warning:", toErrorMessage(treeErr))
+      }
+      useWikiStore.getState().bumpDataVersion?.()
+      const msg = t("extract.batchDuplicateRelocated", {
+        from: currentChapter,
+        to: nextChapterNumber,
+        defaultValue: `已将第 ${currentChapter} 章副本顺延为第 ${nextChapterNumber} 章，正在重新扫描…`,
+      })
+      setStatusMessage(msg)
+      toast.success(msg)
+      setScanGeneration((generation) => generation + 1)
+    } catch (error) {
+      if (scopeAtStart === scanScope.current) {
+        const msg = t("extract.batchDuplicateRelocateFailed", {
+          message: toErrorMessage(error),
+          defaultValue: `顺延章号失败：${toErrorMessage(error)}`,
+        })
+        setStatusMessage(msg)
+        toast.error(msg)
+      }
+    } finally {
+      if (scopeAtStart === scanScope.current) setRelocatingPath(null)
+    }
+  }
 
   const handleStart = async () => {
-    if (!preview || running || preview.plan.admitted.length === 0) return
-    setRunning(true)
+    if (!preview || busy || readyCount > 0 || uncertainCount > 0 || preview.plan.admitted.length === 0) return
+    setPendingConfirm(null)
+    setStatusMessage("")
+    setRunning("extract")
+    const scopeAtStart = scanScope.current
     try {
       const { runBatchMemoryExtraction } = await import("./sidebar-panel-import")
       const result = await runBatchMemoryExtraction({
         projectPath,
-        chapters: preview.plan.admitted,
+        chapters: preview.chapters,
         budget,
+        paths: scan?.paths,
       })
-      setDrafts(result.drafts)
-      if (result.cancelled) {
-        toast.info(t("extract.batchCancelled", { completed: result.completed, total: result.admitted.length }))
-      } else {
-        toast.success(t("extract.batchDone", { completed: result.completed, failed: result.failed }))
-      }
+      if (scopeAtStart !== scanScope.current) return
+      setQueue(getBatchExtractQueue(projectPath))
+      const message = result.cancelled
+        ? t("extract.batchCancelled", { completed: result.completed, total: result.admitted.length })
+        : t("extract.batchDone", { completed: result.completed, failed: result.failed })
+      setStatusMessage(message)
+      if (result.cancelled || result.failed > 0) toast.info(message)
+      else toast.success(message)
     } catch (err) {
-      toast.error(t("extract.batchFailed", { message: toErrorMessage(err) }))
+      if (scopeAtStart !== scanScope.current) return
+      const message = t("extract.batchFailed", { message: toErrorMessage(err) })
+      setStatusMessage(message)
+      toast.error(message)
+      setQueue(getBatchExtractQueue(projectPath))
     } finally {
-      setRunning(false)
+      if (scopeAtStart === scanScope.current) setRunning(null)
     }
   }
 
   const handleAccept = async () => {
-    if (readyCount === 0) return
-    setRunning(true)
+    if (busy || scanning || !queue || readyCount === 0) return
+    const scopeAtStart = scanScope.current
+    setPendingConfirm(null)
+    setStatusMessage("")
+    setRunning("accept")
     try {
-      const { acceptBatchExtractionDrafts, getBatchExtractQueue } = await import("./sidebar-panel-import")
-      const result = await acceptBatchExtractionDrafts({ projectPath })
-      setDrafts(getBatchExtractQueue(projectPath)?.drafts ?? [])
-      toast.success(t("extract.batchAccepted", { count: result.accepted.length }))
+      const { acceptBatchExtractionDrafts } = await import("./sidebar-panel-import")
+      const result = await acceptBatchExtractionDrafts({ projectPath, expectedQueue: queue })
+      if (scopeAtStart !== scanScope.current) return
+      setQueue(getBatchExtractQueue(projectPath))
+      const message = result.failed.length
+        ? t("extract.batchAcceptIncomplete", { accepted: result.accepted.length, failed: result.failed.length })
+        : t("extract.batchAccepted", { count: result.accepted.length })
+      setStatusMessage(message)
+      if (result.accepted.length > 0 && result.failed.length === 0) toast.success(message)
+      else toast.info(message)
     } catch (err) {
-      toast.error(t("extract.batchFailed", { message: toErrorMessage(err) }))
+      if (scopeAtStart !== scanScope.current) return
+      const message = t("extract.batchFailed", { message: toErrorMessage(err) })
+      setStatusMessage(message)
+      toast.error(message)
+      setQueue(getBatchExtractQueue(projectPath))
     } finally {
-      setRunning(false)
+      if (scopeAtStart === scanScope.current) {
+        const scanner = scannerRef.current
+        setScan(null)
+        setScanError(null)
+        if (scanner) {
+          setScanning(true)
+          try {
+            const next = await scanner.scanFinalChapterBackfill(projectPath)
+            if (scopeAtStart === scanScope.current) setScan(next)
+          } catch (error) {
+            if (scopeAtStart === scanScope.current) setScanError(toErrorMessage(error))
+          }
+        }
+        if (scopeAtStart === scanScope.current) {
+          setScanning(false)
+          setRunning(null)
+        }
+      }
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div
-        data-testid="batch-extract-scope-dialog"
-        className="w-[26rem] rounded-lg border bg-background p-4 text-sm elevation-3"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="mb-3 flex items-center justify-between">
-          <span className="font-medium">{t("extract.batchTitle")}</span>
-          <button type="button" aria-label={t("common.close")} onClick={onClose}>
-            <X className="h-4 w-4 shrink-0 text-muted-foreground" />
-          </button>
-        </div>
+  const handleDiscard = async () => {
+    if (busy || scanning || !queue || readyCount === 0) return
+    setPendingConfirm(null)
+    const scopeAtStart = scanScope.current
+    setRunning("discard")
+    try {
+      const discarded = await discardBatchExtractionDrafts(projectPath, queue)
+      if (scopeAtStart !== scanScope.current) return
+      setQueue(getBatchExtractQueue(projectPath))
+      setStatusMessage(t(discarded ? "extract.batchDiscarded" : "extract.batchQueueChanged"))
+    } catch (err) {
+      if (scopeAtStart === scanScope.current) setStatusMessage(t("extract.batchFailed", { message: toErrorMessage(err) }))
+    } finally {
+      if (scopeAtStart === scanScope.current) setRunning(null)
+    }
+  }
 
-        {scanning || !preview ? (
+  const handleResetCorruptArtifact = async () => {
+    if (busy || scanning || !corruptFingerprint) return
+    setPendingConfirm(null)
+    const scopeAtStart = scanScope.current
+    setRunning("discard")
+    try {
+      const backup = await resetCorruptBatchExtractionDrafts(projectPath, corruptFingerprint)
+      if (scopeAtStart !== scanScope.current) return
+      toast.success(t("extract.batchResetCorruptDone", { path: backup }))
+      setScanGeneration(generation => generation + 1)
+    } catch (err) {
+      if (scopeAtStart === scanScope.current) setScanError(toErrorMessage(err))
+    } finally {
+      if (scopeAtStart === scanScope.current) setRunning(null)
+    }
+  }
+
+  const handleSetAside = async () => {
+    if (busy || scanning || !queue || uncertainCount === 0) return
+    setPendingConfirm(null)
+    const scopeAtStart = scanScope.current
+    setRunning("discard")
+    try {
+      const updated = await setAsideUncertainBatchDrafts(projectPath, queue)
+      if (scopeAtStart !== scanScope.current) return
+      setQueue(getBatchExtractQueue(projectPath))
+      setStatusMessage(t(updated ? "extract.batchSetAsideDone" : "extract.batchQueueChanged"))
+    } catch (err) {
+      if (scopeAtStart === scanScope.current) setStatusMessage(t("extract.batchFailed", { message: toErrorMessage(err) }))
+    } finally {
+      if (scopeAtStart === scanScope.current) setRunning(null)
+    }
+  }
+
+  const handleCopyReceipts = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(outcomes, null, 2))
+      setStatusMessage(t("extract.batchReceiptsCopied"))
+    } catch (err) {
+      setStatusMessage(t("extract.batchFailed", { message: toErrorMessage(err) }))
+    }
+  }
+
+  const outcomeKeyCounts = new Map<string, number>()
+  const outcomeText = (outcome: (typeof outcomes)[number]): string => {
+    if (outcome.status === "uncertain") return t("extract.batchReceiptUncertain", { chapter: outcome.chapterNumber, reason: outcome.reason })
+    if (outcome.status === "verified") return t("extract.batchReceiptVerified", { chapter: outcome.chapterNumber })
+    if ("receipt" in outcome && outcome.receipt) return t("extract.batchReceiptPartial", { chapter: outcome.chapterNumber })
+    const base = t("extract.batchReceiptFailed", { chapter: outcome.chapterNumber })
+    return "reason" in outcome && outcome.reason ? `${base}（${outcome.reason}）` : base
+  }
+
+  const activeConfirm =
+    pendingConfirm === "discard" && readyCount > 0
+      ? "discard"
+      : pendingConfirm === "resetCorrupt" && Boolean(corruptFingerprint)
+        ? "resetCorrupt"
+        : pendingConfirm === "setAside" && uncertainCount > 0
+          ? "setAside"
+          : null
+  const activeConfirmText =
+    activeConfirm === "discard"
+      ? t("extract.batchDiscardConfirm")
+      : activeConfirm === "resetCorrupt"
+        ? t("extract.batchResetCorruptConfirm")
+        : activeConfirm === "setAside"
+          ? t("extract.batchSetAsideConfirm")
+          : ""
+
+  const showBatchProgress = batchTask?.status === "running" || running === "extract"
+  const progressTotal = batchTask?.total ?? preview?.plan.admitted.length ?? 0
+  const progressCompleted = batchTask?.completed ?? 0
+  const progressFailed = queue?.failed ?? 0
+  const progressPercent = progressTotal > 0 ? Math.min(100, Math.round((progressCompleted / progressTotal) * 100)) : 0
+  const cancelling = Boolean(batchTask?.cancelling)
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { if (!next && !busy) onClose() }}>
+      <DialogContent
+        data-testid="batch-extract-scope-dialog"
+        className="max-h-[85vh] w-[calc(100%-2rem)] max-w-[26rem] overflow-y-auto p-4 text-sm sm:max-w-[26rem]"
+        closeLabel={t("common.close")}
+        showCloseButton={!busy}
+      >
+        <DialogTitle className="pr-7 text-sm">{t("extract.batchTitle")}</DialogTitle>
+        <DialogDescription>{t("extract.batchDraftFirst")}</DialogDescription>
+
+        {scanError ? (
+          <p role="alert" className="text-xs text-destructive">{scanError}</p>
+        ) : null}
+        {corruptFingerprint ? (
+          <Button type="button" size="sm" variant="outline" disabled={busy || scanning} onClick={() => setPendingConfirm("resetCorrupt")}>
+            {t("extract.batchResetCorrupt")}
+          </Button>
+        ) : null}
+
+        {scanning ? (
           <div className="flex items-center gap-2 py-6 text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             {t("extract.batchScanning")}
           </div>
-        ) : (
+        ) : preview ? (
           <div className="space-y-3">
             <div className="text-xs text-muted-foreground">
               {t("extract.batchPendingCount", { count: scan?.pending.length ?? 0 })}
-              {typeof seedChapter === "number" ? ` · ${t("extract.batchSeedHint", { chapter: seedChapter })}` : null}
+              {scan?.excluded && (scan.excluded.invalid + scan.excluded.nonFinal + scan.excluded.unreadable + scan.excluded.duplicateChapters.length > 0)
+                ? ` · ${t("extract.batchScanExcluded", {
+                    invalid: scan.excluded.invalid,
+                    nonFinal: scan.excluded.nonFinal,
+                    unreadable: scan.excluded.unreadable,
+                    duplicates: scan.excluded.duplicateChapters.length,
+                  })}`
+                : null}
+              {typeof seedChapter === "number" && preview.chapters.includes(seedChapter) ? ` · ${t("extract.batchSeedHint", { chapter: seedChapter })}` : null}
             </div>
 
             <label className="flex items-center gap-2">
@@ -1164,15 +1515,64 @@ export function BatchExtractScopeDialog({
               {t("extract.batchForce")}
             </label>
 
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium text-foreground">
+                {t("extract.batchRangeLabel", { defaultValue: "章节范围（可选，留空表示不限）" })}
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>{t("extract.batchRangeStart", { defaultValue: "起始章" })}</span>
+                  <input
+                    type="number"
+                    data-testid="batch-range-start"
+                    aria-label={t("extract.batchRangeStart", { defaultValue: "起始章" })}
+                    min={1}
+                    placeholder={t("extract.batchRangePlaceholder", { defaultValue: "不限" })}
+                    className="w-20 rounded border bg-background px-2 py-1 text-xs text-foreground"
+                    value={startChapterInput}
+                    disabled={busy}
+                    onChange={(event) => setStartChapterInput(event.target.value)}
+                  />
+                </label>
+                <span className="text-xs text-muted-foreground">—</span>
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>{t("extract.batchRangeEnd", { defaultValue: "结束章" })}</span>
+                  <input
+                    type="number"
+                    data-testid="batch-range-end"
+                    aria-label={t("extract.batchRangeEnd", { defaultValue: "结束章" })}
+                    min={1}
+                    placeholder={t("extract.batchRangePlaceholder", { defaultValue: "不限" })}
+                    className="w-20 rounded border bg-background px-2 py-1 text-xs text-foreground"
+                    value={endChapterInput}
+                    disabled={busy}
+                    onChange={(event) => setEndChapterInput(event.target.value)}
+                  />
+                </label>
+              </div>
+              {rangeInvalid ? (
+                <p role="alert" className="text-xs text-destructive">
+                  {t("extract.batchRangeInvalid", { defaultValue: "起始章号不能大于结束章号" })}
+                </p>
+              ) : null}
+            </div>
+
             <label className="flex items-center gap-2">
               {t("extract.batchBudget")}
               <input
                 type="number"
+                data-testid="batch-budget-input"
+                aria-label={t("extract.batchBudget")}
                 className="w-20 rounded border bg-background px-2 py-1 text-xs"
                 min={1}
-                max={budgetMax}
+                max={Math.max(1, budgetMax)}
                 value={budget}
-                onChange={(event) => setBudget(Number(event.target.value))}
+                onChange={(event) => {
+                  const raw = event.target.value.trim() === "" ? Number.NaN : Number(event.target.value)
+                  if (!Number.isFinite(raw)) return
+                  const maxBudget = Math.max(1, budgetMax)
+                  setBudget(Math.min(maxBudget, Math.max(1, Math.trunc(raw))))
+                }}
               />
             </label>
 
@@ -1184,40 +1584,169 @@ export function BatchExtractScopeDialog({
               {preview.ledger.exhausted ? ` · ${t("extract.batchBudgetExceeded", { budget: preview.ledger.budget })}` : null}
             </div>
 
+            {scan?.excluded && scan.excluded.duplicateChapters.length > 0 ? (
+              <BatchDuplicateConflictCard
+                duplicateChapters={scan.excluded.duplicateChapters}
+                duplicateChapterPaths={scan.excluded.duplicateChapterPaths}
+                busy={busy || scanning}
+                relocatingPath={relocatingPath}
+                onLocateFile={handleLocateDuplicate}
+                onRelocateDuplicate={(filePath, ch) => void handleRelocateDuplicate(filePath, ch)}
+              />
+            ) : null}
+
             {scan && scan.errors.length > 0 ? (
-              <div className="text-xs text-destructive">{scan.errors[0]}</div>
+              <ul className="max-h-20 space-y-0.5 overflow-y-auto text-xs text-destructive">
+                {[...new Set(scan.errors)].map(error => (
+                  <li key={error}>{error}</li>
+                ))}
+              </ul>
             ) : null}
 
-            {readyCount > 0 ? (
-              <div className="flex items-center justify-between rounded border border-dashed px-2 py-1.5 text-xs">
-                <span>{t("extract.batchDraftPending", { count: readyCount })}</span>
-                <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={running} onClick={() => void handleAccept()}>
-                  {t("extract.batchAccept")}
-                </Button>
-              </div>
-            ) : null}
           </div>
-        )}
+        ) : null}
 
-        <div className="mt-4 flex justify-end gap-2">
-          <Button type="button" size="sm" variant="ghost" onClick={onClose}>
-            {t("extract.batchCancel")}
+        {readyCount > 0 ? (
+          <div className="flex flex-wrap items-center gap-2 rounded border border-dashed px-2 py-1.5 text-xs">
+            <span>{t("extract.batchDraftPending", { count: readyCount })}</span>
+            <span className="text-muted-foreground">{t("extract.batchReadyBlock")}</span>
+            <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={busy || scanning} onClick={() => void handleAccept()}>
+              {running === "accept" ? t("extract.batchAcceptWorking") : t("extract.batchAccept")}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs" disabled={busy || scanning} onClick={() => setPendingConfirm("discard")}>
+              {t("extract.batchDiscard")}
+            </Button>
+          </div>
+        ) : null}
+
+        {uncertainCount > 0 ? (
+          <div className="flex flex-wrap items-center gap-2 rounded border border-dashed px-2 py-1.5 text-xs">
+            <span>{t("extract.batchReviewInterrupted", { count: uncertainCount })}</span>
+            <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={busy || scanning} onClick={() => setPendingConfirm("setAside")}>
+              {t("extract.batchSetAside")}
+            </Button>
+          </div>
+        ) : null}
+
+        {activeConfirm ? (
+          <div
+            data-testid="batch-extract-inline-confirm"
+            role="alertdialog"
+            aria-label={activeConfirmText}
+            className="space-y-2 rounded border border-destructive/40 bg-destructive/5 px-2.5 py-2 text-xs"
+          >
+            <p className="text-foreground">{activeConfirmText}</p>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs"
+                disabled={busy}
+                onClick={() => setPendingConfirm(null)}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                className="h-6 px-2 text-xs"
+                disabled={busy || scanning}
+                onClick={() => {
+                  if (activeConfirm === "discard") void handleDiscard()
+                  else if (activeConfirm === "resetCorrupt") void handleResetCorruptArtifact()
+                  else void handleSetAside()
+                }}
+              >
+                {t("common.confirm")}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {outcomes.length > 0 ? (
+          <div className="space-y-1">
+            <ul className="max-h-28 space-y-0.5 overflow-y-auto text-xs">
+              {outcomes.map(outcome => {
+                const identity = JSON.stringify([outcome.path, outcome.chapterNumber, outcome.status, outcome.projectionReceipt?.extractionHistoryPath, "reason" in outcome ? outcome.reason : undefined])
+                const occurrence = outcomeKeyCounts.get(identity) ?? 0
+                outcomeKeyCounts.set(identity, occurrence + 1)
+                return <li key={JSON.stringify([identity, occurrence])}>{outcomeText(outcome)}</li>
+              })}
+            </ul>
+            <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => void handleCopyReceipts()}>
+              {t("extract.batchCopyReceipts")}
+            </Button>
+          </div>
+        ) : null}
+
+        {showBatchProgress ? (
+          <div
+            data-testid="batch-extract-progress"
+            className="space-y-1.5 rounded border bg-muted/40 px-2.5 py-2 text-xs"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-foreground">
+                {t("extract.batchProgressStatus", {
+                  completed: progressCompleted,
+                  total: progressTotal,
+                  failed: progressFailed,
+                  defaultValue: `正在提取 ${progressCompleted}/${progressTotal}（失败 ${progressFailed}）`,
+                })}
+                {batchTask?.currentTitle ? ` · ${batchTask.currentTitle}` : ""}
+              </span>
+              {batchTask?.status === "running" ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  data-testid="batch-extract-cancel"
+                  className="h-6 shrink-0 px-2 text-xs"
+                  disabled={cancelling}
+                  onClick={() => useImportProgressStore.getState().cancelTask(batchTask.id)}
+                >
+                  {cancelling
+                    ? t("extract.batchCancelling", { defaultValue: "正在取消…" })
+                    : t("extract.batchCancel", { defaultValue: "取消" })}
+                </Button>
+              ) : null}
+            </div>
+            <div
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={Math.max(1, progressTotal)}
+              aria-valuenow={progressCompleted}
+              className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+            >
+              <div
+                className="h-full bg-primary transition-all"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        <p role="status" aria-atomic="true" className="min-h-4 text-xs text-muted-foreground">{statusMessage}</p>
+
+        <div className="mt-2 flex justify-end gap-2">
+          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onClose}>
+            {t("common.close")}
           </Button>
           <Button
             type="button"
             size="sm"
-            disabled={running || scanning || !preview || preview.plan.admitted.length === 0}
+            disabled={busy || readyCount > 0 || uncertainCount > 0 || scanning || !preview || preview.plan.admitted.length === 0}
             onClick={() => void handleStart()}
           >
-            {running ? t("extract.batchRunningShort") : t("extract.batchStart")}
+            {running === "extract" ? t("extract.batchRunningShort") : t("extract.batchStart")}
           </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
-
-export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?: () => void }) {
+export function RawSourcesSection() {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const tasks = useImportProgressStore((s) => s.tasks)
@@ -1262,6 +1791,7 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
           {hasAnyTask ? (
             projectTasks.slice(0, 20).map((task) => {
               const kindLabel =
+              task.kind === "batch_extraction" ? t("extract.batchProgressLabel") :
               task.kind === "outline" ? "AI 大纲" :
                 task.kind === "outline_generation" ? "生成大纲" :
                   task.kind === "outline_refinement" ? "细化生成" :
@@ -1270,10 +1800,25 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
                 ? Math.round((task.completed / task.total) * 100)
                 : 0
               const isRunning = task.status === "running"
+              const statusText = isRunning
+                ? task.cancelling
+                  ? `正在取消${kindLabel}提取...`
+                  : task.currentTitle || `${kindLabel}提取中`
+                : task.status === "done"
+                  ? `${kindLabel}提取完成`
+                  : task.status === "error"
+                    ? task.message || `${kindLabel}提取失败`
+                    : task.status === "cancelled"
+                      ? `${kindLabel}提取已取消`
+                      : task.status === "pending"
+                        ? task.message || `${kindLabel}待处理`
+                        : task.status === "skipped"
+                          ? task.message || `${kindLabel}已跳过`
+                          : task.message ?? ""
               return (
                 <div key={task.id} className="space-y-1 rounded-md bg-muted/30 px-2 py-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate flex items-center gap-1">
+                    <span className="min-w-0 truncate flex items-center gap-1" title={statusText}>
                       {isRunning ? (
                         <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
                       ) : task.status === "done" ? (
@@ -1282,19 +1827,13 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
                         <X className="h-3 w-3 shrink-0 text-destructive" />
                       ) : task.status === "cancelled" ? (
                         <X className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      ) : task.status === "pending" ? (
+                        <Clock className="h-3 w-3 shrink-0 text-warning" />
+                      ) : task.status === "skipped" ? (
+                        <MinusCircle className="h-3 w-3 shrink-0 text-muted-foreground" />
                       ) : null}
                       <span className={isRunning ? "text-foreground font-medium" : ""}>
-                        {isRunning
-                          ? task.cancelling
-                            ? `正在取消${kindLabel}提取...`
-                            : task.currentTitle || `${kindLabel}提取中`
-                          : task.status === "done"
-                            ? `${kindLabel}提取完成`
-                            : task.status === "error"
-                              ? `${kindLabel}提取失败`
-                              : task.status === "cancelled"
-                                ? `${kindLabel}提取已取消`
-                                : task.message ?? ""}
+                        {statusText}
                       </span>
                     </span>
                     <span className="flex items-center gap-1.5 shrink-0">
@@ -1308,7 +1847,6 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
                             className="h-5 px-1.5 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
                             onClick={() => {
                               useImportProgressStore.getState().cancelTask(task.id)
-                              onCancelExtraction?.()
                             }}
                             disabled={task.cancelling}
                           >

@@ -5,7 +5,7 @@
 // 100% coverage spec for src/components/ui/dialog.tsx (base-ui wrapper).
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { ReactNode } from "react"
+import { cloneElement, isValidElement, type ReactElement, type ReactNode } from "react"
 import { cleanup } from "@testing-library/react"
 import {
   render,
@@ -44,11 +44,18 @@ vi.mock("@base-ui/react/dialog", () => ({
         {children}
       </div>
     ),
-    Close: ({ children, ...props }: { children?: ReactNode } & Record<string, unknown>) => (
-      <span data-testid="base-close" {...props}>
-        {children}
-      </span>
-    ),
+    Close: ({
+      children,
+      render: renderProp,
+      ...props
+    }: { children?: ReactNode; render?: ReactElement } & Record<string, unknown>) =>
+      isValidElement(renderProp) ? (
+        cloneElement(renderProp as ReactElement<Record<string, unknown>>, { "data-testid": "base-close", ...props }, children)
+      ) : (
+        <button type="button" data-testid="base-close" {...props}>
+          {children}
+        </button>
+      ),
     Backdrop: ({ children, ...props }: { children?: ReactNode } & Record<string, unknown>) => (
       <div data-testid="base-backdrop" {...props}>
         {children}
@@ -134,10 +141,11 @@ describe("Dialog primitives", () => {
     expect(popup).toHaveAttribute("data-slot", "dialog-content")
     expect(popup.className).toContain("extra")
     expect(popup).toHaveTextContent("content")
-    // default close button with X icon + sr-only label
+    // default close button with X icon + sr-only i18n label
     const closeButtons = screen.getAllByTestId("base-close")
     expect(closeButtons.length).toBeGreaterThan(0)
-    expect(screen.getByText("Close")).toBeInTheDocument()
+    expect(screen.getByText("关闭")).toBeInTheDocument()
+    expect(closeButtons[0]).toHaveAttribute("aria-label", "关闭")
     expect(popup.querySelector("svg")).not.toBeNull()
   })
 
@@ -158,18 +166,20 @@ describe("Dialog primitives", () => {
     expect(header.className).toContain("hdr")
   })
 
-  it("DialogFooter default has no close button; showCloseButton renders Close Button", () => {
+  it("DialogFooter default has no close button; showCloseButton renders single non-nested Close Button", () => {
     const { rerender } = render(<DialogFooter>footer</DialogFooter>)
     const footer = screen.getByText("footer")
     expect(footer).toHaveAttribute("data-slot", "dialog-footer")
-    expect(screen.queryByRole("button", { name: "Close" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "关闭" })).not.toBeInTheDocument()
 
     rerender(
       <DialogFooter showCloseButton className="ftr">
         footer
       </DialogFooter>,
     )
-    expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument()
+    const closeBtn = screen.getByRole("button", { name: "关闭" })
+    expect(closeBtn).toBeInTheDocument()
+    expect(closeBtn.querySelector("button")).toBeNull()
     expect(screen.getByText("footer").className).toContain("ftr")
   })
 

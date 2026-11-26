@@ -87,12 +87,8 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
     return null
   }, [value, modelGroups])
 
-  if (modelGroups.length === 0) {
-    return null
-  }
-
   useEffect(() => {
-    if (!open) {
+    if (!open || modelGroups.length === 0) {
       setDropdownStyle(null)
       return
     }
@@ -126,7 +122,11 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
       window.removeEventListener("resize", updatePosition)
       window.removeEventListener("keydown", handleKeyDown)
     }
-  }, [open])
+  }, [open, modelGroups.length])
+
+  if (modelGroups.length === 0) {
+    return null
+  }
 
   return (
     <div className="relative">

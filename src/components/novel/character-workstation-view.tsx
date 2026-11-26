@@ -184,6 +184,9 @@ export function CharacterStationSwitcher({
     [characters],
   )
 
+  /** roving tabindex：←/→ 循环移动，Home/End 跳首尾。焦点随选中移动（UAT C7-2b）。 */
+  const tabRefs = useRef(new Map<string, HTMLButtonElement>())
+
   if (tabs.length === 0) {
     return (
       <div role="tablist" aria-label={t("novel.characterStationSwitch")} className="flex shrink-0 border-b px-4 py-2">
@@ -192,8 +195,6 @@ export function CharacterStationSwitcher({
     )
   }
 
-  /** roving tabindex：←/→ 循环移动，Home/End 跳首尾。焦点随选中移动（UAT C7-2b）。 */
-  const tabRefs = useRef(new Map<string, HTMLButtonElement>())
   function moveFocus(delta: number, edge: "start" | "end" | null) {
     const currentIdx = tabs.findIndex((t) => t.id === (focusedId ?? activeId))
     let nextIdx: number

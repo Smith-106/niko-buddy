@@ -19,7 +19,7 @@ export interface ExemplarMarkDialogProps {
   feedback: string
   list: StyleExemplarRecord[]
   deleteConfirmId: string | null
-  t: (key: string) => string
+  t: (key: string, options?: Record<string, unknown>) => string
   onClose: () => void
   onMarkTypeChange: (markType: StyleExemplarMarkType) => void
   onNoteChange: (note: string) => void
@@ -36,6 +36,11 @@ export function ExemplarMarkDialog(props: ExemplarMarkDialogProps) {
     onClose, onMarkTypeChange, onNoteChange,
     onDeleteRequest, onDeleteCancel, onDeleteConfirm, onABScore, onSubmit,
   } = props
+  const markTypeLabel = (kind: StyleExemplarMarkType): string => {
+    if (kind === "voice") return t("chat.exemplarVoice", { defaultValue: "人物口吻与对话" })
+    if (kind === "pacing") return t("chat.exemplarPacing", { defaultValue: "节奏与氛围" })
+    return t("chat.exemplarStyle", { defaultValue: "文风与描写" })
+  }
   return (
     /* EPIC-001 / TASK-005 / ADR-29: exemplar 标记 UI（C-001 Draft-first 例外，用户标记锚点非自动生成） */
     <Dialog open={dialog.open} onOpenChange={/* v8 ignore next */ (open) => { if (!open) onClose() }}>
@@ -43,7 +48,9 @@ export function ExemplarMarkDialog(props: ExemplarMarkDialogProps) {
         <DialogHeader>
           <DialogTitle>{t("chat.markExemplar")}</DialogTitle>
           <DialogDescription>
-            用户标记锚点（非自动生成）— 作为 de-AI 正向锚点经 contextPack 注入，Draft-first 例外直写正式层。
+            {t("chat.exemplar.description", {
+              defaultValue: "后续 AI 写作会自动参考你收藏的好段落，仅记录你手动挑选的范例，不会自动改写正文。",
+            })}
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-48 overflow-y-auto rounded-md border bg-muted/20 p-3 text-xs leading-6 text-foreground whitespace-pre-wrap">
@@ -51,7 +58,9 @@ export function ExemplarMarkDialog(props: ExemplarMarkDialogProps) {
         </div>
         <div className="flex flex-col gap-2 text-xs">
           <label className="flex items-center gap-2">
-            <span className="w-16 text-muted-foreground">markType</span>
+            <span className="w-20 text-muted-foreground">
+              {t("chat.exemplar.categoryLabel", { defaultValue: "偏好标记" })}
+            </span>
             <select
               className="rounded border bg-background px-2 py-1 text-xs"
               value={markType}
@@ -73,7 +82,10 @@ export function ExemplarMarkDialog(props: ExemplarMarkDialogProps) {
             />
           </label>
           <div className="text-muted-foreground">
-            当前项目已标记 exemplar：<span className="font-mono">{count}</span> 条
+            {t("chat.exemplar.savedCount", {
+              count,
+              defaultValue: `当前项目已收藏文风范例：${count} 条`,
+            })}
           </div>
           {/* ③-6 审计修复：范例列表 + 删除按钮（二次确认） */}
           {list.length > 0 ? (
@@ -83,7 +95,9 @@ export function ExemplarMarkDialog(props: ExemplarMarkDialogProps) {
                 <div key={ex.exemplarId} className="flex items-start gap-2 border-t px-2 py-1 text-xs first:border-t-0">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-foreground">{ex.text.slice(0, 60)}{ex.text.length > 60 ? "…" : ""}</div>
-                    <div className="text-muted-foreground">{ex.markType}{ex.chapterId !== "chat-selection" ? ` · ${ex.chapterId}` : ""}</div>
+                    <div className="text-muted-foreground">
+                      {markTypeLabel(ex.markType)}{ex.chapterId !== "chat-selection" ? ` · ${ex.chapterId}` : ""}
+                    </div>
                   </div>
                   {deleteConfirmId === ex.exemplarId ? (
                     <div className="flex shrink-0 gap-1">
@@ -115,12 +129,17 @@ export function ExemplarMarkDialog(props: ExemplarMarkDialogProps) {
             </div>
           ) : null}
           {feedback && (
-            <div className="rounded bg-muted/40 px-2 py-1 text-xs text-foreground">{feedback}</div>
+            <div role="status" className="rounded bg-muted/40 px-2 py-1 text-xs text-foreground">{feedback}</div>
           )}
         </div>
         <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
-          <div className="flex gap-1">
-            <span className="self-center text-xs text-muted-foreground">{t("chat.abScore")}</span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="self-center text-xs text-muted-foreground">
+              {t("chat.exemplar.feedbackLabel", { defaultValue: "效果反馈：" })}
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              {t("chat.exemplar.feedbackEnabled", { defaultValue: "开启参考时" })}
+            </span>
             {[1, 2, 3, 4, 5].map((s) => (
               <Button
                 key={`en-${s}`}
@@ -130,9 +149,12 @@ export function ExemplarMarkDialog(props: ExemplarMarkDialogProps) {
                 onClick={() => onABScore(s, "enabled")}
                 title={t("chat.exemplarSlopScore")}
               >
-                {s}★开
+                {s}★
               </Button>
             ))}
+            <span className="ml-1 text-[11px] text-muted-foreground">
+              {t("chat.exemplar.feedbackDisabled", { defaultValue: "关闭参考时" })}
+            </span>
             {[1, 2, 3, 4, 5].map((s) => (
               <Button
                 key={`dis-${s}`}
@@ -142,12 +164,14 @@ export function ExemplarMarkDialog(props: ExemplarMarkDialogProps) {
                 onClick={() => onABScore(s, "disabled")}
                 title={t("chat.slopOnlyScore")}
               >
-                {s}★关
+                {s}★
               </Button>
             ))}
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose}>取消</Button>
+            <Button variant="outline" onClick={onClose}>
+              {t("common.cancel", { defaultValue: "取消" })}
+            </Button>
             <Button onClick={onSubmit}>{t("chat.markAnchor")}</Button>
           </div>
         </DialogFooter>

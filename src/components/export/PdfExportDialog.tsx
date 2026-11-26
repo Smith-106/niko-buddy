@@ -15,6 +15,7 @@ import {
   type PdfExportHistoryEntry,
 } from "@/lib/export/pdf-export-gate";
 import { readFile } from "@/commands/fs";
+import { isAbsolutePath, normalizePath } from "@/lib/path-utils";
 import { toErrorMessage } from "@/lib/utils"
 import { StatusChip } from "@/components/ui/status-visuals"
 
@@ -51,7 +52,7 @@ export function PdfExportDialog({ projectPath, title, paragraphs, chapterPath }:
   const [confirmed, setConfirmed] = useState<PdfExportHistoryEntry | null>(null);
   const [historyCount, setHistoryCount] = useState<number | null>(null);
 
-  const targetIssue = useMemo(() => validateExportTarget(target), [target]);
+  const targetIssue = useMemo(() => validateExportTarget(target, projectPath), [target, projectPath]);
 
   const run = async () => {
     setError(null);
@@ -59,6 +60,10 @@ export function PdfExportDialog({ projectPath, title, paragraphs, chapterPath }:
     setBusy(true);
     try {
       if (chapterPath) {
+        const normalizedProject = normalizePath(projectPath).replace(/\/+$/, "");
+        const resolvedChapterPath = isAbsolutePath(chapterPath)
+          ? normalizePath(chapterPath)
+          : `${normalizedProject}/${normalizePath(chapterPath).replace(/^\/+/, "")}`;
         // 确认导出通道：final 断言 → 后端 → 成功落历史。
         const { report: gated, entry } = await exportConfirmedChapterPdf({
           projectPath,
@@ -66,7 +71,7 @@ export function PdfExportDialog({ projectPath, title, paragraphs, chapterPath }:
           chapterTitle: title,
           target,
           paragraphs,
-          readChapterContent: () => readFile(`${projectPath}/${chapterPath}`),
+          readChapterContent: () => readFile(resolvedChapterPath),
         });
         setReport(gated);
         setConfirmed(entry);

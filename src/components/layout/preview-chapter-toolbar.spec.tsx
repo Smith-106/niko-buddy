@@ -14,6 +14,7 @@ import { fireEvent, render, screen } from "@/test-helpers/component-test-utils"
 import { createRef } from "react"
 import { afterEach } from "vitest"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
+import { useWikiStore } from "@/stores/wiki-store"
 import { ChapterToolbarHeader, type ChapterToolbarHeaderProps } from "./preview-chapter-toolbar"
 
 vi.mock("react-i18next", () => ({
@@ -141,5 +142,49 @@ describe("ChapterToolbarHeader — 紧凑「更多」菜单", () => {
     expect(screen.queryByText("preview.deAiBatch")).toBeNull()
     expect(screen.queryByText("preview.deAiBatchRunning")).toBeNull()
     expect(screen.getByText("preview.unpackOutline")).toBeInTheDocument()
+  })
+})
+
+describe("ChapterToolbarHeader — 保存前审稿阻断横幅（BLOCKING-8）", () => {
+  afterEach(() => {
+    useWikiStore.setState({ finalChapterSave: null, selectedFile: null, activeView: "wiki" })
+  })
+
+  it("当前文件处于 blocked_by_review 时渲染 alert 横幅与直达按钮，且不重复渲染 visibleSaveStatus", () => {
+    useWikiStore.setState({
+      selectedFile: "C:/proj/wiki/chapters/chapter-001.md",
+      finalChapterSave: {
+        projectPath: "C:/proj",
+        filePath: "C:\\proj\\wiki\\chapters\\chapter-001.md",
+        saving: false,
+        phase: "blocked_by_review",
+      },
+      activeView: "wiki",
+    })
+    const props = makeProps({ visibleSaveStatus: "阻断状态文案-唯一出现" })
+    render(<ChapterToolbarHeader {...props} />)
+
+    const banner = screen.getByTestId("chapter-review-blocked-banner")
+    expect(banner.getAttribute("role")).toBe("alert")
+    expect(banner.textContent).toContain("novel.chapter.reviewBlockedBannerTitle")
+    // 绝不重复渲染 visibleSaveStatus（保 preview-panel.spec.tsx getByText 唯一命中）
+    expect(screen.getAllByText("阻断状态文案-唯一出现")).toHaveLength(1)
+
+    fireEvent.click(screen.getByTestId("chapter-go-review-center"))
+    expect(useWikiStore.getState().activeView).toBe("reviewCenter")
+  })
+
+  it("非匹配文件或非阻断 phase 时不渲染横幅", () => {
+    useWikiStore.setState({
+      selectedFile: "C:/proj/wiki/chapters/chapter-002.md",
+      finalChapterSave: {
+        projectPath: "C:/proj",
+        filePath: "C:/proj/wiki/chapters/chapter-001.md",
+        saving: false,
+        phase: "blocked_by_review",
+      },
+    })
+    render(<ChapterToolbarHeader {...makeProps()} />)
+    expect(screen.queryByTestId("chapter-review-blocked-banner")).toBeNull()
   })
 })
