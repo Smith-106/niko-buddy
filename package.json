@@ -17,7 +17,7 @@
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "test": "npm run test:mocks && npm run test:llm && npm run test:cargo",
-    "test:mocks": "node scripts/lint-character-aura.mjs && vitest run --exclude='**/*.real-llm.test.ts' --exclude='**/*.real-llm.spec.ts' --exclude='**/*.bench.ts' --exclude='**/.worktrees/**' --exclude='**/.codex-temp/**' --exclude='**/superpowers-main/**' --exclude='**/SKILL/**' --exclude='**/superpowers/**' --exclude='**/graph-view.spec.tsx' && vitest run src/components/graph/graph-view.spec.tsx --no-file-parallelism",
+    "test:mocks": "node scripts/lint-character-aura.mjs && vitest run --exclude='**/*.real-llm.test.ts' --exclude='**/*.real-llm.spec.ts' --exclude='**/*.bench.ts' --exclude='**/.worktrees/**' --exclude='**/.codex-temp/**' --exclude='**/superpowers-main/**' --exclude='**/SKILL/**' --exclude='**/superpowers/**' --exclude='scripts/l9-*' --exclude='**/graph-view.spec.tsx' && vitest run src/components/graph/graph-view.spec.tsx --no-file-parallelism",
     "lint:character-aura": "node scripts/lint-character-aura.mjs",
     "test:llm": "vitest run real-llm --no-file-parallelism --reporter=verbose",
     "test:cargo": "cargo test --manifest-path src-tauri/Cargo.toml --quiet",
@@ -29,7 +29,7 @@
     "gen:atlas": "node scripts/gen-module-atlas.mjs",
     "gen:check": "node scripts/check-generated.mjs",
     "release:cadence": "node scripts/check-release-cadence.mjs",
-    "gen:write": "node scripts/gen-t2s-map.mjs && node scripts/gen-tauri-commands-doc.mjs",
+    "gen:write": "node scripts/gen-t2s-map.mjs && node scripts/gen-tauri-commands-doc.mjs && node scripts/gen-module-atlas.mjs",
     "normalize:chapters": "rolldown scripts/normalize-chapter-typography.mts -o .tmp/normalize-chapter-typography.mjs -f esm -p node && node .tmp/normalize-chapter-typography.mjs",
     "bench": "vitest run bench --reporter=verbose",
     "bench:llm": "cross-env REAL_LLM=1 vitest run src/lib/novel/llm-latency.bench.ts",
@@ -37,7 +37,7 @@
     "eval:l3": "cross-env REAL_LLM=1 vitest run src/lib/novel/eval/eval-harness.real-llm.spec.ts --no-file-parallelism --reporter=verbose",
     "eval:gov": "node scripts/eval-gov-gate.mjs",
     "bench:startup": "vitest run src/test-helpers/startup.bench.ts",
-    "test:coverage": "vitest run --exclude=\"**/*.real-llm.test.ts\" --exclude=\"**/*.real-llm.spec.ts\" --exclude=\"**/*.bench.ts\" --exclude=\"**/.worktrees/**\" --exclude=\"**/.codex-temp/**\" --exclude=\"**/superpowers-main/**\" --exclude=\"**/SKILL/**\" --exclude=\"**/superpowers/**\" --coverage"
+    "test:coverage": "vitest run --exclude=\"**/*.real-llm.test.ts\" --exclude=\"**/*.real-llm.spec.ts\" --exclude=\"**/*.bench.ts\" --exclude=\"**/.worktrees/**\" --exclude=\"**/.codex-temp/**\" --exclude=\"**/superpowers-main/**\" --exclude=\"**/SKILL/**\" --exclude=\"**/superpowers/**\" --exclude=\"scripts/l9-*\" --coverage"
   },
   "overrides": {
     "handlebars": "^4.7.10",
@@ -83,6 +83,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "echarts": "^6.1.0",
+    "fast-diff": "^1.3.0",
     "graphology": "^0.26.0",
     "graphology-communities-louvain": "^2.0.2",
     "graphology-layout-forceatlas2": "^0.10.1",
@@ -130,7 +131,6 @@
     "eslint-plugin-no-unsanitized": "^4.1.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "fast-check": "^4.7.0",
-    "fast-diff": "^1.3.0",
     "globals": "^17.11.0",
     "graphology-types": "^0.24.8",
     "jsdom": "^30.1.3",

@@ -5,6 +5,10 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   ci-gate:
@@ -21,6 +25,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -50,6 +56,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -95,11 +103,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Governance anchors check
-        # ADR-47 回归防线：治理文档（arch-decisions/project.md）声称的文件:行锚点可解析
-        run: node scripts/verify-governance-anchors.mjs
-
       - name: Install Playwright browsers
+        if: matrix.platform != 'macos-latest'
         run: npx playwright install --with-deps chromium
 
       # E2E 为 web 层测试（vite dev + Tauri mock，不涉平台代码）；macos runner 上
@@ -112,9 +117,6 @@ jobs:
       - name: Run Rust cargo test
         working-directory: src-tauri
         run: cargo test
-
-      - name: Check frontend build
-        run: npx vite build
 
       - name: Check Rust build
         working-directory: src-tauri

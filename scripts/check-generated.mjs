@@ -2,7 +2,7 @@
 /**
  * check-generated.mjs — 生成物闭环门禁 (P0 B3)
  *
- * 校验 本仓内 6 个 generated 产物的一致性，纯 Node stdlib，零依赖：
+ * 校验 本仓内 7 个 generated 产物的一致性，纯 Node stdlib，零依赖：
  *
  *   1. t2s-map.generated.ts            幂等可再生 → 临时路径重生成 + 字节比对（禁止全局 git diff）
  *   2. anti-ai-thresholds.generated.ts 与 docs/p2/anti-ai-thresholds.json 仓内源断言
@@ -15,6 +15,7 @@
  *                                      时间戳行规范化；仅校验仓内文件，hub 镜像仓外不可门禁）
  *   6. module-atlas.generated.json     生成器 --out 临时路径重生成 + 字节比对
  *                                      （模块地图必须与源码 import 图一致，禁止手工编辑）
+ *   7. internal-eval-set.generated.json 生成器 --check 模式无漂移 + fixture/view builtFrom 对齐
  *
  * 实现纪律（R11 防御）：所有比较走「临时路径 + 字节比对」，禁止 git diff --exit-code。
  *
@@ -480,6 +481,59 @@ function checkModuleAtlas() {
 }
 
 // ---------------------------------------------------------------------------
+// 检查 7：internal-eval-set.generated.json — 生成器 --check + builtFrom 对齐
+// ---------------------------------------------------------------------------
+
+function checkInternalEvalSet() {
+  const name = "internal-eval-set.generated.json"
+  const genScript = join(ROOT, "scripts/build-internal-eval-set.mjs")
+  const fixturePath = join(ROOT, "src/lib/novel/kb/internal-eval-queries.json")
+  const viewPath = join(ROOT, "src/lib/novel/kb/kb-routing-view.generated.json")
+  if (!existsSync(genScript)) {
+    record(name, false, `generator missing: ${rel(genScript)}`)
+    return
+  }
+  const r = spawnSync(process.execPath, [genScript, "--check"], { encoding: "utf8", timeout: 120000 })
+  const out = toAscii(r.stdout).trim()
+  const err = toAscii(r.stderr).trim()
+  if (r.status !== 0) {
+    record(
+      name,
+      false,
+      `generator --check failed status=${r.status} stdout=${out.slice(0, 300)} stderr=${err.slice(0, 300)}`,
+    )
+    return
+  }
+  let fixture
+  let view
+  try {
+    fixture = JSON.parse(readFileSync(fixturePath, "utf8"))
+  } catch (e) {
+    record(name, false, `invalid JSON: ${rel(fixturePath)} (${toAscii(e.message)})`)
+    return
+  }
+  try {
+    view = JSON.parse(readFileSync(viewPath, "utf8"))
+  } catch (e) {
+    record(name, false, `invalid JSON: ${rel(viewPath)} (${toAscii(e.message)})`)
+    return
+  }
+  if (typeof fixture?.builtFrom !== "string" || !fixture.builtFrom || fixture.builtFrom !== view?.builtFrom) {
+    record(
+      name,
+      false,
+      `builtFrom mismatch: fixture=${JSON.stringify(fixture?.builtFrom)} view=${JSON.stringify(view?.builtFrom)}`,
+    )
+    return
+  }
+  record(
+    name,
+    true,
+    `${out || "up to date (generator --check exit 0)"}; fixture builtFrom matches view (${fixture.builtFrom})`,
+  )
+}
+
+// ---------------------------------------------------------------------------
 // 主流程
 // ---------------------------------------------------------------------------
 
@@ -490,6 +544,7 @@ function main() {
   checkSeeds()
   checkCommandsDoc()
   checkModuleAtlas()
+  checkInternalEvalSet()
 
   for (const r of RESULTS) {
     const tag = r.pass ? "PASS" : "FAIL"

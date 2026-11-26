@@ -1,26 +1,21 @@
-// ESLint flat config — §9.8 工程化清单第 5 项 / T18 依赖方向门禁前置。
+// ESLint flat config — 依赖方向门禁（boundaries/dependencies）+ 高信号代码质量/安全分层门禁。
 //
-// 自动判决说明（narrow-interface whitelist）：
-//   元素类型分层（首匹配优先，顺序敏感）：
-//     1) novel-public —— 顶层 barrel (src/lib/novel/index.ts) 与各子目录 barrel
-//        （匹配 src/lib/novel 下任意子目录的 index.ts）。即 novel 对外「窄接口公开入口」。
-//        当前仅 de-ai-batch / planning 子目录 barrel 存在，顶层 novel/index.ts 尚未建立
-//        （T18 收口时补）。
-//     2) novel-internal —— src/lib/novel 下其余全部内部模块（私有）。
-//     3) app —— src 下其余一切（UI/IPC/编排层）。
-//   依赖方向规则（boundaries/dependencies，2026-08-22 自弃用的 element-types 迁移，
-//   语义与旧规则逐条等价——迁移前旧规则原文见 docs/decision-log/
-//   20260822-eslint-gate-revival.md「旧规则意图存档」一节）：
-//     from app        允许 to = novel-public + app，其余（含 novel-internal）默认禁止；
-//     from novel-*    允许 to = novel-internal + novel-public + app（域内自由组合）。
-//   语义：外部只能经 novel-public barrel 导入 novel 能力，不得直接 import 内部模块。
+// 1. 依赖方向门禁（narrow-interface whitelist）：
+//    元素类型分层（首匹配优先，顺序敏感）：
+//      - novel  —— src/lib/novel 领域本体；对外静态公开入口为顶层 barrel
+//        （src/lib/novel/index.ts）与各子目录 barrel（src/lib/novel/*/index.ts），
+//        动态按需加载走受控 `novel-deferred` 21 模块白名单。
+//      - shared —— src/lib 其余共享基础层（与 novel 同属领域依赖闭包）。
+//      - app    —— src 下其余一切（UI/IPC/编排层），仅可经 novel-barrel 或
+//        novel-deferred 进入 novel 领域。
+//    正/负 fixture 回归 `scripts/check-boundaries.mjs` 由 `npm run lint` 串联，
+//    防止「元素分类失效→静默假绿」重现。
 //
-//   严重级别：**error（硬门）**。2026-09-10 T18-G 迁移后实测 violations 归零，棘轮
-//     `--max-warnings` 已从 package.json 删除（棘轮史：162 → 100 → 0）。
-//     正/负 fixture 回归 `scripts/check-boundaries.mjs` 由 `npm run lint` 串联，
-//     防止「元素分类失效→静默假绿」重现。
-//
-// 不修改任何现有源码；仅新增本配置文件 + devDependencies。
+// 2. 分层高信号代码质量与安全规则（R3-E01）：
+//    - Tier 1（error，CI 硬门）：react-hooks/rules-of-hooks（显式单规则，禁展开 v7 recommended）、
+//      no-unsanitized/{method,property}、@typescript-eslint/ban-ts-comment、no-debugger。
+//    - Tier 2（warn，渐进治理）：react-hooks/exhaustive-deps、@typescript-eslint/no-explicit-any
+//      （测试与 src/test-helpers/** 豁免 no-explicit-any；src/**/*.generated.ts 豁免 ban-ts-comment）。
 
 import tseslint from 'typescript-eslint';
 import boundaries from 'eslint-plugin-boundaries';
@@ -54,10 +49,10 @@ export default tseslint.config(
     ],
   },
 
-  // 源码中既存的 eslint-disable 指令引用了 typescript-eslint / react-hooks / no-unsanitized
-  // 的规则（§9.8 第 5 项完整 eslint 落地前的预留位）。此处仅「注册」这些插件使指令引用的规则
-  // 成立（不再报 Definition not found），但不启用任何 recommended 规则集——保持唯一活跃
-  // 的规则面为 boundaries 依赖方向门禁。未启用的 disable 指令视为 unused，下面统一静默。
+  // 分层高信号代码质量/安全规则（Tier 1 error + Tier 2 warn）。
+  // 注意：eslint-plugin-react-hooks v7 的 configs.recommended 含 React Compiler 规则，
+  // 此处仅显式启用核心规则，严禁展开 recommended；reportUnusedDisableDirectives 保持 off
+  // 以兼容未启用规则的既有 eslint-disable 注释。
   {
     files: ['src/**/*.{ts,tsx,js,jsx}'],
     linterOptions: { reportUnusedDisableDirectives: 'off' },
@@ -65,6 +60,46 @@ export default tseslint.config(
       '@typescript-eslint': tseslint.plugin,
       'react-hooks': reactHooks,
       'no-unsanitized': noUnsanitized,
+    },
+    rules: {
+      // Tier 1（error）：Hooks 正确性、原生 DOM XSS 防护、禁无理由类型静默、禁遗留 debugger
+      'react-hooks/rules-of-hooks': 'error',
+      'no-unsanitized/method': 'error',
+      'no-unsanitized/property': 'error',
+      '@typescript-eslint/ban-ts-comment': [
+        'error',
+        {
+          'ts-expect-error': 'allow-with-description',
+          'ts-ignore': true,
+          'ts-nocheck': true,
+          'ts-check': false,
+        },
+      ],
+      'no-debugger': 'error',
+      // Tier 2（warn）：依赖数组完整性与显式 any 渐进收口
+      'react-hooks/exhaustive-deps': 'warn',
+      '@typescript-eslint/no-explicit-any': 'warn',
+    },
+  },
+
+  // 测试文件与测试脚手架：豁免 no-explicit-any（保留 Tier 1 全部 error 安全/Hooks 底线）
+  {
+    files: [
+      'src/**/*.spec.{ts,tsx,js,jsx}',
+      'src/**/*.test.{ts,tsx,js,jsx}',
+      'src/test-helpers/**/*.{ts,tsx,js,jsx}',
+    ],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+
+  // 生成物豁免：如 src/lib/novel/t2s-map.generated.ts 头部含生成器产出的 // @ts-nocheck，
+  // 须保留逐字节可复现性（gen:check）而不触发 ban-ts-comment。
+  {
+    files: ['src/**/*.generated.ts'],
+    rules: {
+      '@typescript-eslint/ban-ts-comment': 'off',
     },
   },
 

@@ -128,12 +128,12 @@ function collectSnapshot() {
   const kbView = JSON.parse(readText(join("src", "lib", "novel", "kb", "kb-routing-view.generated.json")))
   const collectionCounts = kbView.collectionCounts ?? {}
 
-  // flag 默认值（真源：src/stores/wiki-store.ts 默认配置段）。
-  const store = readText(join("src", "stores", "wiki-store.ts"))
+  // flag 默认值（真源：src/stores/wiki-store-config.ts 默认配置段）。
+  const store = readText(join("src", "stores", "wiki-store-config.ts"))
   const flags = {}
   for (const key of Object.keys(EXPECTED_RETRIEVAL_FLAGS)) {
     const match = store.match(new RegExp(`^\\s*${key}:\\s*(true|false),`, "m"))
-    if (!match) throw new Error(`wiki-store.ts 未找到 flag 默认值 ${key}`)
+    if (!match) throw new Error(`wiki-store-config.ts 未找到 flag 默认值 ${key}`)
     flags[key] = match[1] === "true"
   }
 

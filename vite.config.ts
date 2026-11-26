@@ -15,7 +15,7 @@ const port = Number(process.env.QMAI_PORT ?? 2420)
 
 // Read version from package.json at config-load time so the Settings
 // UI can show the running app version without duplicating the string.
-const pkgJson = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "utf-8"))
+const pkgJson = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "package.json"), "utf-8"))
 
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
@@ -23,17 +23,17 @@ export default defineConfig(async () => ({
 
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
       // 浏览器/Tauri-webview 环境 node:* 外部化崩溃 shim（vitest 走真 Node，不 alias）：
       // 生产主路径零 fs（内嵌种子），shim 保证模块求值不崩、FS 路径降级。
       ...(process.env.VITEST
         ? {}
         : {
-            "node:fs/promises": path.resolve(__dirname, "./src/lib/novel/browser-fs-shim.ts"),
-            "node:fs": path.resolve(__dirname, "./src/lib/novel/browser-fs-shim.ts"),
-            "node:path": path.resolve(__dirname, "./src/lib/novel/browser-path-shim.ts"),
-            "node:url": path.resolve(__dirname, "./src/lib/novel/browser-url-shim.ts"),
-            "node:crypto": path.resolve(__dirname, "./src/lib/novel/browser-crypto-shim.ts"),
+            "node:fs/promises": path.resolve(import.meta.dirname, "./src/lib/novel/browser-fs-shim.ts"),
+            "node:fs": path.resolve(import.meta.dirname, "./src/lib/novel/browser-fs-shim.ts"),
+            "node:path": path.resolve(import.meta.dirname, "./src/lib/novel/browser-path-shim.ts"),
+            "node:url": path.resolve(import.meta.dirname, "./src/lib/novel/browser-url-shim.ts"),
+            "node:crypto": path.resolve(import.meta.dirname, "./src/lib/novel/browser-crypto-shim.ts"),
           }),
     },
   },
@@ -154,27 +154,18 @@ export default defineConfig(async () => ({
     // The loader itself is a no-op if the file is absent, so this is
     // safe to keep on for every test run.
     setupFiles: ["./src/test-helpers/load-test-env.ts", "./src/test-helpers/setup-i18n-mock.ts"],
-    // CI flaky 止血（2026-08-22 三模型裁决，见 .workflow p1-flaky-debt）：
-    // 仅 CI 重试 2 次（GA 默认 CI=true），本地 retry=0 保持 loud fail 不掩盖；
-    // 确定性失败重试后仍红，真回归门信号保留。
-    // SUNSET 硬钉（P1-4，2026-09-10）：retry 面已由 CI-only 收窄为 E2E-only
-    // （vitest retry 仅作用于单测；flaky 实测面在 playwright e2e，见台账），
-    // **结案版本 = v2.9.0**：发布 v2.9.0 前必须删除本行（其时 E2E flaky 根因
-    // 应已随 e2e 超时/握手加固收敛）；到期未删 = 台账过期，审计必查项。
-    retry: process.env.CI ? 2 : 0,
+    // R2-E01: 三组设置组件并发竞态已根治，摘除过期 CI retry: 2，保持确定性 loud fail。
+    retry: 0,
     // T18 barrel 收口（2026-09-08）：单入口 barrel 使「首个动态 import」的冷加载
     // 面显著变大（实测 chapter-ingest / reset-project-state 冷加载 ~7.2s，
     // 击穿默认 5s → 假红；见 docs 报告 P1-6 与 flaky 台账）。默认提升到 15s
     // （≈2× 实测量），让超时报警仍对真回归敏感，不用 retry 掩盖。
     testTimeout: 15000,
-    // T5 flaky 治理（2026-08-23）：forks pool 全量并发下 worker 启动握手超时
-    // （B 类）+ 5s testTimeout 被 CPU 争抢击穿（A 类）——限流到 4 worker 同时
-    // 缓解两类；代价是全量跑更慢（263-344s → ~400-500s）。
-    poolOptions: {
-      forks: {
-        maxWorkers: 4,
-      },
-    },
+    // T5 flaky 治理（2026-08-23）+ E5-01 Vitest 4 迁移：forks pool 全量并发下 worker
+    // 启动握手超时（B 类）+ 5s testTimeout 被 CPU 争抢击穿（A 类）——通过顶层 pool + maxWorkers
+    // 限流到 4 worker（替代已废弃的 poolOptions.forks.maxWorkers）；代价是全量跑更慢（263-344s → ~400-500s）。
+    pool: "forks",
+    maxWorkers: 4,
     // 覆盖率基线（2026-08-16 战役启动）：全口径 s/l/b/f，目标 100%（白名单排除）
     // 测量命令：npm run test:coverage
     // 白名单（7 项，analyze 冻结）：

@@ -1,73 +1,208 @@
 import { describe, expect, it, vi } from "vitest"
-import { execFileSync } from "node:child_process"
-import { join, dirname } from "node:path"
-import { fileURLToPath } from "node:url"
+import {
+  AUDIT_EXCEPTIONS,
+  evaluateAuditReport,
+  parseAndValidateAuditReport,
+  runAuditGate,
+} from "./audit-gate.mjs"
 
-const here = dirname(fileURLToPath(import.meta.url))
-const gate = join(here, "audit-gate.mjs")
+const BRACES_URL = "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm"
+const ZOD_URL = "https://github.com/advisories/GHSA-mrhx-c7xc-m3w5"
 
-describe("audit-gate.mjs contract (F15: arch -0.3 regression net)", () => {
-  it("exits 0 with AUDIT-GATE-PASS on the current advisory set", () => {
-    // 契约测试：门脚本按设计工作——真实 npm audit 数据下精确豁免放行、
-    // 无未捕获异常、无静默吞没（非例外 advisory 会进 offenders 干红灯）。
-    // 需要 registry 网络（npm audit --json + revalidate 的 npm view）；CI 有网。
-    const out = execFileSync(process.execPath, [gate], { encoding: "utf8", timeout: 280000 })
-    expect(out).toContain("AUDIT-GATE-PASS")
-    // 例外清单处于武装态：有例外放行时门脚本逐条打印根因 URL；此处白名单须与
-    // audit-gate.mjs EXCEPTIONS 逐条对应，未知例外仍干红灯（fail-closed 不变）。
-    const knownExceptions = [
-      "GHSA-vfj7-8cjw-p6xm", // braces（休眠：上游无 patch）
-    ]
-    for (const line of out.split("\n")) {
-      if (line.startsWith("EXCEPT")) {
-        expect(knownExceptions.some((u) => line.includes(u))).toBe(true)
-      }
-    }
-  }, 300000)
-
-  it("rejects the retired Zod advisory even when its chain includes braces", async () => {
-    const previousExitCode = process.exitCode
-    const stdout = vi.spyOn(console, "log").mockImplementation(() => {})
-    const stderr = vi.spyOn(console, "error").mockImplementation(() => {})
-    const zodUrl = "https://github.com/advisories/GHSA-mrhx-c7xc-m3w5"
-    const bracesUrl = "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm"
-    const report = {
+function makeReport(vulnerabilities, counts = {}) {
+  const entries = Object.values(vulnerabilities)
+  const high = counts.high ?? entries.filter((v) => v.severity === "high").length
+  const critical = counts.critical ?? entries.filter((v) => v.severity === "critical").length
+  return {
+    auditReportVersion: 2,
+    vulnerabilities,
+    metadata: {
       vulnerabilities: {
-        braces: { severity: "high", via: [{ url: bracesUrl }] },
-        zod: { severity: "high", via: ["braces", { url: zodUrl }] },
+        info: 0,
+        low: 0,
+        moderate: 0,
+        high,
+        critical,
+        total: high + critical,
       },
-    }
-    vi.resetModules()
-    vi.doMock("node:child_process", async () => {
-      const actual = await vi.importActual("node:child_process")
-      return {
-        ...actual,
-        execSync: (command) => {
-          if (command === "npm view braces version --json") return JSON.stringify("3.0.3")
-          if (command === "npm audit --json") {
-            throw Object.assign(new Error("fixture audit found high vulnerabilities"), {
-              status: 1,
-              stdout: JSON.stringify(report),
-            })
-          }
-          throw new Error(`unexpected registry command: ${command}`)
-        },
-      }
+    },
+  }
+}
+
+function makeDeps(exec) {
+  const logs = []
+  const errors = []
+  return {
+    deps: {
+      exec,
+      log: (msg) => logs.push(String(msg)),
+      error: (msg) => errors.push(String(msg)),
+    },
+    logs,
+    errors,
+  }
+}
+
+describe("audit-gate.mjs contract (F15 + E5-02 offline fail-closed regression net)", () => {
+  it("passes (exit 0) when only the known braces exception is present and revalidate confirms 3.0.3", () => {
+    const report = makeReport({
+      braces: { severity: "high", via: [{ url: BRACES_URL }] },
+      "eslint-plugin-boundaries": { severity: "high", via: ["braces"] },
     })
-    try {
-      await import("./audit-gate.mjs")
-      expect(process.exitCode).toBe(1)
-      expect(stderr.mock.calls.flat().join("\n")).toContain("AUDIT-GATE-FAIL")
-      expect(stderr.mock.calls.flat().join("\n")).toContain(zodUrl)
-      const exceptLines = stdout.mock.calls.flat().filter((line) => line.startsWith("EXCEPT"))
-      expect(exceptLines.some((line) => line.includes(bracesUrl))).toBe(true)
-      expect(exceptLines.some((line) => line.includes(zodUrl))).toBe(false)
-    } finally {
-      process.exitCode = previousExitCode
-      vi.doUnmock("node:child_process")
-      vi.resetModules()
-      stdout.mockRestore()
-      stderr.mockRestore()
+    const exec = vi.fn((command) => {
+      if (command === "npm view braces version --json") return JSON.stringify("3.0.3")
+      if (command === "npm audit --json") {
+        throw Object.assign(new Error("audit exit 1 with known exception"), {
+          status: 1,
+          stdout: JSON.stringify(report),
+        })
+      }
+      throw new Error(`unexpected command: ${command}`)
+    })
+
+    const { deps, logs, errors } = makeDeps(exec)
+    const code = runAuditGate(deps)
+
+    expect(code).toBe(0)
+    expect(errors).toEqual([])
+    expect(logs.join("\n")).toContain("AUDIT-GATE-PASS")
+    const exceptLines = logs.filter((line) => line.startsWith("EXCEPT"))
+    expect(exceptLines.length).toBe(2)
+    for (const line of exceptLines) {
+      expect(line).toContain("GHSA-vfj7-8cjw-p6xm")
     }
+  })
+
+  it("passes (exit 0) on a clean report with zero vulnerabilities", () => {
+    const report = makeReport({})
+    const exec = vi.fn((command) => {
+      if (command === "npm view braces version --json") return JSON.stringify("3.0.3")
+      if (command === "npm audit --json") return JSON.stringify(report)
+      throw new Error(`unexpected command: ${command}`)
+    })
+
+    const { deps, logs, errors } = makeDeps(exec)
+    expect(runAuditGate(deps)).toBe(0)
+    expect(errors).toEqual([])
+    expect(logs.join("\n")).toContain("AUDIT-GATE-PASS")
+  })
+
+  it("rejects (exit 1) the retired Zod high advisory even when its via chain includes braces", () => {
+    const report = makeReport({
+      braces: { severity: "high", via: [{ url: BRACES_URL }] },
+      zod: { severity: "high", via: ["braces", { url: ZOD_URL }] },
+    })
+    const exec = vi.fn((command) => {
+      if (command === "npm view braces version --json") return JSON.stringify("3.0.3")
+      if (command === "npm audit --json") {
+        throw Object.assign(new Error("fixture audit found high vulnerabilities"), {
+          status: 1,
+          stdout: JSON.stringify(report),
+        })
+      }
+      throw new Error(`unexpected command: ${command}`)
+    })
+
+    const { deps, logs, errors } = makeDeps(exec)
+    const code = runAuditGate(deps)
+
+    expect(code).toBe(1)
+    expect(errors.join("\n")).toContain("AUDIT-GATE-FAIL")
+    expect(errors.join("\n")).toContain(ZOD_URL)
+    const exceptLines = logs.filter((line) => line.startsWith("EXCEPT"))
+    expect(exceptLines.some((line) => line.includes(BRACES_URL))).toBe(true)
+    expect(exceptLines.some((line) => line.includes(ZOD_URL))).toBe(false)
+  })
+
+  it("fails closed when braces revalidate sees a newer upstream version", () => {
+    const report = makeReport({
+      braces: { severity: "high", via: [{ url: BRACES_URL }] },
+    })
+    const exec = vi.fn((command) => {
+      if (command === "npm view braces version --json") return JSON.stringify(["3.0.3", "3.0.4"])
+      if (command === "npm audit --json") return JSON.stringify(report)
+      throw new Error(`unexpected command: ${command}`)
+    })
+
+    const { deps, logs, errors } = makeDeps(exec)
+    expect(runAuditGate(deps)).toBe(1)
+    expect(errors.join("\n")).toContain("REVALIDATE-FAIL")
+    expect(errors.join("\n")).toContain("3.0.4")
+    expect(logs.join("\n")).not.toContain("AUDIT-GATE-PASS")
+  })
+
+  it("fails closed when braces revalidate encounters a network/exec error", () => {
+    const report = makeReport({
+      braces: { severity: "high", via: [{ url: BRACES_URL }] },
+    })
+    const exec = vi.fn((command) => {
+      if (command === "npm view braces version --json") {
+        throw new Error("getaddrinfo ENOTFOUND registry.npmjs.org")
+      }
+      if (command === "npm audit --json") return JSON.stringify(report)
+      throw new Error(`unexpected command: ${command}`)
+    })
+
+    const { deps, logs, errors } = makeDeps(exec)
+    expect(runAuditGate(deps)).toBe(1)
+    expect(errors.join("\n")).toContain("REVALIDATE-FAIL")
+    expect(errors.join("\n")).toContain("ENOTFOUND")
+    expect(logs.join("\n")).not.toContain("AUDIT-GATE-PASS")
+  })
+
+  it.each([
+    ["npm audit error payload (ENOTFOUND)", JSON.stringify({ error: { code: "ENOTFOUND", summary: "getaddrinfo ENOTFOUND registry.npmjs.org" } })],
+    ["empty output", ""],
+    ["whitespace output", "   \n  "],
+    ["invalid JSON", "{not valid json"],
+    ["non-object JSON", "[]"],
+    ["missing vulnerabilities", JSON.stringify({ metadata: { vulnerabilities: { high: 0, critical: 0 } } })],
+    ["non-object vulnerabilities", JSON.stringify({ vulnerabilities: [], metadata: { vulnerabilities: { high: 0, critical: 0 } } })],
+    ["missing metadata", JSON.stringify({ vulnerabilities: {} })],
+    ["missing metadata.vulnerabilities", JSON.stringify({ vulnerabilities: {}, metadata: {} })],
+    ["invalid metadata.vulnerabilities counts", JSON.stringify({ vulnerabilities: {}, metadata: { vulnerabilities: { high: "bad", critical: 0 } } })],
+    ["fractional metadata.vulnerabilities.high", JSON.stringify({ vulnerabilities: {}, metadata: { vulnerabilities: { high: 1.5, critical: 0 } } })],
+    ["fractional metadata.vulnerabilities.critical", JSON.stringify({ vulnerabilities: {}, metadata: { vulnerabilities: { high: 0, critical: 0.5 } } })],
+    ["metadata high > 0 with empty vulnerabilities map", JSON.stringify({ vulnerabilities: {}, metadata: { vulnerabilities: { high: 1, critical: 0 } } })],
+    ["metadata high count mismatches actual high entries", JSON.stringify({ vulnerabilities: { a: { severity: "high", via: [] } }, metadata: { vulnerabilities: { high: 2, critical: 0 } } })],
+    ["metadata critical count mismatches actual critical entries", JSON.stringify({ vulnerabilities: { a: { severity: "high", via: [] } }, metadata: { vulnerabilities: { high: 1, critical: 1 } } })],
+    ["metadata zero hides actual high entry", JSON.stringify({ vulnerabilities: { a: { severity: "high", via: [] } }, metadata: { vulnerabilities: { high: 0, critical: 0 } } })],
+  ])("fails closed on malformed or error npm audit response: %s", (_label, rawPayload) => {
+    expect(() => parseAndValidateAuditReport(rawPayload)).toThrow(/AUDIT-GATE-FAIL/)
+
+    const exec = vi.fn((command) => {
+      if (command === "npm audit --json") return rawPayload
+      throw new Error(`should not call ${command} when audit report is invalid`)
+    })
+    const { deps, logs, errors } = makeDeps(exec)
+    expect(runAuditGate(deps)).toBe(1)
+    expect(errors.join("\n")).toContain("AUDIT-GATE-FAIL")
+    expect(logs.join("\n")).not.toContain("AUDIT-GATE-PASS")
+  })
+
+  it("fails closed when npm audit command throws without stdout", () => {
+    const exec = vi.fn(() => {
+      throw new Error("spawnSync npm ENOENT")
+    })
+    const { deps, logs, errors } = makeDeps(exec)
+    expect(runAuditGate(deps)).toBe(1)
+    expect(errors.join("\n")).toContain("AUDIT-GATE-FAIL")
+    expect(errors.join("\n")).toContain("ENOENT")
+    expect(logs.join("\n")).not.toContain("AUDIT-GATE-PASS")
+  })
+
+  it("evaluateAuditReport handles cyclic via graphs and never exempts high vulns without advisory URLs", () => {
+    const report = makeReport({
+      "pkg-a": { severity: "high", via: ["pkg-b"] },
+      "pkg-b": { severity: "high", via: ["pkg-a"] },
+      "pkg-low": { severity: "moderate", via: [] },
+    })
+    const result = evaluateAuditReport(report, { exceptions: AUDIT_EXCEPTIONS })
+    expect(result.ok).toBe(false)
+    expect(result.excepted).toEqual([])
+    expect(result.offenders).toEqual([
+      "high pkg-a <- no-advisory-url",
+      "high pkg-b <- no-advisory-url",
+    ])
   })
 })

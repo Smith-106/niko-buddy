@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeAll, describe, expect, it, vi } from "vitest"
 import { render, screen } from "@testing-library/react"
-import { getChatPanelMocks } from "./chat-panel-test-setup"
+import { getChatPanelMocks } from "@/test-helpers/chat-panel/chat-panel-test-setup"
 
 const mocks = getChatPanelMocks()
 

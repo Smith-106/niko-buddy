@@ -41,12 +41,17 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: read
+
 jobs:
   node-gates:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -90,10 +95,27 @@ jobs:
         run: npm run test:mocks
 
       - name: Generated artifacts check
-        # P0 B5: 5 项生成物闭环门禁（t2s-map / thresholds / kb-routing-view /
-        # seeds / commands-doc）。KB view 自洽检查自 B3 起并入本步（原 ci.yml
-        # 内联 step 已删除，R17 4.4 无双重定义）。
+        # P0 B5 + K-3: 7 项生成物闭环门禁（t2s-map / thresholds / kb-routing-view /
+        # seeds / commands-doc / module-atlas / internal-eval-set）。KB view 自洽检查
+        # 自 B3 起并入本步（原 ci.yml 内联 step 已删除，R17 4.4 无双重定义）。
         run: npm run gen:check
+
+      - name: Build frontend (vite build)
+        # R3-E05：自 ci.yml 三平台矩阵去重迁入 node-gates 单次快速前端构建门禁。
+        run: npx vite build
+
+      - name: Consensus anti-goals gate
+        run: node scripts/guard-consensus-antigoals.mjs
+
+      - name: Curation debt gate
+        run: node scripts/check-curation-debt.mjs
+
+      - name: Consensus anchors gate
+        run: node scripts/verify-consensus-anchors.mjs
+
+      - name: Governance anchors check
+        # ADR-47 回归防线：治理文档（arch-decisions/project.md）声称的文件:行锚点可解析（R2-E06：自 ci.yml 三平台矩阵迁至 node-gates 单次运行）
+        run: node scripts/verify-governance-anchors.mjs
 
       - name: Test file naming gate (P2-4)
         # 白名单收敛断言：仓内不得再出现 tracked / ignored-漏网的 *.test.*
@@ -101,12 +123,12 @@ jobs:
         # .novel/.workflow 忽略行是保险丝，不在此断言范围）。
         run: |
           set -e
-          TRACKED=$(git ls-files | grep -E '\.test\.(ts|tsx)$' | wc -l)
-          LEAKED=$(git ls-files --others --ignored --exclude-standard -- src/ | grep -E '^src/.*\.test\.(ts|tsx)$' | wc -l)
+          TRACKED=$(git ls-files | grep -E '\.test\.[cm]?[jt]sx?$' | wc -l)
+          LEAKED=$(git ls-files --others --ignored --exclude-standard -- src/ | grep -E '^src/.*\.test\.[cm]?[jt]sx?$' | wc -l)
           if [ "$TRACKED" -ne 0 ] || [ "$LEAKED" -ne 0 ]; then
             echo "::error::P2-4 gate: tracked=$TRACKED leaked=$LEAKED (src 内 .test.* 必须为 .spec.*)"
-            git ls-files | grep -E '\.test\.(ts|tsx)$' || true
-            git ls-files --others --ignored --exclude-standard -- src/ | grep -E '^src/.*\.test\.(ts|tsx)$' || true
+            git ls-files | grep -E '\.test\.[cm]?[jt]sx?$' || true
+            git ls-files --others --ignored --exclude-standard -- src/ | grep -E '^src/.*\.test\.[cm]?[jt]sx?$' || true
             exit 1
           fi
           echo "P2-4 naming gate OK (tracked=0 leaked=0)"
@@ -123,6 +145,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -139,3 +163,42 @@ jobs:
         # R16 预演结论（2026-09-10 本地）：wrangler 3.x --dry-run 不校验凭据，
         # 无需 dummy vars；失败时降级 tsc-only（后续批次按需补 continue-on-error）
         run: npx wrangler deploy --dry-run --outdir /tmp/wrangler-dryrun
+
+  rust-clippy:
+    # R3-E05 / NON_BLOCKING-02：Rust Clippy 硬门禁（-D warnings），复用 ci.yml
+    # Ubuntu 22.04 Tauri 系统依赖与 rust-cache，单平台拦截全部 lib 告警。
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Install Rust stable with clippy
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install dependencies (Ubuntu)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            protobuf-compiler
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Run cargo clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings

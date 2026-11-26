@@ -15,7 +15,7 @@
  *     与 loadGovSeedSet 抛错口径一致）
  *
  * 影子双臂采集（三 flag 开/关对照；仅采集，不翻转任何默认值）:
- *   三 flag = dualKbRoutingEnabled / hardInject / usefulnessRerank（wiki-store 六 flag 中
+ *   三 flag = dualKbRoutingEnabled / hardInjectEnabled / usefulnessRerankEnabled（wiki-store 六 flag 中
  *   awaiting-eval-evidence 三者）。单次 retrieveDualTrack 无法在进程内切换 store flag
  *   （useWikiStore 为 Tauri 应用态，纯 node 环境不可用，运行时自检到 → 该臂记
  *   metric-unavailable，不伪造）。检索适配层在纯 node 下不可用（@/ alias + Tauri
@@ -31,7 +31,7 @@
  * 用法:
  *   npm run eval:gov                     # 默认读 docs/p0/gov-seed/gov-seed-v1.jsonl
  *   node scripts/eval-gov-gate.mjs --seed <path>     # 指定种子文件
- *   node scripts/eval-gov-gate.mjs --report-dir <d>  # 报告落盘目录（默认 docs/p0/gov-seed/reports）
+ *   node scripts/eval-gov-gate.mjs --report-dir <d>  # 报告落盘目录（默认 .tmp/eval-gov）
  *   node scripts/eval-gov-gate.mjs --help
  */
 import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync } from "node:fs"
@@ -63,10 +63,10 @@ const { loadGovSeedSet, computeTripleCriteria, evaluateRetrievalGate, renderEval
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const NIKO_BUDDY_ROOT = resolve(SCRIPT_DIR, "..")
 const DEFAULT_SEED = join(NIKO_BUDDY_ROOT, "docs", "p0", "gov-seed", "gov-seed-v1.jsonl")
-const DEFAULT_REPORT_DIR = join(NIKO_BUDDY_ROOT, "docs", "p0", "gov-seed")
+const DEFAULT_REPORT_DIR = join(NIKO_BUDDY_ROOT, ".tmp", "eval-gov")
 
 /** 影子双臂三 flag（wiki-store 六 flag 中 awaiting-eval-evidence 三者；仅对照采集，不翻转）。 */
-const SHADOW_FLAGS = ["dualKbRoutingEnabled", "hardInjectEnabled", "usefulnessRerank"]
+const SHADOW_FLAGS = ["dualKbRoutingEnabled", "hardInjectEnabled", "usefulnessRerankEnabled"]
 
 const ACCEPTANCE_NOTE =
   "本报告不含 MRR/NDCG 验收语义（GOV-EVAL-05 / SA-06）：检索精度验收仅三重判据。"
@@ -77,7 +77,7 @@ function usage() {
 用法:
   npm run eval:gov                              读默认种子 docs/p0/gov-seed/gov-seed-v1.jsonl
   node scripts/eval-gov-gate.mjs --seed <path>   指定种子 jsonl
-  node scripts/eval-gov-gate.mjs --report-dir <d> 报告目录（默认 docs/p0/gov-seed/reports）
+  node scripts/eval-gov-gate.mjs --report-dir <d> 报告目录（默认 .tmp/eval-gov）
   node scripts/eval-gov-gate.mjs --shadow-input <dir> 影子期双臂 JSONL 目录（有数据填实测 arms；无则维持 pending）
   node scripts/eval-gov-gate.mjs --help
 
@@ -179,7 +179,7 @@ async function probeRetrievalAdapter() {
 }
 
 /**
- * 影子双臂对照采集（单例）：三 flag（dualKbRouting/hardInject/usefulnessRerank）存于
+ * 影子双臂对照采集（单例）：三 flag（dualKbRoutingEnabled/hardInjectEnabled/usefulnessRerankEnabled）存于
  * useWikiStore（Tauri 应用态）——纯 node 进程内不可翻转，双臂对照只能在应用运行时影子期
  * 采集。本脚本如实记 pending（不伪造双臂数据）：adapter 可用时驱动单臂试采并标注
  * store-unavailable-in-node；不可用时逐例记 retrieval_adapter_unavailable。
@@ -278,7 +278,7 @@ async function main() {
     acceptanceNote: ACCEPTANCE_NOTE,
   })
 
-  // ── 落盘（docs/p0/gov-seed/reports/report-<YYYYMMDD>.md，可审计复现 GOV-EVAL-02/06）──
+  // ── 落盘（默认 .tmp/eval-gov/report-<YYYYMMDD>.md，可审计复现 GOV-EVAL-02/06）──
   mkdirSync(args.reportDir, { recursive: true })
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "")
   const reportPath = join(args.reportDir, `report-${stamp}.md`)

@@ -6,7 +6,8 @@
  *
  * 每个模块记录：
  *   p 路径 / s stage 序号 / l 行数 / r 入口可达 / o 孤立（无人 import）/
- *   x 仅测试引用（spec-only = 未接线判据）/ i 出边模块序号 / e 外部依赖包名
+ *   x 仅测试引用（spec-only = 未接线判据）/ b 仅 barrel 暴露且无真实生产消费 /
+ *   i 出边模块序号 / e 外部依赖包名
  *
  * 确定性纪律：无时间戳、模块按路径排序、键顺序固定 —— 支持「临时路径重生成 + 字节比对」。
  *
@@ -91,6 +92,18 @@ function stageOf(relPath) {
   return "other"
 }
 
+function isBarrelFile(absPath) {
+  return /\/index\.tsx?$/.test(absPath.split("\\").join("/"))
+}
+
+function isTestOrHelperFile(absPath) {
+  const normalized = absPath.split("\\").join("/")
+  return (
+    /\.(spec|test|bench)\.(ts|tsx|mts)$/.test(normalized) ||
+    /(?:^|\/)(?:test-helpers|__tests__)\//.test(normalized)
+  )
+}
+
 function walkSourceFiles(dir, out) {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry)
@@ -100,31 +113,230 @@ function walkSourceFiles(dir, out) {
       walkSourceFiles(full, out)
       continue
     }
+    if (entry.endsWith(".d.ts")) continue
     if (!SOURCE_EXTS.some((ext) => entry.endsWith(ext))) continue
-    if (entry.endsWith(".spec.ts") || entry.endsWith(".spec.tsx") || entry.endsWith(".spec.mts")) {
-      continue
-    }
-    if (full.includes(`${sep}test-helpers${sep}`)) continue
+    if (isTestOrHelperFile(full)) continue
     out.push(full)
   }
   return out
 }
 
-// 说明符字符类排除引号与换行：注释正文（含 `from "…"` 字样）不得跨行被误当作
-// import，否则同一份源码在 CRLF / LF 检出下会产出不同字节（字节门禁随环境漂移）。
+const REGEX_PREV_KEYWORDS = new Set([
+  "return",
+  "case",
+  "throw",
+  "typeof",
+  "void",
+  "in",
+  "of",
+  "new",
+  "delete",
+  "await",
+  "yield",
+  "else",
+  "do",
+])
+
+function canStartRegex(prevChar, prevWord) {
+  if (!prevChar) return true
+  if ("([,{;:!=&|?+-*%^~".includes(prevChar)) return true
+  if (prevWord && REGEX_PREV_KEYWORDS.has(prevWord)) return true
+  return false
+}
+
+function skipRegexLiteral(source, start) {
+  let i = start + 1
+  let inClass = false
+  while (i < source.length) {
+    const ch = source[i]
+    if (ch === "\n" || ch === "\r") return -1
+    if (ch === "\\") {
+      i += 2
+      continue
+    }
+    if (ch === "[") {
+      inClass = true
+      i += 1
+      continue
+    }
+    if (ch === "]") {
+      inClass = false
+      i += 1
+      continue
+    }
+    if (ch === "/" && !inClass) {
+      i += 1
+      while (i < source.length && /[a-z]/i.test(source[i])) i += 1
+      return i
+    }
+    i += 1
+  }
+  return -1
+}
+
+/**
+ * 字符级清空 JS/TS 注释（`// ...` 与 `/* ... *\/`），保留字符串与模板字面量原样，
+ * 避免注释内 `from "wiki/..."` 等说明文字被误识别为外部包依赖。
+ * 单/双引号在未转义换行处复位，防止 TSX 文本中的英文撇号跨行吞噬代码。
+ */
+function stripComments(code) {
+  let out = ""
+  let i = 0
+  let prevChar = ""
+  let prevWord = ""
+  const templateBraceStack = []
+
+  while (i < code.length) {
+    const ch = code[i]
+    const next = code[i + 1]
+
+    if (ch === "/" && next === "*") {
+      const end = code.indexOf("*/", i + 2)
+      const slice = end === -1 ? code.slice(i + 2) : code.slice(i + 2, end)
+      out += slice.includes("\n") ? slice.replace(/[^\n]/g, "") : " "
+      i = end === -1 ? code.length : end + 2
+      continue
+    }
+    if (ch === "/" && next === "/") {
+      const end = code.indexOf("\n", i + 2)
+      if (end === -1) break
+      out += "\n"
+      i = end + 1
+      continue
+    }
+    if (ch === "/" && next !== "/" && next !== "*" && canStartRegex(prevChar, prevWord)) {
+      const end = skipRegexLiteral(code, i)
+      if (end > 0) {
+        out += code.slice(i, end)
+        prevChar = "/"
+        prevWord = ""
+        i = end
+        continue
+      }
+    }
+    if (ch === '"' || ch === "'") {
+      const q = ch
+      out += ch
+      i += 1
+      while (i < code.length) {
+        const c = code[i]
+        out += c
+        if (c === "\\" && i + 1 < code.length) {
+          out += code[i + 1]
+          i += 2
+          continue
+        }
+        i += 1
+        if (c === q || c === "\n") break
+      }
+      prevChar = q
+      prevWord = ""
+      continue
+    }
+    if (ch === "`") {
+      out += ch
+      i += 1
+      while (i < code.length) {
+        const c = code[i]
+        if (c === "\\" && i + 1 < code.length) {
+          out += c + code[i + 1]
+          i += 2
+          continue
+        }
+        if (c === "$" && code[i + 1] === "{") {
+          out += "${"
+          i += 2
+          templateBraceStack.push(0)
+          prevChar = "{"
+          prevWord = ""
+          break
+        }
+        out += c
+        i += 1
+        if (c === "`") {
+          prevChar = "`"
+          prevWord = ""
+          break
+        }
+      }
+      continue
+    }
+    if (templateBraceStack.length > 0) {
+      if (ch === "{") {
+        templateBraceStack[templateBraceStack.length - 1] += 1
+      } else if (ch === "}") {
+        if (templateBraceStack[templateBraceStack.length - 1] === 0) {
+          templateBraceStack.pop()
+          out += ch
+          i += 1
+          while (i < code.length) {
+            const c = code[i]
+            if (c === "\\" && i + 1 < code.length) {
+              out += c + code[i + 1]
+              i += 2
+              continue
+            }
+            if (c === "$" && code[i + 1] === "{") {
+              out += "${"
+              i += 2
+              templateBraceStack.push(0)
+              prevChar = "{"
+              prevWord = ""
+              break
+            }
+            out += c
+            i += 1
+            if (c === "`") {
+              prevChar = "`"
+              prevWord = ""
+              break
+            }
+          }
+          continue
+        }
+        templateBraceStack[templateBraceStack.length - 1] -= 1
+      }
+    }
+    if (/[A-Za-z_$]/.test(ch)) {
+      let end = i + 1
+      while (end < code.length && /[A-Za-z0-9_$]/.test(code[end])) end += 1
+      const word = code.slice(i, end)
+      out += word
+      prevWord = word
+      prevChar = word[word.length - 1]
+      i = end
+      continue
+    }
+    out += ch
+    if (!/\s/.test(ch)) {
+      prevChar = ch
+      prevWord = ""
+    }
+    i += 1
+  }
+  return out
+}
+
+// 说明符字符类排除引号与换行；调用前已经过 stripComments，避免注释正文误配。
 const FROM_RE = /\bfrom\s+["']([^"'\n\r]+)["']/g
 const BARE_IMPORT_RE = /\bimport\s+["']([^"'\n\r]+)["']/g
 const DYNAMIC_IMPORT_RE = /\bimport\s*\(\s*["']([^"'\n\r]+)["']\s*\)/g
 const EXPORT_FROM_RE = /\bexport\s+\*\s+(?:as\s+\w+\s+)?from\s+["']([^"'\n\r]+)["']/g
 
-function collectSpecifiers(code) {
+const NAMED_EXPORT_FROM_RE = /\bexport\s+(?:type\s+)?\{([^}]*)\}\s+from\s+["']([^"'\n\r]+)["']/g
+const STAR_AS_EXPORT_FROM_RE = /\bexport\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+["']([^"'\n\r]+)["']/g
+const STAR_EXPORT_FROM_RE = /\bexport\s+\*\s+from\s+["']([^"'\n\r]+)["']/g
+const NAMED_IMPORT_RE = /\bimport\s+(?:type\s+)?(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]*)\}\s+from\s+["']([^"'\n\r]+)["']/g
+const NAMESPACE_OR_DEFAULT_IMPORT_RE = /\bimport\s+(?:type\s+)?(?:\*\s+as\s+[A-Za-z_$][\w$]*|[A-Za-z_$][\w$]*)\s+from\s+["']([^"'\n\r]+)["']/g
+
+function collectSpecifiers(cleanCode) {
   const found = new Set()
   for (const re of [FROM_RE, BARE_IMPORT_RE, DYNAMIC_IMPORT_RE, EXPORT_FROM_RE]) {
     re.lastIndex = 0
     let m
-    while ((m = re.exec(code)) !== null) {
+    while ((m = re.exec(cleanCode)) !== null) {
       const spec = m[1]
-      // 合法模块说明符不含空白：含空白的必然是注释/字符串正文误配。
+      // 合法模块说明符不含空白：含空白的必然是字符串正文误配。
       if (spec.length === 0 || /\s/.test(spec)) continue
       found.add(spec)
     }
@@ -155,8 +367,160 @@ function resolveSpecifier(spec, fromFile, externals) {
   return null
 }
 
-function isSpecFile(absPath) {
-  return absPath.endsWith(".spec.ts") || absPath.endsWith(".spec.tsx") || absPath.endsWith(".spec.mts")
+/**
+ * 解析 barrel 文件（index.ts/tsx）的显式命名重导出与通配重导出映射。
+ * 返回 `{ named: Map<exportName, Array<{ targetAbs, origName }>>, stars: Set<targetAbs> }`。
+ */
+function parseBarrelExports(cleanCode, barrelFile) {
+  const named = new Map()
+  const stars = new Set()
+  const addNamed = (exportName, targetAbs, origName) => {
+    let list = named.get(exportName)
+    if (!list) {
+      list = []
+      named.set(exportName, list)
+    }
+    if (!list.some((item) => item.targetAbs === targetAbs && item.origName === origName)) {
+      list.push({ targetAbs, origName })
+    }
+  }
+
+  NAMED_EXPORT_FROM_RE.lastIndex = 0
+  let m
+  while ((m = NAMED_EXPORT_FROM_RE.exec(cleanCode)) !== null) {
+    const targetAbs = resolveSpecifier(m[2], barrelFile, new Set())
+    if (!targetAbs) continue
+    for (const rawItem of m[1].split(",")) {
+      const item = rawItem.trim().replace(/^type\s+/, "").trim()
+      if (!item) continue
+      const match = item.match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/)
+      if (!match) continue
+      const origName = match[1]
+      const exportName = match[2] ?? match[1]
+      addNamed(exportName, targetAbs, origName)
+    }
+  }
+
+  STAR_AS_EXPORT_FROM_RE.lastIndex = 0
+  while ((m = STAR_AS_EXPORT_FROM_RE.exec(cleanCode)) !== null) {
+    const targetAbs = resolveSpecifier(m[2], barrelFile, new Set())
+    if (!targetAbs) continue
+    addNamed(m[1], targetAbs, "*")
+  }
+
+  STAR_EXPORT_FROM_RE.lastIndex = 0
+  while ((m = STAR_EXPORT_FROM_RE.exec(cleanCode)) !== null) {
+    const targetAbs = resolveSpecifier(m[1], barrelFile, new Set())
+    if (targetAbs) stars.add(targetAbs)
+  }
+
+  return { named, stars }
+}
+
+/** 沿 barrelExportMap 解析某个导出符号对应的真实底层模块（支持嵌套 barrel）。 */
+function resolveBarrelSymbol(barrelAbs, symbolName, barrelExportMap, visited = new Set()) {
+  const visitKey = `${barrelAbs}\0${symbolName}`
+  if (visited.has(visitKey)) return []
+  visited.add(visitKey)
+  const info = barrelExportMap.get(barrelAbs)
+  if (!info) return []
+
+  const results = new Set()
+  const entries = info.named.get(symbolName)
+  if (entries && entries.length > 0) {
+    for (const { targetAbs, origName } of entries) {
+      results.add(targetAbs)
+      if (barrelExportMap.has(targetAbs)) {
+        const nested = origName === "*"
+          ? collectAllBarrelTargets(targetAbs, barrelExportMap, new Set([barrelAbs]))
+          : resolveBarrelSymbol(targetAbs, origName, barrelExportMap, visited)
+        for (const leaf of nested) results.add(leaf)
+      }
+    }
+    return [...results]
+  }
+
+  for (const starTarget of info.stars) {
+    results.add(starTarget)
+    if (barrelExportMap.has(starTarget)) {
+      for (const leaf of resolveBarrelSymbol(starTarget, symbolName, barrelExportMap, visited)) {
+        results.add(leaf)
+      }
+    }
+  }
+  return [...results]
+}
+
+/** 保守展开 barrel 暴露的全部底层目标（用于 `import * as ns` 与动态 `import("@/lib/novel")`）。 */
+function collectAllBarrelTargets(barrelAbs, barrelExportMap, visited = new Set()) {
+  if (visited.has(barrelAbs)) return []
+  visited.add(barrelAbs)
+  const info = barrelExportMap.get(barrelAbs)
+  if (!info) return []
+
+  const results = new Set()
+  for (const entries of info.named.values()) {
+    for (const { targetAbs } of entries) {
+      results.add(targetAbs)
+      if (barrelExportMap.has(targetAbs)) {
+        for (const leaf of collectAllBarrelTargets(targetAbs, barrelExportMap, visited)) {
+          results.add(leaf)
+        }
+      }
+    }
+  }
+  for (const starTarget of info.stars) {
+    results.add(starTarget)
+    if (barrelExportMap.has(starTarget)) {
+      for (const leaf of collectAllBarrelTargets(starTarget, barrelExportMap, visited)) {
+        results.add(leaf)
+      }
+    }
+  }
+  return [...results]
+}
+
+/** 收集非 barrel 文件经 barrel 消费的底层模块绝对路径集合。 */
+function collectBarrelResolvedTargets(cleanCode, fromFile, barrelExportMap) {
+  const targets = new Set()
+  const consumeNamedBlock = (block, spec) => {
+    const barrelAbs = resolveSpecifier(spec, fromFile, new Set())
+    if (!barrelAbs || !barrelExportMap.has(barrelAbs)) return
+    for (const rawItem of block.split(",")) {
+      const item = rawItem.trim().replace(/^type\s+/, "").trim()
+      if (!item) continue
+      const match = item.match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+[A-Za-z_$][\w$]*)?$/)
+      if (!match) continue
+      for (const target of resolveBarrelSymbol(barrelAbs, match[1], barrelExportMap)) {
+        targets.add(target)
+      }
+    }
+  }
+
+  NAMED_IMPORT_RE.lastIndex = 0
+  let m
+  while ((m = NAMED_IMPORT_RE.exec(cleanCode)) !== null) {
+    consumeNamedBlock(m[1], m[2])
+  }
+
+  NAMED_EXPORT_FROM_RE.lastIndex = 0
+  while ((m = NAMED_EXPORT_FROM_RE.exec(cleanCode)) !== null) {
+    consumeNamedBlock(m[1], m[2])
+  }
+
+  for (const re of [NAMESPACE_OR_DEFAULT_IMPORT_RE, DYNAMIC_IMPORT_RE, STAR_EXPORT_FROM_RE, STAR_AS_EXPORT_FROM_RE]) {
+    re.lastIndex = 0
+    while ((m = re.exec(cleanCode)) !== null) {
+      const spec = re === STAR_AS_EXPORT_FROM_RE ? m[2] : m[1]
+      const barrelAbs = resolveSpecifier(spec, fromFile, new Set())
+      if (!barrelAbs || !barrelExportMap.has(barrelAbs)) continue
+      for (const target of collectAllBarrelTargets(barrelAbs, barrelExportMap)) {
+        targets.add(target)
+      }
+    }
+  }
+
+  return targets
 }
 
 /**
@@ -170,9 +534,17 @@ function readSource(file) {
 function buildAtlas() {
   const files = walkSourceFiles(SRC, []).sort()
   const ids = new Map(files.map((f, i) => [f, i]))
+  const cleanSources = new Map()
+  const barrelExportMap = new Map()
+
   const modules = files.map((file) => {
     const code = readSource(file)
+    const cleanCode = stripComments(code)
+    cleanSources.set(file, cleanCode)
     const rel = relative(ROOT, file).split(sep).join("/")
+    if (isBarrelFile(file)) {
+      barrelExportMap.set(file, parseBarrelExports(cleanCode, file))
+    }
     return {
       file,
       rel,
@@ -187,8 +559,8 @@ function buildAtlas() {
   })
 
   for (const mod of modules) {
-    const code = readSource(mod.file)
-    for (const spec of collectSpecifiers(code)) {
+    const cleanCode = cleanSources.get(mod.file) ?? ""
+    for (const spec of collectSpecifiers(cleanCode)) {
       const target = resolveSpecifier(spec, mod.file, mod.externals)
       if (!target) continue
       const targetIndex = ids.get(target)
@@ -197,7 +569,7 @@ function buildAtlas() {
     }
   }
 
-  // 反向边 + spec-only 判定：从全部源文件（含 spec）再扫一遍 import 关系。
+  // 反向边 + spec-only + barrel 符号级消费归因：从全部源文件（含测试/脚手架）扫一遍 import 关系。
   const allFiles = []
   const collectAll = (dir) => {
     for (const entry of readdirSync(dir)) {
@@ -208,21 +580,27 @@ function buildAtlas() {
         collectAll(full)
         continue
       }
+      if (entry.endsWith(".d.ts")) continue
       if (SOURCE_EXTS.some((ext) => entry.endsWith(ext)) || entry.endsWith(".json")) {
         allFiles.push(full)
       }
     }
   }
   collectAll(SRC)
+
   for (const file of allFiles) {
-    let code
-    try {
-      code = readSource(file)
-    } catch {
-      continue
+    let cleanCode = cleanSources.get(file)
+    if (cleanCode === undefined) {
+      try {
+        cleanCode = file.endsWith(".json") ? "" : stripComments(readSource(file))
+      } catch {
+        continue
+      }
     }
-    const spec = isSpecFile(file)
-    for (const raw of collectSpecifiers(code)) {
+    if (!cleanCode) continue
+    const spec = isTestOrHelperFile(file)
+    const barrel = isBarrelFile(file)
+    for (const raw of collectSpecifiers(cleanCode)) {
       const target = resolveSpecifier(raw, file, new Set())
       if (!target) continue
       const targetIndex = ids.get(target)
@@ -230,10 +608,18 @@ function buildAtlas() {
       const mod = modules[targetIndex]
       if (spec) mod.specImporters.add(file)
       else if (ids.get(file) !== targetIndex) {
-        // barrel（index.ts/tsx）只代表「暴露」，不代表「有调用者」——分开统计，
-        // 否则 barrel 架构下一切模块都显得「已接线」。
-        const normalized = file.split("\\").join("/")
-        if (/\/index\.tsx?$/.test(normalized)) mod.viaIndex.add(file)
+        // barrel（index.ts/tsx）只代表「暴露」，不代表「有调用者」——分开统计；
+        // 真实调用者通过下方 barrel 符号解析归因到实际消费的子模块。
+        if (barrel) mod.viaIndex.add(file)
+        else mod.importers.add(file)
+      }
+    }
+    if (!barrel) {
+      for (const targetAbs of collectBarrelResolvedTargets(cleanCode, file, barrelExportMap)) {
+        const targetIndex = ids.get(targetAbs)
+        if (targetIndex === undefined || ids.get(file) === targetIndex) continue
+        const mod = modules[targetIndex]
+        if (spec) mod.specImporters.add(file)
         else mod.importers.add(file)
       }
     }

@@ -15,8 +15,6 @@ import type {
 } from "@/lib/novel"
 import zhLocaleChatPanel from "@/i18n/zh.json"
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 export function lookupZhChatPanel(key: string): string | undefined {
   let o: unknown = zhLocaleChatPanel
   for (const p of key.split(".")) {
@@ -177,6 +175,10 @@ export function applyChatPanelMockDefaults(m: any): void {
   m.validateStructuredChapterEditResult.mockReturnValue({ ok: false as const, message: "解析失败" })
   m.normalizeChapterEditFile.mockReturnValue({ ok: true as const, content: "NORMALIZED" })
   m.findChapterFileByNumber.mockImplementation(async () => null)
+  m.readManagedChapterForWrite.mockReset().mockResolvedValue(null)
+  m.requireManagedDeepChapterDraft.mockReset().mockRejectedValue(new Error("No persisted managed draft"))
+  m.getManagedDraftAdoptionGate.mockReset().mockResolvedValue("unassessed")
+  m.rerunMainControlGates.mockReset().mockRejectedValue(new Error("No managed review result"))
   m.decideChapterSaveStrategy.mockReturnValue({ action: "direct_next_chapter" })
   m.detectGeneratedTargetChapterNumber.mockReturnValue(null)
   m.readSelectedChapterNumberForFile.mockImplementation(async () => undefined)
@@ -223,6 +225,7 @@ export function applyChatPanelMockDefaults(m: any): void {
   m.getRelatedNodes.mockReturnValue([])
   m.deepStreamRenderer.updateThinking.mockImplementation((c: string) => c)
   m.deepStreamRenderer.appendFinal.mockImplementation((c: string) => c)
+  m.deepStreamRenderer.replaceFinal.mockImplementation((c: string) => c)
   m.deepStreamRenderer.getContent.mockReturnValue("")
   m.extractContinueUnfinishedDeepChapterContext.mockReturnValue(null)
   m.buildInterruptedResumeContextPayload.mockReturnValue(null)

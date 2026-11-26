@@ -1,4 +1,4 @@
-name: Niko Buddy Multi-Platform Release
+name: Niko Buddy Windows Release
 
 on:
   push:
@@ -7,27 +7,25 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 # CI 门（P0 #2）：
-# ci.yml 仅在 push/PR 到 master 时触发，tag push 不会触发它；GitHub Actions 也
-# 不支持跨 workflow 的 needs 链或可靠的 workflow_run 成功条件（workflow_run 只能
-# 监听默认分支上的已完成 run，无法绑定到 tag 指向的具体 commit）。因此在此处
-# 显式跑 typecheck + vitest 作为发布硬门，build 依赖 ci-gate 全绿后才启动。
-# B1：ci-gate 改委托 checks.yml workflow_call（门定义单份化），裸 typecheck 升格为
-# :force 形态（定义仅存于 checks.yml）。
+# ci-gate 委托 ci.yml workflow_call（同仓 reusable workflow 在 caller commit 运行），
+# 门定义单份化；build 依赖 ci-gate 全绿后才启动。
 jobs:
   ci-gate:
-    name: Release CI Gate (typecheck + vitest)
-    # B1: delegate to checks.yml; gate run definitions are single-sourced
-    # there (bare typecheck from :35 promoted to forced form in checks.yml).
-    uses: ./.github/workflows/checks.yml
-    with:
-      node-version: 24
+    name: Release CI Gate
+    uses: ./.github/workflows/ci.yml
 
   build:
     needs: ci-gate
-    name: Build ${{ matrix.display_label }}
+    if: github.event_name == 'push' && github.ref_type == 'tag' && github.repository == 'Smith-106/niko-buddy'
+    name: Build signed ${{ matrix.display_label }}
+    environment: windows-release-signing
     runs-on: ${{ matrix.runner }}
     env:
       CARGO_PROFILE_RELEASE_LTO: "false"
@@ -44,15 +42,16 @@ jobs:
             tauri_args: "--bundles nsis"
             pdfium_asset: ""
             pdfium_library: ""
-            artifact_globs: |
-              src-tauri/target/**/release/bundle/nsis/*.exe
-              src-tauri/target/**/release/bundle/nsis/*.exe.sig
 
           # Windows-only 发布（2026-10-14 用户指令：暂只用 Windows；macOS/Linux 条目已移除，需恢复时从 git 历史找回）
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Install Rust stable
         if: matrix.rust_targets == ''
@@ -99,6 +98,7 @@ jobs:
         shell: pwsh
         run: |
           choco install protoc --no-progress -y
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "$env:ProgramData\chocolatey\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       # R2 残量（B4 清偿面）：Windows 的 choco 路径是本次新换的 protoc 来源，
@@ -128,11 +128,21 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Check signed release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          test "$GITHUB_REF_NAME" = "v$version"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "${GITHUB_REF}^{commit}")"
+          git merge-base --is-ancestor HEAD refs/remotes/origin/master
+
       - name: Install frontend dependencies
         run: npm ci
 
       - name: Prepare release notes
-        if: github.event_name == 'push'
         shell: bash
         run: |
           set -euo pipefail
@@ -140,55 +150,24 @@ jobs:
           mkdir -p release-assets
           node scripts/release-notes.mjs "$version" --out release-assets/release-notes.txt
 
-      - name: Ensure GitHub Release exists
-        if: github.event_name == 'push'
+      - name: Build signed Tauri app
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
-          notes_path="release-assets/release-notes.txt"
-          if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --title "Niko Buddy $tag" --notes-file "$notes_path" --verify-tag
-          fi
-          gh release edit "$tag" --notes-file "$notes_path"
-
-      - name: Build Tauri app
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.WINDOWS_RELEASE_TAURI_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.WINDOWS_RELEASE_TAURI_PASSWORD }}
         run: npx tauri build ${{ matrix.tauri_args }} --config src-tauri/tauri.ci.conf.json
 
-      - name: Publish Windows updater manifest
-        if: github.event_name == 'push' && matrix.label == 'windows-x64'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Prepare Windows updater manifest
+        if: matrix.label == 'windows-x64'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $version = node -p "require('./package.json').version"
           $bundleDir = "src-tauri/target/release/bundle/nsis"
-          $installer = Get-ChildItem $bundleDir -File -Filter "*.exe" |
-            Sort-Object LastWriteTime -Descending |
-            Select-Object -First 1
-          if (-not $installer) {
-            throw "未找到 Windows 安装包"
-          }
-
+          $installers = @(Get-ChildItem $bundleDir -File -Filter '*.exe')
+          if ($installers.Count -ne 1) { throw 'Expected exactly one Windows NSIS installer' }
+          $installer = $installers[0]
           $signaturePath = "$($installer.FullName).sig"
-          if (-not (Test-Path $signaturePath)) {
-            npx tauri signer sign $installer.FullName
-            if ($LASTEXITCODE -ne 0) {
-              exit $LASTEXITCODE
-            }
-          }
-          if (-not (Test-Path $signaturePath)) {
-            throw "Windows 安装包签名生成失败：$signaturePath"
-          }
+          if (-not (Test-Path -LiteralPath $signaturePath -PathType Leaf)) { throw 'The CI build did not produce an updater signature' }
 
           $releaseDir = "release-assets"
           New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
@@ -204,21 +183,18 @@ jobs:
           $notes = Get-Content -Path $notesPath -Raw -Encoding utf8
           $latest = [ordered]@{
             version = $version
-            notes = "Niko Buddy $version 发布版本"
+            notes = $notes
             pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", [System.Globalization.CultureInfo]::InvariantCulture)
             platforms = [ordered]@{
               "windows-x86_64" = [ordered]@{
                 signature = $signature
-                url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$assetName"
+                url = "https://github.com/$($env:GITHUB_REPOSITORY)/releases/download/$($env:GITHUB_REF_NAME)/$assetName"
               }
             }
           }
 
           $latestPath = Join-Path $releaseDir "latest.json"
-          $latest.notes = $notes
           $latest | ConvertTo-Json -Depth 5 | Set-Content -Path $latestPath -Encoding utf8
-          gh release edit "${{ github.ref_name }}" --notes-file $notesPath
-          gh release upload "${{ github.ref_name }}" $assetPath $assetSignaturePath $latestPath --clobber
 
       - name: Package macOS release assets
         if: runner.os == 'macOS'
@@ -245,20 +221,14 @@ jobs:
           fi
           tar -C "$(dirname "$app_path")" -czf "release-assets/niko-buddy_${version}_${system_label}.app.tar.gz" "$(basename "$app_path")"
 
-      - name: Attach macOS app tarball to release
-        if: github.event_name == 'push' && runner.os == 'macOS'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: gh release upload "${{ github.ref_name }}" release-assets/niko-buddy_*_macOS_* --clobber
-
       - name: Build Windows portable
-        if: github.event_name == 'push' && matrix.label == 'windows-x64'
+        if: matrix.label == 'windows-x64'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $version = node -p "require('./package.json').version"
           node scripts/build-portable.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $portableExe = "release-portable/niko-buddy.exe"
           if (-not (Test-Path $portableExe)) {
             throw "便携版 EXE 未生成：$portableExe"
@@ -268,36 +238,120 @@ jobs:
           New-Item -ItemType Directory -Force -Path "release-assets" | Out-Null
           Copy-Item $portableExe $assetPath -Force
 
-      - name: Attach Windows portable to release
-        if: github.event_name == 'push' && matrix.label == 'windows-x64'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: gh release upload "${{ github.ref_name }}" release-assets/niko-buddy_*_portable.exe --clobber
+      - name: Verify Windows release files
+        if: matrix.label == 'windows-x64'
+        run: node scripts/verify-windows-release-assets.mjs release-assets
 
-      - name: Attach Linux bundles to release
-        if: github.event_name == 'push' && matrix.label == 'linux-x64'
+      - name: Stage verified release files
+        if: matrix.label == 'windows-x64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-release-files
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 14
+
+  build-unsigned:
+    needs: ci-gate
+    if: github.event_name == 'workflow_dispatch'
+    name: Build unsigned Windows test package
+    runs-on: windows-latest
+    env:
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: "1"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Install Windows dependencies
+        shell: pwsh
+        run: |
+          choco install protoc --no-progress -y
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "$env:ProgramData\chocolatey\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Verify protoc
+        run: protoc --version
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Build unsigned Tauri app
+        run: npx tauri build --bundles nsis
+      - name: Upload bundles as workflow artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: niko-buddy-windows-x64
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  # 发布草稿仅在同仓 tag push 且 build 完成后由本 job 创建：
+  # --draft 保证无人为提升前永不公开（automated Latest 不可能）；
+  # 已存在 release 直接拒绝，不 clobber/upload/edit。手动提升走外部授权流程。
+  stage-release-draft:
+    needs: build
+    if: github.event_name == 'push' && github.ref_type == 'tag' && github.repository == 'Smith-106/niko-buddy'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v6
+        with:
+          name: windows-release-files
+          path: release-assets
+      - name: Check tag and verify staged release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "${GITHUB_REF}^{commit}")"
+          git merge-base --is-ancestor HEAD refs/remotes/origin/master
+          node scripts/verify-windows-release-assets.mjs release-assets
+      - name: Create and verify unpublished release draft
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
-          deb_path="$(find src-tauri/target -path '*/release/bundle/deb/*.deb' -print -quit)"
-          appimage_path="$(find src-tauri/target -path '*/release/bundle/appimage/*.AppImage' -print -quit)"
-          if [ -n "$deb_path" ]; then
-            cp "$deb_path" "release-assets/niko-buddy_${version}_linux_X64.deb"
-          fi
-          if [ -n "$appimage_path" ]; then
-            cp "$appimage_path" "release-assets/niko-buddy_${version}_linux_X64.AppImage"
-          fi
-          gh release upload "${{ github.ref_name }}" release-assets/niko-buddy_*_linux_* --clobber
-
-      - name: Upload bundles as workflow artifacts
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v6
-        with:
-          name: niko-buddy-${{ matrix.label }}
-          path: ${{ matrix.artifact_globs }}
-          if-no-files-found: warn
-          retention-days: 14
+          installer="release-assets/niko-buddy_${version}_windows_X64.exe"
+          head_sha="$(git rev-parse HEAD)"
+          tag_sha="$(git rev-parse --verify "$GITHUB_REF")"
+          test "$(git rev-parse --verify "${tag_sha}^{commit}")" = "$head_sha"
+          check_remote_tag() {
+            local remote_sha
+            remote_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME" --jq '.object.sha')" || return 1
+            if [[ "$remote_sha" != "$tag_sha" ]]; then
+              echo 'The remote release tag no longer binds the gated commit' >&2
+              return 1
+            fi
+          }
+          releases_json="$RUNNER_TEMP/release-drafts-and-published.json"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$releases_json"
+          node -e 'const pages=require(process.argv[1]); if (!Array.isArray(pages) || pages.some(p=>!Array.isArray(p))) throw new Error("Invalid release list"); if (pages.flat().some(r=>r.tag_name===process.env.GITHUB_REF_NAME)) throw new Error("Release already exists; refusing to change it")' "$releases_json"
+          check_remote_tag
+          gh release create "$GITHUB_REF_NAME" "$installer" "$installer.sig" \
+            "release-assets/niko-buddy_${version}_windows_X64_portable.exe" release-assets/latest.json \
+            --repo "$GITHUB_REPOSITORY" --title "Niko Buddy $GITHUB_REF_NAME" \
+            --notes-file release-assets/release-notes.txt --verify-tag --target "$head_sha" --draft --latest=false
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$releases_json"
+          draft_id="$(node -e 'const r=require(process.argv[1]).flat().filter(r=>r.tag_name===process.env.GITHUB_REF_NAME); if(r.length!==1 || !r[0].draft || r[0].published_at!=null || !Number.isSafeInteger(r[0].id) || r[0].id<=0)process.exit(1); console.log(r[0].id)' "$releases_json")"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases/$draft_id/assets" > "$RUNNER_TEMP/release-assets.json"
+          node scripts/verify-windows-release-assets.mjs release-assets "$RUNNER_TEMP/release-assets.json"
+          check_remote_tag

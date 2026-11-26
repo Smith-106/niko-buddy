@@ -22,23 +22,25 @@ const log = (ok, msg) => {
   if (!ok) failures.push(msg)
 }
 
-// 1. ADR 登记锚点：project.md 声称的两条登记行（源在 hub，但锚点文本作为契约入仓）
-//    ——此处校验 arch-decisions 小节标题存在（hub 侧文件，Niko Buddy 单仓 CI 不可读时跳过并标注）。
-const adrFile = resolve(REPO_ROOT, "../.workflow/specs/arch-decisions.md")
+// 1. ADR 登记锚点：优先读仓内 docs/arch-decisions.md，不存在才回退 ../.workflow/specs/arch-decisions.md；
+//    两者均不可读则 fail-loud（绝不静默跳过）。同时支持小节标题（##/### ADR-xx）与表格行（| ADR-xx |）。
+const repoAdrFile = resolve(REPO_ROOT, "docs/arch-decisions.md")
+const hubAdrFile = resolve(REPO_ROOT, "../.workflow/specs/arch-decisions.md")
+const adrFile = existsSync(repoAdrFile) ? repoAdrFile : existsSync(hubAdrFile) ? hubAdrFile : null
 const expectedSections = [
   { adr: "ADR-47", section: "ADR-47" },
   { adr: "ADR-48", section: "ADR-48" },
 ]
-if (existsSync(adrFile)) {
+if (adrFile) {
   const text = readFileSync(adrFile, "utf8")
+  const sourceLabel = adrFile === repoAdrFile ? "docs/arch-decisions.md" : "../.workflow/specs/arch-decisions.md"
   for (const { adr, section } of expectedSections) {
-    const found = text.includes(`## ${section}`) || text.includes(`### ${section}`)
-    log(found, `${adr} 小节存在于 arch-decisions.md`)
+    const pattern = new RegExp(`(^#{2,3}\\s+${section}\\b|^\\|\\s*${section}\\s*\\|)`, "m")
+    const found = pattern.test(text)
+    log(found, `${adr} 锚点存在于 ${sourceLabel}`)
   }
 } else {
-  for (const { adr } of expectedSections) {
-    log(true, `${adr} 小节：hub 源不可读（单仓 CI）→ 归 hub 侧等价门禁`)
-  }
+  log(false, `arch-decisions.md 缺失（已检查 ${repoAdrFile} 与 ${hubAdrFile}）`)
 }
 
 // 2. 种子契约：gov-seed-v1.jsonl ≥ 110 行（GOV_SEED_MIN_SCALE 60+30+20；trap 子校验由 eval-gate.spec 覆盖）

@@ -30,6 +30,10 @@ src/test-helpers/*
 !src/test-helpers/setup-i18n-mock.ts
 !src/test-helpers/mock-import-actual.ts
 !src/test-helpers/mock-import-actual.spec.ts
+!src/test-helpers/chat-panel/
+!src/test-helpers/chat-panel/chat-panel-test-setup.tsx
+!src/test-helpers/chat-panel/chat-panel-test-fixtures.ts
+!src/test-helpers/stage-output-journal-test-helpers.ts
 !src/lib/web-fs.spec.ts
 !src/lib/graph-relevance.spec.ts
 
@@ -48,6 +52,7 @@ src/test-helpers/*
 /docs/p0/*
 !/docs/p0/gov-seed/
 !/docs/p0/rerank-trigger-evidence-*.md
+!/docs/p0/same-scale-*.md
 !/docs/decision-log/
 # ADR 统一索引（架构决策真源，P1 巨文件拆分同期治理产物）
 !/docs/arch-decisions.md
@@ -89,6 +94,10 @@ coverage/
 coverage-final.json
 coverage-summary.json
 coverage-tmp-*/
+coverage-*/
+covmcv*/
+covwork/
+zz6probe-dir/
 coverage-baseline/
 .covtmp*/
 .tmp-w3nb-*/
@@ -123,7 +132,6 @@ scratch/
 /scripts-r5lm/
 /scripts-tmp-*/
 /tmp-*.txt
-/nul
 audit-screenshots/
 # F-008 PDF 导出的单测样本：由 `cargo test --lib pdfexport` 生成，内嵌完整 CJK 字体后约 20MB，不入库（重生成命令见 docs/p5/f008-verification.md）。
 docs/p5/f008-sample.pdf
@@ -143,8 +151,8 @@ smoke-*.jsonl
 /scripts/node-fs-register.mjs
 /scripts/node-fs-shim.mjs
 /scripts/cdp-screenshot.py
+/scripts/l9-*
 # E2E / 覆盖率本机产物
 /playwright-report/
 /coverage/
 /blob-report/
-

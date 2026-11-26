@@ -21,7 +21,9 @@ import {
   screen,
   setupDomGlobals,
 } from "@/test-helpers/component-test-utils"
-import { ChatPanel } from "./chat-panel"
+import { ChatPanel } from "@/components/chat/chat-panel"
+import type { TaskRouteResult, CognitionState, ExemplarABSample, CleanedChapterContent, GoldenThreeChapterRequest, ChatEditTarget, ParsedChapterEditFile, ChapterSaveStrategy, NovelSessionStatus, DeepChapterGenerationCallbacks, DeepChapterGenerationDeps, DeepChapterGenerationInput, DeepChapterGenerationResumeCheckpoint, DeepChapterGenerationResult, DeepChapterDecisionGates, ResidualCampaignNovelConfigSlice, ResidualCampaignResolvedFields, BuildContextOptions, ContextPack, ContextPackToPromptOptions, IngestChapterOptions, IngestResult, ChapterLengthSpec, ResolveTargetChapterNumberForChatInput, ModelResolverStoreSnapshot, NovelTaskType, ChapterStatus, CommitAcceptedDeepChapterDraftInput } from "@/lib/novel"
+import { appendManagedDeepChapterDraftMarker } from "@/components/chat/chat-message-markers"
 
 // ── 真实签名类型（仅类型导入，运行时被擦除；vi.mock 不受影响）──────────────
 import type { ChatMessage, RequestOverrides, StreamCallbacks } from "@/lib/llm-client"
@@ -29,14 +31,15 @@ import type { LlmConfig, NovelConfig, ProviderOverride, ReasoningConfig } from "
 import type { Conversation, DisplayMessage } from "@/stores/chat-store"
 import type { SearchResult, SearchWikiOptions } from "@/lib/search"
 import type { RetrievalGraph, RetrievalNode } from "@/lib/graph-relevance"
-import type { TaskRouteResult, CognitionState, ExemplarABSample, CleanedChapterContent, GoldenThreeChapterRequest, ChatEditTarget, ParsedChapterEditFile, ChapterSaveStrategy, NovelSessionStatus, DeepChapterGenerationCallbacks, DeepChapterGenerationDeps, DeepChapterGenerationInput, DeepChapterGenerationResumeCheckpoint, DeepChapterGenerationResult, DeepChapterDecisionGates, ResidualCampaignNovelConfigSlice, ResidualCampaignResolvedFields, BuildContextOptions, ContextPack, ContextPackToPromptOptions, IngestChapterOptions, IngestResult, ChapterLengthSpec, ResolveTargetChapterNumberForChatInput, NovelReviewResult, ModelResolverStoreSnapshot, NovelTaskType, ChapterStatus, CommitAcceptedDeepChapterDraftInput } from "@/lib/novel"
 import type { MarkStyleExemplarInput, StyleExemplarRecord } from "@/commands/exemplar"
 import type { ContinueUnfinishedDeepChapterContext } from "@/lib/chat/resume"
-import type { QueryPageReference } from "./chat-shared"
+import type { QueryPageReference } from "@/components/chat/chat-shared"
 import type { DeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
-import type { StreamSessionGuard } from "./stream-session"
+import type { StreamSessionGuard } from "@/components/chat/stream-session"
 import type { ContextBudget } from "@/lib/context-budget"
 import type { LlmPreset } from "@/lib/llm-config/llm-presets"
+type NovelApi = typeof import("@/lib/novel")
+type ManagedDraftArtifact = Awaited<ReturnType<NovelApi["requireManagedDeepChapterDraft"]>>
 import {
   applyChatPanelMockDefaults,
   lookupZhChatPanel,
@@ -51,8 +54,6 @@ export {
   sessionStatus,
 } from "./chat-panel-test-fixtures"
 export type { SessionStatusOverrides } from "./chat-panel-test-fixtures"
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 /** 四-17：hoisted mock 仓不可直接 export（vitest 限制）——经 getter 暴露。 */
 export function getChatPanelMocks() {
@@ -179,7 +180,7 @@ const mocks = vi.hoisted(() => {
         { id: `msg-${chatState.messages.length + 1}`, role, content, timestamp: Date.now(), conversationId: convId },
       ]
     }),
-    setMessages: vi.fn((messages: any[]) => {
+    setMessages: vi.fn((messages: DisplayMessage[]) => {
       chatState.messages = messages
     }),
     setConversations: vi.fn((conversations: any[]) => {
@@ -329,6 +330,7 @@ const mocks = vi.hoisted(() => {
   const deepStreamRenderer = {
     updateThinking: vi.fn((content: string) => content),
     appendFinal: vi.fn((content: string) => content),
+    replaceFinal: vi.fn((content: string) => content),
     getContent: vi.fn(() => ""),
   }
 
@@ -518,6 +520,10 @@ const mocks = vi.hoisted(() => {
     commitAcceptedDeepChapterDraft: vi.fn<(input: CommitAcceptedDeepChapterDraftInput) => Promise<void>>(
       async () => {},
     ),
+    readManagedChapterForWrite: vi.fn<NovelApi["readManagedChapterForWrite"]>(),
+    requireManagedDeepChapterDraft: vi.fn<NovelApi["requireManagedDeepChapterDraft"]>(),
+    getManagedDraftAdoptionGate: vi.fn<NovelApi["getManagedDraftAdoptionGate"]>(),
+    rerunMainControlGates: vi.fn<NovelApi["rerunMainControlGates"]>(),
     rejectDeepChapterDraft: vi.fn<
       (input: {
         projectPath: string
@@ -541,19 +547,7 @@ const mocks = vi.hoisted(() => {
         errorMessage: string
       }) => Promise<NovelSessionStatus>
     >(async () => ({ ...sessionStatusBase, status: "blocked", active_step_index: 2 })),
-    completeDeepChapterSession: vi.fn<
-      (input: {
-        projectPath: string
-        conversationId: string
-        userRequest: string
-        chapterNumber?: number
-        resumeCheckpoint?: DeepChapterGenerationResumeCheckpoint
-        sessionId: string
-        checkpoint?: DeepChapterGenerationResumeCheckpoint
-        finalContent: string
-        reviewResults?: NovelReviewResult[]
-      }) => Promise<NovelSessionStatus>
-    >(async () => ({
+    completeDeepChapterSession: vi.fn<NovelApi["completeDeepChapterSession"]>(async () => ({
       ...sessionStatusBase,
       status: "completed",
       active_step_index: 3,
@@ -754,12 +748,13 @@ vi.mock("@/components/ui/tooltip", () => ({
 }))
 
 // ── 子组件 mock ────────────────────────────────────────────────────────────────
-vi.mock("./chat-message", () => ({
+vi.mock("@/components/chat/chat-message", () => ({
   ChatMessage: ({
     message,
     isLastAssistant,
     onRegenerate,
     onSaveAsChapter,
+    onReviewDraft,
     onAcceptAndContinueNext,
     onDiscardDraft,
     onContinueNextChapter,
@@ -782,6 +777,11 @@ vi.mock("./chat-message", () => ({
       {onSaveAsChapter && (
         <button data-testid="save-as-chapter" onClick={() => onSaveAsChapter(message.content)} aria-label="save-as-chapter">
           save-as-chapter
+        </button>
+      )}
+      {onReviewDraft && (
+        <button data-testid="review-draft" onClick={() => onReviewDraft(message.content)} aria-label="review-draft">
+          review-draft
         </button>
       )}
       {onDiscardDraft && (
@@ -811,7 +811,7 @@ vi.mock("./chat-message", () => ({
   StreamingMessage: ({ content }: any) => <div data-testid="streaming-message">{content}</div>,
 }))
 
-vi.mock("./chat-input", () => ({
+vi.mock("@/components/chat/chat-input", () => ({
   ChatInput: ({ onSend, onStop, onForceStop, placeholder, footerControls }: any) => {
     const InputHarness = () => {
       const [value, setValue] = useState("")
@@ -842,11 +842,11 @@ vi.mock("./chat-input", () => ({
   },
 }))
 
-vi.mock("./chat-dock-controls", () => ({
+vi.mock("@/components/chat/chat-dock-controls", () => ({
   ChatDockControls: () => <div data-testid="chat-dock-controls" />,
 }))
 
-vi.mock("./chat-model-selector", () => ({
+vi.mock("@/components/chat/chat-model-selector", () => ({
   ChatModelSelector: ({ value, onChange }: any) => (
     <select data-testid="chat-model-select" value={value ?? ""} onChange={(e) => onChange(e.target.value)}>
       <option value="">default</option>
@@ -1068,7 +1068,7 @@ vi.mock("@/lib/novel/golden-three-chapters", async (importOriginal) => {
   }
 })
 
-vi.mock("./stream-session", () => ({ createStreamSessionGuard: mocks.createStreamSessionGuard }))
+vi.mock("@/components/chat/stream-session", () => ({ createStreamSessionGuard: mocks.createStreamSessionGuard }))
 
 vi.mock("@/lib/chat/resume", () => ({
   appendContinueUnfinishedDeepChapterContext: mocks.appendContinueUnfinishedDeepChapterContext,
@@ -1078,7 +1078,7 @@ vi.mock("@/lib/chat/resume", () => ({
   stripContinueUnfinishedDeepChapterContext: mocks.stripContinueUnfinishedDeepChapterContext,
 }))
 
-vi.mock("./chat-shared", () => ({
+vi.mock("@/components/chat/chat-shared", () => ({
   useSourceFiles: () => {},
   setLastQueryPages: mocks.setLastQueryPages,
   getLastQueryPages: mocks.getLastQueryPages,
@@ -1134,6 +1134,14 @@ vi.mock("@/lib/novel/formal-writeback", async (importOriginal) => {
     ...actual, commitAcceptedDeepChapterDraft: mocks.commitAcceptedDeepChapterDraft 
   }
 })
+
+vi.mock("@/lib/novel", async (importOriginal) => ({
+  ...(await importOriginal<NovelApi>()),
+  readManagedChapterForWrite: mocks.readManagedChapterForWrite,
+  requireManagedDeepChapterDraft: mocks.requireManagedDeepChapterDraft,
+  getManagedDraftAdoptionGate: mocks.getManagedDraftAdoptionGate,
+  rerunMainControlGates: mocks.rerunMainControlGates,
+}))
 
 vi.mock("@/lib/novel/novel-session-status", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/novel/novel-session-status")>()
@@ -1219,8 +1227,6 @@ vi.mock("@/lib/novel/deep-chapter-prompts", async (importOriginal) => {
   }
 })
 
-/* eslint-enable @typescript-eslint/no-explicit-any */
-
 export const PROJECT: ProjectLike = { id: "p1", name: "MyBook", path: "/p/mybook" }
 
 export function setConversation(id: string, extra?: Record<string, any>): void {
@@ -1251,6 +1257,38 @@ export function msg(over: Partial<Record<string, any>>): Record<string, any> {
     conversationId: mocks.chatState.activeConversationId ?? "conv-1",
     ...over,
   }
+}
+
+export function mockManagedDraft(content: string, overrides: Partial<ManagedDraftArtifact> = {}) {
+  const conversationId = overrides.conversation_id ?? mocks.chatState.activeConversationId ?? "conv-1"
+  const draft: ManagedDraftArtifact = {
+    draft_id: conversationId,
+    conversation_id: conversationId,
+    session_id: "managed-session-1",
+    chapter_number: 5,
+    content,
+    user_request: "草稿存档中的原始请求",
+    source_task_id: `tsk-${conversationId}`,
+    draft_status: "ready",
+    review_results: [],
+    created_at: "t",
+    updated_at: "t",
+    ...overrides,
+  }
+  mocks.requireManagedDeepChapterDraft.mockResolvedValue(draft)
+  mocks.getManagedDraftAdoptionGate.mockResolvedValue("passed")
+  const message: DisplayMessage = {
+    id: `managed-${conversationId}`,
+    role: "assistant",
+    conversationId,
+    timestamp: 0,
+    content: appendManagedDeepChapterDraftMarker(draft.content, {
+      conversationId,
+      sessionId: draft.session_id,
+      draftStatus: draft.draft_status,
+    }),
+  }
+  return { draft, message }
 }
 
 export function resetStates(): void {

@@ -11,7 +11,8 @@
 //
 // 用法：node scripts/check-curation-debt.mjs [--source <path>] [--json]
 //   默认源优先级：--source > ../reference/REFERENCE-KB-VIEW.json（hub 全量面，
-//   含 summary/contentDigest）> 仓内 fixture src/lib/novel/__fixtures__/reference-kb-view.content-*.json。
+//   含 summary/contentDigest）> 仓内 fixture src/lib/novel/__fixtures__/reference-kb-view.content-<sha>.json
+//   （按 kb-routing-view.generated.json builtFrom 精确匹配，fail-loud）。
 // 退出码：0 债分在上限内；2 债分超限（打印发现项）；3 自检/采集失败。
 // ASCII only 输出（防 PS 乱码）；只读断言，不改任何产物。
 
@@ -182,17 +183,64 @@ function parseArgs(argv) {
   return opts
 }
 
-function resolveSource(explicit) {
+const BUILT_FROM_RE = /^sha256:([0-9a-f]+)$/i
+const FIXTURE_SNAPSHOT_RE = /^reference-kb-view\.content-.*\.json$/
+
+/**
+ * 按预期 builtFrom（sha256:<hex>）精确解析仓内内容面快照路径（fail-loud）。
+ * 缺失匹配、目录内仅存旧 sha 或存在多份冲突快照均抛错，禁止静默命中任意快照。
+ */
+export function resolveFixtureSnapshot(fixturesDir, expectedBuiltFrom) {
+  if (typeof expectedBuiltFrom !== "string") {
+    throw new Error(`invalid expectedBuiltFrom (not a string): ${String(expectedBuiltFrom)}`)
+  }
+  const match = expectedBuiltFrom.match(BUILT_FROM_RE)
+  if (!match) {
+    throw new Error(`invalid expectedBuiltFrom (expected sha256:<hex>): ${expectedBuiltFrom}`)
+  }
+  const sha = match[1]
+  const expectedName = `reference-kb-view.content-${sha}.json`
+  if (!existsSync(fixturesDir)) {
+    throw new Error(`fixtures dir missing: ${fixturesDir} (expected ${expectedName})`)
+  }
+  const candidates = readdirSync(fixturesDir)
+    .filter((f) => FIXTURE_SNAPSHOT_RE.test(f))
+    .sort()
+  if (!candidates.includes(expectedName)) {
+    const stale = candidates.length > 0 ? candidates.join(", ") : "(none)"
+    throw new Error(
+      `fixture snapshot missing: expected ${expectedName} in ${fixturesDir}, found [${stale}]`,
+    )
+  }
+  if (candidates.length > 1) {
+    throw new Error(
+      `fixture snapshot conflict: multiple snapshots in ${fixturesDir}: [${candidates.join(", ")}]`,
+    )
+  }
+  return join(fixturesDir, expectedName)
+}
+
+function readExpectedBuiltFrom() {
+  const routingPath = join(ROOT, "src", "lib", "novel", "kb", "kb-routing-view.generated.json")
+  if (!existsSync(routingPath)) {
+    throw new Error(`routing view missing: ${routingPath}`)
+  }
+  const routing = JSON.parse(readFileSync(routingPath, "utf8"))
+  const builtFrom = routing?.builtFrom
+  if (typeof builtFrom !== "string" || !BUILT_FROM_RE.test(builtFrom)) {
+    throw new Error(`invalid routing view builtFrom: ${String(builtFrom)}`)
+  }
+  return builtFrom
+}
+
+function resolveSource(explicit, expectedBuiltFrom) {
   if (explicit) {
     const p = resolve(process.cwd(), explicit)
     return existsSync(p) ? p : null
   }
   const hub = resolve(ROOT, "..", "reference", "REFERENCE-KB-VIEW.json")
   if (existsSync(hub)) return hub
-  const dir = join(ROOT, "src", "lib", "novel", "__fixtures__")
-  if (!existsSync(dir)) return null
-  const hit = readdirSync(dir).find((f) => f.startsWith("reference-kb-view.content-"))
-  return hit ? join(dir, hit) : null
+  return resolveFixtureSnapshot(join(ROOT, "src", "lib", "novel", "__fixtures__"), expectedBuiltFrom)
 }
 
 function collectEntries(view, sourcePath) {
@@ -220,9 +268,19 @@ function main(argv) {
     for (const p of problems) process.stderr.write(`  - ${p}\n`)
     return 3
   }
-  const sourcePath = resolveSource(opts.source)
+  let expectedBuiltFrom = null
+  let sourcePath
+  try {
+    if (!opts.source) {
+      expectedBuiltFrom = readExpectedBuiltFrom()
+    }
+    sourcePath = resolveSource(opts.source, expectedBuiltFrom)
+  } catch (err) {
+    process.stderr.write(`[curation-debt] source resolve failed: ${err?.message ?? err}\n`)
+    return 3
+  }
   if (!sourcePath) {
-    process.stderr.write(`[curation-debt] source unreadable (hub view and fixture both missing)\n`)
+    process.stderr.write(`[curation-debt] source unreadable (explicit source missing)\n`)
     return 3
   }
   let view
@@ -230,6 +288,13 @@ function main(argv) {
     view = JSON.parse(readFileSync(sourcePath, "utf8"))
   } catch (err) {
     process.stderr.write(`[curation-debt] parse failed: ${sourcePath} (${err?.message ?? err})\n`)
+    return 3
+  }
+  if (!opts.source && view.builtFrom !== expectedBuiltFrom) {
+    process.stderr.write(
+      `[curation-debt] builtFrom mismatch: source=${String(view.builtFrom ?? "n/a")} ` +
+        `expected=${expectedBuiltFrom} (${sourcePath})\n`,
+    )
     return 3
   }
   const entries = collectEntries(view, sourcePath)
@@ -278,4 +343,11 @@ function main(argv) {
   return 0
 }
 
-process.exitCode = main(process.argv.slice(2))
+const isDirectRun =
+  Boolean(process.argv[1]) &&
+  (resolve(process.argv[1]) === fileURLToPath(import.meta.url) ||
+    (process.platform === "win32" &&
+      resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()))
+if (isDirectRun) {
+  process.exitCode = main(process.argv.slice(2))
+}
