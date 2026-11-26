@@ -8,8 +8,8 @@ describe("changelog", () => {
 
     // 上限已放开：头部是当前最新发布链，不再冻结在 2.6.3
     expect(versions.slice(0, 10)).toEqual([
-      "2.30.0", "2.29.0", "2.28.1", "2.28.0", "2.27.6", "2.27.5", "2.27.3", "2.27.2", "2.27.1",
-      "2.27.0",
+      "2.31.0", "2.30.0", "2.29.0", "2.28.1", "2.28.0", "2.27.6", "2.27.5", "2.27.3", "2.27.2",
+      "2.27.1",
     ])
     // 2.6.3 发布后整体后移的中段链保持可见
     expect(versions).toEqual(expect.arrayContaining([
@@ -149,6 +149,25 @@ describe("changelog", () => {
     expect(en).toContain("ACP")
     expect(zh).toContain("Antigravity")
     expect(zh).toContain("ACP")
+    expect(en).not.toContain("`")
+    expect(zh).not.toContain("`")
+  })
+
+  it("returns the 2.31.0 changelog entry with balanced zh/en highlights and zero backticks", () => {
+    const entries = currentVersionChangelog("2.31.0")
+    expect(entries).toHaveLength(1)
+
+    const release = entries[0]!
+    expect(release.version).toBe("2.31.0")
+    expect(release.highlights.en.length).toBeGreaterThanOrEqual(4)
+    expect(release.highlights.zh.length).toBe(release.highlights.en.length)
+
+    const en = release.highlights.en.join("\n")
+    const zh = release.highlights.zh.join("\n")
+    expect(en).toContain("ToolProfile")
+    expect(en).toContain("niko-buddy-writer")
+    expect(zh).toContain("Profile")
+    expect(zh).toContain("niko-buddy-writer")
     expect(en).not.toContain("`")
     expect(zh).not.toContain("`")
   })

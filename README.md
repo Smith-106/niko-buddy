@@ -15,22 +15,26 @@
   <a href="https://github.com/Smith-106/niko-buddy/releases">
     <img src="https://img.shields.io/github/v/release/Smith-106/niko-buddy?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.30.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.31.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
 </p>
 
 > 版本摘要口径：本文件按版本摘选要点，并非逐版完整记录 —— v2.26.5、v2.27.0 等条目未在此逐版列出；完整逐版历史见 [CHANGELOG.md](CHANGELOG.md) 与 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
 
-## v2.30.0（官方 Google Antigravity 订阅合规适配与零 LLM 写作闭环，当前主干版本）
+## v2.31.0（Antigravity 写作角色隔离、MCP 动态 Profile 与纯声明式写作插件，当前主干版本）
 
-**当前主干版本（2026-11-26 登记）**：版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处 manifest 为唯一真源，实际发布产物与下载资产见 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
+**当前主干版本（2026-11-27 登记）**：版本号以 `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处 manifest 为唯一真源，实际发布产物与下载资产见 [GitHub Releases](https://github.com/Smith-106/niko-buddy/releases)。
 
-本版完成官方 Google Antigravity 订阅合规适配与零 API Key 写作闭环，严格遵循 Google Antigravity 服务条款与 Draft-first 安全边界：
+本版在 v2.30.0 合规接入基础上完成 Phase 1 写作工作流深度适配，面向主笔/审稿/策划多角色场景显著压降上下文冗余并强化物理隔离：
 
-- **官方 Antigravity 订阅交互式 ACP 工作台**：直连未修改的官方 `agy acp` 进程，提供人工权限确认、流式正文输出、安全 Markdown 排版（WebView2 安全链接过滤）、本地「存为草稿」兜底、待审草稿实时角标、五项快捷预填指令与本地 MCP 配置漂移实时恢复横幅。
-- **零 API Key 全书生命周期 MCP 工具链**：新增 `draft.list`、`draft.read`、`rules.get`、`gate.check_mechanical`、`context.prepare_write`、`director.check` 与受控 `outline.write` 共 7 项零 LLM 工具，加固回环 Streamable HTTP 传输，并支持一键写入 Antigravity `mcp_config.json` 配置。
-- **合规安全加固与零 Key 无死锁闭环**：彻底退役旧版 `antigravity-cli` 后台封装，声明真实 `niko-buddy` 客户端身份，补齐不向前端暴露 Bearer 令牌的本地 MCP SHA-256 漂移追踪、16 MiB 有界协议读取与 UTF-8 安全脱敏；无 API Key 环境下章节审查干净返回机械检查结果、社区摘要自动跳过 LLM 依赖、未评估草稿如实标注且不阻断采纳，同步更新欢迎页/新建项目指引与中英双语 1:1 对齐。
+- **MCP 动态角色 Profile 与紧凑协议**：支持 `writer-sub`（16 工具）、`reviewer`（13 个严格只读工具）、`architect`（12 工具）与 `full-legacy`（30 工具）4 档按角色过滤，`?profile=` / `X-Niko-Profile` 实行 fail-closed HTTP 400 校验与会话冻结防提权；协议响应切换单行紧凑 JSON 并兼容可选字段显式 `null`。
+- **零 LLM 桥接减负去重与内存离线守卫**：`rules.get(compact=true)` 跳过冗余文风/灵魂重读，`gate.check_mechanical(detailLevel="compact")` 按 `Consistency(P0) > Anti-AI(P1)` 单份去重并截断前 25 条定位命中，`context.prepare_write(retrievalMode="local_only")` 通过引用计数纯内存离线守卫彻底封堵检索期隐式联网且绝不写入 `localStorage`。
+- **纯声明式 `niko-buddy-writer` 写作插件与创审分离工作台**：内嵌 13 份纯 `.json`/`.md` 文件（6 项渐进式技能 + 5 份编辑部角色剧本，零脚本/零 `hooks.json`），支持隔离目录释放、项目一键非破坏同步 `.agents/plugins.json` 与 `AGENTS.md`、可选默认禁用全局安装、上级代码仓污染预警及一键独立只读复核会话。
+
+**v2.30.0 官方 Google Antigravity 订阅合规适配摘要：**
+
+- 直连未修改官方 `agy acp` 进程的交互式 ACP 工作台、7 项零 LLM 全书生命周期 MCP 工具、彻底退役旧版 `antigravity-cli` 后台封装、SHA-256 本地 MCP 配置漂移追踪及零 API Key 无死锁草稿采纳闭环。
 
 **v2.27.3–v2.29.0 累计面向用户演进：**
 

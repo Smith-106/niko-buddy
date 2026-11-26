@@ -15,6 +15,25 @@ export interface ChangelogEntry {
  */
 export const ENTRIES: ChangelogEntry[] = [
   {
+    // 2.31.0（2026-11-27）：Antigravity 写作角色隔离、MCP 动态 Profile、零 LLM 紧凑桥接与纯声明式写作插件。
+    version: "2.31.0",
+    date: "2026-11-27",
+    highlights: {
+      en: [
+        "Added dynamic MCP ToolProfile support (writer-sub, reviewer, architect, full-legacy) with monotonic scope-and-profile filtering on tools/list and tools/call, fail-closed HTTP 400 validation and session freezing on ?profile= / X-Niko-Profile, compact single-line JSON protocol output, optional-null tolerance, and profile-scoped TOOL_HIDDEN_BY_PROFILE guidance.",
+        "Streamlined zero-LLM writing bridge payloads and network isolation: rules.get(compact=true) skips redundant soul and style reads, gate.check_mechanical(detailLevel=compact) deduplicates issues in strict P0-over-P1 priority with top-25 pinpoint truncation and workflow hints, and context.prepare_write(retrievalMode=local_only) adds a ref-counted in-memory offline guard that never mutates localStorage.",
+        "Added the pure-declarative niko-buddy-writer Antigravity plugin pack (13 JSON/Markdown files with 6 progressive skills and 5 editorial role playbooks, zero executable scripts) with isolated ~/.niko-buddy/agy-plugin staging, one-click project .agents/plugins.json and AGENTS.md marker scaffolding, optional disabled-by-default global install, and parent code-repo pollution detection.",
+        "Upgraded the Antigravity ACP workspace and External Control settings with role profile switching, one-click isolated read-only reviewer sessions (writer/reviewer context separation with honest MCP attachment reporting), parent repository warning banners, plugin sync controls, profiled MCP endpoint snippets, and 1:1 zh/en localization.",
+      ],
+      zh: [
+        "新增 MCP 动态角色 Profile 机制（writer-sub、reviewer、architect、full-legacy）：在 tools/list 与 tools/call 强制执行权限与角色单调子集过滤，对 ?profile= 与 X-Niko-Profile 实行 fail-closed HTTP 400 校验与会话冻结防提权，同时将协议输出改为单行紧凑 JSON、兼容可选字段显式 null，并提供按角色收敛的隐藏工具替代指引。",
+        "精简零 LLM 状态桥负载并加固本地检索隔离：rules.get(compact=true) 跳过冗余文风与灵魂设定重读，gate.check_mechanical(detailLevel=compact) 按一致性 P0 优先于去 AI 味 P1 单份去重排序并截断前 25 条定位命中，context.prepare_write(retrievalMode=local_only) 引入引用计数纯内存离线守卫且绝不写入 localStorage。",
+        "推出纯声明式 niko-buddy-writer 写作插件包（内嵌 13 份 JSON/Markdown 文件，含 6 项渐进式写作技能与 5 份编辑部角色剧本，严格零可执行脚本），支持隔离目录释放、项目一键同步 .agents/plugins.json 与 AGENTS.md 标记块、可选显式点击默认禁用全局安装，以及上级代码仓污染自动预警。",
+        "升级 Antigravity ACP 工作台与外部控制设置：支持角色 Profile 切换、一键开启独立只读复核会话（创审上下文分离并按实际本地 MCP 挂载状态诚实提示）、上级代码仓预警横幅、写作插件同步卡片、按档位拼接的 MCP 端点配置片段及中英双语 1:1 词条对齐。",
+      ],
+    },
+  },
+  {
     // 2.30.0（2026-11-26）：官方 Google Antigravity 订阅合规适配与零 LLM 写作闭环。
     version: "2.30.0",
     date: "2026-11-26",

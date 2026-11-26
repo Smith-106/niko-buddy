@@ -7,6 +7,31 @@
 
 > 注：v2.7 系列按 roadmap 五波组织小节（收敛泛化波等），不使用标准 Added/Changed/Fixed 分类；v2.6.x 及更早条目使用标准分类。
 
+## [2.31.0] - 2026-11-27
+
+> 日期为版本登记日，实际发布时间与安装包资产以 GitHub Releases 回读为准。
+
+### Added
+
+- **MCP 动态角色 Profile 与防提权冻结**：新增 `writer-sub`（16 工具）、`reviewer`（13 个严格只读工具）、`architect`（12 工具）与 `full-legacy`（30 工具）4 档 `ToolProfile`，在 `tools/list` 与 `tools/call` 执行单调子集交集 `scope && profile`；支持 `?profile=` 与 `X-Niko-Profile`（未知/重复/冲突 fail-closed HTTP 400），`initialize` 冻结 Profile 且提权试探拒绝时不刷新会话计数；隐藏工具返回紧凑 `TOOL_HIDDEN_BY_PROFILE` 替代建议（严格限定当前档位可见工具）。
+- **纯声明式 `niko-buddy-writer` 写作插件包与项目脚手架**：新增 `writer_plugin_status`、`writer_plugin_sync_project` 与 `writer_plugin_install_global` 3 个 Tauri 命令，内嵌 13 份纯 `.json`/`.md` 声明式文件（`plugin.json`、精简 `rules/AGENTS.md`、6 个渐进式技能与 5 份编辑部角色剧本，严格遵循 C-007 零脚本与零 `hooks.json`）；默认释放至 `~/.niko-buddy/agy-plugin/niko-buddy-writer/` 保持代码仓零 Token 占用，支持项目一键非破坏合并 `.agents/plugins.json` 与 `AGENTS.md` 标记块、可选生成 `CLAUDE.md`、显式点击默认禁用全局安装以及上级代码仓污染预警（`detect_parent_code_repo_warning`）。
+- **ACP 创审隔离会话与外部控制 Profile 切换**：`AntigravityAcpView` 新增角色 Profile 选择器、一键开启独立只读复核会话（创审上下文分离）、上级代码仓污染 `role="status"` 横幅与写作插件同步卡片；`ExternalControlSection` 支持按 Profile 拼接 `?profile=<id>` 的 Antigravity MCP 配置片段与插件同步操作。
+
+### Changed
+
+- **MCP 紧凑协议与零 LLM 状态桥减负去重**：`protocol.rs` `tool_result` 切换为单行紧凑 JSON，新增可选字段显式 `null` 归一化（含 `canon.query` `filter: null` 兼容，保留必填与 `SettingsSetTool` 严格语义）；`rules.get(compact=true)` 跳过冗余 `soul.md`/`writing-style.json` 重读并省去 `structuredRules` AST；`gate.check_mechanical(detailLevel="compact")` 按 `Consistency(P0) > Anti-AI(P1)` 单份去重排序、截断前 25 条 `pinpointHits` 并附 `metricsSummary` 与 `workflowHint`。
+- **ACP 快捷预填指令与双语词条对齐**：更新快捷预填指令采用 `retrievalMode="local_only"`、`compact=true`、`draftId` 与 `detailLevel="compact"`（严格仅预填不自动提交、无 `draft.accept`），`zh.json` / `en.json` 保持 4687 键 1:1 对齐。
+
+### Fixed
+
+- **纯内存引用计数离线守卫与网络泄漏封堵**：`context.prepare_write(retrievalMode="local_only")` 引入引用计数纯内存 `useWikiStore.setState({ offlineMode: true })` 守卫（绝不调用写 `localStorage` 的 `setOfflineMode()`），覆盖 `buildContextPack` 与 `buildChapterPlan` 四处网络检索泄漏，修复并发重入叠加用户切换的覆盖竞态与同步监听抛错泄漏，并在省略参数时保留原有 fail-closed 行为。
+- **根目录尾斜杠符号链接防御与孤立复核态保护**：`writer_plugin.rs` 在 `symlink_metadata` 前先执行 `path.components().collect()` 归一化以阻断尾部分隔符绕过根目录符号链接/联接点校验；一键独立只读复核会话延迟至 RPC 成功后才提交 UI/档位切换，并在 `attachedLocalMcp=false` 时诚实提示未挂载本地只读 MCP 工具。
+
+### 交付与分支说明
+
+- 本版为 `master` 主干源码版本登记，完成 Phase 1（Antigravity 写作角色隔离、MCP 动态 Profile、零 LLM 紧凑桥接与纯声明式写作插件）。按 P16 规则将手写业务变更与生成产物/锁文件严格分批提交：手写提交为 `06be41ae`（Rust MCP Profile、紧凑协议与声明式写作插件命令）、`862c8d37`（零 LLM 桥接紧凑去重、内存离线守卫与写作插件客户端）、`a44d0291`（ACP 角色档位与创审隔离会话、插件同步卡片及双语词条），生成产物同步提交为 `500fb01d`（Tauri 命令参考与模块索引），随后单独登记 2.31.0 版本清单与锁文件同步提交。
+- 本次仅推进 `master` 主干源码版本号与变更日志并推送至 `smith`，尚未创建或推送签名 Release Tag `v2.31.0`，不宣称已产出或真机验收新安装包。
+
 ## [2.30.0] - 2026-11-26
 
 > 日期为版本登记日，实际发布时间与安装包资产以 GitHub Releases 回读为准。
